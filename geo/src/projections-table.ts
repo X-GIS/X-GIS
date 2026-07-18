@@ -231,16 +231,40 @@ export function routeToSphereSelector(projType: number, globeMode: boolean): boo
  *  once tilted, so render-loop promotes them to projType 7 + globeMode.
  *  Derived `!isFlat && !isGlobe && !isCylindrical` = exactly {3,4,5}.
  *
- *  NOTE (latent gap, oblique-6-promotion.test.ts): oblique_mercator (6)
- *  sphere-ROUTES its tiles (routeToSphereSelector → true) yet is EXCLUDED
- *  here (it is cylindrical), so at pitch>0 it keeps the flat MVP while its
- *  tiles come from the sphere selector — flat MVP + sphere tiles. Fixing it
- *  (promote 6, or flat-route its tiles) is a behaviour change deferred to a
- *  GPU-verified effort; the difference between these two predicates IS the
- *  bug, made explicit by the table. */
+ *  NOTE (oblique-6-promotion.test.ts): oblique_mercator (6) sphere-ROUTES its
+ *  tiles (routeToSphereSelector → true) yet is EXCLUDED here (it is
+ *  cylindrical), so at pitch>0 it keeps the flat MVP while its tiles come from
+ *  the sphere selector. This predicate DISAGREEMENT is real and documented —
+ *  but it is NOT the "flat-MVP-over-sphere-tiles bug" once feared: P-A1
+ *  (2026-07-17) measured the two camera models agreeing to ≤4.0px @pitch15 /
+ *  7.1px @pitch60 on 2582–4926px tiles (~0.15%), NOT pitch-gated, so the
+ *  selector under-refines nothing (UNDER-SELECTED=0 at every pitch). The
+ *  observed oblique(6) fill softness was H2 (the fixed-res #599 bake→drape),
+ *  fixed by EXCLUDING 6 from bakesVectorDrape (not by promoting it); 6 stays
+ *  flat-MVP here on purpose. */
 export function promotesToGlobeWhenTilted(projType: number): boolean {
   const r = PROJECTIONS[projType]
   return r ? !r.isFlat && !r.isGlobe && !r.isCylindrical : false
+}
+
+/** Whether a projType's vector fills (and, via the deliberately coarse #599
+ *  gate, its baked strokes) route through the bake→drape subsystem rather than
+ *  the direct flat/curved vertex arm. Derived `globeMode || (!isFlat && !isGlobe
+ *  && !isCylindrical)` = {3,4,5} ∪ globeMode — "drape only what renders on (or
+ *  tilt-promotes to) the sphere". This NARROWS routeToSphereSelector by
+ *  `!isCylindrical`: oblique_mercator (6) sphere-ROUTES its tiles yet renders
+ *  cylindrical + flat-MVP at every pitch (P-A1: flat-vs-sphere camera agreement
+ *  ≤4.0px @pitch15 / 7.1px @pitch60, ~0.15% of a 2582–4926px tile, NOT pitch-
+ *  gated), so draping it magnified its 512px native-z14 bake 5.04–9.6× (H2). It
+ *  is EXCLUDED here and renders through the production direct flat-oblique arm
+ *  (proj_oblique_mercator); tile SELECTION stays sphere-routed
+ *  (routeToSphereSelector(6)=true — selection is unchanged). The {3,4,5} term
+ *  mirrors promotesToGlobeWhenTilted by design ("drape follows the sphere
+ *  surface"); the exhaustive projType pin (projections-table.test.ts) catches
+ *  any drift. */
+export function bakesVectorDrape(projType: number, globeMode: boolean): boolean {
+  const r = PROJECTIONS[projType]
+  return globeMode || (r ? !r.isFlat && !r.isGlobe && !r.isCylindrical : false)
 }
 
 // ── Capability accessor used by the flat-vs-ECEF MVP gate (camera /

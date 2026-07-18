@@ -45,6 +45,14 @@ export interface DispatcherDeps {
    *  skip the pickAt/buildFeature path entirely when neither the
    *  topmost layer nor the map have a listener. */
   mapHasListeners(type: import('./layer').XGISFeatureEventType): boolean
+  /** Could ANY registered layer fire `type`? Answers the pre-pick gate
+   *  WITHOUT a hit — which is the whole point: the per-layer check below
+   *  needs `hit.layerId`, so asking only that question forced the pick to
+   *  run first and made the "skip the pickAt path entirely" contract above
+   *  unreachable. A map with no feature listeners now never pays a readback.
+   *  Required (not optional) on purpose: an optional dep that a caller
+   *  forgets to wire would silently make the gate vacuous. */
+  anyLayerListens(type: import('./layer').XGISFeatureEventType): boolean
 }
 
 export class EventDispatcher {
@@ -58,6 +66,12 @@ export class EventDispatcher {
   /** Latest pointermove payload — overwritten until the next rAF
    *  flushes it. */
   private moveLatest: { x: number; y: number; ev: PointerEvent } | null = null
+  /** rAF handle for wheel coalescing. Separate from `moveRafHandle` (the
+   *  payload types differ; one handle for both would drop whichever arrived
+   *  first). */
+  private wheelRafHandle: number | null = null
+  /** Latest wheel payload — overwritten until the next rAF flushes it. */
+  private wheelLatest: { x: number; y: number; ev: WheelEvent } | null = null
 
   constructor(private deps: DispatcherDeps) {}
 
@@ -76,8 +90,26 @@ export class EventDispatcher {
     await this.fireOnce('pointerup', clientX, clientY, ev)
   }
 
-  async handleWheel(clientX: number, clientY: number, ev: WheelEvent): Promise<void> {
-    await this.fireOnce('wheel', clientX, clientY, ev)
+  /** Coalesced like `handleMove` — a trackpad emits wheel events far faster
+   *  than the ~1-frame `pickAt` readback can answer, so an unbatched pick per
+   *  event piles up in-flight readbacks that `mapAsync` then REJECTS ("still
+   *  mapped (rapid re-pick)", interaction-controller.ts), silently dropping the
+   *  very events it was trying to serve. One pick per frame, latest wins.
+   *
+   *  `wheel` as a FEATURE event is an X-GIS extension — MapLibre/Mapbox scope
+   *  wheel to the map only, never to layers — so no parity contract constrains
+   *  this. Camera zoom is unaffected: the controller consumes raw deltas on its
+   *  own path and never goes through here. Known cost: a listener accumulating
+   *  `deltaY` sees only the last event's delta per frame, not the sum. */
+  handleWheel(clientX: number, clientY: number, ev: WheelEvent): void {
+    this.wheelLatest = { x: clientX, y: clientY, ev }
+    if (this.wheelRafHandle !== null) return
+    this.wheelRafHandle = requestAnimationFrame(() => {
+      this.wheelRafHandle = null
+      const queued = this.wheelLatest
+      this.wheelLatest = null
+      if (queued) void this.fireOnce('wheel', queued.x, queued.y, queued.ev)
+    })
   }
 
   /** Called by the controller from every `pointermove`. Coalesces via
@@ -102,7 +134,14 @@ export class EventDispatcher {
       cancelAnimationFrame(this.moveRafHandle)
       this.moveRafHandle = null
     }
+    // Same reason as the move handle: a pending wheel rAF would otherwise fire
+    // `pickAt` against a destroyed device.
+    if (this.wheelRafHandle !== null) {
+      cancelAnimationFrame(this.wheelRafHandle)
+      this.wheelRafHandle = null
+    }
     this.moveLatest = null
+    this.wheelLatest = null
     this.hoverPrev = null
   }
 
@@ -139,12 +178,21 @@ export class EventDispatcher {
     clientY: number,
     ev: PointerEvent | WheelEvent,
   ): Promise<void> {
+    // PRE-PICK GATE. `pickAt` is a GPU readback (copyTextureToBuffer + submit +
+    // await mapAsync — one frame round-trip, see the header), so it must not run
+    // to discover that nobody was listening. This is a COARSE "could anyone fire
+    // this?" test; the per-layer check below still decides whether the layer we
+    // actually HIT listens, and must stay.
+    const mapListens = this.deps.mapHasListeners(type)
+    if (!mapListens && !this.deps.anyLayerListens(type)) return
     const hit = await this.deps.pickAt(clientX, clientY)
     if (!hit) return
     const layer = this.deps.getLayerById(hit.layerId)
     if (!layer) return
     const layerListens = layer.hasListeners(type)
-    const mapListens = this.deps.mapHasListeners(type)
+    // NOT redundant with the gate above: `anyLayerListens` says SOME layer
+    // listens; this says THE HIT layer does. Deleting it fires events at layers
+    // that never registered one.
     if (!layerListens && !mapListens) return
     const feature = this.deps.buildFeature(hit.layerId, hit.featureId)
     if (!feature) return
@@ -155,6 +203,18 @@ export class EventDispatcher {
   }
 
   private async flushMove(clientX: number, clientY: number, ev: PointerEvent): Promise<void> {
+    // Same pre-pick gate as fireOnce, for the same reason — and this path matters
+    // MORE: rAF-coalescing caps it at one readback per FRAME, so a map with no
+    // hover listeners was paying a GPU round-trip continuously for the whole time
+    // the pointer moved, not just in wheel bursts.
+    const hover: XGISFeatureEventType[] = ['mouseenter', 'mouseleave', 'mousemove']
+    if (!hover.some((t) => this.deps.mapHasListeners(t) || this.deps.anyLayerListens(t))) {
+      // Reset, don't just return: a stale `hoverPrev` would make the first flush
+      // after a listener IS registered diff against a hit from long ago — firing
+      // a phantom `mouseleave` for a feature the pointer left ages back.
+      this.hoverPrev = null
+      return
+    }
     const hit = await this.deps.pickAt(clientX, clientY)
     const current = hit ? { layerId: hit.layerId, featureId: hit.featureId } : null
     const prev = this.hoverPrev

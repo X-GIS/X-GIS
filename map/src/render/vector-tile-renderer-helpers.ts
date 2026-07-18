@@ -49,16 +49,42 @@ export const ARENA_LOW_WATER = 0.6
  *  work across ~5–6 frames → worst spike drops to <50 ms with the cache
  *  reaching full visibility in ~100 ms. Raise if you see noticeable
  *  "filling in" during pans on fast connections. */
-/** Per-frame tile upload cap. Bumped to 4 after the over-zoom
- *  per-layer sub-tile fix made all 4 layers actually generate
- *  sub-tiles (previously only the first one did due to the
- *  hasTileData(key) skip bug). At 4 layers × ~30 visible sub-tiles
- *  = 120 slices to upload at over-zoom; 2/frame took ~1 s to fill
- *  ≈ visible flicker as fallback gets progressively replaced.
- *  4/frame halves convergence time to ~0.5 s while keeping GPU
- *  buffer creation rate (~1700/sec) below Chrome's STATUS_BREAKPOINT
- *  threshold even under 4-layer load. */
+/** Per-frame tile upload cap (steady state) — 4 desktop / 1 mobile via
+ *  uploadBudgetFor.
+ *
+ *  #1155 F3 burst-safety (the burst path raises this to 8 desktop / 4 mobile via
+ *  the single-authority `burstUploadBudget` below). The failure mode this cap
+ *  guards is a PER-FRAME spike, not a sustained per-second rate: the historic
+ *  incident was 552 buffer writes / 8.4 MB in ONE frame → a ~250 ms stall
+ *  (perf-scenarios wb_peak). At COLD START — the exact window burst runs in —
+ *  the reuse pools are still cold, so per-slice buffer creation is HIGHER than
+ *  steady state, not "almost all reuse": polygon vertex/index write into the
+ *  shared GPUArenas (ZERO creates), but the thin line/outline vertex+index
+ *  buffers (GpuTileStore.acquireBuffer, gpu-tile-store.ts:307-313) all MISS
+ *  until the first tile evictions feed the pool, the per-slice feat_data buffer
+ *  is an unconditional create (feature-data-binder.ts), the SDF segments add ≤2,
+ *  and the staging pool creates one buffer per tier until warm (7 tiers, then
+ *  reuse) — realistically ~5-6 creates/slice during the first cascade. 8 slices/
+ *  frame ⇒ ~40-48 creates/frame, ~11× UNDER the 552-in-one-frame spike. Crucially
+ *  burst does NOT raise the cold-start TOTAL (bounded by viewport tiles × layers);
+ *  it compresses that fixed one-time cascade into ~half the frames, at most
+ *  doubling the per-frame density vs the steady 4/frame cascade that already runs
+ *  cold today — so a burst frame self-throttles to ~20-25 ms (below 60 fps, not a
+ *  stall), the cascade drains in ~15 frames, and the window is bounded by the
+ *  map's exit predicate + the 10 s hard cap. If a future cold-start profile shows
+ *  the per-frame spike climbing toward 552, drop the desktop burst to 6 in
+ *  `burstUploadBudget` — the enqueue cap follows it through the shared authority. */
 const MAX_UPLOADS_PER_FRAME = 4
+
+/** #1155 F3 — cold-start burst upload budget: 8 desktop / 4 mobile. SINGLE
+ *  AUTHORITY for the burst pair, read by BOTH `uploadBudgetFor` (concurrent
+ *  upload maxJobs) and UploadCoordinator's per-frame slice-enqueue cap — the two
+ *  MUST stay in lockstep or over-cap slices churn through `_heldUploads` (a
+ *  maxJobs < cap split re-defers work every frame). See the burst-safety note on
+ *  MAX_UPLOADS_PER_FRAME above for why 8 is safe and how to retune it. */
+export function burstUploadBudget(mobile: boolean): number {
+  return mobile ? 4 : 8
+}
 /** Mobile-specific upload budget — main-thread `buildLineSegments`
  *  runs synchronously on every doUploadTile for the XGVT-binary path
  *  (PMTiles' worker decode bypasses it). Capping mobile uploads to
@@ -68,11 +94,21 @@ const MAX_UPLOADS_PER_FRAME = 4
  *  is identical). User-reported heat + forced refresh on mobile
  *  during fast pinch zoom motivated this; addresses the synchronous
  *  CPU spike that the GPU buffer pool change alone could not. */
-export function uploadBudgetFor(canvasW: number, canvasH: number, dpr: number = 1): number {
+export function uploadBudgetFor(
+  canvasW: number,
+  canvasH: number,
+  dpr: number = 1,
+  /** #1155 F3 — cold-start burst: raise the concurrent-upload cap to 8 desktop
+   *  / 4 mobile so the first-viewport cascade drains fast. Off by default so
+   *  the steady-state budget (and every existing caller) is unchanged. */
+  burst: boolean = false,
+): number {
   // Test hook: spec sets `globalThis.__XGIS_UPLOAD_BUDGET` to force
   // queue-deferred uploads on every render call so the parent-walk
   // fallback path is exercised deterministically. Production paths
   // never set this, so the constant lookup is a single property read.
+  // Kept FIRST — the forced value must win even under burst so the fallback
+  // path stays deterministically exercisable (#1155 F3).
   const o = (globalThis as { __XGIS_UPLOAD_BUDGET?: number }).__XGIS_UPLOAD_BUDGET
   if (typeof o === 'number') return o
   // Mobile classification is a perceptual concept — must use CSS
@@ -81,5 +117,7 @@ export function uploadBudgetFor(canvasW: number, canvasH: number, dpr: number = 
   // to 4 uploads/frame — exactly the spike the function exists to
   // prevent. `isMobileClassViewport` (the shared authority) also gates
   // on a coarse PRIMARY pointer, so a small DESKTOP window keeps 4.
-  return isMobileClassViewport(Math.max(canvasW, canvasH) / dpr) ? 1 : MAX_UPLOADS_PER_FRAME
+  const mobile = isMobileClassViewport(Math.max(canvasW, canvasH) / dpr)
+  if (burst) return burstUploadBudget(mobile)
+  return mobile ? 1 : MAX_UPLOADS_PER_FRAME
 }

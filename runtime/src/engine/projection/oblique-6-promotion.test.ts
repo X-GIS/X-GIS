@@ -16,11 +16,15 @@ import { routeToSphereSelector, promotesToGlobeWhenTilted, PROJECTIONS } from '@
 //                                           projType 6 → flat MVP at pitch>0)
 //
 // Net: at pitch>0, oblique_mercator draws with a FLAT Mercator-metre MVP
-// while its tiles come from the SPHERE selector — a flat-MVP-over-sphere-
-// tiles mismatch (broken 3D at pitch>0). The fix (promote 6 to the globe
-// path, OR flat-route its tiles) is a BEHAVIOUR CHANGE that needs the GPU
-// render gate to verify across the pitch matrix, so it is deferred. This
-// test fails loudly (xfail-style intent) only if someone "fixes" one
+// while its tiles come from the SPHERE selector. This predicate DISAGREEMENT
+// is real (asserted below) — but P-A1 (2026-07-17) REFUTED the "broken 3D at
+// pitch>0" reading: the flat-MVP and sphere-tile camera models AGREE to
+// ≤4.0px @pitch15 / 7.1px @pitch60 on 2582–4926px tiles (~0.15%), NOT pitch-
+// gated (UNDER-SELECTED=0 at every pitch), so 6 stays flat-MVP on purpose and
+// the selector under-refines nothing. The oblique(6) fill softness was H2 (the
+// fixed-res #599 bake→drape), fixed by EXCLUDING 6 from bakesVectorDrape — a
+// render-SURFACE flip that leaves this SELECTION-level disagreement (and these
+// asserts) intact. This test still fails loudly only if someone changes one
 // predicate without the other — keeping the decision visible.
 
 describe('oblique_mercator(6) tilt-promotion characterization (documents a known gap)', () => {

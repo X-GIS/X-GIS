@@ -107,7 +107,7 @@ function makeSourceManager(camera: Camera, positioned: { value: boolean }) {
   const rendererStub = {} as unknown as MapRendererContent
   const deps: SourceManagerDeps = {
     rawDatasets: new Map(),
-    vtSources: new Map(),
+    registerVtSource: () => {},
     sourceCRS: new Map(),
     geojsonCapPoles: new Map(),
     heatmapPointData: new Map(),
