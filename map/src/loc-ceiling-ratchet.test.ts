@@ -148,7 +148,10 @@ const CEILINGS: Record<string, number> = {
   // a hidden tab reclaims the shared pool's raised drain cap at once. The
   // non-rAF wall-clock timer that makes the 10 s cap real lives in the extracted
   // controller (map-cold-start-burst.ts), not here.
-  'map/src/map.ts': 4446,
+  // 4446→4447 (#1176 pick pre-gate, merged): the anyLayerListens dep wired at
+  // the composition root so fireOnce skips the GPU pick readback when nobody
+  // listens (§2 wiring, nothing extract-worthy).
+  'map/src/map.ts': 4447,
   // 1920→1930 (#1042 R3): the globe limb cull for MULTI-LINE labels must land in
   // the collision phase — the ONLY site holding the label's quad half-height (the
   // collision box IS the height authority; the label-pass dispatch site has only
@@ -280,7 +283,14 @@ const CEILINGS: Record<string, number> = {
   // per distinct margin. +29 = LRU map + per-entry array ownership (a shared
   // scratch would clobber across margins) + the walk-count gate hook. The file's
   // own doc mandates keeping selection cohesive (no split); lower as #991 decomposes.
-  'map/src/render/tile-selection-cache.ts': 977,
+  // 977→985: FRAME_TILE_CACHE_SLOTS 8→16. 8 sat BELOW the frame's real distinct-
+  // margin count, so the LRU evicted a margin the SAME frame still needed and
+  // re-walked it — the ping-pong the LRU exists to kill, one N up. Measured (RTX
+  // 2080, OFM Bright z14 Tokyo, wheel zoom): D = 10 distinct walks/frame median,
+  // 14 max, at 7.2 ms @pitch0 / 16.3 ms @pitch60 each. +8 is the constant's
+  // rationale (the measurement that picks 16 over 8) — the constant is line-neutral.
+  // Gated by tile-selection-lru.test.ts (12 distinct margins → exactly 12 walks).
+  'map/src/render/tile-selection-cache.ts': 985,
   // 870→876 (#1083): +6 for the tile-rect NE-corner Mercator calc threaded
   // into generateWallMeshExtrudedECEF so it drops clip-synthetic seam walls.
   // 876→889: visible-first cap-deferral — `_distSq` field + `resetFrameCap`

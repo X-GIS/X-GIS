@@ -493,11 +493,11 @@ export class XGISMap {
   // Pick (GPU hover/click) — secondary color attachment that every main-pass
   // pipeline writes `vec2<u32>(feature_id, instance_id)` into. 1-tex design
   // with RG32Uint keeps per-pass overhead to a single extra color-attachment
-  // descriptor and 8 bytes/pixel of VRAM. Always allocated (not opt-in) so
-  // pipelines have a stable target format; `map.pickAt()` reads back a 1×1
-  // at the pointer location via async mapAsync. Kept at single-sample
-  // regardless of SAMPLE_COUNT — picking wants deterministic, non-resolved IDs.
-  // Now owned by RenderTargets; delegated here for the pick-path accessor.
+  // descriptor and 8 bytes/pixel of VRAM. OPT-IN: allocated only when picking
+  // is on (render-targets.ts `pickEnabled ? createTexture : null`) and every
+  // quality preset ships `picking: false`, so this is NULL by default and
+  // `pickAt` short-circuits before its readback. Single-sample regardless of
+  // SAMPLE_COUNT — picking wants deterministic, non-resolved IDs.
   get pickTexture(): GPUTexture | null {
     return this.renderTargets.pickTexture
   }
@@ -2149,6 +2149,7 @@ export class XGISMap {
         getCanvasRect: () => this.canvas.getBoundingClientRect(),
         dispatchMapEvent: (e) => this._dispatchMapEvent(e),
         mapHasListeners: (t) => this.mapListeners.has(t),
+        anyLayerListens: (t) => this.interactionController.anyLayerListens(t),
       })
     }
     const dispatcher = this.eventDispatcher
@@ -2193,7 +2194,7 @@ export class XGISMap {
         onWheel: (x, y, e) => {
           this._cameraExplicitlyPositioned = true
           this.markInteracting()
-          dispatcher.handleWheel(x, y, e).catch(() => {})
+          dispatcher.handleWheel(x, y, e) // rAF-coalesced + sync; nothing to catch
         },
       },
     )

@@ -139,3 +139,31 @@ describe('globe fallback draws under a drape-active primary (#1076)', () => {
     ).toBe(true)
   })
 })
+
+// ═══ Drape gate routes through bakesVectorDrape — oblique(6) exclusion (source gate) ═══
+//
+// The oblique(6) soft-fill fix is a render-SURFACE flip: the `_drapeGlobeFills`
+// gate narrows `routeToSphereSelector` to `bakesVectorDrape` (= {3,4,5}∪globeMode,
+// derived `!isFlat && !isGlobe && !isCylindrical`), EXCLUDING cylindrical/flat-MVP
+// oblique(6) so its constant fills render through the direct flat-oblique arm
+// (`proj_oblique_mercator`) instead of the 512px native-z14 bake shown at
+// 2582–4926px (H2, 5.04–9.6× magnification, non-healing).
+//
+// The PREDICATE is pinned exhaustively in geo/src/projections-table.test.ts
+// (T2 witness + T3 per-projType). But that gate holds independently of the CALL
+// SITE: nothing there proves vector-tile-renderer.ts actually feeds
+// `bakesVectorDrape` into `_drapeGlobeFills` rather than the superseded
+// `routeToSphereSelector`. The two functions differ by one `!isCylindrical` term
+// and sit adjacent in projections-table.ts — an inviting "dedup the near-identical
+// predicates" refactor could swap this site back with every predicate-level test
+// still green, silently re-draping oblique(6). This source gate closes that.
+describe('the drape gate feeds bakesVectorDrape into _drapeGlobeFills (oblique(6) exclusion)', () => {
+  it('`_drapeGlobeFills` is derived from bakesVectorDrape, NOT routeToSphereSelector', () => {
+    expect(
+      SOURCE.includes('bakesVectorDrape(projType, camera.globeMode)'),
+      'the `_drapeGlobeFills` gate must call `bakesVectorDrape(projType, camera.globeMode)` — ' +
+        'reverting it to `routeToSphereSelector` re-drapes oblique(6) and restores the ' +
+        'native-z14 bake displayed at 2582–4926px (5.04–9.6× soft-fill magnification, non-healing).',
+    ).toBe(true)
+  })
+})
