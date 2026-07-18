@@ -85,6 +85,17 @@ export interface LoadCommand {
    *  threaded from the compiler LoadCommand. Sibling of emit-commands.ts's field
    *  (two-sibling rule) so `source-manager` sees it on `SceneCommands['loads'][0]`. */
   options?: Record<string, string | number | readonly string[]>
+  /** `type: raster-dem` DEM decode fields (#777), threaded from the compiler
+   *  LoadCommand (emit-commands.ts) so source-manager reads them off
+   *  `SceneCommands['loads'][0]` and hands them to the HillshadeRenderer via the
+   *  `_dem` marker. Two-sibling rule; the legacy `interpret()` path never sets
+   *  them (no raster-dem in the old grammar), they exist for the type contract. */
+  encoding?: string
+  tileSize?: number
+  redFactor?: number
+  greenFactor?: number
+  blueFactor?: number
+  baseShift?: number
 }
 
 export interface SceneCommands {
@@ -257,4 +268,3 @@ function extractLayer(
     },
   }
 }
-

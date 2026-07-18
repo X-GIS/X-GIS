@@ -78,6 +78,7 @@ import {
 import { interpret, type SceneCommands } from './interpreter'
 import { lonLatToMercator, type GeoJSONFeatureCollection } from '@xgis/data'
 import { RasterRenderer } from './render/raster-renderer'
+import { HillshadeRenderer, armHillshadeSource } from './render/hillshade-renderer'
 import { UnderOccluderRenderer } from './render/under-occluder-renderer'
 import { PointRenderer } from './render/point-renderer'
 import { HeatmapRenderer } from './render/heatmap-renderer'
@@ -253,6 +254,8 @@ export class XGISMap {
   private interactionController!: InteractionController
   renderer!: MapRendererContent
   rasterRenderer!: RasterRenderer
+  /** raster-dem DEM-relief renderer (#777). Inert until a `_dem` layer arms it. */
+  hillshadeRenderer!: HillshadeRenderer
   /** INC-1 opaque depth-writing globe sphere just under EARTH_R (opaque-pass.ts);
    *  non-null only while a `background { fill }` is installed; globe-only. */
   underOccluder: UnderOccluderRenderer | null = null
@@ -261,6 +264,9 @@ export class XGISMap {
    *  Per-frame `render()` resolves `paintShapes.opacity` here and
    *  pushes it to the renderer. Null when no raster show is active. */
   _rasterShow: (typeof this.showCommands)[0] | null = null
+  /** Show backing the active raster-dem (hillshade) layer; the HillshadePass
+   *  resolves its `paintShapes.hillshade` per frame. Single-tracked. #777. */
+  _hillshadeShow: (typeof this.showCommands)[0] | null = null
   /** Optional GPU pass timer. Null when timestamp-query is unsupported or
    *  `?gpuprof=1` is not set. When set, the FIRST opaque sub-pass each
    *  frame is timed; samples drain to `getGpuTimings()`. */
@@ -1681,6 +1687,7 @@ export class XGISMap {
       this.renderTargets.invalidate()
       this.renderer.rebuildForQuality()
       this.rasterRenderer.rebuildForQuality()
+      this.hillshadeRenderer.rebuildForQuality()
       this.lineRenderer?.rebuildForQuality()
       this.pointRenderer?.rebuildForQuality()
       // Per-show variant pipelines + layouts both went stale: the
@@ -2683,6 +2690,7 @@ export class XGISMap {
     this.renderer = new MapRendererContent(this.ctx)
     this.renderer.setGraticuleEnabled(this._viewport.graticuleInitial)
     this.rasterRenderer = new RasterRenderer(this.ctx)
+    this.hillshadeRenderer = new HillshadeRenderer(this.ctx)
     if (GPU_PROF) this.gpuTimer = new GPUTimer(this.ctx)
 
     // P3 Step 3c — upload the scene-level color gradient palette to GPU
@@ -3082,8 +3090,11 @@ export class XGISMap {
     // resolve (same contract as Mapbox/MapLibre layer references).
     this.xgisLayers.clear()
 
-    // Reset raster renderer — only activate if a layer references a raster source
+    // Reset raster + hillshade renderers — only re-activated below if a layer
+    // references a raster / raster-dem source.
     this.rasterRenderer.setUrlTemplate('')
+    this.hillshadeRenderer.setUrlTemplate('')
+    this._hillshadeShow = null
     // Drop any previously-tracked raster show. A new active one (if any)
     // is captured below by the same `_tileUrl` test that arms the
     // renderer.
@@ -3126,6 +3137,17 @@ export class XGISMap {
       // show, the rest will adopt it via the layerName lookup).
       if (!this.xgisLayers.has(layerName)) {
         this.xgisLayers.set(layerName, new XGISLayer(layerName, show, () => this.invalidate()))
+      }
+
+      // raster-dem source → activate the HILLSHADE renderer (#777). Checked
+      // BEFORE the raster branch: a `_dem` marker also carries `_tileUrl`, so the
+      // raster `if (tileUrl)` below would else draw the packed elevation as colour.
+      if ('_dem' in data && data._dem) {
+        armHillshadeSource(this.hillshadeRenderer, data)
+        // First-wins (mirrors _rasterShow) — the HillshadePass resolves this
+        // show's paintShapes.hillshade per frame.
+        if (!this._hillshadeShow) this._hillshadeShow = show
+        continue
       }
 
       // Raster tile source referenced by a layer → activate raster renderer
@@ -3635,6 +3657,7 @@ export class XGISMap {
     this.renderer = new MapRendererContent(this.ctx)
     this.renderer.setGraticuleEnabled(this._viewport.graticuleInitial)
     this.rasterRenderer = new RasterRenderer(this.ctx)
+    this.hillshadeRenderer = new HillshadeRenderer(this.ctx)
     if (GPU_PROF) this.gpuTimer = new GPUTimer(this.ctx)
     try {
       this.pointRenderer = new PointRenderer(this.ctx)

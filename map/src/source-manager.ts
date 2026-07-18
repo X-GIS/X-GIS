@@ -280,6 +280,25 @@ export class SourceManager {
     // raster path — declared vector-family type wins.
     const isDeclaredVector =
       declaredType === 'vector' || declaredType === 'tilejson' || declaredType === 'pmtiles'
+    // raster-dem (#777) — a DEM tile source. Guard it BEFORE `looksLikeRaster`:
+    // its URL is a `{z}/{x}/{y}` template, so the template heuristic would else
+    // route it into the plain raster path and draw the packed-elevation RGB as
+    // colour garbage. The `_dem` marker carries the decode params (encoding /
+    // tileSize / custom factors) the HillshadeRenderer needs; map.ts routes a
+    // layer referencing a `_dem` source to the hillshade path, not raster.
+    if (declaredType === 'raster-dem') {
+      this.rawDatasets.set(load.name, {
+        _tileUrl: url,
+        _dem: true,
+        encoding: load.encoding,
+        tileSize: load.tileSize,
+        redFactor: load.redFactor,
+        greenFactor: load.greenFactor,
+        blueFactor: load.blueFactor,
+        baseShift: load.baseShift,
+      })
+      return
+    }
     const looksLikeRaster = declaredType === 'raster' || (!isDeclaredVector && isTileTemplate(url))
     const vectorTileFormat = detectVectorTileFormat(url, asVectorTileKind(declaredType))
 

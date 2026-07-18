@@ -134,7 +134,13 @@ const CEILINGS: Record<string, number> = {
   // "skip the pickAt/buildFeature path entirely" in that case. Dep injection at
   // the composition root; nothing extract-worthy (§2). Lower as #991 decomposes
   // map.ts.
-  'map/src/map.ts': 4337,
+  // 4337→4360 (#777 Phase II): the raster-dem → HillshadeRenderer wiring — the
+  // hillshadeRenderer + _hillshadeShow fields, the two ctor init sites, the
+  // rebuildLayers reset + `_dem`-marker arm branch, and the rebuildForQuality
+  // hook. Irreducible: these are class-member declarations + the source-dispatch
+  // arm that must sit in rebuildLayers where the source markers are read. The DEM
+  // decode itself was extracted to hillshade-renderer.ts (armHillshadeSource).
+  'map/src/map.ts': 4360,
   // 1920→1930 (#1042 R3): the globe limb cull for MULTI-LINE labels must land in
   // the collision phase — the ONLY site holding the label's quad half-height (the
   // collision box IS the height authority; the label-pass dispatch site has only
@@ -222,7 +228,10 @@ const CEILINGS: Record<string, number> = {
   // held-off field (+ its doc) and the twin early-return's routing comment/guard (doc
   // §3-F3). +17, all documentation of the held-off switch; the guard is byte-identical
   // (the twin still renders). F6 slashes this file to ~880 (twin deletion).
-  'map/src/render-loop.ts': 1205,
+  // 1205→1206 (#777 Phase II): the hillshadeRenderer.beginFrame() deferred-eviction
+  // hook, next to rasterRenderer.beginFrame(). Irreducible: per-frame eviction must
+  // run in the beginFrame sweep alongside the other tile renderers.
+  'map/src/render-loop.ts': 1206,
   'map/src/render/point-renderer.ts': 1140,
   // 1106→1120 (#1043 state-hygiene): three unmask-before-clear / state-reset fixes for the
   // WebGL2 flicker class — beginScreenPass colorMask unmask (the colour sibling of #746/#780),

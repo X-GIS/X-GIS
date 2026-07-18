@@ -16,14 +16,30 @@ import type { GeoJSONFeatureCollection } from '@xgis/data'
 export type { BackendChoice }
 
 /** A `rawDatasets` entry. Either a real GeoJSON FeatureCollection (the
- *  common case) or one of two documented placeholder markers written by
+ *  common case) or one of the documented placeholder markers written by
  *  source-manager / the polar-cap install for tile-backed sources that
- *  carry NO in-memory features: `{ _tileUrl }` for a raster XYZ source and
+ *  carry NO in-memory features: `{ _tileUrl }` for a raster XYZ source,
+ *  `{ _tileUrl, _dem }` for a `raster-dem` source (routes to the
+ *  HillshadeRenderer with the DEM decode params, #777), and
  *  `{ _vectorTile: true }` for a vector-tile (MVT/VT) or tiled-geojson
  *  source. rebuildLayers narrows on these markers with `in` guards. */
 export type RawDataset =
   | GeoJSONFeatureCollection
   | { readonly _tileUrl: string }
+  | {
+      readonly _tileUrl: string
+      /** `raster-dem` marker — routes to the HillshadeRenderer, not raster. */
+      readonly _dem: true
+      /** DEM elevation-pack encoding (`mapbox` | `terrarium` | `custom`). */
+      readonly encoding?: string
+      /** Native DEM tile pixel size (256 / 512). */
+      readonly tileSize?: number
+      /** `encoding: custom` elevation unpack factors. */
+      readonly redFactor?: number
+      readonly greenFactor?: number
+      readonly blueFactor?: number
+      readonly baseShift?: number
+    }
   | { readonly _vectorTile: true }
 
 export interface VariantPipelines {

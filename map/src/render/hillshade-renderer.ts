@@ -168,6 +168,34 @@ function premul(c: readonly [number, number, number, number]): [number, number, 
   return [c[0] * c[3], c[1] * c[3], c[2] * c[3], c[3]]
 }
 
+/** Arm a HillshadeRenderer from a `raster-dem` `_dem` source marker: the DEM
+ *  tile URL + the decode (encoding → unpack factors + tileSize). The per-frame
+ *  paint (direction / altitude / colours / …) is resolved separately by the
+ *  HillshadePass. Extracted so map.ts's rebuildLayers stays a thin dispatch. */
+export function armHillshadeSource(
+  renderer: HillshadeRenderer,
+  dem: {
+    _tileUrl: string
+    encoding?: string
+    tileSize?: number
+    redFactor?: number
+    greenFactor?: number
+    blueFactor?: number
+    baseShift?: number
+  },
+): void {
+  renderer.setUrlTemplate(dem._tileUrl)
+  renderer.setParams({
+    unpack: demUnpack((dem.encoding as DemEncoding | undefined) ?? 'mapbox', {
+      redFactor: dem.redFactor,
+      greenFactor: dem.greenFactor,
+      blueFactor: dem.blueFactor,
+      baseShift: dem.baseShift,
+    }),
+    tileSize: dem.tileSize ?? 512,
+  })
+}
+
 /** Pack the HillshadeUniforms (lighting + DEM decode + per-frame deriv scale).
  *  SINGLE authority shared by render() + the byte-equality gate. `bearingRad` is
  *  the camera bearing (radians); folded into the azimuth only for anchor=viewport.
@@ -254,24 +282,33 @@ export class HillshadeRenderer {
     this.urlTemplate = url
   }
 
-  /** Set the per-frame resolved hillshade paint. The orchestrator resolves each
-   *  PropertyShape (direction / altitude / exaggeration / colours) + threads the
-   *  DEM source's encoding / tileSize before render(). Non-finite scalars fall
-   *  back to the spec default (a value can't NaN-poison the shade). */
+  /** Merge resolved hillshade params over the current set. The DEM decode
+   *  (unpack / tileSize) is set once at arm-time (map.ts, from the `_dem`
+   *  source marker); the paint (direction / altitude / exaggeration / colours /
+   *  method) is resolved per-frame by the HillshadePass. Merging lets the two
+   *  compose without one clobbering the other. Non-finite scalars keep the
+   *  current value (a value can't NaN-poison the shade). */
   setParams(p: Partial<HillshadeParams>): void {
+    const cur = this._params
     const f = (v: number | undefined, d: number) =>
       typeof v === 'number' && Number.isFinite(v) ? v : d
     this._params = {
-      direction: f(p.direction, DEFAULT_PARAMS.direction),
-      altitude: Math.max(0, Math.min(90, f(p.altitude, DEFAULT_PARAMS.altitude))),
-      anchorMap: p.anchorMap ?? DEFAULT_PARAMS.anchorMap,
-      exaggeration: Math.max(0, f(p.exaggeration, DEFAULT_PARAMS.exaggeration)),
-      shadow: p.shadow ?? DEFAULT_PARAMS.shadow,
-      highlight: p.highlight ?? DEFAULT_PARAMS.highlight,
-      accent: p.accent ?? DEFAULT_PARAMS.accent,
-      method: p.method ?? DEFAULT_PARAMS.method,
-      unpack: p.unpack ?? DEFAULT_PARAMS.unpack,
-      tileSize: p.tileSize === 256 || p.tileSize === 512 ? p.tileSize : DEFAULT_PARAMS.tileSize,
+      direction: f(p.direction, cur.direction),
+      altitude:
+        p.altitude === undefined
+          ? cur.altitude
+          : Math.max(0, Math.min(90, f(p.altitude, cur.altitude))),
+      anchorMap: p.anchorMap ?? cur.anchorMap,
+      exaggeration:
+        p.exaggeration === undefined
+          ? cur.exaggeration
+          : Math.max(0, f(p.exaggeration, cur.exaggeration)),
+      shadow: p.shadow ?? cur.shadow,
+      highlight: p.highlight ?? cur.highlight,
+      accent: p.accent ?? cur.accent,
+      method: p.method ?? cur.method,
+      unpack: p.unpack ?? cur.unpack,
+      tileSize: p.tileSize === 256 || p.tileSize === 512 ? p.tileSize : cur.tileSize,
     }
   }
 

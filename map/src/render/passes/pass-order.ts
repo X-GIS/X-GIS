@@ -21,6 +21,7 @@ export const PASS_CHAIN_ORDER = [
   'opaque',
   'oit',
   'translucent',
+  'hillshade',
   'points',
   'labels',
   'heatmap',
@@ -37,6 +38,7 @@ export type PassLabel = (typeof PASS_CHAIN_ORDER)[number]
  *  #991 P4/P5 unification runs the RenderNode chain over RHI passes. */
 export const RHI_TWIN_MISSING: readonly PassLabel[] = [
   'oit',
+  'hillshade',
   'points',
   'heatmap',
   'overdraw-compose',

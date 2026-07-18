@@ -423,6 +423,7 @@ export class RenderLoop {
       this.host.renderer.beginFrame()
       this.host.lineRenderer?.beginFrame()
       this.host.rasterRenderer.beginFrame()
+      this.host.hillshadeRenderer.beginFrame()
       // PointRenderer drains its retired tile-point buffer queue here
       // — buffers retired during last frame's renderTilePoints can
       // safely be destroyed now that queue.submit() has returned for
