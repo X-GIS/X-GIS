@@ -15,7 +15,7 @@
 // module's oracle bit-equality loop over every proj_* fn
 // (map/src/shaders/dsl/optimize.test.ts), and the examples emit-goldens byte gate.
 
-import type { ModuleDecl } from '../../ir'
+import type { ModuleDecl, FuncDecl } from '../../ir'
 import { constProp } from './const-prop'
 import { copyProp } from './copy-prop'
 import { constFold } from './const-fold'
@@ -94,28 +94,52 @@ function irEqual(a: unknown, b: unknown): boolean {
   return true
 }
 
-/** Run `passes` to a fixed point — until the module stops changing — capped at
- *  `maxIters`. One linear `optimize` sweep catches depth-1 chains (const-prop
- *  exposes a literal, const-fold collapses it, dead-branch drops the branch); this
- *  catches the deeper chains where a fold exposes the next propagation.
+/** Optimize ONE function to a fixed point (#1186). Reuses the module-level passes
+ *  by wrapping the function in a one-function module — every DEFAULT_PASSES pass
+ *  is `{ ...m, funcs: m.funcs.map(perFnFn) }` with a `(f: FuncDecl) => FuncDecl`
+ *  transform, so it reads ONLY the function it maps; the shell's consts/structs/
+ *  bindings are inert (carried via `{ ...m }` only so a defensive `...m` spread
+ *  inside a pass sees a well-formed module).
  *
- *  Convergence is tested by `irEqual`, a short-circuiting structural walk. It
- *  replaced a `JSON.stringify(next) === JSON.stringify(cur)` check that, on the
- *  merged multi-projection modules, serialized ~1.7 MB of JSON PER sweep (188 MB
- *  across a demo's pipeline compiles — #1186); the walk bails at the first
- *  differing node on the many non-converging sweeps and allocates nothing. */
+ *  ⚠ INVARIANT: this is correct ONLY while every pass is per-function-pure. A
+ *  CROSS-function pass (inline, gvn, deadFnElim — all deliberately UNWIRED, see
+ *  DEFAULT_PASSES) run on a one-function module would see a different module than
+ *  the whole and silently diverge. `fixpoint-ireq.test.ts` pins per-function ≡
+ *  whole-module on the real projection module so wiring such a pass fails loudly. */
+function fnFixpoint(
+  fn: FuncDecl,
+  m: ModuleDecl,
+  passes: readonly OptPass[],
+  maxIters: number,
+): FuncDecl {
+  let cur = fn
+  for (let i = 0; i < maxIters; i++) {
+    const next = optimize({ ...m, funcs: [cur] }, passes).funcs[0]!
+    if (irEqual(next, cur)) return next
+    cur = next
+  }
+  return cur
+}
+
+/** Run `passes` to a fixed point — until each function stops changing — capped at
+ *  `maxIters`. Functions are optimized INDEPENDENTLY (see `fnFixpoint`): because
+ *  every pass is per-function, a function reaches the same fixed point whether it
+ *  is optimized alone or inside the whole module, and each one stops at its OWN
+ *  convergence instead of being re-swept until the slowest function in the module
+ *  settles — the merged multi-projection shaders carry ~38 functions of very
+ *  uneven depth, so the whole-module loop wasted most sweeps re-running the ones
+ *  that had already converged (#1186).
+ *
+ *  Convergence is tested by `irEqual`, a short-circuiting structural walk that
+ *  replaced a whole-module `JSON.stringify` compare (188 MB across a demo's
+ *  pipeline compiles — #1186); it bails at the first differing node and allocates
+ *  nothing. */
 export function fixpoint(
   m: ModuleDecl,
   passes: readonly OptPass[] = DEFAULT_PASSES,
   maxIters = 8,
 ): ModuleDecl {
-  let cur = m
-  for (let i = 0; i < maxIters; i++) {
-    const next = optimize(cur, passes)
-    if (irEqual(next, cur)) return next
-    cur = next
-  }
-  return cur
+  return { ...m, funcs: m.funcs.map((fn) => fnFixpoint(fn, m, passes, maxIters)) }
 }
 
 // ── Named optimization levels (C-compiler -O0/-O1/-O2) ──

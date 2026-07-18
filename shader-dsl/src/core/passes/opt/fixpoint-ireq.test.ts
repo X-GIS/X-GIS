@@ -9,9 +9,21 @@
 // byte gates.
 
 import { describe, it, expect } from 'vitest'
-import { fixpoint } from './optimize'
+import { fixpoint, optimize } from './optimize'
 import { module, fn, f32, f32T } from '../../ir'
 import { emitModule } from '../../backends/wgsl'
+
+/** The pre-#1186 semantics `fixpoint` replaced: sweep the WHOLE module to a fixed
+ *  point. The reference the per-function `fixpoint` must match byte-for-byte. */
+function wholeModuleFixpoint(m: ReturnType<typeof optimize>): ReturnType<typeof optimize> {
+  let cur = m
+  for (let i = 0; i < 8; i++) {
+    const next = optimize(cur)
+    if (JSON.stringify(next) === JSON.stringify(cur)) return next
+    cur = next
+  }
+  return cur
+}
 
 describe('fixpoint convergence (irEqual)', () => {
   it('folds a nested constant chain and lands on a fixed point', () => {
@@ -43,5 +55,32 @@ describe('fixpoint convergence (irEqual)', () => {
     const opt = fixpoint(m)
     const clone = JSON.parse(JSON.stringify(opt))
     expect(JSON.stringify(fixpoint(clone))).toBe(JSON.stringify(opt))
+  })
+
+  it('per-function fixpoint is byte-identical to whole-module fixpoint (invariant guard)', () => {
+    // fixpoint optimizes each function INDEPENDENTLY, which is correct only while
+    // every pass is per-function-pure. A module of functions with UNEVEN
+    // convergence — a deep const-fold chain, a copy chain, a trivial identity — so
+    // per-function and whole-module take different sweep counts yet must land on
+    // the SAME result. Wiring a CROSS-function pass (inline/gvn/deadFnElim) would
+    // make the two diverge and fail here loudly, not silently in shipped shaders.
+    const raw = module({
+      funcs: [
+        fn('deep', {}, f32T, (_p, b) => {
+          b.ret(f32(2).add(3).mul(4).add(f32(1).mul(5)))
+        }),
+        fn('copy', { x: f32T }, f32T, ({ x }, b) => {
+          const y = b.let('y', x)
+          const z = b.let('z', y)
+          b.ret(z.add(1))
+        }),
+        fn('id', { x: f32T }, f32T, ({ x }, b) => {
+          b.ret(x)
+        }),
+      ],
+    })
+    // Materialize handle funcs -> plain decls once so both drivers see identical input.
+    const mat = optimize(raw)
+    expect(JSON.stringify(fixpoint(mat))).toBe(JSON.stringify(wholeModuleFixpoint(mat)))
   })
 })
