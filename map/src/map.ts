@@ -52,7 +52,6 @@ import type { BackendChoice, RhiDeviceLostInfo } from '@xgis/engine'
 import {
   initGPUViaProviders,
   backendProviderChain,
-  GPU_PROF,
   WebGPUUnavailableError,
   type GPUContext,
 } from '@xgis/rhi-webgpu'
@@ -60,6 +59,8 @@ import { QUALITY, updateQuality, type QualityConfig } from '@xgis/engine'
 import { GPUTimer } from '@xgis/rhi-webgpu'
 import { Camera } from './camera'
 import { CameraController } from './camera-controller'
+import { injectFocusStyle, setupCanvasA11y, handleMapKeyDown } from './map-accessibility'
+import { showWebGPUUnavailableDefault } from './map-webgpu-unavailable'
 import { ViewportModeController } from './render/viewport-mode-controller'
 import { SourceManager } from './source-manager'
 import { InteractionController } from './interaction-controller'
@@ -76,7 +77,7 @@ import {
   type OpaqueGroup as ExternalOpaqueGroup,
 } from './render/bucket-scheduler'
 import { interpret, type SceneCommands } from './interpreter'
-import { lonLatToMercator, type GeoJSONFeatureCollection } from '@xgis/data'
+import { lonLatToMercator, type GeoJSONFeatureCollection, type CoverageHandle } from '@xgis/data'
 import { RasterRenderer } from './render/raster-renderer'
 import { HillshadeRenderer, armHillshadeSource } from './render/hillshade-renderer'
 import { UnderOccluderRenderer } from './render/under-occluder-renderer'
@@ -158,7 +159,9 @@ import type { GeoJSONFeature } from '@xgis/data'
 import { FeatureUpdateQueue } from './feature-update-queue'
 import { MapEventBus } from './map-event-bus'
 import { wireDeviceLostRecovery } from './device-lost-recovery'
-import { safeFetch, assertIngestBudget, readBodyCapped } from '@xgis/shared'
+import { ColdStartBurstController } from './map-cold-start-burst'
+import { buildSceneRenderers } from './scene-renderers'
+import { safeFetch, assertIngestBudget, readBodyCapped, isMobileClassViewport } from '@xgis/shared'
 
 // DoS ceilings for the top-level loader entry points (.xgis style /
 // import-resolver text and .xgb binary scene). Defensive — far above any
@@ -279,8 +282,44 @@ export class XGISMap {
   private shapeRegistry: ShapeRegistry | null = null
   lineRenderer: LineRenderer | null = null
   private running = false
+  /** #1153 P1 — monotonic run-generation token. Bumped after a successful
+   *  parse in run()/runBinary() and by stop(); every post-await guard compares
+   *  its captured epoch against this (via `_epochStale`) to detect supersession. */
+  private _runEpoch = 0
+  /** #1153 P1 — true once a run has published (owns) this.ctx, cleared by
+   *  _releaseGpuResources(). Gates the entry teardown so a run that published
+   *  then went stale (stop(), or superseded mid-loads — `running`/`_loaded` both
+   *  still false) is still reclaimed by the next run()/destroy(). Liveness
+   *  authority only — this.ctx stays the non-nullable definite-assignment field. */
+  private _ctxOwned = false
   /** Consecutive renderFrame faults (P0-2); reset by a successful frame. */
   private _frameFailures = 0
+
+  /** #1155 F3 — cold-start tile-pipeline burst state machine (enter / exit /
+   *  hysteresis / 10 s cap). Logic in map-cold-start-burst.ts so map.ts stays
+   *  under its LOC ceiling; the map wires it to its vtSources + pending-work
+   *  scan and delegates its lifecycle hooks (run/renderLoop/destroy) to it. */
+  private readonly _burst = new ColdStartBurstController({
+    applyToAllSources: (on) => {
+      for (const { source, renderer } of this.vtSources.values()) {
+        source.setColdStartBurst(on)
+        renderer.setColdStartBurst(on)
+      }
+    },
+    hasPendingSourceWork: () => this.hasPendingSourceWork(),
+    // #1167 — desktop-only burst: a CONSERVATIVE default, not a measured mobile
+    // regression (the +262 ms it once cited did not survive a permutation test;
+    // the desktop convergence win did). Same `isMobileClassViewport(window.
+    // innerWidth)` signal the burst upload cap reads, so gate and cap agree.
+    viewportEligible: () =>
+      !(typeof window !== 'undefined' && isMobileClassViewport(window.innerWidth)),
+  })
+  /** #1167 — visibilitychange listener that ends cold-start burst the instant the
+   *  tab is hidden (its rAF throttles to ~0 Hz, so the render-loop exit stalls;
+   *  the controller's non-rAF timer still caps at 10 s, this just reclaims the
+   *  shared MVT pool's raised drain cap immediately so sibling maps aren't held).
+   *  Armed on burst enter, removed in destroy(). Null until first armed. */
+  private _burstVisibilityHandler: (() => void) | null = null
   /** Set by `destroy()`. Gates invalidate / flush so a torn-down map is
    *  inert and post-destroy calls no-op instead of touching a destroyed
    *  GPU device. */
@@ -897,7 +936,7 @@ export class XGISMap {
     backend.updateFillColor(rgba)
     catalog.attachBackend(backend)
     this._syntheticBackend = backend
-    this.vtSources.set(SYNTHETIC_EARTH_SURFACE_SOURCE, { source: catalog, renderer: vtRenderer })
+    this._registerVtSource(SYNTHETIC_EARTH_SURFACE_SOURCE, catalog, vtRenderer)
     this.rawDatasets.set(SYNTHETIC_EARTH_SURFACE_SOURCE, {
       _vectorTile: true,
     })
@@ -917,6 +956,7 @@ export class XGISMap {
       lineRenderer: this.lineRenderer,
       projectionName: this.projectionName,
       vtSources: this.vtSources,
+      registerVtSource: (key, source, renderer) => this._registerVtSource(key, source, renderer),
       rawDatasets: this.rawDatasets,
       geojsonCapPoles: this.geojsonCapPoles,
       getShowCommands: () => this.showCommands as ShowCommand[],
@@ -996,7 +1036,7 @@ export class XGISMap {
     this.sourceManager = new SourceManager({
       rawDatasets: this.rawDatasets,
       sourceLoaders: options.sources,
-      vtSources: this.vtSources,
+      registerVtSource: (key, source, renderer) => this._registerVtSource(key, source, renderer),
       sourceCRS: this.sourceCRS,
       geojsonCapPoles: this.geojsonCapPoles,
       heatmapPointData: this.heatmapPointData,
@@ -1128,93 +1168,29 @@ export class XGISMap {
    *  `typeof document === 'undefined'` guard in
    *  `_showWebGPUUnavailableDefault`. */
   private _setupAccessibility(ariaLabel?: string): void {
-    const canvas = this.canvas
-    if (typeof document === 'undefined') return
-    if (
-      !canvas ||
-      typeof canvas.setAttribute !== 'function' ||
-      typeof canvas.addEventListener !== 'function'
-    )
-      return
-    // Focusable + named for assistive tech. Only set tabIndex if the host
-    // hasn't already made it focusable, so an embedder's explicit choice
-    // (e.g. tabindex=-1 to drive focus programmatically) is preserved.
-    if (!canvas.hasAttribute('tabindex')) canvas.tabIndex = 0
-    if (!canvas.hasAttribute('role')) canvas.setAttribute('role', 'region')
-    if (!canvas.hasAttribute('aria-label')) canvas.setAttribute('aria-label', ariaLabel ?? 'Map')
-    // Marker the shared focus-ring stylesheet targets (independent of the
-    // role/aria-label values, which a host may override).
-    canvas.setAttribute('data-xgis-map', '')
-    XGISMap._injectFocusStyle()
+    // Free-function logic lives in map-accessibility.ts (§2 god-file split);
+    // map keeps only the handler ref so destroy() can detach the listener.
     const handler = (e: KeyboardEvent) => this._onKeyDown(e)
-    this._keyDownHandler = handler
-    canvas.addEventListener('keydown', handler)
-  }
-
-  /** Inject a single shared stylesheet that draws a focus ring on any
-   *  X-GIS canvas — only when keyboard-driven (`:focus-visible`), so a
-   *  pointer click doesn't show the ring. Module-once via a guard flag;
-   *  targets the `data-xgis-map` marker `_setupAccessibility` sets, which
-   *  is stable even if the host overrides role / aria-label. */
-  private static _focusStyleInjected = false
-  private static _injectFocusStyle(): void {
-    if (XGISMap._focusStyleInjected) return
-    if (typeof document === 'undefined' || !document.head) return
-    XGISMap._focusStyleInjected = true
-    const style = document.createElement('style')
-    style.setAttribute('data-xgis-a11y', '')
-    style.textContent =
-      'canvas[data-xgis-map]:focus-visible{' + 'outline:3px solid #4d90fe;outline-offset:2px;}'
-    document.head.appendChild(style)
-  }
-
-  /** Keyboard pan/zoom (P0-7). Arrow keys pan, `+`/`=` zoom in, `-`/`_`
-   *  zoom out, Shift accelerates the pan. Routes through the shared
-   *  `cameraController` (same path as drag/wheel) so the render-loop
-   *  camera-diff fires `move`/`moveend`/`zoom*` for free. `preventDefault`
-   *  is called ONLY for keys we act on, and we bail when an unhandled
-   *  modifier (Ctrl/Alt/Meta) is held so we don't steal browser shortcuts. */
-  private _onKeyDown(e: KeyboardEvent): void {
-    if (this._destroyed) return
-    // Leave browser / OS chords (Ctrl+, Alt+, Cmd+) alone. Shift is the
-    // only modifier we consume (fast pan).
-    if (e.ctrlKey || e.altKey || e.metaKey) return
-    // prefers-reduced-motion: keyboard pan/zoom are already instant jumps
-    // (no transition infra), so there is nothing to suppress; honored here
-    // as a forward-looking guard for when easeTo/flyTo gain animation.
-    const PAN_PX = 80
-    const FAST_PX = 320
-    const step = e.shiftKey ? FAST_PX : PAN_PX
-    switch (e.key) {
-      case 'ArrowUp':
-        this.cameraController.panBy([0, -step])
-        break
-      case 'ArrowDown':
-        this.cameraController.panBy([0, step])
-        break
-      case 'ArrowLeft':
-        this.cameraController.panBy([-step, 0])
-        break
-      case 'ArrowRight':
-        this.cameraController.panBy([step, 0])
-        break
-      case '+':
-      case '=':
-        this.cameraController.zoomIn()
-        break
-      case '-':
-      case '_':
-        this.cameraController.zoomOut()
-        break
-      default:
-        return // not a key we handle — leave default behaviour intact
+    // Latch the handler ref + inject the focus style ONLY when the listener
+    // actually attached (real DOM canvas) — a bare unit-test mock returns
+    // false, so `_keyDownHandler` stays null and destroy() skips removeEventListener.
+    if (setupCanvasA11y(this.canvas, ariaLabel, handler)) {
+      this._keyDownHandler = handler
+      injectFocusStyle()
     }
-    e.preventDefault()
-    // Mirror the pointer-gesture bookkeeping (onPointerDown): the user has
-    // taken control of the camera, so the post-compile bounds auto-fit must
-    // not clobber it, and the interaction-DPR path can kick in.
-    this._cameraExplicitlyPositioned = true
-    this.markInteracting()
+  }
+
+  /** Keyboard pan/zoom (P0-7) — thin delegate to handleMapKeyDown
+   *  (map-accessibility.ts). */
+  private _onKeyDown(e: KeyboardEvent): void {
+    handleMapKeyDown(e, {
+      destroyed: this._destroyed,
+      camera: this.cameraController,
+      onInteract: () => {
+        this._cameraExplicitlyPositioned = true
+        this.markInteracting()
+      },
+    })
   }
 
   /** Toggle the lat/lon grid overlay. Default off. Forwards to the viewport
@@ -1317,22 +1293,8 @@ export class XGISMap {
    *  there is no Canvas 2D / WebGL fallback). The host can override this by
    *  registering onWebGPUUnavailable(). */
   private _showWebGPUUnavailableDefault(): void {
-    const msg = 'This map requires a WebGPU-capable browser (latest Chrome/Edge, or Safari 18+).'
-
-    console.warn('[X-GIS] ' + msg + ' Register onWebGPUUnavailable() to customize this.')
-    if (typeof document === 'undefined') return
-    const parent = this.canvas?.parentElement
-    if (!parent || parent.querySelector('[data-xgis-webgpu-unavailable]')) return
-    const el = document.createElement('div')
-    el.setAttribute('data-xgis-webgpu-unavailable', '')
-    el.setAttribute('role', 'alert')
-    el.textContent = msg
-    el.style.cssText =
-      'position:absolute;inset:0;display:flex;align-items:center;justify-content:center;' +
-      'text-align:center;padding:1rem;box-sizing:border-box;' +
-      'font:14px/1.5 system-ui,-apple-system,sans-serif;color:#e5e7eb;background:#111827;'
-    if (getComputedStyle(parent).position === 'static') parent.style.position = 'relative'
-    parent.appendChild(el)
+    // DOM-building body lives in map-webgpu-unavailable.ts (§2 god-file split).
+    showWebGPUUnavailableDefault(this.canvas)
   }
 
   /** Mapbox-API parity: return the underlying canvas element.
@@ -2308,6 +2270,14 @@ export class XGISMap {
     return variants
   }
 
+  /** #1153 P1 — single staleness predicate (one authority; do not scatter the
+   *  condition). Folds `_destroyed` so destroy() need not additionally bump the
+   *  epoch (one semantic per latch). True when this run has been superseded by a
+   *  newer run, stopped, or the map was destroyed. */
+  private _epochStale(epoch: number): boolean {
+    return this._destroyed || epoch !== this._runEpoch
+  }
+
   async run(source: string, baseUrl = ''): Promise<void> {
     // Re-entry guard. A destroyed map is inert — re-running would
     // resurrect it (re-arm the render loop + hold a fresh GPUDevice for
@@ -2315,7 +2285,35 @@ export class XGISMap {
     // legitimate scene swap, but the prior run()'s ctx/renderers/stages
     // must be torn down first or its GPUDevice is orphaned.
     if (this._destroyed) return
-    if (this._loaded || this.running) this._teardownForReinit()
+
+    // D2/A1 — parse FIRST, before ANY state reset / teardown / gpuInit kickoff,
+    // so a syntax error on a live map throws while the old scene is fully intact
+    // (still rendering) and no device is ever requested. logConversionNotes moves
+    // up WITH the parse (kept before it) to preserve its fire-once-per-load,
+    // parse-outcome-independent contract. Async import resolution stays
+    // post-teardown (below): moving the whole async pipeline up re-orders too
+    // much for this phase, and a failed import still tears the old scene down.
+    if (this._logConversionNotes) logConversionNotes(source)
+    let ast: AST.Program
+    try {
+      const tokens = new Lexer(source).tokenize()
+      ast = new Parser(tokens).parse()
+    } catch (e) {
+      // A failed swap-parse is a failed boot of the NEW scene; fire the typed
+      // 'error' event (fatal:false — the map is NOT stopped, the old scene stays
+      // intact) then rethrow so the caller still sees the parse error.
+      this._eventBus.fireErrorEvent({ phase: 'boot', fatal: false, error: e })
+      throw e
+    }
+
+    // D1/A3 — claim this run's epoch AFTER a successful parse (a failed parse
+    // must not bump it: a bad run must not kill a healthy in-flight run) and
+    // BEFORE the entry teardown. Everything from here to the first await is
+    // synchronous, so no other run can interleave in between.
+    const epoch = ++this._runEpoch
+    // A4 — also tear down when a prior run PUBLISHED a ctx that no live path
+    // (running / _loaded both false mid-flight) would otherwise reclaim.
+    if (this._loaded || this.running || this._ctxOwned) this._teardownForReinit()
 
     // Reset the e2e ready signal for this load. The smoke test polls
     // __xgisReady after triggering navigation; the previous demo's
@@ -2342,14 +2340,14 @@ export class XGISMap {
       }
     })()
 
-    // 0. Kick off GPU init in parallel with the synchronous IR
-    // pipeline. `initGPU()` is dominated by `requestDevice()` which
-    // takes 100-500 ms on cold start; sequencing it after the parse
-    // path (which itself takes only ~10-15 ms) wasted that wall time.
-    // Now the device promise is in flight while we lex / parse / lower
-    // / emit, and the await down at step 2 is mostly a no-op once IR
-    // finishes. Saves ~10-15 ms on every cold load, more if any future
-    // IR pass grows.
+    // 0. Kick off GPU init in parallel with the REMAINING synchronous IR
+    // pipeline. `initGPU()` is dominated by `requestDevice()` which takes
+    // 100-500 ms on cold start; sequencing it after IR wasted that wall time.
+    // D2/A1 — the lex/parse now runs ABOVE this kickoff (a parse throw must
+    // never orphan a freshly-minted device), so the device promise overlaps the
+    // remaining pipeline (import resolution / lower / optimize / emit) rather
+    // than the parse; the await at step 2 is still mostly a no-op once IR
+    // finishes.
     //
     // GPU init has no dependency on the IR result — it just needs
     // `this.canvas`. Errors propagate exactly as before via the awaited
@@ -2371,20 +2369,8 @@ export class XGISMap {
       return err as Error
     })
 
-    // Surface converter "Conversion notes" once at load. A style run
-    // through `convertMapboxStyle` carries every dropped / approximated
-    // filter / paint as a trailing `/* Conversion notes … */` block
-    // comment; the lexer discards comments, so without this the user who
-    // loads a converted .xgis got ZERO console output even when a filter
-    // was silently widened or a paint dropped (silent wrong render). Read
-    // straight off the raw `source` string before lexing so it fires once
-    // per load, independent of parse outcome.
-    if (this._logConversionNotes) logConversionNotes(source)
-
-    // 1. Parse → resolve imports (async fetch) → IR → Commands
-    const tokens = new Lexer(source).tokenize()
-    let ast = new Parser(tokens).parse()
-
+    // 1. Resolve imports (async fetch) → IR → Commands. The lex/parse ran at
+    // the TOP of run() (pre-teardown — D2/A1); `ast` is already populated.
     // Resolve any `import { ... } from "..."` statements via fetch.
     // Errors are logged (via console.error → in-page overlay) so future
     // module-resolution failures aren't opaque on iOS.
@@ -2440,6 +2426,15 @@ export class XGISMap {
         inlineGeoJSON,
         topLevel: importedTopLevel,
       })
+    }
+    // G1 (D1/A5) — a superseding run() / stop() may have landed during import
+    // resolution. The device kicked off above is in flight; await + dispose it
+    // (a plain return would orphan it — gpuInit's .catch value-wraps rejections,
+    // so this await never throws). Also stops the stale spriteUrl write below.
+    if (this._epochStale(epoch)) {
+      const r = await gpuInit
+      if (r && !(r instanceof Error)) (r as GPUContext).rhi?.destroy()
+      return
     }
     // Wire the imported sprite atlas. An explicit constructor `spriteUrl` /
     // `setSpriteUrl(...)` already won (host-object import path), so only fill
@@ -2674,24 +2669,49 @@ export class XGISMap {
       return
     }
     if (result instanceof Error) throw result
-    // A destroy() may have landed while requestDevice() was in flight.
-    // Re-arming state now would resurrect the map AND leak this freshly-
-    // minted device for the page lifetime — destroy it and bail instead.
-    if (this._destroyed) {
+    // G2 (D1/A5) — pre-publication: a newer run() / stop() / destroy() may have
+    // landed while requestDevice() was in flight. Dispose the LOCAL result (this
+    // run hasn't published this.ctx yet, so it owns only `result`) and bail —
+    // re-arming would resurrect a stopped/destroyed map and leak this device.
+    if (this._epochStale(epoch)) {
       ;(result as GPUContext)?.rhi?.destroy()
       return
     }
     this.ctx = result
+    // A4 — this run now OWNS the published device; the entry teardown of the next
+    // run() (or destroy()) reclaims it even if this run never sets running/_loaded.
+    this._ctxOwned = true
     if (this._onDeviceLost) this.ctx.onDeviceLost = this._onDeviceLost
-    this._armDeviceLostRecovery(() => void this.run(source, baseUrl))
+    // A6 — guard the recovery closure via the single-authority _epochStale predicate
+    // (do not re-derive the condition): a genuine device loss queues recover() in a
+    // microtask; if the user calls run(newSource) / stop() / destroy() before it drains,
+    // the guard no-ops instead of resurrecting THIS old source and killing the newer run.
+    this._armDeviceLostRecovery(() => {
+      if (this._epochStale(epoch)) return
+      void this.run(source, baseUrl)
+    })
     // #797 P0/P1 — (re)attach the host DRAWING API GPU atlas + retained-icon
     // draper to this run's device (rematerialises any batches added pre-run).
     this.graphics.attachDevice(this.ctx.device, this.ctx.rhi, this.ctx.format)
-    this.renderer = new MapRendererContent(this.ctx)
-    this.renderer.setGraticuleEnabled(this._viewport.graticuleInitial)
-    this.rasterRenderer = new RasterRenderer(this.ctx)
-    this.hillshadeRenderer = new HillshadeRenderer(this.ctx)
-    if (GPU_PROF) this.gpuTimer = new GPUTimer(this.ctx)
+    // D4/A8 — the common renderer set (single authority, shared with runBinary).
+    // Palette upload stays inline BELOW (run-only; it needs only this.renderer,
+    // and renderLoop starts later, so the palette-after-pointRenderer order is
+    // pixel-invariant).
+    const rendererSet = buildSceneRenderers(this.ctx, {
+      graticuleInitial: this._viewport.graticuleInitial,
+      symbols: commands.symbols,
+    })
+    this.renderer = rendererSet.renderer
+    this.rasterRenderer = rendererSet.rasterRenderer
+    this.hillshadeRenderer = rendererSet.hillshadeRenderer
+    this.gpuTimer = rendererSet.gpuTimer
+    // Cast: pointRenderer field is a definite-assignment non-null (like ctx);
+    // buildSceneRenderers yields null only on a ctor failure, which overwrites a
+    // stale prior-run instance — part of the #7 fix (see scene-renderers.ts).
+    this.pointRenderer = rendererSet.pointRenderer as PointRenderer
+    this.shapeRegistry = rendererSet.shapeRegistry
+    this.heatmapRenderer = rendererSet.heatmapRenderer
+    this.lineRenderer = rendererSet.lineRenderer
 
     // P3 Step 3c — upload the scene-level color gradient palette to GPU
     // so MapRenderer + freshly-built VTRs sample the real atlas instead
@@ -2728,37 +2748,8 @@ export class XGISMap {
         )
       }
     }
-    try {
-      this.pointRenderer = new PointRenderer(this.ctx)
-      this.shapeRegistry = new ShapeRegistry(this.ctx.rhi)
-      // Register user-defined symbols from DSL under the `user:` namespace
-      // so they shadow built-ins of the same name instead of being silently
-      // dropped by the duplicate-name guard in `addShape`.
-      for (const sym of commands.symbols ?? []) {
-        for (const path of sym.paths) {
-          this.shapeRegistry.addUserShape(sym.name, path)
-        }
-      }
-      this.shapeRegistry.uploadToGPU()
-      this.pointRenderer.setShapeRegistry(this.shapeRegistry)
-    } catch (e) {
-      xlog.warn('[X-GIS] PointRenderer init failed:', e)
-    }
-    // Heatmap renderer (Phase R) — owns the accum pipeline + per-layer
-    // density buffers; the blur/compose pipelines live in pipeline-factory.
-    try {
-      this.heatmapRenderer = new HeatmapRenderer(this.ctx)
-    } catch (e) {
-      xlog.warn('[X-GIS] HeatmapRenderer init failed:', e)
-    }
-
-    // SDF line renderer (shared by all VTR instances)
-    try {
-      this.lineRenderer = new LineRenderer(this.ctx, this.renderer.bindGroupLayout)
-      if (this.shapeRegistry) this.lineRenderer.setShapeRegistry(this.shapeRegistry)
-    } catch (e) {
-      xlog.warn('[X-GIS] LineRenderer init failed:', e)
-    }
+    // (pointRenderer / shapeRegistry / heatmapRenderer / lineRenderer are built
+    // by buildSceneRenderers above — D4/A8.)
 
     // F1 — KICK the shader-variant pipeline prewarm HERE, before the
     // data-load `Promise.allSettled` below, so the GPU driver compiles the
@@ -2833,9 +2824,19 @@ export class XGISMap {
             showSlicesBySource,
           },
           cameraFitState,
+          // A7 — a superseded run's attach promises keep settling AFTER the
+          // winner's entry-teardown; this lets each one skip the shared-map
+          // registerVtSource write (and destroy its dead-device catalog+renderer)
+          // instead of corrupting the winner's same-key entries.
+          () => this._epochStale(epoch),
         ),
       ),
     )
+    // G3 (D1/A5) — a superseding run() / stop() may have landed across the
+    // data-load settle. Return BEFORE the rejection rethrow + the inline/heatmap
+    // seed writes so a stale run neither rethrows a dead load nor writes into the
+    // winner's shared maps.
+    if (this._epochStale(epoch)) return
     for (const r of loadResults) {
       if (r.status !== 'rejected') continue
       const reason = r.reason as { xgisReprojectFailure?: boolean } | undefined
@@ -2972,14 +2973,11 @@ export class XGISMap {
         : Promise.resolve(),
     ])
 
-    // A destroy() may have landed across the data-load / prewarm awaits.
-    // Stop before rebuildLayers + re-arming the render loop — otherwise
-    // the destroyed map resurrects and its device leaks for the page
-    // lifetime. Tear down the device we created earlier in this run().
-    if (this._destroyed) {
-      this.ctx?.rhi?.destroy()
-      return
-    }
+    // G4 (D1/A5) — supersession across the data-load / prewarm awaits. PLAIN
+    // RETURN, never destroy this.ctx: post-publication it may already be the
+    // WINNER's device (a newer run's teardown+publish overwrote it). This run's
+    // device is _ctxOwned, reclaimed by the next run()'s teardown / destroy().
+    if (this._epochStale(epoch)) return
 
     // 4. Build render layers + fit camera
     this.rebuildLayers()
@@ -2989,6 +2987,13 @@ export class XGISMap {
 
     // 6. Start render loop
     this.running = true
+    // #1155 F3 — enter cold-start burst just before the loop starts. Sources
+    // are already registered (rebuildLayers above), so the per-source flags land
+    // on every current vtSources entry; a later rebuildLayers (setProjection)
+    // re-applies via `_registerVtSource`. Placed AFTER the run() destroy-guard
+    // awaits, so a destroy() landing mid-await returns before this and never
+    // leaks the pool refcount.
+    this._enterColdStartBurst()
     this.renderLoop()
 
     console.log('[X-GIS] Map running')
@@ -3161,6 +3166,15 @@ export class XGISMap {
         if (!this._rasterShow) this._rasterShow = show
         continue
       }
+
+      // S-100 gridded-coverage source (#1158 GAP-1). The CPU-resident CoverageHandle
+      // is the value-readout authority (getCoverage(...).valueAt); narrow the marker
+      // here so it never falls through to the feature paths below. The GPU colour-
+      // ramp draw (CoverageRenderer, coverage-renderer.ts) arms + draws through the
+      // headed render gate (INC-A gate 3, PENDING in this environment) — the renderer
+      // + shader + packing are complete and unit-tested; this narrowing keeps the
+      // rebuild feature-path-safe until that draw wiring lands.
+      if ('_coverage' in data) continue
 
       // Skip vector tile sources loaded from .xgvt files
       if ('_vectorTile' in data) {
@@ -3410,7 +3424,7 @@ export class XGISMap {
       if (this.lineRenderer) vtRenderer.setLineRenderer(this.lineRenderer)
       vtRenderer.setFillRhi?.(this.renderer.fillRhiState?.() ?? null)
       vtRenderer.setSource(source)
-      this.vtSources.set(vtKey, { source, renderer: vtRenderer })
+      this._registerVtSource(vtKey, source, vtRenderer)
 
       // Phase 5f-2 opt-in path: route inline GeoJSON sources through
       // VirtualPMTilesBackend (the same pipeline URL-loaded GeoJSON
@@ -3603,9 +3617,23 @@ export class XGISMap {
     // Re-entry guard — see run(). A destroyed map stays inert; a live map
     // tears down its prior device before re-loading so it isn't orphaned.
     if (this._destroyed) return
-    if (this._loaded || this.running) this._teardownForReinit()
 
-    const scene = deserializeXGB(buffer)
+    // D2/A1 — deserialize FIRST (before teardown) so a corrupt .xgb throws while
+    // the old scene is fully intact and still rendering.
+    let scene: ReturnType<typeof deserializeXGB>
+    try {
+      scene = deserializeXGB(buffer)
+    } catch (e) {
+      // A failed .xgb decode is a failed boot of the NEW scene (fatal:false — the
+      // old scene stays intact); fire the typed event then rethrow.
+      this._eventBus.fireErrorEvent({ phase: 'boot', fatal: false, error: e })
+      throw e
+    }
+    // D1/A3 — claim the epoch after a successful decode, before the entry teardown
+    // (a failed decode must not bump it — a bad runB must not kill a healthy runA).
+    const epoch = ++this._runEpoch
+    if (this._loaded || this.running || this._ctxOwned) this._teardownForReinit()
+
     const commands: SceneCommands = {
       loads: scene.loads,
       shows: scene.shows as unknown as SceneCommands['shows'],
@@ -3641,34 +3669,40 @@ export class XGISMap {
       }
       throw e
     }
-    // A destroy() may have landed while requestDevice() was in flight —
-    // re-arming now would resurrect the map and leak this device. Destroy
-    // it and bail before assigning ctx / building renderers.
-    if (this._destroyed) {
+    // G2' (D1/A5) — pre-publication: dispose the LOCAL ctx (this run hasn't
+    // published this.ctx yet) if a newer run() / stop() / destroy() landed while
+    // requestDevice() was in flight, then bail.
+    if (this._epochStale(epoch)) {
       ctx?.rhi?.destroy()
       return
     }
     this.ctx = ctx
+    this._ctxOwned = true // A4 — this run now owns the published device.
     if (this._onDeviceLost) this.ctx.onDeviceLost = this._onDeviceLost
-    this._armDeviceLostRecovery(() => void this.runBinary(buffer, baseUrl))
+    // A6 — epoch-guard the recovery closure via _epochStale (mirror of run(); see there).
+    this._armDeviceLostRecovery(() => {
+      if (this._epochStale(epoch)) return
+      void this.runBinary(buffer, baseUrl)
+    })
     // #797 P0/P1 — (re)attach the host DRAWING API GPU atlas + retained-icon
     // draper to this run's device (rematerialises any batches added pre-run).
     this.graphics.attachDevice(this.ctx.device, this.ctx.rhi, this.ctx.format)
-    this.renderer = new MapRendererContent(this.ctx)
-    this.renderer.setGraticuleEnabled(this._viewport.graticuleInitial)
-    this.rasterRenderer = new RasterRenderer(this.ctx)
-    this.hillshadeRenderer = new HillshadeRenderer(this.ctx)
-    if (GPU_PROF) this.gpuTimer = new GPUTimer(this.ctx)
-    try {
-      this.pointRenderer = new PointRenderer(this.ctx)
-    } catch (e) {
-      xlog.warn('[X-GIS] PointRenderer init failed:', e)
-    }
-    try {
-      this.heatmapRenderer = new HeatmapRenderer(this.ctx)
-    } catch (e) {
-      xlog.warn('[X-GIS] HeatmapRenderer init failed:', e)
-    }
+    // D4/A8 — same shared renderer set as run() (the #7 fix: runBinary now gains
+    // a ShapeRegistry + LineRenderer + pointRenderer.setShapeRegistry bound to the
+    // CURRENT ctx, instead of a stale/missing binding). Binary scenes carry no
+    // user symbols, so symbols is undefined.
+    const rendererSet = buildSceneRenderers(this.ctx, {
+      graticuleInitial: this._viewport.graticuleInitial,
+      symbols: undefined,
+    })
+    this.renderer = rendererSet.renderer
+    this.rasterRenderer = rendererSet.rasterRenderer
+    this.hillshadeRenderer = rendererSet.hillshadeRenderer
+    this.gpuTimer = rendererSet.gpuTimer
+    this.pointRenderer = rendererSet.pointRenderer as PointRenderer
+    this.shapeRegistry = rendererSet.shapeRegistry
+    this.heatmapRenderer = rendererSet.heatmapRenderer
+    this.lineRenderer = rendererSet.lineRenderer
 
     for (const load of commands.loads) {
       const url =
@@ -3685,6 +3719,11 @@ export class XGISMap {
       const rawBytes = await readBodyCapped(response, MAX_XGB_BYTES, `.xgb source "${load.name}"`)
       const data = JSON.parse(new TextDecoder().decode(rawBytes)) as GeoJSONFeatureCollection
       assertIngestBudget((data as { features?: unknown }).features, `.xgb source "${load.name}"`)
+      // G3' (D1/A5) — probe staleness AFTER this iteration's safeFetch/readBodyCapped,
+      // immediately before the shared write, so a run()/stop()/destroy() landing across
+      // those awaits never overwrites the winner's same-key rawDatasets entry (and the
+      // loop can only be EXITED non-stale, keeping the synthetic-bg install below live).
+      if (this._epochStale(epoch)) return
       // No EPSG reprojection here: .xgb does not serialize a source `crs`
       // (compiler/src/serialization/format.ts:44-48 carries name+url only),
       // and runBinary never builds the sourceCRS registry — so every .xgb
@@ -3711,13 +3750,11 @@ export class XGISMap {
       commands.shows = [syntheticShow, ...commands.shows] as typeof commands.shows
     }
 
-    // A destroy() may have landed across the per-source fetch awaits.
-    // Stop before rebuildLayers + re-arming the loop, destroying the
-    // device created above so it doesn't outlive the map.
-    if (this._destroyed) {
-      this.ctx?.rhi?.destroy()
-      return
-    }
+    // G4' (D1/A5) — same winner-kill hazard as run()'s G4: a superseding run() /
+    // stop() / destroy() may have landed across the per-source fetch awaits. PLAIN
+    // RETURN, never destroy this.ctx (post-publication it may be the winner's); the
+    // next run()'s entry teardown / destroy() reclaims this run's _ctxOwned device.
+    if (this._epochStale(epoch)) return
 
     this.showCommands = commands.shows
     this._sceneHasAnimation = sceneHasAnyAnimation(commands.shows)
@@ -3728,6 +3765,7 @@ export class XGISMap {
 
     this.switchController()
     this.running = true
+    this._enterColdStartBurst() // #1155 F3 — see run(); binary path mirrors it
     this.renderLoop()
     this._fireLoadEvent()
     console.log('[X-GIS] Map running (from binary)')
@@ -3764,6 +3802,11 @@ export class XGISMap {
     // Emit move/zoom/idle lifecycle events every rAF tick (before the skip
     // gate): catches camera changes from BOTH the gesture + programmatic lanes.
     this._processCameraEvents()
+    // #1155 F3 — evaluate the cold-start burst exit at the START of every tick,
+    // BEFORE the render gate: once the scene settles shouldRenderThisFrame()
+    // goes false and renderFrame is skipped, but the rAF tick keeps firing, so
+    // the idle hysteresis still advances to its 3 consecutive idle frames.
+    this._burst.tickExit()
     if (!this.shouldRenderThisFrame()) {
       requestAnimationFrame(this.renderLoop)
       return
@@ -3771,6 +3814,22 @@ export class XGISMap {
     try {
       this.renderFrame()
       this._frameFailures = 0
+      if (this._burst.isOn) {
+        // #1155 F3 — device loss makes RenderLoop.render() early-return WITHOUT
+        // re-arming rAF (render-loop.ts): the loop dies with running still true,
+        // so this is the last tick. Release the shared-pool burst refcount here
+        // or it leaks for the page lifetime. Otherwise count the rendered frame
+        // — the exit hysteresis trusts the idle signal only after ≥1 render.
+        if (this.ctx.deviceLost) this._burst.exit()
+        // A 0×0 canvas makes RenderLoop.render() early-return before requestTiles
+        // (render-loop.ts) — nothing rendered, no cascade started. Counting it
+        // would let a map booted in a hidden/zero-size container satisfy the
+        // ≥1-render gate and exit burst (idle hysteresis) before the real first
+        // viewport ever paints; skip the note so burst survives to the real
+        // cascade (or the 10 s cap if the container never shows).
+        else if ((this.ctx.canvas?.width ?? 0) > 0 && (this.ctx.canvas?.height ?? 0) > 0)
+          this._burst.noteRenderedFrame()
+      }
     } catch (err) {
       // Surface the real message to the console / log overlay (a rAF throw
       // reaches window.onerror as "Script error. @ :0:0" under iOS WebKit).
@@ -3783,6 +3842,10 @@ export class XGISMap {
           `[X-GIS] render loop halted after ${this._frameFailures} consecutive frame failures`,
         )
         this.running = false
+        // #1155 F3 — a permanent halt must release the shared-pool burst
+        // refcount, or the module singleton stays capped at 32 forever and every
+        // other map inherits it.
+        this._burst.exit()
         // Surface the halt (previously silent — an iOS 'Script error.' blinding).
         this._eventBus.fireErrorEvent({ phase: 'halt', fatal: true, error: err })
         return
@@ -3851,6 +3914,35 @@ export class XGISMap {
         return true
     }
     return false
+  }
+
+  /** #1155 F3 — register a (catalog, renderer) pair into vtSources. Single
+   *  authority for the source registry so the cold-start burst flag is applied
+   *  to EVERY source, including one registered mid-burst: a post-run
+   *  rebuildLayers (e.g. from setProjection) re-registers sources while burst is
+   *  still converging, and the controller's enter-time applyToAllSources only
+   *  covered the sources that existed at burst entry. */
+  private _registerVtSource(key: string, source: TileCatalog, renderer: VectorTileRenderer): void {
+    this.vtSources.set(key, { source, renderer })
+    if (this._burst.isOn) {
+      source.setColdStartBurst(true)
+      renderer.setColdStartBurst(true)
+    }
+  }
+
+  /** #1155 F3 / #1167 — enter cold-start burst and arm the visibilitychange
+   *  backstop. Called from run()/runBinary() in place of a bare `_burst.enter()`.
+   *  If the viewport is mobile-class, `enter()` no-ops (desktop-only) and no
+   *  listener is armed on a burst that never engaged. The listener is idempotent
+   *  across re-runs (one document listener, removed only in destroy()). */
+  private _enterColdStartBurst(): void {
+    this._burst.enter()
+    if (typeof document === 'undefined' || this._burstVisibilityHandler || !this._burst.isOn) return
+    const handler = (): void => {
+      if (document.visibilityState === 'hidden') this._burst.exit()
+    }
+    this._burstVisibilityHandler = handler
+    document.addEventListener('visibilitychange', handler)
   }
 
   /** Classify all visible vector-tile shows into opaque and translucent
@@ -3937,6 +4029,17 @@ export class XGISMap {
    *  the scene after this call do not appear in the returned array. */
   getLayers(): readonly XGISLayer[] {
     return Array.from(this.xgisLayers.values())
+  }
+
+  /** The CPU-resident CoverageHandle for an S-100 `coverage` source (#1158 GAP-1),
+   *  or null when `sourceId` is not a loaded coverage. This is the value-readout
+   *  AUTHORITY — `map.getCoverage('bathy')?.valueAt(lon, lat)` returns the exact
+   *  positive-down value AS STORED (no sign flip), and `.meta` carries the vertical
+   *  datum code/sign + band metadata. Half-precision only ever affects the colour
+   *  path (the r16float texture), never this readout. */
+  getCoverage(sourceId: string): CoverageHandle | null {
+    const data = this.rawDatasets.get(sourceId)
+    return data && '_coverage' in data ? data._coverage : null
   }
 
   /** Mapbox GL JS-style paint property mutation (plan P6 first cut).
@@ -4164,6 +4267,13 @@ export class XGISMap {
    *  The whole-device teardown routes through the RHI (`ctx.rhi.destroy()`, #1153 A)
    *  so a forced-WebGL2 fail-loud `ctx.device` proxy is never touched. */
   private _releaseGpuResources(): void {
+    // #1155 F3 — end cold-start burst BEFORE the per-source renderers/catalogs
+    // are torn down below, so the controller's applyToAllSources still iterates
+    // live vtSources entries and the shared-pool refcount is released exactly
+    // once. Shared body of destroy() + _teardownForReinit(), so BOTH the
+    // SPA-unmount and the re-run / device-loss-recovery paths reclaim the
+    // refcount here; idempotent if the exit predicate already ended burst.
+    this._burst.exit()
     // Per-source GPU renderers + tile catalogs.
     for (const key of [...this.vtSources.keys()]) this.teardownSource(key)
 
@@ -4197,6 +4307,10 @@ export class XGISMap {
     this.ctx?.rhi?.destroy()
 
     this.vtSources.clear()
+    // A4 — the published device (if any) is released; a subsequent run()'s entry
+    // teardown must not re-enter on a stale _ctxOwned. Reclaim of a published ctx
+    // belongs exclusively here (and to destroy(), which calls this).
+    this._ctxOwned = false
   }
 
   /** Public teardown — releases every resource this map owns so an SPA
@@ -4242,6 +4356,12 @@ export class XGISMap {
     if (this._keyDownHandler) {
       this.canvas?.removeEventListener('keydown', this._keyDownHandler)
       this._keyDownHandler = null
+    }
+
+    // #1167 — cold-start burst visibilitychange backstop (armed in run()).
+    if (this._burstVisibilityHandler && typeof document !== 'undefined') {
+      document.removeEventListener('visibilitychange', this._burstVisibilityHandler)
+      this._burstVisibilityHandler = null
     }
 
     // Auto resize/DPR observers (P0-3) — teardown mirror of the ctor attach.
@@ -4322,6 +4442,18 @@ export class XGISMap {
   stop(): void {
     this.controller?.detach()
     this.running = false
+    // #1153 P1/A3 — bump the run-epoch so an in-flight run()/runBinary() dies at
+    // its next stale check (kills the post-stop() resurrection). An already-
+    // published in-flight run stays _ctxOwned and is reclaimed by the next
+    // run()/destroy() (A12 — stop() is not a release API).
+    this._runEpoch++
+    // #1155 F3 — stop() halts the render loop, so renderLoop early-returns on
+    // `!running` before tickExit (idle hysteresis) can fire again. The non-rAF cap
+    // timer would still end burst at 10 s, but that would leave the shared-pool
+    // refcount raised (every sibling map stuck at 32-per-drain) for up to 10 s
+    // after stop(). Release it immediately here; exit() clears the timer and is
+    // idempotent.
+    this._burst.exit()
   }
 
   /** Add a text overlay anchored at a geographic point. The overlay

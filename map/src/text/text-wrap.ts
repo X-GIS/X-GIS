@@ -406,6 +406,7 @@ export function wrapWithKnuthPlass(
   }
 
   // MapLibre's `hasZeroWidthSpaces` tests the WHOLE string
+  // eslint-disable-next-line no-irregular-whitespace -- documents a literal U+200B (zero-width space) in prose
   // (`this.text.includes('​')`), not per-segment — compute once
   // over every glyph and share across the `\n`-split segments.
   const hasZeroWidthSpaces = glyphs.some((g) => g.codepoint === 0x200b)

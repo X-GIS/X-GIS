@@ -40,7 +40,7 @@ function makeManager() {
 
   const mgr = new SourceManager({
     rawDatasets,
-    vtSources: new Map(),
+    registerVtSource: () => {},
     sourceCRS: new Map(), // no declared CRS ⇒ reproject is a no-op
     geojsonCapPoles: new Map(),
     heatmapPointData: new Map(),

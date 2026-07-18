@@ -443,7 +443,16 @@ export class PMTilesBackend implements TileSource {
           })
           .catch((err) => {
             xlog.error('[pmtiles worker]', (err as Error)?.stack ?? err)
-            sink.acceptResult(key, null)
+            // Double-fault guard: if this fallback acceptResult throws
+            // too, the .catch promise would reject and the .finally below
+            // would re-reject it → an unhandled promise rejection.
+            // Swallow + log so the chain settles cleanly; .finally still
+            // frees the loading slot.
+            try {
+              sink.acceptResult(key, null)
+            } catch (acceptErr) {
+              xlog.error('[pmtiles worker]', (acceptErr as Error)?.stack ?? acceptErr)
+            }
           })
           .finally(() => {
             sink.releaseLoading(key)
@@ -565,6 +574,7 @@ export class PMTilesBackend implements TileSource {
             lineVertices: tile.lineVertices,
             lineIndices: tile.lineIndices,
             pointVertices: tile.pointVertices,
+            // eslint-disable-next-line @typescript-eslint/no-deprecated -- reads the deprecated always-empty outlineIndices during the outline-frame migration
             outlineIndices: tile.outlineIndices,
             outlineVertices: tile.outlineVertices,
             outlineLineIndices: tile.outlineLineIndices,
@@ -606,7 +616,15 @@ export class PMTilesBackend implements TileSource {
       if (!emittedAny) sink.acceptResult(key, null)
     } catch (err) {
       xlog.error('[pmtiles inline]', (err as Error)?.stack ?? err)
-      sink.acceptResult(key, null)
+      // Double-fault guard: a throw from this fallback acceptResult would
+      // propagate out of compileInline and out of tick() (a synchronous
+      // per-frame call). Swallow + log; tick()'s finally still frees the
+      // loading slot.
+      try {
+        sink.acceptResult(key, null)
+      } catch (acceptErr) {
+        xlog.error('[pmtiles inline]', (acceptErr as Error)?.stack ?? acceptErr)
+      }
     }
   }
 

@@ -220,6 +220,7 @@ function buildShell(state: InspectorState): void {
       document.body.appendChild(ta)
       ta.select()
       try {
+        // eslint-disable-next-line @typescript-eslint/no-deprecated -- document.execCommand('copy') is the widest-support clipboard path for this dev inspector
         document.execCommand('copy')
       } finally {
         ta.remove()
@@ -398,9 +399,9 @@ function renderTiles(state: InspectorState, map: XGISMap | undefined): string {
     if (ds.tilesVisible > state.peaks.tilesVisible) state.peaks.tilesVisible = ds.tilesVisible
     if (ds.drawCalls > state.peaks.drawCalls) state.peaks.drawCalls = ds.drawCalls
     if (ds.missedTiles > state.peaks.missedTiles) state.peaks.missedTiles = ds.missedTiles
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+
     const cat = r.source as any
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+
     const backend = cat?.backends?.[0] as any
     lines.push(`── ${name} ──`)
     lines.push(`tilesVis     : ${ds.tilesVisible} (peak ${state.peaks.tilesVisible})`)
@@ -423,7 +424,6 @@ function renderTiles(state: InspectorState, map: XGISMap | undefined): string {
       const byZ = new Map<number, number>()
       for (const inner of r.gpuCache.values()) {
         for (const tile of inner.values()) {
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
           const tz = (tile as any).tileZoom
           if (typeof tz === 'number') byZ.set(tz, (byZ.get(tz) ?? 0) + 1)
         }
@@ -440,7 +440,7 @@ function renderTiles(state: InspectorState, map: XGISMap | undefined): string {
       // here past currentZ at flat pitch is real over-detail (the
       // gpu-retained spread above can include lingering LRU tiles
       // that aren't rendered).
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+
       const drawnMap = (r as any)._frameDrawnByZoom as Map<number, number> | undefined
       if (drawnMap && drawnMap.size > 0) {
         const drawnKeys = [...drawnMap.keys()].sort((a, b) => a - b)
@@ -491,7 +491,6 @@ function renderGPU(_state: InspectorState, map: XGISMap | undefined): string {
   const lines: string[] = []
   const ctx = map.ctx
   if (ctx?.adapter || ctx?.device) {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const ad = ctx.adapter as any
     const features: string[] = []
     if (ctx.device?.features) {
@@ -585,7 +584,7 @@ function renderCache(state: InspectorState): string {
 function renderCamera(_state: InspectorState, map: XGISMap | undefined): string {
   if (!map?.camera) return '(no map)'
   const cam = map.camera
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+
   const c = cam as any
   // mercator → lat/lon
   const R = 6378137
@@ -690,7 +689,6 @@ function fmtMB(bytes: number): string {
 
 function installCacheTelemetry(stats: CacheStats): void {
   setTimeout(() => {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const map = (window as any).__xgisMap as XGISMap | undefined
     if (!map?.vtSources) {
       // try again in 500 ms; the map might still be initialising.
@@ -698,7 +696,6 @@ function installCacheTelemetry(stats: CacheStats): void {
       return
     }
     for (const { renderer } of map.vtSources.values()) {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const r = renderer as any
       if (r.__xgisInspectorPatched) continue
       r.__xgisInspectorPatched = true
@@ -740,7 +737,7 @@ function installCacheTelemetry(stats: CacheStats): void {
       }
       // PMTilesBackend.loadTile + abortControllers — count fetch
       // starts / aborts.
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+
       const backend = cat?.backends?.[0] as any
       if (backend?.loadTile) {
         const orig = backend.loadTile.bind(backend)

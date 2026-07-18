@@ -75,7 +75,7 @@ import type { TileData } from '@xgis/data'
 import { computeSliceKey } from '@xgis/data'
 import { mercator as mercatorProj, getProjection, type Projection } from '@xgis/geo'
 import { SELECTOR_PROJ_NAMES } from '@xgis/geo'
-import { routeToSphereSelector } from '@xgis/geo'
+import { bakesVectorDrape } from '@xgis/geo'
 import { VectorDrapeRenderer } from './vector-drape-renderer'
 import type { PointRenderer } from './point-renderer'
 import type { LineRenderer } from './line-renderer'
@@ -461,6 +461,12 @@ export class VectorTileRenderer {
   }
   /** Renderer-side GPU tile-upload pipeline (Cluster A sibling). See ctor. */
   private readonly _uploads: UploadCoordinator
+
+  /** #1155 F3 — cold-start burst flag. While on, the per-render upload budgets
+   *  are raised: uploadBudgetFor's concurrent-job cap (passed at the setMaxJobs
+   *  call) AND the coordinator's per-frame enqueue cap. Off by default so the
+   *  steady-state upload pacing is unchanged. */
+  private _coldStartBurst = false
 
   /** Swapchain color format, captured from the GPUContext so bundle
    *  descriptors can declare the correct color attachment format. */
@@ -1949,6 +1955,18 @@ export class VectorTileRenderer {
     // point. ACTIVE coroutines are handled by the pre-submit guard in
     // the coordinator's async dispatch via its _destroyed flag.
     this._uploads.destroy()
+    // R1 (#1153 P2) — release the staging pool the coordinator borrows from.
+    // MUST run AFTER _uploads.destroy() has set its _destroyed flag: an
+    // in-flight async upload that resumes on the staging mapAsync round-trip
+    // post-destroy skips its submit and hands its slot back to this now-disposed
+    // pool, which then DESTROYS it rather than pooling it into a dead free-list.
+    // Before this the tiered pool (up to ~16 MB) leaked on every setSourceData
+    // swap until GC timing (GPU bytes exert no JS GC pressure — the iOS staircase).
+    this.stagingPool.dispose()
+    // Drop every cached GPURenderBundle. Bundles are GC-owned (no destroy()), so
+    // this just releases the JS refs the cache pinned for the renderer's whole
+    // life — the VTR owns the cache but destroy() never cleared it.
+    this.bundleCache.invalidateAll()
     // Compute resources: per-tile ComputeLayerHandle instances own
     // (feat / out / count) buffer trios. Free them before the legacy
     // buffer loop so device memory is reclaimed in one pass.
@@ -2074,6 +2092,15 @@ export class VectorTileRenderer {
    *  forwarder to the upload coordinator. */
   private cancelStaleUploads(activeKeys: ReadonlySet<number>): void {
     this._uploads.cancelStale(activeKeys)
+  }
+
+  /** #1155 F3 — flip cold-start burst. Stores the flag for the per-render
+   *  uploadBudgetFor call (concurrent maxJobs) and forwards to the upload
+   *  coordinator (per-frame enqueue cap). Driven by the map's burst controller
+   *  (map-cold-start-burst.ts) on enter/exit + at mid-burst source registration. */
+  setColdStartBurst(on: boolean): void {
+    this._coldStartBurst = on
+    this._uploads.setColdStartBurst(on)
   }
 
   /** Render visible tiles into a render pass */
@@ -3099,7 +3126,9 @@ export class VectorTileRenderer {
       this._uploads.installPriority(this._distSqStable)
       this._priorityInstalled = true
     }
-    this._uploads.setMaxJobs(uploadBudgetFor(canvasWidth, canvasHeight, dpr))
+    // #1155 F3 — pass the burst flag so the concurrent-upload cap rises to 8/4
+    // during cold start (signature-compatible; false in steady state).
+    this._uploads.setMaxJobs(uploadBudgetFor(canvasWidth, canvasHeight, dpr, this._coldStartBurst))
 
     // Visible-tile fetches: ALWAYS issued, like parentKeys. The
     // earlier `cameraIdle` gate here was a heat mitigation that
@@ -3128,15 +3157,15 @@ export class VectorTileRenderer {
 
     // NOW draw (tiles are guaranteed in gpuCache if they compiled synchronously)
 
-    // #599 I2 — globe vector great-circle drape. On the sphere route a flat fill
-    // triangle spanning a big arc projects as a CHORD under the curved sphere;
-    // instead each resident tile's fill bakes to a texture (I1) and drapes onto
-    // the raster sphere grid (VectorDrapeRenderer) so it hugs the curve. Gated to
-    // sphere route + WebGPU (bake is WebGPU-only) + NON-extruded + CONSTANT fill
-    // (I1 bakes the default fill pipeline). `__XGIS_DISABLE_VECTOR_DRAPE` forces
-    // the direct chord draw (A/B + safety); off the globe the fill is unchanged.
+    // #599 I2 — globe/sphere vector great-circle drape. On a curved-surface route a
+    // flat fill triangle spanning a big arc projects as a CHORD under the sphere, so
+    // instead each resident tile's fill bakes to a texture (I1) and drapes onto the
+    // raster sphere grid (VectorDrapeRenderer) to hug the curve. `bakesVectorDrape`
+    // gates it to the {3,4,5}∪globeMode surface — oblique(6) is cylindrical/flat-MVP
+    // at all pitches so it is EXCLUDED (renders direct). WebGPU + NON-extruded +
+    // CONSTANT fill only; `__XGIS_DISABLE_VECTOR_DRAPE` forces the direct chord draw.
     this._drapeGlobeFills =
-      routeToSphereSelector(projType, camera.globeMode) &&
+      bakesVectorDrape(projType, camera.globeMode) &&
       this.rhi.backend !== 'webgl2' &&
       this.currentExtrudeMode === 'none' &&
       // The I1 bake is the DEFAULT fill pipeline (single `fill_color`), so it

@@ -12,7 +12,8 @@
 //   2. `NON_BUILTIN_CALLEES` — the legal callees handled OUTSIDE
 //      callBuiltin (evaluator special forms + colour/codegen forms +
 //      the `load` source loader), each traced to its stage below.
-//   3. User-declared `fn` (and imported) names collected from the program.
+//   3. `import`ed names collected from the program (the sole program-side
+//      callables since #1072 pruned the `fn` keyword).
 //
 // Diagnostics flow through the unified #1065 channel as `X-GIS0012` errors,
 // carrying a nearest-name `help` suggestion. Callee positions that the
@@ -66,8 +67,8 @@ const KNOWN_NAMES: readonly string[] = [...BUILTIN_FN_NAMES, ...NON_BUILTIN_CALL
 /**
  * Validate every `FnCall` callee in `program`, pushing an `X-GIS0012`
  * error diagnostic for each unknown name. `program` is the parsed AST
- * (post import-resolution), so user `fn` declarations are present as
- * `FnStatement`s. Mutates `diagnostics` in place — the same array lower()
+ * (post import-resolution), so any `import`ed callable names are present
+ * as `ImportStatement`s. Mutates `diagnostics` in place — the same array lower()
  * already threads through every stage.
  */
 export function validateFnCalls(program: AST.Program, diagnostics: Diagnostic[]): void {
@@ -76,7 +77,7 @@ export function validateFnCalls(program: AST.Program, diagnostics: Diagnostic[])
 }
 
 /** Every name a call may legally resolve to besides the builtins: the
- *  `import`ed names (a call could target an imported fn). The `fn` keyword
+ *  `import`ed names (a call could target one of them). The `fn` keyword
  *  and the imperative `if`/`for` statement forms were pruned by #1072, so
  *  imports (top-level only) are now the sole non-builtin callable source. */
 function collectDeclaredNames(program: AST.Program): Set<string> {

@@ -544,6 +544,24 @@ export interface RhiDevice {
    *  optional `label` rides the native `GPUCommandEncoder` (DevTools attribution,
    *  WebGPU). WebGL2 returns a copy-only encoder (beginRenderPass throws). */
   createCommandEncoder?(label?: string): RhiCommandEncoder
+
+  // ── Context-loss lifecycle (additive, OPTIONAL) ──────────────────────────────
+  // WebGPU signals device loss via `GPUDevice.lost` (a Promise the boot awaits,
+  // gpu.ts). WebGL2 signals it via DOM 'webglcontextlost' / 'webglcontextrestored'
+  // events on the canvas. These OPTIONAL hooks let the boot subscribe to a
+  // backend's native loss/restore signal WITHOUT naming a DOM event: `WebGl2Device`
+  // owns the canvas listeners + `preventDefault()` (the restorability contract)
+  // and fans out to the registered callbacks; `WebGpuDevice` OMITS them (its loss
+  // path is the native `GPUDevice.lost` promise). Additive + optional so a backend
+  // with no separate context-loss event simply doesn't implement them (#1153 P2 R3).
+
+  /** Subscribe to backend context loss (WebGL2 'webglcontextlost'). The device
+   *  calls `preventDefault()` on the native event — required for the browser to
+   *  ever restore the context — before invoking `cb`. Omitted on backends whose
+   *  loss path is elsewhere (WebGPU: `GPUDevice.lost`). */
+  onContextLost?(cb: () => void): void
+  /** Subscribe to backend context restore (WebGL2 'webglcontextrestored'). */
+  onContextRestored?(cb: () => void): void
 }
 
 /** The screen-pass lifecycle as a NON-optional capability (#783). The methods are

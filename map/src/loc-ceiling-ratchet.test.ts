@@ -93,7 +93,15 @@ const CEILINGS: Record<string, number> = {
   // 4487→4494 (#1154): pattern_active flag written per fill draw (both the
   // pattern/else branch at the fill_translate site + the three sentinel paths)
   // so the VS knows to gate off fill-translate when a pattern owns those slots.
-  'map/src/render/vector-tile-renderer.ts': 4494,
+  // 4494→4506 (#1153 P2 R1): destroy() now releases the two GPU pools it owns but
+  // previously leaked — stagingPool.dispose() (the ≤16 MB tiered staging pool, the
+  // iOS staircase) + bundleCache.invalidateAll() — with their rationale (+12).
+  // 4494→4511 (#1155 F3): cold-start burst forwarder — the `_coldStartBurst`
+  // field + `setColdStartBurst` + the burst flag on the per-render
+  // uploadBudgetFor/setMaxJobs call. (Ceiling corrected from a padded 4513 to the
+  // measured post-prettier 4511 — #1155 F3 adjudication, shrink-only high-water.)
+  // Merge union (#1170 <- origin/main): both bumps stacked non-overlappingly on VTR (destroy() +12 AND cold-start burst +17), so the merged high-water is the measured 4523, not either standalone value.
+  'map/src/render/vector-tile-renderer.ts': 4523,
   // 4232→4237 (#1000 heatmap relocate): the heatmap density-target OWNERSHIP
   // extracted to render/heatmap-targets.ts; map keeps only the irreducible
   // composition-root wiring — the `heatmapTargets` field + its import (mirrors
@@ -126,21 +134,61 @@ const CEILINGS: Record<string, number> = {
   // all at the run() flow with block comments documenting the reorder. Pure
   // latency overlap, no behaviour change (§2 — composition-root reorder,
   // nothing extract-worthy). Lower as #991 decomposes map.ts.
-  // 4336→4337 (pick pre-gate): ONE composition-root line — the `anyLayerListens`
-  // dep wiring the EventDispatcher's pre-pick gate to InteractionController (which
-  // already owns `xgisLayers` and the layer reverse-resolve, so the scan lives
-  // there, not here). Without it `fireOnce` had to run a GPU pick readback BEFORE
-  // it could ask whether anyone listened — the dep's own doc already promised to
-  // "skip the pickAt/buildFeature path entirely" in that case. Dep injection at
-  // the composition root; nothing extract-worthy (§2). Lower as #991 decomposes
-  // map.ts.
-  // 4337→4360 (#777 Phase II): the raster-dem → HillshadeRenderer wiring — the
-  // hillshadeRenderer + _hillshadeShow fields, the two ctor init sites, the
+  // 4336→4398 (#1155 F3): cold-start burst lifecycle hooks — the state machine
+  // itself was EXTRACTED to map-cold-start-burst.ts (ColdStartBurstController,
+  // mirrors device-lost-recovery.ts); map keeps only the irreducible wiring: the
+  // `_burst` field + deps closure, `_registerVtSource`, and the enter/tick/note/
+  // exit calls at run/runBinary/renderLoop/_releaseGpuResources.
+  // 4398→4411 (#1155 F3 adjudication): stop() now releases the burst refcount
+  // (it was leaking the shared MVT pool for the page lifetime + disabling the
+  // 10 s cap); the rendered-frame note skips 0×0 early-return frames so a map
+  // booted hidden keeps burst for its real first cascade; and the polar-cap +
+  // source-manager registrations route through `_registerVtSource` (single
+  // write authority) so a source attached mid-burst inherits the flags.
+  // 4411→4446 (#1167 F3 real-GPU adjudication): desktop-only burst gate
+  // (`viewportEligible` deps closure — mobile keeps steady 4/1 as a CONSERVATIVE
+  // default; the mobile regression it originally guarded was not statistically
+  // established under a permutation test, but the desktop convergence win was)
+  // + the visibilitychange backstop (`_burstVisibilityHandler` field +
+  // `_enterColdStartBurst` helper that arms it, destroy() removes it) so a hidden
+  // tab reclaims the shared pool's raised drain cap at once. The non-rAF
+  // wall-clock timer that makes the 10 s cap real lives in the extracted
+  // controller (map-cold-start-burst.ts), not here.
+  // 4446→4447 (#1176 pick pre-gate, merged): the anyLayerListens dep wired at
+  // the composition root so fireOnce skips the GPU pick readback when nobody
+  // listens (§2 wiring, nothing extract-worthy).
+  // 4447→4371 (a11y + webgpu-unavailable extraction): the P0-7 accessibility
+  // trio (_setupAccessibility / _injectFocusStyle / _onKeyDown) moved to
+  // map-accessibility.ts and the WebGPU-unavailable DOM builder moved to
+  // map-webgpu-unavailable.ts (both free-function modules); map keeps only thin
+  // wrappers. Pure mechanical extraction, identical runtime behaviour.
+  // 4336→4356 (#1158 GAP-1 INC-A): the `coverage` source public API + marker narrow —
+  // `getCoverage(sourceId)` (the CoverageHandle value-readout accessor, doc §6) + the
+  // `{ _coverage }` rebuildLayers narrowing (keeps the rebuild feature-path-safe). +20,
+  // both at existing composition-root sites; nothing extract-worthy (§2).
+  // Merge (#1174): main's F3/#1167/#1176/extraction chain (→4371) UNION the #1158
+  // GAP-1 INC-A coverage API above; ceiling re-measured to the merged file's actual
+  // size (wc -l = 4391).
+  // 4391→4469 (#1153 P1 lifecycle hardening): the run-epoch token (`_runEpoch` +
+  // `_ctxOwned` + the `_epochStale` single-authority predicate) and its eight
+  // post-await guards across run()/runBinary() (dispose-local pre-publication,
+  // plain-return post-publication), parse-first (the tokenize/parse moved to the
+  // top under a try/catch that fires the typed boot error before any teardown or
+  // gpuInit kickoff), the epoch-guarded device-lost recovery closures (A6), and
+  // the A7 `isStale` thread into the load loop. NET of the D4 extraction: the
+  // shared renderer set moved to scene-renderers.ts (buildSceneRenderers), but the
+  // seven-field assignment at BOTH run() and runBinary() call sites plus the
+  // per-guard constraint comments outweigh the ~30 lines removed. The extraction
+  // itself is the right cut (single authority, also fixes runBinary's missing
+  // shapeRegistry/lineRenderer, #7); the remainder is irreducible in-flow wiring.
+  // 4469→4492 (#777 Phase II, merged): the raster-dem → HillshadeRenderer wiring —
+  // the hillshadeRenderer + _hillshadeShow fields, the two ctor init sites, the
   // rebuildLayers reset + `_dem`-marker arm branch, and the rebuildForQuality
-  // hook. Irreducible: these are class-member declarations + the source-dispatch
-  // arm that must sit in rebuildLayers where the source markers are read. The DEM
-  // decode itself was extracted to hillshade-renderer.ts (armHillshadeSource).
-  'map/src/map.ts': 4360,
+  // hook. Irreducible: class-member declarations + the source-dispatch arm that
+  // must sit in rebuildLayers where the source markers are read. The DEM decode
+  // itself was extracted to hillshade-renderer.ts (armHillshadeSource). Ceiling
+  // re-measured to the merged file's actual size.
+  'map/src/map.ts': 4492,
   // 1920→1930 (#1042 R3): the globe limb cull for MULTI-LINE labels must land in
   // the collision phase — the ONLY site holding the label's quad half-height (the
   // collision box IS the height authority; the label-pass dispatch site has only
@@ -217,7 +265,10 @@ const CEILINGS: Record<string, number> = {
   // and the fill-translate `if (pattern_active == 0)` gate in the three VS entries
   // (vs_main / vs_main_ecef / vs_main_ecef_extruded) — fixes blank fill-patterns.
   'map/src/shaders/dsl/polygon.ts': 1339,
-  'data/src/tile-catalog.ts': 1290,
+  // 1290→1314 (#1155 F3): cold-start burst tick budget — the `_coldStartBurst`
+  // field + `_BURST_TICK_BUDGET` + `setColdStartBurst` + the burst-selected
+  // budget in resetCompileBudget's backend tick loop.
+  'data/src/tile-catalog.ts': 1314,
   // 1173→1180 (#1046 F1): thread the required `rhi: RhiDevice` onto the FrameContext at
   // both build sites — the main-chain init literal and the twin label stage — so a seam
   // can reach `ctx.rhi.caps.*` (doc §3-F1). +7 = two assignments + their rationale comments;
@@ -228,10 +279,15 @@ const CEILINGS: Record<string, number> = {
   // held-off field (+ its doc) and the twin early-return's routing comment/guard (doc
   // §3-F3). +17, all documentation of the held-off switch; the guard is byte-identical
   // (the twin still renders). F6 slashes this file to ~880 (twin deletion).
-  // 1205→1206 (#777 Phase II): the hillshadeRenderer.beginFrame() deferred-eviction
-  // hook, next to rasterRenderer.beginFrame(). Irreducible: per-frame eviction must
-  // run in the beginFrame sweep alongside the other tile renderers.
-  'map/src/render-loop.ts': 1206,
+  // 1205→1213 (#1153 P2 R6): the WebGL2 takeGlErrors drain now routes through the
+  // shared capped writer `pushValidationError` (rhi-webgpu) so the _validationErrors
+  // queue can't grow unbounded — the 4-name import expansion + the drain-loop doc.
+  // 1213→1238 (#777 Phase II, merged): the hillshadeRenderer.beginFrame() eviction
+  // hook + the HillshadePass ported into the forced-WebGL2 twin (renderFrameViaRhi,
+  // after translucent) + the applyHillshadePaint import — so relief renders under
+  // ?forcegl2=1 (the _hillshade-gl2-gate). Irreducible in-flow twin wiring; ceiling
+  // re-measured to the merged file's actual size.
+  'map/src/render-loop.ts': 1238,
   'map/src/render/point-renderer.ts': 1140,
   // 1106→1120 (#1043 state-hygiene): three unmask-before-clear / state-reset fixes for the
   // WebGL2 flicker class — beginScreenPass colorMask unmask (the colour sibling of #746/#780),
@@ -256,7 +312,16 @@ const CEILINGS: Record<string, number> = {
   // WEBGL_lose_context). An interface method cannot be extracted out of its class, so this
   // is irreducible growth (+7); the map's teardown routes through it instead of the raw
   // fail-loud ctx.device proxy, killing the deterministic webgl2 teardown crash.
-  'rhi-webgl2/src/rhi-webgl2.ts': 1292,
+  // 1292→1341 (#1153 P2 R3): WebGl2Device now OWNS the canvas context-loss listeners —
+  // the guarded 'webglcontextlost'/'restored' ctor attach (preventDefault + fan-out to
+  // onContextLost/onContextRestored subscribers), the two subscription methods, the
+  // bound-handler fields, and the destroy() removeEventListener-BEFORE-loseContext
+  // teardown (the intentional-teardown guard). A device owning its own listeners can't
+  // extract them; irreducible (+49).
+  // 1354→1364 (#1049): createPipeline fail-loud guard rejecting an unsupported nonzero
+  // depthStencil.bias.clamp (gl.polygonOffset has no clamp param) — inline descriptor
+  // validation at the createPipeline entry, not extractable (+10).
+  'rhi-webgl2/src/rhi-webgl2.ts': 1364,
   'map/src/render/renderer.ts': 965,
   'map/src/render/gpu-tile-store.ts': 941,
   // 930→948 (#1078): the zoom-transition readiness gate now probes the SAME
@@ -285,7 +350,19 @@ const CEILINGS: Record<string, number> = {
   // 876→889: visible-first cap-deferral — `_distSq` field + `resetFrameCap`
   // sorts the held backlog NEAREST-first so a zoom-in's visible slices upload
   // ahead of the accumulated far/ancestor backlog (the ~30 s stall fix).
-  'map/src/render/upload-coordinator.ts': 889,
+  // Baselined 807 (#1153 P2 R4): raster-renderer crossed 800 for the WebGL2 tile-load
+  // robustness fix — loadTileTexture's try/catch (close the decoded bitmap + destroy
+  // any half-created texture, resolve null to the WebGPU contract) + the two async load
+  // chains' `.catch` that un-wedges the loadingTiles slot (a createTexture throw on a
+  // lost context otherwise pins all 6 slots → raster stops + the loop never idles).
+  // A cohesive renderer, not a new god-file; shrink as #991 decomposes the render SCC.
+  'map/src/render/raster-renderer.ts': 809,
+  // 889→906 (#1155 F3): cold-start burst enqueue cap — the `_coldStartBurst`
+  // field + `setColdStartBurst` + the burst-selected 8/4 cap in enqueue().
+  // 906→910 (#1155 F3 adjudication): the burst 8/4 pair now comes from the
+  // shared `burstUploadBudget` authority (import + call + note) so the enqueue
+  // cap and uploadBudgetFor's maxJobs can't drift out of lockstep.
+  'map/src/render/upload-coordinator.ts': 910,
   'map/src/shaders/dsl/projections.ts': 811,
   // #1005 — carried from the runtime arch-invariants Gate 3 (re-measured
   // 2026-07-13; lower.ts had shrunk 1452→1409, the tighter value carried).

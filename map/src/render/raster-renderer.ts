@@ -240,7 +240,7 @@ export class RasterRenderer {
     return (this._rasterDraper ??= new RasterDraper(
       this.rhi,
       this.format,
-      this.rhi.backend === 'webgl2' ? 1 : getSampleCount(),
+      Math.min(getSampleCount(), this.rhi.caps.maxSampleCount),
     ))
   }
 
@@ -430,14 +430,26 @@ export class RasterRenderer {
     if (this.rhi.backend !== 'webgl2') return loadImageTexture(this.device, url, signal)
     const bitmap = await loadImageBitmap(url, signal)
     if (!bitmap) return null
-    const tex = this.rhi.createTexture({
-      width: bitmap.width,
-      height: bitmap.height,
-      format: 'rgba8unorm',
-      usage: ['sample', 'copy-dst'],
-      label: 'raster-tile',
-    })
-    this.rhi.copyExternalImage(tex, bitmap, bitmap.width, bitmap.height)
+    // #1153 P2 R4 — createTexture throws on a lost context (rhi-webgl2 :963) and
+    // copyExternalImage can throw too. Release the decoded bitmap + any
+    // half-created texture and normalise to the WebGPU null contract
+    // (loadImageTexture returns null on failure) so the caller's loadingTiles key
+    // is released rather than wedged; the chain's .catch is the outer backstop.
+    let tex: RhiTexture | null = null
+    try {
+      tex = this.rhi.createTexture({
+        width: bitmap.width,
+        height: bitmap.height,
+        format: 'rgba8unorm',
+        usage: ['sample', 'copy-dst'],
+        label: 'raster-tile',
+      })
+      this.rhi.copyExternalImage(tex, bitmap, bitmap.width, bitmap.height)
+    } catch {
+      bitmap.close()
+      if (tex) this.rhi.destroyTexture(tex)
+      return null
+    }
     bitmap.close()
     return tex
   }
@@ -546,16 +558,23 @@ export class RasterRenderer {
       this.loadingTiles.set(key, ctrl)
       const url = tileUrl(this.urlTemplate, coord)
 
-      this.loadTileTexture(url, ctrl.signal).then((texture) => {
-        this.loadingTiles.delete(key)
-        if (!texture) return
-        this.tileCache.set(key, {
-          texture,
-          lastUsedFrame: this.frameCount,
-          firstShownFrame: this.frameCount,
+      this.loadTileTexture(url, ctrl.signal)
+        // #1153 P2 R4 — narrow the release to the LOAD promise: an expected load
+        // failure (bitmap fetch reject, or createTexture throw on a lost context)
+        // resolves to null so the .then ALWAYS frees the loadingTiles slot (else the
+        // key wedges, pinning all MAX_CONCURRENT slots → raster stalls). Scoped here so
+        // a throw from the .then bookkeeping stays a visible unhandled rejection, not swallowed.
+        .catch(() => null)
+        .then((texture) => {
+          this.loadingTiles.delete(key)
+          if (!texture) return
+          this.tileCache.set(key, {
+            texture,
+            lastUsedFrame: this.frameCount,
+            firstShownFrame: this.frameCount,
+          })
+          this.evictTiles(visibleKeys)
         })
-        this.evictTiles(visibleKeys)
-      })
     }
 
     // Write global uniforms through the typed block (#733 P2b — the single
@@ -603,15 +622,20 @@ export class RasterRenderer {
         this.loadTileTexture(
           tileUrl(this.urlTemplate, { z: parentZ, x: parentX, y: parentY, ox: parentX }),
           ctrl.signal,
-        ).then((texture) => {
-          this.loadingTiles.delete(parentKey)
-          if (texture)
-            this.tileCache.set(parentKey, {
-              texture,
-              lastUsedFrame: this.frameCount,
-              firstShownFrame: this.frameCount,
-            })
-        })
+        )
+          // #1153 P2 R4 — same un-wedge backstop for the parent-fallback chain, with
+          // the catch scoped to the LOAD promise so a .then-body throw still surfaces.
+          .catch(() => null)
+          .then((texture) => {
+            this.loadingTiles.delete(parentKey)
+            if (texture)
+              this.tileCache.set(parentKey, {
+                texture,
+                lastUsedFrame: this.frameCount,
+                firstShownFrame: this.frameCount,
+              })
+          })
+          .catch((e) => console.error('[X-GIS] raster parent-tile post-load bookkeeping failed', e))
       }
     }
 

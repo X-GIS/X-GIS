@@ -8,6 +8,7 @@ import { ECEF_CONSTS, ECEF_FUNCS } from './ecef'
 // of how the WGSL is now formatted (the absorption is NOT byte-identical to the old raw
 // string, so byte-cmp can't be the gate; math-equivalence is).
 const WGS84_A = 6378137.0
+// eslint-disable-next-line no-loss-of-precision -- mirrors the exact WGS84 e^2 constant under test
 const WGS84_E2 = 0.0066943799901975955
 function ref(lonRad: number, latRad: number, h: number): [number, number, number] {
   const s = Math.sin(latRad)

@@ -12,8 +12,9 @@
 // per-tile offscreen vector-fill bake (VectorTileRenderer.bakeTileToTexture, I1
 // #990). No new sphere shader; drape fidelity is inherited from the raster path.
 //
-// SPHERE ROUTE ONLY — the caller (VectorTileRenderer) gates this behind
-// routeToSphereSelector, so the flat / Mercator vector path stays byte-identical.
+// SPHERE-SURFACE ROUTE ONLY — the caller (VectorTileRenderer) gates this behind
+// bakesVectorDrape ({3,4,5}∪globeMode; oblique(6) is EXCLUDED → renders direct),
+// so the flat / Mercator / oblique vector path stays byte-identical.
 
 import type { RhiDevice, RhiTexture, RhiRenderPass } from '@xgis/engine'
 import { uniformBlock, isPickEnabled, type UniformBlockOf } from '@xgis/engine'

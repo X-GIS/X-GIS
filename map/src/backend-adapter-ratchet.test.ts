@@ -131,6 +131,12 @@ const BASELINE: Record<string, number> = {
   'map/src/render/under-occluder-renderer.ts': 1,
   'map/src/render/upload-coordinator.ts': 2,
   'map/src/render/vector-tile-renderer.ts': 4,
+  // Composition-root boot relocated out of map.ts (#1153 P1): buildSceneRenderers
+  // carries run()/runBinary()'s verbatim renderer-set boot (GPUTimer + GPUContext
+  // type), so both entry points share one authority. Same relocation pattern as
+  // palette-textures (#1000) — moved coupling, not new coupling; map.ts stays 4
+  // because GPUTimer shared its import statement. Routes neutral with #991 P6.
+  'map/src/scene-renderers.ts': 1,
   'map/src/source-manager.ts': 1,
   'map/src/sprite/host-sprite-atlas-gpu.ts': 1,
   'map/src/sprite/icon-renderer.ts': 2,

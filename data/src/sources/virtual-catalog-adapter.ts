@@ -27,9 +27,11 @@ const MAX_INFLIGHT = 32
 
 export class VirtualCatalogAdapter implements TileSource {
   readonly meta: TileSourceMeta
+  // eslint-disable-next-line @typescript-eslint/no-deprecated -- adapter bridges the deprecated VirtualCatalog to VirtualTileFetcher
   private catalog: VirtualCatalog
   private sink: TileSourceSink | null = null
 
+  // eslint-disable-next-line @typescript-eslint/no-deprecated -- adapter bridges the deprecated VirtualCatalog to VirtualTileFetcher
   constructor(catalog: VirtualCatalog) {
     this.catalog = catalog
     this.meta = {
@@ -81,6 +83,7 @@ export class VirtualCatalogAdapter implements TileSource {
                 lineVertices: tile.lineVertices,
                 lineIndices: tile.lineIndices,
                 pointVertices: tile.pointVertices,
+                // eslint-disable-next-line @typescript-eslint/no-deprecated -- reads the deprecated always-empty outlineIndices during the outline-frame migration
                 outlineIndices: tile.outlineIndices,
                 outlineVertices: tile.outlineVertices,
                 outlineLineIndices: tile.outlineLineIndices,

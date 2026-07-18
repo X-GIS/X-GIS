@@ -4,16 +4,19 @@
 // (`_attachOneSource` / `_attachGeoJSONViaVirtualPMTiles` /
 // `_attachInlineGeoJSONViaVirtualPMTiles` / `_reprojectIngest` /
 // `setSourceData`) live here. XGISMap keeps the source-state Maps
-// (`rawDatasets` / `vtSources` / `sourceCRS`) as the SHARED references —
-// SourceManager receives the SAME Map instances by reference, so every
-// internal read in renderFrame / rebuildLayers / hasPendingSourceWork /
-// diagnostics stays untouched.
+// (`rawDatasets` / `sourceCRS`) as the SHARED references — SourceManager
+// receives the SAME Map instances by reference, so every internal read in
+// renderFrame / rebuildLayers / hasPendingSourceWork / diagnostics stays
+// untouched. `vtSources` registration routes through the injected
+// `registerVtSource` callback (XGISMap's `_registerVtSource`) so the #1155 F3
+// cold-start burst flag is applied at the single write authority.
 //
 // BEHAVIOR + PUBLIC API IDENTICAL — every method below is moved verbatim
 // from map.ts; only the dependency wiring changed. The EPSG reproject /
 // ordering, polar-cap ordering, and camera-fit logic are byte-identical:
-//   - `this.rawDatasets` / `this.vtSources` / `this.sourceCRS` → the same
-//     shared Map instances, held here by reference.
+//   - `this.rawDatasets` / `this.sourceCRS` → the same shared Map instances,
+//     held here by reference.
+//   - `this.vtSources.set(...)`      → injected `registerVtSource` callback
 //   - `this.invalidate()`            → injected `invalidate` callback
 //   - `this._fitZoomToLonSpan(...)`  → injected `fitZoomToLonSpan` callback
 //   - `this._runBoundsFitGate(...)`  → injected `runBoundsFitGate` callback
@@ -50,6 +53,7 @@ import { detectCapPoles, type CapPoles } from '@xgis/data'
 import * as tilingPool from '@xgis/data'
 import { reprojectFeatureCollection } from '@xgis/data'
 import { pointPatchToFeatureCollection, type PointPatch } from '@xgis/data'
+import { decodeCoverage } from '@xgis/data'
 import { SOURCE_TYPES } from '@xgis/compiler'
 import type { SourceLoader } from './source-loader'
 
@@ -65,8 +69,21 @@ const BUILTIN_SOURCE_TYPES = new Set<string>([...SOURCE_TYPES, 'xgvt'])
 export interface SourceManagerDeps {
   /** Shared with XGISMap — same Map instance, by reference. */
   rawDatasets: Map<string, RawDataset>
-  /** Shared with XGISMap — same Map instance, by reference. */
-  vtSources: Map<string, { source: TileCatalog; renderer: VectorTileRenderer }>
+  /** #1155 F3 — register a (catalog, renderer) pair through XGISMap's single
+   *  authority (`_registerVtSource`) rather than writing the shared `vtSources`
+   *  Map directly, so the burst flag is applied at every registration. Both
+   *  attach sites below run inside run()'s awaited load phase (before
+   *  `_burst.enter()`), so the flag is a no-op today; routing through the
+   *  callback keeps the single-write-authority contract true if a future
+   *  dynamic-attach path reaches here post-enter.
+   *
+   *  #1153 P1/A7 — every registerVtSource call site is guarded by the optional
+   *  `isStale` probe threaded through `_attachOneSource` /
+   *  `_attachGeoJSONViaVirtualPMTiles`: a stale (superseded) run destroys its
+   *  locally built pair and skips the write. Any NEW attach call site that builds
+   *  a (catalog, renderer) pair MUST thread `isStale` and guard the same way, or
+   *  it silently reopens the stale-write hole (fenced by the T9 regression). */
+  registerVtSource: (key: string, source: TileCatalog, renderer: VectorTileRenderer) => void
   /** Shared with XGISMap — same Map instance, by reference. */
   sourceCRS: Map<string, string>
   /** Shared with XGISMap — same Map instance, by reference. Records the
@@ -112,7 +129,11 @@ export interface SourceManagerDeps {
 export class SourceManager {
   // Shared Map references (same instances as XGISMap's fields).
   private readonly rawDatasets: Map<string, RawDataset>
-  private readonly vtSources: Map<string, { source: TileCatalog; renderer: VectorTileRenderer }>
+  private readonly registerVtSource: (
+    key: string,
+    source: TileCatalog,
+    renderer: VectorTileRenderer,
+  ) => void
   private readonly sourceCRS: Map<string, string>
   private readonly geojsonCapPoles: Map<string, CapPoles>
   private readonly heatmapPointData: Map<string, GeoJSONFeatureCollection>
@@ -138,7 +159,7 @@ export class SourceManager {
 
   constructor(deps: SourceManagerDeps) {
     this.rawDatasets = deps.rawDatasets
-    this.vtSources = deps.vtSources
+    this.registerVtSource = deps.registerVtSource
     this.sourceCRS = deps.sourceCRS
     this.geojsonCapPoles = deps.geojsonCapPoles
     this.heatmapPointData = deps.heatmapPointData
@@ -207,6 +228,13 @@ export class SourceManager {
     baseUrl: string,
     maps: ShowSourceMaps,
     cameraFitState: { fit: boolean },
+    // A7 (#1153 P1) — optional staleness probe. A superseded run()'s attach
+    // promises keep settling AFTER the winner's entry-teardown; when this returns
+    // true the branch destroys its locally built catalog+renderer and returns
+    // WITHOUT the shared-map registerVtSource write, so a dead-device entry can't
+    // overwrite the winner's same-key entry. Additive/optional — every existing
+    // caller (which passes nothing) is unaffected.
+    isStale?: () => boolean,
   ): Promise<void> {
     // Inline GeoJSON (`source x { data: {...} }`) — route through the SAME
     // VirtualPMTiles geojson ingest the url path uses (reproject → tile via
@@ -221,6 +249,7 @@ export class SourceManager {
         load.inlineData as GeoJSONFeatureCollection,
         maps,
         cameraFitState,
+        isStale,
       )
       return
     }
@@ -271,21 +300,47 @@ export class SourceManager {
         ;(window as unknown as { __xgisCustomLoaderRan?: string }).__xgisCustomLoaderRan =
           declaredType
       }
-      await this._attachGeoJSONViaVirtualPMTiles(load.name, fc, maps, cameraFitState)
+      await this._attachGeoJSONViaVirtualPMTiles(load.name, fc, maps, cameraFitState, isStale)
       return
     }
+    // S-100 gridded coverage (#1158 GAP-1). A built-in `type: coverage` source:
+    // fetch the `.xgcov` (same SSRF guard + body cap as the geojson branch),
+    // decode to a CPU-resident CoverageHandle, and store a `{ _coverage }` marker
+    // in rawDatasets (the marker union, map-types.ts). The handle is the value-
+    // readout authority (map.getCoverage(...).valueAt); the renderer owns the GPU
+    // texture separately.
+    // REBASE HAZARD (#1153 P1): this worktree is at clean HEAD, whose _attachOneSource
+    // has no `isStale` staleness probe yet. When P1's isStale threading lands, this
+    // branch MUST thread it and guard the rawDatasets.set below (the marker write
+    // lands after the fetch await), per P1's contract "any NEW attach call site …
+    // MUST thread isStale" — otherwise a superseded run reopens the stale-write hole.
+    if (declaredType === 'coverage') {
+      const response = await safeFetch(url, undefined, `coverage source "${load.name}"`)
+      if (!response.ok)
+        throw new Error(
+          `[X-GIS] Failed to load coverage "${load.name}" from ${url} — HTTP ${response.status}.`,
+        )
+      const rawBytes = await readBodyCapped(
+        response,
+        256 * 1024 * 1024,
+        `coverage source "${load.name}"`,
+      )
+      const buf = rawBytes.buffer.slice(
+        rawBytes.byteOffset,
+        rawBytes.byteOffset + rawBytes.byteLength,
+      )
+      const handle = await decodeCoverage(buf)
+      this.rawDatasets.set(load.name, { _coverage: handle })
+      return
+    }
+
     // Mapbox styles declare `type: vector` / converted to `type: tilejson`
     // for MVT XYZ endpoints whose URL contains the `{z}/{x}/{y}` template.
     // Don't let the template-shape heuristic re-route those into the
     // raster path — declared vector-family type wins.
     const isDeclaredVector =
       declaredType === 'vector' || declaredType === 'tilejson' || declaredType === 'pmtiles'
-    // raster-dem (#777) — a DEM tile source. Guard it BEFORE `looksLikeRaster`:
-    // its URL is a `{z}/{x}/{y}` template, so the template heuristic would else
-    // route it into the plain raster path and draw the packed-elevation RGB as
-    // colour garbage. The `_dem` marker carries the decode params (encoding /
-    // tileSize / custom factors) the HillshadeRenderer needs; map.ts routes a
-    // layer referencing a `_dem` source to the hillshade path, not raster.
+    // raster-dem (#777) — guard BEFORE looksLikeRaster; see map-types.ts `_dem`.
     if (declaredType === 'raster-dem') {
       this.rawDatasets.set(load.name, {
         _tileUrl: url,
@@ -361,7 +416,15 @@ export class SourceManager {
         strokeWidthExprs: maps.strokeWidthExprsBySource.get(load.name),
         strokeColorExprs: maps.strokeColorExprsBySource.get(load.name),
       })
-      this.vtSources.set(load.name, { source, renderer: vtRenderer })
+      // A7 — a superseded run must not register a dead-device catalog into the
+      // winner's shared vtSources. Destroy the locally built pair (mirror
+      // teardownSource, map.ts) and bail before any shared-map write.
+      if (isStale?.()) {
+        vtRenderer.destroy()
+        source.destroy()
+        return
+      }
+      this.registerVtSource(load.name, source, vtRenderer)
       this.rawDatasets.set(load.name, { _vectorTile: true })
 
       // Fit camera to the FIRST source that finishes. Multi-source demos
@@ -452,13 +515,17 @@ export class SourceManager {
           window as unknown as { __xgisVirtualPMTilesActive?: boolean }
         ).__xgisVirtualPMTilesActive = true
       }
-      await this._attachGeoJSONViaVirtualPMTiles(load.name, data, maps, cameraFitState)
+      await this._attachGeoJSONViaVirtualPMTiles(load.name, data, maps, cameraFitState, isStale)
       return
     }
 
     // Legacy opt-out path. Reproject declared-CRS input → WGS84 LL before
     // it enters rawDatasets (and therefore before tiling). Absent CRS ⇒
     // EPSG:4326 / no-op.
+    // A7 (#1153 P1) — same stale-write hole as the default path: this write lands
+    // after the safeFetch / readBodyCapped awaits above. Nothing local is built on
+    // this branch, so a plain return suffices (mirrors the guarded default paths).
+    if (isStale?.()) return
     this.rawDatasets.set(load.name, this._reprojectIngest(load.name, data))
   }
 
@@ -546,7 +613,19 @@ export class SourceManager {
     data: GeoJSONFeatureCollection,
     maps: ShowSourceMaps,
     cameraFitState: { fit: boolean },
+    // A7 (#1153 P1) — see _attachOneSource: when the run went stale this method
+    // bails at ENTRY (below), before any shared-map write or local build.
+    isStale?: () => boolean,
   ): Promise<void> {
+    // A7 (#1153 P1) — probe staleness at ENTRY. A superseded run's caller awaits
+    // (custom loader / safeFetch+readBodyCapped) settle AFTER the winner booted;
+    // there is NO await anywhere between here and the end of this method, so one
+    // entry probe fully covers it. Bail BEFORE every shared-map write (the
+    // geojsonCapPoles.set/delete below, and registerVtSource / rawDatasets /
+    // heatmapPointData further down) and before building the dead-device VTR +
+    // spawning the tiling worker. (Earlier the probe sat after the capPoles write,
+    // so a stale run corrupted the winner's polar-cap record — issue #360 F1.)
+    if (isStale?.()) return
     // Reproject declared-CRS input → WGS84 LL FIRST so both the tiling
     // backend (below) and the camera-fit bounds (computeGeoJSONBounds)
     // operate on reprojected coordinates (AC9). Absent CRS ⇒ 4326 / no-op.
@@ -603,7 +682,9 @@ export class SourceManager {
     })
     source.attachBackend(backend)
 
-    this.vtSources.set(sourceName, { source, renderer: vtRenderer })
+    // A7 — staleness was already ruled out at entry (no await since), so the
+    // dead-device catalog + shared-map writes below cannot leak into a winner.
+    this.registerVtSource(sourceName, source, vtRenderer)
     // Preserve this geojson source's Point/MultiPoint features for the
     // HeatmapRenderer BEFORE the next line overwrites `rawDatasets` with the
     // `{ _vectorTile: true }` marker (points move into the tile backend). Use

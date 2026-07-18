@@ -11,18 +11,19 @@ import type { GlyphProvider } from './text/sdf/pbf/glyph-provider'
 import type { BackendChoice } from '@xgis/engine'
 import type { Body } from '@xgis/shared'
 import type { SourceLoader } from './source-loader'
-import type { GeoJSONFeatureCollection } from '@xgis/data'
+import type { GeoJSONFeatureCollection, CoverageHandle } from '@xgis/data'
 
 export type { BackendChoice }
 
 /** A `rawDatasets` entry. Either a real GeoJSON FeatureCollection (the
  *  common case) or one of the documented placeholder markers written by
- *  source-manager / the polar-cap install for tile-backed sources that
- *  carry NO in-memory features: `{ _tileUrl }` for a raster XYZ source,
- *  `{ _tileUrl, _dem }` for a `raster-dem` source (routes to the
- *  HillshadeRenderer with the DEM decode params, #777), and
- *  `{ _vectorTile: true }` for a vector-tile (MVT/VT) or tiled-geojson
- *  source. rebuildLayers narrows on these markers with `in` guards. */
+ *  source-manager / the polar-cap install for sources that carry NO in-memory
+ *  features: `{ _tileUrl }` for a raster XYZ source, `{ _tileUrl, _dem }` for a
+ *  `raster-dem` source (routes to the HillshadeRenderer with the DEM decode
+ *  params, #777), `{ _vectorTile: true }` for a vector-tile (MVT/VT) or
+ *  tiled-geojson source, and `{ _coverage }` for an S-100 gridded-coverage
+ *  (.xgcov) source — the CPU-resident CoverageHandle is the value-readout
+ *  authority (#1158 GAP-1). rebuildLayers narrows on these markers with `in` guards. */
 export type RawDataset =
   | GeoJSONFeatureCollection
   | { readonly _tileUrl: string }
@@ -41,6 +42,7 @@ export type RawDataset =
       readonly baseShift?: number
     }
   | { readonly _vectorTile: true }
+  | { readonly _coverage: CoverageHandle }
 
 export interface VariantPipelines {
   fillPipeline: GPURenderPipeline

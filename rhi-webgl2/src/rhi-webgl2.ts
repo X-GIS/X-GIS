@@ -580,6 +580,14 @@ export class WebGl2Device implements RhiDevice {
   /** GL errors drained at endScreenPass (the WebGPU `_validationErrors` analog —
    *  WebGL2 has no async validation queue, so we poll `gl.getError()` per frame). */
   private _glErrors: string[] = []
+  /** #1153 P2 R3 — context-loss subscribers + the bound DOM handlers so
+   *  `destroy()` can detach them. The device OWNS the canvas listeners; the boot
+   *  (`initGPUForcedWebGL2`) subscribes via `onContextLost` to drive
+   *  `ctx.deviceLost` + recovery, mirroring the WebGPU `GPUDevice.lost` chain. */
+  private readonly _contextLostCbs: Array<() => void> = []
+  private readonly _contextRestoredCbs: Array<() => void> = []
+  private _onGlContextLost?: (e: Event) => void
+  private _onGlContextRestored?: () => void
   constructor(public readonly gl: WebGL2RenderingContext) {
     if (SAMPLER_TYPES.size === 0) {
       // sampler GLSL types (for createPipeline reflection); collected once per ctx kind.
@@ -599,6 +607,35 @@ export class WebGl2Device implements RhiDevice {
       timestampQuery: false,
       executionModel: 'immediate',
     } as const)
+
+    // #1153 P2 R3 — own the canvas context-loss listeners. GUARDED: the fake
+    // gls in rhi-device-destroy.test.ts / forcegl2-context.test.ts carry no
+    // canvas (and node has no DOM), so attach only when the canvas exposes
+    // addEventListener. The lost handler MUST call preventDefault() — without it
+    // the browser never fires 'webglcontextrestored', so the sticky-lost context
+    // can never be reused (the boot's ensure-restored preamble depends on it).
+    const canvas = gl.canvas as HTMLCanvasElement | undefined
+    if (canvas?.addEventListener) {
+      this._onGlContextLost = (e: Event) => {
+        e.preventDefault()
+        for (const cb of this._contextLostCbs) cb()
+      }
+      this._onGlContextRestored = () => {
+        for (const cb of this._contextRestoredCbs) cb()
+      }
+      canvas.addEventListener('webglcontextlost', this._onGlContextLost)
+      canvas.addEventListener('webglcontextrestored', this._onGlContextRestored)
+    }
+  }
+
+  /** #1153 P2 R3 — subscribe to WebGL2 'webglcontextlost'. `preventDefault()` is
+   *  already applied by the device's own handler before `cb` runs. */
+  onContextLost(cb: () => void): void {
+    this._contextLostCbs.push(cb)
+  }
+  /** #1153 P2 R3 — subscribe to WebGL2 'webglcontextrestored'. */
+  onContextRestored(cb: () => void): void {
+    this._contextRestoredCbs.push(cb)
   }
 
   // Frame shell (required by RhiDevice, #1046 F2/F3) — the twin still early-returns
@@ -1106,6 +1143,16 @@ export class WebGl2Device implements RhiDevice {
         'webgl2: createPipeline requires GLSL vsCode/fsCode (emitGlslModule m,"vertex"/"fragment"); desc.code is WGSL — the single-module vs split-source divergence',
       )
     }
+    // gl.polygonOffset takes only (factor, units) — WebGL2 has NO clamp parameter
+    // (no core / extension equivalent), so a nonzero depthStencil.bias.clamp cannot be
+    // honored and would be silently dropped at setPipeline (#1049). Fail loud instead of
+    // dropping it: the sole caller (point-material) passes clamp:0, so this is behaviour-
+    // preserving today and stops a future nonzero clamp from vanishing without a trace.
+    if (desc.depthStencil?.bias && desc.depthStencil.bias.clamp !== 0) {
+      throw new Error(
+        `webgl2: depthStencil.bias.clamp is unsupported (gl.polygonOffset has no clamp parameter); got ${desc.depthStencil.bias.clamp}`,
+      )
+    }
     const gl = this.gl
     const vs = compile(gl, gl.VERTEX_SHADER, desc.vsCode)
     const fs = compile(gl, gl.FRAGMENT_SHADER, desc.fsCode)
@@ -1224,6 +1271,31 @@ export class WebGl2Device implements RhiDevice {
   // WebGL2 has no device object; WEBGL_lose_context drops every GL resource this device created
   // (buffers, textures, programs, VAOs, pick FBOs) AND returns the per-page context to the pool.
   destroy(): void {
+    // #1153 P2 R3 — an INTENTIONAL teardown must (a) NOT fire device-lost recovery
+    // (that would resurrect a destroyed map) yet (b) leave the context RESTORABLE for
+    // a remount on this canvas. loseContext() dispatches 'webglcontextlost' as a
+    // deferred TASK and the browser sets restore_allowed_ = event.defaultPrevented()
+    // at that dispatch; if the event is not preventDefault'd the context is PERMANENTLY
+    // unrestorable, so a remount's ensure-restored preamble (gpu.ts) would call
+    // restoreContext() to no-op (INVALID_OPERATION) and never see 'webglcontextrestored'
+    // — the exact restorability invariant the constructor's lost-handler documents.
+    // So: drop the FAN-OUT listeners (kills recovery, the 'destroyed'-reason analog of
+    // the WebGPU device.lost guard) but leave a bare one-shot preventDefault listener
+    // for the deferred loss (keeps it restorable), self-removing so nothing outlives
+    // the teardown.
+    const canvas = this.gl.canvas as HTMLCanvasElement | undefined
+    if (canvas?.removeEventListener) {
+      if (this._onGlContextLost)
+        canvas.removeEventListener('webglcontextlost', this._onGlContextLost)
+      if (this._onGlContextRestored)
+        canvas.removeEventListener('webglcontextrestored', this._onGlContextRestored)
+      // Only when loseContext() will actually dispatch a NEW loss: an already-lost
+      // context dispatches nothing, so a once-listener would leak (never firing) — and
+      // its restorability was already set by the natural loss that the fan-out handler
+      // preventDefaulted.
+      if (canvas.addEventListener && !this.gl.isContextLost?.())
+        canvas.addEventListener('webglcontextlost', (e) => e.preventDefault(), { once: true })
+    }
     this.gl.getExtension('WEBGL_lose_context')?.loseContext()
   }
 

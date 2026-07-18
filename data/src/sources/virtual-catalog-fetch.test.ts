@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-deprecated -- unit-tests the deprecated VirtualTileFetcher path on purpose (#1055) */
 // Test the on-demand virtualCatalog fetcher path on TileCatalog.
 // PMTiles + similar archives plug in through this hook instead of
 // pre-fetching their entire contents.
@@ -11,12 +12,7 @@ import { describe, expect, it } from 'vitest'
 import geojsonVt from 'geojson-vt'
 // @ts-expect-error — no published types
 import vtpbf from 'vt-pbf'
-import {
-  decomposeFeatures,
-  compileSingleTile,
-  tileKey,
-  type CompiledTile,
-} from '@xgis/compiler'
+import { decomposeFeatures, compileSingleTile, tileKey, type CompiledTile } from '@xgis/compiler'
 import { decodeMvtTile } from '../mvt-decoder'
 import { TileCatalog } from '../tile-catalog'
 import type { VirtualTileFetcher } from '../tile-types'

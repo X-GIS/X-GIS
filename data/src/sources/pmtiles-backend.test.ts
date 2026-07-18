@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-deprecated -- unit-tests the deprecated resolveDispatch alias on purpose (#1055) */
 // Isolated unit test for PMTilesBackend — exercises the TileSource
 // interface with a mock fetcher closure (no real PMTiles archive).
 // PMTilesBackend now uses a two-stage pipeline:
@@ -7,7 +8,7 @@
 // The test exercises both stages so failures surface at the right
 // boundary.
 
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 // @ts-expect-error — no published types
 import geojsonVt from 'geojson-vt'
 // @ts-expect-error — no published types
@@ -320,5 +321,115 @@ describe('resolveDispatch — TileJSON vs PMTiles routing', () => {
     // rule only applies for ext-bearing URLs where the bytes are
     // unambiguous. The placeholder fallback is auto-only.
     expect(resolveDispatch('https://example.com/tiles/{z}/{x}/{y}', 'pmtiles')).toBe('pmtiles')
+  })
+})
+
+// #1153 audit #33 — the fallback `acceptResult(key, null)` inside a compile
+// catch is itself a call into untrusted sink code. If IT throws (a "double
+// fault"), the worker path used to leak an unhandled promise rejection (the
+// .catch rejects → .finally re-rejects) and the inline path used to rethrow
+// synchronously out of tick(). Both are now guarded; the loading slot must
+// still be freed in either case.
+describe('PMTilesBackend — acceptResult double-fault guard (#1153 audit #33)', () => {
+  // A sink whose acceptResult ALWAYS throws — models the "second fault" where
+  // the fallback acceptResult(key, null) in a compile catch throws too.
+  function makeThrowingSink(): {
+    sink: TileSourceSink
+    getLoadingCount: () => number
+    getReleaseCalls: () => number
+  } {
+    let loadingCount = 0
+    let releaseCalls = 0
+    const sink: TileSourceSink = {
+      trackLoading: () => {
+        loadingCount++
+      },
+      releaseLoading: () => {
+        loadingCount--
+        releaseCalls++
+      },
+      hasTileData: () => false,
+      getLoadingCount: () => loadingCount,
+      acceptResult: () => {
+        throw new Error('sink acceptResult boom')
+      },
+    }
+    return {
+      sink,
+      getLoadingCount: () => loadingCount,
+      getReleaseCalls: () => releaseCalls,
+    }
+  }
+
+  it('inline path: a throwing fallback acceptResult does not escape tick(); slot still freed', async () => {
+    // vitest node has no Worker global → tick() takes the inline path.
+    expect(typeof Worker, 'inline path requires no Worker global').toBe('undefined')
+    const bytes = buildSyntheticMvt(0, 0, 0)!
+    const fetcher: PMTilesFetcher = async () => bytes
+    const backend = new PMTilesBackend({
+      fetcher,
+      minZoom: 0,
+      maxZoom: 0,
+      bounds: [-180, -85, 180, 85],
+    })
+    const { sink, getLoadingCount, getReleaseCalls } = makeThrowingSink()
+    backend.attach(sink)
+
+    backend.loadTile(tileKey(0, 0, 0))
+    await new Promise((r) => setTimeout(r, 50))
+    expect(getLoadingCount(), 'slot held while queued').toBe(1)
+
+    // compileInline emits a real slice → sink throws (fault 1) → its catch
+    // calls acceptResult(key, null) → throws again (fault 2). Pre-fix this
+    // rethrew out of compileInline and out of tick(); post-fix it is swallowed.
+    expect(() => backend.tick(1), 'tick must not throw on double fault').not.toThrow()
+    expect(getReleaseCalls(), 'releaseLoading ran — slot freed').toBe(1)
+    expect(getLoadingCount(), 'loading slot returned to 0').toBe(0)
+  })
+
+  it('worker path: a throwing fallback acceptResult does not escape as an unhandled rejection; slot still freed', async () => {
+    // Force the worker path: tick() dispatches to the pool only when
+    // `typeof Worker !== 'undefined'`.
+    vi.stubGlobal('Worker', class {})
+    const rejections: unknown[] = []
+    const onRejection = (reason: unknown): void => {
+      rejections.push(reason)
+    }
+    process.on('unhandledRejection', onRejection)
+    try {
+      const bytes = buildSyntheticMvt(0, 0, 0)!
+      const fetcher: PMTilesFetcher = async () => bytes
+      const backend = new PMTilesBackend({
+        fetcher,
+        minZoom: 0,
+        maxZoom: 0,
+        bounds: [-180, -85, 180, 85],
+      })
+      const { sink, getLoadingCount, getReleaseCalls } = makeThrowingSink()
+      backend.attach(sink)
+
+      // Inject a fake pool via the lazy getPool() seam (private _pool). Its
+      // compile() resolves with [] → the .then takes the empty-slices branch →
+      // acceptResult(key, null) throws (fault 1) → flows to .catch →
+      // acceptResult(key, null) throws again (fault 2, the double fault).
+      const fakePool = { compile: () => Promise.resolve([]) }
+      ;(backend as unknown as { _pool: unknown })._pool = fakePool
+
+      backend.loadTile(tileKey(0, 0, 0))
+      await new Promise((r) => setTimeout(r, 50))
+      expect(getLoadingCount(), 'slot held while queued').toBe(1)
+
+      backend.tick(1)
+      // Flush the compile→then→catch→finally microtask chain and give Node a
+      // turn to surface any unhandled rejection.
+      await new Promise((r) => setTimeout(r, 50))
+
+      expect(getReleaseCalls(), 'releaseLoading ran — slot freed').toBe(1)
+      expect(getLoadingCount(), 'loading slot returned to 0').toBe(0)
+      expect(rejections, 'no unhandled rejection escaped the double fault').toEqual([])
+    } finally {
+      process.off('unhandledRejection', onRejection)
+      vi.unstubAllGlobals()
+    }
   })
 })

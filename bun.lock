@@ -104,6 +104,9 @@
     "pipeline": {
       "name": "@xgis/pipeline",
       "version": "0.0.1",
+      "devDependencies": {
+        "@xgis/data": "workspace:*",
+      },
     },
     "playground": {
       "name": "@xgis/playground",
@@ -120,6 +123,7 @@
         "@types/d3-geo": "^3.1.0",
         "@types/pngjs": "^6.0.5",
         "@vitejs/plugin-basic-ssl": "^2.3.0",
+        "@xgis/data": "workspace:*",
         "d3-geo": "^3.1.1",
         "maplibre-gl": "^5.24.0",
         "pixelmatch": "^7.2.0",

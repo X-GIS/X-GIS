@@ -38,6 +38,7 @@ describe('Knuth-Plass wrap — MapLibre parity', () => {
   it('C: WITH ZWSP → ideographic breaks ARE penalised (MapLibre parity preserved → breaks at the space)', () => {
     // Same content + a trailing U+200B (advance 0). hasZeroWidthSpaces
     // is now true, so the +150 CJK-break penalty applies and the
+    // eslint-disable-next-line no-irregular-whitespace -- test-data comment shows the literal CJK + U+200B input
     // space break wins: ["AAA ", "中中中中中中中​"].
     const cps = [A, A, A, SP, CJK, CJK, CJK, CJK, CJK, CJK, CJK, ZWSP]
     const adv = cps.map((cp) => (cp === ZWSP ? 0 : 10))

@@ -109,38 +109,73 @@ function makeEncoder(bump: (k: string) => void): unknown {
   }
 }
 
+/** Per-device liveness record exposed in `freshDevices` mode: one entry per
+ *  `adapter.requestDevice()` call, in call order. `destroyed` flips true the
+ *  first time that device's `destroy()` runs. */
+export interface StubDeviceRecord {
+  destroyed: boolean
+}
+
+/** Additive options for `installWebGPUStub`. All default to the historical
+ *  singleton behaviour so the 46 existing consumers are untouched. */
+export interface StubInstallOptions {
+  /** When true, `adapter.requestDevice()` returns a NEW device object per call,
+   *  each with a COUNTED `destroy` (bumps `callCounts['device.destroy']` and
+   *  flips its `createdDevices` record) — so lifecycle tests can prove a loser /
+   *  superseded run disposed exactly its own device. Default false → the shared
+   *  singleton with an uncounted no-op destroy (unchanged). */
+  freshDevices?: boolean
+  /** Optional caller-controlled gate awaited inside `adapter.requestDevice()`
+   *  before it resolves, keyed by 0-based call index — lets a test order two
+   *  overlapping run() calls' device resolutions (race-ordering). */
+  requestDeviceGate?: (index: number) => Promise<void>
+  /** When true, `canvas.getContext('webgpu')` returns null so the
+   *  createWebGpuContext getContext-null throw fires AFTER requestDevice
+   *  (boot-failure device-ownership test, #5). Default false. */
+  webgpuContextNull?: boolean
+}
+
 export interface StubInstallation {
   /** Restore the prior navigator.gpu / canvas getContext (or noop if
    *  none existed). Tests should call from afterEach. */
   uninstall: () => void
   /** Read-only access to invocation counts for assert-on-call tests. */
   callCounts: Readonly<Record<string, number>>
+  /** `freshDevices` mode only: one record per requestDevice() call, in order.
+   *  Empty in the default singleton mode. */
+  createdDevices: ReadonlyArray<StubDeviceRecord>
 }
 
-export function installWebGPUStub(): StubInstallation {
+export function installWebGPUStub(options: StubInstallOptions = {}): StubInstallation {
   const calls: Record<string, number> = Object.create(null)
   const bump = (k: string): void => {
     calls[k] = (calls[k] ?? 0) + 1
   }
 
-  const device = {
+  // Limits are identical across every stub device; share one object so the
+  // singleton and each fresh device (and adapter.limits) agree.
+  const limits = {
+    maxBufferSize: 1 << 30,
+    maxStorageBufferBindingSize: 1 << 27,
+    maxUniformBufferBindingSize: 1 << 16,
+    maxTextureDimension2D: 8192,
+    maxBindGroups: 4,
+    maxBindingsPerBindGroup: 1000,
+    maxColorAttachments: 8,
+    maxVertexBuffers: 8,
+    maxVertexAttributes: 16,
+    maxComputeWorkgroupsPerDimension: 65535,
+    maxComputeInvocationsPerWorkgroup: 256,
+    maxComputeWorkgroupSizeX: 256,
+    maxComputeWorkgroupSizeY: 256,
+    maxComputeWorkgroupSizeZ: 64,
+  }
+
+  // Device factory: `destroy` is injected so the singleton keeps its uncounted
+  // no-op while each fresh device gets a counted, record-flipping destroy.
+  const makeDevice = (destroy: () => void) => ({
     features: { has: () => false },
-    limits: {
-      maxBufferSize: 1 << 30,
-      maxStorageBufferBindingSize: 1 << 27,
-      maxUniformBufferBindingSize: 1 << 16,
-      maxTextureDimension2D: 8192,
-      maxBindGroups: 4,
-      maxBindingsPerBindGroup: 1000,
-      maxColorAttachments: 8,
-      maxVertexBuffers: 8,
-      maxVertexAttributes: 16,
-      maxComputeWorkgroupsPerDimension: 65535,
-      maxComputeInvocationsPerWorkgroup: 256,
-      maxComputeWorkgroupSizeX: 256,
-      maxComputeWorkgroupSizeY: 256,
-      maxComputeWorkgroupSizeZ: 64,
-    },
+    limits,
     queue: {
       submit: () => {
         bump('queue.submit')
@@ -247,14 +282,42 @@ export function installWebGPUStub(): StubInstallation {
     // device.lost is a Promise that production code awaits; never
     // resolve so the lost handler doesn't fire mid-test.
     lost: new Promise(() => undefined),
-    destroy: () => undefined,
+    destroy,
+  })
+
+  // Default singleton: one shared device, uncounted no-op destroy (unchanged).
+  const device = makeDevice(() => undefined)
+
+  // freshDevices bookkeeping — one record per requestDevice() call.
+  const createdDevices: StubDeviceRecord[] = []
+  // Monotonic 0-based requestDevice() call index — the key the requestDeviceGate
+  // contract promises in BOTH modes (not just freshDevices). Computed before the
+  // mode branch so the singleton path gates on the real index rather than a
+  // hard-coded 0; in freshDevices mode it equals createdDevices.length at push time.
+  let requestDeviceCalls = 0
+  const requestDevice = async (): Promise<ReturnType<typeof makeDevice>> => {
+    const index = requestDeviceCalls++
+    if (!options.freshDevices) {
+      if (options.requestDeviceGate) await options.requestDeviceGate(index)
+      return device
+    }
+    const rec: StubDeviceRecord = { destroyed: false }
+    createdDevices.push(rec)
+    if (options.requestDeviceGate) await options.requestDeviceGate(index)
+    // Counted, idempotent destroy (WebGPU device.destroy() is spec-idempotent;
+    // ctx.rhi.destroy() may land twice on the teardown-then-destroy() sequence).
+    return makeDevice(() => {
+      if (rec.destroyed) return
+      rec.destroyed = true
+      bump('device.destroy')
+    })
   }
 
   const adapter = {
     features: { has: () => false },
-    limits: device.limits,
+    limits,
     info: { vendor: 'stub', architecture: 'stub', device: 'stub', description: 'webgpu-stub' },
-    requestDevice: async () => device,
+    requestDevice,
     requestAdapterInfo: async () => adapter.info,
   }
 
@@ -334,6 +397,9 @@ export function installWebGPUStub(): StubInstallation {
       ...rest: unknown[]
     ): unknown {
       if (type === 'webgpu') {
+        // #5 boot-failure test — force the getContext-null throw so it fires
+        // AFTER requestDevice minted the (to-be-orphaned) device.
+        if (options.webgpuContextNull) return null
         return {
           configure: () => {
             bump('context.configure')
@@ -354,6 +420,7 @@ export function installWebGPUStub(): StubInstallation {
 
   return {
     callCounts: calls,
+    createdDevices,
     uninstall: () => {
       if (!navExistedBefore) {
         delete g.navigator

@@ -72,6 +72,7 @@ describe('label halo defaults — Mapbox spec compliance', () => {
     // The user-reported case: at z=12.2 the highway-name-major layer
     // first appears, and prior to the lower.ts fix every road label
     // got an opaque black halo because text-halo-color was omitted.
+    // eslint-disable-next-line @typescript-eslint/no-require-imports -- JSON fixture load in a test
     const style = require('./fixtures/openfreemap-bright.json')
     const xgis = convertMapboxStyle(style)
     const cmds = emitCommands(lower(new Parser(new Lexer(xgis).tokenize()).parse()))

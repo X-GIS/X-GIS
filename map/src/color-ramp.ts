@@ -6,7 +6,16 @@
  * Built-in color ramp definitions.
  * Each is an array of [r, g, b] stops (0-255) at evenly spaced positions.
  */
-const RAMPS: Record<string, [number, number, number][]> = {
+export const RAMPS: Record<string, [number, number, number][]> = {
+  // Depth ramp (S-102): shallow (light cyan) → deep (dark navy). Positive-down, so
+  // a larger value = deeper = darker. #1158 GAP-1.
+  bathymetry: [
+    [224, 243, 248],
+    [171, 217, 233],
+    [116, 173, 209],
+    [69, 117, 180],
+    [49, 54, 149],
+  ],
   viridis: [
     [68, 1, 84],
     [72, 35, 116],
@@ -163,9 +172,11 @@ export function availableRamps(): string[] {
 }
 
 /**
- * Interpolate a color ramp from sparse stops to a dense pixel array.
+ * Interpolate a color ramp from sparse stops to a dense pixel array. Exported so
+ * the coverage-ramp arm (#1158) can bake a LUT through the RHI seam reusing this
+ * stop-interpolation math (NOT createColorRampTexture, which takes a raw GPUDevice).
  */
-function interpolateRamp(stops: [number, number, number][], steps: number): Uint8Array {
+export function interpolateRamp(stops: [number, number, number][], steps: number): Uint8Array {
   const data = new Uint8Array(steps * 4)
 
   for (let i = 0; i < steps; i++) {

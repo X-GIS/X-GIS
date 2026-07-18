@@ -12,7 +12,7 @@ const parses = (src: string) => {
 // these fail loudly.
 const FIELD_KEYS: Record<string, string[]> = {
   import: ['mode', 'names', 'path'],
-  source: ['name', 'type', 'url', 'layers'],
+  source: ['name', 'type', 'url', 'layers', 'ramp', 'range'],
   symbol: ['name', 'path', 'anchor'],
   preset: ['name', 'pipe'],
   layer: ['name', 'sourceLayer', 'minzoom', 'maxzoom', 'filter', 'pipe'],

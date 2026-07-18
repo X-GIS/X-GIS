@@ -108,6 +108,18 @@ export class MvtWorkerPool {
   private _rafHandle: number | ReturnType<typeof setTimeout> | null = null
   private _timerHandle: ReturnType<typeof setTimeout> | null = null
   private static readonly MAX_RESOLVES_PER_FRAME = 4
+  /** #1155 F3 — cold-start burst drain cap. While a burst refcount is held the
+   *  per-drain cap rises from 4 to 32 so the first-viewport tile cascade drains
+   *  in a couple of frames instead of being paced out over ~8. Steady state is
+   *  byte-for-byte unchanged (refcount 0 selects MAX_RESOLVES_PER_FRAME). */
+  private static readonly BURST_RESOLVES_PER_FRAME = 32
+  /** #1155 F3 — cold-start burst REFCOUNT (not a boolean). getSharedMvtPool()
+   *  is a module-level singleton shared across every map, so two maps both in
+   *  cold start each raise the cap and it only drops back when the LAST one
+   *  ends. Read at drain FIRE time (drainResolveQueue), never captured at
+   *  schedule time, so an already-armed rAF/250 ms drain honours a burst that
+   *  began between schedule and fire. */
+  private _coldStartBurstRefcount = 0
 
   // Diagnostic counters — incremented by every drain; specs poll for
   // perf attribution. Cost: 3 integer writes per resolved tile.
@@ -127,6 +139,24 @@ export class MvtWorkerPool {
   /** Current pending compile count (in-flight worker jobs). */
   get pendingCount(): number {
     return this.pending.size
+  }
+  /** #1155 F3 — current cold-start burst refcount (>0 selects the 32-cap).
+   *  Diagnostic surface for the burst lifecycle tests + a sibling map's
+   *  balance check; production never reads it. */
+  get coldStartBurstRefcount(): number {
+    return this._coldStartBurstRefcount
+  }
+
+  /** #1155 F3 — one map entered cold-start burst; raise the shared refcount so
+   *  drainResolveQueue selects the 32-cap. Balanced by endColdStartBurst. */
+  beginColdStartBurst(): void {
+    this._coldStartBurstRefcount++
+  }
+  /** #1155 F3 — one map left cold-start burst. Clamp at 0: a double-end (an
+   *  exit predicate that already fired, then a destroy) must never underflow
+   *  the shared refcount and strand a still-cold-starting sibling map's burst. */
+  endColdStartBurst(): void {
+    if (this._coldStartBurstRefcount > 0) this._coldStartBurstRefcount--
   }
 
   constructor() {
@@ -255,8 +285,15 @@ export class MvtWorkerPool {
     // later dispose() doesn't cancel an unrelated (re-used) timer id.
     this._rafHandle = null
     const drainStart = performance.now()
+    // #1155 F3 — read the cap at FIRE time so an already-scheduled drain picks
+    // up the CURRENT burst mode (a burst that began or ended between schedule
+    // and fire), rather than a value captured when the rAF/timer was armed.
+    const cap =
+      this._coldStartBurstRefcount > 0
+        ? MvtWorkerPool.BURST_RESOLVES_PER_FRAME
+        : MvtWorkerPool.MAX_RESOLVES_PER_FRAME
     let processed = 0
-    while (processed < MvtWorkerPool.MAX_RESOLVES_PER_FRAME && this.resolveQueue.length > 0) {
+    while (processed < cap && this.resolveQueue.length > 0) {
       const { job, slices } = this.resolveQueue.shift()!
       const wrapped: MvtCompileSlice[] = slices.map((s) => ({
         layerName: s.layerName,

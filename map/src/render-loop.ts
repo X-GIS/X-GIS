@@ -29,7 +29,12 @@ import {
   poleLimit,
 } from '@xgis/geo'
 import { effectiveDpr, getSampleCount, isPickEnabled } from '@xgis/engine'
-import { resizeCanvas, unwrapWebGpuCommandEncoder, unwrapWebGpuTextureView } from '@xgis/rhi-webgpu'
+import {
+  resizeCanvas,
+  unwrapWebGpuCommandEncoder,
+  unwrapWebGpuTextureView,
+  pushValidationError,
+} from '@xgis/rhi-webgpu'
 import { DEBUG_OVERDRAW, DEBUG_RHI_CHECKER, RHI_CHAIN } from './debug-flags'
 import { WORLD_MERC, TILE_PX } from '@xgis/geo'
 import { invalidateResolvedShowCache } from './render/resolved-show'
@@ -1095,8 +1100,11 @@ export class RenderLoop {
     }
     rhi.endScreenPass(pass)
     const errs = rhi.takeGlErrors?.() ?? []
+    // #1153 P2 R6 — route through the shared capped writer (never log here; this
+    // WebGL2 drain has never logged) so the queue can't grow unbounded under a
+    // sustained GL error.
     for (const message of errs) {
-      this.host.ctx._validationErrors.push({ message, t: Date.now() })
+      pushValidationError(this.host.ctx, message)
     }
     // True while vector tiles are still compiling/uploading — the caller keeps
     // _needsRender armed so the loop re-renders until the scene converges

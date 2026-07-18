@@ -9,7 +9,7 @@
 // (`RenderContext` / `BackendChoice`), pinned in the dependency-direction
 // ratchet baseline until the #834 M5 context neutralization relocates it.
 import type { RhiDevice, RhiTextureFormat } from '@xgis/rhi'
-import type { RenderContext } from '@xgis/engine'
+import type { RenderContext, RhiDeviceLostInfo } from '@xgis/engine'
 // BackendChoice + the neutral render context live in @xgis/engine (#834
 // map→engine): they are engine composition concepts (a host canvas + frame
 // state), not a render HARDWARE interface, and must not live in a concrete
@@ -157,47 +157,58 @@ export async function createWebGpuContext(
     requiredFeatures.length > 0 ? { requiredFeatures } : undefined,
   )
 
-  const context = canvas.getContext('webgpu')
-  if (!context) throw new Error('Failed to get WebGPU context')
+  // #1153 P1 (#5) — the device is minted but unowned until the GPUContext
+  // bundle below wraps it. Every failure exit in between (getContext null,
+  // context.configure throw, the rhi-webgpu chunk-load reject, the WebGpuDevice
+  // ctor) must reclaim it or it leaks for the page lifetime. Destroy then
+  // rethrow the ORIGINAL error; the success path is unchanged.
+  let ctx: GPUContext
+  try {
+    const context = canvas.getContext('webgpu')
+    if (!context) throw new Error('Failed to get WebGPU context')
 
-  // getPreferredCanvasFormat() is typed GPUTextureFormat but only ever returns
-  // 'bgra8unorm' | 'rgba8unorm' — both members of RhiTextureFormat, which is
-  // GPUContext.format's type (extends RenderContext). Cast is safe.
-  const format = navigator.gpu.getPreferredCanvasFormat() as RhiTextureFormat
-  // Colour pipeline (DELIBERATE — verified by the 2026-06 rendering audit, not a
-  // gap): the canvas uses the preferred NON-srgb unorm format with NO `-srgb`
-  // view. Shaders emit sRGB-encoded colours directly (hexToRgba → 0..1 sRGB, no
-  // linearisation), so solid fills display 1:1. The trade-off is that ALPHA
-  // BLENDING runs in sRGB (perceptual) space rather than linear — technically
-  // "gamma-incorrect" per WebGPU best practice, but it is exactly what MapLibre
-  // GL JS and the wider web-map ecosystem do, and X-GIS is pixel-matched against
-  // MapLibre. Switching to gamma-correct linear blending (render through an
-  // `-srgb` view + linear colours) would DIVERGE from that baseline and require
-  // re-tuning every halo/translucency — so it is intentionally NOT done here.
-  context.configure({ device, format, alphaMode: 'premultiplied' })
+    // getPreferredCanvasFormat() is typed GPUTextureFormat but only ever returns
+    // 'bgra8unorm' | 'rgba8unorm' — both members of RhiTextureFormat, which is
+    // GPUContext.format's type (extends RenderContext). Cast is safe.
+    const format = navigator.gpu.getPreferredCanvasFormat() as RhiTextureFormat
+    // Colour pipeline (DELIBERATE — verified by the 2026-06 rendering audit, not a
+    // gap): the canvas uses the preferred NON-srgb unorm format with NO `-srgb`
+    // view. Shaders emit sRGB-encoded colours directly (hexToRgba → 0..1 sRGB, no
+    // linearisation), so solid fills display 1:1. The trade-off is that ALPHA
+    // BLENDING runs in sRGB (perceptual) space rather than linear — technically
+    // "gamma-incorrect" per WebGPU best practice, but it is exactly what MapLibre
+    // GL JS and the wider web-map ecosystem do, and X-GIS is pixel-matched against
+    // MapLibre. Switching to gamma-correct linear blending (render through an
+    // `-srgb` view + linear colours) would DIVERGE from that baseline and require
+    // re-tuning every halo/translucency — so it is intentionally NOT done here.
+    context.configure({ device, format, alphaMode: 'premultiplied' })
 
-  // The chosen backend's RHI device (this is the WebGPU path → WebGpuDevice over `device`).
-  // Lazy-imported like the WebGl2Device factory above so gpu.ts (layer 1) stays off a STATIC
-  // upward import edge to the render layer (rhi-webgpu is L3); `initGPU` is async, so the
-  // one-time dynamic import is free. This is the SINGLE backend device every renderer routes
-  // through (ctx.rhi) — no renderer self-instantiates `new WebGpuDevice`.
-  const { WebGpuDevice } = await import('./rhi-webgpu')
+    // The chosen backend's RHI device (this is the WebGPU path → WebGpuDevice over `device`).
+    // Lazy-imported like the WebGl2Device factory above so gpu.ts (layer 1) stays off a STATIC
+    // upward import edge to the render layer (rhi-webgpu is L3); `initGPU` is async, so the
+    // one-time dynamic import is free. This is the SINGLE backend device every renderer routes
+    // through (ctx.rhi) — no renderer self-instantiates `new WebGpuDevice`.
+    const { WebGpuDevice } = await import('./rhi-webgpu')
 
-  // Build the GPUContext bundle BEFORE wiring the validation
-  // handler so the handler can push into the per-context queue
-  // (tests read `ctx._validationErrors` to assert no errors fired).
-  const ctx: GPUContext = {
-    device,
-    context,
-    format,
-    canvas,
-    sampleCount: boot.sampleCount,
-    rhi: new WebGpuDevice(device, context),
-    timestampQuerySupported,
-    timestampInsidePassesSupported,
-    float32FilterableSupported,
-    _validationErrors: [],
-    deviceLost: false,
+    // Build the GPUContext bundle BEFORE wiring the validation
+    // handler so the handler can push into the per-context queue
+    // (tests read `ctx._validationErrors` to assert no errors fired).
+    ctx = {
+      device,
+      context,
+      format,
+      canvas,
+      sampleCount: boot.sampleCount,
+      rhi: new WebGpuDevice(device, context),
+      timestampQuerySupported,
+      timestampInsidePassesSupported,
+      float32FilterableSupported,
+      _validationErrors: [],
+      deviceLost: false,
+    }
+  } catch (e) {
+    device.destroy()
+    throw e
   }
 
   // Device-loss guard: flip the flag (the render loop reads it and stops
@@ -236,14 +247,43 @@ export async function createWebGpuContext(
   // bind group missing, layout mismatch, broken WGSL compile,
   // pipeline state error, etc. — without requiring every resource
   // creation site to be individually wrapped in pushErrorScope.
+  // Per-context console-log counter (#1153 P2 R6). A SUSTAINED validation defect
+  // (a broken pipeline re-hit every frame) otherwise floods ~60 console.error/s.
+  // Counter-based rate limit (no clock → deterministic for tests): log the FIRST
+  // 10 errors, then every 100th. The queue itself is capped via pushValidationError.
+  let validationLogCount = 0
   device.addEventListener?.('uncapturederror', (e) => {
     const err = e.error
     const msg = err?.message ?? String(e)
-    console.error('[WebGPU validation]', msg)
-    ctx._validationErrors.push({ message: msg, t: Date.now() })
+    if (validationLogCount < 10 || validationLogCount % 100 === 0) {
+      console.error('[WebGPU validation]', msg)
+    }
+    validationLogCount++
+    pushValidationError(ctx, msg)
   })
 
   return ctx
+}
+
+/** Cap on a context's `_validationErrors` queue (#1153 P2 R6). Without it a
+ *  sustained WebGPU validation defect grows the array unboundedly at ~60
+ *  pushes/s. 100 keeps the most-recent errors (the drain helpers + the e2e
+ *  in-page reader consume the tail) while bounding the heap. Mirrors the
+ *  `_flickerLog` ring precedent (render-loop.ts). */
+export const VALIDATION_ERROR_CAP = 100
+
+/** Append a validation error to a context's queue, capped at
+ *  {@link VALIDATION_ERROR_CAP}. The SINGLE writer that both the WebGPU
+ *  `uncapturederror` handler (above) and the WebGL2 `takeGlErrors` drain
+ *  (render-loop.ts) route through, so the cap lives in one place. Deliberately
+ *  keeps `_validationErrors` a PLAIN ARRAY — the e2e drain helpers read
+ *  `[...arr]` and set `.length = 0` in-page — so it splice-trims after push
+ *  (the `_flickerLog` idiom) rather than swapping in a ring class. */
+export function pushValidationError(ctx: RenderContext, message: string): void {
+  ctx._validationErrors.push({ message, t: Date.now() })
+  if (ctx._validationErrors.length > VALIDATION_ERROR_CAP) {
+    ctx._validationErrors.splice(0, ctx._validationErrors.length - VALIDATION_ERROR_CAP)
+  }
 }
 
 /** Forced-WebGL2 boot (`?forcegl2=1`) — build a WebGL2-backed `GPUContext`.
@@ -280,6 +320,18 @@ export async function initGPUForcedWebGL2(
     throw new WebGPUUnavailableError(
       '?forcegl2=1 set but canvas.getContext("webgl2") returned null',
     )
+  // #1153 P2 R3 — ensure-restored preamble. WebGL2 contexts are canvas-sticky:
+  // a prior map.destroy() on this canvas called ctx.rhi.destroy() -> loseContext(),
+  // so a remount's getContext('webgl2') hands back the SAME now-lost context and
+  // every GL call no-ops / createTexture throws (rhi-webgl2 :963) -> a dead boot
+  // that still burns the device-lost budget. If the context is lost, restore it and
+  // await 'webglcontextrestored' (bounded); a timeout throws WebGPUUnavailableError
+  // so selectBackend exhausts into the graceful onWebGPUUnavailable path instead of
+  // booting a zombie. Also fixes the latent remount-on-same-canvas bug (#1153 A). The
+  // `?.()` guard keeps the fake-gl unit fixtures (no isContextLost) on the fast path.
+  if (gl.isContextLost?.()) {
+    await ensureWebGl2ContextRestored(gl, canvas)
+  }
   const rhi = await makeRhi(gl)
 
   if (typeof window !== 'undefined') {
@@ -312,7 +364,7 @@ export async function initGPUForcedWebGL2(
         )
       },
     })
-  return {
+  const ctx: GPUContext = {
     device: unavailable('device') as GPUDevice,
     context: unavailable('context') as GPUCanvasContext,
     format: 'rgba8unorm',
@@ -325,6 +377,96 @@ export async function initGPUForcedWebGL2(
     _validationErrors: [],
     deviceLost: false,
   }
+
+  // #1153 P2 R3 — translate a WebGL2 context loss into the SAME device-lost chain
+  // the WebGPU path fires (device.lost, above): flip ctx.deviceLost so the render
+  // loop's guard stops issuing work into the dead context, then fan out to the host
+  // + library-internal hooks in the same ORDER + ISOLATION (a throwing public
+  // onDeviceLost must not kill internal recovery). The WebGl2Device owns the DOM
+  // listeners + preventDefault; here we synthesize the neutral RhiDeviceLostInfo the
+  // DOM event lacks. Recovery fires from the LOST event only — the restore is
+  // consumed by the ensure-restored preamble on the re-boot — so we deliberately do
+  // NOT also wire onContextRestored (a double-fire would burn the recovery budget).
+  rhi.onContextLost?.(() => {
+    ctx.deviceLost = true
+    const info: RhiDeviceLostInfo = {
+      reason: 'webglcontextlost',
+      message: 'WebGL2 rendering context lost',
+    }
+    console.error('[X-GIS] WebGL2 context lost')
+    try {
+      ctx.onDeviceLost?.(info)
+    } catch (e) {
+      console.error('[X-GIS] onDeviceLost hook threw', e)
+    }
+    ctx.onDeviceLostInternal?.(info)
+  })
+  return ctx
+}
+
+/** #1153 P2 R3 — restore a canvas-sticky WebGL2 context that a prior
+ *  `rhi.destroy()` left lost, so a remount on the SAME canvas boots on a LIVE
+ *  context instead of a zombie. `restoreContext()` only restores when the
+ *  `webglcontextlost` event was preventDefault'd (the browser's restore_allowed_
+ *  latch); `WebGl2Device.destroy()` keeps a one-shot preventDefault listener for
+ *  exactly that reason. Two orderings reach here after a same-canvas destroy:
+ *  SEPARATE task — the deferred lost event already fired and was preventDefault'd,
+ *  so the immediate `restoreContext()` below restores at once; SAME task
+ *  (`oldMap.destroy(); await initGPU(canvas)`) — the lost event is STILL pending,
+ *  restore_allowed_ is unset and the immediate call no-ops, so we also listen for
+ *  that pending loss, preventDefault it, and RE-invoke `restoreContext()` once it
+ *  lands (deferred to a microtask because the browser sets restore_allowed_ only
+ *  AFTER the lost-event dispatch completes). A NATURALLY-lost context the browser
+ *  never restores ends in the timeout → `WebGPUUnavailableError` → graceful degrade
+ *  (blank WITH observability), strictly better than the silent zombie loop it
+ *  replaces. The timeout is short so a repeated-loss re-boot under real memory
+ *  pressure fails fast rather than stacking long blank waits. The `?.` guards keep
+ *  the fake-canvas fixtures inert. */
+async function ensureWebGl2ContextRestored(
+  gl: WebGL2RenderingContext,
+  canvas: HTMLCanvasElement,
+): Promise<void> {
+  const ext = gl.getExtension('WEBGL_lose_context')
+  if (!ext) {
+    throw new WebGPUUnavailableError(
+      'WebGL2 context lost on boot and WEBGL_lose_context is unavailable to restore it',
+    )
+  }
+  const RESTORE_TIMEOUT_MS = 3000
+  let onLost: ((e: Event) => void) | undefined
+  const restored = new Promise<void>((resolve, reject) => {
+    let settled = false
+    let timer: ReturnType<typeof setTimeout>
+    const onRestored = (): void => {
+      if (settled) return
+      settled = true
+      clearTimeout(timer)
+      canvas.removeEventListener?.('webglcontextrestored', onRestored)
+      if (onLost) canvas.removeEventListener?.('webglcontextlost', onLost)
+      resolve()
+    }
+    onLost = (e: Event): void => {
+      // Same-task ordering: the deferred loss lands now. Keep it restorable and
+      // re-drive restore AFTER the dispatch completes (restore_allowed_ is set then).
+      e.preventDefault()
+      queueMicrotask(() => {
+        if (!settled) ext.restoreContext()
+      })
+    }
+    timer = setTimeout(() => {
+      if (settled) return
+      settled = true
+      canvas.removeEventListener?.('webglcontextrestored', onRestored)
+      if (onLost) canvas.removeEventListener?.('webglcontextlost', onLost)
+      reject(
+        new WebGPUUnavailableError(`WebGL2 context did not restore within ${RESTORE_TIMEOUT_MS}ms`),
+      )
+    }, RESTORE_TIMEOUT_MS)
+    canvas.addEventListener?.('webglcontextrestored', onRestored)
+    canvas.addEventListener?.('webglcontextlost', onLost)
+  })
+  ext.restoreContext()
+  await restored
 }
 
 /** (Re)size the swapchain to `clientSize × dpr`. The caller derives `dpr`

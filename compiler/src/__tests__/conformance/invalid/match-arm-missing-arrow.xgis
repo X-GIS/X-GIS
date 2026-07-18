@@ -3,4 +3,5 @@
 // @desc a match arm without `->` is rejected with the generic syntax-error code
 // @expect-code X-GIS0010
 xgis 1
-let c = match(.t) { "a" #fff }
+source w { type: geojson, url: "w.geojson" }
+layer nations { source: w | fill match(.iso) { "KOR" #ef4444 } }

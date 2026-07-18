@@ -55,6 +55,7 @@ function makeParent(feature: GeoJSONFeature, z: number, x: number, y: number): T
     indices: compiled.indices,
     lineVertices: compiled.lineVertices,
     lineIndices: compiled.lineIndices,
+    // eslint-disable-next-line @typescript-eslint/no-deprecated -- asserts the deprecated outlineIndices contract
     outlineIndices: compiled.outlineIndices,
     tileWest: b.west,
     tileSouth: b.south,
