@@ -1,12 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import { emitHillshadeWgsl } from './hillshade'
 import { emitRasterWgsl } from './raster'
-import {
-  hillshadeUniformSlots,
-  hillshadeUniformBytes,
-  hillshadeTileSlots,
-  hillshadeTileBytes,
-} from '../../render/hillshade-uniform-slots'
+import { hillshadeUniformSlots, hillshadeUniformBytes } from '../../render/hillshade-uniform-slots'
 
 // #777 Phase II — hillshade shader. A hillshade tile is structurally a raster
 // tile with a DEM-decode → Sobel → shade fragment; the vertex stage, procedural
@@ -44,11 +39,11 @@ describe('Phase-II hillshade shader — DSL emission', () => {
     expect(noPick).toContain('@group(1) @binding(0) var<uniform> tile: TileUniforms;')
   })
 
-  it('binds hillshade lighting (g0b3) + per-tile deriv (g1b1) uniforms', () => {
+  it('binds hillshade lighting (g0b3); reuses raster TileUniforms pool (no hillshade per-tile)', () => {
     expect(noPick).toContain('@group(0) @binding(3) var<uniform> hs: HillshadeUniforms;')
-    expect(noPick).toContain('@group(1) @binding(1) var<uniform> ht: HillshadeTileUniforms;')
     expect(noPick).toContain('struct HillshadeUniforms')
-    expect(noPick).toContain('struct HillshadeTileUniforms')
+    // The per-tile pool is the SHARED raster TileUniforms — no hillshade per-tile struct.
+    expect(noPick).not.toContain('HillshadeTileUniforms')
     // The lighting struct carries the six vec4 lanes the renderer packs.
     for (const f of [
       'hs_unpack',
@@ -60,7 +55,6 @@ describe('Phase-II hillshade shader — DSL emission', () => {
     ]) {
       expect(noPick).toContain(f)
     }
-    expect(noPick).toContain('hs_deriv')
   })
 
   it('fragment DEM-decodes via the hs_elevation helper (unpack dot, ×255)', () => {
@@ -81,12 +75,12 @@ describe('Phase-II hillshade shader — DSL emission', () => {
     expect(fs).toContain('input.abs_lon')
   })
 
-  it('fragment takes a 3×3 Sobel derivative scaled by the per-tile deriv + lat correction', () => {
+  it('fragment takes a 3×3 Sobel derivative scaled by the per-frame deriv + lat correction', () => {
     const fs = noPick.slice(noPick.indexOf('fn fs_hillshade'))
     // 8 neighbour taps of hs_elevation (3×3 minus centre).
     expect((fs.match(/hs_elevation\(/g) ?? []).length).toBe(8)
-    // per-tile deriv scale + Mercator cos(lat) correction.
-    expect(fs).toContain('ht.hs_deriv')
+    // deriv scale (hs_texel.y) + Mercator cos(lat) correction.
+    expect(fs).toContain('hs.hs_texel')
     expect(fs).toContain('cos(')
   })
 
@@ -119,7 +113,8 @@ describe('Phase-II hillshade shader — DSL emission', () => {
   })
 
   // Uniform slots (reflect-derived) — locks the byte layout the INC-3 CPU packer
-  // writes into. HillshadeUniforms = 6 vec4 (96 B); HillshadeTileUniforms = 1 vec4 (16 B).
+  // writes into. HillshadeUniforms = 6 vec4 (96 B). The per-tile pool is the
+  // shared raster TileUniforms (rasterTileSlots), not a hillshade struct.
   it('reflect-derives the hillshade uniform slot layout', () => {
     const hs = hillshadeUniformSlots()
     expect(hs.slots).toBe(24) // 6 vec4 × 4 f32
@@ -134,9 +129,5 @@ describe('Phase-II hillshade shader — DSL emission', () => {
     ]) {
       expect(hs.slot).toHaveProperty(f)
     }
-    const ht = hillshadeTileSlots()
-    expect(ht.slots).toBe(4) // 1 vec4
-    expect(hillshadeTileBytes()).toBe(16)
-    expect(ht.slot).toHaveProperty('hs_deriv')
   })
 })

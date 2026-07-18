@@ -91,23 +91,20 @@ const HS = uniformStruct(
     hs_shadow: vec4fT, // premultiplied shadow-side RGBA
     hs_highlight: vec4fT, // premultiplied lit-side RGBA
     hs_accent: vec4fT, // premultiplied accent RGBA
-    // x = dem texel size (1/dimension); yzw reserved (0).
+    // x = dem texel size (1/dimension); y = deriv_scale =
+    // tileSize / pow(2, exaggeration_zoom + 28.2562 − zoom) (design §3 step 2),
+    // computed per-frame from the render zoom (exact for the single-LOD steady
+    // state; a documented approximation for transient parent-fallback / pitched
+    // mixed-LOD tiles — the single-pass MVP does not carry a per-tile scale). zw reserved (0).
     hs_texel: vec4fT,
   },
 )
-// Per-tile zoom-dependent Sobel scale (group 1, binding 1). deriv_scale =
-// tileSize / pow(2, exaggeration_zoom + 28.2562 − zoom) — a function of the DEM
-// tile's zoom, so it is written per draw (design §3 step 2).
-const HT = uniformStruct(
-  'HillshadeTileUniforms',
-  { group: 1, binding: 1, as: 'ht' },
-  {
-    hs_deriv: vec4fT, // x = deriv_scale; yzw reserved (0).
-  },
-)
-// Exported (distinct barrel names) for the INC-3 CPU packer, which derives its
-// typed write surface from reflect() over the SAME struct declarations.
-export { HS as hillshadeU, HT as hillshadeTileU }
+// Exported (distinct barrel name) for the INC-3 CPU packer, which derives its
+// typed write surface from reflect() over the SAME struct declaration. The
+// vertex reuses the raster global 'Uniforms' + per-tile 'TileUniforms' (so
+// vs_tile + writeRasterTileUniform are shared verbatim — no hillshade per-tile
+// uniform, which keeps hillshade inside the single-global + single-pool Material seam).
+export { HS as hillshadeU }
 
 // VsOut / U / Tile / DEM texture are the raster authorities, shared verbatim.
 const VsOut = rasterVsOut
@@ -173,7 +170,7 @@ const buildFs = (pickEnabled: boolean) => {
       // radians from the abs_merc_y recompute above.
       const derivX = c.add(f.mul(2)).add(i).sub(a).sub(d.mul(2)).sub(g)
       const derivY = g.add(h.mul(2)).add(i).sub(a).sub(b.mul(2)).sub(c)
-      const scale = HT.field.hs_deriv.x.div(cos(latRad))
+      const scale = HS.field.hs_texel.y.div(cos(latRad))
       const deriv = vec2(derivX.mul(scale), derivY.mul(scale))
 
       const azimuth = HS.field.hs_light.x
@@ -251,18 +248,10 @@ export const buildHillshadeModule = (pickEnabled: boolean): ModuleDecl =>
       U.struct,
       rasterTileU.struct,
       HS.struct,
-      HT.struct,
       VsOut.decl,
       hillshadeFragmentOutput(pickEnabled).decl,
     ],
-    bindings: [
-      U.binding,
-      tex.binding,
-      texSampler.binding,
-      HS.binding,
-      rasterTileU.binding,
-      HT.binding,
-    ],
+    bindings: [U.binding, tex.binding, texSampler.binding, HS.binding, rasterTileU.binding],
     funcs: [...getGpuProjectionFuncs(), rasterVsTile, hsElevation, buildFs(pickEnabled)],
   })
 
