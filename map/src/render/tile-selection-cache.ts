@@ -168,7 +168,15 @@ export class TileSelectionCache {
    *  same equality). Bounded to FRAME_TILE_CACHE_SLOTS (evict LRU); cleared each
    *  frame by invalidateFrame(). */
   private readonly _frameTileCacheLru = new Map<number, FrameTileCache>()
-  private static readonly FRAME_TILE_CACHE_SLOTS = 8
+  /** 8→16: 8 sat BELOW the frame's real distinct-margin count, so the LRU evicted a
+   *  margin the SAME frame still needed and re-walked it — the very ping-pong the LRU
+   *  exists to kill, one N up. Measured on RTX 2080 (OFM Bright z14 Tokyo, wheel zoom)
+   *  through selectionComputeCount(): D = 10 distinct walks/frame median, 14 max —
+   *  each priced at 7.2 ms @pitch0 / 16.3 ms @pitch60 (`:646-651`), and frames WITH
+   *  walks ran 15.0 ms median / 165.7 ms max against 6.9 ms for frames without. 16
+   *  clears the measured max with headroom; the cap only ever bounds ONE frame's live
+   *  margins (invalidateFrame() drops all of them), so it is not a growth surface. */
+  private static readonly FRAME_TILE_CACHE_SLOTS = 16
 
   /** #1153 #12 gate hook — quadtree-walk (cache-MISS) count. Monotonic, cheap. */
   private _selectionComputeCount = 0
