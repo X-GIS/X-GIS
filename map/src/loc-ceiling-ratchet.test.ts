@@ -93,11 +93,15 @@ const CEILINGS: Record<string, number> = {
   // 4487→4494 (#1154): pattern_active flag written per fill draw (both the
   // pattern/else branch at the fill_translate site + the three sentinel paths)
   // so the VS knows to gate off fill-translate when a pattern owns those slots.
+  // 4494→4506 (#1153 P2 R1): destroy() now releases the two GPU pools it owns but
+  // previously leaked — stagingPool.dispose() (the ≤16 MB tiered staging pool, the
+  // iOS staircase) + bundleCache.invalidateAll() — with their rationale (+12).
   // 4494→4511 (#1155 F3): cold-start burst forwarder — the `_coldStartBurst`
   // field + `setColdStartBurst` + the burst flag on the per-render
   // uploadBudgetFor/setMaxJobs call. (Ceiling corrected from a padded 4513 to the
   // measured post-prettier 4511 — #1155 F3 adjudication, shrink-only high-water.)
-  'map/src/render/vector-tile-renderer.ts': 4511,
+  // Merge union (#1170 <- origin/main): both bumps stacked non-overlappingly on VTR (destroy() +12 AND cold-start burst +17), so the merged high-water is the measured 4523, not either standalone value.
+  'map/src/render/vector-tile-renderer.ts': 4523,
   // 4232→4237 (#1000 heatmap relocate): the heatmap density-target OWNERSHIP
   // extracted to render/heatmap-targets.ts; map keeps only the irreducible
   // composition-root wiring — the `heatmapTargets` field + its import (mirrors
@@ -256,7 +260,10 @@ const CEILINGS: Record<string, number> = {
   // held-off field (+ its doc) and the twin early-return's routing comment/guard (doc
   // §3-F3). +17, all documentation of the held-off switch; the guard is byte-identical
   // (the twin still renders). F6 slashes this file to ~880 (twin deletion).
-  'map/src/render-loop.ts': 1205,
+  // 1205→1213 (#1153 P2 R6): the WebGL2 takeGlErrors drain now routes through the
+  // shared capped writer `pushValidationError` (rhi-webgpu) so the _validationErrors
+  // queue can't grow unbounded — the 4-name import expansion + the drain-loop doc.
+  'map/src/render-loop.ts': 1213,
   'map/src/render/point-renderer.ts': 1140,
   // 1106→1120 (#1043 state-hygiene): three unmask-before-clear / state-reset fixes for the
   // WebGL2 flicker class — beginScreenPass colorMask unmask (the colour sibling of #746/#780),
@@ -281,7 +288,13 @@ const CEILINGS: Record<string, number> = {
   // WEBGL_lose_context). An interface method cannot be extracted out of its class, so this
   // is irreducible growth (+7); the map's teardown routes through it instead of the raw
   // fail-loud ctx.device proxy, killing the deterministic webgl2 teardown crash.
-  'rhi-webgl2/src/rhi-webgl2.ts': 1292,
+  // 1292→1341 (#1153 P2 R3): WebGl2Device now OWNS the canvas context-loss listeners —
+  // the guarded 'webglcontextlost'/'restored' ctor attach (preventDefault + fan-out to
+  // onContextLost/onContextRestored subscribers), the two subscription methods, the
+  // bound-handler fields, and the destroy() removeEventListener-BEFORE-loseContext
+  // teardown (the intentional-teardown guard). A device owning its own listeners can't
+  // extract them; irreducible (+49).
+  'rhi-webgl2/src/rhi-webgl2.ts': 1354,
   'map/src/render/renderer.ts': 965,
   'map/src/render/gpu-tile-store.ts': 941,
   // 930→948 (#1078): the zoom-transition readiness gate now probes the SAME
@@ -310,6 +323,13 @@ const CEILINGS: Record<string, number> = {
   // 876→889: visible-first cap-deferral — `_distSq` field + `resetFrameCap`
   // sorts the held backlog NEAREST-first so a zoom-in's visible slices upload
   // ahead of the accumulated far/ancestor backlog (the ~30 s stall fix).
+  // Baselined 807 (#1153 P2 R4): raster-renderer crossed 800 for the WebGL2 tile-load
+  // robustness fix — loadTileTexture's try/catch (close the decoded bitmap + destroy
+  // any half-created texture, resolve null to the WebGPU contract) + the two async load
+  // chains' `.catch` that un-wedges the loadingTiles slot (a createTexture throw on a
+  // lost context otherwise pins all 6 slots → raster stops + the loop never idles).
+  // A cohesive renderer, not a new god-file; shrink as #991 decomposes the render SCC.
+  'map/src/render/raster-renderer.ts': 809,
   // 889→906 (#1155 F3): cold-start burst enqueue cap — the `_coldStartBurst`
   // field + `setColdStartBurst` + the burst-selected 8/4 cap in enqueue().
   // 906→910 (#1155 F3 adjudication): the burst 8/4 pair now comes from the

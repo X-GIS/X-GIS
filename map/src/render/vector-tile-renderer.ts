@@ -1955,6 +1955,18 @@ export class VectorTileRenderer {
     // point. ACTIVE coroutines are handled by the pre-submit guard in
     // the coordinator's async dispatch via its _destroyed flag.
     this._uploads.destroy()
+    // R1 (#1153 P2) — release the staging pool the coordinator borrows from.
+    // MUST run AFTER _uploads.destroy() has set its _destroyed flag: an
+    // in-flight async upload that resumes on the staging mapAsync round-trip
+    // post-destroy skips its submit and hands its slot back to this now-disposed
+    // pool, which then DESTROYS it rather than pooling it into a dead free-list.
+    // Before this the tiered pool (up to ~16 MB) leaked on every setSourceData
+    // swap until GC timing (GPU bytes exert no JS GC pressure — the iOS staircase).
+    this.stagingPool.dispose()
+    // Drop every cached GPURenderBundle. Bundles are GC-owned (no destroy()), so
+    // this just releases the JS refs the cache pinned for the renderer's whole
+    // life — the VTR owns the cache but destroy() never cleared it.
+    this.bundleCache.invalidateAll()
     // Compute resources: per-tile ComputeLayerHandle instances own
     // (feat / out / count) buffer trios. Free them before the legacy
     // buffer loop so device memory is reclaimed in one pass.

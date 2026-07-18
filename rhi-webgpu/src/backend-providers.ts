@@ -63,6 +63,52 @@ const requireInjectedWebGl2Device: WebGl2DeviceFactory = () => {
   )
 }
 
+/** Module-level memo of the webgl2 capability probe (#1153 P2 R5). The probe
+ *  creates a scratch-canvas webgl2 context; iOS caps live contexts per page, so
+ *  an un-released probe — or a re-probe during an R3 context-loss recovery storm —
+ *  can EVICT the active map's context (permanent blank after ~8-16 SPA remounts).
+ *  Providers are RE-CREATED per boot (`backendProviderChain`), so a provider-arg
+ *  memo would not survive an SPA remount — module scope is the page-global
+ *  authority the fix needs. R5/R3 interaction: this probes CAPABILITY on a fresh
+ *  scratch canvas, never the LIVENESS of the map's context, so a memoized `true`
+ *  after the map's context is lost is still correct; the memo is precisely what
+ *  PREVENTS the extra context that would evict the active map on iOS. Only a
+ *  POSITIVE result is ever stored (`true | null`, never `false`): a null probe is
+ *  potentially transient and leaks nothing, so it re-probes rather than stick. */
+let _webgl2ProbeMemo: true | null = null
+
+/** Test seam — clear the module-level webgl2 probe memo so a fresh probe runs
+ *  (test isolation fence; production probes once per page). */
+export function _resetWebgl2ProbeMemoForTests(): void {
+  _webgl2ProbeMemo = null
+}
+
+/** WebGL2 capability probe, memoized page-wide (#1153 P2 R5). Same checks + same
+ *  return as the pre-memo inline probe (no DOM → pass-through `true`; otherwise
+ *  `!!gl`), but it RELEASES the scratch context via `WEBGL_lose_context` instead
+ *  of leaking one live context per boot attempt. */
+function probeWebgl2Support(): boolean {
+  if (_webgl2ProbeMemo !== null) return _webgl2ProbeMemo
+  if (typeof document === 'undefined') {
+    _webgl2ProbeMemo = true
+    return true
+  }
+  const gl = document.createElement('canvas').getContext('webgl2')
+  // Release the scratch context immediately — do not hold a live webgl2 context
+  // past the probe (iOS per-page context cap).
+  gl?.getExtension('WEBGL_lose_context')?.loseContext()
+  // Memoize only a POSITIVE result. A null getContext('webgl2') can be TRANSIENT
+  // (GPU process just crashed/restarting, or the iOS per-page live-context cap —
+  // the very eviction storm R5 defends against — momentarily exhausted), and it
+  // creates NO scratch context, so caching `false` buys zero leak-prevention while
+  // converting a momentary failure into a page-lifetime one (every later SPA remount
+  // then reports webgl2 unsupported until a full reload). Re-probing after a null is
+  // one boot-path getContext with zero live contexts — effectively free — and matches
+  // the pre-memo behaviour that recovered on the next boot.
+  if (gl) _webgl2ProbeMemo = true
+  return !!gl
+}
+
 /** WebGL2 backend provider FACTORY. `probe()` uses a SCRATCH canvas — canvas
  *  context types are sticky, so probing the target canvas would poison it for
  *  the next provider. Without a DOM (tests/SSR hand in fake canvases) the scratch
@@ -75,8 +121,7 @@ export function makeWebGl2BackendProvider(
 ): RhiBackendProvider<GPUContext> {
   return {
     id: 'webgl2',
-    probe: async () =>
-      typeof document === 'undefined' || !!document.createElement('canvas').getContext('webgl2'),
+    probe: async () => probeWebgl2Support(),
     create: (canvas) => initGPUForcedWebGL2(canvas, makeDevice),
   }
 }
