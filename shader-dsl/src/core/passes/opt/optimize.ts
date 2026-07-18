@@ -15,7 +15,7 @@
 // module's oracle bit-equality loop over every proj_* fn
 // (map/src/shaders/dsl/optimize.test.ts), and the examples emit-goldens byte gate.
 
-import type { ModuleDecl } from '../../ir'
+import type { ModuleDecl, FuncDecl } from '../../ir'
 import { constProp } from './const-prop'
 import { copyProp } from './copy-prop'
 import { constFold } from './const-fold'
@@ -60,23 +60,86 @@ export function optimize(m: ModuleDecl, passes: readonly OptPass[] = DEFAULT_PAS
   return passes.reduce((mod, pass) => pass(mod), m)
 }
 
-/** Run `passes` to a fixed point — until the module stops changing — capped at
- *  `maxIters`. One linear `optimize` sweep catches depth-1 chains (const-prop
- *  exposes a literal, const-fold collapses it, dead-branch drops the branch); this
- *  catches the deeper chains where a fold exposes the next propagation. Structural
- *  equality via JSON — the IR is plain, acyclic, function-free data. */
+/** Structural equality over the IR, mirroring the `JSON.stringify(a) ===
+ *  JSON.stringify(b)` test it replaces — but SHORT-CIRCUITING at the first
+ *  difference and allocating NOTHING. The IR is plain, acyclic, function-free
+ *  data (the `fixpoint` invariant), so a lockstep walk is exact:
+ *   • primitives compare by `===`;
+ *   • arrays compare by length then element-wise (ordered — matches JSON);
+ *   • plain objects compare by their DEFINED-value key set then value-wise —
+ *     `JSON.stringify` omits `undefined`-valued keys, so both sides filter them
+ *     to keep the comparison identical to the string form it replaced.
+ *  Object key ORDER is not compared: the emitter reads IR fields by name, so a
+ *  key-order-only difference can never reach emitted bytes — pinned by the
+ *  emit-goldens + polygon-variant-diff byte gates. */
+function irEqual(a: unknown, b: unknown): boolean {
+  if (a === b) return true
+  if (typeof a !== 'object' || typeof b !== 'object' || a === null || b === null) return false
+  const aArr = Array.isArray(a)
+  if (aArr !== Array.isArray(b)) return false
+  if (aArr) {
+    const aa = a as unknown[]
+    const ba = b as unknown[]
+    if (aa.length !== ba.length) return false
+    for (let i = 0; i < aa.length; i++) if (!irEqual(aa[i], ba[i])) return false
+    return true
+  }
+  const ao = a as Record<string, unknown>
+  const bo = b as Record<string, unknown>
+  const ak = Object.keys(ao).filter((k) => ao[k] !== undefined)
+  const bk = Object.keys(bo).filter((k) => bo[k] !== undefined)
+  if (ak.length !== bk.length) return false
+  // A key defined on `a` but absent/undefined on `b` fails via irEqual(x, undefined).
+  for (const k of ak) if (!irEqual(ao[k], bo[k])) return false
+  return true
+}
+
+/** Optimize ONE function to a fixed point (#1186). Reuses the module-level passes
+ *  by wrapping the function in a one-function module — every DEFAULT_PASSES pass
+ *  is `{ ...m, funcs: m.funcs.map(perFnFn) }` with a `(f: FuncDecl) => FuncDecl`
+ *  transform, so it reads ONLY the function it maps; the shell's consts/structs/
+ *  bindings are inert (carried via `{ ...m }` only so a defensive `...m` spread
+ *  inside a pass sees a well-formed module).
+ *
+ *  ⚠ INVARIANT: this is correct ONLY while every pass is per-function-pure. A
+ *  CROSS-function pass (inline, gvn, deadFnElim — all deliberately UNWIRED, see
+ *  DEFAULT_PASSES) run on a one-function module would see a different module than
+ *  the whole and silently diverge. `fixpoint-ireq.test.ts` pins per-function ≡
+ *  whole-module on the real projection module so wiring such a pass fails loudly. */
+function fnFixpoint(
+  fn: FuncDecl,
+  m: ModuleDecl,
+  passes: readonly OptPass[],
+  maxIters: number,
+): FuncDecl {
+  let cur = fn
+  for (let i = 0; i < maxIters; i++) {
+    const next = optimize({ ...m, funcs: [cur] }, passes).funcs[0]!
+    if (irEqual(next, cur)) return next
+    cur = next
+  }
+  return cur
+}
+
+/** Run `passes` to a fixed point — until each function stops changing — capped at
+ *  `maxIters`. Functions are optimized INDEPENDENTLY (see `fnFixpoint`): because
+ *  every pass is per-function, a function reaches the same fixed point whether it
+ *  is optimized alone or inside the whole module, and each one stops at its OWN
+ *  convergence instead of being re-swept until the slowest function in the module
+ *  settles — the merged multi-projection shaders carry ~38 functions of very
+ *  uneven depth, so the whole-module loop wasted most sweeps re-running the ones
+ *  that had already converged (#1186).
+ *
+ *  Convergence is tested by `irEqual`, a short-circuiting structural walk that
+ *  replaced a whole-module `JSON.stringify` compare (188 MB across a demo's
+ *  pipeline compiles — #1186); it bails at the first differing node and allocates
+ *  nothing. */
 export function fixpoint(
   m: ModuleDecl,
   passes: readonly OptPass[] = DEFAULT_PASSES,
   maxIters = 8,
 ): ModuleDecl {
-  let cur = m
-  for (let i = 0; i < maxIters; i++) {
-    const next = optimize(cur, passes)
-    if (JSON.stringify(next) === JSON.stringify(cur)) return next
-    cur = next
-  }
-  return cur
+  return { ...m, funcs: m.funcs.map((fn) => fnFixpoint(fn, m, passes, maxIters)) }
 }
 
 // ── Named optimization levels (C-compiler -O0/-O1/-O2) ──
