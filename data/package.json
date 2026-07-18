@@ -6,7 +6,8 @@
   "type": "module",
   "main": "./src/index.ts",
   "exports": {
-    ".": "./src/index.ts"
+    ".": "./src/index.ts",
+    "./coverage": "./src/coverage/format.ts"
   },
   "scripts": {
     "build": "tsc --build"

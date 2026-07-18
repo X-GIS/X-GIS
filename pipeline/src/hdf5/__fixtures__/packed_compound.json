@@ -1,0 +1,22 @@
+{
+  "bandNames": ["depth", "uncertainty"],
+  "depth_north_up": [
+    [7.0, 8.0],
+    [5.0, 6.0]
+  ],
+  "depth_south_first": [
+    [5.0, 6.0],
+    [7.0, 8.0]
+  ],
+  "fillValue": 1000000.0,
+  "nLat": 2,
+  "nLon": 2,
+  "origin": [0.0, 0.0],
+  "product": "s102",
+  "spacing": [1.0, 1.0],
+  "uncertainty_south_first": [
+    [9.0, 10.0],
+    [11.0, 12.0]
+  ],
+  "verticalDatum": 12
+}

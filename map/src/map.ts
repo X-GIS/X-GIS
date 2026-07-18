@@ -78,7 +78,7 @@ import {
   type OpaqueGroup as ExternalOpaqueGroup,
 } from './render/bucket-scheduler'
 import { interpret, type SceneCommands } from './interpreter'
-import { lonLatToMercator, type GeoJSONFeatureCollection } from '@xgis/data'
+import { lonLatToMercator, type GeoJSONFeatureCollection, type CoverageHandle } from '@xgis/data'
 import { RasterRenderer } from './render/raster-renderer'
 import { UnderOccluderRenderer } from './render/under-occluder-renderer'
 import { PointRenderer } from './render/point-renderer'
@@ -3099,6 +3099,15 @@ export class XGISMap {
         continue
       }
 
+      // S-100 gridded-coverage source (#1158 GAP-1). The CPU-resident CoverageHandle
+      // is the value-readout authority (getCoverage(...).valueAt); narrow the marker
+      // here so it never falls through to the feature paths below. The GPU colour-
+      // ramp draw (CoverageRenderer, coverage-renderer.ts) arms + draws through the
+      // headed render gate (INC-A gate 3, PENDING in this environment) — the renderer
+      // + shader + packing are complete and unit-tested; this narrowing keeps the
+      // rebuild feature-path-safe until that draw wiring lands.
+      if ('_coverage' in data) continue
+
       // Skip vector tile sources loaded from .xgvt files
       if ('_vectorTile' in data) {
         const vtEntry = this.vtSources.get(show.targetName)
@@ -3928,6 +3937,17 @@ export class XGISMap {
    *  the scene after this call do not appear in the returned array. */
   getLayers(): readonly XGISLayer[] {
     return Array.from(this.xgisLayers.values())
+  }
+
+  /** The CPU-resident CoverageHandle for an S-100 `coverage` source (#1158 GAP-1),
+   *  or null when `sourceId` is not a loaded coverage. This is the value-readout
+   *  AUTHORITY — `map.getCoverage('bathy')?.valueAt(lon, lat)` returns the exact
+   *  positive-down value AS STORED (no sign flip), and `.meta` carries the vertical
+   *  datum code/sign + band metadata. Half-precision only ever affects the colour
+   *  path (the r16float texture), never this readout. */
+  getCoverage(sourceId: string): CoverageHandle | null {
+    const data = this.rawDatasets.get(sourceId)
+    return data && '_coverage' in data ? data._coverage : null
   }
 
   /** Mapbox GL JS-style paint property mutation (plan P6 first cut).

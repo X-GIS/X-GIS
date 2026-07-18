@@ -64,6 +64,12 @@ export const SOURCE_TYPES = [
   'vector',
   'raster-dem',
   'binary',
+  // S-100 gridded coverage (.xgcov) — a built-in source (#1158 GAP-1). Adding it
+  // here auto-propagates to @xgis/map's BUILTIN_SOURCE_TYPES (derived from this
+  // list), so the dispatch handles it natively rather than routing to the custom-
+  // loader registry. NOT a spec-coverage row: the Mapbox converter's spec-coverage
+  // table is a separate authority; the drift gate binds spec-coverage↔RUNTIME only.
+  'coverage',
 ] as const
 
 /** Accepted `symbol { anchor: … }` values. */
@@ -101,6 +107,12 @@ export const LANGUAGE_SCHEMA: Record<string, ConstructDef> = {
       { key: 'type', valueKind: 'enum', options: SOURCE_TYPES, required: true },
       { key: 'url', valueKind: 'string' },
       { key: 'layers', valueKind: 'string' },
+      // #1158 GAP-1 INC-A — colour-ramp + value range for a `coverage` source,
+      // carried as SOURCE-level options (additive; doc §6). `ramp` names a LUT
+      // palette; `range` is a `[lo, hi]` value window. Graduate to paint
+      // properties in INC-D (`setPaintProperty('depth','ramp',…)`).
+      { key: 'ramp', valueKind: 'string' },
+      { key: 'range', valueKind: 'expr' },
     ],
   },
 

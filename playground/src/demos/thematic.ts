@@ -94,4 +94,12 @@ export const DEMOS_THEMATIC: Record<string, Demo> = {
       'Full property coverage — fill/stroke color morph, dash-offset marching, cross-property keyframes. Countries heat up, coastline marches, land outline cycles amber↔sky.',
     source: load('animation-showcase.xgis'),
   },
+
+  coverage_bathymetry: {
+    name: 'S-100 Coverage: bathymetry (#1158)',
+    tag: 'thematic',
+    description:
+      'S-100 gridded-coverage (.xgcov) — a synthetic 32×32 bathymetry grid at 50-58°N with a north→south depth ramp, a nodata hole, and 4 known corner cells. The GPU colour-ramp draw is the INC-A gate-3 (headed) item; getCoverage(...).valueAt already returns the exact positive-down value CPU-side.',
+    source: load('coverage-bathymetry.xgis'),
+  },
 }

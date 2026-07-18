@@ -158,7 +158,14 @@ const CEILINGS: Record<string, number> = {
   // map-accessibility.ts and the WebGPU-unavailable DOM builder moved to
   // map-webgpu-unavailable.ts (both free-function modules); map keeps only thin
   // wrappers. Pure mechanical extraction, identical runtime behaviour.
-  'map/src/map.ts': 4371,
+  // 4336→4356 (#1158 GAP-1 INC-A): the `coverage` source public API + marker narrow —
+  // `getCoverage(sourceId)` (the CoverageHandle value-readout accessor, doc §6) + the
+  // `{ _coverage }` rebuildLayers narrowing (keeps the rebuild feature-path-safe). +20,
+  // both at existing composition-root sites; nothing extract-worthy (§2).
+  // Merge (#1174): main's F3/#1167/#1176/extraction chain (→4371) UNION the #1158
+  // GAP-1 INC-A coverage API above; ceiling re-measured to the merged file's actual
+  // size (wc -l = 4391).
+  'map/src/map.ts': 4391,
   // 1920→1930 (#1042 R3): the globe limb cull for MULTI-LINE labels must land in
   // the collision phase — the ONLY site holding the label's quad half-height (the
   // collision box IS the height authority; the label-pass dispatch site has only
