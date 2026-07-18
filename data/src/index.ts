@@ -71,3 +71,8 @@ export * from './workers/mvt-worker-pool'
 
 // Globe visible-tile selection (relocated from @xgis/engine, #781).
 export * from './globe-visible-tiles'
+
+// S-100 gridded-coverage artifact (.xgcov v1) — codec + CoverageHandle + valueAt
+// (#1158 GAP-1 INC-A). Decode is the runtime half the built-in `coverage` source
+// consumes; encode is the offline `s100-to-xgcov` converter's half.
+export * from './coverage/format'

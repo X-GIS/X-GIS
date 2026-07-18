@@ -47,14 +47,7 @@ export interface FieldSpec {
 }
 
 export type NodeType =
-  | 'import'
-  | 'source'
-  | 'symbol'
-  | 'preset'
-  | 'layer'
-  | 'background'
-  | 'map'
-  | 'reroute'
+  'import' | 'source' | 'symbol' | 'preset' | 'layer' | 'background' | 'map' | 'reroute'
 
 /** Catalogue grouping for a Blender/Unreal-style add palette. */
 export type NodeCategory = 'Data' | 'Style' | 'Render' | 'Logic' | 'Output' | 'Util'
@@ -134,6 +127,8 @@ const PRESENTATION: Record<string, Presentation> = {
       type: { label: 'Type', kind: 'select' },
       url: { label: 'URL', kind: 'text', placeholder: 'land.geojson' },
       layers: { label: 'MVT layers (opt, comma)', kind: 'text', placeholder: 'water, roads' },
+      ramp: { label: 'Ramp (coverage, opt)', kind: 'text', placeholder: 'bathymetry' },
+      range: { label: 'Range (coverage, opt)', kind: 'text', placeholder: '[-50, 0]' },
     },
     defaults: { name: 'world', type: 'geojson', url: 'land.geojson', layers: '' },
   },

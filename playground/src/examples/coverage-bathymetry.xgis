@@ -1,0 +1,19 @@
+xgis 1
+
+// S-100 gridded-coverage (.xgcov) demo (#1158 GAP-1 INC-A). A synthetic 32×32
+// bathymetry grid at 50-58°N: a north→south depth ramp (0 → 40 m) with a nodata
+// hole and 4 known-value corner cells — the fixture the headed render gate reads
+// back (_coverage-render.spec.ts). The GPU colour-ramp draw is the INC-A gate-3
+// (headed) item; `map.getCoverage('bathy').valueAt(lon, lat)` already returns the
+// exact positive-down value CPU-side.
+
+source bathy {
+  type: coverage
+  url: "synthetic-bathymetry.xgcov"
+  ramp: "bathymetry"
+  range: [0, 40]
+}
+
+layer depth {
+  source: bathy
+}

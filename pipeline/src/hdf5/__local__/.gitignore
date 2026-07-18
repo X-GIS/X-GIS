@@ -1,0 +1,6 @@
+# local-only, never committed (NOAA licence to-verify)
+*
+# ...but track THIS guard itself (the bare `*` above ignores the .gitignore too, so it
+# never reaches the committed tree — a fresh clone would then have NO ignore rule here
+# and a later `git add -A` could commit the 22 MB NOAA cell). Keep the guard tracked:
+!.gitignore
