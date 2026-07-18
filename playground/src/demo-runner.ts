@@ -1004,7 +1004,11 @@ function ensureVersionPragma(source: string): string {
 async function runSource(source: string, label: string) {
   source = ensureVersionPragma(source)
   errorDiv.style.display = 'none'
-  currentMap?.stop()
+  // #1153 P1 (#2) — destroy() (not stop()): a fresh XGISMap is constructed below,
+  // so the old map's device, catalogs, renderers, palette atlases and its
+  // ResizeObserver/matchMedia pins must be fully released, not just paused.
+  // Idempotent on an already-destroyed map (the _destroyed latch).
+  currentMap?.destroy()
 
   try {
     status.textContent = `Loading ${label}...`
@@ -1476,6 +1480,11 @@ backendSelectEl.addEventListener('change', () => {
   history.replaceState(null, '', url.toString())
   // Context types are sticky per canvas — boot the new backend on a fresh
   // node, re-running whatever source is in the editor (edits survive).
+  // #1153 P1 (#2/A10) — destroy the old map BEFORE swapping its canvas out of the
+  // DOM: destroy() detaches listeners/observers from the map's OWN old-canvas
+  // reference, so destroy-then-replace is the clean order. runSource's own
+  // destroy() on the same map below is then a no-op via the _destroyed latch.
+  currentMap?.destroy()
   replaceMapCanvas()
   const label = selectEl.selectedOptions[0]?.textContent ?? 'Custom'
   void runSource(editor.getValue(), label)
