@@ -118,9 +118,17 @@ const BASELINE: Record<string, number> = {
   'map/src/render/frame-uniform.ts': 5,
   'map/src/render/gpu-tile-store.ts': 7,
   'map/src/render/graticule-renderer.ts': 9,
+  // #777 Phase II — HillshadeRenderer mirrors RasterRenderer's tile machinery
+  // (GPUTexture cache, GPUDevice, the native GPURenderPassEncoder bridged via
+  // wrapWebGpuPass). Same raw-token surface as raster-renderer, gap-blocked until
+  // #991 P6 hands the pass chain a neutral RhiRenderPass.
+  'map/src/render/hillshade-renderer.ts': 7,
   'map/src/render/heatmap-renderer.ts': 25,
   'map/src/render/line-renderer.ts': 28,
   'map/src/render/material/heatmap-material.ts': 1,
+  // #777 Phase II — HillshadeDraper mirrors RasterDraper (GPUTexture/RhiTexture
+  // union in the tile + view-cache types, bridged via wrapWebGpuTextureView).
+  'map/src/render/material/hillshade-material.ts': 5,
   'map/src/render/material/icon-material.ts': 1,
   'map/src/render/material/line-composite-material.ts': 1,
   'map/src/render/material/line-material.ts': 2,
