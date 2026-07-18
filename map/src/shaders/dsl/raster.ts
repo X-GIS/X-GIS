@@ -402,3 +402,20 @@ export const buildRasterModule = (pickEnabled: boolean): ModuleDecl =>
  *  `pickEnabled` toggles the pick attachment field + write. */
 export const emitRasterWgsl = (pickEnabled: boolean): string =>
   emitModule(buildRasterModule(pickEnabled))
+
+// ═══ #777 Phase II — shared tile-grid vertex authority ═══
+//
+// vs_tile (the procedural N×N grid + per-projection dispatch + pole-cap fan) is
+// the SINGLE authority for placing a tile surface in every projection. The
+// hillshade shader (shaders/dsl/hillshade.ts) is structurally a raster tile draw
+// with a different fragment (DEM decode → Sobel → shade), so it reuses THIS
+// vertex + VsOut + the DEM texture/sampler bindings verbatim — a projection fix
+// then lands once. Exported alongside rasterU / rasterTileU (the vertex uniform
+// structs) so hillshade binds the same group-0/group-1 vertex layout and INC-3
+// can reuse rasterUniformSlots()/rasterTileSlots() for the shared write surface.
+export {
+  vs as rasterVsTile,
+  VsOut as rasterVsOut,
+  tex as rasterTex,
+  texSampler as rasterTexSampler,
+}
