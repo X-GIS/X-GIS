@@ -60,29 +60,60 @@ export function optimize(m: ModuleDecl, passes: readonly OptPass[] = DEFAULT_PAS
   return passes.reduce((mod, pass) => pass(mod), m)
 }
 
+/** Structural equality over the IR, mirroring the `JSON.stringify(a) ===
+ *  JSON.stringify(b)` test it replaces — but SHORT-CIRCUITING at the first
+ *  difference and allocating NOTHING. The IR is plain, acyclic, function-free
+ *  data (the `fixpoint` invariant), so a lockstep walk is exact:
+ *   • primitives compare by `===`;
+ *   • arrays compare by length then element-wise (ordered — matches JSON);
+ *   • plain objects compare by their DEFINED-value key set then value-wise —
+ *     `JSON.stringify` omits `undefined`-valued keys, so both sides filter them
+ *     to keep the comparison identical to the string form it replaced.
+ *  Object key ORDER is not compared: the emitter reads IR fields by name, so a
+ *  key-order-only difference can never reach emitted bytes — pinned by the
+ *  emit-goldens + polygon-variant-diff byte gates. */
+function irEqual(a: unknown, b: unknown): boolean {
+  if (a === b) return true
+  if (typeof a !== 'object' || typeof b !== 'object' || a === null || b === null) return false
+  const aArr = Array.isArray(a)
+  if (aArr !== Array.isArray(b)) return false
+  if (aArr) {
+    const aa = a as unknown[]
+    const ba = b as unknown[]
+    if (aa.length !== ba.length) return false
+    for (let i = 0; i < aa.length; i++) if (!irEqual(aa[i], ba[i])) return false
+    return true
+  }
+  const ao = a as Record<string, unknown>
+  const bo = b as Record<string, unknown>
+  const ak = Object.keys(ao).filter((k) => ao[k] !== undefined)
+  const bk = Object.keys(bo).filter((k) => bo[k] !== undefined)
+  if (ak.length !== bk.length) return false
+  // A key defined on `a` but absent/undefined on `b` fails via irEqual(x, undefined).
+  for (const k of ak) if (!irEqual(ao[k], bo[k])) return false
+  return true
+}
+
 /** Run `passes` to a fixed point — until the module stops changing — capped at
  *  `maxIters`. One linear `optimize` sweep catches depth-1 chains (const-prop
  *  exposes a literal, const-fold collapses it, dead-branch drops the branch); this
- *  catches the deeper chains where a fold exposes the next propagation. Structural
- *  equality via JSON — the IR is plain, acyclic, function-free data. */
+ *  catches the deeper chains where a fold exposes the next propagation.
+ *
+ *  Convergence is tested by `irEqual`, a short-circuiting structural walk. It
+ *  replaced a `JSON.stringify(next) === JSON.stringify(cur)` check that, on the
+ *  merged multi-projection modules, serialized ~1.7 MB of JSON PER sweep (188 MB
+ *  across a demo's pipeline compiles — #1186); the walk bails at the first
+ *  differing node on the many non-converging sweeps and allocates nothing. */
 export function fixpoint(
   m: ModuleDecl,
   passes: readonly OptPass[] = DEFAULT_PASSES,
   maxIters = 8,
 ): ModuleDecl {
   let cur = m
-  // The convergence check serializes the WHOLE module; `cur` was already
-  // serialized as the prior round's `next`, so carry that string forward
-  // instead of re-stringifying it. Halves the per-iteration JSON.stringify
-  // cost (this check dominates fixpoint's self-time on the merged multi-
-  // projection modules — #1186) while leaving the comparison byte-identical.
-  let curJson = JSON.stringify(cur)
   for (let i = 0; i < maxIters; i++) {
     const next = optimize(cur, passes)
-    const nextJson = JSON.stringify(next)
-    if (nextJson === curJson) return next
+    if (irEqual(next, cur)) return next
     cur = next
-    curJson = nextJson
   }
   return cur
 }
