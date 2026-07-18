@@ -34,15 +34,10 @@ test('local raster-dem renders as shaded relief on WebGl2Device (?forcegl2=1)', 
     () => (window as unknown as { __xgisReady?: boolean }).__xgisReady === true,
     { timeout: 30_000 },
   )
-
-  // Zoom to a realistic hillshade level. Real DEM tiles are z8–14 and the Sobel
-  // deriv scale is calibrated for those; at the demo default (z2) a whole-world
-  // DEM is physically near-flat (correct, but no relief to read back).
-  await page.evaluate(() =>
-    (window as unknown as { __xgisMap?: { setZoom?: (z: number) => void } }).__xgisMap?.setZoom?.(
-      11,
-    ),
-  )
+  // The demo opens at z11 (Demo.zoom) — real DEM tiles are z8–14 and the Sobel
+  // deriv scale is calibrated for those; a whole-world DEM is physically
+  // near-flat at low zoom. No test-only camera set: the demo's own zoom is
+  // what makes the relief visible, so this gate also covers Demo.zoom.
 
   // Read back the forced-WebGL2 frame and compute a 16-bin luminance histogram
   // over the non-transparent pixels. Returns the backend markers + the spread

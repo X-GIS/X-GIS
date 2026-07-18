@@ -55,4 +55,9 @@ export interface Demo {
    *  the isolated-feature regression fixtures out of the user-facing
    *  showcase while preserving their ids for the test harness. */
   hidden?: boolean
+  /** Initial camera zoom applied on open (unless a URL `#z/lat/lon` hash
+   *  overrides). A .xgis source carries no camera state, so a demo that only
+   *  reads well at a specific zoom (e.g. a raster-dem hillshade, near-flat at
+   *  low zoom) declares it here. */
+  zoom?: number
 }

@@ -1181,6 +1181,15 @@ async function loadDemo(idx: number) {
 
   await runSource(demo.source, demo.name)
 
+  // Per-demo initial zoom (loader.ts Demo.zoom): a .xgis source carries no
+  // camera state, so a demo that only reads well at a specific zoom sets it
+  // here. A URL `#z/lat/lon` hash (parsed at boot) wins — markCameraPositioned
+  // shuts the auto-fit gate so the value sticks.
+  if (currentMap && demo.zoom !== undefined && !location.hash) {
+    currentMap.setZoom(demo.zoom)
+    currentMap.markCameraPositioned()
+  }
+
   // Post-run hook: inline-source fixtures need the host to push
   // data — without this, gallery visitors see an empty canvas.
   // E2E tests that drive these fixtures themselves pass `?e2e=1`
