@@ -8,6 +8,7 @@ import {
   worldCopiesFor,
   enumerateWorldCopies,
   routeToSphereSelector,
+  bakesVectorDrape,
 } from './projections-table'
 import { MERCATOR_LAT_LIMIT } from './projection'
 
@@ -95,6 +96,36 @@ describe('PROJECTIONS table', () => {
       expect(routeToSphereSelector(p.projType, false)).toBe([3, 4, 5, 6].includes(p.projType))
       expect(routeToSphereSelector(p.projType, true)).toBe(true) // globeMode forces sphere routing
     }
+  })
+
+  // ── bakesVectorDrape: #599 vector bake→drape routing predicate ──
+  // T3 (post-flip pin): bakesVectorDrape drapes only the sphere-surface family
+  // {3,4,5} (∪ globeMode) — oblique(6) is EXCLUDED. routeToSphereSelector is
+  // UNCHANGED ({3,4,5,6}∪globeMode, pinned above): the whole fix is that tile
+  // SELECTION still sphere-routes 6 while the render SURFACE no longer drapes it.
+  // (Supersedes the T1 extraction pin — bakesVectorDrape===routeToSphereSelector —
+  // which held only before the oblique(6) exclusion flip.)
+  it('T3: bakesVectorDrape === {3,4,5} ∪ globeMode (oblique(6) excluded from drape)', () => {
+    for (const p of PROJECTIONS) {
+      expect(bakesVectorDrape(p.projType, false)).toBe([3, 4, 5].includes(p.projType))
+      expect(bakesVectorDrape(p.projType, true)).toBe(true) // globeMode forces the sphere surface
+    }
+  })
+
+  // T2 (fail-first witness): oblique_mercator(6) must NOT bake→drape. It is
+  // cylindrical + flat-MVP at every pitch (H1 flat-vs-sphere camera agreement
+  // ≤4.0px @pitch15 / 7.1px @pitch60 on 2582–4926px tiles, ~0.15%, NOT pitch-
+  // gated — refuted), so its 512px native-z14 bake is displayed at 2582–4926px
+  // (5.04–9.6× magnification) at the user repro (lon126.9225 lat37.1269 z16.6
+  // pitch15, 1920×945, OFM source maxZ=14) — a softness that never heals past
+  // the z14 source ceiling (H2 confirmed). Tile SELECTION is unchanged
+  // (routeToSphereSelector(6)=true, pinned above); only render SURFACE curvature.
+  it('T2 witness: oblique_mercator(6) does NOT bake→drape (renders direct)', () => {
+    expect(
+      bakesVectorDrape(6, false),
+      'oblique(6) fills must render through the direct flat-oblique arm, not the ' +
+        '512px native-z14 bake shown at 2582–4926px (5.04–9.6× magnification, non-healing)',
+    ).toBe(false)
   })
 
   it('isCylindrical === multi-world (worldCopiesFor length > 1)', () => {

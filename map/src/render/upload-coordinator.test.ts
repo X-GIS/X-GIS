@@ -340,6 +340,58 @@ describe('UploadCoordinator — visible-first cap-deferral (zoom-in starvation)'
   })
 })
 
+describe('UploadCoordinator — #1155 F3 cold-start burst enqueue cap', () => {
+  // The per-frame slice-enqueue cap is 4 desktop / 1 mobile in steady state;
+  // cold-start burst raises it to 8 desktop / 4 mobile so the first-viewport
+  // cascade isn't paced out. In the node test env `typeof window` is undefined
+  // → the desktop branch, so the cap is 4 (steady) / 8 (burst). The cap is
+  // applied SYNCHRONOUSLY in enqueue(), so held-count is observable at once.
+
+  const heldLen = (c: UploadCoordinator) =>
+    (c as unknown as { _heldUploads: unknown[] })._heldUploads.length
+
+  function makeCoord(): UploadCoordinator {
+    // getOrCreateLayer reports the key present → _dispatch returns at its top
+    // guard (no real GPU work); getLayer undefined → enqueue proceeds.
+    const store = {
+      getLayer: () => undefined,
+      getOrCreateLayer: () => ({ has: () => true }) as unknown as Map<number, unknown>,
+    } as unknown as UploadStore
+    return new UploadCoordinator(
+      makeHost(store, {
+        rhi: {
+          backend: 'webgl2',
+          writeBuffer: () => {},
+          unwrapBuffer: (b: unknown) => b,
+        } as unknown as RhiDevice,
+      }),
+    )
+  }
+
+  it('steady state (desktop) holds the 5th slice enqueued in one frame', () => {
+    const coord = makeCoord()
+    for (let key = 1; key <= 5; key++) coord.enqueue(key, polyOnlyTileData(), '')
+    expect(heldLen(coord)).toBe(1) // 4 admitted, 5th held
+  })
+
+  it('with burst on (desktop) 8 slices admit in one frame before holding begins', () => {
+    const coord = makeCoord()
+    coord.setColdStartBurst(true)
+    for (let key = 1; key <= 8; key++) coord.enqueue(key, polyOnlyTileData(), '')
+    expect(heldLen(coord)).toBe(0) // all 8 admitted (cap raised 4 → 8)
+    coord.enqueue(9, polyOnlyTileData(), '')
+    expect(heldLen(coord)).toBe(1) // 9th exceeds the raised cap
+  })
+
+  it('clearing the burst flag restores the steady 4-cap (5th held again)', () => {
+    const coord = makeCoord()
+    coord.setColdStartBurst(true)
+    coord.setColdStartBurst(false)
+    for (let key = 1; key <= 5; key++) coord.enqueue(key, polyOnlyTileData(), '')
+    expect(heldLen(coord)).toBe(1)
+  })
+})
+
 // ── host builder ──
 function makeHost(store: UploadStore, over: Partial<UploadHost> = {}): UploadHost {
   return {

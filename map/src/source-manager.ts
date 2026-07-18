@@ -4,16 +4,19 @@
 // (`_attachOneSource` / `_attachGeoJSONViaVirtualPMTiles` /
 // `_attachInlineGeoJSONViaVirtualPMTiles` / `_reprojectIngest` /
 // `setSourceData`) live here. XGISMap keeps the source-state Maps
-// (`rawDatasets` / `vtSources` / `sourceCRS`) as the SHARED references —
-// SourceManager receives the SAME Map instances by reference, so every
-// internal read in renderFrame / rebuildLayers / hasPendingSourceWork /
-// diagnostics stays untouched.
+// (`rawDatasets` / `sourceCRS`) as the SHARED references — SourceManager
+// receives the SAME Map instances by reference, so every internal read in
+// renderFrame / rebuildLayers / hasPendingSourceWork / diagnostics stays
+// untouched. `vtSources` registration routes through the injected
+// `registerVtSource` callback (XGISMap's `_registerVtSource`) so the #1155 F3
+// cold-start burst flag is applied at the single write authority.
 //
 // BEHAVIOR + PUBLIC API IDENTICAL — every method below is moved verbatim
 // from map.ts; only the dependency wiring changed. The EPSG reproject /
 // ordering, polar-cap ordering, and camera-fit logic are byte-identical:
-//   - `this.rawDatasets` / `this.vtSources` / `this.sourceCRS` → the same
-//     shared Map instances, held here by reference.
+//   - `this.rawDatasets` / `this.sourceCRS` → the same shared Map instances,
+//     held here by reference.
+//   - `this.vtSources.set(...)`      → injected `registerVtSource` callback
 //   - `this.invalidate()`            → injected `invalidate` callback
 //   - `this._fitZoomToLonSpan(...)`  → injected `fitZoomToLonSpan` callback
 //   - `this._runBoundsFitGate(...)`  → injected `runBoundsFitGate` callback
@@ -65,8 +68,14 @@ const BUILTIN_SOURCE_TYPES = new Set<string>([...SOURCE_TYPES, 'xgvt'])
 export interface SourceManagerDeps {
   /** Shared with XGISMap — same Map instance, by reference. */
   rawDatasets: Map<string, RawDataset>
-  /** Shared with XGISMap — same Map instance, by reference. */
-  vtSources: Map<string, { source: TileCatalog; renderer: VectorTileRenderer }>
+  /** #1155 F3 — register a (catalog, renderer) pair through XGISMap's single
+   *  authority (`_registerVtSource`) rather than writing the shared `vtSources`
+   *  Map directly, so the burst flag is applied at every registration. Both
+   *  attach sites below run inside run()'s awaited load phase (before
+   *  `_burst.enter()`), so the flag is a no-op today; routing through the
+   *  callback keeps the single-write-authority contract true if a future
+   *  dynamic-attach path reaches here post-enter. */
+  registerVtSource: (key: string, source: TileCatalog, renderer: VectorTileRenderer) => void
   /** Shared with XGISMap — same Map instance, by reference. */
   sourceCRS: Map<string, string>
   /** Shared with XGISMap — same Map instance, by reference. Records the
@@ -112,7 +121,11 @@ export interface SourceManagerDeps {
 export class SourceManager {
   // Shared Map references (same instances as XGISMap's fields).
   private readonly rawDatasets: Map<string, RawDataset>
-  private readonly vtSources: Map<string, { source: TileCatalog; renderer: VectorTileRenderer }>
+  private readonly registerVtSource: (
+    key: string,
+    source: TileCatalog,
+    renderer: VectorTileRenderer,
+  ) => void
   private readonly sourceCRS: Map<string, string>
   private readonly geojsonCapPoles: Map<string, CapPoles>
   private readonly heatmapPointData: Map<string, GeoJSONFeatureCollection>
@@ -138,7 +151,7 @@ export class SourceManager {
 
   constructor(deps: SourceManagerDeps) {
     this.rawDatasets = deps.rawDatasets
-    this.vtSources = deps.vtSources
+    this.registerVtSource = deps.registerVtSource
     this.sourceCRS = deps.sourceCRS
     this.geojsonCapPoles = deps.geojsonCapPoles
     this.heatmapPointData = deps.heatmapPointData
@@ -342,7 +355,7 @@ export class SourceManager {
         strokeWidthExprs: maps.strokeWidthExprsBySource.get(load.name),
         strokeColorExprs: maps.strokeColorExprsBySource.get(load.name),
       })
-      this.vtSources.set(load.name, { source, renderer: vtRenderer })
+      this.registerVtSource(load.name, source, vtRenderer)
       this.rawDatasets.set(load.name, { _vectorTile: true })
 
       // Fit camera to the FIRST source that finishes. Multi-source demos
@@ -584,7 +597,7 @@ export class SourceManager {
     })
     source.attachBackend(backend)
 
-    this.vtSources.set(sourceName, { source, renderer: vtRenderer })
+    this.registerVtSource(sourceName, source, vtRenderer)
     // Preserve this geojson source's Point/MultiPoint features for the
     // HeatmapRenderer BEFORE the next line overwrites `rawDatasets` with the
     // `{ _vectorTile: true }` marker (points move into the tile backend). Use

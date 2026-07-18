@@ -33,6 +33,9 @@ function makeDeps(overrides: Partial<DispatcherDeps> = {}): DispatcherDeps {
       ({ left: 0, top: 0, right: 256, bottom: 256, width: 256, height: 256 }) as DOMRect,
     dispatchMapEvent: vi.fn(),
     mapHasListeners: () => false,
+    // Default true so these hover-semantics tests keep reaching pickAt — the
+    // pre-pick gate is not what they are about.
+    anyLayerListens: () => true,
     ...overrides,
   }
 }

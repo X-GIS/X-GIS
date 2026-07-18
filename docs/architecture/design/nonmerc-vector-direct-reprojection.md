@@ -80,6 +80,24 @@ false claims; the corrected plan supersedes the "Phased migration plan" section 
    which the inventory calls a PoC-stub (A5, possibly stale post-#581). NOT load-bearing — the
    WebGPU `__XGIS_DISABLE_VECTOR_DRAPE` A/B independently proves the direct path renders — but
    verify WebGL2 vector separately before citing it.
+9. **oblique_mercator(6) — H1 REFUTED, H2 CONFIRMED; early partial INC-6 slice LANDED
+   (2026-07-17).** The "pre-existing flat-MVP/sphere-tile bug at pitch>0" cited in #5 and the
+   INC-6 note below is **refuted**: P-A1 (CPU, at the user repro lon126.9225/lat37.1269/z16.6/
+   pitch15, 1920×945, OFM source maxZ=14) measured the flat-oblique RENDER camera and the
+   sphere tile-SELECTOR camera **agreeing to ≤4.0px @pitch15 / 7.1px @pitch60** on 2582–4926px
+   tiles (~0.15%), **NOT pitch-gated** (pitch-0 diverges MORE), **UNDER-SELECTED=0 at every
+   pitch** — the selector under-refines nothing. The real defect is **H2**: the 512px native-z14
+   #599 bake is displayed at 2582–4926px (**5.04–9.6× magnification**), pitch-independent,
+   non-healing past z14. **Fix landed:** `bakesVectorDrape` (`projections-table.ts`) narrows
+   `routeToSphereSelector` by `!isCylindrical`, EXCLUDING oblique(6) from the `_drapeGlobeFills`
+   gate (`vector-tile-renderer.ts`), so its constant fills **and** (via the coarse gate) baked
+   strokes render through the already-production **direct flat-oblique arm**
+   (`proj_oblique_mercator`). Tile SELECTION is untouched (`routeToSphereSelector(6)=true`). This
+   is a **partial early INC-6 slice** for oblique(6) fills/strokes; the **rotated-antimeridian**
+   seam (§Seams) is deferred to the epic's rotated-antimeridian increment (known limitation — no
+   NEW seam class: the drape grid, direct strokes, and per-feature fills already project through
+   the same `oblique_rot`). No globe promotion of 6, no new drape machinery (INC-7 retires the
+   subsystem), no estimator.
 
 ### Corrected increment plan (multi-PR; replaces "Phased migration plan" below)
 
@@ -97,7 +115,9 @@ false claims; the corrected plan supersedes the "Phased migration plan" section 
   (skirt) + antimeridian on the real GPU.
 - **INC-5 — globe(7) strokes direct.** Live-mpp width; verify outline glued to fill.
 - **INC-6 — disc {3,4,5} per-projType** (A/B each: rim clip on subdivided fills). **oblique(6)
-  LAST/excluded** (rotated antimeridian + flat-MVP pitch>0 bug = separate work).
+  fills+strokes: early partial slice LANDED 2026-07-17** via the `bakesVectorDrape` drape
+  exclusion (correction #9) — the "flat-MVP pitch>0 bug" was refuted (P-A1); only the ROTATED
+  antimeridian remains deferred to separate work.
 - **INC-7 — retire the bake→drape subsystem.**
 - Deferred (separate initiatives): screen-adaptive GPU-amplification subdivision; ellipsoid switch.
   **Decision (maintainer):** target the Mapbox-style **direct vector reprojection + geometry

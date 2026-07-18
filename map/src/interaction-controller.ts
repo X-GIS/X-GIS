@@ -30,7 +30,7 @@ import type { Camera } from './camera'
 import { unprojectGlobeFromCamera } from './camera'
 import { mercatorYToLat } from '@xgis/geo'
 import type { GPUContext } from '@xgis/rhi-webgpu'
-import type { LayerIdRegistry, XGISLayer, XGISFeature } from './layer'
+import type { LayerIdRegistry, XGISLayer, XGISFeature, XGISFeatureEventType } from './layer'
 import type { SceneCommands } from './interpreter'
 import type { GeoJSONFeature, GeoJSONFeatureCollection } from '@xgis/data'
 import { toU32Id } from '@xgis/data'
@@ -237,6 +237,22 @@ export class InteractionController {
     const name = this.layerIds.getName(layerId)
     if (!name) return null
     return this.xgisLayers.get(name) ?? null
+  }
+
+  /** Could ANY registered layer fire `type`? The dispatcher's pre-pick gate —
+   *  it must answer WITHOUT a pick, because the pick is exactly what we are
+   *  trying not to pay for (`pickAt` is a GPU readback).
+   *
+   *  Deliberately an O(layers) scan of the SAME registries `hasListeners`
+   *  reads, not a maintained per-type count: a count would be a second
+   *  authority over "who listens", and every `once` self-removal / abort-signal
+   *  removal / `removeEventListener` would have to remember to decrement it.
+   *  Miss one and the count over-reports (gate does nothing) or under-reports
+   *  (events stop firing — worse). The scan cannot drift. It costs ~130 Map
+   *  lookups on a Bright-sized style, against a ~16 ms readback. */
+  anyLayerListens(type: XGISFeatureEventType): boolean {
+    for (const l of this.xgisLayers.values()) if (l.hasListeners(type)) return true
+    return false
   }
 
   /** Resolve a raw pick sample into a hit or a miss. Two reasons for a miss:
