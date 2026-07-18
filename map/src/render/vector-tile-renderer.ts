@@ -462,6 +462,12 @@ export class VectorTileRenderer {
   /** Renderer-side GPU tile-upload pipeline (Cluster A sibling). See ctor. */
   private readonly _uploads: UploadCoordinator
 
+  /** #1155 F3 — cold-start burst flag. While on, the per-render upload budgets
+   *  are raised: uploadBudgetFor's concurrent-job cap (passed at the setMaxJobs
+   *  call) AND the coordinator's per-frame enqueue cap. Off by default so the
+   *  steady-state upload pacing is unchanged. */
+  private _coldStartBurst = false
+
   /** Swapchain color format, captured from the GPUContext so bundle
    *  descriptors can declare the correct color attachment format. */
   private format: GPUTextureFormat
@@ -2076,6 +2082,15 @@ export class VectorTileRenderer {
     this._uploads.cancelStale(activeKeys)
   }
 
+  /** #1155 F3 — flip cold-start burst. Stores the flag for the per-render
+   *  uploadBudgetFor call (concurrent maxJobs) and forwards to the upload
+   *  coordinator (per-frame enqueue cap). Driven by the map's burst controller
+   *  (map-cold-start-burst.ts) on enter/exit + at mid-burst source registration. */
+  setColdStartBurst(on: boolean): void {
+    this._coldStartBurst = on
+    this._uploads.setColdStartBurst(on)
+  }
+
   /** Render visible tiles into a render pass */
   render(
     pass: GPURenderPassEncoder,
@@ -3099,7 +3114,9 @@ export class VectorTileRenderer {
       this._uploads.installPriority(this._distSqStable)
       this._priorityInstalled = true
     }
-    this._uploads.setMaxJobs(uploadBudgetFor(canvasWidth, canvasHeight, dpr))
+    // #1155 F3 — pass the burst flag so the concurrent-upload cap rises to 8/4
+    // during cold start (signature-compatible; false in steady state).
+    this._uploads.setMaxJobs(uploadBudgetFor(canvasWidth, canvasHeight, dpr, this._coldStartBurst))
 
     // Visible-tile fetches: ALWAYS issued, like parentKeys. The
     // earlier `cameraIdle` gate here was a heat mitigation that

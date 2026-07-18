@@ -60,6 +60,8 @@ import { QUALITY, updateQuality, type QualityConfig } from '@xgis/engine'
 import { GPUTimer } from '@xgis/rhi-webgpu'
 import { Camera } from './camera'
 import { CameraController } from './camera-controller'
+import { injectFocusStyle, setupCanvasA11y, handleMapKeyDown } from './map-accessibility'
+import { showWebGPUUnavailableDefault } from './map-webgpu-unavailable'
 import { ViewportModeController } from './render/viewport-mode-controller'
 import { SourceManager } from './source-manager'
 import { InteractionController } from './interaction-controller'
@@ -157,7 +159,8 @@ import type { GeoJSONFeature } from '@xgis/data'
 import { FeatureUpdateQueue } from './feature-update-queue'
 import { MapEventBus } from './map-event-bus'
 import { wireDeviceLostRecovery } from './device-lost-recovery'
-import { safeFetch, assertIngestBudget, readBodyCapped } from '@xgis/shared'
+import { ColdStartBurstController } from './map-cold-start-burst'
+import { safeFetch, assertIngestBudget, readBodyCapped, isMobileClassViewport } from '@xgis/shared'
 
 // DoS ceilings for the top-level loader entry points (.xgis style /
 // import-resolver text and .xgb binary scene). Defensive — far above any
@@ -275,6 +278,32 @@ export class XGISMap {
   private running = false
   /** Consecutive renderFrame faults (P0-2); reset by a successful frame. */
   private _frameFailures = 0
+
+  /** #1155 F3 — cold-start tile-pipeline burst state machine (enter / exit /
+   *  hysteresis / 10 s cap). Logic in map-cold-start-burst.ts so map.ts stays
+   *  under its LOC ceiling; the map wires it to its vtSources + pending-work
+   *  scan and delegates its lifecycle hooks (run/renderLoop/destroy) to it. */
+  private readonly _burst = new ColdStartBurstController({
+    applyToAllSources: (on) => {
+      for (const { source, renderer } of this.vtSources.values()) {
+        source.setColdStartBurst(on)
+        renderer.setColdStartBurst(on)
+      }
+    },
+    hasPendingSourceWork: () => this.hasPendingSourceWork(),
+    // #1167 — desktop-only burst: a CONSERVATIVE default, not a measured mobile
+    // regression (the +262 ms it once cited did not survive a permutation test;
+    // the desktop convergence win did). Same `isMobileClassViewport(window.
+    // innerWidth)` signal the burst upload cap reads, so gate and cap agree.
+    viewportEligible: () =>
+      !(typeof window !== 'undefined' && isMobileClassViewport(window.innerWidth)),
+  })
+  /** #1167 — visibilitychange listener that ends cold-start burst the instant the
+   *  tab is hidden (its rAF throttles to ~0 Hz, so the render-loop exit stalls;
+   *  the controller's non-rAF timer still caps at 10 s, this just reclaims the
+   *  shared MVT pool's raised drain cap immediately so sibling maps aren't held).
+   *  Armed on burst enter, removed in destroy(). Null until first armed. */
+  private _burstVisibilityHandler: (() => void) | null = null
   /** Set by `destroy()`. Gates invalidate / flush so a torn-down map is
    *  inert and post-destroy calls no-op instead of touching a destroyed
    *  GPU device. */
@@ -891,7 +920,7 @@ export class XGISMap {
     backend.updateFillColor(rgba)
     catalog.attachBackend(backend)
     this._syntheticBackend = backend
-    this.vtSources.set(SYNTHETIC_EARTH_SURFACE_SOURCE, { source: catalog, renderer: vtRenderer })
+    this._registerVtSource(SYNTHETIC_EARTH_SURFACE_SOURCE, catalog, vtRenderer)
     this.rawDatasets.set(SYNTHETIC_EARTH_SURFACE_SOURCE, {
       _vectorTile: true,
     })
@@ -911,6 +940,7 @@ export class XGISMap {
       lineRenderer: this.lineRenderer,
       projectionName: this.projectionName,
       vtSources: this.vtSources,
+      registerVtSource: (key, source, renderer) => this._registerVtSource(key, source, renderer),
       rawDatasets: this.rawDatasets,
       geojsonCapPoles: this.geojsonCapPoles,
       getShowCommands: () => this.showCommands as ShowCommand[],
@@ -990,7 +1020,7 @@ export class XGISMap {
     this.sourceManager = new SourceManager({
       rawDatasets: this.rawDatasets,
       sourceLoaders: options.sources,
-      vtSources: this.vtSources,
+      registerVtSource: (key, source, renderer) => this._registerVtSource(key, source, renderer),
       sourceCRS: this.sourceCRS,
       geojsonCapPoles: this.geojsonCapPoles,
       heatmapPointData: this.heatmapPointData,
@@ -1122,93 +1152,29 @@ export class XGISMap {
    *  `typeof document === 'undefined'` guard in
    *  `_showWebGPUUnavailableDefault`. */
   private _setupAccessibility(ariaLabel?: string): void {
-    const canvas = this.canvas
-    if (typeof document === 'undefined') return
-    if (
-      !canvas ||
-      typeof canvas.setAttribute !== 'function' ||
-      typeof canvas.addEventListener !== 'function'
-    )
-      return
-    // Focusable + named for assistive tech. Only set tabIndex if the host
-    // hasn't already made it focusable, so an embedder's explicit choice
-    // (e.g. tabindex=-1 to drive focus programmatically) is preserved.
-    if (!canvas.hasAttribute('tabindex')) canvas.tabIndex = 0
-    if (!canvas.hasAttribute('role')) canvas.setAttribute('role', 'region')
-    if (!canvas.hasAttribute('aria-label')) canvas.setAttribute('aria-label', ariaLabel ?? 'Map')
-    // Marker the shared focus-ring stylesheet targets (independent of the
-    // role/aria-label values, which a host may override).
-    canvas.setAttribute('data-xgis-map', '')
-    XGISMap._injectFocusStyle()
+    // Free-function logic lives in map-accessibility.ts (§2 god-file split);
+    // map keeps only the handler ref so destroy() can detach the listener.
     const handler = (e: KeyboardEvent) => this._onKeyDown(e)
-    this._keyDownHandler = handler
-    canvas.addEventListener('keydown', handler)
-  }
-
-  /** Inject a single shared stylesheet that draws a focus ring on any
-   *  X-GIS canvas — only when keyboard-driven (`:focus-visible`), so a
-   *  pointer click doesn't show the ring. Module-once via a guard flag;
-   *  targets the `data-xgis-map` marker `_setupAccessibility` sets, which
-   *  is stable even if the host overrides role / aria-label. */
-  private static _focusStyleInjected = false
-  private static _injectFocusStyle(): void {
-    if (XGISMap._focusStyleInjected) return
-    if (typeof document === 'undefined' || !document.head) return
-    XGISMap._focusStyleInjected = true
-    const style = document.createElement('style')
-    style.setAttribute('data-xgis-a11y', '')
-    style.textContent =
-      'canvas[data-xgis-map]:focus-visible{' + 'outline:3px solid #4d90fe;outline-offset:2px;}'
-    document.head.appendChild(style)
-  }
-
-  /** Keyboard pan/zoom (P0-7). Arrow keys pan, `+`/`=` zoom in, `-`/`_`
-   *  zoom out, Shift accelerates the pan. Routes through the shared
-   *  `cameraController` (same path as drag/wheel) so the render-loop
-   *  camera-diff fires `move`/`moveend`/`zoom*` for free. `preventDefault`
-   *  is called ONLY for keys we act on, and we bail when an unhandled
-   *  modifier (Ctrl/Alt/Meta) is held so we don't steal browser shortcuts. */
-  private _onKeyDown(e: KeyboardEvent): void {
-    if (this._destroyed) return
-    // Leave browser / OS chords (Ctrl+, Alt+, Cmd+) alone. Shift is the
-    // only modifier we consume (fast pan).
-    if (e.ctrlKey || e.altKey || e.metaKey) return
-    // prefers-reduced-motion: keyboard pan/zoom are already instant jumps
-    // (no transition infra), so there is nothing to suppress; honored here
-    // as a forward-looking guard for when easeTo/flyTo gain animation.
-    const PAN_PX = 80
-    const FAST_PX = 320
-    const step = e.shiftKey ? FAST_PX : PAN_PX
-    switch (e.key) {
-      case 'ArrowUp':
-        this.cameraController.panBy([0, -step])
-        break
-      case 'ArrowDown':
-        this.cameraController.panBy([0, step])
-        break
-      case 'ArrowLeft':
-        this.cameraController.panBy([-step, 0])
-        break
-      case 'ArrowRight':
-        this.cameraController.panBy([step, 0])
-        break
-      case '+':
-      case '=':
-        this.cameraController.zoomIn()
-        break
-      case '-':
-      case '_':
-        this.cameraController.zoomOut()
-        break
-      default:
-        return // not a key we handle — leave default behaviour intact
+    // Latch the handler ref + inject the focus style ONLY when the listener
+    // actually attached (real DOM canvas) — a bare unit-test mock returns
+    // false, so `_keyDownHandler` stays null and destroy() skips removeEventListener.
+    if (setupCanvasA11y(this.canvas, ariaLabel, handler)) {
+      this._keyDownHandler = handler
+      injectFocusStyle()
     }
-    e.preventDefault()
-    // Mirror the pointer-gesture bookkeeping (onPointerDown): the user has
-    // taken control of the camera, so the post-compile bounds auto-fit must
-    // not clobber it, and the interaction-DPR path can kick in.
-    this._cameraExplicitlyPositioned = true
-    this.markInteracting()
+  }
+
+  /** Keyboard pan/zoom (P0-7) — thin delegate to handleMapKeyDown
+   *  (map-accessibility.ts). */
+  private _onKeyDown(e: KeyboardEvent): void {
+    handleMapKeyDown(e, {
+      destroyed: this._destroyed,
+      camera: this.cameraController,
+      onInteract: () => {
+        this._cameraExplicitlyPositioned = true
+        this.markInteracting()
+      },
+    })
   }
 
   /** Toggle the lat/lon grid overlay. Default off. Forwards to the viewport
@@ -1311,22 +1277,8 @@ export class XGISMap {
    *  there is no Canvas 2D / WebGL fallback). The host can override this by
    *  registering onWebGPUUnavailable(). */
   private _showWebGPUUnavailableDefault(): void {
-    const msg = 'This map requires a WebGPU-capable browser (latest Chrome/Edge, or Safari 18+).'
-
-    console.warn('[X-GIS] ' + msg + ' Register onWebGPUUnavailable() to customize this.')
-    if (typeof document === 'undefined') return
-    const parent = this.canvas?.parentElement
-    if (!parent || parent.querySelector('[data-xgis-webgpu-unavailable]')) return
-    const el = document.createElement('div')
-    el.setAttribute('data-xgis-webgpu-unavailable', '')
-    el.setAttribute('role', 'alert')
-    el.textContent = msg
-    el.style.cssText =
-      'position:absolute;inset:0;display:flex;align-items:center;justify-content:center;' +
-      'text-align:center;padding:1rem;box-sizing:border-box;' +
-      'font:14px/1.5 system-ui,-apple-system,sans-serif;color:#e5e7eb;background:#111827;'
-    if (getComputedStyle(parent).position === 'static') parent.style.position = 'relative'
-    parent.appendChild(el)
+    // DOM-building body lives in map-webgpu-unavailable.ts (§2 god-file split).
+    showWebGPUUnavailableDefault(this.canvas)
   }
 
   /** Mapbox-API parity: return the underlying canvas element.
@@ -2981,6 +2933,13 @@ export class XGISMap {
 
     // 6. Start render loop
     this.running = true
+    // #1155 F3 — enter cold-start burst just before the loop starts. Sources
+    // are already registered (rebuildLayers above), so the per-source flags land
+    // on every current vtSources entry; a later rebuildLayers (setProjection)
+    // re-applies via `_registerVtSource`. Placed AFTER the run() destroy-guard
+    // awaits, so a destroy() landing mid-await returns before this and never
+    // leaks the pool refcount.
+    this._enterColdStartBurst()
     this.renderLoop()
 
     console.log('[X-GIS] Map running')
@@ -3388,7 +3347,7 @@ export class XGISMap {
       if (this.lineRenderer) vtRenderer.setLineRenderer(this.lineRenderer)
       vtRenderer.setFillRhi?.(this.renderer.fillRhiState?.() ?? null)
       vtRenderer.setSource(source)
-      this.vtSources.set(vtKey, { source, renderer: vtRenderer })
+      this._registerVtSource(vtKey, source, vtRenderer)
 
       // Phase 5f-2 opt-in path: route inline GeoJSON sources through
       // VirtualPMTilesBackend (the same pipeline URL-loaded GeoJSON
@@ -3705,6 +3664,7 @@ export class XGISMap {
 
     this.switchController()
     this.running = true
+    this._enterColdStartBurst() // #1155 F3 — see run(); binary path mirrors it
     this.renderLoop()
     this._fireLoadEvent()
     console.log('[X-GIS] Map running (from binary)')
@@ -3741,6 +3701,11 @@ export class XGISMap {
     // Emit move/zoom/idle lifecycle events every rAF tick (before the skip
     // gate): catches camera changes from BOTH the gesture + programmatic lanes.
     this._processCameraEvents()
+    // #1155 F3 — evaluate the cold-start burst exit at the START of every tick,
+    // BEFORE the render gate: once the scene settles shouldRenderThisFrame()
+    // goes false and renderFrame is skipped, but the rAF tick keeps firing, so
+    // the idle hysteresis still advances to its 3 consecutive idle frames.
+    this._burst.tickExit()
     if (!this.shouldRenderThisFrame()) {
       requestAnimationFrame(this.renderLoop)
       return
@@ -3748,6 +3713,22 @@ export class XGISMap {
     try {
       this.renderFrame()
       this._frameFailures = 0
+      if (this._burst.isOn) {
+        // #1155 F3 — device loss makes RenderLoop.render() early-return WITHOUT
+        // re-arming rAF (render-loop.ts): the loop dies with running still true,
+        // so this is the last tick. Release the shared-pool burst refcount here
+        // or it leaks for the page lifetime. Otherwise count the rendered frame
+        // — the exit hysteresis trusts the idle signal only after ≥1 render.
+        if (this.ctx.deviceLost) this._burst.exit()
+        // A 0×0 canvas makes RenderLoop.render() early-return before requestTiles
+        // (render-loop.ts) — nothing rendered, no cascade started. Counting it
+        // would let a map booted in a hidden/zero-size container satisfy the
+        // ≥1-render gate and exit burst (idle hysteresis) before the real first
+        // viewport ever paints; skip the note so burst survives to the real
+        // cascade (or the 10 s cap if the container never shows).
+        else if ((this.ctx.canvas?.width ?? 0) > 0 && (this.ctx.canvas?.height ?? 0) > 0)
+          this._burst.noteRenderedFrame()
+      }
     } catch (err) {
       // Surface the real message to the console / log overlay (a rAF throw
       // reaches window.onerror as "Script error. @ :0:0" under iOS WebKit).
@@ -3760,6 +3741,10 @@ export class XGISMap {
           `[X-GIS] render loop halted after ${this._frameFailures} consecutive frame failures`,
         )
         this.running = false
+        // #1155 F3 — a permanent halt must release the shared-pool burst
+        // refcount, or the module singleton stays capped at 32 forever and every
+        // other map inherits it.
+        this._burst.exit()
         // Surface the halt (previously silent — an iOS 'Script error.' blinding).
         this._eventBus.fireErrorEvent({ phase: 'halt', fatal: true, error: err })
         return
@@ -3828,6 +3813,35 @@ export class XGISMap {
         return true
     }
     return false
+  }
+
+  /** #1155 F3 — register a (catalog, renderer) pair into vtSources. Single
+   *  authority for the source registry so the cold-start burst flag is applied
+   *  to EVERY source, including one registered mid-burst: a post-run
+   *  rebuildLayers (e.g. from setProjection) re-registers sources while burst is
+   *  still converging, and the controller's enter-time applyToAllSources only
+   *  covered the sources that existed at burst entry. */
+  private _registerVtSource(key: string, source: TileCatalog, renderer: VectorTileRenderer): void {
+    this.vtSources.set(key, { source, renderer })
+    if (this._burst.isOn) {
+      source.setColdStartBurst(true)
+      renderer.setColdStartBurst(true)
+    }
+  }
+
+  /** #1155 F3 / #1167 — enter cold-start burst and arm the visibilitychange
+   *  backstop. Called from run()/runBinary() in place of a bare `_burst.enter()`.
+   *  If the viewport is mobile-class, `enter()` no-ops (desktop-only) and no
+   *  listener is armed on a burst that never engaged. The listener is idempotent
+   *  across re-runs (one document listener, removed only in destroy()). */
+  private _enterColdStartBurst(): void {
+    this._burst.enter()
+    if (typeof document === 'undefined' || this._burstVisibilityHandler || !this._burst.isOn) return
+    const handler = (): void => {
+      if (document.visibilityState === 'hidden') this._burst.exit()
+    }
+    this._burstVisibilityHandler = handler
+    document.addEventListener('visibilitychange', handler)
   }
 
   /** Classify all visible vector-tile shows into opaque and translucent
@@ -4141,6 +4155,13 @@ export class XGISMap {
    *  The whole-device teardown routes through the RHI (`ctx.rhi.destroy()`, #1153 A)
    *  so a forced-WebGL2 fail-loud `ctx.device` proxy is never touched. */
   private _releaseGpuResources(): void {
+    // #1155 F3 — end cold-start burst BEFORE the per-source renderers/catalogs
+    // are torn down below, so the controller's applyToAllSources still iterates
+    // live vtSources entries and the shared-pool refcount is released exactly
+    // once. Shared body of destroy() + _teardownForReinit(), so BOTH the
+    // SPA-unmount and the re-run / device-loss-recovery paths reclaim the
+    // refcount here; idempotent if the exit predicate already ended burst.
+    this._burst.exit()
     // Per-source GPU renderers + tile catalogs.
     for (const key of [...this.vtSources.keys()]) this.teardownSource(key)
 
@@ -4221,6 +4242,12 @@ export class XGISMap {
       this._keyDownHandler = null
     }
 
+    // #1167 — cold-start burst visibilitychange backstop (armed in run()).
+    if (this._burstVisibilityHandler && typeof document !== 'undefined') {
+      document.removeEventListener('visibilitychange', this._burstVisibilityHandler)
+      this._burstVisibilityHandler = null
+    }
+
     // Auto resize/DPR observers (P0-3) — teardown mirror of the ctor attach.
     this._detachAutoResize?.()
     this._detachAutoResize = null
@@ -4299,6 +4326,13 @@ export class XGISMap {
   stop(): void {
     this.controller?.detach()
     this.running = false
+    // #1155 F3 — stop() halts the render loop, so renderLoop early-returns on
+    // `!running` before tickExit (idle hysteresis) can fire again. The non-rAF cap
+    // timer would still end burst at 10 s, but that would leave the shared-pool
+    // refcount raised (every sibling map stuck at 32-per-drain) for up to 10 s
+    // after stop(). Release it immediately here; exit() clears the timer and is
+    // idempotent.
+    this._burst.exit()
   }
 
   /** Add a text overlay anchored at a geographic point. The overlay

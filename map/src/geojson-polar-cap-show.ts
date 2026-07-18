@@ -30,6 +30,11 @@ export interface PolarCapInstallHost {
   lineRenderer: LineRenderer | null
   projectionName: string
   vtSources: Map<string, { source: TileCatalog; renderer: VectorTileRenderer }>
+  /** #1155 F3 — register a (catalog, renderer) pair through XGISMap's single
+   *  authority (`_registerVtSource`) so a cap installed mid-burst (a projection
+   *  band switch within the cold-start window) inherits the burst flags instead
+   *  of pacing at steady caps while every other source bursts. */
+  registerVtSource: (key: string, source: TileCatalog, renderer: VectorTileRenderer) => void
   rawDatasets: Map<string, RawDataset>
   /** Mercator clamp-boundary pole(s) each GeoJSON source touches. */
   geojsonCapPoles: Map<string, CapPoles>
@@ -83,7 +88,7 @@ export function installGeoJSONPolarCaps(host: PolarCapInstallHost): void {
     vtRenderer.setSource(catalog)
     const backend = new GeoJSONPolarCapBackend(sourceName, poles, rgba)
     catalog.attachBackend(backend)
-    host.vtSources.set(capSrc, { source: catalog, renderer: vtRenderer })
+    host.registerVtSource(capSrc, catalog, vtRenderer)
     host.rawDatasets.set(capSrc, { _vectorTile: true })
     // Prepend the cap show so it dispatches with the background (ahead of the
     // authored ocean/land layers — the cap continues their surface).
