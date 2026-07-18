@@ -5,18 +5,17 @@ Scope: the surface grammar the compiler's hand-written lexer + recursive-descent
 parser actually accept, plus the parse-time diagnostics they raise.
 
 This document is derived construct-by-construct by reading the implementation. It
-describes **reality, not aspiration**: where the parser accepts something surprising
-or accidental it is documented as-is and tagged **(accidental — candidate for #1072
-pruning)**; where the implementation is internally inconsistent it is tagged **(known
-divergence)**. When this document and the implementation disagree, the implementation
-is authoritative and this document has a bug.
+describes **reality, not aspiration**: where the implementation is internally
+inconsistent it is tagged **(known divergence)**. When this document and the
+implementation disagree, the implementation is authoritative and this document has a
+bug.
 
-> **In-flight language work.** This spec describes `main` as of #1065 (unified
-> spanned diagnostics + parser multi-error recovery), #1071 (recursive import
-> resolution + `import * as ns`), and #1066 (unknown-function lower errors,
-> `X-GIS0012`). The in-flight language PRs **#1067 / #1068 / #1072** will change the
-> grammar and are expected to update this spec (and the conformance corpus) in their
-> own PRs.
+> **Language work landed.** This spec describes `main` after the **#1072 / #1138**
+> grammar prune: `let`, `fn`, `show`, `style`, and the imperative control-flow
+> statements (`if` / `else` / `for` / `in` / `return`) were removed, and the former
+> `style` block folded into `preset`. It also reflects #1065 (unified spanned
+> diagnostics + parser multi-error recovery), #1071 (recursive import resolution +
+> `import * as ns`), and #1066 (unknown-function lower errors, `X-GIS0012`).
 
 ## Source authority
 
@@ -88,14 +87,13 @@ DIGIT  = "0" … "9"
 An integer or decimal, with an optional scientific-notation exponent. A leading sign
 is **not** part of `NUMBER` — `-5` is a unary-minus expression over `NUMBER` `5`. A
 `.` is only a decimal point when followed by a digit, so `0..10` lexes as `NUMBER`
-`0`, `DotDot`, `NUMBER` `10` (see the `for` range, §2.13). Scientific notation was
-added so Mapbox-derived JSON (`1.5e-7`) round-trips (`lexer.ts` `readNumber`).
+`0`, `DotDot`, `NUMBER` `10` (the `..` token survives lexically but has no grammar
+production since #1072). Scientific notation was added so Mapbox-derived JSON
+(`1.5e-7`) round-trips (`lexer.ts` `readNumber`).
 
 ```xgis
 xgis 1
-let a = 42
-let b = 3.14
-let c = 1.5e-7
+source nums { i: 42  d: 3.14  sci: 1.5e-7 }
 ```
 
 ## 1.3 Unit-tagged numbers
@@ -112,8 +110,7 @@ emitted as a distinct `UNIT` token (`lexer.ts` `readNumber` tail; table in
 
 ```xgis
 xgis 1
-let d = 10km
-let t = 250ms
+source nums { dist: 10km  dur: 250ms }
 ```
 
 ## 1.4 Strings
@@ -130,7 +127,7 @@ unterminated string is a hard lexer error (**"Unterminated string"**).
 
 ```xgis
 xgis 1
-let label = "Seoul \"downtown\"\nzone"
+source lbl { label: "Seoul \"downtown\"\nzone" }
 ```
 
 ## 1.5 Colors
@@ -146,9 +143,7 @@ and rejects any other length as a hard error (**"Invalid color literal"**) — s
 
 ```xgis
 xgis 1
-let a = #f2efe9
-let b = #ccc
-let c = #ff000080
+source palette { full: #f2efe9  short: #ccc  alpha: #ff000080 }
 ```
 
 ## 1.6 Booleans, identifiers, keywords
@@ -160,19 +155,19 @@ ALPHA = "a"…"z" | "A"…"Z" | "_"
 ```
 
 An identifier run is looked up in the keyword table (`tokens.ts` `KEYWORDS`); a hit
-becomes that keyword token, `true`/`false` become `BOOL`, otherwise `IDENT`. Reserved
+becomes that keyword token, `true`/`false` become `BOOL`, otherwise `IDENT`. The
 keywords (major 1):
 
 ```
-let  fn  show  place  view  on  if  else  for  in  return
-simulate  analyze  import  struct  enum  source  layer
-background  preset  from  to  export  symbol  style  keyframes
+source  layer  background  preset  import  symbol  keyframes  from  to
 ```
 
-Some keywords are only _reserved_ — they have a token but no major-1 production
-(`place view on simulate analyze struct enum export`); they are accepted as
-property-name / utility-name segments in the positions noted below but begin no
-statement. `to`/`from` double as keyframe aliases (§2.11).
+Every keyword except `from` and `to` opens a top-level statement (§2). `from` and
+`to` begin no statement — they are keyframe selectors / aliases (§2.11) and may also
+appear as `utility-name` segments (§3.10). `true` / `false` are keyed in the same
+table but lex as `BOOL`. The pre-#1072 reserved-only keywords (`let fn show style if
+else for in return place view on simulate analyze struct enum export`) were removed
+from the table — each now lexes as an ordinary `IDENT`.
 
 ## 1.7 Operators and punctuation
 
@@ -193,17 +188,15 @@ character"**), e.g. `@` or `$`.
 
 ```
 program   = version-pragma statement*
-statement = let-statement | show-statement | fn-statement
-          | source-statement | layer-statement | background-statement
+statement = source-statement | layer-statement | background-statement
           | preset-statement | import-statement | symbol-statement
-          | style-statement | keyframes-statement | if-statement
-          | return-statement | for-statement | expr-statement
+          | keyframes-statement
 ```
 
 `parse()` (`parser.ts`) consumes the pragma, then loops `parseStatement` to `EOF`.
 Dispatch is by the leading token via `STATEMENT_HANDLERS`
-(`parser-statements.ts`); any token not in that map falls through to `expr-statement`
-(§2.15).
+(`parser-statements.ts`); any token not in that map is a hard syntax error — the
+language has **no** top-level expression statements (#1072, `parseStatement`).
 
 ## 2.0 Version pragma (mandatory, #1064)
 
@@ -224,18 +217,11 @@ integer.
 xgis 1
 ```
 
-## 2.1 `let`
+## 2.1 `let` — removed (#1072 / #1138)
 
-```
-let-statement = "let" IDENT "=" expression
-```
-
-Binds a name to an expression value. No type annotation, no mutation form.
-
-```xgis
-xgis 1
-let accent = #38bdf8
-```
+`let` was removed. There is no binding statement; values live directly in block /
+style properties and utility bindings. `let` now lexes as an ordinary `IDENT` and
+begins no statement.
 
 ## 2.2 `source`
 
@@ -297,26 +283,22 @@ background { fill: sky-900 }
 preset-statement = "preset" IDENT "{" utility-line+ "}"
 ```
 
-A named bundle of utility lines. Unlike `layer`, the body accepts **only** utility
-lines — a non-`"|"` token is a hard error (**"Expected | in preset block"**).
+A named bundle of utility lines — the single reusable-style construct, into which the
+former `style` block folded (#1072 / #1138, §2.6). Unlike `layer`, the body accepts
+**only** utility lines — a non-`"|"` token is a hard error (**"Expected | in preset
+block"**). How a layer consumes a preset is a lowering concern (see the registry,
+§3.11).
 
 ```xgis
 xgis 1
 preset track { | symbol-arrow stroke-black stroke-1 }
 ```
 
-## 2.6 `style`
+## 2.6 `style` — removed (#1072 / #1138), folded into `preset`
 
-```
-style-statement = "style" IDENT "{" ( style-property ","? )* "}"
-```
-
-A named set of CSS-like style properties (§2.14).
-
-```xgis
-xgis 1
-style dark_land { fill: stone-800, stroke: slate-600, stroke-width: 1 }
-```
+The `style` block (a named set of CSS-like style properties) was removed; its role
+folded into `preset` (§2.5), now the single reusable-style construct. `style` now
+lexes as an ordinary `IDENT` and begins no statement.
 
 ## 2.7 `import`
 
@@ -364,41 +346,16 @@ xgis 1
 symbol arrow { path "M 0 -1 L -0.4 0.3 Z" anchor: center }
 ```
 
-## 2.9 `show`
+## 2.9 `show` — removed (#1072 / #1138)
 
-```
-show-statement = "show" expression show-block
-show-block     = "{" show-property* "}"
-show-property  = IDENT ":" expression ( "," expression )*
-```
+The legacy imperative `show` render form was removed. `show` now lexes as an ordinary
+`IDENT` and begins no statement; declarative `layer` blocks (§2.3) are the render
+surface.
 
-Legacy imperative render form. Each property is a name plus one **or more** comma-
-separated value expressions (`stroke: #ccc, 1px`). A comma is a _property_ separator
-(not a value separator) when it is immediately followed by `IDENT ":"` — a one-token
-lookahead (`isNextPropertyStart`). A trailing comma before `}` is tolerated.
+## 2.10 `fn` — removed (#1072 / #1138)
 
-```xgis
-xgis 1
-show world { fill: #f2efe9, stroke: #ccc, 1px }
-```
-
-## 2.10 `fn`
-
-```
-fn-statement = "fn" IDENT "(" param-list? ")" ( "->" IDENT )? "{" statement* "}"
-param-list   = param ( ","? param )*
-param        = IDENT ":" IDENT
-```
-
-A named function. Every parameter **requires** a `name: Type` annotation (a bare
-`name` is a hard error, **"Expected Colon"**); the return type is optional. The body
-is a statement list (the intended home of `if`/`for`/`return`, §2.13). Types are
-identifiers only; there is no structural type grammar.
-
-```xgis
-xgis 1
-fn scale(x: Number) -> Number { return x * 2 }
-```
+Named functions were removed. `fn` now lexes as an ordinary `IDENT` and begins no
+statement; the language has no user-defined functions or function bodies.
 
 ## 2.11 `keyframes`
 
@@ -461,36 +418,19 @@ layer roads {
 }
 ```
 
-## 2.13 `if` / `for` / `return`
+## 2.13 `if` / `else` / `for` / `in` / `return` — removed (#1072 / #1138)
 
-```
-if-statement     = "if" expression "{" statement* "}" ( "else" ( if-statement | "{" statement* "}" ) )?
-for-statement    = "for" IDENT "in" expression ".." expression "{" statement* "}"
-return-statement = "return" expression?
-```
-
-Imperative control flow, intended for `fn` bodies. `else if` chains as a nested
-`if-statement`. `for` iterates an inclusive-start range over `start .. end`.
-`return` may omit its value at a block/EOF boundary.
-
-```xgis
-xgis 1
-fn pick(z: Number) -> Color {
-  if z > 5 { return #ffffff } else { return #000000 }
-}
-```
-
-> **(accidental — candidate for #1072 pruning)** `if`/`for`/`return` are dispatched
-> from the top-level statement map, so they also parse at **program scope**, outside
-> any `fn`. There is no evaluator for top-level control flow; it is a parser
-> accident, not a feature.
+The imperative control-flow statements were removed. `if`, `else`, `for`, `in`, and
+`return` now lex as ordinary `IDENT`s and begin no statement; the `..` range token
+(§1.2) survives lexically but has no grammar production. The language is purely
+declarative.
 
 ## 2.14 Block properties and style properties
 
 ```
 block-property = property-key ":" coalesce-expression
 style-property = style-key ":" style-value
-property-key   = IDENT | "source" | "layer" | "style" | "view" | "on"
+property-key   = IDENT | "source" | "layer"
 style-key      = property-key ( "-" IDENT )*
 style-value    = COLOR | NUMBER | BOOL | fn-call-text | utility-name
 ```
@@ -501,8 +441,9 @@ after the value belongs to a utility line, not to the expression (`.height ?? 50
 still works). A **style property** (CSS-like) takes a hyphen-joined key
 (`stroke-width`) and a _string-valued_ payload: a color, number, bool, a paren-
 balanced function-call captured verbatim as text (`rgba(255,0,0,0.5)`), or a
-hyphen-joined utility name (`stone-800`). Keys may be a handful of keywords
-(`source`, `layer`, `style`, `view`, `on`) via `expectIdentifierOrKeyword`.
+hyphen-joined utility name (`stone-800`). A key may also be the keyword `source` or
+`layer` (via `expectIdentifierOrKeyword`); every other former keyword used here
+(`style`, `view`, `on`) is now an ordinary `IDENT` and needs no special-casing.
 
 ```xgis
 xgis 1
@@ -510,22 +451,13 @@ source w { type: geojson, url: "w.geojson" }
 layer l { source: w  fill: rgba(30, 41, 59, 0.8)  stroke-width: 1 }
 ```
 
-> **(accidental — candidate for #1072 pruning)** Accepting `view`/`on`/`style` as
-> arbitrary property keys is an over-broad consequence of
-> `expectIdentifierOrKeyword`, not a designed feature.
+## 2.15 Expression statements — removed (#1072 / #1138)
 
-## 2.15 Expression statements
-
-```
-expr-statement = expression
-```
-
-Any statement whose leading token is not a statement keyword is parsed as a bare
-expression. In a declarative map program this is rarely meaningful.
-
-> **(accidental — candidate for #1072 pruning)** This fallthrough makes top-level
-> bare expressions — `42`, `[1, 2, 3]`, `{ a: 1 }`, `x | round`, `a ? b : c` — all
-> parse as no-op statements. Verified; there is no top-level expression evaluator.
+There are no top-level expression statements. The former fallthrough that parsed a
+bare expression (`42`, `[1, 2, 3]`, `x | round`, …) at statement position was
+removed; any token that is not a statement keyword (§2) is now a hard syntax error
+(`parseStatement`). Expressions appear only inside block / style properties and
+utility bindings.
 
 ---
 
@@ -561,9 +493,13 @@ ternary and `unary` are right-recursive.
 
 ```xgis
 xgis 1
-let w = clamp(.base * 2 + 1, 0, 24) ?? 8
-let c = .hostile ? #ef4444 : #22c55e
-let s = .speed | round | clamp(0, 10)
+source w { type: geojson, url: "w.geojson" }
+layer roads {
+  source: w
+  | size-[clamp(.base * 2 + 1, 0, 24) ?? 8]
+  | fill-[.hostile ? #ef4444 : #22c55e]
+  | opacity-[.speed | round | clamp(0, 10)]
+}
 ```
 
 ## 3.1 Primary expressions
@@ -577,9 +513,8 @@ primary = implicit-field | NUMBER-literal | STRING | COLOR | BOOL
 
 ```
 utility-name  = utility-seg ( "-" utility-seg )* trailing-unit?
-utility-seg   = IDENT | NUMBER | COLOR
-              | "symbol" | "source" | "layer" | "preset" | "view" | "on"
-              | "in" | "from" | "to" | BOOL
+utility-seg   = IDENT | NUMBER | COLOR | BOOL
+              | "symbol" | "source" | "layer" | "preset" | "from" | "to"
 trailing-unit = "px" | "m" | "km" | "nm" | "deg"
 ```
 
@@ -615,11 +550,13 @@ corresponding literal / `Identifier` node.
 
 ```xgis
 xgis 1
-let a = 12px
-let b = "hello"
-let c = #0ea5e9
-let d = true
-let e = mercator
+source lit {
+  a: 12px
+  b: "hello"
+  c: #0ea5e9
+  d: true
+  e: mercator
+}
 ```
 
 ## 3.13 Implicit field access, field/array access, calls, `match`
@@ -643,8 +580,10 @@ literal and a hyphen-joined utility name before falling back to a general expres
 
 ```xgis
 xgis 1
-let color = match(.iso) { "KOR" -> #ef4444, "JPN" -> #3b82f6, _ -> #d1d5db }
-let deep  = feature.props.rank
+source feat {
+  color: match(.iso) { "KOR" -> #ef4444, "JPN" -> #3b82f6, _ -> #d1d5db }
+  deep: feature.props.rank
+}
 ```
 
 ## 3.14 Array and object literals
