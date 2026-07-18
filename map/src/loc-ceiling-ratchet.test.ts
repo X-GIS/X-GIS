@@ -126,7 +126,15 @@ const CEILINGS: Record<string, number> = {
   // all at the run() flow with block comments documenting the reorder. Pure
   // latency overlap, no behaviour change (§2 — composition-root reorder,
   // nothing extract-worthy). Lower as #991 decomposes map.ts.
-  'map/src/map.ts': 4336,
+  // 4336→4337 (pick pre-gate): ONE composition-root line — the `anyLayerListens`
+  // dep wiring the EventDispatcher's pre-pick gate to InteractionController (which
+  // already owns `xgisLayers` and the layer reverse-resolve, so the scan lives
+  // there, not here). Without it `fireOnce` had to run a GPU pick readback BEFORE
+  // it could ask whether anyone listened — the dep's own doc already promised to
+  // "skip the pickAt/buildFeature path entirely" in that case. Dep injection at
+  // the composition root; nothing extract-worthy (§2). Lower as #991 decomposes
+  // map.ts.
+  'map/src/map.ts': 4337,
   // 1920→1930 (#1042 R3): the globe limb cull for MULTI-LINE labels must land in
   // the collision phase — the ONLY site holding the label's quad half-height (the
   // collision box IS the height authority; the label-pass dispatch site has only

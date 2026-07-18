@@ -80,6 +80,7 @@ function makeDeps(): DispatcherDeps & { fired: string[] } {
       fired.push(`map:${ev.type}`)
     },
     mapHasListeners: (_t: string) => true,
+    anyLayerListens: (_t: string) => true,
   }
 }
 
