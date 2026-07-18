@@ -4,7 +4,8 @@
 
 import type { Scene, RenderNode, ColorValue, TimeStop, Easing, DataExpr } from './render-node'
 import { rgbaToHex } from './render-node'
-import type { PaintShapes, PropertyShape, HillshadeShapes } from './property-types'
+import type { PaintShapes, PropertyShape } from './property-types'
+import { hasHillshadePaint, emitHillshadeShapes } from './emit-commands-hillshade'
 import { colorValueToShape, sizeValueToShape } from './to-property-shape'
 import { generateShaderVariant, type ShaderVariant } from '../codegen/shader-gen'
 import { collectPalette, type Palette } from '../codegen/palette'
@@ -621,41 +622,6 @@ function emitShow(
       // resolves a no-op; absent entirely on every other layer type.
       ...(hasHillshadePaint(node) ? { hillshade: emitHillshadeShapes(node) } : {}),
     },
-  }
-}
-
-/** True iff the node authored ANY hillshade axis — the presence signal for
- *  the optional `paintShapes.hillshade` bundle. A default-only hillshade
- *  layer (byte-minimal, no authored axis) carries no bundle; the runtime
- *  falls back to `defaultHillshadeShapes()` for a raster-dem draw. */
-function hasHillshadePaint(node: RenderNode): boolean {
-  return (
-    node.hillshadeDirection !== undefined ||
-    node.hillshadeAltitude !== undefined ||
-    node.hillshadeAnchorMap !== undefined ||
-    node.hillshadeExaggeration !== undefined ||
-    node.hillshadeShadow !== undefined ||
-    node.hillshadeHighlight !== undefined ||
-    node.hillshadeAccent !== undefined ||
-    node.hillshadeMethod !== undefined ||
-    node.hillshadeResamplingNearest !== undefined
-  )
-}
-
-/** Fold the node's flat hillshade fields into the typed HillshadeShapes
- *  bundle, seeding the spec default for every unauthored axis. Mirror of the
- *  raster block above. */
-function emitHillshadeShapes(node: RenderNode): HillshadeShapes {
-  return {
-    direction: { kind: 'constant', value: node.hillshadeDirection ?? 335 },
-    altitude: { kind: 'constant', value: node.hillshadeAltitude ?? 45 },
-    anchorMap: node.hillshadeAnchorMap ?? false,
-    exaggeration: { kind: 'constant', value: node.hillshadeExaggeration ?? 0.5 },
-    shadow: { kind: 'constant', value: node.hillshadeShadow ?? [0, 0, 0, 1] },
-    highlight: { kind: 'constant', value: node.hillshadeHighlight ?? [1, 1, 1, 1] },
-    accent: { kind: 'constant', value: node.hillshadeAccent ?? [0, 0, 0, 1] },
-    method: node.hillshadeMethod ?? 'standard',
-    resamplingNearest: node.hillshadeResamplingNearest ?? false,
   }
 }
 
