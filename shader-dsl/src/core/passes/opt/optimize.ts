@@ -71,10 +71,18 @@ export function fixpoint(
   maxIters = 8,
 ): ModuleDecl {
   let cur = m
+  // The convergence check serializes the WHOLE module; `cur` was already
+  // serialized as the prior round's `next`, so carry that string forward
+  // instead of re-stringifying it. Halves the per-iteration JSON.stringify
+  // cost (this check dominates fixpoint's self-time on the merged multi-
+  // projection modules — #1186) while leaving the comparison byte-identical.
+  let curJson = JSON.stringify(cur)
   for (let i = 0; i < maxIters; i++) {
     const next = optimize(cur, passes)
-    if (JSON.stringify(next) === JSON.stringify(cur)) return next
+    const nextJson = JSON.stringify(next)
+    if (nextJson === curJson) return next
     cur = next
+    curJson = nextJson
   }
   return cur
 }
