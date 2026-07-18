@@ -306,7 +306,10 @@ const CEILINGS: Record<string, number> = {
   // bound-handler fields, and the destroy() removeEventListener-BEFORE-loseContext
   // teardown (the intentional-teardown guard). A device owning its own listeners can't
   // extract them; irreducible (+49).
-  'rhi-webgl2/src/rhi-webgl2.ts': 1354,
+  // 1354→1364 (#1049): createPipeline fail-loud guard rejecting an unsupported nonzero
+  // depthStencil.bias.clamp (gl.polygonOffset has no clamp param) — inline descriptor
+  // validation at the createPipeline entry, not extractable (+10).
+  'rhi-webgl2/src/rhi-webgl2.ts': 1364,
   'map/src/render/renderer.ts': 965,
   'map/src/render/gpu-tile-store.ts': 941,
   // 930→948 (#1078): the zoom-transition readiness gate now probes the SAME
