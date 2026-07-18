@@ -82,6 +82,7 @@ function makeDeps(pickAt: DispatcherDeps['pickAt']): DispatcherDeps {
       ({ left: 0, top: 0, right: 256, bottom: 256, width: 256, height: 256 }) as DOMRect,
     dispatchMapEvent: () => {},
     mapHasListeners: () => false,
+    anyLayerListens: () => false,
   }
 }
 
