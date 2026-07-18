@@ -51,7 +51,6 @@ describe('tile selection DPR invariance', () => {
     const set3 = new Set(tiles3.map(tileKey))
     const d = diff(set1, set3)
     if (d.onlyA.length || d.onlyB.length) {
-      // eslint-disable-next-line no-console
       console.log('DFS divergence', {
         dpr1Total: tiles1.length,
         dpr3Total: tiles3.length,
@@ -72,7 +71,6 @@ describe('tile selection DPR invariance', () => {
     const set3 = new Set(tiles3.map(tileKey))
     const d = diff(set1, set3)
     if (d.onlyA.length || d.onlyB.length) {
-      // eslint-disable-next-line no-console
       console.log('Sampled divergence', {
         dpr1Total: tiles1.length,
         dpr3Total: tiles3.length,
@@ -95,7 +93,6 @@ describe('tile selection DPR invariance', () => {
     for (let i = 1; i < sets.length; i++) {
       const d = diff(sets[0], sets[i])
       if (d.onlyA.length || d.onlyB.length) {
-        // eslint-disable-next-line no-console
         console.log(`DPR ${dprs[0]} vs ${dprs[i]}`, {
           left: sets[0].size,
           right: sets[i].size,
@@ -113,7 +110,7 @@ describe('tile selection DPR invariance', () => {
     // At pitch=0 the sampled selector runs.
     const cam = makeCam(14.95, 0, 26)
     const tiles = visibleTilesFrustumSampled(cam, mercator, 15, CSS_W * 3, CSS_H * 3, 0, 3)
-    // eslint-disable-next-line no-console
+
     console.log(`sampled @ z=15 pitch=0 NYC: ${tiles.length} tiles`, tiles.slice(0, 5).map(tileKey))
     // Document the actual count so over-coverage shows up in diffs.
     expect(tiles.length).toBeGreaterThan(0)
@@ -128,7 +125,7 @@ describe('tile selection DPR invariance', () => {
       const tiles = visibleTilesFrustum(cam, mercator, z, CSS_W * d, CSS_H * d, 0, d)
       return { dpr: d, count: tiles.length }
     })
-    // eslint-disable-next-line no-console
+
     console.log('Manhattan z=11.5 pitch=43 — tile counts:', counts)
     // All DPRs must agree.
     expect(counts[1].count).toBe(counts[0].count)
@@ -148,7 +145,7 @@ describe('tile selection DPR invariance', () => {
         const tiles = visibleTilesFrustumSampled(cam, mercator, z, CSS_W * d, CSS_H * d, 0, d)
         return { dpr: d, count: tiles.length }
       })
-      // eslint-disable-next-line no-console
+
       console.log(`${s.label} — sampled tile counts:`, counts)
       expect(counts[1].count).toBe(counts[0].count)
       expect(counts[2].count).toBe(counts[0].count)

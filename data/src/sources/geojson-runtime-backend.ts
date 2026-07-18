@@ -132,6 +132,7 @@ export class GeoJSONRuntimeBackend implements TileSource {
       lineVertices: tile.lineVertices,
       lineIndices: tile.lineIndices,
       pointVertices: tile.pointVertices,
+      // eslint-disable-next-line @typescript-eslint/no-deprecated -- reads the deprecated always-empty outlineIndices during the outline-frame migration
       outlineIndices: tile.outlineIndices,
       outlineVertices: tile.outlineVertices,
       outlineLineIndices: tile.outlineLineIndices,

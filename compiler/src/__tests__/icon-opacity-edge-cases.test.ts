@@ -105,7 +105,7 @@ describe('icon-opacity — iter 492 edge cases', () => {
     expect(warnings).not.toContain('icon-opacity non-constant form not yet supported')
   })
 
-  it('v8 literal-wrap [\"literal\", 0.4] → unwrapped to 0.4', () => {
+  it('v8 literal-wrap ["literal", 0.4] → unwrapped to 0.4', () => {
     // unwrapLiteralScalar runs before the typeof gate; strict-tooling
     // chains that emit `["literal", 0.4]` instead of bare 0.4 must
     // still hit the constant path, not the warning branch.

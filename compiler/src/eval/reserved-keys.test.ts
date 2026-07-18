@@ -62,6 +62,7 @@ const LITERAL_OK_FILES = new Set([
   'runtime/src/data/eval/geometry-type-filter.test.ts',
 ])
 
+// eslint-disable-next-line no-irregular-whitespace -- ZWSP escapes the inner block-comment terminator inside this JSDoc
 /** Strip `// line` and /* block ​*​/ comments so the literal scan only
  *  sees actual code. Naïve but correct for our purposes — none of
  *  the searched literals legitimately appear inside string templates

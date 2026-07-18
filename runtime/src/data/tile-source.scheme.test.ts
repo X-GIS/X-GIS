@@ -32,7 +32,7 @@ describe('TileSource backends declare scheme = "web-mercator-xyz"', () => {
 
   it('TileScheme is a single-variant literal union', () => {
     // If a new variant lands, this const widening fails to compile.
-    const onlyVariant: 'web-mercator-xyz' = 'web-mercator-xyz'
+    const onlyVariant = 'web-mercator-xyz' as const
     expect(onlyVariant).toBe('web-mercator-xyz')
   })
 })

@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-deprecated -- unit-tests the deprecated resolveDispatch alias on purpose (#1055) */
 // Isolated unit test for PMTilesBackend — exercises the TileSource
 // interface with a mock fetcher closure (no real PMTiles archive).
 // PMTilesBackend now uses a two-stage pipeline:

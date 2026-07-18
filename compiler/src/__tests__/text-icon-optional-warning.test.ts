@@ -56,7 +56,7 @@ describe('text-optional / icon-optional warning gate — iter 519', () => {
       expect(hits[0]).toContain('symbol placement always pairs')
     })
 
-    it('v8 literal-wrap [\"literal\", true] → warning fires (unwrap honoured)', () => {
+    it('v8 literal-wrap ["literal", true] → warning fires (unwrap honoured)', () => {
       const warnings = compile({ 'text-optional': ['literal', true] })
       expect(warnings.filter((w) => w.includes('text-optional')).length).toBe(1)
     })

@@ -139,7 +139,9 @@ const DEBOUNCE_MS = 400
 const withBase = (src: string, base: string) => src.split('{B}').join(base)
 
 /** btoa over UTF-8 (handles non-ASCII), the convert page's exact idiom. */
+// eslint-disable-next-line @typescript-eslint/no-deprecated -- escape/unescape round-trip preserves the exact legacy share-link encoding
 const encodeSource = (src: string) => btoa(unescape(encodeURIComponent(src)))
+// eslint-disable-next-line @typescript-eslint/no-deprecated -- escape/unescape round-trip preserves the exact legacy share-link encoding
 const decodeSource = (b64: string) => decodeURIComponent(escape(atob(b64)))
 
 /** Read `#src=<base64>` from the URL hash, or null when absent/invalid. */
@@ -314,7 +316,6 @@ export default function Playground({ base, initialSource }: Props) {
       mapRef.current = null
     }
     // Mount once — base / initialSource / compileAndRender are stable.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   // ── Editor edits → debounced recompile ──
