@@ -1143,6 +1143,16 @@ export class WebGl2Device implements RhiDevice {
         'webgl2: createPipeline requires GLSL vsCode/fsCode (emitGlslModule m,"vertex"/"fragment"); desc.code is WGSL — the single-module vs split-source divergence',
       )
     }
+    // gl.polygonOffset takes only (factor, units) — WebGL2 has NO clamp parameter
+    // (no core / extension equivalent), so a nonzero depthStencil.bias.clamp cannot be
+    // honored and would be silently dropped at setPipeline (#1049). Fail loud instead of
+    // dropping it: the sole caller (point-material) passes clamp:0, so this is behaviour-
+    // preserving today and stops a future nonzero clamp from vanishing without a trace.
+    if (desc.depthStencil?.bias && desc.depthStencil.bias.clamp !== 0) {
+      throw new Error(
+        `webgl2: depthStencil.bias.clamp is unsupported (gl.polygonOffset has no clamp parameter); got ${desc.depthStencil.bias.clamp}`,
+      )
+    }
     const gl = this.gl
     const vs = compile(gl, gl.VERTEX_SHADER, desc.vsCode)
     const fs = compile(gl, gl.FRAGMENT_SHADER, desc.fsCode)
