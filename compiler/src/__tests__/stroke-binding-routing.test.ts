@@ -309,6 +309,7 @@ describe('stroke binding routing — paint.line-width interpolate-by-zoom', () =
     // zoom stops (pure zoom-driven width — the common case in OFM) OR
     // a per-feature widthExpr (compound match()). The default 1 px
     // fallback means lower.ts silently dropped the binding.
+    // eslint-disable-next-line @typescript-eslint/no-require-imports -- JSON fixture load in a test
     const style = require('./fixtures/openfreemap-bright.json')
     const xgis = convertMapboxStyle(style)
     const cmds = emitCommands(lower(new Parser(new Lexer(xgis).tokenize()).parse()))

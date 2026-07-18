@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-deprecated -- asserts the deprecated emitFuncsCsed alias equals emitFuncs (#1055) */
 // ═══ Absorbed-fn parity: executed WGSL vs the CPU f64 oracle ═══
 //
 // ecef.ts (lonlat_to_ecef) and raster-color.ts (raster_color_adjust) were absorbed from

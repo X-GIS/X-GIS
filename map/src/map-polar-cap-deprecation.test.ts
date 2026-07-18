@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-deprecated -- this file IS the setPolarCapsEnabled deprecation test (#1055) */
 // The deprecation flag is module-scoped (one-shot per process lifetime).
 // Vitest isolates each file in its own worker, so this file gets a fresh
 // flag — the single `it` block is what makes the one-shot behavior

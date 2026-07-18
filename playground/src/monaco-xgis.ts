@@ -113,8 +113,8 @@ export function registerXGISLanguage() {
         ],
         [/\d+(\.\d+)?(px|m|km|nm|deg|ms|s)?/, 'number'],
         [/\.\d+/, 'number'],
-        [/[{}()\[\]]/, 'delimiter.bracket'],
-        [/[<>=!&|+\-*\/]+/, 'operator'],
+        [/[{}()[\]]/, 'delimiter.bracket'],
+        [/[<>=!&|+\-*/]+/, 'operator'],
         [/:/, 'delimiter'],
         [/,/, 'delimiter.comma'],
         [/\s+/, 'white'],
@@ -232,7 +232,7 @@ export function registerXGISLanguage() {
       }
 
       // After projection: or projection- → projection completions
-      if (/projection[:\-]\s*\w*$/.test(trimmed)) {
+      if (/projection[:-]\s*\w*$/.test(trimmed)) {
         for (const p of PROJECTIONS) {
           suggestions.push({
             label: p,

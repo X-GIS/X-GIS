@@ -142,6 +142,14 @@ export default tseslint.config(
       '@typescript-eslint/no-empty-object-type': 'off',
       'no-empty': ['warn', { allowEmptyCatch: true }],
       'prefer-const': 'warn',
+      // Allow the compact side-effecting dispatch idioms the codebase uses
+      // (`cond ? a() : b()`, `cond && a()`) — these have effects, so they are not
+      // the "dead expression" the rule targets. Avoids forcing an if/else expansion
+      // that would grow LOC-ceiling'd god-files just to satisfy the lint (#1055).
+      '@typescript-eslint/no-unused-expressions': [
+        'error',
+        { allowShortCircuit: true, allowTernary: true },
+      ],
     },
   },
   // Config / script files: plain JS, no type-aware project.

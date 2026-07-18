@@ -128,7 +128,6 @@ export default function GlobeDemo({ base }: Props) {
       map?.destroy?.()
     }
     // base is stable for the page lifetime; mount once.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   return (
