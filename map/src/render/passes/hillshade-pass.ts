@@ -20,9 +20,53 @@ import type { FrameContext } from '../frame-context'
 import { unwrapProjection } from '../projection-token'
 import type { SceneView } from '../scene-view'
 import { resolveNumberShape, resolveColorShape } from '../paint-shape-resolve'
+import type { HillshadeRenderer } from '../hillshade-renderer'
 import type { RenderPass, HillshadePassHost } from './pass'
 
 type RGBA = readonly [number, number, number, number]
+
+/** Resolve the active hillshade show's paint (direction / altitude / exaggeration
+ *  / colours / method) and push it to the renderer. Shared by the native
+ *  HillshadePass and the forced-WebGL2 twin (render-loop.ts renderFrameViaRhi) so
+ *  both resolve paint identically. Constant forms in the MVP; zoom/time shapes
+ *  resolve transparently if ever plumbed. A default hillshade layer (no authored
+ *  paint) carries no bundle → the renderer keeps its DEFAULT_PARAMS + armed DEM. */
+export function applyHillshadePaint(
+  hr: HillshadeRenderer,
+  hillshadeShow: { paintShapes: { hillshade?: HillshadeShapesLike } } | null | undefined,
+  zoom: number,
+  elapsedMs: number,
+): void {
+  const hs = hillshadeShow?.paintShapes.hillshade
+  if (!hs) return
+  // resolveColorShape returns null for a constant shape — read the constant value
+  // directly there; only zoom/time shapes go through the resolver.
+  const colorOf = (s: HillshadeShapesLike['shadow'], def: RGBA): RGBA =>
+    s.kind === 'constant' ? s.value : (resolveColorShape(s, zoom, elapsedMs)?.value ?? def)
+  hr.setParams({
+    direction: resolveNumberShape(hs.direction, zoom, elapsedMs).value,
+    altitude: resolveNumberShape(hs.altitude, zoom, elapsedMs).value,
+    anchorMap: hs.anchorMap,
+    exaggeration: resolveNumberShape(hs.exaggeration, zoom, elapsedMs).value,
+    shadow: colorOf(hs.shadow, [0, 0, 0, 1]),
+    highlight: colorOf(hs.highlight, [1, 1, 1, 1]),
+    accent: colorOf(hs.accent, [0, 0, 0, 1]),
+    method: hs.method,
+  })
+}
+
+// Structural shape of the compiler's HillshadeShapes (the fields this pass reads),
+// kept local so this file doesn't take a value import on @xgis/compiler.
+interface HillshadeShapesLike {
+  direction: Parameters<typeof resolveNumberShape>[0]
+  altitude: Parameters<typeof resolveNumberShape>[0]
+  exaggeration: Parameters<typeof resolveNumberShape>[0]
+  anchorMap: boolean
+  method: string
+  shadow: Parameters<typeof resolveColorShape>[0]
+  highlight: Parameters<typeof resolveColorShape>[0]
+  accent: Parameters<typeof resolveColorShape>[0]
+}
 
 class HillshadePass implements RenderPass {
   readonly label = 'hillshade'
@@ -34,30 +78,7 @@ class HillshadePass implements RenderPass {
   execute(ctx: FrameContext, _scene: SceneView, host: HillshadePassHost): void {
     const hr = host.hillshadeRenderer
     if (!hr || !hr.hasSource()) return
-    const z = host.camera.zoom
-    const ms = host._elapsedMs
-
-    // Resolve the active hillshade show's paint (constant forms in the MVP;
-    // zoom/time shapes resolve transparently if ever plumbed). A default
-    // hillshade layer (no authored paint) carries no bundle → the renderer keeps
-    // its DEFAULT_PARAMS (+ the armed DEM decode).
-    const hs = host._hillshadeShow?.paintShapes.hillshade
-    if (hs) {
-      // resolveColorShape returns null for a constant shape — read the constant
-      // value directly there; only zoom/time shapes go through the resolver.
-      const colorOf = (s: (typeof hs)['shadow'], def: RGBA): RGBA =>
-        s.kind === 'constant' ? s.value : (resolveColorShape(s, z, ms)?.value ?? def)
-      hr.setParams({
-        direction: resolveNumberShape(hs.direction, z, ms).value,
-        altitude: resolveNumberShape(hs.altitude, z, ms).value,
-        anchorMap: hs.anchorMap,
-        exaggeration: resolveNumberShape(hs.exaggeration, z, ms).value,
-        shadow: colorOf(hs.shadow, [0, 0, 0, 1]),
-        highlight: colorOf(hs.highlight, [1, 1, 1, 1]),
-        accent: colorOf(hs.accent, [0, 0, 0, 1]),
-        method: hs.method,
-      })
-    }
+    applyHillshadePaint(hr, host._hillshadeShow, host.camera.zoom, host._elapsedMs)
 
     const encoder = ctx.encoder
     ctx.passScope('hillshade', () => {

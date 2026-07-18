@@ -62,13 +62,21 @@ export class HillshadeDraper {
       format: format as 'bgra8unorm',
       sampleCount,
       groups: [
+        // group 0 carries TWO uniform blocks — on WebGL2 the RHI pairs uniform
+        // blocks BY reflection NAME (not binding index), so both MUST be named
+        // (raster's single-block group needed none). Names = the GLSL block names
+        // (the uniformStruct first arg): 'Uniforms' (shared vertex) + 'HillshadeUniforms'.
         [
-          { binding: 0, kind: 'uniform' },
+          { binding: 0, kind: 'uniform', name: 'Uniforms' },
           { binding: 1, kind: 'texture' },
           { binding: 2, kind: 'sampler' },
-          { binding: HS_GLOBAL_BINDING, kind: 'uniform' },
+          { binding: HS_GLOBAL_BINDING, kind: 'uniform', name: 'HillshadeUniforms' },
         ],
-        [{ binding: 0, kind: 'uniform' }],
+        // The per-tile pool block MUST be named too: once ANY block in the
+        // program is bound by name (group 0 above), the unnamed by-declaration-
+        // order fallback collides with a named block's index and rebinds it to
+        // the wrong UBO point (Uniforms → the 48 B tile buffer → INVALID_OPERATION).
+        [{ binding: 0, kind: 'uniform', name: 'TileUniforms' }],
       ],
       // Relief over fills, under labels — a translucent overlay (design §4).
       colorTargets: [{ format: format as 'bgra8unorm', blend: 'alpha' }],
@@ -91,13 +99,21 @@ export class HillshadeDraper {
       format: this.format as 'bgra8unorm',
       sampleCount: this.sampleCount,
       groups: [
+        // group 0 carries TWO uniform blocks — on WebGL2 the RHI pairs uniform
+        // blocks BY reflection NAME (not binding index), so both MUST be named
+        // (raster's single-block group needed none). Names = the GLSL block names
+        // (the uniformStruct first arg): 'Uniforms' (shared vertex) + 'HillshadeUniforms'.
         [
-          { binding: 0, kind: 'uniform' },
+          { binding: 0, kind: 'uniform', name: 'Uniforms' },
           { binding: 1, kind: 'texture' },
           { binding: 2, kind: 'sampler' },
-          { binding: HS_GLOBAL_BINDING, kind: 'uniform' },
+          { binding: HS_GLOBAL_BINDING, kind: 'uniform', name: 'HillshadeUniforms' },
         ],
-        [{ binding: 0, kind: 'uniform' }],
+        // The per-tile pool block MUST be named too: once ANY block in the
+        // program is bound by name (group 0 above), the unnamed by-declaration-
+        // order fallback collides with a named block's index and rebinds it to
+        // the wrong UBO point (Uniforms → the 48 B tile buffer → INVALID_OPERATION).
+        [{ binding: 0, kind: 'uniform', name: 'TileUniforms' }],
       ],
       colorTargets: [
         { format: this.format as 'bgra8unorm', blend: 'alpha' },

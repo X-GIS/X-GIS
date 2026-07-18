@@ -88,6 +88,9 @@ describe('pass-order parity: one authority, two orchestrations (#1004)', () => {
       ['background', 'backgroundClearValue('],
       ['opaque', 'renderFillsRhi('],
       ['translucent', 'beginTranslucentPassRhi('],
+      // #777 Phase II — hillshade ported to the twin (after translucent, before
+      // labels); applyHillshadePaint marks the block that precedes the render.
+      ['hillshade', 'applyHillshadePaint('],
       ['labels', 'labelPass.execute('],
       ['graphics', 'graphics.renderRetained('],
     ]
