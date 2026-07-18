@@ -76,6 +76,22 @@ export interface SourceDef {
    *  registered `SourceLoader`'s `ctx.options` (docs/architecture/source-loader-seam.md §5).
    *  Scalars / string-arrays only — `.xgis` stays serialisable. */
   options?: Record<string, string | number | readonly string[]>
+  /** `type: raster-dem` DEM elevation-pack encoding — `'mapbox'` (default,
+   *  Terrain-RGB), `'terrarium'` (Mapzen), or `'custom'` (the four factors
+   *  below). Threaded from the source block so the (INC-3) hillshade
+   *  renderer decodes elevation with the source's pack rule. Undefined for
+   *  non-DEM sources. */
+  encoding?: string
+  /** `type: raster-dem` native tile pixel size (256 / 512). Default 512.
+   *  The DEM Sobel derivative scales by tileSize. */
+  tileSize?: number
+  /** `encoding: custom` elevation unpack factors:
+   *  `elevation_m = R*redFactor + G*greenFactor + B*blueFactor - baseShift`
+   *  (R/G/B in 0..255). Only meaningful when `encoding === 'custom'`. */
+  redFactor?: number
+  greenFactor?: number
+  blueFactor?: number
+  baseShift?: number
 }
 
 // ─── RenderNode paint sub-bundles (Tier-B B2, row 5) ───────────────
@@ -218,6 +234,34 @@ export interface RenderNodeRasterPaint {
   rasterResamplingNearest?: boolean
 }
 
+/** Hillshade DEM-relief paint axes (Mapbox `hillshade-*`). All fields are
+ *  flat optional constants; an absent field means the layer didn't author
+ *  that axis and the (future INC-3) renderer falls back to the spec default
+ *  (a no-op). Only the single-source constant form is plumbed — numberArray
+ *  / colorArray multi-source (multidirectional) warns + drops at convert
+ *  time. Mirror of {@link RenderNodeRasterPaint}. */
+export interface RenderNodeHillshadePaint {
+  /** `hillshade-illumination-direction` — light azimuth (deg from N). Default 335. */
+  hillshadeDirection?: number
+  /** `hillshade-illumination-altitude` — light elevation (0–90°). Default 45. */
+  hillshadeAltitude?: number
+  /** `hillshade-illumination-anchor` = "map" flag. Default (unauthored /
+   *  "viewport") = false, byte-identical to today. */
+  hillshadeAnchorMap?: boolean
+  /** `hillshade-exaggeration` — vertical-relief multiplier. Default 0.5. */
+  hillshadeExaggeration?: number
+  /** `hillshade-shadow-color` — shadow-side RGBA (0..1). Default #000000. */
+  hillshadeShadow?: [number, number, number, number]
+  /** `hillshade-highlight-color` — lit-side RGBA (0..1). Default #FFFFFF. */
+  hillshadeHighlight?: [number, number, number, number]
+  /** `hillshade-accent-color` — accent tint RGBA (0..1). Default #000000. */
+  hillshadeAccent?: [number, number, number, number]
+  /** `hillshade-method` — DEM gradient-shading algorithm. Default standard. */
+  hillshadeMethod?: import('./property-types').HillshadeMethod
+  /** `resampling: nearest` flag. Default (unauthored / 'linear') = false. */
+  hillshadeResamplingNearest?: boolean
+}
+
 /** Heatmap paint axes (Mapbox `heatmap-*`, Phase R). Present only on a layer
  *  the converter marked with the `heatmap` utility. */
 export interface RenderNodeHeatmapPaint {
@@ -243,6 +287,7 @@ export interface RenderNode
     RenderNodeCirclePaint,
     RenderNodeExtrudePaint,
     RenderNodeRasterPaint,
+    RenderNodeHillshadePaint,
     RenderNodeHeatmapPaint {
   name: string
   sourceRef: string // references SourceDef.name

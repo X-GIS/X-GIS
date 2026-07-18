@@ -50,4 +50,9 @@ export interface Demo {
    *  coordinate. Used by interactive picking demos and any fixture
    *  that wants to expose live event feedback for manual testing. */
   picking?: boolean
+  /** When true, the demo is kept in DEMOS (so `demo.html?id=…` and the
+   *  e2e suite still resolve it) but the gallery OMITS it. Used to keep
+   *  the isolated-feature regression fixtures out of the user-facing
+   *  showcase while preserving their ids for the test harness. */
+  hidden?: boolean
 }

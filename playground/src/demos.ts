@@ -28,6 +28,13 @@ import { DEMOS_FIXTURES } from './demos/fixtures'
 
 export type { Demo }
 
+// The fixtures fragment is the isolated single-feature regression corpus the
+// e2e suite drives (fixture_* / reftest_*), not showcase demos. Keep every id
+// in DEMOS so `demo.html?id=…` and the specs still resolve them, but flag them
+// hidden so the user-facing gallery omits them (gallery.ts filters on it).
+const asHidden = (demos: Record<string, Demo>): Record<string, Demo> =>
+  Object.fromEntries(Object.entries(demos).map(([id, d]) => [id, { ...d, hidden: true }]))
+
 export const DEMOS: Record<string, Demo> = {
   ...DEMOS_CORE,
   ...DEMOS_STYLE,
@@ -37,5 +44,5 @@ export const DEMOS: Record<string, Demo> = {
   ...DEMOS_LINES,
   ...DEMOS_DETAIL_10M,
   ...DEMOS_THEMATIC,
-  ...DEMOS_FIXTURES,
+  ...asHidden(DEMOS_FIXTURES),
 }
