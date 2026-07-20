@@ -69,6 +69,24 @@ export function interpolateZoom(...stops: Array<[number, number | string]>): AST
   return { kind: 'FnCall', callee: ident('interpolate'), args }
 }
 
+/** A function-call VALUE/binding position, e.g. `call('categorical',
+ *  ident('name'))` ≡ the DSL's `categorical(name)`. */
+export function call(fnName: string, ...args: AST.Expr[]): AST.FnCall {
+  return { kind: 'FnCall', callee: ident(fnName), args }
+}
+
+/** `left <op> right` — the filter-expression shape, e.g.
+ *  `compare(field('GDP_MD_EST'), '>', 1000000)` ≡ `.GDP_MD_EST > 1000000`.
+ *  String right-hand sides are QUOTED (StringLiteral), as the DSL requires
+ *  in comparison position. */
+export function compare(
+  left: AST.Expr,
+  op: '>' | '<' | '>=' | '<=' | '==' | '!=',
+  right: string | number | AST.Expr,
+): AST.BinaryExpr {
+  return { kind: 'BinaryExpr', op, left, right: valueExpr(right) }
+}
+
 /** `match(.field) { pattern -> value, …, _ -> default }`. Arm values: string
  *  → {@link colorToken}; number/Expr as-is. Insertion order is arm order;
  *  the `'_'` key is the default arm. */
@@ -130,6 +148,25 @@ export class LayerBuilder {
     return this
   }
 
+  /** `filter: <expr>` — feature predicate, e.g.
+   *  `.filter(compare(field('GDP_MD_EST'), '>', 1000000))`. */
+  filter(expr: AST.Expr): this {
+    return this.prop('filter', expr)
+  }
+
+  /** `style: <presetName>` — a bare preset reference. */
+  style(presetName: string): this {
+    return this.prop('style', ident(presetName))
+  }
+
+  /** A CSS-like style property (`fill: emerald-600`, `stroke-width: 1`) —
+   *  distinct from block properties: the parser stores its value as raw TEXT,
+   *  resolved later by lower's colour/number machinery. */
+  styleProp(name: string, value: string | number): this {
+    this.styleProperties.push({ kind: 'StyleProperty', name, value: String(value), line: 0 })
+    return this
+  }
+
   /** One `|` utility LINE (grouping is part of the AST — mirror the paired
    *  .xgis text's line structure for parity). */
   util(...items: UtilInput[]): this {
@@ -178,6 +215,56 @@ export class SceneBuilder {
     const lb = new LayerBuilder()
     build(lb)
     this.body.push(lb._build(name))
+    return this
+  }
+
+  /** `preset <name> { | … }` — each argument array is one `|` utility line
+   *  (line grouping is AST-significant, as in {@link LayerBuilder.util}). */
+  preset(name: string, ...lines: UtilInput[][]): this {
+    this.body.push({
+      kind: 'PresetStatement',
+      name,
+      utilities: lines.map((items) => ({
+        kind: 'UtilityLine' as const,
+        items: items.map(toUtilityItem),
+        line: 0,
+      })),
+      line: 0,
+    })
+    return this
+  }
+
+  /** `symbol <name> { path "…" }` — an SVG-path glyph for `shape-<name>`
+   *  utilities. (rect/circle/anchor elements: grow only with a paired
+   *  example, design C6.) */
+  symbol(name: string, def: { path: string }): this {
+    this.body.push({
+      kind: 'SymbolStatement',
+      name,
+      elements: [{ kind: 'path', data: def.path }],
+      line: 0,
+    })
+    return this
+  }
+
+  /** `keyframes <name> { <percent>%: utility … }` — keys are percents
+   *  (0..100). Upholds the parser's invariants by construction: frames
+   *  sorted by percent, no modifiers inside a keyframe (design C6). */
+  keyframes(name: string, frames: Record<number, UtilInput[]>): this {
+    const parsed: AST.Keyframe[] = Object.entries(frames).map(([pct, items]) => {
+      const percent = Number(pct)
+      if (!Number.isFinite(percent) || percent < 0 || percent > 100)
+        throw new Error(`keyframes '${name}': percent must be in 0..100, got ${pct}`)
+      const utilities = items.map(toUtilityItem)
+      for (const u of utilities)
+        if (u.modifier)
+          throw new Error(
+            `keyframes '${name}': modifiers are not allowed inside keyframes ('${u.modifier}:' on '${u.name}')`,
+          )
+      return { percent, utilities, line: 0 }
+    })
+    parsed.sort((a, b) => a.percent - b.percent)
+    this.body.push({ kind: 'KeyframesStatement', name, frames: parsed, line: 0 })
     return this
   }
 
