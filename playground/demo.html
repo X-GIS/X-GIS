@@ -331,6 +331,37 @@
         height: 12px;
       }
 
+      /* ── Demo action buttons (#1192 interaction infra) — shown only when
+         the mounted demo declares Demo.actions. ── */
+      #demo-actions {
+        position: absolute;
+        bottom: 12px;
+        left: 50%;
+        transform: translateX(-50%);
+        display: flex;
+        gap: 6px;
+        z-index: 5;
+      }
+      #demo-actions[hidden] {
+        display: none;
+      }
+      #demo-actions button {
+        background: rgba(10, 10, 10, 0.75);
+        border: 1px solid var(--border);
+        backdrop-filter: blur(12px);
+        color: var(--text);
+        font-family: var(--font-sans);
+        font-size: 12px;
+        padding: 6px 12px;
+        border-radius: 6px;
+        cursor: pointer;
+        transition: all 0.15s;
+      }
+      #demo-actions button:hover {
+        border-color: var(--border-hover);
+        background: rgba(30, 30, 30, 0.85);
+      }
+
       /* ── Status (on map) ── */
       #status {
         position: absolute;
@@ -524,6 +555,9 @@
       <div id="map-pane">
         <canvas id="map"></canvas>
         <div id="status">Initializing...</div>
+        <!-- Action buttons for API-driven demos (#1192): populated by
+           demo-runner from Demo.actions; hidden when the demo has none. -->
+        <div id="demo-actions" hidden></div>
         <!-- Snapshot copy button — floating in map's top-right corner.
            Captures the current scene state (camera, viewport, DPR,
            loaded tiles, render order, pixel hash) via __xgisSnapshot()

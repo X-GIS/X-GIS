@@ -1,0 +1,49 @@
+xgis 1
+
+/*
+ * Port of MapLibre's "Add a new layer below labels".
+ *
+ * MapLibre needs `addLayer(layer, beforeId)` to slot a new fill under the
+ * label layers. In X-GIS the same intent is declarative: fills stack in
+ * declaration order (within the opaque/translucent bucket scheduler) and
+ * label layers always composite in the label stage ON TOP of every fill —
+ * so "below labels" is simply "any layer that isn't a label layer".
+ *
+ * Visual check: the translucent sky-blue lake overlay must cover the
+ * land fill (declared later => stacks above it) while every city label
+ * stays crisp and readable ON TOP of the overlay.
+ */
+
+source land {
+  type: geojson
+  url: "ne_110m_land.geojson"
+}
+
+source lakes {
+  type: geojson
+  url: "ne_110m_lakes.geojson"
+}
+
+source cities {
+  type: geojson
+  url: "ne_110m_populated_places.geojson"
+}
+
+layer land_fill {
+  source: land
+  | fill-slate-800 stroke-slate-600 stroke-0.5
+}
+
+/* The "new layer" of the MapLibre example: added after the labels were
+ * authored, still renders BELOW them. */
+layer lake_overlay {
+  source: lakes
+  | fill-sky-500 opacity-70 stroke-sky-300 stroke-0.5
+}
+
+layer city_labels {
+  source: cities
+  filter: .pop_max > 8000000
+  | label-[.name] label-color-#fff label-size-12
+    label-halo-1 label-halo-color-#000
+}

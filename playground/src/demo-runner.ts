@@ -1298,6 +1298,13 @@ async function loadDemo(idx: number) {
 
   await runSource(demo.source, demo.name)
 
+  // #1192 P1 — demo-declared viewport projection (mirrors MapLibre examples
+  // that call the projection API, e.g. globe). `?proj=` URL override wins —
+  // runSource already applied it.
+  if (currentMap && demo.projection && !params.get('proj')) {
+    currentMap.setProjection(demo.projection)
+  }
+
   // Post-run hook: inline-source fixtures need the host to push
   // data — without this, gallery visitors see an empty canvas.
   // E2E tests that drive these fixtures themselves pass `?e2e=1`
@@ -1312,6 +1319,29 @@ async function loadDemo(idx: number) {
     setupPickingOverlay(currentMap)
   } else {
     teardownPickingOverlay()
+  }
+
+  // #1192 interaction infra — Demo.actions → the #demo-actions button bar.
+  // Rebuilt per demo switch; each click drives the LIVE map through the same
+  // public API the MapLibre original wires to its <button>s.
+  const actionsBar = document.getElementById('demo-actions')
+  if (actionsBar) {
+    actionsBar.replaceChildren()
+    const actions = demo.actions ?? []
+    actionsBar.hidden = actions.length === 0
+    for (const action of actions) {
+      const btn = document.createElement('button')
+      btn.textContent = action.label
+      btn.addEventListener('click', () => {
+        if (!currentMap) return
+        try {
+          action.run(currentMap)
+        } catch (e) {
+          console.error(`[demo-actions] "${action.label}" threw:`, e)
+        }
+      })
+      actionsBar.appendChild(btn)
+    }
   }
 }
 

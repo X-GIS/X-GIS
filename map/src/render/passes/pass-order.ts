@@ -37,7 +37,7 @@ export type PassLabel = (typeof PASS_CHAIN_ORDER)[number]
  *  #991 P4/P5 unification runs the RenderNode chain over RHI passes. */
 export const RHI_TWIN_MISSING: readonly PassLabel[] = [
   'oit',
-  'points',
-  'heatmap',
+  // 'points' ported in #1057 (direct-layer + the VT tile-points inline path);
+  // 'heatmap' ported in #1060 (renderFrameViaRhi -> heatmapRenderer.renderRhi).
   'overdraw-compose',
 ]

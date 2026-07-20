@@ -350,7 +350,12 @@ const LOC_CEILINGS: Record<string, number> = {
   // `if (pattern_active == 0)` gate in vs_main / vs_main_ecef / vs_main_ecef_extruded
   // — a pattern reuses the fill_translate slots for its repeat, so the VS must not
   // apply them as an NDC offset (it flung the fill off-screen → blank pattern).
-  'map/src/shaders/dsl/polygon.ts': 1339,
+  // Bumped 1339→1344 (#1062): emitPolygonGlsl gains an optional `entry` override (+ its
+  // doc) so the graticule twin emits vs_main / fs_stroke GLSL for its WebGL2 line
+  // overlay — reusing the SAME polygon module instead of forking a second shader.
+  // Bumped 1344→1348 (#1059, merge union): the ground fill-pattern twin passes
+  // fs_fill_pattern through the same override; charter comment covers both consumers.
+  'map/src/shaders/dsl/polygon.ts': 1348,
   // camera.ts relocated to @xgis/engine (engine/src/projection/camera.ts) in
   // P3 Step 3 — no longer under a SRC_DIRS walk, so its LOC ceiling is tracked
   // by the engine package's own ratchet, not this runtime gate.

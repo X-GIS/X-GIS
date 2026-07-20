@@ -1,0 +1,37 @@
+xgis 1
+
+/*
+ * Port of MapLibre's "Display a globe with a fill extrusion layer".
+ *
+ * Countries extrude off the globe surface with a per-feature height
+ * driven by population — `fill-extrusion-height-[expr]` takes the
+ * per-feature path through the extrude pipeline (the constant form is
+ * covered by fixture-extrude-local). Globe mode is a viewport/camera
+ * concern set by the host via `map.setProjection('globe')` (the gallery's
+ * `Demo.projection` metadata) — exactly how the MapLibre original calls
+ * `map.setProjection` rather than declaring it in the style.
+ *
+ * Visual check: populous countries (China, India) rise visibly above
+ * the sphere; Antarctica stays flat and dark.
+ */
+
+source ocean {
+  type: geojson
+  url: "ne_110m_ocean.geojson"
+}
+
+source countries {
+  type: geojson
+  url: "ne_110m_countries.geojson"
+}
+
+layer sea {
+  source: ocean
+  | fill-slate-900
+}
+
+layer towers {
+  source: countries
+  | fill-emerald-500 stroke-emerald-300 stroke-0.5 opacity-90
+  | fill-extrusion-height-[.POP_EST / 4000000]
+}
