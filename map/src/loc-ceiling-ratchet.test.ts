@@ -181,7 +181,12 @@ const CEILINGS: Record<string, number> = {
   // per-guard constraint comments outweigh the ~30 lines removed. The extraction
   // itself is the right cut (single authority, also fixes runBinary's missing
   // shapeRegistry/lineRenderer, #7); the remainder is irreducible in-flow wiring.
-  'map/src/map.ts': 4469,
+  // 4469→4480 (#1177): the CameraController's injected invalidate becomes a
+  // camera-scoped re-arm (_markDirty(CAMERA), destroyed-guarded) instead of the
+  // blanket invalidate() — blanket-tagging LABEL forced a label re-prepare on
+  // every programmatic camera frame, defeating the zoom-tolerant skip. +11 =
+  // the closure + the why-comment at the single injection site (§2).
+  'map/src/map.ts': 4480,
   // 1920→1930 (#1042 R3): the globe limb cull for MULTI-LINE labels must land in
   // the collision phase — the ONLY site holding the label's quad half-height (the
   // collision box IS the height authority; the label-pass dispatch site has only
@@ -234,7 +239,13 @@ const CEILINGS: Record<string, number> = {
   // sprite-atlas gate (a label-less style still loads its sprite; onLanded
   // invalidate() re-arms the idle loop). A free exported function so the gate +
   // hook are behaviour-gated GPU-free (mirrors backgroundClearValue). +37.
-  'map/src/render/passes/label-pass.ts': 1906,
+  // 1906→1956 (#1177 Option B): zoom-tolerant prepare skip — the skip state
+  // gains preparedZoom/prevFrameZoomKey/preparedCenterX/Y/centerLatDeg (each
+  // with its contract doc), the active-zoom tolerance branch (|Δzoom| ≤ 0.15,
+  // centre ≤ 48 px) beside the exact settled compare, the per-frame
+  // prevFrameZoomKey update, and the design-rationale comment. +50, all inside
+  // the existing S16 skip block; nothing extract-worthy at this size (§2).
+  'map/src/render/passes/label-pass.ts': 1956,
   // #1081 — per-anchor perspective distance attenuation (MapLibre parity). New
   // baseline: the wCenter + perspScale scratch-out-value lives INLINE in the two
   // existing projector closures (it rides the cw already computed per anchor —
