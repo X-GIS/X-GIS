@@ -296,7 +296,7 @@ export class FrameRenderer {
     if (!variant.computeBindings || variant.computeBindings.length === 0) {
       // Non-compute half — a trivial read of the two factory-owned base
       // layouts (plan §5 FB#1 split). Forwarded to the factory.
-      return this._pipelines.getOrBuildVariantLayout(variant)
+      return this._pipelines.baseVariantLayout(variant)
     }
     // Compute half — STAYS on FrameRenderer. The `variantComputeLayoutCache`
     // is COMPUTE-cluster state keyed by `variant.key` (same key as the
