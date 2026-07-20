@@ -23,7 +23,6 @@ import {
   type RhiBuffer,
   type RhiBindGroup,
 } from '@xgis/engine'
-import { toVertexBufferLayout } from '@xgis/rhi-webgpu'
 import { isGlobeProj, lonLatToMercator } from '@xgis/geo'
 import { activeBody } from '@xgis/shared'
 import { generateGraticule } from '../graticule'
@@ -433,17 +432,19 @@ export class GraticuleRenderer {
    *  Uniforms only (fs_stroke samples no texture), line-list topology. */
   private ensureLineMatRhi(): Material {
     if (this._lineMatRhi) return this._lineMatRhi
-    this._lineMatRhi = buildGraticuleLineMaterial({
-      rhi: this.ctx.rhi,
-      shader: emitPolygonWgsl(null, false),
-      vsCode: emitPolygonGlsl(null, false, 'vertex', 'vs_main'),
-      fsCode: emitPolygonGlsl(null, false, 'fragment', 'fs_stroke'),
-      format: this.ctx.format,
-      sampleCount: 1,
-      rhiGroups: [[{ binding: 0, kind: 'uniform', dynamic: true, name: 'Uniforms' }]],
-      vertexLayout: toVertexBufferLayout(LINE_FORMAT),
-      pickEnabled: false,
-    })
+    this._lineMatRhi = buildGraticuleLineMaterial(
+      {
+        rhi: this.ctx.rhi,
+        shader: emitPolygonWgsl(null, false),
+        vsCode: emitPolygonGlsl(null, false, 'vertex', 'vs_main'),
+        fsCode: emitPolygonGlsl(null, false, 'fragment', 'fs_stroke'),
+        format: this.ctx.format,
+        sampleCount: 1,
+        rhiGroups: [[{ binding: 0, kind: 'uniform', dynamic: true, name: 'Uniforms' }]],
+        pickEnabled: false,
+      },
+      LINE_FORMAT,
+    )
     return this._lineMatRhi
   }
 
