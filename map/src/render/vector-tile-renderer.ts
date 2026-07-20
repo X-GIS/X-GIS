@@ -32,6 +32,8 @@ import {
   recordFillDraw,
   buildFlatFillMaterials,
   buildBakeFillMaterial,
+  buildFillPatternGroundMaterial,
+  resolveFillPatternPack,
   type FillRhiState,
 } from './material/polygon-fill-material'
 import { executeItems, type Material } from '@xgis/engine'
@@ -743,6 +745,56 @@ export class VectorTileRenderer {
     return bg
   }
 
+  /** The GROUND fill-pattern Material with GLSL twins (#1059) — the WebGL2 twin of the
+   *  WebGPU `patternGround` (built lazily ONCE). Same shared `buildFillPatternGroundMaterial`
+   *  authority the WebGPU path uses, but with the fs_fill_pattern GLSL twin (narrowed via
+   *  emitPolygonGlsl's `entry` override) + the sprite_atlas/sprite_samp rhiGroups so the
+   *  fragment samples the sprite atlas. Uses variant 0 (STENCIL_WRITE / GROUND depth-off), the
+   *  same variant the flat-fill twin draws — pattern fills are ground fills that trade their
+   *  solid colour for the atlas sample. */
+  private _fillPatternMatRhi: Material | null = null
+  private ensureFillPatternMaterialRhi(): Material {
+    if (this._fillPatternMatRhi) return this._fillPatternMatRhi
+    this._fillPatternMatRhi = buildFillPatternGroundMaterial({
+      rhi: this.rhi,
+      shader: emitPolygonWgsl(null, false),
+      vsCode: emitPolygonGlsl(null, false, 'vertex'),
+      fsCode: emitPolygonGlsl(null, false, 'fragment', 'fs_fill_pattern'),
+      format: this.format,
+      sampleCount: 1,
+      rhiGroups: [
+        [
+          { binding: 0, kind: 'uniform', dynamic: true, name: 'Uniforms' },
+          { binding: 5, kind: 'texture', name: 'sprite_atlas' },
+          { binding: 6, kind: 'sampler', name: 'sprite_samp' },
+        ],
+      ],
+      vertexLayout: toVertexBufferLayout(POLYGON_FILL_FORMAT),
+      pickEnabled: false,
+    })
+    return this._fillPatternMatRhi
+  }
+
+  /** RHI tile bind group for the fill-pattern Material (#1059) — mirrors fillTileBgRhi but
+   *  the pattern layout carries sprite_atlas/sprite_samp (bindings 5/6, like lineTileBgRhi),
+   *  bound to the pushed atlas or the white stub. Cached per ring-buffer identity + atlas
+   *  push (both invalidate the cache); a mid-frame ring grow swaps rhiBuffer so fetch per draw. */
+  private _fillPatternTileBgRhi: { buf: RhiBuffer; bg: RhiBindGroup } | null = null
+  private fillPatternTileBgRhi(): RhiBindGroup | null {
+    const buf = this.uniformRing?.rhiBuffer
+    if (!buf) return null
+    if (this._fillPatternTileBgRhi?.buf === buf) return this._fillPatternTileBgRhi.bg
+    const mat = this.ensureFillPatternMaterialRhi()
+    const atlas = this._spriteAtlasRhi ?? this.stubAtlasRhi()
+    const bg = this.rhi.createBindGroup(mat.layout(0), [
+      { binding: 0, resource: { buffer: buf, offset: 0, size: polygonUniformBytes() } },
+      { binding: 5, resource: { view: atlas.view } },
+      { binding: 6, resource: { sampler: atlas.sampler } },
+    ])
+    this._fillPatternTileBgRhi = { buf, bg }
+    return bg
+  }
+
   private _fillBakeMatRhi: Material | null = null
   /** Colour-only flat-fill Material for the offscreen tile bake (#599 I1). Built
    *  once through the SAME RHI device as the screen fill (WebGpuDevice on a GPU
@@ -1006,12 +1058,32 @@ export class VectorTileRenderer {
     const fillA = fill[3] * opacity
     if (fillA <= 0.005) return 0
 
-    const mat = mode === 'pick' ? this.ensureFillPickMaterialRhi() : this.ensureFillMaterialRhi()
+    // #1059 — fill-pattern twin. The SAME single authority the WebGPU render() packs
+    // decides pattern-active + the slot bytes (fill_color = atlas-UV bbox, fill_translate
+    // = world repeat metres). The twin's readiness gate is the bound sprite atlas — until
+    // it loads the pattern falls to the Stage-1 solid centre-pixel colour (fill above), the
+    // pre-#1059 flat-swatch behaviour, so no white flash. Pattern is COLOUR-only (pick uses
+    // the solid pick material + feature ids; a texture sample there is meaningless).
+    const pack =
+      mode === 'color'
+        ? resolveFillPatternPack(
+            show.fillPatternUV,
+            show.fillPatternRepeatM,
+            this._spriteAtlasRhi != null,
+          )
+        : ({ active: false } as const)
+    const mat =
+      mode === 'pick'
+        ? this.ensureFillPickMaterialRhi()
+        : pack.active
+          ? this.ensureFillPatternMaterialRhi()
+          : this.ensureFillMaterialRhi()
     const frame = camera.getViewForProjection(projType, canvasWidth, canvasHeight, dpr)
     this.logDepthFc = frame.logDepthFc
     const B = this.frameBlock
     B.set.mvp(frame.matrix)
-    B.set.fill_color(fill[0], fill[1], fill[2], fillA)
+    if (pack.active) B.set.fill_color(pack.u0, pack.v0, pack.u1, pack.v1)
+    else B.set.fill_color(fill[0], fill[1], fill[2], fillA)
     B.set.proj_params(projType, projCenterLon, projCenterLat, 0)
     const ge = globeEyeUniform(frame.eye)
     B.set.globe_eye(ge[0], ge[1], ge[2], ge[3])
@@ -1100,9 +1172,19 @@ export class VectorTileRenderer {
       B.set.extrude_base_m(0)
       B.set.clip_bounds(-1e30, 0, 0, 0) // sentinel = no clip
       B.set.zoom(this.currentCameraZoom)
-      B.set.fill_translate_x(0)
-      B.set.fill_translate_y(0)
-      B.set.pattern_active(0) // #1154 — no pattern on this path
+      // #1059 — a pattern fill packs the world repeat (Mercator metres) into
+      // fill_translate_x/y + pattern_active=1 (the VS then gates OFF fill-translate;
+      // the fs_fill_pattern fragment reads them as the repeat period), byte-identical
+      // to the WebGPU render() pack. A solid fill keeps 0/0/0 (no pattern this path).
+      if (pack.active) {
+        B.set.fill_translate_x(pack.repeatMX)
+        B.set.fill_translate_y(pack.repeatMY)
+        B.set.pattern_active(1)
+      } else {
+        B.set.fill_translate_x(0)
+        B.set.fill_translate_y(0)
+        B.set.pattern_active(0) // #1154 — no pattern on this path
+      }
       B.set.tile_dequant_scale(cached.dequantScale)
       B.set.tile_dequant_half(cached.dequantHalf)
 
@@ -1113,7 +1195,7 @@ export class VectorTileRenderer {
       // tile (dirty-range, one bufferSubData). The WebGPU path defers to one
       // end-of-pass flush only because submit-ordering guarantees it there.
       this.flushUniformStaging()
-      const tileBg = this.fillTileBgRhi()
+      const tileBg = pack.active ? this.fillPatternTileBgRhi() : this.fillTileBgRhi()
       if (!tileBg) continue
       executeItems(mat, pass, [
         {
@@ -1486,6 +1568,7 @@ export class VectorTileRenderer {
     if (this._spriteAtlasRhi?.view === view) return
     this._spriteAtlasRhi = { view, sampler }
     this._lineTileBgRhi = null // rebuild the tile group with the real atlas
+    this._fillPatternTileBgRhi = null // #1059 — same for the fill-pattern tile group
   }
   /** 1×1 white stub bound at sprite_atlas until the real atlas loads —
    *  mirrors the WebGPU tile group's stub (iter-181). Lazy, webgl2-only. */
@@ -2498,17 +2581,20 @@ export class VectorTileRenderer {
     // fill_translate slots below (overriding the fill-translate NDC values).
     // Both overrides apply ONLY when the show has a resolved pattern bbox +
     // the pattern pipeline path is wired by the caller (setPatternPipelines).
-    const patternUV = show.fillPatternUV
-    const patternRepeat = show.fillPatternRepeatM
-    const patternSlotsActive =
-      patternUV != null &&
-      patternRepeat != null &&
-      this._bindGroups.patternGroundPipeline() !== null
-    if (patternSlotsActive) {
-      B.set.fill_color(patternUV![0], patternUV![1], patternUV![2], patternUV![3])
+    // #1059 — the pattern-active DECISION + slot bytes come from the shared
+    // resolveFillPatternPack authority (the WebGL2 twin renderFillsRhi packs the
+    // SAME bytes through it, so the two backends cannot drift). Byte-identical to
+    // the prior inline pack: fill_color = the atlas-UV bbox, repeat = fillPatternRepeatM.
+    const pack = resolveFillPatternPack(
+      show.fillPatternUV,
+      show.fillPatternRepeatM,
+      this._bindGroups.patternGroundPipeline() !== null,
+    )
+    if (pack.active) {
+      B.set.fill_color(pack.u0, pack.v0, pack.u1, pack.v1)
       this._patternUniformActive = true
-      this._patternRepeatMX = patternRepeat![0]
-      this._patternRepeatMY = patternRepeat![1]
+      this._patternRepeatMX = pack.repeatMX
+      this._patternRepeatMY = pack.repeatMY
     } else {
       B.set.fill_color(
         this.cachedFillColor[0]!,

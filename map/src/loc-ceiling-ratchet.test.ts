@@ -101,7 +101,14 @@ const CEILINGS: Record<string, number> = {
   // uploadBudgetFor/setMaxJobs call. (Ceiling corrected from a padded 4513 to the
   // measured post-prettier 4511 — #1155 F3 adjudication, shrink-only high-water.)
   // Merge union (#1170 <- origin/main): both bumps stacked non-overlappingly on VTR (destroy() +12 AND cold-start burst +17), so the merged high-water is the measured 4523, not either standalone value.
-  'map/src/render/vector-tile-renderer.ts': 4523,
+  // 4523→4609 (#1059): the fill-pattern GLSL twin on the WebGL2 fills path — a
+  // ground fill-pattern Material with GLSL twins (ensureFillPatternMaterialRhi) +
+  // its sprite-atlas tile bind group (fillPatternTileBgRhi, mirrors lineTileBgRhi) +
+  // the renderFillsRhi pattern branch (pack-driven fill_color/fill_translate/pattern_active
+  // + Material/tile-bg selection). +86; the pattern PACK decision is shared with the
+  // WebGPU path via resolveFillPatternPack (extracted to polygon-fill-material.ts, so the
+  // slot bytes can't drift), keeping the twin a thin caller. Lower as #991 decomposes VTR.
+  'map/src/render/vector-tile-renderer.ts': 4609,
   // 4232→4237 (#1000 heatmap relocate): the heatmap density-target OWNERSHIP
   // extracted to render/heatmap-targets.ts; map keeps only the irreducible
   // composition-root wiring — the `heatmapTargets` field + its import (mirrors
@@ -257,7 +264,10 @@ const CEILINGS: Record<string, number> = {
   // 1315→1339 (#1154): the pattern_active struct field (+ its rationale comment)
   // and the fill-translate `if (pattern_active == 0)` gate in the three VS entries
   // (vs_main / vs_main_ecef / vs_main_ecef_extruded) — fixes blank fill-patterns.
-  'map/src/shaders/dsl/polygon.ts': 1339,
+  // 1339→1347 (#1059): emitPolygonGlsl gains an `entry` override (+ its doc) so the
+  // WebGL2 twin can narrow the module to fs_fill_pattern for its ground fill-pattern
+  // Material, plus the updated GLSL-twin-set charter comment. Emit byte-identical.
+  'map/src/shaders/dsl/polygon.ts': 1347,
   // 1290→1314 (#1155 F3): cold-start burst tick budget — the `_coldStartBurst`
   // field + `_BURST_TICK_BUDGET` + `setColdStartBurst` + the burst-selected
   // budget in resetCompileBudget's backend tick loop.
