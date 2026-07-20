@@ -35,9 +35,4 @@ export type PassLabel = (typeof PASS_CHAIN_ORDER)[number]
  *  (pass-order-parity.test.ts fails otherwise — locks the win). oit is dead in
  *  both paths but stays listed for order fidelity. Close-out = [] when the
  *  #991 P4/P5 unification runs the RenderNode chain over RHI passes. */
-export const RHI_TWIN_MISSING: readonly PassLabel[] = [
-  'oit',
-  'points',
-  'heatmap',
-  'overdraw-compose',
-]
+export const RHI_TWIN_MISSING: readonly PassLabel[] = ['oit', 'points', 'overdraw-compose']

@@ -171,7 +171,7 @@ function texFmt(
 const VFMT: Readonly<
   Record<
     string,
-    { size: number; type: 'f32' | 'u8' | 'u16'; normalized: boolean; integer?: boolean }
+    { size: number; type: 'f32' | 'u8' | 'u16' | 'u32'; normalized: boolean; integer?: boolean }
   >
 > = {
   float32: { size: 1, type: 'f32', normalized: false },
@@ -185,6 +185,9 @@ const VFMT: Readonly<
   // The polygon fill's quantized-ECEF position lanes (q_xy/q_z) use these.
   uint16x2: { size: 2, type: 'u16', normalized: false, integer: true },
   uint16x4: { size: 4, type: 'u16', normalized: false, integer: true },
+  // Scalar u32 (#1060) — the heatmap accum quad's `quad_id: u32` vertex input.
+  // WebGL2 binds it via vertexAttribIPointer(size 1, UNSIGNED_INT).
+  uint32: { size: 1, type: 'u32', normalized: false, integer: true },
 }
 
 function applyBlend(gl: WebGL2RenderingContext, mode: Gl2Pipeline['blend']): void {
@@ -399,7 +402,13 @@ class WebGl2RenderPass implements RhiRenderPass {
         if (!fmt) throw new Error(`webgl2: unsupported vertex format '${a.format}'`)
         gl.enableVertexAttribArray(a.location)
         const glType =
-          fmt.type === 'f32' ? gl.FLOAT : fmt.type === 'u16' ? gl.UNSIGNED_SHORT : gl.UNSIGNED_BYTE
+          fmt.type === 'f32'
+            ? gl.FLOAT
+            : fmt.type === 'u32'
+              ? gl.UNSIGNED_INT
+              : fmt.type === 'u16'
+                ? gl.UNSIGNED_SHORT
+                : gl.UNSIGNED_BYTE
         // `vbufOffset` (default 0) shifts the per-tile arena sub-range start into the
         // attribute byte offset — default 0 is byte-identical to the no-offset bind.
         if (fmt.integer) {
@@ -597,12 +606,23 @@ export class WebGl2Device implements RhiDevice {
       SAMPLER_TYPES.add(gl.SAMPLER_2D_ARRAY)
     }
     const exts = gl.getSupportedExtensions?.() ?? []
+    // ENABLE (not just detect) the float render/blend extensions. `getSupportedExtensions`
+    // only LISTS them; rendering TO an R16F attachment (the heatmap density target, #1060)
+    // requires `getExtension('EXT_color_buffer_float')` to actually make R16F
+    // color-renderable — without it the offscreen FBO is INCOMPLETE and every draw raises
+    // GL_INVALID_FRAMEBUFFER_OPERATION. EXT_float_blend likewise unlocks blending INTO the
+    // float target (the additive Gaussian accumulation). Both are null-safe getExtension
+    // calls; the cap below still reads the presence list so its value is unchanged.
+    const floatBlend = exts.includes('EXT_color_buffer_float') && exts.includes('EXT_float_blend')
+    if (floatBlend) {
+      gl.getExtension('EXT_color_buffer_float')
+      gl.getExtension('EXT_float_blend')
+    }
     this.caps = Object.freeze({
       maxSampleCount: 1,
       presentablePassMrt: false,
       pickReadback: 'sync',
-      floatBlendTargets:
-        exts.includes('EXT_color_buffer_float') && exts.includes('EXT_float_blend'),
+      floatBlendTargets: floatBlend,
       compute: 'fragment-emulated',
       timestampQuery: false,
       executionModel: 'immediate',
