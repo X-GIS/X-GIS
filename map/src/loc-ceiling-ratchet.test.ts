@@ -181,7 +181,10 @@ const CEILINGS: Record<string, number> = {
   // per-guard constraint comments outweigh the ~30 lines removed. The extraction
   // itself is the right cut (single authority, also fixes runBinary's missing
   // shapeRegistry/lineRenderer, #7); the remainder is irreducible in-flow wiring.
-  'map/src/map.ts': 4469,
+  // 4469→4473 (#1196): name the actual GPU-boot failure at the
+  // WebGPUUnavailable catch — the generic UX text hid the real cause (a webgl2
+  // live-swap re-boot dying) for a full debugging session.
+  'map/src/map.ts': 4473,
   // 1920→1930 (#1042 R3): the globe limb cull for MULTI-LINE labels must land in
   // the collision phase — the ONLY site holding the label's quad half-height (the
   // collision box IS the height authority; the label-pass dispatch site has only
@@ -309,7 +312,10 @@ const CEILINGS: Record<string, number> = {
   // 1354→1364 (#1049): createPipeline fail-loud guard rejecting an unsupported nonzero
   // depthStencil.bias.clamp (gl.polygonOffset has no clamp param) — inline descriptor
   // validation at the createPipeline entry, not extractable (+10).
-  'rhi-webgl2/src/rhi-webgl2.ts': 1364,
+  // 1364→1371 (#1196): destroy() stashes the pre-loss WEBGL_lose_context handle
+  // on the canvas (stashGl2RestoreToken) — getExtension() is null on a lost
+  // context, so a same-canvas remount could never restore without it.
+  'rhi-webgl2/src/rhi-webgl2.ts': 1371,
   'map/src/render/renderer.ts': 965,
   'map/src/render/gpu-tile-store.ts': 941,
   // 930→948 (#1078): the zoom-transition readiness gate now probes the SAME

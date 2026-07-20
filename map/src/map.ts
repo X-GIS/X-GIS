@@ -2656,6 +2656,10 @@ export class XGISMap {
       // Graceful: no WebGPU / no adapter. Fire the observability 'error' event
       // (#1153 C) + the host hook, or show a default in-container message if the
       // host registered none, then abort the mount instead of throwing to window.onerror.
+      // #1196 — name the actual boot failure: the default UX only shows the
+      // generic "requires WebGPU" text, which hid the real cause (a webgl2
+      // re-boot failing on a live-swap) for a full debugging session.
+      console.warn('[X-GIS] GPU boot unavailable:', result.message)
       this._eventBus.fireErrorEvent({ phase: 'boot', fatal: true, error: result })
       if (this._onWebGPUUnavailable) this._onWebGPUUnavailable()
       else this._showWebGPUUnavailableDefault()
