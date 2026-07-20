@@ -57,6 +57,16 @@ export const DEMOS_THEMATIC: Record<string, Demo> = {
     center: [-112.14, 36.1],
   },
 
+  satellite_map: {
+    name: 'Satellite Map',
+    tag: 'raster',
+    description:
+      'MapLibre example port (#1192): "Display a satellite map" — Esri World Imagery as a plain raster source (note the ArcGIS {z}/{y}/{x} path order; the tile-URL substitution is order-agnostic). Opens over the Palm Jumeirah, Dubai.',
+    source: load('satellite-map.xgis'),
+    zoom: 12.5,
+    center: [55.138, 25.112],
+  },
+
   bold_borders: {
     name: 'Bold Borders',
     tag: 'thematic',

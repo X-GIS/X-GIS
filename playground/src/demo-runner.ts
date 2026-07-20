@@ -1185,13 +1185,20 @@ async function loadDemo(idx: number) {
 
   await runSource(demo.source, demo.name)
 
-  // Per-demo initial camera (loader.ts Demo.zoom / Demo.center): a .xgis
-  // source carries no camera state, so a demo that only reads well at a
+  // Per-demo initial camera (loader.ts Demo.zoom/center/pitch/bearing): a
+  // .xgis source carries no camera state, so a demo that only reads well at a
   // specific view sets it here. A URL `#z/lat/lon` hash (parsed at boot)
   // wins — markCameraPositioned shuts the auto-fit gate so the value sticks.
-  if (currentMap && (demo.zoom !== undefined || demo.center !== undefined) && !location.hash) {
+  const hasCameraPose =
+    demo.zoom !== undefined ||
+    demo.center !== undefined ||
+    demo.pitch !== undefined ||
+    demo.bearing !== undefined
+  if (currentMap && hasCameraPose && !location.hash) {
     if (demo.center !== undefined) currentMap.setCenter(demo.center[0], demo.center[1])
     if (demo.zoom !== undefined) currentMap.setZoom(demo.zoom)
+    if (demo.pitch !== undefined) currentMap.setPitch(demo.pitch)
+    if (demo.bearing !== undefined) currentMap.setBearing(demo.bearing)
     currentMap.markCameraPositioned()
   }
 

@@ -65,4 +65,10 @@ export interface Demo {
    *  terrain-tile hillshade over the Grand Canyon — where the default 0,0
    *  view would show nothing of interest. */
   center?: [number, number]
+  /** Initial camera pitch (degrees) / bearing (degrees) applied on open with
+   *  the same hash-override rule. For camera-pose demos (the MapLibre
+   *  "Set pitch and bearing" port) — the .xgis carries only style, so the
+   *  pose is demo metadata like `zoom`/`center`. */
+  pitch?: number
+  bearing?: number
 }
