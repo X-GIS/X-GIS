@@ -939,6 +939,11 @@ export class RenderLoop {
     this.host._scratchEmittedTextNames.clear()
     const classified = this.host.classifyVectorTileShows()
     this.host.lineRenderer?.beginFrame()
+    // #1057 — drain PointRenderer's retired tile-point buffer queue (the WebGPU
+    // prelude does this at render-loop.ts:437, which this isolated twin
+    // early-returns before). Each flushTilePointsRhi retires the prior frame's
+    // vertex/index/feat buffers; without this drain the queue grows unbounded.
+    this.host.pointRenderer?.beginFrame()
     let missingTiles = 0
     for (const c of classified.opaque) {
       const vt = this.host.vtSources.get(c.sourceName)
@@ -977,6 +982,25 @@ export class RenderLoop {
           c.show,
           c.resolvedShow,
         )
+      // #1057 — VT TILE-POINTS (MVT / GeoJSON-VT point features) drawn INSIDE
+      // the opaque bucket after this show's fills+strokes, mirroring the WebGPU
+      // frame where each VTR.render's tail flushes its tile points (opaque-pass).
+      // Single authority: emitTilePointsRhi reads the keys renderFillsRhi just
+      // selected (this.stableKeys) and flushes through flushTilePointsRhi. The
+      // DIRECT-LAYER points (pointRenderer.addLayer) draw separately after the
+      // translucent bucket below (their WebGPU points-pass slot).
+      vt.renderer.emitTilePointsRhi(
+        pass,
+        this.host.camera,
+        projType,
+        centerLon,
+        centerLat,
+        w,
+        h,
+        dpr,
+        c.show,
+        DEBUG_OVERDRAW ? undefined : this.host.pointRenderer,
+      )
     }
     // #834 M5 slice 6 — TRANSLUCENT bucket (the same offscreen MAX-blend +
     // composite topology the WebGPU translucent-pass runs, in declaration
@@ -1011,8 +1035,8 @@ export class RenderLoop {
     // (front-facing opaque polygons occlude globe-backside billboards); translucent /
     // flat point variants never write depth on either path. No-op unless a GeoJSON
     // source routed through pointRenderer.addLayer. The VT tile-points inline path
-    // (flushTilePoints, drawn inside the opaque bucket on WebGPU) is a follow-up
-    // increment (#1057) and is NOT drawn here.
+    // (flushTilePointsRhi) is drawn INSIDE the opaque loop above (emitTilePointsRhi),
+    // mirroring the WebGPU per-VTR placement — NOT here.
     const pointRenderer = this.host.pointRenderer
     if (pointRenderer?.hasLayers() && !DEBUG_OVERDRAW) {
       pointRenderer.updateDynamicSizes(this.host.camera.zoom, performance.now())

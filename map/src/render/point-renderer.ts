@@ -82,7 +82,7 @@ function buildPointBglEntries(): GPUBindGroupLayoutEntry[] {
   )
 }
 
-/** Pack the point frame uniform (shared by render() and flushTilePoints()) into
+/** Pack the point frame uniform (shared by renderRhi() and flushTilePointsRhi()) into
  *  the typed block — one write() per frame, every field named, completeness
  *  compile-time (#733). The #600 "projection set, eye forgotten" class is now
  *  unrepresentable at tsc level: write() has no optional fields, so a packer
@@ -409,9 +409,14 @@ export class PointRenderer {
     })
   }
 
-  /** Flush accumulated tile points as a single draw call */
-  flushTilePoints(
-    pass: GPURenderPassEncoder,
+  /** Flush accumulated tile points as a single draw call onto an RHI pass. ONE
+   *  authority for both backends (#1057): the WebGPU frame reaches it via
+   *  VectorTileRenderer.emitTilePointsRhi (wrapped native encoder); the forced-
+   *  WebGL2 twin (render-loop.ts renderFrameViaRhi opaque loop) passes its screen
+   *  RhiRenderPass straight through. The pack / writePointFrameUniform / PointDraper
+   *  draw plumbing is backend-neutral RHI already — only the pass handle differs. */
+  flushTilePointsRhi(
+    pass: RhiRenderPass,
     camera: Camera,
     projType: number,
     projCenterLon: number,
@@ -650,7 +655,7 @@ export class PointRenderer {
     // fallback is a point-owned RhiBuffer.
     const shapeBuf = this.shapeRegistry?.shapeBuffer
     const segBuf = this.shapeRegistry?.segmentBuffer
-    this._pointDraper!.draw(wrapWebGpuPass(pass), {
+    this._pointDraper!.draw(pass, {
       uniform: this.uniformBuffer,
       feat: this.tilePointFeatBuffer!,
       shape: shapeBuf ?? this.emptyStorageBuf(),

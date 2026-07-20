@@ -101,7 +101,16 @@ const CEILINGS: Record<string, number> = {
   // uploadBudgetFor/setMaxJobs call. (Ceiling corrected from a padded 4513 to the
   // measured post-prettier 4511 — #1155 F3 adjudication, shrink-only high-water.)
   // Merge union (#1170 <- origin/main): both bumps stacked non-overlappingly on VTR (destroy() +12 AND cold-start burst +17), so the merged high-water is the measured 4523, not either standalone value.
-  'map/src/render/vector-tile-renderer.ts': 4523,
+  // 4523→4563 (#1057): the VT tile-points inline path split into the single-
+  // authority emitTilePointsRhi(pass: RhiRenderPass, …) — render() delegates via
+  // wrapWebGpuPass while the twin (render-loop.ts) calls it directly — plus the
+  // one-line stableKeys record in renderFillsRhi for the twin's accumulation.
+  // 4563→4591 (#1057 inc2 adversarial review): renderFillsRhi now (a) merges
+  // protectedAncestors into stableKeys for point-parity with the WebGPU merged
+  // set, (b) resets stableKeys=[] on both bail paths so a bailed show can't leak
+  // prior keys into the twin's decoupled emitTilePointsRhi, each with rationale
+  // docs; plus the parity pointer note on emitTilePointsRhi.
+  'map/src/render/vector-tile-renderer.ts': 4591,
   // 4232→4237 (#1000 heatmap relocate): the heatmap density-target OWNERSHIP
   // extracted to render/heatmap-targets.ts; map keeps only the irreducible
   // composition-root wiring — the `heatmapTargets` field + its import (mirrors
@@ -279,13 +288,20 @@ const CEILINGS: Record<string, number> = {
   // pointRenderer.renderRhi call site (+ its updateDynamicSizes + hasLayers gate +
   // rationale) in renderFrameViaRhi, after the translucent bucket, mirroring the
   // WebGPU points-pass placement.
-  'map/src/render-loop.ts': 1228,
+  // 1228→1252 (#1057 inc2): VT tile-points on the twin — pointRenderer.beginFrame()
+  // (retired-buffer drain) + the per-opaque-show emitTilePointsRhi call in the opaque
+  // loop (inside each show's fills+strokes, mirroring the WebGPU per-VTR flush), both
+  // with rationale docs.
+  'map/src/render-loop.ts': 1252,
   // 1140→1169 (#1057): render() split into a thin GPURenderPassEncoder-wrapping
   // delegator + a single-authority renderRhi(pass: RhiRenderPass, …) so the WebGPU
   // pass-chain and the forced-WebGL2 twin share ONE point-draw body (uploadLayer +
   // writePointFrameUniform + PointDraper draw) — the twin's screen RhiRenderPass
   // flows straight in, no wrapWebGpuPass.
-  'map/src/render/point-renderer.ts': 1169,
+  // 1169→1174 (#1057 inc2): flushTilePoints renamed to flushTilePointsRhi(pass:
+  // RhiRenderPass, …) — the draw seam already flowed through PointDraper, so only the
+  // pass handle changes (wrap moves up to VTR.emitTilePointsRhi); +5 doc lines.
+  'map/src/render/point-renderer.ts': 1174,
   // 1106→1120 (#1043 state-hygiene): three unmask-before-clear / state-reset fixes for the
   // WebGL2 flicker class — beginScreenPass colorMask unmask (the colour sibling of #746/#780),
   // dispatchComputeToR32UI viewport snapshot+restore, and the setPipeline no-depth arm's
