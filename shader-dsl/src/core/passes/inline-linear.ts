@@ -112,7 +112,9 @@ function stmtDeepCallsName(s: Stmt, name: string): boolean {
   switch (s.s) {
     case 'if':
       return (
-        s.arms.some((a) => exprCallsName(a.cond, name) || a.body.some((b) => stmtDeepCallsName(b, name))) ||
+        s.arms.some(
+          (a) => exprCallsName(a.cond, name) || a.body.some((b) => stmtDeepCallsName(b, name)),
+        ) ||
         (s.elseBody?.some((b) => stmtDeepCallsName(b, name)) ?? false)
       )
     case 'for':
@@ -137,11 +139,7 @@ function stmtDeepCallsName(s: Stmt, name: string): boolean {
  *  non-recursive, still-called helper safe to inline in every call position?
  *  `requireMultiStatement` gates the two passes so single-return goes through
  *  the simpler inlineFn first. */
-function isInlinable(
-  m: ModuleDecl,
-  f: FuncDecl,
-  requireMultiStatement: boolean,
-): boolean {
+function isInlinable(m: ModuleDecl, f: FuncDecl, requireMultiStatement: boolean): boolean {
   if (isEntry(f) || f.name.startsWith('df64_')) return false
   const lb = linearBody(f)
   if (lb === undefined) return false

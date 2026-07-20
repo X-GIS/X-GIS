@@ -124,8 +124,7 @@ function tolerantDiffPct(a: PNG, b: PNG): number {
   }
   let diff = 0
   for (let y = 0; y < H; y++)
-    for (let x = 0; x < W; x++)
-      if (!near(la, lb, x, y) || !near(lb, la, x, y)) diff++
+    for (let x = 0; x < W; x++) if (!near(la, lb, x, y) || !near(lb, la, x, y)) diff++
   return (100 * diff) / (W * H)
 }
 
@@ -142,7 +141,10 @@ function darkCount(d: PNG): number {
 }
 
 test('OFM Bright: WebGL2 renders the same as WebGPU (local gate)', async ({ page, context }) => {
-  test.skip(!existsSync(MIRROR), `OFM Bright mirror absent (${MIRROR}) — local-only gate, regenerate per #834`)
+  test.skip(
+    !existsSync(MIRROR),
+    `OFM Bright mirror absent (${MIRROR}) — local-only gate, regenerate per #834`,
+  )
   test.setTimeout(540_000)
   mkdirSync(OUT, { recursive: true })
 

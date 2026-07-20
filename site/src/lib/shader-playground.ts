@@ -387,7 +387,17 @@ export function mountShader(
     const gtex = gl.createTexture()
     gl.activeTexture(gl.TEXTURE7)
     gl.bindTexture(gl.TEXTURE_2D, gtex)
-    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, 1, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array([255, 255, 255, 255]))
+    gl.texImage2D(
+      gl.TEXTURE_2D,
+      0,
+      gl.RGBA8,
+      1,
+      1,
+      0,
+      gl.RGBA,
+      gl.UNSIGNED_BYTE,
+      new Uint8Array([255, 255, 255, 255]),
+    )
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST)
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST)
     gl.uniform1i(guardLoc, 7)
@@ -503,8 +513,10 @@ export async function mountShaderWebGPU(
   }
 
   const entries: GPUBindGroupEntry[] = []
-  if (uniBuf && uniBinding != null) entries.push({ binding: uniBinding, resource: { buffer: uniBuf } })
-  if (guardView && guardBinding != null) entries.push({ binding: guardBinding, resource: guardView })
+  if (uniBuf && uniBinding != null)
+    entries.push({ binding: uniBinding, resource: { buffer: uniBuf } })
+  if (guardView && guardBinding != null)
+    entries.push({ binding: guardBinding, resource: guardView })
   const bindGroup =
     entries.length > 0
       ? device.createBindGroup({ layout: pipeline.getBindGroupLayout(0), entries })

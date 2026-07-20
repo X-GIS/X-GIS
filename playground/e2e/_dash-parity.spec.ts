@@ -21,7 +21,10 @@ async function shoot(page: import('@playwright/test').Page, gl2: boolean): Promi
   // boot camera falls out of the two sources' bounds-fit RACE — the two
   // backends (and two runs) can settle on different centres, which shears the
   // dash masks apart (observed IoU 0.958 → 0.098 with identical rendering).
-  await page.goto(`/demo.html?id=dashed_lines&e2e=1${gl2 ? '&forcegl2=1' : ''}#0.50/0.00000/0.00000`, { waitUntil: 'domcontentloaded' })
+  await page.goto(
+    `/demo.html?id=dashed_lines&e2e=1${gl2 ? '&forcegl2=1' : ''}#0.50/0.00000/0.00000`,
+    { waitUntil: 'domcontentloaded' },
+  )
   await page.waitForFunction(() => (window as any).__xgisReady === true, { timeout: 35_000 })
   await page.waitForTimeout(9000)
   await page.evaluate(() => (window as any).__xgisMap?.invalidate?.())
@@ -46,16 +49,23 @@ test('dash parity webgl2 vs webgpu', async ({ page, context }) => {
       for (let x = 0; x < im.width; x++) {
         const i = (y * im.width + x) * 4
         // sky-400 ≈ (56,189,248) tol 40
-        if (Math.abs(im.data[i] - 56) < 40 && Math.abs(im.data[i + 1] - 189) < 40 && Math.abs(im.data[i + 2] - 248) < 40)
+        if (
+          Math.abs(im.data[i] - 56) < 40 &&
+          Math.abs(im.data[i + 1] - 189) < 40 &&
+          Math.abs(im.data[i + 2] - 248) < 40
+        )
           m.add(y * im.width + x)
       }
     return m
   }
-  const ma = mask(a), mb = mask(b)
+  const ma = mask(a),
+    mb = mask(b)
   let inter = 0
   for (const p of ma) if (mb.has(p)) inter++
   const iou = inter / (ma.size + mb.size - inter)
-  console.log(`DASH-MASK gpu=${ma.size} gl2=${mb.size} inter=${inter} IoU=${iou.toFixed(3)} dims=${a.width}x${a.height}/${b.width}x${b.height}`)
+  console.log(
+    `DASH-MASK gpu=${ma.size} gl2=${mb.size} inter=${inter} IoU=${iou.toFixed(3)} dims=${a.width}x${a.height}/${b.width}x${b.height}`,
+  )
   expect(ma.size, 'webgpu frame has dashed strokes').toBeGreaterThan(3000)
   // Structural agreement: a solid-vs-dashed regression lands at ~0.69.
   expect(iou, 'stroke masks structurally identical').toBeGreaterThan(0.9)

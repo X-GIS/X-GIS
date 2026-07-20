@@ -29,11 +29,7 @@ import { describe, it, expect } from 'vitest'
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { dirname, join } from 'node:path'
-import {
-  decomposeFeatures,
-  compileSingleTile,
-  compileGeoJSONToTiles,
-} from '../tiler/vector-tiler'
+import { decomposeFeatures, compileSingleTile, compileGeoJSONToTiles } from '../tiler/vector-tiler'
 import type { GeoJSONFeature } from '../tiler/geojson-types'
 
 const HERE = dirname(fileURLToPath(import.meta.url))

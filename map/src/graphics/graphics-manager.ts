@@ -25,7 +25,11 @@ import {
   packRetainedParticleTint,
   resolveParticleInstanceCount,
 } from './retained-particle-packer'
-import { packRetainedTextFeat, packRetainedTextTint, type GlyphShaper } from './retained-text-packer'
+import {
+  packRetainedTextFeat,
+  packRetainedTextTint,
+  type GlyphShaper,
+} from './retained-text-packer'
 import type { DrawSpec, DrawHandle, IconUpdateTrigger, TextDrawSpec } from './graphics-types'
 import { animTimePinnedSeconds } from '../debug-flags'
 import {

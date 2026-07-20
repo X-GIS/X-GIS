@@ -11,7 +11,7 @@ import { IconStage } from './icon-stage'
 
 function makeIconStageStub(): IconStage {
   const stage = Object.create(IconStage.prototype) as IconStage
-    ;(stage as unknown as { inlineImages: unknown[] }).inlineImages = [] // #777 I-G — prepare() reads it (ctor bypassed by the Object.create stub)
+  ;(stage as unknown as { inlineImages: unknown[] }).inlineImages = [] // #777 I-G — prepare() reads it (ctor bypassed by the Object.create stub)
   ;(stage as unknown as { pending: unknown[] }).pending = []
   return stage
 }

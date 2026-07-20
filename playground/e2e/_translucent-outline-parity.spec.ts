@@ -20,10 +20,9 @@ const OUT = 'test-results/translucent-outline-parity'
 
 async function shoot(page: import('@playwright/test').Page, gl2: boolean): Promise<Buffer> {
   await page.setViewportSize({ width: 900, height: 700 })
-  await page.goto(
-    `/demo.html?id=fixture_translucent_outline&e2e=1${gl2 ? '&forcegl2=1' : ''}`,
-    { waitUntil: 'domcontentloaded' },
-  )
+  await page.goto(`/demo.html?id=fixture_translucent_outline&e2e=1${gl2 ? '&forcegl2=1' : ''}`, {
+    waitUntil: 'domcontentloaded',
+  })
   await page.waitForFunction(() => (window as any).__xgisReady === true, { timeout: 35_000 })
   await page.waitForTimeout(9000)
   await page.evaluate(() => (window as any).__xgisMap?.invalidate?.())

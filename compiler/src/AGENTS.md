@@ -64,6 +64,6 @@ Root of the compiler source tree. `index.ts` is the sole public entry point for 
 
 ### External
 
-- None directly at this level. Subdirs pull `pbf` (tiler/geojsonvt — the MVT `encodeMVT` writer), `earcut` (tiler/), and `@xgis/shader-dsl` (codegen/ routes shader/compute emission through its IR Nodes). The MVT *decoder* (`decodeMvtTile` + `@mapbox/vector-tile`) relocated to `@xgis/data` in #1001 — decoding an external tile is data-layer work, not style compilation.
+- None directly at this level. Subdirs pull `pbf` (tiler/geojsonvt — the MVT `encodeMVT` writer), `earcut` (tiler/), and `@xgis/shader-dsl` (codegen/ routes shader/compute emission through its IR Nodes). The MVT _decoder_ (`decodeMvtTile` + `@mapbox/vector-tile`) relocated to `@xgis/data` in #1001 — decoding an external tile is data-layer work, not style compilation.
 
 <!-- MANUAL: notes below this line are preserved on regeneration -->

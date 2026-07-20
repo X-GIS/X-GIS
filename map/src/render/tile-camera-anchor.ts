@@ -31,8 +31,7 @@ const MERC_LIMIT = 85.051129
 /** Clamp a latitude (degrees) to the Web-Mercator singularity limit
  *  (±85.051129°) — the same clamp every Mercator-metre conversion in the
  *  tile draw path must share (anchor math here; clip_bounds in the caller). */
-export const clampMercLat = (v: number): number =>
-  Math.max(-MERC_LIMIT, Math.min(MERC_LIMIT, v))
+export const clampMercLat = (v: number): number => Math.max(-MERC_LIMIT, Math.min(MERC_LIMIT, v))
 
 export interface TileCameraAnchor {
   /** Mercator camera-relative DSFUN pair (hi/lo), worldOff applied. */

@@ -21,14 +21,22 @@ test('df64 probe on macOS Metal (WebGPU gate)', async ({ page }) => {
   // ── diagnostics FIRST, printed IMMEDIATELY (survive any later timeout) ──
   const cap = await page.evaluate(async () => {
     const race = <T>(p: Promise<T>, ms: number) =>
-      Promise.race<T | 'TIMEOUT'>([p, new Promise<'TIMEOUT'>((r) => setTimeout(() => r('TIMEOUT'), ms))])
+      Promise.race<T | 'TIMEOUT'>([
+        p,
+        new Promise<'TIMEOUT'>((r) => setTimeout(() => r('TIMEOUT'), ms)),
+      ])
     let gpu = ''
     try {
       const g: any = (navigator as any).gpu
       if (!g) gpu = 'no navigator.gpu'
       else {
         const a: any = await race(g.requestAdapter(), 8000)
-        gpu = a === 'TIMEOUT' ? 'requestAdapter HUNG >8s' : a ? 'adapter ' + JSON.stringify(a.info || {}) : 'adapter null'
+        gpu =
+          a === 'TIMEOUT'
+            ? 'requestAdapter HUNG >8s'
+            : a
+              ? 'adapter ' + JSON.stringify(a.info || {})
+              : 'adapter null'
       }
     } catch (e) {
       gpu = 'gpu threw ' + String(e)
@@ -49,13 +57,18 @@ test('df64 probe on macOS Metal (WebGPU gate)', async ({ page }) => {
   // If the page main thread wedges, the evaluate never resolves — the race just
   // logs 'WEDGED' and the dangling promise is abandoned (harmless). ──
   const raced = async <T>(f: () => Promise<T>, ms: number): Promise<T | 'WEDGED'> =>
-    Promise.race<T | 'WEDGED'>([f(), new Promise<'WEDGED'>((r) => setTimeout(() => r('WEDGED'), ms))])
+    Promise.race<T | 'WEDGED'>([
+      f(),
+      new Promise<'WEDGED'>((r) => setTimeout(() => r('WEDGED'), ms)),
+    ])
   const snapshot = () =>
     page.evaluate(() => {
       const cells = [...document.querySelectorAll('[data-gpu]')]
       const done = cells.filter((c) => !c.querySelector('.animate-spin'))
       const lastDone = done.length ? done[done.length - 1].getAttribute('data-gpu') : '(none)'
-      const summary = (document.querySelector('#probe-summary') as HTMLElement)?.innerText.replace(/\s+/g, ' ').trim()
+      const summary = (document.querySelector('#probe-summary') as HTMLElement)?.innerText
+        .replace(/\s+/g, ' ')
+        .trim()
       return `gpu ${done.length}/${cells.length} last=${lastDone} | ${summary}`
     })
   const poller = setInterval(async () => {
@@ -99,20 +112,35 @@ test('df64 probe on macOS Metal (WebGPU gate)', async ({ page }) => {
       page.evaluate(() => {
         const rows = [...document.querySelectorAll('[data-row]')].map((r) => {
           const name = r.getAttribute('data-row')!
-          const gl = (r.querySelector(`[data-gl="${name}"]`) as HTMLElement)?.innerText.replace(/\s+/g, ' ').trim()
-          const gpu = (r.querySelector(`[data-gpu="${name}"]`) as HTMLElement)?.innerText.replace(/\s+/g, ' ').trim()
+          const gl = (r.querySelector(`[data-gl="${name}"]`) as HTMLElement)?.innerText
+            .replace(/\s+/g, ' ')
+            .trim()
+          const gpu = (r.querySelector(`[data-gpu="${name}"]`) as HTMLElement)?.innerText
+            .replace(/\s+/g, ' ')
+            .trim()
           return { name, gl, gpu }
         })
-        const summary = (document.querySelector('#probe-summary') as HTMLElement)?.innerText.replace(/\s+/g, ' ').trim()
-        const sib = document.querySelector('#probe-summary')?.nextElementSibling as HTMLElement | null
-        const flavorLine = sib?.textContent?.includes('auto df64 flavor') ? sib.innerText.replace(/\s+/g, ' ').trim() : ''
+        const summary = (document.querySelector('#probe-summary') as HTMLElement)?.innerText
+          .replace(/\s+/g, ' ')
+          .trim()
+        const sib = document.querySelector('#probe-summary')
+          ?.nextElementSibling as HTMLElement | null
+        const flavorLine = sib?.textContent?.includes('auto df64 flavor')
+          ? sib.innerText.replace(/\s+/g, ' ').trim()
+          : ''
         return { rows, summary, flavorLine, total: rows.length }
       }),
     20_000,
   )
   if (scrape === 'WEDGED') {
-    writeFileSync('_macos-probe/df64-digest.txt', `WEDGED main thread; cap gpu=${cap.gpu} gl=${cap.gl}`)
-    expect(scrape, 'page main thread wedged — see [progress] lines for the last resolved test').not.toBe('WEDGED')
+    writeFileSync(
+      '_macos-probe/df64-digest.txt',
+      `WEDGED main thread; cap gpu=${cap.gpu} gl=${cap.gl}`,
+    )
+    expect(
+      scrape,
+      'page main thread wedged — see [progress] lines for the last resolved test',
+    ).not.toBe('WEDGED')
     return
   }
 
@@ -136,7 +164,9 @@ test('df64 probe on macOS Metal (WebGPU gate)', async ({ page }) => {
     `  ieft : ${val('dg_mb_ieft')}`,
     `  mul  : ${val('mul')}   div: ${val('div')}`,
     '',
-    ...scrape.rows.map((r) => `  ${r.name.padEnd(12)} gl=${(r.gl ?? '').padEnd(18)} gpu=${r.gpu ?? ''}`),
+    ...scrape.rows.map(
+      (r) => `  ${r.name.padEnd(12)} gl=${(r.gl ?? '').padEnd(18)} gpu=${r.gpu ?? ''}`,
+    ),
     '',
     'errors:',
     ...errs.slice(0, 12).map((e) => '  ' + e),

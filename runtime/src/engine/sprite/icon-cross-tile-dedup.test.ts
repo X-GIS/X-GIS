@@ -54,7 +54,7 @@ const SPRITE = { width: 20, height: 20, pixelRatio: 1 }
 function makeIconStub(dpr = 1): { stage: IconStage; draws: () => IconDraw[] } {
   let captured: IconDraw[] = []
   const stage = Object.create(IconStage.prototype) as IconStage
-    ;(stage as unknown as { inlineImages: unknown[] }).inlineImages = [] // #777 I-G — prepare() reads it (ctor bypassed by the Object.create stub)
+  ;(stage as unknown as { inlineImages: unknown[] }).inlineImages = [] // #777 I-G — prepare() reads it (ctor bypassed by the Object.create stub)
   ;(stage as unknown as { pending: unknown[] }).pending = []
   ;(stage as unknown as { dpr: number }).dpr = dpr
   ;(stage as unknown as { missingIconNames: Set<string> }).missingIconNames = new Set()

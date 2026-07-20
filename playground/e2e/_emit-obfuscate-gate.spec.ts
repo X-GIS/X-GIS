@@ -50,8 +50,7 @@ test.describe('obfuscated emit (emit-prod obfuscate()) compiles on real Tint + A
           const module = device.createShaderModule({ code: v.wgsl })
           const info = await module.getCompilationInfo()
           const errs = info.messages.filter((m) => m.type === 'error')
-          if (errs.length > 0)
-            failures.push(`${v.name}: ${errs.map((e) => e.message).join(' | ')}`)
+          if (errs.length > 0) failures.push(`${v.name}: ${errs.map((e) => e.message).join(' | ')}`)
         } catch (e) {
           failures.push(`${v.name}: threw ${(e as Error).message}`)
         }
@@ -69,9 +68,7 @@ test.describe('obfuscated emit (emit-prod obfuscate()) compiles on real Tint + A
     ).toEqual([])
   })
 
-  test('GLSL: every renderable example, obfuscated, compiles AND links', async ({
-    page,
-  }) => {
+  test('GLSL: every renderable example, obfuscated, compiles AND links', async ({ page }) => {
     const pairs = renderable.map((ex) => ({
       name: ex.id,
       vertex: emitGlslModule(ex.module, 'vertex', { plugins: obfuscate() }),
@@ -118,9 +115,10 @@ test.describe('obfuscated emit (emit-prod obfuscate()) compiles on real Tint + A
       pairs,
     )
 
-    expect(result, `WebGL2 unavailable: ${'fatal' in result ? result.fatal : ''}`).not.toHaveProperty(
-      'fatal',
-    )
+    expect(
+      result,
+      `WebGL2 unavailable: ${'fatal' in result ? result.fatal : ''}`,
+    ).not.toHaveProperty('fatal')
     if ('fatal' in result) return
     expect(
       result.failures,
@@ -157,7 +155,9 @@ test.describe('obfuscated emit (emit-prod obfuscate()) compiles on real Tint + A
 
     await page.goto('/demo.html?id=minimal', { waitUntil: 'domcontentloaded' })
     const result = await page.evaluate(
-      (cs: Array<{ name: string; plainVs: string; plainFs: string; obfVs: string; obfFs: string }>) => {
+      (
+        cs: Array<{ name: string; plainVs: string; plainFs: string; obfVs: string; obfFs: string }>,
+      ) => {
         const canvas = document.createElement('canvas')
         canvas.width = 64
         canvas.height = 64
@@ -180,7 +180,14 @@ test.describe('obfuscated emit (emit-prod obfuscate()) compiles on real Tint + A
         gl.activeTexture(gl.TEXTURE0)
         gl.bindTexture(gl.TEXTURE_2D, tex)
         gl.texImage2D(
-          gl.TEXTURE_2D, 0, gl.RGBA8, 1, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE,
+          gl.TEXTURE_2D,
+          0,
+          gl.RGBA8,
+          1,
+          1,
+          0,
+          gl.RGBA,
+          gl.UNSIGNED_BYTE,
           new Uint8Array([255, 255, 255, 255]),
         )
 
@@ -258,9 +265,10 @@ test.describe('obfuscated emit (emit-prod obfuscate()) compiles on real Tint + A
       cases,
     )
 
-    expect(result, `WebGL2 unavailable: ${'fatal' in result ? result.fatal : ''}`).not.toHaveProperty(
-      'fatal',
-    )
+    expect(
+      result,
+      `WebGL2 unavailable: ${'fatal' in result ? result.fatal : ''}`,
+    ).not.toHaveProperty('fatal')
     if ('fatal' in result) return
     expect(result.failures, result.failures.join('\n')).toEqual([])
   })
