@@ -113,6 +113,10 @@ interface Gl2Pipeline {
    *  writeMask-0 pick target → all-false; the normal color path → all-true. */
   colorWriteMask: [boolean, boolean, boolean, boolean]
   cullMode?: 'none' | 'back' | 'front'
+  /** Front-face winding (#1049). Applied at setPipeline — gl.frontFace is
+   *  GLOBAL state, so an explicit apply prevents a future 'cw' pipeline
+   *  from leaking its winding into every later draw. Default 'ccw'. */
+  frontFace: 'ccw' | 'cw'
   depth?: {
     write: boolean
     compare: 'always' | 'less' | 'less-equal'
@@ -295,6 +299,7 @@ class WebGl2RenderPass implements RhiRenderPass {
     } else {
       gl.disable(gl.CULL_FACE)
     }
+    gl.frontFace(pl.frontFace === 'cw' ? gl.CW : gl.CCW)
     if (pl.stencil) {
       gl.enable(gl.STENCIL_TEST)
       this.applyStencil(pl.stencil)
@@ -980,6 +985,7 @@ export class WebGl2Device implements RhiDevice {
       gl.bindTexture(gl.TEXTURE_2D, b.storageTex)
       gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1)
       gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, b.width, b.height, gl.RED, gl.FLOAT, padded)
+      gl.pixelStorei(gl.UNPACK_ALIGNMENT, 4) // restore the GL default (#1049 hygiene)
       return
     }
     gl.bindBuffer(b.target, b.buf)
@@ -1029,6 +1035,7 @@ export class WebGl2Device implements RhiDevice {
     gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1)
     const { format, type } = texFmt(gl, t.format)
     gl.texSubImage2D(gl.TEXTURE_2D, 0, x, y, width, height, format, type, data as ArrayBufferView)
+    gl.pixelStorei(gl.UNPACK_ALIGNMENT, 4) // restore the GL default (#1049 hygiene)
   }
 
   copyExternalImage(
@@ -1153,6 +1160,25 @@ export class WebGl2Device implements RhiDevice {
         `webgl2: depthStencil.bias.clamp is unsupported (gl.polygonOffset has no clamp parameter); got ${desc.depthStencil.bias.clamp}`,
       )
     }
+    // ES 3.00 has no per-draw-buffer blend/colorMask (needs OES_draw_buffers_indexed),
+    // so this backend applies target 0's state to EVERY draw buffer. A pipeline whose
+    // NON-integer colour targets diverge in blend or writeMask would silently
+    // miscompile — fail loud instead (#1049). Integer-format targets (the pick MRT's
+    // rg32uint/r32uint scratch) are exempt: their divergence is the DOCUMENTED case the
+    // force-blend-off recording below already handles.
+    const nonIntTargets = desc.colorTargets.filter(
+      (t) => t.format !== 'rg32uint' && t.format !== 'r32uint',
+    )
+    if (nonIntTargets.length > 1) {
+      const t0 = nonIntTargets[0]!
+      const mask = (t: (typeof nonIntTargets)[number]): number => t.writeMask ?? 0xf
+      const diverges = nonIntTargets.some((t) => t.blend !== t0.blend || mask(t) !== mask(t0))
+      if (diverges) {
+        throw new Error(
+          'webgl2: per-target blend/writeMask divergence across non-integer MRT colour targets is unsupported (ES 3.00 lacks OES_draw_buffers_indexed; target 0 state is applied to all draw buffers) — make the targets uniform or split the pass',
+        )
+      }
+    }
     const gl = this.gl
     const vs = compile(gl, gl.VERTEX_SHADER, desc.vsCode)
     const fs = compile(gl, gl.FRAGMENT_SHADER, desc.fsCode)
@@ -1221,6 +1247,11 @@ export class WebGl2Device implements RhiDevice {
       }
     }
 
+    // Reflection above needed the program CURRENT (uniform1i writes). Restore the
+    // binding so pipeline creation can never leak a program into an interleaved
+    // setPipeline/draw pair mid-pass (#1049 hygiene).
+    gl.useProgram(null)
+
     // Color write mask (#782). Mirror rhi-webgpu's per-target default EXACTLY (rg32uint
     // pick target → 0 = no color write, every other format → 0xf = ALL) so the two
     // backends stay byte-parity; an empty colorTargets (stencil-only clip-mask pass) → 0.
@@ -1247,6 +1278,7 @@ export class WebGl2Device implements RhiDevice {
         : desc.colorTargets[0]?.blend,
       colorWriteMask,
       cullMode: desc.cullMode,
+      frontFace: desc.frontFace ?? 'ccw',
       depth: desc.depthStencil
         ? {
             write: desc.depthStencil.write,

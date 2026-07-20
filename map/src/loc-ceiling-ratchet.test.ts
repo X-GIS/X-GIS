@@ -309,7 +309,13 @@ const CEILINGS: Record<string, number> = {
   // 1354→1364 (#1049): createPipeline fail-loud guard rejecting an unsupported nonzero
   // depthStencil.bias.clamp (gl.polygonOffset has no clamp param) — inline descriptor
   // validation at the createPipeline entry, not extractable (+10).
-  'rhi-webgl2/src/rhi-webgl2.ts': 1364,
+  // 1364→1398 (#1049): descriptor-parity batch — the MRT per-target
+  // blend/writeMask divergence guard (fail-loud; ES 3.00 lacks
+  // OES_draw_buffers_indexed), frontFace modeled + applied at setPipeline,
+  // UNPACK_ALIGNMENT restored to the GL default after ad-hoc uploads, and
+  // createPipeline unbinding the program after reflection. (If #1196's
+  // 1364→1371 bump lands first, the merge union is the measured max.)
+  'rhi-webgl2/src/rhi-webgl2.ts': 1398,
   'map/src/render/renderer.ts': 965,
   'map/src/render/gpu-tile-store.ts': 941,
   // 930→948 (#1078): the zoom-transition readiness gate now probes the SAME
