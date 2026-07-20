@@ -17,7 +17,7 @@
 // FALSE-BOUNDARY edges kept OFF the factory (plan §5), so they are NOT here:
 //   #1 the compute layout-cache (`variantComputeLayoutCache`, keyed by
 //      variant.key) — STAYS on MapRenderer. The factory only exposes the two
-//      base layouts + FEATURE_LAYOUT_ENTRIES via getOrBuildVariantLayout /
+//      base layouts + FEATURE_LAYOUT_ENTRIES via baseVariantLayout /
 //      a static getter; the compute-extended cache is MapRenderer/COMPUTE.
 //   #3 the LIVE atlas views (paletteColorAtlasView / spriteAtlasView) +
 //      setPaletteColorAtlas / setSpriteAtlas — STAY on MapRenderer (they
@@ -454,14 +454,14 @@ export class PipelineFactory {
     return PipelineFactory.FEATURE_LAYOUT_ENTRIES
   }
 
-  /** Return the bind-group layout for a variant WITHOUT compute
-   *  bindings — the trivial read of the two factory-owned layouts.
-   *  Variants WITH compute bindings get a per-key extended layout that
-   *  MapRenderer owns (the `variantComputeLayoutCache`, keyed by
-   *  variant.key — COMPUTE-cluster state, plan §5 FB#1), so that branch
-   *  stays on MapRenderer and routes through here only for the base
-   *  layouts it extends. */
-  getOrBuildVariantLayout(variant: ShaderVariantInfo): GPUBindGroupLayout {
+  /** BASE layouts only — NEVER valid for building a variant pipeline or
+   *  Material (a compute variant needs the extended layout; using this one
+   *  shipped the #1189 invalid-pipeline bug). The single compute-aware
+   *  authority is the injected `_layoutFor` (MapRenderer's
+   *  `getOrBuildVariantLayout` + its `variantComputeLayoutCache`, plan §5
+   *  FB#1); this exists only as that resolver's non-compute half and as the
+   *  pre-injection default. Deliberately NOT named getOrBuildVariantLayout. */
+  baseVariantLayout(variant: ShaderVariantInfo): GPUBindGroupLayout {
     return variant.needsFeatureBuffer ? this.featureBindGroupLayout : this.bindGroupLayout
   }
 
@@ -1496,7 +1496,7 @@ export class PipelineFactory {
    *  factory's own non-compute lookup until MapRenderer wires the real
    *  resolver in its ctor (after `_pipelines` is built). */
   private _layoutFor: (v: ShaderVariantInfo) => GPUBindGroupLayout = (v) =>
-    this.getOrBuildVariantLayout(v)
+    this.baseVariantLayout(v)
 
   /** Inject the coordinator's compute-aware layout resolver. */
   setLayoutResolver(resolver: (v: ShaderVariantInfo) => GPUBindGroupLayout): void {

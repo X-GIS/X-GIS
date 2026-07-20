@@ -3,9 +3,9 @@
 // A compute-paint variant's fill Material twin MUST be built against the SAME
 // bind-group layout object its render pipeline uses — the compute-EXTENDED
 // layout from the injected `_layoutFor` resolver, never the factory's base
-// `getOrBuildVariantLayout`. The two-authority trap is real: the factory owns
-// an attractively-named base resolver while the compute-aware one is an
-// injected private field, and `registerFillMaterials` picked the base one —
+// layouts (`baseVariantLayout`; named `getOrBuildVariantLayout` when the bug
+// shipped). The two-authority trap is real: the factory owned an attractively-
+// named base resolver, and `registerFillMaterials` picked the base one —
 // the twin's pipeline then referenced `compute_out`'s binding, absent from its
 // layout ("Invalid RenderPipeline fill-ground-write-rhi" + per-tile "Binding
 // doesn't exist in mr-featureBindGroupLayout", near-blank compute render).
