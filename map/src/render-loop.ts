@@ -1003,6 +1003,21 @@ export class RenderLoop {
       offPass.end()
       this.host.lineRenderer.compositeRhi(pass, c.resolvedShow.opacity)
     }
+    // #1057 — direct-layer GeoJSON points on the WebGL2 twin. Mirrors the WebGPU
+    // points-pass placement (pass-order.ts PASS_CHAIN_ORDER: after the translucent
+    // bucket, before labels). Points depth-TEST against the opaque fills' depth in
+    // THIS single screen pass — the WebGPU points-pass instead loads a stored opaque
+    // depth attachment into a separate pass, but the occlusion outcome is the same
+    // (front-facing opaque polygons occlude globe-backside billboards); translucent /
+    // flat point variants never write depth on either path. No-op unless a GeoJSON
+    // source routed through pointRenderer.addLayer. The VT tile-points inline path
+    // (flushTilePoints, drawn inside the opaque bucket on WebGPU) is a follow-up
+    // increment (#1057) and is NOT drawn here.
+    const pointRenderer = this.host.pointRenderer
+    if (pointRenderer?.hasLayers() && !DEBUG_OVERDRAW) {
+      pointRenderer.updateDynamicSizes(this.host.camera.zoom, performance.now())
+      pointRenderer.renderRhi(pass, this.host.camera, projType, centerLon, centerLat, w, h, dpr)
+    }
     // #834 M5 slice 3 — tile ACQUISITION for label-bearing shows: a
     // label-only show never reaches the fills/lines acquisition (both bail
     // on missing paint), but the label dispatch below reads the selection

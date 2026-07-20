@@ -15,7 +15,7 @@ import { packPointInstances } from './point-feature-packer'
 import { POINT_FEAT } from '../shaders/dsl/point-feat-layout'
 const F = POINT_FEAT.slot
 import { wrapWebGpuPass, wrapWebGpuBindGroupLayout } from '@xgis/rhi-webgpu'
-import type { RhiBuffer, RhiBindGroup, RhiDevice } from '@xgis/engine'
+import type { RhiBuffer, RhiBindGroup, RhiDevice, RhiRenderPass } from '@xgis/engine'
 import { PointDraper } from './material/point-material'
 import { reflect } from '@xgis/shader-dsl'
 import { vertexField, evaluate, makeEvalProps } from '@xgis/compiler'
@@ -972,8 +972,37 @@ export class PointRenderer {
     }
   }
 
+  /** WebGPU pass-chain entry (points-pass.ts): wraps the native encoder into an
+   *  RhiRenderPass and delegates to the single-authority renderRhi below. */
   render(
     pass: GPURenderPassEncoder,
+    camera: Camera,
+    projType: number,
+    projCenterLon: number,
+    projCenterLat: number,
+    canvasWidth: number,
+    canvasHeight: number,
+    dpr: number = 1,
+  ): void {
+    this.renderRhi(
+      wrapWebGpuPass(pass),
+      camera,
+      projType,
+      projCenterLon,
+      projCenterLat,
+      canvasWidth,
+      canvasHeight,
+      dpr,
+    )
+  }
+
+  /** Draw all direct-layer point layers onto an RHI pass. ONE authority for both
+   *  backends (#1057): the WebGPU frame reaches it via render() (wrapped encoder);
+   *  the forced-WebGL2 twin (render-loop.ts renderFrameViaRhi) passes its screen
+   *  RhiRenderPass directly. The uploadLayer / writePointFrameUniform / PointDraper
+   *  draw plumbing is backend-neutral RHI already — only the pass handle differs. */
+  renderRhi(
+    pass: RhiRenderPass,
     camera: Camera,
     projType: number,
     projCenterLon: number,
@@ -1104,7 +1133,7 @@ export class PointRenderer {
       const shapeBuf = this.shapeRegistry?.shapeBuffer
       const segBuf = this.shapeRegistry?.segmentBuffer
       this.ensurePointDraper()
-      this._pointDraper!.draw(wrapWebGpuPass(pass), {
+      this._pointDraper!.draw(pass, {
         uniform: this.uniformBuffer,
         feat: layer._expandedFeatBuf!,
         shape: shapeBuf ?? this.emptyStorageBuf(),
