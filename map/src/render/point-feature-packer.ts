@@ -4,7 +4,7 @@
 // the world-copy fan-out, the per-instance quad verts/indices, and the
 // translucent back-to-front depth sort. Shared by BOTH point paths:
 //   • inline GeoJSON  (PointRenderer.uploadLayer) — `{ kind: 'lonlat' }`
-//   • tile / PMTiles  (PointRenderer.flushTilePoints, #722 S1) — `{ kind: 'presplit' }`
+//   • tile / PMTiles  (PointRenderer.flushTilePointsRhi, #722 S1) — `{ kind: 'presplit' }`
 // instead of two hand-mirrored copies. The ONLY per-path divergence is the
 // per-point POSITION source (slots 11-18 ECEF+abs, 20-23 Mercator); it is
 // branched ONCE outside the loop via the `PackPointPosition` discriminated

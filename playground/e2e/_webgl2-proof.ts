@@ -397,7 +397,7 @@ export interface Webgl2ReflectionResult {
   glError: number
   glNoError: number
   named: { left: number[]; right: number[] } // name reflection → correct
-  ordered: { left: number[]; right: number[] } // names stripped → by-order SWAPS
+  orderedThrew: string // names stripped -> the #783 guard rejects the ambiguous by-order layout
   expected: { left: number[]; right: number[] } // left=tex_a=red, right=tex_b=blue
 }
 
@@ -421,7 +421,7 @@ export function runWebgl2ReflectionProof(): Webgl2ReflectionResult {
       glError: -1,
       glNoError: 0,
       named: { left: [], right: [] },
-      ordered: { left: [], right: [] },
+      orderedThrew: '',
       expected,
     }
   const device = new WebGl2Device(gl)
@@ -514,8 +514,15 @@ export function runWebgl2ReflectionProof(): Webgl2ReflectionResult {
   }
 
   const named = draw(namedEntries)
-  const ordered = draw(strippedEntries)
-  return { glError: gl.getError(), glNoError: gl.NO_ERROR, named, ordered, expected }
+  // 2 unnamed same-class texture entries — the #783 plan-time ambiguity guard MUST
+  // reject this, by-order multi-texture is a silent mis-bind.
+  let orderedThrew = ''
+  try {
+    draw(strippedEntries)
+  } catch (e) {
+    orderedThrew = e instanceof Error ? e.message : String(e)
+  }
+  return { glError: gl.getError(), glNoError: gl.NO_ERROR, named, orderedThrew, expected }
 }
 
 // ═══ REAL DSL render shader on WebGL2 (US-003) ═══

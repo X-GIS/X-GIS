@@ -972,7 +972,18 @@ export class XGISMap {
     configureProjections(PROJECTIONS)
     this.camera = new Camera(0, 20, 2)
     this.cameraController = new CameraController(this.camera, {
-      invalidate: () => this.invalidate(),
+      // Camera mutation re-arms a frame + tags CAMERA only — NOT the blanket
+      // invalidate(). The S16 label skip's correctness under camera motion is
+      // carried by its dispatch signature (zoom/centre/centerLat/bearing/
+      // pitch/canvas/tile-set), same as the interactive path (which mutates
+      // the camera directly and re-arms via the shouldRenderThisFrame
+      // comparator, tagging nothing). Blanket-tagging LABEL here forced a
+      // label re-prepare on EVERY programmatic camera frame (#1177), which
+      // defeated the zoom-tolerant skip exactly on the animated-zoom path.
+      invalidate: () => {
+        if (this._destroyed) return
+        this._markDirty(DirtyDomain.CAMERA)
+      },
       getCanvas: () => this.getCanvas(),
       getCtxCanvas: () => this.ctx?.canvas,
     })

@@ -1207,6 +1207,29 @@ async function loadDemo(idx: number) {
   } else {
     teardownPickingOverlay()
   }
+
+  // #1192 interaction infra — Demo.actions → the #demo-actions button bar.
+  // Rebuilt per demo switch; each click drives the LIVE map through the same
+  // public API the MapLibre original wires to its <button>s.
+  const actionsBar = document.getElementById('demo-actions')
+  if (actionsBar) {
+    actionsBar.replaceChildren()
+    const actions = demo.actions ?? []
+    actionsBar.hidden = actions.length === 0
+    for (const action of actions) {
+      const btn = document.createElement('button')
+      btn.textContent = action.label
+      btn.addEventListener('click', () => {
+        if (!currentMap) return
+        try {
+          action.run(currentMap)
+        } catch (e) {
+          console.error(`[demo-actions] "${action.label}" threw:`, e)
+        }
+      })
+      actionsBar.appendChild(btn)
+    }
+  }
 }
 
 /** Auto-inject sample data for inline-source fixtures so they
