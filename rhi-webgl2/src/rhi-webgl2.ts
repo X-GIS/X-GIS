@@ -64,6 +64,7 @@ import type {
   RhiCommandEncoder,
   RhiRenderPassDesc,
 } from '@xgis/rhi'
+import { stashGl2RestoreToken } from '@xgis/rhi'
 
 // Each opaque RHI handle stores a rich GL record (cast both ways inside this
 // module). WebGL2 needs MORE per-handle metadata than WebGPU (a buffer's GL
@@ -1329,7 +1330,13 @@ export class WebGl2Device implements RhiDevice {
       if (canvas.addEventListener && !this.gl.isContextLost?.())
         canvas.addEventListener('webglcontextlost', (e) => e.preventDefault(), { once: true })
     }
-    this.gl.getExtension('WEBGL_lose_context')?.loseContext()
+    // #1196 — stash the extension OBJECT before losing: on a lost context
+    // getExtension() returns null (WebGL spec), so the remount's ensure-
+    // restored preamble can only call restoreContext() through a handle
+    // captured pre-loss. The canvas is the identity both boots share.
+    const loseExt = this.gl.getExtension('WEBGL_lose_context')
+    if (loseExt && canvas) stashGl2RestoreToken(canvas, loseExt)
+    loseExt?.loseContext()
   }
 
   /** Run a compute-as-draw (the M2 compute→fragment-GPGPU lowering) into an offscreen

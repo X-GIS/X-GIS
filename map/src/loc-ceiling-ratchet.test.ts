@@ -218,7 +218,10 @@ const CEILINGS: Record<string, number> = {
   // Merge (#1195): main's #1177 camera-scoped invalidate UNION the #1194 A1b
   // runScene seam above; ceiling re-measured to the merged file's actual size
   // (wc -l = 4499).
-  'map/src/map.ts': 4499,
+  // 4499→4503 (#1196, merge union): name the actual GPU-boot failure at the
+  // WebGPUUnavailable catch — the generic UX text hid the real cause (a webgl2
+  // live-swap re-boot dying) for a full debugging session. Measured 4503.
+  'map/src/map.ts': 4503,
   // 1920→1930 (#1042 R3): the globe limb cull for MULTI-LINE labels must land in
   // the collision phase — the ONLY site holding the label's quad half-height (the
   // collision box IS the height authority; the label-pass dispatch site has only
@@ -408,7 +411,11 @@ const CEILINGS: Record<string, number> = {
   // Merge union (#1060 <- main): stacked growth — measured 1000.
   'map/src/render/renderer.ts': 1000,
   // Merge union (#1060 <- main): stacked growth — measured 1397.
-  'rhi-webgl2/src/rhi-webgl2.ts': 1397,
+  // 1397→1404 (#1196, merge union): destroy() stashes the pre-loss
+  // WEBGL_lose_context handle on the canvas (stashGl2RestoreToken) —
+  // getExtension() is null on a lost context, so a same-canvas remount could
+  // never restore without it. Measured 1404.
+  'rhi-webgl2/src/rhi-webgl2.ts': 1404,
   'map/src/render/gpu-tile-store.ts': 941,
   // 930→948 (#1078): the zoom-transition readiness gate now probes the SAME
   // selector the frame draws with — routeToSphereSelector picks globeVisibleTiles
