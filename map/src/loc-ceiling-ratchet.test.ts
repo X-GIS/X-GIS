@@ -257,7 +257,10 @@ const CEILINGS: Record<string, number> = {
   // 1315→1339 (#1154): the pattern_active struct field (+ its rationale comment)
   // and the fill-translate `if (pattern_active == 0)` gate in the three VS entries
   // (vs_main / vs_main_ecef / vs_main_ecef_extruded) — fixes blank fill-patterns.
-  'map/src/shaders/dsl/polygon.ts': 1339,
+  // 1339→1344 (#1062): emitPolygonGlsl gains an optional `entry` override (+ its doc)
+  // so the graticule twin can emit the vs_main / fs_stroke GLSL for its WebGL2 line
+  // overlay — reusing the SAME polygon module instead of forking a shader.
+  'map/src/shaders/dsl/polygon.ts': 1344,
   // 1290→1314 (#1155 F3): cold-start burst tick budget — the `_coldStartBurst`
   // field + `_BURST_TICK_BUDGET` + `setColdStartBurst` + the burst-selected
   // budget in resetCompileBudget's backend tick loop.
@@ -275,7 +278,10 @@ const CEILINGS: Record<string, number> = {
   // 1205→1213 (#1153 P2 R6): the WebGL2 takeGlErrors drain now routes through the
   // shared capped writer `pushValidationError` (rhi-webgpu) so the _validationErrors
   // queue can't grow unbounded — the 4-name import expansion + the drain-loop doc.
-  'map/src/render-loop.ts': 1213,
+  // 1213→1227 (#1062): the graticule overlay draw on the WebGL2 twin — one
+  // renderGraticuleOverlayRhi call site in renderFrameViaRhi (after the opaque
+  // fills/strokes, before translucent), mirroring the WebGPU opaque-pass placement.
+  'map/src/render-loop.ts': 1227,
   'map/src/render/point-renderer.ts': 1140,
   // 1106→1120 (#1043 state-hygiene): three unmask-before-clear / state-reset fixes for the
   // WebGL2 flicker class — beginScreenPass colorMask unmask (the colour sibling of #746/#780),
@@ -309,8 +315,14 @@ const CEILINGS: Record<string, number> = {
   // 1354→1364 (#1049): createPipeline fail-loud guard rejecting an unsupported nonzero
   // depthStencil.bias.clamp (gl.polygonOffset has no clamp param) — inline descriptor
   // validation at the createPipeline entry, not extractable (+10).
-  'rhi-webgl2/src/rhi-webgl2.ts': 1364,
-  'map/src/render/renderer.ts': 965,
+  // 1364→1376 (#1062): the 'line-list' topology seam — a Gl2Pipeline.topology field
+  // (stored from desc.topology) + a drawMode() helper picking gl.LINES vs gl.TRIANGLES,
+  // consumed by both draw / drawIndexed, so the graticule twin can draw segment pairs.
+  'rhi-webgl2/src/rhi-webgl2.ts': 1376,
+  // 965→1000 (#1062): the graticule overlay's WebGL2 seam — renderGraticuleOverlayRhi
+  // (the RHI twin of renderGraticuleOverlay, threading the canonical ECEF frame view
+  // + projection into GraticuleRenderer.renderFrameRhi) + the RhiRenderPass import.
+  'map/src/render/renderer.ts': 1000,
   'map/src/render/gpu-tile-store.ts': 941,
   // 930→948 (#1078): the zoom-transition readiness gate now probes the SAME
   // selector the frame draws with — routeToSphereSelector picks globeVisibleTiles

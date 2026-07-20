@@ -13,13 +13,26 @@
 // PASSED IN; the offsets are NOT re-derived or changed.
 
 import type { GPUContext } from '@xgis/rhi-webgpu'
-import { uniformBlock, type UniformBlockOf } from '@xgis/engine'
+import {
+  uniformBlock,
+  executeItems,
+  Material,
+  type UniformBlockOf,
+  type RhiDevice,
+  type RhiRenderPass,
+  type RhiBuffer,
+  type RhiBindGroup,
+} from '@xgis/engine'
+import { toVertexBufferLayout } from '@xgis/rhi-webgpu'
 import { isGlobeProj, lonLatToMercator } from '@xgis/geo'
 import { activeBody } from '@xgis/shared'
 import { generateGraticule } from '../graticule'
 import { visibleWorldCopiesFor, type VisibleWorldCopiesHost } from '../camera/camera-world-copies'
-import type { UniformRing } from './uniform-ring'
-import { polygonU as POLYGON_U } from '../shaders/dsl/polygon'
+import { UniformRing } from './uniform-ring'
+import { polygonU as POLYGON_U, emitPolygonWgsl, emitPolygonGlsl } from '../shaders/dsl/polygon'
+import { polygonUniformBytes } from './polygon-uniform-slots'
+import { buildGraticuleLineMaterial } from './material/polygon-fill-material'
+import { LINE_FORMAT } from './line-vertex-format'
 import { globeEyeUniform } from './globe-eye-uniform'
 
 // Typed pack target for the shared polygon 'Uniforms' struct (#733 P2c) — layout
@@ -113,7 +126,11 @@ export class GraticuleRenderer {
   /** Toggle the lat/lon grid overlay at runtime. Default off. */
   setEnabled(on: boolean): void {
     this.graticuleEnabled = on
-    if (on && !this.graticuleBuffer)
+    // Eager WebGPU-buffer prime so the first frame after enabling draws without a
+    // zoom-bucket stall. Skipped on the forced-WebGL2 twin: `ctx.device` is a fail-
+    // loud proxy there (no native GPUDevice), so the RHI buffer is built lazily in
+    // renderFrameRhi instead (#1062).
+    if (on && !this.graticuleBuffer && this.ctx.rhi?.backend !== 'webgl2')
       this.initGraticule(this.lastGratZoom >= 0 ? this.lastGratZoom : 2)
   }
 
@@ -186,7 +203,34 @@ export class GraticuleRenderer {
 
     pass.setPipeline(linePipeline)
     pass.setVertexBuffer(0, this.graticuleBuffer)
+    for (const c of this.copyParams(frame, camera, canvasWidth, canvasHeight, dpr)) {
+      this.drawCopy(
+        pass,
+        bindGroup,
+        ring,
+        frame,
+        c.mvp,
+        c.logDepthFc,
+        c.camH,
+        c.camL,
+        c.tileOriginMercX,
+        c.globeEye,
+      )
+    }
+  }
 
+  /** Compute the per-world-copy uniform-pack parameters for this frame — the
+   *  SINGLE authority for the graticule's globe/flat fan-out, shared by the WebGPU
+   *  (renderFrame) and forced-WebGL2 (renderFrameRhi) draws. Only the per-copy MVP,
+   *  DSFUN camera anchor, tile_origin_merc, log-depth factor, and globe_eye vary;
+   *  each backend then packs + draws through its own pipeline plumbing (#1062). */
+  private copyParams(
+    frame: GraticuleFrame,
+    camera: GraticuleCamera,
+    canvasWidth: number,
+    canvasHeight: number,
+    dpr: number,
+  ): GraticuleCopyParam[] {
     // #729 — world-copy fan-out routed through the single projType authority
     // (visibleWorldCopiesFor), so the single-pass ECEF path is the SPECIAL case,
     // not the default the ECEF migration wrongly made it (the 'cam_h unused —
@@ -196,20 +240,16 @@ export class GraticuleRenderer {
       // absolute ECEF, world-copy-independent on the sphere. One draw against
       // the ECEF-MVP with RTC anchor (0,0,0) — cam_h/cam_l unused by vs_main's
       // 3D arm — and globe_eye from frame.eye (#600).
-      const ge = globeEyeUniform(frame.eye)
-      this.drawCopy(
-        pass,
-        bindGroup,
-        ring,
-        frame,
-        frame.mvp,
-        frame.logDepthFc,
-        [0, 0],
-        [0, 0],
-        0,
-        ge,
-      )
-      return
+      return [
+        {
+          mvp: frame.mvp,
+          logDepthFc: frame.logDepthFc,
+          camH: [0, 0],
+          camL: [0, 0],
+          tileOriginMercX: 0,
+          globeEye: globeEyeUniform(frame.eye),
+        },
+      ]
     }
 
     // Flat display (projType 0-6): fan the grid across the SAME world copies the
@@ -232,23 +272,75 @@ export class GraticuleRenderer {
     const worldWidth = 2 * Math.PI * activeBody().sphereR
     const camHy = Math.fround(camMercY)
     const camLy = Math.fround(camMercY - camHy)
+    const out: GraticuleCopyParam[] = []
     for (const wo of copies) {
       const camX = camMercX - wo * worldWidth
       const camHx = Math.fround(camX)
       const camLx = Math.fround(camX - camHx)
-      this.drawCopy(
-        pass,
-        bindGroup,
-        ring,
-        frame,
-        view.matrix,
-        view.logDepthFc,
-        [camHx, camHy],
-        [camLx, camLy],
-        wo * worldWidth,
-        NO_GLOBE_EYE,
-      )
+      out.push({
+        mvp: view.matrix,
+        logDepthFc: view.logDepthFc,
+        camH: [camHx, camHy],
+        camL: [camLx, camLy],
+        tileOriginMercX: wo * worldWidth,
+        globeEye: NO_GLOBE_EYE,
+      })
     }
+    return out
+  }
+
+  /** Draw the graticule grid on the forced-WebGL2 twin (#1062). RHI sibling of
+   *  renderFrame: the SAME zoom-bucket cache + copyParams fan-out + polygon
+   *  Uniforms pack, but the geometry lives in an RhiBuffer, the uniforms in an
+   *  RHI UniformRing, and the draw routes through the graticule line Material
+   *  (vs_main / fs_stroke, line-list topology) — the RHI twin of the WebGPU
+   *  `linePipeline` the overlay borrows. Resources are built through the injected
+   *  RHI device (this.ctx.rhi); WebGL2 is immediate-mode, so every staged slot is
+   *  flushed before the batched draw. */
+  renderFrameRhi(
+    pass: RhiRenderPass,
+    frame: GraticuleFrame,
+    camera: GraticuleCamera,
+    canvasWidth: number,
+    canvasHeight: number,
+    dpr: number,
+  ): void {
+    const rhi = this.ctx.rhi
+    if (this.graticuleEnabled) {
+      const gratZoom = Math.round(frame.zoom)
+      if (gratZoom !== this.lastGratZoomRhi) this.initGraticuleRhi(rhi, gratZoom)
+    }
+    if (!this.graticuleEnabled || !this.graticuleRhiBuffer) return
+
+    const material = this.ensureLineMatRhi()
+    const ring = this.ensureRhiRing(rhi)
+    ring.resetSlot()
+    const params = this.copyParams(frame, camera, canvasWidth, canvasHeight, dpr)
+    // Allocate + stage every copy's slot BEFORE building the bind group, so a
+    // ring grow (rare — initial capacity comfortably exceeds the world-copy count)
+    // is already resolved when rhiBindGroup reads the live ring buffer.
+    const offsets = params.map((c) => {
+      const off = ring.allocSlot()
+      ring.stageSlot(
+        off,
+        this.packCopy(frame, c.mvp, c.logDepthFc, c.camH, c.camL, c.tileOriginMercX, c.globeEye),
+      )
+      return off
+    })
+    const bindGroup = this.rhiBindGroup(rhi, material)
+    ring.flush()
+    executeItems(
+      material,
+      pass,
+      offsets.map((off) => ({
+        variant: 0,
+        bindGroups: [bindGroup],
+        dynamicOffsets: [[off]],
+        vertex: this.graticuleRhiBuffer!,
+        count: this.graticuleRhiVertexCount,
+        indexed: false,
+      })),
+    )
   }
 
   /** Pack the shared polygon 'Uniforms' struct for ONE graticule copy + draw it.
@@ -271,6 +363,26 @@ export class GraticuleRenderer {
     tileOriginMercX: number,
     globeEye: readonly [number, number, number, number],
   ): void {
+    const buf = this.packCopy(frame, mvp, logDepthFc, camH, camL, tileOriginMercX, globeEye)
+    const gratOff = ring.allocSlot()
+    ring.stageSlot(gratOff, buf)
+    pass.setBindGroup(0, bindGroup, [gratOff])
+    pass.draw(this.graticuleVertexCount)
+  }
+
+  /** Write the shared polygon 'Uniforms' struct for ONE copy and return the packed
+   *  buffer. Backend-neutral (both drawCopy and renderFrameRhi stage its bytes into
+   *  their ring) — the memoised gratBlock is overwritten per call, but stageSlot
+   *  snapshots it immediately, so successive packs never alias. */
+  private packCopy(
+    frame: GraticuleFrame,
+    mvp: Float32Array | number[],
+    logDepthFc: number,
+    camH: readonly [number, number],
+    camL: readonly [number, number],
+    tileOriginMercX: number,
+    globeEye: readonly [number, number, number, number],
+  ): ArrayBuffer {
     const B = gratBlock()
     B.write({
       mvp,
@@ -300,9 +412,101 @@ export class GraticuleRenderer {
       light_dir_ecef: [0, 0, 0, 0],
       globe_eye: [globeEye[0], globeEye[1], globeEye[2], globeEye[3]],
     })
-    const gratOff = ring.allocSlot()
-    ring.stageSlot(gratOff, B.buffer)
-    pass.setBindGroup(0, bindGroup, [gratOff])
-    pass.draw(this.graticuleVertexCount)
+    return B.buffer
   }
+
+  // ── Forced-WebGL2 twin state (#1062) — parallel to the WebGPU buffer/ring above.
+  // The zoom-bucket CPU cache (graticule.ts, keyed by GraticuleData identity) is
+  // shared; only the GPU handle differs (RhiBuffer vs GPUBuffer), so the twin keeps
+  // its own RhiBuffer cache + UniformRing + bind group.
+  private graticuleRhiBuffer: RhiBuffer | null = null
+  private graticuleRhiVertexCount = 0
+  private lastGratZoomRhi = -1
+  private graticuleRhiBufferCache = new WeakMap<object, { buf: RhiBuffer; count: number }>()
+  private _rhiRing: UniformRing | null = null
+  private _rhiBindGroup: { buf: RhiBuffer; bg: RhiBindGroup } | null = null
+  private _lineMatRhi: Material | null = null
+
+  /** The graticule line Material (built lazily ONCE — the emit throws until
+   *  configureProjections() has run, so it MUST NOT be a ctor/field initializer,
+   *  same discipline as polygonUniformBytes()). Single colour target, binding-0
+   *  Uniforms only (fs_stroke samples no texture), line-list topology. */
+  private ensureLineMatRhi(): Material {
+    if (this._lineMatRhi) return this._lineMatRhi
+    this._lineMatRhi = buildGraticuleLineMaterial({
+      rhi: this.ctx.rhi,
+      shader: emitPolygonWgsl(null, false),
+      vsCode: emitPolygonGlsl(null, false, 'vertex', 'vs_main'),
+      fsCode: emitPolygonGlsl(null, false, 'fragment', 'fs_stroke'),
+      format: this.ctx.format,
+      sampleCount: 1,
+      rhiGroups: [[{ binding: 0, kind: 'uniform', dynamic: true, name: 'Uniforms' }]],
+      vertexLayout: toVertexBufferLayout(LINE_FORMAT),
+      pickEnabled: false,
+    })
+    return this._lineMatRhi
+  }
+
+  /** RHI twin of initGraticule: build/cache the graticule geometry as an RhiBuffer
+   *  for the current zoom bucket (same GraticuleData-identity cache discipline). */
+  private initGraticuleRhi(rhi: RhiDevice, zoom = 2): void {
+    const grat = generateGraticule(zoom)
+    const cached = this.graticuleRhiBufferCache.get(grat)
+    if (cached) {
+      this.graticuleRhiBuffer = cached.buf
+      this.graticuleRhiVertexCount = cached.count
+      this.lastGratZoomRhi = zoom
+      return
+    }
+    const buf = rhi.createBuffer({
+      size: grat.vertices.byteLength,
+      usage: 'vertex',
+      label: 'graticule',
+    })
+    rhi.writeBuffer(buf, 0, grat.vertices)
+    this.graticuleRhiBufferCache.set(grat, { buf, count: grat.indexCount })
+    this.graticuleRhiBuffer = buf
+    this.graticuleRhiVertexCount = grat.indexCount
+    this.lastGratZoomRhi = zoom
+  }
+
+  private ensureRhiRing(rhi: RhiDevice): UniformRing {
+    if (!this._rhiRing) {
+      this._rhiRing = new UniformRing(
+        rhi,
+        gratBlock().std140Stride(),
+        64,
+        'graticule-uniform-ring',
+        () => {
+          this._rhiBindGroup = null
+        },
+      )
+      this._rhiRing.ensure()
+    }
+    return this._rhiRing
+  }
+
+  /** RHI bind group over the ring buffer (dynamic offset @0). Cached per ring-buffer
+   *  identity — a ring grow swaps rhiBuffer (and nulls the cache via onGrow), so this
+   *  rebuilds automatically. */
+  private rhiBindGroup(rhi: RhiDevice, material: Material): RhiBindGroup {
+    const buf = this._rhiRing!.rhiBuffer!
+    if (this._rhiBindGroup?.buf === buf) return this._rhiBindGroup.bg
+    const bg = rhi.createBindGroup(material.layout(0), [
+      { binding: 0, resource: { buffer: buf, offset: 0, size: polygonUniformBytes() } },
+    ])
+    this._rhiBindGroup = { buf, bg }
+    return bg
+  }
+}
+
+/** Per-world-copy uniform-pack parameters computed once per frame by copyParams and
+ *  consumed by each backend's draw. */
+interface GraticuleCopyParam {
+  mvp: Float32Array | number[]
+  logDepthFc: number
+  camH: readonly [number, number]
+  camL: readonly [number, number]
+  tileOriginMercX: number
+  globeEye: readonly [number, number, number, number]
 }

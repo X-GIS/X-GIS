@@ -179,6 +179,10 @@ export interface RhiPipelineDesc {
   /** Triangle face culling. Default 'none' (byte-identical to the prior hardcoded primitive).
    *  'back' back-face culls (e.g. dropping a sphere's far hemisphere). */
   cullMode?: 'none' | 'back' | 'front'
+  /** Primitive topology. Default 'triangle-list' (byte-identical to the prior hardcoded
+   *  primitive). 'line-list' draws each vertex pair as an independent segment — the
+   *  lat/lon graticule overlay's geometry (the only line-list consumer so far). */
+  topology?: 'triangle-list' | 'line-list'
   label?: string
 }
 

@@ -201,6 +201,41 @@ export function buildBakeFillMaterial(inp: FillMaterialInputs): Material {
   })
 }
 
+/** Build the graticule lat/lon-grid line Material (#1062) — the RHI twin of the WebGPU
+ *  `linePipeline` the overlay borrows there. Same polygon module, its `vs_main` / `fs_stroke`
+ *  entries, and the LINE_FORMAT (stride-9 ECEF-DSFUN) vertex layout; `topology: 'line-list'`
+ *  draws the graticule's segment-pair vertices as independent lines. One variant mirrors the
+ *  native line-pipeline's STENCIL_WRITE depth-stencil (depth `less-equal` + write, so far-
+ *  hemisphere grid lines are occluded on the globe) with alpha blend. Single colour target
+ *  (the overlay never writes the pick MRT). */
+export function buildGraticuleLineMaterial(inp: FillMaterialInputs): Material {
+  const rhi: RhiDevice = inp.rhi
+  const fmt = inp.format as 'bgra8unorm'
+  const groups = inp.rhiGroups ?? [wrapWebGpuBindGroupLayout(inp.bindGroupLayout!)]
+  return new Material(rhi, {
+    shader: inp.shader,
+    vsCode: inp.vsCode,
+    fsCode: inp.fsCode,
+    vsEntry: 'vs_main',
+    fsEntry: 'fs_stroke',
+    format: fmt,
+    sampleCount: inp.sampleCount,
+    groups,
+    vertexBuffers: [toMatVB(inp.vertexLayout)],
+    colorTargets: [{ format: fmt, blend: 'alpha' }],
+    cullMode: 'none',
+    topology: 'line-list',
+    variants: [
+      {
+        depthCompare: 'less-equal',
+        depthWrite: true,
+        stencil: { compare: 'always', passOp: 'replace', writeMask: 0xff, readMask: 0xff },
+        label: 'graticule-line-rhi',
+      },
+    ],
+  })
+}
+
 /** Build the 3D-extruded fill Material (vs_main_ecef_extruded / fs_fill_extrude, the POLYGON_EXTRUDED
  *  vertex layout). Variant 0 = STENCIL_WRITE (fillPipelineExtruded), 1 = STENCIL_TEST (fallback) —
  *  same depth/stencil as the flat fill (NOT ground). The per-tile z-buffer is bound at slot 1. */
