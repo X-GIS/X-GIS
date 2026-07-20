@@ -205,7 +205,7 @@ async function runScenario(
   label: string,
   motion: 'idle' | 'pan' | 'zoom',
 ): Promise<void> {
-  const { profile, frames, perfNowAtStart } = await recordWithProfile(page, cdp, 5000, motion)
+  const { profile, frames, _perfNowAtStart } = await recordWithProfile(page, cdp, 5000, motion)
   const s = summary(frames)
 
   console.log(`\n══ ${label} (${motion}) ══`)

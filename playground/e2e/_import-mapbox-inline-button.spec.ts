@@ -97,7 +97,7 @@ test.describe('Mapbox import hook — inline GeoJSON auto-push', () => {
     )
 
     const result = await page.evaluate(
-      async ({ fill, bg, tol }) => {
+      async ({ fill, _bg, tol }) => {
         const canvas = document.getElementById('map') as HTMLCanvasElement
         const blob = await new Promise<Blob | null>((res) =>
           canvas.toBlob((b) => res(b), 'image/png'),

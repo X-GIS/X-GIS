@@ -249,7 +249,7 @@ describe('Mercator high-pitch drag p95 — across-frame layout cache (#10)', () 
 
     const stats = stage.getLayoutCacheStats()
     const ensurePerFrame = ensureCalls / FRAMES
-    // eslint-disable-next-line no-console
+
     console.log(
       `[merc-pitch-drag-perf] frames=${FRAMES} labels/frame=${LABELS_PER_FRAME} ` +
         `mean=${mean.toFixed(2)}ms median=${median.toFixed(2)}ms ` +

@@ -349,8 +349,8 @@ function buildGlobeLimbPolygon(
   // Orthonormal basis u,v ⊥ ê. u = normalize(ê × zAxis); fall back to xAxis when
   // ê ≈ ±z (the cross with z degenerates there).
   let ax = 0,
-    ay = 0,
     az = 1
+  const ay = 0
   if (Math.abs(ez) > 0.99) {
     ax = 1
     az = 0

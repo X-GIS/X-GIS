@@ -17,7 +17,6 @@ function parses(src: string): boolean {
     new Parser(tokens).parse()
     return true
   } catch (e) {
-    // eslint-disable-next-line no-console
     console.error('parse fail:', (e as Error).message, '\n---\n', src)
     return false
   }

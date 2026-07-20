@@ -66,7 +66,7 @@ describe('tile pipeline simulator — FLICKER reproduction', () => {
     // The simulation should show non-trivial peak pressure at the
     // motion peak.
     expect(result.peakMissed).toBeGreaterThan(0)
-    // eslint-disable-next-line no-console
+
     console.log(
       `[water_hierarchy sim] peak misses: ${result.peakMissed}, final backlog: ${result.finalBacklog}, final cache: ${result.finalCacheSize}`,
     )

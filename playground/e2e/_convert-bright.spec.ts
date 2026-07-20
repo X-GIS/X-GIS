@@ -42,7 +42,7 @@ test.describe('Mapbox → xgis converter — end-to-end visibility', () => {
     // ── Step 3: collect every error channel BEFORE navigation.
     const consoleErrors: string[] = []
     const pageErrors: string[] = []
-    const swallowedAlerts: string[] = []
+    const _swallowedAlerts: string[] = []
     const allConsole: string[] = []
     page.on('console', (m) => {
       allConsole.push(`[${m.type()}] ${m.text()}`)

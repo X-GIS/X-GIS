@@ -58,7 +58,7 @@ function aggregate(samples: Stats[], label: string): void {
   }
   const draws = samples.map((s) => s.drawCalls).sort((a, b) => a - b)
   const tiles = samples.map((s) => s.tilesVisible).sort((a, b) => a - b)
-  const verts = samples.map((s) => s.vertices).sort((a, b) => a - b)
+  const _verts = samples.map((s) => s.vertices).sort((a, b) => a - b)
   const tris = samples.map((s) => s.triangles).sort((a, b) => a - b)
   const lines = samples.map((s) => s.lines).sort((a, b) => a - b)
   const fps = samples.map((s) => s.fps).sort((a, b) => a - b)

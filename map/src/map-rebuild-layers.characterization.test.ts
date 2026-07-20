@@ -241,7 +241,7 @@ function makeMap(mocks: RebuildMocks): { map: XGISMap; internals: MapInternals }
 // paintShapes / filterExpr / shaderVariant / geometryExpr — the rest is
 // irrelevant. Returns `any` because the runtime ShowCommand type carries
 // ~50 fields we don't need to populate for this orchestration path.
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
+
 function show(targetName: string, extras: Record<string, unknown> = {}): any {
   return {
     targetName,

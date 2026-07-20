@@ -21,7 +21,7 @@ describe('visibleTilesFrustum at low pitch', () => {
   function logTiles(label: string, tiles: ReturnType<typeof visibleTilesFrustum>) {
     const byZoom: Record<number, number> = {}
     for (const t of tiles) byZoom[t.z] = (byZoom[t.z] ?? 0) + 1
-    // eslint-disable-next-line no-console
+
     console.log(label, { total: tiles.length, byZoom, sample: tiles.slice(0, 5) })
   }
 
@@ -94,7 +94,7 @@ describe('visibleTilesFrustum at low pitch', () => {
     // Look specifically for tiles in far world copies (ox negative and large)
     const farLeft = tiles.filter((t) => (t.ox ?? t.x) < -40)
     const farRight = tiles.filter((t) => (t.ox ?? t.x) > 60)
-    // eslint-disable-next-line no-console
+
     console.log('far tiles:', {
       farLeft: farLeft.length,
       farRight: farRight.length,
@@ -131,7 +131,7 @@ describe('visibleTilesFrustum at low pitch', () => {
       const tiles = visibleTilesFrustum(cam, mercator, 1, W, H)
       results.push({ pitch, count: tiles.length })
     }
-    // eslint-disable-next-line no-console
+
     console.log('geojson zoom=1 pitch sweep:', results)
     for (const r of results) {
       expect(r.count).toBeGreaterThan(0)
@@ -145,7 +145,7 @@ describe('visibleTilesFrustum at low pitch', () => {
       const tiles = visibleTilesFrustum(cam, mercator, 4, W, H)
       results.push({ pitch, count: tiles.length })
     }
-    // eslint-disable-next-line no-console
+
     console.log('zoom=4 pitch sweep:', results)
     for (const r of results) {
       expect(r.count).toBeGreaterThan(0)
@@ -168,7 +168,7 @@ describe('visibleTilesFrustum at low pitch', () => {
     const tiles15 = visibleTilesFrustum(cam15, mercator, 4, W, H)
     const keys15 = new Set(tiles15.map((t) => `${t.z}/${t.x}/${t.y}/${t.ox}`))
     const missingInPitch15 = tiles0.filter((t) => !keys15.has(`${t.z}/${t.x}/${t.y}/${t.ox}`))
-    // eslint-disable-next-line no-console
+
     console.log('pitch 0 vs 15 overlap:', {
       pitch0: tiles0.length,
       pitch15: tiles15.length,
@@ -185,7 +185,7 @@ describe('visibleTilesFrustum at low pitch', () => {
       const tiles = visibleTilesFrustum(cam, mercator, 5, W, H)
       results.push({ bearing, count: tiles.length })
     }
-    // eslint-disable-next-line no-console
+
     console.log('zoom=5 pitch=0 bearing sweep:', results)
     for (const r of results) {
       expect(r.count).toBeGreaterThan(0)
@@ -199,7 +199,7 @@ describe('visibleTilesFrustum at low pitch', () => {
       const tiles = visibleTilesFrustum(cam, mercator, 5, W, H)
       results.push({ bearing, count: tiles.length })
     }
-    // eslint-disable-next-line no-console
+
     console.log('zoom=5 pitch=30 bearing sweep:', results)
     for (const r of results) {
       expect(r.count).toBeGreaterThan(0)
@@ -217,7 +217,7 @@ describe('visibleTilesFrustum at low pitch', () => {
         }
       }
     }
-    // eslint-disable-next-line no-console
+
     console.log('pitch×bearing cells with < 4 tiles:', failing)
     expect(failing).toEqual([])
   })
@@ -244,7 +244,6 @@ describe('visibleTilesFrustum at low pitch', () => {
             c: tiles.length,
           })
           if (tiles.length === 0) {
-            // eslint-disable-next-line no-console
             console.log('ZERO TILES:', { pos: c, pitch, bearing })
           }
         }
@@ -252,7 +251,7 @@ describe('visibleTilesFrustum at low pitch', () => {
     }
     // Summarize — print worst cells (lowest count)
     all.sort((a, b) => a.c - b.c)
-    // eslint-disable-next-line no-console
+
     console.log('lowest-count cells:', all.slice(0, 10))
     for (const r of all) {
       expect(r.c).toBeGreaterThan(0)
@@ -266,7 +265,7 @@ describe('visibleTilesFrustum at low pitch', () => {
       const tiles = visibleTilesFrustum(cam, mercator, 8, W, H)
       results.push({ pitch, count: tiles.length })
     }
-    // eslint-disable-next-line no-console
+
     console.log('zoom=8 pitch sweep:', results)
     for (const r of results) {
       expect(r.count).toBeGreaterThan(0)
@@ -289,7 +288,7 @@ describe('visibleTilesFrustum at low pitch', () => {
         const tiles = visibleTilesFrustum(cam, mercator, Math.round(c.zoom), W, H)
         counts[pitch] = tiles.length
       }
-      // eslint-disable-next-line no-console
+
       console.log(`[${c.name}]`, counts)
       for (const p in counts) {
         expect(counts[+p]).toBeGreaterThan(0)
@@ -314,7 +313,7 @@ describe('visibleTilesFrustum at low pitch', () => {
     const tiles = visibleTilesFrustum(cam, mercator, 8, 1280, 800)
     const byZ: Record<number, number> = {}
     for (const t of tiles) byZ[t.z] = (byZ[t.z] ?? 0) + 1
-    // eslint-disable-next-line no-console
+
     console.log('extreme pitch tiles:', { total: tiles.length, byZ })
     expect(tiles.length).toBeGreaterThan(0)
     // Must have at least some high-zoom tiles (z >= 7) — foreground detail.
@@ -329,7 +328,7 @@ describe('visibleTilesFrustum at low pitch', () => {
       const tiles = visibleTilesFrustum(cam, mercator, 5, W, H)
       results.push({ pitch, count: tiles.length })
     }
-    // eslint-disable-next-line no-console
+
     console.log('pitch sweep:', results)
     for (const r of results) {
       expect(r.count).toBeGreaterThan(0)

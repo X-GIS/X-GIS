@@ -436,6 +436,7 @@ async function ensureWebGl2ContextRestored(
   let onLost: ((e: Event) => void) | undefined
   const restored = new Promise<void>((resolve, reject) => {
     let settled = false
+    // eslint-disable-next-line prefer-const -- assigned once BELOW the closures that capture it; `const` cannot be assigned there
     let timer: ReturnType<typeof setTimeout>
     const onRestored = (): void => {
       if (settled) return

@@ -165,7 +165,7 @@ describe('multi-layer over-zoom: per-layer generateSubTile across one frame', ()
     // Four "viewport" sub-keys at z=2 (within the parent quadrant).
     const subKeys = [tileKey(2, 2, 0), tileKey(2, 3, 0), tileKey(2, 2, 1), tileKey(2, 3, 1)]
 
-    let snapshot: number[] = []
+    const snapshot: number[] = []
     for (let frame = 1; frame <= 60; frame++) {
       // Each layer's render() resets the budget.
       for (const ln of layers) {

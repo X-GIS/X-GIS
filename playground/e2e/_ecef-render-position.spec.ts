@@ -34,7 +34,7 @@ test('ECEF polygon fill lands at its true screen position (camera-relative)', as
   const setup = await page.evaluate(() => {
     const m = (window as any).__xgisMap
     const cam = m.camera
-    const EARTH_R = 6378137
+    const _EARTH_R = 6378137
     cam.centerX = 0 // lon 0 → mercator x 0
     cam.centerY = 0 // lat 0 → mercator y 0
     cam.zoom = 3

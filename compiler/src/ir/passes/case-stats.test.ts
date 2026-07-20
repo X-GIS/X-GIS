@@ -24,14 +24,14 @@ function probeMatchExprs(fixture: string) {
   let anyMatch = 0
   let trivial = 0
   const examples: string[] = []
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+
   function inspect(node: any, label: string) {
     if (!node) return
     if (node.kind === 'data-driven' && node.expr?.ast) {
       const ast = node.expr.ast
       if (ast.kind === 'FnCall' && ast.matchBlock) {
         anyMatch++
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+
         const arms = ast.matchBlock.arms as { value: unknown }[]
         if (arms.length > 1) {
           const first = JSON.stringify(arms[0]!.value)
@@ -62,7 +62,7 @@ describe('match expression statistics on real fixtures', () => {
   ]) {
     it(`reports counts for ${fixture}`, () => {
       const stats = probeMatchExprs(fixture)
-      // eslint-disable-next-line no-console
+
       console.log(
         `[${fixture}] match exprs: ${stats.anyMatch}, trivial: ${stats.trivial}, examples: ${stats.examples.join(' | ')}`,
       )
