@@ -17,10 +17,13 @@
 // boot on the first style). All boots reuse the test's own page: a
 // browser.newPage() page never pumped rAF here (one rendered frame in 6 s).
 //
-// SwiftShader caveat: absolute ms are software-GPU-inflated; the deliverable
-// is encode-vs-layer-count scaling and the knee, not the absolute frame
-// budget. No assertions — a measurement harness, like its sibling
-// _perf-bright-high-pitch-cpu.spec.ts.
+// Root cause (previous run): full-frame country-polygon fills stacked N
+// layers deep at 1280x800 x 4xMSAA cost the SwiftShader GPU process tens of
+// seconds per frame, starving compositor BeginFrames (and with them rAF)
+// nearly to a stop while page.evaluate tasks kept running. frame.encode is
+// CPU-side and viewport-independent, so shrinking the pixel cost leaves the
+// measured quantity intact. No assertions — a measurement harness, like its
+// sibling _perf-bright-high-pitch-cpu.spec.ts.
 //
 // Run: cd playground && XGIS_SOFTWARE_GPU=1 \
 //      ./node_modules/.bin/playwright test _perf-encode-scaling-sweep.spec.ts
@@ -74,7 +77,7 @@ function syntheticStyle(nLayers: number): string {
 async function bootAt(page: Page, nLayers: number): Promise<number> {
   const xgis = syntheticStyle(nLayers)
   const b64 = Buffer.from(xgis, 'utf8').toString('base64')
-  await page.goto(`/demo.html?id=__import&perfmarks=1&label=sweep${nLayers}#src=${b64}`, {
+  await page.goto(`/demo.html?id=__import&perfmarks=1&msaa=1&label=sweep${nLayers}#src=${b64}`, {
     waitUntil: 'domcontentloaded',
   })
   await page.waitForFunction(
@@ -109,7 +112,7 @@ async function bootAt(page: Page, nLayers: number): Promise<number> {
   )
 }
 
-/** 6 s rotate sweep (bearing 0→360) — navigating frames without changing the
+/** 8 s rotate sweep (bearing 0→360) — navigating frames without changing the
  *  visible tile set, isolating encode from fetch/upload. */
 async function runSweep(page: Page, ms: number): Promise<number[]> {
   return page.evaluate(async (durationMs) => {
@@ -166,7 +169,7 @@ function pct(arr: number[], p: number): number {
 
 test('encode scaling sweep — frame.encode vs layer count (#1190)', async ({ page }) => {
   test.setTimeout(1_500_000)
-  await page.setViewportSize({ width: 1280, height: 800 })
+  await page.setViewportSize({ width: 320, height: 240 })
   page.on('pageerror', (e) => console.log(`[pageerror] ${e.message}`))
   await page.addInitScript(() => {
     ;(window as unknown as { __xgisPerfMarks?: boolean }).__xgisPerfMarks = true
@@ -181,9 +184,9 @@ test('encode scaling sweep — frame.encode vs layer count (#1190)', async ({ pa
     frameP95: number
   }> = []
 
-  for (const n of [16, 64, 256]) {
+  for (const n of [8, 32, 128]) {
     const layers = await bootAt(page, n)
-    const frames = (await runSweep(page, 6000)).slice(2)
+    const frames = (await runSweep(page, 8000)).slice(2)
     const phases = await readPhases(page)
     const enc = phases.find((p) => p.name === 'frame.encode')
     rows.push({
@@ -199,7 +202,7 @@ test('encode scaling sweep — frame.encode vs layer count (#1190)', async ({ pa
     )
   }
 
-  console.log('\n=== #1190 encode scaling sweep (countries.geojson, 6s rotate, SwiftShader) ===')
+  console.log('\n=== #1190 encode scaling sweep (countries.geojson, 8s rotate, SwiftShader) ===')
   console.log('n | layers(actual) | frame.encode mean ms | worst ms | frame p50 | p95')
   for (const r of rows) {
     console.log(
