@@ -1185,6 +1185,13 @@ async function loadDemo(idx: number) {
 
   await runSource(demo.source, demo.name)
 
+  // #1192 P1 — demo-declared viewport projection (mirrors MapLibre examples
+  // that call the projection API, e.g. globe). `?proj=` URL override wins —
+  // runSource already applied it.
+  if (currentMap && demo.projection && !params.get('proj')) {
+    currentMap.setProjection(demo.projection)
+  }
+
   // Post-run hook: inline-source fixtures need the host to push
   // data — without this, gallery visitors see an empty canvas.
   // E2E tests that drive these fixtures themselves pass `?e2e=1`

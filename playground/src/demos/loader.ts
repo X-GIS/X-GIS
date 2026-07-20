@@ -61,6 +61,11 @@ export interface Demo {
    *  coordinate. Used by interactive picking demos and any fixture
    *  that wants to expose live event feedback for manual testing. */
   picking?: boolean
+  /** Viewport projection applied via `map.setProjection()` after the demo
+   *  mounts (#1192 P1 — mirrors MapLibre examples that call the projection
+   *  API rather than declaring it in the style, e.g. globe). A `?proj=` URL
+   *  override still wins. */
+  projection?: string
   /** Action buttons rendered by demo-runner while this demo is mounted. */
   actions?: DemoAction[]
 }

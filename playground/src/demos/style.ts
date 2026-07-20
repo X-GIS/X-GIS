@@ -21,6 +21,14 @@ export const DEMOS_STYLE: Record<string, Demo> = {
     source: load('filter-gdp.xgis'),
   },
 
+  layer_below_labels: {
+    name: 'Layer Below Labels',
+    tag: 'style',
+    description:
+      'MapLibre "Add a new layer below labels" port — a translucent lake overlay stacks above the land fill while city labels stay on top (label stage composites over every fill, no beforeId needed)',
+    source: load('layer-below-labels.xgis'),
+  },
+
   color_switcher: {
     name: 'Color Switcher',
     tag: 'style',
