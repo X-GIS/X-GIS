@@ -1,6 +1,7 @@
 # SceneBuilder — an imperative JS front-end to the .xgis compiler (#1194)
 
-Status: **A0 — design, awaiting approval. No code.**
+Status: **A0 approved → A1a landed** (builder core + parity gate, this PR).
+A1b (`runScene` seam) next.
 Author-architect discipline: this doc proposes the boundaries and then attacks
 them (§Socratic critique) before any increment lands.
 
