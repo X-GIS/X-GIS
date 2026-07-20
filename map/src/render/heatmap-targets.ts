@@ -25,6 +25,7 @@ import {
   type RenderTargetDevice,
   type RenderTargetView,
 } from '@xgis/rhi-webgpu'
+import type { RhiDevice, RhiTexture, RhiTextureView } from '@xgis/engine'
 
 /** Heatmap density-accumulation target format — single 16-bit float so the
  *  additive sum of overlapping Gaussian splats can grow well past 1 without
@@ -101,6 +102,65 @@ export class HeatmapTargets {
     this.height = h
   }
 
+  // ── Forced-WebGL2 twin targets (#1060) ──
+  // The native createRenderTarget path above threads a GPUDevice (WebGPU only);
+  // the twin frame (renderFrameViaRhi) has no native device, so the same two
+  // r16float render+sample targets re-originate through the RHI seam. Kept as a
+  // parallel set (not a union) so the WebGPU path stays byte-identical.
+  private accumRhi: RhiTexture | null = null
+  private blurRhi: RhiTexture | null = null
+  private accumViewRhiV: RhiTextureView | null = null
+  private blurViewRhiV: RhiTextureView | null = null
+  private widthRhi = 0
+  private heightRhi = 0
+  private deviceRhi: RhiDevice | null = null
+
+  /** Default view of the RHI accum target (null until `ensureRhi`). */
+  get accumViewRhi(): RhiTextureView | null {
+    return this.accumViewRhiV
+  }
+  /** Default view of the RHI blur target (null until `ensureRhi`). */
+  get blurViewRhi(): RhiTextureView | null {
+    return this.blurViewRhiV
+  }
+
+  /** RHI twin of `ensure`: lazily (re)allocate the r16float accum + blur density
+   *  targets on the given RHI device at canvas size. Same resize + device-swap
+   *  self-heal discipline. `usage: render|sample` so the accum pass draws into
+   *  it and the blur/compose passes texelFetch it. */
+  ensureRhi(device: RhiDevice, w: number, h: number): void {
+    if (device !== this.deviceRhi) {
+      this.deviceRhi = device
+      this.accumRhi = null
+      this.blurRhi = null
+      this.accumViewRhiV = null
+      this.blurViewRhiV = null
+      this.widthRhi = 0
+      this.heightRhi = 0
+    }
+    if (this.accumRhi && this.widthRhi === w && this.heightRhi === h) return
+    if (this.accumRhi) device.destroyTexture(this.accumRhi)
+    if (this.blurRhi) device.destroyTexture(this.blurRhi)
+    this.accumRhi = device.createTexture({
+      width: w,
+      height: h,
+      format: HEATMAP_DENSITY_FORMAT,
+      usage: ['render', 'sample'],
+      label: 'heatmap-accum-rhi',
+    })
+    this.blurRhi = device.createTexture({
+      width: w,
+      height: h,
+      format: HEATMAP_DENSITY_FORMAT,
+      usage: ['render', 'sample'],
+      label: 'heatmap-blur-rhi',
+    })
+    this.accumViewRhiV = device.createView(this.accumRhi)
+    this.blurViewRhiV = device.createView(this.blurRhi)
+    this.widthRhi = w
+    this.heightRhi = h
+  }
+
   /** Release the density targets (destroy + null). Called from the map's
    *  destroy() / re-init path. Safe to call when nothing was allocated. */
   destroy(): void {
@@ -110,5 +170,13 @@ export class HeatmapTargets {
     this.blur = null
     this.width = 0
     this.height = 0
+    if (this.deviceRhi && this.accumRhi) this.deviceRhi.destroyTexture(this.accumRhi)
+    if (this.deviceRhi && this.blurRhi) this.deviceRhi.destroyTexture(this.blurRhi)
+    this.accumRhi = null
+    this.blurRhi = null
+    this.accumViewRhiV = null
+    this.blurViewRhiV = null
+    this.widthRhi = 0
+    this.heightRhi = 0
   }
 }

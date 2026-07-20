@@ -1,0 +1,19 @@
+xgis 1
+
+/*
+ * Port of MapLibre's "Fly to a location".
+ *
+ * The .xgis is a plain world base; the gallery action buttons call
+ * map.flyTo({ center, zoom }) at runtime — the MapLibre original's
+ * button -> map.flyTo wiring, expressed as Demo.actions metadata.
+ */
+
+source world {
+  type: geojson
+  url: "ne_110m_countries.geojson"
+}
+
+layer countries {
+  source: world
+  | fill-emerald-800 stroke-emerald-500 stroke-0.5
+}
