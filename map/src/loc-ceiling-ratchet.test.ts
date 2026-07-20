@@ -119,7 +119,12 @@ const CEILINGS: Record<string, number> = {
   // slot bytes can't drift), keeping the twin a thin caller. Lower as #991 decomposes VTR.
   // Merge union (#1057 + #1059): tile-points AND the pattern branch stacked in
   // renderFillsRhi non-overlappingly — merged high-water is the measured 4677.
-  'map/src/render/vector-tile-renderer.ts': 4677,
+  // 4677→4702 (#1198, merge union): frame-matched extrusion-light packing — the
+  // `currentProjType` stash (proj_params write sites) + the flat-raw vs
+  // sphere-rotated light_dir_ecef branch, fixing the continent-scale roof
+  // lighting gradient (raw light in the vertex-ENU frame on flat projections);
+  // stacked non-overlappingly on the #1057/#1059 twin work — measured 4702.
+  'map/src/render/vector-tile-renderer.ts': 4702,
   // 4232→4237 (#1000 heatmap relocate): the heatmap density-target OWNERSHIP
   // extracted to render/heatmap-targets.ts; map keeps only the irreducible
   // composition-root wiring — the `heatmapTargets` field + its import (mirrors
@@ -303,7 +308,11 @@ const CEILINGS: Record<string, number> = {
   // Material, plus the updated GLSL-twin-set charter comment. Emit byte-identical.
   // Merge union (#1062 + #1059): one shared `entry` override, charter covers both
   // consumers — merged high-water is the measured 1348.
-  'map/src/shaders/dsl/polygon.ts': 1348,
+  // 1348→1368 (#1198, merge union): the ECEF→vertex-ENU normal rotation in the
+  // extrude VS (roof lighting was anchor-relative → continent-scale gradient) +
+  // the exact |N_enu.z| wall/roof discriminator; oracle in
+  // core/extrude-light-frame.test.ts. Stacked on the entry override — measured 1368.
+  'map/src/shaders/dsl/polygon.ts': 1368,
   // 1290→1314 (#1155 F3): cold-start burst tick budget — the `_coldStartBurst`
   // field + `_BURST_TICK_BUDGET` + `setColdStartBurst` + the burst-selected
   // budget in resetCompileBudget's backend tick loop.

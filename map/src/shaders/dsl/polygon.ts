@@ -28,6 +28,8 @@ import {
   If,
   Return,
   Discard,
+  sin,
+  cos,
   f32,
   u32,
   vec2,
@@ -740,18 +742,36 @@ const vsMainEcefExtruded = fn(
       .add(colorRgb.b.mul(0.0722))
     const ambient = vec3(0.03)
     const litColorRgb = colorRgb.add(ambient)
-    // #420 — ECEF-frame light dir (raw 0.288,-0.498,0.996 rotated by the
-    // camera-anchor ENU→ECEF basis on the CPU). Same frame as face_normal →
-    // fixes the dark side/back walls.
+    // #420 — ECEF-frame light dir. WS-9 — intensity + colour are uniforms
+    // (light_dir_ecef.w / light_color_packed); the CPU packs the MapLibre
+    // default (intensity 0.5, white) when no custom `light` is authored.
     const lightPos = U.field.light_dir_ecef.swizzle('xyz')
-    // WS-9 — intensity + colour are uniforms now (were baked consts). The CPU
-    // packs the MapLibre default (intensity 0.5, white) when no custom `light`
-    // is authored, so the default render stays byte-identical. Intensity rides
-    // light_dir_ecef.w; colour is RGBA8 in light_color_packed (8-bit per
-    // channel — ample for a light tint).
     const lightIntensity = U.field.light_dir_ecef.w
     const lightColor = unpack4x8unorm(U.field.light_color_packed).swizzle('xyz')
-    const directional = clamp(dot(p.face_normal, lightPos), 0, 1)
+    // #1198 — light in the frame the geometry is RENDERED in. face_normal is
+    // built in the VERTEX's own ENU frame (polygon-mesh) but the light is
+    // anchor-rotated, so dot(N_ecef, light) drifts into a geographic lambert
+    // gradient across continent-scale roofs. Rotate the normal BACK into its
+    // ENU frame (exact inverse of the mesh's rotation): flat projections dot
+    // it against the RAW viewport-frame light the CPU packs (MapLibre-exact
+    // at every lon/lat); the sphere family keeps the ECEF dot (#420 sun).
+    // N_enu.z is also the exact wall/roof discriminator for BOTH families —
+    // |N_ecef.z| misclassified equatorial roofs / high-latitude walls.
+    // Oracle: map/src/core/extrude-light-frame.test.ts (mirrors this math).
+    const lSin = Let(sin(radians(p.abs_lon)))
+    const lCos = Let(cos(radians(p.abs_lon)))
+    const phSin = Let(sin(radians(p.abs_lat)))
+    const phCos = Let(cos(radians(p.abs_lat)))
+    const nH = Let(p.face_normal.x.mul(lCos).add(p.face_normal.y.mul(lSin)))
+    const nEnu = Let(
+      vec3(
+        p.face_normal.y.mul(lCos).sub(p.face_normal.x.mul(lSin)),
+        p.face_normal.z.mul(phCos).sub(phSin.mul(nH)),
+        phCos.mul(nH).add(p.face_normal.z.mul(phSin)),
+      ),
+    )
+    const isFlatProj = projParamsV.x.lt(6.5)
+    const directional = clamp(dot(select(isFlatProj, nEnu, p.face_normal), lightPos), 0, 1)
     directional.assign(
       mix(
         f32(1).sub(lightIntensity),
@@ -765,7 +785,7 @@ const vsMainEcefExtruded = fn(
     // it into the wall test so `false` skips the ramp (flat wall shading);
     // at the default the branch is taken exactly as before (no-op gate).
     const vgGradOn = U.field.cam_ecef_off_l.w.ne(0)
-    const isWall = abs(p.face_normal.z).lt(0.5).and(vgGradOn)
+    const isWall = abs(nEnu.z).lt(0.5).and(vgGradOn)
     const tTop = p.is_top
     If(isWall, () => {
       // (t_top + base) * sqrt(height/150). h_for_grad = max(wall_height, 1)
