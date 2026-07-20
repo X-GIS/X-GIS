@@ -8,7 +8,13 @@ exercises it yet (C6 — sugar only with a paired example). **A3a landed**: the
 twin corpus is a single authority (`compiler/src/builder/twin-corpus.ts`,
 subpath-exported as `@xgis/compiler/builder/twin-corpus`, NOT on the main
 index) — the parity gate iterates it and demo-runner's `?runscene=1` mounts
-from it, so no twin exists in two places. A3b (gallery JS tab UI) next.
+from it, so no twin exists in two places. **A3b landed**: twin demos get an
+XGIS/JS tab pair in the gallery editor header; the JS view is extracted from
+the corpus RAW source (`?raw` import — the displayed code IS the code the
+parity gate pins; survives minification, unlike `Function.toString`),
+read-only with Run disabled. Remaining: twins for more demos land corpus-side
+(each new entry auto-appears in the gallery + parity gate). Phase B
+(incremental add/remove as builder-diff + re-run) stays future.
 Author-architect discipline: this doc proposes the boundaries and then attacks
 them (§Socratic critique) before any increment lands.
 
@@ -183,3 +189,6 @@ wc -l` per §12, not eyeballed. Gate: build + map suite + a SwiftShader
 - `Demo`-gallery JS-tab plumbing (A3): where the builder source text for
   display lives (paired file? inline template?) — decide with #1192's
   gallery work, not here.
+  **Answered in A3b:** neither — the display text is EXTRACTED from the
+  twin-corpus module's raw source (vite `?raw`), so the shown code is
+  byte-derived from the single authority and cannot drift from it.
