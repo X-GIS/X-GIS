@@ -64,7 +64,7 @@ import {
   structDecl,
   storageBuffer,
 } from '@xgis/shader-dsl'
-import { emitModule } from '@xgis/shader-dsl'
+import { emitModule, emitGlslModule, stageOf } from '@xgis/shader-dsl'
 import {
   needs_backface_cull,
   rim_alpha,
@@ -609,3 +609,19 @@ export const buildPointModule = (): ModuleDecl =>
 /** Full point shader: one module — shared projection consts + log-depth + projection fns
  *  merged ahead of the point structs / bindings / helpers. No pick variant. */
 export const emitPointWgsl = (): string => emitModule(buildPointModule())
+
+/** GLSL ES 3.00 twin for the WebGL2 backend (#1057) — the SAME point module, split per
+ *  stage, with `emulateStorage` lowering the feat_data / shapes / segments storage buffers
+ *  to R32F data-texture samplers (WebGl2Device's storage-buffer emulation). GLSL ES has one
+ *  `main` per stage, so the non-kept stage entry is filtered out. Consumed by PointDraper
+ *  behind a live `rhi.backend === 'webgl2'` guard, so the WebGPU boot never pays this emit
+ *  (mirrors emitCircleRetainedGlsl / emitLineGlsl). */
+export const emitPointGlsl = (stage: 'vertex' | 'fragment'): string => {
+  const m = buildPointModule()
+  const keep = stage === 'vertex' ? 'vs_point' : 'fs_point'
+  return emitGlslModule(
+    { ...m, funcs: m.funcs.filter((f) => stageOf(f) === undefined || f.name === keep) },
+    stage,
+    { emulateStorage: true },
+  )
+}

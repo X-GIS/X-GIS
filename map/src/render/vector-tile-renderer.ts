@@ -32,6 +32,8 @@ import {
   recordFillDraw,
   buildFlatFillMaterials,
   buildBakeFillMaterial,
+  buildFillPatternGroundMaterial,
+  resolveFillPatternPack,
   type FillRhiState,
 } from './material/polygon-fill-material'
 import { executeItems, type Material } from '@xgis/engine'
@@ -389,6 +391,12 @@ export class VectorTileRenderer {
    *  start of render(). Packed into slot 35 of every tile uniform. */
   private logDepthFc = 0
 
+  /** Active projType for the current frame, stashed where proj_params is
+   *  written (same pattern as logDepthFc). The light packer (#1198) reads it
+   *  to pick the lighting frame: raw viewport light when flat (< 6.5),
+   *  anchor-rotated ECEF when sphere. */
+  private currentProjType = 0
+
   // ── Uniform ring (dynamic-offset) ──
   // Shared across all tiles + world copies + layers in a frame. Each draw
   // gets a fresh 256-byte slot, preventing multi-layer writeBuffer clobber.
@@ -743,6 +751,56 @@ export class VectorTileRenderer {
     return bg
   }
 
+  /** The GROUND fill-pattern Material with GLSL twins (#1059) — the WebGL2 twin of the
+   *  WebGPU `patternGround` (built lazily ONCE). Same shared `buildFillPatternGroundMaterial`
+   *  authority the WebGPU path uses, but with the fs_fill_pattern GLSL twin (narrowed via
+   *  emitPolygonGlsl's `entry` override) + the sprite_atlas/sprite_samp rhiGroups so the
+   *  fragment samples the sprite atlas. Uses variant 0 (STENCIL_WRITE / GROUND depth-off), the
+   *  same variant the flat-fill twin draws — pattern fills are ground fills that trade their
+   *  solid colour for the atlas sample. */
+  private _fillPatternMatRhi: Material | null = null
+  private ensureFillPatternMaterialRhi(): Material {
+    if (this._fillPatternMatRhi) return this._fillPatternMatRhi
+    this._fillPatternMatRhi = buildFillPatternGroundMaterial({
+      rhi: this.rhi,
+      shader: emitPolygonWgsl(null, false),
+      vsCode: emitPolygonGlsl(null, false, 'vertex'),
+      fsCode: emitPolygonGlsl(null, false, 'fragment', 'fs_fill_pattern'),
+      format: this.format,
+      sampleCount: 1,
+      rhiGroups: [
+        [
+          { binding: 0, kind: 'uniform', dynamic: true, name: 'Uniforms' },
+          { binding: 5, kind: 'texture', name: 'sprite_atlas' },
+          { binding: 6, kind: 'sampler', name: 'sprite_samp' },
+        ],
+      ],
+      vertexLayout: toVertexBufferLayout(POLYGON_FILL_FORMAT),
+      pickEnabled: false,
+    })
+    return this._fillPatternMatRhi
+  }
+
+  /** RHI tile bind group for the fill-pattern Material (#1059) — mirrors fillTileBgRhi but
+   *  the pattern layout carries sprite_atlas/sprite_samp (bindings 5/6, like lineTileBgRhi),
+   *  bound to the pushed atlas or the white stub. Cached per ring-buffer identity + atlas
+   *  push (both invalidate the cache); a mid-frame ring grow swaps rhiBuffer so fetch per draw. */
+  private _fillPatternTileBgRhi: { buf: RhiBuffer; bg: RhiBindGroup } | null = null
+  private fillPatternTileBgRhi(): RhiBindGroup | null {
+    const buf = this.uniformRing?.rhiBuffer
+    if (!buf) return null
+    if (this._fillPatternTileBgRhi?.buf === buf) return this._fillPatternTileBgRhi.bg
+    const mat = this.ensureFillPatternMaterialRhi()
+    const atlas = this._spriteAtlasRhi ?? this.stubAtlasRhi()
+    const bg = this.rhi.createBindGroup(mat.layout(0), [
+      { binding: 0, resource: { buffer: buf, offset: 0, size: polygonUniformBytes() } },
+      { binding: 5, resource: { view: atlas.view } },
+      { binding: 6, resource: { sampler: atlas.sampler } },
+    ])
+    this._fillPatternTileBgRhi = { buf, bg }
+    return bg
+  }
+
   private _fillBakeMatRhi: Material | null = null
   /** Colour-only flat-fill Material for the offscreen tile bake (#599 I1). Built
    *  once through the SAME RHI device as the screen fill (WebGpuDevice on a GPU
@@ -964,7 +1022,16 @@ export class VectorTileRenderer {
      *  material with the show's pick_id in the tile slot (#834 M5 s6). */
     mode: 'color' | 'pick' = 'color',
   ): number {
-    if (!this.source?.hasData() || !this.source.getIndex()) return 0
+    // #1057 — clear any prior show's keys on the bail paths that never reach the
+    // stableKeys assignment below. Trap: the twin's emitTilePointsRhi is called
+    // by render-loop AFTER renderFillsRhi returns even when THIS show bailed, so a
+    // stale stableKeys would draw the previous show's tile points under this
+    // show's style. (On WebGPU the emit is coupled inside render()'s tail, past
+    // the assignment, so a bailed render() never emits — twin-only decoupling.)
+    if (!this.source?.hasData() || !this.source.getIndex()) {
+      this.stableKeys = []
+      return 0
+    }
     this.frameCount++
     this.source.resetCompileBudget(this.currentFrameId)
     // renderedDraws is RENDER-scoped (per ShowCommand — frame-draw-stats.ts):
@@ -995,10 +1062,34 @@ export class VectorTileRenderer {
       this.source.maxLevel,
       this._drawStats,
     )
-    if (!sel) return 0
-    const { neededKeys, worldOffDeg, currentZ } = sel
+    if (!sel) {
+      this.stableKeys = [] // #1057 — see the bail-reset note above (stale-key trap)
+      return 0
+    }
+    const { neededKeys, protectedAncestors, worldOffDeg, currentZ } = sel
     if (currentZ !== this.lastZoom) this.lastZoom = currentZ
     this.currentCameraZoom = camera.zoom
+    // #1057 — record this frame's visible keys for the twin's tile-point
+    // accumulation. The WebGPU render() sets stableKeys itself before its
+    // tail emitTilePointsRhi; on the forced-WebGL2 twin render() never runs,
+    // so emitTilePointsRhi (called after this show's fills+strokes in the
+    // render-loop opaque loop) reads what THIS pass selected. Set before the
+    // fill-null bail so a points-only layer (no polygon fill) still records
+    // its keys. Twin-only side effect: renderFillsRhi is never on the WebGPU
+    // frame path.
+    //
+    // Point-parity with the WebGPU merged set (render():~3763 = neededKeys +
+    // fallbackKeys + protectedAncestors): protectedAncestors (the high-pitch
+    // parent inject) is available straight off `sel`, so merge it — those
+    // ancestors' points now match WebGPU by construction. It is disjoint from
+    // neededKeys (tile-selection-cache strips it out), so a plain concat needs
+    // no dedup. fallbackKeys is the ONE term not reproduced here: the twin runs
+    // primary-only acquisition (its fallback pass was reverted in #1140 for a
+    // zoom-in perf regression — renderFillsRhi:~1034 "minus fallbacks"), so
+    // mid-load fallback-ancestor points are a known residual gap vs WebGPU, not
+    // a fabricated set.
+    this.stableKeys =
+      protectedAncestors.length > 0 ? [...neededKeys, ...protectedAncestors] : neededKeys
 
     const fill = resolvedShow.fill ?? (show.fill ? parseHexColor(show.fill) : null)
     if (!fill) return 0
@@ -1006,13 +1097,34 @@ export class VectorTileRenderer {
     const fillA = fill[3] * opacity
     if (fillA <= 0.005) return 0
 
-    const mat = mode === 'pick' ? this.ensureFillPickMaterialRhi() : this.ensureFillMaterialRhi()
+    // #1059 — fill-pattern twin. The SAME single authority the WebGPU render() packs
+    // decides pattern-active + the slot bytes (fill_color = atlas-UV bbox, fill_translate
+    // = world repeat metres). The twin's readiness gate is the bound sprite atlas — until
+    // it loads the pattern falls to the Stage-1 solid centre-pixel colour (fill above), the
+    // pre-#1059 flat-swatch behaviour, so no white flash. Pattern is COLOUR-only (pick uses
+    // the solid pick material + feature ids; a texture sample there is meaningless).
+    const pack =
+      mode === 'color'
+        ? resolveFillPatternPack(
+            show.fillPatternUV,
+            show.fillPatternRepeatM,
+            this._spriteAtlasRhi != null,
+          )
+        : ({ active: false } as const)
+    const mat =
+      mode === 'pick'
+        ? this.ensureFillPickMaterialRhi()
+        : pack.active
+          ? this.ensureFillPatternMaterialRhi()
+          : this.ensureFillMaterialRhi()
     const frame = camera.getViewForProjection(projType, canvasWidth, canvasHeight, dpr)
     this.logDepthFc = frame.logDepthFc
     const B = this.frameBlock
     B.set.mvp(frame.matrix)
-    B.set.fill_color(fill[0], fill[1], fill[2], fillA)
+    if (pack.active) B.set.fill_color(pack.u0, pack.v0, pack.u1, pack.v1)
+    else B.set.fill_color(fill[0], fill[1], fill[2], fillA)
     B.set.proj_params(projType, projCenterLon, projCenterLat, 0)
+    this.currentProjType = projType
     const ge = globeEyeUniform(frame.eye)
     B.set.globe_eye(ge[0], ge[1], ge[2], ge[3])
     // Variant 0 = STENCIL_WRITE (compare 'always') — the ref value is inert,
@@ -1100,9 +1212,19 @@ export class VectorTileRenderer {
       B.set.extrude_base_m(0)
       B.set.clip_bounds(-1e30, 0, 0, 0) // sentinel = no clip
       B.set.zoom(this.currentCameraZoom)
-      B.set.fill_translate_x(0)
-      B.set.fill_translate_y(0)
-      B.set.pattern_active(0) // #1154 — no pattern on this path
+      // #1059 — a pattern fill packs the world repeat (Mercator metres) into
+      // fill_translate_x/y + pattern_active=1 (the VS then gates OFF fill-translate;
+      // the fs_fill_pattern fragment reads them as the repeat period), byte-identical
+      // to the WebGPU render() pack. A solid fill keeps 0/0/0 (no pattern this path).
+      if (pack.active) {
+        B.set.fill_translate_x(pack.repeatMX)
+        B.set.fill_translate_y(pack.repeatMY)
+        B.set.pattern_active(1)
+      } else {
+        B.set.fill_translate_x(0)
+        B.set.fill_translate_y(0)
+        B.set.pattern_active(0) // #1154 — no pattern on this path
+      }
       B.set.tile_dequant_scale(cached.dequantScale)
       B.set.tile_dequant_half(cached.dequantHalf)
 
@@ -1113,7 +1235,7 @@ export class VectorTileRenderer {
       // tile (dirty-range, one bufferSubData). The WebGPU path defers to one
       // end-of-pass flush only because submit-ordering guarantees it there.
       this.flushUniformStaging()
-      const tileBg = this.fillTileBgRhi()
+      const tileBg = pack.active ? this.fillPatternTileBgRhi() : this.fillTileBgRhi()
       if (!tileBg) continue
       executeItems(mat, pass, [
         {
@@ -1338,6 +1460,7 @@ export class VectorTileRenderer {
       B.set.stroke_color(0, 0, 0, 0)
     }
     B.set.proj_params(projType, projCenterLon, projCenterLat, 0)
+    this.currentProjType = projType
     const ge = globeEyeUniform(frame.eye)
     B.set.globe_eye(ge[0], ge[1], ge[2], ge[3])
 
@@ -1486,6 +1609,7 @@ export class VectorTileRenderer {
     if (this._spriteAtlasRhi?.view === view) return
     this._spriteAtlasRhi = { view, sampler }
     this._lineTileBgRhi = null // rebuild the tile group with the real atlas
+    this._fillPatternTileBgRhi = null // #1059 — same for the fill-pattern tile group
   }
   /** 1×1 white stub bound at sprite_atlas until the real atlas loads —
    *  mirrors the WebGPU tile group's stub (iter-181). Lazy, webgl2-only. */
@@ -2498,17 +2622,20 @@ export class VectorTileRenderer {
     // fill_translate slots below (overriding the fill-translate NDC values).
     // Both overrides apply ONLY when the show has a resolved pattern bbox +
     // the pattern pipeline path is wired by the caller (setPatternPipelines).
-    const patternUV = show.fillPatternUV
-    const patternRepeat = show.fillPatternRepeatM
-    const patternSlotsActive =
-      patternUV != null &&
-      patternRepeat != null &&
-      this._bindGroups.patternGroundPipeline() !== null
-    if (patternSlotsActive) {
-      B.set.fill_color(patternUV![0], patternUV![1], patternUV![2], patternUV![3])
+    // #1059 — the pattern-active DECISION + slot bytes come from the shared
+    // resolveFillPatternPack authority (the WebGL2 twin renderFillsRhi packs the
+    // SAME bytes through it, so the two backends cannot drift). Byte-identical to
+    // the prior inline pack: fill_color = the atlas-UV bbox, repeat = fillPatternRepeatM.
+    const pack = resolveFillPatternPack(
+      show.fillPatternUV,
+      show.fillPatternRepeatM,
+      this._bindGroups.patternGroundPipeline() !== null,
+    )
+    if (pack.active) {
+      B.set.fill_color(pack.u0, pack.v0, pack.u1, pack.v1)
       this._patternUniformActive = true
-      this._patternRepeatMX = patternRepeat![0]
-      this._patternRepeatMY = patternRepeat![1]
+      this._patternRepeatMX = pack.repeatMX
+      this._patternRepeatMY = pack.repeatMY
     } else {
       B.set.fill_color(
         this.cachedFillColor[0]!,
@@ -2541,6 +2668,7 @@ export class VectorTileRenderer {
     // frame.eye is the globe/ECEF camera position, undefined off the globe →
     // globe_eye zero, ignored by the flat/disc cull arms).
     B.set.proj_params(projType, projCenterLon, projCenterLat, 0)
+    this.currentProjType = projType
     const ge = globeEyeUniform(frame.eye)
     B.set.globe_eye(ge[0], ge[1], ge[2], ge[3])
 
@@ -3762,79 +3890,114 @@ export class VectorTileRenderer {
     // tiles above MAX_GPU_TILES between frames; bounded by the per-frame
     // upload budget, so memory pressure is unaffected.
 
-    // Render tile-based points via PointRenderer (if available).
-    // Tile point vertices are DSFUN stride 5: [mx_h, my_h, mx_l, my_l, feat_id]
-    // in tile-local Mercator meters. We reconstruct f64-equivalent tile-local
-    // meters via (h + l) on the TS side and subtract the camera's tile-local
-    // position to get a small, f32-safe camera-relative offset.
-    //
-    // Skip when the layer hasn't opted into point rendering (no size,
-    // no shape, no size expression). PMTiles MVT layers like
-    // 'buildings' carry centroid Point features alongside polygons —
-    // without this guard, a polygon-only layer like
-    // `layer buildings { | fill-stone-700 stroke-stone-500 stroke-0.5 }`
-    // would draw circle dots over every building centroid using
-    // PointRenderer's default style (the user reported these as
-    // "POI points appearing without being declared").
-    // Detect "this layer authors point style" across every SizeValue
-    // shape. `sizeValueToShape` collapses 'none' to null and emits a
-    // typed shape for everything else (constant / data-driven /
-    // zoom-interpolated / time-interpolated), so checking
-    // `paintShapes.size != null` is the single source of truth.
-    // Pre-fix the gate only saw `show.size` (constant) and
-    // `show.sizeExpr` (data-driven), so zoom- / time-interpolated
-    // sizes flowed past as "no point style" and never drew —
-    // fixture_size_zoom surfaced this with `size-[interpolate(zoom,
-    // 0, 30, 20, 80)]`. Keep `show.shape` in the OR — shapes can carry
-    // point intent independent of a declared size.
+    // Render tile-based points via PointRenderer (if available). The WebGPU
+    // frame wraps its native encoder; the single-authority body lives in
+    // emitTilePointsRhi (#1057), shared with the forced-WebGL2 twin.
+    this.emitTilePointsRhi(
+      wrapWebGpuPass(pass),
+      camera,
+      projType,
+      projCenterLon,
+      projCenterLat,
+      canvasWidth,
+      canvasHeight,
+      dpr,
+      show,
+      pointRenderer,
+    )
+  }
+
+  /** Accumulate this show's tile-point features and flush them onto `pass`.
+   *  Single authority for both backends (#1057): the WebGPU render() tail calls
+   *  it with wrapWebGpuPass(encoder); the forced-WebGL2 twin (render-loop.ts
+   *  renderFrameViaRhi opaque loop) calls it with its screen RhiRenderPass after
+   *  each show's fills+strokes. Reads `this.stableKeys` — the visible keys set by
+   *  render() (WebGPU) or renderFillsRhi (twin) for THIS frame — and derives
+   *  `sliceLayer` the same way both do. Parity note: the twin's stableKeys is
+   *  neededKeys + protectedAncestors; it omits fallbackKeys (twin runs primary-
+   *  only acquisition — fallback pass reverted in #1140), so mid-load fallback-
+   *  ancestor points can appear on WebGPU but not the twin. See renderFillsRhi's
+   *  assignment site for the full rationale.
+   *
+   *  Tile point vertices are DSFUN stride 5: [mx_h, my_h, mx_l, my_l, feat_id]
+   *  in tile-local Mercator meters. We reconstruct f64-equivalent tile-local
+   *  meters via (h + l) on the TS side and subtract the camera's tile-local
+   *  position to get a small, f32-safe camera-relative offset.
+   *
+   *  Skip when the layer hasn't opted into point rendering (no size, no shape,
+   *  no size expression). PMTiles MVT layers like 'buildings' carry centroid
+   *  Point features alongside polygons — without this guard, a polygon-only
+   *  layer like `layer buildings { | fill-stone-700 stroke-stone-500 stroke-0.5 }`
+   *  would draw circle dots over every building centroid using PointRenderer's
+   *  default style (the user reported these as "POI points appearing without
+   *  being declared"). Detect "this layer authors point style" across every
+   *  SizeValue shape: `sizeValueToShape` collapses 'none' to null and emits a
+   *  typed shape for everything else (constant / data-driven / zoom- / time-
+   *  interpolated), so `paintShapes.size != null` is the single source of truth.
+   *  Keep `show.shape` in the OR — shapes carry point intent independent of a
+   *  declared size (fixture_size_zoom surfaced the zoom-interp gap). */
+  emitTilePointsRhi(
+    pass: RhiRenderPass,
+    camera: Camera,
+    projType: number,
+    projCenterLon: number,
+    projCenterLat: number,
+    canvasWidth: number,
+    canvasHeight: number,
+    dpr: number,
+    show: ShowCommand,
+    pointRenderer: PointRenderer | null | undefined,
+  ): void {
     const hasPointStyle = show.paintShapes?.circle.size != null || show.shape !== null
-    if (hasPointStyle && pointRenderer && typeof pointRenderer.addTilePoint === 'function') {
-      // Read ECEF DSFUN stride-9:
-      // [ex_h, ey_h, ez_h, ex_l, ey_l, ez_l, feat_id, abs_lon, abs_lat]
-      // #722 S4 — when the layer authors a data-driven size expression, thread
-      // each point's SOURCE feature properties so flushTilePoints can resolve
-      // the size per feature (fixes #17 size). featureProps is PER-TILE (fid ==
-      // sourceFeatures index within THIS tile), so resolve it here where the
-      // tile's map is in scope — fids collide across tiles, so a single map read
-      // after the accumulation loop would mis-assign props. Constant-size layers
-      // pass undefined → the tile-point path stays byte-identical.
-      const wantsFeatProps = show.sizeExpr?.ast != null
-      for (const key of this.stableKeys) {
-        const tileData = this.source!.getTileData(key, sliceLayer)
-        if (!tileData?.pointVertices || tileData.pointVertices.length < 13) continue
-        const ptv = tileData.pointVertices
-        const featProps = wantsFeatProps ? tileData.featureProps : undefined
-        for (let i = 0; i < ptv.length; i += 13) {
-          pointRenderer.addTilePoint(
-            ptv[i],
-            ptv[i + 1],
-            ptv[i + 2], // ex_h, ey_h, ez_h
-            ptv[i + 3],
-            ptv[i + 4],
-            ptv[i + 5], // ex_l, ey_l, ez_l
-            ptv[i + 6], // feat_id
-            ptv[i + 7],
-            ptv[i + 8], // abs_lon, abs_lat (cull)
-            ptv[i + 9],
-            ptv[i + 10],
-            ptv[i + 11],
-            ptv[i + 12], // merc DSFUN mx_h,mx_l,my_h,my_l
-            featProps ? (featProps.get(ptv[i + 6]) ?? null) : null, // #722 S4 per-feature source props
-          )
-        }
+    if (!(hasPointStyle && pointRenderer && typeof pointRenderer.addTilePoint === 'function'))
+      return
+    const effectiveSourceLayer = show.sourceLayer || show.targetName || ''
+    const sliceLayer = computeSliceKey(effectiveSourceLayer, show.filterExpr?.ast ?? null)
+    // Read ECEF DSFUN stride-9:
+    // [ex_h, ey_h, ez_h, ex_l, ey_l, ez_l, feat_id, abs_lon, abs_lat]
+    // #722 S4 — when the layer authors a data-driven size expression, thread
+    // each point's SOURCE feature properties so flushTilePointsRhi can resolve
+    // the size per feature (fixes #17 size). featureProps is PER-TILE (fid ==
+    // sourceFeatures index within THIS tile), so resolve it here where the
+    // tile's map is in scope — fids collide across tiles, so a single map read
+    // after the accumulation loop would mis-assign props. Constant-size layers
+    // pass undefined → the tile-point path stays byte-identical.
+    const wantsFeatProps = show.sizeExpr?.ast != null
+    for (const key of this.stableKeys) {
+      const tileData = this.source!.getTileData(key, sliceLayer)
+      if (!tileData?.pointVertices || tileData.pointVertices.length < 13) continue
+      const ptv = tileData.pointVertices
+      const featProps = wantsFeatProps ? tileData.featureProps : undefined
+      for (let i = 0; i < ptv.length; i += 13) {
+        pointRenderer.addTilePoint(
+          ptv[i],
+          ptv[i + 1],
+          ptv[i + 2], // ex_h, ey_h, ez_h
+          ptv[i + 3],
+          ptv[i + 4],
+          ptv[i + 5], // ex_l, ey_l, ez_l
+          ptv[i + 6], // feat_id
+          ptv[i + 7],
+          ptv[i + 8], // abs_lon, abs_lat (cull)
+          ptv[i + 9],
+          ptv[i + 10],
+          ptv[i + 11],
+          ptv[i + 12], // merc DSFUN mx_h,mx_l,my_h,my_l
+          featProps ? (featProps.get(ptv[i + 6]) ?? null) : null, // #722 S4 per-feature source props
+        )
       }
-      pointRenderer.flushTilePoints(
-        pass,
-        camera,
-        projType,
-        projCenterLon,
-        projCenterLat,
-        canvasWidth,
-        canvasHeight,
-        show,
-        dpr,
-      )
     }
+    pointRenderer.flushTilePointsRhi(
+      pass,
+      camera,
+      projType,
+      projCenterLon,
+      projCenterLat,
+      canvasWidth,
+      canvasHeight,
+      show,
+      dpr,
+    )
   }
 
   /** Flag set during bundle replay to gate the recordTileFill draw emit.
@@ -4115,15 +4278,16 @@ export class VectorTileRenderer {
         this.currentFillVerticalGradient,
       )
 
-      // light_dir_ecef (60-62) — #420. The extrude VS dots the per-vertex ECEF
-      // face_normal against this; the raw MapLibre light (0.288,-0.498,0.996)
-      // is a tile/viewport-frame constant, so against an ECEF normal it gave
-      // arbitrary per-face brightness (roof mid, one wall spikes to 1, rest at
-      // the 0.5 dark floor). Rotate it as (East,North,Up) into ECEF by the
-      // camera-anchor ENU→ECEF basis — the SAME basis polygon-mesh.ts uses for
-      // the wall/roof normals (East=(-sLon,cLon,0), North=(-sLat·cLon,
-      // -sLat·sLon,cLat), Up=(cLat·cLon,cLat·sLon,sLat)) → roof brightest,
-      // walls in MapLibre's band (CPU-oracle confirmed). .w (63) spare.
+      // light_dir_ecef (60-62) — #420. On the sphere family the extrude VS
+      // dots the per-vertex ECEF face_normal against this; the raw MapLibre
+      // light (0.288,-0.498,0.996) is a tile/viewport-frame constant, so
+      // against an ECEF normal it gave arbitrary per-face brightness (roof
+      // mid, one wall spikes to 1, rest at the 0.5 dark floor). Rotating it
+      // (East,North,Up) into ECEF by the camera-anchor ENU→ECEF basis fixed
+      // that NEAR THE ANCHOR — polygon-mesh.ts builds each normal in the
+      // VERTEX's own ENU frame (East=(-sLon,cLon,0), North=(-sLat·cLon,
+      // -sLat·sLon,cLat), Up=(cLat·cLon,cLat·sLon,sLat)), so anchor-rotated
+      // light drifts at continental distance (#1198). .w (63) = intensity.
       // Convert the Mapbox light position [radius, azimuth°, polar°] to an
       // (East,North,Up) direction via MapLibre's sphericalToCartesian
       // (azimuth +90° so 0° points north). The default [1.15,210,30]
@@ -4137,12 +4301,27 @@ export class VectorTileRenderer {
       // Intensity → light_dir_ecef.w; colour → RGBA8 packed into
       // light_color_packed (u32 lane — routed through the block's raw-word
       // view). The extrude VS reads both; all other variants ignore them.
-      this.frameBlock.set.light_dir_ecef(
-        Math.fround(LE * -camSinLon + LN * (-camSin * camCosLon) + LU * (camCos * camCosLon)),
-        Math.fround(LE * camCosLon + LN * (-camSin * camSinLon) + LU * (camCos * camSinLon)),
-        Math.fround(/* LE*0 */ LN * camCos + LU * camSin),
-        this._lightIntensity,
-      )
+      //
+      // #1198 — frame-matched packing: flat projections ship the RAW
+      // viewport-frame light (the extrude VS dots it in the vertex's own ENU
+      // frame — position-invariant, MapLibre-exact); the sphere family keeps
+      // the anchor ENU→ECEF rotation (#420 sun). The VS selects the same
+      // frame off proj_params.x < 6.5.
+      if (this.currentProjType < 6.5) {
+        this.frameBlock.set.light_dir_ecef(
+          Math.fround(LE),
+          Math.fround(LN),
+          Math.fround(LU),
+          this._lightIntensity,
+        )
+      } else {
+        this.frameBlock.set.light_dir_ecef(
+          Math.fround(LE * -camSinLon + LN * (-camSin * camCosLon) + LU * (camCos * camCosLon)),
+          Math.fround(LE * camCosLon + LN * (-camSin * camSinLon) + LU * (camCos * camSinLon)),
+          Math.fround(/* LE*0 */ LN * camCos + LU * camSin),
+          this._lightIntensity,
+        )
+      }
       const lc = this._lightColor
       const lr8 = Math.max(0, Math.min(255, Math.round(lc[0] * 255)))
       const lg8 = Math.max(0, Math.min(255, Math.round(lc[1] * 255)))

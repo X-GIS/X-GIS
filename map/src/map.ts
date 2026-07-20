@@ -972,7 +972,18 @@ export class XGISMap {
     configureProjections(PROJECTIONS)
     this.camera = new Camera(0, 20, 2)
     this.cameraController = new CameraController(this.camera, {
-      invalidate: () => this.invalidate(),
+      // Camera mutation re-arms a frame + tags CAMERA only — NOT the blanket
+      // invalidate(). The S16 label skip's correctness under camera motion is
+      // carried by its dispatch signature (zoom/centre/centerLat/bearing/
+      // pitch/canvas/tile-set), same as the interactive path (which mutates
+      // the camera directly and re-arms via the shouldRenderThisFrame
+      // comparator, tagging nothing). Blanket-tagging LABEL here forced a
+      // label re-prepare on EVERY programmatic camera frame (#1177), which
+      // defeated the zoom-tolerant skip exactly on the animated-zoom path.
+      invalidate: () => {
+        if (this._destroyed) return
+        this._markDirty(DirtyDomain.CAMERA)
+      },
       getCanvas: () => this.getCanvas(),
       getCtxCanvas: () => this.ctx?.canvas,
     })
@@ -2298,7 +2309,22 @@ export class XGISMap {
       this._eventBus.fireErrorEvent({ phase: 'boot', fatal: false, error: e })
       throw e
     }
+    return this._runProgram(ast, baseUrl)
+  }
 
+  /** Run a SceneBuilder program — the same post-parse pipeline as `run()`
+   *  (#1194 A1b, docs/architecture/design/scene-builder.md). Accepts ONLY the
+   *  branded `SceneBuilder.build()` output; the wrapped AST stays internal. */
+  async runScene(scene: AST.SceneProgram, baseUrl = ''): Promise<void> {
+    if (this._destroyed) return
+    if (scene?.__xgisSceneProgram !== true)
+      throw new Error('runScene: pass the SceneProgram returned by SceneBuilder.build()')
+    return this._runProgram(scene.program, baseUrl)
+  }
+
+  /** The shared post-parse body of run()/runScene: epoch claim, teardown,
+   *  import resolution, lower → optimize → emitCommands, GPU init, mount. */
+  private async _runProgram(ast: AST.Program, baseUrl = ''): Promise<void> {
     // D1/A3 — claim this run's epoch AFTER a successful parse (a failed parse
     // must not bump it: a bad run must not kill a healthy in-flight run) and
     // BEFORE the entry teardown. Everything from here to the first await is
@@ -2685,7 +2711,11 @@ export class XGISMap {
     // the guard no-ops instead of resurrecting THIS old source and killing the newer run.
     this._armDeviceLostRecovery(() => {
       if (this._epochStale(epoch)) return
-      void this.run(source, baseUrl)
+      // Re-run from the (import-resolved) AST, not the source text — #1194 A1b:
+      // works for BOTH entries (a runScene scene has no text), skips a re-parse,
+      // and cannot double-splice (resolveImportsAsync returned a NEW Program with
+      // ImportStatements stripped, so the resolution branch no-ops on re-entry).
+      void this._runProgram(ast, baseUrl)
     })
     // #797 P0/P1 — (re)attach the host DRAWING API GPU atlas + retained-icon
     // draper to this run's device (rematerialises any batches added pre-run).

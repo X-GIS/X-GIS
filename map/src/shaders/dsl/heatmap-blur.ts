@@ -41,7 +41,7 @@ import {
   type ModuleDecl,
 } from '@xgis/shader-dsl'
 import { ioStruct, builtin, location, uniformStruct, resource } from '@xgis/shader-dsl'
-import { emitModule } from '@xgis/shader-dsl'
+import { emitModule, emitGlslModule } from '@xgis/shader-dsl'
 
 const Params = uniformStruct(
   'BlurParams',
@@ -125,6 +125,32 @@ const fsBlur = fn(
   { stage: 'fragment', retAttr: '@location(0)' },
 )
 
+// GL twin of vs_full with the V axis NON-flipped. WebGPU textures put v=0 at
+// the top row, so vs_full maps clip y=+1 → uv.y=0; a GL FBO stores clip y=-1 at
+// texture ROW 0 (sampled at uv.y=0), the inverse. Reusing the WGSL flip on
+// WebGL2 would read the density VERTICALLY MIRRORED at every fullscreen pass
+// (accum-write, blur-read, compose-read must all agree on orientation). Same fn
+// NAME so the Material vsEntry + the emitted GLSL entry stay 'vs_full' (mirrors
+// line-composite's vsFullGl). textureLoad → texelFetch, so the read is
+// orientation-driven by this uv exactly as the WGSL path is.
+const vsFullGl = fn(
+  'vs_full',
+  { idx: builtin('vertex_index', u32T) },
+  (p) => {
+    const pos = Var(vec2(-1, -1))
+    If(p.idx.eq(1), () => {
+      pos.assign(vec2(3, -1))
+    }).elif(p.idx.eq(2), () => {
+      pos.assign(vec2(-1, 3))
+    })
+    const o = VsOut.var()
+    o.pos.assign(vec4(pos, 0, 1))
+    o.uv.assign(vec2(pos.x.add(1).mul(0.5), pos.y.add(1).mul(0.5)))
+    return o.$
+  },
+  { stage: 'vertex' },
+)
+
 const HEATMAP_BLUR_MODULE: ModuleDecl = module({
   structs: [Params.struct, VsOut.decl],
   bindings: [srcTex.binding, Params.binding],
@@ -134,3 +160,16 @@ const HEATMAP_BLUR_MODULE: ModuleDecl = module({
 /** Heatmap separable-Gaussian blur shader (one direction per draw; the pass
  *  runs it twice with direction=(1,0) then (0,1)). */
 export const emitHeatmapBlurWgsl = (): string => emitModule(HEATMAP_BLUR_MODULE)
+
+/** GLSL ES 3.00 twin of the blur shader (forced-WebGL2 heatmap twin, #1060).
+ *  Same per-stage assembly as emitCompositeGlsl; the vertex stage swaps in the
+ *  non-flipped vsFullGl. No storage buffers → no emulation. */
+export const emitHeatmapBlurGlsl = (stage: 'vertex' | 'fragment'): string =>
+  emitGlslModule(
+    module({
+      structs: [Params.struct, VsOut.decl],
+      bindings: [srcTex.binding, Params.binding],
+      funcs: [stage === 'vertex' ? vsFullGl : fsBlur],
+    }),
+    stage,
+  )
