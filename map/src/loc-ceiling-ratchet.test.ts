@@ -190,7 +190,12 @@ const CEILINGS: Record<string, number> = {
   // per-guard constraint comments outweigh the ~30 lines removed. The extraction
   // itself is the right cut (single authority, also fixes runBinary's missing
   // shapeRegistry/lineRenderer, #7); the remainder is irreducible in-flow wiring.
-  'map/src/map.ts': 4469,
+  // 4469→4480 (#1177): the CameraController's injected invalidate becomes a
+  // camera-scoped re-arm (_markDirty(CAMERA), destroyed-guarded) instead of the
+  // blanket invalidate() — blanket-tagging LABEL forced a label re-prepare on
+  // every programmatic camera frame, defeating the zoom-tolerant skip. +11 =
+  // the closure + the why-comment at the single injection site (§2).
+  'map/src/map.ts': 4480,
   // 1920→1930 (#1042 R3): the globe limb cull for MULTI-LINE labels must land in
   // the collision phase — the ONLY site holding the label's quad half-height (the
   // collision box IS the height authority; the label-pass dispatch site has only
@@ -243,7 +248,13 @@ const CEILINGS: Record<string, number> = {
   // sprite-atlas gate (a label-less style still loads its sprite; onLanded
   // invalidate() re-arms the idle loop). A free exported function so the gate +
   // hook are behaviour-gated GPU-free (mirrors backgroundClearValue). +37.
-  'map/src/render/passes/label-pass.ts': 1906,
+  // 1906→1956 (#1177 Option B): zoom-tolerant prepare skip — the skip state
+  // gains preparedZoom/prevFrameZoomKey/preparedCenterX/Y/centerLatDeg (each
+  // with its contract doc), the active-zoom tolerance branch (|Δzoom| ≤ 0.15,
+  // centre ≤ 48 px) beside the exact settled compare, the per-frame
+  // prevFrameZoomKey update, and the design-rationale comment. +50, all inside
+  // the existing S16 skip block; nothing extract-worthy at this size (§2).
+  'map/src/render/passes/label-pass.ts': 1956,
   // #1081 — per-anchor perspective distance attenuation (MapLibre parity). New
   // baseline: the wCenter + perspScale scratch-out-value lives INLINE in the two
   // existing projector closures (it rides the cw already computed per anchor —
@@ -266,7 +277,10 @@ const CEILINGS: Record<string, number> = {
   // 1315→1339 (#1154): the pattern_active struct field (+ its rationale comment)
   // and the fill-translate `if (pattern_active == 0)` gate in the three VS entries
   // (vs_main / vs_main_ecef / vs_main_ecef_extruded) — fixes blank fill-patterns.
-  'map/src/shaders/dsl/polygon.ts': 1339,
+  // 1339→1344 (#1062): emitPolygonGlsl gains an optional `entry` override (+ its doc)
+  // so the graticule twin can emit the vs_main / fs_stroke GLSL for its WebGL2 line
+  // overlay — reusing the SAME polygon module instead of forking a shader.
+  'map/src/shaders/dsl/polygon.ts': 1344,
   // 1290→1314 (#1155 F3): cold-start burst tick budget — the `_coldStartBurst`
   // field + `_BURST_TICK_BUDGET` + `setColdStartBurst` + the burst-selected
   // budget in resetCompileBudget's backend tick loop.
@@ -292,7 +306,12 @@ const CEILINGS: Record<string, number> = {
   // (retired-buffer drain) + the per-opaque-show emitTilePointsRhi call in the opaque
   // loop (inside each show's fills+strokes, mirroring the WebGPU per-VTR flush), both
   // with rationale docs.
-  'map/src/render-loop.ts': 1252,
+  // 1213→1227 (#1062): the graticule overlay draw on the WebGL2 twin — one
+  // renderGraticuleOverlayRhi call site in renderFrameViaRhi (after the opaque
+  // fills/strokes, before translucent), mirroring the WebGPU opaque-pass placement.
+  // Merge union (#1057 + #1062): both twin call-site blocks stacked non-overlappingly
+  // in renderFrameViaRhi — merged high-water is the measured 1266.
+  'map/src/render-loop.ts': 1266,
   // 1140→1169 (#1057): render() split into a thin GPURenderPassEncoder-wrapping
   // delegator + a single-authority renderRhi(pass: RhiRenderPass, …) so the WebGPU
   // pass-chain and the forced-WebGL2 twin share ONE point-draw body (uploadLayer +
@@ -337,8 +356,16 @@ const CEILINGS: Record<string, number> = {
   // 1364→1373 (#1057): VFMT gains a `uint32` entry (the SDF point quad_id lane) and the
   // bindAttributes glType selector grows one ternary arm to UNSIGNED_INT — both are
   // inline table/selector entries, not extractable (+9).
-  'rhi-webgl2/src/rhi-webgl2.ts': 1373,
-  'map/src/render/renderer.ts': 965,
+  // 1364→1376 (#1062): the 'line-list' topology seam — a Gl2Pipeline.topology field
+  // (stored from desc.topology) + a drawMode() helper picking gl.LINES vs gl.TRIANGLES,
+  // consumed by both draw / drawIndexed, so the graticule twin can draw segment pairs.
+  // Merge union (#1057 + #1062): uint32 entry AND topology seam stacked — merged
+  // high-water is the measured 1385.
+  'rhi-webgl2/src/rhi-webgl2.ts': 1385,
+  // 965→1000 (#1062): the graticule overlay's WebGL2 seam — renderGraticuleOverlayRhi
+  // (the RHI twin of renderGraticuleOverlay, threading the canonical ECEF frame view
+  // + projection into GraticuleRenderer.renderFrameRhi) + the RhiRenderPass import.
+  'map/src/render/renderer.ts': 1000,
   'map/src/render/gpu-tile-store.ts': 941,
   // 930→948 (#1078): the zoom-transition readiness gate now probes the SAME
   // selector the frame draws with — routeToSphereSelector picks globeVisibleTiles

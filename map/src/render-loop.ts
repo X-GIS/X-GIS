@@ -1002,6 +1002,20 @@ export class RenderLoop {
         DEBUG_OVERDRAW ? undefined : this.host.pointRenderer,
       )
     }
+    // #1062 — lat/lon graticule overlay. Mirrors the WebGPU opaque pass's grid
+    // placement (opaque-pass.ts): AFTER the opaque fills/strokes so the grid
+    // composites on top of the basemap, BEFORE the translucent / points / labels
+    // buckets below. No-op unless setGraticuleEnabled(true).
+    this.host.renderer.renderGraticuleOverlayRhi(
+      pass,
+      this.host.camera,
+      projType,
+      centerLon,
+      centerLat,
+      w,
+      h,
+      dpr,
+    )
     // #834 M5 slice 6 — TRANSLUCENT bucket (the same offscreen MAX-blend +
     // composite topology the WebGPU translucent-pass runs, in declaration
     // order after the whole opaque bucket): accumulate each show's strokes

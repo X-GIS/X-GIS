@@ -7,8 +7,19 @@
 // routes through the Material seam (executeItems, arena vertex/index sub-ranges, pick MRT); §4 is closed,
 // so a pipeline with no built Material twin throws (the raw fallback draw + kill-switch were deleted).
 
-import type { RhiBindLayoutEntry, RhiBuffer, RhiDevice, RhiPipelineHandle } from '@xgis/engine'
-import { wrapWebGpuBindGroupLayout, wrapWebGpuBindGroup, wrapWebGpuPass } from '@xgis/rhi-webgpu'
+import type {
+  RhiBindLayoutEntry,
+  RhiBuffer,
+  RhiDevice,
+  RhiPipelineHandle,
+  VertexFormat,
+} from '@xgis/engine'
+import {
+  wrapWebGpuBindGroupLayout,
+  wrapWebGpuBindGroup,
+  wrapWebGpuPass,
+  toVertexBufferLayout,
+} from '@xgis/rhi-webgpu'
 import { Material, executeItems } from '@xgis/engine'
 
 /** The per-tile GPUArena fill buffers recordFillDraw reads (structural — a VTR
@@ -75,7 +86,10 @@ export interface FillMaterialInputs {
   sampleCount: number
   /** Native WebGPU layout (wrapped) — required unless `rhiGroups` is given. */
   bindGroupLayout?: GPUBindGroupLayout
-  vertexLayout: GPUVertexBufferLayout
+  /** Optional — every builder but buildGraticuleLineMaterial requires it (asserted there).
+   *  buildGraticuleLineMaterial instead derives its layout from the neutral `vertexFormat`
+   *  param it takes (#991 ratchet: the builder owns the backend-specific conversion). */
+  vertexLayout?: GPUVertexBufferLayout
   /** Extruded-fill vertex layout (POLYGON_EXTRUDED). Only buildPatternFillMaterials reads it — it twins
    *  BOTH the ground (flat `vertexLayout` above) + extruded pattern pipelines in a single call. */
   extrudedVertexLayout?: GPUVertexBufferLayout
@@ -113,7 +127,7 @@ export function buildFlatFillMaterials(inp: FillMaterialInputs): {
   const rhi: RhiDevice = inp.rhi
   const fmt = inp.format as 'bgra8unorm'
   const groups = inp.rhiGroups ?? [wrapWebGpuBindGroupLayout(inp.bindGroupLayout!)]
-  const vertexBuffers = [toMatVB(inp.vertexLayout)]
+  const vertexBuffers = [toMatVB(inp.vertexLayout!)]
   const colorTargets = inp.pickEnabled
     ? [
         { format: fmt, blend: 'alpha' as const },
@@ -194,10 +208,51 @@ export function buildBakeFillMaterial(inp: FillMaterialInputs): Material {
     format: fmt,
     sampleCount: inp.sampleCount,
     groups,
-    vertexBuffers: [toMatVB(inp.vertexLayout)],
+    vertexBuffers: [toMatVB(inp.vertexLayout!)],
     colorTargets: [{ format: fmt, blend: 'alpha' }],
     cullMode: 'none',
     variants: [{ depthCompare: 'always', depthWrite: false, label: 'fill-bake-rhi' }],
+  })
+}
+
+/** Build the graticule lat/lon-grid line Material (#1062) — the RHI twin of the WebGPU
+ *  `linePipeline` the overlay borrows there. Same polygon module, its `vs_main` / `fs_stroke`
+ *  entries, and the LINE_FORMAT (stride-9 ECEF-DSFUN) vertex layout; `topology: 'line-list'`
+ *  draws the graticule's segment-pair vertices as independent lines. One variant mirrors the
+ *  native line-pipeline's STENCIL_WRITE depth-stencil (depth `less-equal` + write, so far-
+ *  hemisphere grid lines are occluded on the globe) with alpha blend. Single colour target
+ *  (the overlay never writes the pick MRT). Takes the neutral `vertexFormat` (not a prebuilt
+ *  GPUVertexBufferLayout) — this builder is the designated #991 adapter seam, so it owns the
+ *  backend-specific layout conversion (toVertexBufferLayout) instead of the caller (renderers
+ *  stay backend-neutral). */
+export function buildGraticuleLineMaterial(
+  inp: FillMaterialInputs,
+  vertexFormat: VertexFormat,
+): Material {
+  const rhi: RhiDevice = inp.rhi
+  const fmt = inp.format as 'bgra8unorm'
+  const groups = inp.rhiGroups ?? [wrapWebGpuBindGroupLayout(inp.bindGroupLayout!)]
+  return new Material(rhi, {
+    shader: inp.shader,
+    vsCode: inp.vsCode,
+    fsCode: inp.fsCode,
+    vsEntry: 'vs_main',
+    fsEntry: 'fs_stroke',
+    format: fmt,
+    sampleCount: inp.sampleCount,
+    groups,
+    vertexBuffers: [toMatVB(toVertexBufferLayout(vertexFormat))],
+    colorTargets: [{ format: fmt, blend: 'alpha' }],
+    cullMode: 'none',
+    topology: 'line-list',
+    variants: [
+      {
+        depthCompare: 'less-equal',
+        depthWrite: true,
+        stencil: { compare: 'always', passOp: 'replace', writeMask: 0xff, readMask: 0xff },
+        label: 'graticule-line-rhi',
+      },
+    ],
   })
 }
 
@@ -231,7 +286,7 @@ export function buildExtrudeMaterial(inp: FillMaterialInputs): Material {
     format: fmt,
     sampleCount: inp.sampleCount,
     groups: [wrapWebGpuBindGroupLayout(inp.bindGroupLayout!)],
-    vertexBuffers: [toMatVB(inp.vertexLayout)],
+    vertexBuffers: [toMatVB(inp.vertexLayout!)],
     colorTargets,
     cullMode: 'none',
     // Variants 0/1 = OPAQUE single-draw (STENCIL_WRITE / STENCIL_TEST) — the
@@ -318,7 +373,7 @@ export function buildPatternFillMaterials(inp: FillMaterialInputs): {
     format: fmt,
     sampleCount: inp.sampleCount,
     groups,
-    vertexBuffers: [toMatVB(inp.vertexLayout)],
+    vertexBuffers: [toMatVB(inp.vertexLayout!)],
     colorTargets,
     cullMode: 'none',
     variants: [
@@ -343,7 +398,7 @@ export function buildPatternFillMaterials(inp: FillMaterialInputs): {
     format: fmt,
     sampleCount: inp.sampleCount,
     groups,
-    vertexBuffers: [toMatVB(inp.extrudedVertexLayout ?? inp.vertexLayout)],
+    vertexBuffers: [toMatVB(inp.extrudedVertexLayout ?? inp.vertexLayout!)],
     colorTargets,
     cullMode: 'none',
     variants: [
