@@ -204,7 +204,16 @@ const CEILINGS: Record<string, number> = {
   // blanket invalidate() — blanket-tagging LABEL forced a label re-prepare on
   // every programmatic camera frame, defeating the zoom-tolerant skip. +11 =
   // the closure + the why-comment at the single injection site (§2).
-  'map/src/map.ts': 4480,
+  // 4469→4488 (#1194 A1b): runScene — the second scene entrypoint. run()'s
+  // post-parse body extracted VERBATIM into _runProgram (shared by run/runScene;
+  // the device-lost recovery hook re-runs from the resolved AST so builder
+  // scenes recover too). +19 = the runScene method + the two method boundaries
+  // + docs; the 700-line body itself only moved. The real shrink lever remains
+  // the #991 decomposition, not this seam.
+  // Merge (#1195): main's #1177 camera-scoped invalidate UNION the #1194 A1b
+  // runScene seam above; ceiling re-measured to the merged file's actual size
+  // (wc -l = 4499).
+  'map/src/map.ts': 4499,
   // 1920→1930 (#1042 R3): the globe limb cull for MULTI-LINE labels must land in
   // the collision phase — the ONLY site holding the label's quad half-height (the
   // collision box IS the height authority; the label-pass dispatch site has only

@@ -229,6 +229,38 @@
         flex-shrink: 0;
       }
 
+      /* ── XGIS/JS source tabs (#1194 A3b) — shown only when the demo has
+         a SceneBuilder twin in the compiler twin-corpus. ── */
+      #lang-tabs {
+        display: flex;
+        gap: 0;
+        flex-shrink: 0;
+        border: 1px solid var(--border);
+        border-radius: 6px;
+        overflow: hidden;
+      }
+      #lang-tabs[hidden] {
+        display: none;
+      }
+      .tb-tab {
+        font-family: var(--font-mono);
+        font-size: 10px;
+        background: transparent;
+        border: none;
+        color: var(--text-dim);
+        padding: 5px 8px;
+        cursor: pointer;
+        letter-spacing: 0.05em;
+        transition: all 0.15s;
+      }
+      .tb-tab.active {
+        background: var(--surface2);
+        color: var(--accent);
+      }
+      .tb-tab:hover:not(.active) {
+        color: var(--text);
+      }
+
       /* ── Editor Body (code area) ── */
       .editor-body {
         flex: 1;
@@ -585,6 +617,14 @@
             <option value="webgpu">WebGPU</option>
             <option value="webgl2">WebGL2</option>
           </select>
+          <!-- XGIS/JS tabs (#1194 A3b): shown only when the demo has a
+             SceneBuilder twin — JS shows the equivalent builder calls. -->
+          <div id="lang-tabs" hidden>
+            <button class="tb-tab active" id="tab-xgis" title="X-GIS source">XGIS</button>
+            <button class="tb-tab" id="tab-js" title="Same scene via the SceneBuilder JS API">
+              JS
+            </button>
+          </div>
           <span class="tb-tag" id="demo-tag"></span>
           <!-- Live identity badge: the backend that ACTUALLY booted (auto can
              fall back), so a frame is never attributed to the wrong backend. -->

@@ -2,8 +2,14 @@
 
 import * as monaco from 'monaco-editor'
 import editorWorker from 'monaco-editor/esm/vs/editor/editor.worker?worker'
+import tsWorker from 'monaco-editor/esm/vs/language/typescript/ts.worker?worker'
 
 import { XGISMap, lonLatToMercator } from '@xgis/runtime'
+import { SCENE_BUILDER_TWINS } from '@xgis/compiler/builder/twin-corpus'
+// Raw text of the SAME module — the JS tab (#1194 A3b) extracts each twin's
+// construction from it, so the displayed code IS the code the parity gate
+// pins (single authority; survives minification, unlike Function.toString).
+import twinCorpusRaw from '@xgis/compiler/builder/twin-corpus?raw'
 import { DEMOS } from './demos'
 import { extractMapboxProjectionName, extractMapboxLight } from './mapbox-projection'
 import {
@@ -13,9 +19,14 @@ import {
   discoverFields,
 } from './monaco-xgis'
 
-// Monaco web worker setup
+// Monaco web worker setup. The ts worker exists for the JS tab's
+// 'typescript' models (#1194 A3b) — without it the typescript contribution
+// routes inlay-hint/outline requests to the generic worker, which throws
+// "Missing requestHandler". Vite splits it into its own chunk, fetched only
+// when the first typescript model is created.
 self.MonacoEnvironment = {
-  getWorker: () => new editorWorker(),
+  getWorker: (_id: string, label: string) =>
+    label === 'typescript' || label === 'javascript' ? new tsWorker() : new editorWorker(),
 }
 
 const demoIds = Object.keys(DEMOS)
@@ -411,6 +422,85 @@ editor.addAction({
   keybindings: [monaco.KeyMod.CtrlCmd | monaco.KeyCode.Enter],
   run: () => runSource(editor.getValue(), 'Custom'),
 })
+
+// ── XGIS/JS source tabs (#1194 A3b) ──
+// For demos with a SceneBuilder twin, the JS tab shows the equivalent
+// builder construction — read-only (Run stays on the XGIS view; the parity
+// gate guarantees both forms mount the same scene).
+const langTabs = document.getElementById('lang-tabs') as HTMLDivElement | null
+const tabXgis = document.getElementById('tab-xgis') as HTMLButtonElement | null
+const tabJs = document.getElementById('tab-js') as HTMLButtonElement | null
+
+// The corpus model is 'typescript' for colorization only — no language
+// service (the generic editor worker is the only one registered).
+monaco.typescript.typescriptDefaults.setDiagnosticsOptions({
+  noSemanticValidation: true,
+  noSyntaxValidation: true,
+})
+
+const TWIN_HELPERS = [
+  'call',
+  'colorToken',
+  'compare',
+  'field',
+  'ident',
+  'interpolateZoom',
+  'matchOn',
+  'num',
+  'str',
+]
+
+/** Extract a twin's `new SceneBuilder()….build()` chain from the corpus RAW
+ *  source and wrap it as a host-runnable snippet. Null when the demo has no
+ *  twin (or the corpus formatting drifted — then the tab simply hides). */
+function twinSnippet(id: string): string | null {
+  if (!SCENE_BUILDER_TWINS[id]) return null
+  const entry = new RegExp(`^  ${id}: \\{\\n([\\s\\S]*?)\\n  \\},`, 'm').exec(twinCorpusRaw)
+  const body = entry?.[1]
+  if (!body) return null
+  const start = body.indexOf('new SceneBuilder()')
+  const end = body.lastIndexOf('.build()')
+  if (start < 0 || end < 0) return null
+  const chain = body
+    .slice(start, end + '.build()'.length)
+    .split('\n')
+    .map((l, i) => (i === 0 ? l : l.replace(/^ {6}/, '')))
+    .join('\n')
+  const used = TWIN_HELPERS.filter((h) => new RegExp(`\\b${h}\\(`).test(chain))
+  return [
+    `import { SceneBuilder${used.map((h) => `, ${h}`).join('')} } from '@xgis/compiler'`,
+    '',
+    `const scene = ${chain}`,
+    '',
+    'await map.runScene(scene)',
+    '',
+  ].join('\n')
+}
+
+// Explicit model: the model `create({ value })` makes implicitly is
+// editor-OWNED and gets disposed on the first setModel swap — an explicitly
+// created pair survives tab switches.
+const xgisModel = monaco.editor.createModel('', 'xgis')
+editor.setModel(xgisModel)
+let jsModel: monaco.editor.ITextModel | null = null
+
+function showLangTab(js: boolean): void {
+  tabXgis?.classList.toggle('active', !js)
+  tabJs?.classList.toggle('active', js)
+  if (js) {
+    jsModel ??= monaco.editor.createModel('', 'typescript')
+    jsModel.setValue(twinSnippet(demoIds[currentIdx]) ?? '')
+    editor.setModel(jsModel)
+    editor.updateOptions({ readOnly: true })
+    runBtn.disabled = true
+  } else {
+    editor.setModel(xgisModel)
+    editor.updateOptions({ readOnly: false })
+    runBtn.disabled = false
+  }
+}
+tabXgis?.addEventListener('click', () => showLangTab(false))
+tabJs?.addEventListener('click', () => showLangTab(true))
 
 // ── Build selector ──
 // Group by tag via <optgroup> so the 100+ entry dropdown is browseable
@@ -1064,6 +1154,11 @@ async function runSource(source: string, label: string) {
     // map._elapsedMs, map.vectorTileShows, etc. without re-wiring the
     // demo runner. Keep it lightweight; not part of the public API.
     ;(window as unknown as { __xgisMap?: unknown }).__xgisMap = currentMap
+    // #1194 e2e hook — lazy SceneBuilder access for the run()↔runScene
+    // twin-render gate (_scene-builder-twin.spec.ts) + future gallery JS
+    // tabs (A3). Loader, not instance: the spec builds its own scene.
+    ;(window as unknown as { __xgisSceneBuilder?: unknown }).__xgisSceneBuilder = () =>
+      import('@xgis/compiler').then((m) => ({ SceneBuilder: m.SceneBuilder, ident: m.ident }))
     // ?debug=labels — mobile-friendly label diagnostic overlay (no
     // dev tools required). Renders a colored dot + small text snippet
     // at every submitted label anchor, with per-anchor submission
@@ -1098,7 +1193,18 @@ async function runSource(source: string, label: string) {
     // helper through Playwright's evaluate-evaluate boundary.
     const { tileKeyUnpack } = await import('@xgis/compiler')
     ;(window as unknown as { __xgisInternals?: unknown }).__xgisInternals = { tileKeyUnpack }
-    await currentMap.run(source, import.meta.env.BASE_URL + 'data/')
+    // #1194 A1b — `?runscene=1`: mount via the demo's SceneBuilder twin
+    // (map.runScene) instead of the .xgis text, when a twin is registered.
+    // First-mount path for the twin-render gate; falls through to run()
+    // for demos without a twin so the flag is always safe. Post-run wiring
+    // below (proj override / hash sync / host hooks) is shared by both paths.
+    const runsceneUrl = new URL(window.location.href)
+    const twin =
+      runsceneUrl.searchParams.get('runscene') === '1'
+        ? SCENE_BUILDER_TWINS[runsceneUrl.searchParams.get('id') ?? '']
+        : undefined
+    if (twin) await currentMap.runScene(twin.build(), import.meta.env.BASE_URL + 'data/')
+    else await currentMap.run(source, import.meta.env.BASE_URL + 'data/')
 
     // URL `?proj=X` overrides whatever projection the source declared.
     // Empty / absent means: keep the source's default.
@@ -1171,6 +1277,13 @@ async function loadDemo(idx: number) {
   selectEl.value = String(idx)
   prevBtn.disabled = idx === 0
   nextBtn.disabled = idx === demoIds.length - 1
+
+  // #1194 A3b — tab visibility; always land on the (editable) XGIS view so
+  // setValue below targets the xgis model.
+  if (langTabs) {
+    langTabs.hidden = twinSnippet(id) === null
+    showLangTab(false)
+  }
 
   editor.setValue(demo.source.trim())
   // Preserve `?proj=` (and any other current query params) when switching
