@@ -55,4 +55,14 @@ export const DEMOS_STYLE: Record<string, Demo> = {
       { label: 'World', run: (m) => m.flyTo({ center: [0, 0], zoom: 0.5 }) },
     ],
   },
+
+  zoom_building_color: {
+    name: 'Buildings by Zoom',
+    tag: 'style',
+    description:
+      'MapLibre example port (#1192): "Change building color based on zoom level" — protomaps buildings whose fill-[interpolate(zoom, …)] ramps parchment → terracotta as you zoom from city overview (z15) to street level (z17). Opens over lower Manhattan.',
+    source: load('zoom-building-color.xgis'),
+    zoom: 15.5,
+    center: [-74.006, 40.712],
+  },
 }

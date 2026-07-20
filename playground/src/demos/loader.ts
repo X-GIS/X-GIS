@@ -83,4 +83,10 @@ export interface Demo {
   projection?: string
   /** Action buttons rendered by demo-runner while this demo is mounted. */
   actions?: DemoAction[]
+  /** Initial camera pitch (degrees) / bearing (degrees) applied on open with
+   *  the same hash-override rule. For camera-pose demos (the MapLibre
+   *  "Set pitch and bearing" port) — the .xgis carries only style, so the
+   *  pose is demo metadata like `zoom`/`center`. */
+  pitch?: number
+  bearing?: number
 }
