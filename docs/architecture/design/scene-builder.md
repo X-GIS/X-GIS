@@ -4,8 +4,11 @@ Status: **A0 approved → A1a landed → A1b landed → A2 landed** (builder cor
 parity gate; the `runScene` seam + twin-render e2e gate; then filters /
 presets / keyframes / symbols / fn-call bindings, each pinned by a paired
 example — corpus at 7 pairs). `case`/conditional deferred: no gallery example
-exercises it yet (C6 — sugar only with a paired example). A3 (gallery JS
-tabs) next.
+exercises it yet (C6 — sugar only with a paired example). **A3a landed**: the
+twin corpus is a single authority (`compiler/src/builder/twin-corpus.ts`,
+subpath-exported as `@xgis/compiler/builder/twin-corpus`, NOT on the main
+index) — the parity gate iterates it and demo-runner's `?runscene=1` mounts
+from it, so no twin exists in two places. A3b (gallery JS tab UI) next.
 Author-architect discipline: this doc proposes the boundaries and then attacks
 them (§Socratic critique) before any increment lands.
 

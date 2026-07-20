@@ -1111,11 +1111,11 @@ async function runSource(source: string, label: string) {
     const runsceneUrl = new URL(window.location.href)
     const twin =
       runsceneUrl.searchParams.get('runscene') === '1'
-        ? (await import('./scene-builder-twins')).SCENE_BUILDER_TWINS[
+        ? (await import('@xgis/compiler/builder/twin-corpus')).SCENE_BUILDER_TWINS[
             runsceneUrl.searchParams.get('id') ?? ''
           ]
         : undefined
-    if (twin) await currentMap.runScene(twin(), import.meta.env.BASE_URL + 'data/')
+    if (twin) await currentMap.runScene(twin.build(), import.meta.env.BASE_URL + 'data/')
     else await currentMap.run(source, import.meta.env.BASE_URL + 'data/')
 
     // URL `?proj=X` overrides whatever projection the source declared.

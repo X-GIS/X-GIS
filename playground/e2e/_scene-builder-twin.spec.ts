@@ -2,7 +2,7 @@
 //
 // The A1a parity gate proves builder AST ≡ parsed AST byte-for-byte at the
 // compiler level; this gate proves the RUNTIME half: a page mounted via
-// `map.runScene(twin)` (`?runscene=1`, scene-builder-twins.ts) renders
+// `map.runScene(twin)` (`?runscene=1`, compiler twin-corpus) renders
 // PIXEL-IDENTICAL to the same demo mounted via `map.run(xgisText)`. Two CLEAN
 // first-mount page loads — deliberately NOT a live swap: run()→run() itself
 // is not pixel-stable across swaps under forcegl2 (a pre-existing VTR
