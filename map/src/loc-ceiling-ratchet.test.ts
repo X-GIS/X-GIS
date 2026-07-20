@@ -110,7 +110,16 @@ const CEILINGS: Record<string, number> = {
   // set, (b) resets stableKeys=[] on both bail paths so a bailed show can't leak
   // prior keys into the twin's decoupled emitTilePointsRhi, each with rationale
   // docs; plus the parity pointer note on emitTilePointsRhi.
-  'map/src/render/vector-tile-renderer.ts': 4591,
+  // 4523→4609 (#1059): the fill-pattern GLSL twin on the WebGL2 fills path — a
+  // ground fill-pattern Material with GLSL twins (ensureFillPatternMaterialRhi) +
+  // its sprite-atlas tile bind group (fillPatternTileBgRhi, mirrors lineTileBgRhi) +
+  // the renderFillsRhi pattern branch (pack-driven fill_color/fill_translate/pattern_active
+  // + Material/tile-bg selection). +86; the pattern PACK decision is shared with the
+  // WebGPU path via resolveFillPatternPack (extracted to polygon-fill-material.ts, so the
+  // slot bytes can't drift), keeping the twin a thin caller. Lower as #991 decomposes VTR.
+  // Merge union (#1057 + #1059): tile-points AND the pattern branch stacked in
+  // renderFillsRhi non-overlappingly — merged high-water is the measured 4677.
+  'map/src/render/vector-tile-renderer.ts': 4677,
   // 4232→4237 (#1000 heatmap relocate): the heatmap density-target OWNERSHIP
   // extracted to render/heatmap-targets.ts; map keeps only the irreducible
   // composition-root wiring — the `heatmapTargets` field + its import (mirrors
@@ -280,7 +289,12 @@ const CEILINGS: Record<string, number> = {
   // 1339→1344 (#1062): emitPolygonGlsl gains an optional `entry` override (+ its doc)
   // so the graticule twin can emit the vs_main / fs_stroke GLSL for its WebGL2 line
   // overlay — reusing the SAME polygon module instead of forking a shader.
-  'map/src/shaders/dsl/polygon.ts': 1344,
+  // 1339→1347 (#1059): emitPolygonGlsl gains an `entry` override (+ its doc) so the
+  // WebGL2 twin can narrow the module to fs_fill_pattern for its ground fill-pattern
+  // Material, plus the updated GLSL-twin-set charter comment. Emit byte-identical.
+  // Merge union (#1062 + #1059): one shared `entry` override, charter covers both
+  // consumers — merged high-water is the measured 1348.
+  'map/src/shaders/dsl/polygon.ts': 1348,
   // 1290→1314 (#1155 F3): cold-start burst tick budget — the `_coldStartBurst`
   // field + `_BURST_TICK_BUDGET` + `setColdStartBurst` + the burst-selected
   // budget in resetCompileBudget's backend tick loop.

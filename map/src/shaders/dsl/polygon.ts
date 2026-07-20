@@ -1315,9 +1315,12 @@ export const emitPolygonWgsl = (variant: PolygonVariantSpec | null, pickEnabled:
  *  carries SEVERAL entries per stage (vs_main_ecef / vs_main_ecef_extruded; fs_fill /
  *  fs_stroke / fs_fill_extrude / …) and a GLSL stage emit turns EVERY entry of that
  *  stage into a `main()` — so narrow the module to the one entry this Material uses
- *  (helpers/consts/bindings stay; unused helpers are dead-but-valid GLSL). Extrude /
- *  pattern Materials stay WGSL-only for now — WebGL2 keeps its explicit fail-closed
- *  error for those, this covers the parity spec's meaningful gate (opaque flat fill).
+ *  (helpers/consts/bindings stay; unused helpers are dead-but-valid GLSL). The GLSL
+ *  twin set is FLAT fill (fs_fill) + GROUND fill-pattern (fs_fill_pattern, #1059 —
+ *  the twin narrows to it via the `entry` override below and samples the sprite atlas
+ *  the same way the line-pattern twin does). EXTRUSION stays WGSL-only (both the solid
+ *  fs_fill_extrude and the EXTRUDED fill-pattern): WebGL2 keeps its explicit fail-closed
+ *  error for the extruded pattern pipeline; only the flat/ground pattern is ported here.
  *
  *  UNWIRED as of #778 P6: pipeline-factory returns early on the webgl2 backend BEFORE
  *  building any fill Material, so wiring this into the WebGPU-path Material (as #775 did)
@@ -1331,8 +1334,9 @@ export const emitPolygonGlsl = (
   stage: 'vertex' | 'fragment',
   /** Which stage entry to KEEP (the GLSL emit turns every kept entry into a
    *  `main()`, so exactly one per stage survives). Default = the flat-fill entries
-   *  (vs_main_ecef / fs_fill); the graticule twin passes vs_main / fs_stroke to
-   *  reuse the SAME polygon module for its line overlay (#1062). */
+   *  (vs_main_ecef / fs_fill); the graticule twin passes vs_main / fs_stroke for its
+   *  line overlay (#1062) and the ground fill-pattern twin passes fs_fill_pattern for
+   *  its sprite-sampled fill (#1059) — all reusing the SAME polygon module. */
   entry?: string,
 ): string => {
   const m = buildPolygonModule(variant, pickEnabled)
