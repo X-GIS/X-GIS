@@ -28,7 +28,7 @@ describe('visibleTilesSSE — projType resolution (single-world disc)', () => {
     const ortho = getProjection('orthographic')
 
     let maxAbsLon = 0
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+
     const spy = {
       ...ortho,
       forward(lon: number, lat: number): [number, number] {

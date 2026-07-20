@@ -15,7 +15,7 @@ const W = 800,
   H = 800
 const MARGIN = 400 // labels just off-edge are legit; >0.5 viewport out = wrong dispatch
 
-const PROJECTIONS = [
+const _PROJECTIONS = [
   'mercator',
   'globe',
   'orthographic',

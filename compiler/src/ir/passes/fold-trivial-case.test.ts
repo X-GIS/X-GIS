@@ -35,7 +35,6 @@ const NUM_5_PX: AST.NumberLiteral = { kind: 'NumberLiteral', value: 5, unit: 'px
 const NUM_10: AST.NumberLiteral = { kind: 'NumberLiteral', value: 10, unit: null }
 
 function makeNode(overrides: Partial<RenderNode> = {}): RenderNode {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   return {
     name: 'L',
     sourceRef: 'src',

@@ -70,12 +70,12 @@ describe('user-reported dateline cluster — what actually projects?', () => {
     const mvp = cam.getRTCMatrix(PHYS_W, PHYS_H, DPR)
     const ccx = cam.centerX
     const ccy = cam.centerY
-    // eslint-disable-next-line no-console
+
     console.log('MVP matrix (column-major):')
     for (let r = 0; r < 4; r++) {
       const row: number[] = []
       for (let c = 0; c < 4; c++) row.push(mvp[c * 4 + r]!)
-      // eslint-disable-next-line no-console
+
       console.log('  ', row.map((v) => v.toExponential(3)).join('  '))
     }
 
@@ -106,17 +106,15 @@ describe('user-reported dateline cluster — what actually projects?', () => {
     ]
     const worldCopies = [-2, -1, 0, 1, 2]
 
-    // eslint-disable-next-line no-console
     console.log(`\n=== camera: lon=${cam.centerX} lat=${cam.centerY} (mercator) ===`)
-    // eslint-disable-next-line no-console
+
     console.log(`    physical canvas: ${PHYS_W}×${PHYS_H} (CSS ${CSS_W}×${CSS_H}, dpr=${DPR})`)
     for (const f of features) {
-      // eslint-disable-next-line no-console
       console.log(`\n${f.name} (lon=${f.lon}):`)
       for (const w of worldCopies) {
         const p = projectLonLat(mvp, PHYS_W, PHYS_H, ccx, ccy, f.lon, f.lat, w * WORLD_MERC)
         const marker = p.visible ? '✓' : '✗'
-        // eslint-disable-next-line no-console
+
         console.log(
           `  w=${w >= 0 ? '+' : ''}${w}: ndcX=${p.ndcX.toFixed(2)} cw=${p.cw.toFixed(0)} screen=(${p.screenX.toFixed(0)},${p.screenY.toFixed(0)}) ${marker}`,
         )

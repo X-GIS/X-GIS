@@ -39,7 +39,7 @@ function selectAt(zoom: number, sourceMaxLevel = OFM_BRIGHT_SOURCE_MAXLEVEL): nu
 describe('globeVisibleTiles deep-zoom probe (Seoul)', () => {
   it('z=11 selects tiles (known-good — globe/oblique render here)', () => {
     const n = selectAt(11)
-    // eslint-disable-next-line no-console
+
     console.log(`[probe] globeVisibleTiles z=11 Seoul → ${n} tiles`)
     expect(n).toBeGreaterThan(0)
   })
@@ -73,7 +73,7 @@ describe('globeVisibleTiles deep-zoom probe (Seoul)', () => {
     const counts: Record<number, number> = {}
     for (const z of [13, 14, 15, 16, 16.5]) {
       counts[z] = selectAt(z)
-      // eslint-disable-next-line no-console
+
       console.log(`[probe] globeVisibleTiles z=${z} Seoul (maxZ clamped) → ${counts[z]} tiles`)
     }
     // Selection at maxZ must cover the foreground (not collapse to

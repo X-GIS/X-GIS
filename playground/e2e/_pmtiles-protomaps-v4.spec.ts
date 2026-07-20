@@ -2,9 +2,9 @@
 // (~176M tile entries, full world z=0..15). Uses an inline xgis source
 // rather than pre-baked demo so URL can be swapped freely.
 
-import { test, expect, type Page } from '@playwright/test'
+import { test, _expect, type Page } from '@playwright/test'
 
-const URL = 'https://demo-bucket.protomaps.com/v4.pmtiles'
+const _URL = 'https://demo-bucket.protomaps.com/v4.pmtiles'
 
 async function waitForXgisReady(page: Page) {
   await page.waitForFunction(

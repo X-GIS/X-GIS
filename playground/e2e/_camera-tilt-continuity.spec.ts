@@ -18,7 +18,7 @@
 
 import { test, expect } from '@playwright/test'
 
-const PROJECTIONS = [
+const _PROJECTIONS = [
   'mercator',
   'globe',
   'equirectangular',
