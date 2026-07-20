@@ -101,7 +101,11 @@ const CEILINGS: Record<string, number> = {
   // uploadBudgetFor/setMaxJobs call. (Ceiling corrected from a padded 4513 to the
   // measured post-prettier 4511 — #1155 F3 adjudication, shrink-only high-water.)
   // Merge union (#1170 <- origin/main): both bumps stacked non-overlappingly on VTR (destroy() +12 AND cold-start burst +17), so the merged high-water is the measured 4523, not either standalone value.
-  'map/src/render/vector-tile-renderer.ts': 4523,
+  // 4523→4548 (#1198): frame-matched extrusion-light packing — the
+  // `currentProjType` stash (proj_params write sites) + the flat-raw vs
+  // sphere-rotated light_dir_ecef branch, fixing the continent-scale roof
+  // lighting gradient (raw light in the vertex-ENU frame on flat projections).
+  'map/src/render/vector-tile-renderer.ts': 4548,
   // 4232→4237 (#1000 heatmap relocate): the heatmap density-target OWNERSHIP
   // extracted to render/heatmap-targets.ts; map keeps only the irreducible
   // composition-root wiring — the `heatmapTargets` field + its import (mirrors
@@ -257,7 +261,10 @@ const CEILINGS: Record<string, number> = {
   // 1315→1339 (#1154): the pattern_active struct field (+ its rationale comment)
   // and the fill-translate `if (pattern_active == 0)` gate in the three VS entries
   // (vs_main / vs_main_ecef / vs_main_ecef_extruded) — fixes blank fill-patterns.
-  'map/src/shaders/dsl/polygon.ts': 1339,
+  // 1339→1359 (#1198): the ECEF→vertex-ENU normal rotation in the extrude VS
+  // (roof lighting was anchor-relative → continent-scale gradient) + the exact
+  // |N_enu.z| wall/roof discriminator; oracle in core/extrude-light-frame.test.ts.
+  'map/src/shaders/dsl/polygon.ts': 1359,
   // 1290→1314 (#1155 F3): cold-start burst tick budget — the `_coldStartBurst`
   // field + `_BURST_TICK_BUDGET` + `setColdStartBurst` + the burst-selected
   // budget in resetCompileBudget's backend tick loop.

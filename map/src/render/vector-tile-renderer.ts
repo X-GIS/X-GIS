@@ -389,6 +389,12 @@ export class VectorTileRenderer {
    *  start of render(). Packed into slot 35 of every tile uniform. */
   private logDepthFc = 0
 
+  /** Active projType for the current frame, stashed where proj_params is
+   *  written (same pattern as logDepthFc). The light packer (#1198) reads it
+   *  to pick the lighting frame: raw viewport light when flat (< 6.5),
+   *  anchor-rotated ECEF when sphere. */
+  private currentProjType = 0
+
   // ── Uniform ring (dynamic-offset) ──
   // Shared across all tiles + world copies + layers in a frame. Each draw
   // gets a fresh 256-byte slot, preventing multi-layer writeBuffer clobber.
@@ -1013,6 +1019,7 @@ export class VectorTileRenderer {
     B.set.mvp(frame.matrix)
     B.set.fill_color(fill[0], fill[1], fill[2], fillA)
     B.set.proj_params(projType, projCenterLon, projCenterLat, 0)
+    this.currentProjType = projType
     const ge = globeEyeUniform(frame.eye)
     B.set.globe_eye(ge[0], ge[1], ge[2], ge[3])
     // Variant 0 = STENCIL_WRITE (compare 'always') — the ref value is inert,
@@ -1338,6 +1345,7 @@ export class VectorTileRenderer {
       B.set.stroke_color(0, 0, 0, 0)
     }
     B.set.proj_params(projType, projCenterLon, projCenterLat, 0)
+    this.currentProjType = projType
     const ge = globeEyeUniform(frame.eye)
     B.set.globe_eye(ge[0], ge[1], ge[2], ge[3])
 
@@ -2541,6 +2549,7 @@ export class VectorTileRenderer {
     // frame.eye is the globe/ECEF camera position, undefined off the globe →
     // globe_eye zero, ignored by the flat/disc cull arms).
     B.set.proj_params(projType, projCenterLon, projCenterLat, 0)
+    this.currentProjType = projType
     const ge = globeEyeUniform(frame.eye)
     B.set.globe_eye(ge[0], ge[1], ge[2], ge[3])
 
@@ -4115,15 +4124,16 @@ export class VectorTileRenderer {
         this.currentFillVerticalGradient,
       )
 
-      // light_dir_ecef (60-62) — #420. The extrude VS dots the per-vertex ECEF
-      // face_normal against this; the raw MapLibre light (0.288,-0.498,0.996)
-      // is a tile/viewport-frame constant, so against an ECEF normal it gave
-      // arbitrary per-face brightness (roof mid, one wall spikes to 1, rest at
-      // the 0.5 dark floor). Rotate it as (East,North,Up) into ECEF by the
-      // camera-anchor ENU→ECEF basis — the SAME basis polygon-mesh.ts uses for
-      // the wall/roof normals (East=(-sLon,cLon,0), North=(-sLat·cLon,
-      // -sLat·sLon,cLat), Up=(cLat·cLon,cLat·sLon,sLat)) → roof brightest,
-      // walls in MapLibre's band (CPU-oracle confirmed). .w (63) spare.
+      // light_dir_ecef (60-62) — #420. On the sphere family the extrude VS
+      // dots the per-vertex ECEF face_normal against this; the raw MapLibre
+      // light (0.288,-0.498,0.996) is a tile/viewport-frame constant, so
+      // against an ECEF normal it gave arbitrary per-face brightness (roof
+      // mid, one wall spikes to 1, rest at the 0.5 dark floor). Rotating it
+      // (East,North,Up) into ECEF by the camera-anchor ENU→ECEF basis fixed
+      // that NEAR THE ANCHOR — polygon-mesh.ts builds each normal in the
+      // VERTEX's own ENU frame (East=(-sLon,cLon,0), North=(-sLat·cLon,
+      // -sLat·sLon,cLat), Up=(cLat·cLon,cLat·sLon,sLat)), so anchor-rotated
+      // light drifts at continental distance (#1198). .w (63) = intensity.
       // Convert the Mapbox light position [radius, azimuth°, polar°] to an
       // (East,North,Up) direction via MapLibre's sphericalToCartesian
       // (azimuth +90° so 0° points north). The default [1.15,210,30]
@@ -4137,12 +4147,27 @@ export class VectorTileRenderer {
       // Intensity → light_dir_ecef.w; colour → RGBA8 packed into
       // light_color_packed (u32 lane — routed through the block's raw-word
       // view). The extrude VS reads both; all other variants ignore them.
-      this.frameBlock.set.light_dir_ecef(
-        Math.fround(LE * -camSinLon + LN * (-camSin * camCosLon) + LU * (camCos * camCosLon)),
-        Math.fround(LE * camCosLon + LN * (-camSin * camSinLon) + LU * (camCos * camSinLon)),
-        Math.fround(/* LE*0 */ LN * camCos + LU * camSin),
-        this._lightIntensity,
-      )
+      //
+      // #1198 — frame-matched packing: flat projections ship the RAW
+      // viewport-frame light (the extrude VS dots it in the vertex's own ENU
+      // frame — position-invariant, MapLibre-exact); the sphere family keeps
+      // the anchor ENU→ECEF rotation (#420 sun). The VS selects the same
+      // frame off proj_params.x < 6.5.
+      if (this.currentProjType < 6.5) {
+        this.frameBlock.set.light_dir_ecef(
+          Math.fround(LE),
+          Math.fround(LN),
+          Math.fround(LU),
+          this._lightIntensity,
+        )
+      } else {
+        this.frameBlock.set.light_dir_ecef(
+          Math.fround(LE * -camSinLon + LN * (-camSin * camCosLon) + LU * (camCos * camCosLon)),
+          Math.fround(LE * camCosLon + LN * (-camSin * camSinLon) + LU * (camCos * camSinLon)),
+          Math.fround(/* LE*0 */ LN * camCos + LU * camSin),
+          this._lightIntensity,
+        )
+      }
       const lc = this._lightColor
       const lr8 = Math.max(0, Math.min(255, Math.round(lc[0] * 255)))
       const lg8 = Math.max(0, Math.min(255, Math.round(lc[1] * 255)))

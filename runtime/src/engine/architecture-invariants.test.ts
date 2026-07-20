@@ -350,7 +350,11 @@ const LOC_CEILINGS: Record<string, number> = {
   // `if (pattern_active == 0)` gate in vs_main / vs_main_ecef / vs_main_ecef_extruded
   // — a pattern reuses the fill_translate slots for its repeat, so the VS must not
   // apply them as an NDC offset (it flung the fill off-screen → blank pattern).
-  'map/src/shaders/dsl/polygon.ts': 1339,
+  // Bumped 1339→1359 (#1198): ECEF→vertex-ENU normal rotation in the extrude VS
+  // (anchor-relative roof lighting drifted into a continent-scale gradient) + the
+  // exact |N_enu.z| wall/roof discriminator (|N_ecef.z| misclassified equatorial
+  // roofs); CPU oracle: map/src/core/extrude-light-frame.test.ts.
+  'map/src/shaders/dsl/polygon.ts': 1359,
   // camera.ts relocated to @xgis/engine (engine/src/projection/camera.ts) in
   // P3 Step 3 — no longer under a SRC_DIRS walk, so its LOC ceiling is tracked
   // by the engine package's own ratchet, not this runtime gate.
