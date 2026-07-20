@@ -1,11 +1,18 @@
 #!/usr/bin/env bun
-// Fast local pre-push gate. Runs the vitest suite the CI `test` job
-// runs, plus optionally the smoke playwright spec, with clear timing
-// so you know what you're paying.
+// Local pre-push gate. Runs the vitest suite the CI `test` job runs,
+// plus optionally the smoke playwright spec, with clear timing so you
+// know what you're paying.
 //
-// Default (`bun precheck`): vitest only. ~30-60 s on a typical dev box.
-//   Mirrors the CI `test` job — catches logic regressions (camera math,
-//   slice-key invariants, filter routing) before CI does.
+// Default (`bun precheck`): the FULL vitest suite (no path filter), ~5 min
+//   on a typical dev box. It intentionally runs everything the CI test
+//   matrix shards across (compiler-blueprint / shader-dsl-a+b /
+//   engine-render-a+b / engine-proj-text / engine-rest / runtime-nonengine /
+//   map / engine-rhi-data) — the root vitest.config include is the single
+//   authority, so this local gate can never lose a leg the CI matrix has.
+//   A prior partial mirror (compiler/blueprint/runtime only) let two PRs
+//   in one day pass precheck locally and then fail CI's `test (map)` leg
+//   (backend-adapter / backend-identity ratchets); partial mirroring was
+//   dropped for that reason.
 //
 // Smoke (`bun precheck:smoke`): adds the projection-coverage Playwright
 //   spec. ~2-3 min total. Overlaps the CI `render-gate` job (test.yml),
@@ -51,7 +58,7 @@ const steps: Step[] = [
   {
     label: 'vitest (unit)',
     cmd: 'bun',
-    args: ['x', 'vitest', 'run', 'compiler/src', 'blueprint/src', 'runtime/src'],
+    args: ['x', 'vitest', 'run'],
     parseTestOutcomeFromStdout: true,
   },
 ]
