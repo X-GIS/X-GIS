@@ -397,7 +397,10 @@ export class HeatmapRenderer {
    *  each layer correctly. Builds the native GPU resources LAZILY here (first
    *  WebGPU frame) so addLayer stays device-free — this getter is the WebGPU path
    *  (the twin reads this.layers directly via renderRhi). */
-  getLayers(): readonly { rampTexture: GPUTexture; paramsBuf: GPUBuffer }[] {
+  // Return type via Required<Pick<…>> (not inline GPU* annotations): the getter
+  // GUARANTEES the two lazy native fields, and spelling the raw types here again
+  // would grow the #991 raw-WebGPU ratchet for a pure type restatement.
+  getLayers(): readonly Required<Pick<HeatmapLayer, 'rampTexture' | 'paramsBuf'>>[] {
     for (const layer of this.layers) {
       if (!layer.rampTexture) layer.rampTexture = this.buildRampTexture(layer.rampBytes)
       if (!layer.paramsBuf) {
