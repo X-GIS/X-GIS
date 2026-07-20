@@ -1,0 +1,19 @@
+xgis 1
+
+/* MapLibre example port (#1192): "Display a satellite map".
+ *
+ * Esri World Imagery as a plain raster source — note the {z}/{y}/{x} path
+ * order (ArcGIS tile scheme; the tile-URL template substitution is
+ * order-agnostic). Opens over the Palm Jumeirah, Dubai (demo center/zoom in
+ * thematic.ts) — the classic satellite-imagery subject.
+ *
+ * Imagery © Esri, Maxar, Earthstar Geographics, and the GIS User Community. */
+
+source satellite {
+  type: raster
+  url: "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}"
+}
+
+layer imagery {
+  source: satellite
+}

@@ -165,4 +165,16 @@ export const DEMOS_CORE: Record<string, Demo> = {
       'Richer cartographic rendering on protomaps v4: per-kind landuse + road hierarchy (minor/secondary/primary/highway/rail) + buildings. Navigate to a city: #14/35.68/139.76 (Tokyo), #14/40.78/-73.97 (Manhattan).',
     source: load('osm-style.xgis'),
   },
+
+  pitch_bearing: {
+    name: 'Pitch & Bearing',
+    tag: 'core',
+    description:
+      'MapLibre example port (#1192): "Set pitch and bearing" — a plain countries basemap opened with a tilted, rotated camera (pitch 60°, bearing −45°) over the Italian peninsula via the Demo.pitch/Demo.bearing camera-pose metadata.',
+    source: load('pitch-bearing.xgis'),
+    zoom: 5.5,
+    center: [12.5, 42],
+    pitch: 60,
+    bearing: -45,
+  },
 }
