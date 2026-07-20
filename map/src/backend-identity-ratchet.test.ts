@@ -24,6 +24,11 @@
 // eager WebGPU-buffer prime on the twin (ctx.device is the fail-loud proxy there) via
 // one backend read — landed unbumped because the pre-#1212 precheck never ran the map
 // leg; the twin-boot guard class retires with the F3–F6 sweep like the rest.
+// 41→45 (#777 Phase II, merge union): HillshadeRenderer mirrors RasterRenderer's four
+// backend splits — the DEM tile load (webgl2 bitmap+copyExternalImage vs webgpu
+// loadImageTexture), the getSampleCount pick, the draw-pass wrap, and the evict
+// destroy. Same still-blocked pattern raster-renderer carries; retires when the
+// tile-load / pass-wrap / destroy sites move behind rhi.caps.* alongside raster.
 //
 // Applies the #996 lesson (a source-scan gate whose matcher silently matches nothing is
 // vacuously green): two guards below prove the regex still matches AND the walk still
@@ -35,7 +40,7 @@ import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const MAP_SRC = join(dirname(fileURLToPath(import.meta.url)))
-const BASELINE = 41
+const BASELINE = 45
 
 // `.backend` identity comparison, either direction, against either backend literal.
 const PATTERN = 'backend\\s*(===|!==)\\s*[\'"](webgl2|webgpu)[\'"]'

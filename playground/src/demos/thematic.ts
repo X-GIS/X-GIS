@@ -47,6 +47,26 @@ export const DEMOS_THEMATIC: Record<string, Demo> = {
     source: load('raster-overlay.xgis'),
   },
 
+  hillshade_terrarium: {
+    name: 'Hillshade: Grand Canyon',
+    tag: 'raster',
+    description:
+      'Shaded relief from LIVE terrain tiles (#777 Phase II): a raster-dem source streams AWS Terrain Tiles (terrarium encoding, {z}/{x}/{y}) into the HillshadeRenderer with authored paint — NW illumination (315°), 0.6 exaggeration, warm shadow/highlight palette. The real-data sibling of fixture_hillshade_local (the offline deterministic gate).',
+    source: load('hillshade-terrarium.xgis'),
+    zoom: 11,
+    center: [-112.14, 36.1],
+  },
+
+  satellite_map: {
+    name: 'Satellite Map',
+    tag: 'raster',
+    description:
+      'MapLibre example port (#1192): "Display a satellite map" — Esri World Imagery as a plain raster source (note the ArcGIS {z}/{y}/{x} path order; the tile-URL substitution is order-agnostic). Opens over the Palm Jumeirah, Dubai.',
+    source: load('satellite-map.xgis'),
+    zoom: 12.5,
+    center: [55.138, 25.112],
+  },
+
   bold_borders: {
     name: 'Bold Borders',
     tag: 'thematic',

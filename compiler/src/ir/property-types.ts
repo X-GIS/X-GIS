@@ -151,6 +151,65 @@ export function defaultRasterShapes(): RasterShapes {
   }
 }
 
+/** Mapbox `hillshade-method` gradient-shading algorithm. `standard` is the
+ *  MapLibre-legacy default (byte-parity target); `basic` is the GDAL Lambert
+ *  model. `combined` / `igor` / `multidirectional` are carried through the
+ *  IR verbatim; the (future) renderer approximates them by falling back to
+ *  `basic` (documented residual — see INC-3). */
+export type HillshadeMethod = 'standard' | 'basic' | 'combined' | 'igor' | 'multidirectional'
+
+/** Hillshade DEM-relief paint axes (Mapbox `hillshade-*`). Mirror of
+ *  {@link RasterShapes}: each axis carries the spec default when the layer
+ *  didn't author it, so the (future INC-3) hillshade renderer resolves a
+ *  no-op by default. Only the single-source constant form is plumbed —
+ *  numberArray / colorArray multi-source (multidirectional) warns + drops
+ *  at convert time and is a follow-up. `direction` / `altitude` are the
+ *  MVP single scalars taken from element 0 of the spec's numberArray. */
+export interface HillshadeShapes {
+  /** `hillshade-illumination-direction` — light azimuth in degrees from N
+   *  clockwise. Default 335. */
+  direction: PropertyShape<number>
+  /** `hillshade-illumination-altitude` — light elevation angle (0–90°).
+   *  Default 45. */
+  altitude: PropertyShape<number>
+  /** `hillshade-illumination-anchor` = "map" (default "viewport" = false).
+   *  When true the light is anchored to data-space (north); viewport
+   *  follows the camera bearing. */
+  anchorMap: boolean
+  /** `hillshade-exaggeration` — vertical-relief multiplier. Default 0.5. */
+  exaggeration: PropertyShape<number>
+  /** `hillshade-shadow-color` — shadow-side RGBA. Default #000000. */
+  shadow: PropertyShape<RGBA>
+  /** `hillshade-highlight-color` — lit-side RGBA. Default #FFFFFF. */
+  highlight: PropertyShape<RGBA>
+  /** `hillshade-accent-color` — accent tint RGBA. Default #000000. */
+  accent: PropertyShape<RGBA>
+  /** `hillshade-method` — DEM gradient-shading algorithm. Default standard. */
+  method: HillshadeMethod
+  /** `resampling: nearest` flag (spec default `linear` = false). Mirror of
+   *  RasterShapes.resamplingNearest — false = linear sampler over the
+   *  decoded DEM height field. */
+  resamplingNearest: boolean
+}
+
+/** Spec-default hillshade paint axes (all no-ops). Returned fresh on each
+ *  call so callers can't alias a shared mutable literal. Mirror of
+ *  {@link defaultRasterShapes} — the (future) renderer / synthetic shows /
+ *  tests seed this so adding a hillshade axis stays one-line. */
+export function defaultHillshadeShapes(): HillshadeShapes {
+  return {
+    direction: { kind: 'constant', value: 335 },
+    altitude: { kind: 'constant', value: 45 },
+    anchorMap: false,
+    exaggeration: { kind: 'constant', value: 0.5 },
+    shadow: { kind: 'constant', value: [0, 0, 0, 1] },
+    highlight: { kind: 'constant', value: [1, 1, 1, 1] },
+    accent: { kind: 'constant', value: [0, 0, 0, 1] },
+    method: 'standard',
+    resamplingNearest: false,
+  }
+}
+
 /** PropertyShape bundle for a polygon / line ShowCommand, sub-bundled
  *  per layer type. `null` fields mean the layer didn't author that
  *  axis — callers branch on null, not on a `kind: 'none'` sentinel.
@@ -165,6 +224,13 @@ export interface PaintShapes {
   /** Raster colour adjustments. Present on every ShowCommand (defaults are
    *  no-ops); only the raster renderer reads it, via the active raster show. */
   raster: RasterShapes
+  /** Hillshade DEM-relief axes. Optional — present ONLY on a hillshade
+   *  layer's ShowCommand (the converter authored at least one hillshade
+   *  axis). Absent on every other layer type, so the (future INC-3)
+   *  hillshade renderer branches on presence and falls back to
+   *  {@link defaultHillshadeShapes} when a raster-dem draw carries no
+   *  authored paint. Mirrors the optionality of `HeatmapPaint.isHeatmap`. */
+  hillshade?: HillshadeShapes
 }
 
 /** PropertyShape bundle for one label's eight paint axes. The

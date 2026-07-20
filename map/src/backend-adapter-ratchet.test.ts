@@ -89,6 +89,8 @@ const BASELINE: Record<string, number> = {
   'map/src/render/frame-context.ts': 1,
   'map/src/render/frame-renderer.ts': 3,
   'map/src/render/graticule-renderer.ts': 1,
+  'map/src/render/hillshade-renderer.ts': 2,
+  'map/src/render/hillshade-uniform-slots.ts': 1,
   'map/src/render/heatmap-renderer.ts': 1,
   // Heatmap density-target content relocated here from @xgis/rhi-webgpu (#1000):
   // it drives the backend's generic render-target primitive (createRenderTarget)
@@ -99,6 +101,11 @@ const BASELINE: Record<string, number> = {
   'map/src/render/line-renderer.ts': 3,
   'map/src/render/line-uniform-slots.ts': 1,
   'map/src/render/material/heatmap-material.ts': 1,
+  // #777 Phase II — hillshade files mirror raster's rhi-webgpu bridge imports:
+  // hillshade-material wrapWebGpuTextureView; hillshade-renderer GPUContext +
+  // wrapWebGpuPass (=2); hillshade-uniform-slots uniformFieldSlots (reflect seam).
+  // Same gap-blocked bridge as raster-{material,renderer,uniform-slots}; retires at #991 P6.
+  'map/src/render/material/hillshade-material.ts': 1,
   'map/src/render/material/icon-material.ts': 1,
   'map/src/render/material/line-composite-material.ts': 1,
   'map/src/render/material/line-material.ts': 1,

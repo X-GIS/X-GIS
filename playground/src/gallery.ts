@@ -62,7 +62,9 @@ const countEl = document.getElementById('demo-count')!
 const searchEl = document.getElementById('search') as HTMLInputElement
 const noResults = document.getElementById('no-results')!
 
-const entries = Object.entries(DEMOS)
+// Hidden demos (the e2e fixture corpus) stay in DEMOS for id resolution but
+// are omitted from the gallery — the showcase lists only real, diverse demos.
+const entries = Object.entries(DEMOS).filter(([, demo]) => !demo.hidden)
 countEl.textContent = `${entries.length} demos`
 
 // Group demos by tag

@@ -47,6 +47,7 @@ import {
   miscUtilHandlers,
   modifierFillHandler,
 } from './lower-bindings-paint'
+import { hillshadeConstUtilHandlers } from './lower-bindings-hillshade'
 
 /** Modifier-item handlers (run after the X-GIS0001 deprecated-z<N> check in
  *  the driver). Only the `fill-*` colour modifier exists. */
@@ -94,6 +95,7 @@ export const UTILITY_HANDLERS: BindingHandler[] = [
   ...strokeTranslateConstUtilHandlers,
   ...fillExtrusionConstUtilHandlers,
   ...heatmapConstUtilHandlers,
+  ...hillshadeConstUtilHandlers,
   fillPatternUtilHandler,
   fillColorUtilHandler,
   ...lineCapJoinUtilHandlers,

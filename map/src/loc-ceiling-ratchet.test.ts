@@ -221,7 +221,14 @@ const CEILINGS: Record<string, number> = {
   // 4499→4503 (#1196, merge union): name the actual GPU-boot failure at the
   // WebGPUUnavailable catch — the generic UX text hid the real cause (a webgl2
   // live-swap re-boot dying) for a full debugging session. Measured 4503.
-  'map/src/map.ts': 4503,
+  // 4503→4526 (#777 Phase II, merge union): the raster-dem → HillshadeRenderer
+  // wiring — the hillshadeRenderer + _hillshadeShow fields, the two ctor init
+  // sites, the rebuildLayers reset + `_dem`-marker arm branch, and the
+  // rebuildForQuality hook. Irreducible: class-member declarations + the
+  // source-dispatch arm that must sit in rebuildLayers where the source markers
+  // are read. The DEM decode itself was extracted to hillshade-renderer.ts
+  // (armHillshadeSource). Measured 4526.
+  'map/src/map.ts': 4526,
   // 1920→1930 (#1042 R3): the globe limb cull for MULTI-LINE labels must land in
   // the collision phase — the ONLY site holding the label's quad half-height (the
   // collision box IS the height authority; the label-pass dispatch site has only
@@ -358,7 +365,13 @@ const CEILINGS: Record<string, number> = {
   // the 3-pass accum→blur→compose density pipeline on WebGL2 after the label pass
   // (the caps.floatBlendTargets gate + its doc). F6 slashes this file (twin deletion).
   // Merge union (#1060 <- main): stacked growth — measured 1290.
-  'map/src/render-loop.ts': 1290,
+  // 1290→1315 (#777 Phase II, merge union): the hillshadeRenderer.beginFrame()
+  // eviction hook + the HillshadePass ported into the forced-WebGL2 twin
+  // (renderFrameViaRhi, after translucent, before points) + the
+  // applyHillshadePaint import — so relief renders under ?forcegl2=1 (the
+  // _hillshade-gl2-gate). Stacked on the #1057/#1062/#1060 twin call sites —
+  // measured 1315.
+  'map/src/render-loop.ts': 1315,
   // Merge union (#1060 <- main): stacked growth — measured 1174.
   'map/src/render/point-renderer.ts': 1174,
   // 1106→1120 (#1043 state-hygiene): three unmask-before-clear / state-reset fixes for the

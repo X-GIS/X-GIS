@@ -340,6 +340,20 @@ export class SourceManager {
     // raster path — declared vector-family type wins.
     const isDeclaredVector =
       declaredType === 'vector' || declaredType === 'tilejson' || declaredType === 'pmtiles'
+    // raster-dem (#777) — guard BEFORE looksLikeRaster; see map-types.ts `_dem`.
+    if (declaredType === 'raster-dem') {
+      this.rawDatasets.set(load.name, {
+        _tileUrl: url,
+        _dem: true,
+        encoding: load.encoding,
+        tileSize: load.tileSize,
+        redFactor: load.redFactor,
+        greenFactor: load.greenFactor,
+        blueFactor: load.blueFactor,
+        baseShift: load.baseShift,
+      })
+      return
+    }
     const looksLikeRaster = declaredType === 'raster' || (!isDeclaredVector && isTileTemplate(url))
     const vectorTileFormat = detectVectorTileFormat(url, asVectorTileKind(declaredType))
 

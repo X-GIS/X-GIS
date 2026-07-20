@@ -14,7 +14,6 @@ export { parseMapboxFontName } from './layers-helpers'
 // emits a `label-[<expr>]` utility so the IR carries the text
 // intent through compilation. Rendering arrives in Batch 1c.
 const SKIP_REASONS: Record<string, string> = {
-  hillshade: 'hillshade layer — Batch 4 (raster-dem + lighting shader)',
   sky: 'sky layer — gradient/atmospheric sky rendering not yet wired (would need a dome quad + per-fragment hue interpolation)',
 }
 

@@ -63,6 +63,10 @@ export function convertGenericLayer(
 registerLayerConverter('fill', (layer, warnings) => convertGenericLayer(layer, warnings))
 registerLayerConverter('fill-extrusion', (layer, warnings) => convertGenericLayer(layer, warnings))
 registerLayerConverter('raster', (layer, warnings) => convertGenericLayer(layer, warnings))
+// hillshade (#777 Phase II) — a raster-dem tile draw, so it rides the generic
+// `layer { source | <hillshade-* utils> }` shape exactly like raster; the DEM
+// paint utilities come from paint.ts's `hillshade` arm (emitHillshadePaint).
+registerLayerConverter('hillshade', (layer, warnings) => convertGenericLayer(layer, warnings))
 // `background` reached convertLayer's generic body in the former code
 // too (it is in knownLayerTypes), though convertMapboxStyle handles
 // background before ever calling convertLayer — so in practice this

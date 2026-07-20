@@ -151,6 +151,10 @@ interface RebuildMocks {
   rasterRenderer: {
     setUrlTemplate: ReturnType<typeof vi.fn>
   }
+  hillshadeRenderer: {
+    setUrlTemplate: ReturnType<typeof vi.fn>
+    setParams: ReturnType<typeof vi.fn>
+  }
   ctx: { device: object; rhi: object; format: string }
 }
 
@@ -179,6 +183,10 @@ function makeMocks(): RebuildMocks {
     rasterRenderer: {
       setUrlTemplate: vi.fn(),
     },
+    hillshadeRenderer: {
+      setUrlTemplate: vi.fn(),
+      setParams: vi.fn(),
+    },
     ctx: {
       device: mockDevice(),
       // #832 M2 — the uniform ring + tile store now route through ctx.rhi.
@@ -200,6 +208,7 @@ type MapInternals = {
   renderer: unknown
   pointRenderer: unknown
   rasterRenderer: unknown
+  hillshadeRenderer: unknown
   lineRenderer: unknown
   ctx: unknown
   shapeRegistry: unknown
@@ -213,6 +222,7 @@ type MapInternals = {
     layout: unknown
   }>
   _rasterShow: { targetName: string } | null
+  _hillshadeShow: { targetName: string } | null
   _cameraExplicitlyPositioned: boolean
   rebuildLayers(): void
 }
@@ -225,6 +235,7 @@ function makeMap(mocks: RebuildMocks): { map: XGISMap; internals: MapInternals }
   internals.renderer = mocks.renderer
   internals.pointRenderer = mocks.pointRenderer
   internals.rasterRenderer = mocks.rasterRenderer
+  internals.hillshadeRenderer = mocks.hillshadeRenderer
   internals.lineRenderer = null // optional in rebuildLayers (guarded)
   internals.ctx = mocks.ctx
   internals.shapeRegistry = null // point branch guards `?? 0`
@@ -338,6 +349,19 @@ function pointFC(): GeoJSONFeatureCollection {
 function rasterSource(url: string): GeoJSONFeatureCollection {
   const fc: GeoJSONFeatureCollection = { type: 'FeatureCollection', features: [] }
   ;(fc as unknown as { _tileUrl: string })._tileUrl = url
+  return fc
+}
+
+/** raster-dem source marker (#777): `{ _tileUrl, _dem: true, encoding, tileSize }`
+ *  — rebuildLayers routes a `_dem` marker to the HILLSHADE renderer, not raster. */
+function demSource(url: string, encoding = 'mapbox', tileSize = 512): GeoJSONFeatureCollection {
+  const fc: GeoJSONFeatureCollection = { type: 'FeatureCollection', features: [] }
+  Object.assign(fc as unknown as Record<string, unknown>, {
+    _tileUrl: url,
+    _dem: true,
+    encoding,
+    tileSize,
+  })
   return fc
 }
 
@@ -513,6 +537,46 @@ describe('XGISMap.rebuildLayers — characterization (pins current behaviour)', 
       expect(internals._rasterShow).toBe(s)
       expect(internals.vectorTileShows).toHaveLength(0)
       expect(internals.vtSources.size).toBe(0)
+    })
+  })
+
+  describe('scene 4b: raster-dem source (#777 hillshade routing)', () => {
+    it('arms the HILLSHADE renderer (not raster) with the DEM tile URL + decode', () => {
+      const mocks = makeMocks()
+      const { internals } = makeMap(mocks)
+      internals.rawDatasets.set('dem', demSource('https://dem/{z}/{x}/{y}.png', 'terrarium', 256))
+      internals.showCommands = [show('dem', { layerName: 'relief' })]
+
+      internals.rebuildLayers()
+
+      // Hillshade armed with the DEM URL (2nd call; 1st is the '' reset).
+      expect(mocks.hillshadeRenderer.setUrlTemplate).toHaveBeenLastCalledWith(
+        'https://dem/{z}/{x}/{y}.png',
+      )
+      // DEM decode threaded: terrarium unpack + tileSize 256.
+      expect(mocks.hillshadeRenderer.setParams).toHaveBeenCalledWith(
+        expect.objectContaining({
+          tileSize: 256,
+          unpack: { redFactor: 256, greenFactor: 1, blueFactor: 1 / 256, baseShift: 32768 },
+        }),
+      )
+      // The raster renderer is only reset ('') — a DEM source must NOT arm it as colour.
+      expect(mocks.rasterRenderer.setUrlTemplate).toHaveBeenCalledTimes(1)
+      expect(mocks.rasterRenderer.setUrlTemplate).toHaveBeenCalledWith('')
+    })
+
+    it('captures the hillshade show as _hillshadeShow', () => {
+      const mocks = makeMocks()
+      const { internals } = makeMap(mocks)
+      internals.rawDatasets.set('dem', demSource('https://dem/{z}/{x}/{y}.png'))
+      const s = show('dem', { layerName: 'relief' })
+      internals.showCommands = [s]
+
+      internals.rebuildLayers()
+
+      expect(internals._hillshadeShow).toBe(s)
+      expect(internals._rasterShow).toBeNull()
+      expect(internals.vectorTileShows).toHaveLength(0)
     })
   })
 

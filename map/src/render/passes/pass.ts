@@ -20,6 +20,7 @@ import type {
   OitPassHost,
   TranslucentPassHost,
   PointsPassHost,
+  HillshadePassHost,
   LabelPassHost,
   OverdrawComposePassHost,
   HeatmapPassHost,
@@ -33,6 +34,7 @@ export type {
   OitPassHost,
   TranslucentPassHost,
   PointsPassHost,
+  HillshadePassHost,
   LabelPassHost,
   OverdrawComposePassHost,
   HeatmapPassHost,
@@ -50,6 +52,7 @@ export type PassHost = BackgroundPassHost &
   OitPassHost &
   TranslucentPassHost &
   PointsPassHost &
+  HillshadePassHost &
   LabelPassHost &
   OverdrawComposePassHost &
   HeatmapPassHost &

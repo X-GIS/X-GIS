@@ -41,6 +41,7 @@ import { invalidateResolvedShowCache } from './render/resolved-show'
 import { reportErrorScope } from './render-loop-helpers'
 import { backgroundClearValue } from './render/passes/background-pass'
 import { labelPass } from './render/passes/label-pass'
+import { applyHillshadePaint } from './render/passes/hillshade-pass'
 import { resolveColorShape, resolveNumberShape } from './render/paint-shape-resolve'
 import { type FrameContext } from './render/frame-context'
 import { makeProjectionToken, setProjectionToken } from './render/projection-token'
@@ -428,6 +429,7 @@ export class RenderLoop {
       this.host.renderer.beginFrame()
       this.host.lineRenderer?.beginFrame()
       this.host.rasterRenderer.beginFrame()
+      this.host.hillshadeRenderer.beginFrame()
       // PointRenderer drains its retired tile-point buffer queue here
       // — buffers retired during last frame's renderTilePoints can
       // safely be destroyed now that queue.submit() has returned for
@@ -1040,6 +1042,29 @@ export class RenderLoop {
       )
       offPass.end()
       this.host.lineRenderer.compositeRhi(pass, c.resolvedShow.opacity)
+    }
+    // #777 Phase II — HILLSHADE on WebGL2. Ported to the twin so the shaded
+    // relief renders under ?forcegl2=1 (the _hillshade-gl2-gate reads it back).
+    // Placed after the translucent bucket, before labels (relief over fills,
+    // under labels — the native HillshadePass slot). Draws into the SAME screen
+    // pass; the source-armed gate keeps a hillshade-less frame byte-identical.
+    if (this.host.hillshadeRenderer.hasSource()) {
+      applyHillshadePaint(
+        this.host.hillshadeRenderer,
+        this.host._hillshadeShow,
+        this.host.camera.zoom,
+        this.host._elapsedMs,
+      )
+      this.host.hillshadeRenderer.render(
+        pass,
+        this.host.camera,
+        projType,
+        centerLon,
+        centerLat,
+        w,
+        h,
+        dpr,
+      )
     }
     // #1057 — direct-layer GeoJSON points on the WebGL2 twin. Mirrors the WebGPU
     // points-pass placement (pass-order.ts PASS_CHAIN_ORDER: after the translucent

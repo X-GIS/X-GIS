@@ -1,0 +1,19 @@
+xgis 1
+
+/* MapLibre example port (#1192): "Set pitch and bearing".
+ *
+ * A plain countries basemap opened with a tilted, rotated camera — pitch 60°,
+ * bearing -45° over the Italian peninsula (demo pitch/bearing/center/zoom in
+ * core.ts, applied through the new Demo.pitch / Demo.bearing fields). The
+ * .xgis carries only style; the camera pose is demo metadata, mirroring how
+ * the original example passes pitch/bearing to the Map constructor. */
+
+source world {
+  type: geojson
+  url: "countries.geojson"
+}
+
+layer countries {
+  source: world
+  | fill-emerald-200 stroke-emerald-700 stroke-1
+}

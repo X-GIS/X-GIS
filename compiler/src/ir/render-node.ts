@@ -9,6 +9,11 @@
 // keep importing it from the same place.
 import type { Diagnostic } from '../diagnostics/diagnostic'
 export type { Diagnostic }
+// raster-dem source fields + hillshade paint bundle — split out to keep this
+// file under its LOC ceiling (#777 Phase II). Re-exported so existing
+// `./render-node` importers of these names keep resolving from here.
+import type { RasterDemSourceFields, RenderNodeHillshadePaint } from './render-node-hillshade'
+export type { RasterDemSourceFields, RenderNodeHillshadePaint }
 
 /**
  * A complete IR scene — the output of the lowering pass.
@@ -48,9 +53,11 @@ export interface SymbolDef {
 }
 
 /**
- * A data source definition.
+ * A data source definition. The `raster-dem` DEM fields (encoding / tileSize /
+ * custom unpack factors) live on {@link RasterDemSourceFields}, which this
+ * extends — kept in render-node-hillshade.ts so this file stays under its LOC ceiling.
  */
-export interface SourceDef {
+export interface SourceDef extends RasterDemSourceFields {
   name: string
   type: string // 'geojson', 'vector', 'raster', 'raster-dem', 'binary'
   url: string
@@ -243,6 +250,7 @@ export interface RenderNode
     RenderNodeCirclePaint,
     RenderNodeExtrudePaint,
     RenderNodeRasterPaint,
+    RenderNodeHillshadePaint,
     RenderNodeHeatmapPaint {
   name: string
   sourceRef: string // references SourceDef.name

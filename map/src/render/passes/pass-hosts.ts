@@ -47,6 +47,14 @@ export type TranslucentPassHost = Pick<XGISMap, 'camera' | 'lineRenderer' | 'ren
 /** Direct-layer points pass. */
 export type PointsPassHost = Pick<XGISMap, 'camera' | 'pointRenderer'>
 
+/** Hillshade pass (#777 Phase II) — the raster-dem DEM-relief overlay. Reaches
+ *  the HillshadeRenderer + the active hillshade show (its resolved paint) + the
+ *  camera it projects through + the frame clock for zoom/time shape resolution. */
+export type HillshadePassHost = Pick<
+  XGISMap,
+  'camera' | 'hillshadeRenderer' | '_hillshadeShow' | '_elapsedMs'
+>
+
 /** Label + icon dispatch pass (text/icon stages, glyph/sprite sources,
  *  the label-dispatch memo counters, label-dirty bookkeeping). */
 export type LabelPassHost = Pick<
@@ -101,7 +109,7 @@ export type GraphicsPassHost = Pick<XGISMap, 'graphics' | 'camera' | 'ctx'>
 /** Per-frame scene classification (consumed by `buildSceneView`). */
 export type SceneClassifyHost = Pick<
   XGISMap,
-  'classifyVectorTileShows' | 'groupOpaqueBySource' | 'heatmapRenderer'
+  'classifyVectorTileShows' | 'groupOpaqueBySource' | 'heatmapRenderer' | 'hillshadeRenderer'
 >
 
 /** Members only the RenderLoop body itself touches — the frame clock,
@@ -139,6 +147,7 @@ export type RenderLoopHost = BackgroundPassHost &
   OitPassHost &
   TranslucentPassHost &
   PointsPassHost &
+  HillshadePassHost &
   LabelPassHost &
   OverdrawComposePassHost &
   HeatmapPassHost &

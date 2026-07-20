@@ -115,6 +115,14 @@ function lowerSource(
   /** Non-reserved props for a custom `type` — collected into `SourceDef.options`
    *  (docs/architecture/source-loader-seam.md §5). Undefined for built-in sources. */
   let options: Record<string, string | number | readonly string[]> | undefined
+  /** `type: raster-dem` DEM pack metadata — threaded so the (INC-3)
+   *  hillshade renderer decodes elevation with the source's rule. */
+  let encoding: string | undefined
+  let tileSize: number | undefined
+  let redFactor: number | undefined
+  let greenFactor: number | undefined
+  let blueFactor: number | undefined
+  let baseShift: number | undefined
 
   for (const prop of stmt.properties) {
     if (prop.name === 'type') {
@@ -166,6 +174,21 @@ function lowerSource(
         }
         if (out.length > 0) layers = out
       }
+    } else if (prop.name === 'encoding') {
+      // Mapbox `raster-dem` elevation encoding — a bare identifier
+      // (`encoding: mapbox`) or a quoted string. mapbox | terrarium | custom.
+      if (prop.value.kind === 'Identifier') encoding = prop.value.name
+      else if (prop.value.kind === 'StringLiteral') encoding = prop.value.value
+    } else if (prop.name === 'tileSize' && prop.value.kind === 'NumberLiteral') {
+      tileSize = prop.value.value
+    } else if (prop.name === 'redFactor' && prop.value.kind === 'NumberLiteral') {
+      redFactor = prop.value.value
+    } else if (prop.name === 'greenFactor' && prop.value.kind === 'NumberLiteral') {
+      greenFactor = prop.value.value
+    } else if (prop.name === 'blueFactor' && prop.value.kind === 'NumberLiteral') {
+      blueFactor = prop.value.value
+    } else if (prop.name === 'baseShift' && prop.value.kind === 'NumberLiteral') {
+      baseShift = prop.value.value
     } else {
       // Non-reserved property → the custom-loader options bag (source-loader-seam §5).
       // Reserved keys (type/url/data/layers/crs) are claimed by the branches above, so
@@ -217,7 +240,21 @@ function lowerSource(
   // Inline source (no url) — runtime seeds with an empty FeatureCollection
   // and the host fills it via setSourceData / setSourcePoints. An inline
   // `data:` source carries its GeoJSON in `inlineData` for the runtime to seed.
-  return { name: stmt.name, type, url, layers, crs: resolvedCrs, inlineData, options }
+  return {
+    name: stmt.name,
+    type,
+    url,
+    layers,
+    crs: resolvedCrs,
+    inlineData,
+    options,
+    encoding,
+    tileSize,
+    redFactor,
+    greenFactor,
+    blueFactor,
+    baseShift,
+  }
 }
 
 /** Convert a literal-only AST expression subtree (the `data: {...}` inline
@@ -598,6 +635,18 @@ function lowerLayer(
   let rasterResamplingNearest: boolean | undefined
   /* eslint-enable prefer-const -- end of the hoisted paint-axis cluster */
 
+  // Mapbox `hillshade-*` DEM-relief axes (#777 Phase II). undefined = layer
+  // didn't author the axis → the renderer falls back to the spec default.
+  let hillshadeDirection: number | undefined
+  let hillshadeAltitude: number | undefined
+  let hillshadeAnchorMap: boolean | undefined
+  let hillshadeExaggeration: number | undefined
+  let hillshadeShadow: [number, number, number, number] | undefined
+  let hillshadeHighlight: [number, number, number, number] | undefined
+  let hillshadeAccent: [number, number, number, number] | undefined
+  let hillshadeMethod: import('./property-types').HillshadeMethod | undefined
+  let hillshadeResamplingNearest: boolean | undefined
+
   // Assemble the mutable LayerAccumulator from the post-cascade locals
   // (named style → inline CSS already applied above) plus fresh per-loop
   // collectors. The binding/utility handlers mutate THIS; lowerLayer reads
@@ -672,6 +721,15 @@ function lowerLayer(
     rasterSaturation,
     rasterContrast,
     rasterResamplingNearest,
+    hillshadeDirection,
+    hillshadeAltitude,
+    hillshadeAnchorMap,
+    hillshadeExaggeration,
+    hillshadeShadow,
+    hillshadeHighlight,
+    hillshadeAccent,
+    hillshadeMethod,
+    hillshadeResamplingNearest,
     isHeatmap,
     heatmapRadius,
     heatmapWeight,
@@ -831,6 +889,15 @@ function lowerLayer(
   rasterSaturation = acc.rasterSaturation
   rasterContrast = acc.rasterContrast
   rasterResamplingNearest = acc.rasterResamplingNearest
+  hillshadeDirection = acc.hillshadeDirection
+  hillshadeAltitude = acc.hillshadeAltitude
+  hillshadeAnchorMap = acc.hillshadeAnchorMap
+  hillshadeExaggeration = acc.hillshadeExaggeration
+  hillshadeShadow = acc.hillshadeShadow
+  hillshadeHighlight = acc.hillshadeHighlight
+  hillshadeAccent = acc.hillshadeAccent
+  hillshadeMethod = acc.hillshadeMethod
+  hillshadeResamplingNearest = acc.hillshadeResamplingNearest
   isHeatmap = acc.isHeatmap
   heatmapRadius = acc.heatmapRadius
   heatmapWeight = acc.heatmapWeight
@@ -1074,6 +1141,15 @@ function lowerLayer(
     rasterSaturation,
     rasterContrast,
     rasterResamplingNearest,
+    hillshadeDirection,
+    hillshadeAltitude,
+    hillshadeAnchorMap,
+    hillshadeExaggeration,
+    hillshadeShadow,
+    hillshadeHighlight,
+    hillshadeAccent,
+    hillshadeMethod,
+    hillshadeResamplingNearest,
     isHeatmap,
     heatmapRadius,
     heatmapWeight,

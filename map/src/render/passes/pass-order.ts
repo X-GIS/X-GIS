@@ -21,6 +21,7 @@ export const PASS_CHAIN_ORDER = [
   'opaque',
   'oit',
   'translucent',
+  'hillshade',
   'points',
   'labels',
   'heatmap',
@@ -37,6 +38,8 @@ export type PassLabel = (typeof PASS_CHAIN_ORDER)[number]
  *  #991 P4/P5 unification runs the RenderNode chain over RHI passes. */
 export const RHI_TWIN_MISSING: readonly PassLabel[] = [
   'oit',
+  // hillshade IS ported to the twin (render-loop.ts renderFrameViaRhi) so the
+  // relief renders under ?forcegl2=1 for the _hillshade-gl2-gate (#777 Phase II).
   // 'points' ported in #1057 (direct-layer + the VT tile-points inline path);
   // 'heatmap' ported in #1060 (renderFrameViaRhi -> heatmapRenderer.renderRhi).
   'overdraw-compose',

@@ -122,6 +122,17 @@ export interface LayerAccumulator {
   rasterSaturation: number | undefined
   rasterContrast: number | undefined
   rasterResamplingNearest: boolean | undefined
+  // Hillshade DEM-relief paint axes (#777 Phase II). All undefined = layer
+  // didn't author the axis → renderer falls back to the spec default (no-op).
+  hillshadeDirection: number | undefined
+  hillshadeAltitude: number | undefined
+  hillshadeAnchorMap: boolean | undefined
+  hillshadeExaggeration: number | undefined
+  hillshadeShadow: [number, number, number, number] | undefined
+  hillshadeHighlight: [number, number, number, number] | undefined
+  hillshadeAccent: [number, number, number, number] | undefined
+  hillshadeMethod: import('./property-types').HillshadeMethod | undefined
+  hillshadeResamplingNearest: boolean | undefined
   // Heatmap paint axes (Phase R). isHeatmap is the marker the converter's
   // `heatmap` utility sets; the rest carry the resolved scalars + ramp.
   isHeatmap: boolean | undefined

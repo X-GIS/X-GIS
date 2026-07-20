@@ -33,11 +33,17 @@ import { PASS_CHAIN_ORDER, RHI_TWIN_MISSING, type PassLabel } from './pass-order
 // The pre-#1004 hand-written order, frozen VERBATIM — proves the constructive
 // rewire reproduced the shipped sequence byte-for-byte. Never edit this list
 // except alongside a deliberate, GPU-verified pass reorder.
+//   #777 Phase II inserts `hillshade` after `translucent`, before `points`
+//   (design §4 — relief over fills, under labels). This is a STRUCTURAL
+//   insertion; the on-screen placement is verified by the real-GPU A/B (INC-6),
+//   and the pass is inert (shouldRun=false) on every existing scene, so no
+//   shipped frame changes until a raster-dem layer is present.
 const FROZEN_PRE_1004_ORDER = [
   'background',
   'opaque',
   'oit',
   'translucent',
+  'hillshade',
   'points',
   'labels',
   'heatmap',
@@ -82,6 +88,9 @@ describe('pass-order parity: one authority, two orchestrations (#1004)', () => {
       ['background', 'backgroundClearValue('],
       ['opaque', 'renderFillsRhi('],
       ['translucent', 'beginTranslucentPassRhi('],
+      // #777 Phase II — hillshade ported to the twin (after translucent, before
+      // labels); applyHillshadePaint marks the block that precedes the render.
+      ['hillshade', 'applyHillshadePaint('],
       ['points', 'pointRenderer.renderRhi('],
       ['labels', 'labelPass.execute('],
       ['heatmap', 'heatmapRenderer.renderRhi('],

@@ -151,6 +151,18 @@ export const UTILITY_REGISTRY: readonly UtilityDef[] = [
   def('raster-contrast-', 'prefix', 'number', null, false, 'paint'),
   def('raster-resampling-nearest', 'exact', 'boolean', null, false, 'paint'),
 
+  // ── hillshade (#777 Phase II). Longest-match keeps the illumination-anchor
+  //    flag + resampling flag disjoint from the direction/altitude prefixes. ──
+  def('hillshade-illumination-direction-', 'prefix', 'number', null, false, 'paint'),
+  def('hillshade-illumination-altitude-', 'prefix', 'number', null, false, 'paint'),
+  def('hillshade-illumination-anchor-map', 'exact', 'boolean', null, false, 'paint'),
+  def('hillshade-exaggeration-', 'prefix', 'number', null, false, 'paint'),
+  def('hillshade-shadow-color-', 'prefix', 'color', null, false, 'paint'),
+  def('hillshade-highlight-color-', 'prefix', 'color', null, false, 'paint'),
+  def('hillshade-accent-color-', 'prefix', 'color', null, false, 'paint'),
+  def('hillshade-method-', 'prefix', 'enum', null, false, 'paint'),
+  def('hillshade-resampling-nearest', 'exact', 'boolean', null, false, 'paint'),
+
   // ── projection / visibility / geometry-mode / interactivity ──
   def('projection-', 'prefix', 'enum', null, false, 'paint'),
   def('hidden', 'exact', 'boolean', null, false, 'paint'),

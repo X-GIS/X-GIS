@@ -46,6 +46,17 @@ export class PrefetchScheduler {
    *  frame on dense styles). */
   private prevPanCam: CameraSnapshot | null = null
 
+  /** Wall-clock frame counter driving the route-2 throttle below.
+   *  `pump` has exactly ONE call site (render-loop.ts:467, once per
+   *  frame per source) and each VTR owns its own scheduler
+   *  (vector-tile-renderer.ts:261), so counting pumps counts frames. */
+  private pumpCount = 0
+
+  /** Route-2 walk stride, in frames. 6 (~100 ms at 60 fps) copied from
+   *  the Tier-2 zoom-direction gate's throttle
+   *  (vector-tile-renderer.ts:3683) — same amortised cost, same reason. */
+  private static readonly PAN_WALK_FRAME_STRIDE = 6
+
   /** Issue speculative prefetch requests for the visible-tile set.
    *  Fire-and-forget; returns immediately. Callers (VTR) invoke this
    *  exactly once per wall-clock frame, AFTER the first render() of
@@ -59,6 +70,7 @@ export class PrefetchScheduler {
     canvasHeight: number,
     dpr: number,
   ): void {
+    const frame = this.pumpCount++
     if (!source.hasData()) return
 
     const cur: CameraSnapshot = {
@@ -82,6 +94,36 @@ export class PrefetchScheduler {
     if (siblings.length > 0) source.prefetchTiles(siblings)
 
     // ─── Route 2: Google Earth pan-direction speculation ─────────
+    //
+    // Throttled to every 6th frame (~100 ms at 60 fps), mirroring the
+    // Tier-2 zoom-direction gate at vector-tile-renderer.ts:3683 — the
+    // amortised cost is the same one: a full `visibleTilesFrustumSampled`
+    // quadtree walk (+ a temp Camera) below. Route 2 was the last
+    // per-frame walk with no gate at all, while both of its siblings in
+    // VTR (prefetchAdjacent :3657, Tier-2 :3683) were already throttled.
+    // It shows up during a wheel zoom: the camera changes every rAF
+    // (~19 frames per notch) and map.ts:3790 compares zoom by exact float
+    // equality, so all 19 frames full-render AND re-walk here — measured
+    // 15.0 ms median / 165.7 ms max, against 6.9 ms on frames that walk
+    // nothing (identical to at-rest).
+    //
+    // Deliberately NOT the `cameraIdle` half of that precedent: idle and
+    // route 2 are mutually exclusive BY CONSTRUCTION. `cameraIdle` means
+    // "centre/zoom unmoved for IDLE_GRACE_MS = 200" (tile-selection-cache
+    // .ts:312); `projectPanPrefetchTarget` bails below minSpeedSq ≈ 1.9
+    // m/ms (tile-decision.ts:485). An idle-gated route 2 could never fire
+    // once — that deletes pan speculation rather than amortising it.
+    // Route 1 above stays per-frame for the mirror-image reason: it is
+    // O(neededKeys) with no walk, and its whole job ("the camera nudged
+    // 1 px and a fresh tile became visible") only exists in motion.
+    //
+    // The `cur` snapshot likewise stays per-frame, and MUST: throttling it
+    // would stretch prev→cur dt to 6 frames, and projectPanPrefetchTarget
+    // discards dt ≥ 200 ms (tile-decision.ts:474) — exactly 6 frames at the
+    // 30 fps mobile cadence, i.e. the throttle would silently kill the very
+    // route it means to preserve. Only the WALK is strided; velocity stays
+    // a 1-frame measurement with its lookahead semantics untouched.
+    if (frame % PrefetchScheduler.PAN_WALK_FRAME_STRIDE !== 0) return
     if (prev === null) return
     const future = projectPanPrefetchTarget(prev, cur, camera.pitch ?? 0)
     if (future === null) return
