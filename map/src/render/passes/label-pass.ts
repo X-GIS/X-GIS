@@ -158,6 +158,23 @@ export function dispatchCenterKey(centerX: number, centerY: number, mpp: number)
  *  delimiters, so a per-field diff can never alias the concatenated form. */
 interface LabelDispatchSkipState {
   zoomKey: number
+  /** Un-quantised zoom at the last actual PREPARE (#1177 Option B) — the
+   *  reference the active-zoom tolerance measures drift against. */
+  preparedZoom: number
+  /** Exact zoom key of the PREVIOUS FRAME (updated every frame, hit or
+   *  miss) — `prevFrameZoomKey !== current` detects an ACTIVE zoom. */
+  prevFrameZoomKey: number
+  /** Raw mercator-metre centre at the last PREPARE — the active-zoom centre
+   *  tolerance divides its drift by the CURRENT mpp (screen px), because the
+   *  quantised ckx/cky churn under pure zoom (mpp shrinks ⇒ centre/mpp
+   *  grows) even when the geographic centre never moved. */
+  preparedCenterX: number
+  preparedCenterY: number
+  /** TRUE centre latitude at the last PREPARE — compared EXACTLY in the
+   *  settled branch. Beyond the Mercator clamp (sphere-family polar orbit)
+   *  centerY saturates while centerLatDeg keeps moving, so ckx/cky alone
+   *  would replay stale labels across a polar setCenter/drag. */
+  centerLatDeg: number
   ckx: number
   cky: number
   bearingKey: number
@@ -653,11 +670,31 @@ class LabelPass implements RenderPass {
       // `_prevLabelDispatchSig = _dispatchSig`; since the hit precondition already
       // implies equality, that keeps stored == current after every frame.
       const _prevSkip = this._skipState.get(host)
+      // #1177 Option B — zoom-tolerant skip. The exact `(zoom*100)|0` key made
+      // EVERY continuous-zoom frame a guaranteed miss, so the whole
+      // prepare cost sat on the wheel-zoom hot path (the confirmed jank root
+      // cause). During an ACTIVE zoom (this frame's exact key differs from the
+      // previous FRAME's) the camera cluster is compared with tolerance
+      // instead: |zoom - preparedZoom| <= 0.15 and centre drift <= 48 px —
+      // prior placement replays, MapLibre placement-throttle style (mid-zoom
+      // staleness bounded by those budgets). The moment motion STOPS the exact
+      // comparison returns, forcing one final prepare so idle is snap-correct.
+      // Bearing/pitch/canvas/shows/tiles stay exact — a tile landing mid-zoom
+      // still re-prepares (new labels must appear).
+      const zoomActive = _prevSkip !== undefined && _prevSkip.prevFrameZoomKey !== _zoomKey
+      const _camSame =
+        _prevSkip !== undefined &&
+        (zoomActive
+          ? Math.abs(c.zoom - _prevSkip.preparedZoom) <= 0.15 &&
+            Math.abs(c.centerX - _prevSkip.preparedCenterX) / _mpp <= 48 &&
+            Math.abs(c.centerY - _prevSkip.preparedCenterY) / _mpp <= 48
+          : _prevSkip.zoomKey === _zoomKey &&
+            _prevSkip.ckx === _ckx &&
+            _prevSkip.cky === _cky &&
+            _prevSkip.centerLatDeg === c.centerLatDeg)
       const _sigSame =
         _prevSkip !== undefined &&
-        _prevSkip.zoomKey === _zoomKey &&
-        _prevSkip.ckx === _ckx &&
-        _prevSkip.cky === _cky &&
+        _camSame &&
         _prevSkip.bearingKey === _bearingKey &&
         _prevSkip.pitchKey === _pitchKey &&
         _prevSkip.canvasW === _canvasW &&
@@ -673,6 +710,11 @@ class LabelPass implements RenderPass {
         if (_prevSkip === undefined) {
           this._skipState.set(host, {
             zoomKey: _zoomKey,
+            preparedZoom: c.zoom,
+            prevFrameZoomKey: _zoomKey,
+            preparedCenterX: c.centerX,
+            preparedCenterY: c.centerY,
+            centerLatDeg: c.centerLatDeg,
             ckx: _ckx,
             cky: _cky,
             bearingKey: _bearingKey,
@@ -684,6 +726,10 @@ class LabelPass implements RenderPass {
           })
         } else {
           _prevSkip.zoomKey = _zoomKey
+          _prevSkip.preparedZoom = c.zoom
+          _prevSkip.preparedCenterX = c.centerX
+          _prevSkip.preparedCenterY = c.centerY
+          _prevSkip.centerLatDeg = c.centerLatDeg
           _prevSkip.ckx = _ckx
           _prevSkip.cky = _cky
           _prevSkip.bearingKey = _bearingKey
@@ -694,6 +740,10 @@ class LabelPass implements RenderPass {
           _prevSkip.vtrSig = _vtrSig
         }
       }
+      // Every frame (hit AND miss): record this frame's exact key so the next
+      // frame can classify itself active vs settled.
+      const _postSkip = this._skipState.get(host)
+      if (_postSkip) _postSkip.prevFrameZoomKey = _zoomKey
       // _showIdx = draw order (later show = higher layer) — point-label dedup precedence (#458).
       for (let _showIdx = 0; _showIdx < labelShows.length; _showIdx++) {
         const show = labelShows[_showIdx]!

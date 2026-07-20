@@ -64,6 +64,7 @@ import type {
   RhiCommandEncoder,
   RhiRenderPassDesc,
 } from '@xgis/rhi'
+import { stashGl2RestoreToken } from '@xgis/rhi'
 
 // Each opaque RHI handle stores a rich GL record (cast both ways inside this
 // module). WebGL2 needs MORE per-handle metadata than WebGPU (a buffer's GL
@@ -117,6 +118,9 @@ interface Gl2Pipeline {
    *  GLOBAL state, so an explicit apply prevents a future 'cw' pipeline
    *  from leaking its winding into every later draw. Default 'ccw'. */
   frontFace: 'ccw' | 'cw'
+  /** Primitive topology → the GL draw mode (default 'triangle-list' = gl.TRIANGLES).
+   *  'line-list' = gl.LINES for the graticule overlay's segment-pair geometry. */
+  topology?: 'triangle-list' | 'line-list'
   depth?: {
     write: boolean
     compare: 'always' | 'less' | 'less-equal'
@@ -175,7 +179,7 @@ function texFmt(
 const VFMT: Readonly<
   Record<
     string,
-    { size: number; type: 'f32' | 'u8' | 'u16'; normalized: boolean; integer?: boolean }
+    { size: number; type: 'f32' | 'u8' | 'u16' | 'u32'; normalized: boolean; integer?: boolean }
   >
 > = {
   float32: { size: 1, type: 'f32', normalized: false },
@@ -189,6 +193,10 @@ const VFMT: Readonly<
   // The polygon fill's quantized-ECEF position lanes (q_xy/q_z) use these.
   uint16x2: { size: 2, type: 'u16', normalized: false, integer: true },
   uint16x4: { size: 4, type: 'u16', normalized: false, integer: true },
+  // Scalar u32 — the SDF point quad_id lane (#1057) and the heatmap accum quad's
+  // quad_id (#1060); reads as a uint shader input, binds via the I-pointer
+  // (size 1, UNSIGNED_INT) like the uint16 lanes above.
+  uint32: { size: 1, type: 'u32', normalized: false, integer: true },
 }
 
 function applyBlend(gl: WebGL2RenderingContext, mode: Gl2Pipeline['blend']): void {
@@ -404,7 +412,13 @@ class WebGl2RenderPass implements RhiRenderPass {
         if (!fmt) throw new Error(`webgl2: unsupported vertex format '${a.format}'`)
         gl.enableVertexAttribArray(a.location)
         const glType =
-          fmt.type === 'f32' ? gl.FLOAT : fmt.type === 'u16' ? gl.UNSIGNED_SHORT : gl.UNSIGNED_BYTE
+          fmt.type === 'f32'
+            ? gl.FLOAT
+            : fmt.type === 'u16'
+              ? gl.UNSIGNED_SHORT
+              : fmt.type === 'u32'
+                ? gl.UNSIGNED_INT
+                : gl.UNSIGNED_BYTE
         // `vbufOffset` (default 0) shifts the per-tile arena sub-range start into the
         // attribute byte offset — default 0 is byte-identical to the no-offset bind.
         if (fmt.integer) {
@@ -431,11 +445,18 @@ class WebGl2RenderPass implements RhiRenderPass {
     }
   }
 
+  /** GL draw-primitive mode of the live pipeline — gl.LINES for a 'line-list'
+   *  pipeline (the graticule overlay), gl.TRIANGLES otherwise (the default). */
+  private drawMode(): number {
+    return this.cur?.topology === 'line-list' ? this.gl.LINES : this.gl.TRIANGLES
+  }
+
   draw(vertexCount: number, instanceCount = 1, firstVertex = 0): void {
     this.bindAttributes()
+    const mode = this.drawMode()
     if (instanceCount > 1)
-      this.gl.drawArraysInstanced(this.gl.TRIANGLES, firstVertex, vertexCount, instanceCount)
-    else this.gl.drawArrays(this.gl.TRIANGLES, firstVertex, vertexCount)
+      this.gl.drawArraysInstanced(mode, firstVertex, vertexCount, instanceCount)
+    else this.gl.drawArrays(mode, firstVertex, vertexCount)
   }
 
   setStencilReference(ref: number): void {
@@ -451,15 +472,16 @@ class WebGl2RenderPass implements RhiRenderPass {
     // .buf is the Gl2Buffer RECORD; the GL object is record.buf (#832 M2 — the
     // fill draw is the first indexed consumer, which is why this laid dormant).
     this.gl.bindBuffer(this.gl.ELEMENT_ARRAY_BUFFER, this.ibuf.buf.buf)
+    const mode = this.drawMode()
     if (instanceCount > 1)
       this.gl.drawElementsInstanced(
-        this.gl.TRIANGLES,
+        mode,
         indexCount,
         this.ibuf.type,
         this.ibuf.offset,
         instanceCount,
       )
-    else this.gl.drawElements(this.gl.TRIANGLES, indexCount, this.ibuf.type, this.ibuf.offset)
+    else this.gl.drawElements(mode, indexCount, this.ibuf.type, this.ibuf.offset)
   }
 
   // WebGL2 is immediate-mode: an OFFSCREEN pass's end() restores FBO 0 + the
@@ -602,12 +624,23 @@ export class WebGl2Device implements RhiDevice {
       SAMPLER_TYPES.add(gl.SAMPLER_2D_ARRAY)
     }
     const exts = gl.getSupportedExtensions?.() ?? []
+    // ENABLE (not just detect) the float render/blend extensions. `getSupportedExtensions`
+    // only LISTS them; rendering TO an R16F attachment (the heatmap density target, #1060)
+    // requires `getExtension('EXT_color_buffer_float')` to actually make R16F
+    // color-renderable — without it the offscreen FBO is INCOMPLETE and every draw raises
+    // GL_INVALID_FRAMEBUFFER_OPERATION. EXT_float_blend likewise unlocks blending INTO the
+    // float target (the additive Gaussian accumulation). Both are null-safe getExtension
+    // calls; the cap below still reads the presence list so its value is unchanged.
+    const floatBlend = exts.includes('EXT_color_buffer_float') && exts.includes('EXT_float_blend')
+    if (floatBlend) {
+      gl.getExtension('EXT_color_buffer_float')
+      gl.getExtension('EXT_float_blend')
+    }
     this.caps = Object.freeze({
       maxSampleCount: 1,
       presentablePassMrt: false,
       pickReadback: 'sync',
-      floatBlendTargets:
-        exts.includes('EXT_color_buffer_float') && exts.includes('EXT_float_blend'),
+      floatBlendTargets: floatBlend,
       compute: 'fragment-emulated',
       timestampQuery: false,
       executionModel: 'immediate',
@@ -1279,6 +1312,7 @@ export class WebGl2Device implements RhiDevice {
       colorWriteMask,
       cullMode: desc.cullMode,
       frontFace: desc.frontFace ?? 'ccw',
+      topology: desc.topology,
       depth: desc.depthStencil
         ? {
             write: desc.depthStencil.write,
@@ -1328,7 +1362,13 @@ export class WebGl2Device implements RhiDevice {
       if (canvas.addEventListener && !this.gl.isContextLost?.())
         canvas.addEventListener('webglcontextlost', (e) => e.preventDefault(), { once: true })
     }
-    this.gl.getExtension('WEBGL_lose_context')?.loseContext()
+    // #1196 — stash the extension OBJECT before losing: on a lost context
+    // getExtension() returns null (WebGL spec), so the remount's ensure-
+    // restored preamble can only call restoreContext() through a handle
+    // captured pre-loss. The canvas is the identity both boots share.
+    const loseExt = this.gl.getExtension('WEBGL_lose_context')
+    if (loseExt && canvas) stashGl2RestoreToken(canvas, loseExt)
+    loseExt?.loseContext()
   }
 
   /** Run a compute-as-draw (the M2 compute→fragment-GPGPU lowering) into an offscreen
