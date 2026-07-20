@@ -179,6 +179,11 @@ export interface RhiPipelineDesc {
   /** Triangle face culling. Default 'none' (byte-identical to the prior hardcoded primitive).
    *  'back' back-face culls (e.g. dropping a sphere's far hemisphere). */
   cullMode?: 'none' | 'back' | 'front'
+  /** Winding that counts as front-facing (#1049). Default 'ccw' — BOTH
+   *  backends previously relied on their implicit CCW defaults; modeling it
+   *  here means a future winding flip is expressed in the descriptor instead
+   *  of ad-hoc native calls. */
+  frontFace?: 'ccw' | 'cw'
   /** Primitive topology. Default 'triangle-list' (byte-identical to the prior hardcoded
    *  primitive). 'line-list' draws each vertex pair as an independent segment — the
    *  lat/lon graticule overlay's geometry (the only line-list consumer so far). */

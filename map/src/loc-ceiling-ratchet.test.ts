@@ -415,7 +415,13 @@ const CEILINGS: Record<string, number> = {
   // WEBGL_lose_context handle on the canvas (stashGl2RestoreToken) —
   // getExtension() is null on a lost context, so a same-canvas remount could
   // never restore without it. Measured 1404.
-  'rhi-webgl2/src/rhi-webgl2.ts': 1404,
+  // 1404→1436 (#1049, merge union): descriptor-parity batch — the MRT per-target
+  // blend/writeMask divergence guard (fail-loud; ES 3.00 lacks
+  // OES_draw_buffers_indexed), frontFace modeled + applied at setPipeline,
+  // UNPACK_ALIGNMENT restored to the GL default after ad-hoc uploads, and
+  // createPipeline unbinding the program after reflection. Stacked on the
+  // #1057/#1062/#1060/#1196 growth — measured 1436.
+  'rhi-webgl2/src/rhi-webgl2.ts': 1436,
   'map/src/render/gpu-tile-store.ts': 941,
   // 930→948 (#1078): the zoom-transition readiness gate now probes the SAME
   // selector the frame draws with — routeToSphereSelector picks globeVisibleTiles

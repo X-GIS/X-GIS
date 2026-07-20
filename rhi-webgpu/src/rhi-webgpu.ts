@@ -582,6 +582,7 @@ export class WebGpuDevice implements RhiDevice {
         primitive: {
           topology: desc.topology ?? 'triangle-list',
           cullMode: desc.cullMode ?? 'none',
+          frontFace: desc.frontFace ?? 'ccw',
         },
         label: desc.label,
       }),
