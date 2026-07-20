@@ -82,7 +82,9 @@ describe('pass-order parity: one authority, two orchestrations (#1004)', () => {
       ['background', 'backgroundClearValue('],
       ['opaque', 'renderFillsRhi('],
       ['translucent', 'beginTranslucentPassRhi('],
+      ['points', 'pointRenderer.renderRhi('],
       ['labels', 'labelPass.execute('],
+      ['heatmap', 'heatmapRenderer.renderRhi('],
       ['graphics', 'graphics.renderRetained('],
     ]
 

@@ -50,7 +50,7 @@ import {
   type ModuleDecl,
 } from '@xgis/shader-dsl'
 import { ioStruct, builtin, location, uniformStruct, storageBuffer } from '@xgis/shader-dsl'
-import { emitModule } from '@xgis/shader-dsl'
+import { emitModule, emitGlslModule } from '@xgis/shader-dsl'
 import {
   flat_rel,
   needs_backface_cull,
@@ -226,3 +226,22 @@ export const buildHeatmapAccumModule = (): ModuleDecl =>
 /** Full heatmap accumulation shader: one module — shared projection consts + fns merged
  *  ahead of the accum module (Uniforms + feat_data storage + vs_heatmap/fs_heatmap). */
 export const emitHeatmapAccumWgsl = (): string => emitModule(buildHeatmapAccumModule())
+
+/** GLSL ES 3.00 twin of the accum shader (forced-WebGL2 heatmap twin, #1060).
+ *  Per-stage assembly (mirrors emitLineGlsl): the vertex stage carries the
+ *  projection consts/fns + vs_heatmap and lowers the `feat_data` storage array
+ *  to an R32F data texture via `emulateStorage` (WebGL2 has no SSBO — the RHI
+ *  binds the storage buffer's data texture, texelFetch in the VS reads the same
+ *  DSFUN slots the WGSL storage read did). The fragment stage is a pure radial
+ *  Gaussian (no storage / projection), so module() drops the unused decls. */
+export const emitHeatmapAccumGlsl = (stage: 'vertex' | 'fragment'): string =>
+  emitGlslModule(
+    module({
+      consts: [...PROJECTION_CONSTS],
+      structs: [U.struct, HeatOut.decl],
+      bindings: [U.binding, featDataB.binding],
+      funcs: stage === 'vertex' ? [...getGpuProjectionFuncs(), vs] : [fs],
+    }),
+    stage,
+    { emulateStorage: true },
+  )

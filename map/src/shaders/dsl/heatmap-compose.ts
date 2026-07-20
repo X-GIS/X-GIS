@@ -46,7 +46,7 @@ import {
   type ModuleDecl,
 } from '@xgis/shader-dsl'
 import { ioStruct, builtin, location, uniformStruct, resource } from '@xgis/shader-dsl'
-import { emitModule } from '@xgis/shader-dsl'
+import { emitModule, emitGlslModule } from '@xgis/shader-dsl'
 
 const U = uniformStruct(
   'ComposeParams',
@@ -112,6 +112,30 @@ const fsCompose = fn(
   { stage: 'fragment', retAttr: '@location(0)' },
 )
 
+// GL twin of vs_full with the V axis NON-flipped (forced-WebGL2 heatmap twin,
+// #1060). A GL FBO stores clip y=-1 at texture ROW 0 (sampled at uv.y=0), the
+// inverse of WebGPU's v=0-at-top; the density read (textureLoad → texelFetch)
+// and the compose-onto-screen write must share the accum pass's FBO
+// orientation, so the twin drops the WGSL flip. Same fn NAME so the Material
+// vsEntry + emitted GLSL entry stay 'vs_full' (mirrors line-composite's vsFullGl).
+const vsFullGl = fn(
+  'vs_full',
+  { idx: builtin('vertex_index', u32T) },
+  (p) => {
+    const pos = Var(vec2(-1, -1))
+    If(p.idx.eq(1), () => {
+      pos.assign(vec2(3, -1))
+    }).elif(p.idx.eq(2), () => {
+      pos.assign(vec2(-1, 3))
+    })
+    const o = VsOut.var()
+    o.pos.assign(vec4(pos, 0, 1))
+    o.uv.assign(vec2(pos.x.add(1).mul(0.5), pos.y.add(1).mul(0.5)))
+    return o.$
+  },
+  { stage: 'vertex' },
+)
+
 const HEATMAP_COMPOSE_MODULE: ModuleDecl = module({
   structs: [U.struct, VsOut.decl],
   bindings: [densityTex.binding, rampTex.binding, rampSampler.binding, U.binding],
@@ -121,3 +145,16 @@ const HEATMAP_COMPOSE_MODULE: ModuleDecl = module({
 /** Heatmap compose shader: samples blurred density, maps through the colour
  *  ramp LUT × intensity × opacity, alpha-blends over the scene. */
 export const emitHeatmapComposeWgsl = (): string => emitModule(HEATMAP_COMPOSE_MODULE)
+
+/** GLSL ES 3.00 twin of the compose shader (forced-WebGL2 heatmap twin, #1060).
+ *  Vertex stage swaps in the non-flipped vsFullGl; fragment keeps loadDensity +
+ *  fsCompose (density textureLoad + ramp textureSample). No storage buffers. */
+export const emitHeatmapComposeGlsl = (stage: 'vertex' | 'fragment'): string =>
+  emitGlslModule(
+    module({
+      structs: [U.struct, VsOut.decl],
+      bindings: [densityTex.binding, rampTex.binding, rampSampler.binding, U.binding],
+      funcs: stage === 'vertex' ? [vsFullGl] : [loadDensity, fsCompose],
+    }),
+    stage,
+  )

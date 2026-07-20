@@ -229,6 +229,38 @@
         flex-shrink: 0;
       }
 
+      /* ── XGIS/JS source tabs (#1194 A3b) — shown only when the demo has
+         a SceneBuilder twin in the compiler twin-corpus. ── */
+      #lang-tabs {
+        display: flex;
+        gap: 0;
+        flex-shrink: 0;
+        border: 1px solid var(--border);
+        border-radius: 6px;
+        overflow: hidden;
+      }
+      #lang-tabs[hidden] {
+        display: none;
+      }
+      .tb-tab {
+        font-family: var(--font-mono);
+        font-size: 10px;
+        background: transparent;
+        border: none;
+        color: var(--text-dim);
+        padding: 5px 8px;
+        cursor: pointer;
+        letter-spacing: 0.05em;
+        transition: all 0.15s;
+      }
+      .tb-tab.active {
+        background: var(--surface2);
+        color: var(--accent);
+      }
+      .tb-tab:hover:not(.active) {
+        color: var(--text);
+      }
+
       /* ── Editor Body (code area) ── */
       .editor-body {
         flex: 1;
@@ -297,6 +329,37 @@
       .back-link svg {
         width: 12px;
         height: 12px;
+      }
+
+      /* ── Demo action buttons (#1192 interaction infra) — shown only when
+         the mounted demo declares Demo.actions. ── */
+      #demo-actions {
+        position: absolute;
+        bottom: 12px;
+        left: 50%;
+        transform: translateX(-50%);
+        display: flex;
+        gap: 6px;
+        z-index: 5;
+      }
+      #demo-actions[hidden] {
+        display: none;
+      }
+      #demo-actions button {
+        background: rgba(10, 10, 10, 0.75);
+        border: 1px solid var(--border);
+        backdrop-filter: blur(12px);
+        color: var(--text);
+        font-family: var(--font-sans);
+        font-size: 12px;
+        padding: 6px 12px;
+        border-radius: 6px;
+        cursor: pointer;
+        transition: all 0.15s;
+      }
+      #demo-actions button:hover {
+        border-color: var(--border-hover);
+        background: rgba(30, 30, 30, 0.85);
       }
 
       /* ── Status (on map) ── */
@@ -492,6 +555,9 @@
       <div id="map-pane">
         <canvas id="map"></canvas>
         <div id="status">Initializing...</div>
+        <!-- Action buttons for API-driven demos (#1192): populated by
+           demo-runner from Demo.actions; hidden when the demo has none. -->
+        <div id="demo-actions" hidden></div>
         <!-- Snapshot copy button — floating in map's top-right corner.
            Captures the current scene state (camera, viewport, DPR,
            loaded tiles, render order, pixel hash) via __xgisSnapshot()
@@ -551,6 +617,14 @@
             <option value="webgpu">WebGPU</option>
             <option value="webgl2">WebGL2</option>
           </select>
+          <!-- XGIS/JS tabs (#1194 A3b): shown only when the demo has a
+             SceneBuilder twin — JS shows the equivalent builder calls. -->
+          <div id="lang-tabs" hidden>
+            <button class="tb-tab active" id="tab-xgis" title="X-GIS source">XGIS</button>
+            <button class="tb-tab" id="tab-js" title="Same scene via the SceneBuilder JS API">
+              JS
+            </button>
+          </div>
           <span class="tb-tag" id="demo-tag"></span>
           <!-- Live identity badge: the backend that ACTUALLY booted (auto can
              fall back), so a frame is never attributed to the wrong backend. -->
