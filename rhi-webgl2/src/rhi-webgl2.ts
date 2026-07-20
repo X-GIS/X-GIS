@@ -188,8 +188,9 @@ const VFMT: Readonly<
   // The polygon fill's quantized-ECEF position lanes (q_xy/q_z) use these.
   uint16x2: { size: 2, type: 'u16', normalized: false, integer: true },
   uint16x4: { size: 4, type: 'u16', normalized: false, integer: true },
-  // The SDF point quad_id lane (u32 corner index) — reads as a uint shader
-  // input, so it binds via the I-pointer like the uint16 lanes above (#1057).
+  // Scalar u32 — the SDF point quad_id lane (#1057) and the heatmap accum quad's
+  // quad_id (#1060); reads as a uint shader input, binds via the I-pointer
+  // (size 1, UNSIGNED_INT) like the uint16 lanes above.
   uint32: { size: 1, type: 'u32', normalized: false, integer: true },
 }
 
@@ -617,12 +618,23 @@ export class WebGl2Device implements RhiDevice {
       SAMPLER_TYPES.add(gl.SAMPLER_2D_ARRAY)
     }
     const exts = gl.getSupportedExtensions?.() ?? []
+    // ENABLE (not just detect) the float render/blend extensions. `getSupportedExtensions`
+    // only LISTS them; rendering TO an R16F attachment (the heatmap density target, #1060)
+    // requires `getExtension('EXT_color_buffer_float')` to actually make R16F
+    // color-renderable — without it the offscreen FBO is INCOMPLETE and every draw raises
+    // GL_INVALID_FRAMEBUFFER_OPERATION. EXT_float_blend likewise unlocks blending INTO the
+    // float target (the additive Gaussian accumulation). Both are null-safe getExtension
+    // calls; the cap below still reads the presence list so its value is unchanged.
+    const floatBlend = exts.includes('EXT_color_buffer_float') && exts.includes('EXT_float_blend')
+    if (floatBlend) {
+      gl.getExtension('EXT_color_buffer_float')
+      gl.getExtension('EXT_float_blend')
+    }
     this.caps = Object.freeze({
       maxSampleCount: 1,
       presentablePassMrt: false,
       pickReadback: 'sync',
-      floatBlendTargets:
-        exts.includes('EXT_color_buffer_float') && exts.includes('EXT_float_blend'),
+      floatBlendTargets: floatBlend,
       compute: 'fragment-emulated',
       timestampQuery: false,
       executionModel: 'immediate',

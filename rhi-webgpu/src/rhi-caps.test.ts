@@ -41,6 +41,10 @@ function fakeGl(supportedExtensions: string[] | null): WebGL2RenderingContext {
     SAMPLER_3D: 0x8b5f,
     SAMPLER_2D_ARRAY: 0x8dc1,
     getSupportedExtensions: () => supportedExtensions,
+    // #1060 — the device ctor now ENABLES the float-blend extensions when both
+    // are supported (getExtension is WebGL2's activation call, not just a probe);
+    // the stub mirrors a real context by answering for names it "supports".
+    getExtension: (name: string) => (supportedExtensions?.includes(name) ? {} : null),
   } as unknown as WebGL2RenderingContext
 }
 

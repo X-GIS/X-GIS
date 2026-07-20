@@ -1107,6 +1107,30 @@ export class RenderLoop {
       this.host,
     )
 
+    // #1060 — HEATMAP on WebGL2. The WebGPU heatmap pass (3-pass accum → blur →
+    // compose density accumulation) never ran on this twin; here it re-originates
+    // through the RHI seam (HeatmapRenderer.renderRhi) after the label pass, before
+    // graphics — the same placement the WebGPU pass-chain uses. Gated on
+    // rhi.caps.floatBlendTargets: the r16float density accumulation needs
+    // render-to-float + float blend (EXT_color_buffer_float + EXT_float_blend, the
+    // cap's documented consumer); a device without them fail-closes (no draw, no
+    // error, no black hole).
+    const heatmapRenderer = this.host.heatmapRenderer
+    if (heatmapRenderer?.hasLayers() && rhi.caps.floatBlendTargets) {
+      heatmapRenderer.renderRhi(
+        rhi,
+        pass,
+        this.host.heatmapTargets,
+        this.host.camera,
+        projType,
+        centerLon,
+        centerLat,
+        w,
+        h,
+        dpr,
+      )
+    }
+
     // #823 — retained host-drawing icon batches (map.graphics.add) on WebGL2.
     // Mirrors the WebGPU graphics pass's placement (LAST, on the presented
     // target) + its hasGraphics gate: a map with no retained batch draws

@@ -325,7 +325,6 @@ const CEILINGS: Record<string, number> = {
   // fills/strokes, before translucent), mirroring the WebGPU opaque-pass placement.
   // Merge union (#1057 + #1062): both twin call-site blocks stacked non-overlappingly
   // in renderFrameViaRhi — merged high-water is the measured 1266.
-  'map/src/render-loop.ts': 1266,
   // 1140→1169 (#1057): render() split into a thin GPURenderPassEncoder-wrapping
   // delegator + a single-authority renderRhi(pass: RhiRenderPass, …) so the WebGPU
   // pass-chain and the forced-WebGL2 twin share ONE point-draw body (uploadLayer +
@@ -334,6 +333,12 @@ const CEILINGS: Record<string, number> = {
   // 1169→1174 (#1057 inc2): flushTilePoints renamed to flushTilePointsRhi(pass:
   // RhiRenderPass, …) — the draw seam already flowed through PointDraper, so only the
   // pass handle changes (wrap moves up to VTR.emitTilePointsRhi); +5 doc lines.
+  // 1213→1237 (#1060): the heatmap twin call site — HeatmapRenderer.renderRhi runs
+  // the 3-pass accum→blur→compose density pipeline on WebGL2 after the label pass
+  // (the caps.floatBlendTargets gate + its doc). F6 slashes this file (twin deletion).
+  // Merge union (#1060 <- main): stacked growth — measured 1290.
+  'map/src/render-loop.ts': 1290,
+  // Merge union (#1060 <- main): stacked growth — measured 1174.
   'map/src/render/point-renderer.ts': 1174,
   // 1106→1120 (#1043 state-hygiene): three unmask-before-clear / state-reset fixes for the
   // WebGL2 flicker class — beginScreenPass colorMask unmask (the colour sibling of #746/#780),
@@ -375,11 +380,17 @@ const CEILINGS: Record<string, number> = {
   // consumed by both draw / drawIndexed, so the graticule twin can draw segment pairs.
   // Merge union (#1057 + #1062): uint32 entry AND topology seam stacked — merged
   // high-water is the measured 1385.
-  'rhi-webgl2/src/rhi-webgl2.ts': 1385,
   // 965→1000 (#1062): the graticule overlay's WebGL2 seam — renderGraticuleOverlayRhi
   // (the RHI twin of renderGraticuleOverlay, threading the canonical ECEF frame view
   // + projection into GraticuleRenderer.renderFrameRhi) + the RhiRenderPass import.
+  // 1364→1384 (#1060): the heatmap r16float twin — ENABLE (not just detect) the
+  // EXT_color_buffer_float / EXT_float_blend extensions so the density FBO is
+  // color-renderable + blendable, plus the scalar `uint32` vertex format (the
+  // accum quad's quad_id) with its UNSIGNED_INT glType arm.
+  // Merge union (#1060 <- main): stacked growth — measured 1000.
   'map/src/render/renderer.ts': 1000,
+  // Merge union (#1060 <- main): stacked growth — measured 1397.
+  'rhi-webgl2/src/rhi-webgl2.ts': 1397,
   'map/src/render/gpu-tile-store.ts': 941,
   // 930→948 (#1078): the zoom-transition readiness gate now probes the SAME
   // selector the frame draws with — routeToSphereSelector picks globeVisibleTiles
