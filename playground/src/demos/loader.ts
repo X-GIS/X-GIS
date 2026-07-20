@@ -40,6 +40,17 @@ export function load(file: string): string {
   return src
 }
 
+import type { XGISMap } from '@xgis/runtime'
+
+/** One gallery action button (#1192 interaction infra): demo-runner renders
+ *  `label` in the #demo-actions bar and invokes `run` with the LIVE map on
+ *  click — the MapLibre examples' `<button>` → map-API wiring, expressed as
+ *  demo metadata so API-driven examples stay portable. */
+export interface DemoAction {
+  label: string
+  run: (map: XGISMap) => void
+}
+
 export interface Demo {
   name: string
   tag: string
@@ -50,4 +61,6 @@ export interface Demo {
    *  coordinate. Used by interactive picking demos and any fixture
    *  that wants to expose live event feedback for manual testing. */
   picking?: boolean
+  /** Action buttons rendered by demo-runner while this demo is mounted. */
+  actions?: DemoAction[]
 }
