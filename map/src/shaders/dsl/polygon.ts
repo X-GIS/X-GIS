@@ -1329,9 +1329,14 @@ export const emitPolygonGlsl = (
   variant: PolygonVariantSpec | null,
   pickEnabled: boolean,
   stage: 'vertex' | 'fragment',
+  /** Which stage entry to KEEP (the GLSL emit turns every kept entry into a
+   *  `main()`, so exactly one per stage survives). Default = the flat-fill entries
+   *  (vs_main_ecef / fs_fill); the graticule twin passes vs_main / fs_stroke to
+   *  reuse the SAME polygon module for its line overlay (#1062). */
+  entry?: string,
 ): string => {
   const m = buildPolygonModule(variant, pickEnabled)
-  const keep = stage === 'vertex' ? 'vs_main_ecef' : 'fs_fill'
+  const keep = entry ?? (stage === 'vertex' ? 'vs_main_ecef' : 'fs_fill')
   return emitGlslModule(
     { ...m, funcs: m.funcs.filter((f) => stageOf(f) === undefined || f.name === keep) },
     stage,
