@@ -1334,8 +1334,9 @@ export const emitPolygonGlsl = (
   stage: 'vertex' | 'fragment',
   /** Which stage entry to KEEP (the GLSL emit turns every kept entry into a
    *  `main()`, so exactly one per stage survives). Default = the flat-fill entries
-   *  (vs_main_ecef / fs_fill); the ground fill-pattern twin passes fs_fill_pattern to
-   *  reuse the SAME polygon module for its sprite-sampled fill (#1059). */
+   *  (vs_main_ecef / fs_fill); the graticule twin passes vs_main / fs_stroke for its
+   *  line overlay (#1062) and the ground fill-pattern twin passes fs_fill_pattern for
+   *  its sprite-sampled fill (#1059) — all reusing the SAME polygon module. */
   entry?: string,
 ): string => {
   const m = buildPolygonModule(variant, pickEnabled)

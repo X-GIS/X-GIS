@@ -29,7 +29,7 @@ import { installWebGPUStub, type StubInstallation } from '../../__test-support__
 import { initGPU, type GPUContext } from '@xgis/rhi-webgpu'
 import { PointRenderer } from '@xgis/map'
 import { pointWorldCopies } from '@xgis/map'
-import { WebGpuDevice } from '@xgis/rhi-webgpu'
+import { WebGpuDevice, wrapWebGpuPass } from '@xgis/rhi-webgpu'
 import { Camera } from '@xgis/map'
 import { lonLatToECEF } from '@xgis/shared'
 
@@ -147,7 +147,7 @@ function capturedFlags(
     }
   ).createCommandEncoder()
   const pass = encoder.beginRenderPass()
-  renderer.flushTilePoints(pass, camera, 0, LON, LAT, W, H, show, 1)
+  renderer.flushTilePointsRhi(wrapWebGpuPass(pass), camera, 0, LON, LAT, W, H, show, 1)
 
   return flags
 }

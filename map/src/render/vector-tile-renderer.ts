@@ -1016,7 +1016,16 @@ export class VectorTileRenderer {
      *  material with the show's pick_id in the tile slot (#834 M5 s6). */
     mode: 'color' | 'pick' = 'color',
   ): number {
-    if (!this.source?.hasData() || !this.source.getIndex()) return 0
+    // #1057 — clear any prior show's keys on the bail paths that never reach the
+    // stableKeys assignment below. Trap: the twin's emitTilePointsRhi is called
+    // by render-loop AFTER renderFillsRhi returns even when THIS show bailed, so a
+    // stale stableKeys would draw the previous show's tile points under this
+    // show's style. (On WebGPU the emit is coupled inside render()'s tail, past
+    // the assignment, so a bailed render() never emits — twin-only decoupling.)
+    if (!this.source?.hasData() || !this.source.getIndex()) {
+      this.stableKeys = []
+      return 0
+    }
     this.frameCount++
     this.source.resetCompileBudget(this.currentFrameId)
     // renderedDraws is RENDER-scoped (per ShowCommand — frame-draw-stats.ts):
@@ -1047,10 +1056,34 @@ export class VectorTileRenderer {
       this.source.maxLevel,
       this._drawStats,
     )
-    if (!sel) return 0
-    const { neededKeys, worldOffDeg, currentZ } = sel
+    if (!sel) {
+      this.stableKeys = [] // #1057 — see the bail-reset note above (stale-key trap)
+      return 0
+    }
+    const { neededKeys, protectedAncestors, worldOffDeg, currentZ } = sel
     if (currentZ !== this.lastZoom) this.lastZoom = currentZ
     this.currentCameraZoom = camera.zoom
+    // #1057 — record this frame's visible keys for the twin's tile-point
+    // accumulation. The WebGPU render() sets stableKeys itself before its
+    // tail emitTilePointsRhi; on the forced-WebGL2 twin render() never runs,
+    // so emitTilePointsRhi (called after this show's fills+strokes in the
+    // render-loop opaque loop) reads what THIS pass selected. Set before the
+    // fill-null bail so a points-only layer (no polygon fill) still records
+    // its keys. Twin-only side effect: renderFillsRhi is never on the WebGPU
+    // frame path.
+    //
+    // Point-parity with the WebGPU merged set (render():~3763 = neededKeys +
+    // fallbackKeys + protectedAncestors): protectedAncestors (the high-pitch
+    // parent inject) is available straight off `sel`, so merge it — those
+    // ancestors' points now match WebGPU by construction. It is disjoint from
+    // neededKeys (tile-selection-cache strips it out), so a plain concat needs
+    // no dedup. fallbackKeys is the ONE term not reproduced here: the twin runs
+    // primary-only acquisition (its fallback pass was reverted in #1140 for a
+    // zoom-in perf regression — renderFillsRhi:~1034 "minus fallbacks"), so
+    // mid-load fallback-ancestor points are a known residual gap vs WebGPU, not
+    // a fabricated set.
+    this.stableKeys =
+      protectedAncestors.length > 0 ? [...neededKeys, ...protectedAncestors] : neededKeys
 
     const fill = resolvedShow.fill ?? (show.fill ? parseHexColor(show.fill) : null)
     if (!fill) return 0
@@ -3848,79 +3881,114 @@ export class VectorTileRenderer {
     // tiles above MAX_GPU_TILES between frames; bounded by the per-frame
     // upload budget, so memory pressure is unaffected.
 
-    // Render tile-based points via PointRenderer (if available).
-    // Tile point vertices are DSFUN stride 5: [mx_h, my_h, mx_l, my_l, feat_id]
-    // in tile-local Mercator meters. We reconstruct f64-equivalent tile-local
-    // meters via (h + l) on the TS side and subtract the camera's tile-local
-    // position to get a small, f32-safe camera-relative offset.
-    //
-    // Skip when the layer hasn't opted into point rendering (no size,
-    // no shape, no size expression). PMTiles MVT layers like
-    // 'buildings' carry centroid Point features alongside polygons —
-    // without this guard, a polygon-only layer like
-    // `layer buildings { | fill-stone-700 stroke-stone-500 stroke-0.5 }`
-    // would draw circle dots over every building centroid using
-    // PointRenderer's default style (the user reported these as
-    // "POI points appearing without being declared").
-    // Detect "this layer authors point style" across every SizeValue
-    // shape. `sizeValueToShape` collapses 'none' to null and emits a
-    // typed shape for everything else (constant / data-driven /
-    // zoom-interpolated / time-interpolated), so checking
-    // `paintShapes.size != null` is the single source of truth.
-    // Pre-fix the gate only saw `show.size` (constant) and
-    // `show.sizeExpr` (data-driven), so zoom- / time-interpolated
-    // sizes flowed past as "no point style" and never drew —
-    // fixture_size_zoom surfaced this with `size-[interpolate(zoom,
-    // 0, 30, 20, 80)]`. Keep `show.shape` in the OR — shapes can carry
-    // point intent independent of a declared size.
+    // Render tile-based points via PointRenderer (if available). The WebGPU
+    // frame wraps its native encoder; the single-authority body lives in
+    // emitTilePointsRhi (#1057), shared with the forced-WebGL2 twin.
+    this.emitTilePointsRhi(
+      wrapWebGpuPass(pass),
+      camera,
+      projType,
+      projCenterLon,
+      projCenterLat,
+      canvasWidth,
+      canvasHeight,
+      dpr,
+      show,
+      pointRenderer,
+    )
+  }
+
+  /** Accumulate this show's tile-point features and flush them onto `pass`.
+   *  Single authority for both backends (#1057): the WebGPU render() tail calls
+   *  it with wrapWebGpuPass(encoder); the forced-WebGL2 twin (render-loop.ts
+   *  renderFrameViaRhi opaque loop) calls it with its screen RhiRenderPass after
+   *  each show's fills+strokes. Reads `this.stableKeys` — the visible keys set by
+   *  render() (WebGPU) or renderFillsRhi (twin) for THIS frame — and derives
+   *  `sliceLayer` the same way both do. Parity note: the twin's stableKeys is
+   *  neededKeys + protectedAncestors; it omits fallbackKeys (twin runs primary-
+   *  only acquisition — fallback pass reverted in #1140), so mid-load fallback-
+   *  ancestor points can appear on WebGPU but not the twin. See renderFillsRhi's
+   *  assignment site for the full rationale.
+   *
+   *  Tile point vertices are DSFUN stride 5: [mx_h, my_h, mx_l, my_l, feat_id]
+   *  in tile-local Mercator meters. We reconstruct f64-equivalent tile-local
+   *  meters via (h + l) on the TS side and subtract the camera's tile-local
+   *  position to get a small, f32-safe camera-relative offset.
+   *
+   *  Skip when the layer hasn't opted into point rendering (no size, no shape,
+   *  no size expression). PMTiles MVT layers like 'buildings' carry centroid
+   *  Point features alongside polygons — without this guard, a polygon-only
+   *  layer like `layer buildings { | fill-stone-700 stroke-stone-500 stroke-0.5 }`
+   *  would draw circle dots over every building centroid using PointRenderer's
+   *  default style (the user reported these as "POI points appearing without
+   *  being declared"). Detect "this layer authors point style" across every
+   *  SizeValue shape: `sizeValueToShape` collapses 'none' to null and emits a
+   *  typed shape for everything else (constant / data-driven / zoom- / time-
+   *  interpolated), so `paintShapes.size != null` is the single source of truth.
+   *  Keep `show.shape` in the OR — shapes carry point intent independent of a
+   *  declared size (fixture_size_zoom surfaced the zoom-interp gap). */
+  emitTilePointsRhi(
+    pass: RhiRenderPass,
+    camera: Camera,
+    projType: number,
+    projCenterLon: number,
+    projCenterLat: number,
+    canvasWidth: number,
+    canvasHeight: number,
+    dpr: number,
+    show: ShowCommand,
+    pointRenderer: PointRenderer | null | undefined,
+  ): void {
     const hasPointStyle = show.paintShapes?.circle.size != null || show.shape !== null
-    if (hasPointStyle && pointRenderer && typeof pointRenderer.addTilePoint === 'function') {
-      // Read ECEF DSFUN stride-9:
-      // [ex_h, ey_h, ez_h, ex_l, ey_l, ez_l, feat_id, abs_lon, abs_lat]
-      // #722 S4 — when the layer authors a data-driven size expression, thread
-      // each point's SOURCE feature properties so flushTilePoints can resolve
-      // the size per feature (fixes #17 size). featureProps is PER-TILE (fid ==
-      // sourceFeatures index within THIS tile), so resolve it here where the
-      // tile's map is in scope — fids collide across tiles, so a single map read
-      // after the accumulation loop would mis-assign props. Constant-size layers
-      // pass undefined → the tile-point path stays byte-identical.
-      const wantsFeatProps = show.sizeExpr?.ast != null
-      for (const key of this.stableKeys) {
-        const tileData = this.source!.getTileData(key, sliceLayer)
-        if (!tileData?.pointVertices || tileData.pointVertices.length < 13) continue
-        const ptv = tileData.pointVertices
-        const featProps = wantsFeatProps ? tileData.featureProps : undefined
-        for (let i = 0; i < ptv.length; i += 13) {
-          pointRenderer.addTilePoint(
-            ptv[i],
-            ptv[i + 1],
-            ptv[i + 2], // ex_h, ey_h, ez_h
-            ptv[i + 3],
-            ptv[i + 4],
-            ptv[i + 5], // ex_l, ey_l, ez_l
-            ptv[i + 6], // feat_id
-            ptv[i + 7],
-            ptv[i + 8], // abs_lon, abs_lat (cull)
-            ptv[i + 9],
-            ptv[i + 10],
-            ptv[i + 11],
-            ptv[i + 12], // merc DSFUN mx_h,mx_l,my_h,my_l
-            featProps ? (featProps.get(ptv[i + 6]) ?? null) : null, // #722 S4 per-feature source props
-          )
-        }
+    if (!(hasPointStyle && pointRenderer && typeof pointRenderer.addTilePoint === 'function'))
+      return
+    const effectiveSourceLayer = show.sourceLayer || show.targetName || ''
+    const sliceLayer = computeSliceKey(effectiveSourceLayer, show.filterExpr?.ast ?? null)
+    // Read ECEF DSFUN stride-9:
+    // [ex_h, ey_h, ez_h, ex_l, ey_l, ez_l, feat_id, abs_lon, abs_lat]
+    // #722 S4 — when the layer authors a data-driven size expression, thread
+    // each point's SOURCE feature properties so flushTilePointsRhi can resolve
+    // the size per feature (fixes #17 size). featureProps is PER-TILE (fid ==
+    // sourceFeatures index within THIS tile), so resolve it here where the
+    // tile's map is in scope — fids collide across tiles, so a single map read
+    // after the accumulation loop would mis-assign props. Constant-size layers
+    // pass undefined → the tile-point path stays byte-identical.
+    const wantsFeatProps = show.sizeExpr?.ast != null
+    for (const key of this.stableKeys) {
+      const tileData = this.source!.getTileData(key, sliceLayer)
+      if (!tileData?.pointVertices || tileData.pointVertices.length < 13) continue
+      const ptv = tileData.pointVertices
+      const featProps = wantsFeatProps ? tileData.featureProps : undefined
+      for (let i = 0; i < ptv.length; i += 13) {
+        pointRenderer.addTilePoint(
+          ptv[i],
+          ptv[i + 1],
+          ptv[i + 2], // ex_h, ey_h, ez_h
+          ptv[i + 3],
+          ptv[i + 4],
+          ptv[i + 5], // ex_l, ey_l, ez_l
+          ptv[i + 6], // feat_id
+          ptv[i + 7],
+          ptv[i + 8], // abs_lon, abs_lat (cull)
+          ptv[i + 9],
+          ptv[i + 10],
+          ptv[i + 11],
+          ptv[i + 12], // merc DSFUN mx_h,mx_l,my_h,my_l
+          featProps ? (featProps.get(ptv[i + 6]) ?? null) : null, // #722 S4 per-feature source props
+        )
       }
-      pointRenderer.flushTilePoints(
-        pass,
-        camera,
-        projType,
-        projCenterLon,
-        projCenterLat,
-        canvasWidth,
-        canvasHeight,
-        show,
-        dpr,
-      )
     }
+    pointRenderer.flushTilePointsRhi(
+      pass,
+      camera,
+      projType,
+      projCenterLon,
+      projCenterLat,
+      canvasWidth,
+      canvasHeight,
+      show,
+      dpr,
+    )
   }
 
   /** Flag set during bundle replay to gate the recordTileFill draw emit.

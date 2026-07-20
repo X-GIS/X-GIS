@@ -113,6 +113,9 @@ interface Gl2Pipeline {
    *  writeMask-0 pick target → all-false; the normal color path → all-true. */
   colorWriteMask: [boolean, boolean, boolean, boolean]
   cullMode?: 'none' | 'back' | 'front'
+  /** Primitive topology → the GL draw mode (default 'triangle-list' = gl.TRIANGLES).
+   *  'line-list' = gl.LINES for the graticule overlay's segment-pair geometry. */
+  topology?: 'triangle-list' | 'line-list'
   depth?: {
     write: boolean
     compare: 'always' | 'less' | 'less-equal'
@@ -171,7 +174,7 @@ function texFmt(
 const VFMT: Readonly<
   Record<
     string,
-    { size: number; type: 'f32' | 'u8' | 'u16'; normalized: boolean; integer?: boolean }
+    { size: number; type: 'f32' | 'u8' | 'u16' | 'u32'; normalized: boolean; integer?: boolean }
   >
 > = {
   float32: { size: 1, type: 'f32', normalized: false },
@@ -185,6 +188,9 @@ const VFMT: Readonly<
   // The polygon fill's quantized-ECEF position lanes (q_xy/q_z) use these.
   uint16x2: { size: 2, type: 'u16', normalized: false, integer: true },
   uint16x4: { size: 4, type: 'u16', normalized: false, integer: true },
+  // The SDF point quad_id lane (u32 corner index) — reads as a uint shader
+  // input, so it binds via the I-pointer like the uint16 lanes above (#1057).
+  uint32: { size: 1, type: 'u32', normalized: false, integer: true },
 }
 
 function applyBlend(gl: WebGL2RenderingContext, mode: Gl2Pipeline['blend']): void {
@@ -399,7 +405,13 @@ class WebGl2RenderPass implements RhiRenderPass {
         if (!fmt) throw new Error(`webgl2: unsupported vertex format '${a.format}'`)
         gl.enableVertexAttribArray(a.location)
         const glType =
-          fmt.type === 'f32' ? gl.FLOAT : fmt.type === 'u16' ? gl.UNSIGNED_SHORT : gl.UNSIGNED_BYTE
+          fmt.type === 'f32'
+            ? gl.FLOAT
+            : fmt.type === 'u16'
+              ? gl.UNSIGNED_SHORT
+              : fmt.type === 'u32'
+                ? gl.UNSIGNED_INT
+                : gl.UNSIGNED_BYTE
         // `vbufOffset` (default 0) shifts the per-tile arena sub-range start into the
         // attribute byte offset — default 0 is byte-identical to the no-offset bind.
         if (fmt.integer) {
@@ -426,11 +438,18 @@ class WebGl2RenderPass implements RhiRenderPass {
     }
   }
 
+  /** GL draw-primitive mode of the live pipeline — gl.LINES for a 'line-list'
+   *  pipeline (the graticule overlay), gl.TRIANGLES otherwise (the default). */
+  private drawMode(): number {
+    return this.cur?.topology === 'line-list' ? this.gl.LINES : this.gl.TRIANGLES
+  }
+
   draw(vertexCount: number, instanceCount = 1, firstVertex = 0): void {
     this.bindAttributes()
+    const mode = this.drawMode()
     if (instanceCount > 1)
-      this.gl.drawArraysInstanced(this.gl.TRIANGLES, firstVertex, vertexCount, instanceCount)
-    else this.gl.drawArrays(this.gl.TRIANGLES, firstVertex, vertexCount)
+      this.gl.drawArraysInstanced(mode, firstVertex, vertexCount, instanceCount)
+    else this.gl.drawArrays(mode, firstVertex, vertexCount)
   }
 
   setStencilReference(ref: number): void {
@@ -446,15 +465,16 @@ class WebGl2RenderPass implements RhiRenderPass {
     // .buf is the Gl2Buffer RECORD; the GL object is record.buf (#832 M2 — the
     // fill draw is the first indexed consumer, which is why this laid dormant).
     this.gl.bindBuffer(this.gl.ELEMENT_ARRAY_BUFFER, this.ibuf.buf.buf)
+    const mode = this.drawMode()
     if (instanceCount > 1)
       this.gl.drawElementsInstanced(
-        this.gl.TRIANGLES,
+        mode,
         indexCount,
         this.ibuf.type,
         this.ibuf.offset,
         instanceCount,
       )
-    else this.gl.drawElements(this.gl.TRIANGLES, indexCount, this.ibuf.type, this.ibuf.offset)
+    else this.gl.drawElements(mode, indexCount, this.ibuf.type, this.ibuf.offset)
   }
 
   // WebGL2 is immediate-mode: an OFFSCREEN pass's end() restores FBO 0 + the
@@ -1247,6 +1267,7 @@ export class WebGl2Device implements RhiDevice {
         : desc.colorTargets[0]?.blend,
       colorWriteMask,
       cullMode: desc.cullMode,
+      topology: desc.topology,
       depth: desc.depthStencil
         ? {
             write: desc.depthStencil.write,
