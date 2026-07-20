@@ -579,7 +579,6 @@ export class StatementParser extends ExpressionParser {
     }
     return this.expect(TokenType.Identifier).value
   }
-
 }
 
 /** keyword (lexer TokenType) → statement handler. Any token not in

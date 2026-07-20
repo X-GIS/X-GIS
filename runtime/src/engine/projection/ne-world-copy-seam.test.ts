@@ -51,10 +51,10 @@ describe('natural_earth world-copy seam — lat-varying period (issue #801)', ()
             if (k === 0) continue // only the seam-straddling lobes changed
             const real = projectGeomWgsl(NE, lon, lat, clon, 0, refLon)[0]
             const expected = projNaturalEarthDWgsl(dw, lat)[0] + k * nePeriod(lat)
-            expect(
-              real,
-              `clon=${clon} refLon=${refLon} lon=${lon} lat=${lat} k=${k}`,
-            ).toBeCloseTo(expected, -1)
+            expect(real, `clon=${clon} refLon=${refLon} lon=${lon} lat=${lat} k=${k}`).toBeCloseTo(
+              expected,
+              -1,
+            )
             // And the corrected step must actually differ from the Mercator one it
             // replaced (else the test would pass vacuously on the buggy constant).
             expect(Math.abs(k * nePeriod(lat) - k * MERC_PERIOD)).toBeGreaterThan(1e6)

@@ -51,7 +51,11 @@ function makeCoordinator(): UploadCoordinator {
   const store = { getLayer: () => undefined } as unknown as UploadStore
   const host: UploadHost = {
     device: {} as unknown as GPUDevice,
-    rhi: { backend: 'webgpu', writeBuffer: () => {}, unwrapBuffer: (b: unknown) => b } as unknown as RhiDevice,
+    rhi: {
+      backend: 'webgpu',
+      writeBuffer: () => {},
+      unwrapBuffer: (b: unknown) => b,
+    } as unknown as RhiDevice,
     stagingPool: {} as unknown as StagingBufferPool,
     store,
     lineRenderer: () => null,

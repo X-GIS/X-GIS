@@ -239,8 +239,24 @@ describe('makeLabelProjectors — globe SCREEN-SPACE limb inset (#1042 round 2)'
   const D = Math.hypot(eye[0], eye[1], eye[2])
   const cosH = EARTH_R / D
   const cosC = cosH + LABEL_HORIZON_MARGIN * (1 - cosH) // round-1 angular cull threshold
-  const exact = makeLabelProjectors(view.matrix, PW, PH, undefined, eye, undefined, false).projectLonLat
-  const margin = makeLabelProjectors(view.matrix, PW, PH, undefined, eye, undefined, true).projectLonLat
+  const exact = makeLabelProjectors(
+    view.matrix,
+    PW,
+    PH,
+    undefined,
+    eye,
+    undefined,
+    false,
+  ).projectLonLat
+  const margin = makeLabelProjectors(
+    view.matrix,
+    PW,
+    PH,
+    undefined,
+    eye,
+    undefined,
+    true,
+  ).projectLonLat
 
   // The three named anchors are the round-1 probe measurements (2026-07-13):
   const CHAD: [number, number] = [18.7, 15.4] // floater — 7.5° inside the horizon
@@ -286,8 +302,15 @@ describe('makeLabelProjectors — globe SCREEN-SPACE limb inset (#1042 round 2)'
 
   it('pitch 0: margin keeps dead-centre; map.project keeps every witness (limb inset is label-only)', () => {
     const v0 = buildGlobeMatrix(0, 20, 2, 0, 0, PW, PH)
-    const m0 = makeLabelProjectors(v0.matrix, PW, PH, undefined, v0.eye as V3, undefined, true)
-      .projectLonLat
+    const m0 = makeLabelProjectors(
+      v0.matrix,
+      PW,
+      PH,
+      undefined,
+      v0.eye as V3,
+      undefined,
+      true,
+    ).projectLonLat
     expect(m0(0, 20), 'pitch-0 dead-centre anchor must be KEPT').not.toBeNull()
 
     // projectLonLatToScreenCss (map.project) builds the projector WITHOUT the
@@ -330,7 +353,15 @@ describe('makeLabelProjectors — globe limbInsetPx query + quad-height decision
   const proj = makeLabelProjectors(view.matrix, PW, PH, undefined, eye, undefined, true)
   // EXACT (no-cull) projector to read each anchor's screen position, then the
   // round-3 query gives the inset AT that screen point.
-  const exact = makeLabelProjectors(view.matrix, PW, PH, undefined, eye, undefined, false).projectLonLat
+  const exact = makeLabelProjectors(
+    view.matrix,
+    PW,
+    PH,
+    undefined,
+    eye,
+    undefined,
+    false,
+  ).projectLonLat
   const insetAt = (lon: number, lat: number): number => {
     const s = exact(lon, lat)
     if (!s) throw new Error(`anchor (${lon},${lat}) culled by the exact projector`)

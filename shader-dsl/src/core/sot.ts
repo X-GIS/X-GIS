@@ -85,23 +85,19 @@ export interface IoStruct<F extends Record<string, FieldSpec>> {
    *  fields — assigning through a read-only value was tsc-green and died at the driver.
    *  NonNullable strips the `| undefined` a conditional-field spread
    *  (`...(cond ? { pick } : {})`) introduces, so optional output fields stay plain. */
-  of(
-    node: Node,
-  ): { readonly [K in keyof F]-?: Node<KeyOf<NonNullable<F[K]>['type']>> } & {
+  of(node: Node): { readonly [K in keyof F]-?: Node<KeyOf<NonNullable<F[K]>['type']>> } & {
     readonly $: ReadonlyNode
   }
-  of(
-    node: ReadonlyNode,
-  ): { readonly [K in keyof F]-?: ReadonlyNode<KeyOf<NonNullable<F[K]>['type']>> } & {
+  of(node: ReadonlyNode): {
+    readonly [K in keyof F]-?: ReadonlyNode<KeyOf<NonNullable<F[K]>['type']>>
+  } & {
     readonly $: ReadonlyNode
   }
   /** Declare a `var` of this struct and return its typed field proxy in one step —
    *  `const o = VsOut.var()` replaces the `const out = Var(VsOut.type); const o =
    *  VsOut.of(out)` stub pair. Assign fields via `o.uv.assign(…)`, return / forward the
    *  raw value via `o.$`. `name` pins the WGSL identifier (byte-stable emit). */
-  var(
-    name?: string,
-  ): { readonly [K in keyof F]-?: Node<KeyOf<NonNullable<F[K]>['type']>> } & {
+  var(name?: string): { readonly [K in keyof F]-?: Node<KeyOf<NonNullable<F[K]>['type']>> } & {
     readonly $: ReadonlyNode
   }
   /** Build a value of this struct in ONE expression — `LineOut(f0, f1, …)` — instead of a
@@ -147,8 +143,7 @@ export function ioStruct<F extends Record<string, FieldSpec>>(
           // Duck-type as the raw node for value positions (#763 X14): `return o`
           // / `Return(o)` read `.expr`/`.type` — they used to die at LOAD with a
           // misleading "no field 'expr'". A declared field of that name wins.
-          if ((prop === 'expr' || prop === 'type') && !(prop in fields))
-            return node[prop]
+          if ((prop === 'expr' || prop === 'type') && !(prop in fields)) return node[prop]
           const spec = fields[prop as string]
           if (spec === undefined)
             throw new Error(`sot: ioStruct '${name}' has no field '${String(prop)}'`)
@@ -235,8 +230,7 @@ export function structDecl<F extends Record<string, ShaderType>>(
           if (typeof prop !== 'string') return undefined // symbol probes (#763 D1) — never fields
           if (prop === 'then' || prop === 'toJSON') return undefined // protocol probes (#763 X13)
           if (prop === '$') return node // raw struct-value Node (#740 R6, forwardable)
-          if ((prop === 'expr' || prop === 'type') && !(prop in fields))
-            return node[prop] // #763 X14
+          if ((prop === 'expr' || prop === 'type') && !(prop in fields)) return node[prop] // #763 X14
           const t = fields[prop as string]
           if (t === undefined)
             throw new Error(`sot: structDecl '${name}' has no field '${String(prop)}'`)

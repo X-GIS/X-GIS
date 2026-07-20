@@ -71,7 +71,9 @@ describe('mat64 lowering', () => {
     expect(mulNames).toContain('df64_m3_matmul')
     expect(mulNames).toContain('df64_m3_matvec') // matmul body calls matvec per column
     const t = fn('tr', { m: mat2f64T }, (p) => transpose64(p.m))
-    expect(fp64Lower(module({ funcs: [t] })).funcs.map((f) => f.name)).toContain('df64_m2_transpose')
+    expect(fp64Lower(module({ funcs: [t] })).funcs.map((f) => f.name)).toContain(
+      'df64_m2_transpose',
+    )
   })
 
   it('a reserved DF64Mat* struct name is rejected (SD0043)', () => {

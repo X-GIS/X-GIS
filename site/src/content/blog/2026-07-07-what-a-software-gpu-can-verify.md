@@ -1,6 +1,6 @@
 ---
 title: 'What a software GPU can and cannot verify'
-description: "Our CI runs real shaders on SwiftShader — but only some render claims survive a CPU rasterizer. The dividing line we use (compute parity and shader compilation: yes; full-pipeline pixel parity: no), and the red-baseline incident that taught us to blame the software GPU last."
+description: 'Our CI runs real shaders on SwiftShader — but only some render claims survive a CPU rasterizer. The dividing line we use (compute parity and shader compilation: yes; full-pipeline pixel parity: no), and the red-baseline incident that taught us to blame the software GPU last.'
 date: 2026-07-07
 tags: ['testing', 'ci', 'webgpu', 'gpu-drivers']
 lang: en
@@ -16,26 +16,26 @@ Vulkan that Chromium uses to exercise GPU code paths on GPU-less machines
 
 What took calibration was learning **which claims a software GPU can gate** —
 a lesson that first arrived disguised as a GPU precision bug and turned out to
-be a test-side *stale stride*, a 24→28-byte layout change the synthetic buffers
+be a test-side _stale stride_, a 24→28-byte layout change the synthetic buffers
 never picked up (the incident below).
 
 ## The dividing line
 
-**CI-gated (SwiftShader-safe).** Anything that is *pure compute*, *shader
-compilation*, or a *simple raster* whose assertion is per-pixel logic we
+**CI-gated (SwiftShader-safe).** Anything that is _pure compute_, _shader
+compilation_, or a _simple raster_ whose assertion is per-pixel logic we
 wrote ourselves:
 
-| Gate | What it proves |
-|---|---|
-| `_shader-math-parity` | the WGSL `project()` in a compute pass matches the TS mirror |
-| `_vs-clip-parity`, `_dequant-parity` | vertex clip math and u16→f32 dequant, GPU vs CPU f32 mirror, via `mapAsync` readback |
-| `_polygon-fill-flat-parity` | the tile-local-Mercator fill arm coincides with the f64 outline (guards a bug that recurred three times) |
-| `_optimizer-gpu-parity` | the IR optimizer preserves results through emit → real GPU execution |
-| `_wgsl-compile-gate`, `_glsl-compile-gate` | every emitted shader variant compiles/links on Tint and ANGLE |
-| examples render / MRT / pointer gates, fp64 known answers | fullscreen-triangle shaders draw the expected pass/fail pixels |
+| Gate                                                      | What it proves                                                                                           |
+| --------------------------------------------------------- | -------------------------------------------------------------------------------------------------------- |
+| `_shader-math-parity`                                     | the WGSL `project()` in a compute pass matches the TS mirror                                             |
+| `_vs-clip-parity`, `_dequant-parity`                      | vertex clip math and u16→f32 dequant, GPU vs CPU f32 mirror, via `mapAsync` readback                     |
+| `_polygon-fill-flat-parity`                               | the tile-local-Mercator fill arm coincides with the f64 outline (guards a bug that recurred three times) |
+| `_optimizer-gpu-parity`                                   | the IR optimizer preserves results through emit → real GPU execution                                     |
+| `_wgsl-compile-gate`, `_glsl-compile-gate`                | every emitted shader variant compiles/links on Tint and ANGLE                                            |
+| examples render / MRT / pointer gates, fp64 known answers | fullscreen-triangle shaders draw the expected pass/fail pixels                                           |
 
 **Local-only (headed, hardware GPU).** Anything whose assertion depends on a
-*correctly rasterized full-engine frame*:
+_correctly rasterized full-engine frame_:
 
 - **Full-engine init gates** (`_projection-coverage` and its kin) — need the
   entire render pipeline to boot, which times out under SwiftShader before the
@@ -48,11 +48,11 @@ wrote ourselves:
 The useful distinction is not "compute vs raster" — SwiftShader rasters our
 fullscreen-triangle gates fine. It is **whose semantics the assertion
 trusts**: a compute readback or a pass/fail pixel we computed is checked
-against *our own* reference; a full-frame parity diff trusts the software
+against _our own_ reference; a full-frame parity diff trusts the software
 rasterizer to agree with hardware, and it does not.
 
-So a green render gate means the projection/clip/dequant *math* and shader
-*compilability* did not regress. It does **not** mean the rendered output was
+So a green render gate means the projection/clip/dequant _math_ and shader
+_compilability_ did not regress. It does **not** mean the rendered output was
 visually verified — that stays on a hardware-GPU run before shipping render
 changes. Writing that sentence into the workflow file, next to the job,
 stopped a recurring misunderstanding.
@@ -64,9 +64,9 @@ run with a GPU-vs-CPU delta around $1.23 \times 10^4$. Every instinct said
 software-GPU precision drift, or a threshold set too tight.
 
 It was neither. The move that cracked it was to stop staring at the scalar
-delta and dump *both* buffers — the GPU readback and the CPU mirror — as raw
+delta and dump _both_ buffers — the GPU readback and the CPU mirror — as raw
 axis columns, side by side. Lined up, the error was not a noise cloud: every
-`GPU.y` sat exactly on the neighbouring `CPU.x`. A clean one-axis *shift* is a
+`GPU.y` sat exactly on the neighbouring `CPU.x`. A clean one-axis _shift_ is a
 layout bug, not precision. The cause: both specs packed their synthetic vertex
 buffer at a hardcoded 12 u16 per vertex, while the CPU mirror strides by the
 format constant — which had grown from 24 to 28 bytes (12 → 14 u16) when a
@@ -78,7 +78,7 @@ Two lessons we kept:
 
 - **Blame the software renderer last.** A precision explanation absorbs any
   delta; a structural explanation (a clean axis shift, a stable factor)
-  points at layout. Look at the *shape* of the error before reaching for
+  points at layout. Look at the _shape_ of the error before reaching for
   tolerances.
 - **Synthetic test data must derive from the same constants as production.**
   Hardcoded strides are a stale copy waiting to happen.
@@ -87,8 +87,8 @@ Two lessons we kept:
 
 The render gate is expensive (browser install, build, nine Playwright
 specs), so a paths filter skips it when no render-affecting code changed.
-The pattern matters for anyone using required checks: the *job* always runs
-and posts green — each expensive *step* carries the `if:`. A job that never
+The pattern matters for anyone using required checks: the _job_ always runs
+and posts green — each expensive _step_ carries the `if:`. A job that never
 ran posts no check, and a required check that never arrives strands the PR
 on "Expected". Steps skip; jobs report.
 

@@ -91,7 +91,7 @@ The field the demo computes today, keyed by gu name (`seoul-arc-multiday.ts:131-
 ```ts
 /** Per-gu outflow: unit screen-bearing components (fx east, fy north) + 0–1 volume proxy. */
 type Vec = { fx: number; fy: number; vnorm: number }
-type Field = Map<string /* gu name */, Vec>   // 25 entries (GU, seoul-arc-multiday.ts:35)
+type Field = Map<string /* gu name */, Vec> // 25 entries (GU, seoul-arc-multiday.ts:35)
 ```
 
 - `fx, fy`: the pop-weighted mean OUTFLOW direction, unit-normalised (`m = hypot(vx,vy)`,
@@ -129,10 +129,10 @@ each busy cell needs ~10²–10³ particles to read as flow rather than as scatt
 cells taper to tens. Seoul's outflow is skewed (a handful of job-centre gu dominate each
 rush hour), so with a per-gu allocation `n_i = clamp(N_cap · vol_i / Σvol, n_floor, ·)`:
 
-| Design point                | N_total       | Rationale                                                                 |
-| --------------------------- | ------------- | ------------------------------------------------------------------------- |
-| Legible Seoul field         | ~4,096        | ~160 avg/gu, busiest ~600–800, quiet ~30 — reads as current, not confetti |
-| Upper bound (design ceiling)| 16,384 (2¹⁴)  | headroom; power-of-two for compute dispatch / texture sizing              |
+| Design point                 | N_total      | Rationale                                                                 |
+| ---------------------------- | ------------ | ------------------------------------------------------------------------- |
+| Legible Seoul field          | ~4,096       | ~160 avg/gu, busiest ~600–800, quiet ~30 — reads as current, not confetti |
+| Upper bound (design ceiling) | 16,384 (2¹⁴) | headroom; power-of-two for compute dispatch / texture sizing              |
 
 **Honesty note (the #797 bar):** at N ≈ 4k–16k over 25 cells, Seoul does not stress ANY of the
 three architectures — 16k particles is sub-millisecond even on the CPU. So per-frame COST does
@@ -289,16 +289,16 @@ as a throwaway demo overlay; wrong for a 5-year engine primitive.
 
 ### 3.4 Comparison
 
-| Axis                         | (a) compute advection            | (b) VS-stateless                    | (c) CPU advection                 |
-| ---------------------------- | -------------------------------- | ----------------------------------- | --------------------------------- |
-| Backend coverage             | WebGPU only (`caps.compute`)     | **BOTH (dual-source DSL)**          | BOTH                              |
-| New RHI surface              | persistent ping-pong compute     | **none**                            | none                              |
-| #1046 posture                | gated enhancement only           | **sanctioned shape**                | ok, but scale-capped              |
-| Per-frame CPU (Seoul)        | ~0                               | **~0 (one uniform write)**          | O(N) pack + O(N) upload           |
-| Scale ceiling (5-yr)         | **10⁶ sub-ms**                   | 10⁵–10⁶ (O(N) vertex)               | ~10⁴–10⁵ (upload-bound)           |
-| Deterministic probe (§5)     | seed + fixed-step harness        | **pin `t` — pure function**         | seed + fixed-step harness         |
-| Twin-kill-friendly           | no (WebGPU-only branch)          | **yes**                             | yes                               |
-| Cross-cell integration       | possible (true advection)        | no (in-cell drift + respawn)        | possible                          |
+| Axis                     | (a) compute advection        | (b) VS-stateless             | (c) CPU advection         |
+| ------------------------ | ---------------------------- | ---------------------------- | ------------------------- |
+| Backend coverage         | WebGPU only (`caps.compute`) | **BOTH (dual-source DSL)**   | BOTH                      |
+| New RHI surface          | persistent ping-pong compute | **none**                     | none                      |
+| #1046 posture            | gated enhancement only       | **sanctioned shape**         | ok, but scale-capped      |
+| Per-frame CPU (Seoul)    | ~0                           | **~0 (one uniform write)**   | O(N) pack + O(N) upload   |
+| Scale ceiling (5-yr)     | **10⁶ sub-ms**               | 10⁵–10⁶ (O(N) vertex)        | ~10⁴–10⁵ (upload-bound)   |
+| Deterministic probe (§5) | seed + fixed-step harness    | **pin `t` — pure function**  | seed + fixed-step harness |
+| Twin-kill-friendly       | no (WebGPU-only branch)      | **yes**                      | yes                       |
+| Cross-cell integration   | possible (true advection)    | no (in-cell drift + respawn) | possible                  |
 
 ### 3.5 The §5 verification story for an ANIMATED effect
 
@@ -388,6 +388,7 @@ SEQUENTIALLY (§7). Every phase leaves the arrow/icon/circle paths byte-identica
 GLSL), matching the arrow (`arrow-retained.ts:263-271`).
 
 **P0 — data contract + spec type + the animation-clock seam (additive, no visual change).**
+
 - Scope: add `ParticleFlowDrawSpec` to the discriminated union (`graphics-types.ts:107`); add
   the `animU` frame-uniform field + its O(1)/frame write in the graphics pass
   (`graphics-manager.ts:340-363`); add the `?animt` probe-clock override (`debug-flags.ts`
@@ -398,6 +399,7 @@ GLSL), matching the arrow (`arrow-retained.ts:263-271`).
 - Kill-switch: revert — additive.
 
 **P1 — candidate (b) particle primitive on WebGPU (WGSL).**
+
 - Scope: `particle-retained.ts` (DSL VS closed-form drift + disc-SDF FS, sibling of
   `circle-retained.ts`), `particle-retained-feat-layout.ts` (seed slots), `retained-particle-packer.ts`
   (per-gu `n_i ∝ vol_i` allocation, §2.3), `particle-retained-material.ts` (draper,
@@ -408,6 +410,7 @@ GLSL), matching the arrow (`arrow-retained.ts:263-271`).
 - Kill-switch: no particle batch added ⇒ no pass (`hasGraphics`, `graphics-pass.ts:29-31`).
 
 **P2 — GLSL twin ⇒ WebGL2 coverage (the arrow's #823 pattern).**
+
 - Scope: `emitParticleRetainedGlsl(stage)` behind the live `webgl2` guard
   (`arrow-retained-material.ts:24-27`); no other change.
 - Gate: build + vitest; the gl2 e2e gate renders particles; cross-backend DIRECTIONAL diff at
@@ -415,6 +418,7 @@ GLSL), matching the arrow (`arrow-retained.ts:263-271`).
 - Kill-switch: the GLSL emit is behind the backend guard; WebGPU boot never pays it.
 
 **P3 — candidate (a) compute-advected state, `caps.compute === 'native'`-gated (OPTIONAL, deferred).**
+
 - Scope: persistent ping-pong state buffers + a particle-advection kernel dispatched in the
   pre-pass block (`render-loop.ts:296-303`); the draw half reads the current state buffer. Gated
   `caps.compute === 'native'` (`rhi.ts:392-394`) with (b) as the fallback; a `?particlecompute=0`
@@ -470,48 +474,48 @@ GLSL), matching the arrow (`arrow-retained.ts:263-271`).
 ## 5. Open questions for the maintainer (each with a recommended default)
 
 1. **New `type: 'particle-flow'` vs a `mode` on a unified vector-field spec?**
-   *Recommend:* a NEW discriminated-union `type`, sibling of `'arrow'`/`'circle'`
+   _Recommend:_ a NEW discriminated-union `type`, sibling of `'arrow'`/`'circle'`
    (`graphics-types.ts:107`). It matches the existing pattern and keeps each primitive's
    accessors honest (a particle spec's accessors differ from an arrow's). An app toggles by
    swapping which batch it `add()`s, as the demo already toggles representations
    (`seoul-arc-multiday.ts:380-387`).
 
 2. **Where does the animation clock live — a field in `pointU`, or a sibling `animU`?**
-   *Recommend:* a small dedicated `animU` frame uniform. `pointU` is the shared ~160 B block
+   _Recommend:_ a small dedicated `animU` frame uniform. `pointU` is the shared ~160 B block
    icon/arrow/circle/point all read (`arrow-retained.ts:52`, `graphics-manager.ts:340-363`);
    adding an animation field there taxes every sibling's uniform for a value only particles use.
    A sibling block writes O(1)/frame only when a particle batch exists.
 
 3. **Density ∝ RAW volume or the √-compressed `vnorm`?**
-   *Recommend:* RAW `vol` (`seoul-arc-multiday.ts:204`). Density is the honest encoding of
+   _Recommend:_ RAW `vol` (`seoul-arc-multiday.ts:204`). Density is the honest encoding of
    volume; the √ compression (`vnorm`, `:210`) exists to keep the arrow's LENGTH legible, a
    different channel. Expose a gamma knob later if the raw dynamic range is too harsh, but start
    truthful.
 
 4. **N cap default?**
-   *Recommend:* `N_cap = 4,096` typical with a hard ceiling of `16,384` (§2.3); per-gu
+   _Recommend:_ `N_cap = 4,096` typical with a hard ceiling of `16,384` (§2.3); per-gu
    allocation `n_i = clamp(N_cap · vol_i/Σvol, n_floor≈8, ·)` so the busiest gu dominates but
    the quietest still shows motion.
 
 5. **Seed particles across the gu AREA (needs the polygon) or jitter around the centroid?**
-   *Recommend:* centroid + bounded random jitter for v1 (needs only `CENTROID`,
+   _Recommend:_ centroid + bounded random jitter for v1 (needs only `CENTROID`,
    `seoul-arc-multiday.ts:34` — no polygon point-in-poly at pack time). Area-accurate seeding
    (rejection-sample inside `seoul_gu.geojson`, `:151-157`) is a fidelity upgrade, gated behind
    its own flag, once the aesthetic is validated.
 
 6. **Fixed max-N batch (like the fixed 25-instance arrow) or dynamic per-hour resize?**
-   *Recommend:* FIXED max-N batch; per-hour re-pack of the per-particle seed/cell assignment,
+   _Recommend:_ FIXED max-N batch; per-hour re-pack of the per-particle seed/cell assignment,
    mirroring the arrow's fixed-25 re-pack (`seoul-arc-multiday.ts:296-317`; a weak gu packs
    fewer live particles by setting their alpha/size to 0, never resizing — the retained batch is
    fixed-size, `graphics-manager.ts:257-263`).
 
 7. **Ship candidate (a) compute for Seoul, or (b) only?**
-   *Recommend:* (b) ONLY for #826 (Seoul). Defer (a) behind the `caps.compute` gate until a
+   _Recommend:_ (b) ONLY for #826 (Seoul). Defer (a) behind the `caps.compute` gate until a
    genuine high-N field (grid/national) exists to justify the ping-pong state + the
    deterministic-seeding harness (§3.5). Building it now is speculative (§2).
 
 8. **Trails/streaks in scope for #826?**
-   *Recommend:* NO — single points in v1 (§4.5). Trails need `caps.floatBlendTargets`
+   _Recommend:_ NO — single points in v1 (§4.5). Trails need `caps.floatBlendTargets`
    (`rhi.ts:385-391`) accumulation and are a separate follow-up.
 
 ---

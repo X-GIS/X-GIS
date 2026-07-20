@@ -31,10 +31,15 @@ describe('@xgis/pipeline · load', () => {
 
     // composable substrate (the ground truth)
     const composed = bubble(
-      groupBy(where(join(fromRows(sample, { vintage: '2026' }), { code: 'gu', gaz, as: 'o' }), { hour: 8 }), {
-        by: ['o.lon', 'o.lat', 'gu'],
-        agg: { out: 'sum' },
-      }),
+      groupBy(
+        where(join(fromRows(sample, { vintage: '2026' }), { code: 'gu', gaz, as: 'o' }), {
+          hour: 8,
+        }),
+        {
+          by: ['o.lon', 'o.lat', 'gu'],
+          agg: { out: 'sum' },
+        },
+      ),
       { lon: 'o.lon', lat: 'o.lat', value: 'out' },
     )
 
