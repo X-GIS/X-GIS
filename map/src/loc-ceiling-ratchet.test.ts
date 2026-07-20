@@ -101,7 +101,16 @@ const CEILINGS: Record<string, number> = {
   // uploadBudgetFor/setMaxJobs call. (Ceiling corrected from a padded 4513 to the
   // measured post-prettier 4511 — #1155 F3 adjudication, shrink-only high-water.)
   // Merge union (#1170 <- origin/main): both bumps stacked non-overlappingly on VTR (destroy() +12 AND cold-start burst +17), so the merged high-water is the measured 4523, not either standalone value.
-  'map/src/render/vector-tile-renderer.ts': 4523,
+  // 4523→4563 (#1057): the VT tile-points inline path split into the single-
+  // authority emitTilePointsRhi(pass: RhiRenderPass, …) — render() delegates via
+  // wrapWebGpuPass while the twin (render-loop.ts) calls it directly — plus the
+  // one-line stableKeys record in renderFillsRhi for the twin's accumulation.
+  // 4563→4591 (#1057 inc2 adversarial review): renderFillsRhi now (a) merges
+  // protectedAncestors into stableKeys for point-parity with the WebGPU merged
+  // set, (b) resets stableKeys=[] on both bail paths so a bailed show can't leak
+  // prior keys into the twin's decoupled emitTilePointsRhi, each with rationale
+  // docs; plus the parity pointer note on emitTilePointsRhi.
+  'map/src/render/vector-tile-renderer.ts': 4591,
   // 4232→4237 (#1000 heatmap relocate): the heatmap density-target OWNERSHIP
   // extracted to render/heatmap-targets.ts; map keeps only the irreducible
   // composition-root wiring — the `heatmapTargets` field + its import (mirrors
@@ -289,11 +298,29 @@ const CEILINGS: Record<string, number> = {
   // 1205→1213 (#1153 P2 R6): the WebGL2 takeGlErrors drain now routes through the
   // shared capped writer `pushValidationError` (rhi-webgpu) so the _validationErrors
   // queue can't grow unbounded — the 4-name import expansion + the drain-loop doc.
+  // 1213→1228 (#1057): the direct-layer points draw on the WebGL2 twin — one
+  // pointRenderer.renderRhi call site (+ its updateDynamicSizes + hasLayers gate +
+  // rationale) in renderFrameViaRhi, after the translucent bucket, mirroring the
+  // WebGPU points-pass placement.
+  // 1228→1252 (#1057 inc2): VT tile-points on the twin — pointRenderer.beginFrame()
+  // (retired-buffer drain) + the per-opaque-show emitTilePointsRhi call in the opaque
+  // loop (inside each show's fills+strokes, mirroring the WebGPU per-VTR flush), both
+  // with rationale docs.
   // 1213→1227 (#1062): the graticule overlay draw on the WebGL2 twin — one
   // renderGraticuleOverlayRhi call site in renderFrameViaRhi (after the opaque
   // fills/strokes, before translucent), mirroring the WebGPU opaque-pass placement.
-  'map/src/render-loop.ts': 1227,
-  'map/src/render/point-renderer.ts': 1140,
+  // Merge union (#1057 + #1062): both twin call-site blocks stacked non-overlappingly
+  // in renderFrameViaRhi — merged high-water is the measured 1266.
+  'map/src/render-loop.ts': 1266,
+  // 1140→1169 (#1057): render() split into a thin GPURenderPassEncoder-wrapping
+  // delegator + a single-authority renderRhi(pass: RhiRenderPass, …) so the WebGPU
+  // pass-chain and the forced-WebGL2 twin share ONE point-draw body (uploadLayer +
+  // writePointFrameUniform + PointDraper draw) — the twin's screen RhiRenderPass
+  // flows straight in, no wrapWebGpuPass.
+  // 1169→1174 (#1057 inc2): flushTilePoints renamed to flushTilePointsRhi(pass:
+  // RhiRenderPass, …) — the draw seam already flowed through PointDraper, so only the
+  // pass handle changes (wrap moves up to VTR.emitTilePointsRhi); +5 doc lines.
+  'map/src/render/point-renderer.ts': 1174,
   // 1106→1120 (#1043 state-hygiene): three unmask-before-clear / state-reset fixes for the
   // WebGL2 flicker class — beginScreenPass colorMask unmask (the colour sibling of #746/#780),
   // dispatchComputeToR32UI viewport snapshot+restore, and the setPipeline no-depth arm's
@@ -326,10 +353,15 @@ const CEILINGS: Record<string, number> = {
   // 1354→1364 (#1049): createPipeline fail-loud guard rejecting an unsupported nonzero
   // depthStencil.bias.clamp (gl.polygonOffset has no clamp param) — inline descriptor
   // validation at the createPipeline entry, not extractable (+10).
+  // 1364→1373 (#1057): VFMT gains a `uint32` entry (the SDF point quad_id lane) and the
+  // bindAttributes glType selector grows one ternary arm to UNSIGNED_INT — both are
+  // inline table/selector entries, not extractable (+9).
   // 1364→1376 (#1062): the 'line-list' topology seam — a Gl2Pipeline.topology field
   // (stored from desc.topology) + a drawMode() helper picking gl.LINES vs gl.TRIANGLES,
   // consumed by both draw / drawIndexed, so the graticule twin can draw segment pairs.
-  'rhi-webgl2/src/rhi-webgl2.ts': 1376,
+  // Merge union (#1057 + #1062): uint32 entry AND topology seam stacked — merged
+  // high-water is the measured 1385.
+  'rhi-webgl2/src/rhi-webgl2.ts': 1385,
   // 965→1000 (#1062): the graticule overlay's WebGL2 seam — renderGraticuleOverlayRhi
   // (the RHI twin of renderGraticuleOverlay, threading the canonical ECEF frame view
   // + projection into GraticuleRenderer.renderFrameRhi) + the RhiRenderPass import.

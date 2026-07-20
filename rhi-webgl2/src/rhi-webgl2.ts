@@ -174,7 +174,7 @@ function texFmt(
 const VFMT: Readonly<
   Record<
     string,
-    { size: number; type: 'f32' | 'u8' | 'u16'; normalized: boolean; integer?: boolean }
+    { size: number; type: 'f32' | 'u8' | 'u16' | 'u32'; normalized: boolean; integer?: boolean }
   >
 > = {
   float32: { size: 1, type: 'f32', normalized: false },
@@ -188,6 +188,9 @@ const VFMT: Readonly<
   // The polygon fill's quantized-ECEF position lanes (q_xy/q_z) use these.
   uint16x2: { size: 2, type: 'u16', normalized: false, integer: true },
   uint16x4: { size: 4, type: 'u16', normalized: false, integer: true },
+  // The SDF point quad_id lane (u32 corner index) — reads as a uint shader
+  // input, so it binds via the I-pointer like the uint16 lanes above (#1057).
+  uint32: { size: 1, type: 'u32', normalized: false, integer: true },
 }
 
 function applyBlend(gl: WebGL2RenderingContext, mode: Gl2Pipeline['blend']): void {
@@ -402,7 +405,13 @@ class WebGl2RenderPass implements RhiRenderPass {
         if (!fmt) throw new Error(`webgl2: unsupported vertex format '${a.format}'`)
         gl.enableVertexAttribArray(a.location)
         const glType =
-          fmt.type === 'f32' ? gl.FLOAT : fmt.type === 'u16' ? gl.UNSIGNED_SHORT : gl.UNSIGNED_BYTE
+          fmt.type === 'f32'
+            ? gl.FLOAT
+            : fmt.type === 'u16'
+              ? gl.UNSIGNED_SHORT
+              : fmt.type === 'u32'
+                ? gl.UNSIGNED_INT
+                : gl.UNSIGNED_BYTE
         // `vbufOffset` (default 0) shifts the per-tile arena sub-range start into the
         // attribute byte offset — default 0 is byte-identical to the no-offset bind.
         if (fmt.integer) {
