@@ -181,7 +181,13 @@ const CEILINGS: Record<string, number> = {
   // per-guard constraint comments outweigh the ~30 lines removed. The extraction
   // itself is the right cut (single authority, also fixes runBinary's missing
   // shapeRegistry/lineRenderer, #7); the remainder is irreducible in-flow wiring.
-  'map/src/map.ts': 4469,
+  // 4469→4488 (#1194 A1b): runScene — the second scene entrypoint. run()'s
+  // post-parse body extracted VERBATIM into _runProgram (shared by run/runScene;
+  // the device-lost recovery hook re-runs from the resolved AST so builder
+  // scenes recover too). +19 = the runScene method + the two method boundaries
+  // + docs; the 700-line body itself only moved. The real shrink lever remains
+  // the #991 decomposition, not this seam.
+  'map/src/map.ts': 4488,
   // 1920→1930 (#1042 R3): the globe limb cull for MULTI-LINE labels must land in
   // the collision phase — the ONLY site holding the label's quad half-height (the
   // collision box IS the height authority; the label-pass dispatch site has only

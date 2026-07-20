@@ -1064,6 +1064,11 @@ async function runSource(source: string, label: string) {
     // map._elapsedMs, map.vectorTileShows, etc. without re-wiring the
     // demo runner. Keep it lightweight; not part of the public API.
     ;(window as unknown as { __xgisMap?: unknown }).__xgisMap = currentMap
+    // #1194 e2e hook — lazy SceneBuilder access for the run()↔runScene
+    // twin-render gate (_scene-builder-twin.spec.ts) + future gallery JS
+    // tabs (A3). Loader, not instance: the spec builds its own scene.
+    ;(window as unknown as { __xgisSceneBuilder?: unknown }).__xgisSceneBuilder = () =>
+      import('@xgis/compiler').then((m) => ({ SceneBuilder: m.SceneBuilder, ident: m.ident }))
     // ?debug=labels — mobile-friendly label diagnostic overlay (no
     // dev tools required). Renders a colored dot + small text snippet
     // at every submitted label anchor, with per-anchor submission
@@ -1098,7 +1103,20 @@ async function runSource(source: string, label: string) {
     // helper through Playwright's evaluate-evaluate boundary.
     const { tileKeyUnpack } = await import('@xgis/compiler')
     ;(window as unknown as { __xgisInternals?: unknown }).__xgisInternals = { tileKeyUnpack }
-    await currentMap.run(source, import.meta.env.BASE_URL + 'data/')
+    // #1194 A1b — `?runscene=1`: mount via the demo's SceneBuilder twin
+    // (map.runScene) instead of the .xgis text, when a twin is registered.
+    // First-mount path for the twin-render gate; falls through to run()
+    // for demos without a twin so the flag is always safe. Post-run wiring
+    // below (proj override / hash sync / host hooks) is shared by both paths.
+    const runsceneUrl = new URL(window.location.href)
+    const twin =
+      runsceneUrl.searchParams.get('runscene') === '1'
+        ? (await import('./scene-builder-twins')).SCENE_BUILDER_TWINS[
+            runsceneUrl.searchParams.get('id') ?? ''
+          ]
+        : undefined
+    if (twin) await currentMap.runScene(twin(), import.meta.env.BASE_URL + 'data/')
+    else await currentMap.run(source, import.meta.env.BASE_URL + 'data/')
 
     // URL `?proj=X` overrides whatever projection the source declared.
     // Empty / absent means: keep the source's default.

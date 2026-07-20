@@ -1,7 +1,8 @@
 # SceneBuilder — an imperative JS front-end to the .xgis compiler (#1194)
 
-Status: **A0 approved → A1a landed** (builder core + parity gate, this PR).
-A1b (`runScene` seam) next.
+Status: **A0 approved → A1a landed → A1b landed** (builder core + parity gate,
+then the `runScene` seam + twin-render e2e gate). A2 (expression parity growth)
+and A3 (gallery JS tabs) next.
 Author-architect discipline: this doc proposes the boundaries and then attacks
 them (§Socratic critique) before any increment lands.
 
@@ -169,6 +170,10 @@ wc -l` per §12, not eyeballed. Gate: build + map suite + a SwiftShader
   lower() path REQUIRE resolved imports pre-lower? (run() resolves imports
   post-parse — the extraction point must sit after resolution or accept a
   no-imports invariant for `SceneProgram`; verify in A1b.)
+  **Answered in A1b:** `_runProgram` (the extracted post-parse body) runs
+  `resolveImportsAsync` itself, and that resolver is pure — a Program with no
+  ImportStatements passes through unchanged — so builder programs need no
+  special-casing and both entry paths share one resolution point.
 - `Demo`-gallery JS-tab plumbing (A3): where the builder source text for
   display lives (paired file? inline template?) — decide with #1192's
   gallery work, not here.
