@@ -84,6 +84,9 @@ export interface MaterialDesc {
   }>
   /** Triangle face culling (material-level, e.g. cull 'back'). Default 'none'. */
   cullMode?: 'none' | 'back' | 'front'
+  /** Primitive topology (material-level). Default 'triangle-list'; 'line-list' for a
+   *  segment-pair primitive (the graticule overlay). */
+  topology?: 'triangle-list' | 'line-list'
   /** 1+ pipeline variants (depth differs). */
   variants: PipelineVariant[]
   /** Optional per-item pooled uniform (a per-item slot). */
@@ -157,6 +160,7 @@ export class Material {
         sampleCount: desc.sampleCount,
         vertexBuffers: desc.vertexBuffers,
         cullMode: desc.cullMode,
+        topology: desc.topology,
         label: v.label,
       }),
     )

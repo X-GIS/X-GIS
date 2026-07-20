@@ -44,7 +44,7 @@ describe('dead-layer-elim — fixture statistics', () => {
           droppedNames.push(n.name)
         }
       }
-      // eslint-disable-next-line no-console
+
       console.log(
         `[${fixture}] ${before.renderNodes.length} → ${after.renderNodes.length} (dropped ${dropped}). examples: ${droppedNames.join(', ')}`,
       )

@@ -105,6 +105,15 @@ export const DEMOS_THEMATIC: Record<string, Demo> = {
     source: load('animation-showcase.xgis'),
   },
 
+  globe_extrusion: {
+    name: 'Globe + Extrusion',
+    tag: 'thematic',
+    description:
+      'MapLibre "Display a globe with a fill extrusion layer" port — countries extrude off the globe with per-feature population heights (fill-extrusion-height-[.POP_EST / 4000000], globe via Demo.projection)',
+    source: load('globe-extrusion.xgis'),
+    projection: 'globe',
+  },
+
   coverage_bathymetry: {
     name: 'S-100 Coverage: bathymetry (#1158)',
     tag: 'thematic',

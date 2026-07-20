@@ -137,7 +137,9 @@ const BASELINE: Record<string, number> = {
   'map/src/render/material/text-material.ts': 1,
   'map/src/render/passes/opaque-pass.ts': 1,
   'map/src/render/pipeline-factory.ts': 82,
-  'map/src/render/point-renderer.ts': 16,
+  // 16→15 (#1057 inc2): flushTilePoints's `pass: GPURenderPassEncoder` retyped to
+  // `RhiRenderPass` (flushTilePointsRhi) — the wrap moved up to VTR.emitTilePointsRhi.
+  'map/src/render/point-renderer.ts': 15,
   'map/src/render/raster-renderer.ts': 8,
   'map/src/render/renderer-types.ts': 20,
   'map/src/render/renderer.ts': 60,

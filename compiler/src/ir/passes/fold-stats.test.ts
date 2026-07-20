@@ -79,7 +79,7 @@ describe('fold-trivial-stops — fixture statistics', () => {
       const before = compileFixture(join(FIX, fixture))
       const after = foldTrivialStopsPass.run(before)
       const stats = countFolds(before, after)
-      // eslint-disable-next-line no-console
+
       console.log(
         `[${fixture}] folds: ${stats.total}, per slot: ${JSON.stringify(stats.perSlot)}, examples: ${stats.examples.join(' | ')}`,
       )

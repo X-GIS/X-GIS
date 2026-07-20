@@ -21,7 +21,7 @@
 //      pending fetches/uploads.
 //   5. Capture a fresh snapshot and compare.
 
-import { test, expect, devices } from '@playwright/test'
+import { test, expect, _devices } from '@playwright/test'
 
 interface Snapshot {
   schemaVersion: 1

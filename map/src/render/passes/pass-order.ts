@@ -40,7 +40,7 @@ export const RHI_TWIN_MISSING: readonly PassLabel[] = [
   'oit',
   // hillshade IS ported to the twin (render-loop.ts renderFrameViaRhi) so the
   // relief renders under ?forcegl2=1 for the _hillshade-gl2-gate (#777 Phase II).
-  'points',
-  'heatmap',
+  // 'points' ported in #1057 (direct-layer + the VT tile-points inline path);
+  // 'heatmap' ported in #1060 (renderFrameViaRhi -> heatmapRenderer.renderRhi).
   'overdraw-compose',
 ]

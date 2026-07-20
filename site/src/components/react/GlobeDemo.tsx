@@ -53,7 +53,7 @@ export default function GlobeDemo({ base }: Props) {
     let map: XGISMapType | null = null
     let mountStarted = false
     let destroyed = false
-    const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches
+    const _reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches
 
     // Scoped wheel-zoom — capture + non-passive so the page doesn't
     // scroll while the pointer is over the globe; mirrors Hero.

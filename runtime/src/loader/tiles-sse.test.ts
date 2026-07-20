@@ -180,7 +180,7 @@ describe('visibleTilesSSE — Phase 2 world copies', () => {
     // tiles-sse-projtype.test.ts for the projType-resolution regression.)
     const cam = makeCam(2, 0, 0, 0)
     const ortho = { ...mercator, name: 'orthographic' as const }
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+
     const tiles = visibleTilesSSE(cam, ortho as any, 14, 1280, 800, 0, 1)
     for (const t of tiles) {
       const n = 1 << t.z
@@ -236,9 +236,9 @@ describe('visibleTilesSSE — globe-equivalent horizon cull (Mercator)', () => {
     // and forcing it would over-cull the visible hemisphere.
     const cam = makeCam(2, 0, 0, 0)
     const ortho = { ...mercator, name: 'orthographic' as const }
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+
     const culled = visibleTilesSSE(cam, ortho as any, 14, 1280, 800, 0, 1)
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+
     const uncapped = visibleTilesSSE(cam, ortho as any, 14, 1280, 800, 0, 1, {
       disableHorizonCull: true,
     })

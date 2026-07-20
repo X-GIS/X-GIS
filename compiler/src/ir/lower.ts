@@ -407,6 +407,7 @@ function lowerLayer(
    *  stroke-side mirror of fillPattern. Stage 1 samples the sprite
    *  centre pixel as the line colour; Stage 2 (real repeating-sprite
    *  stroke renderer) deferred. null = no pattern. */
+  /* eslint-disable prefer-const -- hoisted paint-axis cluster: each `let` is assigned exactly once at the resolveUtilities merge below, but READ inside closures defined above that merge, so `const` would make the single assignment illegal (prefer-const false positive on the hoist pattern). */
   let linePattern: string | null = null
   /** Mapbox `paint.fill-translate` x — viewport pixel offset, +right.
    *  Constant form only; zoom-interp on vec2 needs per-axis decomp
@@ -632,6 +633,7 @@ function lowerLayer(
   let rasterSaturation: number | undefined
   let rasterContrast: number | undefined
   let rasterResamplingNearest: boolean | undefined
+  /* eslint-enable prefer-const -- end of the hoisted paint-axis cluster */
 
   // Mapbox `hillshade-*` DEM-relief axes (#777 Phase II). undefined = layer
   // didn't author the axis → the renderer falls back to the spec default.

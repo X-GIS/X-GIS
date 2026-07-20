@@ -21,7 +21,7 @@
 // clips poles vs NE renders them, oblique_mercator strip shape, globe
 // hemisphere, etc.) is one open-folder away.
 
-import { test, expect, type Page } from '@playwright/test'
+import { test, expect, type _Page } from '@playwright/test'
 import { mkdirSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'

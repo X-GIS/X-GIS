@@ -40,6 +40,17 @@ export function load(file: string): string {
   return src
 }
 
+import type { XGISMap } from '@xgis/runtime'
+
+/** One gallery action button (#1192 interaction infra): demo-runner renders
+ *  `label` in the #demo-actions bar and invokes `run` with the LIVE map on
+ *  click — the MapLibre examples' `<button>` → map-API wiring, expressed as
+ *  demo metadata so API-driven examples stay portable. */
+export interface DemoAction {
+  label: string
+  run: (map: XGISMap) => void
+}
+
 export interface Demo {
   name: string
   tag: string
@@ -65,4 +76,11 @@ export interface Demo {
    *  terrain-tile hillshade over the Grand Canyon — where the default 0,0
    *  view would show nothing of interest. */
   center?: [number, number]
+  /** Viewport projection applied via `map.setProjection()` after the demo
+   *  mounts (#1192 P1 — mirrors MapLibre examples that call the projection
+   *  API rather than declaring it in the style, e.g. globe). A `?proj=` URL
+   *  override still wins. */
+  projection?: string
+  /** Action buttons rendered by demo-runner while this demo is mounted. */
+  actions?: DemoAction[]
 }

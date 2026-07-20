@@ -5,7 +5,7 @@
 // external service, no runtime fetch.
 
 import { referenceSections } from '../content/reference-sections'
-import { galleryCategories, runIdOf } from '../content/gallery-demos'
+import { galleryCategories, _runIdOf } from '../content/gallery-demos'
 
 interface SearchRecord {
   /** Stable identifier used as React-style key in the result list. */

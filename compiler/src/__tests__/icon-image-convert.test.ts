@@ -17,13 +17,12 @@ function compileLabel(layer: Record<string, unknown>): {
     sources: { src: { type: 'vector', tiles: ['https://x/{z}/{x}/{y}.pbf'] } },
     layers: [layer],
   }
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+
   const xgis = convertMapboxStyle(style as any)
   const tokens = new Lexer(xgis).tokenize()
   const program = new Parser(tokens).parse()
   const scene = lower(program)
   for (const n of scene.renderNodes) {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const label = (n as any).label
     if (label) return label
   }

@@ -116,7 +116,7 @@ describe('user-reported Pacific tile boundary clustering', () => {
       YELLOW_SEA.lon,
       YELLOW_SEA.lat,
     )
-    // eslint-disable-next-line no-console
+
     console.log('z=2 lon=0:', {
       Canada: canadaProj,
       EastSea: eastSeaProj,
@@ -161,7 +161,7 @@ describe('user-reported Pacific tile boundary clustering', () => {
       YELLOW_SEA.lon,
       YELLOW_SEA.lat,
     )
-    // eslint-disable-next-line no-console
+
     console.log('z=2 lon=180:', {
       Canada: canadaProj,
       EastSea: eastSeaProj,
@@ -210,7 +210,7 @@ describe('user-reported Pacific tile boundary clustering', () => {
       YELLOW_SEA.lon,
       YELLOW_SEA.lat,
     )
-    // eslint-disable-next-line no-console
+
     console.log('z=1 lon=0:', {
       Canada: canadaProj,
       EastSea: eastSeaProj,
