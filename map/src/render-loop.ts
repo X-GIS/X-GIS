@@ -939,6 +939,11 @@ export class RenderLoop {
     this.host._scratchEmittedTextNames.clear()
     const classified = this.host.classifyVectorTileShows()
     this.host.lineRenderer?.beginFrame()
+    // #1057 — drain PointRenderer's retired tile-point buffer queue (the WebGPU
+    // prelude does this at render-loop.ts:437, which this isolated twin
+    // early-returns before). Each flushTilePointsRhi retires the prior frame's
+    // vertex/index/feat buffers; without this drain the queue grows unbounded.
+    this.host.pointRenderer?.beginFrame()
     let missingTiles = 0
     for (const c of classified.opaque) {
       const vt = this.host.vtSources.get(c.sourceName)
@@ -977,7 +982,40 @@ export class RenderLoop {
           c.show,
           c.resolvedShow,
         )
+      // #1057 — VT TILE-POINTS (MVT / GeoJSON-VT point features) drawn INSIDE
+      // the opaque bucket after this show's fills+strokes, mirroring the WebGPU
+      // frame where each VTR.render's tail flushes its tile points (opaque-pass).
+      // Single authority: emitTilePointsRhi reads the keys renderFillsRhi just
+      // selected (this.stableKeys) and flushes through flushTilePointsRhi. The
+      // DIRECT-LAYER points (pointRenderer.addLayer) draw separately after the
+      // translucent bucket below (their WebGPU points-pass slot).
+      vt.renderer.emitTilePointsRhi(
+        pass,
+        this.host.camera,
+        projType,
+        centerLon,
+        centerLat,
+        w,
+        h,
+        dpr,
+        c.show,
+        DEBUG_OVERDRAW ? undefined : this.host.pointRenderer,
+      )
     }
+    // #1062 — lat/lon graticule overlay. Mirrors the WebGPU opaque pass's grid
+    // placement (opaque-pass.ts): AFTER the opaque fills/strokes so the grid
+    // composites on top of the basemap, BEFORE the translucent / points / labels
+    // buckets below. No-op unless setGraticuleEnabled(true).
+    this.host.renderer.renderGraticuleOverlayRhi(
+      pass,
+      this.host.camera,
+      projType,
+      centerLon,
+      centerLat,
+      w,
+      h,
+      dpr,
+    )
     // #834 M5 slice 6 — TRANSLUCENT bucket (the same offscreen MAX-blend +
     // composite topology the WebGPU translucent-pass runs, in declaration
     // order after the whole opaque bucket): accumulate each show's strokes
@@ -1002,6 +1040,21 @@ export class RenderLoop {
       )
       offPass.end()
       this.host.lineRenderer.compositeRhi(pass, c.resolvedShow.opacity)
+    }
+    // #1057 — direct-layer GeoJSON points on the WebGL2 twin. Mirrors the WebGPU
+    // points-pass placement (pass-order.ts PASS_CHAIN_ORDER: after the translucent
+    // bucket, before labels). Points depth-TEST against the opaque fills' depth in
+    // THIS single screen pass — the WebGPU points-pass instead loads a stored opaque
+    // depth attachment into a separate pass, but the occlusion outcome is the same
+    // (front-facing opaque polygons occlude globe-backside billboards); translucent /
+    // flat point variants never write depth on either path. No-op unless a GeoJSON
+    // source routed through pointRenderer.addLayer. The VT tile-points inline path
+    // (flushTilePointsRhi) is drawn INSIDE the opaque loop above (emitTilePointsRhi),
+    // mirroring the WebGPU per-VTR placement — NOT here.
+    const pointRenderer = this.host.pointRenderer
+    if (pointRenderer?.hasLayers() && !DEBUG_OVERDRAW) {
+      pointRenderer.updateDynamicSizes(this.host.camera.zoom, performance.now())
+      pointRenderer.renderRhi(pass, this.host.camera, projType, centerLon, centerLat, w, h, dpr)
     }
     // #834 M5 slice 3 — tile ACQUISITION for label-bearing shows: a
     // label-only show never reaches the fills/lines acquisition (both bail
