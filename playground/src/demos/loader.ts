@@ -60,4 +60,9 @@ export interface Demo {
    *  reads well at a specific zoom (e.g. a raster-dem hillshade, near-flat at
    *  low zoom) declares it here. */
   zoom?: number
+  /** Initial camera centre `[lon, lat]` applied on open (same hash-override
+   *  rule as `zoom`). For demos anchored to a real-world place — e.g. a live
+   *  terrain-tile hillshade over the Grand Canyon — where the default 0,0
+   *  view would show nothing of interest. */
+  center?: [number, number]
 }

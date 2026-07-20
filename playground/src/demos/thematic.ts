@@ -47,6 +47,16 @@ export const DEMOS_THEMATIC: Record<string, Demo> = {
     source: load('raster-overlay.xgis'),
   },
 
+  hillshade_terrarium: {
+    name: 'Hillshade: Grand Canyon',
+    tag: 'raster',
+    description:
+      'Shaded relief from LIVE terrain tiles (#777 Phase II): a raster-dem source streams AWS Terrain Tiles (terrarium encoding, {z}/{x}/{y}) into the HillshadeRenderer with authored paint — NW illumination (315°), 0.6 exaggeration, warm shadow/highlight palette. The real-data sibling of fixture_hillshade_local (the offline deterministic gate).',
+    source: load('hillshade-terrarium.xgis'),
+    zoom: 11,
+    center: [-112.14, 36.1],
+  },
+
   bold_borders: {
     name: 'Bold Borders',
     tag: 'thematic',
