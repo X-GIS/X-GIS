@@ -19,3 +19,7 @@ export * from './tiler'
 export * from './convert'
 export * from './diagnostics'
 export * from './schema'
+// SceneBuilder — the imperative JS front-end to this compiler (#1194,
+// docs/architecture/design/scene-builder.md). Constructs the parser's own
+// Program AST behind the SceneProgram brand; consumed by map.runScene.
+export * from './builder/scene-builder'

@@ -112,7 +112,11 @@ function captureHeatmapUploads(ctx: GPUContext): Captured {
     } else if (size === N * STRIDE * 4) captured.feat = f32.slice(0, N * STRIDE) // feat_data
   }
 
-  const renderer = new HeatmapRenderer({ device: ctx.device, rhi: new WebGpuDevice(ctx.device) })
+  const renderer = new HeatmapRenderer({
+    device: ctx.device,
+    rhi: new WebGpuDevice(ctx.device),
+    format: 'bgra8unorm',
+  })
   renderer.addLayer(FEATURES as never, RADIUS, WEIGHT, INTENSITY, OPACITY)
 
   const camera = new Camera(11, 21, 5)
@@ -124,6 +128,9 @@ function captureHeatmapUploads(ctx: GPUContext): Captured {
     }
   ).createCommandEncoder()
   const pass = encoder.beginRenderPass()
+  // #834 lazy-native contract: compose-params buffer write lives in getLayers(),
+  // not addLayer() — call it before compose, matching heatmap-pass.ts:59.
+  renderer.getLayers()
   renderer.drawLayerAccum(pass, 0)
 
   return captured
@@ -132,7 +139,11 @@ function captureHeatmapUploads(ctx: GPUContext): Captured {
 describe('heatmap data-path wiring (GPU-free)', () => {
   it('addLayer registers exactly one layer for a Point set', async () => {
     const ctx = await makeCtx()
-    const renderer = new HeatmapRenderer({ device: ctx.device, rhi: new WebGpuDevice(ctx.device) })
+    const renderer = new HeatmapRenderer({
+      device: ctx.device,
+      rhi: new WebGpuDevice(ctx.device),
+      format: 'bgra8unorm',
+    })
     expect(renderer.hasLayers()).toBe(false)
     renderer.addLayer(FEATURES as never, RADIUS, WEIGHT, INTENSITY, OPACITY)
     expect(renderer.hasLayers()).toBe(true)

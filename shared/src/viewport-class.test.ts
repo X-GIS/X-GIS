@@ -57,6 +57,21 @@ describe('isMobileClassViewport — coarse PRIMARY pointer AND small dimension',
     stubPointer('coarse')
     expect(isMobileClassViewport(900)).toBe(true)
   })
+
+  it('caches the MediaQueryList per matchMedia identity (#1177: one parse, live .matches)', () => {
+    let calls = 0
+    const mql = { matches: true, media: '(pointer: coarse)' }
+    vi.stubGlobal('matchMedia', () => {
+      calls++
+      return mql
+    })
+    expect(isMobileClassViewport(800)).toBe(true)
+    expect(isMobileClassViewport(800)).toBe(true)
+    expect(calls).toBe(1) // MQL constructed once...
+    mql.matches = false
+    expect(isMobileClassViewport(800)).toBe(false) // ...but .matches stays LIVE
+    expect(calls).toBe(1)
+  })
 })
 
 // ── Source gates: the three data-pipeline throttles route through the shared

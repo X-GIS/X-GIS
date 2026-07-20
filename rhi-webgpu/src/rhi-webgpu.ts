@@ -579,7 +579,10 @@ export class WebGpuDevice implements RhiDevice {
             }
           : undefined,
         multisample: { count: desc.sampleCount ?? 1 },
-        primitive: { topology: 'triangle-list', cullMode: desc.cullMode ?? 'none' },
+        primitive: {
+          topology: desc.topology ?? 'triangle-list',
+          cullMode: desc.cullMode ?? 'none',
+        },
         label: desc.label,
       }),
     ) as unknown as RhiPipeline

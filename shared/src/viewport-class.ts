@@ -37,10 +37,20 @@ const MAX_MOBILE_CSS_DIMENSION = 900
  *    CONSERVATIVELY falls back to width-only, byte-identical to the pre-
  *    classifier behavior in those environments (they had no pointer signal).
  *
- * Pure w.r.t. its argument + the ambient media query; intentionally uncached —
- * call sites are per-frame at most and `matchMedia().matches` is cheap, whereas
- * a memo would go stale when device-mode emulation toggles the pointer type.
+ * Pure w.r.t. its argument + the ambient media query. The MediaQueryList
+ * OBJECT is cached (#1177: the per-frame `matchMedia()` CALL — query parse +
+ * MQL construction — profiled at ~68 ms/2% during zoom; the old comment's
+ * "cheap" claim was refuted by that profile) while `.matches` is read fresh
+ * every call: an MQL's `.matches` is LIVE, so device-mode emulation toggling
+ * the pointer type is still reflected immediately — no staleness trade.
  */
+// Keyed on the matchMedia FUNCTION identity: a real browser never swaps it
+// (permanent cache hit), while environments that replace it (test stubs,
+// teardown/re-setup) re-derive automatically — the cache is exactly as live
+// as the environment.
+let mqlSource: typeof matchMedia | null = null
+let coarsePointerMql: MediaQueryList | null = null
+
 export function isMobileClassViewport(cssDimension: number): boolean {
   // Necessary size gate; `!(x > 0)` also rejects 0 / NaN / undefined width
   // (which a bare `x <= 900` would wrongly admit).
@@ -48,5 +58,9 @@ export function isMobileClassViewport(cssDimension: number): boolean {
   // No media-query engine (SSR / Worker / vitest node): width-only fallback,
   // preserving today's behavior where no pointer signal was ever consulted.
   if (typeof matchMedia === 'undefined') return true
-  return matchMedia('(pointer: coarse)').matches
+  if (mqlSource !== matchMedia) {
+    mqlSource = matchMedia
+    coarsePointerMql = matchMedia('(pointer: coarse)')
+  }
+  return coarsePointerMql!.matches
 }
