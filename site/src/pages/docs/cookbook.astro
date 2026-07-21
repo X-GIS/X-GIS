@@ -84,16 +84,13 @@ layer continents {
   {
     slug: 'data-driven-stroke',
     title: 'Data-driven stroke width',
-    body: 'Pipe (`|`) feeds the LHS as the first argument of an RHS function. Reads left-to-right, no parens, no temporary variables.',
+    body: 'Bind the width to feature data with a bracketed expression — field access, arithmetic, and transform calls like `clamp()` compose freely inside the brackets.',
     code: `layer roads {
   source: roads
   sourceLayer: "transportation"
   | stroke-zinc-700
   | stroke-[clamp(.lanes / 2, 0.5, 8)]
 }`,
-    notes: [
-      'Equivalent to `stroke-[clamp(.lanes / 2, 0.5, 8)]` — pick whichever reads better.',
-    ],
   },
 
   {
