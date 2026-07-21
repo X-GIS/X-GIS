@@ -436,9 +436,10 @@ style-value    = COLOR | NUMBER | BOOL | fn-call-text | utility-name
 ```
 
 A **block property** (`source`/`layer` bodies) parses its value with
-`parseCoalesce` — the precedence ladder **excluding** the pipe operator — so a `"|"`
-after the value belongs to a utility line, not to the expression (`.height ?? 50`
-still works). A **style property** (CSS-like) takes a hyphen-joined key
+`parseCoalesce` — the precedence ladder **excluding** the ternary — keeping `??`
+(`.height ?? 50` works). A `"|"` after the value always belongs to a utility
+line: the expression-level pipe operator was removed (#1238), so no expression
+production can consume it. A **style property** (CSS-like) takes a hyphen-joined key
 (`stroke-width`) and a _string-valued_ payload: a color, number, bool, a paren-
 balanced function-call captured verbatim as text (`rgba(255,0,0,0.5)`), or a
 hyphen-joined utility name (`stone-800`). A key may also be the keyword `source` or
@@ -467,9 +468,7 @@ A Pratt / precedence-climbing ladder (`parser-expressions.ts`). Lowest to highes
 binding:
 
 ```
-expression     = pipe ( "?" expression ":" expression )?      (* ternary *)
-pipe           = coalesce ( "|" pipe-call )*                   (* PipeExpr *)
-pipe-call      = primary arg-list?
+expression     = coalesce ( "?" expression ":" expression )?  (* ternary *)
 coalesce       = logical-or ( "??" logical-or )*
 logical-or     = logical-and ( "||" logical-and )*
 logical-and    = comparison ( "&&" comparison )*
@@ -485,11 +484,18 @@ arg-list       = "(" ( expression ","? )* ")"
 All binary levels are **left-associative** (each is a `while` loop folding left). The
 ternary and `unary` are right-recursive.
 
-> Note: `??` sits **between** `pipe` and `||`, so `a || b ?? c` parses as
+> Note: `??` sits **between** the ternary and `||`, so `a || b ?? c` parses as
 > `(a || b) ?? c`. `??` chains left-associatively (`a ?? b ?? c` → `(a ?? b) ?? c`);
 > because `??` returns the first non-null operand this is value-equivalent to right
 > association. (The source comment calling it "right-associative" is imprecise but
 > semantically harmless.)
+
+> Removed (#1238): the expression-level pipe operator
+> (`x | round | clamp(0, 10)`) — pure sugar over nested calls
+> (`clamp(round(x), 0, 10)`) whose `|` token collided with the utility-line `|`
+> and swallowed a following utility block after any bare expression-valued
+> utility (#1236). A `"|"` in expression position is now a generic syntax error
+> (X-GIS0010); the `"|"` terminal belongs to utility lines alone.
 
 ```xgis
 xgis 1
@@ -498,7 +504,7 @@ layer roads {
   source: w
   | size-[clamp(.base * 2 + 1, 0, 24) ?? 8]
   | fill-[.hostile ? #ef4444 : #22c55e]
-  | opacity-[.speed | round | clamp(0, 10)]
+  | opacity-[clamp(round(.speed), 0, 10)]
 }
 ```
 

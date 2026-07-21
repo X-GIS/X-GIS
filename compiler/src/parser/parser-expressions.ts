@@ -13,8 +13,13 @@ import { ParserCursor } from './parser-cursor'
 export class ExpressionParser extends ParserCursor {
   // ═══ Expression Parsing (Pratt / Precedence Climbing) ═══
 
+  // The expression-level pipe operator (`x | round | clamp(0, 10)`) was
+  // removed (#1238): it was pure sugar over nested calls and its `|`
+  // token collided with the utility-line `|`, silently swallowing a new
+  // utility block after any bare expression-valued utility (#1236). The
+  // `|` token now belongs to utility lines alone.
   protected parseExpr(): AST.Expr {
-    const expr = this.parsePipe()
+    const expr = this.parseCoalesce()
     // Ternary: expr ? thenExpr : elseExpr
     if (this.check(TokenType.Question)) {
       this.advance()
@@ -26,28 +31,7 @@ export class ExpressionParser extends ParserCursor {
     return expr
   }
 
-  // expr | transform | transform
-  protected parsePipe(): AST.Expr {
-    const left = this.parseCoalesce()
-
-    if (this.check(TokenType.Pipe)) {
-      const transforms: AST.FnCall[] = []
-      while (this.check(TokenType.Pipe)) {
-        this.advance() // skip |
-        const callee = this.parsePrimary()
-        let args: AST.Expr[] = []
-        if (this.check(TokenType.LParen)) {
-          args = this.parseArgList()
-        }
-        transforms.push({ kind: 'FnCall', callee, args })
-      }
-      return { kind: 'PipeExpr', input: left, transforms }
-    }
-
-    return left
-  }
-
-  // ?? — null/undefined/missing fallback. Sits between pipe (`|`)
+  // ?? — null/undefined/missing fallback. Sits between ternary
   // and `||` in precedence so `.height ?? 50` parses as a single
   // BinaryExpr without paren juggling, and `a || b ?? c` parses
   // as `(a || b) ?? c` (the `||` binds tighter, like JS where the

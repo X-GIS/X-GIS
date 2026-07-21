@@ -53,7 +53,7 @@ const groups: FnGroup[] = [
       { name: 'ln',    signature: 'ln(value)',    body: 'Alias for `log` — kept so converted Mapbox styles using `["ln", x]` round-trip 1:1.', examples: [] },
       { name: 'log10', signature: 'log10(value)', body: 'Base-10 log. Same negative-input clamp as `log`.', examples: ['fill-[interpolate(log10(.population), 3, white-100, 7, red-500)]'] },
       { name: 'log2',  signature: 'log2(value)',  body: 'Base-2 log. Same clamp as `log`.', examples: ['size-[log2(.zoom)]'] },
-      { name: 'scale', signature: 'scale(value, factor)', body: 'Multiply `value` by `factor`. Pure sugar over `*` for chained pipe operations: `.x | scale(2)`.', examples: ['size-[.height | scale(0.5)]'] },
+      { name: 'scale', signature: 'scale(value, factor)', body: 'Multiply `value` by `factor`. Pure sugar over `*` — kept so converted styles round-trip.', examples: ['size-[scale(.height, 0.5)]'] },
     ],
   },
 

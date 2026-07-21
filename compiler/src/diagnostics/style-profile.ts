@@ -162,9 +162,6 @@ export function getStyleProfile(scene: Scene): StyleProfile {
       walkAst(e.condition)
       walkAst(e.thenExpr)
       walkAst(e.elseExpr)
-    } else if (e.kind === 'PipeExpr') {
-      walkAst(e.input)
-      for (const t of e.transforms) walkAst(t)
     } else if (e.kind === 'ArrayLiteral') {
       for (const el of e.elements) walkAst(el)
     } else if (e.kind === 'ArrayAccess') {

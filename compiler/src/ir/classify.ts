@@ -65,9 +65,6 @@ export function classifyExpr(expr: AST.Expr): ExprClass {
     case 'FnCall':
       return classifyFnCall(expr)
 
-    case 'PipeExpr':
-      return classifyPipe(expr)
-
     case 'MatchBlock':
       return classifyMatch(expr)
 
@@ -102,14 +99,6 @@ function classifyFnCall(expr: AST.FnCall): ExprClass {
 
   // Unknown function → CPU fallback
   return merge(argsClass, 'per-feature-cpu')
-}
-
-function classifyPipe(expr: AST.PipeExpr): ExprClass {
-  let cls = classifyExpr(expr.input)
-  for (const transform of expr.transforms) {
-    cls = merge(cls, classifyFnCall(transform))
-  }
-  return cls
 }
 
 function classifyMatch(expr: AST.MatchBlock): ExprClass {

@@ -6,7 +6,7 @@
 //   1. Identical expressions canonicalise to the same string.
 //   2. Different expressions canonicalise to different strings.
 //   3. Position-sensitive constructs (match arm order, fn arg order,
-//      array element order, pipe transform order) preserve order.
+//      array element order) preserve order.
 //   4. Edge cases (embedded quotes, unit suffixes, null FieldAccess
 //      objects, nested matchBlocks on FnCalls) don't collide.
 
@@ -93,7 +93,7 @@ describe('canonicalExpr — basic kinds', () => {
   })
 })
 
-describe('canonicalExpr — function / binary / unary / pipe / conditional', () => {
+describe('canonicalExpr — function / binary / unary / conditional', () => {
   it('FnCall with two args + no matchBlock', () => {
     expect(canonicalExpr(fn(ident('clamp'), [num(0), num(10)]))).toBe('Fn(I(clamp);[N(0),N(10)];~)')
   })
@@ -139,7 +139,7 @@ describe('canonicalExpr — function / binary / unary / pipe / conditional', () 
   })
 })
 
-describe('canonicalExpr — arrays + match + pipe', () => {
+describe('canonicalExpr — arrays + match', () => {
   it('ArrayLiteral preserves element order', () => {
     expect(canonicalExpr({ kind: 'ArrayLiteral', elements: [num(1), num(2)] })).toBe(
       'Arr([N(1),N(2)])',
@@ -214,16 +214,6 @@ describe('canonicalExpr — arrays + match + pipe', () => {
       { pattern: 'b', value: num(2) },
     ])
     expect(canonicalExpr(midDefault)).toBe('M([a->N(1),_->N(99),b->N(2)])')
-  })
-
-  it('PipeExpr captures the transform order', () => {
-    expect(
-      canonicalExpr({
-        kind: 'PipeExpr',
-        input: ident('a'),
-        transforms: [fn(ident('round'), []), fn(ident('clamp'), [num(0), num(1)])],
-      }),
-    ).toBe('Pipe(I(a);[Fn(I(round);[];~),Fn(I(clamp);[N(0),N(1)];~)])')
   })
 })
 

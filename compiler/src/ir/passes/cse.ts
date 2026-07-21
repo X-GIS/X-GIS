@@ -98,10 +98,6 @@ export function analyzeCSE(scene: Scene): CSEReport {
       case 'UnaryExpr':
         visit(e.operand)
         return
-      case 'PipeExpr':
-        visit(e.input)
-        for (const t of e.transforms) visit(t)
-        return
       case 'ConditionalExpr':
         visit(e.condition)
         visit(e.thenExpr)
