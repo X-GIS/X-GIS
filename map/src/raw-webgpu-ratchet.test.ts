@@ -112,6 +112,10 @@ const BASELINE: Record<string, number> = {
   'map/src/render/compose-pipelines.ts': 18,
   'map/src/render/compute-layer-handle.ts': 2,
   'map/src/render/compute-layer-registry.ts': 2,
+  // render()'s `pass: GPURenderPassEncoder` param + its `as` cast bridged via
+  // wrapWebGpuPass — the ONE raw-token pattern raster-renderer/line-renderer carry,
+  // gap-blocked until the #991 neutral pass retires the bridge. #1272.
+  'map/src/render/coverage-renderer.ts': 2,
   'map/src/render/feature-data-binder.ts': 21,
   'map/src/render/frame-context.ts': 3,
   'map/src/render/frame-renderer.ts': 47,

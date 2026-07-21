@@ -1,10 +1,11 @@
 // ═══ HDF5 subset reader — differential gate (#1158 GAP-1 INC-A gate 1) ═══
 //
 // The in-house reader's output is asserted EQUAL to h5py's (the offline oracle):
-// committed .h5 fixtures + committed JSON goldens (pipeline/tools/gen-h5-fixtures.py).
+// committed .h5 fixtures + committed JSON goldens (data/tools/gen-h5-fixtures.py).
 // Positive fixtures cover superblock v0 (symbol-table) + v2 (compact links), chunked
 // + shuffle + gzip with PARTIAL edge chunks + PADDED compound offsets, a SPARSE
-// (missing-chunk → fill) dataset, an asymmetric grid, and a packed compound.
+// (missing-chunk → fill) dataset, an asymmetric grid, a packed compound, and an
+// S-111 surface-currents cell (the product-agnostic DCF2 sibling, #1272).
 // Negatives each fail LOUDLY naming the out-of-subset construct. The real NOAA cell
 // is a skipIf(!local) differential — no NOAA bytes committed (licence to-verify).
 
@@ -77,6 +78,32 @@ describe('HDF5 reader differential vs h5py (gate 1)', () => {
     const cov = await readS102Coverage(openHdf5(ab(join(FIX, 'sb_v0_symtab.h5'))))
     expect(cov.gridOrigin[0]).toBeCloseTo(5.0, 9)
     expect(cov.gridOrigin[0]).not.toBeCloseTo(5.0 - 0.5 / 2, 6) // NOT the west edge
+  })
+
+  it('S-111 cell (NOAA surface currents): product-agnostic DCF2 read end-to-end', async () => {
+    // The SAME semantic reader over an S-111-shaped file (#1272): container found
+    // by dataCodingFormat (SurfaceCurrent, not BathymetryCoverage), the 2-member
+    // {surfaceCurrentSpeed, surfaceCurrentDirection} compound decoded, Group_F
+    // fill (-9999, a DIFFERENT sentinel than S-102's 1e6) + units read, product
+    // detected from productSpecification.
+    const g = golden('s111_dcf2')
+    const cov = await readS102Coverage(openHdf5(ab(join(FIX, 's111_dcf2.h5'))))
+    expect(cov.product).toBe('s111')
+    expect(cov.numPoints).toEqual([g.nLon, g.nLat])
+    expect(cov.gridOrigin).toEqual(g.origin)
+    expect(cov.gridSpacing).toEqual(g.spacing)
+    expect(cov.bands.map((b) => b.name)).toEqual(g.bandNames)
+    expect(cov.bands.map((b) => b.unit)).toEqual(g.bandUnits)
+    expect(cov.bands.map((b) => b.fillValue)).toEqual([g.fillValue, g.fillValue])
+    const speed = (g.speed_south_first as number[][]).flat()
+    const dir = (g.direction_south_first as number[][]).flat()
+    for (let i = 0; i < speed.length; i++) {
+      expect(cov.bands[0]!.values[i]).toBeCloseTo(speed[i]!, 5)
+      expect(cov.bands[1]!.values[i]).toBeCloseTo(dir[i]!, 5)
+    }
+    // The nodata cell carries the -9999 sentinel VERBATIM (the converter maps it
+    // to NaN; the reader never rewrites values).
+    expect(cov.bands[0]!.values[1 * (g.nLon as number) + 1]).toBe(-9999)
   })
 })
 

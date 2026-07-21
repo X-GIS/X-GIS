@@ -156,6 +156,10 @@ interface RebuildMocks {
     setUrlTemplate: ReturnType<typeof vi.fn>
     setParams: ReturnType<typeof vi.fn>
   }
+  coverageRenderer: {
+    clear: ReturnType<typeof vi.fn>
+    setCoverage: ReturnType<typeof vi.fn>
+  }
   ctx: { device: object; rhi: object; format: string }
 }
 
@@ -189,6 +193,10 @@ function makeMocks(): RebuildMocks {
       setUrlTemplate: vi.fn(),
       setParams: vi.fn(),
     },
+    coverageRenderer: {
+      clear: vi.fn(),
+      setCoverage: vi.fn(),
+    },
     ctx: {
       device: mockDevice(),
       // #832 M2 — the uniform ring + tile store now route through ctx.rhi.
@@ -211,6 +219,7 @@ type MapInternals = {
   pointRenderer: unknown
   rasterRenderer: unknown
   hillshadeRenderer: unknown
+  coverageRenderer: unknown
   lineRenderer: unknown
   ctx: unknown
   shapeRegistry: unknown
@@ -238,6 +247,7 @@ function makeMap(mocks: RebuildMocks): { map: XGISMap; internals: MapInternals }
   internals.pointRenderer = mocks.pointRenderer
   internals.rasterRenderer = mocks.rasterRenderer
   internals.hillshadeRenderer = mocks.hillshadeRenderer
+  internals.coverageRenderer = mocks.coverageRenderer
   internals.lineRenderer = null // optional in rebuildLayers (guarded)
   internals.ctx = mocks.ctx
   internals.shapeRegistry = null // point branch guards `?? 0`

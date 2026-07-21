@@ -22,8 +22,8 @@ export type { BackendChoice }
  *  `raster-dem` source (routes to the HillshadeRenderer with the DEM decode
  *  params, #777), `{ _vectorTile: true }` for a vector-tile (MVT/VT) or
  *  tiled-geojson source, and `{ _coverage }` for an S-100 gridded-coverage
- *  (.xgcov) source — the CPU-resident CoverageHandle is the value-readout
- *  authority (#1158 GAP-1). rebuildLayers narrows on these markers with `in` guards. */
+ *  source (HDF5 read in place; ADR-0010) — the CPU-resident CoverageHandle is the
+ *  value-readout authority (#1158 GAP-1). rebuildLayers narrows on these markers with `in` guards. */
 export type RawDataset =
   | GeoJSONFeatureCollection
   | {
@@ -46,7 +46,13 @@ export type RawDataset =
       readonly baseShift?: number
     }
   | { readonly _vectorTile: true }
-  | { readonly _coverage: CoverageHandle }
+  | {
+      readonly _coverage: CoverageHandle
+      /** Colour-ramp LUT name for the GPU draw (source `ramp:`). Default viridis. */
+      readonly ramp?: string
+      /** `[lo, hi]` display value window (source `range:`). Default = data range. */
+      readonly range?: readonly [number, number]
+    }
 
 export interface VariantPipelines {
   fillPipeline: GPURenderPipeline

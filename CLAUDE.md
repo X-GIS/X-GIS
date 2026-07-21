@@ -247,6 +247,22 @@ scripts/gap-matrix.md`) — read the script header before assuming write-in-plac
   agent-touched work; capture their diff as a patch and re-apply onto current main
   (PR #1220: batch authored on a stale sibling branch, recovered via 3-way apply).
 
+**Architecture / data formats**
+
+- The data is almost always ALREADY in a standard, and the domain names which one —
+  **HDF5 / NetCDF** for scientific gridded data (S-100, NOAA model output), **COG**
+  for georeferenced imagery/raster, **PMTiles** for vector tiles, GeoJSON for features.
+  Write/reuse a READER for that standard (our HDF5 reader, `geotiff.js`, `pmtiles`) —
+  that is legitimate. What is FORBIDDEN is TRANSCODING a standard into a house blob
+  (`.xgcov` did exactly this to HDF5 we already had a reader for): a bespoke container
+  loses the ecosystem (no GDAL/geotiff.js, none of the data already on the web) AND
+  web real-time (a blob has no HTTP-range streaming). Zero-dep-decoder / custom-semantics
+  arguments do NOT clear this bar — paid for twice (`.xgvt` → PMTiles, then `.xgcov`).
+  PREFER reading the standard IN PLACE via range requests (HDF5 IS range-readable) over
+  converting anything; convert only a source that truly cannot be read as-is, server-side,
+  only TO a standard. If you're writing a magic number, stop.
+  → `2026-07-21-the-custom-format-trap.md`
+
 This section deliberately has NO separate index file: the posts themselves (their
 frontmatter descriptions) are the single authority, and a hand-synced index would be
 exactly the two-authorities drift §12's own second-ratchet entry warns about. Add a rule

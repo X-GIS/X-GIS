@@ -11,8 +11,5 @@
   },
   "scripts": {
     "build": "tsc --build"
-  },
-  "devDependencies": {
-    "@xgis/data": "workspace:*"
   }
 }

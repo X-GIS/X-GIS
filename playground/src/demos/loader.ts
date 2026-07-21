@@ -101,4 +101,14 @@ export interface Demo {
    *  FeatureCollections and pushes them via setSourceData, and a badge shows
    *  the running haversine total — MapLibre's "Measure distances" example. */
   measure?: boolean
+  /** When true, demo-runner reads the demo's `currents` coverage source
+   *  (map.getCoverage) after mount and overlays a retained particle-flow batch
+   *  drifting along the direction band — the NOAA S-111 vector-field reading
+   *  (#1272 / #826). The coverage colour ramp stays the speed reading. */
+  currents?: boolean
+  /** When true, demo-runner fetches NOAA CO-OPS live tidal-current stations
+   *  (api.tidesandcurrents.noaa.gov, CORS `*`) and draws one retained arrow per
+   *  station, refreshing periodically — the browser-DIRECT live-data path
+   *  (#1272). Requires network egress; the arrows simply stay absent offline. */
+  coops?: boolean
 }

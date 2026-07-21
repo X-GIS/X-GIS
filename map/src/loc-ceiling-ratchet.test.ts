@@ -261,6 +261,10 @@ const CEILINGS: Record<string, number> = {
   // Merge union (raster-resolution <- main): both bumps stacked
   // non-overlappingly (tileSize wiring +3, #1235 seams +7) — merged
   // high-water is the measured 4718.
+  // 4718→4766 (#1272): completes the #1158 coverage render wiring the rebuild
+  // left as a bare `continue` (arms the CoverageRenderer from the `_coverage`
+  // marker) + the setCoverageData host-push API for live NOAA refresh, and the
+  // ADR-0010 read-in-place ingest (readCoverage → HDF5, no `.xgcov`).
   // 4718→4732 (#1192 batch 5): the sourceCRS registry-population comment
   // documents the real bug the animate-line/realtime-update ports' render
   // probe caught — every geojson source's lower.ts-defaulted 'EPSG:4326'
@@ -309,7 +313,10 @@ const CEILINGS: Record<string, number> = {
   // _scheduleHashWrite / _writeHash (replaceState) pair, and the destroy()
   // detach. The format/parse/namespace-merge MECHANISM lives extracted +
   // unit-proved in map-hash.ts (86 LOC, under the cap) — wiring only here.
-  'map/src/map.ts': 4994,
+  // Merge union (#1272 <- main): main's camera/fade/hash stack (→4994) and the
+  // #1272 coverage wiring (+48 over the 4718 base) are non-overlapping, so the
+  // merged file measures 5042, not max(4994, 4766).
+  'map/src/map.ts': 5042,
   // Baselined at #1255 (measured 830): the DOM-inspired layer API crossed
   // NEW_FILE_CAP with the paint-transition style-setter integration — the
   // StyleHost.transitions context, the shared applyNumber/applyColor
@@ -327,7 +334,9 @@ const CEILINGS: Record<string, number> = {
   // (attach arms vs push/ingest) when #991 gets here — shrink-only from now.
   // (raster-resolution merge: the tileSize passthrough line lands inside the
   // existing 846 measurement — no growth.)
-  'map/src/source-manager.ts': 846,
+  // 846→849 (#1272): thread the coverage source's ramp/range display options
+  // onto the `_coverage` marker so rebuild arms the CoverageRenderer with them.
+  'map/src/source-manager.ts': 849,
   // 1920→1930 (#1042 R3): the globe limb cull for MULTI-LINE labels must land in
   // the collision phase — the ONLY site holding the label's quad half-height (the
   // collision box IS the height authority; the label-pass dispatch site has only
@@ -553,7 +562,12 @@ const CEILINGS: Record<string, number> = {
   // 1338→1341 (#1261): the WebGPU sprite-atlas push now reads the now-optional
   // getView via `?.` (the host atlas's WebGPU half became optional so its WebGL2
   // twin type-checks) + a 3-line rationale. One existing call site.
-  'map/src/render-loop.ts': 1341,
+  // 1326→1344 (#1272): the coverage colour-ramp draw joins the forced-WebGL2
+  // twin (renderFrameViaRhi), mirroring the opaque-pass dispatch — flat arm.
+  // Merge union (#1272 <- main): the #1229/#1261 stack (→1341) and the #1272
+  // coverage-twin draw (+18 over the 1326 base) are non-overlapping — the merged
+  // file measures 1359, not max(1341, 1344).
+  'map/src/render-loop.ts': 1359,
   // Merge union (#1060 <- main): stacked growth — measured 1174.
   'map/src/render/point-renderer.ts': 1174,
   // 1106→1120 (#1043 state-hygiene): three unmask-before-clear / state-reset fixes for the

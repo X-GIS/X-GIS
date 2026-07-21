@@ -1,8 +1,9 @@
 // ═══ In-house zero-dep HDF5 subset reader — public API (#1158 GAP-1 INC-A) ═══
 //
 // A pure `DataView` reader for the exact HDF5 subset real S-100 (S-102/104/111)
-// files use (design §3.3 / A1), so the offline converter consumes it today and a
-// runtime loader could later without a rewrite (the `.odb` both-ends discipline).
+// files use (design §3.3 / A1) — read IN PLACE in the browser (ADR-0010) via
+// `readCoverageFromHdf5` (coverage.ts). Zero-dep by construction so it runs on the
+// main thread or a worker unchanged (the `.odb` both-ends discipline).
 // NO npm/WASM HDF5, ever; h5py/GDAL are offline ORACLES only. Every out-of-subset
 // construct fails LOUDLY with the construct name + file offset — a silent
 // mis-parse of navigation-adjacent data is the one unacceptable outcome.

@@ -1,8 +1,8 @@
 // ═══ HDF5 subset reader — dataset values (contiguous + v1-btree chunked) ═══
 //
 // Reads a dataset's raw element bytes in STORAGE ORDER (row-major, exactly as
-// h5py returns them — the reader has no orientation concept; the converter owns
-// the north-up flip), then decodes a band into a typed array. The three silent-
+// h5py returns them — the reader has no orientation concept; `readCoverageFromHdf5`
+// owns the north-up flip), then decodes a band into a typed array. The three silent-
 // corruption hotspots the design flags (§8.1) live here and are each pinned by a
 // fixture: partial edge chunks, missing-chunk fill-in, and compound member offsets.
 

@@ -57,6 +57,9 @@ function harness(groupCount: number) {
     camera: {},
     pointRenderer: {},
     rasterRenderer,
+    // No coverage armed in this harness → hasCoverage() false short-circuits the
+    // coverage draw before the camera/projection checks (#1272).
+    coverageRenderer: { hasCoverage: () => false },
     renderer: {
       uniformBuffer: {},
       renderToPass: () => order.push('legacy'),

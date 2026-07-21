@@ -123,6 +123,10 @@ function lowerSource(
   let greenFactor: number | undefined
   let blueFactor: number | undefined
   let baseShift: number | undefined
+  /** `type: coverage` display options (#1158) — threaded so the coverage
+   *  colour-ramp renderer arms with the author's palette + value window. */
+  let ramp: string | undefined
+  let range: readonly [number, number] | undefined
 
   for (const prop of stmt.properties) {
     if (prop.name === 'type') {
@@ -189,6 +193,28 @@ function lowerSource(
       blueFactor = prop.value.value
     } else if (prop.name === 'baseShift' && prop.value.kind === 'NumberLiteral') {
       baseShift = prop.value.value
+    } else if (prop.name === 'ramp' && prop.value.kind === 'StringLiteral') {
+      // `type: coverage` colour-ramp LUT name (#1158). Validated at arm time
+      // against the runtime RAMPS registry (an unknown name fails loudly there).
+      ramp = prop.value.value
+    } else if (prop.name === 'range') {
+      // `type: coverage` `[lo, hi]` display window. NUMBER elements — the custom-
+      // options bag below only keeps string arrays, which silently dropped this
+      // before dedicated lowering existed. Malformed forms fail loudly: a wrong
+      // window would recolour navigation data, never a silent default.
+      const els = prop.value.kind === 'ArrayLiteral' ? prop.value.elements : null
+      if (
+        !els ||
+        els.length !== 2 ||
+        els[0]!.kind !== 'NumberLiteral' ||
+        els[1]!.kind !== 'NumberLiteral'
+      ) {
+        throw new Error(
+          `Source '${stmt.name}' (line ${stmt.line}): 'range' must be a two-number ` +
+            `array (e.g. \`range: [0, 40]\`).`,
+        )
+      }
+      range = [els[0].value, els[1].value]
     } else {
       // Non-reserved property → the custom-loader options bag (source-loader-seam §5).
       // Reserved keys (type/url/data/layers/crs) are claimed by the branches above, so
@@ -254,6 +280,8 @@ function lowerSource(
     greenFactor,
     blueFactor,
     baseShift,
+    ramp,
+    range,
   }
 }
 

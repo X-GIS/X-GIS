@@ -25,12 +25,13 @@ export type BackgroundPassHost = Pick<
   '_backgroundColor' | '_backgroundColorShape' | '_backgroundOpacityShape'
 >
 
-/** Opaque bucket: raster + opaque vector sub-passes. */
+/** Opaque bucket: raster + coverage + opaque vector sub-passes. */
 export type OpaquePassHost = Pick<
   XGISMap,
   | '_elapsedMs'
   | '_rasterShow'
   | 'camera'
+  | 'coverageRenderer'
   | 'gpuTimer'
   | 'pointRenderer'
   | 'rasterRenderer'

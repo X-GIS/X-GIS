@@ -1,15 +1,17 @@
 xgis 1
 
-// S-100 gridded-coverage (.xgcov) demo (#1158 GAP-1 INC-A). A synthetic 32×32
-// bathymetry grid at 50-58°N: a north→south depth ramp (0 → 40 m) with a nodata
+// S-100 gridded-coverage demo (#1158, re-platformed by ADR-0010). A synthetic 32×32
+// S-102 bathymetry grid at 50-58°N: a north→south depth ramp (0 → 40 m) with a nodata
 // hole and 4 known-value corner cells — the fixture the headed render gate reads
-// back (_coverage-render.spec.ts). The GPU colour-ramp draw is the INC-A gate-3
-// (headed) item; `map.getCoverage('bathy').valueAt(lon, lat)` already returns the
-// exact positive-down value CPU-side.
+// back (_coverage-render.spec.ts). The `coverage` source reads the S-102 HDF5 IN
+// PLACE (no `.xgcov` transcode); regenerate the asset with
+// `python playground/scripts/gen-demo-coverage.py`. The GPU colour-ramp draw is the
+// INC-A gate-3 (headed) item; `map.getCoverage('bathy').valueAt(lon, lat)` already
+// returns the exact positive-down value CPU-side.
 
 source bathy {
   type: coverage
-  url: "synthetic-bathymetry.xgcov"
+  url: "synthetic-bathymetry.h5"
   ramp: "bathymetry"
   range: [0, 40]
 }

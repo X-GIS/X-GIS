@@ -35,3 +35,6 @@ export { krAdminLoader, odbLoader } from './loaders'
 // .odb OD-flow binary — compact aggregated origin→destination payload.
 export type { ODFlow, ODBData } from './odb/format'
 export { encodeODB, decodeODB, ODB_MAGIC, ODB_VERSION, ODB_HOUR_ALLDAY } from './odb/format'
+
+// (The S-100 HDF5 reader moved to @xgis/data — ADR-0010 — so @xgis/map reads the
+// standard in place. @xgis/pipeline is a shared-only ETL leaf again.)

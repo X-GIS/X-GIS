@@ -15,6 +15,7 @@
 
 import { DEBUG_OVERDRAW } from '../../debug-flags'
 import { isPickEnabled } from '@xgis/engine'
+import { isGlobeProj } from '@xgis/geo'
 import { resolveNumberShape } from '../paint-shape-resolve'
 import type { FrameContext } from '../frame-context'
 import { unwrapProjection } from '../projection-token'
@@ -169,6 +170,28 @@ class OpaquePass implements RenderPass {
             ctx.dpr,
           )
           host.gpuTimer?.mark(subPass, 'after_raster')
+          // S-100 coverage colour-ramp overlay (#1158) — over the raster
+          // basemap, under the vector shows. FLAT arm only (the globe drape is
+          // INC-B): the coverage VS consumes camera-relative 2D projected
+          // metres, which the ECEF frame matrix cannot feed. `frame.matrix` is
+          // a preallocated camera buffer — packCoverageUniforms copies it
+          // synchronously inside render() before any later camera call.
+          if (
+            host.coverageRenderer.hasCoverage() &&
+            !host.camera.globeMode &&
+            !isGlobeProj(projType)
+          ) {
+            const frame = host.camera.getViewForProjection(projType, ctx.w, ctx.h, ctx.dpr)
+            // Pass the raw encoder — CoverageRenderer.render wraps it internally
+            // (the backend fork lives there, mirroring raster), keeping this pass
+            // file free of a concrete-backend import (#991 backend-adapter ratchet).
+            host.coverageRenderer.render(
+              subPass,
+              frame.matrix,
+              [host.camera.centerX, host.camera.centerY],
+              [projType, centerLon, centerLat, frame.logDepthFc],
+            )
+          }
           host.renderer.renderToPass(
             subPass,
             host.camera,

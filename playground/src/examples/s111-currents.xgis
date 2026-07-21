@@ -1,0 +1,21 @@
+xgis 1
+
+// NOAA S-111 surface currents (#1272) — a SYNTHETIC Chesapeake-Bay-shaped
+// tidal field (northward channel + counter-clockwise gyre, coast-shaped nodata
+// margins) carrying the real S-111 band names/units/fill. The speed band draws
+// through the viridis coverage colour ramp (range 0-2 kn); the demo runner
+// overlays drifting particles along the direction band (Demo.currents →
+// retained particle-flow, #826). The `coverage` source reads the S-111 HDF5 IN
+// PLACE (ADR-0010, no `.xgcov` transcode); regenerate the asset with
+// `python playground/scripts/gen-demo-coverage.py`.
+
+source currents {
+  type: coverage
+  url: "synthetic-currents.h5"
+  ramp: "viridis"
+  range: [0, 2]
+}
+
+layer speed {
+  source: currents
+}

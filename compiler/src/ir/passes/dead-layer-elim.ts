@@ -66,7 +66,11 @@ function isStaticallyTransparent(value: ColorValue): boolean {
   return false
 }
 
-function isDeadLayer(node: RenderNode, rasterSources: Set<string>): boolean {
+function isDeadLayer(
+  node: RenderNode,
+  rasterSources: Set<string>,
+  coverageSources: Set<string>,
+): boolean {
   // Explicit author intent.
   if (node.visible === false) return true
 
@@ -95,6 +99,16 @@ function isDeadLayer(node: RenderNode, rasterSources: Set<string>): boolean {
   // axes) would never reach the runtime → the HeatmapRenderer gets zero
   // layers and nothing renders. Keep the node so its ShowCommand survives.
   if (node.isHeatmap) return false
+
+  // S-100 gridded-coverage layers (#1158) draw via the CoverageRenderer,
+  // armed from the source's `{ _coverage }` marker — like raster / heatmap
+  // they declare NO fill / stroke / label, so the no-paint check below would
+  // falsely eliminate the node, and dead-source-elim would then prune the
+  // orphaned coverage source → the `type: coverage` load never fires, the
+  // HDF5 is never read, and nothing renders. Keep the node so both it and
+  // its source survive. Symptom this guards: the S-102 bathymetry / S-111
+  // currents demos rendering only the background.
+  if (coverageSources.has(node.sourceRef)) return false
 
   // Nothing to draw. A layer must declare at least ONE of: a fill
   // colour, a stroke (colour or width), a label, or procedural
@@ -178,7 +192,10 @@ export const deadLayerElimPass: IRPass = {
         .filter((s) => s.type === 'raster' || s.type === 'raster-dem')
         .map((s) => s.name),
     )
-    const live = scene.renderNodes.filter((n) => !isDeadLayer(n, rasterSources))
+    const coverageSources = new Set(
+      scene.sources.filter((s) => s.type === 'coverage').map((s) => s.name),
+    )
+    const live = scene.renderNodes.filter((n) => !isDeadLayer(n, rasterSources, coverageSources))
     if (live.length === scene.renderNodes.length) return scene
     return { ...scene, renderNodes: live }
   },

@@ -85,6 +85,10 @@ const BASELINE: Record<string, number> = {
   'map/src/render/compose-pipelines.ts': 1,
   'map/src/render/compute-layer-handle.ts': 2,
   'map/src/render/compute-layer-registry.ts': 1,
+  // Coverage colour-ramp draw mirrors raster-renderer EXACTLY (same 2): the
+  // GPUContext ctor param (type) + wrapWebGpuPass for the WebGPU pass wrap in
+  // render(), so the opaque pass file stays backend-adapter-free. #1272.
+  'map/src/render/coverage-renderer.ts': 2,
   'map/src/render/feature-data-binder.ts': 1,
   'map/src/render/frame-context.ts': 1,
   'map/src/render/frame-renderer.ts': 3,
