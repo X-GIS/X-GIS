@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { planBakeEvictions } from './vector-drape-cache'
+import { planBakeEvictions, drapeZoomBucket, drapeStrokeWidthScale } from './vector-drape-cache'
 
 // #599 I3 — the globe vector-drape baked-fill cache eviction policy. Pure, so it
 // runs without the RasterDraper / WebGPU stack. Entries are `{ lastCall }` (the
@@ -71,5 +71,50 @@ describe('planBakeEvictions — baked-fill LRU cap (mirrors raster evictTiles)',
     ])
     const allVisible = new Set(['l:1', 'l:2', 'l:3'])
     expect(planBakeEvictions(cache, allVisible, 1)).toEqual([])
+  })
+})
+
+// #1222 — the zoom-bucketed stroke-rebake math. Pure, so the screen-px width
+// contract is provable without a GPU: bucket quantisation bounds the width
+// error at 2^(1/8) ≈ ±9 %, and the compensation exactly cancels the texture
+// magnification at every bucket centre.
+describe('drapeZoomBucket / drapeStrokeWidthScale — #1222 screen-px stroke contract', () => {
+  it('bucket 0 (scale 1) at the bake-native anchor camZoom == tileZoom', () => {
+    expect(drapeZoomBucket(3, 3)).toBe(0)
+    expect(drapeStrokeWidthScale(0)).toBe(1)
+  })
+
+  it('quantises to quarter-zoom steps, rounding to the nearest bucket', () => {
+    expect(drapeZoomBucket(3.25, 3)).toBe(1)
+    expect(drapeZoomBucket(3.3, 3)).toBe(1)
+    expect(drapeZoomBucket(3.4, 3)).toBe(2)
+    expect(drapeZoomBucket(2.75, 3)).toBe(-1)
+  })
+
+  it('clamps to ±8 buckets (±2 zoom) so deep parent-fallback never thrashes', () => {
+    expect(drapeZoomBucket(10, 3)).toBe(8)
+    expect(drapeZoomBucket(0, 6)).toBe(-8)
+  })
+
+  it('compensation cancels the magnification exactly at every bucket centre', () => {
+    // On-screen width = bakedWidth × 2^(camZoom − tileZoom). At a bucket centre
+    // camZoom − tileZoom = bucket/4, so bakedWidth = widthPx × scale must give
+    // widthPx × scale × 2^(bucket/4) = widthPx exactly.
+    for (let bucket = -8; bucket <= 8; bucket++) {
+      const onScreen = drapeStrokeWidthScale(bucket) * Math.pow(2, bucket / 4)
+      expect(onScreen).toBeCloseTo(1, 12)
+    }
+  })
+
+  it('bounds the worst-case width drift at 2^(1/8) ≈ 9 % over the whole zoom range', () => {
+    // Sweep the un-clamped range densely: at any camZoom the residual error is
+    // scale × 2^(camZoom − tileZoom) vs 1, maximised half-way between buckets.
+    let worst = 1
+    for (let dz = -2; dz <= 2; dz += 0.01) {
+      const bucket = drapeZoomBucket(3 + dz, 3)
+      const onScreen = drapeStrokeWidthScale(bucket) * Math.pow(2, dz)
+      worst = Math.max(worst, Math.max(onScreen, 1 / onScreen))
+    }
+    expect(worst).toBeLessThanOrEqual(Math.pow(2, 1 / 8) + 1e-9)
   })
 })
