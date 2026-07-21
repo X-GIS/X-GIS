@@ -23,7 +23,7 @@ function parseFirstSource(src: string): AST.SourceStatement {
 describe('coverage source: grammar + schema (A9)', () => {
   it('parses `source { type: coverage, url, ramp, range: [lo, hi] }` (exact syntax pinned)', () => {
     const s = parseFirstSource(
-      'source bathy { type: coverage, url: "SEA_S102_2026.xgcov", ramp: "bathymetry", range: [0, 40] }',
+      'source bathy { type: coverage, url: "SEA_S102_2026.h5", ramp: "bathymetry", range: [0, 40] }',
     )
     expect(s.name).toBe('bathy')
     const byName = new Map(s.properties.map((p) => [p.name, p.value]))
@@ -35,7 +35,7 @@ describe('coverage source: grammar + schema (A9)', () => {
 
     const url = byName.get('url')!
     expect(url.kind).toBe('StringLiteral')
-    expect((url as AST.StringLiteral).value).toBe('SEA_S102_2026.xgcov')
+    expect((url as AST.StringLiteral).value).toBe('SEA_S102_2026.h5')
 
     const ramp = byName.get('ramp')!
     expect(ramp.kind).toBe('StringLiteral')

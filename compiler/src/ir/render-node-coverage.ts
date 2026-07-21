@@ -5,7 +5,7 @@
 // RasterDemSourceFields split). A type-only interface `render-node.ts`
 // re-composes via `extends`.
 
-/** `type: coverage` (.xgcov) display options, threaded from the source block so
+/** `type: coverage` (S-100 gridded) display options, threaded from the source block so
  *  the coverage colour-ramp renderer arms with the author's palette + value
  *  window (language.ts SOURCE_OPTIONS `ramp` / `range`; graduate to paint
  *  properties in INC-D). Undefined for non-coverage sources. `SourceDef

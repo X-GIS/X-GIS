@@ -28,7 +28,7 @@ describe('coverage source ramp/range lowering', () => {
     const scene = compile(`
       source currents {
         type: coverage
-        url: "SEA_S111_2026.xgcov"
+        url: "SEA_S111_2026.h5"
         ramp: "viridis"
         range: [0, 2]
       }
@@ -42,7 +42,7 @@ describe('coverage source ramp/range lowering', () => {
     const scene = compile(`
       source cov {
         type: coverage
-        url: "x.xgcov"
+        url: "x.h5"
       }
     `)
     expect(scene.sources[0].ramp).toBeUndefined()
@@ -53,7 +53,7 @@ describe('coverage source ramp/range lowering', () => {
     const scene = compile(`
       source currents {
         type: coverage
-        url: "SEA_S111_2026.xgcov"
+        url: "SEA_S111_2026.h5"
         ramp: "viridis"
         range: [0, 2]
       }
@@ -72,7 +72,7 @@ describe('coverage source ramp/range lowering', () => {
       compile(`
         source cov {
           type: coverage
-          url: "x.xgcov"
+          url: "x.h5"
           range: [0, 40, 80]
         }
       `),
@@ -84,7 +84,7 @@ describe('coverage source ramp/range lowering', () => {
       compile(`
         source cov {
           type: coverage
-          url: "x.xgcov"
+          url: "x.h5"
           range: ["lo", "hi"]
         }
       `),

@@ -1,17 +1,21 @@
-// ═══ source-manager coverage dispatch (#1158 GAP-1 INC-A / A9) ═══
+// ═══ source-manager coverage dispatch (#1158, re-platformed by ADR-0010) ═══
 //
-// The built-in `type: coverage` branch fetches the `.xgcov` through safeFetch
-// (SSRF guard + 256 MB body cap, mirrored from the geojson branch), decodes it to
-// a CPU-resident CoverageHandle, and stores the `{ _coverage }` marker. A7: a
-// superseded run (isStale) must skip the shared-map write. No GPU — the branch
-// touches only rawDatasets + the fetch/decode path; every injected renderer dep is
-// a stub. safeFetch is spied on the shared namespace so the named import resolves
-// to the stub at call time (the source-manager-drop-tiling precedent).
+// The built-in `type: coverage` branch fetches the S-100 HDF5 through safeFetch
+// (SSRF guard + 256 MB body cap, mirrored from the geojson branch), reads it IN
+// PLACE to a CPU-resident CoverageHandle (readCoverageFromHdf5 — no `.xgcov`
+// transcode), and stores the `{ _coverage }` marker. No GPU — the branch touches
+// only rawDatasets + the fetch/read path; every injected renderer dep is a stub.
+// safeFetch is spied on the shared namespace so the named import resolves to the
+// stub at call time (the source-manager-drop-tiling precedent). The fixture is the
+// committed asym_southflip.h5 (2×3 S-102 cell: origin [5,50], spacing [2,1], datum
+// 23, SW=10 positive-down, SE=nodata) — the reader's own differential fixture.
 
 import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { readFileSync } from 'node:fs'
+import { join, dirname } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import * as shared from '@xgis/shared'
 import { SourceManager } from './source-manager'
-import { encodeCoverage, type CoverageInput } from '@xgis/data'
 import type { RawDataset } from './map-types'
 
 function makeManager() {
@@ -41,30 +45,26 @@ function makeManager() {
   return { mgr, rawDatasets }
 }
 
-async function coverageBytes(): Promise<Uint8Array> {
-  const input: CoverageInput = {
-    product: 's102',
-    origin: [5, 50],
-    spacing: [2, 1],
-    size: [3, 2],
-    bands: [
-      {
-        name: 'depth',
-        unit: 'metres',
-        kind: 'f32',
-        nodata: 1e6,
-        values: new Float32Array([20, 21, 22, 10, 11, 1e6]),
-      },
-    ],
-    vertical: { datumCode: 23, sign: 'down' },
-  }
-  return new Uint8Array(await encodeCoverage(input))
+// The committed S-100 HDF5 differential fixture (data/src/hdf5/__fixtures__), read
+// as-is — the coverage source reads the standard IN PLACE (ADR-0010), no transcode.
+const FIXTURE = join(
+  dirname(fileURLToPath(import.meta.url)),
+  '..',
+  '..',
+  'data',
+  'src',
+  'hdf5',
+  '__fixtures__',
+  'asym_southflip.h5',
+)
+function coverageBytes(): Uint8Array {
+  return readFileSync(FIXTURE)
 }
 
 function load(overrides: Record<string, unknown> = {}) {
   return {
     name: 'bathy',
-    url: 'https://tiles.example.com/a.xgcov',
+    url: 'https://tiles.example.com/a.h5',
     type: 'coverage',
     ...overrides,
   } as never
@@ -82,7 +82,7 @@ describe('source-manager: coverage dispatch (A9)', () => {
   beforeEach(() => vi.restoreAllMocks())
 
   it('decodes via safeFetch and stores a { _coverage } CoverageHandle marker', async () => {
-    const bytes = await coverageBytes()
+    const bytes = coverageBytes()
     const fetchSpy = vi
       .spyOn(shared, 'safeFetch')
       .mockResolvedValue(new Response(bytes, { status: 200 }) as never)
@@ -92,7 +92,7 @@ describe('source-manager: coverage dispatch (A9)', () => {
 
     expect(fetchSpy).toHaveBeenCalledOnce()
     // the SSRF-guarded url was the fetch target
-    expect(fetchSpy.mock.calls[0]![0]).toBe('https://tiles.example.com/a.xgcov')
+    expect(fetchSpy.mock.calls[0]![0]).toBe('https://tiles.example.com/a.h5')
     const entry = rawDatasets.get('bathy')!
     expect('_coverage' in entry).toBe(true)
     // the marker's handle is the value-readout authority (valueAt round-trips)

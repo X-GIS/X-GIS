@@ -5,12 +5,13 @@ xgis 1
 // margins) carrying the real S-111 band names/units/fill. The speed band draws
 // through the viridis coverage colour ramp (range 0-2 kn); the demo runner
 // overlays drifting particles along the direction band (Demo.currents →
-// retained particle-flow, #826). Regenerate the artifact with
-// `bun pipeline/tools/gen-synthetic-currents.ts --out playground/public/synthetic-currents.xgcov`.
+// retained particle-flow, #826). The `coverage` source reads the S-111 HDF5 IN
+// PLACE (ADR-0010, no `.xgcov` transcode); regenerate the asset with
+// `python playground/scripts/gen-demo-coverage.py`.
 
 source currents {
   type: coverage
-  url: "synthetic-currents.xgcov"
+  url: "synthetic-currents.h5"
   ramp: "viridis"
   range: [0, 2]
 }

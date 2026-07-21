@@ -1,6 +1,6 @@
 // ═══ S-111 currents render gate (#1272 — headed, PENDING) ═══
 //
-// Two readings of ONE synthetic S-111 field (playground/public/synthetic-currents.xgcov,
+// Two readings of ONE synthetic S-111 field (playground/public/synthetic-currents.h5,
 // real S-111 band names/units/-9999 fill): the speed band through the viridis coverage
 // colour ramp (0-2 kn), and drifting particles along the direction band (retained
 // particle-flow, #826).
@@ -8,9 +8,9 @@
 // Like _coverage-render.spec.ts, the GPU draw is HEADED-ONLY — this environment has no
 // real GPU, so the render assertions are `test.fixme`'d until a headed run. NEVER report
 // this green until it actually passes on a GPU. The pieces it gates (coverage f16 packing
-// + LUT + WGSL/GLSL emit; the particle packer's density ∝ speed allocation; the reader +
-// converter) ARE unit-tested and green without a GPU (coverage-material.test.ts,
-// retained-particle-packer.test.ts, pipeline/src/hdf5/*.test.ts).
+// + LUT + WGSL/GLSL emit; the particle packer's density ∝ speed allocation; the read-in-
+// place path) ARE unit-tested and green without a GPU (coverage-material.test.ts,
+// retained-particle-packer.test.ts, data/src/hdf5/*.test.ts).
 //
 // The particle overlay animates, so the §5 directional pixel-diff needs a DETERMINISTIC
 // frame: `?animt=<seconds>` PINS the particle clock (debug-flags.ts), making the frame a

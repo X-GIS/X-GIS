@@ -64,7 +64,8 @@ export const SOURCE_TYPES = [
   'vector',
   'raster-dem',
   'binary',
-  // S-100 gridded coverage (.xgcov) — a built-in source (#1158 GAP-1). Adding it
+  // S-100 gridded coverage (HDF5, read in place) — a built-in source (#1158 GAP-1,
+  // re-platformed by ADR-0010). Adding it
   // here auto-propagates to @xgis/map's BUILTIN_SOURCE_TYPES (derived from this
   // list), so the dispatch handles it natively rather than routing to the custom-
   // loader registry. NOT a spec-coverage row: the Mapbox converter's spec-coverage

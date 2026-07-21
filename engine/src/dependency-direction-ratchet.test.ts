@@ -60,12 +60,7 @@ const ALLOWED: Record<string, readonly string[]> = {
     'rhi-webgl2',
     'rhi-webgpu',
   ],
-  // The ETL core (CSV / join / encode / odb) is a pure leaf, but the
-  // `@xgis/pipeline/hdf5` subpath's `s100ToXgcov` converter (to-xgcov.ts)
-  // reaches DOWN into data's `.xgcov` codec (@xgis/data/coverage) — the codec's
-  // canonical home (A8). Downward edge, no cycle: data's allowed set below is
-  // {shared, geo, compiler}, so data never imports pipeline. #1272.
-  pipeline: ['data'],
+  pipeline: [],
 }
 
 /** Legacy / app-layer packages outside the gate: runtime is the pre-#732

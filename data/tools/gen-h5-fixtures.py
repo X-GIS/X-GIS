@@ -2,12 +2,12 @@
 # ═══ HDF5 golden-fixture generator for the in-house S-100 reader (#1158 GAP-1 INC-A) ═══
 #
 # Emits the TINY committed .h5 corpus + h5py-read JSON goldens that pin the
-# in-house DataView HDF5 subset reader (pipeline/src/hdf5/). h5py is the OFFLINE
+# in-house DataView HDF5 subset reader (data/src/hdf5/). h5py is the OFFLINE
 # ORACLE (never linked into the shipped reader); this script is the regeneration
 # route, run from a throwaway venv:
 #
 #   python3 -m venv /tmp/h5venv && /tmp/h5venv/bin/pip install h5py
-#   /tmp/h5venv/bin/python pipeline/tools/gen-h5-fixtures.py
+#   /tmp/h5venv/bin/python data/tools/gen-h5-fixtures.py
 #
 # Every emitted .h5 targets exactly the reader's SUBSET (superblock v0/v2; object
 # headers v1/v2; symbol-table + compact-link groups; contiguous + v1-btree chunked;
@@ -108,7 +108,7 @@ def write_s102_shape(g, nlat, nlon, origin_lon, origin_lat, d_lon, d_lat,
     # Group_F — the band metadata carrier; fillValue lives HERE (string form).
     # FIXED-length HDF5 strings (S-strings), NOT vlen: fixed strings + compound are
     # in the reader subset; vlen (class 9) is a hard error (neg_vlen). The real NOAA
-    # file uses vlen Group_F, so the converter errors loudly on it — its local gate
+    # file uses vlen Group_F, so the reader errors loudly on it — its local gate
     # reads GRID + geometry only (no Group_F). The committed synthetic corpus uses
     # fixed strings so the fillValue is readable in-subset end-to-end.
     gf = g.create_group("Group_F")
@@ -197,7 +197,7 @@ def s111_root_attrs(f):
 def golden_s102(name, depth, uncertainty, nlat, nlon, origin_lon, origin_lat,
                 d_lon, d_lat, fill=1e6, vdatum=12):
     """Golden = the h5py-read grid (SOUTH-FIRST, as stored) + geometry the reader
-    must reproduce verbatim, plus the NORTH-UP flip the converter must produce."""
+    must reproduce verbatim, plus the NORTH-UP flip readCoverageFromHdf5 must produce."""
     jdump(name, {
         "product": "s102",
         "nLon": nlon, "nLat": nlat,
@@ -207,7 +207,7 @@ def golden_s102(name, depth, uncertainty, nlat, nlon, origin_lon, origin_lat,
         "verticalDatum": vdatum,
         "bandNames": ["depth", "uncertainty"],
         "depth_south_first": depth.tolist(),   # reader output (storage order)
-        "depth_north_up": depth[::-1, :].tolist(),  # converter output (row 0 = north)
+        "depth_north_up": depth[::-1, :].tolist(),  # read-in-place output (row 0 = north)
         "uncertainty_south_first": uncertainty.tolist(),
     })
 

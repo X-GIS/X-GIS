@@ -78,7 +78,7 @@ import {
 } from './render/bucket-scheduler'
 import { interpret, type SceneCommands } from './interpreter'
 import { lonLatToMercator, type GeoJSONFeatureCollection, type CoverageHandle } from '@xgis/data'
-import { decodeCoverage } from '@xgis/data'
+import { readCoverageFromHdf5 } from '@xgis/data'
 import { RasterRenderer } from './render/raster-renderer'
 import { HillshadeRenderer, armHillshadeSource } from './render/hillshade-renderer'
 import { CoverageRenderer } from './render/coverage-renderer'
@@ -4267,16 +4267,16 @@ export class XGISMap {
     return data && '_coverage' in data ? data._coverage : null
   }
 
-  /** Host-push a fresh `.xgcov` payload into a declared `coverage` source (#1272) —
-   *  the coverage sibling of `setSourceData`. Decodes the artifact, swaps the CPU
-   *  CoverageHandle (so `getCoverage(...).valueAt` updates at once), re-arms the GPU
-   *  ramp, and repaints — the in-app live-refresh seam (a worker converts your OWN
-   *  NOAA copy via `s100ToXgcov` from `@xgis/pipeline/hdf5`; THREDDS is CORS-blocked).
-   *  `ramp`/`range` default to the declared (or last-pushed) palette. Throws if
-   *  `sourceId` was not declared as a `coverage` source. */
+  /** Host-push a fresh S-100 HDF5 payload into a declared `coverage` source (#1272) —
+   *  the coverage sibling of `setSourceData`. Reads the HDF5 IN PLACE (ADR-0010) to a
+   *  CoverageHandle, swaps it (so `getCoverage(...).valueAt` updates at once), re-arms
+   *  the GPU ramp, and repaints — the in-app live-refresh seam (fetch your OWN NOAA
+   *  copy; NOAA's S-100 S3 buckets are CORS-blocked, so proxy the bytes). `ramp`/`range`
+   *  default to the declared (or last-pushed) palette. Throws if `sourceId` was not
+   *  declared as a `coverage` source. */
   async setCoverageData(
     sourceId: string,
-    xgcov: ArrayBuffer,
+    hdf5: ArrayBuffer,
     opts?: { ramp?: string; range?: readonly [number, number] },
   ): Promise<void> {
     const prev = this.rawDatasets.get(sourceId)
@@ -4286,7 +4286,7 @@ export class XGISMap {
           `(declare \`source ${sourceId} { type: coverage, url: … }\` first).`,
       )
     }
-    const handle = await decodeCoverage(xgcov)
+    const handle = await readCoverageFromHdf5(hdf5)
     const ramp = opts?.ramp ?? prev.ramp
     const range = opts?.range ?? prev.range
     this.rawDatasets.set(sourceId, { _coverage: handle, ramp, range })

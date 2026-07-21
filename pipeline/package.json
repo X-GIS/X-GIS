@@ -7,13 +7,9 @@
   "main": "./src/index.ts",
   "exports": {
     ".": "./src/index.ts",
-    "./gazetteer/kr": "./src/gazetteer/kr.ts",
-    "./hdf5": "./src/hdf5/public.ts"
+    "./gazetteer/kr": "./src/gazetteer/kr.ts"
   },
   "scripts": {
     "build": "tsc --build"
-  },
-  "dependencies": {
-    "@xgis/data": "workspace:*"
   }
 }

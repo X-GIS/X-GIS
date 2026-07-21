@@ -140,7 +140,7 @@ export const DEMOS_THEMATIC: Record<string, Demo> = {
     name: 'S-100 Coverage: bathymetry (#1158)',
     tag: 'thematic',
     description:
-      'S-100 gridded-coverage (.xgcov) — a synthetic 32×32 bathymetry grid at 50-58°N with a north→south depth ramp, a nodata hole, and 4 known corner cells. The GPU colour-ramp draw is the INC-A gate-3 (headed) item; getCoverage(...).valueAt already returns the exact positive-down value CPU-side.',
+      'S-100 gridded-coverage read IN PLACE from S-102 HDF5 (ADR-0010) — a synthetic 32×32 bathymetry grid at 50-58°N with a north→south depth ramp, a nodata hole, and 4 known corner cells. The GPU colour-ramp draw is the INC-A gate-3 (headed) item; getCoverage(...).valueAt already returns the exact positive-down value CPU-side.',
     source: load('coverage-bathymetry.xgis'),
     zoom: 4.6,
     center: [4, 54],
@@ -150,7 +150,7 @@ export const DEMOS_THEMATIC: Record<string, Demo> = {
     name: 'NOAA S-111 Currents (#1272)',
     tag: 'thematic',
     description:
-      'NOAA S-111 surface currents — a synthetic Chesapeake-shaped tidal field (.xgcov, real S-111 band names/units/-9999 fill): the speed band draws through the viridis coverage ramp (0-2 kn) and the runner overlays drifting particles along the direction band (retained particle-flow, #826). Not real NOAA data; convert real cells with s100-to-xgcov.',
+      'NOAA S-111 surface currents — a synthetic Chesapeake-shaped tidal field (S-111 HDF5, real S-111 band names/units/-9999 fill): the speed band draws through the viridis coverage ramp (0-2 kn) and the runner overlays drifting particles along the direction band (retained particle-flow, #826). Not real NOAA data; a real NOAA S-111 cell is the SAME HDF5 standard, read in place (ADR-0010).',
     source: load('s111-currents.xgis'),
     zoom: 6.6,
     center: [-76.19, 38.1],

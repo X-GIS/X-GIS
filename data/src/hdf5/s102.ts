@@ -5,8 +5,9 @@
 // feature-instance attributes (case-tolerant per [FR] §7.10), decode the
 // compound `values` bands (depth positive-down, uncertainty), and read the S-100
 // fill value + band units from the Group_F band table. Values stay SOUTH-ROW-FIRST
-// (storage order, as h5py returns them) — the converter owns the single north-up
-// flip. Product knowledge lives ONLY here (design §4); @xgis/map stays product-blind.
+// (storage order, as h5py returns them) — `readCoverageFromHdf5` (coverage.ts) owns
+// the single north-up flip. Product knowledge lives ONLY here (design §4); @xgis/map
+// stays product-blind.
 
 import { Hdf5File, type AttrValue } from './index'
 import { Hdf5Error } from './bytes'

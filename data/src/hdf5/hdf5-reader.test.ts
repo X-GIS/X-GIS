@@ -1,7 +1,7 @@
 // ═══ HDF5 subset reader — differential gate (#1158 GAP-1 INC-A gate 1) ═══
 //
 // The in-house reader's output is asserted EQUAL to h5py's (the offline oracle):
-// committed .h5 fixtures + committed JSON goldens (pipeline/tools/gen-h5-fixtures.py).
+// committed .h5 fixtures + committed JSON goldens (data/tools/gen-h5-fixtures.py).
 // Positive fixtures cover superblock v0 (symbol-table) + v2 (compact links), chunked
 // + shuffle + gzip with PARTIAL edge chunks + PADDED compound offsets, a SPARSE
 // (missing-chunk → fill) dataset, an asymmetric grid, a packed compound, and an

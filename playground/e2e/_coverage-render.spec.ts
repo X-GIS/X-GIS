@@ -7,7 +7,7 @@
 // what remains is the map.ts render-loop draw dispatch + camera MVP. Un-fixme these
 // once that lands and run headed. NEVER report this green until it actually passes.
 //
-// Fixture: playground/public/synthetic-bathymetry.xgcov — a 32×32 grid at 50-58°N,
+// Fixture: playground/public/synthetic-bathymetry.h5 (S-102, read in place; ADR-0010) — a 32×32 grid at 50-58°N,
 // depth ramp 0→40 m north→south, a nodata hole (rows/cols 13-18), and 4 KNOWN corner
 // cells: NW=5, NE=15, SW=25, SE=35 m. range [0,40] ⇒ t = depth/40, sampled from the
 // 'bathymetry' LUT. The inverse-Mercator row mapping (A4) is exercised at 58°N.

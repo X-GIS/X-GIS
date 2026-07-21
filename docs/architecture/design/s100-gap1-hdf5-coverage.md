@@ -1,5 +1,13 @@
 # S-100 GAP-1 — HDF5 Gridded-Coverage Data Path (S-102 / S-104 / S-111)
 
+> ⚠️ **Superseded in part by [ADR-0010](../../adr/0010-read-gridded-standards-in-place.md).**
+> This doc's **ingest/data-model decisions (§0.1–0.2, §3, §4) are retired**: there is no
+> `.xgcov` artifact and no `s100-to-xgcov` converter. The browser reads the S-100 **HDF5
+> in place** (`readCoverageFromHdf5` → `CoverageHandle` via `coverageFromGrids`, no wire
+> format). The **HDF5 reader, the grid→ramp renderer, `valueAt`, and the S-100 semantic
+> layer survive unchanged** — only the house blob between them was removed. Read this doc
+> for the reader/render internals; read ADR-0010 for why the transcode step is gone.
+
 **Status:** design proposal (2026-07-16), architect pass, all X-GIS claims file:line-grounded, all S-100 claims tied to the feasibility report (`docs/research/2026-07-16-s100-rendering-feasibility.md` — hereafter **[FR]**) or explicitly marked _to-verify_.
 **Scope:** GAP-1 of [FR] §6.2 — the HDF5 gridded-coverage ingest + render path. Explicitly **not** in scope: GAP-2 (Part 9/9a Lua portrayal engine), GAP-3 (ellipsoid datum — owned by epic #1152, `docs/architecture/design/ellipsoid-datum-unification.md` — hereafter **[ED]**), and vertical-datum _rendering_ (fields are reserved here).
 **Companion docs:** `docs/architecture/source-loader-seam.md` (the custom-source seam), [ED] (datum), [FR] (S-100 facts).

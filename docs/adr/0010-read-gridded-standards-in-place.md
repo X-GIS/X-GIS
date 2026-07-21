@@ -1,6 +1,7 @@
 # ADR-0010: Read gridded standards in place; deprecate `.xgcov` (the coverage transcode)
 
-Status: Accepted (decision; the `.xgcov` removal + range-capable reader are follow-up work)
+Status: Accepted — the `.xgcov` removal + read-in-place ingest landed in #1279; the
+range-capable (HTTP-range / lazy-chunk) reader remains follow-up work.
 Date: 2026-07-21
 
 Supersedes the coverage wire-format decision in
@@ -55,14 +56,18 @@ range-reads a standard in place. A bespoke container appears nowhere in the chai
 
 ## Consequences
 
-- **The HDF5 reader is the right artifact — keep it, make it range/lazy.** It
-  becomes the primary S-100 ingest, reading remote cells on demand.
-- **`.xgcov` is removed** — the codec (`data/src/coverage/format.ts`),
-  `s100ToXgcov` + the `s100-to-xgcov` CLI, the `type: coverage` blob source
-  (`source-manager.ts` + the compiler `ramp`/`range` lowering), and
-  `map.setCoverageData(xgcov)`. **Format-agnostic pieces survive**: the
-  grid→texture→colour-ramp renderer (`map/src/render/coverage-renderer.ts` +
-  material + `coverage-ramp` shader), the particle packer, the demos.
+- **The HDF5 reader is the right artifact — it became the primary S-100 ingest.**
+  Moved `@xgis/pipeline/hdf5` → `@xgis/data/hdf5` (so `@xgis/map` reads it in the
+  browser) and added `readCoverageFromHdf5` (HDF5 bytes → `CoverageHandle` via
+  `coverageFromGrids`, no wire format). Making it range/lazy is the remaining follow-up.
+- **`.xgcov` was removed** — the codec (`encode`/`decode` in
+  `data/src/coverage/format.ts`), `s100ToXgcov` + the `s100-to-xgcov` CLI, the blob
+  `type: coverage` decode path, and the encode-based demo generators. The `coverage`
+  source + `map.setCoverageData` now take **HDF5 bytes** and read in place. **The
+  format-agnostic pieces survive unchanged**: `coverageFromGrids`, `CoverageHandle`,
+  and `valueAt` (`data/src/coverage/format.ts`); the grid→texture→colour-ramp renderer
+  (`map/src/render/coverage-renderer.ts` + material + `coverage-ramp` shader); the
+  particle packer; and both demos (now synthetic S-102/S-111 `.h5`).
 - **CORS is a separate axis, solved by a proxy — not a format concern.** NOAA's
   S3 buckets vary: `noaa-gfs-bdp-pds` / `noaa-goes16` send `access-control-allow-
 origin: *` (browser-direct); `noaa-s102-pds` / `noaa-s111-pds` / `noaa-nos-ofs-
@@ -71,10 +76,10 @@ pds` do not, so a browser read needs a CORS proxy in front (server-to-server
 - **Scale/tiling falls out for free.** Reading a standard in place already streams
   on demand (HDF5 chunks; COG tiles/overviews); there is no monolithic-blob
   download-all problem and no need for a tiled `.xgcov`.
-- **#1279 (the S-111 PR built on `.xgcov`) is reworked**, not merged as-is: keep
-  the reader/renderer/packer/demos, drop the `.xgcov` path, switch ingest to
-  read-in-place (a bundled small standard file for the deterministic demo/gate;
-  a CORS-proxied remote read for the live path).
+- **#1279 (the S-111 PR built on `.xgcov`) was reworked**, not merged as-is: kept
+  the reader/renderer/packer/demos, dropped the `.xgcov` path, switched ingest to
+  read-in-place (a bundled small standard `.h5` for the deterministic demo/gate;
+  a CORS-proxied remote read for the live path, per the recipes doc).
 
 ## Alternatives rejected
 
@@ -93,7 +98,7 @@ pds` do not, so a browser read needs a CORS proxy in front (server-to-server
 - `site/src/content/blog/2026-07-21-the-custom-format-trap.md` — the postmortem
 - CLAUDE.md §12 "Architecture / data formats" — the one-line rule
 - `docs/architecture/design/s100-gap1-hdf5-coverage.md` — the #1158 `.xgcov` design (superseded)
-- `pipeline/src/hdf5/` — the HDF5 reader (to become range-capable) + `s102.ts` semantic layer
-- `data/src/coverage/format.ts` — the `.xgcov` codec (to be removed)
+- `data/src/hdf5/` — the HDF5 reader (moved from `pipeline/`; to become range-capable) + `s102.ts` semantic layer + `coverage.ts` (`readCoverageFromHdf5`)
+- `data/src/coverage/format.ts` — `coverageFromGrids` + `CoverageHandle` (the codec was removed)
 - `map/src/render/coverage-renderer.ts` — the format-agnostic grid→ramp renderer (survives)
 - #1271 (NOAA epic), #1272 (S-111), #1279 (the PR to rework), #1158 (original coverage)

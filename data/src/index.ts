@@ -72,7 +72,19 @@ export * from './workers/mvt-worker-pool'
 // Globe visible-tile selection (relocated from @xgis/engine, #781).
 export * from './globe-visible-tiles'
 
-// S-100 gridded-coverage artifact (.xgcov v1) — codec + CoverageHandle + valueAt
-// (#1158 GAP-1 INC-A). Decode is the runtime half the built-in `coverage` source
-// consumes; encode is the offline `s100-to-xgcov` converter's half.
+// S-100 gridded coverage — CoverageHandle + valueAt + the coverageFromGrids seam
+// (ADR-0010). Read via the HDF5 reader below (or a COG reader), fed to the renderer
+// through coverageFromGrids — no wire format in the middle.
 export * from './coverage/format'
+
+// S-100 (HDF5) reader (ADR-0010) — the zero-dep HDF5 subset reader + the S-100
+// semantic layer (product-agnostic: S-102 bathymetry, S-104 water level, S-111
+// surface currents). Moved here from @xgis/pipeline so @xgis/map reads the HDF5
+// standard IN PLACE and builds a CoverageHandle via coverageFromGrids — no `.xgcov`.
+export { openHdf5, Hdf5File, Hdf5Error } from './hdf5/index'
+export type { Hdf5Node, AttrValue, Datatype, BandValues } from './hdf5/index'
+export { readS102Coverage } from './hdf5/s102'
+export type { S100Coverage, CoverageBand, Product } from './hdf5/s102'
+// The runtime read-in-place path the `coverage` source consumes (replaces the
+// retired `decodeCoverage(.xgcov)`): HDF5 bytes → CoverageHandle, no wire format.
+export { readCoverageFromHdf5 } from './hdf5/coverage'

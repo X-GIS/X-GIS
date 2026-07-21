@@ -591,7 +591,7 @@ export const galleryCategories: Category[] = [
       {
         id: 'coverage-bathymetry',
         title: 'S-100 bathymetry coverage',
-        body: 'S-100 gridded coverage (.xgcov) — a synthetic bathymetry grid with a north→south depth ramp and a nodata hole.',
+        body: 'S-100 gridded coverage read in place from S-102 HDF5 — a synthetic bathymetry grid with a north→south depth ramp and a nodata hole.',
         noThumb: true,
       },
       // noThumb: flip together with coverage-bathymetry once a real-GPU

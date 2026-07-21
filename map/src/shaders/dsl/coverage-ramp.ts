@@ -5,7 +5,7 @@
 // flat Mercator. Dual-emit (WGSL + GLSL) through the shader-dsl so the WebGL2 twin
 // lands from day one (#775). The two texel-level differences from image-raster:
 //
-//   1. INVERSE-MERCATOR ROW MAPPING (A4 — the flaw the doc misses). The .xgcov grid
+//   1. INVERSE-MERCATOR ROW MAPPING (A4 — the flaw the doc misses). The coverage grid
 //      is linear-in-LATITUDE (EPSG:4326) but the draw quad is Mercator-conformal, so
 //      a linear V over the quad misplaces rows by ~0.7 texel at 56°N. Instead the
 //      vertex passes the interpolated Mercator-Y varying and the FRAGMENT recovers
