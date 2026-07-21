@@ -2754,9 +2754,23 @@ export class XGISMap {
     // assumes EPSG:4326, see interpreter.ts:67-74). Field access returns
     // undefined uniformly when absent, so the legacy path leaves the
     // registry empty (every source treated as 4326 / no-op).
+    //
+    // #1242 gap-2 fix follow-up: lower.ts (`resolvedCrs`) fills EVERY
+    // `type: geojson` source's `crs` with the literal 'EPSG:4326' default
+    // when the .xgis omits `crs:` entirely — so `load.crs` is truthy for
+    // ALL geojson sources, declared or not. Registering those here made
+    // `sourceCRS.has(id)` true universally, which made getSeededFC() (the
+    // gap-2 updateFeature-patchability check) reject EVERY .xgis-declared
+    // /URL geojson source, silently keeping the gap-2 fix dead end-to-end
+    // (caught by the animate-line/realtime-update ports' real-GPU probe,
+    // #1192 batch 5 — the existing unit coverage seeds sourceCRS directly
+    // and never exercises this real run() population path). Skip the
+    // no-op default so the registry holds only a GENUINE reprojection
+    // need, matching _reprojectIngest's own "no declared CRS ⇒ 4326 /
+    // no-op" contract this Map was documented to carry.
     this.sourceCRS.clear()
     for (const load of commands.loads as { name: string; crs?: string }[]) {
-      if (load.crs) this.sourceCRS.set(load.name, load.crs)
+      if (load.crs && load.crs !== 'EPSG:4326') this.sourceCRS.set(load.name, load.crs)
     }
 
     // Prewarm PMTiles archive caches in parallel with the rest of init

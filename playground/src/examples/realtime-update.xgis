@@ -1,0 +1,35 @@
+xgis 1
+
+/*
+ * Port of MapLibre's "Update a feature in realtime" (#1192).
+ *
+ * `sensor` is an inline-declared Point source (id 1) — the gallery action
+ * buttons move it on a timer via map.updateFeature('sensor', 1, { geometry
+ * }), the MapLibre original's setInterval(() => marker jitter, …) →
+ * getSource().setData() loop, but through the feature-patch API instead of
+ * a full-source replace. This is the #1242 gap-2 patchable-seeded-source
+ * fix's live coverage probe: updateFeature() against a .xgis-declared
+ * (inline) source.
+ */
+
+source world {
+  type: geojson
+  url: "ne_110m_countries.geojson"
+}
+
+source sensor {
+  type: geojson
+  data: { "type": "FeatureCollection", "features": [
+    { "type": "Feature", "id": 1, "properties": {}, "geometry": { "type": "Point", "coordinates": [0, 0] } }
+  ] }
+}
+
+layer countries {
+  source: world
+  | fill-slate-800 stroke-slate-500 stroke-0.5
+}
+
+layer sensor_point {
+  source: sensor
+  | fill-rose-500 size-18 stroke-white stroke-2
+}
