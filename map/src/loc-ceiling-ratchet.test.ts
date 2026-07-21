@@ -261,7 +261,13 @@ const CEILINGS: Record<string, number> = {
   // Merge union (raster-resolution <- main): both bumps stacked
   // non-overlappingly (tileSize wiring +3, #1235 seams +7) — merged
   // high-water is the measured 4718.
-  'map/src/map.ts': 4718,
+  // 4718→4732 (#1192 batch 5): the sourceCRS registry-population comment
+  // documents the real bug the animate-line/realtime-update ports' render
+  // probe caught — every geojson source's lower.ts-defaulted 'EPSG:4326'
+  // was read as an explicit declaration, so getSeededFC() (the #1242 gap-2
+  // check) rejected updateFeature() for every .xgis-declared/URL geojson
+  // source. One-line functional fix; the rest is comment.
+  'map/src/map.ts': 4732,
   // Baselined at #1235 (measured 846): SourceManager crossed NEW_FILE_CAP with
   // the gap-1/gap-2 seams — the setSourceData virtual re-seed branch (the
   // legacy worker-compile path renders fills/points but no line segments) +

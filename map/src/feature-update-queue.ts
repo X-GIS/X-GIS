@@ -169,22 +169,40 @@ export class FeatureUpdateQueue {
         // index would go stale immediately.
         const seeded = this.host.getSeededFC?.(sourceId)
         if (seeded && Array.isArray(seeded.features)) {
-          const index = new Map<number, GeoJSONFeature>()
+          const index = new Map<number, number>() // featureId → array index
           for (let i = 0; i < seeded.features.length; i++) {
             const f = seeded.features[i]
-            index.set(toU32Id(f.id ?? f.properties?.id ?? i + 1), f)
+            index.set(toU32Id(f.id ?? f.properties?.id ?? i + 1), i)
           }
           let touched = false
+          // Build a NEW features array/objects rather than mutating `seeded`
+          // in place (#1192 batch 5 — real-GPU probe on the animate-line /
+          // realtime-update ports caught a page crash under sustained
+          // updateFeature() churn: `_reprojectIngest` returns the seeded FC
+          // by REFERENCE when the source has no declared CRS, so an
+          // in-place mutation + re-seed of the SAME object fed the tiling
+          // backend the same mutable identity across every reseed cycle —
+          // unlike a host's own setSourceData(), which always passes a
+          // fresh literal. Cloning here restores the "the seeded FC is
+          // replaced by every re-seed" invariant this comment already
+          // documented but the in-place mutation broke).
+          const patchedFeatures = seeded.features.slice()
           for (const [fid, patch] of patches) {
-            const f = index.get(fid)
-            if (!f) continue
-            if (patch.geometry) f.geometry = patch.geometry
-            if (patch.properties) f.properties = { ...(f.properties ?? {}), ...patch.properties }
+            const idx = index.get(fid)
+            if (idx === undefined) continue
+            const f = patchedFeatures[idx]!
+            patchedFeatures[idx] = {
+              ...f,
+              geometry: patch.geometry ?? f.geometry,
+              properties: patch.properties
+                ? { ...(f.properties ?? {}), ...patch.properties }
+                : f.properties,
+            }
             touched = true
           }
           // The re-seed runs its own teardown + rebuild + invalidate; the
           // shared rebuild tail below is only for legacy-patched sources.
-          if (touched) this.host.reseedSource?.(sourceId, seeded)
+          if (touched) this.host.reseedSource?.(sourceId, { ...seeded, features: patchedFeatures })
           continue
         }
         if (!this._tileBackedUpdateWarned.has(sourceId)) {
