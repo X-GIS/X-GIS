@@ -484,7 +484,13 @@ const CEILINGS: Record<string, number> = {
   // motion, mesh output byte-identical; vector-tiler re-imports the three
   // consumed symbols. The extract answers INC-0's growth over the old ceiling
   // (extract, don't raise), per this gate's own message.
-  'compiler/src/tiler/vector-tiler.ts': 1546,
+  // 1546→1587 (#1221 round 2): pushLinePartWithWrap + shiftLinePartLon add the
+  // inline-tiler equivalent of geojson-vt's wrap() — a >±180-authored line also
+  // emits its ±360-shifted world-copy continuation so the beyond-seam tail lands
+  // in the wrapped tiles the renderer draws at world-copy ±1 (ADR-0006). New
+  // logic (not a formatting bump); no natural extract site (belongs beside
+  // makeLinePart in decomposeFeatures). Measured after prettier: wc -l = 1587.
+  'compiler/src/tiler/vector-tiler.ts': 1587,
   // 1409→1415 (#1066): +6 to wire validateFnCalls (unknown-callee →
   // X-GIS0012) into lower()'s diagnostics — the validation pass itself
   // lives in the new ir/validate-fncalls.ts; only the import + call +
