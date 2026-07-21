@@ -427,10 +427,13 @@ export class TextRenderer {
     }
   }
 
-  /** Encode draw commands. `viewport` is in physical pixels. */
+  /** Encode draw commands. `viewport` is in physical pixels. `replay` is the
+   *  #1177 S16 skip-replay screen-space correction (prepared-frame px →
+   *  current-frame px); omitted ⇒ identity (freshly-prepared frame). */
   draw(
     pass: GPURenderPassEncoder | RhiRenderPass,
     viewport: { width: number; height: number },
+    replay?: { scale: number; dx: number; dy: number },
   ): void {
     const _tst = ((globalThis as Record<string, unknown>).__xgisLabelsRhi ??= {}) as Record<
       string,
@@ -444,13 +447,22 @@ export class TextRenderer {
 
     if (this.allUniforms === null) return
 
-    // Patch viewport (slots 0,1) into every slice slot. The remaining
-    // 14 floats per slot were filled by setDraws and don't change here.
+    // Patch viewport (slots 0,1) + replay correction (slots 2,3 shift /
+    // 15 scale) into every slice slot. The remaining floats per slot were
+    // filled by setDraws and don't change here. Replay is patched
+    // UNCONDITIONALLY so a stale non-identity value can never leak from a
+    // prior skip-replay frame into a freshly-prepared one.
     const numSlices = this.drawSlices.length
+    const rScale = replay !== undefined ? replay.scale : 1
+    const rDx = replay !== undefined ? replay.dx : 0
+    const rDy = replay !== undefined ? replay.dy : 0
     for (let i = 0; i < numSlices; i++) {
       const base = i * UNIFORM_STRIDE_F32
       this.allUniforms[base + 0] = viewport.width
       this.allUniforms[base + 1] = viewport.height
+      this.allUniforms[base + 2] = rDx
+      this.allUniforms[base + 3] = rDy
+      this.allUniforms[base + 15] = rScale
     }
     // Single GPU upload — covers all slices' uniforms. Critical: prior
     // implementation called writeBuffer per slice at offset 0, but
@@ -520,12 +532,14 @@ export class TextRenderer {
 // ─── Uniform packing ─────────────────────────────────────────────
 //
 // Layout (std140-friendly, 64 bytes total):
-//   vec2 viewport          (8 B,  pad to 16)
+//   vec2 viewport          (8 B)
+//   vec2 replay_shift      (8 B)  — #1177 S16 replay correction, draw()-patched
 //   vec4 fill_color        (16 B)
 //   vec4 halo_color        (16 B)
 //   f32  halo_width        (4 B)
-//   f32  edge_softness     (4 B)
-//   f32 _pad0, _pad1       (8 B)
+//   f32  halo_blur         (4 B)
+//   f32  font_size_px      (4 B)
+//   f32  replay_scale      (4 B)  — #1177, draw()-patched (identity 1)
 const UNIFORM_BYTES = 64
 
 export function packUniformsForTesting(d: TextDraw): Float32Array {
@@ -541,7 +555,7 @@ function packUniforms(d: TextDraw, arena?: FrameArena): Float32Array {
     arena !== undefined ? arena.allocF32(UNIFORM_BYTES / 4) : new Float32Array(UNIFORM_BYTES / 4)
   // viewport (slots 0,1) — written by draw()
   buf[2] = 0
-  buf[3] = 0 // viewport pad
+  buf[3] = 0 // replay_shift (#1177) — identity here; draw() patches per frame
   buf[4] = d.color[0]
   buf[5] = d.color[1]
   buf[6] = d.color[2]
@@ -618,6 +632,9 @@ function packUniforms(d: TextDraw, arena?: FrameArena): Float32Array {
   // Iter 110: font_size_px (physical pixels) drives MapLibre-exact
   // AA half-width in the fragment shader (soft = 2.52 / font_size_px).
   buf[14] = d.fontSize
-  buf[15] = 0
+  // replay_scale identity default (#1177). draw() patches slots 2,3,15 every
+  // call, but the arena-backed buf may hold reused bytes — never ship a
+  // garbage scale even on a path that skips draw()'s patch (tests).
+  buf[15] = 1
   return buf
 }

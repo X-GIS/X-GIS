@@ -250,7 +250,9 @@ const CEILINGS: Record<string, number> = {
   // helper (both in text-stage-helpers.ts, where the arithmetic lives + is unit-tested),
   // and the survivor loop emits placements for IconStage. +91; image-bearing labels
   // bypass the layout cache; the plain-label path is byte-identical (§2).
-  'map/src/text/text-stage.ts': 2066,
+  // 2066→2068 (#1177 replay correction): render() gains the optional S16
+  // skip-replay transform param, forwarded to TextRenderer.draw. +2.
+  'map/src/text/text-stage.ts': 2068,
   // 1786→1719 (#727 C): the line/point dedupe + pair-key helper block was
   // EXTRACTED to passes/line-label-dedupe.ts when the world-copy fan-out would
   // otherwise have grown this file — the extract-don't-grow answer.
@@ -287,7 +289,12 @@ const CEILINGS: Record<string, number> = {
   // centre ≤ 48 px) beside the exact settled compare, the per-frame
   // prevFrameZoomKey update, and the design-rationale comment. +50, all inside
   // the existing S16 skip block; nothing extract-worthy at this size (§2).
-  'map/src/render/passes/label-pass.ts': 1956,
+  // 1956→2002 (#1177 replay correction — the Option B staleness fix): the skip
+  // state gains replayRefs/replayRefsValid/replayOut, the miss branch samples
+  // reference points, hit frames solve prepared→current and pass it to the 4
+  // stage/iStage render calls. The MATH lives extracted in
+  // passes/label-replay-transform.ts (unit-proved); only wiring grew here. +46.
+  'map/src/render/passes/label-pass.ts': 2002,
   // #1081 — per-anchor perspective distance attenuation (MapLibre parity). New
   // baseline: the wCenter + perspScale scratch-out-value lives INLINE in the two
   // existing projector closures (it rides the cw already computed per anchor —
