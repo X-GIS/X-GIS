@@ -91,6 +91,8 @@ const guDecls = GU.map(
     `source gu_${i} { type: geojson }\nlayer c${i} { source: gu_${i} | fill-slate-800 opacity-100 }`,
 ).join('\n')
 const STYLE = `
+xgis 1
+
 background { fill: #020617 }
 
 ${guDecls}

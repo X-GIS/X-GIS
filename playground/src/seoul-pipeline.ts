@@ -71,6 +71,8 @@ function buildSample(): Array<{ gu: string; hour: number; out: number }> {
 // Inline .xgis: dark base, 자치구 boundary context, + 4 bubble tiers (each a point
 // source the pipeline fills, sized/coloured by outflow magnitude — a warm ramp).
 const STYLE = `
+xgis 1
+
 background { fill: #020617 }
 
 source gu_bounds {

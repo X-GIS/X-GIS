@@ -119,10 +119,12 @@ function clipLine(
 
     if (a < k1) {
       // ---|-->  | (line enters the clip region from below k1)
-      if (b > k1) intersect(slice, ax, ay, bx, by, k1)
+      // INCLUSIVE like upstream (#1228): an entering endpoint EXACTLY on the
+      // boundary (b === k1) still emits the t=1 degenerate intersect vertex.
+      if (b >= k1) intersect(slice, ax, ay, bx, by, k1)
     } else if (a > k2) {
       // |  <--|--- (line enters the clip region from above k2)
-      if (b < k2) intersect(slice, ax, ay, bx, by, k2)
+      if (b <= k2) intersect(slice, ax, ay, bx, by, k2)
     } else {
       addPoint(slice, ax, ay, az)
     }
