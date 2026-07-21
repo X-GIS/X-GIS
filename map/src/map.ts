@@ -67,6 +67,7 @@ import {
   reducedMotionMediaMatches,
   watchReducedMotion,
 } from './map-accessibility'
+import { parseHash, formatHash, updateHashFragment } from './map-hash'
 import { showWebGPUUnavailableDefault } from './map-webgpu-unavailable'
 import { ViewportModeController } from './render/viewport-mode-controller'
 import { SourceManager } from './source-manager'
@@ -482,6 +483,14 @@ export class XGISMap {
   /** #1260 — detach hook for the prefers-reduced-motion media-query listener
    *  (a11y); destroy() mirror. Null until `_setupAccessibility` attaches it. */
   private _detachReducedMotion: (() => void) | null = null
+  /** #1268 — URL hash camera sync. null = disabled (default; the URL and
+   *  history are never touched). `{ ns }` = enabled; ns is '' for the
+   *  unnamespaced fragment or the `name=…` prefix for a namespaced one. */
+  private _hashSync: { ns: string } | null = null
+  /** #1268 — the bound move-end handler (kept so destroy() detaches it) and
+   *  the pending debounced replaceState timer (cleared on destroy). */
+  private _hashMoveHandler: (() => void) | null = null
+  private _hashWriteTimer: ReturnType<typeof setTimeout> | null = null
   /** #1153 M5 render-loop scheduling state. `_rafId` is the single in-flight rAF
    *  handle (null = parked) — storing it is what lets the hidden handler CANCEL the
    *  pending tick and structurally prevents a resume from building a second rAF
@@ -1202,6 +1211,11 @@ export class XGISMap {
     // Symbol fade duration (MapLibre `fadeDuration` parity, default 300 ms).
     // Consumed at lazy TextStage construction (label-pass.ts); 0 disables.
     if (options.fadeDuration !== undefined) this.labelFadeDurationMs = options.fadeDuration
+    // #1268 — URL hash camera sync. `true` → unnamespaced fragment; a non-empty
+    // string → `name=…` namespace. Absent / false / '' → disabled (null).
+    if (options.hash === true) this._hashSync = { ns: '' }
+    else if (typeof options.hash === 'string' && options.hash !== '')
+      this._hashSync = { ns: options.hash }
     this._backend = options.backend ?? 'auto'
     this._preserveDrawingBuffer = options.preserveDrawingBuffer ?? false
     // Surface converter "Conversion notes" to the console at load —
@@ -1236,6 +1250,13 @@ export class XGISMap {
       options.pitch !== undefined
     )
       this.markCameraPositioned()
+    // #1268 — a present URL fragment SEEDS the camera and WINS over the
+    // center/zoom/bearing/pitch options above (MapLibre precedence). Routed
+    // through the SAME setters (single mutation authority) + markCameraPositioned,
+    // so a hash-seeded view is byte-identical to the equivalent option seed. The
+    // move-end write listener attaches AFTER the seed (below) so the seed itself
+    // doesn't echo a redundant replaceState.
+    this._setupHashSync()
     // RenderLoop owns the per-frame GPU render method (extracted from map.ts).
     // Content registers the frozen-order RenderNode pass chain it iterates
     // (P2-carve Step 4); nodes capture this map + read it fresh at render time.
@@ -4397,6 +4418,57 @@ export class XGISMap {
     this.invalidate()
   }
 
+  /** #1268 — seed the camera from the URL fragment (it wins over the ctor
+   *  camera options) and attach the debounced move-end writer. No-op when hash
+   *  sync is off or in a non-DOM env (no `location`). Called once from the ctor
+   *  AFTER the option-camera seed, so the fragment overrides it and the writer
+   *  isn't attached until after the seed (no redundant boot write). */
+  private _setupHashSync(): void {
+    if (this._hashSync === null) return
+    if (typeof globalThis !== 'undefined' && globalThis.location) {
+      const st = parseHash(globalThis.location.hash, this._hashSync.ns)
+      if (st !== null) {
+        this.setCenter(st.lon, st.lat)
+        this.setZoom(st.zoom)
+        this.setBearing(st.bearing)
+        this.setPitch(st.pitch)
+        this.markCameraPositioned()
+      }
+    }
+    this._hashMoveHandler = () => this._scheduleHashWrite()
+    this.on('moveend', this._hashMoveHandler)
+  }
+
+  /** #1268 — debounce the fragment write so a drag/zoom flurry collapses to one
+   *  `replaceState` when the camera settles. */
+  private _scheduleHashWrite(): void {
+    if (this._hashSync === null) return
+    if (this._hashWriteTimer !== null) clearTimeout(this._hashWriteTimer)
+    this._hashWriteTimer = setTimeout(() => {
+      this._hashWriteTimer = null
+      this._writeHash()
+    }, 100)
+  }
+
+  /** #1268 — write the current camera into the URL fragment via
+   *  `history.replaceState` (never pushState, so panning doesn't spam the back
+   *  button). Namespaced writes merge into any sibling fragment params. */
+  private _writeHash(): void {
+    if (this._hashSync === null) return
+    if (typeof globalThis === 'undefined' || !globalThis.location || !globalThis.history) return
+    const [lon, lat] = this.getCenter()
+    const value = formatHash({
+      zoom: this.getZoom(),
+      lon,
+      lat,
+      bearing: this.getBearing(),
+      pitch: this.getPitch(),
+    })
+    const frag = updateHashFragment(globalThis.location.hash, this._hashSync.ns, value)
+    const { pathname, search } = globalThis.location
+    globalThis.history.replaceState(globalThis.history.state, '', `${pathname}${search}#${frag}`)
+  }
+
   /** #1256 — halt any in-flight easeTo/flyTo, leaving the camera at its
    *  current partway state. (MapLibre spells this `map.stop()`, but that
    *  name is X-GIS's render-loop lifecycle halt — which ALSO cancels the
@@ -4757,6 +4829,17 @@ export class XGISMap {
     if (this._detachReducedMotion) {
       this._detachReducedMotion()
       this._detachReducedMotion = null
+    }
+
+    // #1268 — URL hash sync: detach the move-end writer + cancel any pending
+    // debounced replaceState so a torn-down map stops touching the URL.
+    if (this._hashMoveHandler) {
+      this.off('moveend', this._hashMoveHandler)
+      this._hashMoveHandler = null
+    }
+    if (this._hashWriteTimer !== null) {
+      clearTimeout(this._hashWriteTimer)
+      this._hashWriteTimer = null
     }
 
     // #1167 — cold-start burst visibilitychange backstop (armed in run()).

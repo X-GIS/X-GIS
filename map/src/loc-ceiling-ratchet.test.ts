@@ -303,7 +303,13 @@ const CEILINGS: Record<string, number> = {
   // _prefersReducedMotion refactor onto the pure resolveReducedMotion. The
   // precedence resolver + media-query watcher live extracted + unit-proved in
   // map-accessibility.ts — only the wiring grew here.
-  'map/src/map.ts': 4911,
+  // 4911→4994 (#1268 URL hash sync): the `hash` option parse + _hashSync /
+  // _hashMoveHandler / _hashWriteTimer fields, the ctor boot-seed (fragment
+  // wins over the camera options) via _setupHashSync, the debounced move-end
+  // _scheduleHashWrite / _writeHash (replaceState) pair, and the destroy()
+  // detach. The format/parse/namespace-merge MECHANISM lives extracted +
+  // unit-proved in map-hash.ts (86 LOC, under the cap) — wiring only here.
+  'map/src/map.ts': 4994,
   // Baselined at #1255 (measured 830): the DOM-inspired layer API crossed
   // NEW_FILE_CAP with the paint-transition style-setter integration — the
   // StyleHost.transitions context, the shared applyNumber/applyColor
