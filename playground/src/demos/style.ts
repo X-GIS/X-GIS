@@ -20,4 +20,111 @@ export const DEMOS_STYLE: Record<string, Demo> = {
     description: 'Filter countries by GDP — only high-GDP countries are rendered',
     source: load('filter-gdp.xgis'),
   },
+
+  layer_below_labels: {
+    name: 'Layer Below Labels',
+    tag: 'style',
+    description:
+      'MapLibre "Add a new layer below labels" port — a translucent lake overlay stacks above the land fill while city labels stay on top (label stage composites over every fill, no beforeId needed)',
+    source: load('layer-below-labels.xgis'),
+  },
+
+  color_switcher: {
+    name: 'Color Switcher',
+    tag: 'style',
+    description:
+      'MapLibre "Change a layer\'s color with buttons" port — action buttons drive the runtime setPaintProperty API on the mounted scene',
+    source: load('color-switcher.xgis'),
+    actions: [
+      { label: 'Rose fill', run: (m) => m.setPaintProperty('countries', 'fill-color', '#f43f5e') },
+      { label: 'Amber fill', run: (m) => m.setPaintProperty('countries', 'fill-color', '#f59e0b') },
+      { label: 'Sky fill', run: (m) => m.setPaintProperty('countries', 'fill-color', '#0ea5e9') },
+      { label: 'White line', run: (m) => m.setPaintProperty('countries', 'line-color', '#ffffff') },
+    ],
+  },
+
+  fly_to: {
+    name: 'Fly To',
+    tag: 'style',
+    description:
+      'MapLibre "Fly to a location" port — action buttons call map.flyTo({center, zoom}) at runtime',
+    source: load('fly-to.xgis'),
+    actions: [
+      { label: 'Seoul', run: (m) => m.flyTo({ center: [126.978, 37.5665], zoom: 8 }) },
+      { label: 'Paris', run: (m) => m.flyTo({ center: [2.3522, 48.8566], zoom: 8 }) },
+      { label: 'World', run: (m) => m.flyTo({ center: [0, 0], zoom: 0.5 }) },
+    ],
+  },
+
+  zoom_building_color: {
+    name: 'Buildings by Zoom',
+    tag: 'style',
+    description:
+      'MapLibre example port (#1192): "Change building color based on zoom level" — protomaps buildings whose fill-[interpolate(zoom, …)] ramps parchment → terracotta as you zoom from city overview (z15) to street level (z17). Opens over lower Manhattan.',
+    source: load('zoom-building-color.xgis'),
+    zoom: 15.5,
+    center: [-74.006, 40.712],
+  },
+
+  fit_bounds: {
+    name: 'Fit Bounds',
+    tag: 'style',
+    description:
+      'MapLibre "Fit a map to a bounding box" port (#1192) — action buttons call map.fitBounds([[west, south], [east, north]]) at runtime',
+    source: load('fit-bounds.xgis'),
+    actions: [
+      {
+        label: 'Australia',
+        run: (m) =>
+          m.fitBounds([
+            [112.9, -43.7],
+            [153.6, -10.6],
+          ]),
+      },
+      {
+        label: 'Western Europe',
+        run: (m) =>
+          m.fitBounds([
+            [-9.5, 36.0],
+            [15.0, 55.0],
+          ]),
+      },
+      {
+        label: 'World',
+        run: (m) =>
+          m.fitBounds([
+            [-180, -60],
+            [180, 75],
+          ]),
+      },
+    ],
+  },
+
+  jump_to_locations: {
+    name: 'Jump To Locations',
+    tag: 'style',
+    description:
+      'MapLibre "Jump to a series of locations" port (#1192) — a single action button calls map.jumpTo({center, zoom}) at runtime, cycling through a fixed list of world cities',
+    source: load('jump-to-locations.xgis'),
+    actions: [
+      {
+        label: 'Jump to next city',
+        run: (() => {
+          const cities: Array<{ name: string; center: [number, number]; zoom: number }> = [
+            { name: 'Seoul', center: [126.978, 37.5665], zoom: 10 },
+            { name: 'Cairo', center: [31.2357, 30.0444], zoom: 10 },
+            { name: 'Rio de Janeiro', center: [-43.1729, -22.9068], zoom: 10 },
+            { name: 'Sydney', center: [151.2093, -33.8688], zoom: 10 },
+            { name: 'New York', center: [-74.006, 40.7128], zoom: 10 },
+          ]
+          let idx = 0
+          return (m) => {
+            const city = cities[idx % cities.length]
+            idx++
+            m.jumpTo({ center: city.center, zoom: city.zoom })
+          }
+        })(),
+      },
+    ],
+  },
 }

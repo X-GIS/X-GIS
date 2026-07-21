@@ -9,7 +9,9 @@ import { emitGlslModule } from './backends/glsl'
 
 describe('minifyShaderText — string contracts', () => {
   it('keeps # directive lines verbatim on their own line', () => {
-    const out = minifyShaderText('#version 300 es\nprecision highp float;\nfloat f() {\n  return 1.0;\n}\n')
+    const out = minifyShaderText(
+      '#version 300 es\nprecision highp float;\nfloat f() {\n  return 1.0;\n}\n',
+    )
     expect(out.split('\n')[0]).toBe('#version 300 es')
     expect(out).toBe('#version 300 es\nprecision highp float;float f(){return 1.0;}\n')
   })

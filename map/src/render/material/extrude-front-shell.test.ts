@@ -73,7 +73,10 @@ function captureExtrudeVariants(pickEnabled: boolean): CapturedPipeline[] {
 
 const byLabel = (caps: CapturedPipeline[], needle: string): CapturedPipeline => {
   const hit = caps.find((c) => (c.label ?? '').includes(needle))
-  if (!hit) throw new Error(`no extrude variant labelled *${needle}* (found: ${caps.map((c) => c.label).join(', ')})`)
+  if (!hit)
+    throw new Error(
+      `no extrude variant labelled *${needle}* (found: ${caps.map((c) => c.label).join(', ')})`,
+    )
   return hit
 }
 
@@ -90,7 +93,10 @@ describe('#1080 fill-extrusion front-shell — pipeline descriptors', () => {
       'fill-extrude-depthprepass-write-rhi',
       'fill-extrude-depthprepass-test-rhi',
     ]) {
-      expect(caps.some((c) => c.label === needle), `variant ${needle} missing`).toBe(true)
+      expect(
+        caps.some((c) => c.label === needle),
+        `variant ${needle} missing`,
+      ).toBe(true)
     }
   })
 

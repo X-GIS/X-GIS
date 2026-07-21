@@ -13,7 +13,7 @@ import * as path from 'node:path'
 
 const OUT = path.resolve('e2e/__ws8__')
 fs.mkdirSync(OUT, { recursive: true })
-const SOFTWARE_GPU = process.env.XGIS_SOFTWARE_GPU === '1'
+const _SOFTWARE_GPU = process.env.XGIS_SOFTWARE_GPU === '1'
 
 // Minimal Mapbox style declaring globe projection — no sources/tiles
 // needed, a background layer is enough to prove the projection switch +

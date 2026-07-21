@@ -39,10 +39,10 @@ export const LAYER_TYPES: readonly CoverageEntry[] = [
   },
   {
     name: 'hillshade',
-    status: 'unsupported',
+    status: 'partial',
     impact: 'medium',
-    note: 'Batch 4 (raster-dem + lighting shader).',
-    source: 'layers.ts:19',
+    note: '#777 Phase II — registered converter (paint-hillshade.ts) + DSL fs_hillshade (DEM decode → Sobel → standard/basic shade) + HillshadeRenderer/Draper landed (INC-1..3). Single-source constant paint only; multidirectional + resampling:linear smoothing + cross-tile edge backfill deferred. End-to-end draw pending pass wiring + real-GPU A/B (INC-5/6).',
+    source: 'layer-converters/generic.ts',
   },
   {
     name: 'sky',

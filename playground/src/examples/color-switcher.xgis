@@ -1,0 +1,21 @@
+xgis 1
+
+/*
+ * Port of MapLibre's "Change a layer's color with buttons".
+ *
+ * The .xgis declares the initial style; the gallery's action buttons
+ * (Demo.actions metadata -> #demo-actions bar) drive the runtime
+ * setPaintProperty('countries', 'fill-color' / 'line-color', ...) API —
+ * exactly how the MapLibre original wires <button> handlers to
+ * map.setPaintProperty.
+ */
+
+source world {
+  type: geojson
+  url: "ne_110m_countries.geojson"
+}
+
+layer countries {
+  source: world
+  | fill-sky-500 stroke-slate-200 stroke-0.5
+}

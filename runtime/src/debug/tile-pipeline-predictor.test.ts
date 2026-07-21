@@ -32,7 +32,7 @@ describe('tile pipeline predictor', () => {
 
     // Print the shape so a diagnostic run surfaces the numbers
     // alongside any FLICKER output from the browser session.
-    // eslint-disable-next-line no-console
+
     console.log(
       '[predictor:dashed_borders-buggy-state]',
       JSON.stringify({

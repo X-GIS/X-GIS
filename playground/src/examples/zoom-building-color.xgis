@@ -1,0 +1,24 @@
+xgis 1
+
+/* MapLibre example port (#1192): "Change building color based on zoom level".
+ *
+ * Protomaps buildings whose fill interpolates with the camera zoom — parchment
+ * at z15 (city overview) deepening to terracotta by z17 (street level), the
+ * same continuous zoom ramp the original drives with interpolate(zoom). The
+ * bracket form `fill-[interpolate(zoom, …)]` is the exact shape the Mapbox
+ * converter lowers interpolate fill-color to, so this also exercises that
+ * path from hand-authored .xgis. Opens over lower Manhattan (demo center/zoom
+ * in style.ts). */
+
+source pm {
+  type: pmtiles
+  url: "/pmtiles-proxy/protomaps/v4.pmtiles"
+  layers: "buildings"
+}
+
+layer buildings {
+  source: pm
+  sourceLayer: "buildings"
+  | fill-[interpolate(zoom, 15, #e8e0d8, 16, #d9b38c, 17, #c96f4a)]
+  | stroke-stone-400 stroke-1
+}

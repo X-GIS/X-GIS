@@ -1,0 +1,20 @@
+xgis 1
+
+/*
+ * Port of MapLibre's "Jump to a series of locations" (#1192).
+ *
+ * The .xgis is a plain world base; a single gallery action button calls
+ * map.jumpTo({ center, zoom }) at runtime, cycling through a fixed list
+ * of world cities — the MapLibre original's button -> map.jumpTo wiring
+ * over an array of locations, expressed as Demo.actions metadata.
+ */
+
+source world {
+  type: geojson
+  url: "ne_110m_countries.geojson"
+}
+
+layer countries {
+  source: world
+  | fill-indigo-800 stroke-indigo-400 stroke-0.5
+}

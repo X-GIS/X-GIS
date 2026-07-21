@@ -4,8 +4,8 @@
 
 import { test, expect } from '@playwright/test'
 
-const TARGET_X = 260
-const TARGET_Y = 267
+const _TARGET_X = 260
+const _TARGET_Y = 267
 
 test('removeEventListener unregisters plain listeners', async ({ page }) => {
   test.setTimeout(30_000)

@@ -14,9 +14,9 @@ import { InteractionController, type InteractionControllerDeps } from './interac
 import type { LayerIdRegistry } from './layer'
 
 // WebGPU browser globals absent under vitest — stub what pickAt touches.
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
+
 ;(globalThis as any).GPUMapMode = { READ: 0 }
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
+
 ;(globalThis as any).GPUBufferUsage ??= { MAP_READ: 1, COPY_DST: 2 }
 
 const mockCanvas = {

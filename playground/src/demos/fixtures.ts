@@ -47,6 +47,14 @@ export const DEMOS_FIXTURES: Record<string, Demo> = {
       'Deterministic offline raster tile (no {z}/{x}/{y}) for the P1.4 RHI-flip DC=0 gate.',
     source: load('fixture-raster-local.xgis'),
   },
+  fixture_hillshade_local: {
+    name: 'Fixture: hillshade (local DEM)',
+    tag: 'fixture',
+    description:
+      'Deterministic offline raster-dem DEM tile (Terrain-RGB radial hill, no {z}/{x}/{y}) drawn as shaded relief (#777 Phase II). The raster-dem source routes to the HillshadeRenderer. Opens at z11 (a whole-world DEM is physically near-flat at low zoom). §5 probe: /demo.html?id=fixture_hillshade_local — real-GPU A/B vs a MapLibre hillshade on the same DEM (INC-6).',
+    source: load('fixture-hillshade-local.xgis'),
+    zoom: 11,
+  },
   fixture_line: {
     name: 'Fixture: line (2pt)',
     tag: 'fixture',

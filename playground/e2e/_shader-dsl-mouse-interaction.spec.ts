@@ -65,7 +65,17 @@ test.describe('shader-dsl mouse controls change the frame', () => {
             const gtex = gl.createTexture()
             gl.activeTexture(gl.TEXTURE7)
             gl.bindTexture(gl.TEXTURE_2D, gtex)
-            gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, 1, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array([255, 255, 255, 255]))
+            gl.texImage2D(
+              gl.TEXTURE_2D,
+              0,
+              gl.RGBA8,
+              1,
+              1,
+              0,
+              gl.RGBA,
+              gl.UNSIGNED_BYTE,
+              new Uint8Array([255, 255, 255, 255]),
+            )
             gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST)
             gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST)
             gl.uniform1i(gLoc, 7)
@@ -92,10 +102,9 @@ test.describe('shader-dsl mouse controls change the frame', () => {
 
           const draw = (mouse: number[]): Uint8Array => {
             for (const field of u.fields) {
-              const c = (controls as Record<
-                string,
-                { kind: string; value?: number | number[] | boolean }
-              >)[field.name]
+              const c = (
+                controls as Record<string, { kind: string; value?: number | number[] | boolean }>
+              )[field.name]
               let v: number[] = [0]
               if (c?.kind === 'time') v = [2.0]
               else if (c?.kind === 'resolution') v = [S, S]

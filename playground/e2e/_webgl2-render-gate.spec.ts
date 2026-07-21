@@ -89,7 +89,7 @@ test('WebGL2 RHI reflection BY NAME: a multi-texture group binds correctly regar
 
   const ctx = `glError=${r.glError} (NO_ERROR=${r.glNoError})
 named   left=${r.named.left} right=${r.named.right}
-ordered left=${r.ordered.left} right=${r.ordered.right}
+ordered(threw)=${r.orderedThrew}
 expected left(tex_a)=${r.expected.left} right(tex_b)=${r.expected.right}`
 
   expect(r.fatal, `WebGL2 unavailable: ${r.fatal}`).toBeFalsy()
@@ -105,17 +105,15 @@ expected left(tex_a)=${r.expected.left} right(tex_b)=${r.expected.right}`
     `named right should be tex_b (blue)\n${ctx}`,
   ).toBe(true)
 
-  // BY ORDER (names stripped, reversed layout-entry order): the units SWAP → left/right
-  // flip. This proves the construction genuinely depends on name-pairing — the named
-  // pass above is correct ONLY because the reflection bound by name, not by order.
+  // BY ORDER (names stripped, reversed layout-entry order): predates #783; retargeted
+  // 2026-07-20. This used to demonstrate a silent by-order unit SWAP, but the #783
+  // plan-time ambiguity guard now deterministically THROWS on 2 unnamed same-class
+  // texture entries instead — a stronger guarantee that makes the swap illegal by
+  // construction. This spec now witnesses the guard rejection, not the swap.
   expect(
-    eqColor(r.ordered.left, r.expected.right),
-    `ordered left should SWAP to tex_b (blue)\n${ctx}`,
-  ).toBe(true)
-  expect(
-    eqColor(r.ordered.right, r.expected.left),
-    `ordered right should SWAP to tex_a (red)\n${ctx}`,
-  ).toBe(true)
+    r.orderedThrew,
+    `stripped-name layout should be rejected by the #783 guard\n${ctx}`,
+  ).toMatch(/unnamed — WebGL2 pairs unnamed entries BY ORDER/)
 })
 
 test('WebGL2 RHI renders a REAL DSL shader (overdraw-compose) — readback matches the colormap', async ({

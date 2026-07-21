@@ -16,6 +16,7 @@ import { emitFillPaint } from './paint-fill'
 import { emitLinePaint } from './paint-line'
 import { emitFillExtrusionPaint } from './paint-fill-extrusion'
 import { emitRasterPaint } from './paint-raster'
+import { emitHillshadePaint } from './paint-hillshade'
 // Re-export public helpers so importers of './paint' keep their surface.
 export { cssBezierEase, interpolateZoomCall } from './paint-helpers'
 
@@ -42,6 +43,8 @@ export function paintToUtilities(layer: MapboxLayer, warnings: string[]): string
     emitFillExtrusionPaint(out, layer, p, warnings)
   } else if (layer.type === 'raster') {
     emitRasterPaint(out, layer, p, warnings)
+  } else if (layer.type === 'hillshade') {
+    emitHillshadePaint(out, layer, p, warnings)
   }
 
   return out

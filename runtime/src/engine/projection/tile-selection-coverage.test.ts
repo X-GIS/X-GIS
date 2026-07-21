@@ -217,7 +217,7 @@ describe('regression #1 (poles) — Mercator-geometry selection under-covers non
       const after = coverageWith(view, view, cam, `${label} AFTER`)
       const b = before.covered / before.inRange,
         a = after.covered / after.inRange
-      // eslint-disable-next-line no-console
+
       console.log(
         `[${label}] BEFORE(merc-geom)=${(b * 100).toFixed(0)}% (${before.covered}/${before.inRange})  AFTER(proj-aware)=${(a * 100).toFixed(0)}% (${after.covered}/${after.inRange})`,
       )

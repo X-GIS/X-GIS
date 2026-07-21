@@ -65,7 +65,12 @@ export type Control =
       readonly offset: readonly [number, number]
     }
   // Scalar twin of logmag2d → a SCALAR f64 uniform field (`base·10^s + offset`).
-  | { readonly kind: 'logmag1d'; readonly magField: string; readonly base: number; readonly offset: number }
+  | {
+      readonly kind: 'logmag1d'
+      readonly magField: string
+      readonly base: number
+      readonly offset: number
+    }
 
 export interface ShaderExample {
   readonly id: string

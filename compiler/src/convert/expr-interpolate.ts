@@ -308,7 +308,7 @@ export function convertInterpolate(
     let allHex = true
     for (let i = 0; i < stopArgs.length; i += 2) {
       const z = Number(stopArgs[i]!)
-      let y = stopArgs[i + 1]!
+      const y = stopArgs[i + 1]!
       if (!Number.isFinite(z)) {
         allHex = false
         break

@@ -153,7 +153,9 @@ completion before launching another.
 When the user reports a **freeze, crash, or broken behavior**, deliver an **actual fix — not
 just a diagnosis.** Distinguish "slow / heavy" from "fully wedged / unresponsive"; the latter
 is never a diagnosis-only ticket. Trace to the root cause, fix it, and **verify with a real
-build / test / GPU run before claiming success** — a static read is not verification.
+build / test / GPU run before claiming success** — a static read is not verification. Every
+diagnosis ends with the root cause recorded at file:line ON the relevant GitHub issue/PR —
+a fix nobody can trace is half a fix.
 
 ## 9. Scope Control
 
@@ -203,6 +205,9 @@ scripts/gap-matrix.md`) — read the script header before assuming write-in-plac
   → `2026-07-11-git-worktrees-share-more-than-you-think.md`
 - Measure LOC ceilings AFTER the prettier pre-commit hook rewrote the files:
   `git show HEAD:<file> | wc -l`, never the pre-commit working tree.
+- `tsc --build` replays CACHED errors from stale `.tsbuildinfo` after branch churn —
+  `--force` before diagnosing a phantom type error; one that survives `--force` is likely
+  a missing package.json dep masked by that package's own tsconfig `paths` (PR #1220).
 
 **Gates / ratchets**
 
@@ -225,6 +230,9 @@ scripts/gap-matrix.md`) — read the script header before assuming write-in-plac
   → `2026-07-14-the-strongest-render-gate-is-hash-equality.md`
 - A metric gradient whose x-axis is "the order I happened to run things" is noise until
   the same commit is re-run. → `2026-07-14-the-map-fossilized-half-loaded.md`
+- A pixel-COUNT render gate (nonBg %) passes on broken images — assert STRUCTURE
+  (connectedness / no-seam-run / expected shape) or read the frame at full resolution;
+  numbers never decide alone (#1221 round 1: 1.5% "green" on a disconnected seam-artifact line).
 
 **Process**
 
@@ -234,6 +242,10 @@ scripts/gap-matrix.md`) — read the script header before assuming write-in-plac
 - Plan docs drift from landed reality — before building a phase on top of a predecessor,
   re-verify the predecessor's ACTUAL landed scope against the code, not the doc's
   description of it.
+- Subagents can leave the repo on a DIFFERENT branch or stale HEAD — verify
+  `git branch --show-current` + `git log -1` before building on (or committing over)
+  agent-touched work; capture their diff as a patch and re-apply onto current main
+  (PR #1220: batch authored on a stale sibling branch, recovered via 3-way apply).
 
 This section deliberately has NO separate index file: the posts themselves (their
 frontmatter descriptions) are the single authority, and a hand-synced index would be

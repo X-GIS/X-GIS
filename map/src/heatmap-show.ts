@@ -23,8 +23,12 @@ export function addHeatmapShowLayer(host: HeatmapShowHost, show: ShowCommand): v
   const hmSource = host.heatmapPointData.get(show.targetName)
   if (hmSource?.features?.length && host.heatmapRenderer) {
     try {
-      const feats = applyFilter(hmSource, show.filterExpr, host.camera.zoom, host.camera.pitch)
-        .features
+      const feats = applyFilter(
+        hmSource,
+        show.filterExpr,
+        host.camera.zoom,
+        host.camera.pitch,
+      ).features
       const t = feats[0]?.geometry?.type
       if (t === 'Point' || t === 'MultiPoint') {
         host.heatmapRenderer.addLayer(

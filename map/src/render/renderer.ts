@@ -26,7 +26,7 @@ import type { ShaderVariantInfo, CachedPipeline, ShowCommand, RenderLayer } from
 import { parseColor } from './renderer-helpers'
 import { GraticuleRenderer } from './graticule-renderer'
 import { polygonUniformBytes } from './polygon-uniform-slots'
-import { uniformBlock, type UniformBlockOf } from '@xgis/engine'
+import { uniformBlock, type UniformBlockOf, type RhiRenderPass } from '@xgis/engine'
 import { polygonU as POLYGON_U } from '../shaders/dsl/polygon'
 import { globeEyeUniform } from './globe-eye-uniform'
 
@@ -959,6 +959,41 @@ export class MapRendererContent {
       camera,
       canvas.width,
       canvas.height,
+      dpr,
+    )
+  }
+
+  /** Forced-WebGL2 twin of renderGraticuleOverlay (#1062). The isolated RHI frame
+   *  (render-loop.ts renderFrameViaRhi) has no WebGPU pass-chain, so it calls this
+   *  after its opaque fills/strokes to composite the grid on top. GraticuleRenderer
+   *  owns the RHI resources (built through ctx.rhi); this only threads the canonical
+   *  ECEF frame view + projection in, exactly like the WebGPU seam. */
+  renderGraticuleOverlayRhi(
+    pass: RhiRenderPass,
+    camera: Camera,
+    projType = 0,
+    projCenterLon = 0,
+    projCenterLat = 20,
+    w = 0,
+    h = 0,
+    dpr = 1,
+  ): void {
+    if (DEBUG_OVERDRAW || !this._graticule.isEnabled()) return
+    const frame = camera.getECEFFrameView(w, h, dpr)
+    this._graticule.renderFrameRhi(
+      pass,
+      {
+        mvp: frame.matrix,
+        logDepthFc: frame.logDepthFc,
+        projType,
+        projCenterLon,
+        projCenterLat,
+        zoom: camera.zoom,
+        eye: frame.eye,
+      },
+      camera,
+      w,
+      h,
       dpr,
     )
   }

@@ -20,7 +20,7 @@ not the grep, was the thing that actually knew.
 
 ## The guard that lied: `\b` is not a word boundary in `git grep`
 
-Before moving `Camera`, the safety check was simple: nothing *below* `@xgis/map`
+Before moving `Camera`, the safety check was simple: nothing _below_ `@xgis/map`
 may import it, or the move inverts a dependency. So we asked git — does `@xgis/data`
 (which sits below map) still name `Camera`?
 
@@ -48,7 +48,7 @@ regex you actually trust — and cross-check when the answer is "nothing," becau
 ## The edge with no `from`: dynamic `import()`
 
 With the prerequisites really in place, the move went in and the build ran. It
-died in the *engine* package — the one we were removing geo *from*:
+died in the _engine_ package — the one we were removing geo _from_:
 
 ```
 engine/src/projection/globe.test.ts(326,37):
@@ -73,7 +73,7 @@ quiet.
 ## The edge that points outward: `export … from`
 
 The build got further and died again — this time in the site bundle, on the
-package one level *above*:
+package one level _above_:
 
 ```
 runtime/src/index.ts:3  export { Camera } from '@xgis/engine'
@@ -83,15 +83,15 @@ runtime/src/index.ts:3  export { Camera } from '@xgis/engine'
 The sweep had rewritten `import { Camera } from '@xgis/engine'` everywhere. It had
 not touched `export { Camera } from '@xgis/engine'` — a re-export in the runtime
 barrel — because the pattern anchored on `import`. A re-export is an import edge
-wearing a different keyword: it pulls the symbol in *and* pushes it back out, and
+wearing a different keyword: it pulls the symbol in _and_ pushes it back out, and
 it breaks the same way when the source stops exporting. One character in the
 search — `import` → `export` — found it.
 
 ## An aside that cost twenty minutes: the pipe ate the exit code
 
 Between the second and third failures, a build "passed" that hadn't. The command
-was `bun run build | tail -50`, backgrounded; the completion notice read *exit
-code 0*. But `tail` exits 0 whether or not `bun` did — in a pipeline the shell
+was `bun run build | tail -50`, backgrounded; the completion notice read _exit
+code 0_. But `tail` exits 0 whether or not `bun` did — in a pipeline the shell
 reports the **last** command's status, and the real failure had scrolled into the
 middle of the log, above the tail window. Re-running as a bare `bun run build >
 log` — no pipe — surfaced the true exit 1. When a build's pass/fail is the thing
@@ -102,21 +102,21 @@ of the process you actually care about.
 
 None of these three edges is exotic. Dynamic imports, re-exports, and type-only
 imports are ordinary TypeScript. What they share is that an `import … from '…'`
-text pattern — the mental model that "an import is a line that says *import … from*"
+text pattern — the mental model that "an import is a line that says _import … from_"
 — cannot see them, and neither can a sed sweep built on that model. The dependency
 graph has more kinds of edge than one keyword.
 
 So the working method is not "grep, then trust the grep." It's:
 
 - **Grep to narrow and to plan.** It gives you the shape and the count, and it's
-  how you sort the work. Just never let a *"no matches"* stand as proof — confirm
+  how you sort the work. Just never let a _"no matches"_ stand as proof — confirm
   it in a second engine, because a broken pattern and a clean tree return the
   identical empty set.
 - **Let the compiler enumerate.** `tsc` (via `bun run build`) is the only tool
-  that walks *every* edge — static, dynamic, re-exported, type-only — and it fails
+  that walks _every_ edge — static, dynamic, re-exported, type-only — and it fails
   loudly and precisely (`file:line`, "cannot find", "not exported by") on the ones
   the grep missed. A green full build isn't a formality after a module move; it
-  *is* the reference-completeness check.
+  _is_ the reference-completeness check.
 
 The move was, in the end, exactly as mechanical as it looked — `git mv` plus
 import edits, zero behavioural change, byte-identical render. But "mechanical"

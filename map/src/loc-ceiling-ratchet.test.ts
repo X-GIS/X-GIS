@@ -101,7 +101,30 @@ const CEILINGS: Record<string, number> = {
   // uploadBudgetFor/setMaxJobs call. (Ceiling corrected from a padded 4513 to the
   // measured post-prettier 4511 — #1155 F3 adjudication, shrink-only high-water.)
   // Merge union (#1170 <- origin/main): both bumps stacked non-overlappingly on VTR (destroy() +12 AND cold-start burst +17), so the merged high-water is the measured 4523, not either standalone value.
-  'map/src/render/vector-tile-renderer.ts': 4523,
+  // 4523→4563 (#1057): the VT tile-points inline path split into the single-
+  // authority emitTilePointsRhi(pass: RhiRenderPass, …) — render() delegates via
+  // wrapWebGpuPass while the twin (render-loop.ts) calls it directly — plus the
+  // one-line stableKeys record in renderFillsRhi for the twin's accumulation.
+  // 4563→4591 (#1057 inc2 adversarial review): renderFillsRhi now (a) merges
+  // protectedAncestors into stableKeys for point-parity with the WebGPU merged
+  // set, (b) resets stableKeys=[] on both bail paths so a bailed show can't leak
+  // prior keys into the twin's decoupled emitTilePointsRhi, each with rationale
+  // docs; plus the parity pointer note on emitTilePointsRhi.
+  // 4523→4609 (#1059): the fill-pattern GLSL twin on the WebGL2 fills path — a
+  // ground fill-pattern Material with GLSL twins (ensureFillPatternMaterialRhi) +
+  // its sprite-atlas tile bind group (fillPatternTileBgRhi, mirrors lineTileBgRhi) +
+  // the renderFillsRhi pattern branch (pack-driven fill_color/fill_translate/pattern_active
+  // + Material/tile-bg selection). +86; the pattern PACK decision is shared with the
+  // WebGPU path via resolveFillPatternPack (extracted to polygon-fill-material.ts, so the
+  // slot bytes can't drift), keeping the twin a thin caller. Lower as #991 decomposes VTR.
+  // Merge union (#1057 + #1059): tile-points AND the pattern branch stacked in
+  // renderFillsRhi non-overlappingly — merged high-water is the measured 4677.
+  // 4677→4702 (#1198, merge union): frame-matched extrusion-light packing — the
+  // `currentProjType` stash (proj_params write sites) + the flat-raw vs
+  // sphere-rotated light_dir_ecef branch, fixing the continent-scale roof
+  // lighting gradient (raw light in the vertex-ENU frame on flat projections);
+  // stacked non-overlappingly on the #1057/#1059 twin work — measured 4702.
+  'map/src/render/vector-tile-renderer.ts': 4702,
   // 4232→4237 (#1000 heatmap relocate): the heatmap density-target OWNERSHIP
   // extracted to render/heatmap-targets.ts; map keeps only the irreducible
   // composition-root wiring — the `heatmapTargets` field + its import (mirrors
@@ -181,7 +204,31 @@ const CEILINGS: Record<string, number> = {
   // per-guard constraint comments outweigh the ~30 lines removed. The extraction
   // itself is the right cut (single authority, also fixes runBinary's missing
   // shapeRegistry/lineRenderer, #7); the remainder is irreducible in-flow wiring.
-  'map/src/map.ts': 4469,
+  // 4469→4480 (#1177): the CameraController's injected invalidate becomes a
+  // camera-scoped re-arm (_markDirty(CAMERA), destroyed-guarded) instead of the
+  // blanket invalidate() — blanket-tagging LABEL forced a label re-prepare on
+  // every programmatic camera frame, defeating the zoom-tolerant skip. +11 =
+  // the closure + the why-comment at the single injection site (§2).
+  // 4469→4488 (#1194 A1b): runScene — the second scene entrypoint. run()'s
+  // post-parse body extracted VERBATIM into _runProgram (shared by run/runScene;
+  // the device-lost recovery hook re-runs from the resolved AST so builder
+  // scenes recover too). +19 = the runScene method + the two method boundaries
+  // + docs; the 700-line body itself only moved. The real shrink lever remains
+  // the #991 decomposition, not this seam.
+  // Merge (#1195): main's #1177 camera-scoped invalidate UNION the #1194 A1b
+  // runScene seam above; ceiling re-measured to the merged file's actual size
+  // (wc -l = 4499).
+  // 4499→4503 (#1196, merge union): name the actual GPU-boot failure at the
+  // WebGPUUnavailable catch — the generic UX text hid the real cause (a webgl2
+  // live-swap re-boot dying) for a full debugging session. Measured 4503.
+  // 4503→4526 (#777 Phase II, merge union): the raster-dem → HillshadeRenderer
+  // wiring — the hillshadeRenderer + _hillshadeShow fields, the two ctor init
+  // sites, the rebuildLayers reset + `_dem`-marker arm branch, and the
+  // rebuildForQuality hook. Irreducible: class-member declarations + the
+  // source-dispatch arm that must sit in rebuildLayers where the source markers
+  // are read. The DEM decode itself was extracted to hillshade-renderer.ts
+  // (armHillshadeSource). Measured 4526.
+  'map/src/map.ts': 4526,
   // 1920→1930 (#1042 R3): the globe limb cull for MULTI-LINE labels must land in
   // the collision phase — the ONLY site holding the label's quad half-height (the
   // collision box IS the height authority; the label-pass dispatch site has only
@@ -203,7 +250,9 @@ const CEILINGS: Record<string, number> = {
   // helper (both in text-stage-helpers.ts, where the arithmetic lives + is unit-tested),
   // and the survivor loop emits placements for IconStage. +91; image-bearing labels
   // bypass the layout cache; the plain-label path is byte-identical (§2).
-  'map/src/text/text-stage.ts': 2066,
+  // 2066→2068 (#1177 replay correction): render() gains the optional S16
+  // skip-replay transform param, forwarded to TextRenderer.draw. +2.
+  'map/src/text/text-stage.ts': 2068,
   // 1786→1719 (#727 C): the line/point dedupe + pair-key helper block was
   // EXTRACTED to passes/line-label-dedupe.ts when the world-copy fan-out would
   // otherwise have grown this file — the extract-don't-grow answer.
@@ -234,7 +283,18 @@ const CEILINGS: Record<string, number> = {
   // sprite-atlas gate (a label-less style still loads its sprite; onLanded
   // invalidate() re-arms the idle loop). A free exported function so the gate +
   // hook are behaviour-gated GPU-free (mirrors backgroundClearValue). +37.
-  'map/src/render/passes/label-pass.ts': 1906,
+  // 1906→1956 (#1177 Option B): zoom-tolerant prepare skip — the skip state
+  // gains preparedZoom/prevFrameZoomKey/preparedCenterX/Y/centerLatDeg (each
+  // with its contract doc), the active-zoom tolerance branch (|Δzoom| ≤ 0.15,
+  // centre ≤ 48 px) beside the exact settled compare, the per-frame
+  // prevFrameZoomKey update, and the design-rationale comment. +50, all inside
+  // the existing S16 skip block; nothing extract-worthy at this size (§2).
+  // 1956→2002 (#1177 replay correction — the Option B staleness fix): the skip
+  // state gains replayRefs/replayRefsValid/replayOut, the miss branch samples
+  // reference points, hit frames solve prepared→current and pass it to the 4
+  // stage/iStage render calls. The MATH lives extracted in
+  // passes/label-replay-transform.ts (unit-proved); only wiring grew here. +46.
+  'map/src/render/passes/label-pass.ts': 2002,
   // #1081 — per-anchor perspective distance attenuation (MapLibre parity). New
   // baseline: the wCenter + perspScale scratch-out-value lives INLINE in the two
   // existing projector closures (it rides the cw already computed per anchor —
@@ -257,7 +317,19 @@ const CEILINGS: Record<string, number> = {
   // 1315→1339 (#1154): the pattern_active struct field (+ its rationale comment)
   // and the fill-translate `if (pattern_active == 0)` gate in the three VS entries
   // (vs_main / vs_main_ecef / vs_main_ecef_extruded) — fixes blank fill-patterns.
-  'map/src/shaders/dsl/polygon.ts': 1339,
+  // 1339→1344 (#1062): emitPolygonGlsl gains an optional `entry` override (+ its doc)
+  // so the graticule twin can emit the vs_main / fs_stroke GLSL for its WebGL2 line
+  // overlay — reusing the SAME polygon module instead of forking a shader.
+  // 1339→1347 (#1059): emitPolygonGlsl gains an `entry` override (+ its doc) so the
+  // WebGL2 twin can narrow the module to fs_fill_pattern for its ground fill-pattern
+  // Material, plus the updated GLSL-twin-set charter comment. Emit byte-identical.
+  // Merge union (#1062 + #1059): one shared `entry` override, charter covers both
+  // consumers — merged high-water is the measured 1348.
+  // 1348→1368 (#1198, merge union): the ECEF→vertex-ENU normal rotation in the
+  // extrude VS (roof lighting was anchor-relative → continent-scale gradient) +
+  // the exact |N_enu.z| wall/roof discriminator; oracle in
+  // core/extrude-light-frame.test.ts. Stacked on the entry override — measured 1368.
+  'map/src/shaders/dsl/polygon.ts': 1368,
   // 1290→1314 (#1155 F3): cold-start burst tick budget — the `_coldStartBurst`
   // field + `_BURST_TICK_BUDGET` + `setColdStartBurst` + the burst-selected
   // budget in resetCompileBudget's backend tick loop.
@@ -275,8 +347,40 @@ const CEILINGS: Record<string, number> = {
   // 1205→1213 (#1153 P2 R6): the WebGL2 takeGlErrors drain now routes through the
   // shared capped writer `pushValidationError` (rhi-webgpu) so the _validationErrors
   // queue can't grow unbounded — the 4-name import expansion + the drain-loop doc.
-  'map/src/render-loop.ts': 1213,
-  'map/src/render/point-renderer.ts': 1140,
+  // 1213→1228 (#1057): the direct-layer points draw on the WebGL2 twin — one
+  // pointRenderer.renderRhi call site (+ its updateDynamicSizes + hasLayers gate +
+  // rationale) in renderFrameViaRhi, after the translucent bucket, mirroring the
+  // WebGPU points-pass placement.
+  // 1228→1252 (#1057 inc2): VT tile-points on the twin — pointRenderer.beginFrame()
+  // (retired-buffer drain) + the per-opaque-show emitTilePointsRhi call in the opaque
+  // loop (inside each show's fills+strokes, mirroring the WebGPU per-VTR flush), both
+  // with rationale docs.
+  // 1213→1227 (#1062): the graticule overlay draw on the WebGL2 twin — one
+  // renderGraticuleOverlayRhi call site in renderFrameViaRhi (after the opaque
+  // fills/strokes, before translucent), mirroring the WebGPU opaque-pass placement.
+  // Merge union (#1057 + #1062): both twin call-site blocks stacked non-overlappingly
+  // in renderFrameViaRhi — merged high-water is the measured 1266.
+  // 1140→1169 (#1057): render() split into a thin GPURenderPassEncoder-wrapping
+  // delegator + a single-authority renderRhi(pass: RhiRenderPass, …) so the WebGPU
+  // pass-chain and the forced-WebGL2 twin share ONE point-draw body (uploadLayer +
+  // writePointFrameUniform + PointDraper draw) — the twin's screen RhiRenderPass
+  // flows straight in, no wrapWebGpuPass.
+  // 1169→1174 (#1057 inc2): flushTilePoints renamed to flushTilePointsRhi(pass:
+  // RhiRenderPass, …) — the draw seam already flowed through PointDraper, so only the
+  // pass handle changes (wrap moves up to VTR.emitTilePointsRhi); +5 doc lines.
+  // 1213→1237 (#1060): the heatmap twin call site — HeatmapRenderer.renderRhi runs
+  // the 3-pass accum→blur→compose density pipeline on WebGL2 after the label pass
+  // (the caps.floatBlendTargets gate + its doc). F6 slashes this file (twin deletion).
+  // Merge union (#1060 <- main): stacked growth — measured 1290.
+  // 1290→1315 (#777 Phase II, merge union): the hillshadeRenderer.beginFrame()
+  // eviction hook + the HillshadePass ported into the forced-WebGL2 twin
+  // (renderFrameViaRhi, after translucent, before points) + the
+  // applyHillshadePaint import — so relief renders under ?forcegl2=1 (the
+  // _hillshade-gl2-gate). Stacked on the #1057/#1062/#1060 twin call sites —
+  // measured 1315.
+  'map/src/render-loop.ts': 1315,
+  // Merge union (#1060 <- main): stacked growth — measured 1174.
+  'map/src/render/point-renderer.ts': 1174,
   // 1106→1120 (#1043 state-hygiene): three unmask-before-clear / state-reset fixes for the
   // WebGL2 flicker class — beginScreenPass colorMask unmask (the colour sibling of #746/#780),
   // dispatchComputeToR32UI viewport snapshot+restore, and the setPipeline no-depth arm's
@@ -309,8 +413,35 @@ const CEILINGS: Record<string, number> = {
   // 1354→1364 (#1049): createPipeline fail-loud guard rejecting an unsupported nonzero
   // depthStencil.bias.clamp (gl.polygonOffset has no clamp param) — inline descriptor
   // validation at the createPipeline entry, not extractable (+10).
-  'rhi-webgl2/src/rhi-webgl2.ts': 1364,
-  'map/src/render/renderer.ts': 965,
+  // 1364→1373 (#1057): VFMT gains a `uint32` entry (the SDF point quad_id lane) and the
+  // bindAttributes glType selector grows one ternary arm to UNSIGNED_INT — both are
+  // inline table/selector entries, not extractable (+9).
+  // 1364→1376 (#1062): the 'line-list' topology seam — a Gl2Pipeline.topology field
+  // (stored from desc.topology) + a drawMode() helper picking gl.LINES vs gl.TRIANGLES,
+  // consumed by both draw / drawIndexed, so the graticule twin can draw segment pairs.
+  // Merge union (#1057 + #1062): uint32 entry AND topology seam stacked — merged
+  // high-water is the measured 1385.
+  // 965→1000 (#1062): the graticule overlay's WebGL2 seam — renderGraticuleOverlayRhi
+  // (the RHI twin of renderGraticuleOverlay, threading the canonical ECEF frame view
+  // + projection into GraticuleRenderer.renderFrameRhi) + the RhiRenderPass import.
+  // 1364→1384 (#1060): the heatmap r16float twin — ENABLE (not just detect) the
+  // EXT_color_buffer_float / EXT_float_blend extensions so the density FBO is
+  // color-renderable + blendable, plus the scalar `uint32` vertex format (the
+  // accum quad's quad_id) with its UNSIGNED_INT glType arm.
+  // Merge union (#1060 <- main): stacked growth — measured 1000.
+  'map/src/render/renderer.ts': 1000,
+  // Merge union (#1060 <- main): stacked growth — measured 1397.
+  // 1397→1404 (#1196, merge union): destroy() stashes the pre-loss
+  // WEBGL_lose_context handle on the canvas (stashGl2RestoreToken) —
+  // getExtension() is null on a lost context, so a same-canvas remount could
+  // never restore without it. Measured 1404.
+  // 1404→1436 (#1049, merge union): descriptor-parity batch — the MRT per-target
+  // blend/writeMask divergence guard (fail-loud; ES 3.00 lacks
+  // OES_draw_buffers_indexed), frontFace modeled + applied at setPipeline,
+  // UNPACK_ALIGNMENT restored to the GL default after ad-hoc uploads, and
+  // createPipeline unbinding the program after reflection. Stacked on the
+  // #1057/#1062/#1060/#1196 growth — measured 1436.
+  'rhi-webgl2/src/rhi-webgl2.ts': 1436,
   'map/src/render/gpu-tile-store.ts': 941,
   // 930→948 (#1078): the zoom-transition readiness gate now probes the SAME
   // selector the frame draws with — routeToSphereSelector picks globeVisibleTiles
@@ -366,7 +497,13 @@ const CEILINGS: Record<string, number> = {
   // motion, mesh output byte-identical; vector-tiler re-imports the three
   // consumed symbols. The extract answers INC-0's growth over the old ceiling
   // (extract, don't raise), per this gate's own message.
-  'compiler/src/tiler/vector-tiler.ts': 1546,
+  // 1546→1587 (#1221 round 2): pushLinePartWithWrap + shiftLinePartLon add the
+  // inline-tiler equivalent of geojson-vt's wrap() — a >±180-authored line also
+  // emits its ±360-shifted world-copy continuation so the beyond-seam tail lands
+  // in the wrapped tiles the renderer draws at world-copy ±1 (ADR-0006). New
+  // logic (not a formatting bump); no natural extract site (belongs beside
+  // makeLinePart in decomposeFeatures). Measured after prettier: wc -l = 1587.
+  'compiler/src/tiler/vector-tiler.ts': 1587,
   // 1409→1415 (#1066): +6 to wire validateFnCalls (unknown-callee →
   // X-GIS0012) into lower()'s diagnostics — the validation pass itself
   // lives in the new ir/validate-fncalls.ts; only the import + call +

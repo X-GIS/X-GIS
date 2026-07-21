@@ -57,9 +57,12 @@ export interface LineBatch {
 export class LineDraper {
   private readonly material: Material // non-pick: single colour target, fs_line / fs_line_pattern
   // pick pass: colour + rg32uint pick MRT. The line pick fragment writes vec2u(0,0) — lines are
-  // not pickable; the target exists only for opaque-pass MRT compatibility when picking is on (so
-  // no per-target writeMask is needed, the shader masks itself). LAZY so the non-pick path never
-  // builds the rg32uint MRT pipeline (which WebGl2Device fail-closes on).
+  // not pickable; the target exists only for opaque-pass MRT compatibility when picking is on. The
+  // pick target carries `writeMask: 0` (#1215): the fill drawn earlier in the same opaque pass wrote
+  // its real feature id into this attachment, and an unmasked (0,0) from a stroke covering the fill
+  // would CLOBBER it (interaction-controller decodes either channel = 0 as a miss), so a click on a
+  // road over a country polygon would miss. Masking pick output keeps the fill's id. LAZY so the
+  // non-pick path never builds the rg32uint MRT pipeline (which WebGl2Device fail-closes on).
   private _pickMaterial?: Material
   // offscreen translucent MAX-blend pass: fs_line_max, blend 'max', SINGLE-sample (the offscreen RT
   // is single-sample), no depth. LAZY (built on the first translucent draw).
@@ -99,7 +102,10 @@ export class LineDraper {
         ? [LINE_TILE_ENTRIES, LINE_LAYER_ENTRIES]
         : [wrapWebGpuBindGroupLayout(this.tileLayout), wrapWebGpuBindGroupLayout(this.layerLayout)],
       colorTargets: pick
-        ? [{ format: this.format as 'bgra8unorm', blend: 'alpha' }, { format: 'rg32uint' }]
+        ? [
+            { format: this.format as 'bgra8unorm', blend: 'alpha' },
+            { format: 'rg32uint', writeMask: 0 }, // #1215: strokes carry no id; masking stops (0,0) clobbering the fill's pick
+          ]
         : [{ format: this.format as 'bgra8unorm', blend: 'alpha' }],
       variants: [
         {

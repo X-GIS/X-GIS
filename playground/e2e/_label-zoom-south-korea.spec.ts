@@ -126,7 +126,7 @@ function findInkClusters(png: PNG, w: number, h: number): BBox[] {
 }
 
 // Pick the cluster whose centroid is closest to (anchorX, anchorY).
-function findLabelBBox(png: PNG, w: number, h: number): BBox | null {
+function _findLabelBBox(png: PNG, w: number, h: number): BBox | null {
   const clusters = findInkClusters(png, w, h)
   if (clusters.length === 0) return null
   // South Korea label sits south + slightly west of the camera anchor
@@ -149,7 +149,7 @@ function findLabelBBox(png: PNG, w: number, h: number): BBox | null {
   return best
 }
 
-function findInkBBox(png: PNG, w: number, h: number): BBox | null {
+function _findInkBBox(png: PNG, w: number, h: number): BBox | null {
   // Build a mask of haloed-ink pixels.
   const mask = new Uint8Array(w * h)
   for (let y = 0; y < h; y++) {

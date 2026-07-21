@@ -58,7 +58,11 @@ async function main(): Promise<void> {
       rows = []
       byHour.set(h, rows)
     }
-    rows.push({ o_code: odb.dict[odb.origin[i]!]!, d_code: odb.dict[odb.dest[i]!]!, pop: odb.pop[i]! })
+    rows.push({
+      o_code: odb.dict[odb.origin[i]!]!,
+      d_code: odb.dict[odb.dest[i]!]!,
+      pop: odb.pop[i]!,
+    })
   }
   const hours = [...byHour.keys()].sort((a, b) => a - b)
 
@@ -66,7 +70,11 @@ async function main(): Promise<void> {
     const rows = byHour.get(hour) ?? []
     const t = fromRows(rows, { vintage: gaz.vintage })
     // Double-join: mint origin.lon/lat + dest.lon/lat, then odFlow → LineString FC.
-    const j = join(join(t, { code: 'o_code', gaz, as: 'origin' }), { code: 'd_code', gaz, as: 'dest' })
+    const j = join(join(t, { code: 'o_code', gaz, as: 'origin' }), {
+      code: 'd_code',
+      gaz,
+      as: 'dest',
+    })
     odFlow(j, { origin: 'origin', dest: 'dest', weight: 'pop' }).apply(map, 'arcs')
     hourLabel.textContent = `${String(hour).padStart(2, '0')}:00`
     map.invalidate()

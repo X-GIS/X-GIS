@@ -29,46 +29,47 @@ test('ne_110m country borders render on WebGl2Device (?forcegl2=1)', async ({ pa
 
   // Poll (invalidate + readback) until stroke pixels appear — tile pop-in at
   // SwiftShader speed varies under parallel test load (same as the fills gate).
-  const readFrame = () => page.evaluate(() => {
-    const w = window as unknown as {
-      __xgisActiveBackend?: string
-      __xgisMap?: {
-        ctx?: {
-          rhi?: { backend?: string; gl?: WebGL2RenderingContext }
-          _validationErrors?: { message: string }[]
+  const readFrame = () =>
+    page.evaluate(() => {
+      const w = window as unknown as {
+        __xgisActiveBackend?: string
+        __xgisMap?: {
+          ctx?: {
+            rhi?: { backend?: string; gl?: WebGL2RenderingContext }
+            _validationErrors?: { message: string }[]
+          }
         }
       }
-    }
-    const ctx = w.__xgisMap?.ctx
-    const gl = ctx?.rhi?.gl
-    if (!gl) return { ok: false as const }
-    const W = gl.drawingBufferWidth
-    const H = gl.drawingBufferHeight
-    const buf = new Uint8Array(W * H * 4)
-    gl.readPixels(0, 0, W, H, gl.RGBA, gl.UNSIGNED_BYTE, buf)
-    const near = (i: number, c: [number, number, number], tol: number) =>
-      Math.abs(buf[i] - c[0]) < tol &&
-      Math.abs(buf[i + 1] - c[1]) < tol &&
-      Math.abs(buf[i + 2] - c[2]) < tol
-    let stroke = 0
-    let fill = 0
-    for (let p = 0; p < W * H; p++) {
-      const i = p * 4
-      // stone-400 borders; tol 12 keeps stone-200 fills (Δ≈63/side) excluded.
-      if (near(i, [168, 162, 158], 12)) stroke++
-      else if (near(i, [231, 229, 228], 14)) fill++
-    }
-    return {
-      ok: true as const,
-      backend: ctx?.rhi?.backend,
-      marker: w.__xgisActiveBackend,
-      validation: (ctx?._validationErrors ?? []).map((e) => e.message).slice(0, 5),
-      glError: gl.getError(),
-      total: W * H,
-      stroke,
-      fill,
-    }
-  })
+      const ctx = w.__xgisMap?.ctx
+      const gl = ctx?.rhi?.gl
+      if (!gl) return { ok: false as const }
+      const W = gl.drawingBufferWidth
+      const H = gl.drawingBufferHeight
+      const buf = new Uint8Array(W * H * 4)
+      gl.readPixels(0, 0, W, H, gl.RGBA, gl.UNSIGNED_BYTE, buf)
+      const near = (i: number, c: [number, number, number], tol: number) =>
+        Math.abs(buf[i] - c[0]) < tol &&
+        Math.abs(buf[i + 1] - c[1]) < tol &&
+        Math.abs(buf[i + 2] - c[2]) < tol
+      let stroke = 0
+      let fill = 0
+      for (let p = 0; p < W * H; p++) {
+        const i = p * 4
+        // stone-400 borders; tol 12 keeps stone-200 fills (Δ≈63/side) excluded.
+        if (near(i, [168, 162, 158], 12)) stroke++
+        else if (near(i, [231, 229, 228], 14)) fill++
+      }
+      return {
+        ok: true as const,
+        backend: ctx?.rhi?.backend,
+        marker: w.__xgisActiveBackend,
+        validation: (ctx?._validationErrors ?? []).map((e) => e.message).slice(0, 5),
+        glError: gl.getError(),
+        total: W * H,
+        stroke,
+        fill,
+      }
+    })
 
   let r = await readFrame()
   const deadline = Date.now() + 60_000

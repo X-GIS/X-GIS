@@ -1,0 +1,22 @@
+xgis 1
+
+/* #777 Phase II — hillshade (shaded relief) demo.
+ *
+ * A `raster-dem` source (a deterministic, offline Terrain-RGB DEM fixture — a
+ * smooth radial hill, playground/public/dem-fixture.png) drawn as shaded relief.
+ * The `raster-dem` source type routes to the HillshadeRenderer automatically
+ * (map.ts detects the `_dem` source marker); the layer needs no explicit type.
+ * The url has no {z}/{x}/{y} placeholders, so every visible tile loads the SAME
+ * local DEM — a network-free, byte-deterministic render for the hillshade gate.
+ *
+ * Unauthored paint falls back to the Mapbox defaults (direction 335°, altitude
+ * 45°, exaggeration 0.5, standard method). */
+source dem {
+  type: "raster-dem"
+  url: "/dem-fixture.png"
+  encoding: mapbox
+}
+
+layer relief {
+  source: dem
+}

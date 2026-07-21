@@ -5,8 +5,8 @@
 
 import { test, expect } from '@playwright/test'
 
-const TARGET_X = 260
-const TARGET_Y = 267
+const _TARGET_X = 260
+const _TARGET_Y = 267
 
 test('map.addEventListener("click", h) fires with event.target = layer', async ({ page }) => {
   test.setTimeout(30_000)

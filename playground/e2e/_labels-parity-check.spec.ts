@@ -15,19 +15,34 @@ import { PNG } from 'pngjs'
 import pixelmatch from 'pixelmatch'
 
 const OUT = 'test-results/labels-parity'
-const W = 600, H = 600
+const W = 600,
+  H = 600
 
 async function shoot(page: import('@playwright/test').Page, gl2: boolean): Promise<Buffer> {
   await page.setViewportSize({ width: W, height: H })
-  await page.goto(`/demo.html?id=multiline_labels&e2e=1${gl2 ? '&forcegl2=1' : ''}`, { waitUntil: 'domcontentloaded' })
+  await page.goto(`/demo.html?id=multiline_labels&e2e=1${gl2 ? '&forcegl2=1' : ''}`, {
+    waitUntil: 'domcontentloaded',
+  })
   await page.waitForFunction(() => (window as any).__xgisReady === true, null, { timeout: 35_000 })
   await page.evaluate(() => {
     ;(window as any).__xgisMap?.setSourceData?.('cities', {
       type: 'FeatureCollection',
       features: [
-        { type: 'Feature', geometry: { type: 'Point', coordinates: [-74, 40.7] }, properties: { name: 'New York City' } },
-        { type: 'Feature', geometry: { type: 'Point', coordinates: [2.35, 48.85] }, properties: { name: 'Paris Metropolitan Area' } },
-        { type: 'Feature', geometry: { type: 'Point', coordinates: [139.69, 35.68] }, properties: { name: 'Tokyo Special Wards' } },
+        {
+          type: 'Feature',
+          geometry: { type: 'Point', coordinates: [-74, 40.7] },
+          properties: { name: 'New York City' },
+        },
+        {
+          type: 'Feature',
+          geometry: { type: 'Point', coordinates: [2.35, 48.85] },
+          properties: { name: 'Paris Metropolitan Area' },
+        },
+        {
+          type: 'Feature',
+          geometry: { type: 'Point', coordinates: [139.69, 35.68] },
+          properties: { name: 'Tokyo Special Wards' },
+        },
       ],
     })
   })
@@ -66,7 +81,9 @@ test('labels webgl2 vs webgpu parity', async ({ page, context }) => {
   writeFileSync(`${OUT}/webgpu.png`, PNG.sync.write(gpu))
   writeFileSync(`${OUT}/webgl2.png`, PNG.sync.write(gl2))
   writeFileSync(`${OUT}/diff.png`, PNG.sync.write(diff))
-  console.log(`LABELS-PARITY DC=${((100 * n) / (gpu.width * gpu.height)).toFixed(3)}% maxDelta=${maxD} dims=${gpu.width}x${gpu.height}`)
+  console.log(
+    `LABELS-PARITY DC=${((100 * n) / (gpu.width * gpu.height)).toFixed(3)}% maxDelta=${maxD} dims=${gpu.width}x${gpu.height}`,
+  )
 
   // Glyph-mask invariant (background-independent): identical near-white
   // glyph cores on both backends.

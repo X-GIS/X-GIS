@@ -1,4 +1,4 @@
-// baseline: 7d0f31f566cb92bb1bba2e664f28d296e00d8879
+// baseline: 66ee6e6b7415e0b718816897eea7dddb32cbc5a3
 // fixture: positron-constant
 // variant.key: __bare-pick0__
 // pick: false
@@ -365,17 +365,20 @@ fn vs_main_ecef(@location(0) q_xy: vec4<u32>, @location(1) q_z: vec2<u32>, @loca
 
 @vertex
 fn vs_main_ecef_extruded(@location(0) q_xy: vec4<u32>, @location(1) q_z: vec2<u32>, @location(2) feature_id: f32, @location(3) abs_lon: f32, @location(4) abs_lat: f32, @location(5) face_normal: vec3<f32>, @location(6) wall_height: f32, @location(7) is_top: f32) -> VertexOutput {
-  let _cse5 = ((u.tile_origin_merc.x + (0.5 * u.tile_extent_m)) / (DEG2RAD * EARTH_R));
+  let _cse8 = ((u.tile_origin_merc.x + (0.5 * u.tile_extent_m)) / (DEG2RAD * EARTH_R));
   let _cse0 = (((project(abs_lon, abs_lat, u.proj_params) - u.tile_origin_merc) - u.cam_h) - u.cam_l);
   let _cse1 = (wall_height * is_top);
-  let _cse2 = flat_rel(abs_lon, abs_lat, u.proj_params, _cse5);
-  let _cse3 = (1.0 - u.light_dir_ecef.w);
-  let _cse4 = clamp(abs_lat, (-MERCATOR_LAT_LIMIT), MERCATOR_LAT_LIMIT);
+  let _cse2 = (u.proj_params.x < 6.5);
+  let _cse3 = flat_rel(abs_lon, abs_lat, u.proj_params, _cse8);
+  let _cse4 = radians(abs_lon);
+  let _cse5 = radians(abs_lat);
+  let _cse6 = (1.0 - u.light_dir_ecef.w);
+  let _cse7 = clamp(abs_lat, (-MERCATOR_LAT_LIMIT), MERCATOR_LAT_LIMIT);
   var _av0: vec4<f32> = vec4<f32>(0.0, 0.0, 0.0, 0.0);
   if ((u.proj_params.x < 0.5)) {
-    _av0 = (u.mvp * vec4<f32>((_cse0.x + (((floor(((_cse5 + 180.0) / 360.0)) * 2.0) * PI) * EARTH_R)), _cse0.y, _cse1, 1.0));
-  } else if ((u.proj_params.x < 6.5)) {
-    _av0 = (u.mvp * vec4<f32>(_cse2.x, _cse2.y, _cse1, 1.0));
+    _av0 = (u.mvp * vec4<f32>((_cse0.x + (((floor(((_cse8 + 180.0) / 360.0)) * 2.0) * PI) * EARTH_R)), _cse0.y, _cse1, 1.0));
+  } else if (_cse2) {
+    _av0 = (u.mvp * vec4<f32>(_cse3.x, _cse3.y, _cse1, 1.0));
   } else {
     _av0 = (u.mvp * vec4<f32>(((dequant_ecef(q_xy, q_z, u.tile_dequant_scale, u.tile_dequant_half) + vec3<f32>(u.cam_ecef_off_h.x, u.cam_ecef_off_h.y, u.cam_ecef_off_h.z)) + vec3<f32>(u.cam_ecef_off_l.x, u.cam_ecef_off_l.y, u.cam_ecef_off_l.z)), 1.0));
   }
@@ -384,13 +387,19 @@ fn vs_main_ecef_extruded(@location(0) q_xy: vec4<u32>, @location(1) q_z: vec2<u3
     _av0.y = (_av0.y - (u.fill_translate_y * _av0.w));
   }
   let _v0 = apply_log_depth(_av0, u.log_depth_fc);
-  var _av1: f32 = clamp(dot(face_normal, u.light_dir_ecef.xyz), 0.0, 1.0);
-  _av1 = mix(_cse3, max(((1.0 - (((u.fill_color.rgb.x * 0.2126) + (u.fill_color.rgb.y * 0.7152)) + (u.fill_color.rgb.z * 0.0722))) + u.light_dir_ecef.w), 1.0), _av1);
-  if (((abs(face_normal.z) < 0.5) && (u.cam_ecef_off_l.w != 0.0))) {
-    _av1 = (_av1 * clamp((is_top * sqrt((max(wall_height, 1.0) / 150.0))), mix(0.7, 0.98, _cse3), 1.0));
+  let _v1 = sin(_cse4);
+  let _v2 = cos(_cse4);
+  let _v3 = sin(_cse5);
+  let _v4 = cos(_cse5);
+  let _v5 = ((face_normal.x * _v2) + (face_normal.y * _v1));
+  let _v6 = vec3<f32>(((face_normal.y * _v2) - (face_normal.x * _v1)), ((face_normal.z * _v4) - (_v3 * _v5)), ((_v4 * _v5) + (face_normal.z * _v3)));
+  var _av1: f32 = clamp(dot(select(face_normal, _v6, _cse2), u.light_dir_ecef.xyz), 0.0, 1.0);
+  _av1 = mix(_cse6, max(((1.0 - (((u.fill_color.rgb.x * 0.2126) + (u.fill_color.rgb.y * 0.7152)) + (u.fill_color.rgb.z * 0.0722))) + u.light_dir_ecef.w), 1.0), _av1);
+  if (((abs(_v6.z) < 0.5) && (u.cam_ecef_off_l.w != 0.0))) {
+    _av1 = (_av1 * clamp((is_top * sqrt((max(wall_height, 1.0) / 150.0))), mix(0.7, 0.98, _cse6), 1.0));
   }
-  let _v1 = clamp((((u.fill_color.rgb + vec3<f32>(0.03)) * _av1) * unpack4x8unorm(u.light_color_packed).xyz), vec3<f32>(0.0), vec3<f32>(1.0));
-  return VertexOutput(vec4<f32>(_v0.x, _v0.y, (_v0.z - (u.layer_depth_offset * _v0.w)), _v0.w), 0.0, u32(feature_id), _cse4, _av0.w, is_top, (radians(abs_lon) * EARTH_R), (log(tan(((PI / 4.0) + (radians(_cse4) / 2.0)))) * EARTH_R), _cse1, vec4<f32>(_v1, u.fill_color.w));
+  let _v7 = clamp((((u.fill_color.rgb + vec3<f32>(0.03)) * _av1) * unpack4x8unorm(u.light_color_packed).xyz), vec3<f32>(0.0), vec3<f32>(1.0));
+  return VertexOutput(vec4<f32>(_v0.x, _v0.y, (_v0.z - (u.layer_depth_offset * _v0.w)), _v0.w), 0.0, u32(feature_id), _cse7, _av0.w, is_top, (_cse4 * EARTH_R), (log(tan(((PI / 4.0) + (radians(_cse7) / 2.0)))) * EARTH_R), _cse1, vec4<f32>(_v7, u.fill_color.w));
 }
 
 @fragment

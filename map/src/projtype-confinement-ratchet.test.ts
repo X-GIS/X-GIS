@@ -65,6 +65,12 @@ const BASELINE: Record<string, number> = {
   // use ECEF), and isFlat/isCylindrical are broader (true for 0/1/2), so there is no
   // membership accessor that preserves this exactly — genuinely still-blocked.
   'map/src/render/camera-anchor-dsfun.ts': 1,
+  // #777 Phase II — HillshadeRenderer mirrors RasterRenderer's two Mercator-specific
+  // `projType === 0` splits (the 2D-centre cam anchor + the flat-Mercator tile
+  // selector). Same genuinely-blocked case as raster-renderer: `=== 0` is
+  // Mercator-only, and isFlat/isCylindrical are broader (0/1/2), so no membership
+  // accessor preserves it exactly.
+  'map/src/render/hillshade-renderer.ts': 2,
   'map/src/render/prefetch-scheduler.ts': 1,
   'map/src/render/raster-renderer.ts': 2,
 }

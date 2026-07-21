@@ -54,6 +54,7 @@ function readConverterSource(): string {
     'paint-line.ts',
     'paint-fill-extrusion.ts',
     'paint-raster.ts',
+    'paint-hillshade.ts',
     'paint-helpers.ts',
     'sources.ts',
     'colors.ts',

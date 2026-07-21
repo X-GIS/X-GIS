@@ -1233,7 +1233,6 @@ export function validateSource(model: monaco.editor.ITextModel): void {
     const definedSources = new Set<string>()
     for (const stmt of program.body) {
       if (stmt.kind === 'SourceStatement') definedSources.add(stmt.name)
-      if (stmt.kind === 'LetStatement') definedSources.add(stmt.name)
     }
 
     for (const stmt of program.body) {

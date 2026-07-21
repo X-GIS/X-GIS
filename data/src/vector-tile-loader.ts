@@ -191,6 +191,7 @@ async function fetchTileWithRetry(
       // timer-fire would otherwise leave the listener lingering on the
       // signal until the controller is GC'd. Declare timer with `let`
       // first so onAbort can clear it without a TDZ hazard.
+      // eslint-disable-next-line prefer-const -- assigned once BELOW the closures that capture it; `const` cannot be assigned there
       let timer: ReturnType<typeof setTimeout>
       const onAbort = (): void => {
         clearTimeout(timer)

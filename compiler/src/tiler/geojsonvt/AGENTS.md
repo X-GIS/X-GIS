@@ -20,7 +20,7 @@ A 1:1 TypeScript port of mapbox/geojson-vt 4.0.2 (ISC license), bundled to avoid
 | `feature.ts`    | Port of `feature.js` — `createFeature` with bbox calculation.                                                                                                                                                                                                                                 |
 | `wrap.ts`       | Port of `wrap.js` — antimeridian wrapping (clip left/right world-buffer copies, shift, merge).                                                                                                                                                                                                |
 | `types.ts`      | Ported geojson-vt types (`GeoJSONVTOptions`, `TransformedTile`, `TransformedTileFeature`).                                                                                                                                                                                                    |
-| `encode-mvt.ts` | X-GIS addition: `encodeMVT` — tiled features → MVT v2.1 PBF bytes (mirrors vt-pbf output). `MVTLayerInput`/`EncodeOptions`. Output is consumed by `decodeMvtTile` (`data/src/mvt-decoder.ts`, @xgis/data) so GeoJSON and PMTiles paths converge on the same downstream pipeline.                                  |
+| `encode-mvt.ts` | X-GIS addition: `encodeMVT` — tiled features → MVT v2.1 PBF bytes (mirrors vt-pbf output). `MVTLayerInput`/`EncodeOptions`. Output is consumed by `decodeMvtTile` (`data/src/mvt-decoder.ts`, @xgis/data) so GeoJSON and PMTiles paths converge on the same downstream pipeline.              |
 
 ## For AI Agents
 

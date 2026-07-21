@@ -47,6 +47,26 @@ export const DEMOS_THEMATIC: Record<string, Demo> = {
     source: load('raster-overlay.xgis'),
   },
 
+  hillshade_terrarium: {
+    name: 'Hillshade: Grand Canyon',
+    tag: 'raster',
+    description:
+      'Shaded relief from LIVE terrain tiles (#777 Phase II): a raster-dem source streams AWS Terrain Tiles (terrarium encoding, {z}/{x}/{y}) into the HillshadeRenderer with authored paint — NW illumination (315°), 0.6 exaggeration, warm shadow/highlight palette. The real-data sibling of fixture_hillshade_local (the offline deterministic gate).',
+    source: load('hillshade-terrarium.xgis'),
+    zoom: 11,
+    center: [-112.14, 36.1],
+  },
+
+  satellite_map: {
+    name: 'Satellite Map',
+    tag: 'raster',
+    description:
+      'MapLibre example port (#1192): "Display a satellite map" — Esri World Imagery as a plain raster source (note the ArcGIS {z}/{y}/{x} path order; the tile-URL substitution is order-agnostic). Opens over the Palm Jumeirah, Dubai.',
+    source: load('satellite-map.xgis'),
+    zoom: 12.5,
+    center: [55.138, 25.112],
+  },
+
   bold_borders: {
     name: 'Bold Borders',
     tag: 'thematic',
@@ -93,6 +113,15 @@ export const DEMOS_THEMATIC: Record<string, Demo> = {
     description:
       'Full property coverage — fill/stroke color morph, dash-offset marching, cross-property keyframes. Countries heat up, coastline marches, land outline cycles amber↔sky.',
     source: load('animation-showcase.xgis'),
+  },
+
+  globe_extrusion: {
+    name: 'Globe + Extrusion',
+    tag: 'thematic',
+    description:
+      'MapLibre "Display a globe with a fill extrusion layer" port — countries extrude off the globe with per-feature population heights (fill-extrusion-height-[.POP_EST / 4000000], globe via Demo.projection)',
+    source: load('globe-extrusion.xgis'),
+    projection: 'globe',
   },
 
   coverage_bathymetry: {

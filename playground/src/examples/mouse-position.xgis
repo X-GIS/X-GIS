@@ -1,0 +1,23 @@
+xgis 1
+
+/*
+ * Port of MapLibre's "Get coordinates of the mouse pointer" (#1192).
+ *
+ * The .xgis is a plain world base; demo-runner installs a small badge
+ * (bottom-right of the map pane) that shows the live lon/lat under the
+ * cursor via map.unproject() on every pointermove — the MapLibre
+ * original's `map.on('mousemove', e => ...)` + `<pre>` readout, ported
+ * as generic Demo.mousePosition metadata. Unlike the picking overlay's
+ * hover line (which only fires over a hit feature), this readout tracks
+ * the cursor everywhere over the map, matching the original example.
+ */
+
+source world {
+  type: geojson
+  url: "ne_110m_countries.geojson"
+}
+
+layer countries {
+  source: world
+  | fill-slate-700 stroke-slate-400 stroke-0.5
+}

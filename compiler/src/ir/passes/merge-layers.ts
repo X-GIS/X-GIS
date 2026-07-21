@@ -324,7 +324,7 @@ function mergeLayers(scene: Scene): Scene {
         : compoundStrokeColorExpr
           ? 'per-feature stroke'
           : 'shared stroke'
-      // eslint-disable-next-line no-console
+
       console.log(
         `[xgis merge] ${compound.name}: folded ${group.length} layers ` +
           `(${memberNames}) — ${widthInfo}, ${colorInfo}`,

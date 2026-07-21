@@ -133,7 +133,7 @@ export function parseFormatSpec(input: string): ParseResult {
   }
 
   // [width] — digit run
-  let widthStart = i
+  const widthStart = i
   while (i < input.length && isDigit(input[i] ?? '')) i += 1
   if (i > widthStart) spec.width = parseInt(input.slice(widthStart, i), 10)
 

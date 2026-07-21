@@ -178,11 +178,7 @@ export interface TextDrawSpec<D> {
 
 /** Any retained batch spec accepted by `map.graphics.add` — discriminated by `type`. */
 export type DrawSpec<D> =
-  | IconDrawSpec<D>
-  | ArrowDrawSpec<D>
-  | CircleDrawSpec<D>
-  | ParticleFlowDrawSpec<D>
-  | TextDrawSpec<D>
+  IconDrawSpec<D> | ArrowDrawSpec<D> | CircleDrawSpec<D> | ParticleFlowDrawSpec<D> | TextDrawSpec<D>
 
 /** Handle to a live retained batch. `D` is the datum type the batch was authored
  *  over; it defaults to `unknown` so a bare `DrawHandle` reference stays valid. */

@@ -1,4 +1,4 @@
-import { test, expect, type ConsoleMessage } from '@playwright/test'
+import { test, expect, type _ConsoleMessage } from '@playwright/test'
 import { captureCanvas, hashScreenshot, colorHistogram, type ColorBucket } from './helpers/visual'
 
 // ═══ X-GIS animation regression suite ═══

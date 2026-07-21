@@ -6,9 +6,9 @@
 
 ## 0. TL;DR
 
-The renderer and the layer system are complete. A host **can** already get *fully custom data* onto the
+The renderer and the layer system are complete. A host **can** already get _fully custom data_ onto the
 map imperatively (stub-declare `source x { type: geojson, url: "" }` → `setSourceData(x, fc)`); what it
-**cannot** do is introduce a custom *type* **declaratively** in `.xgis`, carrying the source's own fields.
+**cannot** do is introduce a custom _type_ **declaratively** in `.xgis`, carrying the source's own fields.
 This doc proposes the smallest primitive that closes THAT gap — a declarative front door, not new
 capability: a **per-map source-loader registry** — `new XGISMap(canvas, { sources: { 'x-kr-admin':
 loaderFn } })` — consulted by the existing source dispatch when a declared `type` is not a built-in. It
@@ -18,6 +18,7 @@ OpenLayers `source`/`format`. The `@xgis/pipeline` layer (gazetteer join + encod
 producer** that plugs into it; `.apply(sink, id)` remains the imperative path.
 
 **Review-reflection notes (both reviews landed; findings folded in — see §3.3 / §4 / §9):**
+
 1. This is deliberately ONE seam, not a plugin system. Lifecycle/ordering/teardown hooks or a layer-type
    registry are scope creep — deferred. The bar is: can a host load a custom source declaratively? Nothing more.
 2. The seam must not leak into `@xgis/engine`. The registry lives in `@xgis/map`; the compiler options-bag
@@ -26,7 +27,7 @@ producer** that plugs into it; `.apply(sink, id)` remains the imperative path.
 3. **Two first-draft claims were REFUTED by the code and are corrected here:** (a) the `type` enum is NOT a
    compile gate — free-form types already lower (§4); (b) a bare `rawDatasets.set` seed renders BLANK — the
    loader output must route through `_attachGeoJSONViaVirtualPMTiles` (§3.3). The design survived both and got
-   *smaller* (no enum edit; single attach path).
+   _smaller_ (no enum edit; single attach path).
 
 ---
 
@@ -36,24 +37,24 @@ The host has a complete render + layer system but no way to introduce a source t
 Grounded in the current tree:
 
 - **`.xgis` source types are closed by CONVENTION, not by a compile gate.** `SOURCE_TYPES =
-  ['geojson','pmtiles','raster','tilejson','vector','raster-dem','binary']`
+['geojson','pmtiles','raster','tilejson','vector','raster-dem','binary']`
   (`compiler/src/schema/language.ts:59`) is declared a schema enum (`:101`), but that schema is consumed
   ONLY by blueprint tooling — `lowerSource` accepts any `type` identifier with no `SOURCE_TYPES` check
   (`compiler/src/ir/lower.ts:135-136`, verified). An 8th `type:` **lowers fine**; it just has no loader,
-  falls into the geojson branch, and crashes on `.features`. The gap is a *missing loader*, not a barrier.
+  falls into the geojson branch, and crashes on `.features`. The gap is a _missing loader_, not a barrier.
 - **Programmatic add-source is an explicit stub.** `map.addSource(_id, _source)` calls
   `_warnUnsupported('addSource', 'Declare the source in your .xgis source / use attachPMTilesSource…')`
   (`map/src/map.ts:1321`) — underscore params, no body. There is no imperative way to introduce a source
   either.
-- **A prior architecture audit already found this.** *"No plugin API … no registration surface in
-  `runtime/src`"* (`docs/research/arch-reckoning-2026-06-08/A6-contracts-axes.md:173`).
+- **A prior architecture audit already found this.** _"No plugin API … no registration surface in
+  `runtime/src`"_ (`docs/research/arch-reckoning-2026-06-08/A6-contracts-axes.md:173`).
 - **The only open imperative seam UPDATES an already-declared source.** `setSourceData` /
-  `setSourcePoints` fill the data of a source that was *declared first* (the inline-placeholder branch,
+  `setSourcePoints` fill the data of a source that was _declared first_ (the inline-placeholder branch,
   `source-manager.ts` `load.url === ''` → empty FeatureCollection, "host pushes data later"). That is
   what `@xgis/pipeline`'s `.apply()` uses — it still requires a `source X { type: geojson }` stub in the
-  `.xgis`. It cannot mint a *new* source, and cannot express *how* custom bytes decode.
+  `.xgis`. It cannot mint a _new_ source, and cannot express _how_ custom bytes decode.
 
-**Net:** the sole way to *introduce* a source is the `.xgis` declaration, and its type vocabulary is
+**Net:** the sole way to _introduce_ a source is the `.xgis` declaration, and its type vocabulary is
 closed. Custom / public data has no declarative on-ramp.
 
 ---
@@ -87,7 +88,7 @@ Two concrete anchors the seam hooks into:
   `load.url === ''` → inline placeholder · else → `safeFetch` GeoJSON. **The custom-loader branch inserts
   here**, keyed on `declaredType ∉ builtins`.
 
-Neither carrier presently transports the *extra* fields a custom source needs (a `kr-admin` loader wants
+Neither carrier presently transports the _extra_ fields a custom source needs (a `kr-admin` loader wants
 `code`, `gaz`, …). `SourceDef` and the source schema (`language.ts:99-103`) know only
 `name/type/url/layers`; `extractSource`/`lowerSource` drop everything else. **Carrying an opaque options
 bag for custom types is the second half of the change.**
@@ -102,7 +103,10 @@ bag for custom types is the second half of the change.**
 new XGISMap(canvas, {
   sources: {
     // key = the .xgis `type:` VERBATIM, incl. the `x-` (§4). Blessed loaders take typed params, not the bag (§6).
-    'x-kr-admin': krAdminLoader(seoulSigunguGazetteer({ vintage: '2026' }), { codeColumn: 'gu', valueColumn: 'out' }),
+    'x-kr-admin': krAdminLoader(seoulSigunguGazetteer({ vintage: '2026' }), {
+      codeColumn: 'gu',
+      valueColumn: 'out',
+    }),
   },
 })
 ```
@@ -123,10 +127,10 @@ interface SourceLoader {
   (ctx: SourceLoadContext): Promise<SourceLoadResult>
 }
 interface SourceLoadContext {
-  readonly id: string                               // the source name
-  readonly url: string                              // resolved (base-joined) url, '' if none
-  readonly options: Readonly<Record<string, string | number | readonly string[]>>  // the opaque bag (§5)
-  readonly fetch: (url: string) => Promise<Response>  // host-injected, SSRF-guarded (safeFetch)
+  readonly id: string // the source name
+  readonly url: string // resolved (base-joined) url, '' if none
+  readonly options: Readonly<Record<string, string | number | readonly string[]>> // the opaque bag (§5)
+  readonly fetch: (url: string) => Promise<Response> // host-injected, SSRF-guarded (safeFetch)
 }
 // Discriminant matches the pipeline's `EncodeResult.kind` EXACTLY ('fc' | 'points'), so a pipeline
 // loader returns its `EncodeResult` almost verbatim (api-review F5). `FeatureCollectionLike` is
@@ -135,8 +139,7 @@ interface SourceLoadContext {
 // attach via the SAME FC path today (points → `pointPatchToFeatureCollection`, map.ts:4047); NO separate
 // fast path is claimed (architect Finding C — `setSourcePoints` already collapses to `setSourceData`).
 type SourceLoadResult =
-  | { kind: 'fc';     data: FeatureCollectionLike }
-  | { kind: 'points'; data: PointPatch }
+  { kind: 'fc'; data: FeatureCollectionLike } | { kind: 'points'; data: PointPatch }
 ```
 
 Tile-producing custom loaders (a custom vector-tile archive → the `attachPMTilesSource` path) are
@@ -151,27 +154,28 @@ retained field, threaded from `new SourceManager({ … })` (`map/src/map.ts:934`
 
 ### 3.3 Runtime wiring (route through the geojson attach path, not a bare seed)
 
-Hoisted to **immediately after** `const declaredType = load.type` (`source-manager.ts:217`) — *before* the
+Hoisted to **immediately after** `const declaredType = load.type` (`source-manager.ts:217`) — _before_ the
 raster / vector-tile / inline heuristics (`:224`/`:225`/`:319`), because the registry is the authority and a
 custom type whose URL happens to look like a tile template (`{z}/{x}/{y}`) or end in `.pmtiles` must not be
 hijacked into the raster / `attachPMTilesSource` branch (**architect Finding D**):
 
 ```ts
-const custom = this.sourceLoaders?.[declaredType]          // per-map registry — a threaded dep (§3.4)
+const custom = this.sourceLoaders?.[declaredType] // per-map registry — a threaded dep (§3.4)
 if (custom) {
   const result = await custom({ id: load.name, url, options: load.options ?? {}, fetch: safeFetch })
-  const fc = result.kind === 'points'
-    ? pointPatchToFeatureCollection(result.data)           // points = sugar (@xgis/data helper, used at map.ts:4047)
-    : result.data
-  await this._attachGeoJSONViaVirtualPMTiles(load.name, fc, maps, cameraFitState)   // the geojson branch's ACTUAL store
+  const fc =
+    result.kind === 'points'
+      ? pointPatchToFeatureCollection(result.data) // points = sugar (@xgis/data helper, used at map.ts:4047)
+      : result.data
+  await this._attachGeoJSONViaVirtualPMTiles(load.name, fc, maps, cameraFitState) // the geojson branch's ACTUAL store
   return
 }
 ```
 
-The output routes through **`_attachGeoJSONViaVirtualPMTiles`** (`source-manager.ts:457`) — the *exact* path
+The output routes through **`_attachGeoJSONViaVirtualPMTiles`** (`source-manager.ts:457`) — the _exact_ path
 the GeoJSON-URL branch uses (`:377`): it tiles via `VirtualPMTilesBackend`, reprojects, runs
 cap-pole/heatmap/camera-fit, and registers in `vtSources`/`rawDatasets`. That is what makes "renders
-identically" TRUE **and** earns the §7 no-teardown cut *by reuse* — a source attached this way is
+identically" TRUE **and** earns the §7 no-teardown cut _by reuse_ — a source attached this way is
 indistinguishable from a built-in, so `setSourceData`/`updateFeature`/`teardownSource`/pick all work for
 free. ⚠️ **A bare `rawDatasets.set(id, fc)` seed renders a BLANK frame** (real-GPU-verified,
 `source-manager.ts:193-196`); an earlier draft's wiring was refuted on exactly this and on a non-existent
@@ -183,7 +187,7 @@ free. ⚠️ **A bare `rawDatasets.set(id, fc)` seed renders a BLANK frame** (re
 
 ⚠️ **Correcting the first draft (architect Finding A, CONFIRMED against the code).** The `SOURCE_TYPES`
 enum (`language.ts:101`) is **not enforced on the `map.run()` path**: `lowerSource` sets `type =
-prop.value.name` for *any* identifier with no check (`compiler/src/ir/lower.ts:135-136`), and the enum's
+prop.value.name` for _any_ identifier with no check (`compiler/src/ir/lower.ts:135-136`), and the enum's
 only non-test consumer is the blueprint node-palette (`blueprint/src/types.ts:12`) — nothing in
 parse / lower / emit / runtime. So **`type: kr-admin` already lowers today** to `SourceDef.type='kr-admin'`;
 there is no compile gate to "open." The compiler change therefore **shrinks to the options bag alone**
@@ -210,12 +214,12 @@ source flows {
   case). This is the real typo-guard; without it an unknown type falls into the geojson branch and crashes
   on `.features` (the hazard `emit-commands.ts:19-25` already warns about).
 - **Registry key = the `.xgis` `type:` string, VERBATIM.** The dispatch looks up
-  `sourceLoaders[load.type]`, so the option key must equal the declared type *including the `x-`*
+  `sourceLoaders[load.type]`, so the option key must equal the declared type _including the `x-`_
   (`{ 'x-kr-admin': … }`, **not** `{ 'kr-admin': … }` — corrects the first draft's §3.1 mismatch,
   **api-review B2**). This three-way string contract (`.xgis` `type:` ↔ option key ↔ dispatch) is invisible
   to the type system (**api-review F3**); the loud registered-keys error is its only guard.
-- **`x-*` is a convention that earns its keep in tooling only.** Adding `x-*` to the *blueprint* schema
-  gives the node palette a custom-source lane + a typo hint *there* — it is NOT a `map.run()` gate (there is
+- **`x-*` is a convention that earns its keep in tooling only.** Adding `x-*` to the _blueprint_ schema
+  gives the node palette a custom-source lane + a typo hint _there_ — it is NOT a `map.run()` gate (there is
   none). Recommended for author honesty; optional to Phase 1. The open-enum-plus-warn alternative (§10 Q2)
   is moot: the enum already imposes no `map.run()` barrier.
 
@@ -231,13 +235,13 @@ compiler change that REMAINS (the enum does not — §4). The minimal plumbing:
   key (`name/type/url/data/layers/crs`) is a **compiler error**, not a silent shadow (**api-review F7** —
   else a user field named `url` is swallowed by the built-in lowering).
 - **Lower** — `lowerSource` collects the non-reserved props into `SourceDef.options?: Record<string,
-  string|number|readonly string[]>`. A pure additive IR field; built-ins leave it undefined (byte-identical
+string|number|readonly string[]>`. A pure additive IR field; built-ins leave it undefined (byte-identical
   lowering — the §9 gate, achievable exactly as the existing additive `crs?`/`inlineData?` fields are,
   `render-node.ts:73-82`).
 - **Emit** — `LoadCommand` carries `options?` through verbatim (additive field).
 - **Runtime** — the dispatch passes `load.options` into the loader `ctx.options`.
 
-**The bag is an ESCAPE HATCH, not the blessed path (api-review F4).** A blessed loader takes *typed*
+**The bag is an ESCAPE HATCH, not the blessed path (api-review F4).** A blessed loader takes _typed_
 constructor params (`krAdminLoader(gaz, { codeColumn, valueColumn })`, §6) so a missing/mistyped column
 fails at construction, not deep inside `join` with the wrong blame. `ctx.options` is for fully-dynamic
 loaders that read fields from `.xgis` at attach time; those own their validation. `gaz` is never a live
@@ -253,13 +257,16 @@ The pipeline's join+encode **is** a loader body. A thin adapter turns the compos
 ```ts
 // @xgis/pipeline/loaders — a source loader backed by the gazetteer join + bubble encoder.
 // TYPED params (not the ctx.options bag) → a missing/mistyped column fails HERE, not deep in join (F4).
-function krAdminLoader(gaz: Gazetteer, cols: { codeColumn: string; valueColumn: string }): SourceLoader {
+function krAdminLoader(
+  gaz: Gazetteer,
+  cols: { codeColumn: string; valueColumn: string },
+): SourceLoader {
   return async ({ url, fetch }) => {
     const text = await (await fetch(url)).text()
-    const t    = fromCSV(text, { vintage: gaz.vintage, types: { [cols.codeColumn]: 'string' } })
-    const j    = join(t, { code: cols.codeColumn, gaz, as: 'o' })
-    const enc  = bubble(j, { lon: 'o.lon', lat: 'o.lat', value: cols.valueColumn })
-    return { kind: 'fc', data: enc.toFeatureCollection() }   // SHIPPED EncodeResult API — NO toPointPatch (B1)
+    const t = fromCSV(text, { vintage: gaz.vintage, types: { [cols.codeColumn]: 'string' } })
+    const j = join(t, { code: cols.codeColumn, gaz, as: 'o' })
+    const enc = bubble(j, { lon: 'o.lon', lat: 'o.lat', value: cols.valueColumn })
+    return { kind: 'fc', data: enc.toFeatureCollection() } // SHIPPED EncodeResult API — NO toPointPatch (B1)
   }
 }
 ```
@@ -294,8 +301,8 @@ it gives the pipeline a declarative front door.
 
 - **Not a plugin framework.** One registration point with a fixed contract. (The general plugin idea was
   cut as YAGNI in `data-to-viz-pipeline.md §2b`; that judgment stands.)
-- **Not a custom-renderer / custom-layer seam.** Custom sources produce the *existing* payloads; they do
-  not introduce new draw paths. A custom *renderer* is out of scope, forever unless separately justified.
+- **Not a custom-renderer / custom-layer seam.** Custom sources produce the _existing_ payloads; they do
+  not introduce new draw paths. A custom _renderer_ is out of scope, forever unless separately justified.
 - **Not a compile-time-knows-runtime coupling.** The compiler never learns the registered names; it only
   admits the `x-*` lane. The runtime registry is the sole authority on resolution.
 
@@ -308,7 +315,7 @@ it gives the pipeline a declarative front door.
   `SourceDef`/`LoadCommand` `options?` bag with reserved-field guard (additive, built-in lowering
   byte-identical) · the one **hoisted** dispatch branch routing through `_attachGeoJSONViaVirtualPMTiles` ·
   **one worked loader** (`krAdminLoader`) rendering the Seoul sample from a declared `source { type:
-  x-kr-admin }`, proven real-GPU headed. **No enum edit** (there is no gate — §4). Nothing else.
+x-kr-admin }`, proven real-GPU headed. **No enum edit** (there is no gate — §4). Nothing else.
 - **Phase 2:** more pipeline-backed loaders (choropleth / odFlow) · a `crs` pass-through so a custom
   loader can emit projected coordinates into the existing `_reprojectIngest` path · the `x-*` blueprint
   schema lane + a loader-`kind`×layer-type mismatch diagnostic (**api-review F8**) · error-surface polish.
@@ -333,7 +340,7 @@ bug (bare `type: x-kr-admin` silently fell back to `geojson`); custom types are 
 2. **`x-*` convention** — adopt `x-*` naming (blueprint-palette honesty + a greppable custom lane) or leave
    `type` fully free-form? Recommended: adopt as convention only — NOT a compile gate (there is none, §4);
    the runtime registered-keys error is the sole real guard either way.
-3. **Loader adapter home** — `@xgis/pipeline/loaders` (against a *structural* `SourceLoader` type, so the
+3. **Loader adapter home** — `@xgis/pipeline/loaders` (against a _structural_ `SourceLoader` type, so the
    leaf never imports `@xgis/map` — same trick as `PipelineSink`) vs a tiny `@xgis/map`-side adapter.
    Leaning: pipeline owns it, structurally (Finding E satisfied — the single-FC result carries only
    `@xgis/shared` types).
@@ -346,8 +353,8 @@ bug (bare `type: x-kr-admin` silently fell back to `geojson`); custom types are 
 ## 11. ADR summary (for `docs/adr/0011-*` on ratification)
 
 - **Context.** X-GIS renders and lays out completely. A host can already get custom data onto the map
-  *imperatively* (stub-declare + `setSourceData`), but there is no **declarative** on-ramp for a custom
-  source *type* in `.xgis`: the `type` vocabulary is closed by convention (the `SOURCE_TYPES` enum is
+  _imperatively_ (stub-declare + `setSourceData`), but there is no **declarative** on-ramp for a custom
+  source _type_ in `.xgis`: the `type` vocabulary is closed by convention (the `SOURCE_TYPES` enum is
   consumed only by blueprint tooling — `lowerSource` accepts any identifier, verified), `addSource` is an
   explicit no-op, and no registration surface exists (audit-confirmed). The gap is ergonomic-declarative,
   and it is the biggest for the "load any data" goal.
@@ -361,7 +368,7 @@ bug (bare `type: x-kr-admin` silently fell back to `geojson`); custom types are 
   not a `map.run()` gate; the runtime registered-keys error is the authority. `@xgis/pipeline` supplies the
   first loader (typed constructor params, not the opaque bag); `.apply()` remains the imperative path.
 - **Consequences.** (+) The declarative language becomes extensible without a plugin framework; engine
-  content-blind; one seam, fixed contract; the pipeline gets a declarative front door by *reusing* the
+  content-blind; one seam, fixed contract; the pipeline gets a declarative front door by _reusing_ the
   attach path (teardown/update/pick fall out free). (−) A compiler + map change (additive) and a public
   contract to keep stable for 5 years — mitigated by scalars-only options, a reserved-field compiler guard,
   and a byte-identical-lowering gate. (Δ) A purely-imperative alternative exists (implement the dead

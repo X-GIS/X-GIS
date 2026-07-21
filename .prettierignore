@@ -20,3 +20,7 @@ scripts/gap-matrix.md
 **/*.geojson
 **/*.pbf
 **/*.png
+
+# Generator-owned coverage report — the emitter is the single format authority
+# (a prettier reflow here just gets rewritten by the next full vitest run).
+compiler/src/__tests__/__coverage__/SUMMARY.md
