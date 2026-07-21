@@ -270,6 +270,11 @@ export const galleryCategories: Category[] = [
         title: 'Bucket order',
         body: 'Translucent stroke declared before opaque fill — the bucket scheduler still renders opaque first and composites the stroke on top.',
       },
+      {
+        id: 'line-antimeridian',
+        title: 'Antimeridian line',
+        body: 'A LineString authored across 180° with >180 longitudes — great-circle subdivision keeps the world-copy continuation instead of a seam streak.',
+      },
     ],
   },
   {

@@ -71,6 +71,7 @@ const GALLERY_DEMOS = [
   'translucent_lines',
   'multi_layer_line',
   'bucket_order',
+  'line_antimeridian',
   // Symbols & points
   'custom_symbol',
   'custom_shapes',
