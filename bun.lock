@@ -88,6 +88,7 @@
       "version": "0.0.1",
       "dependencies": {
         "@webgpu/types": "^0.1.69",
+        "@xgis/rhi": "workspace:*",
         "@xgis/rhi-webgl2": "workspace:*",
         "@xgis/rhi-webgpu": "workspace:*",
         "earcut": "^3.0.2",

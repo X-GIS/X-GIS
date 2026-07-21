@@ -51,6 +51,15 @@ export const DEMOS_CORE: Record<string, Demo> = {
     picking: true,
   },
 
+  mouse_position: {
+    name: 'Mouse Position',
+    tag: 'event',
+    description:
+      'MapLibre "Get coordinates of the mouse pointer" port (#1192) — a badge tracks the live lon/lat under the cursor via map.unproject() on every pointermove, independent of hovering a feature.',
+    source: load('mouse-position.xgis'),
+    mousePosition: true,
+  },
+
   categorical: {
     name: 'Categorical Colors',
     tag: 'per-feature',
