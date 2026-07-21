@@ -47,11 +47,21 @@ export const DEMOS_STYLE: Record<string, Demo> = {
     name: 'Fly To',
     tag: 'style',
     description:
-      'MapLibre "Fly to a location" port — action buttons call map.flyTo({center, zoom}) at runtime',
+      'MapLibre "Fly to a location" + "Slowly fly to a location" ports (#1256) — action buttons call the real animated map.flyTo (van Wijk–Nuij zoom-out-in arc) and map.easeTo at runtime. "Slow" passes speed:0.2; any pan/zoom/keyboard gesture aborts the flight mid-air.',
     source: load('fly-to.xgis'),
     actions: [
       { label: 'Seoul', run: (m) => m.flyTo({ center: [126.978, 37.5665], zoom: 8 }) },
       { label: 'Paris', run: (m) => m.flyTo({ center: [2.3522, 48.8566], zoom: 8 }) },
+      // "Slowly fly to a location" — the slow variant is flyTo with a low speed.
+      {
+        label: 'Tokyo (slow)',
+        run: (m) => m.flyTo({ center: [139.69, 35.68], zoom: 8, speed: 0.2 }),
+      },
+      // easeTo — a single eased move in place (no zoom-out arc).
+      {
+        label: 'Ease NYC',
+        run: (m) => m.easeTo({ center: [-74.006, 40.712], zoom: 8, duration: 2000 }),
+      },
       { label: 'World', run: (m) => m.flyTo({ center: [0, 0], zoom: 0.5 }) },
     ],
   },

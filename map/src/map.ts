@@ -59,6 +59,7 @@ import { QUALITY, updateQuality, type QualityConfig } from '@xgis/engine'
 import { GPUTimer } from '@xgis/rhi-webgpu'
 import { Camera } from './camera'
 import { CameraController } from './camera-controller'
+import type { EaseToOptions, FlyToOptions } from './camera-animation'
 import { injectFocusStyle, setupCanvasA11y, handleMapKeyDown } from './map-accessibility'
 import { showWebGPUUnavailableDefault } from './map-webgpu-unavailable'
 import { ViewportModeController } from './render/viewport-mode-controller'
@@ -1316,6 +1317,7 @@ export class XGISMap {
       destroyed: this._destroyed,
       camera: this.cameraController,
       onInteract: () => {
+        this.cameraController.cancelAnimation() // keyboard nav supersedes easeTo/flyTo
         this._cameraExplicitlyPositioned = true
         this.markInteracting()
       },
@@ -1553,30 +1555,19 @@ export class XGISMap {
     setEngineLogSink(sink)
   }
 
-  /** Mapbox-API parity: animated camera variants. X-GIS has no
-   *  transition infra yet, so both alias to jumpTo (instant) inside
-   *  CameraController. */
-  easeTo(opts: {
-    center?: [number, number]
-    zoom?: number
-    bearing?: number
-    pitch?: number
-    duration?: number
-    easing?: unknown
-  }): void {
+  /** Mapbox-API parity: ANIMATED camera variants (#1256). `easeTo` eases
+   *  center/zoom/bearing/pitch in place; `flyTo` follows the van Wijk–Nuij
+   *  optimal zoom-out-in path. Both drive jumpTo each frame (single mutation
+   *  authority), cancel on user gesture, and settle byte-identically to
+   *  jumpTo(target); prefers-reduced-motion collapses them to an instant jump.
+   *  The explicit-positioned flag + CAMERA tag are set once at call time — the
+   *  per-frame jumpTo re-tags CAMERA as the transition advances. */
+  easeTo(opts: EaseToOptions): void {
     this.cameraController.easeTo(opts)
     this._cameraExplicitlyPositioned = true
     this._dirty.tag(DirtyDomain.CAMERA)
   }
-  flyTo(opts: {
-    center?: [number, number]
-    zoom?: number
-    bearing?: number
-    pitch?: number
-    duration?: number
-    speed?: number
-    curve?: number
-  }): void {
+  flyTo(opts: FlyToOptions): void {
     this.cameraController.flyTo(opts)
     this._cameraExplicitlyPositioned = true
     this._dirty.tag(DirtyDomain.CAMERA)
@@ -2275,6 +2266,10 @@ export class XGISMap {
         // auto-snap so the user doesn't get yanked back to whole-world
         // view when the next tile compile lands.
         onPointerDown: (x, y, e) => {
+          // MapLibre semantics: a user gesture supersedes an in-flight
+          // easeTo/flyTo — abort it so the pointer takes over the camera
+          // (leaving it where the transition had reached, not snapped to target).
+          this.cameraController.cancelAnimation()
           this._cameraExplicitlyPositioned = true
           this._pointerActive = true
           this.markInteracting()
@@ -2291,6 +2286,7 @@ export class XGISMap {
           dispatcher.handlePointerLeave(e)
         },
         onWheel: (x, y, e) => {
+          this.cameraController.cancelAnimation() // gesture supersedes easeTo/flyTo
           this._cameraExplicitlyPositioned = true
           this.markInteracting()
           dispatcher.handleWheel(x, y, e) // rAF-coalesced + sync; nothing to catch

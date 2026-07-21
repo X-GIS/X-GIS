@@ -6,6 +6,17 @@
 
 import type { CameraController } from './camera-controller'
 
+/** prefers-reduced-motion probe — the guard the `handleMapKeyDown` comment
+ *  below anticipated for animated navigation. `easeTo`/`flyTo` consult this and
+ *  collapse to an instant `jumpTo(target)` when the OS "reduce motion" setting is
+ *  on, so motion-sensitive users get the destination without the transition.
+ *  Guarded for non-DOM hosts (SSR / node / test → false: no animation infra to
+ *  suppress), mirroring the `typeof document` / `typeof window` guards here. */
+export function prefersReducedMotion(): boolean {
+  if (typeof matchMedia !== 'function') return false
+  return matchMedia('(prefers-reduced-motion: reduce)').matches
+}
+
 /** Inject a single shared stylesheet that draws a focus ring on any X-GIS
  *  canvas — only when keyboard-driven (`:focus-visible`), so a pointer click
  *  doesn't show the ring. Module-once via the `injected` guard flag; targets

@@ -21,6 +21,15 @@ import { WORLD_MERC, TILE_PX } from '@xgis/geo'
 import { canvasEffectiveDpr, effectiveDpr } from '@xgis/engine'
 import { lonLatToMercator } from '@xgis/data'
 import { xlog, activeBody } from '@xgis/shared'
+import {
+  CameraAnimator,
+  defaultNow,
+  defaultRaf,
+  defaultCancelRaf,
+  type EaseToOptions,
+  type FlyToOptions,
+} from './camera-animation'
+import { prefersReducedMotion } from './map-accessibility'
 
 /** Dependencies CameraController needs from the host XGISMap. */
 export interface CameraControllerDeps {
@@ -34,6 +43,17 @@ export interface CameraControllerDeps {
    *  the padding-adjusted zoom fit — kept distinct from `getCanvas` so
    *  the pre-init fallback (→ 800) stays byte-identical. */
   getCtxCanvas(): HTMLCanvasElement | undefined
+  // ── easeTo/flyTo animation clock (all optional; default to real browser
+  //    infra). Injected so a stepped-clock unit test drives the transition to
+  //    completion deterministically. ──
+  /** Monotonic ms clock. Default performance.now. */
+  now?(): number
+  /** Schedule a frame; returns null when no frame source exists. Default rAF. */
+  raf?(cb: (t: number) => void): number | null
+  /** Cancel a scheduled frame. Default cancelAnimationFrame. */
+  cancelRaf?(handle: number): void
+  /** prefers-reduced-motion probe. Default reads matchMedia (map-accessibility). */
+  prefersReducedMotion?(): boolean
 }
 
 export class CameraController {
@@ -41,12 +61,44 @@ export class CameraController {
   private readonly invalidate: () => void
   private readonly getCanvas: () => HTMLCanvasElement
   private readonly getCtxCanvas: () => HTMLCanvasElement | undefined
+  /** easeTo/flyTo transition driver. Drives THIS controller's jumpTo each
+   *  frame (single mutation authority) — see camera-animation.ts. */
+  private readonly animator: CameraAnimator
 
   constructor(camera: Camera, deps: CameraControllerDeps) {
     this.camera = camera
     this.invalidate = deps.invalidate
     this.getCanvas = deps.getCanvas
     this.getCtxCanvas = deps.getCtxCanvas
+    this.animator = new CameraAnimator({
+      getPose: () => this.getCameraState(),
+      // Single authority: every animation frame drives the SAME jumpTo the
+      // gesture / programmatic paths use, so keep-warm + move/zoom lifecycle
+      // events re-arm through the injected invalidate for free.
+      applyCameraOpts: (o) => this.jumpTo(o),
+      getViewport: () => this._viewportCss(),
+      getProjType: () => this.camera.projType,
+      prefersReducedMotion: deps.prefersReducedMotion ?? prefersReducedMotion,
+      now: deps.now ?? defaultNow,
+      raf: deps.raf ?? defaultRaf,
+      cancelRaf: deps.cancelRaf ?? defaultCancelRaf,
+    })
+  }
+
+  /** Viewport in CSS px for the van Wijk w0 span. Reads the active canvas
+   *  defensively (the validation-test harness's getCanvas throws, and flyTo
+   *  never reaches here for an invalid center); falls back to 800×600 (the same
+   *  pre-init default fitBounds uses) when no canvas is available. */
+  private _viewportCss(): { width: number; height: number } {
+    let canvas: HTMLCanvasElement | undefined
+    try {
+      canvas = this.getCanvas()
+    } catch {
+      canvas = undefined
+    }
+    if (!canvas || !canvas.width) return { width: 800, height: 600 }
+    const dpr = this._dpr(canvas)
+    return { width: canvas.width / dpr, height: canvas.height / dpr }
   }
 
   /** Mapbox-API parity: programmatic camera control.
@@ -309,34 +361,37 @@ export class CameraController {
     })
   }
 
-  /** Mapbox-API parity: `easeTo` and `flyTo` are the animated variants
-   *  of jumpTo in MapLibre GL JS. X-GIS has no transition infra yet, so
-   *  both alias to jumpTo (instant) — same final camera state, just no
-   *  smooth interpolation along the way. Callers porting MapLibre code
-   *  compile unchanged; behaviour degrades gracefully to a jump.
+  /** Mapbox-API parity: `easeTo` / `flyTo` — the ANIMATED variants of jumpTo
+   *  (#1256). Both drive this controller's jumpTo each frame (single mutation
+   *  authority) via the shared CameraAnimator, cancel on any user gesture (the
+   *  map wires the controller pointer/wheel handlers to `cancelAnimation`),
+   *  supersede on a new call, and settle EXACTLY on the target (final frame
+   *  byte-identical to jumpTo(target)). With prefers-reduced-motion set — or no
+   *  frame source (SSR/node) — they collapse to an instant jumpTo(target).
    *
-   *  When animation lands, these become real eased / fly transitions
-   *  and the alias is removed. */
-  easeTo(opts: {
-    center?: [number, number]
-    zoom?: number
-    bearing?: number
-    pitch?: number
-    duration?: number
-    easing?: unknown
-  }): void {
-    this.jumpTo({ center: opts.center, zoom: opts.zoom, bearing: opts.bearing, pitch: opts.pitch })
+   *  easeTo: one eased interpolation of center/zoom/bearing/pitch (default cubic
+   *  in-out; center great-circle on the globe, straight Mercator lerp on flat). */
+  easeTo(opts: EaseToOptions): void {
+    this.animator.easeTo(opts)
   }
-  flyTo(opts: {
-    center?: [number, number]
-    zoom?: number
-    bearing?: number
-    pitch?: number
-    duration?: number
-    speed?: number
-    curve?: number
-  }): void {
-    this.jumpTo({ center: opts.center, zoom: opts.zoom, bearing: opts.bearing, pitch: opts.pitch })
+  /** flyTo: the van Wijk & Nuij (2003) optimal zoom-out-in path (ρ default 1.42),
+   *  duration derived from the path length unless overridden. A near-equal-center
+   *  call degenerates to easeTo (no pan to arc). */
+  flyTo(opts: FlyToOptions): void {
+    this.animator.flyTo(opts)
+  }
+
+  /** Abort an in-flight easeTo/flyTo, leaving the camera where the transition
+   *  had reached (NOT snapped to target). MapLibre semantics: the map calls this
+   *  from the controller pointer/wheel/keyboard handlers so a user gesture takes
+   *  over the camera. No-op when nothing is animating. */
+  cancelAnimation(): void {
+    this.animator.cancel()
+  }
+
+  /** Whether an easeTo/flyTo transition is currently in flight. */
+  isAnimating(): boolean {
+    return this.animator.isActive()
   }
 
   /** Mapbox-API parity: pan the map by an offset in CSS pixels.

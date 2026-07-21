@@ -273,7 +273,12 @@ const CEILINGS: Record<string, number> = {
   // without polling the allocating `stats` getter. Irreducible: a class field +
   // a one-line read accessor + their docs (§2); the count is computed in
   // render-loop.ts, not here.
-  'map/src/map.ts': 4749,
+  // 4749→4745 (#1256 easeTo/flyTo): the animation MATH lives in the new
+  // camera-animation.ts (CameraAnimator) + camera-controller.ts; map.ts only
+  // gained three one-line cancelAnimation() gesture-abort calls (onPointerDown /
+  // onWheel / keyboard onInteract) and SHED the two duplicated inline easeTo/flyTo
+  // option-type literals (now the shared EaseToOptions/FlyToOptions), a net −4.
+  'map/src/map.ts': 4745,
   // Baselined at #1235 (measured 846): SourceManager crossed NEW_FILE_CAP with
   // the gap-1/gap-2 seams — the setSourceData virtual re-seed branch (the
   // legacy worker-compile path renders fills/points but no line segments) +

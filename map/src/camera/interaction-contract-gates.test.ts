@@ -58,7 +58,7 @@
 
 import { describe, it, expect } from 'vitest'
 import { getProjection, mercator, mercatorYToLat, type Projection } from '@xgis/geo'
-import { Camera } from '@xgis/map'
+import { Camera, CameraController, type CameraControllerDeps } from '@xgis/map'
 import { globeForward, buildGlobeMatrix, unprojectGlobe } from '@xgis/geo'
 import { lonLatToECEF } from '@xgis/shared'
 
@@ -1294,4 +1294,122 @@ describe('G10 — disc camera.pan moves the surface (matches globe), not the Mer
       ).toBeGreaterThan(1e-3)
     })
   }
+})
+
+// ════════════════════════════════════════════════════════════════════════
+// G-CAM — easeTo / flyTo animation contract (#1256). MET today (normal `it`).
+//
+// The two acceptance clauses the issue names, encoded over the SAME jumpTo
+// mutation authority the animation drives each frame:
+//   G-CAM1 terminal-state equivalence — easeTo(T) / flyTo(T) settle
+//     byte-identical to jumpTo(T).
+//   G-CAM2 cancellation — a user-gesture abort mid-flight leaves the camera at
+//     the interrupted position (NOT snapped to the target), and stops the loop.
+//
+// A stepped clock + manual rAF pump makes the transition deterministic; the
+// injected deps mirror the interactive wiring (jumpTo is the single authority).
+// ════════════════════════════════════════════════════════════════════════
+
+class CamFakeRaf {
+  t = 0
+  private nextId = 1
+  private cbs = new Map<number, (t: number) => void>()
+  now = (): number => this.t
+  raf = (cb: (t: number) => void): number => {
+    const id = this.nextId++
+    this.cbs.set(id, cb)
+    return id
+  }
+  cancelRaf = (id: number): void => {
+    this.cbs.delete(id)
+  }
+  tick(dt: number): void {
+    this.t += dt
+    const pending = [...this.cbs.values()]
+    this.cbs.clear()
+    for (const cb of pending) cb(this.t)
+  }
+  get pending(): number {
+    return this.cbs.size
+  }
+}
+
+function camAnimController(cam: Camera, raf: CamFakeRaf): CameraController {
+  const canvas = {
+    width: 800,
+    height: 600,
+    clientWidth: 800,
+    clientHeight: 600,
+  } as HTMLCanvasElement
+  const deps: CameraControllerDeps = {
+    invalidate: () => {},
+    getCanvas: () => canvas,
+    getCtxCanvas: () => canvas,
+    now: raf.now,
+    raf: raf.raf,
+    cancelRaf: raf.cancelRaf,
+    prefersReducedMotion: () => false,
+  }
+  return new CameraController(cam, deps)
+}
+
+function camSettle(ctrl: CameraController, raf: CamFakeRaf): void {
+  let guard = 0
+  while (ctrl.isAnimating()) {
+    raf.tick(16)
+    if (++guard > 5000) throw new Error('animation did not settle')
+  }
+}
+
+function camState(cam: Camera): [number, number, number, number, number, number] {
+  return [cam.centerX, cam.centerY, cam.centerLatDeg, cam.zoom, cam.bearing, cam.pitch]
+}
+
+describe('G-CAM — easeTo / flyTo animation contract (#1256)', () => {
+  it('G-CAM1 easeTo(T) settles byte-identical to jumpTo(T)', () => {
+    const target = { center: [12, 34] as [number, number], zoom: 7, bearing: 50, pitch: 25 }
+    const raf = new CamFakeRaf()
+    const a = new Camera(0, 0, 3)
+    const ctrl = camAnimController(a, raf)
+    ctrl.easeTo({ ...target, duration: 500 })
+    camSettle(ctrl, raf)
+
+    const b = new Camera(0, 0, 3)
+    camAnimController(b, new CamFakeRaf()).jumpTo(target)
+    expect(camState(a)).toEqual(camState(b))
+  })
+
+  it('G-CAM1 flyTo(T) across continents settles byte-identical to jumpTo(T)', () => {
+    const raf = new CamFakeRaf()
+    const target = { center: [139.69, 35.68] as [number, number], zoom: 5, bearing: 15, pitch: 10 }
+    const a = new Camera(-74, 40.7, 4)
+    const ctrl = camAnimController(a, raf)
+    ctrl.flyTo(target)
+    camSettle(ctrl, raf)
+
+    const b = new Camera(-74, 40.7, 4)
+    camAnimController(b, new CamFakeRaf()).jumpTo(target)
+    expect(camState(a)).toEqual(camState(b))
+  })
+
+  it('G-CAM2 a gesture mid-flight aborts at the interrupted position, not the target', () => {
+    const raf = new CamFakeRaf()
+    const cam = new Camera(0, 0, 2)
+    const ctrl = camAnimController(cam, raf)
+    ctrl.easeTo({ center: [90, 45], zoom: 11, duration: 2000 })
+    while (raf.t < 1000) raf.tick(16) // to ~mid-flight
+    const interruptedZoom = cam.zoom
+    const interruptedCx = cam.centerX
+    expect(interruptedZoom).toBeGreaterThan(2)
+    expect(interruptedZoom).toBeLessThan(11)
+
+    ctrl.cancelAnimation() // the controller's onPointerDown / onWheel abort
+    expect(ctrl.isAnimating()).toBe(false)
+    expect(raf.pending).toBe(0)
+
+    raf.tick(16) // a queued frame after cancel must not move the camera
+    expect(cam.zoom).toBe(interruptedZoom)
+    expect(cam.centerX).toBe(interruptedCx)
+    expect(cam.zoom).not.toBe(11) // NOT snapped to the target
+  })
 })
