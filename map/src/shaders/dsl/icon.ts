@@ -38,8 +38,14 @@ const U = uniformStruct(
   { group: 0, binding: 0, as: 'u' },
   {
     viewport: vec2fT,
+    // #1177 S16 replay correction (see text.ts twin): screen-space affine
+    // applied on skip-replay frames; identity (1, 0,0) on prepared frames.
+    // Struct grows 16→32 B — icon-renderer.ts uniformBuf/uniformScratch match.
+    replay_shift: vec2fT,
+    replay_scale: f32T,
     _pad0: f32T,
     _pad1: f32T,
+    _pad2: f32T,
   },
 )
 const VsOut = ioStruct('VsOut', {
@@ -63,8 +69,12 @@ const vs = fn(
   },
   (p) => {
     const vp = U.field.viewport
-    const ndc_x = p.pos_px.x.div(vp.x).mul(2).sub(1)
-    const ndc_y = f32(1).sub(p.pos_px.y.div(vp.y).mul(2))
+    // #1177 replay correction — text.ts twin: map PREPARED-frame screen px
+    // into the CURRENT frame on S16 skip-replay frames.
+    const px_x = p.pos_px.x.mul(U.field.replay_scale).add(U.field.replay_shift.x)
+    const px_y = p.pos_px.y.mul(U.field.replay_scale).add(U.field.replay_shift.y)
+    const ndc_x = px_x.div(vp.x).mul(2).sub(1)
+    const ndc_y = f32(1).sub(px_y.div(vp.y).mul(2))
     return VsOut.construct({
       clip_pos: vec4(ndc_x, ndc_y, 0, 1),
       uv: p.uv,

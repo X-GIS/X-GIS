@@ -33,16 +33,17 @@ describe('Phase-2 text shader — DSL emission (SDF glyph + halo)', () => {
 })
 
 describe('Phase-2 text shader — cpu vertex stage (px → NDC)', () => {
-  it('vs maps pixel coords to NDC via the viewport uniform', () => {
+  it('vs maps pixel coords to NDC via the viewport uniform (identity replay)', () => {
     const M = compileModule(TEXT_MODULE)
     M.setBinding('u', {
       viewport: [800, 600],
+      replay_shift: [0, 0],
       fill_color: [0, 0, 0, 1],
       halo_color: [0, 0, 0, 0],
       halo_width: 0,
       halo_blur: 0,
       font_size_px: 16,
-      _pad1: 0,
+      replay_scale: 1,
     } as unknown as never)
     const cases: Array<[[number, number], [number, number]]> = [
       [
@@ -63,6 +64,37 @@ describe('Phase-2 text shader — cpu vertex stage (px → NDC)', () => {
       expect(out.clip_pos[0]).toBeCloseTo(nx, 6)
       expect(out.clip_pos[1]).toBeCloseTo(ny, 6)
       expect(out.clip_pos[3]).toBeCloseTo(1, 6)
+    }
+  })
+  it('vs applies the #1177 replay correction BEFORE the NDC divide', () => {
+    const M = compileModule(TEXT_MODULE)
+    // scale 2, shift (10, 20): corrected_px = pos_px·2 + (10, 20).
+    M.setBinding('u', {
+      viewport: [800, 600],
+      replay_shift: [10, 20],
+      fill_color: [0, 0, 0, 1],
+      halo_color: [0, 0, 0, 0],
+      halo_width: 0,
+      halo_blur: 0,
+      font_size_px: 16,
+      replay_scale: 2,
+    } as unknown as never)
+    const cases: Array<[[number, number], [number, number]]> = [
+      // (195, 140) → (400, 300) = screen centre → NDC (0, 0)
+      [
+        [195, 140],
+        [0, 0],
+      ],
+      // (-5, -10) → (0, 0) → NDC (-1, 1)
+      [
+        [-5, -10],
+        [-1, 1],
+      ],
+    ]
+    for (const [[px, py], [nx, ny]] of cases) {
+      const out = M.fns.vs([px, py], [0.5, 0.5]) as { clip_pos: number[] }
+      expect(out.clip_pos[0]).toBeCloseTo(nx, 6)
+      expect(out.clip_pos[1]).toBeCloseTo(ny, 6)
     }
   })
 })

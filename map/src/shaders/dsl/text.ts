@@ -15,7 +15,11 @@
 //   (1 - fill_w) factor (one-pass equivalent of MapLibre's two-pass halo).
 //
 // Uniforms layout matches packUniforms() in text-renderer.ts (64 B): viewport
-// at 0, fill_color at 16 (vec4 alignment pads the 8 B gap after viewport).
+// at 0, fill_color at 16. The former 8 B alignment pad after viewport now
+// carries replay_shift, and the former _pad1 tail slot carries replay_scale —
+// the #1177 S16 zoom-tolerant-skip screen-space correction (label-pass derives
+// it per replay frame; identity scale=1/shift=0 on every freshly-prepared
+// frame, so the idle output is bit-identical: x*1.0+0.0 == x in IEEE-754).
 
 import {
   fn,
@@ -41,12 +45,13 @@ const U = uniformStruct(
   { group: 0, binding: 0, as: 'u' },
   {
     viewport: vec2fT,
+    replay_shift: vec2fT,
     fill_color: vec4fT,
     halo_color: vec4fT,
     halo_width: f32T,
     halo_blur: f32T,
     font_size_px: f32T,
-    _pad1: f32T,
+    replay_scale: f32T,
   },
 )
 const VsOut = ioStruct('VsOut', {
@@ -64,8 +69,13 @@ const vs = fn(
   },
   (p) => {
     const vp = U.field.viewport
-    const ndc_x = p.pos_px.x.div(vp.x).mul(2).sub(1)
-    const ndc_y = f32(1).sub(p.pos_px.y.div(vp.y).mul(2))
+    // #1177 replay correction: quads are baked in the PREPARED frame's screen
+    // px; on S16 skip-replay frames this affine maps them into the CURRENT
+    // frame's screen space so labels track the map instead of freezing.
+    const px_x = p.pos_px.x.mul(U.field.replay_scale).add(U.field.replay_shift.x)
+    const px_y = p.pos_px.y.mul(U.field.replay_scale).add(U.field.replay_shift.y)
+    const ndc_x = px_x.div(vp.x).mul(2).sub(1)
+    const ndc_y = f32(1).sub(px_y.div(vp.y).mul(2))
     return VsOut.construct({
       clip_pos: vec4(ndc_x, ndc_y, 0, 1),
       uv: p.uv,
