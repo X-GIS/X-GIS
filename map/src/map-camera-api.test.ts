@@ -56,6 +56,7 @@ interface Internals {
     speed?: number
     curve?: number
   }): void
+  stopAnimation(): unknown
   resize(): void
   loaded(): boolean
   fitBounds(
@@ -483,25 +484,43 @@ describe('XGISMap Mapbox-API camera setters', () => {
     })
   })
 
-  describe('easeTo / flyTo (iter 437)', () => {
-    it('easeTo applies center/zoom/bearing/pitch (alias of jumpTo)', () => {
-      map.easeTo({ center: [10, 20], zoom: 5, bearing: 30, pitch: 25, duration: 1000 })
+  describe('easeTo / flyTo (#1256 — animated)', () => {
+    // #1256 made easeTo/flyTo REAL animations (was an instant jumpTo alias).
+    // With `duration: 0` they collapse to an instant jumpTo (terminal ≡
+    // jumpTo — the byte-identical disable path); with a positive duration
+    // they DEFER (begin an animation the render loop ticks), so in a
+    // loop-less unit context the camera stays at its start until settled.
+
+    it('easeTo({duration:0}) applies center/zoom/bearing/pitch instantly (≡ jumpTo)', () => {
+      map.easeTo({ center: [10, 20], zoom: 5, bearing: 30, pitch: 25, duration: 0 })
       expect(map.getCameraState().zoom).toBe(5)
       expect(map.getCameraState().bearing).toBe(30)
       expect(map.getCameraState().pitch).toBe(25)
     })
 
-    it('flyTo applies center/zoom/bearing/pitch (alias of jumpTo)', () => {
-      map.flyTo({ center: [50, 30], zoom: 8, bearing: 90, pitch: 45, duration: 2000, speed: 1.2 })
+    it('flyTo({duration:0}) applies center/zoom/bearing/pitch instantly (≡ jumpTo)', () => {
+      map.flyTo({ center: [50, 30], zoom: 8, bearing: 90, pitch: 45, duration: 0 })
       expect(map.getCameraState().zoom).toBe(8)
       expect(map.getCameraState().bearing).toBe(90)
       expect(map.getCameraState().pitch).toBe(45)
     })
 
-    it('easeTo with partial opts still applies what is given', () => {
+    it('a positive-duration easeTo DEFERS (animates) — camera not yet at target', () => {
+      map.jumpTo({ zoom: 2, bearing: 0, pitch: 0 })
+      map.easeTo({ zoom: 9, bearing: 80, pitch: 40, duration: 1000 })
+      // No render loop ticks here, so the animation has only started: the
+      // camera holds its start state until the loop drives it home.
+      expect(map.getCameraState().zoom).toBe(2)
+      expect(map.getCameraState().bearing).toBe(0)
+      // stopAnimation cancels cleanly (leaves the current partway state).
+      map.stopAnimation()
+      expect(map.getCameraState().zoom).toBe(2)
+    })
+
+    it('easeTo({duration:0}) with partial opts applies only what is given', () => {
       map.setBearing(0)
       map.setPitch(0)
-      map.easeTo({ bearing: 60 })
+      map.easeTo({ bearing: 60, duration: 0 })
       expect(map.getBearing()).toBe(60)
       expect(map.getPitch()).toBe(0) // untouched
     })

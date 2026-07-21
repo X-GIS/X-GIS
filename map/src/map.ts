@@ -649,6 +649,15 @@ export class XGISMap {
    *  properties in future PRs). Null until first renderFrame. */
   _startTime: number | null = null
   _elapsedMs = 0
+  /** #1256 — default easeTo/flyTo duration (ms) for calls that omit their
+   *  own `duration`. MapLibre parity (~1000-1200 ms feel); set via
+   *  `XGISMapOptions.cameraAnimationDuration`. 0 makes every unspecified-
+   *  duration animated move an instant jump. */
+  cameraAnimationDurationMs = 1000
+  /** #1256 — explicit reduced-motion override. `undefined` → consult the
+   *  `prefers-reduced-motion` media query; `true`/`false` force it (kiosk /
+   *  test control). Set via `XGISMapOptions.respectReducedMotion`. */
+  private _reducedMotionOverride: boolean | undefined = undefined
   /** Earth-surface fill color resolved from `background { fill: ... }`.
    *  Pushed into the synthetic earth-surface show + backend after GPU
    *  init. ALSO read by the background pass (render/passes/background-pass.ts)
@@ -1025,6 +1034,13 @@ export class XGISMap {
       },
       getCanvas: () => this.getCanvas(),
       getCtxCanvas: () => this.ctx?.canvas,
+      // #1256 — animated camera (easeTo/flyTo). The clock is the same
+      // `_elapsedMs` axis the render loop ticks the animator on; the
+      // default duration is the map option; reduced-motion collapses to a
+      // jump (WCAG 2.3.3).
+      nowMs: () => this._animClockMs(),
+      defaultDurationMs: () => this.cameraAnimationDurationMs,
+      prefersReducedMotion: () => this._prefersReducedMotion(),
     })
     // Event bus — owns listener registries + camera-signature diff state.
     // Constructed after cameraController so getCameraState() is available.
@@ -1148,6 +1164,13 @@ export class XGISMap {
     // P4 opt-in for compute-driven paint evaluation. Stored as a
     // simple flag the run() method reads when invoking emitCommands.
     if (options.enableComputePath) this._enableComputePath = true
+    // #1256 — animated-camera defaults.
+    if (options.cameraAnimationDuration !== undefined)
+      this.cameraAnimationDurationMs = options.cameraAnimationDuration
+    // `respectReducedMotion: false` forces motion ON regardless of the OS
+    // setting (kiosk/demo); `true` forces the media-query consult (the
+    // default when the option is absent — stored as `undefined`).
+    if (options.respectReducedMotion === false) this._reducedMotionOverride = false
     this._backend = options.backend ?? 'auto'
     this._preserveDrawingBuffer = options.preserveDrawingBuffer ?? false
     // Surface converter "Conversion notes" to the console at load —
@@ -1536,16 +1559,18 @@ export class XGISMap {
     setEngineLogSink(sink)
   }
 
-  /** Mapbox-API parity: animated camera variants. X-GIS has no
-   *  transition infra yet, so both alias to jumpTo (instant) inside
-   *  CameraController. */
+  /** Mapbox-API parity: animated camera variants (#1256). `easeTo` eases
+   *  and `flyTo` runs the van Wijk–Nuij arc, over `duration` ms (default
+   *  `cameraAnimationDuration`); a 0 duration, `respectReducedMotion`, or a
+   *  degenerate path collapses to an instant jump. Cancel with `map.stop()`
+   *  or any user gesture / programmatic camera write. */
   easeTo(opts: {
     center?: [number, number]
     zoom?: number
     bearing?: number
     pitch?: number
     duration?: number
-    easing?: unknown
+    easing?: (t: number) => number
   }): void {
     this.cameraController.easeTo(opts)
     this._cameraExplicitlyPositioned = true
@@ -4078,6 +4103,10 @@ export class XGISMap {
   private shouldRenderThisFrame(): boolean {
     if (this._needsRender) return true
     if (this._sceneHasAnimation) return true
+    // #1256 — camera-animation keep-alive (mirror of _sceneHasAnimation):
+    // frames keep coming while an easeTo/flyTo is mid-flight; the tick in
+    // renderFrame settles it and this goes false again on arrival.
+    if (this.cameraController.isAnimating()) return true
     if (this.hasPendingSourceWork()) return true
     const c = this.camera
     const canvas = this.ctx?.canvas
@@ -4218,7 +4247,46 @@ export class XGISMap {
   }
 
   private renderFrame(): void {
+    // #1256 — advance any in-flight easeTo/flyTo BEFORE the scene composes
+    // (the sample writes the camera through jumpTo). Uses the same clock
+    // the render loop stamps into `_elapsedMs`; refreshed here so the tick
+    // and the frame it produces share one timestamp.
+    if (this.cameraController.isAnimating()) {
+      this._elapsedMs = this._animClockMs()
+      this.cameraController.tickAnimation(this._elapsedMs)
+    }
     return this.renderLoopInstance.render()
+  }
+
+  /** #1256 — the animation clock in ms since the first rendered frame,
+   *  the axis easeTo/flyTo start-stamps + tick against. Mirrors the render
+   *  loop's `performance.now() - _startTime`; 0 before the first frame (no
+   *  origin yet — an animation started that early ticks from ~0). */
+  private _animClockMs(): number {
+    if (this._startTime === null) return this._elapsedMs
+    return performance.now() - this._startTime
+  }
+
+  /** #1256 — resolve reduced-motion: the explicit option override wins,
+   *  else the `prefers-reduced-motion: reduce` media query (false in
+   *  non-DOM / no-matchMedia environments — tests, SSR). */
+  private _prefersReducedMotion(): boolean {
+    if (this._reducedMotionOverride !== undefined) return this._reducedMotionOverride
+    if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return false
+    try {
+      return window.matchMedia('(prefers-reduced-motion: reduce)').matches
+    } catch {
+      return false
+    }
+  }
+
+  /** #1256 — halt any in-flight easeTo/flyTo, leaving the camera at its
+   *  current partway state. (MapLibre spells this `map.stop()`, but that
+   *  name is X-GIS's render-loop lifecycle halt — which ALSO cancels the
+   *  animation; this is the camera-only variant.) */
+  stopAnimation(): this {
+    this.cameraController.stop()
+    return this
   }
 
   // ═══ DOM-inspired Layer API ═══
@@ -4666,6 +4734,8 @@ export class XGISMap {
   }
 
   stop(): void {
+    // #1256 — the lifecycle halt drops any in-flight camera animation too.
+    this.cameraController.stop()
     this.controller?.detach()
     this.running = false
     // #1153 P1/A3 — bump the run-epoch so an in-flight run()/runBinary() dies at

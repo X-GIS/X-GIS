@@ -1398,6 +1398,7 @@ async function runSource(source: string, label: string) {
       spriteUrl?: string
       glyphs?: { url?: string }
       preserveDrawingBuffer?: boolean
+      respectReducedMotion?: boolean
     } = {
       enableComputePath: computeOptIn,
     }
@@ -1416,6 +1417,10 @@ async function runSource(source: string, label: string) {
     // but NOT ?e2e=1's fixture-auto-push suppression (the points gate deliberately
     // omits e2e so its fixture data still auto-pushes — #1172 merge reconciliation).
     if (params.has('e2e') || params.has('preserve')) ctorOpts.preserveDrawingBuffer = true
+    // ?nomotion=1 — force `respectReducedMotion:false` so the #1256
+    // camera-animation gate runs deterministically regardless of the
+    // headless browser's prefers-reduced-motion state.
+    if (params.get('nomotion') === '1') ctorOpts.respectReducedMotion = false
     currentMap = new XGISMap(canvas, ctorOpts)
     // Debug hook — Playwright tests + DevTools console can poke at
     // map._elapsedMs, map.vectorTileShows, etc. without re-wiring the

@@ -261,7 +261,15 @@ const CEILINGS: Record<string, number> = {
   // Merge union (raster-resolution <- main): both bumps stacked
   // non-overlappingly (tileSize wiring +3, #1235 seams +7) — merged
   // high-water is the measured 4718.
-  'map/src/map.ts': 4718,
+  // 4718→4788 (#1256 easeTo/flyTo): the cameraAnimationDurationMs option +
+  // reduced-motion override fields (+docs, option-bag parse), the three new
+  // CameraController deps handed at construction, the isAnimating()
+  // keep-alive in shouldRenderThisFrame, renderFrame()'s pre-compose
+  // tickAnimation, the _animClockMs / _prefersReducedMotion helpers, the
+  // stopAnimation() method + the lifecycle-stop cancel, and the easeTo
+  // signature widening. The animation MECHANISM (vWN path + driver) lives
+  // extracted + unit-proved in camera-animation.ts; only wiring grew here.
+  'map/src/map.ts': 4788,
   // Baselined at #1235 (measured 846): SourceManager crossed NEW_FILE_CAP with
   // the gap-1/gap-2 seams — the setSourceData virtual re-seed branch (the
   // legacy worker-compile path renders fills/points but no line segments) +
