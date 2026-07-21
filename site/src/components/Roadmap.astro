@@ -2,6 +2,7 @@
 import ContentBand from './kit/ContentBand.astro'
 import SectionHead from './kit/SectionHead.astro'
 import FeatureRow from './kit/FeatureRow.astro'
+import { coverage } from '@/lib/mapbox-coverage'
 
 const base = import.meta.env.BASE_URL.replace(/\/+$/, '')
 
@@ -25,7 +26,7 @@ const items: { num: string; title: string; status: string; body: string }[] = [
     num: '03',
     title: 'Full Mapbox parity',
     status: 'In progress',
-    body: 'Close the gap from 176 supported to all 236 applicable style-spec properties.',
+    body: `Close the gap from ${coverage.supported} supported to all ${coverage.applicable} applicable style-spec properties.`,
   },
   {
     num: '04',

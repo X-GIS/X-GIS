@@ -61,7 +61,9 @@ const PRESETS: Preset[] = [
     label: 'Land',
     blurb: 'The minimal map — one source, one fill.',
     projection: 'globe',
-    source: `source land {
+    source: `xgis 1
+
+source land {
   type: geojson
   url: "{B}/data/land.geojson"
 }
@@ -78,7 +80,9 @@ layer continents {
     label: 'Coastline',
     blurb: 'Stroke instead of fill — the world as a wire drawing.',
     projection: 'natural_earth',
-    source: `source land {
+    source: `xgis 1
+
+source land {
   type: geojson
   url: "{B}/data/land.geojson"
 }
@@ -95,7 +99,9 @@ layer coast {
     label: 'Data-driven',
     blurb: 'match() on a feature property — colour comes from the data.',
     projection: 'natural_earth',
-    source: `source land {
+    source: `xgis 1
+
+source land {
   type: geojson
   url: "{B}/data/land.geojson"
 }
@@ -119,7 +125,9 @@ layer continents {
     label: 'Mercator',
     blurb: 'Same source, flat — switching projection is a uniform write.',
     projection: 'mercator',
-    source: `source land {
+    source: `xgis 1
+
+source land {
   type: geojson
   url: "{B}/data/land.geojson"
 }

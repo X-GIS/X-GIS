@@ -15,7 +15,9 @@ const CYCLE: [string, string][] = [
   ['orthographic', 'Orthographic'],
 ]
 
-const SOURCE = `source land {
+const SOURCE = `xgis 1
+
+source land {
   type: geojson
   url: "data/land.geojson"
 }
