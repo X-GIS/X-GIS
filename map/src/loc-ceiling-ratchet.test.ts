@@ -259,7 +259,10 @@ const CEILINGS: Record<string, number> = {
   // Merge union (raster-resolution <- main): both bumps stacked
   // non-overlappingly (tileSize wiring +3, #1235 seams +7) — merged
   // high-water is the measured 4718.
-  'map/src/map.ts': 4718,
+  // 4718→4766 (#1272): completes the #1158 coverage render wiring the rebuild
+  // left as a bare `continue` (arms the CoverageRenderer from the `_coverage`
+  // marker) + the setCoverageData host-push API for live NOAA refresh.
+  'map/src/map.ts': 4766,
   // Baselined at #1235 (measured 846): SourceManager crossed NEW_FILE_CAP with
   // the gap-1/gap-2 seams — the setSourceData virtual re-seed branch (the
   // legacy worker-compile path renders fills/points but no line segments) +
@@ -268,7 +271,9 @@ const CEILINGS: Record<string, number> = {
   // (attach arms vs push/ingest) when #991 gets here — shrink-only from now.
   // (raster-resolution merge: the tileSize passthrough line lands inside the
   // existing 846 measurement — no growth.)
-  'map/src/source-manager.ts': 846,
+  // 846→849 (#1272): thread the coverage source's ramp/range display options
+  // onto the `_coverage` marker so rebuild arms the CoverageRenderer with them.
+  'map/src/source-manager.ts': 849,
   // 1920→1930 (#1042 R3): the globe limb cull for MULTI-LINE labels must land in
   // the collision phase — the ONLY site holding the label's quad half-height (the
   // collision box IS the height authority; the label-pass dispatch site has only
@@ -435,7 +440,9 @@ const CEILINGS: Record<string, number> = {
   // 1314→1326 (raster-resolution): hillshade DEM fetches join BOTH keep-alive
   // checks (WebGPU + WebGL2 twin) — a hillshade-only scene otherwise idles
   // before its tiles arrive and the arrival never repaints (black relief).
-  'map/src/render-loop.ts': 1326,
+  // 1326→1344 (#1272): the coverage colour-ramp draw joins the forced-WebGL2
+  // twin (renderFrameViaRhi), mirroring the opaque-pass dispatch — flat arm.
+  'map/src/render-loop.ts': 1344,
   // Merge union (#1060 <- main): stacked growth — measured 1174.
   'map/src/render/point-renderer.ts': 1174,
   // 1106→1120 (#1043 state-hygiene): three unmask-before-clear / state-reset fixes for the

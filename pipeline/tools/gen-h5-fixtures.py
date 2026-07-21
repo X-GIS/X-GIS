@@ -132,6 +132,68 @@ def s102_root_attrs(f, vdatum=12):
     f.attrs["verticalCS"] = np.int32(6498)
 
 
+# ── S-111 attribute spellings (surface currents; DCF2 sibling of the S-102 shape).
+# Container/instance/Group_F names + the compound member names follow the S-111
+# 1.2 spec (SurfaceCurrent / surfaceCurrentSpeed [knots] / surfaceCurrentDirection
+# [arc-degrees, 0=true north CW]); the grid-geometry attributes are the shared
+# S-100 part-10c spellings the reader already trusts for S-102. fill = -9999.0
+# (the S-111 convention, vs S-102's 1e6) so the Group_F fill-value plumbing is
+# exercised with a DIFFERENT sentinel than bathymetry.
+def write_s111_shape(g, nlat, nlon, origin_lon, origin_lat, d_lon, d_lat,
+                     speed, direction, fill=-9999.0):
+    cont = g.create_group("SurfaceCurrent")
+    cont.attrs["dataCodingFormat"] = np.uint8(2)
+    cont.attrs["dimension"] = np.uint8(2)
+    cont.attrs["numInstances"] = np.uint8(1)
+    cont.attrs["sequencingRule.scanDirection"] = "Easting, Northing"
+    cont.attrs["sequencingRule.type"] = np.uint8(1)
+
+    inst = cont.create_group("SurfaceCurrent.01")
+    inst.attrs["gridOriginLongitude"] = np.float64(origin_lon)
+    inst.attrs["gridOriginLatitude"] = np.float64(origin_lat)
+    inst.attrs["gridSpacingLongitudinal"] = np.float64(d_lon)
+    inst.attrs["gridSpacingLatitudinal"] = np.float64(d_lat)
+    inst.attrs["numPointsLongitudinal"] = np.uint32(nlon)
+    inst.attrs["numPointsLatitudinal"] = np.uint32(nlat)
+    inst.attrs["startSequence"] = "0,0"
+    inst.attrs["numGRP"] = np.uint8(1)
+    inst.attrs["westBoundLongitude"] = np.float32(origin_lon - d_lon / 2)
+    inst.attrs["eastBoundLongitude"] = np.float32(origin_lon - d_lon / 2 + nlon * d_lon)
+    inst.attrs["southBoundLatitude"] = np.float32(origin_lat - d_lat / 2)
+    inst.attrs["northBoundLatitude"] = np.float32(origin_lat - d_lat / 2 + nlat * d_lat)
+
+    grp = inst.create_group("Group_001")
+    grp.attrs["timePoint"] = "20260721T000000Z"
+    dt = np.dtype([("surfaceCurrentSpeed", "<f4"), ("surfaceCurrentDirection", "<f4")])
+    vals = np.zeros((nlat, nlon), dtype=dt)
+    vals["surfaceCurrentSpeed"] = speed
+    vals["surfaceCurrentDirection"] = direction
+    grp.create_dataset("values", data=vals)
+
+    # Group_F band table — FIXED-length strings (reader subset; see the S-102
+    # note above). S24 fits 'surfaceCurrentDirection' (23 chars).
+    gf = g.create_group("Group_F")
+    S = "S24"
+    fdt = np.dtype([("code", S), ("name", S), ("uom.name", S),
+                    ("fillValue", S), ("datatype", S), ("lower", S),
+                    ("upper", S), ("closure", S)])
+    rows = np.array([
+        (b"surfaceCurrentSpeed", b"Surface current speed", b"knots",
+         str(fill).encode(), b"H5T_FLOAT", b"0.00", b"", b"geSemiInterval"),
+        (b"surfaceCurrentDirection", b"Surface current dir", b"arc-degree",
+         str(fill).encode(), b"H5T_FLOAT", b"0.0", b"359.9", b"closedInterval"),
+    ], dtype=fdt)
+    gf.create_dataset("SurfaceCurrent", data=rows)
+    gf.create_dataset("featureCode", data=np.array([b"SurfaceCurrent"], dtype=S))
+
+
+def s111_root_attrs(f):
+    f.attrs["productSpecification"] = "INT.IHO.S-111.1.2"
+    f.attrs["horizontalCRS"] = np.int32(4326)
+    f.attrs["surfaceCurrentDepth"] = np.float32(-2.0)
+    f.attrs["depthTypeIndex"] = np.uint8(2)
+
+
 def golden_s102(name, depth, uncertainty, nlat, nlon, origin_lon, origin_lat,
                 d_lon, d_lat, fill=1e6, vdatum=12):
     """Golden = the h5py-read grid (SOUTH-FIRST, as stored) + geometry the reader
@@ -273,6 +335,38 @@ def gen_packed_compound():
     return path
 
 
+# ═══ 7. S-111 surface currents — DCF2 sibling product (speed + direction) ═══════
+def gen_s111():
+    """Asymmetric 3×4 S-111 cell: distinct speed/direction per cell + one nodata
+    cell in BOTH bands, -9999 fill (not S-102's 1e6), Chesapeake-ish origin. Gates
+    that the DCF2 reader is product-agnostic end-to-end: container discovery by
+    dataCodingFormat, the 2-member compound decode, the Group_F fill for a
+    DIFFERENT feature name, and product detection from productSpecification."""
+    path = os.path.join(OUT, "s111_dcf2.h5")
+    nlat, nlon = 3, 4
+    speed = grid(nlat, nlon, base=0.2, step=0.1)          # 0.2 … 1.3 kn
+    direction = grid(nlat, nlon, base=10.0, step=25.0)    # 10 … 285°
+    speed[1, 1] = -9999.0
+    direction[1, 1] = -9999.0
+    with h5py.File(path, "w", libver="earliest") as f:
+        s111_root_attrs(f)
+        write_s111_shape(f, nlat, nlon, -76.4, 37.5, 0.1, 0.05, speed, direction)
+    assert superblock_version(path) == 0, superblock_version(path)
+    jdump("s111_dcf2", {
+        "product": "s111",
+        "nLon": nlon, "nLat": nlat,
+        "origin": [-76.4, 37.5],
+        "spacing": [0.1, 0.05],
+        "fillValue": -9999.0,
+        "bandNames": ["surfaceCurrentSpeed", "surfaceCurrentDirection"],
+        "bandUnits": ["knots", "arc-degree"],
+        "speed_south_first": speed.tolist(),
+        "speed_north_up": speed[::-1, :].tolist(),
+        "direction_south_first": direction.tolist(),
+    })
+    return path
+
+
 # ═══ NEGATIVES — each MUST fail loudly, naming the construct ═════════════════════
 def gen_neg_v3():
     path = os.path.join(OUT, "neg_v3_latest.h5")
@@ -342,8 +436,8 @@ def gen_noaa_local_golden():
 def main():
     made = []
     for fn in (gen_sb_v0, gen_sb_v2, gen_chunked_shuffle, gen_sparse, gen_asym,
-               gen_packed_compound, gen_neg_v3, gen_neg_fletcher32, gen_neg_vlen,
-               gen_neg_bigendian, gen_neg_dense_attr):
+               gen_packed_compound, gen_s111, gen_neg_v3, gen_neg_fletcher32,
+               gen_neg_vlen, gen_neg_bigendian, gen_neg_dense_attr):
         p = fn()
         made.append((os.path.basename(p), os.path.getsize(p), superblock_version(p)))
     gen_noaa_local_golden()

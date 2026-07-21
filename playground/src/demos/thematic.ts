@@ -142,5 +142,29 @@ export const DEMOS_THEMATIC: Record<string, Demo> = {
     description:
       'S-100 gridded-coverage (.xgcov) — a synthetic 32×32 bathymetry grid at 50-58°N with a north→south depth ramp, a nodata hole, and 4 known corner cells. The GPU colour-ramp draw is the INC-A gate-3 (headed) item; getCoverage(...).valueAt already returns the exact positive-down value CPU-side.',
     source: load('coverage-bathymetry.xgis'),
+    zoom: 4.6,
+    center: [4, 54],
+  },
+
+  s111_currents: {
+    name: 'NOAA S-111 Currents (#1272)',
+    tag: 'thematic',
+    description:
+      'NOAA S-111 surface currents — a synthetic Chesapeake-shaped tidal field (.xgcov, real S-111 band names/units/-9999 fill): the speed band draws through the viridis coverage ramp (0-2 kn) and the runner overlays drifting particles along the direction band (retained particle-flow, #826). Not real NOAA data; convert real cells with s100-to-xgcov.',
+    source: load('s111-currents.xgis'),
+    zoom: 6.6,
+    center: [-76.19, 38.1],
+    currents: true,
+  },
+
+  coops_currents: {
+    name: 'NOAA CO-OPS Live Currents (#1272)',
+    tag: 'thematic',
+    description:
+      'LIVE NOAA tidal currents, fetched browser-direct from api.tidesandcurrents.noaa.gov (CORS `*`, no server) for the Chesapeake Bay PORTS current stations — one retained arrow per station, bearing = flow direction, length + colour = speed, refreshed every few minutes. Needs network egress; the arrows stay absent offline.',
+    source: load('coops-currents.xgis'),
+    zoom: 6.7,
+    center: [-76.15, 38.2],
+    coops: true,
   },
 }

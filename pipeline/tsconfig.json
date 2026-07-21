@@ -5,11 +5,15 @@
     "outDir": "./dist",
     "rootDir": "./src",
     "types": [],
-    // The offline CLI (tools/) + its src/ test consume the .xgcov codec via the barrel-free
-    // '@xgis/data/coverage' subpath, whose canonical home is @xgis/data (A8). A devDependency
-    // + this reference make that dev-time edge explicit and build-ordered; the shipped reader
-    // (src, non-test) stays zero-dep. Point at data's EMITTED output (built first via the
-    // reference), NOT its source — a source .ts would land outside pipeline's rootDir (TS6059).
+    // The `@xgis/pipeline/hdf5` subpath's `s100ToXgcov` (src/hdf5/to-xgcov.ts) + the offline
+    // CLI (tools/) + the src/ test consume the .xgcov codec via the barrel-free
+    // '@xgis/data/coverage' subpath, whose canonical home is @xgis/data (A8). @xgis/data is a
+    // real `dependency` now (a shipped src module imports it — the §12/PR#1220 rule that a
+    // tsconfig `paths` edge must be backed by a package.json dep, else an installed consumer
+    // 500s while tsc passes); the BARE reader (openHdf5 / readS102Coverage) still imports
+    // nothing external. This reference makes the edge build-ordered. Point at data's EMITTED
+    // output (built first via the reference), NOT its source — a source .ts would land outside
+    // pipeline's rootDir (TS6059).
     // Extensionless on purpose: `bun` honours these tsconfig paths at RUNTIME too (the CLI is a
     // bun subprocess), so it must resolve to the runtime `format.js` — a `.d.ts` here loads a
     // type-only module with no runtime exports (SyntaxError under bun ≥1.3.14). tsc still picks

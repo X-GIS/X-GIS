@@ -343,7 +343,10 @@ export class SourceManager {
         rawBytes.byteOffset + rawBytes.byteLength,
       )
       const handle = await decodeCoverage(buf)
-      this.rawDatasets.set(load.name, { _coverage: handle })
+      // Thread the source's display options (ramp / range, #1158) alongside the
+      // handle so rebuildLayers can arm the CoverageRenderer without re-reading
+      // the load command.
+      this.rawDatasets.set(load.name, { _coverage: handle, ramp: load.ramp, range: load.range })
       return
     }
 

@@ -594,6 +594,21 @@ export const galleryCategories: Category[] = [
         body: 'S-100 gridded coverage (.xgcov) — a synthetic bathymetry grid with a north→south depth ramp and a nodata hole.',
         noThumb: true,
       },
+      // noThumb: flip together with coverage-bathymetry once a real-GPU
+      // capture lands (#1272).
+      {
+        id: 's111-currents',
+        title: 'NOAA S-111 currents',
+        body: 'NOAA S-111 surface currents — a synthetic Chesapeake-shaped tidal field: speed through the viridis coverage ramp, drifting particles along the direction band.',
+        noThumb: true,
+      },
+      // noThumb: live NOAA fetch (no network egress in the capture env).
+      {
+        id: 'coops-currents',
+        title: 'NOAA CO-OPS live currents',
+        body: 'Live NOAA tidal currents fetched browser-direct from api.tidesandcurrents.noaa.gov for the Chesapeake Bay stations — one arrow per station, bearing = flow, colour = speed.',
+        noThumb: true,
+      },
     ],
   },
   {

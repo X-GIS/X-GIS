@@ -1283,6 +1283,249 @@ function teardownMeasureOverlay(): void {
   measureCleanup?.()
 }
 
+// ── NOAA S-111 currents overlay (#1272) ──────────────────────────────
+// Activated by demos with `currents: true`. Reads the demo's `currents`
+// coverage source (the CPU-resident CoverageHandle, map.getCoverage) and
+// expands its valid cells into ONE retained particle-flow batch (#826):
+// particles drift along the surfaceCurrentDirection band while density
+// follows speed. The coverage colour ramp underneath stays the SPEED reading;
+// the particles are the DIRECTION reading of the same field.
+
+let currentsOverlayCleanup: (() => void) | null = null
+
+function setupCurrentsOverlay(map: InstanceType<typeof XGISMap>): void {
+  teardownCurrentsOverlay()
+  let cancelled = false
+  const cleanupFns: (() => void)[] = [
+    () => {
+      cancelled = true
+    },
+  ]
+  currentsOverlayCleanup = () => {
+    for (const fn of cleanupFns) fn()
+    currentsOverlayCleanup = null
+  }
+  // The coverage source may still be attaching when the post-run hooks fire —
+  // poll briefly instead of racing it.
+  const started = performance.now()
+  const tryAttach = (): void => {
+    if (cancelled) return
+    const cov = map.getCoverage('currents')
+    if (!cov) {
+      if (performance.now() - started < 8000) setTimeout(tryAttach, 120)
+      return
+    }
+    const speedBand = cov.band('surfaceCurrentSpeed')
+    const dirBand = cov.band('surfaceCurrentDirection')
+    const [nLon, nLat] = cov.meta.size
+    const [originLon, originLat] = cov.meta.origin
+    const [dLon, dLat] = cov.meta.spacing
+    // Subsample the grid to ≤ ~600 field cells; the particle packer allocates
+    // the fixed pool ∝ speed across cells, so a busy channel reads denser.
+    const step = Math.max(1, Math.ceil(Math.sqrt((nLon * nLat) / 600)))
+    interface Cell {
+      lon: number
+      lat: number
+      speed: number
+      dir: number
+    }
+    const cells: Cell[] = []
+    for (let row = 0; row < nLat; row += step) {
+      for (let col = 0; col < nLon; col += step) {
+        const i = row * nLon + col // north-up rows: row 0 = northernmost
+        const s = speedBand.values[i]!
+        const d = dirBand.values[i]!
+        if (Number.isNaN(s) || Number.isNaN(d)) continue
+        cells.push({
+          lon: originLon + col * dLon,
+          lat: originLat + (nLat - 1 - row) * dLat,
+          speed: s,
+          dir: d,
+        })
+      }
+    }
+    if (cells.length === 0) return
+    // Seed radius ≈ half the subsampled cell footprint so neighbouring cells tile.
+    const seedRadiusMeters = (step * dLat * 111320) / 2
+    const handle = map.graphics.add({
+      type: 'particle-flow',
+      data: cells,
+      getPosition: (d: Cell) => [d.lon, d.lat] as const,
+      getBearing: (d: Cell) => d.dir,
+      getVolume: (d: Cell) => d.speed,
+      getColor: '#ffffff',
+      seedRadiusMeters,
+      driftPx: 28,
+      lifetimeSeconds: 3,
+    })
+    cleanupFns.push(() => handle.remove())
+    // e2e handshake: the gate awaits this before capturing (deterministic at
+    // a pinned ?animt clock).
+    ;(window as unknown as { __xgisCurrentsCells?: number }).__xgisCurrentsCells = cells.length
+  }
+  tryAttach()
+}
+
+function teardownCurrentsOverlay(): void {
+  currentsOverlayCleanup?.()
+}
+
+// ── NOAA CO-OPS live tidal-currents overlay (#1272) ──────────────────
+// Activated by demos with `coops: true`. Fetches the latest observed current
+// (speed + direction) for the Chesapeake Bay PORTS current stations straight
+// from api.tidesandcurrents.noaa.gov (CORS `*` — no server, no proxy) and draws
+// ONE retained arrow per station: bearing = the direction the current flows
+// TOWARD, length + colour = speed. Refreshes every 6 minutes (the CO-OPS current
+// cadence). Best-effort — a failed station is skipped, and the whole overlay is
+// silently absent without network egress (the arrows just never appear).
+
+let coopsOverlayCleanup: (() => void) | null = null
+
+// (id, lon, lat) for the 11 active Chesapeake Bay PORTS current stations —
+// mdapi `stations.json?type=currents` filtered to the bay, snapshotted so the
+// demo needs only the per-station datagetter fetches at runtime.
+const COOPS_STATIONS: [string, number, number, string][] = [
+  ['cb0102', -76.013, 36.959, 'Cape Henry'],
+  ['cb0201', -76.134, 37.14, 'York Spit'],
+  ['cb0301', -76.249, 37.011, 'Thimble Shoal'],
+  ['cb0402', -76.334, 36.963, 'Naval Station Norfolk'],
+  ['cb0601', -76.414, 36.956, 'Newport News Ch'],
+  ['cb0801', -76.155, 37.674, 'Rappahannock Shoal'],
+  ['cb1001', -76.384, 38.403, 'Cove Point'],
+  ['cb1102', -76.39, 38.98, 'Chesapeake Bay Bridge'],
+  ['cb1202', -76.333, 39.149, 'Brewerton Ch Ext'],
+  ['cb1301', -75.828, 39.531, 'Chesapeake City'],
+  ['cb1401', -76.444, 36.984, 'Newport News Shipbuilding'],
+]
+
+/** Speed (cm/s) → a blue→cyan→amber→red hex ramp. */
+function coopsSpeedColor(cmPerS: number): string {
+  const stops: [number, [number, number, number]][] = [
+    [0, [40, 90, 180]],
+    [25, [30, 170, 200]],
+    [60, [230, 180, 40]],
+    [120, [220, 50, 40]],
+  ]
+  const s = Math.max(0, Math.min(120, cmPerS))
+  let a = stops[0]!
+  let b = stops[stops.length - 1]!
+  for (let i = 0; i < stops.length - 1; i++) {
+    if (s >= stops[i]![0] && s <= stops[i + 1]![0]) {
+      a = stops[i]!
+      b = stops[i + 1]!
+      break
+    }
+  }
+  const t = b[0] === a[0] ? 0 : (s - a[0]) / (b[0] - a[0])
+  const ch = (i: number): string =>
+    Math.round(a[1][i]! + (b[1][i]! - a[1][i]!) * t)
+      .toString(16)
+      .padStart(2, '0')
+  return `#${ch(0)}${ch(1)}${ch(2)}`
+}
+
+function setupCoopsOverlay(map: InstanceType<typeof XGISMap>): void {
+  teardownCoopsOverlay()
+  let cancelled = false
+  interface Station {
+    id: string
+    lon: number
+    lat: number
+    name: string
+    speed: number
+    dir: number
+  }
+  let handle: { remove(): void } | null = null
+
+  const badge = document.createElement('div')
+  badge.id = 'coops-badge'
+  badge.style.cssText = [
+    'position:absolute',
+    'left:12px',
+    'bottom:12px',
+    'z-index:20',
+    'font:11px/1.4 "DM Mono",monospace',
+    'color:#dde',
+    'background:rgba(10,10,10,0.78)',
+    'backdrop-filter:blur(6px)',
+    'padding:6px 10px',
+    'border:1px solid rgba(255,255,255,0.12)',
+    'border-radius:6px',
+    'pointer-events:none',
+    'max-width:min(90vw,340px)',
+  ].join(';')
+  badge.textContent = 'Fetching live NOAA CO-OPS currents…'
+  const mapPane = document.getElementById('map-pane')!
+  mapPane.appendChild(badge)
+
+  const fetchStation = async (
+    id: string,
+    lon: number,
+    lat: number,
+    name: string,
+  ): Promise<Station | null> => {
+    try {
+      const url =
+        `https://api.tidesandcurrents.noaa.gov/api/prod/datagetter?date=latest&station=${id}` +
+        `&product=currents&units=metric&time_zone=gmt&format=json`
+      const res = await fetch(url)
+      if (!res.ok) return null
+      const j = (await res.json()) as { data?: { s?: string; d?: string }[] }
+      const row = j.data?.[0]
+      if (!row || row.s === undefined || row.d === undefined) return null
+      return { id, lon, lat, name, speed: parseFloat(row.s), dir: parseFloat(row.d) }
+    } catch {
+      return null
+    }
+  }
+
+  const refresh = async (): Promise<void> => {
+    const results = await Promise.all(
+      COOPS_STATIONS.map(([id, lon, lat, name]) => fetchStation(id, lon, lat, name)),
+    )
+    if (cancelled) return
+    const stations = results.filter((s): s is Station => s !== null)
+    if (handle) {
+      handle.remove()
+      handle = null
+    }
+    if (stations.length === 0) {
+      badge.textContent = 'NOAA CO-OPS currents unavailable (no network egress?)'
+      return
+    }
+    handle = map.graphics.add({
+      type: 'arrow',
+      data: stations,
+      getPosition: (d: Station) => [d.lon, d.lat] as const,
+      // CO-OPS current direction is the bearing the current flows TOWARD (deg
+      // true), which is exactly the arrow bearing (0 = N, CW).
+      getBearing: (d: Station) => d.dir,
+      // Length ∝ √speed so a fast station reads bigger without dwarfing the rest.
+      getSize: (d: Station) => Math.max(10, Math.min(46, 10 + Math.sqrt(d.speed) * 4)),
+      getColor: (d: Station) => coopsSpeedColor(d.speed),
+    })
+    const t = new Date().toLocaleTimeString()
+    badge.textContent = `NOAA CO-OPS live currents — ${stations.length}/${COOPS_STATIONS.length} stations, as of ${t} (refreshes ~6 min)`
+    ;(window as unknown as { __xgisCoopsStations?: number }).__xgisCoopsStations = stations.length
+  }
+
+  void refresh()
+  // CO-OPS currents update every 6 minutes; re-fetch on that cadence.
+  const timer = setInterval(() => void refresh(), 6 * 60 * 1000)
+
+  coopsOverlayCleanup = () => {
+    cancelled = true
+    clearInterval(timer)
+    if (handle) handle.remove()
+    badge.remove()
+    coopsOverlayCleanup = null
+  }
+}
+
+function teardownCoopsOverlay(): void {
+  coopsOverlayCleanup?.()
+}
+
 // Expose for tests / inspector — pass a modified source string and
 // the demo reloads with it (same path as Run button + Ctrl+Enter).
 ;(window as unknown as { __xgisRunSource?: (s: string) => Promise<unknown> }).__xgisRunSource =
@@ -1625,6 +1868,21 @@ async function loadDemo(idx: number) {
     setupMeasureOverlay(currentMap)
   } else {
     teardownMeasureOverlay()
+  }
+
+  // NOAA S-111 currents demos (#1272): particle-flow overlay drifting along
+  // the coverage source's direction band.
+  if (currentMap && demo.currents) {
+    setupCurrentsOverlay(currentMap)
+  } else {
+    teardownCurrentsOverlay()
+  }
+
+  // NOAA CO-OPS live-currents demos (#1272): browser-direct station arrows.
+  if (currentMap && demo.coops) {
+    setupCoopsOverlay(currentMap)
+  } else {
+    teardownCoopsOverlay()
   }
 
   // #1192 interaction infra — Demo.actions → the #demo-actions button bar.

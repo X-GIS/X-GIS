@@ -22,6 +22,7 @@ const HERE = dirname(fileURLToPath(import.meta.url))
 const TOOL = join(HERE, '..', '..', 'tools', 's100-to-xgcov.ts')
 const FIX = join(HERE, '__fixtures__', 'sb_v0_symtab.h5')
 const ASYM = join(HERE, '__fixtures__', 'asym_southflip.h5')
+const S111 = join(HERE, '__fixtures__', 's111_dcf2.h5')
 function golden(name: string): Record<string, unknown> {
   return JSON.parse(readFileSync(join(HERE, '__fixtures__', name + '.json'), 'utf8'))
 }
@@ -97,6 +98,37 @@ describe.skipIf(!hasBun())('s100-to-xgcov CLI (A6)', () => {
       if (expected[i] === (g.fillValue as number)) expect(Number.isNaN(v[i]!)).toBe(true)
       else expect(v[i]).toBeCloseTo(expected[i]!, 5)
     }
+  })
+
+  it('converts an S-111 surface-currents cell: 2 bands, -9999 fill → NaN, flip gated', async () => {
+    // The product-agnostic converter path over the S-111 fixture (#1272): both
+    // compound bands land in the artifact in member order (speed, direction),
+    // the -9999 S-111 fill decodes to NaN (never a float compare downstream),
+    // and the speed band equals the golden's NORTH-UP array cell-by-cell.
+    const g = golden('s111_dcf2')
+    const out = join(mkdtempSync(join(tmpdir(), 'xgcov-')), 'currents.xgcov')
+    const r = run([S111, '--out', out])
+    expect(r.code).toBe(0)
+    expect(r.stdout).toMatch(/product:\s+s111/)
+    expect(r.stdout).toMatch(/surfaceCurrentSpeed \(knots, fill=-9999\)/)
+    const handle = await decodeOut(out)
+    expect(handle.header.product).toBe('s111')
+    expect(handle.header.bands.map((b) => b.name)).toEqual([
+      'surfaceCurrentSpeed',
+      'surfaceCurrentDirection',
+    ])
+    const expected = (g.speed_north_up as number[][]).flat()
+    const v = handle.band('surfaceCurrentSpeed').values
+    expect(v.length).toBe(expected.length)
+    for (let i = 0; i < expected.length; i++) {
+      if (expected[i] === (g.fillValue as number)) expect(Number.isNaN(v[i]!)).toBe(true)
+      else expect(v[i]).toBeCloseTo(expected[i]!, 5)
+    }
+    // direction band survives alongside — same nodata cell → NaN. South-first
+    // (row 1, col 1) is the MIDDLE row of the 3-row grid, so the north-up flip
+    // keeps its flat index (1·nLon + 1).
+    const d = handle.band('surfaceCurrentDirection').values
+    expect(Number.isNaN(d[1 * (g.nLon as number) + 1]!)).toBe(true)
   })
 
   it('a reader error (out-of-subset construct) exits non-zero', () => {

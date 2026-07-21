@@ -46,7 +46,13 @@ export type RawDataset =
       readonly baseShift?: number
     }
   | { readonly _vectorTile: true }
-  | { readonly _coverage: CoverageHandle }
+  | {
+      readonly _coverage: CoverageHandle
+      /** Colour-ramp LUT name for the GPU draw (source `ramp:`). Default viridis. */
+      readonly ramp?: string
+      /** `[lo, hi]` display value window (source `range:`). Default = data range. */
+      readonly range?: readonly [number, number]
+    }
 
 export interface VariantPipelines {
   fillPipeline: GPURenderPipeline

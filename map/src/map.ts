@@ -78,8 +78,10 @@ import {
 } from './render/bucket-scheduler'
 import { interpret, type SceneCommands } from './interpreter'
 import { lonLatToMercator, type GeoJSONFeatureCollection, type CoverageHandle } from '@xgis/data'
+import { decodeCoverage } from '@xgis/data'
 import { RasterRenderer } from './render/raster-renderer'
 import { HillshadeRenderer, armHillshadeSource } from './render/hillshade-renderer'
+import { CoverageRenderer } from './render/coverage-renderer'
 import { UnderOccluderRenderer } from './render/under-occluder-renderer'
 import { PointRenderer } from './render/point-renderer'
 import { HeatmapRenderer } from './render/heatmap-renderer'
@@ -260,6 +262,9 @@ export class XGISMap {
   rasterRenderer!: RasterRenderer
   /** raster-dem DEM-relief renderer (#777). Inert until a `_dem` layer arms it. */
   hillshadeRenderer!: HillshadeRenderer
+  /** S-100 coverage colour-ramp renderer (#1158). Inert until a `_coverage`
+   *  layer arms it; draws in the opaque pass right after the raster basemap. */
+  coverageRenderer!: CoverageRenderer
   /** INC-1 opaque depth-writing globe sphere just under EARTH_R (opaque-pass.ts);
    *  non-null only while a `background { fill }` is installed; globe-only. */
   underOccluder: UnderOccluderRenderer | null = null
@@ -1791,6 +1796,7 @@ export class XGISMap {
       this.renderer.rebuildForQuality()
       this.rasterRenderer.rebuildForQuality()
       this.hillshadeRenderer.rebuildForQuality()
+      this.coverageRenderer.rebuildForQuality()
       this.lineRenderer?.rebuildForQuality()
       this.pointRenderer?.rebuildForQuality()
       // Per-show variant pipelines + layouts both went stale: the
@@ -2869,6 +2875,7 @@ export class XGISMap {
     this.renderer = rendererSet.renderer
     this.rasterRenderer = rendererSet.rasterRenderer
     this.hillshadeRenderer = rendererSet.hillshadeRenderer
+    this.coverageRenderer = rendererSet.coverageRenderer
     this.gpuTimer = rendererSet.gpuTimer
     // Cast: pointRenderer field is a definite-assignment non-null (like ctx);
     // buildSceneRenderers yields null only on a ctor failure, which overwrites a
@@ -3264,10 +3271,11 @@ export class XGISMap {
     // resolve (same contract as Mapbox/MapLibre layer references).
     this.xgisLayers.clear()
 
-    // Reset raster + hillshade renderers — only re-activated below if a layer
-    // references a raster / raster-dem source.
+    // Reset raster + hillshade + coverage renderers — only re-activated below
+    // if a layer references a raster / raster-dem / coverage source.
     this.rasterRenderer.setUrlTemplate('')
     this.hillshadeRenderer.setUrlTemplate('')
+    this.coverageRenderer.clear()
     this._hillshadeShow = null
     // Drop any previously-tracked raster show. A new active one (if any)
     // is captured below by the same `_tileUrl` test that arms the
@@ -3341,12 +3349,18 @@ export class XGISMap {
 
       // S-100 gridded-coverage source (#1158 GAP-1). The CPU-resident CoverageHandle
       // is the value-readout authority (getCoverage(...).valueAt); narrow the marker
-      // here so it never falls through to the feature paths below. The GPU colour-
-      // ramp draw (CoverageRenderer, coverage-renderer.ts) arms + draws through the
-      // headed render gate (INC-A gate 3, PENDING in this environment) — the renderer
-      // + shader + packing are complete and unit-tested; this narrowing keeps the
-      // rebuild feature-path-safe until that draw wiring lands.
-      if ('_coverage' in data) continue
+      // here so it never falls through to the feature paths below. A layer over the
+      // source arms the GPU colour-ramp draw with the source's ramp/range options
+      // (default viridis / the band's data range); the opaque pass dispatches it
+      // right after the raster basemap (flat arm).
+      if ('_coverage' in data) {
+        this.coverageRenderer.setCoverage(data._coverage, {
+          ramp: data.ramp ?? 'viridis',
+          rangeLo: data.range?.[0],
+          rangeHi: data.range?.[1],
+        })
+        continue
+      }
 
       // Skip vector tile sources loaded from .xgvt files
       if ('_vectorTile' in data) {
@@ -3868,6 +3882,7 @@ export class XGISMap {
     this.renderer = rendererSet.renderer
     this.rasterRenderer = rendererSet.rasterRenderer
     this.hillshadeRenderer = rendererSet.hillshadeRenderer
+    this.coverageRenderer = rendererSet.coverageRenderer
     this.gpuTimer = rendererSet.gpuTimer
     this.pointRenderer = rendererSet.pointRenderer as PointRenderer
     this.shapeRegistry = rendererSet.shapeRegistry
@@ -4250,6 +4265,39 @@ export class XGISMap {
   getCoverage(sourceId: string): CoverageHandle | null {
     const data = this.rawDatasets.get(sourceId)
     return data && '_coverage' in data ? data._coverage : null
+  }
+
+  /** Host-push a fresh `.xgcov` payload into a declared `coverage` source (#1272) —
+   *  the coverage sibling of `setSourceData`. Decodes the artifact, swaps the CPU
+   *  CoverageHandle (so `getCoverage(...).valueAt` updates at once), re-arms the GPU
+   *  ramp, and repaints — the in-app live-refresh seam (a worker converts your OWN
+   *  NOAA copy via `s100ToXgcov` from `@xgis/pipeline/hdf5`; THREDDS is CORS-blocked).
+   *  `ramp`/`range` default to the declared (or last-pushed) palette. Throws if
+   *  `sourceId` was not declared as a `coverage` source. */
+  async setCoverageData(
+    sourceId: string,
+    xgcov: ArrayBuffer,
+    opts?: { ramp?: string; range?: readonly [number, number] },
+  ): Promise<void> {
+    const prev = this.rawDatasets.get(sourceId)
+    if (!prev || !('_coverage' in prev)) {
+      throw new Error(
+        `[X-GIS] setCoverageData: "${sourceId}" is not a declared coverage source ` +
+          `(declare \`source ${sourceId} { type: coverage, url: … }\` first).`,
+      )
+    }
+    const handle = await decodeCoverage(xgcov)
+    const ramp = opts?.ramp ?? prev.ramp
+    const range = opts?.range ?? prev.range
+    this.rawDatasets.set(sourceId, { _coverage: handle, ramp, range })
+    // Arm the singleton coverage renderer directly (a host push lands AFTER the
+    // rebuild that normally arms it); a later rebuild re-arms from the marker.
+    this.coverageRenderer.setCoverage(handle, {
+      ramp: ramp ?? 'viridis',
+      rangeLo: range?.[0],
+      rangeHi: range?.[1],
+    })
+    this.invalidate()
   }
 
   /** Mapbox GL JS-style paint property mutation (plan P6 first cut).

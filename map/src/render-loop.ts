@@ -928,6 +928,24 @@ export class RenderLoop {
         dpr,
       )
     }
+    // S-100 coverage colour-ramp overlay (#1158) — the twin of the opaque-pass
+    // dispatch (same order: over raster, under the vector fills). FLAT arm only;
+    // the coverage material carries its GLSL twin, so this is a plain port, not
+    // a backend fork. `frame.matrix` is a preallocated camera buffer —
+    // packCoverageUniforms copies it synchronously inside render().
+    if (
+      this.host.coverageRenderer.hasCoverage() &&
+      !this.host.camera.globeMode &&
+      !isGlobeProj(projType)
+    ) {
+      const frame = this.host.camera.getViewForProjection(projType, w, h, dpr)
+      this.host.coverageRenderer.render(
+        pass,
+        frame.matrix,
+        [this.host.camera.centerX, this.host.camera.centerY],
+        [projType, centerLon, centerLat, frame.logDepthFc],
+      )
+    }
     // #832 M2 — vector-tile polygon FILLS on WebGL2. The classifier is the
     // same per-frame authority the WebGPU frame uses (visibility, min/max
     // zoom, ResolvedShow paint snapshots); each opaque show's fills draw

@@ -57,6 +57,12 @@ export interface LoadCommand {
   greenFactor?: number
   blueFactor?: number
   baseShift?: number
+  /** `type: coverage` colour-ramp LUT name + `[lo, hi]` display window,
+   *  threaded from `SourceDef.ramp` / `SourceDef.range` (#1158) so the runtime
+   *  arms the coverage renderer with the author's palette. Mirror fields on the
+   *  runtime `interpreter.ts` LoadCommand (two-sibling rule). */
+  ramp?: string
+  range?: readonly [number, number]
 }
 
 // ─── Paint sub-bundles (Tier-B B2, rows 3/5) ───────────────────────
@@ -420,6 +426,8 @@ export function emitCommands(scene: Scene, opts?: EmitOptions): SceneCommands {
     greenFactor: src.greenFactor,
     blueFactor: src.blueFactor,
     baseShift: src.baseShift,
+    ramp: src.ramp,
+    range: src.range,
   }))
 
   // Walk the IR once to collect every ZOOM-only paint literal /

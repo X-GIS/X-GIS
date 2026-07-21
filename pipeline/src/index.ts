@@ -35,3 +35,8 @@ export { krAdminLoader, odbLoader } from './loaders'
 // .odb OD-flow binary — compact aggregated origin→destination payload.
 export type { ODFlow, ODBData } from './odb/format'
 export { encodeODB, decodeODB, ODB_MAGIC, ODB_VERSION, ODB_HOUR_ALLDAY } from './odb/format'
+
+// S-100 (HDF5) coverage ingest lives on the `@xgis/pipeline/hdf5` SUBPATH, not
+// this barrel: the `s100ToXgcov` converter pulls in @xgis/data's .xgcov codec, so
+// keeping it off the main barrel leaves the ETL core (CSV / join / encode / odb)
+// shared-only and its bundle lean. `import { s100ToXgcov } from '@xgis/pipeline/hdf5'`.

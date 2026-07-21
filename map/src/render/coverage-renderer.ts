@@ -10,10 +10,14 @@
 // Time scrub (setCoverageTime) re-uploads the ONE resident texture — INC-C. INC-A is
 // a single timeslice. The draw quad spans the coverage's OUTER cell edges; the
 // fragment inverts Mercator per-pixel (coverage-ramp.ts / A4). render() takes the
-// camera-derived MVP + centre + proj params (the map.ts arming computes them, mirroring
-// the raster flat path) so this renderer stays camera-internals-free and unit-testable.
+// camera-derived MVP + centre + proj params (the opaque-pass arming computes them,
+// mirroring the raster flat path) so this renderer stays camera-internals-free and
+// unit-testable. The draper is LAZY (raster's ensureRasterDraper pattern): built at
+// first arm with the live MSAA sample count, invalidated by rebuildForQuality().
 
+import type { GPUContext } from '@xgis/rhi-webgpu'
 import type { RhiDevice, RhiTexture, RhiSampler, RhiBindGroup, RhiRenderPass } from '@xgis/engine'
+import { getSampleCount } from '@xgis/engine'
 import type { CoverageHandle } from '@xgis/data'
 import { CoverageDraper } from './material/coverage-material'
 import {
@@ -44,21 +48,31 @@ export interface CoverageArmOptions {
 }
 
 export class CoverageRenderer {
-  private readonly draper: CoverageDraper
-  private readonly dataSampler: RhiSampler
-  private readonly lutSampler: RhiSampler
+  private readonly rhi: RhiDevice
+  private readonly format: string
+  private _draper: CoverageDraper | null = null
+  private dataSampler: RhiSampler | null = null
+  private lutSampler: RhiSampler | null = null
   private state: CoverageState | null = null
+  /** Last armed inputs, retained so rebuildForQuality() can re-arm at the new
+   *  sample count (the textures + bind group are draper-layout-bound). */
+  private lastHandle: CoverageHandle | null = null
+  private lastOpts: CoverageArmOptions | null = null
 
-  constructor(
-    private readonly rhi: RhiDevice,
-    format: string,
-    sampleCount: number,
-  ) {
-    this.draper = new CoverageDraper(rhi, format, sampleCount)
-    // Linear + clamp-to-edge on both (the RHI sampler is clamp by default; linear
-    // gives the exact validity-weighted bilinear the fragment divides back out).
-    this.dataSampler = rhi.createSampler({ mag: 'linear', min: 'linear' })
-    this.lutSampler = rhi.createSampler({ mag: 'linear', min: 'linear' })
+  constructor(ctx: GPUContext) {
+    this.rhi = ctx.rhi
+    this.format = ctx.format
+  }
+
+  /** Lazily build the draper with the LIVE sample count (raster's
+   *  ensureRasterDraper pattern). The forced-WebGL2 frame is the single-sample
+   *  screen pass (renderFrameViaRhi topology), so that backend pins 1. */
+  private ensureDraper(): CoverageDraper {
+    return (this._draper ??= new CoverageDraper(
+      this.rhi,
+      this.format,
+      this.rhi.backend === 'webgl2' ? 1 : Math.min(getSampleCount(), this.rhi.caps.maxSampleCount),
+    ))
   }
 
   hasCoverage(): boolean {
@@ -69,6 +83,9 @@ export class CoverageRenderer {
    *  any previous coverage (destroying its textures — no leak). */
   setCoverage(handle: CoverageHandle, opts: CoverageArmOptions): void {
     this.releaseTextures()
+    const draper = this.ensureDraper()
+    this.dataSampler ??= this.rhi.createSampler({ mag: 'linear', min: 'linear' })
+    this.lutSampler ??= this.rhi.createSampler({ mag: 'linear', min: 'linear' })
     const band = handle.band(opts.bandIndex ?? 0)
     const [nLon, nLat] = handle.header.size
     const dataMin = band.header.min
@@ -79,7 +96,7 @@ export class CoverageRenderer {
     const validTex = this.uploadR16f(valid, nLon, nLat)
     const lutTex = this.uploadLut(bakeRampLut(opts.ramp))
 
-    const bindGroup = this.draper.bindGroup(
+    const bindGroup = draper.bindGroup(
       this.rhi.createView(valueTex),
       this.rhi.createView(validTex),
       this.dataSampler,
@@ -103,6 +120,26 @@ export class CoverageRenderer {
       covGeo: [westEdge, northEdge, nLon * dLon, nLat * dLat],
       ramp: computeRampUniforms(dataMin, dataMax, opts.rangeLo ?? dataMin, opts.rangeHi ?? dataMax),
     }
+    this.lastHandle = handle
+    this.lastOpts = opts
+  }
+
+  /** Disarm the draw (scene rebuild with no coverage source). Textures are
+   *  destroyed; the draper + samplers stay for a later re-arm. */
+  clear(): void {
+    this.releaseTextures()
+    this.lastHandle = null
+    this.lastOpts = null
+  }
+
+  /** A quality (MSAA) change invalidates the draper pipeline; re-arm from the
+   *  retained handle so the bind group is rebuilt against the new layout. */
+  rebuildForQuality(): void {
+    const handle = this.lastHandle
+    const opts = this.lastOpts
+    this.releaseTextures()
+    this._draper = null
+    if (handle && opts) this.setCoverage(handle, opts)
   }
 
   /** Draw the coverage (flat Mercator). The caller supplies the camera-derived
@@ -115,7 +152,7 @@ export class CoverageRenderer {
     projParams: [number, number, number, number],
   ): void {
     const s = this.state
-    if (!s) return
+    if (!s || !this._draper) return
     const bytes = packCoverageUniforms({
       mvp,
       projParams,
@@ -124,7 +161,7 @@ export class CoverageRenderer {
       covGeo: s.covGeo,
       ramp: s.ramp,
     })
-    this.draper.draw(pass, bytes as BufferSource, s.bindGroup)
+    this._draper.draw(pass, bytes as BufferSource, s.bindGroup)
   }
 
   private uploadR16f(data: Uint16Array, width: number, height: number): RhiTexture {
@@ -161,7 +198,11 @@ export class CoverageRenderer {
 
   dispose(): void {
     this.releaseTextures()
-    this.rhi.destroySampler(this.dataSampler)
-    this.rhi.destroySampler(this.lutSampler)
+    if (this.dataSampler) this.rhi.destroySampler(this.dataSampler)
+    if (this.lutSampler) this.rhi.destroySampler(this.lutSampler)
+    this.dataSampler = null
+    this.lutSampler = null
+    this.lastHandle = null
+    this.lastOpts = null
   }
 }

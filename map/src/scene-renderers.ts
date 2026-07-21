@@ -18,6 +18,7 @@ import { GPU_PROF, GPUTimer, type GPUContext } from '@xgis/rhi-webgpu'
 import { MapRendererContent } from './render/renderer'
 import { RasterRenderer } from './render/raster-renderer'
 import { HillshadeRenderer } from './render/hillshade-renderer'
+import { CoverageRenderer } from './render/coverage-renderer'
 import { PointRenderer } from './render/point-renderer'
 import { ShapeRegistry } from './text/sdf-shape'
 import { HeatmapRenderer } from './render/heatmap-renderer'
@@ -31,6 +32,7 @@ export interface SceneRendererSet {
   renderer: MapRendererContent
   rasterRenderer: RasterRenderer
   hillshadeRenderer: HillshadeRenderer
+  coverageRenderer: CoverageRenderer
   gpuTimer: GPUTimer | null
   pointRenderer: PointRenderer | null
   shapeRegistry: ShapeRegistry | null
@@ -48,6 +50,7 @@ export function buildSceneRenderers(
   renderer.setGraticuleEnabled(opts.graticuleInitial)
   const rasterRenderer = new RasterRenderer(ctx)
   const hillshadeRenderer = new HillshadeRenderer(ctx)
+  const coverageRenderer = new CoverageRenderer(ctx)
   const gpuTimer = GPU_PROF ? new GPUTimer(ctx) : null
 
   let pointRenderer: PointRenderer | null = null
@@ -90,6 +93,7 @@ export function buildSceneRenderers(
     renderer,
     rasterRenderer,
     hillshadeRenderer,
+    coverageRenderer,
     gpuTimer,
     pointRenderer,
     shapeRegistry,

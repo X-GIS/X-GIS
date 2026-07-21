@@ -1,0 +1,28 @@
+xgis 1
+
+// NOAA CO-OPS live tidal currents (#1272) — the browser-DIRECT path: the demo
+// runner fetches api.tidesandcurrents.noaa.gov (CORS `*`, no server needed) for a
+// set of Chesapeake Bay PORTS current stations and draws one retained arrow per
+// station (bearing = current direction, length + colour = speed), refreshing every
+// few minutes. This .xgis is only the coarse land/ocean context; the live glyphs
+// come from Demo.coops → the runner's setupCoopsOverlay.
+
+source ocean {
+  type: geojson
+  url: "ne_110m_ocean.geojson"
+}
+
+source land {
+  type: geojson
+  url: "ne_110m_land.geojson"
+}
+
+layer ocean {
+  source: ocean
+  | fill-slate-800
+}
+
+layer land {
+  source: land
+  | fill-slate-600 stroke-slate-500 stroke-1
+}
