@@ -130,6 +130,7 @@ export type FrameLoopHost = Pick<
   | '_lastSigW'
   | '_lastSigZoom'
   | '_light'
+  | '_missingTileCount'
   | '_needsRender'
   | '_spriteAtlasViewPushed'
   | '_scheduleFrame'

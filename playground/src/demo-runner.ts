@@ -55,6 +55,7 @@ function replaceMapCanvas(): void {
 }
 const status = document.getElementById('status')!
 const statusMain = document.getElementById('status-main')!
+const statusLoadingEl = document.getElementById('status-loading')!
 const statusDescEl = document.getElementById('status-desc') as HTMLButtonElement | null
 const statusPopoverEl = document.getElementById('status-popover')!
 const errorDiv = document.getElementById('error')!
@@ -940,6 +941,13 @@ let hashSyncRaf = 0
 let lastHash = ''
 let lastBadgeText = ''
 let lastHashWriteMs = 0
+// #1229 item 1 — tile-loading indicator state, folded into the hash-sync RAF
+// (already a per-frame tick with the "touch the DOM only on change" discipline).
+// -1 = the suffix is hidden; a non-negative value is the count last painted.
+// loadingSettleFrames debounces the hide so a momentary 0 between tile batches
+// doesn't flicker the suffix off then back on.
+let lastLoadingShown = -1
+let loadingSettleFrames = 0
 // iOS Safari throttles history.replaceState to 100 calls per 10 seconds and
 // throws SecurityError past that. Writing every rAF (~60Hz) during a pan
 // tripped the limit instantly, so we rate-limit URL writes to ~5Hz. The
@@ -950,6 +958,15 @@ let lastHashWriteMs = 0
 const HASH_WRITE_INTERVAL_MS = 200
 function startHashSync(map: XGISMap): void {
   cancelAnimationFrame(hashSyncRaf)
+  // #1229 item 1 — reset the tile-loading suffix for the freshly-mounted demo.
+  // The state above is module-scoped and persists across demos, so a stale
+  // "loading N tiles" from the previous demo must be cleared before the new
+  // map's per-frame count takes over.
+  lastLoadingShown = -1
+  loadingSettleFrames = 0
+  statusLoadingEl.hidden = true
+  statusLoadingEl.textContent = ''
+  delete status.dataset.loading
   const tick = () => {
     const h = formatHash(map)
     if (h !== lastBadgeText) {
@@ -964,6 +981,29 @@ function startHashSync(map: XGISMap): void {
         // replaceState instead of location.hash = — avoids triggering hashchange
         history.replaceState(null, '', location.pathname + location.search + h)
       }
+    }
+    // #1229 item 1 — tile-loading affordance. Zero-alloc read of the engine's
+    // per-frame in-flight tile count (VT missed + raster/hillshade mid-fetch);
+    // touch the DOM only when the shown count changes, so a stable count / an
+    // idle map is free. The suffix + #status[data-loading] hook appear while
+    // tiles stream and clear once the scene settles (never stuck on — the count
+    // reaches 0 exactly when the render loop stops re-arming).
+    const missing = map.getMissingTileCount()
+    if (missing > 0) {
+      loadingSettleFrames = 0
+      if (missing !== lastLoadingShown) {
+        statusLoadingEl.textContent = `· loading ${missing} tile${missing === 1 ? '' : 's'}…`
+        statusLoadingEl.hidden = false
+        status.dataset.loading = String(missing)
+        status.style.opacity = '1'
+        lastLoadingShown = missing
+      }
+    } else if (lastLoadingShown !== -1 && ++loadingSettleFrames >= 2) {
+      statusLoadingEl.hidden = true
+      statusLoadingEl.textContent = ''
+      delete status.dataset.loading
+      status.style.opacity = '0.4'
+      lastLoadingShown = -1
     }
     hashSyncRaf = requestAnimationFrame(tick)
   }

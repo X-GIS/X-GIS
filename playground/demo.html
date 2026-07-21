@@ -378,6 +378,15 @@
         pointer-events: none;
         transition: opacity 0.5s;
       }
+      /* #1229 item 1 — tile-loading suffix: a subtle accented "· loading N
+         tiles…" appended to the pill's first line while tiles stream in. */
+      #status-loading {
+        margin-left: 6px;
+        color: var(--accent);
+      }
+      #status-loading[hidden] {
+        display: none;
+      }
 
       /* ── Error ── */
       #error {
@@ -406,6 +415,20 @@
         font-size: 12px;
         white-space: pre-wrap;
         line-height: 1.6;
+      }
+
+      /* #1229 item 6 — the console-error overlay (#log-overlay, created in
+         demo-runner.ts) docks bottom-right and, on a phone, opens over the
+         bottom #demo-actions bar + #status pill. Re-dock it as a TOP toast on
+         mobile so the two STACK instead of overlapping the interactive bottom
+         row: it grows DOWN from the top, well clear of the bottom controls
+         (the actions bar is the thing the user came to tap). `!important`
+         overrides the element's inline bottom:8px set in JS. */
+      @media (max-width: 740px), (pointer: coarse) {
+        #log-overlay {
+          top: 8px !important;
+          bottom: auto !important;
+        }
       }
 
       /* Map tool cluster — snapshot + copy-link buttons, floated in the
@@ -681,6 +704,10 @@
              full-text popover on click. -->
         <div id="status">
           <span id="status-main">Initializing...</span>
+          <!-- #1229 item 1 — transient tile-loading suffix on the pill's first
+               line; shown while the frame reports in-flight tiles, hidden on
+               settle. Coexists with #status-main (#1249) + #status-desc (#1226). -->
+          <span id="status-loading" hidden></span>
           <button type="button" id="status-desc" hidden></button>
         </div>
         <div id="status-popover" hidden></div>
