@@ -29,7 +29,9 @@ interface Props {
 // A single neutral land source, taken straight to the globe. White-ish
 // continents on the near-black canvas — the brand's "render is the hero,
 // chrome stays monochrome" rule. The fill utility matches the home hero.
-const source = (base: string) => `source land {
+const source = (base: string) => `xgis 1
+
+source land {
   type: geojson
   url: "${base}/data/land.geojson"
 }
