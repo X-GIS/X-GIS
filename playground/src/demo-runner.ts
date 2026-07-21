@@ -1455,6 +1455,16 @@ async function loadDemo(idx: number) {
   // on entry). For Demo.actions demos this carries the interaction guidance.
   setStatusDescription(demo.description)
 
+  // #1192 P1 — demo-declared viewport projection (mirrors MapLibre examples
+  // that call the projection API, e.g. globe). `?proj=` URL override wins —
+  // runSource already applied it. Applied BEFORE the demo camera: switching
+  // into a wide-view projection clamps zoom to ≤1.5 (viewport-mode-controller
+  // "frame the whole earth" adjust), which silently stomped an authored
+  // Demo.zoom — globe_extrusion authored 2.9, opened at 1.5.
+  if (currentMap && demo.projection && !params.get('proj')) {
+    currentMap.setProjection(demo.projection)
+  }
+
   // Per-demo initial camera (loader.ts Demo.zoom/center/pitch/bearing): a
   // .xgis source carries no camera state, so a demo that only reads well at a
   // specific view sets it here. A URL `#z/lat/lon` hash (parsed at boot)
@@ -1470,13 +1480,6 @@ async function loadDemo(idx: number) {
     if (demo.pitch !== undefined) currentMap.setPitch(demo.pitch)
     if (demo.bearing !== undefined) currentMap.setBearing(demo.bearing)
     currentMap.markCameraPositioned()
-  }
-
-  // #1192 P1 — demo-declared viewport projection (mirrors MapLibre examples
-  // that call the projection API, e.g. globe). `?proj=` URL override wins —
-  // runSource already applied it.
-  if (currentMap && demo.projection && !params.get('proj')) {
-    currentMap.setProjection(demo.projection)
   }
 
   // Post-run hook: inline-source fixtures need the host to push

@@ -34,6 +34,24 @@ export function rasterGlobeCamAnchor(lonDeg: number, latDeg: number): ECEF {
   return lonLatToECEF(lonDeg, latDeg)
 }
 
+/** Tile-pyramid cover zoom for a raster source, tileSize-aware.
+ *
+ *  The camera zoom is the Mapbox/MapLibre 512-px-tile convention (camera.ts:
+ *  `mpp = WORLD_MERC / TILE_PX / 2^zoom`, TILE_PX = 512): at zoom Z one z=Z
+ *  tile covers 512 CSS px. A 256-px raster tile stretched over that span is
+ *  magnified 2× (4× area) — the "raster looks blurry / low-res" class. MapLibre
+ *  compensates in Transform#coveringZoomLevel: tile z = round(zoom +
+ *  log2(512 / tileSize)), i.e. +1 LOD for the de-facto-standard 256-px XYZ
+ *  tiles (OSM, Esri, terrarium), +0 for true 512-px sources. Mirror that here
+ *  so a given camera zoom samples raster texels at the same density as
+ *  MapLibre. Round (not floor) is the raster roundZoom semantic both engines
+ *  share. Clamp stays [0, 18] — the pre-existing pyramid cap.
+ *  (exported for the zoom-selection unit gate — raster-cover-zoom.test.ts) */
+export function rasterCoverZoom(zoom: number, tileSize: number): number {
+  const bias = Math.log2(512 / tileSize)
+  return Math.max(0, Math.min(18, Math.round(zoom + bias)))
+}
+
 // ── Typed pack targets (#733 P2b) — layout from wgslLayout(U.struct), write()
 // typed by the same field record the WGSL is emitted from. LAZY memo (draw time).
 let _rasterBlock: UniformBlockOf<typeof RASTER_U> | null = null
@@ -192,6 +210,11 @@ export class RasterRenderer {
   private lastVisibleKeys: Set<string> = new Set()
 
   private urlTemplate = ''
+  /** Source `tileSize` (px) — drives the cover-zoom bias (rasterCoverZoom).
+   *  Default 256: the de-facto XYZ raster standard (OSM / Esri / terrarium all
+   *  serve 256-px tiles; MapLibre's own raster examples author tileSize: 256).
+   *  An authored `tileSize: 512` opts a true-512 source back to +0 bias. */
+  private _tileSize = 256
   /** Mapbox `raster-opacity`, resolved per frame by the orchestrator.
    *  1.0 = fully opaque (the default for layers that didn't author
    *  `raster-opacity`). The fragment shader multiplies the sampled
@@ -263,6 +286,12 @@ export class RasterRenderer {
 
   setUrlTemplate(url: string): void {
     this.urlTemplate = url
+  }
+
+  /** Set the source's tile size in px (256 | 512). Values other than 256/512
+   *  keep the current setting — same validation the hillshade arm uses. */
+  setTileSize(tileSize: number | undefined): void {
+    if (tileSize === 256 || tileSize === 512) this._tileSize = tileSize
   }
 
   /** Set the per-frame opacity multiplier (Mapbox `raster-opacity`).
@@ -477,7 +506,7 @@ export class RasterRenderer {
     const frame = camera.getViewForProjection(projType, canvasWidth, canvasHeight, dpr)
     const { zoom } = camera
 
-    const currentZ = Math.max(0, Math.min(18, Math.round(zoom)))
+    const currentZ = rasterCoverZoom(zoom, this._tileSize)
 
     // On zoom change: cancel distant zoom requests but KEEP parent tiles loading
     if (currentZ !== this.lastZoom) {

@@ -246,7 +246,9 @@ const CEILINGS: Record<string, number> = {
   // Merge union (#1172 <- main): the M1/M4/M5/M5c mobile-hardening seams stacked
   // non-overlappingly on main's #1177/#1194/#1196/#777-II lineage — merged
   // high-water is the measured 4708.
-  'map/src/map.ts': 4708,
+  // 4708→4711 (raster-resolution): rebuildLayers hands the raster source's
+  // authored tileSize to the renderer (cover-zoom bias wiring).
+  'map/src/map.ts': 4711,
   // 1920→1930 (#1042 R3): the globe limb cull for MULTI-LINE labels must land in
   // the collision phase — the ONLY site holding the label's quad half-height (the
   // collision box IS the height authority; the label-pass dispatch site has only
@@ -402,7 +404,10 @@ const CEILINGS: Record<string, number> = {
   // measured 1315.
   // Merge union (#1172 <- main): the M5/M3 scheduling-authority reroute (net -1)
   // stacked on main's twin lineage — merged high-water is the measured 1314.
-  'map/src/render-loop.ts': 1314,
+  // 1314→1326 (raster-resolution): hillshade DEM fetches join BOTH keep-alive
+  // checks (WebGPU + WebGL2 twin) — a hillshade-only scene otherwise idles
+  // before its tiles arrive and the arrival never repaints (black relief).
+  'map/src/render-loop.ts': 1326,
   // Merge union (#1060 <- main): stacked growth — measured 1174.
   'map/src/render/point-renderer.ts': 1174,
   // 1106→1120 (#1043 state-hygiene): three unmask-before-clear / state-reset fixes for the
@@ -499,7 +504,10 @@ const CEILINGS: Record<string, number> = {
   // chains' `.catch` that un-wedges the loadingTiles slot (a createTexture throw on a
   // lost context otherwise pins all 6 slots → raster stops + the loop never idles).
   // A cohesive renderer, not a new god-file; shrink as #991 decomposes the render SCC.
-  'map/src/render/raster-renderer.ts': 809,
+  // 809→838 (raster-resolution): rasterCoverZoom — the tileSize-aware cover-zoom
+  // authority (camera zoom is the 512-px convention; 256-px XYZ tiles need z+1
+  // or every raster renders one LOD blurry) + the _tileSize field/setter.
+  'map/src/render/raster-renderer.ts': 838,
   // 889→906 (#1155 F3): cold-start burst enqueue cap — the `_coldStartBurst`
   // field + `setColdStartBurst` + the burst-selected 8/4 cap in enqueue().
   // 906→910 (#1155 F3 adjudication): the burst 8/4 pair now comes from the
