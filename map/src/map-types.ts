@@ -222,6 +222,14 @@ export interface XGISMapOptions {
    *  basemap-quality output it should opt in. Toggle at runtime via
    *  `map.setGraticuleEnabled(bool)`. */
   graticule?: boolean
+  /** Symbol fade duration in ms (MapLibre `fadeDuration` parity). Labels and
+   *  their paired icons ramp opacity over this window when they appear or
+   *  disappear (tile loads, collision churn) instead of popping. Placement
+   *  itself stays instant — only the visual alpha ramps, so the S16
+   *  label-prepare skip and its zoom-jank guarantees are untouched. `0`
+   *  disables fading (pre-fade byte-identical rendering, the right setting
+   *  for pixel-exact screenshot harnesses). Default `300`. */
+  fadeDuration?: number
   /** Accessible name applied to the canvas via `aria-label`, announced
    *  by screen readers when the map receives focus. Defaults to `"Map"`.
    *  Set a deployment-specific label (e.g. `"Seoul transit map"`) so the

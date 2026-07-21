@@ -73,13 +73,18 @@ export class TextRenderer {
    *  `page` is the atlas page the slice's glyphs reference; a single
    *  TextDraw can split into multiple slices when its glyphs span
    *  pages (CJK-heavy maps). `dynamicOffset` (bytes) points at this
-   *  slice's 64-B uniform pack inside the shared uniform buffer. */
+   *  slice's 64-B uniform pack inside the shared uniform buffer.
+   *  `fade` carries the source draw's symbol-fade box + the UNfaded
+   *  base alphas; draw() re-derives fill/halo alpha from it every
+   *  frame (fade advances on replay frames too). Absent → the packed
+   *  alphas are never touched (byte-identical legacy path). */
   private drawSlices: Array<{
     first: number
     count: number
     uniforms: Float32Array
     page: number
     dynamicOffset: number
+    fade?: { ref: { a: number }; baseFillA: number; baseHaloA: number }
   }> = []
   /** Combined uniforms for all slices, laid out at UNIFORM_STRIDE
    *  intervals. Rebuilt per frame in setDraws; viewport patched in
@@ -213,6 +218,17 @@ export class TextRenderer {
       // iter-248 — pass arena so each per-draw uniform pack uses
       // the same backing buffer as the iter-244 vertex data.
       const uniforms = packUniforms(d, this._frameArena)
+      // Symbol fade — remember the UNfaded base alphas so draw() can
+      // re-derive faded values idempotently every frame (patching the
+      // packed slot in place would compound the multiply).
+      const fade =
+        d.fadeRef !== undefined
+          ? {
+              ref: d.fadeRef,
+              baseFillA: d.color[3],
+              baseHaloA: d.halo !== undefined ? d.halo.color[3] : 0,
+            }
+          : undefined
       // Track the page for the current sub-slice. A label spanning
       // pages flushes a slice each time the active page changes;
       // single-page maps emit exactly one slice per draw.
@@ -230,6 +246,7 @@ export class TextRenderer {
           // slice gets its own UNIFORM_STRIDE slot regardless of which
           // draw produced it.
           dynamicOffset: 0,
+          fade,
         })
       }
       // Whole-label rotation around (anchorX, anchorY). Used when
@@ -463,6 +480,15 @@ export class TextRenderer {
       this.allUniforms[base + 2] = rDx
       this.allUniforms[base + 3] = rDy
       this.allUniforms[base + 15] = rScale
+      // Symbol fade — derive this frame's fill/halo alpha from the UNfaded
+      // base × the ledger-advanced fade box (slots 7 / 11 of the 64-B pack,
+      // fill_color.a / halo_color.a). Base-times-factor keeps the write
+      // idempotent across frames; slices without fade are never touched.
+      const fade = this.drawSlices[i]!.fade
+      if (fade !== undefined) {
+        this.allUniforms[base + 7] = fade.baseFillA * fade.ref.a
+        this.allUniforms[base + 11] = fade.baseHaloA * fade.ref.a
+      }
     }
     // Single GPU upload — covers all slices' uniforms. Critical: prior
     // implementation called writeBuffer per slice at offset 0, but

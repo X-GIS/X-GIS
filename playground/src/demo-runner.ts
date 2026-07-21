@@ -1438,6 +1438,7 @@ async function runSource(source: string, label: string) {
       spriteUrl?: string
       glyphs?: { url?: string }
       preserveDrawingBuffer?: boolean
+      fadeDuration?: number
     } = {
       enableComputePath: computeOptIn,
     }
@@ -1456,6 +1457,11 @@ async function runSource(source: string, label: string) {
     // but NOT ?e2e=1's fixture-auto-push suppression (the points gate deliberately
     // omits e2e so its fixture data still auto-pushes — #1172 merge reconciliation).
     if (params.has('e2e') || params.has('preserve')) ctorOpts.preserveDrawingBuffer = true
+    // ?fade=<ms> — override the symbol fadeDuration (label/icon opacity
+    // ramps). `?fade=0` disables fading for pixel-exact screenshot gates
+    // (the _label-fade-gate parity arm); absent keeps the library default.
+    const fadeParam = params.get('fade')
+    if (fadeParam !== null && fadeParam !== '') ctorOpts.fadeDuration = Number(fadeParam)
     currentMap = new XGISMap(canvas, ctorOpts)
     // Debug hook — Playwright tests + DevTools console can poke at
     // map._elapsedMs, map.vectorTileShows, etc. without re-wiring the

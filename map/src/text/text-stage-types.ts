@@ -98,6 +98,12 @@ export interface TextStageOptions {
    *  serving the stale (zero-SDF) glyph until the camera moves. The host
    *  wires this to `markLabelDirty()`; omitted in tests / non-PBF setups. */
   onResourceLanded?: () => void
+  /** Symbol fade duration in ms (MapLibre `fadeDuration` equivalent) —
+   *  labels/icons ramp their opacity over this window when placement
+   *  appears or disappears instead of popping. 0 (the default here)
+   *  disables fading entirely and keeps every path byte-identical; the
+   *  map-level option applies the MapLibre default 300. */
+  fadeDurationMs?: number
 }
 
 export interface PendingLabel {
