@@ -361,7 +361,14 @@ const CEILINGS: Record<string, number> = {
   // #991 decomposes the render SCC.
   'map/src/render/pipeline-factory.ts': 1505,
   'map/src/camera/camera.ts': 1419,
-  'map/src/shaders/dsl/line.ts': 1373,
+  'map/src/shaders/dsl/line.ts': 1422,
+  // 1373→1422 (#1246): the flat-projection stroke-width fix. The VS clamp's flat
+  // branch is rewritten from the (miscalibrated, no-op) targetNdc clamp to a
+  // self-calibrating length(mercProbe)/length(projProbe) = 1/J screen-size ratio
+  // that widens ONLY the across offset (acrossOffset captured pre-along-pad), plus
+  // a decoupled world_local_out Var so the FS stays byte-identical (true Mercator).
+  // The globe (≥6.5) arm keeps the exact former ECEF clamp. +49 is the split
+  // branch bodies + the four NDC probe reductions + rationale comments.
   // 1315→1339 (#1154): the pattern_active struct field (+ its rationale comment)
   // and the fill-translate `if (pattern_active == 0)` gate in the three VS entries
   // (vs_main / vs_main_ecef / vs_main_ecef_extruded) — fixes blank fill-patterns.
