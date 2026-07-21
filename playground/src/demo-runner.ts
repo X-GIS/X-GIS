@@ -1284,6 +1284,7 @@ async function runSource(source: string, label: string) {
       backend?: 'auto' | 'webgpu' | 'webgl2'
       spriteUrl?: string
       glyphs?: { url?: string }
+      preserveDrawingBuffer?: boolean
     } = {
       enableComputePath: computeOptIn,
     }
@@ -1296,6 +1297,12 @@ async function runSource(source: string, label: string) {
     if (backendParam === 'webgpu' || backendParam === 'webgl2') ctorOpts.backend = backendParam
     if (pendingSpriteUrl) ctorOpts.spriteUrl = pendingSpriteUrl
     if (pendingGlyphsUrl) ctorOpts.glyphs = { url: pendingGlyphsUrl }
+    // #1153 M2: the WebGL2 gl2 gates capture via readPixels-after-present, which
+    // needs a preserved drawing buffer (off by default now). ?e2e=1 opts back in.
+    // ?preserve=1 is the standalone knob for gates that need the preserved buffer
+    // but NOT ?e2e=1's fixture-auto-push suppression (the points gate deliberately
+    // omits e2e so its fixture data still auto-pushes — #1172 merge reconciliation).
+    if (params.has('e2e') || params.has('preserve')) ctorOpts.preserveDrawingBuffer = true
     currentMap = new XGISMap(canvas, ctorOpts)
     // Debug hook — Playwright tests + DevTools console can poke at
     // map._elapsedMs, map.vectorTileShows, etc. without re-wiring the
@@ -1392,10 +1399,9 @@ async function runSource(source: string, label: string) {
     // confirm the pin took: a green frame must never be attributed to the
     // wrong backend. Also exported for e2e (the render gates assert identity
     // next to their pixel assertions).
-    const liveBackend = (
-      currentMap as unknown as { ctx?: { rhi?: { backend?: 'webgpu' | 'webgl2' } } }
-    ).ctx?.rhi?.backend
-    ;(window as unknown as { __xgisActiveBackend?: string }).__xgisActiveBackend = liveBackend
+    const liveBackend = currentMap.getBackend()
+    ;(window as unknown as { __xgisActiveBackend?: string | null }).__xgisActiveBackend =
+      liveBackend
     if (liveBackend) {
       backendTagEl.textContent = liveBackend === 'webgl2' ? 'WebGL2' : 'WebGPU'
       backendTagEl.hidden = false

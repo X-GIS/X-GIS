@@ -207,6 +207,18 @@ const CEILINGS: Record<string, number> = {
   // per-guard constraint comments outweigh the ~30 lines removed. The extraction
   // itself is the right cut (single authority, also fixes runBinary's missing
   // shapeRegistry/lineRenderer, #7); the remainder is irreducible in-flow wiring.
+  // 4336→4495 (#1153 M1/M4/M5 mobile hardening): the touch-action claim
+  // (_setupTouchAction + its destroy restore, M1), the getBackend() reader + the
+  // 'backendresolved' fire at both boot tails (M4), and the visibility park/resume
+  // seam (_scheduleFrame + _cancelScheduledFrame + _onDocHidden/_onDocVisible + the
+  // deferred device-lost resume + fields, M5). New event/DOM policy lives in new
+  // modules (visibility-pause.ts); map.ts keeps only the composition-root wiring +
+  // the render-loop scheduling authority (mirrors the a11y/auto-resize precedents).
+  // 4495→4518 (#1153 M5c/M5 review fixes): the deferred-resume in-flight latch
+  // (_deviceLostResumePending field + the _onDocVisible gate + its clear in
+  // _armDeviceLostRecovery — dedupes the pageshow+visibilitychange double-burn) and the
+  // once-allocated _rafTick field (0-alloc rAF chain). Irreducible policy/field adds.
+  // Lower as #991 decomposes map.ts.
   // 4469→4480 (#1177): the CameraController's injected invalidate becomes a
   // camera-scoped re-arm (_markDirty(CAMERA), destroyed-guarded) instead of the
   // blanket invalidate() — blanket-tagging LABEL forced a label re-prepare on
@@ -231,7 +243,10 @@ const CEILINGS: Record<string, number> = {
   // source-dispatch arm that must sit in rebuildLayers where the source markers
   // are read. The DEM decode itself was extracted to hillshade-renderer.ts
   // (armHillshadeSource). Measured 4526.
-  'map/src/map.ts': 4526,
+  // Merge union (#1172 <- main): the M1/M4/M5/M5c mobile-hardening seams stacked
+  // non-overlappingly on main's #1177/#1194/#1196/#777-II lineage — merged
+  // high-water is the measured 4708.
+  'map/src/map.ts': 4708,
   // 1920→1930 (#1042 R3): the globe limb cull for MULTI-LINE labels must land in
   // the collision phase — the ONLY site holding the label's quad half-height (the
   // collision box IS the height authority; the label-pass dispatch site has only
@@ -350,6 +365,10 @@ const CEILINGS: Record<string, number> = {
   // 1205→1213 (#1153 P2 R6): the WebGL2 takeGlErrors drain now routes through the
   // shared capped writer `pushValidationError` (rhi-webgpu) so the _validationErrors
   // queue can't grow unbounded — the 4-name import expansion + the drain-loop doc.
+  // 1213→1212 (#1153 M5/M3, merged): the 5 bare rAF reschedules now route through
+  // `host._scheduleFrame()` (the single park-aware scheduling authority) and the
+  // per-frame dpr line adopts resizeCanvas's returned (clamp-aware) value — net -1 on
+  // this PR's base.
   // 1213→1228 (#1057): the direct-layer points draw on the WebGL2 twin — one
   // pointRenderer.renderRhi call site (+ its updateDynamicSizes + hasLayers gate +
   // rationale) in renderFrameViaRhi, after the translucent bucket, mirroring the
@@ -381,7 +400,9 @@ const CEILINGS: Record<string, number> = {
   // applyHillshadePaint import — so relief renders under ?forcegl2=1 (the
   // _hillshade-gl2-gate). Stacked on the #1057/#1062/#1060 twin call sites —
   // measured 1315.
-  'map/src/render-loop.ts': 1315,
+  // Merge union (#1172 <- main): the M5/M3 scheduling-authority reroute (net -1)
+  // stacked on main's twin lineage — merged high-water is the measured 1314.
+  'map/src/render-loop.ts': 1314,
   // Merge union (#1060 <- main): stacked growth — measured 1174.
   'map/src/render/point-renderer.ts': 1174,
   // 1106→1120 (#1043 state-hygiene): three unmask-before-clear / state-reset fixes for the

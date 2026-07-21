@@ -112,7 +112,11 @@ async function runGate(
   // fixture_inline_push's direct-layer points) only fires when it is ABSENT.
   // It is a no-op for fixture_point (URL-geojson source loads on its own), so
   // omitting it is safe for both.
-  await page.goto(`/demo.html?id=${opts.demoId}&forcegl2=1`, { waitUntil: 'domcontentloaded' })
+  // &preserve=1 (#1153 M2): readPixels-after-present needs the preserved buffer,
+  // but this gate deliberately omits ?e2e=1 (its fixtures must auto-push).
+  await page.goto(`/demo.html?id=${opts.demoId}&forcegl2=1&preserve=1`, {
+    waitUntil: 'domcontentloaded',
+  })
   await page.waitForFunction(() => (window as unknown as MapWin).__xgisReady === true, {
     timeout: 30_000,
   })

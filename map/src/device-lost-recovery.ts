@@ -35,8 +35,11 @@ export interface DeviceLostRecoveryDeps {
   /** Re-run the last source through a fresh initGPU (the verified recovery path). */
   recover: () => void
   /** Page-visibility gate — a hidden tab (iOS reclaim is routine while hidden)
-   *  must not thrash re-inits; recovery resumes when the map is next invalidated
-   *  on return. Defaults to {@link documentIsVisible}. */
+   *  must not thrash re-inits; a loss deferred while hidden is re-armed by
+   *  {@link resumeDeviceLostRecovery} from the map's visibilitychange→visible
+   *  handler (invalidate() alone does NOT revive a dead rAF chain, so the map
+   *  would otherwise stay dead forever on return). Defaults to
+   *  {@link documentIsVisible}. */
   isVisible?: () => boolean
 }
 
@@ -60,10 +63,33 @@ export function wireDeviceLostRecovery(
     deps.fireError({ phase: 'devicelost', fatal: false, error: info })
     // Visibility FIRST: a loss on a hidden tab (routine iOS reclaim while
     // backgrounded) skips the attempt WITHOUT burning budget — otherwise two
-    // background reclaims exhaust the budget before the user ever returns.
-    // (Deferred re-init on visibilitychange is the Phase 3 companion.)
+    // background reclaims exhaust the budget before the user ever returns. The
+    // deferred re-init that this defers to is resumeDeviceLostRecovery below,
+    // wired by the map's visibilitychange→visible handler (#1153 M5).
     if (isVisible() && budget.recoveries++ < budget.max) {
       queueMicrotask(deps.recover)
     }
   }
+}
+
+/** Deferred device-lost recovery — the #1153 M5 companion to the visibility gate
+ *  above. A device lost while the tab was HIDDEN skips its recovery (to protect
+ *  the budget) and the engine's loss hook never re-fires; `invalidate()` only
+ *  sets flags and does NOT re-arm a dead rAF chain — so without this the map would
+ *  stay permanently dead after an iOS hidden-tab GPU reclaim. The map's
+ *  visibilitychange→visible handler calls this when `ctx.deviceLost`. Same bounded
+ *  budget as the live path: it burns one unit per attempt (so repeated hide/show
+ *  cycles with a failing re-init exhaust `budget.max` and the map goes dead BY
+ *  DESIGN — bounded recovery is the P0 contract). Returns whether a recovery was
+ *  scheduled. */
+export function resumeDeviceLostRecovery(
+  ctx: { deviceLost: boolean },
+  budget: DeviceLostBudget,
+  deps: { recover: () => void },
+): boolean {
+  if (ctx.deviceLost && budget.recoveries++ < budget.max) {
+    queueMicrotask(deps.recover)
+    return true
+  }
+  return false
 }

@@ -36,13 +36,20 @@ describe('validation-error queue cap (#1153 P2 R6)', () => {
     const captured: { handler?: (e: unknown) => void } = {}
     const device = {
       features: { has: () => false },
+      // #1153 M3 reads device.limits.maxTextureDimension2D (the resizeCanvas clamp
+      // authority) at boot; a real GPUDevice always exposes it, so the stub must too.
+      limits: { maxTextureDimension2D: 8192 },
       // Never resolves: keep the device.lost chain inert during the test.
       lost: new Promise<never>(() => {}),
       addEventListener: (type: string, cb: (e: unknown) => void) => {
         if (type === 'uncapturederror') captured.handler = cb
       },
     }
-    const adapter = { features: { has: () => false }, requestDevice: async () => device }
+    const adapter = {
+      features: { has: () => false },
+      limits: { maxTextureDimension2D: 8192 },
+      requestDevice: async () => device,
+    }
     const gpu = {
       requestAdapter: async () => adapter,
       getPreferredCanvasFormat: () => 'bgra8unorm',
