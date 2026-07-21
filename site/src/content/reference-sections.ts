@@ -27,7 +27,9 @@ export const referenceSections: ReferenceSection[] = [
     title: 'Quick start',
     body: 'Two top-level blocks — a source that points at data, a layer that styles it. The pipe-prefixed lines are utility classes; multiple lines are concatenated into one stack.',
     demoId: 'minimal',
-    code: `source world {
+    code: `xgis 1
+
+source world {
   type: geojson
   url: "ne_110m_countries.geojson"
 }
@@ -212,6 +214,8 @@ const canvas = document.querySelector("canvas")
 const map = new XGISMap(canvas)
 
 await map.run(\`
+  xgis 1
+
   source world {
     type: geojson
     url: "ne_110m_countries.geojson"

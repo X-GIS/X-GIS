@@ -20,6 +20,7 @@ import Graticule from '../components/Graticule.astro'
 import Header from '../components/Header.astro'
 import Footer from '../components/Footer.astro'
 import { ContentBand, SectionHead, Card, FeatureRow, Eyebrow } from '@/components/kit'
+import { coverage } from '@/lib/mapbox-coverage'
 
 const base = import.meta.env.BASE_URL.replace(/\/+$/, '')
 const githubUrl = 'https://github.com/X-GIS/X-GIS'
@@ -140,7 +141,7 @@ const rows: Row[] = [
   },
   {
     label: 'Mapbox style-spec compatibility',
-    xgis: { kind: 'text', label: 'partial', note: '176 / 236' },
+    xgis: { kind: 'text', label: 'partial', note: `${coverage.supported} / ${coverage.applicable}` },
     mapbox: { kind: 'yes', note: 'native' },
     maplibre: { kind: 'yes', note: 'native' },
     deckgl: { kind: 'no' },
@@ -166,7 +167,7 @@ const forList: string[] = [
 const notYetList: string[] = [
   'Teams that need terrain, 3D tiles, or custom three.js layers shipping today — those are on the roadmap, not in the box yet.',
   'Use cases that demand a battle-tested, mature ecosystem with years of production hardening.',
-  'Full Mapbox style-spec drop-in — coverage is real (176 / 236) but not yet complete.',
+  `Full Mapbox style-spec drop-in — coverage is real (${coverage.supported} / ${coverage.applicable}) but not yet complete.`,
 ]
 ---
 
