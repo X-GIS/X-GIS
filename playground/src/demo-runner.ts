@@ -1299,7 +1299,10 @@ async function runSource(source: string, label: string) {
     if (pendingGlyphsUrl) ctorOpts.glyphs = { url: pendingGlyphsUrl }
     // #1153 M2: the WebGL2 gl2 gates capture via readPixels-after-present, which
     // needs a preserved drawing buffer (off by default now). ?e2e=1 opts back in.
-    if (params.has('e2e')) ctorOpts.preserveDrawingBuffer = true
+    // ?preserve=1 is the standalone knob for gates that need the preserved buffer
+    // but NOT ?e2e=1's fixture-auto-push suppression (the points gate deliberately
+    // omits e2e so its fixture data still auto-pushes — #1172 merge reconciliation).
+    if (params.has('e2e') || params.has('preserve')) ctorOpts.preserveDrawingBuffer = true
     currentMap = new XGISMap(canvas, ctorOpts)
     // Debug hook — Playwright tests + DevTools console can poke at
     // map._elapsedMs, map.vectorTileShows, etc. without re-wiring the
