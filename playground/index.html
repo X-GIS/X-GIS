@@ -138,6 +138,70 @@
         color: var(--text-muted);
       }
 
+      /* ── Tag filter chips ── */
+      /* A single horizontal, scrollable row of category chips (one per tag
+       * in TAG_ORDER + an "All" reset). Clicking narrows the gallery to
+       * that tag and combines (AND) with the text search; selection is
+       * mirrored into ?tag= so a filtered view is shareable. */
+      #tag-chips {
+        max-width: 1120px;
+        margin: 0 auto;
+        padding: 0.9rem 2rem 0;
+        display: flex;
+        gap: 6px;
+        overflow-x: auto;
+        scrollbar-width: none;
+      }
+      #tag-chips::-webkit-scrollbar {
+        display: none;
+      }
+      .tag-chip {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        font-family: var(--font-sans);
+        font-size: 0.72rem;
+        color: var(--text-dim);
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: 999px;
+        padding: 4px 11px;
+        cursor: pointer;
+        white-space: nowrap;
+        flex-shrink: 0;
+        transition:
+          color 0.12s,
+          border-color 0.12s,
+          background 0.12s;
+      }
+      .tag-chip:hover {
+        color: var(--text);
+        border-color: var(--border-hover);
+      }
+      .tag-chip:focus-visible {
+        outline: none;
+        border-color: var(--accent);
+      }
+      .tag-chip.active {
+        color: var(--text);
+        border-color: var(--accent);
+        background: var(--accent-dim);
+      }
+      .tag-chip-dot {
+        width: 7px;
+        height: 7px;
+        border-radius: 50%;
+        flex-shrink: 0;
+      }
+      .tag-chip-count {
+        font-family: var(--font-mono);
+        font-size: 0.6rem;
+        color: var(--text-muted);
+      }
+      .tag-chip.active .tag-chip-count {
+        color: var(--text-dim);
+      }
+
       /* ── Content ── */
       .content {
         max-width: 1120px;
@@ -217,9 +281,18 @@
         font-size: 0.75rem;
         color: var(--text-dim);
         flex: 1;
-        white-space: nowrap;
+        min-width: 0;
+        /* Clamp to two lines — the MapLibre-port entries carry
+         * paragraph-length descriptions that otherwise balloon the row.
+         * Full text is exposed via the item's title attribute. */
+        display: -webkit-box;
+        -webkit-box-orient: vertical;
+        -webkit-line-clamp: 2;
+        line-clamp: 2;
         overflow: hidden;
-        text-overflow: ellipsis;
+        line-height: 1.35;
+        /* Height fallback for engines without -webkit-box line-clamp. */
+        max-height: 2.7em;
       }
       .demo-arrow {
         color: var(--text-muted);
@@ -312,6 +385,7 @@
       </div>
     </header>
 
+    <nav id="tag-chips" aria-label="Filter demos by category"></nav>
     <div class="content" id="content"></div>
     <p class="no-results" id="no-results">No demos found.</p>
 
