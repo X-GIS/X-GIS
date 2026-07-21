@@ -89,4 +89,10 @@ export interface Demo {
    *  pose is demo metadata like `zoom`/`center`. */
   pitch?: number
   bearing?: number
+  /** When true, demo-runner installs a small badge that tracks the live
+   *  lon/lat under the cursor via map.unproject() on every pointermove —
+   *  MapLibre's "Get coordinates of the mouse pointer" example (#1192).
+   *  Unlike `picking`, this fires everywhere over the map, not just over
+   *  a hit feature. */
+  mousePosition?: boolean
 }

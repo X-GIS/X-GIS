@@ -65,4 +65,66 @@ export const DEMOS_STYLE: Record<string, Demo> = {
     zoom: 15.5,
     center: [-74.006, 40.712],
   },
+
+  fit_bounds: {
+    name: 'Fit Bounds',
+    tag: 'style',
+    description:
+      'MapLibre "Fit a map to a bounding box" port (#1192) — action buttons call map.fitBounds([[west, south], [east, north]]) at runtime',
+    source: load('fit-bounds.xgis'),
+    actions: [
+      {
+        label: 'Australia',
+        run: (m) =>
+          m.fitBounds([
+            [112.9, -43.7],
+            [153.6, -10.6],
+          ]),
+      },
+      {
+        label: 'Western Europe',
+        run: (m) =>
+          m.fitBounds([
+            [-9.5, 36.0],
+            [15.0, 55.0],
+          ]),
+      },
+      {
+        label: 'World',
+        run: (m) =>
+          m.fitBounds([
+            [-180, -60],
+            [180, 75],
+          ]),
+      },
+    ],
+  },
+
+  jump_to_locations: {
+    name: 'Jump To Locations',
+    tag: 'style',
+    description:
+      'MapLibre "Jump to a series of locations" port (#1192) — a single action button calls map.jumpTo({center, zoom}) at runtime, cycling through a fixed list of world cities',
+    source: load('jump-to-locations.xgis'),
+    actions: [
+      {
+        label: 'Jump to next city',
+        run: (() => {
+          const cities: Array<{ name: string; center: [number, number]; zoom: number }> = [
+            { name: 'Seoul', center: [126.978, 37.5665], zoom: 10 },
+            { name: 'Cairo', center: [31.2357, 30.0444], zoom: 10 },
+            { name: 'Rio de Janeiro', center: [-43.1729, -22.9068], zoom: 10 },
+            { name: 'Sydney', center: [151.2093, -33.8688], zoom: 10 },
+            { name: 'New York', center: [-74.006, 40.7128], zoom: 10 },
+          ]
+          let idx = 0
+          return (m) => {
+            const city = cities[idx % cities.length]
+            idx++
+            m.jumpTo({ center: city.center, zoom: city.zoom })
+          }
+        })(),
+      },
+    ],
+  },
 }

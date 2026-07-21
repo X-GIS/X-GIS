@@ -1027,6 +1027,60 @@ function teardownPickingOverlay(): void {
   pickingOverlayCleanup?.()
 }
 
+// ── Mouse-position readout (#1192) ───────────────────────────────────
+// Activated by demos with `mousePosition: true`. Shows a small badge
+// pinned over the map with the live lon/lat under the cursor, updated
+// on every pointermove over the canvas via map.unproject() — MapLibre's
+// "Get coordinates of the mouse pointer" example. Unlike the picking
+// overlay's hover line (fires only over a hit feature), this tracks the
+// cursor everywhere over the map, matching the original example.
+
+let mousePositionCleanup: (() => void) | null = null
+
+function setupMousePositionOverlay(map: InstanceType<typeof XGISMap>): void {
+  teardownMousePositionOverlay()
+
+  const badge = document.createElement('div')
+  badge.id = 'mouse-position-badge'
+  badge.style.cssText = [
+    'position:absolute',
+    'right:12px',
+    'bottom:12px',
+    'z-index:20',
+    'font:11px/1.4 "DM Mono",monospace',
+    'color:#dde',
+    'background:rgba(10,10,10,0.75)',
+    'backdrop-filter:blur(6px)',
+    'padding:6px 10px',
+    'border:1px solid rgba(255,255,255,0.12)',
+    'border-radius:6px',
+    'pointer-events:none',
+  ].join(';')
+  badge.textContent = 'Move the mouse over the map…'
+  const mapPane = document.getElementById('map-pane')!
+  mapPane.appendChild(badge)
+
+  const canvasEl = map.getCanvas()
+  const onMove = (e: PointerEvent): void => {
+    const rect = canvasEl.getBoundingClientRect()
+    const lonLat = map.unproject([e.clientX - rect.left, e.clientY - rect.top])
+    badge.textContent = lonLat
+      ? `Longitude: ${lonLat[0].toFixed(4)}, Latitude: ${lonLat[1].toFixed(4)}`
+      : 'Move the mouse over the map…'
+  }
+  canvasEl.addEventListener('pointermove', onMove)
+
+  mousePositionCleanup = () => {
+    canvasEl.removeEventListener('pointermove', onMove)
+    badge.remove()
+    mousePositionCleanup = null
+  }
+}
+
+function teardownMousePositionOverlay(): void {
+  mousePositionCleanup?.()
+}
+
 // Expose for tests / inspector — pass a modified source string and
 // the demo reloads with it (same path as Run button + Ctrl+Enter).
 ;(window as unknown as { __xgisRunSource?: (s: string) => Promise<unknown> }).__xgisRunSource =
@@ -1336,6 +1390,14 @@ async function loadDemo(idx: number) {
     setupPickingOverlay(currentMap)
   } else {
     teardownPickingOverlay()
+  }
+
+  // Mouse-position demos (#1192): live lon/lat readout badge, independent
+  // of picking (fires everywhere over the map, not just over a feature).
+  if (currentMap && demo.mousePosition) {
+    setupMousePositionOverlay(currentMap)
+  } else {
+    teardownMousePositionOverlay()
   }
 
   // #1192 interaction infra — Demo.actions → the #demo-actions button bar.
