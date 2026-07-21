@@ -185,6 +185,14 @@ export function buildShowSourceMaps(shows: readonly ShowCommand[]): ShowSourceMa
   for (const show of shows) {
     const layer = effectiveLayer(show)
     if (!layer) continue
+    // Feature-buffer fill (gradient()/match() reading feature data in-shader)
+    // + extrude is not supported yet — the extruded pipeline family is
+    // base-layout only, so a feature-layout show would mismatch it at draw
+    // time. Skip the heights wiring so slices compile FLAT; VTR mirrors this
+    // (currentExtrudeMode 'none' via the same needsFeatureBuffer predicate)
+    // and warns once. Constant-fill variants (no feature buffer) keep their
+    // extrude — heights are CPU-evaluated, no shader feature read involved.
+    if (show.shaderVariant?.needsFeatureBuffer === true) continue
     const exAst = bakeExtrudeAst(show.extrude)
     if (exAst !== undefined) {
       let layerMap = extrudeExprsBySource.get(show.targetName)

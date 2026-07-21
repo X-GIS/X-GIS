@@ -20,6 +20,7 @@ interface HostStub {
   oit: ClassifiedShow[]
   lineRenderer: unknown
   pointHasLayers: boolean | null // null → pointRenderer is null
+  hillshadeHasSource?: boolean
 }
 
 function makeHost(s: HostStub) {
@@ -28,6 +29,8 @@ function makeHost(s: HostStub) {
     groupOpaqueBySource: (o: ClassifiedShow[]) => groups(o.length),
     lineRenderer: s.lineRenderer,
     pointRenderer: s.pointHasLayers === null ? null : { hasLayers: () => s.pointHasLayers },
+    hillshadeRenderer:
+      s.hillshadeHasSource === undefined ? null : { hasSource: () => s.hillshadeHasSource },
   } as unknown as Parameters<typeof buildSceneView>[0]
 }
 
@@ -150,5 +153,53 @@ describe('buildSceneView', () => {
       makeCtx(false),
     )
     expect(opaque.resolveOwner).toBe('opaque')
+  })
+
+  it('resolveOwner: hillshade outranks composite/opaque, points outranks hillshade', () => {
+    // The hillshade pass draws AFTER opaque + the translucent composite
+    // (PASS_CHAIN_ORDER), so when a raster-dem source is armed and no points
+    // pass runs, hillshade must own the resolve — an 'opaque'/'composite'
+    // owner resolves BEFORE the relief is drawn and the DEM contribution
+    // never reaches the swapchain (hillshade-only scenes rendered black at
+    // msaa>1 on every backend).
+    const hillshadeOnly = buildSceneView(
+      makeHost({
+        opaque: [],
+        translucent: [],
+        oit: [],
+        lineRenderer: {},
+        pointHasLayers: false,
+        hillshadeHasSource: true,
+      }),
+      makeCtx(false),
+    )
+    expect(hillshadeOnly.hasHillshade).toBe(true)
+    expect(hillshadeOnly.resolveOwner).toBe('hillshade')
+
+    const hillshadeOverComposite = buildSceneView(
+      makeHost({
+        opaque: cs(1),
+        translucent: cs(1),
+        oit: [],
+        lineRenderer: {},
+        pointHasLayers: false,
+        hillshadeHasSource: true,
+      }),
+      makeCtx(false),
+    )
+    expect(hillshadeOverComposite.resolveOwner).toBe('hillshade')
+
+    const pointsOverHillshade = buildSceneView(
+      makeHost({
+        opaque: [],
+        translucent: [],
+        oit: [],
+        lineRenderer: {},
+        pointHasLayers: true,
+        hillshadeHasSource: true,
+      }),
+      makeCtx(false),
+    )
+    expect(pointsOverHillshade.resolveOwner).toBe('points')
   })
 })

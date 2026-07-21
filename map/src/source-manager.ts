@@ -371,7 +371,7 @@ export class SourceManager {
     const vectorTileFormat = detectVectorTileFormat(url, asVectorTileKind(declaredType))
 
     if (looksLikeRaster) {
-      this.rawDatasets.set(load.name, { _tileUrl: url })
+      this.rawDatasets.set(load.name, { _tileUrl: url, tileSize: load.tileSize })
       return
     }
 

@@ -2501,7 +2501,29 @@ export class VectorTileRenderer {
     // (#1084 synthesises a constant NumberLiteral for the `50` form at the
     // show-source-maps seam). currentExtrudeHeight / u.extrude_height_m is a
     // dead mirror no shader reads — kept only to avoid a uniform re-layout.
-    if (show.extrude && show.extrude.kind === 'constant') {
+    //
+    // Feature-buffer fill (gradient()/match() reading feature data in-shader)
+    // + extrude is NOT supported yet: the extruded pipeline family is
+    // base-layout only, so the show's FEATURE bind group mismatches it —
+    // every draw validation-fails and the layer floods the console.
+    // buildShowSourceMaps skips the heights wiring for such shows (slices
+    // compile FLAT) and this mirror keeps the draw path consistent ('none' →
+    // flat variant draw with correct per-feature colours). The predicate is
+    // needsFeatureBuffer — the SAME bit that routes the show to the feature
+    // bind-group layout. (NOT variantProducesFill: a constant fill baked
+    // into a variant also "produces fill" but stays on the base layout, and
+    // per-feature extrude heights are CPU-evaluated — no feature buffer.)
+    const extrudeUnsupported = show.shaderVariant?.needsFeatureBuffer === true
+    if (show.extrude && extrudeUnsupported) {
+      if (!this._drawStats.hasWarned('extrude-data-driven-fill')) {
+        this._drawStats.markWarned('extrude-data-driven-fill')
+        xlog.warn(
+          '[X-GIS] fill-extrusion with a data-driven fill (gradient()/match()/interpolate()) is not supported yet — rendering the layer flat with its data-driven colours.',
+        )
+      }
+      this.currentExtrudeHeight = 0
+      this.currentExtrudeMode = 'none'
+    } else if (show.extrude && show.extrude.kind === 'constant') {
       this.currentExtrudeHeight = show.extrude.value
       this.currentExtrudeMode = 'per-feature' // #1084: heights synthesised per-feature → extruded pipe
     } else if (show.extrude && show.extrude.kind === 'feature') {
@@ -4134,7 +4156,18 @@ export class VectorTileRenderer {
     // #599 line-drape — when the drape baked this show's strokes onto the sphere, skip the direct
     // ECEF-chord stroke draw. `_drapeStrokes` is only set in the phase where the drape ran ('all' /
     // opaque), so the translucent 'strokes' offscreen pass is untouched (byte-identical off-globe).
-    const drawStrokes = phase !== 'fills' && phase !== 'oit-fill' && !this._drapeStrokes
+    //
+    // Extruded shows draw NO outline (MapLibre fill-extrusion semantics: the
+    // type has no outline paint). The stroke pipeline draws at GROUND height
+    // with no depth interaction against the lifted roof, so an authored
+    // stroke composites ACROSS the raised geometry — the user-visible
+    // "renders past the extrusion" artifact (ground outline slicing through
+    // roofs at pitch, border lines crossing neighbour walls on the globe).
+    const drawStrokes =
+      phase !== 'fills' &&
+      phase !== 'oit-fill' &&
+      !this._drapeStrokes &&
+      this.currentExtrudeMode !== 'per-feature'
     // `phase === 'strokes'` reaches us from two passes — the
     // translucent offscreen MAX-blend pass (no depth) and the
     // opaque OIT-extrude post-pass (with depth). Use the caller's

@@ -13,14 +13,10 @@
 // calls), so behaviour is byte-identical. SceneView carries DATA only;
 // side effects (e.g. `lineRenderer.ensureOffscreen`) stay in render().
 
-import type { ClassifiedShow, OpaqueGroup } from './bucket-scheduler'
+import type { ClassifiedShow, OpaqueGroup, ResolveOwner } from './bucket-scheduler'
+import { deriveResolveOwner } from './bucket-scheduler'
 import type { FrameContext } from './frame-context'
 import type { RenderLoopHost } from '../render-loop'
-
-/** Which pass owns the MSAA `resolveTarget` — precisely the last pass
- *  that writes the colour target. Priority: dedicated points > last
- *  translucent composite > last opaque sub-pass. */
-type ResolveOwner = 'points' | 'composite' | 'opaque'
 
 /** Per-frame scene classification the render passes read from. */
 export interface SceneView {
@@ -84,11 +80,11 @@ export function buildSceneView(host: SceneHost, _ctx: FrameContext): SceneView {
   const hasHeatmap = host.heatmapRenderer?.hasLayers() ?? false
   const hasHillshade = host.hillshadeRenderer?.hasSource() ?? false
   const hasGraphics = host.graphics?.hasRetainedBatches() ?? false
-  // Which pass owns the MSAA resolveTarget? The last pass that writes the
-  // color target. Priority: dedicated points > last composite > last opaque.
-  // The heatmap pass composites AFTER labels onto the resolved swapchain, so
-  // it does NOT participate in resolveOwner.
-  const resolveOwner: ResolveOwner = hasPoints ? 'points' : hasTranslucent ? 'composite' : 'opaque'
+  // Which pass owns the MSAA resolveTarget? deriveResolveOwner is the single
+  // priority authority (bucket-scheduler.ts) — the last colour-writing pass
+  // in PASS_CHAIN_ORDER. The heatmap pass composites AFTER labels onto the
+  // resolved swapchain, so it does NOT participate.
+  const resolveOwner = deriveResolveOwner({ hasPoints, hasHillshade, hasTranslucent })
   return {
     opaque,
     translucent,

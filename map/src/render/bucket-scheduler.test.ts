@@ -710,6 +710,31 @@ describe('planFrameSchedule — bucket flags + resolveOwner', () => {
     const plan = planFrameSchedule({ opaque: [], translucent: [], oit: [] }, true, true)
     expect(plan.resolveOwner).toBe('points')
   })
+
+  it('hillshade-only: resolveOwner = hillshade (the bug that rendered relief black at msaa>1)', () => {
+    // A raster-dem-only scene (both hillshade gallery demos): the hillshade
+    // pass draws AFTER opaque/translucent in PASS_CHAIN_ORDER, so an
+    // 'opaque' owner resolves BEFORE the relief is drawn and the DEM
+    // contribution never reaches the swapchain.
+    const plan = planFrameSchedule({ opaque: [], translucent: [], oit: [] }, true, false, true)
+    expect(plan.resolveOwner).toBe('hillshade')
+  })
+
+  it('hillshade + translucent: hillshade still owns the resolve (draws after composite)', () => {
+    const plan = planFrameSchedule(
+      { opaque: [FAKE_TRANSLUCENT], translucent: [FAKE_TRANSLUCENT], oit: [] },
+      true,
+      false,
+      true,
+    )
+    expect(plan.hasTranslucent).toBe(true)
+    expect(plan.resolveOwner).toBe('hillshade')
+  })
+
+  it('hillshade + points: points wins (last colour writer in the chain)', () => {
+    const plan = planFrameSchedule({ opaque: [], translucent: [], oit: [] }, true, true, true)
+    expect(plan.resolveOwner).toBe('points')
+  })
 })
 
 describe('classifyVectorTileShows — ResolvedShow snapshot (Phase 4b/4c)', () => {

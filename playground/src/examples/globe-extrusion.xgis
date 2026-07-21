@@ -13,6 +13,12 @@ xgis 1
  *
  * Visual check: populous countries (China, India) rise visibly above
  * the sphere; Antarctica stays flat and dark.
+ *
+ * Height scale: extrusion heights are METRES. At globe framing (z≈3) one
+ * screen pixel spans tens of km, so visible towers need 1e5–1e6 m — the
+ * MapLibre original uses static heights of 150 000 / 450 000 / 600 000 m.
+ * POP_EST / 4000 puts China at ≈350 km, matching that band; the earlier
+ * / 4000000 (≈350 m max) was three orders of magnitude below one pixel.
  */
 
 source ocean {
@@ -33,5 +39,5 @@ layer sea {
 layer towers {
   source: countries
   | fill-emerald-500 stroke-emerald-300 stroke-0.5 opacity-90
-  | fill-extrusion-height-[.POP_EST / 4000000]
+  | fill-extrusion-height-[.POP_EST / 4000]
 }

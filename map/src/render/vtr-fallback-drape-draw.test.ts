@@ -133,8 +133,12 @@ describe('globe fallback draws under a drape-active primary (#1076)', () => {
       'the primary fill-suppression read (`drawFills … && !this._drapeGlobeFills`) must remain — ' +
         'it is how the drape owns the primary tiles.',
     ).toBe(true)
+    // Multi-line tolerant ([\s\S]*? within the statement): the derivation
+    // gained the extruded-show outline suppression term and prettier splits
+    // it across lines. The pinned INTENT is unchanged — the `!this._drapeStrokes`
+    // term must remain part of the drawStrokes derivation.
     expect(
-      /const drawStrokes = .*&& !this\._drapeStrokes/.test(SOURCE),
+      /const drawStrokes =[\s\S]{0,400}?!this\._drapeStrokes/.test(SOURCE),
       'the primary stroke-suppression read (`drawStrokes … && !this._drapeStrokes`) must remain.',
     ).toBe(true)
   })

@@ -35,6 +35,7 @@ import {
   writeRasterFrameUniform,
   writeRasterTileUniform,
   rasterGlobeCamAnchor,
+  rasterCoverZoom,
   needsNorthPoleCap,
   needsSouthPoleCap,
 } from './raster-renderer'
@@ -312,10 +313,13 @@ export class HillshadeRenderer {
 
   private _hillshadeDraper?: HillshadeDraper
   private ensureHillshadeDraper(): HillshadeDraper {
+    // Clamp to the device cap (mirrors RasterDraper): a getSampleCount()=4
+    // pipeline against caps.maxSampleCount=1 frame targets (SwiftShader /
+    // software adapters) validation-fails every draw — silently black relief.
     return (this._hillshadeDraper ??= new HillshadeDraper(
       this.rhi,
       this.format,
-      this.rhi.backend === 'webgl2' ? 1 : getSampleCount(),
+      this.rhi.backend === 'webgl2' ? 1 : Math.min(getSampleCount(), this.rhi.caps.maxSampleCount),
     ))
   }
 
@@ -410,7 +414,10 @@ export class HillshadeRenderer {
 
     const frame = camera.getViewForProjection(projType, canvasWidth, canvasHeight, dpr)
     const { zoom } = camera
-    const currentZ = Math.max(0, Math.min(18, Math.round(zoom)))
+    // tileSize-aware cover zoom (rasterCoverZoom): a 256-px DEM (terrarium)
+    // needs z+1 tiles under the 512-px-tile camera-zoom convention, same as
+    // the raster path — one LOD short samples the DEM at half density.
+    const currentZ = rasterCoverZoom(zoom, this._params.tileSize)
 
     if (currentZ !== this.lastZoom) {
       for (const [key, ctrl] of this.loadingTiles) {
@@ -531,6 +538,9 @@ export class HillshadeRenderer {
 
     const tilesArr: HillshadeTile[] = []
     const RASTER_WORLD_COPIES = [0]
+    // Per-frame draw dedup keyed by render coord + ox — parent fallback maps
+    // every uncached child onto the same parent quad (see raster-renderer).
+    const drawnKeys = new Set<string>()
     for (const coord of tiles) {
       const key = `${coord.z}/${coord.x}/${coord.y}`
       let cached = this.tileCache.get(key)
@@ -560,6 +570,9 @@ export class HillshadeRenderer {
       const renderCoord = isFallback ? fallbackCoord : coord
       const rn = Math.pow(2, renderCoord.z)
       const ox = renderCoord.ox ?? renderCoord.x
+      const drawKey = `${renderCoord.z}/${renderCoord.x}/${renderCoord.y}/${ox}`
+      if (drawnKeys.has(drawKey)) continue
+      drawnKeys.add(drawKey)
       const west = (ox / rn) * 360 - 180
       const east = ((ox + 1) / rn) * 360 - 180
       const north = (Math.atan(Math.sinh(Math.PI * (1 - (2 * renderCoord.y) / rn))) * 180) / Math.PI

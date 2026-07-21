@@ -127,7 +127,12 @@ const CEILINGS: Record<string, number> = {
   // 4702→4706 (#1222): zoom-bucketed stroke rebake wiring — the strokeWidthScale
   // param on bakeTileToTexture (threaded to bakeTileStrokes) + camera.zoom on the
   // renderGlobeFills call; the bucket/scale MATH lives in vector-drape-cache.ts.
-  'map/src/render/vector-tile-renderer.ts': 4706,
+  // 4706→4739 (raster-resolution follow-ups): the feature-buffer-fill ×
+  // extrude downgrade guard (base-only extruded pipelines vs feature bind
+  // group = per-draw validation flood) + extruded shows draw no ground
+  // outline (MapLibre fill-extrusion semantics; ground strokes composited
+  // across raised roofs).
+  'map/src/render/vector-tile-renderer.ts': 4739,
   // 4232→4237 (#1000 heatmap relocate): the heatmap density-target OWNERSHIP
   // extracted to render/heatmap-targets.ts; map keeps only the irreducible
   // composition-root wiring — the `heatmapTargets` field + its import (mirrors
@@ -246,16 +251,23 @@ const CEILINGS: Record<string, number> = {
   // Merge union (#1172 <- main): the M1/M4/M5/M5c mobile-hardening seams stacked
   // non-overlappingly on main's #1177/#1194/#1196/#777-II lineage — merged
   // high-water is the measured 4708.
+  // 4708→4711 (raster-resolution): rebuildLayers hands the raster source's
+  // authored tileSize to the renderer (cover-zoom bias wiring).
   // 4708→4715 (#1235 gap 2): the FeatureUpdateQueue host gains the seeded-FC
   // getter (CRS-guarded) + the reseedSource hook — wiring only; the patch/
   // re-seed logic lives in feature-update-queue.ts + source-manager.ts.
-  'map/src/map.ts': 4715,
+  // Merge union (raster-resolution <- main): both bumps stacked
+  // non-overlappingly (tileSize wiring +3, #1235 seams +7) — merged
+  // high-water is the measured 4718.
+  'map/src/map.ts': 4718,
   // Baselined at #1235 (measured 846): SourceManager crossed NEW_FILE_CAP with
   // the gap-1/gap-2 seams — the setSourceData virtual re-seed branch (the
   // legacy worker-compile path renders fills/points but no line segments) +
   // the attach-time ShowSourceMaps/seeded-FC records the re-seed and the
   // feature-update queue read. Cohesive source-lifecycle ownership; split
   // (attach arms vs push/ingest) when #991 gets here — shrink-only from now.
+  // (raster-resolution merge: the tileSize passthrough line lands inside the
+  // existing 846 measurement — no growth.)
   'map/src/source-manager.ts': 846,
   // 1920→1930 (#1042 R3): the globe limb cull for MULTI-LINE labels must land in
   // the collision phase — the ONLY site holding the label's quad half-height (the
@@ -412,7 +424,10 @@ const CEILINGS: Record<string, number> = {
   // measured 1315.
   // Merge union (#1172 <- main): the M5/M3 scheduling-authority reroute (net -1)
   // stacked on main's twin lineage — merged high-water is the measured 1314.
-  'map/src/render-loop.ts': 1314,
+  // 1314→1326 (raster-resolution): hillshade DEM fetches join BOTH keep-alive
+  // checks (WebGPU + WebGL2 twin) — a hillshade-only scene otherwise idles
+  // before its tiles arrive and the arrival never repaints (black relief).
+  'map/src/render-loop.ts': 1326,
   // Merge union (#1060 <- main): stacked growth — measured 1174.
   'map/src/render/point-renderer.ts': 1174,
   // 1106→1120 (#1043 state-hygiene): three unmask-before-clear / state-reset fixes for the
@@ -509,7 +524,14 @@ const CEILINGS: Record<string, number> = {
   // chains' `.catch` that un-wedges the loadingTiles slot (a createTexture throw on a
   // lost context otherwise pins all 6 slots → raster stops + the loop never idles).
   // A cohesive renderer, not a new god-file; shrink as #991 decomposes the render SCC.
-  'map/src/render/raster-renderer.ts': 809,
+  // 809→838 (raster-resolution): rasterCoverZoom — the tileSize-aware cover-zoom
+  // authority (camera zoom is the 512-px convention; 256-px XYZ tiles need z+1
+  // or every raster renders one LOD blurry) + the _tileSize field/setter.
+  // 838→848 (raster-resolution CI round): per-frame draw dedup keyed by render
+  // coord + ox — parent fallback mapped every uncached child onto the same
+  // parent quad (4× duplicate draws; alpha compounds at raster-opacity < 1),
+  // pinned by runtime raster-world-copy no-duplicate gate.
+  'map/src/render/raster-renderer.ts': 848,
   // 889→906 (#1155 F3): cold-start burst enqueue cap — the `_coldStartBurst`
   // field + `setColdStartBurst` + the burst-selected 8/4 cap in enqueue().
   // 906→910 (#1155 F3 adjudication): the burst 8/4 pair now comes from the

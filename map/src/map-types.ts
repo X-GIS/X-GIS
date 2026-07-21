@@ -26,7 +26,11 @@ export type { BackendChoice }
  *  authority (#1158 GAP-1). rebuildLayers narrows on these markers with `in` guards. */
 export type RawDataset =
   | GeoJSONFeatureCollection
-  | { readonly _tileUrl: string }
+  | {
+      readonly _tileUrl: string
+      /** Raster tile pixel size (256 | 512) — cover-zoom bias (rasterCoverZoom). */
+      readonly tileSize?: number
+    }
   | {
       readonly _tileUrl: string
       /** `raster-dem` marker — routes to the HillshadeRenderer, not raster. */
