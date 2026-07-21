@@ -8,10 +8,16 @@
 // mechanical CI failure, not a review comment.
 //
 // ALLOWLIST holds the files that legitimately spell the numbers out:
-// the authority itself, plus the two GPU ConstDecls that P1 deliberately
-// did not touch (P1 is zero-GPU-edits; their migration is P3 — see #798).
-// Shrink-only: once a file no longer contains a literal, its entry MUST
-// be deleted in the same commit (a stale entry fails below).
+// the authority itself, plus the two GPU ConstDecl files. These ConstDecls are
+// the shipped Earth DEFAULTS (WGS84_A / EARTH_R = 6378137, WGS84_E2 / EARTH_E2 =
+// f·(2−f)) that the body-consts seam routes through the active Body — an
+// UNCONFIGURED process must emit byte-identical Earth WGSL, which requires the
+// numbers spelled as defaults. So these two entries are PERMANENT, not
+// migration-temporary: #1152 INC-3 single-sourced the values (WGS84_E2 now
+// spells EARTH.e2's f·(2−f), un-pinning #798 PIN #2) but the spelled DEFAULTS
+// stay. The binding invariant — every default here must bit-equal its EARTH.*
+// field — is enforced by map/src/body-consts.test.ts, not by deleting the entry.
+// Shrink-only still governs any OTHER file: a stale entry fails below.
 
 import { readdirSync, readFileSync } from 'node:fs'
 import { dirname, join, relative, resolve } from 'node:path'
@@ -28,8 +34,13 @@ const LITERAL_RE = /6378137|40075016|298\.257223563|0\.00669437/
 const ALLOWLIST: readonly string[] = [
   // The single authority — pins the numbers everything else reads.
   'shared/src/body.ts',
-  // GPU-side ConstDecls (wgslValue/cpuValue pairs). P1 is zero-GPU-edits;
-  // routing these through EARTH is P3 (#798) — delete on migration.
+  // GPU-side ConstDecls (wgslValue/cpuValue pairs) — the shipped Earth defaults
+  // the body-consts seam routes through the active Body. PERMANENT: the
+  // unconfigured-process byte-identical-Earth guarantee needs the numbers spelled
+  // as defaults (WGS84_A/EARTH_R = 6378137; WGS84_E2/EARTH_E2 = f·(2−f), matched
+  // by /0\.00669437/). #1152 INC-3 single-sourced the VALUES to EARTH.* (un-pinned
+  // #798 PIN #2) — the defaults must now bit-equal EARTH.*, enforced by
+  // body-consts.test.ts. Not a migration entry; do not delete.
   'map/src/shaders/dsl/ecef.ts',
   'map/src/shaders/dsl/projections.ts',
 ]

@@ -7,7 +7,7 @@
 // inverse of the camera, and the dateline-wrapping tile selection.
 
 import { describe, expect, it } from 'vitest'
-import { lonLatToECEF } from '@xgis/shared'
+import { EARTH, lonLatToECEF, ecefToLonLat } from '@xgis/shared'
 import {
   EARTH_R,
   GLOBE_PROJ_TYPE,
@@ -46,44 +46,98 @@ describe('globe — projType', () => {
   })
 })
 
-describe('globe — forward / inverse', () => {
-  it('lon=0,lat=0 → +X axis on the sphere', () => {
-    const [x, y, z] = globeForward(0, 0)
-    expect(x).toBeCloseTo(EARTH_R, 3)
-    expect(y).toBeCloseTo(0, 3)
-    expect(z).toBeCloseTo(0, 3)
-  })
-
-  it('north pole → +Z, lon=90 → +Y', () => {
-    const np = globeForward(0, 90)
-    expect(np[2]).toBeCloseTo(EARTH_R, 3)
-    const e = globeForward(90, 0)
-    expect(e[1]).toBeCloseTo(EARTH_R, 3)
-  })
-
-  it('every sample point sits on the sphere of radius EARTH_R', () => {
-    for (let lon = -180; lon <= 180; lon += 45)
-      for (let lat = -80; lat <= 80; lat += 40) {
-        const [x, y, z] = globeForward(lon, lat)
-        expect(Math.sqrt(x * x + y * y + z * z)).toBeCloseTo(EARTH_R, 0)
+// #1152 INC-3 — globeForward is now the WGS84 ELLIPSOID (was a sphere of radius
+// EARTH_R). It IS lonLatToECEF (single datum), so the globe surface, camera target,
+// and vector/point anchors all agree by construction.
+describe('globe — forward / inverse (ellipsoid, #1152 INC-3)', () => {
+  it('globeForward IS lonLatToECEF, bit-for-bit (single datum authority)', () => {
+    for (let lon = -179; lon <= 179; lon += 37)
+      for (let lat = -85; lat <= 85; lat += 23) {
+        const f = globeForward(lon, lat)
+        const e = lonLatToECEF(lon, lat, 0, EARTH)
+        expect(Object.is(f[0], e[0])).toBe(true)
+        expect(Object.is(f[1], e[1])).toBe(true)
+        expect(Object.is(f[2], e[2])).toBe(true)
       }
   })
 
-  it('inverse round-trips to ≤1e-6° across the globe', () => {
+  it('equator |P| = a; pole z = ±b (exact ellipsoid values)', () => {
+    const [x, y, z] = globeForward(0, 0)
+    expect(x).toBeCloseTo(EARTH.a, 3) // = a (semi-major)
+    expect(y).toBeCloseTo(0, 3)
+    expect(z).toBeCloseTo(0, 3)
+    expect(globeForward(90, 0)[1]).toBeCloseTo(EARTH.a, 3) // lon90/lat0 → +Y = a
+    expect(globeForward(0, 90)[2]).toBeCloseTo(EARTH.b, 3) // north pole → z = b = 6356752.314…
+    expect(globeForward(0, -90)[2]).toBeCloseTo(-EARTH.b, 3)
+  })
+
+  it('every sample sits ON the ellipsoid (x²/a² + y²/a² + z²/b² = 1; b ≤ |P| ≤ a)', () => {
+    const a2 = EARTH.a * EARTH.a
+    const b2 = EARTH.b * EARTH.b
+    for (let lon = -180; lon <= 180; lon += 45)
+      for (let lat = -80; lat <= 80; lat += 40) {
+        const [x, y, z] = globeForward(lon, lat)
+        expect((x * x) / a2 + (y * y) / a2 + (z * z) / b2).toBeCloseTo(1, 9)
+        const r = Math.sqrt(x * x + y * y + z * z)
+        expect(r).toBeGreaterThanOrEqual(EARTH.b - 1e-3)
+        expect(r).toBeLessThanOrEqual(EARTH.a + 1e-3)
+      }
+  })
+
+  it('lat45 z = N·(1−e2)·sin45 (closed-form ellipsoid pin)', () => {
+    const phi = 45 * DEG2RAD
+    const s = Math.sin(phi)
+    const N = EARTH.a / Math.sqrt(1 - EARTH.e2 * s * s)
+    expect(globeForward(0, 45)[2]).toBeCloseTo(N * (1 - EARTH.e2) * s, 3)
+  })
+
+  it('ellipsoid forward round-trips through the geodetic inverse ecefToLonLat (≤1e-6°)', () => {
     for (let lon = -179; lon <= 179; lon += 37)
       for (let lat = -85; lat <= 85; lat += 23) {
         const [x, y, z] = globeForward(lon, lat)
+        const [lon2, lat2] = ecefToLonLat(x, y, z, EARTH)
+        expect(lon2).toBeCloseTo(lon, 6)
+        expect(lat2).toBeCloseTo(lat, 6)
+      }
+  })
+
+  it('globeInverse is the geocentric sphere inverse (radius-agnostic; sphere opt-out path)', () => {
+    // globeInverse (used by unprojectGlobe(…,false)) maps any point on a ray to its
+    // GEOCENTRIC lon/lat. Feed it geocentric points (not globeForward, which is now
+    // geodetic-ellipsoid), so the round-trip is exact and radius-agnostic.
+    const geo = (lon: number, lat: number, r: number): [number, number, number] => {
+      const lam = lon * DEG2RAD,
+        phi = lat * DEG2RAD,
+        c = Math.cos(phi)
+      return [r * c * Math.cos(lam), r * c * Math.sin(lam), r * Math.sin(phi)]
+    }
+    for (const [lon, lat] of [
+      [127, 37],
+      [-60, -12],
+      [0, 0],
+    ] as const)
+      for (const r of [EARTH_R, EARTH_R * 0.3, EARTH_R * 5]) {
+        const [x, y, z] = geo(lon, lat, r)
         const [lon2, lat2] = globeInverse(x, y, z)
         expect(lon2).toBeCloseTo(lon, 6)
         expect(lat2).toBeCloseTo(lat, 6)
       }
   })
 
-  it('inverse is radius-agnostic (any point on the ray → same lon/lat)', () => {
-    const [x, y, z] = globeForward(127, 37)
-    const [lon, lat] = globeInverse(x * 0.3, y * 0.3, z * 0.3)
-    expect(lon).toBeCloseTo(127, 6)
-    expect(lat).toBeCloseTo(37, 6)
+  it('buildGlobeMatrix.target IS lonLatToECEF(clon,clat) — anchor agreement (RED pre-flip 24.5 km @lat60)', () => {
+    // The INC-1-style split-brain guard at the geometry root: the camera look-at
+    // target and the ellipsoid anchor the vertices subtract are now the SAME point.
+    for (const [clon, clat] of [
+      [127, 60],
+      [0, 0],
+      [-30, -45],
+    ] as const) {
+      const t = buildGlobeMatrix(clon, clat, 6, 0, 0, W, H).target
+      const e = lonLatToECEF(clon, clat, 0, EARTH)
+      expect(Object.is(t[0], e[0])).toBe(true)
+      expect(Object.is(t[1], e[1])).toBe(true)
+      expect(Object.is(t[2], e[2])).toBe(true)
+    }
   })
 })
 

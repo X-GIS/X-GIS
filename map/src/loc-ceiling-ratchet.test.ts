@@ -124,7 +124,10 @@ const CEILINGS: Record<string, number> = {
   // sphere-rotated light_dir_ecef branch, fixing the continent-scale roof
   // lighting gradient (raw light in the vertex-ENU frame on flat projections);
   // stacked non-overlappingly on the #1057/#1059 twin work — measured 4702.
-  'map/src/render/vector-tile-renderer.ts': 4702,
+  // 4702→4706 (#1222): zoom-bucketed stroke rebake wiring — the strokeWidthScale
+  // param on bakeTileToTexture (threaded to bakeTileStrokes) + camera.zoom on the
+  // renderGlobeFills call; the bucket/scale MATH lives in vector-drape-cache.ts.
+  'map/src/render/vector-tile-renderer.ts': 4706,
   // 4232→4237 (#1000 heatmap relocate): the heatmap density-target OWNERSHIP
   // extracted to render/heatmap-targets.ts; map keeps only the irreducible
   // composition-root wiring — the `heatmapTargets` field + its import (mirrors
@@ -204,6 +207,18 @@ const CEILINGS: Record<string, number> = {
   // per-guard constraint comments outweigh the ~30 lines removed. The extraction
   // itself is the right cut (single authority, also fixes runBinary's missing
   // shapeRegistry/lineRenderer, #7); the remainder is irreducible in-flow wiring.
+  // 4336→4495 (#1153 M1/M4/M5 mobile hardening): the touch-action claim
+  // (_setupTouchAction + its destroy restore, M1), the getBackend() reader + the
+  // 'backendresolved' fire at both boot tails (M4), and the visibility park/resume
+  // seam (_scheduleFrame + _cancelScheduledFrame + _onDocHidden/_onDocVisible + the
+  // deferred device-lost resume + fields, M5). New event/DOM policy lives in new
+  // modules (visibility-pause.ts); map.ts keeps only the composition-root wiring +
+  // the render-loop scheduling authority (mirrors the a11y/auto-resize precedents).
+  // 4495→4518 (#1153 M5c/M5 review fixes): the deferred-resume in-flight latch
+  // (_deviceLostResumePending field + the _onDocVisible gate + its clear in
+  // _armDeviceLostRecovery — dedupes the pageshow+visibilitychange double-burn) and the
+  // once-allocated _rafTick field (0-alloc rAF chain). Irreducible policy/field adds.
+  // Lower as #991 decomposes map.ts.
   // 4469→4480 (#1177): the CameraController's injected invalidate becomes a
   // camera-scoped re-arm (_markDirty(CAMERA), destroyed-guarded) instead of the
   // blanket invalidate() — blanket-tagging LABEL forced a label re-prepare on
@@ -228,7 +243,10 @@ const CEILINGS: Record<string, number> = {
   // source-dispatch arm that must sit in rebuildLayers where the source markers
   // are read. The DEM decode itself was extracted to hillshade-renderer.ts
   // (armHillshadeSource). Measured 4526.
-  'map/src/map.ts': 4526,
+  // Merge union (#1172 <- main): the M1/M4/M5/M5c mobile-hardening seams stacked
+  // non-overlappingly on main's #1177/#1194/#1196/#777-II lineage — merged
+  // high-water is the measured 4708.
+  'map/src/map.ts': 4708,
   // 1920→1930 (#1042 R3): the globe limb cull for MULTI-LINE labels must land in
   // the collision phase — the ONLY site holding the label's quad half-height (the
   // collision box IS the height authority; the label-pass dispatch site has only
@@ -250,7 +268,9 @@ const CEILINGS: Record<string, number> = {
   // helper (both in text-stage-helpers.ts, where the arithmetic lives + is unit-tested),
   // and the survivor loop emits placements for IconStage. +91; image-bearing labels
   // bypass the layout cache; the plain-label path is byte-identical (§2).
-  'map/src/text/text-stage.ts': 2066,
+  // 2066→2068 (#1177 replay correction): render() gains the optional S16
+  // skip-replay transform param, forwarded to TextRenderer.draw. +2.
+  'map/src/text/text-stage.ts': 2068,
   // 1786→1719 (#727 C): the line/point dedupe + pair-key helper block was
   // EXTRACTED to passes/line-label-dedupe.ts when the world-copy fan-out would
   // otherwise have grown this file — the extract-don't-grow answer.
@@ -287,7 +307,12 @@ const CEILINGS: Record<string, number> = {
   // centre ≤ 48 px) beside the exact settled compare, the per-frame
   // prevFrameZoomKey update, and the design-rationale comment. +50, all inside
   // the existing S16 skip block; nothing extract-worthy at this size (§2).
-  'map/src/render/passes/label-pass.ts': 1956,
+  // 1956→2002 (#1177 replay correction — the Option B staleness fix): the skip
+  // state gains replayRefs/replayRefsValid/replayOut, the miss branch samples
+  // reference points, hit frames solve prepared→current and pass it to the 4
+  // stage/iStage render calls. The MATH lives extracted in
+  // passes/label-replay-transform.ts (unit-proved); only wiring grew here. +46.
+  'map/src/render/passes/label-pass.ts': 2002,
   // #1081 — per-anchor perspective distance attenuation (MapLibre parity). New
   // baseline: the wCenter + perspScale scratch-out-value lives INLINE in the two
   // existing projector closures (it rides the cw already computed per anchor —
@@ -340,6 +365,10 @@ const CEILINGS: Record<string, number> = {
   // 1205→1213 (#1153 P2 R6): the WebGL2 takeGlErrors drain now routes through the
   // shared capped writer `pushValidationError` (rhi-webgpu) so the _validationErrors
   // queue can't grow unbounded — the 4-name import expansion + the drain-loop doc.
+  // 1213→1212 (#1153 M5/M3, merged): the 5 bare rAF reschedules now route through
+  // `host._scheduleFrame()` (the single park-aware scheduling authority) and the
+  // per-frame dpr line adopts resizeCanvas's returned (clamp-aware) value — net -1 on
+  // this PR's base.
   // 1213→1228 (#1057): the direct-layer points draw on the WebGL2 twin — one
   // pointRenderer.renderRhi call site (+ its updateDynamicSizes + hasLayers gate +
   // rationale) in renderFrameViaRhi, after the translucent bucket, mirroring the
@@ -371,7 +400,9 @@ const CEILINGS: Record<string, number> = {
   // applyHillshadePaint import — so relief renders under ?forcegl2=1 (the
   // _hillshade-gl2-gate). Stacked on the #1057/#1062/#1060 twin call sites —
   // measured 1315.
-  'map/src/render-loop.ts': 1315,
+  // Merge union (#1172 <- main): the M5/M3 scheduling-authority reroute (net -1)
+  // stacked on main's twin lineage — merged high-water is the measured 1314.
+  'map/src/render-loop.ts': 1314,
   // Merge union (#1060 <- main): stacked growth — measured 1174.
   'map/src/render/point-renderer.ts': 1174,
   // 1106→1120 (#1043 state-hygiene): three unmask-before-clear / state-reset fixes for the
@@ -475,7 +506,13 @@ const CEILINGS: Record<string, number> = {
   // shared `burstUploadBudget` authority (import + call + note) so the enqueue
   // cap and uploadBudgetFor's maxJobs can't drift out of lockstep.
   'map/src/render/upload-coordinator.ts': 910,
-  'map/src/shaders/dsl/projections.ts': 811,
+  // 811→826 (#1152 INC-3): proj_globe gains the ellipsoid N term (sqrt +
+  // (1−E2) z-compression), globe_eye_horizon_cos rescales its surface point into
+  // the (a,b) sphere frame, and PROJECTION_CONSTS gains the EARTH_E2 decl (prettier
+  // wraps its long-value literal multi-line) + the sqrt/inverseSqrt/normalize
+  // imports. All irreducible — the ellipsoid forward IS the increment (§2, no
+  // extract-worthy unit). Lower when the GPU re-targets emitModule (SCOPE, above).
+  'map/src/shaders/dsl/projections.ts': 826,
   // #1005 — carried from the runtime arch-invariants Gate 3 (re-measured
   // 2026-07-13; lower.ts had shrunk 1452→1409, the tighter value carried).
   // 1790→1546 (INC-0 extract): the conforming red-green subdivision cluster

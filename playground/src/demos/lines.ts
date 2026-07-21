@@ -59,4 +59,12 @@ export const DEMOS_LINES: Record<string, Demo> = {
       'GDI+-style center / inset / outset alignment. Three parallel coastlines shifted by half-width. Corners stay connected via offset-aware miter.',
     source: load('stroke-align.xgis'),
   },
+
+  line_antimeridian: {
+    name: 'Antimeridian Line',
+    tag: 'line',
+    description:
+      'LineString crossing 180° authored with >180 longitudes (MapLibre antimeridian-line mechanism). Great-circle subdivision stays monotone so the world-copy continuation renders instead of a seam streak. (#1192 example / #1221 fix.)',
+    source: load('line-antimeridian.xgis'),
+  },
 }

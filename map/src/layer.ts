@@ -427,6 +427,7 @@ const MAP_EVENT_TYPES: ReadonlySet<string> = new Set([
   'zoom',
   'zoomend',
   'error',
+  'backendresolved',
 ])
 export function isMapEventType(type: string): type is XGISMapEventType {
   return MAP_EVENT_TYPES.has(type)
@@ -551,8 +552,21 @@ export class ListenerRegistry {
 //   - error       — a lifecycle fault surfaced for observability: 'boot' (init
 //                   failure), 'devicelost' (GPU device lost — engine auto-recovers),
 //                   'halt' (render loop stopped after 3 consecutive frame faults).
+//   - backendresolved — fired once per successful boot with the resolved GPU
+//                   backend ('webgpu' | 'webgl2'), so a host can observe a silent
+//                   WebGPU→WebGL2 auto-fallback (#1153 M4). Re-fires on a
+//                   device-lost recovery re-boot (possibly a flipped backend).
 export type XGISMapEventType =
-  'load' | 'idle' | 'movestart' | 'move' | 'moveend' | 'zoomstart' | 'zoom' | 'zoomend' | 'error'
+  | 'load'
+  | 'idle'
+  | 'movestart'
+  | 'move'
+  | 'moveend'
+  | 'zoomstart'
+  | 'zoom'
+  | 'zoomend'
+  | 'error'
+  | 'backendresolved'
 
 /** Phase of a fired map-level `'error'` event. */
 export type XGISMapErrorPhase = 'boot' | 'devicelost' | 'halt'
@@ -586,6 +600,9 @@ export class XGISMapEvent {
   readonly phase?: XGISMapErrorPhase
   readonly fatal?: boolean
   readonly error?: unknown
+  /** Resolved GPU backend — present only on `'backendresolved'` events
+   *  (undefined otherwise). Mirrors the error-payload optionality. */
+  readonly backend?: 'webgpu' | 'webgl2'
 
   constructor(init: {
     type: XGISMapEventType
@@ -597,6 +614,7 @@ export class XGISMapEvent {
     phase?: XGISMapErrorPhase
     fatal?: boolean
     error?: unknown
+    backend?: 'webgpu' | 'webgl2'
   }) {
     this.type = init.type
     this.target = init.target
@@ -607,6 +625,7 @@ export class XGISMapEvent {
     this.phase = init.phase
     this.fatal = init.fatal
     this.error = init.error
+    this.backend = init.backend
     this.timeStamp = typeof performance !== 'undefined' ? performance.now() : Date.now()
   }
 }

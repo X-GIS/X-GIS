@@ -18,7 +18,7 @@ import { Camera } from './camera'
 import { MERCATOR_LAT_LIMIT, mercatorYToLat, mercatorYToLatRad, mercator } from '@xgis/geo'
 import { poleLimit, representsCenterAs } from '@xgis/geo'
 import { WORLD_MERC, TILE_PX } from '@xgis/geo'
-import { getMaxDpr } from '@xgis/engine'
+import { canvasEffectiveDpr, effectiveDpr } from '@xgis/engine'
 import { lonLatToMercator } from '@xgis/data'
 import { xlog, activeBody } from '@xgis/shared'
 
@@ -225,7 +225,7 @@ export class CameraController {
     // canvas.width/height are DEVICE px (clientWidth*dpr, gpu.ts
     // resizeCanvas); degPerPx below is per-CSS-pixel, so strip the dpr to
     // get the CSS-px viewport span. Without this the bbox is dpr× too wide.
-    const dpr = this._dpr()
+    const dpr = this._dpr(canvas)
     const cssW = (canvas?.width ?? 800) / dpr
     const cssH = (canvas?.height ?? 600) / dpr
     // degrees-per-pixel at current zoom (formula matches the inverse
@@ -288,7 +288,7 @@ export class CameraController {
     // 800 fallback (no ctx yet) is already a CSS-notional default — leave
     // it un-divided. THEN subtract padding (CSS px per Mapbox) in CSS space.
     const ctxCanvas = this.getCtxCanvas()
-    const dpr = this._dpr()
+    const dpr = this._dpr(ctxCanvas)
     const ctxW = ctxCanvas?.width
     const ctxH = ctxCanvas?.height
     const cssCanvasW = ctxW !== undefined ? ctxW / dpr : 800
@@ -574,15 +574,18 @@ export class CameraController {
     return Math.max(0.5, Math.log2((WORLD_MERC * cssHeightPx) / (TILE_PX * ySpan)))
   }
 
-  /** Device-pixel-ratio used to convert the canvas device-pixel buffer
-   *  size back to CSS pixels. Identical expression to gpu.ts resizeCanvas
-   *  (`Math.min(window.devicePixelRatio || 1, getMaxDpr())`) so the inverse
-   *  (`canvas.width / dpr`) is exact — and to map.ts's canonical bounds-fit
-   *  usage at the sync setRawParts site. The camera/view-matrix path works
-   *  in CSS pixels (DPR-invariant, commit ee1f394), so panBy / fitBounds /
-   *  getBounds must strip the DPR the device-pixel canvas.width carries. */
-  private _dpr(): number {
-    return typeof window !== 'undefined' ? Math.min(window.devicePixelRatio || 1, getMaxDpr()) : 1
+  /** Device-pixel-ratio used to convert the canvas device-pixel buffer size back
+   *  to CSS pixels. Read FROM the canvas (`canvas.width / clientWidth`) so it is the
+   *  exact effDpr `resizeCanvas` sized the swapchain with — including the #1153 M3
+   *  clamp, which can drop it below `min(devicePixelRatio, getMaxDpr())` when the
+   *  device-pixel size would exceed `maxTextureDimension2D`. Re-deriving the
+   *  quality-policy cap here would disagree with the actual buffer the moment the
+   *  clamp engages, under-reporting the CSS viewport → over-zoomed fitBounds (#929 B
+   *  single authority). The camera/view-matrix path works in CSS pixels (DPR-
+   *  invariant, commit ee1f394), so panBy / fitBounds / getBounds must strip the DPR
+   *  the device-pixel canvas.width carries. */
+  private _dpr(canvas: HTMLCanvasElement | undefined): number {
+    return canvas ? canvasEffectiveDpr(canvas) : effectiveDpr()
   }
 
   /** Whether the camera was explicitly positioned (hash / setView /

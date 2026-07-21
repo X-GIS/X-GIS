@@ -2037,12 +2037,14 @@ export class TextStage {
   }
 
   /** Encode the prepared draws onto the pass. Safe to call without
-   *  a prior prepare() — emits nothing in that case. */
+   *  a prior prepare() — emits nothing in that case. `replay` (#1177) is the
+   *  S16 skip-replay screen-space correction; omit on prepared frames. */
   render(
     pass: GPURenderPassEncoder | RhiRenderPass,
     viewport: { width: number; height: number },
+    replay?: { scale: number; dx: number; dy: number },
   ): void {
-    this.renderer.draw(pass, viewport)
+    this.renderer.draw(pass, viewport, replay)
   }
 
   /** S16 skip guard — see `_lastPrepareFullyResolved`. False until a prepare()

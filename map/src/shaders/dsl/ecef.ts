@@ -22,17 +22,25 @@ import {
 import { emitConst, emitFuncs } from '@xgis/shader-dsl'
 import { WGS84_A, WGS84_E2 } from './consts'
 
-/** WGS84 ellipsoid constants — semi-major axis (m) + eccentricity² (= 2f - f²
- *  with f = 1/298.257223563), and degrees→radians. */
+/** WGS84 ellipsoid constants — semi-major axis (m) + eccentricity² (= f·(2−f)
+ *  with f = 1/298.257223563). These are the shipped Earth DEFAULTS; the
+ *  body-consts seam (map/src/body-consts.ts) routes them through the active Body
+ *  at map construction. #1152 INC-3 un-pinned #798 PIN #2: WGS84_E2 now spells the
+ *  SAME f·(2−f) value EARTH.e2 holds (0.0066943799901413165) rather than the
+ *  retired divergent GPU literal (0.0066943799901975955). The two differ by
+ *  5.63e-14 absolute — four orders below the f32 ULP at 0.0067 (4.66e-10) — so
+ *  Math.fround collapses both to the identical f32 (0.006694380193948746): the
+ *  compiled shader constant is bit-unchanged, GPU pixel impact is exactly zero.
+ *  body-consts.test.ts pins that zero-delta identity + defaults===EARTH bit-equality. */
 export const ECEF_CONSTS: ConstDecl[] = [
   { name: 'WGS84_A', type: f32T, wgslValue: 6378137.0, cpuValue: 6378137.0 },
   {
     name: 'WGS84_E2',
     type: f32T,
-    // eslint-disable-next-line no-loss-of-precision -- exact WGS84 e^2; the extra digits document the defined value (f32-compiled)
-    wgslValue: 0.0066943799901975955,
-    // eslint-disable-next-line no-loss-of-precision -- exact WGS84 e^2; the extra digits document the defined value (f32-compiled)
-    cpuValue: 0.0066943799901975955,
+
+    wgslValue: 0.0066943799901413165,
+
+    cpuValue: 0.0066943799901413165,
   },
 ]
 

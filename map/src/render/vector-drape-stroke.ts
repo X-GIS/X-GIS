@@ -82,18 +82,26 @@ export function strokeBakeKey(active: boolean, s: BakeStrokeStyle): number {
  *  neutralised: `viewport_height = 0` skips the width clamp (which needs the real screen MVP), `dpr =
  *  1`, line-translate = 0. `opacity = 1` — the baked stroke holds full straight-alpha colour; the
  *  drape's raster frame uniform applies the layer opacity (like the fill). Dash lengths (width units)
- *  are scaled to metres with the bake mpp. Returns the layer byte offset. */
-function writeBakeStrokeLayerSlot(lr: LineRenderer, s: BakeStrokeStyle, bakeMpp: number): number {
+ *  are scaled to metres with the bake mpp. `widthScale` (#1222) is the zoom-bucket magnification
+ *  compensation — it multiplies the width AND the dash metres (dash is authored in width units, so
+ *  the dash-per-width ratio survives the rebake). Returns the layer byte offset. */
+function writeBakeStrokeLayerSlot(
+  lr: LineRenderer,
+  s: BakeStrokeStyle,
+  bakeMpp: number,
+  widthScale: number,
+): number {
+  const w = s.widthPx * widthScale
   const dash =
     s.dashSrc && s.dashSrc.length >= 2
       ? {
-          array: s.dashSrc.map((v) => v * s.widthPx * bakeMpp),
-          offset: s.dashOffsetUnits * s.widthPx * bakeMpp,
+          array: s.dashSrc.map((v) => v * w * bakeMpp),
+          offset: s.dashOffsetUnits * w * bakeMpp,
         }
       : null
   const off = lr.writeLayerSlot(
     s.color,
-    s.widthPx,
+    w,
     1, // opacity — drape applies layer opacity
     bakeMpp,
     s.cap,
@@ -129,9 +137,11 @@ export function bakeTileStrokes(
   bakeMpp: number,
   s: BakeStrokeStyle,
   patternActive: boolean,
+  /** #1222 zoom-bucket width compensation (2^(tileZ − camZoomBucketed)); 1 = bake-native. */
+  widthScale = 1,
 ): void {
   if (!tileBg) return
-  const layerOffset = writeBakeStrokeLayerSlot(lr, s, bakeMpp)
+  const layerOffset = writeBakeStrokeLayerSlot(lr, s, bakeMpp, widthScale)
   if (cached.outlineSegmentCount > 0 && cached.outlineSegmentBindGroup) {
     lr.drawSegmentsBake(
       pass,
