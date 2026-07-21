@@ -251,6 +251,21 @@
         color: var(--text-muted);
         margin-left: auto;
       }
+      /* #1229 item 3 — hover-revealed section deep-link (#cat-<tag>). */
+      .category-anchor {
+        font-family: var(--font-mono);
+        font-size: 0.7rem;
+        color: var(--text-muted);
+        text-decoration: none;
+        opacity: 0;
+        transition: opacity 0.12s;
+      }
+      .category-header:hover .category-anchor {
+        opacity: 1;
+      }
+      .category-anchor:hover {
+        color: var(--text-dim);
+      }
 
       /* ── Demo List ── */
       .demo-list {
