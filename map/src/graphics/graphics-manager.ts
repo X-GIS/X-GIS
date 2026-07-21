@@ -13,6 +13,7 @@
 import { HostImageRegistry } from '../sprite/host-image-registry'
 import { HostSpriteAtlasGPU } from '../sprite/host-sprite-atlas-gpu'
 import { HostSpriteAtlasRhi } from '../sprite/host-sprite-atlas-rhi'
+import type { IconAtlasGpu, SpriteMetadataSource } from '../sprite/icon-stage'
 import { RetainedIconDraper } from '../render/material/icon-retained-material'
 import { RetainedArrowDraper } from '../render/material/arrow-retained-material'
 import { RetainedCircleDraper } from '../render/material/circle-retained-material'
@@ -623,11 +624,15 @@ export class GraphicsManager {
     for (const b of this.batches) this.materialise(b)
   }
 
-  /** The per-run WebGPU atlas mirror, or null before attachDevice — and null on
-   *  the WebGL2 backend (#823), whose consumers (label pass / icon stage) never
-   *  run there. The retained-icon path reads `this.atlas` directly instead. */
-  hostAtlas(): HostSpriteAtlasGPU | null {
-    return this.atlas instanceof HostSpriteAtlasGPU ? this.atlas : null
+  /** The per-run host sprite atlas as the backend-agnostic IconStage surface,
+   *  or null before attachDevice. #1261: returns BOTH the WebGPU mirror
+   *  (HostSpriteAtlasGPU) AND the WebGL2 RHI twin (HostSpriteAtlasRhi) — both
+   *  satisfy `IconAtlasGpu & SpriteMetadataSource`, so the label-pass host-atlas
+   *  IconStage builds on either backend. Previously the WebGL2 twin was filtered
+   *  out here (`instanceof HostSpriteAtlasGPU`), so a spriteUrl-less style with
+   *  `label-icon-image-*` silently rendered text-only on WebGL2. */
+  hostAtlas(): (IconAtlasGpu & SpriteMetadataSource) | null {
+    return this.atlas
   }
 
   /** True when at least one host image is registered. */

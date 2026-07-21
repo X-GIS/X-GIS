@@ -27,14 +27,19 @@ export interface SpriteMetadataSource {
 }
 
 /** Minimal GPU-atlas surface the icon + fill-pattern renderers consume
- *  (size/ensure/getView/sampler + teardown). Satisfied structurally by
- *  SpriteAtlasGPU (URL sprite atlas) and by HostSpriteAtlasGPU (#797). */
+ *  (size + teardown, plus one of two backend halves). Satisfied structurally by
+ *  SpriteAtlasGPU (URL sprite atlas, both halves), HostSpriteAtlasGPU (#797, the
+ *  WebGPU half) and HostSpriteAtlasRhi (#823, the WebGL2 half). */
 export interface IconAtlasGpu {
   size(): { width: number; height: number }
-  ensure(): GPUTexture | null
-  getView(): GPUTextureView | null
-  readonly sampler: GPUSampler
   destroy(): void
+  /** WebGPU half — the WebGPU icon path binds these. Optional (#1261) so the
+   *  WebGL2-only host atlas twin (HostSpriteAtlasRhi, which carries the RHI half
+   *  below instead) satisfies the type; the WebGPU draw fail-closes (skips) when
+   *  absent, mirroring the RHI twins' own optionality. */
+  ensure?(): GPUTexture | null
+  getView?(): GPUTextureView | null
+  readonly sampler?: GPUSampler
   /** RHI twins (#834 M5 slice 4) — the WebGL2 icon path binds these; the
    *  host atlas twins (M0) and SpriteAtlasGPU implement them. Optional so a
    *  bespoke WebGPU-only atlas keeps compiling; the webgl2 draw fail-closes

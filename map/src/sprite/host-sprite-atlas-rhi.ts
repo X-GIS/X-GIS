@@ -47,7 +47,10 @@ function bitmapToImageData(source: ImageBitmap, w: number, h: number): ImageData
 export class HostSpriteAtlasRhi {
   private readonly rhi: RhiDevice
   private readonly packer: HostAtlasPacker
-  readonly sampler: RhiSampler
+  // Private (exposed via rhiSampler()) so its RhiSampler type does not collide
+  // with the IconAtlasGpu interface's optional WebGPU `sampler?: GPUSampler`
+  // (#1261) — this twin carries the RHI half, not the WebGPU one.
+  private readonly _sampler: RhiSampler
 
   /** The fixed page. Allocated lazily on first ensure() and then held for
    *  the atlas's life — NEVER recreated (bind-group identity invariant). */
@@ -59,10 +62,13 @@ export class HostSpriteAtlasRhi {
     this.packer = new HostAtlasPacker(registry)
     // Same sampling contract as the WebGPU atlas: linear so non-integer-scale
     // icons stay smooth (clamp-to-edge is the RHI backends' fixed wrap mode).
-    this.sampler = rhi.createSampler({ mag: 'linear', min: 'linear', label: 'host-sprite-atlas' })
+    this._sampler = rhi.createSampler({ mag: 'linear', min: 'linear', label: 'host-sprite-atlas' })
   }
 
-  private ensure(): RhiTexture {
+  // Named `_ensureTexture` (not `ensure`) so it does not collide with the
+  // IconAtlasGpu interface's now-optional public `ensure?()` (#1261) — this
+  // WebGL2 twin satisfies the interface via the RHI half (rhiView/rhiSampler).
+  private _ensureTexture(): RhiTexture {
     if (this.texture) return this.texture
     this.texture = this.rhi.createTexture({
       width: HOST_ATLAS_PAGE,
@@ -78,11 +84,11 @@ export class HostSpriteAtlasRhi {
    *  never changes) — the retained-icon batch bind group binds this. */
   rhiView(): RhiTextureView {
     if (this._cachedView) return this._cachedView
-    this._cachedView = this.rhi.createView(this.ensure())
+    this._cachedView = this.rhi.createView(this._ensureTexture())
     return this._cachedView
   }
   rhiSampler(): RhiSampler {
-    return this.sampler
+    return this._sampler
   }
 
   size(): { width: number; height: number } {
@@ -100,6 +106,18 @@ export class HostSpriteAtlasRhi {
     return this.packer.get(name)
   }
 
+  // #1261 — SpriteMetadataSource load-state (mirrors HostSpriteAtlasGPU). A
+  // host atlas is eager: images register synchronously, so it is always
+  // 'loaded' and whenReady() resolves at once. Added so this WebGL2 twin
+  // satisfies the full SpriteMetadataSource IconStage.forHostAtlas requires.
+  getState(): { status: 'loaded' } {
+    return { status: 'loaded' }
+  }
+
+  whenReady(): Promise<void> {
+    return Promise.resolve()
+  }
+
   /** Pack + region-upload every registry entry not yet in the atlas (shared
    *  HostAtlasPacker layout; RHI writeTexture region upload). */
   sync(): void {
@@ -111,13 +129,13 @@ export class HostSpriteAtlasRhi {
         )
         return
       }
-      this.rhi.writeTexture(this.ensure(), data.data, w * 4, w, h, x, y)
+      this.rhi.writeTexture(this._ensureTexture(), data.data, w * 4, w, h, x, y)
     })
   }
 
   destroy(): void {
     if (this.texture) this.rhi.destroyTexture(this.texture)
-    this.rhi.destroySampler(this.sampler)
+    this.rhi.destroySampler(this._sampler)
     this.texture = null
     this._cachedView = null
     this.packer.reset()
