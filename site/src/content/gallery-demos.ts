@@ -475,6 +475,21 @@ export const galleryCategories: Category[] = [
         body: 'Click to drop measurement points — the connector line and haversine total update live through the host push API.',
         noThumb: true,
       },
+      // `noThumb: true`: both scenes rest EMPTY (the line/point appear only
+      // after Start), so a build-time capture would show just the basemap —
+      // the same reasoning as measure-distances above.
+      {
+        id: 'animate-line',
+        title: 'Animate a line',
+        body: 'A sine-wave route grows one segment every 3s through setSourceData() into an empty source — Start/Stop drive the push loop.',
+        noThumb: true,
+      },
+      {
+        id: 'realtime-update',
+        title: 'Update a feature in realtime',
+        body: 'A sensor point loops the globe every 3s via updateFeature() against an inline-declared source — Start/Stop drive it.',
+        noThumb: true,
+      },
     ],
   },
   {

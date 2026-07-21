@@ -21,6 +21,7 @@ import { WORLD_MERC, TILE_PX } from '@xgis/geo'
 import { canvasEffectiveDpr, effectiveDpr } from '@xgis/engine'
 import { lonLatToMercator } from '@xgis/data'
 import { xlog, activeBody } from '@xgis/shared'
+import { CameraAnimator, defaultCameraEase, type CameraTarget } from './camera-animation'
 
 /** Dependencies CameraController needs from the host XGISMap. */
 export interface CameraControllerDeps {
@@ -34,6 +35,16 @@ export interface CameraControllerDeps {
    *  the padding-adjusted zoom fit — kept distinct from `getCanvas` so
    *  the pre-init fallback (→ 800) stays byte-identical. */
   getCtxCanvas(): HTMLCanvasElement | undefined
+  /** #1256 — the animation clock in ms (the same `_elapsedMs` axis the
+   *  render loop ticks the animator on). Optional: absent → easeTo/flyTo
+   *  fall back to an instant jumpTo (the pre-animation behaviour). */
+  nowMs?(): number
+  /** #1256 — configured transition duration (ms) when a call omits its
+   *  own `duration`. 0 (or absent) → instant jumpTo. */
+  defaultDurationMs?(): number
+  /** #1256 — reduced-motion resolver; true collapses easeTo/flyTo to an
+   *  instant jumpTo (WCAG 2.3.3). Absent → motion allowed. */
+  prefersReducedMotion?(): boolean
 }
 
 export class CameraController {
@@ -41,12 +52,19 @@ export class CameraController {
   private readonly invalidate: () => void
   private readonly getCanvas: () => HTMLCanvasElement
   private readonly getCtxCanvas: () => HTMLCanvasElement | undefined
+  private readonly deps: CameraControllerDeps
+  /** #1256 — in-flight easeTo/flyTo driver. Advanced once per rendered
+   *  frame via `tickAnimation`; writes the camera through THIS controller's
+   *  jumpTo (the single write authority), so every per-frame sample clamps
+   *  exactly like a direct set and the terminal frame ≡ jumpTo(target). */
+  private readonly animator = new CameraAnimator()
 
   constructor(camera: Camera, deps: CameraControllerDeps) {
     this.camera = camera
     this.invalidate = deps.invalidate
     this.getCanvas = deps.getCanvas
     this.getCtxCanvas = deps.getCtxCanvas
+    this.deps = deps
   }
 
   /** Mapbox-API parity: programmatic camera control.
@@ -309,24 +327,82 @@ export class CameraController {
     })
   }
 
-  /** Mapbox-API parity: `easeTo` and `flyTo` are the animated variants
-   *  of jumpTo in MapLibre GL JS. X-GIS has no transition infra yet, so
-   *  both alias to jumpTo (instant) — same final camera state, just no
-   *  smooth interpolation along the way. Callers porting MapLibre code
-   *  compile unchanged; behaviour degrades gracefully to a jump.
-   *
-   *  When animation lands, these become real eased / fly transitions
-   *  and the alias is removed. */
+  /** #1256 — current camera as a full CameraTarget (lon/lat, NOT Mercator
+   *  meters), the animator's start/interpolation basis. */
+  private currentTarget(): CameraTarget {
+    const [lon, lat] = this.getCenter()
+    return {
+      lon,
+      lat,
+      zoom: this.camera.zoom,
+      bearing: this.camera.bearing,
+      pitch: this.camera.pitch,
+    }
+  }
+
+  /** #1256 — merge a partial camera opts bag over the current state,
+   *  producing the full resolved destination (unspecified axes hold). */
+  private resolveTarget(opts: {
+    center?: [number, number]
+    zoom?: number
+    bearing?: number
+    pitch?: number
+  }): CameraTarget {
+    const cur = this.currentTarget()
+    const c = Array.isArray(opts.center) && opts.center.length >= 2 ? opts.center : undefined
+    return {
+      lon: c !== undefined && Number.isFinite(c[0]) ? c[0] : cur.lon,
+      lat: c !== undefined && Number.isFinite(c[1]) ? c[1] : cur.lat,
+      zoom: opts.zoom !== undefined && Number.isFinite(opts.zoom) ? opts.zoom : cur.zoom,
+      bearing:
+        opts.bearing !== undefined && Number.isFinite(opts.bearing) ? opts.bearing : cur.bearing,
+      pitch: opts.pitch !== undefined && Number.isFinite(opts.pitch) ? opts.pitch : cur.pitch,
+    }
+  }
+
+  /** #1256 — resolve the effective duration for an animated move: the
+   *  call's own `duration`, else the map-configured default. Returns 0 when
+   *  neither is positive OR reduced-motion is active → the caller jumps. */
+  private resolveDurationMs(callDuration: number | undefined): number {
+    if (this.deps.prefersReducedMotion?.() === true) return 0
+    if (callDuration !== undefined)
+      return Number.isFinite(callDuration) && callDuration > 0 ? callDuration : 0
+    return this.deps.defaultDurationMs?.() ?? 0
+  }
+
+  /** Mapbox-API parity: `easeTo` eases center/zoom/bearing/pitch to the
+   *  target over `duration` ms (default = the map's transition duration).
+   *  A zero/absent duration, reduced-motion, or a missing animation clock
+   *  collapses to an instant `jumpTo` — behaviour byte-identical to the
+   *  pre-animation alias. */
   easeTo(opts: {
     center?: [number, number]
     zoom?: number
     bearing?: number
     pitch?: number
     duration?: number
-    easing?: unknown
+    easing?: (t: number) => number
   }): void {
-    this.jumpTo({ center: opts.center, zoom: opts.zoom, bearing: opts.bearing, pitch: opts.pitch })
+    const dur = this.resolveDurationMs(opts.duration)
+    const now = this.deps.nowMs?.()
+    if (dur <= 0 || now === undefined) {
+      this.animator.cancel()
+      this.jumpTo({
+        center: opts.center,
+        zoom: opts.zoom,
+        bearing: opts.bearing,
+        pitch: opts.pitch,
+      })
+      return
+    }
+    const ease = typeof opts.easing === 'function' ? opts.easing : defaultCameraEase
+    this.animator.easeTo(this.currentTarget(), this.resolveTarget(opts), dur, ease, now)
+    this.invalidate()
   }
+
+  /** Mapbox-API parity: `flyTo` runs the van Wijk–Nuij pan-and-zoom arc to
+   *  the target. Reduced-motion / a degenerate (in-place, no-op) path /
+   *  missing clock collapses to an instant `jumpTo`. */
   flyTo(opts: {
     center?: [number, number]
     zoom?: number
@@ -336,7 +412,71 @@ export class CameraController {
     speed?: number
     curve?: number
   }): void {
-    this.jumpTo({ center: opts.center, zoom: opts.zoom, bearing: opts.bearing, pitch: opts.pitch })
+    const now = this.deps.nowMs?.()
+    const reduced = this.deps.prefersReducedMotion?.() === true
+    if (now === undefined || reduced) {
+      this.animator.cancel()
+      this.jumpTo({
+        center: opts.center,
+        zoom: opts.zoom,
+        bearing: opts.bearing,
+        pitch: opts.pitch,
+      })
+      return
+    }
+    // flyTo's `w` axis is measured against the larger viewport dimension
+    // (CSS px), the MapLibre convention.
+    const ctxCanvas = this.getCtxCanvas()
+    const dpr = this._dpr(ctxCanvas)
+    const cssW = ctxCanvas?.width !== undefined ? ctxCanvas.width / dpr : 800
+    const cssH = ctxCanvas?.height !== undefined ? ctxCanvas.height / dpr : 600
+    const dur = this.animator.flyTo(
+      this.currentTarget(),
+      this.resolveTarget(opts),
+      { durationMs: opts.duration, speed: opts.speed, curve: opts.curve },
+      Math.max(cssW, cssH),
+      now,
+    )
+    if (dur <= 0) {
+      // Nothing to fly (already there) — settle instantly.
+      this.animator.cancel()
+      this.jumpTo({
+        center: opts.center,
+        zoom: opts.zoom,
+        bearing: opts.bearing,
+        pitch: opts.pitch,
+      })
+      return
+    }
+    this.invalidate()
+  }
+
+  /** #1256 — true while an easeTo/flyTo is mid-flight (the map's render
+   *  keep-alive polls this in shouldRenderThisFrame). */
+  isAnimating(): boolean {
+    return this.animator.isActive()
+  }
+
+  /** #1256 — advance the in-flight animation one frame. Called once per
+   *  rendered frame from the map's renderFrame BEFORE the scene composes
+   *  (the sample writes the camera through jumpTo). No-op when idle. */
+  tickAnimation(nowMs: number): void {
+    this.animator.tick(nowMs, {
+      jumpTo: (o) => this.jumpTo(o),
+      readRaw: () => ({
+        cx: this.camera.centerX,
+        cy: this.camera.centerY,
+        z: this.camera.zoom,
+        b: this.camera.bearing,
+        p: this.camera.pitch,
+      }),
+    })
+  }
+
+  /** Mapbox-API parity: `map.stop()` — halt any in-flight camera
+   *  animation, leaving the camera at its current (partway) state. */
+  stop(): void {
+    this.animator.cancel()
   }
 
   /** Mapbox-API parity: pan the map by an offset in CSS pixels.

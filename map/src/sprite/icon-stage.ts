@@ -10,6 +10,7 @@ import { SpriteAtlasHost, type SpriteInfo } from './sprite-atlas-host'
 import { SpriteAtlasGPU } from './sprite-atlas-gpu'
 import { IconRenderer, type IconDraw, type IconAnchor } from './icon-renderer'
 import type { RhiDevice, RhiSampler, RhiTextureView, RhiRenderPass } from '@xgis/engine'
+import { fadeInstanceKey, type LabelFadeLedger } from '../text/label-fade'
 
 /** Minimal sprite-metadata read surface IconStage resolves icons through.
  *  Satisfied structurally by SpriteAtlasHost (URL sprite atlas) and by
@@ -26,14 +27,19 @@ export interface SpriteMetadataSource {
 }
 
 /** Minimal GPU-atlas surface the icon + fill-pattern renderers consume
- *  (size/ensure/getView/sampler + teardown). Satisfied structurally by
- *  SpriteAtlasGPU (URL sprite atlas) and by HostSpriteAtlasGPU (#797). */
+ *  (size + teardown, plus one of two backend halves). Satisfied structurally by
+ *  SpriteAtlasGPU (URL sprite atlas, both halves), HostSpriteAtlasGPU (#797, the
+ *  WebGPU half) and HostSpriteAtlasRhi (#823, the WebGL2 half). */
 export interface IconAtlasGpu {
   size(): { width: number; height: number }
-  ensure(): GPUTexture | null
-  getView(): GPUTextureView | null
-  readonly sampler: GPUSampler
   destroy(): void
+  /** WebGPU half — the WebGPU icon path binds these. Optional (#1261) so the
+   *  WebGL2-only host atlas twin (HostSpriteAtlasRhi, which carries the RHI half
+   *  below instead) satisfies the type; the WebGPU draw fail-closes (skips) when
+   *  absent, mirroring the RHI twins' own optionality. */
+  ensure?(): GPUTexture | null
+  getView?(): GPUTextureView | null
+  readonly sampler?: GPUSampler
   /** RHI twins (#834 M5 slice 4) — the WebGL2 icon path binds these; the
    *  host atlas twins (M0) and SpriteAtlasGPU implement them. Optional so a
    *  bespoke WebGPU-only atlas keeps compiling; the webgl2 draw fail-closes
@@ -88,6 +94,18 @@ interface PendingIcon {
    *  bbox is known (pairKey → TextStage.getPairFitBoxes). Undefined = native
    *  sprite size. */
   fit?: { mode: 'width' | 'height' | 'both'; pad: [number, number, number, number] }
+  /** Symbol fade — the paired TEXT's stable collisionId (label-fade.ts).
+   *  pairKey cannot serve here (`pt${seq}` is per-frame); this id is
+   *  pan-invariant, so the icon finds its text's fade record across
+   *  prepares. Undefined (icon-only symbols, raw datasets, overlays) →
+   *  no fade, byte-identical.
+   *
+   *  DOUBLES as the #417 collide-icon near-first Y-tie break (icon twin of
+   *  text #728): being a tile-stable per-feature id, it makes the survivor of
+   *  two same-screen-Y collide icons (a flat road's arrow chain) deterministic
+   *  instead of dispatch-order (I/O) dependent. Same value serves both — the
+   *  label's collisionId is what fade keys on AND what the collision pass needs. */
+  fadeId?: string
 }
 
 /** #777 I-G — one inline label image to draw this frame. TextStage computed
@@ -240,6 +258,8 @@ export class IconStage {
       /** Mapbox `icon-text-fit` (#777 I-A) — stretch the quad to the paired text
        *  bbox; resolved in prepare() via the pairKey → getPairFitBoxes coupling. */
       fit?: { mode: 'width' | 'height' | 'both'; pad: [number, number, number, number] }
+      /** Symbol fade — the paired text's stable collisionId (see PendingIcon). */
+      fadeId?: string
     } = {},
   ): void {
     if (this._iconDebugHook) {
@@ -258,6 +278,7 @@ export class IconStage {
       collide: opts.collide ?? false,
       padding: opts.padding ?? 2,
       fit: opts.fit,
+      fadeId: opts.fadeId,
     })
   }
 
@@ -268,6 +289,26 @@ export class IconStage {
   setDroppedPairKeys(keys: ReadonlySet<string>): void {
     this.droppedPairKeys = keys
   }
+
+  /** Symbol fade — TextStage's ledger, handed over by the label pass
+   *  (mirror of the droppedPairKeys handoff). Icons only READ records
+   *  (text placement is the single authority): a paired icon fades with
+   *  its text, keyed by fadeId + the same dispatch-order occurrence
+   *  scheme as the text side (fadeInstanceKey). Null / disabled →
+   *  byte-identical legacy behaviour. */
+  private fadeLedger: LabelFadeLedger | null = null
+  setFadeLedger(ledger: LabelFadeLedger): void {
+    this.fadeLedger = ledger
+  }
+  /** Last emitted draw per fade key — re-pushed while the record fades out
+   *  after its source vanished from `pending` (tile unload). IconDraw is
+   *  heap-owned (sprite/tint/fit refs are stable), so plain retention
+   *  suffices — no clone needed (unlike the text side's arena payloads). */
+  private readonly _fadeHoldover = new Map<string, IconDraw>()
+  /** Per-prepare scratch: fadeId → occurrence count, and the fade keys this
+   *  prepare actually emitted (so holdover skips live keys). */
+  private readonly _fadeOcc = new Map<string, number>()
+  private readonly _fadeEmitted = new Set<string>()
 
   /** #777 I-A — paired text bboxes (physical px) that TextStage laid out this
    *  frame, keyed by pairKey. Set by `setPairFitBoxes()` from the map every frame
@@ -295,12 +336,33 @@ export class IconStage {
    *  atlas (typo or atlas still loading); the user sees nothing
    *  rather than a console flood. Call once per frame BEFORE
    *  render(). */
-  prepare(): void {
+  prepare(
+    // Symbol fade: mirror of TextStage.prepare's holdoverOk — false when the
+    // camera/canvas moved since the previous prepare (a held-over quad's
+    // baked screen px would lie). Direct-stage callers default to true.
+    holdoverOk: boolean = true,
+  ): void {
     if (this._iconDump) this._iconDump = []
+    // Symbol fade — per-prepare scratch reset. `ledger` is non-null only
+    // when the handoff happened AND fading is enabled; every fade branch
+    // below is gated on it, so the disabled path stays byte-identical.
+    // `!= null` (not `!== null`): GPU-free harnesses drive prepare() on an
+    // Object.create(IconStage.prototype) stub whose field initializers never
+    // ran, so the field can be undefined there.
+    const ledger = this.fadeLedger != null && this.fadeLedger.enabled ? this.fadeLedger : null
+    if (ledger !== null) {
+      this._fadeOcc.clear()
+      this._fadeEmitted.clear()
+    }
     // #777 I-G — inline label images draw even when NO icon-image was
     // dispatched (a label that is only text + an inline sprite), so the
     // fast-out must consider them too.
     if (this.pending.length === 0 && this.inlineImages.length === 0) {
+      // Wholesale clear — no holdover emission (mirror of TextStage's
+      // empty-prepare arm); dead records' clones drop on the next sweep.
+      if (ledger !== null) {
+        this._fadeHoldover.clear()
+      }
       this.renderer.setDraws([])
       return
     }
@@ -309,38 +371,52 @@ export class IconStage {
     // as the atlas lands the next frame picks them up — but if
     // metadata isn't there yet, EVERY icon misses and we just skip.
     const draws: IconDraw[] = []
-    // #417 — boxes of already-placed collide-icons (symbol-placement:line,
-    // e.g. road_oneway arrows) for the per-frame overlap collision below.
-    const placedBoxes: { minX: number; minY: number; maxX: number; maxY: number }[] = []
     // Track missing names ONLY when the atlas is in the terminal
     // 'loaded' state — during 'loading' / 'idle' / 'failed' every
     // lookup misses for orthogonal reasons (no atlas in memory).
     // Treating those as missing would flood the diagnostic with
     // false positives during cold-start.
     const atlasLoaded = this.host.getState().status === 'loaded'
-    for (const p of this.pending) {
-      // Iter 112: drop icon when its paired text label was collision-
-      // rejected. Mirrors MapLibre's "text+icon as one symbol" rule.
-      if (p.pairKey !== undefined && this.droppedPairKeys.has(p.pairKey)) {
-        continue
-      }
-      const sprite = this.host.get(p.iconName)
-      if (!sprite) {
-        if (atlasLoaded) this.missingIconNames.add(p.iconName)
-        continue
-      }
-      if (atlasLoaded) this.dispatchedIconNames.add(p.iconName)
-      // Mapbox icon-size scaling already applies; DPR scaling layered
-      // on top so a "1.0" icon-size looks the same physical size on
-      // hidpi displays as the design intent.
-      const sizeScale = p.sizeScale * this.dpr
-      // #417 — line-icon overlap collision. A symbol-placement:line icon
-      // (collide=true) is dropped when its padded box overlaps an
-      // already-placed collide-icon, so two parallel road features'
-      // overlapping arrows collapse to one chain (MapLibre parity).
-      // Zoom-invariant (tests actual icon boxes, not a fixed distance).
-      // Only collide-icons are tested + recorded → point dots untouched (#419).
-      if (p.collide) {
+    // #417 near-first (icon sibling of #1249) — decide which collide-icons
+    // (symbol-placement:line arrows) survive their mutual overlap BEFORE the
+    // emit loop, iterating NEAREST-first. The overlap pass is greedy first-
+    // wins, so on a pitched view the label nearer the camera (larger anchorY)
+    // must claim its box first or the far arrow occludes the near one — the
+    // same wrong direction #1249 fixed for text. Equal-Y ties keep dispatch
+    // order, so a flat/same-latitude row of arrows collides byte-identically
+    // to the pre-fix pass. The verdict is keyed by pending index; the emit
+    // loop reads `collideDropped` and keeps DRAW (painter) order in dispatch
+    // order (survivors don't overlap, so their relative draw order is moot).
+    // The two pre-collision skips (paired-text-dropped, sprite-missing) are
+    // mirrored here so a dropped/absent icon never seeds a phantom blocker.
+    const collideDropped = new Set<number>()
+    {
+      const collideOrder: number[] = []
+      for (let i = 0; i < this.pending.length; i++)
+        if (this.pending[i]!.collide) collideOrder.push(i)
+      collideOrder.sort((a, b) => {
+        const pa = this.pending[a]!
+        const pb = this.pending[b]!
+        if (pa.anchorY !== pb.anchorY) return pb.anchorY - pa.anchorY // near (larger Y) first
+        // Y-tie (a flat road's arrow chain): a STABLE per-feature id decides,
+        // so the survivor doesn't flip with tile-dispatch (I/O) order on pan —
+        // the icon twin of text #728. `fadeId` (the paired text's collisionId,
+        // threaded for symbol fade) doubles as that id — it's the same tile-
+        // stable value the collision pass needs. Falls back to dispatch index
+        // only when it is absent on either side (byte-identical to the pre-
+        // determinism pass).
+        const ca = pa.fadeId
+        const cb = pb.fadeId
+        if (ca !== undefined && cb !== undefined && ca !== cb) return ca < cb ? -1 : 1
+        return a - b // stable: dispatch order
+      })
+      const placedBoxes: { minX: number; minY: number; maxX: number; maxY: number }[] = []
+      for (const i of collideOrder) {
+        const p = this.pending[i]!
+        if (p.pairKey !== undefined && this.droppedPairKeys.has(p.pairKey)) continue
+        const sprite = this.host.get(p.iconName)
+        if (!sprite) continue
+        const sizeScale = p.sizeScale * this.dpr
         const cdW = (sprite.width / sprite.pixelRatio) * sizeScale
         const cdH = (sprite.height / sprite.pixelRatio) * sizeScale
         const pad = p.padding * this.dpr // Mapbox icon-padding (default 2)
@@ -355,9 +431,57 @@ export class IconStage {
             break
           }
         }
-        if (overlaps) continue
+        if (overlaps) {
+          collideDropped.add(i)
+          continue
+        }
         placedBoxes.push({ minX, minY, maxX, maxY })
       }
+    }
+    for (let idx = 0; idx < this.pending.length; idx++) {
+      const p = this.pending[idx]!
+      // Symbol fade: resolve this icon's instance key FIRST — occurrence
+      // counting must see every dispatched icon (drops included) so the
+      // indices stay aligned with the text side's per-shaped counter. The
+      // near-first collide pre-pass above does NOT reorder emission (this
+      // loop still walks dispatch order), so occurrences pair with the text
+      // side exactly as before #1278.
+      let fadeKey: string | undefined
+      if (ledger !== null && p.fadeId !== undefined) {
+        const occ = this._fadeOcc.get(p.fadeId) ?? 0
+        this._fadeOcc.set(p.fadeId, occ + 1)
+        fadeKey = fadeInstanceKey(p.fadeId, occ)
+      }
+      // Iter 112: drop icon when its paired text label was collision-
+      // rejected. Mirrors MapLibre's "text+icon as one symbol" rule.
+      // Symbol fade: when that text is HELD OVER (visibly fading out) and
+      // holdover is allowed, emit the badge one more time with the shared
+      // record so text + icon fade as one symbol instead of the badge
+      // popping a fade ahead of its number.
+      if (p.pairKey !== undefined && this.droppedPairKeys.has(p.pairKey)) {
+        if (!(
+          fadeKey !== undefined &&
+          ledger !== null &&
+          holdoverOk &&
+          ledger.isFadingOut(fadeKey)
+        )) {
+          continue
+        }
+      }
+      const sprite = this.host.get(p.iconName)
+      if (!sprite) {
+        if (atlasLoaded) this.missingIconNames.add(p.iconName)
+        continue
+      }
+      if (atlasLoaded) this.dispatchedIconNames.add(p.iconName)
+      // Mapbox icon-size scaling already applies; DPR scaling layered
+      // on top so a "1.0" icon-size looks the same physical size on
+      // hidpi displays as the design intent.
+      const sizeScale = p.sizeScale * this.dpr
+      // #417 — line-icon overlap verdict decided near-first above; a
+      // collide-icon dropped there is skipped here (point dots have
+      // collide=false → never in the set → untouched, #419).
+      if (p.collide && collideDropped.has(idx)) continue
       // #777 I-A — icon-text-fit: resolve the quad override from the paired text
       // bbox (physical px, laid out THIS frame by TextStage) + per-side padding
       // (CSS px → dpr). `width`/`height` fit only that axis (undefined leaves the
@@ -385,7 +509,11 @@ export class IconStage {
           }
         }
       }
-      draws.push({
+      // Symbol fade: attach the paired text's record (read-only — refOf
+      // never creates). A never-placed text has no record ⇒ no fadeRef ⇒
+      // the icon renders exactly as before.
+      const fadeRef = fadeKey !== undefined && ledger !== null ? ledger.refOf(fadeKey) : undefined
+      const draw: IconDraw = {
         anchorX: p.anchorX,
         anchorY: p.anchorY,
         sprite,
@@ -395,7 +523,13 @@ export class IconStage {
         opacity: p.opacity,
         tint: p.tint,
         ...(fit ? { fit } : {}),
-      })
+        ...(fadeRef !== undefined ? { fadeRef } : {}),
+      }
+      draws.push(draw)
+      if (fadeKey !== undefined) {
+        this._fadeEmitted.add(fadeKey)
+        if (fadeRef !== undefined) this._fadeHoldover.set(fadeKey, draw)
+      }
       if (this._iconDump) {
         const drawW = (sprite.width / sprite.pixelRatio) * sizeScale
         const drawH = (sprite.height / sprite.pixelRatio) * sizeScale
@@ -442,6 +576,21 @@ export class IconStage {
         anchor: 'top-left',
         opacity: 1,
       })
+    }
+    // Symbol fade: holdover — an icon whose source vanished from `pending`
+    // entirely (tile unload took its feature) keeps drawing its last
+    // emitted quad while the paired text's record fades out. The sweep
+    // then drops keys whose record the text side pruned.
+    if (ledger !== null) {
+      if (holdoverOk) {
+        for (const [k, held] of this._fadeHoldover) {
+          if (this._fadeEmitted.has(k)) continue
+          if (ledger.isFadingOut(k)) draws.push(held)
+        }
+      }
+      for (const k of this._fadeHoldover.keys()) {
+        if (ledger.refOf(k) === undefined) this._fadeHoldover.delete(k)
+      }
     }
     this.renderer.setDraws(draws)
     this.pending = []

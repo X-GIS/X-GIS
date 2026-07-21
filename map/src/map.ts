@@ -59,7 +59,15 @@ import { QUALITY, updateQuality, type QualityConfig } from '@xgis/engine'
 import { GPUTimer } from '@xgis/rhi-webgpu'
 import { Camera } from './camera'
 import { CameraController } from './camera-controller'
-import { injectFocusStyle, setupCanvasA11y, handleMapKeyDown } from './map-accessibility'
+import {
+  injectFocusStyle,
+  setupCanvasA11y,
+  handleMapKeyDown,
+  resolveReducedMotion,
+  reducedMotionMediaMatches,
+  watchReducedMotion,
+} from './map-accessibility'
+import { parseHash, formatHash, updateHashFragment } from './map-hash'
 import { showWebGPUUnavailableDefault } from './map-webgpu-unavailable'
 import { ViewportModeController } from './render/viewport-mode-controller'
 import { SourceManager } from './source-manager'
@@ -107,6 +115,7 @@ import {
 } from './layer'
 import { attachAutoResize } from './auto-resize'
 import { attachVisibilityPause } from './visibility-pause'
+import { PaintTransitionRegistry } from './paint-transitions'
 import { EventDispatcher } from './event-dispatcher'
 import { TileCatalog } from '@xgis/data'
 import { isTileTemplate } from '@xgis/data'
@@ -360,6 +369,19 @@ export class XGISMap {
   glyphsUrl: string | null = null
   inlineGlyphs: NonNullable<TextStageOptions['inlineGlyphs']> | null = null
   glyphProviders: NonNullable<TextStageOptions['glyphProviders']> = []
+  /** #1255 — paint-transition duration (ms) for setPaintProperty / layer.style
+   *  writes on the continuous axes (fill/line colour, opacity, line-width).
+   *  MapLibre `*-transition` parity; 0 disables (instant sets, byte-identical
+   *  to the pre-transition behaviour — the right setting for pixel-exact
+   *  screenshot harnesses). Set via `XGISMapOptions.paintTransitionDuration`. */
+  paintTransitionDurationMs = 300
+  /** #1255 — live paint ramps: keep-alive + end-of-ramp constant settle. */
+  private readonly _paintTransitions = new PaintTransitionRegistry()
+  /** Symbol fade duration (ms) — MapLibre `fadeDuration` parity, set via
+   *  `XGISMapOptions.fadeDuration`. Read at lazy TextStage construction
+   *  (label-pass.ts); 0 disables fading entirely (byte-identical render,
+   *  the right setting for pixel-exact screenshot harnesses). */
+  labelFadeDurationMs = 300
   /** Sprite atlas URL prefix from the imported style's top-level
    *  `sprite` field. Used by the lazy IconStage to fetch
    *  `${url}.json` + `${url}.png`. Null = no icons rendered. */
@@ -463,6 +485,17 @@ export class XGISMap {
   private _detachAutoResize: (() => void) | null = null
   /** Detach hook for the visibility pause/resume listeners (#1153 M5); destroy() mirror. */
   private _detachVisibilityPause: (() => void) | null = null
+  /** #1260 — detach hook for the prefers-reduced-motion media-query listener
+   *  (a11y); destroy() mirror. Null until `_setupAccessibility` attaches it. */
+  private _detachReducedMotion: (() => void) | null = null
+  /** #1268 — URL hash camera sync. null = disabled (default; the URL and
+   *  history are never touched). `{ ns }` = enabled; ns is '' for the
+   *  unnamespaced fragment or the `name=…` prefix for a namespaced one. */
+  private _hashSync: { ns: string } | null = null
+  /** #1268 — the bound move-end handler (kept so destroy() detaches it) and
+   *  the pending debounced replaceState timer (cleared on destroy). */
+  private _hashMoveHandler: (() => void) | null = null
+  private _hashWriteTimer: ReturnType<typeof setTimeout> | null = null
   /** #1153 M5 render-loop scheduling state. `_rafId` is the single in-flight rAF
    *  handle (null = parked) — storing it is what lets the hidden handler CANCEL the
    *  pending tick and structurally prevents a resume from building a second rAF
@@ -654,6 +687,15 @@ export class XGISMap {
    *  properties in future PRs). Null until first renderFrame. */
   _startTime: number | null = null
   _elapsedMs = 0
+  /** #1256 — default easeTo/flyTo duration (ms) for calls that omit their
+   *  own `duration`. MapLibre parity (~1000-1200 ms feel); set via
+   *  `XGISMapOptions.cameraAnimationDuration`. 0 makes every unspecified-
+   *  duration animated move an instant jump. */
+  cameraAnimationDurationMs = 1000
+  /** #1256 — explicit reduced-motion override. `undefined` → consult the
+   *  `prefers-reduced-motion` media query; `true`/`false` force it (kiosk /
+   *  test control). Set via `XGISMapOptions.respectReducedMotion`. */
+  private _reducedMotionOverride: boolean | undefined = undefined
   /** Earth-surface fill color resolved from `background { fill: ... }`.
    *  Pushed into the synthetic earth-surface show + backend after GPU
    *  init. ALSO read by the background pass (render/passes/background-pass.ts)
@@ -1030,6 +1072,13 @@ export class XGISMap {
       },
       getCanvas: () => this.getCanvas(),
       getCtxCanvas: () => this.ctx?.canvas,
+      // #1256 — animated camera (easeTo/flyTo). The clock is the same
+      // `_elapsedMs` axis the render loop ticks the animator on; the
+      // default duration is the map option; reduced-motion collapses to a
+      // jump (WCAG 2.3.3).
+      nowMs: () => this._animClockMs(),
+      defaultDurationMs: () => this.cameraAnimationDurationMs,
+      prefersReducedMotion: () => this._prefersReducedMotion(),
     })
     // Event bus — owns listener registries + camera-signature diff state.
     // Constructed after cameraController so getCameraState() is available.
@@ -1153,6 +1202,25 @@ export class XGISMap {
     // P4 opt-in for compute-driven paint evaluation. Stored as a
     // simple flag the run() method reads when invoking emitCommands.
     if (options.enableComputePath) this._enableComputePath = true
+    // #1256 — animated-camera defaults.
+    if (options.cameraAnimationDuration !== undefined)
+      this.cameraAnimationDurationMs = options.cameraAnimationDuration
+    // `respectReducedMotion: false` forces motion ON regardless of the OS
+    // setting (kiosk/demo); `true` forces the media-query consult (the
+    // default when the option is absent — stored as `undefined`).
+    if (options.respectReducedMotion === false) this._reducedMotionOverride = false
+    // #1255 — paint-transition duration (MapLibre *-transition parity,
+    // default 300 ms). Consumed by the XGISLayer style setters; 0 disables.
+    if (options.paintTransitionDuration !== undefined)
+      this.paintTransitionDurationMs = options.paintTransitionDuration
+    // Symbol fade duration (MapLibre `fadeDuration` parity, default 300 ms).
+    // Consumed at lazy TextStage construction (label-pass.ts); 0 disables.
+    if (options.fadeDuration !== undefined) this.labelFadeDurationMs = options.fadeDuration
+    // #1268 — URL hash camera sync. `true` → unnamespaced fragment; a non-empty
+    // string → `name=…` namespace. Absent / false / '' → disabled (null).
+    if (options.hash === true) this._hashSync = { ns: '' }
+    else if (typeof options.hash === 'string' && options.hash !== '')
+      this._hashSync = { ns: options.hash }
     this._backend = options.backend ?? 'auto'
     this._preserveDrawingBuffer = options.preserveDrawingBuffer ?? false
     // Surface converter "Conversion notes" to the console at load —
@@ -1187,6 +1255,13 @@ export class XGISMap {
       options.pitch !== undefined
     )
       this.markCameraPositioned()
+    // #1268 — a present URL fragment SEEDS the camera and WINS over the
+    // center/zoom/bearing/pitch options above (MapLibre precedence). Routed
+    // through the SAME setters (single mutation authority) + markCameraPositioned,
+    // so a hash-seeded view is byte-identical to the equivalent option seed. The
+    // move-end write listener attaches AFTER the seed (below) so the seed itself
+    // doesn't echo a redundant replaceState.
+    this._setupHashSync()
     // RenderLoop owns the per-frame GPU render method (extracted from map.ts).
     // Content registers the frozen-order RenderNode pass chain it iterates
     // (P2-carve Step 4); nodes capture this map + read it fresh at render time.
@@ -1275,6 +1350,10 @@ export class XGISMap {
       this._keyDownHandler = handler
       injectFocusStyle()
     }
+    // #1260 — honour a live OS prefers-reduced-motion flip (WCAG 2.3.3). No-op
+    // in non-DOM / no-matchMedia envs (returns a no-op teardown), so unit-test
+    // mocks never attach a listener and destroy() has nothing to detach.
+    this._detachReducedMotion = watchReducedMotion(() => this._onReducedMotionChange())
   }
 
   /** #1153 M1 — claim the canvas's `touch-action` so mobile browsers don't hijack
@@ -1384,6 +1463,23 @@ export class XGISMap {
   private _loaded = false
   loaded(): boolean {
     return this._loaded
+  }
+
+  /** Per-frame count of tiles the map is still waiting on: vector-tile cells
+   *  without a drawable tile this frame PLUS raster/hillshade tiles mid-fetch.
+   *  Written by BOTH render paths (the WebGPU render-loop's end-of-frame
+   *  bookkeeping and the forced-WebGL2 `renderFrameViaRhi`) as the sum of the
+   *  same three signals the loop ORs into its keep-warm `_needsRender` gate, so
+   *  it settles to 0 exactly when the scene converges. Public-by-convention (no
+   *  `private`) so `RenderLoopHost` can Pick it for the write. */
+  _missingTileCount = 0
+  /** In-flight tile-load count for the last rendered frame: > 0 while vector,
+   *  raster, or hillshade tiles are still resolving; 0 once the scene settles.
+   *  A zero-allocation read (unlike `stats`, which builds a fresh RenderStats
+   *  each call), so a host can poll it every rAF to drive a "loading N tiles"
+   *  affordance without churning GC. */
+  getMissingTileCount(): number {
+    return this._missingTileCount
   }
 
   /** Host hook fired once if the GPU device is lost (driver reset, tab
@@ -1541,16 +1637,18 @@ export class XGISMap {
     setEngineLogSink(sink)
   }
 
-  /** Mapbox-API parity: animated camera variants. X-GIS has no
-   *  transition infra yet, so both alias to jumpTo (instant) inside
-   *  CameraController. */
+  /** Mapbox-API parity: animated camera variants (#1256). `easeTo` eases
+   *  and `flyTo` runs the van Wijk–Nuij arc, over `duration` ms (default
+   *  `cameraAnimationDuration`); a 0 duration, `respectReducedMotion`, or a
+   *  degenerate path collapses to an instant jump. Cancel with `map.stop()`
+   *  or any user gesture / programmatic camera write. */
   easeTo(opts: {
     center?: [number, number]
     zoom?: number
     bearing?: number
     pitch?: number
     duration?: number
-    easing?: unknown
+    easing?: (t: number) => number
   }): void {
     this.cameraController.easeTo(opts)
     this._cameraExplicitlyPositioned = true
@@ -2760,9 +2858,23 @@ export class XGISMap {
     // assumes EPSG:4326, see interpreter.ts:67-74). Field access returns
     // undefined uniformly when absent, so the legacy path leaves the
     // registry empty (every source treated as 4326 / no-op).
+    //
+    // #1242 gap-2 fix follow-up: lower.ts (`resolvedCrs`) fills EVERY
+    // `type: geojson` source's `crs` with the literal 'EPSG:4326' default
+    // when the .xgis omits `crs:` entirely — so `load.crs` is truthy for
+    // ALL geojson sources, declared or not. Registering those here made
+    // `sourceCRS.has(id)` true universally, which made getSeededFC() (the
+    // gap-2 updateFeature-patchability check) reject EVERY .xgis-declared
+    // /URL geojson source, silently keeping the gap-2 fix dead end-to-end
+    // (caught by the animate-line/realtime-update ports' real-GPU probe,
+    // #1192 batch 5 — the existing unit coverage seeds sourceCRS directly
+    // and never exercises this real run() population path). Skip the
+    // no-op default so the registry holds only a GENUINE reprojection
+    // need, matching _reprojectIngest's own "no declared CRS ⇒ 4326 /
+    // no-op" contract this Map was documented to carry.
     this.sourceCRS.clear()
     for (const load of commands.loads as { name: string; crs?: string }[]) {
-      if (load.crs) this.sourceCRS.set(load.name, load.crs)
+      if (load.crs && load.crs !== 'EPSG:4326') this.sourceCRS.set(load.name, load.crs)
     }
 
     // Prewarm PMTiles archive caches in parallel with the rest of init
@@ -3084,6 +3196,9 @@ export class XGISMap {
     // mercator-class projections; the projection-change hook re-drives it.
     installGeoJSONPolarCaps(this._polarCapHost())
     commands.shows = this.showCommands as typeof commands.shows
+    // #1255 — a scene rebuild replaces every ShowCommand: pending paint
+    // ramps point into dead bundles, so drop them (no settle writes).
+    this._paintTransitions.clear()
     this._sceneHasAnimation = sceneHasAnyAnimation(commands.shows)
     this._labelsHaveTimeAnimation = labelsHaveTimeAnimation(commands.shows)
     // Full scene (re)build — style, sources, geometry, labels, and possibly
@@ -3318,7 +3433,19 @@ export class XGISMap {
       // into multiple shows; the wrapper still mutates the first
       // show, the rest will adopt it via the layerName lookup).
       if (!this.xgisLayers.has(layerName)) {
-        this.xgisLayers.set(layerName, new XGISLayer(layerName, show, () => this.invalidate()))
+        this.xgisLayers.set(
+          layerName,
+          new XGISLayer(layerName, show, () => this.invalidate(), {
+            // #1255 — style writes ramp through the transition registry.
+            registry: this._paintTransitions,
+            nowMs: () => this._elapsedMs,
+            // #1260 — reduced motion collapses the ramp to an instant set
+            // (0 ms, byte-identical to `paintTransitionDuration: 0`). Read per
+            // begin*() so an OS flip takes effect on the next style write.
+            durationMs: () => (this._prefersReducedMotion() ? 0 : this.paintTransitionDurationMs),
+            cameraZoom: () => this.camera.zoom,
+          }),
+        )
       }
 
       // raster-dem source → activate the HILLSHADE renderer (#777). Checked
@@ -3942,6 +4069,8 @@ export class XGISMap {
     if (this._epochStale(epoch)) return
 
     this.showCommands = commands.shows
+    // #1255 — mirror of run()'s rebuild: drop ramps into dead bundles.
+    this._paintTransitions.clear()
     this._sceneHasAnimation = sceneHasAnyAnimation(commands.shows)
     this._labelsHaveTimeAnimation = labelsHaveTimeAnimation(commands.shows)
     // Full scene (re)build from a binary load — same DIRTY_ALL mask as run().
@@ -4093,6 +4222,21 @@ export class XGISMap {
   private shouldRenderThisFrame(): boolean {
     if (this._needsRender) return true
     if (this._sceneHasAnimation) return true
+    // #1256 — camera-animation keep-alive (mirror of _sceneHasAnimation):
+    // frames keep coming while an easeTo/flyTo is mid-flight; the tick in
+    // renderFrame settles it and this goes false again on arrival.
+    if (this.cameraController.isAnimating()) return true
+    // #1255 — paint-transition keep-alive (mirror of _sceneHasAnimation):
+    // frames keep coming exactly while a setPaintProperty ramp is in
+    // flight; renderFrame()'s settle sweep empties the registry at the
+    // ramp ends and this goes false again.
+    if (this._paintTransitions.hasActive()) return true
+    // Symbol fade keep-alive (mirror of _sceneHasAnimation): while any
+    // label/icon opacity ramp is in flight the loop must keep rendering —
+    // the label pass advances the ledger once per rendered frame, so ramps
+    // settle on the wall clock and this goes false again within
+    // fadeDuration of the last placement change.
+    if (this.textStage !== null && this.textStage.getFadeLedger().hasActive()) return true
     if (this.hasPendingSourceWork()) return true
     const c = this.camera
     const canvas = this.ctx?.canvas
@@ -4233,7 +4377,120 @@ export class XGISMap {
   }
 
   private renderFrame(): void {
-    return this.renderLoopInstance.render()
+    // #1256 — advance any in-flight easeTo/flyTo BEFORE the scene composes
+    // (the sample writes the camera through jumpTo). Uses the same clock
+    // the render loop stamps into `_elapsedMs`; refreshed here so the tick
+    // and the frame it produces share one timestamp.
+    if (this.cameraController.isAnimating()) {
+      this._elapsedMs = this._animClockMs()
+      this.cameraController.tickAnimation(this._elapsedMs)
+    }
+    this.renderLoopInstance.render()
+    // #1255 — settle finished paint-transition ramps AFTER the frame that
+    // rendered them at (or past) their terminal value: the swap to a
+    // constant is visually a no-op (the ramp clamps at `to`) and restores
+    // the constant fast paths. Runs on the just-updated `_elapsedMs`;
+    // while ramps remain, shouldRenderThisFrame keeps frames coming.
+    this._paintTransitions.settle(this._elapsedMs)
+  }
+
+  /** #1256 — the animation clock in ms since the first rendered frame,
+   *  the axis easeTo/flyTo start-stamps + tick against. Mirrors the render
+   *  loop's `performance.now() - _startTime`; 0 before the first frame (no
+   *  origin yet — an animation started that early ticks from ~0). */
+  private _animClockMs(): number {
+    if (this._startTime === null) return this._elapsedMs
+    return performance.now() - this._startTime
+  }
+
+  /** #1256/#1260 — resolve reduced-motion: the explicit `respectReducedMotion`
+   *  option override wins, else the live `prefers-reduced-motion: reduce` media
+   *  query (false in non-DOM / no-matchMedia environments — tests, SSR). The
+   *  precedence lives in the pure `resolveReducedMotion` (map-accessibility.ts)
+   *  so it is unit-pinnable without a DOM. Consulted at every animation entry
+   *  point: easeTo/flyTo → jumpTo, symbol fade → 0, paint transitions → 0. */
+  private _prefersReducedMotion(): boolean {
+    return resolveReducedMotion(this._reducedMotionOverride, reducedMotionMediaMatches())
+  }
+
+  /** #1260 — the symbol-fade duration after the reduced-motion override:
+   *  0 (instant, byte-identical to `fadeDuration: 0`) when reduced motion is
+   *  active, else the configured `labelFadeDurationMs`. Read at lazy TextStage
+   *  construction (label-pass.ts) AND re-applied live on a media-query flip
+   *  (`_onReducedMotionChange`). */
+  effectiveFadeDurationMs(): number {
+    return this._prefersReducedMotion() ? 0 : this.labelFadeDurationMs
+  }
+
+  /** #1260 — OS reduced-motion flipped while the map is live: re-resolve the
+   *  animated features that cache their duration. Camera easeTo/flyTo and paint
+   *  transitions read `_prefersReducedMotion()` per call (already live); only
+   *  the symbol-fade ledger holds a cached duration, so push the new effective
+   *  value and re-arm a frame so an idle map reflects the change at once. */
+  private _onReducedMotionChange(): void {
+    this.textStage?.setFadeDurationMs(this.effectiveFadeDurationMs())
+    this.markLabelDirty()
+    this.invalidate()
+  }
+
+  /** #1268 — seed the camera from the URL fragment (it wins over the ctor
+   *  camera options) and attach the debounced move-end writer. No-op when hash
+   *  sync is off or in a non-DOM env (no `location`). Called once from the ctor
+   *  AFTER the option-camera seed, so the fragment overrides it and the writer
+   *  isn't attached until after the seed (no redundant boot write). */
+  private _setupHashSync(): void {
+    if (this._hashSync === null) return
+    if (typeof globalThis !== 'undefined' && globalThis.location) {
+      const st = parseHash(globalThis.location.hash, this._hashSync.ns)
+      if (st !== null) {
+        this.setCenter(st.lon, st.lat)
+        this.setZoom(st.zoom)
+        this.setBearing(st.bearing)
+        this.setPitch(st.pitch)
+        this.markCameraPositioned()
+      }
+    }
+    this._hashMoveHandler = () => this._scheduleHashWrite()
+    this.on('moveend', this._hashMoveHandler)
+  }
+
+  /** #1268 — debounce the fragment write so a drag/zoom flurry collapses to one
+   *  `replaceState` when the camera settles. */
+  private _scheduleHashWrite(): void {
+    if (this._hashSync === null) return
+    if (this._hashWriteTimer !== null) clearTimeout(this._hashWriteTimer)
+    this._hashWriteTimer = setTimeout(() => {
+      this._hashWriteTimer = null
+      this._writeHash()
+    }, 100)
+  }
+
+  /** #1268 — write the current camera into the URL fragment via
+   *  `history.replaceState` (never pushState, so panning doesn't spam the back
+   *  button). Namespaced writes merge into any sibling fragment params. */
+  private _writeHash(): void {
+    if (this._hashSync === null) return
+    if (typeof globalThis === 'undefined' || !globalThis.location || !globalThis.history) return
+    const [lon, lat] = this.getCenter()
+    const value = formatHash({
+      zoom: this.getZoom(),
+      lon,
+      lat,
+      bearing: this.getBearing(),
+      pitch: this.getPitch(),
+    })
+    const frag = updateHashFragment(globalThis.location.hash, this._hashSync.ns, value)
+    const { pathname, search } = globalThis.location
+    globalThis.history.replaceState(globalThis.history.state, '', `${pathname}${search}#${frag}`)
+  }
+
+  /** #1256 — halt any in-flight easeTo/flyTo, leaving the camera at its
+   *  current partway state. (MapLibre spells this `map.stop()`, but that
+   *  name is X-GIS's render-loop lifecycle halt — which ALSO cancels the
+   *  animation; this is the camera-only variant.) */
+  stopAnimation(): this {
+    this.cameraController.stop()
+    return this
   }
 
   // ═══ DOM-inspired Layer API ═══
@@ -4616,6 +4873,23 @@ export class XGISMap {
       this._keyDownHandler = null
     }
 
+    // #1260 — prefers-reduced-motion media-query listener (same leak class).
+    if (this._detachReducedMotion) {
+      this._detachReducedMotion()
+      this._detachReducedMotion = null
+    }
+
+    // #1268 — URL hash sync: detach the move-end writer + cancel any pending
+    // debounced replaceState so a torn-down map stops touching the URL.
+    if (this._hashMoveHandler) {
+      this.off('moveend', this._hashMoveHandler)
+      this._hashMoveHandler = null
+    }
+    if (this._hashWriteTimer !== null) {
+      clearTimeout(this._hashWriteTimer)
+      this._hashWriteTimer = null
+    }
+
     // #1167 — cold-start burst visibilitychange backstop (armed in run()).
     if (this._burstVisibilityHandler && typeof document !== 'undefined') {
       document.removeEventListener('visibilitychange', this._burstVisibilityHandler)
@@ -4714,6 +4988,8 @@ export class XGISMap {
   }
 
   stop(): void {
+    // #1256 — the lifecycle halt drops any in-flight camera animation too.
+    this.cameraController.stop()
     this.controller?.detach()
     this.running = false
     // #1153 P1/A3 — bump the run-epoch so an in-flight run()/runBinary() dies at

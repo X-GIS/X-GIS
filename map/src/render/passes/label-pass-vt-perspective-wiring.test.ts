@@ -62,9 +62,9 @@ describe('label-pass — VT point-label arms thread perspective attenuation (#10
     expect(globeArm).toMatch(/pointCollisionId,\s*ps,\s*\)/)
   })
 
-  it("globe VT arm dispatchIcon mirrors Path 1's trailing args (false, undefined, ps)", () => {
+  it("globe VT arm dispatchIcon mirrors Path 1's trailing args (false, undefined, ps) + the symbol-fade id", () => {
     expect(globeArm).toMatch(
-      /dispatchIcon\(\s*featDef,\s*projected\[0\],\s*projected\[1\],\s*0,\s*pairKey,\s*false,\s*undefined,\s*ps,?\s*\)/,
+      /dispatchIcon\(\s*featDef,\s*projected\[0\],\s*projected\[1\],\s*0,\s*pairKey,\s*false,\s*undefined,\s*ps,\s*pointCollisionId,?\s*\)/,
     )
   })
 
@@ -80,7 +80,9 @@ describe('label-pass — VT point-label arms thread perspective attenuation (#10
 
   it('mercator VT arm addLabel + dispatchIcon thread ps', () => {
     expect(mercArm).toMatch(/pointCollisionId,\s*ps,\s*\)/)
-    expect(mercArm).toContain('dispatchIcon(featDef, px, py, 0, pairKey, false, undefined, ps)')
+    expect(mercArm).toMatch(
+      /dispatchIcon\(featDef, px, py, 0, pairKey, false, undefined, ps, pointCollisionId\)/,
+    )
   })
 
   it('Path 1 (GeoJSON) wiring is unchanged — guard, green before and after', () => {

@@ -66,8 +66,10 @@ export type LabelPassHost = Pick<
   // when the async atlas lands on a label-less style.
   | '_backgroundPattern'
   | 'invalidate'
+  | '_elapsedMs'
   | '_featureExprsCache'
   | '_labelsHaveTimeAnimation'
+  | 'effectiveFadeDurationMs'
   | '_labelDispatchHits'
   | '_labelDispatchMisses'
   | '_pendingLabelDebugHook'
@@ -131,6 +133,7 @@ export type FrameLoopHost = Pick<
   | '_lastSigW'
   | '_lastSigZoom'
   | '_light'
+  | '_missingTileCount'
   | '_needsRender'
   | '_spriteAtlasViewPushed'
   | '_scheduleFrame'

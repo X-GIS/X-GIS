@@ -700,6 +700,14 @@ export class RenderLoop {
     this.host._frameCount++
     this.host._stats.tilesVisible = totalTilesVis
     this.host._stats.tilesCached = totalTilesCached
+    // Per-frame in-flight tile count for the public `getMissingTileCount()`
+    // accessor (loading affordance). Same three signals the keep-warm gate
+    // below ORs, summed: VT cells without a drawable tile + raster/hillshade
+    // tiles mid-fetch. Settles to 0 exactly when that gate stops re-arming.
+    this.host._missingTileCount =
+      totalMissed +
+      this.host.rasterRenderer.pendingLoadCount() +
+      this.host.hillshadeRenderer.pendingLoadCount()
     this.host._stats.endFrame()
     this.host._statsPanel?.update(this.host._stats.get())
 
@@ -1211,11 +1219,15 @@ export class RenderLoop {
     // _needsRender armed so the loop re-renders until the scene converges
     // (upload completion alone never repaints this isolated path, #832 M2).
     // Hillshade DEM fetches count too (same keep-alive as the WebGPU path).
-    return (
-      missingTiles > 0 ||
-      this.host.rasterRenderer.hasPendingLoads() ||
-      this.host.hillshadeRenderer.hasPendingLoads()
-    )
+    // Publish the per-frame in-flight tile count (public `getMissingTileCount()`)
+    // and derive this path's keep-warm return from it — a single authority so the
+    // count and the "keep rendering" gate can never disagree (sum > 0 iff any of
+    // the three non-negative signals is > 0).
+    this.host._missingTileCount =
+      missingTiles +
+      this.host.rasterRenderer.pendingLoadCount() +
+      this.host.hillshadeRenderer.pendingLoadCount()
+    return this.host._missingTileCount > 0
   }
 
   private _resolveFillPatterns(): void {
@@ -1244,7 +1256,10 @@ export class RenderLoop {
           this.host._spriteAtlasViewPushed = true
         }
       } else {
-        const view = this.host.iconStage?.gpu.getView()
+        // WebGPU sprite-atlas push (the WebGL2 rhiView/rhiSampler push is the
+        // `if` above). getView is the now-optional WebGPU half (#1261); on
+        // WebGPU the atlas carries it, on WebGL2 this branch never runs.
+        const view = this.host.iconStage?.gpu.getView?.()
         if (view) {
           this.host.renderer.setSpriteAtlas(view)
           for (const { renderer: vtRenderer } of this.host.vtSources.values()) {

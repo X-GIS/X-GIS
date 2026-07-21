@@ -182,6 +182,14 @@ export interface XGISMapOptions {
   /** Initial pitch in degrees, applied at construction. Latches the positioned
    *  flag. Clamped to `[0, 85]`. Default `0`. */
   pitch?: number
+  /** #1268 — sync the camera to the URL fragment (MapLibre `hash` parity):
+   *  `true` reads/writes `#zoom/lat/lon[/bearing[/pitch]]`; a string namespaces
+   *  it as `name=…` so several maps on a page (or a host's own fragment params)
+   *  coexist. On boot a present fragment SEEDS the camera and WINS over
+   *  `center`/`zoom`/`bearing`/`pitch`; afterwards each move-end rewrites the
+   *  fragment (debounced, `history.replaceState` — never a new history entry).
+   *  Absent / `false` (the default) never touches the URL or history. */
+  hash?: boolean | string
   /** Initial projection — same names as `setProjection()` (e.g. `'mercator'`,
    *  `'globe'`, `'natural_earth'`). Unlike the camera fields it does NOT latch
    *  the positioned flag (projection is orthogonal to data-bounds framing).
@@ -228,6 +236,36 @@ export interface XGISMapOptions {
    *  basemap-quality output it should opt in. Toggle at runtime via
    *  `map.setGraticuleEnabled(bool)`. */
   graticule?: boolean
+  /** #1256 — default `easeTo` / `flyTo` duration in ms for calls that omit
+   *  their own `duration`. MapLibre-parity animated camera; `0` makes every
+   *  unspecified-duration animated move an instant jump (the pre-animation
+   *  behaviour, and the right setting for pixel-exact screenshot harnesses).
+   *  A call's explicit `duration` always wins. Default `1000`. */
+  cameraAnimationDuration?: number
+  /** #1256/#1260 — honour the OS `prefers-reduced-motion` setting (WCAG 2.3.3):
+   *  when the user requests reduced motion, EVERY engine-driven animation
+   *  collapses to its instant path — `easeTo`/`flyTo` → `jumpTo`, symbol fade
+   *  → 0, paint transitions → 0 (each already byte-identical by construction).
+   *  A live OS flip takes effect without reload. Default `true`. Set `false`
+   *  to force motion on regardless (kiosk / demo deployments). */
+  respectReducedMotion?: boolean
+  /** #1255 — paint-transition duration in ms (MapLibre `*-transition`
+   *  parity). `setPaintProperty` / `layer.style` writes on the continuous
+   *  paint axes (fill/line colour, the opacity family, line-width) RAMP to
+   *  the new value over this window instead of popping; discrete
+   *  properties (visibility) always apply instantly. `0` disables all
+   *  transitions (instant sets, byte-identical to the pre-transition
+   *  behaviour — the right setting for pixel-exact screenshot harnesses).
+   *  Default `300`. */
+  paintTransitionDuration?: number
+  /** Symbol fade duration in ms (MapLibre `fadeDuration` parity). Labels and
+   *  their paired icons ramp opacity over this window when they appear or
+   *  disappear (tile loads, collision churn) instead of popping. Placement
+   *  itself stays instant — only the visual alpha ramps, so the S16
+   *  label-prepare skip and its zoom-jank guarantees are untouched. `0`
+   *  disables fading (pre-fade byte-identical rendering, the right setting
+   *  for pixel-exact screenshot harnesses). Default `300`. */
+  fadeDuration?: number
   /** Accessible name applied to the canvas via `aria-label`, announced
    *  by screen readers when the map receives focus. Defaults to `"Map"`.
    *  Set a deployment-specific label (e.g. `"Seoul transit map"`) so the
