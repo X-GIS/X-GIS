@@ -1438,6 +1438,7 @@ async function runSource(source: string, label: string) {
       spriteUrl?: string
       glyphs?: { url?: string }
       preserveDrawingBuffer?: boolean
+      respectReducedMotion?: boolean
       paintTransitionDuration?: number
       fadeDuration?: number
     } = {
@@ -1458,6 +1459,10 @@ async function runSource(source: string, label: string) {
     // but NOT ?e2e=1's fixture-auto-push suppression (the points gate deliberately
     // omits e2e so its fixture data still auto-pushes — #1172 merge reconciliation).
     if (params.has('e2e') || params.has('preserve')) ctorOpts.preserveDrawingBuffer = true
+    // ?nomotion=1 — force `respectReducedMotion:false` so the #1256
+    // camera-animation gate runs deterministically regardless of the
+    // headless browser's prefers-reduced-motion state.
+    if (params.get('nomotion') === '1') ctorOpts.respectReducedMotion = false
     // ?ptdur=<ms> — override the #1255 paintTransitionDuration (the
     // setPaintProperty ramps). `?ptdur=0` disables for pixel-exact gates
     // (the _paint-transition-gate parity arm); absent keeps the library

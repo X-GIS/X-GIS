@@ -284,10 +284,19 @@ const CEILINGS: Record<string, number> = {
   // and the two scene-rebuild clear() calls. The transition MECHANISM
   // lives extracted + unit-proved in paint-transitions.ts — wiring only
   // grew here.
-  // Merge union (paint transitions <- main): the fade/getMissingTileCount/CRS
-  // stacks (→4763) and the #1255 paint-transition wiring (+38) are non-
-  // overlapping, so the merged file measures the 4801 wc -l, not max(4763, 4756).
-  'map/src/map.ts': 4801,
+  // 4718→4788 (#1256 easeTo/flyTo): the cameraAnimationDurationMs option +
+  // reduced-motion override fields (+docs, option-bag parse), the three new
+  // CameraController deps handed at construction, the isAnimating()
+  // keep-alive in shouldRenderThisFrame, renderFrame()'s pre-compose
+  // tickAnimation, the _animClockMs / _prefersReducedMotion helpers, the
+  // stopAnimation() method + the lifecycle-stop cancel, and the easeTo
+  // signature widening. The animation MECHANISM (vWN path + driver) lives
+  // extracted + unit-proved in camera-animation.ts; only wiring grew here.
+  // Merge union (camera animation <- main): the fade/tile-count/CRS/paint-
+  // transition stacks (→4801) and the #1256 camera-animation wiring (+70) are
+  // non-overlapping, so the merged file measures the 4871 wc -l, not
+  // max(4801, 4788).
+  'map/src/map.ts': 4871,
   // Baselined at #1255 (measured 830): the DOM-inspired layer API crossed
   // NEW_FILE_CAP with the paint-transition style-setter integration — the
   // StyleHost.transitions context, the shared applyNumber/applyColor

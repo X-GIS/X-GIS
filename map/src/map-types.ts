@@ -222,6 +222,17 @@ export interface XGISMapOptions {
    *  basemap-quality output it should opt in. Toggle at runtime via
    *  `map.setGraticuleEnabled(bool)`. */
   graticule?: boolean
+  /** #1256 — default `easeTo` / `flyTo` duration in ms for calls that omit
+   *  their own `duration`. MapLibre-parity animated camera; `0` makes every
+   *  unspecified-duration animated move an instant jump (the pre-animation
+   *  behaviour, and the right setting for pixel-exact screenshot harnesses).
+   *  A call's explicit `duration` always wins. Default `1000`. */
+  cameraAnimationDuration?: number
+  /** #1256 — honour the OS `prefers-reduced-motion` setting (WCAG 2.3.3):
+   *  when the user requests reduced motion, `easeTo`/`flyTo` collapse to an
+   *  instant `jumpTo`. Default `true`. Set `false` to force motion on
+   *  regardless (kiosk / demo deployments). */
+  respectReducedMotion?: boolean
   /** #1255 — paint-transition duration in ms (MapLibre `*-transition`
    *  parity). `setPaintProperty` / `layer.style` writes on the continuous
    *  paint axes (fill/line colour, the opacity family, line-width) RAMP to
