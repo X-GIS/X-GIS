@@ -43,8 +43,9 @@ const WITNESS_LINE: GeoJSONInput = {
   geometry: { type: 'LineString', coordinates: WITNESS },
 } as unknown as GeoJSONInput
 
-// projectX from convert.ts: lon/360 + 0.5. Seam (lon 180) → world-x 1.0.
-const projectX = (lon: number) => lon / 360 + 0.5
+// (World-x projection reference: convert.ts projectX = lon/360 + 0.5; the
+// seam (lon 180) sits at world-x 1.0 — the assertions below encode the
+// projected values directly.)
 
 /** Flatten a ProjectedFeature's LineString geometry to [x,y] pairs. */
 function pairs(geom: FlatLine): [number, number][] {
