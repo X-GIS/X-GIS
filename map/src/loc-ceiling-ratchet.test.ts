@@ -550,7 +550,10 @@ const CEILINGS: Record<string, number> = {
   // — VT missed + raster/hillshade pendingLoadCount(). The WebGL2 twin derives its
   // keep-warm return from that single authority (count > 0). Irreducible: the two
   // write sites (one per path) + docs.
-  'map/src/render-loop.ts': 1338,
+  // 1338→1341 (#1261): the WebGPU sprite-atlas push now reads the now-optional
+  // getView via `?.` (the host atlas's WebGPU half became optional so its WebGL2
+  // twin type-checks) + a 3-line rationale. One existing call site.
+  'map/src/render-loop.ts': 1341,
   // Merge union (#1060 <- main): stacked growth — measured 1174.
   'map/src/render/point-renderer.ts': 1174,
   // 1106→1120 (#1043 state-hygiene): three unmask-before-clear / state-reset fixes for the

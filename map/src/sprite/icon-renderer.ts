@@ -509,8 +509,13 @@ export class IconRenderer {
         ])
       }
     } else {
-      const tex = this.atlas.ensure()
-      if (!tex) return
+      // WebGPU path — the atlas must expose the WebGPU half (#1261 made it
+      // optional so the WebGL2-only host twin type-checks); fail-closed (skip)
+      // when absent, symmetric with the RHI-twin guard above. On WebGPU the
+      // atlas always carries it, so this is a no-op there.
+      const tex = this.atlas.ensure?.()
+      const sampler = this.atlas.sampler
+      if (!tex || !sampler) return
       if (!this.bindGroup) {
         // Bind group routes through the RHI seam (§4): binding 0 is the RhiBuffer
         // uniform; the atlas TEXTURE view (binding 1) + sampler (binding 2) stay raw,
@@ -519,7 +524,7 @@ export class IconRenderer {
         this.bindGroup = this.rhi.createBindGroup(wrapWebGpuBindGroupLayout(this.bgl()), [
           { binding: 0, resource: { buffer: this.uniformBuf } },
           { binding: 1, resource: { view: wrapWebGpuTextureView(tex.createView()) } },
-          { binding: 2, resource: { sampler: wrapWebGpuSampler(this.atlas.sampler) } },
+          { binding: 2, resource: { sampler: wrapWebGpuSampler(sampler) } },
         ])
       }
     }

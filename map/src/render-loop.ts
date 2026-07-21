@@ -1238,7 +1238,10 @@ export class RenderLoop {
           this.host._spriteAtlasViewPushed = true
         }
       } else {
-        const view = this.host.iconStage?.gpu.getView()
+        // WebGPU sprite-atlas push (the WebGL2 rhiView/rhiSampler push is the
+        // `if` above). getView is the now-optional WebGPU half (#1261); on
+        // WebGPU the atlas carries it, on WebGL2 this branch never runs.
+        const view = this.host.iconStage?.gpu.getView?.()
         if (view) {
           this.host.renderer.setSpriteAtlas(view)
           for (const { renderer: vtRenderer } of this.host.vtSources.values()) {
