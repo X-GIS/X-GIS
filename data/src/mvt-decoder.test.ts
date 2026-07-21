@@ -89,6 +89,89 @@ describe('decodeMvtTile (round-trip)', () => {
     }
   })
 
+  // #1221 R4 — a LineString's antimeridian BUFFER vertices (geojson-vt emits
+  // the seam continuation copy at lon just beyond ±180) MUST survive decode
+  // unclamped. The pre-fix clampLon pinned that whole beyond-±180 run to
+  // EXACTLY ±180, degenerating it into a vertical wall of collinear segments
+  // on the seam that the line renderer drew as a spurious vertical stroke.
+  it('does NOT clamp a line vertex beyond ±180 into a seam wall (#1221)', () => {
+    // A line hugging the antimeridian; a generous buffer forces geojson-vt to
+    // emit wrapped-copy vertices past ±180 in the west tile (z3/x0).
+    const orig = {
+      type: 'FeatureCollection',
+      features: [
+        {
+          type: 'Feature',
+          geometry: {
+            type: 'LineString',
+            coordinates: [
+              [165, 60],
+              [175, 66],
+              [179, 68],
+            ],
+          },
+          properties: {},
+        },
+      ],
+    }
+    const idx = geojsonVt(orig, { maxZoom: 14, buffer: 2048, extent: 8192 })
+    const tile = idx.getTile(3, 0, 2) // west tile — holds the wrapped copy
+    expect(tile).toBeTruthy()
+    const buf = vtpbf.fromGeojsonVt({ route: tile }, { extent: 8192 })
+    const features = decodeMvtTile(buf, 3, 0, 2)
+    const line = features.find((f) => f.geometry?.type === 'LineString')
+    expect(line).toBeTruthy()
+    const coords = (line!.geometry as { coordinates: number[][] }).coordinates
+    // Pre-fix: EVERY vertex clamped to exactly -180 (a >=3-vertex wall).
+    // Post-fix: the beyond-±180 buffer vertices keep their real (< -180) lon.
+    const beyond = coords.filter((c) => c[0] < -180.001)
+    expect(beyond.length).toBeGreaterThan(0)
+    // And they are NOT all pinned to one longitude (the wall signature).
+    const uniqueLons = new Set(coords.map((c) => Math.round(c[0] * 100)))
+    expect(uniqueLons.size).toBeGreaterThan(1)
+  })
+
+  // #1221 R4 — the sibling POLYGON path KEEPS the full clamp (the original
+  // horizontal-sliver fix): a polygon buffer vertex beyond ±180 still lands on
+  // the seam, never leaking a beyond-planet longitude into the fill mesh.
+  it('STILL clamps a polygon vertex beyond ±180 (sliver-fix intact, #1221)', () => {
+    const orig = {
+      type: 'FeatureCollection',
+      features: [
+        {
+          type: 'Feature',
+          geometry: {
+            type: 'Polygon',
+            coordinates: [
+              [
+                [170, 60],
+                [179, 60],
+                [179, 70],
+                [170, 70],
+                [170, 60],
+              ],
+            ],
+          },
+          properties: {},
+        },
+      ],
+    }
+    const idx = geojsonVt(orig, { maxZoom: 14, buffer: 2048, extent: 8192 })
+    const tile = idx.getTile(3, 0, 2)
+    if (tile) {
+      const buf = vtpbf.fromGeojsonVt({ area: tile }, { extent: 8192 })
+      const features = decodeMvtTile(buf, 3, 0, 2)
+      for (const f of features) {
+        const rings = (f.geometry as { coordinates: number[][][] }).coordinates
+        for (const ring of rings) {
+          for (const c of ring) {
+            expect(c[0]).toBeGreaterThanOrEqual(-180.0001)
+          }
+        }
+      }
+    }
+  })
+
   it('flattens multi-layer MVTs and tags each feature with its layer', () => {
     const water = {
       type: 'FeatureCollection',

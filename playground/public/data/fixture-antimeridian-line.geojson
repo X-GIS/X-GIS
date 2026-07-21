@@ -1,0 +1,13 @@
+{
+  "type": "FeatureCollection",
+  "features": [
+    {
+      "type": "Feature",
+      "properties": { "name": "Bering Strait crossing" },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [[165, 60], [175, 66], [185, 68], [195, 64]]
+      }
+    }
+  ]
+}
