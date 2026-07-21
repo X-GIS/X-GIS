@@ -126,3 +126,59 @@ describe('IconStage — #417 collide-icon near-first', () => {
     expect(draws[0]!.anchorY).toBe(10)
   })
 })
+
+// Determinism on the Y-tie (the icon twin of the text #728 fix). On a flat
+// road the arrow chain shares one screen Y, so near-first ties them all and
+// they fall back to the collision tie-break. A STABLE per-feature id — the
+// label's collisionId, threaded to the icon as `fadeId` (for symbol fade) and
+// reused here — must decide the survivor so it does not flip with tile-dispatch
+// (I/O) order on pan.
+describe('IconStage — collide-icon Y-tie determinism (#728 sibling)', () => {
+  // survivor of two SAME-Y overlapping collide icons (ΔX 6 < 10 → overlap),
+  // identified by anchorX. Returns the survivor's x for a given dispatch order.
+  const survivorX = (order: 'ab' | 'ba'): number => {
+    const { stage, draws } = makeStage()
+    const A = () => stage.addIcon(0, 0, 'A', { collide: true, fadeId: 'route-a' })
+    const B = () => stage.addIcon(6, 0, 'B', { collide: true, fadeId: 'route-b' })
+    if (order === 'ab') {
+      A()
+      B()
+    } else {
+      B()
+      A()
+    }
+    stage.prepare()
+    expect(draws.length).toBe(1)
+    return draws[0]!.anchorX
+  }
+
+  it('the lower collisionId survives regardless of dispatch order', () => {
+    // RED before the fix: the Y-tie fell back to dispatch index, so 'ab' kept A
+    // (x=0) and 'ba' kept B (x=6) — a pan-order-dependent flip. With the stable
+    // tie-break 'route-a' < 'route-b' wins in BOTH orders.
+    expect(survivorX('ab')).toBe(0) // A (route-a)
+    expect(survivorX('ba')).toBe(0) // A (route-a) — still, order-invariant
+  })
+
+  it('without a collisionId, ties keep dispatch order (byte-identical fallback)', () => {
+    // Neither carries a collisionId → the pre-determinism dispatch fallback:
+    // whoever is dispatched first claims the box.
+    const { stage, draws } = makeStage()
+    stage.addIcon(0, 0, 'first', { collide: true })
+    stage.addIcon(6, 0, 'second', { collide: true })
+    stage.prepare()
+    expect(draws.length).toBe(1)
+    expect(draws[0]!.anchorX).toBe(0) // dispatch-first
+  })
+
+  it('near-first still dominates the tie-break (different Y beats collisionId)', () => {
+    // A stable id must NOT override depth: the nearer (larger Y) icon wins even
+    // when its collisionId sorts later.
+    const { stage, draws } = makeStage()
+    stage.addIcon(0, 0, 'farLowId', { collide: true, fadeId: 'route-a' }) // far, low id
+    stage.addIcon(0, 10, 'nearHighId', { collide: true, fadeId: 'route-z' }) // near, high id
+    stage.prepare()
+    expect(draws.length).toBe(1)
+    expect(draws[0]!.anchorY).toBe(10) // near wins despite the higher id
+  })
+})

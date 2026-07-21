@@ -93,7 +93,13 @@ interface PendingIcon {
    *  pairKey cannot serve here (`pt${seq}` is per-frame); this id is
    *  pan-invariant, so the icon finds its text's fade record across
    *  prepares. Undefined (icon-only symbols, raw datasets, overlays) →
-   *  no fade, byte-identical. */
+   *  no fade, byte-identical.
+   *
+   *  DOUBLES as the #417 collide-icon near-first Y-tie break (icon twin of
+   *  text #728): being a tile-stable per-feature id, it makes the survivor of
+   *  two same-screen-Y collide icons (a flat road's arrow chain) deterministic
+   *  instead of dispatch-order (I/O) dependent. Same value serves both — the
+   *  label's collisionId is what fade keys on AND what the collision pass needs. */
   fadeId?: string
 }
 
@@ -384,10 +390,20 @@ export class IconStage {
       for (let i = 0; i < this.pending.length; i++)
         if (this.pending[i]!.collide) collideOrder.push(i)
       collideOrder.sort((a, b) => {
-        const ya = this.pending[a]!.anchorY
-        const yb = this.pending[b]!.anchorY
-        if (ya !== yb) return yb - ya // near (larger screen Y) first
-        return a - b // stable: dispatch order (byte-identical on Y-tie)
+        const pa = this.pending[a]!
+        const pb = this.pending[b]!
+        if (pa.anchorY !== pb.anchorY) return pb.anchorY - pa.anchorY // near (larger Y) first
+        // Y-tie (a flat road's arrow chain): a STABLE per-feature id decides,
+        // so the survivor doesn't flip with tile-dispatch (I/O) order on pan —
+        // the icon twin of text #728. `fadeId` (the paired text's collisionId,
+        // threaded for symbol fade) doubles as that id — it's the same tile-
+        // stable value the collision pass needs. Falls back to dispatch index
+        // only when it is absent on either side (byte-identical to the pre-
+        // determinism pass).
+        const ca = pa.fadeId
+        const cb = pb.fadeId
+        if (ca !== undefined && cb !== undefined && ca !== cb) return ca < cb ? -1 : 1
+        return a - b // stable: dispatch order
       })
       const placedBoxes: { minX: number; minY: number; maxX: number; maxY: number }[] = []
       for (const i of collideOrder) {
