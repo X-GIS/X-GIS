@@ -100,7 +100,19 @@ export function subdivideGreatCircle(coords: number[][]): number[][] {
     }
     const K = Math.min(64, Math.ceil(arcDeg))
     for (let k = 1; k < K; k++) {
-      out.push(slerpLonLat(a[0], a[1], b[0], b[1], k / K))
+      const p = slerpLonLat(a[0], a[1], b[0], b[1], k / K)
+      // slerpLonLat returns lon = atan2(y, x) normalized to (-180, 180],
+      // so a segment whose endpoints continue past ±180 (e.g. a line
+      // authored at lon 185/195 to cross the antimeridian the "short"
+      // way, per MapLibre's >180 convention) has its interpolated
+      // vertices fold back across the seam (185 → −175), shredding the
+      // polyline into ±360° discontinuities. Unwrap each intermediate
+      // longitude onto the same 360° branch as the running polyline so
+      // the subdivided line stays monotone with its (unwrapped) input
+      // — matching geojson-vt world-copy semantics downstream (#1221).
+      const ref = out[out.length - 1][0]
+      p[0] += 360 * Math.round((ref - p[0]) / 360)
+      out.push(p)
     }
     out.push(b)
   }

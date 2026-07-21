@@ -195,7 +195,13 @@ const LOC_CEILINGS: Record<string, number> = {
   // code motion, mesh output byte-identical; vector-tiler re-imports the three
   // consumed symbols. (Second authority for this file per #1005; kept in sync
   // with map/src/loc-ceiling-ratchet.ts — the two-ratchet rule.)
-  'compiler/src/tiler/vector-tiler.ts': 1546,
+  // 1546→1587 (#1221 round 2): pushLinePartWithWrap + shiftLinePartLon add the
+  // inline-tiler equivalent of geojson-vt's wrap() — a >±180-authored line also
+  // emits its ±360-shifted world-copy continuation so the beyond-seam tail lands
+  // in the wrapped tiles the renderer draws at world-copy ±1 (ADR-0006). New
+  // logic, no natural extract site (belongs beside makeLinePart). Both ratchets
+  // bumped in sync. Measured after prettier: wc -l = 1587.
+  'compiler/src/tiler/vector-tiler.ts': 1587,
   // Bumped 915→917 (#420) for the UNIFORM_SIZE/SLOT 240→256 bump +
   // light_dir_ecef contract comment when the polygon Uniforms struct grew.
   // Bumped 917→931 (Phase R heatmap): ensureHeatmapBlur / ensureHeatmapCompose
