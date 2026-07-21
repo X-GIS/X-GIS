@@ -282,4 +282,88 @@ describe('greedyPlaceBboxes', () => {
       expect(withId[0]!.placed).toBe(false)
     })
   })
+
+  // ── nearY near-first (pitched-view occlusion direction) ──
+  // Site report: at pitch 81° Shanghai (nearer the camera, lower on screen)
+  // was dropped in favour of Seoul (farther, higher) because the #728
+  // tieBreak is lexicographic ("Seoul…" < "Shanghai…") and depth-blind.
+  // Mapbox/MapLibre place near-first (their symbol tile sort is rotated-Y
+  // descending), so the FRONT label must win the overlap. `nearY` (anchor
+  // screen Y, +Y down) breaks ties AFTER the tieBreak's group segment
+  // (layer precedence) and BEFORE the full-identity compare.
+  describe('nearY near-first (pitched occlusion direction)', () => {
+    // Group segment '1' = same layer for both (labelCollisionId shape).
+    const seoul = {
+      bboxes: [bbox(500, 355, 560, 370)],
+      tieBreak: '1\u0000Seoul|q',
+      nearY: 362,
+    }
+    const shanghai = {
+      bboxes: [bbox(510, 360, 580, 375)], // overlaps seoul
+      tieBreak: '1\u0000Shanghai|q',
+      nearY: 505,
+    }
+
+    it('within the same group the larger nearY (nearer) wins, not the lower identity', () => {
+      const r = greedyPlaceBboxes([seoul, shanghai])
+      expect(r[0]!.placed).toBe(false) // Seoul (far) dropped
+      expect(r[1]!.placed).toBe(true) // Shanghai (near) wins
+    })
+
+    it('winner is input-order invariant (keeps the #728 permutation property)', () => {
+      const r = greedyPlaceBboxes([shanghai, seoul])
+      expect(r[0]!.placed).toBe(true) // Shanghai
+      expect(r[1]!.placed).toBe(false) // Seoul
+    })
+
+    it('the group segment (layer precedence) outranks nearY', () => {
+      // '1\u0000…' sorts before '2\u0000…' — the later layer (lower inv
+      // rank) wins even though the earlier layer's label is nearer.
+      const laterLayerFar = { bboxes: [bbox(0, 0, 10, 10)], tieBreak: '1\u0000far', nearY: 100 }
+      const earlierLayerNear = {
+        bboxes: [bbox(5, 5, 15, 15)],
+        tieBreak: '2\u0000near',
+        nearY: 900,
+      }
+      const r = greedyPlaceBboxes([earlierLayerNear, laterLayerFar])
+      expect(r[0]!.placed).toBe(false)
+      expect(r[1]!.placed).toBe(true)
+    })
+
+    it('sortKey outranks nearY', () => {
+      const r = greedyPlaceBboxes([
+        { bboxes: [bbox(0, 0, 10, 10)], sortKey: 1, tieBreak: '1\u0000far', nearY: 100 },
+        { bboxes: [bbox(5, 5, 15, 15)], sortKey: 10, tieBreak: '1\u0000near', nearY: 900 },
+      ])
+      expect(r[0]!.placed).toBe(true)
+      expect(r[1]!.placed).toBe(false)
+    })
+
+    it('equal nearY falls back to the stable identity', () => {
+      const r = greedyPlaceBboxes([
+        { bboxes: [bbox(0, 0, 10, 10)], tieBreak: '1\u0000b', nearY: 50 },
+        { bboxes: [bbox(5, 5, 15, 15)], tieBreak: '1\u0000a', nearY: 50 },
+      ])
+      expect(r[0]!.placed).toBe(false)
+      expect(r[1]!.placed).toBe(true) // 'a' < 'b'
+    })
+
+    it('nearY on only ONE item is ignored (identity decides, deterministic)', () => {
+      const r = greedyPlaceBboxes([
+        { bboxes: [bbox(0, 0, 10, 10)], tieBreak: '1\u0000a' },
+        { bboxes: [bbox(5, 5, 15, 15)], tieBreak: '1\u0000b', nearY: 900 },
+      ])
+      expect(r[0]!.placed).toBe(true) // 'a' wins — no one-sided depth jump
+      expect(r[1]!.placed).toBe(false)
+    })
+
+    it('without nearY the pass is byte-identical to the #728 ordering', () => {
+      const r = greedyPlaceBboxes([
+        { bboxes: [bbox(0, 0, 10, 10)], tieBreak: '1\u0000Seoul|q' },
+        { bboxes: [bbox(5, 5, 15, 15)], tieBreak: '1\u0000Shanghai|q' },
+      ])
+      expect(r[0]!.placed).toBe(true) // lexicographic winner, as before
+      expect(r[1]!.placed).toBe(false)
+    })
+  })
 })
