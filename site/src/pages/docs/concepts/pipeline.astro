@@ -128,10 +128,11 @@ const headings = [
         <code class="font-mono text-fg">layer</code>,
         <code class="font-mono text-fg">background</code>,
         <code class="font-mono text-fg">preset</code>,
+        <code class="font-mono text-fg">import</code>,
         <code class="font-mono text-fg">symbol</code>,
         <code class="font-mono text-fg">keyframes</code>,
-        <code class="font-mono text-fg">fn</code>,
-        and the modifier prefix <code class="font-mono text-fg">z&lt;N&gt;:</code>.
+        and the keyframe selectors <code class="font-mono text-fg">from</code> /
+        <code class="font-mono text-fg">to</code>.
       </p>
       <p>
         The parser produces a typed AST (see
@@ -188,7 +189,7 @@ const headings = [
             <tr class="border-t border-line"><td class="px-4 py-3 font-mono text-fg">360 / 12</td><td class="px-4 py-3">constant</td><td class="px-4 py-3">Folded to <code class="font-mono">30</code> at compile time</td></tr>
             <tr class="border-t border-line"><td class="px-4 py-3 font-mono text-fg">opacity-[interpolate(zoom, 8, 40, 16, 100)]</td><td class="px-4 py-3">zoom-dependent</td><td class="px-4 py-3">CPU-interpolated per frame</td></tr>
             <tr class="border-t border-line"><td class="px-4 py-3 font-mono text-fg">clamp(speed / 50, 4, 24)</td><td class="px-4 py-3">per-feature GPU</td><td class="px-4 py-3">WGSL codegen, evaluated in vertex shader</td></tr>
-            <tr class="border-t border-line"><td class="px-4 py-3 font-mono text-fg">threat_size(5)</td><td class="px-4 py-3">constant (user fn)</td><td class="px-4 py-3">User function inlined and folded</td></tr>
+            <tr class="border-t border-line"><td class="px-4 py-3 font-mono text-fg">upcase(.name)</td><td class="px-4 py-3">per-feature CPU</td><td class="px-4 py-3">Evaluated on the CPU per feature — string builtins have no GPU path</td></tr>
           </tbody>
         </table>
         </div>
