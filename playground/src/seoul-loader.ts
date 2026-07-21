@@ -14,6 +14,8 @@ import { seoulSigunguGazetteer, krAdminLoader } from '@xgis/pipeline'
 
 // A custom `type: x-kr-admin` source, declared like any built-in source.
 const STYLE = `
+xgis 1
+
 background { fill: #020617 }
 
 source gu_bounds {

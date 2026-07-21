@@ -14,6 +14,8 @@ import { XGISMap } from '@xgis/runtime'
 import { seoulSigunguGazetteer, decodeODB, fromRows, join, odFlow } from '@xgis/pipeline'
 
 const STYLE = `
+xgis 1
+
 background { fill: #020617 }
 
 source gu_bounds {

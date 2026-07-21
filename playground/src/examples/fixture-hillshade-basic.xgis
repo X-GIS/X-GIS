@@ -1,0 +1,16 @@
+xgis 1
+
+/* hillshade-method matrix fixture: `basic` (GDAL Lambert) over the local
+ * radial-hill DEM (dem-fixture.png — offline, deterministic). Paired with
+ * fixture-hillshade-local (standard) by the _hillshade-methods-gl2-gate,
+ * which asserts each method renders relief AND differs from standard. */
+source dem {
+  type: "raster-dem"
+  url: "/dem-fixture.png"
+  encoding: mapbox
+}
+
+layer relief {
+  source: dem
+  | hillshade-method-basic
+}

@@ -55,6 +55,38 @@ export const DEMOS_FIXTURES: Record<string, Demo> = {
     source: load('fixture-hillshade-local.xgis'),
     zoom: 11,
   },
+  fixture_hillshade_basic: {
+    name: 'Fixture: hillshade method=basic',
+    tag: 'fixture',
+    description:
+      'hillshade-method matrix over the local DEM: `basic` (GDAL Lambert). Paired with fixture_hillshade_local (standard) by _hillshade-methods-gl2-gate — each method must render relief AND differ from standard.',
+    source: load('fixture-hillshade-basic.xgis'),
+    zoom: 11,
+  },
+  fixture_hillshade_combined: {
+    name: 'Fixture: hillshade method=combined',
+    tag: 'fixture',
+    description:
+      'hillshade-method matrix over the local DEM: `combined` (slope-weighted Lambert angle).',
+    source: load('fixture-hillshade-combined.xgis'),
+    zoom: 11,
+  },
+  fixture_hillshade_igor: {
+    name: 'Fixture: hillshade method=igor',
+    tag: 'fixture',
+    description:
+      'hillshade-method matrix over the local DEM: `igor` (aspect-weighted slope strength).',
+    source: load('fixture-hillshade-igor.xgis'),
+    zoom: 11,
+  },
+  fixture_hillshade_multidir: {
+    name: 'Fixture: hillshade method=multidirectional',
+    tag: 'fixture',
+    description:
+      'hillshade-method matrix over the local DEM: `multidirectional` with three tinted light sources — exercises the numbered source-2..4 utilities → hs_light2..4 uniform lanes → unrolled 4-source shader loop end-to-end.',
+    source: load('fixture-hillshade-multidir.xgis'),
+    zoom: 11,
+  },
   fixture_line: {
     name: 'Fixture: line (2pt)',
     tag: 'fixture',

@@ -1,20 +1,24 @@
 ---
 // Beat 5 · "Mapbox-compatible" — the drop-in story, told HONESTLY. The
-// numbers are the real spec-coverage figures, counted from the authority
-// (compiler/src/convert/spec-coverage/*): 176 of 236 style-spec
-// properties fully supported (+18 partial) ≈ 75%. We never claim "100%".
-// The /docs/mapbox-spec page derives the SAME totals from MAPBOX_COVERAGE
-// at build time, so this stays in sync. (REBUILD §6.)
+// numbers are the real spec-coverage figures, derived at build time from
+// the authority (compiler/src/convert/spec-coverage/* via lib/
+// mapbox-coverage) — the same derivation /docs/mapbox-spec, /why and
+// /roadmap use, so the pages cannot drift apart. We never claim "100%".
+// (REBUILD §6.)
 import { ContentBand, SectionHead } from '@/components/kit'
+import { coverage } from '@/lib/mapbox-coverage'
 
 const base = import.meta.env.BASE_URL.replace(/\/+$/, '')
 
 // Real coverage figures — supported / partial / total-excluding-n/a.
-// Source: compiler/src/convert/spec-coverage/ (176 supported, 18 partial,
-// 42 unsupported, 7 n/a → 236 applicable). Stated, not rounded up.
+// Stated, not rounded up.
 const stats = [
-  { value: '176', label: 'Properties supported', sub: 'of 236 applicable · 75%' },
-  { value: '+18', label: 'Partial', sub: 'lossy or runtime gap' },
+  {
+    value: String(coverage.supported),
+    label: 'Properties supported',
+    sub: `of ${coverage.applicable} applicable · ${coverage.pctSupported}%`,
+  },
+  { value: `+${coverage.partial}`, label: 'Partial', sub: 'lossy or runtime gap' },
   { value: '119', label: 'Layer basemap', sub: 'OpenFreeMap, rendered today' },
 ]
 
@@ -22,8 +26,8 @@ const stats = [
 // supported categories (not the full property table; that lives on the
 // coverage page).
 const groups = [
-  { tag: 'Sources',     items: ['GeoJSON', 'PMTiles (MVT)', 'Raster XYZ', 'Inline data'] },
-  { tag: 'Layer types', items: ['fill', 'line', 'symbol', 'circle', 'text (SDF)', 'heatmap', 'fill-extrusion'] },
+  { tag: 'Sources',     items: ['GeoJSON', 'PMTiles (MVT)', 'Raster XYZ', 'Raster-DEM', 'Inline data'] },
+  { tag: 'Layer types', items: ['fill', 'line', 'symbol', 'circle', 'text (SDF)', 'heatmap', 'hillshade', 'fill-extrusion'] },
   { tag: 'Projections', items: ['Mercator', 'Natural Earth', 'Orthographic', 'Equirectangular', 'Stereographic', 'Azimuthal eq.', 'Oblique Mercator'] },
   { tag: 'Expressions', items: ['interpolate(zoom)', 'interpolate(.prop)', 'match()', 'filter:', 'preset / apply'] },
 ]
