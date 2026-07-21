@@ -15,14 +15,14 @@ Properties where the runtime currently degrades or drops a specific value-form.
 | symbol | symbol-sort-key | data-driven | Expression flattens to 0; per-feature key plumbing pending |
 | fill-extrusion | fill-extrusion-pattern | data-driven | Expression form not threaded through IR |
 | raster | raster-opacity | data-driven | Data-driven not applicable to raster tiles |
-| heatmap | heatmap-color | constant | Custom density→colour ramp not yet baked into the LUT; the runtime default Mapbox ramp is applied. |
+| hillshade | resampling | constant | The single-pass fragment renders the nearest 3×3 decoded-height field; linear decoded-height smoothing is the documented two-pass upgrade. |
 
 ## Spec-coverage status breakdown
 
 | Status | Count |
 |---|---:|
-| supported | 184 |
-| partial | 27 |
+| supported | 195 |
+| partial | 16 |
 | unsupported | 17 |
 | na | 15 |
 | **total** | **243** |
@@ -40,9 +40,7 @@ Properties marked `partial` — converter accepts but runtime degrades. These ne
 
 | Property | Impact | Note |
 |---|---|---|
-| raster-dem | medium | #777 Phase II — source threads encoding / tileSize (+ custom unpack factors); the DEM is fetched + RGBA8-decoded (mapbox / terrarium / custom) in the HillshadeRenderer. End-to-end relief draw pending pass wiring + real-GPU A/B (INC-5/6); terrain vertex displacement is future (II6). |
 | symbol (icon-only) | medium | Icon-only symbol layers (no text-field) route to the icon stage (#777 I1/I2, PR #965): constant `icon-image` → `label-icon-image-<name>`; data-driven `icon-image: ["match"|"coalesce"|["image", …]]` → per-feature `label-icon-image-[<expr>]` → IconStage.addIcon. Still partial: the icon LAYOUT tail (icon-text-fit / icon-padding / icon-keep-upright / icon-pitch-alignment) and text/icon halo are deferred to the Phase I remainder. |
-| hillshade | medium | #777 Phase II — registered converter (paint-hillshade.ts) + DSL fs_hillshade (DEM decode → Sobel → standard/basic shade) + HillshadeRenderer/Draper landed (INC-1..3). Single-source constant paint only; multidirectional + resampling:linear smoothing + cross-tile edge backfill deferred. End-to-end draw pending pass wiring + real-GPU A/B (INC-5/6). |
 | symbol-sort-key | medium | Constant numeric value plumbed end-to-end (iter 399-405). Runtime collision pass sorts CollisionItems by sortKey ascending — lower wins. Expression form (`["get", "rank"]`) flattens to 0 with a warning. |
 | text-overlap | low | MapLibre overlap-policy enum (never / always / cooperative). always → label-allow-overlap; never → default; cooperative approximated as always (priority-aware collision pending) + warning. Wins over legacy text-allow-overlap when both declared. |
 | text-pitch-alignment | medium | Converter emits, runtime ignores — labels never project onto ground plane. Iter 10 surfaced an explicit warning when `map` is authored (the gap-revealing case) so authors of pitched-view styles see the diagnostic. `viewport` and `auto` match X-GIS' billboard-rendering default and stay silent. |
@@ -50,15 +48,6 @@ Properties marked `partial` — converter accepts but runtime degrades. These ne
 | icon-translate | low | CSS-px viewport offset for icons (independent of text-translate). Constant [dx, dy] form wired end-to-end: converter emits `label-icon-translate-{x,y}-N` (layers-symbol.ts) → LabelDef.iconTranslateX/Y → dispatchIcon adds it (× dpr) to the icon anchor before IconStage.addIcon (label-pass.ts), alongside icon-offset. Default [0,0] = no-op. #777 I-F: the per-feature EXPRESSION form (case/match/get → [dx,dy]) now lowers to `label-icon-translate-[<expr>]` → LabelDef.iconTranslateExpr → applyFeatureExprs evaluates it per feature into iconTranslateX/Y. Still PARTIAL for one residual sub-form: zoom-`interpolate` of the [dx,dy] tuple snaps to the nearest stop (the runtime evaluate does NOT component-interpolate array-valued stops), so a smoothly zoom-animated translate is approximate. |
 | circle-blur | low | Constant numeric form extends the point fragment smoothstep AA band via circle_params.z in the point uniform (layers-circle.ts). Zoom-interp / data-driven forms warn + drop — need a per-feature feat_data slot for per-feature blur. |
 | circle-translate-anchor | low | viewport (spec default) is the only honoured mode — X-GIS point renderer always applies the translate in viewport/NDC space. 'map'-anchor (world-space shift) is unsupported and warns + drops. The anchor no-op suppression (when circle-translate is absent) mirrors fill-translate-anchor behaviour. |
-| heatmap-color | medium | Density → colour ramp. The runtime applies its default Mapbox ramp; a custom `interpolate` over `heatmap-density` is not yet baked into the LUT (converter warns). |
-| hillshade-illumination-direction | medium | Light azimuth (numberArray, deg from N). Single-source constant lowered → shader azimuth; a multidirectional (>1) array warns + uses element 0. |
-| hillshade-illumination-altitude | medium | Light elevation (numberArray, 0–90°). Single-source constant lowered (used by the basic model); multidirectional array warns + uses element 0. |
-| hillshade-illumination-anchor | low | map / viewport — viewport (default) folds the camera bearing into the light azimuth per frame; map anchors the light to data space. Constant only. |
-| hillshade-exaggeration | medium | Vertical-relief multiplier (constant). Lowered → shader intensity; non-constant (zoom-interp / data-driven) forms warn + drop. |
-| hillshade-shadow-color | medium | Shadow-side colour (colorArray). Single-source constant lowered (premultiplied); a multi-source colour array warns + uses element 0. |
-| hillshade-highlight-color | medium | Lit-side colour (colorArray). Single-source constant lowered (premultiplied); a multi-source colour array warns + uses element 0. |
-| hillshade-accent-color | low | Accent tint (single colour) — used by the standard model. Constant lowered (premultiplied); non-constant warns + drops. |
-| hillshade-method | low | standard (default) + basic (GDAL-Lambert) implemented in fs_hillshade; combined / igor / multidirectional warn and approximate via the basic model. |
 | resampling | low | linear (spec default) / nearest DEM sampling. The MVP single-pass fragment renders the nearest 3×3 field (byte-parity with MapLibre nearest); linear decoded-height smoothing is the documented two-pass upgrade. |
 | interpolate (cubic-bezier) | low | Numeric-valued AND hex-colour-valued zoom/data-driven interpolates densify at compile time into a piecewise-linear approximation (6 samples per segment, CSS bezier-eased via Newton-Raphson; colour stops sampled in sRGB at the eased fraction). Runtime sees a longer linear stop list and visually approximates the bezier curve. Expression-valued (non-literal) stops still warn and fold to pure linear — eased samples can't be computed at compile time. Iter 60-62 + colour-stop landing. |
 | format | low | Span texts concatenated via xgis concat(); per-span TYPOGRAPHY opts (font-scale / text-color / text-font / vertical-align) dropped — X-GIS labels render with one style per layer. Per-section partial-drop semantics: when one section fails to convert (e.g. uses an unsupported accessor), surviving sections still concat — only ALL-sections-fail returns null. An `["image", …]` section IS carried now (#777 I-G): it lowers to the `image(name)` builtin → an inline sprite quad on the text baseline (imageHandler + evaluator; see the `image` row). Still partial only for the typography opts. |

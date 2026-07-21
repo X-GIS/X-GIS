@@ -57,6 +57,16 @@ export const DEMOS_THEMATIC: Record<string, Demo> = {
     center: [-112.14, 36.1],
   },
 
+  hillshade_multidir: {
+    name: 'Hillshade: multidirectional',
+    tag: 'raster',
+    description:
+      'USGS-style four-light shaded relief: `hillshade-method: multidirectional` averages Lambert sources at 225/270/315/355° so ridges read clearly no matter which way they run (no single-light directional bias). Same Grand Canyon terrain as hillshade_terrarium — flip between the two to see the lighting model change.',
+    source: load('hillshade-multidir.xgis'),
+    zoom: 11,
+    center: [-112.14, 36.1],
+  },
+
   satellite_map: {
     name: 'Satellite Map',
     tag: 'raster',
@@ -119,9 +129,11 @@ export const DEMOS_THEMATIC: Record<string, Demo> = {
     name: 'Globe + Extrusion',
     tag: 'thematic',
     description:
-      'MapLibre "Display a globe with a fill extrusion layer" port — countries extrude off the globe with per-feature population heights (fill-extrusion-height-[.POP_EST / 4000000], globe via Demo.projection)',
+      'MapLibre "Display a globe with a fill extrusion layer" port — countries extrude off the globe with per-feature population heights (fill-extrusion-height-[.POP_EST / 4000000], globe via Demo.projection). Opens filling the frame so the extrusion silhouettes read on the limb.',
     source: load('globe-extrusion.xgis'),
     projection: 'globe',
+    zoom: 2.9,
+    center: [15, 18],
   },
 
   coverage_bathymetry: {

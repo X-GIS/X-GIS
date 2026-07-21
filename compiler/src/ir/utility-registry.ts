@@ -162,6 +162,21 @@ export const UTILITY_REGISTRY: readonly UtilityDef[] = [
   def('hillshade-accent-color-', 'prefix', 'color', null, false, 'paint'),
   def('hillshade-method-', 'prefix', 'enum', null, false, 'paint'),
   def('hillshade-resampling-nearest', 'exact', 'boolean', null, false, 'paint'),
+  // Multidirectional illumination sources 2..4 (method=multidirectional only;
+  // longest-match keeps these disjoint from the source-1 prefixes above —
+  // `…direction2-` never collides with `…direction-`).
+  def('hillshade-illumination-direction2-', 'prefix', 'number', null, false, 'paint'),
+  def('hillshade-illumination-direction3-', 'prefix', 'number', null, false, 'paint'),
+  def('hillshade-illumination-direction4-', 'prefix', 'number', null, false, 'paint'),
+  def('hillshade-illumination-altitude2-', 'prefix', 'number', null, false, 'paint'),
+  def('hillshade-illumination-altitude3-', 'prefix', 'number', null, false, 'paint'),
+  def('hillshade-illumination-altitude4-', 'prefix', 'number', null, false, 'paint'),
+  def('hillshade-shadow-color2-', 'prefix', 'color', null, false, 'paint'),
+  def('hillshade-shadow-color3-', 'prefix', 'color', null, false, 'paint'),
+  def('hillshade-shadow-color4-', 'prefix', 'color', null, false, 'paint'),
+  def('hillshade-highlight-color2-', 'prefix', 'color', null, false, 'paint'),
+  def('hillshade-highlight-color3-', 'prefix', 'color', null, false, 'paint'),
+  def('hillshade-highlight-color4-', 'prefix', 'color', null, false, 'paint'),
 
   // ── projection / visibility / geometry-mode / interactivity ──
   def('projection-', 'prefix', 'enum', null, false, 'paint'),

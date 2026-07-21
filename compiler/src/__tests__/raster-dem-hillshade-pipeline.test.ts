@@ -95,5 +95,69 @@ layer relief { source: dem }`)
     // Unauthored axes seed the spec defaults (bundle is total, not sparse).
     expect(hs!.altitude).toEqual({ kind: 'constant', value: 45 })
     expect(hs!.method).toBe('standard')
+    expect(hs!.extraSources).toEqual([])
+  })
+
+  it('the REAL multidirectional gallery example compiles with all four sources intact', () => {
+    const src = readFileSync(
+      join(
+        dirname(fileURLToPath(import.meta.url)),
+        '..',
+        '..',
+        '..',
+        'playground',
+        'src',
+        'examples',
+        'hillshade-multidir.xgis',
+      ),
+      'utf8',
+    )
+    const cmds = compile(src)
+    const hs = cmds.shows.find((s) => s.targetName === 'terrain')!.paintShapes?.hillshade
+    expect(hs).toBeDefined()
+    expect(hs!.method).toBe('multidirectional')
+    expect(hs!.direction).toEqual({ kind: 'constant', value: 225 })
+    expect(hs!.altitude).toEqual({ kind: 'constant', value: 30 })
+    expect(hs!.extraSources.map((s) => [s.direction, s.altitude])).toEqual([
+      [270, 30],
+      [315, 40],
+      [355, 45],
+    ])
+  })
+
+  it('multidirectional source-2..4 utilities fold into extraSources (missing axes ← source 1)', () => {
+    const cmds = compile(`xgis 1
+source dem {
+  type: "raster-dem"
+  url: "/dem-fixture.png"
+  encoding: mapbox
+}
+layer relief {
+  source: dem
+  | hillshade-method-multidirectional hillshade-illumination-direction-225
+  | hillshade-illumination-direction2-270 hillshade-illumination-altitude2-30
+  | hillshade-shadow-color2-#402000 hillshade-highlight-color2-#ffe0c0
+  | hillshade-illumination-direction3-315
+}`)
+    const hs = cmds.shows.find((s) => s.targetName === 'dem')!.paintShapes?.hillshade
+    expect(hs).toBeDefined()
+    expect(hs!.method).toBe('multidirectional')
+    expect(hs!.direction).toEqual({ kind: 'constant', value: 225 })
+    expect(hs!.extraSources).toEqual([
+      {
+        direction: 270,
+        altitude: 30,
+        shadow: [0x40 / 255, 0x20 / 255, 0, 1],
+        highlight: [1, 0xe0 / 255, 0xc0 / 255, 1],
+      },
+      // Source 3 authored only a direction — the other axes resolve from
+      // source 1 (repeat-last padding collapsed to source 1 in the IR).
+      {
+        direction: 315,
+        altitude: 45,
+        shadow: [0, 0, 0, 1],
+        highlight: [1, 1, 1, 1],
+      },
+    ])
   })
 })

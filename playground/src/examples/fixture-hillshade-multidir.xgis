@@ -1,0 +1,22 @@
+xgis 1
+
+/* hillshade-method matrix fixture: `multidirectional` — three Lambert light
+ * sources with distinct tinted shadow/highlight pairs over the local
+ * radial-hill DEM. Exercises the multi-source utility chain end-to-end
+ * (converter numbered utilities → IR extraSources → hs_light2..4 uniform
+ * lanes → the unrolled 4-source shader loop). See fixture-hillshade-basic. */
+source dem {
+  type: "raster-dem"
+  url: "/dem-fixture.png"
+  encoding: mapbox
+}
+
+layer relief {
+  source: dem
+  | hillshade-method-multidirectional
+  | hillshade-illumination-direction-225 hillshade-illumination-altitude-30
+  | hillshade-illumination-direction2-270 hillshade-illumination-altitude2-30
+  | hillshade-shadow-color2-#001040 hillshade-highlight-color2-#ffe0b0
+  | hillshade-illumination-direction3-315 hillshade-illumination-altitude3-45
+  | hillshade-shadow-color3-#301010 hillshade-highlight-color3-#e0ffe0
+}

@@ -88,10 +88,32 @@ export function hillshadeDerivScale(tileSize: number, zoom: number): number {
   return tileSize / Math.pow(2, exaggerationZoom + 28.2562 - zoom)
 }
 
-/** The Mapbox `hillshade-method` → shader method flag (0 = standard; ≥0.5 = basic).
- *  combined / igor / multidirectional approximate via basic (converter warned). */
+/** The Mapbox `hillshade-method` → shader method flag. All five MapLibre v5
+ *  methods are implemented in fs_hillshade: 0 standard / 1 basic / 2 combined /
+ *  3 igor / 4 multidirectional (unknown strings fall back to standard). */
 export function hillshadeMethodFlag(method: string): number {
-  return method === 'standard' ? 0 : 4
+  switch (method) {
+    case 'basic':
+      return 1
+    case 'combined':
+      return 2
+    case 'igor':
+      return 3
+    case 'multidirectional':
+      return 4
+    default:
+      return 0
+  }
+}
+
+/** One extra illumination source (2..4) for method=multidirectional. */
+export interface HillshadeExtraSource {
+  /** azimuth, deg from N. */
+  direction: number
+  /** altitude, deg (0–90). */
+  altitude: number
+  shadow: readonly [number, number, number, number]
+  highlight: readonly [number, number, number, number]
 }
 
 /** Resolved hillshade paint + DEM decode, packed into HillshadeUniforms each frame. */
@@ -109,6 +131,9 @@ export interface HillshadeParams {
   accent: readonly [number, number, number, number]
   /** 'standard' | 'basic' | 'combined' | 'igor' | 'multidirectional'. */
   method: string
+  /** Illumination sources 2..4 (method=multidirectional; empty otherwise —
+   *  the uniform budget carries at most 3 extras, truncated at convert time). */
+  extraSources: readonly HillshadeExtraSource[]
   unpack: DemUnpack
   /** native DEM tile pixel size (256 / 512). */
   tileSize: number
@@ -208,15 +233,42 @@ export function writeHillshadeGlobalUniform(
 ): void {
   // azimuth = direction_rad + π (design §3 step 4), + camera bearing for the
   // viewport anchor (light stays fixed to screen as the map rotates, design §4).
-  const azimuth = p.direction * DEG2RAD + Math.PI + (p.anchorMap ? 0 : bearingRad)
+  // The SAME prefold applies per extra multidirectional source (MapLibre folds
+  // the bearing into every u_azimuths[i] before upload).
+  const azimuthOf = (directionDeg: number): number =>
+    directionDeg * DEG2RAD + Math.PI + (p.anchorMap ? 0 : bearingRad)
   const texel = 1 / p.tileSize
+  // Sources 2..4 (multidirectional). Unused lanes zero-fill; the shader gates
+  // them off via the count in hs_light2.z (1..4).
+  const ex = (i: number): HillshadeExtraSource | undefined => p.extraSources[i]
+  const count = Math.min(4, 1 + p.extraSources.length)
+  const lightOf = (
+    s: HillshadeExtraSource | undefined,
+    z: number,
+  ): [number, number, number, number] =>
+    s ? [azimuthOf(s.direction), s.altitude * DEG2RAD, z, 0] : [0, 0, z, 0]
+  const ZERO4: readonly [number, number, number, number] = [0, 0, 0, 0]
   block.write({
     hs_unpack: [p.unpack.redFactor, p.unpack.greenFactor, p.unpack.blueFactor, p.unpack.baseShift],
-    hs_light: [azimuth, p.altitude * DEG2RAD, p.exaggeration, hillshadeMethodFlag(p.method)],
+    hs_light: [
+      azimuthOf(p.direction),
+      p.altitude * DEG2RAD,
+      p.exaggeration,
+      hillshadeMethodFlag(p.method),
+    ],
     hs_shadow: premul(p.shadow),
     hs_highlight: premul(p.highlight),
     hs_accent: premul(p.accent),
     hs_texel: [texel, hillshadeDerivScale(p.tileSize, zoom), 0, 0],
+    hs_light2: lightOf(ex(0), count),
+    hs_light3: lightOf(ex(1), 0),
+    hs_light4: lightOf(ex(2), 0),
+    hs_shadow2: ex(0) ? premul(ex(0)!.shadow) : ZERO4,
+    hs_highlight2: ex(0) ? premul(ex(0)!.highlight) : ZERO4,
+    hs_shadow3: ex(1) ? premul(ex(1)!.shadow) : ZERO4,
+    hs_highlight3: ex(1) ? premul(ex(1)!.highlight) : ZERO4,
+    hs_shadow4: ex(2) ? premul(ex(2)!.shadow) : ZERO4,
+    hs_highlight4: ex(2) ? premul(ex(2)!.highlight) : ZERO4,
   })
 }
 
@@ -238,6 +290,7 @@ const DEFAULT_PARAMS: HillshadeParams = {
   highlight: [1, 1, 1, 1],
   accent: [0, 0, 0, 1],
   method: 'standard',
+  extraSources: [],
   unpack: MAPBOX_UNPACK,
   tileSize: 512,
 }
@@ -307,6 +360,7 @@ export class HillshadeRenderer {
       highlight: p.highlight ?? cur.highlight,
       accent: p.accent ?? cur.accent,
       method: p.method ?? cur.method,
+      extraSources: p.extraSources ?? cur.extraSources,
       unpack: p.unpack ?? cur.unpack,
       tileSize: p.tileSize === 256 || p.tileSize === 512 ? p.tileSize : cur.tileSize,
     }

@@ -8,6 +8,7 @@ import { resolveColor } from '../tokens/colors'
 import { colorConstant, hexToRgba, sizeConstant, opacityConstant } from './render-node'
 import {
   bindingAsConstantNumber,
+  extractInterpolateDensityColorStops,
   extractInterpolateZoomStops,
   extractStepZoomStops,
 } from './lower-helpers'
@@ -357,6 +358,26 @@ export const circleTranslateConstUtilHandlers: BindingHandler[] = [
     },
   },
 ]
+
+/** `heatmap-color-[interpolate(heatmap_density, o0, #c0, …)]` — the
+ *  density→colour ramp binding (converted from Mapbox `heatmap-color`).
+ *  Stops lower to straight-alpha RGBA tuples; the runtime bakes them into
+ *  the HeatmapRenderer's 256×1 LUT. An unparseable binding falls through
+ *  to the X-GIS0005 catch-all (the runtime default ramp then applies). */
+export const heatmapColorBindingHandler: BindingHandler = {
+  match: (ctx) => ctx.name === 'heatmap-color',
+  apply: (ctx) => {
+    const stops = extractInterpolateDensityColorStops(ctx.item.binding!)
+    if (stops) {
+      ctx.acc.heatmapColorStops = stops.map((s) => ({
+        offset: s.offset,
+        rgba: hexToRgba(s.value),
+      }))
+      return true
+    }
+    return false
+  },
+}
 
 /** Heatmap utility-form constants + marker (Phase R). `heatmap` is the marker
  *  that routes the layer to the runtime HeatmapRenderer; the rest carry the
