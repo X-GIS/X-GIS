@@ -420,6 +420,7 @@ class LabelPass implements RenderPass {
         collide = false,
         props?: import('../../text/text-resolver').FeatureProps,
         perspScale = 1, // #1081 — distance attenuation (point icons; 1 elsewhere)
+        collisionId?: string, // stable Y-tie break for collide icons (#728 sibling)
       ): void => {
         if (!iStage || def.iconImage === undefined) return
         // icon-offset (layout, em/px nudge baked before rotation) AND
@@ -497,6 +498,10 @@ class LabelPass implements RenderPass {
           collide: doCollide,
           padding: def.iconPadding,
           perspScale,
+          // #728 sibling — stable Y-tie break so a flat road's arrow chain
+          // survives pan deterministically (only threaded on the route-shield
+          // collide path; absent elsewhere → dispatch-order fallback).
+          collisionId,
           // #777 I-A — icon-text-fit: pass the fit mode + [t,r,b,l] padding so
           // IconStage.prepare stretches this quad to the paired text bbox (looked
           // up by pairKey). Absent = native sprite size (byte-identical).
@@ -1655,7 +1660,17 @@ class LabelPass implements RenderPass {
                           // arrows) follows the road tangent. Same
                           // pairKey as the label so the badge drops when
                           // the road number loses collision.
-                          dispatchIcon(featDef, sx, sy, tang, pairKey, true, props)
+                          dispatchIcon(
+                            featDef,
+                            sx,
+                            sy,
+                            tang,
+                            pairKey,
+                            true,
+                            props,
+                            1,
+                            lineCollisionId,
+                          )
                           recordTextPosition(copyTextKey, sx, sy)
                         }
                       }
@@ -1691,7 +1706,17 @@ class LabelPass implements RenderPass {
                             nextStop,
                             lineCollisionId,
                           )
-                          dispatchIcon(featDef, sx, sy, tang, pairKey, true, props)
+                          dispatchIcon(
+                            featDef,
+                            sx,
+                            sy,
+                            tang,
+                            pairKey,
+                            true,
+                            props,
+                            1,
+                            lineCollisionId,
+                          )
                           recordTextPosition(copyTextKey, sx, sy)
                         }
                       }

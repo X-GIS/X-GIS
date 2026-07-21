@@ -357,7 +357,12 @@ const CEILINGS: Record<string, number> = {
   // 2002→2005 (near-first collision): labelCollisionId composes with the
   // TIEBREAK_GROUP_SEP const now owned by text-collision.ts (import + 2 doc
   // lines); the ordering logic itself lives there. +3.
-  'map/src/render/passes/label-pass.ts': 2005,
+  // 2005→2030 (icon collision determinism, #728 sibling): dispatchIcon gains a
+  // `collisionId` param forwarded to addIcon, and the two route-shield collide
+  // sites pass lineCollisionId (prettier wraps each threaded call) so a flat
+  // road's arrow chain survives pan deterministically. +25; the Y-tie logic
+  // lives in icon-stage.ts.
+  'map/src/render/passes/label-pass.ts': 2030,
   // #1081 — per-anchor perspective distance attenuation (MapLibre parity). New
   // baseline: the wCenter + perspScale scratch-out-value lives INLINE in the two
   // existing projector closures (it rides the cw already computed per anchor —

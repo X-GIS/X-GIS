@@ -82,6 +82,15 @@ interface PendingIcon {
    *  scaled by dpr at the collision site. Defaulted to the spec value 2 in
    *  addIcon, so an absent property stays byte-identical to the old constant. */
   padding: number
+  /** STABLE per-feature identity for the #417 collide-icon near-first pass's
+   *  Y-tie break (the icon twin of the text #728 collisionId). Two collide
+   *  icons at the SAME screen Y (a flat road's arrow chain) would otherwise
+   *  resolve by dispatch order, which is downstream of tile-load order → the
+   *  survivor flips on pan. A tile-stable id (route + along-line position)
+   *  makes the survivor deterministic. Undefined → dispatch-order fallback,
+   *  byte-identical to the pre-determinism pass. Only meaningful for `collide`
+   *  icons; point icons never enter the collision pass. */
+  collisionId?: string
   /** Mapbox `icon-text-fit` (#777 I-A) — stretch this icon's quad to the paired
    *  text bbox. `mode` selects the fitted axis; `pad` is [t,r,b,l] px added per
    *  side. Resolved to a physical-px quad override in prepare() once the paired
@@ -232,6 +241,9 @@ export class IconStage {
       /** Mapbox `icon-padding` (px) — per-icon collision-box padding; absent
        *  keeps the spec default 2 (byte-identical to the old fixed constant). */
       padding?: number
+      /** Stable per-feature identity for the collide-icon near-first Y-tie
+       *  break (icon twin of text #728). Undefined → dispatch-order fallback. */
+      collisionId?: string
       /** #1081 — MapLibre perspective distance attenuation for this anchor.
        *  Folded into the stored `sizeScale` so a far icon's draw quad AND its
        *  collision obstacle (both read `sizeScale`) shrink together — the icon
@@ -257,6 +269,7 @@ export class IconStage {
       pairKey: opts.pairKey,
       collide: opts.collide ?? false,
       padding: opts.padding ?? 2,
+      collisionId: opts.collisionId,
       fit: opts.fit,
     })
   }
@@ -333,10 +346,17 @@ export class IconStage {
       for (let i = 0; i < this.pending.length; i++)
         if (this.pending[i]!.collide) collideOrder.push(i)
       collideOrder.sort((a, b) => {
-        const ya = this.pending[a]!.anchorY
-        const yb = this.pending[b]!.anchorY
-        if (ya !== yb) return yb - ya // near (larger screen Y) first
-        return a - b // stable: dispatch order (byte-identical on Y-tie)
+        const pa = this.pending[a]!
+        const pb = this.pending[b]!
+        if (pa.anchorY !== pb.anchorY) return pb.anchorY - pa.anchorY // near (larger Y) first
+        // Y-tie (a flat road's arrow chain): a STABLE per-feature id decides,
+        // so the survivor doesn't flip with tile-dispatch (I/O) order on pan —
+        // the icon twin of text #728. Falls back to dispatch index only when an
+        // id is absent on either side (byte-identical to the pre-determinism pass).
+        const ca = pa.collisionId
+        const cb = pb.collisionId
+        if (ca !== undefined && cb !== undefined && ca !== cb) return ca < cb ? -1 : 1
+        return a - b // stable: dispatch order
       })
       const placedBoxes: { minX: number; minY: number; maxX: number; maxY: number }[] = []
       for (const i of collideOrder) {
