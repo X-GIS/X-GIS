@@ -14,6 +14,7 @@ import { describe, expect, it } from 'vitest'
 import { Lexer } from '../lexer/lexer'
 import { Parser } from '../parser/parser'
 import { lower } from '../ir/lower'
+import { optimize } from '../ir/optimize'
 import { emitCommands } from '../ir/emit-commands'
 import { withPragma } from './_pragma'
 
@@ -65,6 +66,23 @@ describe('coverage source ramp/range lowering', () => {
     expect(load).toBeDefined()
     expect(load!.ramp).toBe('viridis')
     expect(load!.range).toEqual([0, 2])
+  })
+
+  it('optimize() KEEPS the coverage load — a no-paint coverage layer is not DCE-pruned', () => {
+    // The regression that shipped a "background-only" S-102/S-111 demo: a
+    // coverage layer declares NO fill/stroke/label (it draws via the
+    // CoverageRenderer marker), so dead-layer-elim eliminated its RenderNode
+    // and dead-source-elim then pruned the orphaned coverage source — the
+    // `type: coverage` load vanished and the HDF5 was never fetched. This runs
+    // the FULL optimize pipeline (both DCE passes) and pins the load's survival.
+    const scene = compile(`
+      source currents { type: coverage, url: "synthetic-currents.h5", ramp: "viridis", range: [0, 2] }
+      layer speed { source: currents }
+    `)
+    const cmds = emitCommands(optimize(scene))
+    expect(cmds.loads).toHaveLength(1)
+    expect(cmds.loads[0]!.name).toBe('currents')
+    expect(cmds.loads[0]!.type).toBe('coverage')
   })
 
   it('a malformed range (wrong arity) throws a clear error naming the source', () => {

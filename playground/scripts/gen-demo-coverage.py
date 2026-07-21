@@ -28,8 +28,11 @@ import os
 import numpy as np
 import h5py
 
+# Demo assets are served from playground/public/data/ (the demo-runner resolves a
+# scene's relative source URLs against `BASE_URL + 'data/'`, demo-runner.ts) — the
+# same directory every geojson/odb fixture lives in.
 HERE = os.path.dirname(os.path.abspath(__file__))
-OUT = os.path.join(HERE, "..", "public")
+OUT = os.path.join(HERE, "..", "public", "data")
 
 _GROUP_F = ["code", "name", "uom.name", "fillValue", "datatype", "lower", "upper", "closure"]
 

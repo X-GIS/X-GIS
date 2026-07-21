@@ -209,6 +209,50 @@ describe('dead-layer-elim — raster source preservation', () => {
   })
 })
 
+describe('dead-layer-elim — coverage source preservation', () => {
+  it('KEEPS layers that reference a coverage source despite no fill / stroke', () => {
+    // S-100 gridded-coverage layers carry no fill / stroke / label — they
+    // paint via the CoverageRenderer armed from the source's `{ _coverage }`
+    // marker. The pass must not eliminate them on the "nothing to draw"
+    // heuristic; otherwise dead-source-elim prunes the orphaned coverage
+    // source, the `type: coverage` load never fires, and the S-102 / S-111
+    // demos render only the background (ADR-0010 read-in-place regression).
+    const coverageNode = makeNode({
+      name: 'speed',
+      sourceRef: 'currents',
+      fill: { kind: 'none' },
+      stroke: {
+        color: { kind: 'none' },
+        width: { kind: 'constant', value: 0 },
+      },
+    })
+    const scene: Scene = {
+      sources: [{ name: 'currents', type: 'coverage', url: 'synthetic-currents.h5' }],
+      renderNodes: [coverageNode],
+      symbols: [],
+    }
+    const out = deadLayerElimPass.run(scene)
+    expect(out.renderNodes).toHaveLength(1)
+    expect(out.renderNodes[0]).toBe(coverageNode)
+  })
+
+  it('still drops empty-zoom-range coverage layers (coverage gate is not unconditional)', () => {
+    const dead = makeNode({
+      sourceRef: 'currents',
+      fill: { kind: 'none' },
+      stroke: { color: { kind: 'none' }, width: { kind: 'constant', value: 0 } },
+      minzoom: 5,
+      maxzoom: 5,
+    })
+    const scene: Scene = {
+      sources: [{ name: 'currents', type: 'coverage', url: 'synthetic-currents.h5' }],
+      renderNodes: [dead],
+      symbols: [],
+    }
+    expect(deadLayerElimPass.run(scene).renderNodes).toHaveLength(0)
+  })
+})
+
 describe('dead-layer-elim — identity preservation', () => {
   it('returns the same scene reference when nothing was dropped', () => {
     const scene = sceneOf([makeNode(), makeNode({ name: 'L2' })])
