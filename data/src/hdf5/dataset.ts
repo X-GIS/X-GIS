@@ -22,8 +22,10 @@ export async function readRawElements(c: Cursor, info: DatasetInfo): Promise<Uin
   if (layout.kind === 'contiguous') {
     if (layout.address < 0) return fillBuffer(total, itemSize, fillValue) // unallocated → all fill
     const size = layout.size >= 0 ? layout.size : total
+    const take = Math.min(size, total)
+    await c.ensure(layout.address, take)
     c.seek(layout.address)
-    const raw = c.bytes(Math.min(size, total))
+    const raw = c.bytes(take)
     if (raw.length === total) return raw
     const out = fillBuffer(total, itemSize, fillValue)
     out.set(raw.subarray(0, total))
@@ -39,12 +41,14 @@ export async function readRawElements(c: Cursor, info: DatasetInfo): Promise<Uin
       `chunk rank ${chunkDims.length} ≠ dataset rank ${dims.length}`,
       layout.btreeAddress,
     )
-  const records = walkChunkBtree(c, layout.btreeAddress, dims.length)
+  const records = await walkChunkBtree(c, layout.btreeAddress, dims.length)
   // row-major strides (elements) for the dataset
   const strides = rowMajorStrides(dims)
   const chunkStrides = rowMajorStrides(chunkDims)
   const chunkElems = chunkDims.reduce((a, b) => a * b, 1)
   for (const rec of records) {
+    // Fetch ONLY this chunk's bytes (a range reader's selective read; ADR-0010 §4).
+    await c.ensure(rec.address, rec.size)
     c.seek(rec.address)
     const rawChunk = c.bytes(rec.size)
     const chunkBytes = await decodeChunk(rawChunk, info.filters, rec.filterMask, itemSize)

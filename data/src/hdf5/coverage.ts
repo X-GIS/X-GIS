@@ -15,7 +15,7 @@ import { coverageFromGrids, southFirstToNorthUp, type CoverageHandle } from '../
  *  value-readout authority + the renderer's grid source. Throws (never silently
  *  mis-renders) on any out-of-subset HDF5 construct or a grid/geometry mismatch. */
 export async function readCoverageFromHdf5(hdf5Bytes: ArrayBuffer): Promise<CoverageHandle> {
-  const cov = await readS102Coverage(openHdf5(hdf5Bytes))
+  const cov = await readS102Coverage(await openHdf5(hdf5Bytes))
   const [nLon, nLat] = cov.numPoints
   return coverageFromGrids({
     product: cov.product,

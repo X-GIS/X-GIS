@@ -77,10 +77,11 @@ export class Hdf5Node {
 
   /** Group children (name → object-header address), or an empty map for a
    *  dataset / childless group. Symbol-table AND compact-link groups supported. */
-  children(): Map<string, number> {
+  async children(): Promise<Map<string, number>> {
     if (this._children) return this._children
     const out = new Map<string, number>()
     let symbolTable: { btreeAddress: number; localHeapAddress: number } | null = null
+    // Message bodies are resident (parseObjectHeader ensured the header) — sync reads.
     for (const m of this.messages) {
       if (m.type === MSG.SYMBOL_TABLE) symbolTable = parseSymbolTable(this.c, m.bodyStart)
       else if (m.type === MSG.LINK_INFO) parseLinkInfoDenseGuard(this.c, m.bodyStart)
@@ -90,14 +91,13 @@ export class Hdf5Node {
       }
     }
     if (symbolTable) {
-      const save = this.c.pos
-      for (const [name, addr] of walkGroupBtree(
+      // The b-tree + heap live elsewhere — walked async (each node `ensure`d).
+      for (const [name, addr] of await walkGroupBtree(
         this.c,
         symbolTable.btreeAddress,
         symbolTable.localHeapAddress,
       ))
         out.set(name, addr)
-      this.c.seek(save)
     }
     this._children = out
     return out
@@ -134,23 +134,23 @@ export class Hdf5Node {
 }
 
 /** Parse the object node at `addr`. */
-export function readNode(c: Cursor, addr: number): Hdf5Node {
-  return new Hdf5Node(c, addr, parseObjectHeader(c, addr))
+export async function readNode(c: Cursor, addr: number): Promise<Hdf5Node> {
+  return new Hdf5Node(c, addr, await parseObjectHeader(c, addr))
 }
 
 /** Resolve a "/"-separated path from `rootAddr` to a node, or throw naming the
  *  first missing segment. */
-export function resolvePath(c: Cursor, rootAddr: number, path: string): Hdf5Node {
-  let node = readNode(c, rootAddr)
+export async function resolvePath(c: Cursor, rootAddr: number, path: string): Promise<Hdf5Node> {
+  let node = await readNode(c, rootAddr)
   const parts = path.split('/').filter((p) => p.length > 0)
   for (let i = 0; i < parts.length; i++) {
-    const childAddr = node.children().get(parts[i]!)
+    const childAddr = (await node.children()).get(parts[i]!)
     if (childAddr === undefined)
       throw new Hdf5Error(
         `path segment "${parts[i]}" not found under "/${parts.slice(0, i).join('/')}"`,
         node.addr,
       )
-    node = readNode(c, childAddr)
+    node = await readNode(c, childAddr)
   }
   return node
 }

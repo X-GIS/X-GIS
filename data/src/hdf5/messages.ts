@@ -262,7 +262,7 @@ export function parseAttribute(c: Cursor, start: number): AttributeMsg {
   const dtStart = nameStart + pad(nameSize)
   const dsStart = dtStart + pad(dtSize)
   const dataStart = dsStart + pad(dsSize)
-  const name = decodeFixedString(c.u8arr.slice(nameStart, nameStart + nameSize))
+  const name = decodeFixedString(c.sliceAt(nameStart, nameSize))
   const datatype = parseDatatype(c, dtStart)
   const dims = parseDataspace(c, dsStart)
   c.seek(dataStart)
@@ -296,19 +296,20 @@ function readGlobalHeapObject(c: Cursor, heapAddr: number, index: number): Uint8
 function decodeAttrValue(c: Cursor, dt: Datatype, count: number): AttrValue {
   const readInt = (size: number, signed: boolean): number => {
     // little-endian (the metadata corpus is LE); bypasses the uint() 0xFF sentinel.
-    const p = c.pos
+    // Read the resident bytes into a fresh view (offset 0), then advance past them.
+    const raw = c.sliceAt(c.pos, size)
     c.skip(size)
-    const dv = c.view
+    const dv = new DataView(raw.buffer, raw.byteOffset, raw.byteLength)
     if (signed) {
-      if (size === 1) return dv.getInt8(p)
-      if (size === 2) return dv.getInt16(p, true)
-      if (size === 4) return dv.getInt32(p, true)
-      return dv.getInt32(p + 4, true) * 0x1_0000_0000 + dv.getUint32(p, true)
+      if (size === 1) return dv.getInt8(0)
+      if (size === 2) return dv.getInt16(0, true)
+      if (size === 4) return dv.getInt32(0, true)
+      return dv.getInt32(4, true) * 0x1_0000_0000 + dv.getUint32(0, true)
     }
-    if (size === 1) return dv.getUint8(p)
-    if (size === 2) return dv.getUint16(p, true)
-    if (size === 4) return dv.getUint32(p, true)
-    return dv.getUint32(p + 4, true) * 0x1_0000_0000 + dv.getUint32(p, true)
+    if (size === 1) return dv.getUint8(0)
+    if (size === 2) return dv.getUint16(0, true)
+    if (size === 4) return dv.getUint32(0, true)
+    return dv.getUint32(4, true) * 0x1_0000_0000 + dv.getUint32(0, true)
   }
   const one = (): number | string => {
     switch (dt.kind) {

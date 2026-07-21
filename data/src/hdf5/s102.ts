@@ -45,15 +45,15 @@ export async function readS102Coverage(file: Hdf5File): Promise<S100Coverage> {
   const warn = (m: string): void => {
     warnings.push(m)
   }
-  const root = file.root()
+  const root = await file.root()
   const product = detectProduct(String(root.attr('productSpecification', warn) ?? ''))
   const horizontalCRS = numAttr(root.attr('horizontalCRS', warn))
 
   // Locate the DCF2 feature container (BathymetryCoverage) — product-agnostic:
   // the first root-child group whose dataCodingFormat attribute is 2.
   let containerName: string | null = null
-  for (const [name] of root.children()) {
-    const node = file.get(name)
+  for (const [name] of await root.children()) {
+    const node = await file.get(name)
     if (numAttr(node.attr('dataCodingFormat')) === 2) {
       containerName = name
       break
@@ -63,7 +63,7 @@ export async function readS102Coverage(file: Hdf5File): Promise<S100Coverage> {
     throw new Hdf5Error('no DCF2 feature container found (S-102 BathymetryCoverage expected)')
 
   const instancePath = `${containerName}/${containerName}.01`
-  const inst = file.get(instancePath)
+  const inst = await file.get(instancePath)
   const originLon = reqNum(inst.attr('gridOriginLongitude', warn), 'gridOriginLongitude')
   const originLat = reqNum(inst.attr('gridOriginLatitude', warn), 'gridOriginLatitude')
   const dLon = reqNum(inst.attr('gridSpacingLongitudinal', warn), 'gridSpacingLongitudinal')
@@ -77,7 +77,7 @@ export async function readS102Coverage(file: Hdf5File): Promise<S100Coverage> {
   const bandTable = await readBandTable(file, containerName)
 
   const valuesPath = `${instancePath}/Group_001/values`
-  const valuesNode = file.get(valuesPath)
+  const valuesNode = await file.get(valuesPath)
   const info = valuesNode.asDataset()
   if (info.datatype.kind !== 'compound')
     throw new Hdf5Error(`${valuesPath} is not a compound values dataset`)

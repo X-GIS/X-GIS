@@ -13,7 +13,7 @@ import { describe, it, expect } from 'vitest'
 import { readFileSync, existsSync } from 'node:fs'
 import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { openHdf5 } from './index'
+import { openHdf5, type Hdf5File } from './index'
 import { readS102Coverage } from './s102'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
@@ -40,7 +40,7 @@ const POSITIVES = [
 describe('HDF5 reader differential vs h5py (gate 1)', () => {
   it.each(POSITIVES)('%s: depth band == committed golden (storage order)', async (name) => {
     const g = golden(name)
-    const f = openHdf5(ab(join(FIX, name + '.h5')))
+    const f = await openHdf5(ab(join(FIX, name + '.h5')))
     const band = await f.readBand(GRID, 'depth')
     const expectedFlat = (g.depth_south_first as number[][]).flat()
     expect(band.dims).toEqual([g.nLat, g.nLon])
@@ -51,7 +51,7 @@ describe('HDF5 reader differential vs h5py (gate 1)', () => {
 
   it('sparse dataset fills a missing chunk from the fill value', async () => {
     const g = golden('sparse_chunk')
-    const f = openHdf5(ab(join(FIX, 'sparse_chunk.h5')))
+    const f = await openHdf5(ab(join(FIX, 'sparse_chunk.h5')))
     const band = await f.readBand(GRID, 'depth')
     const expected = (g.depth_south_first as number[][]).flat()
     for (let i = 0; i < expected.length; i++) expect(band.values[i]).toBeCloseTo(expected[i]!, 5)
@@ -61,7 +61,7 @@ describe('HDF5 reader differential vs h5py (gate 1)', () => {
 
   it('S-102 semantic layer reads geometry + bands + vertical (case-tolerant)', async () => {
     const g = golden('sb_v0_symtab')
-    const cov = await readS102Coverage(openHdf5(ab(join(FIX, 'sb_v0_symtab.h5'))))
+    const cov = await readS102Coverage(await openHdf5(ab(join(FIX, 'sb_v0_symtab.h5'))))
     expect(cov.product).toBe('s102')
     expect(cov.numPoints).toEqual([g.nLon, g.nLat])
     expect(cov.gridOrigin).toEqual(g.origin)
@@ -75,7 +75,7 @@ describe('HDF5 reader differential vs h5py (gate 1)', () => {
   it('registration is SW cell centre — corner vs centre discriminated (half-cell gate)', async () => {
     // origin=[5,50], spacing=[0.5,0.25]; the SW cell CENTRE is (5,50), not the
     // outer edge (5−0.25, 50−0.125). h5py wrote westBound=origin−spacing/2.
-    const cov = await readS102Coverage(openHdf5(ab(join(FIX, 'sb_v0_symtab.h5'))))
+    const cov = await readS102Coverage(await openHdf5(ab(join(FIX, 'sb_v0_symtab.h5'))))
     expect(cov.gridOrigin[0]).toBeCloseTo(5.0, 9)
     expect(cov.gridOrigin[0]).not.toBeCloseTo(5.0 - 0.5 / 2, 6) // NOT the west edge
   })
@@ -87,7 +87,7 @@ describe('HDF5 reader differential vs h5py (gate 1)', () => {
     // fill (-9999, a DIFFERENT sentinel than S-102's 1e6) + units read, product
     // detected from productSpecification.
     const g = golden('s111_dcf2')
-    const cov = await readS102Coverage(openHdf5(ab(join(FIX, 's111_dcf2.h5'))))
+    const cov = await readS102Coverage(await openHdf5(ab(join(FIX, 's111_dcf2.h5'))))
     expect(cov.product).toBe('s111')
     expect(cov.numPoints).toEqual([g.nLon, g.nLat])
     expect(cov.gridOrigin).toEqual(g.origin)
@@ -108,17 +108,19 @@ describe('HDF5 reader differential vs h5py (gate 1)', () => {
 })
 
 describe('HDF5 reader loud-fail negatives (out-of-subset → named error)', () => {
-  const cases: [string, (f: ReturnType<typeof openHdf5>) => unknown, RegExp][] = [
+  const cases: [string, (f: Hdf5File) => unknown, RegExp][] = [
+    // neg_v3_latest throws in openHdf5's init() (superblock parse) before `action` runs;
+    // the others throw in the awaited action. Both surface as the rejection below.
     ['neg_v3_latest', (f) => f.root(), /superblock version 3/],
     ['neg_fletcher32', (f) => f.readBand('values'), /fletcher32/],
     ['neg_vlen', (f) => f.readBand('s'), /vlen/],
     ['neg_bigendian', (f) => f.readBand('values'), /big-endian/],
-    ['neg_dense_attr', (f) => f.get('g').attrs(), /dense attribute storage/],
+    ['neg_dense_attr', async (f) => (await f.get('g')).attrs(), /dense attribute storage/],
   ]
   it.each(cases)('%s errors naming the construct', async (name, action, re) => {
-    await expect(async () => await action(openHdf5(ab(join(FIX, name + '.h5'))))).rejects.toThrow(
-      re,
-    )
+    await expect(
+      async () => await action(await openHdf5(ab(join(FIX, name + '.h5')))),
+    ).rejects.toThrow(re)
   })
 })
 
@@ -129,7 +131,7 @@ const hasNoaa = existsSync(noaaFile) && existsSync(noaaGolden)
 describe.skipIf(!hasNoaa)('real NOAA S-102 cell (local-only differential)', () => {
   it('depth grid + geometry match the h5py-dumped local golden', async () => {
     const g = JSON.parse(readFileSync(noaaGolden, 'utf8'))
-    const f = openHdf5(ab(noaaFile))
+    const f = await openHdf5(ab(noaaFile))
     const band = await f.readBand(GRID, 'depth')
     expect(band.dims).toEqual([g.nLat, g.nLon])
     // Differential vs the h5py golden over the chunked+gzip+partial-edge path: 5 sampled
