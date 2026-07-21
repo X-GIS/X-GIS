@@ -648,6 +648,7 @@ export class TextStage {
       lineId,
       anchorDistancePx,
       collisionId,
+      layerName,
     })
   }
 
@@ -812,6 +813,7 @@ export class TextStage {
       fontKey: fontKey ?? composeFontKey(def, this.opts.defaultFont),
       pairKey,
       collisionId,
+      layerName,
       ...(images.length > 0 ? { inlineImages: images } : {}),
       perspectiveScale,
     })
@@ -892,6 +894,9 @@ export class TextStage {
        *  greedy pass's `tieBreak` so overlapping labels resolve to a
        *  deterministic winner independent of tile-dispatch order. */
       collisionId?: string
+      /** Style layer name — the within-layer DRAW-order Y-sort key (near-on-top
+       *  for allow-overlap overlaps). Undefined → its own bucket. */
+      layerName?: string
     }
     const shaped: ShapedLabel[] = []
     const dpr = this.dpr
@@ -1266,6 +1271,7 @@ export class TextStage {
             sortKey: p.def.sortKey,
             symbolZOrder: p.def.symbolZOrder,
             collisionId: p.collisionId,
+            layerName: p.layerName,
           })
           continue
         }
@@ -1526,6 +1532,7 @@ export class TextStage {
         sortKey: p.def.sortKey,
         symbolZOrder: p.def.symbolZOrder,
         collisionId: p.collisionId,
+        layerName: p.layerName,
       })
     }
     perfMarkEnd('stage-prepare.point-loop')
@@ -1790,6 +1797,7 @@ export class TextStage {
         lineId: p.lineId,
         anchorDistancePx: p.anchorDistancePx,
         collisionId: p.collisionId,
+        layerName: p.layerName,
       })
     }
     perfMarkEnd('stage-prepare.line-loop')
@@ -1982,6 +1990,49 @@ export class TextStage {
         placements = new Array(shaped.length) as typeof placementsReversed
         for (let i = 0; i < placementsReversed.length; i++) {
           placements[shaped.length - 1 - i] = placementsReversed[i]!
+        }
+      }
+      // Default / `symbol-z-order: auto` DRAW order — near-on-top within each
+      // layer. Collision (above) already decided WHICH labels survive; this
+      // decides, among overlapping SURVIVORS, which paints last. Only an
+      // allow-overlap label can legitimately overlap another survivor (collision
+      // drops the rest), so the sort is gated on ≥1 allow-overlap label — a
+      // frame without any keeps source order at ZERO cost, byte-identical (no
+      // production demo authors allow-overlap, so the whole demo suite is
+      // untouched). Within a layer, larger anchorY (nearer under pitch) paints
+      // LAST = on top, the Mapbox/MapLibre viewport-y direction; layers stay in
+      // precedence order so the earlier layer draws under. Ties keep source
+      // order (stable). Only pixels where allow-overlap labels actually overlap
+      // change; every other frame is byte-identical.
+      if (shaped.length > 1) {
+        let anyAllowOverlap = false
+        for (const s of shaped) if (s.allowOverlap) anyAllowOverlap = true
+        if (anyAllowOverlap) {
+          // Layer key = first-appearance rank of the label's layerName in
+          // source order. Source order dispatches layers in precedence order
+          // (each show's labels are contiguous), so ranking by first appearance
+          // reproduces that precedence exactly while giving a stable per-layer
+          // bucket to Y-sort within. layerName is threaded on EVERY dispatch
+          // path (point + line, tiled + GeoJSON), unlike collisionId which the
+          // GeoJSON path leaves undefined. An absent layerName forms its own
+          // bucket (imperative overlays), never merged with a named layer.
+          const rank = new Map<string | undefined, number>()
+          for (let i = 0; i < shaped.length; i++) {
+            const ln = shaped[i]!.layerName
+            if (!rank.has(ln)) rank.set(ln, i)
+          }
+          const ord: number[] = new Array(shaped.length)
+          for (let i = 0; i < shaped.length; i++) ord[i] = i
+          ord.sort((a, b) => {
+            const ra = rank.get(shaped[a]!.layerName)!
+            const rb = rank.get(shaped[b]!.layerName)!
+            if (ra !== rb) return ra - rb // layer precedence: earlier layer first (drawn under)
+            const ya = shaped[a]!.layouts[0]!.draw.anchorY
+            const yb = shaped[b]!.layouts[0]!.draw.anchorY
+            if (ya !== yb) return ya - yb // Y ASC: near (larger Y) drawn last = on top
+            return a - b // stable: source order
+          })
+          drawOrder = ord
         }
       }
     }

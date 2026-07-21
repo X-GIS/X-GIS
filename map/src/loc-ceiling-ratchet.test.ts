@@ -299,7 +299,14 @@ const CEILINGS: Record<string, number> = {
   // near-first on pitched views (site report: Shanghai dropped for Seoul at
   // pitch 81°), +16 comment lines (precedence note (3), the nearY rationale,
   // and the corrected byte-identical claims). Logic lives in text-collision.ts.
-  'map/src/text/text-stage.ts': 2085,
+  // 2085→2136 (near-on-top draw order): the default/`auto` legacy emit now
+  // Y-sorts DRAW order WITHIN each layer so overlapping allow-overlap labels
+  // paint near-on-top (the collision sibling decided which SURVIVES; this
+  // decides which paints last). +51 = the gated in-place drawOrder sort (≥1
+  // allow-overlap, else source order at zero cost) + its rationale block + the
+  // `layerName` thread onto pending/shaped (the layer-precedence key, ranked by
+  // first appearance) at addLabel/addCurvedLineLabel + the 3 shaped pushes.
+  'map/src/text/text-stage.ts': 2136,
   // 1786→1719 (#727 C): the line/point dedupe + pair-key helper block was
   // EXTRACTED to passes/line-label-dedupe.ts when the world-copy fan-out would
   // otherwise have grown this file — the extract-don't-grow answer.
