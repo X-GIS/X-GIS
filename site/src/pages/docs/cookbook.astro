@@ -85,7 +85,7 @@ layer continents {
   source: roads
   sourceLayer: "transportation"
   | stroke-zinc-700
-  | stroke-[.lanes / 2 | clamp(0.5, 8)]
+  | stroke-[clamp(.lanes / 2, 0.5, 8)]
 }`,
     notes: [
       'Equivalent to `stroke-[clamp(.lanes / 2, 0.5, 8)]` — pick whichever reads better.',
