@@ -355,6 +355,11 @@ export class XGISMap {
   glyphsUrl: string | null = null
   inlineGlyphs: NonNullable<TextStageOptions['inlineGlyphs']> | null = null
   glyphProviders: NonNullable<TextStageOptions['glyphProviders']> = []
+  /** Symbol fade duration (ms) — MapLibre `fadeDuration` parity, set via
+   *  `XGISMapOptions.fadeDuration`. Read at lazy TextStage construction
+   *  (label-pass.ts); 0 disables fading entirely (byte-identical render,
+   *  the right setting for pixel-exact screenshot harnesses). */
+  labelFadeDurationMs = 300
   /** Sprite atlas URL prefix from the imported style's top-level
    *  `sprite` field. Used by the lazy IconStage to fetch
    *  `${url}.json` + `${url}.png`. Null = no icons rendered. */
@@ -1148,6 +1153,9 @@ export class XGISMap {
     // P4 opt-in for compute-driven paint evaluation. Stored as a
     // simple flag the run() method reads when invoking emitCommands.
     if (options.enableComputePath) this._enableComputePath = true
+    // Symbol fade duration (MapLibre `fadeDuration` parity, default 300 ms).
+    // Consumed at lazy TextStage construction (label-pass.ts); 0 disables.
+    if (options.fadeDuration !== undefined) this.labelFadeDurationMs = options.fadeDuration
     this._backend = options.backend ?? 'auto'
     this._preserveDrawingBuffer = options.preserveDrawingBuffer ?? false
     // Surface converter "Conversion notes" to the console at load —
@@ -4075,6 +4083,12 @@ export class XGISMap {
   private shouldRenderThisFrame(): boolean {
     if (this._needsRender) return true
     if (this._sceneHasAnimation) return true
+    // Symbol fade keep-alive (mirror of _sceneHasAnimation): while any
+    // label/icon opacity ramp is in flight the loop must keep rendering —
+    // the label pass advances the ledger once per rendered frame, so ramps
+    // settle on the wall clock and this goes false again within
+    // fadeDuration of the last placement change.
+    if (this.textStage !== null && this.textStage.getFadeLedger().hasActive()) return true
     if (this.hasPendingSourceWork()) return true
     const c = this.camera
     const canvas = this.ctx?.canvas

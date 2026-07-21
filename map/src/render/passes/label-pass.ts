@@ -246,6 +246,16 @@ class LabelPass implements RenderPass {
     // collapsed to a single ECEF-based projector. Other passes still
     // consume them off FrameContext directly.
     const { dpr, sampleCount: sc, w, h, encoder } = ctx
+    // Symbol fade — advance every ramp once per RENDERED frame (S16 hit and
+    // miss alike), OUTSIDE the labels-active gate below so in-flight ramps
+    // still settle (and stop asking for frames via the map keep-alive) when
+    // the last label show is toggled off mid-fade. A completed fade-OUT tags
+    // LABEL dirty so THIS frame's prepare (consumeLabelDirty below runs
+    // after this) drops the now-invisible holdover draws.
+    if (host.textStage !== null) {
+      const fades = host.textStage.getFadeLedger().advance(host._elapsedMs)
+      if (fades.anyFadeOutCompleted) host.markLabelDirty()
+    }
     const disableLabels =
       typeof window !== 'undefined' &&
       (window as unknown as { __xgisDisableLabels?: boolean }).__xgisDisableLabels === true
@@ -297,6 +307,9 @@ class LabelPass implements RenderPass {
         // frame that needed it drew, re-arm a frame + tag LABEL dirty so
         // the S16 skip re-prepares instead of replaying the stale glyph.
         tsOpts.onResourceLanded = () => host.markLabelDirty()
+        // Symbol fade — the map-level fadeDuration (MapLibre default 300 ms;
+        // 0 keeps the stage's inert byte-identical path).
+        tsOpts.fadeDurationMs = host.labelFadeDurationMs
         host.textStage = new TextStage(host.ctx.device, host.ctx.rhi, host.ctx.format, tsOpts, sc)
         host.textStage.prewarmGISDefaults()
         // Attach any debug hook that was set before the stage existed.
@@ -417,6 +430,11 @@ class LabelPass implements RenderPass {
         collide = false,
         props?: import('../../text/text-resolver').FeatureProps,
         perspScale = 1, // #1081 — distance attenuation (point icons; 1 elsewhere)
+        // Symbol fade — the paired text's stable collisionId (pairKey is
+        // per-frame `pt${seq}`, so it cannot key fade records across
+        // prepares). Undefined on paths without a collisionId (raw
+        // datasets, non-curved line labels) → icon never fades.
+        fadeId?: string,
       ): void => {
         if (!iStage || def.iconImage === undefined) return
         // icon-offset (layout, em/px nudge baked before rotation) AND
@@ -500,6 +518,7 @@ class LabelPass implements RenderPass {
           fit: def.iconTextFit
             ? { mode: def.iconTextFit, pad: def.iconTextFitPadding ?? [0, 0, 0, 0] }
             : undefined,
+          fadeId,
         })
       }
       // Mapbox `text-field` expressions that depend on zoom (e.g.
@@ -717,6 +736,24 @@ class LabelPass implements RenderPass {
         _prevSkip.vtrSig === _vtrSig
       const canSkipLabelPrepare =
         _sigSame && !labelDirty && !labelResourcesPending && !host._labelsHaveTimeAnimation
+      // Symbol fade — holdover admissibility for THIS frame's (potential)
+      // prepare, computed BEFORE the skip-state mutation below overwrites
+      // the prepared-camera fields. The camera/canvas cluster must match the
+      // previous PREPARED frame EXACTLY (the #1177 tolerant-zoom window is
+      // not enough — a held-over draw replays baked screen px). Tile-set /
+      // show-set churn (vtrSig, showsLen) intentionally does NOT block
+      // holdover: tile loads are exactly the placement changes fades smooth.
+      const holdoverOk =
+        _prevSkip !== undefined &&
+        !zoomActive &&
+        _prevSkip.zoomKey === _zoomKey &&
+        _prevSkip.ckx === _ckx &&
+        _prevSkip.cky === _cky &&
+        _prevSkip.centerLatDeg === c.centerLatDeg &&
+        _prevSkip.bearingKey === _bearingKey &&
+        _prevSkip.pitchKey === _pitchKey &&
+        _prevSkip.canvasW === _canvasW &&
+        _prevSkip.canvasH === _canvasH
       if (canSkipLabelPrepare) {
         host._labelDispatchHits++
       } else {
@@ -1652,7 +1689,17 @@ class LabelPass implements RenderPass {
                           // arrows) follows the road tangent. Same
                           // pairKey as the label so the badge drops when
                           // the road number loses collision.
-                          dispatchIcon(featDef, sx, sy, tang, pairKey, true, props)
+                          dispatchIcon(
+                            featDef,
+                            sx,
+                            sy,
+                            tang,
+                            pairKey,
+                            true,
+                            props,
+                            1,
+                            lineCollisionId,
+                          )
                           recordTextPosition(copyTextKey, sx, sy)
                         }
                       }
@@ -1688,7 +1735,17 @@ class LabelPass implements RenderPass {
                             nextStop,
                             lineCollisionId,
                           )
-                          dispatchIcon(featDef, sx, sy, tang, pairKey, true, props)
+                          dispatchIcon(
+                            featDef,
+                            sx,
+                            sy,
+                            tang,
+                            pairKey,
+                            true,
+                            props,
+                            1,
+                            lineCollisionId,
+                          )
                           recordTextPosition(copyTextKey, sx, sy)
                         }
                       }
@@ -1839,6 +1896,7 @@ class LabelPass implements RenderPass {
                     false,
                     undefined,
                     ps,
+                    pointCollisionId,
                   )
                 }
                 return
@@ -1873,7 +1931,7 @@ class LabelPass implements RenderPass {
                   pointCollisionId,
                   ps,
                 )
-                dispatchIcon(featDef, px, py, 0, pairKey, false, undefined, ps)
+                dispatchIcon(featDef, px, py, 0, pairKey, false, undefined, ps, pointCollisionId)
               }
             })
           }
@@ -1911,7 +1969,7 @@ class LabelPass implements RenderPass {
         // #777 I-G — give TextStage the read-only sprite atlas so inline-image
         // markers in label text reserve the sprite advance during shaping.
         stage.setSpriteMetadata(iStage ? iStage.host : null)
-        stage.prepare(iconObstacles, limbInsetPx)
+        stage.prepare(iconObstacles, limbInsetPx, holdoverOk)
         if (iStage) iStage.setDroppedPairKeys(stage.getDroppedPairKeys())
         // #777 I-A — hand the paired text bboxes (laid out by stage.prepare just
         // now) to IconStage so its prepare() can stretch icon-text-fit quads.
@@ -1920,7 +1978,10 @@ class LabelPass implements RenderPass {
         // #777 I-G — hand the inline-image quads TextStage just placed to
         // IconStage so its prepare() draws them via the existing icon path.
         if (iStage) iStage.setInlineImagePlacements(stage.getInlineImagePlacements())
-        iStage?.prepare()
+        // Symbol fade — hand TextStage's ledger over (mirror of the
+        // droppedPairKeys handoff) so paired icons read their text's records.
+        if (iStage) iStage.setFadeLedger(stage.getFadeLedger())
+        iStage?.prepare(holdoverOk)
       }
       perfMarkEnd('encoder.stage-prepare')
       // Text overlay v1: skipped in debug=overdraw — text pipeline

@@ -10,6 +10,7 @@ import { SpriteAtlasHost, type SpriteInfo } from './sprite-atlas-host'
 import { SpriteAtlasGPU } from './sprite-atlas-gpu'
 import { IconRenderer, type IconDraw, type IconAnchor } from './icon-renderer'
 import type { RhiDevice, RhiSampler, RhiTextureView, RhiRenderPass } from '@xgis/engine'
+import { fadeInstanceKey, type LabelFadeLedger } from '../text/label-fade'
 
 /** Minimal sprite-metadata read surface IconStage resolves icons through.
  *  Satisfied structurally by SpriteAtlasHost (URL sprite atlas) and by
@@ -88,6 +89,12 @@ interface PendingIcon {
    *  bbox is known (pairKey → TextStage.getPairFitBoxes). Undefined = native
    *  sprite size. */
   fit?: { mode: 'width' | 'height' | 'both'; pad: [number, number, number, number] }
+  /** Symbol fade — the paired TEXT's stable collisionId (label-fade.ts).
+   *  pairKey cannot serve here (`pt${seq}` is per-frame); this id is
+   *  pan-invariant, so the icon finds its text's fade record across
+   *  prepares. Undefined (icon-only symbols, raw datasets, overlays) →
+   *  no fade, byte-identical. */
+  fadeId?: string
 }
 
 /** #777 I-G — one inline label image to draw this frame. TextStage computed
@@ -240,6 +247,8 @@ export class IconStage {
       /** Mapbox `icon-text-fit` (#777 I-A) — stretch the quad to the paired text
        *  bbox; resolved in prepare() via the pairKey → getPairFitBoxes coupling. */
       fit?: { mode: 'width' | 'height' | 'both'; pad: [number, number, number, number] }
+      /** Symbol fade — the paired text's stable collisionId (see PendingIcon). */
+      fadeId?: string
     } = {},
   ): void {
     if (this._iconDebugHook) {
@@ -258,6 +267,7 @@ export class IconStage {
       collide: opts.collide ?? false,
       padding: opts.padding ?? 2,
       fit: opts.fit,
+      fadeId: opts.fadeId,
     })
   }
 
@@ -268,6 +278,26 @@ export class IconStage {
   setDroppedPairKeys(keys: ReadonlySet<string>): void {
     this.droppedPairKeys = keys
   }
+
+  /** Symbol fade — TextStage's ledger, handed over by the label pass
+   *  (mirror of the droppedPairKeys handoff). Icons only READ records
+   *  (text placement is the single authority): a paired icon fades with
+   *  its text, keyed by fadeId + the same dispatch-order occurrence
+   *  scheme as the text side (fadeInstanceKey). Null / disabled →
+   *  byte-identical legacy behaviour. */
+  private fadeLedger: LabelFadeLedger | null = null
+  setFadeLedger(ledger: LabelFadeLedger): void {
+    this.fadeLedger = ledger
+  }
+  /** Last emitted draw per fade key — re-pushed while the record fades out
+   *  after its source vanished from `pending` (tile unload). IconDraw is
+   *  heap-owned (sprite/tint/fit refs are stable), so plain retention
+   *  suffices — no clone needed (unlike the text side's arena payloads). */
+  private readonly _fadeHoldover = new Map<string, IconDraw>()
+  /** Per-prepare scratch: fadeId → occurrence count, and the fade keys this
+   *  prepare actually emitted (so holdover skips live keys). */
+  private readonly _fadeOcc = new Map<string, number>()
+  private readonly _fadeEmitted = new Set<string>()
 
   /** #777 I-A — paired text bboxes (physical px) that TextStage laid out this
    *  frame, keyed by pairKey. Set by `setPairFitBoxes()` from the map every frame
@@ -295,12 +325,33 @@ export class IconStage {
    *  atlas (typo or atlas still loading); the user sees nothing
    *  rather than a console flood. Call once per frame BEFORE
    *  render(). */
-  prepare(): void {
+  prepare(
+    // Symbol fade: mirror of TextStage.prepare's holdoverOk — false when the
+    // camera/canvas moved since the previous prepare (a held-over quad's
+    // baked screen px would lie). Direct-stage callers default to true.
+    holdoverOk: boolean = true,
+  ): void {
     if (this._iconDump) this._iconDump = []
+    // Symbol fade — per-prepare scratch reset. `ledger` is non-null only
+    // when the handoff happened AND fading is enabled; every fade branch
+    // below is gated on it, so the disabled path stays byte-identical.
+    // `!= null` (not `!== null`): GPU-free harnesses drive prepare() on an
+    // Object.create(IconStage.prototype) stub whose field initializers never
+    // ran, so the field can be undefined there.
+    const ledger = this.fadeLedger != null && this.fadeLedger.enabled ? this.fadeLedger : null
+    if (ledger !== null) {
+      this._fadeOcc.clear()
+      this._fadeEmitted.clear()
+    }
     // #777 I-G — inline label images draw even when NO icon-image was
     // dispatched (a label that is only text + an inline sprite), so the
     // fast-out must consider them too.
     if (this.pending.length === 0 && this.inlineImages.length === 0) {
+      // Wholesale clear — no holdover emission (mirror of TextStage's
+      // empty-prepare arm); dead records' clones drop on the next sweep.
+      if (ledger !== null) {
+        this._fadeHoldover.clear()
+      }
       this.renderer.setDraws([])
       return
     }
@@ -319,10 +370,30 @@ export class IconStage {
     // false positives during cold-start.
     const atlasLoaded = this.host.getState().status === 'loaded'
     for (const p of this.pending) {
+      // Symbol fade: resolve this icon's instance key FIRST — occurrence
+      // counting must see every dispatched icon (drops included) so the
+      // indices stay aligned with the text side's per-shaped counter.
+      let fadeKey: string | undefined
+      if (ledger !== null && p.fadeId !== undefined) {
+        const occ = this._fadeOcc.get(p.fadeId) ?? 0
+        this._fadeOcc.set(p.fadeId, occ + 1)
+        fadeKey = fadeInstanceKey(p.fadeId, occ)
+      }
       // Iter 112: drop icon when its paired text label was collision-
       // rejected. Mirrors MapLibre's "text+icon as one symbol" rule.
+      // Symbol fade: when that text is HELD OVER (visibly fading out) and
+      // holdover is allowed, emit the badge one more time with the shared
+      // record so text + icon fade as one symbol instead of the badge
+      // popping a fade ahead of its number.
       if (p.pairKey !== undefined && this.droppedPairKeys.has(p.pairKey)) {
-        continue
+        if (!(
+          fadeKey !== undefined &&
+          ledger !== null &&
+          holdoverOk &&
+          ledger.isFadingOut(fadeKey)
+        )) {
+          continue
+        }
       }
       const sprite = this.host.get(p.iconName)
       if (!sprite) {
@@ -385,7 +456,11 @@ export class IconStage {
           }
         }
       }
-      draws.push({
+      // Symbol fade: attach the paired text's record (read-only — refOf
+      // never creates). A never-placed text has no record ⇒ no fadeRef ⇒
+      // the icon renders exactly as before.
+      const fadeRef = fadeKey !== undefined && ledger !== null ? ledger.refOf(fadeKey) : undefined
+      const draw: IconDraw = {
         anchorX: p.anchorX,
         anchorY: p.anchorY,
         sprite,
@@ -395,7 +470,13 @@ export class IconStage {
         opacity: p.opacity,
         tint: p.tint,
         ...(fit ? { fit } : {}),
-      })
+        ...(fadeRef !== undefined ? { fadeRef } : {}),
+      }
+      draws.push(draw)
+      if (fadeKey !== undefined) {
+        this._fadeEmitted.add(fadeKey)
+        if (fadeRef !== undefined) this._fadeHoldover.set(fadeKey, draw)
+      }
       if (this._iconDump) {
         const drawW = (sprite.width / sprite.pixelRatio) * sizeScale
         const drawH = (sprite.height / sprite.pixelRatio) * sizeScale
@@ -442,6 +523,21 @@ export class IconStage {
         anchor: 'top-left',
         opacity: 1,
       })
+    }
+    // Symbol fade: holdover — an icon whose source vanished from `pending`
+    // entirely (tile unload took its feature) keeps drawing its last
+    // emitted quad while the paired text's record fades out. The sweep
+    // then drops keys whose record the text side pruned.
+    if (ledger !== null) {
+      if (holdoverOk) {
+        for (const [k, held] of this._fadeHoldover) {
+          if (this._fadeEmitted.has(k)) continue
+          if (ledger.isFadingOut(k)) draws.push(held)
+        }
+      }
+      for (const k of this._fadeHoldover.keys()) {
+        if (ledger.refOf(k) === undefined) this._fadeHoldover.delete(k)
+      }
     }
     this.renderer.setDraws(draws)
     this.pending = []

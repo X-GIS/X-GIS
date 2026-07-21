@@ -249,7 +249,11 @@ const CEILINGS: Record<string, number> = {
   // 4708→4715 (#1235 gap 2): the FeatureUpdateQueue host gains the seeded-FC
   // getter (CRS-guarded) + the reseedSource hook — wiring only; the patch/
   // re-seed logic lives in feature-update-queue.ts + source-manager.ts.
-  'map/src/map.ts': 4715,
+  // 4715→4729 (symbol fade): the `labelFadeDurationMs` field (+doc, MapLibre
+  // fadeDuration parity, options-bag consumption) + the fade keep-alive read
+  // in shouldRenderThisFrame (mirrors the adjacent _sceneHasAnimation line).
+  // The fade machinery itself lives in text/label-fade.ts — wiring only here.
+  'map/src/map.ts': 4729,
   // Baselined at #1235 (measured 846): SourceManager crossed NEW_FILE_CAP with
   // the gap-1/gap-2 seams — the setSourceData virtual re-seed branch (the
   // legacy worker-compile path renders fills/points but no line segments) +
@@ -280,7 +284,14 @@ const CEILINGS: Record<string, number> = {
   // bypass the layout cache; the plain-label path is byte-identical (§2).
   // 2066→2068 (#1177 replay correction): render() gains the optional S16
   // skip-replay transform param, forwarded to TextRenderer.draw. +2.
-  'map/src/text/text-stage.ts': 2068,
+  // 2068→2155 (symbol fade): the prepare()-side fade wiring — the ledger /
+  // holdover-store fields + ctor init, the dispatch-order fadeInstanceKey
+  // precompute, the placed-branch place()+store, the fade-out holdover
+  // emission + sweep, the empty-prepare wholesale arm, the eviction clear,
+  // and the holdoverOk param (+docs). The MECHANISM (ledger, holdover clone
+  // store) lives extracted + unit-proved in text/label-fade.ts; only the
+  // prepare-loop integration grew here. +87.
+  'map/src/text/text-stage.ts': 2155,
   // 1786→1719 (#727 C): the line/point dedupe + pair-key helper block was
   // EXTRACTED to passes/line-label-dedupe.ts when the world-copy fan-out would
   // otherwise have grown this file — the extract-don't-grow answer.
@@ -322,7 +333,13 @@ const CEILINGS: Record<string, number> = {
   // reference points, hit frames solve prepared→current and pass it to the 4
   // stage/iStage render calls. The MATH lives extracted in
   // passes/label-replay-transform.ts (unit-proved); only wiring grew here. +46.
-  'map/src/render/passes/label-pass.ts': 2002,
+  // 2002→2063 (symbol fade): the per-frame ledger advance + completion
+  // LABEL-dirty at execute() top, the tsOpts.fadeDurationMs line, the
+  // holdoverOk exact-camera derivation beside the S16 signature (uses the
+  // same locals), the stage/iStage prepare threading + setFadeLedger
+  // handoff, and dispatchIcon's fadeId param at the collisionId-bearing
+  // call sites. Mechanism in text/label-fade.ts; wiring only here. +61.
+  'map/src/render/passes/label-pass.ts': 2063,
   // #1081 — per-anchor perspective distance attenuation (MapLibre parity). New
   // baseline: the wCenter + perspScale scratch-out-value lives INLINE in the two
   // existing projector closures (it rides the cw already computed per anchor —

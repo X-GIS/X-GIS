@@ -65,8 +65,10 @@ export type LabelPassHost = Pick<
   // when the async atlas lands on a label-less style.
   | '_backgroundPattern'
   | 'invalidate'
+  | '_elapsedMs'
   | '_featureExprsCache'
   | '_labelsHaveTimeAnimation'
+  | 'labelFadeDurationMs'
   | '_labelDispatchHits'
   | '_labelDispatchMisses'
   | '_pendingLabelDebugHook'

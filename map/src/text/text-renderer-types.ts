@@ -8,6 +8,7 @@
 // sites keep working unchanged.
 
 import type { GlyphInfo } from './sdf/glyph-atlas-host'
+import type { FadeRef } from './label-fade'
 
 export interface TextDraw {
   /** Anchor in screen pixels — caller projects from (lon, lat). */
@@ -62,4 +63,10 @@ export interface TextDraw {
    *  ideographic-codepoint glyphs of an italic label, matching
    *  MapLibre's local-ideograph oblique. */
   italic?: boolean
+  /** Symbol fade box (label-fade.ts). When set, the renderer multiplies
+   *  this draw's fill AND halo alpha by `fadeRef.a` at draw()-encode time
+   *  every frame — the ledger mutates `.a` in place, so replayed (S16-skip)
+   *  frames ramp too, with no re-prepare and no re-pack. Absent (imperative
+   *  overlays, fadeDuration 0) → byte-identical legacy alpha path. */
+  fadeRef?: FadeRef
 }
