@@ -53,6 +53,9 @@ function replaceMapCanvas(): void {
   canvas = fresh
 }
 const status = document.getElementById('status')!
+const statusMain = document.getElementById('status-main')!
+const statusDescEl = document.getElementById('status-desc') as HTMLButtonElement | null
+const statusPopoverEl = document.getElementById('status-popover')!
 const errorDiv = document.getElementById('error')!
 const errorMsg = document.getElementById('error-msg')!
 const runBtn = document.getElementById('run-btn') as HTMLButtonElement
@@ -82,28 +85,62 @@ if (editorToggle) {
   })
 }
 
-// ── Snapshot copy button ──
-// Click → captures the current scene via __xgisSnapshot(), writes the
-// JSON to the clipboard, flashes a confirmation. Used to share a bug
-// repro: snapshot lands in chat / pasted into _snapshot-from-paste.
-// spec for replay. Includes camera + viewport + DPR + GPU tile cache
-// + render-order trace + pixel hash. Schema in `runtime/src/engine
-// /map.ts captureSnapshot`.
+// ── Desktop editor collapse ──
+// On desktop the editor is always visible, so the .mobile-only gear
+// toggle above never shows. This slim chevron tab (pinned to the map's
+// right edge) collapses the editor pane to zero width for a map-first
+// view and restores it — the state is persisted in localStorage. The
+// collapse is a `.collapsed` class on #editor-pane that drives width→0;
+// the map's ResizeObserver reacts exactly as it does to a handle drag.
 {
-  const btn = document.getElementById('snapshot-btn') as HTMLButtonElement | null
-  const label = document.getElementById('snapshot-btn-label') as HTMLSpanElement | null
-  if (btn) {
+  const collapseBtn = document.getElementById('editor-collapse-btn') as HTMLButtonElement | null
+  if (collapseBtn) {
+    const KEY = 'demo.editorCollapsed'
+    const apply = (collapsed: boolean): void => {
+      editorPane.classList.toggle('collapsed', collapsed)
+      collapseBtn.classList.toggle('collapsed', collapsed)
+      const label = collapsed ? 'Show editor' : 'Collapse editor'
+      collapseBtn.title = label
+      collapseBtn.setAttribute('aria-label', label)
+    }
+    apply(localStorage.getItem(KEY) === '1')
+    collapseBtn.addEventListener('click', () => {
+      const collapsed = !editorPane.classList.contains('collapsed')
+      apply(collapsed)
+      localStorage.setItem(KEY, collapsed ? '1' : '0')
+    })
+  }
+}
+
+// ── Map tool buttons: snapshot + copy-link ──
+// Both share the same confirmation-flash idiom (swap data-state + label,
+// auto-reset). The clipboard payloads differ — snapshot captures the full
+// scene JSON via __xgisSnapshot(); copy-link just grabs location.href (the
+// #z/lat/lon/bearing/pitch hash is live-synced) — so only the flash is
+// shared, not the clipboard call.
+{
+  const makeFlash = (btn: HTMLButtonElement, label: HTMLElement | null, idle: string) => {
     let resetTimer: ReturnType<typeof setTimeout> | null = null
-    const flash = (state: 'busy' | 'ok' | 'err', text: string, ms = 1500): void => {
+    return (state: 'busy' | 'ok' | 'err', text: string, ms = 1500): void => {
       btn.dataset.state = state
       if (label) label.textContent = text
       if (resetTimer) clearTimeout(resetTimer)
       resetTimer = setTimeout(() => {
         btn.removeAttribute('data-state')
-        if (label) label.textContent = 'Copy snapshot'
+        if (label) label.textContent = idle
       }, ms)
     }
-    btn.addEventListener('click', async () => {
+  }
+
+  // Snapshot copy button — captures the current scene via __xgisSnapshot(),
+  // writes the JSON to the clipboard for a bug repro (camera + viewport +
+  // DPR + GPU tile cache + render-order trace + pixel hash). Schema in
+  // `runtime/src/engine/map.ts captureSnapshot`.
+  const snapBtn = document.getElementById('snapshot-btn') as HTMLButtonElement | null
+  const snapLabel = document.getElementById('snapshot-btn-label') as HTMLSpanElement | null
+  if (snapBtn) {
+    const flash = makeFlash(snapBtn, snapLabel, 'Copy snapshot')
+    snapBtn.addEventListener('click', async () => {
       const w = window as unknown as {
         __xgisSnapshot?: () => Promise<unknown>
         __xgisStartDrawOrderTrace?: () => void
@@ -138,6 +175,58 @@ if (editorToggle) {
       }
     })
   }
+
+  // Copy-link button — copies the current URL (deep-links to this exact
+  // view; the camera hash is kept in sync by the camera loop).
+  const linkBtn = document.getElementById('copy-link-btn') as HTMLButtonElement | null
+  const linkLabel = document.getElementById('copy-link-btn-label') as HTMLSpanElement | null
+  if (linkBtn) {
+    const flash = makeFlash(linkBtn, linkLabel, 'Copy link')
+    linkBtn.addEventListener('click', async () => {
+      try {
+        await navigator.clipboard.writeText(location.href)
+        flash('ok', 'Copied', 1500)
+      } catch (err) {
+        const msg = (err as Error).message ?? String(err)
+        flash('err', `Failed: ${msg}`.slice(0, 40), 4000)
+        console.error('[copy link]', err)
+      }
+    })
+  }
+}
+
+// ── Demo description in the status pill + popover ──
+// The pill's first line is the demo name + pan hint (statusMain); the
+// description sits beneath it, single-line-clamped, and clicking it opens
+// a popover with the full text (dismiss on outside click / Escape). For
+// Demo.actions demos this is the only surface that can carry the "click
+// the buttons" guidance to the user.
+function setStatusDescription(desc: string | null): void {
+  if (!statusDescEl) return
+  const text = desc?.trim() ?? ''
+  if (text) {
+    statusDescEl.textContent = text
+    statusDescEl.hidden = false
+    statusPopoverEl.textContent = text
+  } else {
+    statusDescEl.hidden = true
+    statusPopoverEl.hidden = true
+  }
+}
+if (statusDescEl) {
+  statusDescEl.addEventListener('click', (e) => {
+    e.stopPropagation()
+    statusPopoverEl.hidden = !statusPopoverEl.hidden
+  })
+  document.addEventListener('click', (e) => {
+    if (statusPopoverEl.hidden) return
+    const t = e.target as Node
+    if (t === statusDescEl || statusPopoverEl.contains(t)) return
+    statusPopoverEl.hidden = true
+  })
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && !statusPopoverEl.hidden) statusPopoverEl.hidden = true
+  })
 }
 
 // ── In-page log overlay (mobile-friendly error reporting) ──
@@ -1155,8 +1244,12 @@ async function runSource(source: string, label: string) {
   currentMap?.destroy()
 
   try {
-    status.textContent = `Loading ${label}...`
+    statusMain.textContent = `Loading ${label}...`
     status.style.opacity = '1'
+    // A direct (custom / imported) run has no demo metadata — clear any
+    // description left over from the previously mounted demo. loadDemo
+    // re-populates it after runSource returns for gallery demos.
+    setStatusDescription(null)
 
     // Wait for any @font-face declarations (map-fonts.css → Open Sans,
     // Noto Sans Variable) to finish loading BEFORE we let the engine
@@ -1293,7 +1386,7 @@ async function runSource(source: string, label: string) {
       currentMap.invalidate()
     }
 
-    status.textContent = `${label} · scroll to zoom, drag to pan`
+    statusMain.textContent = `${label} · scroll to zoom, drag to pan`
     // Identity badge — show the backend that ACTUALLY booted. 'auto' can fall
     // back (WebGPU adapter-null → WebGL2), and a pinned boot should visibly
     // confirm the pin took: a green frame must never be attributed to the
@@ -1316,7 +1409,7 @@ async function runSource(source: string, label: string) {
     console.error('[X-GIS]', err)
     errorDiv.style.display = 'block'
     errorMsg.textContent = String(err)
-    status.textContent = 'Error'
+    statusMain.textContent = 'Error'
   }
 }
 
@@ -1351,6 +1444,10 @@ async function loadDemo(idx: number) {
   discoverFields(demo.source, import.meta.env.BASE_URL + 'data/')
 
   await runSource(demo.source, demo.name)
+
+  // Surface the demo's description in the status pill (runSource cleared it
+  // on entry). For Demo.actions demos this carries the interaction guidance.
+  setStatusDescription(demo.description)
 
   // Per-demo initial camera (loader.ts Demo.zoom/center/pitch/bearing): a
   // .xgis source carries no camera state, so a demo that only reads well at a
