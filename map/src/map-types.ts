@@ -282,6 +282,15 @@ export interface XGISMapOptions {
    *  the CSS default and will be overridden; use `touchAction: false` (or insert
    *  the canvas into the DOM before construction) to opt out. */
   touchAction?: false | string
+  /** Built-in cursor feedback (#1263, matches MapLibre/Mapbox). By default the
+   *  canvas shows `grab` at rest, `grabbing` during an active drag/rotate, and
+   *  `pointer` while the cursor is over a feature on a layer with hover
+   *  listeners — X-GIS ships this whole policy because it already tracks press
+   *  and hover state. Host-respecting like `touchAction`: if the host expressed
+   *  cursor intent (an inline `canvas.style.cursor` OR a non-default computed
+   *  value) the library never touches the cursor. Set `false` to opt out
+   *  entirely. Default `true`. */
+  cursor?: boolean
   /** Surface a converted style's "Conversion notes" block to the console
    *  once at load. `convertMapboxStyle` records every dropped / approximated
    *  filter / paint in a trailing block comment in the emitted .xgis source;

@@ -316,7 +316,12 @@ const CEILINGS: Record<string, number> = {
   // Merge union (#1272 <- main): main's camera/fade/hash stack (→4994) and the
   // #1272 coverage wiring (+48 over the 4718 base) are non-overlapping, so the
   // merged file measures 5042, not max(4994, 4766).
-  'map/src/map.ts': 5042,
+  // 5042→5063 (#1263 cursor feedback): the `cursor` option, the `_cursor`
+  // field + ctor construction, four `setInteracting` wire-ups in the controller
+  // event arms, the dispatcher `onHoverActiveChange` dep, and the destroy()
+  // teardown — wiring only; the grab/grabbing/pointer policy MECHANISM lives
+  // extracted + unit-proved in cursor.ts (well under the cap).
+  'map/src/map.ts': 5063,
   // Baselined at #1255 (measured 830): the DOM-inspired layer API crossed
   // NEW_FILE_CAP with the paint-transition style-setter integration — the
   // StyleHost.transitions context, the shared applyNumber/applyColor
