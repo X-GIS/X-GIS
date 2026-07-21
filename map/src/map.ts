@@ -4269,11 +4269,11 @@ export class XGISMap {
 
   /** Host-push a fresh gridded-coverage payload into a declared `coverage` source
    *  (#1272) — the coverage sibling of `setSourceData`. Reads the standard IN PLACE
-   *  (ADR-0010; `readCoverage` sniffs the container magic → S-100 HDF5 today) to a
-   *  CoverageHandle, swaps it (so `getCoverage(...).valueAt` updates at once), re-arms
-   *  the GPU ramp, and repaints — the live-refresh seam (fetch your OWN CORS-proxied
-   *  NOAA copy). `ramp`/`range` default to the declared palette; throws if `sourceId`
-   *  is not a `coverage` source or the bytes are not a supported container. */
+   *  (ADR-0010; a host push carries no URL, so `readCoverage` reads it as S-100 HDF5,
+   *  the only supported container) to a CoverageHandle, swaps it (so `getCoverage(...)
+   *  .valueAt` updates at once), re-arms the GPU ramp, and repaints — the live-refresh
+   *  seam (fetch your OWN CORS-proxied NOAA copy). `ramp`/`range` default to the declared
+   *  palette; throws if `sourceId` is not a `coverage` source. */
   async setCoverageData(
     sourceId: string,
     bytes: ArrayBuffer,

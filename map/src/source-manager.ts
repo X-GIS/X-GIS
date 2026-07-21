@@ -319,8 +319,8 @@ export class SourceManager {
     // S-100 gridded coverage (#1158, re-platformed by ADR-0010). A built-in
     // `type: coverage` source READS THE STANDARD IN PLACE: fetch the gridded payload
     // (same SSRF guard + body cap as the geojson branch), read it → CoverageHandle via
-    // `readCoverage` (sniffs the container magic → HDF5 today, no `.xgcov` transcode),
-    // and store a `{ _coverage }` marker in rawDatasets (the marker union, map-types.ts).
+    // `readCoverage` (picks the reader by URL extension, like detectVectorTileFormat →
+    // HDF5 today, no `.xgcov` transcode), store a `{ _coverage }` marker (map-types.ts).
     // The handle is the value-readout authority (map.getCoverage(...).valueAt); the
     // renderer owns the GPU texture separately.
     // REBASE HAZARD (#1153 P1): this worktree is at clean HEAD, whose _attachOneSource
@@ -343,7 +343,7 @@ export class SourceManager {
         rawBytes.byteOffset,
         rawBytes.byteOffset + rawBytes.byteLength,
       )
-      const handle = await readCoverage(buf)
+      const handle = await readCoverage(buf, url)
       // Thread the source's display options (ramp / range) alongside the handle so
       // rebuildLayers can arm the CoverageRenderer without re-reading the load command.
       this.rawDatasets.set(load.name, { _coverage: handle, ramp: load.ramp, range: load.range })

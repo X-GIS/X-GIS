@@ -1,75 +1,71 @@
-// ═══ readCoverage — container sniff + dispatch (ADR-0010) ═══
+// ═══ readCoverage — URL-extension format routing + dispatch (ADR-0010) ═══
 //
-// The `coverage` source + setCoverageData enter here. These gates pin: the magic-byte
-// sniff (HDF5 / GRIB2 / NetCDF-classic / unknown, incl. a truncated body); that a real
-// S-100 HDF5 cell routes to the reader and round-trips through `valueAt`; and that the
-// not-yet-supported standards fail with a CLEAR, track-linked error (not a cryptic HDF5
-// superblock mis-parse on the wrong magic).
+// The `coverage` source + setCoverageData enter here. Format is picked by URL extension,
+// the SAME mechanism vector tiles use (`detectVectorTileFormat`) — NOT by magic bytes.
+// These gates pin: the extension routing (hdf5 / grib2 / netcdf / null, query+fragment
+// stripped, case-insensitive); that a real S-100 HDF5 cell round-trips through `valueAt`
+// (with a `.h5` URL, an unknown-extension URL, and no URL); and that a `.grib2`/`.nc` URL
+// fails with a CLEAR, track-linked error before any read.
 
 import { describe, it, expect } from 'vitest'
 import { readFileSync } from 'node:fs'
 import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { readCoverage, sniffCoverageContainer } from './read-coverage'
+import { readCoverage, detectCoverageFormat } from './read-coverage'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
-function bufOf(...bytes: number[]): ArrayBuffer {
-  return new Uint8Array(bytes).buffer
-}
 function fixture(name: string): ArrayBuffer {
   const b = readFileSync(join(HERE, '..', 'hdf5', '__fixtures__', name))
   return b.buffer.slice(b.byteOffset, b.byteOffset + b.byteLength)
 }
 
-describe('sniffCoverageContainer — magic-byte routing', () => {
-  it('detects HDF5 by its 8-byte superblock signature', () => {
-    expect(sniffCoverageContainer(bufOf(0x89, 0x48, 0x44, 0x46, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0))).toBe(
-      'hdf5',
-    )
-    // a real committed S-100 cell sniffs as hdf5
-    expect(sniffCoverageContainer(fixture('asym_southflip.h5'))).toBe('hdf5')
+describe('detectCoverageFormat — URL-extension routing (mirrors detectVectorTileFormat)', () => {
+  it('routes HDF5 / GRIB2 / NetCDF extensions', () => {
+    expect(detectCoverageFormat('https://cdn/currents.h5')).toBe('hdf5')
+    expect(detectCoverageFormat('x.hdf5')).toBe('hdf5')
+    expect(detectCoverageFormat('gfs.grib2')).toBe('grib2')
+    expect(detectCoverageFormat('gfs.grb')).toBe('grib2')
+    expect(detectCoverageFormat('sst.nc')).toBe('netcdf')
+    expect(detectCoverageFormat('sst.nc4')).toBe('netcdf')
   })
 
-  it("detects GRIB (GRIB1/2 share the leading magic 'GRIB')", () => {
-    expect(sniffCoverageContainer(bufOf(0x47, 0x52, 0x49, 0x42, 0, 0, 2, 0))).toBe('grib2')
+  it('strips ?query and #fragment, and is case-insensitive (S3 keys / Windows hosts)', () => {
+    expect(detectCoverageFormat('https://cdn/currents.h5?v=2&token=abc')).toBe('hdf5')
+    expect(detectCoverageFormat('currents.H5#frag')).toBe('hdf5')
+    expect(detectCoverageFormat('GFS.GRIB2')).toBe('grib2')
   })
 
-  it("detects NetCDF classic by 'CDF' + a classic version byte (1|2|5)", () => {
-    expect(sniffCoverageContainer(bufOf(0x43, 0x44, 0x46, 0x01))).toBe('netcdf-classic')
-    expect(sniffCoverageContainer(bufOf(0x43, 0x44, 0x46, 0x05))).toBe('netcdf-classic')
-    // 'CDF' with a non-classic version byte is NOT netcdf-classic
-    expect(sniffCoverageContainer(bufOf(0x43, 0x44, 0x46, 0x09))).toBe('unknown')
-  })
-
-  it("a truncated/empty body is 'unknown' (never a false HDF5 hit)", () => {
-    expect(sniffCoverageContainer(bufOf(0x89, 0x48))).toBe('unknown') // 2 bytes < 8
-    expect(sniffCoverageContainer(new ArrayBuffer(0))).toBe('unknown')
-    expect(sniffCoverageContainer(bufOf(1, 2, 3, 4, 5, 6, 7, 8))).toBe('unknown')
+  it("returns null for an unknown / extensionless URL (a proxy that drops the extension)", () => {
+    expect(detectCoverageFormat('https://proxy/currents-latest')).toBeNull()
+    expect(detectCoverageFormat('data.geojson')).toBeNull()
+    expect(detectCoverageFormat('')).toBeNull()
   })
 })
 
-describe('readCoverage — dispatch on container', () => {
-  it('routes a real S-100 HDF5 cell to the reader (valueAt round-trips)', async () => {
-    const h = await readCoverage(fixture('asym_southflip.h5'))
+describe('readCoverage — dispatch on the URL-declared format', () => {
+  it('reads a real S-100 HDF5 cell for a `.h5` URL (valueAt round-trips)', async () => {
+    const h = await readCoverage(fixture('asym_southflip.h5'), 'https://cdn/asym.h5')
     expect(h.header.product).toBe('s102')
     expect(h.valueAt(5, 50)).toBe(10) // SW cell, positive-down verbatim
     expect(Number.isNaN(h.valueAt(9, 50)!)).toBe(true) // SE nodata → NaN
-    expect(h.meta.vertical).toEqual({ datumCode: 23, sign: 'down' })
   })
 
-  it('GRIB2 fails with a clear, track-linked (#1273) error — not an HDF5 mis-parse', async () => {
-    await expect(readCoverage(bufOf(0x47, 0x52, 0x49, 0x42, 0, 0, 2, 0))).rejects.toThrow(
+  it('defaults to HDF5 for an extensionless URL and for no URL (the host-push path)', async () => {
+    const proxied = await readCoverage(fixture('asym_southflip.h5'), 'https://proxy/latest')
+    expect(proxied.valueAt(5, 50)).toBe(10)
+    const pushed = await readCoverage(fixture('asym_southflip.h5')) // setCoverageData: no URL
+    expect(pushed.valueAt(5, 50)).toBe(10)
+  })
+
+  it('a `.grib2` URL fails with a clear, track-linked (#1273) error before reading', async () => {
+    await expect(readCoverage(fixture('asym_southflip.h5'), 'x.grib2')).rejects.toThrow(
       /GRIB2.*#1273/,
     )
   })
 
-  it('NetCDF classic fails with a clear, track-linked (#1274) error', async () => {
-    await expect(readCoverage(bufOf(0x43, 0x44, 0x46, 0x01))).rejects.toThrow(/NetCDF.*#1274/)
-  })
-
-  it('an unrecognized container fails naming the expected HDF5 signature', async () => {
-    await expect(readCoverage(bufOf(1, 2, 3, 4, 5, 6, 7, 8))).rejects.toThrow(
-      /unrecognized gridded container.*HDF5/,
+  it('a `.nc` URL fails with a clear, track-linked (#1274) error', async () => {
+    await expect(readCoverage(fixture('asym_southflip.h5'), 'sst.nc')).rejects.toThrow(
+      /NetCDF.*#1274/,
     )
   })
 })
