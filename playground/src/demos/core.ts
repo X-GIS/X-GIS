@@ -238,6 +238,12 @@ export const DEMOS_CORE: Record<string, Demo> = {
     description:
       'N-stop step expression sizes / colors city dots into 4 population tiers; concat composes "City, Country (NNN k)" labels with round() for rounded thousands. Demonstrates the full Mapbox math + string operator surface.',
     source: load('step-and-concat.xgis'),
+    // 243 fixed-px city dots merge into blobs at the whole-world default
+    // view (the auto-fit lands at z≈0.5); open where the tiers + labels
+    // actually read. Zooming out still works — the .xgis's smaller step
+    // tiers keep even the world view acceptable.
+    zoom: 2.3,
+    center: [15, 35],
   },
 
   multiline_labels: {
