@@ -23,9 +23,7 @@ const base = import.meta.env.BASE_URL.replace(/\/+$/, '')
 // SSR seed so the server render and the first client render match exactly.
 // `{B}` → the absolute base at hydration (the island substitutes it); for
 // the SSR/no-JS textarea it's already the real base.
-const DEFAULT_SOURCE = `xgis 1
-
-source land {
+const DEFAULT_SOURCE = `source land {
   type: geojson
   url: "${base}/data/land.geojson"
 }

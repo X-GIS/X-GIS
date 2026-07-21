@@ -19,9 +19,7 @@ const recipes: Recipe[] = [
     slug: '3d-buildings',
     title: 'Extruded 3D buildings',
     body: 'Use the per-feature `fill-extrusion-height-[expr]` utility. The expression runs against each feature\'s tags at MVT decode time; missing properties fall through `??` to whatever default you pick.',
-    code: `xgis 1
-
-source pm {
+    code: `source pm {
   type: pmtiles
   url: "/protomaps-v4.pmtiles"
 }
@@ -42,25 +40,23 @@ layer buildings {
     slug: 'categorical-fill',
     title: 'Categorical fill from a property',
     body: 'Map discrete values to colours with `match()`. The default arm `_ -> …` runs when no key matches.',
-    code: `xgis 1
-
-source land {
+    code: `source land {
   type: geojson
   url: "ne_110m_countries.geojson"
 }
 
 layer continents {
   source: land
-  | fill match(.CONTINENT) {
-      "Asia"          -> red-400,
-      "Europe"        -> blue-400,
-      "Africa"        -> amber-400,
-      "North America" -> emerald-400,
-      "South America" -> violet-400,
-      "Oceania"       -> cyan-400,
+  | fill match(.continent) {
+      "Asia"          -> red-400
+      "Europe"        -> blue-400
+      "Africa"        -> amber-400
+      "North America" -> emerald-400
+      "South America" -> violet-400
+      "Oceania"       -> cyan-400
       _               -> gray-300
     }
-    stroke-white stroke-1
+  | stroke-white stroke-1
 }`,
   },
 
@@ -173,9 +169,7 @@ layer beacon {
     slug: 'mvt-layer-subset',
     title: 'Restrict PMTiles decoding to specific source-layers',
     body: 'List the source-layer names the source should bother decoding — the worker skips everything else and per-tile work drops in proportion. Same names you reference via `sourceLayer:` on a layer.',
-    code: `xgis 1
-
-source pm {
+    code: `source pm {
   type: pmtiles
   url: "/protomaps-v4.pmtiles"
   layers: ["water", "landuse", "transportation"]
@@ -189,9 +183,7 @@ source pm {
     slug: 'text-labels',
     title: 'Per-feature text labels',
     body: 'A `label-[<expr>]` utility on any layer turns its features into SDF text labels. The bracket holds an xgis expression — a bare field reference (`.name`) is the simplest form; quoted templates support Mapbox `{name}` tokens AND Python-style format specs `{lat:.4f}` plus GIS specs `{coord:dms}`.',
-    code: `xgis 1
-
-source cities { type: geojson, url: "cities.geojson" }
+    code: `source cities { type: geojson, url: "cities.geojson" }
 
 layer city_labels {
   source: cities
@@ -244,9 +236,7 @@ map.clearOverlays()`,
     slug: 'step-thresholds',
     title: 'Discrete thresholds with `step`',
     body: '`step(input, default, stop1, val1, stop2, val2, …)` is the discrete cousin of `interpolate`. Below `stop1` you get `default`; from each `stop_i` upward the value snaps to `val_i`. Useful for road class width tiers, opacity-on-zoom hard cuts, score-to-color buckets — anywhere a smooth gradient would be wrong because the value categories are inherently distinct.',
-    code: `xgis 1
-
-source roads { type: pmtiles, url: "tiles.pmtiles" }
+    code: `source roads { type: pmtiles, url: "tiles.pmtiles" }
 
 layer road_lines {
   source: roads
@@ -268,9 +258,7 @@ layer road_lines {
     slug: 'concat-labels',
     title: 'Composite labels with `concat`',
     body: '`concat(a, b, c, …)` glues any number of arguments after coercing each to its string form (numbers, booleans, even nulls — nulls drop silently). Inside `label-[<expr>]` you get the same behavior as the inline `"{template}"` form, but composable — round numbers first, format units, fall through alternatives.',
-    code: `xgis 1
-
-source places { type: geojson, url: "cities.geojson" }
+    code: `source places { type: geojson, url: "cities.geojson" }
 
 layer city_labels {
   source: places
@@ -296,9 +284,7 @@ layer peak_labels {
     slug: 'along-path-roads',
     title: 'Along-path road labels (`label-along-path`)',
     body: '`label-along-path` (Mapbox `symbol-placement: line`) walks the line geometry instead of anchoring at a point — each feature gets one label per first segment, rotated to match the local tangent. Roads read along their direction, river names follow the bend, highway names align with their corridor. Pair with `label-line-center` when you want exactly one label at the midpoint of every line.',
-    code: `xgis 1
-
-source roads { type: pmtiles, url: "tiles.pmtiles" }
+    code: `source roads { type: pmtiles, url: "tiles.pmtiles" }
 
 layer road_lines {
   source: roads
@@ -323,9 +309,7 @@ layer road_names {
     slug: 'import-mapbox-style',
     title: 'One-line import: any Mapbox v8 style',
     body: 'Splice form `import "url"` (no name list) pulls every top-level statement from the URL into your program. The runtime auto-detects Mapbox style.json (looks for `version` + `layers`) and runs the converter before parsing — so a single line drops a full base map (OpenFreeMap, OSM Bright, your own custom Mapbox style) into the canvas, and your own layers below override or sit on top.',
-    code: `xgis 1
-
-import "https://tiles.openfreemap.org/styles/bright"
+    code: `import "https://tiles.openfreemap.org/styles/bright"
 
 source places { type: geojson, url: "places.geojson" }
 
@@ -346,9 +330,7 @@ layer my_pois {
     slug: 'multiline-and-fontstack',
     title: 'Multiline labels + font-stack fallback',
     body: '`label-max-width-<em>` triggers greedy word-break wrapping; `label-line-height-<N>` and `label-justify-<a>` control spacing and alignment within the wrapped block. Multiple `label-font-<name>` utilities stack into a CSS font-fallback chain — the browser walks it glyph-by-glyph, so a Latin font + CJK font pair covers mixed-script labels without per-glyph resolution.',
-    code: `xgis 1
-
-source cities { type: geojson, url: "cities.geojson" }
+    code: `source cities { type: geojson, url: "cities.geojson" }
 
 layer city_labels {
   source: cities

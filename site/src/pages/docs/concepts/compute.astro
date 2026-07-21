@@ -16,9 +16,7 @@ const presets: Preset[] = [
     id: 'continent-match',
     label: 'continent-match',
     blurb: 'match() on a string property — lowers to a compute kernel',
-    source: `xgis 1
-
-source countries {
+    source: `source countries {
   type: geojson
   url: "ne_110m_countries.geojson"
 }
@@ -43,9 +41,7 @@ layer continents {
     id: 'osm-roads',
     label: 'osm-roads',
     blurb: 'Per-kind filter + tailwind paint — splits into six layers, merge-layers folds them',
-    source: `xgis 1
-
-source pm_world {
+    source: `source pm_world {
   type: pmtiles
   url: "/pmtiles-proxy/protomaps/v4.pmtiles"
 }
@@ -76,9 +72,7 @@ layer roads_primary {
     id: 'zoom-interp',
     label: 'zoom interpolate',
     blurb: 'interpolate(zoom, …) — routes to the palette atlas, not compute',
-    source: `xgis 1
-
-source countries {
+    source: `source countries {
   type: geojson
   url: "ne_110m_countries.geojson"
 }
@@ -94,9 +88,7 @@ layer ocean {
     id: 'constant',
     label: 'constant fill',
     blurb: 'No deps — fills get inlined as WGSL literals',
-    source: `xgis 1
-
-source countries {
+    source: `source countries {
   type: geojson
   url: "ne_110m_countries.geojson"
 }
@@ -111,9 +103,7 @@ layer all {
     id: 'large-match',
     label: 'large match (LUT)',
     blurb: 'At 16+ arms the kernel switches from an if-chain to a const-array LUT — O(1) lookup',
-    source: `xgis 1
-
-source roads {
+    source: `source roads {
   type: geojson
   url: "roads.geojson"
 }
