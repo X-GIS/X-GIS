@@ -495,11 +495,11 @@ export class StatementParser extends ExpressionParser {
       DATA_STYLE_FNS.includes(this.tokens[this.pos]?.value)
     ) {
       // parseCoalesce, NOT parseExpr — the standing block-property rule
-      // (see parseBlockProperty): parsePostfix consumes `match(...) { … }`
-      // including its arm block, so a following `|` that starts the NEXT
-      // utility line must not be swallowed as an expression pipe (#1236 —
-      // "Expected utility name, got Minus" on `| stroke-white` after a
-      // match-block utility).
+      // (see parseBlockProperty). Landed as the #1236 guard (the
+      // expression pipe used to swallow the NEXT utility line's `|`);
+      // that pipe operator was since removed entirely (#1238), so today
+      // this only keeps the bare-binding grammar aligned with block
+      // properties (`??` yes, ternary no).
       binding = this.parseCoalesce()
       // If it's match(...), check for trailing { ... } match block
       if (
