@@ -222,6 +222,15 @@ export interface XGISMapOptions {
    *  basemap-quality output it should opt in. Toggle at runtime via
    *  `map.setGraticuleEnabled(bool)`. */
   graticule?: boolean
+  /** #1255 — paint-transition duration in ms (MapLibre `*-transition`
+   *  parity). `setPaintProperty` / `layer.style` writes on the continuous
+   *  paint axes (fill/line colour, the opacity family, line-width) RAMP to
+   *  the new value over this window instead of popping; discrete
+   *  properties (visibility) always apply instantly. `0` disables all
+   *  transitions (instant sets, byte-identical to the pre-transition
+   *  behaviour — the right setting for pixel-exact screenshot harnesses).
+   *  Default `300`. */
+  paintTransitionDuration?: number
   /** Symbol fade duration in ms (MapLibre `fadeDuration` parity). Labels and
    *  their paired icons ramp opacity over this window when they appear or
    *  disappear (tile loads, collision churn) instead of popping. Placement

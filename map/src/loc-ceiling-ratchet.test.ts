@@ -277,11 +277,26 @@ const CEILINGS: Record<string, number> = {
   // fadeDuration parity, options-bag consumption) + the fade keep-alive read
   // in shouldRenderThisFrame (mirrors the adjacent _sceneHasAnimation line).
   // The fade machinery itself lives in text/label-fade.ts — wiring only here.
-  // Merge union (symbol fade <- main): three non-overlapping stacks compose here
-  // — main's #1192 sourceCRS fix (→4732) + #1229 item-1 getMissingTileCount (+17)
-  // + symbol fade's field + keep-alive read (+14) — so the merged file measures
-  // the 4763 wc -l, not max(4749, 4746).
-  'map/src/map.ts': 4763,
+  // 4718→4756 (#1255 paint transitions): the paintTransitionDurationMs
+  // option field (+doc, option-bag consumption), the registry field, the
+  // transitions context handed to XGISLayer at construction, the
+  // shouldRenderThisFrame keep-alive read, renderFrame()'s settle sweep,
+  // and the two scene-rebuild clear() calls. The transition MECHANISM
+  // lives extracted + unit-proved in paint-transitions.ts — wiring only
+  // grew here.
+  // Merge union (paint transitions <- main): the fade/getMissingTileCount/CRS
+  // stacks (→4763) and the #1255 paint-transition wiring (+38) are non-
+  // overlapping, so the merged file measures the 4801 wc -l, not max(4763, 4756).
+  'map/src/map.ts': 4801,
+  // Baselined at #1255 (measured 830): the DOM-inspired layer API crossed
+  // NEW_FILE_CAP with the paint-transition style-setter integration — the
+  // StyleHost.transitions context, the shared applyNumber/applyColor
+  // helpers, and the four setter rewires (fill/stroke/opacity/strokeWidth
+  // route their paintShapes writes through the #1255 registry; the ramp
+  // machine itself lives in paint-transitions.ts). Cohesive layer-API
+  // ownership (registry + style proxy + feature events) — shrink-only
+  // from now; split (LayerIdRegistry / events vs style) if it grows again.
+  'map/src/layer.ts': 830,
   // Baselined at #1235 (measured 846): SourceManager crossed NEW_FILE_CAP with
   // the gap-1/gap-2 seams — the setSourceData virtual re-seed branch (the
   // legacy worker-compile path renders fills/points but no line segments) +
