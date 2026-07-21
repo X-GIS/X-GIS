@@ -247,6 +247,19 @@ scripts/gap-matrix.md`) — read the script header before assuming write-in-plac
   agent-touched work; capture their diff as a patch and re-apply onto current main
   (PR #1220: batch authored on a stale sibling branch, recovered via 3-way apply).
 
+**Architecture / data formats**
+
+- NEVER invent a binary interchange format when a web standard covers the domain —
+  **PMTiles** for vector tiles, **COG** (Cloud-Optimized GeoTIFF) for raster/coverage
+  grids, GeoJSON for features. A bespoke container loses the ecosystem (no GDAL/
+  tippecanoe/geotiff.js, none of the data already on the web) AND web real-time (a
+  blob has no HTTP-range streaming). The zero-dep-decoder / custom-semantics arguments
+  do NOT clear this bar — we paid for it twice (`.xgvt` → PMTiles, then `.xgcov`).
+  PREFER reading the standard IN PLACE via range requests over converting anything;
+  convert only a genuinely non-web-native source (raw HDF5/GRIB2/NetCDF or CORS-blocked),
+  only server-side, and only TO a standard. If you're writing a magic number, stop.
+  → `2026-07-21-the-custom-format-trap.md`
+
 This section deliberately has NO separate index file: the posts themselves (their
 frontmatter descriptions) are the single authority, and a hand-synced index would be
 exactly the two-authorities drift §12's own second-ratchet entry warns about. Add a rule
