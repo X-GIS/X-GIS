@@ -22,9 +22,11 @@ layer city_dots {
   // (Tiers sized so the whole-world view stays readable — 243 fixed-px
   // dots at the original 3/5/7/10 merged into blobs at z<1; the demo
   // also declares an initial camera in demos/core.ts for the same
-  // reason. A composite step(...)×interpolate(zoom,...) size is NOT
-  // live-updating today — sizeExpr evaluates once at layer build — so
-  // the supported fix is smaller tiers + the camera pose.)
+  // reason. A composite step(...)×interpolate(zoom,...) size IS live
+  // on the vector-tile point path — flushTilePointsRhi re-evaluates
+  // sizeExpr per frame with the camera zoom (pinned by the
+  // _1248-composite-size-zoom e2e gate) — but fixed tiers keep this
+  // demo focused on step + concat.)
   | size-[step(.pop_max, 2.5, 100000, 4, 1000000, 6, 5000000, 8)]
   | fill-rose-500 fill-opacity-80
 }
