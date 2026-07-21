@@ -26,6 +26,7 @@ import type { ShowCommand } from './render/renderer-types'
 import { parseHexColor as parseHexColorRaw } from './feature-helpers'
 import { xlog } from '@xgis/shared'
 import { QUALITY } from '@xgis/engine'
+import type { ColorAxis, NumberAxis, PaintTransitionRegistry } from './paint-transitions'
 
 /** Wrapper that returns `null` on parse failure so the setters can
  *  short-circuit without touching paintShapes when given a malformed
@@ -141,6 +142,15 @@ export interface XGISFeatureEventInit {
 type StyleHost = {
   show: ShowCommand
   invalidate: () => void
+  /** #1255 — paint-transition context. Absent (tests, bespoke embedders)
+   *  → every set applies instantly via the legacy constant write,
+   *  byte-identical to the pre-transition behaviour. */
+  transitions?: {
+    registry: PaintTransitionRegistry
+    nowMs(): number
+    durationMs(): number
+    cameraZoom(): number
+  }
 }
 
 export class XGISLayerStyle {
@@ -153,6 +163,36 @@ export class XGISLayerStyle {
 
   private snapshot<K extends XGISLayerStyleKey>(key: K, current: unknown): void {
     if (!(key in this._defaults)) this._defaults[key] = current
+  }
+
+  /** #1255 — apply a numeric paint value through the transition registry
+   *  when a context with duration > 0 is present, else the legacy instant
+   *  constant (byte-identical). Shared by opacity / strokeWidth. */
+  private applyNumber(axis: NumberAxis, to: number): void {
+    const t = this.host.transitions
+    const dur = t !== undefined ? t.durationMs() : 0
+    if (t !== undefined && dur > 0) {
+      t.registry.beginNumber(axis, to, t.nowMs(), dur, t.cameraZoom())
+    } else {
+      axis.set({ kind: 'constant', value: to })
+    }
+  }
+
+  /** Colour twin of {@link applyNumber} (fill / stroke). `staticFrom` is
+   *  the PRE-set static hex, parsed — the from-value when the axis shape
+   *  is null (the flat show field was authoritative). */
+  private applyColor(
+    axis: ColorAxis,
+    to: readonly [number, number, number, number],
+    staticFrom: readonly [number, number, number, number] | null,
+  ): void {
+    const t = this.host.transitions
+    const dur = t !== undefined ? t.durationMs() : 0
+    if (t !== undefined && dur > 0) {
+      t.registry.beginColor(axis, to, t.nowMs(), dur, t.cameraZoom(), staticFrom)
+    } else {
+      axis.set({ kind: 'constant', value: to })
+    }
   }
 
   get opacity(): number {
@@ -171,7 +211,17 @@ export class XGISLayerStyle {
     // flat `show.opacity` field. Update both so the WebGPU draw path
     // picks up the imperative override. (Was silently ineffective
     // post-Step-1d before this commit.)
-    this.host.show.paintShapes.common.opacity = { kind: 'constant', value: clamped }
+    // #1255 — the shape write routes through the transition registry so the
+    // change RAMPS when a duration is configured (instant otherwise).
+    this.applyNumber(
+      {
+        get: () => this.host.show.paintShapes.common.opacity,
+        set: (s) => {
+          this.host.show.paintShapes.common.opacity = s
+        },
+      },
+      clamped,
+    )
     this.host.invalidate()
   }
 
@@ -186,15 +236,27 @@ export class XGISLayerStyle {
     // paintShapes.fill at the old value — getters then reported the
     // new string while the renderer still drew the old colour.
     if (v !== null && parseHexColor(v) === null) return
+    // #1255 — capture the PRE-set static hex before overwriting: it is the
+    // ramp's from-value when the axis shape is null (static-authoritative).
+    const prevStatic = this.host.show.fill !== null ? parseHexColor(this.host.show.fill) : null
     this.snapshot('fill', this.host.show.fill)
     this.host.show.fill = v
     // paintShapes.fill is the truth-of-record for the WebGPU draw path.
-    // Hex → RGBA tuple; `null` clears the shape.
+    // Hex → RGBA tuple; `null` clears the shape (never transitioned — a
+    // cleared axis is not interpolable, MapLibre semantics).
     if (v === null) {
       this.host.show.paintShapes.fill.fill = null
     } else {
-      const rgba = parseHexColor(v)!
-      this.host.show.paintShapes.fill.fill = { kind: 'constant', value: rgba }
+      this.applyColor(
+        {
+          get: () => this.host.show.paintShapes.fill.fill,
+          set: (s) => {
+            this.host.show.paintShapes.fill.fill = s
+          },
+        },
+        parseHexColor(v)!,
+        prevStatic,
+      )
     }
     this.host.invalidate()
   }
@@ -206,13 +268,22 @@ export class XGISLayerStyle {
     // Mirror of the fill setter — validate first to keep show.stroke +
     // paintShapes.stroke in sync.
     if (v !== null && parseHexColor(v) === null) return
+    const prevStatic = this.host.show.stroke !== null ? parseHexColor(this.host.show.stroke) : null
     this.snapshot('stroke', this.host.show.stroke)
     this.host.show.stroke = v
     if (v === null) {
       this.host.show.paintShapes.line.stroke = null
     } else {
-      const rgba = parseHexColor(v)!
-      this.host.show.paintShapes.line.stroke = { kind: 'constant', value: rgba }
+      this.applyColor(
+        {
+          get: () => this.host.show.paintShapes.line.stroke,
+          set: (s) => {
+            this.host.show.paintShapes.line.stroke = s
+          },
+        },
+        parseHexColor(v)!,
+        prevStatic,
+      )
     }
     this.host.invalidate()
   }
@@ -226,7 +297,15 @@ export class XGISLayerStyle {
     const clamped = Math.max(0, v)
     this.snapshot('strokeWidth', this.host.show.strokeWidth)
     this.host.show.strokeWidth = clamped
-    this.host.show.paintShapes.line.strokeWidth = { kind: 'constant', value: clamped }
+    this.applyNumber(
+      {
+        get: () => this.host.show.paintShapes.line.strokeWidth,
+        set: (s) => {
+          this.host.show.paintShapes.line.strokeWidth = s
+        },
+      },
+      clamped,
+    )
     this.host.invalidate()
   }
 
@@ -694,8 +773,12 @@ export class XGISLayer {
     public readonly name: string,
     private show: ShowCommand,
     invalidate: () => void,
+    // #1255 — paint-transition context (see StyleHost.transitions).
+    // Optional: existing call sites / tests without it keep the legacy
+    // instant-set behaviour byte-identically.
+    transitions?: StyleHost['transitions'],
   ) {
-    this.style = new XGISLayerStyle({ show, invalidate })
+    this.style = new XGISLayerStyle({ show, invalidate, transitions })
   }
 
   /** Stable u16 ID for this layer (LayerIdRegistry-assigned). Useful for

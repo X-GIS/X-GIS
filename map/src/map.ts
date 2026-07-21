@@ -105,6 +105,7 @@ import {
 } from './layer'
 import { attachAutoResize } from './auto-resize'
 import { attachVisibilityPause } from './visibility-pause'
+import { PaintTransitionRegistry } from './paint-transitions'
 import { EventDispatcher } from './event-dispatcher'
 import { TileCatalog } from '@xgis/data'
 import { isTileTemplate } from '@xgis/data'
@@ -355,6 +356,14 @@ export class XGISMap {
   glyphsUrl: string | null = null
   inlineGlyphs: NonNullable<TextStageOptions['inlineGlyphs']> | null = null
   glyphProviders: NonNullable<TextStageOptions['glyphProviders']> = []
+  /** #1255 — paint-transition duration (ms) for setPaintProperty / layer.style
+   *  writes on the continuous axes (fill/line colour, opacity, line-width).
+   *  MapLibre `*-transition` parity; 0 disables (instant sets, byte-identical
+   *  to the pre-transition behaviour — the right setting for pixel-exact
+   *  screenshot harnesses). Set via `XGISMapOptions.paintTransitionDuration`. */
+  paintTransitionDurationMs = 300
+  /** #1255 — live paint ramps: keep-alive + end-of-ramp constant settle. */
+  private readonly _paintTransitions = new PaintTransitionRegistry()
   /** Sprite atlas URL prefix from the imported style's top-level
    *  `sprite` field. Used by the lazy IconStage to fetch
    *  `${url}.json` + `${url}.png`. Null = no icons rendered. */
@@ -1148,6 +1157,10 @@ export class XGISMap {
     // P4 opt-in for compute-driven paint evaluation. Stored as a
     // simple flag the run() method reads when invoking emitCommands.
     if (options.enableComputePath) this._enableComputePath = true
+    // #1255 — paint-transition duration (MapLibre *-transition parity,
+    // default 300 ms). Consumed by the XGISLayer style setters; 0 disables.
+    if (options.paintTransitionDuration !== undefined)
+      this.paintTransitionDurationMs = options.paintTransitionDuration
     this._backend = options.backend ?? 'auto'
     this._preserveDrawingBuffer = options.preserveDrawingBuffer ?? false
     // Surface converter "Conversion notes" to the console at load —
@@ -3077,6 +3090,9 @@ export class XGISMap {
     // mercator-class projections; the projection-change hook re-drives it.
     installGeoJSONPolarCaps(this._polarCapHost())
     commands.shows = this.showCommands as typeof commands.shows
+    // #1255 — a scene rebuild replaces every ShowCommand: pending paint
+    // ramps point into dead bundles, so drop them (no settle writes).
+    this._paintTransitions.clear()
     this._sceneHasAnimation = sceneHasAnyAnimation(commands.shows)
     this._labelsHaveTimeAnimation = labelsHaveTimeAnimation(commands.shows)
     // Full scene (re)build — style, sources, geometry, labels, and possibly
@@ -3310,7 +3326,16 @@ export class XGISMap {
       // into multiple shows; the wrapper still mutates the first
       // show, the rest will adopt it via the layerName lookup).
       if (!this.xgisLayers.has(layerName)) {
-        this.xgisLayers.set(layerName, new XGISLayer(layerName, show, () => this.invalidate()))
+        this.xgisLayers.set(
+          layerName,
+          new XGISLayer(layerName, show, () => this.invalidate(), {
+            // #1255 — style writes ramp through the transition registry.
+            registry: this._paintTransitions,
+            nowMs: () => this._elapsedMs,
+            durationMs: () => this.paintTransitionDurationMs,
+            cameraZoom: () => this.camera.zoom,
+          }),
+        )
       }
 
       // raster-dem source → activate the HILLSHADE renderer (#777). Checked
@@ -3927,6 +3952,8 @@ export class XGISMap {
     if (this._epochStale(epoch)) return
 
     this.showCommands = commands.shows
+    // #1255 — mirror of run()'s rebuild: drop ramps into dead bundles.
+    this._paintTransitions.clear()
     this._sceneHasAnimation = sceneHasAnyAnimation(commands.shows)
     this._labelsHaveTimeAnimation = labelsHaveTimeAnimation(commands.shows)
     // Full scene (re)build from a binary load — same DIRTY_ALL mask as run().
@@ -4078,6 +4105,11 @@ export class XGISMap {
   private shouldRenderThisFrame(): boolean {
     if (this._needsRender) return true
     if (this._sceneHasAnimation) return true
+    // #1255 — paint-transition keep-alive (mirror of _sceneHasAnimation):
+    // frames keep coming exactly while a setPaintProperty ramp is in
+    // flight; renderFrame()'s settle sweep empties the registry at the
+    // ramp ends and this goes false again.
+    if (this._paintTransitions.hasActive()) return true
     if (this.hasPendingSourceWork()) return true
     const c = this.camera
     const canvas = this.ctx?.canvas
@@ -4218,7 +4250,13 @@ export class XGISMap {
   }
 
   private renderFrame(): void {
-    return this.renderLoopInstance.render()
+    this.renderLoopInstance.render()
+    // #1255 — settle finished paint-transition ramps AFTER the frame that
+    // rendered them at (or past) their terminal value: the swap to a
+    // constant is visually a no-op (the ramp clamps at `to`) and restores
+    // the constant fast paths. Runs on the just-updated `_elapsedMs`;
+    // while ramps remain, shouldRenderThisFrame keeps frames coming.
+    this._paintTransitions.settle(this._elapsedMs)
   }
 
   // ═══ DOM-inspired Layer API ═══

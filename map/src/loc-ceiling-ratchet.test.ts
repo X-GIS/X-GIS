@@ -259,7 +259,23 @@ const CEILINGS: Record<string, number> = {
   // Merge union (raster-resolution <- main): both bumps stacked
   // non-overlappingly (tileSize wiring +3, #1235 seams +7) — merged
   // high-water is the measured 4718.
-  'map/src/map.ts': 4718,
+  // 4718→4756 (#1255 paint transitions): the paintTransitionDurationMs
+  // option field (+doc, option-bag consumption), the registry field, the
+  // transitions context handed to XGISLayer at construction, the
+  // shouldRenderThisFrame keep-alive read, renderFrame()'s settle sweep,
+  // and the two scene-rebuild clear() calls. The transition MECHANISM
+  // lives extracted + unit-proved in paint-transitions.ts — wiring only
+  // grew here.
+  'map/src/map.ts': 4756,
+  // Baselined at #1255 (measured 830): the DOM-inspired layer API crossed
+  // NEW_FILE_CAP with the paint-transition style-setter integration — the
+  // StyleHost.transitions context, the shared applyNumber/applyColor
+  // helpers, and the four setter rewires (fill/stroke/opacity/strokeWidth
+  // route their paintShapes writes through the #1255 registry; the ramp
+  // machine itself lives in paint-transitions.ts). Cohesive layer-API
+  // ownership (registry + style proxy + feature events) — shrink-only
+  // from now; split (LayerIdRegistry / events vs style) if it grows again.
+  'map/src/layer.ts': 830,
   // Baselined at #1235 (measured 846): SourceManager crossed NEW_FILE_CAP with
   // the gap-1/gap-2 seams — the setSourceData virtual re-seed branch (the
   // legacy worker-compile path renders fills/points but no line segments) +

@@ -1398,6 +1398,7 @@ async function runSource(source: string, label: string) {
       spriteUrl?: string
       glyphs?: { url?: string }
       preserveDrawingBuffer?: boolean
+      paintTransitionDuration?: number
     } = {
       enableComputePath: computeOptIn,
     }
@@ -1416,6 +1417,12 @@ async function runSource(source: string, label: string) {
     // but NOT ?e2e=1's fixture-auto-push suppression (the points gate deliberately
     // omits e2e so its fixture data still auto-pushes — #1172 merge reconciliation).
     if (params.has('e2e') || params.has('preserve')) ctorOpts.preserveDrawingBuffer = true
+    // ?ptdur=<ms> — override the #1255 paintTransitionDuration (the
+    // setPaintProperty ramps). `?ptdur=0` disables for pixel-exact gates
+    // (the _paint-transition-gate parity arm); absent keeps the library
+    // default.
+    const ptParam = params.get('ptdur')
+    if (ptParam !== null && ptParam !== '') ctorOpts.paintTransitionDuration = Number(ptParam)
     currentMap = new XGISMap(canvas, ctorOpts)
     // Debug hook — Playwright tests + DevTools console can poke at
     // map._elapsedMs, map.vectorTileShows, etc. without re-wiring the
