@@ -440,12 +440,11 @@ export class StatementParser extends ExpressionParser {
   }
 
   // key: value (used in source and layer blocks)
-  // Uses parseCoalesce() instead of parseExpr() to avoid consuming
-  // `|` as the pipe operator. parseCoalesce wraps parseLogicalOr
-  // and adds `??` support — required for things like
-  // `extrude: .height ?? 50` inside a layer body. Walking up to
-  // parsePipe / parseExpr would also pull in the pipe operator
-  // and break the `layer x { ... | fill-... }` grammar.
+  // Uses parseCoalesce() instead of parseExpr(), which keeps `??`
+  // (`extrude: .height ?? 50`) but not the ternary. The original
+  // reason — keeping `|` out of expression position — is moot since
+  // the expression pipe operator was removed (#1238), but the accepted
+  // block-value grammar is deliberately left unchanged by that removal.
   private parseBlockProperty(): AST.BlockProperty {
     const line = this.current().line
     const name = this.expectIdentifierOrKeyword()
@@ -496,11 +495,11 @@ export class StatementParser extends ExpressionParser {
       DATA_STYLE_FNS.includes(this.tokens[this.pos]?.value)
     ) {
       // parseCoalesce, NOT parseExpr — the standing block-property rule
-      // (see parseBlockProperty): parsePostfix consumes `match(...) { … }`
-      // including its arm block, so a following `|` that starts the NEXT
-      // utility line must not be swallowed as an expression pipe (#1236 —
-      // "Expected utility name, got Minus" on `| stroke-white` after a
-      // match-block utility).
+      // (see parseBlockProperty). Landed as the #1236 guard (the
+      // expression pipe used to swallow the NEXT utility line's `|`);
+      // that pipe operator was since removed entirely (#1238), so today
+      // this only keeps the bare-binding grammar aligned with block
+      // properties (`??` yes, ternary no).
       binding = this.parseCoalesce()
       // If it's match(...), check for trailing { ... } match block
       if (

@@ -129,9 +129,6 @@ export function astToNode(expr: AST.Expr, fieldMap: Map<string, number>): NodeLi
     case 'FnCall':
       return fnCallToNode(expr, fieldMap)
 
-    case 'PipeExpr':
-      return pipeToNode(expr, fieldMap)
-
     case 'ConditionalExpr': {
       const cond = astToNode(expr.condition, fieldMap)
       const thenVal = astToNode(expr.thenExpr, fieldMap)
@@ -186,34 +183,6 @@ function fnCallToNode(expr: AST.FnCall, fieldMap: Map<string, number>): NodeLike
   return f32Lit(0)
 }
 
-function pipeToNode(expr: AST.PipeExpr, fieldMap: Map<string, number>): NodeLike<'f32'> {
-  let result = astToNode(expr.input, fieldMap)
-
-  for (const transform of expr.transforms) {
-    const name = transform.callee.kind === 'Identifier' ? transform.callee.name : null
-    if (!name) continue
-
-    const extraArgs = transform.args.map((a) => astToNode(a, fieldMap))
-
-    // Pipe passes result as first arg
-    if (name === 'scale') {
-      result = f32Mul(result, extraArgs[0] ?? f32Lit(1))
-    } else if (name === 'step') {
-      result = selectF32(
-        extraArgs[2] ?? f32Lit(1),
-        extraArgs[1] ?? f32Lit(0),
-        compareToBool(result, '<', extraArgs[0] ?? f32Lit(0)),
-      )
-    } else if (name === 'log10') {
-      result = f32Div(callF32('log', [maxF32(result, f32Lit(1e-10))]), callF32('log', [f32Lit(10)]))
-    } else if (WGSL_BUILTIN_FNS.has(name)) {
-      result = callF32(name, [result, ...extraArgs])
-    }
-  }
-
-  return result
-}
-
 /**
  * Collect all field names referenced in an expression.
  * Used to build the fieldMap for storage buffer layout.
@@ -243,10 +212,6 @@ function walkExpr(expr: AST.Expr, fields: Set<string>): void {
     case 'FnCall':
       expr.args.forEach((a) => walkExpr(a, fields))
       break
-    case 'PipeExpr':
-      walkExpr(expr.input, fields)
-      expr.transforms.forEach((t) => t.args.forEach((a) => walkExpr(a, fields)))
-      break
   }
 }
 
@@ -272,7 +237,6 @@ function walkExpr(expr: AST.Expr, fields: Set<string>): void {
  *   BinaryExpr — recurses left + right
  *   UnaryExpr — recurses operand
  *   FnCall — recurses args + matchBlock arms (key+value both)
- *   PipeExpr — recurses input + transform args
  *   MatchBlock — recurses all arm values
  *   ArrayLiteral — recurses all elements
  *   ArrayAccess — recurses array + index
@@ -339,18 +303,6 @@ function walkStrict(expr: AST.Expr, fields: Set<string>): boolean {
       }
       if (expr.matchBlock) {
         if (!walkStrict(expr.matchBlock, fields)) return false
-      }
-      return true
-    }
-    case 'PipeExpr': {
-      if (!walkStrict(expr.input, fields)) return false
-      for (const t of expr.transforms) {
-        for (const a of t.args) {
-          if (!walkStrict(a, fields)) return false
-        }
-        if (t.matchBlock) {
-          if (!walkStrict(t.matchBlock, fields)) return false
-        }
       }
       return true
     }
