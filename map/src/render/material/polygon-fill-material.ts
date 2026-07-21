@@ -52,6 +52,12 @@ export interface FillRhiState {
    *  (grown by PipelineFactory as layers are added) routes each per-style fill pipeline to its
    *  Material twin + variant. Checked before the default `pipes` above. */
   perStyle: Map<RhiPipelineHandle, { mat: Material; variant: number }> | null
+  /** #1252 — per-STYLE EXTRUDED fills: a data-driven fill that also extrudes compiles its own
+   *  feature-layout extrude Material (buildExtrudeMaterial over the variant WGSL). Routes each
+   *  variant extruded pipeline (fillPipelineExtruded / …Fallback + nopick) to that twin so
+   *  fs_fill_extrude samples feat_data[fid]. Checked on the bindZBuffer path BEFORE `extrude`
+   *  (the shared base twin). null / miss → the base extrude twin (constant-fill path). */
+  perStyleExtrude: Map<RhiPipelineHandle, { mat: Material; variant: number }> | null
   /** Opaque 3D-extruded fill (default shader): the extrude Material + the two native pipelines it
    *  twins. Routed on the bindZBuffer path. The *NoPick fields twin the pointer-events:none extrude
    *  pipelines (only built when picking is on; null otherwise). null = extrude stays raw. */
@@ -557,12 +563,28 @@ export function recordFillDraw(
         }
       }
     } else {
+      // #1252 — per-STYLE extrude FIRST: a data-driven fill that extrudes has its own
+      // feature-layout extrude twin (fs_fill_extrude samples feat_data[fid]). Identity
+      // then label match, mirroring the flat perStyle lookup. extrudeSolid=true so the
+      // #1080 translucent front-shell two-draw applies to data-driven extrusions too.
+      let pse = eff.perStyleExtrude?.get(pipeline)
+      if (!pse && eff.perStyleExtrude && pipeline.label) {
+        for (const [k, v] of eff.perStyleExtrude) {
+          if (eq(k)) {
+            pse = v
+            break
+          }
+        }
+      }
+      if (pse) {
+        mat = pse.mat
+        variant = pse.variant
+        extrudeSolid = true
+      }
       // Opaque 3D extrude: match the two extrude pipelines. The per-feature height rides in the
-      // POLYGON_EXTRUDED vertex (slot 0) — the slot-1 z-buffer is unused here, so no vertex1. (OIT +
-      // per-style extrude are not in `extrude` yet → would throw below; both are provably unreachable
-      // here: OIT-extrude is never scheduled and there is no per-style-extrude pipeline.)
+      // POLYGON_EXTRUDED vertex (slot 0) — the slot-1 z-buffer is unused here, so no vertex1.
       const e = eff.extrude
-      if (e) {
+      if (!mat && e) {
         if (eq(e.write)) {
           mat = e.mat
           variant = 0

@@ -1,4 +1,4 @@
-// baseline: fcc1ea7147d6283abfbb090fb9af4ab7f52a7114
+// baseline: 3c0a8683e074a423e330a7060e4e4bea5eaa84e0
 // fixture: positron-constant
 // variant.key: __bare-pick0__
 // pick: false
@@ -49,6 +49,7 @@ struct VertexOutput {
   @location(6) abs_merc_y: f32,
   @location(7) world_z: f32,
   @location(8) v_color: vec4<f32>,
+  @location(9) shade_geom: vec2<f32>,
 }
 
 struct OitFragmentOutput {
@@ -336,7 +337,7 @@ fn vs_main(@location(0) pos_h: vec3<f32>, @location(1) pos_l: vec3<f32>, @locati
     _av0.y = (_av0.y - (u.fill_translate_y * _av0.w));
   }
   let _v0 = apply_log_depth(_av0, u.log_depth_fc);
-  return VertexOutput(vec4<f32>(_v0.x, _v0.y, (_v0.z - (u.layer_depth_offset * _v0.w)), _v0.w), 0.0, u32(feature_id), _cse3, _av0.w, 1.0, (radians(abs_lon) * EARTH_R), (log(tan(((PI / 4.0) + (radians(_cse3) / 2.0)))) * EARTH_R), 0.0, _cse0);
+  return VertexOutput(vec4<f32>(_v0.x, _v0.y, (_v0.z - (u.layer_depth_offset * _v0.w)), _v0.w), 0.0, u32(feature_id), _cse3, _av0.w, 1.0, (radians(abs_lon) * EARTH_R), (log(tan(((PI / 4.0) + (radians(_cse3) / 2.0)))) * EARTH_R), 0.0, _cse0, vec2<f32>(0.0, 0.0));
 }
 
 @vertex
@@ -360,7 +361,7 @@ fn vs_main_ecef(@location(0) q_xy: vec4<u32>, @location(1) q_z: vec2<u32>, @loca
     _av0.y = (_av0.y - (u.fill_translate_y * _av0.w));
   }
   let _v0 = apply_log_depth(_av0, u.log_depth_fc);
-  return VertexOutput(vec4<f32>(_v0.x, _v0.y, (_v0.z - (u.layer_depth_offset * _v0.w)), _v0.w), 0.0, u32(feature_id), clamp(degrees(inv_merc_lat_rad(_cse3)), (-MERCATOR_LAT_LIMIT), MERCATOR_LAT_LIMIT), _av0.w, 1.0, (abs_lon + u.tile_origin_merc.x), _cse3, 0.0, _cse0);
+  return VertexOutput(vec4<f32>(_v0.x, _v0.y, (_v0.z - (u.layer_depth_offset * _v0.w)), _v0.w), 0.0, u32(feature_id), clamp(degrees(inv_merc_lat_rad(_cse3)), (-MERCATOR_LAT_LIMIT), MERCATOR_LAT_LIMIT), _av0.w, 1.0, (abs_lon + u.tile_origin_merc.x), _cse3, 0.0, _cse0, vec2<f32>(0.0, 0.0));
 }
 
 @vertex
@@ -393,13 +394,10 @@ fn vs_main_ecef_extruded(@location(0) q_xy: vec4<u32>, @location(1) q_z: vec2<u3
   let _v4 = cos(_cse5);
   let _v5 = ((face_normal.x * _v2) + (face_normal.y * _v1));
   let _v6 = vec3<f32>(((face_normal.y * _v2) - (face_normal.x * _v1)), ((face_normal.z * _v4) - (_v3 * _v5)), ((_v4 * _v5) + (face_normal.z * _v3)));
-  var _av1: f32 = clamp(dot(select(face_normal, _v6, _cse2), u.light_dir_ecef.xyz), 0.0, 1.0);
-  _av1 = mix(_cse6, max(((1.0 - (((u.fill_color.rgb.x * 0.2126) + (u.fill_color.rgb.y * 0.7152)) + (u.fill_color.rgb.z * 0.0722))) + u.light_dir_ecef.w), 1.0), _av1);
-  if (((abs(_v6.z) < 0.5) && (u.cam_ecef_off_l.w != 0.0))) {
-    _av1 = (_av1 * clamp((is_top * sqrt((max(wall_height, 1.0) / 150.0))), mix(0.7, 0.98, _cse6), 1.0));
-  }
-  let _v7 = clamp((((u.fill_color.rgb + vec3<f32>(0.03)) * _av1) * unpack4x8unorm(u.light_color_packed).xyz), vec3<f32>(0.0), vec3<f32>(1.0));
-  return VertexOutput(vec4<f32>(_v0.x, _v0.y, (_v0.z - (u.layer_depth_offset * _v0.w)), _v0.w), 0.0, u32(feature_id), _cse7, _av0.w, is_top, (_cse4 * EARTH_R), (log(tan(((PI / 4.0) + (radians(_cse7) / 2.0)))) * EARTH_R), _cse1, vec4<f32>(_v7, u.fill_color.w));
+  let d_geom = clamp(dot(select(face_normal, _v6, _cse2), u.light_dir_ecef.xyz), 0.0, 1.0);
+  let vgrad_factor = select(1.0, clamp((is_top * sqrt((max(wall_height, 1.0) / 150.0))), mix(0.7, 0.98, _cse6), 1.0), ((abs(_v6.z) < 0.5) && (u.cam_ecef_off_l.w != 0.0)));
+  let _v7 = clamp((((u.fill_color.rgb + vec3<f32>(0.03)) * (mix(_cse6, max(((1.0 - (((u.fill_color.rgb.x * 0.2126) + (u.fill_color.rgb.y * 0.7152)) + (u.fill_color.rgb.z * 0.0722))) + u.light_dir_ecef.w), 1.0), d_geom) * vgrad_factor)) * unpack4x8unorm(u.light_color_packed).xyz), vec3<f32>(0.0), vec3<f32>(1.0));
+  return VertexOutput(vec4<f32>(_v0.x, _v0.y, (_v0.z - (u.layer_depth_offset * _v0.w)), _v0.w), 0.0, u32(feature_id), _cse7, _av0.w, is_top, (_cse4 * EARTH_R), (log(tan(((PI / 4.0) + (radians(_cse7) / 2.0)))) * EARTH_R), _cse1, vec4<f32>(_v7, u.fill_color.w), vec2<f32>(d_geom, vgrad_factor));
 }
 
 @fragment
@@ -520,7 +518,9 @@ fn fs_fill_extrude(input: VertexOutput) -> FragmentOutput {
     }
   }
   var out: FragmentOutput;
-  out.color = (input.v_color * polygon_rim_alpha(input.abs_merc_x, input.abs_merc_y));
+  let v_ext_color = input.v_color;
+  out.color = v_ext_color;
+  out.color = (out.color * polygon_rim_alpha(input.abs_merc_x, input.abs_merc_y));
   out.depth = (compute_log_frag_depth(input.view_w, u.log_depth_fc) + select(0.0, ((f32((((_cse0 ^ (_cse0 >> 7u)) ^ (_cse0 << 3u)) & 1023u)) - 512.0) * 1.5e-8), (input.feat_id != 0u)));
   return out;
 }
