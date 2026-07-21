@@ -1389,6 +1389,23 @@ export class XGISMap {
     return this._loaded
   }
 
+  /** Per-frame count of tiles the map is still waiting on: vector-tile cells
+   *  without a drawable tile this frame PLUS raster/hillshade tiles mid-fetch.
+   *  Written by BOTH render paths (the WebGPU render-loop's end-of-frame
+   *  bookkeeping and the forced-WebGL2 `renderFrameViaRhi`) as the sum of the
+   *  same three signals the loop ORs into its keep-warm `_needsRender` gate, so
+   *  it settles to 0 exactly when the scene converges. Public-by-convention (no
+   *  `private`) so `RenderLoopHost` can Pick it for the write. */
+  _missingTileCount = 0
+  /** In-flight tile-load count for the last rendered frame: > 0 while vector,
+   *  raster, or hillshade tiles are still resolving; 0 once the scene settles.
+   *  A zero-allocation read (unlike `stats`, which builds a fresh RenderStats
+   *  each call), so a host can poll it every rAF to drive a "loading N tiles"
+   *  affordance without churning GC. */
+  getMissingTileCount(): number {
+    return this._missingTileCount
+  }
+
   /** Host hook fired once if the GPU device is lost (driver reset, tab
    *  backgrounding, OOM) — NOT on explicit teardown. The render loop
    *  already stops itself on loss (no error cascade); use this to surface
