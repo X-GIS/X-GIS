@@ -113,18 +113,8 @@ const opGroups: OpGroup[] = [
     ],
   },
   {
-    title: 'Pipe (right-binding sugar)',
-    precedence: 10,
-    body: 'Pass the LHS as the FIRST argument to the function call on the RHS. Reads left-to-right like a Unix shell pipe — no equivalent in JS.',
-    ops: [
-      { symbol: 'a | f(b)', name: 'Pipe',
-        body: 'Equivalent to `f(a, b)`. Stack multiple pipes for chained transforms.',
-        example: '.speed / 50 | clamp(4, 24)' },
-    ],
-  },
-  {
     title: 'Ternary (lowest)',
-    precedence: 11,
+    precedence: 10,
     body: 'Inline conditional. Evaluates the condition first, then exactly one branch.',
     ops: [
       { symbol: 'cond ? a : b', name: 'Conditional',

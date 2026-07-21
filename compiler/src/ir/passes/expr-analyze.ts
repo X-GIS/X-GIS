@@ -142,10 +142,6 @@ export function analyzeExprs(scene: Scene): ExprAnalysis {
       case 'UnaryExpr':
         childMetas.push(visit(e.operand))
         break
-      case 'PipeExpr':
-        childMetas.push(visit(e.input))
-        for (const t of e.transforms) childMetas.push(visit(t))
-        break
       case 'ConditionalExpr':
         childMetas.push(visit(e.condition), visit(e.thenExpr), visit(e.elseExpr))
         break

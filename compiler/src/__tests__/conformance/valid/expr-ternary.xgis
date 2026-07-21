@@ -1,0 +1,10 @@
+// @case valid
+// @construct ternary
+// @desc the ternary conditional in a bracket binding (the pipe half of the former pipe-and-ternary fixture was removed with the expression pipe operator, #1238)
+xgis 1
+source w { type: geojson, url: "w.geojson" }
+layer roads {
+  source: w
+  | size-[clamp(round(.speed), 0, 10)]
+  | fill-[.hostile ? #ef4444 : #22c55e]
+}

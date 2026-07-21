@@ -12,7 +12,7 @@
 //   match(.cls) {  "a" -> .hl ? "#fff" : "#000",  _ -> "#888"  }
 // `parseMatchBlock` parsed arm values via `parseCoalesce()`, which
 // sits BELOW the ternary in precedence (parser.ts: ternary lives in
-// `parseExpr`, above `parsePipe`→`parseCoalesce`). The parser stopped
+// `parseExpr`, above `parseCoalesce`). The parser stopped
 // at the `?` token and threw "Expected RBrace, got Question". The fix
 // makes parseMatchBlock parse arm values with parseExpr() so ternary /
 // case arm values are accepted.
