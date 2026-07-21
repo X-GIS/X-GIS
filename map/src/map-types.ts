@@ -176,6 +176,14 @@ export interface XGISMapOptions {
   /** Initial pitch in degrees, applied at construction. Latches the positioned
    *  flag. Clamped to `[0, 85]`. Default `0`. */
   pitch?: number
+  /** #1268 — sync the camera to the URL fragment (MapLibre `hash` parity):
+   *  `true` reads/writes `#zoom/lat/lon[/bearing[/pitch]]`; a string namespaces
+   *  it as `name=…` so several maps on a page (or a host's own fragment params)
+   *  coexist. On boot a present fragment SEEDS the camera and WINS over
+   *  `center`/`zoom`/`bearing`/`pitch`; afterwards each move-end rewrites the
+   *  fragment (debounced, `history.replaceState` — never a new history entry).
+   *  Absent / `false` (the default) never touches the URL or history. */
+  hash?: boolean | string
   /** Initial projection — same names as `setProjection()` (e.g. `'mercator'`,
    *  `'globe'`, `'natural_earth'`). Unlike the camera fields it does NOT latch
    *  the positioned flag (projection is orthogonal to data-bounds framing).
