@@ -1,0 +1,23 @@
+xgis 1
+
+/*
+ * Port of MapLibre's "Animate map camera around a point" (#1192).
+ *
+ * The .xgis is a plain world base opened with a tilted camera (Demo.pitch)
+ * over the Mediterranean; the gallery action buttons drive a host
+ * requestAnimationFrame loop that advances map.setBearing() every frame —
+ * the MapLibre original's `rotateCamera()` rAF loop, expressed as
+ * Demo.actions metadata over the public camera API. X-GIS has no rotateTo
+ * transition, so the host loop IS the animation (camera-controller.ts
+ * aliases the animated variants to instant jumps).
+ */
+
+source world {
+  type: geojson
+  url: "ne_110m_countries.geojson"
+}
+
+layer countries {
+  source: world
+  | fill-teal-800 stroke-teal-400 stroke-0.5
+}
