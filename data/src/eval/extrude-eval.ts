@@ -22,7 +22,7 @@ export type ExtrudeAst = unknown // serialized AST node, structurally typed by e
  *  required fields / divides by zero / produces a non-numeric
  *  value. The full compiler evaluator handles the entire AST surface
  *  (literals, FieldAccess, BinaryExpr, UnaryExpr, FnCall, MatchBlock,
- *  ConditionalExpr, ArrayLiteral / ArrayAccess, PipeExpr); anything
+ *  ConditionalExpr, ArrayLiteral / ArrayAccess); anything
  *  the user can write inside `fill: ...` works inside `extrude: ...`
  *  too.
  *

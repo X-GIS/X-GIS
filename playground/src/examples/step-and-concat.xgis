@@ -18,8 +18,14 @@ source places { type: geojson, url: "ne_110m_populated_places.geojson" }
 layer city_dots {
   source: places
   // N-stop step: 4 discrete size tiers by population.
-  // < 100k → r=3, < 1M → r=5, < 5M → r=7, ≥ 5M → r=10.
-  | size-[step(.pop_max, 3, 100000, 5, 1000000, 7, 5000000, 10)]
+  // < 100k → r=2.5, < 1M → r=4, < 5M → r=6, ≥ 5M → r=8.
+  // (Tiers sized so the whole-world view stays readable — 243 fixed-px
+  // dots at the original 3/5/7/10 merged into blobs at z<1; the demo
+  // also declares an initial camera in demos/core.ts for the same
+  // reason. A composite step(...)×interpolate(zoom,...) size is NOT
+  // live-updating today — sizeExpr evaluates once at layer build — so
+  // the supported fix is smaller tiers + the camera pose.)
+  | size-[step(.pop_max, 2.5, 100000, 4, 1000000, 6, 5000000, 8)]
   | fill-rose-500 fill-opacity-80
 }
 

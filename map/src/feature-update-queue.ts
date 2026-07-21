@@ -1,6 +1,6 @@
 import { xlog } from '@xgis/shared'
 import { toU32Id } from '@xgis/data'
-import type { GeoJSONFeature } from '@xgis/data'
+import type { GeoJSONFeature, GeoJSONFeatureCollection } from '@xgis/data'
 import type { RawDataset } from './map-types'
 
 /** Host hooks the queue needs to read shared map state and trigger a
@@ -14,6 +14,16 @@ export interface FeatureUpdateQueueHost {
   teardownSource(sourceId: string): void
   rebuildLayers(): void
   invalidate(): void
+  /** #1235 gap 2 — the FeatureCollection a VIRTUAL-TILED geojson source
+   *  (rawDatasets holds only the `_vectorTile` marker) was last seeded with,
+   *  in WGS84. Null when the source is genuinely tile-backed (URL vector /
+   *  raster) or carries a declared CRS (a re-seed would double-reproject).
+   *  Optional so historical mock hosts keep compiling. */
+  getSeededFC?(sourceId: string): GeoJSONFeatureCollection | null
+  /** #1235 gap 2 — push a patched seeded FC back through setSourceData (the
+   *  virtual re-seed path), replacing this source's tiling. Optional with
+   *  getSeededFC. */
+  reseedSource?(sourceId: string, fc: GeoJSONFeatureCollection): void
 }
 
 /** External-injection update state + flush pipeline extracted from
@@ -81,16 +91,21 @@ export class FeatureUpdateQueue {
     }
     // Tile-backed markers carry no FeatureCollection, so a patch would be
     // silently dropped at flush. Warn-once at enqueue time so the host learns
-    // immediately rather than discovering a no-op.
+    // immediately rather than discovering a no-op. #1235 gap 2 — a VIRTUAL-
+    // TILED geojson source (inline `data:` / URL-loaded GeoJSON) also holds
+    // only the marker, but its seeded FC is reachable via the host, so its
+    // patches ARE serviceable (flush patches the seeded FC and re-seeds).
     const dataset = this.host.rawDatasets.get(sourceId)
     if (!dataset || !Array.isArray((dataset as { features?: unknown }).features)) {
-      if (!this._tileBackedUpdateWarned.has(sourceId)) {
-        xlog.warn(
-          `[X-GIS] updateFeature: source "${sourceId}" is tile-backed (URL-loaded); feature updates are only supported for host-pushed GeoJSON sources (setSourceData)`,
-        )
-        this._tileBackedUpdateWarned.add(sourceId)
+      if (!this.host.getSeededFC?.(sourceId)) {
+        if (!this._tileBackedUpdateWarned.has(sourceId)) {
+          xlog.warn(
+            `[X-GIS] updateFeature: source "${sourceId}" is tile-backed (URL-loaded); feature updates are only supported for host-pushed GeoJSON sources (setSourceData)`,
+          )
+          this._tileBackedUpdateWarned.add(sourceId)
+        }
+        return
       }
-      return
     }
     let bySource = this._pendingPatches.get(sourceId)
     if (!bySource) {
@@ -138,6 +153,7 @@ export class FeatureUpdateQueue {
     if (this.host.isDestroyed()) return
     if (this._pendingPatches.size === 0) return
 
+    let needsRebuild = false
     for (const [sourceId, patches] of this._pendingPatches) {
       const data = this.host.rawDatasets.get(sourceId)
       // Non-FeatureCollection shape (tile-backed marker / legacy direct write):
@@ -146,6 +162,31 @@ export class FeatureUpdateQueue {
       // the no-op is observable rather than silent. `'features' in data`
       // narrows the RawDataset union to the FeatureCollection arm.
       if (!data || !('features' in data) || !Array.isArray(data.features)) {
+        // #1235 gap 2 — virtual-tiled geojson source: patch the SEEDED FC
+        // (WGS84, kept by the SourceManager) and push it back through the
+        // re-seed path. The index is built per flush rather than cached —
+        // the seeded FC object is replaced by every re-seed, so a cached
+        // index would go stale immediately.
+        const seeded = this.host.getSeededFC?.(sourceId)
+        if (seeded && Array.isArray(seeded.features)) {
+          const index = new Map<number, GeoJSONFeature>()
+          for (let i = 0; i < seeded.features.length; i++) {
+            const f = seeded.features[i]
+            index.set(toU32Id(f.id ?? f.properties?.id ?? i + 1), f)
+          }
+          let touched = false
+          for (const [fid, patch] of patches) {
+            const f = index.get(fid)
+            if (!f) continue
+            if (patch.geometry) f.geometry = patch.geometry
+            if (patch.properties) f.properties = { ...(f.properties ?? {}), ...patch.properties }
+            touched = true
+          }
+          // The re-seed runs its own teardown + rebuild + invalidate; the
+          // shared rebuild tail below is only for legacy-patched sources.
+          if (touched) this.host.reseedSource?.(sourceId, seeded)
+          continue
+        }
         if (!this._tileBackedUpdateWarned.has(sourceId)) {
           xlog.warn(
             `[X-GIS] updateFeature: source "${sourceId}" is not a patchable FeatureCollection; ${patches.size} pending update(s) dropped`,
@@ -180,9 +221,10 @@ export class FeatureUpdateQueue {
       }
       // Trigger a single retile for this source.
       this.host.teardownSource(sourceId)
+      needsRebuild = true
     }
     this._pendingPatches.clear()
-    this.host.rebuildLayers()
+    if (needsRebuild) this.host.rebuildLayers()
   }
 
   /** Cancel the coalescing rAF (or setTimeout fallback) and drop all

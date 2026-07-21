@@ -101,16 +101,11 @@ describe('Parser', () => {
       expect((inner.object as AST.Identifier).name).toBe('ship')
     })
 
-    it('parses pipe expressions', () => {
-      const pipe = parseExpressionString('.speed | clamp(4, 24)') as AST.PipeExpr
-      expect(pipe.kind).toBe('PipeExpr')
-
-      const input = pipe.input as AST.FieldAccess
-      expect(input.field).toBe('speed')
-
-      expect(pipe.transforms).toHaveLength(1)
-      expect((pipe.transforms[0].callee as AST.Identifier).name).toBe('clamp')
-      expect(pipe.transforms[0].args).toHaveLength(2)
+    it('rejects the removed expression pipe operator (#1238)', () => {
+      // `x | f` was pruned — nested calls are the transform syntax. The
+      // `|` is a trailing token after `.speed`, so single-expression
+      // parsing must throw rather than silently truncate.
+      expect(() => parseExpressionString('.speed | clamp(4, 24)')).toThrow()
     })
 
     it('parses number with unit', () => {

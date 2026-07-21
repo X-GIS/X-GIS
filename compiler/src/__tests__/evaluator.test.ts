@@ -135,23 +135,24 @@ describe('Evaluator', () => {
     })
   })
 
-  describe('pipe expressions', () => {
-    it('evaluates simple pipe', () => {
-      // .speed | round
-      expect(evaluate(parseExpr('.speed | round()'), SHIP)).toBe(16)
+  describe('nested transform calls (the former pipe patterns, #1238)', () => {
+    it('evaluates round over a field', () => {
+      expect(evaluate(parseExpr('round(.speed)'), SHIP)).toBe(16)
     })
 
-    it('evaluates chained pipes', () => {
-      // .speed / 50 | clamp(0, 1)
-      const expr = parseExpr('.speed / 50 | clamp(0, 1)')
+    it('evaluates clamp over a derived value', () => {
+      const expr = parseExpr('clamp(.speed / 50, 0, 1)')
       expect(evaluate(expr, SHIP)).toBeCloseTo(0.31)
     })
 
     it('evaluates data-driven sizing pattern', () => {
-      // speed / 50 | clamp(4, 24) — the DESIGN.md pattern
-      const expr = parseExpr('.speed * 10 | clamp(4, 24)')
+      const expr = parseExpr('clamp(.speed * 10, 4, 24)')
       expect(evaluate(expr, SHIP)).toBe(24) // 155 clamped to 24
       expect(evaluate(expr, { speed: 0.2 })).toBe(4) // 2 clamped to 4
+    })
+
+    it('rejects the removed pipe operator', () => {
+      expect(() => parseExpr('.speed | round()')).toThrow()
     })
   })
 

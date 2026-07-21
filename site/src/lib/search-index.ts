@@ -101,7 +101,7 @@ function buildSearchIndex(base: string, posts: BlogPostRecord[]): SearchRecord[]
   out.push({
     id: 'doc:expressions',
     title: 'Expressions & operators',
-    body: 'Operator reference and precedence table — arithmetic, comparison, logical, coalesce ??, ternary ?:, pipe |, bracket binding, match block, filter predicate.',
+    body: 'Operator reference and precedence table — arithmetic, comparison, logical, coalesce ??, ternary ?:, bracket binding, match block, filter predicate.',
     type: 'doc',
     tag: 'Language',
     url: `${base}/docs/expressions`,
@@ -229,7 +229,7 @@ function buildSearchIndex(base: string, posts: BlogPostRecord[]): SearchRecord[]
       page: 'expressions',
       tag: 'Operator',
       title: 'Operators & precedence',
-      body: '+ - * / % == != < > <= >= && || ! ?? . | (pipe) ?: (ternary) precedence binding',
+      body: '+ - * / % == != < > <= >= && || ! ?? . ?: (ternary) precedence binding',
     },
     {
       slug: 'bracketed-binding',
@@ -315,7 +315,7 @@ function buildSearchIndex(base: string, posts: BlogPostRecord[]): SearchRecord[]
       page: 'cookbook',
       tag: 'Recipe',
       title: 'Data-driven stroke width',
-      body: 'stroke width feature property pipe clamp',
+      body: 'stroke width feature property clamp',
     },
     {
       slug: 'multi-stroke-road-casing',

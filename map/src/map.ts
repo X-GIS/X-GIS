@@ -503,6 +503,13 @@ export class XGISMap {
     teardownSource: (id) => this.teardownSource(id),
     rebuildLayers: () => this.rebuildLayers(),
     invalidate: () => this.invalidate(),
+    // #1235 gap 2 — virtual-tiled geojson sources are patchable through their
+    // seeded FC. Declared-CRS sources return null: their seeded FC is already
+    // reprojected, and pushing it back through the setSourceData ingest would
+    // reproject it a second time.
+    getSeededFC: (id) =>
+      this.sourceCRS.has(id) ? null : (this.sourceManager.hostSeededFC.get(id) ?? null),
+    reseedSource: (id, fc) => this.setSourceData(id, fc),
   })
   // Delegating views onto the relocated queue state. The pending-patch
   // queue and flush rAF handle now live in FeatureUpdateQueue; these keep

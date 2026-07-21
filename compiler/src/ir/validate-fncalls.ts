@@ -153,16 +153,6 @@ function walkExpr(
         for (const arm of expr.matchBlock.arms) walkExpr(arm.value, line, diagnostics, declared)
       }
       break
-    case 'PipeExpr':
-      walkExpr(expr.input, line, diagnostics, declared)
-      // Pipe transforms are FnCall-shaped but not always tagged with
-      // `kind` (see the evaluator, which reads `.callee` directly), so
-      // validate their callee + args explicitly rather than recursing.
-      for (const t of expr.transforms) {
-        validateCallee(t.callee, line, diagnostics, declared)
-        for (const a of t.args) walkExpr(a, line, diagnostics, declared)
-      }
-      break
     case 'BinaryExpr':
       walkExpr(expr.left, line, diagnostics, declared)
       walkExpr(expr.right, line, diagnostics, declared)

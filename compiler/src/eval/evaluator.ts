@@ -45,8 +45,6 @@ export function evaluate(expr: AST.Expr, props: FeatureProps): unknown {
       return evaluateUnary(expr, props)
     case 'FnCall':
       return evaluateFnCall(expr, props)
-    case 'PipeExpr':
-      return evaluatePipe(expr, props)
     case 'MatchBlock':
       return evaluateMatch(expr, props)
     case 'ConditionalExpr':
@@ -273,20 +271,6 @@ function evaluateFnCall(expr: AST.FnCall, props: FeatureProps): unknown {
 
   const args = expr.args.map((a) => evaluate(a, props))
   return callBuiltin(name, args)
-}
-
-function evaluatePipe(expr: AST.PipeExpr, props: FeatureProps): unknown {
-  let value = evaluate(expr.input, props)
-
-  for (const transform of expr.transforms) {
-    const name = transform.callee.kind === 'Identifier' ? transform.callee.name : null
-    if (!name) continue
-
-    const args = transform.args.map((a) => evaluate(a, props))
-    value = callBuiltin(name, [value, ...args])
-  }
-
-  return value
 }
 
 function evaluateMatch(expr: AST.MatchBlock, props: FeatureProps): unknown {

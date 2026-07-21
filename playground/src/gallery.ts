@@ -108,12 +108,16 @@ for (const [tag, demos] of orderedGroups) {
   const section = document.createElement('section')
   section.className = 'category'
   section.dataset.tag = tag
+  // #1229 item 3 — each section is a #-linkable anchor so deep links compose
+  // with the ?tag= chips (setActiveTag's replaceState preserves the hash).
+  section.id = `cat-${tag}`
 
   const header = document.createElement('div')
   header.className = 'category-header'
   header.innerHTML = `
     <span class="category-dot" style="background:${color}"></span>
     <span class="category-name">${label}</span>
+    <a class="category-anchor" href="#cat-${tag}" title="Link to this section">#</a>
     <span class="category-count">${demos.length}</span>
   `
   section.appendChild(header)
@@ -208,6 +212,13 @@ for (const [tag, demos] of orderedGroups) {
 // Restore the tag from ?tag= on load (falls back to "all" if unknown).
 const initialTag = new URL(location.href).searchParams.get('tag')
 setActiveTag(initialTag && chipEls.has(initialTag) ? initialTag : 'all')
+
+// #1229 item 3 — scroll to a #cat-<tag> deep link once the sections exist.
+// Skipped when the ?tag= filter hides the target section (nothing to show).
+if (location.hash.startsWith('#cat-')) {
+  const target = document.getElementById(location.hash.slice(1))
+  if (target && target.style.display !== 'none') target.scrollIntoView()
+}
 
 searchEl.addEventListener('input', applyFilters)
 

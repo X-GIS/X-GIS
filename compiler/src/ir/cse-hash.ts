@@ -60,7 +60,6 @@ import type {
   FnCall,
   Identifier,
   NumberLiteral,
-  PipeExpr,
   StringLiteral,
   UnaryExpr,
 } from '../parser/ast'
@@ -89,8 +88,6 @@ export function canonicalExpr(expr: Expr): string {
       return canonicalBinary(expr)
     case 'UnaryExpr':
       return canonicalUnary(expr)
-    case 'PipeExpr':
-      return canonicalPipe(expr)
     case 'ConditionalExpr':
       return canonicalConditional(expr)
     case 'ArrayLiteral':
@@ -135,12 +132,6 @@ function canonicalBinary(b: BinaryExpr): string {
 
 function canonicalUnary(u: UnaryExpr): string {
   return `Un(${u.op};${canonicalExpr(u.operand)})`
-}
-
-function canonicalPipe(p: PipeExpr): string {
-  const input = canonicalExpr(p.input)
-  const transforms = p.transforms.map(canonicalExpr).join(',')
-  return `Pipe(${input};[${transforms}])`
 }
 
 function canonicalConditional(c: ConditionalExpr): string {

@@ -253,7 +253,22 @@ const CEILINGS: Record<string, number> = {
   // high-water is the measured 4708.
   // 4708→4711 (raster-resolution): rebuildLayers hands the raster source's
   // authored tileSize to the renderer (cover-zoom bias wiring).
-  'map/src/map.ts': 4711,
+  // 4708→4715 (#1235 gap 2): the FeatureUpdateQueue host gains the seeded-FC
+  // getter (CRS-guarded) + the reseedSource hook — wiring only; the patch/
+  // re-seed logic lives in feature-update-queue.ts + source-manager.ts.
+  // Merge union (raster-resolution <- main): both bumps stacked
+  // non-overlappingly (tileSize wiring +3, #1235 seams +7) — merged
+  // high-water is the measured 4718.
+  'map/src/map.ts': 4718,
+  // Baselined at #1235 (measured 846): SourceManager crossed NEW_FILE_CAP with
+  // the gap-1/gap-2 seams — the setSourceData virtual re-seed branch (the
+  // legacy worker-compile path renders fills/points but no line segments) +
+  // the attach-time ShowSourceMaps/seeded-FC records the re-seed and the
+  // feature-update queue read. Cohesive source-lifecycle ownership; split
+  // (attach arms vs push/ingest) when #991 gets here — shrink-only from now.
+  // (raster-resolution merge: the tileSize passthrough line lands inside the
+  // existing 846 measurement — no growth.)
+  'map/src/source-manager.ts': 846,
   // 1920→1930 (#1042 R3): the globe limb cull for MULTI-LINE labels must land in
   // the collision phase — the ONLY site holding the label's quad half-height (the
   // collision box IS the height authority; the label-pass dispatch site has only

@@ -1,0 +1,10 @@
+// @case invalid
+// @construct expr-pipe
+// @desc the expression-level pipe operator was removed by #1238 — `|` inside a binding is now a generic syntax error; nested calls are the transform syntax
+// @expect-code X-GIS0010
+xgis 1
+source w { type: geojson, url: "w.geojson" }
+layer roads {
+  source: w
+  | size-[.speed | round | clamp(0, 10)]
+}

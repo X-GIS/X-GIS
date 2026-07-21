@@ -60,6 +60,117 @@ export const DEMOS_CORE: Record<string, Demo> = {
     mousePosition: true,
   },
 
+  measure_distances: {
+    name: 'Measure Distances',
+    tag: 'event',
+    description:
+      'MapLibre "Measure distances" port (#1192 / #1235) — click to drop measurement points (click a point to remove it); the host pushes measure_pts / measure_path via setSourceData and a badge totals the haversine distance.',
+    source: load('measure-distances.xgis'),
+    measure: true,
+  },
+
+  animate_point_route: {
+    name: 'Animate Point Along Route',
+    tag: 'event',
+    description:
+      'MapLibre "Animate a point along a route" port (#1192) — Start slides the marker along the inlined SF→DC great-circle arc by pushing the interpolated position through map.setSourceData() every animation frame (the original\'s getSource().setData() loop). Stop pauses in place.',
+    source: load('animate-point-route.xgis'),
+    zoom: 3.4,
+    center: [-99, 39],
+    actions: (() => {
+      // The inlined route vertices from animate-point-route.xgis — the host
+      // loop interpolates between them; keep the two lists in sync.
+      const ROUTE: Array<[number, number]> = [
+        [-122.41, 37.78],
+        [-121.07, 38.08],
+        [-119.72, 38.36],
+        [-118.35, 38.63],
+        [-116.98, 38.89],
+        [-115.6, 39.12],
+        [-114.2, 39.35],
+        [-112.8, 39.55],
+        [-111.39, 39.74],
+        [-109.98, 39.91],
+        [-108.55, 40.06],
+        [-107.12, 40.2],
+        [-105.69, 40.32],
+        [-104.25, 40.42],
+        [-102.81, 40.5],
+        [-101.36, 40.56],
+        [-99.91, 40.61],
+        [-98.46, 40.64],
+        [-97.01, 40.65],
+        [-95.56, 40.64],
+        [-94.11, 40.61],
+        [-92.66, 40.57],
+        [-91.21, 40.51],
+        [-89.77, 40.43],
+        [-88.33, 40.33],
+        [-86.89, 40.21],
+        [-85.46, 40.08],
+        [-84.04, 39.93],
+        [-82.62, 39.76],
+        [-81.21, 39.57],
+        [-79.81, 39.37],
+        [-78.42, 39.15],
+        [-77.03, 38.91],
+      ]
+      const DURATION_MS = 10_000
+      let raf = 0
+      let t = 0 // route progress in [0, 1), survives Stop → Start resume
+      const stop = (): void => {
+        if (raf) cancelAnimationFrame(raf)
+        raf = 0
+      }
+      return [
+        {
+          label: 'Start',
+          run: (m) => {
+            stop()
+            // Bar is rebuilt on demo switch — die with the button (no ghost
+            // rAF holding the destroyed map alive).
+            const marker = document.querySelector('#demo-actions button')
+            let last = performance.now()
+            const tick = (now: number): void => {
+              if (marker && !marker.isConnected) return stop()
+              // The first rAF timestamp can precede the performance.now()
+              // captured in the click handler — a negative delta would send
+              // t below 0 and index ROUTE[-1], killing the loop on frame 1.
+              t = (t + Math.max(0, now - last) / DURATION_MS) % 1
+              last = now
+              const f = t * (ROUTE.length - 1)
+              const i = Math.floor(f)
+              const a = ROUTE[i]
+              const b = ROUTE[Math.min(i + 1, ROUTE.length - 1)]
+              const k = f - i
+              // setSourceData over updateFeature — the MapLibre original is
+              // a getSource().setData() loop, so this is the faithful shape.
+              // (Since #1235 gap 2, updateFeature CAN patch a .xgis-declared
+              // source through its seeded FC; both forms work here.)
+              m.setSourceData('marker', {
+                type: 'FeatureCollection',
+                features: [
+                  {
+                    type: 'Feature',
+                    id: 1,
+                    properties: {},
+                    geometry: {
+                      type: 'Point',
+                      coordinates: [a[0] + (b[0] - a[0]) * k, a[1] + (b[1] - a[1]) * k],
+                    },
+                  },
+                ],
+              })
+              raf = requestAnimationFrame(tick)
+            }
+            raf = requestAnimationFrame(tick)
+          },
+        },
+        { label: 'Stop', run: () => stop() },
+      ]
+    })(),
+  },
+
   categorical: {
     name: 'Categorical Colors',
     tag: 'per-feature',
@@ -127,6 +238,12 @@ export const DEMOS_CORE: Record<string, Demo> = {
     description:
       'N-stop step expression sizes / colors city dots into 4 population tiers; concat composes "City, Country (NNN k)" labels with round() for rounded thousands. Demonstrates the full Mapbox math + string operator surface.',
     source: load('step-and-concat.xgis'),
+    // 243 fixed-px city dots merge into blobs at the whole-world default
+    // view (the auto-fit lands at z≈0.5); open where the tiers + labels
+    // actually read. Zooming out still works — the .xgis's smaller step
+    // tiers keep even the world view acceptable.
+    zoom: 2.3,
+    center: [15, 35],
   },
 
   multiline_labels: {

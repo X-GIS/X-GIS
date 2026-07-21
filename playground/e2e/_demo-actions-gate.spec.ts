@@ -5,6 +5,10 @@
 //    "Rose fill" recolours the mounted countries fill via setPaintProperty.
 //  • fly_to — "Fly to a location" port: clicking "Seoul" moves the camera
 //    via map.flyTo (hash + frame change).
+//  • camera_around_point — "Animate map camera around a point" port: Start
+//    advances map.setBearing() from a host rAF loop; Stop halts it.
+//  • animate_point_route — "Animate a point along a route" port: Start
+//    slides the marker via per-frame map.updateFeature().
 // Demos WITHOUT actions must not show the bar.
 
 import { test, expect, type Page } from '@playwright/test'
@@ -109,4 +113,85 @@ test('fly_to: "Seoul" moves the camera; actionless demos hide the bar', async ({
 
   await boot(page, 'minimal')
   await expect(page.locator('#demo-actions')).toBeHidden()
+})
+
+const getBearing = (page: Page): Promise<number> =>
+  page.evaluate(() =>
+    (window as unknown as { __xgisMap: { getBearing(): number } }).__xgisMap.getBearing(),
+  )
+
+test('camera_around_point: Start spins the bearing, Stop halts it', async ({ page }) => {
+  test.setTimeout(240_000)
+  await boot(page, 'camera_around_point')
+  await expect(page.locator('#demo-actions')).toBeVisible()
+  const before = await getBearing(page)
+  const frameBefore = await shoot(page, `${DIR}/actions-rotate-before.png`)
+
+  await page.getByRole('button', { name: 'Start rotation' }).click()
+  await page.waitForTimeout(700)
+  const during = await getBearing(page)
+  // ~12°/s: 700ms of rotation moves the bearing well past noise.
+  const spun = (during - before + 360) % 360
+  expect(spun).toBeGreaterThan(2)
+
+  await page.getByRole('button', { name: 'Stop rotation' }).click()
+  const atStop = await getBearing(page)
+  await page.waitForTimeout(500)
+  const afterStop = await getBearing(page)
+  expect(Math.abs(afterStop - atStop)).toBeLessThan(0.01)
+
+  await pump(page)
+  const frameAfter = await shoot(page, `${DIR}/actions-rotate-after.png`)
+  const d = diff(frameBefore, frameAfter)
+  console.log(`[demo-actions] rotate bearing ${before}→${afterStop} framediff=${d}`)
+  expect(d).toBeGreaterThan(10_000) // the tilted world visibly rotated
+})
+
+/** Centroid of rose-500-ish pixels (the route marker) — structural
+ *  position assert, immune to overlay-DOM noise that a raw pixel-count
+ *  diff would happily accept as "movement". */
+function roseCentroid(png: PNG): [number, number] | null {
+  let sx = 0
+  let sy = 0
+  let n = 0
+  for (let y = 0; y < png.height; y++) {
+    for (let x = 0; x < png.width; x++) {
+      const i = (y * png.width + x) * 4
+      const [r, g, b] = [png.data[i]!, png.data[i + 1]!, png.data[i + 2]!]
+      if (r > 200 && g < 110 && b < 130) {
+        sx += x
+        sy += y
+        n++
+      }
+    }
+  }
+  return n > 20 ? [sx / n, sy / n] : null
+}
+
+test('animate_point_route: Start moves the marker along the route', async ({ page }) => {
+  test.setTimeout(240_000)
+  await boot(page, 'animate_point_route')
+  await expect(page.locator('#demo-actions')).toBeVisible()
+  const before = await shoot(page, `${DIR}/actions-route-before.png`)
+  const c0 = roseCentroid(before)
+
+  await page.getByRole('button', { name: 'Start', exact: true }).click()
+  // 10s loop: 1.5s ≈ 15% of the SF→DC arc — several hundred px of travel.
+  await page.waitForTimeout(1500)
+  await page.getByRole('button', { name: 'Stop', exact: true }).click()
+  await pump(page)
+  const after = await shoot(page, `${DIR}/actions-route-after.png`)
+  const c1 = roseCentroid(after)
+
+  // The tick loop must not have crashed (a dead rAF leaves the marker at
+  // SF while overlay noise still passes a naive pixel-count diff).
+  const errText = await page.locator('#error-msg').textContent()
+  expect(errText ?? '').not.toMatch(/TypeError|undefined/)
+
+  console.log(`[demo-actions] route marker centroid ${c0} → ${c1}`)
+  expect(c0).not.toBeNull()
+  expect(c1).not.toBeNull()
+  // SF→DC runs west→east: the centroid must travel right by far more
+  // than antialias jitter.
+  expect(c1![0] - c0![0]).toBeGreaterThan(30)
 })
