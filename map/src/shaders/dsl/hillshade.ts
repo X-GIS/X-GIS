@@ -168,11 +168,18 @@ const buildFs = (pickEnabled: boolean) => {
 
       // ── 3×3 Sobel stencil (design §3 step 1–2) ──
       // Neighbour taps at uv ± dem_texel. a b c / d · f / g h i (row-major,
-      // centre excluded). CLAMP_TO_EDGE at a tile edge yields a ≤1-DEM-texel flat
-      // seam — exactly MapLibre's pre-backfill state (edge backfill is deferred).
+      // centre excluded). The stencil CENTRE is clamped one texel inside the
+      // tile so all nine taps stay interior: with the raw uv, CLAMP_TO_EDGE
+      // collapsed the border row/column into a one-sided difference and drew
+      // a flat bright seam along every tile edge — the user-visible per-tile
+      // grid. Holding the interior derivative across the last texel removes
+      // the seam line; true cross-tile continuity (neighbour edge backfill,
+      // MapLibre DEMData.backfillBorder) remains the deferred completion.
       const texel = HS.field.hs_texel.x
+      const cu = clamp(pin.uv.x, texel, f32(1).sub(texel))
+      const cvv = clamp(pin.uv.y, texel, f32(1).sub(texel))
       const e = (dx: number, dy: number) =>
-        hsElevation({ uv: vec2(pin.uv.x.add(texel.mul(dx)), pin.uv.y.add(texel.mul(dy))) })
+        hsElevation({ uv: vec2(cu.add(texel.mul(dx)), cvv.add(texel.mul(dy))) })
       const a = e(-1, -1)
       const b = e(0, -1)
       const c = e(1, -1)

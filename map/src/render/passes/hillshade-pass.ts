@@ -90,7 +90,7 @@ class HillshadePass implements RenderPass {
     return scene.hasHillshade && !DEBUG_OVERDRAW
   }
 
-  execute(ctx: FrameContext, _scene: SceneView, host: HillshadePassHost): void {
+  execute(ctx: FrameContext, scene: SceneView, host: HillshadePassHost): void {
     const hr = host.hillshadeRenderer
     if (!hr || !hr.hasSource()) return
     applyHillshadePaint(hr, host._hillshadeShow, host.camera.zoom, host._elapsedMs)
@@ -101,8 +101,14 @@ class HillshadePass implements RenderPass {
         colorAttachments: [
           {
             view: ctx.colorView,
-            // Mid-chain overlay — the downstream points/labels pass owns the
-            // MSAA resolve, so this pass writes the multisample target only.
+            // Mid-chain overlay — a downstream pass (points/labels) usually
+            // owns the MSAA resolve. But when hillshade is the LAST colour
+            // writer (hillshade-only scene: no points), scene.resolveOwner
+            // assigns the resolve HERE — without it the relief lands in the
+            // multisample target after the opaque resolve already ran and
+            // never reaches the swapchain (black at msaa>1, every backend).
+            resolveTarget:
+              ctx.useResolve && scene.resolveOwner === 'hillshade' ? ctx.screenView : undefined,
             loadOp: 'load',
             storeOp: 'store',
           },

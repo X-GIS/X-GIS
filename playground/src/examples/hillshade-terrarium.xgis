@@ -13,6 +13,12 @@ xgis 1
  * shaded-relief subject: deep incised canyons + the flat rim make the
  * illumination direction and exaggeration instantly readable. */
 
+/* Warm paper ground under the relief — hillshade output is TRANSPARENT on
+ * flat terrain (MapLibre semantics), so over the playground's near-black
+ * default background the whole scene read as "almost black". A light base
+ * makes flats read as paper and the authored warm shadows/highlights carry. */
+background { fill: #f4efe6 }
+
 source terrain {
   type: "raster-dem"
   url: "https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}/{y}.png"
