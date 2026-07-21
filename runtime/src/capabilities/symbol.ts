@@ -172,7 +172,7 @@ export const symbolCapabilities: readonly RuntimeCapability[] = [
     layerType: 'symbol',
     variant: 'constant',
     supported: true,
-    note: 'auto / viewport-y / source enum → LabelDef.symbolZOrder → TextStage.prepare() ordering pass. viewport-y orders by screen Y (south drawn on top); source keeps feature order; auto/unset = legacy reverse-layer / sortKey ordering (byte-identical default)',
+    note: 'auto / viewport-y / source enum → LabelDef.symbolZOrder → TextStage.prepare() ordering pass. viewport-y orders by screen Y (south drawn on top); source keeps feature order; auto/unset = legacy draw order + sortKey/layer collision precedence, with same-layer overlaps resolving near-first (CollisionItem.nearY — the pitched occlusion direction)',
   },
   { property: 'text-translate', layerType: 'symbol', variant: 'constant', supported: true },
   {

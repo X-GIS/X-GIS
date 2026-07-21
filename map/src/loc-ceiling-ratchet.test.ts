@@ -280,7 +280,12 @@ const CEILINGS: Record<string, number> = {
   // bypass the layout cache; the plain-label path is byte-identical (§2).
   // 2066→2068 (#1177 replay correction): render() gains the optional S16
   // skip-replay transform param, forwarded to TextRenderer.draw. +2.
-  'map/src/text/text-stage.ts': 2068,
+  // 2068→2085 (near-first collision): CollisionItem.nearY wiring — one field
+  // (`nearY: s.layouts[0]?.draw.anchorY`) so same-layer overlaps resolve
+  // near-first on pitched views (site report: Shanghai dropped for Seoul at
+  // pitch 81°), +16 comment lines (precedence note (3), the nearY rationale,
+  // and the corrected byte-identical claims). Logic lives in text-collision.ts.
+  'map/src/text/text-stage.ts': 2085,
   // 1786→1719 (#727 C): the line/point dedupe + pair-key helper block was
   // EXTRACTED to passes/line-label-dedupe.ts when the world-copy fan-out would
   // otherwise have grown this file — the extract-don't-grow answer.
@@ -322,7 +327,10 @@ const CEILINGS: Record<string, number> = {
   // reference points, hit frames solve prepared→current and pass it to the 4
   // stage/iStage render calls. The MATH lives extracted in
   // passes/label-replay-transform.ts (unit-proved); only wiring grew here. +46.
-  'map/src/render/passes/label-pass.ts': 2002,
+  // 2002→2005 (near-first collision): labelCollisionId composes with the
+  // TIEBREAK_GROUP_SEP const now owned by text-collision.ts (import + 2 doc
+  // lines); the ordering logic itself lives there. +3.
+  'map/src/render/passes/label-pass.ts': 2005,
   // #1081 — per-anchor perspective distance attenuation (MapLibre parity). New
   // baseline: the wCenter + perspScale scratch-out-value lives INLINE in the two
   // existing projector closures (it rides the cw already computed per anchor —
