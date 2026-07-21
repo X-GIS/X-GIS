@@ -52,8 +52,8 @@ describe('WGSL Expression Compiler', () => {
     expect(result).toBe('clamp(feat_data[((input.feat_id * 3u) + 0u)], 4.0, 24.0)')
   })
 
-  it('compiles pipe expressions', () => {
-    const result = exprToWGSL(parseExpr('speed / 50 | clamp(4, 24)'), fieldMap)
+  it('compiles nested transform calls', () => {
+    const result = exprToWGSL(parseExpr('clamp(speed / 50, 4, 24)'), fieldMap)
     expect(result).toBe('clamp((feat_data[((input.feat_id * 3u) + 0u)] / 50.0), 4.0, 24.0)')
   })
 
@@ -89,7 +89,7 @@ describe('WGSL Expression Compiler', () => {
 
 describe('collectFields', () => {
   it('collects field names from expression', () => {
-    const fields = collectFields(parseExpr('speed / 50 | clamp(altitude, 24)'))
+    const fields = collectFields(parseExpr('clamp(speed / 50, altitude, 24)'))
     expect(fields).toContain('speed')
     expect(fields).toContain('altitude')
     expect(fields.size).toBe(2)

@@ -1,0 +1,10 @@
+// @case valid
+// @construct ternary
+// @desc the ternary conditional and nested transform calls inside bindings
+xgis 1
+source w { type: geojson, url: "w.geojson" }
+layer roads {
+  source: w
+  | size-[clamp(round(.speed), 0, 10)]
+  | fill-[.hostile ? #ef4444 : #22c55e]
+}

@@ -50,11 +50,11 @@ describe('Expression Classifier', () => {
     expect(classifyExpr(parseExpr('zoom + 1'))).toBe('zoom-dependent')
   })
 
-  it('classifies pipes correctly', () => {
-    // constant pipe: all constant
-    expect(classifyExpr(parseExpr('100 | clamp(4, 24)'))).toBe('constant')
-    // per-feature pipe
-    expect(classifyExpr(parseExpr('speed | clamp(4, 24)'))).toBe('per-feature-gpu')
+  it('classifies transform calls correctly', () => {
+    // constant call: all constant
+    expect(classifyExpr(parseExpr('clamp(100, 4, 24)'))).toBe('constant')
+    // per-feature call
+    expect(classifyExpr(parseExpr('clamp(speed, 4, 24)'))).toBe('per-feature-gpu')
   })
 })
 
@@ -70,13 +70,9 @@ describe('Constant Folder', () => {
     expect(constFold(parseExpr('abs(-5)'))).toEqual({ value: 5 })
   })
 
-  it('folds constant pipe expressions', () => {
-    expect(constFold(parseExpr('100 | clamp(4, 24)'))).toEqual({ value: 24 })
-  })
-
   it('does not fold expressions with field access', () => {
     expect(constFold(parseExpr('speed * 2'))).toBeNull()
-    expect(constFold(parseExpr('.speed | clamp(4, 24)'))).toBeNull()
+    expect(constFold(parseExpr('clamp(.speed, 4, 24)'))).toBeNull()
   })
 })
 

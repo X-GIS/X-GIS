@@ -101,18 +101,6 @@ describe('Parser', () => {
       expect((inner.object as AST.Identifier).name).toBe('ship')
     })
 
-    it('parses pipe expressions', () => {
-      const pipe = parseExpressionString('.speed | clamp(4, 24)') as AST.PipeExpr
-      expect(pipe.kind).toBe('PipeExpr')
-
-      const input = pipe.input as AST.FieldAccess
-      expect(input.field).toBe('speed')
-
-      expect(pipe.transforms).toHaveLength(1)
-      expect((pipe.transforms[0].callee as AST.Identifier).name).toBe('clamp')
-      expect(pipe.transforms[0].args).toHaveLength(2)
-    })
-
     it('parses number with unit', () => {
       const num = parseExpressionString('5km') as AST.NumberLiteral
       expect(num.value).toBe(5)

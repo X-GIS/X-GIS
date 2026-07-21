@@ -30,7 +30,6 @@ export type Expr =
   | ArrayAccess
   | ConditionalExpr
   | UnaryExpr
-  | PipeExpr
   | MatchBlock
 
 export type NumberLiteral = {
@@ -87,13 +86,6 @@ export type UnaryExpr = {
   kind: 'UnaryExpr'
   op: string
   operand: Expr
-}
-
-// expr | transform | transform
-export type PipeExpr = {
-  kind: 'PipeExpr'
-  input: Expr
-  transforms: FnCall[]
 }
 
 // { hostile: #ff0000, friendly: #00ff00, _: #808080 }

@@ -440,12 +440,12 @@ export class StatementParser extends ExpressionParser {
   }
 
   // key: value (used in source and layer blocks)
-  // Uses parseCoalesce() instead of parseExpr() to avoid consuming
-  // `|` as the pipe operator. parseCoalesce wraps parseLogicalOr
-  // and adds `??` support — required for things like
-  // `extrude: .height ?? 50` inside a layer body. Walking up to
-  // parsePipe / parseExpr would also pull in the pipe operator
-  // and break the `layer x { ... | fill-... }` grammar.
+  // Uses parseCoalesce() instead of parseExpr(): block property
+  // values are the coalesce ladder (no ternary). parseCoalesce
+  // wraps parseLogicalOr and adds `??` support — required for
+  // things like `extrude: .height ?? 50` inside a layer body.
+  // The expression-level pipe operator was removed (#1238), so a
+  // `|` after a value always starts a utility line.
   private parseBlockProperty(): AST.BlockProperty {
     const line = this.current().line
     const name = this.expectIdentifierOrKeyword()

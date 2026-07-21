@@ -15,7 +15,8 @@ bug.
 > statements (`if` / `else` / `for` / `in` / `return`) were removed, and the former
 > `style` block folded into `preset`. It also reflects #1065 (unified spanned
 > diagnostics + parser multi-error recovery), #1071 (recursive import resolution +
-> `import * as ns`), and #1066 (unknown-function lower errors, `X-GIS0012`).
+> `import * as ns`), #1066 (unknown-function lower errors, `X-GIS0012`), and #1238
+> (the expression-level pipe operator removed, §3).
 
 ## Source authority
 
@@ -436,9 +437,9 @@ style-value    = COLOR | NUMBER | BOOL | fn-call-text | utility-name
 ```
 
 A **block property** (`source`/`layer` bodies) parses its value with
-`parseCoalesce` — the precedence ladder **excluding** the pipe operator — so a `"|"`
-after the value belongs to a utility line, not to the expression (`.height ?? 50`
-still works). A **style property** (CSS-like) takes a hyphen-joined key
+`parseCoalesce` — the precedence ladder **below the ternary** (`.height ?? 50`
+still works). A `"|"` after the value always begins a utility line: since #1238
+the `"|"` token has no expression-level production (§3). A **style property** (CSS-like) takes a hyphen-joined key
 (`stroke-width`) and a _string-valued_ payload: a color, number, bool, a paren-
 balanced function-call captured verbatim as text (`rgba(255,0,0,0.5)`), or a
 hyphen-joined utility name (`stone-800`). A key may also be the keyword `source` or
@@ -467,9 +468,7 @@ A Pratt / precedence-climbing ladder (`parser-expressions.ts`). Lowest to highes
 binding:
 
 ```
-expression     = pipe ( "?" expression ":" expression )?      (* ternary *)
-pipe           = coalesce ( "|" pipe-call )*                   (* PipeExpr *)
-pipe-call      = primary arg-list?
+expression     = coalesce ( "?" expression ":" expression )?  (* ternary *)
 coalesce       = logical-or ( "??" logical-or )*
 logical-or     = logical-and ( "||" logical-and )*
 logical-and    = comparison ( "&&" comparison )*
@@ -485,11 +484,18 @@ arg-list       = "(" ( expression ","? )* ")"
 All binary levels are **left-associative** (each is a `while` loop folding left). The
 ternary and `unary` are right-recursive.
 
-> Note: `??` sits **between** `pipe` and `||`, so `a || b ?? c` parses as
+> Note: `??` sits **above** `||`, so `a || b ?? c` parses as
 > `(a || b) ?? c`. `??` chains left-associatively (`a ?? b ?? c` → `(a ?? b) ?? c`);
 > because `??` returns the first non-null operand this is value-equivalent to right
 > association. (The source comment calling it "right-associative" is imprecise but
 > semantically harmless.)
+
+> **Pipe operator — removed (#1238).** The expression-level pipe
+> (`.speed | round | clamp(0, 10)` → `PipeExpr`) was pure sugar over nested calls
+> (`clamp(round(.speed), 0, 10)`), spelled with the same `"|"` token as the
+> utility line (§2.12), and had no uses. The `"|"` token remains — it belongs to
+> utility lines; in expression position it is now a generic syntax error
+> (`X-GIS0010`).
 
 ```xgis
 xgis 1
@@ -498,7 +504,7 @@ layer roads {
   source: w
   | size-[clamp(.base * 2 + 1, 0, 24) ?? 8]
   | fill-[.hostile ? #ef4444 : #22c55e]
-  | opacity-[.speed | round | clamp(0, 10)]
+  | opacity-[clamp(round(.speed), 0, 10)]
 }
 ```
 

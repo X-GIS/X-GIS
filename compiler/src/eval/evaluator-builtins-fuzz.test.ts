@@ -1,6 +1,6 @@
 // iter-310 — Evaluator builtin + AST-kind coverage. iter-293 fuzz
 // targeted BinaryExpr only; mutation testing (iter-309) reported
-// evaluator at 13 % because match / pipe / conditional / array /
+// evaluator at 13 % because match / conditional / array /
 // every builtin path was unexercised. These tests pin each
 // builtin's contract with an EXACT-output equality assertion (the
 // shape that actually kills mutants per the iter-306 insight).
@@ -168,19 +168,6 @@ describe('iter-310 evaluator AST kinds', () => {
     expect(evaluate(neg, {})).toBe(-5)
     const not: AST.Expr = { kind: 'UnaryExpr', op: '!', operand: bool(false) } as AST.Expr
     expect(evaluate(not, {})).toBe(true)
-  })
-
-  it('PipeExpr — value piped through transforms', () => {
-    // 5 |> scale(2) |> round   ==   round(scale(5, 2)) = 10
-    const pipe: AST.Expr = {
-      kind: 'PipeExpr',
-      input: num(5),
-      transforms: [
-        { callee: { kind: 'Identifier', name: 'scale' }, args: [num(2)] },
-        { callee: { kind: 'Identifier', name: 'round' }, args: [] },
-      ],
-    } as AST.Expr
-    expect(evaluate(pipe, {})).toBe(10)
   })
 
   it('Identifier — zoom reserved key', () => {

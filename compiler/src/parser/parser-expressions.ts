@@ -14,7 +14,7 @@ export class ExpressionParser extends ParserCursor {
   // ═══ Expression Parsing (Pratt / Precedence Climbing) ═══
 
   protected parseExpr(): AST.Expr {
-    const expr = this.parsePipe()
+    const expr = this.parseCoalesce()
     // Ternary: expr ? thenExpr : elseExpr
     if (this.check(TokenType.Question)) {
       this.advance()
@@ -26,29 +26,8 @@ export class ExpressionParser extends ParserCursor {
     return expr
   }
 
-  // expr | transform | transform
-  protected parsePipe(): AST.Expr {
-    const left = this.parseCoalesce()
-
-    if (this.check(TokenType.Pipe)) {
-      const transforms: AST.FnCall[] = []
-      while (this.check(TokenType.Pipe)) {
-        this.advance() // skip |
-        const callee = this.parsePrimary()
-        let args: AST.Expr[] = []
-        if (this.check(TokenType.LParen)) {
-          args = this.parseArgList()
-        }
-        transforms.push({ kind: 'FnCall', callee, args })
-      }
-      return { kind: 'PipeExpr', input: left, transforms }
-    }
-
-    return left
-  }
-
-  // ?? — null/undefined/missing fallback. Sits between pipe (`|`)
-  // and `||` in precedence so `.height ?? 50` parses as a single
+  // ?? — null/undefined/missing fallback. Sits above `||` in
+  // precedence so `.height ?? 50` parses as a single
   // BinaryExpr without paren juggling, and `a || b ?? c` parses
   // as `(a || b) ?? c` (the `||` binds tighter, like JS where the
   // two cannot mix without parens but this engine resolves with a
