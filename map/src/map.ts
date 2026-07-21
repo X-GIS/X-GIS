@@ -79,6 +79,7 @@ import {
 import { interpret, type SceneCommands } from './interpreter'
 import { lonLatToMercator, type GeoJSONFeatureCollection, type CoverageHandle } from '@xgis/data'
 import { RasterRenderer } from './render/raster-renderer'
+import { HillshadeRenderer, armHillshadeSource } from './render/hillshade-renderer'
 import { UnderOccluderRenderer } from './render/under-occluder-renderer'
 import { PointRenderer } from './render/point-renderer'
 import { HeatmapRenderer } from './render/heatmap-renderer'
@@ -257,6 +258,8 @@ export class XGISMap {
   private interactionController!: InteractionController
   renderer!: MapRendererContent
   rasterRenderer!: RasterRenderer
+  /** raster-dem DEM-relief renderer (#777). Inert until a `_dem` layer arms it. */
+  hillshadeRenderer!: HillshadeRenderer
   /** INC-1 opaque depth-writing globe sphere just under EARTH_R (opaque-pass.ts);
    *  non-null only while a `background { fill }` is installed; globe-only. */
   underOccluder: UnderOccluderRenderer | null = null
@@ -265,6 +268,9 @@ export class XGISMap {
    *  Per-frame `render()` resolves `paintShapes.opacity` here and
    *  pushes it to the renderer. Null when no raster show is active. */
   _rasterShow: (typeof this.showCommands)[0] | null = null
+  /** Show backing the active raster-dem (hillshade) layer; the HillshadePass
+   *  resolves its `paintShapes.hillshade` per frame. Single-tracked. #777. */
+  _hillshadeShow: (typeof this.showCommands)[0] | null = null
   /** Optional GPU pass timer. Null when timestamp-query is unsupported or
    *  `?gpuprof=1` is not set. When set, the FIRST opaque sub-pass each
    *  frame is timed; samples drain to `getGpuTimings()`. */
@@ -998,7 +1004,18 @@ export class XGISMap {
     configureProjections(PROJECTIONS)
     this.camera = new Camera(0, 20, 2)
     this.cameraController = new CameraController(this.camera, {
-      invalidate: () => this.invalidate(),
+      // Camera mutation re-arms a frame + tags CAMERA only — NOT the blanket
+      // invalidate(). The S16 label skip's correctness under camera motion is
+      // carried by its dispatch signature (zoom/centre/centerLat/bearing/
+      // pitch/canvas/tile-set), same as the interactive path (which mutates
+      // the camera directly and re-arms via the shouldRenderThisFrame
+      // comparator, tagging nothing). Blanket-tagging LABEL here forced a
+      // label re-prepare on EVERY programmatic camera frame (#1177), which
+      // defeated the zoom-tolerant skip exactly on the animated-zoom path.
+      invalidate: () => {
+        if (this._destroyed) return
+        this._markDirty(DirtyDomain.CAMERA)
+      },
       getCanvas: () => this.getCanvas(),
       getCtxCanvas: () => this.ctx?.canvas,
     })
@@ -1766,6 +1783,7 @@ export class XGISMap {
       this.renderTargets.invalidate()
       this.renderer.rebuildForQuality()
       this.rasterRenderer.rebuildForQuality()
+      this.hillshadeRenderer.rebuildForQuality()
       this.lineRenderer?.rebuildForQuality()
       this.pointRenderer?.rebuildForQuality()
       // Per-show variant pipelines + layouts both went stale: the
@@ -2421,7 +2439,22 @@ export class XGISMap {
       this._eventBus.fireErrorEvent({ phase: 'boot', fatal: false, error: e })
       throw e
     }
+    return this._runProgram(ast, baseUrl)
+  }
 
+  /** Run a SceneBuilder program — the same post-parse pipeline as `run()`
+   *  (#1194 A1b, docs/architecture/design/scene-builder.md). Accepts ONLY the
+   *  branded `SceneBuilder.build()` output; the wrapped AST stays internal. */
+  async runScene(scene: AST.SceneProgram, baseUrl = ''): Promise<void> {
+    if (this._destroyed) return
+    if (scene?.__xgisSceneProgram !== true)
+      throw new Error('runScene: pass the SceneProgram returned by SceneBuilder.build()')
+    return this._runProgram(scene.program, baseUrl)
+  }
+
+  /** The shared post-parse body of run()/runScene: epoch claim, teardown,
+   *  import resolution, lower → optimize → emitCommands, GPU init, mount. */
+  private async _runProgram(ast: AST.Program, baseUrl = ''): Promise<void> {
     // D1/A3 — claim this run's epoch AFTER a successful parse (a failed parse
     // must not bump it: a bad run must not kill a healthy in-flight run) and
     // BEFORE the entry teardown. Everything from here to the first await is
@@ -2780,6 +2813,10 @@ export class XGISMap {
       // Graceful: no WebGPU / no adapter. Fire the observability 'error' event
       // (#1153 C) + the host hook, or show a default in-container message if the
       // host registered none, then abort the mount instead of throwing to window.onerror.
+      // #1196 — name the actual boot failure: the default UX only shows the
+      // generic "requires WebGPU" text, which hid the real cause (a webgl2
+      // re-boot failing on a live-swap) for a full debugging session.
+      console.warn('[X-GIS] GPU boot unavailable:', result.message)
       this._eventBus.fireErrorEvent({ phase: 'boot', fatal: true, error: result })
       if (this._onWebGPUUnavailable) this._onWebGPUUnavailable()
       else this._showWebGPUUnavailableDefault()
@@ -2805,7 +2842,11 @@ export class XGISMap {
     // the guard no-ops instead of resurrecting THIS old source and killing the newer run.
     this._armDeviceLostRecovery(() => {
       if (this._epochStale(epoch)) return
-      void this.run(source, baseUrl)
+      // Re-run from the (import-resolved) AST, not the source text — #1194 A1b:
+      // works for BOTH entries (a runScene scene has no text), skips a re-parse,
+      // and cannot double-splice (resolveImportsAsync returned a NEW Program with
+      // ImportStatements stripped, so the resolution branch no-ops on re-entry).
+      void this._runProgram(ast, baseUrl)
     })
     // #797 P0/P1 — (re)attach the host DRAWING API GPU atlas + retained-icon
     // draper to this run's device (rematerialises any batches added pre-run).
@@ -2820,6 +2861,7 @@ export class XGISMap {
     })
     this.renderer = rendererSet.renderer
     this.rasterRenderer = rendererSet.rasterRenderer
+    this.hillshadeRenderer = rendererSet.hillshadeRenderer
     this.gpuTimer = rendererSet.gpuTimer
     // Cast: pointRenderer field is a definite-assignment non-null (like ctx);
     // buildSceneRenderers yields null only on a ctor failure, which overwrites a
@@ -3215,8 +3257,11 @@ export class XGISMap {
     // resolve (same contract as Mapbox/MapLibre layer references).
     this.xgisLayers.clear()
 
-    // Reset raster renderer — only activate if a layer references a raster source
+    // Reset raster + hillshade renderers — only re-activated below if a layer
+    // references a raster / raster-dem source.
     this.rasterRenderer.setUrlTemplate('')
+    this.hillshadeRenderer.setUrlTemplate('')
+    this._hillshadeShow = null
     // Drop any previously-tracked raster show. A new active one (if any)
     // is captured below by the same `_tileUrl` test that arms the
     // renderer.
@@ -3259,6 +3304,17 @@ export class XGISMap {
       // show, the rest will adopt it via the layerName lookup).
       if (!this.xgisLayers.has(layerName)) {
         this.xgisLayers.set(layerName, new XGISLayer(layerName, show, () => this.invalidate()))
+      }
+
+      // raster-dem source → activate the HILLSHADE renderer (#777). Checked
+      // BEFORE the raster branch: a `_dem` marker also carries `_tileUrl`, so the
+      // raster `if (tileUrl)` below would else draw the packed elevation as colour.
+      if ('_dem' in data && data._dem) {
+        armHillshadeSource(this.hillshadeRenderer, data)
+        // First-wins (mirrors _rasterShow) — the HillshadePass resolves this
+        // show's paintShapes.hillshade per frame.
+        if (!this._hillshadeShow) this._hillshadeShow = show
+        continue
       }
 
       // Raster tile source referenced by a layer → activate raster renderer
@@ -3801,6 +3857,7 @@ export class XGISMap {
     })
     this.renderer = rendererSet.renderer
     this.rasterRenderer = rendererSet.rasterRenderer
+    this.hillshadeRenderer = rendererSet.hillshadeRenderer
     this.gpuTimer = rendererSet.gpuTimer
     this.pointRenderer = rendererSet.pointRenderer as PointRenderer
     this.shapeRegistry = rendererSet.shapeRegistry

@@ -144,9 +144,10 @@ export class IconRenderer {
    *  same buffer reused across frames whose icon count stays
    *  below the high-water mark. */
   private vertexScratch: Float32Array | null = null
-  /** iter-234 — 4-float reusable scratch for the per-draw viewport
-   *  uniform write (see `draw()`). Constant size, allocated once. */
-  private readonly uniformScratch = new Float32Array(4)
+  /** iter-234 — reusable scratch for the per-draw uniform write (see
+   *  `draw()`). Constant size, allocated once. 8 floats since #1177:
+   *  viewport(0,1) + replay_shift(2,3) + replay_scale(4) + pad(5-7). */
+  private readonly uniformScratch = new Float32Array(8)
   /** iter-234 — gates the vertex bbox computation in setDraws. The
    *  diagnostic is only read by inspector / debug tooling, but the
    *  O(vertexCount) loop fires every frame regardless. Default
@@ -223,7 +224,9 @@ export class IconRenderer {
 
     // Uniform — UNIFORM|COPY_DST, byte-identical via bufUsage('uniform', writable:true).
     this.uniformBuf = this.rhi.createBuffer({
-      size: 16, // vec2 viewport + 2 floats pad
+      // vec2 viewport + vec2 replay_shift + f32 replay_scale + 3 floats pad
+      // (#1177 — mirrors icon.ts Uniforms; was 16 B before the replay fields).
+      size: 32,
       usage: 'uniform',
       writable: true,
       label: 'icon-uniform',
@@ -423,10 +426,13 @@ export class IconRenderer {
   }
 
   /** Encode the icon draw call. Returns silently when nothing to draw
-   *  or when the atlas hasn't loaded yet. */
+   *  or when the atlas hasn't loaded yet. `replay` is the #1177 S16
+   *  skip-replay screen-space correction (prepared-frame px → current-frame
+   *  px); omitted ⇒ identity (freshly-prepared frame). */
   draw(
     pass: GPURenderPassEncoder | RhiRenderPass,
     viewport: { width: number; height: number },
+    replay?: { scale: number; dx: number; dy: number },
   ): void {
     if (this.vertexCount === 0 || this.vertexBuf === null) return
     const gl2 = this.rhi.backend === 'webgl2'
@@ -467,6 +473,11 @@ export class IconRenderer {
     const u = this.uniformScratch
     u[0] = viewport.width
     u[1] = viewport.height
+    // #1177 replay correction — written unconditionally so a stale value
+    // can never leak from a prior skip-replay frame (slots 5-7 stay 0).
+    u[2] = replay !== undefined ? replay.dx : 0
+    u[3] = replay !== undefined ? replay.dy : 0
+    u[4] = replay !== undefined ? replay.scale : 1
     this.rhi.writeBuffer(this.uniformBuf, 0, u.buffer)
     // Iter 538 — capture for the diagnostic.
     this.lastDrawViewport = { width: viewport.width, height: viewport.height }

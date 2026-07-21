@@ -509,7 +509,7 @@ export class PanZoomController implements Controller {
           // upstream (a bug we should fix at the source, but defensively
           // catch here so the snap doesn't lock NaN into camera state),
           // reset to 0 before the modulo math.
-          let b = Number.isFinite(camera.bearing) ? ((camera.bearing % 360) + 360) % 360 : 0
+          const b = Number.isFinite(camera.bearing) ? ((camera.bearing % 360) + 360) % 360 : 0
           let target = Math.round(b / SNAP) * SNAP
           if (target === 360) target = 0
           camera.bearing = target

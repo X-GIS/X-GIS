@@ -62,7 +62,9 @@ const countEl = document.getElementById('demo-count')!
 const searchEl = document.getElementById('search') as HTMLInputElement
 const noResults = document.getElementById('no-results')!
 
-const entries = Object.entries(DEMOS)
+// Hidden demos (the e2e fixture corpus) stay in DEMOS for id resolution but
+// are omitted from the gallery — the showcase lists only real, diverse demos.
+const entries = Object.entries(DEMOS).filter(([, demo]) => !demo.hidden)
 countEl.textContent = `${entries.length} demos`
 
 // Group demos by tag
@@ -127,7 +129,7 @@ for (const [tag, demos] of orderedGroups) {
     a.dataset.search = `${demo.name} ${demo.description} ${tag} ${label}`.toLowerCase()
     a.innerHTML = `
       <span class="demo-name">${demo.name}</span>
-      <span class="demo-desc">${demo.description}</span>
+      <span class="demo-desc" title="${demo.description.replace(/"/g, '&quot;')}">${demo.description}</span>
       <svg class="demo-arrow" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
     `
     list.appendChild(a)
@@ -139,15 +141,22 @@ for (const [tag, demos] of orderedGroups) {
   sections.push({ tag, el: section, items })
 }
 
-// ── Search ──
-searchEl.addEventListener('input', () => {
-  const q = searchEl.value.toLowerCase()
+// ── Tag filter chips + search (combined AND) ──
+// The chip row narrows the gallery to a single tag; the text search
+// narrows within that. Both filters apply together. The active tag is
+// mirrored into ?tag= so a filtered view is shareable / survives reload.
+const chipsEl = document.getElementById('tag-chips')!
+let activeTag = 'all'
+
+function applyFilters(): void {
+  const q = searchEl.value.toLowerCase().trim()
   let totalVisible = 0
 
-  for (const { el, items } of sections) {
+  for (const { tag, el, items } of sections) {
+    const tagMatch = activeTag === 'all' || tag === activeTag
     let sectionVisible = 0
     for (const item of items) {
-      const match = !q || (item.dataset.search?.includes(q) ?? false)
+      const match = tagMatch && (!q || (item.dataset.search?.includes(q) ?? false))
       item.style.display = match ? '' : 'none'
       if (match) sectionVisible++
     }
@@ -156,4 +165,80 @@ searchEl.addEventListener('input', () => {
   }
 
   noResults.style.display = totalVisible === 0 ? '' : 'none'
+}
+
+// Build chips: "All" first, then one per ordered tag that has demos.
+const chipEls = new Map<string, HTMLButtonElement>()
+function makeChip(
+  tag: string,
+  label: string,
+  count: number,
+  dot: string | null,
+): HTMLButtonElement {
+  const btn = document.createElement('button')
+  btn.type = 'button'
+  btn.className = 'tag-chip'
+  btn.dataset.tag = tag
+  btn.innerHTML = `
+    ${dot ? `<span class="tag-chip-dot" style="background:${dot}"></span>` : ''}
+    <span>${label}</span>
+    <span class="tag-chip-count">${count}</span>
+  `
+  btn.addEventListener('click', () => setActiveTag(tag))
+  chipsEl.appendChild(btn)
+  chipEls.set(tag, btn)
+  return btn
+}
+
+function setActiveTag(tag: string): void {
+  activeTag = tag
+  for (const [t, btn] of chipEls) btn.classList.toggle('active', t === tag)
+  const url = new URL(location.href)
+  if (tag === 'all') url.searchParams.delete('tag')
+  else url.searchParams.set('tag', tag)
+  history.replaceState(null, '', url.toString())
+  applyFilters()
+}
+
+makeChip('all', 'All', entries.length, null)
+for (const [tag, demos] of orderedGroups) {
+  makeChip(tag, TAG_LABELS[tag] ?? tag, demos.length, TAG_COLORS[tag] ?? '#60a5fa')
+}
+
+// Restore the tag from ?tag= on load (falls back to "all" if unknown).
+const initialTag = new URL(location.href).searchParams.get('tag')
+setActiveTag(initialTag && chipEls.has(initialTag) ? initialTag : 'all')
+
+searchEl.addEventListener('input', applyFilters)
+
+// ── Keyboard flow ──
+// '/' focuses the search (unless already typing); Escape clears + blurs;
+// Enter opens the first visible demo.
+function firstVisibleDemo(): HTMLAnchorElement | null {
+  for (const { items } of sections) {
+    for (const item of items) {
+      if (item.style.display !== 'none') return item as HTMLAnchorElement
+    }
+  }
+  return null
+}
+
+document.addEventListener('keydown', (e) => {
+  const el = document.activeElement
+  const typing = el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement
+  if (e.key === '/' && !typing) {
+    e.preventDefault()
+    searchEl.focus()
+  } else if (e.key === 'Escape') {
+    searchEl.value = ''
+    applyFilters()
+    searchEl.blur()
+  }
+})
+
+searchEl.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') {
+    const first = firstVisibleDemo()
+    if (first) location.href = first.href
+  }
 })

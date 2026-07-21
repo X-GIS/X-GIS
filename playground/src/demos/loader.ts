@@ -40,6 +40,17 @@ export function load(file: string): string {
   return src
 }
 
+import type { XGISMap } from '@xgis/runtime'
+
+/** One gallery action button (#1192 interaction infra): demo-runner renders
+ *  `label` in the #demo-actions bar and invokes `run` with the LIVE map on
+ *  click — the MapLibre examples' `<button>` → map-API wiring, expressed as
+ *  demo metadata so API-driven examples stay portable. */
+export interface DemoAction {
+  label: string
+  run: (map: XGISMap) => void
+}
+
 export interface Demo {
   name: string
   tag: string
@@ -50,4 +61,38 @@ export interface Demo {
    *  coordinate. Used by interactive picking demos and any fixture
    *  that wants to expose live event feedback for manual testing. */
   picking?: boolean
+  /** When true, the demo is kept in DEMOS (so `demo.html?id=…` and the
+   *  e2e suite still resolve it) but the gallery OMITS it. Used to keep
+   *  the isolated-feature regression fixtures out of the user-facing
+   *  showcase while preserving their ids for the test harness. */
+  hidden?: boolean
+  /** Initial camera zoom applied on open (unless a URL `#z/lat/lon` hash
+   *  overrides). A .xgis source carries no camera state, so a demo that only
+   *  reads well at a specific zoom (e.g. a raster-dem hillshade, near-flat at
+   *  low zoom) declares it here. */
+  zoom?: number
+  /** Initial camera centre `[lon, lat]` applied on open (same hash-override
+   *  rule as `zoom`). For demos anchored to a real-world place — e.g. a live
+   *  terrain-tile hillshade over the Grand Canyon — where the default 0,0
+   *  view would show nothing of interest. */
+  center?: [number, number]
+  /** Viewport projection applied via `map.setProjection()` after the demo
+   *  mounts (#1192 P1 — mirrors MapLibre examples that call the projection
+   *  API rather than declaring it in the style, e.g. globe). A `?proj=` URL
+   *  override still wins. */
+  projection?: string
+  /** Action buttons rendered by demo-runner while this demo is mounted. */
+  actions?: DemoAction[]
+  /** Initial camera pitch (degrees) / bearing (degrees) applied on open with
+   *  the same hash-override rule. For camera-pose demos (the MapLibre
+   *  "Set pitch and bearing" port) — the .xgis carries only style, so the
+   *  pose is demo metadata like `zoom`/`center`. */
+  pitch?: number
+  bearing?: number
+  /** When true, demo-runner installs a small badge that tracks the live
+   *  lon/lat under the cursor via map.unproject() on every pointermove —
+   *  MapLibre's "Get coordinates of the mouse pointer" example (#1192).
+   *  Unlike `picking`, this fires everywhere over the map, not just over
+   *  a hit feature. */
+  mousePosition?: boolean
 }

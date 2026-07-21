@@ -5,7 +5,6 @@ import { describe, it, expect } from 'vitest'
 import { deadLayerElimPass } from './dead-layer-elim'
 import type { Scene, RenderNode } from '../render-node'
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 function makeNode(overrides: Partial<RenderNode> = {}): RenderNode {
   return {
     name: 'L',

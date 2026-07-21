@@ -29,6 +29,7 @@ import { backgroundPass } from './background-pass'
 import { opaquePass } from './opaque-pass'
 import { oitPass } from './oit-pass'
 import { translucentPass } from './translucent-pass'
+import { hillshadePass } from './hillshade-pass'
 import { pointsPass } from './points-pass'
 import { labelPass } from './label-pass'
 import { heatmapPass } from './heatmap-pass'
@@ -56,6 +57,7 @@ const PASSES: Record<PassLabel, RenderPass> = {
   opaque: opaquePass,
   oit: oitPass,
   translucent: translucentPass,
+  hillshade: hillshadePass,
   points: pointsPass,
   labels: labelPass,
   heatmap: heatmapPass,

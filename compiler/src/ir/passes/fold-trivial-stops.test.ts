@@ -8,7 +8,7 @@ import type { Scene, RenderNode } from '../render-node'
 // Build a minimal RenderNode stub. Tests override the specific paint
 // slot they exercise; everything else gets a constant default so the
 // fold's "did anything change?" check has a clean baseline.
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
+
 function makeNode(overrides: Partial<RenderNode> = {}): RenderNode {
   return {
     name: 'L',

@@ -79,7 +79,6 @@ describe('countries-boundary tile-clip artifact (demotiles repro)', () => {
       }
     }
 
-    // eslint-disable-next-line no-console
     console.log(
       `[tile-clip] tile x=${x}: ${segments.length} outline segments, ${segmentsOnEastEdge} along east edge (mx=${eastMx.toFixed(0)})`,
     )

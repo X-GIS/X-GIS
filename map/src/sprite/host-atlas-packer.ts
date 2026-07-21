@@ -45,7 +45,9 @@ export class HostAtlasPacker {
    *  each placed image. Cheap no-op when nothing changed (dirty flag). An
    *  image that cannot fit the page is warned + skipped (bounded honest
    *  failure) — never partially uploaded, never corrupting the page. */
-  sync(upload: (source: ImageBitmap | ImageData, x: number, y: number, w: number, h: number) => void): void {
+  sync(
+    upload: (source: ImageBitmap | ImageData, x: number, y: number, w: number, h: number) => void,
+  ): void {
     if (!this.dirty) return
     for (const [name, entry] of this.registry.entries()) {
       if (this.packed.has(name)) continue

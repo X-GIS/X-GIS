@@ -195,7 +195,13 @@ const LOC_CEILINGS: Record<string, number> = {
   // code motion, mesh output byte-identical; vector-tiler re-imports the three
   // consumed symbols. (Second authority for this file per #1005; kept in sync
   // with map/src/loc-ceiling-ratchet.ts — the two-ratchet rule.)
-  'compiler/src/tiler/vector-tiler.ts': 1546,
+  // 1546→1587 (#1221 round 2): pushLinePartWithWrap + shiftLinePartLon add the
+  // inline-tiler equivalent of geojson-vt's wrap() — a >±180-authored line also
+  // emits its ±360-shifted world-copy continuation so the beyond-seam tail lands
+  // in the wrapped tiles the renderer draws at world-copy ±1 (ADR-0006). New
+  // logic, no natural extract site (belongs beside makeLinePart). Both ratchets
+  // bumped in sync. Measured after prettier: wc -l = 1587.
+  'compiler/src/tiler/vector-tiler.ts': 1587,
   // Bumped 915→917 (#420) for the UNIFORM_SIZE/SLOT 240→256 bump +
   // light_dir_ecef contract comment when the polygon Uniforms struct grew.
   // Bumped 917→931 (Phase R heatmap): ensureHeatmapBlur / ensureHeatmapCompose
@@ -350,7 +356,16 @@ const LOC_CEILINGS: Record<string, number> = {
   // `if (pattern_active == 0)` gate in vs_main / vs_main_ecef / vs_main_ecef_extruded
   // — a pattern reuses the fill_translate slots for its repeat, so the VS must not
   // apply them as an NDC offset (it flung the fill off-screen → blank pattern).
-  'map/src/shaders/dsl/polygon.ts': 1339,
+  // Bumped 1339→1344 (#1062): emitPolygonGlsl gains an optional `entry` override (+ its
+  // doc) so the graticule twin emits vs_main / fs_stroke GLSL for its WebGL2 line
+  // overlay — reusing the SAME polygon module instead of forking a second shader.
+  // Bumped 1344→1348 (#1059, merge union): the ground fill-pattern twin passes
+  // fs_fill_pattern through the same override; charter comment covers both consumers.
+  // Bumped 1348→1368 (#1198, merge union): ECEF→vertex-ENU normal rotation in the
+  // extrude VS (anchor-relative roof lighting drifted into a continent-scale gradient)
+  // + the exact |N_enu.z| wall/roof discriminator (|N_ecef.z| misclassified equatorial
+  // roofs); CPU oracle: map/src/core/extrude-light-frame.test.ts. Measured 1368.
+  'map/src/shaders/dsl/polygon.ts': 1368,
   // camera.ts relocated to @xgis/engine (engine/src/projection/camera.ts) in
   // P3 Step 3 — no longer under a SRC_DIRS walk, so its LOC ceiling is tracked
   // by the engine package's own ratchet, not this runtime gate.

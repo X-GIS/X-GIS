@@ -1,0 +1,20 @@
+xgis 1
+
+/*
+ * Fixture: LineString crossing the 180° meridian, authored with
+ * longitudes that continue PAST +180 (185, 195) rather than folding
+ * back into −180..180. This is MapLibre's own antimeridian-line
+ * mechanism: a plain −180..180 polyline that steps 175 → −175 is
+ * interpolated the LONG way around the globe under geojson-vt's
+ * great-circle densification, so the seam-crossing edge draws a
+ * spurious stroke all the way across the map. Continuing the
+ * longitudes past ±180 keeps the great-circle subdivision monotone
+ * and lets the world-copy machinery emit the shifted continuation.
+ * (#1192 gap-fix example / #1221 root fix.)
+ */
+
+source route { type: geojson, url: "fixture-antimeridian-line.geojson" }
+layer crossing {
+  source: route
+  | stroke-rose-500 stroke-3
+}

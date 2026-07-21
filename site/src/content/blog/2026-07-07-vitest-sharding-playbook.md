@@ -15,7 +15,7 @@ Error: [vitest-worker]: Timeout calling "onTaskUpdate"
 
 Run 27242663060 is representative: 2,592/2,592 tests green, job failed —
 twice in a row. The first red read like a flaky test, so the instinct was to
-re-run — and it came back red *identically*: same green count, same reporter
+re-run — and it came back red _identically_: same green count, same reporter
 error line. A flake that reproduces to the byte on re-run is not a flake, and
 that is what turned attention from the tests to the channel reporting them.
 This post is the diagnosis, the numbers we measured, and the playbook that has
@@ -40,7 +40,7 @@ Two mitigations don't require touching the pool at all:
   exactly when workers are waiting on it; failure output is unaffected.
   (Spell the value explicitly: bare `--silent <path>` makes the CLI parser
   eat the path filter as the flag's value.)
-- **Fresh pools** — separate vitest *invocations* each start a new worker
+- **Fresh pools** — separate vitest _invocations_ each start a new worker
   pool: a new worker carries zero accumulated birpc backlog, so the timeout
   budget effectively resets at every leg boundary.
 
@@ -50,20 +50,20 @@ But the load-bearing variable is files-per-pool.
 
 We never found a documented limit; we found ours empirically, three times:
 
-| Date | Trigger | Files in the leg | Outcome | Action |
-|---|---|---|---|---|
-| baseline | one combined run | ~590 | timeouts | split into 5 path-filtered invocations |
-| 2026-06-10 | test growth 226 → 262 | 262 | green tests, red job ×2 (run 27242663060) | split runtime into two ~130-file legs |
-| 2026-06-16 | bug-hunt sweep | 156 + 156 | flaked again (run 27581620678) | four legs, each < 110 files |
-| 2026-06-26 | demo-QA sweep | engine-render at 122 | green tests, red job (run 28186666263) | `--shard=1/2` → two pools of ~61 |
+| Date       | Trigger               | Files in the leg     | Outcome                                   | Action                                 |
+| ---------- | --------------------- | -------------------- | ----------------------------------------- | -------------------------------------- |
+| baseline   | one combined run      | ~590                 | timeouts                                  | split into 5 path-filtered invocations |
+| 2026-06-10 | test growth 226 → 262 | 262                  | green tests, red job ×2 (run 27242663060) | split runtime into two ~130-file legs  |
+| 2026-06-16 | bug-hunt sweep        | 156 + 156            | flaked again (run 27581620678)            | four legs, each < 110 files            |
+| 2026-06-26 | demo-QA sweep         | engine-render at 122 | green tests, red job (run 28186666263)    | `--shard=1/2` → two pools of ~61       |
 
-~110 is a chosen *floor*, not a measured ceiling — and the table is honest
+~110 is a chosen _floor_, not a measured ceiling — and the table is honest
 about the gap. The lowest count that has actually flaked here is 122 (the
 2026-06-26 engine-render leg), yet the two ~130-file runtime legs from
 2026-06-10 held until later growth pushed them past it. So there is no
 clean line: the real edge drifts with runner speed and how much RPC a run has
 already accumulated (slow CI hits it sooner; locally these all pass). We set
-the tripwire at ~110 — deliberately *below* the 122 we have watched fail — and
+the tripwire at ~110 — deliberately _below_ the 122 we have watched fail — and
 split on approach rather than probing for the exact edge on someone else's PR.
 Treat it as a conservative budget, not a spec.
 
@@ -73,7 +73,7 @@ Two splitting mechanisms, used for different reasons:
 
 - **Path partitions** (`runtime/src/engine/projection runtime/src/engine/text`,
   `--exclude` for the remainder) — readable legs with stable names, but you
-  must prove the partition is *complete*: the excludes of one leg must be the
+  must prove the partition is _complete_: the excludes of one leg must be the
   includes of the others.
 - **`vitest --shard=1/2`** [4] — when one directory alone exceeds the
   threshold. Deterministic, disjoint, and complete by construction: no glob
@@ -110,18 +110,18 @@ Written into the workflow file itself, next to the matrix:
 3. New package or extracted directory → **new leg**, in the same commit.
 
 The general lesson: when a test job fails but every test passed, suspect the
-*reporting channel* before the tests — and treat its capacity as a budget
+_reporting channel_ before the tests — and treat its capacity as a budget
 that test-suite growth spends.
 
 ## References
 
 1. vitest-dev/vitest, [issue #6479 — `[vitest-worker]: Timeout calling
-   "onTaskUpdate"` on CI while all tests
+"onTaskUpdate"` on CI while all tests
    pass](https://github.com/vitest-dev/vitest/issues/6479).
 2. vitest-dev/vitest, [issue #8164 — the 60 s birpc default behind the
    timeout](https://github.com/vitest-dev/vitest/issues/8164).
 3. vitest-dev/vitest, [issue #4497 — `[birpc] timeout on calling
-   "onTaskUpdate"`](https://github.com/vitest-dev/vitest/issues/4497).
+"onTaskUpdate"`](https://github.com/vitest-dev/vitest/issues/4497).
 4. vitest, [CLI `--shard`
    documentation](https://vitest.dev/guide/cli.html).
 5. dorny/paths-filter, [conditional job execution by changed

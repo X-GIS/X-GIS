@@ -17,8 +17,8 @@
 > path** built next to a seam the renderer already trusts. Six changes below (§0, §3–§6, §11) reshape
 > the design to consume, not fork; the separate package + the gazetteer moat survive.
 >
-> **⚠️ API-ergonomics reflection (second pass, verified).** A DX review then hardened the *public
-> API shape* (§5). Its critical catch: the reprojection-delegation TARGET **does not exist yet** —
+> **⚠️ API-ergonomics reflection (second pass, verified).** A DX review then hardened the _public
+> API shape_ (§5). Its critical catch: the reprojection-delegation TARGET **does not exist yet** —
 > `setSourceData`/`setSourcePoints` take no CRS argument and `PointPatch`/`FeatureCollection` carry no
 > `crs` (verified: `map.ts:4028,4046`, `id-resolver.ts:49-54`), so a projected file with a forgotten
 > `crs` is a **silent wrong-dot that type-checks green**. Fixes folded into §3/§5: (1) a small additive
@@ -47,7 +47,7 @@ change, zero new coupling into the render DAG.
 The proposed home is a new **leaf** package **`@xgis/pipeline`** (name is an open decision, §10),
 depending **only on `@xgis/shared`** (WGS84/great-circle math + the GeoJSON types, which move here
 from `@xgis/data` — they are pure, runtime-0). It imports **no render package** and reuses the
-render side's existing ingest seams by *emitting into them* (WGS84 GeoJSON / declared-CRS / PointPatch)
+render side's existing ingest seams by _emitting into them_ (WGS84 GeoJSON / declared-CRS / PointPatch)
 — never by re-deriving reprojection or the FC model. Its moat is a **bundled, versioned Korean
 administrative gazetteer** (시도/시군구/행정동 code → geometry) — the single highest-friction step no
 viz library ships.
@@ -80,14 +80,14 @@ are, as observed, the rarest things in the geo-viz space.
 Two Seoul Open Data datasets (`OA-22300`, `OA-22299`, KT × Seoul mobile-derived) exemplify the
 whole problem:
 
-| aspect        | reality                                                                                  |
-| ------------- | ---------------------------------------------------------------------------------------- |
-| shape         | **Origin→Destination flow** — rows of `(origin_dong, dest_dong, hour, purpose, count)`   |
-| geometry      | **none** — origin/dest are 행정동 **codes**                                              |
-| size          | ~26–60 MB ZIP **per day** (`seoul_purpose_admdong3_YYYYMMDD.zip`)                         |
-| access        | **file download only** — no REST API                                                     |
-| dimensions    | 7 purposes × 24 hours × (age, in OA-22299) × domestic/foreign                             |
-| the essence   | the **daily pulse** — AM inflow to job centres, PM outflow to residences                 |
+| aspect      | reality                                                                                |
+| ----------- | -------------------------------------------------------------------------------------- |
+| shape       | **Origin→Destination flow** — rows of `(origin_dong, dest_dong, hour, purpose, count)` |
+| geometry    | **none** — origin/dest are 행정동 **codes**                                            |
+| size        | ~26–60 MB ZIP **per day** (`seoul_purpose_admdong3_YYYYMMDD.zip`)                      |
+| access      | **file download only** — no REST API                                                   |
+| dimensions  | 7 purposes × 24 hours × (age, in OA-22299) × domestic/foreign                          |
+| the essence | the **daily pulse** — AM inflow to job centres, PM outflow to residences               |
 
 To draw ONE frame ("8 AM commute flows") the user must: unzip → parse the CSV → **join both
 `origin_dong` and `dest_dong` codes to 행정동 centroids** → group-by `(origin,dest)` and
@@ -101,9 +101,9 @@ layer makes that a five-line pipeline; §9 walks it end-to-end.
 
 The essence is small and concrete: **which data → how it loads → how it shows.** That triple IS
 this package (ingest = which + how-loaded, join = how-resolved-to-geometry, encode = how-shown). A
-general **plugin *framework*** (a registry + lifecycle + extension surface for arbitrary future
+general **plugin _framework_** (a registry + lifecycle + extension surface for arbitrary future
 capabilities) would be building infrastructure for a problem we do not have yet — YAGNI, and against
-§2 simplicity. The right-sized abstraction is a **data loader**, integrated with the map by a *light*
+§2 simplicity. The right-sized abstraction is a **data loader**, integrated with the map by a _light_
 touch — the `EncodeResult.apply(sink, id)` capability (the map satisfies the structural sink). **No
 `map.load(...)` alias**: `map.load(url)` already exists (`map.ts:3460`, the SSRF-guarded `.xgb`/`.xgis`
 URL loader), so that name is taken and would collide; `.apply(sink, id)` is the sole blessed seam.
@@ -114,19 +114,25 @@ Two authoring levels, one essence:
 
 ```ts
 // Composable (power users) — the four stages, explicit:
-bubble(groupBy(where(join(fromCSV(text, { vintage: '2026' }),
-  { code: 'gu', gaz }), { hour: 8 }), { by: ['o.lon','o.lat'], agg: { out: 'sum' } }),
-  { lon: 'o.lon', lat: 'o.lat', value: 'out' }).apply(map, 'flows')
+bubble(
+  groupBy(where(join(fromCSV(text, { vintage: '2026' }), { code: 'gu', gaz }), { hour: 8 }), {
+    by: ['o.lon', 'o.lat'],
+    agg: { out: 'sum' },
+  }),
+  { lon: 'o.lon', lat: 'o.lat', value: 'out' },
+).apply(map, 'flows')
 
 // Declarative (the essence, one call) — which / how-loaded / how-shown.
 // Every field REUSES a shipped verb; load() internally calls join()/where()/groupBy()/bubble().
 // One mental model (the four stages), ONE spelling — no parallel dialect (API-review F2).
 load({
-  from: fromCSV(text, { vintage: '2026' }),                  // WHICH — a Table value (shipped fromCSV)
-  join: { code: 'gu', gaz, as: 'o' },                        // HOW loaded → geometry (join()'s 2nd arg VERBATIM; `as` mints o.lon/o.lat — F1)
-  transform: [ t => where(t, { hour: 8 }),                   // (t)=>Table thunks over the shipped verbs (F3)
-               t => groupBy(t, { by: ['o.lon','o.lat','gu'], agg: { out: 'sum' } }) ],
-  show: t => bubble(t, { lon: 'o.lon', lat: 'o.lat', value: 'out' }), // HOW shown (shipped bubble)
+  from: fromCSV(text, { vintage: '2026' }), // WHICH — a Table value (shipped fromCSV)
+  join: { code: 'gu', gaz, as: 'o' }, // HOW loaded → geometry (join()'s 2nd arg VERBATIM; `as` mints o.lon/o.lat — F1)
+  transform: [
+    (t) => where(t, { hour: 8 }), // (t)=>Table thunks over the shipped verbs (F3)
+    (t) => groupBy(t, { by: ['o.lon', 'o.lat', 'gu'], agg: { out: 'sum' } }),
+  ],
+  show: (t) => bubble(t, { lon: 'o.lon', lat: 'o.lat', value: 'out' }), // HOW shown (shipped bubble)
 }).apply(map, 'flows')
 ```
 
@@ -167,16 +173,16 @@ that reads as the essence — and it needs **no map extension mechanism** beyond
   `GeoJSONFeatureCollection` has a `crs` member. So delegation is real only after a **small additive
   map.ts change** — a runtime CRS channel (a `{ crs }` option on the sinks OR a
   `map.setSourceCRS(id, epsg)` setter that populates the existing registry). `EncodeResult.apply(map,
-  id)` uses that channel, so the caller never hand-writes or drops the CRS. (This punctures the
+id)` uses that channel, so the caller never hand-writes or drops the CRS. (This punctures the
   first-draft "zero existing-package change" claim — see §0/§12.)
 - **The FC model / ingest ceiling** — the GeoJSON types are `@xgis/shared`'s (moved there, §4);
   the DoS/size ceiling is `assertIngestBudget`'s (`source-manager.ts:614`), which the pipeline
   output must respect, not re-invent.
 - **Rendering / GPU / tiling** — it never imports a renderer, a `GPUDevice`, `@xgis/engine`, or
   `@xgis/data`. `map` + `@xgis/data` take the emitted payload from `setSourceData`/`setSourcePoints`.
-- **Style semantics** — encoders emit *data* (features/points + numeric channel props); the `.xgis`
+- **Style semantics** — encoders emit _data_ (features/points + numeric channel props); the `.xgis`
   layer / compiler owns paint. An encoder suggests defaults; it does not author `.xgis`.
-- **The authoritative geometry source** — it bundles a *snapshot* with provenance; it is NOT the
+- **The authoritative geometry source** — it bundles a _snapshot_ with provenance; it is NOT the
   SGIS/통계청/행안부 boundary authority and never fetches live.
 - **General ETL / a dataframe engine / a database** — deliberately narrowed to geo-viz shapes.
 
@@ -201,9 +207,9 @@ render stack, not inside it:
   `@xgis/shared`** (a zero-dependency leaf, symmetric with `@xgis/shader-dsl`), so the pipeline gets
   the type contract + WGS84 math from ONE leaf. It imports **no runtime value** from `@xgis/data`
   (which ships proj4/pmtiles/earcut as real `dependencies` and pulls `@xgis/compiler` across 21 files)
-  — so the "zero-coupling / light" claim is **true by construction**, not aspirational. *(First draft
+  — so the "zero-coupling / light" claim is **true by construction**, not aspirational. _(First draft
   depended on `@xgis/data`'s types and called that light; the critique refuted it — `@xgis/data` is a
-  heavy render-data package. Moving the pure types to `shared` is the fix.)*
+  heavy render-data package. Moving the pure types to `shared` is the fix.)_
 - **Nothing depends on `@xgis/pipeline`** — the render engine is oblivious; the host wires
   `pipeline → setSourceData/setSourcePoints`. Coupling is **zero both ways**; the acyclic DAG holds;
   **no existing package changes** except the mechanical types→`shared` move.
@@ -212,12 +218,12 @@ render stack, not inside it:
 
 `@xgis/data` is the **render-data-layer** — tile catalog/cache/eviction, source backends, EPSG
 reprojection, mesh building, worker pools (`data/src/index.ts`). Its SRP is "get data **into the
-render pipeline**." A user-facing ETL toolkit that turns *raw public files* into features is a
+render pipeline**." A user-facing ETL toolkit that turns _raw public files_ into features is a
 **different responsibility** (data-prep ≠ render-data); folding it in drags workers/tile-types into a
 concern that needs none. **BUT** the honest framing (critique fix) is not "zero overlap" — `@xgis/data`
 already owns reproject (`reproject-fc`), the FC model, and point-patch ingest, and the pipeline
 **consumes** those via the `setSourceData` seam rather than re-implementing them. Two ingest layers
-that *forked* would be this repo's #1 recurrence bug (diverging sibling paths); one that *emits into*
+that _forked_ would be this repo's #1 recurrence bug (diverging sibling paths); one that _emits into_
 the other is single-authority. `@xgis/data` stays the LCA of tile/mesh data; `@xgis/pipeline` is the
 LCA of ingest/join/encode and a **client** of the render-side ingest seam.
 
@@ -230,7 +236,7 @@ LCA of ingest/join/encode and a **client** of the render-side ingest seam.
 
 The compiler is the **GPU-free style front-end** (`.xgis`/Mapbox → neutral render artifacts).
 Data **ingest/join/aggregate is not style** — it is a pre-style data concern. A future `.xgis`
-`transform { … }` / `join { … }` DSL surface *atop* the programmatic pipeline is plausible
+`transform { … }` / `join { … }` DSL surface _atop_ the programmatic pipeline is plausible
 (§11 Phase 3), but v1 keeps the pipeline a **programmatic library** (testable, host-driven, no
 grammar churn). Baking ETL into the compiler now would couple two 5-year surfaces prematurely.
 
@@ -238,7 +244,7 @@ grammar churn). Baking ETL into the compiler now would couple two 5-year surface
 
 ## 5. The four contracts
 
-Sketches (illustrative, not final signatures — the point is the *seam shape*):
+Sketches (illustrative, not final signatures — the point is the _seam shape_):
 
 ```ts
 // ── 1. INGEST ─────────────────────────────────────────────────────────────
@@ -252,7 +258,10 @@ interface Table {
   readonly vintage?: string // data vintage — compared to gaz.vintage at join
   col(name: string): ArrayLike<number | string>
 }
-function fromCSV(text: string, opts?: { delimiter?: string; types?: Record<string, 'number' | 'string'>; vintage?: string }): Table
+function fromCSV(
+  text: string,
+  opts?: { delimiter?: string; types?: Record<string, 'number' | 'string'>; vintage?: string },
+): Table
 function fromRows(rows: ReadonlyArray<Record<string, unknown>>, opts?: { vintage?: string }): Table
 
 // ── 2. JOIN ───────────────────────────────────────────────────────────────
@@ -277,7 +286,10 @@ function join(t: Table, o: { code: string; gaz: Gazetteer; as: string }): Table 
 // `filter` = predicate form. Named-object `groupBy`.
 function where(t: Table, eq: Record<string, string | number>): Table
 function filter(t: Table, pred: (row: Record<string, unknown>) => boolean): Table
-function groupBy(t: Table, o: { by: string[]; agg: Record<string, 'sum' | 'avg' | 'count' | 'min' | 'max'> }): Table
+function groupBy(
+  t: Table,
+  o: { by: string[]; agg: Record<string, 'sum' | 'avg' | 'count' | 'min' | 'max'> },
+): Table
 
 // ── 4. ENCODE ─────────────────────────────────────────────────────────────
 // Coordinate columns carry their `crs` HERE, per-column. Out-of-geographic-range values
@@ -287,13 +299,22 @@ function groupBy(t: Table, o: { by: string[]; agg: Record<string, 'sum' | 'avg' 
 // (setSourceData vs setSourcePoints) AND forwards crs — the caller never picks the wrong
 // sink or drops crs (finding #4). Output must fit `assertIngestBudget`.
 interface EncodeResult {
-  apply(sink: PipelineSink, sourceId: string): void      // picks sink; XGISMap satisfies PipelineSink structurally (leaf-safe — no render import)
+  apply(sink: PipelineSink, sourceId: string): void // picks sink; XGISMap satisfies PipelineSink structurally (leaf-safe — no render import)
   readonly kind: 'fc' | 'points'
-  toFeatureCollection(): GeoJSON.FeatureCollection        // escape hatch
+  toFeatureCollection(): GeoJSON.FeatureCollection // escape hatch
 }
-function odFlow(t: Table, o: { origin: string; dest: string; weight: string; lift?: number }): EncodeResult // origin/dest = join `as` handles
-function choropleth(t: Table, o: { code: string; value: string; gaz: Gazetteer; ramp?: string }): EncodeResult
-function bubble(t: Table, o: { lon: string; lat: string; value: string; crs?: string }): EncodeResult // → setSourcePoints
+function odFlow(
+  t: Table,
+  o: { origin: string; dest: string; weight: string; lift?: number },
+): EncodeResult // origin/dest = join `as` handles
+function choropleth(
+  t: Table,
+  o: { code: string; value: string; gaz: Gazetteer; ramp?: string },
+): EncodeResult
+function bubble(
+  t: Table,
+  o: { lon: string; lat: string; value: string; crs?: string },
+): EncodeResult // → setSourcePoints
 function points(t: Table, o: { lon: string; lat: string; id?: string; crs?: string }): EncodeResult
 
 // ── 5. LOAD (declarative orchestrator) ────────────────────────────────────
@@ -301,14 +322,14 @@ function points(t: Table, o: { lon: string; lat: string; id?: string; crs?: stri
 // join()'s own 2nd parameter so the join contract — incl. the `as` handle that MINTS o.lon/o.lat —
 // cannot drift (F1). `transform` elements are data-first `(t)=>Table` thunks over the shipped verbs
 // (F3). `join` accepts an ARRAY for the odFlow origin+dest double-join (F4).
-type JoinSpec = Parameters<typeof join>[1]                 // { code; gaz; as } — cannot drift from join()
+type JoinSpec = Parameters<typeof join>[1] // { code; gaz; as } — cannot drift from join()
 interface LoadSpec {
-  from: Table                                              // e.g. fromCSV(text, { vintage })
-  join?: JoinSpec | readonly JoinSpec[]                    // single OR left-to-right (odFlow needs origin+dest)
-  transform?: ReadonlyArray<(t: Table) => Table>           // authored: t => where(t, {...})
-  show: (t: Table) => EncodeResult                         // authored: t => bubble(t, {...})
+  from: Table // e.g. fromCSV(text, { vintage })
+  join?: JoinSpec | readonly JoinSpec[] // single OR left-to-right (odFlow needs origin+dest)
+  transform?: ReadonlyArray<(t: Table) => Table> // authored: t => where(t, {...})
+  show: (t: Table) => EncodeResult // authored: t => bubble(t, {...})
 }
-function load(spec: LoadSpec): EncodeResult                // → .apply(sink, id)
+function load(spec: LoadSpec): EncodeResult // → .apply(sink, id)
 ```
 
 Each stage is a **pure function** `input → output` (deterministic, GPU-free) → trivially
@@ -331,7 +352,7 @@ mainstream viz library ships this. It is the concrete "데이터 가공능력" d
    gazetteer is keyed by **`(vintage, code)`**, and the join **requires an explicit dataset
    `vintage`** (NOT an inferred one — inference is the fragile step). ⚠️ **The subtle killer:**
    `warn-once + drop` only catches a **missing** code — a **reassigned** code resolves to a
-   *successful but WRONG* centroid (silent wrong-dot, the class this repo fears most). Mitigation:
+   _successful but WRONG_ centroid (silent wrong-dot, the class this repo fears most). Mitigation:
    the vintage MUST match the data's vintage (mismatch = loud failure, not a silent lookup), and the
    gazetteer records reassignment/merge events so a cross-vintage code is flagged, not silently placed.
 2. **Multiple code systems** — 행정동코드 vs 법정동코드 vs PNU vs 시군구코드 are NOT
@@ -355,12 +376,12 @@ mainstream viz library ships this. It is the concrete "데이터 가공능력" d
 Encoders don't merely render; they **encode structure so the insight reads**:
 
 - `odFlow` encodes **direction + volume** → the daily-pulse animation makes urban rhythm visible
-  (the *essence* of 생활이동), which a scatter of dots never could.
+  (the _essence_ of 생활이동), which a scatter of dots never could.
 - `choropleth` encodes a **spatial gradient**; `bubble` a **magnitude field**.
 - Temporal `slice` + re-encode per frame → **change over time** becomes an animation.
 
 A future **shape detector** (§11) can inspect a table (`has origin+dest+weight → odFlow`;
-`has code+value → choropleth`) and *recommend* an encoder + defaults — turning "load a public
+`has code+value → choropleth`) and _recommend_ an encoder + defaults — turning "load a public
 file" into "get a sensible insight map" with near-zero config. v1 keeps encoder choice explicit;
 the detector is a Phase-2 nicety, not a v1 dependency.
 
@@ -373,16 +394,20 @@ import { fromCSV, join, groupBy, where, odFlow } from '@xgis/pipeline'
 import { seoulDongGazetteer } from '@xgis/pipeline/gazetteer/kr'
 
 // host unzips + reads (I/O injected); stamp the DATA vintage at ingest:
-const raw = fromCSV(await host.readSeoulODCsv('seoul_purpose_admdong3_20260531.csv'), { vintage: '2026' })
-const gaz = seoulDongGazetteer({ vintage: '2026' })              // Gazetteer<'admdong'>; join asserts vintages match
+const raw = fromCSV(await host.readSeoulODCsv('seoul_purpose_admdong3_20260531.csv'), {
+  vintage: '2026',
+})
+const gaz = seoulDongGazetteer({ vintage: '2026' }) // Gazetteer<'admdong'>; join asserts vintages match
 
-const j  = join(join(raw, { code: 'origin_dong', gaz, as: 'origin' }),  // → origin.lon / origin.lat
-                          { code: 'dest_dong',   gaz, as: 'dest' })     // → dest.lon / dest.lat   (named handles)
+const j = join(
+  join(raw, { code: 'origin_dong', gaz, as: 'origin' }), // → origin.lon / origin.lat
+  { code: 'dest_dong', gaz, as: 'dest' },
+) // → dest.lon / dest.lat   (named handles)
 const am = where(j, { hour: 8, purpose: 'commute' })
 const od = groupBy(am, { by: ['origin_dong', 'dest_dong'], agg: { count: 'sum' } })
 
-odFlow(od, { origin: 'origin', dest: 'dest', weight: 'count', lift: 0.25 })  // references the handles, not `_o_lon`
-  .apply(map, 'flows')            // picks setSourceData, forwards crs (WGS84 here) — caller can't drop it
+odFlow(od, { origin: 'origin', dest: 'dest', weight: 'count', lift: 0.25 }) // references the handles, not `_o_lon`
+  .apply(map, 'flows') // picks setSourceData, forwards crs (WGS84 here) — caller can't drop it
 ```
 
 The 24-hour pulse is the same pipeline re-`where`d per `hour` and re-applied — the per-hour ETL is
@@ -470,10 +495,10 @@ ordinary `.xgis` line style (volume-tiered layers or data-driven width).
 - **Phase 1 (thin slice — the MINIMAL proof of the layer):** `fromCSV`/`fromRows` ingest (+ input-CRS
   declaration) · 시군구 **centroid** gazetteer · `join` · `groupBy`/`slice` · the **`bubble`/`points`
   encoder → `PointPatch`** · a small real Seoul dataset rendered via `setSourcePoints`.
-  ⚠️ **`bubble` first, not `odFlow`** (critique fix): `odFlow` exercises the three *riskiest* things at
+  ⚠️ **`bubble` first, not `odFlow`** (critique fix): `odFlow` exercises the three _riskiest_ things at
   once — a double join, arc geometry, and the largest output (100k+ arcs against `assertIngestBudget`) —
-  on the *most* drift-prone code system (행정동). `bubble` on 시군구 centroids proves the whole
-  ingest→join→transform→encode→inject seam with the *smallest* surface. It is the honest thin slice.
+  on the _most_ drift-prone code system (행정동). `bubble` on 시군구 centroids proves the whole
+  ingest→join→transform→encode→inject seam with the _smallest_ surface. It is the honest thin slice.
   ⚠️ **Phase 1 is WGS84-only.** Projected input is a loud THROW at the encoder (built + tested —
   `encode.test.ts`: EPSG:5179 eastings throw `outside … geographic range`). The delegated-reprojection
   **CRS channel on the map sinks is Phase 2**, not a Phase-1 gate — decoupled so the loader ships on

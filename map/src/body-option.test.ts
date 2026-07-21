@@ -46,9 +46,9 @@ describe('XGISMapOptions.body (#798 P2)', () => {
     expect(activeBody()).toBe(EARTH)
     expect(EARTH_R.wgslValue).toBe(EARTH.sphereR)
     expect(WGS84_A.wgslValue).toBe(EARTH.a)
-    // PIN #2: the GPU e2 literal deliberately diverges from Body.e2 — the
-    // === EARTH guard must RESTORE the shipped literal, never write EARTH.e2.
-    expect(WGS84_E2.wgslValue).not.toBe(EARTH.e2)
+    // #1152 INC-3 un-pinned #798 PIN #2: the GPU e2 is now SINGLE-SOURCED from
+    // Body.e2 (f·(2−f)); EARTH routes uniformly (no === EARTH special case).
+    expect(WGS84_E2.wgslValue).toBe(EARTH.e2)
   })
 
   it('{ body: MOON } lands on both authority halves before any emit', () => {
@@ -77,6 +77,6 @@ describe('XGISMapOptions.body (#798 P2)', () => {
     expect(activeBody()).toBe(EARTH)
     expect(EARTH_R.wgslValue).toBe(EARTH.sphereR)
     expect(WGS84_A.wgslValue).toBe(EARTH.a)
-    expect(WGS84_E2.wgslValue).not.toBe(EARTH.e2) // the divergent literal, restored
+    expect(WGS84_E2.wgslValue).toBe(EARTH.e2) // single-sourced from Body.e2 (#1152 INC-3)
   })
 })

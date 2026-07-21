@@ -6,7 +6,9 @@
 // primitives still resident in @xgis/engine (→ @xgis/geo in 3c).
 
 import { describe, expect, it } from 'vitest'
-import { EARTH_R, buildGlobeMatrix, globeForward } from '@xgis/geo'
+// #1152 INC-3 — the azimuthal-promoted disc stays on the SPHERE (sphereForward), so
+// its pitch=0 framing matches the flat 2D sphere ortho; only the true globe flipped.
+import { EARTH_R, buildGlobeMatrix, sphereForward } from '@xgis/geo'
 
 const W = 1280,
   H = 720
@@ -47,7 +49,7 @@ describe('globe — orthographic (telephoto) orbit camera', () => {
     const m2d = cam.getRTCMatrix(W, H, 1)
     const tele = buildGlobeMatrix(clon, clat, zoom, 0, 0, W, H, true) // ortho/telephoto
     const persp = buildGlobeMatrix(clon, clat, zoom, 0, 0, W, H, false) // plain perspective
-    const fc = globeForward(clon, clat)
+    const fc = sphereForward(clon, clat)
     for (const [lon, lat] of [
       [10, 30],
       [15, 35],
@@ -57,7 +59,7 @@ describe('globe — orthographic (telephoto) orbit camera', () => {
       [40, -5],
     ]) {
       const a = ndc(m2d, [...projOrtho(lon, lat, clon, clat), 0, 1])
-      const g = globeForward(lon, lat)
+      const g = sphereForward(lon, lat)
       const rel = [g[0] - fc[0], g[1] - fc[1], g[2] - fc[2], 1]
       const t = ndc(tele.rtcMatrix, rel)
       const p = ndc(persp.rtcMatrix, rel)
@@ -72,9 +74,9 @@ describe('globe — orthographic (telephoto) orbit camera', () => {
   })
 
   it('clip.w varies with depth (log-depth occludes the far hemisphere) + tilts', () => {
-    const fc = globeForward(0, 0)
+    const fc = sphereForward(0, 0)
     const rel = (lon: number, lat: number) => {
-      const g = globeForward(lon, lat)
+      const g = sphereForward(lon, lat)
       return [g[0] - fc[0], g[1] - fc[1], g[2] - fc[2], 1]
     }
     const flat = buildGlobeMatrix(0, 0, 2, 0, 0, W, H, true)

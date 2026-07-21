@@ -110,10 +110,10 @@ export function decomposeFeatures(
       }
     } else if (geom.type === 'LineString') {
       const coords = geom.coordinates as number[][]
-      parts.push(makeLinePart(coords, id))
+      pushLinePartWithWrap(parts, makeLinePart(coords, id))
     } else if (geom.type === 'MultiLineString') {
       for (const line of geom.coordinates as number[][][]) {
-        parts.push(makeLinePart(line, id))
+        pushLinePartWithWrap(parts, makeLinePart(line, id))
       }
     } else if (geom.type === 'Point') {
       const coord = geom.coordinates as number[]
@@ -177,6 +177,47 @@ function makeLinePart(coords: number[][], featureIndex: number): GeometryPart {
   const subdivided = subdivideGreatCircle(coords)
   const bbox = coordsBBox(subdivided)
   return { type: 'line', coords: subdivided, featureIndex, ...bbox }
+}
+
+/** Push a line part plus, when it was authored past the antimeridian,
+ *  its ±360-shifted world-copy continuation — the inline-tiler equivalent
+ *  of geojson-vt's `wrap()` (geojsonvt/wrap.ts: centre clip + shifted
+ *  left/right buffer copies). #1221 round 2.
+ *
+ *  WHY: subdivideGreatCircle now keeps a >±180-authored line MONOTONE
+ *  (round 1), but every per-tile clip (clipLineToRect / compileSingleTile)
+ *  still cuts each part at the world edge merc(±180). So a line spanning
+ *  165→195 lands ONLY in east tiles (its 180→195 tail is clipped off) and
+ *  the beyond-seam continuation vanishes. The renderer draws each tile at
+ *  world-copy offsets of ±360° (ADR-0006), so the ONLY way 180→195 can
+ *  render is for the tail to exist as data in the WEST tiles (−180→−165):
+ *  the renderer then draws those west tiles at world-copy +1 → they appear
+ *  at 180→195, connected across the seam. Emitting the −360-shifted copy
+ *  puts it exactly there (mirror: a <−180 line gets a +360 copy).
+ *
+ *  Shifting by an exact 360° multiple preserves the already-subdivided
+ *  great-circle geometry (Mercator x shifts by exactly one world width),
+ *  so no re-subdivision is needed. Lines only — polygons clip/fill
+ *  correctly through the existing path (task scope §3). */
+function pushLinePartWithWrap(parts: GeometryPart[], part: GeometryPart): void {
+  parts.push(part)
+  if (part.maxLon > 180) parts.push(shiftLinePartLon(part, -360))
+  else if (part.minLon < -180) parts.push(shiftLinePartLon(part, 360))
+}
+
+/** Shift a line part's longitudes (and lon bbox) by `offsetDeg` (an exact
+ *  ±360° multiple). Latitude and vertex count are unchanged. */
+function shiftLinePartLon(part: GeometryPart, offsetDeg: number): GeometryPart {
+  const coords = part.coords!.map((c) => [c[0] + offsetDeg, c[1], ...c.slice(2)])
+  return {
+    type: 'line',
+    coords,
+    featureIndex: part.featureIndex,
+    minLon: part.minLon + offsetDeg,
+    minLat: part.minLat,
+    maxLon: part.maxLon + offsetDeg,
+    maxLat: part.maxLat,
+  }
 }
 
 function ringsBBox(ring: number[][]): {

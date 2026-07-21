@@ -171,11 +171,11 @@ it. This inverts the naive "make the new package first" instinct.
 
 ## 8. Progress
 
-| Slice                                                       | PR   | Status  |
-| ----------------------------------------------------------- | ---- | ------- |
-| 1 — `FrameContext`/`FrameUniform` out of `@xgis/rhi-webgpu` | #887 | ✅      |
-| 2 — `data` → local `TileSelectionCamera` interface          | #889 | ✅      |
-| 3a — mat4 ops → `@xgis/shared`                              | #892 | ✅      |
-| 3b — map-only geo → `@xgis/map` (~90 `Camera` repoints)     | #894 | ✅      |
-| 3c — geo cluster → `@xgis/geo` (new package)                | #900 | ✅      |
-| 3d — engine geo-free ratchet + drop the ECEF shim           | this | ✅      |
+| Slice                                                       | PR   | Status |
+| ----------------------------------------------------------- | ---- | ------ |
+| 1 — `FrameContext`/`FrameUniform` out of `@xgis/rhi-webgpu` | #887 | ✅     |
+| 2 — `data` → local `TileSelectionCamera` interface          | #889 | ✅     |
+| 3a — mat4 ops → `@xgis/shared`                              | #892 | ✅     |
+| 3b — map-only geo → `@xgis/map` (~90 `Camera` repoints)     | #894 | ✅     |
+| 3c — geo cluster → `@xgis/geo` (new package)                | #900 | ✅     |
+| 3d — engine geo-free ratchet + drop the ECEF shim           | this | ✅     |

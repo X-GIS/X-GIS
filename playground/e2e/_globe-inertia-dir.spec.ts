@@ -39,7 +39,7 @@ for (const c of CASES) {
     const start = await read()
     // FAST flick: dispatch pointer events to the canvas in a tight loop (small real dt
     // → high velocity → a real inertia glide). 8 steps of dx/dy each.
-    const { drag } = await page.evaluate(({ dx, dy }) => {
+    const { _drag } = await page.evaluate(({ dx, dy }) => {
       const cv = document.querySelector('canvas') as HTMLCanvasElement
       const r = cv.getBoundingClientRect()
       const sx = r.left + r.width / 2,

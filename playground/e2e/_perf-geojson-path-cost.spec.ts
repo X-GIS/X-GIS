@@ -346,7 +346,7 @@ test('GeoJSON path cost — countries (ne_110m, ~177 features, 725 KB)', async (
   )
   for (const r of result.hitch.top) {
     if (r.selfMs < 0.3) continue
-    const url = r.url ? r.url.split('/').slice(-2).join('/') : ''
+    const _url = r.url ? r.url.split('/').slice(-2).join('/') : ''
     console.log(
       `  ${r.selfMs.toFixed(2).padStart(6)} ms (${r.selfPct.toFixed(1).padStart(5)}%)  ${r.name.padEnd(35)} :: ${r.callPath}`,
     )
@@ -465,7 +465,7 @@ test('GeoJSON zoom-in cascade — z=4 → z=10 over 5 s, single direction', asyn
   )
   for (const r of hitch.rows) {
     if (r.selfMs < 0.3) continue
-    const url = r.url ? r.url.split('/').slice(-2).join('/') : ''
+    const _url = r.url ? r.url.split('/').slice(-2).join('/') : ''
     console.log(
       `  ${r.selfMs.toFixed(2).padStart(6)} ms (${r.selfPct.toFixed(1).padStart(5)}%)  ${r.name.padEnd(35)} :: ${r.callPath}`,
     )

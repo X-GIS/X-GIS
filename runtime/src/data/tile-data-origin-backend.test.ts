@@ -22,9 +22,7 @@ import {
 // The mock's attach() captures the sink, then the test manually drives
 // sink.acceptResult to push a BackendTileResult — no real fetch needed.
 
-function makeMockBackend(
-  id: string,
-): TileSource & {
+function makeMockBackend(id: string): TileSource & {
   pushResult(key: number, result: BackendTileResult | null, sourceLayer?: string): void
 } {
   let _sink: TileSourceSink | null = null

@@ -35,7 +35,7 @@ per-frame cost collapses to "bind and draw."
 
 Every shader — the geometry pipelines and the compute kernels — is authored in a
 typed **shader IR** (`@xgis/shader-dsl`), not hand-written WGSL strings, and the
-compiler lowers your paint expressions into that *same* IR — so a `match()` in
+compiler lowers your paint expressions into that _same_ IR — so a `match()` in
 your style and a hand-written polygon shader fold and dedupe together, and the
 one IR emits both WGSL (WebGPU) and GLSL ES 3.00 (the WebGL2 fallback). The
 [compiler-pipeline post](/blog/2026-07-07-the-xgis-compiler-pipeline) is the

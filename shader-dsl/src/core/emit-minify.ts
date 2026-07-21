@@ -25,7 +25,11 @@ function squeeze(line: string): string {
     if (ch === ' ') {
       const prev = out[out.length - 1]
       const next = collapsed[i + 1]
-      if (prev !== undefined && next !== undefined && (STRUCTURAL.has(prev) || STRUCTURAL.has(next)))
+      if (
+        prev !== undefined &&
+        next !== undefined &&
+        (STRUCTURAL.has(prev) || STRUCTURAL.has(next))
+      )
         continue
     }
     out += ch

@@ -93,9 +93,9 @@ describe('@xgis/pipeline · encode', () => {
     }
 
     // weight property matches input pop values
-    const weights = (
-      fc.features as { properties: { weight: number } }[]
-    ).map((f) => f.properties.weight)
+    const weights = (fc.features as { properties: { weight: number } }[]).map(
+      (f) => f.properties.weight,
+    )
     expect(weights).toContain(1000)
     expect(weights).toContain(500)
 
@@ -124,7 +124,11 @@ describe('@xgis/pipeline · encode', () => {
       as: 'dest',
     })
     const empty = where(j, { pop: 99999 }) // matches nothing → 0 rows, columns intact
-    const fc = odFlow(empty, { origin: 'origin', dest: 'dest', weight: 'pop' }).toFeatureCollection()
+    const fc = odFlow(empty, {
+      origin: 'origin',
+      dest: 'dest',
+      weight: 'pop',
+    }).toFeatureCollection()
     expect(fc.features.length).toBe(0)
   })
 

@@ -155,7 +155,7 @@ export function synthesizeCapRing(span: CapSpan, subdivisions = 16): Array<[numb
   const poleLat = span.pole * 90
   // Normalise span longitude range. Wrap-around when endLon < startLon
   // means the span crosses the antimeridian.
-  let startLon = span.startLon
+  const startLon = span.startLon
   let endLon = span.endLon
   if (endLon < startLon) endLon += 360
   const arc = endLon - startLon

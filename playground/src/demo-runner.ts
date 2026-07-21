@@ -2,8 +2,14 @@
 
 import * as monaco from 'monaco-editor'
 import editorWorker from 'monaco-editor/esm/vs/editor/editor.worker?worker'
+import tsWorker from 'monaco-editor/esm/vs/language/typescript/ts.worker?worker'
 
 import { XGISMap, lonLatToMercator } from '@xgis/runtime'
+import { SCENE_BUILDER_TWINS } from '@xgis/compiler/builder/twin-corpus'
+// Raw text of the SAME module — the JS tab (#1194 A3b) extracts each twin's
+// construction from it, so the displayed code IS the code the parity gate
+// pins (single authority; survives minification, unlike Function.toString).
+import twinCorpusRaw from '@xgis/compiler/builder/twin-corpus?raw'
 import { DEMOS } from './demos'
 import { extractMapboxProjectionName, extractMapboxLight } from './mapbox-projection'
 import {
@@ -13,9 +19,14 @@ import {
   discoverFields,
 } from './monaco-xgis'
 
-// Monaco web worker setup
+// Monaco web worker setup. The ts worker exists for the JS tab's
+// 'typescript' models (#1194 A3b) — without it the typescript contribution
+// routes inlay-hint/outline requests to the generic worker, which throws
+// "Missing requestHandler". Vite splits it into its own chunk, fetched only
+// when the first typescript model is created.
 self.MonacoEnvironment = {
-  getWorker: () => new editorWorker(),
+  getWorker: (_id: string, label: string) =>
+    label === 'typescript' || label === 'javascript' ? new tsWorker() : new editorWorker(),
 }
 
 const demoIds = Object.keys(DEMOS)
@@ -42,6 +53,9 @@ function replaceMapCanvas(): void {
   canvas = fresh
 }
 const status = document.getElementById('status')!
+const statusMain = document.getElementById('status-main')!
+const statusDescEl = document.getElementById('status-desc') as HTMLButtonElement | null
+const statusPopoverEl = document.getElementById('status-popover')!
 const errorDiv = document.getElementById('error')!
 const errorMsg = document.getElementById('error-msg')!
 const runBtn = document.getElementById('run-btn') as HTMLButtonElement
@@ -71,28 +85,62 @@ if (editorToggle) {
   })
 }
 
-// ── Snapshot copy button ──
-// Click → captures the current scene via __xgisSnapshot(), writes the
-// JSON to the clipboard, flashes a confirmation. Used to share a bug
-// repro: snapshot lands in chat / pasted into _snapshot-from-paste.
-// spec for replay. Includes camera + viewport + DPR + GPU tile cache
-// + render-order trace + pixel hash. Schema in `runtime/src/engine
-// /map.ts captureSnapshot`.
+// ── Desktop editor collapse ──
+// On desktop the editor is always visible, so the .mobile-only gear
+// toggle above never shows. This slim chevron tab (pinned to the map's
+// right edge) collapses the editor pane to zero width for a map-first
+// view and restores it — the state is persisted in localStorage. The
+// collapse is a `.collapsed` class on #editor-pane that drives width→0;
+// the map's ResizeObserver reacts exactly as it does to a handle drag.
 {
-  const btn = document.getElementById('snapshot-btn') as HTMLButtonElement | null
-  const label = document.getElementById('snapshot-btn-label') as HTMLSpanElement | null
-  if (btn) {
+  const collapseBtn = document.getElementById('editor-collapse-btn') as HTMLButtonElement | null
+  if (collapseBtn) {
+    const KEY = 'demo.editorCollapsed'
+    const apply = (collapsed: boolean): void => {
+      editorPane.classList.toggle('collapsed', collapsed)
+      collapseBtn.classList.toggle('collapsed', collapsed)
+      const label = collapsed ? 'Show editor' : 'Collapse editor'
+      collapseBtn.title = label
+      collapseBtn.setAttribute('aria-label', label)
+    }
+    apply(localStorage.getItem(KEY) === '1')
+    collapseBtn.addEventListener('click', () => {
+      const collapsed = !editorPane.classList.contains('collapsed')
+      apply(collapsed)
+      localStorage.setItem(KEY, collapsed ? '1' : '0')
+    })
+  }
+}
+
+// ── Map tool buttons: snapshot + copy-link ──
+// Both share the same confirmation-flash idiom (swap data-state + label,
+// auto-reset). The clipboard payloads differ — snapshot captures the full
+// scene JSON via __xgisSnapshot(); copy-link just grabs location.href (the
+// #z/lat/lon/bearing/pitch hash is live-synced) — so only the flash is
+// shared, not the clipboard call.
+{
+  const makeFlash = (btn: HTMLButtonElement, label: HTMLElement | null, idle: string) => {
     let resetTimer: ReturnType<typeof setTimeout> | null = null
-    const flash = (state: 'busy' | 'ok' | 'err', text: string, ms = 1500): void => {
+    return (state: 'busy' | 'ok' | 'err', text: string, ms = 1500): void => {
       btn.dataset.state = state
       if (label) label.textContent = text
       if (resetTimer) clearTimeout(resetTimer)
       resetTimer = setTimeout(() => {
         btn.removeAttribute('data-state')
-        if (label) label.textContent = 'Copy snapshot'
+        if (label) label.textContent = idle
       }, ms)
     }
-    btn.addEventListener('click', async () => {
+  }
+
+  // Snapshot copy button — captures the current scene via __xgisSnapshot(),
+  // writes the JSON to the clipboard for a bug repro (camera + viewport +
+  // DPR + GPU tile cache + render-order trace + pixel hash). Schema in
+  // `runtime/src/engine/map.ts captureSnapshot`.
+  const snapBtn = document.getElementById('snapshot-btn') as HTMLButtonElement | null
+  const snapLabel = document.getElementById('snapshot-btn-label') as HTMLSpanElement | null
+  if (snapBtn) {
+    const flash = makeFlash(snapBtn, snapLabel, 'Copy snapshot')
+    snapBtn.addEventListener('click', async () => {
       const w = window as unknown as {
         __xgisSnapshot?: () => Promise<unknown>
         __xgisStartDrawOrderTrace?: () => void
@@ -127,6 +175,58 @@ if (editorToggle) {
       }
     })
   }
+
+  // Copy-link button — copies the current URL (deep-links to this exact
+  // view; the camera hash is kept in sync by the camera loop).
+  const linkBtn = document.getElementById('copy-link-btn') as HTMLButtonElement | null
+  const linkLabel = document.getElementById('copy-link-btn-label') as HTMLSpanElement | null
+  if (linkBtn) {
+    const flash = makeFlash(linkBtn, linkLabel, 'Copy link')
+    linkBtn.addEventListener('click', async () => {
+      try {
+        await navigator.clipboard.writeText(location.href)
+        flash('ok', 'Copied', 1500)
+      } catch (err) {
+        const msg = (err as Error).message ?? String(err)
+        flash('err', `Failed: ${msg}`.slice(0, 40), 4000)
+        console.error('[copy link]', err)
+      }
+    })
+  }
+}
+
+// ── Demo description in the status pill + popover ──
+// The pill's first line is the demo name + pan hint (statusMain); the
+// description sits beneath it, single-line-clamped, and clicking it opens
+// a popover with the full text (dismiss on outside click / Escape). For
+// Demo.actions demos this is the only surface that can carry the "click
+// the buttons" guidance to the user.
+function setStatusDescription(desc: string | null): void {
+  if (!statusDescEl) return
+  const text = desc?.trim() ?? ''
+  if (text) {
+    statusDescEl.textContent = text
+    statusDescEl.hidden = false
+    statusPopoverEl.textContent = text
+  } else {
+    statusDescEl.hidden = true
+    statusPopoverEl.hidden = true
+  }
+}
+if (statusDescEl) {
+  statusDescEl.addEventListener('click', (e) => {
+    e.stopPropagation()
+    statusPopoverEl.hidden = !statusPopoverEl.hidden
+  })
+  document.addEventListener('click', (e) => {
+    if (statusPopoverEl.hidden) return
+    const t = e.target as Node
+    if (t === statusDescEl || statusPopoverEl.contains(t)) return
+    statusPopoverEl.hidden = true
+  })
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && !statusPopoverEl.hidden) statusPopoverEl.hidden = true
+  })
 }
 
 // ── In-page log overlay (mobile-friendly error reporting) ──
@@ -411,6 +511,85 @@ editor.addAction({
   keybindings: [monaco.KeyMod.CtrlCmd | monaco.KeyCode.Enter],
   run: () => runSource(editor.getValue(), 'Custom'),
 })
+
+// ── XGIS/JS source tabs (#1194 A3b) ──
+// For demos with a SceneBuilder twin, the JS tab shows the equivalent
+// builder construction — read-only (Run stays on the XGIS view; the parity
+// gate guarantees both forms mount the same scene).
+const langTabs = document.getElementById('lang-tabs') as HTMLDivElement | null
+const tabXgis = document.getElementById('tab-xgis') as HTMLButtonElement | null
+const tabJs = document.getElementById('tab-js') as HTMLButtonElement | null
+
+// The corpus model is 'typescript' for colorization only — no language
+// service (the generic editor worker is the only one registered).
+monaco.typescript.typescriptDefaults.setDiagnosticsOptions({
+  noSemanticValidation: true,
+  noSyntaxValidation: true,
+})
+
+const TWIN_HELPERS = [
+  'call',
+  'colorToken',
+  'compare',
+  'field',
+  'ident',
+  'interpolateZoom',
+  'matchOn',
+  'num',
+  'str',
+]
+
+/** Extract a twin's `new SceneBuilder()….build()` chain from the corpus RAW
+ *  source and wrap it as a host-runnable snippet. Null when the demo has no
+ *  twin (or the corpus formatting drifted — then the tab simply hides). */
+function twinSnippet(id: string): string | null {
+  if (!SCENE_BUILDER_TWINS[id]) return null
+  const entry = new RegExp(`^  ${id}: \\{\\n([\\s\\S]*?)\\n  \\},`, 'm').exec(twinCorpusRaw)
+  const body = entry?.[1]
+  if (!body) return null
+  const start = body.indexOf('new SceneBuilder()')
+  const end = body.lastIndexOf('.build()')
+  if (start < 0 || end < 0) return null
+  const chain = body
+    .slice(start, end + '.build()'.length)
+    .split('\n')
+    .map((l, i) => (i === 0 ? l : l.replace(/^ {6}/, '')))
+    .join('\n')
+  const used = TWIN_HELPERS.filter((h) => new RegExp(`\\b${h}\\(`).test(chain))
+  return [
+    `import { SceneBuilder${used.map((h) => `, ${h}`).join('')} } from '@xgis/compiler'`,
+    '',
+    `const scene = ${chain}`,
+    '',
+    'await map.runScene(scene)',
+    '',
+  ].join('\n')
+}
+
+// Explicit model: the model `create({ value })` makes implicitly is
+// editor-OWNED and gets disposed on the first setModel swap — an explicitly
+// created pair survives tab switches.
+const xgisModel = monaco.editor.createModel('', 'xgis')
+editor.setModel(xgisModel)
+let jsModel: monaco.editor.ITextModel | null = null
+
+function showLangTab(js: boolean): void {
+  tabXgis?.classList.toggle('active', !js)
+  tabJs?.classList.toggle('active', js)
+  if (js) {
+    jsModel ??= monaco.editor.createModel('', 'typescript')
+    jsModel.setValue(twinSnippet(demoIds[currentIdx]) ?? '')
+    editor.setModel(jsModel)
+    editor.updateOptions({ readOnly: true })
+    runBtn.disabled = true
+  } else {
+    editor.setModel(xgisModel)
+    editor.updateOptions({ readOnly: false })
+    runBtn.disabled = false
+  }
+}
+tabXgis?.addEventListener('click', () => showLangTab(false))
+tabJs?.addEventListener('click', () => showLangTab(true))
 
 // ── Build selector ──
 // Group by tag via <optgroup> so the 100+ entry dropdown is browseable
@@ -937,6 +1116,60 @@ function teardownPickingOverlay(): void {
   pickingOverlayCleanup?.()
 }
 
+// ── Mouse-position readout (#1192) ───────────────────────────────────
+// Activated by demos with `mousePosition: true`. Shows a small badge
+// pinned over the map with the live lon/lat under the cursor, updated
+// on every pointermove over the canvas via map.unproject() — MapLibre's
+// "Get coordinates of the mouse pointer" example. Unlike the picking
+// overlay's hover line (fires only over a hit feature), this tracks the
+// cursor everywhere over the map, matching the original example.
+
+let mousePositionCleanup: (() => void) | null = null
+
+function setupMousePositionOverlay(map: InstanceType<typeof XGISMap>): void {
+  teardownMousePositionOverlay()
+
+  const badge = document.createElement('div')
+  badge.id = 'mouse-position-badge'
+  badge.style.cssText = [
+    'position:absolute',
+    'right:12px',
+    'bottom:12px',
+    'z-index:20',
+    'font:11px/1.4 "DM Mono",monospace',
+    'color:#dde',
+    'background:rgba(10,10,10,0.75)',
+    'backdrop-filter:blur(6px)',
+    'padding:6px 10px',
+    'border:1px solid rgba(255,255,255,0.12)',
+    'border-radius:6px',
+    'pointer-events:none',
+  ].join(';')
+  badge.textContent = 'Move the mouse over the map…'
+  const mapPane = document.getElementById('map-pane')!
+  mapPane.appendChild(badge)
+
+  const canvasEl = map.getCanvas()
+  const onMove = (e: PointerEvent): void => {
+    const rect = canvasEl.getBoundingClientRect()
+    const lonLat = map.unproject([e.clientX - rect.left, e.clientY - rect.top])
+    badge.textContent = lonLat
+      ? `Longitude: ${lonLat[0].toFixed(4)}, Latitude: ${lonLat[1].toFixed(4)}`
+      : 'Move the mouse over the map…'
+  }
+  canvasEl.addEventListener('pointermove', onMove)
+
+  mousePositionCleanup = () => {
+    canvasEl.removeEventListener('pointermove', onMove)
+    badge.remove()
+    mousePositionCleanup = null
+  }
+}
+
+function teardownMousePositionOverlay(): void {
+  mousePositionCleanup?.()
+}
+
 // Expose for tests / inspector — pass a modified source string and
 // the demo reloads with it (same path as Run button + Ctrl+Enter).
 ;(window as unknown as { __xgisRunSource?: (s: string) => Promise<unknown> }).__xgisRunSource =
@@ -1011,8 +1244,12 @@ async function runSource(source: string, label: string) {
   currentMap?.destroy()
 
   try {
-    status.textContent = `Loading ${label}...`
+    statusMain.textContent = `Loading ${label}...`
     status.style.opacity = '1'
+    // A direct (custom / imported) run has no demo metadata — clear any
+    // description left over from the previously mounted demo. loadDemo
+    // re-populates it after runSource returns for gallery demos.
+    setStatusDescription(null)
 
     // Wait for any @font-face declarations (map-fonts.css → Open Sans,
     // Noto Sans Variable) to finish loading BEFORE we let the engine
@@ -1068,6 +1305,11 @@ async function runSource(source: string, label: string) {
     // map._elapsedMs, map.vectorTileShows, etc. without re-wiring the
     // demo runner. Keep it lightweight; not part of the public API.
     ;(window as unknown as { __xgisMap?: unknown }).__xgisMap = currentMap
+    // #1194 e2e hook — lazy SceneBuilder access for the run()↔runScene
+    // twin-render gate (_scene-builder-twin.spec.ts) + future gallery JS
+    // tabs (A3). Loader, not instance: the spec builds its own scene.
+    ;(window as unknown as { __xgisSceneBuilder?: unknown }).__xgisSceneBuilder = () =>
+      import('@xgis/compiler').then((m) => ({ SceneBuilder: m.SceneBuilder, ident: m.ident }))
     // ?debug=labels — mobile-friendly label diagnostic overlay (no
     // dev tools required). Renders a colored dot + small text snippet
     // at every submitted label anchor, with per-anchor submission
@@ -1102,7 +1344,18 @@ async function runSource(source: string, label: string) {
     // helper through Playwright's evaluate-evaluate boundary.
     const { tileKeyUnpack } = await import('@xgis/compiler')
     ;(window as unknown as { __xgisInternals?: unknown }).__xgisInternals = { tileKeyUnpack }
-    await currentMap.run(source, import.meta.env.BASE_URL + 'data/')
+    // #1194 A1b — `?runscene=1`: mount via the demo's SceneBuilder twin
+    // (map.runScene) instead of the .xgis text, when a twin is registered.
+    // First-mount path for the twin-render gate; falls through to run()
+    // for demos without a twin so the flag is always safe. Post-run wiring
+    // below (proj override / hash sync / host hooks) is shared by both paths.
+    const runsceneUrl = new URL(window.location.href)
+    const twin =
+      runsceneUrl.searchParams.get('runscene') === '1'
+        ? SCENE_BUILDER_TWINS[runsceneUrl.searchParams.get('id') ?? '']
+        : undefined
+    if (twin) await currentMap.runScene(twin.build(), import.meta.env.BASE_URL + 'data/')
+    else await currentMap.run(source, import.meta.env.BASE_URL + 'data/')
 
     // URL `?proj=X` overrides whatever projection the source declared.
     // Empty / absent means: keep the source's default.
@@ -1137,7 +1390,7 @@ async function runSource(source: string, label: string) {
       currentMap.invalidate()
     }
 
-    status.textContent = `${label} · scroll to zoom, drag to pan`
+    statusMain.textContent = `${label} · scroll to zoom, drag to pan`
     // Identity badge — show the backend that ACTUALLY booted. 'auto' can fall
     // back (WebGPU adapter-null → WebGL2), and a pinned boot should visibly
     // confirm the pin took: a green frame must never be attributed to the
@@ -1159,7 +1412,7 @@ async function runSource(source: string, label: string) {
     console.error('[X-GIS]', err)
     errorDiv.style.display = 'block'
     errorMsg.textContent = String(err)
-    status.textContent = 'Error'
+    statusMain.textContent = 'Error'
   }
 }
 
@@ -1175,6 +1428,13 @@ async function loadDemo(idx: number) {
   prevBtn.disabled = idx === 0
   nextBtn.disabled = idx === demoIds.length - 1
 
+  // #1194 A3b — tab visibility; always land on the (editable) XGIS view so
+  // setValue below targets the xgis model.
+  if (langTabs) {
+    langTabs.hidden = twinSnippet(id) === null
+    showLangTab(false)
+  }
+
   editor.setValue(demo.source.trim())
   // Preserve `?proj=` (and any other current query params) when switching
   // demos — the projection override is meant to persist across navigation.
@@ -1187,6 +1447,34 @@ async function loadDemo(idx: number) {
   discoverFields(demo.source, import.meta.env.BASE_URL + 'data/')
 
   await runSource(demo.source, demo.name)
+
+  // Surface the demo's description in the status pill (runSource cleared it
+  // on entry). For Demo.actions demos this carries the interaction guidance.
+  setStatusDescription(demo.description)
+
+  // Per-demo initial camera (loader.ts Demo.zoom/center/pitch/bearing): a
+  // .xgis source carries no camera state, so a demo that only reads well at a
+  // specific view sets it here. A URL `#z/lat/lon` hash (parsed at boot)
+  // wins — markCameraPositioned shuts the auto-fit gate so the value sticks.
+  const hasCameraPose =
+    demo.zoom !== undefined ||
+    demo.center !== undefined ||
+    demo.pitch !== undefined ||
+    demo.bearing !== undefined
+  if (currentMap && hasCameraPose && !location.hash) {
+    if (demo.center !== undefined) currentMap.setCenter(demo.center[0], demo.center[1])
+    if (demo.zoom !== undefined) currentMap.setZoom(demo.zoom)
+    if (demo.pitch !== undefined) currentMap.setPitch(demo.pitch)
+    if (demo.bearing !== undefined) currentMap.setBearing(demo.bearing)
+    currentMap.markCameraPositioned()
+  }
+
+  // #1192 P1 — demo-declared viewport projection (mirrors MapLibre examples
+  // that call the projection API, e.g. globe). `?proj=` URL override wins —
+  // runSource already applied it.
+  if (currentMap && demo.projection && !params.get('proj')) {
+    currentMap.setProjection(demo.projection)
+  }
 
   // Post-run hook: inline-source fixtures need the host to push
   // data — without this, gallery visitors see an empty canvas.
@@ -1202,6 +1490,37 @@ async function loadDemo(idx: number) {
     setupPickingOverlay(currentMap)
   } else {
     teardownPickingOverlay()
+  }
+
+  // Mouse-position demos (#1192): live lon/lat readout badge, independent
+  // of picking (fires everywhere over the map, not just over a feature).
+  if (currentMap && demo.mousePosition) {
+    setupMousePositionOverlay(currentMap)
+  } else {
+    teardownMousePositionOverlay()
+  }
+
+  // #1192 interaction infra — Demo.actions → the #demo-actions button bar.
+  // Rebuilt per demo switch; each click drives the LIVE map through the same
+  // public API the MapLibre original wires to its <button>s.
+  const actionsBar = document.getElementById('demo-actions')
+  if (actionsBar) {
+    actionsBar.replaceChildren()
+    const actions = demo.actions ?? []
+    actionsBar.hidden = actions.length === 0
+    for (const action of actions) {
+      const btn = document.createElement('button')
+      btn.textContent = action.label
+      btn.addEventListener('click', () => {
+        if (!currentMap) return
+        try {
+          action.run(currentMap)
+        } catch (e) {
+          console.error(`[demo-actions] "${action.label}" threw:`, e)
+        }
+      })
+      actionsBar.appendChild(btn)
+    }
   }
 }
 

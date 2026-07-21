@@ -43,6 +43,10 @@ export interface SceneView {
    *  heatmap pass + its density-target allocation — false (the default) keeps
    *  the frame byte-identical (no target alloc, no pass). */
   readonly hasHeatmap: boolean
+  /** HillshadeRenderer has a `raster-dem` source armed (#777). Gates the
+   *  hillshade pass — false (the default) means the pass never runs, so a map
+   *  with no hillshade layer is byte-identical (no pass). */
+  readonly hasHillshade: boolean
   /** GraphicsManager has ≥1 retained host-drawing batch (#797 P1). Gates the
    *  graphics pass — false (the default) means the pass never runs, so a map
    *  with no host batches is byte-identical. */
@@ -59,6 +63,7 @@ type SceneHost = Pick<
   | 'lineRenderer'
   | 'pointRenderer'
   | 'heatmapRenderer'
+  | 'hillshadeRenderer'
   | 'graphics'
 >
 
@@ -77,6 +82,7 @@ export function buildSceneView(host: SceneHost, _ctx: FrameContext): SceneView {
   const hasOit = oit.length > 0
   const hasPoints = host.pointRenderer?.hasLayers() ?? false
   const hasHeatmap = host.heatmapRenderer?.hasLayers() ?? false
+  const hasHillshade = host.hillshadeRenderer?.hasSource() ?? false
   const hasGraphics = host.graphics?.hasRetainedBatches() ?? false
   // Which pass owns the MSAA resolveTarget? The last pass that writes the
   // color target. Priority: dedicated points > last composite > last opaque.
@@ -92,6 +98,7 @@ export function buildSceneView(host: SceneHost, _ctx: FrameContext): SceneView {
     hasOit,
     hasPoints,
     hasHeatmap,
+    hasHillshade,
     hasGraphics,
     resolveOwner,
   }

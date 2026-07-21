@@ -1239,7 +1239,7 @@ describe('buildLineSegments', () => {
       // protocol is broken).
       const r = halfW * 1.3
       const { p, seg0, seg1 } = probeAt(r)
-      // eslint-disable-next-line no-console
+
       console.log('whisker probe at r=1.3×halfW:', { p, seg0, seg1 })
       expect(seg0.dM).toBeGreaterThan(0)
       expect(seg1.dM).toBeGreaterThan(0)
@@ -1271,10 +1271,9 @@ describe('buildLineSegments', () => {
         if (seg0.dM <= 0) leaks.push({ theta: deg, seg: 'e0', branch: seg0.branch, dM: seg0.dM })
         if (seg1.dM <= 0) leaks.push({ theta: deg, seg: 'e1', branch: seg1.branch, dM: seg1.dM })
       }
-      // eslint-disable-next-line no-console
+
       console.log(`probed ${probed} exterior angles; leaks=${leaks.length}`)
       if (leaks.length > 0) {
-        // eslint-disable-next-line no-console
         console.log('whisker leaks:', leaks.slice(0, 20))
       }
       expect(leaks).toEqual([])

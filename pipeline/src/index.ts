@@ -34,10 +34,4 @@ export { krAdminLoader, odbLoader } from './loaders'
 
 // .odb OD-flow binary — compact aggregated origin→destination payload.
 export type { ODFlow, ODBData } from './odb/format'
-export {
-  encodeODB,
-  decodeODB,
-  ODB_MAGIC,
-  ODB_VERSION,
-  ODB_HOUR_ALLDAY,
-} from './odb/format'
+export { encodeODB, decodeODB, ODB_MAGIC, ODB_VERSION, ODB_HOUR_ALLDAY } from './odb/format'

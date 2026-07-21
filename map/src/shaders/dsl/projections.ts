@@ -53,7 +53,9 @@ import {
   sign,
   smoothstep,
   dot,
-  length,
+  sqrt,
+  inverseSqrt,
+  normalize,
   type ConstDecl,
   type FuncDecl,
   type ModuleDecl,
@@ -61,7 +63,7 @@ import {
   type ReadonlyNode,
 } from '@xgis/shader-dsl'
 import { emitConst, emitFuncs } from '@xgis/shader-dsl'
-import { PI, EARTH_R, MERCATOR_LAT_LIMIT } from './consts'
+import { PI, EARTH_R, EARTH_E2, MERCATOR_LAT_LIMIT } from './consts'
 
 // ── Backend-agnostic projection injection (standalone-package seam) ──
 // shader-dsl owns the projection MATH; the ordered spec list (projType index ==
@@ -117,6 +119,15 @@ export const getGpuProjectionFuncs = (): FuncDecl[] => artifacts().GPU_PROJECTIO
 export const PROJECTION_CONSTS: ConstDecl[] = [
   { name: 'PI', type: f32T, wgslValue: 3.14159265, cpuValue: Math.PI },
   { name: 'EARTH_R', type: f32T, wgslValue: 6378137, cpuValue: 6378137 },
+  // proj_globe's ellipsoid first-eccentricity² (#1152 INC-3). Shipped Earth default =
+  // f·(2−f) (bit-equal to EARTH.e2 / ECEF's WGS84_E2 — two names, one value, routed
+  // through the active body by the body-consts seam). See consts.ts for the separate-decl rationale.
+  {
+    name: 'EARTH_E2',
+    type: f32T,
+    wgslValue: 0.0066943799901413165,
+    cpuValue: 0.0066943799901413165,
+  },
   { name: 'MERCATOR_LAT_LIMIT', type: f32T, wgslValue: 85.051129, cpuValue: 85.051129 },
   // DEG2RAD survives only as the (DEG2RAD·EARTH_R) divisor in the abs-Mercator → degree paths
   // (line/polygon): folding the EARTH_R factor out to feed degrees() would change this #392-sensitive
@@ -352,14 +363,19 @@ const proj_oblique_mercator = fn(
   },
 )
 
+// #1152 INC-3 — globe surface grid on the WGS84 ELLIPSOID: prime-vertical radius
+// N = EARTH_R/√(1−E2·sin²φ); (N·cosφ·cosλ, N·cosφ·sinλ, N·(1−E2)·sinφ) — the exact
+// degree-domain lonLatToECEF globeForward mirrors (≤1mm). Moon (E2=0) ⇒ sphere.
 const proj_globe = fn({ lon_deg: f32T, lat_deg: f32T }, ({ lon_deg, lat_deg }) => {
   const lam = radians(lon_deg)
   const phi = radians(lat_deg)
+  const sphi = sin(phi)
   const cphi = cos(phi)
+  const n = EARTH_R.div(sqrt(f32(1).sub(EARTH_E2.mul(sphi).mul(sphi))))
   return vec3(
-    EARTH_R.mul(cphi).mul(cos(lam)),
-    EARTH_R.mul(cphi).mul(sin(lam)),
-    EARTH_R.mul(sin(phi)),
+    n.mul(cphi).mul(cos(lam)),
+    n.mul(cphi).mul(sin(lam)),
+    n.mul(f32(1).sub(EARTH_E2)).mul(sphi),
   )
 })
 
@@ -647,21 +663,20 @@ function buildProjectionArtifacts(specs: ProjectionSpec[]) {
     return pv.sub(cv)
   })
 
-  // globe_eye_horizon_cos — #600 eye-horizon visibility signal for the globe (7)
-  // arm, in COSINE units (directly comparable to center_cos_c, so it slots into
-  // the same cull-sign + RIM_FADE smoothstep the centre-hemisphere arm used).
-  // Reconstruct the surface point P on the SPHERE (proj_globe; |P| = EARTH_R) and
-  // return dot(normalize(P), eye_dir) − horizonCos, where globe_eye = (eye_dir,
-  // horizonCos) = (normalize(eye_ecef), EARTH_R/|eye_ecef|). A point faces the eye
-  // iff dot(normalize(P), normalize(eye)) > EARTH_R/|eye| (the sphere horizon cut),
-  // so this is > 0 on the visible eye-horizon cap and < 0 on the far cap. SPHERE P
-  // (not the ellipsoid lonLatToECEF) keeps the test self-consistent with the
-  // EARTH_R/|eye| threshold and byte-matches the globe.ts tile selector's model.
+  // globe_eye_horizon_cos — #600 eye-horizon visibility signal (COSINE units, slots
+  // into the same cull-sign + RIM_FADE smoothstep center_cos_c uses). #1152 INC-3 —
+  // ELLIPSOID tangent plane (exact, convex): visible iff E.x·P.x/a²+E.y·P.y/a²+E.z·P.z/b²
+  // > 1. Scaling P,E into the sphere frame q=(x/a,y/a,z/b) (z-scale = inverseSqrt(1−E2)
+  // = a/b) gives the SAME cut dot(q̂P,q̂E) > 1/|qE|; globe_eye = (q̂E, 1/|qE|) is packed
+  // by globeEyeUniform in that (a,b) frame. normalize is scale-invariant (the /EARTH_R
+  // just conditions magnitude). Moon (E2=0) ⇒ q = normalize(P) ⇒ the sphere signal.
   const globe_eye_horizon_cos = fn(
     { lon_deg: f32T, lat_deg: f32T, globe_eye: vec4fT },
     ({ lon_deg, lat_deg, globe_eye }) => {
       const p = proj_globe({ lon_deg, lat_deg })
-      const pn = p.div(length(p))
+      const zScale = inverseSqrt(f32(1).sub(EARTH_E2)) // a/b
+      const q = vec3(p.x.div(EARTH_R), p.y.div(EARTH_R), p.z.mul(zScale).div(EARTH_R))
+      const pn = normalize(q)
       return dot(pn, globe_eye.swizzle('xyz')).sub(globe_eye.w)
     },
   )

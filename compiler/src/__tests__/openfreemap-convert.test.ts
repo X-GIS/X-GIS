@@ -69,7 +69,7 @@ describe('OpenFreeMap Bright → xgis full pipeline', () => {
           .slice(Math.max(0, lineNum - 3), lineNum + 2)
           .map((l, i) => `  ${Math.max(1, lineNum - 2) + i}: ${l}`)
           .join('\n')
-        // eslint-disable-next-line no-console
+
         console.error(`\n--- xgis context near error ---\n${ctx}\n--- end ---\n`)
       }
     }

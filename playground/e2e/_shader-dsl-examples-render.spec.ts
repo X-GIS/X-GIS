@@ -81,10 +81,9 @@ test.describe('shader-dsl examples render on real WebGL2', () => {
             const buf = new ArrayBuffer(Math.ceil(u.size / 16) * 16)
             const f32 = new Float32Array(buf)
             for (const field of u.fields) {
-              const c = (controls as Record<
-                string,
-                { kind: string; value?: number | number[] | boolean }
-              >)[field.name]
+              const c = (
+                controls as Record<string, { kind: string; value?: number | number[] | boolean }>
+              )[field.name]
               let v: number[] = [0]
               if (c?.kind === 'time') v = [1.0]
               else if (c?.kind === 'resolution') v = [128, 128]
@@ -115,7 +114,17 @@ test.describe('shader-dsl examples render on real WebGL2', () => {
             const gtex = gl.createTexture()
             gl.activeTexture(gl.TEXTURE7)
             gl.bindTexture(gl.TEXTURE_2D, gtex)
-            gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, 1, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array([255, 255, 255, 255]))
+            gl.texImage2D(
+              gl.TEXTURE_2D,
+              0,
+              gl.RGBA8,
+              1,
+              1,
+              0,
+              gl.RGBA,
+              gl.UNSIGNED_BYTE,
+              new Uint8Array([255, 255, 255, 255]),
+            )
             gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST)
             gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST)
             gl.uniform1i(gLoc, 7)

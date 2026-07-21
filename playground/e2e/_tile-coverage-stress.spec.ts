@@ -13,7 +13,7 @@
 
 import { test, expect } from '@playwright/test'
 
-interface TileDiag {
+interface _TileDiag {
   needed: number
   missed: number
   gpuUnique: number

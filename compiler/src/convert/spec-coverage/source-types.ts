@@ -38,8 +38,8 @@ export const SOURCE_TYPES: readonly CoverageEntry[] = [
     name: 'raster-dem',
     status: 'partial',
     impact: 'medium',
-    note: 'Source registered, no hillshade renderer yet (Batch 4).',
-    source: 'sources.ts:57',
+    note: '#777 Phase II — source threads encoding / tileSize (+ custom unpack factors); the DEM is fetched + RGBA8-decoded (mapbox / terrarium / custom) in the HillshadeRenderer. End-to-end relief draw pending pass wiring + real-GPU A/B (INC-5/6); terrain vertex displacement is future (II6).',
+    source: 'sources.ts',
   },
   {
     name: 'image',

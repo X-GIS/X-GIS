@@ -145,7 +145,13 @@ export async function initGPUViaProviders(
   try {
     return await selectBackend(canvas, providers)
   } catch (e) {
-    if (e instanceof BackendUnavailableError) throw new WebGPUUnavailableError(e.message)
+    // #1196 — carry the per-provider causes into the message: the generic
+    // "no RHI backend could boot" hid the actual create() failure (a webgl2
+    // re-boot dying on a live-swap) behind the WebGPU-unavailable UX.
+    if (e instanceof BackendUnavailableError) {
+      const causes = e.causes.map((c) => (c instanceof Error ? c.message : String(c))).join('; ')
+      throw new WebGPUUnavailableError(causes ? `${e.message} — causes: ${causes}` : e.message)
+    }
     throw e
   }
 }

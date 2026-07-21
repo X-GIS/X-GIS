@@ -22,7 +22,7 @@ import { InteractionController, type InteractionControllerDeps } from './interac
 import type { LayerIdRegistry } from './layer'
 
 // GPUMapMode is a WebGPU browser global absent in vitest — stub it.
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
+
 ;(globalThis as any).GPUMapMode = { READ: 0 }
 
 afterEach(() => vi.restoreAllMocks())
@@ -88,7 +88,7 @@ function makeRaceController(useFixedGetCtx: boolean) {
 
   // Pre-inject a staging slot to bypass the createBuffer path
   // (avoids needing GPUBufferUsage global).
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+
   ;(ctrl as any).pickReadbackPool = [{ buf: mockBuffer, inUse: false }]
 
   return { ctrl, getMappedRangeSpy, mockBuffer, destroyed: () => destroyed }
@@ -125,7 +125,7 @@ describe('pickAt destroy-race — getMappedRange must not be called after destro
     // FIX: pickAt returns null cleanly (no unhandled rejection).
     expect(result).toBeNull()
     // FIX: slot released even on bail path.
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+
     expect((ctrl as any).pickReadbackPool[0].inUse).toBe(false)
   })
 })

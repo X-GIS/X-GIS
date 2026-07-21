@@ -99,7 +99,7 @@ const POINT_DEMOS = new Set([
 
 // ── Helper utilities ──────────────────────────────────────────────
 
-interface DemoResult {
+interface _DemoResult {
   id: string
   ok: boolean
   reason?: string

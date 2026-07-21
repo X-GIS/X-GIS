@@ -182,8 +182,14 @@ test.describe('line GLSL twin compiles on real WebGL2 (#834 M5)', () => {
     // #834 M5 slice 6 — the translucent offscreen MAX fragment twin + the
     // fullscreen compositor pair (vs_full/fs_full).
     configureProjections(PROJECTIONS)
-    const maxPair = { vertex: emitLineGlsl(false, 'vertex'), fragment: emitLineGlsl(false, 'fragment-max') }
-    const compPair = { vertex: emitCompositeGlsl('vertex'), fragment: emitCompositeGlsl('fragment') }
+    const maxPair = {
+      vertex: emitLineGlsl(false, 'vertex'),
+      fragment: emitLineGlsl(false, 'fragment-max'),
+    }
+    const compPair = {
+      vertex: emitCompositeGlsl('vertex'),
+      fragment: emitCompositeGlsl('fragment'),
+    }
     expect(maxPair.fragment.length).toBeGreaterThan(200)
     expect(compPair.fragment).toContain('src') // the fused offscreen sampler
 

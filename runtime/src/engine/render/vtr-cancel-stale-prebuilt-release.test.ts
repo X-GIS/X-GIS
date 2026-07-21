@@ -54,7 +54,11 @@ function makeCoordinator() {
   const queue = { removeByFilter } as unknown as PriorityQueue<string, void>
   const host: UploadHost = {
     device: {} as unknown as GPUDevice,
-    rhi: { backend: 'webgpu', writeBuffer: () => {}, unwrapBuffer: (b: unknown) => b } as unknown as RhiDevice,
+    rhi: {
+      backend: 'webgpu',
+      writeBuffer: () => {},
+      unwrapBuffer: (b: unknown) => b,
+    } as unknown as RhiDevice,
     stagingPool: {} as unknown as StagingBufferPool,
     store: {} as unknown as UploadStore,
     lineRenderer: () => null,

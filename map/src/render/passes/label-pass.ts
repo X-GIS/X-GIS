@@ -24,6 +24,12 @@ import { mercatorYToLat } from '@xgis/geo'
 import { isGlobeProj } from '@xgis/geo'
 import { projMercatorCpu } from '../../shaders/dsl/cpu-projections'
 import { resolveLabelEffectiveDef, makeLabelProjectors } from '../../render-loop-helpers'
+import {
+  sampleReplayRefs,
+  solveReplayTransform,
+  REPLAY_REFS_LEN,
+  type LabelReplayTransform,
+} from './label-replay-transform'
 import { computeSliceKey } from '@xgis/data'
 import { TextStage } from '../../text/text-stage'
 import type { TextStageOptions } from '../../text/text-stage-types'
@@ -158,6 +164,23 @@ export function dispatchCenterKey(centerX: number, centerY: number, mpp: number)
  *  delimiters, so a per-field diff can never alias the concatenated form. */
 interface LabelDispatchSkipState {
   zoomKey: number
+  /** Un-quantised zoom at the last actual PREPARE (#1177 Option B) — the
+   *  reference the active-zoom tolerance measures drift against. */
+  preparedZoom: number
+  /** Exact zoom key of the PREVIOUS FRAME (updated every frame, hit or
+   *  miss) — `prevFrameZoomKey !== current` detects an ACTIVE zoom. */
+  prevFrameZoomKey: number
+  /** Raw mercator-metre centre at the last PREPARE — the active-zoom centre
+   *  tolerance divides its drift by the CURRENT mpp (screen px), because the
+   *  quantised ckx/cky churn under pure zoom (mpp shrinks ⇒ centre/mpp
+   *  grows) even when the geographic centre never moved. */
+  preparedCenterX: number
+  preparedCenterY: number
+  /** TRUE centre latitude at the last PREPARE — compared EXACTLY in the
+   *  settled branch. Beyond the Mercator clamp (sphere-family polar orbit)
+   *  centerY saturates while centerLatDeg keeps moving, so ckx/cky alone
+   *  would replay stale labels across a polar setCenter/drag. */
+  centerLatDeg: number
   ckx: number
   cky: number
   bearingKey: number
@@ -166,6 +189,14 @@ interface LabelDispatchSkipState {
   canvasH: number
   showsLen: number
   vtrSig: string
+  /** #1177 replay correction — [mercX,mercY,px,py] × 3 reference samples from
+   *  the last PREPARE frame's projectors (label-replay-transform.ts). Hit
+   *  (replay) frames solve prepared→current against these so the baked
+   *  screen-px quads track the camera instead of freezing mid-zoom. */
+  replayRefs: Float64Array
+  replayRefsValid: boolean
+  /** Caller-owned solve output — reused across frames, no per-frame alloc. */
+  replayOut: LabelReplayTransform
 }
 
 class LabelPass implements RenderPass {
@@ -653,11 +684,31 @@ class LabelPass implements RenderPass {
       // `_prevLabelDispatchSig = _dispatchSig`; since the hit precondition already
       // implies equality, that keeps stored == current after every frame.
       const _prevSkip = this._skipState.get(host)
+      // #1177 Option B — zoom-tolerant skip. The exact `(zoom*100)|0` key made
+      // EVERY continuous-zoom frame a guaranteed miss, so the whole
+      // prepare cost sat on the wheel-zoom hot path (the confirmed jank root
+      // cause). During an ACTIVE zoom (this frame's exact key differs from the
+      // previous FRAME's) the camera cluster is compared with tolerance
+      // instead: |zoom - preparedZoom| <= 0.15 and centre drift <= 48 px —
+      // prior placement replays, MapLibre placement-throttle style (mid-zoom
+      // staleness bounded by those budgets). The moment motion STOPS the exact
+      // comparison returns, forcing one final prepare so idle is snap-correct.
+      // Bearing/pitch/canvas/shows/tiles stay exact — a tile landing mid-zoom
+      // still re-prepares (new labels must appear).
+      const zoomActive = _prevSkip !== undefined && _prevSkip.prevFrameZoomKey !== _zoomKey
+      const _camSame =
+        _prevSkip !== undefined &&
+        (zoomActive
+          ? Math.abs(c.zoom - _prevSkip.preparedZoom) <= 0.15 &&
+            Math.abs(c.centerX - _prevSkip.preparedCenterX) / _mpp <= 48 &&
+            Math.abs(c.centerY - _prevSkip.preparedCenterY) / _mpp <= 48
+          : _prevSkip.zoomKey === _zoomKey &&
+            _prevSkip.ckx === _ckx &&
+            _prevSkip.cky === _cky &&
+            _prevSkip.centerLatDeg === c.centerLatDeg)
       const _sigSame =
         _prevSkip !== undefined &&
-        _prevSkip.zoomKey === _zoomKey &&
-        _prevSkip.ckx === _ckx &&
-        _prevSkip.cky === _cky &&
+        _camSame &&
         _prevSkip.bearingKey === _bearingKey &&
         _prevSkip.pitchKey === _pitchKey &&
         _prevSkip.canvasW === _canvasW &&
@@ -673,6 +724,11 @@ class LabelPass implements RenderPass {
         if (_prevSkip === undefined) {
           this._skipState.set(host, {
             zoomKey: _zoomKey,
+            preparedZoom: c.zoom,
+            prevFrameZoomKey: _zoomKey,
+            preparedCenterX: c.centerX,
+            preparedCenterY: c.centerY,
+            centerLatDeg: c.centerLatDeg,
             ckx: _ckx,
             cky: _cky,
             bearingKey: _bearingKey,
@@ -681,9 +737,16 @@ class LabelPass implements RenderPass {
             canvasH: _canvasH,
             showsLen: _showsLen,
             vtrSig: _vtrSig,
+            replayRefs: new Float64Array(REPLAY_REFS_LEN),
+            replayRefsValid: false,
+            replayOut: { scale: 1, dx: 0, dy: 0 },
           })
         } else {
           _prevSkip.zoomKey = _zoomKey
+          _prevSkip.preparedZoom = c.zoom
+          _prevSkip.preparedCenterX = c.centerX
+          _prevSkip.preparedCenterY = c.centerY
+          _prevSkip.centerLatDeg = c.centerLatDeg
           _prevSkip.ckx = _ckx
           _prevSkip.cky = _cky
           _prevSkip.bearingKey = _bearingKey
@@ -693,6 +756,39 @@ class LabelPass implements RenderPass {
           _prevSkip.showsLen = _showsLen
           _prevSkip.vtrSig = _vtrSig
         }
+        // #1177 — refresh the replay-correction refs from THIS (about-to-
+        // prepare) frame's projector family, the same one placing the labels
+        // below. Hit frames solve prepared→current against these.
+        const _missState = this._skipState.get(host)!
+        _missState.replayRefsValid = sampleReplayRefs(
+          projectMercAny,
+          c.centerX,
+          c.centerY,
+          _mpp,
+          Math.min(_canvasW, _canvasH) / 4,
+          _missState.replayRefs,
+        )
+      }
+      // Every frame (hit AND miss): record this frame's exact key so the next
+      // frame can classify itself active vs settled.
+      const _postSkip = this._skipState.get(host)
+      if (_postSkip) _postSkip.prevFrameZoomKey = _zoomKey
+      // #1177 — replay correction: on a skip (replay) frame, derive the
+      // prepared→current screen-space similarity and hand it to stage/iStage
+      // render as a shader uniform, so the baked screen-px quads track the
+      // camera instead of freezing until the next re-prepare (the reported
+      // wheel-zoom label lag). Any solve failure (culled ref, world-copy
+      // flip, degenerate camera) ⇒ undefined ⇒ identity — the pre-fix
+      // behaviour for that frame only. Exact at pitch 0 on flat projections;
+      // first-order at the view centre otherwise (label-replay-transform.ts).
+      let labelReplay: LabelReplayTransform | undefined
+      if (
+        canSkipLabelPrepare &&
+        _postSkip !== undefined &&
+        _postSkip.replayRefsValid &&
+        solveReplayTransform(_postSkip.replayRefs, projectMercAny, _postSkip.replayOut)
+      ) {
+        labelReplay = _postSkip.replayOut
       }
       // _showIdx = draw order (later show = higher layer) — point-label dedup precedence (#458).
       for (let _showIdx = 0; _showIdx < labelShows.length; _showIdx++) {
@@ -1835,8 +1931,8 @@ class LabelPass implements RenderPass {
           // Forced-WebGL2 frame (#834 M5 slices 3-4): draw on the live RHI
           // screen pass — no WebGPU encoder exists on this path. Icons
           // BEFORE text, matching the WebGPU ordering below.
-          iStage?.render(ctx.rhiPass, { width: ctx.w, height: ctx.h })
-          stage.render(ctx.rhiPass, { width: ctx.w, height: ctx.h })
+          iStage?.render(ctx.rhiPass, { width: ctx.w, height: ctx.h }, labelReplay)
+          stage.render(ctx.rhiPass, { width: ctx.w, height: ctx.h }, labelReplay)
         } else {
           ctx.passScope('text-overlay', () => {
             const tPass = encoder.beginRenderPass({
@@ -1851,8 +1947,8 @@ class LabelPass implements RenderPass {
             })
             // Icons render BEFORE text so labels read on top of their
             // POI badges — matches MapLibre's symbol-stage ordering.
-            iStage?.render(tPass, { width: ctx.w, height: ctx.h })
-            stage.render(tPass, { width: ctx.w, height: ctx.h })
+            iStage?.render(tPass, { width: ctx.w, height: ctx.h }, labelReplay)
+            stage.render(tPass, { width: ctx.w, height: ctx.h }, labelReplay)
             tPass.end()
           })
         }

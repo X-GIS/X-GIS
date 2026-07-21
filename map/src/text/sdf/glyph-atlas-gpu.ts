@@ -111,7 +111,15 @@ export class GlyphAtlasGPU {
         this.addPage()
         continue
       }
-      this.rhi.writeTexture(tex, d.sdf, d.slot.size, d.slot.size, d.slot.size, d.slot.pxX, d.slot.pxY)
+      this.rhi.writeTexture(
+        tex,
+        d.sdf,
+        d.slot.size,
+        d.slot.size,
+        d.slot.size,
+        d.slot.pxX,
+        d.slot.pxY,
+      )
     }
     return dirty.length
   }

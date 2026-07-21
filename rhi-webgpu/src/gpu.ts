@@ -9,6 +9,7 @@
 // (`RenderContext` / `BackendChoice`), pinned in the dependency-direction
 // ratchet baseline until the #834 M5 context neutralization relocates it.
 import type { RhiDevice, RhiTextureFormat } from '@xgis/rhi'
+import { peekGl2RestoreToken } from '@xgis/rhi'
 import type { RenderContext, RhiDeviceLostInfo } from '@xgis/engine'
 // BackendChoice + the neutral render context live in @xgis/engine (#834
 // map→engine): they are engine composition concepts (a host canvas + frame
@@ -493,7 +494,12 @@ async function ensureWebGl2ContextRestored(
   gl: WebGL2RenderingContext,
   canvas: HTMLCanvasElement,
 ): Promise<void> {
-  const ext = gl.getExtension('WEBGL_lose_context')
+  // #1196 — on a LOST context getExtension() returns null (WebGL spec), so a
+  // same-canvas remount after a deliberate destroy() can never re-acquire the
+  // extension here. The destroyer stashed the pre-loss extension object on the
+  // canvas (stashGl2RestoreToken, @xgis/rhi) — the handle stays functional
+  // across the loss; fall back to it.
+  const ext = gl.getExtension('WEBGL_lose_context') ?? peekGl2RestoreToken(canvas)
   if (!ext) {
     throw new WebGPUUnavailableError(
       'WebGL2 context lost on boot and WEBGL_lose_context is unavailable to restore it',
@@ -503,6 +509,7 @@ async function ensureWebGl2ContextRestored(
   let onLost: ((e: Event) => void) | undefined
   const restored = new Promise<void>((resolve, reject) => {
     let settled = false
+    // eslint-disable-next-line prefer-const -- assigned once BELOW the closures that capture it; `const` cannot be assigned there
     let timer: ReturnType<typeof setTimeout>
     const onRestored = (): void => {
       if (settled) return
@@ -514,11 +521,15 @@ async function ensureWebGl2ContextRestored(
     }
     onLost = (e: Event): void => {
       // Same-task ordering: the deferred loss lands now. Keep it restorable and
-      // re-drive restore AFTER the dispatch completes (restore_allowed_ is set then).
+      // re-drive restore AFTER the dispatch completes. MACROTASK, not microtask
+      // (#1196): Blink assigns restore_allowed_ = defaultPrevented() only after
+      // DispatchEvent RETURNS, and a microtask checkpoint runs between the
+      // listener returning and that assignment — a queueMicrotask restore fired
+      // too early and hit "restoration not allowed", so the boot always timed out.
       e.preventDefault()
-      queueMicrotask(() => {
+      setTimeout(() => {
         if (!settled) ext.restoreContext()
-      })
+      }, 0)
     }
     timer = setTimeout(() => {
       if (settled) return

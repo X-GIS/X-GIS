@@ -1,0 +1,28 @@
+xgis 1
+
+/* #777 Phase II — REAL-data hillshade: shaded relief from live terrain tiles.
+ *
+ * The `raster-dem` source streams AWS Terrain Tiles (Mapzen/Nextzen terrarium
+ * encoding — public S3 bucket, no API key) and routes to the
+ * HillshadeRenderer automatically. Unlike fixture-hillshade-local.xgis (the
+ * deterministic offline gate fixture), this exercises the full real-world
+ * path: {z}/{x}/{y} tile templating, terrarium decode
+ * (elevation = (R*256 + G + B/256) - 32768), and authored hillshade paint.
+ *
+ * Opens over the Grand Canyon (demo center/zoom in thematic.ts) — the classic
+ * shaded-relief subject: deep incised canyons + the flat rim make the
+ * illumination direction and exaggeration instantly readable. */
+
+source terrain {
+  type: "raster-dem"
+  url: "https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}/{y}.png"
+  encoding: terrarium
+  tileSize: 256
+}
+
+layer relief {
+  source: terrain
+  | hillshade-exaggeration-0.6 hillshade-illumination-direction-315
+  | hillshade-shadow-color-#3d2b1f hillshade-highlight-color-#fffcf5
+    hillshade-accent-color-#4d3a26
+}
