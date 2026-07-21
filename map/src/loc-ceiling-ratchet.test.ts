@@ -127,7 +127,14 @@ const CEILINGS: Record<string, number> = {
   // 4702→4706 (#1222): zoom-bucketed stroke rebake wiring — the strokeWidthScale
   // param on bakeTileToTexture (threaded to bakeTileStrokes) + camera.zoom on the
   // renderGlobeFills call; the bucket/scale MATH lives in vector-drape-cache.ts.
-  'map/src/render/vector-tile-renderer.ts': 4706,
+  // 4706→4739 (raster-resolution follow-ups): the feature-buffer-fill ×
+  // extrude downgrade guard (base-only extruded pipelines vs feature bind
+  // group = per-draw validation flood) + extruded shows draw no ground
+  // outline (MapLibre fill-extrusion semantics; ground strokes composited
+  // across raised roofs).
+  // 4739→4740 (#1252): the two fillPipelineExtrudedOverride params + their use
+  // at the primary/fallback extrude-pipeline selection (data-driven fill extrude).
+  'map/src/render/vector-tile-renderer.ts': 4740,
   // 4232→4237 (#1000 heatmap relocate): the heatmap density-target OWNERSHIP
   // extracted to render/heatmap-targets.ts; map keeps only the irreducible
   // composition-root wiring — the `heatmapTargets` field + its import (mirrors
@@ -246,20 +253,36 @@ const CEILINGS: Record<string, number> = {
   // Merge union (#1172 <- main): the M1/M4/M5/M5c mobile-hardening seams stacked
   // non-overlappingly on main's #1177/#1194/#1196/#777-II lineage — merged
   // high-water is the measured 4708.
+  // 4708→4711 (raster-resolution): rebuildLayers hands the raster source's
+  // authored tileSize to the renderer (cover-zoom bias wiring).
   // 4708→4715 (#1235 gap 2): the FeatureUpdateQueue host gains the seeded-FC
   // getter (CRS-guarded) + the reseedSource hook — wiring only; the patch/
   // re-seed logic lives in feature-update-queue.ts + source-manager.ts.
+  // Merge union (raster-resolution <- main): both bumps stacked
+  // non-overlappingly (tileSize wiring +3, #1235 seams +7) — merged
+  // high-water is the measured 4718.
+  // 4718→4732 (#1192 batch 5): the sourceCRS registry-population comment
+  // documents the real bug the animate-line/realtime-update ports' render
+  // probe caught — every geojson source's lower.ts-defaulted 'EPSG:4326'
+  // was read as an explicit declaration, so getSeededFC() (the #1242 gap-2
+  // check) rejected updateFeature() for every .xgis-declared/URL geojson
+  // source. One-line functional fix; the rest is comment.
   // 4715→4729 (symbol fade): the `labelFadeDurationMs` field (+doc, MapLibre
   // fadeDuration parity, options-bag consumption) + the fade keep-alive read
   // in shouldRenderThisFrame (mirrors the adjacent _sceneHasAnimation line).
   // The fade machinery itself lives in text/label-fade.ts — wiring only here.
-  'map/src/map.ts': 4729,
+  // Merge union (symbol fade <- main): the two stacks are non-overlapping (source
+  // CRS/tileSize wiring vs the fade field + keep-alive read) — they SUM, so the
+  // merged file measures 4746, not max(4732, 4729).
+  'map/src/map.ts': 4746,
   // Baselined at #1235 (measured 846): SourceManager crossed NEW_FILE_CAP with
   // the gap-1/gap-2 seams — the setSourceData virtual re-seed branch (the
   // legacy worker-compile path renders fills/points but no line segments) +
   // the attach-time ShowSourceMaps/seeded-FC records the re-seed and the
   // feature-update queue read. Cohesive source-lifecycle ownership; split
   // (attach arms vs push/ingest) when #991 gets here — shrink-only from now.
+  // (raster-resolution merge: the tileSize passthrough line lands inside the
+  // existing 846 measurement — no growth.)
   'map/src/source-manager.ts': 846,
   // 1920→1930 (#1042 R3): the globe limb cull for MULTI-LINE labels must land in
   // the collision phase — the ONLY site holding the label's quad half-height (the
@@ -284,6 +307,18 @@ const CEILINGS: Record<string, number> = {
   // bypass the layout cache; the plain-label path is byte-identical (§2).
   // 2066→2068 (#1177 replay correction): render() gains the optional S16
   // skip-replay transform param, forwarded to TextRenderer.draw. +2.
+  // 2068→2085 (near-first collision): CollisionItem.nearY wiring — one field
+  // (`nearY: s.layouts[0]?.draw.anchorY`) so same-layer overlaps resolve
+  // near-first on pitched views (site report: Shanghai dropped for Seoul at
+  // pitch 81°), +16 comment lines (precedence note (3), the nearY rationale,
+  // and the corrected byte-identical claims). Logic lives in text-collision.ts.
+  // 2085→2136 (near-on-top draw order): the default/`auto` legacy emit now
+  // Y-sorts DRAW order WITHIN each layer so overlapping allow-overlap labels
+  // paint near-on-top (the collision sibling decided which SURVIVES; this
+  // decides which paints last). +51 = the gated in-place drawOrder sort (≥1
+  // allow-overlap, else source order at zero cost) + its rationale block + the
+  // `layerName` thread onto pending/shaped (the layer-precedence key, ranked by
+  // first appearance) at addLabel/addCurvedLineLabel + the 3 shaped pushes.
   // 2068→2155 (symbol fade): the prepare()-side fade wiring — the ledger /
   // holdover-store fields + ctor init, the dispatch-order fadeInstanceKey
   // precompute, the placed-branch place()+store, the fade-out holdover
@@ -291,7 +326,10 @@ const CEILINGS: Record<string, number> = {
   // and the holdoverOk param (+docs). The MECHANISM (ledger, holdover clone
   // store) lives extracted + unit-proved in text/label-fade.ts; only the
   // prepare-loop integration grew here. +87.
-  'map/src/text/text-stage.ts': 2155,
+  // Merge union (symbol fade <- main): near-first collision (+68) and symbol
+  // fade (+87) stack non-overlappingly on the shared 2068 base — they SUM to
+  // the measured 2223, not max(2136, 2155).
+  'map/src/text/text-stage.ts': 2223,
   // 1786→1719 (#727 C): the line/point dedupe + pair-key helper block was
   // EXTRACTED to passes/line-label-dedupe.ts when the world-copy fan-out would
   // otherwise have grown this file — the extract-don't-grow answer.
@@ -333,13 +371,19 @@ const CEILINGS: Record<string, number> = {
   // reference points, hit frames solve prepared→current and pass it to the 4
   // stage/iStage render calls. The MATH lives extracted in
   // passes/label-replay-transform.ts (unit-proved); only wiring grew here. +46.
+  // 2002→2005 (near-first collision): labelCollisionId composes with the
+  // TIEBREAK_GROUP_SEP const now owned by text-collision.ts (import + 2 doc
+  // lines); the ordering logic itself lives there. +3.
   // 2002→2063 (symbol fade): the per-frame ledger advance + completion
   // LABEL-dirty at execute() top, the tsOpts.fadeDurationMs line, the
   // holdoverOk exact-camera derivation beside the S16 signature (uses the
   // same locals), the stage/iStage prepare threading + setFadeLedger
   // handoff, and dispatchIcon's fadeId param at the collisionId-bearing
   // call sites. Mechanism in text/label-fade.ts; wiring only here. +61.
-  'map/src/render/passes/label-pass.ts': 2063,
+  // Merge union (symbol fade <- main): near-first collision (+3) and symbol
+  // fade (+61) stack non-overlappingly on the shared 2002 base — they SUM to
+  // the measured 2066, not max(2005, 2063).
+  'map/src/render/passes/label-pass.ts': 2066,
   // #1081 — per-anchor perspective distance attenuation (MapLibre parity). New
   // baseline: the wCenter + perspScale scratch-out-value lives INLINE in the two
   // existing projector closures (it rides the cw already computed per anchor —
@@ -356,9 +400,23 @@ const CEILINGS: Record<string, number> = {
   // threading + rationale comments; the emit is byte-identical (§2 — no
   // extract-worthy unit, the dedup lives at the existing build sites). Lower as
   // #991 decomposes the render SCC.
-  'map/src/render/pipeline-factory.ts': 1505,
+  // 1505→1613 (#1252): the data-driven extrude pipeline family — the
+  // fillExtruded/fallback descriptors in BOTH variant builders (sync +
+  // async), the CachedPipeline return mappings, and the per-style extrude
+  // Material twin build + registration (buildExtrudeMaterial over the variant
+  // WGSL, feature layout). Cohesive with the existing per-style flat/ground
+  // twin machinery it mirrors; lower as #991 decomposes the render SCC.
+  // (measured 1621 post-prettier reflow of the extruded descriptors.)
+  'map/src/render/pipeline-factory.ts': 1621,
   'map/src/camera/camera.ts': 1419,
-  'map/src/shaders/dsl/line.ts': 1373,
+  'map/src/shaders/dsl/line.ts': 1422,
+  // 1373→1422 (#1246): the flat-projection stroke-width fix. The VS clamp's flat
+  // branch is rewritten from the (miscalibrated, no-op) targetNdc clamp to a
+  // self-calibrating length(mercProbe)/length(projProbe) = 1/J screen-size ratio
+  // that widens ONLY the across offset (acrossOffset captured pre-along-pad), plus
+  // a decoupled world_local_out Var so the FS stays byte-identical (true Mercator).
+  // The globe (≥6.5) arm keeps the exact former ECEF clamp. +49 is the split
+  // branch bodies + the four NDC probe reductions + rationale comments.
   // 1315→1339 (#1154): the pattern_active struct field (+ its rationale comment)
   // and the fill-translate `if (pattern_active == 0)` gate in the three VS entries
   // (vs_main / vs_main_ecef / vs_main_ecef_extruded) — fixes blank fill-patterns.
@@ -374,7 +432,12 @@ const CEILINGS: Record<string, number> = {
   // extrude VS (roof lighting was anchor-relative → continent-scale gradient) +
   // the exact |N_enu.z| wall/roof discriminator; oracle in
   // core/extrude-light-frame.test.ts. Stacked on the entry override — measured 1368.
-  'map/src/shaders/dsl/polygon.ts': 1368,
+  // 1368→1448 (#1252): the data-driven extrude fragment path — shade_geom
+  // varying + the VS d_geom/vgrad_factor split (v_color byte-identical), the
+  // fs_fill_extrude composer placeholder, and default/variantExtrudeReturnStmts
+  // (fragment re-lighting of the feat_data colour). The shading math is a
+  // faithful replay of the VS lighting; not extract-worthy (§2).
+  'map/src/shaders/dsl/polygon.ts': 1448,
   // 1290→1314 (#1155 F3): cold-start burst tick budget — the `_coldStartBurst`
   // field + `_BURST_TICK_BUDGET` + `setColdStartBurst` + the burst-selected
   // budget in resetCompileBudget's backend tick loop.
@@ -429,7 +492,10 @@ const CEILINGS: Record<string, number> = {
   // measured 1315.
   // Merge union (#1172 <- main): the M5/M3 scheduling-authority reroute (net -1)
   // stacked on main's twin lineage — merged high-water is the measured 1314.
-  'map/src/render-loop.ts': 1314,
+  // 1314→1326 (raster-resolution): hillshade DEM fetches join BOTH keep-alive
+  // checks (WebGPU + WebGL2 twin) — a hillshade-only scene otherwise idles
+  // before its tiles arrive and the arrival never repaints (black relief).
+  'map/src/render-loop.ts': 1326,
   // Merge union (#1060 <- main): stacked growth — measured 1174.
   'map/src/render/point-renderer.ts': 1174,
   // 1106→1120 (#1043 state-hygiene): three unmask-before-clear / state-reset fixes for the
@@ -526,7 +592,14 @@ const CEILINGS: Record<string, number> = {
   // chains' `.catch` that un-wedges the loadingTiles slot (a createTexture throw on a
   // lost context otherwise pins all 6 slots → raster stops + the loop never idles).
   // A cohesive renderer, not a new god-file; shrink as #991 decomposes the render SCC.
-  'map/src/render/raster-renderer.ts': 809,
+  // 809→838 (raster-resolution): rasterCoverZoom — the tileSize-aware cover-zoom
+  // authority (camera zoom is the 512-px convention; 256-px XYZ tiles need z+1
+  // or every raster renders one LOD blurry) + the _tileSize field/setter.
+  // 838→848 (raster-resolution CI round): per-frame draw dedup keyed by render
+  // coord + ox — parent fallback mapped every uncached child onto the same
+  // parent quad (4× duplicate draws; alpha compounds at raster-opacity < 1),
+  // pinned by runtime raster-world-copy no-duplicate gate.
+  'map/src/render/raster-renderer.ts': 848,
   // 889→906 (#1155 F3): cold-start burst enqueue cap — the `_coldStartBurst`
   // field + `setColdStartBurst` + the burst-selected 8/4 cap in enqueue().
   // 906→910 (#1155 F3 adjudication): the burst 8/4 pair now comes from the

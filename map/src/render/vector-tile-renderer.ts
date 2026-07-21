@@ -2287,6 +2287,15 @@ export class VectorTileRenderer {
      *  read paint values from here — `show.*` paint fields stay around for
      *  trace + introspection only. */
     resolvedShow: ResolvedShow,
+    /** #1252 — the SHOW's variant EXTRUDED pipeline (feature layout) + its
+     *  fallback. When the show carries a data-driven fill (feature bind group)
+     *  AND extrudes, the shared base extruded pipeline (base layout) would
+     *  mismatch the feature bind group. Pass the variant's own extruded
+     *  pipeline so fs_fill_extrude samples feat_data[fid]. `undefined` (the
+     *  constant / non-variant case) falls back to the renderer-level shared
+     *  base extruded pipeline (`this._bindGroups.extrudedPipeline()`). */
+    fillPipelineExtrudedOverride?: RhiPipelineHandle,
+    fillPipelineExtrudedFallbackOverride?: RhiPipelineHandle,
   ): void {
     if (!this.source?.hasData()) return
     const index = this.source.getIndex()
@@ -2501,6 +2510,11 @@ export class VectorTileRenderer {
     // (#1084 synthesises a constant NumberLiteral for the `50` form at the
     // show-source-maps seam). currentExtrudeHeight / u.extrude_height_m is a
     // dead mirror no shader reads — kept only to avoid a uniform re-layout.
+    //
+    // #1252 — a data-driven fill (needsFeatureBuffer) now extrudes too: the
+    // show routes through the feature layout AND the bucket scheduler hands
+    // VTR the variant's own feature-layout extruded pipeline (drawFpE), which
+    // fs_fill_extrude uses to sample feat_data[fid]. No more flat downgrade.
     if (show.extrude && show.extrude.kind === 'constant') {
       this.currentExtrudeHeight = show.extrude.value
       this.currentExtrudeMode = 'per-feature' // #1084: heights synthesised per-feature → extruded pipe
@@ -3400,9 +3414,16 @@ export class VectorTileRenderer {
         groundIsBase &&
         show.fillPatternUV != null &&
         this._bindGroups.patternExtrudedPipeline() !== null
-      const extrudedPipeline = extrudedPatternActive
-        ? this._bindGroups.patternExtrudedPipeline()
-        : this._bindGroups.extrudedPipeline()
+      // #1252 — the SHOW's variant extruded pipeline wins when present (a
+      // data-driven fill on the feature layout); otherwise the pattern-extrude
+      // variant, then the shared base extruded pipeline. A data-driven fill and
+      // a fill-pattern are mutually exclusive (both own fill_color slots), so
+      // the override never collides with extrudedPatternActive.
+      const extrudedPipeline =
+        fillPipelineExtrudedOverride ??
+        (extrudedPatternActive
+          ? this._bindGroups.patternExtrudedPipeline()
+          : this._bindGroups.extrudedPipeline())
       // Bundle wrap for the primary opaque pass call. Gated to the main
       // opaque attachment context (excludes OIT, debug overdraw,
       // translucent stroke bucket, the standalone strokes phase). Cache key
@@ -3651,9 +3672,11 @@ export class VectorTileRenderer {
         fallbackGroundIsBase &&
         show.fillPatternUV != null &&
         this._bindGroups.patternExtrudedPipelineFallback() !== null
-      const fallbackExtrudedPipeline = fallbackExtrudedPatternActive
-        ? this._bindGroups.patternExtrudedPipelineFallback()
-        : this._bindGroups.extrudedPipelineFallback()
+      const fallbackExtrudedPipeline =
+        fillPipelineExtrudedFallbackOverride ??
+        (fallbackExtrudedPatternActive
+          ? this._bindGroups.patternExtrudedPipelineFallback()
+          : this._bindGroups.extrudedPipelineFallback())
       // Fallback path bundle wrap. Mirror of the primary-call wrap, applied
       // to the fallbackKeys renderTileKeys invocation. Same gate + same
       // cache key shape, plus the fallback-specific `fallbackVisibleKeys`
@@ -4134,7 +4157,18 @@ export class VectorTileRenderer {
     // #599 line-drape — when the drape baked this show's strokes onto the sphere, skip the direct
     // ECEF-chord stroke draw. `_drapeStrokes` is only set in the phase where the drape ran ('all' /
     // opaque), so the translucent 'strokes' offscreen pass is untouched (byte-identical off-globe).
-    const drawStrokes = phase !== 'fills' && phase !== 'oit-fill' && !this._drapeStrokes
+    //
+    // Extruded shows draw NO outline (MapLibre fill-extrusion semantics: the
+    // type has no outline paint). The stroke pipeline draws at GROUND height
+    // with no depth interaction against the lifted roof, so an authored
+    // stroke composites ACROSS the raised geometry — the user-visible
+    // "renders past the extrusion" artifact (ground outline slicing through
+    // roofs at pitch, border lines crossing neighbour walls on the globe).
+    const drawStrokes =
+      phase !== 'fills' &&
+      phase !== 'oit-fill' &&
+      !this._drapeStrokes &&
+      this.currentExtrudeMode !== 'per-feature'
     // `phase === 'strokes'` reaches us from two passes — the
     // translucent offscreen MAX-blend pass (no depth) and the
     // opaque OIT-extrude post-pass (with depth). Use the caller's

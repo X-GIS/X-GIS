@@ -150,6 +150,7 @@ interface RebuildMocks {
   }
   rasterRenderer: {
     setUrlTemplate: ReturnType<typeof vi.fn>
+    setTileSize: ReturnType<typeof vi.fn>
   }
   hillshadeRenderer: {
     setUrlTemplate: ReturnType<typeof vi.fn>
@@ -182,6 +183,7 @@ function makeMocks(): RebuildMocks {
     },
     rasterRenderer: {
       setUrlTemplate: vi.fn(),
+      setTileSize: vi.fn(),
     },
     hillshadeRenderer: {
       setUrlTemplate: vi.fn(),

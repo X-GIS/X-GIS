@@ -716,11 +716,18 @@ export class RenderLoop {
     this.host._needsRender = false
 
     // Tile/texture loads still in flight keep the loop warm so the scene
-    // converges. Covers three sources:
+    // converges. Covers four sources:
     //   - VT tiles with unresolved placeholders (missedTiles > 0)
     //   - VT tiles queued behind the per-frame upload budget
     //   - raster tiles mid-fetch
-    if (totalMissed > 0 || this.host.rasterRenderer.hasPendingLoads()) {
+    //   - hillshade DEM tiles mid-fetch (a hillshade-only scene has no other
+    //     signal — without this the loop idles before the DEM arrives and the
+    //     arrival never repaints: permanent black relief until an interaction)
+    if (
+      totalMissed > 0 ||
+      this.host.rasterRenderer.hasPendingLoads() ||
+      this.host.hillshadeRenderer.hasPendingLoads()
+    ) {
       this.host._needsRender = true
     } else {
       for (const [, { renderer }] of this.host.vtSources) {
@@ -1185,7 +1192,12 @@ export class RenderLoop {
     // True while vector tiles are still compiling/uploading — the caller keeps
     // _needsRender armed so the loop re-renders until the scene converges
     // (upload completion alone never repaints this isolated path, #832 M2).
-    return missingTiles > 0 || this.host.rasterRenderer.hasPendingLoads()
+    // Hillshade DEM fetches count too (same keep-alive as the WebGPU path).
+    return (
+      missingTiles > 0 ||
+      this.host.rasterRenderer.hasPendingLoads() ||
+      this.host.hillshadeRenderer.hasPendingLoads()
+    )
   }
 
   private _resolveFillPatterns(): void {

@@ -672,6 +672,7 @@ export class TextStage {
       lineId,
       anchorDistancePx,
       collisionId,
+      layerName,
     })
   }
 
@@ -836,6 +837,7 @@ export class TextStage {
       fontKey: fontKey ?? composeFontKey(def, this.opts.defaultFont),
       pairKey,
       collisionId,
+      layerName,
       ...(images.length > 0 ? { inlineImages: images } : {}),
       perspectiveScale,
     })
@@ -918,7 +920,8 @@ export class TextStage {
       /** Mapbox `symbol-z-order`. `viewport-y` orders this label by
        *  screen Y (lower-on-screen placed first → drawn on top);
        *  `source` forces source order. `auto` / undefined keeps the
-       *  legacy reverse-layer / sortKey ordering byte-for-byte. */
+       *  legacy draw order + sortKey/layer collision precedence, with
+       *  same-layer overlaps resolving near-first (nearY below). */
       symbolZOrder?: 'auto' | 'viewport-y' | 'source'
       /** #605 — tile-stable line identity + along-line anchor offset for
        *  curved line labels, forwarded to the collision pass's lineId /
@@ -931,6 +934,9 @@ export class TextStage {
        *  greedy pass's `tieBreak` so overlapping labels resolve to a
        *  deterministic winner independent of tile-dispatch order. */
       collisionId?: string
+      /** Style layer name — the within-layer DRAW-order Y-sort key (near-on-top
+       *  for allow-overlap overlaps). Undefined → its own bucket. */
+      layerName?: string
     }
     const shaped: ShapedLabel[] = []
     const dpr = this.dpr
@@ -1309,6 +1315,7 @@ export class TextStage {
             sortKey: p.def.sortKey,
             symbolZOrder: p.def.symbolZOrder,
             collisionId: p.collisionId,
+            layerName: p.layerName,
           })
           continue
         }
@@ -1569,6 +1576,7 @@ export class TextStage {
         sortKey: p.def.sortKey,
         symbolZOrder: p.def.symbolZOrder,
         collisionId: p.collisionId,
+        layerName: p.layerName,
       })
     }
     perfMarkEnd('stage-prepare.point-loop')
@@ -1833,6 +1841,7 @@ export class TextStage {
         lineId: p.lineId,
         anchorDistancePx: p.anchorDistancePx,
         collisionId: p.collisionId,
+        layerName: p.layerName,
       })
     }
     perfMarkEnd('stage-prepare.line-loop')
@@ -1849,6 +1858,13 @@ export class TextStage {
     //       (last in OFM Bright) beat water_name labels (first) at
     //       the antimeridian; POI labels (mid-stack) beat road
     //       shields when they collide.
+    //   (3) Near-first — within a layer, the label nearer the camera
+    //       (lower on screen; Mapbox sorts symbol tiles rotated-Y
+    //       descending) places first, so on a pitched view the FRONT
+    //       label wins the overlap and the far one is occluded, never
+    //       the reverse. Carried by CollisionItem.nearY (the shaped
+    //       anchor's screen Y); equal-Y overlaps fall back to the
+    //       stable #728 identity.
     //
     // Our `pending` queue is populated in style order — water first,
     // country last — because map.ts iterates showCommands forward.
@@ -1902,9 +1918,16 @@ export class TextStage {
       anchorDistancePx: s.anchorDistancePx,
       // #728 — stable feature identity → deterministic collision tie-break.
       // Removes the reverse-input-order dependence below: when any label
-      // carries one, greedyPlaceBboxes orders by it (sortKey → tieBreak →
-      // index) instead of the dispatch-order-sensitive reverse trick.
+      // carries one, greedyPlaceBboxes orders by it (sortKey → layer group →
+      // nearY → identity) instead of the dispatch-order-sensitive reverse trick.
       tieBreak: s.collisionId,
+      // Near-first depth proxy: the primary anchor's screen Y. On a pitched
+      // view the lower-on-screen label is nearer the camera, and greedy
+      // places it first WITHIN the same layer group so the front label wins
+      // the overlap (site report: Shanghai — near — was dropped in favour of
+      // Seoul — far — at pitch 81°, the lexicographic tieBreak being depth-
+      // blind). Same-Y overlaps still resolve by the stable collisionId.
+      nearY: s.layouts[0]?.draw.anchorY,
     }))
     // When ANY shaped item carries an explicit sortKey, greedy­Place­
     // Bboxes handles priority via stable sort by sortKey ascending —
@@ -1915,8 +1938,10 @@ export class TextStage {
     // stays byte-identical for styles without symbol-sort-key.
     // Mapbox `symbol-z-order` (LabelDef.symbolZOrder). Active ONLY when
     // some shaped label explicitly authored `viewport-y` or `source`;
-    // `auto` / undefined fall through to the legacy ordering below so a
-    // style that doesn't set symbol-z-order renders BYTE-IDENTICALLY.
+    // `auto` / undefined fall through to the legacy ordering below, which
+    // keeps the legacy draw order and layer precedence but resolves
+    // same-layer overlaps near-first via CollisionItem.nearY (precedence
+    // note (3) above) — the pitched-view occlusion direction.
     //   viewport-y — order labels by screen Y descending (lower-on-
     //                screen placed first in collision → drawn last = on
     //                top). Mirrors Mapbox's viewport-y painter order.
@@ -2009,6 +2034,49 @@ export class TextStage {
         placements = new Array(shaped.length) as typeof placementsReversed
         for (let i = 0; i < placementsReversed.length; i++) {
           placements[shaped.length - 1 - i] = placementsReversed[i]!
+        }
+      }
+      // Default / `symbol-z-order: auto` DRAW order — near-on-top within each
+      // layer. Collision (above) already decided WHICH labels survive; this
+      // decides, among overlapping SURVIVORS, which paints last. Only an
+      // allow-overlap label can legitimately overlap another survivor (collision
+      // drops the rest), so the sort is gated on ≥1 allow-overlap label — a
+      // frame without any keeps source order at ZERO cost, byte-identical (no
+      // production demo authors allow-overlap, so the whole demo suite is
+      // untouched). Within a layer, larger anchorY (nearer under pitch) paints
+      // LAST = on top, the Mapbox/MapLibre viewport-y direction; layers stay in
+      // precedence order so the earlier layer draws under. Ties keep source
+      // order (stable). Only pixels where allow-overlap labels actually overlap
+      // change; every other frame is byte-identical.
+      if (shaped.length > 1) {
+        let anyAllowOverlap = false
+        for (const s of shaped) if (s.allowOverlap) anyAllowOverlap = true
+        if (anyAllowOverlap) {
+          // Layer key = first-appearance rank of the label's layerName in
+          // source order. Source order dispatches layers in precedence order
+          // (each show's labels are contiguous), so ranking by first appearance
+          // reproduces that precedence exactly while giving a stable per-layer
+          // bucket to Y-sort within. layerName is threaded on EVERY dispatch
+          // path (point + line, tiled + GeoJSON), unlike collisionId which the
+          // GeoJSON path leaves undefined. An absent layerName forms its own
+          // bucket (imperative overlays), never merged with a named layer.
+          const rank = new Map<string | undefined, number>()
+          for (let i = 0; i < shaped.length; i++) {
+            const ln = shaped[i]!.layerName
+            if (!rank.has(ln)) rank.set(ln, i)
+          }
+          const ord: number[] = new Array(shaped.length)
+          for (let i = 0; i < shaped.length; i++) ord[i] = i
+          ord.sort((a, b) => {
+            const ra = rank.get(shaped[a]!.layerName)!
+            const rb = rank.get(shaped[b]!.layerName)!
+            if (ra !== rb) return ra - rb // layer precedence: earlier layer first (drawn under)
+            const ya = shaped[a]!.layouts[0]!.draw.anchorY
+            const yb = shaped[b]!.layouts[0]!.draw.anchorY
+            if (ya !== yb) return ya - yb // Y ASC: near (larger Y) drawn last = on top
+            return a - b // stable: source order
+          })
+          drawOrder = ord
         }
       }
     }

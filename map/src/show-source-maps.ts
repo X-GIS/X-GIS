@@ -185,6 +185,11 @@ export function buildShowSourceMaps(shows: readonly ShowCommand[]): ShowSourceMa
   for (const show of shows) {
     const layer = effectiveLayer(show)
     if (!layer) continue
+    // #1252 — data-driven fill + extrude is now supported: the variant carries
+    // its own feature-layout extruded pipeline (pipeline-factory), and
+    // fs_fill_extrude samples feat_data[fid] for the per-feature colour re-lit
+    // against the interpolated geometric shading. So a feature-buffer show's
+    // heights ARE wired (no more flat downgrade).
     const exAst = bakeExtrudeAst(show.extrude)
     if (exAst !== undefined) {
       let layerMap = extrudeExprsBySource.get(show.targetName)

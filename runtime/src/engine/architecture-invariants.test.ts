@@ -301,7 +301,12 @@ const LOC_CEILINGS: Record<string, number> = {
   // through all three call sites to kill the high-zoom f32 jitter (the lossy
   // pre-summed corner is replaced by the precise hi/lo reconstruction).
   // Bumped 1219→1406 (#804): positional→typed-object-param shader-DSL call migration + prettier one-property-per-line formatting; emit is byte-identical (goldens green), no new logic. line.ts stays the #1 decomposition debt (separate epic).
-  'map/src/shaders/dsl/line.ts': 1406,
+  // Bumped 1406→1422 (#1246): the flat-projection stroke-width fix rewrites the VS
+  // width clamp's flat branch to a length(merc)/length(proj)=1/J screen-size ratio
+  // that widens only the across offset (FS byte-identical via a decoupled
+  // world_local_out); the globe arm keeps the former ECEF clamp. Dual-tracked with
+  // map/src/loc-ceiling-ratchet.test.ts (§12 second-ratchet). Still the #1 debt.
+  'map/src/shaders/dsl/line.ts': 1422,
   // Bumped 1171→1176 (#274 CSS color-fn whitespace), then 1176→1178 (#317) for
   // the two irreducible numeric match()-label arm-pattern cases (Number, and
   // Minus+Number). Lowered 1178→50 (Tier-C5): the Parser god-file was split
@@ -365,7 +370,12 @@ const LOC_CEILINGS: Record<string, number> = {
   // extrude VS (anchor-relative roof lighting drifted into a continent-scale gradient)
   // + the exact |N_enu.z| wall/roof discriminator (|N_ecef.z| misclassified equatorial
   // roofs); CPU oracle: map/src/core/extrude-light-frame.test.ts. Measured 1368.
-  'map/src/shaders/dsl/polygon.ts': 1368,
+  // 1368→1448 (#1252): the data-driven extrude fragment path — shade_geom varying +
+  // the VS d_geom/vgrad_factor split (v_color byte-identical) + the fs_fill_extrude
+  // composer placeholder + default/variantExtrudeReturnStmts (fragment re-lighting of
+  // the feat_data colour). The SECOND ceiling authority (§12 second-ratchet); kept in
+  // sync with map/src/loc-ceiling-ratchet.test.ts.
+  'map/src/shaders/dsl/polygon.ts': 1448,
   // camera.ts relocated to @xgis/engine (engine/src/projection/camera.ts) in
   // P3 Step 3 — no longer under a SRC_DIRS walk, so its LOC ceiling is tracked
   // by the engine package's own ratchet, not this runtime gate.

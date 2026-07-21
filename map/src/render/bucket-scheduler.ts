@@ -151,6 +151,11 @@ interface ClassifierVariantPipelines {
   fillPipelineFallbackNoPick?: RhiPipelineHandle
   fillPipelineGroundFallbackNoPick?: RhiPipelineHandle
   linePipelineFallbackNoPick?: RhiPipelineHandle
+  // #1252 — the variant's data-driven EXTRUDED pipelines (feature layout).
+  fillPipelineExtruded?: RhiPipelineHandle
+  fillPipelineExtrudedFallback?: RhiPipelineHandle
+  fillPipelineExtrudedNoPick?: RhiPipelineHandle
+  fillPipelineExtrudedFallbackNoPick?: RhiPipelineHandle
 }
 
 /** The default GPU resources shared across every layer. Pulled off
@@ -435,6 +440,25 @@ export function classifyVectorTileShows(input: ClassifierInput): ClassifierResul
     const drawLpF = debugLp ?? lpF
     const drawFpG = debugFp ?? fpG
     const drawFpGF = debugFp ?? fpGF
+    // #1252 — the SHOW's variant EXTRUDED pipelines (feature layout). Passed to
+    // VTR ONLY for a DATA-DRIVEN fill (needsFeatureBuffer): those need the
+    // feature-layout extruded pipeline so fs_fill_extrude can sample
+    // feat_data[fid]. Every other extrude (constant, zoom-interp) stays on the
+    // shared base extruded pipeline (undefined → VTR's base fallback), keeping
+    // its per-vertex v_color path byte-identical. No debug-overdraw override:
+    // extrude collapses to the single overdraw pipeline inside VTR.
+    const dataDrivenFill = entry.show.shaderVariant?.needsFeatureBuffer === true
+    const drawFpE = !dataDrivenFill
+      ? undefined
+      : noPick
+        ? (entry.pipelines?.fillPipelineExtrudedNoPick ?? entry.pipelines?.fillPipelineExtruded)
+        : entry.pipelines?.fillPipelineExtruded
+    const drawFpEF = !dataDrivenFill
+      ? undefined
+      : noPick
+        ? (entry.pipelines?.fillPipelineExtrudedFallbackNoPick ??
+          entry.pipelines?.fillPipelineExtrudedFallback)
+        : entry.pipelines?.fillPipelineExtrudedFallback
     const draw: ShowDrawFn = (
       pass,
       ctx,
@@ -466,6 +490,8 @@ export function classifyVectorTileShows(input: ClassifierInput): ClassifierResul
         drawFpGF,
         translucentBucket,
         resolvedShow,
+        drawFpE,
+        drawFpEF,
       )
     }
     const classified: ClassifiedShow = {
@@ -543,20 +569,43 @@ export interface ScheduleFlags {
    *  bucket 1 via `VTR.render(pointRenderer)`. */
   hasDirectLayerPoints: boolean
   /** Which pass owns the MSAA resolveTarget (always the LAST pass
-   *  that writes to the color attachment). */
-  resolveOwner: 'opaque' | 'composite' | 'points'
+   *  that writes to the color attachment). Derived by deriveResolveOwner —
+   *  the single priority authority shared with SceneView. */
+  resolveOwner: ResolveOwner
+}
+
+/** Which pass owns the MSAA `resolveTarget` this frame. */
+export type ResolveOwner = 'points' | 'hillshade' | 'composite' | 'opaque'
+
+/** SINGLE authority for the resolve-owner priority: the LAST colour-writing
+ *  pass in PASS_CHAIN_ORDER (background → opaque → oit → translucent →
+ *  hillshade → points) wins the resolve. Both per-frame derivations
+ *  (SceneView + planFrameSchedule) call THIS — the priority chain used to be
+ *  duplicated at each site, which is exactly how the hillshade pass got
+ *  left out of one of them (relief drawn after the opaque resolve → black
+ *  at msaa>1). Extend HERE when a new colour-writing pass joins the chain. */
+export function deriveResolveOwner(f: {
+  hasPoints: boolean
+  hasHillshade: boolean
+  hasTranslucent: boolean
+}): ResolveOwner {
+  if (f.hasPoints) return 'points'
+  if (f.hasHillshade) return 'hillshade'
+  if (f.hasTranslucent) return 'composite'
+  return 'opaque'
 }
 
 export function planFrameSchedule(
   classification: ClassifierResult,
   hasLineRenderer: boolean,
   hasDirectLayerPoints: boolean,
+  hasHillshade = false,
 ): ScheduleFlags {
   const hasTranslucent = classification.translucent.length > 0 && hasLineRenderer
-  const resolveOwner: ScheduleFlags['resolveOwner'] = hasDirectLayerPoints
-    ? 'points'
-    : hasTranslucent
-      ? 'composite'
-      : 'opaque'
+  const resolveOwner = deriveResolveOwner({
+    hasPoints: hasDirectLayerPoints,
+    hasHillshade,
+    hasTranslucent,
+  })
   return { hasTranslucent, hasDirectLayerPoints, resolveOwner }
 }

@@ -59,6 +59,7 @@ function makeFactory() {
   anyF.ctx = { device, format: 'bgra8unorm', rhi }
   anyF.shaderCache = new Map()
   anyF._fillPerStyle = new Map()
+  anyF._fillPerStyleExtrude = new Map()
   anyF.featureBindGroupLayout = BASE_FEATURE
   anyF.bindGroupLayout = BASE
   // The FrameRenderer-injected compute-aware resolver (the single authority).

@@ -13,6 +13,10 @@ xgis 1
  * colours are possible too (`hillshade-shadow-color2-#…`) — defaults keep
  * the neutral gray look here. */
 
+/* Light ground under the relief (see hillshade-terrarium.xgis) — flat
+ * terrain is transparent, so without a base the scene reads near-black. */
+background { fill: #eef0f2 }
+
 source terrain {
   type: "raster-dem"
   url: "https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}/{y}.png"

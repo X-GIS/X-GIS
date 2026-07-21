@@ -125,6 +125,13 @@ export interface PendingLabel {
    *  regardless of tile-dispatch order. Undefined → legacy input-order
    *  tie-break (imperative overlays). */
   collisionId?: string
+  /** Style layer name this label belongs to. Threaded on every dispatch path
+   *  (point + line, tiled + GeoJSON) — unlike `collisionId`, which the GeoJSON
+   *  path leaves undefined. prepare() ranks labels by their layerName's first
+   *  appearance in source order (= layer precedence) to Y-sort DRAW order
+   *  within a layer (near-on-top) without crossing layer boundaries. Undefined
+   *  → its own bucket (imperative overlays). */
+  layerName?: string
   /** #1081 — MapLibre perspective distance-attenuation factor for this anchor
    *  (clamp(0.5 + 0.5·wCenter/wAnchor, 0.5, 1.0) — shrink-only; the near-field
    *  growth a higher cap allows evicts neighbouring labels). prepare() multiplies
@@ -175,4 +182,7 @@ export interface PendingLineLabel {
    *  identity so the surviving shield among cross-tile duplicates is
    *  deterministic. Undefined → legacy input-order tie-break. */
   collisionId?: string
+  /** Style layer name (mirror of PendingLabel.layerName) — the within-layer
+   *  DRAW-order Y-sort key. Undefined → its own bucket. */
+  layerName?: string
 }

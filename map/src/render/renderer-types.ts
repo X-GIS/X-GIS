@@ -44,6 +44,17 @@ export interface CachedPipeline {
   fillPipelineFallbackNoPick: GPURenderPipeline
   fillPipelineGroundFallbackNoPick: GPURenderPipeline
   linePipelineFallbackNoPick: GPURenderPipeline
+  /** #1252 — the variant's own EXTRUDED pipelines (vs_main_ecef_extruded +
+   *  fs_fill_extrude) bound to this variant's pipeline layout, so a
+   *  data-driven fill (feature bind group) can extrude. The shared base
+   *  extruded pipeline is base-layout only and mismatches the feature bind
+   *  group; the VTR routes per-feature extrude to these when the show carries
+   *  a variant. STENCIL_WRITE main + STENCIL_TEST fallback, mirroring the
+   *  renderer-level fillPipelineExtruded / …Fallback. */
+  fillPipelineExtruded: GPURenderPipeline
+  fillPipelineExtrudedFallback: GPURenderPipeline
+  fillPipelineExtrudedNoPick: GPURenderPipeline
+  fillPipelineExtrudedFallbackNoPick: GPURenderPipeline
 }
 
 /** Easing function used between adjacent time-interpolated stops. */

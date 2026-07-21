@@ -4,7 +4,7 @@ import * as monaco from 'monaco-editor'
 import editorWorker from 'monaco-editor/esm/vs/editor/editor.worker?worker'
 import tsWorker from 'monaco-editor/esm/vs/language/typescript/ts.worker?worker'
 
-import { XGISMap, lonLatToMercator } from '@xgis/runtime'
+import { XGISMap, lonLatToMercator, Marker, Popup } from '@xgis/runtime'
 import { haversineDistance } from '@xgis/compiler'
 import { SCENE_BUILDER_TWINS } from '@xgis/compiler/builder/twin-corpus'
 // Raw text of the SAME module — the JS tab (#1194 A3b) extracts each twin's
@@ -1427,6 +1427,11 @@ async function runSource(source: string, label: string) {
     // map._elapsedMs, map.vectorTileShows, etc. without re-wiring the
     // demo runner. Keep it lightweight; not part of the public API.
     ;(window as unknown as { __xgisMap?: unknown }).__xgisMap = currentMap
+    // #1262 e2e hook — expose the DOM-overlay constructors so the
+    // _marker-popup-gate spec can create markers/popups without bundling
+    // the map package itself. Dev/e2e only; not part of the public API.
+    ;(window as unknown as { __xgisMarker?: unknown }).__xgisMarker = Marker
+    ;(window as unknown as { __xgisPopup?: unknown }).__xgisPopup = Popup
     // #1194 e2e hook — lazy SceneBuilder access for the run()↔runScene
     // twin-render gate (_scene-builder-twin.spec.ts) + future gallery JS
     // tabs (A3). Loader, not instance: the spec builds its own scene.
@@ -1574,6 +1579,16 @@ async function loadDemo(idx: number) {
   // on entry). For Demo.actions demos this carries the interaction guidance.
   setStatusDescription(demo.description)
 
+  // #1192 P1 — demo-declared viewport projection (mirrors MapLibre examples
+  // that call the projection API, e.g. globe). `?proj=` URL override wins —
+  // runSource already applied it. Applied BEFORE the demo camera: switching
+  // into a wide-view projection clamps zoom to ≤1.5 (viewport-mode-controller
+  // "frame the whole earth" adjust), which silently stomped an authored
+  // Demo.zoom — globe_extrusion authored 2.9, opened at 1.5.
+  if (currentMap && demo.projection && !params.get('proj')) {
+    currentMap.setProjection(demo.projection)
+  }
+
   // Per-demo initial camera (loader.ts Demo.zoom/center/pitch/bearing): a
   // .xgis source carries no camera state, so a demo that only reads well at a
   // specific view sets it here. A URL `#z/lat/lon` hash (parsed at boot)
@@ -1589,13 +1604,6 @@ async function loadDemo(idx: number) {
     if (demo.pitch !== undefined) currentMap.setPitch(demo.pitch)
     if (demo.bearing !== undefined) currentMap.setBearing(demo.bearing)
     currentMap.markCameraPositioned()
-  }
-
-  // #1192 P1 — demo-declared viewport projection (mirrors MapLibre examples
-  // that call the projection API, e.g. globe). `?proj=` URL override wins —
-  // runSource already applied it.
-  if (currentMap && demo.projection && !params.get('proj')) {
-    currentMap.setProjection(demo.projection)
   }
 
   // Post-run hook: inline-source fixtures need the host to push

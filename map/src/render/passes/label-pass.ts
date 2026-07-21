@@ -31,6 +31,7 @@ import {
   type LabelReplayTransform,
 } from './label-replay-transform'
 import { computeSliceKey } from '@xgis/data'
+import { TIEBREAK_GROUP_SEP } from '../../text/text-collision'
 import { TextStage } from '../../text/text-stage'
 import type { TextStageOptions } from '../../text/text-stage-types'
 import { IconStage } from '../../sprite/icon-stage'
@@ -65,7 +66,9 @@ import {
  *  winner regardless of tile-dispatch order, removing the pan-swap where the
  *  survivor flipped with which tiles happened to be loaded.
  *
- *  Encoded as `<layerPrecedence>\u0000<featureIdentity>`:
+ *  Encoded as `<layerPrecedence>TIEBREAK_GROUP_SEP<featureIdentity>` (the
+ *  separator const is owned by text-collision.ts, whose greedy pass splits
+ *  the GROUP segment back out: group → nearY (near-first) → identity):
  *   - layerPrecedence preserves MapLibre's "later layer wins" rule — a later
  *     show (higher layer) must sort FIRST (ascending tieBreak) to win the
  *     collision, so it is `showCount - showIdx` zero-padded to a constant
@@ -81,7 +84,7 @@ export function labelCollisionId(
 ): string {
   const width = String(Math.max(1, showCount)).length
   const invLayer = String(showCount - showIdx).padStart(width, '0')
-  return `${invLayer}\u0000${featureIdentity}`
+  return `${invLayer}${TIEBREAK_GROUP_SEP}${featureIdentity}`
 }
 
 /** #777 I-B — resolve a line-placed icon's rotation (radians) for dispatchIcon,
