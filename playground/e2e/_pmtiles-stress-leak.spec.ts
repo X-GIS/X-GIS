@@ -112,27 +112,33 @@ test.describe('PMTiles live: world-scale pan + zoom stress', () => {
           }
           if (r && !r.__bufferPoolTelemetryInstalled) {
             r.__bufferPoolTelemetryInstalled = true
-            const origAcquire = r.acquireBuffer.bind(r)
-            r.acquireBuffer = (size: number, usage: number, label: string) => {
-              const bucket = (() => {
-                let b = 2048
-                while (b < size) b *= 2
-                return b
-              })()
-              const key = `${bucket}:${usage}`
-              const pool = r._bufferPool?.get?.(key)
-              if (pool && pool.length > 0) stats.bufferPoolHits++
-              else stats.bufferPoolMisses++
-              return origAcquire(size, usage, label)
+            // #1231 — the old acquireBuffer/_bufferPool wrap died with a
+            // TypeError when the buffer pool moved to StagingBufferPool
+            // (r.stagingPool). Classify borrow() by the pool's created-count
+            // delta (created grows only on a fresh allocation = miss), and
+            // guard every internal so future renderer drift degrades to
+            // missing stats — never a page TypeError that kills the run.
+            const pool = r.stagingPool
+            if (typeof pool?.borrow === 'function' && typeof pool.getCreatedCount === 'function') {
+              const origBorrow = pool.borrow.bind(pool)
+              pool.borrow = async (byteLength: number) => {
+                const before = pool.getCreatedCount()
+                const slot = await origBorrow(byteLength)
+                if (pool.getCreatedCount() > before) stats.bufferPoolMisses++
+                else stats.bufferPoolHits++
+                return slot
+              }
             }
             // gpuCache hit rate: track layerCache.has() results in
-            // doUploadTile (line 632 already short-circuits on hit).
-            const origDoUpload = r.doUploadTile.bind(r)
-            r.doUploadTile = (key: number, data: unknown, sourceLayer = '') => {
-              const inner = r.gpuCache?.get?.(sourceLayer) as Map<number, unknown> | undefined
-              if (inner?.has?.(key)) stats.gpuCacheHits++
-              else stats.gpuCacheMisses++
-              return origDoUpload(key, data, sourceLayer)
+            // doUploadTile (which short-circuits on hit).
+            if (typeof r.doUploadTile === 'function') {
+              const origDoUpload = r.doUploadTile.bind(r)
+              r.doUploadTile = (key: number, data: unknown, sourceLayer = '') => {
+                const inner = r.gpuCache?.get?.(sourceLayer) as Map<number, unknown> | undefined
+                if (inner?.has?.(key)) stats.gpuCacheHits++
+                else stats.gpuCacheMisses++
+                return origDoUpload(key, data, sourceLayer)
+              }
             }
           }
         }

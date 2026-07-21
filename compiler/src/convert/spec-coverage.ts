@@ -136,14 +136,14 @@ export const MAPBOX_COVERAGE: readonly CoverageSection[] = [
     id: 'paint-heatmap',
     title: 'Paint — heatmap',
     description:
-      'Heatmap layer renderer is not implemented; every property here is unsupported pending a roadmap entry.',
+      'Rendered by the HeatmapRenderer 3-pass density pipeline (accum → Gaussian blur → LUT compose). GeoJSON-source Point/MultiPoint layers; tile-sourced heatmaps are a deferred follow-up.',
     entries: PAINT_HEATMAP,
   },
   {
     id: 'paint-hillshade',
     title: 'Paint — hillshade',
     description:
-      'Hillshade layer renderer is not implemented; raster-dem source is recognised but produces no output.',
+      'Rendered end-to-end (#777 Phase II): raster-dem DEM decode → Sobel normals → configurable shading in the HillshadeRenderer/HillshadePass.',
     entries: PAINT_HILLSHADE,
   },
   {

@@ -52,6 +52,14 @@ export function applyHillshadePaint(
     highlight: colorOf(hs.highlight, [1, 1, 1, 1]),
     accent: colorOf(hs.accent, [0, 0, 0, 1]),
     method: hs.method,
+    // Multidirectional sources 2..4 — already fully-resolved constants in the
+    // IR bundle (the converter normalised + truncated them).
+    extraSources: (hs.extraSources ?? []).map((s) => ({
+      direction: s.direction,
+      altitude: s.altitude,
+      shadow: s.shadow,
+      highlight: s.highlight,
+    })),
   })
 }
 
@@ -66,6 +74,13 @@ interface HillshadeShapesLike {
   shadow: Parameters<typeof resolveColorShape>[0]
   highlight: Parameters<typeof resolveColorShape>[0]
   accent: Parameters<typeof resolveColorShape>[0]
+  /** Sources 2..4 (method=multidirectional); absent on pre-multidirectional IR. */
+  extraSources?: readonly {
+    direction: number
+    altitude: number
+    shadow: RGBA
+    highlight: RGBA
+  }[]
 }
 
 class HillshadePass implements RenderPass {

@@ -1,0 +1,30 @@
+xgis 1
+
+/* Multidirectional hillshade — the USGS-style four-light relief.
+ *
+ * `hillshade-method: multidirectional` averages up to four Lambert light
+ * sources; here the classic USGS arrangement (azimuths 225/270/315/355°,
+ * low-to-mid altitudes) washes out the single-light directional bias so
+ * ridges read clearly no matter which way they run. Compare with the
+ * single-source `hillshade_terrarium` demo over the same terrain.
+ *
+ * Sources 2..4 are authored with the numbered utility suffixes
+ * (`hillshade-illumination-direction2-…`); per-source shadow/highlight
+ * colours are possible too (`hillshade-shadow-color2-#…`) — defaults keep
+ * the neutral gray look here. */
+
+source terrain {
+  type: "raster-dem"
+  url: "https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}/{y}.png"
+  encoding: terrarium
+  tileSize: 256
+}
+
+layer relief {
+  source: terrain
+  | hillshade-method-multidirectional hillshade-exaggeration-0.7
+  | hillshade-illumination-direction-225 hillshade-illumination-altitude-30
+  | hillshade-illumination-direction2-270 hillshade-illumination-altitude2-30
+  | hillshade-illumination-direction3-315 hillshade-illumination-altitude3-40
+  | hillshade-illumination-direction4-355 hillshade-illumination-altitude4-45
+}

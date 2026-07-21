@@ -113,12 +113,14 @@ describe('Phase-II hillshade shader — DSL emission', () => {
   })
 
   // Uniform slots (reflect-derived) — locks the byte layout the INC-3 CPU packer
-  // writes into. HillshadeUniforms = 6 vec4 (96 B). The per-tile pool is the
-  // shared raster TileUniforms (rasterTileSlots), not a hillshade struct.
+  // writes into. HillshadeUniforms = 15 vec4 (240 B): the 6 single-source lanes
+  // + the multidirectional sources 2..4 (per-source light + shadow + highlight).
+  // The per-tile pool is the shared raster TileUniforms (rasterTileSlots), not a
+  // hillshade struct.
   it('reflect-derives the hillshade uniform slot layout', () => {
     const hs = hillshadeUniformSlots()
-    expect(hs.slots).toBe(24) // 6 vec4 × 4 f32
-    expect(hillshadeUniformBytes()).toBe(96)
+    expect(hs.slots).toBe(60) // 15 vec4 × 4 f32
+    expect(hillshadeUniformBytes()).toBe(240)
     for (const f of [
       'hs_unpack',
       'hs_light',
@@ -126,6 +128,15 @@ describe('Phase-II hillshade shader — DSL emission', () => {
       'hs_highlight',
       'hs_accent',
       'hs_texel',
+      'hs_light2',
+      'hs_light3',
+      'hs_light4',
+      'hs_shadow2',
+      'hs_highlight2',
+      'hs_shadow3',
+      'hs_highlight3',
+      'hs_shadow4',
+      'hs_highlight4',
     ]) {
       expect(hs.slot).toHaveProperty(f)
     }

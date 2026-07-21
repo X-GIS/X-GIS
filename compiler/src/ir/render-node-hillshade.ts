@@ -54,4 +54,13 @@ export interface RenderNodeHillshadePaint {
   hillshadeMethod?: HillshadeMethod
   /** `resampling: nearest` flag. Default (unauthored / 'linear') = false. */
   hillshadeResamplingNearest?: boolean
+  /** Multidirectional illumination sources 2..4 — sparse per-axis fills from
+   *  the `hillshade-*2/3/4-` utilities (index 0 = source 2). emit-commands
+   *  resolves a missing axis from source 1 (MapLibre repeat-last padding). */
+  hillshadeExtraSources?: {
+    direction?: number
+    altitude?: number
+    shadow?: [number, number, number, number]
+    highlight?: [number, number, number, number]
+  }[]
 }

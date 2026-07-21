@@ -1,0 +1,40 @@
+xgis 1
+
+/* Custom heatmap colour ramp — an inferno-style density palette.
+ *
+ * `heatmap-color-[interpolate(heatmap_density, …)]` bakes an authored
+ * density→colour ramp into the GPU LUT (offset 0..1 → #rrggbbaa stops),
+ * replacing the default Mapbox blue→red ramp. Stop 0 is fully transparent
+ * so empty ocean stays untinted; density then climbs through deep violet,
+ * crimson and ember orange to a near-white core over the densest clusters. */
+
+source ocean {
+  type: geojson
+  url: "ne_110m_ocean.geojson"
+}
+
+source land {
+  type: geojson
+  url: "ne_110m_land.geojson"
+}
+
+source cities {
+  type: geojson
+  url: "ne_110m_populated_places.geojson"
+}
+
+layer sea {
+  source: ocean
+  | fill-slate-950
+}
+
+layer ground {
+  source: land
+  | fill-slate-900 stroke-slate-800 stroke-0.5
+}
+
+layer population_heat {
+  source: cities
+  | heatmap heatmap-radius-18 heatmap-intensity-0.65 heatmap-opacity-0.95
+  | heatmap-color-[interpolate(heatmap_density, 0, #00000000, 0.15, #1d1147ff, 0.4, #a52c60ff, 0.7, #f57d15ff, 1, #fcffa4ff)]
+}
