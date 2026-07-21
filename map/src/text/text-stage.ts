@@ -35,6 +35,7 @@ import type { GlyphProvider } from './sdf/pbf/glyph-provider'
 import { PbfRasterizer } from './sdf/pbf-rasterizer'
 import { TextRenderer } from './text-renderer'
 import type { TextDraw } from './text-renderer-types'
+import { FadeHoldoverStore, LabelFadeLedger, fadeInstanceKey } from './label-fade'
 import type { RhiDevice, RhiRenderPass } from '@xgis/engine'
 import { greedyPlaceBboxes, type CollisionItem, type CollisionObstacle } from './text-collision'
 import {
@@ -142,6 +143,10 @@ const DEFAULTS: Required<
   rasterFontSize: 24,
   sdfRadius: 8,
   defaultFont: CJK_FALLBACK_CHAIN,
+  // Symbol fade disabled at the stage level — direct-stage callers (tests,
+  // bespoke integrations) stay byte-identical; the MAP option applies the
+  // MapLibre-default 300 ms when constructing the stage (label-pass.ts).
+  fadeDurationMs: 0,
 }
 
 /** Mapbox `text-translate-anchor`: viewport (default) returns the
@@ -195,6 +200,16 @@ export class TextStage {
    *  label awaiting its glyphs would stay dropped until the camera moves. */
   private _lastPrepareFullyResolved = false
   private readonly pendingLine: PendingLineLabel[] = []
+  /** Symbol fade (label-fade.ts) — per-fade-key opacity records shared with
+   *  IconStage (paired icons follow their text's record). Inert when
+   *  fadeDurationMs is 0. */
+  private readonly fadeLedger: LabelFadeLedger
+  /** Last-placed draw clone per fade key, for fade-out holdover (the source
+   *  draw's typed arrays are FrameArena-backed — see FadeHoldoverStore). */
+  private readonly _fadeHoldover = new FadeHoldoverStore<TextDraw>()
+  /** Per-prepare occurrence counter scratch: collisionId → count, so
+   *  multi-instance ids (route repeats, world copies) key distinct records. */
+  private readonly _fadeOcc = new Map<string, number>()
   /** iter-241 (Plan AAA B.2) — per-frame scratch arena for typed-array
    *  allocations that today fire per-label-per-frame inside `prepare()`.
    *  iter-240 interactive profile pinned `advances.Array` at 12,573
@@ -443,6 +458,15 @@ export class TextStage {
     )
     this.gpu = new GlyphAtlasGPU(rhi, this.host, { pageSize: this.opts.pageSize })
     this.renderer = new TextRenderer(device, rhi, this.gpu, presentationFormat, sampleCount)
+    this.fadeLedger = new LabelFadeLedger(this.opts.fadeDurationMs)
+  }
+
+  /** The symbol-fade ledger — the label pass advances it once per rendered
+   *  frame and IconStage reads paired records from it; the map's render
+   *  keep-alive polls `hasActive()`. Single authority: only THIS stage's
+   *  prepare() places records / flips targets. */
+  getFadeLedger(): LabelFadeLedger {
+    return this.fadeLedger
   }
 
   /** Pre-warm the atlas with a glyph set. Run once at engine init
@@ -834,6 +858,13 @@ export class TextStage {
   prepare(
     iconObstacles: readonly CollisionObstacle[] = [],
     limbInset?: (x: number, y: number) => number,
+    // Symbol fade: false when the camera/canvas moved since the previous
+    // prepare — a held-over draw's baked screen-px coords would then lie, so
+    // fade-out holdovers are suppressed (targets still flip; records keep
+    // decaying invisibly and resume smoothly if re-placed). The label pass
+    // derives this from its S16 dispatch signature; direct-stage callers
+    // (tests, static harnesses) default to true.
+    holdoverOk: boolean = true,
   ): void {
     // #777 I-A — reset the per-frame paired-bbox stash before laying out this
     // frame's labels; refilled as each icon-paired label is shaped below.
@@ -845,6 +876,15 @@ export class TextStage {
     // per submission for a coarse but useful diagnostic.
     this._diag.setSubmittedCount(this.pending.length + this.pendingLine.length)
     if (this.pending.length === 0 && this.pendingLine.length === 0) {
+      // Symbol fade: an empty prepare is a WHOLESALE clear (style toggle /
+      // full tile flush) — flip every record to fade-out WITHOUT holdover
+      // emission (the scene intentionally emptied; ramps settle on the
+      // ledger clock and prune on the completion re-prepare).
+      if (this.fadeLedger.enabled) {
+        this.fadeLedger.beginPrepare()
+        this.fadeLedger.finishPrepare()
+        this._fadeHoldover.sweep((k) => this.fadeLedger.refOf(k) !== undefined)
+      }
       this.renderer.setDraws([])
       this._diag.setDrawnCount(0)
       this._lastPrepareFullyResolved = true // nothing to resolve
@@ -908,6 +948,10 @@ export class TextStage {
     // codebase (grep verified iter-167), so draining here is safe;
     // the GPU upload wrapper observes consumeDirty separately.
     if (this.host.consumeEvictions().length > 0) {
+      // Symbol fade: holdover clones carry GlyphInfo[] refs whose slots
+      // alias after an eviction — drop them (the one event that invalidates
+      // heap-carried refs; affected fade-outs pop, matching the caches).
+      this._fadeHoldover.clear()
       this._glyphsByTextCache.clear()
       // iter-168: layout cache entries reference GlyphInfo[] whose
       // slot.pxX/pxY would point to the wrong glyph after eviction.
@@ -2036,6 +2080,23 @@ export class TextStage {
         }
       }
     }
+    // ── Symbol fade: per-instance keys, assigned in DISPATCH order ──
+    // Keys are computed by shaped INDEX, never by emit order — viewport-y
+    // re-sorts emission per frame, which would shuffle occurrence indices
+    // and hand fade records to the wrong instance of a repeated id.
+    let fadeKeys: (string | undefined)[] | null = null
+    if (this.fadeLedger.enabled) {
+      this._fadeOcc.clear()
+      fadeKeys = new Array<string | undefined>(shaped.length)
+      for (let i = 0; i < shaped.length; i++) {
+        const id = shaped[i]!.collisionId
+        if (id === undefined) continue
+        const occ = this._fadeOcc.get(id) ?? 0
+        this._fadeOcc.set(id, occ + 1)
+        fadeKeys[i] = fadeInstanceKey(id, occ)
+      }
+      this.fadeLedger.beginPrepare()
+    }
     const draws: TextDraw[] = []
     // Iter 112 paired-symbol collision: stamp pairKeys of REJECTED
     // text labels so IconStage.prepare can drop the matching icon.
@@ -2067,6 +2128,17 @@ export class TextStage {
       if (placement.placed) {
         const chosen = shaped[i]!.layouts[placement.chosen]!
         draws.push(chosen.draw)
+        // Symbol fade: attach this instance's opacity box (new records
+        // start at 0 → fade-in) and refresh its holdover clone so a later
+        // fade-out outlives the arena-backed source draw.
+        const fk = fadeKeys !== null ? fadeKeys[i] : undefined
+        if (fk !== undefined) {
+          const ref = this.fadeLedger.place(fk)
+          if (ref !== undefined) {
+            chosen.draw.fadeRef = ref
+            this._fadeHoldover.store(fk, chosen.draw)
+          }
+        }
         // #777 I-G — the winning candidate's inline images become absolute
         // quads (anchor + relative offset) for IconStage to draw this frame.
         if (chosen.inlineImages !== undefined) {
@@ -2083,6 +2155,21 @@ export class TextStage {
       } else if (pairKey !== undefined) {
         this.droppedPairKeys.add(pairKey)
       }
+    }
+    // ── Symbol fade: fade-out holdover ──
+    // Keys placed by a PRIOR prepare but absent from this one keep drawing
+    // their retained clone while their opacity ramps to 0 — suppressed when
+    // the camera moved (holdoverOk false: the clone's baked screen-px coords
+    // would lie; targets still flip and records decay invisibly, resuming
+    // smoothly if re-placed). Fully-faded records were pruned by
+    // finishPrepare; the clone store then drops the same keys.
+    if (fadeKeys !== null) {
+      for (const fk of this.fadeLedger.finishPrepare()) {
+        if (!holdoverOk) continue
+        const held = this._fadeHoldover.get(fk)
+        if (held !== undefined) draws.push(held)
+      }
+      this._fadeHoldover.sweep((k) => this.fadeLedger.refOf(k) !== undefined)
     }
     perfMarkEnd('stage-prepare.collision')
 

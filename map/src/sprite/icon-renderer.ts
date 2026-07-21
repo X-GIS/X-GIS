@@ -65,6 +65,13 @@ export interface IconDraw {
    *  quad centre for asymmetric padding. Absent = native sprite dims, byte-
    *  identical to the pre-#777 icon path. */
   fit?: { w?: number; h?: number; dx: number; dy: number }
+  /** Symbol fade box (label-fade.ts) — the paired text's opacity record.
+   *  When set, the packed per-vertex opacity is `opacity × fadeRef.a`, and
+   *  draw() re-patches the quad's opacity floats whenever `.a` moved since
+   *  the last encode (fades advance on S16 replay frames too — the retained
+   *  vertexScratch is patched and re-uploaded, no re-pack). Absent →
+   *  byte-identical legacy path. */
+  fadeRef?: { a: number }
 }
 
 export type IconAnchor =
@@ -144,6 +151,19 @@ export class IconRenderer {
    *  same buffer reused across frames whose icon count stays
    *  below the high-water mark. */
   private vertexScratch: Float32Array | null = null
+  /** Symbol fade — per-fading-draw patch table built by setDraws().
+   *  draw() rewrites the 6 opacity floats of a quad whose fade box moved
+   *  and re-uploads the filled scratch prefix in ONE writeBuffer. Empty
+   *  (no fading draws) ⇒ zero per-frame work, byte-identical path. */
+  private readonly fadePatches: Array<{
+    floatStart: number
+    baseOp: number
+    ref: { a: number }
+    lastA: number
+  }> = []
+  /** Float count of the filled vertexScratch prefix from the most recent
+   *  setDraws() — the fade re-upload writes exactly this range. */
+  private lastNeedFloats = 0
   /** iter-234 — reusable scratch for the per-draw uniform write (see
    *  `draw()`). Constant size, allocated once. 8 floats since #1177:
    *  viewport(0,1) + replay_shift(2,3) + replay_scale(4) + pad(5-7). */
@@ -238,6 +258,9 @@ export class IconRenderer {
    *  loaded state — draws referencing not-yet-loaded sprites would
    *  produce undefined UVs. */
   setDraws(draws: IconDraw[]): void {
+    // Symbol fade — rebuilt below from THIS call's draws; stale entries
+    // must never survive into a frame whose scratch layout changed.
+    this.fadePatches.length = 0
     if (draws.length === 0) {
       this.vertexCount = 0
       this.firstVertexSample = null
@@ -333,7 +356,19 @@ export class IconRenderer {
       // the vertex shader passes it through as a varying so the
       // fragment can multiply the texture alpha. Default 1 keeps
       // the existing no-fade behaviour byte-for-byte.
-      const op = d.opacity ?? 1
+      // Symbol fade: the packed value is base × the fade box's CURRENT
+      // alpha; draw() re-patches these floats as the box advances.
+      const baseOp = d.opacity ?? 1
+      let op = baseOp
+      if (d.fadeRef !== undefined) {
+        op = baseOp * d.fadeRef.a
+        this.fadePatches.push({
+          floatStart: off,
+          baseOp,
+          ref: d.fadeRef,
+          lastA: d.fadeRef.a,
+        })
+      }
       // icon-color tint. Only meaningful for SDF sprites; raster
       // sprites carry sdf=0 and the fragment shader ignores the tint
       // for them. Default white = identity (matches the prior
@@ -371,6 +406,7 @@ export class IconRenderer {
     // (scratch grow-but-never-shrink). The byte range we actually
     // wrote is `[0, need * 4)`.
     const needBytes = need * 4
+    this.lastNeedFloats = need
     // Iter 534 diagnostic — stash the FIRST vertex (TL of quad 0).
     this.firstVertexSample = need >= 5 ? [data[0]!, data[1]!, data[2]!, data[3]!, data[4]!] : null
     // Iter 537 — bbox over all written vertex positions. iter-234
@@ -435,6 +471,27 @@ export class IconRenderer {
     replay?: { scale: number; dx: number; dy: number },
   ): void {
     if (this.vertexCount === 0 || this.vertexBuf === null) return
+    // Symbol fade — re-patch the opacity floats of quads whose fade box
+    // moved since the last encode, then re-upload the filled prefix in one
+    // write. Replayed (S16-skip) frames ramp this way without any re-pack;
+    // an empty patch table (no fading icons) costs nothing.
+    if (this.fadePatches.length > 0 && this.vertexScratch !== null) {
+      const data = this.vertexScratch
+      let changed = false
+      for (const fp of this.fadePatches) {
+        const a = fp.ref.a
+        if (a === fp.lastA) continue
+        fp.lastA = a
+        const op = fp.baseOp * a
+        for (let v = 0; v < VERTS_PER_QUAD; v++) {
+          data[fp.floatStart + v * FLOATS_PER_VERT + ICON_OPACITY_SLOT] = op
+        }
+        changed = true
+      }
+      if (changed) {
+        this.rhi.writeBuffer(this.vertexBuf, 0, data.subarray(0, this.lastNeedFloats))
+      }
+    }
     const gl2 = this.rhi.backend === 'webgl2'
     if (gl2) {
       // WebGl2Device path (#834 M5 slice 4): the atlas must expose the RHI

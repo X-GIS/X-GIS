@@ -378,6 +378,13 @@ export class HillshadeRenderer {
     return this.loadingTiles.size > 0
   }
 
+  /** Count of DEM tiles currently mid-fetch (the set `hasPendingLoads`
+   *  tests). Feeds the map's per-frame `getMissingTileCount()` so a loading
+   *  affordance covers hillshade DEM sources too. */
+  pendingLoadCount(): number {
+    return this.loadingTiles.size
+  }
+
   /** Backend-appropriate DEM tile load — verbatim raster loadTileTexture (a DEM
    *  is an RGBA8 PNG; the NEAREST decode is a sampler concern, in the draper). */
   private async loadTileTexture(

@@ -267,7 +267,21 @@ const CEILINGS: Record<string, number> = {
   // was read as an explicit declaration, so getSeededFC() (the #1242 gap-2
   // check) rejected updateFeature() for every .xgis-declared/URL geojson
   // source. One-line functional fix; the rest is comment.
-  'map/src/map.ts': 4732,
+  // 4732→4749 (#1229 item 1): the public `getMissingTileCount()` accessor + its
+  // `_missingTileCount` host field (both render paths write the per-frame in-
+  // flight tile sum) so the playground can surface a tile-loading affordance
+  // without polling the allocating `stats` getter. Irreducible: a class field +
+  // a one-line read accessor + their docs (§2); the count is computed in
+  // render-loop.ts, not here.
+  // 4715→4729 (symbol fade): the `labelFadeDurationMs` field (+doc, MapLibre
+  // fadeDuration parity, options-bag consumption) + the fade keep-alive read
+  // in shouldRenderThisFrame (mirrors the adjacent _sceneHasAnimation line).
+  // The fade machinery itself lives in text/label-fade.ts — wiring only here.
+  // Merge union (symbol fade <- main): three non-overlapping stacks compose here
+  // — main's #1192 sourceCRS fix (→4732) + #1229 item-1 getMissingTileCount (+17)
+  // + symbol fade's field + keep-alive read (+14) — so the merged file measures
+  // the 4763 wc -l, not max(4749, 4746).
+  'map/src/map.ts': 4763,
   // Baselined at #1235 (measured 846): SourceManager crossed NEW_FILE_CAP with
   // the gap-1/gap-2 seams — the setSourceData virtual re-seed branch (the
   // legacy worker-compile path renders fills/points but no line segments) +
@@ -312,7 +326,17 @@ const CEILINGS: Record<string, number> = {
   // allow-overlap, else source order at zero cost) + its rationale block + the
   // `layerName` thread onto pending/shaped (the layer-precedence key, ranked by
   // first appearance) at addLabel/addCurvedLineLabel + the 3 shaped pushes.
-  'map/src/text/text-stage.ts': 2136,
+  // 2068→2155 (symbol fade): the prepare()-side fade wiring — the ledger /
+  // holdover-store fields + ctor init, the dispatch-order fadeInstanceKey
+  // precompute, the placed-branch place()+store, the fade-out holdover
+  // emission + sweep, the empty-prepare wholesale arm, the eviction clear,
+  // and the holdoverOk param (+docs). The MECHANISM (ledger, holdover clone
+  // store) lives extracted + unit-proved in text/label-fade.ts; only the
+  // prepare-loop integration grew here. +87.
+  // Merge union (symbol fade <- main): near-first collision (+68) and symbol
+  // fade (+87) stack non-overlappingly on the shared 2068 base — they SUM to
+  // the measured 2223, not max(2136, 2155).
+  'map/src/text/text-stage.ts': 2223,
   // 1786→1719 (#727 C): the line/point dedupe + pair-key helper block was
   // EXTRACTED to passes/line-label-dedupe.ts when the world-copy fan-out would
   // otherwise have grown this file — the extract-don't-grow answer.
@@ -357,12 +381,16 @@ const CEILINGS: Record<string, number> = {
   // 2002→2005 (near-first collision): labelCollisionId composes with the
   // TIEBREAK_GROUP_SEP const now owned by text-collision.ts (import + 2 doc
   // lines); the ordering logic itself lives there. +3.
-  // 2005→2030 (icon collision determinism, #728 sibling): dispatchIcon gains a
-  // `collisionId` param forwarded to addIcon, and the two route-shield collide
-  // sites pass lineCollisionId (prettier wraps each threaded call) so a flat
-  // road's arrow chain survives pan deterministically. +25; the Y-tie logic
-  // lives in icon-stage.ts.
-  'map/src/render/passes/label-pass.ts': 2030,
+  // 2002→2063 (symbol fade): the per-frame ledger advance + completion
+  // LABEL-dirty at execute() top, the tsOpts.fadeDurationMs line, the
+  // holdoverOk exact-camera derivation beside the S16 signature (uses the
+  // same locals), the stage/iStage prepare threading + setFadeLedger
+  // handoff, and dispatchIcon's fadeId param at the collisionId-bearing
+  // call sites. Mechanism in text/label-fade.ts; wiring only here. +61.
+  // Merge union (symbol fade <- main): near-first collision (+3) and symbol
+  // fade (+61) stack non-overlappingly on the shared 2002 base — they SUM to
+  // the measured 2066, not max(2005, 2063).
+  'map/src/render/passes/label-pass.ts': 2066,
   // #1081 — per-anchor perspective distance attenuation (MapLibre parity). New
   // baseline: the wCenter + perspScale scratch-out-value lives INLINE in the two
   // existing projector closures (it rides the cw already computed per anchor —
@@ -474,7 +502,12 @@ const CEILINGS: Record<string, number> = {
   // 1314→1326 (raster-resolution): hillshade DEM fetches join BOTH keep-alive
   // checks (WebGPU + WebGL2 twin) — a hillshade-only scene otherwise idles
   // before its tiles arrive and the arrival never repaints (black relief).
-  'map/src/render-loop.ts': 1326,
+  // 1326→1338 (#1229 item 1): both render paths publish the per-frame in-flight
+  // tile sum to `_missingTileCount` for the public getMissingTileCount() accessor
+  // — VT missed + raster/hillshade pendingLoadCount(). The WebGL2 twin derives its
+  // keep-warm return from that single authority (count > 0). Irreducible: the two
+  // write sites (one per path) + docs.
+  'map/src/render-loop.ts': 1338,
   // Merge union (#1060 <- main): stacked growth — measured 1174.
   'map/src/render/point-renderer.ts': 1174,
   // 1106→1120 (#1043 state-hygiene): three unmask-before-clear / state-reset fixes for the
@@ -578,7 +611,10 @@ const CEILINGS: Record<string, number> = {
   // coord + ox — parent fallback mapped every uncached child onto the same
   // parent quad (4× duplicate draws; alpha compounds at raster-opacity < 1),
   // pinned by runtime raster-world-copy no-duplicate gate.
-  'map/src/render/raster-renderer.ts': 848,
+  // 848→855 (#1229 item 1): pendingLoadCount() — the in-flight tile count behind
+  // hasPendingLoads(), summed into the map's public getMissingTileCount() so the
+  // loading affordance covers network raster sources. A one-line read + docs.
+  'map/src/render/raster-renderer.ts': 855,
   // 889→906 (#1155 F3): cold-start burst enqueue cap — the `_coldStartBurst`
   // field + `setColdStartBurst` + the burst-selected 8/4 cap in enqueue().
   // 906→910 (#1155 F3 adjudication): the burst 8/4 pair now comes from the
