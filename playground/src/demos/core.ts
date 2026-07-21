@@ -60,6 +60,15 @@ export const DEMOS_CORE: Record<string, Demo> = {
     mousePosition: true,
   },
 
+  measure_distances: {
+    name: 'Measure Distances',
+    tag: 'event',
+    description:
+      'MapLibre "Measure distances" port (#1192 / #1235) — click to drop measurement points (click a point to remove it); the host pushes measure_pts / measure_path via setSourceData and a badge totals the haversine distance.',
+    source: load('measure-distances.xgis'),
+    measure: true,
+  },
+
   categorical: {
     name: 'Categorical Colors',
     tag: 'per-feature',

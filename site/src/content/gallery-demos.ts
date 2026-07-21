@@ -382,6 +382,15 @@ export const galleryCategories: Category[] = [
         title: 'Mouse position',
         body: 'Screen → lon/lat unprojection under the cursor, live on every pointer move.',
       },
+      // `noThumb: true`: the measure scene starts EMPTY (points/line appear
+      // only after user clicks), so a build-time capture would show just the
+      // dark basemap — text-only card until a scripted-click capture exists.
+      {
+        id: 'measure-distances',
+        title: 'Measure distances',
+        body: 'Click to drop measurement points — the connector line and haversine total update live through the host push API.',
+        noThumb: true,
+      },
     ],
   },
   {

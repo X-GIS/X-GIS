@@ -95,4 +95,10 @@ export interface Demo {
    *  Unlike `picking`, this fires everywhere over the map, not just over
    *  a hit feature. */
   mousePosition?: boolean
+  /** When true, demo-runner installs the measure overlay (#1192 / #1235):
+   *  each map click appends a measurement point (clicking an existing point
+   *  removes it), the host rebuilds the `measure_pts` / `measure_path`
+   *  FeatureCollections and pushes them via setSourceData, and a badge shows
+   *  the running haversine total — MapLibre's "Measure distances" example. */
+  measure?: boolean
 }

@@ -136,4 +136,64 @@ describe('updateFeature: tile-backed source warns once instead of silent drop', 
     expect(unknownWarns).toHaveLength(1)
     map.destroy()
   })
+
+  // #1235 gap 2 — a virtual-tiled geojson source (marker in rawDatasets) whose
+  // seeded FC the SourceManager kept IS patchable: the patch enqueues without
+  // a warning, and the flush patches the seeded FC then re-seeds it through
+  // setSourceData.
+  it('#1235 gap 2: a marker source WITH a seeded FC accepts the patch and re-seeds', async () => {
+    const map = new XGISMap(stubCanvas())
+    const m = map as unknown as MapInternals & {
+      sourceManager: { hostSeededFC: Map<string, GeoJSONFeatureCollection> }
+    }
+    m.rawDatasets.set('vt', { _vectorTile: true } as unknown as GeoJSONFeatureCollection)
+    const seeded: GeoJSONFeatureCollection = {
+      type: 'FeatureCollection',
+      features: [
+        {
+          type: 'Feature',
+          id: 5,
+          geometry: { type: 'Point', coordinates: [0, 0] },
+          properties: { n: 'a' },
+        },
+      ],
+    } as GeoJSONFeatureCollection
+    m.sourceManager.hostSeededFC.set('vt', seeded)
+    const reseedSpy = vi.spyOn(map, 'setSourceData').mockImplementation(() => {})
+
+    map.updateFeature('vt', 5, { geometry: { type: 'Point', coordinates: [9, 9] } })
+
+    expect(tileBackedWarns(warnSpy, 'vt')).toHaveLength(0)
+    expect(m._pendingPatches.has('vt')).toBe(true)
+
+    // Let the coalescing rAF/setTimeout flush fire.
+    await new Promise((r) => setTimeout(r, 80))
+    expect(reseedSpy).toHaveBeenCalledTimes(1)
+    expect(reseedSpy.mock.calls[0]![0]).toBe('vt')
+    const pushed = reseedSpy.mock.calls[0]![1] as GeoJSONFeatureCollection
+    expect((pushed.features[0]!.geometry as { coordinates: number[] }).coordinates).toEqual([9, 9])
+
+    reseedSpy.mockRestore()
+    map.destroy()
+  })
+
+  it('#1235 gap 2: a declared-CRS marker source still warns (re-seed would double-reproject)', () => {
+    const map = new XGISMap(stubCanvas())
+    const m = map as unknown as MapInternals & {
+      sourceManager: { hostSeededFC: Map<string, GeoJSONFeatureCollection> }
+      sourceCRS: Map<string, string>
+    }
+    m.rawDatasets.set('crs', { _vectorTile: true } as unknown as GeoJSONFeatureCollection)
+    m.sourceManager.hostSeededFC.set('crs', {
+      type: 'FeatureCollection',
+      features: [],
+    } as GeoJSONFeatureCollection)
+    m.sourceCRS.set('crs', 'EPSG:5179')
+
+    map.updateFeature('crs', 1, { properties: { x: 1 } })
+
+    expect(tileBackedWarns(warnSpy, 'crs')).toHaveLength(1)
+    expect(m._pendingPatches.has('crs')).toBe(false)
+    map.destroy()
+  })
 })

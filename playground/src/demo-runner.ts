@@ -5,6 +5,7 @@ import editorWorker from 'monaco-editor/esm/vs/editor/editor.worker?worker'
 import tsWorker from 'monaco-editor/esm/vs/language/typescript/ts.worker?worker'
 
 import { XGISMap, lonLatToMercator } from '@xgis/runtime'
+import { haversineDistance } from '@xgis/compiler'
 import { SCENE_BUILDER_TWINS } from '@xgis/compiler/builder/twin-corpus'
 // Raw text of the SAME module — the JS tab (#1194 A3b) extracts each twin's
 // construction from it, so the displayed code IS the code the parity gate
@@ -1170,6 +1171,118 @@ function teardownMousePositionOverlay(): void {
   mousePositionCleanup?.()
 }
 
+// ── Measure-distances overlay (#1192 / #1235) ────────────────────────
+// Activated by demos with `measure: true`. Every map CLICK (drag-
+// disambiguated by pointerdown→click travel) appends a measurement
+// point — or removes one when the click lands on an existing point
+// (map.project() screen-space hit test). The overlay rebuilds the
+// `measure_pts` / `measure_path` FeatureCollections and pushes both via
+// setSourceData (the #1235 gap-1 host-push path), and a badge shows the
+// running haversine total — MapLibre's "Measure distances" example.
+
+let measureCleanup: (() => void) | null = null
+
+function setupMeasureOverlay(map: InstanceType<typeof XGISMap>): void {
+  teardownMeasureOverlay()
+
+  const badge = document.createElement('div')
+  badge.id = 'measure-badge'
+  badge.style.cssText = [
+    'position:absolute',
+    'right:12px',
+    'bottom:12px',
+    'z-index:20',
+    'font:11px/1.4 "DM Mono",monospace',
+    'color:#dde',
+    'background:rgba(10,10,10,0.75)',
+    'backdrop-filter:blur(6px)',
+    'padding:6px 10px',
+    'border:1px solid rgba(255,255,255,0.12)',
+    'border-radius:6px',
+    'pointer-events:none',
+  ].join(';')
+  badge.textContent = 'Click the map to start measuring'
+  const mapPane = document.getElementById('map-pane')!
+  mapPane.appendChild(badge)
+
+  const points: [number, number][] = []
+  const push = (): void => {
+    map.setSourceData('measure_pts', {
+      type: 'FeatureCollection',
+      features: points.map((p, i) => ({
+        type: 'Feature' as const,
+        id: i + 1,
+        properties: {},
+        geometry: { type: 'Point' as const, coordinates: p },
+      })),
+    })
+    map.setSourceData('measure_path', {
+      type: 'FeatureCollection',
+      features:
+        points.length >= 2
+          ? [
+              {
+                type: 'Feature' as const,
+                id: 1,
+                properties: {},
+                geometry: { type: 'LineString' as const, coordinates: points },
+              },
+            ]
+          : [],
+    })
+    let totalM = 0
+    for (let i = 1; i < points.length; i++) {
+      totalM += haversineDistance(points[i - 1][0], points[i - 1][1], points[i][0], points[i][1])
+    }
+    badge.textContent =
+      points.length === 0
+        ? 'Click the map to start measuring'
+        : `Total distance: ${(totalM / 1000).toFixed(2)} km (${points.length} point${points.length === 1 ? '' : 's'})`
+  }
+
+  const canvasEl = map.getCanvas()
+  // Drag-vs-click disambiguation: record where the pointer went down and
+  // ignore the click when it travelled — a pan gesture must not drop points.
+  let downAt: [number, number] | null = null
+  const onDown = (e: PointerEvent): void => {
+    downAt = [e.clientX, e.clientY]
+  }
+  const onClick = (e: MouseEvent): void => {
+    if (downAt) {
+      const travel = Math.hypot(e.clientX - downAt[0], e.clientY - downAt[1])
+      if (travel > 5) return
+    }
+    const rect = canvasEl.getBoundingClientRect()
+    const screen: [number, number] = [e.clientX - rect.left, e.clientY - rect.top]
+    // Hit test existing points in screen space — clicking one removes it.
+    for (let i = 0; i < points.length; i++) {
+      const p = map.project(points[i])
+      if (p && Math.hypot(p[0] - screen[0], p[1] - screen[1]) <= 10) {
+        points.splice(i, 1)
+        push()
+        return
+      }
+    }
+    const lonLat = map.unproject(screen)
+    if (!lonLat) return
+    points.push(lonLat)
+    push()
+  }
+  canvasEl.addEventListener('pointerdown', onDown)
+  canvasEl.addEventListener('click', onClick)
+
+  measureCleanup = () => {
+    canvasEl.removeEventListener('pointerdown', onDown)
+    canvasEl.removeEventListener('click', onClick)
+    badge.remove()
+    measureCleanup = null
+  }
+}
+
+function teardownMeasureOverlay(): void {
+  measureCleanup?.()
+}
+
 // Expose for tests / inspector — pass a modified source string and
 // the demo reloads with it (same path as Run button + Ctrl+Enter).
 ;(window as unknown as { __xgisRunSource?: (s: string) => Promise<unknown> }).__xgisRunSource =
@@ -1501,6 +1614,14 @@ async function loadDemo(idx: number) {
     setupMousePositionOverlay(currentMap)
   } else {
     teardownMousePositionOverlay()
+  }
+
+  // Measure-distances demos (#1192 / #1235): click-to-measure overlay
+  // pushing measure_pts / measure_path via setSourceData.
+  if (currentMap && demo.measure) {
+    setupMeasureOverlay(currentMap)
+  } else {
+    teardownMeasureOverlay()
   }
 
   // #1192 interaction infra — Demo.actions → the #demo-actions button bar.
