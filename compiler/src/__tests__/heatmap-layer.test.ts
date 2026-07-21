@@ -3,6 +3,9 @@
 // -intensity/-opacity utilities the runtime routes to the HeatmapRenderer.
 
 import { describe, it, expect } from 'vitest'
+import { readFileSync } from 'node:fs'
+import { join, dirname } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { convertMapboxStyle } from '../convert/mapbox-to-xgis'
 import { convertHeatmapLayer } from '../convert/layers-heatmap'
 import { Lexer, Parser, lower, emitCommands } from '../index'
@@ -204,6 +207,30 @@ describe('heatmap layer conversion', () => {
       { offset: 0.5, rgba: [0, 1, 0, 1] },
       { offset: 1, rgba: [1, 0, 0, 1] },
     ])
+  })
+
+  it('the REAL heatmap-ramp gallery example compiles with its inferno stops intact', () => {
+    // Compiles the actual playground example (single source of truth — the
+    // same file the gallery serves), so gallery drift fails here first.
+    const src = readFileSync(
+      join(
+        dirname(fileURLToPath(import.meta.url)),
+        '..',
+        '..',
+        '..',
+        'playground',
+        'src',
+        'examples',
+        'heatmap-ramp.xgis',
+      ),
+      'utf8',
+    )
+    const cmds = emitCommands(optimize(lower(new Parser(new Lexer(src).tokenize()).parse())))
+    const heat = cmds.shows.find((s) => s.isHeatmap)
+    expect(heat).toBeDefined()
+    expect(heat!.heatmapColorStops?.length).toBe(5)
+    expect(heat!.heatmapColorStops?.[0]).toEqual({ offset: 0, rgba: [0, 0, 0, 0] })
+    expect(heat!.heatmapColorStops?.[4]?.offset).toBe(1)
   })
 
   it('visibility:none emits visible:false', () => {

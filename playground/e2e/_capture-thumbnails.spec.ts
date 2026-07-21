@@ -73,14 +73,27 @@ const GALLERY_DEMOS = [
   'sdf_points',
   'shape_gallery',
   'heatmap',
+  // Symbols & points — custom heatmap ramp
+  'heatmap_ramp',
   // Animation
   'animation_pulse',
   'animation_showcase',
   // Zoom behavior
   'zoom',
   'zoom_lod',
-  // Interaction
+  // Camera & interaction
   'picking_demo',
+  'fly_to',
+  'fit_bounds',
+  'jump_to_locations',
+  'pitch_bearing',
+  'color_switcher',
+  'mouse_position',
+  // Terrain & 3D — globe_extrusion only: the live-tile cards
+  // (hillshade_terrarium / hillshade_multidir / satellite_map) are
+  // noThumb on the gallery (external DEM/imagery hosts are not
+  // reachable from every capture environment).
+  'globe_extrusion',
   // Raster basemaps
   'raster',
   'raster_overlay',
@@ -102,13 +115,24 @@ mkdirSync(THUMB_DIR, { recursive: true })
 
 test.describe.configure({ mode: 'parallel' })
 
+// Opt-in subset filter: CAPTURE_ONLY=fly_to,heatmap_ramp captures just those
+// ids. Used when adding new gallery cards from an offline environment, so a
+// full run can't overwrite the network-dependent thumbnails (PMTiles / OSM)
+// with background-only frames.
+const CAPTURE_ONLY = (process.env.CAPTURE_ONLY ?? '')
+  .split(',')
+  .map((s) => s.trim())
+  .filter(Boolean)
+const CAPTURE_LIST =
+  CAPTURE_ONLY.length > 0 ? GALLERY_DEMOS.filter((id) => CAPTURE_ONLY.includes(id)) : GALLERY_DEMOS
+
 test.describe('Capture demo thumbnails for site/examples gallery', () => {
   // Larger viewport than the smoke 1280×720: gives the gallery card a
   // bit more pixel headroom for retina downscaling. The screenshot
   // crop is taken at 1200×675 (16:9) regardless of viewport.
   test.use({ viewport: { width: 1280, height: 720 } })
 
-  for (const id of GALLERY_DEMOS) {
+  for (const id of CAPTURE_LIST) {
     test(`thumbnail: ${id}`, async ({ page }) => {
       // PMTiles demos pull from external CORS-restricted hosts via
       // the dev server's proxy; if that path doesn't connect within

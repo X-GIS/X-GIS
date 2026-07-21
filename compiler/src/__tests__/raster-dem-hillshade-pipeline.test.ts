@@ -98,6 +98,33 @@ layer relief { source: dem }`)
     expect(hs!.extraSources).toEqual([])
   })
 
+  it('the REAL multidirectional gallery example compiles with all four sources intact', () => {
+    const src = readFileSync(
+      join(
+        dirname(fileURLToPath(import.meta.url)),
+        '..',
+        '..',
+        '..',
+        'playground',
+        'src',
+        'examples',
+        'hillshade-multidir.xgis',
+      ),
+      'utf8',
+    )
+    const cmds = compile(src)
+    const hs = cmds.shows.find((s) => s.targetName === 'terrain')!.paintShapes?.hillshade
+    expect(hs).toBeDefined()
+    expect(hs!.method).toBe('multidirectional')
+    expect(hs!.direction).toEqual({ kind: 'constant', value: 225 })
+    expect(hs!.altitude).toEqual({ kind: 'constant', value: 30 })
+    expect(hs!.extraSources.map((s) => [s.direction, s.altitude])).toEqual([
+      [270, 30],
+      [315, 40],
+      [355, 45],
+    ])
+  })
+
   it('multidirectional source-2..4 utilities fold into extraSources (missing axes ← source 1)', () => {
     const cmds = compile(`xgis 1
 source dem {
