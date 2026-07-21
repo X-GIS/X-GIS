@@ -99,8 +99,14 @@ function clampPos(p: number[]): number[] {
 // continuation. Latitude still clamps (the ±85 pole-sliver fix is unaffected —
 // its Mercator magnitude, not a seam wrap, is the corruption source). Polygon /
 // point arms keep the full clampPos (the original horizontal-sliver fix).
+//
+// The iter-296 non-finite guard stays: a malformed MVT (e.g. extent 0 → 0/0 in
+// toGeoJSON's un-quantisation) can emit NaN/±Infinity lon, and the downstream
+// Liang-Barsky clip fails OPEN on non-finite input (q/p → NaN passes every
+// edge test), leaking NaN vertices into the f32 tile mesh. Only the RANGE
+// clamp is dropped — wrap-copy longitudes are always finite.
 function clampPosLatOnly(p: number[]): number[] {
-  return [p[0], clampLat(p[1])]
+  return [Number.isFinite(p[0]) ? p[0] : 0, clampLat(p[1])]
 }
 
 function clampGeometryToPlanet(g: GeoJSONGeometry): GeoJSONGeometry {

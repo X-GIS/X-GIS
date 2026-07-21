@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest'
 import geojsonVt from 'geojson-vt'
 // @ts-expect-error — no published types
 import vtpbf from 'vt-pbf'
+import Pbf from 'pbf'
 import { decodeMvtTile } from './mvt-decoder'
 
 // Round-trip: GeoJSON → geojson-vt slice → vt-pbf serialize → decodeMvtTile.
@@ -168,6 +169,38 @@ describe('decodeMvtTile (round-trip)', () => {
             expect(c[0]).toBeGreaterThanOrEqual(-180.0001)
           }
         }
+      }
+    }
+  })
+
+  // #1221 R4 hardening — dropping the line-arm lon RANGE clamp must NOT drop
+  // the iter-296 NON-FINITE guard. A malformed MVT declaring extent 0 makes
+  // toGeoJSON's un-quantisation divide by zero (NaN/±Infinity lon), and the
+  // downstream Liang-Barsky clip fails OPEN on non-finite input, leaking NaN
+  // vertices into the f32 tile mesh. Every decoded coordinate must be finite.
+  // (vtpbf can't author this — `extent: 0` is falsy and falls back to 4096 —
+  // so the layer bytes are hand-written with pbf.)
+  it('sanitises non-finite line lon from a malformed extent-0 MVT (iter-296 guard)', () => {
+    const writeFeature = (_: unknown, fpbf: InstanceType<typeof Pbf>) => {
+      fpbf.writeVarintField(3, 2) // GeomType = LINESTRING
+      // MoveTo(0,0) + LineTo(+10,+10): [cmd(1,1), zz(0), zz(0), cmd(2,1), zz(10), zz(10)]
+      fpbf.writePackedVarint(4, [9, 0, 0, 10, 20, 20])
+    }
+    const writeLayer = (_: unknown, lpbf: InstanceType<typeof Pbf>) => {
+      lpbf.writeVarintField(15, 2) // version
+      lpbf.writeStringField(1, 'bad') // name
+      lpbf.writeVarintField(5, 0) // extent = 0 ← the malformation
+      lpbf.writeMessage(2, writeFeature, null)
+    }
+    const tilePbf = new Pbf()
+    tilePbf.writeMessage(3, writeLayer, null)
+    const features = decodeMvtTile(tilePbf.finish(), 0, 0, 0)
+    expect(features.length).toBeGreaterThan(0)
+    for (const f of features) {
+      const coords = (f.geometry as { coordinates: number[][] }).coordinates
+      for (const c of coords) {
+        expect(Number.isFinite(c[0]), `lon finite, got ${c[0]}`).toBe(true)
+        expect(Number.isFinite(c[1]), `lat finite, got ${c[1]}`).toBe(true)
       }
     }
   })
