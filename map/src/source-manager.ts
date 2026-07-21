@@ -53,7 +53,7 @@ import { detectCapPoles, type CapPoles } from '@xgis/data'
 import * as tilingPool from '@xgis/data'
 import { reprojectFeatureCollection } from '@xgis/data'
 import { pointPatchToFeatureCollection, type PointPatch } from '@xgis/data'
-import { readCoverageFromHdf5 } from '@xgis/data'
+import { readCoverage } from '@xgis/data'
 import { SOURCE_TYPES } from '@xgis/compiler'
 import type { SourceLoader } from './source-loader'
 
@@ -317,12 +317,12 @@ export class SourceManager {
       return
     }
     // S-100 gridded coverage (#1158, re-platformed by ADR-0010). A built-in
-    // `type: coverage` source READS THE STANDARD IN PLACE: fetch the S-100 HDF5
-    // (same SSRF guard + body cap as the geojson branch), read it → CoverageHandle
-    // via `readCoverageFromHdf5` (no `.xgcov` transcode), and store a `{ _coverage }`
-    // marker in rawDatasets (the marker union, map-types.ts). The handle is the
-    // value-readout authority (map.getCoverage(...).valueAt); the renderer owns the
-    // GPU texture separately.
+    // `type: coverage` source READS THE STANDARD IN PLACE: fetch the gridded payload
+    // (same SSRF guard + body cap as the geojson branch), read it → CoverageHandle via
+    // `readCoverage` (sniffs the container magic → HDF5 today, no `.xgcov` transcode),
+    // and store a `{ _coverage }` marker in rawDatasets (the marker union, map-types.ts).
+    // The handle is the value-readout authority (map.getCoverage(...).valueAt); the
+    // renderer owns the GPU texture separately.
     // REBASE HAZARD (#1153 P1): this worktree is at clean HEAD, whose _attachOneSource
     // has no `isStale` staleness probe yet. When P1's isStale threading lands, this
     // branch MUST thread it and guard the rawDatasets.set below (the marker write
@@ -343,7 +343,7 @@ export class SourceManager {
         rawBytes.byteOffset,
         rawBytes.byteOffset + rawBytes.byteLength,
       )
-      const handle = await readCoverageFromHdf5(buf)
+      const handle = await readCoverage(buf)
       // Thread the source's display options (ramp / range) alongside the handle so
       // rebuildLayers can arm the CoverageRenderer without re-reading the load command.
       this.rawDatasets.set(load.name, { _coverage: handle, ramp: load.ramp, range: load.range })
