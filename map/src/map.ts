@@ -117,6 +117,7 @@ import { attachAutoResize } from './auto-resize'
 import { attachVisibilityPause } from './visibility-pause'
 import { PaintTransitionRegistry } from './paint-transitions'
 import { EventDispatcher } from './event-dispatcher'
+import { CanvasCursorController } from './cursor'
 import { TileCatalog } from '@xgis/data'
 import { isTileTemplate } from '@xgis/data'
 import { buildShowSourceMaps } from './show-source-maps'
@@ -347,6 +348,10 @@ export class XGISMap {
    *  interactionDpr is null (the default), so this is inert unless opted in. */
   _interacting = false
   private _pointerActive = false
+  /** #1263 — built-in cursor feedback (grab/grabbing/pointer). Single writer
+   *  of `canvas.style.cursor`; fed press state from the controller wiring and
+   *  hover state from the dispatcher. Null when the canvas has no `.style`. */
+  private _cursor: CanvasCursorController | null = null
   private _interactionIdleTimer: ReturnType<typeof setTimeout> | null = null
   private static readonly _INTERACTION_IDLE_MS = 500
   /** The active projection's canonical name. Owned by `_viewport`
@@ -1278,6 +1283,12 @@ export class XGISMap {
     // as page scroll (repeated pointercancel → broken gestures). Host-respecting
     // (leaves any authored value) — same canvas-mutation precedent as a11y above.
     this._setupTouchAction(options.touchAction)
+    // #1263: built-in cursor feedback — grab at rest, grabbing on press,
+    // pointer over hovered features. Host-respecting like touch-action above;
+    // `cursor: false` opts out. Fed press state (controller wiring) + hover
+    // state (dispatcher `onHoverActiveChange`); the controller is the sole
+    // writer of `canvas.style.cursor`.
+    this._cursor = new CanvasCursorController(this.canvas, options.cursor !== false)
     // P0-3: container-resize + monitor-swap DPR tracking while idle; both
     // funnel into the existing public resize() path. No-op in test envs.
     this._detachAutoResize = attachAutoResize(this.canvas, () => this.resize())
@@ -2336,6 +2347,8 @@ export class XGISMap {
         dispatchMapEvent: (e) => this._dispatchMapEvent(e),
         mapHasListeners: (t) => this.mapListeners.has(t),
         anyLayerListens: (t) => this.interactionController.anyLayerListens(t),
+        // #1263 — drive the built-in `pointer` cursor from hover state.
+        onHoverActiveChange: (active) => this._cursor?.setHovering(active),
       })
     }
     const dispatcher = this.eventDispatcher
@@ -2355,6 +2368,7 @@ export class XGISMap {
         },
         onPointerLeave: (e) => {
           this._pointerActive = false
+          this._cursor?.setInteracting(false)
           dispatcher.handlePointerLeave(e)
         },
         // Any drag, rotate, or wheel zoom is the user explicitly
@@ -2364,17 +2378,20 @@ export class XGISMap {
         onPointerDown: (x, y, e) => {
           this._cameraExplicitlyPositioned = true
           this._pointerActive = true
+          this._cursor?.setInteracting(true) // press ⇒ grabbing
           this.markInteracting()
           dispatcher.handlePointerDown(x, y, e).catch(() => {})
         },
         onPointerUp: (x, y, e) => {
           this._pointerActive = false
+          this._cursor?.setInteracting(false) // release ⇒ grab (or pointer if hovering)
           dispatcher.handlePointerUp(x, y, e).catch(() => {})
         },
         // OS/gesture steal (capture loss) ends the drag without a clean
         // pointerup — clear the flag so a later hover can't re-pin low DPR.
         onPointerCancel: (e) => {
           this._pointerActive = false
+          this._cursor?.setInteracting(false)
           dispatcher.handlePointerLeave(e)
         },
         onWheel: (x, y, e) => {
@@ -4915,6 +4932,10 @@ export class XGISMap {
       }
       this._appliedTouchAction = null
     }
+
+    // #1263 — restore the cursor the library managed (no-clobber guard inside).
+    this._cursor?.destroy()
+    this._cursor = null
 
     // DOM stats overlay element.
     this._statsPanel?.destroy()
