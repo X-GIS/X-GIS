@@ -115,7 +115,7 @@ function lowerSource(
   /** Non-reserved props for a custom `type` — collected into `SourceDef.options`
    *  (docs/architecture/source-loader-seam.md §5). Undefined for built-in sources. */
   let options: Record<string, string | number | readonly string[]> | undefined
-  /** `type: raster-dem` DEM pack metadata — threaded so the (INC-3)
+  /** `type: raster-dem` DEM pack metadata — threaded so the
    *  hillshade renderer decodes elevation with the source's rule. */
   let encoding: string | undefined
   let tileSize: number | undefined
@@ -646,6 +646,14 @@ function lowerLayer(
   let hillshadeAccent: [number, number, number, number] | undefined
   let hillshadeMethod: import('./property-types').HillshadeMethod | undefined
   let hillshadeResamplingNearest: boolean | undefined
+  let hillshadeExtraSources:
+    | {
+        direction?: number
+        altitude?: number
+        shadow?: [number, number, number, number]
+        highlight?: [number, number, number, number]
+      }[]
+    | undefined
 
   // Assemble the mutable LayerAccumulator from the post-cascade locals
   // (named style → inline CSS already applied above) plus fresh per-loop
@@ -730,6 +738,7 @@ function lowerLayer(
     hillshadeAccent,
     hillshadeMethod,
     hillshadeResamplingNearest,
+    hillshadeExtraSources,
     isHeatmap,
     heatmapRadius,
     heatmapWeight,
@@ -898,6 +907,7 @@ function lowerLayer(
   hillshadeAccent = acc.hillshadeAccent
   hillshadeMethod = acc.hillshadeMethod
   hillshadeResamplingNearest = acc.hillshadeResamplingNearest
+  hillshadeExtraSources = acc.hillshadeExtraSources
   isHeatmap = acc.isHeatmap
   heatmapRadius = acc.heatmapRadius
   heatmapWeight = acc.heatmapWeight
@@ -1150,6 +1160,7 @@ function lowerLayer(
     hillshadeAccent,
     hillshadeMethod,
     hillshadeResamplingNearest,
+    hillshadeExtraSources,
     isHeatmap,
     heatmapRadius,
     heatmapWeight,

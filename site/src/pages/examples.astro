@@ -5,6 +5,12 @@ import Header from '../components/Header.astro'
 import Footer from '../components/Footer.astro'
 import { Eyebrow, SectionHead } from '@/components/kit'
 import { galleryCategories, featuredDemos, runIdOf } from '../content/gallery-demos'
+import { assertGalleryInSync } from '../lib/gallery-drift-check'
+
+// Build-time gate: fail the build if the cards drift from the
+// playground DEMOS registry or the thumbnail pipeline (see the check's
+// header for the three-authorities story).
+assertGalleryInSync()
 
 const githubUrl = 'https://github.com/X-GIS/X-GIS'
 const examplesPath = `${githubUrl}/blob/main/playground/src/examples`

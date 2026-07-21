@@ -494,7 +494,13 @@ export class StatementParser extends ExpressionParser {
       this.check(TokenType.Identifier) &&
       DATA_STYLE_FNS.includes(this.tokens[this.pos]?.value)
     ) {
-      binding = this.parseExpr()
+      // parseCoalesce, NOT parseExpr — the standing block-property rule
+      // (see parseBlockProperty): parsePostfix consumes `match(...) { … }`
+      // including its arm block, so a following `|` that starts the NEXT
+      // utility line must not be swallowed as an expression pipe (#1236 —
+      // "Expected utility name, got Minus" on `| stroke-white` after a
+      // match-block utility).
+      binding = this.parseCoalesce()
       // If it's match(...), check for trailing { ... } match block
       if (
         binding.kind === 'FnCall' &&

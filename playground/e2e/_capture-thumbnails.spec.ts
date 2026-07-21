@@ -37,13 +37,17 @@ const GALLERY_DEMOS = [
   'dark',
   'styled_world',
   'inline_data',
+  // multi_layer is absent: its OSM raster base needs network egress the
+  // capture environment lacks, so its card is noThumb for now.
   // PMTiles + MVT
   'pmtiles_source',
   'pmtiles_layered',
   'osm_style',
   'pmtiles_only_landuse',
   'pmtiles_v4',
-  'openfreemap_bright',
+  // openfreemap_bright, along_path_roads and zoom_building_color are
+  // deliberately absent: their cards are noThumb (live-style settle /
+  // protomaps egress — see the card notes).
   // Data-driven styling
   'continent_match',
   'continent_outlines',
@@ -53,6 +57,8 @@ const GALLERY_DEMOS = [
   'population_gradient',
   'megacities',
   'categorical',
+  'vector_categorical',
+  'step_and_concat',
   // Lines & strokes
   'bold_borders',
   'dashed_borders',
@@ -64,6 +70,8 @@ const GALLERY_DEMOS = [
   'stroke_align',
   'translucent_lines',
   'multi_layer_line',
+  'bucket_order',
+  'line_antimeridian',
   // Symbols & points
   'custom_symbol',
   'custom_shapes',
@@ -73,17 +81,37 @@ const GALLERY_DEMOS = [
   'sdf_points',
   'shape_gallery',
   'heatmap',
+  // Symbols & points — custom heatmap ramp
+  'heatmap_ramp',
+  // Text labels (multiline_labels is absent: labels-only over black
+  // reads as an empty card — noThumb)
+  'layer_below_labels',
   // Animation
   'animation_pulse',
   'animation_showcase',
   // Zoom behavior
   'zoom',
   'zoom_lod',
-  // Interaction
+  // Camera & interaction
   'picking_demo',
+  'fly_to',
+  'fit_bounds',
+  'jump_to_locations',
+  'pitch_bearing',
+  'color_switcher',
+  'mouse_position',
+  'camera_around_point',
+  'animate_point_route',
+  // Terrain & 3D — globe_extrusion only: the live-tile cards
+  // (hillshade_terrarium / hillshade_multidir / satellite_map) are
+  // noThumb on the gallery (external DEM/imagery hosts are not
+  // reachable from every capture environment).
+  'globe_extrusion',
   // Raster basemaps
   'raster',
   'raster_overlay',
+  // satellite_map / hillshade_terrarium are absent: live-tile fetches
+  // need network egress the capture environment lacks (cards noThumb).
   // Geographic compositions
   'physical_map',
   'physical_map_10m',
@@ -93,6 +121,10 @@ const GALLERY_DEMOS = [
   'rivers_10m',
   'states_provinces',
   'coastline',
+  'coastline_10m',
+  // states_10m / water_hierarchy are absent (gitignored ne_10m_* data),
+  // as is coverage_bathymetry (colour-ramp draw is the #1158 headed
+  // gate-3 item) — their cards are noThumb until a local capture.
 ]
 
 // Resolve once so multiple specs running in parallel don't all do
@@ -102,20 +134,32 @@ mkdirSync(THUMB_DIR, { recursive: true })
 
 test.describe.configure({ mode: 'parallel' })
 
+// Opt-in subset filter: CAPTURE_ONLY=fly_to,heatmap_ramp captures just those
+// ids. Used when adding new gallery cards from an offline environment, so a
+// full run can't overwrite the network-dependent thumbnails (PMTiles / OSM)
+// with background-only frames.
+const CAPTURE_ONLY = (process.env.CAPTURE_ONLY ?? '')
+  .split(',')
+  .map((s) => s.trim())
+  .filter(Boolean)
+const CAPTURE_LIST =
+  CAPTURE_ONLY.length > 0 ? GALLERY_DEMOS.filter((id) => CAPTURE_ONLY.includes(id)) : GALLERY_DEMOS
+
 test.describe('Capture demo thumbnails for site/examples gallery', () => {
   // Larger viewport than the smoke 1280×720: gives the gallery card a
   // bit more pixel headroom for retina downscaling. The screenshot
   // crop is taken at 1200×675 (16:9) regardless of viewport.
   test.use({ viewport: { width: 1280, height: 720 } })
 
-  for (const id of GALLERY_DEMOS) {
+  for (const id of CAPTURE_LIST) {
     test(`thumbnail: ${id}`, async ({ page }) => {
       // PMTiles demos pull from external CORS-restricted hosts via
       // the dev server's proxy; if that path doesn't connect within
       // the timeout the spec still emits whatever the canvas painted
       // (often the background color + nothing else) — better than
-      // hanging the whole capture run.
-      test.setTimeout(45_000)
+      // hanging the whole capture run. SwiftShader (XGIS_SOFTWARE_GPU=1)
+      // rasterizes on the CPU, so tile-heavy demos need a longer leash.
+      test.setTimeout(process.env.XGIS_SOFTWARE_GPU === '1' ? 120_000 : 45_000)
 
       // Demos that load from external archives or rely on a city-
       // scale view need an explicit camera hash — without one the
@@ -129,9 +173,16 @@ test.describe('Capture demo thumbnails for site/examples gallery', () => {
         pmtiles_only_landuse: '#12/35.68/139.76',
         pmtiles_v4: '#3/30/0',
         openfreemap_bright: '#14/35.68/139.76',
+        along_path_roads: '#14/35.68/139.76',
+        zoom_building_color: '#15.5/40.712/-74.006',
       }
       const hash = HASH_OVERRIDE[id] ?? ''
       await page.goto(`/demo.html?id=${id}${hash}`, { waitUntil: 'domcontentloaded' })
+
+      // The #1226 editor-collapse tab hugs the map's left edge (and the
+      // canvas edge once collapsed) — hide it so it can't bleed into the
+      // 16:9 crop. Page chrome, not map content.
+      await page.addStyleTag({ content: '#editor-collapse-btn { display: none !important; }' })
 
       // Captures after __xgisReady + 2× rAF. Animation demos are
       // sampled at frame 0 (no `elapsedMsAtLeast`) — for animations

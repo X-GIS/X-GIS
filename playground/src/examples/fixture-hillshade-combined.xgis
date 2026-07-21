@@ -1,0 +1,14 @@
+xgis 1
+
+/* hillshade-method matrix fixture: `combined` (slope-weighted Lambert angle)
+ * over the local radial-hill DEM. See fixture-hillshade-basic.xgis. */
+source dem {
+  type: "raster-dem"
+  url: "/dem-fixture.png"
+  encoding: mapbox
+}
+
+layer relief {
+  source: dem
+  | hillshade-method-combined
+}
