@@ -59,7 +59,14 @@ import { QUALITY, updateQuality, type QualityConfig } from '@xgis/engine'
 import { GPUTimer } from '@xgis/rhi-webgpu'
 import { Camera } from './camera'
 import { CameraController } from './camera-controller'
-import { injectFocusStyle, setupCanvasA11y, handleMapKeyDown } from './map-accessibility'
+import {
+  injectFocusStyle,
+  setupCanvasA11y,
+  handleMapKeyDown,
+  resolveReducedMotion,
+  reducedMotionMediaMatches,
+  watchReducedMotion,
+} from './map-accessibility'
 import { showWebGPUUnavailableDefault } from './map-webgpu-unavailable'
 import { ViewportModeController } from './render/viewport-mode-controller'
 import { SourceManager } from './source-manager'
@@ -472,6 +479,9 @@ export class XGISMap {
   private _detachAutoResize: (() => void) | null = null
   /** Detach hook for the visibility pause/resume listeners (#1153 M5); destroy() mirror. */
   private _detachVisibilityPause: (() => void) | null = null
+  /** #1260 — detach hook for the prefers-reduced-motion media-query listener
+   *  (a11y); destroy() mirror. Null until `_setupAccessibility` attaches it. */
+  private _detachReducedMotion: (() => void) | null = null
   /** #1153 M5 render-loop scheduling state. `_rafId` is the single in-flight rAF
    *  handle (null = parked) — storing it is what lets the hidden handler CANCEL the
    *  pending tick and structurally prevents a resume from building a second rAF
@@ -1314,6 +1324,10 @@ export class XGISMap {
       this._keyDownHandler = handler
       injectFocusStyle()
     }
+    // #1260 — honour a live OS prefers-reduced-motion flip (WCAG 2.3.3). No-op
+    // in non-DOM / no-matchMedia envs (returns a no-op teardown), so unit-test
+    // mocks never attach a listener and destroy() has nothing to detach.
+    this._detachReducedMotion = watchReducedMotion(() => this._onReducedMotionChange())
   }
 
   /** #1153 M1 — claim the canvas's `touch-action` so mobile browsers don't hijack
@@ -3396,7 +3410,10 @@ export class XGISMap {
             // #1255 — style writes ramp through the transition registry.
             registry: this._paintTransitions,
             nowMs: () => this._elapsedMs,
-            durationMs: () => this.paintTransitionDurationMs,
+            // #1260 — reduced motion collapses the ramp to an instant set
+            // (0 ms, byte-identical to `paintTransitionDuration: 0`). Read per
+            // begin*() so an OS flip takes effect on the next style write.
+            durationMs: () => (this._prefersReducedMotion() ? 0 : this.paintTransitionDurationMs),
             cameraZoom: () => this.camera.zoom,
           }),
         )
@@ -4350,17 +4367,34 @@ export class XGISMap {
     return performance.now() - this._startTime
   }
 
-  /** #1256 — resolve reduced-motion: the explicit option override wins,
-   *  else the `prefers-reduced-motion: reduce` media query (false in
-   *  non-DOM / no-matchMedia environments — tests, SSR). */
+  /** #1256/#1260 — resolve reduced-motion: the explicit `respectReducedMotion`
+   *  option override wins, else the live `prefers-reduced-motion: reduce` media
+   *  query (false in non-DOM / no-matchMedia environments — tests, SSR). The
+   *  precedence lives in the pure `resolveReducedMotion` (map-accessibility.ts)
+   *  so it is unit-pinnable without a DOM. Consulted at every animation entry
+   *  point: easeTo/flyTo → jumpTo, symbol fade → 0, paint transitions → 0. */
   private _prefersReducedMotion(): boolean {
-    if (this._reducedMotionOverride !== undefined) return this._reducedMotionOverride
-    if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return false
-    try {
-      return window.matchMedia('(prefers-reduced-motion: reduce)').matches
-    } catch {
-      return false
-    }
+    return resolveReducedMotion(this._reducedMotionOverride, reducedMotionMediaMatches())
+  }
+
+  /** #1260 — the symbol-fade duration after the reduced-motion override:
+   *  0 (instant, byte-identical to `fadeDuration: 0`) when reduced motion is
+   *  active, else the configured `labelFadeDurationMs`. Read at lazy TextStage
+   *  construction (label-pass.ts) AND re-applied live on a media-query flip
+   *  (`_onReducedMotionChange`). */
+  effectiveFadeDurationMs(): number {
+    return this._prefersReducedMotion() ? 0 : this.labelFadeDurationMs
+  }
+
+  /** #1260 — OS reduced-motion flipped while the map is live: re-resolve the
+   *  animated features that cache their duration. Camera easeTo/flyTo and paint
+   *  transitions read `_prefersReducedMotion()` per call (already live); only
+   *  the symbol-fade ledger holds a cached duration, so push the new effective
+   *  value and re-arm a frame so an idle map reflects the change at once. */
+  private _onReducedMotionChange(): void {
+    this.textStage?.setFadeDurationMs(this.effectiveFadeDurationMs())
+    this.markLabelDirty()
+    this.invalidate()
   }
 
   /** #1256 — halt any in-flight easeTo/flyTo, leaving the camera at its
@@ -4717,6 +4751,12 @@ export class XGISMap {
     if (this._keyDownHandler) {
       this.canvas?.removeEventListener('keydown', this._keyDownHandler)
       this._keyDownHandler = null
+    }
+
+    // #1260 — prefers-reduced-motion media-query listener (same leak class).
+    if (this._detachReducedMotion) {
+      this._detachReducedMotion()
+      this._detachReducedMotion = null
     }
 
     // #1167 — cold-start burst visibilitychange backstop (armed in run()).

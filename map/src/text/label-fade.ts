@@ -55,20 +55,46 @@ export function fadeInstanceKey(collisionId: string, occurrence: number): string
   return occurrence === 0 ? collisionId : `${collisionId}\u0001${occurrence}`
 }
 
+/** Clamp a fade-duration input to a non-negative finite number; anything
+ *  else (NaN, ∞, negative) becomes 0 = disabled. Shared by the ctor and the
+ *  live `setDurationMs` setter so both normalise identically. */
+function normFadeDuration(durationMs: number): number {
+  return Number.isFinite(durationMs) && durationMs > 0 ? durationMs : 0
+}
+
 export class LabelFadeLedger {
-  readonly durationMs: number
+  private _durationMs: number
   private readonly records = new Map<string, FadeRec>()
   private gen = 0
   private lastAdvanceMs: number | null = null
 
   constructor(durationMs: number) {
-    this.durationMs = Number.isFinite(durationMs) && durationMs > 0 ? durationMs : 0
+    this._durationMs = normFadeDuration(durationMs)
+  }
+
+  /** Effective fade duration (ms); 0 disables fading. Live-updatable via
+   *  `setDurationMs` (reduced-motion / option change, #1260). */
+  get durationMs(): number {
+    return this._durationMs
+  }
+
+  /** #1260 — live fade-duration update (a reduced-motion flip or an option
+   *  change, applied without reconstructing the stage). Setting 0 disables
+   *  fading and CLEARS in-flight records, so their held-over draws stop and
+   *  the symbols render at full opacity on the next prepare instead of
+   *  freezing mid-ramp (a disabled ledger's advance() no longer steps them).
+   *  A positive value re-enables fading for subsequent placement changes. */
+  setDurationMs(durationMs: number): void {
+    const d = normFadeDuration(durationMs)
+    if (d === this._durationMs) return
+    this._durationMs = d
+    if (d === 0) this.records.clear()
   }
 
   /** False when durationMs = 0 — every consumer then takes its historical
    *  (fade-free, byte-identical) path. */
   get enabled(): boolean {
-    return this.durationMs > 0
+    return this._durationMs > 0
   }
 
   /** Start a prepare generation. Call once at the top of TextStage.prepare's

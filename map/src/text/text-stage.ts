@@ -469,6 +469,13 @@ export class TextStage {
     return this.fadeLedger
   }
 
+  /** #1260 — live-update the symbol-fade duration (a reduced-motion flip or a
+   *  host option change) without reconstructing the stage. 0 disables fading
+   *  and clears in-flight ramps; a positive value re-enables it. */
+  setFadeDurationMs(durationMs: number): void {
+    this.fadeLedger.setDurationMs(durationMs)
+  }
+
   /** Pre-warm the atlas with a glyph set. Run once at engine init
    *  to bake digits + punctuation + Latin alphabet so the first
    *  frame doesn't pay rasterisation cost on cold paths. */
