@@ -28,7 +28,15 @@ describe('Mapbox import sprite/glyphs ordering regression gate', () => {
     // Find the runSource function body
     const runSourceIdx = src.indexOf('async function runSource(')
     expect(runSourceIdx, 'runSource function definition missing').toBeGreaterThan(0)
-    const runSourceWindow = src.slice(runSourceIdx, runSourceIdx + 5000)
+    // Bound the window at the NEXT top-level function, not a fixed char count: the body
+    // grew past a hardcoded 5000-char slice (the `new XGISMap` call landed at ~5051),
+    // silently failing this ordering gate on an unrelated demo-runner edit.
+    const afterRunSource = src.slice(runSourceIdx + 1)
+    const nextFn = afterRunSource.search(/\n(?:export )?(?:async )?function /)
+    const runSourceWindow = src.slice(
+      runSourceIdx,
+      nextFn >= 0 ? runSourceIdx + 1 + nextFn : src.length,
+    )
     expect(runSourceWindow).toMatch(/pendingSpriteUrl/)
     expect(runSourceWindow).toMatch(/pendingGlyphsUrl/)
     // The new XGISMap call must come AFTER the pending-var reads.
