@@ -466,6 +466,15 @@ export const galleryCategories: Category[] = [
         title: 'Animate a point along a route',
         body: 'setSourceData() slides a marker along an inlined SF→DC great-circle arc, one push per frame.',
       },
+      // `noThumb: true`: the measure scene starts EMPTY (points/line appear
+      // only after user clicks), so a build-time capture would show just the
+      // dark basemap — text-only card until a scripted-click capture exists.
+      {
+        id: 'measure-distances',
+        title: 'Measure distances',
+        body: 'Click to drop measurement points — the connector line and haversine total update live through the host push API.',
+        noThumb: true,
+      },
     ],
   },
   {

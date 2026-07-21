@@ -157,6 +157,19 @@ export class SourceManager {
    *  clobber each other's index. Also drives the `dropSource` eviction below. */
   private readonly _tilingInstanceId = tilingPool.newTilingInstanceId()
 
+  /** The run()-scoped ShowSourceMaps captured at virtual-PMTiles attach time,
+   *  so `setSourceData` can RE-seed a pushed FC through the same attach
+   *  (#1235 gap 1). A data push changes no shows, so reusing the attach-time
+   *  maps is exact; null until the first virtual attach of a run. */
+  private _lastShowSourceMaps: ShowSourceMaps | null = null
+
+  /** The FeatureCollection each virtual-tiled geojson source was last seeded
+   *  with (#1235 gap 2). `rawDatasets` holds only the `_vectorTile` marker for
+   *  these sources, so without this the host-side data is unreachable and
+   *  `updateFeature` had to reject inline-declared sources. Written on every
+   *  attach/re-seed; read by the feature-update queue to patch + re-seed. */
+  readonly hostSeededFC = new Map<string, GeoJSONFeatureCollection>()
+
   constructor(deps: SourceManagerDeps) {
     this.rawDatasets = deps.rawDatasets
     this.registerVtSource = deps.registerVtSource
@@ -547,6 +560,8 @@ export class SourceManager {
     maps: ShowSourceMaps,
     source: TileCatalog,
   ): void {
+    this._lastShowSourceMaps = maps
+    this.hostSeededFC.set(vtKey, filtered)
     const inferred = maps.usedSourceLayers.get(vtKey)
     const backend = new VirtualPMTilesBackend({
       sourceName: vtKey,
@@ -626,10 +641,14 @@ export class SourceManager {
     // spawning the tiling worker. (Earlier the probe sat after the capPoles write,
     // so a stale run corrupted the winner's polar-cap record — issue #360 F1.)
     if (isStale?.()) return
+    this._lastShowSourceMaps = maps
+    // (Seeded-FC record for #1235 gap 2 is written AFTER the reproject below,
+    // so updateFeature patches operate in the same WGS84 frame the tiler sees.)
     // Reproject declared-CRS input → WGS84 LL FIRST so both the tiling
     // backend (below) and the camera-fit bounds (computeGeoJSONBounds)
     // operate on reprojected coordinates (AC9). Absent CRS ⇒ 4326 / no-op.
     data = this._reprojectIngest(sourceName, data)
+    this.hostSeededFC.set(sourceName, data)
     // Record which Mercator clamp-boundary pole(s) this source touches so
     // XGISMap's polar-cap install (issue #360 F1) can synthesise the cap(s)
     // that close the ±5° hole on globe / sphere projections. Detection runs
@@ -778,6 +797,33 @@ export class SourceManager {
       (normalized as { features?: unknown }).features,
       `setSourceData("${sourceId}")`,
     )
+    // #1235 gap 1 — a source that was attached through the virtual-PMTiles
+    // tiling (rawDatasets holds the `_vectorTile` marker: inline `data:` and
+    // URL-loaded GeoJSON alike) must be RE-SEEDED through that same attach.
+    // Writing the raw FC here instead routed the rebuild into the legacy
+    // worker-compile path, which uploads fills/points but never line
+    // segments — a pushed LineString silently rendered nothing. The attach
+    // reprojects internally, re-registers the vt entry synchronously (no
+    // await before registerVtSource), and re-writes the marker; the
+    // show-source maps are the run()-scoped ones cached at attach time (a
+    // data push changes no shows).
+    const prev = this.rawDatasets.get(sourceId)
+    if (
+      prev !== undefined &&
+      typeof prev === 'object' &&
+      '_vectorTile' in prev &&
+      this._lastShowSourceMaps !== null
+    ) {
+      this.deleteFeatureIndex(sourceId)
+      this.teardownSource(sourceId)
+      tilingPool.dropSource(this._tilingInstanceId, sourceId)
+      void this._attachGeoJSONViaVirtualPMTiles(sourceId, normalized, this._lastShowSourceMaps, {
+        fit: false,
+      })
+      this.rebuildLayers()
+      this.invalidate()
+      return
+    }
     // Reproject declared-CRS host-pushed data → WGS84 LL after the shape
     // normalize above and BEFORE polar-cap injection / tiling (AC9). The
     // declared CRS is looked up by sourceId in the run()-time registry;

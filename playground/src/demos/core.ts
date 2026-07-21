@@ -60,6 +60,15 @@ export const DEMOS_CORE: Record<string, Demo> = {
     mousePosition: true,
   },
 
+  measure_distances: {
+    name: 'Measure Distances',
+    tag: 'event',
+    description:
+      'MapLibre "Measure distances" port (#1192 / #1235) — click to drop measurement points (click a point to remove it); the host pushes measure_pts / measure_path via setSourceData and a badge totals the haversine distance.',
+    source: load('measure-distances.xgis'),
+    measure: true,
+  },
+
   animate_point_route: {
     name: 'Animate Point Along Route',
     tag: 'event',
@@ -134,11 +143,10 @@ export const DEMOS_CORE: Record<string, Demo> = {
               const a = ROUTE[i]
               const b = ROUTE[Math.min(i + 1, ROUTE.length - 1)]
               const k = f - i
-              // setSourceData, not updateFeature: the queue only patches
-              // host-pushed sources — a .xgis-declared source (inline data
-              // included) is tile-backed from its perspective and the patch
-              // is dropped with a warn-once. The MapLibre original is a
-              // getSource().setData() loop, so this is the faithful shape.
+              // setSourceData over updateFeature — the MapLibre original is
+              // a getSource().setData() loop, so this is the faithful shape.
+              // (Since #1235 gap 2, updateFeature CAN patch a .xgis-declared
+              // source through its seeded FC; both forms work here.)
               m.setSourceData('marker', {
                 type: 'FeatureCollection',
                 features: [

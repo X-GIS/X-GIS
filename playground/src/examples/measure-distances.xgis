@@ -1,0 +1,39 @@
+xgis 1
+
+/*
+ * MapLibre "Measure distances" port (#1192 / #1235). Click the map to
+ * drop measurement points; the host overlay (demo-runner, Demo.measure)
+ * rebuilds two FeatureCollections on every click and pushes them with
+ * setSourceData — the connector line + total haversine distance update
+ * live. Clicking an existing point removes it. Two-source shape on
+ * purpose: a mixed Point+LineString collection in ONE source is routed
+ * by its first feature's geometry type (#1235), so points and the
+ * connector each get their own source.
+ */
+
+source world { type: geojson, url: "ne_110m_countries.geojson" }
+
+source measure_pts {
+  type: geojson
+  data: { "type": "FeatureCollection", "features": [] }
+}
+
+source measure_path {
+  type: geojson
+  data: { "type": "FeatureCollection", "features": [] }
+}
+
+layer countries {
+  source: world
+  | fill-zinc-800 stroke-zinc-500 stroke-0.5
+}
+
+layer measure_line {
+  source: measure_path
+  | stroke-amber-400 stroke-3
+}
+
+layer measure_points {
+  source: measure_pts
+  | fill-white size-9 stroke-amber-400 stroke-2
+}

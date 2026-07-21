@@ -246,7 +246,17 @@ const CEILINGS: Record<string, number> = {
   // Merge union (#1172 <- main): the M1/M4/M5/M5c mobile-hardening seams stacked
   // non-overlappingly on main's #1177/#1194/#1196/#777-II lineage — merged
   // high-water is the measured 4708.
-  'map/src/map.ts': 4708,
+  // 4708→4715 (#1235 gap 2): the FeatureUpdateQueue host gains the seeded-FC
+  // getter (CRS-guarded) + the reseedSource hook — wiring only; the patch/
+  // re-seed logic lives in feature-update-queue.ts + source-manager.ts.
+  'map/src/map.ts': 4715,
+  // Baselined at #1235 (measured 846): SourceManager crossed NEW_FILE_CAP with
+  // the gap-1/gap-2 seams — the setSourceData virtual re-seed branch (the
+  // legacy worker-compile path renders fills/points but no line segments) +
+  // the attach-time ShowSourceMaps/seeded-FC records the re-seed and the
+  // feature-update queue read. Cohesive source-lifecycle ownership; split
+  // (attach arms vs push/ingest) when #991 gets here — shrink-only from now.
+  'map/src/source-manager.ts': 846,
   // 1920→1930 (#1042 R3): the globe limb cull for MULTI-LINE labels must land in
   // the collision phase — the ONLY site holding the label's quad half-height (the
   // collision box IS the height authority; the label-pass dispatch site has only
