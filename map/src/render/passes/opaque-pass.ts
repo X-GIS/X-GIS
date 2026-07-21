@@ -16,7 +16,6 @@
 import { DEBUG_OVERDRAW } from '../../debug-flags'
 import { isPickEnabled } from '@xgis/engine'
 import { isGlobeProj } from '@xgis/geo'
-import { wrapWebGpuPass } from '@xgis/rhi-webgpu'
 import { resolveNumberShape } from '../paint-shape-resolve'
 import type { FrameContext } from '../frame-context'
 import { unwrapProjection } from '../projection-token'
@@ -183,8 +182,11 @@ class OpaquePass implements RenderPass {
             !isGlobeProj(projType)
           ) {
             const frame = host.camera.getViewForProjection(projType, ctx.w, ctx.h, ctx.dpr)
+            // Pass the raw encoder — CoverageRenderer.render wraps it internally
+            // (the backend fork lives there, mirroring raster), keeping this pass
+            // file free of a concrete-backend import (#991 backend-adapter ratchet).
             host.coverageRenderer.render(
-              wrapWebGpuPass(subPass),
+              subPass,
               frame.matrix,
               [host.camera.centerX, host.camera.centerY],
               [projType, centerLon, centerLat, frame.logDepthFc],

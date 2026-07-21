@@ -16,6 +16,7 @@
 // first arm with the live MSAA sample count, invalidated by rebuildForQuality().
 
 import type { GPUContext } from '@xgis/rhi-webgpu'
+import { wrapWebGpuPass } from '@xgis/rhi-webgpu'
 import type { RhiDevice, RhiTexture, RhiSampler, RhiBindGroup, RhiRenderPass } from '@xgis/engine'
 import { getSampleCount } from '@xgis/engine'
 import type { CoverageHandle } from '@xgis/data'
@@ -64,14 +65,14 @@ export class CoverageRenderer {
     this.format = ctx.format
   }
 
-  /** Lazily build the draper with the LIVE sample count (raster's
-   *  ensureRasterDraper pattern). The forced-WebGL2 frame is the single-sample
-   *  screen pass (renderFrameViaRhi topology), so that backend pins 1. */
+  /** Lazily build the draper with the LIVE sample count — mirrors raster's
+   *  ensureRasterDraper exactly (min(getSampleCount, maxSampleCount) works for the
+   *  WebGPU opaque MSAA target AND the WebGL2 twin screen pass; no backend fork). */
   private ensureDraper(): CoverageDraper {
     return (this._draper ??= new CoverageDraper(
       this.rhi,
       this.format,
-      this.rhi.backend === 'webgl2' ? 1 : Math.min(getSampleCount(), this.rhi.caps.maxSampleCount),
+      Math.min(getSampleCount(), this.rhi.caps.maxSampleCount),
     ))
   }
 
@@ -146,7 +147,7 @@ export class CoverageRenderer {
    *  MVP (Mercator-metre, camera-at-origin), the camera Mercator centre, and the
    *  projection params — mirroring the raster flat arm. No-op when unarmed. */
   render(
-    pass: RhiRenderPass,
+    pass: GPURenderPassEncoder | RhiRenderPass,
     mvp: Float32Array | number[],
     camCenter: [number, number],
     projParams: [number, number, number, number],
@@ -161,7 +162,14 @@ export class CoverageRenderer {
       covGeo: s.covGeo,
       ramp: s.ramp,
     })
-    this._draper.draw(pass, bytes as BufferSource, s.bindGroup)
+    // A WebGl2Device frame (renderFrameViaRhi twin) hands in an RhiRenderPass
+    // already; the WebGPU opaque pass hands in a GPURenderPassEncoder that needs
+    // wrapping — the ONE backend fork, mirroring raster-renderer.render.
+    const rhiPass =
+      this.rhi.backend === 'webgl2'
+        ? (pass as RhiRenderPass)
+        : wrapWebGpuPass(pass as GPURenderPassEncoder)
+    this._draper.draw(rhiPass, bytes as BufferSource, s.bindGroup)
   }
 
   private uploadR16f(data: Uint16Array, width: number, height: number): RhiTexture {

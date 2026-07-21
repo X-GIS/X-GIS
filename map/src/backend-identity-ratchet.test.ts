@@ -29,6 +29,9 @@
 // loadImageTexture), the getSampleCount pick, the draw-pass wrap, and the evict
 // destroy. Same still-blocked pattern raster-renderer carries; retires when the
 // tile-load / pass-wrap / destroy sites move behind rhi.caps.* alongside raster.
+// 45→46 (#1272): CoverageRenderer.render mirrors raster/hillshade's draw-pass wrap
+// (webgl2 RhiRenderPass vs webgpu wrapWebGpuPass) — the same still-blocked pattern,
+// retires with them when the pass-wrap moves behind rhi.caps.*.
 //
 // Applies the #996 lesson (a source-scan gate whose matcher silently matches nothing is
 // vacuously green): two guards below prove the regex still matches AND the walk still
@@ -40,7 +43,7 @@ import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const MAP_SRC = join(dirname(fileURLToPath(import.meta.url)))
-const BASELINE = 45
+const BASELINE = 46
 
 // `.backend` identity comparison, either direction, against either backend literal.
 const PATTERN = 'backend\\s*(===|!==)\\s*[\'"](webgl2|webgpu)[\'"]'
