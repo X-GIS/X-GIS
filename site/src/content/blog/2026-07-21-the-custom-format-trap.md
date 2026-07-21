@@ -1,6 +1,6 @@
 ---
 title: 'The custom format trap: we set aside .xgvt, then shipped .xgcov'
-description: 'A coverage feature was built on .xgcov — an in-house binary for gridded data. The same two forces that made us step back from a custom vector-tile format (.xgvt) to PMTiles/MVT — no ecosystem, no HTTP-range streaming — apply verbatim to .xgcov. The rule: before inventing a binary interchange format, a standard almost always already exists (PMTiles for vector, COG for raster/coverage), and the best case is to read that standard IN PLACE via range requests, converting only non-web-native sources server-side to a standard, never to a bespoke blob.'
+description: 'A coverage feature was built on .xgcov — an in-house binary for gridded data. But the NOAA source is HDF5 (an IHO S-100 standard) and we already owned a reader for it, then transcoded it into a house blob anyway — the same mistake that made us step back from a custom vector-tile format (.xgvt): a bespoke container loses the ecosystem and HTTP-range streaming. The distinction that matters: a READER for a standard (our HDF5 reader, geotiff.js, pmtiles) is legitimate; TRANSCODING a standard into a house blob is the mistake. The rule: read whichever standard the data is already in (HDF5/NetCDF for scientific grids, COG for imagery, PMTiles for vector) IN PLACE via range requests; convert only a source that truly cannot be read as-is, server-side, only to a standard, never to a bespoke blob.'
 date: 2026-07-21T15:00:00Z
 tags: ['architecture', 'formats', 'web', 'single-authority', 'cog', 'pmtiles']
 lang: en
@@ -42,46 +42,64 @@ in the header, the exact CPU value readback — is the same class of argument th
 proj4, and pbf as dependencies already; "it avoids a dependency" was never worth
 forking a format.
 
-## The standard was already there — and better
+## The standard was already there — and it was the `.h5` in our hand
 
-For gridded/raster data the "PMTiles of the raster world" is **COG**
-(Cloud-Optimized GeoTIFF): internally tiled, overview-pyramided, its IFD ordered
-for HTTP range, produced by `gdal_translate`, read in-browser by `geotiff.js`,
-served by TiTiler, consumed by everything. It stores full-precision float, so
-exact readback survives — **per tile**, which our single blob could not do. It
-carries metadata in tags. It does everything `.xgcov` did and solves the two
-problems that had killed `.xgvt`.
+Here is the part that makes `.xgcov` indefensible rather than merely redundant.
+The NOAA S-111 file is **HDF5** — an IHO S-100 product, the international standard
+NOAA actually publishes. We had also already written an HDF5 reader for it. So the
+data arrived in a standard, and we owned a working reader for that standard, and
+then we _transcoded it into a house blob anyway_. The `.xgcov` step converts a
+standard nobody has to be taught into a format only we understand — pure loss,
+zero gain.
+
+The distinction we had blurred is the whole lesson:
+
+- **A reader for a standard format is legitimate and necessary** — our HDF5
+  reader, `geotiff.js` for COG, `pmtiles`-js for PMTiles. That is not "inventing a
+  format"; it is speaking one the world already speaks.
+- **Transcoding a standard into a bespoke container is the mistake** — `.xgcov`.
+  It is the step that loses the ecosystem and buys nothing.
+
+(My own first instinct here was wrong in an instructive way: I reached for COG
+"the raster standard" as the answer. But COG is the standard for georeferenced
+_imagery_; the standard for _this_ data is HDF5/S-100. Converting HDF5→COG would
+have been the same pointless transcode wearing a more respectable name. The
+domain picks the standard — HDF5/NetCDF for scientific grids, COG for imagery,
+PMTiles for vector tiles, GeoJSON for features — and you read whichever one the
+data is already in.)
 
 ## The deeper cut: read it in place
 
-The trap has a second floor. Even converting to a _standard_ is the wrong
-instinct when the source is already a web-readable standard. If a COG is sitting
-on static hosting, the right move is to **range-read it where it lives** —
-`geotiff.js` fetches only the tiles and overviews the current view needs. No
-conversion, no re-hosting, no second copy. Re-baking a COG into `.xgcov` (or into
-another COG) is pure waste.
+The trap has a second floor. Even transcoding to _another standard_ is the wrong
+instinct when the source is already in a range-readable standard. HDF5 is
+range-readable — its superblock → b-tree → chunk layout is exactly what our reader
+already walks, and lazy HTTP-range variants (h5wasm and friends) prove a browser
+can pull just the chunks a viewport needs without downloading the file. So the
+move is to **read the `.h5` where it lives**, on demand, and feed the grid to the
+renderer. No `.xgcov`, no COG, no second copy.
 
-Conversion earns its place in exactly one spot: a source that is genuinely _not_
-web-native (raw HDF5, GRIB2, NetCDF that cannot be efficiently range-read in the
-browser, or that is CORS-blocked). Even there, it runs **server-side** and it
-targets a **standard** (COG), so the browser still ends up range-reading a
-standard in place. The custom format appears nowhere in the chain.
+Conversion earns its place only when the source genuinely cannot be served or
+read as-is — and even then it is a **server-side** step that targets a
+**standard**, so the browser still range-reads a standard in place. A bespoke
+container appears nowhere in the chain, ever.
 
 ## What was actually worth keeping
 
-Almost none of the value lived in the format. The HDF5→grid reader (the ingest),
-the grid→texture→colour-ramp renderer, the particle packer, the demos — all of
-it is format-agnostic and survives any wire-format choice. The format was the one
-part that should not have been built, and the one part we were about to build
-_more_ on.
+Almost none of the value lived in the format. The HDF5 reader (the ingest, a
+reader for a _standard_ — keep it, make it range-capable), the grid→texture→colour
+-ramp renderer, the particle packer, the demos — all format-agnostic, all survive.
+The one part that should not have existed was `.xgcov`, and it was the one part we
+were about to build _more_ on.
 
 ## The rule
 
-Before inventing a binary interchange format, stop: a standard almost certainly
-already covers it — **PMTiles** for vector tiles, **COG** for raster/coverage
-grids, GeoJSON for features. Reach for the standard, and prefer to read it **in
-place** via range requests over converting anything. Convert only a non-web-native
-source, only server-side, and only _to_ a standard — never to a bespoke blob. The
-zero-dependency-decoder and custom-semantics arguments do not clear this bar; we
-have now paid for that lesson twice (`.xgvt`, then `.xgcov`). If you find yourself
+Before inventing a binary interchange format, stop — the data is almost certainly
+already in a standard, and the domain names which one: **HDF5 / NetCDF** for
+scientific gridded data (S-100, NOAA model output), **COG** for georeferenced
+imagery/raster, **PMTiles** for vector tiles, GeoJSON for features. Write (or
+reuse) a _reader_ for that standard, and prefer to read it **in place** via range
+requests over converting anything. Convert only a source that truly cannot be
+read as-is, only server-side, and only _to_ a standard — never into a house blob.
+The zero-dependency-decoder and custom-semantics arguments do not clear this bar;
+we have now paid for that lesson twice (`.xgvt`, then `.xgcov`). If you are
 writing a magic number, you are probably about to lose an ecosystem.

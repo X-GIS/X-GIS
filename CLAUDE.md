@@ -249,15 +249,18 @@ scripts/gap-matrix.md`) — read the script header before assuming write-in-plac
 
 **Architecture / data formats**
 
-- NEVER invent a binary interchange format when a web standard covers the domain —
-  **PMTiles** for vector tiles, **COG** (Cloud-Optimized GeoTIFF) for raster/coverage
-  grids, GeoJSON for features. A bespoke container loses the ecosystem (no GDAL/
-  tippecanoe/geotiff.js, none of the data already on the web) AND web real-time (a
-  blob has no HTTP-range streaming). The zero-dep-decoder / custom-semantics arguments
-  do NOT clear this bar — we paid for it twice (`.xgvt` → PMTiles, then `.xgcov`).
-  PREFER reading the standard IN PLACE via range requests over converting anything;
-  convert only a genuinely non-web-native source (raw HDF5/GRIB2/NetCDF or CORS-blocked),
-  only server-side, and only TO a standard. If you're writing a magic number, stop.
+- The data is almost always ALREADY in a standard, and the domain names which one —
+  **HDF5 / NetCDF** for scientific gridded data (S-100, NOAA model output), **COG**
+  for georeferenced imagery/raster, **PMTiles** for vector tiles, GeoJSON for features.
+  Write/reuse a READER for that standard (our HDF5 reader, `geotiff.js`, `pmtiles`) —
+  that is legitimate. What is FORBIDDEN is TRANSCODING a standard into a house blob
+  (`.xgcov` did exactly this to HDF5 we already had a reader for): a bespoke container
+  loses the ecosystem (no GDAL/geotiff.js, none of the data already on the web) AND
+  web real-time (a blob has no HTTP-range streaming). Zero-dep-decoder / custom-semantics
+  arguments do NOT clear this bar — paid for twice (`.xgvt` → PMTiles, then `.xgcov`).
+  PREFER reading the standard IN PLACE via range requests (HDF5 IS range-readable) over
+  converting anything; convert only a source that truly cannot be read as-is, server-side,
+  only TO a standard. If you're writing a magic number, stop.
   → `2026-07-21-the-custom-format-trap.md`
 
 This section deliberately has NO separate index file: the posts themselves (their
