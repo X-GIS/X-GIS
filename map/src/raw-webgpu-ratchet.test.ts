@@ -136,12 +136,17 @@ const BASELINE: Record<string, number> = {
   'map/src/render/material/raster-material.ts': 6,
   'map/src/render/material/text-material.ts': 1,
   'map/src/render/passes/opaque-pass.ts': 1,
-  'map/src/render/pipeline-factory.ts': 82,
+  // 82→85 (#1252): the variant data-driven extruded pipeline descriptors
+  // (fillExtruded/fallback in both variant builders) name GPURenderPipeline{,Descriptor} —
+  // the same raw-WebGPU surface the existing base extruded builders carry.
+  'map/src/render/pipeline-factory.ts': 85,
   // 16→15 (#1057 inc2): flushTilePoints's `pass: GPURenderPassEncoder` retyped to
   // `RhiRenderPass` (flushTilePointsRhi) — the wrap moved up to VTR.emitTilePointsRhi.
   'map/src/render/point-renderer.ts': 15,
   'map/src/render/raster-renderer.ts': 8,
-  'map/src/render/renderer-types.ts': 20,
+  // 20→24 (#1252): CachedPipeline gains 4 GPURenderPipeline fields for the
+  // variant data-driven extruded pipelines (mirrors the existing fill/ground fields).
+  'map/src/render/renderer-types.ts': 24,
   'map/src/render/renderer.ts': 60,
   'map/src/render/tile-compute-resources.ts': 7,
   // INC-1 under-occluder sphere: a Material/executeItems draw in the opaque pass,

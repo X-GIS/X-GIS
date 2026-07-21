@@ -160,11 +160,16 @@ describe('#1080 front-shell — dispatch + gate wiring', () => {
     expect(FILL_MAT).toContain('variant + 2') // front-shell colour
   })
 
-  it('the two-draw runs ONLY for the solid extrude twin (extrudeSolid is set there only)', () => {
-    // `extrudeSolid = true` is assigned exactly at the four e.mat / e.matNoPick arms,
-    // never in the pattern-extrude or flat-fill arms.
+  it('the two-draw runs ONLY for solid extrude twins (extrudeSolid is set there only)', () => {
+    // `extrudeSolid = true` is assigned at the four base e.mat / e.matNoPick arms
+    // PLUS the #1252 per-style-extrude arm (data-driven fill extrude twin) — five
+    // total — never in the pattern-extrude or flat-fill arms. All five are solid
+    // extrude twins that carry the front-shell variant set, so the two-draw is correct.
     const n = (FILL_MAT.match(/extrudeSolid = true/g) ?? []).length
-    expect(n, `expected 4 extrudeSolid=true arms (write/test × pick/nopick); got ${n}`).toBe(4)
+    expect(
+      n,
+      `expected 5 extrudeSolid=true arms (base write/test × pick/nopick + per-style-extrude); got ${n}`,
+    ).toBe(5)
   })
 
   it('VTR resolves the front-shell gate from the resolved fill alpha and passes it only for per-feature extrude', () => {

@@ -189,6 +189,15 @@ const VertexOutputIO = ioStruct('VertexOutput', {
   abs_merc_y: location(6, f32T),
   world_z: location(7, f32T),
   v_color: location(8, vec4fT),
+  // Per-vertex GEOMETRIC extrusion lighting factors, interpolated for the
+  // DATA-DRIVEN extrude fragment (#1252): .x = the raw directional dot
+  // clamp(dot(N, light), 0, 1) BEFORE the base-colour luminance mix, .y =
+  // the vertical-gradient wall factor (1.0 on roofs / non-walls). The
+  // constant-fill extrude path bakes the full shaded colour into `v_color`
+  // and ignores this; the feature path samples its base colour in the
+  // fragment and replays the SAME lighting against `shade_geom`. Zero on the
+  // non-extrude vertex entries (unused by their fragments).
+  shade_geom: location(9, vec2fT),
 })
 const VertexOutput = VertexOutputIO.decl
 // The typed field-proxy shape of a fragment-stage VertexOutput param (#740 R6) —
@@ -514,6 +523,7 @@ const vsMain = fn(
       abs_merc_y: absMercY,
       world_z: f32(0),
       v_color: vec4(0, 0, 0, 0), // only the extrude path emits non-zero
+      shade_geom: vec2(0, 0), // extrude-only; unused by fs_stroke / the line path
     })
   },
   { stage: 'vertex' },
@@ -638,6 +648,7 @@ const vsMainEcef = fn(
       abs_merc_y: absMercY,
       world_z: f32(0),
       v_color: vec4(0, 0, 0, 0), // per-feature variants override via composer
+      shade_geom: vec2(0, 0), // extrude-only geometric lighting; flat fill is unlit
     })
   },
   { stage: 'vertex' },
@@ -771,33 +782,34 @@ const vsMainEcefExtruded = fn(
       ),
     )
     const isFlatProj = projParamsV.x.lt(6.5)
-    const directional = clamp(dot(select(isFlatProj, nEnu, p.face_normal), lightPos), 0, 1)
-    directional.assign(
-      mix(
-        f32(1).sub(lightIntensity),
-        max(f32(1).sub(colorValue).add(lightIntensity), 1),
-        directional,
-      ),
-    )
+    // dGeom — the RAW directional dot BEFORE the base-colour luminance mix.
+    // Interpolated as shade_geom.x so the data-driven extrude fragment (#1252)
+    // can replay the identical lighting against its per-fragment base colour.
+    const dGeom = Let('d_geom', clamp(dot(select(isFlatProj, nEnu, p.face_normal), lightPos), 0, 1))
     // Vertical gradient — walls only (|nz| < 0.5). Mapbox
     // fill-extrusion-vertical-gradient opt-out: the flag rides the spare
     // cam_ecef_off_l.w uniform lane (1 = default = ramp on, 0 = off). AND
     // it into the wall test so `false` skips the ramp (flat wall shading);
     // at the default the branch is taken exactly as before (no-op gate).
+    // Factored to a per-vertex FACTOR (1.0 on roofs / non-walls) so the
+    // constant `directional * vgradFactor` below is byte-identical to the
+    // old `if(isWall) directional *= vgrad`, and the same factor rides
+    // shade_geom.y for the feature fragment.
     const vgGradOn = U.field.cam_ecef_off_l.w.ne(0)
     const isWall = abs(nEnu.z).lt(0.5).and(vgGradOn)
     const tTop = p.is_top
-    If(isWall, () => {
-      // (t_top + base) * sqrt(height/150). h_for_grad = max(wall_height, 1)
-      // so the bottom lip still computes a sensible gradient value.
-      const hForGrad = max(p.wall_height, 1)
-      const vgrad = clamp(
-        tTop.mul(sqrt(hForGrad.div(150))),
-        mix(f32(0.7), 0.98, f32(1).sub(lightIntensity)),
-        1,
-      )
-      directional.assign(directional.mul(vgrad))
-    })
+    const hForGrad = max(p.wall_height, 1)
+    const vgradWall = clamp(
+      tTop.mul(sqrt(hForGrad.div(150))),
+      mix(f32(0.7), 0.98, f32(1).sub(lightIntensity)),
+      1,
+    )
+    const vgradFactor = Let('vgrad_factor', select(isWall, vgradWall, f32(1)))
+    const directional = mix(
+      f32(1).sub(lightIntensity),
+      max(f32(1).sub(colorValue).add(lightIntensity), 1),
+      dGeom,
+    ).mul(vgradFactor)
     const shadedRgb = Let(clamp(litColorRgb.mul(directional).mul(lightColor), vec3(0), vec3(1)))
     // Non-premultiplied output — see vs_main_quantized_extruded's removed
     // header for the BLEND_ALPHA vs BLEND_ALPHA_PREMULT equivalence proof.
@@ -812,6 +824,7 @@ const vsMainEcefExtruded = fn(
       abs_merc_y: absMercY,
       world_z: p.wall_height.mul(p.is_top), // world-z carries wall_height for the wall-blend discriminator
       v_color: vec4(shadedRgb, opacity),
+      shade_geom: vec2(dGeom, vgradFactor), // #1252 — geometric lighting for the data-driven fragment
     })
   },
   { stage: 'vertex' },
@@ -1036,16 +1049,31 @@ const buildFsFillExtrude = (pickEnabled: boolean) =>
   fn(
     'fs_fill_extrude',
     { input: VertexOutputIO },
-    (p) => {
+    (p, b) => {
       const input = p.input
       const i = input
       emitPolygonFragmentDiscards(input)
       const out = polygonFragmentOutput(pickEnabled).var('out')
-      // Rim alpha — operates on the premultiplied colour: scales both rgb
-      // and alpha by the rim factor so the building still fades at sphere
-      // edges on globe / azimuthal projections.
+      // Expose the two per-vertex extrude inputs as named lets so the
+      // composer's 'fill-extrude-return' swap can reference them (mirrors the
+      // wall_shade / alpha_scale convention in fs_fill / fs_stroke):
+      //   v_ext_color — the fully-shaded constant colour (default path).
+      //   v_ext_shade — geometric lighting (d_geom, vgrad_factor); the
+      //                 data-driven path re-lights its sampled base colour.
+      const vExtColor = Let('v_ext_color', i.v_color)
+      const vExtShade = Let('v_ext_shade', i.shade_geom)
+      void vExtColor
+      void vExtShade
+      // ▼ Composer-swap point 'fill-extrude-return':
+      //   default (constant / null variant) → out.color = v_ext_color
+      //     (byte-identical to the prior single-line v_color path);
+      //   variant (data-driven) → fillExpr base colour re-lit against
+      //     v_ext_shade + the light uniforms (#1252).
+      b.placeholder('fill-extrude-return')
+      // Rim alpha AFTER the swap so both paths fade at sphere edges — scales
+      // both rgb and alpha by the rim factor (globe / azimuthal projections).
       const rim = polygonRimAlpha({ abs_merc_x: i.abs_merc_x, abs_merc_y: i.abs_merc_y })
-      out.color.assign(i.v_color.mul(rim))
+      out.color.assign(out.color.mul(rim))
       emitPickWrite(input, out, pickEnabled)
       emitLogDepthJitter(input, out)
       Return(out.$)
@@ -1180,6 +1208,56 @@ const defaultStrokeReturnStmts = (): readonly Stmt[] => {
   return b.stmts
 }
 
+// #1252 — the constant / null-variant extrude return path: pass the fully
+// shaded per-vertex colour through unchanged (byte-identical to the prior
+// `out.color = input.v_color` before the placeholder split). `v_ext_color` is
+// the named let fs_fill_extrude binds from the v_color varying.
+const defaultExtrudeReturnStmts = (): readonly Stmt[] => {
+  const b = new Builder()
+  const out = new Node({ op: 'varref', type: polygonFragmentOutput(false).type, name: 'out' })
+  const vColor = new Node<'vec4<f32>'>({ op: 'varref', type: vec4fT, name: 'v_ext_color' })
+  b.assign(polygonFragmentOutput(false).of(out).color, vColor)
+  return b.stmts
+}
+
+// #1252 — the data-driven extrude return path. Samples the per-feature base
+// colour (variant.fillExpr → feat_data[fid]) IN THE FRAGMENT, then replays the
+// SAME MapLibre extrusion lighting the constant path bakes per-vertex, but
+// against the interpolated GEOMETRIC factors (`v_ext_shade` = d_geom,
+// vgrad_factor) so the shading matches the constant path exactly while the
+// colour varies per feature. Non-feature variants (no fillExpr) fall back to
+// the constant pass-through.
+const variantExtrudeReturnStmts = (variant: PolygonVariantSpec): readonly Stmt[] => {
+  if (!variant.fillExpr) return defaultExtrudeReturnStmts()
+  const b = new Builder()
+  const out = new Node({ op: 'varref', type: polygonFragmentOutput(false).type, name: 'out' })
+  const shade = new Node<'vec2<f32>'>({ op: 'varref', type: vec2fT, name: 'v_ext_shade' })
+  const dGeom = shade.x
+  const vgradFactor = shade.y
+  const lightIntensity = U.field.light_dir_ecef.w
+  const lightColor = unpack4x8unorm(U.field.light_color_packed).swizzle('xyz')
+  // base4 — the resolved per-feature colour+opacity (fillPreamble authors any
+  // match `_mcSS` var referenced by fillExpr). Bound via the LOCAL builder's
+  // `.let` (the global `Let` needs an active fn-body builder, which the
+  // composer stmt path has not entered).
+  const base4 = b.let('ext_base', variant.fillExpr)
+  const baseRgb = base4.swizzle('xyz')
+  const colorValue = dot(baseRgb, vec3(0.2126, 0.7152, 0.0722))
+  const ambient = vec3(0.03)
+  const litColorRgb = baseRgb.add(ambient)
+  // directional = mix(1-I, max(1-lum+I, 1), d_geom) * vgrad_factor — the exact
+  // expression vs_main_ecef_extruded evaluates (with dGeom/vgradFactor now
+  // interpolated instead of per-vertex).
+  const directional = mix(
+    f32(1).sub(lightIntensity),
+    max(f32(1).sub(colorValue).add(lightIntensity), 1),
+    dGeom,
+  ).mul(vgradFactor)
+  const shadedRgb = clamp(litColorRgb.mul(directional).mul(lightColor), vec3(0), vec3(1))
+  b.assign(polygonFragmentOutput(false).of(out).color, vec4(shadedRgb, base4.w))
+  return [...(variant.fillPreamble ?? []), ...b.stmts]
+}
+
 // Variant fill / stroke return → fillPreamble Stmts (e.g. match if-else
 // chain authoring `_mcSS` var) followed by the assign of out.color to the
 // variant-provided Expr.
@@ -1252,10 +1330,12 @@ export const buildPolygonModule = (
     ? {
         'fill-return': variantReturnStmts('fill', variant),
         'stroke-return': variantReturnStmts('stroke', variant),
+        'fill-extrude-return': variantExtrudeReturnStmts(variant),
       }
     : {
         'fill-return': defaultFillReturnStmts(),
         'stroke-return': defaultStrokeReturnStmts(),
+        'fill-extrude-return': defaultExtrudeReturnStmts(),
       }
   const composedFuncs = composeModule(base, swaps).funcs
 

@@ -1031,7 +1031,13 @@ export const vsLine = fn(
     // Lateral parallel offset.
     const halfWside = Let(halfWm.add(layerOffsetM.mul(across)))
 
-    const offset = perpCur.mul(halfWside).mul(acrossScale)
+    // Pure ACROSS (perpendicular) component, captured before the along-pad add.
+    // The #1246 flat-projection width clamp scales ONLY this across component so
+    // the on-screen stroke width is projection-invariant; the along-pad (caps /
+    // joins / dash) and the FS `world_local` stay in true tile-local Mercator
+    // metres (see the clamp block and world_local_out below).
+    const acrossOffset = Let(perpCur.mul(halfWside).mul(acrossScale))
+    const offset = Var(acrossOffset)
     If(hasNeighbor, () => {
       const padRatio = select(isStart, sego.pad_ratio_p0, sego.pad_ratio_p1)
       const basePad = Let(select(isStart, padP0m, padP1m))
@@ -1050,7 +1056,17 @@ export const vsLine = fn(
       offset.assign(offset.add(dir.mul(along).mul(endpointPad)))
     })
 
-    const cornerLocal = base.add(offset)
+    const cornerLocal = Var(base.add(offset))
+
+    // world_local stays TRUE tile-local Mercator (base + offset, UNSCALED). The
+    // FS distance / clip-bounds / pattern / cap math is defined in that frame, so
+    // it must not carry the #1246 flat width-scale. On flat the clamp widens ONLY
+    // the clip-space quad (cornerLocal) to counter projection foreshortening while
+    // leaving world_local at true Mercator — the coverage isocontour (perpM =
+    // halfWm, true metres) then lands exactly at the widened physical quad edge,
+    // so the DISPLAYED width is projection-invariant with the FS byte-unchanged.
+    // Globe overwrites cornerLocal AND world_local together (unchanged behaviour).
+    const worldLocalOut = Var(base.add(offset))
 
     // ── ECEF-RTC corner reconstruction (Phase 2 PR 2d.1C) ────────────────
     //
@@ -1120,27 +1136,68 @@ export const vsLine = fn(
         .add(vec3(camOffH.x, camOffH.y, camOffH.z))
         .add(vec3(camOffL.x, camOffL.y, camOffL.z)) as Node<'vec3<f32>'>
 
-    // Screen-pixel-width stroke geometry clamp. Pre-clamp draft via ECEF
-    // round-trip on the candidate corner (matches polygon convention).
+    // Screen-pixel-width stroke geometry clamp.
     If(layerVpH.gt(0), () => {
       const zLift = sego.z_lift_m
       const mvp = TILE.field.mvp
       const projParamsW = TILE.field.proj_params
-      // Same MVP transform for center (base) + candidate (cornerLocal) so the
-      // screen-space width estimate matches the final clip exactly.
-      const centerClip = vec4(0, 0, 0, 0)
-      const cornerClip = vec4(0, 0, 0, 0)
       If(projParamsW.x.lt(6.5), () => {
-        // FLAT (projType 0-6): finalize_corner passes Mercator through (already
-        // camera-relative) and reprojects the other flat forms (project_geom −
-        // projected camera centre). Same flat 2D-plane MVP for center +
-        // candidate so the screen-space width estimate matches the final clip.
-        const baseFc = finalizeCorner({ corner: base })
-        const cornerFc = Let(finalizeCorner({ corner: cornerLocal }))
-        centerClip.assign(transformMat4(mvp, vec4(baseFc.x, baseFc.y, zLift, 1)))
-        cornerClip.assign(transformMat4(mvp, vec4(cornerFc.x, cornerFc.y, zLift, 1)))
+        // ── FLAT (projType 0-6) #1246 width correction ────────────────────
+        // The flat display MVP scales projected metres → pixels at the SINGLE
+        // Mercator 1/mpp for ALL flat projTypes. A non-Mercator projection
+        // (equirect J_ns=cosφ, natural_earth, stereographic …) shrinks the
+        // reprojected ACROSS offset by its Merc→projection Jacobian J, collapsing
+        // the stroke to ~width·J (== width·cosφ on equirect — the #1246 defect).
+        // Measure J directly as the ratio of the Mercator-passthrough on-screen
+        // size of the across offset to its finalize_corner-reprojected on-screen
+        // size, then widen the CLIP-space quad's across by 1/J. Both probes go
+        // through the SAME mvp, so dpr / mpp / viewport / aspect / bearing cancel.
+        // On Mercator finalize_corner IS the identity passthrough, so the two
+        // probes are bit-equal ⇒ widthScale == 1.0 exactly and the += below is a
+        // byte-identical no-op (no projType gate needed). world_local is left at
+        // true Mercator (see world_local_out) so the FS is byte-unchanged.
+        const mercBaseClip = transformMat4(mvp, vec4(base.x, base.y, zLift, 1))
+        const mercAcrossClip = transformMat4(
+          mvp,
+          vec4(base.x.add(acrossOffset.x), base.y.add(acrossOffset.y), zLift, 1),
+        )
+        const baseFc = Let(finalizeCorner({ corner: base }))
+        const acrossFc = Let(finalizeCorner({ corner: base.add(acrossOffset) }))
+        const projBaseClip = transformMat4(mvp, vec4(baseFc.x, baseFc.y, zLift, 1))
+        const projAcrossClip = transformMat4(mvp, vec4(acrossFc.x, acrossFc.y, zLift, 1))
+        const mercBaseNdc = Let(
+          vec2(mercBaseClip.x, mercBaseClip.y)
+            .div(max(abs(mercBaseClip.w), 1e-6))
+            .mul(sign(mercBaseClip.w)),
+        )
+        const mercAcrossNdc = Let(
+          vec2(mercAcrossClip.x, mercAcrossClip.y)
+            .div(max(abs(mercAcrossClip.w), 1e-6))
+            .mul(sign(mercAcrossClip.w)),
+        )
+        const projBaseNdc = Let(
+          vec2(projBaseClip.x, projBaseClip.y)
+            .div(max(abs(projBaseClip.w), 1e-6))
+            .mul(sign(projBaseClip.w)),
+        )
+        const projAcrossNdc = Let(
+          vec2(projAcrossClip.x, projAcrossClip.y)
+            .div(max(abs(projAcrossClip.w), 1e-6))
+            .mul(sign(projAcrossClip.w)),
+        )
+        const mercDist = length(mercAcrossNdc.sub(mercBaseNdc))
+        const projDist = length(projAcrossNdc.sub(projBaseNdc))
+        If(projDist.gt(1e-8), () => {
+          const widthScale = mercDist.div(projDist)
+          // Widen ACROSS only; along-pad + world_local stay true Mercator.
+          cornerLocal.assign(cornerLocal.add(acrossOffset.mul(widthScale.sub(1))))
+        })
       }).else(() => {
-        // 3D ECEF round-trip on the candidate corner (matches polygon convention).
+        // ── GLOBE / 3D ECEF (projType ≥ 7) — unchanged screen-width clamp ──
+        // Pre-clamp draft via ECEF round-trip on the candidate corner (matches
+        // polygon convention). May only GROW the quad to counter perspective
+        // foreshortening — never SHRINK it (max(.,1)); a quad smaller than the
+        // base (w/2+aa)·mpp offset clips the FS coverage and renders too thin.
         const tileOrigin = TILE.field.tile_origin_merc
         const tileAbsX = toF32(tileOrigin.x)
         const tileAbsY = toF32(tileOrigin.y)
@@ -1151,32 +1208,24 @@ export const vsLine = fn(
         // stays height-0 = the polygon tile_ecef_center RTC frame).
         const baseEcef = ecefFromMerc(null, 'clamp_base', baseAbsX, baseAbsY, zLift)
         const baseRtc = baseEcef.sub(tileEcef)
-        centerClip.assign(transformMat4(mvp, vec4(addCamOff(baseRtc as Node<'vec3<f32>'>), 1)))
+        const centerClip = transformMat4(mvp, vec4(addCamOff(baseRtc as Node<'vec3<f32>'>), 1))
         const cornerAbsX = Let(toF32(cornerLocal.x.add(tileOrigin.x)))
         const cornerAbsY = Let(toF32(cornerLocal.y.add(tileOrigin.y)))
         const cornerEcef = ecefFromMerc(null, 'clamp_corner', cornerAbsX, cornerAbsY, zLift)
         const cornerRtc = cornerEcef.sub(tileEcef)
-        cornerClip.assign(transformMat4(mvp, vec4(addCamOff(cornerRtc as Node<'vec3<f32>'>), 1)))
-      })
-      const centerXY = Let(vec2(centerClip.x, centerClip.y))
-      const cornerXY = Let(vec2(cornerClip.x, cornerClip.y))
-      const centerNdc = Let(centerXY.div(max(abs(centerClip.w), 1e-6)).mul(sign(centerClip.w)))
-      const cornerNdc = Let(cornerXY.div(max(abs(cornerClip.w), 1e-6)).mul(sign(cornerClip.w)))
-      const screenDist = length(cornerNdc.sub(centerNdc))
-      // width target is CSS px; viewport_height is DEVICE px → scale by dpr.
-      const targetNdc = effectiveWidthPx.add(f32(2).mul(layerAaPx)).mul(layerDpr).div(layerVpH)
-      // The screen-width clamp may only GROW the quad to counter projection
-      // foreshortening — never SHRINK it below the base quad. The base offset is
-      // (w/2+aa)·mpp tile-local metres, which the FS distance field (world_local
-      // / mpp) renders at exactly the intended CSS-px width; a quad smaller than
-      // that clips the fragment coverage and the stroke renders far too thin.
-      // (targetNdc is miscalibrated against the perspective viewport scale — it
-      // under-targets ~4×, so the raw scale was shrinking every flat stroke to a
-      // fraction of its width. Capping at 1 restores the correct base width and
-      // keeps the legitimate grow-for-foreshortening path.)
-      If(screenDist.gt(1e-8), () => {
-        const scale = max(targetNdc.div(screenDist), 1)
-        cornerLocal.assign(base.add(offset.mul(scale)))
+        const cornerClip = transformMat4(mvp, vec4(addCamOff(cornerRtc as Node<'vec3<f32>'>), 1))
+        const centerXY = Let(vec2(centerClip.x, centerClip.y))
+        const cornerXY = Let(vec2(cornerClip.x, cornerClip.y))
+        const centerNdc = Let(centerXY.div(max(abs(centerClip.w), 1e-6)).mul(sign(centerClip.w)))
+        const cornerNdc = Let(cornerXY.div(max(abs(cornerClip.w), 1e-6)).mul(sign(cornerClip.w)))
+        const screenDist = length(cornerNdc.sub(centerNdc))
+        // width target is CSS px; viewport_height is DEVICE px → scale by dpr.
+        const targetNdc = effectiveWidthPx.add(f32(2).mul(layerAaPx)).mul(layerDpr).div(layerVpH)
+        If(screenDist.gt(1e-8), () => {
+          const scale = max(targetNdc.div(screenDist), 1)
+          cornerLocal.assign(base.add(offset.mul(scale)))
+          worldLocalOut.assign(cornerLocal)
+        })
       })
     })
 
@@ -1237,7 +1286,7 @@ export const vsLine = fn(
     const cosCp1 = endpointCosC({ p_h: sego.p1_h, p_l: sego.p1_l })
     return LineOut.construct({
       position: apply_log_depth({ pos: clip, fc: TILE.field.log_depth_fc }),
-      world_local: cornerLocal,
+      world_local: worldLocalOut,
       seg_id: p.seg_id,
       view_w: clip.w,
       cos_c: select(isStart, cosCp0, cosCp1),
