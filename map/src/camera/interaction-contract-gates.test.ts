@@ -434,18 +434,15 @@ describe('G1 — camera screen→geographic round-trip (mercator + flat non-merc
 })
 
 // ════════════════════════════════════════════════════════════════════════
-// G6 — globe tile-rim geoid: sphere-forward vs ellipsoid-render.
+// G6 — globe tile-rim geoid: sphere-forward vs ellipsoid-render (#7, CLOSED by #1152 INC-3).
 //
-// globe.ts `globeForward` (and the inline forward in `globeVisibleTiles`,
-// globe.ts:561-567) places tile-selection samples on a SPHERE of radius
-// EARTH_R; the tiles those coords select are RENDERED on the WGS84
-// ELLIPSOID (vector-tile-renderer.ts:2174-2178 = shared `lonLatToECEF`).
-// At high latitude the two surfaces differ by ~21 km of polar flattening,
-// so the front-hemisphere horizon-cull and screen-AABB emit/cull gates run
-// against a surface ~21 km inside the rendered one — a tile-edge mis-
-// classification at z14+ pitched polar views. globe.test cannot see this:
-// it asserts dateline-wrap + hemisphere count in self-consistent SPHERE
-// space. This is the #7 contract.
+// Pre-INC-3, globe.ts `globeForward` (and the inline forward in `globeVisibleTiles`)
+// placed tile-selection samples on a SPHERE of radius EARTH_R while the tiles were
+// RENDERED on the WGS84 ELLIPSOID — a ~21 km high-latitude gap that mis-classified
+// the horizon-cull / screen-AABB gates at z14+ pitched polar views. #1152 INC-3 moved
+// both forwards onto the shared ellipsoid `lonLatToECEF`, so the gap is now ZERO at
+// every latitude; the two tests below (formerly a fail-first `it.fails` + a defect-
+// magnitude pin) now assert the unified state.
 // ════════════════════════════════════════════════════════════════════════
 
 describe('G6 — globe tile-rim sphere-forward vs ellipsoid-render parity', () => {
@@ -465,44 +462,32 @@ describe('G6 — globe tile-rim sphere-forward vs ellipsoid-render parity', () =
     }
   })
 
-  // HIGH LATITUDE: ~21 km gap today → TARGET contract. `it.fails` flips to
-  // failing once globeVisibleTiles' forward is routed through the shared
-  // ellipsoid primitive (#7 fix, PR-D D4).
-  it.fails(
-    'high latitude: globeForward == lonLatToECEF ' +
-      '[#7 contract — fails until globeVisibleTiles forward routes through ' +
-      'shared ellipsoid lonLatToECEF; sphere vs ellipsoid differ ~21 km at the poles]',
-    () => {
-      for (const lat of [60, 75, 85.05]) {
-        for (const lon of [-120, 0, 90]) {
-          const [sx, sy, sz] = globeForward(lon, lat)
-          const [ex, ey, ez] = lonLatToECEF(lon, lat)
-          const d = Math.hypot(sx - ex, sy - ey, sz - ez)
-          expect(d, `lat=${lat} lon=${lon}: sphere-vs-ellipsoid dist ${d} m`).toBeLessThan(G6_TOL_M)
-        }
+  // HIGH LATITUDE: #1152 INC-3 routed globeForward (and globeVisibleTiles' inline
+  // forward) through the shared ellipsoid lonLatToECEF, so the ~21 km sphere-vs-
+  // ellipsoid gap is CLOSED — this was `it.fails` until the flip landed (#7 fix).
+  it('high latitude: globeForward == lonLatToECEF (ellipsoid unified, #1152 INC-3)', () => {
+    for (const lat of [60, 75, 85.05]) {
+      for (const lon of [-120, 0, 90]) {
+        const [sx, sy, sz] = globeForward(lon, lat)
+        const [ex, ey, ez] = lonLatToECEF(lon, lat)
+        const d = Math.hypot(sx - ex, sy - ey, sz - ez)
+        expect(d, `lat=${lat} lon=${lon}: sphere-vs-ellipsoid dist ${d} m`).toBeLessThan(G6_TOL_M)
       }
-    },
-  )
+    }
+  })
 
-  // Quantified evidence of the geoid gap (not gated — informational). Pins
-  // the magnitude so the ~21 km claim is measured, not asserted.
-  it('globe sphere↔ellipsoid gap is ~20-24 km at mid/high lat (informational)', () => {
+  // The geoid gap is now ZERO at every latitude — globeForward IS the ellipsoid
+  // primitive (#1152 INC-3). (Pre-flip this pinned the ~20-24 km sphere/ellipsoid
+  // gap as a measured defect; the increment closed it.)
+  it('globe sphere↔ellipsoid gap is now ~0 at every latitude (INC-3 closed the geoid gap)', () => {
     const gap = (lon: number, lat: number): number => {
       const [sx, sy, sz] = globeForward(lon, lat)
       const [ex, ey, ez] = lonLatToECEF(lon, lat)
       return Math.hypot(sx - ex, sy - ey, sz - ez)
     }
-    expect(gap(0, 0), 'equator gap must be ~0').toBeLessThan(1)
-    // Max flattening offset is near lat 45 (~24 km), still ~21 km at the
-    // pole. Pin a band that documents the defect without being brittle.
-    for (const lat of [45, 60, 75, 85.05]) {
+    for (const lat of [0, 45, 60, 75, 85.05]) {
       const d = gap(30, lat)
-      expect(d, `lat=${lat} gap ${(d / 1000).toFixed(1)} km — expected 18-26 km`).toBeGreaterThan(
-        18_000,
-      )
-      expect(d, `lat=${lat} gap ${(d / 1000).toFixed(1)} km — expected 18-26 km`).toBeLessThan(
-        26_000,
-      )
+      expect(d, `lat=${lat} gap ${d} m — expected ~0 (ellipsoid unified)`).toBeLessThan(G6_TOL_M)
     }
   })
 })

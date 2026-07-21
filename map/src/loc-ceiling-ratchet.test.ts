@@ -485,7 +485,13 @@ const CEILINGS: Record<string, number> = {
   // shared `burstUploadBudget` authority (import + call + note) so the enqueue
   // cap and uploadBudgetFor's maxJobs can't drift out of lockstep.
   'map/src/render/upload-coordinator.ts': 910,
-  'map/src/shaders/dsl/projections.ts': 811,
+  // 811→826 (#1152 INC-3): proj_globe gains the ellipsoid N term (sqrt +
+  // (1−E2) z-compression), globe_eye_horizon_cos rescales its surface point into
+  // the (a,b) sphere frame, and PROJECTION_CONSTS gains the EARTH_E2 decl (prettier
+  // wraps its long-value literal multi-line) + the sqrt/inverseSqrt/normalize
+  // imports. All irreducible — the ellipsoid forward IS the increment (§2, no
+  // extract-worthy unit). Lower when the GPU re-targets emitModule (SCOPE, above).
+  'map/src/shaders/dsl/projections.ts': 826,
   // #1005 — carried from the runtime arch-invariants Gate 3 (re-measured
   // 2026-07-13; lower.ts had shrunk 1452→1409, the tighter value carried).
   // 1790→1546 (INC-0 extract): the conforming red-green subdivision cluster

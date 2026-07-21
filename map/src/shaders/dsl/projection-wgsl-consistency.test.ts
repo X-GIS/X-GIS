@@ -28,6 +28,7 @@ import {
 } from '@xgis/map'
 import { globeForward } from '@xgis/geo'
 import { globeEyeUniform } from '@xgis/map'
+import { EARTH } from '@xgis/shared'
 
 const EARTH_R = 6378137
 // #600 — a NADIR eye over (clon, clat) at altitude `altR`×EARTH_R, for the globe
@@ -643,9 +644,10 @@ describe('project_geom — antimeridian seam continuity', () => {
 })
 
 // Globe is the true 3D mode: its canonical CPU side is projection/
-// globe.ts `globeForward` (NOT a projection.ts 2D Projection — it
-// returns x,y,z on the sphere). The WGSL `proj_globe` must match it so
-// the GPU sphere lines up with CPU tile-cap selection / unproject.
+// globe.ts `globeForward` (NOT a projection.ts 2D Projection — it returns x,y,z on
+// the WGS84 ELLIPSOID since #1152 INC-3). The WGSL `proj_globe` must match it so the
+// GPU surface lines up with CPU tile-cap selection / unproject. Both sides evaluate
+// the same f64 e2, so the residual is op-order only (≤1mm).
 describe('CPU/GPU projection consistency — Globe (true 3D, projType 7)', () => {
   it('canonical globeForward matches WGSL mirror projGlobeWgsl to ≤1mm at 100 sample points', () => {
     for (const [lon, lat] of sampleGrid()) {
@@ -657,10 +659,25 @@ describe('CPU/GPU projection consistency — Globe (true 3D, projType 7)', () =>
     }
   })
 
-  it('every mirrored point lies on the sphere (radius invariant, no plane projection)', () => {
+  it('every mirrored point lies ON THE ELLIPSOID (x²/a² + y²/a² + z²/b² = 1), not a sphere', () => {
+    const A = EARTH.a
+    const B = EARTH.b
     for (const [lon, lat] of sampleGrid()) {
       const [x, y, z] = projGlobeWgsl(lon, lat)
-      expect(Math.sqrt(x * x + y * y + z * z)).toBeCloseTo(6378137, 0)
+      expect((x * x) / (A * A) + (y * y) / (A * A) + (z * z) / (B * B)).toBeCloseTo(1, 6)
     }
+  })
+
+  it('closed-form ellipsoid spot pins: equator |P|=a, pole z=±b, lat45 z=N(1−e2)sinφ', () => {
+    const A = EARTH.a
+    const B = EARTH.b
+    const E2 = EARTH.e2
+    const eqx = projGlobeWgsl(0, 0)[0]
+    expect(eqx).toBeCloseTo(A, 0) // equator |P| = a
+    expect(projGlobeWgsl(0, 90)[2]).toBeCloseTo(B, 0) // pole z = b = 6356752.314…
+    expect(projGlobeWgsl(0, -90)[2]).toBeCloseTo(-B, 0)
+    const s = Math.sin(45 * (Math.PI / 180))
+    const N = A / Math.sqrt(1 - E2 * s * s)
+    expect(projGlobeWgsl(0, 45)[2]).toBeCloseTo(N * (1 - E2) * s, 0)
   })
 })

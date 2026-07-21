@@ -22,10 +22,11 @@
 import { WORLD_MERC, TILE_PX } from './world-scale'
 import { flatViewHeightCapM } from './projections-table'
 import { mul4, perspectiveMatrix } from '@xgis/shared'
-import { EARTH, ecefToLonLat } from '@xgis/shared'
+import { EARTH, ecefToLonLat, lonLatToECEF } from '@xgis/shared'
 
-// Matches projection.ts EARTH_RADIUS exactly — the same sphere the 2D
-// projections scale by, so globe zoom lines up with the 2D pyramid.
+// Matches projection.ts EARTH_RADIUS / the WGS84 semi-major axis exactly — the
+// same equatorial radius the 2D projections scale by, so globe zoom lines up with
+// the 2D pyramid. (`EARTH.sphereR === EARTH.a` for Earth.)
 export const EARTH_R = EARTH.sphereR
 const DEG2RAD = Math.PI / 180
 const RAD2DEG = 180 / Math.PI
@@ -51,11 +52,28 @@ const norm = (a: Vec3): Vec3 => {
   return [a[0] / l, a[1] / l, a[2] / l]
 }
 
-/** (lon,lat)° → point on the sphere of radius EARTH_R.
- *  Convention: lon=0,lat=0 → +X ; east → +Y ; north pole → +Z.
- *  This is the single source for the globe's geometry; the future
- *  WGSL `proj_globe` mirror (renderer slice) must match it exactly. */
+/** (lon,lat)° → point on the WGS84 ELLIPSOID (#1152 INC-3; was a sphere of radius
+ *  EARTH_R). Delegates to the shared `lonLatToECEF` authority so the globe surface
+ *  grid, the `buildGlobeMatrix` look-at target (TRUE globe, ortho=false), and the
+ *  vector/point/tile anchors all sit on the ONE datum — `buildGlobeMatrix(...).target`
+ *  is bit-identical to `lonLatToECEF(clon,clat)` for the true globe (the anchor-
+ *  agreement the INC-1 split-brain witness needs; the azimuthal-promoted disc arm
+ *  keeps sphereForward — see buildGlobeMatrix's KNOWN GAP note). Convention:
+ *  lon=0,lat=0 → +X ; east → +Y ; north pole → +Z. The WGSL `proj_globe` mirror
+ *  matches it to ≤1mm (projection-wgsl-consistency). Earth-pinned like `EARTH_R`
+ *  (the geo globe camera is Earth-only; body genericity lives on the GPU-const seam). */
 export function globeForward(lon: number, lat: number): Vec3 {
+  const [x, y, z] = lonLatToECEF(lon, lat, 0, EARTH)
+  return [x, y, z]
+}
+
+/** (lon,lat)° → point on the SPHERE of radius EARTH_R. The azimuthal-promoted disc
+ *  (orthographic / azimuthal_eq / stereographic, projType 3/4/5, `ortho=true`)
+ *  stays on this sphere: its flat 2D forward (`proj_orthographic` etc.) is a SPHERE
+ *  projection that #1152 INC-3 does NOT touch, so at the pitch=0 boundary the tilted
+ *  disc must reproduce the flat 2D sphere disc byte-for-byte. Only the TRUE globe
+ *  (projType 7, `ortho=false`) uses the ellipsoid `globeForward`. */
+export function sphereForward(lon: number, lat: number): Vec3 {
   const lam = lon * DEG2RAD
   const phi = lat * DEG2RAD
   const cphi = Math.cos(phi)
@@ -134,19 +152,21 @@ export function globeAltitude(
 }
 
 export interface GlobeView {
-  /** Column-major MVP (P × lookAt), ABSOLUTE sphere coords. Used by
-   *  unproject (ray↔sphere) and the camera/unit tests. */
+  /** Column-major MVP (P × lookAt), ABSOLUTE ECEF coords. Used by
+   *  unproject (ray↔ellipsoid) and the camera/unit tests. */
   matrix: Float32Array
   /** Column-major MVP relative to the focus point (RTC): the vertex
    *  shaders feed `proj_globe(lon,lat) − proj_globe(clon,clat)` (= the
-   *  sphere point minus the focus) into THIS, exactly mirroring the 2D
+   *  ellipsoid point minus the focus) into THIS, exactly mirroring the 2D
    *  path's `project(v) − project(center)` RTC scheme — keeps f32
-   *  vertex precision on a 6.3 Mm sphere. */
+   *  vertex precision on a 6.3 Mm globe. */
   rtcMatrix: Float32Array
-  /** Eye position in sphere coords. */
+  /** Eye position in absolute ECEF coords (WGS84 ellipsoid, #1152 INC-3). */
   eye: Vec3
-  /** Look-at target = surface point at (centerLon, centerLat) = the
-   *  RTC origin the shader subtracts. */
+  /** Look-at target = the RTC origin the shader subtracts. The TRUE globe
+   *  (ortho=false) targets the ellipsoid surface point — bit-identical to
+   *  `lonLatToECEF(centerLon,centerLat)`; the azimuthal-promoted disc (ortho=true)
+   *  keeps sphereForward (see buildGlobeMatrix's KNOWN GAP note). */
   target: Vec3
   near: number
   far: number
@@ -185,7 +205,19 @@ export function buildGlobeMatrix(
   ortho = false,
   projType = GLOBE_PROJ_TYPE,
 ): GlobeView {
-  const target = globeForward(centerLon, centerLat)
+  // TRUE globe (projType 7, ortho=false) targets the WGS84 ELLIPSOID (#1152 INC-3);
+  // the azimuthal-promoted disc (ortho=true) keeps the SPHERE so its pitch=0 framing
+  // stays continuous with the flat 2D sphere azimuthal projection.
+  //
+  // KNOWN GAP (not an INC-3 regression — pre-existing since INC-1): the promoted
+  // disc's vertices (lonlat_to_ecef) and pointer unproject are ELLIPSOID while this
+  // target stays the SPHERE, so the disc-tilted (pitch>0) render path retains the
+  // same target≠anchor split-brain (~c_ell − c_sph ≈ 18–26 km at lat 45–60) that
+  // INC-3 closes for the true globe. Flipping it to globeForward needs the pitch=0
+  // framing continuity re-derived (flatViewHeightCapM) + a real-GPU limb pass — out
+  // of INC-3 scope; the G6 anchor-agreement gate below asserts gap≈0 for ortho=false
+  // ONLY (globe.test.ts calls buildGlobeMatrix with the default ortho=false).
+  const target = ortho ? sphereForward(centerLon, centerLat) : globeForward(centerLon, centerLat)
   const { up: n, east, north } = localFrame(centerLon, centerLat)
   const pitch = pitchDeg * DEG2RAD
   const bearing = bearingDeg * DEG2RAD
@@ -383,26 +415,20 @@ function mulVec4(
  *  plane that doesn't exist here. `screenX/Y` and `w/h` are in the same pixel
  *  basis (device or CSS — consistent with the matrix's aspect).
  *
- *  INC-2 boundary (docs/architecture/design/ellipsoid-datum-unification.md):
- *  the READBACK path (this function) intersects the WGS84 ellipsoid and
- *  inverts via the ellipsoidal `ecefToLonLat` (Bowring geodetic), so
- *  cursor/pick/measure return the same geodetic datum the vector tiles /
- *  point anchors already use (unified in INC-1). Everything on the RENDER /
- *  camera side deliberately stays SPHERE-based here — the surface geometry
- *  (`globeForward`, `buildGlobeMatrix` focus, the raster grid) and the sphere
- *  horizon stack (`eyeHorizon`, `globeVisibleTiles`, the GPU under-occluder
- *  cull) move to the ellipsoid together in INC-3 (which also unifies the
- *  deliberate CPU/GPU `e2` divergence and re-runs the df64 battery). Until
- *  then a bounded sub-degree geodetic/geocentric readback offset between the
- *  ellipsoid unproject and the still-spherical surface is the known,
- *  documented cost of splitting the increment.
+ *  (docs/architecture/design/ellipsoid-datum-unification.md): this READBACK path
+ *  intersects the WGS84 ellipsoid and inverts via the ellipsoidal `ecefToLonLat`
+ *  (Bowring geodetic), so cursor/pick/measure return the same geodetic datum the
+ *  vector tiles / point anchors use (unified in INC-1). #1152 INC-3 moved the whole
+ *  RENDER / camera side onto the SAME ellipsoid — the surface geometry
+ *  (`globeForward`, `buildGlobeMatrix` target, the raster grid) and the horizon
+ *  stack (`eyeHorizon`, `globeVisibleTiles`, the GPU under-occluder cull) are all
+ *  ellipsoid now, so the pre-INC-3 sub-degree geodetic/geocentric readback-vs-render
+ *  offset is gone: the tile selector's overzoom probes use the default (ellipsoid).
  *
- *  `ellipsoid` — pass `false` to keep the pre-INC-2 SPHERE behaviour (k = 1
- *  intersection + spherical `globeInverse`). The globe TILE selector
- *  (`globeVisibleTiles`, data package) sets this so its Web-Mercator tile
- *  bbox stays on the sphere IN LOCKSTEP with the still-spherical render +
- *  `eyeHorizon` cull; it flips to the ellipsoid together with them in INC-3.
- *  The cursor/pick/measure + pan/zoom anchor readback path uses the default. */
+ *  `ellipsoid` — pass `false` to keep the SPHERE behaviour (k = 1 intersection +
+ *  spherical `globeInverse`). No production caller sets it now (INC-3 flipped the
+ *  tile selector to the default); retained as the sphere opt-out for tests / future
+ *  sphere-basis callers. The cursor/pick/measure + pan/zoom path uses the default. */
 export function unprojectGlobe(
   screenX: number,
   screenY: number,

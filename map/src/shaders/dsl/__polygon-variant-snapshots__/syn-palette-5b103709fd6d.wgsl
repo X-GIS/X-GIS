@@ -1,10 +1,11 @@
-// baseline: 0c47dfb3c3c70ce7f4ad09c31c0e17cdc3346f2e
+// baseline: 66ee6e6b7415e0b718816897eea7dddb32cbc5a3
 // fixture: syn-palette
 // variant.key: syn-palette
 // pick: false
 // note: Synthetic — palette-bound categorical sample (textureSampleLevel from color_grad_atlas).
 const PI: f32 = 3.14159265;
 const EARTH_R: f32 = 6378137.0;
+const EARTH_E2: f32 = 0.0066943799901413165;
 const MERCATOR_LAT_LIMIT: f32 = 85.051129;
 const DEG2RAD: f32 = 0.01745329;
 
@@ -179,10 +180,12 @@ fn proj_oblique_mercator(lon_deg: f32, lat_deg: f32, clon: f32, clat: f32) -> ve
 }
 
 fn proj_globe(lon_deg: f32, lat_deg: f32) -> vec3<f32> {
-  let _cse2 = radians(lat_deg);
-  let _cse0 = (EARTH_R * cos(_cse2));
+  let _cse4 = radians(lat_deg);
+  let _cse3 = sin(_cse4);
+  let _cse2 = (EARTH_R / sqrt((1.0 - ((EARTH_E2 * _cse3) * _cse3))));
+  let _cse0 = (_cse2 * cos(_cse4));
   let _cse1 = radians(lon_deg);
-  return vec3<f32>((_cse0 * cos(_cse1)), (_cse0 * sin(_cse1)), (EARTH_R * sin(_cse2)));
+  return vec3<f32>((_cse0 * cos(_cse1)), (_cse0 * sin(_cse1)), ((_cse2 * (1.0 - EARTH_E2)) * _cse3));
 }
 
 fn center_cos_c(lon_deg: f32, lat_deg: f32, clon: f32, clat: f32) -> f32 {
@@ -193,7 +196,7 @@ fn center_cos_c(lon_deg: f32, lat_deg: f32, clon: f32, clat: f32) -> f32 {
 
 fn globe_eye_horizon_cos(lon_deg: f32, lat_deg: f32, globe_eye: vec4<f32>) -> f32 {
   let _cse0 = proj_globe(lon_deg, lat_deg);
-  return (dot((_cse0 / length(_cse0)), globe_eye.xyz) - globe_eye.w);
+  return (dot(normalize(vec3<f32>((_cse0.x / EARTH_R), (_cse0.y / EARTH_R), ((_cse0.z * inverseSqrt((1.0 - EARTH_E2))) / EARTH_R))), globe_eye.xyz) - globe_eye.w);
 }
 
 fn project(lon_deg: f32, lat_deg: f32, proj_params: vec4<f32>) -> vec2<f32> {

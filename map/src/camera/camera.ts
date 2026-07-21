@@ -453,7 +453,8 @@ export class Camera {
     // Mercator centerX, reads the maintained true centre latitude, delegates to
     // buildGlobeMatrix, and writes the RTC matrix into the preallocated
     // `_globeMatrix` buffer. `eye` is the orbit camera position in ABSOLUTE
-    // sphere-ECEF metres (surfaced for the label back-face/horizon cull).
+    // ECEF metres (WGS84 ellipsoid since #1152 INC-3; surfaced for the label
+    // back-face/horizon cull).
     const { far, eye } = buildGlobeFrame(
       this._view(),
       canvasWidth,

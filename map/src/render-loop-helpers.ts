@@ -252,10 +252,10 @@ export function resolveLabelEffectiveDef(
 }
 
 /** #1042 — label-anchor horizon margin, expressed as a FRACTION of the
- *  per-frame visibility headroom `(1 − cosH)`, where `cosH = EARTH_R / |eye|`
- *  is the cosine of the horizon half-angle. The globe tile/anchor cull is a
- *  BINARY tangent-circle test (`dot(e,eye) ≤ EARTH_R·|e|`): an anchor one pixel
- *  inside the limb passes, yet its SCREEN-SPACE quad (tens of px of glyphs)
+ *  per-frame visibility headroom `(1 − cosH)`, where `cosH = a/|qE|` is the
+ *  ellipsoid horizon cosine (#1152 INC-3, from eyeHorizon; qE = z-stretched eye).
+ *  The globe tile/anchor cull is a BINARY ellipsoid tangent test (`e·k ≤ cosH`,
+ *  k = eyeN/(a,a,b)): an anchor one pixel inside the limb passes, yet its SCREEN-SPACE quad (tens of px of glyphs)
  *  still draws past the limb — at low zoom + extreme pitch a whole row of
  *  country labels floats above the horizon (#1042 probe, 2026-07-13). We
  *  therefore require a label anchor to sit an angular band INSIDE the tangent
@@ -314,11 +314,11 @@ export const LABEL_LIMB_INSET_PX = 7
 const LIMB_SAMPLES = 64
 
 /** Build the globe's projected screen silhouette (the "limb polygon") for the
- *  label pass. The silhouette of a sphere under any projection is its horizon
- *  circle — the locus of surface points whose view ray is tangent to the sphere:
- *  centre `ê·(R·cosH)`, radius `R·sinH`, in the plane ⊥ ê, where ê = eye/|eye|
- *  and cosH = R/|eye|. This is the SAME sphere/horizon model the anchor back-face
- *  cull uses, so the silhouette and the anchors live in one frame.
+ *  label pass. #1152 INC-3 — the ELLIPSOID silhouette (was the sphere horizon
+ *  circle): the (a,a,b) ellipsoid maps to a sphere of radius a under the z-stretch
+ *  (z·a/b), whose horizon circle (centre `q̂E·(a·cosH)`, radius `a·sinH` ⊥ q̂E) is
+ *  UNSCALED back to ECEF (z·b/a). `hz` is the SHARED eyeHorizon(eye,a,b) the anchor
+ *  back-face cull uses, so the silhouette and the anchors live in one frame.
  *
  *  Each sample is projected through the IDENTICAL matrix + focus path the anchors
  *  use (focus-subtract → mvp → NDC → screen px), so the inset test is
@@ -329,25 +329,32 @@ const LIMB_SAMPLES = 64
  *  anchors test against is intact. Returns null when < 8 survive (degenerate /
  *  extreme camera) so the caller keeps only the cheaper angular margin — never
  *  throws. #1042 round 2. */
-function buildGlobeLimbPolygon(
+export function buildGlobeLimbPolygon(
   mvp: Float32Array,
   w: number,
   h: number,
-  eye: readonly [number, number, number],
+  hz: { eyeLen: number; eyeN: readonly [number, number, number]; horizonCos: number },
   focus?: readonly [number, number, number],
 ): { xs: Float64Array; ys: Float64Array; n: number } | null {
-  const { eyeLen, eyeN, horizonCos: cosH } = eyeHorizon(eye, EARTH_R)
-  if (!(eyeLen > EARTH_R)) return null // eye at/under the surface — no horizon
+  // #1152 INC-3 — the ELLIPSOID silhouette (was the sphere horizon circle). The
+  // (a,a,b) ellipsoid maps to a sphere of radius a under the z-stretch (z·a/b); its
+  // silhouette from the stretched eye qE is that sphere's horizon circle (centre
+  // q̂E·a·cosH, radius a·sinH ⊥ q̂E), UNSCALED back to ECEF (z·b/a) — a true non-planar
+  // ellipse. `hz` is the SHARED eyeHorizon(eye,a,b) the anchor cull uses; eyeLen=|qE|.
+  const a = EARTH_R
+  const zInv = EARTH.b / a // inverse z-stretch b/a
+  const { eyeLen, eyeN, horizonCos: cosH } = hz
+  if (!(eyeLen > a)) return null // eye at/under the surface — no horizon
   const ex = eyeN[0],
     ey = eyeN[1],
-    ez = eyeN[2] // ê
+    ez = eyeN[2] // q̂E (z-stretched eye direction)
   const sinH = Math.sqrt(Math.max(0, 1 - cosH * cosH))
-  const cCx = ex * (EARTH_R * cosH), // circle centre on ê, R·cosH from Earth centre
-    cCy = ey * (EARTH_R * cosH),
-    cCz = ez * (EARTH_R * cosH)
-  const r = EARTH_R * sinH // circle radius
-  // Orthonormal basis u,v ⊥ ê. u = normalize(ê × zAxis); fall back to xAxis when
-  // ê ≈ ±z (the cross with z degenerates there).
+  const cCx = ex * (a * cosH), // circle centre on q̂E, a·cosH from centre (frame Z)
+    cCy = ey * (a * cosH),
+    cCz = ez * (a * cosH)
+  const r = a * sinH // circle radius (frame Z)
+  // Orthonormal basis u,v ⊥ q̂E. u = normalize(q̂E × zAxis); fall back to xAxis when
+  // q̂E ≈ ±z (the cross with z degenerates there).
   let ax = 0,
     az = 1
   const ay = 0
@@ -362,7 +369,7 @@ function buildGlobeLimbPolygon(
   ux /= ul
   uy /= ul
   uz /= ul
-  const vx = ey * uz - ez * uy, // v = ê × u (unit: ê ⊥ u, both unit)
+  const vx = ey * uz - ez * uy, // v = q̂E × u (unit: q̂E ⊥ u, both unit)
     vy = ez * ux - ex * uz,
     vz = ex * uy - ey * ux
   const fx = focus ? focus[0] : 0,
@@ -375,11 +382,11 @@ function buildGlobeLimbPolygon(
     const t = (k / LIMB_SAMPLES) * (Math.PI * 2)
     const ct = Math.cos(t),
       st = Math.sin(t)
-    // p = m + r·(u·cos t + v·sin t) — a point on the sphere's horizon circle.
-    // SAME projection as the anchor path: focus-subtract → mvp → NDC → screen px.
+    // Frame-Z ring point, then UNSCALE z by b/a to land on the ellipsoid limb, then
+    // focus-subtract → mvp → NDC → screen px (SAME projection as the anchor path).
     const rx = cCx + r * (ux * ct + vx * st) - fx
     const ry = cCy + r * (uy * ct + vy * st) - fy
-    const rz = cCz + r * (uz * ct + vz * st) - fz
+    const rz = (cCz + r * (uz * ct + vz * st)) * zInv - fz
     const cw = mvp[3]! * rx + mvp[7]! * ry + mvp[11]! * rz + mvp[15]!
     if (cw <= 0) continue // behind the camera — drop (one contiguous arc)
     const ndcX = (mvp[0]! * rx + mvp[4]! * ry + mvp[8]! * rz + mvp[12]!) / cw
@@ -524,15 +531,20 @@ export function makeLabelProjectors(
   //    same point so world copies collapse to one. ──────────────────────────
   if (!flat) {
     const _projScratch: [number, number] = [0, 0]
-    // Per-eye horizon-cull coefficient, multiplied by |e| for each anchor. The
-    // exact tangent test uses EARTH_R (map.project and every non-label caller).
-    // The label pass (labelHorizonMargin) widens it INWARD by
-    // LABEL_HORIZON_MARGIN of the visibility headroom (|eye| − EARTH_R): a
-    // fraction of the cap, so it never crosses the sub-eye point as cosH→1 at
-    // high zoom. Precomputed once (eye is fixed for this projector). See #1042.
-    const eyeLen = eye ? Math.hypot(eye[0], eye[1], eye[2]) : 0
-    const horizonCullCoeff =
-      labelHorizonMargin && eye ? EARTH_R + LABEL_HORIZON_MARGIN * (eyeLen - EARTH_R) : EARTH_R
+    // #1152 INC-3 — per-anchor ELLIPSOID tangent cull, in lockstep with the tile
+    // selector + GPU fragment cull. eyeHorizon(eye,a,b) gives q̂E / cosH; k = (q̂E.x/a,
+    // q̂E.y/a, q̂E.z/b) rescales an anchor ON the ellipsoid so anchor·k = dot(q̂anchor,
+    // q̂E) vs the cutoff. Exact cull uses cosH; the label pass (#1042) widens it inward
+    // to cosH + margin·(1−cosH) — the scaled image of the old EARTH_R+margin·(|eye|−R).
+    const eyeHz = eye ? eyeHorizon(eye, EARTH_R, EARTH.b) : null
+    const k0 = eyeHz ? eyeHz.eyeN[0] / EARTH_R : 0
+    const k1 = eyeHz ? eyeHz.eyeN[1] / EARTH_R : 0
+    const k2 = eyeHz ? eyeHz.eyeN[2] / EARTH.b : 0
+    const horizonCutoff = eyeHz
+      ? labelHorizonMargin
+        ? eyeHz.horizonCos + LABEL_HORIZON_MARGIN * (1 - eyeHz.horizonCos)
+        : eyeHz.horizonCos
+      : 0
     // #1042 R2 — screen-space limb polygon (label pass only). Built ONCE here,
     // tested per surviving anchor below (frame-consistent with the anchor
     // projection by construction — same mvp + focus). null for a degenerate
@@ -540,7 +552,8 @@ export function makeLabelProjectors(
     // above applies. Cheap (LIMB_SAMPLES projections) so it is built whenever the
     // label pass is active; at city zoom the silhouette is a large off-screen
     // loop and the inset test then passes for every on-screen anchor.
-    const limbPoly = labelHorizonMargin && eye ? buildGlobeLimbPolygon(mvp, w, h, eye, focus) : null
+    const limbPoly =
+      labelHorizonMargin && eyeHz ? buildGlobeLimbPolygon(mvp, w, h, eyeHz, focus) : null
     // #1042 R3 — the SAME limb polygon, exposed as a per-point query so the label
     // pass can additionally cull a taller (multi-line) quad on its own screen
     // half-height. +Infinity when there is no silhouette so the caller's
@@ -557,24 +570,12 @@ export function makeLabelProjectors(
 
     const projectLonLat = (lon: number, lat: number): [number, number] | null => {
       const e = lonLatToECEF(lon, lat)
-      // Horizon / back-face cull (mirrors the globe TILE selector, globe.ts:
-      // 409-412). A surface point faces the eye iff
-      //   dot(normalize(e), normalize(eye)) > EARTH_R / |eye|.
-      // Multiplying both sides by |e|·|eye| (both positive) the |eye| cancels:
-      //   dot(e, eye) > EARTH_R · |e|        ← visible
-      //   dot(e, eye) <= EARTH_R · |e|       ← far hemisphere → cull
-      // EARTH_R is imported from the SAME module the tile cull uses, so labels
-      // vanish at EXACTLY the tile horizon. `eye` is absolute sphere coords and
-      // `e` is the ellipsoid lonLatToECEF point; the ≤~0.19° geodetic-vs-
-      // geocentric direction difference is negligible for a horizon test, so
-      // normalize(e) is used directly (no frame conversion — match the sphere
-      // model the tile cull uses). `horizonCullCoeff` is EARTH_R for the exact
-      // tangent cull, or EARTH_R + margin·(|eye|−EARTH_R) for the label pass
-      // (#1042) — the anchor must then sit an angular band inside the limb.
-      if (eye) {
-        const eLen = Math.hypot(e[0], e[1], e[2])
-        const dotEEye = e[0] * eye[0] + e[1] * eye[1] + e[2] * eye[2]
-        if (dotEEye <= horizonCullCoeff * eLen) return null
+      // #1152 INC-3 — ellipsoid tangent cull, identical to the tile selector + GPU
+      // cull. e = lonLatToECEF(lon,lat) lies ON the ellipsoid, so e·k = dot(q̂e, q̂E);
+      // cull the far cap (e·k ≤ cutoff). Labels now vanish at EXACTLY the ellipsoid
+      // tile/fill horizon — the pre-INC-3 ~0.19° geodetic/geocentric offset is gone.
+      if (eyeHz) {
+        if (e[0] * k0 + e[1] * k1 + e[2] * k2 <= horizonCutoff) return null
       }
       // `mvp` is the RTC (focus-relative) globe matrix, so feed it the anchor
       // relative to the camera focus — NOT absolute ECEF (the cull above stays

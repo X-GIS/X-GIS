@@ -237,34 +237,40 @@ export function ecefToENURotation(lon: number, lat: number): Float32Array {
   ])
 }
 
-/** Sphere front-hemisphere (eye-horizon) derivation — the SINGLE authority for
- *  the `dot(e, eye) > R·|e|` visibility predicate that three surfaces each used
- *  to reinvent (the label projector, the globe tile selector, and the GPU
- *  fragment-cull uniform).
+/** Ellipsoid front-hemisphere (eye-horizon) derivation — the SINGLE authority for
+ *  the globe visibility predicate that three surfaces each used to reinvent (the
+ *  label projector, the globe tile selector, and the GPU fragment-cull uniform).
  *
- *  A sphere of radius `earthR` seen from the ECEF eye `eye` hides its far
- *  hemisphere behind the horizon cap whose axis is `eyeN = normalize(eye)` and
- *  whose cosine cutoff is `horizonCos = earthR / |eye|`. A surface point P then
- *  faces the eye iff `dot(normalize(P), eyeN) > horizonCos` (the boolean test),
- *  and that same `horizonCos` is the cap constant the GPU uniform packs — so the
- *  boolean test and the cosine constant fall out of this one derivation.
+ *  A point P on the (a,a,b) ellipsoid is visible from the ECEF eye E iff E lies
+ *  OUTSIDE the tangent plane at P — the exact geodetic-normal test for a convex
+ *  body: `E.x·P.x/a² + E.y·P.y/a² + E.z·P.z/b² > 1`. #1152 INC-3 evaluates it in the
+ *  frame that scales the ellipsoid to a sphere of radius `a` by stretching z by
+ *  `a/b` (x,y unchanged): the scaled eye is `qE = (E.x, E.y, E.z·a/b)`, and the
+ *  predicate collapses to the SAME sphere horizon cut the sphere model used —
+ *  `dot(q̂P, eyeN) > horizonCos` with `eyeN = normalize(qE)` and `horizonCos =
+ *  a/|qE|`. The tile selector / label anchor rescale their surface point P into the
+ *  same frame (`dot((P.x,P.y,P.z·a/b)/|·|, eyeN)`, equivalently `P·(eyeN.x/a,
+ *  eyeN.y/a, eyeN.z/b) > horizonCos`); the GPU uniform packs `(eyeN, horizonCos)`.
  *
- *  `eyeLen` is returned so each caller applies its OWN degenerate/at-surface
- *  guard (the surfaces differ: the label limb skips |eye| ≤ R, the uniform
- *  zero-packs |eye| ≤ 0). The op order (hypot → divide) is byte-identical to the
- *  three former inlines, so `eyeN` / `horizonCos` reproduce each site's prior
- *  floats exactly. `earthR` is passed in (not imported) to keep this module
- *  dependency-free and leave the radius constant's authority with its owner
- *  (geo's `EARTH_R`). */
+ *  A SPHERE (b = a — Moon, or any `sphereR`) makes `a/b = 1` exactly, so the
+ *  z-stretch is a bit-for-bit no-op and this reduces EXACTLY to the retired
+ *  `eyeHorizon(eye, R)` = `{ |eye|, eye/|eye|, R/|eye| }`. `eyeLen = |qE|` (the
+ *  scaled eye length) is returned for each caller's own at-surface guard (`|qE| >
+ *  a` ⟺ eye above the ellipsoid). `a` / `b` are passed in (not imported) to keep
+ *  this module dependency-free and leave the body authority with its owner. */
 export function eyeHorizon(
   eye: ECEF,
-  earthR: number,
+  a: number,
+  b: number,
 ): { eyeLen: number; eyeN: ECEF; horizonCos: number } {
-  const eyeLen = Math.hypot(eye[0], eye[1], eye[2])
+  // z-stretch the eye into the sphere-of-radius-a frame (b = a ⇒ zScale = 1 ⇒ no-op).
+  const zScale = a / b
+  const qEz = eye[2] * zScale
+  const eyeLen = Math.hypot(eye[0], eye[1], qEz)
   return {
     eyeLen,
-    eyeN: [eye[0] / eyeLen, eye[1] / eyeLen, eye[2] / eyeLen],
-    horizonCos: earthR / eyeLen,
+    eyeN: [eye[0] / eyeLen, eye[1] / eyeLen, qEz / eyeLen],
+    horizonCos: a / eyeLen,
   }
 }
 
