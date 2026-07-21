@@ -26,7 +26,9 @@ const sourceTypes: SourceType[] = [
       { key: 'url',  required: false, body: 'HTTP(S) URL of the .geojson file. Relative paths resolve against the playground / host page baseURL. Mutually exclusive with `data`.' },
       { key: 'data', required: false, body: 'An embedded GeoJSON FeatureCollection object literal — no fetch, no separate file. The features are tiled immediately at compile time. Mutually exclusive with `url`.' },
     ],
-    example: `source world {
+    example: `xgis 1
+
+source world {
   type: geojson
   url: "data/countries.geojson"
 }
@@ -60,7 +62,9 @@ source pins {
       { key: 'url',    required: true,  body: 'URL of the `.pmtiles` archive. Server must support HTTP byte-range requests (`Accept-Ranges: bytes`).' },
       { key: 'layers', required: false, body: 'Optional MVT source-layer subset — `["water", "roads"]`. The decoder skips other layers, reducing per-tile work. Defaults to whatever layers the registered xgis `sourceLayer:` filters reference.' },
     ],
-    example: `source world {
+    example: `xgis 1
+
+source world {
   type: pmtiles
   url: "/tiles/protomaps-v4.pmtiles"
   layers: ["water", "landuse", "transportation"]
@@ -81,7 +85,9 @@ source pins {
       { key: 'url',    required: true,  body: 'URL returning a TileJSON 3.0 document (JSON). The `tiles[]` array supplies the per-tile URL template.' },
       { key: 'layers', required: false, body: 'Same semantics as the `pmtiles` source.' },
     ],
-    example: `source openmaptiles {
+    example: `xgis 1
+
+source openmaptiles {
   type: tilejson
   url: "https://tiles.openfreemap.org/planet"
 }`,
@@ -99,7 +105,9 @@ source pins {
     fields: [
       { key: 'url', required: true, body: '`{z}/{x}/{y}` template, e.g. `"https://tile.openstreetmap.org/{z}/{x}/{y}.png"`.' },
     ],
-    example: `source osm {
+    example: `xgis 1
+
+source osm {
   type: raster
   url: "https://tile.openstreetmap.org/{z}/{x}/{y}.png"
 }`,

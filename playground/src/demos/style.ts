@@ -100,6 +100,45 @@ export const DEMOS_STYLE: Record<string, Demo> = {
     ],
   },
 
+  camera_around_point: {
+    name: 'Rotating Camera',
+    tag: 'style',
+    description:
+      'MapLibre "Animate map camera around a point" port (#1192) — Start drives map.setBearing() from a requestAnimationFrame loop (~12°/s) over a tilted Mediterranean view; Stop halts it. X-GIS has no rotateTo transition yet, so the host rAF loop IS the animation.',
+    source: load('camera-around-point.xgis'),
+    zoom: 4.5,
+    center: [12.5, 42],
+    pitch: 55,
+    actions: (() => {
+      let raf = 0
+      const stop = (): void => {
+        if (raf) cancelAnimationFrame(raf)
+        raf = 0
+      }
+      return [
+        {
+          label: 'Start rotation',
+          run: (m) => {
+            stop()
+            // The bar is rebuilt on demo switch — when this button leaves
+            // the DOM, the loop must die with it (no ghost rAF holding the
+            // destroyed map alive).
+            const marker = document.querySelector('#demo-actions button')
+            let last = performance.now()
+            const tick = (now: number): void => {
+              if (marker && !marker.isConnected) return stop()
+              m.setBearing(m.getBearing() + (now - last) * 0.012)
+              last = now
+              raf = requestAnimationFrame(tick)
+            }
+            raf = requestAnimationFrame(tick)
+          },
+        },
+        { label: 'Stop rotation', run: () => stop() },
+      ]
+    })(),
+  },
+
   jump_to_locations: {
     name: 'Jump To Locations',
     tag: 'style',

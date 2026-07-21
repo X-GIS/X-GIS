@@ -71,6 +71,14 @@ export const galleryCategories: Category[] = [
         title: 'Inline GeoJSON',
         body: 'GeoJSON embedded directly in the source via `data: { … }` — no url fetch, no separate file.',
       },
+      // noThumb: the OSM raster base needs browser network egress the
+      // capture environment doesn't have — flip after a local capture.
+      {
+        id: 'multi-layer',
+        title: 'Multi-layer',
+        body: 'Two layers from the same source with different styles, stacked over raster tiles.',
+        noThumb: true,
+      },
     ],
   },
   {
@@ -130,6 +138,37 @@ export const galleryCategories: Category[] = [
         defaultHash: '14/35.68/139.76',
         noThumb: true,
       },
+      // The three import-* demos fetch and convert a remote Mapbox/MapLibre
+      // style at runtime — same live-fetch settle problem as
+      // openfreemap-bright above, so they keep the text-only card style.
+      {
+        id: 'import-mapbox-style',
+        title: 'import "mapbox-style-url"',
+        body: 'One-line splice import — the runtime fetches a remote Mapbox style.json, converts it, and prepends the result. Zero JS glue.',
+        noThumb: true,
+      },
+      {
+        id: 'import-maplibre-demo',
+        title: 'MapLibre demo style',
+        body: 'The canonical MapLibre demo style — Mapbox v8 schema, ~33 layers, vector tiles via TileJSON.',
+        noThumb: true,
+      },
+      {
+        id: 'import-mapbox-inline-geojson',
+        title: 'Inline-GeoJSON import',
+        body: 'A Mapbox style.json with an inline FeatureCollection in source.data — captured by the importer and auto-pushed after run().',
+        defaultHash: '3.5/37/132',
+        noThumb: true,
+      },
+      // noThumb: the protomaps API rejects non-browser egress (403) in the
+      // capture environment — flip after a local capture lands the JPG.
+      {
+        id: 'along-path-roads',
+        title: 'Along-path road labels',
+        body: 'symbol-placement: line — road names rotate to follow their segment tangent instead of reading horizontally.',
+        defaultHash: '14/35.68/139.76',
+        noThumb: true,
+      },
     ],
   },
   {
@@ -176,6 +215,16 @@ export const galleryCategories: Category[] = [
         title: 'Generic categorical',
         body: 'Cleanest match() example — each region one color.',
       },
+      {
+        id: 'vector-categorical',
+        title: 'Categorical countries',
+        body: 'Per-feature categorical colors on Natural Earth country borders.',
+      },
+      {
+        id: 'step-and-concat',
+        title: 'step() + concat()',
+        body: 'N-stop step() sizes city dots into population tiers; concat() composes multi-part labels.',
+      },
     ],
   },
   {
@@ -215,6 +264,11 @@ export const galleryCategories: Category[] = [
         id: 'multi-layer-line',
         title: 'Multi-layer line',
         body: 'Casing + body + centerline composed as three layers.',
+      },
+      {
+        id: 'bucket-order',
+        title: 'Bucket order',
+        body: 'Translucent stroke declared before opaque fill — the bucket scheduler still renders opaque first and composites the stroke on top.',
       },
     ],
   },
@@ -296,6 +350,19 @@ export const galleryCategories: Category[] = [
         defaultHash: '14/43.7733/11.2558',
         noThumb: true,
       },
+      // noThumb: a labels-only scene over black — the static crop reads
+      // as an empty card; the text card describes it better.
+      {
+        id: 'multiline-labels',
+        title: 'Multiline labels',
+        body: 'Long city names wrap at label-max-width with line-height and justify-center.',
+        noThumb: true,
+      },
+      {
+        id: 'layer-below-labels',
+        title: 'Layer below labels',
+        body: 'A translucent lake overlay stacks above the land fill while city labels stay on top — no beforeId needed.',
+      },
     ],
   },
   {
@@ -328,16 +395,64 @@ export const galleryCategories: Category[] = [
         title: 'LOD switching',
         body: 'Different layers active at different zoom ranges.',
       },
+      // noThumb: protomaps 403s non-browser egress in the capture
+      // environment — flip after a local capture lands the JPG.
+      {
+        id: 'zoom-building-color',
+        title: 'Buildings by zoom',
+        body: 'Protomaps buildings ramp parchment → terracotta as you zoom from city overview to street level. Opens over lower Manhattan.',
+        noThumb: true,
+      },
     ],
   },
   {
-    title: 'Interaction',
-    body: 'Pointer events, hover state, selection.',
+    title: 'Interaction & camera',
+    body: 'Pointer events, hover state, selection — and the API-driven camera example ports (#1192).',
     demos: [
       {
         id: 'picking-demo',
         title: 'Picking demo',
         body: 'Hover for highlight, click to lock — over an OSM raster basemap.',
+      },
+      {
+        id: 'mouse-position',
+        title: 'Mouse position',
+        body: 'Live lon/lat readout under the cursor via map.unproject() on every pointermove.',
+      },
+      {
+        id: 'color-switcher',
+        title: 'Color switcher',
+        body: 'Action buttons drive the runtime setPaintProperty API on the mounted scene.',
+      },
+      {
+        id: 'fly-to',
+        title: 'Fly to',
+        body: 'Action buttons call map.flyTo({center, zoom}) — Seoul, Paris, world.',
+      },
+      {
+        id: 'fit-bounds',
+        title: 'Fit bounds',
+        body: 'map.fitBounds([[west, south], [east, north]]) — Australia, Western Europe, world.',
+      },
+      {
+        id: 'jump-to-locations',
+        title: 'Jump to locations',
+        body: 'map.jumpTo({center, zoom}) cycling through a fixed list of world cities.',
+      },
+      {
+        id: 'pitch-bearing',
+        title: 'Pitch & bearing',
+        body: 'Opens with a tilted, rotated camera — pitch 60°, bearing −45° over the Italian peninsula.',
+      },
+      {
+        id: 'camera-around-point',
+        title: 'Rotating camera',
+        body: 'A requestAnimationFrame loop drives map.setBearing() around a tilted Mediterranean view — start/stop buttons.',
+      },
+      {
+        id: 'animate-point-route',
+        title: 'Animate a point along a route',
+        body: 'map.updateFeature() slides a marker along an inlined SF→DC great-circle arc, one coalesced flush per frame.',
       },
     ],
   },
@@ -350,6 +465,20 @@ export const galleryCategories: Category[] = [
         id: 'raster-overlay',
         title: 'Vector overlay',
         body: 'Basemap + a translucent country fill on top.',
+      },
+      // noThumb ×2: live tile fetches need browser network egress the
+      // capture environment doesn't have — flip after a local capture.
+      {
+        id: 'satellite-map',
+        title: 'Satellite map',
+        body: 'Esri World Imagery as a plain raster source — note the ArcGIS {z}/{y}/{x} path order. Opens over the Palm Jumeirah.',
+        noThumb: true,
+      },
+      {
+        id: 'hillshade-terrarium',
+        title: 'Hillshade · Grand Canyon',
+        body: 'Shaded relief from live AWS terrain tiles — a raster-dem source (terrarium encoding) with NW illumination and a warm palette.',
+        noThumb: true,
       },
     ],
   },
@@ -396,6 +525,45 @@ export const galleryCategories: Category[] = [
         id: 'coastline',
         title: 'Coastline',
         body: 'Single coastline polyline at default resolution.',
+      },
+      {
+        id: 'coastline-10m',
+        title: 'Coastline (10m)',
+        body: 'World coastline at 10m as stacked shadow + body line layers — a dense SDF-line stress test.',
+      },
+      // noThumb ×2: these demos read the gitignored ne_10m_* datasets,
+      // absent from a fresh checkout — flip after a local capture (with
+      // the 10m data present) lands the JPGs.
+      {
+        id: 'states-10m',
+        title: 'States (10m)',
+        body: '10m admin-1 boundaries with per-country categorical fill.',
+        noThumb: true,
+      },
+      {
+        id: 'water-hierarchy',
+        title: 'Water hierarchy',
+        body: 'Three-tier blue gradient for ocean, lakes, and rivers with soft glow halos.',
+        noThumb: true,
+      },
+      // noThumb: the coverage colour-ramp GPU draw is the #1158 INC-A
+      // gate-3 (headed) item — flip after a real-GPU capture lands.
+      {
+        id: 'coverage-bathymetry',
+        title: 'S-100 bathymetry coverage',
+        body: 'S-100 gridded coverage (.xgcov) — a synthetic bathymetry grid with a north→south depth ramp and a nodata hole.',
+        noThumb: true,
+      },
+    ],
+  },
+  {
+    title: 'Globe & 3D',
+    body: 'Globe projection and per-feature polygon extrusion.',
+    demos: [
+      {
+        id: 'globe-extrusion',
+        title: 'Globe + extrusion',
+        body: 'Countries extrude off the globe with per-feature population heights via fill-extrusion-height.',
       },
     ],
   },
