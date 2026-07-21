@@ -1938,10 +1938,13 @@ backendSelectEl.addEventListener('change', () => {
 
 document.addEventListener('keydown', (e) => {
   if (monacoContainer.contains(e.target as Node) || e.target instanceof HTMLSelectElement) return
-  if (e.key === 'ArrowLeft' && currentIdx > 0) {
+  // `[` / `]` are the dedicated prev/next keys (#1229 item 4): unlike the
+  // arrows they never collide with the map's keyboard panning when the
+  // canvas holds focus, so they work from anywhere outside the editor.
+  if ((e.key === 'ArrowLeft' || e.key === '[') && currentIdx > 0) {
     e.preventDefault()
     loadDemo(currentIdx - 1)
-  } else if (e.key === 'ArrowRight' && currentIdx < demoIds.length - 1) {
+  } else if ((e.key === 'ArrowRight' || e.key === ']') && currentIdx < demoIds.length - 1) {
     e.preventDefault()
     loadDemo(currentIdx + 1)
   }
