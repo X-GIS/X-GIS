@@ -307,6 +307,31 @@ export function buildLineSegments(
     return onBoundary(mx, my)
   }
 
+  // #1245 — internal-junction bridge length (Mercator metres). A line that
+  // crosses an internal tile boundary is split into two abutting pieces, one
+  // per tile, each independently MVT-quantised. Their boundary-crossing
+  // vertices therefore do NOT coincide (they interpolate the crossing from
+  // DIFFERENTLY-rounded bracketing vertices): at z5 on the #1221 seam demo the
+  // two crossings land ~1.5 px apart along the boundary. The renderer pre-clips
+  // each piece to its exact tile rect (no runtime scissor), so both terminate
+  // as BUTT ends ON the boundary — cap-suppression turns them into collinear
+  // virtual joins whose SDF still clips at the boundary, so a sub-pixel lateral
+  // mismatch shows as a hairline gap (the "slope-matched stub detaches" #1245
+  // report). Coincidence cannot be restored post-quantisation without a shared
+  // vertex authority, so this is inherently a butt-joint: we emit a real join
+  // by EXTENDING each boundary-continuation endpoint OUTWARD past its tile edge
+  // by `boundaryBridgeM`, making the two abutting pieces OVERLAP across the
+  // seam. The overlap length is ~1 tile-pixel (tile side / 256), so it scales
+  // with zoom, hides under the neighbour's own stroke (only fires where the
+  // line genuinely continues into the adjacent tile — `vertOnBoundary`), and is
+  // safe under both the opaque draw and the translucent MAX-blend offscreen
+  // (overlapping equal coverage never darkens). It only lengthens the stub
+  // collinearly, so — unlike a round cap (#1223) — it can never pile a vertical
+  // wall along a boundary that a stroke merely grazes.
+  const boundaryBridgeM = tileWidthMerc > 0 ? tileWidthMerc / 256 : 0
+  const splitHigh = (v: number): number => Math.fround(v)
+  const splitLow = (v: number): number => Math.fround(v - Math.fround(v))
+
   for (let i = 0; i < segCount; i++) {
     const a = indices[i * 2]
     const b = indices[i * 2 + 1]
@@ -387,6 +412,17 @@ export function buildLineSegments(
     if (prevTx === 0 && prevTy === 0 && vertOnBoundary(a)) {
       prevTx = dxUnit
       prevTy = dyUnit
+      // #1245 — extend p0 OUTWARD (away from p1) past the tile edge so this
+      // piece overlaps the abutting piece in the adjacent tile. Guard against
+      // over-running short segments (bridge < half the segment length).
+      if (boundaryBridgeM > 0 && boundaryBridgeM < segLenBuild * 0.5) {
+        const ex = p0x - boundaryBridgeM * dxUnit
+        const ey = p0y - boundaryBridgeM * dyUnit
+        out[off + 0] = splitHigh(ex)
+        out[off + 4] = splitLow(ex)
+        out[off + 1] = splitHigh(ey)
+        out[off + 5] = splitLow(ey)
+      }
     }
     out[off + 8] = prevTx
     out[off + 9] = prevTy
@@ -425,6 +461,16 @@ export function buildLineSegments(
     if (nextTx === 0 && nextTy === 0 && vertOnBoundary(b)) {
       nextTx = dxUnit
       nextTy = dyUnit
+      // #1245 — extend p1 OUTWARD (away from p0) past the tile edge; mirror of
+      // the p0 branch above.
+      if (boundaryBridgeM > 0 && boundaryBridgeM < segLenBuild * 0.5) {
+        const ex = p1x + boundaryBridgeM * dxUnit
+        const ey = p1y + boundaryBridgeM * dyUnit
+        out[off + 2] = splitHigh(ex)
+        out[off + 6] = splitLow(ex)
+        out[off + 3] = splitHigh(ey)
+        out[off + 7] = splitLow(ey)
+      }
     }
     out[off + 10] = nextTx
     out[off + 11] = nextTy
