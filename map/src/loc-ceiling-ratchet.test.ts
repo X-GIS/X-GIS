@@ -127,7 +127,12 @@ const CEILINGS: Record<string, number> = {
   // 4702→4706 (#1222): zoom-bucketed stroke rebake wiring — the strokeWidthScale
   // param on bakeTileToTexture (threaded to bakeTileStrokes) + camera.zoom on the
   // renderGlobeFills call; the bucket/scale MATH lives in vector-drape-cache.ts.
-  'map/src/render/vector-tile-renderer.ts': 4706,
+  // 4706→4739 (raster-resolution follow-ups): the feature-buffer-fill ×
+  // extrude downgrade guard (base-only extruded pipelines vs feature bind
+  // group = per-draw validation flood) + extruded shows draw no ground
+  // outline (MapLibre fill-extrusion semantics; ground strokes composited
+  // across raised roofs).
+  'map/src/render/vector-tile-renderer.ts': 4739,
   // 4232→4237 (#1000 heatmap relocate): the heatmap density-target OWNERSHIP
   // extracted to render/heatmap-targets.ts; map keeps only the irreducible
   // composition-root wiring — the `heatmapTargets` field + its import (mirrors
