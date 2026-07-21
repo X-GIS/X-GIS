@@ -296,7 +296,14 @@ const CEILINGS: Record<string, number> = {
   // transition stacks (→4801) and the #1256 camera-animation wiring (+70) are
   // non-overlapping, so the merged file measures the 4871 wc -l, not
   // max(4801, 4788).
-  'map/src/map.ts': 4871,
+  // 4871→4911 (#1260 reduced-motion): the effectiveFadeDurationMs +
+  // _onReducedMotionChange helpers, the _detachReducedMotion field + its
+  // _setupAccessibility attach / destroy() detach, the paint-transition
+  // durationMs getter now folding in _prefersReducedMotion, and the
+  // _prefersReducedMotion refactor onto the pure resolveReducedMotion. The
+  // precedence resolver + media-query watcher live extracted + unit-proved in
+  // map-accessibility.ts — only the wiring grew here.
+  'map/src/map.ts': 4911,
   // Baselined at #1255 (measured 830): the DOM-inspired layer API crossed
   // NEW_FILE_CAP with the paint-transition style-setter integration — the
   // StyleHost.transitions context, the shared applyNumber/applyColor
@@ -360,7 +367,10 @@ const CEILINGS: Record<string, number> = {
   // Merge union (symbol fade <- main): near-first collision (+68) and symbol
   // fade (+87) stack non-overlappingly on the shared 2068 base — they SUM to
   // the measured 2223, not max(2136, 2155).
-  'map/src/text/text-stage.ts': 2223,
+  // 2223→2230 (#1260 reduced-motion): the setFadeDurationMs passthrough (+doc)
+  // that forwards a live reduced-motion / option change to the ledger's new
+  // setDurationMs. Mechanism in text/label-fade.ts; a thin forwarder here. +7.
+  'map/src/text/text-stage.ts': 2230,
   // 1786→1719 (#727 C): the line/point dedupe + pair-key helper block was
   // EXTRACTED to passes/line-label-dedupe.ts when the world-copy fan-out would
   // otherwise have grown this file — the extract-don't-grow answer.
@@ -414,7 +424,10 @@ const CEILINGS: Record<string, number> = {
   // Merge union (symbol fade <- main): near-first collision (+3) and symbol
   // fade (+61) stack non-overlappingly on the shared 2002 base — they SUM to
   // the measured 2066, not max(2005, 2063).
-  'map/src/render/passes/label-pass.ts': 2066,
+  // 2066→2069 (#1260 reduced-motion): the lazy-construction fade read now folds
+  // in prefers-reduced-motion via host.effectiveFadeDurationMs() (+3 doc lines
+  // explaining the boot-disabled vs live-flip split). One existing call site. +3.
+  'map/src/render/passes/label-pass.ts': 2069,
   // #1081 — per-anchor perspective distance attenuation (MapLibre parity). New
   // baseline: the wCenter + perspScale scratch-out-value lives INLINE in the two
   // existing projector closures (it rides the cw already computed per anchor —

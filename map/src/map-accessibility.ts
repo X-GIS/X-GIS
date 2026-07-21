@@ -108,3 +108,48 @@ export function handleMapKeyDown(
   // not clobber it, and the interaction-DPR path can kick in.
   deps.onInteract()
 }
+
+// ── prefers-reduced-motion (#1260, WCAG 2.3.3) ──────────────────────────────
+// The engine animates by default (symbol fade #1254, paint transitions #1255,
+// easeTo/flyTo #1256). Users with vestibular disorders set the OS
+// `prefers-reduced-motion` flag; the engine honours it centrally here rather
+// than leaving it to every host app. Each animated feature already has a
+// 0-duration byte-identical instant path — reduced-motion just routes to it.
+
+/** Resolve the effective reduced-motion state, host override winning over the
+ *  OS media query. `override` is the explicit `respectReducedMotion` choice:
+ *  `false` forces motion ON (kiosk/demo — the media query is ignored), `true`
+ *  forces respect, `undefined` (the default) consults `mediaQueryMatches`.
+ *  Pure so the precedence is unit-pinnable without a DOM. */
+export function resolveReducedMotion(
+  override: boolean | undefined,
+  mediaQueryMatches: boolean,
+): boolean {
+  if (override !== undefined) return override
+  return mediaQueryMatches
+}
+
+/** Read the live `(prefers-reduced-motion: reduce)` media-query state. `false`
+ *  in non-DOM / no-`matchMedia` environments (tests, SSR) so the engine
+ *  animates there exactly as before. */
+export function reducedMotionMediaMatches(): boolean {
+  if (typeof globalThis === 'undefined' || typeof globalThis.matchMedia !== 'function') return false
+  try {
+    return globalThis.matchMedia('(prefers-reduced-motion: reduce)').matches
+  } catch {
+    return false
+  }
+}
+
+/** Subscribe to OS reduced-motion changes so animated features re-resolve
+ *  their effective durations live (WCAG 2.3.3 — the flip takes effect without
+ *  a reload). Returns a teardown that removes the listener; a no-op in
+ *  non-DOM / no-`matchMedia` environments. */
+export function watchReducedMotion(onChange: () => void): () => void {
+  if (typeof globalThis === 'undefined' || typeof globalThis.matchMedia !== 'function')
+    return () => {}
+  const mq = globalThis.matchMedia('(prefers-reduced-motion: reduce)')
+  const handler = (): void => onChange()
+  mq.addEventListener('change', handler)
+  return () => mq.removeEventListener('change', handler)
+}

@@ -68,7 +68,7 @@ export type LabelPassHost = Pick<
   | '_elapsedMs'
   | '_featureExprsCache'
   | '_labelsHaveTimeAnimation'
-  | 'labelFadeDurationMs'
+  | 'effectiveFadeDurationMs'
   | '_labelDispatchHits'
   | '_labelDispatchMisses'
   | '_pendingLabelDebugHook'

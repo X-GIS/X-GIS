@@ -311,8 +311,11 @@ class LabelPass implements RenderPass {
         // the S16 skip re-prepares instead of replaying the stale glyph.
         tsOpts.onResourceLanded = () => host.markLabelDirty()
         // Symbol fade — the map-level fadeDuration (MapLibre default 300 ms;
-        // 0 keeps the stage's inert byte-identical path).
-        tsOpts.fadeDurationMs = host.labelFadeDurationMs
+        // 0 keeps the stage's inert byte-identical path). #1260: the effective
+        // value folds in prefers-reduced-motion (→ 0), so a map that BOOTS
+        // under reduced motion constructs a disabled ledger; a later OS flip is
+        // pushed live via textStage.setFadeDurationMs (_onReducedMotionChange).
+        tsOpts.fadeDurationMs = host.effectiveFadeDurationMs()
         host.textStage = new TextStage(host.ctx.device, host.ctx.rhi, host.ctx.format, tsOpts, sc)
         host.textStage.prewarmGISDefaults()
         // Attach any debug hook that was set before the stage existed.

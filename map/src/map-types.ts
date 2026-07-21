@@ -228,10 +228,12 @@ export interface XGISMapOptions {
    *  behaviour, and the right setting for pixel-exact screenshot harnesses).
    *  A call's explicit `duration` always wins. Default `1000`. */
   cameraAnimationDuration?: number
-  /** #1256 — honour the OS `prefers-reduced-motion` setting (WCAG 2.3.3):
-   *  when the user requests reduced motion, `easeTo`/`flyTo` collapse to an
-   *  instant `jumpTo`. Default `true`. Set `false` to force motion on
-   *  regardless (kiosk / demo deployments). */
+  /** #1256/#1260 — honour the OS `prefers-reduced-motion` setting (WCAG 2.3.3):
+   *  when the user requests reduced motion, EVERY engine-driven animation
+   *  collapses to its instant path — `easeTo`/`flyTo` → `jumpTo`, symbol fade
+   *  → 0, paint transitions → 0 (each already byte-identical by construction).
+   *  A live OS flip takes effect without reload. Default `true`. Set `false`
+   *  to force motion on regardless (kiosk / demo deployments). */
   respectReducedMotion?: boolean
   /** #1255 — paint-transition duration in ms (MapLibre `*-transition`
    *  parity). `setPaintProperty` / `layer.style` writes on the continuous
