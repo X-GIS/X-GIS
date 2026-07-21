@@ -25,7 +25,7 @@ export interface Superblock {
 
 function matchSig(c: Cursor, at: number): boolean {
   if (at + 8 > c.byteLength) return false
-  for (let i = 0; i < 8; i++) if (c.u8arr[at + i] !== SIGNATURE[i]) return false
+  for (let i = 0; i < 8; i++) if (c.peekU8(at + i) !== SIGNATURE[i]) return false
   return true
 }
 

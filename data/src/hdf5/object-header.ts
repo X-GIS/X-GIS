@@ -54,16 +54,19 @@ interface Region {
   v2: boolean
 }
 
-/** Parse the object header at `addr` → its messages (continuations inlined). */
-export function parseObjectHeader(c: Cursor, addr: number): RawMessage[] {
+/** Parse the object header at `addr` → its messages (continuations inlined). Async:
+ *  each header/continuation region is `ensure`d resident before it is walked, so a
+ *  range reader fetches only the header blocks (ADR-0010 increment 4). */
+export async function parseObjectHeader(c: Cursor, addr: number): Promise<RawMessage[]> {
   if (addr < 0) throw new Hdf5Error('object header at undefined address', addr)
+  await c.ensure(addr, Math.min(64, c.byteLength - addr)) // header prefix (v1 16 B / v2 ≤34 B)
   c.seek(addr)
   const first = c.peekU8(addr)
   return first === 0x4f /* 'O' of "OHDR" */ ? parseV2(c, addr) : parseV1(c, addr)
 }
 
 // ── Version 1 ────────────────────────────────────────────────────────────────
-function parseV1(c: Cursor, addr: number): RawMessage[] {
+async function parseV1(c: Cursor, addr: number): Promise<RawMessage[]> {
   c.seek(addr)
   const version = c.u8()
   if (version !== 1) throw new Hdf5Error(`object header: expected version 1, got ${version}`, addr)
@@ -75,11 +78,11 @@ function parseV1(c: Cursor, addr: number): RawMessage[] {
   const regions: Region[] = [
     { start: addr + 16, end: addr + 16 + chunk0Size, creationOrder: false, v2: false },
   ]
-  return walk(c, regions, totalMessages)
+  return await walk(c, regions, totalMessages)
 }
 
 // ── Version 2 ("OHDR") ───────────────────────────────────────────────────────
-function parseV2(c: Cursor, addr: number): RawMessage[] {
+async function parseV2(c: Cursor, addr: number): Promise<RawMessage[]> {
   c.seek(addr)
   c.signature('OHDR', 'object header v2')
   const version = c.u8()
@@ -93,16 +96,18 @@ function parseV2(c: Cursor, addr: number): RawMessage[] {
   const start = c.pos
   const regions: Region[] = [{ start, end: start + chunk0Size, creationOrder, v2: true }]
   // total-message count is unknown for v2 (byte-bounded); walk by region bytes.
-  return walk(c, regions, Number.POSITIVE_INFINITY)
+  return await walk(c, regions, Number.POSITIVE_INFINITY)
 }
 
 /** Read messages from a queue of regions, following continuation (0x10) blocks,
- *  until `maxMessages` are read (v1) or every region's bytes are exhausted (v2). */
-function walk(c: Cursor, regions: Region[], maxMessages: number): RawMessage[] {
+ *  until `maxMessages` are read (v1) or every region's bytes are exhausted (v2).
+ *  Each region (chunk 0 + every continuation) is `ensure`d resident before it is read. */
+async function walk(c: Cursor, regions: Region[], maxMessages: number): Promise<RawMessage[]> {
   const out: RawMessage[] = []
   let qi = 0
   while (qi < regions.length && out.length < maxMessages) {
     const region = regions[qi++]!
+    await c.ensure(region.start, region.end - region.start)
     c.seek(region.start)
     while (c.pos + (region.v2 ? 4 : 8) <= region.end && out.length < maxMessages) {
       const msgStart = c.pos

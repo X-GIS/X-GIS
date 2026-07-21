@@ -29,31 +29,86 @@ export class Hdf5Error extends Error {
  *  here so callers test `addr < 0` (never an exact 2^64−1 float compare). */
 export const UNDEFINED_ADDR = -1
 
-/** Little-endian byte cursor over the whole file buffer. `O` (size of offsets)
- *  and `L` (size of lengths) come from the superblock; address/length words are
- *  read at those widths. Absolute file offsets throughout (base address is added
- *  by the caller — 0 for every userblock-free file in the corpus). */
+/** An async byte source for the reader (ADR-0010 increment 4). The reader reads
+ *  small scattered metadata (superblock / object headers / b-tree / heaps) and large
+ *  data chunks; a `ByteReader` lets those come from a whole in-memory buffer OR from
+ *  HTTP range requests, so a large/global grid fetches only the chunks a viewport
+ *  needs instead of the whole file. `read` MAY over-fetch (block-aligned) internally;
+ *  it MUST return exactly the requested `[offset, offset+length)` slice. */
+export interface ByteReader {
+  readonly byteLength: number
+  read(offset: number, length: number): Promise<Uint8Array>
+}
+
+/** A `ByteReader` over a whole resident buffer — the local / whole-file path
+ *  (backward-compatible with `openHdf5(ArrayBuffer)`; `Cursor.ensure` is a no-op
+ *  because every byte is already resident). */
+export class BufferReader implements ByteReader {
+  private readonly u8: Uint8Array
+  constructor(buf: ArrayBuffer | Uint8Array) {
+    this.u8 = buf instanceof Uint8Array ? buf : new Uint8Array(buf)
+  }
+  get byteLength(): number {
+    return this.u8.byteLength
+  }
+  async read(offset: number, length: number): Promise<Uint8Array> {
+    if (offset < 0 || offset + length > this.u8.byteLength)
+      throw new Hdf5Error(`read out of range (${offset}+${length} / ${this.u8.byteLength})`, offset)
+    return this.u8.subarray(offset, offset + length)
+  }
+}
+
+/** Cursor block size — a read faults in the 256 KB block(s) covering its range. Large
+ *  enough that clustered HDF5 metadata (superblock + object headers + b-tree + heaps)
+ *  usually costs one or two range requests; small enough that a scattered chunk index
+ *  does not drag the whole file. A `BufferReader` serves every block from memory. */
+const BLOCK = 1 << 18
+
+/** Little-endian byte cursor over a `ByteReader`. `O` (size of offsets) and `L` (size
+ *  of lengths) come from the superblock; address/length words are read at those widths.
+ *  Absolute file offsets throughout. Synchronous reads operate over RESIDENT blocks:
+ *  a caller `await`s `ensure(addr, len)` before the sync reads at a cross-region seek
+ *  (object header / b-tree node / chunk); a sync read of a non-resident byte is a
+ *  reader bug (loud throw), never a silent mis-parse. */
 export class Cursor {
-  readonly view: DataView
-  readonly u8arr: Uint8Array
   pos = 0
   /** Size of offsets (address word width) — 2/4/8. Set from the superblock. */
   O = 8
   /** Size of lengths (length word width) — 2/4/8. Set from the superblock. */
   L = 8
+  private readonly blocks = new Map<number, Uint8Array>()
 
-  constructor(readonly buf: ArrayBuffer) {
-    this.view = new DataView(buf)
-    this.u8arr = new Uint8Array(buf)
-  }
+  constructor(readonly reader: ByteReader) {}
 
   get byteLength(): number {
-    return this.buf.byteLength
+    return this.reader.byteLength
+  }
+
+  /** Fault-in every block covering `[offset, offset+length)` so the following sync
+   *  reads are resident. A no-op for already-resident ranges (recursion + re-visits
+   *  cost nothing). Missing blocks are fetched in ONE coalesced `read` per gap. */
+  async ensure(offset: number, length: number): Promise<void> {
+    if (length <= 0) return
+    const first = Math.floor(offset / BLOCK)
+    const last = Math.floor((offset + length - 1) / BLOCK)
+    let runStart = -1
+    for (let b = first; b <= last + 1; b++) {
+      const missing = b <= last && !this.blocks.has(b)
+      if (missing && runStart < 0) runStart = b
+      else if (!missing && runStart >= 0) {
+        const start = runStart * BLOCK
+        const end = Math.min(b * BLOCK, this.reader.byteLength)
+        const bytes = await this.reader.read(start, end - start)
+        for (let k = runStart; k < b; k++)
+          this.blocks.set(k, bytes.subarray((k - runStart) * BLOCK, (k - runStart + 1) * BLOCK))
+        runStart = -1
+      }
+    }
   }
 
   seek(pos: number): this {
-    if (pos < 0 || pos > this.buf.byteLength)
-      throw new Hdf5Error(`seek out of range (${pos} / ${this.buf.byteLength})`, pos)
+    if (pos < 0 || pos > this.reader.byteLength)
+      throw new Hdf5Error(`seek out of range (${pos} / ${this.reader.byteLength})`, pos)
     this.pos = pos
     return this
   }
@@ -63,49 +118,72 @@ export class Cursor {
   }
 
   private bounds(need: number, what: string): void {
-    if (this.pos + need > this.buf.byteLength)
+    if (this.pos + need > this.reader.byteLength)
       throw new Hdf5Error(
-        `truncated file: ${what} needs ${need} B, ${this.buf.byteLength - this.pos} left`,
+        `truncated file: ${what} needs ${need} B, ${this.reader.byteLength - this.pos} left`,
         this.pos,
       )
   }
 
+  /** The resident byte at absolute `p` — throws if the block was not `ensure`d. */
+  private at(p: number): number {
+    const blk = this.blocks.get(Math.floor(p / BLOCK))
+    if (!blk) throw new Hdf5Error(`byte @0x${p.toString(16)} not resident — ensure() first`, p)
+    return blk[p % BLOCK]!
+  }
+
+  /** A little-endian DataView + local offset for a `size`-byte read at `pos`, resident.
+   *  Fast path: the read lies within ONE block (its own view). Slow path (a read that
+   *  straddles a block boundary): assemble the bytes into a small scratch view. */
+  private viewAt(size: number): { view: DataView; off: number } {
+    const p = this.pos
+    const blkIdx = Math.floor(p / BLOCK)
+    const local = p % BLOCK
+    const blk = this.blocks.get(blkIdx)
+    if (!blk) throw new Hdf5Error(`read @0x${p.toString(16)} not resident — ensure() first`, p)
+    if (local + size <= blk.byteLength)
+      return { view: new DataView(blk.buffer, blk.byteOffset + local, size), off: 0 }
+    const scratch = new Uint8Array(size)
+    for (let i = 0; i < size; i++) scratch[i] = this.at(p + i)
+    return { view: new DataView(scratch.buffer), off: 0 }
+  }
+
   u8(): number {
     this.bounds(1, 'u8')
-    return this.view.getUint8(this.pos++)
+    return this.at(this.pos++)
   }
   peekU8(at = this.pos): number {
-    return this.view.getUint8(at)
+    return this.at(at)
   }
   u16(): number {
     this.bounds(2, 'u16')
-    const v = this.view.getUint16(this.pos, true)
+    const { view, off } = this.viewAt(2)
     this.pos += 2
-    return v
+    return view.getUint16(off, true)
   }
   u32(): number {
     this.bounds(4, 'u32')
-    const v = this.view.getUint32(this.pos, true)
+    const { view, off } = this.viewAt(4)
     this.pos += 4
-    return v
+    return view.getUint32(off, true)
   }
   i32(): number {
     this.bounds(4, 'i32')
-    const v = this.view.getInt32(this.pos, true)
+    const { view, off } = this.viewAt(4)
     this.pos += 4
-    return v
+    return view.getInt32(off, true)
   }
   f32(): number {
     this.bounds(4, 'f32')
-    const v = this.view.getFloat32(this.pos, true)
+    const { view, off } = this.viewAt(4)
     this.pos += 4
-    return v
+    return view.getFloat32(off, true)
   }
   f64(): number {
     this.bounds(8, 'f64')
-    const v = this.view.getFloat64(this.pos, true)
+    const { view, off } = this.viewAt(8)
     this.pos += 8
-    return v
+    return view.getFloat64(off, true)
   }
 
   /** Read an unsigned integer of `size` bytes (2/4/8) as a JS number. HDF5 in-file
@@ -115,7 +193,7 @@ export class Cursor {
   uint(size: number): number {
     this.bounds(size, `uint${size * 8}`)
     let allFF = true
-    for (let i = 0; i < size; i++) if (this.u8arr[this.pos + i] !== 0xff) allFF = false
+    for (let i = 0; i < size; i++) if (this.at(this.pos + i) !== 0xff) allFF = false
     if (allFF && size >= 4) {
       this.pos += size
       return UNDEFINED_ADDR
@@ -123,7 +201,7 @@ export class Cursor {
     let lo = 0
     let hi = 0
     for (let i = 0; i < size; i++) {
-      const b = this.u8arr[this.pos + i]!
+      const b = this.at(this.pos + i)
       if (i < 4) lo |= b << (8 * i)
       else hi |= b << (8 * (i - 4))
     }
@@ -141,11 +219,33 @@ export class Cursor {
     return this.uint(this.L)
   }
 
-  /** Read `n` raw bytes as a fresh Uint8Array (copy — never a view alias). */
+  /** Read `n` raw bytes as a fresh Uint8Array (copy — never a view alias). Assembled
+   *  across resident blocks by contiguous segment copies (a chunk that spans blocks). */
   bytes(n: number): Uint8Array {
     this.bounds(n, `${n} bytes`)
-    const out = this.u8arr.slice(this.pos, this.pos + n)
+    const out = new Uint8Array(n)
+    let done = 0
+    while (done < n) {
+      const p = this.pos + done
+      const blk = this.blocks.get(Math.floor(p / BLOCK))
+      if (!blk) throw new Hdf5Error(`bytes @0x${p.toString(16)} not resident — ensure() first`, p)
+      const local = p % BLOCK
+      const take = Math.min(n - done, blk.byteLength - local)
+      out.set(blk.subarray(local, local + take), done)
+      done += take
+    }
     this.pos += n
+    return out
+  }
+
+  /** Read `n` bytes at absolute `offset` (resident) as a fresh copy WITHOUT moving
+   *  `pos` — the random-access sibling of `bytes()`, for parsers that read a field at
+   *  a computed offset then continue where they were. */
+  sliceAt(offset: number, n: number): Uint8Array {
+    const save = this.pos
+    this.pos = offset
+    const out = this.bytes(n)
+    this.pos = save
     return out
   }
 
@@ -154,9 +254,12 @@ export class Cursor {
   cstr(max = 0x10000): string {
     const start = this.pos
     let end = start
-    while (end < this.buf.byteLength && this.u8arr[end] !== 0 && end - start < max) end++
-    const s = new TextDecoder().decode(this.u8arr.subarray(start, end))
-    this.pos = end < this.buf.byteLength ? end + 1 : end
+    const len = this.reader.byteLength
+    while (end < len && this.at(end) !== 0 && end - start < max) end++
+    const raw = new Uint8Array(end - start)
+    for (let i = 0; i < raw.length; i++) raw[i] = this.at(start + i)
+    const s = new TextDecoder().decode(raw)
+    this.pos = end < len ? end + 1 : end
     return s
   }
 

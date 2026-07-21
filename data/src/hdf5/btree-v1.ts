@@ -10,11 +10,18 @@
 
 import { Cursor, Hdf5Error } from './bytes'
 
+/** Ensure window for one b-tree node / heap segment (ADR-0010 increment 4). The v1
+ *  b-tree node size is not stored in the node; 64 KB is far above any node in the S-100
+ *  subset (few children per group, bounded chunk-index fan-out) — a construct past it
+ *  faults loudly rather than mis-parsing, matching the reader's loud-failure contract. */
+const NODE_WINDOW = 1 << 16
+
 // ── Local heap ("HEAP") — resolves a group b-tree key to a member name ────────
 interface LocalHeap {
   dataSegmentAddress: number
 }
-function parseLocalHeap(c: Cursor, addr: number): LocalHeap {
+async function parseLocalHeap(c: Cursor, addr: number): Promise<LocalHeap> {
+  await c.ensure(addr, 64)
   c.seek(addr)
   c.signature('HEAP', 'local heap')
   c.u8() // version
@@ -24,24 +31,32 @@ function parseLocalHeap(c: Cursor, addr: number): LocalHeap {
   const dataSegmentAddress = c.offset()
   return { dataSegmentAddress }
 }
-function heapName(c: Cursor, heap: LocalHeap, nameOffset: number): string {
-  c.seek(heap.dataSegmentAddress + nameOffset)
+async function heapName(c: Cursor, heap: LocalHeap, nameOffset: number): Promise<string> {
+  const at = heap.dataSegmentAddress + nameOffset
+  await c.ensure(at, Math.min(1024, c.byteLength - at))
+  c.seek(at)
   return c.cstr()
 }
 
 // ── Group b-tree (type 0) → { name → object-header address } ──────────────────
-export function walkGroupBtree(
+export async function walkGroupBtree(
   c: Cursor,
   btreeAddress: number,
   localHeapAddress: number,
-): Map<string, number> {
-  const heap = parseLocalHeap(c, localHeapAddress)
+): Promise<Map<string, number>> {
+  const heap = await parseLocalHeap(c, localHeapAddress)
   const out = new Map<string, number>()
-  walkGroupNode(c, btreeAddress, heap, out)
+  await walkGroupNode(c, btreeAddress, heap, out)
   return out
 }
 
-function walkGroupNode(c: Cursor, addr: number, heap: LocalHeap, out: Map<string, number>): void {
+async function walkGroupNode(
+  c: Cursor,
+  addr: number,
+  heap: LocalHeap,
+  out: Map<string, number>,
+): Promise<void> {
+  await c.ensure(addr, Math.min(NODE_WINDOW, c.byteLength - addr))
   c.seek(addr)
   c.signature('TREE', 'group b-tree node')
   const nodeType = c.u8()
@@ -52,42 +67,41 @@ function walkGroupNode(c: Cursor, addr: number, heap: LocalHeap, out: Map<string
   c.offset() // left sibling
   c.offset() // right sibling
   // keys[0], child[0], keys[1], child[1] … child[n-1], keys[n]
+  const children: number[] = []
   for (let i = 0; i < entries; i++) {
     c.length() // key: local-heap offset of the first name in the subtree (unused)
-    const childAddr = c.offset()
-    if (level > 0) {
-      const save = c.pos
-      walkGroupNode(c, childAddr, heap, out)
-      c.seek(save)
-    } else {
-      const save = c.pos
-      readSymbolTableNode(c, childAddr, heap, out)
-      c.seek(save)
-    }
+    children.push(c.offset())
+  }
+  // Recurse/read AFTER collecting children — each descent re-`ensure`s + re-`seek`s a
+  // different node, so the parent's resident window must not be relied on across the await.
+  for (const childAddr of children) {
+    if (level > 0) await walkGroupNode(c, childAddr, heap, out)
+    else await readSymbolTableNode(c, childAddr, heap, out)
   }
 }
 
-function readSymbolTableNode(
+async function readSymbolTableNode(
   c: Cursor,
   addr: number,
   heap: LocalHeap,
   out: Map<string, number>,
-): void {
+): Promise<void> {
+  await c.ensure(addr, Math.min(NODE_WINDOW, c.byteLength - addr))
   c.seek(addr)
   c.signature('SNOD', 'symbol table node')
   c.u8() // version
   c.u8() // reserved
   const numSymbols = c.u16()
+  const entries: { nameOffset: number; objectHeaderAddress: number }[] = []
   for (let i = 0; i < numSymbols; i++) {
     const nameOffset = c.offset()
     const objectHeaderAddress = c.offset()
     c.u32() // cache type
     c.u32() // reserved
     c.skip(16) // scratch-pad
-    const save = c.pos
-    out.set(heapName(c, heap, nameOffset), objectHeaderAddress)
-    c.seek(save)
+    entries.push({ nameOffset, objectHeaderAddress })
   }
+  for (const e of entries) out.set(await heapName(c, heap, e.nameOffset), e.objectHeaderAddress)
 }
 
 // ── Raw-data chunk b-tree (type 1) → chunk records ────────────────────────────
@@ -105,13 +119,23 @@ export interface ChunkRecord {
 /** Walk the chunk b-tree at `btreeAddress`. `rank` = the DATASET dimensionality
  *  (the b-tree keys carry rank+1 element offsets — the trailing one is the element
  *  dimension, always 0). */
-export function walkChunkBtree(c: Cursor, btreeAddress: number, rank: number): ChunkRecord[] {
+export async function walkChunkBtree(
+  c: Cursor,
+  btreeAddress: number,
+  rank: number,
+): Promise<ChunkRecord[]> {
   const out: ChunkRecord[] = []
-  walkChunkNode(c, btreeAddress, rank, out)
+  await walkChunkNode(c, btreeAddress, rank, out)
   return out
 }
 
-function walkChunkNode(c: Cursor, addr: number, rank: number, out: ChunkRecord[]): void {
+async function walkChunkNode(
+  c: Cursor,
+  addr: number,
+  rank: number,
+  out: ChunkRecord[],
+): Promise<void> {
+  await c.ensure(addr, Math.min(NODE_WINDOW, c.byteLength - addr))
   c.seek(addr)
   c.signature('TREE', 'chunk b-tree node')
   const nodeType = c.u8()
@@ -121,6 +145,7 @@ function walkChunkNode(c: Cursor, addr: number, rank: number, out: ChunkRecord[]
   const entries = c.u16()
   c.offset() // left sibling
   c.offset() // right sibling
+  const internal: number[] = []
   for (let i = 0; i < entries; i++) {
     // key: chunk byte size(4) + filter mask(4) + (rank+1) element offsets (8 B each)
     const size = c.u32()
@@ -129,10 +154,10 @@ function walkChunkNode(c: Cursor, addr: number, rank: number, out: ChunkRecord[]
     for (let d = 0; d < rank; d++) offsets.push(c.uint(8))
     c.uint(8) // trailing element-dimension offset (always 0)
     const childAddr = c.offset()
-    const save = c.pos
-    if (level > 0) walkChunkNode(c, childAddr, rank, out)
+    if (level > 0) internal.push(childAddr)
     else out.push({ offsets, address: childAddr, size, filterMask })
-    c.seek(save)
   }
   // one trailing key past the last child (skipped — the loop reads leading keys)
+  // Recurse AFTER collecting — each descent re-`ensure`s a different node.
+  for (const childAddr of internal) await walkChunkNode(c, childAddr, rank, out)
 }
