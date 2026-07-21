@@ -105,6 +105,7 @@ import {
 } from './layer'
 import { attachAutoResize } from './auto-resize'
 import { attachVisibilityPause } from './visibility-pause'
+import { PaintTransitionRegistry } from './paint-transitions'
 import { EventDispatcher } from './event-dispatcher'
 import { TileCatalog } from '@xgis/data'
 import { isTileTemplate } from '@xgis/data'
@@ -355,6 +356,19 @@ export class XGISMap {
   glyphsUrl: string | null = null
   inlineGlyphs: NonNullable<TextStageOptions['inlineGlyphs']> | null = null
   glyphProviders: NonNullable<TextStageOptions['glyphProviders']> = []
+  /** #1255 — paint-transition duration (ms) for setPaintProperty / layer.style
+   *  writes on the continuous axes (fill/line colour, opacity, line-width).
+   *  MapLibre `*-transition` parity; 0 disables (instant sets, byte-identical
+   *  to the pre-transition behaviour — the right setting for pixel-exact
+   *  screenshot harnesses). Set via `XGISMapOptions.paintTransitionDuration`. */
+  paintTransitionDurationMs = 300
+  /** #1255 — live paint ramps: keep-alive + end-of-ramp constant settle. */
+  private readonly _paintTransitions = new PaintTransitionRegistry()
+  /** Symbol fade duration (ms) — MapLibre `fadeDuration` parity, set via
+   *  `XGISMapOptions.fadeDuration`. Read at lazy TextStage construction
+   *  (label-pass.ts); 0 disables fading entirely (byte-identical render,
+   *  the right setting for pixel-exact screenshot harnesses). */
+  labelFadeDurationMs = 300
   /** Sprite atlas URL prefix from the imported style's top-level
    *  `sprite` field. Used by the lazy IconStage to fetch
    *  `${url}.json` + `${url}.png`. Null = no icons rendered. */
@@ -1171,6 +1185,13 @@ export class XGISMap {
     // setting (kiosk/demo); `true` forces the media-query consult (the
     // default when the option is absent — stored as `undefined`).
     if (options.respectReducedMotion === false) this._reducedMotionOverride = false
+    // #1255 — paint-transition duration (MapLibre *-transition parity,
+    // default 300 ms). Consumed by the XGISLayer style setters; 0 disables.
+    if (options.paintTransitionDuration !== undefined)
+      this.paintTransitionDurationMs = options.paintTransitionDuration
+    // Symbol fade duration (MapLibre `fadeDuration` parity, default 300 ms).
+    // Consumed at lazy TextStage construction (label-pass.ts); 0 disables.
+    if (options.fadeDuration !== undefined) this.labelFadeDurationMs = options.fadeDuration
     this._backend = options.backend ?? 'auto'
     this._preserveDrawingBuffer = options.preserveDrawingBuffer ?? false
     // Surface converter "Conversion notes" to the console at load —
@@ -1402,6 +1423,23 @@ export class XGISMap {
   private _loaded = false
   loaded(): boolean {
     return this._loaded
+  }
+
+  /** Per-frame count of tiles the map is still waiting on: vector-tile cells
+   *  without a drawable tile this frame PLUS raster/hillshade tiles mid-fetch.
+   *  Written by BOTH render paths (the WebGPU render-loop's end-of-frame
+   *  bookkeeping and the forced-WebGL2 `renderFrameViaRhi`) as the sum of the
+   *  same three signals the loop ORs into its keep-warm `_needsRender` gate, so
+   *  it settles to 0 exactly when the scene converges. Public-by-convention (no
+   *  `private`) so `RenderLoopHost` can Pick it for the write. */
+  _missingTileCount = 0
+  /** In-flight tile-load count for the last rendered frame: > 0 while vector,
+   *  raster, or hillshade tiles are still resolving; 0 once the scene settles.
+   *  A zero-allocation read (unlike `stats`, which builds a fresh RenderStats
+   *  each call), so a host can poll it every rAF to drive a "loading N tiles"
+   *  affordance without churning GC. */
+  getMissingTileCount(): number {
+    return this._missingTileCount
   }
 
   /** Host hook fired once if the GPU device is lost (driver reset, tab
@@ -2779,9 +2817,23 @@ export class XGISMap {
     // assumes EPSG:4326, see interpreter.ts:67-74). Field access returns
     // undefined uniformly when absent, so the legacy path leaves the
     // registry empty (every source treated as 4326 / no-op).
+    //
+    // #1242 gap-2 fix follow-up: lower.ts (`resolvedCrs`) fills EVERY
+    // `type: geojson` source's `crs` with the literal 'EPSG:4326' default
+    // when the .xgis omits `crs:` entirely — so `load.crs` is truthy for
+    // ALL geojson sources, declared or not. Registering those here made
+    // `sourceCRS.has(id)` true universally, which made getSeededFC() (the
+    // gap-2 updateFeature-patchability check) reject EVERY .xgis-declared
+    // /URL geojson source, silently keeping the gap-2 fix dead end-to-end
+    // (caught by the animate-line/realtime-update ports' real-GPU probe,
+    // #1192 batch 5 — the existing unit coverage seeds sourceCRS directly
+    // and never exercises this real run() population path). Skip the
+    // no-op default so the registry holds only a GENUINE reprojection
+    // need, matching _reprojectIngest's own "no declared CRS ⇒ 4326 /
+    // no-op" contract this Map was documented to carry.
     this.sourceCRS.clear()
     for (const load of commands.loads as { name: string; crs?: string }[]) {
-      if (load.crs) this.sourceCRS.set(load.name, load.crs)
+      if (load.crs && load.crs !== 'EPSG:4326') this.sourceCRS.set(load.name, load.crs)
     }
 
     // Prewarm PMTiles archive caches in parallel with the rest of init
@@ -3102,6 +3154,9 @@ export class XGISMap {
     // mercator-class projections; the projection-change hook re-drives it.
     installGeoJSONPolarCaps(this._polarCapHost())
     commands.shows = this.showCommands as typeof commands.shows
+    // #1255 — a scene rebuild replaces every ShowCommand: pending paint
+    // ramps point into dead bundles, so drop them (no settle writes).
+    this._paintTransitions.clear()
     this._sceneHasAnimation = sceneHasAnyAnimation(commands.shows)
     this._labelsHaveTimeAnimation = labelsHaveTimeAnimation(commands.shows)
     // Full scene (re)build — style, sources, geometry, labels, and possibly
@@ -3335,7 +3390,16 @@ export class XGISMap {
       // into multiple shows; the wrapper still mutates the first
       // show, the rest will adopt it via the layerName lookup).
       if (!this.xgisLayers.has(layerName)) {
-        this.xgisLayers.set(layerName, new XGISLayer(layerName, show, () => this.invalidate()))
+        this.xgisLayers.set(
+          layerName,
+          new XGISLayer(layerName, show, () => this.invalidate(), {
+            // #1255 — style writes ramp through the transition registry.
+            registry: this._paintTransitions,
+            nowMs: () => this._elapsedMs,
+            durationMs: () => this.paintTransitionDurationMs,
+            cameraZoom: () => this.camera.zoom,
+          }),
+        )
       }
 
       // raster-dem source → activate the HILLSHADE renderer (#777). Checked
@@ -3952,6 +4016,8 @@ export class XGISMap {
     if (this._epochStale(epoch)) return
 
     this.showCommands = commands.shows
+    // #1255 — mirror of run()'s rebuild: drop ramps into dead bundles.
+    this._paintTransitions.clear()
     this._sceneHasAnimation = sceneHasAnyAnimation(commands.shows)
     this._labelsHaveTimeAnimation = labelsHaveTimeAnimation(commands.shows)
     // Full scene (re)build from a binary load — same DIRTY_ALL mask as run().
@@ -4107,6 +4173,17 @@ export class XGISMap {
     // frames keep coming while an easeTo/flyTo is mid-flight; the tick in
     // renderFrame settles it and this goes false again on arrival.
     if (this.cameraController.isAnimating()) return true
+    // #1255 — paint-transition keep-alive (mirror of _sceneHasAnimation):
+    // frames keep coming exactly while a setPaintProperty ramp is in
+    // flight; renderFrame()'s settle sweep empties the registry at the
+    // ramp ends and this goes false again.
+    if (this._paintTransitions.hasActive()) return true
+    // Symbol fade keep-alive (mirror of _sceneHasAnimation): while any
+    // label/icon opacity ramp is in flight the loop must keep rendering —
+    // the label pass advances the ledger once per rendered frame, so ramps
+    // settle on the wall clock and this goes false again within
+    // fadeDuration of the last placement change.
+    if (this.textStage !== null && this.textStage.getFadeLedger().hasActive()) return true
     if (this.hasPendingSourceWork()) return true
     const c = this.camera
     const canvas = this.ctx?.canvas
@@ -4255,7 +4332,13 @@ export class XGISMap {
       this._elapsedMs = this._animClockMs()
       this.cameraController.tickAnimation(this._elapsedMs)
     }
-    return this.renderLoopInstance.render()
+    this.renderLoopInstance.render()
+    // #1255 — settle finished paint-transition ramps AFTER the frame that
+    // rendered them at (or past) their terminal value: the swap to a
+    // constant is visually a no-op (the ramp clamps at `to`) and restores
+    // the constant fast paths. Runs on the just-updated `_elapsedMs`;
+    // while ramps remain, shouldRenderThisFrame keeps frames coming.
+    this._paintTransitions.settle(this._elapsedMs)
   }
 
   /** #1256 — the animation clock in ms since the first rendered frame,

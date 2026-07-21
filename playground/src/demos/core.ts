@@ -303,4 +303,101 @@ export const DEMOS_CORE: Record<string, Demo> = {
     pitch: 60,
     bearing: -45,
   },
+
+  animate_line: {
+    name: 'Animate a Line',
+    tag: 'event',
+    description:
+      "MapLibre \"Animate a line\" port (#1192) — Start grows an inline sine-wave route in steps by pushing a longer LineString through map.setSourceData() every 3s, into a source declared with an EMPTY FeatureCollection (the #1242 gap-1 re-seed path's live coverage probe: line geometry arriving entirely through the push path). The 3s step is deliberate, not cosmetic — a real-GPU probe found sub-second re-seed churn on the SAME source starves the virtual-tiling pipeline's worker round-trip (tiles never finish before the next churn preempts them), so nothing paints; see the realtime_update demo's comment for the sibling finding. Stop pauses in place.",
+    source: load('animate-line.xgis'),
+    zoom: 1.6,
+    center: [0, 0],
+    actions: (() => {
+      // Offline synthesized sine-wave route (no fixture file) — kept in
+      // sync with the .xgis's empty `route_line` source, which the host
+      // is the sole author of.
+      const N = 240
+      const STEP = 30
+      const ROUTE: Array<[number, number]> = []
+      for (let i = 0; i <= N; i++) {
+        const lon = -170 + (340 * i) / N
+        const lat = 30 * Math.sin((i / N) * Math.PI * 4)
+        ROUTE.push([lon, lat])
+      }
+      let timer = 0
+      let count = 2 // survives Stop → Start resume
+      const stop = (): void => {
+        if (timer) clearInterval(timer)
+        timer = 0
+      }
+      return [
+        {
+          label: 'Start',
+          run: (m) => {
+            stop()
+            // Bar is rebuilt on demo switch — die with the button (no ghost
+            // interval holding the destroyed map alive).
+            const marker = document.querySelector('#demo-actions button')
+            timer = setInterval(() => {
+              if (marker && !marker.isConnected) return stop()
+              count = count > N ? 2 : count + STEP
+              m.setSourceData('route_line', {
+                type: 'FeatureCollection',
+                features: [
+                  {
+                    type: 'Feature',
+                    id: 1,
+                    properties: {},
+                    geometry: { type: 'LineString', coordinates: ROUTE.slice(0, count) },
+                  },
+                ],
+              })
+            }, 3000) as unknown as number
+          },
+        },
+        { label: 'Stop', run: () => stop() },
+      ]
+    })(),
+  },
+
+  realtime_update: {
+    name: 'Update a Feature in Realtime',
+    tag: 'event',
+    description:
+      "MapLibre \"Update a feature in realtime\" port (#1192) — Start moves the sensor point around a synthesized loop every 3s via map.updateFeature('sensor', 1, { geometry }) against the inline-declared `sensor` source (the #1242 gap-2 patchable-seeded-source fix's live coverage probe: updateFeature() against a .xgis-declared source). The 3s cadence is deliberate, not cosmetic — sub-second churn starves the virtual-tiling reseed pipeline's worker round-trip (a real-GPU probe finding; see feature-update-queue.ts). Stop halts it in place.",
+    source: load('realtime-update.xgis'),
+    zoom: 2,
+    center: [0, 0],
+    actions: (() => {
+      let timer = 0
+      let angle = 0
+      const stop = (): void => {
+        if (timer) clearInterval(timer)
+        timer = 0
+      }
+      return [
+        {
+          label: 'Start',
+          run: (m) => {
+            stop()
+            // Bar is rebuilt on demo switch — die with the button (no ghost
+            // interval holding the destroyed map alive).
+            const marker = document.querySelector('#demo-actions button')
+            timer = setInterval(() => {
+              if (marker && !marker.isConnected) return stop()
+              angle = (angle + 30) % 360
+              const rad = (angle * Math.PI) / 180
+              m.updateFeature('sensor', 1, {
+                geometry: {
+                  type: 'Point',
+                  coordinates: [40 * Math.cos(rad), 20 * Math.sin(rad)],
+                },
+              })
+            }, 3000) as unknown as number
+          },
+        },
+        { label: 'Stop', run: () => stop() },
+      ]
+    })(),
+  },
 }

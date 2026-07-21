@@ -1,0 +1,35 @@
+xgis 1
+
+/*
+ * Port of MapLibre's "Animate a line" (#1192).
+ *
+ * `route_line` is declared with an EMPTY FeatureCollection (no url, no
+ * inline coordinates) — the gallery action buttons grow a LineString one
+ * point at a time through map.setSourceData() every animation frame, the
+ * MapLibre original's getSource().setData({...coordinates.push(...)}) loop.
+ * This is the #1242 gap-1 re-seed path's live coverage probe: a line
+ * arriving entirely through the push path into a source that started empty.
+ *
+ * The route itself is a synthesized sine-wave (offline, no fixture file) so
+ * the demo has no external data dependency.
+ */
+
+source world {
+  type: geojson
+  url: "ne_110m_countries.geojson"
+}
+
+source route_line {
+  type: geojson
+  data: { "type": "FeatureCollection", "features": [] }
+}
+
+layer countries {
+  source: world
+  | fill-slate-800 stroke-slate-500 stroke-0.5
+}
+
+layer route {
+  source: route_line
+  | stroke-amber-400 stroke-3
+}

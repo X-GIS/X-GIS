@@ -261,6 +261,29 @@ const CEILINGS: Record<string, number> = {
   // Merge union (raster-resolution <- main): both bumps stacked
   // non-overlappingly (tileSize wiring +3, #1235 seams +7) — merged
   // high-water is the measured 4718.
+  // 4718→4732 (#1192 batch 5): the sourceCRS registry-population comment
+  // documents the real bug the animate-line/realtime-update ports' render
+  // probe caught — every geojson source's lower.ts-defaulted 'EPSG:4326'
+  // was read as an explicit declaration, so getSeededFC() (the #1242 gap-2
+  // check) rejected updateFeature() for every .xgis-declared/URL geojson
+  // source. One-line functional fix; the rest is comment.
+  // 4732→4749 (#1229 item 1): the public `getMissingTileCount()` accessor + its
+  // `_missingTileCount` host field (both render paths write the per-frame in-
+  // flight tile sum) so the playground can surface a tile-loading affordance
+  // without polling the allocating `stats` getter. Irreducible: a class field +
+  // a one-line read accessor + their docs (§2); the count is computed in
+  // render-loop.ts, not here.
+  // 4715→4729 (symbol fade): the `labelFadeDurationMs` field (+doc, MapLibre
+  // fadeDuration parity, options-bag consumption) + the fade keep-alive read
+  // in shouldRenderThisFrame (mirrors the adjacent _sceneHasAnimation line).
+  // The fade machinery itself lives in text/label-fade.ts — wiring only here.
+  // 4718→4756 (#1255 paint transitions): the paintTransitionDurationMs
+  // option field (+doc, option-bag consumption), the registry field, the
+  // transitions context handed to XGISLayer at construction, the
+  // shouldRenderThisFrame keep-alive read, renderFrame()'s settle sweep,
+  // and the two scene-rebuild clear() calls. The transition MECHANISM
+  // lives extracted + unit-proved in paint-transitions.ts — wiring only
+  // grew here.
   // 4718→4788 (#1256 easeTo/flyTo): the cameraAnimationDurationMs option +
   // reduced-motion override fields (+docs, option-bag parse), the three new
   // CameraController deps handed at construction, the isAnimating()
@@ -269,7 +292,20 @@ const CEILINGS: Record<string, number> = {
   // stopAnimation() method + the lifecycle-stop cancel, and the easeTo
   // signature widening. The animation MECHANISM (vWN path + driver) lives
   // extracted + unit-proved in camera-animation.ts; only wiring grew here.
-  'map/src/map.ts': 4788,
+  // Merge union (camera animation <- main): the fade/tile-count/CRS/paint-
+  // transition stacks (→4801) and the #1256 camera-animation wiring (+70) are
+  // non-overlapping, so the merged file measures the 4871 wc -l, not
+  // max(4801, 4788).
+  'map/src/map.ts': 4871,
+  // Baselined at #1255 (measured 830): the DOM-inspired layer API crossed
+  // NEW_FILE_CAP with the paint-transition style-setter integration — the
+  // StyleHost.transitions context, the shared applyNumber/applyColor
+  // helpers, and the four setter rewires (fill/stroke/opacity/strokeWidth
+  // route their paintShapes writes through the #1255 registry; the ramp
+  // machine itself lives in paint-transitions.ts). Cohesive layer-API
+  // ownership (registry + style proxy + feature events) — shrink-only
+  // from now; split (LayerIdRegistry / events vs style) if it grows again.
+  'map/src/layer.ts': 830,
   // Baselined at #1235 (measured 846): SourceManager crossed NEW_FILE_CAP with
   // the gap-1/gap-2 seams — the setSourceData virtual re-seed branch (the
   // legacy worker-compile path renders fills/points but no line segments) +
@@ -307,7 +343,24 @@ const CEILINGS: Record<string, number> = {
   // near-first on pitched views (site report: Shanghai dropped for Seoul at
   // pitch 81°), +16 comment lines (precedence note (3), the nearY rationale,
   // and the corrected byte-identical claims). Logic lives in text-collision.ts.
-  'map/src/text/text-stage.ts': 2085,
+  // 2085→2136 (near-on-top draw order): the default/`auto` legacy emit now
+  // Y-sorts DRAW order WITHIN each layer so overlapping allow-overlap labels
+  // paint near-on-top (the collision sibling decided which SURVIVES; this
+  // decides which paints last). +51 = the gated in-place drawOrder sort (≥1
+  // allow-overlap, else source order at zero cost) + its rationale block + the
+  // `layerName` thread onto pending/shaped (the layer-precedence key, ranked by
+  // first appearance) at addLabel/addCurvedLineLabel + the 3 shaped pushes.
+  // 2068→2155 (symbol fade): the prepare()-side fade wiring — the ledger /
+  // holdover-store fields + ctor init, the dispatch-order fadeInstanceKey
+  // precompute, the placed-branch place()+store, the fade-out holdover
+  // emission + sweep, the empty-prepare wholesale arm, the eviction clear,
+  // and the holdoverOk param (+docs). The MECHANISM (ledger, holdover clone
+  // store) lives extracted + unit-proved in text/label-fade.ts; only the
+  // prepare-loop integration grew here. +87.
+  // Merge union (symbol fade <- main): near-first collision (+68) and symbol
+  // fade (+87) stack non-overlappingly on the shared 2068 base — they SUM to
+  // the measured 2223, not max(2136, 2155).
+  'map/src/text/text-stage.ts': 2223,
   // 1786→1719 (#727 C): the line/point dedupe + pair-key helper block was
   // EXTRACTED to passes/line-label-dedupe.ts when the world-copy fan-out would
   // otherwise have grown this file — the extract-don't-grow answer.
@@ -352,7 +405,16 @@ const CEILINGS: Record<string, number> = {
   // 2002→2005 (near-first collision): labelCollisionId composes with the
   // TIEBREAK_GROUP_SEP const now owned by text-collision.ts (import + 2 doc
   // lines); the ordering logic itself lives there. +3.
-  'map/src/render/passes/label-pass.ts': 2005,
+  // 2002→2063 (symbol fade): the per-frame ledger advance + completion
+  // LABEL-dirty at execute() top, the tsOpts.fadeDurationMs line, the
+  // holdoverOk exact-camera derivation beside the S16 signature (uses the
+  // same locals), the stage/iStage prepare threading + setFadeLedger
+  // handoff, and dispatchIcon's fadeId param at the collisionId-bearing
+  // call sites. Mechanism in text/label-fade.ts; wiring only here. +61.
+  // Merge union (symbol fade <- main): near-first collision (+3) and symbol
+  // fade (+61) stack non-overlappingly on the shared 2002 base — they SUM to
+  // the measured 2066, not max(2005, 2063).
+  'map/src/render/passes/label-pass.ts': 2066,
   // #1081 — per-anchor perspective distance attenuation (MapLibre parity). New
   // baseline: the wCenter + perspScale scratch-out-value lives INLINE in the two
   // existing projector closures (it rides the cw already computed per anchor —
@@ -464,7 +526,12 @@ const CEILINGS: Record<string, number> = {
   // 1314→1326 (raster-resolution): hillshade DEM fetches join BOTH keep-alive
   // checks (WebGPU + WebGL2 twin) — a hillshade-only scene otherwise idles
   // before its tiles arrive and the arrival never repaints (black relief).
-  'map/src/render-loop.ts': 1326,
+  // 1326→1338 (#1229 item 1): both render paths publish the per-frame in-flight
+  // tile sum to `_missingTileCount` for the public getMissingTileCount() accessor
+  // — VT missed + raster/hillshade pendingLoadCount(). The WebGL2 twin derives its
+  // keep-warm return from that single authority (count > 0). Irreducible: the two
+  // write sites (one per path) + docs.
+  'map/src/render-loop.ts': 1338,
   // Merge union (#1060 <- main): stacked growth — measured 1174.
   'map/src/render/point-renderer.ts': 1174,
   // 1106→1120 (#1043 state-hygiene): three unmask-before-clear / state-reset fixes for the
@@ -568,7 +635,10 @@ const CEILINGS: Record<string, number> = {
   // coord + ox — parent fallback mapped every uncached child onto the same
   // parent quad (4× duplicate draws; alpha compounds at raster-opacity < 1),
   // pinned by runtime raster-world-copy no-duplicate gate.
-  'map/src/render/raster-renderer.ts': 848,
+  // 848→855 (#1229 item 1): pendingLoadCount() — the in-flight tile count behind
+  // hasPendingLoads(), summed into the map's public getMissingTileCount() so the
+  // loading affordance covers network raster sources. A one-line read + docs.
+  'map/src/render/raster-renderer.ts': 855,
   // 889→906 (#1155 F3): cold-start burst enqueue cap — the `_coldStartBurst`
   // field + `setColdStartBurst` + the burst-selected 8/4 cap in enqueue().
   // 906→910 (#1155 F3 adjudication): the burst 8/4 pair now comes from the

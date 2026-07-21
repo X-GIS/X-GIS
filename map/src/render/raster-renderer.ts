@@ -355,6 +355,13 @@ export class RasterRenderer {
     return this.loadingTiles.size > 0
   }
 
+  /** Count of raster tiles currently mid-fetch (the set `hasPendingLoads`
+   *  tests). Feeds the map's per-frame `getMissingTileCount()` so a loading
+   *  affordance covers network raster sources, not just vector tiles. */
+  pendingLoadCount(): number {
+    return this.loadingTiles.size
+  }
+
   /** Lazily build the 256×256 RGBA checker as an RHI texture (WebGl2Device path). */
   private ensureRhiChecker(rhi: RhiDevice): RhiTexture {
     if (this._rhiChecker) return this._rhiChecker

@@ -233,6 +233,23 @@ export interface XGISMapOptions {
    *  instant `jumpTo`. Default `true`. Set `false` to force motion on
    *  regardless (kiosk / demo deployments). */
   respectReducedMotion?: boolean
+  /** #1255 — paint-transition duration in ms (MapLibre `*-transition`
+   *  parity). `setPaintProperty` / `layer.style` writes on the continuous
+   *  paint axes (fill/line colour, the opacity family, line-width) RAMP to
+   *  the new value over this window instead of popping; discrete
+   *  properties (visibility) always apply instantly. `0` disables all
+   *  transitions (instant sets, byte-identical to the pre-transition
+   *  behaviour — the right setting for pixel-exact screenshot harnesses).
+   *  Default `300`. */
+  paintTransitionDuration?: number
+  /** Symbol fade duration in ms (MapLibre `fadeDuration` parity). Labels and
+   *  their paired icons ramp opacity over this window when they appear or
+   *  disappear (tile loads, collision churn) instead of popping. Placement
+   *  itself stays instant — only the visual alpha ramps, so the S16
+   *  label-prepare skip and its zoom-jank guarantees are untouched. `0`
+   *  disables fading (pre-fade byte-identical rendering, the right setting
+   *  for pixel-exact screenshot harnesses). Default `300`. */
+  fadeDuration?: number
   /** Accessible name applied to the canvas via `aria-label`, announced
    *  by screen readers when the map receives focus. Defaults to `"Map"`.
    *  Set a deployment-specific label (e.g. `"Seoul transit map"`) so the
