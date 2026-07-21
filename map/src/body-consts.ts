@@ -14,17 +14,19 @@
 // file lives at the map layer, not under shaders/dsl/, which imports nothing from
 // @xgis/shared.)
 //
-// EARTH is byte-identical by construction (issue #798 PIN #2): the GPU Earth e2
-// literal (0.0066943799901975955) deliberately DIVERGES from Body.e2 (the CPU
-// f·(2−f) value = 0.0066943799901413165), so the === EARTH branch restores the
-// shipped GPU literals verbatim rather than overwriting e2 with EARTH.e2. Locked
-// by body-consts.test.ts against a golden captured from pre-seam main.
+// EARTH is byte-identical by construction: the shipped ConstDecl defaults ARE
+// Earth's WGS84 numbers (EARTH_R = a = sphereR = 6378137, WGS84_E2 = f·(2−f)), so
+// EARTH routes sphereR / a / e2 UNIFORMLY like every other body — no special case.
+// #1152 INC-3 un-pinned #798 PIN #2 (the retired divergent GPU e2 literal): the
+// GPU e2 now spells the SAME f·(2−f) value EARTH.e2 holds; they are bit-identical
+// after Math.fround (the compiled f32 is unchanged), so single-sourcing is a
+// zero-delta win, not a regression. Locked by body-consts.test.ts.
 //
 // Ordering: call BEFORE the first projection/ecef shader emit — the XGISMap ctor
 // calls it right after configureProjections(); shader modules build lazily at GPU
 // init, well after. Mirrors configureProjections()'s configure-before-emit rule.
 
-import { EARTH, activeBody, configureBody, type Body } from '@xgis/shared'
+import { activeBody, configureBody, type Body } from '@xgis/shared'
 import type { ConstDecl } from '@xgis/shader-dsl'
 import { ECEF_CONSTS } from './shaders/dsl/ecef'
 import { PROJECTION_CONSTS } from './shaders/dsl/projections'
@@ -40,16 +42,9 @@ function findConst(arr: readonly ConstDecl[], name: string): ConstDecl {
 }
 
 const EARTH_R_C = findConst(PROJECTION_CONSTS, 'EARTH_R')
+const EARTH_E2_C = findConst(PROJECTION_CONSTS, 'EARTH_E2')
 const WGS84_A_C = findConst(ECEF_CONSTS, 'WGS84_A')
 const WGS84_E2_C = findConst(ECEF_CONSTS, 'WGS84_E2')
-
-// Snapshot Earth's shipped GPU literals at module load — pristine, because this
-// module is the SOLE mutator and only mutates when called. Captured (never
-// re-spelled) so the earth-literal ratchet's single-authority invariant holds:
-// only body.ts + the two ConstDecl files spell the numbers.
-const EARTH_EARTH_R = EARTH_R_C.wgslValue
-const EARTH_WGS84_A = WGS84_A_C.wgslValue
-const EARTH_WGS84_E2 = WGS84_E2_C.wgslValue
 
 function setConst(c: ConstDecl, value: number): void {
   const m = c as MutableConst
@@ -57,20 +52,18 @@ function setConst(c: ConstDecl, value: number): void {
   m.cpuValue = value
 }
 
-/** Route the GPU ConstDecls (EARTH_R / WGS84_A / WGS84_E2) through `body`.
- *
- *  EARTH restores the byte-identical shipped literals (the === EARTH guard — the
- *  GPU e2 diverges from Body.e2 and must never be overwritten). A non-Earth body
- *  injects its projection-sphere radius (sphereR), semi-major axis (a), and first
- *  eccentricity² (e2). Idempotent; safe to re-apply on a body switch. */
+/** Route the GPU ConstDecls (EARTH_R / EARTH_E2 / WGS84_A / WGS84_E2) through
+ *  `body`. EARTH takes the same uniform path as every body — its shipped defaults
+ *  ARE Earth's WGS84 numbers, so this is a no-op re-assignment for the default
+ *  process (#1152 INC-3 retired the === EARTH special case with #798 PIN #2). A
+ *  non-Earth body injects its projection-sphere radius (sphereR), semi-major axis
+ *  (a), and first eccentricity² (e2). EARTH_E2 (proj_globe's ellipsoid N term)
+ *  and WGS84_E2 (lonlat_to_ecef) are two names for the ONE body.e2 value — the
+ *  shipped EARTH_R/WGS84_A two-names-one-value precedent. Idempotent; safe to
+ *  re-apply on a body switch. */
 export function configureBodyConsts(body: Body): void {
-  if (body === EARTH) {
-    setConst(EARTH_R_C, EARTH_EARTH_R)
-    setConst(WGS84_A_C, EARTH_WGS84_A)
-    setConst(WGS84_E2_C, EARTH_WGS84_E2)
-    return
-  }
   setConst(EARTH_R_C, body.sphereR)
+  setConst(EARTH_E2_C, body.e2)
   setConst(WGS84_A_C, body.a)
   setConst(WGS84_E2_C, body.e2)
 }

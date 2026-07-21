@@ -187,6 +187,27 @@ export class MapEventBus {
     )
   }
 
+  /** Fire `backendresolved` once per successful boot with the resolved GPU
+   *  backend, so a host can observe a silent WebGPU→WebGL2 auto-fallback (#1153
+   *  M4). Stateless (unlike `load`): a device-lost recovery re-run re-fires it,
+   *  correctly surfacing a flipped backend. No-op without listeners so the boot
+   *  tail stays cheap. */
+  fireBackendResolvedEvent(backend: 'webgpu' | 'webgl2'): void {
+    if (!this.mapEventListeners.has('backendresolved')) return
+    const cam = this.host.getCameraState()
+    this.mapEventListeners.dispatch(
+      new XGISMapEvent({
+        type: 'backendresolved',
+        target: this.host.target,
+        center: cam.center,
+        zoom: cam.zoom,
+        bearing: cam.bearing,
+        pitch: cam.pitch,
+        backend,
+      }),
+    )
+  }
+
   /** Internal: EventDispatcher calls this after a layer-level dispatch so
    *  map-level handlers see every hit. `event.defaultPrevented` carries
    *  through — a layer listener's preventDefault() suppresses this. */

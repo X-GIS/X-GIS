@@ -86,6 +86,29 @@ function clampPos(p: number[]): number[] {
   return [clampLon(p[0]), clampLat(p[1])]
 }
 
+// #1221 R4 — LINE-only clamp: latitude ONLY, longitude untouched. The
+// antimeridian buffer/wrap copy geojsonvt emits (geojsonvt/wrap.ts) lands at
+// lon just BEYOND ±180 by design — the renderer draws those west-buffer
+// vertices at world-copy +1 so a seam-crossing LineString continues across the
+// antimeridian. clampLon collapsed that whole beyond-±180 run onto EXACTLY
+// ±180, degenerating it into a vertical wall of segments on the seam that the
+// line renderer drew as a spurious vertical stroke (only visible when the
+// camera looks at ±180, since that is where world-copy +1 lands it). Leaving
+// lon unclamped lets compileSingleTile's per-tile rect clip drop the
+// out-of-world portion cleanly (no wall) while keeping the in-world
+// continuation. Latitude still clamps (the ±85 pole-sliver fix is unaffected —
+// its Mercator magnitude, not a seam wrap, is the corruption source). Polygon /
+// point arms keep the full clampPos (the original horizontal-sliver fix).
+//
+// The iter-296 non-finite guard stays: a malformed MVT (e.g. extent 0 → 0/0 in
+// toGeoJSON's un-quantisation) can emit NaN/±Infinity lon, and the downstream
+// Liang-Barsky clip fails OPEN on non-finite input (q/p → NaN passes every
+// edge test), leaking NaN vertices into the f32 tile mesh. Only the RANGE
+// clamp is dropped — wrap-copy longitudes are always finite.
+function clampPosLatOnly(p: number[]): number[] {
+  return [Number.isFinite(p[0]) ? p[0] : 0, clampLat(p[1])]
+}
+
 function clampGeometryToPlanet(g: GeoJSONGeometry): GeoJSONGeometry {
   switch (g.type) {
     case 'Point':
@@ -93,9 +116,12 @@ function clampGeometryToPlanet(g: GeoJSONGeometry): GeoJSONGeometry {
     case 'MultiPoint':
       return { type: 'MultiPoint', coordinates: g.coordinates.map(clampPos) }
     case 'LineString':
-      return { type: 'LineString', coordinates: g.coordinates.map(clampPos) }
+      return { type: 'LineString', coordinates: g.coordinates.map(clampPosLatOnly) }
     case 'MultiLineString':
-      return { type: 'MultiLineString', coordinates: g.coordinates.map((ls) => ls.map(clampPos)) }
+      return {
+        type: 'MultiLineString',
+        coordinates: g.coordinates.map((ls) => ls.map(clampPosLatOnly)),
+      }
     case 'Polygon':
       return { type: 'Polygon', coordinates: g.coordinates.map((ring) => ring.map(clampPos)) }
     case 'MultiPolygon':

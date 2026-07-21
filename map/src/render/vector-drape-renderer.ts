@@ -20,7 +20,7 @@ import type { RhiDevice, RhiTexture, RhiRenderPass } from '@xgis/engine'
 import { uniformBlock, isPickEnabled, type UniformBlockOf } from '@xgis/engine'
 import { lonLatToECEF } from '@xgis/shared'
 import { RasterDraper, type RasterTile } from './material/raster-material'
-import { planBakeEvictions } from './vector-drape-cache'
+import { planBakeEvictions, drapeZoomBucket, drapeStrokeWidthScale } from './vector-drape-cache'
 import {
   rasterU as RASTER_U,
   rasterTileU as RASTER_TILE_U,
@@ -62,6 +62,8 @@ export interface DrapeBakeProvider {
     key: number,
     fill: readonly [number, number, number, number],
     sizePx: number,
+    /** #1222 zoom-bucket stroke-width compensation; 1 = bake-native. */
+    strokeWidthScale?: number,
   ): RhiTexture | null
 }
 
@@ -76,7 +78,15 @@ export class VectorDrapeRenderer {
   private readonly tileScratch: UniformBlockOf<typeof RASTER_TILE_U>
   private readonly baked = new Map<
     string,
-    { tex: RhiTexture; uploadEpoch: number; fillKey: number; strokeKey: number; lastCall: number }
+    {
+      tex: RhiTexture
+      uploadEpoch: number
+      fillKey: number
+      strokeKey: number
+      /** #1222 — quarter-zoom bucket the strokes were baked at (0 for fill-only). */
+      zoomBucket: number
+      lastCall: number
+    }
   >()
   private calls = 0
   /** Cache keys draped THIS frame — the eviction skip-set (like the raster
@@ -127,6 +137,10 @@ export class VectorDrapeRenderer {
     /** #599 line-drape — a 32-bit key over the show's stroke style (VTR.strokeBakeKey). Part of the
      *  bake cache key so a stroke-style change re-bakes the tile texture. 0 when there is no stroke. */
     strokeKey: number,
+    /** #1222 — the camera's CONTINUOUS zoom. Strokes are baked at a fixed mpp, so the camera's
+     *  magnification within a tile level must re-bake them (quarter-zoom buckets) with the width
+     *  compensated — otherwise the stroke width scales with the camera instead of staying screen-px. */
+    camZoom: number,
     sliceLayer: string,
     neededKeys: number[],
     worldOffDeg: number[] | undefined,
@@ -153,20 +167,44 @@ export class VectorDrapeRenderer {
       // cache key — a different z is a distinct entry and a zoom-level change can
       // never drape a stale-z bake (the old-z keys just drop out of neededKeys).
       const cacheKey = `${sliceLayer}:${key}`
+      // #1222 — strokes bake a SCREEN-px width at a fixed mpp, so the camera's
+      // continuous zoom re-buckets them. Fill-only content is area-styled — its
+      // magnification is benign — so the bucket applies only when THIS tile has
+      // stroke geometry to re-rasterise: an interior tile of a stroked polygon
+      // show (fill triangles, no outline segments) keeps bucket 0 and never
+      // zoom-rebakes.
+      const zoomBucket =
+        strokeKey !== 0 && (cached.outlineSegmentCount > 0 || cached.lineSegmentCount > 0)
+          ? drapeZoomBucket(camZoom, cached.tileZoom)
+          : 0
       let entry = this.baked.get(cacheKey)
       if (
         !entry ||
         entry.uploadEpoch !== cached.uploadEpoch ||
         entry.fillKey !== fillKey ||
-        entry.strokeKey !== strokeKey
+        entry.strokeKey !== strokeKey ||
+        entry.zoomBucket !== zoomBucket
       ) {
-        const tex = provider.bakeTileToTexture(sliceLayer, key, fill, BAKE_PX)
+        const tex = provider.bakeTileToTexture(
+          sliceLayer,
+          key,
+          fill,
+          BAKE_PX,
+          drapeStrokeWidthScale(zoomBucket),
+        )
         if (!tex) continue
         if (entry) {
           this.draper.dropTexture(entry.tex) // invalidate the draper cache before freeing
           this._retiredBakes.push(entry.tex) // destroy next frame — the prior submit may still reference it
         }
-        entry = { tex, uploadEpoch: cached.uploadEpoch, fillKey, strokeKey, lastCall: this.calls }
+        entry = {
+          tex,
+          uploadEpoch: cached.uploadEpoch,
+          fillKey,
+          strokeKey,
+          zoomBucket,
+          lastCall: this.calls,
+        }
         this.baked.set(cacheKey, entry)
       }
       entry.lastCall = this.calls

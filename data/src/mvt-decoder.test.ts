@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest'
 import geojsonVt from 'geojson-vt'
 // @ts-expect-error — no published types
 import vtpbf from 'vt-pbf'
+import Pbf from 'pbf'
 import { decodeMvtTile } from './mvt-decoder'
 
 // Round-trip: GeoJSON → geojson-vt slice → vt-pbf serialize → decodeMvtTile.
@@ -86,6 +87,121 @@ describe('decodeMvtTile (round-trip)', () => {
     expect(types).toContain('Polygon')
     for (const f of features) {
       expect(f.properties._layer).toBe('shapes')
+    }
+  })
+
+  // #1221 R4 — a LineString's antimeridian BUFFER vertices (geojson-vt emits
+  // the seam continuation copy at lon just beyond ±180) MUST survive decode
+  // unclamped. The pre-fix clampLon pinned that whole beyond-±180 run to
+  // EXACTLY ±180, degenerating it into a vertical wall of collinear segments
+  // on the seam that the line renderer drew as a spurious vertical stroke.
+  it('does NOT clamp a line vertex beyond ±180 into a seam wall (#1221)', () => {
+    // A line hugging the antimeridian; a generous buffer forces geojson-vt to
+    // emit wrapped-copy vertices past ±180 in the west tile (z3/x0).
+    const orig = {
+      type: 'FeatureCollection',
+      features: [
+        {
+          type: 'Feature',
+          geometry: {
+            type: 'LineString',
+            coordinates: [
+              [165, 60],
+              [175, 66],
+              [179, 68],
+            ],
+          },
+          properties: {},
+        },
+      ],
+    }
+    const idx = geojsonVt(orig, { maxZoom: 14, buffer: 2048, extent: 8192 })
+    const tile = idx.getTile(3, 0, 2) // west tile — holds the wrapped copy
+    expect(tile).toBeTruthy()
+    const buf = vtpbf.fromGeojsonVt({ route: tile }, { extent: 8192 })
+    const features = decodeMvtTile(buf, 3, 0, 2)
+    const line = features.find((f) => f.geometry?.type === 'LineString')
+    expect(line).toBeTruthy()
+    const coords = (line!.geometry as { coordinates: number[][] }).coordinates
+    // Pre-fix: EVERY vertex clamped to exactly -180 (a >=3-vertex wall).
+    // Post-fix: the beyond-±180 buffer vertices keep their real (< -180) lon.
+    const beyond = coords.filter((c) => c[0] < -180.001)
+    expect(beyond.length).toBeGreaterThan(0)
+    // And they are NOT all pinned to one longitude (the wall signature).
+    const uniqueLons = new Set(coords.map((c) => Math.round(c[0] * 100)))
+    expect(uniqueLons.size).toBeGreaterThan(1)
+  })
+
+  // #1221 R4 — the sibling POLYGON path KEEPS the full clamp (the original
+  // horizontal-sliver fix): a polygon buffer vertex beyond ±180 still lands on
+  // the seam, never leaking a beyond-planet longitude into the fill mesh.
+  it('STILL clamps a polygon vertex beyond ±180 (sliver-fix intact, #1221)', () => {
+    const orig = {
+      type: 'FeatureCollection',
+      features: [
+        {
+          type: 'Feature',
+          geometry: {
+            type: 'Polygon',
+            coordinates: [
+              [
+                [170, 60],
+                [179, 60],
+                [179, 70],
+                [170, 70],
+                [170, 60],
+              ],
+            ],
+          },
+          properties: {},
+        },
+      ],
+    }
+    const idx = geojsonVt(orig, { maxZoom: 14, buffer: 2048, extent: 8192 })
+    const tile = idx.getTile(3, 0, 2)
+    if (tile) {
+      const buf = vtpbf.fromGeojsonVt({ area: tile }, { extent: 8192 })
+      const features = decodeMvtTile(buf, 3, 0, 2)
+      for (const f of features) {
+        const rings = (f.geometry as { coordinates: number[][][] }).coordinates
+        for (const ring of rings) {
+          for (const c of ring) {
+            expect(c[0]).toBeGreaterThanOrEqual(-180.0001)
+          }
+        }
+      }
+    }
+  })
+
+  // #1221 R4 hardening — dropping the line-arm lon RANGE clamp must NOT drop
+  // the iter-296 NON-FINITE guard. A malformed MVT declaring extent 0 makes
+  // toGeoJSON's un-quantisation divide by zero (NaN/±Infinity lon), and the
+  // downstream Liang-Barsky clip fails OPEN on non-finite input, leaking NaN
+  // vertices into the f32 tile mesh. Every decoded coordinate must be finite.
+  // (vtpbf can't author this — `extent: 0` is falsy and falls back to 4096 —
+  // so the layer bytes are hand-written with pbf.)
+  it('sanitises non-finite line lon from a malformed extent-0 MVT (iter-296 guard)', () => {
+    const writeFeature = (_: unknown, fpbf: InstanceType<typeof Pbf>) => {
+      fpbf.writeVarintField(3, 2) // GeomType = LINESTRING
+      // MoveTo(0,0) + LineTo(+10,+10): [cmd(1,1), zz(0), zz(0), cmd(2,1), zz(10), zz(10)]
+      fpbf.writePackedVarint(4, [9, 0, 0, 10, 20, 20])
+    }
+    const writeLayer = (_: unknown, lpbf: InstanceType<typeof Pbf>) => {
+      lpbf.writeVarintField(15, 2) // version
+      lpbf.writeStringField(1, 'bad') // name
+      lpbf.writeVarintField(5, 0) // extent = 0 ← the malformation
+      lpbf.writeMessage(2, writeFeature, null)
+    }
+    const tilePbf = new Pbf()
+    tilePbf.writeMessage(3, writeLayer, null)
+    const features = decodeMvtTile(tilePbf.finish(), 0, 0, 0)
+    expect(features.length).toBeGreaterThan(0)
+    for (const f of features) {
+      const coords = (f.geometry as { coordinates: number[][] }).coordinates
+      for (const c of coords) {
+        expect(Number.isFinite(c[0]), `lon finite, got ${c[0]}`).toBe(true)
+        expect(Number.isFinite(c[1]), `lat finite, got ${c[1]}`).toBe(true)
+      }
     }
   })
 

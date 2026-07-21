@@ -134,6 +134,13 @@ export interface XGISMapOptions {
    *  swap keeps the original backend. NOTE: the WebGL2 backend is currently a
    *  limited single-sample raster slice, not full render parity. */
   backend?: BackendChoice
+  /** WebGL2-backend-only (#1153 M2, MapLibre-parity name): keep the WebGL2
+   *  drawing buffer preserved after present so host-side `canvas.toDataURL()` /
+   *  `readPixels`-after-present capture works. Default `false` — a preserved
+   *  buffer is a permanent 2×-fullres memory/bandwidth tax on the weakest iOS
+   *  devices, and only canvas capture needs it. No effect on the WebGPU backend.
+   *  Construction-immutable (mirrors `backend`). */
+  preserveDrawingBuffer?: boolean
   /** Celestial body to render, chosen at construction (#798 P2) — e.g. `MOON` /
    *  `MARS_IAU2000` from `@xgis/shared`, or a custom `makeBody(...)`. Routes
    *  through `configureBody()` (the process-global Body authority) and the GPU
@@ -216,6 +223,17 @@ export interface XGISMapOptions {
    *  Set a deployment-specific label (e.g. `"Seoul transit map"`) so the
    *  a11y tree distinguishes multiple maps on a page. */
   ariaLabel?: string
+  /** Canvas `touch-action` policy (#1153 M1, matches MapLibre/Mapbox). By default
+   *  the library sets the canvas's inline `touch-action: none` so iOS/Android
+   *  don't hijack pan/pinch as page scroll (which fires repeated `pointercancel`
+   *  and breaks gestures for third-party embeds) — but ONLY when the host has not
+   *  already expressed intent via an inline OR a non-`auto` computed `touch-action`
+   *  (that authorial value is preserved). Pass an explicit string (e.g. `'pan-y'`)
+   *  to set that value unconditionally, or `false` to never touch the style at all.
+   *  NOTE: an explicit stylesheet `touch-action: auto` is indistinguishable from
+   *  the CSS default and will be overridden; use `touchAction: false` (or insert
+   *  the canvas into the DOM before construction) to opt out. */
+  touchAction?: false | string
   /** Surface a converted style's "Conversion notes" block to the console
    *  once at load. `convertMapboxStyle` records every dropped / approximated
    *  filter / paint in a trailing block comment in the emitted .xgis source;

@@ -27,6 +27,8 @@ import {
   type BackendChoice,
   type GPUContext,
   type WebGpuBootOptions,
+  type WebGl2BootMode,
+  type WebGl2ContextAttrs,
 } from './gpu'
 
 /** WebGPU backend provider — a FACTORY (#929 B): the composition root derives
@@ -118,11 +120,13 @@ function probeWebgl2Support(): boolean {
  *  @xgis/rhi-webgl2; a lazy `makeDevice` keeps the WebGL2 chunk load-on-demand. */
 export function makeWebGl2BackendProvider(
   makeDevice: WebGl2DeviceFactory,
+  mode: WebGl2BootMode = 'forced',
+  attrs?: WebGl2ContextAttrs,
 ): RhiBackendProvider<GPUContext> {
   return {
     id: 'webgl2',
     probe: async () => probeWebgl2Support(),
-    create: (canvas) => initGPUForcedWebGL2(canvas, makeDevice),
+    create: (canvas) => initGPUForcedWebGL2(canvas, makeDevice, mode, attrs),
   }
 }
 
@@ -171,10 +175,19 @@ export function backendProviderChain(
   choice: BackendChoice,
   boot: WebGpuBootOptions,
   makeWebGl2Device?: WebGl2DeviceFactory,
+  webgl2Attrs?: WebGl2ContextAttrs,
 ): RhiBackendProvider<GPUContext>[] {
   const webgpu = makeWebGpuBackendProvider(boot)
   if (choice === 'webgpu') return [webgpu]
-  const webgl2 = makeWebGl2BackendProvider(makeWebGl2Device ?? requireInjectedWebGl2Device)
+  // Boot-mode attribution for the warning text (#1153 M4): a `'webgl2'` choice is
+  // a code pin; otherwise (an 'auto' chain) it is the `?forcegl2=1` dev override
+  // when FORCE_GL2 is set, else a genuine WebGPU-unavailable auto-fallback.
+  const mode: WebGl2BootMode = choice === 'webgl2' ? 'pinned' : FORCE_GL2 ? 'forced' : 'fallback'
+  const webgl2 = makeWebGl2BackendProvider(
+    makeWebGl2Device ?? requireInjectedWebGl2Device,
+    mode,
+    webgl2Attrs,
+  )
   if (choice === 'webgl2') return [webgl2]
   return FORCE_GL2 ? [webgl2] : [webgpu, webgl2]
 }
@@ -193,6 +206,10 @@ export interface InitGPUOptions {
    *  WebGL2 selection without it fails loud). Keeps @xgis/rhi-webgpu free of any
    *  @xgis/rhi-webgl2 import (#929). */
   makeWebGl2Device?: WebGl2DeviceFactory
+  /** WebGL2-backend-only (#1153 M2): opt a WebGL2 boot into a preserved drawing
+   *  buffer so host-side `canvas.toDataURL()` / readPixels-after-present capture
+   *  works. Off by default (mobile-cheap); no effect on the WebGPU backend. */
+  preserveDrawingBuffer?: boolean
 }
 
 /** Convenience boot porcelain: derive the provider chain from a
@@ -210,6 +227,7 @@ export async function initGPU(
       opts.backend ?? 'auto',
       { sampleCount: opts.sampleCount ?? 4 },
       opts.makeWebGl2Device,
+      { preserveDrawingBuffer: opts.preserveDrawingBuffer },
     ),
   )
 }

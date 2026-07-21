@@ -8,11 +8,15 @@
 // @xgis/engine and are imported here.
 
 import { buildGlobeMatrix, unprojectGlobe, EARTH_R, MERCATOR_LAT_LIMIT } from '@xgis/geo'
-import { eyeHorizon } from '@xgis/shared'
+import { EARTH, eyeHorizon } from '@xgis/shared'
 
 // Redeclared locally (trivial constants; the engine's copies are module-private).
 const DEG2RAD = Math.PI / 180
 const RAD2DEG = 180 / Math.PI
+// WGS84 ellipsoid (#1152 INC-3) — the globe surface grid, camera target, and this
+// selector's inline forward all live on the ellipsoid now. EARTH_R === EARTH.a.
+const EARTH_B = EARTH.b
+const EARTH_E2 = EARTH.e2
 
 /** TileCoord-shaped result. Structurally identical to
  *  data/tile-select.ts `TileCoord` / `makeTileCoord(z,x,y,0)` output;
@@ -76,9 +80,12 @@ export function globeVisibleTiles(
   )
   const mvp = view.matrix
   const eye = view.eye
-  // A surface point P is visible only if it faces the eye:
-  // dot(normalize(P), normalize(eye)) > R/|eye|  (horizon cut). Single authority.
-  const { eyeN, horizonCos } = eyeHorizon(eye, EARTH_R)
+  // A surface point P on the ellipsoid is visible only if it is outside the tangent
+  // plane at P. In the sphere frame (z-stretched by a/b) that is the SAME horizon
+  // cut dot(q̂P, eyeN) > horizonCos, with eyeN/horizonCos from the (a,b) authority.
+  // The per-sample test below rescales P by k = (eyeN.x/a, eyeN.y/a, eyeN.z/b), so
+  // P·k = dot(q̂P, eyeN) for a point ON the ellipsoid. Single authority (#1152 INC-3).
+  const { eyeN, horizonCos } = eyeHorizon(eye, EARTH_R, EARTH_B)
 
   const SUBDIVIDE_PX = Math.max(256, Math.min(cssWidthPx, cssHeightPx) * 0.5)
   // Tile-output cap. Mercator visibleTilesSSE typically returns 200-300
@@ -128,14 +135,13 @@ export function globeVisibleTiles(
       latMax = -Infinity
     let hits = 0
     for (const [sx, sy] of probes) {
-      // ellipsoid=false: the tile selector stays SPHERE-based (geocentric
-      // inverse) in lockstep with the still-spherical globe render + eyeHorizon
-      // cull. INC-2 moved only the cursor/pick/measure READBACK to the WGS84
-      // ellipsoid; the tile bbox must keep matching the sphere-rendered surface
-      // (a ~0.19° geodetic/geocentric shift here would offset deep-overzoom
-      // high-latitude tile selection from what is drawn). Flips with the render
-      // in INC-3 (ellipsoid-datum-unification.md).
-      const ll = unprojectGlobe(sx, sy, W, H, view, false)
+      // #1152 INC-3 — the tile selector is now ELLIPSOID, in lockstep with the
+      // ellipsoid globe render (globeForward / proj_globe) + the (a,b) eyeHorizon
+      // cull. The default (ellipsoid=true) unproject inverts via Bowring geodetic,
+      // so the overzoom tile bbox lands on the SAME WGS84 surface the vertices
+      // draw — the INC-2 ~0.19° geodetic/geocentric selection offset is gone by
+      // construction (ellipsoid-datum-unification.md).
+      const ll = unprojectGlobe(sx, sy, W, H, view)
       if (!ll) continue
       hits++
       const lo = ll[0],
@@ -237,10 +243,12 @@ export function globeVisibleTiles(
   const m12 = mvp[12]!,
     m13 = mvp[13]!,
     m15 = mvp[15]!
-  const pn = 1 / EARTH_R
-  const eyeN0 = eyeN[0],
-    eyeN1 = eyeN[1],
-    eyeN2 = eyeN[2]
+  // Ellipsoid tangent-plane horizon scale factors k = (eyeN.x/a, eyeN.y/a, eyeN.z/b):
+  // for a point P ON the ellipsoid, P·k = dot(q̂P, eyeN) (#1152 INC-3). Replaces the
+  // sphere form (1/EARTH_R)·dot(P, eyeN). Hoisted scalars — no per-sample alloc.
+  const k0 = eyeN[0] / EARTH_R
+  const k1 = eyeN[1] / EARTH_R
+  const k2 = eyeN[2] / EARTH_B
   // Eye position in world coords + distance from eye to camera target
   // (the focal point) — basis for the SSE-style distance LOD: a tile
   // 2× farther than the target gets `desiredZ = zoom - 1`. Memory
@@ -307,15 +315,19 @@ export function globeVisibleTiles(
     for (let si = 0; si < 5; si++) {
       const lo = si === 0 ? ll0L : si === 1 ? ll1L : si === 2 ? ll2L : si === 3 ? ll3L : ll4L
       const la = si === 0 ? ll0A : si === 1 ? ll1A : si === 2 ? ll2A : si === 3 ? ll3A : ll4A
-      // Inline globeForward — sin/cos pair.
+      // Inline globeForward — ELLIPSOID (#1152 INC-3), bit-matching lonLatToECEF:
+      // N = a/√(1−e2·sin²φ); (N·cosφ·cosλ, N·cosφ·sinλ, N·(1−e2)·sinφ). One extra
+      // sqrt + ~4 mults per sample vs the sphere; kept inline / alloc-free.
       const lam = lo * DEG2RAD
       const phi = la * DEG2RAD
+      const sphi = Math.sin(phi)
       const cphi = Math.cos(phi)
-      const px = EARTH_R * cphi * Math.cos(lam)
-      const py = EARTH_R * cphi * Math.sin(lam)
-      const pz = EARTH_R * Math.sin(phi)
-      // Horizon cull check.
-      if ((px * eyeN0 + py * eyeN1 + pz * eyeN2) * pn > horizonCos) anyFront = true
+      const nrad = EARTH_R / Math.sqrt(1 - EARTH_E2 * sphi * sphi)
+      const px = nrad * cphi * Math.cos(lam)
+      const py = nrad * cphi * Math.sin(lam)
+      const pz = nrad * (1 - EARTH_E2) * sphi
+      // Ellipsoid tangent-plane horizon: P·k = dot(q̂P, eyeN) > horizonCos ⟺ visible.
+      if (px * k0 + py * k1 + pz * k2 > horizonCos) anyFront = true
       // Inline mulVec4 — w-divide and screen-space conversion.
       const cw = m3 * px + m7 * py + m11 * pz + m15
       if (si === 4) {
