@@ -25,6 +25,58 @@ either; the `.xgcov` bytes can.
 
 ---
 
+## Handling CORS
+
+The one fact that unlocks all of this: **CORS is enforced by the browser, not the
+server.** A server-to-server `fetch` has no CORS — so any origin **you** control
+can fetch NOAA's archives freely and re-serve them with an
+`Access-Control-Allow-Origin` header. The fix is never "make NOAA send CORS"; it is
+always "put a server or CDN you control between the browser and NOAA."
+
+**Where you host it decides where the header goes:**
+
+| Host                                                    | Set the header via                                                                                                                                                                         |
+| ------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Static `.xgcov` on a CDN / bucket (S3+CloudFront, R2)   | the bucket/CDN **CORS policy** (`AllowedOrigins`)                                                                                                                                          |
+| An edge function (Cloudflare Workers, Vercel/Deno Edge) | the `Response` headers you return                                                                                                                                                          |
+| A small server (nginx / Bun / Node)                     | `add_header access-control-allow-origin` / response headers                                                                                                                                |
+| **Local dev**                                           | a **dev-server proxy** — `playground/vite.config` already does this for third-party tiles (`/pmtiles-proxy/protomaps`); the browser talks to localhost, so there is no cross-origin at all |
+
+**Minimal edge function (proxy + convert, ~10 lines):**
+
+```ts
+import { s100ToXgcov } from '@xgis/pipeline/hdf5'
+
+// Server-side fetch: no CORS wall here. Convert, then hand the browser bytes it
+// IS allowed to read.
+export default async function (_req: Request): Promise<Response> {
+  const h5 = await (await fetch('https://noaa-thredds/.../currents.h5')).arrayBuffer()
+  const { buffer } = await s100ToXgcov(h5, { quantize: 'u16' })
+  return new Response(buffer, {
+    headers: {
+      'content-type': 'application/octet-stream',
+      'access-control-allow-origin': '*', // ← the one line the browser needs
+      'cache-control': 'max-age=300', // currents refresh every ~6 min
+    },
+  })
+}
+```
+
+The browser then points a `type: coverage` source's `url` at this edge — it only
+ever talks to your origin, never NOAA.
+
+**When you do NOT need any of this:** CORS-open products — CO-OPS currents
+(`api.tidesandcurrents.noaa.gov`) and weather.gov alerts — already send
+`access-control-allow-origin: *`, so fetch them straight from the browser (Recipe
+3, the `coops_currents` demo). Only the gridded archives (HDF5 / GRIB2 / NetCDF)
+need the proxy above.
+
+**Avoid:** public CORS proxies (cors-anywhere and friends — insecure, rate-limited,
+unreliable in production) and asking users to disable browser CORS (not a
+deployable option).
+
+---
+
 ## Recipe 1 — server converts, browser fetches `.xgcov` (recommended for shared data)
 
 Convert once on a server (cron / edge function / build step), serve the `.xgcov`
