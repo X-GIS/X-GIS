@@ -81,8 +81,23 @@ export * from './coverage/format'
 // semantic layer (product-agnostic: S-102 bathymetry, S-104 water level, S-111
 // surface currents). Moved here from @xgis/pipeline so @xgis/map reads the HDF5
 // standard IN PLACE and builds a CoverageHandle via coverageFromGrids — no `.xgcov`.
-export { openHdf5, openHdf5Range, Hdf5File, Hdf5Error, BufferReader } from './hdf5/index'
-export type { Hdf5Node, AttrValue, Datatype, BandValues, ByteReader } from './hdf5/index'
+export {
+  openHdf5,
+  openHdf5Range,
+  openHdf5Url,
+  Hdf5File,
+  Hdf5Error,
+  BufferReader,
+  RangeReader,
+} from './hdf5/index'
+export type {
+  Hdf5Node,
+  AttrValue,
+  Datatype,
+  BandValues,
+  ByteReader,
+  RangeReaderOptions,
+} from './hdf5/index'
 export { readS102Coverage } from './hdf5/s102'
 export type { S100Coverage, CoverageBand, Product } from './hdf5/s102'
 // The runtime read-in-place path the `coverage` source consumes (replaces the

@@ -9,12 +9,15 @@
 // mis-parse of navigation-adjacent data is the one unacceptable outcome.
 
 import { Cursor, BufferReader, type ByteReader } from './bytes'
+import { RangeReader, type RangeReaderOptions } from './range-reader'
 import { parseSuperblock, type Superblock } from './superblock'
 import { readNode, resolvePath, type Hdf5Node } from './groups'
 import { readRawElements, decodeBand, decodeStringTable, type BandValues } from './dataset'
 
 export { Hdf5Error, BufferReader } from './bytes'
 export type { ByteReader } from './bytes'
+export { RangeReader } from './range-reader'
+export type { RangeReaderOptions } from './range-reader'
 export type { Hdf5Node, AttrValue } from './groups'
 export type { Datatype } from './datatype'
 export type { BandValues } from './dataset'
@@ -82,4 +85,12 @@ export async function openHdf5(buf: ArrayBuffer | Uint8Array): Promise<Hdf5File>
  *  file. Pass a `RangeReader` (HTTP Range) for a remote cell. */
 export async function openHdf5Range(reader: ByteReader): Promise<Hdf5File> {
   return new Hdf5File(reader).init()
+}
+
+/** Open a remote HDF5 cell over HTTP range requests — the ergonomic range entry
+ *  (`openHdf5Range` + a `RangeReader`). Only the metadata + touched chunks are fetched.
+ *  CORS applies: point `url` at your range-capable proxy/mirror, not a CORS-blocked
+ *  NOAA bucket (recipes doc). */
+export async function openHdf5Url(url: string, opts?: RangeReaderOptions): Promise<Hdf5File> {
+  return openHdf5Range(await RangeReader.open(url, opts))
 }
