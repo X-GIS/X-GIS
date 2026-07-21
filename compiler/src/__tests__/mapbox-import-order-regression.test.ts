@@ -25,17 +25,17 @@ describe('Mapbox import sprite/glyphs ordering regression gate', () => {
 
   it('XGISMap constructor consumes pendingSpriteUrl / pendingGlyphsUrl in runSource', () => {
     const src = readFileSync(DEMO_RUNNER_PATH, 'utf8')
-    // Find the runSource function body
+    // Scope to the runSource body: from its declaration to the next top-level
+    // function. A fixed char window is brittle — the body outgrew a former
+    // 5000-char cap and pushed the `new XGISMap` construction (~5051 chars in)
+    // out of view, red-failing this ordering gate on unrelated growth. Bounding
+    // to the function keeps the assertion meaningful regardless of body size.
     const runSourceIdx = src.indexOf('async function runSource(')
     expect(runSourceIdx, 'runSource function definition missing').toBeGreaterThan(0)
-    // Bound the window at the NEXT top-level function, not a fixed char count: the body
-    // grew past a hardcoded 5000-char slice (the `new XGISMap` call landed at ~5051),
-    // silently failing this ordering gate on an unrelated demo-runner edit.
-    const afterRunSource = src.slice(runSourceIdx + 1)
-    const nextFn = afterRunSource.search(/\n(?:export )?(?:async )?function /)
+    const nextFnRel = src.slice(runSourceIdx + 1).search(/\n(?:async )?function /)
     const runSourceWindow = src.slice(
       runSourceIdx,
-      nextFn >= 0 ? runSourceIdx + 1 + nextFn : src.length,
+      nextFnRel >= 0 ? runSourceIdx + 1 + nextFnRel : undefined,
     )
     expect(runSourceWindow).toMatch(/pendingSpriteUrl/)
     expect(runSourceWindow).toMatch(/pendingGlyphsUrl/)
