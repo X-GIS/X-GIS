@@ -5,6 +5,9 @@
 import { describe, it, expect } from 'vitest'
 import { convertMapboxStyle } from '../convert/mapbox-to-xgis'
 import { convertHeatmapLayer } from '../convert/layers-heatmap'
+import { Lexer, Parser, lower, emitCommands } from '../index'
+import { optimize } from '../ir/optimize'
+import { withPragma } from './_pragma'
 
 describe('heatmap layer conversion', () => {
   it('basic heatmap emits a heatmap layer body (not SKIPPED)', () => {
@@ -65,9 +68,9 @@ describe('heatmap layer conversion', () => {
     expect(out).not.toContain('SKIPPED')
   })
 
-  it('custom heatmap-color warns it falls back to the default ramp', () => {
+  it('custom heatmap-color linear ramp emits the density bracket binding', () => {
     const warnings: string[] = []
-    convertHeatmapLayer(
+    const out = convertHeatmapLayer(
       {
         id: 'h',
         type: 'heatmap',
@@ -86,7 +89,121 @@ describe('heatmap layer conversion', () => {
       } as never,
       warnings,
     )
+    // Colours normalise to 8-digit hex; input is the heatmap_density identifier.
+    expect(out).toContain(
+      'heatmap-color-[interpolate(heatmap_density, 0, #0000ff00, 1, #ff0000ff)]',
+    )
+    expect(warnings.some((w) => w.includes('heatmap-color'))).toBe(false)
+  })
+
+  it('step heatmap-color emits duplicated boundary stops (hard edges)', () => {
+    const warnings: string[] = []
+    const out = convertHeatmapLayer(
+      {
+        id: 'h',
+        type: 'heatmap',
+        source: 's',
+        paint: {
+          'heatmap-color': ['step', ['heatmap-density'], '#000000', 0.5, '#ffffff'],
+        },
+      } as never,
+      warnings,
+    )
+    // 0 → black, boundary-ε → black, boundary → white.
+    expect(out).toContain('heatmap-color-[interpolate(heatmap_density, 0, #000000ff, ')
+    expect(out).toContain('0.5, #ffffffff)]')
+    expect(warnings.some((w) => w.includes('heatmap-color'))).toBe(false)
+  })
+
+  it('exponential heatmap-color densifies to piecewise-linear stops', () => {
+    const warnings: string[] = []
+    const out = convertHeatmapLayer(
+      {
+        id: 'h',
+        type: 'heatmap',
+        source: 's',
+        paint: {
+          'heatmap-color': [
+            'interpolate',
+            ['exponential', 2],
+            ['heatmap-density'],
+            0,
+            '#000000',
+            1,
+            '#ffffff',
+          ],
+        },
+      } as never,
+      warnings,
+    )
+    const m = out.match(/heatmap-color-\[interpolate\(heatmap_density, ([^\]]+)\)\]/)
+    expect(m).not.toBeNull()
+    // 1 raw first stop + 6 densified samples = 7 (offset, colour) pairs.
+    expect(m![1]!.split(', ').length).toBe(14)
+    expect(warnings.some((w) => w.includes('heatmap-color'))).toBe(false)
+  })
+
+  it('non-constant heatmap-color stop colours warn + fall back to the default ramp', () => {
+    const warnings: string[] = []
+    const out = convertHeatmapLayer(
+      {
+        id: 'h',
+        type: 'heatmap',
+        source: 's',
+        paint: {
+          'heatmap-color': [
+            'interpolate',
+            ['linear'],
+            ['heatmap-density'],
+            0,
+            ['get', 'c'],
+            1,
+            '#ff0000',
+          ],
+        },
+      } as never,
+      warnings,
+    )
+    expect(out).not.toContain('heatmap-color-[')
     expect(warnings.some((w) => w.includes('heatmap-color'))).toBe(true)
+  })
+
+  it('heatmap-color ramp reaches the ShowCommand as RGBA stop tuples', () => {
+    const style = {
+      version: 8,
+      sources: { quakes: { type: 'geojson', data: { type: 'FeatureCollection', features: [] } } },
+      layers: [
+        {
+          id: 'quake-heat',
+          type: 'heatmap',
+          source: 'quakes',
+          paint: {
+            'heatmap-color': [
+              'interpolate',
+              ['linear'],
+              ['heatmap-density'],
+              0,
+              'rgba(0,0,255,0)',
+              0.5,
+              '#00ff00',
+              1,
+              '#ff0000',
+            ],
+          },
+        },
+      ],
+    }
+    const xgis = convertMapboxStyle(style as never)
+    let ir = lower(new Parser(new Lexer(withPragma(xgis)).tokenize()).parse())
+    ir = optimize(ir)
+    const cmds = emitCommands(ir)
+    const heat = cmds.shows.find((s) => s.isHeatmap)
+    expect(heat).toBeDefined()
+    expect(heat!.heatmapColorStops).toEqual([
+      { offset: 0, rgba: [0, 0, 1, 0] },
+      { offset: 0.5, rgba: [0, 1, 0, 1] },
+      { offset: 1, rgba: [1, 0, 0, 1] },
+    ])
   })
 
   it('visibility:none emits visible:false', () => {

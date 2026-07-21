@@ -36,9 +36,8 @@ export const SOURCE_TYPES: readonly CoverageEntry[] = [
   },
   {
     name: 'raster-dem',
-    status: 'partial',
-    impact: 'medium',
-    note: '#777 Phase II — source threads encoding / tileSize (+ custom unpack factors); the DEM is fetched + RGBA8-decoded (mapbox / terrarium / custom) in the HillshadeRenderer. End-to-end relief draw pending pass wiring + real-GPU A/B (INC-5/6); terrain vertex displacement is future (II6).',
+    status: 'supported',
+    note: '#777 Phase II — source threads encoding / tileSize (+ custom unpack factors); the DEM is fetched, RGBA8-decoded (mapbox / terrarium / custom) and drawn as shaded relief by the HillshadeRenderer. Feeds hillshade layers only; 3D terrain vertex displacement is the separate top-level `terrain` row.',
     source: 'sources.ts',
   },
   {

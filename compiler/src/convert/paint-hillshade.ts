@@ -3,12 +3,17 @@
 // `addRasterScalar`): constant-form emit, spec-default no-op suppression, and
 // warn-on-non-constant. Called by the thin dispatcher in paint.ts.
 //
-// MVP scope (D5): single-source constant forms only. The spec types
-// `hillshade-illumination-direction` / `-altitude` as numberArray and
-// `hillshade-shadow-color` / `-highlight-color` as colorArray (multidirectional
-// / multi-source lighting); a >1-length array warns "multidirectional
-// (multi-source) not supported" and uses element 0. Non-constant
-// (interpolate / data-driven) forms warn + drop (spec default → suppressed).
+// Scope: constant forms. The spec types `hillshade-illumination-direction` /
+// `-altitude` as numberArray and `hillshade-shadow-color` / `-highlight-color`
+// as colorArray, and allows multiple light sources ONLY under
+// `hillshade-method: multidirectional` — there the arrays normalise per
+// MapLibre (N = max length, short arrays pad by repeating their last element)
+// and sources 2..4 emit as numbered utilities
+// (`hillshade-illumination-direction2-…`); >4 sources truncate with a warning
+// (the runtime uniform carries 4). Under any other method a >1 array warns and
+// uses element 0 (matching MapLibre, whose non-multidirectional shaders read
+// only source 0). Non-constant (interpolate / data-driven) forms warn + drop
+// (spec default → suppressed).
 import type { MapboxLayer } from './types'
 import { colorToXgis } from './colors'
 import { unwrapLiteralNumeric } from './paint-helpers'
@@ -65,9 +70,10 @@ function addHillshadeScalar(
   )
 }
 
-/** Emit a `numberArray`-typed illumination scalar (direction / altitude). MVP
- *  uses the FIRST source; a >1-length array warns "multidirectional
- *  (multi-source) not supported". Non-constant forms warn + drop. */
+/** Emit a `numberArray`-typed illumination scalar (direction / altitude) for a
+ *  NON-multidirectional method: only source 0 is lit (matching MapLibre, whose
+ *  standard/basic/combined/igor shaders read u_azimuths[0]), so a >1-length
+ *  array warns and uses the first element. Non-constant forms warn + drop. */
 function addIlluminationScalar(
   out: string[],
   util: string,
@@ -82,7 +88,7 @@ function addIlluminationScalar(
   if (Array.isArray(v)) {
     if (v.length > 1) {
       warnings.push(
-        `Layer "${layerId}" — paint.${prop}: multidirectional (multi-source) not supported — using the first of ${v.length} directions.`,
+        `Layer "${layerId}" — paint.${prop}: multiple illumination sources apply only to hillshade-method: multidirectional — using the first of ${v.length}.`,
       )
     }
     v = v.length > 0 ? unwrapLiteral(v[0]) : undefined
@@ -95,6 +101,45 @@ function addIlluminationScalar(
   warnings.push(
     `Layer "${layerId}" — paint.${prop}: non-constant form not yet supported for hillshade — value dropped: ${JSON.stringify(raw).slice(0, 60)}`,
   )
+}
+
+/** Parse a `numberArray` prop into a constant number[]. A bare number wraps to
+ *  a 1-array; an empty array or any non-numeric element returns null (the
+ *  caller warns + falls back to the spec default). */
+function readNumberArray(raw: unknown): number[] | null {
+  if (raw === undefined || raw === null) return null
+  const v = unwrapLiteral(raw)
+  const nums = (Array.isArray(v) ? v : [v]).map(unwrapLiteral)
+  const out: number[] = []
+  for (const n of nums) {
+    if (typeof n !== 'number' || !Number.isFinite(n)) return null
+    out.push(n)
+  }
+  return out.length > 0 ? out : null
+}
+
+/** Parse a `colorArray` prop into constant hexes. A single colour (string /
+ *  rgb-tuple / colour-fn expression head) wraps to a 1-array; any element that
+ *  fails colorToXgis returns null (colorToXgis already warned). */
+function readColorArray(raw: unknown, warnings: string[]): string[] | null {
+  if (raw === undefined || raw === null) return null
+  const v = unwrapLiteral(raw)
+  let items: unknown[]
+  if (Array.isArray(v)) {
+    const head = v[0]
+    const isSingleColorOrExpr =
+      typeof head === 'string' && COLOR_OR_EXPR_HEADS.has(head.toLowerCase())
+    items = isSingleColorOrExpr ? [v] : v
+  } else {
+    items = [v]
+  }
+  const out: string[] = []
+  for (const item of items) {
+    const hex = colorToXgis(unwrapLiteral(item), warnings)
+    if (hex === null) return null
+    out.push(hex)
+  }
+  return out.length > 0 ? out : null
 }
 
 /** Emit a hillshade colour utility (`<util>-<hex>`). `colorArray` props
@@ -121,7 +166,7 @@ function addHillshadeColor(
       // Array OF colours (colorArray) — multi-source lighting.
       if (v.length > 1) {
         warnings.push(
-          `Layer "${layerId}" — paint.${prop}: multi-source colour array (multidirectional) not supported — using the first of ${v.length} colours.`,
+          `Layer "${layerId}" — paint.${prop}: multiple illumination sources apply only to hillshade-method: multidirectional — using the first of ${v.length} colours.`,
         )
       }
       v = v.length > 0 ? unwrapLiteral(v[0]) : undefined
@@ -139,25 +184,64 @@ export function emitHillshadePaint(
   p: Record<string, unknown>,
   warnings: string[],
 ): void {
-  // Illumination direction / altitude (numberArray, single-source MVP).
-  addIlluminationScalar(
-    out,
-    'hillshade-illumination-direction',
-    p['hillshade-illumination-direction'],
-    335,
-    layer.id,
-    'hillshade-illumination-direction',
-    warnings,
-  )
-  addIlluminationScalar(
-    out,
-    'hillshade-illumination-altitude',
-    p['hillshade-illumination-altitude'],
-    45,
-    layer.id,
-    'hillshade-illumination-altitude',
-    warnings,
-  )
+  // Method first — it decides whether the illumination arrays mean multiple
+  // sources (multidirectional) or just source 0 (every other method).
+  const method = unwrapLiteral(p['hillshade-method'])
+  const isMultidirectional = method === 'multidirectional'
+
+  if (isMultidirectional) {
+    // MapLibre normalisation: N = max(array lengths), short arrays pad by
+    // repeating their last element. The runtime uniform carries 4 sources —
+    // longer arrays truncate with a warning.
+    const dirs = readNumberArray(p['hillshade-illumination-direction']) ?? [335]
+    const alts = readNumberArray(p['hillshade-illumination-altitude']) ?? [45]
+    const shadows = readColorArray(p['hillshade-shadow-color'], warnings) ?? ['#000000']
+    const highlights = readColorArray(p['hillshade-highlight-color'], warnings) ?? ['#ffffff']
+    let n = Math.max(dirs.length, alts.length, shadows.length, highlights.length)
+    if (n > 4) {
+      warnings.push(
+        `Layer "${layer.id}" — hillshade multidirectional: ${n} illumination sources authored; the runtime supports 4 — extra sources dropped.`,
+      )
+      n = 4
+    }
+    const at = <T>(arr: readonly T[], i: number): T => arr[Math.min(i, arr.length - 1)]!
+    // Source 1 keeps the spec-default suppression (byte-identical to the
+    // single-source emit); sources 2..N are always explicit — the lowerer
+    // resolves a missing axis from source 1, so full emission keeps the
+    // repeat-last padding exact.
+    if (at(dirs, 0) !== 335) out.push(`hillshade-illumination-direction-${at(dirs, 0)}`)
+    if (at(alts, 0) !== 45) out.push(`hillshade-illumination-altitude-${at(alts, 0)}`)
+    if (at(shadows, 0).toLowerCase() !== '#000000')
+      out.push(`hillshade-shadow-color-${at(shadows, 0)}`)
+    if (at(highlights, 0).toLowerCase() !== '#ffffff')
+      out.push(`hillshade-highlight-color-${at(highlights, 0)}`)
+    for (let i = 1; i < n; i++) {
+      out.push(`hillshade-illumination-direction${i + 1}-${at(dirs, i)}`)
+      out.push(`hillshade-illumination-altitude${i + 1}-${at(alts, i)}`)
+      out.push(`hillshade-shadow-color${i + 1}-${at(shadows, i)}`)
+      out.push(`hillshade-highlight-color${i + 1}-${at(highlights, i)}`)
+    }
+  } else {
+    // Illumination direction / altitude (numberArray; source 0 only here).
+    addIlluminationScalar(
+      out,
+      'hillshade-illumination-direction',
+      p['hillshade-illumination-direction'],
+      335,
+      layer.id,
+      'hillshade-illumination-direction',
+      warnings,
+    )
+    addIlluminationScalar(
+      out,
+      'hillshade-illumination-altitude',
+      p['hillshade-illumination-altitude'],
+      45,
+      layer.id,
+      'hillshade-illumination-altitude',
+      warnings,
+    )
+  }
 
   // hillshade-illumination-anchor: viewport (default) is byte-identical and
   // emits nothing; map → world-space light anchor flag (mirror of the raster
@@ -181,27 +265,30 @@ export function emitHillshadePaint(
     warnings,
   )
 
-  // shadow / highlight (colorArray, single-source MVP) + accent (single color).
-  addHillshadeColor(
-    out,
-    'hillshade-shadow-color',
-    p['hillshade-shadow-color'],
-    '#000000',
-    layer.id,
-    'hillshade-shadow-color',
-    warnings,
-    true,
-  )
-  addHillshadeColor(
-    out,
-    'hillshade-highlight-color',
-    p['hillshade-highlight-color'],
-    '#ffffff',
-    layer.id,
-    'hillshade-highlight-color',
-    warnings,
-    true,
-  )
+  // shadow / highlight (colorArray; the multidirectional branch above already
+  // emitted them per source) + accent (single color, every method).
+  if (!isMultidirectional) {
+    addHillshadeColor(
+      out,
+      'hillshade-shadow-color',
+      p['hillshade-shadow-color'],
+      '#000000',
+      layer.id,
+      'hillshade-shadow-color',
+      warnings,
+      true,
+    )
+    addHillshadeColor(
+      out,
+      'hillshade-highlight-color',
+      p['hillshade-highlight-color'],
+      '#ffffff',
+      layer.id,
+      'hillshade-highlight-color',
+      warnings,
+      true,
+    )
+  }
   addHillshadeColor(
     out,
     'hillshade-accent-color',
@@ -214,17 +301,16 @@ export function emitHillshadePaint(
   )
 
   // hillshade-method: standard (default) is byte-identical and emits nothing;
-  // basic is the GDAL-Lambert model; combined / igor / multidirectional emit
-  // the enum but warn that the (INC-3) renderer approximates them via basic.
-  const method = unwrapLiteral(p['hillshade-method'])
+  // all five MapLibre v5 methods (basic / combined / igor / multidirectional)
+  // are implemented in fs_hillshade.
   if (typeof method === 'string' && method !== 'standard') {
-    if (method === 'basic') {
-      out.push('hillshade-method-basic')
-    } else if (method === 'combined' || method === 'igor' || method === 'multidirectional') {
+    if (
+      method === 'basic' ||
+      method === 'combined' ||
+      method === 'igor' ||
+      method === 'multidirectional'
+    ) {
       out.push(`hillshade-method-${method}`)
-      warnings.push(
-        `Layer "${layer.id}" — hillshade-method: "${method}" approximated at runtime via the basic model (INC-3 fallback).`,
-      )
     } else {
       warnings.push(
         `Layer "${layer.id}" — hillshade-method: "${String(method).slice(0, 40)}" unrecognised; Mapbox spec allows standard | basic | combined | igor | multidirectional. Treated as standard.`,

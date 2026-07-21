@@ -38,6 +38,7 @@ import {
   circleTranslateYBindingHandler,
   fillExtrusionHeightBindingHandler,
   fillExtrusionBaseBindingHandler,
+  heatmapColorBindingHandler,
   bindingFallthroughHandler,
   translateConstUtilHandlers,
   circleTranslateConstUtilHandlers,
@@ -76,6 +77,7 @@ export const BINDING_HANDLERS: BindingHandler[] = [
   strokeBindingHandler,
   fillExtrusionHeightBindingHandler,
   fillExtrusionBaseBindingHandler,
+  heatmapColorBindingHandler,
   // LAST: numeric-const translate fallbacks + the X-GIS0005 catch-all.
   bindingFallthroughHandler,
 ]

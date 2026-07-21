@@ -133,6 +133,15 @@ export interface LayerAccumulator {
   hillshadeAccent: [number, number, number, number] | undefined
   hillshadeMethod: import('./property-types').HillshadeMethod | undefined
   hillshadeResamplingNearest: boolean | undefined
+  /** Multidirectional sources 2..4, sparse per-axis (index 0 = source 2). */
+  hillshadeExtraSources:
+    | {
+        direction?: number
+        altitude?: number
+        shadow?: [number, number, number, number]
+        highlight?: [number, number, number, number]
+      }[]
+    | undefined
   // Heatmap paint axes (Phase R). isHeatmap is the marker the converter's
   // `heatmap` utility sets; the rest carry the resolved scalars + ramp.
   isHeatmap: boolean | undefined

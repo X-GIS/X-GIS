@@ -14,7 +14,7 @@
 // ── Parallel-work registry ──────────────────────────────────────────
 // The table is ASSEMBLED from one descriptor file per layer type under
 // `capabilities/` (fill / line / symbol / circle / fill-extrusion /
-// background / raster). A change to one layer type's capabilities edits
+// background / raster / heatmap / hillshade). A change to one layer type's capabilities edits
 // ONLY that descriptor file, so independent axes in different layer types
 // never conflict in this table and can be implemented in parallel. To add
 // a new property's runtime support, append its row(s) to the matching
@@ -30,6 +30,7 @@ import { fillExtrusionCapabilities } from './capabilities/fill-extrusion'
 import { backgroundCapabilities } from './capabilities/background'
 import { rasterCapabilities } from './capabilities/raster'
 import { heatmapCapabilities } from './capabilities/heatmap'
+import { hillshadeCapabilities } from './capabilities/hillshade'
 
 export type { RuntimeCapability } from './capabilities/types'
 
@@ -42,6 +43,7 @@ export const RUNTIME_CAPABILITIES: readonly RuntimeCapability[] = [
   ...backgroundCapabilities,
   ...rasterCapabilities,
   ...heatmapCapabilities,
+  ...hillshadeCapabilities,
 ]
 
 /** Lookup a (layerType, property, variant) tuple. Returns undefined

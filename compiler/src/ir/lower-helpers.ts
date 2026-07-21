@@ -333,3 +333,41 @@ export function extractInterpolateZoomColorStops(
   }
   return stops.length >= 2 ? { base, stops } : null
 }
+
+/** Detect `interpolate(heatmap_density, o0, c0, o1, c1, …)` — the
+ *  heatmap-color ramp binding the converter emits — and extract the
+ *  density-offset → hex-colour stops. The converter pre-resolves curve
+ *  easing (exponential / cubic-bezier densify) and step boundaries into
+ *  plain ascending linear stops, so this only accepts that canonical
+ *  shape. Returns null when the AST isn't that exact shape (the caller
+ *  falls through to the X-GIS0005 unknown-binding diagnostic). */
+export function extractInterpolateDensityColorStops(
+  expr: AST.Expr,
+): Array<{ offset: number; value: string }> | null {
+  if (expr.kind !== 'FnCall') return null
+  if (expr.callee.kind !== 'Identifier' || expr.callee.name !== 'interpolate') return null
+  const args = expr.args
+  const input = args[0]
+  if (input === undefined || input.kind !== 'Identifier' || input.name !== 'heatmap_density')
+    return null
+  const remaining = args.length - 1
+  if (remaining < 4 || remaining % 2 !== 0) return null
+  const stops: Array<{ offset: number; value: string }> = []
+  for (let i = 1; i + 1 < args.length; i += 2) {
+    const oArg = args[i]
+    const vArg = args[i + 1]
+    if (oArg === undefined || vArg === undefined || oArg.kind !== 'NumberLiteral') return null
+    const o = oArg.value
+    if (!Number.isFinite(o) || o < 0 || o > 1) return null
+    // Ascending offsets only — a scrambled ramp would bake a garbage LUT.
+    if (stops.length > 0 && o < stops[stops.length - 1]!.offset) return null
+    if (vArg.kind === 'ColorLiteral') {
+      stops.push({ offset: o, value: vArg.value })
+    } else if (vArg.kind === 'StringLiteral' && /^#[0-9a-fA-F]{3,8}$/.test(vArg.value)) {
+      stops.push({ offset: o, value: vArg.value })
+    } else {
+      return null
+    }
+  }
+  return stops.length >= 2 ? stops : null
+}

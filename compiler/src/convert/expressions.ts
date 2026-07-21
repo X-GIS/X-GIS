@@ -91,7 +91,7 @@ function _exprToXgisImpl(v: unknown, warnings: string[]): string | null {
   if (typeof unsupportedOp === 'string') {
     const KNOWN_UNSUPPORTED: Record<string, string> = {
       'heatmap-density':
-        'Heatmap density accessor — heatmap layer rendering is Batch 3 (accumulation MRT + Gaussian blur); no runtime support today.',
+        'Heatmap density accessor — only meaningful inside a heatmap-color ramp, which the heatmap converter lowers separately (layers-heatmap.ts heatmapRampToXgis); it has no value in a generic expression context.',
       'line-progress':
         'Line-progress accessor — line-gradient requires source.lineMetrics + a per-fragment progress varying; not yet implemented.',
       'sky-radial-progress': 'Sky-radial-progress accessor — sky layer rendering not implemented.',
