@@ -183,6 +183,9 @@ export class PipelineFactory {
   private _fillMaterials: { flat: Material; ground: Material } | null = null
   /** LIVE per-style fill Material map (grown by registerFillMaterials as variant pipelines build). */
   private _fillPerStyle = new Map<GPURenderPipeline, { mat: Material; variant: number }>()
+  /** #1252 — per-style EXTRUDE twins, keyed by the variant's extruded pipelines
+   *  (feature layout). Only populated for needsFeatureBuffer variants. */
+  private _fillPerStyleExtrude = new Map<GPURenderPipeline, { mat: Material; variant: number }>()
   /** Opaque 3D-extrude fill Material (default shader; the base extrude pipelines, not per-variant). */
   private _fillExtrudeMaterial: Material | null = null
   /** pointer-events:none (no-pick, pick writeMask 0) twin of _fillExtrudeMaterial — only built when
@@ -204,6 +207,7 @@ export class PipelineFactory {
         groundTest: this.fillPipelineGroundFallback,
       },
       perStyle: this._fillPerStyle,
+      perStyleExtrude: this._fillPerStyleExtrude,
       extrude: this._fillExtrudeMaterial
         ? {
             mat: this._fillExtrudeMaterial,
@@ -265,6 +269,43 @@ export class PipelineFactory {
     this._fillPerStyle.set(pipelines.fillPipelineFallback, { mat: flat, variant: 1 })
     this._fillPerStyle.set(pipelines.fillPipelineGround, { mat: ground, variant: 0 })
     this._fillPerStyle.set(pipelines.fillPipelineGroundFallback, { mat: ground, variant: 1 })
+
+    // #1252 — a data-driven fill that ALSO extrudes needs a feature-layout
+    // extrude Material twin (fs_fill_extrude re-lights the feat_data colour).
+    // Only built for needsFeatureBuffer variants (the ones the bucket scheduler
+    // routes to fillPipelineExtruded); constant / zoom-interp extrudes stay on
+    // the shared base extrude twin. The twin owns all 6 variants (opaque
+    // write/test + the #1080 front-shell four), matching buildExtrudeMaterial,
+    // so a translucent data-driven extrusion gets the front-shell two-draw too.
+    if (variant.needsFeatureBuffer) {
+      const extrudeMat = buildExtrudeMaterial({
+        rhi: this.ctx.rhi,
+        shader: wgsl,
+        format,
+        sampleCount: getSampleCount(),
+        bindGroupLayout: this._layoutFor(variant),
+        vertexLayout: toVertexBufferLayout(POLYGON_EXTRUDED_FORMAT),
+        pickEnabled: isPickEnabled(),
+      })
+      this._fillPerStyleExtrude.set(pipelines.fillPipelineExtruded, { mat: extrudeMat, variant: 0 })
+      this._fillPerStyleExtrude.set(pipelines.fillPipelineExtrudedFallback, {
+        mat: extrudeMat,
+        variant: 1,
+      })
+      // NoPick keys → same twin. When picking is off these ARE the pickable
+      // objects (idempotent .set); when on, a pointer-events:none data-driven
+      // extrusion routes here (the twin still writes pick — a minor pre-existing
+      // imperfection for that rare combo, not a crash; a dedicated no-pick twin
+      // is a follow-up).
+      this._fillPerStyleExtrude.set(pipelines.fillPipelineExtrudedNoPick, {
+        mat: extrudeMat,
+        variant: 0,
+      })
+      this._fillPerStyleExtrude.set(pipelines.fillPipelineExtrudedFallbackNoPick, {
+        mat: extrudeMat,
+        variant: 1,
+      })
+    }
   }
   /** Ground-layer fill — identical to fillPipeline except depth
    *  test/write are off. Selected at draw time for any layer whose
@@ -1192,6 +1233,8 @@ export class PipelineFactory {
       fillFallback: GPURenderPipelineDescriptor
       fillGroundFallback: GPURenderPipelineDescriptor
       lineFallback: GPURenderPipelineDescriptor
+      fillExtruded: GPURenderPipelineDescriptor
+      fillExtrudedFallback: GPURenderPipelineDescriptor
     }[]
     pickEnabled: boolean
     wgsl: string
@@ -1236,6 +1279,9 @@ export class PipelineFactory {
     // @location), so the variant builders cannot drift from vs_main_ecef.
     const vertexBufferLayout = toVertexBufferLayout(POLYGON_FILL_FORMAT)
     const lineVertexBufferLayout = toVertexBufferLayout(LINE_FORMAT)
+    // #1252 — the extruded vertex layout (wall/roof mesh, POLYGON_EXTRUDED_FORMAT)
+    // for the variant's fs_fill_extrude pipeline, so a data-driven fill extrudes.
+    const extrudedVertexBufferLayout = toVertexBufferLayout(POLYGON_EXTRUDED_FORMAT)
 
     const buildSetDesc = (targets: GPUColorTargetState[], suffix: string) => ({
       fill: {
@@ -1292,6 +1338,36 @@ export class PipelineFactory {
         multisample: msaaState,
         label: `line-fallback-${variant.key}${suffix}`,
       },
+      // #1252 — the variant's EXTRUDED pipelines. Same two-sided (cullMode
+      // 'none') + STENCIL_WRITE/STENCIL_TEST state as the base extruded family
+      // (buildSet.fillExtruded), but bound to THIS variant's layout so
+      // fs_fill_extrude can sample feat_data[fid] for the per-feature colour.
+      fillExtruded: {
+        layout: pipelineLayout,
+        vertex: {
+          module,
+          entryPoint: 'vs_main_ecef_extruded',
+          buffers: [extrudedVertexBufferLayout],
+        },
+        fragment: { module, entryPoint: 'fs_fill_extrude', targets },
+        primitive: { topology: 'triangle-list' as const, cullMode: 'none' as const },
+        depthStencil: STENCIL_WRITE,
+        multisample: msaaState,
+        label: `fill-extruded-${variant.key}${suffix}`,
+      },
+      fillExtrudedFallback: {
+        layout: pipelineLayout,
+        vertex: {
+          module,
+          entryPoint: 'vs_main_ecef_extruded',
+          buffers: [extrudedVertexBufferLayout],
+        },
+        fragment: { module, entryPoint: 'fs_fill_extrude', targets },
+        primitive: { topology: 'triangle-list' as const, cullMode: 'none' as const },
+        depthStencil: STENCIL_TEST,
+        multisample: msaaState,
+        label: `fill-extruded-fallback-${variant.key}${suffix}`,
+      },
     })
 
     const descriptors = [buildSetDesc(colorTargets, '')]
@@ -1318,6 +1394,8 @@ export class PipelineFactory {
         fillFallback: await device.createRenderPipelineAsync(set.fillFallback),
         fillGroundFallback: await device.createRenderPipelineAsync(set.fillGroundFallback),
         lineFallback: await device.createRenderPipelineAsync(set.lineFallback),
+        fillExtruded: await device.createRenderPipelineAsync(set.fillExtruded),
+        fillExtrudedFallback: await device.createRenderPipelineAsync(set.fillExtrudedFallback),
       })),
     )
     const p = built[0]
@@ -1336,6 +1414,10 @@ export class PipelineFactory {
         fillPipelineFallbackNoPick: np.fillFallback,
         fillPipelineGroundFallbackNoPick: np.fillGroundFallback,
         linePipelineFallbackNoPick: np.lineFallback,
+        fillPipelineExtruded: p.fillExtruded,
+        fillPipelineExtrudedFallback: p.fillExtrudedFallback,
+        fillPipelineExtrudedNoPick: np.fillExtruded,
+        fillPipelineExtrudedFallbackNoPick: np.fillExtrudedFallback,
       },
       wgsl,
     }
@@ -1395,6 +1477,8 @@ export class PipelineFactory {
     // @location), so the variant builders cannot drift from vs_main_ecef.
     const vertexBufferLayout = toVertexBufferLayout(POLYGON_FILL_FORMAT)
     const lineVertexBufferLayout = toVertexBufferLayout(LINE_FORMAT)
+    // #1252 — extruded vertex layout for the variant's data-driven extrude pipeline.
+    const extrudedVertexBufferLayout = toVertexBufferLayout(POLYGON_EXTRUDED_FORMAT)
 
     const buildSet = (targets: GPUColorTargetState[], suffix: string) => ({
       fill: device.createRenderPipeline({
@@ -1464,6 +1548,34 @@ export class PipelineFactory {
         multisample: msaaState,
         label: `line-fallback-${variant.key}${suffix}`,
       }),
+      // #1252 — the variant's data-driven EXTRUDED pipelines (see the async
+      // builder for the rationale). Two-sided + STENCIL_WRITE/TEST, feature layout.
+      fillExtruded: device.createRenderPipeline({
+        layout: pipelineLayout,
+        vertex: {
+          module,
+          entryPoint: 'vs_main_ecef_extruded',
+          buffers: [extrudedVertexBufferLayout],
+        },
+        fragment: { module, entryPoint: 'fs_fill_extrude', targets },
+        primitive: { topology: 'triangle-list', cullMode: 'none' },
+        depthStencil: STENCIL_WRITE,
+        multisample: msaaState,
+        label: `fill-extruded-${variant.key}${suffix}`,
+      }),
+      fillExtrudedFallback: device.createRenderPipeline({
+        layout: pipelineLayout,
+        vertex: {
+          module,
+          entryPoint: 'vs_main_ecef_extruded',
+          buffers: [extrudedVertexBufferLayout],
+        },
+        fragment: { module, entryPoint: 'fs_fill_extrude', targets },
+        primitive: { topology: 'triangle-list', cullMode: 'none' },
+        depthStencil: STENCIL_TEST,
+        multisample: msaaState,
+        label: `fill-extruded-fallback-${variant.key}${suffix}`,
+      }),
     })
 
     const p = buildSet(colorTargets, '')
@@ -1483,6 +1595,10 @@ export class PipelineFactory {
         fillPipelineFallbackNoPick: np.fillFallback,
         fillPipelineGroundFallbackNoPick: np.fillGroundFallback,
         linePipelineFallbackNoPick: np.lineFallback,
+        fillPipelineExtruded: p.fillExtruded,
+        fillPipelineExtrudedFallback: p.fillExtrudedFallback,
+        fillPipelineExtrudedNoPick: np.fillExtruded,
+        fillPipelineExtrudedFallbackNoPick: np.fillExtrudedFallback,
       },
       wgsl,
     }

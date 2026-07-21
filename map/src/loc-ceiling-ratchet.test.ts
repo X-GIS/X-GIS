@@ -132,7 +132,9 @@ const CEILINGS: Record<string, number> = {
   // group = per-draw validation flood) + extruded shows draw no ground
   // outline (MapLibre fill-extrusion semantics; ground strokes composited
   // across raised roofs).
-  'map/src/render/vector-tile-renderer.ts': 4739,
+  // 4739→4740 (#1252): the two fillPipelineExtrudedOverride params + their use
+  // at the primary/fallback extrude-pipeline selection (data-driven fill extrude).
+  'map/src/render/vector-tile-renderer.ts': 4740,
   // 4232→4237 (#1000 heatmap relocate): the heatmap density-target OWNERSHIP
   // extracted to render/heatmap-targets.ts; map keeps only the irreducible
   // composition-root wiring — the `heatmapTargets` field + its import (mirrors
@@ -359,7 +361,14 @@ const CEILINGS: Record<string, number> = {
   // threading + rationale comments; the emit is byte-identical (§2 — no
   // extract-worthy unit, the dedup lives at the existing build sites). Lower as
   // #991 decomposes the render SCC.
-  'map/src/render/pipeline-factory.ts': 1505,
+  // 1505→1613 (#1252): the data-driven extrude pipeline family — the
+  // fillExtruded/fallback descriptors in BOTH variant builders (sync +
+  // async), the CachedPipeline return mappings, and the per-style extrude
+  // Material twin build + registration (buildExtrudeMaterial over the variant
+  // WGSL, feature layout). Cohesive with the existing per-style flat/ground
+  // twin machinery it mirrors; lower as #991 decomposes the render SCC.
+  // (measured 1621 post-prettier reflow of the extruded descriptors.)
+  'map/src/render/pipeline-factory.ts': 1621,
   'map/src/camera/camera.ts': 1419,
   'map/src/shaders/dsl/line.ts': 1373,
   // 1315→1339 (#1154): the pattern_active struct field (+ its rationale comment)
@@ -377,7 +386,12 @@ const CEILINGS: Record<string, number> = {
   // extrude VS (roof lighting was anchor-relative → continent-scale gradient) +
   // the exact |N_enu.z| wall/roof discriminator; oracle in
   // core/extrude-light-frame.test.ts. Stacked on the entry override — measured 1368.
-  'map/src/shaders/dsl/polygon.ts': 1368,
+  // 1368→1448 (#1252): the data-driven extrude fragment path — shade_geom
+  // varying + the VS d_geom/vgrad_factor split (v_color byte-identical), the
+  // fs_fill_extrude composer placeholder, and default/variantExtrudeReturnStmts
+  // (fragment re-lighting of the feat_data colour). The shading math is a
+  // faithful replay of the VS lighting; not extract-worthy (§2).
+  'map/src/shaders/dsl/polygon.ts': 1448,
   // 1290→1314 (#1155 F3): cold-start burst tick budget — the `_coldStartBurst`
   // field + `_BURST_TICK_BUDGET` + `setColdStartBurst` + the burst-selected
   // budget in resetCompileBudget's backend tick loop.

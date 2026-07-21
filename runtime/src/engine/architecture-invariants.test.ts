@@ -365,7 +365,12 @@ const LOC_CEILINGS: Record<string, number> = {
   // extrude VS (anchor-relative roof lighting drifted into a continent-scale gradient)
   // + the exact |N_enu.z| wall/roof discriminator (|N_ecef.z| misclassified equatorial
   // roofs); CPU oracle: map/src/core/extrude-light-frame.test.ts. Measured 1368.
-  'map/src/shaders/dsl/polygon.ts': 1368,
+  // 1368→1448 (#1252): the data-driven extrude fragment path — shade_geom varying +
+  // the VS d_geom/vgrad_factor split (v_color byte-identical) + the fs_fill_extrude
+  // composer placeholder + default/variantExtrudeReturnStmts (fragment re-lighting of
+  // the feat_data colour). The SECOND ceiling authority (§12 second-ratchet); kept in
+  // sync with map/src/loc-ceiling-ratchet.test.ts.
+  'map/src/shaders/dsl/polygon.ts': 1448,
   // camera.ts relocated to @xgis/engine (engine/src/projection/camera.ts) in
   // P3 Step 3 — no longer under a SRC_DIRS walk, so its LOC ceiling is tracked
   // by the engine package's own ratchet, not this runtime gate.
