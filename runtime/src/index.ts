@@ -1,4 +1,6 @@
 export { XGISMap } from '@xgis/map'
+// #1262 — DOM overlay API anchored to geo coordinates.
+export { Marker, Popup, type MarkerAnchor, type MarkerOptions, type PopupOptions } from '@xgis/map'
 export { StatsPanel, StatsTracker, type RenderStats } from '@xgis/map'
 export { Camera } from '@xgis/map'
 export { MapRendererContent } from '@xgis/map'

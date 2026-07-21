@@ -4,7 +4,7 @@ import * as monaco from 'monaco-editor'
 import editorWorker from 'monaco-editor/esm/vs/editor/editor.worker?worker'
 import tsWorker from 'monaco-editor/esm/vs/language/typescript/ts.worker?worker'
 
-import { XGISMap, lonLatToMercator } from '@xgis/runtime'
+import { XGISMap, lonLatToMercator, Marker, Popup } from '@xgis/runtime'
 import { haversineDistance } from '@xgis/compiler'
 import { SCENE_BUILDER_TWINS } from '@xgis/compiler/builder/twin-corpus'
 // Raw text of the SAME module — the JS tab (#1194 A3b) extracts each twin's
@@ -1421,6 +1421,11 @@ async function runSource(source: string, label: string) {
     // map._elapsedMs, map.vectorTileShows, etc. without re-wiring the
     // demo runner. Keep it lightweight; not part of the public API.
     ;(window as unknown as { __xgisMap?: unknown }).__xgisMap = currentMap
+    // #1262 e2e hook — expose the DOM-overlay constructors so the
+    // _marker-popup-gate spec can create markers/popups without bundling
+    // the map package itself. Dev/e2e only; not part of the public API.
+    ;(window as unknown as { __xgisMarker?: unknown }).__xgisMarker = Marker
+    ;(window as unknown as { __xgisPopup?: unknown }).__xgisPopup = Popup
     // #1194 e2e hook — lazy SceneBuilder access for the run()↔runScene
     // twin-render gate (_scene-builder-twin.spec.ts) + future gallery JS
     // tabs (A3). Loader, not instance: the spec builds its own scene.

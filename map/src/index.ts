@@ -200,6 +200,8 @@ export * from './controller'
 export * from './feature-update-queue'
 export * from './interpreter'
 export * from './layer'
+// #1262 — DOM overlay API (Marker / Popup) anchored to geo coordinates.
+export * from './marker'
 export * from './show-source-maps'
 export * from './geojson-polar-cap-show'
 export * from './synthetic-earth-surface-show'
