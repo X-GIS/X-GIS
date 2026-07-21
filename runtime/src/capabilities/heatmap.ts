@@ -33,8 +33,8 @@ export const heatmapCapabilities: readonly RuntimeCapability[] = [
     property: 'heatmap-color',
     layerType: 'heatmap',
     variant: 'constant',
-    supported: false,
-    note: 'Custom density→colour ramp not yet baked into the LUT; the runtime default Mapbox ramp is applied.',
+    supported: true,
+    note: 'Custom density→colour ramp baked into the 256×1 LUT (ShowCommand.heatmapColorStops → HeatmapRenderer rampBytes). Exponential / cubic-bezier curves and step ramps densify to linear stops at convert time.',
   },
   { property: 'heatmap-opacity', layerType: 'heatmap', variant: 'constant', supported: true },
   {

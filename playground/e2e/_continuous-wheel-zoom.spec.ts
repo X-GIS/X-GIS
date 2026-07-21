@@ -68,25 +68,34 @@ test.describe('Continuous wheel-zoom: bounded backend state under sustained gest
           const r = renderer as any
           if (r.__telemetryInstalled) continue
           r.__telemetryInstalled = true
-          const origAcquire = r.acquireBuffer.bind(r)
-          r.acquireBuffer = (size: number, usage: number, label: string) => {
-            let bucket = 2048
-            while (bucket < size) bucket *= 2
-            const key = `${bucket}:${usage}`
-            const pool = r._bufferPool?.get?.(key)
-            if (pool && pool.length > 0) stats.bufferPoolHits++
-            else stats.bufferPoolMisses++
-            return origAcquire(size, usage, label)
+          // #1231 — the old acquireBuffer/_bufferPool wrap died with a
+          // TypeError when the buffer pool moved to StagingBufferPool
+          // (r.stagingPool). Classify borrow() by the pool's created-count
+          // delta (created grows only on a fresh allocation = miss), and
+          // guard every internal so future renderer drift degrades to
+          // missing stats — never a page TypeError that kills the run.
+          const pool = r.stagingPool
+          if (typeof pool?.borrow === 'function' && typeof pool.getCreatedCount === 'function') {
+            const origBorrow = pool.borrow.bind(pool)
+            pool.borrow = async (byteLength: number) => {
+              const before = pool.getCreatedCount()
+              const slot = await origBorrow(byteLength)
+              if (pool.getCreatedCount() > before) stats.bufferPoolMisses++
+              else stats.bufferPoolHits++
+              return slot
+            }
           }
-          const origDoUpload = r.doUploadTile.bind(r)
-          r.doUploadTile = (key: number, data: unknown, sourceLayer = '') => {
-            const inner = r.gpuCache?.get?.(sourceLayer) as Map<number, unknown> | undefined
-            if (inner?.has?.(key)) stats.gpuCacheHits++
-            else stats.gpuCacheMisses++
-            return origDoUpload(key, data, sourceLayer)
+          if (typeof r.doUploadTile === 'function') {
+            const origDoUpload = r.doUploadTile.bind(r)
+            r.doUploadTile = (key: number, data: unknown, sourceLayer = '') => {
+              const inner = r.gpuCache?.get?.(sourceLayer) as Map<number, unknown> | undefined
+              if (inner?.has?.(key)) stats.gpuCacheHits++
+              else stats.gpuCacheMisses++
+              return origDoUpload(key, data, sourceLayer)
+            }
           }
           const catalog = r.source as { hasTileData?: (k: number, l?: string) => boolean }
-          if (catalog?.hasTileData) {
+          if (typeof catalog?.hasTileData === 'function') {
             const orig = catalog.hasTileData.bind(catalog)
             catalog.hasTileData = (k: number, l?: string): boolean => {
               const v = orig(k, l)

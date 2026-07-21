@@ -8,7 +8,10 @@ import { describe, it, expect } from 'vitest'
 import { convertMapboxStyle } from '../convert/mapbox-to-xgis'
 
 describe('precise unsupported-accessor warnings', () => {
-  it('heatmap-density warns with Batch 3 hint', () => {
+  it('heatmap-density outside a heatmap-color ramp warns it has no generic value', () => {
+    // The accessor IS supported inside heatmap-color (heatmapRampToXgis
+    // bakes the ramp); anywhere else it still has no value — the warning
+    // now points at that split instead of the retired Batch-3 roadmap.
     const style = {
       version: 8,
       sources: { s: { type: 'geojson', data: { type: 'FeatureCollection', features: [] } } },
@@ -22,7 +25,7 @@ describe('precise unsupported-accessor warnings', () => {
       ],
     }
     const code = convertMapboxStyle(style as never)
-    expect(code).toMatch(/\["heatmap-density"\] not yet supported.*Batch 3/)
+    expect(code).toMatch(/\["heatmap-density"\] not yet supported.*heatmap-color ramp/)
   })
 
   it('line-progress warns with lineMetrics hint', () => {

@@ -39,9 +39,8 @@ export const LAYER_TYPES: readonly CoverageEntry[] = [
   },
   {
     name: 'hillshade',
-    status: 'partial',
-    impact: 'medium',
-    note: '#777 Phase II — registered converter (paint-hillshade.ts) + DSL fs_hillshade (DEM decode → Sobel → standard/basic shade) + HillshadeRenderer/Draper landed (INC-1..3). Single-source constant paint only; multidirectional + resampling:linear smoothing + cross-tile edge backfill deferred. End-to-end draw pending pass wiring + real-GPU A/B (INC-5/6).',
+    status: 'supported',
+    note: '#777 Phase II — rendered end-to-end on both backends: raster-dem DEM decode → 3×3 Sobel → the full MapLibre v5 method set (standard / basic / combined / igor / multidirectional, up to 4 sources) in HillshadeRenderer/HillshadePass. Residuals: resampling:linear smoothing (its own partial row) and the ≤1-DEM-texel cross-tile edge seam (CLAMP_TO_EDGE; backfill deferred).',
     source: 'layer-converters/generic.ts',
   },
   {

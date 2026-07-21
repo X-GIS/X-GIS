@@ -27,9 +27,8 @@ export const PAINT_HEATMAP: readonly CoverageEntry[] = [
   },
   {
     name: 'heatmap-color',
-    status: 'partial',
-    impact: 'medium',
-    note: 'Density → colour ramp. The runtime applies its default Mapbox ramp; a custom `interpolate` over `heatmap-density` is not yet baked into the LUT (converter warns).',
+    status: 'supported',
+    note: 'Density → colour ramp. Custom `interpolate` over `heatmap-density` (linear exactly; exponential / cubic-bezier densified to piecewise-linear at convert time) and `step` ramps lower to `heatmap-color-[interpolate(heatmap_density, …)]` and bake into the runtime 256×1 LUT. Non-constant stop colours warn + fall back to the default Mapbox ramp.',
     source: 'layers-heatmap.ts',
   },
   {

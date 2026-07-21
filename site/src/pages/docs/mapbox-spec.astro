@@ -2,6 +2,7 @@
 import Docs from '../../layouts/Docs.astro'
 import Callout from '../../components/Callout.astro'
 import { MAPBOX_COVERAGE, type CoverageStatus, type CoverageImpact } from '@xgis/compiler'
+import { coverage as totals } from '@/lib/mapbox-coverage'
 
 const base = import.meta.env.BASE_URL.replace(/\/+$/, '')
 
@@ -12,16 +13,12 @@ const headings = [
   ...MAPBOX_COVERAGE.map(s => ({ depth: 2, slug: s.id, text: s.title })),
 ]
 
-// Compute coverage counts for the summary band.
-const totals = { supported: 0, partial: 0, unsupported: 0, na: 0 }
-for (const section of MAPBOX_COVERAGE) {
-  for (const e of section.entries) totals[e.status]++
-}
-const total = totals.supported + totals.partial + totals.unsupported + totals.na
-// Coverage % is quoted against APPLICABLE properties (excluding n/a — Mapbox-only
-// concepts with no xgis equivalent), matching the figures the marketing pages
-// (Coverage.astro, why.astro) state: 175 / 235 ≈ 74%, not 175 / 242.
-const applicable = total - totals.na
+// Coverage counts for the summary band come from lib/mapbox-coverage —
+// the ONE build-time derivation of MAPBOX_COVERAGE that Coverage.astro,
+// why.astro and Roadmap.astro also quote, so the pages cannot drift.
+// Coverage % is quoted against APPLICABLE properties (excluding n/a —
+// Mapbox-only concepts with no xgis equivalent).
+const { total, applicable } = totals
 
 const statusBadge = (s: CoverageStatus): { label: string; cls: string } => {
   switch (s) {

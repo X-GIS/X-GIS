@@ -151,20 +151,32 @@ export function defaultRasterShapes(): RasterShapes {
   }
 }
 
-/** Mapbox `hillshade-method` gradient-shading algorithm. `standard` is the
- *  MapLibre-legacy default (byte-parity target); `basic` is the GDAL Lambert
- *  model. `combined` / `igor` / `multidirectional` are carried through the
- *  IR verbatim; the (future) renderer approximates them by falling back to
- *  `basic` (documented residual — see INC-3). */
+/** Mapbox `hillshade-method` gradient-shading algorithm. All five MapLibre
+ *  v5 models are implemented in fs_hillshade: `standard` (legacy default,
+ *  byte-parity target), `basic` (GDAL Lambert), `combined`, `igor`, and
+ *  `multidirectional` (up to 4 averaged Lambert sources). */
 export type HillshadeMethod = 'standard' | 'basic' | 'combined' | 'igor' | 'multidirectional'
+
+/** One extra illumination source (2..4) for `hillshade-method:
+ *  multidirectional` — the only method the spec allows multiple sources
+ *  for. Fully-resolved constants; the converter already normalised the
+ *  spec's numberArray/colorArray per MapLibre (pad by repeating the last
+ *  element) and truncated to the 4-source uniform budget. */
+export interface HillshadeExtraSourceShape {
+  /** azimuth, deg from N. */
+  direction: number
+  /** altitude, deg (0–90). */
+  altitude: number
+  shadow: RGBA
+  highlight: RGBA
+}
 
 /** Hillshade DEM-relief paint axes (Mapbox `hillshade-*`). Mirror of
  *  {@link RasterShapes}: each axis carries the spec default when the layer
- *  didn't author it, so the (future INC-3) hillshade renderer resolves a
- *  no-op by default. Only the single-source constant form is plumbed —
- *  numberArray / colorArray multi-source (multidirectional) warns + drops
- *  at convert time and is a follow-up. `direction` / `altitude` are the
- *  MVP single scalars taken from element 0 of the spec's numberArray. */
+ *  didn't author it, so the hillshade renderer resolves a no-op by
+ *  default. `direction` / `altitude` / `shadow` / `highlight` are source 1
+ *  (element 0 of the spec's numberArray/colorArray); multidirectional
+ *  sources 2..4 ride {@link HillshadeShapes.extraSources}. */
 export interface HillshadeShapes {
   /** `hillshade-illumination-direction` — light azimuth in degrees from N
    *  clockwise. Default 335. */
@@ -190,6 +202,9 @@ export interface HillshadeShapes {
    *  RasterShapes.resamplingNearest — false = linear sampler over the
    *  decoded DEM height field. */
   resamplingNearest: boolean
+  /** Illumination sources 2..4 (method=multidirectional). Empty for
+   *  single-source layers — byte-identical to the pre-multidirectional IR. */
+  extraSources: readonly HillshadeExtraSourceShape[]
 }
 
 /** Spec-default hillshade paint axes (all no-ops). Returned fresh on each
@@ -207,6 +222,7 @@ export function defaultHillshadeShapes(): HillshadeShapes {
     accent: { kind: 'constant', value: [0, 0, 0, 1] },
     method: 'standard',
     resamplingNearest: false,
+    extraSources: [],
   }
 }
 
@@ -226,7 +242,7 @@ export interface PaintShapes {
   raster: RasterShapes
   /** Hillshade DEM-relief axes. Optional — present ONLY on a hillshade
    *  layer's ShowCommand (the converter authored at least one hillshade
-   *  axis). Absent on every other layer type, so the (future INC-3)
+   *  axis). Absent on every other layer type, so the
    *  hillshade renderer branches on presence and falls back to
    *  {@link defaultHillshadeShapes} when a raster-dem draw carries no
    *  authored paint. Mirrors the optionality of `HeatmapPaint.isHeatmap`. */

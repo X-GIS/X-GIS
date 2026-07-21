@@ -51,6 +51,14 @@ export const DEMOS_DATA_DRIVEN: Record<string, Demo> = {
     source: load('heatmap.xgis'),
   },
 
+  heatmap_ramp: {
+    name: 'Heatmap: custom ramp',
+    tag: 'point',
+    description:
+      'Custom heatmap-color ramp: `heatmap-color-[interpolate(heatmap_density, …)]` bakes an inferno-style density palette (transparent → violet → crimson → ember → near-white) into the GPU LUT, replacing the default Mapbox blue→red ramp.',
+    source: load('heatmap-ramp.xgis'),
+  },
+
   inline_data: {
     name: 'Inline GeoJSON',
     tag: 'data-driven',

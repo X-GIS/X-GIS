@@ -3,10 +3,10 @@
 // Mirror of the raster colour-adjustment arms in lower-bindings-paint.ts:
 // each `hillshade-*` utility the converter (paint-hillshade.ts) emits lowers
 // into a flat field on the shared LayerAccumulator. emit-commands then folds
-// those into the optional `paintShapes.hillshade` bundle the (future INC-3)
-// renderer reads. Only single-source constant forms exist here — the
-// converter already warned + dropped numberArray / colorArray multi-source
-// (multidirectional) and non-constant forms, so every value that reaches a
+// those into the optional `paintShapes.hillshade` bundle the HillshadeRenderer
+// reads. Source 1 is the flat single-value fields; multidirectional sources
+// 2..4 fill the sparse `hillshadeExtraSources` slots. Non-constant forms were
+// already warned + dropped at convert time, so every value that reaches a
 // handler is a resolved constant.
 //
 // Kept in its own module (not lower-bindings-paint.ts) so the nine hillshade
@@ -15,7 +15,7 @@
 import { resolveColor } from '../tokens/colors'
 import { hexToRgba } from './render-node'
 import type { HillshadeMethod } from './property-types'
-import type { BindingHandler } from './lower-bindings'
+import type { BindingCtx, BindingHandler } from './lower-bindings'
 
 const HILLSHADE_METHODS: readonly HillshadeMethod[] = [
   'standard',
@@ -120,4 +120,51 @@ export const hillshadeConstUtilHandlers: BindingHandler[] = [
       return true
     },
   },
+  // Multidirectional illumination sources 2..4 (`hillshade-method:
+  // multidirectional` — the only method the spec allows multiple sources
+  // for). The converter emits one utility per axis per extra source
+  // (`hillshade-illumination-direction2-40`, `hillshade-shadow-color3-#333`,
+  // …); each fills one axis of the sparse extra-source slot (index 0 =
+  // source 2). Generated as a flat handler list so dispatch() stays a plain
+  // first-match walk.
+  ...([2, 3, 4] as const).flatMap((n): BindingHandler[] => {
+    const slot = (c: BindingCtx) => {
+      const arr = (c.acc.hillshadeExtraSources ??= [])
+      return (arr[n - 2] ??= {})
+    }
+    return [
+      {
+        match: (c) => c.name.startsWith(`hillshade-illumination-direction${n}-`),
+        apply: (c) => {
+          const v = parseFloat(c.name.slice(`hillshade-illumination-direction${n}-`.length))
+          if (!isNaN(v)) slot(c).direction = v
+          return true
+        },
+      },
+      {
+        match: (c) => c.name.startsWith(`hillshade-illumination-altitude${n}-`),
+        apply: (c) => {
+          const v = parseFloat(c.name.slice(`hillshade-illumination-altitude${n}-`.length))
+          if (!isNaN(v)) slot(c).altitude = v
+          return true
+        },
+      },
+      {
+        match: (c) => c.name.startsWith(`hillshade-shadow-color${n}-`),
+        apply: (c) => {
+          const rgba = parseHillshadeColor(c.name.slice(`hillshade-shadow-color${n}-`.length))
+          if (rgba) slot(c).shadow = rgba
+          return true
+        },
+      },
+      {
+        match: (c) => c.name.startsWith(`hillshade-highlight-color${n}-`),
+        apply: (c) => {
+          const rgba = parseHillshadeColor(c.name.slice(`hillshade-highlight-color${n}-`.length))
+          if (rgba) slot(c).highlight = rgba
+          return true
+        },
+      },
+    ]
+  }),
 ]
