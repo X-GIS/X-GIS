@@ -160,6 +160,7 @@ describe('globe vector drape — per-slice pool aliasing (#1142)', () => {
       1,
       fill,
       0,
+      1, // camZoom (#1222) — bake-native for tile z1
       'sliceA',
       [100],
       undefined,
@@ -175,6 +176,7 @@ describe('globe vector drape — per-slice pool aliasing (#1142)', () => {
       1,
       fill,
       0,
+      1, // camZoom (#1222) — bake-native for tile z1
       'sliceB',
       [200],
       undefined,

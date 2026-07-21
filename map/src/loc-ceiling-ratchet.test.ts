@@ -124,7 +124,10 @@ const CEILINGS: Record<string, number> = {
   // sphere-rotated light_dir_ecef branch, fixing the continent-scale roof
   // lighting gradient (raw light in the vertex-ENU frame on flat projections);
   // stacked non-overlappingly on the #1057/#1059 twin work — measured 4702.
-  'map/src/render/vector-tile-renderer.ts': 4702,
+  // 4702→4706 (#1222): zoom-bucketed stroke rebake wiring — the strokeWidthScale
+  // param on bakeTileToTexture (threaded to bakeTileStrokes) + camera.zoom on the
+  // renderGlobeFills call; the bucket/scale MATH lives in vector-drape-cache.ts.
+  'map/src/render/vector-tile-renderer.ts': 4706,
   // 4232→4237 (#1000 heatmap relocate): the heatmap density-target OWNERSHIP
   // extracted to render/heatmap-targets.ts; map keeps only the irreducible
   // composition-root wiring — the `heatmapTargets` field + its import (mirrors

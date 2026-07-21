@@ -838,6 +838,8 @@ export class VectorTileRenderer {
     key: number,
     fill: readonly [number, number, number, number],
     sizePx: number,
+    /** #1222 zoom-bucket stroke-width compensation (VectorDrapeRenderer); 1 = bake-native. */
+    strokeWidthScale = 1,
   ): RhiTexture | null {
     const enc = this.rhi.createCommandEncoder?.('vtr-bake')
     if (!enc) return null // WebGL2 fail-closed (no offscreen encoder) — later slice
@@ -996,6 +998,7 @@ export class VectorTileRenderer {
         E / sizePx,
         this._bakeStroke,
         this._linePatternActiveForShow,
+        strokeWidthScale,
       )
     }
 
@@ -3324,6 +3327,7 @@ export class VectorTileRenderer {
         this.currentOpacity ?? 1,
         this.cachedFillColor as [number, number, number, number],
         strokeBakeKey(this._bakeStrokeActive, this._bakeStroke),
+        camera.zoom,
         sliceLayer,
         neededKeys,
         worldOffDeg,
