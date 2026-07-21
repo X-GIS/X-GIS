@@ -49,7 +49,7 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import { installWebGPUStub, type StubInstallation } from '../../__test-support__/webgpu-stub'
 import { initGPU, type GPUContext } from '@xgis/rhi-webgpu'
-import { RasterRenderer } from '@xgis/map'
+import { RasterRenderer, rasterCoverZoom } from '@xgis/map'
 import { Camera } from '@xgis/map'
 import { visibleTilesFrustum } from '@xgis/data'
 import { mercator as mercatorProj } from '@xgis/geo'
@@ -105,7 +105,7 @@ function posKey(west: number, south: number): string {
  *  ox-tile's (west, south) ground footprint). This is the deduped, correct
  *  draw set — what the renderer should produce after the fix. */
 function selectorWorldPositions(camera: Camera): string[] {
-  const currentZ = Math.max(0, Math.min(18, Math.round(camera.zoom)))
+  const currentZ = rasterCoverZoom(camera.zoom, 256)
   const tiles = visibleTilesFrustum(camera, mercatorProj, currentZ, W, H, 0, DPR)
   const set = new Set<string>()
   for (const t of tiles) {
@@ -131,7 +131,7 @@ function capturedDrawWorldPositions(ctx: GPUContext): string[] {
   // Pre-seed the tile cache for EVERY tile the selector will emit so the draw
   // loop reaches pass.draw without a network fetch. Use the SAME selector
   // call the renderer makes internally.
-  const currentZ = Math.max(0, Math.min(18, Math.round(camera.zoom)))
+  const currentZ = rasterCoverZoom(camera.zoom, 256)
   const tiles = visibleTilesFrustum(camera, mercatorProj, currentZ, W, H, 0, DPR)
   const cache = (
     renderer as unknown as {
@@ -192,7 +192,7 @@ describe('raster flat-Mercator world-copy single-source fan-out', () => {
     // trivially. Pin that both enumerations are multi-copy.
     const camera = new Camera(0, 0, ZOOM)
     camera.projType = PROJ_TYPE
-    const currentZ = Math.max(0, Math.min(18, Math.round(camera.zoom)))
+    const currentZ = rasterCoverZoom(camera.zoom, 256)
     const tiles = visibleTilesFrustum(camera, mercatorProj, currentZ, W, H, 0, DPR)
     const oxCopies = new Set(tiles.map((t) => Math.floor((t.ox ?? t.x) / Math.pow(2, t.z))))
     const wo = camera.getVisibleWorldCopies(W, H, DPR)

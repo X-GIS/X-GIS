@@ -527,7 +527,11 @@ const CEILINGS: Record<string, number> = {
   // 809→838 (raster-resolution): rasterCoverZoom — the tileSize-aware cover-zoom
   // authority (camera zoom is the 512-px convention; 256-px XYZ tiles need z+1
   // or every raster renders one LOD blurry) + the _tileSize field/setter.
-  'map/src/render/raster-renderer.ts': 838,
+  // 838→848 (raster-resolution CI round): per-frame draw dedup keyed by render
+  // coord + ox — parent fallback mapped every uncached child onto the same
+  // parent quad (4× duplicate draws; alpha compounds at raster-opacity < 1),
+  // pinned by runtime raster-world-copy no-duplicate gate.
+  'map/src/render/raster-renderer.ts': 848,
   // 889→906 (#1155 F3): cold-start burst enqueue cap — the `_coldStartBurst`
   // field + `setColdStartBurst` + the burst-selected 8/4 cap in enqueue().
   // 906→910 (#1155 F3 adjudication): the burst 8/4 pair now comes from the

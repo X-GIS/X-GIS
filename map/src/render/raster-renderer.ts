@@ -684,6 +684,13 @@ export class RasterRenderer {
     // (1/2/6, routed through the mercator-named selector shim) were already
     // collapsed to [0] and stay unchanged.
     const RASTER_WORLD_COPIES = [0]
+    // Per-frame draw dedup, keyed by the RENDER coord + world copy (ox).
+    // Parent fallback maps every uncached child onto the same parent at the
+    // parent's FULL bounds — without this, four missing z+1 children draw
+    // the identical parent quad four times at one world position (wasted
+    // fill; with raster-opacity < 1 the alpha COMPOUNDS, the same defect
+    // class the world-copy single-source fix removed for ox×wo).
+    const drawnKeys = new Set<string>()
     // Render tiles: current zoom first, then parent fallback for missing
     for (const coord of tiles) {
       const key = `${coord.z}/${coord.x}/${coord.y}`
@@ -717,6 +724,9 @@ export class RasterRenderer {
       const renderCoord = isFallback ? fallbackCoord : coord
       const rn = Math.pow(2, renderCoord.z)
       const ox = renderCoord.ox ?? renderCoord.x
+      const drawKey = `${renderCoord.z}/${renderCoord.x}/${renderCoord.y}/${ox}`
+      if (drawnKeys.has(drawKey)) continue
+      drawnKeys.add(drawKey)
       const west = (ox / rn) * 360 - 180
       const east = ((ox + 1) / rn) * 360 - 180
       const north = (Math.atan(Math.sinh(Math.PI * (1 - (2 * renderCoord.y) / rn))) * 180) / Math.PI

@@ -20,7 +20,7 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import { installWebGPUStub, type StubInstallation } from '../../__test-support__/webgpu-stub'
 import { initGPU, type GPUContext } from '@xgis/rhi-webgpu'
-import { RasterRenderer } from '@xgis/map'
+import { RasterRenderer, rasterCoverZoom } from '@xgis/map'
 import { Camera } from '@xgis/map'
 import { visibleTilesFrustum } from '@xgis/data'
 import { mercator as mercatorProj } from '@xgis/geo'
@@ -63,7 +63,7 @@ function drawnTileCount(ctx: GPUContext, camera: Camera, projType: number): numb
   // Pre-seed the tile cache so every selected tile reaches pass.draw().
   // We seed generously using globeVisibleTiles for globe and
   // visibleTilesFrustum for flat — covering whichever path the renderer takes.
-  const currentZ = Math.max(0, Math.min(18, Math.round(camera.zoom)))
+  const currentZ = rasterCoverZoom(camera.zoom, 256)
   const cssW = W / DPR,
     cssH = H / DPR
   const R = 6378137
@@ -174,7 +174,7 @@ describe('raster globe tile selection routes through globeVisibleTiles (#596)', 
     camera.pitch = 45
     camera.globeMode = true
 
-    const currentZ = Math.max(0, Math.min(18, Math.round(camera.zoom)))
+    const currentZ = rasterCoverZoom(camera.zoom, 256)
     const centerLon = (camera.centerX / R) * (180 / Math.PI)
     const mercLat = Math.atan(Math.exp(camera.centerY / R)) * 2 - Math.PI / 2
     const centerLat = (mercLat * 180) / Math.PI
@@ -230,7 +230,7 @@ describe('raster globe tile selection routes through globeVisibleTiles (#596)', 
     const drawCount = drawnTileCount(ctx, camera, 0)
 
     // Oracle: the flat path should produce the same count as direct visibleTilesFrustum.
-    const currentZ = Math.max(0, Math.min(18, Math.round(camera.zoom)))
+    const currentZ = rasterCoverZoom(camera.zoom, 256)
     const expectedTiles = visibleTilesFrustum(camera, mercatorProj, currentZ, W, H, 0, DPR)
 
     expect(drawCount, 'flat Mercator draw count must match direct selector').toBe(

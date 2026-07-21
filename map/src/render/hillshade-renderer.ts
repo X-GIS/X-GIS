@@ -538,6 +538,9 @@ export class HillshadeRenderer {
 
     const tilesArr: HillshadeTile[] = []
     const RASTER_WORLD_COPIES = [0]
+    // Per-frame draw dedup keyed by render coord + ox — parent fallback maps
+    // every uncached child onto the same parent quad (see raster-renderer).
+    const drawnKeys = new Set<string>()
     for (const coord of tiles) {
       const key = `${coord.z}/${coord.x}/${coord.y}`
       let cached = this.tileCache.get(key)
@@ -567,6 +570,9 @@ export class HillshadeRenderer {
       const renderCoord = isFallback ? fallbackCoord : coord
       const rn = Math.pow(2, renderCoord.z)
       const ox = renderCoord.ox ?? renderCoord.x
+      const drawKey = `${renderCoord.z}/${renderCoord.x}/${renderCoord.y}/${ox}`
+      if (drawnKeys.has(drawKey)) continue
+      drawnKeys.add(drawKey)
       const west = (ox / rn) * 360 - 180
       const east = ((ox + 1) / rn) * 360 - 180
       const north = (Math.atan(Math.sinh(Math.PI * (1 - (2 * renderCoord.y) / rn))) * 180) / Math.PI
