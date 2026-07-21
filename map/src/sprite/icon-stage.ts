@@ -309,16 +309,65 @@ export class IconStage {
     // as the atlas lands the next frame picks them up — but if
     // metadata isn't there yet, EVERY icon misses and we just skip.
     const draws: IconDraw[] = []
-    // #417 — boxes of already-placed collide-icons (symbol-placement:line,
-    // e.g. road_oneway arrows) for the per-frame overlap collision below.
-    const placedBoxes: { minX: number; minY: number; maxX: number; maxY: number }[] = []
     // Track missing names ONLY when the atlas is in the terminal
     // 'loaded' state — during 'loading' / 'idle' / 'failed' every
     // lookup misses for orthogonal reasons (no atlas in memory).
     // Treating those as missing would flood the diagnostic with
     // false positives during cold-start.
     const atlasLoaded = this.host.getState().status === 'loaded'
-    for (const p of this.pending) {
+    // #417 near-first (icon sibling of #1249) — decide which collide-icons
+    // (symbol-placement:line arrows) survive their mutual overlap BEFORE the
+    // emit loop, iterating NEAREST-first. The overlap pass is greedy first-
+    // wins, so on a pitched view the label nearer the camera (larger anchorY)
+    // must claim its box first or the far arrow occludes the near one — the
+    // same wrong direction #1249 fixed for text. Equal-Y ties keep dispatch
+    // order, so a flat/same-latitude row of arrows collides byte-identically
+    // to the pre-fix pass. The verdict is keyed by pending index; the emit
+    // loop reads `collideDropped` and keeps DRAW (painter) order in dispatch
+    // order (survivors don't overlap, so their relative draw order is moot).
+    // The two pre-collision skips (paired-text-dropped, sprite-missing) are
+    // mirrored here so a dropped/absent icon never seeds a phantom blocker.
+    const collideDropped = new Set<number>()
+    {
+      const collideOrder: number[] = []
+      for (let i = 0; i < this.pending.length; i++)
+        if (this.pending[i]!.collide) collideOrder.push(i)
+      collideOrder.sort((a, b) => {
+        const ya = this.pending[a]!.anchorY
+        const yb = this.pending[b]!.anchorY
+        if (ya !== yb) return yb - ya // near (larger screen Y) first
+        return a - b // stable: dispatch order (byte-identical on Y-tie)
+      })
+      const placedBoxes: { minX: number; minY: number; maxX: number; maxY: number }[] = []
+      for (const i of collideOrder) {
+        const p = this.pending[i]!
+        if (p.pairKey !== undefined && this.droppedPairKeys.has(p.pairKey)) continue
+        const sprite = this.host.get(p.iconName)
+        if (!sprite) continue
+        const sizeScale = p.sizeScale * this.dpr
+        const cdW = (sprite.width / sprite.pixelRatio) * sizeScale
+        const cdH = (sprite.height / sprite.pixelRatio) * sizeScale
+        const pad = p.padding * this.dpr // Mapbox icon-padding (default 2)
+        const minX = p.anchorX - cdW / 2 - pad,
+          maxX = p.anchorX + cdW / 2 + pad
+        const minY = p.anchorY - cdH / 2 - pad,
+          maxY = p.anchorY + cdH / 2 + pad
+        let overlaps = false
+        for (const b of placedBoxes) {
+          if (minX < b.maxX && maxX > b.minX && minY < b.maxY && maxY > b.minY) {
+            overlaps = true
+            break
+          }
+        }
+        if (overlaps) {
+          collideDropped.add(i)
+          continue
+        }
+        placedBoxes.push({ minX, minY, maxX, maxY })
+      }
+    }
+    for (let idx = 0; idx < this.pending.length; idx++) {
+      const p = this.pending[idx]!
       // Iter 112: drop icon when its paired text label was collision-
       // rejected. Mirrors MapLibre's "text+icon as one symbol" rule.
       if (p.pairKey !== undefined && this.droppedPairKeys.has(p.pairKey)) {
@@ -334,30 +383,10 @@ export class IconStage {
       // on top so a "1.0" icon-size looks the same physical size on
       // hidpi displays as the design intent.
       const sizeScale = p.sizeScale * this.dpr
-      // #417 — line-icon overlap collision. A symbol-placement:line icon
-      // (collide=true) is dropped when its padded box overlaps an
-      // already-placed collide-icon, so two parallel road features'
-      // overlapping arrows collapse to one chain (MapLibre parity).
-      // Zoom-invariant (tests actual icon boxes, not a fixed distance).
-      // Only collide-icons are tested + recorded → point dots untouched (#419).
-      if (p.collide) {
-        const cdW = (sprite.width / sprite.pixelRatio) * sizeScale
-        const cdH = (sprite.height / sprite.pixelRatio) * sizeScale
-        const pad = p.padding * this.dpr // Mapbox icon-padding (default 2)
-        const minX = p.anchorX - cdW / 2 - pad,
-          maxX = p.anchorX + cdW / 2 + pad
-        const minY = p.anchorY - cdH / 2 - pad,
-          maxY = p.anchorY + cdH / 2 + pad
-        let overlaps = false
-        for (const b of placedBoxes) {
-          if (minX < b.maxX && maxX > b.minX && minY < b.maxY && maxY > b.minY) {
-            overlaps = true
-            break
-          }
-        }
-        if (overlaps) continue
-        placedBoxes.push({ minX, minY, maxX, maxY })
-      }
+      // #417 — line-icon overlap verdict decided near-first above; a
+      // collide-icon dropped there is skipped here (point dots have
+      // collide=false → never in the set → untouched, #419).
+      if (p.collide && collideDropped.has(idx)) continue
       // #777 I-A — icon-text-fit: resolve the quad override from the paired text
       // bbox (physical px, laid out THIS frame by TextStage) + per-side padding
       // (CSS px → dpr). `width`/`height` fit only that axis (undefined leaves the
