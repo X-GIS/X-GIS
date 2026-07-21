@@ -1345,13 +1345,13 @@ export function convertTextLayoutProperties(
   //                reverse-layer ordering trick.
   // Threaded end-to-end: layout `symbol-z-order` → `label-z-order-<v>`
   // → LabelDef.symbolZOrder → TextStage.prepare() ordering pass. DEFAULT
-  // (unset) reproduces X-GIS' historical ordering BYTE-FOR-BYTE — the
-  // prepare() pass keeps its legacy reverse-layer / sortKey path unless a
-  // label opts into an explicit non-`auto` z-order. Authoring `auto`
-  // emits the utility too so the resolved policy is explicit in the IR;
-  // the runtime treats `auto` exactly like the unset default (legacy
-  // path) so it stays byte-identical. Enum-suffix utility, mirroring
-  // text-rotation-alignment above.
+  // (unset) keeps X-GIS' historical draw order and sortKey/layer
+  // collision precedence, and resolves same-layer overlaps NEAR-FIRST
+  // (CollisionItem.nearY — the front label wins on a pitched view)
+  // unless a label opts into an explicit non-`auto` z-order. Authoring
+  // `auto` emits the utility too so the resolved policy is explicit in
+  // the IR; the runtime treats `auto` exactly like the unset default.
+  // Enum-suffix utility, mirroring text-rotation-alignment above.
   const zOrder = unwrapLiteralScalar(layout['symbol-z-order'])
   if (zOrder === 'viewport-y' || zOrder === 'source' || zOrder === 'auto') {
     utils.push(`label-z-order-${zOrder}`)

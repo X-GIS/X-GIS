@@ -43,8 +43,27 @@ export interface CollisionItem {
    *  pan or on which tiles happen to be loaded. Compared ascending; items
    *  WITH a tieBreak place before items without at the same sortKey. When
    *  undefined on every item, placement order is byte-identical to the
-   *  legacy input-order (dispatch-order) behaviour. */
+   *  legacy input-order (dispatch-order) behaviour.
+   *
+   *  A tieBreak MAY be structured as `<group>TIEBREAK_GROUP_SEP<identity>`
+   *  (labelCollisionId's layer-precedence encoding). The segment before
+   *  the FIRST separator is the item's precedence GROUP: it is compared
+   *  first, and `nearY` (below) only arbitrates WITHIN a group. Because
+   *  the separator is the minimum code unit, group-then-full comparison
+   *  is byte-identical to the plain full-string comparison whenever
+   *  nearY does not intervene. */
   tieBreak?: string
+  /** Screen-space anchor Y (px, +Y down) — the near-first depth proxy.
+   *  On a pitched view the lower-on-screen label is nearer the camera, so
+   *  the LARGER nearY places first (wins the overlap) — the Mapbox/
+   *  MapLibre placement direction (their symbol tile sort is rotated-Y
+   *  descending); without it the far label could occlude the near one.
+   *  Consulted only when BOTH items define it, their sortKeys tie, and
+   *  their tieBreak group segments match (same layer); equal nearY (flat
+   *  north-up, same latitude) falls back to the stable tieBreak identity.
+   *  Undefined on either item → identity decides, byte-identical to the
+   *  pre-nearY ordering. */
+  nearY?: number
   /** Stable identifier of the line / feature this label follows.
    *  Two labels with the same lineId enforce a minimum along-line
    *  distance (`minLineSpacingPx`) so labels on the same road
@@ -83,6 +102,15 @@ export interface CollisionPlacement {
   chosen: number
 }
 
+/** Separator between the precedence GROUP segment (layer rank) and the
+ *  feature identity inside a structured `tieBreak`. Owned here — the
+ *  greedy pass splits on it (group outranks `nearY` outranks identity)
+ *  and labelCollisionId (label-pass.ts) composes with it. U+0000 is the
+ *  minimum code unit, which makes (group, rest) tuple comparison equal
+ *  to whole-string comparison — the property the nearY insertion relies
+ *  on to stay byte-identical for nearY-less items. */
+export const TIEBREAK_GROUP_SEP = '\u0000'
+
 export interface GreedyOptions {
   /** Minimum along-line distance (CSS px) between labels on the
    *  SAME `lineId`. A later same-line label is dropped if its
@@ -105,12 +133,14 @@ export interface GreedyOptions {
  *  (indexed by ORIGINAL input order, not sortKey order).
  *
  *  When any item carries `sortKey` or `tieBreak`, the pass first builds
- *  a sorted iteration order: sortKey ascending, then `tieBreak` ascending
- *  (a stable per-feature identity — the same overlapping label wins
- *  regardless of input order), then input index. Lower-key labels claim
- *  their bboxes first and block higher-key labels that overlap. When no
- *  item has either key, iteration order = input order (byte-identical
- *  legacy first-wins).
+ *  a sorted iteration order: sortKey ascending, then the `tieBreak`
+ *  group segment ascending (layer precedence), then `nearY` descending
+ *  (near-first under pitch, within a group only), then the full
+ *  `tieBreak` ascending (a stable per-feature identity — the same
+ *  overlapping label wins regardless of input order), then input index.
+ *  Lower-key labels claim their bboxes first and block higher-key labels
+ *  that overlap. When no item has either key, iteration order = input
+ *  order (byte-identical legacy first-wins).
  *
  *  When `opts.minLineSpacingPx` is set and an item carries lineId +
  *  anchorDistancePx, a same-line label whose anchorDistance is
@@ -139,11 +169,18 @@ export function greedyPlaceBboxes(
   const order: number[] = new Array(items.length)
   for (let i = 0; i < items.length; i++) order[i] = i
   // Deterministic placement order. Primary: symbol-sort-key ascending
-  // (lower wins). Secondary: `tieBreak` — a STABLE per-feature identity
-  // supplied by the caller so two overlapping labels resolve to the SAME
-  // winner regardless of input (tile-dispatch) order. Final fallback:
-  // input index, so a caller that sets NEITHER key gets byte-identical
-  // legacy first-wins order (the sort is skipped entirely in that case).
+  // (lower wins). Secondary: the `tieBreak` GROUP segment (layer
+  // precedence — see TIEBREAK_GROUP_SEP). Tertiary: `nearY` descending —
+  // within a layer the lower-on-screen (nearer under pitch) label places
+  // first, the Mapbox/MapLibre near-first direction. Then the full
+  // `tieBreak` (a STABLE per-feature identity supplied by the caller so
+  // two overlapping labels resolve to the SAME winner regardless of input
+  // (tile-dispatch) order). Final fallback: input index, so a caller that
+  // sets NEITHER key gets byte-identical legacy first-wins order (the
+  // sort is skipped entirely in that case). Group-then-full comparison
+  // without nearY equals plain full-string comparison (the separator is
+  // the minimum code unit), so nearY-less inputs are byte-identical to
+  // the pre-nearY ordering.
   let anyOrdering = false
   for (const it of items)
     if (it.sortKey !== undefined || it.tieBreak !== undefined) {
@@ -151,6 +188,16 @@ export function greedyPlaceBboxes(
       break
     }
   if (anyOrdering) {
+    // Group segment = tieBreak up to the first separator (the whole
+    // string when unseparated). Precomputed once per item — the
+    // comparator runs O(n log n) times and must not allocate.
+    const groups: (string | undefined)[] = new Array(items.length)
+    for (let i = 0; i < items.length; i++) {
+      const t = items[i]!.tieBreak
+      if (t === undefined) continue
+      const sep = t.indexOf(TIEBREAK_GROUP_SEP)
+      groups[i] = sep === -1 ? t : t.slice(0, sep)
+    }
     order.sort((a, b) => {
       const ka = items[a]!.sortKey ?? 0
       const kb = items[b]!.sortKey ?? 0
@@ -158,6 +205,16 @@ export function greedyPlaceBboxes(
       const ta = items[a]!.tieBreak
       const tb = items[b]!.tieBreak
       if (ta !== undefined && tb !== undefined) {
+        const ga = groups[a]!
+        const gb = groups[b]!
+        if (ga < gb) return -1
+        if (ga > gb) return 1
+        // Same group (layer): near-first — larger screen Y (nearer the
+        // camera on a pitched view) places first, when both items carry
+        // a nearY. One-sided / equal nearY falls through to identity.
+        const ya = items[a]!.nearY
+        const yb = items[b]!.nearY
+        if (ya !== undefined && yb !== undefined && ya !== yb) return yb - ya
         if (ta < tb) return -1
         if (ta > tb) return 1
       } else if (ta !== undefined) return -1

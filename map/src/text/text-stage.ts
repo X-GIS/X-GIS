@@ -878,7 +878,8 @@ export class TextStage {
       /** Mapbox `symbol-z-order`. `viewport-y` orders this label by
        *  screen Y (lower-on-screen placed first → drawn on top);
        *  `source` forces source order. `auto` / undefined keeps the
-       *  legacy reverse-layer / sortKey ordering byte-for-byte. */
+       *  legacy draw order + sortKey/layer collision precedence, with
+       *  same-layer overlaps resolving near-first (nearY below). */
       symbolZOrder?: 'auto' | 'viewport-y' | 'source'
       /** #605 — tile-stable line identity + along-line anchor offset for
        *  curved line labels, forwarded to the collision pass's lineId /
@@ -1805,6 +1806,13 @@ export class TextStage {
     //       (last in OFM Bright) beat water_name labels (first) at
     //       the antimeridian; POI labels (mid-stack) beat road
     //       shields when they collide.
+    //   (3) Near-first — within a layer, the label nearer the camera
+    //       (lower on screen; Mapbox sorts symbol tiles rotated-Y
+    //       descending) places first, so on a pitched view the FRONT
+    //       label wins the overlap and the far one is occluded, never
+    //       the reverse. Carried by CollisionItem.nearY (the shaped
+    //       anchor's screen Y); equal-Y overlaps fall back to the
+    //       stable #728 identity.
     //
     // Our `pending` queue is populated in style order — water first,
     // country last — because map.ts iterates showCommands forward.
@@ -1858,9 +1866,16 @@ export class TextStage {
       anchorDistancePx: s.anchorDistancePx,
       // #728 — stable feature identity → deterministic collision tie-break.
       // Removes the reverse-input-order dependence below: when any label
-      // carries one, greedyPlaceBboxes orders by it (sortKey → tieBreak →
-      // index) instead of the dispatch-order-sensitive reverse trick.
+      // carries one, greedyPlaceBboxes orders by it (sortKey → layer group →
+      // nearY → identity) instead of the dispatch-order-sensitive reverse trick.
       tieBreak: s.collisionId,
+      // Near-first depth proxy: the primary anchor's screen Y. On a pitched
+      // view the lower-on-screen label is nearer the camera, and greedy
+      // places it first WITHIN the same layer group so the front label wins
+      // the overlap (site report: Shanghai — near — was dropped in favour of
+      // Seoul — far — at pitch 81°, the lexicographic tieBreak being depth-
+      // blind). Same-Y overlaps still resolve by the stable collisionId.
+      nearY: s.layouts[0]?.draw.anchorY,
     }))
     // When ANY shaped item carries an explicit sortKey, greedy­Place­
     // Bboxes handles priority via stable sort by sortKey ascending —
@@ -1871,8 +1886,10 @@ export class TextStage {
     // stays byte-identical for styles without symbol-sort-key.
     // Mapbox `symbol-z-order` (LabelDef.symbolZOrder). Active ONLY when
     // some shaped label explicitly authored `viewport-y` or `source`;
-    // `auto` / undefined fall through to the legacy ordering below so a
-    // style that doesn't set symbol-z-order renders BYTE-IDENTICALLY.
+    // `auto` / undefined fall through to the legacy ordering below, which
+    // keeps the legacy draw order and layer precedence but resolves
+    // same-layer overlaps near-first via CollisionItem.nearY (precedence
+    // note (3) above) — the pitched-view occlusion direction.
     //   viewport-y — order labels by screen Y descending (lower-on-
     //                screen placed first in collision → drawn last = on
     //                top). Mirrors Mapbox's viewport-y painter order.
