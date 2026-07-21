@@ -1,4 +1,4 @@
-// baseline: 66ee6e6b7415e0b718816897eea7dddb32cbc5a3
+// baseline: fcc1ea7147d6283abfbb090fb9af4ab7f52a7114
 // fixture: demotiles-stroke-match
 // variant.key: demotiles-stroke-match
 // pick: false

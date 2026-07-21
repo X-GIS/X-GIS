@@ -152,7 +152,12 @@ describe('P0-2: renderFrame exception recovery', () => {
   let rafSpy: ReturnType<typeof vi.fn>
   let errSpy: MockInstance
 
-  type LoopInternals = { running: boolean; _frameFailures: number; renderFrame(): void }
+  type LoopInternals = {
+    running: boolean
+    _frameFailures: number
+    renderFrame(): void
+    _rafId: number | null
+  }
 
   beforeEach(() => {
     rafSpy = vi.fn()
@@ -194,9 +199,15 @@ describe('P0-2: renderFrame exception recovery', () => {
     const { map, m } = armedMap(() => {
       throw new Error('persistent fault')
     })
-    map.renderLoop()
-    map.renderLoop()
-    map.renderLoop()
+    // Each frame is entered via the rAF chain (#1153 M5): `_rafTick` nulls the
+    // in-flight `_rafId` before running the frame, so `_scheduleFrame` can re-arm.
+    // The raf STUB never fires the callback, so mirror that latch-clear by hand
+    // between the manual drives — otherwise the dedup guard swallows the retries.
+    map.renderLoop() // frame 1: fails → schedules a retry (rafSpy=1)
+    m._rafId = null
+    map.renderLoop() // frame 2: fails → schedules a retry (rafSpy=2)
+    m._rafId = null
+    map.renderLoop() // frame 3: fails → halts, no further schedule
     expect(m.running).toBe(false) // true persistent fault → stop as before
     expect(rafSpy).toHaveBeenCalledTimes(2) // retries after failures 1+2 only
     expect(errSpy.mock.calls.filter((c) => String(c[0]).includes('[X-GIS frame]'))).toHaveLength(3)

@@ -27,6 +27,28 @@ export type { BackendChoice } from '@xgis/engine'
 export interface GPUContext extends RenderContext {
   device: GPUDevice
   context: GPUCanvasContext
+  /** Adapter/device max 2D texture dimension — `device.limits.maxTextureDimension2D`
+   *  on WebGPU, `gl.MAX_TEXTURE_SIZE` on WebGL2. `resizeCanvas` clamps the
+   *  device-pixel swapchain to it (uniform effective-DPR reduction) so an over-DPR
+   *  or huge-container mobile boot can't storm per-frame validation errors + a
+   *  black canvas (#1153 M3). Optional: minimal test fixtures build a GPUContext
+   *  without it → no clamp (byte-identical to the pre-M3 behaviour). */
+  maxTextureDimension2D?: number
+}
+
+/** How a WebGL2 boot was reached — selects the boot-warning text so an auto
+ *  fallback is not misattributed to the `?forcegl2=1` dev override (#1153 M4).
+ *  `'forced'` = `?forcegl2=1`; `'pinned'` = `backend: 'webgl2'` hard-pin in code;
+ *  `'fallback'` = WebGPU was unavailable and `'auto'` fell back. */
+export type WebGl2BootMode = 'forced' | 'pinned' | 'fallback'
+
+/** Host-controllable WebGL2 context attributes threaded from the composition
+ *  root (#1153 M2). Only `preserveDrawingBuffer` is exposed (MapLibre-parity
+ *  `preserveDrawingBuffer` Map option) — a preserved back buffer is off by
+ *  default to save the weakest devices a 2×-fullres tax; e2e canvas capture
+ *  (readPixels-after-present) opts back in. Everything else is backend-fixed. */
+export interface WebGl2ContextAttrs {
+  preserveDrawingBuffer?: boolean
 }
 
 /** `?gpuprof=1` — opt in to timestamp-query GPU profiling. We only
@@ -154,9 +176,15 @@ export async function createWebGpuContext(
     requiredFeatures.push('float32-filterable')
     float32FilterableSupported = true
   }
-  const device = await adapter.requestDevice(
-    requiredFeatures.length > 0 ? { requiredFeatures } : undefined,
-  )
+  // Raise maxTextureDimension2D to the adapter's REAL ceiling (#1153 M3): without
+  // requiredLimits, device.limits reports the spec-default 8192 even on a 16384-capable
+  // GPU, so the resizeCanvas clamp below would silently down-DPR a large canvas that the
+  // hardware could render at full resolution. Requesting exactly the adapter's own limit
+  // can never exceed it, so requestDevice can't reject on this.
+  const device = await adapter.requestDevice({
+    ...(requiredFeatures.length > 0 ? { requiredFeatures } : {}),
+    requiredLimits: { maxTextureDimension2D: adapter.limits.maxTextureDimension2D },
+  })
 
   // #1153 P1 (#5) — the device is minted but unowned until the GPUContext
   // bundle below wraps it. Every failure exit in between (getContext null,
@@ -211,6 +239,11 @@ export async function createWebGpuContext(
     device.destroy()
     throw e
   }
+  // Clamp authority for resizeCanvas (#1153 M3): requestDevice above raised this to
+  // the adapter's REAL ceiling, so the clamp only engages when a canvas genuinely
+  // exceeds what the hardware can render — an over-DPR / huge-container boot beyond it
+  // otherwise storms per-frame validation errors + a black canvas on mobile.
+  ctx.maxTextureDimension2D = device.limits.maxTextureDimension2D
 
   // Device-loss guard: flip the flag (the render loop reads it and stops
   // issuing work into the dead device) and fire the optional host hook.
@@ -287,6 +320,19 @@ export function pushValidationError(ctx: RenderContext, message: string): void {
   }
 }
 
+/** Boot-warning text per WebGL2 boot mode (#1153 M4). The `'forced'` string is
+ *  byte-identical to the pre-M4 warning (the e2e gates pin the console text); the
+ *  others distinguish a code pin and an auto-fallback so a silent WebGPU→WebGL2
+ *  downgrade is no longer misattributed to `?forcegl2=1`. */
+const WEBGL2_BOOT_WARNING: Record<WebGl2BootMode, string> = {
+  forced:
+    '[X-GIS] forced WebGL2 backend active (?forcegl2=1) — single-sample isolated raster slice',
+  pinned:
+    "[X-GIS] WebGL2 backend active (backend: 'webgl2' pinned in code) — single-sample raster slice",
+  fallback:
+    '[X-GIS] WebGPU unavailable — auto-fallback to WebGL2 backend (single-sample raster slice)',
+}
+
 /** Forced-WebGL2 boot (`?forcegl2=1`) — build a WebGL2-backed `GPUContext`.
  *
  *  The canvas yields `getContext('webgl2')` (NO WebGPU context — sticky per Decision
@@ -307,14 +353,25 @@ export function pushValidationError(ctx: RenderContext, message: string): void {
 export async function initGPUForcedWebGL2(
   canvas: HTMLCanvasElement,
   makeRhi: (gl: WebGL2RenderingContext) => RhiDevice | Promise<RhiDevice>,
+  mode: WebGl2BootMode = 'forced',
+  attrs?: WebGl2ContextAttrs,
 ): Promise<GPUContext> {
-  // preserveDrawingBuffer keeps the rendered frame readable via gl.readPixels after the
-  // rAF turn — the US-004 live-render gate reads the checker pixels back. (This slice is a
-  // dev/test path; the minor compositor cost is acceptable.)
+  // Context attributes (#1153 M2): this is the PRODUCTION iOS auto-fallback create
+  // body (backend-providers.ts routes the 'auto' chain here after WebGPU fails),
+  // NOT a dev-only slice — so preserveDrawingBuffer defaults OFF to spare the weakest
+  // devices a permanent 2×-fullres retained back buffer. That flip is present-NEUTRAL
+  // (preserveDrawingBuffer only governs whether the frame survives compositing for
+  // readback). Only e2e canvas capture (readPixels-after-present) needs a preserved
+  // buffer; it opts in via `attrs.preserveDrawingBuffer` (demo-runner threads it on
+  // ?e2e=1). `antialias` is deliberately LEFT UNSPECIFIED (WebGL default = true): this
+  // backend rasterizes geometry straight to the default framebuffer (beginScreenPass
+  // binds FBO 0, no MSAA renderbuffer), so the context's antialias governs edge AA on
+  // the presented pixels — forcing it false would silently ALIAS every line/fill edge
+  // on the fallback path, which the brief's "must not change rendered output" forbids.
   const gl = canvas.getContext('webgl2', {
     alpha: true,
     premultipliedAlpha: true,
-    preserveDrawingBuffer: true,
+    preserveDrawingBuffer: attrs?.preserveDrawingBuffer ?? false,
     stencil: true,
   })
   if (!gl)
@@ -339,9 +396,10 @@ export async function initGPUForcedWebGL2(
     // Page-readable backend marker for the e2e gate (mirrors the interface-member
     // truth `host.ctx.rhi.backend`; the gate reads this from the page).
     ;(window as unknown as { __xgisActiveBackend?: string }).__xgisActiveBackend = 'webgl2'
-    console.warn(
-      '[X-GIS] forced WebGL2 backend active (?forcegl2=1) — single-sample isolated raster slice',
-    )
+    // Attribute the boot to HOW it was reached (#1153 M4): a `?forcegl2=1` dev
+    // override, a `backend:'webgl2'` code pin, or an auto-fallback after WebGPU
+    // was unavailable — the old text blamed ?forcegl2 even on the auto fallback.
+    console.warn(WEBGL2_BOOT_WARNING[mode])
   }
 
   // FAIL-LOUD stub for the WebGPU device/context (#834 device retirement S6 —
@@ -372,6 +430,15 @@ export async function initGPUForcedWebGL2(
     canvas,
     sampleCount: 1,
     rhi,
+    // Clamp authority for resizeCanvas (#1153 M3): MAX_TEXTURE_SIZE bounds the
+    // WebGL2 renderbuffer/canvas the same way the WebGPU device limit does, so
+    // the one clamp in resizeCanvas covers both backends. Left undefined when the
+    // gl can't be queried (a minimal fixture) → no clamp, mirroring the optional
+    // field's WebGPU minimal-ctx contract.
+    maxTextureDimension2D:
+      typeof gl.getParameter === 'function'
+        ? (gl.getParameter(gl.MAX_TEXTURE_SIZE) as number)
+        : undefined,
     timestampQuerySupported: false,
     timestampInsidePassesSupported: false,
     float32FilterableSupported: false,
@@ -486,15 +553,33 @@ async function ensureWebGl2ContextRestored(
  *  camera zoom-scale) — computing it once and passing it here makes a
  *  divergent cap structurally impossible (#929 B; previously this function
  *  read `effectiveDpr` itself and the render loop re-derived it). */
-export function resizeCanvas(ctx: GPUContext, dpr: number): void {
-  const w = Math.floor(ctx.canvas.clientWidth * dpr)
-  const h = Math.floor(ctx.canvas.clientHeight * dpr)
+export function resizeCanvas(ctx: GPUContext, dpr: number): number {
+  // #1153 M3: when the un-clamped device-pixel size would exceed the backend's
+  // maxTextureDimension2D, reduce dpr UNIFORMLY (one scalar over both axes) so
+  // the aspect ratio and the #929 B single-dpr invariant survive — per-axis
+  // clamping would distort the frame and split the dpr the swapchain and the
+  // camera math must share. Absent limit (minimal fixtures) → no clamp.
+  // clientWidth/clientHeight are layout-flushing DOM getters — read each ONCE per
+  // frame (the clamp branch previously re-read both, doubling the boundary crossings).
+  const cw = ctx.canvas.clientWidth
+  const ch = ctx.canvas.clientHeight
+  let effDpr = dpr
+  const limit = ctx.maxTextureDimension2D
+  if (limit !== undefined) {
+    effDpr = dpr * Math.min(1, limit / Math.floor(cw * dpr), limit / Math.floor(ch * dpr))
+  }
+  const w = Math.floor(cw * effDpr)
+  const h = Math.floor(ch * effDpr)
   if (ctx.canvas.width !== w || ctx.canvas.height !== h) {
     ctx.canvas.width = w
     ctx.canvas.height = h
     // Forced-WebGL2 path has no GPUCanvasContext to reconfigure — the gl viewport is
     // set per-frame in the RHI screen pass. Resize the backing buffer, skip configure.
-    if (ctx.rhi?.backend === 'webgl2') return
+    if (ctx.rhi?.backend === 'webgl2') return effDpr
     ctx.context.configure({ device: ctx.device, format: ctx.format, alphaMode: 'premultiplied' })
   }
+  // The caller MUST adopt this for its per-frame math (#929 B): it equals the
+  // input dpr when nothing clamped, and the reduced dpr that actually sized the
+  // swapchain when it did.
+  return effDpr
 }

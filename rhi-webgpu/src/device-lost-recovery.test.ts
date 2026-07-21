@@ -35,12 +35,17 @@ function installControllableGpu(): {
   })
   const device = {
     features: { has: () => false },
+    limits: { maxTextureDimension2D: 8192 },
     lost,
     addEventListener: () => undefined,
     queue: { submit: () => undefined },
     destroy: () => undefined,
   }
-  const adapter = { features: { has: () => false }, requestDevice: async () => device }
+  const adapter = {
+    features: { has: () => false },
+    limits: { maxTextureDimension2D: 8192 },
+    requestDevice: async () => device,
+  }
   const gpu = {
     requestAdapter: async () => adapter,
     getPreferredCanvasFormat: () => 'bgra8unorm' as GPUTextureFormat,

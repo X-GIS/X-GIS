@@ -37,9 +37,9 @@ export const ECEF_CONSTS: ConstDecl[] = [
   {
     name: 'WGS84_E2',
     type: f32T,
-    // eslint-disable-next-line no-loss-of-precision -- exact WGS84 e^2; the extra digits document the defined value (f32-compiled)
+
     wgslValue: 0.0066943799901413165,
-    // eslint-disable-next-line no-loss-of-precision -- exact WGS84 e^2; the extra digits document the defined value (f32-compiled)
+
     cpuValue: 0.0066943799901413165,
   },
 ]

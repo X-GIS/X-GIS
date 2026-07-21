@@ -132,6 +132,7 @@ export type FrameLoopHost = Pick<
   | '_light'
   | '_needsRender'
   | '_spriteAtlasViewPushed'
+  | '_scheduleFrame'
   | '_startTime'
   | '_stats'
   | '_statsPanel'
