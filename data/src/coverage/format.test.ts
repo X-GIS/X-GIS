@@ -11,6 +11,7 @@ import { describe, it, expect } from 'vitest'
 import {
   encodeCoverage,
   decodeCoverage,
+  coverageFromGrids,
   southFirstToNorthUp,
   type CoverageInput,
 } from './format'
@@ -221,5 +222,59 @@ describe('codec negatives — loud on corruption', () => {
     const headerLen = view.getUint32(6, true)
     view.setUint32(10 + headerLen, 0x7fffffff, true)
     await expect(decodeCoverage(buf)).rejects.toThrow(/truncated block/)
+  })
+})
+
+// ── ADR-0010: grids → CoverageHandle, no wire format ──────────────────────────
+describe('coverageFromGrids — the reader→renderer seam (ADR-0010)', () => {
+  it('is EQUIVALENT to the encode→decode round-trip at kind:f32 (no .xgcov needed)', async () => {
+    // The whole point of the seam: a reader that yields grids can build the exact
+    // same CoverageHandle the .xgcov path produces, with no transcode. If this
+    // holds, removing .xgcov loses nothing on the render/readout side.
+    const direct = coverageFromGrids(baseInput('f32'))
+    const viaXgcov = await decodeCoverage(await encodeCoverage(baseInput('f32')))
+
+    expect(direct.header.size).toEqual(viaXgcov.header.size)
+    expect(direct.header.origin).toEqual(viaXgcov.header.origin)
+    expect(direct.header.spacing).toEqual(viaXgcov.header.spacing)
+    expect(direct.header.product).toBe(viaXgcov.header.product)
+    expect(direct.header.vertical).toEqual(viaXgcov.header.vertical)
+
+    const db = direct.band('depth')
+    const xb = viaXgcov.band('depth')
+    expect(db.header.min).toBe(xb.header.min)
+    expect(db.header.max).toBe(xb.header.max)
+    expect(db.values.length).toBe(xb.values.length)
+    for (let i = 0; i < db.values.length; i++) {
+      if (Number.isNaN(xb.values[i]!)) expect(Number.isNaN(db.values[i]!)).toBe(true)
+      else expect(db.values[i]).toBeCloseTo(xb.values[i]!, 5)
+    }
+  })
+
+  it('valueAt matches the round-trip — verbatim value, NaN at nodata, null out of bounds', () => {
+    const h = coverageFromGrids(baseInput('f32'))
+    // NW cell centre (origin=[5,50], spacing=[2,1], 3×2): (5,51) = north row, col 0 = 20
+    expect(h.valueAt(5, 51, 'depth')).toBe(20)
+    // SE cell is the nodata fill → NaN
+    expect(Number.isNaN(h.valueAt(9, 50, 'depth')!)).toBe(true)
+    // outside the grid bounds → null
+    expect(h.valueAt(200, 200, 'depth')).toBeNull()
+  })
+
+  it('maps a source fill AND a pre-existing NaN to NaN; min/max skip both', () => {
+    const input = baseInput('f32')
+    input.bands[0]!.values = new Float32Array([20, NaN, 22, 10, FILL, 12])
+    const h = coverageFromGrids(input)
+    const b = h.band('depth')
+    expect(Number.isNaN(b.values[1]!)).toBe(true) // pre-existing NaN
+    expect(Number.isNaN(b.values[4]!)).toBe(true) // source fill
+    expect(b.header.min).toBe(10)
+    expect(b.header.max).toBe(22)
+  })
+
+  it('a wrong cell count fails loudly (never a silent short grid)', () => {
+    const input = baseInput('f32')
+    input.bands[0]!.values = new Float32Array([1, 2, 3]) // 3 ≠ 6
+    expect(() => coverageFromGrids(input)).toThrow(/band "depth" has 3 cells, expected 6/)
   })
 })

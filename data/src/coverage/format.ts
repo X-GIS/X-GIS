@@ -283,6 +283,57 @@ export async function decodeCoverage(buf: ArrayBuffer): Promise<CoverageHandle> 
   return new CoverageHandle(header, bands)
 }
 
+// ── Grids → CoverageHandle, with NO wire format (ADR-0010) ─────────────────────
+/** Build a CoverageHandle DIRECTLY from north-up grids + geometry — the
+ *  reader→renderer seam that replaces the `.xgcov` encode→decode round-trip
+ *  (ADR-0010: read the standard the data is already in; never transcode it into a
+ *  house blob). Any reader that yields grids (the HDF5 S-100 reader today, a COG
+ *  reader later) feeds the coverage renderer through this, so `.xgcov` never appears
+ *  in the chain. Equivalent to `encodeCoverage` → `decodeCoverage` at kind:'f32'
+ *  (the round-trip-equivalence test pins it), minus the deflate/serialize cost.
+ *  nodata cells map to NaN (the runtime's only nodata test); min/max are computed
+ *  over valid cells (the same GPU-normalize inputs `decodeCoverage` produces). */
+export function coverageFromGrids(input: CoverageInput): CoverageHandle {
+  const [nLon, nLat] = input.size
+  const expected = nLon * nLat
+  const bands: DecodedBand[] = []
+  for (const band of input.bands) {
+    if (band.values.length !== expected)
+      throw new Error(
+        `[coverage] band "${band.name}" has ${band.values.length} cells, expected ${expected}`,
+      )
+    const { min, max } = validRange(band.values, band.nodata)
+    const values = new Float32Array(band.values.length)
+    for (let i = 0; i < band.values.length; i++) {
+      const v = band.values[i]!
+      values[i] = v === band.nodata || Number.isNaN(v) ? NaN : v
+    }
+    // In-memory handle holds f32 values directly — no quantization, so no `codes`.
+    const header: CoverageBandHeader = {
+      name: band.name,
+      unit: band.unit,
+      kind: 'f32',
+      nodata: band.nodata,
+      min,
+      max,
+    }
+    bands.push({ header, values })
+  }
+  const header: CoverageHeader = {
+    product: input.product,
+    crs: 'EPSG:4326',
+    origin: input.origin,
+    spacing: input.spacing,
+    size: input.size,
+    registration: 'point',
+    bands: bands.map((b) => b.header),
+    vertical: input.vertical,
+    time: null,
+    ...(input.sourceMeta ? { sourceMeta: input.sourceMeta } : {}),
+  }
+  return new CoverageHandle(header, bands)
+}
+
 function decodeBand(bh: CoverageBandHeader, raw: Uint8Array, cells: number): DecodedBand {
   if (bh.kind === 'u16') {
     if (raw.length < cells * 2)
