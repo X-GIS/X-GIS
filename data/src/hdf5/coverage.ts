@@ -29,15 +29,20 @@ function toHandle(cov: Awaited<ReturnType<typeof readS102Coverage>>): CoverageHa
       values: southFirstToNorthUp(b.values, nLon, nLat),
     })),
     vertical: cov.vertical,
-    sourceMeta: { horizontalCRS: cov.horizontalCRS },
+    // `time` carries the forecast group decoded + the axis it sits on (numGRP, interval),
+    // so a caller can read the handle's valid-time and know how many hours are steppable.
+    sourceMeta: { horizontalCRS: cov.horizontalCRS, time: cov.time },
   })
 }
 
 /** Read an S-100 (DCF2 gridded) HDF5 buffer into a CoverageHandle — the CPU
  *  value-readout authority + the renderer's grid source. Throws (never silently
  *  mis-renders) on any out-of-subset HDF5 construct or a grid/geometry mismatch. */
-export async function readCoverageFromHdf5(hdf5Bytes: ArrayBuffer): Promise<CoverageHandle> {
-  return toHandle(await readS102Coverage(await openHdf5(hdf5Bytes)))
+export async function readCoverageFromHdf5(
+  hdf5Bytes: ArrayBuffer,
+  opts?: { group?: number },
+): Promise<CoverageHandle> {
+  return toHandle(await readS102Coverage(await openHdf5(hdf5Bytes), opts))
 }
 
 /** Read an S-100 cell over HTTP Range (ADR-0010 range-streaming) — pulls only the
@@ -49,7 +54,7 @@ export async function readCoverageFromHdf5(hdf5Bytes: ArrayBuffer): Promise<Cove
  *  that does is the norm); callers fall back to `readCoverage(buffer)` when it does not. */
 export async function readCoverageFromHdf5Url(
   url: string,
-  opts?: RangeReaderOptions & { blockSize?: number },
+  opts?: RangeReaderOptions & { blockSize?: number; group?: number },
 ): Promise<CoverageHandle> {
-  return toHandle(await readS102Coverage(await openHdf5Url(url, opts)))
+  return toHandle(await readS102Coverage(await openHdf5Url(url, opts), { group: opts?.group }))
 }
