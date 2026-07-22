@@ -394,6 +394,38 @@ describe('#826 GraphicsManager retained PARTICLE-FLOW batch', () => {
     gm.add(particleSpec(0))
     expect(gm.hasRetainedBatches()).toBe(false)
   })
+
+  it('hasAnimatedGraphics() keeps the render loop warm ONLY for a drawable particle-flow batch', () => {
+    const s = makeStubs()
+    const gm = new GraphicsManager()
+    attach(gm, s)
+    // Empty manager: nothing drifting → the on-demand loop is free to idle.
+    expect(gm.hasAnimatedGraphics(), 'empty manager idles').toBe(false)
+    // A DRAWABLE static icon overlay must NOT keep the loop warm — it discriminates by
+    // animation, not mere drawability (icon/arrow/circle/text are static per-frame).
+    gm.add(iconSpec(1000))
+    expect(gm.hasRetainedBatches(), 'icon batch is drawable').toBe(true)
+    expect(gm.hasAnimatedGraphics(), 'a static icon overlay does not keep the loop warm').toBe(
+      false,
+    )
+    // A drawable particle-flow batch drifts on the animation clock → keep the loop warm,
+    // else the drift freezes on a static camera (the idle-animation bug).
+    const flow = gm.add(particleSpec(5, 256))
+    expect(gm.hasAnimatedGraphics(), 'a drawable particle-flow batch keeps the loop warm').toBe(
+      true,
+    )
+    // Removing the overlay settles the gate so a static scene idles again.
+    flow.remove()
+    expect(gm.hasAnimatedGraphics(), 'gate falls once the particle overlay is gone').toBe(false)
+  })
+
+  it('an empty-field particle batch (0 particles) does NOT keep the loop warm', () => {
+    const s = makeStubs()
+    const gm = new GraphicsManager()
+    attach(gm, s)
+    gm.add(particleSpec(0))
+    expect(gm.hasAnimatedGraphics()).toBe(false)
+  })
 })
 
 // #797 P2b — retained STATIC TEXT. A text batch SHAPES each string into per-glyph instances through

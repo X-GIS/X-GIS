@@ -4271,6 +4271,11 @@ export class XGISMap {
     // per-tile ramp advances; the renderer clears the flag once every tile hits
     // full opacity, and this goes false again within rasterFadeDuration.
     if (this.rasterRenderer?.hasFadingTiles()) return true
+    // Particle-flow keep-alive (mirror of the raster-fade keep-alive): a currents
+    // overlay drifts its particles on the animation clock, which the graphics pass
+    // advances once per RENDERED frame — so while a drawable particle-flow batch
+    // exists the loop must keep rendering, else the drift freezes on a static camera.
+    if (this._graphics.hasAnimatedGraphics()) return true
     if (this.hasPendingSourceWork()) return true
     const c = this.camera
     const canvas = this.ctx?.canvas
