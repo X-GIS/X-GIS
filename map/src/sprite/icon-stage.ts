@@ -10,7 +10,7 @@ import { SpriteAtlasHost, type SpriteInfo } from './sprite-atlas-host'
 import { SpriteAtlasGPU } from './sprite-atlas-gpu'
 import { IconRenderer, type IconDraw, type IconAnchor } from './icon-renderer'
 import type { RhiDevice, RhiSampler, RhiTextureView, RhiRenderPass } from '@xgis/engine'
-import { fadeInstanceKey, type LabelFadeLedger } from '../text/label-fade'
+import { fadeInstanceKey, fadeStableIdentity, type LabelFadeLedger } from '../text/label-fade'
 
 /** Minimal sprite-metadata read surface IconStage resolves icons through.
  *  Satisfied structurally by SpriteAtlasHost (URL sprite atlas) and by
@@ -448,9 +448,13 @@ export class IconStage {
       // side exactly as before #1278.
       let fadeKey: string | undefined
       if (ledger !== null && p.fadeId !== undefined) {
-        const occ = this._fadeOcc.get(p.fadeId) ?? 0
-        this._fadeOcc.set(p.fadeId, occ + 1)
-        fadeKey = fadeInstanceKey(p.fadeId, occ)
+        // #1254 fix: strip the zoom-varying invLayer prefix identically to the
+        // text side (text-stage) so a paired text+icon still share one fade
+        // record and neither blinks on a zoom-level tile swap.
+        const fid = fadeStableIdentity(p.fadeId)
+        const occ = this._fadeOcc.get(fid) ?? 0
+        this._fadeOcc.set(fid, occ + 1)
+        fadeKey = fadeInstanceKey(fid, occ)
       }
       // Iter 112: drop icon when its paired text label was collision-
       // rejected. Mirrors MapLibre's "text+icon as one symbol" rule.

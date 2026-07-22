@@ -35,7 +35,12 @@ import type { GlyphProvider } from './sdf/pbf/glyph-provider'
 import { PbfRasterizer } from './sdf/pbf-rasterizer'
 import { TextRenderer } from './text-renderer'
 import type { TextDraw } from './text-renderer-types'
-import { FadeHoldoverStore, LabelFadeLedger, fadeInstanceKey } from './label-fade'
+import {
+  FadeHoldoverStore,
+  LabelFadeLedger,
+  fadeInstanceKey,
+  fadeStableIdentity,
+} from './label-fade'
 import type { RhiDevice, RhiRenderPass } from '@xgis/engine'
 import { greedyPlaceBboxes, type CollisionItem, type CollisionObstacle } from './text-collision'
 import {
@@ -2096,8 +2101,12 @@ export class TextStage {
       this._fadeOcc.clear()
       fadeKeys = new Array<string | undefined>(shaped.length)
       for (let i = 0; i < shaped.length; i++) {
-        const id = shaped[i]!.collisionId
-        if (id === undefined) continue
+        const raw = shaped[i]!.collisionId
+        if (raw === undefined) continue
+        // #1254 fix: key fade identity on the ZOOM-SWAP-INVARIANT featureIdentity,
+        // NOT the full collisionId — its invLayer prefix shifts at every zoom stop
+        // (labelShows.length), which made a stable label blink on each crossing.
+        const id = fadeStableIdentity(raw)
         const occ = this._fadeOcc.get(id) ?? 0
         this._fadeOcc.set(id, occ + 1)
         fadeKeys[i] = fadeInstanceKey(id, occ)
