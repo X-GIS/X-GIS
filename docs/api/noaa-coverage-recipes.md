@@ -133,12 +133,14 @@ geojson source), reads it with `readCoverageFromHdf5`, and stores the `CoverageH
 — `map.getCoverage('currents')?.valueAt(lon, lat)` then returns the exact cell value.
 To refresh without a reload, re-fetch and host-push (Recipe 2's `setCoverageData`).
 
-> **Scaling.** Today the reader loads a whole cell — right-sized for one S-111 /
-> S-102 cell (a few MB for a regional forecast). You never download the whole
-> archive: you fetch the one cell for your area + time, exactly as a PMTiles source
-> fetches only the tiles in view. Streaming a _large_ single HDF5 (or an XYZ
-> coverage pyramid) with HTTP **range requests** — the PMTiles model applied to
-> HDF5 chunks — is the ADR-0010 follow-up, not needed for the per-cell case here.
+> **Scaling.** The `coverage` source **range-streams** (ADR-0010 follow-up): it opens the
+> cell over HTTP Range and pulls only the metadata + the grid it actually reads — the first
+> forecast group — NOT the whole file. A NOAA S-111 cell packs ~24 hourly forecast groups +
+> tile pyramids into one HDF5, so a ~12 MB cell streams in **~⅓ the bytes** (measured 4.5 MB
+> vs 12.8 MB on a live CBOFS cell), producing the identical handle. The server must honour
+> Range (a CORS proxy that does is the norm); a non-Range server falls back to a whole-file
+> fetch. Per-viewport chunk selection (`readBand(region)`) is a further step, but for one
+> cell the metadata dominates the bytes, so the group-scoped range read is the real win.
 
 ---
 
