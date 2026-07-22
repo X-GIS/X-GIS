@@ -464,7 +464,7 @@ export const galleryCategories: Category[] = [
       {
         id: 'animate-point-route',
         title: 'Animate a point along a route',
-        body: 'setSourceData() slides a marker along an inlined SF→DC great-circle arc, one push per frame.',
+        body: 'A Marker DOM overlay glides along an inlined SF→DC great-circle arc, one setLngLat() per frame — a screen-space reposition, no per-frame re-tile.',
       },
       // `noThumb: true`: the measure scene starts EMPTY (points/line appear
       // only after user clicks), so a build-time capture would show just the

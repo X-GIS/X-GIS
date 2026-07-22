@@ -4,6 +4,7 @@
 // sources load via the shared loader; ids are unchanged (URL nav depends on
 // them). Append-only: a new demo in this category is added HERE.
 
+import { Marker } from '@xgis/runtime'
 import { load, type Demo } from './loader'
 
 export const DEMOS_CORE: Record<string, Demo> = {
@@ -73,13 +74,13 @@ export const DEMOS_CORE: Record<string, Demo> = {
     name: 'Animate Point Along Route',
     tag: 'event',
     description:
-      'MapLibre "Animate a point along a route" port (#1192) — Start slides the marker along the inlined SF→DC great-circle arc by pushing the interpolated position through map.setSourceData() every animation frame (the original\'s getSource().setData() loop). Stop pauses in place.',
+      'MapLibre "Animate a point along a route" port (#1192) — a Marker DOM overlay (#1262) glides along the inlined SF→DC great-circle arc. Start runs a requestAnimationFrame loop that calls marker.setLngLat() with the interpolated position each frame — a screen-space reposition via map.project(), NOT a per-frame source re-tile (the setSourceData push the sibling animate-line / realtime-update demos throttle to seconds; at 60fps it wedged the tab and killed the GPU context). Stop pauses in place.',
     source: load('animate-point-route.xgis'),
     zoom: 3.4,
     center: [-99, 39],
     actions: (() => {
-      // The inlined route vertices from animate-point-route.xgis — the host
-      // loop interpolates between them; keep the two lists in sync.
+      // The route vertices from animate-point-route.xgis — the loop
+      // interpolates the marker between them; keep the two lists in sync.
       const ROUTE: Array<[number, number]> = [
         [-122.41, 37.78],
         [-121.07, 38.08],
@@ -116,51 +117,71 @@ export const DEMOS_CORE: Record<string, Demo> = {
         [-77.03, 38.91],
       ]
       const DURATION_MS = 10_000
+      // Linear-interpolated [lon, lat] at route progress `tt` ∈ [0, 1).
+      const posAt = (tt: number): [number, number] => {
+        const f = tt * (ROUTE.length - 1)
+        const i = Math.floor(f)
+        const a = ROUTE[i]
+        const b = ROUTE[Math.min(i + 1, ROUTE.length - 1)]
+        const k = f - i
+        return [a[0] + (b[0] - a[0]) * k, a[1] + (b[1] - a[1]) * k]
+      }
       let raf = 0
       let t = 0 // route progress in [0, 1), survives Stop → Start resume
+      let marker: Marker | null = null
+      let observer: MutationObserver | null = null
       const stop = (): void => {
         if (raf) cancelAnimationFrame(raf)
         raf = 0
+      }
+      // Demo-switch teardown: the #map-pane container is SHARED across demos
+      // (only the map instance is rebuilt), so a Marker left attached would
+      // bleed onto the next demo. Kill the loop, remove the overlay, reset.
+      const teardown = (): void => {
+        stop()
+        marker?.remove()
+        marker = null
+        observer?.disconnect()
+        observer = null
+        t = 0
       }
       return [
         {
           label: 'Start',
           run: (m) => {
             stop()
-            // Bar is rebuilt on demo switch — die with the button (no ghost
-            // rAF holding the destroyed map alive).
-            const marker = document.querySelector('#demo-actions button')
+            if (!marker) {
+              const dot = document.createElement('div')
+              dot.className = 'route-marker'
+              // The rose dot the old moving_point layer drew, now a DOM
+              // overlay: fill-rose-500, white ring, centred on the coordinate.
+              dot.style.cssText =
+                'width:16px;height:16px;border-radius:50%;background:#f43f5e;' +
+                'border:2px solid #fff;box-sizing:border-box;' +
+                'box-shadow:0 0 0 1px rgba(0,0,0,0.25)'
+              marker = new Marker({ element: dot, anchor: 'center' })
+              marker.setLngLat(posAt(t)).addTo(m)
+            }
+            // demo-runner rebuilds the #demo-actions bar (replaceChildren) on
+            // every demo switch — when our Start button leaves the DOM, tear
+            // the overlay down. This also covers switching away while STOPPED,
+            // which no in-rAF sentinel would catch.
+            const bar = document.getElementById('demo-actions')
+            const startBtn = bar?.querySelector('button') ?? null
+            observer?.disconnect()
+            if (bar && startBtn) {
+              observer = new MutationObserver(() => {
+                if (!startBtn.isConnected) teardown()
+              })
+              observer.observe(bar, { childList: true })
+            }
             let last = performance.now()
             const tick = (now: number): void => {
-              if (marker && !marker.isConnected) return stop()
               // The first rAF timestamp can precede the performance.now()
-              // captured in the click handler — a negative delta would send
-              // t below 0 and index ROUTE[-1], killing the loop on frame 1.
+              // captured above — clamp so a negative delta can't push t < 0.
               t = (t + Math.max(0, now - last) / DURATION_MS) % 1
               last = now
-              const f = t * (ROUTE.length - 1)
-              const i = Math.floor(f)
-              const a = ROUTE[i]
-              const b = ROUTE[Math.min(i + 1, ROUTE.length - 1)]
-              const k = f - i
-              // setSourceData over updateFeature — the MapLibre original is
-              // a getSource().setData() loop, so this is the faithful shape.
-              // (Since #1235 gap 2, updateFeature CAN patch a .xgis-declared
-              // source through its seeded FC; both forms work here.)
-              m.setSourceData('marker', {
-                type: 'FeatureCollection',
-                features: [
-                  {
-                    type: 'Feature',
-                    id: 1,
-                    properties: {},
-                    geometry: {
-                      type: 'Point',
-                      coordinates: [a[0] + (b[0] - a[0]) * k, a[1] + (b[1] - a[1]) * k],
-                    },
-                  },
-                ],
-              })
+              marker?.setLngLat(posAt(t))
               raf = requestAnimationFrame(tick)
             }
             raf = requestAnimationFrame(tick)

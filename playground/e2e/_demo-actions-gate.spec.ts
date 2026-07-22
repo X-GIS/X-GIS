@@ -8,7 +8,8 @@
 //  • camera_around_point — "Animate map camera around a point" port: Start
 //    advances map.setBearing() from a host rAF loop; Stop halts it.
 //  • animate_point_route — "Animate a point along a route" port: Start
-//    slides the marker via per-frame map.updateFeature().
+//    glides a Marker DOM overlay (#1262) along the arc via per-frame
+//    marker.setLngLat() (a screen-space reposition, not a source re-tile).
 // Demos WITHOUT actions must not show the bar.
 
 import { test, expect, type Page } from '@playwright/test'
@@ -147,51 +148,36 @@ test('camera_around_point: Start spins the bearing, Stop halts it', async ({ pag
   expect(d).toBeGreaterThan(10_000) // the tilted world visibly rotated
 })
 
-/** Centroid of rose-500-ish pixels (the route marker) — structural
- *  position assert, immune to overlay-DOM noise that a raw pixel-count
- *  diff would happily accept as "movement". */
-function roseCentroid(png: PNG): [number, number] | null {
-  let sx = 0
-  let sy = 0
-  let n = 0
-  for (let y = 0; y < png.height; y++) {
-    for (let x = 0; x < png.width; x++) {
-      const i = (y * png.width + x) * 4
-      const [r, g, b] = [png.data[i]!, png.data[i + 1]!, png.data[i + 2]!]
-      if (r > 200 && g < 110 && b < 130) {
-        sx += x
-        sy += y
-        n++
-      }
-    }
-  }
-  return n > 20 ? [sx / n, sy / n] : null
-}
-
 test('animate_point_route: Start moves the marker along the route', async ({ page }) => {
   test.setTimeout(240_000)
   await boot(page, 'animate_point_route')
   await expect(page.locator('#demo-actions')).toBeVisible()
-  const before = await shoot(page, `${DIR}/actions-route-before.png`)
-  const c0 = roseCentroid(before)
+
+  // The moving point is a Marker DOM overlay (#1262), not a canvas pixel —
+  // read its on-screen x from the element's bounding box (the map's own
+  // project() drives the transform, so this can't drift from the render).
+  const markerX = (): Promise<number | null> =>
+    page.evaluate(() => {
+      const el = document.querySelector('.route-marker') as HTMLElement | null
+      return el ? el.getBoundingClientRect().left : null
+    })
 
   await page.getByRole('button', { name: 'Start', exact: true }).click()
+  await page.waitForSelector('.route-marker', { timeout: 10_000 })
+  const x0 = await markerX()
   // 10s loop: 1.5s ≈ 15% of the SF→DC arc — several hundred px of travel.
   await page.waitForTimeout(1500)
   await page.getByRole('button', { name: 'Stop', exact: true }).click()
-  await pump(page)
-  const after = await shoot(page, `${DIR}/actions-route-after.png`)
-  const c1 = roseCentroid(after)
+  const x1 = await markerX()
 
-  // The tick loop must not have crashed (a dead rAF leaves the marker at
-  // SF while overlay noise still passes a naive pixel-count diff).
+  // The tick loop must not have crashed (a dead rAF / lost GPU context would
+  // freeze the marker at SF or surface a TypeError).
   const errText = await page.locator('#error-msg').textContent()
   expect(errText ?? '').not.toMatch(/TypeError|undefined/)
 
-  console.log(`[demo-actions] route marker centroid ${c0} → ${c1}`)
-  expect(c0).not.toBeNull()
-  expect(c1).not.toBeNull()
-  // SF→DC runs west→east: the centroid must travel right by far more
-  // than antialias jitter.
-  expect(c1![0] - c0![0]).toBeGreaterThan(30)
+  console.log(`[demo-actions] route marker x ${x0} → ${x1}`)
+  expect(x0).not.toBeNull()
+  expect(x1).not.toBeNull()
+  // SF→DC runs west→east: the marker travels right by far more than jitter.
+  expect(x1! - x0!).toBeGreaterThan(30)
 })
