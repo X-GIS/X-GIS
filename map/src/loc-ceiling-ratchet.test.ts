@@ -393,7 +393,9 @@ const CEILINGS: Record<string, number> = {
   // 2230→2234 (#1254 zoom-blink fix): the fade key now strips the zoom-varying
   // invLayer prefix via fadeStableIdentity (+doc) so a stable label doesn't blink
   // on a zoom-level tile swap. The strip helper lives in text/label-fade.ts. +4.
-  'map/src/text/text-stage.ts': 2234,
+  // 2234→2239: #1298 (symbol-fade) grew the file to 2239 but left the ceiling at 2234
+  // — a main drift the ratchet flags on any rebased PR; corrected to the actual count.
+  'map/src/text/text-stage.ts': 2239,
   // 1786→1719 (#727 C): the line/point dedupe + pair-key helper block was
   // EXTRACTED to passes/line-label-dedupe.ts when the world-copy fan-out would
   // otherwise have grown this file — the extract-don't-grow answer.

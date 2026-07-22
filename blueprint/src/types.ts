@@ -127,8 +127,6 @@ const PRESENTATION: Record<string, Presentation> = {
       type: { label: 'Type', kind: 'select' },
       url: { label: 'URL', kind: 'text', placeholder: 'land.geojson' },
       layers: { label: 'MVT layers (opt, comma)', kind: 'text', placeholder: 'water, roads' },
-      ramp: { label: 'Ramp (coverage, opt)', kind: 'text', placeholder: 'bathymetry' },
-      range: { label: 'Range (coverage, opt)', kind: 'text', placeholder: '[-50, 0]' },
     },
     defaults: { name: 'world', type: 'geojson', url: 'land.geojson', layers: '' },
   },
@@ -170,6 +168,8 @@ const PRESENTATION: Record<string, Presentation> = {
       minzoom: { label: 'minzoom (opt)', kind: 'text', placeholder: '' },
       maxzoom: { label: 'maxzoom (opt)', kind: 'text', placeholder: '' },
       filter: { label: 'filter (opt)', kind: 'text', placeholder: '.population > 1000000' },
+      ramp: { label: 'Ramp (coverage, opt)', kind: 'text', placeholder: 'viridis' },
+      range: { label: 'Range (coverage, opt)', kind: 'text', placeholder: '[0, 2]' },
       pipe: {
         label: 'Utilities (one pipeline per line)',
         kind: 'textarea',
