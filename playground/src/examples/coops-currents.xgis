@@ -4,25 +4,22 @@ xgis 1
 // runner fetches api.tidesandcurrents.noaa.gov (CORS `*`, no server needed) for a
 // set of Chesapeake Bay PORTS current stations and draws one retained arrow per
 // station (bearing = current direction, length + colour = speed), refreshing every
-// few minutes. This .xgis is only the coarse land/ocean context; the live glyphs
-// come from Demo.coops → the runner's setupCoopsOverlay.
+// few minutes. This .xgis carries ONLY the basemap; the live glyphs come from
+// Demo.coops → the runner's setupCoopsOverlay (docs/api/noaa-coverage-recipes.md,
+// Recipe 3: CORS-open JSON → map.graphics.add).
+//
+// Basemap: Esri World Imagery — the same raster source the satellite_map demo uses,
+// so the live arrows read against the real Chesapeake Bay coastline and water rather
+// than flat land polygons. Note the ArcGIS {z}/{y}/{x} path order (the tile-URL
+// template substitution is order-agnostic).
+//
+// Imagery © Esri, Maxar, Earthstar Geographics, and the GIS User Community.
 
-source ocean {
-  type: geojson
-  url: "ne_110m_ocean.geojson"
+source satellite {
+  type: raster
+  url: "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}"
 }
 
-source land {
-  type: geojson
-  url: "ne_110m_land.geojson"
-}
-
-layer ocean {
-  source: ocean
-  | fill-slate-800
-}
-
-layer land {
-  source: land
-  | fill-slate-600 stroke-slate-500 stroke-1
+layer imagery {
+  source: satellite
 }

@@ -161,7 +161,7 @@ export const DEMOS_THEMATIC: Record<string, Demo> = {
     name: 'NOAA CO-OPS Live Currents (#1272)',
     tag: 'thematic',
     description:
-      'LIVE NOAA tidal currents, fetched browser-direct from api.tidesandcurrents.noaa.gov (CORS `*`, no server) for the Chesapeake Bay PORTS current stations — one retained arrow per station, bearing = flow direction, length + colour = speed, refreshed every few minutes. Needs network egress; the arrows stay absent offline.',
+      'LIVE NOAA tidal currents, fetched browser-direct from api.tidesandcurrents.noaa.gov (CORS `*`, no server) for the Chesapeake Bay PORTS current stations — one retained arrow per station over Esri satellite imagery, bearing = flow direction, length + colour = speed, refreshed every few minutes. Needs network egress; the arrows stay absent offline.',
     source: load('coops-currents.xgis'),
     zoom: 6.7,
     center: [-76.15, 38.2],
