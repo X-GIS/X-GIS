@@ -1,25 +1,46 @@
 xgis 1
 
-// NOAA CO-OPS live tidal currents (#1272) — the browser-DIRECT path: the demo
-// runner fetches api.tidesandcurrents.noaa.gov (CORS `*`, no server needed) for a
-// set of Chesapeake Bay PORTS current stations and draws one retained arrow per
-// station (bearing = current direction, length + colour = speed), refreshing every
-// few minutes. This .xgis carries ONLY the basemap; the live glyphs come from
-// Demo.coops → the runner's setupCoopsOverlay (docs/api/noaa-coverage-recipes.md,
-// Recipe 3: CORS-open JSON → map.graphics.add).
+// NOAA CO-OPS live tidal currents (#1272) — declarative style here, live data
+// pushed in from coops-currents.recipe.ts (shown in the demo's JS tab).
 //
-// Basemap: Esri World Imagery — the same raster source the satellite_map demo uses,
-// so the live arrows read against the real Chesapeake Bay coastline and water rather
-// than flat land polygons. Note the ArcGIS {z}/{y}/{x} path order (the tile-URL
-// template substitution is order-agnostic).
+// Two-part demo:
+//   • THIS .xgis is the declarative half — a satellite basemap plus a `stations`
+//     source that carries no url:. The recipe fetches the Chesapeake Bay PORTS
+//     current stations from api.tidesandcurrents.noaa.gov (CORS `*`), assembles
+//     GeoJSON, and pushes it with map.setSourceData('stations', …). The
+//     station_dots layer below then colours + sizes each point by its `.speed`
+//     with zero draw code (the "declare a source, push data in" path, #1303).
+//   • The recipe half also draws one DIRECTION arrow per station via
+//     map.graphics.add — rotating a glyph per feature is the one thing the
+//     declarative layer can't express yet (data-driven icon-rotate, #1302).
 //
-// Imagery © Esri, Maxar, Earthstar Geographics, and the GIS User Community.
+// Basemap: Esri World Imagery, the same raster source the satellite_map demo
+// uses, so the live field reads against the real Chesapeake Bay coastline and
+// water. Note the ArcGIS {z}/{y}/{x} order (the tile-URL substitution is
+// order-agnostic). Imagery © Esri, Maxar, Earthstar Geographics, and the GIS
+// User Community.
 
 source satellite {
   type: raster
   url: "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}"
 }
 
+// No url: — the recipe fills this at runtime via setSourceData('stations', fc),
+// then re-pushes every ~6 min (host setInterval today; a declarative source
+// refresh: is #1304).
+source stations {
+  type: geojson
+}
+
 layer imagery {
   source: satellite
+}
+
+// DECLARATIVE speed encoding: colour + radius straight from the pushed `.speed`
+// field — the same field the recipe's direction arrows ramp, so dots and arrows
+// agree. gradient(field, min, max, low, high) is the data-driven colour ramp.
+layer station_dots {
+  source: stations
+  | fill gradient(.speed, 0, 120, sky-300, rose-600) opacity-55 stroke-white stroke-1
+  | size-[14 + sqrt(.speed) * 2.2]
 }
