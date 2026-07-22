@@ -170,28 +170,6 @@ class OpaquePass implements RenderPass {
             ctx.dpr,
           )
           host.gpuTimer?.mark(subPass, 'after_raster')
-          // S-100 coverage colour-ramp overlay (#1158) — over the raster
-          // basemap, under the vector shows. FLAT arm only (the globe drape is
-          // INC-B): the coverage VS consumes camera-relative 2D projected
-          // metres, which the ECEF frame matrix cannot feed. `frame.matrix` is
-          // a preallocated camera buffer — packCoverageUniforms copies it
-          // synchronously inside render() before any later camera call.
-          if (
-            host.coverageRenderer.hasCoverage() &&
-            !host.camera.globeMode &&
-            !isGlobeProj(projType)
-          ) {
-            const frame = host.camera.getViewForProjection(projType, ctx.w, ctx.h, ctx.dpr)
-            // Pass the raw encoder — CoverageRenderer.render wraps it internally
-            // (the backend fork lives there, mirroring raster), keeping this pass
-            // file free of a concrete-backend import (#991 backend-adapter ratchet).
-            host.coverageRenderer.render(
-              subPass,
-              frame.matrix,
-              [host.camera.centerX, host.camera.centerY],
-              [projType, centerLon, centerLat, frame.logDepthFc],
-            )
-          }
           host.renderer.renderToPass(
             subPass,
             host.camera,
@@ -286,6 +264,29 @@ class OpaquePass implements RenderPass {
         // and the opaque fills hid it — invisible on flat, off-disc-only on
         // globe. isLastOpaque so a multi-group scene draws it once, on top.
         if (isLastOpaque) {
+          // S-100 coverage colour-ramp overlay (#1158/#1272) — drawn HERE, in the LAST
+          // opaque sub-pass AFTER every group's vector-tile shows, so it composites ON
+          // TOP of the opaque basemap fills (raster OR a vector basemap's ocean/land),
+          // not under them. Pre-fix it drew in the FIRST sub-pass (over the raster, under
+          // the vector shows), so a vector basemap's water fill hid it — the exact bug the
+          // #970 graticule move fixed, applied to coverage. FLAT arm only (globe drape is
+          // INC-B): the coverage VS consumes camera-relative 2D projected metres the ECEF
+          // frame matrix cannot feed. Drawn before the graticule so the grid stays on top.
+          if (
+            host.coverageRenderer.hasCoverage() &&
+            !host.camera.globeMode &&
+            !isGlobeProj(projType)
+          ) {
+            const frame = host.camera.getViewForProjection(projType, ctx.w, ctx.h, ctx.dpr)
+            // Raw encoder — CoverageRenderer.render wraps it internally (the backend fork
+            // lives there, mirroring raster), keeping this pass file backend-import-free.
+            host.coverageRenderer.render(
+              subPass,
+              frame.matrix,
+              [host.camera.centerX, host.camera.centerY],
+              [projType, centerLon, centerLat, frame.logDepthFc],
+            )
+          }
           host.renderer.renderGraticuleOverlay(subPass, host.camera, projType, centerLon, centerLat)
         }
 
