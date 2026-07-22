@@ -582,11 +582,13 @@ let jsModel: monaco.editor.ITextModel | null = null
 
 // Demos whose JS tab shows a hand-written recipe MODULE (imperative host
 // integration — live fetch + host-push + retained graphics) instead of a
-// SceneBuilder twin. Keyed by demo id → the module's ?raw source, so the tab
-// shows exactly the code the runner runs. Same single-authority contract as the
-// twin corpus: no hand-copied snippet to drift.
+// SceneBuilder twin. Keyed by the DEMOS record id (i.e. `demoIds[currentIdx]`),
+// which is underscore-cased (`coops_currents`) — NOT the hyphen-cased .xgis /
+// recipe filename (`coops-currents`). Keying it by the filename hid the JS tab
+// (the lookup `DEMO_RECIPES[demoIds[currentIdx]]` missed). The tab shows exactly
+// the code the runner runs — single-authority, no hand-copied snippet to drift.
 const DEMO_RECIPES: Record<string, string> = {
-  'coops-currents': coopsRecipeRaw,
+  coops_currents: coopsRecipeRaw,
 }
 
 function showLangTab(js: boolean): void {
