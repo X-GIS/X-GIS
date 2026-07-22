@@ -247,7 +247,21 @@ export interface HeatmapPaint {
   heatmapColorStops?: { offset: number; rgba: [number, number, number, number] }[]
 }
 
-export interface ShowCommand extends FillPaint, LinePaint, CirclePaint, ExtrudePaint, HeatmapPaint {
+/** Arrow-layer axes (#1302). Present on a layer marked with the `arrow`
+ *  utility; `isArrow` routes the runtime rebuildLayers fork to the compiled
+ *  ArrowRenderer. The per-feature bearing is a resolved-value pair like
+ *  size/sizeExpr (constant vs data-driven). */
+export interface ArrowPaint {
+  /** True when the layer is an `arrow` layer. Routes to the ArrowRenderer. */
+  isArrow?: boolean
+  /** Constant per-layer bearing (degrees true, 0 = N clockwise); null when data-driven. */
+  arrowBearing?: number | null
+  /** Per-feature bearing expression (`bearing-[.dir]`); null when constant. */
+  arrowBearingExpr?: DataExpr | null
+}
+
+export interface ShowCommand
+  extends FillPaint, LinePaint, CirclePaint, ExtrudePaint, HeatmapPaint, ArrowPaint {
   /** Position of this show in `Scene.renderNodes` — the key the P4
    *  compute plan uses to route output buffers back to fragment-
    *  shader paint axes. Set at emit time; immutable from there.
@@ -599,6 +613,7 @@ function emitShow(
     ...emitCircleFields(node),
     ...emitExtrudeFields(node),
     ...emitHeatmapFields(node),
+    ...emitArrowFields(node),
     paintShapes: {
       fill: { fill: colorValueToShape(node.fill) },
       line: {
@@ -737,6 +752,17 @@ function emitHeatmapFields(node: RenderNode): HeatmapPaint {
     heatmapIntensity: node.heatmapIntensity,
     heatmapOpacity: node.heatmapOpacity,
     heatmapColorStops: node.heatmapColorStops,
+  }
+}
+
+/** Arrow-layer axes (#1302) — mirrors emitHeatmapFields. The per-feature bearing
+ *  (a SizeValue on the node) splits into a constant + a data-driven expr,
+ *  exactly like size / sizeExpr, so the runtime evaluates it per feature. */
+function emitArrowFields(node: RenderNode): ArrowPaint {
+  return {
+    isArrow: node.isArrow,
+    arrowBearing: node.arrowBearing?.kind === 'constant' ? node.arrowBearing.value : null,
+    arrowBearingExpr: node.arrowBearing?.kind === 'data-driven' ? node.arrowBearing.expr : null,
   }
 }
 
