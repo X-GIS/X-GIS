@@ -456,7 +456,8 @@ const LOC_CEILINGS: Record<string, number> = {
   // default-none absence contract). Same additive label-knob field class.
   // Bumped 943→956 (#1302): RenderNodeArrowPaint (isArrow + arrowBearing) for the
   // declarative arrow layer — additive paint sub-bundle, mirrors RenderNodeHeatmapPaint.
-  'compiler/src/ir/render-node.ts': 956,
+  // 956→957 (merge union with #1305 RenderNodeCoveragePaint).
+  'compiler/src/ir/render-node.ts': 957,
   // Crossed 800 purely via the full-repo prettier adoption (one-property-per-line /
   // call-arg wrapping) — not a hand-grown god-file; baselined at the formatted size,
   // shrink as it converges.

@@ -13,8 +13,8 @@ export type { Diagnostic }
 // file under its LOC ceiling (#777 Phase II). Re-exported so existing
 // `./render-node` importers of these names keep resolving from here.
 import type { RasterDemSourceFields, RenderNodeHillshadePaint } from './render-node-hillshade'
-import type { CoverageSourceFields } from './render-node-coverage'
-export type { RasterDemSourceFields, RenderNodeHillshadePaint, CoverageSourceFields }
+import type { RenderNodeCoveragePaint } from './render-node-coverage'
+export type { RasterDemSourceFields, RenderNodeHillshadePaint, RenderNodeCoveragePaint }
 
 /**
  * A complete IR scene — the output of the lowering pass.
@@ -54,12 +54,12 @@ export interface SymbolDef {
 }
 
 /**
- * A data source definition. The `raster-dem` DEM fields (encoding / tileSize /
- * custom unpack factors) live on {@link RasterDemSourceFields} and the
- * `coverage` display fields on {@link CoverageSourceFields}, which this
- * extends — kept in sibling files so this file stays under its LOC ceiling.
+ * A data source definition. The `raster-dem` DEM fields (encoding / tileSize / custom
+ * unpack factors) live on {@link RasterDemSourceFields}, a sibling file (LOC ceiling).
+ * The `coverage` ramp/range display axes are LAYER paint — {@link RenderNodeCoveragePaint}
+ * on RenderNode (INC-D); a `coverage` source is data-only.
  */
-export interface SourceDef extends RasterDemSourceFields, CoverageSourceFields {
+export interface SourceDef extends RasterDemSourceFields {
   name: string
   type: string // 'geojson', 'vector', 'raster', 'raster-dem', 'binary'
   url: string
@@ -266,6 +266,7 @@ export interface RenderNode
     RenderNodeRasterPaint,
     RenderNodeHillshadePaint,
     RenderNodeHeatmapPaint,
+    RenderNodeCoveragePaint,
     RenderNodeArrowPaint {
   name: string
   sourceRef: string // references SourceDef.name

@@ -71,6 +71,15 @@ export const SOURCE_TYPES = [
   // loader registry. NOT a spec-coverage row: the Mapbox converter's spec-coverage
   // table is a separate authority; the drift gate binds spec-coverage↔RUNTIME only.
   'coverage',
+  // `hdf5` / `h5` are FORMAT-NAMED ALIASES of the coverage family — the exact mirror
+  // of `pmtiles`/`tilejson` under `vector`: a render family carries one ROLE name
+  // (`coverage`, the ISO 19123 / S-100 term) plus container-name aliases, and the
+  // reader is still chosen from the URL extension (detectCoverageFormat). The lowering
+  // canonicalises hdf5/h5 → coverage (lower.ts lowerSource), so the IR, dead-layer-elim,
+  // and runtime only ever see `coverage`; these entries exist so the bare identifier
+  // parses and the editor/palette advertises the spelling. GRIB2/NetCDF/COG join here.
+  'hdf5',
+  'h5',
 ] as const
 
 /** Accepted `symbol { anchor: … }` values. */
@@ -108,12 +117,6 @@ export const LANGUAGE_SCHEMA: Record<string, ConstructDef> = {
       { key: 'type', valueKind: 'enum', options: SOURCE_TYPES, required: true },
       { key: 'url', valueKind: 'string' },
       { key: 'layers', valueKind: 'string' },
-      // #1158 GAP-1 INC-A — colour-ramp + value range for a `coverage` source,
-      // carried as SOURCE-level options (additive; doc §6). `ramp` names a LUT
-      // palette; `range` is a `[lo, hi]` value window. Graduate to paint
-      // properties in INC-D (`setPaintProperty('depth','ramp',…)`).
-      { key: 'ramp', valueKind: 'string' },
-      { key: 'range', valueKind: 'expr' },
     ],
   },
 
@@ -155,6 +158,13 @@ export const LANGUAGE_SCHEMA: Record<string, ConstructDef> = {
       { key: 'maxzoom', valueKind: 'number' },
       { key: 'filter', valueKind: 'expr' },
       { key: 'pipe', valueKind: 'pipe' },
+      // #1158 INC-D — `coverage` LAYER paint: `ramp` names a colour-ramp LUT, `range`
+      // is a `[lo, hi]` value window. The graduation the INC-A SOURCE note promised:
+      // styling (value→colour) is a paint/LAYER concern (the Mapbox raster-color /
+      // raster-color-range analogue), so a `coverage` source is data-only and the
+      // layer that draws it carries the palette + window.
+      { key: 'ramp', valueKind: 'string' },
+      { key: 'range', valueKind: 'expr' },
     ],
     refs: [
       { pin: 'source', refType: 'source', required: true },

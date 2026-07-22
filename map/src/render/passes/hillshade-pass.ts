@@ -33,10 +33,24 @@ type RGBA = readonly [number, number, number, number]
  *  paint) carries no bundle → the renderer keeps its DEFAULT_PARAMS + armed DEM. */
 export function applyHillshadePaint(
   hr: HillshadeRenderer,
-  hillshadeShow: { paintShapes: { hillshade?: HillshadeShapesLike } } | null | undefined,
+  hillshadeShow:
+    | {
+        paintShapes: {
+          hillshade?: HillshadeShapesLike
+          common?: { opacity: Parameters<typeof resolveNumberShape>[0] }
+        }
+      }
+    | null
+    | undefined,
   zoom: number,
   elapsedMs: number,
 ): void {
+  // Layer opacity is a COMMON paint (independent of the hillshade relief bundle) — resolve
+  // + set it FIRST, so a default hillshade layer (no authored relief paint, early-returns
+  // below) still honours `opacity` like every other layer type (#777 gap).
+  const common = hillshadeShow?.paintShapes.common
+  if (common) hr.setOpacity(resolveNumberShape(common.opacity, zoom, elapsedMs).value)
+
   const hs = hillshadeShow?.paintShapes.hillshade
   if (!hs) return
   // resolveColorShape returns null for a constant shape — read the constant value

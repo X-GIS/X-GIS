@@ -41,6 +41,13 @@ import {
   fadeInstanceKey,
   fadeStableIdentity,
 } from './label-fade'
+import {
+  holdoverDrawToEmit,
+  makeBakeFrame,
+  reprojectTextHoldover,
+  type HoldoverBakeFrame,
+  type MotionHoldoverCtx,
+} from './holdover-reproject'
 import type { RhiDevice, RhiRenderPass } from '@xgis/engine'
 import { greedyPlaceBboxes, type CollisionItem, type CollisionObstacle } from './text-collision'
 import {
@@ -212,6 +219,11 @@ export class TextStage {
   /** Last-placed draw clone per fade key, for fade-out holdover (the source
    *  draw's typed arrays are FrameArena-backed — see FadeHoldoverStore). */
   private readonly _fadeHoldover = new FadeHoldoverStore<TextDraw>()
+  /** Bake reference frame per holdover key (one shared object per prepare —
+   *  see prepare()). Lets a fade-out holdover be reprojected onto the current
+   *  frame during a similarity-safe zoom/pan so it fades IN PLACE instead of
+   *  popping (holdover-reproject.ts). Swept in lock-step with _fadeHoldover. */
+  private readonly _fadeHoldoverBake = new Map<string, HoldoverBakeFrame>()
   /** Per-prepare occurrence counter scratch: collisionId → count, so
    *  multi-instance ids (route repeats, world copies) key distinct records. */
   private readonly _fadeOcc = new Map<string, number>()
@@ -877,6 +889,12 @@ export class TextStage {
     // derives this from its S16 dispatch signature; direct-stage callers
     // (tests, static harnesses) default to true.
     holdoverOk: boolean = true,
+    // Symbol fade: present ONLY on a similarity-safe prepare (flat Mercator,
+    // pitch 0, fixed bearing/canvas — see label-pass). When set, a fade-out
+    // holdover dropped DURING a zoom/pan is REPROJECTED onto this frame (fades
+    // in place) instead of being suppressed. Absent ⇒ the pre-fix pop, exactly
+    // as before. The idle holdoverOk === true path never uses it (byte-identical).
+    motionHoldover?: MotionHoldoverCtx,
   ): void {
     // #777 I-A — reset the per-frame paired-bbox stash before laying out this
     // frame's labels; refilled as each icon-paired label is shaped below.
@@ -896,6 +914,9 @@ export class TextStage {
         this.fadeLedger.beginPrepare()
         this.fadeLedger.finishPrepare()
         this._fadeHoldover.sweep((k) => this.fadeLedger.refOf(k) !== undefined)
+        for (const k of this._fadeHoldoverBake.keys()) {
+          if (this.fadeLedger.refOf(k) === undefined) this._fadeHoldoverBake.delete(k)
+        }
       }
       this.renderer.setDraws([])
       this._diag.setDrawnCount(0)
@@ -964,6 +985,7 @@ export class TextStage {
       // alias after an eviction — drop them (the one event that invalidates
       // heap-carried refs; affected fade-outs pop, matching the caches).
       this._fadeHoldover.clear()
+      this._fadeHoldoverBake.clear()
       this._glyphsByTextCache.clear()
       // iter-168: layout cache entries reference GlyphInfo[] whose
       // slot.pxX/pxY would point to the wrong glyph after eviction.
@@ -2113,6 +2135,10 @@ export class TextStage {
       }
       this.fadeLedger.beginPrepare()
     }
+    // Symbol fade — this prepare's bake reference frame, shared by every label
+    // placed below (one refs copy per prepare). Stamped onto each holdover so a
+    // later fade-out can be reprojected onto a future frame.
+    const bakeThisPrepare = makeBakeFrame(motionHoldover)
     const draws: TextDraw[] = []
     // Iter 112 paired-symbol collision: stamp pairKeys of REJECTED
     // text labels so IconStage.prepare can drop the matching icon.
@@ -2153,6 +2179,11 @@ export class TextStage {
           if (ref !== undefined) {
             chosen.draw.fadeRef = ref
             this._fadeHoldover.store(fk, chosen.draw)
+            // Stamp this prepare's bake frame so a later fade-out can reproject
+            // the frozen clone; clear it under a non-similarity-safe camera so
+            // a stale frame never drives a wrong reprojection (→ graceful pop).
+            if (bakeThisPrepare !== null) this._fadeHoldoverBake.set(fk, bakeThisPrepare)
+            else this._fadeHoldoverBake.delete(fk)
           }
         }
         // #777 I-G — the winning candidate's inline images become absolute
@@ -2174,18 +2205,32 @@ export class TextStage {
     }
     // ── Symbol fade: fade-out holdover ──
     // Keys placed by a PRIOR prepare but absent from this one keep drawing
-    // their retained clone while their opacity ramps to 0 — suppressed when
-    // the camera moved (holdoverOk false: the clone's baked screen-px coords
-    // would lie; targets still flip and records decay invisibly, resuming
-    // smoothly if re-placed). Fully-faded records were pruned by
-    // finishPrepare; the clone store then drops the same keys.
+    // their retained clone while their opacity ramps to 0. On an EXACT-match
+    // idle frame (holdoverOk) the baked screen px are still valid → draw as-is
+    // (byte-identical). During a SIMILARITY-SAFE zoom/pan (motionHoldover)
+    // reproject the clone onto this frame from its stamped bake frame so the
+    // label fades IN PLACE — the fix for "labels pop on zoom": fade-out used to
+    // be suppressed under any motion while fade-in kept working (asymmetric
+    // blink). Outside both regimes (globe / pitch / rotate / resize) the
+    // holdover stays suppressed — the pre-fix graceful pop. finishPrepare
+    // pruned fully-faded records; the clone + bake stores drop the same keys.
     if (fadeKeys !== null) {
       for (const fk of this.fadeLedger.finishPrepare()) {
-        if (!holdoverOk) continue
         const held = this._fadeHoldover.get(fk)
-        if (held !== undefined) draws.push(held)
+        if (held === undefined) continue
+        const emit = holdoverDrawToEmit(
+          held,
+          this._fadeHoldoverBake.get(fk),
+          holdoverOk,
+          motionHoldover,
+          reprojectTextHoldover,
+        )
+        if (emit !== null) draws.push(emit)
       }
       this._fadeHoldover.sweep((k) => this.fadeLedger.refOf(k) !== undefined)
+      for (const k of this._fadeHoldoverBake.keys()) {
+        if (this.fadeLedger.refOf(k) === undefined) this._fadeHoldoverBake.delete(k)
+      }
     }
     perfMarkEnd('stage-prepare.collision')
 

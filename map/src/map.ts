@@ -3491,17 +3491,17 @@ export class XGISMap {
         continue
       }
 
-      // S-100 gridded-coverage source (#1158 GAP-1). The CPU-resident CoverageHandle
-      // is the value-readout authority (getCoverage(...).valueAt); narrow the marker
-      // here so it never falls through to the feature paths below. A layer over the
-      // source arms the GPU colour-ramp draw with the source's ramp/range options
-      // (default viridis / the band's data range); the opaque pass dispatches it
-      // right after the raster basemap (flat arm).
+      // S-100 gridded-coverage source (#1158 GAP-1). The CoverageHandle is the value
+      // authority (getCoverage(...).valueAt); narrow the marker so it never falls to the
+      // feature paths. The drawing LAYER carries ramp/range/opacity paint on its
+      // ShowCommand (#1158 INC-D, raster-color analogue) — read off `show`, not the
+      // data-only marker. Opaque pass dispatches it after the raster basemap (flat arm).
       if ('_coverage' in data) {
         this.coverageRenderer.setCoverage(data._coverage, {
-          ramp: data.ramp ?? 'viridis',
-          rangeLo: data.range?.[0],
-          rangeHi: data.range?.[1],
+          ramp: show.ramp ?? 'viridis',
+          rangeLo: show.range?.[0],
+          rangeHi: show.range?.[1],
+          opacity: show.opacity ?? 1,
         })
         continue
       }
@@ -4561,15 +4561,15 @@ export class XGISMap {
       )
     }
     const handle = await readCoverage(bytes)
-    const ramp = opts?.ramp ?? prev.ramp
-    const range = opts?.range ?? prev.range
-    this.rawDatasets.set(sourceId, { _coverage: handle, ramp, range })
-    // Arm the singleton coverage renderer directly (a host push lands AFTER the
-    // rebuild that normally arms it); a later rebuild re-arms from the marker.
+    this.rawDatasets.set(sourceId, { _coverage: handle })
+    // ramp/range/opacity are LAYER paint (#1158 INC-D) — an imperative swap keeps the
+    // renderer's armed display unless the caller overrides; a later rebuild re-arms.
+    const cur = this.coverageRenderer.displayOpts()
     this.coverageRenderer.setCoverage(handle, {
-      ramp: ramp ?? 'viridis',
-      rangeLo: range?.[0],
-      rangeHi: range?.[1],
+      ramp: opts?.ramp ?? cur.ramp,
+      rangeLo: opts?.range?.[0] ?? cur.rangeLo,
+      rangeHi: opts?.range?.[1] ?? cur.rangeHi,
+      opacity: cur.opacity,
     })
     this.invalidate()
   }

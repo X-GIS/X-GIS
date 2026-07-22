@@ -396,7 +396,13 @@ const CEILINGS: Record<string, number> = {
   // (the fade-key change +4, plus the prettier pre-commit hook wrapping the now-
   // 4-name label-fade import onto 6 lines +5 — measured post-hook via
   // `git show HEAD: | wc -l`, correcting the pre-hook 2234 #1298 landed with).
-  'map/src/text/text-stage.ts': 2239,
+  // 2239→2284 (fade-out-during-zoom): a label dropped mid-zoom now REPROJECTS its
+  // holdover (holdover-reproject.ts) so it fades in place instead of popping.
+  // Here: the _fadeHoldoverBake map + import, the motionHoldover prepare param,
+  // the per-prepare makeBakeFrame + placement stamp, and the holdoverDrawToEmit
+  // emit + parallel bake sweeps (empty-prepare + eviction). Math + decision live
+  // extracted/unit-proved in holdover-reproject.ts. +45, measured post-hook.
+  'map/src/text/text-stage.ts': 2284,
   // 1786→1719 (#727 C): the line/point dedupe + pair-key helper block was
   // EXTRACTED to passes/line-label-dedupe.ts when the world-copy fan-out would
   // otherwise have grown this file — the extract-don't-grow answer.
@@ -453,7 +459,12 @@ const CEILINGS: Record<string, number> = {
   // 2066→2069 (#1260 reduced-motion): the lazy-construction fade read now folds
   // in prefers-reduced-motion via host.effectiveFadeDurationMs() (+3 doc lines
   // explaining the boot-disabled vs live-flip split). One existing call site. +3.
-  'map/src/render/passes/label-pass.ts': 2069,
+  // 2069→2098 (fade-out-during-zoom): builds the motionHoldover ctx (holdover-
+  // reproject.ts) — the mercator+pitch-0 similarity-safe gate + a solve closure
+  // over the #1177 replay refs/projector — and threads it into stage.prepare +
+  // iStage.prepare so a fade-out label/badge reprojects instead of popping mid-
+  // zoom. Reuses the existing replay machinery; wiring only here. +29.
+  'map/src/render/passes/label-pass.ts': 2098,
   // #1081 — per-anchor perspective distance attenuation (MapLibre parity). New
   // baseline: the wCenter + perspScale scratch-out-value lives INLINE in the two
   // existing projector closures (it rides the cw already computed per anchor —
@@ -698,7 +709,12 @@ const CEILINGS: Record<string, number> = {
   // wraps its long-value literal multi-line) + the sqrt/inverseSqrt/normalize
   // imports. All irreducible — the ellipsoid forward IS the increment (§2, no
   // extract-worthy unit). Lower when the GPU re-targets emitModule (SCOPE, above).
-  'map/src/shaders/dsl/projections.ts': 826,
+  // 826→835: the globe rim_alpha band now scales with (1−globe_eye.w) so a fixed 0.02
+  // cosine band can't swallow the whole view at high zoom (raster zoom-in darkening fix)
+  // + a root-cause note; the prettier pre-commit hook then wrapped the now-longer
+  // smoothstep call across lines. +9 measured post-hook (`git show HEAD: | wc -l`, §12),
+  // correcting the pre-hook 829 the fix first landed with. Irreducible in an existing branch.
+  'map/src/shaders/dsl/projections.ts': 835,
   // #1005 — carried from the runtime arch-invariants Gate 3 (re-measured
   // 2026-07-13; lower.ts had shrunk 1452→1409, the tighter value carried).
   // 1790→1546 (INC-0 extract): the conforming red-green subdivision cluster
@@ -726,8 +742,9 @@ const CEILINGS: Record<string, number> = {
   // verdict is known. (Still ≤ the runtime arch-invariants ceiling of 1452,
   // unchanged there — shrink-only.)
   // 1432→1433 (#1302): arrow-layer plumbing (isArrow + arrowBearing local decl,
-  // acc read-back, node literal). Still ≤ the arch-invariants ceiling of 1452.
-  'compiler/src/ir/lower.ts': 1433,
+  // acc read-back, node literal). 1433→1438 (merge union with #1305 symbol-fade
+  // lowering). Still ≤ the arch-invariants ceiling of 1452.
+  'compiler/src/ir/lower.ts': 1438,
   // #777 I-B icon-keep-upright + I-F icon value-forms (merged) grow three
   // symbol-lowering god-files (per-row justification in
   // architecture-invariants.test.ts, the second authority):
@@ -750,7 +767,8 @@ const CEILINGS: Record<string, number> = {
   'compiler/src/ir/lower-label.ts': 1187,
   'compiler/src/tokens/colors.ts': 937,
   // 943→956 (#1302): RenderNodeArrowPaint sub-bundle (isArrow + arrowBearing).
-  'compiler/src/ir/render-node.ts': 956,
+  // 956→957 (merge union with #1305 RenderNodeCoveragePaint).
+  'compiler/src/ir/render-node.ts': 957,
   'compiler/src/convert/paint-helpers.ts': 826,
   'blueprint/src/editor.ts': 1448,
 }

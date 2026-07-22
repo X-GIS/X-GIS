@@ -344,9 +344,9 @@ export class SourceManager {
         rawBytes.byteOffset + rawBytes.byteLength,
       )
       const handle = await readCoverage(buf, url)
-      // Thread the source's display options (ramp / range) alongside the handle so
-      // rebuildLayers can arm the CoverageRenderer without re-reading the load command.
-      this.rawDatasets.set(load.name, { _coverage: handle, ramp: load.ramp, range: load.range })
+      // A coverage source is DATA-ONLY: ramp/range are LAYER paint now (#1158 INC-D),
+      // read off the drawing layer's ShowCommand at arm time, not stored on the marker.
+      this.rawDatasets.set(load.name, { _coverage: handle })
       return
     }
 
