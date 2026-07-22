@@ -112,6 +112,9 @@ export default tseslint.config(
             // Per-package vite configs sit at the package root, outside their
             // package tsconfig's `include` — same gap as the root vitest.config.ts.
             'playground/vite.config.ts',
+            // The NOAA S-111 dev proxy + its prod Cloudflare Worker — dev-only
+            // tooling loaded by vite.config.ts, outside playground/tsconfig's src/**.
+            'playground/dev/*.ts',
             'runtime/vite.config.ts',
             // runtime's build/inspect scripts — devDep scripts outside the package
             // tsconfig's `include`, same as the repo scripts above.

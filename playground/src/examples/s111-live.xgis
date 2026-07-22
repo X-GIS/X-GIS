@@ -1,0 +1,40 @@
+xgis 1
+
+// NOAA S-111 LIVE surface currents (#1272) — streams a REAL NOAA forecast cell
+// straight from the NOAA Open-Data S3 bucket (noaa-s111-pds), read as the S-100
+// HDF5 standard IN PLACE (ADR-0010, no transcode). This is NOT synthetic: the
+// CBOFS (Chesapeake Bay Operational Forecast System) regional cell it draws is
+// the real operational forecast, ~12 MB of gridded surface-current speed +
+// direction.
+//
+// CORS: the NOAA bucket serves HTTP-Range but sets no Access-Control-Allow-Origin,
+// so the browser reaches it through a proxy — the vite dev-server `/noaa-s111`
+// bridge in dev, a CORS-open proxy in prod (loader.ts URL rewrite). `latest.h5`
+// resolves the newest published cycle on each load, so the demo never rots as old
+// cycles age out of the rolling bucket.
+
+// Esri World Imagery satellite basemap (same source the satellite_map demo uses),
+// so the currents draw over real nautical imagery. CORS `*`.
+source basemap {
+  type: raster
+  url: "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}"
+}
+
+// The coverage source MUST be named `currents` — the demo runner's particle-flow
+// overlay (Demo.currents) reads getCoverage('currents') and drifts particles along
+// the surfaceCurrentDirection band of whatever real cell streamed in.
+source currents {
+  type: coverage
+  url: "/noaa-s111/latest.h5"
+}
+
+layer imagery {
+  source: basemap
+}
+
+layer speed {
+  source: currents
+  ramp: "viridis"
+  range: [0, 2]
+  | opacity-70
+}
