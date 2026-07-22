@@ -98,6 +98,11 @@ async function resolveTarget(
   f: FetchImpl,
 ): Promise<{ url: string; key: string } | Response> {
   const q = search ? `?${search}` : ''
+  // Back-compat: the pre-generalization prod rewrite STRIPPED the `/noaa-s111/` prefix,
+  // so a hosted site built before this change sends a bare `latest.h5` / `latest/<model>.h5`.
+  // Normalize those to the S-111 form so the worker serves both loader versions (no broken
+  // window across the deploy). Harmless once every site build carries the prefix-preserving rewrite.
+  if (path === 'latest.h5' || path.startsWith('latest/')) path = `noaa-s111/${path}`
   // S-111 "latest" convenience — CBOFS by default, any model via /latest/<model>.h5.
   if (path === 'noaa-s111/latest.h5' || path.startsWith('noaa-s111/latest/')) {
     const model =
