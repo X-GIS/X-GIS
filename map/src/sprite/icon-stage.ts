@@ -11,6 +11,13 @@ import { SpriteAtlasGPU } from './sprite-atlas-gpu'
 import { IconRenderer, type IconDraw, type IconAnchor } from './icon-renderer'
 import type { RhiDevice, RhiSampler, RhiTextureView, RhiRenderPass } from '@xgis/engine'
 import { fadeInstanceKey, fadeStableIdentity, type LabelFadeLedger } from '../text/label-fade'
+import {
+  holdoverDrawToEmit,
+  makeBakeFrame,
+  reprojectIconHoldover,
+  type HoldoverBakeFrame,
+  type MotionHoldoverCtx,
+} from '../text/holdover-reproject'
 
 /** Minimal sprite-metadata read surface IconStage resolves icons through.
  *  Satisfied structurally by SpriteAtlasHost (URL sprite atlas) and by
@@ -305,6 +312,8 @@ export class IconStage {
    *  heap-owned (sprite/tint/fit refs are stable), so plain retention
    *  suffices — no clone needed (unlike the text side's arena payloads). */
   private readonly _fadeHoldover = new Map<string, IconDraw>()
+  /** Bake frame per holdover key, for fade-out reprojection (holdover-reproject.ts). */
+  private readonly _fadeHoldoverBake = new Map<string, HoldoverBakeFrame>()
   /** Per-prepare scratch: fadeId → occurrence count, and the fade keys this
    *  prepare actually emitted (so holdover skips live keys). */
   private readonly _fadeOcc = new Map<string, number>()
@@ -341,6 +350,9 @@ export class IconStage {
     // camera/canvas moved since the previous prepare (a held-over quad's
     // baked screen px would lie). Direct-stage callers default to true.
     holdoverOk: boolean = true,
+    // Symbol fade: mirror of TextStage.prepare — reprojects a fade-out badge on
+    // a similarity-safe prepare so it fades in place (holdover-reproject.ts).
+    motionHoldover?: MotionHoldoverCtx,
   ): void {
     if (this._iconDump) this._iconDump = []
     // Symbol fade — per-prepare scratch reset. `ledger` is non-null only
@@ -354,6 +366,9 @@ export class IconStage {
       this._fadeOcc.clear()
       this._fadeEmitted.clear()
     }
+    // Symbol fade — this prepare's bake frame, stamped onto each holdover below
+    // for a later fade-out reprojection (one refs copy per prepare).
+    const bakeThisPrepare = makeBakeFrame(motionHoldover)
     // #777 I-G — inline label images draw even when NO icon-image was
     // dispatched (a label that is only text + an inline sprite), so the
     // fast-out must consider them too.
@@ -362,6 +377,7 @@ export class IconStage {
       // empty-prepare arm); dead records' clones drop on the next sweep.
       if (ledger !== null) {
         this._fadeHoldover.clear()
+        this._fadeHoldoverBake.clear()
       }
       this.renderer.setDraws([])
       return
@@ -458,15 +474,15 @@ export class IconStage {
       }
       // Iter 112: drop icon when its paired text label was collision-
       // rejected. Mirrors MapLibre's "text+icon as one symbol" rule.
-      // Symbol fade: when that text is HELD OVER (visibly fading out) and
-      // holdover is allowed, emit the badge one more time with the shared
-      // record so text + icon fade as one symbol instead of the badge
-      // popping a fade ahead of its number.
+      // Symbol fade: when that text is fading out, emit the badge once more with
+      // the shared record so they fade as one. It is projected FRESH here
+      // (p.anchorX/Y), so a similarity-safe motion is admissible with no
+      // reprojection — fixes "badge pops on zoom while its text fades".
       if (p.pairKey !== undefined && this.droppedPairKeys.has(p.pairKey)) {
         if (!(
           fadeKey !== undefined &&
           ledger !== null &&
-          holdoverOk &&
+          (holdoverOk || motionHoldover !== undefined) &&
           ledger.isFadingOut(fadeKey)
         )) {
           continue
@@ -532,7 +548,12 @@ export class IconStage {
       draws.push(draw)
       if (fadeKey !== undefined) {
         this._fadeEmitted.add(fadeKey)
-        if (fadeRef !== undefined) this._fadeHoldover.set(fadeKey, draw)
+        if (fadeRef !== undefined) {
+          this._fadeHoldover.set(fadeKey, draw)
+          // Stamp the bake frame (clear it off the similarity-safe path).
+          if (bakeThisPrepare !== null) this._fadeHoldoverBake.set(fadeKey, bakeThisPrepare)
+          else this._fadeHoldoverBake.delete(fadeKey)
+        }
       }
       if (this._iconDump) {
         const drawW = (sprite.width / sprite.pixelRatio) * sizeScale
@@ -581,19 +602,27 @@ export class IconStage {
         opacity: 1,
       })
     }
-    // Symbol fade: holdover — an icon whose source vanished from `pending`
-    // entirely (tile unload took its feature) keeps drawing its last
-    // emitted quad while the paired text's record fades out. The sweep
-    // then drops keys whose record the text side pruned.
+    // Symbol fade: holdover — an icon whose source left `pending` keeps drawing
+    // while the paired text fades. holdoverDrawToEmit draws as-is when idle,
+    // reprojects on a similarity-safe zoom/pan, or drops it; then sweep prunes.
     if (ledger !== null) {
-      if (holdoverOk) {
-        for (const [k, held] of this._fadeHoldover) {
-          if (this._fadeEmitted.has(k)) continue
-          if (ledger.isFadingOut(k)) draws.push(held)
-        }
+      for (const [k, held] of this._fadeHoldover) {
+        if (this._fadeEmitted.has(k)) continue
+        if (!ledger.isFadingOut(k)) continue
+        const emit = holdoverDrawToEmit(
+          held,
+          this._fadeHoldoverBake.get(k),
+          holdoverOk,
+          motionHoldover,
+          reprojectIconHoldover,
+        )
+        if (emit !== null) draws.push(emit)
       }
       for (const k of this._fadeHoldover.keys()) {
-        if (ledger.refOf(k) === undefined) this._fadeHoldover.delete(k)
+        if (ledger.refOf(k) === undefined) {
+          this._fadeHoldover.delete(k)
+          this._fadeHoldoverBake.delete(k)
+        }
       }
     }
     this.renderer.setDraws(draws)
