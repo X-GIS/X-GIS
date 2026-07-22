@@ -101,7 +101,9 @@ export class StatementParser extends ExpressionParser {
     return { kind: 'BackgroundStatement', utilities, styleProperties, line }
   }
 
-  // preset name { | utility-lines ... }
+  // preset name { | utility-lines ...   key: value ... }
+  // Utility lines PLUS block properties (e.g. coverage paint `ramp:`/`range:`) so a
+  // portrayal preset carries the full style, applied to a layer via `style:` (#1272 E-②).
   parsePresetStatement(): AST.PresetStatement {
     const line = this.current().line
     this.expect(TokenType.Preset)
@@ -109,16 +111,19 @@ export class StatementParser extends ExpressionParser {
     this.expect(TokenType.LBrace)
 
     const utilities: AST.UtilityLine[] = []
+    const properties: AST.BlockProperty[] = []
     while (!this.check(TokenType.RBrace) && !this.isEnd()) {
       if (this.check(TokenType.Pipe)) {
         utilities.push(this.parseUtilityLine())
       } else {
-        this.error(`Expected | in preset block, got ${TokenType[this.current().type]}`)
+        // `ramp: "…"`, `range: [lo, hi]`, … — a block property the layer would accept.
+        properties.push(this.parseBlockProperty())
+        if (this.check(TokenType.Comma)) this.advance()
       }
     }
     this.expect(TokenType.RBrace)
 
-    return { kind: 'PresetStatement', name, utilities, line }
+    return { kind: 'PresetStatement', name, utilities, properties, line }
   }
 
   // import { name1, name2 } from "path"

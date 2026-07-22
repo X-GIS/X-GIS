@@ -229,6 +229,7 @@ export class SceneBuilder {
         items: items.map(toUtilityItem),
         line: 0,
       })),
+      properties: [],
       line: 0,
     })
     return this

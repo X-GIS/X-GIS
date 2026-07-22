@@ -47,6 +47,10 @@ export function lower(program: AST.Program, options: LowerOptions = {}): Scene {
   validateFnCalls(program, diagnostics)
   const sourceMap = new Map<string, SourceDef>()
   const presetMap = new Map<string, AST.UtilityLine[]>()
+  // A preset's block properties (coverage paint `ramp:`/`range:`) — applied to a layer
+  // that references the preset via `style:` (#1272 E-②). Kept beside presetMap so the
+  // utility-inlining path (expandPresets) is untouched.
+  const presetPropsMap = new Map<string, AST.BlockProperty[]>()
   const keyframesMap = new Map<string, AST.KeyframesStatement>()
 
   // First pass: collect presets, symbols, and keyframes. Keyframes
@@ -56,6 +60,7 @@ export function lower(program: AST.Program, options: LowerOptions = {}): Scene {
   for (const stmt of program.body) {
     if (stmt.kind === 'PresetStatement') {
       presetMap.set(stmt.name, stmt.utilities)
+      if (stmt.properties.length > 0) presetPropsMap.set(stmt.name, stmt.properties)
     } else if (stmt.kind === 'SymbolStatement') {
       const paths: string[] = []
       for (const el of stmt.elements) {
@@ -81,7 +86,15 @@ export function lower(program: AST.Program, options: LowerOptions = {}): Scene {
         break
       }
       case 'LayerStatement': {
-        const node = lowerLayer(stmt, sourceMap, presetMap, keyframesMap, diagnostics, options)
+        const node = lowerLayer(
+          stmt,
+          sourceMap,
+          presetMap,
+          presetPropsMap,
+          keyframesMap,
+          diagnostics,
+          options,
+        )
         if (node) {
           // If the source was referenced but not yet added, add it
           if (!sources.find((s) => s.name === node.sourceRef)) {
@@ -313,6 +326,7 @@ function lowerLayer(
   stmt: AST.LayerStatement,
   sourceMap: Map<string, SourceDef>,
   presetMap: Map<string, AST.UtilityLine[]>,
+  presetPropsMap: Map<string, AST.BlockProperty[]>,
   keyframesMap: Map<string, AST.KeyframesStatement>,
   diagnostics: import('./render-node').Diagnostic[],
   options: LowerOptions,
@@ -389,6 +403,32 @@ function lowerLayer(
         )
       }
       range = [els[0].value, els[1].value]
+    }
+  }
+
+  // #1272 E-②: a `style:`-referenced preset can carry the coverage portrayal
+  // (`ramp:`/`range:`). The layer's OWN paint wins; the preset fills only what the layer
+  // left unset — so `import { s111_currents } … layer { source: c; style: s111_currents }`
+  // applies the official IHO speed palette without repeating it per layer.
+  if (styleRef && (ramp === undefined || range === undefined)) {
+    for (const prop of presetPropsMap.get(styleRef) ?? []) {
+      if (ramp === undefined && prop.name === 'ramp' && prop.value.kind === 'StringLiteral') {
+        ramp = prop.value.value
+      } else if (range === undefined && prop.name === 'range') {
+        const els = prop.value.kind === 'ArrayLiteral' ? prop.value.elements : null
+        if (
+          !els ||
+          els.length !== 2 ||
+          els[0]!.kind !== 'NumberLiteral' ||
+          els[1]!.kind !== 'NumberLiteral'
+        ) {
+          throw new Error(
+            `preset "${styleRef}" (referenced by layer "${stmt.name}"): 'range' must be a ` +
+              `two-number array (e.g. \`range: [0, 40]\`).`,
+          )
+        }
+        range = [els[0].value, els[1].value]
+      }
     }
   }
 

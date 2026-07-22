@@ -180,10 +180,14 @@ export type UtilityLine = {
 }
 
 // preset military_track { | symbol-arrow stroke-black stroke-1 | ... }
+// A preset may also carry block properties (e.g. coverage paint `ramp:`/`range:`),
+// so an importable portrayal preset — `preset s111_currents { ramp: "s111-speed"; range: [0, 13] }`
+// — applies via `style:` to a layer just like its utility lines (#1272 E-②).
 export type PresetStatement = {
   kind: 'PresetStatement'
   name: string
   utilities: UtilityLine[]
+  properties: BlockProperty[]
   line: number
 }
 
