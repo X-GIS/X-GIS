@@ -59,6 +59,13 @@ function drawnTileCount(ctx: GPUContext, camera: Camera, projType: number): numb
 
   const renderer = new RasterRenderer(ctx)
   renderer.setUrlTemplate('https://tiles.example.com/{z}/{x}/{y}.png')
+  // Isolate tile SELECTION from the #1307 fade FEATURE: with a non-zero fade
+  // duration a freshly-shown tile (firstShownFrame ramp) also draws its cached
+  // parent BENEATH for the cross-fade, inflating the draw count above the
+  // selector's output (this test's invariant). fadeDuration 0 = instant full
+  // opacity, byte-identical to the pre-fade path — so the count reflects pure
+  // selection again, which is what this gate asserts.
+  renderer.setRasterFadeDurationMs(0)
 
   // Pre-seed the tile cache so every selected tile reaches pass.draw().
   // We seed generously using globeVisibleTiles for globe and
