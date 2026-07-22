@@ -8,8 +8,9 @@
 // device swap re-uploads without touching value correctness (the syncDevice lesson).
 //
 // Time scrub (setCoverageTime) re-uploads the ONE resident texture — INC-C. INC-A is
-// a single timeslice. The draw quad spans the coverage's OUTER cell edges; the
-// fragment inverts Mercator per-pixel (coverage-ramp.ts / A4). render() takes the
+// a single timeslice. The draw is a TESSELLATED surface grid over the OUTER cell edges,
+// each vertex projected via the general `project()` (coverage-ramp.ts) — projection-
+// general for every flat projection, no baked Mercator. render() takes the
 // camera-derived MVP + centre + proj params (the opaque-pass arming computes them,
 // mirroring the raster flat path) so this renderer stays camera-internals-free and
 // unit-testable. The draper is LAZY (raster's ensureRasterDraper pattern): built at
@@ -155,9 +156,9 @@ export class CoverageRenderer {
     if (handle && opts) this.setCoverage(handle, opts)
   }
 
-  /** Draw the coverage (flat Mercator). The caller supplies the camera-derived
-   *  MVP (Mercator-metre, camera-at-origin), the camera Mercator centre, and the
-   *  projection params — mirroring the raster flat arm. No-op when unarmed. */
+  /** Draw the coverage (flat projections; the globe drape is INC-B step 2). The caller
+   *  supplies the camera-derived MVP (camera-at-origin), the camera Mercator centre, and
+   *  the projection params — mirroring the raster flat arm. No-op when unarmed. */
   render(
     pass: GPURenderPassEncoder | RhiRenderPass,
     mvp: Float32Array | number[],

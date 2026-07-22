@@ -1,27 +1,30 @@
-// ═══ Shader DSL — S-100 coverage colour-ramp arm (#1158 GAP-1 INC-A) ═══
+// ═══ Shader DSL — S-100 coverage colour-ramp arm (#1158 GAP-1 / INC-B step 1) ═══
 //
-// A raster-pipeline variant (NOT the heatmap accumulator): two r16float data
-// textures + a 256×1 rgba8 LUT drawn over the coverage's outer-cell-edge quad,
-// flat Mercator. Dual-emit (WGSL + GLSL) through the shader-dsl so the WebGL2 twin
-// lands from day one (#775). The two texel-level differences from image-raster:
+// A raster-pipeline variant (NOT the heatmap accumulator): two r16float data textures
+// + a 256×1 rgba8 LUT drawn over the coverage's footprint, as a TESSELLATED SURFACE
+// GRID — mirroring the raster surface-grid VS (raster.ts). Dual-emit (WGSL + GLSL)
+// through the shader-dsl so the WebGL2 twin lands from day one (#775).
 //
-//   1. INVERSE-MERCATOR ROW MAPPING (A4 — the flaw the doc misses). The coverage grid
-//      is linear-in-LATITUDE (EPSG:4326) but the draw quad is Mercator-conformal, so
-//      a linear V over the quad misplaces rows by ~0.7 texel at 56°N. Instead the
-//      vertex passes the interpolated Mercator-Y varying and the FRAGMENT recovers
-//      latitude per pixel — lat = 2·atan(exp(mercY))−π/2 (the Gudermannian; the exact
-//      equivalent of atan(sinh(mercY)), spellable with the portable atan/exp) — then
-//      v = (latNorthEdge − lat) / (nLat·dLat). Linear-V is NEVER used.
-//   2. VALIDITY-WEIGHTED SAMPLING (A3). texValue stores f16(s·valid), texValid stores
-//      f16(valid). One linear tap each; w = validSample; w<1/512 ⇒ fully transparent;
-//      else s' = valueSample / w — an exact validity-weighted bilinear so nodata never
-//      contaminates neighbour values (NaN-texel / in-band-sentinel encodings are
-//      forbidden). alpha *= w gives a ≤1-texel soft rim. t = clamp(a·s'+b) samples the
-//      LUT (a,b are CPU-side range→[0,1] uniforms).
+// PROJECTION-GENERAL BY TESSELLATION (the fix for the Mercator-only bake). INC-A drew a
+// SINGLE quad and recovered latitude per-fragment via the inverse Mercator (Gudermannian)
+// — correct ONLY under Mercator, so the coverage misplaced rows under every other flat
+// projection (Natural Earth / Equirectangular / …) and did not draw on the globe at all.
+// Instead we now emit an N×N grid (COVERAGE_GRID_N) and project EACH vertex through the
+// general `project()` (the same int-dispatch raster/vector use). Fine tessellation makes
+// the linear interpolation of lon/lat across each sub-quad sub-texel for ANY flat
+// projection, so the fragment reads its UV straight from the interpolated geographic
+// coords — no baked Mercator inverse. (The globe drape via proj_globe/ECEF is INC-B
+// step 2, still gated `!globeMode` at the opaque-pass arm.)
 //
-// Gate 3 (headed real-GPU readback) cannot run in this environment, so the formula
-// is pinned NOW by a dsl-emission test asserting both WGSL and GLSL contain the
-// inverse-Mercator expression and the validity-weighted division (A4).
+// The other texel-level concern, unchanged from INC-A:
+//   VALIDITY-WEIGHTED SAMPLING (A3). texValue stores f16(s·valid), texValid stores
+//   f16(valid). One linear tap each; w = validSample; w<1/512 ⇒ fully transparent; else
+//   s' = valueSample / w — an exact validity-weighted bilinear so nodata never
+//   contaminates neighbour values. alpha *= w gives a ≤1-texel soft rim.
+//
+// Gate 3 (headed real-GPU readback) cannot run in this environment, so the shape is
+// pinned NOW by a dsl-emission test asserting both WGSL and GLSL tessellate + project
+// per-vertex and read UV from the interpolated coords (coverage-ramp.test.ts).
 
 import {
   fn,
@@ -34,14 +37,8 @@ import {
   vec2,
   vec4,
   mix,
-  atan,
-  exp,
-  log,
-  tan,
   clamp,
   textureSample,
-  radians,
-  degrees,
   f32T,
   u32T,
   vec4fT,
@@ -51,12 +48,20 @@ import {
   If,
   Discard,
   type ModuleDecl,
-  type ReadonlyNode,
 } from '@xgis/shader-dsl'
 import { ioStruct, builtin, location, uniformStruct, resource } from '@xgis/shader-dsl'
 import { emitModule } from '@xgis/shader-dsl'
 import { project, PROJECTION_CONSTS, getGpuProjectionFuncs } from './projections'
-import { PI } from './consts'
+
+/** Tessellation of the coverage footprint: an N×N grid of cells (2 triangles each). Fine
+ *  enough that linear lon/lat interpolation across a sub-quad is sub-texel for any flat
+ *  projection — the replacement for the single quad + baked inverse-Mercator. Matches the
+ *  upper end of the raster surface grid (rasterGridN caps at 128; a coverage overlay is
+ *  ONE draw, not per-tile, so a fixed 64 is cheap: 64·64·6 ≈ 24.6k verts). */
+export const COVERAGE_GRID_N = 64
+
+/** Vertex count for the procedural N×N coverage surface grid (6 verts/cell). */
+export const coverageGridVertexCount = (): number => COVERAGE_GRID_N * COVERAGE_GRID_N * 6
 
 const U = uniformStruct(
   'CoverageUniforms',
@@ -81,7 +86,7 @@ export { U as coverageU }
 const VsOut = ioStruct('CovVsOut', {
   pos: builtin('position', vec4fT),
   lon: location(0, f32T),
-  merc_y: location(1, f32T),
+  lat: location(1, f32T),
 })
 
 // Two data textures + the LUT, each with a REFLECTION NAME (WebGL2 binds
@@ -93,33 +98,37 @@ const covSampler = resource('cov_sampler', samplerT, { group: 0, binding: 3 })
 const texLut = resource('cov_lut', texture2dfT, { group: 0, binding: 4 })
 const lutSampler = resource('cov_lut_sampler', samplerT, { group: 0, binding: 5 })
 
-/** Raw Mercator-Y of a latitude (radians): ln(tan(π/4 + lat/2)). Linear in screen
- *  space for a flat-Mercator quad, so the rasterizer interpolates it correctly and
- *  the fragment inverts it per-pixel (A4). */
-const mercatorY = (latRad: ReadonlyNode<'f32'>) => log(tan(PI.div(4).add(latRad.div(2))))
-
 const vs = fn(
   'vs_cov',
   { vid: builtin('vertex_index', u32T) },
   (p) => {
-    // 2 triangles over the 4 outer-edge corners (u01,v01 ∈ {0,1}²).
+    // Procedural N×N surface grid (6 verts/cell, from vertex_index — no vertex buffer),
+    // the same decode the raster surface-grid VS uses.
+    const cell = p.vid.div(u32(6))
+    const tri = p.vid.mod(u32(6))
+    const cx = cell.mod(u32(COVERAGE_GRID_N))
+    const cy = cell.div(u32(COVERAGE_GRID_N))
+    // 2 triangles over the cell's 4 corners (u01,v01 ∈ {0,1}² within the cell).
     const duArr = arrayLit(u32T, u32(0), u32(1), u32(0), u32(1), u32(1), u32(0))
     const dvArr = arrayLit(u32T, u32(0), u32(0), u32(1), u32(0), u32(1), u32(1))
-    const u01 = toF32(duArr.at(p.vid, u32T))
-    const v01 = toF32(dvArr.at(p.vid, u32T))
+    const gx = cx.add(duArr.at(tri, u32T))
+    const gy = cy.add(dvArr.at(tri, u32T))
+    const u01 = toF32(gx).div(f32(COVERAGE_GRID_N)) // 0→1 west→east across the footprint
+    const v01 = toF32(gy).div(f32(COVERAGE_GRID_N)) // 0→1 south→north
 
     const edges = U.field.cov_edges
     const lon = mix(edges.x, edges.z, u01) // west→east
     const latDeg = mix(edges.y, edges.w, v01) // south→north
-    const latRad = radians(latDeg)
 
-    // Flat-Mercator projection (mirrors the raster flat arm): project → 2D metres,
-    // camera-relative, MVP. The globe drape path is INC-B.
+    // Per-vertex FLAT projection (mirrors the raster surface-grid arm): project each grid
+    // vertex → 2D metres, camera-relative, MVP. Fine tessellation makes the interpolated
+    // lon/lat sub-texel for EVERY flat projection — no baked Mercator. The globe drape
+    // (proj_globe / ECEF) is INC-B step 2.
     const p2d = project(lon, latDeg, U.field.proj_params)
     const rel = p2d.sub(vec2(U.field.cam_center.x, U.field.cam_center.y))
     const clip = transformMat4(U.field.mvp, vec4(rel.x, rel.y, f32(0), f32(1)))
 
-    return VsOut.construct({ pos: clip, lon, merc_y: mercatorY(latRad) })
+    return VsOut.construct({ pos: clip, lon, lat: latDeg })
   },
   { stage: 'vertex' },
 )
@@ -131,15 +140,11 @@ const fs = fn(
   { input: VsOut },
   (p) => {
     const pin = p.input
-    // A4 — recover latitude from the INTERPOLATED Mercator-Y (never a linear V):
-    // lat = 2·atan(exp(mercY)) − π/2 (Gudermannian = atan(sinh(mercY))).
-    const latRad = f32(2)
-      .mul(atan(exp(pin.merc_y)))
-      .sub(PI.div(2))
-    const latDeg = degrees(latRad)
+    // UV straight from the INTERPOLATED geographic coords — projection-general because the
+    // grid is finely tessellated (no inverse-Mercator row recovery).
     const geo = U.field.cov_geo
-    const vTex = geo.y.sub(latDeg).div(geo.w) // (northLatEdge − lat)/(nLat·dLat)
     const uTex = pin.lon.sub(geo.x).div(geo.z) // (lon − westLonEdge)/(nLon·dLon)
+    const vTex = geo.y.sub(pin.lat).div(geo.w) // (northLatEdge − lat)/(nLat·dLat)
     const uv = vec2(uTex, vTex)
 
     // A3 — validity-weighted bilinear: one linear tap per texture.

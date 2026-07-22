@@ -13,7 +13,7 @@
 
 import type { RhiDevice, RhiBindGroup, RhiTextureView, RhiSampler } from '@xgis/engine'
 import { Material, executeItems, type DrawItem } from '@xgis/engine'
-import { emitCoverageWgsl, buildCoverageModule } from '@xgis/map'
+import { emitCoverageWgsl, buildCoverageModule, coverageGridVertexCount } from '@xgis/map'
 import { emitGlslModule } from '@xgis/shader-dsl'
 import { QUANT_MAX, NODATA_CODE } from '@xgis/data'
 import { interpolateRamp, RAMPS } from '../../color-ramp'
@@ -197,14 +197,17 @@ export class CoverageDraper {
     ])
   }
 
-  /** Draw the coverage quad (6 verts, procedural — no vertex buffer). */
+  /** Draw the coverage surface grid (N×N cells · 6 verts, procedural — no vertex
+   *  buffer; the tessellation is what makes the drape projection-general, #1158). */
   draw(
     pass: import('@xgis/engine').RhiRenderPass,
     globalBytes: BufferSource,
     bindGroup: RhiBindGroup,
   ): void {
     this.material.writeGlobal(globalBytes)
-    const items: DrawItem[] = [{ variant: 0, bindGroups: [bindGroup], count: 6, indexed: false }]
+    const items: DrawItem[] = [
+      { variant: 0, bindGroups: [bindGroup], count: coverageGridVertexCount(), indexed: false },
+    ]
     executeItems(this.material, pass, items, 0)
   }
 }
