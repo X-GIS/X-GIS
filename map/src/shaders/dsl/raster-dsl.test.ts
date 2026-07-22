@@ -36,10 +36,14 @@ describe('Phase-2 raster shader — DSL emission (ECEF VS, PR 2d.3)', () => {
   it('procedural-grid vertex + single ECEF projection path', () => {
     expect(noPick).toContain('@vertex\nfn vs_tile(@builtin(vertex_index) vid: u32) -> VsOut')
     expect(noPick).toContain('lonlat_to_ecef(')
-    // Camera-relative RTC fix: the VS now subtracts the frame cameraCenter
+    // Camera-relative RTC fix: the VS subtracts the frame cameraCenter
     // (u.cam_ecef_center) rather than the per-tile tile_ecef_center, so the
     // ECEF vertex projects vertex − cameraCenter through the camera-at-origin MVP.
+    // The anchor is a DSFUN hi/lo pair — the VS must subtract BOTH halves (hi then
+    // lo) so the camera term is df64-precise and the sheet does not shake at z18+
+    // over-zoom; a regression that drops the low half reintroduces the jitter.
     expect(noPick).toContain('u.cam_ecef_center')
+    expect(noPick).toContain('u.cam_ecef_center_l')
     expect(noPick).toContain('array<u32, 6>')
     // vs_tile branches flat (project / project_geom) vs 3D (ECEF). globe (7)
     // takes the ECEF else, so proj_globe is never CALLED in the VS.
