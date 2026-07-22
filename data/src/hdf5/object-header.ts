@@ -177,7 +177,15 @@ async function walk(c: Cursor, regions: Region[], maxMessages: number): Promise<
       }
 
       c.seek(bodyStart + size)
-      if (!region.v2) c.align(8) // v1 messages are 8-byte aligned within the chunk
+      // v1 messages are 8-byte aligned WITHIN THE CHUNK — relative to region.start, NOT
+      // the absolute file offset. A continuation block can begin off an 8-byte boundary
+      // (real NOAA S-111 cells do: a symbol-table chunk at 0x7116); an absolute align(8)
+      // then skips the next message's 2-byte header and the walk mis-parses datatype text
+      // as a message type. Align against the chunk base so both cases are correct.
+      if (!region.v2) {
+        const rel = (c.pos - region.start) % 8
+        if (rel !== 0) c.seek(c.pos + (8 - rel))
+      }
     }
   }
   return out

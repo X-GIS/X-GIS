@@ -5,9 +5,10 @@
 // Positive fixtures cover superblock v0 (symbol-table) + v2 (compact links), chunked
 // + shuffle + gzip with PARTIAL edge chunks + PADDED compound offsets, a SPARSE
 // (missing-chunk → fill) dataset, an asymmetric grid, a packed compound, and an
-// S-111 surface-currents cell (the product-agnostic DCF2 sibling, #1272).
-// Negatives each fail LOUDLY naming the out-of-subset construct. The real NOAA cell
-// is a skipIf(!local) differential — no NOAA bytes committed (licence to-verify).
+// S-111 surface-currents cell (the product-agnostic DCF2 sibling, #1272). A real
+// Chesapeake CBOFS S-111 cell (public domain) is committed as a regression for the
+// chunk-relative alignment fix (#1296). Negatives each fail LOUDLY naming the out-of-
+// subset construct. The S-102 real-cell differential stays skipIf(!local).
 
 import { describe, it, expect } from 'vitest'
 import { readFileSync, existsSync } from 'node:fs'
@@ -104,6 +105,27 @@ describe('HDF5 reader differential vs h5py (gate 1)', () => {
     // The nodata cell carries the -9999 sentinel VERBATIM (the converter maps it
     // to NaN; the reader never rewrites values).
     expect(cov.bands[0]!.values[1 * (g.nLon as number) + 1]).toBe(-9999)
+  })
+})
+
+describe('real NOAA S-111 CBOFS cell (committed public-domain regression)', () => {
+  // A real Chesapeake Bay CBOFS forecast tile from noaa-s111-pds (a US government work,
+  // public domain). Regresses the object-header chunk-relative alignment fix (#1296): this
+  // cell has a symbol-table CONTINUATION block starting off an 8-byte boundary (0x7116),
+  // which an ABSOLUTE align(8) skipped by 2 bytes — the walk then mis-read enum-datatype
+  // text as a message type and threw. The synthetic fixtures never had a non-8-aligned
+  // continuation block, so only a real cell caught it.
+  it('reads a real S-111 cell end-to-end (product + geometry + currents)', async () => {
+    const cov = await readS102Coverage(await openHdf5(ab(join(FIX, 'noaa_s111_cbofs.h5'))))
+    expect(cov.product).toBe('s111')
+    expect(cov.numPoints).toEqual([54, 54])
+    expect(cov.bands.map((b) => b.name)).toEqual(['surfaceCurrentSpeed', 'surfaceCurrentDirection'])
+    expect(cov.bands[0]!.unit).toBe('knots')
+    const speed = cov.bands[0]!
+    const valid = [...speed.values].filter((v) => v !== speed.fillValue && !Number.isNaN(v))
+    expect(valid.length).toBe(2570)
+    expect(Math.min(...valid)).toBeGreaterThan(0)
+    expect(Math.max(...valid)).toBeLessThan(3) // knots — a tidal channel
   })
 })
 
