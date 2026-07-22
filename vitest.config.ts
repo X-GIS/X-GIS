@@ -17,6 +17,10 @@ export default defineConfig({
       'map/src/**/*.test.ts',
       'runtime/src/**/*.test.ts',
       'pipeline/src/**/*.test.ts',
+      // Dev-tooling unit tests (the NOAA CORS proxy). The CI matrix shards vitest by
+      // package path arg (none cover playground/), so this runs in a full local
+      // `vitest run` — it does NOT change any CI leg's file set.
+      'playground/dev/**/*.test.ts',
     ],
     // shader-dsl projections are host-injected (configureProjections); configure
     // once before any suite touches the projection emit / cpu-projection path.

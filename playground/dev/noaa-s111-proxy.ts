@@ -106,6 +106,32 @@ export async function resolveLatestS111(model: string, f: FetchImpl = fetch): Pr
 export const resolveLatestCbofsKey = (f: FetchImpl = fetch): Promise<string> =>
   resolveLatestS111('cbofs', f)
 
+/** Per-model memo of the resolved newest cell. Streaming ONE cell drives a BURST of range
+ *  requests — the HDF5 reader walks superblock → b-tree → chunks in ~13 GETs, and EACH one
+ *  hits `resolveTarget`, so without this every request re-walked the S3 date tree (~5 serial
+ *  LISTs): one load paid ~13× the resolution cost (~1 min observed). Caching the in-flight
+ *  PROMISE also collapses a concurrent burst into ONE walk. The TTL is short (cells publish
+ *  ~every 6 h) so `latest` still rolls forward as new cycles land. Module scope, so it
+ *  survives across requests in BOTH the long-lived vite dev process AND a warm Cloudflare
+ *  isolate — one authority, transport-agnostic (no Worker-specific Cache API). */
+const LATEST_TTL_MS = 5 * 60_000
+const latestCache = new Map<string, { at: number; p: Promise<string> }>()
+
+/** `resolveLatestS111` behind the burst memo above. A rejected walk is evicted (never a
+ *  cached failure) so the next request retries the resolution cleanly. */
+export function resolveLatestS111Cached(model: string, f: FetchImpl = fetch): Promise<string> {
+  const now = Date.now()
+  const hit = latestCache.get(model)
+  if (hit && now - hit.at < LATEST_TTL_MS) return hit.p
+  const entry = { at: now } as { at: number; p: Promise<string> }
+  entry.p = resolveLatestS111(model, f).catch((err: unknown) => {
+    if (latestCache.get(model) === entry) latestCache.delete(model)
+    throw err
+  })
+  latestCache.set(model, entry)
+  return entry.p
+}
+
 const STREAM_HEADERS = ['content-length', 'content-type', 'content-range', 'accept-ranges', 'etag']
 
 function errorResponse(status: number, message: string, origin: string | null): Response {
@@ -135,7 +161,7 @@ async function resolveTarget(
         ? 'cbofs'
         : path.slice('noaa-s111/latest/'.length).replace(/\.h5$/, '')
     if (!/^[a-z0-9_]+$/.test(model)) return errorResponse(400, `bad model "${model}"`, origin)
-    const key = await resolveLatestS111(model, f)
+    const key = await resolveLatestS111Cached(model, f)
     return { url: `${S111_BUCKET}/${key}`, key }
   }
   // Explicit noaa-s111-pds key passthrough (back-compat).
