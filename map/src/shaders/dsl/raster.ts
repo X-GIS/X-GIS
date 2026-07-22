@@ -111,7 +111,7 @@ const Tile = uniformStruct(
   { group: 1, binding: 0, as: 'tile' },
   {
     bounds: vec4fT, // west, south, east, north (degrees); x/z shifted per world-copy
-    tile_ecef_center: vec4fT, // xyz = ECEF of tile SW corner (world-copy unshifted); w = 0
+    tile_ecef_center: vec4fT, // xyz = ECEF of tile SW corner (world-copy unshifted); w = per-tile fade opacity (0..1)
     merc_y: vec2fT, // x = merc_south (abs), y = merc_diff (north - south)
     // #1040 — x = raster grid subdivision N as f32 (exact for N ≤ 128), packed
     // by rasterGridN(projType, tileZoom); y reserved (kept 0). Was a dead `_pad`
@@ -330,12 +330,15 @@ const vs = fn(
     )
 
     // Pass lon (degrees) + mercYAbs (radians) to the fragment stage so it can
-    // recompute cos_c per-fragment (#595 fix). vis is a sentinel 1.0; the FS
-    // recomputes the true per-fragment cull signal from abs_lon/abs_merc_y.
+    // recompute cos_c per-fragment (#595 fix). `vis` (once a dead 1.0 sentinel —
+    // the FS recomputes the cull from abs_lon/abs_merc_y) now carries the PER-TILE
+    // fade opacity (tile_ecef_center.w): a tile fades 0→1 over rasterFadeDuration
+    // after it first draws, cross-fading over its cached parent. Per-tile-constant,
+    // so the linear interpolation the #595 note distrusted is a no-op here.
     return VsOut.construct({
       pos: apply_log_depth({ pos: clip, fc: projParams.w }),
       uv: vec2(uu, vTex),
-      vis: f32(1),
+      vis: Tile.field.tile_ecef_center.w,
       view_w: clip.w,
       abs_lon: lon,
       abs_merc_y: absMercY,
@@ -387,11 +390,12 @@ const buildFs = (pickEnabled: boolean) => {
         p0: U.field.raster_color0,
         p1: U.field.raster_color1,
       })
-      // raster-opacity multiplies alpha only (premultiplied blend keeps RGB at
-      // texel value, so a half-opacity raster fades rather than darkens).
-      // Basemap tile carries no feature id → always (0,0).
+      // raster-opacity (raster_params.x, per-show) AND the per-tile fade-in
+      // (pin.vis, from tile_ecef_center.w) multiply alpha only — premultiplied
+      // blend keeps RGB at texel value, so a fading tile cross-fades over its
+      // parent rather than darkening. Basemap tile carries no feature id → (0,0).
       return RasterFragmentOutput.construct({
-        color: vec4(adjRgb, c.a.mul(U.field.raster_params.x).mul(rim)),
+        color: vec4(adjRgb, c.a.mul(U.field.raster_params.x).mul(rim).mul(pin.vis)),
         ...(pickEnabled ? { pick: vec2u(0, 0) } : {}),
         depth: compute_log_frag_depth({ view_w: pin.view_w, fc: U.field.proj_params.w }),
       })

@@ -265,6 +265,13 @@ export interface XGISMapOptions {
    *  disables fading (pre-fade byte-identical rendering, the right setting
    *  for pixel-exact screenshot harnesses). Default `300`. */
   fadeDuration?: number
+  /** Raster tile fade-in duration in ms (MapLibre `raster-fade-duration`
+   *  parity). A freshly-appeared raster tile cross-fades opacity 0→1 over this
+   *  window — drawn over its cached parent — instead of popping in on a zoom-
+   *  level swap. `0` disables the fade (instant pop-in, byte-identical to the
+   *  pre-fade path; the right setting for pixel-exact harnesses). Honoured under
+   *  `prefers-reduced-motion` (forced to 0). Default `300`. */
+  rasterFadeDuration?: number
   /** Accessible name applied to the canvas via `aria-label`, announced
    *  by screen readers when the map receives focus. Defaults to `"Map"`.
    *  Set a deployment-specific label (e.g. `"Seoul transit map"`) so the

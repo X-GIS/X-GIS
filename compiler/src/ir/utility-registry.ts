@@ -100,6 +100,13 @@ export const UTILITY_REGISTRY: readonly UtilityDef[] = [
   def('circle-blur-', 'prefix', 'number', null, false, 'paint'),
   def('circle-pitch-scale-map', 'exact', 'boolean', null, false, 'paint'),
 
+  // ── arrow layer (declarative oriented-arrow field, #1302). `arrow` is the
+  //    marker; `bearing` carries the per-feature rotation — `bearing-[.dir]`
+  //    (data-driven, degrees true, 0 = N clockwise) or a `bearing-N` constant. ──
+  def('arrow', 'exact', 'boolean', null, false, 'paint'),
+  def('bearing', 'exact', 'expr', null, false, 'paint'), // binding base: bearing-[expr]
+  def('bearing-', 'prefix', 'number', null, false, 'paint'), // constant degrees
+
   // ── heatmap (heatmap-opacity- is a RAW float, distinct from opacity-) ──
   def('heatmap', 'exact', 'boolean', null, false, 'paint'),
   def('heatmap-radius-', 'prefix', 'number', null, false, 'paint'),

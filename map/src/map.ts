@@ -387,6 +387,11 @@ export class XGISMap {
    *  (label-pass.ts); 0 disables fading entirely (byte-identical render,
    *  the right setting for pixel-exact screenshot harnesses). */
   labelFadeDurationMs = 300
+  /** Raster tile fade-in duration (ms) — MapLibre `raster-fade-duration`
+   *  parity, set via `XGISMapOptions.rasterFadeDuration`. Pushed to the raster
+   *  renderer (after the reduced-motion override) so a freshly-appeared tile
+   *  cross-fades over its parent instead of popping. 0 = instant (byte-identical). */
+  rasterFadeDurationMs = 300
   /** Sprite atlas URL prefix from the imported style's top-level
    *  `sprite` field. Used by the lazy IconStage to fetch
    *  `${url}.json` + `${url}.png`. Null = no icons rendered. */
@@ -1221,6 +1226,11 @@ export class XGISMap {
     // Symbol fade duration (MapLibre `fadeDuration` parity, default 300 ms).
     // Consumed at lazy TextStage construction (label-pass.ts); 0 disables.
     if (options.fadeDuration !== undefined) this.labelFadeDurationMs = options.fadeDuration
+    // Raster tile fade-in duration (MapLibre `raster-fade-duration` parity,
+    // default 300 ms). Applied to the raster renderer after the reduced-motion
+    // override in applyEffectiveRasterFadeDuration(); 0 disables (instant pop-in).
+    if (options.rasterFadeDuration !== undefined)
+      this.rasterFadeDurationMs = options.rasterFadeDuration
     // #1268 — URL hash camera sync. `true` → unnamespaced fragment; a non-empty
     // string → `name=…` namespace. Absent / false / '' → disabled (null).
     if (options.hash === true) this._hashSync = { ns: '' }
@@ -3003,6 +3013,7 @@ export class XGISMap {
     })
     this.renderer = rendererSet.renderer
     this.rasterRenderer = rendererSet.rasterRenderer
+    this.applyEffectiveRasterFadeDuration()
     this.hillshadeRenderer = rendererSet.hillshadeRenderer
     this.coverageRenderer = rendererSet.coverageRenderer
     this.gpuTimer = rendererSet.gpuTimer
@@ -4025,6 +4036,7 @@ export class XGISMap {
     })
     this.renderer = rendererSet.renderer
     this.rasterRenderer = rendererSet.rasterRenderer
+    this.applyEffectiveRasterFadeDuration()
     this.hillshadeRenderer = rendererSet.hillshadeRenderer
     this.coverageRenderer = rendererSet.coverageRenderer
     this.gpuTimer = rendererSet.gpuTimer
@@ -4254,6 +4266,11 @@ export class XGISMap {
     // settle on the wall clock and this goes false again within
     // fadeDuration of the last placement change.
     if (this.textStage !== null && this.textStage.getFadeLedger().hasActive()) return true
+    // Raster tile fade-in keep-alive (mirror of the symbol-fade keep-alive):
+    // while any raster tile is mid-cross-fade the loop keeps rendering so the
+    // per-tile ramp advances; the renderer clears the flag once every tile hits
+    // full opacity, and this goes false again within rasterFadeDuration.
+    if (this.rasterRenderer?.hasFadingTiles()) return true
     if (this.hasPendingSourceWork()) return true
     const c = this.camera
     const canvas = this.ctx?.canvas
@@ -4439,6 +4456,19 @@ export class XGISMap {
     return this._prefersReducedMotion() ? 0 : this.labelFadeDurationMs
   }
 
+  /** Raster tile fade-in duration after the reduced-motion override: 0 (instant
+   *  pop-in, byte-identical) under reduced motion, else `rasterFadeDurationMs`. */
+  effectiveRasterFadeDurationMs(): number {
+    return this._prefersReducedMotion() ? 0 : this.rasterFadeDurationMs
+  }
+
+  /** Push the effective raster fade duration to the renderer. Called at renderer
+   *  setup and on a reduced-motion flip (the renderer caches the value like the
+   *  label ledger does). */
+  private applyEffectiveRasterFadeDuration(): void {
+    this.rasterRenderer?.setRasterFadeDurationMs(this.effectiveRasterFadeDurationMs())
+  }
+
   /** #1260 — OS reduced-motion flipped while the map is live: re-resolve the
    *  animated features that cache their duration. Camera easeTo/flyTo and paint
    *  transitions read `_prefersReducedMotion()` per call (already live); only
@@ -4446,6 +4476,7 @@ export class XGISMap {
    *  value and re-arm a frame so an idle map reflects the change at once. */
   private _onReducedMotionChange(): void {
     this.textStage?.setFadeDurationMs(this.effectiveFadeDurationMs())
+    this.applyEffectiveRasterFadeDuration()
     this.markLabelDirty()
     this.invalidate()
   }

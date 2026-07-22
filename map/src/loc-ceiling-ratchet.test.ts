@@ -321,7 +321,12 @@ const CEILINGS: Record<string, number> = {
   // event arms, the dispatcher `onHoverActiveChange` dep, and the destroy()
   // teardown — wiring only; the grab/grabbing/pointer policy MECHANISM lives
   // extracted + unit-proved in cursor.ts (well under the cap).
-  'map/src/map.ts': 5063,
+  // 5063→5094 (raster tile fade-in): the `rasterFadeDuration` option + field,
+  // the effective-duration (reduced-motion) + apply helpers, the two renderer-
+  // setup applies, the reduced-motion re-apply, and the shouldRenderThisFrame
+  // keep-alive. Wiring only; the per-tile ramp + cross-fade live in the raster
+  // renderer. +31, measured post-hook.
+  'map/src/map.ts': 5094,
   // Baselined at #1255 (measured 830): the DOM-inspired layer API crossed
   // NEW_FILE_CAP with the paint-transition style-setter integration — the
   // StyleHost.transitions context, the shared applyNumber/applyColor
@@ -696,11 +701,18 @@ const CEILINGS: Record<string, number> = {
   // 848→855 (#1229 item 1): pendingLoadCount() — the in-flight tile count behind
   // hasPendingLoads(), summed into the map's public getMissingTileCount() so the
   // loading affordance covers network raster sources. A one-line read + docs.
-  // 855→862 (satellite z18+ jitter fix): writeRasterFrameUniform splits the camera
-  // anchor DSFUN hi/lo (cam_ecef_center + new cam_ecef_center_l) so the raster/
-  // hillshade vs_tile subtracts it in df64 (hi then lo) — the whole tile sheet
-  // stopped shaking at over-zoom. The two-line fround split + its rationale comment.
-  'map/src/render/raster-renderer.ts': 862,
+  // 855→915 (raster tile fade-in): the draw loop split into an emitTileAt helper
+  // + findCachedParent so a fading child (firstShownFrame ramp → per-tile
+  // opacity) draws over its cached parent (cross-fade, no background flash) —
+  // plus the _fadeDurationMs field, setRasterFadeDurationMs, and hasFadingTiles.
+  // depthCompare 'always' makes the parent-under-child painter order z-fight-free.
+  // +60, measured post-hook.
+  // 915→922 (merge union — satellite z18+ jitter fix): writeRasterFrameUniform
+  // splits the camera anchor DSFUN hi/lo (cam_ecef_center + new cam_ecef_center_l)
+  // so the raster/hillshade vs_tile subtracts it in df64 (hi then lo) — the tile
+  // sheet stopped shaking at over-zoom. Stacked non-overlappingly on the fade-in
+  // work (+7), so the merged high-water is the measured 922.
+  'map/src/render/raster-renderer.ts': 922,
   // 889→906 (#1155 F3): cold-start burst enqueue cap — the `_coldStartBurst`
   // field + `setColdStartBurst` + the burst-selected 8/4 cap in enqueue().
   // 906→910 (#1155 F3 adjudication): the burst 8/4 pair now comes from the
@@ -745,7 +757,10 @@ const CEILINGS: Record<string, number> = {
   // Irreducible: the gate must sit in the driver loop where the dispatch
   // verdict is known. (Still ≤ the runtime arch-invariants ceiling of 1452,
   // unchanged there — shrink-only.)
-  'compiler/src/ir/lower.ts': 1432,
+  // 1432→1433 (#1302): arrow-layer plumbing (isArrow + arrowBearing local decl,
+  // acc read-back, node literal). 1433→1438 (merge union with #1305 symbol-fade
+  // lowering). Still ≤ the arch-invariants ceiling of 1452.
+  'compiler/src/ir/lower.ts': 1438,
   // #777 I-B icon-keep-upright + I-F icon value-forms (merged) grow three
   // symbol-lowering god-files (per-row justification in
   // architecture-invariants.test.ts, the second authority):
@@ -767,7 +782,9 @@ const CEILINGS: Record<string, number> = {
   'compiler/src/convert/layers-symbol.ts': 1363,
   'compiler/src/ir/lower-label.ts': 1187,
   'compiler/src/tokens/colors.ts': 937,
-  'compiler/src/ir/render-node.ts': 943,
+  // 943→956 (#1302): RenderNodeArrowPaint sub-bundle (isArrow + arrowBearing).
+  // 956→957 (merge union with #1305 RenderNodeCoveragePaint).
+  'compiler/src/ir/render-node.ts': 957,
   'compiler/src/convert/paint-helpers.ts': 826,
   'blueprint/src/editor.ts': 1448,
 }

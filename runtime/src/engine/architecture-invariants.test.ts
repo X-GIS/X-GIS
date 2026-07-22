@@ -454,7 +454,10 @@ const LOC_CEILINGS: Record<string, number> = {
   // Bumped 928→943 (#777 I-A icon-text-fit): LabelDef.iconTextFit +
   // iconTextFitPadding fields + contract JSDoc (records the paired-bbox fit +
   // default-none absence contract). Same additive label-knob field class.
-  'compiler/src/ir/render-node.ts': 943,
+  // Bumped 943→956 (#1302): RenderNodeArrowPaint (isArrow + arrowBearing) for the
+  // declarative arrow layer — additive paint sub-bundle, mirrors RenderNodeHeatmapPaint.
+  // 956→957 (merge union with #1305 RenderNodeCoveragePaint).
+  'compiler/src/ir/render-node.ts': 957,
   // Crossed 800 purely via the full-repo prettier adoption (one-property-per-line /
   // call-arg wrapping) — not a hand-grown god-file; baselined at the formatted size,
   // shrink as it converges.
