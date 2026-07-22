@@ -73,6 +73,11 @@ function splitBlocks(src: string): string[] {
         start = -1
       }
     } else if (depth === 0 && c === '\n' && start >= 0) {
+      // A splice import's `keep (...)` clause may sit on the next line; don't
+      // sever the import block at the newline before it, or the clause becomes
+      // an orphan block and the layer filter is silently dropped on round-trip
+      // (same class as #688/#691 for source:/style: refs).
+      if (inImport && /^\s*keep\s*\(/.test(src.slice(i + 1))) continue
       const seg = src.slice(start, i).trim()
       if (seg) out.push(seg)
       start = -1
@@ -204,7 +209,21 @@ export function xgisToGraph(src: string): BPGraph {
             path: named[2],
           }),
         )
-      else if (splice) nodes.push(mk('import', { mode: 'splice', path: splice[1] }))
+      else if (splice) {
+        // A splice import's optional `keep (a, b, ...)` layer-subset clause has
+        // no editor field (like the source:/style: fallbacks in #688/#691); it
+        // rides on the node's data verbatim so codegen re-emits it — otherwise
+        // the filter is silently dropped when a keep-style is round-tripped.
+        const keepM = block.match(/\bkeep\s*\(([^)]*)\)/)
+        const keep = keepM
+          ? keepM[1]
+              .split(',')
+              .map((s) => s.trim().replace(/^"(.*)"$/, '$1'))
+              .filter(Boolean)
+              .join(', ')
+          : ''
+        nodes.push(mk('import', { mode: 'splice', path: splice[1], ...(keep ? { keep } : {}) }))
+      }
     } else if (kw === 'layer') {
       const srcRef = prop(lines, 'source')
       if (srcRef && skippedSources.has(srcRef)) continue

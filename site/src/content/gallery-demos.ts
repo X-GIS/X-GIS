@@ -535,6 +535,12 @@ export const galleryCategories: Category[] = [
         title: 'Vector overlay',
         body: 'Basemap + a translucent country fill on top.',
       },
+      {
+        id: 'satellite-ofm-overlay',
+        title: 'Satellite + OFM layers',
+        body: 'Esri satellite base with a hand-picked subset of OpenFreeMap vector layers — roads and place names only, not the whole style.',
+        noThumb: true,
+      },
     ],
   },
   {

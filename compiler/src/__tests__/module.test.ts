@@ -391,3 +391,141 @@ describe('Recursive module resolution (#1071)', () => {
     expect(presetNames(resolved)).toEqual(['b_p', 'a_p'])
   })
 })
+
+describe('splice import `keep (...)` clause — layer subset of a Mapbox/OFM style', () => {
+  // A miniature OpenMapTiles-shaped style: one vector source, a background, and
+  // four vector layers on distinct source-layers. `keep (...)` selects layers
+  // by source-layer, so the drop/keep split is unambiguous.
+  const STYLE = JSON.stringify({
+    version: 8,
+    sources: { openmaptiles: { type: 'vector', url: 'https://tiles.openfreemap.org/planet' } },
+    layers: [
+      { id: 'bg', type: 'background', paint: { 'background-color': '#eee' } },
+      {
+        id: 'water',
+        type: 'fill',
+        source: 'openmaptiles',
+        'source-layer': 'water',
+        paint: { 'fill-color': '#a0c8ff' },
+      },
+      {
+        id: 'roads',
+        type: 'line',
+        source: 'openmaptiles',
+        'source-layer': 'transportation',
+        paint: { 'line-color': '#fff' },
+      },
+      {
+        id: 'road_labels',
+        type: 'symbol',
+        source: 'openmaptiles',
+        'source-layer': 'transportation_name',
+        layout: { 'text-field': '{name}' },
+      },
+      {
+        id: 'places',
+        type: 'symbol',
+        source: 'openmaptiles',
+        'source-layer': 'place',
+        layout: { 'text-field': '{name}' },
+      },
+    ],
+  })
+  const reader: FileReader = (p) => (p === 'bright.json' ? STYLE : null)
+  const asyncReader: AsyncFileReader = async (p) => (p === 'bright.json' ? STYLE : null)
+  const layerNames = (prog: AST.Program): string[] =>
+    prog.body.filter((s): s is AST.LayerStatement => s.kind === 'LayerStatement').map((s) => s.name)
+
+  it('parses the keep clause into keepSourceLayers (bare identifiers)', () => {
+    const imp = parse(`import "bright.json" keep (transportation, place)`)
+      .body[0] as AST.ImportStatement
+    expect(imp.kind).toBe('ImportStatement')
+    expect(imp.names).toEqual([])
+    expect(imp.keepSourceLayers).toEqual(['transportation', 'place'])
+  })
+
+  it('accepts quoted source-layer names', () => {
+    const imp = parse(`import "bright.json" keep ("transportation_name")`)
+      .body[0] as AST.ImportStatement
+    expect(imp.keepSourceLayers).toEqual(['transportation_name'])
+  })
+
+  it('keeps only layers whose source-layer is listed; sources + background pass through', () => {
+    const resolved = resolveImports(
+      parse(`import "bright.json" keep (transportation, place)`),
+      './',
+      reader,
+    )
+    expect(layerNames(resolved)).toEqual(['roads', 'places']) // water, road_labels dropped
+    expect(resolved.body.some((s) => s.kind === 'SourceStatement')).toBe(true) // openmaptiles kept
+    expect(resolved.body.filter((s) => s.kind === 'BackgroundStatement')).toHaveLength(1)
+  })
+
+  it('async resolver applies the same filter (sync/async parity)', async () => {
+    const resolved = await resolveImportsAsync(
+      parse(`import "bright.json" keep (transportation, place)`),
+      './',
+      asyncReader,
+    )
+    expect(layerNames(resolved)).toEqual(['roads', 'places'])
+  })
+
+  it('a plain splice import (no keep) still prepends every layer', () => {
+    const resolved = resolveImports(parse(`import "bright.json"`), './', reader)
+    expect(layerNames(resolved)).toEqual(['water', 'roads', 'road_labels', 'places'])
+  })
+
+  it('an empty keep list is a parse error', () => {
+    expect(() => parse(`import "bright.json" keep ()`)).toThrow(/keep/)
+  })
+})
+
+describe('position-aware import splicing — draw order across the import boundary', () => {
+  const STYLE = JSON.stringify({
+    version: 8,
+    sources: { openmaptiles: { type: 'vector', url: 'u' } },
+    layers: [
+      { id: 'bg', type: 'background', paint: { 'background-color': '#eee' } },
+      {
+        id: 'roads',
+        type: 'line',
+        source: 'openmaptiles',
+        'source-layer': 'transportation',
+        paint: { 'line-color': '#fff' },
+      },
+    ],
+  })
+  const reader: FileReader = (p) => (p === 'bright.json' ? STYLE : null)
+  const layerOrder = (prog: AST.Program): string[] =>
+    prog.body.filter((s): s is AST.LayerStatement => s.kind === 'LayerStatement').map((s) => s.name)
+
+  it('a mid-file import splices its layers at that line (raster base stays underneath)', () => {
+    const resolved = resolveImports(
+      parse(
+        `source sat { type: raster, url: "u" }
+         layer imagery { source: sat }
+         import "bright.json" keep (transportation)
+         source local { type: geojson, url: "l" }
+         layer highlight { source: local | fill-red-500 }`,
+      ),
+      './',
+      reader,
+    )
+    // Draw order = declaration order: the raster base, then the imported road
+    // layer spliced at the import line, then the user's highlight on top.
+    expect(layerOrder(resolved)).toEqual(['imagery', 'roads', 'highlight'])
+  })
+
+  it('a top-of-file import still lands first (byte-identical to the old prepend)', () => {
+    const resolved = resolveImports(
+      parse(
+        `import "bright.json" keep (transportation)
+         source local { type: geojson, url: "l" }
+         layer top { source: local | fill-red-500 }`,
+      ),
+      './',
+      reader,
+    )
+    expect(layerOrder(resolved)).toEqual(['roads', 'top'])
+  })
+})

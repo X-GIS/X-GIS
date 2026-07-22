@@ -154,7 +154,14 @@ export class StatementParser extends ExpressionParser {
 
     if (this.check(TokenType.String)) {
       const path = this.expect(TokenType.String).value
-      return { kind: 'ImportStatement', names: [], path, line }
+      // Optional `keep (a, b, ...)` clause — splice the style but keep only
+      // the layers whose source-layer is listed (below). `keep` is NOT a
+      // reserved word; it lexes as an Identifier and is matched by value here,
+      // so this stays a parser-only production (mirrors the `as` in shape 3).
+      const keepSourceLayers = this.tryParseKeepClause()
+      return keepSourceLayers
+        ? { kind: 'ImportStatement', names: [], path, line, keepSourceLayers }
+        : { kind: 'ImportStatement', names: [], path, line }
     }
 
     this.expect(TokenType.LBrace)
@@ -168,6 +175,33 @@ export class StatementParser extends ExpressionParser {
 
     const path = this.expect(TokenType.String).value
     return { kind: 'ImportStatement', names, path, line }
+  }
+
+  /** Parse the optional `keep (name, "name", ...)` clause that may trail a
+   *  splice `import "url"`. Returns the source-layer names, or `undefined`
+   *  when no clause is present. Names may be bare identifiers
+   *  (`transportation_name`) or quoted strings (`"transportation_name"`) —
+   *  both forms map to the same source-layer string. */
+  private tryParseKeepClause(): string[] | undefined {
+    if (!(this.check(TokenType.Identifier) && this.current().value === 'keep')) return undefined
+    this.advance() // consume `keep`
+    this.expect(TokenType.LParen)
+    const layers: string[] = []
+    while (!this.check(TokenType.RParen) && !this.isEnd()) {
+      const tok = this.current()
+      if (tok.type === TokenType.Identifier || tok.type === TokenType.String) {
+        layers.push(tok.value)
+        this.advance()
+      } else {
+        this.error(
+          `Expected a source-layer name in keep(...), got ${TokenType[tok.type]} ('${tok.value}')`,
+        )
+      }
+      if (this.check(TokenType.Comma)) this.advance()
+    }
+    this.expect(TokenType.RParen)
+    if (layers.length === 0) this.error('keep(...) needs at least one source-layer name')
+    return layers
   }
 
   // symbol name { path "...", rect x: N y: N w: N h: N, circle cx: N cy: N r: N, anchor: value }

@@ -77,6 +77,16 @@ export const DEMOS_THEMATIC: Record<string, Demo> = {
     center: [55.138, 25.112],
   },
 
+  satellite_ofm_overlay: {
+    name: 'Satellite + OFM roads & labels',
+    tag: 'raster',
+    description:
+      'Raster satellite base with a HAND-PICKED subset of OpenFreeMap vector layers on top — road lines, road names, and place labels only, not the whole ~80-layer style. Declare the openmaptiles vector source yourself and write just the layers you want (layers cannot be cherry-picked out of an `import "url"`); draw order = declaration order, so imagery sits underneath. Opens over Seoul.',
+    source: load('satellite-ofm-overlay.xgis'),
+    zoom: 13,
+    center: [126.978, 37.5665],
+  },
+
   bold_borders: {
     name: 'Bold Borders',
     tag: 'thematic',

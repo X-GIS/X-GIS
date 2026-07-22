@@ -187,9 +187,10 @@ export type PresetStatement = {
   line: number
 }
 
-// import { name1, name2 } from "file.xgs"  — cherry-pick
-// import "file.xgs"                          — splice
-// import * as ns from "file.xgs"             — namespaced splice (`namespace` set)
+// import { name1, name2 } from "file.xgs"        — cherry-pick
+// import "file.xgs"                                — splice
+// import "style.json" keep (transportation, place) — splice, layers filtered
+// import * as ns from "file.xgs"                   — namespaced splice (`namespace` set)
 export type ImportStatement = {
   kind: 'ImportStatement'
   names: string[]
@@ -199,6 +200,13 @@ export type ImportStatement = {
    *  block-level definitions (source/layer/preset/keyframes) are spliced under
    *  the `ns.` prefix and their intra-module references rewritten to match. */
   namespace?: string
+  /** Set by the `keep (a, b, ...)` clause on a splice import. Filters the
+   *  imported style's LAYERS to those whose `source-layer` is listed — so a
+   *  Mapbox/OFM base style can contribute only some of its layers (e.g. just
+   *  `transportation` + `place`) with their ORIGINAL paint/filters/zoom, while
+   *  every non-layer statement (sources, background) still splices. Only the
+   *  directly-named style is filtered; nested imports are unaffected. */
+  keepSourceLayers?: string[]
 }
 
 // symbol arrow { path "M 0 -1 L -0.4 0.3 Z", anchor: center }
