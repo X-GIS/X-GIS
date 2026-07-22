@@ -707,7 +707,12 @@ const CEILINGS: Record<string, number> = {
   // plus the _fadeDurationMs field, setRasterFadeDurationMs, and hasFadingTiles.
   // depthCompare 'always' makes the parent-under-child painter order z-fight-free.
   // +60, measured post-hook.
-  'map/src/render/raster-renderer.ts': 915,
+  // 915→922 (merge union — satellite z18+ jitter fix): writeRasterFrameUniform
+  // splits the camera anchor DSFUN hi/lo (cam_ecef_center + new cam_ecef_center_l)
+  // so the raster/hillshade vs_tile subtracts it in df64 (hi then lo) — the tile
+  // sheet stopped shaking at over-zoom. Stacked non-overlappingly on the fade-in
+  // work (+7), so the merged high-water is the measured 922.
+  'map/src/render/raster-renderer.ts': 922,
   // 889→906 (#1155 F3): cold-start burst enqueue cap — the `_coldStartBurst`
   // field + `setColdStartBurst` + the burst-selected 8/4 cap in enqueue().
   // 906→910 (#1155 F3 adjudication): the burst 8/4 pair now comes from the

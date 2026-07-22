@@ -382,8 +382,7 @@ export interface FormatSpec {
 }
 
 export type TextPart =
-  | { kind: 'literal'; value: string }
-  | { kind: 'interp'; expr: DataExpr; spec?: FormatSpec }
+  { kind: 'literal'; value: string } | { kind: 'interp'; expr: DataExpr; spec?: FormatSpec }
 
 export type TextValue = { kind: 'expr'; expr: DataExpr } | { kind: 'template'; parts: TextPart[] }
 

@@ -91,13 +91,20 @@ export function writeRasterFrameUniform(
   c: RasterColorParams,
 ): void {
   const ge = globeEyeUniform(frame.eye)
+  // DSFUN hi/lo split of the camera anchor (full rationale: raster.ts
+  // Uniforms.cam_ecef_center): the VS subtracts hi (Sterbenz-exact) then lo, so the
+  // camera term is df64-precise and no longer jitters as it pans (the z18+ shake).
+  // hi is byte-identical to the pre-split single-f32 lane (fround is idempotent).
+  const hi = (v: number): number => Math.fround(v)
+  const lo = (v: number): number => Math.fround(v - Math.fround(v))
   block.write({
     mvp: frame.matrix,
     proj_params: [projType, projCenterLon, projCenterLat, frame.logDepthFc],
     raster_params: [c.opacity, 0, 0, 0],
     raster_color0: [c.hueRotate, c.brightnessMin, c.brightnessMax, c.saturation],
     raster_color1: [c.contrast, 0, 0, 0],
-    cam_ecef_center: [camAnchor[0], camAnchor[1], camAnchor[2], 0],
+    cam_ecef_center: [hi(camAnchor[0]), hi(camAnchor[1]), hi(camAnchor[2]), 0],
+    cam_ecef_center_l: [lo(camAnchor[0]), lo(camAnchor[1]), lo(camAnchor[2]), 0],
     globe_eye: [ge[0], ge[1], ge[2], ge[3]],
   })
 }

@@ -42,13 +42,7 @@ export type UtilityMatch = 'prefix' | 'exact'
  *  base name (`fill-[…]`, `opacity-[…]`); `composite` is a sub-grammar
  *  (`animation-*`) or a delegated family (`label-*`). */
 export type UtilityValueKind =
-  | 'color'
-  | 'number'
-  | 'enum'
-  | 'boolean'
-  | 'expr'
-  | 'string'
-  | 'composite'
+  'color' | 'number' | 'enum' | 'boolean' | 'expr' | 'string' | 'composite'
 
 /** Unit rule for a `number` utility. `null` = unitless scalar. `size-` takes
  *  an OPTIONAL suffix (px default) — recorded as its default `px`. */
