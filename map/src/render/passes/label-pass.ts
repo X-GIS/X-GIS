@@ -32,6 +32,7 @@ import {
 } from './label-replay-transform'
 import { computeSliceKey } from '@xgis/data'
 import { TIEBREAK_GROUP_SEP } from '../../text/text-collision'
+import type { MotionHoldoverCtx } from '../../text/holdover-reproject'
 import { TextStage } from '../../text/text-stage'
 import type { TextStageOptions } from '../../text/text-stage-types'
 import { IconStage } from '../../sprite/icon-stage'
@@ -1975,7 +1976,35 @@ class LabelPass implements RenderPass {
         // #777 I-G — give TextStage the read-only sprite atlas so inline-image
         // markers in label text reserve the sprite advance during shaping.
         stage.setSpriteMetadata(iStage ? iStage.host : null)
-        stage.prepare(iconObstacles, limbInsetPx, holdoverOk)
+        // Symbol fade — motion-holdover reprojection ctx (holdover-reproject.ts).
+        // Provided ONLY where the #1177 replay similarity is EXACT: flat
+        // Mercator + pitch 0 (fixed bearing/canvas is checked per-holdover in
+        // the stage). There a fade-out label dropped mid-zoom is reprojected
+        // onto THIS frame and fades in place instead of popping — the fix for
+        // "labels blink on zoom". Under globe / pitch / rotate the ctx is
+        // absent and the holdover stays suppressed (the pre-fix graceful pop).
+        // refs are this prepare's replay refs (just sampled at the S16 miss
+        // above); the solve maps a holdover's stamped bake refs onto this frame.
+        const _hoSkip = this._skipState.get(host)
+        let motionHoldover: MotionHoldoverCtx | undefined
+        if (
+          host.projectionName === 'mercator' &&
+          c.pitch === 0 &&
+          _hoSkip !== undefined &&
+          _hoSkip.replayRefsValid &&
+          stage.getFadeLedger().enabled
+        ) {
+          const solveOut: LabelReplayTransform = { scale: 1, dx: 0, dy: 0 }
+          motionHoldover = {
+            bearingKey: _bearingKey,
+            canvasW: _canvasW,
+            canvasH: _canvasH,
+            refs: _hoSkip.replayRefs,
+            solve: (bakeRefs) =>
+              solveReplayTransform(bakeRefs, projectMercAny, solveOut) ? solveOut : null,
+          }
+        }
+        stage.prepare(iconObstacles, limbInsetPx, holdoverOk, motionHoldover)
         if (iStage) iStage.setDroppedPairKeys(stage.getDroppedPairKeys())
         // #777 I-A — hand the paired text bboxes (laid out by stage.prepare just
         // now) to IconStage so its prepare() can stretch icon-text-fit quads.
@@ -1987,7 +2016,7 @@ class LabelPass implements RenderPass {
         // Symbol fade — hand TextStage's ledger over (mirror of the
         // droppedPairKeys handoff) so paired icons read their text's records.
         if (iStage) iStage.setFadeLedger(stage.getFadeLedger())
-        iStage?.prepare(holdoverOk)
+        iStage?.prepare(holdoverOk, motionHoldover)
       }
       perfMarkEnd('encoder.stage-prepare')
       // Text overlay v1: skipped in debug=overdraw — text pipeline
