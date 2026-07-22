@@ -80,6 +80,18 @@ export class CoverageRenderer {
     return this.state !== null
   }
 
+  /** The currently-armed display (ramp + range window), or viridis / open range when
+   *  nothing is armed yet. `map.setCoverageData` reuses this so an imperative data swap
+   *  keeps the drawing layer's display (LAYER paint, #1158 INC-D) without re-reading the
+   *  ShowCommand; a later rebuild re-arms from the layer. */
+  displayOpts(): { ramp: string; rangeLo?: number; rangeHi?: number } {
+    return {
+      ramp: this.lastOpts?.ramp ?? 'viridis',
+      rangeLo: this.lastOpts?.rangeLo,
+      rangeHi: this.lastOpts?.rangeHi,
+    }
+  }
+
   /** Upload a coverage's value/validity textures + LUT and arm the draw. Replaces
    *  any previous coverage (destroying its textures — no leak). */
   setCoverage(handle: CoverageHandle, opts: CoverageArmOptions): void {

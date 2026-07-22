@@ -12,10 +12,10 @@ xgis 1
 source currents {
   type: coverage
   url: "synthetic-currents.h5"
-  ramp: "viridis"
-  range: [0, 2]
 }
 
 layer speed {
   source: currents
+  ramp: "viridis"
+  range: [0, 2]
 }

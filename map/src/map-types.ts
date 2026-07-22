@@ -47,11 +47,10 @@ export type RawDataset =
     }
   | { readonly _vectorTile: true }
   | {
+      // A `coverage` source is DATA-ONLY (the CPU-resident CoverageHandle is the
+      // value-readout authority). The colour-ramp/display window (ramp/range) is LAYER
+      // paint now (#1158 INC-D) — carried on the ShowCommand, read at arm time.
       readonly _coverage: CoverageHandle
-      /** Colour-ramp LUT name for the GPU draw (source `ramp:`). Default viridis. */
-      readonly ramp?: string
-      /** `[lo, hi]` display value window (source `range:`). Default = data range. */
-      readonly range?: readonly [number, number]
     }
 
 export interface VariantPipelines {

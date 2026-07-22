@@ -12,10 +12,10 @@ xgis 1
 source bathy {
   type: coverage
   url: "synthetic-bathymetry.h5"
-  ramp: "bathymetry"
-  range: [0, 40]
 }
 
 layer depth {
   source: bathy
+  ramp: "bathymetry"
+  range: [0, 40]
 }

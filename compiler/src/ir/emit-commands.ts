@@ -57,12 +57,6 @@ export interface LoadCommand {
   greenFactor?: number
   blueFactor?: number
   baseShift?: number
-  /** `type: coverage` colour-ramp LUT name + `[lo, hi]` display window,
-   *  threaded from `SourceDef.ramp` / `SourceDef.range` (#1158) so the runtime
-   *  arms the coverage renderer with the author's palette. Mirror fields on the
-   *  runtime `interpreter.ts` LoadCommand (two-sibling rule). */
-  ramp?: string
-  range?: readonly [number, number]
 }
 
 // ─── Paint sub-bundles (Tier-B B2, rows 3/5) ───────────────────────
@@ -269,6 +263,13 @@ export interface ShowCommand extends FillPaint, LinePaint, CirclePaint, ExtrudeP
    *  on the current camera zoom. See RenderNode for the rationale. */
   minzoom?: number
   maxzoom?: number
+  /** `coverage` LAYER paint (#1158 INC-D): colour-ramp LUT name + `[lo, hi]` display
+   *  window, threaded from `RenderNode.ramp` / `RenderNode.range` (lowerLayer) so the
+   *  runtime arms the coverage renderer with the author's palette + window. Undefined
+   *  on every non-coverage layer. Mirrors the raster-color / raster-color-range split
+   *  (paint on the LAYER, not the source). */
+  ramp?: string
+  range?: readonly [number, number]
   /** Optional MVT layer slice within the source. When set, the
    *  catalog returns only that slice's TileData and the renderer
    *  draws only its geometry. Mapbox-style `source-layer`
@@ -426,8 +427,6 @@ export function emitCommands(scene: Scene, opts?: EmitOptions): SceneCommands {
     greenFactor: src.greenFactor,
     blueFactor: src.blueFactor,
     baseShift: src.baseShift,
-    ramp: src.ramp,
-    range: src.range,
   }))
 
   // Walk the IR once to collect every ZOOM-only paint literal /
@@ -579,6 +578,8 @@ function emitShow(
     geometryExpr: node.geometry,
     minzoom: node.minzoom,
     maxzoom: node.maxzoom,
+    ramp: node.ramp,
+    range: node.range,
     sizeUnit:
       node.size.kind === 'constant' || node.size.kind === 'data-driven'
         ? (node.size.unit ?? null)

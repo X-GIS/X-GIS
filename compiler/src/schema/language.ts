@@ -117,12 +117,6 @@ export const LANGUAGE_SCHEMA: Record<string, ConstructDef> = {
       { key: 'type', valueKind: 'enum', options: SOURCE_TYPES, required: true },
       { key: 'url', valueKind: 'string' },
       { key: 'layers', valueKind: 'string' },
-      // #1158 GAP-1 INC-A — colour-ramp + value range for a `coverage` source,
-      // carried as SOURCE-level options (additive; doc §6). `ramp` names a LUT
-      // palette; `range` is a `[lo, hi]` value window. Graduate to paint
-      // properties in INC-D (`setPaintProperty('depth','ramp',…)`).
-      { key: 'ramp', valueKind: 'string' },
-      { key: 'range', valueKind: 'expr' },
     ],
   },
 
@@ -164,6 +158,13 @@ export const LANGUAGE_SCHEMA: Record<string, ConstructDef> = {
       { key: 'maxzoom', valueKind: 'number' },
       { key: 'filter', valueKind: 'expr' },
       { key: 'pipe', valueKind: 'pipe' },
+      // #1158 INC-D — `coverage` LAYER paint: `ramp` names a colour-ramp LUT, `range`
+      // is a `[lo, hi]` value window. The graduation the INC-A SOURCE note promised:
+      // styling (value→colour) is a paint/LAYER concern (the Mapbox raster-color /
+      // raster-color-range analogue), so a `coverage` source is data-only and the
+      // layer that draws it carries the palette + window.
+      { key: 'ramp', valueKind: 'string' },
+      { key: 'range', valueKind: 'expr' },
     ],
     refs: [
       { pin: 'source', refType: 'source', required: true },
