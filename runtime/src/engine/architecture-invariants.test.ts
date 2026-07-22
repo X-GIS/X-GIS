@@ -306,7 +306,11 @@ const LOC_CEILINGS: Record<string, number> = {
   // that widens only the across offset (FS byte-identical via a decoupled
   // world_local_out); the globe arm keeps the former ECEF clamp. Dual-tracked with
   // map/src/loc-ceiling-ratchet.test.ts (§12 second-ratchet). Still the #1 debt.
-  'map/src/shaders/dsl/line.ts': 1422,
+  // Bumped 1422→1441: per-LOD stroke depth bias (lineLodDepthBias) so a finer
+  // tile's outline occludes a coarser ancestor's — the WebGPU-only fallback/
+  // ancestor-LOD outline stacking in the pitched far-field. Dual-tracked with
+  // map/src/loc-ceiling-ratchet.test.ts (§12 second-ratchet).
+  'map/src/shaders/dsl/line.ts': 1441,
   // Bumped 1171→1176 (#274 CSS color-fn whitespace), then 1176→1178 (#317) for
   // the two irreducible numeric match()-label arm-pattern cases (Number, and
   // Minus+Number). Lowered 1178→50 (Tier-C5): the Parser god-file was split

@@ -47,6 +47,7 @@ import {
   unpack4x8unorm,
   atan,
   exp,
+  log,
   degrees,
   If,
   when,
@@ -1308,6 +1309,24 @@ export const vsLine = fn(
 // between layers is untouched.
 const LINE_COPLANAR_DEPTH_BIAS = 1e-5
 
+// Per-LOD depth ordering for stroked outlines. The line frag depth comes from
+// `view_w` (perspective distance), so two tiles at DIFFERENT zoom levels (hence
+// different simplification) covering the SAME screen pixel emit the SAME depth —
+// a `less-equal` tie keeps BOTH LOD outlines, stacking a coarse ancestor's
+// simplified border over the finer tile's. WebGPU-only: `render()` draws
+// fallback / protected-ancestor LODs while the WebGL2 twin is primary-only
+// (#1140), so the pitched far-field stacks several zoom levels' outlines. Bias
+// the depth by the tile zoom (encoded in `tile_extent_m = 2πR / 2^z`, so a
+// coarser tile has the LARGER extent) to pull a FINER tile nearer — it then
+// occludes the coarser ancestor through the pipeline's existing `less-equal`
+// test (STENCIL_WRITE / STENCIL_TEST both depth-write). ~2e-6 per level: breaks
+// the tie, an order of magnitude below LINE_COPLANAR_DEPTH_BIAS so stroke-over-
+// fill is untouched. The `EARTH_R` (vs 2πR) constant shifts every tile equally
+// (no relative change); `max(…, 1)` guards `log` against a zero `tile_extent_m`.
+const LINE_LOD_DEPTH_STEP = 3e-6
+const lineLodDepthBias = () =>
+  log(EARTH_R.div(max(TILE.field.tile_extent_m, f32(1)))).mul(LINE_LOD_DEPTH_STEP)
+
 export const buildFsLine = (pickEnabled: boolean) =>
   fn(
     'fs_line',
@@ -1318,9 +1337,9 @@ export const buildFsLine = (pickEnabled: boolean) =>
       return lineFragmentOutput(pickEnabled).construct({
         color: vec4(color.rgb, color.a.mul(rim)),
         ...(pickEnabled ? { pick: vec2u(0, 0) } : {}),
-        depth: compute_log_frag_depth({ view_w: p.input.view_w, fc: TILE.field.log_depth_fc }).sub(
-          LINE_COPLANAR_DEPTH_BIAS,
-        ),
+        depth: compute_log_frag_depth({ view_w: p.input.view_w, fc: TILE.field.log_depth_fc })
+          .sub(LINE_COPLANAR_DEPTH_BIAS)
+          .sub(lineLodDepthBias()),
       })
     },
     { stage: 'fragment' },
@@ -1349,9 +1368,9 @@ export const buildFsLinePattern = (pickEnabled: boolean) =>
       return lineFragmentOutput(pickEnabled).construct({
         color: vec4(sampled.rgb, sampled.a.mul(base.a).mul(rim)),
         ...(pickEnabled ? { pick: vec2u(0, 0) } : {}),
-        depth: compute_log_frag_depth({ view_w: inp.view_w, fc: TILE.field.log_depth_fc }).sub(
-          LINE_COPLANAR_DEPTH_BIAS,
-        ),
+        depth: compute_log_frag_depth({ view_w: inp.view_w, fc: TILE.field.log_depth_fc })
+          .sub(LINE_COPLANAR_DEPTH_BIAS)
+          .sub(lineLodDepthBias()),
       })
     },
     { stage: 'fragment' },
