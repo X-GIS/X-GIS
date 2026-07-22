@@ -32,6 +32,7 @@ import {
 import {
   opacityZoomBindingHandler,
   sizeZoomBindingHandler,
+  bearingBindingHandler,
   fillTranslateXBindingHandler,
   fillTranslateYBindingHandler,
   circleTranslateXBindingHandler,
@@ -65,6 +66,7 @@ export const BINDING_HANDLERS: BindingHandler[] = [
   strokeDasharrayBindingHandler,
   opacityZoomBindingHandler,
   sizeZoomBindingHandler,
+  bearingBindingHandler,
   strokeGapBindingHandler,
   fillTranslateXBindingHandler,
   fillTranslateYBindingHandler,

@@ -11,6 +11,11 @@ import { SCENE_BUILDER_TWINS } from '@xgis/compiler/builder/twin-corpus'
 // construction from it, so the displayed code IS the code the parity gate
 // pins (single authority; survives minification, unlike Function.toString).
 import twinCorpusRaw from '@xgis/compiler/builder/twin-corpus?raw'
+// Live-data overlays whose real substance is host code (not a SceneBuilder
+// twin) surface their integration in the JS tab from the SAME module the runner
+// executes — imported once for exec, once as ?raw for display (single authority).
+import { installCoopsCurrents } from './examples/coops-currents.recipe'
+import coopsRecipeRaw from './examples/coops-currents.recipe?raw'
 import { DEMOS } from './demos'
 import { extractMapboxProjectionName, extractMapboxLight } from './mapbox-projection'
 import {
@@ -575,12 +580,23 @@ const xgisModel = monaco.editor.createModel('', 'xgis')
 editor.setModel(xgisModel)
 let jsModel: monaco.editor.ITextModel | null = null
 
+// Demos whose JS tab shows a hand-written recipe MODULE (imperative host
+// integration — live fetch + host-push + retained graphics) instead of a
+// SceneBuilder twin. Keyed by demo id → the module's ?raw source, so the tab
+// shows exactly the code the runner runs. Same single-authority contract as the
+// twin corpus: no hand-copied snippet to drift.
+const DEMO_RECIPES: Record<string, string> = {
+  'coops-currents': coopsRecipeRaw,
+}
+
 function showLangTab(js: boolean): void {
   tabXgis?.classList.toggle('active', !js)
   tabJs?.classList.toggle('active', js)
   if (js) {
     jsModel ??= monaco.editor.createModel('', 'typescript')
-    jsModel.setValue(twinSnippet(demoIds[currentIdx]) ?? '')
+    jsModel.setValue(
+      twinSnippet(demoIds[currentIdx]) ?? DEMO_RECIPES[demoIds[currentIdx]] ?? '',
+    )
     editor.setModel(jsModel)
     editor.updateOptions({ readOnly: true })
     runBtn.disabled = true
@@ -1411,71 +1427,17 @@ function teardownCurrentsOverlay(): void {
 }
 
 // ── NOAA CO-OPS live tidal-currents overlay (#1272) ──────────────────
-// Activated by demos with `coops: true`. Fetches the latest observed current
-// (speed + direction) for the Chesapeake Bay PORTS current stations straight
-// from api.tidesandcurrents.noaa.gov (CORS `*` — no server, no proxy) and draws
-// ONE retained arrow per station: bearing = the direction the current flows
-// TOWARD, length + colour = speed. Refreshes every 6 minutes (the CO-OPS current
-// cadence). Best-effort — a failed station is skipped, and the whole overlay is
-// silently absent without network egress (the arrows just never appear).
+// Activated by demos with `coops: true`. The integration itself lives in
+// ./examples/coops-currents.recipe.ts (shown verbatim in the JS tab): it fetches
+// the Chesapeake Bay PORTS current stations from api.tidesandcurrents.noaa.gov
+// (CORS `*`), pushes the assembled points into the declared `stations` source
+// (→ the station_dots speed layer), and draws one direction arrow per station.
+// This wrapper owns only the on-map status badge + the mount/teardown lifecycle.
 
 let coopsOverlayCleanup: (() => void) | null = null
 
-// (id, lon, lat) for the 11 active Chesapeake Bay PORTS current stations —
-// mdapi `stations.json?type=currents` filtered to the bay, snapshotted so the
-// demo needs only the per-station datagetter fetches at runtime.
-const COOPS_STATIONS: [string, number, number, string][] = [
-  ['cb0102', -76.013, 36.959, 'Cape Henry'],
-  ['cb0201', -76.134, 37.14, 'York Spit'],
-  ['cb0301', -76.249, 37.011, 'Thimble Shoal'],
-  ['cb0402', -76.334, 36.963, 'Naval Station Norfolk'],
-  ['cb0601', -76.414, 36.956, 'Newport News Ch'],
-  ['cb0801', -76.155, 37.674, 'Rappahannock Shoal'],
-  ['cb1001', -76.384, 38.403, 'Cove Point'],
-  ['cb1102', -76.39, 38.98, 'Chesapeake Bay Bridge'],
-  ['cb1202', -76.333, 39.149, 'Brewerton Ch Ext'],
-  ['cb1301', -75.828, 39.531, 'Chesapeake City'],
-  ['cb1401', -76.444, 36.984, 'Newport News Shipbuilding'],
-]
-
-/** Speed (cm/s) → a blue→cyan→amber→red hex ramp. */
-function coopsSpeedColor(cmPerS: number): string {
-  const stops: [number, [number, number, number]][] = [
-    [0, [40, 90, 180]],
-    [25, [30, 170, 200]],
-    [60, [230, 180, 40]],
-    [120, [220, 50, 40]],
-  ]
-  const s = Math.max(0, Math.min(120, cmPerS))
-  let a = stops[0]!
-  let b = stops[stops.length - 1]!
-  for (let i = 0; i < stops.length - 1; i++) {
-    if (s >= stops[i]![0] && s <= stops[i + 1]![0]) {
-      a = stops[i]!
-      b = stops[i + 1]!
-      break
-    }
-  }
-  const t = b[0] === a[0] ? 0 : (s - a[0]) / (b[0] - a[0])
-  const ch = (i: number): string =>
-    Math.round(a[1][i]! + (b[1][i]! - a[1][i]!) * t)
-      .toString(16)
-      .padStart(2, '0')
-  return `#${ch(0)}${ch(1)}${ch(2)}`
-}
-
 function setupCoopsOverlay(map: InstanceType<typeof XGISMap>): void {
   teardownCoopsOverlay()
-  let cancelled = false
-  interface Station {
-    id: string
-    lon: number
-    lat: number
-    name: string
-    speed: number
-    dir: number
-  }
-  let handle: { remove(): void } | null = null
 
   const badge = document.createElement('div')
   badge.id = 'coops-badge'
@@ -1498,65 +1460,14 @@ function setupCoopsOverlay(map: InstanceType<typeof XGISMap>): void {
   const mapPane = document.getElementById('map-pane')!
   mapPane.appendChild(badge)
 
-  const fetchStation = async (
-    id: string,
-    lon: number,
-    lat: number,
-    name: string,
-  ): Promise<Station | null> => {
-    try {
-      const url =
-        `https://api.tidesandcurrents.noaa.gov/api/prod/datagetter?date=latest&station=${id}` +
-        `&product=currents&units=metric&time_zone=gmt&format=json`
-      const res = await fetch(url)
-      if (!res.ok) return null
-      const j = (await res.json()) as { data?: { s?: string; d?: string }[] }
-      const row = j.data?.[0]
-      if (!row || row.s === undefined || row.d === undefined) return null
-      return { id, lon, lat, name, speed: parseFloat(row.s), dir: parseFloat(row.d) }
-    } catch {
-      return null
-    }
-  }
-
-  const refresh = async (): Promise<void> => {
-    const results = await Promise.all(
-      COOPS_STATIONS.map(([id, lon, lat, name]) => fetchStation(id, lon, lat, name)),
-    )
-    if (cancelled) return
-    const stations = results.filter((s): s is Station => s !== null)
-    if (handle) {
-      handle.remove()
-      handle = null
-    }
-    if (stations.length === 0) {
-      badge.textContent = 'NOAA CO-OPS currents unavailable (no network egress?)'
-      return
-    }
-    handle = map.graphics.add({
-      type: 'arrow',
-      data: stations,
-      getPosition: (d: Station) => [d.lon, d.lat] as const,
-      // CO-OPS current direction is the bearing the current flows TOWARD (deg
-      // true), which is exactly the arrow bearing (0 = N, CW).
-      getBearing: (d: Station) => d.dir,
-      // Length ∝ √speed so a fast station reads bigger without dwarfing the rest.
-      getSize: (d: Station) => Math.max(10, Math.min(46, 10 + Math.sqrt(d.speed) * 4)),
-      getColor: (d: Station) => coopsSpeedColor(d.speed),
-    })
-    const t = new Date().toLocaleTimeString()
-    badge.textContent = `NOAA CO-OPS live currents — ${stations.length}/${COOPS_STATIONS.length} stations, as of ${t} (refreshes ~6 min)`
-    ;(window as unknown as { __xgisCoopsStations?: number }).__xgisCoopsStations = stations.length
-  }
-
-  void refresh()
-  // CO-OPS currents update every 6 minutes; re-fetch on that cadence.
-  const timer = setInterval(() => void refresh(), 6 * 60 * 1000)
+  const handle = installCoopsCurrents(map, (ready, total, asOf) => {
+    badge.textContent = asOf
+      ? `NOAA CO-OPS live currents — ${ready}/${total} stations, as of ${asOf} (refreshes ~6 min)`
+      : 'NOAA CO-OPS currents unavailable (no network egress?)'
+  })
 
   coopsOverlayCleanup = () => {
-    cancelled = true
-    clearInterval(timer)
-    if (handle) handle.remove()
+    handle.stop()
     badge.remove()
     coopsOverlayCleanup = null
   }
@@ -1853,7 +1764,7 @@ async function loadDemo(idx: number) {
   // #1194 A3b — tab visibility; always land on the (editable) XGIS view so
   // setValue below targets the xgis model.
   if (langTabs) {
-    langTabs.hidden = twinSnippet(id) === null
+    langTabs.hidden = twinSnippet(id) === null && !DEMO_RECIPES[id]
     showLangTab(false)
   }
 

@@ -42,7 +42,13 @@ export type UtilityMatch = 'prefix' | 'exact'
  *  base name (`fill-[…]`, `opacity-[…]`); `composite` is a sub-grammar
  *  (`animation-*`) or a delegated family (`label-*`). */
 export type UtilityValueKind =
-  'color' | 'number' | 'enum' | 'boolean' | 'expr' | 'string' | 'composite'
+  | 'color'
+  | 'number'
+  | 'enum'
+  | 'boolean'
+  | 'expr'
+  | 'string'
+  | 'composite'
 
 /** Unit rule for a `number` utility. `null` = unitless scalar. `size-` takes
  *  an OPTIONAL suffix (px default) — recorded as its default `px`. */
@@ -99,6 +105,13 @@ export const UTILITY_REGISTRY: readonly UtilityDef[] = [
   def('circle-translate-y-', 'prefix', 'number', 'px', false, 'paint'),
   def('circle-blur-', 'prefix', 'number', null, false, 'paint'),
   def('circle-pitch-scale-map', 'exact', 'boolean', null, false, 'paint'),
+
+  // ── arrow layer (declarative oriented-arrow field, #1302). `arrow` is the
+  //    marker; `bearing` carries the per-feature rotation — `bearing-[.dir]`
+  //    (data-driven, degrees true, 0 = N clockwise) or a `bearing-N` constant. ──
+  def('arrow', 'exact', 'boolean', null, false, 'paint'),
+  def('bearing', 'exact', 'expr', null, false, 'paint'), // binding base: bearing-[expr]
+  def('bearing-', 'prefix', 'number', null, false, 'paint'), // constant degrees
 
   // ── heatmap (heatmap-opacity- is a RAW float, distinct from opacity-) ──
   def('heatmap', 'exact', 'boolean', null, false, 'paint'),
