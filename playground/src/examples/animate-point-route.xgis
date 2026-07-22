@@ -4,10 +4,17 @@ xgis 1
  * Port of MapLibre's "Animate a point along a route" (#1192).
  *
  * The route is a 33-vertex great-circle arc from San Francisco to
- * Washington DC, inlined so the demo is fully offline. The moving point
- * lives in its OWN source: the gallery action buttons push the
- * interpolated position through map.setSourceData('marker', …) every
- * animation frame — the MapLibre original's getSource().setData() loop.
+ * Washington DC, inlined so the demo is fully offline. The moving point is a
+ * Marker DOM overlay (#1262) the gallery action drives with one
+ * marker.setLngLat() per animation frame — a screen-space reposition
+ * (map.project), NOT a per-frame source re-tile.
+ *
+ * Pushing the position through map.setSourceData('marker', …) every frame
+ * instead re-seeds the virtual-tiling pipeline 60×/s: the sibling
+ * animate-line / realtime-update demos throttle that same push to SECONDS
+ * precisely because sub-second churn starves the tiling worker round-trip —
+ * at rAF cadence it wedged the tab and lost the GPU context. A moving marker
+ * belongs in a screen-space overlay, not the tiled-geometry path.
  */
 
 source route {
@@ -27,13 +34,6 @@ source route {
   ] }
 }
 
-source marker {
-  type: geojson
-  data: { "type": "FeatureCollection", "features": [
-    { "type": "Feature", "id": 1, "properties": {}, "geometry": { "type": "Point", "coordinates": [-122.41, 37.78] } }
-  ] }
-}
-
 source world {
   type: geojson
   url: "ne_110m_countries.geojson"
@@ -47,9 +47,4 @@ layer countries {
 layer route_line {
   source: route
   | stroke-sky-400 stroke-2.5
-}
-
-layer moving_point {
-  source: marker
-  | fill-rose-500 size-16 stroke-white stroke-2
 }
