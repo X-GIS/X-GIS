@@ -131,10 +131,11 @@ export function createColorRampTexture(
   rampName: string,
   steps = 256,
 ): GPUTexture | null {
+  const banded = BANDED_RAMPS[rampName]
   const stops = RAMPS[rampName]
-  if (!stops) return null
+  if (!banded && !stops) return null
 
-  const data = interpolateRamp(stops, steps)
+  const data = banded ? interpolateBandedRamp(banded, steps) : interpolateRamp(stops!, steps)
 
   const texture = device.createTexture({
     size: { width: steps, height: 1 },
@@ -166,9 +167,9 @@ export function createRampSampler(device: GPUDevice): GPUSampler {
   })
 }
 
-/** List all available ramp names */
+/** List all available ramp names (interpolated + banded). */
 export function availableRamps(): string[] {
-  return Object.keys(RAMPS)
+  return [...Object.keys(RAMPS), ...Object.keys(BANDED_RAMPS)]
 }
 
 /**
@@ -195,5 +196,56 @@ export function interpolateRamp(stops: [number, number, number][], steps: number
     data[offset + 3] = 255 // A
   }
 
+  return data
+}
+
+/** A BANDED (stepped) palette: a CONSTANT colour per value band, with HARD edges at the
+ *  thresholds — S-100 portrayal semantics, NOT the smooth gradient `RAMPS` produce. */
+export interface BandedRamp {
+  /** [min, max] data domain the bands span. A layer using this ramp MUST declare
+   *  `range: domain` so the GPU's normalized `t` lands the band edges at the right values. */
+  domain: [number, number]
+  /** Bands in ascending order; `upTo` is each band's EXCLUSIVE upper edge (last = Infinity). */
+  bands: { upTo: number; color: [number, number, number] }[]
+}
+
+/** Banded palettes (stepped, non-uniform thresholds) — distinct from `RAMPS` (interpolated). */
+export const BANDED_RAMPS: Record<string, BandedRamp> = {
+  // Official IHO S-111 2.0.0 Portrayal Catalogue — surface-current SPEED bands, "Day" palette,
+  // verbatim from 111_Portrayal_Catalogue_2.0.0 (SurfaceCurrentSpeedBand1..9 ranges +
+  // colorProfile SCBN1..9 sRGB). Speed is in KNOTS; draw with `range: [0, 13]`.
+  's111-speed': {
+    domain: [0, 13],
+    bands: [
+      { upTo: 0.5, color: [118, 82, 226] }, // Band1  purple
+      { upTo: 1.0, color: [72, 152, 211] }, // Band2  blue
+      { upTo: 2.0, color: [97, 203, 229] }, // Band3  cyan
+      { upTo: 3.0, color: [109, 188, 69] }, // Band4  green
+      { upTo: 5.0, color: [180, 220, 0] }, // Band5   yellow-green
+      { upTo: 7.0, color: [205, 193, 0] }, // Band6   yellow
+      { upTo: 10.0, color: [248, 167, 24] }, // Band7 orange
+      { upTo: 13.0, color: [247, 162, 157] }, // Band8 pink
+      { upTo: Infinity, color: [255, 30, 30] }, // Band9 red
+    ],
+  },
+}
+
+/** Bake a banded palette into a dense STEPPED LUT (hard edges at the thresholds). Texel `i`
+ *  maps to value = domain[0] + (i/(steps−1))·span, so a layer sampling with `range: domain`
+ *  lands each band edge exactly. */
+export function interpolateBandedRamp(banded: BandedRamp, steps: number): Uint8Array {
+  const data = new Uint8Array(steps * 4)
+  const [lo, hi] = banded.domain
+  const span = hi - lo
+  const last = banded.bands[banded.bands.length - 1]!
+  for (let i = 0; i < steps; i++) {
+    const v = lo + (i / (steps - 1)) * span
+    const band = banded.bands.find((b) => v < b.upTo) ?? last
+    const o = i * 4
+    data[o] = band.color[0]
+    data[o + 1] = band.color[1]
+    data[o + 2] = band.color[2]
+    data[o + 3] = 255
+  }
   return data
 }

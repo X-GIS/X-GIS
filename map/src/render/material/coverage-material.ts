@@ -16,7 +16,7 @@ import { Material, executeItems, type DrawItem } from '@xgis/engine'
 import { emitCoverageWgsl, buildCoverageModule, coverageGridVertexCount } from '@xgis/map'
 import { emitGlslModule } from '@xgis/shader-dsl'
 import { QUANT_MAX, NODATA_CODE } from '@xgis/data'
-import { interpolateRamp, RAMPS } from '../../color-ramp'
+import { interpolateRamp, interpolateBandedRamp, RAMPS, BANDED_RAMPS } from '../../color-ramp'
 
 // ── f32 → f16 (IEEE 754 half) with round-to-nearest-even ──────────────────────
 const _f = new Float32Array(1)
@@ -110,10 +110,15 @@ export function computeRampUniforms(
  *  ramp name fails LOUDLY (INC-A charter) — silently substituting a palette would misread
  *  navigation-data depth colours (a typo'd `ramp: "virdis"` must not render as bathymetry). */
 export function bakeRampLut(rampName: string): Uint8Array {
+  // Banded palettes (S-100 portrayal: constant colour per value band, hard edges) bake a
+  // STEPPED LUT; the interpolated RAMPS bake a gradient. Same 256×1 rgba8 output either way.
+  const banded = BANDED_RAMPS[rampName]
+  if (banded) return interpolateBandedRamp(banded, 256)
   const stops = RAMPS[rampName]
   if (!stops)
     throw new Error(
-      `[coverage] unknown ramp "${rampName}" — known ramps: ${Object.keys(RAMPS).join(', ')}`,
+      `[coverage] unknown ramp "${rampName}" — known ramps: ` +
+        `${[...Object.keys(RAMPS), ...Object.keys(BANDED_RAMPS)].join(', ')}`,
     )
   return interpolateRamp(stops, 256)
 }
