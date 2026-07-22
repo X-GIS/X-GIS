@@ -249,3 +249,15 @@ export function interpolateBandedRamp(banded: BandedRamp, steps: number): Uint8A
   }
   return data
 }
+
+/** CPU point-lookup: the sRGB [r,g,b] a BANDED palette assigns to `value` — the SAME band
+ *  edges `interpolateBandedRamp` bakes into the GPU LUT (one authority). `value` is in the
+ *  palette's DOMAIN units (e.g. knots for `s111-speed`). Returns null if `name` is not a
+ *  banded ramp. Lets a CPU overlay (the S-111 arrow field) colour a glyph by the exact
+ *  palette the coverage fill draws through, instead of copying the band table. */
+export function bandedRampColor(name: string, value: number): [number, number, number] | null {
+  const banded = BANDED_RAMPS[name]
+  if (!banded) return null
+  const last = banded.bands[banded.bands.length - 1]!
+  return (banded.bands.find((b) => value < b.upTo) ?? last).color
+}
