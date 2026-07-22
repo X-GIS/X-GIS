@@ -310,6 +310,14 @@ export class HillshadeRenderer {
   private urlTemplate = ''
   /** Resolved hillshade paint + DEM decode, set per frame by the orchestrator. */
   private _params: HillshadeParams = { ...DEFAULT_PARAMS }
+  /** The drawing layer's opacity paint (0..1); default 1. Applied in the fragment via
+   *  the raster-frame uniform's raster_params.x (#777 gap — was hardcoded 1). */
+  private _opacity = 1
+  /** Set the layer opacity (resolved from the hillshade show's paintShapes.common.opacity
+   *  by applyHillshadePaint, shared by the native pass + the WebGL2 twin). */
+  setOpacity(o: number): void {
+    if (Number.isFinite(o)) this._opacity = Math.max(0, Math.min(1, o))
+  }
 
   private _hillshadeDraper?: HillshadeDraper
   private ensureHillshadeDraper(): HillshadeDraper {
@@ -533,7 +541,7 @@ export class HillshadeRenderer {
         : rasterGlobeCamAnchor(projCenterLon, projCenterLat)
     const B = rasterBlock()
     writeRasterFrameUniform(B, frame, projType, projCenterLon, projCenterLat, camAnchor, {
-      opacity: 1,
+      opacity: this._opacity,
       hueRotate: 0,
       brightnessMin: 0,
       brightnessMax: 1,

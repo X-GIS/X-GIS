@@ -127,6 +127,8 @@ export interface CoverageUniformInput {
   covEdges: [number, number, number, number] // westLon, southLat, eastLon, northLat
   covGeo: [number, number, number, number] // westLon, northLat, nLon·dLon, nLat·dLat
   ramp: { a: number; b: number }
+  /** Layer opacity paint (0..1) — packed into ramp_params.z, multiplies output alpha. */
+  opacity: number
 }
 export function packCoverageUniforms(u: CoverageUniformInput): Float32Array {
   const out = new Float32Array(COVERAGE_UNIFORM_FLOATS)
@@ -138,6 +140,7 @@ export function packCoverageUniforms(u: CoverageUniformInput): Float32Array {
   out.set(u.covGeo, 28)
   out[32] = u.ramp.a
   out[33] = u.ramp.b
+  out[34] = u.opacity // ramp_params.z
   return out
 }
 

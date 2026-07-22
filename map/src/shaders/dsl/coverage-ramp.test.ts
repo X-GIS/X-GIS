@@ -83,6 +83,14 @@ describe('coverage-ramp dsl emission (projection-general drape)', () => {
     }
   })
 
+  it('the fragment multiplies output alpha by the layer opacity (ramp_params.z)', () => {
+    // Coverage respects the LAYER's opacity paint (#1158) so it can blend over a basemap
+    // (e.g. currents over satellite imagery). alpha = validity · opacity via ramp_params.z.
+    const fsCov = wgsl.match(/fn fs_cov[\s\S]*?\n\}/)?.[0] ?? ''
+    expect(fsCov).toMatch(/ramp_params\.z/)
+    expect(glslFrag).toMatch(/ramp_params/)
+  })
+
   it('the draw count matches the N×N·6 tessellation', () => {
     expect(coverageGridVertexCount()).toBe(COVERAGE_GRID_N * COVERAGE_GRID_N * 6)
   })

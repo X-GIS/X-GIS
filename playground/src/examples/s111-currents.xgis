@@ -9,13 +9,26 @@ xgis 1
 // PLACE (ADR-0010, no `.xgcov` transcode); regenerate the asset with
 // `python playground/scripts/gen-demo-coverage.py`.
 
+// Esri World Imagery satellite basemap (same source the satellite_map demo uses) —
+// the currents draw OVER real imagery for real-world nautical context. CORS `*`, so it
+// works on the hosted static site. {z}/{y}/{x} = the ArcGIS path order.
+source basemap {
+  type: raster
+  url: "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}"
+}
+
 source currents {
   type: coverage
   url: "synthetic-currents.h5"
+}
+
+layer imagery {
+  source: basemap
 }
 
 layer speed {
   source: currents
   ramp: "viridis"
   range: [0, 2]
+  | opacity-70
 }

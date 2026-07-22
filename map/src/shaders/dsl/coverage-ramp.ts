@@ -77,7 +77,7 @@ const U = uniformStruct(
     // u/v denominators: x=westLonEdge, y=northLatEdge, z=nLon·dLon, w=nLat·dLat.
     cov_geo: vec4fT,
     // ramp map t = clamp(a·s' + b): x=a=(dataMax−dataMin)/(rangeHi−rangeLo),
-    // y=b=(dataMin−rangeLo)/(rangeHi−rangeLo); zw reserved.
+    // y=b=(dataMin−rangeLo)/(rangeHi−rangeLo); z=layer opacity (0..1); w reserved.
     ramp_params: vec4fT,
   },
 )
@@ -156,8 +156,10 @@ const fs = fn(
     const sPrime = valueSample.div(w) // nodata never contaminates neighbour values
     const t = clamp(U.field.ramp_params.x.mul(sPrime).add(U.field.ramp_params.y), f32(0), f32(1))
     const rgb = textureSample(texLut.node, lutSampler.node, vec2(t, f32(0.5))).xyz
-    // alpha = w gives the ≤1-texel soft rim at a hole boundary.
-    return CovFragOut.construct({ color: vec4(rgb.x, rgb.y, rgb.z, w) })
+    // alpha = validity·layerOpacity — w gives the ≤1-texel soft rim at a hole boundary,
+    // ramp_params.z applies the LAYER's opacity paint (#1158; lets a coverage blend over a
+    // basemap, e.g. currents over satellite imagery). Default opacity 1 = unchanged.
+    return CovFragOut.construct({ color: vec4(rgb.x, rgb.y, rgb.z, w.mul(U.field.ramp_params.z)) })
   },
   { stage: 'fragment' },
 )

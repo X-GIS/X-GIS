@@ -3491,17 +3491,17 @@ export class XGISMap {
         continue
       }
 
-      // S-100 gridded-coverage source (#1158 GAP-1). The CPU-resident CoverageHandle
-      // is the value-readout authority (getCoverage(...).valueAt); narrow the marker
-      // here so it never falls through to the feature paths below. The drawing LAYER
-      // carries ramp/range paint on its ShowCommand (#1158 INC-D, raster-color analogue)
-      // — read it off `show`, not the data-only source marker; default viridis / data
-      // range. The opaque pass dispatches it right after the raster basemap (flat arm).
+      // S-100 gridded-coverage source (#1158 GAP-1). The CoverageHandle is the value
+      // authority (getCoverage(...).valueAt); narrow the marker so it never falls to the
+      // feature paths. The drawing LAYER carries ramp/range/opacity paint on its
+      // ShowCommand (#1158 INC-D, raster-color analogue) — read off `show`, not the
+      // data-only marker. Opaque pass dispatches it after the raster basemap (flat arm).
       if ('_coverage' in data) {
         this.coverageRenderer.setCoverage(data._coverage, {
           ramp: show.ramp ?? 'viridis',
           rangeLo: show.range?.[0],
           rangeHi: show.range?.[1],
+          opacity: show.opacity ?? 1,
         })
         continue
       }
@@ -4562,14 +4562,14 @@ export class XGISMap {
     }
     const handle = await readCoverage(bytes)
     this.rawDatasets.set(sourceId, { _coverage: handle })
-    // ramp/range are LAYER paint (#1158 INC-D) — an imperative swap keeps the drawing
-    // layer's current display (the renderer's armed opts) unless the caller overrides
-    // it here; a later rebuild re-arms from the layer. (A host push lands after it.)
+    // ramp/range/opacity are LAYER paint (#1158 INC-D) — an imperative swap keeps the
+    // renderer's armed display unless the caller overrides; a later rebuild re-arms.
     const cur = this.coverageRenderer.displayOpts()
     this.coverageRenderer.setCoverage(handle, {
       ramp: opts?.ramp ?? cur.ramp,
       rangeLo: opts?.range?.[0] ?? cur.rangeLo,
       rangeHi: opts?.range?.[1] ?? cur.rangeHi,
+      opacity: cur.opacity,
     })
     this.invalidate()
   }

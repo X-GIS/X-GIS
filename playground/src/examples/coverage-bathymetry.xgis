@@ -9,13 +9,26 @@ xgis 1
 // INC-A gate-3 (headed) item; `map.getCoverage('bathy').valueAt(lon, lat)` already
 // returns the exact positive-down value CPU-side.
 
+// Esri World Imagery satellite basemap (same source the satellite_map demo uses) — the
+// bathymetry draws OVER real imagery for real-world context. CORS `*`, so it works on the
+// hosted static site. {z}/{y}/{x} = the ArcGIS path order.
+source basemap {
+  type: raster
+  url: "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}"
+}
+
 source bathy {
   type: coverage
   url: "synthetic-bathymetry.h5"
+}
+
+layer imagery {
+  source: basemap
 }
 
 layer depth {
   source: bathy
   ramp: "bathymetry"
   range: [0, 40]
+  | opacity-75
 }
