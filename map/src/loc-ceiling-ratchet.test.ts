@@ -731,7 +731,14 @@ const CEILINGS: Record<string, number> = {
   // instead of snapping, and a fading tile now also draws its cached direct CHILDREN
   // beneath it (findCachedChildren) so the departing higher-detail tiles are retained
   // until the parent is opaque (cross-fade sharp→native, no pop). +55, post-hook.
-  'map/src/render/raster-renderer.ts': 977,
+  // 977→990 (non-Mercator raster-jitter fix): rasterFrameCamAnchor — the single-
+  // authority DSFUN camera anchor shared by RasterRenderer (render +
+  // renderRhiChecker) AND HillshadeRenderer (both drive the shared vs_tile) — packs
+  // per-projType lanes (Mercator 2D centre / flat non-Merc clon+camProj0 / globe
+  // ECEF) so the flat non-Mercator arm subtracts the camera in df64 and stops
+  // shaking at z18+. +13 post-hook; a free function (single authority, not three
+  // duplicated inline branches).
+  'map/src/render/raster-renderer.ts': 990,
   // 889→906 (#1155 F3): cold-start burst enqueue cap — the `_coldStartBurst`
   // field + `setColdStartBurst` + the burst-selected 8/4 cap in enqueue().
   // 906→910 (#1155 F3 adjudication): the burst 8/4 pair now comes from the
@@ -749,7 +756,11 @@ const CEILINGS: Record<string, number> = {
   // + a root-cause note; the prettier pre-commit hook then wrapped the now-longer
   // smoothstep call across lines. +9 measured post-hook (`git show HEAD: | wc -l`, §12),
   // correcting the pre-hook 829 the fix first landed with. Irreducible in an existing branch.
-  'map/src/shaders/dsl/projections.ts': 835,
+  // 835→841 (non-Mercator raster-jitter fix): project_geom is exported as an
+  // externFn (+ its rationale note) so raster arm 2 can call the world-copy-aware
+  // vertex projection directly and subtract a df64 camera term itself (flat_rel
+  // does that subtract in f32, which cancels and shakes). +6, irreducible.
+  'map/src/shaders/dsl/projections.ts': 841,
   // #1005 — carried from the runtime arch-invariants Gate 3 (re-measured
   // 2026-07-13; lower.ts had shrunk 1452→1409, the tighter value carried).
   // 1790→1546 (INC-0 extract): the conforming red-green subdivision cluster

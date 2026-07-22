@@ -57,7 +57,7 @@ import { rasterColorAdjust } from './raster-color'
 import { apply_log_depth, compute_log_frag_depth } from './log-depth'
 import {
   project,
-  flat_rel,
+  project_geom,
   needs_backface_cull,
   rim_alpha,
   PROJECTION_CONSTS,
@@ -82,9 +82,18 @@ const U = uniformStruct(
     raster_color1: vec4fT,
     // Camera-relative RTC anchor, DSFUN hi/lo (the raster analogue of polygon's
     // cam_ecef_off_h/l and line's cam_h/cam_l). cam_ecef_center is the HIGH f32
-    // half, cam_ecef_center_l the LOW half, of the camera anchor the VS subtracts:
+    // half, cam_ecef_center_l the LOW half. Its LANES are per-arm (each arm reads
+    // only its own; the renderer packs to match projType):
     //   • flat Mercator (projType 0): .xy = the 2D Mercator camera centre
     //     [centerX, centerY]; the flat arm forms rel = (p2d − hi.xy) − lo.xy.
+    //   • flat non-Mercator (projType 1-6): .x = the camera longitude clon (deg);
+    //     .yz = the camera's projected 2D centre in the clon = 0 recentred frame
+    //     (projectCpu(projType, 0, clat) — [0, clat·… equirect / natural_earth; 0
+    //     for the azimuthal/oblique arms]). The flat arm forms d_lon = (abs_lon −
+    //     clon_hi) − clon_lo, projects via project_geom recentred on clon = 0, and
+    //     subtracts (.yz hi) + (.yz lo). Was a SINGLE-f32 clon/clat in
+    //     proj_params.y/z that quantised the camera to ~1.7 m and shook every
+    //     non-Mercator projection at z18+.
     //   • globe / 3D (projType 7): .xyz = the WGS84 ELLIPSOID camera ECEF
     //     (rasterGlobeCamAnchor); the ECEF arm forms (ecef − hi) − lo.
     // The single f32 anchor this REPLACED quantised the camera to an ~0.76 m grid
@@ -293,12 +302,11 @@ const vs = fn(
 
     // Display projection (projection-display-layer-restore): flat Mercator
     // (proj_params.x < 0.5) reprojects the reconstructed lon/lat onto the 2D
-    // plane and feeds the flat Mercator-metre MVP; 3D / globe keeps the ECEF
-    // path. For the flat path the renderer writes the 2D camera centre
-    // (Mercator metres) into cam_ecef_center.xy — those ECEF lanes are dead
-    // there. u.mvp is the matching matrix (Camera.getViewForProjection). f32
-    // reprojection ≈ 1 m at extreme zoom (P1), sub-pixel for texture-grade
-    // raster.
+    // plane and feeds the flat Mercator-metre MVP; flat non-Mercator (< 6.5)
+    // reprojects via project_geom on the flat MVP; 3D / globe keeps the ECEF
+    // path. Each arm subtracts its own DSFUN camera anchor out of
+    // cam_ecef_center / cam_ecef_center_l (per-arm lanes — see the struct field
+    // comment). u.mvp is the matching matrix (Camera.getViewForProjection).
     const clip = when(
       [
         [
@@ -316,12 +324,40 @@ const vs = fn(
         [
           projParams.x.lt(6.5),
           () => {
-            // FLAT non-Mercator (1-6): reproject the reconstructed lon/lat via
-            // project_geom (world-copy aware; tileRefLon = tile-centre lon from the
-            // tile bounds) minus the camera's projected centre (in-shader from
-            // proj_params.y/z = clon/clat). Same flat MVP; cam_ecef_center unused here.
-            const tileRefLon = bounds.x.add(bounds.z).mul(0.5)
-            const relG = flat_rel(lon, latDeg, projParams, tileRefLon)
+            // FLAT non-Mercator (1-6) — DSFUN camera recentre (the z18+ raster
+            // shake in every non-Mercator projection). The old arm called
+            // flat_rel(abs_lon, …, proj_params, …), whose camera term reprojects
+            // the SINGLE-f32 clon/clat (proj_params.y/z): at clon ≈ 127° one f32
+            // ULP ≈ 1.5e-5° ≈ 1.7 m, so as the camera panned that rounding walked
+            // the f32 grid frame-to-frame and the whole tile sheet SHOOK (≈2.8 px
+            // at z18, ≈17 px at z20.55) — Mercator (arm above) and globe (arm
+            // below) already ship the DSFUN anchor, this arm was the gap.
+            //
+            // Mirror line.ts finalize_corner / polygon.ts: feed project_geom the
+            // camera-relative longitude d_lon = (abs_lon − clon_hi) − clon_lo
+            // (Sterbenz-exact then narrow, from the DSFUN clon in cam_ecef_center.x
+            // / cam_ecef_center_l.x) and recentre the projection onto clon = 0
+            // (proj_params.y → 0, ref_lon → tile_ref_lon − clon). project_geom /
+            // project depend ONLY on (lon − clon), so this is exact in real
+            // arithmetic — it deletes the radians(abs_lon) − radians(clon) f32
+            // cancellation. The camera's projected 2D centre (in the clon = 0
+            // frame) rides cam_ecef_center.yz (hi) / cam_ecef_center_l.yz (lo) as
+            // a df64 pair the renderer packs from projectCpu(projType, 0, clat) —
+            // subtracting it in df64 (not flat_rel's in-shader f32 project(clon,
+            // clat)) makes the SEPARABLE projections (equirect / natural_earth,
+            // whose y is a pure clat term) rock-steady in BOTH axes. The
+            // non-separable arms (ortho / azimuthal / stereographic / oblique,
+            // whose y couples clat through a sphere rotation) keep camProj0 = 0
+            // and are fixed on the dominant longitude axis; their residual
+            // latitude wobble is sub-pixel at the whole-earth zoom (≤1.5) those
+            // projections frame by default.
+            const clonHi = camEcef.x
+            const clonLo = camEcefL.x
+            const dLon = lon.sub(clonHi).sub(clonLo)
+            const projParamsRel = vec4(projParams.x, f32(0), projParams.z, projParams.w)
+            const tileRefLon = bounds.x.add(bounds.z).mul(0.5).sub(clonHi)
+            const pv = project_geom(dLon, latDeg, projParamsRel, tileRefLon)
+            const relG = pv.sub(vec2(camEcef.y, camEcef.z)).sub(vec2(camEcefL.y, camEcefL.z))
             return transformMat4(U.field.mvp, vec4(relG.x, relG.y, 0, 1))
           },
         ],
