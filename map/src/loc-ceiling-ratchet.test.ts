@@ -792,8 +792,14 @@ const CEILINGS: Record<string, number> = {
   // unchanged there — shrink-only.)
   // 1432→1433 (#1302): arrow-layer plumbing (isArrow + arrowBearing local decl,
   // acc read-back, node literal). 1433→1438 (merge union with #1305 symbol-fade
-  // lowering). Still ≤ the arch-invariants ceiling of 1452.
-  'compiler/src/ir/lower.ts': 1438,
+  // lowering).
+  // 1438→1452 (#1272 E-②): presets carry coverage paint (`ramp:`/`range:`) — the
+  // PresetDef type + presetMap value change + the resolveCoveragePaint call in
+  // lowerLayer. The merge LOGIC itself is extracted to ir/lower-coverage-paint.ts
+  // (extract-don't-grow); only the threading lands here. Now EQUALS the
+  // arch-invariants second-authority ceiling (1452, unchanged there — in sync).
+  // Measured after prettier: wc -l = 1452.
+  'compiler/src/ir/lower.ts': 1452,
   // #777 I-B icon-keep-upright + I-F icon value-forms (merged) grow three
   // symbol-lowering god-files (per-row justification in
   // architecture-invariants.test.ts, the second authority):

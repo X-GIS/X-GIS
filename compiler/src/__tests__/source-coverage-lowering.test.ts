@@ -98,3 +98,67 @@ describe('coverage LAYER ramp/range lowering (INC-D)', () => {
     ).toThrow(/range[\s\S]*two-number/i)
   })
 })
+
+describe('coverage paint via a `style:` preset (#1272 E-②)', () => {
+  it('a style:-referenced preset supplies ramp + range to a coverage layer', () => {
+    const scene = compile(`
+      preset s111_currents {
+        ramp: "s111-speed"
+        range: [0, 13]
+      }
+      source currents { type: coverage, url: "cbofs.h5" }
+      layer speed { source: currents, style: s111_currents }
+    `)
+    const node = scene.renderNodes.find((n) => n.name === 'speed')!
+    expect(node.ramp).toBe('s111-speed')
+    expect(node.range).toEqual([0, 13])
+  })
+
+  it("the layer's own ramp/range OVERRIDE the preset's (layer wins)", () => {
+    const scene = compile(`
+      preset s111_currents {
+        ramp: "s111-speed"
+        range: [0, 13]
+      }
+      source currents { type: coverage, url: "cbofs.h5" }
+      layer speed { source: currents, style: s111_currents, ramp: "viridis", range: [0, 2] }
+    `)
+    const node = scene.renderNodes.find((n) => n.name === 'speed')!
+    expect(node.ramp).toBe('viridis')
+    expect(node.range).toEqual([0, 2])
+  })
+
+  it('the preset can supply ONLY the ramp — the layer keeps its own range', () => {
+    const scene = compile(`
+      preset just_ramp { ramp: "s111-speed" }
+      source currents { type: coverage, url: "cbofs.h5" }
+      layer speed { source: currents, style: just_ramp, range: [0, 5] }
+    `)
+    const node = scene.renderNodes.find((n) => n.name === 'speed')!
+    expect(node.ramp).toBe('s111-speed') // from the preset
+    expect(node.range).toEqual([0, 5]) // the layer's own
+  })
+
+  it('a malformed range in the preset throws, naming the preset + layer', () => {
+    expect(() =>
+      compile(`
+        preset bad { range: [0, 13, 20] }
+        source cov { type: coverage, url: "x.h5" }
+        layer c { source: cov, style: bad }
+      `),
+    ).toThrow(/preset "bad"[\s\S]*range[\s\S]*two-number/i)
+  })
+
+  it('a preset mixing paint AND a utility line lowers both without error', () => {
+    // The preset carrying ramp/range must NOT regress the utility-inlining path:
+    // both the block-property paint and the `|` line coexist in one preset.
+    const scene = compile(`
+      preset styled { ramp: "s111-speed" range: [0, 13] | opacity-70 }
+      source currents { type: coverage, url: "cbofs.h5" }
+      layer speed { source: currents, style: styled }
+    `)
+    const node = scene.renderNodes.find((n) => n.name === 'speed')!
+    expect(node.ramp).toBe('s111-speed')
+    expect(node.range).toEqual([0, 13])
+  })
+})

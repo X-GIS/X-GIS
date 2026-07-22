@@ -1,0 +1,17 @@
+xgis 1
+
+// Official IHO S-111 2.0.0 surface-current PORTRAYAL, packaged as an importable preset.
+// Verbatim from the 111_Portrayal_Catalogue_2.0.0 — the `s111-speed` banded speed palette
+// (SurfaceCurrentSpeedBand1..9, 0-13 kn, Day). Import it and apply to any coverage layer:
+//
+//   import { s111_currents } from "libs/s111-portrayal.xgis"
+//   layer speed { source: currents; style: s111_currents }
+//
+// A layer's own `ramp:`/`range:` override the preset, so a demo can retune the window
+// without editing this file. Keep the official values here so every S-111 demo shares one
+// authority for the portrayal (the palette itself lives in map/src/color-ramp.ts).
+
+preset s111_currents {
+  ramp: "s111-speed"
+  range: [0, 13]
+}
