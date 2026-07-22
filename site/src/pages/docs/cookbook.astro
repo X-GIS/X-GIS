@@ -343,6 +343,32 @@ layer my_pois {
   },
 
   {
+    slug: 'extract-mapbox-subset',
+    title: 'Keep only SOME layers of an OFM / Mapbox style',
+    body: 'A splice `import "url"` pulls EVERY layer of a style. To keep just a few — with their ORIGINAL cartography — add a `keep (...)` clause: it filters the imported layers by `source-layer`, the dimension you actually think in ("roads" = `transportation`, "place names" = `place`). Layers can\'t be cherry-picked by name (`import { x } from` selects source / preset / symbol blocks only), so `keep` is how a Mapbox/OFM base contributes only some of its layers. Every non-layer statement (sources, background) still splices, so the kept layers stay wired — you get OFM\'s exact colors, casing, zoom-dependent widths, and filters, not a hand-rewrite.',
+    code: `xgis 1
+
+// OFM Bright, but keep ONLY these source-layers — with their ORIGINAL styling.
+// keep() splices the chosen layers as the base; your own layers draw on top.
+import "https://tiles.openfreemap.org/styles/bright"
+  keep (water, waterway, transportation, transportation_name, place)
+
+// your own data, layered on top of the kept OFM layers
+source pois { type: geojson, url: "pois.geojson" }
+layer my_pois {
+  source: pois
+  | fill-rose-500 fill-opacity-80
+  | label-[.name] label-color-#fff label-halo-1 label-halo-color-#000
+}`,
+    notes: [
+      '`keep (a, b, ...)` takes bare or quoted source-layer names (OpenMapTiles: transportation / transportation_name / place / water / boundary / building / poi). A layer survives iff its `source-layer` is listed; all the sublayers on it (road casings, bridges, tunnels) come along with their real styling.',
+      'Imported statements splice as the BASE (they are prepended), so your own root layers draw ON TOP of the kept OFM layers — the order you want for highlighting your data over a trimmed basemap.',
+      'For a raster satellite UNDERNEATH the OFM layers, inject the raster at the bottom of the style JSON in JS instead — `style.layers.unshift({ id: "imagery", type: "raster", source })` then `map.run(convertMapboxStyle(style))` — because `.xgis` imports always prepend, so a root raster layer would sit on top rather than under.',
+      'Labels need glyphs: pass the style\'s own `glyphs` URL via `new XGISMap(el, { glyphs: { url } })`.',
+    ],
+  },
+
+  {
     slug: 'multiline-and-fontstack',
     title: 'Multiline labels + font-stack fallback',
     body: '`label-max-width-<em>` triggers greedy word-break wrapping; `label-line-height-<N>` and `label-justify-<a>` control spacing and alignment within the wrapped block. Multiple `label-font-<name>` utilities stack into a CSS font-fallback chain — the browser walks it glyph-by-glyph, so a Latin font + CJK font pair covers mixed-script labels without per-glyph resolution.',

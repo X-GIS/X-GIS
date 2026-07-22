@@ -96,6 +96,26 @@ function isCherryPick(stmt: AST.ImportStatement): boolean {
   return stmt.names.length > 0 && stmt.namespace === undefined
 }
 
+/** Apply a splice import's `keep (a, b, ...)` clause. Every NON-layer
+ *  statement (sources, background, presets — everything the layers wire to)
+ *  passes through untouched; a LAYER statement survives only if its
+ *  `sourceLayer` property is one of the kept names. This is what lets
+ *  `import "…/bright" keep (transportation, place)` contribute just those
+ *  layers of an OFM/Mapbox style, with their original paint/filters intact.
+ *  A layer with no `sourceLayer` (e.g. a raster layer) is dropped by keep —
+ *  keep selects by source-layer, so a layer without one matches nothing. */
+function filterLayersBySourceLayer(
+  statements: AST.Statement[],
+  keepSourceLayers: string[],
+): AST.Statement[] {
+  const keep = new Set(keepSourceLayers)
+  return statements.filter((s) => {
+    if (s.kind !== 'LayerStatement') return true
+    const sl = s.properties.find((p) => p.name === 'sourceLayer')
+    return sl !== undefined && sl.value.kind === 'StringLiteral' && keep.has(sl.value.value)
+  })
+}
+
 /**
  * Resolve all imports in a program, merging imported symbols.
  * Returns a new program with imported statements prepended (dependency order:
@@ -120,7 +140,16 @@ export function resolveImports(
     if (isCherryPick(stmt)) {
       cherryPickSync(filePath, stmt.names, ENTRY, stmt.line, readFile, state)
     } else {
-      resolveFileSync(filePath, stmt.namespace, ENTRY, stmt.line, [], readFile, state)
+      resolveFileSync(
+        filePath,
+        stmt.namespace,
+        ENTRY,
+        stmt.line,
+        [],
+        readFile,
+        state,
+        stmt.keepSourceLayers,
+      )
     }
   }
 
@@ -139,6 +168,7 @@ function resolveFileSync(
   stack: string[],
   readFile: FileReader,
   state: ResolveState,
+  keepSourceLayers?: string[],
 ): void {
   // Cycle check runs BEFORE the memo: a file currently on the stack is also in
   // `resolved` (added on entry below), so checking the memo first would silently
@@ -164,7 +194,8 @@ function resolveFileSync(
   }
 
   const own = moduleAst.body.filter((s) => s.kind !== 'ImportStatement')
-  spliceStatements(own, filePath, namespace, state)
+  const kept = keepSourceLayers ? filterLayersBySourceLayer(own, keepSourceLayers) : own
+  spliceStatements(kept, filePath, namespace, state)
 }
 
 /** Cherry-pick import (`import { a, b } from "..."`): flat, non-recursive, name-
@@ -220,7 +251,16 @@ export async function resolveImportsAsync(
     if (isCherryPick(stmt)) {
       await cherryPickAsync(filePath, stmt.names, ENTRY, stmt.line, readFile, state)
     } else {
-      await resolveFileAsync(filePath, stmt.namespace, ENTRY, stmt.line, [], readFile, state)
+      await resolveFileAsync(
+        filePath,
+        stmt.namespace,
+        ENTRY,
+        stmt.line,
+        [],
+        readFile,
+        state,
+        stmt.keepSourceLayers,
+      )
     }
   }
 
@@ -236,6 +276,7 @@ async function resolveFileAsync(
   stack: string[],
   readFile: AsyncFileReader,
   state: ResolveState,
+  keepSourceLayers?: string[],
 ): Promise<void> {
   if (stack.includes(filePath)) throw cycleError([...stack, filePath])
   if (state.resolved.has(filePath)) return
@@ -266,7 +307,8 @@ async function resolveFileAsync(
   }
 
   const own = moduleAst.body.filter((s) => s.kind !== 'ImportStatement')
-  spliceStatements(own, filePath, namespace, state)
+  const kept = keepSourceLayers ? filterLayersBySourceLayer(own, keepSourceLayers) : own
+  spliceStatements(kept, filePath, namespace, state)
 }
 
 async function cherryPickAsync(
