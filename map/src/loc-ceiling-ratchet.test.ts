@@ -697,7 +697,10 @@ const CEILINGS: Record<string, number> = {
   // wraps its long-value literal multi-line) + the sqrt/inverseSqrt/normalize
   // imports. All irreducible — the ellipsoid forward IS the increment (§2, no
   // extract-worthy unit). Lower when the GPU re-targets emitModule (SCOPE, above).
-  'map/src/shaders/dsl/projections.ts': 826,
+  // 826→829: the globe rim_alpha band now scales with (1−globe_eye.w) so a fixed 0.02
+  // cosine band can't swallow the whole view at high zoom (raster zoom-in darkening fix)
+  // + a 3-line root-cause note. Irreducible one-liner in an existing branch.
+  'map/src/shaders/dsl/projections.ts': 829,
   // #1005 — carried from the runtime arch-invariants Gate 3 (re-measured
   // 2026-07-13; lower.ts had shrunk 1452→1409, the tighter value carried).
   // 1790→1546 (INC-0 extract): the conforming red-green subdivision cluster

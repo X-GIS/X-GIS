@@ -1,4 +1,4 @@
-// baseline: 3c0a8683e074a423e330a7060e4e4bea5eaa84e0
+// baseline: 8721e2935955ec11239fa551c2f8e6e24c0215b7
 // fixture: syn-featdata
 // variant.key: syn-featdata
 // pick: false
@@ -288,7 +288,7 @@ fn rim_alpha(lon_deg: f32, lat_deg: f32, proj_params: vec4<f32>, globe_eye: vec4
       return 1.0;
     }
     if ((globe_eye.w > 0.0)) {
-      return smoothstep(0.0, 0.02, globe_eye_horizon_cos(lon_deg, lat_deg, globe_eye));
+      return smoothstep(0.0, (0.02 * (1.0 - globe_eye.w)), globe_eye_horizon_cos(lon_deg, lat_deg, globe_eye));
     }
     return _cse0;
   }
