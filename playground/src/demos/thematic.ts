@@ -168,14 +168,15 @@ export const DEMOS_THEMATIC: Record<string, Demo> = {
   },
 
   s111_live: {
-    name: 'NOAA S-111 Live Currents — real S3 stream (#1272)',
+    name: 'NOAA S-111 Live Currents — real S3 stream, viewport mosaic (#1272)',
     tag: 'thematic',
     description:
-      'LIVE, REAL NOAA S-111 currents — streams the newest CBOFS (Chesapeake Bay) forecast cell straight from the NOAA Open-Data S3 bucket (noaa-s111-pds), read as the S-100 HDF5 standard IN PLACE (ADR-0010, no transcode). The NOAA bucket has no CORS, so the browser reaches it through the vite `/noaa-s111` dev proxy (a CORS-open proxy in prod); `latest.h5` resolves the newest published cycle so the demo never rots. Speed draws through the viridis ramp (0-2 kn) over Esri satellite imagery; the runner drifts particles along the real direction band. Needs network egress + the proxy; falls back to imagery only if the cell can not be reached.',
+      'LIVE, REAL NOAA S-111 currents — streams real forecast cells straight from the NOAA Open-Data S3 bucket (noaa-s111-pds), read as the S-100 HDF5 standard IN PLACE (ADR-0010, no transcode). The NOAA bucket has no CORS, so the browser reaches it through the vite `/noaa-s111` dev proxy (a CORS-open Cloudflare Worker in prod); `latest.h5` resolves the newest published cycle so the demo never rots. Speed draws through the OFFICIAL IHO S-111 speed-band palette (s111-speed, 0-13 kn) over Esri satellite imagery; the runner drifts particles + arrows along the real direction band. VIEWPORT MOSAIC: pan across the U.S. coast and the currents follow — on each move-end the demo swaps to the NOAA regional model covering the view (Chesapeake cbofs → San Francisco sfbofs → Gulf of Maine gomofs → …), an LRU keeping recent cells so panning back is instant. Needs network egress + the proxy; falls back to imagery only if a cell can not be reached.',
     source: load('s111-live.xgis'),
     zoom: 7.4,
     center: [-76.1, 37.9],
     currents: true,
+    mosaic: true,
   },
 
   coops_currents: {

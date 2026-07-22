@@ -112,6 +112,40 @@ describe('installS111Mosaic (#1272 E-④)', () => {
     expect(f.fetched).toEqual(['cbofs', 'sfbofs', 'cbofs'])
   })
 
+  it('fires onSwap with the model key after each successful swap (overlay re-arm hook)', async () => {
+    const f = countingFetch()
+    const m = makeMap(CHESAPEAKE)
+    const swaps: string[] = []
+    installS111Mosaic(m.map, { sourceId: 'currents', fetch: f.fetch, onSwap: (k) => swaps.push(k) })
+    await flush()
+    m.pan(SF_BAY)
+    await flush()
+    expect(swaps).toEqual(['cbofs', 'sfbofs'])
+  })
+
+  it('survives a failed fetch — keeps the current cell, retries on the next pan', async () => {
+    let failNext = true
+    const failing = (async (url: string) => {
+      const key = /latest\/(\w+)\.h5/.exec(url)![1]!
+      if (key === 'sfbofs' && failNext) {
+        failNext = false
+        return new Response('', { status: 502 })
+      }
+      return new Response(new TextEncoder().encode(key), { status: 200 })
+    }) as unknown as typeof globalThis.fetch
+    const m = makeMap(CHESAPEAKE)
+    const h = installS111Mosaic(m.map, { sourceId: 'currents', fetch: failing })
+    await flush()
+    m.pan(SF_BAY) // sfbofs fetch 502s → revert, no swap, no throw
+    await flush()
+    expect(h.current()).toBe('cbofs')
+    expect(m.armed).toEqual(['cbofs'])
+    m.pan(SF_BAY) // retry — succeeds this time
+    await flush()
+    expect(h.current()).toBe('sfbofs')
+    expect(m.armed).toEqual(['cbofs', 'sfbofs'])
+  })
+
   it('remove() detaches the move-end listener', async () => {
     const f = countingFetch()
     const m = makeMap(CHESAPEAKE)

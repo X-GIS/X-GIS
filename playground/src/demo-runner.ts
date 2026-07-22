@@ -16,6 +16,8 @@ import twinCorpusRaw from '@xgis/compiler/builder/twin-corpus?raw'
 // executes — imported once for exec, once as ?raw for display (single authority).
 import { installCoopsCurrents } from './examples/coops-currents.recipe'
 import coopsRecipeRaw from './examples/coops-currents.recipe?raw'
+import { installS111Mosaic, type S111MosaicHandle } from './examples/s111-mosaic'
+import { NOAA_PROXY_BASE } from './demos/loader'
 import { DEMOS } from './demos'
 import { extractMapboxProjectionName, extractMapboxLight } from './mapbox-projection'
 import {
@@ -1510,6 +1512,31 @@ function teardownCurrentsArrows(): void {
   currentsArrowsCleanup?.()
 }
 
+// ── NOAA S-111 viewport mosaic (#1272 E-④) ───────────────────────────
+// Activated by demos with `mosaic: true`. Installs installS111Mosaic on the `currents`
+// source: each move-end swaps the coverage to the NOAA regional model covering the view,
+// and the onSwap re-snapshots the arrow + particle overlays for the new cell (they read
+// the coverage once). The selection + LRU logic is unit-tested in s111-mosaic.ts.
+let currentsMosaicHandle: S111MosaicHandle | null = null
+
+function setupCurrentsMosaic(map: InstanceType<typeof XGISMap>): void {
+  teardownCurrentsMosaic()
+  currentsMosaicHandle = installS111Mosaic(map, {
+    sourceId: 'currents',
+    proxyBase: NOAA_PROXY_BASE,
+    onSwap: () => {
+      // The swapped-in cell is a new region — re-snapshot the direction overlays off it.
+      setupCurrentsArrows(map)
+      setupCurrentsOverlay(map)
+    },
+  })
+}
+
+function teardownCurrentsMosaic(): void {
+  currentsMosaicHandle?.remove()
+  currentsMosaicHandle = null
+}
+
 // ── NOAA CO-OPS live tidal-currents overlay (#1272) ──────────────────
 // Activated by demos with `coops: true`. The integration itself lives in
 // ./examples/coops-currents.recipe.ts (shown verbatim in the JS tab): it fetches
@@ -1941,9 +1968,13 @@ async function loadDemo(idx: number) {
   if (currentMap && demo.currents) {
     setupCurrentsArrows(currentMap)
     setupCurrentsOverlay(currentMap)
+    // #1272 E-④ — viewport mosaic: swap the covering regional model on pan.
+    if (demo.mosaic) setupCurrentsMosaic(currentMap)
+    else teardownCurrentsMosaic()
   } else {
     teardownCurrentsArrows()
     teardownCurrentsOverlay()
+    teardownCurrentsMosaic()
   }
 
   // NOAA CO-OPS live-currents demos (#1272): browser-direct station arrows.
