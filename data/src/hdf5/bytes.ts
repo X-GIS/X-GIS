@@ -78,7 +78,12 @@ export class Cursor {
   L = 8
   private readonly blocks = new Map<number, Uint8Array>()
 
-  constructor(readonly reader: ByteReader) {}
+  /** `block` = fault-in granularity (default 256 KB). A smaller block trades more range
+   *  requests for less over-fetch on a sparse read; exposed for tuning + tests. */
+  constructor(
+    readonly reader: ByteReader,
+    private readonly block: number = BLOCK,
+  ) {}
 
   get byteLength(): number {
     return this.reader.byteLength
@@ -89,18 +94,21 @@ export class Cursor {
    *  cost nothing). Missing blocks are fetched in ONE coalesced `read` per gap. */
   async ensure(offset: number, length: number): Promise<void> {
     if (length <= 0) return
-    const first = Math.floor(offset / BLOCK)
-    const last = Math.floor((offset + length - 1) / BLOCK)
+    const first = Math.floor(offset / this.block)
+    const last = Math.floor((offset + length - 1) / this.block)
     let runStart = -1
     for (let b = first; b <= last + 1; b++) {
       const missing = b <= last && !this.blocks.has(b)
       if (missing && runStart < 0) runStart = b
       else if (!missing && runStart >= 0) {
-        const start = runStart * BLOCK
-        const end = Math.min(b * BLOCK, this.reader.byteLength)
+        const start = runStart * this.block
+        const end = Math.min(b * this.block, this.reader.byteLength)
         const bytes = await this.reader.read(start, end - start)
         for (let k = runStart; k < b; k++)
-          this.blocks.set(k, bytes.subarray((k - runStart) * BLOCK, (k - runStart + 1) * BLOCK))
+          this.blocks.set(
+            k,
+            bytes.subarray((k - runStart) * this.block, (k - runStart + 1) * this.block),
+          )
         runStart = -1
       }
     }
@@ -127,9 +135,9 @@ export class Cursor {
 
   /** The resident byte at absolute `p` — throws if the block was not `ensure`d. */
   private at(p: number): number {
-    const blk = this.blocks.get(Math.floor(p / BLOCK))
+    const blk = this.blocks.get(Math.floor(p / this.block))
     if (!blk) throw new Hdf5Error(`byte @0x${p.toString(16)} not resident — ensure() first`, p)
-    return blk[p % BLOCK]!
+    return blk[p % this.block]!
   }
 
   /** A little-endian DataView + local offset for a `size`-byte read at `pos`, resident.
@@ -137,8 +145,8 @@ export class Cursor {
    *  straddles a block boundary): assemble the bytes into a small scratch view. */
   private viewAt(size: number): { view: DataView; off: number } {
     const p = this.pos
-    const blkIdx = Math.floor(p / BLOCK)
-    const local = p % BLOCK
+    const blkIdx = Math.floor(p / this.block)
+    const local = p % this.block
     const blk = this.blocks.get(blkIdx)
     if (!blk) throw new Hdf5Error(`read @0x${p.toString(16)} not resident — ensure() first`, p)
     if (local + size <= blk.byteLength)
@@ -227,9 +235,9 @@ export class Cursor {
     let done = 0
     while (done < n) {
       const p = this.pos + done
-      const blk = this.blocks.get(Math.floor(p / BLOCK))
+      const blk = this.blocks.get(Math.floor(p / this.block))
       if (!blk) throw new Hdf5Error(`bytes @0x${p.toString(16)} not resident — ensure() first`, p)
-      const local = p % BLOCK
+      const local = p % this.block
       const take = Math.min(n - done, blk.byteLength - local)
       out.set(blk.subarray(local, local + take), done)
       done += take

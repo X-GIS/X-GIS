@@ -12,8 +12,23 @@ import { walkChunkBtree } from './btree-v1'
 import { decodeChunk } from './filters'
 import type { Datatype } from './datatype'
 
-/** Raw element bytes of a dataset, storage order, one contiguous buffer. */
-export async function readRawElements(c: Cursor, info: DatasetInfo): Promise<Uint8Array> {
+/** A sub-region of a chunked dataset in ELEMENT-index space (row-major, one entry per
+ *  dimension) — `start[d]` + `count[d]`. Passed to `readRawElements` so a chunked read
+ *  fetches ONLY the chunks intersecting the region (ADR-0010 #1284-4 bbox streaming); the
+ *  rest of the returned full-size grid stays fill. Out of range → clamped by the chunk
+ *  intersection test; a region on a contiguous dataset is ignored (the blob reads whole). */
+export interface ChunkRegion {
+  start: number[]
+  count: number[]
+}
+
+/** Raw element bytes of a dataset, storage order, one contiguous buffer. When `region`
+ *  is given (chunked only), only chunks intersecting it are fetched + decoded. */
+export async function readRawElements(
+  c: Cursor,
+  info: DatasetInfo,
+  region?: ChunkRegion,
+): Promise<Uint8Array> {
   const { dims, datatype, layout, fillValue } = info
   const itemSize = datatype.size
   const nElements = dims.reduce((a, b) => a * b, 1)
@@ -42,11 +57,16 @@ export async function readRawElements(c: Cursor, info: DatasetInfo): Promise<Uin
       layout.btreeAddress,
     )
   const records = await walkChunkBtree(c, layout.btreeAddress, dims.length)
+  // bbox streaming (#1284-4): drop chunks that do not intersect the requested region so
+  // only the viewport's chunks are fetched. No region → every chunk (the full grid).
+  const selected = region
+    ? records.filter((rec) => chunkIntersectsRegion(rec.offsets, chunkDims, region))
+    : records
   // row-major strides (elements) for the dataset
   const strides = rowMajorStrides(dims)
   const chunkStrides = rowMajorStrides(chunkDims)
   const chunkElems = chunkDims.reduce((a, b) => a * b, 1)
-  for (const rec of records) {
+  for (const rec of selected) {
     // Fetch ONLY this chunk's bytes (a range reader's selective read; ADR-0010 §4).
     await c.ensure(rec.address, rec.size)
     c.seek(rec.address)
@@ -64,6 +84,25 @@ export async function readRawElements(c: Cursor, info: DatasetInfo): Promise<Uin
     copyChunk(chunkBytes, out, rec.offsets, chunkDims, dims, strides, chunkStrides, itemSize)
   }
   return out
+}
+
+/** True when a chunk (origin `offsets[d]`, extent `chunkDims[d]`) overlaps `region` in
+ *  every dimension — the half-open interval test `origin < regionEnd && chunkEnd > regionStart`.
+ *  A region dimension beyond the chunk rank is ignored (treated as full-span). */
+function chunkIntersectsRegion(
+  offsets: number[],
+  chunkDims: number[],
+  region: ChunkRegion,
+): boolean {
+  for (let d = 0; d < chunkDims.length; d++) {
+    const rStart = region.start[d] ?? 0
+    const rCount = region.count[d]
+    if (rCount === undefined) continue // unconstrained dimension
+    const cStart = offsets[d]!
+    const cEnd = cStart + chunkDims[d]!
+    if (cStart >= rStart + rCount || cEnd <= rStart) return false
+  }
+  return true
 }
 
 function fillBuffer(total: number, itemSize: number, fill: Uint8Array | null): Uint8Array {
