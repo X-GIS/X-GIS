@@ -6,11 +6,10 @@
 // so a camera move rewrites ONLY the frame uniform — the per-instance buffers are
 // packed ONCE at add()/update() and never touched per frame (N-independent).
 //
-// It ALSO hosts the DECLARATIVE `| arrow` layer (#1302): rebuildLayers pre-evaluates
-// each arrow layer's per-feature bearing/size/colour and hands them to
-// addCompiledArrowLayer, which packs the SAME ARROW_RETAINED layout and draws through
-// the SAME retained arrow draper + per-copy uniform. So compiler-fed and host arrows
-// are one draw authority — not a second arrow pipeline.
+// It ALSO hosts the DECLARATIVE `| arrow` layer (#1302): rebuildLayers pre-evaluates each
+// arrow layer's per-feature bearing/size/colour and hands them to addCompiledArrowLayer,
+// which packs the SAME ARROW_RETAINED layout and draws through the SAME arrow draper +
+// per-copy uniform — so compiler-fed and host arrows are ONE draw authority.
 //
 // The CPU registry is DEVICE-FREE and map-lifetime; the GPU atlas mirror + the
 // retained draper + the batch buffers are per-run (re)built after each initGPU
@@ -75,6 +74,17 @@ function instanceCountOf(spec: DrawSpec<unknown>): number {
   return spec.type === 'particle-flow' ? resolveParticleInstanceCount(spec) : spec.data.length
 }
 
+/** SINGLE AUTHORITY — does this retained batch ANIMATE on the per-frame clock (its GPU draw reads
+ *  the animation-clock lane and moves every frame)? Today ONLY particle-flow drifts — a closed-form
+ *  pure function of the clock (design §3.2); icon/arrow/circle/text are packed ONCE and static under
+ *  a fixed camera. BOTH the animation-clock write (`renderRetained`) and the on-demand loop's
+ *  keep-warm gate (`hasAnimatedGraphics`) route through this ONE predicate, so a future clock-driven
+ *  primitive joins the animation contract by editing this line alone — never a second, drifting
+ *  enumeration of the type that the two sites could fall out of sync on. */
+function drawSpecAnimatesPerFrame(spec: DrawSpec<unknown>): boolean {
+  return spec.type === 'particle-flow'
+}
+
 /** A live retained icon batch. The spec is retained so `update()` can re-run its
  *  accessors; the GPU buffers + bind group are null until materialised (a device
  *  exists). */
@@ -89,12 +99,10 @@ interface RetainedIconBatch {
   glyphCounts: Uint32Array | null
 }
 
-/** A DECLARATIVE `| arrow` layer (#1302) — the compiler-driven twin of a host
- *  `map.graphics.add({type:'arrow'})` batch. Its per-feature bearing/size/colour are
- *  pre-evaluated at rebuildLayers time (arrow-show.ts) rather than read from host
- *  accessors, then packed into the SAME ARROW_RETAINED feat/tint layout, so it draws
- *  through the retained arrow draper + shader unchanged. The raw arrays are retained so a
- *  DPR change re-packs feat (size is baked in px), exactly like the host arrow path. */
+/** A DECLARATIVE `| arrow` layer (#1302) — the compiler-driven twin of a host arrow batch;
+ *  per-feature bearing/size/colour pre-evaluated at rebuildLayers time (arrow-show.ts) into
+ *  the SAME ARROW_RETAINED feat/tint layout. Raw arrays retained so a DPR change re-packs
+ *  feat (size is baked in px), exactly like the host arrow path. */
 interface CompiledArrowBatch {
   featBuf: RhiBuffer
   tintBuf: RhiBuffer
@@ -296,12 +304,10 @@ export class GraphicsManager {
     )
   }
 
-  /** Register a DECLARATIVE `| arrow` layer (#1302) — the compiler-driven twin of a host
-   *  `map.graphics.add({type:'arrow'})` batch. Per-feature bearing/size/colour are
-   *  pre-evaluated at rebuildLayers time (arrow-show.ts) into parallel flat arrays; this
-   *  packs them into the SAME ARROW_RETAINED feat/tint layout via the compiled packers, so
-   *  the retained arrow draper + shader draw them unchanged. No device → no-op (rebuildLayers
-   *  runs post-attachDevice, so this normally materialises immediately). */
+  /** Register a DECLARATIVE `| arrow` layer (#1302): pack the pre-evaluated per-feature
+   *  arrays (arrow-show.ts) into the SAME ARROW_RETAINED feat/tint layout via the compiled
+   *  packers, so the retained arrow draper + shader draw them unchanged. No device → no-op
+   *  (rebuildLayers runs post-attachDevice, so this normally materialises immediately). */
   addCompiledArrowLayer(
     lons: Float64Array,
     lats: Float64Array,
@@ -350,6 +356,20 @@ export class GraphicsManager {
       this._retired.push(ca.featBuf, ca.tintBuf)
     }
     this._compiledArrows.length = 0
+  }
+
+  /** True when the graphics layer is mid-animation and needs continuous redraw — a DRAWABLE batch
+   *  that `drawSpecAnimatesPerFrame` (the single animation authority) flags exists. Such a batch's
+   *  GPU draw is a pure function of the animation clock (design §3.0), which `renderRetained`
+   *  advances from `performance.now()` once per RENDERED frame — so without this keep-warm signal
+   *  the on-demand loop idles on a static camera and the motion FREEZES until the next interaction.
+   *  Mirrors `rasterRenderer.hasFadingTiles()`: the same "an overlay is animating" gate the render
+   *  loop ORs into its keep-warm decision. Static batches (all non-animated specs) return false, so
+   *  a map without an animated overlay idles byte-identically. */
+  hasAnimatedGraphics(): boolean {
+    return this.batches.some(
+      (b) => drawSpecAnimatesPerFrame(b.spec) && b.count > 0 && b.bindGroup !== null,
+    )
   }
 
   /** Build (or rebuild) a batch's GPU buffers + cached bind group. No-op until a
@@ -614,8 +634,8 @@ export class GraphicsManager {
     // drawable, so a non-particle frame is byte-identical (y = 0 as before — zero pointU bloat, the
     // §5-Q2 constraint). Pinned by ?animt / __xgisAnimT for the §5 deterministic-probe capture,
     // else the live performance.now(). O(1) in particle count — the only new per-frame cost.
-    const hasParticles = drawable.some((b) => b.spec.type === 'particle-flow')
-    const animT = hasParticles ? (animTimePinnedSeconds() ?? performance.now() / 1000) : 0
+    const hasAnimated = drawable.some((b) => drawSpecAnimatesPerFrame(b.spec))
+    const animT = hasAnimated ? (animTimePinnedSeconds() ?? performance.now() / 1000) : 0
     const perCopy: Float32Array[] = []
     for (let i = 0; i < copies.length; i++) {
       this.frameBlock.set.circle_params(copies[i]! * WORLD_WIDTH, animT, 0, 0)

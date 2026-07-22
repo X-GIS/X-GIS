@@ -326,10 +326,14 @@ const CEILINGS: Record<string, number> = {
   // setup applies, the reduced-motion re-apply, and the shouldRenderThisFrame
   // keep-alive. Wiring only; the per-tile ramp + cross-fade live in the raster
   // renderer. +31, measured post-hook.
-  // 5094→5106 (#1302 declarative arrows): the isArrow fork in rebuildLayers + the
+  // 5094→5099 (particle-flow idle keep-alive): the shouldRenderThisFrame gate ORing
+  // in `_graphics.hasAnimatedGraphics()` so a currents overlay's drift does not freeze
+  // on a static camera. Wiring only; the animation authority lives in graphics-manager.
+  // +5, measured post-hook.
+  // 5099→5111 (#1302 declarative arrows): the isArrow fork in rebuildLayers + the
   // arrow-show import + the clearCompiledArrows call. Wiring only; per-feature eval
   // lives in arrow-show.ts and the draw in graphics-manager. +12, measured post-hook.
-  'map/src/map.ts': 5106,
+  'map/src/map.ts': 5111,
   // Baselined at #1255 (measured 830): the DOM-inspired layer API crossed
   // NEW_FILE_CAP with the paint-transition style-setter integration — the
   // StyleHost.transitions context, the shared applyNumber/applyColor
@@ -472,7 +476,16 @@ const CEILINGS: Record<string, number> = {
   // over the #1177 replay refs/projector — and threads it into stage.prepare +
   // iStage.prepare so a fade-out label/badge reprojects instead of popping mid-
   // zoom. Reuses the existing replay machinery; wiring only here. +29.
-  'map/src/render/passes/label-pass.ts': 2098,
+  // 2098→2130 (#1314 line-label edge-inset cull): the LINE_LABEL_EDGE_INSET_CSS_PX
+  // const + doc, the per-layer lineLabelEdgeInsetPx + anchorInView closure (+doc),
+  // the withinViewportInset import expansion, the four vector-tile along-line
+  // emit-site guards (curved short/spacing conditions, the placeLabelsAlongLine
+  // cull arg, the line-center midpoint gate), AND the inline (raw-GeoJSON) path's
+  // cull closure at the placeInlineLineLabels call — so a near-edge line label is
+  // dropped instead of rendering glued half-off-screen, on BOTH the tile and inline
+  // paths. The predicate + cull-aware walk live in place-labels-along-line.ts
+  // (unit-proved); only wiring grew here. +32, post-hook.
+  'map/src/render/passes/label-pass.ts': 2130,
   // #1081 — per-anchor perspective distance attenuation (MapLibre parity). New
   // baseline: the wCenter + perspScale scratch-out-value lives INLINE in the two
   // existing projector closures (it rides the cw already computed per anchor —
@@ -715,7 +728,20 @@ const CEILINGS: Record<string, number> = {
   // so the raster/hillshade vs_tile subtracts it in df64 (hi then lo) — the tile
   // sheet stopped shaking at over-zoom. Stacked non-overlappingly on the fade-in
   // work (+7), so the merged high-water is the measured 922.
-  'map/src/render/raster-renderer.ts': 922,
+  // 922→977 (#1317 raster zoom-OUT cross-fade): the reverse of #1307 — a tile
+  // RE-ENTERING the target set re-arms its ramp (the `_lastTargetKeys` field + the
+  // entry-based firstShownFrame restamp) so zooming back out to a parent fades in
+  // instead of snapping, and a fading tile now also draws its cached direct CHILDREN
+  // beneath it (findCachedChildren) so the departing higher-detail tiles are retained
+  // until the parent is opaque (cross-fade sharp→native, no pop). +55, post-hook.
+  // 977→990 (non-Mercator raster-jitter fix): rasterFrameCamAnchor — the single-
+  // authority DSFUN camera anchor shared by RasterRenderer (render +
+  // renderRhiChecker) AND HillshadeRenderer (both drive the shared vs_tile) — packs
+  // per-projType lanes (Mercator 2D centre / flat non-Merc clon+camProj0 / globe
+  // ECEF) so the flat non-Mercator arm subtracts the camera in df64 and stops
+  // shaking at z18+. +13 post-hook; a free function (single authority, not three
+  // duplicated inline branches).
+  'map/src/render/raster-renderer.ts': 990,
   // 889→906 (#1155 F3): cold-start burst enqueue cap — the `_coldStartBurst`
   // field + `setColdStartBurst` + the burst-selected 8/4 cap in enqueue().
   // 906→910 (#1155 F3 adjudication): the burst 8/4 pair now comes from the
@@ -733,7 +759,11 @@ const CEILINGS: Record<string, number> = {
   // + a root-cause note; the prettier pre-commit hook then wrapped the now-longer
   // smoothstep call across lines. +9 measured post-hook (`git show HEAD: | wc -l`, §12),
   // correcting the pre-hook 829 the fix first landed with. Irreducible in an existing branch.
-  'map/src/shaders/dsl/projections.ts': 835,
+  // 835→841 (non-Mercator raster-jitter fix): project_geom is exported as an
+  // externFn (+ its rationale note) so raster arm 2 can call the world-copy-aware
+  // vertex projection directly and subtract a df64 camera term itself (flat_rel
+  // does that subtract in f32, which cancels and shakes). +6, irreducible.
+  'map/src/shaders/dsl/projections.ts': 841,
   // #1005 — carried from the runtime arch-invariants Gate 3 (re-measured
   // 2026-07-13; lower.ts had shrunk 1452→1409, the tighter value carried).
   // 1790→1546 (INC-0 extract): the conforming red-green subdivision cluster

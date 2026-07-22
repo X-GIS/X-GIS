@@ -427,6 +427,12 @@ const INV_MERC_PARAMS = { merc_y_m: f32T }
 // shadows its real fn() definition inside buildProjectionArtifacts — benign: an extern call
 // and the real handle's call both emit the same callFn-by-name node.
 export const project = externFn('project', LLP_PARAMS, vec2fT)
+// project_geom — the world-copy-aware vertex projection (NO camera subtraction).
+// flat_rel = project_geom(vertex) − project(camera) does the camera subtract in
+// f32, which cancels the two ~1e7 m operands and loses precision. Consumers that
+// need a df64 camera subtract (raster arm 2's z18+ jitter fix) call project_geom
+// directly and subtract a CPU-supplied DSFUN hi/lo camera projection themselves.
+export const project_geom = externFn('project_geom', LLPR_PARAMS, vec2fT)
 export const flat_rel = externFn('flat_rel', LLPR_PARAMS, vec2fT)
 export const needs_backface_cull = externFn('needs_backface_cull', LLPE_PARAMS, f32T)
 export const rim_alpha = externFn('rim_alpha', LLPE_PARAMS, f32T)

@@ -43,7 +43,11 @@ import type { FrameContext } from '../frame-context'
 import { unwrapProjection } from '../projection-token'
 import type { SceneView } from '../scene-view'
 import type { RenderPass, LabelPassHost } from './pass'
-import { placeLabelsAlongLine, placeInlineLineLabels } from './place-labels-along-line'
+import {
+  placeLabelsAlongLine,
+  placeInlineLineLabels,
+  withinViewportInset,
+} from './place-labels-along-line'
 // Extracted helpers (re-exported: existing importers, tests included, are unaffected).
 export {
   lineLabelDeduped,
@@ -60,6 +64,13 @@ import {
   shouldEmitPointDedup,
   lineLabelCopyKey,
 } from './line-label-dedupe'
+
+/** #1314 — line-label viewport edge inset (CSS px, scaled by dpr at use). A line
+ *  label whose anchor lands within this margin of a screen edge is culled so it
+ *  never renders glued half-off-screen. Sized at roughly half a typical road-label
+ *  width: comfortable enough that the shaped glyph run clears the edge, small
+ *  enough that it doesn't drop labels that are perfectly readable inboard. */
+const LINE_LABEL_EDGE_INSET_CSS_PX = 48
 
 /** #728 — STABLE per-feature collision identity, fed to the greedy collision
  *  pass as its `tieBreak` (addLabel/addCurvedLineLabel → PendingLabel.collisionId
@@ -1081,6 +1092,11 @@ class LabelPass implements RenderPass {
                   stage.addLabel(value, props, x, y, def, fontKey, layerName),
                 dispatchIcon,
                 labelLayerName,
+                // #1314 — same viewport edge-inset cull as the vector-tile line
+                // path: an inline LineString label whose anchor hugs a screen edge
+                // is dropped rather than rendered glued half-off-screen.
+                (x, y) =>
+                  withinViewportInset(x, y, _canvasW, _canvasH, LINE_LABEL_EDGE_INSET_CSS_PX * dpr),
               )
             } else {
               const anchor = featureAnchor(feat.geometry)
@@ -1206,6 +1222,16 @@ class LabelPass implements RenderPass {
             // 'map' (= tangent), matching the historical behaviour.
             const lineRotAlign = effectiveDef.rotationAlignment ?? 'auto'
             const useTangentRotation = lineRotAlign !== 'viewport'
+            // #1314 — viewport edge-inset cull for THIS layer's line labels. An
+            // anchor within the inset margin of a screen edge is dropped so line
+            // labels never render glued half-off-screen (user report: "화면 기준
+            // 양 끝으로 라벨이 붙어서 가시성 및 가독성이 나빠지는"). Applied at every
+            // along-line emit site below — the curved (tangent) stops, the
+            // viewport-aligned spacing walk (as placeLabelsAlongLine's cull), and
+            // the single line-center fallback. Point labels are unaffected.
+            const lineLabelEdgeInsetPx = LINE_LABEL_EDGE_INSET_CSS_PX * dpr
+            const anchorInView = (sx: number, sy: number): boolean =>
+              withinViewportInset(sx, sy, _canvasW, _canvasH, lineLabelEdgeInsetPx)
             // iter-176 pairKey-by-sequence: pre-iter-176 the pair key
             // was `${layer}:${Math.round(x)},${Math.round(y)}` —
             // unstable across frames (sub-pixel camera drift flips
@@ -1660,6 +1686,7 @@ class LabelPass implements RenderPass {
                           sy = _samplePosOut[1]
                         const tang = _samplePosOut[2]
                         if (
+                          anchorInView(sx, sy) &&
                           !isTooCloseToSameText(copyTextKey, sx, sy) &&
                           (!(curveIsIconOnly && curvePairedWithIcon) ||
                             !isLineIconDuplicate(sx, sy))
@@ -1720,6 +1747,7 @@ class LabelPass implements RenderPass {
                           sy = _samplePosOut[1]
                         const tang = _samplePosOut[2]
                         if (
+                          anchorInView(sx, sy) &&
                           !isTooCloseToSameText(copyTextKey, sx, sy) &&
                           (!(curveIsIconOnly && curvePairedWithIcon) ||
                             !isLineIconDuplicate(sx, sy))
@@ -1775,6 +1803,7 @@ class LabelPass implements RenderPass {
                     pn,
                     spacingPx,
                     (pax, pay, pbx, pby, t) => emitLabelAlongSegment(pax, pay, pbx, pby, t, props),
+                    anchorInView,
                   )
                   perfMarkEnd('encoder.label-dispatch.line.emit')
                 }
@@ -1798,6 +1827,9 @@ class LabelPass implements RenderPass {
                     ay2 = a[1]
                   const pb = projectMercAny(bx, by, wo)
                   if (!pb) continue
+                  // #1314 — cull a line-center label whose midpoint anchor hugs a
+                  // screen edge (t=0.5 between the projected endpoints).
+                  if (!anchorInView((ax2 + pb[0]) * 0.5, (ay2 + pb[1]) * 0.5)) continue
                   emitLabelAlongSegment(ax2, ay2, pb[0], pb[1], 0.5, props)
                 }
               })

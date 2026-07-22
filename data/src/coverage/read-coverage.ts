@@ -41,7 +41,11 @@ export function detectCoverageFormat(url: string): CoverageFormat | null {
  *  in place today; a `.grib2`/`.nc` URL resolves to a clear, track-linked error instead
  *  of a cryptic mis-parse. The `coverage` source and `map.setCoverageData` both enter
  *  here, so a new standard is wired in ONE place. */
-export async function readCoverage(bytes: ArrayBuffer, url?: string): Promise<CoverageHandle> {
+export async function readCoverage(
+  bytes: ArrayBuffer,
+  url?: string,
+  opts?: { group?: number },
+): Promise<CoverageHandle> {
   const format = url ? detectCoverageFormat(url) : null
   if (format === 'grib2')
     throw new Error(
@@ -54,7 +58,7 @@ export async function readCoverage(bytes: ArrayBuffer, url?: string): Promise<Co
         'only S-100 HDF5 reads today (a NetCDF-4 file that is HDF5 on disk will read then).',
     )
   // 'hdf5' or null (unknown/extensionless → default to the only supported container).
-  return readCoverageFromHdf5(bytes)
+  return readCoverageFromHdf5(bytes, opts)
 }
 
 /** Range-streaming sibling of `readCoverage`: read a coverage over HTTP Range, pulling
@@ -63,7 +67,7 @@ export async function readCoverage(bytes: ArrayBuffer, url?: string): Promise<Co
  *  (GRIB2/NetCDF are byte-range-capable too, but their readers are separate tracks). */
 export async function readCoverageRange(
   url: string,
-  opts?: RangeReaderOptions & { blockSize?: number },
+  opts?: RangeReaderOptions & { blockSize?: number; group?: number },
 ): Promise<CoverageHandle> {
   const format = detectCoverageFormat(url)
   if (format === 'grib2')

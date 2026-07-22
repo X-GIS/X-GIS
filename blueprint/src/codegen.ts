@@ -95,7 +95,13 @@ function emitImport(n: BPNode): string {
       .join(', ')
     return `import { ${names} } from ${path}`
   }
-  return `import ${path}`
+  // Splice: re-emit the optional `keep (...)` layer-subset clause carried on the
+  // node data (no editor field, mirroring the source:/style: fallbacks).
+  const keep = (d.keep || '')
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean)
+  return keep.length ? `import ${path} keep (${keep.join(', ')})` : `import ${path}`
 }
 
 function emitBackground(n: BPNode): string {

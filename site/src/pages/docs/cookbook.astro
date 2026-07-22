@@ -343,6 +343,39 @@ layer my_pois {
   },
 
   {
+    slug: 'extract-mapbox-subset',
+    title: 'Keep only SOME layers of an OFM / Mapbox style',
+    body: 'A splice `import "url"` pulls EVERY layer of a style. Add a `keep (...)` clause to take only some of them — filtered by `source-layer` ("roads" = `transportation`, "place names" = `place`) — with their ORIGINAL cartography. And the import splices AT ITS LINE: draw order is declaration order, so a raster base declared before the import stays underneath, the kept OFM layers draw on top of it, and anything you declare after draws on top of them. Layers can\'t be cherry-picked by name (`import { x } from` selects source / preset / symbol blocks only), so `keep` — by source-layer — is how you pick them; non-layer statements (sources, background) always splice, so the kept layers stay wired.',
+    code: `xgis 1
+
+// 1) Satellite raster base — declared FIRST, so it draws at the BOTTOM.
+source satellite {
+  type: raster
+  url: "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}"
+}
+layer imagery { source: satellite }
+
+// 2) Only these OFM layers, ORIGINAL styling, spliced HERE — so they draw
+//    ON TOP of the imagery (and below anything you declare next).
+import "https://tiles.openfreemap.org/styles/bright"
+  keep (transportation, transportation_name, place)
+
+// 3) Your own data, on top of everything.
+source pois { type: geojson, url: "pois.geojson" }
+layer my_pois {
+  source: pois
+  | fill-rose-500 fill-opacity-80
+  | label-[.name] label-color-#fff label-halo-1 label-halo-color-#000
+}`,
+    notes: [
+      '`keep (a, b, ...)` takes bare or quoted source-layer names (OpenMapTiles: transportation / transportation_name / place / water / boundary / building / poi). A layer survives iff its `source-layer` is listed; its sublayers (road casings, bridges, tunnels) come along with their real styling.',
+      'The import lands its layers at its OWN position in the file — not hoisted to the top — so where you write the `import` line is exactly where the imported layers sit in the draw order. A top-of-file `import` still lands first, unchanged.',
+      'Labels need glyphs: pass the style\'s own `glyphs` URL via `new XGISMap(el, { glyphs: { url } })`.',
+      'Prefer full programmatic control? Fetch the style JSON, `style.layers.filter(...)` it, and `map.run(convertMapboxStyle(style))` — the same result, in JS.',
+    ],
+  },
+
+  {
     slug: 'multiline-and-fontstack',
     title: 'Multiline labels + font-stack fallback',
     body: '`label-max-width-<em>` triggers greedy word-break wrapping; `label-line-height-<N>` and `label-justify-<a>` control spacing and alignment within the wrapped block. Multiple `label-font-<name>` utilities stack into a CSS font-fallback chain — the browser walks it glyph-by-glyph, so a Latin font + CJK font pair covers mixed-script labels without per-glyph resolution.',

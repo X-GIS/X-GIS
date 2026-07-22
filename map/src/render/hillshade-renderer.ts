@@ -34,7 +34,7 @@ import { hillshadeU as HILLSHADE_U } from '../shaders/dsl/hillshade'
 import {
   writeRasterFrameUniform,
   writeRasterTileUniform,
-  rasterGlobeCamAnchor,
+  rasterFrameCamAnchor,
   rasterCoverZoom,
   needsNorthPoleCap,
   needsSouthPoleCap,
@@ -533,12 +533,12 @@ export class HillshadeRenderer {
     }
 
     // Global uniforms: the shared raster 'Uniforms' (vertex + cull, no-op colours)
-    // + the hillshade lighting/decode 'HillshadeUniforms'. cam anchor: flat Mercator
-    // packs the 2D centre; 3D/globe the WGS84 ellipsoid anchor (same as raster).
-    const camAnchor: readonly [number, number, number] =
-      projType === 0
-        ? [camera.centerX, camera.centerY, 0]
-        : rasterGlobeCamAnchor(projCenterLon, projCenterLat)
+    // + the hillshade lighting/decode 'HillshadeUniforms'. The DSFUN camera anchor
+    // is the SHARED per-arm authority (rasterFrameCamAnchor) — hillshade drives the
+    // same vs_tile, so its lanes MUST match raster's (Mercator 2D centre / flat
+    // non-Mercator clon+camProj0 / globe ECEF); a mismatch would shake or misplace
+    // the DEM sheet in every non-Mercator projection exactly as the basemap did.
+    const camAnchor = rasterFrameCamAnchor(camera, projType, projCenterLon, projCenterLat)
     const B = rasterBlock()
     writeRasterFrameUniform(B, frame, projType, projCenterLon, projCenterLat, camAnchor, {
       opacity: this._opacity,

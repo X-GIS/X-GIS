@@ -178,3 +178,63 @@ test('raster tile fade — rasterfade=0 / 300 converge byte-identically; a long 
   expect(early.fading, 'a raster tile was mid-fade on the long-fade boot').toBe(true)
   expect(c.hash, 'rasterfade=12000 converged ≡ rasterfade=0').toBe(a.hash)
 })
+
+// #1317 — raster zoom-OUT cross-fade end-to-end. The unit gate
+// (runtime/.../raster-zoom-out-crossfade.test.ts) proves the mechanism against the
+// render loop directly; this asserts the REAL camera → tile-selection → re-arm path:
+// a tile that was on screen, left the target set on a zoom-IN, and RE-ENTERS it on the
+// following zoom-OUT must re-fade (hasFadingTiles flips true) instead of snapping — then
+// settle. A long fade makes the mid-fade window easy to catch. The checker fixture makes
+// the cross-fade pixel-invisible (see the note above), so the flag + settle are the
+// robust signals; convergence back to the disabled-frame hash proves it lands on full.
+test('raster tile fade — zooming OUT re-fades the parent (child→parent), then settles', async ({
+  page,
+}) => {
+  test.setTimeout(240_000)
+  const errors: string[] = []
+  page.on('pageerror', (e) => errors.push(e.message.slice(0, 300)))
+  page.on('console', (m) => {
+    if (m.type() === 'error' && !/Failed to load resource/.test(m.text()))
+      errors.push(m.text().slice(0, 300))
+  })
+
+  const setZoomDelta = (dz: number): Promise<void> =>
+    page.evaluate((d) => {
+      const m = (
+        window as unknown as {
+          __xgisMap?: { getZoom?: () => number; setZoom?: (z: number) => void }
+        }
+      ).__xgisMap
+      if (m?.getZoom && m?.setZoom) m.setZoom(m.getZoom() + d)
+    }, dz)
+
+  // Reference disabled-frame hash (fade off) to prove the zoom-out fade settles to full.
+  const sig0 = await boot(page, 0)
+  const ref = await converge(page, sig0, 90_000)
+  expect(ref.ok, 'ref frame ok').toBe(true)
+
+  // Long fade so the re-fade window is wide.
+  const sig = await boot(page, 8000)
+  await converge(page, sig, 90_000)
+  // Zoom IN one level (children load + settle) so the zoom-OUT has cached children to
+  // retain beneath the re-fading parent.
+  await setZoomDelta(1)
+  await converge(page, sig, 90_000)
+  // Zoom OUT: the parent re-enters the target set ⇒ must re-fade.
+  await setZoomDelta(-1)
+  let sawFade = false
+  {
+    const deadline = Date.now() + 40_000
+    while (Date.now() < deadline && !sawFade) {
+      const f = await readFrame(page, sig)
+      if (f.ok && f.fading) sawFade = true
+      else await page.waitForTimeout(80)
+    }
+  }
+  const settled = await converge(page, sig, 120_000)
+
+  expect(errors, 'no page errors').toEqual([])
+  expect(sawFade, 'zooming out re-fades the parent (hasFadingTiles flips true)').toBe(true)
+  expect(settled.fading, 'the zoom-out fade settles (no tile left fading)').toBe(false)
+  expect(settled.hash, 'zoom-out fade converges to the disabled-frame hash').toBe(ref.hash)
+})
