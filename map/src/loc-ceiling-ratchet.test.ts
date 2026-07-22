@@ -333,7 +333,11 @@ const CEILINGS: Record<string, number> = {
   // 5099→5111 (#1302 declarative arrows): the isArrow fork in rebuildLayers + the
   // arrow-show import + the clearCompiledArrows call. Wiring only; per-feature eval
   // lives in arrow-show.ts and the draw in graphics-manager. +12, measured post-hook.
-  'map/src/map.ts': 5111,
+  // 5111→5169 (#1272 E-③ forecast time): the setCoverageTime / playCoverageTime /
+  // pauseCoverageTime public API — thin `this`-coupled glue (re-read a Group_NNN over
+  // Range + re-arm the CoverageRenderer). The reusable state (epoch guard + playback
+  // timer + the pure index/ISO→group resolver) lives in coverage-time.ts. +58, post-hook.
+  'map/src/map.ts': 5169,
   // Baselined at #1255 (measured 830): the DOM-inspired layer API crossed
   // NEW_FILE_CAP with the paint-transition style-setter integration — the
   // StyleHost.transitions context, the shared applyNumber/applyColor

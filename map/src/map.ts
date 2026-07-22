@@ -87,7 +87,8 @@ import {
 } from './render/bucket-scheduler'
 import { interpret, type SceneCommands } from './interpreter'
 import { lonLatToMercator, type GeoJSONFeatureCollection, type CoverageHandle } from '@xgis/data'
-import { readCoverage } from '@xgis/data'
+import { readCoverage, readCoverageRange, type CoverageTime } from '@xgis/data'
+import { resolveForecastGroup, CoverageTimePlayer } from './coverage-time'
 import { RasterRenderer } from './render/raster-renderer'
 import { HillshadeRenderer, armHillshadeSource } from './render/hillshade-renderer'
 import { CoverageRenderer } from './render/coverage-renderer'
@@ -513,6 +514,8 @@ export class XGISMap {
    *  chain; `_docHidden` gates `_scheduleFrame` so a backgrounded tab burns no rAF. */
   private _rafId: number | null = null
   private _docHidden = false
+  /** #1272 E-③ forecast-time playback + async-reread epoch guard (see coverage-time.ts). */
+  private readonly _coverageTime = new CoverageTimePlayer()
   /** The verified device-lost recovery re-run (a fresh run()/runBinary()), stashed
    *  by `_armDeviceLostRecovery` so the visibilitychange→visible handler can arm the
    *  re-init a loss deferred while hidden (#1153 M5c). `null` until the first run(). */
@@ -4622,6 +4625,60 @@ export class XGISMap {
     this.invalidate()
   }
 
+  /** Step the DISPLAYED forecast hour of a `coverage` source (#1272 E-③). An S-111/S-104
+   *  cell stores numGRP hourly groups; this re-reads a DIFFERENT `Group_NNN` of the SAME
+   *  cell over HTTP Range and re-arms the GPU. `indexOrISO` is a 0-based hour index or an
+   *  ISO valid time (resolveForecastGroup). A no-op when the source is single-group or
+   *  host-pushed (no URL). Concurrent calls are epoch-guarded so a slow re-read that a newer
+   *  step superseded never arms stale data. */
+  async setCoverageTime(sourceId: string, indexOrISO: number | string): Promise<void> {
+    const prev = this.rawDatasets.get(sourceId)
+    if (!prev || !('_coverage' in prev))
+      throw new Error(`[X-GIS] setCoverageTime: "${sourceId}" is not a declared coverage source.`)
+    const time = prev._coverage.meta.sourceMeta?.time as CoverageTime | undefined
+    if (!prev._url || !time || time.count <= 1) return // nothing to step
+    const group = resolveForecastGroup(time, indexOrISO)
+    if (group - 1 === time.index) return // already showing this hour
+    // Re-read the same, already-validated URL (declared source) — one group of it. No new
+    // SSRF surface; the whole-file fallback isn't needed (Range worked at first load).
+    const token = this._coverageTime.nextEpoch()
+    const handle = await readCoverageRange(prev._url, { group })
+    if (!this._coverageTime.isCurrent(token)) return // superseded by a newer step
+    this.rawDatasets.set(sourceId, { _coverage: handle, _url: prev._url })
+    const cur = this.coverageRenderer.displayOpts()
+    this.coverageRenderer.setCoverage(handle, {
+      ramp: cur.ramp,
+      rangeLo: cur.rangeLo,
+      rangeHi: cur.rangeHi,
+      opacity: cur.opacity,
+    })
+    this.invalidate()
+  }
+
+  /** Animate a `coverage` source through its forecast hours (#1272 E-③) — steps group→group
+   *  on a wall-clock timer (each step is an async range re-read, so NOT the rAF loop),
+   *  looping after the last hour. `stepMs` is the dwell per hour (default 700).
+   *  `pauseCoverageTime` stops it; calling this again restarts. */
+  playCoverageTime(sourceId: string, opts?: { stepMs?: number }): void {
+    this._coverageTime.play(
+      () => {
+        const cur = this.rawDatasets.get(sourceId)
+        const t =
+          cur && '_coverage' in cur
+            ? (cur._coverage.meta.sourceMeta?.time as CoverageTime | undefined)
+            : undefined
+        return t ? { index: t.index, count: t.count } : null
+      },
+      (index) => this.setCoverageTime(sourceId, index),
+      opts?.stepMs ?? 700,
+    )
+  }
+
+  /** Stop `playCoverageTime`. Idempotent. */
+  pauseCoverageTime(): void {
+    this._coverageTime.pause()
+  }
+
   /** Mapbox GL JS-style paint property mutation (plan P6 first cut).
    *  Maps a Mapbox property name onto the corresponding XGISLayerStyle
    *  setter; returns true on a recognised (layer, property) pair, false
@@ -4906,6 +4963,7 @@ export class XGISMap {
     if (this._destroyed) return
     this._destroyed = true
     this.running = false // next requestAnimationFrame tick early-returns
+    this._coverageTime.pause() // stop any forecast-time playback timer (#1272 E-③)
 
     // Pending interaction-idle debounce.
     if (this._interactionIdleTimer !== null) {
