@@ -617,6 +617,14 @@ export const galleryCategories: Category[] = [
         body: 'NOAA S-111 surface currents — a synthetic Chesapeake-shaped tidal field: speed through the viridis coverage ramp, drifting particles along the direction band.',
         noThumb: true,
       },
+      // noThumb: streams a real NOAA cell over the network (no egress in the
+      // capture env; needs the /noaa-s111 proxy, absent there too).
+      {
+        id: 's111-live',
+        title: 'NOAA S-111 live currents (real S3)',
+        body: 'The REAL NOAA S-111 forecast — streams the newest CBOFS cell straight from the NOAA Open-Data S3 bucket, read as S-100 HDF5 in place through a CORS proxy. Speed over satellite imagery, particles along the real direction band.',
+        noThumb: true,
+      },
       // noThumb: live NOAA fetch (no network egress in the capture env).
       {
         id: 'coops-currents',

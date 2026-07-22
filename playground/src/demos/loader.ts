@@ -30,6 +30,16 @@ const URL_REWRITES: Array<[RegExp, string]> = [
   ],
 ]
 
+// The NOAA S-111 live demo streams from the CORS-less NOAA S3 bucket through a proxy
+// (the vite `/noaa-s111` dev middleware). The hosted static site has no dev server, so
+// in PROD ONLY we rewrite `/noaa-s111/` to a CORS-open Cloudflare Worker that serves the
+// same resolve+stream contract (dev/noaa-s111-worker.ts). Dev keeps the `/noaa-s111/`
+// path so the vite proxy handles it. Until the worker is deployed the demo degrades to
+// imagery-only on the hosted site (see docs/api/noaa-coverage-recipes.md).
+if (import.meta.env.PROD) {
+  URL_REWRITES.push([/\/noaa-s111\//g, 'https://noaa-s111.x-gis.workers.dev/'])
+}
+
 export function load(file: string): string {
   const key = `../examples/${file}`
   let src = modules[key]

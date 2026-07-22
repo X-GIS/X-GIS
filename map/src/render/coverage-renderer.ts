@@ -8,8 +8,9 @@
 // device swap re-uploads without touching value correctness (the syncDevice lesson).
 //
 // Time scrub (setCoverageTime) re-uploads the ONE resident texture — INC-C. INC-A is
-// a single timeslice. The draw quad spans the coverage's OUTER cell edges; the
-// fragment inverts Mercator per-pixel (coverage-ramp.ts / A4). render() takes the
+// a single timeslice. The draw is a TESSELLATED surface grid over the OUTER cell edges,
+// each vertex projected via the general `project()` (coverage-ramp.ts) — projection-
+// general for every flat projection, no baked Mercator. render() takes the
 // camera-derived MVP + centre + proj params (the opaque-pass arming computes them,
 // mirroring the raster flat path) so this renderer stays camera-internals-free and
 // unit-testable. The draper is LAZY (raster's ensureRasterDraper pattern): built at
@@ -38,6 +39,8 @@ interface CoverageState {
   /** westLonEdge, northLatEdge, nLon·dLon, nLat·dLat — for the fragment u/v. */
   covGeo: [number, number, number, number]
   ramp: { a: number; b: number }
+  /** Layer opacity (0..1) — multiplies output alpha (ramp_params.z). */
+  opacity: number
 }
 
 export interface CoverageArmOptions {
@@ -45,6 +48,8 @@ export interface CoverageArmOptions {
   /** Display range [lo, hi]; defaults to the band's data range (a=1, b=0). */
   rangeLo?: number
   rangeHi?: number
+  /** Layer opacity paint (0..1); defaults to 1 (opaque). */
+  opacity?: number
   bandIndex?: number | string
 }
 
@@ -78,6 +83,19 @@ export class CoverageRenderer {
 
   hasCoverage(): boolean {
     return this.state !== null
+  }
+
+  /** The currently-armed display (ramp + range window), or viridis / open range when
+   *  nothing is armed yet. `map.setCoverageData` reuses this so an imperative data swap
+   *  keeps the drawing layer's display (LAYER paint, #1158 INC-D) without re-reading the
+   *  ShowCommand; a later rebuild re-arms from the layer. */
+  displayOpts(): { ramp: string; rangeLo?: number; rangeHi?: number; opacity?: number } {
+    return {
+      ramp: this.lastOpts?.ramp ?? 'viridis',
+      rangeLo: this.lastOpts?.rangeLo,
+      rangeHi: this.lastOpts?.rangeHi,
+      opacity: this.lastOpts?.opacity,
+    }
   }
 
   /** Upload a coverage's value/validity textures + LUT and arm the draw. Replaces
@@ -120,6 +138,7 @@ export class CoverageRenderer {
       covEdges: [westEdge, southEdge, eastEdge, northEdge],
       covGeo: [westEdge, northEdge, nLon * dLon, nLat * dLat],
       ramp: computeRampUniforms(dataMin, dataMax, opts.rangeLo ?? dataMin, opts.rangeHi ?? dataMax),
+      opacity: opts.opacity ?? 1,
     }
     this.lastHandle = handle
     this.lastOpts = opts
@@ -143,9 +162,9 @@ export class CoverageRenderer {
     if (handle && opts) this.setCoverage(handle, opts)
   }
 
-  /** Draw the coverage (flat Mercator). The caller supplies the camera-derived
-   *  MVP (Mercator-metre, camera-at-origin), the camera Mercator centre, and the
-   *  projection params — mirroring the raster flat arm. No-op when unarmed. */
+  /** Draw the coverage (flat projections; the globe drape is INC-B step 2). The caller
+   *  supplies the camera-derived MVP (camera-at-origin), the camera Mercator centre, and
+   *  the projection params — mirroring the raster flat arm. No-op when unarmed. */
   render(
     pass: GPURenderPassEncoder | RhiRenderPass,
     mvp: Float32Array | number[],
@@ -161,6 +180,7 @@ export class CoverageRenderer {
       covEdges: s.covEdges,
       covGeo: s.covGeo,
       ramp: s.ramp,
+      opacity: s.opacity,
     })
     // A WebGl2Device frame (renderFrameViaRhi twin) hands in an RhiRenderPass
     // already; the WebGPU opaque pass hands in a GPURenderPassEncoder that needs

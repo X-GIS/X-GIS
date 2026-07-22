@@ -51,12 +51,12 @@ describe('projection threshold drift gate', () => {
     // inlined). Match only the LO/HI bounds, which is what this gate pins.
     // Order: ortho, azimuthal, stereo, globe.
     const found = allMatches(WGSL_PROJECTION_FNS(), /smoothstep\((-?[\d.]+), -?[\d.]+, /g)
-    // #600 — globe's rim is now `smoothstep(0, RIM, globe_eye_horizon_cos(...))`,
-    // a DIFFERENT 3rd arg from ortho's `smoothstep(0, RIM, center_cos_c)`, so the
-    // two no longer cse-merge: 4 distinct smoothsteps emit (ortho, azimuthal,
-    // stereographic, globe). globe's LO is still 0 (= ORTHO). Pre-#600 the two
-    // identical ortho/globe calls cse'd to one (the old [ORTHO,AZI,STEREO]).
-    expect(found).toEqual([ORTHO, AZIMUTHAL, STEREO, ORTHO])
+    // ortho / azimuthal / stereographic keep FIXED numeric bounds. The GLOBE eye-horizon
+    // rim now scales its band with (1 − globe_eye.w) so a fixed cosine band can't swallow
+    // the whole view at high zoom (#600 zoom-in darkening fix) — its HI is an EXPRESSION,
+    // so it drops from this numeric scan (the scaling is asserted on the line below).
+    expect(found).toEqual([ORTHO, AZIMUTHAL, STEREO])
+    expect(WGSL_PROJECTION_FNS()).toContain('1.0 - globe_eye.w') // the cap-scaled globe rim band
   })
 
   it('generated cpu needs_backface_cull follows the table thresholds (behavioral)', () => {
@@ -99,16 +99,18 @@ describe('projection threshold drift gate', () => {
     expect(found).toEqual([])
   })
 
-  it('RIM_FADE band width is 0.02 in the emitted WGSL and the raster shader', () => {
-    // The DSL inlines RIM_FADE (no `let RIM_FADE`), so each emitted smoothstep
-    // band must be exactly 0.02 wide (HI − LO). (3rd arg is the cse-hoisted cos_c
-    // temp; match only the LO/HI bounds.)
-    const bands = [...WGSL_PROJECTION_FNS().matchAll(/smoothstep\((-?[\d.]+), (-?[\d.]+), /g)].map(
+  it('RIM_FADE band width is 0.02; the globe rim scales with the cap (#600 zoom-in fix)', () => {
+    // Each FIXED-literal smoothstep band is exactly 0.02 wide (HI − LO): ortho / azimuthal /
+    // stereographic. The GLOBE eye-horizon rim now scales its band with (1 − globe_eye.w),
+    // so its HI is an EXPRESSION (not a literal) and is not in this numeric scan.
+    const fns = WGSL_PROJECTION_FNS()
+    const bands = [...fns.matchAll(/smoothstep\((-?[\d.]+), (-?[\d.]+), /g)].map(
       (m) => Math.round((parseFloat(m[2]!) - parseFloat(m[1]!)) * 1000) / 1000,
     )
-    expect(bands).toEqual([0.02, 0.02, 0.02, 0.02]) // #600 — ortho/azi/stereo/globe (globe no longer cse-merges with ortho)
+    expect(bands).toEqual([0.02, 0.02, 0.02])
+    expect(fns).toContain('1.0 - globe_eye.w') // globe rim band = RIM_FADE · (1 − globe_eye.w)
     const raster = emitRasterWgsl(false)
-    // raster applies `smoothstep(0.0, 0.02, input.vis)` — same fade width.
+    // raster still applies a 0.02 fade (ortho/azi/stereo) via rim_alpha.
     expect(raster).toContain('smoothstep(0.0, 0.02,')
   })
 })

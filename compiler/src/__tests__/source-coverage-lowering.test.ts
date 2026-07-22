@@ -1,12 +1,13 @@
 // ═══════════════════════════════════════════════════════════════════
-// `type: coverage` display options — IR lowering + LoadCommand threading
+// `coverage` LAYER paint (ramp/range) — IR lowering + ShowCommand threading
 // ═══════════════════════════════════════════════════════════════════
 //
-// #1158 / #1272. The grammar + schema are pinned by schema/coverage-source.test.ts;
+// #1158 / #1272 / INC-D. The grammar + schema are pinned by schema/coverage-source.test.ts;
 // this covers the LOWERING half the render wiring depends on:
-//   • lowerSource emits SourceDef.ramp / SourceDef.range from the source block
-//   • emitCommands threads both onto the LoadCommand (the runtime arms the
-//     CoverageRenderer off `SceneCommands.loads[i]`)
+//   • lowerLayer emits RenderNode.ramp / RenderNode.range from the LAYER block (a
+//     `coverage` source is data-only — ramp/range are LAYER paint, the raster-color analogue)
+//   • emitCommands threads both onto the ShowCommand (the runtime arms the
+//     CoverageRenderer off the drawing layer's `SceneCommands.shows[i]`)
 //   • a malformed `range` fails LOUDLY (a wrong window would recolour data)
 //   • absent ramp/range leave the fields undefined (renderer defaults apply)
 
@@ -24,60 +25,54 @@ function compile(source: string) {
   return lower(ast)
 }
 
-describe('coverage source ramp/range lowering', () => {
-  it('lowerSource emits SourceDef.ramp + SourceDef.range from the source block', () => {
+describe('coverage LAYER ramp/range lowering (INC-D)', () => {
+  it('lowerLayer emits RenderNode.ramp + RenderNode.range from the layer block', () => {
     const scene = compile(`
-      source currents {
-        type: coverage
-        url: "SEA_S111_2026.h5"
-        ramp: "viridis"
-        range: [0, 2]
-      }
-    `)
-    expect(scene.sources).toHaveLength(1)
-    expect(scene.sources[0].ramp).toBe('viridis')
-    expect(scene.sources[0].range).toEqual([0, 2])
-  })
-
-  it('coverage source with no ramp/range leaves both undefined (renderer defaults)', () => {
-    const scene = compile(`
-      source cov {
-        type: coverage
-        url: "x.h5"
-      }
-    `)
-    expect(scene.sources[0].ramp).toBeUndefined()
-    expect(scene.sources[0].range).toBeUndefined()
-  })
-
-  it('emitCommands threads ramp + range onto the LoadCommand', () => {
-    const scene = compile(`
-      source currents {
-        type: coverage
-        url: "SEA_S111_2026.h5"
-        ramp: "viridis"
-        range: [0, 2]
-      }
+      source currents { type: coverage, url: "SEA_S111_2026.h5" }
       layer speed {
         source: currents
+        ramp: "viridis"
+        range: [0, 2]
       }
     `)
-    const load = emitCommands(scene).loads.find((l) => l.name === 'currents')
-    expect(load).toBeDefined()
-    expect(load!.ramp).toBe('viridis')
-    expect(load!.range).toEqual([0, 2])
+    const node = scene.renderNodes.find((n) => n.name === 'speed')!
+    expect(node.ramp).toBe('viridis')
+    expect(node.range).toEqual([0, 2])
+    // The source stays DATA-ONLY (ramp/range are not source-level fields anymore).
+    expect((scene.sources[0] as unknown as Record<string, unknown>).ramp).toBeUndefined()
+  })
+
+  it('a coverage layer with no ramp/range leaves both undefined (renderer defaults)', () => {
+    const scene = compile(`
+      source cov { type: coverage, url: "x.h5" }
+      layer c { source: cov }
+    `)
+    const node = scene.renderNodes.find((n) => n.name === 'c')!
+    expect(node.ramp).toBeUndefined()
+    expect(node.range).toBeUndefined()
+  })
+
+  it('emitCommands threads ramp + range onto the ShowCommand', () => {
+    const scene = compile(`
+      source currents { type: coverage, url: "SEA_S111_2026.h5" }
+      layer speed { source: currents, ramp: "viridis", range: [0, 2] }
+    `)
+    const show = emitCommands(scene).shows.find((s) => s.targetName === 'currents')
+    expect(show).toBeDefined()
+    expect(show!.ramp).toBe('viridis')
+    expect(show!.range).toEqual([0, 2])
   })
 
   it('optimize() KEEPS the coverage load — a no-paint coverage layer is not DCE-pruned', () => {
     // The regression that shipped a "background-only" S-102/S-111 demo: a
-    // coverage layer declares NO fill/stroke/label (it draws via the
-    // CoverageRenderer marker), so dead-layer-elim eliminated its RenderNode
-    // and dead-source-elim then pruned the orphaned coverage source — the
-    // `type: coverage` load vanished and the HDF5 was never fetched. This runs
+    // coverage layer draws via the CoverageRenderer marker (its paint is the
+    // ramp/range, not fill/stroke/label), so dead-layer-elim eliminated its
+    // RenderNode and dead-source-elim then pruned the orphaned coverage source —
+    // the `type: coverage` load vanished and the HDF5 was never fetched. This runs
     // the FULL optimize pipeline (both DCE passes) and pins the load's survival.
     const scene = compile(`
-      source currents { type: coverage, url: "synthetic-currents.h5", ramp: "viridis", range: [0, 2] }
-      layer speed { source: currents }
+      source currents { type: coverage, url: "synthetic-currents.h5" }
+      layer speed { source: currents, ramp: "viridis", range: [0, 2] }
     `)
     const cmds = emitCommands(optimize(scene))
     expect(cmds.loads).toHaveLength(1)
@@ -85,26 +80,20 @@ describe('coverage source ramp/range lowering', () => {
     expect(cmds.loads[0]!.type).toBe('coverage')
   })
 
-  it('a malformed range (wrong arity) throws a clear error naming the source', () => {
+  it('a malformed range (wrong arity) throws a clear error naming the layer', () => {
     expect(() =>
       compile(`
-        source cov {
-          type: coverage
-          url: "x.h5"
-          range: [0, 40, 80]
-        }
+        source cov { type: coverage, url: "x.h5" }
+        layer c { source: cov, range: [0, 40, 80] }
       `),
-    ).toThrow(/cov[\s\S]*range[\s\S]*two-number/i)
+    ).toThrow(/Layer[\s\S]*range[\s\S]*two-number/i)
   })
 
   it('a non-numeric range element throws (a string window is not a value window)', () => {
     expect(() =>
       compile(`
-        source cov {
-          type: coverage
-          url: "x.h5"
-          range: ["lo", "hi"]
-        }
+        source cov { type: coverage, url: "x.h5" }
+        layer c { source: cov, range: ["lo", "hi"] }
       `),
     ).toThrow(/range[\s\S]*two-number/i)
   })

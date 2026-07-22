@@ -1,6 +1,7 @@
 import { defineConfig } from 'vite'
 import basicSsl from '@vitejs/plugin-basic-ssl'
 import { fileURLToPath, URL } from 'node:url'
+import { noaaS111Proxy } from './dev/noaa-s111-proxy'
 
 export default defineConfig({
   // Pages-deploy serves the playground under /X-GIS/play/ so the
@@ -13,7 +14,11 @@ export default defineConfig({
   // the generic `GITHUB_ACTIONS` flag here previously broke every CI
   // playwright run because GitHub auto-sets it for ALL CI jobs.
   base: process.env.XGIS_DEPLOY_BASE === '1' ? '/X-GIS/play/' : '/',
-  plugins: [basicSsl()],
+  // noaaS111Proxy bridges `/noaa-s111/*` to the CORS-less NOAA S-100 PDS bucket
+  // (and resolves `/noaa-s111/latest.h5` to the newest CBOFS cell) so the live
+  // real-data demo streams in dev; the hosted site rewrites the path to a
+  // CORS-open proxy (loader.ts).
+  plugins: [basicSsl(), noaaS111Proxy()],
   // Dev/test resolve @xgis/runtime to SOURCE, not the published dist.
   // ship-P0 packaging set the package `main`/`exports` to ./dist/index.js for
   // external npm consumers; without this alias the playground (and every e2e

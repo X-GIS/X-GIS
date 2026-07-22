@@ -350,7 +350,10 @@ const buildFs = (pickEnabled: boolean) => {
       )
 
       return HillshadeFragmentOutput.construct({
-        color: outColor,
+        // raster_params.x = the LAYER's opacity paint (#777 gap): the relief is
+        // premultiplied-alpha, so one scalar multiply on the whole RGBA fades it — the
+        // hillshade layer now honours `opacity` like every other layer (was hardcoded 1).
+        color: outColor.mul(U.field.raster_params.x),
         ...(pickEnabled ? { pick: vec2u(0, 0) } : {}),
         depth: compute_log_frag_depth({ view_w: pin.view_w, fc: U.field.proj_params.w }),
       })

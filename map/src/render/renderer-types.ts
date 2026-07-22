@@ -192,6 +192,13 @@ export interface ShowCommand extends FillPaint, LinePaint, CirclePaint, ExtrudeP
   /** Mapbox `layer.maxzoom` — layer is hidden when camera.zoom >=
    *  maxzoom. */
   maxzoom?: number
+  /** `coverage` LAYER paint (#1158 INC-D): colour-ramp LUT name + `[lo, hi]` display
+   *  window, threaded from the compiler ShowCommand (emit-commands.ts) so rebuildLayers
+   *  arms the CoverageRenderer off the drawing layer (a coverage source is data-only —
+   *  the raster-color / raster-color-range analogue). Undefined on every non-coverage
+   *  layer. Sibling of the compiler ShowCommand field (two-sibling rule). */
+  ramp?: string
+  range?: readonly [number, number]
   /** Optional MVT layer slice within the source. When set, the
    *  catalog returns only that slice's TileData and the renderer
    *  draws only its geometry. Mapbox-style `source-layer` semantics

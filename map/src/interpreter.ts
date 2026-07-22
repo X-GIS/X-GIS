@@ -96,12 +96,6 @@ export interface LoadCommand {
   greenFactor?: number
   blueFactor?: number
   baseShift?: number
-  /** `type: coverage` colour-ramp name + `[lo, hi]` display window (#1158),
-   *  threaded from the compiler LoadCommand (emit-commands.ts) so source-manager
-   *  reads them off `SceneCommands['loads'][0]` into the `_coverage` marker.
-   *  Two-sibling rule; the legacy `interpret()` path never sets them. */
-  ramp?: string
-  range?: readonly [number, number]
 }
 
 export interface SceneCommands {

@@ -123,10 +123,6 @@ function lowerSource(
   let greenFactor: number | undefined
   let blueFactor: number | undefined
   let baseShift: number | undefined
-  /** `type: coverage` display options (#1158) — threaded so the coverage
-   *  colour-ramp renderer arms with the author's palette + value window. */
-  let ramp: string | undefined
-  let range: readonly [number, number] | undefined
 
   for (const prop of stmt.properties) {
     if (prop.name === 'type') {
@@ -136,6 +132,11 @@ function lowerSource(
       // `x-kr-admin` would otherwise tokenise as the expression `x - kr - admin`).
       if (prop.value.kind === 'Identifier') type = prop.value.name
       else if (prop.value.kind === 'StringLiteral') type = prop.value.value
+      // `hdf5` / `h5` are format-named aliases of the coverage family (the mirror of
+      // `pmtiles`/`tilejson` under `vector`) — canonicalise to the role name HERE, the
+      // single chokepoint, so the IR + dead-layer-elim + runtime only ever see
+      // `coverage`. The actual reader is still picked from the URL extension.
+      if (type === 'hdf5' || type === 'h5') type = 'coverage'
     } else if (prop.name === 'url' && prop.value.kind === 'StringLiteral') {
       url = prop.value.value
     } else if (prop.name === 'data') {
@@ -193,28 +194,6 @@ function lowerSource(
       blueFactor = prop.value.value
     } else if (prop.name === 'baseShift' && prop.value.kind === 'NumberLiteral') {
       baseShift = prop.value.value
-    } else if (prop.name === 'ramp' && prop.value.kind === 'StringLiteral') {
-      // `type: coverage` colour-ramp LUT name (#1158). Validated at arm time
-      // against the runtime RAMPS registry (an unknown name fails loudly there).
-      ramp = prop.value.value
-    } else if (prop.name === 'range') {
-      // `type: coverage` `[lo, hi]` display window. NUMBER elements — the custom-
-      // options bag below only keeps string arrays, which silently dropped this
-      // before dedicated lowering existed. Malformed forms fail loudly: a wrong
-      // window would recolour navigation data, never a silent default.
-      const els = prop.value.kind === 'ArrayLiteral' ? prop.value.elements : null
-      if (
-        !els ||
-        els.length !== 2 ||
-        els[0]!.kind !== 'NumberLiteral' ||
-        els[1]!.kind !== 'NumberLiteral'
-      ) {
-        throw new Error(
-          `Source '${stmt.name}' (line ${stmt.line}): 'range' must be a two-number ` +
-            `array (e.g. \`range: [0, 40]\`).`,
-        )
-      }
-      range = [els[0].value, els[1].value]
     } else {
       // Non-reserved property → the custom-loader options bag (source-loader-seam §5).
       // Reserved keys (type/url/data/layers/crs) are claimed by the branches above, so
@@ -280,8 +259,6 @@ function lowerSource(
     greenFactor,
     blueFactor,
     baseShift,
-    ramp,
-    range,
   }
 }
 
@@ -351,6 +328,12 @@ function lowerLayer(
   let geometryExpr: import('../parser/ast').Expr | null = null
   let extrude: import('./render-node').ExtrudeValue = { kind: 'none' }
   let extrudeBase: import('./render-node').ExtrudeValue = { kind: 'none' }
+  // `coverage` LAYER paint (#1158 INC-D): ramp/range are STYLING (value→colour), so
+  // they live on the layer that draws a coverage source, not the source itself (the
+  // Mapbox raster-color / raster-color-range analogue). Threaded to the RenderNode →
+  // ShowCommand → the coverage-ramp arm; undefined on every non-coverage layer.
+  let ramp: string | undefined
+  let range: readonly [number, number] | undefined
   // Per-feature text label + all `label-*` / `label-icon-*` visual
   // knobs are resolved by `lowerLabelProps` (lower-label.ts) in a
   // separate utility-loop pass; the label accumulators no longer live
@@ -386,6 +369,26 @@ function lowerLayer(
       filterExpr = prop.value
     } else if (prop.name === 'geometry') {
       geometryExpr = prop.value
+    } else if (prop.name === 'ramp' && prop.value.kind === 'StringLiteral') {
+      // `coverage` colour-ramp LUT name (#1158). Validated at arm time against the
+      // runtime RAMPS registry (an unknown name fails loudly there).
+      ramp = prop.value.value
+    } else if (prop.name === 'range') {
+      // `coverage` `[lo, hi]` display window. Malformed forms fail LOUDLY: a wrong
+      // window would recolour navigation data, never a silent default.
+      const els = prop.value.kind === 'ArrayLiteral' ? prop.value.elements : null
+      if (
+        !els ||
+        els.length !== 2 ||
+        els[0]!.kind !== 'NumberLiteral' ||
+        els[1]!.kind !== 'NumberLiteral'
+      ) {
+        throw new Error(
+          `Layer "${stmt.name}" (line ${stmt.line}): 'range' must be a two-number ` +
+            `array (e.g. \`range: [0, 40]\`).`,
+        )
+      }
+      range = [els[0].value, els[1].value]
     }
   }
 
@@ -1082,6 +1085,8 @@ function lowerLayer(
     zOrder,
     minzoom,
     maxzoom,
+    ramp,
+    range,
     fill,
     stroke: (() => {
       const validPatterns = patternSlots.filter(
