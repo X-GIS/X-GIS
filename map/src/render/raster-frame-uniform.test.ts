@@ -170,7 +170,7 @@ describe('raster tile uniform — block bytes ≡ retired drawTileF32 writer', (
       tf[4] = ECEF_SW[0]
       tf[5] = ECEF_SW[1]
       tf[6] = ECEF_SW[2]
-      tf[7] = 0
+      tf[7] = 1 // tile_ecef_center.w = per-tile fade opacity (default 1 = full)
       tf[8] = MERC_S
       tf[9] = MERC_DIFF
       tf[10] = GRID_N

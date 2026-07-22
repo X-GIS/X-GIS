@@ -321,7 +321,12 @@ const CEILINGS: Record<string, number> = {
   // event arms, the dispatcher `onHoverActiveChange` dep, and the destroy()
   // teardown — wiring only; the grab/grabbing/pointer policy MECHANISM lives
   // extracted + unit-proved in cursor.ts (well under the cap).
-  'map/src/map.ts': 5063,
+  // 5063→5094 (raster tile fade-in): the `rasterFadeDuration` option + field,
+  // the effective-duration (reduced-motion) + apply helpers, the two renderer-
+  // setup applies, the reduced-motion re-apply, and the shouldRenderThisFrame
+  // keep-alive. Wiring only; the per-tile ramp + cross-fade live in the raster
+  // renderer. +31, measured post-hook.
+  'map/src/map.ts': 5094,
   // Baselined at #1255 (measured 830): the DOM-inspired layer API crossed
   // NEW_FILE_CAP with the paint-transition style-setter integration — the
   // StyleHost.transitions context, the shared applyNumber/applyColor
@@ -696,7 +701,13 @@ const CEILINGS: Record<string, number> = {
   // 848→855 (#1229 item 1): pendingLoadCount() — the in-flight tile count behind
   // hasPendingLoads(), summed into the map's public getMissingTileCount() so the
   // loading affordance covers network raster sources. A one-line read + docs.
-  'map/src/render/raster-renderer.ts': 855,
+  // 855→915 (raster tile fade-in): the draw loop split into an emitTileAt helper
+  // + findCachedParent so a fading child (firstShownFrame ramp → per-tile
+  // opacity) draws over its cached parent (cross-fade, no background flash) —
+  // plus the _fadeDurationMs field, setRasterFadeDurationMs, and hasFadingTiles.
+  // depthCompare 'always' makes the parent-under-child painter order z-fight-free.
+  // +60, measured post-hook.
+  'map/src/render/raster-renderer.ts': 915,
   // 889→906 (#1155 F3): cold-start burst enqueue cap — the `_coldStartBurst`
   // field + `setColdStartBurst` + the burst-selected 8/4 cap in enqueue().
   // 906→910 (#1155 F3 adjudication): the burst 8/4 pair now comes from the

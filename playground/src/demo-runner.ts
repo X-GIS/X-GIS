@@ -1684,6 +1684,7 @@ async function runSource(source: string, label: string) {
       respectReducedMotion?: boolean
       paintTransitionDuration?: number
       fadeDuration?: number
+      rasterFadeDuration?: number
     } = {
       enableComputePath: computeOptIn,
     }
@@ -1717,6 +1718,12 @@ async function runSource(source: string, label: string) {
     // (the _label-fade-gate parity arm); absent keeps the library default.
     const fadeParam = params.get('fade')
     if (fadeParam !== null && fadeParam !== '') ctorOpts.fadeDuration = Number(fadeParam)
+    // ?rasterfade=<ms> — override the raster tile fade-in duration (cross-fade
+    // on zoom-level swap). `?rasterfade=0` disables it (instant pop-in, the
+    // _raster-fade-gate parity arm); absent keeps the library default (300).
+    const rasterFadeParam = params.get('rasterfade')
+    if (rasterFadeParam !== null && rasterFadeParam !== '')
+      ctorOpts.rasterFadeDuration = Number(rasterFadeParam)
     currentMap = new XGISMap(canvas, ctorOpts)
     // Debug hook — Playwright tests + DevTools console can poke at
     // map._elapsedMs, map.vectorTileShows, etc. without re-wiring the

@@ -190,12 +190,24 @@ describe('#1053 raster pole cap — present on the globe, ABSENT on the flat pat
 
 describe('#1053 raster pole cap — capSign packs into TileUniforms.grid.y', () => {
   // The cap "tile" reuses the per-tile uniform; the cap sign rides the formerly
-  // reserved grid.y lane (slot 11). capSign defaults to 0 so every EXISTING
-  // 8-arg call is byte-identical (the raster-frame-uniform byte gate stays green).
+  // reserved grid.y lane (slot 11). capSign follows the new tileOpacity arg
+  // (default 1) and itself defaults to 0, so a normal tile still packs grid.y = 0.
   const ECEF_SW: readonly [number, number, number] = [4187345.1, -832901.7, 4732081.9]
   const packGridY = (capSign?: number): number => {
     const block = uniformBlock(RASTER_TILE_U)
-    writeRasterTileUniform(block, -180, -85, 180, 85, ECEF_SW, -Math.PI, 2 * Math.PI, 64, capSign)
+    writeRasterTileUniform(
+      block,
+      -180,
+      -85,
+      180,
+      85,
+      ECEF_SW,
+      -Math.PI,
+      2 * Math.PI,
+      64,
+      1,
+      capSign,
+    )
     return new Float32Array(block.buffer)[11]! // grid.y
   }
   it('omitted capSign → grid.y = 0 (normal tile, byte-identical)', () => {
@@ -204,5 +216,35 @@ describe('#1053 raster pole cap — capSign packs into TileUniforms.grid.y', () 
   it('north cap (+1) / south cap (−1) land in grid.y', () => {
     expect(packGridY(1)).toBe(1)
     expect(packGridY(-1)).toBe(-1)
+  })
+})
+
+describe('raster tile fade — per-tile opacity packs into tile_ecef_center.w (slot 7)', () => {
+  // The FS multiplies the sampled alpha by this lane (via the vis varying) so a
+  // freshly-appeared tile cross-fades 0→1 over its parent. Default 1 = full.
+  const ECEF_SW: readonly [number, number, number] = [4187345.1, -832901.7, 4732081.9]
+  const packOpacity = (tileOpacity?: number): number => {
+    const block = uniformBlock(RASTER_TILE_U)
+    writeRasterTileUniform(
+      block,
+      -180,
+      -85,
+      180,
+      85,
+      ECEF_SW,
+      -Math.PI,
+      2 * Math.PI,
+      64,
+      tileOpacity,
+    )
+    return new Float32Array(block.buffer)[7]! // tile_ecef_center.w
+  }
+  it('omitted → 1 (fully shown, the instant/pre-fade default)', () => {
+    expect(packOpacity(undefined)).toBe(1)
+  })
+  it('a mid-fade alpha rides slot 7 verbatim (the shader multiplies the texel alpha by it)', () => {
+    expect(packOpacity(0)).toBe(0) // fade just started → tile transparent, parent shows
+    expect(packOpacity(0.5)).toBeCloseTo(0.5, 6)
+    expect(packOpacity(1)).toBe(1)
   })
 })
