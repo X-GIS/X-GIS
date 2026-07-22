@@ -152,9 +152,20 @@ export function globeAltitude(
 }
 
 export interface GlobeView {
-  /** Column-major MVP (P × lookAt), ABSOLUTE ECEF coords. Used by
-   *  unproject (ray↔ellipsoid) and the camera/unit tests. */
+  /** Column-major MVP (P × lookAt), ABSOLUTE ECEF coords. f32 — used for CPU
+   *  PROJECTION (label placement / back-face cull, unit tests), where tolerance
+   *  projection at f32 is fine and matches the shipped behaviour. The precision-
+   *  critical INVERSE path uses `matrix64` (see below). */
   matrix: Float32Array
+  /** Same absolute MVP in f64. `unprojectGlobe` INVERTS this to cast a ray in
+   *  absolute ECEF, where the eye sits ~6.4 Mm from Earth centre — at f32 the
+   *  matrix translation column quantises to ~0.5 m/ULP and the inverse to ~1 m,
+   *  so the drag/zoom anchor loop (globe-anchor.ts), which pins a ground point
+   *  under the cursor by unprojecting every frame, could not converge below that
+   *  noise floor and shook tens of px at z17+. f64 keeps the recovered ground
+   *  point sub-mm. Built from the SAME `out` as `matrix` (one authority, no
+   *  drift); it is CPU-only (never a GPU upload — the shader gets `rtcMatrix`). */
+  matrix64: Float64Array
   /** Column-major MVP relative to the focus point (RTC): the vertex
    *  shaders feed `proj_globe(lon,lat) − proj_globe(clon,clat)` (= the
    *  ellipsoid point minus the focus) into THIS, exactly mirroring the 2D
@@ -333,6 +344,9 @@ export function buildGlobeMatrix(
 
   return {
     matrix: new Float32Array(out),
+    // f64 twin of `matrix` for the precision-critical unproject inverse (see the
+    // GlobeView.matrix64 note); rtcMatrix narrows to f32 for the GPU.
+    matrix64: new Float64Array(out),
     rtcMatrix: new Float32Array(rtcOut),
     eye,
     target,
@@ -342,8 +356,13 @@ export function buildGlobeMatrix(
 }
 
 /** Invert a column-major 4×4 (mirror of camera.ts invert4x4 — kept
- *  local so this module stays standalone / independently testable). */
-function invert4x4(m: ArrayLike<number>): Float32Array | null {
+ *  local so this module stays standalone / independently testable). Output is
+ *  f64: `unprojectGlobe`'s ONLY caller inverts the ABSOLUTE globe MVP, whose
+ *  inverse maps clip [-1,1] back to ECEF where the eye sits ~6.4 Mm out. An f32
+ *  inverse quantises that back-projection by ~1 m, so the ray hit — and the
+ *  drag/zoom anchor loop built on it — shook ~8 px at screen centre and tens of
+ *  px under motion at z17+. f64 keeps the recovered ground point sub-mm. */
+function invert4x4(m: ArrayLike<number>): Float64Array | null {
   const a00 = m[0],
     a01 = m[1],
     a02 = m[2],
@@ -375,7 +394,7 @@ function invert4x4(m: ArrayLike<number>): Float32Array | null {
   let det = b00 * b11 - b01 * b10 + b02 * b09 + b03 * b08 - b04 * b07 + b05 * b06
   if (Math.abs(det) < 1e-15) return null
   det = 1 / det
-  const o = new Float32Array(16)
+  const o = new Float64Array(16)
   o[0] = (a11 * b11 - a12 * b10 + a13 * b09) * det
   o[1] = (a02 * b10 - a01 * b11 - a03 * b09) * det
   o[2] = (a31 * b05 - a32 * b04 + a33 * b03) * det
@@ -437,7 +456,10 @@ export function unprojectGlobe(
   view: GlobeView,
   ellipsoid = true,
 ): [number, number] | null {
-  const inv = invert4x4(view.matrix)
+  // Invert the f64 absolute MVP (NOT the f32 `matrix`): the ray is cast in ECEF
+  // where the eye is ~6.4 Mm out, so an f32 inverse quantises the hit ~1 m and
+  // the drag/zoom anchor loop shakes (see GlobeView.matrix64).
+  const inv = invert4x4(view.matrix64)
   if (!inv) return null
   const ndcX = (screenX / w) * 2 - 1
   const ndcY = 1 - (screenY / h) * 2
