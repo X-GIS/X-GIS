@@ -344,9 +344,9 @@ export class SourceManager {
         const buf = raw.buffer.slice(raw.byteOffset, raw.byteOffset + raw.byteLength)
         handle = await readCoverage(buf, url)
       }
-      // A coverage source is DATA-ONLY: ramp/range are LAYER paint now (#1158 INC-D),
-      // read off the drawing layer's ShowCommand at arm time, not stored on the marker.
-      this.rawDatasets.set(load.name, { _coverage: handle })
+      // A coverage source is DATA-ONLY: ramp/range are LAYER paint now (#1158 INC-D), read at
+      // arm time off the ShowCommand. `_url` is kept only so setCoverageTime re-reads (#1272).
+      this.rawDatasets.set(load.name, { _coverage: handle, _url: url })
       return
     }
 

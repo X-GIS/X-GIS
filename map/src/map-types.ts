@@ -51,6 +51,10 @@ export type RawDataset =
       // value-readout authority). The colour-ramp/display window (ramp/range) is LAYER
       // paint now (#1158 INC-D) — carried on the ShowCommand, read at arm time.
       readonly _coverage: CoverageHandle
+      /** The resolved source URL, kept so `setCoverageTime` (#1272 E-③) can re-read a
+       *  DIFFERENT forecast group (`Group_NNN`) of the same cell over HTTP Range without
+       *  re-declaring the source. Absent for a host-pushed coverage (setCoverageData). */
+      readonly _url?: string
     }
 
 export interface VariantPipelines {
