@@ -330,7 +330,10 @@ const CEILINGS: Record<string, number> = {
   // in `_graphics.hasAnimatedGraphics()` so a currents overlay's drift does not freeze
   // on a static camera. Wiring only; the animation authority lives in graphics-manager.
   // +5, measured post-hook.
-  'map/src/map.ts': 5099,
+  // 5099→5111 (#1302 declarative arrows): the isArrow fork in rebuildLayers + the
+  // arrow-show import + the clearCompiledArrows call. Wiring only; per-feature eval
+  // lives in arrow-show.ts and the draw in graphics-manager. +12, measured post-hook.
+  'map/src/map.ts': 5111,
   // Baselined at #1255 (measured 830): the DOM-inspired layer API crossed
   // NEW_FILE_CAP with the paint-transition style-setter integration — the
   // StyleHost.transitions context, the shared applyNumber/applyColor

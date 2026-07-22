@@ -149,6 +149,12 @@ export interface CirclePaint extends Omit<
  *  is a TS2499; an alias takes the inline import cleanly). */
 export type HeatmapPaint = import('@xgis/compiler').HeatmapPaint
 
+/** Arrow-layer axes (#1302) — INHERITED from the canonical `@xgis/compiler`
+ *  ArrowPaint (single source, no mirror to drift). `isArrow` routes the GeoJSON
+ *  Point fork in map.ts to the ArrowRenderer; arrowBearing / arrowBearingExpr
+ *  carry the per-feature rotation (constant vs data-driven, like size/sizeExpr). */
+export type ArrowPaint = import('@xgis/compiler').ArrowPaint
+
 /** 3D extrusion paint axes — INHERITED from the canonical `@xgis/compiler`
  *  ExtrudePaint (single source, incl. fillExtrusionVerticalGradient); runtime
  *  only re-loosens extrude / extrudeBase to optional (synthetic / flat-fill
@@ -167,7 +173,8 @@ export interface ExtrudePaint extends Omit<
     | { kind: 'feature'; expr: { ast: unknown }; fallback: number }
 }
 
-export interface ShowCommand extends FillPaint, LinePaint, CirclePaint, ExtrudePaint, HeatmapPaint {
+export interface ShowCommand
+  extends FillPaint, LinePaint, CirclePaint, ExtrudePaint, HeatmapPaint, ArrowPaint {
   /** Position of this show in the compiled Scene's renderNodes — the
    *  key the P4 compute plan uses to route output buffers back to
    *  fragment-shader paint axes. Compiler emits it; runtime callers
