@@ -53,6 +53,12 @@ export interface DispatcherDeps {
    *  Required (not optional) on purpose: an optional dep that a caller
    *  forgets to wire would silently make the gate vacuous. */
   anyLayerListens(type: import('./layer').XGISFeatureEventType): boolean
+  /** Optional (#1263) — notifies the host when the hovered-feature state
+   *  flips (no feature ⇄ a feature under the pointer), so it can drive the
+   *  built-in `pointer` cursor. Fires only on a boolean transition, and only
+   *  while hover picking actually runs, so it rides the same listener gate:
+   *  a map with no hover listeners never picks, so it never reports hover. */
+  onHoverActiveChange?(active: boolean): void
 }
 
 export class EventDispatcher {
@@ -157,6 +163,9 @@ export class EventDispatcher {
     this.moveLatest = null
     const prev = this.hoverPrev
     this.hoverPrev = null
+    // Pointer left the canvas → nothing is hovered; reset the cursor even if
+    // this layer has no `mouseleave` listener (cursor ≠ event dispatch).
+    if (prev) this.deps.onHoverActiveChange?.(false)
     if (!prev) return
     const layer = this.deps.getLayerById(prev.layerId)
     if (!layer) return
@@ -212,6 +221,7 @@ export class EventDispatcher {
       // Reset, don't just return: a stale `hoverPrev` would make the first flush
       // after a listener IS registered diff against a hit from long ago — firing
       // a phantom `mouseleave` for a feature the pointer left ages back.
+      if (this.hoverPrev !== null) this.deps.onHoverActiveChange?.(false)
       this.hoverPrev = null
       return
     }
@@ -242,6 +252,10 @@ export class EventDispatcher {
     if (current) fireHover('mousemove', current)
 
     this.hoverPrev = current
+    // Cursor hook (#1263): report only the null ⇄ non-null transition, so the
+    // built-in `pointer` cursor tracks whether ANY feature is under the pointer
+    // (independent of which listeners fired above).
+    if ((prev !== null) !== (current !== null)) this.deps.onHoverActiveChange?.(current !== null)
   }
 
   private makeEvent(
