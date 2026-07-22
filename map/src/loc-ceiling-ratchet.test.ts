@@ -390,11 +390,12 @@ const CEILINGS: Record<string, number> = {
   // 2223→2230 (#1260 reduced-motion): the setFadeDurationMs passthrough (+doc)
   // that forwards a live reduced-motion / option change to the ledger's new
   // setDurationMs. Mechanism in text/label-fade.ts; a thin forwarder here. +7.
-  // 2230→2234 (#1254 zoom-blink fix): the fade key now strips the zoom-varying
+  // 2230→2239 (#1254 zoom-blink fix): the fade key now strips the zoom-varying
   // invLayer prefix via fadeStableIdentity (+doc) so a stable label doesn't blink
-  // on a zoom-level tile swap. The strip helper lives in text/label-fade.ts. +4.
-  // 2234→2239: #1298 (symbol-fade) grew the file to 2239 but left the ceiling at 2234
-  // — a main drift the ratchet flags on any rebased PR; corrected to the actual count.
+  // on a zoom-level tile swap. The strip helper lives in text/label-fade.ts. +9
+  // (the fade-key change +4, plus the prettier pre-commit hook wrapping the now-
+  // 4-name label-fade import onto 6 lines +5 — measured post-hook via
+  // `git show HEAD: | wc -l`, correcting the pre-hook 2234 #1298 landed with).
   'map/src/text/text-stage.ts': 2239,
   // 1786→1719 (#727 C): the line/point dedupe + pair-key helper block was
   // EXTRACTED to passes/line-label-dedupe.ts when the world-copy fan-out would
@@ -697,10 +698,12 @@ const CEILINGS: Record<string, number> = {
   // wraps its long-value literal multi-line) + the sqrt/inverseSqrt/normalize
   // imports. All irreducible — the ellipsoid forward IS the increment (§2, no
   // extract-worthy unit). Lower when the GPU re-targets emitModule (SCOPE, above).
-  // 826→829: the globe rim_alpha band now scales with (1−globe_eye.w) so a fixed 0.02
+  // 826→835: the globe rim_alpha band now scales with (1−globe_eye.w) so a fixed 0.02
   // cosine band can't swallow the whole view at high zoom (raster zoom-in darkening fix)
-  // + a 3-line root-cause note. Irreducible one-liner in an existing branch.
-  'map/src/shaders/dsl/projections.ts': 829,
+  // + a root-cause note; the prettier pre-commit hook then wrapped the now-longer
+  // smoothstep call across lines. +9 measured post-hook (`git show HEAD: | wc -l`, §12),
+  // correcting the pre-hook 829 the fix first landed with. Irreducible in an existing branch.
+  'map/src/shaders/dsl/projections.ts': 835,
   // #1005 — carried from the runtime arch-invariants Gate 3 (re-measured
   // 2026-07-13; lower.ts had shrunk 1452→1409, the tighter value carried).
   // 1790→1546 (INC-0 extract): the conforming red-green subdivision cluster
