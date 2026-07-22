@@ -459,6 +459,9 @@ function lowerLayer(
   let circlePitchScaleMap: boolean | undefined
   /** Mapbox `heatmap-*` paint axes (Phase R). `isHeatmap` is the marker the
    *  converter's `heatmap` utility sets; the rest carry the resolved scalars. */
+  // Arrow layer (#1302): marker + per-feature bearing (bearing-[.dir] / bearing-N).
+  let isArrow: boolean | undefined
+  let arrowBearing: SizeValue | undefined
   let isHeatmap: boolean | undefined
   let heatmapRadius: number | undefined
   let heatmapWeight: number | undefined
@@ -768,6 +771,8 @@ function lowerLayer(
     hillshadeResamplingNearest,
     hillshadeExtraSources,
     isHeatmap,
+    isArrow,
+    arrowBearing,
     heatmapRadius,
     heatmapWeight,
     heatmapIntensity,
@@ -936,6 +941,8 @@ function lowerLayer(
   hillshadeMethod = acc.hillshadeMethod
   hillshadeResamplingNearest = acc.hillshadeResamplingNearest
   hillshadeExtraSources = acc.hillshadeExtraSources
+  isArrow = acc.isArrow
+  arrowBearing = acc.arrowBearing
   isHeatmap = acc.isHeatmap
   heatmapRadius = acc.heatmapRadius
   heatmapWeight = acc.heatmapWeight
@@ -1190,6 +1197,8 @@ function lowerLayer(
     hillshadeResamplingNearest,
     hillshadeExtraSources,
     isHeatmap,
+    isArrow,
+    arrowBearing,
     heatmapRadius,
     heatmapWeight,
     heatmapIntensity,

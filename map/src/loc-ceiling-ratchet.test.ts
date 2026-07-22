@@ -725,7 +725,9 @@ const CEILINGS: Record<string, number> = {
   // Irreducible: the gate must sit in the driver loop where the dispatch
   // verdict is known. (Still ≤ the runtime arch-invariants ceiling of 1452,
   // unchanged there — shrink-only.)
-  'compiler/src/ir/lower.ts': 1432,
+  // 1432→1433 (#1302): arrow-layer plumbing (isArrow + arrowBearing local decl,
+  // acc read-back, node literal). Still ≤ the arch-invariants ceiling of 1452.
+  'compiler/src/ir/lower.ts': 1433,
   // #777 I-B icon-keep-upright + I-F icon value-forms (merged) grow three
   // symbol-lowering god-files (per-row justification in
   // architecture-invariants.test.ts, the second authority):
@@ -747,7 +749,8 @@ const CEILINGS: Record<string, number> = {
   'compiler/src/convert/layers-symbol.ts': 1363,
   'compiler/src/ir/lower-label.ts': 1187,
   'compiler/src/tokens/colors.ts': 937,
-  'compiler/src/ir/render-node.ts': 943,
+  // 943→956 (#1302): RenderNodeArrowPaint sub-bundle (isArrow + arrowBearing).
+  'compiler/src/ir/render-node.ts': 956,
   'compiler/src/convert/paint-helpers.ts': 826,
   'blueprint/src/editor.ts': 1448,
 }
