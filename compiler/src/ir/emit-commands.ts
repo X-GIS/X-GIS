@@ -6,6 +6,12 @@ import type { Scene, RenderNode, ColorValue, TimeStop, Easing, DataExpr } from '
 import { rgbaToHex } from './render-node'
 import type { PaintShapes, PropertyShape } from './property-types'
 import { hasHillshadePaint, emitHillshadeShapes } from './emit-commands-hillshade'
+import {
+  emitHeatmapFields,
+  type HeatmapPaint,
+  emitArrowFields,
+  type ArrowPaint,
+} from './emit-commands-point-symbol'
 import { colorValueToShape, sizeValueToShape } from './to-property-shape'
 import { generateShaderVariant, type ShaderVariant } from '../codegen/shader-gen'
 import { collectPalette, type Palette } from '../codegen/palette'
@@ -228,36 +234,6 @@ export interface ExtrudePaint {
    *  (undefined / true) preserves the current extrude shading; only
    *  `false` disables the vertical-gradient wall ramp at runtime. */
   fillExtrusionVerticalGradient?: boolean
-}
-
-/** Heatmap paint axes (Mapbox `heatmap-*`, Phase R). */
-export interface HeatmapPaint {
-  /** True when the layer is a Mapbox `heatmap` layer (the `heatmap` marker
-   *  utility). Routes the runtime to the HeatmapRenderer. */
-  isHeatmap?: boolean
-  /** heatmap-radius — Gaussian splat radius in CSS px. Default 30. */
-  heatmapRadius?: number
-  /** heatmap-weight — per-feature contribution multiplier. Default 1. */
-  heatmapWeight?: number
-  /** heatmap-intensity — overall density scale. Default 1. */
-  heatmapIntensity?: number
-  /** heatmap-opacity — layer alpha 0..1. Default 1. */
-  heatmapOpacity?: number
-  /** heatmap-color ramp stops (offset 0..1 over heatmap-density → RGBA). */
-  heatmapColorStops?: { offset: number; rgba: [number, number, number, number] }[]
-}
-
-/** Arrow-layer axes (#1302). Present on a layer marked with the `arrow`
- *  utility; `isArrow` routes the runtime rebuildLayers fork to the compiled
- *  ArrowRenderer. The per-feature bearing is a resolved-value pair like
- *  size/sizeExpr (constant vs data-driven). */
-export interface ArrowPaint {
-  /** True when the layer is an `arrow` layer. Routes to the ArrowRenderer. */
-  isArrow?: boolean
-  /** Constant per-layer bearing (degrees true, 0 = N clockwise); null when data-driven. */
-  arrowBearing?: number | null
-  /** Per-feature bearing expression (`bearing-[.dir]`); null when constant. */
-  arrowBearingExpr?: DataExpr | null
 }
 
 export interface ShowCommand
@@ -740,29 +716,6 @@ function emitExtrudeFields(node: RenderNode): ExtrudePaint {
     extrude: node.extrude,
     extrudeBase: node.extrudeBase,
     fillExtrusionVerticalGradient: node.fillExtrusionVerticalGradient,
-  }
-}
-
-/** Heatmap paint fields (Phase R). */
-function emitHeatmapFields(node: RenderNode): HeatmapPaint {
-  return {
-    isHeatmap: node.isHeatmap,
-    heatmapRadius: node.heatmapRadius,
-    heatmapWeight: node.heatmapWeight,
-    heatmapIntensity: node.heatmapIntensity,
-    heatmapOpacity: node.heatmapOpacity,
-    heatmapColorStops: node.heatmapColorStops,
-  }
-}
-
-/** Arrow-layer axes (#1302) — mirrors emitHeatmapFields. The per-feature bearing
- *  (a SizeValue on the node) splits into a constant + a data-driven expr,
- *  exactly like size / sizeExpr, so the runtime evaluates it per feature. */
-function emitArrowFields(node: RenderNode): ArrowPaint {
-  return {
-    isArrow: node.isArrow,
-    arrowBearing: node.arrowBearing?.kind === 'constant' ? node.arrowBearing.value : null,
-    arrowBearingExpr: node.arrowBearing?.kind === 'data-driven' ? node.arrowBearing.expr : null,
   }
 }
 
