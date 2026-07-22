@@ -34,7 +34,7 @@ layer imagery {
 
 layer speed {
   source: currents
-  ramp: "viridis"
-  range: [0, 2]
+  ramp: "s111-speed"
+  range: [0, 13]
   | opacity-70
 }
