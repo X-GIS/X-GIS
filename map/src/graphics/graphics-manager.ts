@@ -64,6 +64,17 @@ function instanceCountOf(spec: DrawSpec<unknown>): number {
   return spec.type === 'particle-flow' ? resolveParticleInstanceCount(spec) : spec.data.length
 }
 
+/** SINGLE AUTHORITY — does this retained batch ANIMATE on the per-frame clock (its GPU draw reads
+ *  the animation-clock lane and moves every frame)? Today ONLY particle-flow drifts — a closed-form
+ *  pure function of the clock (design §3.2); icon/arrow/circle/text are packed ONCE and static under
+ *  a fixed camera. BOTH the animation-clock write (`renderRetained`) and the on-demand loop's
+ *  keep-warm gate (`hasAnimatedGraphics`) route through this ONE predicate, so a future clock-driven
+ *  primitive joins the animation contract by editing this line alone — never a second, drifting
+ *  enumeration of the type that the two sites could fall out of sync on. */
+function drawSpecAnimatesPerFrame(spec: DrawSpec<unknown>): boolean {
+  return spec.type === 'particle-flow'
+}
+
 /** A live retained icon batch. The spec is retained so `update()` can re-run its
  *  accessors; the GPU buffers + bind group are null until materialised (a device
  *  exists). */
@@ -258,6 +269,20 @@ export class GraphicsManager {
     // batch has no bind group until the (pending) SDF text draper lands, so a text-only map stays
     // byte-identical / no-pass — it is packed + uploaded but not yet drawn.
     return this.batches.some((b) => b.count > 0 && b.bindGroup !== null) || this._retired.length > 0
+  }
+
+  /** True when the graphics layer is mid-animation and needs continuous redraw — a DRAWABLE batch
+   *  that `drawSpecAnimatesPerFrame` (the single animation authority) flags exists. Such a batch's
+   *  GPU draw is a pure function of the animation clock (design §3.0), which `renderRetained`
+   *  advances from `performance.now()` once per RENDERED frame — so without this keep-warm signal
+   *  the on-demand loop idles on a static camera and the motion FREEZES until the next interaction.
+   *  Mirrors `rasterRenderer.hasFadingTiles()`: the same "an overlay is animating" gate the render
+   *  loop ORs into its keep-warm decision. Static batches (all non-animated specs) return false, so
+   *  a map without an animated overlay idles byte-identically. */
+  hasAnimatedGraphics(): boolean {
+    return this.batches.some(
+      (b) => drawSpecAnimatesPerFrame(b.spec) && b.count > 0 && b.bindGroup !== null,
+    )
   }
 
   /** Build (or rebuild) a batch's GPU buffers + cached bind group. No-op until a
@@ -522,8 +547,8 @@ export class GraphicsManager {
     // drawable, so a non-particle frame is byte-identical (y = 0 as before — zero pointU bloat, the
     // §5-Q2 constraint). Pinned by ?animt / __xgisAnimT for the §5 deterministic-probe capture,
     // else the live performance.now(). O(1) in particle count — the only new per-frame cost.
-    const hasParticles = drawable.some((b) => b.spec.type === 'particle-flow')
-    const animT = hasParticles ? (animTimePinnedSeconds() ?? performance.now() / 1000) : 0
+    const hasAnimated = drawable.some((b) => drawSpecAnimatesPerFrame(b.spec))
+    const animT = hasAnimated ? (animTimePinnedSeconds() ?? performance.now() / 1000) : 0
     const perCopy: Float32Array[] = []
     for (let i = 0; i < copies.length; i++) {
       this.frameBlock.set.circle_params(copies[i]! * WORLD_WIDTH, animT, 0, 0)

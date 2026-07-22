@@ -326,7 +326,11 @@ const CEILINGS: Record<string, number> = {
   // setup applies, the reduced-motion re-apply, and the shouldRenderThisFrame
   // keep-alive. Wiring only; the per-tile ramp + cross-fade live in the raster
   // renderer. +31, measured post-hook.
-  'map/src/map.ts': 5094,
+  // 5094→5099 (particle-flow idle keep-alive): the shouldRenderThisFrame gate ORing
+  // in `_graphics.hasAnimatedGraphics()` so a currents overlay's drift does not freeze
+  // on a static camera. Wiring only; the animation authority lives in graphics-manager.
+  // +5, measured post-hook.
+  'map/src/map.ts': 5099,
   // Baselined at #1255 (measured 830): the DOM-inspired layer API crossed
   // NEW_FILE_CAP with the paint-transition style-setter integration — the
   // StyleHost.transitions context, the shared applyNumber/applyColor
