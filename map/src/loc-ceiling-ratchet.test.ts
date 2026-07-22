@@ -696,7 +696,11 @@ const CEILINGS: Record<string, number> = {
   // 848→855 (#1229 item 1): pendingLoadCount() — the in-flight tile count behind
   // hasPendingLoads(), summed into the map's public getMissingTileCount() so the
   // loading affordance covers network raster sources. A one-line read + docs.
-  'map/src/render/raster-renderer.ts': 855,
+  // 855→862 (satellite z18+ jitter fix): writeRasterFrameUniform splits the camera
+  // anchor DSFUN hi/lo (cam_ecef_center + new cam_ecef_center_l) so the raster/
+  // hillshade vs_tile subtracts it in df64 (hi then lo) — the whole tile sheet
+  // stopped shaking at over-zoom. The two-line fround split + its rationale comment.
+  'map/src/render/raster-renderer.ts': 862,
   // 889→906 (#1155 F3): cold-start burst enqueue cap — the `_coldStartBurst`
   // field + `setColdStartBurst` + the burst-selected 8/4 cap in enqueue().
   // 906→910 (#1155 F3 adjudication): the burst 8/4 pair now comes from the

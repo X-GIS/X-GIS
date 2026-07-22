@@ -9,7 +9,7 @@ import type { RhiDevice, RhiBindGroup, RhiTexture, RhiTextureView } from '@xgis/
 import { wrapWebGpuTextureView } from '@xgis/rhi-webgpu'
 import { Material, executeItems, type DrawItem } from '@xgis/engine'
 import { emitRasterWgsl, buildRasterModule, rasterGridVertexCount } from '@xgis/map'
-import { rasterTileBytes } from '../raster-uniform-slots'
+import { rasterTileBytes, rasterUniformBytes } from '../raster-uniform-slots'
 import { emitGlslModule } from '@xgis/shader-dsl'
 
 /** One raster tile to draw: its texture + 64-byte per-tile uniform. The texture is
@@ -70,7 +70,10 @@ export class RasterDraper {
       colorTargets: [{ format: format as 'bgra8unorm', blend: 'alpha' }],
       variants: [{ depthWrite: false, depthCompare: 'always', label: 'raster-pipeline-rhi' }],
       pool: { group: 1, slotSize: rasterTileBytes() }, // 48 — the canonical TileUniforms size
-      globalUniformSize: 160,
+      // Reflect-derived (was a hardcoded 160) so it tracks the 'Uniforms' struct —
+      // it grew 160→176 for the DSFUN cam_ecef_center_l low half (z18+ raster-jitter
+      // fix) and a stale literal here would under-size the UBO and truncate the write.
+      globalUniformSize: rasterUniformBytes(),
     })
     this.linearSampler = { sampler: rhi.createSampler({ mag: 'linear', min: 'linear' }) }
     this.nearestSampler = { sampler: rhi.createSampler({ mag: 'nearest', min: 'nearest' }) }
@@ -101,7 +104,10 @@ export class RasterDraper {
       ],
       variants: [{ depthWrite: false, depthCompare: 'always', label: 'raster-pick-pipeline-rhi' }],
       pool: { group: 1, slotSize: rasterTileBytes() }, // 48 — the canonical TileUniforms size
-      globalUniformSize: 160,
+      // Reflect-derived (was a hardcoded 160) so it tracks the 'Uniforms' struct —
+      // it grew 160→176 for the DSFUN cam_ecef_center_l low half (z18+ raster-jitter
+      // fix) and a stale literal here would under-size the UBO and truncate the write.
+      globalUniformSize: rasterUniformBytes(),
     }))
   }
 

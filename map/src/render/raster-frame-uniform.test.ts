@@ -73,37 +73,48 @@ const FIXTURES: readonly Fixture[] = [
   },
 ]
 
-/** Frozen verbatim reference: the retired render() slot writer (slots: mvp 0,
- *  proj 16, raster_params 20, color0 24, color1 28, cam_ecef_center 32, eye 36). */
+// DSFUN hi/lo split of the camera anchor — the z18+ jitter fix. hi is
+// byte-identical to the pre-split single-f32 lane (fround is idempotent); lo is
+// the new low half. Mirrors writeRasterFrameUniform's split exactly.
+const hiF = (v: number): number => Math.fround(v)
+const loF = (v: number): number => Math.fround(v - Math.fround(v))
+
+/** Reference: the render() slot writer, grown for the DSFUN cam_ecef_center_l low
+ *  half (slots: mvp 0, proj 16, raster_params 20, color0 24, color1 28,
+ *  cam_ecef_center[hi] 32, cam_ecef_center_l[lo] 36, eye 40). */
 function mainReferenceBytes(f: Fixture): Uint8Array {
-  const uf = new Float32Array(40)
+  const uf = new Float32Array(44)
   uf.set(MVP, 0)
   uf[16] = f.projType
   uf[17] = f.lon
   uf[18] = f.lat
   uf[19] = f.logDepthFc
   const ge = globeEyeUniform(f.eye)
-  uf[36] = ge[0]
-  uf[37] = ge[1]
-  uf[38] = ge[2]
-  uf[39] = ge[3]
+  uf[40] = ge[0]
+  uf[41] = ge[1]
+  uf[42] = ge[2]
+  uf[43] = ge[3]
   uf.set([COLORS.opacity, 0, 0, 0], 20)
   uf.set([COLORS.hueRotate, COLORS.brightnessMin, COLORS.brightnessMax, COLORS.saturation], 24)
   uf.set([COLORS.contrast, 0, 0, 0], 28)
-  uf.set([f.camAnchor[0], f.camAnchor[1], f.camAnchor[2], 0], 32)
+  uf.set([hiF(f.camAnchor[0]), hiF(f.camAnchor[1]), hiF(f.camAnchor[2]), 0], 32)
+  uf.set([loF(f.camAnchor[0]), loF(f.camAnchor[1]), loF(f.camAnchor[2]), 0], 36)
   return new Uint8Array(uf.buffer.slice(0))
 }
 
-/** Frozen verbatim reference: the retired forced-WebGL2 checker packer —
- *  literal offsets, raster_params.w = 8, globe_eye never written (zero-init). */
+/** Reference: the retired forced-WebGL2 checker packer — literal offsets,
+ *  raster_params.w = 8, globe_eye never written (zero-init). Carries the SAME
+ *  DSFUN cam_ecef_center_l split the shared packer now writes, so the sole
+ *  semantic delta vs packBlock stays the dead raster_params.w lane. */
 function checkerReferenceBytes(f: Fixture): Uint8Array {
-  const uf = new Float32Array(40)
+  const uf = new Float32Array(44)
   uf.set(MVP, 0)
   uf.set([f.projType, f.lon, f.lat, f.logDepthFc], 16)
   uf.set([COLORS.opacity, 0, 0, 8], 20)
   uf.set([COLORS.hueRotate, COLORS.brightnessMin, COLORS.brightnessMax, COLORS.saturation], 24)
   uf.set([COLORS.contrast, 0, 0, 0], 28)
-  uf.set([f.camAnchor[0], f.camAnchor[1], f.camAnchor[2], 0], 32)
+  uf.set([hiF(f.camAnchor[0]), hiF(f.camAnchor[1]), hiF(f.camAnchor[2]), 0], 32)
+  uf.set([loF(f.camAnchor[0]), loF(f.camAnchor[1]), loF(f.camAnchor[2]), 0], 36)
   return new Uint8Array(uf.buffer.slice(0))
 }
 
@@ -118,7 +129,7 @@ function packBlock(f: Fixture): Uint8Array {
     f.camAnchor,
     COLORS,
   )
-  expect(block.byteLength).toBe(160)
+  expect(block.byteLength).toBe(176)
   return new Uint8Array(block.buffer)
 }
 
@@ -137,7 +148,7 @@ describe('raster checker unification — sole delta is the dead raster_params.w 
     const old = checkerReferenceBytes(f)
     const gotF32 = new Float32Array(got.buffer.slice(0))
     const oldF32 = new Float32Array(old.buffer.slice(0))
-    for (let lane = 0; lane < 40; lane++) {
+    for (let lane = 0; lane < 44; lane++) {
       if (lane === 23) continue
       expect(gotF32[lane], `f32 lane ${lane}`).toBe(oldF32[lane])
     }

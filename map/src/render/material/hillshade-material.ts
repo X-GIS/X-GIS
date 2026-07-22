@@ -20,7 +20,7 @@ import type { RhiDevice, RhiBindGroup, RhiTexture, RhiTextureView, RhiBuffer } f
 import { wrapWebGpuTextureView } from '@xgis/rhi-webgpu'
 import { Material, executeItems, type DrawItem } from '@xgis/engine'
 import { emitHillshadeWgsl, buildHillshadeModule, rasterGridVertexCount } from '@xgis/map'
-import { rasterTileBytes } from '../raster-uniform-slots'
+import { rasterTileBytes, rasterUniformBytes } from '../raster-uniform-slots'
 import { hillshadeUniformBytes } from '../hillshade-uniform-slots'
 import type { RasterTile } from './raster-material'
 import { emitGlslModule } from '@xgis/shader-dsl'
@@ -82,7 +82,10 @@ export class HillshadeDraper {
       colorTargets: [{ format: format as 'bgra8unorm', blend: 'alpha' }],
       variants: [{ depthWrite: false, depthCompare: 'always', label: 'hillshade-pipeline-rhi' }],
       pool: { group: 1, slotSize: rasterTileBytes() }, // shared raster TileUniforms (48)
-      globalUniformSize: 160, // raster 'Uniforms' (binding 0)
+      // Reflect-derived (shared raster 'Uniforms' @binding 0) — was a hardcoded 160;
+      // the struct grew 160→176 for the DSFUN cam_ecef_center_l low half (z18+ jitter
+      // fix, shared vs_tile), and a stale literal would truncate the UBO write.
+      globalUniformSize: rasterUniformBytes(),
     })
     this.nearestSampler = { sampler: rhi.createSampler({ mag: 'nearest', min: 'nearest' }) }
     this.hsUniform = rhi.createBuffer({ size: hillshadeUniformBytes(), usage: 'uniform' })
@@ -123,7 +126,7 @@ export class HillshadeDraper {
         { depthWrite: false, depthCompare: 'always', label: 'hillshade-pick-pipeline-rhi' },
       ],
       pool: { group: 1, slotSize: rasterTileBytes() },
-      globalUniformSize: 160,
+      globalUniformSize: rasterUniformBytes(), // shared raster 'Uniforms' (see non-pick ctor)
     }))
   }
 
@@ -173,7 +176,7 @@ export class HillshadeDraper {
   }
 
   /** Build draw items from visible DEM tiles + issue them through the generic
-   *  executor. `globalBytes` = the 160-byte raster 'Uniforms' (vertex + cull);
+   *  executor. `globalBytes` = the raster 'Uniforms' (vertex + cull, 176 B);
    *  `hsBytes` = the 96-byte 'HillshadeUniforms' (lighting + decode + deriv). */
   draw(
     pass: import('@xgis/engine').RhiRenderPass,
