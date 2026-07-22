@@ -292,6 +292,10 @@ export class PanZoomController implements Controller {
     // (fingers horizontal / centre at top edge) and must not be skipped.
     let lastPinchAngle = NaN
     let lastPinchCenterY = NaN
+    // Two-finger pitch hysteresis latch (pitchGestureDecision). Reset whenever
+    // the two-finger gesture ends so each new gesture re-enters via the strict
+    // test.
+    let pitchEngaged = false
 
     const onPointerMove = (e: PointerEvent) => {
       activePointers.set(e.pointerId, { x: e.clientX, y: e.clientY })
@@ -398,8 +402,13 @@ export class PanZoomController implements Controller {
           const dy = center.y - lastPinchCenterY
           const distChange = Math.abs(dist - prevDist)
           const centerMove = Math.abs(dy)
-          // Only pitch if vertical center movement >> distance change (parallel drag)
-          if (centerMove > 2 && centerMove > distChange * 2) {
+          // Pitch iff the parallel vertical drag dominates the pinch-distance
+          // change — WITH HYSTERESIS (strict to enter, relaxed to stay) so a
+          // sustained tilt isn't stuttered back into pinch by finger-distance
+          // wobble each noisy frame (the "can't lower pitch on mobile" feel).
+          const dec = pitchGestureDecision(centerMove, distChange, pitchEngaged)
+          pitchEngaged = dec.engaged
+          if (dec.apply) {
             camera.pitch = Math.max(0, Math.min(85, camera.pitch - dy * 0.3))
           }
         }
@@ -526,6 +535,7 @@ export class PanZoomController implements Controller {
         lastPinchDist = 0
         lastPinchAngle = NaN
         lastPinchCenterY = NaN
+        pitchEngaged = false
       } else if (activePointers.size === 1) {
         // #4: lifting back to one finger after a two-pointer gesture must
         // clear pending/active rotate state so the remaining finger pans
@@ -541,6 +551,7 @@ export class PanZoomController implements Controller {
         lastPinchDist = 0
         lastPinchAngle = NaN
         lastPinchCenterY = NaN
+        pitchEngaged = false
         panVelX = 0
         panVelY = 0
         // Re-capture the world anchor under the remaining finger.
@@ -603,6 +614,7 @@ export class PanZoomController implements Controller {
         lastPinchDist = 0
         lastPinchAngle = NaN
         lastPinchCenterY = NaN
+        pitchEngaged = false
       }
       events?.onPointerCancel?.(e)
     }
@@ -739,4 +751,24 @@ function getPinchCenter(pointers: Map<number, { x: number; y: number }>): { x: n
   const pts = [...pointers.values()]
   if (pts.length < 2) return pts[0] ?? { x: 0, y: 0 }
   return { x: (pts[0].x + pts[1].x) / 2, y: (pts[0].y + pts[1].y) / 2 }
+}
+
+/** Two-finger pitch-vs-pinch disambiguation WITH HYSTERESIS. A parallel vertical
+ *  drag (vertical centre movement dominating the finger-distance change) tilts
+ *  the camera. Entry is STRICT (centreMove must dominate distChange 2×) so a
+ *  pinch-zoom never accidentally tilts; but once engaged the test RELAXES
+ *  (centreMove need only exceed distChange) so incidental finger-distance wobble
+ *  — worse when LOWERING pitch, where the fingers tend to converge — no longer
+ *  stutters a sustained tilt back into pinch-zoom every noisy frame (the "pitch
+ *  won't go down" feel). A clear pinch (distChange dominating) disengages.
+ *  Pure so the hysteresis is unit-testable without simulating touch events. */
+export function pitchGestureDecision(
+  centreMove: number,
+  distChange: number,
+  engaged: boolean,
+): { apply: boolean; engaged: boolean } {
+  const applies = engaged
+    ? centreMove > 1 && centreMove > distChange // relaxed: stay engaged through wobble
+    : centreMove > 2 && centreMove > distChange * 2 // strict: don't hijack a pinch
+  return { apply: applies, engaged: applies }
 }
