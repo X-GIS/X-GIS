@@ -103,10 +103,10 @@ export { readS102Coverage } from './hdf5/s102'
 export type { S100Coverage, CoverageBand, Product } from './hdf5/s102'
 // The runtime read-in-place path the `coverage` source consumes (replaces the
 // retired `decodeCoverage(.xgcov)`): HDF5 bytes → CoverageHandle, no wire format.
-export { readCoverageFromHdf5 } from './hdf5/coverage'
+export { readCoverageFromHdf5, readCoverageFromHdf5Url } from './hdf5/coverage'
 // The format-agnostic entry the `coverage` source + setCoverageData use: pick the
 // gridded-standard reader by URL extension (like `detectVectorTileFormat` for vector
 // tiles) → dispatch (HDF5 today; GRIB2/NetCDF are #1273/#1274). `readCoverageFromHdf5`
 // stays exported as the HDF5-specific reader.
-export { readCoverage, detectCoverageFormat } from './coverage/read-coverage'
+export { readCoverage, readCoverageRange, detectCoverageFormat } from './coverage/read-coverage'
 export type { CoverageFormat } from './coverage/read-coverage'

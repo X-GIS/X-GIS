@@ -81,21 +81,34 @@ const MAPS = {
 describe('source-manager: coverage dispatch (A9)', () => {
   beforeEach(() => vi.restoreAllMocks())
 
-  it('decodes via safeFetch and stores a { _coverage } CoverageHandle marker', async () => {
+  it('range-streams via safeFetch and stores a { _coverage } CoverageHandle marker', async () => {
     const bytes = coverageBytes()
-    const fetchSpy = vi
-      .spyOn(shared, 'safeFetch')
-      .mockResolvedValue(new Response(bytes, { status: 200 }) as never)
+    // Range-capable stub: the coverage source now RANGE-streams (only the metadata + the
+    // grid it reads, not the whole cell), so the server must honour Range. Serve 206
+    // slices of the fixture; the RangeReader drives the same read to the identical handle.
+    const fetchSpy = vi.spyOn(shared, 'safeFetch').mockImplementation(async (_u, init) => {
+      const range = (init?.headers as Record<string, string> | undefined)?.['Range']
+      const m = range ? /bytes=(\d+)-(\d*)/.exec(range) : null
+      if (!m) return new Response(bytes, { status: 200 }) as never
+      const start = Number(m[1])
+      const end = m[2] ? Math.min(Number(m[2]), bytes.length - 1) : bytes.length - 1
+      const slice = bytes.slice(start, end + 1)
+      return new Response(slice, {
+        status: 206,
+        headers: { 'content-range': `bytes ${start}-${start + slice.length - 1}/${bytes.length}` },
+      }) as never
+    })
     const { mgr, rawDatasets } = makeManager()
 
     await mgr._attachOneSource(load(), '', MAPS, { fit: false })
 
-    expect(fetchSpy).toHaveBeenCalledOnce()
-    // the SSRF-guarded url was the fetch target
-    expect(fetchSpy.mock.calls[0]![0]).toBe('https://tiles.example.com/a.h5')
+    // Range-streamed → multiple fetches, every one SSRF-guarded at the source url.
+    expect(fetchSpy).toHaveBeenCalled()
+    expect(fetchSpy.mock.calls.every((c) => c[0] === 'https://tiles.example.com/a.h5')).toBe(true)
     const entry = rawDatasets.get('bathy')!
     expect('_coverage' in entry).toBe(true)
-    // the marker's handle is the value-readout authority (valueAt round-trips)
+    // the marker's handle is the value-readout authority (valueAt round-trips) — the range
+    // path produces the identical handle to the full read.
     const handle = (entry as { _coverage: import('@xgis/data').CoverageHandle })._coverage
     expect(handle.valueAt(5, 50)).toBe(10) // SW cell, positive-down verbatim
     expect(Number.isNaN(handle.valueAt(9, 50)!)).toBe(true) // SE nodata

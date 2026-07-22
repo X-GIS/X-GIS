@@ -16,7 +16,8 @@
 // bytes are not actually HDF5. NetCDF-4 is HDF5 on disk, so a `.nc` that is really an
 // HDF5 file still round-trips through the HDF5 reader once its track lands.
 
-import { readCoverageFromHdf5 } from '../hdf5/coverage'
+import { readCoverageFromHdf5, readCoverageFromHdf5Url } from '../hdf5/coverage'
+import type { RangeReaderOptions } from '../hdf5/index'
 import type { CoverageHandle } from './format'
 
 export type CoverageFormat = 'hdf5' | 'grib2' | 'netcdf'
@@ -54,4 +55,20 @@ export async function readCoverage(bytes: ArrayBuffer, url?: string): Promise<Co
     )
   // 'hdf5' or null (unknown/extensionless → default to the only supported container).
   return readCoverageFromHdf5(bytes)
+}
+
+/** Range-streaming sibling of `readCoverage`: read a coverage over HTTP Range, pulling
+ *  only the metadata + the chunks the coverage reads (the first forecast group), NOT the
+ *  whole multi-timestep cell. Same URL-decisive format routing; HDF5 only today
+ *  (GRIB2/NetCDF are byte-range-capable too, but their readers are separate tracks). */
+export async function readCoverageRange(
+  url: string,
+  opts?: RangeReaderOptions & { blockSize?: number },
+): Promise<CoverageHandle> {
+  const format = detectCoverageFormat(url)
+  if (format === 'grib2')
+    throw new Error('[coverage] GRIB2 not yet supported (GFS track #1273); only HDF5 reads today.')
+  if (format === 'netcdf')
+    throw new Error('[coverage] NetCDF not yet supported (SST track #1274); only HDF5 reads today.')
+  return readCoverageFromHdf5Url(url, opts)
 }
