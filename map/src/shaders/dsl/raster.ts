@@ -80,11 +80,23 @@ const U = uniformStruct(
     // no-op so an un-authored raster show samples the texel unchanged.
     raster_color0: vec4fT,
     raster_color1: vec4fT,
-    // Camera-relative RTC (same fix as polygon's cam_ecef_off): the vertex ecef
-    // is absolute, so subtract cameraCenter to feed the camera-at-ENU-origin
-    // MVP. xyz = getECEFCenter (sphere); w unused. Raster is texture-grade, so
-    // plain f32 (no DSFUN) is sufficient.
+    // Camera-relative RTC anchor, DSFUN hi/lo (the raster analogue of polygon's
+    // cam_ecef_off_h/l and line's cam_h/cam_l). cam_ecef_center is the HIGH f32
+    // half, cam_ecef_center_l the LOW half, of the camera anchor the VS subtracts:
+    //   • flat Mercator (projType 0): .xy = the 2D Mercator camera centre
+    //     [centerX, centerY]; the flat arm forms rel = (p2d − hi.xy) − lo.xy.
+    //   • globe / 3D (projType 7): .xyz = the WGS84 ELLIPSOID camera ECEF
+    //     (rasterGlobeCamAnchor); the ECEF arm forms (ecef − hi) − lo.
+    // The single f32 anchor this REPLACED quantised the camera to an ~0.76 m grid
+    // (f32 ULP at |ECEF| ≈ 6.4e6 m); as the camera panned that rounding danced
+    // frame-to-frame and the whole tile sheet SHOOK at z18+ over-zoom. Subtracting
+    // the anchor in df64 (hi FIRST — Sterbenz-exact against the ~6.4e6 m vertex —
+    // then lo) narrows the small camera-relative result AFTER the cancellation,
+    // killing the jitter: the same subtract-then-narrow discipline as the
+    // shader-dsl fp64-rtc example. Both lanes' .w are spare (0). Was: "raster is
+    // texture-grade, so plain f32 is sufficient" — the shortcut that shook.
     cam_ecef_center: vec4fT,
+    cam_ecef_center_l: vec4fT,
     // #600 — globe(7) eye-horizon cull. xyz = normalize(eye_ecef), w =
     // EARTH_R/|eye_ecef|. The per-fragment cull (#595) passes this to
     // needs_backface_cull / rim_alpha; the globe arm uses the eye-horizon cap
@@ -231,7 +243,8 @@ const vs = fn(
 
     const mercY = Tile.field.merc_y
     const bounds = Tile.field.bounds
-    const camEcef = U.field.cam_ecef_center
+    const camEcef = U.field.cam_ecef_center // DSFUN high half
+    const camEcefL = U.field.cam_ecef_center_l // DSFUN low half
     const projParams = U.field.proj_params
 
     // vv=0 → north (offset=diff), vv=1 → south (offset=0). Local offset from tileSouth.
@@ -269,8 +282,12 @@ const vs = fn(
     const lonRad = radians(lon)
     const ecef = lonlatToEcef({ lon_rad: lonRad, lat_rad: latRad, height: f32(0) })
     // Camera-relative: ecef − cameraCenter (the MVP is camera-at-ENU-origin).
+    // DSFUN two-term subtract: (ecef − hi) is Sterbenz-exact (both ~6.4e6 m), then
+    // − lo narrows the small result AFTER cancellation, so the camera's f32
+    // rounding no longer dances as it pans — no z18+ shake. Was `ecef − hi` alone.
     const camEcefVec = vec3(camEcef.x, camEcef.y, camEcef.z)
-    const ecefRtc = ecef.sub(camEcefVec)
+    const camEcefLVec = vec3(camEcefL.x, camEcefL.y, camEcefL.z)
+    const ecefRtc = ecef.sub(camEcefVec).sub(camEcefLVec)
 
     const latDeg = degrees(latRad)
 
@@ -288,7 +305,11 @@ const vs = fn(
           projParams.x.lt(0.5),
           () => {
             const p2d = project(lon, latDeg, projParams)
-            const rel2d = p2d.sub(vec2(camEcef.x, camEcef.y))
+            // DSFUN two-term subtract of the 2D Mercator camera centre (hi .xy,
+            // lo .xy): (p2d − hi) is Sterbenz-exact (both ~6.1e6 m), then − lo
+            // narrows after cancellation, so the camera no longer snaps to the
+            // f32 grid and jitters as it pans. Was `p2d − hi.xy` alone.
+            const rel2d = p2d.sub(vec2(camEcef.x, camEcef.y)).sub(vec2(camEcefL.x, camEcefL.y))
             return transformMat4(U.field.mvp, vec4(rel2d.x, rel2d.y, 0, 1))
           },
         ],

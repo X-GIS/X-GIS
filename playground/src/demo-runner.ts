@@ -594,9 +594,7 @@ function showLangTab(js: boolean): void {
   tabJs?.classList.toggle('active', js)
   if (js) {
     jsModel ??= monaco.editor.createModel('', 'typescript')
-    jsModel.setValue(
-      twinSnippet(demoIds[currentIdx]) ?? DEMO_RECIPES[demoIds[currentIdx]] ?? '',
-    )
+    jsModel.setValue(twinSnippet(demoIds[currentIdx]) ?? DEMO_RECIPES[demoIds[currentIdx]] ?? '')
     editor.setModel(jsModel)
     editor.updateOptions({ readOnly: true })
     runBtn.disabled = true

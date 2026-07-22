@@ -214,3 +214,88 @@ describe('coordinate error budget — pre-observation precision gate', () => {
     expect(tlAnalytic).toBeLessThan(PX_TOL)
   })
 })
+
+// ═══ Raster tile RTC — camera-anchor jitter gate (the satellite z18+ shake) ═══
+//
+// The raster / hillshade vs_tile subtracted the camera anchor as a SINGLE f32
+// (u.cam_ecef_center). At |merc| ≈ 6.1e6 m one f32 ULP is ~0.73 m; as the camera
+// PANS, that rounding walks the f32 grid frame-to-frame, so a STATIONARY ground
+// point wobbles ±~0.73 m on screen — "지도가 흔들린다": invisible at z12, ~14 px at
+// z20.55 over-zoom. The fix ships the anchor DSFUN hi/lo and subtracts hi
+// (Sterbenz-exact against the ~6.1e6 m vertex) THEN lo, so the camera term is
+// df64-precise and the wobble vanishes — the subtract-then-narrow discipline of
+// the shader-dsl fp64-rtc example, brought to the raster path (polygon/line
+// already shipped it as cam_ecef_off_h/l and cam_h/cam_l).
+//
+// This gate is the closed form of that shake: it pans the camera a few metres
+// and measures the peak-to-peak SCREEN motion of a stationary vertex — the literal
+// definition of jitter — with no GPU. Faithful on the Mercator x-axis (pure
+// multiplies), the satellite demo's default projection.
+
+/** Raster flat-Mercator arm, OLD: rel = project(lon) − camF32 (single f32 anchor). */
+function rasterMercOldErrM(lon: number, camLon: number): number {
+  const p2dx = f(f(f(lon) * DEG2RAD_F32) * R_F32) // proj_mercator x, absolute f32
+  const camF32 = f(mercX64(camLon)) // single f32 camera Mercator X (the old anchor)
+  const relX = f(p2dx - camF32)
+  return relX - (mercX64(lon) - mercX64(camLon)) // signed error vs f64 truth
+}
+
+/** Raster flat-Mercator arm, NEW: rel = (project(lon) − camH) − camL (DSFUN hi/lo). */
+function rasterMercNewErrM(lon: number, camLon: number): number {
+  const p2dx = f(f(f(lon) * DEG2RAD_F32) * R_F32)
+  const [camH, camL] = splitF64(mercX64(camLon))
+  const relX = f(f(p2dx - camH) - camL)
+  return relX - (mercX64(lon) - mercX64(camLon))
+}
+
+/** Peak-to-peak screen wobble (px) of a STATIONARY vertex as the camera pans a few
+ *  metres. Truth: a smooth pan moves the vertex smoothly, so ANY peak-to-peak in
+ *  the f32 position error over that pan IS the jitter the eye reads as shake. The
+ *  3 m sweep crosses several ~0.73 m f32 anchor cells, so the single-f32 arm shows
+ *  its full-ULP wobble at every view zoom. */
+function panJitterPx(
+  errFn: (lon: number, camLon: number) => number,
+  lon: number,
+  camLonBase: number,
+  viewZoom: number,
+): number {
+  const px = pxPerM(viewZoom)
+  const SWEEP_M = 3
+  const sweepDeg = SWEEP_M / (DEG2RAD * R)
+  let lo = Infinity
+  let hi = -Infinity
+  for (let k = 0; k <= 256; k++) {
+    const camLon = camLonBase + (sweepDeg * k) / 256
+    const e = errFn(lon, camLon) * px
+    if (e < lo) lo = e
+    if (e > hi) hi = e
+  }
+  return hi - lo
+}
+
+describe('raster tile RTC — camera-anchor jitter (satellite z18+ shake)', () => {
+  const seoul = CELLS[0]!
+  it('OLD single-f32 anchor: a stationary vertex SHAKES multiple px at z18+ over-zoom', () => {
+    for (const z of [18, 20, 20.55]) {
+      const jit = panJitterPx(rasterMercOldErrM, seoul.lon, seoul.lon, z)
+      expect(
+        jit,
+        `old raster jitter ${jit.toFixed(2)}px @ z${z} (must exceed 1px — the visible shake)`,
+      ).toBeGreaterThan(1)
+    }
+  })
+  it('NEW DSFUN hi/lo anchor: the SAME vertex is rock-steady (< 0.05px) at every zoom', () => {
+    for (const z of VIEW_ZOOMS) {
+      const jit = panJitterPx(rasterMercNewErrM, seoul.lon, seoul.lon, z)
+      expect(
+        jit,
+        `new raster jitter ${jit.toExponential(2)}px @ z${z} (must be sub-0.05px — no shake)`,
+      ).toBeLessThan(0.05)
+    }
+  })
+  it('the fix removes ≥100× of the pan jitter at the reported z20.55 over-zoom', () => {
+    const oldJ = panJitterPx(rasterMercOldErrM, seoul.lon, seoul.lon, 20.55)
+    const newJ = panJitterPx(rasterMercNewErrM, seoul.lon, seoul.lon, 20.55)
+    expect(oldJ / Math.max(newJ, 1e-9)).toBeGreaterThan(100)
+  })
+})

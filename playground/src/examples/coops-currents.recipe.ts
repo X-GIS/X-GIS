@@ -163,7 +163,11 @@ export function installCoopsCurrents(
           })
         : null
 
-    onStatus?.(stations.length, COOPS_STATIONS.length, stations.length ? new Date().toLocaleTimeString() : null)
+    onStatus?.(
+      stations.length,
+      COOPS_STATIONS.length,
+      stations.length ? new Date().toLocaleTimeString() : null,
+    )
     ;(window as unknown as { __xgisCoopsStations?: number }).__xgisCoopsStations = stations.length
   }
 
