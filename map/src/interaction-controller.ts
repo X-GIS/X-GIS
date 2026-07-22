@@ -32,7 +32,7 @@ import { mercatorYToLat } from '@xgis/geo'
 import type { GPUContext } from '@xgis/rhi-webgpu'
 import type { LayerIdRegistry, XGISLayer, XGISFeature, XGISFeatureEventType } from './layer'
 import type { SceneCommands } from './interpreter'
-import type { GeoJSONFeature, GeoJSONFeatureCollection } from '@xgis/data'
+import type { GeoJSONFeature } from '@xgis/data'
 import { toU32Id } from '@xgis/data'
 import type { RawDataset } from './map-types'
 
@@ -311,11 +311,18 @@ export class InteractionController {
    *  isn't found. */
   lookupFeatureProperties(sourceName: string, featureId: number): Record<string, unknown> | null {
     // The feature-index pick path is GeoJSON-only by construction: an index is
-    // built solely for FeatureCollection sources. A tile marker here is a
-    // caller bug (this method's contract returns null for non-GeoJSON), so the
-    // single-hop cast preserves the prior FC-typed access.
-    const data = this.rawDatasets.get(sourceName) as GeoJSONFeatureCollection | undefined
-    if (!data) return null
+    // built solely for FeatureCollection sources. Every OTHER `rawDatasets`
+    // entry is one of the documented placeholder markers ({ _vectorTile } for a
+    // tiled / virtual-tiled GeoJSON source — the DEFAULT route for URL GeoJSON
+    // since VirtualPMTilesBackend became default, with the real FC living in
+    // hostSeededFC — plus { _tileUrl } raster and { _coverage } grids) and
+    // carries NO in-memory `features`. Narrow the RawDataset union to the FC arm
+    // with `'features' in data` (mirrors feature-update-queue.ts) so a truthy
+    // marker returns null per this method's "not a GeoJSON dataset ⇒ null"
+    // contract instead of dereferencing `undefined.length` — the crash a bare
+    // `!data` guard let through on every hover over a tiled source.
+    const data = this.rawDatasets.get(sourceName)
+    if (!data || !('features' in data) || !Array.isArray(data.features)) return null
     let index = this._featureIndex.get(sourceName)
     if (!index) {
       index = new Map()
