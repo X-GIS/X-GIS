@@ -10,6 +10,7 @@ import {
   type InteractionControllerDeps,
 } from './interaction-controller'
 import type { LayerIdRegistry, XGISLayer } from './layer'
+import type { RawDataset } from './map-types'
 
 // ── B2: center-rounded CSS→device pixel mapping ──
 describe('cssToDevicePixel (Audit ⑩ B2 — DPR pick-coord rounding)', () => {
@@ -91,5 +92,90 @@ describe('InteractionController.resolvePick (Audit ⑩ B1 — pick visibility)',
 
   it('does NOT suppress a hit on an unregistered layerId (cannot prove hidden)', () => {
     expect(ctrl.resolvePick(7, 99, 0)).toEqual({ featureId: 7, layerId: 99, instanceId: 0 })
+  })
+})
+
+// ── Tile-backed marker sources must NOT crash the property lookup ──
+// VirtualPMTilesBackend is the DEFAULT route for URL GeoJSON, so such a
+// source's `rawDatasets` entry is the `{ _vectorTile: true }` marker (the real
+// FeatureCollection lives in hostSeededFC), NOT a FeatureCollection. The old
+// bare `!data` guard let the truthy marker through to `data.features.length`,
+// which threw "Cannot read properties of undefined (reading 'length')" on every
+// hover — the reported picking-demo crash storm. The lookup's contract is to
+// return null for non-GeoJSON sources; buildFeatureForEvent then degrades to an
+// ID-only feature (properties: {}).
+function makePropsController(opts: {
+  rawDatasets: Map<string, RawDataset>
+  layers?: Record<number, string> // layerId → layerName
+  shows?: { layerName?: string; targetName: string }[]
+}): InteractionController {
+  const idToName = new Map<number, string>(
+    Object.entries(opts.layers ?? {}).map(([id, name]) => [Number(id), name]),
+  )
+  const xgisLayers = new Map<string, XGISLayer>()
+  for (const name of idToName.values()) xgisLayers.set(name, { visible: true } as XGISLayer)
+  const deps = {
+    camera: {} as never,
+    layerIds: { getName: (id: number) => idToName.get(id) ?? null } as unknown as LayerIdRegistry,
+    xgisLayers,
+    rawDatasets: opts.rawDatasets,
+    featureIndex: new Map(),
+    getCtx: () => null,
+    getPickTexture: () => null,
+    getPickTextureDevice: () => null,
+    getProjectionName: () => 'mercator',
+    getVectorTileShows: () =>
+      (opts.shows ?? []).map((show) => ({
+        sourceName: show.targetName,
+        show,
+        pipelines: null,
+        layout: null,
+      })),
+  } as unknown as InteractionControllerDeps
+  return new InteractionController(deps)
+}
+
+describe('InteractionController.lookupFeatureProperties (tile-backed markers)', () => {
+  const markers: Array<[string, RawDataset]> = [
+    ['vector-tile / tiled-geojson', { _vectorTile: true }],
+    ['raster', { _tileUrl: 'https://t/{z}/{x}/{y}.png' }],
+    ['coverage', { _coverage: {} as never }],
+  ]
+  for (const [label, marker] of markers) {
+    it(`returns null (no throw) for a ${label} marker source`, () => {
+      const ctrl = makePropsController({ rawDatasets: new Map([['world', marker]]) })
+      expect(() => ctrl.lookupFeatureProperties('world', 42)).not.toThrow()
+      expect(ctrl.lookupFeatureProperties('world', 42)).toBeNull()
+    })
+  }
+
+  it('still resolves properties for a real FeatureCollection source', () => {
+    const fc = {
+      type: 'FeatureCollection',
+      features: [{ type: 'Feature', id: 7, properties: { name: 'Korea' }, geometry: null }],
+    } as unknown as RawDataset
+    const ctrl = makePropsController({ rawDatasets: new Map([['world', fc]]) })
+    expect(ctrl.lookupFeatureProperties('world', 7)).toEqual({ name: 'Korea' })
+  })
+
+  it('returns null for an unknown source (miss)', () => {
+    const ctrl = makePropsController({ rawDatasets: new Map() })
+    expect(ctrl.lookupFeatureProperties('nope', 1)).toBeNull()
+  })
+})
+
+describe('InteractionController.buildFeatureForEvent (tile-backed source → ID-only feature)', () => {
+  it('builds an ID-only feature (no crash) when the picked source is a tile marker', () => {
+    const ctrl = makePropsController({
+      rawDatasets: new Map<string, RawDataset>([['world', { _vectorTile: true }]]),
+      layers: { 3: 'fill' },
+      shows: [{ layerName: 'fill', targetName: 'world' }],
+    })
+    expect(ctrl.buildFeatureForEvent(3, 42)).toEqual({
+      id: 42,
+      source: 'world',
+      layer: 'fill',
+      properties: {},
+    })
   })
 })
