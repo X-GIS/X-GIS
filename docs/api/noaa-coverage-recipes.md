@@ -69,20 +69,35 @@ The browser then points a `type: coverage` source's `url` at this edge — it on
 ever talks to your origin, never NOAA.
 
 **Live in the playground (`s111_live` demo).** The playground ships this end to end
-against the REAL bucket. In dev the vite server is the proxy — `playground/dev/
-noaa-s111-proxy.ts` bridges `/noaa-s111/*` to `noaa-s111-pds` with a CORS header, the
-same locus as the `/pmtiles-proxy` entry. In prod the hosted static site has no server,
-so `loader.ts` rewrites `/noaa-s111/` to a Cloudflare Worker (`playground/dev/
-noaa-s111-worker.ts`) that serves the identical resolve+stream contract. One wrinkle the
-minimal proxy above skips: the NOAA bucket is a **rolling window** (old forecast cycles
-age out), so a hard-coded cell URL 404s within days. The path `/noaa-s111/latest.h5`
-therefore RESOLVES the newest CBOFS cell on each request (`resolveLatestCbofsKey` walks
-the date tree newest-first) — the demo's `.xgis` names that stable path and never rots:
+against the REAL buckets. In dev the vite server is the proxy — `playground/dev/
+noaa-s111-proxy.ts` bridges the `/noaa*` paths to the NOAA S3 buckets with a CORS header,
+the same locus as the `/pmtiles-proxy` entry. In prod the hosted static site has no
+server, so `loader.ts` rewrites those paths to a Cloudflare Worker (`playground/dev/
+noaa-s111-worker.ts`) that serves the identical contract. The proxy is **general, not
+pinned to one product** — it is a CORS bridge to any NOAA Open-Data bucket, not a
+CBOFS-only shim:
+
+| Path                           | Serves                                                            |
+| ------------------------------ | ----------------------------------------------------------------- |
+| `/noaa/<bucket>/<key>[?query]` | any `noaa-*` bucket — object GET (Range preserved) **or** S3 LIST |
+| `/noaa-s111/latest.h5`         | newest CBOFS (Chesapeake) S-111 cell                              |
+| `/noaa-s111/latest/<model>.h5` | newest cell for any S-111 model (dbofs, gomofs, ngofs2, …)        |
+| `/noaa-s111/<key>`             | explicit `noaa-s111-pds` key                                      |
+
+The bucket is allowlisted to the `noaa-*` naming (public read-only Open-Data buckets), so
+it is not an open proxy. The LIST route lets a client resolve the newest key for **any**
+dataset itself (S-102 bathymetry, GOES, GFS, NWM, …), the same way the S-111 `latest`
+route does server-side — needed because these buckets are **rolling windows** (old cycles
+age out), so a hard-coded key 404s within days. The `s111_live` demo names the stable
+`latest.h5` path and never rots:
 
 ```
 source currents { type: coverage, url: "/noaa-s111/latest.h5" }
 layer speed { source: currents; ramp: "viridis"; range: [0, 2] | opacity-70 }
 ```
+
+Other models / datasets use the same proxy — e.g. `url: "/noaa-s111/latest/dbofs.h5"`, or
+resolve a cell yourself via `fetch("/noaa/noaa-s102-pds/?list-type=2&prefix=…")` then load it.
 
 **When you do NOT need any of this:** CORS-open products — CO-OPS currents
 (`api.tidesandcurrents.noaa.gov`) and weather.gov alerts — already send

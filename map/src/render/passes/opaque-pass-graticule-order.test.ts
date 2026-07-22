@@ -28,8 +28,9 @@ import { opaquePass } from './opaque-pass'
 import { makeProjectionToken } from '../projection-token'
 
 /** Build a stub FrameContext + OpaquePassHost + SceneView that record the draw
- *  order of renderToPass (legacy) / each show / renderGraticuleOverlay. */
-function harness(groupCount: number) {
+ *  order of renderToPass (legacy) / each show / coverage / renderGraticuleOverlay.
+ *  `opts.coverage` arms a flat-projection coverage overlay (#1272). */
+function harness(groupCount: number, opts: { coverage?: boolean } = {}) {
   const order: string[] = []
   const subPass = { end: () => undefined }
   const ctx = {
@@ -54,12 +55,21 @@ function harness(groupCount: number) {
     gpuTimer: undefined,
     _rasterShow: undefined,
     _elapsedMs: 0,
-    camera: {},
+    // Flat projection (token 0 = mercator) + not globe → the coverage gate passes when armed.
+    camera: {
+      globeMode: false,
+      centerX: 0,
+      centerY: 0,
+      getViewForProjection: () => ({ matrix: new Float32Array(16), logDepthFc: 1 }),
+    },
     pointRenderer: {},
     rasterRenderer,
-    // No coverage armed in this harness → hasCoverage() false short-circuits the
-    // coverage draw before the camera/projection checks (#1272).
-    coverageRenderer: { hasCoverage: () => false },
+    // Coverage draws in the LAST opaque sub-pass, after the shows (#1272) — same slot
+    // the #970 graticule uses. Off by default (hasCoverage false short-circuits it).
+    coverageRenderer: {
+      hasCoverage: () => opts.coverage === true,
+      render: () => order.push('coverage'),
+    },
     renderer: {
       uniformBuffer: {},
       renderToPass: () => order.push('legacy'),
@@ -100,5 +110,38 @@ describe('#970 graticule overlay draws after opaque fills', () => {
     const gi = order.indexOf('graticule')
     for (let g = 0; g < 3; g++) expect(gi).toBeGreaterThan(order.indexOf(`show${g}`))
     expect(order[order.length - 1]).toBe('graticule')
+  })
+})
+
+describe('#1272 S-100 coverage overlay draws after opaque fills', () => {
+  // Regression gate for "a vector basemap's ocean fill hides the coverage". Coverage
+  // USED to draw in the FIRST sub-pass (over the raster, UNDER the vector shows), so a
+  // vector basemap's water `show` painted over it. The fix moves it to the LAST sub-pass
+  // AFTER the shows (the #970 graticule slot). This gate pins the draw ORDER.
+  it('single group: coverage draws AFTER the show, drawn once', () => {
+    const { order, ctx, host, scene } = harness(1, { coverage: true })
+    opaquePass.execute(ctx as never, scene as never, host as never)
+
+    expect(order, 'coverage overlay must be drawn').toContain('coverage')
+    expect(order.filter((o) => o === 'coverage')).toHaveLength(1)
+    // Composites on top of the opaque fill → strictly after the show…
+    expect(order.indexOf('coverage')).toBeGreaterThan(order.indexOf('show0'))
+    // …and under the graticule (grid stays on top of the data overlay).
+    expect(order.indexOf('coverage')).toBeLessThan(order.indexOf('graticule'))
+  })
+
+  it('multiple groups: coverage drawn ONCE, after every group’s show', () => {
+    const { order, ctx, host, scene } = harness(3, { coverage: true })
+    opaquePass.execute(ctx as never, scene as never, host as never)
+
+    expect(order.filter((o) => o === 'coverage')).toHaveLength(1)
+    const ci = order.indexOf('coverage')
+    for (let g = 0; g < 3; g++) expect(ci).toBeGreaterThan(order.indexOf(`show${g}`))
+  })
+
+  it('no coverage armed: nothing drawn (hasCoverage gate)', () => {
+    const { order, ctx, host, scene } = harness(1)
+    opaquePass.execute(ctx as never, scene as never, host as never)
+    expect(order).not.toContain('coverage')
   })
 })

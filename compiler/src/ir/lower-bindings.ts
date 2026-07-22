@@ -142,6 +142,10 @@ export interface LayerAccumulator {
         highlight?: [number, number, number, number]
       }[]
     | undefined
+  // Arrow layer (#1302). `isArrow` is the marker the `arrow` utility sets;
+  // `arrowBearing` carries the per-feature rotation (bearing-[.dir] / bearing-N).
+  isArrow: boolean | undefined
+  arrowBearing: SizeValue | undefined
   // Heatmap paint axes (Phase R). isHeatmap is the marker the converter's
   // `heatmap` utility sets; the rest carry the resolved scalars + ramp.
   isHeatmap: boolean | undefined

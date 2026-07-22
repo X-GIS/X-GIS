@@ -30,14 +30,17 @@ const URL_REWRITES: Array<[RegExp, string]> = [
   ],
 ]
 
-// The NOAA S-111 live demo streams from the CORS-less NOAA S3 bucket through a proxy
-// (the vite `/noaa-s111` dev middleware). The hosted static site has no dev server, so
-// in PROD ONLY we rewrite `/noaa-s111/` to a CORS-open Cloudflare Worker that serves the
-// same resolve+stream contract (dev/noaa-s111-worker.ts). Dev keeps the `/noaa-s111/`
-// path so the vite proxy handles it. Until the worker is deployed the demo degrades to
-// imagery-only on the hosted site (see docs/api/noaa-coverage-recipes.md).
+// The live NOAA demos stream from the CORS-less NOAA S3 buckets through a proxy — the
+// vite `/noaa` + `/noaa-s111` dev middleware locally. The hosted static site has no dev
+// server, so in PROD ONLY we rewrite those path prefixes to a CORS-open Cloudflare Worker
+// that serves the same general contract (dev/noaa-s111-worker.ts). The prefix is PRESERVED
+// in the rewrite (the worker routes on the full `/noaa/<bucket>/…` or `/noaa-s111/…` path);
+// dev keeps the bare path so the vite proxy handles it. Until the worker is deployed the
+// demos degrade to imagery-only on the hosted site (see docs/api/noaa-coverage-recipes.md).
+const NOAA_WORKER = 'https://noaa-s111.x-gis.workers.dev'
 if (import.meta.env.PROD) {
-  URL_REWRITES.push([/\/noaa-s111\//g, 'https://noaa-s111.x-gis.workers.dev/'])
+  URL_REWRITES.push([/\/noaa-s111\//g, `${NOAA_WORKER}/noaa-s111/`])
+  URL_REWRITES.push([/\/noaa\//g, `${NOAA_WORKER}/noaa/`])
 }
 
 export function load(file: string): string {

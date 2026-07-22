@@ -89,6 +89,21 @@ export const sizeZoomBindingHandler: BindingHandler = {
   },
 }
 
+/** `bearing-[.dir]` — per-feature arrow rotation (degrees true, 0 = N cw),
+ *  data-driven via the binding form. The `bearing-N` constant lives in the
+ *  utility ladder (miscUtilHandlers). Consumed by the `arrow` layer (#1302). */
+export const bearingBindingHandler: BindingHandler = {
+  match: (ctx) => ctx.name === 'bearing',
+  apply: (ctx) => {
+    ctx.acc.arrowBearing = {
+      kind: 'data-driven',
+      expr: { ast: ctx.item.binding! },
+      unit: null,
+    }
+    return true
+  },
+}
+
 /** `fill-translate-x/y-[interpolate(zoom, …)]` — per-axis zoom shape. */
 export const fillTranslateXBindingHandler: BindingHandler = {
   match: (ctx) => ctx.name === 'fill-translate-x',
@@ -482,6 +497,24 @@ export const fillExtrusionConstUtilHandlers: BindingHandler[] = [
 /** opacity-* / size-* / projection-* / visibility / shape / pointer-events /
  *  animation utility arms. */
 export const miscUtilHandlers: BindingHandler[] = [
+  // arrow layer (#1302): `arrow` marks the layer as an oriented-arrow field;
+  // `bearing-N` is a constant per-layer rotation (the data-driven
+  // `bearing-[.dir]` form is bearingBindingHandler).
+  {
+    match: (c) => c.name === 'arrow',
+    apply: (c) => {
+      c.acc.isArrow = true
+      return true
+    },
+  },
+  {
+    match: (c) => c.name.startsWith('bearing-'),
+    apply: (c) => {
+      const num = parseFloat(c.name.slice(8))
+      if (!isNaN(num)) c.acc.arrowBearing = { kind: 'constant', value: num, unit: null }
+      return true
+    },
+  },
   {
     match: (c) => c.name.startsWith('opacity-'),
     apply: (c) => {

@@ -245,6 +245,18 @@ export interface RenderNodeHeatmapPaint {
   heatmapColorStops?: { offset: number; rgba: [number, number, number, number] }[]
 }
 
+/** Arrow layer (#1302). Present only on a layer marked with the `arrow`
+ *  utility; routes the runtime to the compiled arrow renderer, which reuses the
+ *  retained-arrow shader/mesh but is driven per-feature from the source. */
+export interface RenderNodeArrowPaint {
+  /** True when the layer is an `arrow` layer (the `arrow` marker utility). */
+  isArrow?: boolean
+  /** Per-feature arrow rotation — degrees true, 0 = north clockwise. From
+   *  `bearing-[.dir]` (data-driven) or a `bearing-N` constant. Reuses SizeValue
+   *  as the per-feature scalar carrier (constant / data-driven). */
+  arrowBearing?: SizeValue
+}
+
 export interface RenderNode
   extends
     RenderNodeFillPaint,
@@ -254,7 +266,8 @@ export interface RenderNode
     RenderNodeRasterPaint,
     RenderNodeHillshadePaint,
     RenderNodeHeatmapPaint,
-    RenderNodeCoveragePaint {
+    RenderNodeCoveragePaint,
+    RenderNodeArrowPaint {
   name: string
   sourceRef: string // references SourceDef.name
   /** Optional MVT layer slice within the referenced source. When set,
@@ -369,7 +382,8 @@ export interface FormatSpec {
 }
 
 export type TextPart =
-  { kind: 'literal'; value: string } | { kind: 'interp'; expr: DataExpr; spec?: FormatSpec }
+  | { kind: 'literal'; value: string }
+  | { kind: 'interp'; expr: DataExpr; spec?: FormatSpec }
 
 export type TextValue = { kind: 'expr'; expr: DataExpr } | { kind: 'template'; parts: TextPart[] }
 
