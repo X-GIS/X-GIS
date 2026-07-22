@@ -38,8 +38,21 @@ export function placeLabelsAlongLine(
   pn: number,
   spacingPx: number,
   emit: (pax: number, pay: number, pbx: number, pby: number, t: number) => void,
+  cull?: (px: number, py: number) => boolean,
 ): void {
   if (pn < 2) return
+  // #1314 — optional viewport edge-inset cull. A line label whose anchor projects
+  // too close to a screen edge renders half-clipped and unreadable (user report:
+  // "화면 기준 양 끝으로 라벨이 붙어서 가시성 및 가독성이 나빠지는"). When `cull` is
+  // supplied it receives the interpolated anchor point and returns true to KEEP;
+  // a false verdict skips this stop and the walk continues to the next. Undefined
+  // ⇒ every stop emits (the historical behaviour — inline / raw-GeoJSON path).
+  const emitK =
+    cull === undefined
+      ? emit
+      : (pax: number, pay: number, pbx: number, pby: number, t: number): void => {
+          if (cull(pax + (pbx - pax) * t, pay + (pby - pay) * t)) emit(pax, pay, pbx, pby, t)
+        }
   let total = 0
   for (let i = 0; i < pn - 1; i++) {
     const dx = px[i + 1]! - px[i]!
@@ -57,7 +70,7 @@ export function placeLabelsAlongLine(
       const segLen = Math.sqrt(dx * dx + dy * dy)
       if (acc + segLen >= target) {
         const t = segLen > 0 ? (target - acc) / segLen : 0
-        emit(px[i]!, py[i]!, px[i + 1]!, py[i + 1]!, t)
+        emitK(px[i]!, py[i]!, px[i + 1]!, py[i + 1]!, t)
         return
       }
       acc += segLen
@@ -72,7 +85,7 @@ export function placeLabelsAlongLine(
     const segLen = Math.sqrt(dx * dx + dy * dy)
     while (nextStop <= acc + segLen && nextStop <= total) {
       const t = segLen > 0 ? (nextStop - acc) / segLen : 0
-      emit(px[i]!, py[i]!, px[i + 1]!, py[i + 1]!, t)
+      emitK(px[i]!, py[i]!, px[i + 1]!, py[i + 1]!, t)
       nextStop += spacingPx
     }
     acc += segLen
@@ -119,6 +132,7 @@ export function placeInlineLineLabels(
     props: FeatureProps,
   ) => void,
   labelLayerName: string | undefined,
+  cull?: (px: number, py: number) => boolean,
 ): void {
   // Caller (label-pass.ts Path 1) already skips null-geometry features
   // before reaching this call; re-assert it here so this module doesn't
@@ -179,7 +193,7 @@ export function placeInlineLineLabels(
     // consumed synchronously per flush, so reusing it from index 0 is safe.
     let pn = 0
     const flushRun = (): void => {
-      placeLabelsAlongLine(px, py, pn, spacingPx, emitInlineLine)
+      placeLabelsAlongLine(px, py, pn, spacingPx, emitInlineLine, cull)
       pn = 0
     }
     for (const v of part) {
@@ -194,4 +208,23 @@ export function placeInlineLineLabels(
     }
     flushRun()
   }
+}
+
+/** #1314 — viewport edge-inset test for a line-label anchor. A line label placed
+ *  along a viewport-clipped run drops a stop every `symbol-spacing` from wherever
+ *  the road ENTERS the viewport — i.e. the first/last stops sit right at the two
+ *  screen edges, rendering half-clipped and unreadable ("화면 기준 양 끝으로 라벨이
+ *  붙어서 가시성 및 가독성이 나빠지는"). Returns true when the anchor `(sx, sy)`
+ *  (physical px) sits INSIDE the `insetPx` margin (safe to place); false when it
+ *  hugs an edge (cull). Line-CENTER labels anchor at the visible-run midpoint,
+ *  which is structurally interior, so this rarely touches them — it targets the
+ *  spacing chain's near-edge stops. Pure + exported for unit coverage. */
+export function withinViewportInset(
+  sx: number,
+  sy: number,
+  w: number,
+  h: number,
+  insetPx: number,
+): boolean {
+  return sx >= insetPx && sy >= insetPx && sx <= w - insetPx && sy <= h - insetPx
 }

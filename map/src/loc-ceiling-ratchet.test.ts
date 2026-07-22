@@ -469,7 +469,16 @@ const CEILINGS: Record<string, number> = {
   // over the #1177 replay refs/projector — and threads it into stage.prepare +
   // iStage.prepare so a fade-out label/badge reprojects instead of popping mid-
   // zoom. Reuses the existing replay machinery; wiring only here. +29.
-  'map/src/render/passes/label-pass.ts': 2098,
+  // 2098→2130 (#1314 line-label edge-inset cull): the LINE_LABEL_EDGE_INSET_CSS_PX
+  // const + doc, the per-layer lineLabelEdgeInsetPx + anchorInView closure (+doc),
+  // the withinViewportInset import expansion, the four vector-tile along-line
+  // emit-site guards (curved short/spacing conditions, the placeLabelsAlongLine
+  // cull arg, the line-center midpoint gate), AND the inline (raw-GeoJSON) path's
+  // cull closure at the placeInlineLineLabels call — so a near-edge line label is
+  // dropped instead of rendering glued half-off-screen, on BOTH the tile and inline
+  // paths. The predicate + cull-aware walk live in place-labels-along-line.ts
+  // (unit-proved); only wiring grew here. +32, post-hook.
+  'map/src/render/passes/label-pass.ts': 2130,
   // #1081 — per-anchor perspective distance attenuation (MapLibre parity). New
   // baseline: the wCenter + perspScale scratch-out-value lives INLINE in the two
   // existing projector closures (it rides the cw already computed per anchor —
