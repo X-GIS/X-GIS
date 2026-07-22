@@ -35,6 +35,9 @@ export interface S111MosaicOptions {
   maxCached?: number
   /** Injectable fetch (tests). Default global `fetch`. */
   fetch?: typeof globalThis.fetch
+  /** Called after a successful swap to the model `key` — the demo re-snapshots its
+   *  particle/arrow overlay here (those read the coverage once, so a swap needs a re-arm). */
+  onSwap?: (modelKey: string) => void
 }
 
 export interface S111MosaicHandle {
@@ -58,21 +61,30 @@ export function installS111Mosaic(map: MosaicMap, opts: S111MosaicOptions): S111
     const [[w, s], [e, n]] = map.getBounds()
     const model = bestModelForBounds([w, s, e, n] as Bounds)
     if (!model || model.key === current) return // no covering model, or already shown
+    const prev = current
     current = model.key // optimistic — blocks a duplicate in-flight fetch for the same model
     const token = ++epoch
     void (async () => {
-      let bytes = cache.get(model.key)
-      if (bytes) {
-        cache.delete(model.key) // re-insert below to refresh LRU recency
-      } else {
-        const res = await doFetch(`${base}/noaa-s111/latest/${model.key}.h5`)
-        if (!res.ok || token !== epoch) return
-        bytes = await res.arrayBuffer()
+      try {
+        let bytes = cache.get(model.key)
+        if (bytes) {
+          cache.delete(model.key) // re-insert below to refresh LRU recency
+        } else {
+          const res = await doFetch(`${base}/noaa-s111/latest/${model.key}.h5`)
+          if (!res.ok) throw new Error(`fetch ${model.key}: ${res.status}`)
+          if (token !== epoch) return
+          bytes = await res.arrayBuffer()
+        }
+        cache.set(model.key, bytes)
+        while (cache.size > maxCached) cache.delete(cache.keys().next().value as string)
+        if (token !== epoch) return // a newer pan superseded this one — drop it
+        await map.setCoverageData(opts.sourceId, bytes)
+        opts.onSwap?.(model.key) // re-arm overlays that snapshot the coverage
+      } catch {
+        // A transient fetch/decode failure must never break the demo — keep the current
+        // cell shown and revert so a later pan retries this model.
+        if (token === epoch && current === model.key) current = prev
       }
-      cache.set(model.key, bytes)
-      while (cache.size > maxCached) cache.delete(cache.keys().next().value as string)
-      if (token !== epoch) return // a newer pan superseded this one — drop it
-      await map.setCoverageData(opts.sourceId, bytes)
     })()
   }
 
