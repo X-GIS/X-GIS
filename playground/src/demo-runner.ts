@@ -1426,6 +1426,90 @@ function teardownCurrentsOverlay(): void {
   currentsOverlayCleanup?.()
 }
 
+// ── Official S-111 arrow portrayal (#1272) ───────────────────────────
+// The IHO S-111 portrayal draws surface currents as TIDAL-STREAM ARROWS —
+// direction by arrow orientation, magnitude by arrow LENGTH — read over the
+// speed colour-fill (the coverage ramp). This is the standard direction symbol;
+// the drifting-particle overlay above is a modern, non-standard enhancement of
+// the same field, so the two coexist (arrows = the exact standard reading,
+// particles = flow intuition). Both read the same `currents` coverage. The exact
+// speed-BAND colour palette (s111-speed, from the S-111 Portrayal Catalogue) will
+// refine the fill later; the arrows are drawn in one high-contrast tint so they
+// read over any ramp.
+let currentsArrowsCleanup: (() => void) | null = null
+
+function setupCurrentsArrows(map: InstanceType<typeof XGISMap>): void {
+  teardownCurrentsArrows()
+  let cancelled = false
+  const cleanupFns: (() => void)[] = [
+    () => {
+      cancelled = true
+    },
+  ]
+  currentsArrowsCleanup = () => {
+    for (const fn of cleanupFns) fn()
+    currentsArrowsCleanup = null
+  }
+  const started = performance.now()
+  const tryAttach = (): void => {
+    if (cancelled) return
+    const cov = map.getCoverage('currents')
+    if (!cov) {
+      if (performance.now() - started < 8000) setTimeout(tryAttach, 120)
+      return
+    }
+    const speedBand = cov.band('surfaceCurrentSpeed')
+    const dirBand = cov.band('surfaceCurrentDirection')
+    const [nLon, nLat] = cov.meta.size
+    const [originLon, originLat] = cov.meta.origin
+    const [dLon, dLat] = cov.meta.spacing
+    // Arrows read best SPARSER than the particle pool — subsample to ~250 cells so
+    // the field is a legible vector grid, not a solid mat of overlapping arrows.
+    const step = Math.max(1, Math.ceil(Math.sqrt((nLon * nLat) / 250)))
+    interface Cell {
+      lon: number
+      lat: number
+      speed: number
+      dir: number
+    }
+    const cells: Cell[] = []
+    for (let row = 0; row < nLat; row += step) {
+      for (let col = 0; col < nLon; col += step) {
+        const i = row * nLon + col // north-up rows: row 0 = northernmost
+        const s = speedBand.values[i]!
+        const d = dirBand.values[i]!
+        if (Number.isNaN(s) || Number.isNaN(d)) continue
+        cells.push({
+          lon: originLon + col * dLon,
+          lat: originLat + (nLat - 1 - row) * dLat,
+          speed: s,
+          dir: d,
+        })
+      }
+    }
+    if (cells.length === 0) return
+    const handle = map.graphics.add({
+      type: 'arrow',
+      data: cells,
+      getPosition: (c: Cell) => [c.lon, c.lat] as [number, number],
+      // Direction band is degrees true (0 = north, clockwise) — the arrow's own
+      // geographic-bearing convention, projected on the GPU (correct under pitch/globe).
+      getBearing: (c: Cell) => c.dir,
+      // Official portrayal: arrow LENGTH ∝ speed. Clamp so a strong channel does not
+      // grow off-cell; the coverage fill under the arrows carries the colour reading.
+      getSize: (c: Cell) => 8 + Math.min(c.speed, 3) * 14,
+      getColor: '#ffffff',
+    })
+    cleanupFns.push(() => handle.remove())
+    ;(window as unknown as { __xgisCurrentsArrows?: number }).__xgisCurrentsArrows = cells.length
+  }
+  tryAttach()
+}
+
+function teardownCurrentsArrows(): void {
+  currentsArrowsCleanup?.()
+}
+
 // ── NOAA CO-OPS live tidal-currents overlay (#1272) ──────────────────
 // Activated by demos with `coops: true`. The integration itself lives in
 // ./examples/coops-currents.recipe.ts (shown verbatim in the JS tab): it fetches
@@ -1851,11 +1935,14 @@ async function loadDemo(idx: number) {
     teardownMeasureOverlay()
   }
 
-  // NOAA S-111 currents demos (#1272): particle-flow overlay drifting along
-  // the coverage source's direction band.
+  // NOAA S-111 currents demos (#1272): the OFFICIAL S-111 portrayal is tidal-stream
+  // arrows (direction + magnitude) over the speed colour-fill; the particle overlay
+  // adds the animated flow reading of the same coverage on top.
   if (currentMap && demo.currents) {
+    setupCurrentsArrows(currentMap)
     setupCurrentsOverlay(currentMap)
   } else {
+    teardownCurrentsArrows()
     teardownCurrentsOverlay()
   }
 
