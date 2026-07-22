@@ -108,3 +108,63 @@ export function packRetainedArrowFeat<D>(spec: ArrowDrawSpec<D>, dpr: number): F
   }
   return feat
 }
+
+// ── Compiled-layer arrow packers (#1302) ──────────────────────────────
+// The DECLARATIVE `| arrow bearing-[.dir]` layer draws the SAME oriented-arrow
+// mesh as the retained primitive, but its per-feature values (.dir bearing,
+// size, colour) are evaluated ONCE at rebuildLayers time from the source
+// features — exactly like the Point fork bakes perFeatureSizes/perFeatureFills —
+// not read from a host ArrowDrawSpec's accessors. These packers take those
+// pre-evaluated flat arrays and fill the identical ARROW_RETAINED_FEAT / tint
+// layout, so the shader + draper are reused unchanged. The TAIL+TIP DSFUN and
+// bearing-step math is the SINGLE authority `packGeoPoint` above (no drift).
+
+/** Pack the compiled arrow `feat` buffer from pre-evaluated per-feature arrays.
+ *  `bearingsDeg` is degrees true (0 = north, clockwise); `sizesPx` is the arrow
+ *  length in pre-DPR design px; `dpr` scales to physical px. Arrays are parallel
+ *  (index = feature); all share `lons.length`. */
+export function packCompiledArrowFeat(
+  lons: ArrayLike<number>,
+  lats: ArrayLike<number>,
+  bearingsDeg: ArrayLike<number>,
+  sizesPx: ArrayLike<number>,
+  dpr: number,
+): Float32Array {
+  const n = lons.length
+  const feat = new Float32Array(n * STRIDE)
+  for (let i = 0; i < n; i++) {
+    const o = i * STRIDE
+    const lon = lons[i]!
+    const lat = lats[i]!
+    packGeoPoint(feat, o + F.ecef_x_h, lon, lat) // tail block (base 0)
+
+    // Tip = anchor stepped along the geographic bearing (0=north, CW) — identical
+    // to packRetainedArrowFeat, so declarative and host arrows orient the same.
+    const br = (bearingsDeg[i] ?? 0) * DEG2RAD
+    const dLat = Math.cos(br) * TIP_STEP_DEG
+    const cosLat = Math.cos(lat * DEG2RAD) || 1
+    const dLon = (Math.sin(br) * TIP_STEP_DEG) / cosLat
+    packGeoPoint(feat, o + F.tip_ecef_x_h, lon + dLon, lat + dLat) // tip block (base 12)
+
+    feat[o + F.size] = (sizesPx[i] ?? 1) * dpr
+  }
+  return feat
+}
+
+/** Pack the compiled arrow `tint` buffer from pre-evaluated per-feature rgba
+ *  (0..1). Parallel to the feat array. */
+export function packCompiledArrowTint(
+  rgba: ArrayLike<readonly [number, number, number, number]>,
+): Float32Array {
+  const n = rgba.length
+  const tint = new Float32Array(n * ARROW_RETAINED_TINT_STRIDE)
+  for (let i = 0; i < n; i++) {
+    const o = i * ARROW_RETAINED_TINT_STRIDE
+    const c = rgba[i]!
+    tint[o] = c[0]
+    tint[o + 1] = c[1]
+    tint[o + 2] = c[2]
+    tint[o + 3] = c[3]
+  }
+  return tint
+}
