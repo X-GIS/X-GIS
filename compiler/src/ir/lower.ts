@@ -5,6 +5,7 @@ import type * as AST from '../parser/ast'
 import { resolveColor } from '../tokens/colors'
 import type { LowerOptions } from './lower-types'
 import { lowerLabelProps } from './lower-label'
+import { resolveCoveragePaint } from './lower-coverage-paint'
 import { expandKeyframeTimeStops } from './lower-animation'
 import { dispatch, type LayerAccumulator, type BindingCtx } from './lower-bindings'
 import { MODIFIER_HANDLERS, BINDING_HANDLERS, UTILITY_HANDLERS } from './lower-bindings-registry'
@@ -32,6 +33,10 @@ import {
   type ShapeRef,
 } from './render-node'
 
+/** A lowered preset: its `|` utility lines (inlined by expandPresets) + block properties
+ *  (coverage paint `ramp:`/`range:`, merged onto a `style:`-referencing layer — #1272 E-②). */
+type PresetDef = { utilities: AST.UtilityLine[]; properties: AST.BlockProperty[] }
+
 /**
  * Lower an AST Program into an IR Scene.
  */
@@ -46,11 +51,7 @@ export function lower(program: AST.Program, options: LowerOptions = {}): Scene {
   // loops below (it only reads `program`).
   validateFnCalls(program, diagnostics)
   const sourceMap = new Map<string, SourceDef>()
-  const presetMap = new Map<string, AST.UtilityLine[]>()
-  // A preset's block properties (coverage paint `ramp:`/`range:`) — applied to a layer
-  // that references the preset via `style:` (#1272 E-②). Kept beside presetMap so the
-  // utility-inlining path (expandPresets) is untouched.
-  const presetPropsMap = new Map<string, AST.BlockProperty[]>()
+  const presetMap = new Map<string, PresetDef>()
   const keyframesMap = new Map<string, AST.KeyframesStatement>()
 
   // First pass: collect presets, symbols, and keyframes. Keyframes
@@ -59,8 +60,7 @@ export function lower(program: AST.Program, options: LowerOptions = {}): Scene {
   // order in the source file.
   for (const stmt of program.body) {
     if (stmt.kind === 'PresetStatement') {
-      presetMap.set(stmt.name, stmt.utilities)
-      if (stmt.properties.length > 0) presetPropsMap.set(stmt.name, stmt.properties)
+      presetMap.set(stmt.name, { utilities: stmt.utilities, properties: stmt.properties })
     } else if (stmt.kind === 'SymbolStatement') {
       const paths: string[] = []
       for (const el of stmt.elements) {
@@ -86,15 +86,7 @@ export function lower(program: AST.Program, options: LowerOptions = {}): Scene {
         break
       }
       case 'LayerStatement': {
-        const node = lowerLayer(
-          stmt,
-          sourceMap,
-          presetMap,
-          presetPropsMap,
-          keyframesMap,
-          diagnostics,
-          options,
-        )
+        const node = lowerLayer(stmt, sourceMap, presetMap, keyframesMap, diagnostics, options)
         if (node) {
           // If the source was referenced but not yet added, add it
           if (!sources.find((s) => s.name === node.sourceRef)) {
@@ -325,8 +317,7 @@ function astLiteralToJS(expr: AST.Expr, sourceName: string, line: number): unkno
 function lowerLayer(
   stmt: AST.LayerStatement,
   sourceMap: Map<string, SourceDef>,
-  presetMap: Map<string, AST.UtilityLine[]>,
-  presetPropsMap: Map<string, AST.BlockProperty[]>,
+  presetMap: Map<string, PresetDef>,
   keyframesMap: Map<string, AST.KeyframesStatement>,
   diagnostics: import('./render-node').Diagnostic[],
   options: LowerOptions,
@@ -407,30 +398,13 @@ function lowerLayer(
   }
 
   // #1272 E-②: a `style:`-referenced preset can carry the coverage portrayal
-  // (`ramp:`/`range:`). The layer's OWN paint wins; the preset fills only what the layer
-  // left unset — so `import { s111_currents } … layer { source: c; style: s111_currents }`
-  // applies the official IHO speed palette without repeating it per layer.
-  if (styleRef && (ramp === undefined || range === undefined)) {
-    for (const prop of presetPropsMap.get(styleRef) ?? []) {
-      if (ramp === undefined && prop.name === 'ramp' && prop.value.kind === 'StringLiteral') {
-        ramp = prop.value.value
-      } else if (range === undefined && prop.name === 'range') {
-        const els = prop.value.kind === 'ArrayLiteral' ? prop.value.elements : null
-        if (
-          !els ||
-          els.length !== 2 ||
-          els[0]!.kind !== 'NumberLiteral' ||
-          els[1]!.kind !== 'NumberLiteral'
-        ) {
-          throw new Error(
-            `preset "${styleRef}" (referenced by layer "${stmt.name}"): 'range' must be a ` +
-              `two-number array (e.g. \`range: [0, 40]\`).`,
-          )
-        }
-        range = [els[0].value, els[1].value]
-      }
-    }
-  }
+  // (`ramp:`/`range:`); the layer's own paint wins, the preset fills the rest.
+  ;({ ramp, range } = resolveCoveragePaint(
+    styleRef,
+    presetMap.get(styleRef)?.properties,
+    { ramp, range },
+    stmt.name,
+  ))
 
   if (!sourceRef) {
     diagnostics.push({
@@ -1442,7 +1416,7 @@ function applyStyleProperties(
  */
 function expandPresets(
   utilities: AST.UtilityLine[],
-  presetMap: Map<string, AST.UtilityLine[]>,
+  presetMap: Map<string, PresetDef>,
   styleRef?: string,
 ): AST.UtilityLine[] {
   const result: AST.UtilityLine[] = []
@@ -1450,7 +1424,7 @@ function expandPresets(
   // `style: <name>` — the single-preset base, inlined ahead of everything.
   if (styleRef) {
     const base = presetMap.get(styleRef)
-    if (base) result.push(...base)
+    if (base) result.push(...base.utilities)
   }
 
   for (const line of utilities) {
@@ -1462,7 +1436,7 @@ function expandPresets(
         const preset = presetMap.get(presetName)
         if (preset) {
           // Inline preset lines before current line's remaining items
-          result.push(...preset)
+          result.push(...preset.utilities)
         }
       } else {
         expandedItems.push(item)
