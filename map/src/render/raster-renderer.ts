@@ -257,6 +257,11 @@ export class RasterRenderer {
   /** Set by render() when ANY tile is mid-fade — the map keep-alive
    *  (shouldRenderThisFrame) pumps the next frame so the ramp advances. */
   private _hasFadingTiles = false
+  /** The target-tile keys drawn last frame. A tile that ENTERS this set (first
+   *  appearance OR re-entry — e.g. zooming back out to a parent shown before)
+   *  re-arms its fade ramp, so a zoom-out cross-fades in instead of snapping to
+   *  full opacity. Updated every render(); a continuing tile keeps its ramp. */
+  private _lastTargetKeys = new Set<string>()
   // (per-tile packing goes through rasterTileBlock() — #733 P2b)
   private colorParams(): RasterColorParams {
     return {
@@ -834,25 +839,74 @@ export class RasterRenderer {
       return null
     }
 
-    // Render tiles: exact tile (with its fade-in + parent cross-fade beneath),
+    // The cached DIRECT children (one zoom level down) covering `coord`. On a
+    // zoom-OUT the just-departed higher-detail tiles are still cached; drawing them
+    // beneath a fading-in parent retains their detail until the parent is opaque,
+    // so the parent cross-fades in over them instead of popping them out. On a
+    // zoom-IN the target's children aren't loaded yet, so this is empty (no-op) and
+    // the parent-underlay above handles the fill.
+    const findCachedChildren = (coord: {
+      z: number
+      x: number
+      y: number
+      ox?: number
+    }): { renderCoord: { z: number; x: number; y: number; ox: number }; entry: CachedTile }[] => {
+      const out: {
+        renderCoord: { z: number; x: number; y: number; ox: number }
+        entry: CachedTile
+      }[] = []
+      const cz = coord.z + 1
+      const cx0 = coord.x << 1
+      const cy0 = coord.y << 1
+      const cox0 = (coord.ox ?? coord.x) << 1
+      for (let dx = 0; dx <= 1; dx++)
+        for (let dy = 0; dy <= 1; dy++) {
+          const entry = this.tileCache.get(`${cz}/${cx0 + dx}/${cy0 + dy}`)
+          if (entry)
+            out.push({
+              renderCoord: { z: cz, x: cx0 + dx, y: cy0 + dy, ox: cox0 + dx },
+              entry,
+            })
+        }
+      return out
+    }
+
+    // Render tiles: exact tile (with its fade-in + cross-fade underlay beneath),
     // else the already-shown parent fallback at full opacity.
+    const curTargetKeys = new Set<string>()
     for (const coord of tiles) {
-      const exact = this.tileCache.get(`${coord.z}/${coord.x}/${coord.y}`)
+      const key = `${coord.z}/${coord.x}/${coord.y}`
+      curTargetKeys.add(key)
+      const exact = this.tileCache.get(key)
       if (exact) {
-        // Stamp the first-draw frame lazily (load leaves it -1) so the ramp
-        // starts when the tile actually appears, not when it loaded.
-        if (exact.firstShownFrame < 0) exact.firstShownFrame = this.frameCount
+        // Re-arm the ramp when the tile ENTERS the target set — first appearance
+        // (firstShownFrame -1 from load) OR re-entry, e.g. zooming back out to a
+        // parent shown before. A tile continuing across frames keeps its ramp, so
+        // it doesn't re-fade every frame; a re-entering one fades in instead of
+        // snapping to full opacity (the zoom-out pop).
+        if (exact.firstShownFrame < 0 || !this._lastTargetKeys.has(key))
+          exact.firstShownFrame = this.frameCount
         const fadeAlpha =
           fadeFrames > 0 ? Math.min(1, (this.frameCount - exact.firstShownFrame) / fadeFrames) : 1
         if (fadeAlpha < 1) {
           anyFading = true
-          // Cross-fade: draw the cached parent BENEATH the fading child (pushed
-          // first = under) so no background flashes through during the ramp — the
-          // gap the reverted vector-tile fade hit. dedup collapses a shared parent.
+          // Underlay beneath the fading tile so detail is retained until it is
+          // opaque (all pushed BEFORE the fading tile = under it). The coarse
+          // cached ancestor FIRST (zoom-IN fill / background-gap safety — the gap
+          // the reverted vector-tile fade hit), THEN any cached direct children
+          // (zoom-OUT: the just-departed higher-detail tiles) so a zoom-out
+          // cross-fades sharp→native instead of popping the children out. dedup
+          // (drawnKeys) collapses a shared underlay tile to one draw. Marking each
+          // lastUsedFrame keeps it alive across the ramp so the LRU can't evict it
+          // mid-fade.
           const parent = findCachedParent(coord)
           if (parent) {
             emitTileAt(parent.renderCoord, parent.entry.texture, 1)
             parent.entry.lastUsedFrame = this.frameCount
+          }
+          for (const child of findCachedChildren(coord)) {
+            emitTileAt(child.renderCoord, child.entry.texture, 1)
+            child.entry.lastUsedFrame = this.frameCount
           }
         }
         emitTileAt(coord, exact.texture, fadeAlpha)
@@ -865,6 +919,7 @@ export class RasterRenderer {
         }
       }
     }
+    this._lastTargetKeys = curTargetKeys
     this._hasFadingTiles = anyFading
 
     // Issue every collected tile in ONE draper.draw — the sole raster draw path (P1.4),

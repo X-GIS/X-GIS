@@ -725,7 +725,13 @@ const CEILINGS: Record<string, number> = {
   // so the raster/hillshade vs_tile subtracts it in df64 (hi then lo) — the tile
   // sheet stopped shaking at over-zoom. Stacked non-overlappingly on the fade-in
   // work (+7), so the merged high-water is the measured 922.
-  'map/src/render/raster-renderer.ts': 922,
+  // 922→977 (#1317 raster zoom-OUT cross-fade): the reverse of #1307 — a tile
+  // RE-ENTERING the target set re-arms its ramp (the `_lastTargetKeys` field + the
+  // entry-based firstShownFrame restamp) so zooming back out to a parent fades in
+  // instead of snapping, and a fading tile now also draws its cached direct CHILDREN
+  // beneath it (findCachedChildren) so the departing higher-detail tiles are retained
+  // until the parent is opaque (cross-fade sharp→native, no pop). +55, post-hook.
+  'map/src/render/raster-renderer.ts': 977,
   // 889→906 (#1155 F3): cold-start burst enqueue cap — the `_coldStartBurst`
   // field + `setColdStartBurst` + the burst-selected 8/4 cap in enqueue().
   // 906→910 (#1155 F3 adjudication): the burst 8/4 pair now comes from the
