@@ -114,6 +114,11 @@ export function writeRasterTileUniform(
   mercDiff: number,
   /** #1040 — raster surface grid subdivision N (rasterGridN); shader reads grid.x. */
   gridN: number,
+  /** Per-tile fade-in opacity (0..1) → tile_ecef_center.w; the FS multiplies
+   *  the sampled alpha by it so a freshly-appeared tile cross-fades over its
+   *  cached parent (raster-fade-duration). Default 1 = fully shown (the checker
+   *  / cap / instant paths stay byte-identical). */
+  tileOpacity = 1,
   /** #1053 — pole-cap sign in the (formerly reserved) grid.y lane: 0 = a normal
    *  Mercator tile (byte-identical), +1 = north cap, −1 = south cap. vs_tile's
    *  select() reads this to fan the band edge to the pole. Default 0. */
@@ -121,7 +126,7 @@ export function writeRasterTileUniform(
 ): void {
   block.write({
     bounds: [west, south, east, north],
-    tile_ecef_center: [tileEcef[0], tileEcef[1], tileEcef[2], 0],
+    tile_ecef_center: [tileEcef[0], tileEcef[1], tileEcef[2], tileOpacity],
     merc_y: [mercSouth, mercDiff],
     grid: [gridN, capSign],
   })
@@ -163,6 +168,7 @@ function pushRasterCap(
   mercDiff: number,
   gridN: number,
   capSign: number,
+  tileOpacity = 1,
 ): void {
   writeRasterTileUniform(
     block,
@@ -174,6 +180,7 @@ function pushRasterCap(
     mercSouth,
     mercDiff,
     gridN,
+    tileOpacity,
     capSign,
   )
   out.push({ texture, tileBytes: new Float32Array(block.buffer.slice(0)), gridN })
@@ -235,6 +242,14 @@ export class RasterRenderer {
   /** True when `raster-resampling: nearest` is active. Default false
    *  (linear) is byte-identical to today's fixed-linear sampler. */
   private _nearest = false
+  /** Raster tile fade-in duration (ms) — a freshly-appeared tile cross-fades
+   *  0→1 over this window, MapLibre `raster-fade-duration`. 0 = instant pop-in
+   *  (byte-identical to the pre-fade path); the map lowers it to 0 under
+   *  prefers-reduced-motion. Default 300 ms. */
+  private _fadeDurationMs = 300
+  /** Set by render() when ANY tile is mid-fade — the map keep-alive
+   *  (shouldRenderThisFrame) pumps the next frame so the ramp advances. */
+  private _hasFadingTiles = false
   // (per-tile packing goes through rasterTileBlock() — #733 P2b)
   private colorParams(): RasterColorParams {
     return {
@@ -308,6 +323,21 @@ export class RasterRenderer {
     // every sampled texel by NaN and the whole layer disappeared.
     if (typeof opacity !== 'number' || !Number.isFinite(opacity)) return
     this._opacity = Math.max(0, Math.min(1, opacity))
+  }
+
+  /** Set the raster tile fade-in duration (ms). 0 disables the fade (instant
+   *  pop-in, byte-identical to the pre-fade path); the map passes 0 under
+   *  prefers-reduced-motion. Non-finite / negative inputs are ignored. */
+  setRasterFadeDurationMs(ms: number): void {
+    if (typeof ms !== 'number' || !Number.isFinite(ms) || ms < 0) return
+    this._fadeDurationMs = ms
+  }
+
+  /** True when the LAST render() left any tile mid-fade — the map's
+   *  shouldRenderThisFrame ORs this in so frames keep coming until the ramp
+   *  completes (mirrors the label ledger's hasActive() keep-alive). */
+  hasFadingTiles(): boolean {
+    return this._hasFadingTiles
   }
 
   /** Set the per-frame Mapbox raster colour adjustments. Caller resolves
@@ -607,7 +637,7 @@ export class RasterRenderer {
           this.tileCache.set(key, {
             texture,
             lastUsedFrame: this.frameCount,
-            firstShownFrame: this.frameCount,
+            firstShownFrame: -1,
           })
           this.evictTiles(visibleKeys)
         })
@@ -668,7 +698,7 @@ export class RasterRenderer {
               this.tileCache.set(parentKey, {
                 texture,
                 lastUsedFrame: this.frameCount,
-                firstShownFrame: this.frameCount,
+                firstShownFrame: -1,
               })
           })
           .catch((e) => console.error('[X-GIS] raster parent-tile post-load bookkeeping failed', e))
@@ -698,70 +728,49 @@ export class RasterRenderer {
     // fill; with raster-opacity < 1 the alpha COMPOUNDS, the same defect
     // class the world-copy single-source fix removed for ox×wo).
     const drawnKeys = new Set<string>()
-    // Render tiles: current zoom first, then parent fallback for missing
-    for (const coord of tiles) {
-      const key = `${coord.z}/${coord.x}/${coord.y}`
-      let cached = this.tileCache.get(key)
-      let fallbackCoord = coord
-      let isFallback = false
+    // Per-tile fade-in: a freshly-appeared tile ramps opacity 0→1 over
+    // `fadeFrames`, cross-fading over its cached parent (drawn beneath). The ramp
+    // is measured from the tile's FIRST DRAW (firstShownFrame, lazily stamped
+    // below), so a tile pre-loaded off-screen still fades when it first shows.
+    // fadeFrames 0 (rasterFadeDuration 0 / reduced-motion) ⇒ instant full
+    // opacity, byte-identical to the pre-fade path. ~60 fps → durationMs·0.06.
+    const fadeFrames = this._fadeDurationMs > 0 ? this._fadeDurationMs * 0.06 : 0
+    let anyFading = false
 
-      // Parent fallback: walk up until we find a cached tile
-      if (!cached) {
-        for (let pz = 1; pz <= 4; pz++) {
-          const parentZ = coord.z - pz
-          if (parentZ < 0) break
-          const parentX = coord.x >> pz
-          const parentY = coord.y >> pz
-          const parentKey = `${parentZ}/${parentX}/${parentY}`
-          const parentCached = this.tileCache.get(parentKey)
-          if (parentCached) {
-            cached = parentCached
-            fallbackCoord = { z: parentZ, x: parentX, y: parentY, ox: (coord.ox ?? coord.x) >> pz }
-            isFallback = true
-            break
-          }
-        }
-      }
-
-      if (!cached) continue
-
-      cached.lastUsedFrame = this.frameCount
-
-      // Compute bounds: use fallback tile's coordinates if using parent
-      const renderCoord = isFallback ? fallbackCoord : coord
+    // Emit one cached tile at `renderCoord` (bounds from the coord) with the
+    // supplied texture + per-tile opacity, in every visible world copy plus its
+    // globe pole caps. Honours the per-frame `drawnKeys` dedup so a parent shared
+    // by several children draws once. Extracted from the inline loop so the fade
+    // path can emit BOTH a parent (opacity 1, beneath) and its fading child
+    // (opacity < 1, over) for one visible coord.
+    const emitTileAt = (
+      renderCoord: { z: number; x: number; y: number; ox?: number },
+      texture: RasterTile['texture'],
+      tileOpacity: number,
+    ): void => {
       const rn = Math.pow(2, renderCoord.z)
       const ox = renderCoord.ox ?? renderCoord.x
       const drawKey = `${renderCoord.z}/${renderCoord.x}/${renderCoord.y}/${ox}`
-      if (drawnKeys.has(drawKey)) continue
+      if (drawnKeys.has(drawKey)) return
       drawnKeys.add(drawKey)
       const west = (ox / rn) * 360 - 180
       const east = ((ox + 1) / rn) * 360 - 180
       const north = (Math.atan(Math.sinh(Math.PI * (1 - (2 * renderCoord.y) / rn))) * 180) / Math.PI
       const south =
         (Math.atan(Math.sinh(Math.PI * (1 - (2 * (renderCoord.y + 1)) / rn))) * 180) / Math.PI
-
-      // ECEF anchor: SW corner of tile in WGS84 ECEF (unshifted across copies).
-      // The shader subtracts this from lonlat_to_ecef(vertex) to form the RTC
-      // offset vector, then transforms with the ECEF MVP. Precision: f64 here,
-      // f32 in the uniform — acceptable because tile SW is close to vertices.
+      // ECEF anchor: SW corner in WGS84 ECEF (unshifted across copies); the shader
+      // subtracts it from lonlat_to_ecef(vertex) for the RTC offset. f64 here, f32
+      // in the uniform — fine because tile SW is close to the vertices.
       const swEcef = lonLatToECEF(west, south)
-
-      // Precompute Mercator Y bounds in f64 — crucially, store merc_south and the
-      // small diff (merc_north - merc_south) separately, avoiding catastrophic
-      // cancellation in f32 at high zoom where the two values are nearly equal.
+      // Mercator Y bounds in f64 — store merc_south + the small diff separately to
+      // avoid f32 cancellation at high zoom where the two are nearly equal.
       const DEG2RAD = Math.PI / 180
       const MERC_LIMIT = 85.051129
       const clampMerc = (v: number) => Math.max(-MERC_LIMIT, Math.min(MERC_LIMIT, v))
       const mercSouth = Math.log(Math.tan(Math.PI / 4 + (clampMerc(south) * DEG2RAD) / 2))
       const mercNorth = Math.log(Math.tan(Math.PI / 4 + (clampMerc(north) * DEG2RAD) / 2))
       const mercDiff = mercNorth - mercSouth
-
-      // iter-188 — world-copy loop. For Mercator, draw the tile in every visible world copy
-      // by shifting bounds.x / bounds.z by wo*360° (the VS mix(bounds.x, bounds.z, uu) lands
-      // lon in the right copy). tile_ecef_center stays unshifted (copy-invariant 3D-ECEF RTC).
-      // Non-Mercator collapses to wo=0. Each (tile, world-copy) becomes one RasterTile.
-      // #1040 — grid N from the render (fallback-aware) zoom; the globe densifies
-      // low-z tiles (z0:128 … z4+:8), flat stays 8×8.
+      // iter-188 world-copy loop; #1040 grid N from the render (fallback-aware) zoom.
       const gridN = rasterGridN(projType, renderCoord.z)
       for (const wo of RASTER_WORLD_COPIES) {
         const TB = rasterTileBlock() // memoised — write() repacks every lane each iteration
@@ -775,30 +784,81 @@ export class RasterRenderer {
           mercSouth,
           mercDiff,
           gridN,
+          tileOpacity,
         )
         // The block buffer is reused every iteration — COPY it for the batch entry.
-        tilesArr.push({
-          texture: cached.texture,
-          tileBytes: new Float32Array(TB.buffer.slice(0)),
-          gridN,
-        })
-
-        // #1053 — pole cap: the topmost / bottommost GLOBE tile row abuts the
-        // ±85.0511° polar hole. Append a cap "tile" (same texture + bounds + N,
-        // grid.y = ±1) that fans the band edge up to the geographic pole via
-        // vs_tile's cap branch. needs*PoleCap gates to the globe (isGlobeProj);
-        // every flat/Mercator projection stays byte-identical (no cap). Cap
-        // visibility rides the sphere tile selector + the per-fragment hemisphere
-        // cull — a y=0 tile is only selected when the pole is in view, so no
-        // extra camera guard is needed. Reuses the memoised TB, no new allocation.
+        tilesArr.push({ texture, tileBytes: new Float32Array(TB.buffer.slice(0)), gridN })
+        // #1053 — globe pole cap: fan the top/bottom band edge to the geographic
+        // pole (grid.y = ±1). Flat/Mercator stays byte-identical (no cap). The cap
+        // inherits the tile's fade opacity so it cross-fades with its band.
         // prettier-ignore
         if (needsNorthPoleCap(projType, renderCoord.y))
-          pushRasterCap(tilesArr, TB, cached.texture, west + wo * 360, south, east + wo * 360, north, swEcef, mercSouth, mercDiff, gridN, 1)
+          pushRasterCap(tilesArr, TB, texture, west + wo * 360, south, east + wo * 360, north, swEcef, mercSouth, mercDiff, gridN, 1, tileOpacity)
         // prettier-ignore
         if (needsSouthPoleCap(projType, renderCoord.y, rn))
-          pushRasterCap(tilesArr, TB, cached.texture, west + wo * 360, south, east + wo * 360, north, swEcef, mercSouth, mercDiff, gridN, -1)
+          pushRasterCap(tilesArr, TB, texture, west + wo * 360, south, east + wo * 360, north, swEcef, mercSouth, mercDiff, gridN, -1, tileOpacity)
       }
     }
+
+    // Walk up from a coord to its nearest cached ancestor (1–4 levels): the
+    // render coord + cache entry, or null. Shared by the missing-tile fallback
+    // AND the cross-fade (parent drawn beneath a fading child).
+    const findCachedParent = (coord: {
+      z: number
+      x: number
+      y: number
+      ox?: number
+    }): {
+      renderCoord: { z: number; x: number; y: number; ox: number }
+      entry: CachedTile
+    } | null => {
+      for (let pz = 1; pz <= 4; pz++) {
+        const parentZ = coord.z - pz
+        if (parentZ < 0) break
+        const px = coord.x >> pz
+        const py = coord.y >> pz
+        const entry = this.tileCache.get(`${parentZ}/${px}/${py}`)
+        if (entry)
+          return {
+            renderCoord: { z: parentZ, x: px, y: py, ox: (coord.ox ?? coord.x) >> pz },
+            entry,
+          }
+      }
+      return null
+    }
+
+    // Render tiles: exact tile (with its fade-in + parent cross-fade beneath),
+    // else the already-shown parent fallback at full opacity.
+    for (const coord of tiles) {
+      const exact = this.tileCache.get(`${coord.z}/${coord.x}/${coord.y}`)
+      if (exact) {
+        // Stamp the first-draw frame lazily (load leaves it -1) so the ramp
+        // starts when the tile actually appears, not when it loaded.
+        if (exact.firstShownFrame < 0) exact.firstShownFrame = this.frameCount
+        const fadeAlpha =
+          fadeFrames > 0 ? Math.min(1, (this.frameCount - exact.firstShownFrame) / fadeFrames) : 1
+        if (fadeAlpha < 1) {
+          anyFading = true
+          // Cross-fade: draw the cached parent BENEATH the fading child (pushed
+          // first = under) so no background flashes through during the ramp — the
+          // gap the reverted vector-tile fade hit. dedup collapses a shared parent.
+          const parent = findCachedParent(coord)
+          if (parent) {
+            emitTileAt(parent.renderCoord, parent.entry.texture, 1)
+            parent.entry.lastUsedFrame = this.frameCount
+          }
+        }
+        emitTileAt(coord, exact.texture, fadeAlpha)
+        exact.lastUsedFrame = this.frameCount
+      } else {
+        const parent = findCachedParent(coord)
+        if (parent) {
+          emitTileAt(parent.renderCoord, parent.entry.texture, 1)
+          parent.entry.lastUsedFrame = this.frameCount
+        }
+      }
+    }
+    this._hasFadingTiles = anyFading
 
     // Issue every collected tile in ONE draper.draw — the sole raster draw path (P1.4),
     // byte-identical to the legacy multi-tile loop. uniformData is the 160B global; the draper
