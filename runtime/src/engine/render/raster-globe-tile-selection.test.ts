@@ -59,6 +59,13 @@ function drawnTileCount(ctx: GPUContext, camera: Camera, projType: number): numb
 
   const renderer = new RasterRenderer(ctx)
   renderer.setUrlTemplate('https://tiles.example.com/{z}/{x}/{y}.png')
+  // #1311: this oracle counts tile SELECTION (#596), not the #1307 cross-fade.
+  // With the fade on, every freshly-seeded tile (firstShownFrame:0) is mid-fade
+  // on the single render() below and ALSO draws its cached parent underneath
+  // (raster-renderer.ts fadeAlpha<1 branch) — inflating the draw count above the
+  // selected-tile count. Duration 0 = instant pop-in, byte-identical to the
+  // pre-fade path (setRasterFadeDurationMs doc), so the count is pure selection.
+  renderer.setRasterFadeDurationMs(0)
 
   // Pre-seed the tile cache so every selected tile reaches pass.draw().
   // We seed generously using globeVisibleTiles for globe and
