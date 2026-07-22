@@ -65,13 +65,17 @@ const BASELINE: Record<string, number> = {
   // use ECEF), and isFlat/isCylindrical are broader (true for 0/1/2), so there is no
   // membership accessor that preserves this exactly — genuinely still-blocked.
   'map/src/render/camera-anchor-dsfun.ts': 1,
-  // #777 Phase II — HillshadeRenderer mirrors RasterRenderer's two Mercator-specific
-  // `projType === 0` splits (the 2D-centre cam anchor + the flat-Mercator tile
-  // selector). Same genuinely-blocked case as raster-renderer: `=== 0` is
-  // Mercator-only, and isFlat/isCylindrical are broader (0/1/2), so no membership
-  // accessor preserves it exactly.
-  'map/src/render/hillshade-renderer.ts': 2,
+  // #777 Phase II — HillshadeRenderer held two Mercator-specific `projType === 0`
+  // splits (the 2D-centre cam anchor + the flat-Mercator tile selector). The
+  // non-Mercator raster-jitter fix deduped the cam-anchor split into the shared
+  // rasterFrameCamAnchor() authority (RasterRenderer + HillshadeRenderer drive the
+  // same vs_tile, so the anchor must be single-authority), leaving ONLY the tile
+  // selector `=== 0` here (2 → 1). The remaining `=== 0` is Mercator-only, and
+  // isFlat/isCylindrical are broader (0/1/2), so no membership accessor preserves it.
+  'map/src/render/hillshade-renderer.ts': 1,
   'map/src/render/prefetch-scheduler.ts': 1,
+  // raster-renderer keeps the flat-Mercator tile selector `=== 0` + the one in
+  // rasterFrameCamAnchor (the shared cam-anchor authority now lives here).
   'map/src/render/raster-renderer.ts': 2,
 }
 

@@ -299,3 +299,189 @@ describe('raster tile RTC — camera-anchor jitter (satellite z18+ shake)', () =
     expect(oldJ / Math.max(newJ, 1e-9)).toBeGreaterThan(100)
   })
 })
+
+// ═══ Raster arm 2 (flat NON-Mercator) — camera-anchor jitter gate ═══
+//
+// The DSFUN Mercator anchor above (#1308) fixed projType 0 and the ECEF anchor
+// fixed globe (7), but the flat NON-Mercator arm (equirect/natural_earth/…/
+// oblique, projType 1-6) kept re-projecting a SINGLE-f32 clon/clat (proj_params.
+// y/z) as its camera term: at clon ≈ 127° one f32 ULP is ~1.5e-5° ≈ 1.7 m, so as
+// the camera panned that rounding walked the f32 grid and the tile sheet SHOOK in
+// EVERY non-Mercator projection ("메르카토르에서는 문제 없는데 다른 모든
+// 프로젝션에서 흔들려요"). The fix mirrors line/polygon: feed project_geom the
+// df64 camera-relative longitude d_lon = (abs_lon − clon_hi) − clon_lo (recentred
+// onto clon = 0) and subtract the camera's projected 2D centre in df64.
+//
+// This gate is the closed form of that shake for the two SEPARABLE projections
+// (equirect / natural_earth — whose y is a pure clat term, so BOTH axes go
+// rock-steady). Longitude AND latitude pans are measured; no GPU. (The azimuthal/
+// oblique arms are non-separable in latitude — the fix pins their dominant
+// longitude axis; a whole-earth default zoom keeps the latitude residual
+// sub-pixel there — so they are out of this separable-axis gate.)
+
+const radf = (deg: number): number => f(f(deg) * DEG2RAD_F32) // shader radians()
+const sgn = (x: number): number => (x > 0 ? 1 : x < 0 ? -1 : 0)
+const wrapLonDelta = (d: number): number =>
+  d > 180
+    ? f(d - f(Math.ceil(f(f(d - 180) / 360)) * 360))
+    : d < -180
+      ? f(d + f(Math.ceil(f(f(f(-d) - 180) / 360)) * 360))
+      : d
+const unwrapKeep = (v: number, r: number, ks: number): number =>
+  f(v - f(Math.floor(f(f(f(f(v - r) + 180) - f(ks * 1e-4)) / 360)) * 360))
+
+// natural_earth pseudocylindrical scale/offset polynomials (projections.ts).
+function neXsYv32(latDeg: number): [number, number] {
+  const lat = radf(latDeg),
+    l2 = f(lat * lat),
+    l4 = f(l2 * l2),
+    l6 = f(l2 * l4)
+  const xs = f(f(f(0.8707 - f(l2 * 0.131979)) + f(l4 * 0.013791)) - f(l6 * 0.0081435))
+  const yv = f(
+    lat *
+      f(
+        1.007226 +
+          f(l2 * f(0.015085 + f(l2 * f(f(-0.044475 + f(l2 * 0.028874)) - f(l4 * 0.005916))))),
+      ),
+  )
+  return [xs, yv]
+}
+function neXsYv64(latDeg: number): [number, number] {
+  const lat = latDeg * DEG2RAD,
+    l2 = lat * lat,
+    l4 = l2 * l2,
+    l6 = l2 * l4
+  const xs = 0.8707 - l2 * 0.131979 + l4 * 0.013791 - l6 * 0.0081435
+  const yv = lat * (1.007226 + l2 * (0.015085 + l2 * (-0.044475 + l2 * 0.028874 - l4 * 0.005916)))
+  return [xs, yv]
+}
+
+// ── OLD arm 2: flat_rel = project_geom(vertex) − project(clon,clat), single-f32
+//    clon/clat. Faithful f32; single world copy (wo = 0, near-camera tiles). ──
+function equirectOldRel(lon: number, lat: number, clonR: number, clatR: number): [number, number] {
+  const clon = f(clonR),
+    clat = f(clatR),
+    refLon = lon
+  const refD = wrapLonDelta(f(refLon - clon))
+  const d = f(unwrapKeep(f(lon - refLon), 0, sgn(lon)) + refD)
+  const px = f(radf(d) * R_F32),
+    py = f(radf(lat) * R_F32)
+  return [f(px - 0), f(py - f(radf(clat) * R_F32))]
+}
+function neOldRel(lon: number, lat: number, clonR: number, clatR: number): [number, number] {
+  const clon = f(clonR),
+    clat = f(clatR),
+    refLon = lon
+  const refD = wrapLonDelta(f(refLon - clon))
+  const d = f(unwrapKeep(f(lon - refLon), 0, sgn(lon)) + refD)
+  const [xs, yv] = neXsYv32(lat)
+  const px = f(f(radf(wrapLonDelta(d)) * xs) * R_F32),
+    py = f(yv * R_F32)
+  return [f(px - 0), f(py - f(neXsYv32(clat)[1] * R_F32))]
+}
+
+// ── NEW arm 2 impl: project_geom(dLon, lat, clon=0) − df64 camProj0. ──
+function equirectNewRel(lon: number, lat: number, clon: number, clat: number): [number, number] {
+  const [ch, cl] = splitF64(clon)
+  const dLon = f(f(lon - ch) - cl) // (abs_lon − clon_hi) − clon_lo
+  const px = f(radf(dLon) * R_F32),
+    py = f(radf(lat) * R_F32)
+  const [cyh, cyl] = splitF64(clat * DEG2RAD * R) // df64 camProj0.y (f64 truth split)
+  return [f(px - 0), f(f(py - cyh) - cyl)]
+}
+function neNewRel(lon: number, lat: number, clon: number, clat: number): [number, number] {
+  const [ch, cl] = splitF64(clon)
+  const dLon = f(f(lon - ch) - cl)
+  const [xs, yv] = neXsYv32(lat)
+  const px = f(f(radf(dLon) * xs) * R_F32),
+    py = f(yv * R_F32)
+  const [cyh, cyl] = splitF64(neXsYv64(clat)[1] * R) // df64 camProj0.y
+  return [f(px - 0), f(f(py - cyh) - cyl)] // camProj0.x = 0; y subtracts df64 camera term
+}
+
+// f64 truth: the camera-relative projected position moves SMOOTHLY as the camera
+// pans, so any peak-to-peak in the f32 error over a small pan IS the jitter.
+function equirectTruth(lon: number, lat: number, clon: number, clat: number): [number, number] {
+  return [(lon - clon) * DEG2RAD * R, (lat - clat) * DEG2RAD * R]
+}
+function neTruth(lon: number, lat: number, clon: number, clat: number): [number, number] {
+  return [(lon - clon) * DEG2RAD * neXsYv64(lat)[0] * R, (neXsYv64(lat)[1] - neXsYv64(clat)[1]) * R]
+}
+
+type RelFn = (lon: number, lat: number, clon: number, clat: number) => [number, number]
+/** Peak-to-peak screen wobble (px) of a stationary vertex as the camera pans 3 m
+ *  along `axis`, on the dominant (matching) screen axis. */
+function panJitter2D(
+  rel: RelFn,
+  truth: RelFn,
+  lon: number,
+  lat: number,
+  clonB: number,
+  clatB: number,
+  z: number,
+  axis: 'lon' | 'lat',
+): number {
+  const px = pxPerM(z),
+    sweepDeg = 3 / (DEG2RAD * R)
+  const comp = axis === 'lon' ? 0 : 1 // lon-pan wobbles x; lat-pan wobbles y
+  let lo = Infinity,
+    hi = -Infinity
+  for (let k = 0; k <= 256; k++) {
+    const clon = clonB + (axis === 'lon' ? (sweepDeg * k) / 256 : 0)
+    const clat = clatB + (axis === 'lat' ? (sweepDeg * k) / 256 : 0)
+    const e = (rel(lon, lat, clon, clat)[comp] - truth(lon, lat, clon, clat)[comp]) * px
+    if (e < lo) lo = e
+    if (e > hi) hi = e
+  }
+  return hi - lo
+}
+
+describe('raster arm 2 (flat non-Mercator) — camera-anchor jitter (all-projection shake)', () => {
+  // Seoul; a vertex ~half a tile from the camera (frame-stable per vertex).
+  const clon = 126.9784,
+    clat = 37.5665,
+    vlon = clon + 0.0007,
+    vlat = clat + 0.0005
+  const SEP: ReadonlyArray<[string, RelFn, RelFn, RelFn]> = [
+    ['equirectangular', equirectOldRel, equirectNewRel, equirectTruth],
+    ['natural_earth', neOldRel, neNewRel, neTruth],
+  ]
+
+  it('OLD single-f32 clon/clat: the sheet SHAKES multiple px at z18+ on BOTH pan axes', () => {
+    for (const [name, oldRel, , truth] of SEP) {
+      for (const z of [18, 20.55]) {
+        for (const axis of ['lon', 'lat'] as const) {
+          const jit = panJitter2D(oldRel, truth, vlon, vlat, clon, clat, z, axis)
+          expect(
+            jit,
+            `OLD ${name} ${axis}-pan ${jit.toFixed(2)}px @z${z} (must shake >1px)`,
+          ).toBeGreaterThan(1)
+        }
+      }
+    }
+  })
+
+  it('NEW df64 recentre: the SAME vertex is rock-steady (<0.05px) on BOTH axes, every zoom', () => {
+    for (const [name, , newRel, truth] of SEP) {
+      for (const z of VIEW_ZOOMS) {
+        for (const axis of ['lon', 'lat'] as const) {
+          const jit = panJitter2D(newRel, truth, vlon, vlat, clon, clat, z, axis)
+          expect(
+            jit,
+            `NEW ${name} ${axis}-pan ${jit.toExponential(2)}px @z${z} (must be <0.05px)`,
+          ).toBeLessThan(0.05)
+        }
+      }
+    }
+  })
+
+  it('the fix removes ≥100× of the pan jitter at the reported z20.55 over-zoom', () => {
+    for (const [, oldRel, newRel, truth] of SEP) {
+      for (const axis of ['lon', 'lat'] as const) {
+        const oldJ = panJitter2D(oldRel, truth, vlon, vlat, clon, clat, 20.55, axis)
+        const newJ = panJitter2D(newRel, truth, vlon, vlat, clon, clat, 20.55, axis)
+        expect(oldJ / Math.max(newJ, 1e-9)).toBeGreaterThan(100)
+      }
+    }
+  })
+})

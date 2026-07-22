@@ -19,6 +19,7 @@ import {
   rasterTileU as RASTER_TILE_U,
   rasterGridN,
 } from '../shaders/dsl/raster'
+import { projectCpu } from '../shaders/dsl/cpu-projections'
 import { globeEyeUniform } from './globe-eye-uniform'
 
 /** Camera RTC anchor for the raster VS on the globe / 3D surfaces.
@@ -32,6 +33,28 @@ import { globeEyeUniform } from './globe-eye-uniform'
  *  tiler's ellipsoid `cam_ecef_off` (vector-tile-renderer.ts:3627-3638). */
 export function rasterGlobeCamAnchor(lonDeg: number, latDeg: number): ECEF {
   return lonLatToECEF(lonDeg, latDeg)
+}
+
+/** The DSFUN camera anchor for the raster/hillshade global uniform — the single
+ *  authority shared by RasterRenderer + HillshadeRenderer (both drive the shared
+ *  vs_tile, so both MUST pack identical lanes). Lanes are PER projType arm (see
+ *  the cam_ecef_center struct-field comment in raster.ts): Mercator → 2D Merc
+ *  centre; flat non-Mercator (1-6) → [clon, camProj0.x, camProj0.y] where camProj0
+ *  = the camera's projected 2D centre in the clon = 0 frame (kills the single-f32
+ *  clon/clat shake in every non-Mercator projection); globe → WGS84 ELLIPSOID
+ *  ECEF (must match the ellipsoid the VS rebuilds vertices on, not
+ *  getECEFCenter()'s sphere). */
+export function rasterFrameCamAnchor(
+  camera: Pick<Camera, 'centerX' | 'centerY'>,
+  projType: number,
+  projCenterLon: number,
+  projCenterLat: number,
+): readonly [number, number, number] {
+  if (projType === 0) return [camera.centerX, camera.centerY, 0]
+  if (isGlobeProj(projType)) return rasterGlobeCamAnchor(projCenterLon, projCenterLat)
+  // Single authority: the generated CPU projection, byte-mirror of the GPU project.
+  const camProj0 = projectCpu(projType, 0, projCenterLat, 0, projCenterLat)
+  return [projCenterLon, camProj0[0], camProj0[1]]
 }
 
 /** Tile-pyramid cover zoom for a raster source, tileSize-aware.
@@ -451,12 +474,11 @@ export class RasterRenderer {
     const checker = this.ensureRhiChecker(rhi)
     const frame = camera.getViewForProjection(projType, w, h, dpr)
 
-    // Global uniform through the SAME packer render() uses (#733 P2b single
-    // authority — the old literal-offset copy here carried raster_params.w = 8,
-    // a dead lane the shader never reads; now uniformly 0).
-    // cam_ecef_center: the slice renders a FLAT z0 tile (single-sample, projType-0 scope —
-    // the globe/ECEF anchor is Story-5/6), so pack the 2D Mercator camera centre. No projType
-    // branch here keeps the forced-WebGL2 path off the projType-comparison arch ratchet.
+    // Global uniform through the SAME packer + anchor authority render() uses
+    // (#733 P2b — the old literal-offset copy here carried raster_params.w = 8, a
+    // dead lane the shader never reads; now uniformly 0). frameCamAnchor packs
+    // the per-arm DSFUN anchor so the checker draws correctly under any
+    // projection override, not just Mercator.
     const B = rasterBlock()
     writeRasterFrameUniform(
       B,
@@ -464,7 +486,7 @@ export class RasterRenderer {
       projType,
       projCenterLon,
       projCenterLat,
-      [camera.centerX, camera.centerY, 0],
+      rasterFrameCamAnchor(camera, projType, projCenterLon, projCenterLat),
       this.colorParams(),
     )
 
@@ -658,19 +680,10 @@ export class RasterRenderer {
     // Write global uniforms through the typed block (#733 P2b — the single
     // authority shared with the forced-WebGL2 checker). proj_params.w =
     // log_depth_fc so the raster grid shader can apply/read the log-depth
-    // transform uniformly with the vector pipelines.
-    // cam_ecef_center: Flat Mercator (projType 0) packs the 2D Mercator camera
-    // centre in .xy (the flat VS computes rel = project(lon,lat) − cam.xy; the
-    // ECEF lanes are dead there). 3D / globe packs the WGS84 ELLIPSOID anchor —
-    // the raster VS reconstructs each vertex via lonlat_to_ecef (E2≠0), so the
-    // anchor it subtracts MUST be on the same ellipsoid; getECEFCenter() is the
-    // SPHERE (E2=0), and subtracting it left the ellipsoid−sphere discrepancy
-    // (~21.5 km at mid-lat) on every vertex → the raster sheet flew off the
-    // globe. Mirrors the vector tiler's cam_ecef_off fix.
-    const camAnchor: readonly [number, number, number] =
-      projType === 0
-        ? [camera.centerX, camera.centerY, 0]
-        : rasterGlobeCamAnchor(projCenterLon, projCenterLat)
+    // transform uniformly with the vector pipelines. The DSFUN camera anchor is
+    // packed per projType arm by frameCamAnchor (see there + raster.ts
+    // cam_ecef_center).
+    const camAnchor = rasterFrameCamAnchor(camera, projType, projCenterLon, projCenterLat)
     const B = rasterBlock()
     writeRasterFrameUniform(
       B,

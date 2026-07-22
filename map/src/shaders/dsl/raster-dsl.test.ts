@@ -56,8 +56,8 @@ describe('Phase-2 raster shader — DSL emission (ECEF VS, PR 2d.3)', () => {
   it('vs_tile flat display branches: Mercator (< 0.5) + non-Mercator (< 6.5)', () => {
     // projection-display-layer-restore Phase 2: flat Mercator (proj_params.x
     // < 0.5) reprojects via project(); the other flat projTypes (< 6.5) via
-    // the shared flat_rel helper (project_geom − projected camera centre); the
-    // 3D ECEF path stays in the final else.
+    // project_geom recentred onto clon = 0 minus the df64 camera centre (the
+    // z18+ raster-jitter fix); the 3D ECEF path stays in the final else.
     const vsBody = noPick.slice(noPick.indexOf('@vertex\nfn vs_tile'))
     const vsEnd = vsBody.indexOf('\n@fragment')
     const vsOnly = vsEnd > 0 ? vsBody.slice(0, vsEnd) : vsBody
@@ -69,10 +69,14 @@ describe('Phase-2 raster shader — DSL emission (ECEF VS, PR 2d.3)', () => {
     // shared temps (or inlines a single use), so generalize the first two args
     // to \w+ and pin the call + the stable u.proj_params operand.
     expect(vsOnly).toMatch(/\bproject\([\s\S]*?, u\.proj_params\)/) // Mercator
-    // non-Mercator branch CALLS the shared flat_rel() helper with u.proj_params
-    // as the projType arg; the leading lon/lat args are likewise cse/inlined.
-    expect(vsOnly).toMatch(/\bflat_rel\([\s\S]*?, u\.proj_params,/) // non-Mercator (shared helper)
-    expect(noPick).toContain('fn flat_rel(')
+    // non-Mercator branch CALLS project_geom() with the projection RECENTRED onto
+    // clon = 0 — the 3rd arg is vec4(u.proj_params.x, 0.0, …) (deletes the
+    // radians(abs_lon) − radians(clon) f32 cancellation that shook every
+    // non-Mercator projection at z18+) — and subtracts the df64 camera 2D centre
+    // from cam_ecef_center.yz (hi) / cam_ecef_center_l.yz (lo).
+    expect(vsOnly).toMatch(/\bproject_geom\([\s\S]*?vec4<f32>\(u\.proj_params\.x, 0(\.0)?,/)
+    expect(vsOnly).toContain('vec2<f32>(u.cam_ecef_center.y, u.cam_ecef_center.z)') // camProj0 hi
+    expect(vsOnly).toContain('vec2<f32>(u.cam_ecef_center_l.y, u.cam_ecef_center_l.z)') // camProj0 lo
     expect(noPick).toContain('fn project_geom(')
   })
   it('fragment samples the tile + rim fade + log-depth', () => {
