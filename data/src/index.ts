@@ -97,6 +97,7 @@ export type {
   BandValues,
   ByteReader,
   RangeReaderOptions,
+  ChunkRegion,
 } from './hdf5/index'
 export { readS102Coverage } from './hdf5/s102'
 export type { S100Coverage, CoverageBand, Product } from './hdf5/s102'

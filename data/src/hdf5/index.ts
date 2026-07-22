@@ -12,7 +12,13 @@ import { Cursor, BufferReader, type ByteReader } from './bytes'
 import { RangeReader, type RangeReaderOptions } from './range-reader'
 import { parseSuperblock, type Superblock } from './superblock'
 import { readNode, resolvePath, type Hdf5Node } from './groups'
-import { readRawElements, decodeBand, decodeStringTable, type BandValues } from './dataset'
+import {
+  readRawElements,
+  decodeBand,
+  decodeStringTable,
+  type BandValues,
+  type ChunkRegion,
+} from './dataset'
 
 export { Hdf5Error, BufferReader } from './bytes'
 export type { ByteReader } from './bytes'
@@ -20,7 +26,7 @@ export { RangeReader } from './range-reader'
 export type { RangeReaderOptions } from './range-reader'
 export type { Hdf5Node, AttrValue } from './groups'
 export type { Datatype } from './datatype'
-export type { BandValues } from './dataset'
+export type { BandValues, ChunkRegion } from './dataset'
 
 export interface DecodedBand {
   values: BandValues
@@ -33,8 +39,8 @@ export class Hdf5File {
   /** Set by `init()` (the superblock needs an async `ensure` first). */
   superblock!: Superblock
 
-  constructor(reader: ByteReader) {
-    this.cursor = new Cursor(reader)
+  constructor(reader: ByteReader, blockSize?: number) {
+    this.cursor = new Cursor(reader, blockSize)
   }
 
   /** Ensure the superblock prefix is resident and parse it. Called by the `openHdf5*`
@@ -57,11 +63,13 @@ export class Hdf5File {
   }
 
   /** Decode a dataset band. `memberName` selects a compound member (e.g. 'depth');
-   *  omit it for an atomic dataset. Async — the b-tree walk + chunk fetch + deflate. */
-  async readBand(path: string, memberName?: string): Promise<DecodedBand> {
+   *  omit it for an atomic dataset. `region` (chunked datasets) fetches ONLY the chunks
+   *  intersecting the element-index sub-region — the rest of the returned grid is fill
+   *  (ADR-0010 #1284-4 bbox streaming). Async — the b-tree walk + chunk fetch + deflate. */
+  async readBand(path: string, memberName?: string, region?: ChunkRegion): Promise<DecodedBand> {
     const node = await this.get(path)
     const info = node.asDataset()
-    const raw = await readRawElements(this.cursor, info)
+    const raw = await readRawElements(this.cursor, info, region)
     return { values: decodeBand(raw, info, memberName), dims: info.dims }
   }
 
@@ -83,14 +91,20 @@ export async function openHdf5(buf: ArrayBuffer | Uint8Array): Promise<Hdf5File>
 /** Parse an HDF5 file from an async `ByteReader` — the range-streaming path (ADR-0010
  *  increment 4): metadata + only the chunks a read touches are fetched, not the whole
  *  file. Pass a `RangeReader` (HTTP Range) for a remote cell. */
-export async function openHdf5Range(reader: ByteReader): Promise<Hdf5File> {
-  return new Hdf5File(reader).init()
+export async function openHdf5Range(
+  reader: ByteReader,
+  opts?: { blockSize?: number },
+): Promise<Hdf5File> {
+  return new Hdf5File(reader, opts?.blockSize).init()
 }
 
 /** Open a remote HDF5 cell over HTTP range requests — the ergonomic range entry
  *  (`openHdf5Range` + a `RangeReader`). Only the metadata + touched chunks are fetched.
  *  CORS applies: point `url` at your range-capable proxy/mirror, not a CORS-blocked
  *  NOAA bucket (recipes doc). */
-export async function openHdf5Url(url: string, opts?: RangeReaderOptions): Promise<Hdf5File> {
-  return openHdf5Range(await RangeReader.open(url, opts))
+export async function openHdf5Url(
+  url: string,
+  opts?: RangeReaderOptions & { blockSize?: number },
+): Promise<Hdf5File> {
+  return openHdf5Range(await RangeReader.open(url, opts), { blockSize: opts?.blockSize })
 }
