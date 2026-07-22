@@ -13,15 +13,16 @@
 // `/noaa/` and `/noaa-s111/` paths to in production. Until it's deployed the demos degrade
 // to imagery-only on the hosted site (they are fully live in local dev via the vite proxy).
 
-import { handleNoaa } from './noaa-s111-proxy'
+import { handleNoaa, corsHeaders } from './noaa-s111-proxy'
 
 export default {
   fetch(request: Request): Promise<Response> {
+    const origin = request.headers.get('origin')
     if (request.method === 'OPTIONS') {
       return Promise.resolve(
         new Response(null, {
           headers: {
-            'access-control-allow-origin': '*',
+            ...corsHeaders(origin),
             'access-control-allow-methods': 'GET, HEAD, OPTIONS',
             'access-control-allow-headers': 'range',
           },
@@ -29,6 +30,6 @@ export default {
       )
     }
     const url = new URL(request.url)
-    return handleNoaa(url.pathname + url.search, request.headers.get('range'))
+    return handleNoaa(url.pathname + url.search, request.headers.get('range'), origin)
   },
 }

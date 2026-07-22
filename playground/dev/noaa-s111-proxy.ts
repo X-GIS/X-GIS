@@ -30,6 +30,30 @@ const S111_BUCKET = 'https://noaa-s111-pds.s3.amazonaws.com'
  *  Anything else is refused — this bridges NOAA data, it is not an open proxy. */
 const NOAA_BUCKET_RE = /^noaa-[a-z0-9][a-z0-9.-]*$/
 
+/** CORS is LOCKED to the X-GIS site (plus localhost for a dev hitting the prod worker
+ *  directly). This worker exists to serve the X-GIS demos — not as an open CORS proxy
+ *  anyone can borrow to launder NOAA bandwidth through the x-gis account. A browser from
+ *  any other origin is refused by the mismatched `Access-Control-Allow-Origin`. */
+const ALLOWED_ORIGINS = new Set([
+  'https://x-gis.github.io',
+  'https://localhost:3000',
+  'http://localhost:3000',
+])
+const DEFAULT_ORIGIN = 'https://x-gis.github.io'
+function allowOrigin(origin: string | null): string {
+  return origin && ALLOWED_ORIGINS.has(origin) ? origin : DEFAULT_ORIGIN
+}
+/** The CORS header set for a request from `origin` — the locked ACAO + `Vary: Origin`
+ *  (so a cache can't serve one origin's grant to another) + the exposed range headers. */
+export function corsHeaders(origin: string | null): Record<string, string> {
+  return {
+    'access-control-allow-origin': allowOrigin(origin),
+    vary: 'origin',
+    'access-control-expose-headers':
+      'content-range, content-length, accept-ranges, etag, x-noaa-key',
+  }
+}
+
 /** List the immediate child `CommonPrefixes` (folder names) under `prefix`. */
 async function listPrefixes(base: string, prefix: string, f: FetchImpl): Promise<string[]> {
   const res = await f(`${base}/?list-type=2&prefix=${encodeURIComponent(prefix)}&delimiter=/`)
@@ -84,10 +108,10 @@ export const resolveLatestCbofsKey = (f: FetchImpl = fetch): Promise<string> =>
 
 const STREAM_HEADERS = ['content-length', 'content-type', 'content-range', 'accept-ranges', 'etag']
 
-function errorResponse(status: number, message: string): Response {
+function errorResponse(status: number, message: string, origin: string | null): Response {
   return new Response(`NOAA proxy: ${message}`, {
     status,
-    headers: { 'content-type': 'text/plain', 'access-control-allow-origin': '*' },
+    headers: { 'content-type': 'text/plain', ...corsHeaders(origin) },
   })
 }
 
@@ -95,6 +119,7 @@ function errorResponse(status: number, message: string): Response {
 async function resolveTarget(
   path: string,
   search: string,
+  origin: string | null,
   f: FetchImpl,
 ): Promise<{ url: string; key: string } | Response> {
   const q = search ? `?${search}` : ''
@@ -109,7 +134,7 @@ async function resolveTarget(
       path === 'noaa-s111/latest.h5'
         ? 'cbofs'
         : path.slice('noaa-s111/latest/'.length).replace(/\.h5$/, '')
-    if (!/^[a-z0-9_]+$/.test(model)) return errorResponse(400, `bad model "${model}"`)
+    if (!/^[a-z0-9_]+$/.test(model)) return errorResponse(400, `bad model "${model}"`, origin)
     const key = await resolveLatestS111(model, f)
     return { url: `${S111_BUCKET}/${key}`, key }
   }
@@ -124,10 +149,11 @@ async function resolveTarget(
     const slash = rest.indexOf('/')
     const bucket = slash === -1 ? rest : rest.slice(0, slash)
     const key = slash === -1 ? '' : rest.slice(slash + 1)
-    if (!NOAA_BUCKET_RE.test(bucket)) return errorResponse(403, `bucket not allowed: "${bucket}"`)
+    if (!NOAA_BUCKET_RE.test(bucket))
+      return errorResponse(403, `bucket not allowed: "${bucket}"`, origin)
     return { url: `https://${bucket}.s3.amazonaws.com/${key}${q}`, key: `${bucket}/${key}` }
   }
-  return errorResponse(404, `unknown route "${path}"`)
+  return errorResponse(404, `unknown route "${path}"`, origin)
 }
 
 /** The portable core: turn a `/noaa…` request (full path + query) into a CORS-open web
@@ -138,27 +164,23 @@ async function resolveTarget(
 export async function handleNoaa(
   reqUrl: string,
   range: string | null,
+  origin: string | null = null,
   fetchImpl: FetchImpl = fetch,
 ): Promise<Response> {
   try {
     const [rawPath, search = ''] = reqUrl.split('?')
     const path = rawPath!.replace(/^\/+/, '')
-    const target = await resolveTarget(path, search, fetchImpl)
+    const target = await resolveTarget(path, search, origin, fetchImpl)
     if (target instanceof Response) return target
     const upstream = await fetchImpl(target.url, { headers: range ? { Range: range } : undefined })
-    const headers = new Headers({
-      'access-control-allow-origin': '*',
-      'access-control-expose-headers':
-        'content-range, content-length, accept-ranges, etag, x-noaa-key',
-      'x-noaa-key': target.key,
-    })
+    const headers = new Headers({ ...corsHeaders(origin), 'x-noaa-key': target.key })
     for (const h of STREAM_HEADERS) {
       const v = upstream.headers.get(h)
       if (v) headers.set(h, v)
     }
     return new Response(upstream.body, { status: upstream.status, headers })
   } catch (err) {
-    return errorResponse(502, (err as Error).message)
+    return errorResponse(502, (err as Error).message, origin)
   }
 }
 
@@ -169,7 +191,8 @@ export function createNoaaMiddleware(fetchImpl: FetchImpl = fetch): Connect.Next
     const url = req.url ?? ''
     if (!url.startsWith('/noaa/') && !url.startsWith('/noaa-s111/')) return next()
     void (async () => {
-      const web = await handleNoaa(url, req.headers['range'] ?? null, fetchImpl)
+      const origin = (req.headers['origin'] as string | undefined) ?? null
+      const web = await handleNoaa(url, req.headers['range'] ?? null, origin, fetchImpl)
       res.statusCode = web.status
       web.headers.forEach((v, k) => res.setHeader(k, v))
       res.end(new Uint8Array(await web.arrayBuffer()))
