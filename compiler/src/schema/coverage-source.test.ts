@@ -11,6 +11,7 @@ import { Lexer } from '../lexer/lexer'
 import { Parser } from '../parser/parser'
 import { withPragma } from '../__tests__/_pragma'
 import { SOURCE_TYPES, LANGUAGE_SCHEMA } from './language'
+import { lower } from '../ir/lower'
 import type * as AST from '../parser/ast'
 
 function parseFirstSource(src: string): AST.SourceStatement {
@@ -63,5 +64,29 @@ describe('coverage source: grammar + schema (A9)', () => {
     // `type` enum options include coverage (the editor/palette single-authority)
     const typeProp = LANGUAGE_SCHEMA.source!.properties.find((p) => p.key === 'type')!
     expect(typeProp.options).toContain('coverage')
+  })
+})
+
+describe('coverage source: hdf5/h5 are format-name aliases (canonicalise → coverage)', () => {
+  // The exact mirror of `pmtiles`/`tilejson` under `vector`: a container name is a
+  // first-class spelling of the render family, canonicalised to the role name at the
+  // ONE lowering chokepoint so the IR + dead-layer-elim + runtime only see `coverage`.
+  function lowerFirstSource(src: string) {
+    const program = new Parser(new Lexer(withPragma(src)).tokenize()).parse()
+    return lower(program).sources
+  }
+  it.each(['hdf5', 'h5'])('`type: %s` lowers to a coverage SourceDef (role name)', (alias) => {
+    const [src] = lowerFirstSource(
+      `source cur { type: ${alias}, url: "cbofs.h5" }\nlayer l { source: cur }`,
+    )
+    expect(src!.name).toBe('cur')
+    expect(src!.type).toBe('coverage')
+  })
+  it('`hdf5`/`h5` are grammar SOURCE_TYPES (bare identifier parses → built-in)', () => {
+    expect(SOURCE_TYPES).toContain('hdf5')
+    expect(SOURCE_TYPES).toContain('h5')
+    const builtin = new Set<string>([...SOURCE_TYPES, 'xgvt'])
+    expect(builtin.has('hdf5')).toBe(true)
+    expect(builtin.has('h5')).toBe(true)
   })
 })

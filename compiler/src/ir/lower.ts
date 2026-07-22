@@ -136,6 +136,11 @@ function lowerSource(
       // `x-kr-admin` would otherwise tokenise as the expression `x - kr - admin`).
       if (prop.value.kind === 'Identifier') type = prop.value.name
       else if (prop.value.kind === 'StringLiteral') type = prop.value.value
+      // `hdf5` / `h5` are format-named aliases of the coverage family (the mirror of
+      // `pmtiles`/`tilejson` under `vector`) — canonicalise to the role name HERE, the
+      // single chokepoint, so the IR + dead-layer-elim + runtime only ever see
+      // `coverage`. The actual reader is still picked from the URL extension.
+      if (type === 'hdf5' || type === 'h5') type = 'coverage'
     } else if (prop.name === 'url' && prop.value.kind === 'StringLiteral') {
       url = prop.value.value
     } else if (prop.name === 'data') {
