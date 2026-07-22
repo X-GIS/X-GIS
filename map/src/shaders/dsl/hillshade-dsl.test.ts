@@ -17,6 +17,14 @@ describe('Phase-II hillshade shader — DSL emission', () => {
     expect(noPick).toContain('@fragment\nfn fs_hillshade(input: VsOut) -> HillshadeFragmentOutput')
   })
 
+  it('fragment applies the LAYER opacity (raster_params.x) to the premultiplied output', () => {
+    // #777 gap — the relief now honours the layer's `opacity` paint (was hardcoded 1); the
+    // fragment scales the whole premultiplied RGBA by the shared raster-frame opacity uniform.
+    const fs = noPick.match(/fn fs_hillshade[\s\S]*?\n\}/)?.[0] ?? ''
+    expect(fs).not.toBe('')
+    expect(fs).toMatch(/raster_params\.x/)
+  })
+
   it('shares the raster vertex authority byte-for-byte (single vs_tile source)', () => {
     // The vertex FUNCTION emitted by the hillshade module must be textually
     // identical to raster's — proof that vs_tile is ONE authority, not a fork.

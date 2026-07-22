@@ -68,6 +68,22 @@ export default async function (_req: Request): Promise<Response> {
 The browser then points a `type: coverage` source's `url` at this edge — it only
 ever talks to your origin, never NOAA.
 
+**Live in the playground (`s111_live` demo).** The playground ships this end to end
+against the REAL bucket. In dev the vite server is the proxy — `playground/dev/
+noaa-s111-proxy.ts` bridges `/noaa-s111/*` to `noaa-s111-pds` with a CORS header, the
+same locus as the `/pmtiles-proxy` entry. In prod the hosted static site has no server,
+so `loader.ts` rewrites `/noaa-s111/` to a Cloudflare Worker (`playground/dev/
+noaa-s111-worker.ts`) that serves the identical resolve+stream contract. One wrinkle the
+minimal proxy above skips: the NOAA bucket is a **rolling window** (old forecast cycles
+age out), so a hard-coded cell URL 404s within days. The path `/noaa-s111/latest.h5`
+therefore RESOLVES the newest CBOFS cell on each request (`resolveLatestCbofsKey` walks
+the date tree newest-first) — the demo's `.xgis` names that stable path and never rots:
+
+```
+source currents { type: coverage, url: "/noaa-s111/latest.h5" }
+layer speed { source: currents; ramp: "viridis"; range: [0, 2] | opacity-70 }
+```
+
 **When you do NOT need any of this:** CORS-open products — CO-OPS currents
 (`api.tidesandcurrents.noaa.gov`) and weather.gov alerts — already send
 `access-control-allow-origin: *`, so fetch them straight from the browser (Recipe
@@ -180,7 +196,9 @@ field honestly, discrete arrows do not.
 | A gridded HDF5 copy you mirror, want in-app live refresh        | **Recipe 2** (`setCoverageData` on a timer)                 |
 | A CORS-open JSON point/vector product                           | **Recipe 3** (fetch + `map.graphics`)                       |
 
-Track status: S-111 surface currents (this PR) exercises Recipes 1–3. GFS global
-wind (GRIB2) and OISST (NetCDF) are #1273 / #1274 — same render side, a new reader
-each (read in place, like HDF5; no conversion). GRIB2/NetCDF decode is the missing
-piece there; the HDF5 reader is the close cousin the S-100 track already built.
+Track status: S-111 surface currents (this PR) exercises Recipes 1–3, and the
+`s111_live` demo runs Recipe 1 against the LIVE NOAA bucket end to end (the vite
+`/noaa-s111` proxy in dev; the bundled Cloudflare Worker in prod). GFS global wind
+(GRIB2) and OISST (NetCDF) are #1273 / #1274 — same render side, a new reader each
+(read in place, like HDF5; no conversion). GRIB2/NetCDF decode is the missing piece
+there; the HDF5 reader is the close cousin the S-100 track already built.

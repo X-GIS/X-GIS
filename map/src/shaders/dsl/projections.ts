@@ -742,7 +742,16 @@ function buildProjectionArtifacts(specs: ProjectionSpec[]) {
       // == 0 = globe_eye unwritten (non-tiled / GeoJSON path) → fall back to the
       // centre-hemisphere rim so the layer is not faded to 0 alpha (blank globe).
       If(globe_eye.w.gt(0), () => {
-        Return(smoothstep(0, RIM, globe_eye_horizon_cos({ lon_deg, lat_deg, globe_eye })))
+        // Fade band SCALES with the visible-cap depth (1 − globe_eye.w): a FIXED 0.02 cosine
+        // band swallowed the whole view at high zoom (eye near surface → w→1 → centre
+        // horizon_cos=1−w falls inside 0.02 → raster faded to 0 over the dark globe = darkening).
+        Return(
+          smoothstep(
+            0,
+            RIM.mul(f32(1).sub(globe_eye.w)),
+            globe_eye_horizon_cos({ lon_deg, lat_deg, globe_eye }),
+          ),
+        )
       })
       Return(smoothstep(0, RIM, cc))
     })
