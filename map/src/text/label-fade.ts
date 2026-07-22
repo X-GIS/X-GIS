@@ -29,6 +29,8 @@
 // undefined, finishPrepare() returns [], advance() reports inactive — every
 // consumer then takes its historical byte-identical path.
 
+import { TIEBREAK_GROUP_SEP } from './text-collision'
+
 /** Mutable per-symbol opacity box. The stage attaches it to a draw at
  *  prepare time; the renderer READS `.a` when encoding that draw (uniform
  *  alpha patch for text, vertex-opacity patch for icons) every frame.
@@ -53,6 +55,22 @@ interface FadeRec {
  *  text symbol and its paired icon land on the same record. */
 export function fadeInstanceKey(collisionId: string, occurrence: number): string {
   return occurrence === 0 ? collisionId : `${collisionId}\u0001${occurrence}`
+}
+
+/** The ZOOM-SWAP-INVARIANT part of a #728 collisionId, used as the fade
+ *  identity. `labelCollisionId` prefixes the identity with `invLayer∥…`
+ *  (invLayer = labelShows.length − showIdx, joined by TIEBREAK_GROUP_SEP) — a
+ *  layer-precedence tie-break that SHIFTS whenever a label layer toggles at a
+ *  min/maxzoom stop, i.e. exactly at the integer-zoom tile-z crossings. Feeding
+ *  the FULL collisionId to the ledger made a stable symbol read as gone+new on
+ *  every zoom crossing (the blink). Fade identity must be invariant to that
+ *  prefix, so strip it and key on the `featureIdentity` (`resolvedText|worldPos`)
+ *  alone. The collision pass still tie-breaks on the FULL collisionId — only the
+ *  fade key is stripped. An id without the separator (imperative overlays)
+ *  passes through unchanged. */
+export function fadeStableIdentity(collisionId: string): string {
+  const sep = collisionId.indexOf(TIEBREAK_GROUP_SEP)
+  return sep === -1 ? collisionId : collisionId.slice(sep + TIEBREAK_GROUP_SEP.length)
 }
 
 /** Clamp a fade-duration input to a non-negative finite number; anything
