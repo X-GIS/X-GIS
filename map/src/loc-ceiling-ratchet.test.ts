@@ -326,7 +326,10 @@ const CEILINGS: Record<string, number> = {
   // setup applies, the reduced-motion re-apply, and the shouldRenderThisFrame
   // keep-alive. Wiring only; the per-tile ramp + cross-fade live in the raster
   // renderer. +31, measured post-hook.
-  'map/src/map.ts': 5094,
+  // 5094→5106 (#1302 declarative arrows): the isArrow fork in rebuildLayers + the
+  // arrow-show import + the clearCompiledArrows call. Wiring only; per-feature eval
+  // lives in arrow-show.ts and the draw in graphics-manager. +12, measured post-hook.
+  'map/src/map.ts': 5106,
   // Baselined at #1255 (measured 830): the DOM-inspired layer API crossed
   // NEW_FILE_CAP with the paint-transition style-setter integration — the
   // StyleHost.transitions context, the shared applyNumber/applyColor

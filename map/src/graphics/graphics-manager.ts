@@ -6,6 +6,12 @@
 // so a camera move rewrites ONLY the frame uniform — the per-instance buffers are
 // packed ONCE at add()/update() and never touched per frame (N-independent).
 //
+// It ALSO hosts the DECLARATIVE `| arrow` layer (#1302): rebuildLayers pre-evaluates
+// each arrow layer's per-feature bearing/size/colour and hands them to
+// addCompiledArrowLayer, which packs the SAME ARROW_RETAINED layout and draws through
+// the SAME retained arrow draper + per-copy uniform. So compiler-fed and host arrows
+// are one draw authority — not a second arrow pipeline.
+//
 // The CPU registry is DEVICE-FREE and map-lifetime; the GPU atlas mirror + the
 // retained draper + the batch buffers are per-run (re)built after each initGPU
 // and dropped on scene swap, while the registry survives so host images persist.
@@ -19,7 +25,12 @@ import { RetainedArrowDraper } from '../render/material/arrow-retained-material'
 import { RetainedCircleDraper } from '../render/material/circle-retained-material'
 import { RetainedParticleDraper } from '../render/material/particle-retained-material'
 import { packRetainedIconFeat, packRetainedIconTint } from './retained-icon-packer'
-import { packRetainedArrowFeat, packRetainedArrowTint } from './retained-arrow-packer'
+import {
+  packRetainedArrowFeat,
+  packRetainedArrowTint,
+  packCompiledArrowFeat,
+  packCompiledArrowTint,
+} from './retained-arrow-packer'
 import { packRetainedCircleFeat, packRetainedCircleTint } from './retained-circle-packer'
 import {
   packRetainedParticleFeat,
@@ -78,6 +89,23 @@ interface RetainedIconBatch {
   glyphCounts: Uint32Array | null
 }
 
+/** A DECLARATIVE `| arrow` layer (#1302) — the compiler-driven twin of a host
+ *  `map.graphics.add({type:'arrow'})` batch. Its per-feature bearing/size/colour are
+ *  pre-evaluated at rebuildLayers time (arrow-show.ts) rather than read from host
+ *  accessors, then packed into the SAME ARROW_RETAINED feat/tint layout, so it draws
+ *  through the retained arrow draper + shader unchanged. The raw arrays are retained so a
+ *  DPR change re-packs feat (size is baked in px), exactly like the host arrow path. */
+interface CompiledArrowBatch {
+  featBuf: RhiBuffer
+  tintBuf: RhiBuffer
+  bindGroup: RhiBindGroup
+  count: number
+  lons: Float64Array
+  lats: Float64Array
+  bearings: Float32Array
+  sizes: Float32Array
+}
+
 export class GraphicsManager {
   private readonly registry = new HostImageRegistry()
   /** The per-run GPU atlas mirror: the WebGPU-native twin, or the RHI-native
@@ -94,6 +122,10 @@ export class GraphicsManager {
   private frameBlock: UniformBlockOf<typeof pointU> | null = null
   private _blockView: Float32Array | null = null
   private readonly batches: RetainedIconBatch[] = []
+  /** Declarative `| arrow` layers (#1302), replaced wholesale each rebuildLayers
+   *  (clearCompiledArrows + addCompiledArrowLayer per show). Drawn in renderRetained
+   *  alongside the host arrow batches — one arrow-draw authority for both. */
+  private readonly _compiledArrows: CompiledArrowBatch[] = []
   /** Per-copy frame-uniform scratch (grown to peak world-copy count) — reused so
    *  the per-frame render allocates nothing proportional to icon count. */
   private readonly _copyScratch: Float32Array[] = []
@@ -257,7 +289,67 @@ export class GraphicsManager {
     // materialised count>0 batch always has one, so this is unchanged for them; a retained TEXT
     // batch has no bind group until the (pending) SDF text draper lands, so a text-only map stays
     // byte-identical / no-pass — it is packed + uploaded but not yet drawn.
-    return this.batches.some((b) => b.count > 0 && b.bindGroup !== null) || this._retired.length > 0
+    return (
+      this.batches.some((b) => b.count > 0 && b.bindGroup !== null) ||
+      this._compiledArrows.length > 0 ||
+      this._retired.length > 0
+    )
+  }
+
+  /** Register a DECLARATIVE `| arrow` layer (#1302) — the compiler-driven twin of a host
+   *  `map.graphics.add({type:'arrow'})` batch. Per-feature bearing/size/colour are
+   *  pre-evaluated at rebuildLayers time (arrow-show.ts) into parallel flat arrays; this
+   *  packs them into the SAME ARROW_RETAINED feat/tint layout via the compiled packers, so
+   *  the retained arrow draper + shader draw them unchanged. No device → no-op (rebuildLayers
+   *  runs post-attachDevice, so this normally materialises immediately). */
+  addCompiledArrowLayer(
+    lons: Float64Array,
+    lats: Float64Array,
+    bearingsDeg: Float32Array,
+    sizesPx: Float32Array,
+    colors: ReadonlyArray<readonly [number, number, number, number]>,
+  ): void {
+    const count = lons.length
+    if (count === 0 || !this.rhi || !this.arrowDraper) return
+    const feat = packCompiledArrowFeat(lons, lats, bearingsDeg, sizesPx, this.dpr)
+    const tint = packCompiledArrowTint(colors)
+    const featBuf = this.rhi.createBuffer({
+      size: Math.max(feat.byteLength, 16),
+      usage: 'storage',
+      writable: true,
+      label: 'compiled-arrow-feat',
+    })
+    this.rhi.writeBuffer(featBuf, 0, feat)
+    this._featWrites++
+    const tintBuf = this.rhi.createBuffer({
+      size: Math.max(tint.byteLength, 16),
+      usage: 'storage',
+      writable: true,
+      label: 'compiled-arrow-tint',
+    })
+    this.rhi.writeBuffer(tintBuf, 0, tint)
+    this._tintWrites++
+    const bindGroup = this.arrowDraper.makeBatchBindGroup(featBuf, tintBuf)
+    this._compiledArrows.push({
+      featBuf,
+      tintBuf,
+      bindGroup,
+      count,
+      lons,
+      lats,
+      bearings: bearingsDeg,
+      sizes: sizesPx,
+    })
+  }
+
+  /** Drop every compiled-arrow layer — called at the top of each rebuildLayers before the
+   *  isArrow fork re-adds. Buffers go through `_retired` (drained next renderRetained) so an
+   *  in-flight submit that bound them completes first, mirroring the host batch remove(). */
+  clearCompiledArrows(): void {
+    for (const ca of this._compiledArrows) {
+      this._retired.push(ca.featBuf, ca.tintBuf)
+    }
+    this._compiledArrows.length = 0
   }
 
   /** Build (or rebuild) a batch's GPU buffers + cached bind group. No-op until a
@@ -493,7 +585,7 @@ export class GraphicsManager {
     this.applyDpr(dpr)
 
     const drawable = this.batches.filter((b) => b.bindGroup !== null && b.count > 0)
-    if (drawable.length === 0) return
+    if (drawable.length === 0 && this._compiledArrows.length === 0) return
 
     // Per-frame CPU-time sample (gate: this must be FLAT across icon count — the
     // work below is O(COPIES × batches), never O(N)).
@@ -554,6 +646,14 @@ export class GraphicsManager {
       this._lastFrameDrawCalls += draper?.draw(pass, b.bindGroup!, perCopy, b.count) ?? 0
     }
 
+    // Declarative `| arrow` layers (#1302) — same draper + per-copy uniform as the host
+    // arrows above, so compiler-fed and `map.graphics` arrows are one draw authority.
+    if (this.arrowDraper) {
+      for (const ca of this._compiledArrows) {
+        this._lastFrameDrawCalls += this.arrowDraper.draw(pass, ca.bindGroup, perCopy, ca.count)
+      }
+    }
+
     if (this._timeSamples !== null) this._timeSamples.push(performance.now() - t0)
   }
 
@@ -590,6 +690,16 @@ export class GraphicsManager {
             : s.type === 'particle-flow'
               ? packRetainedParticleFeat(s, d)
               : packRetainedIconFeat(s, this.atlas, d),
+      )
+      this._featWrites++
+    }
+    // Compiled `| arrow` layers bake size in px too — re-pack feat from the retained
+    // raw arrays on a DPR change, mirroring the host arrow path above.
+    for (const ca of this._compiledArrows) {
+      this.rhi.writeBuffer(
+        ca.featBuf,
+        0,
+        packCompiledArrowFeat(ca.lons, ca.lats, ca.bearings, ca.sizes, d),
       )
       this._featWrites++
     }
@@ -653,6 +763,11 @@ export class GraphicsManager {
       if (b.tintBuf) this.rhi?.destroyBuffer(b.tintBuf)
       b.featBuf = b.tintBuf = b.bindGroup = null
     }
+    for (const ca of this._compiledArrows) {
+      this.rhi?.destroyBuffer(ca.featBuf)
+      this.rhi?.destroyBuffer(ca.tintBuf)
+    }
+    this._compiledArrows.length = 0
     this.rhi = null
     this.draper = null
     this.arrowDraper = null

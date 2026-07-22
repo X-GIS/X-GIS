@@ -28,6 +28,7 @@ import { PROJECTION_NAME_TO_TYPE, PROJECTIONS } from '@xgis/geo'
 import { configureProjections } from './shaders/dsl/projections'
 import { applyBodyOption } from './body-consts'
 import { addHeatmapShowLayer } from './heatmap-show'
+import { addArrowShowLayer } from './arrow-show'
 import { worldBandForProjType } from '@xgis/geo'
 import { projectLonLatToScreenCss } from './render-loop-helpers'
 import {
@@ -3403,6 +3404,7 @@ export class XGISMap {
     this.renderer.clearLayers()
     this.pointRenderer?.clearLayers()
     this.heatmapRenderer?.clearLayers()
+    this._graphics.clearCompiledArrows()
     this.vectorTileShows = []
     // Reset layer-id registry so re-projection produces deterministic IDs
     // (same `addLayer` order → same IDs). pickAt callers that cached an ID
@@ -3604,6 +3606,16 @@ export class XGISMap {
 
       // Point geometry → SDF point renderer (skip polygon tiling pipeline)
       const firstGeomType = filtered.features[0]?.geometry?.type
+
+      // Declarative `| arrow` layer (#1302) → compiled-arrow batch in the graphics
+      // manager (the retained arrow draper draws it). Routed HERE, over the same Point
+      // FC the SDF fork reads, so it takes precedence over the dot path for an arrow
+      // layer. arrow-show.ts evaluates per-feature bearing/size/colour and hands the
+      // flat arrays to addCompiledArrowLayer.
+      if ((firstGeomType === 'Point' || firstGeomType === 'MultiPoint') && show.isArrow) {
+        addArrowShowLayer(this, show, filtered)
+        continue
+      }
 
       if (
         (firstGeomType === 'Point' || firstGeomType === 'MultiPoint') &&

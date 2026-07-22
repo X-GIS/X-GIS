@@ -7,21 +7,20 @@
 //
 // The split, and why it exists:
 //   • The DECLARATIVE part lives in coops-currents.xgis — a satellite basemap
-//     plus an (initially empty) `source stations { type: geojson }` and a
-//     `station_dots` layer that colours + sizes each point by its `.speed`
-//     field. That is pure style; no code.
+//     plus an (initially empty) `source stations { type: geojson }`, a
+//     `station_dots` layer that colours + sizes each point by its `.speed`, and
+//     an `arrows` layer that rotates a glyph per point by its `.dir`. Pure style.
 //   • The IMPERATIVE part is here — fetch the live observations, ASSEMBLE them
 //     into GeoJSON (the CO-OPS API is not GeoJSON, and the station lon/lat is
 //     not even in the response — it comes from the table below), then PUSH the
 //     result into the declared source with `map.setSourceData`. That fan-out +
 //     join + typing is data work, not style, so it is host code.
 //
-// Direction is the one thing the declarative layer cannot express yet: rotating
-// EACH glyph by EACH station's `.dir` needs data-driven `icon-rotate` (#1302),
-// which does not exist, so the arrows stay on the retained-graphics primitive
-// `map.graphics.add({ type: 'arrow' })`. The remote-JSON source adapter (#1303)
-// and a source `refresh:` property (#1304) would move the fetch + polling into
-// the .xgis too; today they are the `fetch` + `setInterval` below.
+// Direction is now declarative too: the .xgis `arrows` layer rotates each glyph by
+// its `.dir` bearing via `| arrow bearing-[.dir]` (#1302), so this recipe only
+// PUSHES data — no per-arrow draw code. The remote-JSON source adapter (#1303) and
+// a source `refresh:` property (#1304) would move the fetch + polling into the
+// .xgis too; today they are the `fetch` + `setInterval` below.
 
 import type { XGISMap } from '@xgis/runtime'
 
@@ -51,34 +50,6 @@ export const COOPS_STATIONS: ReadonlyArray<readonly [string, number, number, str
   ['cb1301', -75.828, 39.531, 'Chesapeake City'],
   ['cb1401', -76.444, 36.984, 'Newport News Shipbuilding'],
 ]
-
-/** Speed (cm/s) → a blue→cyan→amber→red hex ramp for the direction arrows.
- *  (The declarative `station_dots` layer ramps the same field in the .xgis via
- *  `gradient(.speed, …)`; this mirror is only for the host-drawn arrows.) */
-export function coopsSpeedColor(cmPerS: number): string {
-  const stops: [number, [number, number, number]][] = [
-    [0, [40, 90, 180]],
-    [25, [30, 170, 200]],
-    [60, [230, 180, 40]],
-    [120, [220, 50, 40]],
-  ]
-  const s = Math.max(0, Math.min(120, cmPerS))
-  let a = stops[0]!
-  let b = stops[stops.length - 1]!
-  for (let i = 0; i < stops.length - 1; i++) {
-    if (s >= stops[i]![0] && s <= stops[i + 1]![0]) {
-      a = stops[i]!
-      b = stops[i + 1]!
-      break
-    }
-  }
-  const t = b[0] === a[0] ? 0 : (s - a[0]) / (b[0] - a[0])
-  const ch = (i: number): string =>
-    Math.round(a[1][i]! + (b[1][i]! - a[1][i]!) * t)
-      .toString(16)
-      .padStart(2, '0')
-  return `#${ch(0)}${ch(1)}${ch(2)}`
-}
 
 export interface CoopsHandle {
   stop(): void
@@ -113,21 +84,19 @@ async function fetchStation(
  *
  *   1. fetch the latest current for every Chesapeake Bay PORTS station,
  *   2. PUSH the assembled points into the declared `stations` geojson source
- *      (`setSourceData`) — the `station_dots` layer then colours/sizes them by
- *      `.speed` with zero draw code here (the declarative path),
- *   3. draw one DIRECTION arrow per station via the retained-graphics API
- *      (the per-feature rotation the declarative layer can't do yet, #1302),
- *   4. repeat every 6 minutes (the CO-OPS current cadence, #1304).
+ *      (`setSourceData`) — the `station_dots` + `arrows` layers then colour, size,
+ *      and ROTATE each point by `.speed` / `.dir` with zero draw code here (the
+ *      declarative path, #1302),
+ *   3. repeat every 6 minutes (the CO-OPS current cadence, #1304).
  *
  * `onStatus` reports progress for the demo's badge. Returns a handle whose
- * `stop()` cancels the timer and removes the arrows.
+ * `stop()` cancels the timer.
  */
 export function installCoopsCurrents(
   map: XGISMap,
   onStatus?: (ready: number, total: number, asOf: string | null) => void,
 ): CoopsHandle {
   let cancelled = false
-  let arrows: { remove(): void } | null = null
 
   const refresh = async (): Promise<void> => {
     const results = await Promise.all(
@@ -137,8 +106,9 @@ export function installCoopsCurrents(
     const stations = results.filter((s): s is Station => s !== null)
 
     // (2) Declarative path: assemble GeoJSON and hand it to the map; the .xgis
-    //     `station_dots` layer renders speed as colour + size. This "declare a
-    //     source, push data in" shape is the same host-push API fixtures use.
+    //     `station_dots` + `arrows` layers render speed as colour + size and `.dir`
+    //     as arrow rotation (#1302). Zero draw code here — this "declare a source,
+    //     push data in" shape is the same host-push API fixtures use.
     map.setSourceData('stations', {
       type: 'FeatureCollection',
       features: stations.map((s) => ({
@@ -147,21 +117,6 @@ export function installCoopsCurrents(
         properties: { name: s.name, speed: s.speed, dir: s.dir },
       })),
     })
-
-    // (3) Direction: the retained-graphics arrow is the ONLY primitive that
-    //     rotates per feature today (#1302 would make this a declarative layer).
-    arrows?.remove()
-    arrows =
-      stations.length > 0
-        ? map.graphics.add({
-            type: 'arrow',
-            data: stations,
-            getPosition: (d: Station) => [d.lon, d.lat] as const,
-            getBearing: (d: Station) => d.dir,
-            getSize: (d: Station) => Math.max(10, Math.min(46, 10 + Math.sqrt(d.speed) * 4)),
-            getColor: (d: Station) => coopsSpeedColor(d.speed),
-          })
-        : null
 
     onStatus?.(
       stations.length,
@@ -178,7 +133,6 @@ export function installCoopsCurrents(
     stop(): void {
       cancelled = true
       clearInterval(timer)
-      arrows?.remove()
     },
   }
 }
