@@ -100,7 +100,7 @@ export type {
   ChunkRegion,
 } from './hdf5/index'
 export { readS102Coverage } from './hdf5/s102'
-export type { S100Coverage, CoverageBand, Product } from './hdf5/s102'
+export type { S100Coverage, CoverageBand, CoverageTime, Product } from './hdf5/s102'
 // The runtime read-in-place path the `coverage` source consumes (replaces the
 // retired `decodeCoverage(.xgcov)`): HDF5 bytes → CoverageHandle, no wire format.
 export { readCoverageFromHdf5, readCoverageFromHdf5Url } from './hdf5/coverage'

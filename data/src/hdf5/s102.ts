@@ -23,6 +23,23 @@ export interface CoverageBand {
   values: Float32Array
 }
 
+/** The forecast TIME axis of a DCF2 cell (S-111 currents / S-104 water level are
+ *  hourly time-series; S-102 bathymetry is static). The instance stores `numGRP`
+ *  groups `Group_001…Group_NNN`, each a full grid at its own `timePoint`; the reader
+ *  decodes ONE group and reports where it sits on the axis so a caller can step hours. */
+export interface CoverageTime {
+  /** 0-based index of the group decoded (group N → index N−1). */
+  index: number
+  /** Total forecast groups in the cell (`numGRP`); 1 for a static S-102 cell. */
+  count: number
+  /** ISO-8601 valid-time of the decoded group (its `timePoint`), or null if absent. */
+  valueISO: string | null
+  /** ISO-8601 valid-time of the FIRST group (`dateTimeOfFirstRecord`), or null. */
+  firstISO: string | null
+  /** Seconds between consecutive groups (`timeRecordInterval`); 0 if single/absent. */
+  intervalSeconds: number
+}
+
 export interface S100Coverage {
   product: Product
   /** EPSG code of the horizontal CRS (4326 for the geographic S-102 profile). */
@@ -35,12 +52,17 @@ export interface S100Coverage {
   numPoints: [number, number]
   bands: CoverageBand[]
   vertical: { datumCode: number | null; sign: 'down' | 'up' }
+  /** The forecast group decoded + the full time axis it sits on. */
+  time: CoverageTime
   /** Attribute-casing / provenance warnings (surfaced to stderr by the CLI). */
   warnings: string[]
 }
 
 /** Read the DCF2 gridded coverage from an S-102 (or S-102-shaped) HDF5 file. */
-export async function readS102Coverage(file: Hdf5File): Promise<S100Coverage> {
+export async function readS102Coverage(
+  file: Hdf5File,
+  opts?: { group?: number },
+): Promise<S100Coverage> {
   const warnings: string[] = []
   const warn = (m: string): void => {
     warnings.push(m)
@@ -71,12 +93,32 @@ export async function readS102Coverage(file: Hdf5File): Promise<S100Coverage> {
   const nLon = reqNum(inst.attr('numPointsLongitudinal', warn), 'numPointsLongitudinal')
   const nLat = reqNum(inst.attr('numPointsLatitudinal', warn), 'numPointsLatitudinal')
 
+  // Forecast TIME axis: the instance holds `numGRP` groups `Group_001…Group_NNN`, each a
+  // full grid at its own `timePoint` (S-111 currents / S-104 water level are hourly time-
+  // series; a static S-102 cell has numGRP 1). Decode the requested group (default the
+  // first) and report the axis so a caller can step forecast hours. No `warn` on the time
+  // attrs — a static S-102 cell legitimately lacks them (absent ≠ mis-cased).
+  const numGRP = Math.max(1, Math.trunc(numAttr(inst.attr('numGRP')) ?? 1))
+  const group = opts?.group ?? 1
+  if (!Number.isInteger(group) || group < 1 || group > numGRP)
+    throw new Hdf5Error(`forecast group ${group} out of range [1, ${numGRP}]`)
+  const groupName = `Group_${String(group).padStart(3, '0')}`
+  const groupNode = await file.get(`${instancePath}/${groupName}`)
+  const asISO = (v: AttrValue | undefined): string | null => (v == null ? null : String(v))
+  const time: CoverageTime = {
+    index: group - 1,
+    count: numGRP,
+    valueISO: asISO(groupNode.attr('timePoint')),
+    firstISO: asISO(inst.attr('dateTimeOfFirstRecord')),
+    intervalSeconds: numAttr(inst.attr('timeRecordInterval')) ?? 0,
+  }
+
   // Band table (Group_F/<container>) → fill value + unit per band code. Fixed-length
   // strings only (A1); a vlen band table (real NOAA files) fails loudly here — the
   // grid + geometry are still readable directly (the local real-file differential).
   const bandTable = await readBandTable(file, containerName)
 
-  const valuesPath = `${instancePath}/Group_001/values`
+  const valuesPath = `${instancePath}/${groupName}/values`
   const valuesNode = await file.get(valuesPath)
   const info = valuesNode.asDataset()
   if (info.datatype.kind !== 'compound')
@@ -133,6 +175,7 @@ export async function readS102Coverage(file: Hdf5File): Promise<S100Coverage> {
       // S-102 depth is positive-down; carried verbatim, never silently flipped.
       sign: 'down',
     },
+    time,
     warnings,
   }
 }

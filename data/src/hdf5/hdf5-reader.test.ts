@@ -16,6 +16,7 @@ import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { openHdf5, type Hdf5File } from './index'
 import { readS102Coverage } from './s102'
+import { readCoverageFromHdf5 } from './coverage'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
 const FIX = join(HERE, '__fixtures__')
@@ -126,6 +127,38 @@ describe('real NOAA S-111 CBOFS cell (committed public-domain regression)', () =
     expect(valid.length).toBe(2570)
     expect(Math.min(...valid)).toBeGreaterThan(0)
     expect(Math.max(...valid)).toBeLessThan(3) // knots — a tidal channel
+  })
+
+  it('reads any forecast group + exposes the S-111 time axis (numGRP=48 hourly)', async () => {
+    const open = (): Promise<Hdf5File> => openHdf5(ab(join(FIX, 'noaa_s111_cbofs.h5')))
+    // Default → the FIRST forecast group + the full axis.
+    const g1 = await readS102Coverage(await open())
+    expect(g1.time.count).toBe(48) // numGRP — 48 hourly groups
+    expect(g1.time.index).toBe(0)
+    expect(g1.time.valueISO).toBe('20260620T010000Z') // Group_001 timePoint
+    expect(g1.time.firstISO).toBe('20260620T010000Z')
+    expect(g1.time.intervalSeconds).toBe(3600) // hourly
+    // A LATER group is a DIFFERENT forecast hour → a different current field.
+    const g2 = await readS102Coverage(await open(), { group: 2 })
+    expect(g2.time.index).toBe(1)
+    expect(g2.time.valueISO).toBe('20260620T020000Z') // +1 h
+    const speed1 = g1.bands.find((b) => b.name === 'surfaceCurrentSpeed')!.values
+    const speed2 = g2.bands.find((b) => b.name === 'surfaceCurrentSpeed')!.values
+    expect(speed2).not.toEqual(speed1) // the tide moved — group 2 ≠ group 1
+    // The LAST group.
+    const g48 = await readS102Coverage(await open(), { group: 48 })
+    expect(g48.time.index).toBe(47)
+    expect(g48.time.valueISO).toBe('20260622T000000Z') // dateTimeOfLastRecord
+    // Out of range fails LOUDLY (never silently clamps to a valid group).
+    await expect(readS102Coverage(await open(), { group: 49 })).rejects.toThrow(/out of range/)
+    await expect(readS102Coverage(await open(), { group: 0 })).rejects.toThrow(/out of range/)
+
+    // The `coverage` entry threads `group` through and surfaces the axis on the handle
+    // (meta.sourceMeta.time), so the runtime can read the valid-time + step hours.
+    const handle = await readCoverageFromHdf5(ab(join(FIX, 'noaa_s111_cbofs.h5')), { group: 2 })
+    const t = (handle.meta.sourceMeta as { time?: { index: number; count: number } }).time
+    expect(t?.index).toBe(1)
+    expect(t?.count).toBe(48)
   })
 })
 
