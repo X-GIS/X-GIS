@@ -21,6 +21,11 @@ scripts/gap-matrix.md
 **/*.pbf
 **/*.png
 
+# Vendored external standard — the IHO S-111 catalogues are kept byte-for-byte as the
+# single-authority reference (docs/standards/s-111/README.md is ours and stays formatted).
+docs/standards/s-111/portrayal/
+docs/standards/s-111/111_Feature_Catalogue_2.0.0.xml
+
 # Generator-owned coverage report — the emitter is the single format authority
 # (a prettier reflow here just gets rewritten by the next full vitest run).
 compiler/src/__tests__/__coverage__/SUMMARY.md
