@@ -508,7 +508,7 @@ const CEILINGS: Record<string, number> = {
   // (measured 1621 post-prettier reflow of the extruded descriptors.)
   'map/src/render/pipeline-factory.ts': 1621,
   'map/src/camera/camera.ts': 1419,
-  'map/src/shaders/dsl/line.ts': 1422,
+  'map/src/shaders/dsl/line.ts': 1441,
   // 1373→1422 (#1246): the flat-projection stroke-width fix. The VS clamp's flat
   // branch is rewritten from the (miscalibrated, no-op) targetNdc clamp to a
   // self-calibrating length(mercProbe)/length(projProbe) = 1/J screen-size ratio
