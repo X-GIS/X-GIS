@@ -29,6 +29,7 @@ export type {
   CirclePaint,
   ExtrudePaint,
   HeatmapPaint,
+  ArrowPaint,
 } from './emit-commands'
 export type {
   Scene,
