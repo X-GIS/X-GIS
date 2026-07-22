@@ -50,7 +50,7 @@ export function corsHeaders(origin: string | null): Record<string, string> {
     'access-control-allow-origin': allowOrigin(origin),
     vary: 'origin',
     'access-control-expose-headers':
-      'content-range, content-length, accept-ranges, etag, x-noaa-key',
+      'content-range, content-length, accept-ranges, etag, x-noaa-key, cf-cache-status',
   }
 }
 
@@ -198,9 +198,18 @@ export async function handleNoaa(
     const path = rawPath!.replace(/^\/+/, '')
     const target = await resolveTarget(path, search, origin, fetchImpl)
     if (target instanceof Response) return target
-    const upstream = await fetchImpl(target.url, { headers: range ? { Range: range } : undefined })
+    // Edge-cache the S3 fetch: `target.url` is an IMMUTABLE resolved cell key (the `latest`
+    // → key resolution is memoized above), so Cloudflare can serve a reload / another
+    // viewer's identical range from its edge instead of round-tripping to S3 — the dominant
+    // REPEAT-load cost once `resolveLatestS111Cached` removed the redundant walks. `cf` is a
+    // Worker-only hint: node/undici (the dev middleware) and the injected test fetch ignore
+    // the unknown init key, so it stays one transport-agnostic authority.
+    const upstream = await fetchImpl(target.url, {
+      headers: range ? { Range: range } : undefined,
+      cf: { cacheEverything: true, cacheTtl: 1800 },
+    } as RequestInit)
     const headers = new Headers({ ...corsHeaders(origin), 'x-noaa-key': target.key })
-    for (const h of STREAM_HEADERS) {
+    for (const h of [...STREAM_HEADERS, 'cf-cache-status']) {
       const v = upstream.headers.get(h)
       if (v) headers.set(h, v)
     }
