@@ -345,15 +345,22 @@ layer my_pois {
   {
     slug: 'extract-mapbox-subset',
     title: 'Keep only SOME layers of an OFM / Mapbox style',
-    body: 'A splice `import "url"` pulls EVERY layer of a style. To keep just a few — with their ORIGINAL cartography — add a `keep (...)` clause: it filters the imported layers by `source-layer`, the dimension you actually think in ("roads" = `transportation`, "place names" = `place`). Layers can\'t be cherry-picked by name (`import { x } from` selects source / preset / symbol blocks only), so `keep` is how a Mapbox/OFM base contributes only some of its layers. Every non-layer statement (sources, background) still splices, so the kept layers stay wired — you get OFM\'s exact colors, casing, zoom-dependent widths, and filters, not a hand-rewrite.',
+    body: 'A splice `import "url"` pulls EVERY layer of a style. Add a `keep (...)` clause to take only some of them — filtered by `source-layer` ("roads" = `transportation`, "place names" = `place`) — with their ORIGINAL cartography. And the import splices AT ITS LINE: draw order is declaration order, so a raster base declared before the import stays underneath, the kept OFM layers draw on top of it, and anything you declare after draws on top of them. Layers can\'t be cherry-picked by name (`import { x } from` selects source / preset / symbol blocks only), so `keep` — by source-layer — is how you pick them; non-layer statements (sources, background) always splice, so the kept layers stay wired.',
     code: `xgis 1
 
-// OFM Bright, but keep ONLY these source-layers — with their ORIGINAL styling.
-// keep() splices the chosen layers as the base; your own layers draw on top.
-import "https://tiles.openfreemap.org/styles/bright"
-  keep (water, waterway, transportation, transportation_name, place)
+// 1) Satellite raster base — declared FIRST, so it draws at the BOTTOM.
+source satellite {
+  type: raster
+  url: "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}"
+}
+layer imagery { source: satellite }
 
-// your own data, layered on top of the kept OFM layers
+// 2) Only these OFM layers, ORIGINAL styling, spliced HERE — so they draw
+//    ON TOP of the imagery (and below anything you declare next).
+import "https://tiles.openfreemap.org/styles/bright"
+  keep (transportation, transportation_name, place)
+
+// 3) Your own data, on top of everything.
 source pois { type: geojson, url: "pois.geojson" }
 layer my_pois {
   source: pois
@@ -361,10 +368,10 @@ layer my_pois {
   | label-[.name] label-color-#fff label-halo-1 label-halo-color-#000
 }`,
     notes: [
-      '`keep (a, b, ...)` takes bare or quoted source-layer names (OpenMapTiles: transportation / transportation_name / place / water / boundary / building / poi). A layer survives iff its `source-layer` is listed; all the sublayers on it (road casings, bridges, tunnels) come along with their real styling.',
-      'Imported statements splice as the BASE (they are prepended), so your own root layers draw ON TOP of the kept OFM layers — the order you want for highlighting your data over a trimmed basemap.',
-      'For a raster satellite UNDERNEATH the OFM layers, inject the raster at the bottom of the style JSON in JS instead — `style.layers.unshift({ id: "imagery", type: "raster", source })` then `map.run(convertMapboxStyle(style))` — because `.xgis` imports always prepend, so a root raster layer would sit on top rather than under.',
+      '`keep (a, b, ...)` takes bare or quoted source-layer names (OpenMapTiles: transportation / transportation_name / place / water / boundary / building / poi). A layer survives iff its `source-layer` is listed; its sublayers (road casings, bridges, tunnels) come along with their real styling.',
+      'The import lands its layers at its OWN position in the file — not hoisted to the top — so where you write the `import` line is exactly where the imported layers sit in the draw order. A top-of-file `import` still lands first, unchanged.',
       'Labels need glyphs: pass the style\'s own `glyphs` URL via `new XGISMap(el, { glyphs: { url } })`.',
+      'Prefer full programmatic control? Fetch the style JSON, `style.layers.filter(...)` it, and `map.run(convertMapboxStyle(style))` — the same result, in JS.',
     ],
   },
 

@@ -134,8 +134,22 @@ export function resolveImports(
     options,
   }
 
+  const body: AST.Statement[] = []
   for (const stmt of program.body) {
-    if (stmt.kind !== 'ImportStatement') continue
+    if (stmt.kind !== 'ImportStatement') {
+      body.push(stmt)
+      continue
+    }
+    // Splice what THIS import contributes at its OWN position in the program,
+    // so a mid-file `import` lands its layers at that line's draw-order slot
+    // rather than being hoisted above the root's own layers. Draw order is
+    // declaration order, so this is what lets a raster base sit UNDER an
+    // imported OFM subset (declare the raster first, `import … keep(…)` after).
+    // Dedup + collision still live in `state`; slicing the freshly-pushed tail
+    // of `state.imported` yields exactly this import's segment (nested imports
+    // stay deep-first). A top-of-file import is byte-identical to the old
+    // prepend-everything behaviour.
+    const before = state.imported.length
     const filePath = resolveFilePath(stmt.path, basePath)
     if (isCherryPick(stmt)) {
       cherryPickSync(filePath, stmt.names, ENTRY, stmt.line, readFile, state)
@@ -151,9 +165,8 @@ export function resolveImports(
         stmt.keepSourceLayers,
       )
     }
+    body.push(...state.imported.slice(before))
   }
-
-  const body = [...state.imported, ...program.body.filter((s) => s.kind !== 'ImportStatement')]
   return { kind: 'Program', body }
 }
 
@@ -245,8 +258,16 @@ export async function resolveImportsAsync(
     options,
   }
 
+  const body: AST.Statement[] = []
   for (const stmt of program.body) {
-    if (stmt.kind !== 'ImportStatement') continue
+    if (stmt.kind !== 'ImportStatement') {
+      body.push(stmt)
+      continue
+    }
+    // Position-aware splice (see the sync `resolveImports` for the rationale):
+    // this import's contributed statements land at its own line, so draw order
+    // follows declaration order across the import boundary.
+    const before = state.imported.length
     const filePath = resolveFilePath(stmt.path, basePath)
     if (isCherryPick(stmt)) {
       await cherryPickAsync(filePath, stmt.names, ENTRY, stmt.line, readFile, state)
@@ -262,9 +283,8 @@ export async function resolveImportsAsync(
         stmt.keepSourceLayers,
       )
     }
+    body.push(...state.imported.slice(before))
   }
-
-  const body = [...state.imported, ...program.body.filter((s) => s.kind !== 'ImportStatement')]
   return { kind: 'Program', body }
 }
 

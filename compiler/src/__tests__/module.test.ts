@@ -479,3 +479,53 @@ describe('splice import `keep (...)` clause — layer subset of a Mapbox/OFM sty
     expect(() => parse(`import "bright.json" keep ()`)).toThrow(/keep/)
   })
 })
+
+describe('position-aware import splicing — draw order across the import boundary', () => {
+  const STYLE = JSON.stringify({
+    version: 8,
+    sources: { openmaptiles: { type: 'vector', url: 'u' } },
+    layers: [
+      { id: 'bg', type: 'background', paint: { 'background-color': '#eee' } },
+      {
+        id: 'roads',
+        type: 'line',
+        source: 'openmaptiles',
+        'source-layer': 'transportation',
+        paint: { 'line-color': '#fff' },
+      },
+    ],
+  })
+  const reader: FileReader = (p) => (p === 'bright.json' ? STYLE : null)
+  const layerOrder = (prog: AST.Program): string[] =>
+    prog.body.filter((s): s is AST.LayerStatement => s.kind === 'LayerStatement').map((s) => s.name)
+
+  it('a mid-file import splices its layers at that line (raster base stays underneath)', () => {
+    const resolved = resolveImports(
+      parse(
+        `source sat { type: raster, url: "u" }
+         layer imagery { source: sat }
+         import "bright.json" keep (transportation)
+         source local { type: geojson, url: "l" }
+         layer highlight { source: local | fill-red-500 }`,
+      ),
+      './',
+      reader,
+    )
+    // Draw order = declaration order: the raster base, then the imported road
+    // layer spliced at the import line, then the user's highlight on top.
+    expect(layerOrder(resolved)).toEqual(['imagery', 'roads', 'highlight'])
+  })
+
+  it('a top-of-file import still lands first (byte-identical to the old prepend)', () => {
+    const resolved = resolveImports(
+      parse(
+        `import "bright.json" keep (transportation)
+         source local { type: geojson, url: "l" }
+         layer top { source: local | fill-red-500 }`,
+      ),
+      './',
+      reader,
+    )
+    expect(layerOrder(resolved)).toEqual(['roads', 'top'])
+  })
+})
