@@ -51,10 +51,13 @@ describe('compiled arrow packer (#1302)', () => {
     const tint = packCompiledArrowTint(rgba)
     for (let i = 0; i < lons.length; i++) {
       const o = i * S
-      expect(feat[o + F.abs_lon]).toBeCloseTo(lons[i]!, 6)
-      expect(feat[o + F.abs_lat]).toBeCloseTo(lats[i]!, 6)
-      expect(feat[o + F.size]).toBeCloseTo(sizes[i]! * DPR, 6)
-      expect([tint[i * 4], tint[i * 4 + 1], tint[i * 4 + 2], tint[i * 4 + 3]]).toEqual(rgba[i])
+      // feat/tint are Float32Array — storing applies ToFloat32, so assert exact
+      // fround(value), not full-precision closeness (a value like 126.98 or 0.2
+      // cannot be held to 6 decimals in f32).
+      expect(feat[o + F.abs_lon]).toBe(Math.fround(lons[i]!))
+      expect(feat[o + F.abs_lat]).toBe(Math.fround(lats[i]!))
+      expect(feat[o + F.size]).toBe(Math.fround(sizes[i]! * DPR))
+      for (let k = 0; k < 4; k++) expect(tint[i * 4 + k]).toBe(Math.fround(rgba[i]![k]!))
     }
   })
 
