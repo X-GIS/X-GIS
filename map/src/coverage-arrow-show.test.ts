@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { coverageFromGrids, type CoverageInput } from '@xgis/data/coverage'
 import { addCoverageArrowShowLayer, type CoverageArrowShowHost } from './coverage-arrow-show'
 import type { ShowCommand } from './render/renderer-types'
-import { S111_ARROW_BASE_PX } from './render/s111-portrayal'
+import { S111_ARROW_BASE_PX, S111_OUTLINE_STROKE_PX } from './render/s111-portrayal'
 
 interface Captured {
   lons: number[]
@@ -69,26 +69,40 @@ function s111Input(speed: number[], dir: number[]): CoverageInput {
 const s111Show = { ramp: 's111-speed' } as unknown as ShowCommand
 
 describe('addCoverageArrowShowLayer (#1333 — engine S-111 arrow field)', () => {
-  it('emits one arrow per valid (speed > 0) cell, dropping speed 0 + noData', () => {
+  it('emits an OUTLINE batch then a FILL batch, one arrow per valid (speed > 0) cell', () => {
     const handle = coverageFromGrids(
       s111Input([0.3, 0, NaN, 2.5, 5.0, 20.0], [90, 0, 0, 180, 270, 45]),
     )
     const { host, calls } = makeHost()
     addCoverageArrowShowLayer(host, s111Show, handle)
-    expect(calls).toHaveLength(1)
-    const c = calls[0]!
-    expect(c.lons).toEqual([10, 10, 11, 12]) // 0.3@col0, then row1 cols 0/1/2
-    expect(c.lats).toEqual([51, 50, 50, 50]) // north-up: row0 → lat 51, row1 → lat 50
-    expect(c.bearings).toEqual([90, 180, 270, 45]) // = the direction band, verbatim
+    expect(calls).toHaveLength(2) // outline (black, drawn first) + fill (banded colour, on top)
+    for (const c of calls) {
+      expect(c.lons).toEqual([10, 10, 11, 12]) // 0.3@col0, then row1 cols 0/1/2
+      expect(c.lats).toEqual([51, 50, 50, 50]) // north-up: row0 → lat 51, row1 → lat 50
+      expect(c.bearings).toEqual([90, 180, 270, 45]) // = the direction band, verbatim — same for both
+    }
   })
 
-  it('sizes by the per-band scale rule and colours by the s111-speed band', () => {
+  it('outline is black and strictly larger than the fill at every band', () => {
     const handle = coverageFromGrids(
       s111Input([0.3, 0, NaN, 2.5, 5.0, 20.0], [90, 0, 0, 180, 270, 45]),
     )
     const { host, calls } = makeHost()
     addCoverageArrowShowLayer(host, s111Show, handle)
-    const c = calls[0]!
+    const [outline, fill] = calls
+    for (const c of outline!.colors) expect(c).toEqual([0, 0, 0, 1])
+    for (let i = 0; i < fill!.sizes.length; i++) {
+      expect(outline!.sizes[i]).toBeCloseTo(fill!.sizes[i]! + 2 * S111_OUTLINE_STROKE_PX, 4)
+    }
+  })
+
+  it('fill sizes by the per-band scale rule and colours by the s111-speed band', () => {
+    const handle = coverageFromGrids(
+      s111Input([0.3, 0, NaN, 2.5, 5.0, 20.0], [90, 0, 0, 180, 270, 45]),
+    )
+    const { host, calls } = makeHost()
+    addCoverageArrowShowLayer(host, s111Show, handle)
+    const c = calls[1]! // fill batch (index 1 — drawn on top of the outline)
     // length = base × scale: 0.3→0.40, 2.5→0.50, 5.0→1.0, 20→2.60
     expect(c.sizes[0]).toBeCloseTo(S111_ARROW_BASE_PX * 0.4, 4)
     expect(c.sizes[1]).toBeCloseTo(S111_ARROW_BASE_PX * 0.5, 4)
