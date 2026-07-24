@@ -90,4 +90,30 @@ describe('RangeReader — S-100 over HTTP range', () => {
       RangeReader.open('http://x/a.h5', { fetch: rangeFetch(data, log, true) }),
     ).rejects.toThrow(/206|Range/)
   })
+
+  // A real browser's `fetch` is a WebIDL "legacy platform object" operation: calling it
+  // via property access (`window.fetch(url)`, `globalThis.fetch(url)`) passes the owning
+  // object as `this`; calling a REFERENCE pulled into a local variable (`const f =
+  // globalThis.fetch; f(url)`) does not — `this` is `undefined` at that call site — and the
+  // browser throws "Illegal invocation". Node/Bun's fetch has no such check, so a Node test
+  // run never caught `RangeReader.open()` (no injected `opts.fetch`) doing exactly that. The
+  // stub below is a RAW (unbound) function assigned directly as `globalThis.fetch` — the
+  // same shape a real Window exposes — that fails unless invoked with `this === globalThis`,
+  // faithfully reproducing the property-access-vs-bare-call distinction without needing a
+  // real browser.
+  it('open() with no injected fetch does not detach globalThis.fetch (browser Illegal-invocation regression)', async () => {
+    const realFetch = globalThis.fetch
+    const backing = rangeFetch(fileBytes('sb_v0_symtab.h5'), { ranges: [], bytes: 0 })
+    // @ts-expect-error — stubbing the global for this one assertion
+    globalThis.fetch = function (this: unknown, url: string, init?: RequestInit) {
+      if (this !== globalThis)
+        throw new TypeError("Failed to execute 'fetch' on 'Window': Illegal invocation")
+      return backing(url, init)
+    }
+    try {
+      await expect(RangeReader.open('http://x/a.h5')).resolves.toBeInstanceOf(RangeReader)
+    } finally {
+      globalThis.fetch = realFetch
+    }
+  })
 })

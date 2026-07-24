@@ -53,7 +53,10 @@ export interface S111MosaicHandle {
 /** Install a viewport-driven S-111 mosaic on `map`. Returns a handle to read the current
  *  model + detach. Resolves once immediately for the initial view. */
 export function installS111Mosaic(map: MosaicMap, opts: S111MosaicOptions): S111MosaicHandle {
-  const doFetch = opts.fetch ?? globalThis.fetch
+  // `.bind(globalThis)`: a bare `globalThis.fetch` reference invoked off this local const
+  // loses its receiver — in a real browser that throws "Illegal invocation" (a WebIDL
+  // branded-`this` check Node/Bun's fetch doesn't enforce, invisible to every Node-run test).
+  const doFetch = opts.fetch ?? globalThis.fetch.bind(globalThis)
   const base = opts.proxyBase ?? ''
   const maxCached = Math.max(1, opts.maxCached ?? 3)
   const cache = new Map<string, ArrayBuffer>() // insertion-ordered ⇒ front = least-recent
