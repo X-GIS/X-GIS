@@ -20,9 +20,10 @@ source basemap {
   url: "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}"
 }
 
-// The coverage source MUST be named `currents` — the demo runner's particle-flow
-// overlay (Demo.currents) reads getCoverage('currents') and drifts particles along
-// the surfaceCurrentDirection band of whatever real cell streamed in.
+// The coverage source streams the real S-111 cell; the `speed` layer draws BOTH readings of
+// it from the engine: the banded speed colour fill (ramp) AND the official IHO arrow field
+// (`| arrow`, #1333) — direction by arrow orientation, magnitude by the per-band scale, both
+// coloured by the same s111-speed palette. No app-side overlay: the portrayal is engine-owned.
 source currents {
   type: coverage
   url: "/noaa-s111/latest.h5"
@@ -37,4 +38,5 @@ layer speed {
   ramp: "s111-speed"
   range: [0, 13]
   | opacity-70
+  | arrow
 }

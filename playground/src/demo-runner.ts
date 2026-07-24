@@ -1524,11 +1524,8 @@ function setupCurrentsMosaic(map: InstanceType<typeof XGISMap>): void {
   currentsMosaicHandle = installS111Mosaic(map, {
     sourceId: 'currents',
     proxyBase: NOAA_PROXY_BASE,
-    onSwap: () => {
-      // The swapped-in cell is a new region — re-snapshot the direction overlays off it.
-      setupCurrentsArrows(map)
-      setupCurrentsOverlay(map)
-    },
+    // No app-side overlay re-arm: setCoverageData re-derives the engine `| arrow` S-111 field
+    // for the swapped-in region (#1333), so the arrows follow the pan without a snapshot here.
   })
 }
 
@@ -1962,15 +1959,20 @@ async function loadDemo(idx: number) {
     teardownMeasureOverlay()
   }
 
-  // NOAA S-111 currents demos (#1272): the OFFICIAL S-111 portrayal is tidal-stream
-  // arrows (direction + magnitude) over the speed colour-fill; the particle overlay
-  // adds the animated flow reading of the same coverage on top.
+  // NOAA S-111 currents demos (#1272). The LIVE demo (mosaic) draws the OFFICIAL S-111 arrow
+  // field from the ENGINE — `| arrow` on the coverage layer (#1333), coloured/scaled/oriented
+  // per the vendored catalogue, re-derived on each region swap. No app-side overlay. The
+  // synthetic showcase keeps the demo-layer particle-flow + arrows (#826, its own e2e gate).
   if (currentMap && demo.currents) {
-    setupCurrentsArrows(currentMap)
-    setupCurrentsOverlay(currentMap)
-    // #1272 E-④ — viewport mosaic: swap the covering regional model on pan.
-    if (demo.mosaic) setupCurrentsMosaic(currentMap)
-    else teardownCurrentsMosaic()
+    if (demo.mosaic) {
+      teardownCurrentsArrows()
+      teardownCurrentsOverlay()
+      setupCurrentsMosaic(currentMap) // #1272 E-④ swap; #1333 engine arrows follow the swap
+    } else {
+      setupCurrentsArrows(currentMap)
+      setupCurrentsOverlay(currentMap)
+      teardownCurrentsMosaic()
+    }
   } else {
     teardownCurrentsArrows()
     teardownCurrentsOverlay()
