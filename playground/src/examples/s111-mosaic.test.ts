@@ -187,4 +187,32 @@ describe('installS111Mosaic (#1272 E-④)', () => {
     await flush()
     expect(m.armed).toEqual([]) // nothing loaded → nothing to re-decode
   })
+
+  // demo-runner's real call site passes NO `fetch` option (proxyBase only) — installS111Mosaic
+  // then defaults to `globalThis.fetch`. A real browser's `fetch` only accepts a call whose
+  // `this` is the `Window`/`WorkerGlobalScope` that owns it; reading the property into this
+  // module's local `doFetch` const and invoking it as a bare identifier drops that receiver,
+  // which throws "Illegal invocation" — invisible to Node/Bun's fetch (no such check), so
+  // this stayed uncaught until a real browser. The stub is a RAW (unbound) function assigned
+  // directly as `globalThis.fetch`, failing unless invoked with `this === globalThis` — the
+  // same property-access-vs-bare-call distinction a real Window enforces.
+  it('defaults to globalThis.fetch WITHOUT detaching it (browser Illegal-invocation regression)', async () => {
+    const realFetch = globalThis.fetch
+    const backing = countingFetch().fetch
+    // @ts-expect-error — stubbing the global for this one assertion
+    globalThis.fetch = function (this: unknown, url: string, init?: RequestInit) {
+      if (this !== globalThis)
+        throw new TypeError("Failed to execute 'fetch' on 'Window': Illegal invocation")
+      return backing(url, init)
+    }
+    try {
+      const m = makeMap(CHESAPEAKE)
+      const h = installS111Mosaic(m.map, { sourceId: 'currents' }) // no `fetch` — the real default path
+      await flush()
+      expect(h.current()).toBe('cbofs')
+      expect(m.armed).toEqual(['cbofs'])
+    } finally {
+      globalThis.fetch = realFetch
+    }
+  })
 })

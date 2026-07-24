@@ -29,7 +29,12 @@ export class RangeReader implements ByteReader {
    *  server honours `Range` (a `200` full-body response is rejected: without range
    *  support every `read` would pull the whole file, defeating the point). */
   static async open(url: string, opts?: RangeReaderOptions): Promise<RangeReader> {
-    const doFetch = opts?.fetch ?? globalThis.fetch
+    // `.bind(globalThis)`: a bare `globalThis.fetch` reference invoked off this local const
+    // loses its receiver — in a real browser that throws "TypeError: Failed to execute
+    // 'fetch' on 'Window': Illegal invocation" (a WebIDL branded-`this` check that Node/Bun's
+    // fetch doesn't enforce, so this stayed invisible to every Node-run test). Same fix as
+    // sprite-atlas-host.ts's `opts.fetch ?? globalThis.fetch.bind(globalThis)`.
+    const doFetch = opts?.fetch ?? globalThis.fetch.bind(globalThis)
     const res = await doFetch(url, { headers: { Range: 'bytes=0-0' } })
     if (res.status !== 206)
       throw new Hdf5Error(
