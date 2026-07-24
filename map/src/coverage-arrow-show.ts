@@ -3,24 +3,17 @@
 //
 // Sibling of arrow-show.ts (the per-feature `| arrow` on a Point source): this reads the
 // SPEED + DIRECTION bands of a CoverageHandle instead of Point features, applies the
-// s111-portrayal rule (band colour + per-band scale + black outline + "no symbol for speed 0
-// / noData"), and hands two flat-array batches — a black OUTLINE (larger, drawn first) and
-// the banded-colour FILL (drawn second, on top) — to the shared compiled-arrow draper: no new
-// GPU code, no new render pass. Placement / scale / rotation / colour / outline are the
-// vendored catalogue (docs/standards/s-111/); the rule authority is ./render/s111-portrayal.ts
-// + the s111-speed BANDED_RAMPS palette (color-ramp.ts), one source of truth with the fill.
+// s111-portrayal rule (band colour + per-band scale + "no symbol for speed 0 / noData"),
+// and hands the SAME flat arrays to the shared compiled-arrow draper — no new GPU code, no
+// new render pass. Placement / scale / rotation / colour are the vendored catalogue
+// (docs/standards/s-111/); the rule authority is ./render/s111-portrayal.ts + the
+// s111-speed BANDED_RAMPS palette (color-ramp.ts), one source of truth with the fill.
 
 import type { CoverageHandle } from '@xgis/data'
 import type { ShowCommand } from './render/renderer-types'
 import type { GraphicsManager } from './graphics/graphics-manager'
 import { bandedRampColor } from './color-ramp'
-import {
-  s111ArrowLengthPx,
-  s111ArrowOutlineLengthPx,
-  s111HasArrow,
-  S111_OUTLINE_COLOR,
-  S111_SPEED_RAMP,
-} from './render/s111-portrayal'
+import { s111ArrowLengthPx, s111HasArrow, S111_SPEED_RAMP } from './render/s111-portrayal'
 
 /** The slice of XGISMap the coverage-arrow build reads. */
 export interface CoverageArrowShowHost {
@@ -69,12 +62,8 @@ export function addCoverageArrowShowLayer(
   const lons: number[] = []
   const lats: number[] = []
   const bearings: number[] = []
-  const fillSizes: number[] = []
-  const outlineSizes: number[] = []
-  const fillColors: [number, number, number, number][] = []
-  const outlineColors: [number, number, number, number][] = []
-
-  const [oR, oG, oB] = S111_OUTLINE_COLOR
+  const sizes: number[] = []
+  const colors: [number, number, number, number][] = []
 
   for (let k = 0; k < idx.length; k += stride) {
     const i = idx[k]!
@@ -85,31 +74,15 @@ export function addCoverageArrowShowLayer(
     lons.push(originLon + col * dLon)
     lats.push(originLat + (nLat - 1 - row) * dLat)
     bearings.push(dir[i]!)
-    fillSizes.push(s111ArrowLengthPx(s))
-    outlineSizes.push(s111ArrowOutlineLengthPx(s))
-    fillColors.push([c[0] / 255, c[1] / 255, c[2] / 255, 1])
-    outlineColors.push([oR / 255, oG / 255, oB / 255, 1])
+    sizes.push(s111ArrowLengthPx(s))
+    colors.push([c[0] / 255, c[1] / 255, c[2] / 255, 1])
   }
 
-  const lonArr = Float64Array.from(lons)
-  const latArr = Float64Array.from(lats)
-  const bearingArr = Float32Array.from(bearings)
-  // The retained-arrow draper has no depth test (alpha blend, painter's algorithm) — the
-  // OUTLINE batch (black, larger) MUST be added first so the FILL batch (banded colour,
-  // smaller) draws on top of it (graphics-manager.ts `renderRetained` draws
-  // `_compiledArrows` in push order). Same position/bearing, only size + colour differ.
   host.graphics.addCompiledArrowLayer(
-    lonArr,
-    latArr,
-    bearingArr,
-    Float32Array.from(outlineSizes),
-    outlineColors,
-  )
-  host.graphics.addCompiledArrowLayer(
-    lonArr,
-    latArr,
-    bearingArr,
-    Float32Array.from(fillSizes),
-    fillColors,
+    Float64Array.from(lons),
+    Float64Array.from(lats),
+    Float32Array.from(bearings),
+    Float32Array.from(sizes),
+    colors,
   )
 }

@@ -3,11 +3,8 @@ import { bandedRampColor } from '../color-ramp'
 import {
   s111ArrowScale,
   s111ArrowLengthPx,
-  s111ArrowOutlineLengthPx,
   s111HasArrow,
   S111_ARROW_BASE_PX,
-  S111_OUTLINE_COLOR,
-  S111_OUTLINE_STROKE_PX,
   S111_SCALE_FLOOR,
   S111_SCALE_CEILING,
 } from './s111-portrayal'
@@ -41,28 +38,6 @@ describe('s111ArrowLengthPx', () => {
     expect(s111ArrowLengthPx(1)).toBeCloseTo(S111_ARROW_BASE_PX * 0.4, 10) // slow → uniform
     expect(s111ArrowLengthPx(5)).toBeCloseTo(S111_ARROW_BASE_PX * 1.0, 10)
     expect(s111ArrowLengthPx(1, 50)).toBeCloseTo(20, 10) // explicit base override
-  })
-})
-
-describe('s111ArrowOutlineLengthPx (SVGStyle_S111day.css .sCHBLK — black outline)', () => {
-  it('is the fill length plus the stroke on both sides, at every band', () => {
-    for (const speed of [0.3, 0.7, 1.5, 2.5, 5, 8, 20]) {
-      expect(s111ArrowOutlineLengthPx(speed)).toBeCloseTo(
-        s111ArrowLengthPx(speed) + 2 * S111_OUTLINE_STROKE_PX,
-        10,
-      )
-    }
-  })
-
-  it('honours an explicit basePx override, same as s111ArrowLengthPx', () => {
-    expect(s111ArrowOutlineLengthPx(1, 50)).toBeCloseTo(
-      s111ArrowLengthPx(1, 50) + 2 * S111_OUTLINE_STROKE_PX,
-      10,
-    )
-  })
-
-  it('S111_OUTLINE_COLOR is black — SVGStyle_S111day.css .sCHBLK {stroke:#000000}', () => {
-    expect(S111_OUTLINE_COLOR).toEqual([0, 0, 0])
   })
 })
 
