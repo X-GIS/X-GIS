@@ -346,7 +346,10 @@ const CEILINGS: Record<string, number> = {
   // `| arrow` coverage with no `ramp` (strict S-111 = arrows, no raster), + setCoverageData's
   // `{ url }` option so a host-push keeps `_url` and setCoverageTime can step forecast hours.
   // +13, post-hook.
-  'map/src/map.ts': 5205,
+  // 5205→5212 (#1333 play fix): setCoverageData `{ group }` re-decodes the ALREADY-DOWNLOADED
+  // pushed bytes at a different forecast hour — the mosaic steps time with zero network, so
+  // play can't crash on a range re-fetch. +7, post-hook.
+  'map/src/map.ts': 5212,
   // Baselined at #1255 (measured 830): the DOM-inspired layer API crossed
   // NEW_FILE_CAP with the paint-transition style-setter integration — the
   // StyleHost.transitions context, the shared applyNumber/applyColor

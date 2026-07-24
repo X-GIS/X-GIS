@@ -4621,7 +4621,7 @@ export class XGISMap {
   async setCoverageData(
     sourceId: string,
     bytes: ArrayBuffer,
-    opts?: { ramp?: string; range?: readonly [number, number]; url?: string },
+    opts?: { ramp?: string; range?: readonly [number, number]; url?: string; group?: number },
   ): Promise<void> {
     const prev = this.rawDatasets.get(sourceId)
     if (!prev || !('_coverage' in prev)) {
@@ -4630,10 +4630,17 @@ export class XGISMap {
           `(declare \`source ${sourceId} { type: coverage, url: … }\` first).`,
       )
     }
-    const handle = await readCoverage(bytes)
+    // `group` (1-based) re-decodes a DIFFERENT forecast hour of the SAME pushed bytes — the
+    // whole cell is already in memory (the mosaic cached it), so stepping the time axis costs
+    // one CPU decode, no network (#1272 E-③). Defaults to the first group.
+    const handle = await readCoverage(
+      bytes,
+      undefined,
+      opts?.group ? { group: opts.group } : undefined,
+    )
     // Keep `_url` when the caller names the pushed cell's URL (the viewport mosaic passes the
-    // region it fetched) so setCoverageTime can range-read a different forecast group of it
-    // after the push (#1272 E-③). A urlless push stays a pure host-push (no time axis).
+    // region it fetched) so a later reload / range read can address the same cell. A urlless
+    // push stays a pure host-push.
     this.rawDatasets.set(
       sourceId,
       opts?.url ? { _coverage: handle, _url: opts.url } : { _coverage: handle },

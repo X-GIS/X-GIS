@@ -21,6 +21,7 @@ function makeMap(initial: LngLatBounds) {
   let bounds = initial
   let listener: (() => void) | null = null
   const armed: string[] = [] // model key of each setCoverageData call, in order
+  const armedOpts: ({ url?: string; group?: number } | undefined)[] = []
   const map: MosaicMap = {
     getBounds: () => bounds,
     on: (_t, l) => {
@@ -29,8 +30,9 @@ function makeMap(initial: LngLatBounds) {
     off: (_t, l) => {
       if (listener === l) listener = null
     },
-    setCoverageData: async (_id, bytes) => {
+    setCoverageData: async (_id, bytes, opts) => {
       armed.push(new TextDecoder().decode(bytes))
+      armedOpts.push(opts)
     },
   }
   return {
@@ -40,6 +42,7 @@ function makeMap(initial: LngLatBounds) {
       listener?.()
     },
     armed,
+    armedOpts,
     hasListener: () => listener !== null,
   }
 }
@@ -156,5 +159,32 @@ describe('installS111Mosaic (#1272 E-④)', () => {
     m.pan(SF_BAY) // listener gone → no effect
     await flush()
     expect(f.fetched).toEqual(['cbofs'])
+  })
+
+  it('setTime re-decodes the current region cell at a group — no re-fetch (#1272 E-③)', async () => {
+    const f = countingFetch()
+    const m = makeMap(CHESAPEAKE)
+    const h = installS111Mosaic(m.map, { sourceId: 'currents', fetch: f.fetch })
+    await flush()
+    expect(h.current()).toBe('cbofs')
+
+    h.setTime(3) // forecast hour 3 → 1-based group 4
+    await flush()
+    expect(f.fetched).toEqual(['cbofs']) // NO extra fetch — cached bytes reused
+    expect(m.armed).toEqual(['cbofs', 'cbofs']) // re-decoded the same region cell
+    const last = m.armedOpts[m.armedOpts.length - 1]
+    expect(last?.group).toBe(4)
+    expect(last?.url).toMatch(/latest\/cbofs\.h5$/)
+  })
+
+  it('setTime is a no-op before a region has loaded', async () => {
+    const f = countingFetch()
+    const m = makeMap(MID_PACIFIC) // open ocean → no covering model loads
+    const h = installS111Mosaic(m.map, { sourceId: 'currents', fetch: f.fetch })
+    await flush()
+    expect(h.current()).toBeNull()
+    h.setTime(2)
+    await flush()
+    expect(m.armed).toEqual([]) // nothing loaded → nothing to re-decode
   })
 })

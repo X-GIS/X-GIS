@@ -1,5 +1,5 @@
-import { describe, expect, it } from 'vitest'
-import { resolveForecastGroup } from './coverage-time'
+import { describe, expect, it, vi } from 'vitest'
+import { resolveForecastGroup, CoverageTimePlayer } from './coverage-time'
 import type { CoverageTime } from '@xgis/data'
 
 const axis = (over: Partial<CoverageTime> = {}): CoverageTime => ({
@@ -36,5 +36,54 @@ describe('resolveForecastGroup (#1272 E-③)', () => {
     expect(() =>
       resolveForecastGroup(axis({ intervalSeconds: 0 }), '2026-07-22T03:00:00Z'),
     ).toThrow(/regular time axis/)
+  })
+})
+
+describe('CoverageTimePlayer.play — a rejecting step never throws unhandled (play-button crash regression)', () => {
+  it('a step that rejects stops playback silently instead of crashing', async () => {
+    vi.useFakeTimers()
+    try {
+      const player = new CoverageTimePlayer()
+      const index = 0
+      const calls: number[] = []
+      player.play(
+        () => ({ index, count: 5 }),
+        async (next) => {
+          calls.push(next)
+          throw new Error('simulated range-read failure (e.g. a 200 not 206)')
+        },
+        100,
+      )
+      await vi.advanceTimersByTimeAsync(100) // first tick: step rejects
+      expect(calls).toEqual([1]) // stepped once, then the rejection stopped the loop
+      await vi.advanceTimersByTimeAsync(1000) // no further ticks scheduled
+      expect(calls).toEqual([1])
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('a succeeding step keeps looping and wraps at the axis end', async () => {
+    vi.useFakeTimers()
+    try {
+      const player = new CoverageTimePlayer()
+      let index = 0
+      const calls: number[] = []
+      player.play(
+        () => ({ index, count: 3 }),
+        async (next) => {
+          calls.push(next)
+          index = next
+        },
+        50,
+      )
+      await vi.advanceTimersByTimeAsync(50)
+      await vi.advanceTimersByTimeAsync(50)
+      await vi.advanceTimersByTimeAsync(50)
+      expect(calls).toEqual([1, 2, 0]) // wraps 0→1→2→0
+      player.pause()
+    } finally {
+      vi.useRealTimers()
+    }
   })
 })

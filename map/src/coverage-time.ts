@@ -61,7 +61,11 @@ export class CoverageTimePlayer {
     const tick = async (): Promise<void> => {
       const a = axis()
       if (!a || a.count <= 1) return // source gone / single-group → stop
-      await step((a.index + 1) % a.count)
+      try {
+        await step((a.index + 1) % a.count)
+      } catch {
+        return // a failed step stops playback, never an unhandled rejection that crashes the app
+      }
       this.timer = setTimeout(() => void tick(), stepMs)
     }
     this.timer = setTimeout(() => void tick(), stepMs)
