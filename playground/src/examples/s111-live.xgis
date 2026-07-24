@@ -20,10 +20,11 @@ source basemap {
   url: "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}"
 }
 
-// The coverage source streams the real S-111 cell; the `speed` layer draws BOTH readings of
-// it from the engine: the banded speed colour fill (ramp) AND the official IHO arrow field
-// (`| arrow`, #1333) — direction by arrow orientation, magnitude by the per-band scale, both
-// coloured by the same s111-speed palette. No app-side overlay: the portrayal is engine-owned.
+// The coverage source streams the real S-111 cell; the `currents` layer draws the OFFICIAL
+// S-111 portrayal from the engine — `| arrow` (#1333): a band-coloured arrow at each grid
+// cell, oriented by the direction band, scaled per the vendored IHO catalogue. This is the
+// STRICT portrayal: arrows only, NO raster fill (the catalogue defines colored arrows, not a
+// colour area). Add a `ramp: "s111-speed"` line to overlay the non-standard colour fill.
 source currents {
   type: coverage
   url: "/noaa-s111/latest.h5"
@@ -35,8 +36,5 @@ layer imagery {
 
 layer speed {
   source: currents
-  ramp: "s111-speed"
-  range: [0, 13]
-  | opacity-70
   | arrow
 }

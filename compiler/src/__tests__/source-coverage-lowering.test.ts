@@ -204,4 +204,22 @@ describe('coverage `| arrow` portrayal lowering (#1333)', () => {
     expect(show.ramp).toBe('s111-speed')
     expect(show.range).toEqual([0, 13])
   })
+
+  it('a `| arrow` coverage with NO ramp lowers to isArrow + undefined ramp (arrows-only arm)', () => {
+    // The strict S-111 portrayal: the map arm skips the raster fill when isArrow && no ramp,
+    // so a `| arrow` coverage without `ramp` must lower to exactly that (arrows, no fill).
+    const scene = compile(`
+      source currents { type: coverage, url: "cbofs.h5" }
+      layer speed {
+        source: currents
+        | arrow
+      }
+    `)
+    const node = scene.renderNodes.find((n) => n.name === 'speed')!
+    expect(node.isArrow).toBe(true)
+    expect(node.ramp).toBeUndefined()
+    const show = emitCommands(scene).shows.find((s) => s.targetName === 'currents')!
+    expect(show.isArrow).toBe(true)
+    expect(show.ramp).toBeUndefined()
+  })
 })

@@ -3519,14 +3519,21 @@ export class XGISMap {
       // ShowCommand (#1158 INC-D, raster-color analogue) — read off `show`, not the
       // data-only marker. Opaque pass dispatches it after the raster basemap (flat arm).
       if ('_coverage' in data) {
-        this.coverageRenderer.setCoverage(data._coverage, {
-          ramp: show.ramp ?? 'viridis',
-          rangeLo: show.range?.[0],
-          rangeHi: show.range?.[1],
-          opacity: show.opacity ?? 1,
-        })
-        // `| arrow` on a coverage layer (#1333) draws the official S-111 vector field OVER
-        // the speed fill — the engine-owned arrow portrayal, coloured by the same `ramp`.
+        // Arrows-only is the STRICT S-111 portrayal (#1333): the official catalogue draws a
+        // band-coloured arrow at each cell and NO raster fill. So a `| arrow` coverage with no
+        // `ramp` renders arrows alone; declaring a `ramp` adds the (non-standard) colour fill
+        // under them. A non-arrow coverage keeps its fill (default viridis) as before.
+        const arrowsOnly = show.isArrow && show.ramp === undefined
+        if (!arrowsOnly) {
+          this.coverageRenderer.setCoverage(data._coverage, {
+            ramp: show.ramp ?? 'viridis',
+            rangeLo: show.range?.[0],
+            rangeHi: show.range?.[1],
+            opacity: show.opacity ?? 1,
+          })
+        }
+        // `| arrow` on a coverage layer (#1333) draws the official S-111 vector field —
+        // the engine-owned arrow portrayal, band-coloured by `ramp` (default s111-speed).
         if (show.isArrow) {
           addCoverageArrowShowLayer(this, show, data._coverage)
           this._coverageArrowsArmed = true
@@ -4614,7 +4621,7 @@ export class XGISMap {
   async setCoverageData(
     sourceId: string,
     bytes: ArrayBuffer,
-    opts?: { ramp?: string; range?: readonly [number, number] },
+    opts?: { ramp?: string; range?: readonly [number, number]; url?: string },
   ): Promise<void> {
     const prev = this.rawDatasets.get(sourceId)
     if (!prev || !('_coverage' in prev)) {
@@ -4624,7 +4631,13 @@ export class XGISMap {
       )
     }
     const handle = await readCoverage(bytes)
-    this.rawDatasets.set(sourceId, { _coverage: handle })
+    // Keep `_url` when the caller names the pushed cell's URL (the viewport mosaic passes the
+    // region it fetched) so setCoverageTime can range-read a different forecast group of it
+    // after the push (#1272 E-③). A urlless push stays a pure host-push (no time axis).
+    this.rawDatasets.set(
+      sourceId,
+      opts?.url ? { _coverage: handle, _url: opts.url } : { _coverage: handle },
+    )
     // ramp/range/opacity are LAYER paint (#1158 INC-D) — an imperative swap keeps the
     // renderer's armed display unless the caller overrides; a later rebuild re-arms.
     // A `| arrow` coverage (#1333) derives its arrow field from the grid, so a data swap must

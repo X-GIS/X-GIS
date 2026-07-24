@@ -23,7 +23,7 @@ export interface MosaicMap {
   getBounds(): [[number, number], [number, number]]
   on(type: 'moveend', listener: () => void): void
   off(type: 'moveend', listener: () => void): void
-  setCoverageData(sourceId: string, bytes: ArrayBuffer): Promise<void>
+  setCoverageData(sourceId: string, bytes: ArrayBuffer, opts?: { url?: string }): Promise<void>
 }
 
 export interface S111MosaicOptions {
@@ -64,13 +64,14 @@ export function installS111Mosaic(map: MosaicMap, opts: S111MosaicOptions): S111
     const prev = current
     current = model.key // optimistic — blocks a duplicate in-flight fetch for the same model
     const token = ++epoch
+    const url = `${base}/noaa-s111/latest/${model.key}.h5`
     void (async () => {
       try {
         let bytes = cache.get(model.key)
         if (bytes) {
           cache.delete(model.key) // re-insert below to refresh LRU recency
         } else {
-          const res = await doFetch(`${base}/noaa-s111/latest/${model.key}.h5`)
+          const res = await doFetch(url)
           if (!res.ok) throw new Error(`fetch ${model.key}: ${res.status}`)
           if (token !== epoch) return
           bytes = await res.arrayBuffer()
@@ -78,8 +79,10 @@ export function installS111Mosaic(map: MosaicMap, opts: S111MosaicOptions): S111
         cache.set(model.key, bytes)
         while (cache.size > maxCached) cache.delete(cache.keys().next().value as string)
         if (token !== epoch) return // a newer pan superseded this one — drop it
-        await map.setCoverageData(opts.sourceId, bytes)
-        opts.onSwap?.(model.key) // re-arm overlays that snapshot the coverage
+        // Pass the region URL so setCoverageTime can range-read a different forecast hour of
+        // this region after the swap (#1272 E-③) — otherwise a host push drops the time axis.
+        await map.setCoverageData(opts.sourceId, bytes, { url })
+        opts.onSwap?.(model.key) // notify the demo (reset the time cursor to the new region)
       } catch {
         // A transient fetch/decode failure must never break the demo — keep the current
         // cell shown and revert so a later pan retries this model.

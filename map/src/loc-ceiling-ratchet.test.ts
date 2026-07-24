@@ -342,7 +342,11 @@ const CEILINGS: Record<string, number> = {
   // data-swap re-derive branch in setCoverageData/setCoverageTime. Thin `this`-coupled glue;
   // the generator + portrayal rule live in coverage-arrow-show.ts / s111-portrayal.ts.
   // +23, post-hook.
-  'map/src/map.ts': 5192,
+  // 5192→5205 (#1333 arrows-only + time): the `arrowsOnly` guard that skips the fill for a
+  // `| arrow` coverage with no `ramp` (strict S-111 = arrows, no raster), + setCoverageData's
+  // `{ url }` option so a host-push keeps `_url` and setCoverageTime can step forecast hours.
+  // +13, post-hook.
+  'map/src/map.ts': 5205,
   // Baselined at #1255 (measured 830): the DOM-inspired layer API crossed
   // NEW_FILE_CAP with the paint-transition style-setter integration — the
   // StyleHost.transitions context, the shared applyNumber/applyColor
