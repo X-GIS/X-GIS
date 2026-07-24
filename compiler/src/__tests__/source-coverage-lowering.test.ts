@@ -162,3 +162,46 @@ describe('coverage paint via a `style:` preset (#1272 E-②)', () => {
     expect(node.range).toEqual([0, 13])
   })
 })
+
+// ═══════════════════════════════════════════════════════════════════
+// `| arrow` on a coverage layer — the declarative S-111 arrow portrayal (#1333)
+// ═══════════════════════════════════════════════════════════════════
+//
+// The engine renders the official S-111 vector field when a coverage layer carries the
+// `| arrow` modifier (#1302 grammar, reused). The compiler must lower `isArrow` onto the
+// coverage ShowCommand exactly as for a point layer, coexisting with the ramp/range fill
+// paint — the map arm keys the arrow field off `show.isArrow` (map.ts coverage block).
+
+describe('coverage `| arrow` portrayal lowering (#1333)', () => {
+  it('lowers `| arrow` on a coverage layer to isArrow, coexisting with ramp/range', () => {
+    const scene = compile(`
+      source currents { type: coverage, url: "cbofs.h5" }
+      layer speed {
+        source: currents
+        ramp: "s111-speed"
+        range: [0, 13]
+        | arrow
+      }
+    `)
+    const node = scene.renderNodes.find((n) => n.name === 'speed')!
+    expect(node.isArrow).toBe(true)
+    expect(node.ramp).toBe('s111-speed')
+    expect(node.range).toEqual([0, 13])
+  })
+
+  it('threads isArrow onto the coverage ShowCommand (the arm reads show.isArrow)', () => {
+    const scene = compile(`
+      source currents { type: coverage, url: "cbofs.h5" }
+      layer speed {
+        source: currents
+        ramp: "s111-speed"
+        range: [0, 13]
+        | arrow
+      }
+    `)
+    const show = emitCommands(scene).shows.find((s) => s.targetName === 'currents')!
+    expect(show.isArrow).toBe(true)
+    expect(show.ramp).toBe('s111-speed')
+    expect(show.range).toEqual([0, 13])
+  })
+})

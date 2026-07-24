@@ -29,6 +29,7 @@ import { configureProjections } from './shaders/dsl/projections'
 import { applyBodyOption } from './body-consts'
 import { addHeatmapShowLayer } from './heatmap-show'
 import { addArrowShowLayer } from './arrow-show'
+import { addCoverageArrowShowLayer } from './coverage-arrow-show'
 import { worldBandForProjType } from '@xgis/geo'
 import { projectLonLatToScreenCss } from './render-loop-helpers'
 import {
@@ -516,6 +517,10 @@ export class XGISMap {
   private _docHidden = false
   /** #1272 E-③ forecast-time playback + async-reread epoch guard (see coverage-time.ts). */
   private readonly _coverageTime = new CoverageTimePlayer()
+  /** #1333 — set while a `coverage` layer with `| arrow` has an armed S-111 arrow field, so a
+   *  coverage DATA swap (setCoverageData / setCoverageTime) re-derives the field via a rebuild
+   *  instead of the fill-only fast path. Reset + recomputed on every rebuildLayers. */
+  private _coverageArrowsArmed = false
   /** The verified device-lost recovery re-run (a fresh run()/runBinary()), stashed
    *  by `_armDeviceLostRecovery` so the visibilitychange→visible handler can arm the
    *  re-init a loss deferred while hidden (#1153 M5c). `null` until the first run(). */
@@ -3408,6 +3413,7 @@ export class XGISMap {
     this.pointRenderer?.clearLayers()
     this.heatmapRenderer?.clearLayers()
     this._graphics.clearCompiledArrows()
+    this._coverageArrowsArmed = false // recomputed by the coverage arm below (#1333)
     this.vectorTileShows = []
     // Reset layer-id registry so re-projection produces deterministic IDs
     // (same `addLayer` order → same IDs). pickAt callers that cached an ID
@@ -3519,6 +3525,12 @@ export class XGISMap {
           rangeHi: show.range?.[1],
           opacity: show.opacity ?? 1,
         })
+        // `| arrow` on a coverage layer (#1333) draws the official S-111 vector field OVER
+        // the speed fill — the engine-owned arrow portrayal, coloured by the same `ramp`.
+        if (show.isArrow) {
+          addCoverageArrowShowLayer(this, show, data._coverage)
+          this._coverageArrowsArmed = true
+        }
         continue
       }
 
@@ -4615,13 +4627,20 @@ export class XGISMap {
     this.rawDatasets.set(sourceId, { _coverage: handle })
     // ramp/range/opacity are LAYER paint (#1158 INC-D) — an imperative swap keeps the
     // renderer's armed display unless the caller overrides; a later rebuild re-arms.
-    const cur = this.coverageRenderer.displayOpts()
-    this.coverageRenderer.setCoverage(handle, {
-      ramp: opts?.ramp ?? cur.ramp,
-      rangeLo: opts?.range?.[0] ?? cur.rangeLo,
-      rangeHi: opts?.range?.[1] ?? cur.rangeHi,
-      opacity: cur.opacity,
-    })
+    // A `| arrow` coverage (#1333) derives its arrow field from the grid, so a data swap must
+    // re-derive it: rebuild (re-arms BOTH fill and field) when arrows are armed and the caller
+    // did not override the paint; else the fill-only fast path keeps an imperative override.
+    if (this._coverageArrowsArmed && !opts?.ramp && !opts?.range) {
+      this.rebuildLayers()
+    } else {
+      const cur = this.coverageRenderer.displayOpts()
+      this.coverageRenderer.setCoverage(handle, {
+        ramp: opts?.ramp ?? cur.ramp,
+        rangeLo: opts?.range?.[0] ?? cur.rangeLo,
+        rangeHi: opts?.range?.[1] ?? cur.rangeHi,
+        opacity: cur.opacity,
+      })
+    }
     this.invalidate()
   }
 
@@ -4645,13 +4664,17 @@ export class XGISMap {
     const handle = await readCoverageRange(prev._url, { group })
     if (!this._coverageTime.isCurrent(token)) return // superseded by a newer step
     this.rawDatasets.set(sourceId, { _coverage: handle, _url: prev._url })
-    const cur = this.coverageRenderer.displayOpts()
-    this.coverageRenderer.setCoverage(handle, {
-      ramp: cur.ramp,
-      rangeLo: cur.rangeLo,
-      rangeHi: cur.rangeHi,
-      opacity: cur.opacity,
-    })
+    if (this._coverageArrowsArmed) {
+      this.rebuildLayers() // re-derive the `| arrow` field for the stepped forecast hour (#1333)
+    } else {
+      const cur = this.coverageRenderer.displayOpts()
+      this.coverageRenderer.setCoverage(handle, {
+        ramp: cur.ramp,
+        rangeLo: cur.rangeLo,
+        rangeHi: cur.rangeHi,
+        opacity: cur.opacity,
+      })
+    }
     this.invalidate()
   }
 

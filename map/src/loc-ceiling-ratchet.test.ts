@@ -337,7 +337,12 @@ const CEILINGS: Record<string, number> = {
   // pauseCoverageTime public API — thin `this`-coupled glue (re-read a Group_NNN over
   // Range + re-arm the CoverageRenderer). The reusable state (epoch guard + playback
   // timer + the pure index/ISO→group resolver) lives in coverage-time.ts. +58, post-hook.
-  'map/src/map.ts': 5169,
+  // 5169→5192 (#1333 coverage `| arrow`): arm the engine S-111 arrow field — the coverage
+  // block's `if (show.isArrow)` call + the `_coverageArrowsArmed` flag + its reset + the
+  // data-swap re-derive branch in setCoverageData/setCoverageTime. Thin `this`-coupled glue;
+  // the generator + portrayal rule live in coverage-arrow-show.ts / s111-portrayal.ts.
+  // +23, post-hook.
+  'map/src/map.ts': 5192,
   // Baselined at #1255 (measured 830): the DOM-inspired layer API crossed
   // NEW_FILE_CAP with the paint-transition style-setter integration — the
   // StyleHost.transitions context, the shared applyNumber/applyColor
