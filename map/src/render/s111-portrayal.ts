@@ -5,7 +5,7 @@
 // duplicated here — they live in `BANDED_RAMPS['s111-speed']` (color-ramp.ts), the exact
 // palette the GPU coverage fill bakes into its LUT (verbatim from the catalogue's
 // `colorProfile.xml` / `SVGStyle_S111day.css`). This module owns only what the fill palette
-// does NOT carry: the per-band arrow SCALE and the placement rule.
+// does NOT carry: the per-band arrow SCALE, the placement rule, and the black outline.
 //
 // select_arrow.xsl scale rule (multiplier on the base symbol size):
 //   bands 1–3  (0 ≤ speed < 2 kn)  → fixed  scaleFloor        = 0.40
@@ -50,4 +50,27 @@ export function s111ArrowLengthPx(speedKnots: number, basePx: number = S111_ARRO
  *  noData/fill are not symbolized). */
 export function s111HasArrow(speedKnots: number): boolean {
   return Number.isFinite(speedKnots) && speedKnots > 0
+}
+
+/** `SVGStyle_S111day.css` `.sCHBLK { stroke:#000000 }` — the black outline every SCAROW0N
+ *  symbol strokes its band-coloured fill with (0.32 mm in the catalogue's viewBox units). */
+export const S111_OUTLINE_COLOR: readonly [number, number, number] = [0, 0, 0]
+
+/** Outline thickness (px, each side) drawn as a black arrow UNDER the coloured fill (the
+ *  arrow primitive has no native stroke — see graphics-types.ts `ArrowDrawSpec`, solid fill
+ *  only). A CONSTANT px delta rather than the catalogue's literal mm-proportional stroke
+ *  (0.32/11 ≈ 2.9% of the symbol) — at the smallest on-screen arrows that ratio is
+ *  sub-pixel and invisible; a fixed px keeps the outline legible at every band, the same
+ *  screen-legibility tradeoff already made for `S111_ARROW_BASE_PX`. */
+export const S111_OUTLINE_STROKE_PX = 1.5
+
+/** The OUTLINE arrow's length (px): the fill length plus the stroke on both ends. Draw this
+ *  batch FIRST (black, larger) and the fill batch SECOND (coloured, `s111ArrowLengthPx`) so
+ *  the fill composites on top — the retained-arrow draper has no depth test, so draw order
+ *  is the stacking order (graphics-manager.ts `renderRetained`). */
+export function s111ArrowOutlineLengthPx(
+  speedKnots: number,
+  basePx: number = S111_ARROW_BASE_PX,
+): number {
+  return s111ArrowLengthPx(speedKnots, basePx) + 2 * S111_OUTLINE_STROKE_PX
 }
