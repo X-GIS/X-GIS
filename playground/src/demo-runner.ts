@@ -1518,20 +1518,95 @@ function teardownCurrentsArrows(): void {
 // engine re-derives the `| arrow` field on the swap (#1333) — no app-side overlay re-arm. The
 // selection + LRU logic is unit-tested in s111-mosaic.ts.
 let currentsMosaicHandle: S111MosaicHandle | null = null
+let currentsLoadingBadge: HTMLDivElement | null = null
+let currentsLoadingHideTimer: number | null = null
+
+/** A top-right badge that appears the moment a region swap starts a REAL network fetch
+ *  (never on a cache hit — LRU reuse is instant) and disappears on success; a failed swap
+ *  flashes briefly instead of hanging silently. Answers "is it loading or just broken?" — the
+ *  original complaint that a ~10 MB region swap gave no feedback while it streamed in. */
+function setupCurrentsLoadingBadge(): HTMLDivElement {
+  const badge = document.createElement('div')
+  badge.id = 'currents-loading'
+  badge.style.cssText = [
+    'position:absolute',
+    'top:12px',
+    'right:12px',
+    'z-index:20',
+    'display:none',
+    'align-items:center',
+    'gap:7px',
+    'font:11px/1.4 "DM Mono",monospace',
+    'color:#dde',
+    'background:rgba(10,10,10,0.82)',
+    'backdrop-filter:blur(6px)',
+    'padding:6px 10px',
+    'border:1px solid rgba(255,255,255,0.14)',
+    'border-radius:6px',
+    'pointer-events:none',
+  ].join(';')
+  const spinner = document.createElement('span')
+  spinner.textContent = '◐'
+  spinner.style.cssText = 'display:inline-block;animation:xgis-spin 0.8s linear infinite'
+  const label = document.createElement('span')
+  badge.append(spinner, label)
+  document.getElementById('map-pane')!.appendChild(badge)
+  if (!document.getElementById('xgis-spin-kf')) {
+    const kf = document.createElement('style')
+    kf.id = 'xgis-spin-kf'
+    kf.textContent = '@keyframes xgis-spin{to{transform:rotate(360deg)}}'
+    document.head.appendChild(kf)
+  }
+  return badge
+}
+
+function showCurrentsLoading(text: string, spin: boolean, autoHideMs?: number): void {
+  const badge = currentsLoadingBadge
+  if (!badge) return
+  if (currentsLoadingHideTimer != null) {
+    clearTimeout(currentsLoadingHideTimer)
+    currentsLoadingHideTimer = null
+  }
+  // `.children` is an HTMLCollection, not iterable — index into it directly (no destructuring).
+  const spinner = badge.children[0] as HTMLElement
+  const label = badge.children[1] as HTMLElement
+  spinner.style.display = spin ? 'inline-block' : 'none'
+  label.textContent = text
+  badge.style.display = 'flex'
+  if (autoHideMs != null) {
+    currentsLoadingHideTimer = window.setTimeout(() => {
+      badge.style.display = 'none'
+      currentsLoadingHideTimer = null
+    }, autoHideMs)
+  }
+}
 
 function setupCurrentsMosaic(map: InstanceType<typeof XGISMap>): void {
   teardownCurrentsMosaic()
+  currentsLoadingBadge = setupCurrentsLoadingBadge()
   currentsMosaicHandle = installS111Mosaic(map, {
     sourceId: 'currents',
     proxyBase: NOAA_PROXY_BASE,
     // No app-side overlay re-arm: setCoverageData re-derives the engine `| arrow` S-111 field
     // for the swapped-in region (#1333), so the arrows follow the pan without a snapshot here.
+    onLoadStart: (key) => showCurrentsLoading(`Loading ${key}…`, true),
+    onSwap: () => {
+      if (currentsLoadingBadge) currentsLoadingBadge.style.display = 'none'
+    },
+    onLoadError: (key) =>
+      showCurrentsLoading(`${key} failed to load — retry on next pan`, false, 2500),
   })
 }
 
 function teardownCurrentsMosaic(): void {
   currentsMosaicHandle?.remove()
   currentsMosaicHandle = null
+  if (currentsLoadingHideTimer != null) {
+    clearTimeout(currentsLoadingHideTimer)
+    currentsLoadingHideTimer = null
+  }
+  currentsLoadingBadge?.remove()
+  currentsLoadingBadge = null
 }
 
 // ── S-111 forecast-time scrubber (#1272 E-③) ─────────────────────────

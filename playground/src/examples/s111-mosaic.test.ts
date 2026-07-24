@@ -126,6 +126,58 @@ describe('installS111Mosaic (#1272 E-④)', () => {
     expect(swaps).toEqual(['cbofs', 'sfbofs'])
   })
 
+  it('fires onLoadStart only for a real fetch, never on a cache hit (loading-indicator hook)', async () => {
+    const f = countingFetch()
+    const m = makeMap(CHESAPEAKE)
+    const starts: string[] = []
+    installS111Mosaic(m.map, {
+      sourceId: 'currents',
+      fetch: f.fetch,
+      onLoadStart: (k) => starts.push(k),
+    })
+    await flush()
+    expect(starts).toEqual(['cbofs']) // initial view — a real fetch
+
+    m.pan(SF_BAY)
+    await flush()
+    expect(starts).toEqual(['cbofs', 'sfbofs']) // new region — a real fetch
+
+    m.pan(CHESAPEAKE) // back to a cached cell — NO fetch, so no loading start
+    await flush()
+    expect(starts).toEqual(['cbofs', 'sfbofs'])
+  })
+
+  it('fires onLoadError with the model key + error on a failed fetch, never on success', async () => {
+    let failNext = true
+    const failing = (async (url: string) => {
+      const key = /latest\/(\w+)\.h5/.exec(url)![1]!
+      if (key === 'sfbofs' && failNext) {
+        failNext = false
+        return new Response('', { status: 502 })
+      }
+      return new Response(new TextEncoder().encode(key), { status: 200 })
+    }) as unknown as typeof globalThis.fetch
+    const m = makeMap(CHESAPEAKE)
+    const errors: [string, unknown][] = []
+    installS111Mosaic(m.map, {
+      sourceId: 'currents',
+      fetch: failing,
+      onLoadError: (k, err) => errors.push([k, err]),
+    })
+    await flush()
+    expect(errors).toEqual([]) // the initial cbofs load succeeds — no error
+
+    m.pan(SF_BAY) // 502s
+    await flush()
+    expect(errors).toHaveLength(1)
+    expect(errors[0]![0]).toBe('sfbofs')
+    expect(errors[0]![1]).toBeInstanceOf(Error)
+
+    m.pan(SF_BAY) // retry — succeeds this time, no additional error
+    await flush()
+    expect(errors).toHaveLength(1)
+  })
+
   it('survives a failed fetch — keeps the current cell, retries on the next pan', async () => {
     let failNext = true
     const failing = (async (url: string) => {

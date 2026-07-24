@@ -38,6 +38,14 @@ export interface S111MosaicOptions {
   /** Called after a successful swap to the model `key` — the demo re-snapshots its
    *  particle/arrow overlay here (those read the coverage once, so a swap needs a re-arm). */
   onSwap?: (modelKey: string) => void
+  /** Called right before a NETWORK fetch starts for `modelKey` — NOT fired on a cache hit
+   *  (the LRU reuse is instant, nothing to show a loading state for). Pair with `onSwap`
+   *  (success) / `onLoadError` (failure) to drive a loading indicator. */
+  onLoadStart?: (modelKey: string) => void
+  /** Called when a fetch/decode for `modelKey` fails — the mosaic itself recovers silently
+   *  (keeps the current cell, a later pan retries), so this is ONLY for surfacing the
+   *  failure in the UI; nothing to act on. */
+  onLoadError?: (modelKey: string, err: unknown) => void
 }
 
 export interface S111MosaicHandle {
@@ -78,6 +86,7 @@ export function installS111Mosaic(map: MosaicMap, opts: S111MosaicOptions): S111
         if (bytes) {
           cache.delete(model.key) // re-insert below to refresh LRU recency
         } else {
+          opts.onLoadStart?.(model.key) // a real fetch is starting — the demo can show "loading"
           const res = await doFetch(url)
           if (!res.ok) throw new Error(`fetch ${model.key}: ${res.status}`)
           if (token !== epoch) return
@@ -90,10 +99,11 @@ export function installS111Mosaic(map: MosaicMap, opts: S111MosaicOptions): S111
         // this region after the swap (#1272 E-③) — otherwise a host push drops the time axis.
         await map.setCoverageData(opts.sourceId, bytes, { url })
         opts.onSwap?.(model.key) // notify the demo (reset the time cursor to the new region)
-      } catch {
+      } catch (err) {
         // A transient fetch/decode failure must never break the demo — keep the current
         // cell shown and revert so a later pan retries this model.
         if (token === epoch && current === model.key) current = prev
+        if (token === epoch) opts.onLoadError?.(model.key, err)
       }
     })()
   }
