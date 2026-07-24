@@ -1514,9 +1514,9 @@ function teardownCurrentsArrows(): void {
 
 // ── NOAA S-111 viewport mosaic (#1272 E-④) ───────────────────────────
 // Activated by demos with `mosaic: true`. Installs installS111Mosaic on the `currents`
-// source: each move-end swaps the coverage to the NOAA regional model covering the view,
-// and the onSwap re-snapshots the arrow + particle overlays for the new cell (they read
-// the coverage once). The selection + LRU logic is unit-tested in s111-mosaic.ts.
+// source: each move-end swaps the coverage to the NOAA regional model covering the view. The
+// engine re-derives the `| arrow` field on the swap (#1333) — no app-side overlay re-arm. The
+// selection + LRU logic is unit-tested in s111-mosaic.ts.
 let currentsMosaicHandle: S111MosaicHandle | null = null
 
 function setupCurrentsMosaic(map: InstanceType<typeof XGISMap>): void {
@@ -1532,6 +1532,104 @@ function setupCurrentsMosaic(map: InstanceType<typeof XGISMap>): void {
 function teardownCurrentsMosaic(): void {
   currentsMosaicHandle?.remove()
   currentsMosaicHandle = null
+}
+
+// ── S-111 forecast-time scrubber (#1272 E-③) ─────────────────────────
+// A bottom-centre control for the live demo: a slider + play/pause over the cell's numGRP
+// hourly forecast groups, driven by the engine time API (setCoverageTime / playCoverageTime
+// / pauseCoverageTime). It polls getCoverage('currents') for the time axis, so it self-syncs
+// after a mosaic swap (the new region reloads at hour 0) and hides itself over a single-group
+// cell. The engine re-derives the `| arrow` field on each hour step (#1333).
+type CoverageTimeAxis = { index: number; count: number; valueISO?: string; firstISO?: string }
+let currentsTimeCleanup: (() => void) | null = null
+
+function setupCurrentsTimeControl(map: InstanceType<typeof XGISMap>): void {
+  teardownCurrentsTimeControl()
+  let cancelled = false
+  let pollTimer: number | null = null
+  let playing = false
+
+  const wrap = document.createElement('div')
+  wrap.id = 'currents-time'
+  wrap.style.cssText = [
+    'position:absolute',
+    'left:50%',
+    'bottom:16px',
+    'transform:translateX(-50%)',
+    'z-index:21',
+    'display:none',
+    'align-items:center',
+    'gap:10px',
+    'font:11px/1.4 "DM Mono",monospace',
+    'color:#dde',
+    'background:rgba(10,10,10,0.82)',
+    'backdrop-filter:blur(6px)',
+    'padding:8px 12px',
+    'border:1px solid rgba(255,255,255,0.14)',
+    'border-radius:8px',
+    'pointer-events:auto',
+    'user-select:none',
+  ].join(';')
+
+  const playBtn = document.createElement('button')
+  playBtn.textContent = '▶'
+  playBtn.style.cssText =
+    'cursor:pointer;background:#2a2a2a;color:#dde;border:1px solid rgba(255,255,255,0.18);border-radius:5px;width:26px;height:24px;font:12px monospace'
+  const slider = document.createElement('input')
+  slider.type = 'range'
+  slider.min = '0'
+  slider.step = '1'
+  slider.value = '0'
+  slider.style.cssText = 'width:200px;accent-color:#61cbe5;cursor:pointer'
+  const label = document.createElement('span')
+  label.style.cssText = 'min-width:150px;white-space:nowrap;text-align:right'
+  wrap.append(playBtn, slider, label)
+  document.getElementById('map-pane')!.appendChild(wrap)
+
+  const axis = (): CoverageTimeAxis | undefined =>
+    map.getCoverage('currents')?.meta.sourceMeta?.time as CoverageTimeAxis | undefined
+
+  const setPlaying = (on: boolean): void => {
+    playing = on
+    playBtn.textContent = on ? '❚❚' : '▶'
+    if (on) map.playCoverageTime('currents', { stepMs: 900 })
+    else map.pauseCoverageTime()
+  }
+
+  slider.addEventListener('input', () => {
+    if (playing) setPlaying(false)
+    void map.setCoverageTime('currents', Number(slider.value))
+  })
+  playBtn.addEventListener('click', () => setPlaying(!playing))
+
+  const sync = (): void => {
+    if (cancelled) return
+    const t = axis()
+    if (!t || t.count <= 1) {
+      wrap.style.display = 'none'
+    } else {
+      wrap.style.display = 'flex'
+      slider.max = String(t.count - 1)
+      if (document.activeElement !== slider) slider.value = String(t.index)
+      const iso = t.valueISO ?? t.firstISO
+      const when = iso ? `${iso.slice(0, 16).replace('T', ' ')}Z` : `hour ${t.index}`
+      label.textContent = `+${t.index}h · ${when} · ${t.index + 1}/${t.count}`
+    }
+    pollTimer = window.setTimeout(sync, 400)
+  }
+  sync()
+
+  currentsTimeCleanup = () => {
+    cancelled = true
+    if (pollTimer != null) clearTimeout(pollTimer)
+    map.pauseCoverageTime()
+    wrap.remove()
+    currentsTimeCleanup = null
+  }
+}
+
+function teardownCurrentsTimeControl(): void {
+  currentsTimeCleanup?.()
 }
 
 // ── NOAA CO-OPS live tidal-currents overlay (#1272) ──────────────────
@@ -1968,15 +2066,18 @@ async function loadDemo(idx: number) {
       teardownCurrentsArrows()
       teardownCurrentsOverlay()
       setupCurrentsMosaic(currentMap) // #1272 E-④ swap; #1333 engine arrows follow the swap
+      setupCurrentsTimeControl(currentMap) // #1272 E-③ forecast-hour scrubber
     } else {
       setupCurrentsArrows(currentMap)
       setupCurrentsOverlay(currentMap)
       teardownCurrentsMosaic()
+      teardownCurrentsTimeControl()
     }
   } else {
     teardownCurrentsArrows()
     teardownCurrentsOverlay()
     teardownCurrentsMosaic()
+    teardownCurrentsTimeControl()
   }
 
   // NOAA CO-OPS live-currents demos (#1272): browser-direct station arrows.
