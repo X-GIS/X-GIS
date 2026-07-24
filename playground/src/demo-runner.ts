@@ -1536,10 +1536,11 @@ function teardownCurrentsMosaic(): void {
 
 // ── S-111 forecast-time scrubber (#1272 E-③) ─────────────────────────
 // A bottom-centre control for the live demo: a slider + play/pause over the cell's numGRP
-// hourly forecast groups, driven by the engine time API (setCoverageTime / playCoverageTime
-// / pauseCoverageTime). It polls getCoverage('currents') for the time axis, so it self-syncs
-// after a mosaic swap (the new region reloads at hour 0) and hides itself over a single-group
-// cell. The engine re-derives the `| arrow` field on each hour step (#1333).
+// hourly forecast groups. It steps time by re-decoding the mosaic's ALREADY-DOWNLOADED region
+// cell at a different hour (currentsMosaicHandle.setTime → setCoverageData({group})) — no
+// network, so play can't fail on a range re-fetch. It polls getCoverage('currents') for the
+// axis, self-syncs after a region swap (reloads at hour 0), and hides over a single-group
+// cell. The engine re-derives the `| arrow` field on each step (#1333).
 type CoverageTimeAxis = { index: number; count: number; valueISO?: string; firstISO?: string }
 let currentsTimeCleanup: (() => void) | null = null
 
@@ -1547,6 +1548,7 @@ function setupCurrentsTimeControl(map: InstanceType<typeof XGISMap>): void {
   teardownCurrentsTimeControl()
   let cancelled = false
   let pollTimer: number | null = null
+  let playTimer: number | null = null
   let playing = false
 
   const wrap = document.createElement('div')
@@ -1589,18 +1591,37 @@ function setupCurrentsTimeControl(map: InstanceType<typeof XGISMap>): void {
   const axis = (): CoverageTimeAxis | undefined =>
     map.getCoverage('currents')?.meta.sourceMeta?.time as CoverageTimeAxis | undefined
 
-  const setPlaying = (on: boolean): void => {
-    playing = on
-    playBtn.textContent = on ? '❚❚' : '▶'
-    if (on) map.playCoverageTime('currents', { stepMs: 900 })
-    else map.pauseCoverageTime()
+  // Step by re-decoding the mosaic's cached region cell (no network) — never the range path.
+  const step = (hour: number): void => currentsMosaicHandle?.setTime(hour)
+
+  const stopPlay = (): void => {
+    playing = false
+    playBtn.textContent = '▶'
+    if (playTimer != null) {
+      clearTimeout(playTimer)
+      playTimer = null
+    }
+  }
+  const tickPlay = (): void => {
+    if (cancelled) return
+    const t = axis()
+    if (t && t.count > 1) step((t.index + 1) % t.count)
+    playTimer = window.setTimeout(tickPlay, 900)
   }
 
   slider.addEventListener('input', () => {
-    if (playing) setPlaying(false)
-    void map.setCoverageTime('currents', Number(slider.value))
+    stopPlay()
+    step(Number(slider.value))
   })
-  playBtn.addEventListener('click', () => setPlaying(!playing))
+  playBtn.addEventListener('click', () => {
+    if (playing) {
+      stopPlay()
+    } else {
+      playing = true
+      playBtn.textContent = '❚❚'
+      playTimer = window.setTimeout(tickPlay, 900)
+    }
+  })
 
   const sync = (): void => {
     if (cancelled) return
@@ -1612,7 +1633,8 @@ function setupCurrentsTimeControl(map: InstanceType<typeof XGISMap>): void {
       slider.max = String(t.count - 1)
       if (document.activeElement !== slider) slider.value = String(t.index)
       const iso = t.valueISO ?? t.firstISO
-      const when = iso ? `${iso.slice(0, 16).replace('T', ' ')}Z` : `hour ${t.index}`
+      const m = iso ? /^(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})/.exec(iso) : null
+      const when = m ? `${m[2]}-${m[3]} ${m[4]}:${m[5]}Z` : `hour ${t.index}`
       label.textContent = `+${t.index}h · ${when} · ${t.index + 1}/${t.count}`
     }
     pollTimer = window.setTimeout(sync, 400)
@@ -1622,7 +1644,7 @@ function setupCurrentsTimeControl(map: InstanceType<typeof XGISMap>): void {
   currentsTimeCleanup = () => {
     cancelled = true
     if (pollTimer != null) clearTimeout(pollTimer)
-    map.pauseCoverageTime()
+    if (playTimer != null) clearTimeout(playTimer)
     wrap.remove()
     currentsTimeCleanup = null
   }

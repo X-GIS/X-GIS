@@ -43,6 +43,9 @@ export interface S111MosaicOptions {
 export interface S111MosaicHandle {
   /** The model key currently displayed (null before the first resolve / over open ocean). */
   current(): string | null
+  /** Show forecast HOUR (0-based) of the current region by re-decoding its already-downloaded
+   *  cell — no network (#1272 E-③). No-op before a region has loaded. */
+  setTime(hour: number): void
   /** Detach the move-end listener. Idempotent. */
   remove(): void
 }
@@ -56,6 +59,7 @@ export function installS111Mosaic(map: MosaicMap, opts: S111MosaicOptions): S111
   const cache = new Map<string, ArrayBuffer>() // insertion-ordered ⇒ front = least-recent
   let current: string | null = null
   let epoch = 0
+  const urlFor = (key: string): string => `${base}/noaa-s111/latest/${key}.h5`
 
   const onMoveEnd = (): void => {
     const [[w, s], [e, n]] = map.getBounds()
@@ -64,7 +68,7 @@ export function installS111Mosaic(map: MosaicMap, opts: S111MosaicOptions): S111
     const prev = current
     current = model.key // optimistic — blocks a duplicate in-flight fetch for the same model
     const token = ++epoch
-    const url = `${base}/noaa-s111/latest/${model.key}.h5`
+    const url = urlFor(model.key)
     void (async () => {
       try {
         let bytes = cache.get(model.key)
@@ -91,7 +95,19 @@ export function installS111Mosaic(map: MosaicMap, opts: S111MosaicOptions): S111
     })()
   }
 
+  const setTime = (hour: number): void => {
+    if (current == null) return
+    const bytes = cache.get(current)
+    if (!bytes) return // region not loaded yet
+    // Re-decode the region cell ALREADY in memory at a different forecast hour — no network,
+    // so time stepping can't fail on a range re-fetch (readCoverage groups are 1-based). A
+    // decode error must never crash the demo, so swallow a rejected push.
+    void map
+      .setCoverageData(opts.sourceId, bytes, { url: urlFor(current), group: hour + 1 })
+      .catch(() => {})
+  }
+
   map.on('moveend', onMoveEnd)
   onMoveEnd() // resolve for the initial view
-  return { current: () => current, remove: () => map.off('moveend', onMoveEnd) }
+  return { current: () => current, setTime, remove: () => map.off('moveend', onMoveEnd) }
 }
