@@ -43,7 +43,7 @@ import { EARTH } from '@xgis/shared'
 // `u.mvp * vec4(pos_h + pos_l, 1)` (ECEF-MVP — see PR 2d.5 closeout)
 // — `project_geom`'s non-linear dispatch disappears at PR 2c.2's flip.
 //
-// Per-vertex layout — Phase 2 PR 2f quantized ECEF (12 f32 = 48 bytes):
+// Per-vertex layout — Phase 2 PR 2f quantized ECEF (14 f32 = 56 bytes):
 //   loc 0  position_hi  uint16×4 — qx_hi, qx_lo, qy_hi, qy_lo (bytes  0..7)
 //   loc 1  position_lo  uint16×2 — qz_hi, qz_lo              (bytes  8..11)
 //   loc 2  feat_id      picking key          f32             (byte  12)
@@ -54,6 +54,7 @@ import { EARTH } from '@xgis/shared'
 //   loc 6  wall_height  feature height (m)   f32             (byte  36)
 //   loc 7  is_top       0 = wall-bottom, 1 = wall-top + roof f32 (byte 40)
 //   loc 8  wall_base    fill-extrusion-base (m)  f32             (byte 44)
+//   loc 9  local_merc   tile-local Mercator (m)  f32×2 (bytes 48..55)
 //
 // Position is the ECEF RTC residual quantized to 32-bit fixed point per
 // axis over the per-mesh symmetric range [-dequantHalf, +dequantHalf]
@@ -67,11 +68,11 @@ import { EARTH } from '@xgis/shared'
 // ─────────────────────────────────────────────────────────────────
 
 /** Result of the ECEF extruded wall + roof mesh generator: single
- *  interleaved stride-48-byte buffer (quantized position + f32 tail) plus
+ *  interleaved stride-56-byte buffer (quantized position + f32 tail) plus
  *  indices and the per-mesh dequant uniform companion. Roof + walls share
  *  the same buffer — caller binds vertices+indices directly. */
 export interface WallMeshExtrudedECEF {
-  /** Interleaved per-vertex bytes; stride 48 = 12 floats. uint16×6 position
+  /** Interleaved per-vertex bytes; stride 56 = 14 floats. uint16×6 position
    *  in the first 12 bytes, f32 tail (fid/abs_lon/abs_lat/face_normal×3/
    *  wall_height/is_top) at float slots 3..10. */
   vertices: Float32Array
@@ -107,7 +108,7 @@ export interface TileMercExtent {
 // the vs_main_ecef_extruded @location attributes (cross-checked in
 // vertex-layout-consistency.test.ts). All offsets are 4-byte aligned, so
 // byte offset / 4 == f32 slot index.
-const STRIDE_FLOATS = POLYGON_EXTRUDED_FORMAT.stride / 4 // 12
+const STRIDE_FLOATS = POLYGON_EXTRUDED_FORMAT.stride / 4 // 14
 const EXT_FID_FLOAT = vertexField(POLYGON_EXTRUDED_FORMAT, 'feature_id').offset / 4 // 3
 const EXT_LON_FLOAT = vertexField(POLYGON_EXTRUDED_FORMAT, 'abs_lon').offset / 4 // 4
 const EXT_LAT_FLOAT = vertexField(POLYGON_EXTRUDED_FORMAT, 'abs_lat').offset / 4 // 5
@@ -115,6 +116,7 @@ const EXT_FNORMAL_FLOAT = vertexField(POLYGON_EXTRUDED_FORMAT, 'face_normal').of
 const EXT_WALLH_FLOAT = vertexField(POLYGON_EXTRUDED_FORMAT, 'wall_height').offset / 4 // 9
 const EXT_ISTOP_FLOAT = vertexField(POLYGON_EXTRUDED_FORMAT, 'is_top').offset / 4 // 10
 const EXT_WALLBASE_FLOAT = vertexField(POLYGON_EXTRUDED_FORMAT, 'wall_base').offset / 4 // 11
+const EXT_LOCALMERC_FLOAT = vertexField(POLYGON_EXTRUDED_FORMAT, 'local_merc').offset / 4 // 12 (x,y = 12,13)
 const RAD2DEG_LOCAL = 180 / Math.PI
 const EARTH_RADIUS_LOCAL = EARTH.sphereR // WGS84 semi-major axis; used ONLY for the
 // Mercator longitude inverse (mx/A, basis-
@@ -155,14 +157,14 @@ const EARTH_RADIUS_LOCAL = EARTH.sphereR // WGS84 semi-major axis; used ONLY for
  *  degenerate-but-present wall quads (h=0, b=0). Callers that want a
  *  layer-level fallback height must pre-populate the heights map.
  *
- *  @param polygons        compiler-emitted ring polygons (tile-local
- *                         Mercator metres; ring[i] = [mx, my])
+ *  @param polygons        compiler-emitted ring polygons (ABSOLUTE Mercator
+ *                         metres; ring[i] = [mx, my])
  *  @param heights         featId → top height in metres
  *  @param bases           featId → wall-base height in metres (Mapbox
  *                         `fill-extrusion-base`); pass `undefined` for
  *                         all-zero bases
- *  @param tileMx          tile origin Mercator x (metres) — added to
- *                         ring coords to get absolute Mercator x
+ *  @param tileMx          tile origin Mercator x (metres) — subtracted from
+ *                         ring coords to produce the `local_merc` attribute
  *  @param tileMy          tile origin Mercator y (metres)
  *  @param tileEcefCenter  ECEF RTC anchor (see `tileEcefCenterFromMerc`)
  *  @param tileMercExtent  optional tile boundary rect (ABSOLUTE Mercator
@@ -173,8 +175,8 @@ export function generateWallMeshExtrudedECEF(
   polygons: RingPolygon[],
   heights: ReadonlyMap<number, number>,
   bases: ReadonlyMap<number, number> | undefined,
-  _tileMx: number,
-  _tileMy: number,
+  tileMx: number,
+  tileMy: number,
   tileEcefCenter: readonly [number, number, number],
   tileMercExtent?: TileMercExtent,
 ): WallMeshExtrudedECEF {
@@ -292,12 +294,10 @@ export function generateWallMeshExtrudedECEF(
 
   // Write helper — stamps one vertex into `vertices` at slot vIdx.
   // mx, my are ABSOLUTE Mercator metres (same convention as
-  // `generateWallMeshExtruded`, where ring coords are already absolute
-  // and the function does `mx - tileMx` to derive tile-local). The
-  // `tileMx`/`tileMy` parameters are unused for absolute→lon/lat
-  // conversion but retained in the signature for symmetry with the
-  // Mercator path and forward compatibility with synthetic-edge
-  // detection that may need them.
+  // `generateWallMeshExtruded`, where ring coords are already absolute).
+  // `tileMx`/`tileMy` are the tile origin: the absolute→lon/lat conversion
+  // does not need them, but `local_merc` is their f64 difference against the
+  // vertex, so the flat arms never have to rebuild it from f32 degrees.
   const writeVertex = (
     vIdx: number,
     mx: number,
@@ -339,6 +339,11 @@ export function generateWallMeshExtrudedECEF(
     // 3D arm, but the FLAT projection arms re-project from abs_lon/abs_lat and
     // need the base to build plane-z (see POLYGON_EXTRUDED_FORMAT).
     vertices[o + EXT_WALLBASE_FLOAT] = wallBase
+    // Tile-local Mercator, differenced in f64 BEFORE the f32 store — the flat
+    // projection arms position from this instead of re-deriving it from the
+    // absolute degrees (see POLYGON_EXTRUDED_FORMAT).
+    vertices[o + EXT_LOCALMERC_FLOAT] = mx - tileMx
+    vertices[o + EXT_LOCALMERC_FLOAT + 1] = my - tileMy
   }
 
   let vIdx = 0
@@ -349,6 +354,12 @@ export function generateWallMeshExtrudedECEF(
     const fid = poly.featId
     const h = heights.get(fid) ?? 0
     const b = bases?.get(fid) ?? 0
+    // Mapbox semantics: `fill-extrusion-height` and `-base` are BOTH absolute
+    // altitudes and the wall spans [base, height] — height is NOT a thickness
+    // above the base. The spec requires base <= height; `max` keeps malformed
+    // data from inverting the wall. (Identical to `h` whenever base is 0, so
+    // base-less features are unchanged.)
+    const topH = Math.max(h, b)
     for (let r = 0; r < poly.rings.length; r++) {
       const ring = poly.rings[r]
       const len = ring.length
@@ -425,10 +436,10 @@ export function generateWallMeshExtrudedECEF(
         writeVertex(vIdx++, ax, ay, b, fid, fnX, fnY, fnZ, h, 0, b)
         // b_bot
         writeVertex(vIdx++, bx, by, b, fid, fnX, fnY, fnZ, h, 0, b)
-        // a_top (is_top = 1, height = base + feature height)
-        writeVertex(vIdx++, ax, ay, b + h, fid, fnX, fnY, fnZ, h, 1, b)
+        // a_top (is_top = 1, at the absolute top altitude)
+        writeVertex(vIdx++, ax, ay, topH, fid, fnX, fnY, fnZ, h, 1, b)
         // b_top
-        writeVertex(vIdx++, bx, by, b + h, fid, fnX, fnY, fnZ, h, 1, b)
+        writeVertex(vIdx++, bx, by, topH, fid, fnX, fnY, fnZ, h, 1, b)
 
         indices[idxOut++] = baseV + 0
         indices[idxOut++] = baseV + 1
@@ -452,7 +463,7 @@ export function generateWallMeshExtrudedECEF(
     const fid = poly.featId
     const h = heights.get(fid) ?? 0
     const b = bases?.get(fid) ?? 0
-    const topH = b + h
+    const topH = Math.max(h, b) // absolute top — see the wall pass
     const roofBaseV = vIdx
     const outer = rings[0]
     const outerLen = outer.length

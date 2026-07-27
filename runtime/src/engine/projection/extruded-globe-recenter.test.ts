@@ -137,7 +137,7 @@ describe('G7 — extruded-globe recenter (projType 7 pitch>0)', () => {
       dequantScale: mesh.dequantScale,
       dequantHalf: mesh.dequantHalf,
     }
-    const vertCount = mesh.vertices.length / 12 // POLYGON_EXTRUDED_FORMAT stride = 12 floats
+    const vertCount = mesh.vertices.length / 14 // POLYGON_EXTRUDED_FORMAT stride = 14 floats
     expect(vertCount).toBeGreaterThan(0)
 
     let maxPxErr = 0
@@ -155,7 +155,7 @@ describe('G7 — extruded-globe recenter (projType 7 pitch>0)', () => {
       // reconstructed from its abs_lon/abs_lat tail (the lonLatToECEF the
       // wall-mesh used for the position) at the same height. The mesh tail
       // carries abs_lon/abs_lat at float slots 4/5 + wall_height/is_top at 9/10.
-      const o = vi * 12
+      const o = vi * 14
       const absLon = mesh.vertices[o + 4]!
       const absLat = mesh.vertices[o + 5]!
       const wallH = mesh.vertices[o + 9]!
@@ -190,12 +190,12 @@ describe('G7 — extruded-globe recenter (projType 7 pitch>0)', () => {
       dequantScale: mesh.dequantScale,
       dequantHalf: mesh.dequantHalf,
     }
-    const vertCount = mesh.vertices.length / 12
+    const vertCount = mesh.vertices.length / 14
 
     // The first roof vertex is a deterministic, well-defined sample.
     let sampleVi = -1
     for (let vi = 0; vi < vertCount; vi++) {
-      if (mesh.vertices[vi * 12 + 10] === 1) {
+      if (mesh.vertices[vi * 14 + 10] === 1) {
         sampleVi = vi
         break
       } // is_top == 1

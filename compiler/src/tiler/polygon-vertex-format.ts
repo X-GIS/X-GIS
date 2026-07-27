@@ -50,7 +50,17 @@ export const POLYGON_FILL_FORMAT: VertexFormat = buildFormat([
 
 // ── The polygon extruded format (consumed by vs_main_ecef_extruded) ──────────
 // The fill format plus per-vertex extrusion attrs (face_normal lighting,
-// wall_height + is_top face discrimination, wall_base plane-lift). stride 48.
+// wall_height + is_top face discrimination, wall_base plane-lift, local_merc
+// tile-local position). stride 56.
+//
+// `local_merc` is the vertex's Mercator position RELATIVE to the tile origin,
+// differenced on the CPU in f64. The flat arms would otherwise have to rebuild
+// it as `project(abs_lon, abs_lat) - tile_origin_merc` — an f32 `tan`/`log`
+// chain on absolute degrees followed by a catastrophic cancellation of two
+// ~6.7e6 m operands, whose error is bounded only by the backend's transcendental
+// precision (hundreds of metres on a low-precision `tan`). POLYGON_FILL_FORMAT
+// carries the same precise tile-local position for the same reason (#598); the
+// extruded format was left on the lossy absolute-degree path.
 //
 // `wall_base` is Mapbox `fill-extrusion-base` in metres — the SAME value the
 // wall-mesh baked into the ECEF position, carried separately because the FLAT
@@ -69,4 +79,5 @@ export const POLYGON_EXTRUDED_FORMAT: VertexFormat = buildFormat([
   { name: 'wall_height', location: 6, vbFormat: 'float32', wgslType: 'f32' },
   { name: 'is_top', location: 7, vbFormat: 'float32', wgslType: 'f32' },
   { name: 'wall_base', location: 8, vbFormat: 'float32', wgslType: 'f32' },
+  { name: 'local_merc', location: 9, vbFormat: 'float32x2', wgslType: 'vec2<f32>' },
 ])

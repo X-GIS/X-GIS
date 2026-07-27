@@ -311,8 +311,8 @@ const polygonRimAlpha = fn('polygon_rim_alpha', { abs_merc_x: f32T, abs_merc_y: 
 // The fill (vs_main / vs_main_ecef) and extruded (vs_main_ecef_extruded) paths
 // share one branch shape and diverge in exactly ONE way, captured by the
 // single `extruded` flag: the FLAT arms' plane-z (fill passes z = 0.0;
-// extruded inserts an extra `z_plane[_geom] = wall_base + wall_height*is_top`,
-// Mercator-scaled by 1/cos(lat) on the Mercator arm).
+// extruded inserts `wall_base + wall_height*is_top`, over cos(lat) on the
+// Mercator arm).
 //
 // The 3D (else) arm is now IDENTICAL for fill and extruded: both recentre
 // `ecef_cam = ecef_rtc + cam_ecef_off_h + cam_ecef_off_l` then transform. The
@@ -340,9 +340,7 @@ const emitPolygonProjectionLadder = (args: {
   extruded: boolean
   isTop?: ReadonlyNode<'f32'>
   wallHeight?: ReadonlyNode<'f32'>
-  /** Mapbox `fill-extrusion-base` (metres). The FLAT arms do not read the
-   *  pre-lifted ECEF position, so the base has to reach the plane-z here or
-   *  every wall bottom snaps to the ground (#1342). */
+  /** Mapbox `fill-extrusion-base` (m) — #1342. */
   wallBase?: ReadonlyNode<'f32'>
   // When provided (quantized fill VS), the flat-Mercator arm positions from
   // this PRECISE tile-local Mercator vec2 (vertex_merc − tile_origin_merc)
@@ -370,20 +368,17 @@ const emitPolygonProjectionLadder = (args: {
   const deg2rad = DEG2RAD
   const earthR = EARTH_R
   const pi = PI
-  // Extruded plane-z in METRES: base + height·is_top. `wall_height * is_top`
-  // alone (the pre-#1342 spelling) drops `fill-extrusion-base` on every FLAT
-  // arm — the arms that re-project from abs_lon/abs_lat instead of reading the
-  // pre-lifted ECEF position — so a `building:part` floating at base 128 m
-  // extruded from the ground instead. The 3D arm is unaffected (the lift is
-  // baked into ecef_rtc there).
-  const zMetres = (): ReadonlyNode<'f32'> => wallBase!.add(wallHeight!.mul(isTop!))
+  // Extruded plane-z in METRES: `base` at the wall bottom, `height` at the top
+  // + roof — Mapbox treats BOTH as ABSOLUTE altitudes, so a wall spans
+  // [base, height] (`max` mirrors the wall-mesh's clamp). Pre-#1342 this was
+  // `wall_height * is_top`, dropping the base on both FLAT arms (the 3D arm
+  // reads the pre-lifted ecef_rtc, so it was unaffected).
+  const zMetres = (): ReadonlyNode<'f32'> =>
+    wallBase!.add(max(wallHeight!.sub(wallBase!), f32(0)).mul(isTop!))
   If(projParamsV.x.lt(0.5), () => {
-    // Mercator PLANE metres ≠ ground metres: the plane is stretched by
-    // 1/cos(lat), so an altitude in metres must be divided by cos(lat) to land
-    // at the right plane height (MapLibre: `mercatorZfromAltitude`). Without it
-    // walls render cos(lat)× too short — 62 % of true height at London.
-    // cos is taken at the Mercator-clamped latitude, so the divisor is bounded
-    // below by cos(85.051129°) ≈ 0.0863 and can never reach 0.
+    // Mercator PLANE metres ≠ ground metres (stretched 1/cos(lat)) → divide, as
+    // MapLibre's `mercatorZfromAltitude` does; pre-#1342 the unscaled feed
+    // rendered walls cos(lat)× short. Clamped lat bounds the divisor ≥ 0.086.
     const zPlane = extruded
       ? zMetres().div(cos(radians(clamp(absLat, MERCATOR_LAT_LIMIT.neg(), MERCATOR_LAT_LIMIT))))
       : f32(0)
@@ -422,9 +417,7 @@ const emitPolygonProjectionLadder = (args: {
     clip.assign(transformMat4(mvp, vec4(rel2d.x.add(worldOffM), rel2d.y, zPlane, 1)))
   })
     .elif(projParamsV.x.lt(6.5), () => {
-      // Non-Mercator flat projections (equidistant / azimuthal / …) keep a
-      // true-metre plane metric, so the altitude needs no scale here — only
-      // the base term the pre-#1342 spelling was missing.
+      // Non-Mercator flat plane metric is true metres → no cos(lat) scale.
       const zG = extruded ? zMetres() : f32(0)
       // #598 — mirror finalize_corner (line.ts): when the PRECISE tile-local
       // Mercator is available (quantized fill), feed flat_rel the camera-relative
@@ -705,6 +698,7 @@ const vsMainEcefExtruded = fn(
     wall_height: location(6, f32T),
     is_top: location(7, f32T),
     wall_base: location(8, f32T),
+    local_merc: location(9, vec2fT),
   },
   (p) => {
     const mvp = U.field.mvp
@@ -728,13 +722,10 @@ const vsMainEcefExtruded = fn(
     const absLatClamped = clamp(p.abs_lat, mercLatLim.neg(), mercLatLim)
     const absMercY = log(tan(pi.div(4).add(radians(absLatClamped).div(2)))).mul(earthR)
 
-    // Display projection (see vs_main_ecef): flat Mercator reprojects onto
-    // the 2D plane with the extrude lift applied as plane-z; 3D keeps the
-    // pre-lifted ECEF-RTC. The per-vertex altitude is
-    // `wall_base + wall_height × is_top` — the SAME altitude the wall-mesh
-    // baked into ECEF z, which the flat arms cannot read back. #1342 added
-    // `wall_base` (was `wall_height × is_top`, i.e. base pinned to 0) and the
-    // Mercator arm's 1/cos(lat) plane scale (was unscaled → cos(lat)× short).
+    // Display projection (see vs_main_ecef): flat arms apply the lift as
+    // plane-z (`wall_base + wall_height × is_top` — the altitude the wall-mesh
+    // baked into ECEF z, which they cannot read back, #1342); 3D keeps the
+    // pre-lifted ECEF-RTC.
     const projParamsV = U.field.proj_params
     const clip = vec4(0, 0, 0, 0)
     // Same flat/3D ladder as vs_main_ecef but extruded: the FLAT arms add a
@@ -754,6 +745,13 @@ const vsMainEcefExtruded = fn(
       isTop: p.is_top,
       wallHeight: p.wall_height,
       wallBase: p.wall_base,
+      // #1342 — flat arms position from the CPU-differenced tile-local
+      // Mercator. Rebuilding it as `project(abs_lon, abs_lat) −
+      // tile_origin_merc` ran f32 tan/log on absolute degrees then cancelled
+      // two ~6.7e6 m operands; its error was bounded only by the backend's
+      // transcendental precision (a software rasteriser put the extruded layer
+      // ~200 m south of its own flat fill). Mirrors the fill VS since #598.
+      localMerc: p.local_merc,
     })
     // fill-translate viewport-anchor — GATED OFF for fill-PATTERN draws (#1154):
     // fs_fill_pattern reuses the fill_translate slots for the pattern repeat, so

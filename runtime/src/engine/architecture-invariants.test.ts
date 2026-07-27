@@ -382,7 +382,11 @@ const LOC_CEILINGS: Record<string, number> = {
   // composer placeholder + default/variantExtrudeReturnStmts (fragment re-lighting of
   // the feat_data colour). The SECOND ceiling authority (§12 second-ratchet); kept in
   // sync with map/src/loc-ceiling-ratchet.test.ts.
-  'map/src/shaders/dsl/polygon.ts': 1448,
+  // 1448 → 1470 (#1342): the extruded VS gained two vertex attributes
+  // (wall_base, local_merc) and the flat-arm plane-z gained its base term +
+  // Mercator vertical scale. Both authorities raised together (see CLAUDE.md
+  // §12 second-ratchet); shrink-only from here.
+  'map/src/shaders/dsl/polygon.ts': 1470,
   // camera.ts relocated to @xgis/engine (engine/src/projection/camera.ts) in
   // P3 Step 3 — no longer under a SRC_DIRS walk, so its LOC ceiling is tracked
   // by the engine package's own ratchet, not this runtime gate.

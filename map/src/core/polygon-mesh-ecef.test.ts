@@ -14,11 +14,11 @@ import type { RingPolygon } from '@xgis/compiler'
 import { generateWallMeshExtrudedECEF } from './polygon-mesh'
 import { lonLatToECEF, tileEcefCenterFromMerc } from '@xgis/shared'
 
-// Phase 2 PR 2f: quantized ECEF extruded layout — stride 48 bytes = 12
+// Phase 2 PR 2f: quantized ECEF extruded layout — stride 56 bytes = 14
 // floats. uint16×6 position in the first 12 bytes; f32 tail at float slots
-// 3..11 (fid, abs_lon, abs_lat, face_normal×3, wall_height, is_top,
-// wall_base).
-const STRIDE = 12
+// 3..13 (fid, abs_lon, abs_lat, face_normal×3, wall_height, is_top,
+// wall_base, local_merc×2).
+const STRIDE = 14
 const A = 6378137
 const DEG2RAD = Math.PI / 180
 

@@ -572,7 +572,11 @@ const CEILINGS: Record<string, number> = {
   // fs_fill_extrude composer placeholder, and default/variantExtrudeReturnStmts
   // (fragment re-lighting of the feat_data colour). The shading math is a
   // faithful replay of the VS lighting; not extract-worthy (§2).
-  'map/src/shaders/dsl/polygon.ts': 1448,
+  // 1448 → 1470 (#1342): the extruded VS gained two vertex attributes
+  // (wall_base, local_merc) and the flat-arm plane-z gained its base term +
+  // Mercator vertical scale. Both authorities raised together (see CLAUDE.md
+  // §12 second-ratchet); shrink-only from here.
+  'map/src/shaders/dsl/polygon.ts': 1470,
   // 1290→1314 (#1155 F3): cold-start burst tick budget — the `_coldStartBurst`
   // field + `_BURST_TICK_BUDGET` + `setColdStartBurst` + the burst-selected
   // budget in resetCompileBudget's backend tick loop.

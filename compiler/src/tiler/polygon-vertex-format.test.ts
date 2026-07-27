@@ -27,7 +27,7 @@ describe('polygon-vertex-format derivation', () => {
   })
 
   it('extruded format: offsets + stride match the hand-written layout', () => {
-    expect(POLYGON_EXTRUDED_FORMAT.stride).toBe(48)
+    expect(POLYGON_EXTRUDED_FORMAT.stride).toBe(56)
     expect(
       POLYGON_EXTRUDED_FORMAT.fields.map((f) => [f.name, f.location, f.offset, f.vbFormat]),
     ).toEqual([
@@ -40,6 +40,7 @@ describe('polygon-vertex-format derivation', () => {
       ['wall_height', 6, 36, 'float32'],
       ['is_top', 7, 40, 'float32'],
       ['wall_base', 8, 44, 'float32'],
+      ['local_merc', 9, 48, 'float32x2'],
     ])
   })
 
