@@ -112,7 +112,7 @@ function makeSourceManager(camera: Camera, positioned: { value: boolean }) {
     geojsonCapPoles: new Map(),
     heatmapPointData: new Map(),
     camera,
-    canvas: { width: 1200, height: 800 } as unknown as HTMLCanvasElement,
+    getCanvas: () => ({ width: 1200, height: 800 }) as unknown as HTMLCanvasElement,
     getCtx: () => ({ device: {}, format: 'bgra8unorm' }) as unknown as GPUContext,
     getRenderer: () => rendererStub,
     getLineRenderer: () => null,

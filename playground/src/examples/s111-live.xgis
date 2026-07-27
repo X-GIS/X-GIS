@@ -22,15 +22,24 @@ source basemap {
 
 // The coverage source streams the real S-111 cell; the `currents` layer draws the OFFICIAL
 // S-111 portrayal from the engine — `| arrow` (#1333): a band-coloured arrow at each grid
-// cell, oriented by the direction band, scaled per the vendored IHO catalogue. This is the
-// STRICT portrayal: arrows only, NO raster fill (the catalogue defines colored arrows, not a
-// colour area). Add a `ramp: "s111-speed"` line to overlay the non-standard colour fill.
+// cell, oriented by the direction band, scaled per the vendored IHO catalogue. Those arrows
+// are STATIC and stay exactly as the catalogue specifies; no `ramp` is declared, so no colour
+// area is drawn either (the catalogue defines coloured symbols, not a fill). Adding a
+// `ramp: "s111-speed"` line would overlay the non-standard colour fill under them.
 //
-// The field ANIMATES through the arrows themselves (#1333): each glyph drifts along the
-// bearing it already points, at a distance set by its own speed, then fades and respawns at
-// its cell. An earlier revision drew a SECOND overlay of drifting dots for the motion, which
-// is now redundant — the same field was being read twice, and the dots said nothing the
-// moving arrows do not. One primitive, one reading.
+// `| flow` is the MOTION layer, and it is deliberately a separate, explicitly NON-CATALOGUE
+// opt-in (#1333). The catalogue has nothing to say about animation — `<lineStyles/>`,
+// `<areaFills/>` and `<pixmaps/>` are all empty — so a display that must be strictly
+// conformant simply omits this one line and keeps the arrows alone.
+//
+// What it draws is an ADVECTED FIELD (IBFV), not particles: the image is stepped along the
+// current each frame and re-seeded with noise, so there is nothing discrete to recycle. That
+// is why it cannot blink. An earlier revision animated the arrow GLYPHS themselves — moving a
+// recognizable symbol forces a respawn, a respawn forces a fade, and a fade on a large symbol
+// IS a blink. Here the motion carrier is texture, and the symbol never moves.
+//
+// With no `ramp`, the motion renders as a neutral luminance over the satellite imagery — the
+// catalogue arrows remain the only colour authority on screen.
 source currents {
   type: coverage
   url: "/noaa-s111/latest.h5"
@@ -43,4 +52,5 @@ layer imagery {
 layer speed {
   source: currents
   | arrow
+  | flow
 }

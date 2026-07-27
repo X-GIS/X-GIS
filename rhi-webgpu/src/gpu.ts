@@ -9,7 +9,7 @@
 // (`RenderContext` / `BackendChoice`), pinned in the dependency-direction
 // ratchet baseline until the #834 M5 context neutralization relocates it.
 import type { RhiDevice, RhiTextureFormat } from '@xgis/rhi'
-import { peekGl2RestoreToken } from '@xgis/rhi'
+import { peekGl2RestoreToken, markSurfaceClaimed, SurfaceUnusableError } from '@xgis/rhi'
 import type { RenderContext, RhiDeviceLostInfo } from '@xgis/engine'
 // BackendChoice + the neutral render context live in @xgis/engine (#834
 // map→engine): they are engine composition concepts (a host canvas + frame
@@ -193,8 +193,28 @@ export async function createWebGpuContext(
   // rethrow the ORIGINAL error; the success path is unchanged.
   let ctx: GPUContext
   try {
+    // The chosen backend's RHI device (this is the WebGPU path → WebGpuDevice over `device`).
+    // Lazy-imported like the WebGl2Device factory above so gpu.ts (layer 1) stays off a STATIC
+    // upward import edge to the render layer (rhi-webgpu is L3); `initGPU` is async, so the
+    // one-time dynamic import is free. This is the SINGLE backend device every renderer routes
+    // through (ctx.rhi) — no renderer self-instantiates `new WebGpuDevice`.
+    //
+    // Resolved BEFORE the canvas is claimed below: `getContext('webgpu')` takes the canvas's
+    // context type IRREVERSIBLY, so any failure after it strands the element — a WebGL2
+    // fallback can never boot on it (rhi-provider CLAIMED_SURFACES). A chunk-load reject is
+    // the one genuinely likely post-adapter failure (a stale/blocked deploy), so hoisting it
+    // above the claim keeps that case on the still-virgin canvas where the fallback works.
+    const { WebGpuDevice } = await import('./rhi-webgpu')
+
     const context = canvas.getContext('webgpu')
-    if (!context) throw new Error('Failed to get WebGPU context')
+    // SurfaceUnusableError, not a bare Error: a null here means the ELEMENT already
+    // has another context type, so the chain retries on a fresh canvas rather than
+    // writing WebGPU off (message unchanged — the ownership gate matches on it).
+    if (!context) throw new SurfaceUnusableError('Failed to get WebGPU context')
+    // The canvas is now a WebGPU canvas for the rest of the page's life — record it
+    // so a later chain walk asks for a fresh surface instead of dying on a null
+    // `getContext('webgl2')`.
+    markSurfaceClaimed(canvas, 'webgpu')
 
     // getPreferredCanvasFormat() is typed GPUTextureFormat but only ever returns
     // 'bgra8unorm' | 'rgba8unorm' — both members of RhiTextureFormat, which is
@@ -211,13 +231,6 @@ export async function createWebGpuContext(
     // `-srgb` view + linear colours) would DIVERGE from that baseline and require
     // re-tuning every halo/translucency — so it is intentionally NOT done here.
     context.configure({ device, format, alphaMode: 'premultiplied' })
-
-    // The chosen backend's RHI device (this is the WebGPU path → WebGpuDevice over `device`).
-    // Lazy-imported like the WebGl2Device factory above so gpu.ts (layer 1) stays off a STATIC
-    // upward import edge to the render layer (rhi-webgpu is L3); `initGPU` is async, so the
-    // one-time dynamic import is free. This is the SINGLE backend device every renderer routes
-    // through (ctx.rhi) — no renderer self-instantiates `new WebGpuDevice`.
-    const { WebGpuDevice } = await import('./rhi-webgpu')
 
     // Build the GPUContext bundle BEFORE wiring the validation
     // handler so the handler can push into the per-context queue
@@ -375,9 +388,18 @@ export async function initGPUForcedWebGL2(
     stencil: true,
   })
   if (!gl)
-    throw new WebGPUUnavailableError(
-      '?forcegl2=1 set but canvas.getContext("webgl2") returned null',
+    // Attribute the null by BOOT MODE (mirrors WEBGL2_BOOT_WARNING). The old text
+    // hard-coded "?forcegl2=1 set", so the auto-fallback case — the one that leaves
+    // a production user staring at a blank map — reported a flag the host never set.
+    // SurfaceUnusableError so the chain retries on a fresh canvas (the claim may
+    // have been made by the HOST, which the claim registry cannot see).
+    throw new SurfaceUnusableError(
+      `canvas.getContext("webgl2") returned null (${mode} WebGL2 boot) — the canvas ` +
+        `may already have been claimed by another context type, or WebGL2 is unavailable`,
     )
+  // WebGL2 now owns this canvas's context type irreversibly — same claim the WebGPU
+  // path records, so a later chain walk toward WebGPU asks for a fresh surface.
+  markSurfaceClaimed(canvas, 'webgl2')
   // #1153 P2 R3 — ensure-restored preamble. WebGL2 contexts are canvas-sticky:
   // a prior map.destroy() on this canvas called ctx.rhi.destroy() -> loseContext(),
   // so a remount's getContext('webgl2') hands back the SAME now-lost context and

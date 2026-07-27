@@ -39,6 +39,7 @@ import { mercator as mercatorProj, getProjection, type Projection, mercatorYToLa
 import { SELECTOR_PROJ_NAMES, promotesToGlobeWhenTilted, representsCenterAs } from '@xgis/geo'
 import type { TileCatalog } from '@xgis/data'
 import type { FrameDrawStats } from './frame-draw-stats'
+import { warnSelectionTruncated } from './selection-truncation'
 
 /** MapLibre-parity per-source-layer visibility cull (#613). A source-
  *  layer's tilejson `vector_layers` entry declares the [minzoom, maxzoom]
@@ -770,6 +771,7 @@ export class TileSelectionCache {
               canvasHeight,
               offsetMarginPx,
               dpr,
+              { onTruncated: warnSelectionTruncated },
             )
           : _pitchDeg < 30
             ? visibleTilesFrustumSampled(

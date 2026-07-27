@@ -45,7 +45,7 @@ function makeManager() {
     geojsonCapPoles: new Map(),
     heatmapPointData: new Map(),
     camera: {} as never,
-    canvas: { width: 800 } as never,
+    getCanvas: () => ({ width: 800 }) as never,
     getCtx: () => ({}) as never,
     getRenderer: () => ({}) as never,
     getLineRenderer: () => null,

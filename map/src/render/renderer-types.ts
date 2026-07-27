@@ -155,11 +155,10 @@ export type HeatmapPaint = import('@xgis/compiler').HeatmapPaint
  *  carry the per-feature rotation (constant vs data-driven, like size/sizeExpr). */
 export type ArrowPaint = import('@xgis/compiler').ArrowPaint
 
-/** Particle-flow axis (#1333) — INHERITED from the canonical `@xgis/compiler`
- *  ParticlePaint (single source, no mirror to drift). `isParticles` routes a
- *  coverage layer's runtime arm to ALSO draw an animated particle-flow field
- *  alongside (or instead of) the static `arrow` field. */
-export type ParticlePaint = import('@xgis/compiler').ParticlePaint
+/** Motion axis (#1333) — INHERITED from the canonical `@xgis/compiler` FlowPaint (single
+ *  source, no mirror to drift). `isFlow` routes a coverage layer's runtime arm to ALSO draw
+ *  the advected field alongside the static `arrow` field, which stays catalogue-exact. */
+export type FlowPaint = import('@xgis/compiler').FlowPaint
 
 /** 3D extrusion paint axes — INHERITED from the canonical `@xgis/compiler`
  *  ExtrudePaint (single source, incl. fillExtrusionVerticalGradient); runtime
@@ -180,7 +179,7 @@ export interface ExtrudePaint extends Omit<
 }
 
 export interface ShowCommand
-  extends FillPaint, LinePaint, CirclePaint, ExtrudePaint, HeatmapPaint, ArrowPaint, ParticlePaint {
+  extends FillPaint, LinePaint, CirclePaint, ExtrudePaint, HeatmapPaint, ArrowPaint, FlowPaint {
   /** Position of this show in the compiled Scene's renderNodes — the
    *  key the P4 compute plan uses to route output buffers back to
    *  fragment-shader paint axes. Compiler emits it; runtime callers
