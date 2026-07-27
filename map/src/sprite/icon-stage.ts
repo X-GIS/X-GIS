@@ -7,6 +7,7 @@
 //   3. render(pass, viewport)                          — encodes draw
 
 import { SpriteAtlasHost, type SpriteInfo } from './sprite-atlas-host'
+import { resolveCollideDrops } from './icon-collide-overlap'
 import { SpriteAtlasGPU } from './sprite-atlas-gpu'
 import { IconRenderer, type IconDraw, type IconAnchor } from './icon-renderer'
 import type { RhiDevice, RhiSampler, RhiTextureView, RhiRenderPass } from '@xgis/engine'
@@ -393,67 +394,16 @@ export class IconStage {
     // Treating those as missing would flood the diagnostic with
     // false positives during cold-start.
     const atlasLoaded = this.host.getState().status === 'loaded'
-    // #417 near-first (icon sibling of #1249) — decide which collide-icons
-    // (symbol-placement:line arrows) survive their mutual overlap BEFORE the
-    // emit loop, iterating NEAREST-first. The overlap pass is greedy first-
-    // wins, so on a pitched view the label nearer the camera (larger anchorY)
-    // must claim its box first or the far arrow occludes the near one — the
-    // same wrong direction #1249 fixed for text. Equal-Y ties keep dispatch
-    // order, so a flat/same-latitude row of arrows collides byte-identically
-    // to the pre-fix pass. The verdict is keyed by pending index; the emit
-    // loop reads `collideDropped` and keeps DRAW (painter) order in dispatch
-    // order (survivors don't overlap, so their relative draw order is moot).
-    // The two pre-collision skips (paired-text-dropped, sprite-missing) are
-    // mirrored here so a dropped/absent icon never seeds a phantom blocker.
-    const collideDropped = new Set<number>()
-    {
-      const collideOrder: number[] = []
-      for (let i = 0; i < this.pending.length; i++)
-        if (this.pending[i]!.collide) collideOrder.push(i)
-      collideOrder.sort((a, b) => {
-        const pa = this.pending[a]!
-        const pb = this.pending[b]!
-        if (pa.anchorY !== pb.anchorY) return pb.anchorY - pa.anchorY // near (larger Y) first
-        // Y-tie (a flat road's arrow chain): a STABLE per-feature id decides,
-        // so the survivor doesn't flip with tile-dispatch (I/O) order on pan —
-        // the icon twin of text #728. `fadeId` (the paired text's collisionId,
-        // threaded for symbol fade) doubles as that id — it's the same tile-
-        // stable value the collision pass needs. Falls back to dispatch index
-        // only when it is absent on either side (byte-identical to the pre-
-        // determinism pass).
-        const ca = pa.fadeId
-        const cb = pb.fadeId
-        if (ca !== undefined && cb !== undefined && ca !== cb) return ca < cb ? -1 : 1
-        return a - b // stable: dispatch order
-      })
-      const placedBoxes: { minX: number; minY: number; maxX: number; maxY: number }[] = []
-      for (const i of collideOrder) {
-        const p = this.pending[i]!
-        if (p.pairKey !== undefined && this.droppedPairKeys.has(p.pairKey)) continue
-        const sprite = this.host.get(p.iconName)
-        if (!sprite) continue
-        const sizeScale = p.sizeScale * this.dpr
-        const cdW = (sprite.width / sprite.pixelRatio) * sizeScale
-        const cdH = (sprite.height / sprite.pixelRatio) * sizeScale
-        const pad = p.padding * this.dpr // Mapbox icon-padding (default 2)
-        const minX = p.anchorX - cdW / 2 - pad,
-          maxX = p.anchorX + cdW / 2 + pad
-        const minY = p.anchorY - cdH / 2 - pad,
-          maxY = p.anchorY + cdH / 2 + pad
-        let overlaps = false
-        for (const b of placedBoxes) {
-          if (minX < b.maxX && maxX > b.minX && minY < b.maxY && maxY > b.minY) {
-            overlaps = true
-            break
-          }
-        }
-        if (overlaps) {
-          collideDropped.add(i)
-          continue
-        }
-        placedBoxes.push({ minX, minY, maxX, maxY })
-      }
-    }
+    // #417 — decide which collide-icons (symbol-placement:line arrows) lose
+    // their mutual overlap BEFORE the emit loop. Near-first ordering + the
+    // greedy pass live in icon-collide-overlap.ts; the emit loop below reads
+    // the verdict by dispatch index and keeps DRAW (painter) order unchanged.
+    const collideDropped = resolveCollideDrops(
+      this.pending,
+      this.dpr,
+      this.droppedPairKeys,
+      (name) => this.host.get(name),
+    )
     for (let idx = 0; idx < this.pending.length; idx++) {
       const p = this.pending[idx]!
       // Symbol fade: resolve this icon's instance key FIRST — occurrence
