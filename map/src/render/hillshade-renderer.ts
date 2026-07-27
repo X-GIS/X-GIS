@@ -637,6 +637,9 @@ export class HillshadeRenderer {
       HB.buffer,
       tilesArr,
       isPickEnabled(),
+      // The method is a per-LAYER constant, so it selects a SPECIALISED pipeline
+      // rather than branching per fragment (see buildHillshadeModule).
+      hillshadeMethodFlag(this._params.method),
     )
 
     this.lastVisibleKeys = visibleKeys
