@@ -10,9 +10,11 @@
 //
 // THE ORDER IS THE BYTE-FROZEN PASS SEQUENCE — owned by PASS_CHAIN_ORDER
 // (pass-order.ts, the single authority both orchestrations answer to, #1004).
-// It reproduces the former hardcoded dispatch in render-loop.ts exactly:
-//   background → opaque → oit → translucent → points → labels → heatmap →
-//   overdraw-compose → graphics (#797 P1, appended — inert unless host batches)
+// It reproduces the former hardcoded dispatch in render-loop.ts exactly, plus
+// the documented later insertions (hillshade #777, flow #1333):
+//   background → flow → opaque → oit → translucent → hillshade → points →
+//   labels → heatmap → overdraw-compose → graphics (#797 P1, appended — inert
+//   unless host batches)
 // background / opaque / labels keep `shouldRun()===true` (unconditional); the
 // rest carry their original predicate. The OIT node is registered at its
 // historical slot but is RUNTIME-DEAD — `oitPass.shouldRun` is immutably false
@@ -26,6 +28,7 @@ import type { RenderNode } from '../render-node'
 import type { RenderPass } from './pass'
 import { PASS_CHAIN_ORDER, type PassLabel } from './pass-order'
 import { backgroundPass } from './background-pass'
+import { flowPass } from './flow-pass'
 import { opaquePass } from './opaque-pass'
 import { oitPass } from './oit-pass'
 import { translucentPass } from './translucent-pass'
@@ -54,6 +57,7 @@ function adapt(pass: RenderPass, map: XGISMap): RenderNode {
 // swapchain, on top of every layer; inert (no pass) when no host batch exists.
 const PASSES: Record<PassLabel, RenderPass> = {
   background: backgroundPass,
+  flow: flowPass,
   opaque: opaquePass,
   oit: oitPass,
   translucent: translucentPass,

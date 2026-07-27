@@ -16,6 +16,7 @@ import { cellUnitsToLonLat, type CoverageHandle } from '@xgis/data'
 import type { ShowCommand } from './render/renderer-types'
 import type { GraphicsManager } from './graphics/graphics-manager'
 import { bandedRampColor } from './color-ramp'
+import { resolveVectorBands } from './coverage-vector-bands'
 import {
   s111ArrowLengthPx,
   s111HasArrow,
@@ -45,20 +46,21 @@ export function addCoverageArrowShowLayer(
   show: ShowCommand,
   handle: CoverageHandle,
 ): void {
-  const bands = handle.bands
-  // Resolve by S-111 band name, falling back to index (speed = 0, direction = 1). `band()`
-  // throws on a missing name, so probe `bands` directly to stay a safe no-op.
-  const speedBand = bands.find((b) => b.header.name === 'surfaceCurrentSpeed') ?? bands[0]
-  const dirBand = bands.find((b) => b.header.name === 'surfaceCurrentDirection') ?? bands[1]
-  if (!speedBand || !dirBand) return // need magnitude + direction to orient an arrow
+  // Is this a vector field at all? SINGLE AUTHORITY (coverage-vector-bands.ts) shared with
+  // the flow-field upload, so the two cannot disagree about whether a coverage has a current.
+  // Null for every scalar coverage — S-102 bathymetry above all, which the previous
+  // resolve-by-index fallback here happily rendered as a current field (depth as speed,
+  // uncertainty as bearing). Not an error: a bathymetry layer simply has nothing to portray.
+  const vec = resolveVectorBands(handle)
+  if (!vec) return
 
   const [nLon, nLat] = handle.header.size
   const [originX, originY] = handle.header.origin // SW cell CENTRE (point registration)
   const [dx, dy] = handle.header.spacing
   const crs = handle.header.crs
   const rampName = show.ramp ?? S111_SPEED_RAMP
-  const speed = speedBand.values
-  const dir = dirBand.values
+  const speed = vec.speed
+  const dir = vec.direction
 
   // Collect drawable cells first so an over-ceiling grid thins over WATER, not the bbox.
   const idx: number[] = []

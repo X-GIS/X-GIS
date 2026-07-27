@@ -60,6 +60,12 @@ export * from './render/__vertex-format-crosscheck'
 export * from './debug-flags'
 // Data-driven / heatmap color-ramp GPU texture builder.
 export * from './color-ramp'
+// Forecast-time addressing + the playback CLOCK for S-111/S-104 coverages. Exported so a host
+// app driving its OWN zero-network playback loop (the mosaic demo blends two hours out of its
+// cached cell bytes — see `Map.setCoverageFrame`) uses the SAME self-clocked, deadline-scheduled
+// loop `Map.playCoverageTime` does, instead of hand-rolling a timer that races its own async
+// step (#1362).
+export * from './coverage-time'
 // Leaf machinery: compose/blur pipeline builders, compute feat_data packer, label feature
 // source, tile-selection cache.
 export * from './render/compose-pipelines'

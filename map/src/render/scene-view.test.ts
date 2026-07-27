@@ -21,6 +21,7 @@ interface HostStub {
   lineRenderer: unknown
   pointHasLayers: boolean | null // null → pointRenderer is null
   hillshadeHasSource?: boolean
+  coverageHasFlow?: boolean // undefined → coverageRenderer is null
 }
 
 function makeHost(s: HostStub) {
@@ -31,6 +32,8 @@ function makeHost(s: HostStub) {
     pointRenderer: s.pointHasLayers === null ? null : { hasLayers: () => s.pointHasLayers },
     hillshadeRenderer:
       s.hillshadeHasSource === undefined ? null : { hasSource: () => s.hillshadeHasSource },
+    coverageRenderer:
+      s.coverageHasFlow === undefined ? null : { hasFlowField: () => s.coverageHasFlow },
   } as unknown as Parameters<typeof buildSceneView>[0]
 }
 
@@ -115,6 +118,44 @@ describe('buildSceneView', () => {
       makeCtx(false),
     )
     expect(scene.hasPoints).toBe(false)
+  })
+
+  it('hasFlow follows the coverage, and stays FALSE with no coverage renderer at all (#1333)', () => {
+    // This flag is the only thing standing between a scalar-coverage (or coverage-less) map and
+    // an allocated IBFV ping-pong pair, so the default must be false — including on the very
+    // first frames, before any coverage source has been attached.
+    const base: HostStub = {
+      opaque: [],
+      translucent: [],
+      oit: [],
+      lineRenderer: {},
+      pointHasLayers: false,
+    }
+    expect(buildSceneView(makeHost({ ...base }), makeCtx(false)).hasFlow).toBe(false)
+    // A coverage with no velocity field (S-102 bathymetry) is the same answer.
+    expect(
+      buildSceneView(makeHost({ ...base, coverageHasFlow: false }), makeCtx(false)).hasFlow,
+    ).toBe(false)
+    expect(
+      buildSceneView(makeHost({ ...base, coverageHasFlow: true }), makeCtx(false)).hasFlow,
+    ).toBe(true)
+  })
+
+  it('hasFlow does NOT participate in the MSAA resolve (the flow pass writes no swapchain)', () => {
+    // The advection renders only into its own grid-space pair. If it ever entered the
+    // resolveOwner chain, the owner would resolve before the passes that actually paint.
+    const withFlow = buildSceneView(
+      makeHost({
+        opaque: cs(1),
+        translucent: [],
+        oit: [],
+        lineRenderer: {},
+        pointHasLayers: false,
+        coverageHasFlow: true,
+      }),
+      makeCtx(false),
+    )
+    expect(withFlow.resolveOwner).toBe('opaque')
   })
 
   it('resolveOwner priority: points > composite > opaque', () => {

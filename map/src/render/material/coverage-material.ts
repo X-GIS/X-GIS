@@ -143,6 +143,9 @@ export interface CoverageUniformInput {
   ramp: { a: number; b: number }
   /** Layer opacity paint (0..1) — packed into ramp_params.z, multiplies output alpha. */
   opacity: number
+  /** IBFV modulation depth (#1333) — packed into ramp_params.w. 0 (the default) makes the
+   *  shader's gain an EXACT 1.0, so a coverage with no flow field draws byte-identically. */
+  flowMix?: number
 }
 export function packCoverageUniforms(u: CoverageUniformInput): Float32Array {
   const out = new Float32Array(COVERAGE_UNIFORM_FLOATS)
@@ -150,9 +153,15 @@ export function packCoverageUniforms(u: CoverageUniformInput): Float32Array {
   out.set(u.projParams, 16)
   out[20] = u.camCenter[0]
   out[21] = u.camCenter[1]
+  // MERGE UNION (#1366 INC-3 <- #1333): INC-3 deleted `cov_edges` / `cov_geo` (the lon/lat
+  // footprint rectangle a projected cell violates), which slid `ramp_params` from 32 down to
+  // 24; #1333 added the flow-modulation depth as its `.w`. Both survive — the compacted
+  // block AND the new field. The struct in shaders/dsl/coverage-ramp.ts is the authority for
+  // these offsets, and COVERAGE_UNIFORM_FLOATS (28) is asserted against it.
   out[24] = u.ramp.a
   out[25] = u.ramp.b
   out[26] = u.opacity // ramp_params.z
+  out[27] = u.flowMix ?? 0 // ramp_params.w
   return out
 }
 
@@ -184,6 +193,7 @@ export class CoverageDraper {
           { binding: 3, kind: 'sampler', name: 'cov_sampler' },
           { binding: 4, kind: 'texture', name: 'cov_lut' },
           { binding: 5, kind: 'sampler', name: 'cov_lut_sampler' },
+          { binding: 6, kind: 'texture', name: 'cov_flow' },
         ],
       ],
       // One interleaved node buffer: [lon, lat, u, v] per mesh node. Indexed, so each
@@ -205,13 +215,20 @@ export class CoverageDraper {
     })
   }
 
-  /** Build the group-0 bind group for a coverage's resident textures + LUT. */
+  /** Build the group-0 bind group for a coverage's resident textures + LUT.
+   *
+   *  `flow` is the advected IBFV image for THIS frame. Both backends require every declared
+   *  binding to be filled, so a coverage with no flow layer passes an inert stand-in (the
+   *  caller hands its own value texture) — safe because `flowMix` is 0 there and the shader
+   *  multiplies the tap out exactly. It is a parameter rather than a resident field because
+   *  the flow pair PING-PONGS: the correct view alternates every frame. */
   bindGroup(
     value: RhiTextureView,
     valid: RhiTextureView,
     dataSampler: RhiSampler,
     lut: RhiTextureView,
     lutSampler: RhiSampler,
+    flow: RhiTextureView,
   ): RhiBindGroup {
     return this.rhi.createBindGroup(this.material.layout(0), [
       { binding: 0, resource: { buffer: this.material.globalUniform! } },
@@ -220,6 +237,7 @@ export class CoverageDraper {
       { binding: 3, resource: { sampler: dataSampler } },
       { binding: 4, resource: { view: lut } },
       { binding: 5, resource: { sampler: lutSampler } },
+      { binding: 6, resource: { view: flow } },
     ])
   }
 

@@ -15,6 +15,15 @@
 // loudly instead of silently — the exact trap #996 documents. Drive each count to 0
 // by routing the branch through a projections-table membership accessor.
 //
+// 2026-07-27 fold — the runtime dissolution REVIVED a second projType gate inside
+// map/src/architecture-invariants.test.ts (Gate 4, 11-file allowlist): two
+// authorities over one invariant, the CLAUDE.md §12 second-ratchet trap, and they
+// had already drifted — that gate counted COMMENTS, so 2 of its 11 entries were the
+// very warnings against raw projType checks (render/under-occluder-renderer.ts:203,
+// shaders/dsl/raster.ts:169), not code. It folded into THIS file (the stricter
+// semantics: comment-stripped, strict-equal both directions, union scan), which
+// inherits the one thing it scanned that this file did not: engine/src.
+//
 // The authority file geo/src/projections-table.ts is EXCLUDED — it is where
 // projType dispatch legitimately lives.
 
@@ -26,13 +35,25 @@ import { fileURLToPath } from 'node:url'
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..')
 // compiler/blueprint/shared carried from the retiring runtime Gate 4 (#1005):
 // they are projType-clean today (zero baseline entries) and must stay so.
-const PKGS = ['map/src', 'geo/src', 'data/src', 'compiler/src', 'blueprint/src', 'shared/src']
+// engine/src carried from the folded arch-invariants Gate 4 (2026-07-27): the
+// engine is projection-free by charter (Gate 7 bans even the @xgis/geo import),
+// so a projType branch appearing there must fail loudly here.
+const PKGS = [
+  'map/src',
+  'geo/src',
+  'data/src',
+  'compiler/src',
+  'blueprint/src',
+  'shared/src',
+  'engine/src',
+]
 const AUTHORITY = 'geo/src/projections-table.ts' // projType dispatch lives here
 
 function walkTs(absDir: string): string[] {
   const out: string[] = []
   for (const name of readdirSync(absDir)) {
-    if (name === 'node_modules' || name === 'dist' || name === '.vite') continue
+    if (name === 'node_modules' || name === 'dist' || name === '.vite' || name === '.tsbuild')
+      continue
     const p = join(absDir, name)
     if (statSync(p).isDirectory()) out.push(...walkTs(p))
     else if (name.endsWith('.ts') && !name.endsWith('.test.ts') && !name.endsWith('.d.ts'))
