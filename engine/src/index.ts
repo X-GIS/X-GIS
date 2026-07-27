@@ -36,15 +36,18 @@ export * from './render/render-context'
 // Material + executeItems + the MaterialDesc/PipelineVariant/DrawItem descriptor
 // triad. Content-blind — a primitive-agnostic setPipeline/setBindGroup/draw loop;
 // shaders/layouts/formats enter as neutral strings/descriptors. @xgis/map builds
-// its geo renderers by composing it (re-export shim at map/src/render/material/material.ts).
+// its geo renderers by composing it, importing from HERE — its in-package shim was
+// retired in the runtime dissolution; map/src/index.ts re-exports the surface only
+// for external consumers, to drop at the #991 close-out.
 export * from './render/material'
 // Growable per-draw uniform ring buffer (#991 P2, relocated from @xgis/map):
 // one growable uniform buffer of fixed-size slots + a CPU staging mirror flushed
 // as a single writeBuffer per pass. Backend-neutral (RHI-only). The lone perf
 // coupling is INJECTED — the caller supplies optional onGrowStart/onGrowEnd
 // markers (@xgis/map wires them to its perf-marks); the engine takes no
-// profiling dependency. @xgis/map re-exports it via a shim at
-// map/src/render/uniform-ring.ts.
+// profiling dependency. Consumers import it from HERE — the in-map shim was
+// retired in the runtime dissolution; map/src/index.ts re-exports it on map's
+// public surface until the #991 close-out.
 export * from './render/uniform-ring'
 
 // ── Shader machinery: CPU log-depth + content-blind shader-DSL leaves ─
