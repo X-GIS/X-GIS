@@ -229,6 +229,24 @@ participates in the clear-ownership contract.
 inserting the slot is a deliberate, reviewable edit in one authority rather than a silent drift —
 which is exactly what that freeze is for.
 
+**What inserting the slot actually costs** (surveyed, not guessed — so the next increment is
+scoped rather than discovered):
+
+| file                               | edit                                                                                                                                                                                                                                                                                                                                                                |
+| ---------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `passes/pass-order.ts`             | insert `'flow'` between `background` and `opaque`; decide whether it joins `RHI_TWIN_MISSING` or is ported to the WebGL2 twin                                                                                                                                                                                                                                       |
+| `passes/pass-order-parity.test.ts` | `FROZEN_PRE_1004_ORDER` is a literal proving the #1004 refactor did not reorder anything. A genuinely NEW pass is a different act from a reorder, so the assertion must become "the frozen order plus the documented insertions" — keeping what it guards while permitting a reviewed addition. Loosening it to a subset check would retire the protection instead. |
+| `scene-view.ts`                    | `hasFlow` from `coverageRenderer.hasFlowField()`                                                                                                                                                                                                                                                                                                                    |
+| `passes/pass-hosts.ts`             | `FlowPassHost`                                                                                                                                                                                                                                                                                                                                                      |
+| `passes/flow-pass.ts`              | the pass: `shouldRun`, `FlowStepper.step`, honour `clearFirst` on BOTH sides, `FlowAdvectDraper.draw`                                                                                                                                                                                                                                                               |
+| `passes/pass-chain.ts`             | register in `PASSES`                                                                                                                                                                                                                                                                                                                                                |
+| `map.ts`                           | own the `FlowStepper` + `FlowAdvectDraper`, destroy them with the device                                                                                                                                                                                                                                                                                            |
+| `render-loop.ts`                   | the forced-WebGL2 twin, if not deferred via `RHI_TWIN_MISSING`                                                                                                                                                                                                                                                                                                      |
+
+The twin question is the one to settle first: the flow layer's whole point is that it works on
+both backends (#1046), so deferring it to `RHI_TWIN_MISSING` would ship a feature that is
+WebGL2-dark — which is the opposite of why IBFV was chosen over compute.
+
 Two contracts from `passes/AGENTS.md` that this pass must honor: colour-clear ownership belongs
 to `background-pass` (the flow pass composites with `loadOp: 'load'`), and `resolveTarget`
 belongs to exactly one pass per frame (`scene.resolveOwner`) — compositing onto the _resolved_
