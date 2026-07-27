@@ -122,13 +122,17 @@ export function packRetainedArrowFeat<D>(spec: ArrowDrawSpec<D>, dpr: number): F
 /** Pack the compiled arrow `feat` buffer from pre-evaluated per-feature arrays.
  *  `bearingsDeg` is degrees true (0 = north, clockwise); `sizesPx` is the arrow
  *  length in pre-DPR design px; `dpr` scales to physical px. Arrays are parallel
- *  (index = feature); all share `lons.length`. */
+ *  (index = feature); all share `lons.length`. `strokeUnits` (default 0 = no outline)
+ *  is a SINGLE constant applied to every instance in this batch — the outline stroke
+ *  width in loc-space units (a fraction of each arrow's own `size`, so the border reads
+ *  the same proportion regardless of band/scale); see arrow-retained-feat-layout.ts. */
 export function packCompiledArrowFeat(
   lons: ArrayLike<number>,
   lats: ArrayLike<number>,
   bearingsDeg: ArrayLike<number>,
   sizesPx: ArrayLike<number>,
   dpr: number,
+  strokeUnits = 0,
 ): Float32Array {
   const n = lons.length
   const feat = new Float32Array(n * STRIDE)
@@ -147,6 +151,7 @@ export function packCompiledArrowFeat(
     packGeoPoint(feat, o + F.tip_ecef_x_h, lon + dLon, lat + dLat) // tip block (base 12)
 
     feat[o + F.size] = (sizesPx[i] ?? 1) * dpr
+    feat[o + F.stroke_units] = strokeUnits
   }
   return feat
 }

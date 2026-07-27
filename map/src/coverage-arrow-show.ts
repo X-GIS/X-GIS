@@ -3,17 +3,25 @@
 //
 // Sibling of arrow-show.ts (the per-feature `| arrow` on a Point source): this reads the
 // SPEED + DIRECTION bands of a CoverageHandle instead of Point features, applies the
-// s111-portrayal rule (band colour + per-band scale + "no symbol for speed 0 / noData"),
-// and hands the SAME flat arrays to the shared compiled-arrow draper — no new GPU code, no
-// new render pass. Placement / scale / rotation / colour are the vendored catalogue
-// (docs/standards/s-111/); the rule authority is ./render/s111-portrayal.ts + the
-// s111-speed BANDED_RAMPS palette (color-ramp.ts), one source of truth with the fill.
+// s111-portrayal rule (band colour + per-band scale + black outline + "no symbol for speed 0
+// / noData"), and hands the flat arrays + S111_OUTLINE_FRAC to the shared compiled-arrow
+// draper — no new render pass. The outline is a proper analytic SDF stroke INSIDE the shared
+// arrow shader (arrow-retained.ts `stroke_units`), opt-in per batch (every other `| arrow`
+// consumer defaults to 0 = no outline, unaffected). Placement / scale / rotation / colour /
+// outline are the vendored catalogue (docs/standards/s-111/); the rule authority is
+// ./render/s111-portrayal.ts + the s111-speed BANDED_RAMPS palette (color-ramp.ts), one
+// source of truth with the fill.
 
 import type { CoverageHandle } from '@xgis/data'
 import type { ShowCommand } from './render/renderer-types'
 import type { GraphicsManager } from './graphics/graphics-manager'
 import { bandedRampColor } from './color-ramp'
-import { s111ArrowLengthPx, s111HasArrow, S111_SPEED_RAMP } from './render/s111-portrayal'
+import {
+  s111ArrowLengthPx,
+  s111HasArrow,
+  S111_OUTLINE_FRAC,
+  S111_SPEED_RAMP,
+} from './render/s111-portrayal'
 
 /** The slice of XGISMap the coverage-arrow build reads. */
 export interface CoverageArrowShowHost {
@@ -84,5 +92,6 @@ export function addCoverageArrowShowLayer(
     Float32Array.from(bearings),
     Float32Array.from(sizes),
     colors,
+    S111_OUTLINE_FRAC,
   )
 }

@@ -5,6 +5,7 @@ import {
   s111ArrowLengthPx,
   s111HasArrow,
   S111_ARROW_BASE_PX,
+  S111_OUTLINE_FRAC,
   S111_SCALE_FLOOR,
   S111_SCALE_CEILING,
 } from './s111-portrayal'
@@ -38,6 +39,13 @@ describe('s111ArrowLengthPx', () => {
     expect(s111ArrowLengthPx(1)).toBeCloseTo(S111_ARROW_BASE_PX * 0.4, 10) // slow → uniform
     expect(s111ArrowLengthPx(5)).toBeCloseTo(S111_ARROW_BASE_PX * 1.0, 10)
     expect(s111ArrowLengthPx(1, 50)).toBeCloseTo(20, 10) // explicit base override
+  })
+})
+
+describe('S111_OUTLINE_FRAC (SVGStyle_S111day.css .sCHBLK — black outline stroke width)', () => {
+  it("is a positive fraction (loc-space units — a proportion of each arrow's own size, not a flat px)", () => {
+    expect(S111_OUTLINE_FRAC).toBeGreaterThan(0)
+    expect(S111_OUTLINE_FRAC).toBeLessThan(0.5) // sane upper bound — never swamps the fill
   })
 })
 

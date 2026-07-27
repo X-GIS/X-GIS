@@ -24,10 +24,18 @@
 //   18     lon (deg)            · 19     lat (deg)
 //   20-23  Mercator DSFUN (x hi, x lo, y hi, y lo)
 //   24     size (px — arrow LENGTH, pre-DPR design × getSize × DPR)
+//   25     stroke_units — outline stroke width in loc-space units (same units as `loc`/qx/qy in
+//          arrow-retained.ts, i.e. a FRACTION of `size`, not px). 0 = no outline (every existing
+//          caller — packRetainedArrowFeat never writes this slot, so it zero-inits). Only
+//          packCompiledArrowFeat (the S-111 coverage arrow field) writes a nonzero value.
+//          Colour is a hardcoded shader constant (black, matching the S-111 spec's `sCHBLK`) —
+//          a future consumer needing a configurable outline COLOUR should extend to feat slots
+//          mirroring CIRCLE_RETAINED_FEAT's stroke_r/g/b/a, not grow the (fully-saturated) tint
+//          buffer for this one case.
 
 export const ARROW_RETAINED_FEAT = {
   /** f32 slots per instance in the feat_data storage buffer. */
-  stride: 25,
+  stride: 26,
   slot: {
     // tail (anchor)
     ecef_x_h: 0,
@@ -56,6 +64,7 @@ export const ARROW_RETAINED_FEAT = {
     tip_merc_y_h: 22,
     tip_merc_y_l: 23,
     size: 24,
+    stroke_units: 25,
   },
 } as const
 
