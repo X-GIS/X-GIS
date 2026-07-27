@@ -1,0 +1,104 @@
+// ═══ GPU boot composition — the map's single backend-chain authority ═══
+//
+// `run()` and `runBinary()` both mount a device, and they MUST compose the chain
+// identically: the same quality injection, the same WebGL2 device factory, and —
+// since #1341 — the same fresh-canvas renewal. Two copies of that wiring is how a
+// fallback ends up working on one entry point and dead on the other, so the
+// composition lives here and map.ts holds only the inputs.
+//
+// ## Why a boot can need a DIFFERENT canvas
+//
+// A canvas element's context type is sticky and irreversible: once
+// `getContext('webgpu')` hands out a context, `getContext('webgl2')` on that same
+// element returns null for the rest of the page's life (verified in Chromium).
+// The `'auto'` chain is `[webgpu, webgl2]`, so any boot that reaches the WebGL2
+// provider on an element WebGPU already claimed cannot succeed — the map stays
+// blank and the console blames a missing WebGPU browser. Two real paths get there:
+//
+//   1. A WebGPU `create()` that fails AFTER `getContext('webgpu')` succeeded.
+//   2. A RE-BOOT on a canvas an earlier SUCCESSFUL WebGPU boot claimed — device-
+//      lost recovery, or a host remounting the map — once WebGPU has become
+//      unavailable (Chrome disables it for the page after repeated GPU crashes,
+//      which is exactly what heavy scenes on weak hardware provoke).
+//
+// The only remedy the platform allows is a virgin element, so the chain asks for
+// one via `renewSurface` and the map adopts it. This runs ONLY on a path that
+// would otherwise fail — an unclaimed canvas, or a re-boot onto the same backend,
+// is never renewed.
+
+import { getSampleCount } from '@xgis/engine'
+import type { BackendChoice } from '@xgis/engine'
+import {
+  initGPUViaProviders,
+  backendProviderChain,
+  type GPUContext,
+  type WebGl2DeviceFactory,
+} from '@xgis/rhi-webgpu'
+
+/** What the map supplies to compose a boot. */
+export interface GpuBootDeps {
+  /** The element to render into — the host's canvas, or whatever replaced it. */
+  canvas: HTMLCanvasElement
+  /** `XGISMapOptions.backend`, construction-immutable (context type is sticky). */
+  backend: BackendChoice
+  /** `XGISMapOptions.preserveDrawingBuffer` — WebGL2-backend-only. */
+  preserveDrawingBuffer: boolean
+  /** Composition-root WebGL2 device factory (#834 M5). */
+  makeWebGl2Device: WebGl2DeviceFactory
+  /** Re-point every canvas-bound holder at the replacement the chain minted.
+   *  Called BEFORE the backend boots on it, so the map is already consistent by
+   *  the time a context exists. */
+  adoptCanvas: (next: HTMLCanvasElement) => void
+}
+
+/** Mint a replacement for a canvas whose context type is already spoken for,
+ *  and put it in the old element's place in the DOM.
+ *
+ *  Every attribute is copied, so id / class / inline style / `tabindex` / `role` /
+ *  `aria-label` / `touch-action` all survive — a host's CSS selectors and the
+ *  a11y surface keep working without the map re-deriving them. Backing-store size
+ *  is copied too, so the first frame is not a resize away from correct.
+ *
+ *  Returns null when there is nothing to replace (no DOM, or a detached canvas —
+ *  the unit-test mocks and SSR); the chain then fails loud with a precise cause
+ *  rather than booting into an element the host cannot see. */
+export function renewCanvasElement(prev: HTMLCanvasElement): HTMLCanvasElement | null {
+  if (typeof document === 'undefined') return null
+  const parent = (prev as Partial<HTMLCanvasElement>).parentNode
+  if (!parent || typeof prev.getAttributeNames !== 'function') return null
+  const next = document.createElement('canvas')
+  for (const name of prev.getAttributeNames()) {
+    const v = prev.getAttribute(name)
+    if (v !== null) next.setAttribute(name, v)
+  }
+  next.width = prev.width
+  next.height = prev.height
+  parent.replaceChild(next, prev)
+  return next
+}
+
+/** Boot the GPU context for one run. Throws `WebGPUUnavailableError` when every
+ *  backend in the chain is exhausted — the caller's graceful-degrade path. */
+export function bootGpuContext(deps: GpuBootDeps): Promise<GPUContext> {
+  return initGPUViaProviders(
+    deps.canvas,
+    // Quality policy → adapter is an INJECTION at this composition root (#929 B):
+    // the boot values are data the providers close over.
+    backendProviderChain(deps.backend, { sampleCount: getSampleCount() }, deps.makeWebGl2Device, {
+      preserveDrawingBuffer: deps.preserveDrawingBuffer,
+    }),
+    {
+      renewSurface: (claimed, backend) => {
+        const next = renewCanvasElement(claimed)
+        if (!next) return null
+        console.warn(
+          `[X-GIS] the canvas was already claimed by another GPU context, so the ` +
+            `${backend} backend was given a fresh canvas element — re-read it via ` +
+            `map.getCanvas() if you hold a reference to the original`,
+        )
+        deps.adoptCanvas(next)
+        return next
+      },
+    },
+  )
+}

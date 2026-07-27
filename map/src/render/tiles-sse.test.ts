@@ -261,18 +261,21 @@ describe('visibleTilesSSE — Phase 2 margin enlargement', () => {
 describe('visibleTilesSSE — safety net', () => {
   it('respects maxEmitted cap even on a degenerate request (target 0)', () => {
     // target=0 would subdivide infinitely without the cap. Verify the
-    // cap kicks in BEFORE the recursion blows the call stack. The
-    // exact final count can exceed `maxEmitted` by up to 2 because
-    // each leaf emit pushes 1 primary + up to 2 parent fallbacks
-    // (FALLBACK_PARENT_DEPTH = 2) all in one visit, while the cap
-    // check fires only at the TOP of the next visit. Allow a small
-    // overshoot in the assertion — the contract is "doesn't blow
-    // the stack", not "exact count".
+    // cap kicks in BEFORE the recursion blows the call stack.
+    //
+    // #1374 — the cap now governs PRIMARY tiles only. It previously tested the
+    // whole array, which charged the fallbackOnly ancestors pushed alongside each
+    // leaf and so shrank the real tile budget by ~24% with nothing documenting
+    // it. The assertion moves to the quantity the cap actually bounds; the array
+    // stays bounded too (each primary injects at most FALLBACK_PARENT_DEPTH
+    // deduped ancestors), which is what keeps the stack safe.
     const cam = makeCam(14, 80, 139.76, 35.68)
     const tiles = visibleTilesSSE(cam, mercator, 22, 1280, 800, 0, 1, {
       targetSSEPx: 0,
       maxEmitted: 50,
     })
-    expect(tiles.length).toBeLessThanOrEqual(50 + 2)
+    const primaries = tiles.filter((t) => !t.fallbackOnly)
+    expect(primaries.length).toBeLessThanOrEqual(50)
+    expect(tiles.length).toBeLessThanOrEqual(50 * (1 + 2))
   })
 })

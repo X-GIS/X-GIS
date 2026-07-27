@@ -16,6 +16,19 @@ import { FLOW_DRAPE_MIX } from './flow-stepper'
 const WGSL = emitCoverageWgsl()
 const GLSL_FS = emitGlslModule(buildCoverageModule(), 'fragment')
 
+/** Resolve a CSE temporary by the shape of its right-hand side. */
+function tempFor(body: string, re: RegExp, what: string): string {
+  const m = re.exec(body)
+  expect(m, `${what}: temporary not found — the emission changed, repoint this gate`).not.toBeNull()
+  return m![1]!
+}
+
+/** The temporary holding the `cov_flow` tap (WGSL and GLSL differ only in the sampler arg). */
+function flowTempOf(src: string, name: string): string {
+  const body = src.slice(src.indexOf('fs_cov'))
+  return tempFor(body, /(\w+) = tex\w*\(cov_flow,[^;]*;/, `${name}: flow tap`)
+}
+
 describe('coverage flow drape (#1333)', () => {
   it('THE OFF STATE IS EXACT: gain is 1 − k + k·flow, so k = 0 gives exactly 1.0', () => {
     // Not `mix(rgb, flowRgb, k)` and not a branch: this form is an identity at k = 0 for
@@ -30,6 +43,21 @@ describe('coverage flow drape (#1333)', () => {
     expect(gain(FLOW_DRAPE_MIX, 0)).toBeCloseTo(1 - FLOW_DRAPE_MIX, 12)
     expect(gain(FLOW_DRAPE_MIX, 1)).toBe(1)
     expect(gain(FLOW_DRAPE_MIX, 0.5)).toBeLessThan(1)
+
+    // The flow-only FLAG must be exact in the OFF direction too, and `mix` has two legal
+    // implementations that do NOT agree at t = 1:
+    //     A: a*(1-t) + b*t        B: a + t*(b-a)     (fused, what many GPUs emit)
+    // At t = 0 both give exactly `a` (A: a*1 + b*0 = a; B: a + 0*(b-a) = a), so the RAMPED
+    // path — the one that must stay byte-identical for every existing coverage — is exact on
+    // either. At t = 1, form B gives `a + (b-a)`, which is NOT exactly b in general. That is
+    // why byte-identity is claimed ONLY for the off state; the flow-only white may land an
+    // ulp under 1.0 on some hardware, which is irrelevant for a colour we chose ourselves.
+    const mixA = (a: number, b: number, t: number) => a * (1 - t) + b * t
+    const mixB = (a: number, b: number, t: number) => a + t * (b - a)
+    for (const a of [0, 0.25, 0.5, 1, 0.123456789]) {
+      expect(mixA(a, 1, 0), `mix form A must select exactly a at t=0 (a=${a})`).toBe(a)
+      expect(mixB(a, 1, 0), `mix form B must select exactly a at t=0 (a=${a})`).toBe(a)
+    }
   })
 
   it('the SHADER computes that same gain, on both backends', () => {
@@ -39,11 +67,12 @@ describe('coverage flow drape (#1333)', () => {
       ['GLSL', GLSL_FS],
     ] as const) {
       expect(src, `${name}: samples the flow texture`).toContain('cov_flow')
-      // The literal emitted expression, both backends (WGSL `textureSample(t, s, uv)` vs
-      // GLSL `texture(t, uv)` is the only difference). Asserting the SHAPE, not a temporary
-      // name — the DSL common-subexpression-eliminates into `_cseN`.
-      expect(src, `${name}: gain is (1 - k) + k*flow`).toMatch(
-        /\(1\.0 - u\.ramp_params\.w\) \+ \(u\.ramp_params\.w \* tex\w*\(cov_flow/,
+      // The flow tap is CSE'd into a temporary, so resolve its name and assert the gain is
+      // built from THAT — matching an inline `textureSample(cov_flow...)` would break the
+      // moment the compiler decides to share the tap, which is exactly what it does.
+      const flowTemp = flowTempOf(src, name)
+      expect(src, `${name}: gain is (1 - k) + k*flow`).toContain(
+        `((1.0 - u.ramp_params.w) + (u.ramp_params.w * ${flowTemp}))`,
       )
     }
   })
@@ -84,38 +113,40 @@ describe('coverage flow drape (#1333)', () => {
     }
   })
 
-  it('the motion rides on RGB only — alpha is untouched', () => {
-    // Modulating alpha would make the trails punch holes in the fill, which reads as flicker
-    // rather than flow, and would also fight the ≤1-texel validity rim at hole boundaries.
+  it('THE TWO MODES: ramped keeps its area alpha, flow-only makes the MOTION the alpha', () => {
+    // Ramped — the motion rides on RGB only. Modulating alpha there would make the trails
+    // punch holes in the coverage fill, which reads as flicker rather than flow.
+    // Flow-only — there is no fill to punch through, so alpha becomes the motion itself and
+    // the basemap shows through except where a streak is. A solid neutral area would grey
+    // out the imagery the currents are meant to be read against.
     //
-    // Asserted against the GAIN TEMPORARY BY NAME, not against the word "gain": the DSL
-    // common-subexpression-eliminates it into `_cseN`, so no source identifier survives into
-    // the emitted text. A regex looking for /gain/ matches nothing either way and passes
-    // whether or not alpha is modulated — which is exactly how the first draft of this test
-    // was vacuous, and the fail-before pass is what caught it.
+    // Asserted against the CSE TEMPORARIES by name, never against a source identifier: the
+    // DSL folds everything into `_cseN`, so a regex looking for /gain/ matches nothing and
+    // passes whether or not alpha is modulated. That is how the first draft of this gate was
+    // vacuous, and the fail-before pass is what caught it.
     for (const [name, src] of [
       ['WGSL', WGSL],
       ['GLSL', GLSL_FS],
     ] as const) {
       const body = src.slice(src.indexOf('fs_cov'))
-      const gainDecl = /(\w+) = \(\(1\.0 - u\.ramp_params\.w\)/.exec(body)
-      expect(
-        gainDecl,
-        `${name}: could not find the gain temporary — repoint this gate`,
-      ).not.toBeNull()
-      const gain = gainDecl![1]!
+      const flow = flowTempOf(src, name)
+      const gain = tempFor(body, /(\w+) = \(\(1\.0 - u\.ramp_params\.w\)/, `${name}: gain`)
+      const baseA = tempFor(body, /(\w+) = \(\w+ \* u\.ramp_params\.z\)/, `${name}: base alpha`)
       const ret = body.slice(body.lastIndexOf('return'))
-      const args = ret.split(',')
-      expect(args.length, `${name}: expected a 4-component return`).toBe(4)
-      // The three colour lanes each carry it...
-      const rgbLanes = args.slice(0, 3)
-      for (const [i, lane] of rgbLanes.entries()) {
-        expect(lane, `${name}: colour lane ${i} must carry the gain`).toContain(gain)
+
+      // Three colour lanes, each: mix(lutLane, 1.0, only) * gain.
+      for (const lane of ['x', 'y', 'z'] as const) {
+        expect(
+          ret,
+          `${name}: colour lane ${lane} selects on the flag and carries the gain`,
+        ).toMatch(new RegExp(`mix\\(\\w+\\.${lane}, 1\\.0, u\\.cam_center\\.z\\) \\* ${gain}`))
       }
-      // ...and the alpha lane carries validity × layer opacity, and NOT the gain.
-      const alpha = args[3]!
-      expect(alpha, `${name}: alpha is validity × layer opacity`).toContain('u.ramp_params.z')
-      expect(alpha, `${name}: the gain must NOT reach the alpha lane`).not.toContain(gain)
+      // Alpha: mix(baseA, baseA*flow*k, only) — the gain must NOT appear in it.
+      expect(ret, `${name}: alpha selects between the area and the motion`).toContain(
+        `mix(${baseA}, ((${baseA} * ${flow}) * u.ramp_params.w), u.cam_center.z)`,
+      )
+      const alpha = ret.slice(ret.lastIndexOf('mix('))
+      expect(alpha, `${name}: the RGB gain must not reach alpha`).not.toContain(gain)
     }
   })
 

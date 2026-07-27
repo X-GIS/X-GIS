@@ -146,6 +146,9 @@ export interface CoverageUniformInput {
   /** IBFV modulation depth (#1333) — packed into ramp_params.w. 0 (the default) makes the
    *  shader's gain an EXACT 1.0, so a coverage with no flow field draws byte-identically. */
   flowMix?: number
+  /** Draw the advected field alone — no ramp colour (#1333). Packed into cam_center.z as a
+   *  0/1 flag; see the shader for why the ramp tap still happens and is simply not used. */
+  flowOnly?: boolean
 }
 export function packCoverageUniforms(u: CoverageUniformInput): Float32Array {
   const out = new Float32Array(COVERAGE_UNIFORM_FLOATS)
@@ -155,9 +158,11 @@ export function packCoverageUniforms(u: CoverageUniformInput): Float32Array {
   out[21] = u.camCenter[1]
   // MERGE UNION (#1366 INC-3 <- #1333): INC-3 deleted `cov_edges` / `cov_geo` (the lon/lat
   // footprint rectangle a projected cell violates), which slid `ramp_params` from 32 down to
-  // 24; #1333 added the flow-modulation depth as its `.w`. Both survive — the compacted
-  // block AND the new field. The struct in shaders/dsl/coverage-ramp.ts is the authority for
-  // these offsets, and COVERAGE_UNIFORM_FLOATS (28) is asserted against it.
+  // 24; #1333 added the flow-modulation depth as its `.w` and the flow-only flag in
+  // cam_center.z. All three survive — the compacted block AND both new fields. The struct in
+  // shaders/dsl/coverage-ramp.ts is the authority for these offsets, and
+  // COVERAGE_UNIFORM_FLOATS (28) is asserted against it.
+  out[22] = u.flowOnly ? 1 : 0 // cam_center.z — the flow-only flag
   out[24] = u.ramp.a
   out[25] = u.ramp.b
   out[26] = u.opacity // ramp_params.z

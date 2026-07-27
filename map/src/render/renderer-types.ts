@@ -155,11 +155,10 @@ export type HeatmapPaint = import('@xgis/compiler').HeatmapPaint
  *  carry the per-feature rotation (constant vs data-driven, like size/sizeExpr). */
 export type ArrowPaint = import('@xgis/compiler').ArrowPaint
 
-/** Particle-flow axis (#1333) — INHERITED from the canonical `@xgis/compiler`
- *  ParticlePaint (single source, no mirror to drift). `isParticles` routes a
- *  coverage layer's runtime arm to ALSO draw an animated particle-flow field
- *  alongside (or instead of) the static `arrow` field. */
-export type ParticlePaint = import('@xgis/compiler').ParticlePaint
+/** Motion axis (#1333) — INHERITED from the canonical `@xgis/compiler` FlowPaint (single
+ *  source, no mirror to drift). `isFlow` routes a coverage layer's runtime arm to ALSO draw
+ *  the advected field alongside the static `arrow` field, which stays catalogue-exact. */
+export type FlowPaint = import('@xgis/compiler').FlowPaint
 
 /** 3D extrusion paint axes — INHERITED from the canonical `@xgis/compiler`
  *  ExtrudePaint (single source, incl. fillExtrusionVerticalGradient); runtime
@@ -180,7 +179,7 @@ export interface ExtrudePaint extends Omit<
 }
 
 export interface ShowCommand
-  extends FillPaint, LinePaint, CirclePaint, ExtrudePaint, HeatmapPaint, ArrowPaint, ParticlePaint {
+  extends FillPaint, LinePaint, CirclePaint, ExtrudePaint, HeatmapPaint, ArrowPaint, FlowPaint {
   /** Position of this show in the compiled Scene's renderNodes — the
    *  key the P4 compute plan uses to route output buffers back to
    *  fragment-shader paint axes. Compiler emits it; runtime callers
@@ -268,24 +267,11 @@ export interface ShowCommand
   label?: import('@xgis/compiler').LabelDef
 }
 
-/** Does a `coverage` show paint the raster FILL, or only a portrayal over it?
- *
- *  The STRICT S-111 portrayal (#1333) draws band-coloured arrows / particles at each cell
- *  and NO fill, and sounding numerals (#1366 INC-5) work the same way — declaring a `ramp`
- *  is what opts a coverage layer INTO the (non-standard) colour fill. A layer with no
- *  portrayal at all keeps its default fill, as before.
- *
- *  This is load-bearing for labels rather than tidy: a chart's numerals sit on a SECOND
- *  layer over the ramp layer, so ONE coverage source carries TWO shows and the arm runs for
- *  each. Without this rule the numerals' show re-armed the fill with the default viridis,
- *  silently repainting the `ramp: "bathymetry"` layer authored right above it.
- *
- *  Lives here, beside ShowCommand, because map.ts asks it from two places (the rebuild arm
- *  and the transient re-paint) and two copies of one predicate is how they drift apart. */
-export function coverageDrawsFill(show: ShowCommand): boolean {
-  if (show.ramp !== undefined) return true
-  return !show.isArrow && !show.isParticles && show.label === undefined
-}
+// A `coverageDrawsFill` predicate lived here briefly (#1366 INC-5). It is GONE: main's
+// #1333 follow-up extracted the same decision as `coverageDrapeArm`
+// (render/coverage-drape-arm.ts), which also carries the flow-only mode — so the label case
+// belongs THERE, and keeping a second predicate beside ShowCommand would have been exactly
+// the two-authorities drift both extractions exist to prevent.
 
 // ═══ Render Layer ═══
 

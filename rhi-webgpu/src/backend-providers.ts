@@ -17,7 +17,7 @@
 // provider can move to its own backend package; the injection seam already
 // severs the adapter→adapter dependency today.
 
-import type { RhiBackendProvider, RhiDevice } from '@xgis/rhi'
+import type { RhiBackendProvider, RhiDevice, SelectBackendOptions } from '@xgis/rhi'
 import { selectBackend, BackendUnavailableError } from '@xgis/rhi'
 import {
   createWebGpuContext,
@@ -141,9 +141,10 @@ export function makeWebGl2BackendProvider(
 export async function initGPUViaProviders(
   canvas: HTMLCanvasElement,
   providers: readonly RhiBackendProvider<GPUContext>[],
+  opts: SelectBackendOptions = {},
 ): Promise<GPUContext> {
   try {
-    return await selectBackend(canvas, providers)
+    return await selectBackend(canvas, providers, opts)
   } catch (e) {
     // #1196 — carry the per-provider causes into the message: the generic
     // "no RHI backend could boot" hid the actual create() failure (a webgl2
@@ -210,6 +211,11 @@ export interface InitGPUOptions {
    *  buffer so host-side `canvas.toDataURL()` / readPixels-after-present capture
    *  works. Off by default (mobile-cheap); no effect on the WebGPU backend. */
   preserveDrawingBuffer?: boolean
+  /** Mint a replacement canvas when the chain must fall back onto an element
+   *  another backend already claimed (see `SelectBackendOptions.renewSurface`).
+   *  Omit it and a claimed canvas simply fails loud with a precise cause — the
+   *  pre-renewal behaviour. */
+  renewSurface?: SelectBackendOptions['renewSurface']
 }
 
 /** Convenience boot porcelain: derive the provider chain from a
@@ -229,5 +235,6 @@ export async function initGPU(
       opts.makeWebGl2Device,
       { preserveDrawingBuffer: opts.preserveDrawingBuffer },
     ),
+    { renewSurface: opts.renewSurface },
   )
 }

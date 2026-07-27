@@ -618,6 +618,42 @@ export class GpuTileStore {
     if (!inner) return { vBytes: 0, iBytes: 0 }
     const tile = inner.get(tk)
     if (!tile) return { vBytes: 0, iBytes: 0 }
+    const freed = this._releaseTileResources(slot, tk, tile, releaseTileHook)
+    inner.delete(tk)
+    this._gpuCacheCount--
+    return freed
+  }
+
+  /** #1371 — drop one tile outright (release + remove the entry), for the case where a re-seed
+   *  replaced its data with an EMPTY tile: the feature moved out of this key, so there is
+   *  nothing to swap to and keeping the previous upload would draw a ghost at the old position.
+   *  Same release path as eviction. */
+  dropTile(sourceLayer: string, key: number, releaseTileHook: ReleaseTileHook): void {
+    this._releaseTileSlots(sourceLayer, key, releaseTileHook)
+  }
+
+  /** #1371 — release a SUPERSEDED tile's GPU resources: the same arena frees + deferred
+   *  destroys eviction does, but WITHOUT touching the cache entry or the count, because the
+   *  key now holds its replacement. This is what makes a host data push atomic per tile — the
+   *  new upload lands first, the old buffers are reclaimed after, and no frame in between
+   *  draws an empty layer. */
+  releaseSupersededTile(
+    sourceLayer: string,
+    key: number,
+    superseded: GPUTile,
+    releaseTileHook: ReleaseTileHook,
+  ): void {
+    this._releaseTileResources(sourceLayer, key, superseded, releaseTileHook)
+  }
+
+  /** Resource-release body shared by eviction (which then drops the entry) and the
+   *  superseded-tile swap (which must not). Same operations, same ORDER. */
+  private _releaseTileResources(
+    slot: string,
+    tk: number,
+    tile: GPUTile,
+    releaseTileHook: ReleaseTileHook,
+  ): { vBytes: number; iBytes: number } {
     let vBytes = 0
     let iBytes = 0
     // Phase 6a.2 (iter-208) — polygon vertex lives in the shared arena.
@@ -666,8 +702,6 @@ export class GpuTileStore {
     // iterating over this evicted tile every frame. Stays AFTER
     // featureDataBuffer.destroy() — the 7b31ce52 order.
     releaseTileHook(`${tk}:${slot}`)
-    inner.delete(tk)
-    this._gpuCacheCount--
     return { vBytes, iBytes }
   }
 

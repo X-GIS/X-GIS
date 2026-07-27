@@ -26,8 +26,8 @@ fn vs(@builtin(vertex_index) vi: u32) -> VsOut {
 @fragment
 fn fs(vo: VsOut) -> @location(0) vec4<f32> {
   let _licm0 = U.time;
-  let _cse0 = (vo.uv * U.cells);
   var _av0: f32 = 8.0;
+  let _cse0 = (vo.uv * U.cells);
   for (var _v0: i32 = -1; (_v0 <= 1); _v0 = (_v0 + 1)) {
     for (var _v1: i32 = -1; (_v1 <= 1); _v1 = (_v1 + 1)) {
       let _v2 = vec2<f32>(f32(_v1), f32(_v0));
