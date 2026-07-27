@@ -19,6 +19,7 @@ import { MapRendererContent } from './render/renderer'
 import { RasterRenderer } from './render/raster-renderer'
 import { HillshadeRenderer } from './render/hillshade-renderer'
 import { CoverageRenderer } from './render/coverage-renderer'
+import { FlowRenderer } from './render/flow-renderer'
 import { PointRenderer } from './render/point-renderer'
 import { ShapeRegistry } from './text/sdf-shape'
 import { HeatmapRenderer } from './render/heatmap-renderer'
@@ -33,6 +34,7 @@ export interface SceneRendererSet {
   rasterRenderer: RasterRenderer
   hillshadeRenderer: HillshadeRenderer
   coverageRenderer: CoverageRenderer
+  flowRenderer: FlowRenderer
   gpuTimer: GPUTimer | null
   pointRenderer: PointRenderer | null
   shapeRegistry: ShapeRegistry | null
@@ -51,6 +53,12 @@ export function buildSceneRenderers(
   const rasterRenderer = new RasterRenderer(ctx)
   const hillshadeRenderer = new HillshadeRenderer(ctx)
   const coverageRenderer = new CoverageRenderer(ctx)
+  // Constructing it is FREE — it captures the device and nothing else; the ping-pong pair and
+  // the advect pipeline are both built on the first step, which only a coverage carrying a
+  // velocity field ever reaches. So an unconditional build here still leaves a bathymetry (or
+  // coverage-less) scene allocating nothing for the flow layer. The NEUTRAL device, not the
+  // GPUContext: this renderer names no WebGPU type (see its header).
+  const flowRenderer = new FlowRenderer(ctx.rhi)
   const gpuTimer = GPU_PROF ? new GPUTimer(ctx) : null
 
   let pointRenderer: PointRenderer | null = null
@@ -94,6 +102,7 @@ export function buildSceneRenderers(
     rasterRenderer,
     hillshadeRenderer,
     coverageRenderer,
+    flowRenderer,
     gpuTimer,
     pointRenderer,
     shapeRegistry,

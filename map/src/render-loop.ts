@@ -47,6 +47,7 @@ import { type FrameContext } from './render/frame-context'
 import { makeProjectionToken, setProjectionToken } from './render/projection-token'
 import type { RhiDevice, RhiScreenPassDevice, RhiTexture, RhiTextureView } from '@xgis/engine'
 import { asScreenPassDevice } from '@xgis/engine'
+import { FLOW_DRAPE_MIX } from './render/flow-stepper'
 import { buildSceneView } from './render/scene-view'
 import type { RenderNode } from './render/render-node'
 import type { XGISMap } from './map'
@@ -370,6 +371,7 @@ export class RenderLoop {
         // so it is set once here; the reuse branch below leaves it in place (#1046 F1).
         rhi: this.host.ctx.rhi,
         encoder,
+        rhiEncoder: frameEnc,
         screenView,
         colorView: screenView, // set in the MSAA block below
         camera: this.host.camera,
@@ -387,6 +389,7 @@ export class RenderLoop {
     } else {
       const c = this._ctx
       c.encoder = encoder
+      c.rhiEncoder = frameEnc
       c.screenView = screenView
       c.camera = this.host.camera
       setProjectionToken(c.projection, projType, centerLon, centerLat)
@@ -908,6 +911,15 @@ export class RenderLoop {
     }
     const cv = backgroundClearValue(projType, bg, DEBUG_OVERDRAW)
     const pass = rhi.beginScreenPass({ width: w, height: h, clear: [cv.r, cv.g, cv.b, cv.a] })
+    // #1333 flow-pass twin — the IBFV advection step, HERE (after the background clear, before
+    // the raster + fills) because it PRODUCES what the coverage drape below consumes. Ported,
+    // not deferred: the coverage draw already runs in this twin, so omitting flow would make
+    // ?forcegl2=1 show a DIFFERENT map. The offscreen pass nests inside the screen pass just
+    // begun and restores FBO 0 on end(); `encoder: null` — this path mints no frame encoder,
+    // and the beginOffscreenPass arm it takes needs none.
+    const flowField = this.host.coverageRenderer.activeFlowField()
+    if (flowField)
+      this.host.flowRenderer?.step({ elapsedMs: this.host._elapsedMs, encoder: null }, flowField)
     // #834 M5 slice 2 — real raster tile sources on WebGL2. With a source
     // configured, the SAME render() the WebGPU frame uses draws the tiles
     // (RHI texture upload + RasterDraper); a sourceless production frame
@@ -1029,11 +1041,15 @@ export class RenderLoop {
       !isGlobeProj(projType)
     ) {
       const frame = this.host.camera.getViewForProjection(projType, w, h, dpr)
+      // Same motion layer as the WebGPU arm — the step ran above in this very method, so
+      // `currentView` is THIS frame's image, not the previous one.
+      const flowView = this.host.flowRenderer?.currentView ?? null
       this.host.coverageRenderer.render(
         pass,
         frame.matrix,
         [this.host.camera.centerX, this.host.camera.centerY],
         [projType, centerLon, centerLat, frame.logDepthFc],
+        flowView ? { view: flowView, mix: FLOW_DRAPE_MIX } : null,
       )
     }
     // #1062 — lat/lon graticule overlay. Mirrors the WebGPU opaque pass's grid
@@ -1145,6 +1161,7 @@ export class RenderLoop {
         // FrameContext.rhi on the twin path too (#1046 F1). Inert here: no pass reads caps yet.
         rhi: this.host.ctx.rhi,
         encoder: null as unknown as GPUCommandEncoder,
+        rhiEncoder: null,
         screenView: null as unknown as GPUTextureView,
         colorView: null as unknown as GPUTextureView,
         camera: this.host.camera,
@@ -1219,15 +1236,26 @@ export class RenderLoop {
     // _needsRender armed so the loop re-renders until the scene converges
     // (upload completion alone never repaints this isolated path, #832 M2).
     // Hillshade DEM fetches count too (same keep-alive as the WebGPU path).
-    // Publish the per-frame in-flight tile count (public `getMissingTileCount()`)
-    // and derive this path's keep-warm return from it — a single authority so the
-    // count and the "keep rendering" gate can never disagree (sum > 0 iff any of
-    // the three non-negative signals is > 0).
+    // Publish the per-frame in-flight tile count (public `getMissingTileCount()`).
+    // It remains the single authority for how many tiles are IN FLIGHT, but it is no
+    // longer the whole keep-warm answer: a fade ramp outlives the fetch that started
+    // it (see the return below), so "> 0 tiles loading" and "still converging" are
+    // genuinely different questions.
     this.host._missingTileCount =
       missingTiles +
       this.host.rasterRenderer.pendingLoadCount() +
       this.host.hillshadeRenderer.pendingLoadCount()
-    return this.host._missingTileCount > 0
+    // A tile-COUNT alone cannot express "still converging": a tile that has
+    // finished FETCHING may still be mid-fade, and the count drops to 0 the moment
+    // the last fetch lands — freezing the ramp at partial opacity until the next
+    // interaction (a permanently semi-transparent basemap / relief on this path).
+    // The WebGPU loop already ORs these flags into its own idle-skip gate
+    // (map.ts hasFadingTiles); the twin needs the same two signals.
+    return (
+      this.host._missingTileCount > 0 ||
+      this.host.rasterRenderer.hasFadingTiles() ||
+      this.host.hillshadeRenderer.hasFadingTiles()
+    )
   }
 
   private _resolveFillPatterns(): void {

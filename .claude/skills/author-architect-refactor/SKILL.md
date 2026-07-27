@@ -10,7 +10,7 @@ Evolve architecture safely: design-doc-first, self-critiqued boundaries, one ver
 ## Hard constraints (X-GIS reality)
 
 - **Agent-tool delegation is BLOCKED** (tmux swarm not installed) — run the two "roles" as separate PASSES in-session (author pass, then a distinct architect/review pass), or via the Workflow tool if opted in. Never self-approve authoring in the same active lane.
-- **engine must stay GENERIC / content-blind**; geo → `@xgis/map` / `@xgis/geo`; `map/src` uses **no raw WebGPU** (all via engine RHI). Respect the zero-coupling bar and the arch-ratchet (`runtime/src/engine/architecture-invariants.test.ts`).
+- **engine must stay GENERIC / content-blind**; geo → `@xgis/map` / `@xgis/geo`; `map/src` uses **no raw WebGPU** (all via engine RHI). Respect the zero-coupling bar and the arch-ratchets (`map/src/architecture-invariants.test.ts` + `engine/src/dependency-direction-ratchet.test.ts`).
 - **`bun run build` is the typecheck authority**; shader-dsl is the SOLE shader generator (no hand WGSL); WebGL2 parity is mandatory.
 - Serialize heavy jobs (§7). Measure a shim's blast radius with the compiler, not by eye.
 

@@ -98,6 +98,15 @@ async function captureDemo(
     await page.waitForTimeout(2000)
     r = await readFrame()
   }
+  // `relief()` goes true as soon as SOME shading is on screen — which, now that a
+  // DEM tile fades in over ~300 ms, can be a partially-ramped frame. This gate
+  // compares one method's relief against standard's, so a mid-ramp capture scales
+  // BOTH toward the background and shrinks their difference below the 2 % floor
+  // (observed: igor reported 1.8 % and 0.8 % from mid-fade captures, and passes
+  // once the ramp is allowed to finish).
+  // Re-read once the ramp has certainly finished so the comparison is steady-state.
+  await page.waitForTimeout(1500)
+  r = await readFrame()
   expect(errors, `no page/console errors while rendering ${id}`).toEqual([])
   return r
 }
