@@ -21,6 +21,7 @@ import type { FrameContext } from '../frame-context'
 import { unwrapProjection } from '../projection-token'
 import type { SceneView } from '../scene-view'
 import type { RenderPass, OpaquePassHost } from './pass'
+import { FLOW_DRAPE_MIX } from '../flow-stepper'
 
 class OpaquePass implements RenderPass {
   readonly label = 'opaque'
@@ -280,11 +281,16 @@ class OpaquePass implements RenderPass {
             const frame = host.camera.getViewForProjection(projType, ctx.w, ctx.h, ctx.dpr)
             // Raw encoder — CoverageRenderer.render wraps it internally (the backend fork
             // lives there, mirroring raster), keeping this pass file backend-import-free.
+            // The advected field this frame's flow pass just produced (#1333). Null before
+            // the first step and for every scalar coverage — the drape then multiplies an
+            // exact 1.0 and renders byte-identically to the pre-flow fill.
+            const flowView = host.flowRenderer?.currentView ?? null
             host.coverageRenderer.render(
               subPass,
               frame.matrix,
               [host.camera.centerX, host.camera.centerY],
               [projType, centerLon, centerLat, frame.logDepthFc],
+              flowView ? { view: flowView, mix: FLOW_DRAPE_MIX } : null,
             )
           }
           host.renderer.renderGraticuleOverlay(subPass, host.camera, projType, centerLon, centerLat)

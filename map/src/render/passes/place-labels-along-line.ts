@@ -14,6 +14,69 @@ import type { LabelDef } from '@xgis/compiler'
 import type { GeoJSONFeature } from '@xgis/data'
 import type { FeatureProps } from '../../text/text-resolver'
 
+/** Mapbox `symbol-spacing` → the on-screen (physical px) step between along-line
+ *  placements. The single authority for both line paths.
+ *
+ *  The spacing is NOT a screen-space constant. MapLibre lays symbols out in TILE
+ *  units — `symbol-spacing × EXTENT / (512 × overscaling)` — inside a bucket built
+ *  for the covering integer zoom, and then the map scales that bucket. So the
+ *  step a viewer measures is `symbol-spacing × 2^(zoom − overscaledZ)`, and since
+ *  every tile of a source shares one covering zoom (`floor(zoom)`), that is
+ *  `symbol-spacing × 2^frac(zoom)`: shields sit one spacing apart at an integer
+ *  zoom and drift to nearly two by the top of the step, snapping back at the next
+ *  crossing. X-GIS walks the polyline in SCREEN space, so the tile-unit bake has
+ *  to be reintroduced here or the chain stays a flat `symbol-spacing` and renders
+ *  denser than the reference everywhere except exact integer zooms.
+ *
+ *  Verified against MapLibre GL JS on OFM Positron `highway-shield-non-us`
+ *  (symbol-spacing 200) over a zoom sweep at 37.79172/126.79102 — measured /
+ *  predicted = 0.999, 0.998, 1.000, 1.001, 1.001 at z16.0/16.2/16.5/16.7/16.9.
+ *
+ *  Returns 0 for a non-positive spacing (line-center, or an unset value), which
+ *  both callers read as "one placement at the polyline midpoint". */
+export function lineLabelSpacingPx(spacingCssPx: number, dpr: number, zoom: number): number {
+  if (!(spacingCssPx > 0)) return 0
+  const base = spacingCssPx * dpr
+  // A non-finite zoom would poison the step into NaN and silently collapse the
+  // chain to a single midpoint label; fall back to the unscaled step instead.
+  if (!Number.isFinite(zoom)) return base
+  return base * 2 ** (zoom - Math.floor(zoom))
+}
+
+/** #1314 — fallback line-label viewport edge inset (CSS px, scaled by dpr at use).
+ *  Sized at roughly half a typical road-label width: comfortable enough that the
+ *  shaped glyph run clears the edge, small enough that it doesn't drop labels that
+ *  are perfectly readable inboard. Used when the label's own extent is unknown. */
+export const LINE_LABEL_EDGE_INSET_CSS_PX = 48
+
+/** #1314 viewport edge inset for one line label, in physical px.
+ *
+ *  The cull exists so a line label never renders glued half-off-screen ("화면
+ *  기준 양 끝으로 라벨이 붙어서 가시성 및 가독성이 나빠지는"). What it should
+ *  actually test is whether the label's OWN extent clears the edge — a constant
+ *  is only a stand-in for a width we cannot know before shaping.
+ *
+ *  For a PAIRED symbol we can: a route shield's extent IS its badge sprite, known
+ *  here. Using the constant for those over-culled them roughly 4× — at
+ *  #16.7/37.79172/126.79102 MapLibre draws a shield 22 px from the edge, fully
+ *  legible, while the 48 px constant dropped it. Its own half-extent (~12 px)
+ *  keeps it and still clips nothing.
+ *
+ *  Unpaired text keeps the constant: its width is not known at cull time, and a
+ *  conservative estimate is the whole point of #1314. `sprite` undefined (no
+ *  icon, unresolved name, no atlas) ⇒ the constant. */
+export function lineLabelEdgeInsetPx(
+  def: { iconImage?: string | null; iconSize?: number },
+  spriteOf: (name: string) => { width: number; height: number; pixelRatio: number } | undefined,
+  dpr: number,
+): number {
+  const name = def.iconImage
+  const sprite = name !== undefined && name !== null && name !== '' ? spriteOf(name) : undefined
+  if (sprite === undefined) return LINE_LABEL_EDGE_INSET_CSS_PX * dpr
+  const size = def.iconSize !== undefined && def.iconSize > 0 ? def.iconSize : 1
+  return (Math.max(sprite.width, sprite.height) / sprite.pixelRatio / 2) * size * dpr
+}
+
 /** Walk an already-projected (screen-space, physical px) polyline and emit a
  *  label placement at each `symbol-spacing` stop — the single authority for
  *  where along a line labels sit. Both feature paths delegate here:
@@ -132,7 +195,9 @@ export function placeInlineLineLabels(
     props: FeatureProps,
   ) => void,
   labelLayerName: string | undefined,
-  cull?: (px: number, py: number) => boolean,
+  cull: ((px: number, py: number) => boolean) | undefined,
+  /** Camera zoom — the along-line step is zoom-dependent (lineLabelSpacingPx). */
+  zoom: number,
 ): void {
   // Caller (label-pass.ts Path 1) already skips null-geometry features
   // before reaching this call; re-assert it here so this module doesn't
@@ -141,10 +206,9 @@ export function placeInlineLineLabels(
   const geomType = feat.geometry.type
   const props = feat.properties ?? {}
   const lineDef = applyFeatureExprs(props)
-  // symbol-spacing is CSS px → physical px (×dpr); line-center
-  // ignores spacing and always emits one label at the midpoint.
+  // line-center ignores spacing and always emits one label at the midpoint.
   const spacingCssPx = effectiveDef.placement === 'line' ? (effectiveDef.spacing ?? 0) : 0
-  const spacingPx = spacingCssPx > 0 ? spacingCssPx * dpr : 0
+  const spacingPx = lineLabelSpacingPx(spacingCssPx, dpr, zoom)
   // text-rotation-alignment: viewport keeps labels upright; 'auto'
   // / 'map' (the default for line) follows the segment tangent.
   const useTangentRotation = (effectiveDef.rotationAlignment ?? 'auto') !== 'viewport'

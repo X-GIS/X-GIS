@@ -50,6 +50,8 @@ import {
 } from './holdover-reproject'
 import type { RhiDevice, RhiRenderPass } from '@xgis/engine'
 import { greedyPlaceBboxes, type CollisionItem, type CollisionObstacle } from './text-collision'
+import { PairedBadgeBoxes, pairedTextCentreShift } from './paired-symbol-box'
+import type { BadgeHalfExtents } from './paired-symbol-box'
 import {
   applyTextTransform,
   stripCurveLineExtraScripts,
@@ -269,6 +271,11 @@ export class TextStage {
    *  every prepare(), so the box always reflects THIS frame's sizePx (the layout
    *  cache re-keys on sizePx) — a fitted icon can never wrap a stale bbox. */
   private readonly _pairFitBox: Map<string, { w: number; h: number }> = new Map()
+  /** Paired-symbol badge extents for this frame (paired-symbol-box.ts). */
+  private readonly _pairBadge = new PairedBadgeBoxes()
+  setPairIconHalfExtents(boxes: ReadonlyMap<string, BadgeHalfExtents>): void {
+    this._pairBadge.set(boxes)
+  }
   /** #777 I-G — read-only sprite-dimension source for inline images. Set by
    *  the map each frame BEFORE prepare() (label-pass, from IconStage.host);
    *  null when no icon atlas is wired (text-only / tests) — inline images
@@ -1311,6 +1318,15 @@ export class TextStage {
           }
           const drawX = p.anchorX + hit.dx
           const drawY = p.anchorY + hit.dy
+          // Badge union — a steady scene is ~all cache hits, so the shaping
+          // path alone left it a no-op (0 px change until this site landed).
+          const cachedBox = {
+            minX: drawX - hit.padding,
+            minY: drawY + hit.blockTop - hit.padding,
+            maxX: drawX + hit.totalAdvance + hit.padding,
+            maxY: drawY + hit.blockBottom + hit.padding,
+          }
+          this._pairBadge.union(p.pairKey, p.anchorX, p.anchorY, cachedBox)
           const haloLive =
             hit.haloGeom && p.def.halo
               ? {
@@ -1336,12 +1352,7 @@ export class TextStage {
                   glyphOffsets: hit.glyphOffsets,
                   sdfRadius: this.opts.sdfRadius,
                 },
-                bbox: {
-                  minX: drawX - hit.padding,
-                  minY: drawY + hit.blockTop - hit.padding,
-                  maxX: drawX + hit.totalAdvance + hit.padding,
-                  maxY: drawY + hit.blockBottom + hit.padding,
-                },
+                bbox: cachedBox,
               },
             ],
             allowOverlap: p.def.allowOverlap === true,
@@ -1470,31 +1481,16 @@ export class TextStage {
           // metrics (-bearingY + height/2), exactly as MapLibre — a
           // GLYPH-METRIC-DEPENDENT offset (all-caps vs mixed-case vs CJK
           // differ), NOT a constant. This is the STANDALONE place-label hang.
-          //
-          // #608-scope EXCEPTION — ICON-PAIRED / SHIELD text (`pairKey` set,
-          // e.g. ref "82" inside a highway shield) must sit CENTRED on the
-          // shared icon anchor, not hang below: the box is drawn symmetrically
-          // about that anchor, so a hung band reads LOW/off-centre in the box.
-          // For paired center-anchored text restore the prior shield-text-box-
-          // align ink recentre — pin the band CENTROID via (maxAsc-maxDesc)/2
-          // (one shared per-block shift). Standalone labels keep the hang.
-          const shapingBaselineOff = (SHAPING_DEFAULT_OFFSET * sizePx) / ONE_EM
-          const isIconPaired = p.pairKey !== undefined
-          let centreShift = -shapingBaselineOff
-          if (isIconPaired && vAlign === 0.5) {
-            let maxAsc = 0,
-              maxDesc = 0
-            for (let gi = 0; gi < glyphs.length; gi++) {
-              const g = glyphs[gi]!
-              if (g.height <= 0) continue // skip blanks (junk metrics)
-              const sc = sizePx / (g.rasterFontSize ?? this.opts.rasterFontSize)
-              const asc = g.bearingY * sc
-              const desc = (g.height - g.bearingY) * sc
-              if (asc > maxAsc) maxAsc = asc
-              if (desc > maxDesc) maxDesc = desc
-            }
-            centreShift = -shapingBaselineOff + (maxAsc - maxDesc) / 2
-          }
+          // The #608-scope EXCEPTION for icon-paired / shield text lives with the
+          // logic in paired-symbol-box.ts (pairedTextCentreShift).
+          const centreShift = pairedTextCentreShift(
+            glyphs,
+            sizePx,
+            this.opts.rasterFontSize,
+            (SHAPING_DEFAULT_OFFSET * sizePx) / ONE_EM,
+            p.pairKey !== undefined,
+            vAlign,
+          )
           if (inlineSprites.length > 0) {
             // #777 I-G — image-aware pen: splices each sprite's advance into
             // the glyph run (post-image text shifts right) and records the
@@ -1536,6 +1532,8 @@ export class TextStage {
           maxX: drawX + totalAdvance + padding,
           maxY: drawY + vlay.blockBottom + padding,
         }
+        // A shield collides as its badge, not its ref glyphs.
+        this._pairBadge.union(p.pairKey, p.anchorX, p.anchorY, bbox)
         // #777 I-A — stash the shaped text box {w,h} (candidate-invariant dims)
         // for a paired icon to fit. Idempotent across candidates.
         if (p.pairKey !== undefined) {
@@ -1855,16 +1853,18 @@ export class TextStage {
         glyphRotations,
         sdfRadius: this.opts.sdfRadius,
       }
+      const curvedBox = {
+        minX: gminX - halfH - padding,
+        minY: gminY - halfH - padding,
+        maxX: gmaxX + halfH + padding,
+        maxY: gmaxY + halfH + padding,
+      }
+      this._pairBadge.union(p.pairKey, (gminX + gmaxX) / 2, (gminY + gmaxY) / 2, curvedBox)
       shaped.push({
         layouts: [
           {
             draw,
-            bbox: {
-              minX: gminX - halfH - padding,
-              minY: gminY - halfH - padding,
-              maxX: gmaxX + halfH + padding,
-              maxY: gmaxY + halfH + padding,
-            },
+            bbox: curvedBox,
           },
         ],
         allowOverlap: p.def.allowOverlap === true,

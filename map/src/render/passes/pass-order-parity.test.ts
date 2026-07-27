@@ -30,20 +30,18 @@ import type { XGISMap } from '../../map'
 import { buildRenderNodes } from './pass-chain'
 import { PASS_CHAIN_ORDER, RHI_TWIN_MISSING, type PassLabel } from './pass-order'
 
-// The pre-#1004 hand-written order, frozen VERBATIM — proves the constructive
-// rewire reproduced the shipped sequence byte-for-byte. Never edit this list
-// except alongside a deliberate, GPU-verified pass reorder.
-//   #777 Phase II inserts `hillshade` after `translucent`, before `points`
-//   (design §4 — relief over fills, under labels). This is a STRUCTURAL
-//   insertion; the on-screen placement is verified by the real-GPU A/B (INC-6),
-//   and the pass is inert (shouldRun=false) on every existing scene, so no
-//   shipped frame changes until a raster-dem layer is present.
+// The pre-#1004 hand-written order, frozen VERBATIM — proves the constructive rewire
+// reproduced the shipped sequence byte-for-byte. NEVER edit this list. A pass added later is
+// NOT an edit to it: it is an entry in DOCUMENTED_INSERTIONS below, which is what keeps this
+// literal a real witness. (Editing it in place is how the protection dies quietly — the list
+// then merely restates whatever PASS_CHAIN_ORDER currently says, and the two agree by
+// construction rather than by evidence. `hillshade` was inlined that way once; it is a
+// declared insertion again here.)
 const FROZEN_PRE_1004_ORDER = [
   'background',
   'opaque',
   'oit',
   'translucent',
-  'hillshade',
   'points',
   'labels',
   'heatmap',
@@ -51,13 +49,53 @@ const FROZEN_PRE_1004_ORDER = [
   'graphics',
 ]
 
+/** Passes inserted AFTER the freeze, each with the pass it was inserted immediately BEFORE.
+ *  Deleting FROZEN_PRE_1004_ORDER's protection is now a visible act: a reorder of the frozen
+ *  spine fails, an undeclared new pass fails, and an insertion that lands somewhere other than
+ *  where it says it lands fails. A subset check would have caught none of the three. */
+const DOCUMENTED_INSERTIONS: ReadonlyArray<{ label: PassLabel; before: PassLabel; why: string }> = [
+  {
+    label: 'hillshade',
+    before: 'points',
+    why: '#777 Phase II — relief over fills, under labels (design §4); real-GPU A/B verified (INC-6), and inert on every scene with no raster-dem layer',
+  },
+  {
+    label: 'flow',
+    before: 'opaque',
+    why: '#1333 — IBFV advection is a PRODUCER; the coverage drape consumes it inside opaque, so a later slot would drape last frame’s field',
+  },
+]
+
 describe('pass-order parity: one authority, two orchestrations (#1004)', () => {
-  it('authority: buildRenderNodes emits exactly PASS_CHAIN_ORDER (=== the frozen literal)', () => {
+  it('authority: buildRenderNodes emits exactly PASS_CHAIN_ORDER', () => {
     // Safe without a real map: nodes only dereference map members at render
     // time (pass-chain.ts contract) — building the list is pure.
     const labels = buildRenderNodes({} as XGISMap).map((n) => n.label)
     expect(labels).toEqual([...PASS_CHAIN_ORDER])
-    expect(labels).toEqual(FROZEN_PRE_1004_ORDER)
+  })
+
+  it('authority: PASS_CHAIN_ORDER === the frozen literal + exactly the DECLARED insertions', () => {
+    // Remove the declared insertions and what remains must be the pre-#1004 sequence,
+    // element-for-element. Reordering the spine fails; adding a pass without declaring it
+    // fails (it survives the filter and lands in the wrong place); deleting one fails too.
+    const inserted = new Set<string>(DOCUMENTED_INSERTIONS.map((i) => i.label))
+    expect(PASS_CHAIN_ORDER.filter((l) => !inserted.has(l))).toEqual(FROZEN_PRE_1004_ORDER)
+  })
+
+  it('authority: each documented insertion sits exactly where it says it sits', () => {
+    // The label alone is not the claim — the POSITION is, and it is the part that changes
+    // behaviour. flow before opaque is the producer/consumer order; hillshade before points
+    // is the relief-under-labels order. Either drifting is a render bug this catches.
+    for (const { label, before, why } of DOCUMENTED_INSERTIONS) {
+      const at = PASS_CHAIN_ORDER.indexOf(label)
+      const anchor = PASS_CHAIN_ORDER.indexOf(before)
+      expect(at, `'${label}' is not in PASS_CHAIN_ORDER — stale declaration`).toBeGreaterThan(-1)
+      expect(
+        anchor,
+        `'${before}' (anchor for '${label}') is not in PASS_CHAIN_ORDER`,
+      ).toBeGreaterThan(-1)
+      expect(at, `'${label}' must run immediately before '${before}': ${why}`).toBe(anchor - 1)
+    }
   })
 
   it('twin: renderFrameViaRhi source order === PASS_CHAIN_ORDER − RHI_TWIN_MISSING', () => {
@@ -86,6 +124,9 @@ describe('pass-order parity: one authority, two orchestrations (#1004)', () => {
     // synthetic first sub-pass (opaque-pass.ts) — renderFillsRhi marks opaque.
     const MARKERS: ReadonlyArray<readonly [PassLabel, string]> = [
       ['background', 'backgroundClearValue('],
+      // #1333 — the advection step, PORTED to the twin (not deferred): the coverage draw it
+      // feeds already runs here, so a twin without it would render a different map.
+      ['flow', 'flowRenderer?.step('],
       ['opaque', 'renderFillsRhi('],
       ['translucent', 'beginTranslucentPassRhi('],
       // #777 Phase II — hillshade ported to the twin (after translucent, before
