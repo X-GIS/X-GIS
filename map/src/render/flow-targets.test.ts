@@ -1,5 +1,11 @@
 import { describe, it, expect } from 'vitest'
-import { FlowTargets, FLOW_MAX_DIM, FLOW_FIELD_FORMAT } from './flow-targets'
+import {
+  FlowTargets,
+  FLOW_MAX_DIM,
+  FLOW_FIELD_FORMAT,
+  FLOW_FIELD_FORMAT_FALLBACK,
+  flowFieldFormat,
+} from './flow-targets'
 
 // IBFV ping-pong lifecycle (#1333). The gates pin the three ways this differs from the
 // non-recursive HeatmapTargets it is modelled on — grid sizing, the ping-pong swap, and the
@@ -42,7 +48,7 @@ describe('FlowTargets — IBFV ping-pong pair (#1333)', () => {
   it('allocates a PAIR at the grid size, render+sample on both sides', () => {
     const ft = new FlowTargets()
     const { rhi, created } = makeRhi()
-    ft.ensure(rhi as never, 596, 433)
+    ft.ensure(rhi as never, 596, 433, true)
     expect(created).toHaveLength(2)
     for (const t of created) {
       expect([t.width, t.height]).toEqual([596, 433])
@@ -51,6 +57,45 @@ describe('FlowTargets — IBFV ping-pong pair (#1333)', () => {
       expect(t.usage).toEqual(expect.arrayContaining(['render', 'sample']))
     }
     expect(ft.size).toEqual({ width: 596, height: 433 })
+  })
+
+  it('THE FALLBACK GATE: no float render targets → the rgba8unorm floor, never a broken FBO', () => {
+    // Rendering INTO a half-float attachment on WebGL2 needs EXT_color_buffer_float; without
+    // it the FBO is INCOMPLETE and every draw raises GL_INVALID_FRAMEBUFFER_OPERATION. rgba8 is
+    // core in both backends and needs no extension, so the flow layer degrades in precision
+    // rather than failing to render.
+    const ft = new FlowTargets()
+    const { rhi, created } = makeRhi()
+    ft.ensure(rhi as never, 8, 8, false)
+    expect(created.every((t) => t.format === FLOW_FIELD_FORMAT_FALLBACK)).toBe(true)
+    expect(ft.storageFormat).toBe(FLOW_FIELD_FORMAT_FALLBACK)
+    // The default is the SAFE one: a caller that forgets the flag cannot land on the format
+    // that needs an extension.
+    const ft2 = new FlowTargets()
+    const r2 = makeRhi()
+    ft2.ensure(r2.rhi as never, 8, 8)
+    expect(ft2.storageFormat).toBe(FLOW_FIELD_FORMAT_FALLBACK)
+  })
+
+  it('a capability CHANGE reallocates — the pair cannot keep a format the device lost', () => {
+    // A device swap can land on hardware without the float extension; keeping the old
+    // half-float pair would render into an attachment the new device cannot complete.
+    const ft = new FlowTargets()
+    const { rhi, created, destroyed } = makeRhi()
+    ft.ensure(rhi as never, 8, 8, true)
+    ft.markCleared()
+    expect(ft.storageFormat).toBe(FLOW_FIELD_FORMAT)
+    ft.ensure(rhi as never, 8, 8, false)
+    expect(ft.storageFormat).toBe(FLOW_FIELD_FORMAT_FALLBACK)
+    expect(destroyed).toHaveLength(2)
+    expect(created).toHaveLength(4)
+    // ...and the fresh pair is unclean, so the recursion restarts from a known state.
+    expect(ft.needsClear).toBe(true)
+  })
+
+  it('flowFieldFormat is a pure predicate, so the choice is testable without a device', () => {
+    expect(flowFieldFormat(true)).toBe(FLOW_FIELD_FORMAT)
+    expect(flowFieldFormat(false)).toBe(FLOW_FIELD_FORMAT_FALLBACK)
   })
 
   it('swap() exchanges read and write — this frame’s output is next frame’s history', () => {

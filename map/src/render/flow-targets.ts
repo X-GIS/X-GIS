@@ -23,12 +23,39 @@
 // path, because the whole coverage family already lives there (coverage-renderer.ts:262) —
 // one path serving both backends rather than a native path plus a WebGL2 twin.
 
-import type { RhiDevice, RhiTexture, RhiTextureView } from '@xgis/engine'
+import type { RhiDevice, RhiTexture, RhiTextureView, RhiTextureFormat } from '@xgis/engine'
 
-/** Storage for the advected flow image. Single channel: IBFV carries a scalar noise pattern,
- *  and the colour is applied when the field is DRAWN, not while it is advected — so the
- *  history stays one channel however the layer is eventually painted. */
+// ── Storage format, and why there are two ────────────────────────────────────────────────
+// IBFV carries a scalar noise pattern in [0,1]; colour is applied when the field is DRAWN,
+// not while it is advected. So the history needs one channel and modest precision — van Wijk's
+// original ran on 8-bit framebuffers.
+//
+// r16float gives smoother trails (the per-frame decay multiply quantizes less), but rendering
+// INTO a half-float attachment on WebGL2 requires EXT_color_buffer_float; without it the FBO
+// is INCOMPLETE and every draw raises GL_INVALID_FRAMEBUFFER_OPERATION (rhi-webgl2.ts:628).
+// rgba8unorm is core in both backends and needs no extension at all, so it is the floor that
+// cannot fail.
+//
+// The predicate is DELIBERATELY conservative. The only capability the RHI exposes today is
+// `caps.floatBlendTargets`, which is `EXT_color_buffer_float && EXT_float_blend`
+// (rhi/src/rhi.ts:400) — but IBFV never blends into the target, so it needs only the first.
+// Hardware with color-buffer-float and no float-blend therefore takes the 8-bit path
+// needlessly. That is the SAFE direction of the error: such a machine still renders, just
+// with slightly coarser trails, whereas guessing the other way would break it outright.
+// Narrowing this wants a `floatRenderTargets` cap in the RHI; recorded rather than guessed,
+// because this environment has no WebGL2 device to verify the narrower predicate against.
+
+/** Preferred storage — smoother trails, needs float render targets. */
 export const FLOW_FIELD_FORMAT = 'r16float' as const
+
+/** Universal floor — core in both backends, no extension, cannot fail. */
+export const FLOW_FIELD_FORMAT_FALLBACK = 'rgba8unorm' as const
+
+/** Pick the storage format for the advection pair. `floatRenderTargets` should be
+ *  `rhi.caps.floatBlendTargets` today (see the note above on why that is conservative). */
+export function flowFieldFormat(floatRenderTargets: boolean): RhiTextureFormat {
+  return floatRenderTargets ? FLOW_FIELD_FORMAT : FLOW_FIELD_FORMAT_FALLBACK
+}
 
 /** Ceiling on either dimension of the working pair. A regional S-100 cell is far under it
  *  (CBOFS is 596×433); a global grid (GFS wind, #1273) would otherwise allocate a pair far
@@ -49,6 +76,13 @@ export class FlowTargets {
   private height = 0
   private device: RhiDevice | null = null
   private _needsClear = false
+  private format: RhiTextureFormat = FLOW_FIELD_FORMAT_FALLBACK
+
+  /** The format the pair was actually allocated with — r16float when the device can render
+   *  into one, else the rgba8unorm floor. */
+  get storageFormat(): RhiTextureFormat {
+    return this.format
+  }
 
   /** Size the pair was last allocated at — the GRID size (capped), not the canvas. */
   get size(): { width: number; height: number } {
@@ -84,9 +118,10 @@ export class FlowTargets {
   /** Lazily (re)allocate the pair for a grid of `gridW × gridH`, capped at FLOW_MAX_DIM.
    *  No-op when the capped size is unchanged on the same device. Recreates on a coverage
    *  whose grid differs, or on a device swap. */
-  ensure(rhi: RhiDevice, gridW: number, gridH: number): void {
+  ensure(rhi: RhiDevice, gridW: number, gridH: number, floatRenderTargets = false): void {
     const w = Math.max(1, Math.min(gridW, FLOW_MAX_DIM))
     const h = Math.max(1, Math.min(gridH, FLOW_MAX_DIM))
+    const fmt = flowFieldFormat(floatRenderTargets)
     if (rhi !== this.device) {
       // A new device — the old textures died with the old one, so drop the handles WITHOUT
       // destroying them (destroying through a dead device is the #737 hazard) and let the
@@ -96,8 +131,9 @@ export class FlowTargets {
       this.aView = this.bView = null
       this.width = this.height = 0
     }
-    if (this.a && this.width === w && this.height === h) return
+    if (this.a && this.width === w && this.height === h && this.format === fmt) return
     this.releaseTextures()
+    this.format = fmt
     this.a = this.make(rhi, w, h, 'flow-field-a')
     this.b = this.make(rhi, w, h, 'flow-field-b')
     this.aView = rhi.createView(this.a)
@@ -123,7 +159,7 @@ export class FlowTargets {
     return rhi.createTexture({
       width: w,
       height: h,
-      format: FLOW_FIELD_FORMAT,
+      format: this.format,
       // `render` so a step can draw into it; `sample` so the NEXT step can read it as history.
       // Both sides need both, because they alternate roles every frame.
       usage: ['render', 'sample'],
