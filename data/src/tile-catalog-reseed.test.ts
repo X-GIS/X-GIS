@@ -96,3 +96,112 @@ describe('TileCatalog re-seed primitives (#1371)', () => {
     expect(catalog.consumeReplacedKeys()).toEqual([]) // drained
   })
 })
+
+/** A backend that leaves every load IN FLIGHT until `flush()`, so a test can push
+ *  `loadingTiles` past `maxConcurrentLoads()` — the state in which `requestTiles` stops
+ *  issuing and `break`s out of the key loop. */
+function deferredBackend(
+  mark: number,
+): TileSource & { calls: number[]; flush: () => void; inFlight: () => number } {
+  let sink: TileSourceSink | null = null
+  const calls: number[] = []
+  let pending: number[] = []
+  return {
+    calls,
+    inFlight: () => pending.length,
+    flush: () => {
+      const batch = pending
+      pending = []
+      for (const key of batch) {
+        sink?.acceptResult(key, {
+          vertices: Float32Array.of(mark),
+          dequantScale: 1,
+          dequantHalf: 0,
+          indices: new Uint32Array(0),
+          lineVertices: new Float32Array(0),
+          lineIndices: new Uint32Array(0),
+        })
+        sink?.releaseLoading(key)
+      }
+    },
+    meta: {
+      bounds: [-180, -85, 180, 85],
+      minZoom: 0,
+      maxZoom: 14,
+      scheme: 'web-mercator-xyz',
+      layoutVersion: TILE_LAYOUT_VERSION,
+    },
+    has: () => true,
+    attach: (s) => void (sink = s),
+    loadTile: (key) => {
+      calls.push(key)
+      sink?.trackLoading(key)
+      pending.push(key)
+    },
+  }
+}
+
+// A viewport's worth of tiles is routinely larger than `maxConcurrentLoads()` (8 on a phone,
+// 32 otherwise), and `requestTiles` BREAKS out of its key loop at the cap. A one-shot refresh
+// therefore re-tiled only as many tiles as happened to fit — and because nothing ever
+// re-requests a CACHED key, every tile past the cap kept drawing the previous backend's data
+// for the lifetime of the source. Measured in a browser before this: a host push of 8100
+// polygons into a 19-tile viewport left 11 tiles stale, permanently.
+describe('TileCatalog re-seed is not bounded by the concurrency cap (#1402)', () => {
+  const KEYS = Array.from({ length: 40 }, (_, i) => tileKey(6, i, 1))
+
+  it('refreshes EVERY key, across as many drains as the cap needs', () => {
+    const first = deferredBackend(1)
+    const catalog = catalogWithBackend(first)
+    catalog.requestTiles(KEYS)
+    first.flush()
+    // Not every key necessarily made it in one pass — drive normal requests until all cached.
+    for (let i = 0; i < 10 && KEYS.some((k) => !catalog.getTileData(k)); i++) {
+      catalog.requestTiles(KEYS)
+      first.flush()
+    }
+    expect(KEYS.every((k) => catalog.getTileData(k)?.vertices[0] === 1)).toBe(true)
+
+    const second = deferredBackend(2)
+    catalog.detachBackend(first)
+    catalog.attachBackend(second)
+
+    catalog.refreshTiles(KEYS)
+    // The cap bit: this is the bug's signature — a single refresh cannot cover the viewport.
+    expect(second.calls.length).toBeLessThan(KEYS.length)
+
+    // Later frames drain the rest. `requestTiles([])` stands in for a selection call that
+    // happens to ask for nothing new — the queue must not depend on the selector re-listing
+    // the stale keys, because a cached key is exactly what the selector stops asking for.
+    for (let i = 0; i < 20; i++) {
+      second.flush()
+      catalog.requestTiles([])
+    }
+    second.flush()
+    expect(second.inFlight()).toBe(0)
+
+    const stale = KEYS.filter((k) => catalog.getTileData(k)?.vertices[0] !== 2)
+    expect(stale).toEqual([])
+  })
+
+  it('markReplaced re-arms a drained key so a consumer that could not swap is asked again', () => {
+    const first = fakeBackend(1)
+    const catalog = catalogWithBackend(first)
+    catalog.requestTiles([K])
+    const second = fakeBackend(2)
+    catalog.detachBackend(first)
+    catalog.attachBackend(second)
+    catalog.refreshTiles([K])
+
+    expect(catalog.consumeReplacedKeys()).toEqual([K])
+    expect(catalog.consumeReplacedKeys()).toEqual([]) // drained — no second chance without…
+    catalog.markReplaced(K)
+    expect(catalog.consumeReplacedKeys()).toEqual([K]) // …this
+  })
+
+  it('markReplaced is a no-op for a key with no cached data — nothing to swap in', () => {
+    const catalog = catalogWithBackend(fakeBackend(1))
+    catalog.markReplaced(K)
+    expect(catalog.consumeReplacedKeys()).toEqual([])
+  })
+})

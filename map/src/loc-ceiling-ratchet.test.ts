@@ -138,7 +138,10 @@ const CEILINGS: Record<string, number> = {
   // uploaded) + `applyReplacedTiles` (swap a replaced tile's GPU buffers in beginFrame, drop it
   // when the replacement is empty). Both need the store + upload coordinator + source together,
   // which only this class holds; extracting them would export three internals to buy back 51.
-  'map/src/render/vector-tile-renderer.ts': 4791,
+  // 4791→4797 (#1402): `applyReplacedTiles` now asks for a REPLACING upload and re-arms the key
+  // when the swap did not land, so an upload that bails cannot strand the tile after the
+  // replaced-set was drained. +6, all inside the existing method.
+  'map/src/render/vector-tile-renderer.ts': 4797,
   // 4232→4237 (#1000 heatmap relocate): the heatmap density-target OWNERSHIP
   // extracted to render/heatmap-targets.ts; map keeps only the irreducible
   // composition-root wiring — the `heatmapTargets` field + its import (mirrors
@@ -624,7 +627,13 @@ const CEILINGS: Record<string, number> = {
   // 1314→1360 (#1371 atomic re-seed): `refreshTiles` (re-request a CACHED key, the one thing
   // `requestTiles` refuses) + `consumeReplacedKeys` + the two key sets they own. Cache identity
   // and the request path both live here, so the pair cannot move out.
-  'data/src/tile-catalog.ts': 1360,
+  // 1360→1402 (#1402 re-seed completeness): the refresh QUEUE the #1371 pair was missing —
+  // `_refreshQueue` + `drainRefreshQueue` + the queue-first, de-duped key walk in requestTiles
+  // + `markReplaced`. `requestTiles` breaks at the concurrency cap, so a one-shot refresh
+  // re-tiled only the tiles that happened to fit and the rest kept the previous backend's data
+  // forever. The queue has to live beside the cap it works around and beside the cache identity
+  // it arms (`_pendingRefresh`), so it cannot move out.
+  'data/src/tile-catalog.ts': 1402,
   // 1173→1180 (#1046 F1): thread the required `rhi: RhiDevice` onto the FrameContext at
   // both build sites — the main-chain init literal and the twin label stage — so a seam
   // can reach `ctx.rhi.caps.*` (doc §3-F1). +7 = two assignments + their rationale comments;
@@ -875,7 +884,10 @@ const CEILINGS: Record<string, number> = {
   // 906→910 (#1155 F3 adjudication): the burst 8/4 pair now comes from the
   // shared `burstUploadBudget` authority (import + call + note) so the enqueue
   // cap and uploadBudgetFor's maxJobs can't drift out of lockstep.
-  'map/src/render/upload-coordinator.ts': 910,
+  // 910→921 (#1402): the `replace` opt-out of `_dispatch`'s "already uploaded" short-circuit,
+  // threaded through `uploadSync`. +11 is the two signatures, the amended guard, and the note
+  // recording WHY the guard was a silent no-op for the one caller that meant to overwrite.
+  'map/src/render/upload-coordinator.ts': 921,
   // 811→826 (#1152 INC-3): proj_globe gains the ellipsoid N term (sqrt +
   // (1−E2) z-compression), globe_eye_horizon_cos rescales its surface point into
   // the (a,b) sphere frame, and PROJECTION_CONSTS gains the EARTH_E2 decl (prettier

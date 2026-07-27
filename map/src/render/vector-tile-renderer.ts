@@ -2257,10 +2257,16 @@ export class VectorTileRenderer {
           this._store.dropTile(sliceLayer, key, this._releaseTileHook)
           continue
         }
-        this._uploads.uploadSync(key, data, sliceLayer)
+        // `replace: true` — this key IS GPU-resident (the precondition above), so without it
+        // the upload's "already uploaded" short-circuit fires every time (#1402).
+        this._uploads.uploadSync(key, data, sliceLayer, true)
         const now = inner.get(key)
         if (now && now !== superseded) {
           this._store.releaseSupersededTile(sliceLayer, key, superseded, this._releaseTileHook)
+        } else {
+          // Upload bailed (arena OOM returns before the cache set). The old tile keeps drawing,
+          // but the key is already drained — re-arm or it stays stale for the source's lifetime.
+          this.source!.markReplaced(key)
         }
       }
     }
