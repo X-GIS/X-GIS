@@ -11,6 +11,7 @@
 
 import { Hdf5File, type AttrValue, type ChunkRegion } from './index'
 import { Hdf5Error } from './bytes'
+import { resolveEPSG } from '../sources/epsg-defs'
 
 export type Product = 's102' | 's104' | 's111' | 'generic'
 
@@ -95,7 +96,7 @@ export async function readS102Coverage(
   const root = await file.root()
   const product = detectProduct(String(root.attr('productSpecification', warn) ?? ''))
   const horizontalCRS = numAttr(root.attr('horizontalCRS', warn))
-  assertGeographicCRS(horizontalCRS)
+  assertPlaceableCRS(horizontalCRS)
 
   // Locate the DCF2 feature container (BathymetryCoverage) — product-agnostic:
   // the first root-child group whose dataCodingFormat attribute is 2.
@@ -210,28 +211,29 @@ export async function readS102Coverage(
   }
 }
 
-/** Geographic CRS codes the coverage path can place: WGS 84 2D and 3D. */
-const GEOGRAPHIC_CRS = new Set([4326, 4979])
-
-/** Fail loudly on a cell whose grid is in a PROJECTED CRS.
+/** Reject a cell whose CRS the coverage path cannot PLACE.
  *
- *  `coverageFromGrids` stamps every handle `crs: 'EPSG:4326'` and the renderer drapes it
- *  by inverse-Mercator rows, so a projected cell would be read as if its metre origin
- *  and spacing were degrees — real NOAA S-102 cells are UTM (e.g. EPSG:32618, origin
- *  ~[420768, 4183857], spacing 16 m), which lands the grid thousands of degrees away
- *  rather than off by a little. That is a silent mis-render of navigation data, so it is
- *  refused here until the coverage path carries a real CRS.
+ *  Until #1366 INC-3 this refused every projected grid, because `coverageFromGrids`
+ *  hardcoded `crs: 'EPSG:4326'` and the drape walked a lon/lat rectangle — a UTM cell
+ *  (origin ~[420768, 4183857] m, spacing 16 m) would have been placed as if metres were
+ *  degrees. The drape now reprojects its mesh nodes through the cell's own CRS
+ *  (`coverageMeshNodes`), so a projected grid places correctly and the blanket refusal
+ *  is gone.
  *
- *  An ABSENT `horizontalCRS` stays permitted: real NOAA S-111 cells omit it, and the
- *  shipped currents path has always treated the grid as geographic. */
-function assertGeographicCRS(code: number | null): void {
-  if (code === null || GEOGRAPHIC_CRS.has(code)) return
-  throw new Hdf5Error(
-    `horizontalCRS EPSG:${code} is a PROJECTED grid — the coverage path places grids as ` +
-      `geographic (EPSG:4326) only, so reading this cell would misplace it. Projected ` +
-      `coverage support (a real CRS on CoverageHandle + reprojected drape/valueAt) is a ` +
-      `separate increment; use a geographic cell until it lands.`,
-  )
+ *  What remains refused is a CRS the EPSG registry cannot RESOLVE: without a proj4 def
+ *  there is no way to put the grid anywhere, and guessing is exactly the mis-render this
+ *  guard exists to prevent. An ABSENT `horizontalCRS` stays permitted — real NOAA S-111
+ *  cells omit it and have always been read as geographic. */
+function assertPlaceableCRS(code: number | null): void {
+  if (code === null) return
+  try {
+    resolveEPSG(code)
+  } catch (err) {
+    throw new Hdf5Error(
+      `horizontalCRS EPSG:${code} cannot be resolved to a projection, so this grid ` +
+        `cannot be placed: ${(err as Error).message}`,
+    )
+  }
 }
 
 /** Map a `bbox` in the CELL'S OWN horizontal CRS onto its element-index window. Registration is POINT

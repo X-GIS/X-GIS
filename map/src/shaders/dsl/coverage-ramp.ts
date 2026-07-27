@@ -12,9 +12,18 @@
 // Instead we now emit an N×N grid (COVERAGE_GRID_N) and project EACH vertex through the
 // general `project()` (the same int-dispatch raster/vector use). Fine tessellation makes
 // the linear interpolation of lon/lat across each sub-quad sub-texel for ANY flat
-// projection, so the fragment reads its UV straight from the interpolated geographic
-// coords — no baked Mercator inverse. (The globe drape via proj_globe/ECEF is INC-B
-// step 2, still gated `!globeMode` at the opaque-pass arm.)
+// projection. (The globe drape via proj_globe/ECEF is INC-B step 2, still gated
+// `!globeMode` at the opaque-pass arm.)
+//
+// CRS-CORRECT PLACEMENT (#1366 INC-3). The tessellation above still DERIVED each
+// vertex's lon/lat as `mix(cov_edges, u01)` — which assumes the footprint is a rectangle
+// IN LON/LAT. Real S-102 cells are projected (UTM): the footprint is a rectangle in the
+// cell's OWN CRS and its edges curve in lon/lat, so that mix placed them wrongly (and
+// the reader refused them rather than mis-render). Node lon/lat is now CPU-reprojected
+// per arm (`coverageMeshNodes`, @xgis/data) and arrives as a VERTEX ATTRIBUTE over an
+// indexed mesh; uv rides along as a varying instead of being inverted back out of
+// geography. No projection math enters this shader, so the CPU keeps sole authority over
+// it — a GPU twin of the same math is this codebase's dominant bug archetype (§12).
 //
 // The other texel-level concern, unchanged from INC-A:
 //   VALIDITY-WEIGHTED SAMPLING (A3). texValue stores f16(s·valid), texValid stores
@@ -22,25 +31,20 @@
 //   s' = valueSample / w — an exact validity-weighted bilinear so nodata never
 //   contaminates neighbour values. alpha *= w gives a ≤1-texel soft rim.
 //
-// Gate 3 (headed real-GPU readback) cannot run in this environment, so the shape is
-// pinned NOW by a dsl-emission test asserting both WGSL and GLSL tessellate + project
-// per-vertex and read UV from the interpolated coords (coverage-ramp.test.ts).
+// The load-bearing shape is pinned by a dsl-emission test asserting both WGSL and GLSL
+// take node lon/lat as an attribute, project per-vertex, and carry uv as a varying
+// (coverage-ramp.test.ts).
 
 import {
   fn,
   module,
   transformMat4,
-  arrayLit,
   f32,
-  u32,
-  toF32,
   vec2,
   vec4,
-  mix,
   clamp,
   textureSample,
-  f32T,
-  u32T,
+  vec2fT,
   vec4fT,
   mat4x4fT,
   texture2dfT,
@@ -55,13 +59,23 @@ import { project, PROJECTION_CONSTS, getGpuProjectionFuncs } from './projections
 
 /** Tessellation of the coverage footprint: an N×N grid of cells (2 triangles each). Fine
  *  enough that linear lon/lat interpolation across a sub-quad is sub-texel for any flat
- *  projection — the replacement for the single quad + baked inverse-Mercator. Matches the
- *  upper end of the raster surface grid (rasterGridN caps at 128; a coverage overlay is
- *  ONE draw, not per-tile, so a fixed 64 is cheap: 64·64·6 ≈ 24.6k verts). */
+ *  projection — the replacement for the single quad + baked inverse-Mercator.
+ *
+ *  N=64 predates the #1366 INC-3 error budget, which measured (on the real NOAA
+ *  Chesapeake cell) that the interpolation term is already 43 cm at N=16 and that the
+ *  residual floors at ~40 cm from N≈16 onward because node lon/lat reaches the GPU as
+ *  f32 (half an ulp at lon ≈ −75.9 ≈ 0.42 m). Past N≈16 a finer mesh buys NOTHING. 64 is
+ *  kept here so this increment changes placement only — lowering it is a separate,
+ *  independently-gateable change now that the budget is measured. */
 export const COVERAGE_GRID_N = 64
 
-/** Vertex count for the procedural N×N coverage surface grid (6 verts/cell). */
-export const coverageGridVertexCount = (): number => COVERAGE_GRID_N * COVERAGE_GRID_N * 6
+/** Mesh NODES — (N+1)² lon/lat vertices. Under 65 536, so the index buffer is uint16. */
+export const coverageNodeCount = (): number => (COVERAGE_GRID_N + 1) * (COVERAGE_GRID_N + 1)
+
+/** INDEX count for the N×N coverage surface grid (2 triangles = 6 indices per cell).
+ *  The mesh is INDEXED as of #1366 INC-3: nodes carry CPU-reprojected lon/lat, and a
+ *  node is shared by up to 6 triangles, so indexing stores each exactly once. */
+export const coverageGridIndexCount = (): number => COVERAGE_GRID_N * COVERAGE_GRID_N * 6
 
 const U = uniformStruct(
   'CoverageUniforms',
@@ -72,10 +86,11 @@ const U = uniformStruct(
     proj_params: vec4fT,
     // xy = camera Mercator centre (the flat MVP is camera-at-origin); zw reserved.
     cam_center: vec4fT,
-    // outer cell EDGES (degrees): x=westLon, y=southLat, z=eastLon, w=northLat.
-    cov_edges: vec4fT,
-    // u/v denominators: x=westLonEdge, y=northLatEdge, z=nLon·dLon, w=nLat·dLat.
-    cov_geo: vec4fT,
+    // `cov_edges` / `cov_geo` (the lon/lat footprint rectangle + the u/v denominators)
+    // are GONE as of #1366 INC-3. Both encoded "the footprint is a rectangle in lon/lat",
+    // which a projected (UTM) cell violates. Node lon/lat now arrives as a vertex
+    // attribute and uv as a varying, so the assumption has no representation left in
+    // this block for anything to re-introduce it from.
     // ramp map t = clamp(a·s' + b): x=a=(dataMax−dataMin)/(rangeHi−rangeLo),
     // y=b=(dataMin−rangeLo)/(rangeHi−rangeLo); z=layer opacity (0..1); w reserved.
     ramp_params: vec4fT,
@@ -83,10 +98,12 @@ const U = uniformStruct(
 )
 export { U as coverageU }
 
+// The only varying is uv. `lon`/`lat` were interpolated so the fragment could RECOVER
+// uv from geography; uv is now carried directly — cheaper, and exact for a projected
+// grid, where uv is NOT an affine function of lon/lat.
 const VsOut = ioStruct('CovVsOut', {
   pos: builtin('position', vec4fT),
-  lon: location(0, f32T),
-  lat: location(1, f32T),
+  uv: location(0, vec2fT),
 })
 
 // Two data textures + the LUT, each with a REFLECTION NAME (WebGL2 binds
@@ -100,25 +117,24 @@ const lutSampler = resource('cov_lut_sampler', samplerT, { group: 0, binding: 5 
 
 const vs = fn(
   'vs_cov',
-  { vid: builtin('vertex_index', u32T) },
+  {
+    // Node lon/lat, CPU-reprojected per arm by `coverageMeshNodes` (@xgis/data). The
+    // vertex stage no longer DERIVES geography — it reads it. That is the whole of
+    // #1366 INC-3: `mix(cov_edges, u01)` assumed the footprint was a rectangle IN
+    // LON/LAT, which a projected (UTM) cell violates, since its edges curve in lon/lat.
+    // Reprojecting on the CPU keeps sole authority for the projection there; a GPU twin
+    // of the same math is this codebase's dominant bug archetype (CLAUDE.md §12).
+    // A GEOGRAPHIC cell gets the identical `mix` arithmetic on the CPU, so its drape is
+    // unchanged by construction, not by tolerance.
+    node_lonlat: location(0, vec2fT),
+    // Footprint fraction of this node, v already flipped to the data texture's north-up
+    // row order. Supplied rather than derived because the mesh is now INDEXED — there is
+    // no vertex_index to decode a grid position from.
+    node_uv: location(1, vec2fT),
+  },
   (p) => {
-    // Procedural N×N surface grid (6 verts/cell, from vertex_index — no vertex buffer),
-    // the same decode the raster surface-grid VS uses.
-    const cell = p.vid.div(u32(6))
-    const tri = p.vid.mod(u32(6))
-    const cx = cell.mod(u32(COVERAGE_GRID_N))
-    const cy = cell.div(u32(COVERAGE_GRID_N))
-    // 2 triangles over the cell's 4 corners (u01,v01 ∈ {0,1}² within the cell).
-    const duArr = arrayLit(u32T, u32(0), u32(1), u32(0), u32(1), u32(1), u32(0))
-    const dvArr = arrayLit(u32T, u32(0), u32(0), u32(1), u32(0), u32(1), u32(1))
-    const gx = cx.add(duArr.at(tri, u32T))
-    const gy = cy.add(dvArr.at(tri, u32T))
-    const u01 = toF32(gx).div(f32(COVERAGE_GRID_N)) // 0→1 west→east across the footprint
-    const v01 = toF32(gy).div(f32(COVERAGE_GRID_N)) // 0→1 south→north
-
-    const edges = U.field.cov_edges
-    const lon = mix(edges.x, edges.z, u01) // west→east
-    const latDeg = mix(edges.y, edges.w, v01) // south→north
+    const lon = p.node_lonlat.x
+    const latDeg = p.node_lonlat.y
 
     // Per-vertex FLAT projection (mirrors the raster surface-grid arm): project each grid
     // vertex → 2D metres, camera-relative, MVP. Fine tessellation makes the interpolated
@@ -128,7 +144,7 @@ const vs = fn(
     const rel = p2d.sub(vec2(U.field.cam_center.x, U.field.cam_center.y))
     const clip = transformMat4(U.field.mvp, vec4(rel.x, rel.y, f32(0), f32(1)))
 
-    return VsOut.construct({ pos: clip, lon, lat: latDeg })
+    return VsOut.construct({ pos: clip, uv: p.node_uv })
   },
   { stage: 'vertex' },
 )
@@ -140,12 +156,10 @@ const fs = fn(
   { input: VsOut },
   (p) => {
     const pin = p.input
-    // UV straight from the INTERPOLATED geographic coords — projection-general because the
-    // grid is finely tessellated (no inverse-Mercator row recovery).
-    const geo = U.field.cov_geo
-    const uTex = pin.lon.sub(geo.x).div(geo.z) // (lon − westLonEdge)/(nLon·dLon)
-    const vTex = geo.y.sub(pin.lat).div(geo.w) // (northLatEdge − lat)/(nLat·dLat)
-    const uv = vec2(uTex, vTex)
+    // uv arrives as a varying, already in grid space. It used to be RECOVERED here from
+    // the interpolated lon/lat — valid only while uv was affine in lon/lat, i.e. only for
+    // a geographic footprint. Carrying it makes the fragment CRS-blind (#1366 INC-3).
+    const uv = pin.uv
 
     // A3 — validity-weighted bilinear: one linear tap per texture.
     const valueSample = textureSample(texValue.node, covSampler.node, uv).x

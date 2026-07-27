@@ -11,13 +11,16 @@
 // where s ∈ [0,1] is PRE-NORMALIZED CPU-side — storing raw values in f16 is forbidden
 // (offset-dependent error); normalized storage bounds the f16 error at 2⁻¹² of range.
 
-import type { RhiDevice, RhiBindGroup, RhiTextureView, RhiSampler } from '@xgis/engine'
+import type { RhiDevice, RhiBindGroup, RhiTextureView, RhiSampler, RhiBuffer } from '@xgis/engine'
 import { Material, executeItems, type DrawItem } from '@xgis/engine'
 import {
   emitCoverageWgsl,
   buildCoverageModule,
-  coverageGridVertexCount,
+  coverageGridIndexCount,
 } from '../../shaders/dsl/coverage-ramp'
+
+/** Interleaved node vertex: [lon, lat, u, v] — 4 × f32. */
+export const COVERAGE_NODE_STRIDE = 16
 import { emitGlslModule } from '@xgis/shader-dsl'
 import { QUANT_MAX, NODATA_CODE } from '@xgis/data'
 import { interpolateRamp, interpolateBandedRamp, RAMPS, BANDED_RAMPS } from '../../color-ramp'
@@ -128,13 +131,15 @@ export function bakeRampLut(rampName: string): Uint8Array {
 }
 
 // ── Uniform block (matches the CoverageUniforms DSL struct, 144 B) ────────────
-export const COVERAGE_UNIFORM_FLOATS = 36 // 144 bytes / 4
+// 28 floats / 112 bytes. Was 36: `cov_edges` + `cov_geo` are gone (#1366 INC-3) — both
+// encoded "the footprint is a rectangle in lon/lat", which a projected (UTM) cell
+// violates. Node lon/lat is a vertex attribute now and uv a varying, so neither field
+// has anywhere left to be re-introduced from.
+export const COVERAGE_UNIFORM_FLOATS = 28 // 112 bytes / 4
 export interface CoverageUniformInput {
   mvp: Float32Array | number[] // 16
   projParams: [number, number, number, number]
   camCenter: [number, number]
-  covEdges: [number, number, number, number] // westLon, southLat, eastLon, northLat
-  covGeo: [number, number, number, number] // westLon, northLat, nLon·dLon, nLat·dLat
   ramp: { a: number; b: number }
   /** Layer opacity paint (0..1) — packed into ramp_params.z, multiplies output alpha. */
   opacity: number
@@ -145,11 +150,9 @@ export function packCoverageUniforms(u: CoverageUniformInput): Float32Array {
   out.set(u.projParams, 16)
   out[20] = u.camCenter[0]
   out[21] = u.camCenter[1]
-  out.set(u.covEdges, 24)
-  out.set(u.covGeo, 28)
-  out[32] = u.ramp.a
-  out[33] = u.ramp.b
-  out[34] = u.opacity // ramp_params.z
+  out[24] = u.ramp.a
+  out[25] = u.ramp.b
+  out[26] = u.opacity // ramp_params.z
   return out
 }
 
@@ -183,6 +186,17 @@ export class CoverageDraper {
           { binding: 5, kind: 'sampler', name: 'cov_lut_sampler' },
         ],
       ],
+      // One interleaved node buffer: [lon, lat, u, v] per mesh node. Indexed, so each
+      // node is stored once even though up to 6 triangles reference it (#1366 INC-3).
+      vertexBuffers: [
+        {
+          stride: COVERAGE_NODE_STRIDE,
+          attributes: [
+            { location: 0, offset: 0, format: 'float32x2' }, // node_lonlat
+            { location: 1, offset: 8, format: 'float32x2' }, // node_uv
+          ],
+        },
+      ],
       colorTargets: [{ format: format as 'bgra8unorm', blend: 'alpha' }],
       variants: [
         { depthWrite: false, depthCompare: 'always', label: 'coverage-ramp-pipeline-rhi' },
@@ -215,10 +229,19 @@ export class CoverageDraper {
     pass: import('@xgis/engine').RhiRenderPass,
     globalBytes: BufferSource,
     bindGroup: RhiBindGroup,
+    nodes: RhiBuffer,
+    indices: RhiBuffer,
   ): void {
     this.material.writeGlobal(globalBytes)
     const items: DrawItem[] = [
-      { variant: 0, bindGroups: [bindGroup], count: coverageGridVertexCount(), indexed: false },
+      {
+        variant: 0,
+        bindGroups: [bindGroup],
+        vertex: nodes,
+        index: { buffer: indices, format: 'uint16' },
+        count: coverageGridIndexCount(),
+        indexed: true,
+      },
     ]
     executeItems(this.material, pass, items, 0)
   }

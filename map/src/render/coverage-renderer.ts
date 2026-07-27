@@ -28,10 +28,23 @@
 
 import type { GPUContext } from '@xgis/rhi-webgpu'
 import { wrapWebGpuPass } from '@xgis/rhi-webgpu'
-import type { RhiDevice, RhiTexture, RhiSampler, RhiBindGroup, RhiRenderPass } from '@xgis/engine'
+import type {
+  RhiDevice,
+  RhiTexture,
+  RhiSampler,
+  RhiBindGroup,
+  RhiRenderPass,
+  RhiBuffer,
+} from '@xgis/engine'
 import { getSampleCount } from '@xgis/engine'
 import type { CoverageHandle } from '@xgis/data'
-import { CoverageDraper } from './material/coverage-material'
+import { coverageMeshNodes } from '@xgis/data'
+import { CoverageDraper, COVERAGE_NODE_STRIDE } from './material/coverage-material'
+import {
+  COVERAGE_GRID_N,
+  coverageNodeCount,
+  coverageGridIndexCount,
+} from '../shaders/dsl/coverage-ramp'
 import {
   packCoverageValueValid,
   bakeRampLut,
@@ -44,10 +57,10 @@ interface CoverageState {
   validTex: RhiTexture
   lutTex: RhiTexture
   bindGroup: RhiBindGroup
-  /** west/south/east/north outer cell EDGES (degrees) for the draw quad. */
-  covEdges: [number, number, number, number]
-  /** westLonEdge, northLatEdge, nLon·dLon, nLat·dLat — for the fragment u/v. */
-  covGeo: [number, number, number, number]
+  /** Interleaved [lon, lat, u, v] per drape-mesh NODE, CPU-reprojected through the
+   *  cell's own CRS (#1366 INC-3). Replaces the cov_edges/cov_geo lon/lat rectangle,
+   *  which could not describe a projected footprint. */
+  nodeBuf: RhiBuffer
   ramp: { a: number; b: number }
   /** Layer opacity (0..1) — multiplies output alpha (ramp_params.z). */
   opacity: number
@@ -80,6 +93,9 @@ export class CoverageRenderer {
   private _draper: CoverageDraper | null = null
   private dataSampler: RhiSampler | null = null
   private lutSampler: RhiSampler | null = null
+  /** Shared drape-mesh index buffer — topology depends only on COVERAGE_GRID_N, so every
+   *  region reuses it. Built on first draw, destroyed with the renderer. */
+  private indexBuf: RhiBuffer | null = null
   /** Resident regions, keyed. Map iteration order is insertion order, and `setCoverage`
    *  delete-then-sets, so the FRONT is always the least-recently-armed — the LRU eviction
    *  order, and the draw order. */
@@ -160,24 +176,21 @@ export class CoverageRenderer {
       this.lutSampler,
     )
 
-    const [originLon, originLat] = handle.header.origin
-    const [dLon, dLat] = handle.header.spacing
-    const westEdge = originLon - dLon / 2
-    const southEdge = originLat - dLat / 2
-    const eastEdge = westEdge + nLon * dLon
-    const northEdge = southEdge + nLat * dLat
+    // Drape-mesh nodes, reprojected through the cell's OWN CRS on the CPU (#1366 INC-3).
+    // For a geographic cell `coverageMeshNodes` runs the identical `mix` arithmetic the
+    // shader used to, so the drape is unchanged by construction.
+    const nodeBuf = this.uploadNodes(handle)
 
     this.states.set(region, {
       valueTex,
       validTex,
       lutTex,
       bindGroup,
-      covEdges: [westEdge, southEdge, eastEdge, northEdge],
-      covGeo: [westEdge, northEdge, nLon * dLon, nLat * dLat],
+      nodeBuf,
       ramp: computeRampUniforms(dataMin, dataMax, opts.rangeLo ?? dataMin, opts.rangeHi ?? dataMax),
       opacity: opts.opacity ?? 1,
-      // 2 × r16float over the grid + the 256×1 rgba8 LUT.
-      bytes: nLon * nLat * 2 * 2 + 256 * 4,
+      // 2 × r16float over the grid + the 256×1 rgba8 LUT + the node buffer.
+      bytes: nLon * nLat * 2 * 2 + 256 * 4 + coverageNodeCount() * COVERAGE_NODE_STRIDE,
     })
     this.arms.set(region, { handle, opts })
     this.lastOpts = opts
@@ -249,13 +262,73 @@ export class CoverageRenderer {
         mvp,
         projParams,
         camCenter,
-        covEdges: s.covEdges,
-        covGeo: s.covGeo,
         ramp: s.ramp,
         opacity: s.opacity,
       })
-      this._draper.draw(rhiPass, bytes as BufferSource, s.bindGroup)
+      this._draper.draw(
+        rhiPass,
+        bytes as BufferSource,
+        s.bindGroup,
+        s.nodeBuf,
+        this.ensureIndexBuf(),
+      )
     }
+  }
+
+  /** Build + upload this coverage's node buffer: [lon, lat, u, v] per mesh node. The
+   *  lon/lat comes from @xgis/data (proj4 lives there); uv is the footprint fraction with
+   *  v flipped to the data texture's north-up row order. */
+  private uploadNodes(handle: CoverageHandle): RhiBuffer {
+    const n = COVERAGE_GRID_N
+    const lonLat = coverageMeshNodes(handle.header, n)
+    const out = new Float32Array(coverageNodeCount() * 4)
+    for (let gy = 0; gy <= n; gy++) {
+      for (let gx = 0; gx <= n; gx++) {
+        const node = gy * (n + 1) + gx
+        out[node * 4] = lonLat[node * 2]!
+        out[node * 4 + 1] = lonLat[node * 2 + 1]!
+        out[node * 4 + 2] = gx / n
+        out[node * 4 + 3] = 1 - gy / n // v01 runs south→north; the data texture is north-up
+      }
+    }
+    const buf = this.rhi.createBuffer({
+      size: out.byteLength,
+      usage: 'vertex',
+      label: 'coverage-nodes',
+    })
+    this.rhi.writeBuffer(buf, 0, out as BufferSource)
+    return buf
+  }
+
+  /** The mesh TOPOLOGY is a function of COVERAGE_GRID_N alone, so every region shares one
+   *  index buffer — built once, never per arm. uint16 is safe: (N+1)² = 4 225 < 65 536. */
+  private ensureIndexBuf(): RhiBuffer {
+    if (this.indexBuf) return this.indexBuf
+    const n = COVERAGE_GRID_N
+    const idx = new Uint16Array(coverageGridIndexCount())
+    let w = 0
+    for (let cy = 0; cy < n; cy++) {
+      for (let cx = 0; cx < n; cx++) {
+        const sw = cy * (n + 1) + cx
+        const se = sw + 1
+        const nw = sw + (n + 1)
+        const ne = nw + 1
+        // Two triangles per cell, matching the old procedural du/dv winding.
+        idx[w++] = sw
+        idx[w++] = se
+        idx[w++] = nw
+        idx[w++] = se
+        idx[w++] = ne
+        idx[w++] = nw
+      }
+    }
+    this.indexBuf = this.rhi.createBuffer({
+      size: idx.byteLength,
+      usage: 'index',
+      label: 'coverage-mesh-indices',
+    })
+    this.rhi.writeBuffer(this.indexBuf, 0, idx as BufferSource)
+    return this.indexBuf
   }
 
   private uploadR16f(data: Uint16Array, width: number, height: number): RhiTexture {
@@ -290,6 +363,7 @@ export class CoverageRenderer {
     this.rhi.destroyTexture(s.valueTex)
     this.rhi.destroyTexture(s.validTex)
     this.rhi.destroyTexture(s.lutTex)
+    this.rhi.destroyBuffer(s.nodeBuf)
     this.states.delete(region)
   }
 
@@ -297,6 +371,10 @@ export class CoverageRenderer {
     for (const key of [...this.states.keys()]) this.releaseRegion(key)
     if (this.dataSampler) this.rhi.destroySampler(this.dataSampler)
     if (this.lutSampler) this.rhi.destroySampler(this.lutSampler)
+    // The shared mesh-topology index buffer outlives individual regions, so it is freed
+    // here rather than in releaseRegion.
+    if (this.indexBuf) this.rhi.destroyBuffer(this.indexBuf)
+    this.indexBuf = null
     this.dataSampler = null
     this.lutSampler = null
     this.arms.clear()
