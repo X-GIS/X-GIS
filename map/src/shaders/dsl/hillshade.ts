@@ -356,7 +356,10 @@ const buildFs = (pickEnabled: boolean, methodFlag: number) => {
         // raster_params.x = the LAYER's opacity paint (#777 gap): the relief is
         // premultiplied-alpha, so one scalar multiply on the whole RGBA fades it — the
         // hillshade layer now honours `opacity` like every other layer (was hardcoded 1).
-        color: outColor.mul(U.field.raster_params.x),
+        // pin.vis = the PER-TILE fade opacity (TileUniforms.tile_ecef_center.w, the lane
+        // the shared vs_tile already interpolates) — a freshly-streamed DEM tile ramps
+        // 0→1 over its cached parent instead of popping, exactly as raster fs_tile does.
+        color: outColor.mul(U.field.raster_params.x).mul(pin.vis),
         ...(pickEnabled ? { pick: vec2u(0, 0) } : {}),
         depth: compute_log_frag_depth({ view_w: pin.view_w, fc: U.field.proj_params.w }),
       })

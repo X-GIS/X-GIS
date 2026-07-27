@@ -366,7 +366,14 @@ const CEILINGS: Record<string, number> = {
   // `interpolateVectorCoverage`, `setCoverageFrame` each sub-step). The interpolation MATH
   // itself lives in @xgis/data (interpolate-vector.ts); this is the `this`-coupled wiring
   // only. +90, post-hook.
-  'map/src/map.ts': 5330,
+  // 5330→5336 (hillshade tile fade-in): the DEM relief now cross-fades on the SAME
+  // ramp as raster, and map.ts is the single owner of both hooks the ramp needs — the
+  // keep-alive gate (`hillshadeRenderer.hasFadingTiles()`, beside the raster line it
+  // mirrors) and the reduced-motion push (`setHillshadeFadeDurationMs` from the SAME
+  // effectiveRasterFadeDurationMs, so there is no second duration knob to drift). Two
+  // one-line wirings + their notes; irreducible — neither hook can live anywhere else.
+  // +6, post-hook.
+  'map/src/map.ts': 5336,
   // Baselined at #1255 (measured 830): the DOM-inspired layer API crossed
   // NEW_FILE_CAP with the paint-transition style-setter integration — the
   // StyleHost.transitions context, the shared applyNumber/applyColor
@@ -643,7 +650,27 @@ const CEILINGS: Record<string, number> = {
   // Merge union (#1272 <- main): the #1229/#1261 stack (→1341) and the #1272
   // coverage-twin draw (+18 over the 1326 base) are non-overlapping — the merged
   // file measures 1359, not max(1341, 1344).
-  'map/src/render-loop.ts': 1359,
+  // 1359→1370 (hillshade tile fade-in): the forced-WebGL2 twin's keep-warm return
+  // was a tile-COUNT only, so a tile that had finished FETCHING but was still
+  // mid-fade froze the ramp at partial opacity (the count hits 0 on the last fetch)
+  // — a permanently semi-transparent basemap/relief on that path until the next
+  // interaction. Now ORs the two renderers' hasFadingTiles(), the same signals the
+  // WebGPU loop's idle-skip already reads, + the note explaining why a count alone
+  // cannot express "still converging" (and the correction of the older comment that
+  // claimed the return was derived from the count alone). +11, post-hook.
+  'map/src/render-loop.ts': 1370,
+  // Baselined at 806 (hillshade tile fade-in): HillshadeRenderer crossed
+  // NEW_FILE_CAP restoring the three tile-streaming fixes raster-renderer had
+  // landed since hillshade was copied from it — the per-tile fade ramp + its
+  // cross-fade underlay (emitTileAt / findCachedParent / eachCachedChild,
+  // _fadeDurationMs / _hasFadingTiles / _lastTargetKeys), the #1153 P2 R4
+  // load-path try/catch + .catch that un-wedge a loadingTiles slot, and the
+  // pole-cap (tileOpacity, capSign) argument fix. It is the SAME cohesive
+  // renderer shape as raster-renderer.ts (baselined 990), not a new god-file —
+  // the two are deliberately separate so the hillshade prepare-pass upgrade can
+  // diverge. Shrink-only from now; both collapse together when #991 decomposes
+  // the render SCC.
+  'map/src/render/hillshade-renderer.ts': 806,
   // Merge union (#1060 <- main): stacked growth — measured 1174.
   'map/src/render/point-renderer.ts': 1174,
   // 1106→1120 (#1043 state-hygiene): three unmask-before-clear / state-reset fixes for the
