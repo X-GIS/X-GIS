@@ -23,22 +23,36 @@ import { test, expect, type Page } from '@playwright/test'
 // #1346 then graded the far-field SSE ceiling by DISTANCE (in camera altitudes)
 // instead of applying it frame-wide whenever the camera is pitched, so steps 1-2
 // no longer happen: the foreground keeps native LOD at EVERY pitch. Re-measured
-// on 5f77894e, same harness, same container, two samples whose tris/maxZ columns
-// are byte-identical:
+// on 5f77894e, same harness, same container:
 //
-//     dense, after   82.5° -> 0°: 1846.3 -> 1084.2 ms, 108894 -> 72464 tris
+//     dense, after   82.5° -> 0°: 2116.5 -> 1330.3 ms, 109586 -> 72464 tris
+//                    (repeat run: 2218.0 -> 1347.8, tris/maxZ byte-identical)
 //                    maxZ 10 at every stop (was 7 -> 10 escalating as pitch fell)
 //
-// So the reported sign is GONE (0.59x, i.e. lowering pitch is now cheaper) and
-// the 58-65° spike flattened (3.2x the high-pitch cost -> a 2.08x peak that has
-// moved to high pitch). But read WHY: low pitch did not get cheaper — it is
+// RUN THIS SWEEP WITH `adaptive=0`. #1346 also shipped adaptive resolution
+// scaling ON by default (engine/src/gpu/adaptive-dpr.ts), and at ~2 s/frame it
+// engages every time — so a default-flag run measures a MOVING render
+// resolution and its ms column is not comparable to anything. Every ms above is
+// `DEMO='physical_map&adaptive=0'`.
+//
+// So the reported sign is GONE (0.63x, i.e. lowering pitch is now cheaper) and
+// the 58-65° spike flattened (3.2x the high-pitch cost -> a ~1.6-2.0x peak that
+// has moved to high pitch). But read WHY: low pitch did not get cheaper — it is
 // unchanged at 72464 tris — the cliff closed because HIGH pitch rose to meet it
-// (16380 -> 108894 tris, 2.4x the frame time). Those are the native-LOD
+// (16380 -> 109586 tris, ~2.7x the frame time). Those are the native-LOD
 // foreground tiles a pitched view was missing entirely; whether that trade is
 // right is a policy call, and the lever is `FAR_RAMP_NEAR` in tiles-sse.ts.
 //
-// What is still unbounded is cost on the way UP: `MAX_EMITTED` counts tiles, not
-// geometry, and 8 tiles carrying 108k triangles never approaches it.
+// That new high-pitch cost is GEOMETRY-bound, not fill-bound — measured, not
+// assumed. Quartering the pixels (`&dpr=0.5`; selection is DPR-invariant, so
+// tris/maxZ barely move) takes 82.5° from 2116.5/2218.0 to 1708.2 ms, ~-21%,
+// against a ~5% endpoint run-to-run floor. Within one run the cost instead
+// tracks triangles almost linearly (1.51x tris -> 1.59x / 1.65x ms). So the
+// adaptive-DPR controller's ENTIRE range (1.0 -> 0.5) is worth about a fifth of
+// the frame and cannot absorb a 1.5x geometry swing: the budget that is missing
+// is a geometry budget, and `MAX_EMITTED` is not it — it counts TILES, so 9
+// tiles carrying 109k triangles never approach the cap. That is the half of
+// #1367 still open, tracked in #1393.
 //
 // ── Why this can run without a dense fixture ─────────────────────────────────
 //
@@ -69,8 +83,10 @@ import { test, expect, type Page } from '@playwright/test'
 // The cost curve itself is REPORTED for humans. Do not convert it into a
 // threshold without re-measuring the noise floor on the target machine.
 //
-//   DEMO=physical_map SEED=dense HEADED=0 XGIS_SOFTWARE_GPU=1 \
+//   DEMO='physical_map&adaptive=0' SEED=dense HEADED=0 XGIS_SOFTWARE_GPU=1 \
 //     playwright test _perf-pitch-cost-sweep.spec.ts
+//
+//   ...&dpr=0.5   # fill-vs-geometry control: same selection, a quarter the pixels
 //
 //   SEED=off DEMO=pmtiles_layered CAM='#11.52/35.7553/139.6973/0/0'  # real source
 
