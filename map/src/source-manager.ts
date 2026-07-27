@@ -119,6 +119,10 @@ export interface SourceManagerDeps {
   rebuildLayers(): void
   /** XGISMap's `teardownSource` — destroy GPU resources for a source. */
   teardownSource(sourceId: string): void
+  /** #1371 — the live (catalog, renderer) pair for `sourceId`, or null. Lets a host data push
+   *  swap the source's BACKEND on the SAME catalog instead of tearing the pair down, so the
+   *  tiles already on the GPU keep drawing until their replacements land. */
+  getVtSource(sourceId: string): { source: TileCatalog; renderer: VectorTileRenderer } | null
   /** XGISMap's `_featureIndex.delete(sourceId)`. */
   deleteFeatureIndex(sourceId: string): void
   /** Per-map custom source-loader registry (`XGISMapOptions.sources`), consulted by
@@ -146,6 +150,13 @@ export class SourceManager {
   private readonly _fitZoomToLonSpan: (lonSpan: number, cssWidthPx: number) => number
   private readonly _runBoundsFitGate: (apply: () => void) => boolean
   private readonly rebuildLayers: () => void
+  private readonly getVtSource: (
+    sourceId: string,
+  ) => { source: TileCatalog; renderer: VectorTileRenderer } | null
+  /** #1371 — the backend currently attached for each virtual-tiled geojson source, so a
+   *  re-seed can DETACH it (the catalog keeps its cached tiles by contract) and attach the
+   *  replacement without destroying the catalog. */
+  private readonly vtBackends = new Map<string, VirtualPMTilesBackend>()
   private readonly teardownSource: (sourceId: string) => void
   private readonly deleteFeatureIndex: (sourceId: string) => void
   private readonly sourceLoaders?: Readonly<Record<string, SourceLoader>>
@@ -186,6 +197,7 @@ export class SourceManager {
     this._runBoundsFitGate = deps.runBoundsFitGate
     this.rebuildLayers = deps.rebuildLayers
     this.teardownSource = deps.teardownSource
+    this.getVtSource = deps.getVtSource
     this.deleteFeatureIndex = deps.deleteFeatureIndex
     this.sourceLoaders = deps.sourceLoaders
   }
@@ -703,6 +715,7 @@ export class SourceManager {
       strokeColorExprs: maps.strokeColorExprsBySource.get(sourceName),
     })
     source.attachBackend(backend)
+    this.vtBackends.set(sourceName, backend) // #1371 — so a re-seed can swap it in place
 
     // A7 — staleness was already ruled out at entry (no await since), so the
     // dead-device catalog + shared-map writes below cannot leak into a winner.
@@ -746,6 +759,55 @@ export class SourceManager {
         })
       }
     }
+  }
+
+  /** #1371 — re-seed a virtual-tiled geojson source WITHOUT destroying its catalog/renderer.
+   *  Mirrors the bookkeeping `_attachGeoJSONViaVirtualPMTiles` does for a data swap (reproject
+   *  → seeded-FC record → polar caps → heatmap points), then detaches the old backend, attaches
+   *  one built from the new data, and asks the renderer to re-request the keys it is drawing.
+   *  Camera fit and pipeline setup are deliberately NOT redone: this is a data push into a
+   *  source that is already attached and already bound to its shows. */
+  private _reseedInPlace(
+    sourceId: string,
+    data: GeoJSONFeatureCollection,
+    live: { source: TileCatalog; renderer: VectorTileRenderer },
+    prevBackend: VirtualPMTilesBackend,
+  ): void {
+    const maps = this._lastShowSourceMaps!
+    const reprojected = this._reprojectIngest(sourceId, data)
+    this.hostSeededFC.set(sourceId, reprojected)
+    const capPoles = detectCapPoles(reprojected)
+    if (capPoles.north || capPoles.south) this.geojsonCapPoles.set(sourceId, capPoles)
+    else this.geojsonCapPoles.delete(sourceId)
+    const heatmapPts = (reprojected.features ?? []).filter(
+      (f) => f.geometry?.type === 'Point' || f.geometry?.type === 'MultiPoint',
+    )
+    if (heatmapPts.length)
+      this.heatmapPointData.set(sourceId, {
+        type: 'FeatureCollection',
+        features: heatmapPts,
+      } as GeoJSONFeatureCollection)
+    else this.heatmapPointData.delete(sourceId)
+
+    const inferred = maps.usedSourceLayers.get(sourceId)
+    const backend = new VirtualPMTilesBackend({
+      sourceName: sourceId,
+      instanceId: this._tilingInstanceId,
+      geojson: reprojected,
+      layers: inferred && inferred.size > 0 ? [...inferred] : undefined,
+      extrudeExprs: maps.extrudeExprsBySource.get(sourceId),
+      extrudeBaseExprs: maps.extrudeBaseExprsBySource.get(sourceId),
+      showSlices: maps.showSlicesBySource.get(sourceId),
+      strokeWidthExprs: maps.strokeWidthExprsBySource.get(sourceId),
+      strokeColorExprs: maps.strokeColorExprsBySource.get(sourceId),
+    })
+    // Order matters: drop the worker-side index for the OLD data only after the new backend has
+    // registered its own (the constructor kicks `tilingPool.setSource` synchronously), so the
+    // pool never sits index-less for this source.
+    live.source.detachBackend(prevBackend) // cached tiles survive — that is the whole point
+    live.source.attachBackend(backend)
+    this.vtBackends.set(sourceId, backend)
+    live.renderer.reseedTiles()
   }
 
   /** Full-replace push for a GeoJSON source.
@@ -818,6 +880,20 @@ export class SourceManager {
       this._lastShowSourceMaps !== null
     ) {
       this.deleteFeatureIndex(sourceId)
+      // #1371 — ATOMIC re-seed. Tearing the pair down here destroyed every decoded tile and
+      // every GPU buffer before the replacement existed, so the layer was blank for the whole
+      // re-tile (measured: no tiles in 15 of 26 frames at a 3-frame push cadence). Instead
+      // swap the BACKEND on the same catalog — `detachBackend` keeps the cache by contract —
+      // and ask the renderer to re-request the keys it is currently drawing. Each replacement
+      // swaps its own tile in (VectorTileRenderer.applyReplacedTiles), so the previous data
+      // keeps drawing until the new data is GPU-resident, and no frame shows an empty layer.
+      const live = this.getVtSource(sourceId)
+      const prevBackend = this.vtBackends.get(sourceId)
+      if (live && prevBackend) {
+        this._reseedInPlace(sourceId, normalized, live, prevBackend)
+        this.invalidate()
+        return
+      }
       this.teardownSource(sourceId)
       tilingPool.dropSource(this._tilingInstanceId, sourceId)
       void this._attachGeoJSONViaVirtualPMTiles(sourceId, normalized, this._lastShowSourceMaps, {
