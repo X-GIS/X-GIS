@@ -47,6 +47,7 @@ import { type FrameContext } from './render/frame-context'
 import { makeProjectionToken, setProjectionToken } from './render/projection-token'
 import type { RhiDevice, RhiScreenPassDevice, RhiTexture, RhiTextureView } from '@xgis/engine'
 import { asScreenPassDevice } from '@xgis/engine'
+import { FLOW_DRAPE_MIX } from './render/flow-stepper'
 import { buildSceneView } from './render/scene-view'
 import type { RenderNode } from './render/render-node'
 import type { XGISMap } from './map'
@@ -1040,11 +1041,15 @@ export class RenderLoop {
       !isGlobeProj(projType)
     ) {
       const frame = this.host.camera.getViewForProjection(projType, w, h, dpr)
+      // Same motion layer as the WebGPU arm — the step ran above in this very method, so
+      // `currentView` is THIS frame's image, not the previous one.
+      const flowView = this.host.flowRenderer?.currentView ?? null
       this.host.coverageRenderer.render(
         pass,
         frame.matrix,
         [this.host.camera.centerX, this.host.camera.centerY],
         [projType, centerLon, centerLat, frame.logDepthFc],
+        flowView ? { view: flowView, mix: FLOW_DRAPE_MIX } : null,
       )
     }
     // #1062 — lat/lon graticule overlay. Mirrors the WebGPU opaque pass's grid
