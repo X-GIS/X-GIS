@@ -99,10 +99,8 @@ interface RetainedIconBatch {
   glyphCounts: Uint32Array | null
 }
 
-/** A DECLARATIVE `| arrow` layer (#1302) — the compiler-driven twin of a host arrow batch;
- *  per-feature bearing/size/colour pre-evaluated at rebuildLayers time (arrow-show.ts) into
- *  the SAME ARROW_RETAINED feat/tint layout. Raw arrays retained so a DPR change re-packs
- *  feat (size is baked in px), exactly like the host arrow path. */
+/** A DECLARATIVE `| arrow` layer (#1302) — compiler-fed twin of a host arrow batch, same
+ *  ARROW_RETAINED feat/tint layout; raw arrays (incl. strokeUnits, #1333) kept for DPR re-pack. */
 interface CompiledArrowBatch {
   featBuf: RhiBuffer
   tintBuf: RhiBuffer
@@ -112,6 +110,7 @@ interface CompiledArrowBatch {
   lats: Float64Array
   bearings: Float32Array
   sizes: Float32Array
+  strokeUnits: number
 }
 
 export class GraphicsManager {
@@ -304,20 +303,19 @@ export class GraphicsManager {
     )
   }
 
-  /** Register a DECLARATIVE `| arrow` layer (#1302): pack the pre-evaluated per-feature
-   *  arrays (arrow-show.ts) into the SAME ARROW_RETAINED feat/tint layout via the compiled
-   *  packers, so the retained arrow draper + shader draw them unchanged. No device → no-op
-   *  (rebuildLayers runs post-attachDevice, so this normally materialises immediately). */
+  /** Registers a DECLARATIVE `| arrow` layer (#1302) via the compiled packers (same
+   *  draper/shader as host). `strokeUnits` (#1333, 0 = none) requests the outline stroke. */
   addCompiledArrowLayer(
     lons: Float64Array,
     lats: Float64Array,
     bearingsDeg: Float32Array,
     sizesPx: Float32Array,
     colors: ReadonlyArray<readonly [number, number, number, number]>,
+    strokeUnits = 0,
   ): void {
     const count = lons.length
     if (count === 0 || !this.rhi || !this.arrowDraper) return
-    const feat = packCompiledArrowFeat(lons, lats, bearingsDeg, sizesPx, this.dpr)
+    const feat = packCompiledArrowFeat(lons, lats, bearingsDeg, sizesPx, this.dpr, strokeUnits)
     const tint = packCompiledArrowTint(colors)
     const featBuf = this.rhi.createBuffer({
       size: Math.max(feat.byteLength, 16),
@@ -345,6 +343,7 @@ export class GraphicsManager {
       lats,
       bearings: bearingsDeg,
       sizes: sizesPx,
+      strokeUnits,
     })
   }
 
@@ -719,7 +718,7 @@ export class GraphicsManager {
       this.rhi.writeBuffer(
         ca.featBuf,
         0,
-        packCompiledArrowFeat(ca.lons, ca.lats, ca.bearings, ca.sizes, d),
+        packCompiledArrowFeat(ca.lons, ca.lats, ca.bearings, ca.sizes, d, ca.strokeUnits),
       )
       this._featWrites++
     }

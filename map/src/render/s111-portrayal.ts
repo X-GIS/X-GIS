@@ -51,3 +51,19 @@ export function s111ArrowLengthPx(speedKnots: number, basePx: number = S111_ARRO
 export function s111HasArrow(speedKnots: number): boolean {
   return Number.isFinite(speedKnots) && speedKnots > 0
 }
+
+/** `SVGStyle_S111day.css` `.sCHBLK {stroke:#000000}` — every SCAROW0N symbol strokes its
+ *  band-coloured fill with a black outline. Rendered as a proper analytic SDF stroke inside
+ *  the shared arrow shader (arrow-retained.ts `stroke_units`), NOT a second offset batch (a
+ *  prior "bigger black arrow underneath" attempt was geometrically wrong — the two
+ *  independently-scaled quads' head-tapers began at different physical distances from the
+ *  tail and flared unevenly; reverted, see #1333 history).
+ *
+ *  This is a FRACTION of each arrow's own size (loc-space units, the same space `size` scales
+ *  qx/qy into) — not a flat px delta — so the border stays proportionally consistent across
+ *  every band (thin on the slow-water floor scale, thicker on the fast-water ceiling scale),
+ *  rather than looking chunky on small arrows and negligible on large ones. The catalogue's
+ *  own literal ratio (0.32mm / 11mm ≈ 0.029) is thinner than is legibly visible at the
+ *  smallest on-screen sizes; this value is chosen for on-screen legibility, the same
+ *  screen-legibility tradeoff already made for `S111_ARROW_BASE_PX`. */
+export const S111_OUTLINE_FRAC = 0.06

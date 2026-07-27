@@ -27,6 +27,7 @@ import {
   select,
   fwidth,
   length,
+  mix,
   vec2,
   vec3,
   vec4,
@@ -116,6 +117,10 @@ const ArrowOut = ioStruct('ArrowRetainedOut', {
   loc: location(0, vec2fT),
   tint: location(1, vec4fT),
   cos_c: location(2, f32T, 'flat'),
+  // Outline stroke width, in the SAME unit-space as loc (0 = no outline — every existing
+  // caller that doesn't opt in). Per-instance constant across a quad's 6 vertices, like
+  // cos_c, so 'flat' avoids pointless interpolation of an already-uniform value.
+  stroke_units: location(3, f32T, 'flat'),
 })
 
 const vs = fn(
@@ -164,33 +169,40 @@ const vs = fn(
     const cc = dsx.div(dlen)
     const ss = dsy.div(dlen)
 
-    // ── bounding quad (6 verts) in unit-arrow space: qx∈{0,1} along, qy∈{-HH,HH} across. ──
+    // ── bounding quad (6 verts) in unit-arrow space: qx∈{-margin,1+margin} along,
+    // qy∈{-(HH+margin),HH+margin} across. `margin` is the per-instance outline stroke width
+    // (0 for every arrow that doesn't opt in — the quad is then IDENTICAL to the un-outlined
+    // bounds, {0,1}×{-HH,HH}, so an existing caller's rasterized area is byte-for-byte
+    // unchanged). A non-zero margin gives the FS room to shade the stroke band past the fill
+    // silhouette (a pixel outside the un-enlarged quad is never shaded at all — no fragment
+    // invocation happens there — so the stroke would clip off without this). ──
+    const margin = rd(F.stroke_units)
     const qx = f32(0)
     const qy = f32(0)
     Switch(p.vi)
       .case(0, () => {
-        qx.assign(f32(0))
-        qy.assign(f32(-HH))
+        qx.assign(f32(0).sub(margin))
+        qy.assign(f32(-HH).sub(margin))
       })
       .case(1, () => {
-        qx.assign(f32(0))
-        qy.assign(f32(HH))
+        qx.assign(f32(0).sub(margin))
+        qy.assign(f32(HH).add(margin))
       })
       .case(2, () => {
-        qx.assign(f32(1))
-        qy.assign(f32(HH))
+        qx.assign(f32(1).add(margin))
+        qy.assign(f32(HH).add(margin))
       })
       .case(3, () => {
-        qx.assign(f32(0))
-        qy.assign(f32(-HH))
+        qx.assign(f32(0).sub(margin))
+        qy.assign(f32(-HH).sub(margin))
       })
       .case(4, () => {
-        qx.assign(f32(1))
-        qy.assign(f32(HH))
+        qx.assign(f32(1).add(margin))
+        qy.assign(f32(HH).add(margin))
       })
       .case(5, () => {
-        qx.assign(f32(1))
-        qy.assign(f32(-HH))
+        qx.assign(f32(1).add(margin))
+        qy.assign(f32(-HH).sub(margin))
       })
       .default(() => {
         /* vi ∈ 0..5 */
@@ -214,6 +226,7 @@ const vs = fn(
     o.cos_c.assign(
       needs_backface_cull(absLon, absLat, pointU.field.proj_params, pointU.field.globe_eye),
     )
+    o.stroke_units.assign(margin)
     return o.$
   },
   { stage: 'vertex' },
@@ -233,8 +246,19 @@ const fs = fn(
     const hw = select(ax.lt(HB), f32(SH), hwHead)
     const d = max(ay.sub(hw), max(ax.neg(), ax.sub(1)))
     const aa = fwidth(pin.loc.x).add(fwidth(pin.loc.y)).mul(0.7).add(f32(1e-5))
-    const cov = clamp(f32(0.5).sub(d.div(aa)), 0, 1)
-    const out = vec4(pin.tint.swizzle('xyz'), pin.tint.w.mul(cov))
+    // covFill = the ORIGINAL (pre-outline) coverage, UNCHANGED. covTotal = the same AA-edged
+    // step, shifted outward by the per-instance stroke width `su` — the fill+stroke region.
+    // strokeCov isolates JUST the stroke ring's own coverage: it is IDENTICALLY ZERO whenever
+    // su=0 (covTotal collapses to covFill algebraically), which is the proof that an
+    // un-outlined arrow's output is byte-for-byte unchanged — blending toward black by
+    // covFill instead (the naive, REJECTED formula) would darken every existing arrow's AA
+    // edge even with no outline requested (0.5 coverage there, not 0).
+    const su = pin.stroke_units
+    const covFill = clamp(f32(0.5).sub(d.div(aa)), 0, 1)
+    const covTotal = clamp(f32(0.5).sub(d.sub(su).div(aa)), 0, 1)
+    const strokeCov = max(covTotal.sub(covFill), 0)
+    const rgb = mix(pin.tint.swizzle('xyz'), vec3(f32(0), f32(0), f32(0)), strokeCov)
+    const out = vec4(rgb, pin.tint.w.mul(covTotal))
     If(out.w.lt(f32(0.004)), () => {
       Discard()
     })
