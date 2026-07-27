@@ -3,12 +3,6 @@ import { coverageFromGrids, type CoverageInput } from '@xgis/data/coverage'
 import { addCoverageArrowShowLayer, type CoverageArrowShowHost } from './coverage-arrow-show'
 import type { ShowCommand } from './render/renderer-types'
 import { S111_ARROW_BASE_PX, S111_OUTLINE_FRAC } from './render/s111-portrayal'
-import {
-  S111_DRIFT_LIFETIME_SECONDS,
-  S111_DRIFT_PX_PER_KNOT,
-  S111_DRIFT_MAX_LENGTHS,
-} from './coverage-arrow-show'
-import type { CompiledArrowDrift } from './graphics/retained-arrow-packer'
 
 interface Captured {
   lons: number[]
@@ -17,7 +11,6 @@ interface Captured {
   sizes: number[]
   colors: [number, number, number, number][]
   strokeUnits: number | undefined
-  drift: CompiledArrowDrift | undefined
 }
 
 function makeHost(): { host: CoverageArrowShowHost; calls: Captured[] } {
@@ -31,7 +24,6 @@ function makeHost(): { host: CoverageArrowShowHost; calls: Captured[] } {
         sizes: Float32Array,
         colors: [number, number, number, number][],
         strokeUnits?: number,
-        drift?: CompiledArrowDrift,
       ) => {
         calls.push({
           lons: [...lons],
@@ -40,7 +32,6 @@ function makeHost(): { host: CoverageArrowShowHost; calls: Captured[] } {
           sizes: [...sizes],
           colors,
           strokeUnits,
-          drift,
         })
       },
     },
@@ -92,41 +83,6 @@ describe('addCoverageArrowShowLayer (#1333 — engine S-111 arrow field)', () =>
     expect(c.lons).toEqual([10, 10, 11, 12]) // 0.3@col0, then row1 cols 0/1/2
     expect(c.lats).toEqual([51, 50, 50, 50]) // north-up: row0 → lat 51, row1 → lat 50
     expect(c.bearings).toEqual([90, 180, 270, 45]) // = the direction band, verbatim
-  })
-
-  it('requests a speed-proportional drift, capped at S111_DRIFT_MAX_LENGTHS of the glyph', () => {
-    // Speeds span the scale rule: 0.3 + 2.5 are fixed-scale bands, 5.0 and 20.0 are not.
-    const handle = coverageFromGrids(
-      s111Input([0.3, 0, NaN, 2.5, 5.0, 20.0], [90, 0, 0, 180, 270, 45]),
-    )
-    const { host, calls } = makeHost()
-    addCoverageArrowShowLayer(host, s111Show, handle)
-    const d = calls[0]!.drift!
-    expect(d.lifetimeSeconds).toBe(S111_DRIFT_LIFETIME_SECONDS)
-    const drift = [...(d.driftPx as Float32Array)]
-    const sizes = calls[0]!.sizes
-    const speeds = [0.3, 2.5, 5.0, 20.0] // the four emitted cells, in emission order
-
-    // Every arrow drifts either its speed-proportional distance or the length cap.
-    // (toBeCloseTo, not toEqual: the drift lands in a Float32Array, so 5.4 comes back as
-    // the nearest f32 — an exact compare would fail on the storage, not on the rule.)
-    const expected = speeds.map((sp, i) =>
-      Math.min(sp * S111_DRIFT_PX_PER_KNOT, sizes[i]! * S111_DRIFT_MAX_LENGTHS),
-    )
-    expect(drift).toHaveLength(expected.length)
-    for (let i = 0; i < expected.length; i++) expect(drift[i]!).toBeCloseTo(expected[i]!, 4)
-    // The cap must actually BIND somewhere, or this test would pass on an uncapped
-    // implementation and the fast bands would smear across the field.
-    const capped = speeds.filter(
-      (sp, i) => sp * S111_DRIFT_PX_PER_KNOT > sizes[i]! * S111_DRIFT_MAX_LENGTHS,
-    )
-    expect(capped.length).toBeGreaterThan(0)
-    // ...and it must NOT bind everywhere, or drift would be pure size and carry no speed
-    // information at all — the exact failure the per-band scale rule invites.
-    expect(capped.length).toBeLessThan(speeds.length)
-
-    // A slow cell drifts less than a fast one: the field reads as a current, not a uniform crawl.
-    expect(drift[0]!).toBeLessThan(drift[3]!)
   })
 
   it('requests the official black outline (S111_OUTLINE_FRAC) — a proper shader-level SDF stroke, not a second batch', () => {
