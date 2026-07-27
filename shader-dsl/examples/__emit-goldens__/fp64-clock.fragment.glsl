@@ -26,8 +26,8 @@ vec2 df64_floor(vec2 a);
 vec2 df64_fract(vec2 a);
 float df64_narrow(vec2 a);
 vec2 df64_twoSum(float a, float b) {
-  float _cse0 = texelFetch(_fp64, ivec2(0, 0), 0).x;
   float _v0 = (a + b);
+  float _cse0 = texelFetch(_fp64, ivec2(0, 0), 0).x;
   float _v1 = (((_v0 * _cse0) - a) * _cse0);
   float _v2 = (((((a - ((_v0 - _v1) * _cse0)) * _cse0) * _cse0) * _cse0) + (b - _v1));
   return vec2(_v0, _v2);
@@ -94,14 +94,14 @@ in vec2 uv;
 layout(location = 0) out vec4 _ret;
 
 vec4 fs_clock_impl(VsOut vo) {
-  bool _cse0 = (vo.uv.x < 0.5);
-  vec2 _cse1 = vec2((U.resolution.x * 0.5), U.resolution.y);
   float _v0 = df64_narrow(df64_fract(df64_mul(df64_add(U.epoch, vec2(U.time, 0.0)), vec2(U.speed, 0.0))));
   float _v1 = fract(((df64_narrow(U.epoch) + U.time) * U.speed));
+  bool _cse0 = (vo.uv.x < 0.5);
   bool _v2 = (_cse0 || (U.fp64 < 0.5));
   float _v3 = (_v2 ? _v1 : _v0);
   float _v4 = (vo.uv.x * 2.0);
   float _v5 = (_v4 - (_cse0 ? 0.0 : 1.0));
+  vec2 _cse1 = vec2((U.resolution.x * 0.5), U.resolution.y);
   vec2 _lc0 = vec2(_v5, vo.uv.y);
   vec2 _v6 = vec2((((_lc0.x * 2.0) - 1.0) * (_cse1.x / _cse1.y)), ((_lc0.y * 2.0) - 1.0));
   float _v7 = length(_v6);

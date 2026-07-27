@@ -47,7 +47,7 @@ export class CanvasCursorController {
   private priorInlineCursor = ''
 
   constructor(
-    private readonly canvas: HTMLCanvasElement,
+    private canvas: HTMLCanvasElement,
     enabled: boolean,
   ) {
     this.managing = enabled && this.claim()
@@ -71,6 +71,20 @@ export class CanvasCursorController {
     }
     this.priorInlineCursor = style.cursor // === ''
     return true
+  }
+
+  /** Follow the map onto a replacement canvas (gpu-boot.ts renews the element when
+   *  a fallback backend cannot have the claimed one). The replacement is an
+   *  attribute clone, so it already carries whatever cursor we had written — keep
+   *  managing it rather than re-running `claim()`, which would read our OWN inline
+   *  value as host intent and silently stop managing the cursor. */
+  retarget(next: HTMLCanvasElement): void {
+    this.canvas = next
+    if (!this.managing) return
+    // Re-arm `applied` so `apply()` actually writes: it short-circuits on an
+    // unchanged value, and the value did not change — the ELEMENT did.
+    this.applied = null
+    this.apply()
   }
 
   /** Pointer pressed (drag/rotate active) ⇒ `grabbing`. Idempotent. */

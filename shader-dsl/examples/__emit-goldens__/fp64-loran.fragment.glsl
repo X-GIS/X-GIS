@@ -34,8 +34,8 @@ vec2 df64_floor(vec2 a);
 vec2 df64_fract(vec2 a);
 float df64_narrow(vec2 a);
 vec2 df64_twoSum(float a, float b) {
-  float _cse0 = texelFetch(_fp64, ivec2(0, 0), 0).x;
   float _v0 = (a + b);
+  float _cse0 = texelFetch(_fp64, ivec2(0, 0), 0).x;
   float _v1 = (((_v0 * _cse0) - a) * _cse0);
   float _v2 = (((((a - ((_v0 - _v1) * _cse0)) * _cse0) * _cse0) * _cse0) + (b - _v1));
   return vec2(_v0, _v2);
@@ -65,9 +65,9 @@ vec2 df64_twoProd(float a, float b) {
 }
 
 vec2 df64_twoSqr(float a) {
-  float _cse0 = texelFetch(_fp64, ivec2(0, 0), 0).x;
   float _v0 = (a * a);
   vec2 _v1 = df64_split(a);
+  float _cse0 = texelFetch(_fp64, ivec2(0, 0), 0).x;
   float _v2 = (((((_v1.x * _v1.x) - _v0) * _cse0) + ((((_v1.x * _v1.y) * 2.0) * _cse0) * _cse0)) + ((((_v1.y * _v1.y) * _cse0) * _cse0) * _cse0));
   return vec2(_v0, _v2);
 }
@@ -121,30 +121,30 @@ in vec2 uv;
 layout(location = 0) out vec4 _ret;
 
 vec4 fs_loran_impl(VsOut vo) {
-  vec2 _cse7 = vec2(u.st_a.hi.x, u.st_a.lo.x);
-  vec2 _cse8 = vec2(0.0, 0.0);
-  vec2 _cse9 = vec2(u.st_a.hi.y, u.st_a.lo.y);
-  vec2 _cse10 = vec2(u.st_b.hi.x, u.st_b.lo.x);
-  vec2 _cse11 = vec2(u.st_b.hi.y, u.st_b.lo.y);
-  bool _cse0 = (vo.uv.x < 0.5);
-  vec2 _cse1 = vec2(u.center.hi.x, u.center.lo.x);
-  vec2 _cse2 = vec2(u.center.hi.y, u.center.lo.y);
-  vec2 _cse3 = df64_add(_cse7, _cse8);
-  vec2 _cse4 = df64_add(_cse9, _cse8);
-  vec2 _cse5 = df64_add(_cse10, _cse8);
-  vec2 _cse6 = df64_add(_cse11, _cse8);
   float _v0 = pow(10.0, (-u.zoom_exp));
   float _v1 = (vo.uv.x * 2.0);
+  bool _cse0 = (vo.uv.x < 0.5);
   float _v2 = (_v1 - (_cse0 ? 0.0 : 1.0));
   float _v3 = ((_v2 - 0.5) * _v0);
   float _v4 = (((vo.uv.y - 0.5) * _v0) * ((u.resolution.y / u.resolution.x) * 2.0));
   bool _v5 = (_cse0 || (u.fp64 < 0.5));
+  vec2 _cse1 = vec2(u.center.hi.x, u.center.lo.x);
+  vec2 _cse2 = vec2(u.center.hi.y, u.center.lo.y);
   vec2 _lc0 = df64_add(_cse1, vec2(_v3, 0.0));
   vec2 _lc1 = df64_add(_cse2, vec2(_v4, 0.0));
   DF64Vec2 _v6 = DF64Vec2(vec2(_lc0.x, _lc1.x), vec2(_lc0.y, _lc1.y));
+  vec2 _cse7 = vec2(u.st_a.hi.x, u.st_a.lo.x);
+  vec2 _cse8 = vec2(0.0, 0.0);
+  vec2 _cse3 = df64_add(_cse7, _cse8);
+  vec2 _cse9 = vec2(u.st_a.hi.y, u.st_a.lo.y);
+  vec2 _cse4 = df64_add(_cse9, _cse8);
   vec2 _lc2 = df64_sub(df64_add(vec2(_v6.hi.x, _v6.lo.x), _cse8), _cse3);
   vec2 _lc3 = df64_sub(df64_add(vec2(_v6.hi.y, _v6.lo.y), _cse8), _cse4);
   vec2 _v7 = df64_sqrt(df64_add(df64_mul(_lc2, _lc2), df64_mul(_lc3, _lc3)));
+  vec2 _cse10 = vec2(u.st_b.hi.x, u.st_b.lo.x);
+  vec2 _cse5 = df64_add(_cse10, _cse8);
+  vec2 _cse11 = vec2(u.st_b.hi.y, u.st_b.lo.y);
+  vec2 _cse6 = df64_add(_cse11, _cse8);
   vec2 _lc4 = df64_sub(df64_add(vec2(_v6.hi.x, _v6.lo.x), _cse8), _cse5);
   vec2 _lc5 = df64_sub(df64_add(vec2(_v6.hi.y, _v6.lo.y), _cse8), _cse6);
   vec2 _v8 = df64_sqrt(df64_add(df64_mul(_lc4, _lc4), df64_mul(_lc5, _lc5)));

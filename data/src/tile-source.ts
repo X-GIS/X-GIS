@@ -256,7 +256,11 @@ export interface TileSource {
 
   /** Fire-and-forget async producer. Backend pushes the result to
    *  sink.acceptResult when ready. */
-  loadTile(key: number): void
+  /** `force` (#1371) — produce this key even though the sink already holds data for it. Set
+   *  only by `TileCatalog.refreshTiles`, when the source's BACKEND was swapped under a host
+   *  data push and the cached tile is now stale. A backend that has no already-have guard can
+   *  ignore it. */
+  loadTile(key: number, force?: boolean): void
 
   /** OPTIONAL synchronous compile path. Backends without sync data
    *  (PMTiles, XGVT-binary) omit this. Returns true if the backend

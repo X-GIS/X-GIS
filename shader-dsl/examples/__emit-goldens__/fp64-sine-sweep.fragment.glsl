@@ -27,8 +27,8 @@ vec2 df64_sin_taylor(vec2 a);
 vec2 df64_cos_taylor(vec2 a);
 vec2 df64_sin(vec2 a);
 vec2 df64_twoSum(float a, float b) {
-  float _cse0 = texelFetch(_fp64, ivec2(0, 0), 0).x;
   float _v0 = (a + b);
+  float _cse0 = texelFetch(_fp64, ivec2(0, 0), 0).x;
   float _v1 = (((_v0 * _cse0) - a) * _cse0);
   float _v2 = (((((a - ((_v0 - _v1) * _cse0)) * _cse0) * _cse0) * _cse0) + (b - _v1));
   return vec2(_v0, _v2);
@@ -116,7 +116,6 @@ vec2 df64_cos_taylor(vec2 a) {
 
 vec2 df64_sin(vec2 a) {
   vec2 _cse0 = vec2(6.2831854820251465, -1.7484555314695172e-7);
-  vec2 _cse1 = vec2(0.7071067690849304, 1.2101617485882343e-8);
   vec2 _v0 = df64_nint(df64_div(a, _cse0));
   vec2 _v1 = df64_sub(a, df64_mul(_cse0, _v0));
   float _v2 = floor(((_v1.x / 1.5707963705062866) + 0.5));
@@ -126,6 +125,7 @@ vec2 df64_sin(vec2 a) {
   vec2 _v6 = df64_sin_taylor(_v5);
   vec2 _v7 = df64_cos_taylor(_v5);
   float _v8 = abs(_v4);
+  vec2 _cse1 = vec2(0.7071067690849304, 1.2101617485882343e-8);
   vec2 _v9 = ((_v8 == 1.0) ? vec2(0.9807852506637573, 2.9739473106360492e-8) : ((_v8 == 2.0) ? vec2(0.9238795042037964, 2.830748968563057e-8) : ((_v8 == 3.0) ? vec2(0.8314695954322815, 1.687026340846387e-8) : ((_v8 == 4.0) ? _cse1 : vec2(1.0, 0.0)))));
   vec2 _v10 = ((_v8 == 1.0) ? vec2(0.19509032368659973, -1.6704715388726754e-9) : ((_v8 == 2.0) ? vec2(0.3826834261417389, 6.2233507236442165e-9) : ((_v8 == 3.0) ? vec2(0.5555702447891235, -1.1769521357507529e-8) : ((_v8 == 4.0) ? _cse1 : vec2(0.0, 0.0)))));
   vec2 _v11 = ((_v4 >= 0.0) ? _v10 : (-_v10));
@@ -137,8 +137,8 @@ in vec2 uv;
 layout(location = 0) out vec4 _ret;
 
 vec4 fs_sweep_impl(VsOut vo) {
-  bool _cse0 = (vo.uv.x < 0.5);
   float _v0 = (vo.uv.x * 2.0);
+  bool _cse0 = (vo.uv.x < 0.5);
   float _v1 = (_v0 - (_cse0 ? 0.0 : 1.0));
   bool _v2 = (_cse0 || (u.fp64 < 0.5));
   vec2 _v3 = df64_add(u.base, vec2((_v1 * 25.132741228718345), 0.0));

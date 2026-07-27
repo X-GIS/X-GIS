@@ -21,17 +21,13 @@ fn vs(@builtin(vertex_index) vi: u32) -> VsOut {
 
 @fragment
 fn fs_cancel(vo: VsOut) -> @location(0) vec4<f32> {
-  let _cse0 = (vo.uv.x < 0.5);
-  let _cse1 = vec2<f32>(1.0, 0.0);
-  let _cse2 = vec2<f32>(0.0, 0.0);
-  let _cse3 = vec2<f32>(7.0, 0.0);
-  let _cse4 = vec2<f32>(21.0, 0.0);
-  let _cse5 = vec2<f32>(35.0, 0.0);
   let _v0 = u.half_width;
   let _v1 = (vo.uv.x * 2.0);
+  let _cse0 = (vo.uv.x < 0.5);
   let _v2 = (_v1 - select(1.0, 0.0, _cse0));
   let _v3 = ((_v2 - 0.5) * (_v0 * 2.0));
   let _v4 = (_cse0 || (u.fp64 < 0.5));
+  let _cse1 = vec2<f32>(1.0, 0.0);
   let _v5 = df64_add(_cse1, vec2<f32>(_v3, 0.0));
   let _v6 = df64_mul(_v5, _v5);
   let _v7 = df64_mul(_v6, _v5);
@@ -39,6 +35,10 @@ fn fs_cancel(vo: VsOut) -> @location(0) vec4<f32> {
   let _v9 = df64_mul(_v8, _v5);
   let _v10 = df64_mul(_v7, _v7);
   let _v11 = df64_mul(_v10, _v5);
+  let _cse2 = vec2<f32>(0.0, 0.0);
+  let _cse3 = vec2<f32>(7.0, 0.0);
+  let _cse4 = vec2<f32>(21.0, 0.0);
+  let _cse5 = vec2<f32>(35.0, 0.0);
   let _v12 = df64_narrow(df64_sub(df64_add(df64_sub(df64_add(df64_sub(df64_add(df64_sub(df64_add(_v11, _cse2), df64_mul(_v10, _cse3)), df64_mul(_v9, _cse4)), df64_mul(_v8, _cse5)), df64_mul(_v7, _cse5)), df64_mul(_v6, _cse4)), df64_mul(_v5, _cse3)), df64_add(_cse1, _cse2)));
   let _v13 = (1.0 + _v3);
   let _v14 = (_v13 * _v13);
@@ -76,8 +76,8 @@ fn fs_cancel(vo: VsOut) -> @location(0) vec4<f32> {
 }
 
 fn df64_twoSum(a: f32, b: f32) -> vec2<f32> {
-  let _cse0 = textureLoad(_fp64, vec2<i32>(0, 0), 0).x;
   let _v0 = (a + b);
+  let _cse0 = textureLoad(_fp64, vec2<i32>(0, 0), 0).x;
   let _v1 = (((_v0 * _cse0) - a) * _cse0);
   let _v2 = (((((a - ((_v0 - _v1) * _cse0)) * _cse0) * _cse0) * _cse0) + (b - _v1));
   return vec2<f32>(_v0, _v2);

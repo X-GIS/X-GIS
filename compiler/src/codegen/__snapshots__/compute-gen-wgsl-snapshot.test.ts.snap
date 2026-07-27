@@ -12,13 +12,13 @@ exports[`compute-gen WGSL snapshot — interpolate kernel > canonical interpolat
 
 @compute @workgroup_size(64)
 fn eval_interpolate(@builtin(global_invocation_id) gid: vec3<u32>) {
-  let _cse0 = vec4<f32>(1.0, 1.0, 0.0, 1.0);
-  let _cse1 = vec4<f32>(1.0, 0.0, 0.0, 1.0);
   if ((gid.x >= u_count.x)) {
     return;
   }
   let _v0 = feat_data[gid.x];
   var _v1: vec4<f32>;
+  let _cse0 = vec4<f32>(1.0, 1.0, 0.0, 1.0);
+  let _cse1 = vec4<f32>(1.0, 0.0, 0.0, 1.0);
   if ((_v0 <= 1.0)) {
     _v1 = _cse0;
   } else if ((_v0 <= 8.0)) {
@@ -44,14 +44,14 @@ exports[`compute-gen WGSL snapshot — interpolate kernel > canonical interpolat
 
 @compute @workgroup_size(64)
 fn eval_interpolate(@builtin(global_invocation_id) gid: vec3<u32>) {
-  let _cse0 = vec4<f32>(1.0, 1.0, 1.0, 1.0);
-  let _cse1 = vec4<f32>(0.5333333333333333, 0.5333333333333333, 0.5333333333333333, 1.0);
-  let _cse2 = vec4<f32>(0.0, 0.0, 0.0, 1.0);
   if ((gid.x >= u_count.x)) {
     return;
   }
   let _v0 = feat_data[gid.x];
   var _v1: vec4<f32>;
+  let _cse0 = vec4<f32>(1.0, 1.0, 1.0, 1.0);
+  let _cse1 = vec4<f32>(0.5333333333333333, 0.5333333333333333, 0.5333333333333333, 1.0);
+  let _cse2 = vec4<f32>(0.0, 0.0, 0.0, 1.0);
   if ((_v0 <= 0.0)) {
     _v1 = _cse0;
   } else if ((_v0 <= 5.0)) {
@@ -207,10 +207,10 @@ exports[`compute-gen WGSL snapshot — ternary (case) kernel > canonical case() 
 
 @compute @workgroup_size(64)
 fn eval_case(@builtin(global_invocation_id) gid: vec3<u32>) {
-  let _cse0 = (gid.x * 2u);
   if ((gid.x >= u_count.x)) {
     return;
   }
+  let _cse0 = (gid.x * 2u);
   let _v0 = feat_data[_cse0];
   let _v1 = feat_data[(_cse0 + 1u)];
   var _v2: vec4<f32>;
