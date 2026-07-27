@@ -507,13 +507,19 @@ export const miscUtilHandlers: BindingHandler[] = [
       return true
     },
   },
-  // Particle-flow layer (#1333): `particles` marks a coverage layer to ALSO draw an
-  // animated particle-flow reading of its vector field (surface currents, wind, ...),
-  // alongside (or instead of) the static `arrow` field — one field, two representations.
+  // Motion layer (#1333): `flow` marks a coverage layer to ALSO draw an animated reading
+  // of its vector field (surface currents, wind, ...) alongside the static `arrow` field.
+  //
+  // EXPLICITLY NON-CATALOGUE, and opt-in for that reason. The IHO S-111 Portrayal Catalogue
+  // defines static point symbols and nothing else — no line styles, no area fills — so a
+  // display that must be strictly conformant simply omits this keyword and gets the
+  // catalogue arrows alone. Named `flow` rather than `particles` because the motion carrier
+  // is an ADVECTED FIELD (IBFV), not a particle pool: a particle pool must recycle, and
+  // recycling is what made the earlier revision blink.
   {
-    match: (c) => c.name === 'particles',
+    match: (c) => c.name === 'flow',
     apply: (c) => {
-      c.acc.isParticles = true
+      c.acc.isFlow = true
       return true
     },
   },

@@ -257,13 +257,12 @@ export interface RenderNodeArrowPaint {
   arrowBearing?: SizeValue
 }
 
-/** Particle-flow layer (#1333). Present only on a layer marked with the
- *  `particles` utility; routes a coverage layer's runtime arm to ALSO emit an
- *  animated `particle-flow` graphics batch — a second, moving reading of the
- *  same field the (optional) `arrow` field draws statically. */
-export interface RenderNodeParticlePaint {
-  /** True when the layer is a `particles` layer (the `particles` marker utility). */
-  isParticles?: boolean
+/** Motion layer (#1333). Present only on a layer marked with the `flow` utility; routes a
+ *  coverage layer's runtime arm to ALSO draw the advected field — a second, moving reading
+ *  of the same data the (optional) `arrow` field draws statically. */
+export interface RenderNodeFlowPaint {
+  /** True when the layer is a `flow` layer (the `flow` marker utility). */
+  isFlow?: boolean
 }
 
 export interface RenderNode
@@ -277,7 +276,7 @@ export interface RenderNode
     RenderNodeHeatmapPaint,
     RenderNodeCoveragePaint,
     RenderNodeArrowPaint,
-    RenderNodeParticlePaint {
+    RenderNodeFlowPaint {
   name: string
   sourceRef: string // references SourceDef.name
   /** Optional MVT layer slice within the referenced source. When set,
