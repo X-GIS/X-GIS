@@ -87,15 +87,10 @@ invariant point.
 That is all the anchoring we need. We do not have to move to tile-local units to get MapLibre's
 _invariant_; we only have to stop starting the walk at the viewport.
 
-**Anchor rule.** Walk the polyline in mercator metres from its own first vertex, stepping
-`spacingPx / pxPerMeter` metres, first anchor at half a step. `pxPerMeter` is already computed in
-`label-pass.ts` (the `_ppmA` / `_ppmB` probe) and `spacingPx` already carries the #1358 zoom
-factor, so the on-screen cadence is unchanged by construction — only the origin moves.
+### 3.0 REFUTED BY MEASUREMENT — read before implementing §3.1
 
-### 3.0 REFUTED BY MEASUREMENT — read this before implementing
-
-The anchor rule below was implemented and measured, and it is **wrong**. Recorded here rather
-than deleted, because the rule is the obvious one and will be re-derived otherwise.
+The anchor rule in §3.1 was implemented and measured, and it is **wrong**. It is kept rather
+than deleted because it is the obvious rule and will otherwise be re-derived from scratch.
 
 Walking from the polyline's first vertex does deliver camera invariance — that part held, and
 was unit-provable — but it does NOT agree with the reference. At z16.7 the chain moved from
@@ -129,17 +124,26 @@ regression against the reference; the two must arrive together.
 
 ---
 
-Three properties fall out, and each is a test:
+### 3.1 The anchor rule (as implemented — see §3.0)
 
-1. **Pan invariance.** Panning changes which anchors are visible, never where they are. Today an
-   anchor's world position is a function of the camera; after, it is not.
+**Anchor rule.** Walk the polyline in mercator metres from its own first vertex, stepping
+`spacingPx / pxPerMeter` metres, first anchor at half a step. `pxPerMeter` is already computed in
+`label-pass.ts` (the `_ppmA` / `_ppmB` probe) and `spacingPx` already carries the #1358 zoom
+factor, so the on-screen cadence is unchanged by construction — only the origin moves.
+
+Three properties were expected to fall out, each as a test. Only the first survived contact
+with the reference:
+
+1. **Pan invariance — HELD, and is unit-provable.** Panning changes which anchors are visible,
+   never where they are: a clipped run's anchors stay a strict subset of the full run's, which
+   the screen walk cannot satisfy.
 2. **Cross-tile continuity.** Two tiles of one route, walked from their own starts, no longer
    collide phases mid-route the way two independent viewport walks do.
 3. **Pitch faithfulness.** A world-space step maps to a _varying_ screen step under pitch —
    which is what MapLibre does too, since a uniform tile-unit step is uniform in world space. The
    current screen-space walk is uniform on screen, i.e. wrong under pitch in the other direction.
 
-### 3.1 The one hard part
+### 3.2 The one hard part
 
 The curved (tangent-rotated) branch feeds `TextStage.addCurvedLineLabel(polyX, polyY,
 anchorDistancePx, …)` — a SCREEN polyline plus an along-**screen** distance. World-space anchors
@@ -157,7 +161,7 @@ The viewport-aligned branch needs no mapping — it consumes the anchor point di
 
 Each lands separately, green, with its own gate. No increment is allowed to change the cadence.
 
-**INC-1 — world-anchored phase, viewport-aligned branch.**
+**INC-1 — world-anchored phase, viewport-aligned branch. ATTEMPTED, NOT LANDED (§3.0).**
 Replace the screen walk with the mercator walk for `text-rotation-alignment: viewport` line
 symbols (the OFM shield layers). Smallest blast radius: no curved mapping, and the shields are
 exactly what the reference measurements cover.
@@ -166,7 +170,7 @@ pan-invariance test — dispatch the same polyline under two camera translations
 emitted world anchors are identical, which is impossible to satisfy with the screen walk.
 
 **INC-2 — world-anchored phase, curved branch.**
-Add the mercator↔screen arc-length mapping of §3.1 and switch the curved stops.
+Add the mercator↔screen arc-length mapping of §3.2 and switch the curved stops.
 _Gate:_ road-name labels hold position under pan (same invariance test, curved path); the
 existing curved-label suites stay green.
 
