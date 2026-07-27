@@ -63,9 +63,10 @@ const ALLOWED: Record<string, readonly string[]> = {
   pipeline: [],
 }
 
-/** Legacy / app-layer packages outside the gate: runtime is the pre-#732
- *  monolith being retired; playground + site are consumers, not libraries. */
-const EXEMPT = new Set(['runtime', 'playground', 'site'])
+/** App-layer packages outside the gate: playground + site are consumers, not
+ *  libraries. (`runtime` was here too, as "the pre-#732 monolith being retired";
+ *  the retirement completed — the package no longer exists.) */
+const EXEMPT = new Set(['playground', 'site'])
 
 /** Known violations pinned for burn-down (#929 A/B). Shrink-only: removing
  *  the last offending import must delete the entry here in the same commit. */

@@ -51,24 +51,46 @@ export class CoverageTimePlayer {
   }
 
   /** Loop `step(nextIndex)` every `stepMs`, wrapping at `count`; `axis()` returns the live
-   *  {index, count} of the currently-displayed group (or null to stop). Restarts cleanly. */
+   *  {index, count} of the currently-displayed group (or null to stop). Restarts cleanly.
+   *
+   *  `interp` (#1333) smooths the hour-to-hour cut: instead of one `step()` every `stepMs`, it
+   *  ticks `interp.steps` times at `stepMs / interp.steps` — the first `steps - 1` ticks call
+   *  `interp.stepFraction(fromIndex, toIndex, t)` (a TRANSIENT blended frame, `t ∈ (0,1)`
+   *  exclusive of both ends), and the LAST tick calls the real `step(toIndex)`, landing exactly
+   *  where non-interpolated playback would. Total dwell per hour is unchanged (`steps × subMs
+   *  = stepMs`); only the number of visible increments grows. Omit (or `steps ≤ 1`) for the
+   *  original one-tick-per-hour behaviour, byte-identical (this is the `steps` default). */
   play(
     axis: () => { index: number; count: number } | null,
     step: (index: number) => Promise<void>,
     stepMs: number,
+    interp?: {
+      steps: number
+      stepFraction: (fromIndex: number, toIndex: number, t: number) => Promise<void>
+    },
   ): void {
     this.pause()
+    const steps = Math.max(1, Math.floor(interp?.steps ?? 1))
+    const subMs = stepMs / steps
+    let sub = 0 // which sub-frame within the CURRENT hour-to-hour transition, 0-based
     const tick = async (): Promise<void> => {
       const a = axis()
       if (!a || a.count <= 1) return // source gone / single-group → stop
+      const toIndex = (a.index + 1) % a.count
+      sub++
       try {
-        await step((a.index + 1) % a.count)
+        if (sub < steps) {
+          await interp!.stepFraction(a.index, toIndex, sub / steps)
+        } else {
+          sub = 0
+          await step(toIndex) // the real hour swap — lands exactly where non-interp play would
+        }
       } catch {
         return // a failed step stops playback, never an unhandled rejection that crashes the app
       }
-      this.timer = setTimeout(() => void tick(), stepMs)
+      this.timer = setTimeout(() => void tick(), subMs)
     }
-    this.timer = setTimeout(() => void tick(), stepMs)
+    this.timer = setTimeout(() => void tick(), subMs)
   }
 
   /** Stop playback. Idempotent (safe from `pause()` and `destroy()`). */

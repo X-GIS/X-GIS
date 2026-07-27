@@ -48,6 +48,24 @@ describe('#824/#825 retained-arrow shader — DSL emission', () => {
     expect(w).toContain('fwidth')
     expect(w).toContain('discard;')
   })
+
+  // #1333 — the black outline stroke. A per-instance `stroke_units` varying (0 for every
+  // existing caller = no outline) drives an analytic SDF stroke band INSIDE this shader —
+  // not a second offset batch (a prior "bigger arrow underneath" attempt was reverted for
+  // flaring unevenly around the arrowhead; see coverage-arrow-show.ts history).
+  it('carries a flat-interpolated stroke_units varying (location 3)', () => {
+    expect(w).toContain('@location(3) @interpolate(flat) stroke_units: f32')
+  })
+
+  it('composites the outline via mix(fill, black, strokeCov) — NOT mix by fill coverage', () => {
+    // The specific formula matters: blending toward black by the FILL coverage (not a
+    // stroke-only coverage) would darken every existing arrow's AA edge even at
+    // stroke_units=0 — a regression caught and fixed before this shipped (see
+    // arrow-retained-outline-math.test.ts for the algebraic proof). This asserts the
+    // actual compiled WGSL uses `max(covTotal - covFill, 0)` as the mix factor, not covFill
+    // directly, by checking the mix call's third argument is a max(...) expression.
+    expect(w).toMatch(/mix\(in\.tint\.xyz, vec3<f32>\(0\.0, 0\.0, 0\.0\), max\(/)
+  })
 })
 
 // #823 — the WebGL2/GLSL twin. Same module split per stage, storage buffers
@@ -78,5 +96,15 @@ describe('#823 retained-arrow shader — GLSL ES 3.00 twin', () => {
 
   it('frame uniform stays the shared pointU block (UBO tag = struct name)', () => {
     expect(vs).toContain('uniform Uniforms')
+  })
+
+  // #1333 — the outline varying + composite survive the GLSL twin unchanged.
+  it('carries stroke_units across the vertex→fragment varying boundary', () => {
+    expect(vs).toContain('flat out float stroke_units;')
+    expect(fs).toContain('flat in float stroke_units;')
+  })
+
+  it('composites the outline via mix(fill, black, strokeCov) in GLSL too', () => {
+    expect(fs).toMatch(/mix\(in_\.tint\.xyz, vec3\(0\.0, 0\.0, 0\.0\), max\(/)
   })
 })

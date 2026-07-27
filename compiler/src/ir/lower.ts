@@ -479,6 +479,8 @@ function lowerLayer(
   // Arrow layer (#1302): marker + per-feature bearing (bearing-[.dir] / bearing-N).
   let isArrow: boolean | undefined
   let arrowBearing: SizeValue | undefined
+  // Particle-flow layer (#1333): marker for an animated coverage vector-field reading.
+  let isParticles: boolean | undefined
   let isHeatmap: boolean | undefined
   let heatmapRadius: number | undefined
   let heatmapWeight: number | undefined
@@ -790,6 +792,7 @@ function lowerLayer(
     isHeatmap,
     isArrow,
     arrowBearing,
+    isParticles,
     heatmapRadius,
     heatmapWeight,
     heatmapIntensity,
@@ -960,6 +963,7 @@ function lowerLayer(
   hillshadeExtraSources = acc.hillshadeExtraSources
   isArrow = acc.isArrow
   arrowBearing = acc.arrowBearing
+  isParticles = acc.isParticles
   isHeatmap = acc.isHeatmap
   heatmapRadius = acc.heatmapRadius
   heatmapWeight = acc.heatmapWeight
@@ -1218,6 +1222,7 @@ function lowerLayer(
     isHeatmap,
     isArrow,
     arrowBearing,
+    isParticles,
     heatmapRadius,
     heatmapWeight,
     heatmapIntensity,

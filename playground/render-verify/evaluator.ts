@@ -69,7 +69,7 @@ interface Mutation {
 const MUTATIONS: Mutation[] = [
   {
     name: 'mercator-scale +1% (WORLD_MERC × 1.01)',
-    file: 'runtime/src/engine/gpu/gpu-shared.ts',
+    file: 'geo/src/world-scale.ts',
     find: 'export const WORLD_MERC = 40075016.686',
     // ×1.01 perturbs the px-per-metre that drives the mercator MVP → every
     // fixture vertex lands ~1% off the d3 reference (tens of px at the
@@ -117,7 +117,7 @@ const MUTATIONS: Mutation[] = [
   // yet exercised by a distinct mutation (deferred; see M2 report mustFix).
   {
     name: 'NaN injection (Camera.FOV → NaN)',
-    file: 'runtime/src/engine/projection/camera.ts',
+    file: 'map/src/camera/camera.ts',
     find: 'static readonly FOV = 0.6435011087932844 * 180 / Math.PI',
     replace: 'static readonly FOV = 0.6435011087932844 * 180 / Math.PI * NaN',
   },
@@ -135,7 +135,7 @@ const MUTATIONS: Mutation[] = [
   //      addInitScript) — the RC1 black-frame fix. That backend tiles via
   //      geojsonvt (compiler/src/tiler/geojsonvt/*) → MVT → mvtPool.compile.
   //      `splitLineAtAntiMeridian` lives ONLY in the legacy
-  //      runtime/src/loader/geojson.ts::tessellateLineString path
+  //      data/src/geojson.ts::tessellateLineString path
   //      (GeoJSONRuntimeBackend), which the harness BYPASSES. So inverting it
   //      cannot perturb the rendered frame — PROBED: mutated antimeridian
   //      frame is byte-identical to baseline (mismatch 0.593%, rose=1311,
@@ -162,7 +162,7 @@ const MUTATIONS: Mutation[] = [
   // the gap or fabricating an on-path mutation chosen only to pass.
   {
     name: 'seam-break (antimeridian split early-return inverted)',
-    file: 'runtime/src/loader/geojson-helpers.ts',
+    file: 'data/src/geojson-helpers.ts',
     find: 'if (!needsSplit) return [coords]',
     replace: 'if (needsSplit) return [coords]',
     outOfScope:
@@ -187,7 +187,7 @@ const MUTATIONS: Mutation[] = [
   // catching oracle.)
   {
     name: 'mercator-scale via TILE_PX (×0.98, distinct from WORLD_MERC)',
-    file: 'runtime/src/engine/gpu/gpu-shared.ts',
+    file: 'geo/src/world-scale.ts',
     find: 'export const TILE_PX = 512',
     replace: 'export const TILE_PX = 512 * 0.98',
   },
@@ -205,7 +205,7 @@ interface OracleRun {
  *
  * CRITICAL — clear vite's optimizeDeps cache first. The playground pre-bundles
  * the @xgis/map workspace dep into node_modules/.vite; a mutation to
- * runtime/src is NOT re-read by a fresh `playwright test` unless that cache is
+ * map/src is NOT re-read by a fresh `playwright test` unless that cache is
  * busted, so the mutated render would be byte-identical to baseline (a false
  * MISS). Proven: with the cache cleared, WORLD_MERC×1.01 moves the numeric
  * forward-agreement 4e-5 → 12.7px and the gate goes red.

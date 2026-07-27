@@ -112,7 +112,7 @@ function fmt(ms: number): string {
 // run it either, so we skip it locally too. Keep in sync with test.yml's `code`
 // filter.
 const CODE_PATH =
-  /^(compiler|runtime|engine|map|shared|blueprint|shader-dsl|rhi|rhi-webgl2|rhi-webgpu|data|pipeline|playground)\/|(^|\/)package\.json$|^bun\.lockb?$|^tsconfig.*\.json$|^vitest\.config\.ts$|^\.github\/workflows\/test\.yml$|^scripts\/precheck\.ts$/
+  /^(compiler|engine|map|shared|geo|blueprint|shader-dsl|rhi|rhi-webgl2|rhi-webgpu|data|pipeline|playground)\/|(^|\/)package\.json$|^bun\.lockb?$|^tsconfig.*\.json$|^vitest\.(config|setup)\.ts$|^\.github\/workflows\/test\.yml$|^scripts\/precheck\.ts$/
 
 /**
  * The files this push would add, or `null` if the range can't be determined
@@ -153,7 +153,7 @@ if (!RUN_SMOKE && !RUN_MATRIX && process.env.PRECHECK_FORCE !== '1') {
   if (changed !== null && changed.length > 0 && !changed.some((f) => CODE_PATH.test(f))) {
     console.log(
       `\n✓ precheck SKIPPED — ${changed.length} changed file(s), none under a tested code ` +
-        `path.\n  (compiler/runtime/engine/map/shared/blueprint/shader-dsl/rhi/data/pipeline/` +
+        `path.\n  (compiler/engine/map/shared/geo/blueprint/shader-dsl/rhi/data/pipeline/` +
         `playground or a build/config file.)\n  Force with \`PRECHECK_FORCE=1 bun run precheck\`.`,
     )
     process.exit(0)

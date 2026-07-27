@@ -340,7 +340,7 @@ jobs:
       # builds are dead weight here; only the packages the site imports through
       # package `exports` (compiler, blueprint) need dist, plus their upstream
       # chain (shared, shader-dsl). Proven 2026-07-07: site builds green with
-      # engine/runtime/map/playground dist deleted — 29s vs 72s for the full
+      # engine/map/playground dist deleted — 29s vs 72s for the full
       # build. If the site ever imports a NEW workspace package without a
       # source alias, add its build to this chain.
       - run: >-

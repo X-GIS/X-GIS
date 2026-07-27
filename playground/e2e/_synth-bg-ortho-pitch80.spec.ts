@@ -268,7 +268,7 @@ test.describe('AC2c.3.2 — SyntheticEarthSurfaceBackend mesh density (32×16)',
           'Root cause: slice-key mismatch — uploadTile stores under sourceLayer="" ' +
           'but render() looks up via show.targetName="__synthetic_earth_surface__". ' +
           'Fix: set sourceLayer:"" in buildSyntheticEarthSurfaceShow() in ' +
-          'runtime/src/engine/synthetic-earth-surface-show.ts',
+          'map/src/synthetic-earth-surface-show.ts',
       )
     }
 
@@ -284,7 +284,7 @@ test.describe('AC2c.3.2 — SyntheticEarthSurfaceBackend mesh density (32×16)',
                   uploadKey: '',
                   renderLookupKey: '__synthetic_earth_surface__',
                   fix: 'set sourceLayer:"" in buildSyntheticEarthSurfaceShow()',
-                  file: 'runtime/src/engine/synthetic-earth-surface-show.ts',
+                  file: 'map/src/synthetic-earth-surface-show.ts',
                 }
               : null,
         },
