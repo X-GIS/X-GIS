@@ -411,10 +411,28 @@ const CEILINGS: Record<string, number> = {
   // different methods, so the merged file measures their SUM — not max() of the two ceilings.
   // Same accounting the render-loop.ts entry below already records for the #1272 merge.
   //
+  // +91 (#1158 S-102 live refresh): the three public refresh methods (`refreshCoverage` —
+  // probe, decide, epoch-guarded re-read, re-arm; the `autoRefreshCoverage` /
+  // `stopAutoRefreshCoverage` pair) + the scheduler field + its destroy() stop. The POLICY
+  // (validator comparison, the decision table, the poll loop's lifecycle) lives in
+  // coverage-refresh.ts and is unit-tested there; map.ts keeps only the `this`-coupled
+  // wiring, mirroring the coverage-time.ts precedent. Partly paid for by extracting
+  // `_rearmCoverage` — the post-swap re-arm block setCoverageData and setCoverageTime each
+  // carried a copy of, now one authority the three swap paths share. Post-hook.
+  //
+  // MERGE UNION #2 (#1158 <- main @ 4accf02): main's #1367 freeze fix and this branch's
+  // `_rearmCoverage` extraction landed on the SAME block — the fix replaced
+  // `rebuildLayers()` with `_armCoverageFields()` inside the block the extraction moved. The
+  // resolution keeps BOTH: the extracted single authority now carries the coverage-arm-only
+  // re-arm, so neither the freeze fix nor the de-duplication was dropped. Measured 5452 =
+  // 5330 + 31 (main) + 91 (branch). Lower as #991 decomposes map.ts.
   // +1 (#1371): the `getVtSource` SourceManager dep, so a host data push swaps a source's
   // backend on the LIVE catalog instead of tearing the pair down. One line, same union
   // accounting as above — non-overlapping with the three bundles, so the merged file is 5362.
-  'map/src/map.ts': 5362,
+  // MERGE UNION #3 (#1158 <- main @ 904a528): both sides' deltas are non-overlapping edits
+  // to different methods, so the merged file measures their SUM. Value below is the MEASURED
+  // post-hook line count, not an arithmetic guess.
+  'map/src/map.ts': 5406,
   // Baselined at #1255 (measured 830): the DOM-inspired layer API crossed
   // NEW_FILE_CAP with the paint-transition style-setter integration — the
   // StyleHost.transitions context, the shared applyNumber/applyColor
@@ -434,16 +452,25 @@ const CEILINGS: Record<string, number> = {
   // existing 846 measurement — no growth.)
   // 846→849 (#1272): thread the coverage source's ramp/range display options
   // onto the `_coverage` marker so rebuild arms the CoverageRenderer with them.
+  // 849→841 (#1158 S-102 live refresh): the coverage attach's range-then-whole-file
+  // ladder moved to `coverage-fetch.ts` so `Map.refreshCoverage` reads through the same
+  // authority. Ceiling LOWERED to lock the extraction in, per this gate's own rule.
   // 849→925 (#1371 atomic re-seed): `_reseedInPlace` — the data-swap sibling of the attach.
   // It repeats that method's bookkeeping (reproject → seeded FC → polar caps → heatmap points)
   // against the SAME catalog, then swaps the backend. Sharing the body with the attach would
   // mean parameterising camera-fit, pipeline setup and registration away — more coupling than
   // the 76 lines cost.
+  // MERGE UNION: a −8 extraction and a +76 addition to different methods, so the merged file
+  // measures 849 − 8 + 76. The extraction stays locked in — the union is the SUM of the two
+  // deltas, never max() of the two ceilings.
   // 925→926 (#1272 E-④ multi-region): ONE line — the `DEFAULT_REGION` import. A coverage
   // source now holds a keyed Map of regions, so the declared single cell must name the key it
   // lands on. There is nothing to extract: the ingest branch itself did not grow, and the same
   // change moved 100+ lines of region/time-axis logic OUT of map.ts into coverage-source.ts
   // (map/src/map.ts came DOWN 5362→5339 in the same commit).
+  // MERGE UNION (#1158 <- #1272 E-④): a −8 extraction (the coverage attach's fetch ladder moved
+  // to coverage-fetch.ts, shared with refreshCoverage) and main's +77 are edits to different
+  // methods, so the merged file measures their SUM. The extraction stays locked in.
   // MERGE UNION (#1353 × #1371/#1272): both sides edited this file over the same 849 base and
   // the edits do not overlap, so they SUM — never take one side, never max() the two ceilings.
   // #1353's teardown fix added `_dropTilingIndexWithCatalog` + its two attach call sites (+22)
@@ -451,7 +478,8 @@ const CEILINGS: Record<string, number> = {
   // features-array guard, ingest-budget guard) to source-data-normalize.ts (−36 net) — that
   // block never touched `this`, and setSourceData is now just the re-seed-vs-raw-write
   // decision. Ceiling below is the MERGED file's actual wc -l, measured after prettier.
-  'map/src/source-manager.ts': 912,
+  // MERGE UNION: both sides' deltas are non-overlapping, so the value is the MEASURED count.
+  'map/src/source-manager.ts': 903,
   // 1920→1930 (#1042 R3): the globe limb cull for MULTI-LINE labels must land in
   // the collision phase — the ONLY site holding the label's quad half-height (the
   // collision box IS the height authority; the label-pass dispatch site has only

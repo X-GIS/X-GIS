@@ -54,7 +54,7 @@ import { detectCapPoles, type CapPoles } from '@xgis/data'
 import * as tilingPool from '@xgis/data'
 import { reprojectFeatureCollection } from '@xgis/data'
 import { pointPatchToFeatureCollection, type PointPatch } from '@xgis/data'
-import { readCoverage, readCoverageRange } from '@xgis/data'
+import { fetchCoverageHandle } from './coverage-fetch'
 import { SOURCE_TYPES } from '@xgis/compiler'
 import type { SourceLoader } from './source-loader'
 import { normaliseHostPushedData } from './source-data-normalize'
@@ -345,19 +345,10 @@ export class SourceManager {
     if (declaredType === 'coverage') {
       const label = `coverage source "${load.name}"`
       const safe: typeof fetch = (u, init) => safeFetch(String(u), init, label) // SSRF guard
-      let handle
-      try {
-        // Range-stream: only the metadata + grid read, not the whole multi-timestep cell (~⅓ bytes).
-        handle = await readCoverageRange(url, { fetch: safe })
-      } catch {
-        // Fallback when the server does not honour HTTP Range: whole-file fetch (original path).
-        const response = await safe(url)
-        if (!response.ok)
-          throw new Error(`[X-GIS] coverage "${load.name}" — HTTP ${response.status}`)
-        const raw = await readBodyCapped(response, 256 * 1024 * 1024, label)
-        const buf = raw.buffer.slice(raw.byteOffset, raw.byteOffset + raw.byteLength)
-        handle = await readCoverage(buf, url)
-      }
+      // The range-then-whole-file ladder lives in coverage-fetch.ts, shared with
+      // `refreshCoverage` (#1158): read the same way at attach and at refresh, or a
+      // Range-hostile server works once and breaks on the first re-read.
+      const handle = await fetchCoverageHandle(url, label, safe)
       // DATA-ONLY (ramp/range are LAYER paint, #1158 INC-D); one DECLARED cell ⇒ one region,
       // and coverage-source.ts owns residency + the time axis from here (#1272).
       this.rawDatasets.set(load.name, { _coverage: new Map([[DEFAULT_REGION, { handle, url }]]) })

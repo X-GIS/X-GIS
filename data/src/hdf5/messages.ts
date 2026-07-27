@@ -271,9 +271,26 @@ export function parseAttribute(c: Cursor, start: number): AttributeMsg {
   return { name, datatype, dims, value }
 }
 
+/** Fault in a whole global-heap collection so `readGlobalHeapObject` can read it
+ *  synchronously. Two steps because the collection's size lives in its own header: a
+ *  small prefix first, then exactly `collectionSize`. Needed by the RANGE reader, where
+ *  a heap sitting far from the metadata the caller already ensured is not resident. */
+export async function ensureGlobalHeap(c: Cursor, heapAddr: number): Promise<void> {
+  await c.ensure(heapAddr, Math.min(32, c.byteLength - heapAddr))
+  const save = c.pos
+  c.seek(heapAddr)
+  c.signature('GCOL', 'global heap collection')
+  c.u8() // version
+  c.skip(3) // reserved
+  const collectionSize = c.length()
+  c.seek(save)
+  await c.ensure(heapAddr, Math.min(collectionSize, c.byteLength - heapAddr))
+}
+
 /** Read one object from a global heap collection ("GCOL") by index — backs the
- *  vlen-string attribute decode (h5py stores `str` attributes as vlen strings). */
-function readGlobalHeapObject(c: Cursor, heapAddr: number, index: number): Uint8Array {
+ *  vlen-string decode for both attributes (h5py stores `str` attributes as vlen
+ *  strings) and the Group_F band table real NOAA S-102 cells ship. */
+export function readGlobalHeapObject(c: Cursor, heapAddr: number, index: number): Uint8Array {
   c.seek(heapAddr)
   c.signature('GCOL', 'global heap collection')
   c.u8() // version

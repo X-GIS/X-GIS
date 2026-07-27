@@ -8,7 +8,7 @@
 // lives here, exactly where the retired `s100-to-xgcov` converter did it.
 
 import { openHdf5, openHdf5Url, type RangeReaderOptions } from './index'
-import { readS102Coverage } from './s102'
+import { readS102Coverage, type Bbox } from './s102'
 import { coverageFromGrids, southFirstToNorthUp, type CoverageHandle } from '../coverage/format'
 
 /** Build the north-up CoverageHandle from a reader `S100Coverage` (the single
@@ -31,7 +31,9 @@ function toHandle(cov: Awaited<ReturnType<typeof readS102Coverage>>): CoverageHa
     vertical: cov.vertical,
     // `time` carries the forecast group decoded + the axis it sits on (numGRP, interval),
     // so a caller can read the handle's valid-time and know how many hours are steppable.
-    sourceMeta: { horizontalCRS: cov.horizontalCRS, time: cov.time },
+    // `window` is non-null only for a bbox read: the grid keeps its FULL geometry, so a
+    // consumer needs this to tell "outside the fetched window" from "nodata here".
+    sourceMeta: { horizontalCRS: cov.horizontalCRS, time: cov.time, window: cov.window },
   })
 }
 
@@ -40,7 +42,7 @@ function toHandle(cov: Awaited<ReturnType<typeof readS102Coverage>>): CoverageHa
  *  mis-renders) on any out-of-subset HDF5 construct or a grid/geometry mismatch. */
 export async function readCoverageFromHdf5(
   hdf5Bytes: ArrayBuffer,
-  opts?: { group?: number },
+  opts?: { group?: number; bbox?: Bbox },
 ): Promise<CoverageHandle> {
   return toHandle(await readS102Coverage(await openHdf5(hdf5Bytes), opts))
 }
@@ -51,10 +53,20 @@ export async function readCoverageFromHdf5(
  *  pyramids; this reads only what the CoverageHandle needs, so a ~12 MB cell streams in
  *  ~⅓ the bytes. Produces the identical handle to the buffer path — same geometry, same
  *  values — so nothing downstream changes. The server MUST honour Range (a CORS proxy
- *  that does is the norm); callers fall back to `readCoverage(buffer)` when it does not. */
+ *  that does is the norm); callers fall back to `readCoverage(buffer)` when it does not.
+ *
+ *  `bbox` narrows the read further to the chunks covering one geographic window — the
+ *  viewport-streaming path for a cell too large to hold whole. The handle keeps the
+ *  cell's FULL geometry; cells outside the window read as NaN and `meta.sourceMeta.window`
+ *  says which region is actually resident. */
 export async function readCoverageFromHdf5Url(
   url: string,
-  opts?: RangeReaderOptions & { blockSize?: number; group?: number },
+  opts?: RangeReaderOptions & { blockSize?: number; group?: number; bbox?: Bbox },
 ): Promise<CoverageHandle> {
-  return toHandle(await readS102Coverage(await openHdf5Url(url, opts), { group: opts?.group }))
+  return toHandle(
+    await readS102Coverage(await openHdf5Url(url, opts), {
+      group: opts?.group,
+      bbox: opts?.bbox,
+    }),
+  )
 }

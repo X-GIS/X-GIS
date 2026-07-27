@@ -17,7 +17,14 @@
 //     that coverage arm with none of the rest.
 
 import { readCoverage, readCoverageRange } from '@xgis/data'
-import type { CoverageHandle, CoverageTime } from '@xgis/data'
+import type { Bbox, CoverageHandle, CoverageTime } from '@xgis/data'
+import { fetchCoverageHandle } from './coverage-fetch'
+import {
+  decideRefresh,
+  probeValidator,
+  type CoverageRefreshScheduler,
+  type RefreshReason,
+} from './coverage-refresh'
 import type { CoverageTimePlayer } from './coverage-time'
 import { resolveForecastGroup } from './coverage-time'
 import type { CoverageRenderer } from './render/coverage-renderer'
@@ -40,6 +47,15 @@ export interface CoverageSourceDeps {
   /** Drop one region's compiled arrow glyphs. */
   clearArrows: (region: string) => void
   invalidate: () => void
+  /** Live-refresh state: last-seen validators + the poll timers (#1158). The POLICY
+   *  (validator comparison, the decision table, the loop's lifecycle) lives in
+   *  coverage-refresh.ts and is unit-tested there; this module only drives it. */
+  refresh: CoverageRefreshScheduler
+  /** The caller's SSRF-guarded fetch for `label`. Injected rather than reached for, so
+   *  this module never picks a fetch itself — same contract coverage-fetch.ts holds. */
+  guardedFetch: (label: string) => typeof fetch
+  /** True once the map is destroyed — a re-read that lands afterwards must not arm. */
+  destroyed: () => boolean
 }
 
 export interface PushCoverageOpts {
@@ -227,4 +243,89 @@ export async function readRegionsAtGroup(
     }),
   )
   return out
+}
+
+// ── Live refresh: re-read a rolling URL only when its content changed (#1158) ──
+//
+// RE-HOMED here from map.ts by the multi-region merge (#1272 E-④ / #1399). It was written
+// against the one-coverage model and now serves the SAME residency the push and step paths
+// do, which is what lets the three share `writeRegion` / `armRegion` and — crucially — ONE
+// epoch counter per region. On separate counters a refresh landing after a forecast step
+// would silently revert the hour, the exact failure that counter exists to prevent.
+//
+// Validators are keyed per (source, REGION), not per source: a mosaic's regions are
+// different URLs, and one shared validator would let a probe of one region decide for
+// another. The poll TIMER stays keyed by source — one loop per source, refreshing every
+// region it holds.
+
+/** Validator key for one region of one source. The scheduler is a generic keyed store, so
+ *  the composite lives here rather than leaking a region concept into it. */
+const validatorKey = (sourceId: string, region: string): string => `${sourceId}::${region}`
+
+export interface RefreshCoverageOpts {
+  force?: boolean
+  bbox?: Bbox
+  group?: number
+}
+
+/** Re-read every region of `sourceId` whose content changed. See `XGISMap.refreshCoverage`.
+ *
+ *  Reports `changed: true` when ANY region re-read, with the reason of the first region that
+ *  decided to read — a per-region reason list would be a bigger API than the one caller
+ *  needs, and a mosaic's regions are the same URL family. */
+export async function refreshCoverageSource(
+  deps: CoverageSourceDeps,
+  sourceId: string,
+  opts?: RefreshCoverageOpts,
+): Promise<{ changed: boolean; reason: RefreshReason }> {
+  const regions = coverageRegions(deps, sourceId)
+  if (!regions)
+    throw new Error(`[X-GIS] refreshCoverage: "${sourceId}" is not a declared coverage source.`)
+  if (![...regions.values()].some((e) => e.url))
+    throw new Error(
+      `[X-GIS] refreshCoverage: "${sourceId}" was host-pushed without a URL — there is ` +
+        `nothing to re-read (pass \`url\` to setCoverageData, or declare a \`coverage\` source).`,
+    )
+  // Concurrently: a mosaic's neighbours are independent URLs, and each carries its own
+  // region epoch, so one slow re-read cannot cancel another's.
+  const results = await Promise.all(
+    [...regions].map(([region, entry]) =>
+      refreshOneRegion(deps, sourceId, region, entry.url, opts),
+    ),
+  )
+  return results.find((r) => r.changed) ?? results[0] ?? { changed: false, reason: 'unchanged' }
+}
+
+async function refreshOneRegion(
+  deps: CoverageSourceDeps,
+  sourceId: string,
+  region: string,
+  url: string | undefined,
+  opts?: RefreshCoverageOpts,
+): Promise<{ changed: boolean; reason: RefreshReason }> {
+  // A urlless host push has nothing to re-read; its siblings still refresh.
+  if (!url) return { changed: false, reason: 'unchanged' }
+  const label = `coverage source "${sourceId}"`
+  const safe = deps.guardedFetch(label)
+  // Revalidation is a cheap HEAD probe, NOT a conditional GET: the read path is HTTP Range,
+  // and a 304 on a ranged read is not something the reader can consume.
+  const probed = opts?.force ? null : await probeValidator(url, safe)
+  const key = validatorKey(sourceId, region)
+  const decision = decideRefresh(deps.refresh.validator(key), probed, opts?.force)
+  if (!decision.read) return { changed: false, reason: decision.reason }
+
+  const token = deps.time.nextEpoch(region)
+  const handle = await fetchCoverageHandle(url, label, safe, {
+    ...(opts?.bbox ? { bbox: opts.bbox } : {}),
+    ...(opts?.group ? { group: opts.group } : {}),
+  })
+  // Superseded by a newer read of THIS region, or the map went away — never arm stale data.
+  if (!deps.time.isCurrent(token, region) || deps.destroyed())
+    return { changed: false, reason: decision.reason }
+  deps.refresh.rememberValidator(key, probed)
+  if (!writeRegion(deps, sourceId, region, { handle, url }))
+    return { changed: false, reason: decision.reason }
+  armRegion(deps, handle, region)
+  deps.invalidate()
+  return { changed: true, reason: decision.reason }
 }
