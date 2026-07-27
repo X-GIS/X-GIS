@@ -13,13 +13,17 @@
 //           controller was GC'd. The fix removes the listener on the
 //           resolve path too.
 //
-//   FIX 3 — tileFetchLogThrottle defeated by query-param templates, and
-//           unbounded. The throttle key only collapsed a PATH-shaped
-//           /z/x/y run, so a "?z=..&x=..&y=.." template kept a distinct key
-//           per tile and every failing tile warned. The same Map also had
-//           no sweep and no cap. The fix collapses digit runs in the query
-//           string too and bounds the Map the way its negative-cache
-//           sibling already is.
+//   FIX 3 — tileFetchLogThrottle defeated whenever the key was re-derived
+//           from the SUBSTITUTED tile URL by regex, and unbounded. Any
+//           template the regex could not fold kept a distinct key per tile,
+//           so every failing tile warned (#1354): a "?z=..&x=..&y=.."
+//           query template, a numeric path segment before z/x/y (the
+//           non-anchored digit run matched the WRONG triple), and a
+//           non-slash "{z}-{x}-{y}" separator (no digit run at all). The fix
+//           keys on the source's tile-URL TEMPLATE, which is known at the
+//           call site — no derivation, so no shape can defeat it. The same
+//           Map also had no sweep and no cap; it is now bounded the way its
+//           negative-cache sibling already is.
 //
 // Every fix is driven through the PUBLIC TileJSONSource fetcher (which
 // calls the module-private fetchTileWithRetry). A {z}/{x}/{y} template
@@ -202,10 +206,21 @@ describe('FIX 3 — tile-fetch log throttle survives templates and stays bounded
     return resolved!.fetcher
   }
 
-  /** Drive one tile to exhaustion. Only setTimeout is faked so the two
-   *  backoff sleeps flush instantly while Date.now() stays REAL — the whole
-   *  loop then sits inside one 60 s throttle window, which is exactly the
-   *  upstream-outage burst the throttle exists for. */
+  const T0 = Date.UTC(2026, 0, 1)
+
+  /** Install this suite's clocks: setTimeout/clearTimeout so the two backoff
+   *  sleeps flush instantly, and Date pinned to T0 so the throttle's 60 s
+   *  window is measured against a CONTROLLED clock. With a real Date.now()
+   *  every count below silently depends on the whole burst finishing inside
+   *  one wall-clock minute — fast locally, not a property of the code. */
+  function useThrottleTimers(): void {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] })
+    vi.setSystemTime(T0)
+  }
+
+  /** Drive one tile to exhaustion. Note runAllTimersAsync advances the FAKE
+   *  clock by both backoff sleeps (1.2 s), so a long loop must re-pin the
+   *  clock to stay inside one throttle window. */
   async function failTile(
     fetcher: (z: number, x: number, y: number, s: AbortSignal) => Promise<unknown>,
     z: number,
@@ -223,7 +238,7 @@ describe('FIX 3 — tile-fetch log throttle survives templates and stays bounded
     // so all 25 distinct tiles got 25 distinct keys and 25 warns.
     const fetcher = await publicFetcherFor('https://tiles.example.com/t?z={z}&x={x}&y={y}')
     const signal = new AbortController().signal
-    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+    useThrottleTimers()
     try {
       for (let i = 0; i < 25; i++) await failTile(fetcher, 5, i, 0, signal)
     } finally {
@@ -233,16 +248,106 @@ describe('FIX 3 — tile-fetch log throttle survives templates and stays bounded
     expect(__tileFetchLogThrottleSizeForTest()).toBe(1)
   })
 
+  // Both shapes defeated a key re-derived from the substituted URL. Executing
+  // the pre-fix helper on 8 tiles of one pan (z=5, x=y=0..7) yielded 8 keys
+  // for each: the first because the non-anchored /\d+\/\d+\/\d+/ matched the
+  // LEADING `/2/5/x` and left y as its own segment, the second because there
+  // is no slash-separated digit run to match at all.
+  it.each([
+    ['a numeric path segment before z/x/y', 'https://tiles.example.com/2/{z}/{x}/{y}.pbf'],
+    ['a non-slash {z}-{x}-{y} separator', 'https://tiles.example.com/tiles/{z}-{x}-{y}.pbf'],
+  ])('emits ONE warn for N failing tiles behind %s', async (_shape, template) => {
+    const fetcher = await publicFetcherFor(template)
+    const signal = new AbortController().signal
+    useThrottleTimers()
+    try {
+      for (let i = 0; i < 8; i++) await failTile(fetcher, 5, i, i, signal)
+    } finally {
+      vi.useRealTimers()
+    }
+    expect(warns.length).toBe(1)
+    expect(__tileFetchLogThrottleSizeForTest()).toBe(1)
+  })
+
+  it('keeps two sources apart when only a NON-DIGIT query value differs', async () => {
+    // Two DIFFERENT sources that share a path and differ only in a query
+    // value the digit-folding never touches. Each outage must warn on its
+    // own. A key that drops the query string collapses them into one throttle
+    // entry, so the second source's outage is silently swallowed — the
+    // failure mode any URL-derived key risks and this suite must catch.
+    const signal = new AbortController().signal
+    useThrottleTimers()
+    try {
+      const roads = await publicFetcherFor('https://tiles.example.com/{z}/{x}/{y}.pbf?layer=roads')
+      const water = await publicFetcherFor('https://tiles.example.com/{z}/{x}/{y}.pbf?layer=water')
+      await failTile(roads, 5, 1, 2, signal)
+      await failTile(water, 5, 1, 2, signal)
+    } finally {
+      vi.useRealTimers()
+    }
+    expect(warns.length).toBe(2)
+    expect(__tileFetchLogThrottleSizeForTest()).toBe(2)
+  })
+
+  it('keeps two sources apart when only a DIGIT differs', async () => {
+    // The sharpest form of the same property, and the one that kills every
+    // URL-derived key: two sources differing ONLY in a path digit. Any key
+    // built by folding digit runs (`url.replace(/\d+/g, '{n}')` — the exact
+    // shape of the pre-#1354 derivation) collapses `/v1/` and `/v2/` into one
+    // `/v{n}/` entry, so the second source's outage emits ZERO warns for 60 s.
+    // Version-pinned tilesets (`/2019/` vs `/2024/`), numeric API keys and
+    // shard indices all land here. Only keying on the source's own template
+    // — never on anything derived from the substituted URL — separates them.
+    const signal = new AbortController().signal
+    useThrottleTimers()
+    try {
+      const v1 = await publicFetcherFor('https://tiles.example.com/v1/{z}/{x}/{y}.pbf')
+      const v2 = await publicFetcherFor('https://tiles.example.com/v2/{z}/{x}/{y}.pbf')
+      await failTile(v1, 5, 1, 2, signal)
+      await failTile(v2, 5, 1, 2, signal)
+    } finally {
+      vi.useRealTimers()
+    }
+    expect(warns.length).toBe(2)
+    expect(__tileFetchLogThrottleSizeForTest()).toBe(2)
+  })
+
+  it('does not print a digits-only query credential verbatim', async () => {
+    // The throttle key is the raw template, which can carry a credential. The
+    // pre-#1354 derived key folded query digit runs to `{n}` as a side effect,
+    // so `?key=987654321` reached the console masked; keying on the template
+    // must not silently un-mask it. Path digits stay — they are identity.
+    const signal = new AbortController().signal
+    useThrottleTimers()
+    try {
+      const f = await publicFetcherFor('https://tiles.example.com/v7/{z}/{x}/{y}.pbf?key=987654321')
+      await failTile(f, 5, 1, 2, signal)
+    } finally {
+      vi.useRealTimers()
+    }
+    expect(warns.length).toBe(1)
+    expect(warns[0]).not.toContain('987654321')
+    expect(warns[0]).toContain('?key={n}')
+    // The path digit is identity, not a secret — it must survive.
+    expect(warns[0]).toContain('/v7/')
+  })
+
   it('stays ≤ the hard cap under a flood of distinct failing URL patterns', async () => {
     const signal = new AbortController().signal
-    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+    useThrottleTimers()
     try {
       // 300 sources with digit-free, distinct path prefixes → 300 distinct
-      // throttle keys that the digit collapsing cannot merge. Pre-fix the
-      // Map just grew to 300 (and would keep growing for the page lifetime).
+      // throttle keys nothing can merge. Pre-fix the Map just grew to 300
+      // (and would keep growing for the page lifetime).
       for (let i = 0; i < 300; i++) {
         const seg = `s${String.fromCharCode(97 + Math.floor(i / 26))}${String.fromCharCode(97 + (i % 26))}`
         const fetcher = await publicFetcherFor(`https://tiles.example.com/${seg}/{z}/{x}/{y}.mvt`)
+        // Re-pin the clock every iteration: each failTile advances the fake
+        // clock 1.2 s, and 300 of those would cross the 60 s window and let
+        // the SWEEP decide the size. Pinned, all 300 inserts land in one
+        // window, so the exact count below measures FIFO eviction alone —
+        // and measures it with no wall-clock coupling.
+        vi.setSystemTime(T0)
         await failTile(fetcher, 5, 0, 0, signal)
       }
     } finally {
@@ -257,11 +362,8 @@ describe('FIX 3 — tile-fetch log throttle survives templates and stays bounded
 
   it('sweeps entries whose throttle window has already elapsed', async () => {
     const signal = new AbortController().signal
-    // Date is faked here too so the 60 s window can be stepped over.
-    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] })
+    useThrottleTimers()
     try {
-      const t0 = Date.UTC(2026, 0, 1)
-      vi.setSystemTime(t0)
       await failTile(
         await publicFetcherFor('https://tiles.example.com/aa/{z}/{x}/{y}.mvt'),
         5,
@@ -272,7 +374,7 @@ describe('FIX 3 — tile-fetch log throttle survives templates and stays bounded
       expect(__tileFetchLogThrottleSizeForTest()).toBe(1)
       // Past the window a DIFFERENT pattern fails. Its insert sweeps the
       // stale entry first — that entry could never suppress a warn again.
-      vi.setSystemTime(t0 + 2 * 60_000)
+      vi.setSystemTime(T0 + 2 * 60_000)
       await failTile(
         await publicFetcherFor('https://tiles.example.com/bb/{z}/{x}/{y}.mvt'),
         5,

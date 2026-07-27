@@ -54,30 +54,19 @@ export { detectVectorTileFormat, resolveDispatch } from './vector-tile-loader-he
 
 // ─── Per-tile fetch retry (module-level, shared globally) ───────────
 
-/** Per-URL "last error logged at" timestamp (ms). Throttles transient
- *  5xx logs to once per minute per URL pattern instead of flooding the
- *  console — important when 100+ tiles share an upstream blip. */
+/** Per-SOURCE "last error logged at" timestamp (ms), keyed by the source's
+ *  tile-URL TEMPLATE. Throttles transient 5xx logs to once per minute per
+ *  source instead of flooding the console — important when 100+ tiles share
+ *  an upstream blip. */
 const tileFetchLogThrottle = new Map<string, number>()
 const TILE_FETCH_LOG_INTERVAL_MS = 60_000
-// Hard size cap for the log throttle. Keys are URL PATTERNS, so a healthy
-// scene needs only a handful — but one entry per distinct pattern still
-// accumulates for the page lifetime across many sources. Entries are
+// Hard size cap for the log throttle. Keys are tile-URL TEMPLATES, so a
+// healthy scene needs only a handful — but one entry per distinct template
+// still accumulates for the page lifetime across many sources. Entries are
 // useless once older than TILE_FETCH_LOG_INTERVAL_MS (they can no longer
-// suppress anything); this is a backstop for a flood of distinct patterns
+// suppress anything); this is a backstop for a flood of distinct templates
 // failing inside a single window.
 const LOG_THROTTLE_MAX_ENTRIES = 256
-
-/** Collapse a substituted tile URL back to its template shape, so every
- *  (z, x, y) of one source shares a single throttle key. The path form
- *  `/z/x/y` is folded to `/{z}/{x}/{y}`; a query-param template
- *  (`?z=5&x=1&y=2`) has no such run, so digit runs in the query string are
- *  folded too — without that every tile kept its full URL as its own key
- *  and the throttle emitted one warn per failing tile. */
-function tileFetchLogKey(url: string): string {
-  const q = url.indexOf('?')
-  const path = (q < 0 ? url : url.slice(0, q)).replace(/\/\d+\/\d+\/\d+/, '/{z}/{x}/{y}')
-  return q < 0 ? path : path + url.slice(q).replace(/\d+/g, '{n}')
-}
 
 /** Record `key` as last-warned at `now`. Lazily sweeps entries whose
  *  throttle window has already elapsed (they can never suppress another
@@ -157,6 +146,20 @@ const MAX_TILE_BYTES = 8 * 1024 * 1024
 // manifest yet bounds a size-bomb response before JSON.parse materialises it.
 const MAX_TILEJSON_BYTES = 4 * 1024 * 1024
 
+/** Mask digit runs in `logKey`'s QUERY STRING for console display. The key
+ *  itself stays the raw template — that is the source's identity and what the
+ *  throttle must key on. But the template can carry a credential
+ *  (`…?key=987654321`), and the previous URL-derived key folded query digit
+ *  runs to `{n}` as a side effect, so a digits-only key reached the console
+ *  masked. Keying on the raw template must not silently un-mask it. Only the
+ *  query is touched: digits in the PATH are part of the source's identity
+ *  (`/v1/` vs `/v2/`) and masking them is what made the old derived key
+ *  collide two distinct sources in the first place. */
+function maskLogKeyForDisplay(logKey: string): string {
+  const q = logKey.indexOf('?')
+  return q < 0 ? logKey : logKey.slice(0, q) + logKey.slice(q).replace(/\d+/g, '{n}')
+}
+
 /** Single-tile fetch with retry + graceful null fallback for transient
  *  upstream failures (5xx, network errors). Returns:
  *
@@ -166,11 +169,20 @@ const MAX_TILEJSON_BYTES = 4 * 1024 * 1024
  *                    keeps the tile in failedKeys so the parent-walk falls
  *                    back to the nearest cached ancestor.
  *
- *  Backoff: 300 ms, then 900 ms (max 2 retries → 3 attempts total). */
+ *  Backoff: 300 ms, then 900 ms (max 2 retries → 3 attempts total).
+ *
+ *  `logKey` is the SOURCE's tile-URL template (`…/{z}/{x}/{y}.mvt`), never the
+ *  substituted URL: every (z, x, y) of one source must share one warn-throttle
+ *  key or an upstream outage emits one console warn per failing tile (#1354).
+ *  The template is the source's identity and is known at the call site, so it
+ *  is passed down rather than re-derived — no regex over a substituted URL can
+ *  recover it reliably (a numeric path segment before z/x/y, or a non-slash
+ *  `{z}-{x}-{y}` separator, each defeat that). */
 async function fetchTileWithRetry(
   url: string,
   tileLabel: string,
   signal: AbortSignal,
+  logKey: string,
 ): Promise<Uint8Array | null | 'failed'> {
   if (signal.aborted) throw new DOMException('Aborted', 'AbortError')
   // Defensive: empty URL would hit the current document URL via
@@ -254,17 +266,16 @@ async function fetchTileWithRetry(
   }
   const now = Date.now()
   negativeCacheSet(url, now)
-  const urlKey = tileFetchLogKey(url)
-  const lastLogged = tileFetchLogThrottle.get(urlKey) ?? 0
+  const lastLogged = tileFetchLogThrottle.get(logKey) ?? 0
   if (now - lastLogged > TILE_FETCH_LOG_INTERVAL_MS) {
-    logThrottleSet(urlKey, now)
+    logThrottleSet(logKey, now)
     xlog.warn(
       `[X-GIS] ${tileLabel} fetch failed after ${backoffsMs.length + 1} attempts ` +
         `(${lastErr?.message ?? 'unknown error'}). ` +
         `Caching as missing for ${NEGATIVE_CACHE_TTL_MS / 60_000} min — that area will render empty. ` +
         `If this is a 5xx from a tile server, it's likely an upstream data-build issue ` +
         `for this specific (z, x, y); the rest of the map continues to load normally. ` +
-        `(Further failures matching ${urlKey} suppressed for ${TILE_FETCH_LOG_INTERVAL_MS / 1000}s.)`,
+        `(Further failures matching ${maskLogKeyForDisplay(logKey)} suppressed for ${TILE_FETCH_LOG_INTERVAL_MS / 1000}s.)`,
     )
   }
   return 'failed'
@@ -471,7 +482,9 @@ export class TileJSONSource extends VectorTileSource {
           // fetch and 404'd. Compiler also warns at convert time
           // (iter 302) so the user sees the partial support.
           .replace(/\{ratio\}/g, '')
-        return fetchTileWithRetry(url, `tile ${z}/${x}/${y}`, signal)
+        // The TEMPLATE — not `url` — is the warn-throttle key: it is this
+        // source's identity, so every (z, x, y) of it shares one key.
+        return fetchTileWithRetry(url, `tile ${z}/${x}/${y}`, signal, tj.tilesTemplate)
       },
     }
   }

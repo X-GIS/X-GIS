@@ -340,6 +340,16 @@ export class GlyphAtlasHost {
       this.preloadedAtGen.set(memoKey, this._generation)
       return
     }
+    // #1368 second-order effect: an LRU-EVICTED memo entry lands here and
+    // re-walks, and each `ensure()` bumps the ATLAS LRU on hit
+    // (`AtlasState.ensure`). Pre-cap, a live memo entry short-circuited
+    // forever within a generation, so that label's glyphs never had their
+    // atlas recency refreshed; past the cap they now do, which changes
+    // which glyphs the atlas evicts under slot pressure. Not a correctness
+    // break: this re-walk can neither evict nor bump `_generation`, since
+    // the sole `metrics` shrink site is the `evictedKey` branch of
+    // `ensure()` (a miss with no free slot) and already-resident glyphs
+    // take the hit branch.
     const len = text.length
     let i = 0
     while (i < len) {
@@ -347,15 +357,24 @@ export class GlyphAtlasHost {
       this.ensure(this.routeKey(fontKey, cp, cjkBucket), cp)
       i += cp > 0xffff ? 2 : 1
     }
-    // CRITICAL: record the POST-ensure generation. Any eviction
-    // during the loop bumps `_generation`; storing the latest value
-    // keeps the next call's guard accurate. Mirrors the post-loop
-    // generation read in `ensureString` (line ~337).
     // LRU cap (#1368) — drop the oldest entry before admitting a new one.
+    // Remove `memoKey` FIRST. A STALE entry (stamped at an older generation)
+    // is still PRESENT in the map when we get here, and `Map.prototype.set`
+    // on an existing key updates the record in place WITHOUT moving it to the
+    // tail (ECMA-262). Without this delete the re-admission would neither
+    // refresh recency — past a single generation bump the hit-branch touch
+    // above is unreachable, so the policy degenerates to FIFO-by-first-sight
+    // — nor free a slot: at the cap it would evict an unrelated HEAD entry
+    // and then admit nothing, shrinking the memo by one per stale re-walk.
+    this.preloadedAtGen.delete(memoKey)
     if (this.preloadedAtGen.size >= GLYPH_STRING_MEMO_MAX) {
       const oldest = this.preloadedAtGen.keys().next().value
       if (oldest !== undefined) this.preloadedAtGen.delete(oldest)
     }
+    // CRITICAL: record the POST-ensure generation. Any eviction
+    // during the loop bumps `_generation`; storing the latest value
+    // keeps the next call's guard accurate. Mirrors the post-loop
+    // generation read in `ensureString` (line ~337).
     this.preloadedAtGen.set(memoKey, this._generation)
   }
 
@@ -396,15 +415,20 @@ export class GlyphAtlasHost {
       if (!this.metrics.has(this.metricsKey(key))) return false
       i += cp > 0xffff ? 2 : 1
     }
-    // Record success at the current generation. Only stamp on the
-    // positive branch — a negative result is a transient overflow
-    // condition (label dropped this frame); the next call should
-    // re-check from scratch.
     // LRU cap (#1368) — drop the oldest entry before admitting a new one.
+    // `delete` first, for the same reason as `preloadString`: a stale entry
+    // is still present, and `set` on a present key neither re-orders nor
+    // grows the map, so the cap guard would evict an unrelated head entry
+    // and admit nothing.
+    this.hasAllGlyphsAtGen.delete(memoKey)
     if (this.hasAllGlyphsAtGen.size >= GLYPH_STRING_MEMO_MAX) {
       const oldest = this.hasAllGlyphsAtGen.keys().next().value
       if (oldest !== undefined) this.hasAllGlyphsAtGen.delete(oldest)
     }
+    // Record success at the current generation. Only stamp on the
+    // positive branch — a negative result is a transient overflow
+    // condition (label dropped this frame); the next call should
+    // re-check from scratch.
     this.hasAllGlyphsAtGen.set(memoKey, this._generation)
     return true
   }
@@ -446,6 +470,16 @@ export class GlyphAtlasHost {
       // Surrogate pair (BMP supplement) spans 2 UTF-16 code units.
       i += cp > 0xffff ? 2 : 1
     }
+    // LRU cap (#1368) — drop the oldest entry before admitting a new one.
+    // `delete` first, for the same reason as `preloadString`: a stale entry
+    // is still present, and `set` on a present key neither re-orders nor
+    // grows the map, so the cap guard would evict an unrelated head entry
+    // and admit nothing.
+    this.stringInfoCache.delete(cacheKey)
+    if (this.stringInfoCache.size >= GLYPH_STRING_MEMO_MAX) {
+      const oldest = this.stringInfoCache.keys().next().value
+      if (oldest !== undefined) this.stringInfoCache.delete(oldest)
+    }
     // CRITICAL: read `_generation` AFTER the ensure loop. Any
     // ensure() call inside the loop may bump it (slot reuse); the
     // cached array's tag must reflect the FINAL state so the next
@@ -453,11 +487,6 @@ export class GlyphAtlasHost {
     // from caching with the START-of-frame generation while later
     // labels in the same frame evicted referenced slots — iter-190's
     // monotonic counter + post-loop read prevents that.
-    // LRU cap (#1368) — drop the oldest entry before admitting a new one.
-    if (this.stringInfoCache.size >= GLYPH_STRING_MEMO_MAX) {
-      const oldest = this.stringInfoCache.keys().next().value
-      if (oldest !== undefined) this.stringInfoCache.delete(oldest)
-    }
     this.stringInfoCache.set(cacheKey, { info: out, generation: this._generation })
     return out
   }

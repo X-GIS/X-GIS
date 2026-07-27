@@ -56,6 +56,7 @@ import { pointPatchToFeatureCollection, type PointPatch } from '@xgis/data'
 import { readCoverage, readCoverageRange } from '@xgis/data'
 import { SOURCE_TYPES } from '@xgis/compiler'
 import type { SourceLoader } from './source-loader'
+import { normaliseHostPushedData } from './source-data-normalize'
 
 /** The built-in source `type:` values the dispatch handles natively; anything else
  *  routes to the per-map custom source-loader registry (source-loader-seam §4).
@@ -782,46 +783,9 @@ export class SourceManager {
     if (!this.rawDatasets.has(sourceId)) {
       throw new Error(`[X-GIS] setSourceData: unknown source "${sourceId}"`)
     }
-    // Validate FeatureCollection shape. Pre-fix a host passing
-    // `null` / `[]` / a Feature / a Geometry directly polluted the
-    // rawDatasets entry and crashed rebuildLayers on .features
-    // access. Normalise to a safe FeatureCollection rather than
-    // storing whatever the caller passed verbatim.
-    if (!data || typeof data !== 'object' || Array.isArray(data)) {
-      throw new Error(`[X-GIS] setSourceData: data must be a FeatureCollection object`)
-    }
-    // Auto-promote a single Feature → FeatureCollection (Mapbox API
-    // accepts both; was previously a confusing throw). Same lift the
-    // compiler-side normaliseInlineGeoJSON does for inline source.data.
-    // Also accept a bare Geometry (`{ type: 'Point', coordinates: … }`)
-    // by wrapping it in a Feature inside a FeatureCollection.
-    // The typed union narrows directly: `data.type === 'Feature'` and the
-    // `'coordinates' in data` presence check discriminate the three arms with
-    // no cast. A GeometryCollection (no `coordinates`) falls to the FC arm and
-    // is rejected by the features-array guard below, matching the prior path.
-    let normalized: GeoJSONFeatureCollection
-    if (data.type === 'Feature') {
-      normalized = { type: 'FeatureCollection', features: [data] }
-    } else if ('coordinates' in data) {
-      // Bare Geometry (Point / LineString / Polygon / Multi*).
-      normalized = {
-        type: 'FeatureCollection',
-        features: [{ type: 'Feature', geometry: data, properties: {} }],
-      }
-    } else {
-      normalized = data as GeoJSONFeatureCollection
-    }
-    if (!Array.isArray((normalized as { features?: unknown }).features)) {
-      throw new Error(
-        `[X-GIS] setSourceData: data.features must be an array (got ${typeof (normalized as { features?: unknown }).features})`,
-      )
-    }
-    // DoS guard: refuse a pathological host-pushed collection before it
-    // is reprojected / retiled / uploaded (unbounded feature/vertex OOM).
-    assertIngestBudget(
-      (normalized as { features?: unknown }).features,
-      `setSourceData("${sourceId}")`,
-    )
+    // Shape-normalise + validate the pushed value (Feature / bare Geometry
+    // lift, features-array guard, ingest-budget DoS guard).
+    let normalized = normaliseHostPushedData(sourceId, data)
     // #1235 gap 1 — a source that was attached through the virtual-PMTiles
     // tiling (rawDatasets holds the `_vectorTile` marker: inline `data:` and
     // URL-loaded GeoJSON alike) must be RE-SEEDED through that same attach.

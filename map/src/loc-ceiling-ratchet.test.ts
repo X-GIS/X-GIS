@@ -418,7 +418,13 @@ const CEILINGS: Record<string, number> = {
   // existing 846 measurement — no growth.)
   // 846→849 (#1272): thread the coverage source's ramp/range display options
   // onto the `_coverage` marker so rebuild arms the CoverageRenderer with them.
-  'map/src/source-manager.ts': 849,
+  // 849→835 (#1353): the teardown fix added `_dropTilingIndexWithCatalog` + its
+  // two attach call sites (+22); paid for by EXTRACTING setSourceData's input
+  // contract (Feature/bare-Geometry lift, features-array guard, ingest-budget
+  // guard) to source-data-normalize.ts (−36 net) — that block never touched
+  // `this`, and setSourceData is now just the re-seed-vs-raw-write decision.
+  // Measured after prettier: wc -l = 835.
+  'map/src/source-manager.ts': 835,
   // 1920→1930 (#1042 R3): the globe limb cull for MULTI-LINE labels must land in
   // the collision phase — the ONLY site holding the label's quad half-height (the
   // collision box IS the height authority; the label-pass dispatch site has only
@@ -608,7 +614,13 @@ const CEILINGS: Record<string, number> = {
   // 1290→1314 (#1155 F3): cold-start burst tick budget — the `_coldStartBurst`
   // field + `_BURST_TICK_BUDGET` + `setColdStartBurst` + the burst-selected
   // budget in resetCompileBudget's backend tick loop.
-  'data/src/tile-catalog.ts': 1314,
+  // 1314→1282 (#1353): the teardown fix added the `_onDestroy` list + `onDestroy`
+  // + the destroy() drain (+15); paid for by EXTRACTING the quantized-ECEF quad
+  // construction out of createFullCoverTileData to tile-full-cover-quad.ts
+  // (−47 incl. three now-orphaned ecef-packing imports) — pure geometry, no
+  // `this`, and the layout with the #449 bug history is now directly assertable.
+  // Measured after prettier: wc -l = 1282.
+  'data/src/tile-catalog.ts': 1282,
   // 1173→1180 (#1046 F1): thread the required `rhi: RhiDevice` onto the FrameContext at
   // both build sites — the main-chain init literal and the twin label stage — so a seam
   // can reach `ctx.rhi.caps.*` (doc §3-F1). +7 = two assignments + their rationale comments;
