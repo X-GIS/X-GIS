@@ -12,7 +12,7 @@
 // raced its own async work:
 //
 //   • one tick = decode the target hour (~160 ms for a 258k-cell CBOFS cell) + 5 blended
-//     frames (each re-derives the whole arrow + particle field) + the real hour swap
+//     frames (each re-derives the whole arrow field) + the real hour swap
 //     (another decode + a layer rebuild) — comfortably MORE than the 900 ms dwell, so
 //   • the next tick fired mid-transition, cancelled the in-flight sequence before it could
 //     land the hour, and started its own: the displayed hour NEVER advanced (the same 0→1

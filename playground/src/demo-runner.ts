@@ -1616,7 +1616,7 @@ function teardownCurrentsMosaic(): void {
 // cell at a different hour (currentsMosaicHandle.setTime → setCoverageData({group})) — no
 // network, so play can't fail on a range re-fetch. It polls getCoverage('currents') for the
 // axis, self-syncs after a region swap (reloads at hour 0), and hides over a single-group
-// cell. The engine re-derives the `| arrow` / `| particles` field(s) on each step (#1333).
+// cell. The engine re-derives the `| arrow` field on each step (#1333).
 // PLAY additionally smooths the hour-to-hour cut with transient interpolated frames (#1333) —
 // the slider still jumps directly on drag (an instant scrub is the expected feel there). The
 // playback CLOCK + blend wiring is ./examples/s111-time-playback (#1362, unit-tested there);

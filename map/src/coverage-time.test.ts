@@ -236,7 +236,7 @@ describe('CoverageTimePlayer.play — interpolated sub-stepping (#1333)', () => 
           stepFraction: async (_f, _t2, t) => {
             fracs.push(t)
             // One blended frame costs 1.5× its slot (a real S-111 frame re-derives a 258k-cell
-            // arrow + particle field) — the loop must shed frames, not fall behind. The SYNC
+            // arrow field) — the loop must shed frames, not fall behind. The SYNC
             // advance models blocking work: the clock moves, no timer is flushed early.
             vi.advanceTimersByTime(30)
           },

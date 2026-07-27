@@ -27,9 +27,9 @@ import { packRetainedIconFeat, packRetainedIconTint } from './retained-icon-pack
 import {
   packRetainedArrowFeat,
   packRetainedArrowTint,
-  packCompiledArrowFeat,
-  packCompiledArrowTint,
+  type CompiledArrowDrift,
 } from './retained-arrow-packer'
+import { CompiledArrowStore } from './compiled-arrow-store'
 import { packRetainedCircleFeat, packRetainedCircleTint } from './retained-circle-packer'
 import {
   packRetainedParticleFeat,
@@ -99,20 +99,6 @@ interface RetainedIconBatch {
   glyphCounts: Uint32Array | null
 }
 
-/** A DECLARATIVE `| arrow` layer (#1302) — compiler-fed twin of a host arrow batch, same
- *  ARROW_RETAINED feat/tint layout; raw arrays (incl. strokeUnits, #1333) kept for DPR re-pack. */
-interface CompiledArrowBatch {
-  featBuf: RhiBuffer
-  tintBuf: RhiBuffer
-  bindGroup: RhiBindGroup
-  count: number
-  lons: Float64Array
-  lats: Float64Array
-  bearings: Float32Array
-  sizes: Float32Array
-  strokeUnits: number
-}
-
 export class GraphicsManager {
   private readonly registry = new HostImageRegistry()
   /** The per-run GPU atlas mirror: the WebGPU-native twin, or the RHI-native
@@ -132,7 +118,7 @@ export class GraphicsManager {
   /** Declarative `| arrow` layers (#1302), replaced wholesale each rebuildLayers
    *  (clearCompiledArrows + addCompiledArrowLayer per show). Drawn in renderRetained
    *  alongside the host arrow batches — one arrow-draw authority for both. */
-  private readonly _compiledArrows: CompiledArrowBatch[] = []
+  private readonly _compiledArrows = new CompiledArrowStore()
   /** Per-copy frame-uniform scratch (grown to peak world-copy count) — reused so
    *  the per-frame render allocates nothing proportional to icon count. */
   private readonly _copyScratch: Float32Array[] = []
@@ -186,9 +172,14 @@ export class GraphicsManager {
     }
   }
 
-  /** GPU-upload counters — see the diagnostics note. */
+  /** GPU-upload counters — see the diagnostics note. Folds in the compiled-arrow store's
+   *  own counters so the totals are unchanged by the #1333 extraction. */
   getWriteCounts(): { featWrites: number; tintWrites: number } {
-    return { featWrites: this._featWrites, tintWrites: this._tintWrites }
+    const ca = this._compiledArrows.writeCounts
+    return {
+      featWrites: this._featWrites + ca.featWrites,
+      tintWrites: this._tintWrites + ca.tintWrites,
+    }
   }
 
   /** Draw calls issued by the last renderRetained frame — see the field note.
@@ -298,13 +289,13 @@ export class GraphicsManager {
     // byte-identical / no-pass — it is packed + uploaded but not yet drawn.
     return (
       this.batches.some((b) => b.count > 0 && b.bindGroup !== null) ||
-      this._compiledArrows.length > 0 ||
+      !this._compiledArrows.isEmpty ||
       this._retired.length > 0
     )
   }
 
-  /** Registers a DECLARATIVE `| arrow` layer (#1302) via the compiled packers (same
-   *  draper/shader as host). `strokeUnits` (#1333, 0 = none) requests the outline stroke. */
+  /** Registers a DECLARATIVE `| arrow` layer (#1302) — delegated to the compiled-arrow
+   *  store, which owns the compiled path's packing/lifecycle (same draper as host). */
   addCompiledArrowLayer(
     lons: Float64Array,
     lats: Float64Array,
@@ -312,49 +303,16 @@ export class GraphicsManager {
     sizesPx: Float32Array,
     colors: ReadonlyArray<readonly [number, number, number, number]>,
     strokeUnits = 0,
+    drift?: CompiledArrowDrift,
   ): void {
-    const count = lons.length
-    if (count === 0 || !this.rhi || !this.arrowDraper) return
-    const feat = packCompiledArrowFeat(lons, lats, bearingsDeg, sizesPx, this.dpr, strokeUnits)
-    const tint = packCompiledArrowTint(colors)
-    const featBuf = this.rhi.createBuffer({
-      size: Math.max(feat.byteLength, 16),
-      usage: 'storage',
-      writable: true,
-      label: 'compiled-arrow-feat',
-    })
-    this.rhi.writeBuffer(featBuf, 0, feat)
-    this._featWrites++
-    const tintBuf = this.rhi.createBuffer({
-      size: Math.max(tint.byteLength, 16),
-      usage: 'storage',
-      writable: true,
-      label: 'compiled-arrow-tint',
-    })
-    this.rhi.writeBuffer(tintBuf, 0, tint)
-    this._tintWrites++
-    const bindGroup = this.arrowDraper.makeBatchBindGroup(featBuf, tintBuf)
-    this._compiledArrows.push({
-      featBuf,
-      tintBuf,
-      bindGroup,
-      count,
-      lons,
-      lats,
-      bearings: bearingsDeg,
-      sizes: sizesPx,
-      strokeUnits,
-    })
+    this._compiledArrows.add(lons, lats, bearingsDeg, sizesPx, colors, strokeUnits, this.dpr, drift)
   }
 
   /** Drop every compiled-arrow layer — called at the top of each rebuildLayers before the
    *  isArrow fork re-adds. Buffers go through `_retired` (drained next renderRetained) so an
    *  in-flight submit that bound them completes first, mirroring the host batch remove(). */
   clearCompiledArrows(): void {
-    for (const ca of this._compiledArrows) {
-      this._retired.push(ca.featBuf, ca.tintBuf)
-    }
-    this._compiledArrows.length = 0
+    this._compiledArrows.clear(this._retired)
   }
 
   /** True when the graphics layer is mid-animation and needs continuous redraw — a DRAWABLE batch
@@ -364,10 +322,18 @@ export class GraphicsManager {
    *  the on-demand loop idles on a static camera and the motion FREEZES until the next interaction.
    *  Mirrors `rasterRenderer.hasFadingTiles()`: the same "an overlay is animating" gate the render
    *  loop ORs into its keep-warm decision. Static batches (all non-animated specs) return false, so
-   *  a map without an animated overlay idles byte-identically. */
+   *  a map without an animated overlay idles byte-identically.
+   *
+   *  The compiled-arrow store is the SECOND animation source (#1333): its drifting layers read
+   *  the same clock, so they need the same keep-warm or the drift stops the moment the camera
+   *  does. This gate and the `hasAnimated` clock-write in renderRetained must BOTH consult it —
+   *  arming only one leaves a different half-dead animation (a frozen clock, or motion that
+   *  only advances while the user is interacting). */
   hasAnimatedGraphics(): boolean {
-    return this.batches.some(
-      (b) => drawSpecAnimatesPerFrame(b.spec) && b.count > 0 && b.bindGroup !== null,
+    return (
+      this.batches.some(
+        (b) => drawSpecAnimatesPerFrame(b.spec) && b.count > 0 && b.bindGroup !== null,
+      ) || this._compiledArrows.hasDrifting()
     )
   }
 
@@ -604,7 +570,7 @@ export class GraphicsManager {
     this.applyDpr(dpr)
 
     const drawable = this.batches.filter((b) => b.bindGroup !== null && b.count > 0)
-    if (drawable.length === 0 && this._compiledArrows.length === 0) return
+    if (drawable.length === 0 && this._compiledArrows.isEmpty) return
 
     // Per-frame CPU-time sample (gate: this must be FLAT across icon count — the
     // work below is O(COPIES × batches), never O(N)).
@@ -633,7 +599,11 @@ export class GraphicsManager {
     // drawable, so a non-particle frame is byte-identical (y = 0 as before — zero pointU bloat, the
     // §5-Q2 constraint). Pinned by ?animt / __xgisAnimT for the §5 deterministic-probe capture,
     // else the live performance.now(). O(1) in particle count — the only new per-frame cost.
-    const hasAnimated = drawable.some((b) => drawSpecAnimatesPerFrame(b.spec))
+    // A DRIFTING compiled-arrow layer (#1333) animates on the same clock, so it must arm the
+    // write too — otherwise `animT` stays 0, the shader's phase is pinned, and the arrows are
+    // frozen mid-drift rather than moving.
+    const hasAnimated =
+      drawable.some((b) => drawSpecAnimatesPerFrame(b.spec)) || this._compiledArrows.hasDrifting()
     const animT = hasAnimated ? (animTimePinnedSeconds() ?? performance.now() / 1000) : 0
     const perCopy: Float32Array[] = []
     for (let i = 0; i < copies.length; i++) {
@@ -667,11 +637,7 @@ export class GraphicsManager {
 
     // Declarative `| arrow` layers (#1302) — same draper + per-copy uniform as the host
     // arrows above, so compiler-fed and `map.graphics` arrows are one draw authority.
-    if (this.arrowDraper) {
-      for (const ca of this._compiledArrows) {
-        this._lastFrameDrawCalls += this.arrowDraper.draw(pass, ca.bindGroup, perCopy, ca.count)
-      }
-    }
+    this._lastFrameDrawCalls += this._compiledArrows.draw(pass, perCopy)
 
     if (this._timeSamples !== null) this._timeSamples.push(performance.now() - t0)
   }
@@ -712,16 +678,7 @@ export class GraphicsManager {
       )
       this._featWrites++
     }
-    // Compiled `| arrow` layers bake size in px too — re-pack feat from the retained
-    // raw arrays on a DPR change, mirroring the host arrow path above.
-    for (const ca of this._compiledArrows) {
-      this.rhi.writeBuffer(
-        ca.featBuf,
-        0,
-        packCompiledArrowFeat(ca.lons, ca.lats, ca.bearings, ca.sizes, d, ca.strokeUnits),
-      )
-      this._featWrites++
-    }
+    this._compiledArrows.repackForDpr(d)
   }
 
   // ── internal (map.ts only) ─────────────────────────────────────────────
@@ -748,6 +705,7 @@ export class GraphicsManager {
     this.arrowDraper = new RetainedArrowDraper(rhi, format, 1, pointUniformBytes())
     this.circleDraper = new RetainedCircleDraper(rhi, format, 1, pointUniformBytes())
     this.particleDraper = new RetainedParticleDraper(rhi, format, 1, pointUniformBytes())
+    this._compiledArrows.attach(rhi, this.arrowDraper)
     this.frameBlock = uniformBlock(pointU)
     this._blockView = new Float32Array(this.frameBlock.buffer)
     for (const b of this.batches) this.materialise(b)
@@ -782,11 +740,7 @@ export class GraphicsManager {
       if (b.tintBuf) this.rhi?.destroyBuffer(b.tintBuf)
       b.featBuf = b.tintBuf = b.bindGroup = null
     }
-    for (const ca of this._compiledArrows) {
-      this.rhi?.destroyBuffer(ca.featBuf)
-      this.rhi?.destroyBuffer(ca.tintBuf)
-    }
-    this._compiledArrows.length = 0
+    this._compiledArrows.destroyGpu()
     this.rhi = null
     this.draper = null
     this.arrowDraper = null
