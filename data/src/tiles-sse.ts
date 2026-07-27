@@ -87,9 +87,13 @@ const FOV_DEG = 45 // Camera.FOV — fixed in this engine
  *  target=12 sweet spot. */
 const DEFAULT_TARGET_SSE_PX = 1
 
-/** Hard cap on emitted tile count. Safety net only — well-tuned SSE
- *  in a typical view emits 9-100 tiles, but a degenerate camera (e.g.
- *  z=22 + pitch=89° + bearing change) could in theory blow up. */
+/** Hard cap on emitted PRIMARY tile count (fallbackOnly ancestors are not
+ *  charged — see the emit-budget block in the DFS). Safety net only, but "only
+ *  in theory" was too generous: a pitched Bright/Liberty view already measures
+ *  200-300 tiles (globe-visible-tiles.ts:91) and 254 at Liberty Paris z=18.25
+ *  pitch=70 WITH the high-pitch SSE relief applied, so a denser scene reaches
+ *  this. When it does the viewport is genuinely uncovered, which is why hitting
+ *  it now reports through `onTruncated` instead of silently returning short. */
 const MAX_EMITTED = 600
 
 /** DIAGNOSTIC ONLY — hard-caps the emitted tile count so a tester can A/B
@@ -130,8 +134,14 @@ function urlMaxTiles(): number | null {
 export interface VisibleTilesSSEOptions {
   /** Subdivide-cutoff in screen pixels. Default 16. */
   targetSSEPx?: number
-  /** Hard cap on emitted tiles — safety net for pathological cameras. */
+  /** Hard cap on emitted PRIMARY tiles — safety net for pathological cameras.
+   *  fallbackOnly ancestors are not charged against it (they protect tiles
+   *  already inside the budget from eviction; they are not extra draw work). */
   maxEmitted?: number
+  /** Called when the cap actually bit, i.e. the returned set does NOT cover the
+   *  viewport. Without it the truncation is invisible — the array is the same
+   *  shape either way — and missing tiles reach the screen with no diagnostic. */
+  onTruncated?: (emitted: number, cap: number) => void
   /** Skip the globe-equivalent horizon cull (for diagnostic rendering
    *  of the full Mercator plane). Default false — horizon cull is on
    *  for Mercator. Non-cylindrical projections always ignore this
@@ -400,11 +410,19 @@ export function visibleTilesSSE(
     // worldCopy fits ±10 (overhead bits), z ≤ 22 (5 bits), x/y ≤ 2^22.
     ((worldCopy + 16) * 32 + z) * (1 << 22) * (1 << 22) + x * (1 << 22) + y
 
+  // ── Emit budget (#1374) ───────────────────────────────────────────────────
+  // The cap governs PRIMARY tiles only. It used to test `result.length`, which
+  // also counts the fallbackOnly ancestors pushed below — those are eviction-
+  // protection metadata for tiles already inside the budget, not additional draw
+  // work, so charging them shrank the real tile budget by ~24% (deduped, they
+  // amortise to ≈0.31 pushes per primary) with nothing in the docs saying so.
+  let emitted = 0
+
   // DFS. `n` = 2^z = number of tiles per side at this level. The
   // mercator x range is shifted by `worldCopy * EARTH_CIRC_M` so a
   // single DFS pass can be driven from each world copy's root.
   const visit = (z: number, x: number, y: number, worldCopy: number): void => {
-    if (result.length >= maxEmitted) return
+    if (emitted >= maxEmitted) return
 
     const n = 1 << z
     const tileSize = EARTH_CIRC_M / n
@@ -475,6 +493,7 @@ export function visibleTilesSSE(
       // Emit at this level. `ox = x + worldCopy * 2^z` per the
       // TileCoord absolute-x contract (see loader/tiles.ts:39).
       result.push({ z, x, y, ox: x + worldCopy * n })
+      emitted++
 
       // fallbackOnly parent inject — push (z-1, z-2) parents flagged
       // `fallbackOnly` so eviction protects them. Renderer routes
@@ -508,9 +527,28 @@ export function visibleTilesSSE(
   // projections resolve to `worldCopies = [0]` (one iteration), while the
   // cylindrical family (mercator/equirect/natural_earth/oblique) enumerates
   // the ±N copies.
-  const worldCopies = worldCopiesFor(projType)
-  for (const wc of worldCopies) {
+  //
+  // NEAREST COPY FIRST. The table order is [-2,-1,0,1,2] — the camera's own
+  // world sits THIRD — while the emit cap is a shared running total checked at
+  // `visit` entry. So the two off-screen copies got first claim on the budget
+  // and, whenever they legitimately consumed it (a camera spanning the
+  // antimeridian, where more than one copy really is on screen), the PRIMARY
+  // world returned at its root and emitted nothing: a contiguous band of map
+  // simply absent. Sorting by distance from the camera's own copy makes the
+  // budget flow to the most relevant world first, so anything the cap drops is
+  // the least relevant copy rather than the one the user is looking at. Copies
+  // are otherwise independent, so ordering changes nothing else — and a
+  // single-copy projection has nothing to sort.
+  const copyOrder = [...worldCopiesFor(projType)].sort((a, b) => Math.abs(a) - Math.abs(b))
+  for (const wc of copyOrder) {
     visit(0, 0, 0, wc)
   }
+  // Truncation is a COVERAGE failure, not a perf detail: the viewport is left
+  // partially uncovered and the array alone cannot say so, which is exactly how
+  // "tiles that should be visible are missing" reaches a user with no diagnostic
+  // anywhere. Report it so the caller can surface/degrade deliberately. Optional
+  // and side-effect-free when unset, so the return shape stays identical to
+  // `visibleTilesFrustum` (the swap-behind-a-flag contract).
+  if (emitted >= maxEmitted) opts.onTruncated?.(emitted, maxEmitted)
   return result
 }
