@@ -92,6 +92,43 @@ _invariant_; we only have to stop starting the walk at the viewport.
 `label-pass.ts` (the `_ppmA` / `_ppmB` probe) and `spacingPx` already carries the #1358 zoom
 factor, so the on-screen cadence is unchanged by construction — only the origin moves.
 
+### 3.0 REFUTED BY MEASUREMENT — read this before implementing
+
+The anchor rule below was implemented and measured, and it is **wrong**. Recorded here rather
+than deleted, because the rule is the obvious one and will be re-derived otherwise.
+
+Walking from the polyline's first vertex does deliver camera invariance — that part held, and
+was unit-provable — but it does NOT agree with the reference. At z16.7 the chain moved from
+~4 px off to **155 px off, uniformly across all three anchors**:
+
+|                              | shield 1   | shield 2   | shield 3   |
+| ---------------------------- | ---------- | ---------- | ---------- |
+| MapLibre                     | (22, 428)  | (329, 322) | (636, 216) |
+| X-GIS, walking from vertex 0 | (176, 374) | (484, 272) | (791, 164) |
+
+The offset is constant (cadence intact, so #1358 is unaffected) and is ~half a step: the
+on-screen spacing at z16.7 is ~325 px and the error is 155. That is the signature of a
+**half-step phase convention mismatch**, not of a wrong origin scale.
+
+So the origin is right in kind and wrong in detail. Leads, in order of likelihood:
+
+1. MapLibre's `getAnchors` does not start at `spacing / 2`. It offsets by the LABEL's own
+   length (`labelLength / 2`) and, for a line shorter than the spacing, centres the single
+   anchor — so the first anchor is not at a fixed fraction of the step.
+2. The line it walks is the TILE-CLIPPED geometry including the tile buffer, so its vertex 0 is
+   not the same point as our polyline's vertex 0 even for the same road.
+3. `getAnchors` resamples with `EXTENT`-quantised positions, which shifts anchors by up to half
+   a tile unit — too small to explain 155 px, so this is a refinement, not the cause.
+
+The next attempt should measure MapLibre's anchor positions in TILE units directly (its
+collision-box debug already exposes them on screen; `_debug-ml-collision-boxes.spec.ts` is the
+harness) and derive the offset convention from data, rather than assuming `spacing / 2`.
+
+**Do not land the vertex-0 walk on its own.** Camera invariance is not worth a 155 px
+regression against the reference; the two must arrive together.
+
+---
+
 Three properties fall out, and each is a test:
 
 1. **Pan invariance.** Panning changes which anchors are visible, never where they are. Today an
