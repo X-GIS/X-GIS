@@ -70,6 +70,14 @@ describe('projected-CRS cells are refused, not misplaced', () => {
     await expect(readS102Coverage(f)).resolves.toBeTruthy()
   })
 
+  it('the reader propagates the DECLARED CRS onto the handle (#1366 INC-2)', async () => {
+    // Both branches of the default: a cell that declares 4326, and one that declares
+    // nothing. The projected branch cannot be exercised through the reader until the
+    // refusal lifts in INC-3 — `coverageFromGrids` gates that seam directly instead.
+    expect((await readCoverageFromHdf5(fixture('vlen_group_f.h5'))).meta.crs).toBe('EPSG:4326')
+    expect((await readCoverageFromHdf5(fixture('noaa_s111_cbofs.h5'))).meta.crs).toBe('EPSG:4326')
+  })
+
   it('an ABSENT horizontalCRS stays permitted (real NOAA S-111 omits it)', async () => {
     // Regression guard for the shipped currents demo: tightening the CRS check must not
     // reject a cell that simply does not declare one.

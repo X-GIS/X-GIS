@@ -35,8 +35,15 @@ export interface CoverageBandHeader {
 
 export interface CoverageHeader {
   product: 's102' | 's104' | 's111' | 'generic'
-  crs: 'EPSG:4326'
-  /** SW cell CENTRE [lonDeg, latDeg]; registration is 'point'. */
+  /** The grid's horizontal CRS, canonical `EPSG:<n>`. Was pinned to the literal
+   *  `'EPSG:4326'`; real S-100 cells are frequently PROJECTED (a NOAA S-102 cell
+   *  declares 32618 — UTM 18N, a metre grid), so the handle now carries what the cell
+   *  actually said. `origin`/`spacing` are in THIS CRS's units, not degrees by
+   *  definition. Placing a non-geographic grid is #1366; the reader still refuses one
+   *  (`assertGeographicCRS`) rather than mis-rendering it. */
+  crs: string
+  /** SW cell CENTRE, in `crs` units (degrees for a geographic cell); registration
+   *  is 'point'. */
   origin: [number, number]
   spacing: [number, number]
   /** [nLon, nLat]. */
@@ -63,6 +70,9 @@ export interface CoverageBandInput {
 
 export interface CoverageInput {
   product: CoverageHeader['product']
+  /** The cell's horizontal EPSG code. Omitted / null → 4326: real NOAA S-111 cells
+   *  declare no `horizontalCRS` and have always been read as geographic. */
+  crs?: number | null
   origin: [number, number]
   spacing: [number, number]
   size: [number, number]
@@ -97,6 +107,18 @@ export interface DecodedBand {
   header: CoverageBandHeader
   values: Float32Array
   codes?: Uint16Array
+}
+
+/** Canonical `EPSG:<n>` for a code read off a cell; absent/null → 4326 (real NOAA
+ *  S-111 declares none). This COMPOSES a name from an already-numeric attribute — it is
+ *  deliberately not `normalizeEPSG`, whose job is parsing user-supplied spellings and
+ *  which lives beside proj4; importing it here would drag proj4 into every bundle that
+ *  merely renders a coverage. A non-integer code is a loud error, not a silent 4326. */
+function epsgName(code: number | null | undefined): string {
+  if (code === null || code === undefined) return 'EPSG:4326'
+  if (!Number.isInteger(code) || code <= 0)
+    throw new Error(`[coverage] horizontal CRS must be a positive EPSG integer, got ${code}`)
+  return `EPSG:${code}`
 }
 
 // ── Grids → CoverageHandle, with NO wire format (ADR-0010) ─────────────────────
@@ -135,7 +157,7 @@ export function coverageFromGrids(input: CoverageInput): CoverageHandle {
   }
   const header: CoverageHeader = {
     product: input.product,
-    crs: 'EPSG:4326',
+    crs: epsgName(input.crs),
     origin: input.origin,
     spacing: input.spacing,
     size: input.size,

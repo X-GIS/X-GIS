@@ -39,62 +39,87 @@ between them is precisely the affine approximation that misplaces the interior �
 class of shortcut CLAUDE.md's §12 architecture rule exists to stop, and doubly
 unacceptable on soundings.
 
-## Two candidate designs
+## The hook that decides this: the renderer already warps
 
-### (A) Reproject the GRID at read time; render unchanged — **recommended**
+The renderer does **not** draw a coverage as one quad. `vs_cov` emits a procedural
+**64×64 mesh** (`COVERAGE_GRID_N`, `map/src/shaders/dsl/coverage-ramp.ts:100-133`) and
+projects EVERY vertex through the general `project()`; the single-quad + baked
+inverse-Mercator approach was already retired. Two lines carry the geographic
+assumption, and only those two:
 
-Resample the projected grid onto a geographic grid at read time (proj4 is already a
-runtime dependency of `@xgis/data`, used by `reprojectFeatureCollection`). The handle
-that reaches the renderer is then geographic and axis-aligned, exactly as today, so
-`CoverageRenderer`, the shader, the packers and the drape are **untouched**.
+```
+// vertex: the footprint is walked as a lon/lat rectangle
+const lon = mix(edges.x, edges.z, u01);  const latDeg = mix(edges.y, edges.w, v01)
+// fragment: UV is RECOVERED from the interpolated lon/lat
+const uTex = pin.lon.sub(geo.x).div(geo.z)
+```
 
-### (B) Teach the shader the grid's CRS
+The mesh is already a warp mesh. Nothing about it requires the footprint to be a lon/lat
+rectangle — only those two lines assume it.
 
-Keep the projected grid and make the fragment shader map a projected position back to a
-cell — i.e. implement Transverse Mercator forward in WGSL and keep it in lockstep with
-the CPU's proj4.
+## Three candidate designs
 
-**(B) is rejected**, and not on effort: it creates a second authority for the same
-projection math, on the GPU, disagreeing with the CPU by construction. That is this
-codebase's _dominant_ bug archetype — two sibling paths that must agree diverging
-sub-pixel until an over-zoom or high latitude amplifies it (CLAUDE.md §12; the fill-vs-
-outline and camera-anchor histories). Paying that risk to avoid a CPU resample is a bad
-trade, and it would need its own df64 battery on Apple/Metal.
+### (A) Resample the grid into a geographic grid at read time
 
-## The design (A), and the one line that makes it honest
+The handle that reaches the renderer is geographic, so the renderer is untouched. Costs
+a resample of navigation data, plus a split where `valueAt` must read a different grid
+than the one drawn.
 
-Resampling navigation data is the obvious objection. It is answered by **splitting the
-render path from the readout path along a seam the codebase already draws**:
+### (B) Teach the FRAGMENT shader the CRS
 
-> `getCoverage(id).valueAt(...)` is documented as the value-readout **AUTHORITY** — "half-
-> precision only ever affects the colour path (the r16float texture), never this readout"
-> (`map/src/map.ts`).
+Implement Transverse Mercator in WGSL and keep it in lockstep with the CPU's proj4.
 
-Resampling gets exactly the same treatment: **it only ever affects the colour path.**
+**Rejected**, and not on effort: it creates a second authority for the same projection
+math, on the GPU, disagreeing with the CPU by construction — this codebase's _dominant_
+bug archetype (CLAUDE.md §12; the fill-vs-outline and camera-anchor histories), and it
+would need its own df64 battery on Apple/Metal.
 
-- **Render** samples the resampled geographic grid. Display fidelity is pixel-level; a
-  resample below the pixel is invisible and harmless.
-- **`valueAt(lon, lat)` reads the ORIGINAL projected grid**, by transforming the query
-  point lon/lat → UTM (proj4, CPU) and indexing the untouched source cells. Exact
-  soundings, verbatim, positive-down — no resampled value is ever returned as a value.
+### (C) Reproject the MESH VERTICES on the CPU — **recommended**
 
-So `CoverageHandle` carries both: the resampled geographic grid for drawing, and the
-source grid + its CRS for reading. That is one new field and one new query path, not a
-new renderer.
+Change exactly the two lines above:
 
-### Resampling rule
+- **Vertex lon/lat** comes from a CPU-built buffer: walk the grid in its OWN CRS and
+  proj4-inverse each mesh vertex. That is `65 × 65 = 4 225` points per arm — computed
+  once when the coverage is armed, not per frame, not per fragment.
+- **Fragment UV** stops being recovered from lon/lat and is passed through as a varying.
+  `u01/v01` already ARE the grid-space coordinates, so the UV becomes **exact for any
+  CRS** instead of being inverted out of geography.
 
-**Nearest-neighbour, never bilinear.** Bilinear invents depths that were never sounded;
-nearest preserves real values at the cost of ≤ half a cell of positional quantization.
-For a 16 m cell that is ≤ 8 m of display placement error, well inside the S-102 cell
-size and far outside the reach of the colour ramp. Bilinear is a legitimate choice for a
-continuous scalar like water level (S-104) and must remain a per-product decision, not a
-global default.
+This is strictly better than (A) on the thing that matters:
 
-Output grid geometry: the geographic bounding box of the reprojected source corners **and
-edge midpoints** (a curved edge's extreme is not always at a corner), at a spacing chosen
-so the output has no fewer cells than the source along each axis — never upsampling into
-false resolution, never silently decimating.
+- **No resample at all.** The texture stays the source grid; values are verbatim,
+  positive-down, untouched. The whole "which grid does `valueAt` read" split disappears
+  because there is only ever one grid.
+- **(B)'s objection does not apply.** The projection runs on the CPU at mesh-build time.
+  No projection math enters a shader, so no second authority is created.
+- The renderer keeps its projection-generality and its globe path: per-vertex `project()`
+  is unchanged, it just receives correct lon/lat.
+
+**The residual error is mesh interpolation**, not resampling: between mesh vertices,
+lon/lat is interpolated linearly while the true UTM→lon/lat relation is slightly
+nonlinear. This is **the same error class the renderer already accepts today** for
+geographic cells (its own comment: "fine tessellation makes the interpolated lon/lat
+sub-texel for EVERY flat projection"), and it is closed-form boundable from mesh density
+and cell span — an error-budget question with a number, not a fidelity loss. INC-3's gate
+is that bound, measured, with `COVERAGE_GRID_N` raised if a real cell needs it.
+
+## Reading depth precisely: soundings as LABELS, not colour
+
+A colour ramp cannot be read to a metre, and that is not how a chart is meant to be read
+— real charts print **sounding numerals**, thinned by scale. So the precise-value path is
+not an API detail, it is on screen:
+
+- The ramp gives the continuous picture.
+- **Depth labels**, sampled from the ORIGINAL grid through `valueAt`, give the numbers,
+  with density gated by zoom (the standard chart behaviour, and what S-101's own
+  portrayal does via SNDFRM/SafetyDepth — GAP-2 INC-5).
+
+Under (C) this is exact by construction: there is no resampled grid anywhere, so a label
+cannot show an invented depth. (Under (A) it would have needed the readout/render split
+described above — another reason (C) is the cleaner design.)
+
+Sounding labels are their own increment (they need placement/declutter, not just a
+value), listed below and deliberately not folded into the placement work.
 
 ### EPSG registration
 
@@ -112,24 +137,29 @@ small addition to `epsg-defs.ts`, not a data dump.
 - [ ] **INC-2 — `CoverageHandle` carries a real CRS.** Replace the hardcoded
       `crs: 'EPSG:4326'` with the cell's code; keep every geographic path byte-identical.
       Gate: existing coverage suites unchanged; a projected handle round-trips its code.
-- [ ] **INC-3 — read-time resample + the readout split.** Nearest-neighbour reprojection
-      to a geographic grid for the colour path; `valueAt` transforms the query and reads
-      the SOURCE grid. Gates: (a) `valueAt` on a projected cell equals a GDAL/pyproj
-      readout at sampled points — the exactness claim, differential not self-consistent;
-      (b) a geographic cell is byte-identical through the new path (no regression for
-      S-111); (c) the resampled grid's cell count ≥ source along both axes; (d) the
-      refusal in `assertGeographicCRS` lifts only for codes that actually resolve.
+- [ ] **INC-3 — CPU-reprojected mesh vertices + UV as a varying.** The two-line change
+      above, plus the per-arm vertex buffer. Gates: (a) a geographic cell is
+      **byte-identical** through the new path — the procedural mesh and the CPU-built one
+      must agree exactly at 4326, which is a real fail-before (no S-111 regression);
+      (b) the mesh-interpolation error budget MEASURED against proj4 at mesh-interior
+      points, with `COVERAGE_GRID_N` raised if a real cell exceeds sub-texel; (c) UV
+      exactness — a synthetic projected grid's known cell must sample its own value;
+      (d) `assertGeographicCRS` lifts only for codes that actually resolve.
 - [ ] **INC-4 — the real-cell end-to-end gate + demo.** Live NOAA S-102 through the
       existing `/noaa/<bucket>/<key>` proxy route, viewport bbox from ①, refresh from ②.
       Gate: §5 render verification on a real GPU (this is the first increment with a
       render surface, so it cannot be signed off in a GPU-less environment).
+- [ ] **INC-5 — sounding labels.** Depth numerals from `valueAt` over the ORIGINAL grid,
+      thinned by zoom. Needs placement/declutter (the existing label pass), so it is its
+      own increment rather than a rider on placement. This is what makes depth readable
+      to a metre; the ramp alone never is.
 
 ## Scope honesty
 
 - Horizontal placement only. The **vertical** datum story (decoupled, plural, positive-
   down — S-100 GAP-3's own scope note) is untouched and still open.
-- Nearest-neighbour is chosen for bathymetry. S-104/S-111 may want bilinear; the
-  resampler takes the rule as a parameter and the product layer picks it.
+- (C) removes resampling from the design entirely, so there is no interpolation rule to
+  choose per product — the texture is always the source grid.
 - Non-UTM projected cells (Lambert, polar stereographic for Alaska) will read once
   `resolveEPSG` knows their codes; nothing in the design is UTM-specific beyond INC-1's
   derivation rule.
