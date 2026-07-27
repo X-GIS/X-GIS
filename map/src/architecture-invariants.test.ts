@@ -8,8 +8,14 @@
 //
 //   • Gate 4 (projType branching) keyed its allowlist on `runtime/src/engine/**`
 //     paths and scanned a walk that did not include `map/src`. Dead since the P3
-//     extraction. REVIVED below over the packages that actually hold the branches,
-//     with a freshly measured baseline — which had grown from 23 to 27 unnoticed.
+//     extraction. Briefly revived HERE (2026-07-27) with a fresh baseline — then
+//     FOLDED into `map/src/projtype-confinement-ratchet.test.ts`, the live #1005
+//     revival it had duplicated (the CLAUDE.md §12 second-ratchet trap; the two
+//     gates already disagreed — this one counted comments, so 2 of its 11 entries
+//     were the warning COMMENTS at under-occluder-renderer.ts:203 and
+//     shaders/dsl/raster.ts:169, not code). The fold kept the stricter semantics
+//     (comment-stripped, strict-equal both directions, union scan) and carried
+//     `engine/src` into that ratchet's scan set.
 //   • Gate 5 (L0–L4 downward-only layer spine) mapped layers onto the same dead
 //     `runtime/src/**` paths, so LAYER_OF returned null for every file in the repo.
 //     DROPPED rather than faked: the spine was designed for the pre-extraction tree
@@ -28,9 +34,7 @@
 //     to own (#1005) plus map/engine/geo/data/rhi*. That retires the "two LOC
 //     authorities" trap recorded in CLAUDE.md §12.
 //
-// What remains are the three live locks below. A RATCHET: the projType numbers are
-// high-water marks meant to drop, never rise — when you route a branch through a
-// projections-table membership accessor, LOWER the number in the same commit.
+// What remains are the three live locks below (Gates 2, 6, 7).
 // GPU-free; rides the `test (map-*)` CI legs.
 
 import { describe, it, expect } from 'vitest'
@@ -121,68 +125,5 @@ describe('arch ratchet: Gate-7 — @xgis/engine is geo-free (#781)', () => {
       exists,
       'engine/src/projection/ must not exist — the projection library moved to @xgis/geo (3c), the camera cluster to @xgis/map (3b), and the ecef shim was dropped (3d)',
     ).toBe(false)
-  })
-})
-
-// ── Gate 4: projType branching confined to projections-table ─────────
-// REVIVED (see the header). `projType ===/!==` is a decision the projections table
-// owns; every site outside it is a place where a new projection silently does the
-// wrong thing. The authority file is EXEMPT; every other occurrence is baselined at
-// its 2026-07-27 measurement over the packages that actually hold the branches.
-// LOWER a number as branches route through the exported membership accessors
-// (isCylindrical / isFlat / isOrtho / …); at 0 the file leaves the table.
-const PROJTYPE_SCAN_DIRS = ['map/src', 'data/src', 'geo/src', 'engine/src']
-/** The single authority allowed to branch on projType. */
-const PROJTYPE_AUTHORITY = 'geo/src/projections-table.ts'
-const PROJTYPE_ALLOWLIST: Record<string, number> = {
-  'data/src/tile-select.ts': 1,
-  'data/src/tiles-sse.ts': 3,
-  'map/src/camera/camera.ts': 6,
-  'map/src/camera/unproject.ts': 4,
-  'map/src/controller.ts': 6,
-  'map/src/render/camera-anchor-dsfun.ts': 1,
-  'map/src/render/hillshade-renderer.ts': 1,
-  'map/src/render/prefetch-scheduler.ts': 1,
-  'map/src/render/raster-renderer.ts': 2,
-  'map/src/render/under-occluder-renderer.ts': 1,
-  'map/src/shaders/dsl/raster.ts': 1,
-}
-
-describe('arch ratchet: projType branching confined to projections-table', () => {
-  const files = PROJTYPE_SCAN_DIRS.flatMap((d) => walkTs(join(ROOT, d)))
-  const countIn = (abs: string): number =>
-    (readFileSync(abs, 'utf8').match(/projType\s*[!=]==/g) || []).length
-
-  it('no source file exceeds its allowed projType-comparison count', () => {
-    const violations: string[] = []
-    for (const f of files) {
-      const r = rel(f)
-      if (r === PROJTYPE_AUTHORITY) continue
-      const count = countIn(f)
-      const allowed = PROJTYPE_ALLOWLIST[r] ?? 0
-      if (count > allowed) {
-        violations.push(
-          `${r}: ${count} projType comparisons > allowed ${allowed} — route through the projections-table membership accessors`,
-        )
-      }
-    }
-    expect(violations, violations.join('\n')).toEqual([])
-  })
-
-  // The #996 lesson the header opens with: an allowlist entry pointing at a moved
-  // or deleted file makes the gate quietly weaker. Fail loudly instead.
-  it('every allowlist entry still names a scanned file at its baselined count', () => {
-    const seen = new Set(files.map(rel))
-    const stale: string[] = []
-    for (const [f, n] of Object.entries(PROJTYPE_ALLOWLIST)) {
-      if (!seen.has(f)) {
-        stale.push(`${f}: allowlisted at ${n} but the file is not in the scan — delete the entry`)
-        continue
-      }
-      const count = countIn(join(ROOT, f))
-      if (count < n)
-        stale.push(`${f}: allowlisted at ${n} but now has ${count} — LOWER it to ${count}`)
-    }
-    expect(stale, stale.join('\n')).toEqual([])
   })
 })
