@@ -798,7 +798,13 @@ const CEILINGS: Record<string, number> = {
   // 14 max, at 7.2 ms @pitch0 / 16.3 ms @pitch60 each. +8 is the constant's
   // rationale (the measurement that picks 16 over 8) — the constant is line-neutral.
   // Gated by tile-selection-lru.test.ts (12 distinct margins → exactly 12 walks).
-  'map/src/render/tile-selection-cache.ts': 985,
+  // +2 (#1374): the SSE selector's emit cap used to truncate the visible set
+  // SILENTLY, so a partially-uncovered viewport was indistinguishable from a
+  // complete one and missing tiles reached users with no diagnostic. Reporting it
+  // costs exactly two lines here — the import and the `onTruncated` argument; the
+  // warn POLICY was extracted to render/selection-truncation.ts rather than added
+  // to this file. Single ratchet for this path since runtime/ dissolved.
+  'map/src/render/tile-selection-cache.ts': 987,
   // 870→876 (#1083): +6 for the tile-rect NE-corner Mercator calc threaded
   // into generateWallMeshExtrudedECEF so it drops clip-synthetic seam walls.
   // 876→889: visible-first cap-deferral — `_distSq` field + `resetFrameCap`

@@ -1,6 +1,8 @@
 // ═══ Rendering Stats Inspector ═══
 // Tracks per-frame GPU rendering metrics, similar to Three.js stats panel.
 
+import { noteFrameInterval } from '@xgis/engine'
+
 export interface RenderStats {
   fps: number
   frameTime: number // ms
@@ -105,7 +107,14 @@ export class StatsTracker {
 
   /** Call at the start of each frame */
   beginFrame(): void {
-    this.lastFrameStart = performance.now()
+    const now = performance.now()
+    // Adaptive resolution scaling (engine adaptive-dpr.ts) needs the interval
+    // between RENDERED frames, and this is already the single authority for that
+    // clock — `beginFrame` runs exactly once per drawn frame, past the render
+    // loop's skip gate. Feeding the controller from here rather than starting a
+    // second timer in the loop keeps one frame clock, not two that can disagree.
+    if (this.lastFrameStart > 0) noteFrameInterval(now - this.lastFrameStart)
+    this.lastFrameStart = now
     this.drawCalls = 0
     this.vertices = 0
     this.triangles = 0

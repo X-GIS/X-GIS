@@ -26,7 +26,7 @@
 //   - `this.ctx` / `this.renderer` / `this.lineRenderer` → injected
 //     accessors (these are populated lazily in run() so they must be read
 //     fresh, not captured at construction).
-//   - `this.camera` / `this.canvas`  → injected (stable ctor-time instances).
+//   - `this.camera` → injected; `this.getCanvas()` → thunk (gpu-boot.ts can swap it).
 
 import { assertIngestBudget, readBodyCapped, safeFetch } from '@xgis/shared'
 import type { Camera } from './camera'
@@ -99,9 +99,9 @@ export interface SourceManagerDeps {
   heatmapPointData: Map<string, GeoJSONFeatureCollection>
   /** The Camera instance (stable, created in XGISMap ctor). */
   camera: Camera
-  /** The raw constructor canvas — `this.canvas` on the host (NOT
-   *  `getCanvas()`); the camera-fit math reads `canvas.width` directly. */
-  canvas: HTMLCanvasElement
+  /** The host's CURRENT canvas (the camera-fit math reads `canvas.width` directly).
+   *  A thunk because a backend fallback can replace the element (gpu-boot.ts). */
+  getCanvas(): HTMLCanvasElement
   /** The WebGPU context, read fresh (populated in run() / runBinary). */
   getCtx(): GPUContext
   /** The MapRenderer, read fresh (populated in run() / runBinary). */
@@ -138,7 +138,7 @@ export class SourceManager {
   private readonly geojsonCapPoles: Map<string, CapPoles>
   private readonly heatmapPointData: Map<string, GeoJSONFeatureCollection>
   private readonly camera: Camera
-  private readonly canvas: HTMLCanvasElement
+  private readonly getCanvas: () => HTMLCanvasElement
   private readonly getCtx: () => GPUContext
   private readonly getRenderer: () => MapRendererContent
   private readonly getLineRenderer: () => LineRenderer | null
@@ -177,7 +177,7 @@ export class SourceManager {
     this.geojsonCapPoles = deps.geojsonCapPoles
     this.heatmapPointData = deps.heatmapPointData
     this.camera = deps.camera
-    this.canvas = deps.canvas
+    this.getCanvas = deps.getCanvas
     this.getCtx = deps.getCtx
     this.getRenderer = deps.getRenderer
     this.getLineRenderer = deps.getLineRenderer
@@ -465,7 +465,7 @@ export class SourceManager {
               typeof window !== 'undefined'
                 ? Math.min(window.devicePixelRatio || 1, getMaxDpr())
                 : 1
-            const cssW = this.canvas.width / dpr
+            const cssW = this.getCanvas().width / dpr
             this.camera.zoom = this._fitZoomToLonSpan(maxLon - minLon, cssW)
           })
         }
@@ -612,7 +612,7 @@ export class SourceManager {
         this.camera.syncCenterLat()
         const dpr =
           typeof window !== 'undefined' ? Math.min(window.devicePixelRatio || 1, getMaxDpr()) : 1
-        const cssW = this.canvas.width / dpr
+        const cssW = this.getCanvas().width / dpr
         this.camera.zoom = this._fitZoomToLonSpan(maxLon - minLon, cssW)
       }
     })
@@ -741,7 +741,7 @@ export class SourceManager {
           this.camera.syncCenterLat()
           const dpr =
             typeof window !== 'undefined' ? Math.min(window.devicePixelRatio || 1, getMaxDpr()) : 1
-          const cssW = this.canvas.width / dpr
+          const cssW = this.getCanvas().width / dpr
           this.camera.zoom = this._fitZoomToLonSpan(maxLon - minLon, cssW)
         })
       }

@@ -51,12 +51,8 @@ import { canvasEffectiveDpr, getSampleCount } from '@xgis/engine'
 // type; RhiDeviceLostInfo = onDeviceLost payload) comes from @xgis/engine, not
 // the concrete backend. GPUContext + boot providers stay on rhi-webgpu (Layer 2).
 import type { BackendChoice, RhiDeviceLostInfo } from '@xgis/engine'
-import {
-  initGPUViaProviders,
-  backendProviderChain,
-  WebGPUUnavailableError,
-  type GPUContext,
-} from '@xgis/rhi-webgpu'
+import { WebGPUUnavailableError, type GPUContext } from '@xgis/rhi-webgpu'
+import { bootGpuContext, type GpuBootDeps } from './gpu-boot'
 import { QUALITY, updateQuality, type QualityConfig } from '@xgis/engine'
 import { GPUTimer } from '@xgis/rhi-webgpu'
 import { Camera } from './camera'
@@ -1184,7 +1180,7 @@ export class XGISMap {
       geojsonCapPoles: this.geojsonCapPoles,
       heatmapPointData: this.heatmapPointData,
       camera: this.camera,
-      canvas: this.canvas,
+      getCanvas: () => this.canvas,
       getCtx: () => this.ctx,
       getRenderer: () => this.renderer,
       getLineRenderer: () => this.lineRenderer,
@@ -1848,6 +1844,28 @@ export class XGISMap {
    *  the WebGL2 chunk loads only when the WebGL2 backend actually boots. */
   private readonly _makeWebGl2Device = (gl: WebGL2RenderingContext) =>
     import('@xgis/rhi-webgl2').then((m) => new m.WebGl2Device(gl))
+  /** Boot inputs for the backend chain (composition lives in gpu-boot.ts so run()
+   *  and runBinary() cannot drift apart). `adoptCanvas` re-points the holders that
+   *  captured the ELEMENT when the chain had to replace a canvas whose context type
+   *  another backend had already claimed — everything else reads `this.canvas`
+   *  through a closure and follows the reassignment for free. The replacement is a
+   *  full attribute clone, so only the live listeners need re-binding. */
+  private _gpuBootDeps(): GpuBootDeps {
+    return {
+      canvas: this.canvas,
+      backend: this._backend,
+      preserveDrawingBuffer: this._preserveDrawingBuffer,
+      makeWebGl2Device: this._makeWebGl2Device,
+      adoptCanvas: (next) => {
+        this.canvas = next
+        this._detachAutoResize?.()
+        this._detachAutoResize = attachAutoResize(next, () => this.resize())
+        if (this._keyDownHandler) next.addEventListener('keydown', this._keyDownHandler)
+        this._cursor?.retarget(next)
+        this.switchController()
+      },
+    }
+  }
   /** When true (default), run() extracts a converted style's trailing
    *  `Conversion notes` block comment from the raw source and console.warns
    *  it once. Set via `XGISMapOptions.logConversionNotes: false`. */
@@ -2674,17 +2692,7 @@ export class XGISMap {
     // GPU init has no dependency on the IR result — it just needs
     // `this.canvas`. Errors propagate exactly as before via the awaited
     // catch.
-    const gpuInit = initGPUViaProviders(
-      this.canvas,
-      // Quality policy → adapter is an INJECTION at this composition root
-      // (#929 B): the boot values are data the providers close over.
-      backendProviderChain(
-        this._backend,
-        { sampleCount: getSampleCount() },
-        this._makeWebGl2Device,
-        { preserveDrawingBuffer: this._preserveDrawingBuffer },
-      ),
-    ).catch((err) => {
+    const gpuInit = bootGpuContext(this._gpuBootDeps()).catch((err) => {
       // Hold the rejection here so the await below converts it to a
       // sync throw at the same call site as the previous code. We
       // don't want unhandled-rejection noise if step 1 errors out
@@ -4040,15 +4048,7 @@ export class XGISMap {
 
     let ctx: GPUContext
     try {
-      ctx = await initGPUViaProviders(
-        this.canvas,
-        backendProviderChain(
-          this._backend,
-          { sampleCount: getSampleCount() },
-          this._makeWebGl2Device,
-          { preserveDrawingBuffer: this._preserveDrawingBuffer },
-        ),
-      )
+      ctx = await bootGpuContext(this._gpuBootDeps())
     } catch (e) {
       if (e instanceof WebGPUUnavailableError) {
         // Graceful: no WebGPU / no adapter. Fire the observability 'error' event

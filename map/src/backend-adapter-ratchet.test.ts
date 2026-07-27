@@ -79,6 +79,10 @@ function adapterImportCount(abs: string): number {
 // delete the entry) in the same commit. Measured 2026-07-11. Ordered by path.
 const BASELINE: Record<string, number> = {
   'map/src/geojson-polar-cap-show.ts': 1,
+  // Composition-root boot: the backend chain + fresh-canvas renewal that run() and
+  // runBinary() share. Naming the concrete adapter is the POINT of this file — it
+  // is where map picks a backend — and it holds map.ts's boot imports, not new ones.
+  'map/src/gpu-boot.ts': 1,
   // The two barrels re-export `ComputeDispatcher` from the WebGPU adapter — a
   // PUBLIC-SURFACE re-export, not a coupling: the symbol is the compute entry
   // point consumers drive directly, and it was already on this package's public
