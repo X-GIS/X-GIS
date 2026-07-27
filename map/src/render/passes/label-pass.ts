@@ -44,6 +44,8 @@ import { unwrapProjection } from '../projection-token'
 import type { SceneView } from '../scene-view'
 import type { RenderPass, LabelPassHost } from './pass'
 import {
+  LINE_LABEL_EDGE_INSET_CSS_PX,
+  lineLabelEdgeInsetPx,
   lineLabelSpacingPx,
   placeLabelsAlongLine,
   placeInlineLineLabels,
@@ -65,13 +67,6 @@ import {
   shouldEmitPointDedup,
   lineLabelCopyKey,
 } from './line-label-dedupe'
-
-/** #1314 — line-label viewport edge inset (CSS px, scaled by dpr at use). A line
- *  label whose anchor lands within this margin of a screen edge is culled so it
- *  never renders glued half-off-screen. Sized at roughly half a typical road-label
- *  width: comfortable enough that the shaped glyph run clears the edge, small
- *  enough that it doesn't drop labels that are perfectly readable inboard. */
-const LINE_LABEL_EDGE_INSET_CSS_PX = 48
 
 /** #728 — STABLE per-feature collision identity, fed to the greedy collision
  *  pass as its `tieBreak` (addLabel/addCurvedLineLabel → PendingLabel.collisionId
@@ -1222,16 +1217,13 @@ class LabelPass implements RenderPass {
             // 'map' (= tangent), matching the historical behaviour.
             const lineRotAlign = effectiveDef.rotationAlignment ?? 'auto'
             const useTangentRotation = lineRotAlign !== 'viewport'
-            // #1314 — viewport edge-inset cull for THIS layer's line labels. An
-            // anchor within the inset margin of a screen edge is dropped so line
-            // labels never render glued half-off-screen (user report: "화면 기준
-            // 양 끝으로 라벨이 붙어서 가시성 및 가독성이 나빠지는"). Applied at every
-            // along-line emit site below — the curved (tangent) stops, the
-            // viewport-aligned spacing walk (as placeLabelsAlongLine's cull), and
-            // the single line-center fallback. Point labels are unaffected.
-            const lineLabelEdgeInsetPx = LINE_LABEL_EDGE_INSET_CSS_PX * dpr
+            // #1314 — viewport edge-inset cull for this layer's line labels, at every
+            // along-line emit site below; re-set per polyline from the feature's own
+            // extent (lineLabelEdgeInsetPx). Point labels are unaffected.
+            const spriteOf = (n: string) => iStage?.getSprite(n)
+            let _edgeInset = LINE_LABEL_EDGE_INSET_CSS_PX * dpr
             const anchorInView = (sx: number, sy: number): boolean =>
-              withinViewportInset(sx, sy, _canvasW, _canvasH, lineLabelEdgeInsetPx)
+              withinViewportInset(sx, sy, _canvasW, _canvasH, _edgeInset)
             // iter-176 pairKey-by-sequence: pre-iter-176 the pair key
             // was `${layer}:${Math.round(x)},${Math.round(y)}` —
             // unstable across frames (sub-pixel camera drift flips
@@ -1544,6 +1536,7 @@ class LabelPass implements RenderPass {
                     total += Math.sqrt(dx * dx + dy * dy)
                   }
                   const featDef = applyFeatureExprs(props)
+                  _edgeInset = lineLabelEdgeInsetPx(featDef, spriteOf, dpr)
                   // Iter 112 paired-symbol collision for CURVED shields.
                   // Mirror of emitLabelAlongSegment (~line 538): a
                   // tangent-rotated line label with a paired icon-image
