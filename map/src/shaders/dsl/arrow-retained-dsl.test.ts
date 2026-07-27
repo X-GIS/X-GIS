@@ -57,6 +57,47 @@ describe('#824/#825 retained-arrow shader — DSL emission', () => {
     expect(w).toContain('@location(3) @interpolate(flat) stroke_units: f32')
   })
 
+  // #1333 — the arrow GLYPH drifts along its own bearing (the flow reads as moving, instead of
+  // the symbol sitting pinned at its grid cell). Closed-form + stateless, so a pinned `t` stays
+  // byte-reproducible and the GLSL twin is free.
+  it('derives the drift phase from the animation clock + the per-instance seeds', () => {
+    // phase = fract(t / max(lifetime_s, eps) + phase_norm), reading the stride-29 slots 27/28.
+    expect(w).toMatch(
+      /fract\(\(\(u\.circle_params\.y \/ max\(feat_data\[\(\(inst \* 29u\) \+ 27u\)\], 0\.001\)\) \+ feat_data\[\(\(inst \* 29u\) \+ 28u\)\]\)\)/,
+    )
+  })
+
+  it('OFFSETS THE POSITION by phase × drift_px along the projected bearing', () => {
+    // The load-bearing claim: slot 26 (drift_px) is read, multiplied by the phase, and the
+    // result is added to the tail clip position — i.e. the glyph actually MOVES. Asserting the
+    // varying exists would not prove this; asserting the product reaching the position does.
+    const drift = /let (_cse\d+) = feat_data\[\(\(inst \* 29u\) \+ 26u\)\];/.exec(w)
+    expect(drift, 'drift_px (slot 26) must be read').not.toBeNull()
+    const phaseTimesDrift = new RegExp(`let (_cse\\d+) = \\(_cse\\d+ \\* ${drift![1]!}\\);`).exec(w)
+    expect(phaseTimesDrift, 'drift_px must be scaled by the phase').not.toBeNull()
+    // …and that product must feed a vec4 added onto the projected tail (the drifted centre).
+    expect(w).toMatch(
+      new RegExp(`\\(_cse\\d+ \\+ vec4<f32>\\(\\(vec2<f32>\\(\\(\\(${phaseTimesDrift![1]!} \\*`),
+    )
+  })
+
+  it('carries a flat-interpolated life_alpha varying (location 4)', () => {
+    expect(w).toContain('@location(4) @interpolate(flat) life_alpha: f32')
+  })
+
+  it('gates the life fade behind select — a PINNED arrow keeps alpha EXACTLY 1.0', () => {
+    // The specific shape matters: applying the fade unconditionally would dip a NON-drifting
+    // arrow's alpha below 1 for most of its phase, silently altering every existing `| arrow`
+    // consumer. WGSL's select is (falseValue, trueValue, cond), so the literal 1.0 in the FIRST
+    // slot is the pinned branch. Pinned to the life_alpha assignment specifically — a bare
+    // /select\(.*1\.0.*\)/ would also match the projection helpers' select(-1.0, 1.0, …).
+    expect(w).toMatch(/_v0\.life_alpha = select\(1\.0, \(smoothstep\(/)
+  })
+
+  it('multiplies life_alpha into the FS output alpha', () => {
+    expect(w).toMatch(/\(\(in\.tint\.w \* _cse\d+\) \* in\.life_alpha\)/)
+  })
+
   it('composites the outline via mix(fill, black, strokeCov) — NOT mix by fill coverage', () => {
     // The specific formula matters: blending toward black by the FILL coverage (not a
     // stroke-only coverage) would darken every existing arrow's AA edge even at
@@ -106,5 +147,12 @@ describe('#823 retained-arrow shader — GLSL ES 3.00 twin', () => {
 
   it('composites the outline via mix(fill, black, strokeCov) in GLSL too', () => {
     expect(fs).toMatch(/mix\(in_\.tint\.xyz, vec3\(0\.0, 0\.0, 0\.0\), max\(/)
+  })
+
+  // #1333 — the drift + life-fade survive the GLSL twin unchanged.
+  it('carries the drift math + life_alpha varying across the twin', () => {
+    expect(vs).toContain('fract(')
+    expect(vs).toContain('flat out float life_alpha;')
+    expect(fs).toContain('flat in float life_alpha;')
   })
 })
