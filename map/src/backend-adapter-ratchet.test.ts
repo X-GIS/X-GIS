@@ -83,6 +83,13 @@ const BASELINE: Record<string, number> = {
   // runBinary() share. Naming the concrete adapter is the POINT of this file — it
   // is where map picks a backend — and it holds map.ts's boot imports, not new ones.
   'map/src/gpu-boot.ts': 1,
+  // The two barrels re-export `ComputeDispatcher` from the WebGPU adapter — a
+  // PUBLIC-SURFACE re-export, not a coupling: the symbol is the compute entry
+  // point consumers drive directly, and it was already on this package's public
+  // API through the @xgis/runtime barrel before that package was dissolved. No
+  // map code imports it; the barrels only forward the name.
+  'map/src/index.ts': 1,
+  'map/src/public.ts': 1,
   'map/src/interaction-controller.ts': 1,
   'map/src/map.ts': 4,
   'map/src/render-loop.ts': 1,

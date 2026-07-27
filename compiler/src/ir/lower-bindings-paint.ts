@@ -507,6 +507,16 @@ export const miscUtilHandlers: BindingHandler[] = [
       return true
     },
   },
+  // Particle-flow layer (#1333): `particles` marks a coverage layer to ALSO draw an
+  // animated particle-flow reading of its vector field (surface currents, wind, ...),
+  // alongside (or instead of) the static `arrow` field — one field, two representations.
+  {
+    match: (c) => c.name === 'particles',
+    apply: (c) => {
+      c.acc.isParticles = true
+      return true
+    },
+  },
   {
     match: (c) => c.name.startsWith('bearing-'),
     apply: (c) => {

@@ -30,6 +30,8 @@ import { applyBodyOption } from './body-consts'
 import { addHeatmapShowLayer } from './heatmap-show'
 import { addArrowShowLayer } from './arrow-show'
 import { addCoverageArrowShowLayer } from './coverage-arrow-show'
+import { addCoverageParticleShowLayer } from './coverage-particle-show'
+import type { DrawHandle } from './graphics/graphics-types'
 import { worldBandForProjType } from '@xgis/geo'
 import { projectLonLatToScreenCss } from './render-loop-helpers'
 import {
@@ -84,7 +86,12 @@ import {
 } from './render/bucket-scheduler'
 import { interpret, type SceneCommands } from './interpreter'
 import { lonLatToMercator, type GeoJSONFeatureCollection, type CoverageHandle } from '@xgis/data'
-import { readCoverage, readCoverageRange, type CoverageTime } from '@xgis/data'
+import {
+  readCoverage,
+  readCoverageRange,
+  interpolateVectorCoverage,
+  type CoverageTime,
+} from '@xgis/data'
 import { resolveForecastGroup, CoverageTimePlayer } from './coverage-time'
 import { RasterRenderer } from './render/raster-renderer'
 import { HillshadeRenderer, armHillshadeSource } from './render/hillshade-renderer'
@@ -517,6 +524,23 @@ export class XGISMap {
    *  coverage DATA swap (setCoverageData / setCoverageTime) re-derives the field via a rebuild
    *  instead of the fill-only fast path. Reset + recomputed on every rebuildLayers. */
   private _coverageArrowsArmed = false
+  /** #1333 — the coverage-sourced `| particles` DrawHandle, and the sibling of
+   *  `_coverageArrowsArmed` gating the same rebuild-vs-fast-path choice on a data/time swap. A
+   *  normal host DrawHandle (unlike the arrow field's specialised compiled-arrow list), owned
+   *  and `.remove()`d here across rebuilds. */
+  private _coverageParticleHandle: DrawHandle<unknown> | null = null
+  private _coverageParticlesArmed = false
+  /** True while EITHER the arrow or particle coverage field is armed — the single predicate a
+   *  data/time swap checks to choose "rebuild (re-derive the field)" vs the fill-only fast
+   *  path, so a future third field type edits this line alone. */
+  private get _coverageFieldArmed(): boolean {
+    return this._coverageArrowsArmed || this._coverageParticlesArmed
+  }
+  /** #1333 — the ShowCommand that armed the coverage field(s) above, captured so
+   *  `_armCoverageFields` (the interpolated-playback re-paint) can re-derive fill/arrow/particle
+   *  for a TRANSIENT blended handle without a full `rebuildLayers()`. `null` when no field is
+   *  armed. Reset alongside the flags above. */
+  private _coverageFieldShow: ShowCommand | null = null
   /** The verified device-lost recovery re-run (a fresh run()/runBinary()), stashed
    *  by `_armDeviceLostRecovery` so the visibilitychange→visible handler can arm the
    *  re-init a loss deferred while hidden (#1153 M5c). `null` until the first run(). */
@@ -1779,7 +1803,7 @@ export class XGISMap {
   /** @deprecated Phase 1a (Tier 3 source-honest principle): polar-cap
    *  synthesis is no longer renderer-driven. Preprocess GeoJSON with
    *  `injectPolarCaps` / `synthesizePolarCaps` (re-exported from
-   *  `@xgis/runtime`) before `setSourceData`. This setter is a no-op +
+   *  `@xgis/map`) before `setSourceData`. This setter is a no-op +
    *  one-shot `xlog.warn` so existing host code does not throw. */
   setPolarCapsEnabled(on: boolean): void {
     // eslint-disable-next-line @typescript-eslint/no-deprecated -- deprecated wrapper delegating to the equally deprecated viewport shim, kept so host code does not throw
@@ -3422,6 +3446,10 @@ export class XGISMap {
     this.heatmapRenderer?.clearLayers()
     this._graphics.clearCompiledArrows()
     this._coverageArrowsArmed = false // recomputed by the coverage arm below (#1333)
+    this._coverageParticleHandle?.remove() // a normal DrawHandle — not in clearCompiledArrows()
+    this._coverageParticleHandle = null
+    this._coverageParticlesArmed = false // recomputed by the coverage arm below (#1333)
+    this._coverageFieldShow = null // recomputed by the coverage arm below (#1333)
     this.vectorTileShows = []
     // Reset layer-id registry so re-projection produces deterministic IDs
     // (same `addLayer` order → same IDs). pickAt callers that cached an ID
@@ -3527,12 +3555,14 @@ export class XGISMap {
       // ShowCommand (#1158 INC-D, raster-color analogue) — read off `show`, not the
       // data-only marker. Opaque pass dispatches it after the raster basemap (flat arm).
       if ('_coverage' in data) {
-        // Arrows-only is the STRICT S-111 portrayal (#1333): the official catalogue draws a
-        // band-coloured arrow at each cell and NO raster fill. So a `| arrow` coverage with no
-        // `ramp` renders arrows alone; declaring a `ramp` adds the (non-standard) colour fill
-        // under them. A non-arrow coverage keeps its fill (default viridis) as before.
-        const arrowsOnly = show.isArrow && show.ramp === undefined
-        if (!arrowsOnly) {
+        // Field-only is the STRICT S-111 portrayal (#1333): the official catalogue draws
+        // band-coloured symbols (static arrows and/or the animated particle field) at each cell
+        // and NO raster fill. So a `| arrow` / `| particles` coverage with no `ramp` renders the
+        // field(s) alone; declaring a `ramp` adds the (non-standard) colour fill under them. A
+        // coverage with neither keeps its fill (default viridis) as before.
+        const fieldOnly = (show.isArrow || show.isParticles) && show.ramp === undefined
+        if (show.isArrow || show.isParticles) this._coverageFieldShow = show
+        if (!fieldOnly) {
           this.coverageRenderer.setCoverage(data._coverage, {
             ramp: show.ramp ?? 'viridis',
             rangeLo: show.range?.[0],
@@ -3545,6 +3575,15 @@ export class XGISMap {
         if (show.isArrow) {
           addCoverageArrowShowLayer(this, show, data._coverage)
           this._coverageArrowsArmed = true
+        }
+        // `| particles` on a coverage layer (#1333) draws an ANIMATED second reading of the
+        // same field — particles drift within their home cell and respawn, so the flow reads as
+        // moving even at rest (reuses the generic particle-flow primitive, #826). The handle is
+        // owned here (a normal host DrawHandle, not the specialised compiled-arrow list) and
+        // removed by the reset above on the next rebuild.
+        if (show.isParticles) {
+          this._coverageParticleHandle = addCoverageParticleShowLayer(this, show, data._coverage)
+          this._coverageParticlesArmed = true
         }
         continue
       }
@@ -4647,10 +4686,11 @@ export class XGISMap {
     )
     // ramp/range/opacity are LAYER paint (#1158 INC-D) — an imperative swap keeps the
     // renderer's armed display unless the caller overrides; a later rebuild re-arms.
-    // A `| arrow` coverage (#1333) derives its arrow field from the grid, so a data swap must
-    // re-derive it: rebuild (re-arms BOTH fill and field) when arrows are armed and the caller
-    // did not override the paint; else the fill-only fast path keeps an imperative override.
-    if (this._coverageArrowsArmed && !opts?.ramp && !opts?.range) {
+    // A `| arrow` / `| particles` coverage (#1333) derives its field(s) from the grid, so a
+    // data swap must re-derive them: rebuild (re-arms fill + every armed field) when any field
+    // is armed and the caller did not override the paint; else the fill-only fast path keeps an
+    // imperative override.
+    if (this._coverageFieldArmed && !opts?.ramp && !opts?.range) {
       this.rebuildLayers()
     } else {
       const cur = this.coverageRenderer.displayOpts()
@@ -4684,8 +4724,8 @@ export class XGISMap {
     const handle = await readCoverageRange(prev._url, { group })
     if (!this._coverageTime.isCurrent(token)) return // superseded by a newer step
     this.rawDatasets.set(sourceId, { _coverage: handle, _url: prev._url })
-    if (this._coverageArrowsArmed) {
-      this.rebuildLayers() // re-derive the `| arrow` field for the stepped forecast hour (#1333)
+    if (this._coverageFieldArmed) {
+      this.rebuildLayers() // re-derive the armed field(s) for the stepped forecast hour (#1333)
     } else {
       const cur = this.coverageRenderer.displayOpts()
       this.coverageRenderer.setCoverage(handle, {
@@ -4698,11 +4738,69 @@ export class XGISMap {
     this.invalidate()
   }
 
+  /** Re-paint JUST a coverage source's armed field(s) (fill + arrow + particle) from a
+   *  TRANSIENT handle — e.g. an `interpolateVectorCoverage` blend between two real forecast
+   *  hours — WITHOUT touching `rawDatasets` or any persisted time-axis state, and WITHOUT the
+   *  cost/scope of a full `rebuildLayers()` (vector-tile/point/heatmap layers are untouched).
+   *  A no-op when no field is armed (`_coverageFieldShow` null). Mirrors the coverage arm
+   *  inside `rebuildLayers` exactly — the single authority both share is `_coverageFieldShow`
+   *  (#1333). */
+  private _armCoverageFields(handle: CoverageHandle): void {
+    const show = this._coverageFieldShow
+    if (!show) return
+    const fieldOnly = (show.isArrow || show.isParticles) && show.ramp === undefined
+    if (!fieldOnly) {
+      this.coverageRenderer.setCoverage(handle, {
+        ramp: show.ramp ?? 'viridis',
+        rangeLo: show.range?.[0],
+        rangeHi: show.range?.[1],
+        opacity: show.opacity ?? 1,
+      })
+    }
+    if (show.isArrow) {
+      this._graphics.clearCompiledArrows()
+      addCoverageArrowShowLayer(this, show, handle)
+    }
+    if (show.isParticles) {
+      this._coverageParticleHandle?.remove()
+      this._coverageParticleHandle = addCoverageParticleShowLayer(this, show, handle)
+    }
+    this.invalidate()
+  }
+
+  /** Push a TRANSIENT coverage frame for `sourceId` — e.g. an `interpolateVectorCoverage`
+   *  blend between two forecast hours a caller decoded itself (a zero-network mosaic cache,
+   *  say) — re-deriving any armed `| arrow` / `| particles` field (and the fill, unless
+   *  field-only) WITHOUT persisting it as the source's stored data: `getCoverage(sourceId)`
+   *  keeps returning the LAST REAL pushed/read data, and a later `setCoverageData` /
+   *  `setCoverageTime` is unaffected. A no-op when `sourceId` is not the source that currently
+   *  has a field armed (#1333; today's architecture arms at most ONE coverage field at a
+   *  time — see `_coverageFieldShow`). `playCoverageTime`'s own `interpolateSteps` uses this
+   *  internally; exposed so a host app with its own playback loop (e.g. a zero-network mosaic
+   *  cache) can drive the SAME smoothing without going through the network-based
+   *  `setCoverageTime`. */
+  setCoverageFrame(sourceId: string, handle: CoverageHandle): void {
+    if (this._coverageFieldShow?.targetName !== sourceId) return
+    this._armCoverageFields(handle)
+  }
+
   /** Animate a `coverage` source through its forecast hours (#1272 E-③) — steps group→group
    *  on a wall-clock timer (each step is an async range re-read, so NOT the rAF loop),
    *  looping after the last hour. `stepMs` is the dwell per hour (default 700).
-   *  `pauseCoverageTime` stops it; calling this again restarts. */
-  playCoverageTime(sourceId: string, opts?: { stepMs?: number }): void {
+   *  `pauseCoverageTime` stops it; calling this again restarts.
+   *
+   *  `interpolateSteps` (#1333, default 1 = off) smooths the hour-to-hour cut: instead of one
+   *  hard jump per `stepMs`, it blends `interpolateSteps - 1` TRANSIENT intermediate frames
+   *  (`interpolateVectorCoverage`, vector-component blend of surfaceCurrentSpeed/Direction) at
+   *  even sub-steps of the SAME total dwell, landing exactly on the real hour at the end — so
+   *  playback still visits every real forecast hour, just without the abrupt cut between them.
+   *  The "to" hour is decoded ONCE per transition and reused for every intermediate frame (not
+   *  re-fetched per frame); a decode/interpolation failure just skips that one frame (playback
+   *  continues, matching a failed real step's silent-stop-only-on-step-failure contract is
+   *  intentionally NOT extended to frames — a single dropped frame should not kill playback). */
+  playCoverageTime(sourceId: string, opts?: { stepMs?: number; interpolateSteps?: number }): void {
+    const steps = Math.max(1, Math.floor(opts?.interpolateSteps ?? 1))
+    let cachedTo: { toIndex: number; handle: CoverageHandle } | null = null
     this._coverageTime.play(
       () => {
         const cur = this.rawDatasets.get(sourceId)
@@ -4712,8 +4810,28 @@ export class XGISMap {
             : undefined
         return t ? { index: t.index, count: t.count } : null
       },
-      (index) => this.setCoverageTime(sourceId, index),
+      (index) => {
+        cachedTo = null // the real landing re-derives via setCoverageTime's own read
+        return this.setCoverageTime(sourceId, index)
+      },
       opts?.stepMs ?? 700,
+      steps > 1
+        ? {
+            steps,
+            stepFraction: async (_fromIndex, toIndex, t) => {
+              const prev = this.rawDatasets.get(sourceId)
+              if (!prev || !('_coverage' in prev) || !prev._url) return // nothing to blend
+              if (!cachedTo || cachedTo.toIndex !== toIndex) {
+                const group = toIndex + 1 // reader groups are 1-based
+                cachedTo = { toIndex, handle: await readCoverageRange(prev._url, { group }) }
+              }
+              this.setCoverageFrame(
+                sourceId,
+                interpolateVectorCoverage(prev._coverage, cachedTo.handle, t),
+              )
+            },
+          }
+        : undefined,
     )
   }
 

@@ -25,6 +25,9 @@ source basemap {
 // cell, oriented by the direction band, scaled per the vendored IHO catalogue. This is the
 // STRICT portrayal: arrows only, NO raster fill (the catalogue defines colored arrows, not a
 // colour area). Add a `ramp: "s111-speed"` line to overlay the non-standard colour fill.
+// `| particles` (#1333) adds a SECOND, ANIMATED reading of the same field — small dots drift
+// within their home grid cell and respawn, so the current visibly moves even when the camera
+// and forecast hour are both at rest, alongside the precise static arrows.
 source currents {
   type: coverage
   url: "/noaa-s111/latest.h5"
@@ -37,4 +40,5 @@ layer imagery {
 layer speed {
   source: currents
   | arrow
+  | particles
 }

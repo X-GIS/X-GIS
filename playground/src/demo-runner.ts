@@ -4,7 +4,7 @@ import * as monaco from 'monaco-editor'
 import editorWorker from 'monaco-editor/esm/vs/editor/editor.worker?worker'
 import tsWorker from 'monaco-editor/esm/vs/language/typescript/ts.worker?worker'
 
-import { XGISMap, lonLatToMercator, Marker, Popup } from '@xgis/runtime'
+import { XGISMap, lonLatToMercator, Marker, Popup } from '@xgis/map'
 import { haversineDistance } from '@xgis/compiler'
 import { SCENE_BUILDER_TWINS } from '@xgis/compiler/builder/twin-corpus'
 // Raw text of the SAME module — the JS tab (#1194 A3b) extracts each twin's
@@ -17,6 +17,7 @@ import twinCorpusRaw from '@xgis/compiler/builder/twin-corpus?raw'
 import { installCoopsCurrents } from './examples/coops-currents.recipe'
 import coopsRecipeRaw from './examples/coops-currents.recipe?raw'
 import { installS111Mosaic, type S111MosaicHandle } from './examples/s111-mosaic'
+import { interpolateVectorCoverage } from '@xgis/data'
 import { NOAA_PROXY_BASE } from './demos/loader'
 import { DEMOS } from './demos'
 import { extractMapboxProjectionName, extractMapboxLight } from './mapbox-projection'
@@ -1615,7 +1616,10 @@ function teardownCurrentsMosaic(): void {
 // cell at a different hour (currentsMosaicHandle.setTime → setCoverageData({group})) — no
 // network, so play can't fail on a range re-fetch. It polls getCoverage('currents') for the
 // axis, self-syncs after a region swap (reloads at hour 0), and hides over a single-group
-// cell. The engine re-derives the `| arrow` field on each step (#1333).
+// cell. The engine re-derives the `| arrow` / `| particles` field(s) on each step (#1333).
+// PLAY additionally smooths the hour-to-hour cut with transient interpolated frames (#1333,
+// runInterpolatedStep) — the slider still jumps directly on drag (an instant scrub is the
+// expected feel there).
 type CoverageTimeAxis = { index: number; count: number; valueISO?: string; firstISO?: string }
 let currentsTimeCleanup: (() => void) | null = null
 
@@ -1669,9 +1673,39 @@ function setupCurrentsTimeControl(map: InstanceType<typeof XGISMap>): void {
   // Step by re-decoding the mosaic's cached region cell (no network) — never the range path.
   const step = (hour: number): void => currentsMosaicHandle?.setTime(hour)
 
+  // #1333 — smooth the hour-to-hour cut during PLAY (the slider still jumps directly on drag,
+  // §"instant scrub" is the expected feel there). INTERP_STEPS - 1 transient blended frames
+  // (interpolateVectorCoverage, zero network — both hours are the mosaic's own cached bytes)
+  // play out over the SAME 900 ms dwell, landing on the real hour exactly where non-interpolated
+  // play would. `interpEpoch` invalidates an in-flight sequence the instant a NEWER tick starts,
+  // or play is paused / the slider is scrubbed — so pausing mid-blend never leaves a stray frame
+  // animating on its own.
+  const INTERP_STEPS = 6
+  let interpEpoch = 0
+  const runInterpolatedStep = async (epoch: number, toIndex: number): Promise<void> => {
+    const fromHandle = map.getCoverage('currents')
+    const toHandle = await currentsMosaicHandle?.peekTime(toIndex)
+    if (epoch !== interpEpoch) return // superseded — a newer tick, a pause, or a scrub
+    if (!fromHandle || !toHandle) {
+      step(toIndex) // peek failed (e.g. region not cached yet) — fall back to a direct cut
+      return
+    }
+    for (let k = 1; k < INTERP_STEPS; k++) {
+      if (epoch !== interpEpoch) return
+      map.setCoverageFrame(
+        'currents',
+        interpolateVectorCoverage(fromHandle, toHandle, k / INTERP_STEPS),
+      )
+      await new Promise((resolve) => setTimeout(resolve, 900 / INTERP_STEPS))
+    }
+    if (epoch !== interpEpoch) return
+    step(toIndex) // land on the real hour — persists it, exactly like non-interpolated play
+  }
+
   const stopPlay = (): void => {
     playing = false
     playBtn.textContent = '▶'
+    interpEpoch++ // abort any in-flight interpolation sequence immediately
     if (playTimer != null) {
       clearTimeout(playTimer)
       playTimer = null
@@ -1679,8 +1713,9 @@ function setupCurrentsTimeControl(map: InstanceType<typeof XGISMap>): void {
   }
   const tickPlay = (): void => {
     if (cancelled) return
+    const epoch = ++interpEpoch
     const t = axis()
-    if (t && t.count > 1) step((t.index + 1) % t.count)
+    if (t && t.count > 1) void runInterpolatedStep(epoch, (t.index + 1) % t.count)
     playTimer = window.setTimeout(tickPlay, 900)
   }
 

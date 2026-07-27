@@ -1,6 +1,6 @@
 // Characterization / guard suite for the @xgis/shared single-source-of-truth
 // coordinate kernel. These functions are imported byte-for-byte by both
-// @xgis/compiler (tiler) and @xgis/runtime (engine); the bit-equality contract
+// @xgis/compiler (tiler) and @xgis/map (renderer); the bit-equality contract
 // was previously asserted only in prose (AGENTS.md / README.md / ecef.ts
 // header). This suite pins the three load-bearing numeric contracts so a future
 // edit to the kernel trips a co-located test instead of only a far-away

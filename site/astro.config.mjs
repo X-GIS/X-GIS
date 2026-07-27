@@ -267,19 +267,17 @@ export default defineConfig({
   ],
   vite: {
     plugins: [tailwindcss(), basicSsl()],
-    // Dev/build resolve @xgis/runtime to SOURCE, not the published dist.
-    // ship-P0 packaging set the runtime package `main`/`exports` to
-    // ./dist/index.js for external npm consumers; without this alias the
-    // site build (blueprint live-preview + Hero both dynamically import
-    // @xgis/runtime) fails to resolve the package entry because dist is
-    // built only for publishing. Same alias the playground vite config uses.
+    // Dev/build resolve @xgis/map to SOURCE, not the published dist. The
+    // published package's `main`/`exports` point at ./dist/index.js for external
+    // npm consumers (publishConfig); without this alias the site build (blueprint
+    // live-preview + Hero both dynamically import @xgis/map) would resolve a dist
+    // that is built only for publishing. Same alias the playground vite config uses.
     resolve: {
       alias: {
-        '@xgis/runtime': fileURLToPath(new URL('../runtime/src/index.ts', import.meta.url)),
-        // @xgis/runtime bundles @xgis/engine + @xgis/map (extracted in P3). Alias them to
-        // SOURCE too so the site loads ONE instance of each — Vite pre-bundling them into a
-        // second copy split the stateful RHI Material-twin / projections singletons, so the
-        // hero's fill draws hit "no RHI Material twin" and the render loop halted.
+        // @xgis/map bundles @xgis/engine. Alias both to SOURCE so the site loads ONE
+        // instance of each — Vite pre-bundling them into a second copy split the stateful
+        // RHI Material-twin / projections singletons, so the hero's fill draws hit
+        // "no RHI Material twin" and the render loop halted.
         '@xgis/engine': fileURLToPath(new URL('../engine/src/index.ts', import.meta.url)),
         '@xgis/map': fileURLToPath(new URL('../map/src/index.ts', import.meta.url)),
         // #763 A1 — shader-dsl to SOURCE like the rest (subpath keys FIRST: vite alias
@@ -301,7 +299,6 @@ export default defineConfig({
       exclude: [
         '@xgis/compiler',
         '@xgis/blueprint',
-        '@xgis/runtime',
         '@xgis/engine',
         '@xgis/map',
         '@xgis/shader-dsl',

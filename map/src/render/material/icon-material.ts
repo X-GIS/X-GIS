@@ -15,7 +15,7 @@ const ICON_ENTRIES: import('@xgis/engine').RhiBindLayoutEntry[] = [
   { binding: 2, kind: 'sampler', name: 'atlas_smp' },
 ]
 import { Material, executeItems } from '@xgis/engine'
-import { emitIconWgsl } from '@xgis/map'
+import { emitIconWgsl } from '../../shaders/dsl/icon'
 
 type VertexBuffers = ReadonlyArray<{
   stride: number

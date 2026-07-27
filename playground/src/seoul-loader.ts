@@ -9,7 +9,7 @@
 // pipeline draws it. No imperative `.apply()`; the source block IS the wiring.
 // Design: docs/architecture/source-loader-seam.md.
 
-import { XGISMap } from '@xgis/runtime'
+import { XGISMap } from '@xgis/map'
 import { seoulSigunguGazetteer, krAdminLoader } from '@xgis/pipeline'
 
 // A custom `type: x-kr-admin` source, declared like any built-in source.

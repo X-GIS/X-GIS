@@ -1,4 +1,4 @@
-// Guard test: every production source file under runtime/src and
+// Guard test: every production source file under data/src, map/src and
 // compiler/src that injects evaluator props MUST use the named
 // constants from ./reserved-keys, not literal '$zoom'/'$featureId'/
 // '$geometryType'. A literal slipping back in re-introduces the
@@ -58,8 +58,8 @@ const LITERAL_OK_FILES = new Set([
   'compiler/src/ir/lower.ts',
   'compiler/src/__tests__/evaluator-roundtrip.test.ts',
   'compiler/src/__tests__/mapbox-spec-conformance.test.ts',
-  'runtime/src/data/eval/feature-id-filter.test.ts',
-  'runtime/src/data/eval/geometry-type-filter.test.ts',
+  'data/src/eval/feature-id-filter.test.ts',
+  'data/src/eval/geometry-type-filter.test.ts',
 ])
 
 // eslint-disable-next-line no-irregular-whitespace -- ZWSP escapes the inner block-comment terminator inside this JSDoc
@@ -87,9 +87,10 @@ function walk(dir: string, out: string[] = []): string[] {
 describe('reserved keys — no literal `$zoom` / `$featureId` / `$geometryType` outside the constants module', () => {
   it('all evaluator-prop injection sites import from reserved-keys', () => {
     const offenders: string[] = []
-    const compilerSrc = join(ROOT, 'compiler/src')
-    const runtimeSrc = join(ROOT, 'runtime/src')
-    const allFiles = [...walk(compilerSrc), ...walk(runtimeSrc)]
+    // The evaluator-prop injection sites live in @xgis/data (the filter/extrude
+    // eval + worker prop bags) and @xgis/map (the render-side consumers) — they
+    // were under runtime/src until that package was dissolved.
+    const allFiles = ['compiler/src', 'data/src', 'map/src'].flatMap((d) => walk(join(ROOT, d)))
     for (const abs of allFiles) {
       // Normalise to forward-slash for cross-platform allowlist
       // comparison — Windows `path.join` returns backslash paths,

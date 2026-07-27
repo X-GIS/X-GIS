@@ -13,7 +13,11 @@
 
 import type { RhiDevice, RhiBindGroup, RhiTextureView, RhiSampler } from '@xgis/engine'
 import { Material, executeItems, type DrawItem } from '@xgis/engine'
-import { emitCoverageWgsl, buildCoverageModule, coverageGridVertexCount } from '@xgis/map'
+import {
+  emitCoverageWgsl,
+  buildCoverageModule,
+  coverageGridVertexCount,
+} from '../../shaders/dsl/coverage-ramp'
 import { emitGlslModule } from '@xgis/shader-dsl'
 import { QUANT_MAX, NODATA_CODE } from '@xgis/data'
 import { interpolateRamp, interpolateBandedRamp, RAMPS, BANDED_RAMPS } from '../../color-ramp'

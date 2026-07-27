@@ -20,7 +20,7 @@ One-off diagnostic and investigation scripts run directly with `bun run scripts/
 - Scripts here are investigation tools, not production code. They may have side effects (network fetches; file writes to `playground/`).
 - `sprite-sdf-buffer-probe.ts` makes live HTTPS requests to `tiles.openfreemap.org`; it will fail in offline environments.
 - When adding a new script, add a comment block at the top explaining what question it answers, the exact `bun run` invocation, and the expected output format.
-- Do not import from `@xgis/runtime` or `@xgis/compiler` in scripts — they run in a plain Bun Node-compatible context, not a browser WebGPU environment.
+- Do not import from `@xgis/map` or `@xgis/compiler` in scripts — they run in a plain Bun Node-compatible context, not a browser WebGPU environment.
 - The directory has no subdirectories; place any new scripts directly here.
 
 ### Testing Requirements

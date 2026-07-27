@@ -5,9 +5,8 @@
 //
 // Default (`bun precheck`): the FULL vitest suite (no path filter), ~5 min
 //   on a typical dev box. It intentionally runs everything the CI test
-//   matrix shards across (compiler-blueprint / shader-dsl-a+b /
-//   engine-render-a+b / engine-proj-text / engine-rest / runtime-nonengine /
-//   map / engine-rhi-data) — the root vitest.config include is the single
+//   matrix shards across (compiler-blueprint / shader-dsl-a+b / map-a..e /
+//   data / engine-rhi-shared) — the root vitest.config include is the single
 //   authority, so this local gate can never lose a leg the CI matrix has.
 //   A prior partial mirror (compiler/blueprint/runtime only) let two PRs
 //   in one day pass precheck locally and then fail CI's `test (map)` leg
@@ -80,7 +79,7 @@ if (RUN_SMOKE) {
 }
 
 if (RUN_MATRIX) {
-  // Vite-cache gotcha (load-bearing): the pre-bundled @xgis/runtime workspace
+  // Vite-cache gotcha (load-bearing): the pre-bundled @xgis/map workspace
   // dep in node_modules/.vite masks runtime/src edits, so a stale cache would
   // gate against OLD code. Clear it before the run (same fix as evaluator.ts).
   try {
@@ -113,7 +112,7 @@ function fmt(ms: number): string {
 // run it either, so we skip it locally too. Keep in sync with test.yml's `code`
 // filter.
 const CODE_PATH =
-  /^(compiler|runtime|engine|map|shared|blueprint|shader-dsl|rhi|rhi-webgl2|rhi-webgpu|data|pipeline|playground)\/|(^|\/)package\.json$|^bun\.lockb?$|^tsconfig.*\.json$|^vitest\.config\.ts$|^\.github\/workflows\/test\.yml$|^scripts\/precheck\.ts$/
+  /^(compiler|engine|map|shared|geo|blueprint|shader-dsl|rhi|rhi-webgl2|rhi-webgpu|data|pipeline|playground)\/|(^|\/)package\.json$|^bun\.lockb?$|^tsconfig.*\.json$|^vitest\.(config|setup)\.ts$|^\.github\/workflows\/test\.yml$|^scripts\/precheck\.ts$/
 
 /**
  * The files this push would add, or `null` if the range can't be determined
@@ -154,7 +153,7 @@ if (!RUN_SMOKE && !RUN_MATRIX && process.env.PRECHECK_FORCE !== '1') {
   if (changed !== null && changed.length > 0 && !changed.some((f) => CODE_PATH.test(f))) {
     console.log(
       `\n✓ precheck SKIPPED — ${changed.length} changed file(s), none under a tested code ` +
-        `path.\n  (compiler/runtime/engine/map/shared/blueprint/shader-dsl/rhi/data/pipeline/` +
+        `path.\n  (compiler/engine/map/shared/geo/blueprint/shader-dsl/rhi/data/pipeline/` +
         `playground or a build/config file.)\n  Force with \`PRECHECK_FORCE=1 bun run precheck\`.`,
     )
     process.exit(0)

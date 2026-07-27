@@ -11,7 +11,7 @@
 
 import type { RhiBindGroup, RhiBuffer, RhiDevice, RhiRenderPass } from '@xgis/engine'
 import { Material, executeItems, type DrawItem } from '@xgis/engine'
-import { emitCircleRetainedWgsl, emitCircleRetainedGlsl } from '@xgis/map'
+import { emitCircleRetainedWgsl, emitCircleRetainedGlsl } from '../../shaders/dsl/circle-retained'
 
 export class RetainedCircleDraper {
   private readonly material: Material

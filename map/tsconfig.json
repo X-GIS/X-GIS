@@ -2,14 +2,17 @@
   "extends": "../tsconfig.base.json",
   "compilerOptions": {
     "composite": true,
-    "outDir": "./dist",
+    "outDir": "./.tsbuild",
     "rootDir": "./src",
     "types": ["@webgpu/types"],
     // Consume the emitted declarations of the referenced packages (built first
     // via the project references below) instead of recompiling their source
-    // under map's rootDir — same pattern as runtime/tsconfig.json. @xgis/engine
-    // is a sibling reference here so the build order is shader-dsl → compiler →
-    // engine → map.
+    // under map's rootDir. @xgis/engine is a sibling reference here so the build
+    // order is shader-dsl → compiler → engine → map.
+    //
+    // outDir is `.tsbuild`, NOT `dist`: this pass exists to TYPECHECK. `dist/` is
+    // owned by the publish pipeline (`vite build` + `scripts/build-dts.ts`, which
+    // both read source), and vite's emptyOutDir would wipe a tsc emit anyway.
     "paths": {
       "@xgis/rhi": ["../rhi/dist/index.d.ts"],
       "@xgis/rhi-webgpu": ["../rhi-webgpu/dist/index.d.ts"],

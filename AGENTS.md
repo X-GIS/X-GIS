@@ -74,7 +74,7 @@ X-GIS is a domain-specific language and WebGPU rendering engine for GIS maps —
 
 ### Internal
 
-- `playground` consumes `@xgis/compiler` + `@xgis/runtime`; `site` also adds `@xgis/blueprint`.
+- `playground` consumes `@xgis/compiler` + `@xgis/map`; `site` also adds `@xgis/blueprint`.
 - `runtime` consumes `@xgis/compiler` output (SceneCommands, ShaderVariant[]).
 - All packages inherit `tsconfig.base.json` and may import from `@xgis/shared`.
 

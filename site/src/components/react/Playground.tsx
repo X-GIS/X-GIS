@@ -4,7 +4,7 @@ import { useEffect, useRef, useState, useCallback } from 'react'
 // wired to a live XGISMap canvas (right): edit the source, the compiler
 // + runtime re-render in your browser on a short debounce.
 //
-// ── The live-recompile API path (verified against runtime/src/engine/map.ts) ──
+// ── The live-recompile API path (verified against map/src/map.ts) ──
 //   `map.run(source, baseUrl)` (map.ts:1843) is RE-CALLABLE on a live
 //   instance. Its first lines (map.ts:1849-1850):
 //
@@ -30,7 +30,7 @@ import { useEffect, useRef, useState, useCallback } from 'react'
 // Asset URLs are depth-independent absolute (`${base}/data/land.geojson`)
 // like GlobeDemo, so the source resolves regardless of where /play sits.
 
-type XGISMapType = import('@xgis/runtime').XGISMap
+type XGISMapType = import('@xgis/map').XGISMap
 
 interface Props {
   /** Site base URL (import.meta.env.BASE_URL, trailing slash stripped) so
@@ -282,7 +282,7 @@ export default function Playground({ base, initialSource }: Props) {
       if (mountStarted || destroyedRef.current) return
       mountStarted = true
       try {
-        const { XGISMap } = await import('@xgis/runtime')
+        const { XGISMap } = await import('@xgis/map')
         if (destroyedRef.current) return
 
         canvas.addEventListener('wheel', onWheel, { capture: true, passive: false })

@@ -10,7 +10,7 @@
 // re-tile is cheap. NOTE: these are STRAIGHT flow-lines; curved great-circle arcs
 // (bulge) need a retained arc draper — deferred as a perf/visual follow-up.
 
-import { XGISMap } from '@xgis/runtime'
+import { XGISMap } from '@xgis/map'
 import { seoulSigunguGazetteer, decodeODB, fromRows, join, odFlow } from '@xgis/pipeline'
 
 const STYLE = `

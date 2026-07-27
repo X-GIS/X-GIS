@@ -223,3 +223,68 @@ describe('coverage `| arrow` portrayal lowering (#1333)', () => {
     expect(show.ramp).toBeUndefined()
   })
 })
+
+// ═══════════════════════════════════════════════════════════════════
+// `| particles` on a coverage layer — the ANIMATED S-111 portrayal (#1333)
+// ═══════════════════════════════════════════════════════════════════
+//
+// The engine renders an animated particle-flow field when a coverage layer carries the
+// `| particles` modifier — a second, moving reading of the same field `| arrow` draws
+// statically. Mirrors the `| arrow` coverage lowering exactly (map.ts keys the field off
+// `show.isParticles`); the two modifiers are independent and compose on the same layer.
+
+describe('coverage `| particles` portrayal lowering (#1333)', () => {
+  it('lowers `| particles` on a coverage layer to isParticles, coexisting with ramp/range', () => {
+    const scene = compile(`
+      source currents { type: coverage, url: "cbofs.h5" }
+      layer speed {
+        source: currents
+        ramp: "s111-speed"
+        range: [0, 13]
+        | particles
+      }
+    `)
+    const node = scene.renderNodes.find((n) => n.name === 'speed')!
+    expect(node.isParticles).toBe(true)
+    expect(node.ramp).toBe('s111-speed')
+    expect(node.range).toEqual([0, 13])
+  })
+
+  it('threads isParticles onto the coverage ShowCommand (the arm reads show.isParticles)', () => {
+    const scene = compile(`
+      source currents { type: coverage, url: "cbofs.h5" }
+      layer speed {
+        source: currents
+        | particles
+      }
+    `)
+    const show = emitCommands(scene).shows.find((s) => s.targetName === 'currents')!
+    expect(show.isParticles).toBe(true)
+  })
+
+  it('`| arrow | particles` together set BOTH markers — the two fields compose on one layer', () => {
+    const scene = compile(`
+      source currents { type: coverage, url: "cbofs.h5" }
+      layer speed {
+        source: currents
+        | arrow
+        | particles
+      }
+    `)
+    const node = scene.renderNodes.find((n) => n.name === 'speed')!
+    expect(node.isArrow).toBe(true)
+    expect(node.isParticles).toBe(true)
+  })
+
+  it('a coverage layer with neither modifier leaves isParticles undefined', () => {
+    const scene = compile(`
+      source currents { type: coverage, url: "cbofs.h5" }
+      layer speed {
+        source: currents
+        ramp: "viridis"
+      }
+    `)
+    const node = scene.renderNodes.find((n) => n.name === 'speed')!
+    expect(node.isParticles).toBeUndefined()
+  })
+})
