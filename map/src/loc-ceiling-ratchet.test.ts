@@ -134,7 +134,11 @@ const CEILINGS: Record<string, number> = {
   // across raised roofs).
   // 4739→4740 (#1252): the two fillPipelineExtrudedOverride params + their use
   // at the primary/fallback extrude-pipeline selection (data-driven fill extrude).
-  'map/src/render/vector-tile-renderer.ts': 4740,
+  // 4740→4791 (#1371 atomic re-seed): `reseedTiles` (re-request the keys this renderer has
+  // uploaded) + `applyReplacedTiles` (swap a replaced tile's GPU buffers in beginFrame, drop it
+  // when the replacement is empty). Both need the store + upload coordinator + source together,
+  // which only this class holds; extracting them would export three internals to buy back 51.
+  'map/src/render/vector-tile-renderer.ts': 4791,
   // 4232→4237 (#1000 heatmap relocate): the heatmap density-target OWNERSHIP
   // extracted to render/heatmap-targets.ts; map keeps only the irreducible
   // composition-root wiring — the `heatmapTargets` field + its import (mirrors
@@ -398,7 +402,11 @@ const CEILINGS: Record<string, number> = {
   // (+5 keep-alive, +10 FlowRenderer ownership, +10 step fix) are non-overlapping edits to
   // different methods, so the merged file measures their SUM — not max() of the two ceilings.
   // Same accounting the render-loop.ts entry below already records for the #1272 merge.
-  'map/src/map.ts': 5361,
+  //
+  // +1 (#1371): the `getVtSource` SourceManager dep, so a host data push swaps a source's
+  // backend on the LIVE catalog instead of tearing the pair down. One line, same union
+  // accounting as above — non-overlapping with the three bundles, so the merged file is 5362.
+  'map/src/map.ts': 5362,
   // Baselined at #1255 (measured 830): the DOM-inspired layer API crossed
   // NEW_FILE_CAP with the paint-transition style-setter integration — the
   // StyleHost.transitions context, the shared applyNumber/applyColor
@@ -418,7 +426,12 @@ const CEILINGS: Record<string, number> = {
   // existing 846 measurement — no growth.)
   // 846→849 (#1272): thread the coverage source's ramp/range display options
   // onto the `_coverage` marker so rebuild arms the CoverageRenderer with them.
-  'map/src/source-manager.ts': 849,
+  // 849→925 (#1371 atomic re-seed): `_reseedInPlace` — the data-swap sibling of the attach.
+  // It repeats that method's bookkeeping (reproject → seeded FC → polar caps → heatmap points)
+  // against the SAME catalog, then swaps the backend. Sharing the body with the attach would
+  // mean parameterising camera-fit, pipeline setup and registration away — more coupling than
+  // the 76 lines cost.
+  'map/src/source-manager.ts': 925,
   // 1920→1930 (#1042 R3): the globe limb cull for MULTI-LINE labels must land in
   // the collision phase — the ONLY site holding the label's quad half-height (the
   // collision box IS the height authority; the label-pass dispatch site has only
@@ -608,7 +621,10 @@ const CEILINGS: Record<string, number> = {
   // 1290→1314 (#1155 F3): cold-start burst tick budget — the `_coldStartBurst`
   // field + `_BURST_TICK_BUDGET` + `setColdStartBurst` + the burst-selected
   // budget in resetCompileBudget's backend tick loop.
-  'data/src/tile-catalog.ts': 1314,
+  // 1314→1360 (#1371 atomic re-seed): `refreshTiles` (re-request a CACHED key, the one thing
+  // `requestTiles` refuses) + `consumeReplacedKeys` + the two key sets they own. Cache identity
+  // and the request path both live here, so the pair cannot move out.
+  'data/src/tile-catalog.ts': 1360,
   // 1173→1180 (#1046 F1): thread the required `rhi: RhiDevice` onto the FrameContext at
   // both build sites — the main-chain init literal and the twin label stage — so a seam
   // can reach `ctx.rhi.caps.*` (doc §3-F1). +7 = two assignments + their rationale comments;
@@ -777,7 +793,10 @@ const CEILINGS: Record<string, number> = {
   // createPipeline unbinding the program after reflection. Stacked on the
   // #1057/#1062/#1060/#1196 growth — measured 1436.
   'rhi-webgl2/src/rhi-webgl2.ts': 1436,
-  'map/src/render/gpu-tile-store.ts': 941,
+  // 941→975 (#1371 atomic re-seed): `releaseSupersededTile` + `dropTile`, and the split of
+  // `_releaseTileSlots` into a resource-release body the two share with eviction. Arena/pool
+  // ownership is this class's whole reason to exist.
+  'map/src/render/gpu-tile-store.ts': 975,
   // 930→948 (#1078): the zoom-transition readiness gate now probes the SAME
   // selector the frame draws with — routeToSphereSelector picks globeVisibleTiles
   // on the globe/sphere route (vs the flat visibleTilesSSE) so cz hold/advance is
