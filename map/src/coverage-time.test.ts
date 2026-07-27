@@ -210,6 +210,127 @@ describe('CoverageTimePlayer.play — interpolated sub-stepping (#1333)', () => 
     }
   })
 
+  // ── #1362 — the S-111 play button: "huge lag, and it never moves forward, it repeats" ──
+  // Both symptoms are one root cause: playback work that costs MORE than its dwell. A loop
+  // that neither drops sub-frames nor guards its generation then (a) stretches every hour so
+  // the real landing keeps sliding, and (b) resurrects itself after a pause, stacking loops.
+
+  it('a blended frame slower than subMs is DROPPED so the hour still lands within its dwell', async () => {
+    vi.useFakeTimers()
+    try {
+      const player = new CoverageTimePlayer()
+      let index = 0
+      const landed: number[] = []
+      const fracs: number[] = []
+      let fracsAtFirstLanding = -1
+      player.play(
+        () => ({ index, count: 5 }),
+        async (next) => {
+          if (fracsAtFirstLanding < 0) fracsAtFirstLanding = fracs.length
+          landed.push(next)
+          index = next
+        },
+        100, // stepMs → subMs = 20
+        {
+          steps: 5,
+          stepFraction: async (_f, _t2, t) => {
+            fracs.push(t)
+            // One blended frame costs 1.5× its slot (a real S-111 frame re-derives a 258k-cell
+            // arrow + particle field) — the loop must shed frames, not fall behind. The SYNC
+            // advance models blocking work: the clock moves, no timer is flushed early.
+            vi.advanceTimersByTime(30)
+          },
+        },
+      )
+      await vi.advanceTimersByTimeAsync(100)
+      expect(landed[0]).toBe(1) // the hour LANDED inside one dwell despite the slow frames
+      expect(fracsAtFirstLanding).toBeGreaterThan(0) // it still blended what fitted…
+      expect(fracsAtFirstLanding).toBeLessThan(4) // …and dropped the frames whose slot had passed
+      player.pause()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('keeps landing hour after hour when EVERY hour overruns its dwell (never repeats one hour)', async () => {
+    vi.useFakeTimers()
+    try {
+      const player = new CoverageTimePlayer()
+      let index = 0
+      const landed: number[] = []
+      player.play(
+        () => ({ index, count: 4 }),
+        async (next) => {
+          vi.advanceTimersByTime(150) // the swap alone costs 1.5× the whole dwell
+          landed.push(next)
+          index = next
+        },
+        100,
+        { steps: 5, stepFraction: async () => void vi.advanceTimersByTime(40) },
+      )
+      await vi.advanceTimersByTimeAsync(2000)
+      expect(landed.slice(0, 5)).toEqual([1, 2, 3, 0, 1]) // advances + wraps, never stuck
+      player.pause()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('pause() during an in-flight step stops the loop (an awaiting tick never re-arms)', async () => {
+    vi.useFakeTimers()
+    try {
+      const player = new CoverageTimePlayer()
+      let index = 0
+      const calls: number[] = []
+      let release: (() => void) | null = null
+      player.play(
+        () => ({ index, count: 5 }),
+        async (next) => {
+          calls.push(next)
+          index = next
+          await new Promise<void>((r) => (release = r)) // a swap still in flight when we pause
+        },
+        50,
+      )
+      await vi.advanceTimersByTimeAsync(50)
+      expect(calls).toEqual([1])
+      player.pause() // ← pressed while the step is awaiting
+      release!()
+      await vi.advanceTimersByTimeAsync(1000)
+      expect(calls).toEqual([1]) // no tick was re-armed by the orphaned in-flight step
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('play() while a step is in flight leaves exactly ONE loop (a play/pause toggle never stacks)', async () => {
+    vi.useFakeTimers()
+    try {
+      const player = new CoverageTimePlayer()
+      let index = 0
+      const calls: number[] = []
+      let release: (() => void) | null = null
+      let block = true
+      const axisFn = (): { index: number; count: number } => ({ index, count: 5 })
+      const stepFn = async (next: number): Promise<void> => {
+        calls.push(next)
+        index = next
+        if (block) await new Promise<void>((r) => (release = r))
+      }
+      player.play(axisFn, stepFn, 50)
+      await vi.advanceTimersByTimeAsync(50)
+      expect(calls).toEqual([1])
+      block = false
+      player.play(axisFn, stepFn, 50) // restart while the first loop's step is still awaiting
+      release!()
+      await vi.advanceTimersByTimeAsync(150) // 3 dwells → exactly 3 more steps, not 6
+      expect(calls).toEqual([1, 2, 3, 4]) // a stacked second loop would double-step here
+      player.pause()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it('steps ≤ 1 (or omitted) is byte-identical to non-interpolated play', async () => {
     vi.useFakeTimers()
     try {
