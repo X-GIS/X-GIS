@@ -10,15 +10,19 @@ import { defineConfig } from 'vite'
 //   - .d.ts             bundled separately by the rollup-plugin-dts pass
 //     (see vite.dts.config.ts), run after this from the `build` script.
 //
-// Bundled IN (not external): @xgis/shared + @xgis/compiler. They are
-// private/unpublished workspace packages, so their *source* is pulled into
-// the runtime bundle. Vite resolves the bare `@xgis/*` specifiers through the
-// workspace symlinks (their package.json `main`/`exports` point at src), so
-// no alias is needed — they simply are not marked external below.
+// Bundled IN (not external): EVERY internal @xgis/* package the barrel reaches
+// — map, data, geo, engine, rhi, rhi-webgpu, compiler, shader-dsl, shared. All
+// of them are private/unpublished workspace packages, so their *source* is
+// pulled into the runtime bundle (hence they are devDependencies, not
+// dependencies — a published `workspace:*` entry would be unresolvable). Vite
+// resolves the bare `@xgis/*` specifiers through the workspace symlinks (their
+// package.json `main`/`exports` point at src), so no alias is needed — they
+// simply are not marked external below.
 //
 // Kept EXTERNAL (declared in package.json "dependencies"): the genuine
-// third-party libraries. earcut/proj4/pmtiles are imported directly by the
-// runtime; pbf + @mapbox/vector-tile are imported by the bundled-in compiler.
+// third-party libraries, all reached through the bundled-in packages —
+// earcut/proj4/pmtiles via @xgis/data + @xgis/map, pbf + @mapbox/vector-tile
+// via @xgis/data and the compiler's MVT decode.
 const EXTERNAL = ['earcut', 'proj4', 'pmtiles', 'pbf', '@mapbox/vector-tile']
 
 export default defineConfig({

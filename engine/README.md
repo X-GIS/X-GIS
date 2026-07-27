@@ -1,85 +1,67 @@
 # `@xgis/engine`
 
-The content-blind GPU core of X-GIS: the RHI (render-hardware-interface) that renderers
-target instead of raw `GPUDevice`, the GPU resource machinery (arena allocator, staging
-pools, compute dispatch, timers), and the projection/camera math authority (Web Mercator
-through true 3D globe, ECEF, view matrices, unprojection). It knows nothing about map
-_content_ — no layers, no styles, no tiles — by construction: even the projection state
-crosses the frame boundary as an opaque token the engine cannot decode.
+The content-blind, backend-neutral GPU core of X-GIS. It re-exports the RHI
+(render-hardware-interface) that renderers target instead of a raw `GPUDevice`, and owns
+the small set of primitives that are true of ANY renderer: GPU + CPU allocators, the
+reflection-derived uniform packer, the descriptor-driven draw backbone, and the neutral
+render context. It knows nothing about map _content_ — no layers, styles, tiles, or
+projections — and that is **compiler-enforced**: `tsconfig.json` sets `"types": []`, so a
+native `GPU*` identifier anywhere in `engine/src` is a build error.
 
-This package is the backend half of the **embeddable-engine split** (`@xgis/engine` +
-`@xgis/map`) on the roadmap. The physical carve out of `@xgis/runtime` is real and this
-package builds and ships symbols today, but the split is **in progress — an engineering
-plan, not a finished public boundary** (see `site/src/pages/docs/concepts/rendering.astro`).
+> `private: true` — workspace-internal, not published to npm. Consumers are `@xgis/map`,
+> `@xgis/data`, `@xgis/rhi-webgpu` (type-level, baselined), and the playground/site
+> builds. `@xgis/runtime` reaches the engine only transitively, through `@xgis/map`.
 
-> `private: true` — workspace-internal; this package is **not** published to npm.
-> Consumers today are `@xgis/runtime` (which re-exports `Camera`, the projections, and
-> `ComputeDispatcher`), `@xgis/map`, and `@xgis/data`.
+## What is actually here
 
-## Capability taxonomy (honest)
+`engine/src` is **10 source files**. This package is deliberately small and is being grown
+by EPIC #991, which promotes the content-blind GPU primitives still trapped in
+`map/src/render/**` into it, one phase at a time.
 
-| Capability                                                                                                         | Standing                                                                                                                          |
-| ------------------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------- |
-| **RHI** (`RhiDevice` / `RhiRenderPass` / … — renderers never touch `GPUDevice` directly)                           | **STRONG** — WebGPU impl is the reference path                                                                                    |
-| **WebGL2 RHI backend**                                                                                             | real, parity-tested — the fallback proof; MSAA/compute divergences documented in `rhi-webgl2.ts`, unsupported paths fail closed   |
-| **GPU arena** (single shared buffer, linear alloc, relocation/compaction — the `drawIndexedIndirect` precondition) | **STRONG**                                                                                                                        |
-| **Compute dispatch** (per-feature expression kernels; WebGPU compute + a WebGL2 GPGPU-draw emulation)              | **STRONG**                                                                                                                        |
-| **Projection / camera math** (7 flat projections + true 3D globe, ECEF/DSFUN, view-matrix + unproject authority)   | **STRONG** — float-order-preserving extractions from the former runtime Camera                                                    |
-| **Reflection-driven pipelines** (`reflection-to-webgpu`, `UniformBlock` typed std140 packing)                      | **DISTINCTIVE** — bind groups + uniform offsets derive from `@xgis/shader-dsl`'s `reflect()`, killing hand-maintained byte tables |
-| **Frame machinery** (`FrameContext`, `RenderTargets`, frame arena, staging pools, GPU timers)                      | STRONG — allocation-paranoid per-frame paths                                                                                      |
-| **Engine ↔ map public boundary**                                                                                   | **in progress** — the carve is physical, the API contract is not yet frozen                                                       |
+| Module                                | Responsibility                                                                                                                                 |
+| ------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
+| `src/index.ts`                        | The barrel — also re-exports all of `@xgis/rhi`, so a consumer imports RHI types from here.                                                    |
+| `src/gpu/gpu-arena.ts`                | `GPUArena` — single shared buffer, linear alloc, relocation/compaction (the `drawIndexedIndirect` precondition).                               |
+| `src/gpu/quality.ts`                  | `QUALITY` presets + the `?quality=` / `?msaa=` / `?dpr=` URL knobs, DPR caps, safe/pick mode flags.                                            |
+| `src/render/uniform-block.ts`         | `UniformBlock.of(struct)` — typed std140 packing derived from `@xgis/shader-dsl`'s `reflect()`, so the DSL struct is the one layout authority. |
+| `src/render/frame-arena.ts`           | `FrameArena` — pure-CPU per-frame bump allocator (no GPU coupling).                                                                            |
+| `src/render/uniform-ring.ts`          | `UniformRing` — growable per-draw uniform ring over one buffer + a CPU staging mirror (#991 P2).                                               |
+| `src/render/material.ts`              | `Material` / `executeItems` + the `MaterialDesc` / `PipelineVariant` / `DrawItem` descriptor triad — the generic draw backbone (#991 P1).      |
+| `src/render/render-context.ts`        | `RenderContext` / `RhiDeviceLostInfo` / `BackendChoice` — the neutral boot + per-frame context a backend context extends.                      |
+| `src/shaders/log-depth.ts`            | CPU-side logarithmic-depth helpers (the twin of the WGSL side).                                                                                |
+| `src/shaders/dsl/overdraw-compose.ts` | The DSL-authored overdraw-compose module — a content-blind full-screen leaf.                                                                   |
 
-## Layout
+## What is deliberately NOT here
 
-| Directory         | Responsibility                                                                                                                                                                                                                          |
-| ----------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `src/render/rhi/` | The backend-agnostic RHI interface plus its two implementations: `rhi-webgpu.ts` (reference, thin 1:1 wrappers) and `rhi-webgl2.ts` (fallback proof).                                                                                   |
-| `src/gpu/`        | Device init (`gpu.ts`, `?safe=1` / `?gl2=1` debug flags), `GPUArena`, `ComputeDispatcher` (+ WebGL2 emulation), frame arena, staging-buffer pool, palette textures, bind tiers, GPU timestamp timers, quality knobs.                    |
-| `src/projection/` | `Camera` and its pure extractions (view-matrix, unproject, world copies, flat-anchor helpers), the projections table (`projType ↔ name ↔ capability`), Mercator + alternative projections, true-globe forward/inverse, ECEF re-exports. |
-| `src/render/`     | Frame/pipeline machinery: `FrameContext`, `RenderTargets`, `ProjectionToken`, reflection→WebGPU mapping, vertex-buffer layout derivation, render-bundle cache, `UniformBlock`.                                                          |
-| `src/shaders/`    | Engine-owned shader math: logarithmic-depth helpers and the DSL-authored overdraw-compose debug pipeline.                                                                                                                               |
-
-Everything public re-exports through `src/index.ts`. One deliberate omission: the dormant
-`gpu/frame-uniform` scaffolding is **not** re-exported (no live consumers; its 128-byte
-layout predates the current 192-byte per-renderer structs — kept internal so autocomplete
-cannot wire a dead path).
+- **Projections / camera / ECEF.** The ellipsoid math is `@xgis/shared`, the projection
+  library is `@xgis/geo`, and the map camera is `@xgis/map` (#781 3c/3d). The engine does
+  not carry even the projection vocabulary.
+- **The frame-uniform schema.** Its `proj_params` / meters-per-pixel lanes are map
+  content; `@xgis/map` declares the struct and packs it through the engine's generic
+  `UniformBlock` (#991 P0).
+- **Anything WebGPU-typed.** The device init, swapchain, `GPUTimer`, `RenderTargets`,
+  staging pool, bundle cache and compute dispatch live in `@xgis/rhi-webgpu`; the WebGL2
+  backend in `@xgis/rhi-webgl2`. (That several of those are engine-layer concerns sitting
+  in a backend adapter is known, and is what the `['rhi-webgpu','engine']` baseline in
+  `dependency-direction-ratchet.test.ts` tracks.)
 
 ## Install / build
-
-A workspace package built with TypeScript project references:
 
 ```bash
 bun install
 bun run build   # tsc --build → dist/ + .d.ts
 ```
 
-Consumers resolve `@xgis/engine` via each package's `paths` mapping to `dist/index.d.ts`
-(`data/`, `map/`) or bundle it through the site/playground Vite aliases. Root
-`bun run build` orders it after `@xgis/shared` → `@xgis/shader-dsl` → `@xgis/compiler`.
-
-## Usage
-
-```ts
-import {
-  Camera,
-  getProjection,
-  lonLatToECEF,
-  GPUArena,
-  ComputeDispatcher,
-  QUALITY,
-  resizeCanvas,
-} from '@xgis/engine'
-```
-
-WebGPU is the primary target; `initGPU` raises `WebGPUUnavailableError` where WebGPU is
-missing, and the WebGL2 RHI exists as the parity-tested fallback path (forced with
-`?gl2=1`).
+Consumers resolve `@xgis/engine` through each package's `paths` mapping to
+`dist/index.d.ts` (`data/`, `map/`) or through the site/playground Vite source aliases.
+Root `bun run build` orders it after `@xgis/shared` → `@xgis/shader-dsl` → `@xgis/rhi`.
 
 ## Verified
 
-- **Unit gate** — 24 colocated `*.test.ts` suites run by the root Vitest (`bun run test`):
-  arena alloc/relocation, compute dispatch, camera/projection math (including regression
-  suites for real camera bugs), RHI render-pass parity WebGPU↔WebGL2, `UniformBlock`
-  std140 packing, log-depth math.
+- **Unit gate** — colocated `*.test.ts` run by the root Vitest (CI leg `engine-rhi-data`):
+  arena alloc/relocation/grow, frame arena, `UniformBlock` std140 packing, `UniformRing`
+  grow/flush, log-depth math.
+- **Boundary gate** — `src/dependency-direction-ratchet.test.ts` pins the whole monorepo's
+  allowed package-dependency graph and fails CI on any new cross-package edge.
 - **Render gate** — real-GPU behaviour is covered by the Playwright e2e suites in
-  `playground/` (they exercise the full runtime, which drives this engine).
+  `playground/`, which drive `@xgis/map` on top of this engine.

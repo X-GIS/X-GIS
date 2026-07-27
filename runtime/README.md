@@ -1,17 +1,22 @@
 # @xgis/runtime
 
-The WebGPU rendering engine for X-GIS. `@xgis/runtime` is the rendering half of
-the monorepo: it consumes the compiler's output (`SceneCommands`,
-`ShaderVariant`, `CompiledTile`) and paints maps on the GPU. It owns the camera
-math, pointer interaction, the full MVT/PBF vector-tile pipeline, and the eight
-projection surfaces (projType 0–6 plus the true-3D globe at projType 7) — each
-baked into WGSL with a paired CPU implementation.
+The **published distribution** of X-GIS. `@xgis/runtime` is the only package in the
+monorepo that ships to npm: it is a thin public barrel that re-exports the map facade
+(`@xgis/map`), the data/loader surface (`@xgis/data`), the projection factories
+(`@xgis/geo`) and the compute dispatcher (`@xgis/rhi-webgpu`), and bundles all of them
+into one `dist/`. Its own source is ~1.8k LOC: the barrel, the runtime capability table,
+and the `<xgis-map>` custom element.
 
-> Role in the monorepo: `@xgis/compiler` turns `.xgis` source into IR + scene
-> commands + shaders; `@xgis/runtime` executes them on WebGPU. See
-> [`docs/architecture/OVERVIEW.md`](../docs/architecture/OVERVIEW.md) for the C4
-> view and [`docs/architecture/MODULES.md`](../docs/architecture/MODULES.md) for
-> the module DAG.
+> The rendering itself lives elsewhere. `@xgis/compiler` turns `.xgis` source into IR +
+> scene commands; `@xgis/map` owns the renderers, camera, text/sprite stages and the
+> vector-tile pipeline; `@xgis/engine` owns the content-blind GPU primitives; the RHI
+> backends are `@xgis/rhi-webgpu` / `@xgis/rhi-webgl2`. See
+> [`docs/architecture/OVERVIEW.md`](../docs/architecture/OVERVIEW.md) for the C4 view and
+> [`docs/architecture/MODULES.md`](../docs/architecture/MODULES.md) for the module DAG.
+>
+> **Note for contributors:** `runtime/src/**` still holds a large test corpus that
+> exercises `@xgis/map`, left behind by the package extraction. Those tests are being
+> relocated to the package they test; do not add new ones here.
 
 ## WebGPU-only
 
@@ -64,7 +69,7 @@ Top-level exports from `index.ts`:
 | `XGISMap`                                                                                                | Top-level map orchestrator (compile → load → camera-fit → frame loop).             |
 | `XGISMapElement`, `registerXGISElement`                                                                  | `<xgis-map>` web component + registration.                                         |
 | `Camera`                                                                                                 | Zoom/pan/bearing/pitch, MVP matrix, log-depth FC.                                  |
-| `MapRenderer`                                                                                            | WebGPU renderer for compiled GeoJSON meshes.                                       |
+| `MapRendererContent`, `FrameRenderer`                                                                    | The content renderer + the per-frame driver behind `XGISMap`.                      |
 | `loadGeoJSON`, `lonLatToMercator`                                                                        | GeoJSON ingest + Mercator helper.                                                  |
 | `mercator`, `equirectangular`, `naturalEarth`, `orthographic`, `getProjection`                           | Projection factories (CPU `{forward, inverse}`).                                   |
 | `VectorTileLoader`, `VectorTileSource`, `PMTilesArchiveSource`, `TileJSONSource`, `loadPMTilesSource`, … | Vector-tile / PMTiles source surface.                                              |
@@ -74,43 +79,38 @@ Top-level exports from `index.ts`:
 | `RUNTIME_CAPABILITIES`, `runtimeCapability`, `runtimeGaps`                                               | Per `(layerType, property, variant)` matrix of what the renderer actually honours. |
 | `StatsPanel`, `StatsTracker`                                                                             | Per-frame fps/draws/tris/tiles metrics.                                            |
 
-## Subsystems
+## Source layout
 
-Source lives under `src/`, split into four subsystem dirs plus support modules.
-Each has a per-directory `AGENTS.md` with the detail.
+`src/` holds only the publication layer. Everything it exposes is implemented in a
+sibling package.
 
-| Subsystem            | One-line                                                                                                | Detail                                                               |
-| -------------------- | ------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------- |
-| `engine/`            | `XGISMap` orchestrator, DOM-style layer API, AST interpreter, interaction, stats.                       | [src/engine/AGENTS.md](./src/engine/AGENTS.md)                       |
-| `engine/render/`     | Every draw-call renderer (vector tiles, lines, points, raster, background) + scheduling.                | [src/engine/render/AGENTS.md](./src/engine/render/AGENTS.md)         |
-| `engine/gpu/`        | WebGPU device/context, shared blend/stencil constants, uniform/staging buffers, compute dispatch.       | [src/engine/gpu/AGENTS.md](./src/engine/gpu/AGENTS.md)               |
-| `engine/projection/` | Camera + the 7 CPU projections (projType 0–6) + true-3D globe (projType 7).                             | [src/engine/projection/AGENTS.md](./src/engine/projection/AGENTS.md) |
-| `engine/shader-dsl/` | In-house TSL-inspired DSL: one IR emits both WGSL and the CPU-f64 mirror (kills GPU↔CPU drift).         | [src/engine/shader-dsl/AGENTS.md](./src/engine/shader-dsl/AGENTS.md) |
-| `engine/shaders/`    | Shared WGSL string blocks (projection, log-depth, SDF).                                                 | [src/engine/shaders/AGENTS.md](./src/engine/shaders/AGENTS.md)       |
-| `engine/text/`       | SDF text/label pipeline: shaping, collision, atlas, rasterisers.                                        | [src/engine/text/AGENTS.md](./src/engine/text/AGENTS.md)             |
-| `engine/sprite/`     | Sprite/icon atlas + icon renderer + stage.                                                              | [src/engine/sprite/AGENTS.md](./src/engine/sprite/AGENTS.md)         |
-| `data/`              | `TileCatalog` router/cache, per-format `TileSource` backends, decode worker pools, filter/extrude eval. | [src/data/AGENTS.md](./src/data/AGENTS.md)                           |
-| `loader/`            | GeoJSON loader, `VectorTileLoader`, SSE tile selector, polar-cap detect.                                | [src/loader/AGENTS.md](./src/loader/AGENTS.md)                       |
-| `core/`              | GPU-free geometry/scheduling primitives (line-segment build, polygon mesh, priority queue).             | [src/core/AGENTS.md](./src/core/AGENTS.md)                           |
-| `web/`               | `<xgis-map>` custom element.                                                                            | [src/web/AGENTS.md](./src/web/AGENTS.md)                             |
+| Path                           | One-line                                                                                                                                                       |
+| ------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `index.ts`                     | The public barrel — re-exports from `@xgis/map`, `@xgis/data`, `@xgis/geo`, `@xgis/rhi-webgpu`, plus the capability table and the custom element.              |
+| `capabilities/`                | Per-layer-type capability descriptors (`background`, `circle`, `fill`, `fill-extrusion`, `heatmap`, `line`, `raster`, `symbol`) spread into `capabilities.ts`. |
+| `capabilities.ts`              | `RUNTIME_CAPABILITIES` — per `(layerType, property, variant)` flags of what the renderer honours vs silently drops.                                            |
+| `web/`                         | `XGISMapElement` / `registerXGISElement` — the `<xgis-map>` custom element.                                                                                    |
+| `vite-shims.ts`, `earcut.d.ts` | Ambient declarations (Vite's `?worker` query suffix; untyped `earcut`).                                                                                        |
+| `test-setup-projections.ts`    | The root Vitest `setupFiles` entry — calls `configureProjections(PROJECTIONS)` before any suite touches the projection path.                                   |
 
-Cross-cutting design notes worth knowing before editing:
+Everything else under `src/` (`engine/`, `data/`, `loader/`, `diagnostics/`,
+`__tests__/`, `__test-support__/`) is **tests only** — a corpus that exercises
+`@xgis/map` and `@xgis/data` from here for historical reasons.
 
-- **CPU↔GPU projection parity is a hard contract.** The CPU mirror of the WGSL
-  projections is GENERATED from the shader DSL (`engine/shader-dsl`), not hand-
-  maintained. See ADR [0003 — shader DSL single-emit](../docs/adr/0003-shader-dsl-single-emit.md).
-- **earcut runs in Mercator-projected coordinates** so triangle edges match the
-  GPU; projections switch via a GPU uniform, never re-tessellation.
-- **DSFUN** (double-single float) split-precision packing recovers camera-
-  relative metres at ~f64 precision on f32 hardware; tiles pack ECEF metres —
-  ADR [0001 — ECEF tile pipeline](../docs/adr/0001-ecef-tile-pipeline.md).
+Cross-cutting design notes live with the code they describe:
 
-> **God-object caveat:** the engine's largest classes (`VectorTileRenderer`,
-> `map.ts`, the tiler, `text-stage`, …) own state that should be distributed —
-> this is the project's #1 architectural debt and is documented (with the full
-> table) in [`docs/architecture/MODULES.md`](../docs/architecture/MODULES.md)
-> §4. Decomposition is planned but unexecuted; do not assume these files are
-> cleanly layered.
+- **CPU↔GPU projection parity is a hard contract** — the CPU mirror is generated from the
+  shader DSL, never hand-maintained. ADR [0003](../docs/adr/0003-shader-dsl-single-emit.md).
+- **earcut runs in Mercator-projected coordinates** so triangle edges match the GPU;
+  projections switch via a GPU uniform, never re-tessellation.
+- **DSFUN** split-precision packing recovers camera-relative metres at ~f64 precision on
+  f32 hardware — ADR [0001](../docs/adr/0001-ecef-tile-pipeline.md).
+
+> **God-object caveat:** the largest classes (`map/src/render/vector-tile-renderer.ts`,
+> `map/src/map.ts`, `map/src/text/text-stage.ts`) own state that should be distributed —
+> the project's #1 architectural debt, tabled in
+> [`docs/architecture/MODULES.md`](../docs/architecture/MODULES.md) §4. They live in
+> `@xgis/map`, not here.
 
 ## Build / test
 
@@ -135,10 +135,10 @@ and [`docs/verification/STRATEGY.md`](../docs/verification/STRATEGY.md).
 
 ## Dependencies
 
-The internal `@xgis/compiler` (scene commands, shader variants, MVT decode/
-compile, geojson-vt port, expression `evaluate`), `@xgis/shader-dsl` (the
-single-emit WGSL+CPU projection DSL), and `@xgis/shared` are **bundled into
-`dist/`** at build time, so the published package depends only on genuine
+Every internal `@xgis/*` package the barrel reaches — `map`, `data`, `geo`, `engine`,
+`rhi`, `rhi-webgpu`, `compiler`, `shader-dsl`, `shared` — is `private: true` and is
+**bundled into `dist/`** at build time (they are absent from vite's `EXTERNAL` list), so
+they are devDependencies here and the published package depends only on genuine
 third-party externals:
 
 - **Runtime:** `@mapbox/vector-tile` + `pbf` (MVT decode), `pmtiles` (archive

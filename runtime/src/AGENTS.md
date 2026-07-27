@@ -1,74 +1,93 @@
 <!-- Parent: ../AGENTS.md -->
-<!-- Generated: 2026-06-03 | Updated: 2026-06-29 -->
+<!-- Generated: 2026-06-03 | Updated: 2026-07-27 -->
 
 # src
 
 ## Purpose
 
-Root of the `@xgis/runtime` source tree. The four top-level source files are the public entry barrel (`index.ts`), the runtime capability flag table (`capabilities.ts`), a Vite worker-query ambient shim (`vite-shims.ts`), and an ambient type declaration for `earcut` (`earcut.d.ts`). All substantive implementation lives in subdirectories: `engine/` (camera, projections, WebGPU device/context, all render passes, text/SDF/PBF glyph pipeline, sprite atlas, GPU staging buffers), `data/` (tile catalog/router, per-format source backends, GeoJSON tiling worker pool, filter/extrude eval, polar-cap synthesis), `loader/` (GeoJSON parser, vector-tile-loader for PMTiles/TileJSON, SSE tile selector, polar-cap detector), `core/` (GPU-free geometry/scheduling primitives), `capabilities/` (per-layer-type capability descriptors assembled by `capabilities.ts`), `web/` (the `<xgis-map>` custom element), `debug/` (CPU-only tile-pipeline predictor and simulator), `diagnostics/` (per-frame render-trace capture), and `dev/` (dev-only `devAssert` cross-path invariant helper).
+Source root of `@xgis/runtime`, the monorepo's one published package. It is a **publication
+layer, not an implementation**: the barrel (`index.ts`) re-exports `@xgis/map`,
+`@xgis/data`, `@xgis/geo` and `@xgis/rhi-webgpu`; `capabilities.ts` + `capabilities/`
+declare what the renderer honours; `web/component.ts` wraps `XGISMap` as `<xgis-map>`.
+That is the whole of the source — ~1.8k LOC across 19 files.
+
+> **The rest of this tree is TESTS.** `engine/`, `data/`, `loader/`, `diagnostics/`,
+> `__tests__/` and `__test-support__/` contain 259 `*.test.ts` and no source. Despite the
+> name, `engine/**` tests `@xgis/map` (not `@xgis/engine`) — it is the pre-extraction
+> layout, kept until the corpus is relocated to the packages it tests. **Do not add new
+> tests here**; colocate them with their subject in `map/src` / `data/src` / `engine/src`.
 
 ## Key Files
 
-| File                        | Description                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
-| --------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `index.ts`                  | Public barrel. Re-exports `XGISMap`, `StatsPanel`, `StatsTracker`, `Camera`, `MapRenderer`, `loadGeoJSON`, `lonLatToMercator`, polar-cap helpers (`injectPolarCaps`, `synthesizePolarCaps`, `projectionNeedsPolarCaps`, et al.), `RUNTIME_CAPABILITIES`/`runtimeCapability`/`runtimeGaps`, `VectorTileLoader`, `VectorTileSource`, `PMTilesArchiveSource`, `TileJSONSource`, `XGISMapElement`/`registerXGISElement`, projection factories (`mercator`, `equirectangular`, `naturalEarth`, `orthographic`, `getProjection`), `ComputeDispatcher`, and color-ramp helpers. Only import surface for `playground/` and `site/`. |
-| `capabilities.ts`           | `RUNTIME_CAPABILITIES` — per `(layerType, property, variant)` flags of what the renderer honours vs silently drops/degrades. Variants: `constant`, `zoom-interp`, `data-driven`. `runtimeGaps()` returns the unsupported subset. The `__tests__/spec-coverage-runtime-drift.test.ts` gate fails on stale or missing entries.                                                                                                                                                                                                                                                                                                |
-| `capabilities.test.ts`      | Top-level unit test for the capability table itself (coverage of `runtimeCapability` lookup and `runtimeGaps` output shape). Lives at root level, not under `__tests__/`.                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
-| `vite-shims.ts`             | Ambient `declare module '*?worker'` shim for Vite's worker-query import suffix. Kept as `.ts` (not `.d.ts`) because `.gitignore` excludes `runtime/src/**/*.d.ts` as build artifacts.                                                                                                                                                                                                                                                                                                                                                                                                                                       |
-| `earcut.d.ts`               | Hand-authored ambient type declaration for the `earcut` polygon-tessellation package (no bundled types in the package itself).                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
-| `test-setup-projections.ts` | Vitest global setup file that configures the shader-dsl projection graph via `configureProjections(PROJECTIONS)` before any test suite runs; ensures projection emit and CPU-projection access work across the entire test suite.                                                                                                                                                                                                                                                                                                                                                                                           |
+| File                        | Description                                                                                                                                                                                                                                                                                                                                                                                |
+| --------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `index.ts`                  | Public barrel — `XGISMap`, `Camera`, `MapRendererContent`, `FrameRenderer`, `Marker`/`Popup`, `StatsPanel`/`StatsTracker`, color-ramp helpers (`@xgis/map`); `loadGeoJSON`/sources/polar caps (`@xgis/data`); projection factories (`@xgis/geo`); `ComputeDispatcher` (`@xgis/rhi-webgpu`); the capability table; `XGISMapElement`. The ONLY import surface for `playground/` and `site/`. |
+| `capabilities.ts`           | `RUNTIME_CAPABILITIES` — per `(layerType, property, variant)` flags of what the renderer honours vs silently drops/degrades. Variants: `constant`, `zoom-interp`, `data-driven`. `runtimeGaps()` returns the unsupported subset.                                                                                                                                                           |
+| `capabilities.test.ts`      | Unit test for the capability lookup API. Lives at the top level of `src/`, not under `__tests__/`. Keep it there.                                                                                                                                                                                                                                                                          |
+| `vite-shims.ts`             | Ambient `declare module '*?worker'` shim for Vite's worker-query import suffix. Kept as `.ts` (not `.d.ts`) because `.gitignore` excludes `runtime/src/**/*.d.ts` as build artifacts.                                                                                                                                                                                                      |
+| `earcut.d.ts`               | Hand-authored ambient type declaration for `earcut` (the package bundles no types). Do not delete.                                                                                                                                                                                                                                                                                         |
+| `test-setup-projections.ts` | The ROOT Vitest `setupFiles` entry (`vitest.config.ts`): calls `configureProjections(PROJECTIONS)` so every suite in the monorepo can reach the projection emit / CPU-projection path.                                                                                                                                                                                                     |
 
 ## Subdirectories
 
-| Directory       | Purpose                                                                                                                                                                                                                                |
-| --------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `capabilities/` | Per-layer-type capability descriptors (`background.ts`, `circle.ts`, `fill.ts`, `fill-extrusion.ts`, `heatmap.ts`, `line.ts`, `raster.ts`, `symbol.ts`, `types.ts`) spread into the `RUNTIME_CAPABILITIES` table by `capabilities.ts`. |
-| `core/`         | GPU-free geometry and scheduling primitives: line-segment build, polygon mesh construction, boundary-cap suppression, priority queue (see `core/AGENTS.md`).                                                                           |
-| `data/`         | Tile catalog/router, per-format source backends, GeoJSON tiling worker pool, filter/extrude eval, polar-cap synthesis (see `data/AGENTS.md`).                                                                                          |
-| `dev/`          | Dev-only `devAssert` helper (`dev-assert.ts`) for cross-path invariant checks, stripped from production builds.                                                                                                                        |
-| `debug/`        | CPU-only tile-pipeline predictor and simulator for deterministic coverage analysis without a GPU (see `debug/AGENTS.md`).                                                                                                              |
-| `diagnostics/`  | `RenderTrace` — per-frame capture of render intent (layer draws, tile decisions) for offline analysis (see `diagnostics/AGENTS.md`).                                                                                                   |
-| `engine/`       | Camera, 8-surface projections, WebGPU device/context, all render passes, text/SDF/PBF glyph pipeline, sprite atlas, GPU staging buffers (see `engine/AGENTS.md`).                                                                      |
-| `loader/`       | GeoJSON loader, vector-tile-loader (PMTiles/TileJSON), SSE tile selector, SSRF-guarded fetch, polar-cap detector (see `loader/AGENTS.md`).                                                                                             |
-| `web/`          | `XGISMapElement` / `registerXGISElement` — the `<xgis-map>` custom element wrapper (see `web/AGENTS.md`).                                                                                                                              |
-
-`__tests__/` holds cross-cutting integration tests (cross-validation fixture, spec-coverage drift, WebGPU stub smoke). `__test-support__/` holds `webgpu-stub.ts` — the shared WebGPU mock used across the entire test suite.
+| Directory           | Purpose                                                                                                                                                                                                         |
+| ------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `capabilities/`     | Per-layer-type capability descriptors (`background.ts`, `circle.ts`, `fill.ts`, `fill-extrusion.ts`, `heatmap.ts`, `line.ts`, `raster.ts`, `symbol.ts`, `types.ts`) spread into the table by `capabilities.ts`. |
+| `web/`              | `XGISMapElement` / `registerXGISElement` — the `<xgis-map>` custom element (see `web/AGENTS.md`).                                                                                                               |
+| `engine/`           | **Tests only** — the `@xgis/map` render/projection/text/sprite suites (226 files), plus the `architecture-invariants.test.ts` ratchet.                                                                          |
+| `data/`, `loader/`  | **Tests only** — `@xgis/data` tile-catalog / selection / source-backend suites.                                                                                                                                 |
+| `diagnostics/`      | **Tests only** — the render-trace suite.                                                                                                                                                                        |
+| `__tests__/`        | Cross-cutting integration tests (cross-validation fixture, spec-coverage drift, EPSG cross-val, WebGPU-stub smoke).                                                                                             |
+| `__test-support__/` | `webgpu-stub.ts` — the shared WebGPU mock used across the suite.                                                                                                                                                |
 
 ## For AI Agents
 
 ### Working In This Directory
 
-- Any new paint/layout property runtime support must add a matching row to the per-layer-type descriptor under `capabilities/` (e.g. `capabilities/circle.ts`, `capabilities/background.ts`) — NOT the assembler `capabilities.ts`, which just spreads the descriptors. Splitting the table by layer type keeps independent axes (e.g. a circle change vs a background change) in different files, so they never conflict and can be implemented in parallel. The `__tests__/spec-coverage-runtime-drift.test.ts` gate fails on missing or stale entries.
-- New public symbols must be added to `index.ts`; `playground/` and `site/` import exclusively from `@xgis/runtime`, never via deep paths.
-- `vite-shims.ts` must stay as a `.ts` file (not `.d.ts`) — `.gitignore` excludes `*.d.ts` in this tree as build artifacts.
-- `earcut.d.ts` is hand-authored; do not delete it. The actual `earcut` package has no bundled types.
-- `capabilities.test.ts` lives at the top level of `src/`, not under `__tests__/`. Keep it there.
+- **Implementation does not live here.** A renderer / camera / tile / projection change
+  belongs to `@xgis/map`, `@xgis/data` or `@xgis/geo`. Edits here should be limited to the
+  barrel, `capabilities/`, and `web/component.ts`.
+- Any new paint/layout property support must add a matching row to the per-layer-type
+  descriptor under `capabilities/` (e.g. `capabilities/circle.ts`) — NOT the assembler
+  `capabilities.ts`, which just spreads them. Splitting by layer type keeps independent
+  axes in different files so they never conflict. `__tests__/spec-coverage-runtime-drift.test.ts`
+  fails on missing or stale entries.
+- New public symbols must be added to `index.ts`; `playground/` and `site/` import
+  exclusively from `@xgis/runtime`, never via deep paths.
+- `vite-shims.ts` must stay a `.ts` file — `.gitignore` excludes `*.d.ts` in this tree.
+- `earcut.d.ts` is hand-authored; do not delete it.
 
 ### Testing Requirements
 
-- `__tests__/spec-coverage-runtime-drift.test.ts` — gates `capabilities.ts` against the compiler's spec coverage list; must pass after any capability change.
-- `__tests__/gap-matrix-freshness.test.ts` — detects stale entries in the gap matrix.
-- `__tests__/cross-validation.test.ts` — pins CPU projection/tile math to `cross-validation.fixture.json` (generated by the Python pyproj/mercantile/shapely harness under `scripts/cross-validation/`).
-- `__tests__/epsg-reprojection-crossval.test.ts` — cross-validates EPSG reprojection paths.
-- `__tests__/webgpu-stub.test.ts` — smoke-tests the shared WebGPU stub used throughout the suite.
-- `capabilities.test.ts` — unit tests for the capability lookup API.
+- `__tests__/spec-coverage-runtime-drift.test.ts` — gates `capabilities.ts` against the
+  compiler's spec-coverage list; must pass after any capability change.
+- `__tests__/gap-matrix-freshness.test.ts` — detects stale gap-matrix entries.
+- `__tests__/cross-validation.test.ts` — pins CPU projection/tile math to
+  `cross-validation.fixture.json` (generated by the pyproj/mercantile/shapely harness
+  under `scripts/cross-validation/`).
+- `__tests__/epsg-reprojection-crossval.test.ts` — cross-validates EPSG reprojection.
+- `engine/architecture-invariants.test.ts` — the LOC / package-DAG / projType ratchet. It
+  is the SECOND LOC authority alongside `map/src/loc-ceiling-ratchet.test.ts`; growing a
+  tracked file means updating both.
 - Run `bun run build` before pushing — vitest does not typecheck, the build does.
 
 ### Common Patterns
 
-- Capability table variant values are exactly `'constant' | 'zoom-interp' | 'data-driven'`. Set `supported: false` only when the runtime drops/degrades input, and always include a `note`.
-- All cross-package imports use `@xgis/compiler` type aliases, never relative paths into `../compiler/`.
+- Capability variant values are exactly `'constant' | 'zoom-interp' | 'data-driven'`. Set
+  `supported: false` only when the runtime drops/degrades input, and always add a `note`.
+- Tests reach their subject through the package barrel (`@xgis/map`, `@xgis/data`), never
+  a relative path across the package boundary.
 
 ## Dependencies
 
 ### Internal
 
-- Consumes all seven subdirectory subsystems; re-exports their public APIs through `index.ts`.
-- `@xgis/compiler` — type imports for IR/style types used throughout engine and data layers.
+- `@xgis/map`, `@xgis/data`, `@xgis/geo`, `@xgis/rhi-webgpu` — re-exported by the barrel.
+- `@xgis/compiler` — type imports for the IR/style types used by the capability table.
 
 ### External
 
-- `earcut` — polygon tessellation.
+- `earcut` — polygon tessellation (bundled consumers).
 - `@webgpu/types` — WebGPU TypeScript type definitions.
 
 <!-- MANUAL: Any manually added notes below this line are preserved on regeneration -->
