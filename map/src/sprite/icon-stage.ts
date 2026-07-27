@@ -656,6 +656,40 @@ export class IconStage {
     return out
   }
 
+  /** Half-extents (physical px) of each PAIRED icon's quad, keyed by pairKey —
+   *  the badge a shield's text sits inside. TextStage unions these into the
+   *  paired label's collision box before the collision pass runs.
+   *
+   *  Why this exists: a route shield's collision footprint in MapLibre is the
+   *  ICON box (`road_2` sprite + icon-padding, or the icon-text-fit box), which
+   *  is materially wider than the ref glyphs inside it. X-GIS collided only on
+   *  the glyph run, so a shield squeezed in where MapLibre drops it — visible on
+   *  OFM Positron z16 near 37.79/126.79, where MapLibre's collision debug shows
+   *  the second route-14 shield REJECTED against the "Wijeon-ri" place label
+   *  while X-GIS renders both, the badge crowding the place name.
+   *
+   *  Read pre-prepare (the pending queue is live), mirroring computeObstacles.
+   *  Icons whose sprite has not resolved are omitted — they do not draw, so they
+   *  must not inflate their text's box. `icon-text-fit` icons are omitted too:
+   *  their quad is DERIVED from the text box (that is the #777 I-A handoff, in
+   *  the opposite direction), so unioning it back in would be circular — the fit
+   *  box never extends past the text box by more than its authored padding. */
+  pairedIconHalfExtents(): ReadonlyMap<string, { hw: number; hh: number }> {
+    const out = new Map<string, { hw: number; hh: number }>()
+    for (const p of this.pending) {
+      if (p.pairKey === undefined || p.fit !== undefined) continue
+      const sprite = this.host.get(p.iconName)
+      if (!sprite) continue
+      const sizeScale = p.sizeScale * this.dpr
+      const pad = p.padding * this.dpr // Mapbox icon-padding (default 2)
+      out.set(p.pairKey, {
+        hw: ((sprite.width / sprite.pixelRatio) * sizeScale) / 2 + pad,
+        hh: ((sprite.height / sprite.pixelRatio) * sizeScale) / 2 + pad,
+      })
+    }
+    return out
+  }
+
   /** Drop the pending icon queue without preparing. `prepare()` normally
    *  clears `pending` at its tail; the label pass calls this every frame so a
    *  frame that SKIPS `prepare()` (S16 collision skip) cannot leak dispatched

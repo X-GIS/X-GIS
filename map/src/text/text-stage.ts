@@ -50,6 +50,8 @@ import {
 } from './holdover-reproject'
 import type { RhiDevice, RhiRenderPass } from '@xgis/engine'
 import { greedyPlaceBboxes, type CollisionItem, type CollisionObstacle } from './text-collision'
+import { PairedBadgeBoxes, pairedTextCentreShift } from './paired-symbol-box'
+import type { BadgeHalfExtents } from './paired-symbol-box'
 import {
   applyTextTransform,
   stripCurveLineExtraScripts,
@@ -269,6 +271,11 @@ export class TextStage {
    *  every prepare(), so the box always reflects THIS frame's sizePx (the layout
    *  cache re-keys on sizePx) — a fitted icon can never wrap a stale bbox. */
   private readonly _pairFitBox: Map<string, { w: number; h: number }> = new Map()
+  /** Paired-symbol badge extents for this frame (paired-symbol-box.ts). */
+  private readonly _pairBadge = new PairedBadgeBoxes()
+  setPairIconHalfExtents(boxes: ReadonlyMap<string, BadgeHalfExtents>): void {
+    this._pairBadge.set(boxes)
+  }
   /** #777 I-G — read-only sprite-dimension source for inline images. Set by
    *  the map each frame BEFORE prepare() (label-pass, from IconStage.host);
    *  null when no icon atlas is wired (text-only / tests) — inline images
@@ -1478,23 +1485,14 @@ export class TextStage {
           // For paired center-anchored text restore the prior shield-text-box-
           // align ink recentre — pin the band CENTROID via (maxAsc-maxDesc)/2
           // (one shared per-block shift). Standalone labels keep the hang.
-          const shapingBaselineOff = (SHAPING_DEFAULT_OFFSET * sizePx) / ONE_EM
-          const isIconPaired = p.pairKey !== undefined
-          let centreShift = -shapingBaselineOff
-          if (isIconPaired && vAlign === 0.5) {
-            let maxAsc = 0,
-              maxDesc = 0
-            for (let gi = 0; gi < glyphs.length; gi++) {
-              const g = glyphs[gi]!
-              if (g.height <= 0) continue // skip blanks (junk metrics)
-              const sc = sizePx / (g.rasterFontSize ?? this.opts.rasterFontSize)
-              const asc = g.bearingY * sc
-              const desc = (g.height - g.bearingY) * sc
-              if (asc > maxAsc) maxAsc = asc
-              if (desc > maxDesc) maxDesc = desc
-            }
-            centreShift = -shapingBaselineOff + (maxAsc - maxDesc) / 2
-          }
+          const centreShift = pairedTextCentreShift(
+            glyphs,
+            sizePx,
+            this.opts.rasterFontSize,
+            (SHAPING_DEFAULT_OFFSET * sizePx) / ONE_EM,
+            p.pairKey !== undefined,
+            vAlign,
+          )
           if (inlineSprites.length > 0) {
             // #777 I-G — image-aware pen: splices each sprite's advance into
             // the glyph run (post-image text shifts right) and records the
@@ -1536,6 +1534,8 @@ export class TextStage {
           maxX: drawX + totalAdvance + padding,
           maxY: drawY + vlay.blockBottom + padding,
         }
+        // A shield collides as its badge, not its ref glyphs.
+        this._pairBadge.union(p.pairKey, p.anchorX, p.anchorY, bbox)
         // #777 I-A — stash the shaped text box {w,h} (candidate-invariant dims)
         // for a paired icon to fit. Idempotent across candidates.
         if (p.pairKey !== undefined) {

@@ -1987,24 +1987,23 @@ class LabelPass implements RenderPass {
       // (stage.render below replays them); skipping the collision + upload is
       // the measurable payload (see getLabelDispatchStats hitRate).
       if (!canSkipLabelPrepare) {
-        // #609 — seed text collision with icon boxes BEFORE TextStage.prepare
-        // so a label can't draw over a collide-icon from a separate feature.
-        // MapLibre puts placed icon boxes in the shared collision grid every
-        // label hit-tests against; we replicate that by passing them as
-        // obstacles. computeObstacles() reads the pending queue (pre-prepare)
-        // so it must run BEFORE iStage.prepare() clears it. A paired icon's
-        // own text is exempted via matching groupKey.
-        //
-        // #609 over-drop fix — pass the pairKeys whose text label has a live
-        // bbox in THIS pass (getActiveTextPairKeys, valid here because
-        // stage.prepare hasn't run / reset hasn't cleared the queues). A
-        // paired icon with live text is skipped as an obstacle: its text
-        // bbox already blocks, and if the text loses collision the icon is
-        // dropped (droppedPairKeys) — so its box must not phantom-block a
-        // different-group label. Empty-text / icon-only paired symbols are
-        // absent from the set and still seed obstacles.
+        // #609 — seed text collision with icon boxes BEFORE TextStage.prepare so a
+        // label can't draw over a collide-icon from a separate feature. MapLibre
+        // puts placed icon boxes in the shared collision grid every label hit-tests
+        // against; we replicate that by passing them as obstacles.
+        // computeObstacles() reads the pending queue (pre-prepare) so it must run
+        // BEFORE iStage.prepare() clears it; a paired icon's own text is exempted
+        // via groupKey. #609 over-drop fix — pass the pairKeys whose text label has a live bbox
+        // in THIS pass (getActiveTextPairKeys, valid here because stage.prepare
+        // hasn't run / reset hasn't cleared the queues). A paired icon with live
+        // text is skipped as an obstacle: that text bbox already blocks (widened to
+        // the badge below, so a shield blocks and loses as ONE symbol, as MapLibre
+        // does), and if the text loses collision the icon is dropped via
+        // droppedPairKeys — so its own box must not phantom-block a different-group
+        // label. Icon-only pairs are absent from the set and still seed obstacles.
         const activeTextPairKeys = iStage ? stage.getActiveTextPairKeys() : new Set<string>()
         const iconObstacles = iStage ? iStage.computeObstacles(activeTextPairKeys) : []
+        if (iStage) stage.setPairIconHalfExtents(iStage.pairedIconHalfExtents())
         // #777 I-G — give TextStage the read-only sprite atlas so inline-image
         // markers in label text reserve the sprite advance during shaping.
         stage.setSpriteMetadata(iStage ? iStage.host : null)
