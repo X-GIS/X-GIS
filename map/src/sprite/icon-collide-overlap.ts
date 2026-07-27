@@ -87,15 +87,22 @@ export function resolveCollideDrops(
     const sprite = spriteOf(p.iconName)
     if (!sprite) continue
     const sizeScale = p.sizeScale * dpr
-    const w = (sprite.width / sprite.pixelRatio) * sizeScale + p.padding * dpr * 2
-    const h = (sprite.height / sprite.pixelRatio) * sizeScale + p.padding * dpr * 2
-    box[s * 4] = p.anchorX - w / 2
-    box[s * 4 + 1] = p.anchorY - h / 2
-    box[s * 4 + 2] = p.anchorX + w / 2
-    box[s * 4 + 3] = p.anchorY + h / 2
+    const cdW = (sprite.width / sprite.pixelRatio) * sizeScale
+    const cdH = (sprite.height / sprite.pixelRatio) * sizeScale
+    const pad = p.padding * dpr // Mapbox icon-padding (default 2)
+    // Written as the pre-extraction pass wrote it (`anchor ∓ half ∓ pad`) so the
+    // box edges stay bit-identical to the historical form.
+    const minX = p.anchorX - cdW / 2 - pad
+    const maxX = p.anchorX + cdW / 2 + pad
+    const minY = p.anchorY - cdH / 2 - pad
+    const maxY = p.anchorY + cdH / 2 + pad
+    box[s * 4] = minX
+    box[s * 4 + 1] = minY
+    box[s * 4 + 2] = maxX
+    box[s * 4 + 3] = maxY
     resolved[s] = 1
-    if (w > cellPx) cellPx = w
-    if (h > cellPx) cellPx = h
+    if (maxX - minX > cellPx) cellPx = maxX - minX
+    if (maxY - minY > cellPx) cellPx = maxY - minY
   }
   // Greedy first-wins in that order, with the overlap query served by a uniform
   // grid instead of a scan over every placed box. VERDICTS ARE IDENTICAL: two

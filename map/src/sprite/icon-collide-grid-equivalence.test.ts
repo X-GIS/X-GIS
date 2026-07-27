@@ -129,6 +129,42 @@ function scene(seed: number, n: number, spreadPx: number): Spec[] {
   return out
 }
 
+/** Anchors stepped by EXACTLY one padded-box extent, so consecutive boxes TOUCH
+ *  (or miss touching by a hair). Random floats never land in this regime, yet it
+ *  is the shape of the real input — a chain of identical arrows at a regular
+ *  `symbol-spacing` pitch — and it is where the overlap predicate's strictness
+ *  decides the whole chain: `minX < b.maxX` is false for a perfect touch, so all
+ *  of them survive, while an inclusive `<=` collapses every second one. The
+ *  randomised scenes above pass either way; these do not. */
+function touchingScene(seed: number, n: number, vertical: boolean): Spec[] {
+  const r = rng(seed)
+  const name = (['small', 'wide', 'tall', 'hidpi'] as const)[Math.floor(r() * 4)]!
+  const sprite = SPRITES[name]!
+  const size = 0.25 + r() * 2
+  const padding = Math.floor(r() * 4)
+  const dpr = seed % 3 === 0 ? 2 : 1
+  const ss = size * dpr
+  const extent = ((vertical ? sprite.height : sprite.width) / sprite.pixelRatio) * ss
+  const pitch = extent / 2 + padding * dpr + (extent / 2 + padding * dpr)
+  // Jitter each step by a few ULP either way so the chain straddles the exact
+  // touch instead of only landing on it.
+  const JITTER = [0, 1e-12, -1e-12, 1e-9, -1e-9, 1e-6, -1e-6]
+  const out: Spec[] = []
+  let at = 300
+  for (let i = 0; i < n; i++) {
+    out.push({
+      x: vertical ? 500 : at,
+      y: vertical ? at : 500,
+      name,
+      size,
+      padding,
+      ...(r() < 0.5 ? { fadeId: `f${i}` } : {}),
+    })
+    at += pitch + JITTER[Math.floor(r() * JITTER.length)]!
+  }
+  return out
+}
+
 describe('IconStage — collide-overlap grid equals the brute-force greedy pass', () => {
   for (const [label, n, spread] of [
     ['sparse', 40, 4000],
@@ -152,6 +188,30 @@ describe('IconStage — collide-overlap grid equals the brute-force greedy pass'
         // Survivors, in dispatch (painter) order — resolved sprites only, since
         // an unresolved name never reaches the draw list.
         const expected = bruteForceSurvivors(specs, dpr).filter((i) => SPRITES[specs[i]!.name])
+        expect(
+          draws.map((d) => `${d.anchorX},${d.anchorY}`),
+          `seed ${seed}`,
+        ).toEqual(expected.map((i) => `${specs[i]!.x},${specs[i]!.y}`))
+      }
+    })
+  }
+
+  for (const vertical of [false, true]) {
+    it(`${vertical ? 'vertical' : 'horizontal'} chains at exactly the box pitch: identical survivors across 60 scenes`, () => {
+      for (let seed = 1; seed <= 60; seed++) {
+        const dpr = seed % 3 === 0 ? 2 : 1
+        const specs = touchingScene(seed, 24, vertical)
+        const { stage, draws } = makeStage(dpr)
+        for (const p of specs) {
+          stage.addIcon(p.x, p.y, p.name, {
+            sizeScale: p.size,
+            padding: p.padding,
+            collide: true,
+            ...(p.fadeId !== undefined ? { fadeId: p.fadeId } : {}),
+          })
+        }
+        stage.prepare()
+        const expected = bruteForceSurvivors(specs, dpr)
         expect(
           draws.map((d) => `${d.anchorX},${d.anchorY}`),
           `seed ${seed}`,
