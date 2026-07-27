@@ -456,12 +456,19 @@ export class UploadCoordinator {
 
   /** Mid-render fallback upload (sync). Data is GPU-resident before this
    *  returns — `_dispatch` reaches no await under the sync sink, so the
-   *  caller's immediate `layerCache` read sees the entry. */
-  uploadSync(key: number, data: TileData, sourceLayer = ''): void {
+   *  caller's immediate `layerCache` read sees the entry.
+   *
+   *  `replace` (#1402) opts out of the "already uploaded" short-circuit. Every
+   *  other caller fills a key with NO entry; a RE-SEED is the opposite — it
+   *  exists to overwrite a GPU-resident key, so the short-circuit fired every
+   *  time and silently dropped the replacement. The caller owns releasing the
+   *  superseded slots (`VectorTileRenderer.applyReplacedTiles`); this only
+   *  overwrites the cache entry. */
+  uploadSync(key: number, data: TileData, sourceLayer = '', replace = false): void {
     const sink = new SyncWriteSink(this.host.device, this.host.rhi, this.host.lineRenderer())
     // No await is hit under the sync sink → the returned promise is already
     // resolved and every side effect (cache.set) has run synchronously.
-    void this._dispatch(key, data, sourceLayer, sink)
+    void this._dispatch(key, data, sourceLayer, sink, replace)
   }
 
   /** Lane B — atomic polygon vertex+index arena alloc. Allocates the vertex
@@ -495,10 +502,14 @@ export class UploadCoordinator {
     data: TileData,
     sourceLayer: string,
     sink: TileWriteSink,
+    replace = false,
   ): Promise<void> {
     const store = this.host.store
     const layerCache = store.getOrCreateLayer(sourceLayer)
-    if (layerCache.has(key)) return // already uploaded
+    // `replace` (#1402) is set only by `uploadSync`, which always builds a
+    // SyncWriteSink — so the post-await race guard further down (same test,
+    // deferred path only) is unreachable on this path and needs no such opt-out.
+    if (layerCache.has(key) && !replace) return // already uploaded
 
     // Orphan-leak tracking for the catch backstop: a throw landing AFTER the
     // polygon vertex/index alloc but BEFORE `layerCache.set` would orphan

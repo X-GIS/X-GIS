@@ -4,7 +4,7 @@
 // effects beyond reading the environment). Behaviour-preserving
 // structural split only; no logic or symbol renames.
 
-import { EARTH } from '@xgis/shared'
+import { EARTH, isMobileClassViewport } from '@xgis/shared'
 import { evaluate, makeEvalProps, type GeoJSONFeature } from '@xgis/compiler'
 import type * as AST from '@xgis/compiler'
 import { evalExtrudeExpr } from '../eval/extrude-eval'
@@ -140,11 +140,11 @@ export function extractFeatureColors(
  *  module-init `MAX_INFLIGHT = …` constant could capture the wrong
  *  value before the host page is fully laid out. The function form
  *  re-checks `window.innerWidth` at every loadTile entry, which is
- *  cheap (one property read + one comparison) and always reflects
- *  the live viewport. */
+ *  cheap (one property read + one classifier call) and always
+ *  reflects the live viewport. */
 export function maxInflight(): number {
   const w = (typeof window !== 'undefined' ? window.innerWidth : 0) || 0
-  return w > 0 && w <= 900 ? 4 : 16
+  return isMobileClassViewport(w) ? 4 : 16
 }
 
 /** Per-key negative cache TTL (ms) for tiles that the fetcher has

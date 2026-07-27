@@ -33,6 +33,10 @@ interface CompiledArrowBatch {
   bearings: Float32Array
   sizes: Float32Array
   strokeUnits: number
+  /** Opaque owner tag, so one owner's layers can be replaced without touching another's
+   *  (#1272 E-④). The coverage arm passes its region key here; every other caller leaves it
+   *  at `''` and keeps the old clear-everything lifecycle. */
+  region: string
 }
 
 export class CompiledArrowStore {
@@ -62,6 +66,7 @@ export class CompiledArrowStore {
     colors: ReadonlyArray<readonly [number, number, number, number]>,
     strokeUnits: number,
     dpr: number,
+    region = '',
   ): void {
     const count = lons.length
     if (count === 0 || !this.rhi || !this.draper) return
@@ -94,15 +99,27 @@ export class CompiledArrowStore {
       bearings: bearingsDeg,
       sizes: sizesPx,
       strokeUnits,
+      region,
     })
   }
 
-  /** Drop every compiled-arrow layer — called at the top of each rebuildLayers before the
-   *  isArrow fork re-adds. Buffers go through the manager's `retired` sink (drained next
-   *  renderRetained) so an in-flight submit that bound them completes first. */
-  clear(retired: RhiBuffer[]): void {
-    for (const ca of this.batches) retired.push(ca.featBuf, ca.tintBuf)
+  /** Drop compiled-arrow layers — every one, or (given `region`) just that owner's. Called
+   *  at the top of each rebuildLayers before the isArrow fork re-adds, and per-region when a
+   *  mosaic domain re-arms or leaves the viewport. Buffers go through the manager's `retired`
+   *  sink (drained next renderRetained) so an in-flight submit that bound them completes
+   *  first.
+   *
+   *  The region-scoped form is what lets a mosaic hold several domains: the unscoped clear
+   *  ran on every single-region re-arm, so a neighbour's forecast step wiped every other
+   *  domain's glyphs and re-added only its own. */
+  clear(retired: RhiBuffer[], region?: string): void {
+    const kept: CompiledArrowBatch[] = []
+    for (const ca of this.batches) {
+      if (region === undefined || ca.region === region) retired.push(ca.featBuf, ca.tintBuf)
+      else kept.push(ca)
+    }
     this.batches.length = 0
+    this.batches.push(...kept)
   }
 
   /** True when at least one compiled arrow layer is resident — part of the manager's

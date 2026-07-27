@@ -33,8 +33,8 @@ describe('vertex attribute-layout consistency (spec ↔ WGSL @location)', () => 
     for (const f of POLYGON_FILL_FORMAT.fields) expect(f.offset % 4).toBe(0)
   })
 
-  it('polygon extruded spec is PR 2f quantized ECEF (stride 44)', () => {
-    expect(POLYGON_EXTRUDED_FORMAT.stride).toBe(44)
+  it('polygon extruded spec is PR 2f quantized ECEF (stride 56)', () => {
+    expect(POLYGON_EXTRUDED_FORMAT.stride).toBe(56)
     expect(POLYGON_EXTRUDED_FORMAT.fields.map((f) => [f.location, f.offset, f.vbFormat])).toEqual([
       [0, 0, 'uint16x4'],
       [1, 8, 'uint16x2'],
@@ -44,6 +44,8 @@ describe('vertex attribute-layout consistency (spec ↔ WGSL @location)', () => 
       [5, 24, 'float32x3'],
       [6, 36, 'float32'],
       [7, 40, 'float32'],
+      [8, 44, 'float32'],
+      [9, 48, 'float32x2'],
     ])
     for (const f of POLYGON_EXTRUDED_FORMAT.fields) expect(f.offset % 4).toBe(0)
   })

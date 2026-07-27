@@ -40,11 +40,15 @@ export const COVERAGE_ARROW_MAX = 100_000
  *  (finite speed > 0) cell: position = cell centre, bearing = the direction band (degrees
  *  true, the arrow primitive's own convention), length = the per-band scale rule, colour =
  *  the band palette (the layer's `ramp`, defaulting to s111-speed). No-op when the handle
- *  lacks a direction band or has no drawable cell (a later rebuild re-adds once data lands). */
+ *  lacks a direction band or has no drawable cell (a later rebuild re-adds once data lands).
+ *
+ *  `region` tags the emitted batch with the mosaic domain it belongs to (#1272 E-④), so one
+ *  domain's re-arm replaces only its own glyphs and adjacent domains keep theirs. */
 export function addCoverageArrowShowLayer(
   host: CoverageArrowShowHost,
   show: ShowCommand,
   handle: CoverageHandle,
+  region = '',
 ): void {
   // Is this a vector field at all? SINGLE AUTHORITY (coverage-vector-bands.ts) shared with
   // the flow-field upload, so the two cannot disagree about whether a coverage has a current.
@@ -101,5 +105,6 @@ export function addCoverageArrowShowLayer(
     Float32Array.from(sizes),
     colors,
     S111_OUTLINE_FRAC,
+    region,
   )
 }

@@ -43,6 +43,11 @@ export function dispatchCoverageSoundings(
   projectLonLatCopies: (lon: number, lat: number) => Array<[number, number, number]>,
   addLabel: AddLabel,
   layerName: string,
+  /** The coverage REGION these cells belong to (#1272 E-④). Used only to namespace the
+   *  collision id: a mosaic's regions have independent (col,row) grids, so without it two
+   *  domains would share a cell identity and fade each other out. The LAYER name is
+   *  deliberately NOT namespaced — that is the collision pass's precedence bucket. */
+  region: string,
 ): void {
   const anchors = coverageSoundingAnchors(handle, unproject, {
     width: viewport.width,
@@ -63,7 +68,7 @@ export function dispatchCoverageSoundings(
         undefined,
         // CELL identity, not anchor position: the screen anchor moves every frame while
         // the cell does not, so a numeral fades across camera moves instead of popping.
-        `${layerName}:${a.col},${a.rowFromSouth}`,
+        `${layerName}:${region}:${a.col},${a.rowFromSouth}`,
         projected[2],
       )
     }

@@ -334,6 +334,11 @@ export class VectorTileRenderer {
    *  bool) because the slot is an f32 the WGSL reads via `!= 0`. */
   private currentFillAntialias = 1
   private currentFillVerticalGradient = 1
+  /** Map bearing (deg) for the frame being drawn, baked per-show in render()
+   *  alongside the flags above. The extrusion light is VIEWPORT-anchored
+   *  (Mapbox `light.anchor` default), so it rotates with the map — see the
+   *  light_dir_ecef packing in renderTileKeys. */
+  private currentBearingDeg = 0
   /** #1080 — per render(): per-feature extruded fill draws FRONT-SHELL only
    *  (depth prepass + depth-`less-equal` colour) when resolved fill alpha < 1. */
   private _extrudeTranslucentFrontShell = false
@@ -2257,10 +2262,16 @@ export class VectorTileRenderer {
           this._store.dropTile(sliceLayer, key, this._releaseTileHook)
           continue
         }
-        this._uploads.uploadSync(key, data, sliceLayer)
+        // `replace: true` — this key IS GPU-resident (the precondition above), so without it
+        // the upload's "already uploaded" short-circuit fires every time (#1402).
+        this._uploads.uploadSync(key, data, sliceLayer, true)
         const now = inner.get(key)
         if (now && now !== superseded) {
           this._store.releaseSupersededTile(sliceLayer, key, superseded, this._releaseTileHook)
+        } else {
+          // Upload bailed (arena OOM returns before the cache set). The old tile keeps drawing,
+          // but the key is already drained — re-arm or it stays stale for the source's lifetime.
+          this.source!.markReplaced(key)
         }
       }
     }
@@ -2621,6 +2632,7 @@ export class VectorTileRenderer {
     // gradient ramp on `!= 0`. Packed into cam_ecef_off_{h,l}.w below.
     this.currentFillAntialias = show.fillAntialias === false ? 0 : 1
     this.currentFillVerticalGradient = show.fillExtrusionVerticalGradient === false ? 0 : 1
+    this.currentBearingDeg = camera.bearing ?? 0
     // Per-frame resolved fill RGBA — animated stops were already
     // collapsed by the bucket scheduler. ResolvedShow is the SOLE
     // per-frame source; static hex still flows via show.fill below
@@ -4384,9 +4396,24 @@ export class VectorTileRenderer {
       const [lRad, lAz, lPol] = this._lightPosition
       const lAzR = (lAz + 90) * DEG2RAD,
         lPolR = lPol * DEG2RAD
-      const LE = lRad * Math.cos(lAzR) * Math.sin(lPolR)
-      const LN = lRad * Math.sin(lAzR) * Math.sin(lPolR)
+      const LE0 = lRad * Math.cos(lAzR) * Math.sin(lPolR)
+      const LN0 = lRad * Math.sin(lAzR) * Math.sin(lPolR)
       const LU = lRad * Math.cos(lPolR)
+      // Mapbox `light.anchor` defaults to VIEWPORT: the light is fixed to the
+      // SCREEN, so rotating the map must rotate the light with it (MapLibre
+      // premultiplies u_lightpos by mat3.fromRotation(bearing) in
+      // fillExtrusionUniformValues). Without it the lit/unlit wall sets stay
+      // pinned to true north and every camera-facing wall darkens to the floor
+      // once the map turns — at bearing 90 over London, 14.6 % of the frame sat
+      // at the darkest shade against MapLibre's 2.1 %. Rotation DIRECTION is
+      // measurement-established, not frame-derived: see
+      // map/src/render/extrude-light-bearing.test.ts for the A/B. `anchor: map`
+      // is not plumbed through the style pipeline yet; when it is, it skips this.
+      const bR = this.currentBearingDeg * DEG2RAD
+      const bC = Math.cos(bR),
+        bS = Math.sin(bR)
+      const LE = LE0 * bC + LN0 * bS
+      const LN = -LE0 * bS + LN0 * bC
       // Intensity → light_dir_ecef.w; colour → RGBA8 packed into
       // light_color_packed (u32 lane — routed through the block's raw-word
       // view). The extrude VS reads both; all other variants ignore them.

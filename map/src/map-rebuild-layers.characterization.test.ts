@@ -761,12 +761,26 @@ describe('XGISMap.rebuildLayers — characterization (pins current behaviour)', 
   // render diff (the fill flipped colour when the numerals were added), which is exactly
   // the class of bug no unit gate was watching for — so it gets one here.
   describe('coverage fill arming', () => {
+    // A coverage source holds a keyed Map of REGIONS (#1272 E-④), not one handle.
     const covData = {
-      _coverage: {
-        header: { crs: 'EPSG:4326', origin: [0, 0], spacing: [1, 1], size: [2, 2], bands: [] },
-        bands: [],
-      },
-      _url: 'x.h5',
+      _coverage: new Map([
+        [
+          '__default__',
+          {
+            handle: {
+              header: {
+                crs: 'EPSG:4326',
+                origin: [0, 0],
+                spacing: [1, 1],
+                size: [2, 2],
+                bands: [],
+              },
+              bands: [],
+            },
+            url: 'x.h5',
+          },
+        ],
+      ]),
     }
     const label = { kind: 'expr', expr: { ast: { kind: 'StringLiteral', value: '1' } } }
 

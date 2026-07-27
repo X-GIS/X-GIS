@@ -1064,16 +1064,24 @@ class LabelPass implements RenderPass {
         // neither Path 1 (`features`) nor Path 2 (`vtSources`), so `| label-[…]` on a
         // coverage layer used to compile cleanly and draw NOTHING. See the arm's own file.
         if (data && '_coverage' in data) {
-          dispatchCoverageSoundings(
-            data._coverage,
-            (px, py) => host.camera.unprojectToLonLat(px, py, _canvasW, _canvasH, dpr),
-            { width: _canvasW, height: _canvasH, dpr },
-            applyFeatureExprs,
-            projectLonLatCopies,
-            (v, p, x, y, d, f, ln, pk, cid, ps) =>
-              stage.addLabel(v, p, x, y, d, f, ln, pk, cid, ps),
-            labelLayerName,
-          )
+          // EVERY resident region (#1272 E-④): a mosaic draws several domains at once, so it
+          // prints numerals over all of them. `region` namespaces the CELL identity a label's
+          // collision id is built from — two regions sharing a (col,row) must not fade each
+          // other out — while the LAYER name stays the layer's, which is what the collision
+          // pass buckets precedence by.
+          for (const [region, entry] of data._coverage) {
+            dispatchCoverageSoundings(
+              entry.handle,
+              (px, py) => host.camera.unprojectToLonLat(px, py, _canvasW, _canvasH, dpr),
+              { width: _canvasW, height: _canvasH, dpr },
+              applyFeatureExprs,
+              projectLonLatCopies,
+              (v, p, x, y, d, f, ln, pk, cid, ps) =>
+                stage.addLabel(v, p, x, y, d, f, ln, pk, cid, ps),
+              labelLayerName,
+              region,
+            )
+          }
           perfMarkEnd('encoder.label-dispatch.show')
           continue
         }
