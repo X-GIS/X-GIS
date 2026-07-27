@@ -30,8 +30,8 @@ vec2 df64_floor(vec2 a);
 vec2 df64_fract(vec2 a);
 float df64_narrow(vec2 a);
 vec2 df64_twoSum(float a, float b) {
-  float _cse0 = texelFetch(_fp64, ivec2(0, 0), 0).x;
   float _v0 = (a + b);
+  float _cse0 = texelFetch(_fp64, ivec2(0, 0), 0).x;
   float _v1 = (((_v0 * _cse0) - a) * _cse0);
   float _v2 = (((((a - ((_v0 - _v1) * _cse0)) * _cse0) * _cse0) * _cse0) + (b - _v1));
   return vec2(_v0, _v2);
@@ -99,24 +99,24 @@ layout(location = 0) out vec4 _ret;
 
 vec4 fs_tiles_impl(VsOut vo) {
   float _licm0 = u.tile_z;
-  bool _cse0 = (vo.uv.x < 0.5);
-  vec2 _cse1 = vec2(u.center.hi.x, u.center.lo.x);
-  vec2 _cse2 = vec2(u.center.hi.y, u.center.lo.y);
-  vec2 _cse3 = vec2(0.0, 0.0);
   float _v0 = 1.0;
   for (uint _v1 = 0u; (float(_v1) < _licm0); _v1 = (_v1 + 1u)) {
     _v0 = (_v0 * 2.0);
   }
   float _v2 = (3.0 / _v0);
   float _v3 = (vo.uv.x * 2.0);
+  bool _cse0 = (vo.uv.x < 0.5);
   float _v4 = (_v3 - (_cse0 ? 0.0 : 1.0));
   float _v5 = ((_v4 - 0.5) * _v2);
   float _v6 = (((vo.uv.y - 0.5) * _v2) * ((u.resolution.y / u.resolution.x) * 2.0));
   bool _v7 = (_cse0 || (u.fp64 < 0.5));
+  vec2 _cse1 = vec2(u.center.hi.x, u.center.lo.x);
   vec2 _v8 = df64_mul(df64_add(_cse1, vec2(_v5, 0.0)), vec2(_v0, 0.0));
+  vec2 _cse2 = vec2(u.center.hi.y, u.center.lo.y);
   vec2 _v9 = df64_mul(df64_add(_cse2, vec2(_v6, 0.0)), vec2(_v0, 0.0));
   float _v10 = df64_narrow(df64_floor(_v8));
   float _v11 = df64_narrow(df64_floor(_v9));
+  vec2 _cse3 = vec2(0.0, 0.0);
   float _v12 = df64_narrow(df64_fract(df64_add(_v8, _cse3)));
   float _v13 = df64_narrow(df64_fract(df64_add(_v9, _cse3)));
   float _v14 = (df64_narrow(df64_fract(df64_mul(df64_add(df64_floor(_v8), df64_floor(_v9)), vec2(0.5, 0.0)))) * 2.0);

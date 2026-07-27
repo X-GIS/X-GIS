@@ -16,9 +16,9 @@ fn hash(p: vec2<f32>) -> f32 {
 }
 
 fn noise(p: vec2<f32>) -> f32 {
-  let _cse0 = vec2<f32>(3.0);
   let _v0 = floor(p);
   let _v1 = fract(p);
+  let _cse0 = vec2<f32>(3.0);
   let _lc0 = ((_v1 * _v1) * (_cse0 - (_v1 * 2.0))).x;
   return mix(mix(hash(_v0), hash((_v0 + vec2<f32>(1.0, 0.0))), _lc0), mix(hash((_v0 + vec2<f32>(0.0, 1.0))), hash((_v0 + vec2<f32>(1.0, 1.0))), _lc0), ((_v1 * _v1) * (_cse0 - (_v1 * 2.0))).y);
 }
@@ -35,7 +35,6 @@ fn fs(vo: VsOut) -> @location(0) vec4<f32> {
   let _licm0 = (U.time * 0.6);
   let _licm1 = vec2<f32>((U.time * 0.12), 0.0);
   let _cse0 = (((vo.uv.x * 2.0) - 1.0) * (U.resolution.x / U.resolution.y));
-  let _cse1 = vec3<f32>(1.0, 0.85, 0.6);
   let _v0 = distance(vec2<f32>(_cse0, ((vo.uv.y * 2.0) - 1.0)), vec2<f32>(0.42, 0.56));
   let _v1 = max((0.58 - vo.uv.y), 0.0008);
   let _v2 = (0.06 / _v1);
@@ -47,6 +46,7 @@ fn fs(vo: VsOut) -> @location(0) vec4<f32> {
     _av1 = (_av1 * 2.03);
     _av2 = (_av2 * 0.5);
   }
+  let _cse1 = vec3<f32>(1.0, 0.85, 0.6);
   let _lc0 = ((_av0 * U.swell) * smoothstep(0.0, 0.05, _v1));
   return vec4<f32>(mix(((mix(vec3<f32>(0.05, 0.18, 0.28), vec3<f32>(0.55, 0.5, 0.45), exp((-(_v1 * 7.0)))) + (vec3<f32>(0.3, 0.38, 0.36) * _lc0)) + (_cse1 * clamp(((pow((max((_lc0 - 0.32), 0.0) * 2.6), 3.0) * exp((-(abs((_cse0 - 0.42)) * 2.2)))) * exp((-(_v1 * 2.5)))), 0.0, 1.2))), (mix(vec3<f32>(0.83, 0.58, 0.38), vec3<f32>(0.12, 0.28, 0.48), smoothstep(0.58, 1.0, vo.uv.y)) + (_cse1 * ((1.0 - smoothstep(0.035, 0.06, _v0)) + (exp((-(_v0 * 4.0))) * 0.35)))), step(0.58, vo.uv.y)), 1.0);
 }

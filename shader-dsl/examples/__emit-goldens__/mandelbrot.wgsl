@@ -25,15 +25,15 @@ fn vs(@builtin(vertex_index) vi: u32) -> VsOut {
 
 @fragment
 fn fs(vo: VsOut) -> @location(0) vec4<f32> {
-  let _cse4 = (U.resolution.x / U.resolution.y);
-  let _cse3 = vec2<f32>((((vo.uv.x * 2.0) - 1.0) * _cse4), ((vo.uv.y * 2.0) - 1.0));
-  let _cse0 = vec2<f32>((U.mouse.x / U.resolution.x), (U.mouse.y / U.resolution.y));
-  let _cse1 = _cse3.x;
-  let _cse2 = _cse3.y;
   let _v0 = (exp((-(U.zoom + ((sin((U.time * 0.2)) * 0.75) + 0.75)))) * 2.4);
+  let _cse0 = vec2<f32>((U.mouse.x / U.resolution.x), (U.mouse.y / U.resolution.y));
+  let _cse4 = (U.resolution.x / U.resolution.y);
   let _v1 = ((vec2<f32>((((_cse0.x * 2.0) - 1.0) * _cse4), ((_cse0.y * 2.0) - 1.0)) * _v0) * U.mouse.w);
   var _v2: vec2<f32> = vec2<f32>(0.0, 0.0);
   var _v3: f32 = 0.0;
+  let _cse3 = vec2<f32>((((vo.uv.x * 2.0) - 1.0) * _cse4), ((vo.uv.y * 2.0) - 1.0));
+  let _cse1 = _cse3.x;
+  let _cse2 = _cse3.y;
   for (var _v4: u32 = 0u; (_v4 < 120u); _v4 = (_v4 + 1u)) {
     if ((dot(_v2, _v2) > 16.0)) {
       break;
