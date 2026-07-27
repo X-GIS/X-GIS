@@ -1,0 +1,190 @@
+# Line labels: world-anchored placement and path collision
+
+Design document (no production code) for the two remaining MapLibre parity gaps in
+`symbol-placement: line`, both traced to the same root: **X-GIS decides where a line label goes,
+and how much room it occupies, in SCREEN space, while MapLibre decides both in the tile's own
+frame.** Everything below is measured against MapLibre GL JS on OFM Positron at
+`#16.7/37.79172/126.79102` and `#16/37.79172/126.79102` — the camera from the original user
+report — using the harnesses landed in `playground/e2e/_debug-shield-spacing.spec.ts` and
+`_debug-ml-collision-boxes.spec.ts`.
+
+Follows #1358 (spacing cadence), #1370 (paired-symbol badge box) and #1383 (extent-based edge
+inset), which closed the parity gaps that did _not_ need a frame change. These two do.
+
+Held to CLAUDE.md §0 (5-year architecture), §5 (a render claim needs a real gate), §2
+(right-sized, not gold-plated).
+
+---
+
+## 1. The two symptoms, and why they are one problem
+
+### 1.1 Phase — the chain is anchored to the viewport, not the world
+
+`label-pass.ts` projects a polyline's vertices to screen, then walks the **screen** polyline
+placing a label every `spacingPx` starting at `spacingPx / 2` from the start of the visible run
+(`placeLabelsAlongLine`). The origin of that walk is wherever the road happens to enter the
+viewport, so the whole chain slides as the user pans, and it does not agree with the reference.
+
+Measured at z16.7 after #1383, on the route-400 chain:
+
+|          | shield 1  | shield 2   | shield 3   |
+| -------- | --------- | ---------- | ---------- |
+| MapLibre | (22, 428) | (329, 322) | (636, 216) |
+| X-GIS    | (18, 428) | (325, 324) | (632, 218) |
+
+The **cadence** matches (that was #1358 — 0.999–1.003 of the reference across a zoom sweep);
+the **phase** is offset by ~4 px. Four pixels is cosmetically small, but the mechanism behind it
+is not: the offset is a function of the camera, so it is not stable under pan, and it cannot be
+tuned away.
+
+MapLibre computes symbol anchors once per tile, in tile units, at bucket build time
+(`symbol_layout.ts`, `getAnchors`), from the line's own first vertex. The anchors are baked into
+the bucket and only transformed on screen. Phase is therefore a property of the DATA, invariant
+under camera motion, and identical between two clients showing the same tile.
+
+### 1.2 Extent — a line label collides as a box, not as its path
+
+MapLibre models a line symbol's collision footprint as a **chain of circles along the label's
+path** (`CollisionFeature` with `circleDiameter`, one circle per ~`boxSize` of path length), not
+as a single AABB. Its collision debug at z16 renders exactly that: a run of red circles down
+Dogam-ro is the rejected road-NAME label, and the red square beside "Wijeon-ri" is the rejected
+route-14 shield.
+
+X-GIS uses one AABB per line label. Consequences, both observed at that camera:
+
+- A long road name that curves across other labels only conflicts where its single box overlaps,
+  so X-GIS draws "Dogam-ro 도감로" where MapLibre drops it.
+- Conversely a straight label's box is a poor fit for a curved path, over-blocking on the concave
+  side.
+
+This is the same frame problem: the box is computed from the SCREEN-projected glyph run, and a
+box is the only shape that survives that projection cheaply. In tile space the path is known and
+a circle chain is natural.
+
+---
+
+## 2. What we are NOT doing
+
+**Not** moving label layout into the tile worker. MapLibre bakes anchors at bucket build; X-GIS
+dispatches labels per frame from `forEachLineLabelPolyline`. Matching MapLibre's _architecture_
+would be a rewrite of the label pass, the tile pipeline and the collision index at once — and the
+observable behaviour we need does not require it (§3).
+
+**Not** changing the cadence. `lineLabelSpacingPx` (#1358) is measured-correct and stays the
+authority for the step size.
+
+**Not** touching point labels. Both changes are gated on `placement === 'line' | 'line-center'`.
+
+---
+
+## 3. The key observation: mercator metres are already a world frame
+
+`VectorTileRenderer.forEachLineLabelPolyline` hands the label pass
+`(polylineMercX: Float64Array, polylineMercY: Float64Array, props)` — **mercator metres**, not
+screen pixels, and sliced per tile, so each polyline's first vertex is a tile-derived, camera-
+invariant point.
+
+That is all the anchoring we need. We do not have to move to tile-local units to get MapLibre's
+_invariant_; we only have to stop starting the walk at the viewport.
+
+**Anchor rule.** Walk the polyline in mercator metres from its own first vertex, stepping
+`spacingPx / pxPerMeter` metres, first anchor at half a step. `pxPerMeter` is already computed in
+`label-pass.ts` (the `_ppmA` / `_ppmB` probe) and `spacingPx` already carries the #1358 zoom
+factor, so the on-screen cadence is unchanged by construction — only the origin moves.
+
+Three properties fall out, and each is a test:
+
+1. **Pan invariance.** Panning changes which anchors are visible, never where they are. Today an
+   anchor's world position is a function of the camera; after, it is not.
+2. **Cross-tile continuity.** Two tiles of one route, walked from their own starts, no longer
+   collide phases mid-route the way two independent viewport walks do.
+3. **Pitch faithfulness.** A world-space step maps to a _varying_ screen step under pitch —
+   which is what MapLibre does too, since a uniform tile-unit step is uniform in world space. The
+   current screen-space walk is uniform on screen, i.e. wrong under pitch in the other direction.
+
+### 3.1 The one hard part
+
+The curved (tangent-rotated) branch feeds `TextStage.addCurvedLineLabel(polyX, polyY,
+anchorDistancePx, …)` — a SCREEN polyline plus an along-**screen** distance. World-space anchors
+must therefore be mapped back to an along-screen offset. The projected sample array is already
+built (`_pxScratch` / `_pyScratch`); the mapping is a parallel prefix-sum: accumulate screen
+arc-length and mercator arc-length over the same sample walk, then convert an anchor's mercator
+offset to the screen offset by interpolating within the containing sample interval. O(n) over
+samples we already visit, no extra projection.
+
+The viewport-aligned branch needs no mapping — it consumes the anchor point directly.
+
+---
+
+## 4. Increments
+
+Each lands separately, green, with its own gate. No increment is allowed to change the cadence.
+
+**INC-1 — world-anchored phase, viewport-aligned branch.**
+Replace the screen walk with the mercator walk for `text-rotation-alignment: viewport` line
+symbols (the OFM shield layers). Smallest blast radius: no curved mapping, and the shields are
+exactly what the reference measurements cover.
+_Gate:_ the z16.7 chain lands within 1 px of MapLibre's three anchors (today: ~4 px); and a
+pan-invariance test — dispatch the same polyline under two camera translations and assert the
+emitted world anchors are identical, which is impossible to satisfy with the screen walk.
+
+**INC-2 — world-anchored phase, curved branch.**
+Add the mercator↔screen arc-length mapping of §3.1 and switch the curved stops.
+_Gate:_ road-name labels hold position under pan (same invariance test, curved path); the
+existing curved-label suites stay green.
+
+**INC-3 — path collision, representation.**
+Extend `CollisionItem` with an optional circle chain (centre + radius per element) and teach
+`greedyPlaceBboxes` circle↔box and circle↔circle overlap. Keep AABB as the default so point
+labels and every existing test are untouched.
+_Gate:_ unit tests for the three overlap pairs, plus a scene-level assertion that a straight
+label's circle chain and its AABB place identically (the chain must be a strict refinement, not a
+behaviour change, when the path is straight).
+
+**INC-4 — emit circle chains for line labels.**
+`TextStage` builds the chain from the curved layout it already has (glyph positions along the
+path) instead of one bbox.
+_Gate:_ the witness — MapLibre drops "Dogam-ro 도감로" at z16 and X-GIS must too; and a
+no-regression sweep on the shield cameras.
+
+INC-3 and INC-4 are independently useful: INC-3 alone is a dormant capability, INC-4 without
+INC-3 is impossible. INC-1 is independently shippable and is the recommended first landing.
+
+---
+
+## 5. Risks
+
+- **Off-screen walk cost.** A world walk covers the whole polyline, including off-screen spans,
+  where the screen walk covered only the visible run. Anchors that fail to project are dropped,
+  so correctness is unaffected, but a long route at low zoom does more arc-length arithmetic.
+  Bound it by clipping the mercator walk to the viewport's world-space AABB _inflated by one
+  spacing step_ — inflation keeps the phase, clipping keeps the cost.
+- **The #1050 phantom-chord rule must survive.** A null projection currently HARD-breaks the run
+  so no label lands on a chord bridging a horizon-culled gap. With world anchors the break moves
+  to the projection step: an anchor is emitted only if it projects AND both its neighbouring
+  samples projected.
+- **Collision cost.** A circle chain is more overlap tests than one box. `greedyPlaceBboxes` is
+  already O(N²); the #1341 grid in `icon-collide-overlap.ts` is the precedent for fixing that if
+  it bites, and the same uniform-grid argument applies unchanged.
+- **Test churn.** Any test that pins an absolute line-label screen position will move by INC-1.
+  That is the point of the change; each such test should be re-derived from the reference, not
+  re-baselined blind.
+
+---
+
+## 6. Verification posture
+
+The measurement harnesses already exist and are the gate for every increment:
+
+- `playground/e2e/_debug-shield-spacing.spec.ts` — both panes over a zoom sweep, shield boxes
+  located by connected-component detection at full resolution.
+- `playground/e2e/_debug-ml-collision-boxes.spec.ts` — MapLibre's own placed/rejected verdicts,
+  which is how the shield-vs-place-label case was settled in #1370 rather than by inference.
+
+Two lessons from that PR carry forward and are non-negotiable here:
+
+- **A 0 px diff is not evidence until the code is proven to have run.** In #1370 the union was
+  patched at one of three bbox sites; the render was byte-identical because the path never
+  executed. Instrument the wiring, then read the pixels.
+- **Never conclude from a downscaled or single-sample render.** The same PR produced a 615 px
+  "regression" that was settle variance; four samples and a hash-stable harness settled it.
