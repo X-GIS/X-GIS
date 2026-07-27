@@ -29,8 +29,8 @@ vec2 df64_mul(vec2 a, vec2 b);
 bool df64_le(vec2 a, vec2 b);
 float df64_narrow(vec2 a);
 vec2 df64_twoSum(float a, float b) {
-  float _cse0 = texelFetch(_fp64, ivec2(0, 0), 0).x;
   float _v0 = (a + b);
+  float _cse0 = texelFetch(_fp64, ivec2(0, 0), 0).x;
   float _v1 = (((_v0 * _cse0) - a) * _cse0);
   float _v2 = (((((a - ((_v0 - _v1) * _cse0)) * _cse0) * _cse0) * _cse0) + (b - _v1));
   return vec2(_v0, _v2);
@@ -96,16 +96,16 @@ vec4 fs_julia_impl(VsOut vo) {
   vec2 _licm1 = vec2(-0.800000011920929, 1.1920929132713809e-8);
   vec2 _licm2 = vec2(2.0, 0.0);
   vec2 _licm3 = vec2(0.15600000321865082, -3.218650901359865e-9);
-  bool _cse0 = (vo.uv.x < 0.5);
-  vec2 _cse1 = vec2(u.center.hi.x, u.center.lo.x);
-  vec2 _cse2 = vec2(u.center.hi.y, u.center.lo.y);
   float _v0 = pow(10.0, (-u.zoom_exp));
   float _v1 = (vo.uv.x * 2.0);
+  bool _cse0 = (vo.uv.x < 0.5);
   float _v2 = (_v1 - (_cse0 ? 0.0 : 1.0));
   float _v3 = ((_v2 - 0.5) * _v0);
   float _v4 = (((vo.uv.y - 0.5) * _v0) * ((u.resolution.y / u.resolution.x) * 2.0));
   float _v5 = 0.0;
   float _v6 = 0.0;
+  vec2 _cse1 = vec2(u.center.hi.x, u.center.lo.x);
+  vec2 _cse2 = vec2(u.center.hi.y, u.center.lo.y);
   if ((_cse0 || (u.fp64 < 0.5))) {
     float _v7 = (df64_narrow(_cse1) + _v3);
     float _v8 = (df64_narrow(_cse2) + _v4);

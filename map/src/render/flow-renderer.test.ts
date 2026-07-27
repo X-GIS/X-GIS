@@ -24,7 +24,7 @@ interface PassRec {
 function makeCtx(opts: { backend: 'webgl2' | 'webgpu'; floatBlendTargets?: boolean }) {
   let id = 0
   const passes: PassRec[] = []
-  const pipelines: { format: string }[] = []
+  const pipelines: { format: string; depthStencil: unknown; sampleCount: unknown }[] = []
   const bindGroups: { entries: unknown[]; id: number }[] = []
   const destroyed: unknown[] = []
   const samplers: unknown[] = []
@@ -65,8 +65,16 @@ function makeCtx(opts: { backend: 'webgl2' | 'webgpu'; floatBlendTargets?: boole
       bindGroups.push(bg)
       return bg
     },
-    createPipeline: (d: { colorTargets?: { format: string }[] }) => {
-      pipelines.push({ format: d.colorTargets?.[0]?.format ?? '?' })
+    createPipeline: (d: {
+      colorTargets?: { format: string }[]
+      depthStencil?: unknown
+      sampleCount?: unknown
+    }) => {
+      pipelines.push({
+        format: d.colorTargets?.[0]?.format ?? '?',
+        depthStencil: d.depthStencil,
+        sampleCount: d.sampleCount,
+      })
       return { native: 'pipe' }
     },
     createBuffer: () => ({ native: 'buf' }),
@@ -234,6 +242,35 @@ describe('FlowRenderer — the advection arm (#1333)', () => {
     expect(uni[0]![1]).toBe(0) // stepY on frame 1
     expect(uni[1]![0]).toBeGreaterThan(0)
     expect(uni[1]![1]).toBeGreaterThan(0)
+  })
+
+  it('THE ATTACHMENT STATE: the pipeline declares NO depth-stencil, matching its pass', () => {
+    // A REAL GPU CAUGHT THIS ONE, and it was fatal rather than cosmetic:
+    //
+    //   Attachment state of [RenderPipeline "flow-advect-pipeline"] is not compatible with
+    //   [RenderPassEncoder "flow-advect"]. ... pipeline has depthStencilFormat:
+    //   Depth24PlusStencil8
+    //
+    // WebGPU requires a pipeline's attachment state to MATCH the pass it is set on. This pass
+    // is colour-only — `FlowRenderer.begin` supplies one colour attachment and no
+    // depthStencilAttachment — so a pipeline carrying a depth-stencil is rejected at
+    // SetPipeline, EVERY FRAME, and the advection never runs. Nothing here could see it: the
+    // step still "succeeded" against a recorder, the tests were green, and the only symptom
+    // was that the motion never appeared.
+    //
+    // The trap is that `Material` synthesises the depth state from a truthy `depthCompare`
+    // (material.ts:150), so `depthCompare: 'always'` — copied from CoverageDraper, where it is
+    // CORRECT because the opaque pass does carry depth — silently adds one. This asserts the
+    // property the GPU validates, through the same Material path production uses.
+    const t = makeCtx({ backend: 'webgl2' })
+    new FlowRenderer(t.dev).step(frameAt(0), makeField())
+    expect(t.pipelines).toHaveLength(1)
+    expect(
+      t.pipelines[0]!.depthStencil,
+      'the advect pass has no depth attachment, so its pipeline must declare none',
+    ).toBeUndefined()
+    // Single-sample too: the pair is a plain offscreen target, never MSAA.
+    expect(t.pipelines[0]!.sampleCount ?? 1).toBe(1)
   })
 
   it('dispose() frees the pair and the sampler', () => {

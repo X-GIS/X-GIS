@@ -21,8 +21,8 @@ layout(location = 0) out vec4 _ret;
 
 vec4 fs_impl(VsOut vo) {
   float _licm0 = U.time;
-  vec2 _cse0 = (vo.uv * U.cells);
   float _av0 = 8.0;
+  vec2 _cse0 = (vo.uv * U.cells);
   for (int _v0 = -1; (_v0 <= 1); _v0 = (_v0 + 1)) {
     for (int _v1 = -1; (_v1 <= 1); _v1 = (_v1 + 1)) {
       vec2 _v2 = vec2(float(_v1), float(_v0));

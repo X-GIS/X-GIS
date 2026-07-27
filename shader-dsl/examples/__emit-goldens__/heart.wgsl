@@ -20,9 +20,9 @@ fn vs(@builtin(vertex_index) vi: u32) -> VsOut {
 
 @fragment
 fn fs(vo: VsOut) -> @location(0) vec4<f32> {
-  let _cse0 = vec2<f32>((((vo.uv.x * 2.0) - 1.0) * (U.resolution.x / U.resolution.y)), ((vo.uv.y * 2.0) - 1.0));
   let _v0 = (pow(abs(sin(((U.time * 3.14159) * U.beat))), 8.0) * 0.12);
   let _v1 = (0.72 + _v0);
+  let _cse0 = vec2<f32>((((vo.uv.x * 2.0) - 1.0) * (U.resolution.x / U.resolution.y)), ((vo.uv.y * 2.0) - 1.0));
   let _v2 = ((_cse0.x * 1.3) / _v1);
   let _v3 = (((_cse0.y + 0.08) * 1.3) / _v1);
   let _v4 = (_v2 * _v2);
