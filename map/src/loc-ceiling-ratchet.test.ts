@@ -373,7 +373,18 @@ const CEILINGS: Record<string, number> = {
   // effectiveRasterFadeDurationMs, so there is no second duration knob to drift). Two
   // one-line wirings + their notes; irreducible — neither hook can live anywhere else.
   // +6, post-hook.
-  'map/src/map.ts': 5336,
+  //
+  // +5 (#1333): the flow-field keep-alive in `shouldRenderThisFrame`. IBFV is a RECURSIVE
+  // filter, so it advances only on RENDERED frames — an idle loop stops the animation rather
+  // than pausing it. Deliberately NOT extracted: `shouldRenderThisFrame` IS the composition
+  // root's idle decision and already carries four sibling one-line gates (text fade, raster
+  // fade, particle flow, pending source work); moving the fifth elsewhere would scatter one
+  // decision across two files. Post-hook.
+  //
+  // MERGE UNION (#1333 <- main): the hillshade fade-in (+6) and this keep-alive (+5) are
+  // non-overlapping edits to different methods, so the merged file measures their SUM, not
+  // max(5336, 5335) — the same accounting the render-loop.ts entry below records for #1272.
+  'map/src/map.ts': 5341,
   // Baselined at #1255 (measured 830): the DOM-inspired layer API crossed
   // NEW_FILE_CAP with the paint-transition style-setter integration — the
   // StyleHost.transitions context, the shared applyNumber/applyColor

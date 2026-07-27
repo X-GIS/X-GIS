@@ -4352,6 +4352,11 @@ export class XGISMap {
     // advances once per RENDERED frame — so while a drawable particle-flow batch
     // exists the loop must keep rendering, else the drift freezes on a static camera.
     if (this._graphics.hasAnimatedGraphics()) return true
+    // Flow-field keep-alive (#1333) — IBFV is RECURSIVE, so each frame's image is the next
+    // frame's history and it advances only on RENDERED frames: an idle loop does not pause the
+    // animation, it stops it. One HALF of the two-gate obligation (the other is the advection
+    // step itself); see the note on GraphicsManager.hasAnimatedGraphics for why both.
+    if (this.coverageRenderer?.hasFlowField() === true) return true
     if (this.hasPendingSourceWork()) return true
     const c = this.camera
     const canvas = this.ctx?.canvas
