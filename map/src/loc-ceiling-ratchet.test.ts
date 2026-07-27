@@ -435,7 +435,12 @@ const CEILINGS: Record<string, number> = {
   // against the SAME catalog, then swaps the backend. Sharing the body with the attach would
   // mean parameterising camera-fit, pipeline setup and registration away — more coupling than
   // the 76 lines cost.
-  'map/src/source-manager.ts': 925,
+  // 925→926 (#1272 E-④ multi-region): ONE line — the `DEFAULT_REGION` import. A coverage
+  // source now holds a keyed Map of regions, so the declared single cell must name the key it
+  // lands on. There is nothing to extract: the ingest branch itself did not grow, and the same
+  // change moved 100+ lines of region/time-axis logic OUT of map.ts into coverage-source.ts
+  // (map/src/map.ts came DOWN 5362→5339 in the same commit).
+  'map/src/source-manager.ts': 926,
   // 1920→1930 (#1042 R3): the globe limb cull for MULTI-LINE labels must land in
   // the collision phase — the ONLY site holding the label's quad half-height (the
   // collision box IS the height authority; the label-pass dispatch site has only

@@ -41,6 +41,7 @@ import {
   type GeoJSONGeometry,
 } from '@xgis/data'
 import type { RawDataset } from './map-types'
+import { DEFAULT_REGION } from './render/coverage-renderer'
 import { isTileTemplate } from '@xgis/data'
 import { TileCatalog } from '@xgis/data'
 import { VectorTileRenderer } from './render/vector-tile-renderer'
@@ -356,9 +357,9 @@ export class SourceManager {
         const buf = raw.buffer.slice(raw.byteOffset, raw.byteOffset + raw.byteLength)
         handle = await readCoverage(buf, url)
       }
-      // A coverage source is DATA-ONLY: ramp/range are LAYER paint now (#1158 INC-D), read at
-      // arm time off the ShowCommand. `_url` is kept only so setCoverageTime re-reads (#1272).
-      this.rawDatasets.set(load.name, { _coverage: handle, _url: url })
+      // DATA-ONLY (ramp/range are LAYER paint, #1158 INC-D); one DECLARED cell ⇒ one region,
+      // and coverage-source.ts owns residency + the time axis from here (#1272).
+      this.rawDatasets.set(load.name, { _coverage: new Map([[DEFAULT_REGION, { handle, url }]]) })
       return
     }
 

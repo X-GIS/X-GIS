@@ -24,6 +24,18 @@ export type { BackendChoice }
  *  tiled-geojson source, and `{ _coverage }` for an S-100 gridded-coverage
  *  source (HDF5 read in place; ADR-0010) — the CPU-resident CoverageHandle is the
  *  value-readout authority (#1158 GAP-1). rebuildLayers narrows on these markers with `in` guards. */
+/** One resident region of a `coverage` source: the decoded grid plus the address it came
+ *  from. Kept as one value so a handle and its URL can never be paired across regions —
+ *  a mosaic re-reading "the" URL for a different region's forecast hour would silently
+ *  display the wrong domain. */
+export interface CoverageRegionData {
+  readonly handle: CoverageHandle
+  /** The resolved source URL, kept so `setCoverageTime` (#1272 E-③) can re-read a
+   *  DIFFERENT forecast group (`Group_NNN`) of THIS region's cell over HTTP Range without
+   *  re-declaring the source. Absent for a host-pushed region (setCoverageData). */
+  readonly url?: string
+}
+
 export type RawDataset =
   | GeoJSONFeatureCollection
   | {
@@ -50,11 +62,15 @@ export type RawDataset =
       // A `coverage` source is DATA-ONLY (the CPU-resident CoverageHandle is the
       // value-readout authority). The colour-ramp/display window (ramp/range) is LAYER
       // paint now (#1158 INC-D) — carried on the ShowCommand, read at arm time.
-      readonly _coverage: CoverageHandle
-      /** The resolved source URL, kept so `setCoverageTime` (#1272 E-③) can re-read a
-       *  DIFFERENT forecast group (`Group_NNN`) of the same cell over HTTP Range without
-       *  re-declaring the source. Absent for a host-pushed coverage (setCoverageData). */
-      readonly _url?: string
+      //
+      // KEYED BY REGION, because one coverage source can hold several adjacent NOAA
+      // domains at once (#1272 E-④): a viewport straddling Chesapeake and Delaware must
+      // show CBOFS *and* DBOFS, not whichever was armed last. A single-region source has
+      // exactly one entry under DEFAULT_REGION, so nothing that predates the mosaic
+      // changes shape. This Map is the ONLY authority — deliberately not paired with a
+      // separate "current handle" field, which is precisely the second authority that
+      // would drift from it.
+      readonly _coverage: ReadonlyMap<string, CoverageRegionData>
     }
 
 export interface VariantPipelines {

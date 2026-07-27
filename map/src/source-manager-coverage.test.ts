@@ -11,6 +11,8 @@
 // 23, SW=10 positive-down, SE=nodata) — the reader's own differential fixture.
 
 import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { DEFAULT_REGION } from './render/coverage-renderer'
+import type { CoverageRegionData } from './map-types'
 import { readFileSync } from 'node:fs'
 import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -108,8 +110,12 @@ describe('source-manager: coverage dispatch (A9)', () => {
     const entry = rawDatasets.get('bathy')!
     expect('_coverage' in entry).toBe(true)
     // the marker's handle is the value-readout authority (valueAt round-trips) — the range
-    // path produces the identical handle to the full read.
-    const handle = (entry as { _coverage: import('@xgis/data').CoverageHandle })._coverage
+    // path produces the identical handle to the full read. A DECLARED source loads exactly
+    // one cell, so it must land as a single region under the default key (#1272 E-④); a
+    // mosaic adds neighbours beside it later.
+    const regions = (entry as { _coverage: ReadonlyMap<string, CoverageRegionData> })._coverage
+    expect([...regions.keys()]).toEqual([DEFAULT_REGION])
+    const handle = regions.get(DEFAULT_REGION)!.handle
     expect(handle.valueAt(5, 50)).toBe(10) // SW cell, positive-down verbatim
     expect(Number.isNaN(handle.valueAt(9, 50)!)).toBe(true) // SE nodata
     expect(handle.meta.vertical).toEqual({ datumCode: 23, sign: 'down' })
