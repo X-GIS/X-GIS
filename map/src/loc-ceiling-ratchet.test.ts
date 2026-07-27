@@ -445,7 +445,13 @@ const CEILINGS: Record<string, number> = {
   // to different methods, so the merged file measures their SUM. Value below is the MEASURED
   // post-hook line count, not an arithmetic guess.
   // MERGE UNION: non-overlapping deltas; the value is the MEASURED post-hook count.
-  'map/src/map.ts': 5409,
+  // 5409→5412 (#1272 E-④ follow-up): the coverage deps record binds the renderer through a
+  // THUNK instead of capturing it. `coverageRenderer` is declared `!` and assigned only at
+  // GPU boot, so the captured form was `undefined` forever — it broke every ramp-only
+  // coverage push and every mosaic region eviction, and shipped green. +3 is the one-line
+  // change plus the three-line reason; there is nothing to extract from a single binding,
+  // and dropping the comment would leave the next reader free to "simplify" it back.
+  'map/src/map.ts': 5412,
   // Baselined at #1255 (measured 830): the DOM-inspired layer API crossed
   // NEW_FILE_CAP with the paint-transition style-setter integration — the
   // StyleHost.transitions context, the shared applyNumber/applyColor

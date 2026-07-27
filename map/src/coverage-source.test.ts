@@ -34,6 +34,12 @@ function makeDeps(overrides: Partial<CoverageSourceDeps> = {}): {
     armFields: () => {},
     clearArrows: () => {},
     invalidate: () => {},
+    // Live-refresh deps (#1158): inert here. These gates exercise residency only, and the
+    // refresh policy has its own suite (coverage-refresh.test.ts) — stubbing them keeps this
+    // file about the ONE contract it is for.
+    refresh: { stopAll: () => {} } as unknown as CoverageSourceDeps['refresh'],
+    guardedFetch: () => fetch,
+    destroyed: () => false,
     ...overrides,
   }
   return { deps, rawDatasets, setRenderer: (r) => (late = r), renderer: () => late }
