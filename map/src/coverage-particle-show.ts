@@ -15,7 +15,7 @@
 // coverage data/time swap. This module only builds the spec and calls `add()`; it never manages
 // the handle's lifetime.
 
-import type { CoverageHandle } from '@xgis/data'
+import { cellUnitsToLonLat, isGeographicCRS, type CoverageHandle } from '@xgis/data'
 import type { ShowCommand } from './render/renderer-types'
 import type { GraphicsManager } from './graphics/graphics-manager'
 import type { DrawHandle } from './graphics/graphics-types'
@@ -61,8 +61,10 @@ export function addCoverageParticleShowLayer(
   if (!speedBand || !dirBand) return null
 
   const [nLon, nLat] = handle.header.size
-  const [originLon, originLat] = handle.header.origin // SW cell CENTRE (point registration)
-  const [dLon, dLat] = handle.header.spacing
+  const [originX, originY] = handle.header.origin // SW cell CENTRE (point registration)
+  const [dx, dy] = handle.header.spacing
+  const crs = handle.header.crs
+  const geographic = isGeographicCRS(crs)
   const rampName = show.ramp ?? S111_SPEED_RAMP
   const speed = speedBand.values
   const dir = dirBand.values
@@ -76,9 +78,13 @@ export function addCoverageParticleShowLayer(
     const col = i - row * nLon
     const rgb = bandedRampColor(rampName, s) ??
       bandedRampColor(S111_SPEED_RAMP, s) ?? [255, 255, 255]
+    // Through the cell's OWN CRS (#1366) — the same authority the drape and the arrow
+    // field use. `origin + col·spacing` is in the GRID's units, degrees only for a
+    // geographic cell; a projected cell's metres pushed as lon/lat land continents away.
+    const [lon, lat] = cellUnitsToLonLat(crs, originX + col * dx, originY + (nLat - 1 - row) * dy)
     cells.push({
-      lon: originLon + col * dLon,
-      lat: originLat + (nLat - 1 - row) * dLat,
+      lon,
+      lat,
       bearingDeg: d,
       speed: s,
       rgb,
@@ -89,11 +95,13 @@ export function addCoverageParticleShowLayer(
   // Jitter radius bounded by the grid's OWN cell spacing (40% of the smaller dimension), so a
   // particle's seed stays within its home cell — unlike Seoul's km-scale gu polygons, an S-111
   // cell can be sub-km, and the design's flat 1200 m default would routinely overshoot into a
-  // neighbouring (possibly land, possibly differently-flowing) cell. `originLat` is a
-  // representative latitude for the lon→metres factor across one regional grid.
-  const latRad = (originLat * Math.PI) / 180
-  const cellWidthM = Math.abs(dLon) * M_PER_DEG_LAT * Math.cos(latRad)
-  const cellHeightM = Math.abs(dLat) * M_PER_DEG_LAT
+  // neighbouring (possibly land, possibly differently-flowing) cell. A geographic grid's
+  // spacing is DEGREES and converts (the grid's own origin latitude is representative across
+  // one regional cell); a projected grid's spacing is already METRES, so converting it again
+  // would inflate the radius ~111 000× and scatter every particle across the whole field.
+  const latRad = (originY * Math.PI) / 180
+  const cellWidthM = geographic ? Math.abs(dx) * M_PER_DEG_LAT * Math.cos(latRad) : Math.abs(dx)
+  const cellHeightM = geographic ? Math.abs(dy) * M_PER_DEG_LAT : Math.abs(dy)
   const seedRadiusMeters = Math.max(1, Math.min(cellWidthM, cellHeightM) * 0.4)
 
   return host.graphics.add<FieldCell>({

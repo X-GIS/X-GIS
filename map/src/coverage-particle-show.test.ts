@@ -86,6 +86,33 @@ describe('addCoverageParticleShowLayer (#1333 — engine S-111 animated flow fie
     expect(bearings).toEqual([90, 180, 270, 45]) // = the direction band, verbatim
   })
 
+  it('places a PROJECTED grid through its own CRS, and sizes the seed in real metres (#1366)', () => {
+    // Two bugs of the same origin, both unlocked when #1366 INC-3 made projected cells
+    // placeable: positions derived as `origin + col·spacing` treated UTM metres as
+    // degrees, and the seed radius multiplied that same metre spacing by 111 320 m/deg —
+    // a ~111 000× radius that would scatter every particle across the whole field.
+    const handle = coverageFromGrids({
+      ...s111Input([1, 1, 1, 1, 1, 1], [0, 0, 0, 0, 0, 0]),
+      crs: 32618,
+      origin: [420767.84475419234, 4183856.856912584],
+      spacing: [16, 16],
+    })
+    const { host, calls } = makeHost()
+    addCoverageParticleShowLayer(host, s111Show, handle)
+    const { spec } = calls[0]!
+    const getPosition = fn<readonly [number, number]>(spec.getPosition)
+    for (const [i, d] of spec.data.entries()) {
+      const [lon, lat] = getPosition(d, i)
+      expect(lon).toBeGreaterThan(-76.1)
+      expect(lon).toBeLessThan(-75.8)
+      expect(lat).toBeGreaterThan(37.7)
+      expect(lat).toBeLessThan(37.9)
+    }
+    // 40% of a 16 m cell — metres taken as metres. The degrees conversion would give
+    // ~712 km here, so this bound is the fail-before.
+    expect(spec.seedRadiusMeters).toBeCloseTo(6.4, 6)
+  })
+
   it('no-ops when no cell is drawable (all speed 0 / noData) — returns null, no batch', () => {
     const handle = coverageFromGrids(s111Input([0, 0, NaN, 0, NaN, 0], [0, 0, 0, 0, 0, 0]))
     const { host, calls } = makeHost()

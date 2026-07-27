@@ -32,6 +32,17 @@ export function lonLatToCellUnits(
   return proj4('EPSG:4326', resolveEPSG(crs), [lon, lat]) as [number, number]
 }
 
+/** The inverse: a point in the coverage's own units back to lon/lat. Identity (and no
+ *  proj4 call) for a geographic cell, exactly as `lonLatToCellUnits` is.
+ *
+ *  This is the authority for "where does cell (col,row) sit on the map". Deriving it as
+ *  `originLon + col * spacing` — which reads as obviously right — is only correct when the
+ *  units happen to be degrees, and is off by continents when they are UTM metres. */
+export function cellUnitsToLonLat(crs: string, x: number, y: number): [lon: number, lat: number] {
+  if (isGeographicCRS(crs)) return [x, y]
+  return proj4(resolveEPSG(crs), 'EPSG:4326', [x, y]) as [number, number]
+}
+
 /** `handle.valueAt` for callers holding a LON/LAT — the CRS-aware value readout.
  *
  *  `CoverageHandle.valueAt` is unit-native by design (it indexes with the grid's own
