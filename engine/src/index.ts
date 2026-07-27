@@ -10,6 +10,7 @@ export * from '@xgis/rhi'
 // ── GPU layer (backend-blind) ─────────────────────────────────────────
 export * from './gpu/gpu-arena'
 export * from './gpu/quality'
+export * from './gpu/adaptive-dpr'
 
 // ── Frame / render core machinery ─────────────────────────────────────
 // NOTE: no ECEF re-export. The `./projection/` subtree is gone — the ellipsoid

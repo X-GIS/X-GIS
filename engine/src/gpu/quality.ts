@@ -21,12 +21,17 @@
 //   `?dpr=N`                 override max devicePixelRatio cap
 //   `?adaptiveDpr=N`         drop DPR to N during pointer/wheel
 //                            interaction, restore on idle (null = off)
+//   `?adaptive=0`            disable adaptive resolution scaling (on by
+//                            default; steps DPR down only while measured
+//                            frames stay over budget — see adaptive-dpr.ts)
 //   `?safe=1`                back-compat alias for `?quality=battery`
 //                            (existing flag, kept working)
 //
 // Individual key flags override preset values, so
 // `?quality=performance&msaa=2` keeps performance preset's other knobs
 // but bumps MSAA back to 2× for slightly cleaner edges.
+
+import { adaptiveDprScale, setAdaptiveDprEnabled } from './adaptive-dpr'
 
 export interface QualityConfig {
   /** MSAA sample count: 1, 2, or 4. Init-time only — pipelines bake
@@ -51,6 +56,14 @@ export interface QualityConfig {
    *  pass. Off by default — 8 bytes/pixel of VRAM + minor fragment cost.
    *  Requires `msaa = 1` (silently forced). */
   picking: boolean
+  /** Adaptive resolution scaling (adaptive-dpr.ts). When the measured frame
+   *  interval stays over budget, the device-pixel scale steps down; when it is
+   *  comfortably fast again it steps back up. ON by default: the knobs above are
+   *  a static bet on the host's hardware, and a map that has been proven unable
+   *  to hold 30 fps is already not delivering the fidelity that bet promised.
+   *  It never engages on a host that keeps up, so a machine that was fine before
+   *  renders identically. `?adaptive=0` opts out. */
+  adaptive: boolean
 }
 
 const QUALITY_PRESETS = {
@@ -76,14 +89,16 @@ const QUALITY_PRESETS = {
     maxDpr: 3,
     interactionDpr: null,
     picking: false,
+    adaptive: true,
   },
-  /** 144fps target. MSAA off, DPR 1.0, no adaptive (since DPR is already
-   *  minimum). Required for GPU-bound scenes on low-end devices. */
+  /** 144fps target. MSAA off, DPR 1.0, no interaction DPR drop (since DPR is
+   *  already minimum). Required for GPU-bound scenes on low-end devices. */
   performance: {
     msaa: 1,
     maxDpr: 1.0,
     interactionDpr: null,
     picking: false,
+    adaptive: true,
   },
   /** Desktop sweet spot: full quality at rest, drop DPR during pan to
    *  preserve smoothness without sacrificing static fidelity. */
@@ -92,6 +107,7 @@ const QUALITY_PRESETS = {
     maxDpr: 2,
     interactionDpr: 1.5,
     picking: false,
+    adaptive: true,
   },
   /** Mobile / low-power. Aliased from the existing `?safe=1` flag for
    *  back-compat. Roughly matches the prior mobile defaults. */
@@ -100,6 +116,7 @@ const QUALITY_PRESETS = {
     maxDpr: 1.5,
     interactionDpr: 1.0,
     picking: false,
+    adaptive: true,
   },
 } as const satisfies Record<string, QualityConfig>
 
@@ -179,6 +196,13 @@ function resolveQuality(): QualityConfig {
     }
   }
 
+  // ?adaptive=0 opts out of adaptive resolution scaling. Only an explicit
+  // disable is honoured — the controller is on by default and costs nothing on
+  // a host that keeps up (it never leaves scale 1).
+  const adaptiveParam = params.get('adaptive')
+  if (adaptiveParam === '0' || adaptiveParam === 'false' || adaptiveParam === 'off')
+    base.adaptive = false
+
   // ?picking=1 enables GPU picking. Uint pick RTs need sampleCount=1,
   // so enabling picking silently drops MSAA.
   const pickParam = params.get('picking')
@@ -232,6 +256,9 @@ function resolveQuality(): QualityConfig {
  *  Initial value comes from URL flags (`?quality`, `?msaa`, `?dpr`,
  *  `?adaptiveDpr`, `?picking`) so the boot-time behavior is unchanged. */
 export const QUALITY: QualityConfig = resolveQuality()
+// The controller defaults to enabled; a `?adaptive=0` boot must disable it BEFORE
+// the first frame is sampled, so apply the resolved policy at module load.
+setAdaptiveDprEnabled(QUALITY.adaptive)
 
 /** Change listeners — `map.setQuality()` registers so it can orchestrate
  *  the heavy renderer rebuilds that MSAA / picking flips require. */
@@ -252,6 +279,10 @@ export function updateQuality(patch: Partial<QualityConfig>): void {
   if (patch.msaa !== undefined) QUALITY.msaa = clampMsaa(patch.msaa)
   if (patch.maxDpr !== undefined && patch.maxDpr > 0) QUALITY.maxDpr = patch.maxDpr
   if (patch.interactionDpr !== undefined) QUALITY.interactionDpr = patch.interactionDpr
+  if (patch.adaptive !== undefined) {
+    QUALITY.adaptive = patch.adaptive
+    setAdaptiveDprEnabled(patch.adaptive)
+  }
   if (patch.picking !== undefined) {
     QUALITY.picking = patch.picking
     // Picking requires MSAA=1 (uint RTs can't coexist with multisample
@@ -272,14 +303,19 @@ if (typeof window !== 'undefined') {
   }
   // Surface non-default quality once so users see the trade-off they
   // opted into. Quiet for default to avoid console noise.
+  // NB: compare against the `default` preset itself — a hand-written copy of its
+  // values went stale (it asserted maxDpr === 2 while the preset shipped 3), so
+  // every default boot logged a "non-default quality" line.
+  const D = QUALITY_PRESETS.default
   const isDefault =
-    QUALITY.msaa === 4 &&
-    QUALITY.maxDpr === 2 &&
-    QUALITY.interactionDpr === null &&
-    !QUALITY.picking
+    QUALITY.msaa === D.msaa &&
+    QUALITY.maxDpr === D.maxDpr &&
+    QUALITY.interactionDpr === D.interactionDpr &&
+    QUALITY.picking === D.picking &&
+    QUALITY.adaptive === D.adaptive
   if (!isDefault) {
     console.info(
-      `[X-GIS] quality: msaa=${QUALITY.msaa}× dpr=${QUALITY.maxDpr} adaptiveDpr=${QUALITY.interactionDpr ?? 'off'} picking=${QUALITY.picking ? 'on' : 'off'}`,
+      `[X-GIS] quality: msaa=${QUALITY.msaa}× dpr=${QUALITY.maxDpr} adaptiveDpr=${QUALITY.interactionDpr ?? 'off'} picking=${QUALITY.picking ? 'on' : 'off'} adaptive=${QUALITY.adaptive ? 'on' : 'off'}`,
     )
   }
 }
@@ -300,11 +336,19 @@ export const isPickEnabled = (): boolean => QUALITY.picking
  *  `getMaxDpr()` cap. The render loop MUST derive its per-frame `dpr` from
  *  this SAME value — a divergent cap makes `canvasHeight/dpr` disagree with
  *  the actual buffer size and the zoom-scale jumps on every gesture under
- *  presets that set `interactionDpr`. Single source of truth. SSR/no-GPU → 1. */
+ *  presets that set `interactionDpr`. Single source of truth. SSR/no-GPU → 1.
+ *
+ *  The adaptive scale multiplies the POLICY cap here rather than anywhere
+ *  downstream, so it inherits that single-authority property whole: every
+ *  consumer — the render loop, the MVP altitude, `canvasEffectiveDpr`'s fallback —
+ *  already reads through this one function, and the swapchain and the frame math
+ *  cannot disagree about how many device pixels exist. The scale is 1 until the
+ *  controller has measured a sustained breach, so a host that keeps up gets the
+ *  byte-identical value it got before adaptive scaling existed. */
 export function effectiveDpr(interacting = false): number {
   const cap = interacting && QUALITY.interactionDpr !== null ? QUALITY.interactionDpr : getMaxDpr()
   if (typeof window === 'undefined') return 1
-  return Math.min(window.devicePixelRatio || 1, cap)
+  return Math.min(window.devicePixelRatio || 1, cap) * adaptiveDprScale()
 }
 
 /** The device-pixel-ratio a canvas is CURRENTLY sized at, read back FROM the
