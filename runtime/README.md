@@ -13,10 +13,6 @@ and the `<xgis-map>` custom element.
 > backends are `@xgis/rhi-webgpu` / `@xgis/rhi-webgl2`. See
 > [`docs/architecture/OVERVIEW.md`](../docs/architecture/OVERVIEW.md) for the C4 view and
 > [`docs/architecture/MODULES.md`](../docs/architecture/MODULES.md) for the module DAG.
->
-> **Note for contributors:** `runtime/src/**` still holds a large test corpus that
-> exercises `@xgis/map`, left behind by the package extraction. Those tests are being
-> relocated to the package they test; do not add new ones here.
 
 ## WebGPU-only
 
@@ -84,18 +80,15 @@ Top-level exports from `index.ts`:
 `src/` holds only the publication layer. Everything it exposes is implemented in a
 sibling package.
 
-| Path                           | One-line                                                                                                                                                       |
-| ------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `index.ts`                     | The public barrel — re-exports from `@xgis/map`, `@xgis/data`, `@xgis/geo`, `@xgis/rhi-webgpu`, plus the capability table and the custom element.              |
-| `capabilities/`                | Per-layer-type capability descriptors (`background`, `circle`, `fill`, `fill-extrusion`, `heatmap`, `line`, `raster`, `symbol`) spread into `capabilities.ts`. |
-| `capabilities.ts`              | `RUNTIME_CAPABILITIES` — per `(layerType, property, variant)` flags of what the renderer honours vs silently drops.                                            |
-| `web/`                         | `XGISMapElement` / `registerXGISElement` — the `<xgis-map>` custom element.                                                                                    |
-| `vite-shims.ts`, `earcut.d.ts` | Ambient declarations (Vite's `?worker` query suffix; untyped `earcut`).                                                                                        |
-| `test-setup-projections.ts`    | The root Vitest `setupFiles` entry — calls `configureProjections(PROJECTIONS)` before any suite touches the projection path.                                   |
-
-Everything else under `src/` (`engine/`, `data/`, `loader/`, `diagnostics/`,
-`__tests__/`, `__test-support__/`) is **tests only** — a corpus that exercises
-`@xgis/map` and `@xgis/data` from here for historical reasons.
+| Path                                            | One-line                                                                                                                                                       |
+| ----------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `index.ts`                                      | The public barrel — re-exports from `@xgis/map`, `@xgis/data`, `@xgis/geo`, `@xgis/rhi-webgpu`, plus the capability table and the custom element.              |
+| `capabilities/`                                 | Per-layer-type capability descriptors (`background`, `circle`, `fill`, `fill-extrusion`, `heatmap`, `line`, `raster`, `symbol`) spread into `capabilities.ts`. |
+| `capabilities.ts`                               | `RUNTIME_CAPABILITIES` — per `(layerType, property, variant)` flags of what the renderer honours vs silently drops.                                            |
+| `web/`                                          | `XGISMapElement` / `registerXGISElement` — the `<xgis-map>` custom element.                                                                                    |
+| `vite-shims.ts`, `earcut.d.ts`                  | Ambient declarations (Vite's `?worker` query suffix; untyped `earcut`).                                                                                        |
+| `test-setup-projections.ts`                     | The root Vitest `setupFiles` entry — calls `configureProjections(PROJECTIONS)` before any suite touches the projection path.                                   |
+| `architecture-invariants.test.ts`, `__tests__/` | The three gates runtime owns: the repo-wide structural ratchet, spec-coverage drift, gap-matrix freshness.                                                     |
 
 Cross-cutting design notes live with the code they describe:
 

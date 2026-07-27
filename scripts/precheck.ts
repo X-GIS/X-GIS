@@ -5,9 +5,8 @@
 //
 // Default (`bun precheck`): the FULL vitest suite (no path filter), ~5 min
 //   on a typical dev box. It intentionally runs everything the CI test
-//   matrix shards across (compiler-blueprint / shader-dsl-a+b /
-//   engine-render-a+b / engine-proj-text / engine-rest / runtime-nonengine /
-//   map / engine-rhi-data) — the root vitest.config include is the single
+//   matrix shards across (compiler-blueprint / shader-dsl-a+b / map-a..e /
+//   data / engine-rhi-shared) — the root vitest.config include is the single
 //   authority, so this local gate can never lose a leg the CI matrix has.
 //   A prior partial mirror (compiler/blueprint/runtime only) let two PRs
 //   in one day pass precheck locally and then fail CI's `test (map)` leg

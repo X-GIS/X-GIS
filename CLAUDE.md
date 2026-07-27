@@ -212,8 +212,8 @@ scripts/gap-matrix.md`) — read the script header before assuming write-in-plac
 **Gates / ratchets**
 
 - LOC ceilings have TWO authorities until the #1005 migration retires runtime/:
-  `map/src/loc-ceiling-ratchet.test.ts` AND `runtime/src/engine/architecture-invariants.test.ts`
-  (god-file list, `engine-rest` CI leg). Growing a tracked file means updating BOTH.
+  `map/src/loc-ceiling-ratchet.test.ts` AND `runtime/src/architecture-invariants.test.ts`
+  (god-file list, `engine-rhi-shared` CI leg). Growing a tracked file means updating BOTH.
   → `2026-07-14-the-second-ratchet.md`
 - A spec-coverage `supported` flip is a THREE-way sync: the spec-coverage row + the
   regenerated gap-matrix + a `RUNTIME_CAPABILITIES` row (the drift gate

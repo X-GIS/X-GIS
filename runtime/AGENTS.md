@@ -7,7 +7,7 @@
 
 `@xgis/runtime` is the **published distribution** of X-GIS — the only non-private package in the monorepo. It owns almost no implementation (~1.8k LOC of source): a public barrel that re-exports `@xgis/map` (XGISMap, Camera, renderers, color ramps), `@xgis/data` (loaders, sources, polar caps), `@xgis/geo` (projection factories) and `@xgis/rhi-webgpu` (ComputeDispatcher); the `RUNTIME_CAPABILITIES` table; and the `<xgis-map>` custom element. The Vite lib build bundles every internal `@xgis/*` package into one `dist/`. **WebGPU-only** — `initGPU` throws `WebGPUUnavailableError` when the adapter is absent; there is no Canvas 2D render fallback.
 
-> **`src/**` is mostly TESTS.** 259 of the 278 `.ts` files here are `*.test.ts` that exercise `@xgis/map` / `@xgis/data` from this package — residue of the package extraction (`src/engine/**` in particular tests `@xgis/map`, NOT `@xgis/engine`). They are being relocated to the packages they test; do not add new ones here.
+> **Tests live with their subject.** The 254-file corpus that used to sit under `src/engine/**`, `src/data/**` and `src/loader/**` tested `@xgis/map` and `@xgis/data`, not this package; it moved there on 2026-07-27. Four suites remain here — the capability-table unit test, the spec-coverage drift gate, the gap-matrix freshness gate, and the repo-wide `architecture-invariants` ratchet.
 
 ## Key Files
 
@@ -44,8 +44,8 @@
 
 ### Testing Requirements
 
-- Colocated `*.test.ts` (vitest) throughout `src/`. Run via `bun run test` from the repo root.
-- `src/__test-support__/` provides WebGPU stubs; `src/__tests__/` holds integration-level tests. Neither directory's internals should be enumerated in file listings.
+- Four suites, run via `bun run test` from the repo root (CI leg `engine-rhi-shared`): `src/capabilities.test.ts`, `src/__tests__/spec-coverage-runtime-drift.test.ts`, `src/__tests__/gap-matrix-freshness.test.ts`, `src/architecture-invariants.test.ts`.
+- The shared WebGPU stub now lives at `rhi-webgpu/src/__test-support__/webgpu-stub.ts`.
 - Perf, tile-selection, and projection changes additionally gate on Playwright suites in `playground/`: `test:pixel`, `test:perf`, `test:projection`, `test:e2e`.
 - CI runs no-GPU pure-compute/WGSL-compile gates under SwiftShader only. Render-correctness (pixel-match) runs locally on a real GPU. See ADR `0004-verification-gate-strategy` and `docs/verification/STRATEGY.md`.
 
