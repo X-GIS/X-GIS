@@ -1,0 +1,47 @@
+xgis 1
+
+// NOAA S-102 LIVE bathymetry (#1366 INC-4) — streams a REAL NOAA S-102 cell straight
+// from the NOAA Open-Data S3 bucket (noaa-s102-pds), read as the S-100 HDF5 standard IN
+// PLACE (ADR-0010, no transcode). This is the first demo drawing a PROJECTED coverage:
+// the cell's grid is EPSG:32618 (WGS 84 / UTM zone 18N) with a 16 m spacing and a metre
+// origin, NOT degrees.
+//
+// That is the whole point of #1366. Until INC-3 the drape walked a lon/lat rectangle, so
+// a UTM cell would have been placed as if metres were degrees — off the planet, not off
+// by a little — and the reader refused it outright rather than mis-render. The drape now
+// reprojects its mesh NODES through the cell's own CRS on the CPU (`coverageMeshNodes`),
+// so the grid lands in Chesapeake Bay where it belongs.
+//
+// CORS: like the S-111 bucket, noaa-s102-pds serves HTTP-Range but sets no
+// Access-Control-Allow-Origin, so the browser reaches it through the general `/noaa/
+// <bucket>/<key>` dev-proxy bridge (a CORS-open Worker in prod).
+//
+// Cell choice: S-102 keys are STABLE (a cell is re-issued in place when its survey
+// updates — the content rolls, the key does not), unlike the S-111 rolling date tree that
+// needs a `latest` resolver. So naming the key directly does not rot. This one is
+// Chesapeake Bay, 1663×2090 cells at 16 m.
+
+// Esri World Imagery satellite basemap (same source the S-111 live demo uses), so the
+// bathymetry draws over real nautical imagery. CORS `*`.
+source basemap {
+  type: raster
+  url: "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}"
+}
+
+source bathy {
+  type: coverage
+  url: "/noaa/noaa-s102-pds/ed3.0.0/Mid_Atlantic/Chesapeake_Bay/102US004MD1AF262297.h5"
+}
+
+layer imagery {
+  source: basemap
+}
+
+// Depth is positive-down in S-102, so the ramp runs shallow→deep across the cell's range.
+// The Chesapeake approach is shallow: 0-30 m covers it without flattening the gradient.
+layer depth {
+  source: bathy
+  ramp: "bathymetry"
+  range: [0, 30]
+  | opacity-80
+}
