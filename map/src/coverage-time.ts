@@ -41,6 +41,11 @@ export function resolveForecastGroup(time: CoverageTime, indexOrISO: number | st
 export class CoverageTimePlayer {
   private timer: ReturnType<typeof setTimeout> | null = null
   private epoch = 0
+  /** Bumped by every `play()`/`pause()`. A tick that is mid-`await` when playback is paused (or
+   *  restarted) holds a STALE generation and must not re-arm the timer — otherwise the orphaned
+   *  tick resurrects the loop `pause()` just stopped, and a play/pause toggle leaves two loops
+   *  stepping the same source (#1362). */
+  private generation = 0
 
   /** Claim the next epoch for a re-read; `isCurrent(token)` is false once a later step ran. */
   nextEpoch(): number {
@@ -59,7 +64,15 @@ export class CoverageTimePlayer {
    *  exclusive of both ends), and the LAST tick calls the real `step(toIndex)`, landing exactly
    *  where non-interpolated playback would. Total dwell per hour is unchanged (`steps × subMs
    *  = stepMs`); only the number of visible increments grows. Omit (or `steps ≤ 1`) for the
-   *  original one-tick-per-hour behaviour, byte-identical (this is the `steps` default). */
+   *  original one-tick-per-hour behaviour, byte-identical (this is the `steps` default).
+   *
+   *  The loop is SELF-CLOCKED and DEADLINE-scheduled (#1362): the next tick is armed only after
+   *  the current one's async work settles, and it is armed for that sub-frame's DEADLINE
+   *  (`hourStart + k·subMs`) rather than a fixed `subMs` after the work — so `stepMs` stays an
+   *  honest dwell instead of drifting by however long a decode took. A blended sub-frame whose
+   *  deadline has already passed is DROPPED (its work would only push the hour further behind);
+   *  the real `step` is NEVER dropped, so playback always advances even when one hour's work
+   *  costs more than its whole dwell. */
   play(
     axis: () => { index: number; count: number } | null,
     step: (index: number) => Promise<void>,
@@ -69,32 +82,44 @@ export class CoverageTimePlayer {
       stepFraction: (fromIndex: number, toIndex: number, t: number) => Promise<void>
     },
   ): void {
-    this.pause()
+    this.pause() // bumps `generation`, orphaning any tick already mid-await
+    const gen = this.generation
     const steps = Math.max(1, Math.floor(interp?.steps ?? 1))
     const subMs = stepMs / steps
     let sub = 0 // which sub-frame within the CURRENT hour-to-hour transition, 0-based
+    let hourStart = Date.now() // when the CURRENT hour-to-hour transition began
     const tick = async (): Promise<void> => {
+      if (gen !== this.generation) return // paused/restarted before this tick fired
       const a = axis()
       if (!a || a.count <= 1) return // source gone / single-group → stop
       const toIndex = (a.index + 1) % a.count
       sub++
       try {
         if (sub < steps) {
-          await interp!.stepFraction(a.index, toIndex, sub / steps)
+          // Drop a blended frame that is already past its slot: on a machine where one frame
+          // costs more than `subMs`, rendering it anyway would stretch every hour further and
+          // further past `stepMs`. Dropping keeps the dwell honest; the landing below still runs.
+          if (Date.now() <= hourStart + sub * subMs) {
+            await interp!.stepFraction(a.index, toIndex, sub / steps)
+          }
         } else {
-          sub = 0
           await step(toIndex) // the real hour swap — lands exactly where non-interp play would
+          sub = 0
+          hourStart = Date.now() // the next transition's dwell starts where this one landed
         }
       } catch {
         return // a failed step stops playback, never an unhandled rejection that crashes the app
       }
-      this.timer = setTimeout(() => void tick(), subMs)
+      if (gen !== this.generation) return // paused/restarted while the work above was awaited
+      const delay = Math.max(0, hourStart + (sub + 1) * subMs - Date.now())
+      this.timer = setTimeout(() => void tick(), delay)
     }
     this.timer = setTimeout(() => void tick(), subMs)
   }
 
   /** Stop playback. Idempotent (safe from `pause()` and `destroy()`). */
   pause(): void {
+    this.generation++ // orphan a tick that is mid-await, so it never re-arms the timer
     if (this.timer !== null) {
       clearTimeout(this.timer)
       this.timer = null
