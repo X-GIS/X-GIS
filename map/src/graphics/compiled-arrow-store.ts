@@ -4,7 +4,7 @@
 // (its own batch record, its own lifecycle, its own DPR re-pack and draw fragment) that
 // happens to share the arrow draper with the host path. Owning it here keeps the
 // manager's remaining surface — the host retained-batch lifecycle — one concern, and
-// gives the compiled path room to grow (drift, pitch-alignment) without pushing
+// gives the compiled path room to grow (pitch-alignment) without pushing
 // graphics-manager.ts past its LOC ceiling.
 //
 // The store is DEVICE-COUPLED: it holds the same `rhi` + `arrowDraper` the manager

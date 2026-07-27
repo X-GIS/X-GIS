@@ -26,32 +26,6 @@ const R_MERC = EARTH.sphereR // web-Mercator sphere radius (matches the point/ic
  *  direction is the LOCAL tangent (magnitude is irrelevant; the shader normalises it). */
 const TIP_STEP_DEG = 0.02
 
-/** Per-batch drift settings (#1333) — the arrow GLYPH flows along its own bearing instead of
- *  sitting pinned at its anchor. Compiled-arrow path only: `packRetainedArrowFeat` (the host
- *  `ArrowDrawSpec` path) has no accessor for any of this and leaves the slots zero-filled, so
- *  every host arrow batch stays pinned and byte-identical, by construction. */
-export interface CompiledArrowDrift {
-  /** Travel distance along the bearing over ONE lifetime, in px (pre-DPR; scaled here). A
-   *  per-instance array lets drift track the local current speed — the honest encoding, and
-   *  what the S-111 field uses; a scalar applies one distance to the whole batch. */
-  driftPx: ArrayLike<number> | number
-  /** Drift-and-respawn period in seconds. */
-  lifetimeSeconds: number
-  /** Seed for the per-arrow phase de-sync. Default 1. */
-  seed?: number
-}
-
-/** Deterministic per-index birth phase in [0,1) — an integer hash rather than a stateful PRNG,
- *  so it is order-independent AND reproducible (the §5 pinned-`t` probe contract: the same
- *  inputs must always pack the same bytes). Without it the whole field would march in lockstep
- *  and read as a pulsing grid rather than a flow. */
-function phaseForIndex(i: number, seed: number): number {
-  let h = (i + Math.imul(seed, 0x9e3779b1)) >>> 0
-  h = Math.imul(h ^ (h >>> 16), 0x85ebca6b) >>> 0
-  h = Math.imul(h ^ (h >>> 13), 0xc2b2ae35) >>> 0
-  return ((h ^ (h >>> 16)) >>> 0) / 4294967296
-}
-
 function resolve<T, D>(acc: Packed<T, D> | undefined, d: D, i: number): T | undefined {
   return typeof acc === 'function' ? (acc as (d: D, i: number) => T)(d, i) : acc
 }
@@ -159,13 +133,9 @@ export function packCompiledArrowFeat(
   sizesPx: ArrayLike<number>,
   dpr: number,
   strokeUnits = 0,
-  drift?: CompiledArrowDrift,
 ): Float32Array {
   const n = lons.length
   const feat = new Float32Array(n * STRIDE)
-  const driftPx = drift?.driftPx
-  const lifetime = Math.max(1e-3, drift?.lifetimeSeconds ?? 0)
-  const seed = drift?.seed ?? 1
   for (let i = 0; i < n; i++) {
     const o = i * STRIDE
     const lon = lons[i]!
@@ -182,13 +152,6 @@ export function packCompiledArrowFeat(
 
     feat[o + F.size] = (sizesPx[i] ?? 1) * dpr
     feat[o + F.stroke_units] = strokeUnits
-    // Drift (#1333). Absent ⇒ all three stay 0 — the shader then contributes exactly zero
-    // offset and exactly 1.0 life-alpha, so a non-drifting batch is byte-identical.
-    if (driftPx !== undefined) {
-      feat[o + F.drift_px] = (typeof driftPx === 'number' ? driftPx : (driftPx[i] ?? 0)) * dpr
-      feat[o + F.lifetime_s] = lifetime
-      feat[o + F.phase_norm] = phaseForIndex(i, seed)
-    }
   }
   return feat
 }

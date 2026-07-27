@@ -317,7 +317,14 @@ export class GraphicsManager {
    *  the on-demand loop idles on a static camera and the motion FREEZES until the next interaction.
    *  Mirrors `rasterRenderer.hasFadingTiles()`: the same "an overlay is animating" gate the render
    *  loop ORs into its keep-warm decision. Static batches (all non-animated specs) return false, so
-   *  a map without an animated overlay idles byte-identically. */
+   *  a map without an animated overlay idles byte-identically.
+   *
+   *  A SECOND animation source must arm BOTH this gate and the `hasAnimated` clock-write in
+   *  renderRetained — they fail differently (a frozen clock vs. motion that only advances while
+   *  the user is interacting), so arming one leaves a differently half-dead animation. The
+   *  compiled-arrow drift learned this the hard way and was then reverted for an unrelated
+   *  reason (docs/plans/2026-07-27-grid-vector-field-flow-visualization.md); the flow pass that
+   *  replaces it inherits the same two-gate obligation. */
   hasAnimatedGraphics(): boolean {
     return this.batches.some(
       (b) => drawSpecAnimatesPerFrame(b.spec) && b.count > 0 && b.bindGroup !== null,
