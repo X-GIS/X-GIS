@@ -100,6 +100,7 @@ import { resolveForecastGroup, CoverageTimePlayer } from './coverage-time'
 import { RasterRenderer } from './render/raster-renderer'
 import { HillshadeRenderer, armHillshadeSource } from './render/hillshade-renderer'
 import { CoverageRenderer } from './render/coverage-renderer'
+import type { FlowRenderer } from './render/flow-renderer'
 import { UnderOccluderRenderer } from './render/under-occluder-renderer'
 import { PointRenderer } from './render/point-renderer'
 import { HeatmapRenderer } from './render/heatmap-renderer'
@@ -285,6 +286,9 @@ export class XGISMap {
   /** S-100 coverage colour-ramp renderer (#1158). Inert until a `_coverage`
    *  layer arms it; draws in the opaque pass right after the raster basemap. */
   coverageRenderer!: CoverageRenderer
+  /** IBFV advection arm (#1333) — the ping-pong pair + advect pipeline for a coverage carrying
+   *  a velocity field. Allocates nothing until the flow pass first steps it. */
+  flowRenderer: FlowRenderer | null = null
   /** INC-1 opaque depth-writing globe sphere just under EARTH_R (opaque-pass.ts);
    *  non-null only while a `background { fill }` is installed; globe-only. */
   underOccluder: UnderOccluderRenderer | null = null
@@ -3049,6 +3053,7 @@ export class XGISMap {
     this.applyEffectiveRasterFadeDuration()
     this.hillshadeRenderer = rendererSet.hillshadeRenderer
     this.coverageRenderer = rendererSet.coverageRenderer
+    this.flowRenderer = rendererSet.flowRenderer
     this.gpuTimer = rendererSet.gpuTimer
     // Cast: pointRenderer field is a definite-assignment non-null (like ctx);
     // buildSceneRenderers yields null only on a ctor failure, which overwrites a
@@ -4112,6 +4117,7 @@ export class XGISMap {
     this.applyEffectiveRasterFadeDuration()
     this.hillshadeRenderer = rendererSet.hillshadeRenderer
     this.coverageRenderer = rendererSet.coverageRenderer
+    this.flowRenderer = rendererSet.flowRenderer
     this.gpuTimer = rendererSet.gpuTimer
     this.pointRenderer = rendererSet.pointRenderer as PointRenderer
     this.shapeRegistry = rendererSet.shapeRegistry
@@ -4352,6 +4358,11 @@ export class XGISMap {
     // advances once per RENDERED frame — so while a drawable particle-flow batch
     // exists the loop must keep rendering, else the drift freezes on a static camera.
     if (this._graphics.hasAnimatedGraphics()) return true
+    // Flow-field keep-alive (#1333) — IBFV is RECURSIVE, so each frame's image is the next
+    // frame's history and it advances only on RENDERED frames: an idle loop does not pause the
+    // animation, it stops it. One HALF of the two-gate obligation (the other is the advection
+    // step itself); see the note on GraphicsManager.hasAnimatedGraphics for why both.
+    if (this.coverageRenderer?.hasFlowField() === true) return true
     if (this.hasPendingSourceWork()) return true
     const c = this.camera
     const canvas = this.ctx?.canvas
@@ -4678,11 +4689,18 @@ export class XGISMap {
     // `group` (1-based) re-decodes a DIFFERENT forecast hour of the SAME pushed bytes — the
     // whole cell is already in memory (the mosaic cached it), so stepping the time axis costs
     // one CPU decode, no network (#1272 E-③). Defaults to the first group.
+    //
+    // EPOCH-GUARDED, sharing `setCoverageTime`'s counter (#1367): the forecast slider pushes one
+    // of these per input event, and unguarded they landed in COMPLETION order — a slow decode
+    // arming over a newer one leaves the map on the wrong hour. Shared, because a region swap
+    // and a time step both change the displayed frame; the newer one must win either way.
+    const token = this._coverageTime.nextEpoch()
     const handle = await readCoverage(
       bytes,
       undefined,
       opts?.group ? { group: opts.group } : undefined,
     )
+    if (!this._coverageTime.isCurrent(token)) return
     // Keep `_url` when the caller names the pushed cell's URL (the viewport mosaic passes the
     // region it fetched) so a later reload / range read can address the same cell. A urlless
     // push stays a pure host-push.
@@ -4692,12 +4710,13 @@ export class XGISMap {
     )
     // ramp/range/opacity are LAYER paint (#1158 INC-D) — an imperative swap keeps the
     // renderer's armed display unless the caller overrides; a later rebuild re-arms.
-    // A `| arrow` / `| particles` coverage (#1333) derives its field(s) from the grid, so a
-    // data swap must re-derive them: rebuild (re-arms fill + every armed field) when any field
-    // is armed and the caller did not override the paint; else the fill-only fast path keeps an
-    // imperative override.
+    // A `| arrow` / `| particles` coverage (#1333) derives its field(s) from the grid, so a data
+    // swap must re-derive them — but ONLY them (#1367). This ran `rebuildLayers()`, rebuilding
+    // EVERY layer in the scene to re-derive one coverage's field: the reported per-step freeze.
+    // `_armCoverageFields` is that same coverage arm without the rest of the scene, and the show
+    // did not change (only the data did), so `_coverageFieldShow` is still the valid authority.
     if (this._coverageFieldArmed && !opts?.ramp && !opts?.range) {
-      this.rebuildLayers()
+      this._armCoverageFields(handle)
     } else {
       const cur = this.coverageRenderer.displayOpts()
       this.coverageRenderer.setCoverage(handle, {
@@ -4731,7 +4750,9 @@ export class XGISMap {
     if (!this._coverageTime.isCurrent(token)) return // superseded by a newer step
     this.rawDatasets.set(sourceId, { _coverage: handle, _url: prev._url })
     if (this._coverageFieldArmed) {
-      this.rebuildLayers() // re-derive the armed field(s) for the stepped forecast hour (#1333)
+      // Re-derive the armed field(s) for the stepped hour — the coverage arm ONLY, not the
+      // whole scene (#1367; see setCoverageData for why the full rebuild was the freeze).
+      this._armCoverageFields(handle)
     } else {
       const cur = this.coverageRenderer.displayOpts()
       this.coverageRenderer.setCoverage(handle, {
@@ -5095,6 +5116,10 @@ export class XGISMap {
     this.heatmapRenderer?.clearLayers()
     this.heatmapRenderer = null
     this.heatmapTargets.destroy()
+
+    // IBFV pair + sampler (#1333) — dropping the ref alone leaks both across the scene swap.
+    this.flowRenderer?.dispose()
+    this.flowRenderer = null
 
     // Colour / scalar palette + gradient-atlas textures.
     if (this._paletteHandles) {
