@@ -70,6 +70,7 @@ function makeVtr(catalog: unknown, neededKeys: number[], frameId: number): Vecto
     tiles: [],
     protectedAncestors: [],
     worldOffDeg: [],
+    farBoost: 1,
     maxLevel: 14,
     parentAtMaxLevel: [],
     archiveAncestor: [],

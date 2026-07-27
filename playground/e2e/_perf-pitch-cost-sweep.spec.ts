@@ -30,7 +30,7 @@ import { test, expect, type Page } from '@playwright/test'
 //                    maxZ 10 at every stop (was 7 -> 10 escalating as pitch fell)
 //
 // RUN THIS SWEEP WITH `adaptive=0`. #1346 also shipped adaptive resolution
-// scaling ON by default (engine/src/gpu/adaptive-dpr.ts), and at ~2 s/frame it
+// scaling ON by default (engine/src/gpu/adaptive-quality.ts), and at ~2 s/frame it
 // engages every time — so a default-flag run measures a MOVING render
 // resolution and its ms column is not comparable to anything. Every ms above is
 // `DEMO='physical_map&adaptive=0'`.
