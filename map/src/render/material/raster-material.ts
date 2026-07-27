@@ -8,7 +8,7 @@
 import type { RhiDevice, RhiBindGroup, RhiTexture, RhiTextureView } from '@xgis/engine'
 import { wrapWebGpuTextureView } from '@xgis/rhi-webgpu'
 import { Material, executeItems, type DrawItem } from '@xgis/engine'
-import { emitRasterWgsl, buildRasterModule, rasterGridVertexCount } from '@xgis/map'
+import { emitRasterWgsl, buildRasterModule, rasterGridVertexCount } from '../../shaders/dsl/raster'
 import { rasterTileBytes, rasterUniformBytes } from '../raster-uniform-slots'
 import { emitGlslModule } from '@xgis/shader-dsl'
 

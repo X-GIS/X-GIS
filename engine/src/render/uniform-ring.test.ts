@@ -5,7 +5,7 @@
 
 import { describe, it, expect } from 'vitest'
 import { UniformRing } from './uniform-ring'
-import type { RhiBuffer, RhiDevice } from '@xgis/engine'
+import type { RhiBuffer, RhiDevice } from '@xgis/rhi'
 
 ;(globalThis as { GPUBufferUsage?: unknown }).GPUBufferUsage ??= {
   UNIFORM: 0x40,

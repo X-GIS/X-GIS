@@ -13,7 +13,10 @@
 
 import type { RhiBindGroup, RhiBuffer, RhiDevice, RhiRenderPass } from '@xgis/engine'
 import { Material, executeItems, type DrawItem } from '@xgis/engine'
-import { emitParticleRetainedWgsl, emitParticleRetainedGlsl } from '@xgis/map'
+import {
+  emitParticleRetainedWgsl,
+  emitParticleRetainedGlsl,
+} from '../../shaders/dsl/particle-retained'
 
 export class RetainedParticleDraper {
   private readonly material: Material

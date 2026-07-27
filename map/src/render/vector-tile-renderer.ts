@@ -90,7 +90,7 @@ import {
 import { parseHexColor } from '../feature-helpers'
 import type { GPUTile, LayerDrawPhase } from './vector-tile-renderer-types'
 import { getMaxGpuTiles, uploadBudgetFor } from './vector-tile-renderer-helpers'
-import { UniformRing } from './uniform-ring'
+import { UniformRing } from '@xgis/engine'
 
 // projType (camera.projType / proj_params.x) → projection registry name,
 // for building the projection-aware `selectorProj`. Index 0 (mercator) and
