@@ -388,11 +388,17 @@ const CEILINGS: Record<string, number> = {
   // scene-renderers.ts builder; what remains here is exactly the lines that must name the
   // member on XGISMap, which is where every other renderer's ownership also lives. Post-hook.
   //
-  // MERGE UNION (#1333 <- main): the hillshade fade-in (+6, main) and this branch's flow work
-  // (+5 keep-alive, +10 ownership) are non-overlapping edits to different methods, so the
-  // merged file measures their SUM — not max() of the two ceilings. Same accounting the
-  // render-loop.ts entry below already records for the #1272 merge.
-  'map/src/map.ts': 5351,
+  // +10 (#1367): the forecast-hour step fix — an epoch guard on `setCoverageData` (2 lines) plus
+  // the rationale for BOTH swap paths re-deriving only the coverage arm instead of running a
+  // full `rebuildLayers()`. Irreducible: these are edits to the two public swap methods, which
+  // live here. The measured per-step cost that motivated them is recorded on
+  // render/coverage-timestep-cost.test.ts, not in this file. Post-hook.
+  //
+  // MERGE UNION (#1333/#1367 <- main): the hillshade fade-in (+6, main) and this branch's work
+  // (+5 keep-alive, +10 FlowRenderer ownership, +10 step fix) are non-overlapping edits to
+  // different methods, so the merged file measures their SUM — not max() of the two ceilings.
+  // Same accounting the render-loop.ts entry below already records for the #1272 merge.
+  'map/src/map.ts': 5361,
   // Baselined at #1255 (measured 830): the DOM-inspired layer API crossed
   // NEW_FILE_CAP with the paint-transition style-setter integration — the
   // StyleHost.transitions context, the shared applyNumber/applyColor
