@@ -349,7 +349,24 @@ const CEILINGS: Record<string, number> = {
   // 5205→5212 (#1333 play fix): setCoverageData `{ group }` re-decodes the ALREADY-DOWNLOADED
   // pushed bytes at a different forecast hour — the mosaic steps time with zero network, so
   // play can't crash on a range re-fetch. +7, post-hook.
-  'map/src/map.ts': 5212,
+  // 5212→5240 (#1333 coverage `| particles`): arm the animated particle-flow field alongside
+  // `| arrow` — the `_coverageParticleHandle` + `_coverageParticlesArmed` fields, the
+  // `_coverageFieldArmed` getter (single predicate for both fields' rebuild-vs-fast-path
+  // choice, replacing the arrows-only check at both call sites), the coverage block's
+  // `if (show.isParticles)` arm + its `.remove()` reset, and generalizing `arrowsOnly` to
+  // `fieldOnly`. Thin `this`-coupled glue; the generator lives in coverage-particle-show.ts
+  // (a new, non-baselined file, well under its own 800-line cap). +28, post-hook.
+  // 5240→5330 (#1333 forecast-time interpolation): `_coverageFieldShow` (captures which show
+  // armed the field, for a targeted re-paint outside a full rebuild) + its reset;
+  // `_armCoverageFields` (re-derive fill/arrow/particle from a TRANSIENT handle — the coverage
+  // arm's own logic, factored out so interpolation doesn't pay for a full rebuildLayers);
+  // the public `setCoverageFrame` (lets a host's own playback loop, e.g. a zero-network mosaic
+  // cache, push a blended frame); `playCoverageTime`'s `interpolateSteps` option + its
+  // `stepFraction` closure (decode the "to" hour once per transition, blend via
+  // `interpolateVectorCoverage`, `setCoverageFrame` each sub-step). The interpolation MATH
+  // itself lives in @xgis/data (interpolate-vector.ts); this is the `this`-coupled wiring
+  // only. +90, post-hook.
+  'map/src/map.ts': 5330,
   // Baselined at #1255 (measured 830): the DOM-inspired layer API crossed
   // NEW_FILE_CAP with the paint-transition style-setter integration — the
   // StyleHost.transitions context, the shared applyNumber/applyColor
@@ -815,7 +832,10 @@ const CEILINGS: Record<string, number> = {
   // (extract-don't-grow); only the threading lands here. Now EQUALS the
   // arch-invariants second-authority ceiling (1452, unchanged there — in sync).
   // Measured after prettier: wc -l = 1452.
-  'compiler/src/ir/lower.ts': 1452,
+  // 1452→1457 (#1333 `| particles`): `isParticles` local + its 3 acc-thread/return sites —
+  // mirrors isArrow's shape exactly (no arrowBearing-like companion needed), no new logic.
+  // Measured after prettier: wc -l = 1457.
+  'compiler/src/ir/lower.ts': 1457,
   // #777 I-B icon-keep-upright + I-F icon value-forms (merged) grow three
   // symbol-lowering god-files (per-row justification in
   // architecture-invariants.test.ts, the second authority):
@@ -839,7 +859,9 @@ const CEILINGS: Record<string, number> = {
   'compiler/src/tokens/colors.ts': 937,
   // 943→956 (#1302): RenderNodeArrowPaint sub-bundle (isArrow + arrowBearing).
   // 956→957 (merge union with #1305 RenderNodeCoveragePaint).
-  'compiler/src/ir/render-node.ts': 957,
+  // 957→966 (#1333): RenderNodeParticlePaint sub-bundle (isParticles) + its merge into
+  // RenderNode's extends list.
+  'compiler/src/ir/render-node.ts': 966,
   'compiler/src/convert/paint-helpers.ts': 826,
   'blueprint/src/editor.ts': 1448,
 }

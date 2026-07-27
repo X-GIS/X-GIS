@@ -15,6 +15,7 @@
 // `current()` changes (the overlay reads getCoverage('currents') once) — the same re-arm the
 // forecast-time demo needs; that composition is the demo-runner's job, not this module's.
 
+import { readCoverage, type CoverageHandle } from '@xgis/data'
 import { bestModelForBounds, type Bounds } from './s111-models'
 
 /** The minimal map surface the mosaic needs — so it decouples from XGISMap and mocks
@@ -23,7 +24,11 @@ export interface MosaicMap {
   getBounds(): [[number, number], [number, number]]
   on(type: 'moveend', listener: () => void): void
   off(type: 'moveend', listener: () => void): void
-  setCoverageData(sourceId: string, bytes: ArrayBuffer, opts?: { url?: string }): Promise<void>
+  setCoverageData(
+    sourceId: string,
+    bytes: ArrayBuffer,
+    opts?: { url?: string; group?: number },
+  ): Promise<void>
 }
 
 export interface S111MosaicOptions {
@@ -54,6 +59,11 @@ export interface S111MosaicHandle {
   /** Show forecast HOUR (0-based) of the current region by re-decoding its already-downloaded
    *  cell — no network (#1272 E-③). No-op before a region has loaded. */
   setTime(hour: number): void
+  /** Decode forecast HOUR (0-based) of the current region's ALREADY-DOWNLOADED cell WITHOUT
+   *  displaying it — a pure, zero-network peek (#1333), for a caller blending two hours
+   *  (`interpolateVectorCoverage`) before pushing the result itself (`setCoverageFrame`).
+   *  `null` before a region has loaded, or if decoding fails. */
+  peekTime(hour: number): Promise<CoverageHandle | null>
   /** Detach the move-end listener. Idempotent. */
   remove(): void
 }
@@ -74,7 +84,9 @@ export function installS111Mosaic(map: MosaicMap, opts: S111MosaicOptions): S111
 
   const onMoveEnd = (): void => {
     const [[w, s], [e, n]] = map.getBounds()
-    const model = bestModelForBounds([w, s, e, n] as Bounds)
+    // Pass `current` so a boundary-adjacent zoom is hysteresis-damped (s111-models.ts) instead
+    // of hard-swapping the resident region for a marginal overlap difference (#1333).
+    const model = bestModelForBounds([w, s, e, n] as Bounds, current)
     if (!model || model.key === current) return // no covering model, or already shown
     const prev = current
     current = model.key // optimistic — blocks a duplicate in-flight fetch for the same model
@@ -120,7 +132,23 @@ export function installS111Mosaic(map: MosaicMap, opts: S111MosaicOptions): S111
       .catch(() => {})
   }
 
+  const peekTime = async (hour: number): Promise<CoverageHandle | null> => {
+    if (current == null) return null
+    const bytes = cache.get(current)
+    if (!bytes) return null
+    try {
+      return await readCoverage(bytes, undefined, { group: hour + 1 })
+    } catch {
+      return null
+    }
+  }
+
   map.on('moveend', onMoveEnd)
   onMoveEnd() // resolve for the initial view
-  return { current: () => current, setTime, remove: () => map.off('moveend', onMoveEnd) }
+  return {
+    current: () => current,
+    setTime,
+    peekTime,
+    remove: () => map.off('moveend', onMoveEnd),
+  }
 }

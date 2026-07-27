@@ -240,6 +240,65 @@ describe('installS111Mosaic (#1272 E-④)', () => {
     expect(m.armed).toEqual([]) // nothing loaded → nothing to re-decode
   })
 
+  // #1333 — peekTime: the zero-network decode-without-display a caller blends against
+  // (interpolateVectorCoverage) before pushing the result itself (setCoverageFrame).
+  it('peekTime resolves null before a region has loaded — no crash, no fetch', async () => {
+    const f = countingFetch()
+    const m = makeMap(MID_PACIFIC)
+    const h = installS111Mosaic(m.map, { sourceId: 'currents', fetch: f.fetch })
+    await flush()
+    expect(await h.peekTime(2)).toBeNull()
+    expect(f.fetched).toEqual([]) // still no fetch — open ocean, nothing cached
+  })
+
+  it('peekTime never fetches (reuses the cached bytes) and never arms the display', async () => {
+    const f = countingFetch()
+    const m = makeMap(CHESAPEAKE)
+    const h = installS111Mosaic(m.map, { sourceId: 'currents', fetch: f.fetch })
+    await flush()
+    expect(h.current()).toBe('cbofs')
+    await h.peekTime(5)
+    expect(f.fetched).toEqual(['cbofs']) // no SECOND fetch for the peek
+    expect(m.armed).toEqual(['cbofs']) // peek never calls setCoverageData — nothing re-armed
+  })
+
+  it('peekTime resolves null (never throws) if the cached bytes fail to decode', async () => {
+    // countingFetch's stub bytes are the UTF-8 model key, not a real HDF5 cell — decoding
+    // MUST fail, and peekTime's contract is to swallow that into null, exactly like a real
+    // corrupt-cell failure should behave for a caller that's just probing ahead.
+    const f = countingFetch()
+    const m = makeMap(CHESAPEAKE)
+    const h = installS111Mosaic(m.map, { sourceId: 'currents', fetch: f.fetch })
+    await flush()
+    await expect(h.peekTime(1)).resolves.toBeNull()
+  })
+
+  // #1333 — the mosaic's OWN reported bug: a pure ZOOM (no pan) near the cbofs/dbofs boundary
+  // used to flip `current` on every such zoom (bestModelForBounds had no hysteresis), firing a
+  // hard coverage swap — wiping every arrow — for a screen that mostly didn't move. Same witness
+  // bounds as the s111-models.test.ts hysteresis suite, centred on the cbofs/dbofs shared zone.
+  it('a boundary-adjacent zoom-in (same centre) does NOT flip the resident region (#1333)', async () => {
+    const WIDE: LngLatBounds = [
+      [-76.9, 37.3],
+      [-73.9, 40.3],
+    ] // half-extent 1.5° — cbofs wins outright
+    const ZOOMED_IN: LngLatBounds = [
+      [-75.7, 38.5],
+      [-75.1, 39.1],
+    ] // SAME centre, half-extent 0.3° — a tie without hysteresis, resolving to dbofs (the bug)
+    const f = countingFetch()
+    const m = makeMap(WIDE)
+    const h = installS111Mosaic(m.map, { sourceId: 'currents', fetch: f.fetch })
+    await flush()
+    expect(h.current()).toBe('cbofs')
+
+    m.pan(ZOOMED_IN) // a zoom, routed through the SAME moveend listener as a pan
+    await flush()
+    expect(h.current()).toBe('cbofs') // stays — no flip to dbofs
+    expect(f.fetched).toEqual(['cbofs']) // no second fetch
+    expect(m.armed).toEqual(['cbofs']) // no re-arm / no arrow wipe
+  })
+
   // demo-runner's real call site passes NO `fetch` option (proxyBase only) — installS111Mosaic
   // then defaults to `globalThis.fetch`. A real browser's `fetch` only accepts a call whose
   // `this` is the `Window`/`WorkerGlobalScope` that owns it; reading the property into this

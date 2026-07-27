@@ -161,7 +161,10 @@ const LOC_CEILINGS: Record<string, number> = {
   // StrokeValue return wiring + contract comments. Irreducible additive
   // plumbing (mirror of the dasharray arm); lower.ts decomposition stays
   // a tracked priority.
-  'compiler/src/ir/lower.ts': 1452,
+  // Bumped 1452→1457 (#1333 `| particles`): isParticles local + its 3 acc-thread/return
+  // sites — mirrors isArrow's shape exactly, no new logic. In sync with the map-package
+  // ratchet (loc-ceiling-ratchet.test.ts) — the two authorities, kept equal.
+  'compiler/src/ir/lower.ts': 1457,
   // Bumped 1509→1517 for the GeometryCollection decompose fix (RFC 7946
   // §3.1.8): decomposeFeatures' per-type switch is wrapped in an inner
   // recursive helper so a GeometryCollection member-decomposes under the
@@ -461,7 +464,10 @@ const LOC_CEILINGS: Record<string, number> = {
   // Bumped 943→956 (#1302): RenderNodeArrowPaint (isArrow + arrowBearing) for the
   // declarative arrow layer — additive paint sub-bundle, mirrors RenderNodeHeatmapPaint.
   // 956→957 (merge union with #1305 RenderNodeCoveragePaint).
-  'compiler/src/ir/render-node.ts': 957,
+  // 957→966 (#1333): RenderNodeParticlePaint (isParticles) — mirrors RenderNodeHeatmapPaint's
+  // sub-bundle shape again, for the coverage `| particles` animated field. In sync with the
+  // map-package ratchet.
+  'compiler/src/ir/render-node.ts': 966,
   // Crossed 800 purely via the full-repo prettier adoption (one-property-per-line /
   // call-arg wrapping) — not a hand-grown god-file; baselined at the formatted size,
   // shrink as it converges.
