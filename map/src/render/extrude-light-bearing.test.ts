@@ -1,4 +1,4 @@
-// #1342 — the extrusion light is VIEWPORT-anchored, so it rotates with the map.
+// #1397 — the extrusion light is VIEWPORT-anchored, so it rotates with the map.
 //
 // Mapbox `light.anchor` defaults to `viewport`: the light is fixed to the
 // SCREEN, so turning the map has to turn the light with it. MapLibre does that
@@ -52,7 +52,7 @@ function lightENU(
 
 const DEFAULT_LIGHT: [number, number, number] = [1.15, 210, 30]
 
-describe('#1342 — viewport-anchored extrusion light rotates with the bearing', () => {
+describe('#1397 — viewport-anchored extrusion light rotates with the bearing', () => {
   it('bearing 0 is a no-op — the historical baked default is unchanged', () => {
     const [E, N, U] = lightENU(DEFAULT_LIGHT, 0)
     expect(E).toBeCloseTo(0.2875, 4)
@@ -103,7 +103,7 @@ describe('#1342 — viewport-anchored extrusion light rotates with the bearing',
   })
 })
 
-describe('#1342 — the wall vertical gradient counts the extrusion base', () => {
+describe('#1397 — the wall vertical gradient counts the extrusion base', () => {
   // MapLibre 5.24 fill_extrusion.vertex.glsl:
   //   directional *= (1 - vg) + vg * clamp((t + base) * pow(height/150, 0.5),
   //                                        mix(0.7, 0.98, 1 - intensity), 1)

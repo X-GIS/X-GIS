@@ -138,7 +138,7 @@ const CEILINGS: Record<string, number> = {
   // uploaded) + `applyReplacedTiles` (swap a replaced tile's GPU buffers in beginFrame, drop it
   // when the replacement is empty). Both need the store + upload coordinator + source together,
   // which only this class holds; extracting them would export three internals to buy back 51.
-  // merge union — 4740→4761 (#1342): the viewport-anchored extrusion light gains its bearing
+  // merge union — 4740→4761 (#1397): the viewport-anchored extrusion light gains its bearing
   // rotation in the per-tile light_dir_ecef packing. The two edits are disjoint, so the
   // ceilings SUM rather than max: 4740 + 51 + 21 = 4812 = the merged file's line count.
   // Shrink-only from here.
@@ -621,7 +621,7 @@ const CEILINGS: Record<string, number> = {
   // fs_fill_extrude composer placeholder, and default/variantExtrudeReturnStmts
   // (fragment re-lighting of the feat_data colour). The shading math is a
   // faithful replay of the VS lighting; not extract-worthy (§2).
-  // 1448 → 1476 (#1342): the extruded VS gained two vertex attributes
+  // 1448 → 1476 (#1397): the extruded VS gained two vertex attributes
   // (wall_base, local_merc), the flat-arm plane-z gained its base term +
   // Mercator vertical scale, and the wall vertical gradient gained the
   // MapLibre `+ base` term. Shrink-only from here. (#1343 retired the runtime/

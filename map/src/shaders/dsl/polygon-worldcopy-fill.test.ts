@@ -251,7 +251,7 @@ describe('Mercator world-copy fill-gap — emitted WGSL string companion', () =>
   })
 
   it('the local_merc arms carry the world copy IMPLICITLY (no explicit add)', () => {
-    // The quantized fill (`vs_main_ecef`) and, since #1342, the extruded VS
+    // The quantized fill (`vs_main_ecef`) and, since #1397, the extruded VS
     // (`vs_main_ecef_extruded`) position from the precise tile-local Mercator:
     // `rel = local_merc - cam_h - cam_l`. cam_h/cam_l already carry
     // `camMerc - tile_origin_merc(+worldOff)`, so the copy offset is implicit
