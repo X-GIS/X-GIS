@@ -47,7 +47,7 @@ const ALLOWLIST: readonly string[] = [
 
 /** Same exemptions as the dependency ratchet: runtime is the pre-#732
  *  monolith being retired; playground + site are consumers, not libraries. */
-const EXEMPT = new Set(['runtime', 'playground', 'site'])
+const EXEMPT = new Set(['playground', 'site'])
 
 const isTestPath = (p: string): boolean =>
   p.includes('.test.') ||

@@ -210,7 +210,7 @@ layer city_labels {
     slug: 'imperative-overlay',
     title: 'Imperative text overlays (addOverlay)',
     body: '`map.addOverlay({...})` anchors a label at a (lon, lat) pair imperatively — no DSL needed. Useful for measurement results, programmatic annotations, or anything driven by app state outside the style.',
-    code: `import { XGISMap } from '@xgis/runtime'
+    code: `import { XGISMap } from '@xgis/map'
 
 const map = new XGISMap(document.getElementById('map'))
 await map.run(stylesource)

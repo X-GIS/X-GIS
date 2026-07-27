@@ -19,14 +19,13 @@ export default defineConfig({
   // so the live real-data demos stream in dev; the hosted site rewrites the same
   // paths to a CORS-open proxy (loader.ts).
   plugins: [basicSsl(), noaaProxy()],
-  // Dev/test resolve @xgis/runtime to SOURCE, not the published dist.
+  // Dev/test resolve @xgis/map to SOURCE, not the published dist.
   // ship-P0 packaging set the package `main`/`exports` to ./dist/index.js for
   // external npm consumers; without this alias the playground (and every e2e
-  // spec) would silently bundle a STALE built dist instead of runtime/src,
+  // spec) would silently bundle a STALE built dist instead of map/src,
   // defeating the real-GPU verification gates. dist is built only for publishing.
   resolve: {
     alias: {
-      '@xgis/runtime': fileURLToPath(new URL('../runtime/src/index.ts', import.meta.url)),
       '@xgis/engine': fileURLToPath(new URL('../engine/src/index.ts', import.meta.url)),
       '@xgis/rhi': fileURLToPath(new URL('../rhi/src/index.ts', import.meta.url)),
       '@xgis/rhi-webgl2': fileURLToPath(new URL('../rhi-webgl2/src/index.ts', import.meta.url)),
@@ -61,13 +60,12 @@ export default defineConfig({
     exclude: [
       '@xgis/compiler',
       '@xgis/blueprint',
-      '@xgis/runtime',
+      '@xgis/map',
       '@xgis/shader-dsl',
       '@xgis/engine',
       '@xgis/rhi',
       '@xgis/rhi-webgl2',
       '@xgis/rhi-webgpu',
-      '@xgis/map',
     ],
   },
   build: {

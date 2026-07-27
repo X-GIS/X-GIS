@@ -17,8 +17,8 @@
 // path) keep the existing helpers untouched until Phase 2e deletes them.
 //
 // HOME: this module is the single cross-package source of truth for ECEF /
-// WGS84 math. The @xgis/runtime engine and the @xgis/compiler tiler both
-// import it (runtime/src/engine/projection/ecef.ts re-exports it), so the
+// WGS84 math. The @xgis/map renderer and the @xgis/compiler tiler both
+// import it (the renderer's own ecef module re-exports it), so the
 // "mirrors ecef.ts" hand-copies the tiler used to carry are real imports now.
 // Keep it DEPENDENCY-FREE (pure math, no engine/DOM imports) so both packages
 // — and tooling — can consume it without pulling a dependency graph.

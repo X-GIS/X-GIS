@@ -2,28 +2,52 @@
   "name": "@xgis/map",
   "version": "0.0.1",
   "license": "MIT",
-  "private": true,
   "type": "module",
   "main": "./src/index.ts",
   "exports": {
     ".": "./src/index.ts"
   },
+  "publishConfig": {
+    "main": "./dist/index.js",
+    "module": "./dist/index.js",
+    "types": "./dist/index.d.ts",
+    "exports": {
+      ".": {
+        "types": "./dist/index.d.ts",
+        "import": "./dist/index.js"
+      }
+    }
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
   "scripts": {
-    "build": "tsc --build"
+    "build": "tsc --build && vite build && bun scripts/build-dts.ts"
   },
   "dependencies": {
+    "@mapbox/vector-tile": "^2.0.4",
     "@webgpu/types": "^0.1.69",
+    "earcut": "^3.0.2",
+    "pbf": "^4.0.1",
+    "pmtiles": "^4.4.1",
+    "proj4": "^2.20.8"
+  },
+  "devDependencies": {
+    "@xgis/compiler": "workspace:*",
+    "@xgis/data": "workspace:*",
+    "@xgis/engine": "workspace:*",
+    "@xgis/geo": "workspace:*",
     "@xgis/rhi": "workspace:*",
     "@xgis/rhi-webgl2": "workspace:*",
     "@xgis/rhi-webgpu": "workspace:*",
-    "earcut": "^3.0.2"
-  },
-  "devDependencies": {
-    "@xgis/engine": "workspace:*",
-    "@xgis/geo": "workspace:*",
-    "@xgis/compiler": "workspace:*",
-    "@xgis/data": "workspace:*",
     "@xgis/shader-dsl": "workspace:*",
-    "@xgis/shared": "workspace:*"
+    "@xgis/shared": "workspace:*",
+    "geojson-vt": "^4.0.2",
+    "rollup": "^4.60.4",
+    "rollup-plugin-dts": "^6.4.1",
+    "vite": "^7.3.3",
+    "vt-pbf": "^3.1.3"
   }
 }

@@ -11,7 +11,6 @@
   "dependencies": {
     "@xgis/compiler": "workspace:*",
     "@xgis/map": "workspace:*",
-    "@xgis/runtime": "workspace:*",
     "@xgis/shader-dsl": "workspace:*",
     "@xgis/pipeline": "workspace:*"
   },

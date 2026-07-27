@@ -1040,7 +1040,8 @@ This is the gate that proves the hard bar at the top of the doc: `@xgis/engine` 
 (zero `@xgis/map` imports) and uses **shaders DSL-only** (no hardcoded raw shader strings).
 `@xgis/shader-dsl` is an **allowed** dependency — it is the content-FREE leaf the engine authors its
 generic shaders with. It is an **arch-ratchet**, modelled on the existing downward-only-spine gate
-(`architecture-invariants.test.ts:633-685`) and the "compiler never imports @xgis/runtime" gate
+(`architecture-invariants.test.ts`) and the former "compiler never imports the top package" gate
+(now subsumed by `engine/src/dependency-direction-ratchet.test.ts`)
 (`:52-59`):
 
 ```ts

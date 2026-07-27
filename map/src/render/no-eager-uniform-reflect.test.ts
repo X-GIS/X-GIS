@@ -19,12 +19,11 @@ import { join } from 'path'
 // The fix: read the size LAZILY. Allowed = instance field (ctor-time, post-init),
 // method / function body (draw-time). Forbidden = module-level const, static field.
 
-// Files under scan live in runtime/src/engine/render OR (once P3-extracted) in
-// map/src/render — resolve each against both so the gate follows the content move.
-const DIRS = [
-  join(process.cwd(), 'runtime/src/engine/render'),
-  join(process.cwd(), 'map/src/render'),
-]
+// The scanned files live in map/src/render. (They passed through
+// runtime/src/engine/render before the P3 extraction; that path was kept as a
+// fallback until @xgis/runtime was dissolved, and is now removed — a fallback to a
+// deleted tree is exactly the dead-allowlist trap #996 records.)
+const DIRS = [join(process.cwd(), 'map/src/render')]
 function readScanned(f: string): string {
   for (const d of DIRS) {
     const p = join(d, f)

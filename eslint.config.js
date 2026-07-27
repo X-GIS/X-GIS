@@ -35,6 +35,9 @@ export default tseslint.config(
   {
     ignores: [
       '**/dist/**',
+      // map's typecheck-only tsc emit (see map/tsconfig.json outDir) — build
+      // output, not source, exactly like dist/.
+      '**/.tsbuild/**',
       '**/node_modules/**',
       '.claude/**',
       '**/__snapshots__/**',
@@ -115,10 +118,13 @@ export default tseslint.config(
             // The NOAA S-111 dev proxy + its prod Cloudflare Worker — dev-only
             // tooling loaded by vite.config.ts, outside playground/tsconfig's src/**.
             'playground/dev/*.ts',
-            'runtime/vite.config.ts',
-            // runtime's build/inspect scripts — devDep scripts outside the package
+            'map/vite.config.ts',
+            // map's build/inspect scripts — devDep scripts outside the package
             // tsconfig's `include`, same as the repo scripts above.
-            'runtime/scripts/*.ts',
+            'map/scripts/*.ts',
+            // The root vitest setup file (configureProjections), a sibling of
+            // vitest.config.ts and outside every package tsconfig's `include`.
+            'vitest.setup.ts',
           ],
           // the default cap is 8 matched files per run; a refactor staging many
           // test files at once must still lint. 117 files match today (86 shader-dsl

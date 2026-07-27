@@ -129,6 +129,11 @@ const BASELINE: Record<string, number> = {
   // `Native<GPUTextureView> as unknown as RhiTextureView` — the SAME opaque-handle
   // bridge the file's 5 `wrapWebGpu*` helpers use, needed for a zero-alloc reused view.
   'rhi-webgpu/src/rhi-webgpu.ts': 13,
+  // The shared WebGPU test double (relocated here from runtime/src when the test
+  // corpus moved to the packages it tests). Both casts are inherent to a stub: it
+  // widens `globalThis` to snapshot/restore the WebGPU ambient globals it installs,
+  // and pins a literal to `GPUTextureFormat`. Not a production type seam.
+  'rhi-webgpu/src/__test-support__/webgpu-stub.ts': 2,
   'shader-dsl/src/core/fp64/df64-lib.ts': 1,
   'shader-dsl/src/core/ir/builder.ts': 4,
   'shader-dsl/src/core/ir/node.ts': 1,

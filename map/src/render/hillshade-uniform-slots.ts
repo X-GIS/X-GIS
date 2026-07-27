@@ -11,7 +11,7 @@
 // those; only the hillshade lighting struct lives here.
 
 import { reflect } from '@xgis/shader-dsl'
-import { buildHillshadeModule } from '@xgis/map'
+import { buildHillshadeModule } from '../shaders/dsl/hillshade'
 import { uniformFieldSlots, type UniformFieldSlots } from '@xgis/rhi-webgpu'
 
 let _hs: UniformFieldSlots | undefined

@@ -178,7 +178,7 @@ export class ViewportModeController {
   /** @deprecated Phase 1a (Tier 3 source-honest principle): polar-cap
    *  synthesis is no longer renderer-driven. Preprocess GeoJSON with
    *  `injectPolarCaps` / `synthesizePolarCaps` (re-exported from
-   *  `@xgis/runtime`) before `setSourceData`. This setter is a no-op +
+   *  `@xgis/map`) before `setSourceData`. This setter is a no-op +
    *  one-shot `xlog.warn` so existing host code does not throw. */
   setPolarCapsEnabled(_on: boolean): void {
     if (_polarCapsWarned) return

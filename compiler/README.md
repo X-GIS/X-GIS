@@ -5,7 +5,7 @@ X-GIS의 순수 TypeScript 프론트엔드. `.xgis` 스타일 소스 문자열�
 변환한다. **GPU 의존성이 없다** — WGSL은 문자열로 *방출(emit)*될 뿐 컴파일되지 않으므로
 브라우저나 `navigator.gpu` 없이 Node/Bun에서 결정적으로 동작하고 단위 테스트가 가능하다.
 
-모노레포 안에서의 역할은 "컴파일러": `@xgis/runtime`이 GPU에 올릴 모든 재료(셰이더,
+모노레포 안에서의 역할은 "컴파일러": `@xgis/map`이 GPU에 올릴 모든 재료(셰이더,
 유니폼/팔레트, 타일 지오메트리)를 오프라인 또는 런타임에 생성한다. Mapbox/MapLibre
 스타일 임포터와 데이터-사이드 벡터 타일러도 이 패키지가 호스트한다.
 
@@ -41,7 +41,7 @@ import type { ShaderVariant, Scene } from '@xgis/compiler'
          /                       \
    SceneCommands            ShaderVariant[] · ComputeKernel · Palette
          \                       /
-          @xgis/runtime + WebGPU
+          @xgis/map + WebGPU
 ```
 
 각 스테이지의 1줄 요약 — 상세는 디렉터리별 AGENTS.md로 링크한다.

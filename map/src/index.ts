@@ -20,7 +20,11 @@ export * from './render/point-vertex-format'
 export * from './render/line-vertex-format'
 export * from './sprite/icon-vertex-format'
 export * from './text/text-vertex-format'
-export * from './render/material/material'
+// Material/executeItems live in @xgis/engine (#991 P1); map's own source imports
+// them from there. Re-exported here ONLY to keep @xgis/map's public surface stable
+// for external consumers (the playground proofs). Drop at the EPIC close-out.
+export { Material, executeItems } from '@xgis/engine'
+export type { MaterialDesc, PipelineVariant, DrawItem } from '@xgis/engine'
 export * from './render/material/polygon-fill-material'
 export * from './render/material/line-material'
 export * from './render/material/line-composite-material'
@@ -62,13 +66,15 @@ export * from './render/compose-pipelines'
 export * from './render/compute-feature-packer'
 export * from './render/label-feature-source'
 export * from './render/tile-selection-cache'
-// Renderers + gpu-tile-store + uniform-ring + sprite-atlas-host + glyph-rasterizer +
+// Renderers + gpu-tile-store + sprite-atlas-host + glyph-rasterizer +
 // glyphs.proto decoder + projection WGSL re-export shim.
 export * from './render/heatmap-renderer'
 export * from './render/raster-renderer'
 export * from './render/hillshade-renderer'
 export * from './render/gpu-tile-store'
-export * from './render/uniform-ring'
+// UniformRing lives in @xgis/engine (#991 P2); re-exported for @xgis/map's public
+// surface only (the runtime spec-wiring tests). Drop at the EPIC close-out.
+export { UniformRing } from '@xgis/engine'
 export * from './sprite/sprite-atlas-host'
 export * from './text/sdf/glyph-rasterizer'
 export * from './text/sdf/pbf/glyphs-proto'
@@ -230,3 +236,38 @@ export type { FrameContext } from './render/frame-context'
 // mints/decodes it; FrameContext only transports it).
 export * from './render/projection-token'
 export { lineLabelDeduped, lineIconIsIconOnly } from './render/passes/label-pass'
+// Runtime capability table + the `<xgis-map>` custom element (relocated here when
+// @xgis/runtime was dissolved — both describe THIS package's renderer/facade).
+export * from './capabilities'
+export * from './web/component'
+// ── Cross-package surface the published barrel (public.ts) also exposes ──
+// The playground, the site and external consumers reach @xgis/data's loaders and
+// @xgis/geo's projection factories THROUGH this package (they did so via the
+// @xgis/runtime barrel before it was dissolved). Re-exported here so the workspace
+// barrel stays a superset of `public.ts`; both must agree, and public.ts is the
+// curated npm surface.
+export { loadGeoJSON, lonLatToMercator } from '@xgis/data'
+export {
+  injectPolarCaps,
+  findClampBoundarySpans,
+  synthesizeCapRing,
+  vertexOnClampBoundary,
+  type CapSpan,
+  synthesizePolarCaps,
+  projectionNeedsPolarCaps,
+  type PolarCapOptions,
+  type PolarCapFeatureCollection,
+  loadPMTilesSource,
+  attachPMTilesSource,
+  fetchPMTilesVectorLayerFields,
+  fetchPMTilesVectorLayerSchema,
+  VectorTileLoader,
+  VectorTileSource,
+  PMTilesArchiveSource,
+  TileJSONSource,
+  type PMTilesSourceOptions,
+  type VectorLayerInfo,
+  type VectorTileFormat,
+} from '@xgis/data'
+export { mercator, equirectangular, naturalEarth, orthographic, getProjection } from '@xgis/geo'
+export { ComputeDispatcher, type ComputeTask } from '@xgis/rhi-webgpu'

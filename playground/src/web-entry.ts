@@ -1,1 +1,1 @@
-export { registerXGISElement, XGISMap } from '@xgis/runtime'
+export { registerXGISElement, XGISMap } from '@xgis/map'

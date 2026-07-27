@@ -53,7 +53,7 @@
 ### Internal
 
 - Imports `@xgis/shared` (shared types/utils) and `@xgis/shader-dsl` (codegen routes shader/compute emission through its IR Nodes).
-- Consumed by `@xgis/runtime`, `playground`, `site`, and `blueprint` (schema).
+- Consumed by `@xgis/map`, `playground`, `site`, and `blueprint` (schema).
 
 ### External
 

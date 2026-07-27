@@ -2,7 +2,7 @@
 
 - Status: Accepted
 - Date: 2026-05-28 (Phase 2 PR 2d.5 closeout; quantization PR 2f)
-- Scope: `@xgis/compiler` tiler, `@xgis/runtime` polygon/line/point/raster
+- Scope: `@xgis/compiler` tiler, `@xgis/map` polygon/line/point/raster
   vertex paths, `@xgis/shared` ECEF math.
 
 This ADR records the Phase 2 migration of the tile vertex pipeline off the

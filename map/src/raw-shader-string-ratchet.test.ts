@@ -10,7 +10,7 @@
 // WGSL/GLSL twins that the DSL exists to keep in lockstep.
 //
 // Un-gated TODAY. Gate A (runtime/src/engine/shader-codegen-srp-ratchet.test.ts)
-// already bans this — but its SRC_DIRS are ['runtime/src', 'compiler/src',
+// already bans this — but its SRC_DIRS are ['map/src', 'compiler/src',
 // 'blueprint/src', 'shared/src']. It OMITS the two packages that author the most
 // shaders: @xgis/map (map/src/shaders/dsl/*) and the extracted @xgis/engine
 // (engine/src/shaders/dsl/*). NOTE `engine/src` is the NEW @xgis/engine package,

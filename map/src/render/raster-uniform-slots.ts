@@ -8,7 +8,7 @@
 // reflect(buildRasterModule()) here so a struct change reflows mechanically.
 
 import { reflect } from '@xgis/shader-dsl'
-import { buildRasterModule } from '@xgis/map'
+import { buildRasterModule } from '../shaders/dsl/raster'
 import { uniformFieldSlots, type UniformFieldSlots } from '@xgis/rhi-webgpu'
 
 let _u: UniformFieldSlots | undefined
