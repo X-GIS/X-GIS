@@ -12,19 +12,19 @@ import type { TileCoord, TileSelectionCamera } from './tile-select-types'
 import { type Projection, MERCATOR_LAT_LIMIT, mercatorYToLat } from '@xgis/geo'
 import { PROJECTION_NAME_TO_TYPE } from '@xgis/geo'
 import { EARTH_R } from '@xgis/geo'
-import { safeFetch } from '@xgis/shared'
+import { isMobileClassViewport, safeFetch } from '@xgis/shared'
 
 // Mobile GPUs choke on 300 frustum tiles — each tile is a draw call plus
 // SDF-shaded line segments. 120 keeps the foreground refined and the
 // horizon at a coarse LOD.
-// Mobile heuristic: viewport ≤ 900 px wide is the strong signal
-// — covers actual phones (390 px) AND Playwright mobile-emulation
-// viewports used by the e2e specs (which don't trigger
-// matchMedia('pointer: coarse') in headless Chromium). Note we
-// evaluate the canvas dimensions PER CALL rather than reading
-// `window.innerWidth` once at module load; Playwright sets the
-// viewport after import so a top-level constant captures the
-// pre-viewport default and miscategorises the test as desktop.
+// Mobile classification routes through `isMobileClassViewport` — the
+// shared authority (#1350) — so a small DESKTOP window (fine primary
+// pointer) keeps the desktop tile budget instead of being throttled
+// to phone caps by width alone. Note we evaluate the canvas
+// dimensions PER CALL rather than reading `window.innerWidth` once at
+// module load; Playwright sets the viewport after import so a
+// top-level constant captures the pre-viewport default and
+// miscategorises the test as desktop.
 //
 // Inputs MUST be CSS-pixel dimensions, not device pixels. A DPR=3
 // phone's device-pixel canvas is 1290×2235 — `max > 900` would
@@ -33,7 +33,7 @@ import { safeFetch } from '@xgis/shared'
 // px) and must stay DPR-invariant; only the rasterised pixel
 // count scales with DPR.
 function isMobileViewport(cssWidth: number, cssHeight: number): boolean {
-  return Math.max(cssWidth, cssHeight) <= 900
+  return isMobileClassViewport(Math.max(cssWidth, cssHeight))
 }
 // Viewport-aware tile budget — replaces the old static cap.
 // Density of ~one tile per 12 K pixels keeps drawCalls bounded on
