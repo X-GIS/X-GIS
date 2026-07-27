@@ -236,27 +236,32 @@ describe('Mercator world-copy fill-gap — emitted WGSL string companion', () =>
     expect(wgsl).toMatch(/floor\(\(\(\w+ \+ 180\.0\) \/ 360\.0\)\) \* 2\.0\) \* PI\) \* EARTH_R\)/)
   })
 
-  it('adds world_off_m to rel2d.x before the MVP transform (fill + extrude)', () => {
-    // Both the flat fill (z=0.0) and the extruded (z=z_plane) Mercator
-    // arms apply the shift. CSE renames `rel2d` to a \w+ cse temp and
-    // inlines `world_off_m` (the floor·circumference term) plus, for the
-    // extruded arm, the `z_plane` wall-height into a \w+ cse temp. Assert
-    // the shifted vec4: (<rel>.x + <world_off_m add>), <rel>.y, <z>, 1.0 —
-    // generalizing only the bound NAMES, keeping the x-add + structure.
-    // The world_off_m add is the same `... * 2.0) * PI) * EARTH_R)` term
-    // pinned above, so the x-channel really carries the world-copy offset.
+  it('adds world_off_m to rel2d.x before the MVP transform (absolute-degree fill)', () => {
+    // The absolute-degree Mercator arm (`vs_main`, no local_merc) applies the
+    // shift. CSE renames `rel2d` to a \w+ cse temp and inlines `world_off_m`
+    // (the floor·circumference term). Assert the shifted vec4:
+    // (<rel>.x + <world_off_m add>), <rel>.y, 0.0, 1.0 — generalizing only the
+    // bound NAMES, keeping the x-add + structure. The world_off_m add is the
+    // same `... * 2.0) * PI) * EARTH_R)` term pinned above, so the x-channel
+    // really carries the world-copy offset.
     const worldOff = String.raw`\(\(\(floor\([^;]*\) \* 2\.0\) \* PI\) \* EARTH_R\)`
-    // x channel: vec4<f32>(( <rel>.x + <world_off_m> ), <rel>.y, <z>, 1.0)
-    // — the vec4 arg-list paren + the x-group paren wrap the shifted x.
-    // Flat fill: z slot is the literal 0.0.
     expect(wgsl).toMatch(
       new RegExp(String.raw`vec4<f32>\(\((\w+)\.x \+ ${worldOff}\), \1\.y, 0\.0, 1\.0\)`),
     )
-    // Extruded: z slot is the wall-height z_plane (a \w+ cse temp / inlined
-    // expression), NOT the literal 0.0 — so match a non-0.0 z channel.
-    expect(wgsl).toMatch(
-      new RegExp(String.raw`vec4<f32>\(\((\w+)\.x \+ ${worldOff}\), \1\.y, \w+, 1\.0\)`),
+  })
+
+  it('the local_merc arms carry the world copy IMPLICITLY (no explicit add)', () => {
+    // The quantized fill (`vs_main_ecef`) and, since #1397, the extruded VS
+    // (`vs_main_ecef_extruded`) position from the precise tile-local Mercator:
+    // `rel = local_merc - cam_h - cam_l`. cam_h/cam_l already carry
+    // `camMerc - tile_origin_merc(+worldOff)`, so the copy offset is implicit
+    // and re-adding world_off_m there would DOUBLE it. Assert the extruded
+    // Mercator arm is exactly that subtraction with the plane-z in the z slot.
+    const extruded = wgsl.slice(wgsl.indexOf('fn vs_main_ecef_extruded'))
+    expect(extruded).toMatch(
+      /_av0 = \(u\.mvp \* vec4<f32>\((\w+)\.x, \1\.y, (?!0\.0,)[^,]+, 1\.0\)\);/,
     )
+    expect(extruded).toMatch(/= \(\(local_merc - u\.cam_h\) - u\.cam_l\);/)
   })
 
   it('does NOT perturb the non-Mercator (flat_rel) arm', () => {

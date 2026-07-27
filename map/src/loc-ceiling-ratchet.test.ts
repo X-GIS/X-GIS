@@ -138,10 +138,15 @@ const CEILINGS: Record<string, number> = {
   // uploaded) + `applyReplacedTiles` (swap a replaced tile's GPU buffers in beginFrame, drop it
   // when the replacement is empty). Both need the store + upload coordinator + source together,
   // which only this class holds; extracting them would export three internals to buy back 51.
-  // 4791→4797 (#1402): `applyReplacedTiles` now asks for a REPLACING upload and re-arms the key
-  // when the swap did not land, so an upload that bails cannot strand the tile after the
-  // replaced-set was drained. +6, all inside the existing method.
-  'map/src/render/vector-tile-renderer.ts': 4797,
+  // merge union — 4740→4761 (#1397): the viewport-anchored extrusion light gains its bearing
+  // rotation in the per-tile light_dir_ecef packing. The two edits are disjoint, so the
+  // ceilings SUM rather than max: 4740 + 51 + 21 = 4812.
+  // merge union — 4791→4797 (#1402): `applyReplacedTiles` now asks for a REPLACING upload and
+  // re-arms the key when the swap did not land, so an upload that bails cannot strand the tile
+  // after the replaced-set was drained. +6, all inside the existing method. Disjoint from #1397
+  // as well, so the three sum: 4740 + 51 + 21 + 6 = 4818 = the merged file's line count.
+  // Shrink-only from here.
+  'map/src/render/vector-tile-renderer.ts': 4818,
   // 4232→4237 (#1000 heatmap relocate): the heatmap density-target OWNERSHIP
   // extracted to render/heatmap-targets.ts; map keeps only the irreducible
   // composition-root wiring — the `heatmapTargets` field + its import (mirrors
@@ -620,7 +625,12 @@ const CEILINGS: Record<string, number> = {
   // fs_fill_extrude composer placeholder, and default/variantExtrudeReturnStmts
   // (fragment re-lighting of the feat_data colour). The shading math is a
   // faithful replay of the VS lighting; not extract-worthy (§2).
-  'map/src/shaders/dsl/polygon.ts': 1448,
+  // 1448 → 1476 (#1397): the extruded VS gained two vertex attributes
+  // (wall_base, local_merc), the flat-arm plane-z gained its base term +
+  // Mercator vertical scale, and the wall vertical gradient gained the
+  // MapLibre `+ base` term. Shrink-only from here. (#1343 retired the runtime/
+  // second authority, so this file is now the only one to update.)
+  'map/src/shaders/dsl/polygon.ts': 1476,
   // 1290→1314 (#1155 F3): cold-start burst tick budget — the `_coldStartBurst`
   // field + `_BURST_TICK_BUDGET` + `setColdStartBurst` + the burst-selected
   // budget in resetCompileBudget's backend tick loop.
