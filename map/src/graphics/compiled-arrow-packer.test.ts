@@ -70,4 +70,43 @@ describe('compiled arrow packer (#1302)', () => {
     expect(feat[1 * S + F.tip_abs_lat]).toBeGreaterThan(feat[1 * S + F.abs_lat]!)
     expect(feat[1 * S + F.tip_abs_lon]).toBeCloseTo(feat[1 * S + F.abs_lon]!, 6)
   })
+
+  // #1333 — the outline stroke_units slot. Documents the INTENTIONAL asymmetry: only the
+  // compiled path (S-111's coverage arrow field) can request an outline; the host
+  // ArrowDrawSpec/packRetainedArrowFeat path has no accessor for it and always zero-fills the
+  // slot (no outline), so every OTHER `| arrow`/`map.graphics.add({type:'arrow'})` consumer
+  // (CO-OPS, seoul-arc-multiday, the icon example) is provably unaffected.
+  it('stroke_units defaults to 0 (no outline) — byte-identical parity holds with the default omitted', () => {
+    const spec: ArrowDrawSpec<number> = {
+      type: 'arrow',
+      data: lons.map((_, i) => i),
+      getPosition: (i) => [lons[i]!, lats[i]!] as const,
+      getBearing: (i) => bearings[i]!,
+      getSize: (i) => sizes[i]!,
+    }
+    const feat = packCompiledArrowFeat(lons, lats, bearings, sizes, DPR) // strokeUnits omitted
+    for (let i = 0; i < lons.length; i++) expect(feat[i * S + F.stroke_units]).toBe(0)
+    expect(feat).toEqual(packRetainedArrowFeat(spec, DPR)) // parity gate still holds
+  })
+
+  it('a nonzero compiled outline is written into every instance — the retained path has no equivalent and always stays 0', () => {
+    const STROKE = 0.06
+    const feat = packCompiledArrowFeat(lons, lats, bearings, sizes, DPR, STROKE)
+    for (let i = 0; i < lons.length; i++) {
+      expect(feat[i * S + F.stroke_units]).toBe(Math.fround(STROKE))
+      // Every OTHER field is unaffected by requesting an outline.
+      expect(feat[i * S + F.size]).toBe(Math.fround(sizes[i]! * DPR))
+    }
+    // packRetainedArrowFeat has no outline accessor at all — confirms the asymmetry is by
+    // construction, not an oversight: a host arrow batch can never produce this nonzero slot.
+    const spec: ArrowDrawSpec<number> = {
+      type: 'arrow',
+      data: lons.map((_, i) => i),
+      getPosition: (i) => [lons[i]!, lats[i]!] as const,
+      getBearing: (i) => bearings[i]!,
+      getSize: (i) => sizes[i]!,
+    }
+    const retainedFeat = packRetainedArrowFeat(spec, DPR)
+    for (let i = 0; i < lons.length; i++) expect(retainedFeat[i * S + F.stroke_units]).toBe(0)
+  })
 })

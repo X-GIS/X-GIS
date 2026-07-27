@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { coverageFromGrids, type CoverageInput } from '@xgis/data/coverage'
 import { addCoverageArrowShowLayer, type CoverageArrowShowHost } from './coverage-arrow-show'
 import type { ShowCommand } from './render/renderer-types'
-import { S111_ARROW_BASE_PX } from './render/s111-portrayal'
+import { S111_ARROW_BASE_PX, S111_OUTLINE_FRAC } from './render/s111-portrayal'
 
 interface Captured {
   lons: number[]
@@ -10,6 +10,7 @@ interface Captured {
   bearings: number[]
   sizes: number[]
   colors: [number, number, number, number][]
+  strokeUnits: number | undefined
 }
 
 function makeHost(): { host: CoverageArrowShowHost; calls: Captured[] } {
@@ -22,6 +23,7 @@ function makeHost(): { host: CoverageArrowShowHost; calls: Captured[] } {
         bearings: Float32Array,
         sizes: Float32Array,
         colors: [number, number, number, number][],
+        strokeUnits?: number,
       ) => {
         calls.push({
           lons: [...lons],
@@ -29,6 +31,7 @@ function makeHost(): { host: CoverageArrowShowHost; calls: Captured[] } {
           bearings: [...bearings],
           sizes: [...sizes],
           colors,
+          strokeUnits,
         })
       },
     },
@@ -80,6 +83,16 @@ describe('addCoverageArrowShowLayer (#1333 — engine S-111 arrow field)', () =>
     expect(c.lons).toEqual([10, 10, 11, 12]) // 0.3@col0, then row1 cols 0/1/2
     expect(c.lats).toEqual([51, 50, 50, 50]) // north-up: row0 → lat 51, row1 → lat 50
     expect(c.bearings).toEqual([90, 180, 270, 45]) // = the direction band, verbatim
+  })
+
+  it('requests the official black outline (S111_OUTLINE_FRAC) — a proper shader-level SDF stroke, not a second batch', () => {
+    const handle = coverageFromGrids(
+      s111Input([0.3, 0, NaN, 2.5, 5.0, 20.0], [90, 0, 0, 180, 270, 45]),
+    )
+    const { host, calls } = makeHost()
+    addCoverageArrowShowLayer(host, s111Show, handle)
+    expect(calls).toHaveLength(1) // ONE batch — the outline is a GPU-shader stroke, not a 2nd draw
+    expect(calls[0]!.strokeUnits).toBe(S111_OUTLINE_FRAC)
   })
 
   it('sizes by the per-band scale rule and colours by the s111-speed band', () => {
