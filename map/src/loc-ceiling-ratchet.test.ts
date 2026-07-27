@@ -134,7 +134,15 @@ const CEILINGS: Record<string, number> = {
   // across raised roofs).
   // 4739→4740 (#1252): the two fillPipelineExtrudedOverride params + their use
   // at the primary/fallback extrude-pipeline selection (data-driven fill extrude).
-  'map/src/render/vector-tile-renderer.ts': 4740,
+  // 4740→4791 (#1371 atomic re-seed): `reseedTiles` (re-request the keys this renderer has
+  // uploaded) + `applyReplacedTiles` (swap a replaced tile's GPU buffers in beginFrame, drop it
+  // when the replacement is empty). Both need the store + upload coordinator + source together,
+  // which only this class holds; extracting them would export three internals to buy back 51.
+  // merge union — 4740→4761 (#1397): the viewport-anchored extrusion light gains its bearing
+  // rotation in the per-tile light_dir_ecef packing. The two edits are disjoint, so the
+  // ceilings SUM rather than max: 4740 + 51 + 21 = 4812 = the merged file's line count.
+  // Shrink-only from here.
+  'map/src/render/vector-tile-renderer.ts': 4812,
   // 4232→4237 (#1000 heatmap relocate): the heatmap density-target OWNERSHIP
   // extracted to render/heatmap-targets.ts; map keeps only the irreducible
   // composition-root wiring — the `heatmapTargets` field + its import (mirrors
@@ -398,7 +406,11 @@ const CEILINGS: Record<string, number> = {
   // (+5 keep-alive, +10 FlowRenderer ownership, +10 step fix) are non-overlapping edits to
   // different methods, so the merged file measures their SUM — not max() of the two ceilings.
   // Same accounting the render-loop.ts entry below already records for the #1272 merge.
-  'map/src/map.ts': 5361,
+  //
+  // +1 (#1371): the `getVtSource` SourceManager dep, so a host data push swaps a source's
+  // backend on the LIVE catalog instead of tearing the pair down. One line, same union
+  // accounting as above — non-overlapping with the three bundles, so the merged file is 5362.
+  'map/src/map.ts': 5362,
   // Baselined at #1255 (measured 830): the DOM-inspired layer API crossed
   // NEW_FILE_CAP with the paint-transition style-setter integration — the
   // StyleHost.transitions context, the shared applyNumber/applyColor
@@ -418,13 +430,24 @@ const CEILINGS: Record<string, number> = {
   // existing 846 measurement — no growth.)
   // 846→849 (#1272): thread the coverage source's ramp/range display options
   // onto the `_coverage` marker so rebuild arms the CoverageRenderer with them.
-  // 849→835 (#1353): the teardown fix added `_dropTilingIndexWithCatalog` + its
-  // two attach call sites (+22); paid for by EXTRACTING setSourceData's input
-  // contract (Feature/bare-Geometry lift, features-array guard, ingest-budget
-  // guard) to source-data-normalize.ts (−36 net) — that block never touched
-  // `this`, and setSourceData is now just the re-seed-vs-raw-write decision.
-  // Measured after prettier: wc -l = 835.
-  'map/src/source-manager.ts': 835,
+  // 849→925 (#1371 atomic re-seed): `_reseedInPlace` — the data-swap sibling of the attach.
+  // It repeats that method's bookkeeping (reproject → seeded FC → polar caps → heatmap points)
+  // against the SAME catalog, then swaps the backend. Sharing the body with the attach would
+  // mean parameterising camera-fit, pipeline setup and registration away — more coupling than
+  // the 76 lines cost.
+  // 925→926 (#1272 E-④ multi-region): ONE line — the `DEFAULT_REGION` import. A coverage
+  // source now holds a keyed Map of regions, so the declared single cell must name the key it
+  // lands on. There is nothing to extract: the ingest branch itself did not grow, and the same
+  // change moved 100+ lines of region/time-axis logic OUT of map.ts into coverage-source.ts
+  // (map/src/map.ts came DOWN 5362→5339 in the same commit).
+  // MERGE UNION (#1353 × #1371/#1272): both sides edited this file over the same 849 base and
+  // the edits do not overlap, so they SUM — never take one side, never max() the two ceilings.
+  // #1353's teardown fix added `_dropTilingIndexWithCatalog` + its two attach call sites (+22)
+  // and paid for it by EXTRACTING setSourceData's input contract (Feature/bare-Geometry lift,
+  // features-array guard, ingest-budget guard) to source-data-normalize.ts (−36 net) — that
+  // block never touched `this`, and setSourceData is now just the re-seed-vs-raw-write
+  // decision. Ceiling below is the MERGED file's actual wc -l, measured after prettier.
+  'map/src/source-manager.ts': 912,
   // 1920→1930 (#1042 R3): the globe limb cull for MULTI-LINE labels must land in
   // the collision phase — the ONLY site holding the label's quad half-height (the
   // collision box IS the height authority; the label-pass dispatch site has only
@@ -610,17 +633,25 @@ const CEILINGS: Record<string, number> = {
   // fs_fill_extrude composer placeholder, and default/variantExtrudeReturnStmts
   // (fragment re-lighting of the feat_data colour). The shading math is a
   // faithful replay of the VS lighting; not extract-worthy (§2).
-  'map/src/shaders/dsl/polygon.ts': 1448,
+  // 1448 → 1476 (#1397): the extruded VS gained two vertex attributes
+  // (wall_base, local_merc), the flat-arm plane-z gained its base term +
+  // Mercator vertical scale, and the wall vertical gradient gained the
+  // MapLibre `+ base` term. Shrink-only from here. (#1343 retired the runtime/
+  // second authority, so this file is now the only one to update.)
+  'map/src/shaders/dsl/polygon.ts': 1476,
   // 1290→1314 (#1155 F3): cold-start burst tick budget — the `_coldStartBurst`
   // field + `_BURST_TICK_BUDGET` + `setColdStartBurst` + the burst-selected
   // budget in resetCompileBudget's backend tick loop.
-  // 1314→1282 (#1353): the teardown fix added the `_onDestroy` list + `onDestroy`
-  // + the destroy() drain (+15); paid for by EXTRACTING the quantized-ECEF quad
-  // construction out of createFullCoverTileData to tile-full-cover-quad.ts
-  // (−47 incl. three now-orphaned ecef-packing imports) — pure geometry, no
-  // `this`, and the layout with the #449 bug history is now directly assertable.
-  // Measured after prettier: wc -l = 1282.
-  'data/src/tile-catalog.ts': 1282,
+  // 1314→1360 (#1371 atomic re-seed): `refreshTiles` (re-request a CACHED key, the one thing
+  // `requestTiles` refuses) + `consumeReplacedKeys` + the two key sets they own. Cache identity
+  // and the request path both live here, so the pair cannot move out.
+  // MERGE UNION (#1353 × #1371): non-overlapping edits over the same 1314 base, so they SUM.
+  // #1353's teardown fix added the `_onDestroy` list + `onDestroy` + the destroy() drain (+15)
+  // and paid for it by EXTRACTING the quantized-ECEF quad construction out of
+  // createFullCoverTileData to tile-full-cover-quad.ts (−47 incl. three now-orphaned
+  // ecef-packing imports) — pure geometry, no `this`, and the layout with the #449 bug history
+  // is now directly assertable. Ceiling below is the MERGED file's actual wc -l after prettier.
+  'data/src/tile-catalog.ts': 1328,
   // 1173→1180 (#1046 F1): thread the required `rhi: RhiDevice` onto the FrameContext at
   // both build sites — the main-chain init literal and the twin label stage — so a seam
   // can reach `ctx.rhi.caps.*` (doc §3-F1). +7 = two assignments + their rationale comments;
@@ -789,7 +820,10 @@ const CEILINGS: Record<string, number> = {
   // createPipeline unbinding the program after reflection. Stacked on the
   // #1057/#1062/#1060/#1196 growth — measured 1436.
   'rhi-webgl2/src/rhi-webgl2.ts': 1436,
-  'map/src/render/gpu-tile-store.ts': 941,
+  // 941→975 (#1371 atomic re-seed): `releaseSupersededTile` + `dropTile`, and the split of
+  // `_releaseTileSlots` into a resource-release body the two share with eviction. Arena/pool
+  // ownership is this class's whole reason to exist.
+  'map/src/render/gpu-tile-store.ts': 975,
   // 930→948 (#1078): the zoom-transition readiness gate now probes the SAME
   // selector the frame draws with — routeToSphereSelector picks globeVisibleTiles
   // on the globe/sphere route (vs the flat visibleTilesSSE) so cz hold/advance is

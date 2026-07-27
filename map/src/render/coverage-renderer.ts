@@ -39,6 +39,7 @@ import type {
 import { getSampleCount } from '@xgis/engine'
 import type { CoverageHandle } from '@xgis/data'
 import { CoverageDraper } from './material/coverage-material'
+import { coverageEdges } from './coverage-bounds'
 import { resolveVectorBands } from '../coverage-vector-bands'
 import { packFlowFieldUV } from './flow-field-pack'
 import {
@@ -239,12 +240,9 @@ export class CoverageRenderer {
       lut: this.rhi.createView(lutTex),
     }
 
-    const [originLon, originLat] = handle.header.origin
-    const [dLon, dLat] = handle.header.spacing
-    const westEdge = originLon - dLon / 2
-    const southEdge = originLat - dLat / 2
-    const eastEdge = westEdge + nLon * dLon
-    const northEdge = southEdge + nLat * dLat
+    // Shared with `getCoverage(id, at)`'s region pick — see coverage-bounds.ts for why the
+    // two must not re-derive this independently.
+    const [westEdge, southEdge, eastEdge, northEdge] = coverageEdges(handle)
 
     this.states.set(region, {
       valueTex,
@@ -258,7 +256,10 @@ export class CoverageRenderer {
       views,
       bindGroups: new Map(),
       covEdges: [westEdge, southEdge, eastEdge, northEdge],
-      covGeo: [westEdge, northEdge, nLon * dLon, nLat * dLat],
+      // The degree SPAN the uv axes cover — the same east−west / north−south extent the
+      // edges above already encode, so derive it from them rather than re-multiplying
+      // size × spacing and risking the two disagreeing by a half-cell.
+      covGeo: [westEdge, northEdge, eastEdge - westEdge, northEdge - southEdge],
       ramp: computeRampUniforms(dataMin, dataMax, opts.rangeLo ?? dataMin, opts.rangeHi ?? dataMax),
       opacity: opts.opacity ?? 1,
       flowOnly: opts.flowOnly === true,

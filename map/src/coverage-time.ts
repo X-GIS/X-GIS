@@ -40,19 +40,30 @@ export function resolveForecastGroup(time: CoverageTime, indexOrISO: number | st
  *  (each step is an async range re-read, so a timer — not the rAF loop). */
 export class CoverageTimePlayer {
   private timer: ReturnType<typeof setTimeout> | null = null
-  private epoch = 0
+  /** Per-region read epochs — see `nextEpoch`. */
+  private readonly epochs = new Map<string, number>()
   /** Bumped by every `play()`/`pause()`. A tick that is mid-`await` when playback is paused (or
    *  restarted) holds a STALE generation and must not re-arm the timer — otherwise the orphaned
    *  tick resurrects the loop `pause()` just stopped, and a play/pause toggle leaves two loops
    *  stepping the same source (#1362). */
   private generation = 0
 
-  /** Claim the next epoch for a re-read; `isCurrent(token)` is false once a later step ran. */
-  nextEpoch(): number {
-    return ++this.epoch
+  /** Claim the next epoch for a re-read of `key`; `isCurrent(token, key)` is false once a
+   *  later read of THAT key ran.
+   *
+   *  KEYED BY REGION, because a mosaic loads several regions concurrently (#1272 E-④). With
+   *  one global counter every new region's read superseded every OTHER region's in-flight
+   *  decode, so only whichever happened to start last ever arrived — the multi-region mosaic
+   *  would have silently collapsed back to one region, and looked exactly like a bug in the
+   *  selection logic. Supersession is per-region because that is the identity the guard is
+   *  actually about: a newer hour of CBOFS invalidates an older hour of CBOFS, not DBOFS. */
+  nextEpoch(key = ''): number {
+    const next = (this.epochs.get(key) ?? 0) + 1
+    this.epochs.set(key, next)
+    return next
   }
-  isCurrent(token: number): boolean {
-    return token === this.epoch
+  isCurrent(token: number, key = ''): boolean {
+    return token === this.epochs.get(key)
   }
 
   /** Loop `step(nextIndex)` every `stepMs`, wrapping at `count`; `axis()` returns the live

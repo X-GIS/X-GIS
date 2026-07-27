@@ -123,6 +123,7 @@ function makeSourceManager(camera: Camera, positioned: { value: boolean }) {
     runBoundsFitGate: makeGate(positioned),
     rebuildLayers: () => {},
     teardownSource: () => {},
+    getVtSource: () => null,
     deleteFeatureIndex: () => {},
   }
   return new SourceManager(deps)

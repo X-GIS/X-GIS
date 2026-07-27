@@ -66,6 +66,7 @@ function makeManager() {
       order.push('teardown')
       teardownSource(id)
     },
+    getVtSource: () => null,
     deleteFeatureIndex,
   })
   return { mgr, rawDatasets, teardownSource, rebuildLayers, order, registered }

@@ -22,8 +22,8 @@ vec2 df64_sub(vec2 a, vec2 b);
 vec2 df64_mul(vec2 a, vec2 b);
 float df64_narrow(vec2 a);
 vec2 df64_twoSum(float a, float b) {
-  float _cse0 = texelFetch(_fp64, ivec2(0, 0), 0).x;
   float _v0 = (a + b);
+  float _cse0 = texelFetch(_fp64, ivec2(0, 0), 0).x;
   float _v1 = (((_v0 * _cse0) - a) * _cse0);
   float _v2 = (((((a - ((_v0 - _v1) * _cse0)) * _cse0) * _cse0) * _cse0) + (b - _v1));
   return vec2(_v0, _v2);
@@ -81,17 +81,13 @@ in vec2 uv;
 layout(location = 0) out vec4 _ret;
 
 vec4 fs_cancel_impl(VsOut vo) {
-  bool _cse0 = (vo.uv.x < 0.5);
-  vec2 _cse1 = vec2(1.0, 0.0);
-  vec2 _cse2 = vec2(0.0, 0.0);
-  vec2 _cse3 = vec2(7.0, 0.0);
-  vec2 _cse4 = vec2(21.0, 0.0);
-  vec2 _cse5 = vec2(35.0, 0.0);
   float _v0 = u.half_width;
   float _v1 = (vo.uv.x * 2.0);
+  bool _cse0 = (vo.uv.x < 0.5);
   float _v2 = (_v1 - (_cse0 ? 0.0 : 1.0));
   float _v3 = ((_v2 - 0.5) * (_v0 * 2.0));
   bool _v4 = (_cse0 || (u.fp64 < 0.5));
+  vec2 _cse1 = vec2(1.0, 0.0);
   vec2 _v5 = df64_add(_cse1, vec2(_v3, 0.0));
   vec2 _v6 = df64_mul(_v5, _v5);
   vec2 _v7 = df64_mul(_v6, _v5);
@@ -99,6 +95,10 @@ vec4 fs_cancel_impl(VsOut vo) {
   vec2 _v9 = df64_mul(_v8, _v5);
   vec2 _v10 = df64_mul(_v7, _v7);
   vec2 _v11 = df64_mul(_v10, _v5);
+  vec2 _cse2 = vec2(0.0, 0.0);
+  vec2 _cse3 = vec2(7.0, 0.0);
+  vec2 _cse4 = vec2(21.0, 0.0);
+  vec2 _cse5 = vec2(35.0, 0.0);
   float _v12 = df64_narrow(df64_sub(df64_add(df64_sub(df64_add(df64_sub(df64_add(df64_sub(df64_add(_v11, _cse2), df64_mul(_v10, _cse3)), df64_mul(_v9, _cse4)), df64_mul(_v8, _cse5)), df64_mul(_v7, _cse5)), df64_mul(_v6, _cse4)), df64_mul(_v5, _cse3)), df64_add(_cse1, _cse2)));
   float _v13 = (1.0 + _v3);
   float _v14 = (_v13 * _v13);

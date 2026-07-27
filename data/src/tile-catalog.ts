@@ -62,6 +62,10 @@ import { TileDataCache } from './tile-data-cache'
 import { CompileBudget } from './tile-compile-budget'
 import { TileEvictionPolicy } from './tile-eviction-policy'
 
+/** Shared empty result for `consumeReplacedKeys` — the common (nothing replaced) case must not
+ *  allocate, it is drained once per frame per renderer. */
+const EMPTY_KEYS: number[] = []
+
 // ═══ Catalog ═══
 
 export class TileCatalog {
@@ -74,6 +78,18 @@ export class TileCatalog {
    *  the accounting MECHANISM. */
   private cache = new TileDataCache()
   private loadingTiles = new Set<number>()
+  /** #1371 — keys whose cached slice was OVERWRITTEN (not first-written) since the last
+   *  `consumeReplacedKeys()`. A host data push re-tiles the same keys against a new backend;
+   *  the renderer drains this set to re-upload exactly those tiles, so the previously uploaded
+   *  ones keep drawing until their replacement is GPU-resident instead of the layer going
+   *  blank for the whole round-trip. */
+  private _replacedKeys = new Set<number>()
+  /** #1371 — keys a `refreshTiles` call is currently re-producing. The first result to arrive
+   *  for one of these drops the key's PREVIOUS slices before writing: the new backend may emit
+   *  a different slice set (a moving feature that left this tile emits none at all, under a
+   *  different slot than the stale data sits in), and a stale slice nobody overwrites keeps
+   *  drawing the feature at its old position. */
+  private _pendingRefresh = new Set<number>()
 
   /** Ordered list of attached backends. Multi-backend dispatch is
    *  first-attached-wins for ambiguous (z, x, y) — users wanting
@@ -362,6 +378,13 @@ export class TileCatalog {
     sourceLayer = '',
     backend?: TileSource,
   ): void {
+    // #1371 — first result of a refresh: clear what the PREVIOUS backend left for this key, so
+    // slices the new production does not emit cannot survive. Marked replaced either way, so
+    // the renderer swaps (or drops) the tile it is currently drawing.
+    if (this._pendingRefresh.delete(key) && this.cache.has(key)) {
+      this._replacedKeys.add(key)
+      this.deleteCacheEntry(key)
+    }
     if (!result) {
       const empty = new Float32Array(0)
       const emptyI = new Uint32Array(0)
@@ -984,7 +1007,26 @@ export class TileCatalog {
     }
   }
 
-  requestTiles(keys: number[]): void {
+  /** #1371 — drain the keys whose cached data was replaced since the last call. The renderer
+   *  calls this once per frame; each returned key still HAS data (the new one) and still has
+   *  its previous GPU upload, so the consumer swaps rather than evicts. */
+  consumeReplacedKeys(): number[] {
+    if (this._replacedKeys.size === 0) return EMPTY_KEYS
+    const out = [...this._replacedKeys]
+    this._replacedKeys.clear()
+    return out
+  }
+
+  /** #1371 — re-request `keys` even when they are already cached, so a source whose BACKEND
+   *  was swapped (a host data push) re-tiles the keys it is currently showing. `requestTiles`
+   *  deliberately skips a cached key; this is the one caller that must not. The in-flight guard
+   *  still applies — a key already loading is not requested twice. */
+  refreshTiles(keys: number[]): void {
+    for (const k of keys) if (this.cache.has(k)) this._pendingRefresh.add(k)
+    this.requestTiles(keys, true)
+  }
+
+  requestTiles(keys: number[], refreshCached = false): void {
     if (!this.index || this.backends.length === 0) return
 
     // Per-backend batches for backends that support batched fetch
@@ -993,7 +1035,7 @@ export class TileCatalog {
 
     const _maxConcurrent = maxConcurrentLoads()
     for (const key of keys) {
-      if (this.cache.has(key) || this.loadingTiles.has(key)) continue
+      if ((this.cache.has(key) && !refreshCached) || this.loadingTiles.has(key)) continue
       if (this.loadingTiles.size >= _maxConcurrent) break
 
       // Preregistered entries (XGVT-binary) route through entryToBackend.
@@ -1014,7 +1056,7 @@ export class TileCatalog {
           }
           batch.push(key)
         } else {
-          owner.loadTile(key)
+          owner.loadTile(key, refreshCached)
         }
         continue
       }
@@ -1027,7 +1069,7 @@ export class TileCatalog {
         if (backend.compileSync) {
           if (this.tryCompileSync(key, backend)) break
         } else {
-          backend.loadTile(key)
+          backend.loadTile(key, refreshCached)
           break
         }
       }
@@ -1126,6 +1168,10 @@ export class TileCatalog {
       originBackend: d.originBackend,
     }
 
+    // #1371 — record an OVERWRITE (a re-tile of a key we already served) before the write, so
+    // the renderer can swap that tile's GPU buffers instead of being blanked. A first write is
+    // not a replacement: nothing was drawing this key yet.
+    if (this.hasTileData(key, sourceLayer)) this._replacedKeys.add(key)
     this.setSlice(key, sourceLayer, data)
     try {
       this.onTileLoaded?.(key, data, sourceLayer)
