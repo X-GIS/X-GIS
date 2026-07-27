@@ -109,10 +109,20 @@ export type HeatmapPassHost = Pick<
  *  the map.graphics façade + the camera/ctx it projects + draws through. */
 export type GraphicsPassHost = Pick<XGISMap, 'graphics' | 'camera' | 'ctx'>
 
+/** Flow pass (#1333) — the IBFV advection step for an S-111-style velocity field. Reaches the
+ *  FlowRenderer (targets + pipeline) and the CoverageRenderer the field lives on. No camera:
+ *  the advection runs in the coverage's OWN grid raster, so it is camera-independent by
+ *  construction — that is the property that makes panning and zooming leave the trail alone. */
+export type FlowPassHost = Pick<XGISMap, 'flowRenderer' | 'coverageRenderer'>
+
 /** Per-frame scene classification (consumed by `buildSceneView`). */
 export type SceneClassifyHost = Pick<
   XGISMap,
-  'classifyVectorTileShows' | 'groupOpaqueBySource' | 'heatmapRenderer' | 'hillshadeRenderer'
+  | 'classifyVectorTileShows'
+  | 'groupOpaqueBySource'
+  | 'heatmapRenderer'
+  | 'hillshadeRenderer'
+  | 'coverageRenderer'
 >
 
 /** Members only the RenderLoop body itself touches — the frame clock,
@@ -157,5 +167,6 @@ export type RenderLoopHost = BackgroundPassHost &
   OverdrawComposePassHost &
   HeatmapPassHost &
   GraphicsPassHost &
+  FlowPassHost &
   SceneClassifyHost &
   FrameLoopHost
