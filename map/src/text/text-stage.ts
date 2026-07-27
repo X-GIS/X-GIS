@@ -1318,6 +1318,15 @@ export class TextStage {
           }
           const drawX = p.anchorX + hit.dx
           const drawY = p.anchorY + hit.dy
+          // Badge union — a steady scene is ~all cache hits, so the shaping
+          // path alone left it a no-op (0 px change until this site landed).
+          const cachedBox = {
+            minX: drawX - hit.padding,
+            minY: drawY + hit.blockTop - hit.padding,
+            maxX: drawX + hit.totalAdvance + hit.padding,
+            maxY: drawY + hit.blockBottom + hit.padding,
+          }
+          this._pairBadge.union(p.pairKey, p.anchorX, p.anchorY, cachedBox)
           const haloLive =
             hit.haloGeom && p.def.halo
               ? {
@@ -1343,12 +1352,7 @@ export class TextStage {
                   glyphOffsets: hit.glyphOffsets,
                   sdfRadius: this.opts.sdfRadius,
                 },
-                bbox: {
-                  minX: drawX - hit.padding,
-                  minY: drawY + hit.blockTop - hit.padding,
-                  maxX: drawX + hit.totalAdvance + hit.padding,
-                  maxY: drawY + hit.blockBottom + hit.padding,
-                },
+                bbox: cachedBox,
               },
             ],
             allowOverlap: p.def.allowOverlap === true,
@@ -1477,14 +1481,8 @@ export class TextStage {
           // metrics (-bearingY + height/2), exactly as MapLibre — a
           // GLYPH-METRIC-DEPENDENT offset (all-caps vs mixed-case vs CJK
           // differ), NOT a constant. This is the STANDALONE place-label hang.
-          //
-          // #608-scope EXCEPTION — ICON-PAIRED / SHIELD text (`pairKey` set,
-          // e.g. ref "82" inside a highway shield) must sit CENTRED on the
-          // shared icon anchor, not hang below: the box is drawn symmetrically
-          // about that anchor, so a hung band reads LOW/off-centre in the box.
-          // For paired center-anchored text restore the prior shield-text-box-
-          // align ink recentre — pin the band CENTROID via (maxAsc-maxDesc)/2
-          // (one shared per-block shift). Standalone labels keep the hang.
+          // The #608-scope EXCEPTION for icon-paired / shield text lives with the
+          // logic in paired-symbol-box.ts (pairedTextCentreShift).
           const centreShift = pairedTextCentreShift(
             glyphs,
             sizePx,
@@ -1855,16 +1853,18 @@ export class TextStage {
         glyphRotations,
         sdfRadius: this.opts.sdfRadius,
       }
+      const curvedBox = {
+        minX: gminX - halfH - padding,
+        minY: gminY - halfH - padding,
+        maxX: gmaxX + halfH + padding,
+        maxY: gmaxY + halfH + padding,
+      }
+      this._pairBadge.union(p.pairKey, (gminX + gmaxX) / 2, (gminY + gmaxY) / 2, curvedBox)
       shaped.push({
         layouts: [
           {
             draw,
-            bbox: {
-              minX: gminX - halfH - padding,
-              minY: gminY - halfH - padding,
-              maxX: gmaxX + halfH + padding,
-              maxY: gmaxY + halfH + padding,
-            },
+            bbox: curvedBox,
           },
         ],
         allowOverlap: p.def.allowOverlap === true,
