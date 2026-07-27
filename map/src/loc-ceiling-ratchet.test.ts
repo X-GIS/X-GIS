@@ -753,7 +753,15 @@ const CEILINGS: Record<string, number> = {
   // the two are deliberately separate so the hillshade prepare-pass upgrade can
   // diverge. Shrink-only from now; both collapse together when #991 decomposes
   // the render SCC.
-  'map/src/render/hillshade-renderer.ts': 806,
+  // 806→828 (failed-tile backoff): a DEM load that resolves null used to be
+  // re-requested EVERY FRAME forever — and that is the common path, since a DEM
+  // source has a real max zoom (terrarium stops at z15) while rasterCoverZoom asks
+  // for zoom+1, so zooming past it makes every visible tile a permanent 404 that
+  // pins all 6 concurrency slots. +22 for the failedTiles map, the two request-site
+  // guards, the two failure/clear branches and the re-arm reset; the POLICY itself
+  // (backoff curve + attempt cap) went to hillshade-tile-retry.ts rather than in
+  // here, so it is unit-testable without a GPU and this file stays near its mark.
+  'map/src/render/hillshade-renderer.ts': 828,
   // Merge union (#1060 <- main): stacked growth — measured 1174.
   'map/src/render/point-renderer.ts': 1174,
   // 1106→1120 (#1043 state-hygiene): three unmask-before-clear / state-reset fixes for the
