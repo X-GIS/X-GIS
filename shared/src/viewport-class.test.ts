@@ -95,10 +95,12 @@ describe('isMobileClassViewport — single authority (no width-only duplication)
   })
 
   it('uploadBudgetFor no longer compares width to 900 inline', () => {
-    // Scope to uploadBudgetFor's body: getMaxGpuTiles legitimately keeps its own
-    // `<= 900` GPU-cache-RETENTION gate — a separate concern from the upload /
-    // worker THROUGHPUT throttle #1088 fixes, and out of its scope. uploadBudgetFor
-    // is the last function in the file, so slice from its signature to EOF.
+    // Scope to uploadBudgetFor's body — the throttle #1088 migrated. The file's
+    // other 900-sensitive site, getMaxGpuTiles, was migrated later by #1350 and
+    // is pinned by its own gates (source: viewport-class-budget-migration.test.ts;
+    // behaviour: map/src/render/viewport-class-budget-behaviour.test.ts).
+    // uploadBudgetFor is the last function in the file, so slice from its
+    // signature to EOF.
     const body = stripComments(
       read(HELPERS).slice(read(HELPERS).indexOf('export function uploadBudgetFor')),
     )

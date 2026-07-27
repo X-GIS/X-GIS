@@ -19,9 +19,6 @@ import {
   TILE_FLAG_FULL_COVER,
   tileKey,
   tileKeyUnpack,
-  lonLatToMercF64,
-  packECEFPolygonVertices,
-  tileEcefCenterFromMerc,
   type XGVTIndex,
   type TileIndexEntry,
   type PropertyTable,
@@ -60,6 +57,7 @@ import {
 } from './tile-types'
 import { runSkeletonPrewarm, type SkeletonPrewarmHandle } from './tile-skeleton-prewarm'
 import { unionBounds } from './tile-catalog-helpers'
+import { buildFullCoverQuad } from './tile-full-cover-quad'
 import { TileDataCache } from './tile-data-cache'
 import { CompileBudget } from './tile-compile-budget'
 import { TileEvictionPolicy } from './tile-eviction-policy'
@@ -154,6 +152,9 @@ export class TileCatalog {
    *  destroy() cancel it so a 'failed' skeleton tile can no longer keep
    *  a retry loop — and the catalog it captures — alive forever. */
   private _skeletonPrewarm: SkeletonPrewarmHandle | null = null
+
+  /** Owner-registered teardown callbacks — see {@link onDestroy}. */
+  private readonly _onDestroy: Array<() => void> = []
 
   /** Internal: set a slice via the TileDataCache (byte accounting +
    *  nested-map insert). Thin delegate — kept as a method so the
@@ -933,6 +934,18 @@ export class TileCatalog {
   destroy(): void {
     this._skeletonPrewarm?.stop()
     this._skeletonPrewarm = null
+    // Owner-registered teardown, drained so a repeated destroy() is a no-op.
+    for (const fn of this._onDestroy.splice(0)) fn()
+  }
+
+  /** Register a teardown callback keyed to this catalog's lifetime. The
+   *  catalog's OWNER uses it to release process-global state it allocated
+   *  on the catalog's behalf but that the catalog knows nothing about —
+   *  today SourceManager's per-map GeoJSON tiling-worker index (#1353),
+   *  which outlives the map otherwise. Callbacks run once, in registration
+   *  order, at the end of {@link destroy}. */
+  onDestroy(fn: () => void): void {
+    this._onDestroy.push(fn)
   }
 
   /** Update the fetch-queue priority comparator on every backend that
@@ -1135,61 +1148,16 @@ export class TileCatalog {
      *  so the synthesised quad carries originBackend attribution. */
     originBackend?: TileSource,
   ): void {
-    const [tz, tx, ty] = tileKeyUnpack(key)
-    const tn = Math.pow(2, tz)
-    const tileWest = (tx / tn) * 360 - 180
-    const tileEast = ((tx + 1) / tn) * 360 - 180
-    const tileSouth = (Math.atan(Math.sinh(Math.PI * (1 - (2 * (ty + 1)) / tn))) * 180) / Math.PI
-    const tileNorth = (Math.atan(Math.sinh(Math.PI * (1 - (2 * ty) / tn))) * 180) / Math.PI
-    const fid = entry.fullCoverFeatureId
-
-    // Quantized-ECEF quad (POLYGON_FILL_FORMAT, stride 28 B) spanning the tile,
-    // input as ABSOLUTE Mercator metres — the SAME layout the fill pipeline
-    // binds and the fill VS decodes. Built via the canonical packer + anchor the
-    // tiler uses (vector-tiler.ts). Earlier this emitted a stride-5 tile-local
-    // DSFUN quad with no f32 tail, so the fill VS mis-decoded position and the
-    // per-fragment clip_bounds discard was inert (over-zoom flood).
-    const [swMx, swMy] = lonLatToMercF64(tileWest, tileSouth)
-    const [seMx, seMy] = lonLatToMercF64(tileEast, tileSouth)
-    const [neMx, neMy] = lonLatToMercF64(tileEast, tileNorth)
-    const [nwMx, nwMy] = lonLatToMercF64(tileWest, tileNorth)
-
-    const scratchPv = [
-      swMx,
-      swMy,
-      fid, // corner 0 (SW)
-      seMx,
-      seMy,
-      fid, // corner 1 (SE)
-      neMx,
-      neMy,
-      fid, // corner 2 (NE)
-      nwMx,
-      nwMy,
-      fid, // corner 3 (NW)
-    ]
-    // tileOriginMerc = [merc(tileWest), merc(tileSouth)] = [swMx, swMy] — MUST
-    // match the renderer's per-tile `tile_origin_merc` uniform. The packer
-    // stores the f32 tail as TILE-LOCAL Mercator (mx − tileOriginMerc); omitting
-    // this arg defaulted it to [0,0], so the tail held ABSOLUTE Mercator and the
-    // flat fill VS double-counted the origin → the full-cover quad rendered at
-    // the wrong place (pure-ocean tiles showed the background color, #449).
-    const quant = packECEFPolygonVertices(scratchPv, tileEcefCenterFromMerc(swMx, swMy), [
-      swMx,
-      swMy,
-    ])
-    const vertices = quant.vertices
-    const indices = new Uint32Array([0, 1, 2, 0, 2, 3])
-
+    const quad = buildFullCoverQuad(key, entry.fullCoverFeatureId)
     this.cacheTileData({
       key,
-      vertices,
-      indices,
+      vertices: quad.vertices,
+      indices: quad.indices,
       lineVertices,
       lineIndices,
       sourceLayer,
       originBackend,
-      dequant: { scale: quant.dequantScale, half: quant.dequantHalf },
+      dequant: quad.dequant,
     })
   }
 

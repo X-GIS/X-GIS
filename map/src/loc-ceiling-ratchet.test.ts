@@ -444,7 +444,14 @@ const CEILINGS: Record<string, number> = {
   // lands on. There is nothing to extract: the ingest branch itself did not grow, and the same
   // change moved 100+ lines of region/time-axis logic OUT of map.ts into coverage-source.ts
   // (map/src/map.ts came DOWN 5362→5339 in the same commit).
-  'map/src/source-manager.ts': 926,
+  // MERGE UNION (#1353 × #1371/#1272): both sides edited this file over the same 849 base and
+  // the edits do not overlap, so they SUM — never take one side, never max() the two ceilings.
+  // #1353's teardown fix added `_dropTilingIndexWithCatalog` + its two attach call sites (+22)
+  // and paid for it by EXTRACTING setSourceData's input contract (Feature/bare-Geometry lift,
+  // features-array guard, ingest-budget guard) to source-data-normalize.ts (−36 net) — that
+  // block never touched `this`, and setSourceData is now just the re-seed-vs-raw-write
+  // decision. Ceiling below is the MERGED file's actual wc -l, measured after prettier.
+  'map/src/source-manager.ts': 912,
   // 1920→1930 (#1042 R3): the globe limb cull for MULTI-LINE labels must land in
   // the collision phase — the ONLY site holding the label's quad half-height (the
   // collision box IS the height authority; the label-pass dispatch site has only
@@ -648,7 +655,14 @@ const CEILINGS: Record<string, number> = {
   // re-tiled only the tiles that happened to fit and the rest kept the previous backend's data
   // forever. The queue has to live beside the cap it works around and beside the cache identity
   // it arms (`_pendingRefresh`), so it cannot move out.
-  'data/src/tile-catalog.ts': 1402,
+  // MERGE UNION (#1353 × #1371 × #1402): non-overlapping edits over a common base, so they SUM
+  // — never take one side, never max() the ceilings. #1353's teardown fix added the
+  // `_onDestroy` list + `onDestroy` + the destroy() drain (+15) and paid for it by EXTRACTING
+  // the quantized-ECEF quad construction out of createFullCoverTileData to
+  // tile-full-cover-quad.ts (−47 incl. three now-orphaned ecef-packing imports) — pure geometry,
+  // no `this`, and the layout with the #449 bug history is now directly assertable. Ceiling
+  // below is the MERGED file's actual wc -l, measured after prettier.
+  'data/src/tile-catalog.ts': 1370,
   // 1173→1180 (#1046 F1): thread the required `rhi: RhiDevice` onto the FrameContext at
   // both build sites — the main-chain init literal and the twin label stage — so a seam
   // can reach `ctx.rhi.caps.*` (doc §3-F1). +7 = two assignments + their rationale comments;
