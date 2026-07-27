@@ -44,6 +44,7 @@ import { unwrapProjection } from '../projection-token'
 import type { SceneView } from '../scene-view'
 import type { RenderPass, LabelPassHost } from './pass'
 import {
+  lineLabelSpacingPx,
   placeLabelsAlongLine,
   placeInlineLineLabels,
   withinViewportInset,
@@ -1097,6 +1098,7 @@ class LabelPass implements RenderPass {
                 // is dropped rather than rendered glued half-off-screen.
                 (x, y) =>
                   withinViewportInset(x, y, _canvasW, _canvasH, LINE_LABEL_EDGE_INSET_CSS_PX * dpr),
+                host.camera.zoom,
               )
             } else {
               const anchor = featureAnchor(feat.geometry)
@@ -1206,16 +1208,14 @@ class LabelPass implements RenderPass {
           const _ldMark = useLine ? 'encoder.label-dispatch.line' : 'encoder.label-dispatch.point'
           perfMarkStart(_ldMark)
           if (useLine) {
-            // Mapbox `symbol-spacing` (CSS px). When set on a line
-            // placement layer (placement === 'line' only — line-
-            // center always emits one label at the midpoint), walk
-            // the screen-projected polyline and emit a label every
-            // `spacing` pixels. Without this, long highways get a
-            // single label which Mapbox would render as a repeating
-            // chain. Spacing is in CSS px → multiply by DPR for
-            // the physical-pixel polyline space.
+            // Mapbox `symbol-spacing` (CSS px, placement === 'line' only —
+            // line-center always emits one label at the midpoint): walk the
+            // screen-projected polyline and emit a label every step, so a long
+            // highway renders the repeating chain Mapbox does instead of one
+            // label. lineLabelSpacingPx owns the CSS px → physical px scaling AND
+            // the zoom-dependent tile-unit bake — see its doc for the derivation.
             const spacingCssPx = effectiveDef.placement === 'line' ? (effectiveDef.spacing ?? 0) : 0
-            const spacingPx = spacingCssPx > 0 ? spacingCssPx * dpr : 0
+            const spacingPx = lineLabelSpacingPx(spacingCssPx, dpr, host.camera.zoom)
             // Mapbox `text-rotation-alignment: viewport` for line
             // placement keeps the label upright on screen instead of
             // following the road tangent. 'auto' on line resolves to
