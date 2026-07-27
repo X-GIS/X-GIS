@@ -43,6 +43,40 @@ export function lineLabelSpacingPx(spacingCssPx: number, dpr: number, zoom: numb
   return base * 2 ** (zoom - Math.floor(zoom))
 }
 
+/** #1314 — fallback line-label viewport edge inset (CSS px, scaled by dpr at use).
+ *  Sized at roughly half a typical road-label width: comfortable enough that the
+ *  shaped glyph run clears the edge, small enough that it doesn't drop labels that
+ *  are perfectly readable inboard. Used when the label's own extent is unknown. */
+export const LINE_LABEL_EDGE_INSET_CSS_PX = 48
+
+/** #1314 viewport edge inset for one line label, in physical px.
+ *
+ *  The cull exists so a line label never renders glued half-off-screen ("화면
+ *  기준 양 끝으로 라벨이 붙어서 가시성 및 가독성이 나빠지는"). What it should
+ *  actually test is whether the label's OWN extent clears the edge — a constant
+ *  is only a stand-in for a width we cannot know before shaping.
+ *
+ *  For a PAIRED symbol we can: a route shield's extent IS its badge sprite, known
+ *  here. Using the constant for those over-culled them roughly 4× — at
+ *  #16.7/37.79172/126.79102 MapLibre draws a shield 22 px from the edge, fully
+ *  legible, while the 48 px constant dropped it. Its own half-extent (~12 px)
+ *  keeps it and still clips nothing.
+ *
+ *  Unpaired text keeps the constant: its width is not known at cull time, and a
+ *  conservative estimate is the whole point of #1314. `sprite` undefined (no
+ *  icon, unresolved name, no atlas) ⇒ the constant. */
+export function lineLabelEdgeInsetPx(
+  def: { iconImage?: string | null; iconSize?: number },
+  spriteOf: (name: string) => { width: number; height: number; pixelRatio: number } | undefined,
+  dpr: number,
+): number {
+  const name = def.iconImage
+  const sprite = name !== undefined && name !== null && name !== '' ? spriteOf(name) : undefined
+  if (sprite === undefined) return LINE_LABEL_EDGE_INSET_CSS_PX * dpr
+  const size = def.iconSize !== undefined && def.iconSize > 0 ? def.iconSize : 1
+  return (Math.max(sprite.width, sprite.height) / sprite.pixelRatio / 2) * size * dpr
+}
+
 /** Walk an already-projected (screen-space, physical px) polyline and emit a
  *  label placement at each `symbol-spacing` stop — the single authority for
  *  where along a line labels sit. Both feature paths delegate here:
