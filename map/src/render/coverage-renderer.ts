@@ -64,7 +64,14 @@ interface CoverageState {
   /** Peak speed the components were normalized by, in the speed band's own units. 0 when the
    *  field is calm or absent — the flow pass reads this to recover real velocity. */
   flowScale: number
-  bindGroup: RhiBindGroup
+  /** The resident views this region's bind group binds. Held so a group can be rebuilt for a
+   *  different flow view without re-uploading anything. */
+  views: { value: RhiTextureView; valid: RhiTextureView; lut: RhiTextureView }
+  /** Bind groups keyed by the FLOW view they bind at binding 6. The advection pair
+   *  ping-pongs, so the correct view alternates every frame and one eager group cannot serve
+   *  both; keyed, this settles at two entries (plus the inert one a scalar coverage uses)
+   *  instead of minting a GPU object per frame. */
+  bindGroups: Map<RhiTextureView, RhiBindGroup>
   /** west/south/east/north outer cell EDGES (degrees) for the draw quad. */
   covEdges: [number, number, number, number]
   /** westLonEdge, northLatEdge, nLon·dLon, nLat·dLat — for the fragment u/v. */
@@ -74,6 +81,13 @@ interface CoverageState {
   opacity: number
   /** Approximate GPU bytes this region holds — the LRU budget's accounting unit. */
   bytes: number
+}
+
+/** What the drape needs to show the motion layer: the advected image for THIS frame and how
+ *  deeply it modulates the ramp colour. `mix` 0 makes the shader's gain an exact 1.0. */
+export interface FlowDrape {
+  view: RhiTextureView
+  mix: number
 }
 
 /** One region's velocity field plus the grid geometry the advection needs. Returned as ONE
@@ -178,7 +192,10 @@ export class CoverageRenderer {
    *  to stay inside the GPU byte budget (never the region just armed). */
   setCoverage(handle: CoverageHandle, opts: CoverageArmOptions, region = DEFAULT_REGION): void {
     this.releaseRegion(region)
-    const draper = this.ensureDraper()
+    // Called for its EFFECT, not its value: the draper is lazy and must be built at ARM time
+    // with the live MSAA sample count (rebuildForQuality invalidates it). The bind group is
+    // no longer built here — it is keyed by the ping-pong flow view and minted on first draw.
+    this.ensureDraper()
     this.dataSampler ??= this.rhi.createSampler({ mag: 'linear', min: 'linear' })
     this.lutSampler ??= this.rhi.createSampler({ mag: 'linear', min: 'linear' })
     const band = handle.band(opts.bandIndex ?? 0)
@@ -210,13 +227,11 @@ export class CoverageRenderer {
       flowVView = this.rhi.createView(flowV)
     }
 
-    const bindGroup = draper.bindGroup(
-      this.rhi.createView(valueTex),
-      this.rhi.createView(validTex),
-      this.dataSampler,
-      this.rhi.createView(lutTex),
-      this.lutSampler,
-    )
+    const views = {
+      value: this.rhi.createView(valueTex),
+      valid: this.rhi.createView(validTex),
+      lut: this.rhi.createView(lutTex),
+    }
 
     const [originLon, originLat] = handle.header.origin
     const [dLon, dLat] = handle.header.spacing
@@ -234,7 +249,8 @@ export class CoverageRenderer {
       flowVView,
       flowScale,
       lutTex,
-      bindGroup,
+      views,
+      bindGroups: new Map(),
       covEdges: [westEdge, southEdge, eastEdge, northEdge],
       covGeo: [westEdge, northEdge, nLon * dLon, nLat * dLat],
       ramp: computeRampUniforms(dataMin, dataMax, opts.rangeLo ?? dataMin, opts.rangeHi ?? dataMax),
@@ -354,6 +370,7 @@ export class CoverageRenderer {
     mvp: Float32Array | number[],
     camCenter: [number, number],
     projParams: [number, number, number, number],
+    flow?: FlowDrape | null,
   ): void {
     if (this.states.size === 0 || !this._draper) return
     // A WebGl2Device frame (renderFrameViaRhi twin) hands in an RhiRenderPass
@@ -366,6 +383,11 @@ export class CoverageRenderer {
         : wrapWebGpuPass(pass as GPURenderPassEncoder)
     // Least-recently-armed first; overlapping domains alpha-blend in that order.
     for (const s of this.states.values()) {
+      // The motion layer rides ONLY on a region that actually carries a velocity field. A
+      // scalar region in the same mosaic binds its own value texture as the inert stand-in
+      // and gets mix 0, so it draws byte-identically beside an animated neighbour.
+      const animated = flow != null && s.flowUView !== null
+      const flowView = animated ? flow.view : s.views.value
       const bytes = packCoverageUniforms({
         mvp,
         projParams,
@@ -374,9 +396,28 @@ export class CoverageRenderer {
         covGeo: s.covGeo,
         ramp: s.ramp,
         opacity: s.opacity,
+        flowMix: animated ? flow.mix : 0,
       })
-      this._draper.draw(rhiPass, bytes as BufferSource, s.bindGroup)
+      this._draper.draw(rhiPass, bytes as BufferSource, this.groupFor(s, flowView))
     }
+  }
+
+  /** This region's bind group for `flowView`, memoized. Keyed rather than rebuilt because the
+   *  advection pair alternates: two entries for an animated region, one for a scalar one. */
+  private groupFor(s: CoverageState, flowView: RhiTextureView): RhiBindGroup {
+    let bg = s.bindGroups.get(flowView)
+    if (!bg) {
+      bg = this.ensureDraper().bindGroup(
+        s.views.value,
+        s.views.valid,
+        this.dataSampler!,
+        s.views.lut,
+        this.lutSampler!,
+        flowView,
+      )
+      s.bindGroups.set(flowView, bg)
+    }
+    return bg
   }
 
   private uploadR16f(data: Uint16Array, width: number, height: number): RhiTexture {
@@ -420,7 +461,9 @@ export class CoverageRenderer {
     this.rhi.destroyTexture(s.valueTex)
     this.rhi.destroyTexture(s.validTex)
     this.rhi.destroyTexture(s.lutTex)
-    // The views die with their textures (RHI has no destroyView — rhi.ts:462).
+    // The views die with their textures (RHI has no destroyView — rhi.ts:462), and a bind
+    // group holds no ownable GPU resource (same note), so the memo is just dropped.
+    s.bindGroups.clear()
     if (s.flowU) this.rhi.destroyTexture(s.flowU)
     if (s.flowV) this.rhi.destroyTexture(s.flowV)
     this.states.delete(region)
