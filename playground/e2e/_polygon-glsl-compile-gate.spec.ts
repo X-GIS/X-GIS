@@ -15,7 +15,7 @@ import { test, expect } from '@playwright/test'
 // Node — same convention as _glsl-compile-gate.spec.ts.
 import { configureProjections } from '../../map/src/shaders/dsl/projections'
 import { emitPolygonGlsl } from '../../map/src/shaders/dsl/polygon'
-import { PROJECTIONS } from '../../engine/src/index'
+import { PROJECTIONS } from '../../geo/src/projections-table'
 
 test.describe('polygon fill GLSL twin compiles on real WebGL2 (#832 M2)', () => {
   test('vs_main_ecef + fs_fill (null variant, no pick) compile + link cleanly', async ({
