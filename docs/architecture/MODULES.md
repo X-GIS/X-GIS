@@ -16,7 +16,7 @@ this file is wrong; treat a divergence as a doc bug.
 
 ## 1. Package DAG
 
-Thirteen workspaces. The graph is **not** documentation-by-convention: it is
+Fourteen workspaces. The graph is **not** documentation-by-convention: it is
 pinned, edge by edge, in `engine/src/dependency-direction-ratchet.test.ts`,
 which fails CI on any new cross-package `src` import outside the allowed set.
 Read that file's `ALLOWED` map as the source of truth; the table below is its
