@@ -169,7 +169,7 @@ describe('surface geoid unification — bg + extrusion share the tiler ellipsoid
         rings: [[corners[0], corners[1], corners[2], corners[3], corners[0]]],
       },
     ]
-    // Mapbox semantics (#1342): `fill-extrusion-height` is the ABSOLUTE top
+    // Mapbox semantics (#1397): `fill-extrusion-height` is the ABSOLUTE top
     // altitude, not a thickness above the base — so the map holds topH itself.
     const heights = new Map<number, number>([[5, topH]])
     const bases = new Map<number, number>([[5, baseH]])

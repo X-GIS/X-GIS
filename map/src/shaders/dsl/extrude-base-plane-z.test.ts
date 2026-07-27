@@ -1,4 +1,4 @@
-// #1342 — `fill-extrusion-base` on the FLAT projection arms.
+// #1397 — `fill-extrusion-base` on the FLAT projection arms.
 //
 // The 3D (ECEF) arm reads the pre-lifted position the wall-mesh baked, so it
 // saw a base at all. The FLAT arms do NOT: they re-project the vertex from
@@ -54,7 +54,7 @@ function resolveCse(body: string, expr: string): string {
   return out
 }
 
-describe('#1342 — fill-extrusion-base reaches the FLAT projection arms', () => {
+describe('#1397 — fill-extrusion-base reaches the FLAT projection arms', () => {
   const body = extrudedEntry(wgsl)
 
   it('vs_main_ecef_extruded takes wall_base at @location(8)', () => {
@@ -69,7 +69,7 @@ describe('#1342 — fill-extrusion-base reaches the FLAT projection arms', () =>
     expect(merc, 'flat-Mercator extruded vec4 not found').not.toBeNull()
     expect(resolveCse(body, merc![1])).toContain('local_merc')
     const z = resolveCse(body, merc![2])
-    // Base term present (the whole point of #1342) …
+    // Base term present (the whole point of #1397) …
     expect(z).toContain('wall_base')
     // … interpolated to the ABSOLUTE top by is_top (not base + height) …
     expect(z.replace(/\s+/g, '')).toContain('max((wall_height-wall_base),0.0)')
@@ -96,7 +96,7 @@ describe('#1342 — fill-extrusion-base reaches the FLAT projection arms', () =>
   })
 })
 
-describe('#1342 — the wall mesh publishes fill-extrusion-base per vertex', () => {
+describe('#1397 — the wall mesh publishes fill-extrusion-base per vertex', () => {
   const STRIDE = POLYGON_EXTRUDED_FORMAT.stride / 4
   const BASE_SLOT = vertexField(POLYGON_EXTRUDED_FORMAT, 'wall_base').offset / 4
   const HEIGHT_SLOT = vertexField(POLYGON_EXTRUDED_FORMAT, 'wall_height').offset / 4
@@ -140,7 +140,7 @@ describe('#1342 — the wall mesh publishes fill-extrusion-base per vertex', () 
     }
   })
 
-  it('a base-less feature keeps the pre-#1342 altitude (regression guard)', () => {
+  it('a base-less feature keeps the pre-#1397 altitude (regression guard)', () => {
     const flat = generateWallMeshExtrudedECEF(
       [{ rings: [ring], featId: 7 }],
       new Map([[7, 132]]),

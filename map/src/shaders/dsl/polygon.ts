@@ -340,7 +340,7 @@ const emitPolygonProjectionLadder = (args: {
   extruded: boolean
   isTop?: ReadonlyNode<'f32'>
   wallHeight?: ReadonlyNode<'f32'>
-  /** Mapbox `fill-extrusion-base` (m) — #1342. */
+  /** Mapbox `fill-extrusion-base` (m) — #1397. */
   wallBase?: ReadonlyNode<'f32'>
   // When provided (quantized fill VS), the flat-Mercator arm positions from
   // this PRECISE tile-local Mercator vec2 (vertex_merc − tile_origin_merc)
@@ -370,14 +370,14 @@ const emitPolygonProjectionLadder = (args: {
   const pi = PI
   // Extruded plane-z in METRES: `base` at the wall bottom, `height` at the top
   // + roof — Mapbox treats BOTH as ABSOLUTE altitudes, so a wall spans
-  // [base, height] (`max` mirrors the wall-mesh's clamp). Pre-#1342 this was
+  // [base, height] (`max` mirrors the wall-mesh's clamp). Pre-#1397 this was
   // `wall_height * is_top`, dropping the base on both FLAT arms (the 3D arm
   // reads the pre-lifted ecef_rtc, so it was unaffected).
   const zMetres = (): ReadonlyNode<'f32'> =>
     wallBase!.add(max(wallHeight!.sub(wallBase!), f32(0)).mul(isTop!))
   If(projParamsV.x.lt(0.5), () => {
     // Mercator PLANE metres ≠ ground metres (stretched 1/cos(lat)) → divide, as
-    // MapLibre's `mercatorZfromAltitude` does; pre-#1342 the unscaled feed
+    // MapLibre's `mercatorZfromAltitude` does; pre-#1397 the unscaled feed
     // rendered walls cos(lat)× short. Clamped lat bounds the divisor ≥ 0.086.
     const zPlane = extruded
       ? zMetres().div(cos(radians(clamp(absLat, MERCATOR_LAT_LIMIT.neg(), MERCATOR_LAT_LIMIT))))
@@ -724,7 +724,7 @@ const vsMainEcefExtruded = fn(
 
     // Display projection (see vs_main_ecef): flat arms apply the lift as
     // plane-z (`wall_base + wall_height × is_top` — the altitude the wall-mesh
-    // baked into ECEF z, which they cannot read back, #1342); 3D keeps the
+    // baked into ECEF z, which they cannot read back, #1397); 3D keeps the
     // pre-lifted ECEF-RTC.
     const projParamsV = U.field.proj_params
     const clip = vec4(0, 0, 0, 0)
@@ -745,7 +745,7 @@ const vsMainEcefExtruded = fn(
       isTop: p.is_top,
       wallHeight: p.wall_height,
       wallBase: p.wall_base,
-      // #1342 — flat arms position from the CPU-differenced tile-local
+      // #1397 — flat arms position from the CPU-differenced tile-local
       // Mercator. Rebuilding it as `project(abs_lon, abs_lat) −
       // tile_origin_merc` ran f32 tan/log on absolute degrees then cancelled
       // two ~6.7e6 m operands; its error was bounded only by the backend's
@@ -823,7 +823,7 @@ const vsMainEcefExtruded = fn(
     //   clamp((t + base) * pow(height / 150.0, 0.5), mix(0.7, 0.98, 1 - I), 1)
     // The `+ base` term is why a FLOATING feature gets no bottom darkening at
     // all: a London Eye rim capsule at base 128 m drives the product past 1 and
-    // clamps. Omitting it (pre-#1342) pinned every such wall bottom to the 0.84
+    // clamps. Omitting it (pre-#1397) pinned every such wall bottom to the 0.84
     // floor.
     const tTop = p.is_top
     const hForGrad = max(p.wall_height, 0)
