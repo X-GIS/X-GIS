@@ -695,7 +695,13 @@ const CEILINGS: Record<string, number> = {
   // MERGE UNION (#1333 <- main): the hillshade keep-warm fix (+11) and the flow
   // step (+12) touch different regions of the twin, so the merged file measures
   // their SUM, not max(1370, 1371).
-  'map/src/render-loop.ts': 1382,
+  //
+  // +5 (#1333 (b)): the twin's coverage draw now hands the drape the advected view
+  // (2 statements + why `currentView` is THIS frame's image here, since the step
+  // runs earlier in this same method) plus the FLOW_DRAPE_MIX import. Irreducible:
+  // it is the twin's own call site, and the shader/material work it feeds lives in
+  // coverage-ramp.ts and coverage-material.ts.
+  'map/src/render-loop.ts': 1387,
   // Baselined at 806 (hillshade tile fade-in): HillshadeRenderer crossed
   // NEW_FILE_CAP restoring the three tile-streaming fixes raster-renderer had
   // landed since hillshade was copied from it — the per-tile fade ramp + its

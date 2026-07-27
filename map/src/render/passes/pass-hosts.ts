@@ -32,6 +32,8 @@ export type OpaquePassHost = Pick<
   | '_rasterShow'
   | 'camera'
   | 'coverageRenderer'
+  // #1333 — the coverage drape samples the advected field this frame's flow pass produced.
+  | 'flowRenderer'
   | 'gpuTimer'
   | 'pointRenderer'
   | 'rasterRenderer'

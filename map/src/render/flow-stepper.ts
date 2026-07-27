@@ -62,6 +62,19 @@ export const FLOW_STEP_DEFAULTS: FlowStepOptions = {
   inject: 0.07,
 }
 
+/** How deeply the advected image modulates the coverage fill's colour (ramp_params.w).
+ *
+ *  The colour still encodes speed; this only brightens and darkens it along the flow, which is
+ *  the two-layer split the design argues for — the catalogue reading stays legible and the
+ *  motion is additive. 0 would disable the motion layer entirely and restore the byte-identical
+ *  pre-#1333 fill.
+ *
+ *  ALSO NOT TUNED, for the same reason as the values above: choosing between "a hint of
+ *  texture" and "obvious streaks" is a judgement about an image, and this environment has no
+ *  GPU to form one. It is a named constant in ONE place so the look can be moved without
+ *  hunting for a literal. */
+export const FLOW_DRAPE_MIX = 0.35
+
 export class FlowStepper {
   readonly targets = new FlowTargets()
   /** Advances every step; the shader hashes it so the injected noise is not a frozen pattern. */
