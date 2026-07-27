@@ -43,7 +43,7 @@ import { EARTH } from '@xgis/shared'
 // `u.mvp * vec4(pos_h + pos_l, 1)` (ECEF-MVP — see PR 2d.5 closeout)
 // — `project_geom`'s non-linear dispatch disappears at PR 2c.2's flip.
 //
-// Per-vertex layout — Phase 2 PR 2f quantized ECEF (11 f32 = 44 bytes):
+// Per-vertex layout — Phase 2 PR 2f quantized ECEF (12 f32 = 48 bytes):
 //   loc 0  position_hi  uint16×4 — qx_hi, qx_lo, qy_hi, qy_lo (bytes  0..7)
 //   loc 1  position_lo  uint16×2 — qz_hi, qz_lo              (bytes  8..11)
 //   loc 2  feat_id      picking key          f32             (byte  12)
@@ -53,6 +53,7 @@ import { EARTH } from '@xgis/shared'
 //                       horizontal for walls, radial-up for roof
 //   loc 6  wall_height  feature height (m)   f32             (byte  36)
 //   loc 7  is_top       0 = wall-bottom, 1 = wall-top + roof f32 (byte 40)
+//   loc 8  wall_base    fill-extrusion-base (m)  f32             (byte 44)
 //
 // Position is the ECEF RTC residual quantized to 32-bit fixed point per
 // axis over the per-mesh symmetric range [-dequantHalf, +dequantHalf]
@@ -66,11 +67,11 @@ import { EARTH } from '@xgis/shared'
 // ─────────────────────────────────────────────────────────────────
 
 /** Result of the ECEF extruded wall + roof mesh generator: single
- *  interleaved stride-44-byte buffer (quantized position + f32 tail) plus
+ *  interleaved stride-48-byte buffer (quantized position + f32 tail) plus
  *  indices and the per-mesh dequant uniform companion. Roof + walls share
  *  the same buffer — caller binds vertices+indices directly. */
 export interface WallMeshExtrudedECEF {
-  /** Interleaved per-vertex bytes; stride 44 = 11 floats. uint16×6 position
+  /** Interleaved per-vertex bytes; stride 48 = 12 floats. uint16×6 position
    *  in the first 12 bytes, f32 tail (fid/abs_lon/abs_lat/face_normal×3/
    *  wall_height/is_top) at float slots 3..10. */
   vertices: Float32Array
@@ -106,13 +107,14 @@ export interface TileMercExtent {
 // the vs_main_ecef_extruded @location attributes (cross-checked in
 // vertex-layout-consistency.test.ts). All offsets are 4-byte aligned, so
 // byte offset / 4 == f32 slot index.
-const STRIDE_FLOATS = POLYGON_EXTRUDED_FORMAT.stride / 4 // 11
+const STRIDE_FLOATS = POLYGON_EXTRUDED_FORMAT.stride / 4 // 12
 const EXT_FID_FLOAT = vertexField(POLYGON_EXTRUDED_FORMAT, 'feature_id').offset / 4 // 3
 const EXT_LON_FLOAT = vertexField(POLYGON_EXTRUDED_FORMAT, 'abs_lon').offset / 4 // 4
 const EXT_LAT_FLOAT = vertexField(POLYGON_EXTRUDED_FORMAT, 'abs_lat').offset / 4 // 5
 const EXT_FNORMAL_FLOAT = vertexField(POLYGON_EXTRUDED_FORMAT, 'face_normal').offset / 4 // 6 (x,y,z = 6,7,8)
 const EXT_WALLH_FLOAT = vertexField(POLYGON_EXTRUDED_FORMAT, 'wall_height').offset / 4 // 9
 const EXT_ISTOP_FLOAT = vertexField(POLYGON_EXTRUDED_FORMAT, 'is_top').offset / 4 // 10
+const EXT_WALLBASE_FLOAT = vertexField(POLYGON_EXTRUDED_FORMAT, 'wall_base').offset / 4 // 11
 const RAD2DEG_LOCAL = 180 / Math.PI
 const EARTH_RADIUS_LOCAL = EARTH.sphereR // WGS84 semi-major axis; used ONLY for the
 // Mercator longitude inverse (mx/A, basis-
@@ -307,6 +309,7 @@ export function generateWallMeshExtrudedECEF(
     fnZ: number,
     wallHeight: number,
     isTop: number,
+    wallBase: number,
   ): void => {
     const lonDeg = (mx / EARTH_RADIUS_LOCAL) * RAD2DEG_LOCAL
     const latRad = mercatorYToLatRad(my)
@@ -332,6 +335,10 @@ export function generateWallMeshExtrudedECEF(
     vertices[o + EXT_FNORMAL_FLOAT + 2] = fnZ
     vertices[o + EXT_WALLH_FLOAT] = wallHeight
     vertices[o + EXT_ISTOP_FLOAT] = isTop
+    // Mapbox `fill-extrusion-base`. Redundant with the ECEF position for the
+    // 3D arm, but the FLAT projection arms re-project from abs_lon/abs_lat and
+    // need the base to build plane-z (see POLYGON_EXTRUDED_FORMAT).
+    vertices[o + EXT_WALLBASE_FLOAT] = wallBase
   }
 
   let vIdx = 0
@@ -415,13 +422,13 @@ export function generateWallMeshExtrudedECEF(
 
         const baseV = vIdx
         // a_bot (is_top = 0, height = base b)
-        writeVertex(vIdx++, ax, ay, b, fid, fnX, fnY, fnZ, h, 0)
+        writeVertex(vIdx++, ax, ay, b, fid, fnX, fnY, fnZ, h, 0, b)
         // b_bot
-        writeVertex(vIdx++, bx, by, b, fid, fnX, fnY, fnZ, h, 0)
+        writeVertex(vIdx++, bx, by, b, fid, fnX, fnY, fnZ, h, 0, b)
         // a_top (is_top = 1, height = base + feature height)
-        writeVertex(vIdx++, ax, ay, b + h, fid, fnX, fnY, fnZ, h, 1)
+        writeVertex(vIdx++, ax, ay, b + h, fid, fnX, fnY, fnZ, h, 1, b)
         // b_top
-        writeVertex(vIdx++, bx, by, b + h, fid, fnX, fnY, fnZ, h, 1)
+        writeVertex(vIdx++, bx, by, b + h, fid, fnX, fnY, fnZ, h, 1, b)
 
         indices[idxOut++] = baseV + 0
         indices[idxOut++] = baseV + 1
@@ -470,7 +477,7 @@ export function generateWallMeshExtrudedECEF(
       const upX = cLat * Math.cos(lonRad)
       const upY = cLat * Math.sin(lonRad)
       const upZ = sLat
-      writeVertex(vIdx++, mx, my, topH, fid, upX, upY, upZ, h, 1)
+      writeVertex(vIdx++, mx, my, topH, fid, upX, upY, upZ, h, 1, b)
     }
     for (let i = 0; i < outerEnd; i++) writeRoofVert(outer[i][0], outer[i][1])
     for (let r = 1; r < rings.length; r++) {

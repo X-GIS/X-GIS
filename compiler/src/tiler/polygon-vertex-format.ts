@@ -50,7 +50,15 @@ export const POLYGON_FILL_FORMAT: VertexFormat = buildFormat([
 
 // ── The polygon extruded format (consumed by vs_main_ecef_extruded) ──────────
 // The fill format plus per-vertex extrusion attrs (face_normal lighting,
-// wall_height + is_top face discrimination). stride 44.
+// wall_height + is_top face discrimination, wall_base plane-lift). stride 48.
+//
+// `wall_base` is Mapbox `fill-extrusion-base` in metres — the SAME value the
+// wall-mesh baked into the ECEF position, carried separately because the FLAT
+// projection arms do NOT read the ECEF position: they re-project from
+// abs_lon/abs_lat and synthesize plane-z from the extrusion attrs. Without it
+// those arms can only spell `wall_height * is_top`, which pins every wall
+// bottom to the ground — a feature whose base is 128 m (an OSM `building:part`
+// like the London Eye's rim) then extrudes from z=0 and fills the wheel solid.
 export const POLYGON_EXTRUDED_FORMAT: VertexFormat = buildFormat([
   { name: 'q_xy', location: 0, vbFormat: 'uint16x4', wgslType: 'vec4<u32>' },
   { name: 'q_z', location: 1, vbFormat: 'uint16x2', wgslType: 'vec2<u32>' },
@@ -60,4 +68,5 @@ export const POLYGON_EXTRUDED_FORMAT: VertexFormat = buildFormat([
   { name: 'face_normal', location: 5, vbFormat: 'float32x3', wgslType: 'vec3<f32>' },
   { name: 'wall_height', location: 6, vbFormat: 'float32', wgslType: 'f32' },
   { name: 'is_top', location: 7, vbFormat: 'float32', wgslType: 'f32' },
+  { name: 'wall_base', location: 8, vbFormat: 'float32', wgslType: 'f32' },
 ])

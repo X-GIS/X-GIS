@@ -32,8 +32,8 @@ const R = 6378137
 const mercX = (lonDeg: number) => lonDeg * DEG2RAD * R
 const mercY = (latDeg: number) => Math.log(Math.tan(Math.PI / 4 + (latDeg * DEG2RAD) / 2)) * R
 
-// Float slots per polygon-mesh.ts (stride 11).
-const STRIDE = 11
+// Float slots per polygon-mesh.ts (stride 12).
+const STRIDE = 12
 const LON = 4,
   LAT = 5,
   NX = 6,

@@ -252,10 +252,11 @@ describe('Mercator world-copy fill-gap — emitted WGSL string companion', () =>
     expect(wgsl).toMatch(
       new RegExp(String.raw`vec4<f32>\(\((\w+)\.x \+ ${worldOff}\), \1\.y, 0\.0, 1\.0\)`),
     )
-    // Extruded: z slot is the wall-height z_plane (a \w+ cse temp / inlined
-    // expression), NOT the literal 0.0 — so match a non-0.0 z channel.
+    // Extruded: z slot is the extrusion plane-z (base + height·is_top, over
+    // cos(lat) — a cse temp / inlined expression), NOT the literal 0.0, so
+    // match any non-0.0 z channel.
     expect(wgsl).toMatch(
-      new RegExp(String.raw`vec4<f32>\(\((\w+)\.x \+ ${worldOff}\), \1\.y, \w+, 1\.0\)`),
+      new RegExp(String.raw`vec4<f32>\(\((\w+)\.x \+ ${worldOff}\), \1\.y, (?!0\.0,)[^,]+, 1\.0\)`),
     )
   })
 
