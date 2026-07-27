@@ -24,7 +24,11 @@ import { RetainedArrowDraper } from '../render/material/arrow-retained-material'
 import { RetainedCircleDraper } from '../render/material/circle-retained-material'
 import { RetainedParticleDraper } from '../render/material/particle-retained-material'
 import { packRetainedIconFeat, packRetainedIconTint } from './retained-icon-packer'
-import { packRetainedArrowFeat, packRetainedArrowTint } from './retained-arrow-packer'
+import {
+  packRetainedArrowFeat,
+  packRetainedArrowTint,
+  type CompiledArrowDrift,
+} from './retained-arrow-packer'
 import { CompiledArrowStore } from './compiled-arrow-store'
 import { packRetainedCircleFeat, packRetainedCircleTint } from './retained-circle-packer'
 import {
@@ -299,8 +303,9 @@ export class GraphicsManager {
     sizesPx: Float32Array,
     colors: ReadonlyArray<readonly [number, number, number, number]>,
     strokeUnits = 0,
+    drift?: CompiledArrowDrift,
   ): void {
-    this._compiledArrows.add(lons, lats, bearingsDeg, sizesPx, colors, strokeUnits, this.dpr)
+    this._compiledArrows.add(lons, lats, bearingsDeg, sizesPx, colors, strokeUnits, this.dpr, drift)
   }
 
   /** Drop every compiled-arrow layer — called at the top of each rebuildLayers before the
@@ -317,10 +322,18 @@ export class GraphicsManager {
    *  the on-demand loop idles on a static camera and the motion FREEZES until the next interaction.
    *  Mirrors `rasterRenderer.hasFadingTiles()`: the same "an overlay is animating" gate the render
    *  loop ORs into its keep-warm decision. Static batches (all non-animated specs) return false, so
-   *  a map without an animated overlay idles byte-identically. */
+   *  a map without an animated overlay idles byte-identically.
+   *
+   *  The compiled-arrow store is the SECOND animation source (#1333): its drifting layers read
+   *  the same clock, so they need the same keep-warm or the drift stops the moment the camera
+   *  does. This gate and the `hasAnimated` clock-write in renderRetained must BOTH consult it —
+   *  arming only one leaves a different half-dead animation (a frozen clock, or motion that
+   *  only advances while the user is interacting). */
   hasAnimatedGraphics(): boolean {
-    return this.batches.some(
-      (b) => drawSpecAnimatesPerFrame(b.spec) && b.count > 0 && b.bindGroup !== null,
+    return (
+      this.batches.some(
+        (b) => drawSpecAnimatesPerFrame(b.spec) && b.count > 0 && b.bindGroup !== null,
+      ) || this._compiledArrows.hasDrifting()
     )
   }
 
@@ -586,7 +599,11 @@ export class GraphicsManager {
     // drawable, so a non-particle frame is byte-identical (y = 0 as before — zero pointU bloat, the
     // §5-Q2 constraint). Pinned by ?animt / __xgisAnimT for the §5 deterministic-probe capture,
     // else the live performance.now(). O(1) in particle count — the only new per-frame cost.
-    const hasAnimated = drawable.some((b) => drawSpecAnimatesPerFrame(b.spec))
+    // A DRIFTING compiled-arrow layer (#1333) animates on the same clock, so it must arm the
+    // write too — otherwise `animT` stays 0, the shader's phase is pinned, and the arrows are
+    // frozen mid-drift rather than moving.
+    const hasAnimated =
+      drawable.some((b) => drawSpecAnimatesPerFrame(b.spec)) || this._compiledArrows.hasDrifting()
     const animT = hasAnimated ? (animTimePinnedSeconds() ?? performance.now() / 1000) : 0
     const perCopy: Float32Array[] = []
     for (let i = 0; i < copies.length; i++) {
