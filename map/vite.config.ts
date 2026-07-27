@@ -1,17 +1,18 @@
 import { fileURLToPath } from 'node:url'
 import { defineConfig } from 'vite'
 
-// Library build for @xgis/runtime.
+// Library build for @xgis/map — the monorepo's one published package.
 //
 // What this produces (dist/):
-//   - index.js          ESM entry (the public barrel, src/index.ts)
+//   - index.js          ESM entry (the PUBLISHED barrel, src/public.ts — not
+//                       src/index.ts, which is the wider workspace barrel)
 //   - *.js worker chunks emitted by Vite's worker graph (the data/workers
 //     pools use `?worker` + `new Worker(new URL(...), import.meta.url)`)
 //   - .d.ts             bundled separately by the rollup-plugin-dts pass
 //     (see vite.dts.config.ts), run after this from the `build` script.
 //
 // Bundled IN (not external): EVERY internal @xgis/* package the barrel reaches
-// — map, data, geo, engine, rhi, rhi-webgpu, compiler, shader-dsl, shared. All
+// — data, geo, engine, rhi, rhi-webgpu, compiler, shader-dsl, shared. All
 // of them are private/unpublished workspace packages, so their *source* is
 // pulled into the runtime bundle (hence they are devDependencies, not
 // dependencies — a published `workspace:*` entry would be unresolvable). Vite
@@ -20,9 +21,9 @@ import { defineConfig } from 'vite'
 // simply are not marked external below.
 //
 // Kept EXTERNAL (declared in package.json "dependencies"): the genuine
-// third-party libraries, all reached through the bundled-in packages —
-// earcut/proj4/pmtiles via @xgis/data + @xgis/map, pbf + @mapbox/vector-tile
-// via @xgis/data and the compiler's MVT decode.
+// third-party libraries — earcut directly and via @xgis/data + the compiler's
+// tiler; proj4/pmtiles via @xgis/data; pbf + @mapbox/vector-tile via
+// @xgis/data and the compiler's MVT decode.
 const EXTERNAL = ['earcut', 'proj4', 'pmtiles', 'pbf', '@mapbox/vector-tile']
 
 export default defineConfig({
@@ -41,7 +42,7 @@ export default defineConfig({
     sourcemap: true,
     minify: false,
     lib: {
-      entry: fileURLToPath(new URL('./src/index.ts', import.meta.url)),
+      entry: fileURLToPath(new URL('./src/public.ts', import.meta.url)),
       formats: ['es'],
       fileName: () => 'index.js',
     },

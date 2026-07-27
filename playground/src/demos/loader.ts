@@ -57,7 +57,7 @@ export function load(file: string): string {
   return src
 }
 
-import type { XGISMap } from '@xgis/runtime'
+import type { XGISMap } from '@xgis/map'
 
 /** One gallery action button (#1192 interaction infra): demo-runner renders
  *  `label` in the #demo-actions bar and invokes `run` with the LIVE map on

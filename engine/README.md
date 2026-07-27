@@ -10,7 +10,7 @@ native `GPU*` identifier anywhere in `engine/src` is a build error.
 
 > `private: true` — workspace-internal, not published to npm. Consumers are `@xgis/map`,
 > `@xgis/data`, `@xgis/rhi-webgpu` (type-level, baselined), and the playground/site
-> builds. `@xgis/runtime` reaches the engine only transitively, through `@xgis/map`.
+> builds. `@xgis/map` is the monorepo's one published package and bundles the engine into its `dist/`.
 
 ## What is actually here
 

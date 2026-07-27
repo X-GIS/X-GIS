@@ -81,7 +81,7 @@ Playwright end-to-end test suite for the X-GIS playground. Stable specs (no `_` 
 - `helpers/validation.ts` — `withValidationCapture`, WebGPU error queue
 - `helpers/scenarios.ts` — `loadScenario`, `CameraState`, `Scenario`
 - `helpers/natural-interaction.ts` — rAF-driven interaction driver, `FrameTimings`
-- `@xgis/runtime` (via playground Vite dev server)
+- `@xgis/map` (via playground Vite dev server)
 
 ### External
 

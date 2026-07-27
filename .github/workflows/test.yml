@@ -66,7 +66,6 @@ jobs:
           filters: |
             render:
               - 'compiler/**'
-              - 'runtime/**'
               - 'engine/**'
               - 'map/**'
               - 'shared/**'
@@ -102,7 +101,6 @@ jobs:
               - '.github/workflows/test.yml'
             code:
               - 'compiler/**'
-              - 'runtime/**'
               - 'engine/**'
               - 'map/**'
               - 'shared/**'
@@ -127,6 +125,7 @@ jobs:
               - '**/package.json'
               - 'tsconfig*.json'
               - 'vitest.config.ts'
+              - 'vitest.setup.ts'
               - '.github/workflows/test.yml'
             site:
               - 'site/**'
@@ -235,17 +234,15 @@ jobs:
           - id: data
             args: data/src
           # Backend + leaf packages (@xgis/engine, @xgis/rhi-webgl2,
-          # @xgis/rhi-webgpu, @xgis/pipeline, @xgis/shared, @xgis/geo) plus the
-          # 4 suites still owned by @xgis/runtime (capability table, spec-coverage
-          # drift, gap-matrix freshness, the architecture ratchet). These were
+          # @xgis/rhi-webgpu, @xgis/pipeline, @xgis/shared, @xgis/geo). These were
           # CI-DARK before #959/#1008: sharded by directory, the matrix never
           # named them, and the `code` path-filter didn't list rhi*/data/pipeline,
-          # so a change there triggered NO vitest leg at all. 74 files total —
+          # so a change there triggered NO vitest leg at all. 70 files total —
           # under the ~110-file threshold, so they share ONE leg (rhi/src has no
           # tests). If growth pushes this over ~110, SPLIT the id per the playbook
           # above (do NOT merge legs back).
           - id: engine-rhi-shared
-            args: engine/src rhi-webgl2/src rhi-webgpu/src pipeline/src shared/src geo/src runtime/src
+            args: engine/src rhi-webgl2/src rhi-webgpu/src pipeline/src shared/src geo/src
     # Distinct per-leg check name in the GitHub UI / status API, e.g.
     # "test (engine-render-a)". The single stable context for branch protection
     # is `test-result` below — require THAT, not these per-leg names.
@@ -300,7 +297,7 @@ jobs:
   typecheck:
     name: typecheck
     needs: changes
-    # Same gate as `test`: the runtime tsc pass is irrelevant to a site-only PR.
+    # Same gate as `test`: the tsc pass is irrelevant to a site-only PR.
     if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
     steps:
@@ -315,7 +312,6 @@ jobs:
           restore-keys: bun-${{ runner.os }}-
       - run: bun install --frozen-lockfile
       - run: bun run build
-      - run: ./node_modules/.bin/tsc -p runtime/tsconfig.json --noEmit
 
   # Site build gate. The engine `test` matrix used to be the only thing that
   # built the site (as a side effect of `bun run build`), so gating that matrix

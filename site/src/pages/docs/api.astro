@@ -62,7 +62,7 @@ const groups: ApiGroup[] = [
           { name: 'canvas', type: 'HTMLCanvasElement', body: 'Target canvas to render into. Must already be attached to the DOM — the constructor reads its `clientWidth` / `clientHeight` to size the WebGPU swap chain.' },
           { name: 'options', type: 'XGISMapOptions', body: 'Optional bag: initial `center` / `zoom` / `bearing` / `pitch`, `projection`, `backend`, `glyphs`, `spriteUrl`, `fonts`, `sources`, and related knobs. Everything has a default — `new XGISMap(canvas)` alone is valid.' },
         ],
-        example: `import { XGISMap } from "@xgis/runtime"
+        example: `import { XGISMap } from "@xgis/map"
 const map = new XGISMap(canvas)
 await map.run(source, baseUrl)`,
         see: [
@@ -176,7 +176,7 @@ await map.run(source, baseUrl)`,
         name: 'getProjection',
         signature: 'getProjection(name: string, ...args: number[]): Projection',
         body: 'Look up a projection by name with optional center coordinates. Names: mercator, equirectangular, natural_earth, orthographic, azimuthal_equidistant, stereographic, oblique_mercator. Returns a CPU math-mirror record for projecting coordinates on the host side — it is NOT an argument to `map.setProjection`. To switch the map\'s active projection, call `map.setProjection("orthographic")` with the name string instead.',
-        example: `import { getProjection } from "@xgis/runtime"
+        example: `import { getProjection } from "@xgis/map"
 // CPU-side projection math (e.g. placing a custom overlay):
 const proj = getProjection("orthographic", 127, 37.5)
 // Switching the map's active projection is by NAME, not this record:
@@ -328,7 +328,7 @@ map.setProjection("orthographic")`,
 <Docs
   current="api"
   title="X-GIS — JavaScript API"
-  description="Public exports from @xgis/runtime: XGISMap, Camera, projections, loaders, compute helpers, stats, and the custom element."
+  description="Public exports from @xgis/map: XGISMap, Camera, projections, loaders, compute helpers, stats, and the custom element."
   headings={[
     ...groups.flatMap(g => [
       { depth: 2 as const, slug: slugOf(g.title), text: g.title },
@@ -344,7 +344,7 @@ map.setProjection("orthographic")`,
       JavaScript API.
     </h1>
     <p class="mt-5 text-[16px] sm:text-[17px] leading-[1.6] text-fg-dim max-w-[700px]">
-      The <code class="font-mono text-[15px] text-fg">@xgis/runtime</code> symbols
+      The <code class="font-mono text-[15px] text-fg">@xgis/map</code> symbols
       most apps use. Most only need <code class="font-mono text-[15px] text-fg">XGISMap</code>;
       the barrel also exports lower-level loaders, sources, and capability tables
       for advanced extension.

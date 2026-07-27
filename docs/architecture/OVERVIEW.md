@@ -2,8 +2,16 @@
 
 System Context (L1) and Container (L2) views of X-GIS, using the
 [C4 model](https://c4model.com/). L1 frames X-GIS as one system with its
-actors and external dependencies; L2 opens the box into the five workspace
-packages and the `.xgis` → tiles → GPU data flow.
+actors and external dependencies; L2 opens the box into the workspace packages
+and the `.xgis` → tiles → GPU data flow.
+
+> **Status (2026-07-27):** the package inventory below was refreshed for the
+> `@xgis/runtime` dissolution — `@xgis/map` is now the composition root and the one
+> published package. The container table names the packages a reader meets first; the
+> COMPLETE thirteen-package graph, with its CI-enforced edges, is
+> [`MODULES.md` §1](./MODULES.md#1-package-dag). Narrative sections further down still
+> use pre-split file paths in places; the package names are correct, the deep
+> `runtime/src/...` paths are not.
 
 This document is grounded in the real codebase. Every claim traces to a file
 read at authoring time (cited inline). For the next level down — the render
@@ -89,19 +97,23 @@ consumers depend on `compiler` / `runtime`, never the reverse.
 
 ### Containers
 
-| Container              | Responsibility                                                                                                                                                                                                                                                               | Key external deps                                       | Grounded in                                                             |
-| ---------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------- | ----------------------------------------------------------------------- |
-| **`@xgis/compiler`**   | Pure-TS front end: Lexer → Parser → AST → `lower()` → IR `Scene` → `optimize()` → `emitCommands()` + WGSL codegen. **No GPU dependency** — WGSL is emitted as strings. Also hosts the Mapbox/MapLibre style importer (`convert/`) and the data-side vector tiler (`tiler/`). | `@mapbox/vector-tile`, `pbf`                            | `compiler/AGENTS.md` lines 6-7,26; `compiler/package.json`              |
-| **`@xgis/runtime`**    | The engine. Consumes compiler output (SceneCommands, ShaderVariant, CompiledTile) and paints on the GPU. Owns the WebGPU renderers, camera math, pointer interaction, and the full MVT/PBF tile pipeline.                                                                    | `pmtiles`, `proj4`, `@chenglou/pretext`                 | `runtime/AGENTS.md` lines 6-7; `runtime/package.json`                   |
-| **`@xgis/blueprint`**  | Standalone, framework-agnostic visual node editor for authoring `.xgis` maps. Node catalogue is **derived from** the compiler's `LANGUAGE_SCHEMA` so it tracks the language.                                                                                                 | `@xgis/compiler` only                                   | `blueprint/src/index.ts:1-4`; `blueprint/package.json`                  |
-| **`@xgis/shared`**     | Shared support code consumed by compiler + runtime.                                                                                                                                                                                                                          | (none)                                                  | `package.json:6`; `compiler/package.json:13`, `runtime/package.json:12` |
-| **`@xgis/playground`** | Vite dev app + Playwright e2e (pixel-match survey, perf, projection coverage). Consumes both compiler + runtime; pulls in `maplibre-gl` only as an e2e comparison control.                                                                                                   | `vite`, `@playwright/test`, `maplibre-gl`, `pixelmatch` | `playground/package.json`; root `AGENTS.md` line 27                     |
-| **`@xgis/site`**       | Astro marketing/docs site. Consumes compiler, runtime, **and** blueprint.                                                                                                                                                                                                    | `astro`, `tailwindcss`                                  | `site/package.json`                                                     |
+| Container              | Responsibility                                                                                                                                                                                                                                                               | Key external deps                                       | Grounded in                                                |
+| ---------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------- | ---------------------------------------------------------- |
+| **`@xgis/compiler`**   | Pure-TS front end: Lexer → Parser → AST → `lower()` → IR `Scene` → `optimize()` → `emitCommands()` + WGSL codegen. **No GPU dependency** — WGSL is emitted as strings. Also hosts the Mapbox/MapLibre style importer (`convert/`) and the data-side vector tiler (`tiler/`). | `@mapbox/vector-tile`, `pbf`                            | `compiler/AGENTS.md` lines 6-7,26; `compiler/package.json` |
+| **`@xgis/map`**        | The renderer + composition root, and the one PUBLISHED package. Consumes compiler output (SceneCommands, ShaderVariant, CompiledTile) and paints on the GPU. Owns the WebGPU renderers, camera math, pointer interaction, the text/sprite stages, and the `XGISMap` facade.  | `earcut`, `pmtiles`, `pbf`, `proj4`                     | `map/package.json`; `map/src/public.ts`                    |
+| **`@xgis/engine`**     | Content-blind, backend-neutral GPU substrate under `map`: RHI re-export, GPU/CPU arenas, reflection-derived uniform packing, the descriptor-driven draw backbone. Compiler-enforced neutral (`types: []`).                                                                   | (none)                                                  | `engine/README.md`; `engine/tsconfig.json`                 |
+| **`@xgis/data`**       | Tile catalog + per-format sources (PMTiles/TileJSON/GeoJSON/raster), decode + tiling worker pools, polar-cap synthesis, EPSG input reprojection.                                                                                                                             | `pmtiles`, `pbf`, `@mapbox/vector-tile`, `proj4`        | `data/package.json`                                        |
+| **`@xgis/geo`**        | The projection library: the projections table, globe/ECEF surface math, world scale.                                                                                                                                                                                         | (none)                                                  | `geo/package.json`                                         |
+| **`@xgis/blueprint`**  | Standalone, framework-agnostic visual node editor for authoring `.xgis` maps. Node catalogue is **derived from** the compiler's `LANGUAGE_SCHEMA` so it tracks the language.                                                                                                 | `@xgis/compiler` only                                   | `blueprint/src/index.ts:1-4`; `blueprint/package.json`     |
+| **`@xgis/shared`**     | Shared support code consumed by compiler + map (WGS84/ECEF math, quantization, logging).                                                                                                                                                                                     | (none)                                                  | `shared/package.json`; `compiler/package.json`             |
+| **`@xgis/playground`** | Vite dev app + Playwright e2e (pixel-match survey, perf, projection coverage). Consumes both compiler + map; pulls in `maplibre-gl` only as an e2e comparison control.                                                                                                       | `vite`, `@playwright/test`, `maplibre-gl`, `pixelmatch` | `playground/package.json`; root `AGENTS.md` line 27        |
+| **`@xgis/site`**       | Astro marketing/docs site. Consumes compiler, map, **and** blueprint.                                                                                                                                                                                                        | `astro`, `tailwindcss`                                  | `site/package.json`                                        |
 
-> Note: `README.md:130-136` lists "three packages" (compiler / runtime /
-> playground) — that table predates the `blueprint`, `shared`, and `site`
-> workspaces now present in `package.json:6`. The six-container list above
-> reflects the current workspace set.
+> Note: the containers above are the ones an app developer or contributor meets
+> first, not the full workspace list. `rhi`, `rhi-webgpu`, `rhi-webgl2`,
+> `shader-dsl`, `blueprint` and `pipeline` are equally real packages — see
+> [`MODULES.md` §1](./MODULES.md#1-package-dag) for all thirteen and their
+> CI-enforced edges.
 
 ### Container diagram
 
@@ -110,8 +122,8 @@ consumers depend on `compiler` / `runtime`, never the reverse.
        │ .xgis source                            │  XGISMap API / <xgis-map>
        ▼                                         ▼
  ┌──────────────────────────────────┐    ┌────────────────────────────────────────┐
- │        @xgis/compiler            │    │             @xgis/runtime               │
- │        (pure TS, no GPU)         │    │             (WebGPU engine)             │
+ │        @xgis/compiler            │    │               @xgis/map                 │
+ │        (pure TS, no GPU)         │    │        (renderer + composition root)    │
  │                                  │    │                                         │
  │  Lexer ─▶ Parser ─▶ AST          │    │   XGISMap  (entry point / facade)       │
  │              │                   │    │      │  interpret(SceneCommands)        │
@@ -178,10 +190,10 @@ rendering (`README.md:191-196`; `compiler/AGENTS.md` summary). The full
 coordinate-space contract (LL / MM / DLM / SP) is in
 [`../COORDINATES.md`](../COORDINATES.md).
 
-### 2. Render (`@xgis/runtime`, WebGPU)
+### 2. Render (`@xgis/map`, WebGPU)
 
 `XGISMap` is the entry point that wires everything
-(`runtime/src/engine/map.ts:1,96`). It runs the compiler in-process
+(`map/src/map.ts`). It runs the compiler in-process
 (`map.ts:5` imports `Lexer, Parser, lower, optimize, emitCommands` from
 `@xgis/compiler`), then:
 

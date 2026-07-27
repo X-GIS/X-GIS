@@ -204,7 +204,7 @@ interface OracleRun {
  * Run the Oracle-B spec once; return its parsed signals + pass/fail.
  *
  * CRITICAL — clear vite's optimizeDeps cache first. The playground pre-bundles
- * the @xgis/runtime workspace dep into node_modules/.vite; a mutation to
+ * the @xgis/map workspace dep into node_modules/.vite; a mutation to
  * runtime/src is NOT re-read by a fresh `playwright test` unless that cache is
  * busted, so the mutated render would be byte-identical to baseline (a false
  * MISS). Proven: with the cache cleared, WORLD_MERC×1.01 moves the numeric

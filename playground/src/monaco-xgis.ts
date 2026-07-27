@@ -1129,7 +1129,7 @@ async function discoverGeoJSONFields(
 async function discoverPMTilesSchema(
   fullUrl: string,
 ): Promise<Record<string, { name: string; sample: string }[]> | null> {
-  const { fetchPMTilesVectorLayerSchema } = await import('@xgis/runtime')
+  const { fetchPMTilesVectorLayerSchema } = await import('@xgis/map')
   const schema = await fetchPMTilesVectorLayerSchema(fullUrl)
   if (!schema) return null
   const out: Record<string, { name: string; sample: string }[]> = {}

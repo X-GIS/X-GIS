@@ -127,17 +127,26 @@ layer tracks {
               Runtime + WebGPU
 ```
 
-Seven workspaces:
+Thirteen workspaces. `@xgis/map` is the only one published; the rest are internal and
+get bundled into its `dist/`. The full edge list is CI-enforced in
+`engine/src/dependency-direction-ratchet.test.ts`.
 
-| Package            | Role                                                                                                          |
-| ------------------ | ------------------------------------------------------------------------------------------------------------- |
-| `@xgis/shared`     | Shared TypeScript types and utilities; common base, imports from neither compiler nor runtime.                |
-| `@xgis/compiler`   | Lexer, parser, IR, optimizer, WGSL codegen. Pure TypeScript, no GPU deps.                                     |
-| `@xgis/blueprint`  | Visual node-editor concept for `.xgis` pipeline authoring.                                                    |
-| `@xgis/shader-dsl` | Zero-dep typed shader IR authored once, emitted to WGSL + a CPU f64 oracle (closes GPU/CPU projection drift). |
-| `@xgis/runtime`    | WebGPU renderers (vector, raster tiles, globe), camera, interaction.                                          |
-| `@xgis/playground` | Vite dev app + Playwright e2e suites for testing.                                                             |
-| `@xgis/site`       | Astro documentation/marketing site.                                                                           |
+| Package            | Role                                                                                                         |
+| ------------------ | ------------------------------------------------------------------------------------------------------------ |
+| `@xgis/shared`     | WGS84/ECEF math, quantization, logging — the leaf both the compiler and the renderer agree on byte-for-byte. |
+| `@xgis/shader-dsl` | Zero-dep typed shader IR authored once, emitted to WGSL/GLSL + a CPU f64 oracle (closes GPU/CPU drift).      |
+| `@xgis/rhi`        | The render-hardware interface renderers target instead of a raw `GPUDevice`.                                 |
+| `@xgis/geo`        | The projection library: projections table, globe/ECEF surface math, world scale.                             |
+| `@xgis/compiler`   | Lexer, parser, IR, optimizer, style conversion, data-side tiler. Pure TypeScript, no GPU, no shader code.    |
+| `@xgis/blueprint`  | Visual node-editor for `.xgis` pipeline authoring.                                                           |
+| `@xgis/engine`     | Content-blind, backend-neutral GPU substrate (arenas, uniform packing, the draw backbone).                   |
+| `@xgis/rhi-webgpu` | WebGPU backend: device, swapchain, compute, timers, render targets.                                          |
+| `@xgis/rhi-webgl2` | WebGL2 fallback backend.                                                                                     |
+| `@xgis/data`       | Tile catalog, per-format sources, decode/tiling worker pools, polar caps, EPSG reprojection.                 |
+| `@xgis/map`        | **Published.** WebGPU renderers (vector, raster tiles, globe), camera, interaction, text/sprite, the facade. |
+| `@xgis/pipeline`   | Offline data-prep utilities.                                                                                 |
+| `@xgis/playground` | Vite dev app + Playwright e2e suites for testing.                                                            |
+| `@xgis/site`       | Astro documentation/marketing site.                                                                          |
 
 ## Rendering
 

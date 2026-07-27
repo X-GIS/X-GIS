@@ -4,7 +4,7 @@
 // Output: gap-matrix.md next to this script.
 //
 // Cross-references compiler/src/convert/spec-coverage.ts (Mapbox
-// spec property/operator support status) and runtime/src/
+// spec property/operator support status) and map/src/
 // capabilities.ts (per-variant runtime honour status) so
 // contributors see at a glance:
 //   * which spec properties have compiler support but no runtime
@@ -16,7 +16,7 @@
 //   bun scripts/emit-gap-matrix.ts > scripts/gap-matrix.md
 
 import { flattenCoverage } from '../compiler/src/convert/spec-coverage'
-import { runtimeGaps } from '../runtime/src/capabilities'
+import { runtimeGaps } from '../map/src/capabilities'
 
 const lines: string[] = []
 lines.push('# X-GIS Mapbox Support Gap Matrix')

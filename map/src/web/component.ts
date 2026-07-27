@@ -1,10 +1,21 @@
 // ═══ <xgis-map> Web Component ═══
 // HTML에서 바로 X-GIS 코드를 쓸 수 있게 해주는 커스텀 엘리먼트
 
-import { XGISMap } from '@xgis/map'
+import { XGISMap } from '../map'
 import { xlog } from '@xgis/shared'
 
-export class XGISMapElement extends HTMLElement {
+// `HTMLElement` is a DOM global — absent under Node (vitest, and any SSR/SSG
+// render of a page that imports the package barrel). Extending it directly at
+// module scope makes merely IMPORTING @xgis/map throw off-DOM, which is exactly
+// what happened when this module joined map's barrel: every suite that touches
+// '@xgis/map' died on `ReferenceError: HTMLElement is not defined`. Binding the
+// base through this guard keeps the module import-safe everywhere; off-DOM the
+// class is inert and `registerXGISElement()` no-ops (there is no
+// `customElements` registry to define into either).
+const HTMLElementBase =
+  typeof HTMLElement === 'undefined' ? (class {} as typeof HTMLElement) : HTMLElement
+
+export class XGISMapElement extends HTMLElementBase {
   private map: XGISMap | null = null
   private canvas: HTMLCanvasElement
 
@@ -84,6 +95,8 @@ export class XGISMapElement extends HTMLElement {
 
 // Register the custom element
 export function registerXGISElement(): void {
+  // No registry off-DOM (Node / SSR) — see the HTMLElementBase note above.
+  if (typeof customElements === 'undefined') return
   if (!customElements.get('xgis-map')) {
     customElements.define('xgis-map', XGISMapElement)
   }

@@ -211,10 +211,15 @@ scripts/gap-matrix.md`) — read the script header before assuming write-in-plac
 
 **Gates / ratchets**
 
-- LOC ceilings have TWO authorities until the #1005 migration retires runtime/:
-  `map/src/loc-ceiling-ratchet.test.ts` AND `runtime/src/architecture-invariants.test.ts`
-  (god-file list, `engine-rhi-shared` CI leg). Growing a tracked file means updating BOTH.
+- LOC ceilings now have ONE authority — `map/src/loc-ceiling-ratchet.test.ts`. The second
+  (`architecture-invariants`' Gate 3) was retired when `runtime/` was dissolved; the
+  surviving structural gates live in `map/src/architecture-invariants.test.ts`. The lesson
+  stands: before adding a gate, check whether an existing one already owns the invariant.
   → `2026-07-14-the-second-ratchet.md`
+- A ratchet whose allowlist keys are FILE PATHS dies silently when the files move: two
+  gates (projType branching, the layer-direction spine) sat vacuously green from the P3
+  extraction until the runtime dissolution audited them. Any path-keyed gate needs a
+  companion assertion that every key still resolves. → `#996`
 - A spec-coverage `supported` flip is a THREE-way sync: the spec-coverage row + the
   regenerated gap-matrix + a `RUNTIME_CAPABILITIES` row (the drift gate
   `spec-coverage-runtime-drift.test.ts` allows <3 orphans and WILL breach).

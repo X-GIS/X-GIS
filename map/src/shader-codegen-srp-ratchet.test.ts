@@ -25,7 +25,7 @@ import { join, dirname, relative } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..')
-const SRC_DIRS = ['runtime/src', 'compiler/src', 'blueprint/src', 'shared/src']
+const SRC_DIRS = ['map/src', 'compiler/src', 'blueprint/src', 'shared/src']
 
 function walkTs(absDir: string): string[] {
   const out: string[] = []

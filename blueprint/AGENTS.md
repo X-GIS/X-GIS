@@ -5,7 +5,7 @@
 
 ## Purpose
 
-`@xgis/blueprint` is the visual node-graph authoring tool for X-GIS maps. It provides an Unreal-Blueprint-style canvas editor — implemented entirely in vanilla DOM + SVG with zero runtime dependencies beyond `@xgis/compiler` — where users wire together Source, Layer, Style, Preset, Symbol, Function, Background, and Import nodes to produce `.xgis` source text. The package covers three concerns: graph editing (`BlueprintEditor`), code generation (`graphToXgis`), and reverse import from `.xgis` or MapLibre/Mapbox `style.json` back into a graph. It is `private: true` / `version 0.0.1` and is not published to npm. Its node catalogue (`NODE_SPECS`) is derived at module-load time directly from `@xgis/compiler`'s `LANGUAGE_SCHEMA`, so language additions automatically surface in the editor without manual sync. This package does not import `@xgis/runtime` and has no GPU dependency.
+`@xgis/blueprint` is the visual node-graph authoring tool for X-GIS maps. It provides an Unreal-Blueprint-style canvas editor — implemented entirely in vanilla DOM + SVG with zero runtime dependencies beyond `@xgis/compiler` — where users wire together Source, Layer, Style, Preset, Symbol, Function, Background, and Import nodes to produce `.xgis` source text. The package covers three concerns: graph editing (`BlueprintEditor`), code generation (`graphToXgis`), and reverse import from `.xgis` or MapLibre/Mapbox `style.json` back into a graph. It is `private: true` / `version 0.0.1` and is not published to npm. Its node catalogue (`NODE_SPECS`) is derived at module-load time directly from `@xgis/compiler`'s `LANGUAGE_SCHEMA`, so language additions automatically surface in the editor without manual sync. This package does not import `@xgis/map` and has no GPU dependency.
 
 ## Key Files
 
@@ -32,7 +32,7 @@
 - `codegen.ts` and `import.ts` must remain round-trip compatible. Any new field key or block syntax added to codegen must be handled in the import scanner, and vice versa.
 - `BPGraph` is JSON-serialised for undo/redo snapshots and clipboard payloads (prefixed `xgis-bp:`). Keep the model flat and JSON round-trippable — no class instances, no circular refs, no `undefined` values.
 - The `map` and `reroute` node types are editor-only (not in `LANGUAGE_SCHEMA`). Codegen must never emit a block for `reroute`; `incoming()` resolves through it transparently. `map` is a singleton — `addNode` silently returns `null` if one already exists.
-- No GPU, no `@xgis/runtime` imports anywhere in this package. The zero-deps constraint is strict — do not add npm dependencies.
+- No GPU, no `@xgis/map` imports anywhere in this package. The zero-deps constraint is strict — do not add npm dependencies.
 - `private: true` — do not bump version or add publish config without explicit instruction.
 
 ### Testing Requirements

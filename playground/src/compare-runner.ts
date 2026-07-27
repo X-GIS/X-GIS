@@ -8,7 +8,7 @@
 
 import maplibregl from 'maplibre-gl'
 import 'maplibre-gl/dist/maplibre-gl.css'
-import { XGISMap } from '@xgis/runtime'
+import { XGISMap } from '@xgis/map'
 import { convertMapboxStyle } from '@xgis/compiler'
 import { extractMapboxProjectionName, extractMapboxLight } from './mapbox-projection'
 

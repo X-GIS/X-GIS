@@ -9,20 +9,20 @@ Documentation pages for the X-GIS language and runtime. Each `.astro` file maps 
 
 ## Key Files
 
-| File                | Description                                                                                                                                       |
-| ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `index.astro`       | Docs landing page — card grid linking every docs sub-page, with a link to the playground quickstart                                               |
-| `quickstart.astro`  | Five-minute tutorial: install, declare source + layer, mount on canvas                                                                            |
-| `cookbook.astro`    | Copy-paste recipes — 3D buildings, categorical fill, zoom-fade, road casing, animation                                                            |
-| `reference.astro`   | Complete language reference — every block, statement, and modifier with working code samples                                                      |
-| `sources.astro`     | Source-type reference — GeoJSON, PMTiles, TileJSON, raster XYZ                                                                                    |
-| `functions.astro`   | Built-in function reference — clamp, interpolate, trig, circle/arc/polygon, zoom, constants                                                       |
-| `expressions.astro` | Operator precedence and the four expression idioms (bracket binding, match, filter, field modifier)                                               |
-| `utilities.astro`   | Tailwind-style utility class catalog — colors, fills, strokes, opacity, modifiers                                                                 |
-| `glossary.astro`    | Glossary of X-GIS and cartographic terms                                                                                                          |
-| `api.astro`         | JavaScript API reference — XGISMap, Camera, projections, loaders from `@xgis/runtime`; inlines typed `ApiEntry` structs with per-parameter tables |
-| `mapbox.astro`      | Mapbox GL JS -> X-GIS migration guide: conceptual differences + expression mapping                                                                |
-| `mapbox-spec.astro` | Auto-validated Mapbox Style Spec coverage matrix (supported / partial / unsupported) from `@xgis/compiler` spec-coverage data                     |
+| File                | Description                                                                                                                                   |
+| ------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
+| `index.astro`       | Docs landing page — card grid linking every docs sub-page, with a link to the playground quickstart                                           |
+| `quickstart.astro`  | Five-minute tutorial: install, declare source + layer, mount on canvas                                                                        |
+| `cookbook.astro`    | Copy-paste recipes — 3D buildings, categorical fill, zoom-fade, road casing, animation                                                        |
+| `reference.astro`   | Complete language reference — every block, statement, and modifier with working code samples                                                  |
+| `sources.astro`     | Source-type reference — GeoJSON, PMTiles, TileJSON, raster XYZ                                                                                |
+| `functions.astro`   | Built-in function reference — clamp, interpolate, trig, circle/arc/polygon, zoom, constants                                                   |
+| `expressions.astro` | Operator precedence and the four expression idioms (bracket binding, match, filter, field modifier)                                           |
+| `utilities.astro`   | Tailwind-style utility class catalog — colors, fills, strokes, opacity, modifiers                                                             |
+| `glossary.astro`    | Glossary of X-GIS and cartographic terms                                                                                                      |
+| `api.astro`         | JavaScript API reference — XGISMap, Camera, projections, loaders from `@xgis/map`; inlines typed `ApiEntry` structs with per-parameter tables |
+| `mapbox.astro`      | Mapbox GL JS -> X-GIS migration guide: conceptual differences + expression mapping                                                            |
+| `mapbox-spec.astro` | Auto-validated Mapbox Style Spec coverage matrix (supported / partial / unsupported) from `@xgis/compiler` spec-coverage data                 |
 
 ## Subdirectories
 

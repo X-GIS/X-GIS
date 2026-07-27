@@ -4,7 +4,7 @@ import { ChevronRight } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 
-type XGISMapType = import('@xgis/runtime').XGISMap
+type XGISMapType = import('@xgis/map').XGISMap
 
 // [projection id, display label] — the same land source taken from sphere
 // to plane and back, to show "one source, any view".
@@ -88,7 +88,7 @@ export default function Hero({ docsUrl, examplesUrl, convertUrl }: Props) {
       if (mountStarted || destroyed) return
       mountStarted = true
       try {
-        const { XGISMap } = await import('@xgis/runtime')
+        const { XGISMap } = await import('@xgis/map')
         if (destroyed) return
 
         canvas.addEventListener(

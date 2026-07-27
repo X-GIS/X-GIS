@@ -70,7 +70,7 @@ skills under `.claude/skills/`.
 
 ## Where things live
 
-The engine is mid-extraction from the `@xgis/runtime` umbrella into focused
+The engine was extracted from the `@xgis/runtime` umbrella (now dissolved) into focused
 packages: `@xgis/map` (render / camera / shaders / graphics / text), `@xgis/data`
 (tiles / loaders), `@xgis/geo` (projections), `@xgis/engine`, `@xgis/compiler`
 (the DSL), `@xgis/shader-dsl`, `@xgis/rhi*` (backends), `@xgis/shared`. Package

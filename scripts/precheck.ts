@@ -79,7 +79,7 @@ if (RUN_SMOKE) {
 }
 
 if (RUN_MATRIX) {
-  // Vite-cache gotcha (load-bearing): the pre-bundled @xgis/runtime workspace
+  // Vite-cache gotcha (load-bearing): the pre-bundled @xgis/map workspace
   // dep in node_modules/.vite masks runtime/src edits, so a stale cache would
   // gate against OLD code. Clear it before the run (same fix as evaluator.ts).
   try {

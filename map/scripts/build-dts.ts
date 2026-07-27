@@ -1,12 +1,12 @@
-// Declaration-bundle pass for @xgis/runtime.
+// Declaration-bundle pass for @xgis/map.
 //
 // Run after `vite build` (see the package `build` script). Emits a single
-// dist/index.d.ts in which the bundled-in @xgis/shared and @xgis/compiler
-// types are INLINED. Plain `tsc` would instead leave them as
-// `import('@xgis/compiler').Foo` references, which do not resolve for a
-// consumer (the published tarball does not ship @xgis/compiler). The runtime
-// tsconfig's `paths` mapping points those specifiers at the compiler/shared
-// built .d.ts, so rollup-plugin-dts follows and folds them in.
+// dist/index.d.ts in which the bundled-in @xgis/* types (data, geo, engine,
+// rhi*, compiler, shader-dsl, shared) are INLINED. Plain `tsc` would instead
+// leave them as `import('@xgis/compiler').Foo` references, which do not resolve
+// for a consumer (the published tarball ships none of those private packages).
+// map's tsconfig `paths` mapping points those specifiers at the sibling built
+// .d.ts, so rollup-plugin-dts follows and folds them in.
 //
 // Invoked via the rollup JS API from `bun` (which executes this TS file
 // directly), avoiding a `rollup` CLI / `@rollup/plugin-typescript` config
@@ -24,7 +24,7 @@ const EXTERNAL = ['earcut', 'proj4', 'pmtiles', 'pbf', '@mapbox/vector-tile']
 const here = (rel: string) => fileURLToPath(new URL(rel, import.meta.url))
 
 const bundle = await rollup({
-  input: here('../src/index.ts'),
+  input: here('../src/public.ts'),
   external: (id) => EXTERNAL.includes(id) || EXTERNAL.some((d) => id.startsWith(d + '/')),
   plugins: [
     dts({

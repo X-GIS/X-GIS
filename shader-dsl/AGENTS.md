@@ -66,7 +66,7 @@ type, familiar `If`/`Switch` — see **`AUTHORING.md`** for the full guide.
 
 ### Internal
 
-- Consumed by `runtime/src/engine/shaders/` and `compiler/` (projection/line/polygon/point/raster/text/compute).
+- Consumed by `map/src/shaders/` and `compiler/` (projection/line/polygon/point/raster/text/compute).
 - The projection spec list (projType order, globe flag, cull thresholds) is INJECTED by the host via
   `configureProjections()` — this package keeps ZERO outbound dependency (future standalone repo).
 

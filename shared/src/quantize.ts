@@ -1,6 +1,6 @@
 // Vertex-position quantization shared by the two ground-tile packers:
 // the compiler tiler (`compiler/src/tiler/vector-tiler.ts`) and the runtime
-// synthetic-earth backend (`runtime/src/data/sources/synthetic-earth-surface-backend.ts`).
+// synthetic-earth backend (`data/src/sources/synthetic-earth-surface-backend.ts`).
 // Those two paths MUST quantize bit-for-bit identically — their ECEF tile
 // anchors are documented as "bit-for-bit equal" so the RTC origins cancel
 // with no residual; a divergence here is a silent CPU-side vertex-drift bug.

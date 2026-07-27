@@ -12,8 +12,8 @@
     "shader-dsl": {
       "project": ["src/**/*.ts"]
     },
-    "runtime": {
-      "entry": ["src/index.ts!", "scripts/*.ts"],
+    "map": {
+      "entry": ["src/public.ts!", "src/index.ts!", "scripts/*.ts"],
       "project": ["src/**/*.ts"],
       "ignore": ["src/vite-shims.ts", "src/earcut.d.ts"]
     },

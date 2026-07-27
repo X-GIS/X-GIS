@@ -15,7 +15,6 @@ export default defineConfig({
       'rhi-webgpu/src/**/*.test.ts',
       'data/src/**/*.test.ts',
       'map/src/**/*.test.ts',
-      'runtime/src/**/*.test.ts',
       'pipeline/src/**/*.test.ts',
       // Dev-tooling + demo-logic unit tests (the NOAA CORS proxy; the S-111 model
       // registry). The CI matrix shards vitest by package path arg (none cover
@@ -26,7 +25,7 @@ export default defineConfig({
     ],
     // shader-dsl projections are host-injected (configureProjections); configure
     // once before any suite touches the projection emit / cpu-projection path.
-    setupFiles: ['./runtime/src/test-setup-projections.ts'],
+    setupFiles: ['./vitest.setup.ts'],
     // Several real-data tests (tile-cross-path-invariants /
     // tile-pitch-throughput / tile-real-data-coverage) load the
     // 250-feature Natural Earth `countries.geojson` and run the full

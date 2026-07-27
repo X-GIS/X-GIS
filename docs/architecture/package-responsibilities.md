@@ -31,24 +31,26 @@ style → lex → parse → IR (lower / optimize)
 > `emitModule`/`emitExpr` or produce any WGSL/GLSL string. Two modules generating shader code = the
 > duplicate / wheel-reinvention / SRP break this charter exists to forbid (ruling **b**, **f**; §5).
 
-The internal dependency DAG is strictly **acyclic** with two leaves — `@xgis/shared`
-(WGS84/ECEF math) and `@xgis/shader-dsl` (zero-dependency shader-authoring framework):
+The internal dependency DAG is strictly **acyclic**, with `@xgis/shared`, `@xgis/shader-dsl`
+and `@xgis/rhi` as leaves. `@xgis/map` sits at the top: it is both the composition root and
+the monorepo's one PUBLISHED package (the former `@xgis/runtime` barrel was dissolved into it
+on 2026-07-27).
 
 ```
-                 @xgis/runtime          (top: WebGPU/WebGL2 render engine)
-                /      |       \
-   @xgis/compiler   @xgis/shared   @xgis/shader-dsl
-        |    \________/   |____________/
-   @xgis/shared        (leaves: no internal deps)
-        + @mapbox/vector-tile, pbf
-
-   @xgis/compiler ──▶ @xgis/shader-dsl  (acyclic; now wired — see §5)
+        shared ── geo ─┐         shader-dsl        rhi
+          │            │             │              │
+          └──▶ compiler ◀────────────┘              │
+                  │                                 │
+                  ▼                     engine ◀────┤
+                 data                      ▲        │
+                  │                        │   rhi-webgpu / rhi-webgl2
+                  └──────────▶  map  ◀─────┴────────┘
 ```
 
-`@xgis/compiler` depends on `@xgis/shared` and `@xgis/shader-dsl` (+ `@mapbox/vector-tile`, `pbf`).
-`@xgis/runtime` sits at the top and depends on all three. The `@xgis/compiler ──▶
-@xgis/shader-dsl` edge is now present (shader-dsl is zero-dep and runtime already imports it,
-so it is acyclic); adding it retired the bulk of the duplication tracked in §5.
+`@xgis/compiler` depends on `@xgis/shared`, `@xgis/geo`-free `@xgis/shader-dsl` and `@xgis/rhi`
+(+ `@mapbox/vector-tile`, `pbf`). The full edge list is not prose — it is pinned in
+`engine/src/dependency-direction-ratchet.test.ts`, which fails CI on any new cross-package
+import outside the allowed set; read that file when this diagram and the code disagree.
 
 ---
 
@@ -78,7 +80,7 @@ so it is acyclic); adding it retired the bulk of the duplication tracked in §5.
   It is a framework that authors shaders once and emits to many backends — it carries **zero**
   X-GIS-specific graph.
 
-### `@xgis/runtime` — the WebGPU/WebGL2 render engine
+### `@xgis/map` — the WebGPU/WebGL2 renderer + composition root
 
 - **OWNS:** Everything that touches the GPU and the live map — device lifecycle, the camera +
   8 projection surfaces (CPU mirror), the renderer/pass chain, the tile data layer
@@ -132,7 +134,7 @@ so it is acyclic); adding it retired the bulk of the duplication tracked in §5.
 | **core/passes/lint**                                                            | Lint engine (registry + shared traversal, ~20 rules)                    | transform IR (read-only)                                                                        |
 | **core/passes** (validate / required-caps / match-lower / single-exit / inline) | Pre-emit transforms/gates                                               | spell/emit (→ backends); run after emit                                                         |
 
-### 3c. `@xgis/runtime`
+### 3c. `@xgis/map`
 
 | module                     | owns                                                                                                               | must NOT do                                                                                                                                                |
 | -------------------------- | ------------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -161,11 +163,11 @@ so it is acyclic); adding it retired the bulk of the duplication tracked in §5.
 | **b** | WGSL/GLSL string emission                                     | **`@xgis/shader-dsl/core/emit` + `core/backends/*` own all emission;** consumers receive strings, never spell them.                                                                                                                                  | Control flow is spelled once over a neutral walk; any per-package `emitExpr` re-implementation re-introduces the divergence the DSL exists to kill.                                                                                                                                     |
 | **c** | The shader optimizer (cse/autoVars/optimize)                  | **`@xgis/shader-dsl/core/passes/opt` owns it;** it runs inside backend emit, gated by the real-GPU parity test.                                                                                                                                      | Optimization is IR→IR machinery, not application logic.                                                                                                                                                                                                                                 |
 | **d** | The intrinsic registry (per-target spelling SoT)              | **`@xgis/shader-dsl/core/intrinsics.ts` owns it;** a divergent builtin is ONE entry, never a hardcoded per-writer name.                                                                                                                              | Single spelling SoT prevents `call`/`select` drift.                                                                                                                                                                                                                                     |
-| **e** | Shader **authoring** (the polygon/heatmap/raster/text graphs) | **`@xgis/runtime/engine/shaders/dsl` owns it.**                                                                                                                                                                                                      | The framework is content-free; the graphs are X-GIS domain content and belong to the renderer that runs them.                                                                                                                                                                           |
+| **e** | Shader **authoring** (the polygon/heatmap/raster/text graphs) | **`@xgis/map`'s `src/shaders/dsl` owns it.**                                                                                                                                                                                                         | The framework is content-free; the graphs are X-GIS domain content and belong to the renderer that runs them.                                                                                                                                                                           |
 | **f** | GPU compute-kernel generation for the tiler                   | **`@xgis/compiler/codegen` owns _which_ kernels (selection) and builds the `@xgis/shader-dsl` IR; it must NOT emit the WGSL/GLSL — it returns the IR, and `@xgis/shader-dsl` emits the backend shader at RUNTIME** when the device backend is known. | Kernel _selection_ is a compile-time decision (compiler); kernel _spelling/emission_ is shader-dsl's, and it is backend-specific so it cannot happen until the runtime picks WebGPU vs WebGL2. A compiler `emitModule()` call bakes a compile-time WGSL string and is a violation (§5). |
-| **i** | **Backend (WebGPU/WebGL2) selection**                         | **`@xgis/runtime` decides the backend at device-init (RUNTIME).** No compile-time artifact may be backend-specific; everything crossing the compile boundary is backend-NEUTRAL (shader-dsl IR, typed data).                                         | One compiled style must drive _either_ backend (and survive a device-loss fallback). Compile-time WGSL emission forecloses WebGL2 and breaks single-responsibility.                                                                                                                     |
+| **i** | **Backend (WebGPU/WebGL2) selection**                         | **`@xgis/map` decides the backend at device-init (RUNTIME).** No compile-time artifact may be backend-specific; everything crossing the compile boundary is backend-NEUTRAL (shader-dsl IR, typed data).                                             | One compiled style must drive _either_ backend (and survive a device-loss fallback). Compile-time WGSL emission forecloses WebGL2 and breaks single-responsibility.                                                                                                                     |
 | **g** | Mapbox-expression / color parsing & CPU eval                  | **`@xgis/compiler` owns it: `eval/` (expressions), `tokens/` (color), `spec/` (semantics).**                                                                                                                                                         | Deterministic, GPU-free, style-semantic concerns — the compiler's core competency. `colorHexToRGBA` belongs to `tokens/`.                                                                                                                                                               |
-| **h** | Tiling / geometry (clip/simplify/tessellate/pack)             | **`@xgis/compiler/tiler` owns the vertex-format byte-contract SoT + CPU dequant mirror; `@xgis/runtime` consumes `CompiledTile`.**                                                                                                                   | Tiling is GPU-free data compilation (compiler); runtime layouts must stay byte-identical, never fork.                                                                                                                                                                                   |
+| **h** | Tiling / geometry (clip/simplify/tessellate/pack)             | **`@xgis/compiler/tiler` owns the vertex-format byte-contract SoT + CPU dequant mirror; `@xgis/map` consumes `CompiledTile`.**                                                                                                                       | Tiling is GPU-free data compilation (compiler); runtime layouts must stay byte-identical, never fork.                                                                                                                                                                                   |
 
 ---
 

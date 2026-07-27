@@ -41,7 +41,7 @@ const playUrl = import.meta.env.DEV
       <p class="text-[14px] leading-[1.6] text-fg-dim mb-3 max-w-[720px]">
         Two workspace packages. The compiler turns <code class="font-mono text-fg">.xgis</code> source into IR + WGSL; the runtime mounts on a <code class="font-mono text-fg">&lt;canvas&gt;</code> and renders.
       </p>
-      <Code lang="bash" code={`bun add @xgis/compiler @xgis/runtime
+      <Code lang="bash" code={`bun add @xgis/compiler @xgis/map
 # or npm / pnpm / yarn — works the same`} />
       <Callout type="note">
         WebGPU is required — there is no Canvas&nbsp;2D fallback. When no
@@ -91,7 +91,7 @@ source world {
       <p class="text-[14px] leading-[1.6] text-fg-dim mb-3 max-w-[720px]">
         Two-line JS — <code class="font-mono text-fg">new XGISMap(canvas)</code> then <code class="font-mono text-fg">map.run(source, baseUrl)</code>. The compiler runs in the browser; the runtime owns the WebGPU context.
       </p>
-      <Code lang="js" title="main.js" code={`import { XGISMap } from '@xgis/runtime'
+      <Code lang="js" title="main.js" code={`import { XGISMap } from '@xgis/map'
 import source from './map.xgis?raw'
 
 const canvas = document.getElementById('map')

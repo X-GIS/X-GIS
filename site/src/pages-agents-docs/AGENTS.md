@@ -34,7 +34,7 @@ Route-mapped Astro pages that define the site's URL structure. Top-level pages c
 - Every new top-level page must use `<Base>` (with manual `<Header>`/`<Footer>`) as its root layout; the `<Docs>` layout belongs to `docs/` only.
 - `examples.astro` uses an inline `<script is:inline>` to swap `__PG_HOST__` placeholders at runtime — do not remove it; dev access from a LAN IP depends on it.
 - `convert.astro` and `blueprint.astro` use regular Astro `<script>` (not `is:inline`, not `define:vars`) so Vite can resolve `@xgis/compiler` and `@xgis/blueprint` as bare workspace specifiers; that distinction is load-bearing.
-- `blueprint.astro` dynamically imports `@xgis/runtime` on first render to code-split the heavy WebGPU bundle out of the initial page load.
+- `blueprint.astro` dynamically imports `@xgis/map` on first render to code-split the heavy WebGPU bundle out of the initial page load.
 - Gallery card thumbnails are captured by `playground/e2e/_capture-thumbnails.spec.ts` and land in `site/public/thumbnails/<runId>.jpg`; the base-path prefix is applied automatically via the `${base}/thumbnails` constant.
 - Always use `const base = import.meta.env.BASE_URL.replace(/\/+$/, '')` when constructing internal URLs — hardcoded `/` paths break under the `/X-GIS` GH Pages base path.
 
@@ -59,7 +59,7 @@ Route-mapped Astro pages that define the site's URL structure. Top-level pages c
 - `src/content/gallery-demos.ts` — `galleryCategories`, `featuredDemos`, `runIdOf`
 - `@xgis/compiler` — `convertMapboxStyle`, `Lexer`, `Parser`
 - `@xgis/blueprint` — `BlueprintEditor`, `graphToXgis`, `importText`, `styleToGraph`, `starterGraph`
-- `@xgis/runtime` — `XGISMap` (dynamically imported in blueprint live preview)
+- `@xgis/map` — `XGISMap` (dynamically imported in blueprint live preview)
 
 ### External
 

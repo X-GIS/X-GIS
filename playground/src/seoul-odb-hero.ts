@@ -7,7 +7,7 @@
 // per 자치구 → join to 시군구 centroids → bubbles) to a declarative
 // `source { type: "x-seoul-odb" }`. Nothing here touches the raw CSV.
 
-import { XGISMap } from '@xgis/runtime'
+import { XGISMap } from '@xgis/map'
 import { seoulSigunguGazetteer, odbLoader } from '@xgis/pipeline'
 
 const STYLE = `

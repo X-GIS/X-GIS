@@ -5,7 +5,7 @@
 
 ## Purpose
 
-Standalone HTML embedding examples that demonstrate X-GIS usage in a plain browser context, outside the Monaco IDE and Vite playground app. Each file is a self-contained page that imports `XGISMap` from `@xgis/runtime`, renders an inline `.xgis` source program via `map.run()`, and loads GeoJSON assets from `../data/`. They serve as minimal-boilerplate reference implementations for documentation authors and as an independent test of the imperative `XGISMap` API path (distinct from the custom-element path exercised by the demo runner).
+Standalone HTML embedding examples that demonstrate X-GIS usage in a plain browser context, outside the Monaco IDE and Vite playground app. Each file is a self-contained page that imports `XGISMap` from `@xgis/map`, renders an inline `.xgis` source program via `map.run()`, and loads GeoJSON assets from `../data/`. They serve as minimal-boilerplate reference implementations for documentation authors and as an independent test of the imperative `XGISMap` API path (distinct from the custom-element path exercised by the demo runner).
 
 ## Key Files
 
@@ -34,7 +34,7 @@ Standalone HTML embedding examples that demonstrate X-GIS usage in a plain brows
 
 ### Working In This Directory
 
-- The actual runtime import is `import { XGISMap } from '@xgis/runtime'`; there is no `registerXGISElement` call in any current example. Vite resolves the workspace package in dev.
+- The actual runtime import is `import { XGISMap } from '@xgis/map'`; there is no `registerXGISElement` call in any current example. Vite resolves the workspace package in dev.
 - The standard bootstrap is: `new XGISMap(canvas)` → `map.showInspector()` → `map.run(srcString, '../data/')`. `map.run()` returns a Promise; always attach `.catch()` to show the `#error` overlay.
 - For inline GeoJSON sources (no `url:` in the `.xgis` program), call `map.setSourceData(sourceName, featureCollection)` inside the `.then()` callback after `map.run()` resolves — not before.
 - Do not add Vite-specific syntax (`import.meta.*`, JSX) — these are plain HTML with `<script type="module">`.
@@ -56,7 +56,7 @@ Standalone HTML embedding examples that demonstrate X-GIS usage in a plain brows
 
 ### Internal
 
-- `@xgis/runtime` — `XGISMap` (imperative API: `run`, `setSourceData`, `showInspector`)
+- `@xgis/map` — `XGISMap` (imperative API: `run`, `setSourceData`, `showInspector`)
 - `../data/*.geojson` — GeoJSON data assets served from `playground/public/data/`
 
 ### External

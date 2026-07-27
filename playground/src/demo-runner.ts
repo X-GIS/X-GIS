@@ -4,7 +4,7 @@ import * as monaco from 'monaco-editor'
 import editorWorker from 'monaco-editor/esm/vs/editor/editor.worker?worker'
 import tsWorker from 'monaco-editor/esm/vs/language/typescript/ts.worker?worker'
 
-import { XGISMap, lonLatToMercator, Marker, Popup } from '@xgis/runtime'
+import { XGISMap, lonLatToMercator, Marker, Popup } from '@xgis/map'
 import { haversineDistance } from '@xgis/compiler'
 import { SCENE_BUILDER_TWINS } from '@xgis/compiler/builder/twin-corpus'
 // Raw text of the SAME module — the JS tab (#1194 A3b) extracts each twin's
