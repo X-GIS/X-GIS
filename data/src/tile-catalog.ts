@@ -90,6 +90,9 @@ export class TileCatalog {
    *  different slot than the stale data sits in), and a stale slice nobody overwrites keeps
    *  drawing the feature at its old position. */
   private _pendingRefresh = new Set<number>()
+  /** #1402 — re-seed keys not yet ISSUED, because `requestTiles` breaks at the concurrency cap.
+   *  Drained until empty; without it every tile past the cap kept the previous backend's data. */
+  private _refreshQueue = new Set<number>()
 
   /** Ordered list of attached backends. Multi-backend dispatch is
    *  first-attached-wins for ambiguous (z, x, y) — users wanting
@@ -235,6 +238,7 @@ export class TileCatalog {
       },
       releaseLoading: (key) => {
         this.loadingTiles.delete(key)
+        this.drainRefreshQueue() // #1402 — a freed slot is when more of a re-seed can be issued
       },
       getLoadingCount: () => this.loadingTiles.size,
       acceptResult: (key, result, sourceLayer) =>
@@ -1017,13 +1021,38 @@ export class TileCatalog {
     return out
   }
 
+  /** #1402 — put a key BACK in the replaced set. `consumeReplacedKeys` drains, so a consumer
+   *  whose swap did not land (an upload that bailed on arena OOM) has no other way to be asked
+   *  again, and the tile would keep drawing the previous backend's data forever. */
+  markReplaced(key: number): void {
+    if (this.cache.has(key)) this._replacedKeys.add(key)
+  }
+
   /** #1371 — re-request `keys` even when they are already cached, so a source whose BACKEND
    *  was swapped (a host data push) re-tiles the keys it is currently showing. `requestTiles`
-   *  deliberately skips a cached key; this is the one caller that must not. The in-flight guard
-   *  still applies — a key already loading is not requested twice. */
+   *  deliberately skips a cached key; this is the one caller that must not.
+   *
+   *  #1402 — QUEUED, not issued once: `requestTiles` stops at the concurrency cap, so a one-shot
+   *  refresh of a 19-tile viewport re-tiled the first 8 and left the rest drawing the previous
+   *  backend's data forever (nothing else ever re-requests a cached key). */
   refreshTiles(keys: number[]): void {
-    for (const k of keys) if (this.cache.has(k)) this._pendingRefresh.add(k)
+    for (const k of keys) this._refreshQueue.add(k)
     this.requestTiles(keys, true)
+  }
+
+  /** #1402 — issue as much of the pending re-seed as the cap allows, on load COMPLETION rather
+   *  than on the next frame: at 1-2 s/frame a frame-driven drain covered a different number of
+   *  tiles every run, and covered none at all once the map went idle. The re-entrancy guard is
+   *  for a synchronous backend, whose `loadTile` releases inside this very call. */
+  private _draining = false
+  private drainRefreshQueue(): void {
+    if (this._draining || this._refreshQueue.size === 0) return
+    this._draining = true
+    try {
+      this.requestTiles(EMPTY_KEYS)
+    } finally {
+      this._draining = false
+    }
   }
 
   requestTiles(keys: number[], refreshCached = false): void {
@@ -1034,9 +1063,22 @@ export class TileCatalog {
     const batches = new Map<TileSource, number[]>()
 
     const _maxConcurrent = maxConcurrentLoads()
-    for (const key of keys) {
-      if ((this.cache.has(key) && !refreshCached) || this.loadingTiles.has(key)) continue
+    // #1402 — pending re-seed keys go FIRST (they are on screen NOW showing the previous
+    // backend's data), de-duped against `keys` because a key issued earlier in this same loop no
+    // longer looks in-flight to a synchronous backend and would load twice.
+    const pending =
+      this._refreshQueue.size > 0 ? [...new Set([...this._refreshQueue, ...keys])] : keys
+    for (const key of pending) {
+      // A queued key carries its own refresh intent, so a plain selection call re-tiles it too.
+      // `_pendingRefresh` is armed HERE, not in `refreshTiles`: a key still loading then is
+      // cached by the time its retry issues, and arming early would miss exactly those.
+      const refresh = refreshCached || this._refreshQueue.has(key)
+      if ((this.cache.has(key) && !refresh) || this.loadingTiles.has(key)) continue
       if (this.loadingTiles.size >= _maxConcurrent) break
+      if (refresh) {
+        if (this.cache.has(key)) this._pendingRefresh.add(key)
+        this._refreshQueue.delete(key)
+      }
 
       // Preregistered entries (XGVT-binary) route through entryToBackend.
       const owner = this.entryToBackend.get(key)
@@ -1056,7 +1098,7 @@ export class TileCatalog {
           }
           batch.push(key)
         } else {
-          owner.loadTile(key, refreshCached)
+          owner.loadTile(key, refresh)
         }
         continue
       }
@@ -1069,7 +1111,7 @@ export class TileCatalog {
         if (backend.compileSync) {
           if (this.tryCompileSync(key, backend)) break
         } else {
-          backend.loadTile(key, refreshCached)
+          backend.loadTile(key, refresh)
           break
         }
       }
