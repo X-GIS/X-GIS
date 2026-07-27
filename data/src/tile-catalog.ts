@@ -136,6 +136,9 @@ export class TileCatalog {
    *  a retry loop — and the catalog it captures — alive forever. */
   private _skeletonPrewarm: SkeletonPrewarmHandle | null = null
 
+  /** Owner-registered teardown callbacks — see {@link onDestroy}. */
+  private readonly _onDestroy: Array<() => void> = []
+
   /** Internal: set a slice via the TileDataCache (byte accounting +
    *  nested-map insert). Thin delegate — kept as a method so the
    *  test escape-hatch (`(catalog as …).setSlice.bind(catalog)` in
@@ -906,6 +909,18 @@ export class TileCatalog {
   destroy(): void {
     this._skeletonPrewarm?.stop()
     this._skeletonPrewarm = null
+    // Owner-registered teardown, drained so a repeated destroy() is a no-op.
+    for (const fn of this._onDestroy.splice(0)) fn()
+  }
+
+  /** Register a teardown callback keyed to this catalog's lifetime. The
+   *  catalog's OWNER uses it to release process-global state it allocated
+   *  on the catalog's behalf but that the catalog knows nothing about —
+   *  today SourceManager's per-map GeoJSON tiling-worker index (#1353),
+   *  which outlives the map otherwise. Callbacks run once, in registration
+   *  order, at the end of {@link destroy}. */
+  onDestroy(fn: () => void): void {
+    this._onDestroy.push(fn)
   }
 
   /** Update the fetch-queue priority comparator on every backend that

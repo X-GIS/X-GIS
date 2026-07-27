@@ -57,6 +57,19 @@ export interface GlyphAtlasHostOptions {
   sdfRadius: number
 }
 
+/** #1368 — LRU cap for the three string-keyed memos in `GlyphAtlasHost`
+ *  (`stringInfoCache`, `preloadedAtGen`, `hasAllGlyphsAtGen`). They are keyed
+ *  by LABEL TEXT, so an unbounded map grows one entry per distinct label the
+ *  map has ever shaped and never releases it — measured at ~1.2 KB per
+ *  distinct text across the three, dead linear (20 k texts ≈ +23 MB).
+ *
+ *  4096 matches the other per-label caches in this subsystem
+ *  (`TextStage.LAYOUT_CACHE_MAX`, `LabelFeatureSource.LINE_LABEL_RUNS_CACHE_MAX`):
+ *  they are keyed at the same per-label granularity and sized for the same
+ *  thing — one label-dense frame's distinct-text working set — so a cap that
+ *  keeps those hitting keeps these hitting. Bounds all three at ~5 MB total. */
+export const GLYPH_STRING_MEMO_MAX = 4096
+
 interface CachedMetrics {
   advanceWidth: number
   bearingX: number
@@ -103,7 +116,10 @@ export class GlyphAtlasHost {
    *  and re-caches.
    *
    *  Cached array is shared by reference; callers must treat it
-   *  read-only (matches the existing infoCache contract). */
+   *  read-only (matches the existing infoCache contract). That is also
+   *  what makes LRU eviction safe: dropping the entry only forgets the
+   *  memo — a caller still holding the array keeps a valid (read-only)
+   *  array, and the next call rebuilds one. */
   private readonly stringInfoCache = new Map<string, { info: GlyphInfo[]; generation: number }>()
   /** iter-#10 Phase A slice 4 (across-frame drag p95). Per-string
    *  validation memo for `preloadString` + `hasAllGlyphs`. Both
@@ -121,9 +137,12 @@ export class GlyphAtlasHost {
    *  atlas state for this exact (fontKey, text) is identical to the
    *  state at validation time and can skip the codepoint loop.
    *
-   *  Cache is implicitly invalidated by generation bump (any slot
-   *  eviction triggers it). No explicit clear needed; stale entries
-   *  miss the generation guard and re-validate. */
+   *  A generation bump implicitly invalidates every entry for
+   *  CORRECTNESS: a stale entry misses the guard and re-validates.
+   *  It does NOT reclaim memory (#1368) — a miss overwrites only its
+   *  OWN key and never touches the other stale keys, so the map grew
+   *  one entry per distinct label text for the life of the map. The
+   *  GLYPH_STRING_MEMO_MAX LRU below is what bounds it. */
   private readonly preloadedAtGen = new Map<string, number>()
   private readonly hasAllGlyphsAtGen = new Map<string, number>()
   /** Newly rasterised glyphs awaiting GPU upload. Drained by
@@ -314,7 +333,13 @@ export class GlyphAtlasHost {
     // cjkBucket is part of the memo key: a zoom that re-buckets the CJK
     // glyphs is a different atlas working set and MUST re-admit.
     const memoKey = fontKey + '|' + cjkBucket + '|' + text
-    if (this.preloadedAtGen.get(memoKey) === this._generation) return
+    if (this.preloadedAtGen.get(memoKey) === this._generation) {
+      // LRU touch (#1368) — Map preserves insertion order, so
+      // delete + set moves the entry to the tail.
+      this.preloadedAtGen.delete(memoKey)
+      this.preloadedAtGen.set(memoKey, this._generation)
+      return
+    }
     const len = text.length
     let i = 0
     while (i < len) {
@@ -326,6 +351,11 @@ export class GlyphAtlasHost {
     // during the loop bumps `_generation`; storing the latest value
     // keeps the next call's guard accurate. Mirrors the post-loop
     // generation read in `ensureString` (line ~337).
+    // LRU cap (#1368) — drop the oldest entry before admitting a new one.
+    if (this.preloadedAtGen.size >= GLYPH_STRING_MEMO_MAX) {
+      const oldest = this.preloadedAtGen.keys().next().value
+      if (oldest !== undefined) this.preloadedAtGen.delete(oldest)
+    }
     this.preloadedAtGen.set(memoKey, this._generation)
   }
 
@@ -348,7 +378,12 @@ export class GlyphAtlasHost {
     // cannot have shed any of those entries since (eviction bumps
     // generation, invalidating the memo). Skip the per-codepoint loop.
     const memoKey = fontKey + '|' + cjkBucket + '|' + text
-    if (this.hasAllGlyphsAtGen.get(memoKey) === this._generation) return true
+    if (this.hasAllGlyphsAtGen.get(memoKey) === this._generation) {
+      // LRU touch (#1368).
+      this.hasAllGlyphsAtGen.delete(memoKey)
+      this.hasAllGlyphsAtGen.set(memoKey, this._generation)
+      return true
+    }
     const len = text.length
     let i = 0
     while (i < len) {
@@ -365,6 +400,11 @@ export class GlyphAtlasHost {
     // positive branch — a negative result is a transient overflow
     // condition (label dropped this frame); the next call should
     // re-check from scratch.
+    // LRU cap (#1368) — drop the oldest entry before admitting a new one.
+    if (this.hasAllGlyphsAtGen.size >= GLYPH_STRING_MEMO_MAX) {
+      const oldest = this.hasAllGlyphsAtGen.keys().next().value
+      if (oldest !== undefined) this.hasAllGlyphsAtGen.delete(oldest)
+    }
     this.hasAllGlyphsAtGen.set(memoKey, this._generation)
     return true
   }
@@ -392,6 +432,9 @@ export class GlyphAtlasHost {
     const cacheKey = fontKey + '|' + cjkBucket + '|' + text
     const cached = this.stringInfoCache.get(cacheKey)
     if (cached !== undefined && cached.generation === this._generation) {
+      // LRU touch (#1368).
+      this.stringInfoCache.delete(cacheKey)
+      this.stringInfoCache.set(cacheKey, cached)
       return cached.info
     }
     const out: GlyphInfo[] = []
@@ -410,6 +453,11 @@ export class GlyphAtlasHost {
     // from caching with the START-of-frame generation while later
     // labels in the same frame evicted referenced slots — iter-190's
     // monotonic counter + post-loop read prevents that.
+    // LRU cap (#1368) — drop the oldest entry before admitting a new one.
+    if (this.stringInfoCache.size >= GLYPH_STRING_MEMO_MAX) {
+      const oldest = this.stringInfoCache.keys().next().value
+      if (oldest !== undefined) this.stringInfoCache.delete(oldest)
+    }
     this.stringInfoCache.set(cacheKey, { info: out, generation: this._generation })
     return out
   }

@@ -59,6 +59,54 @@ export { detectVectorTileFormat, resolveDispatch } from './vector-tile-loader-he
  *  console — important when 100+ tiles share an upstream blip. */
 const tileFetchLogThrottle = new Map<string, number>()
 const TILE_FETCH_LOG_INTERVAL_MS = 60_000
+// Hard size cap for the log throttle. Keys are URL PATTERNS, so a healthy
+// scene needs only a handful — but one entry per distinct pattern still
+// accumulates for the page lifetime across many sources. Entries are
+// useless once older than TILE_FETCH_LOG_INTERVAL_MS (they can no longer
+// suppress anything); this is a backstop for a flood of distinct patterns
+// failing inside a single window.
+const LOG_THROTTLE_MAX_ENTRIES = 256
+
+/** Collapse a substituted tile URL back to its template shape, so every
+ *  (z, x, y) of one source shares a single throttle key. The path form
+ *  `/z/x/y` is folded to `/{z}/{x}/{y}`; a query-param template
+ *  (`?z=5&x=1&y=2`) has no such run, so digit runs in the query string are
+ *  folded too — without that every tile kept its full URL as its own key
+ *  and the throttle emitted one warn per failing tile. */
+function tileFetchLogKey(url: string): string {
+  const q = url.indexOf('?')
+  const path = (q < 0 ? url : url.slice(0, q)).replace(/\/\d+\/\d+\/\d+/, '/{z}/{x}/{y}')
+  return q < 0 ? path : path + url.slice(q).replace(/\d+/g, '{n}')
+}
+
+/** Record `key` as last-warned at `now`. Lazily sweeps entries whose
+ *  throttle window has already elapsed (they can never suppress another
+ *  warn), then enforces a hard size cap with FIFO eviction (Map preserves
+ *  insertion order → the oldest keys are dropped first) so the throttle
+ *  can't grow unbounded across distinct URL patterns. */
+function logThrottleSet(key: string, now: number): void {
+  for (const [k, at] of tileFetchLogThrottle) {
+    if (now - at > TILE_FETCH_LOG_INTERVAL_MS) tileFetchLogThrottle.delete(k)
+  }
+  tileFetchLogThrottle.set(key, now)
+  while (tileFetchLogThrottle.size > LOG_THROTTLE_MAX_ENTRIES) {
+    const oldest = tileFetchLogThrottle.keys().next().value
+    if (oldest === undefined) break
+    tileFetchLogThrottle.delete(oldest)
+  }
+}
+
+/** Test-only accessor for the module-private log-throttle size. Lets the
+ *  bound be asserted directly after driving the public fetch path. */
+export function __tileFetchLogThrottleSizeForTest(): number {
+  return tileFetchLogThrottle.size
+}
+
+/** Test-only reset of the module-private log throttle so suites don't
+ *  bleed entries into one another (the throttle is process-wide). */
+export function __resetTileFetchLogThrottleForTest(): void {
+  tileFetchLogThrottle.clear()
+}
 
 /** Negative cache for individual tile URLs that exhausted retry. The
  *  TTL covers short-to-medium outages while still giving the upstream
@@ -206,10 +254,10 @@ async function fetchTileWithRetry(
   }
   const now = Date.now()
   negativeCacheSet(url, now)
-  const urlKey = url.replace(/\/\d+\/\d+\/\d+/, '/{z}/{x}/{y}')
+  const urlKey = tileFetchLogKey(url)
   const lastLogged = tileFetchLogThrottle.get(urlKey) ?? 0
   if (now - lastLogged > TILE_FETCH_LOG_INTERVAL_MS) {
-    tileFetchLogThrottle.set(urlKey, now)
+    logThrottleSet(urlKey, now)
     xlog.warn(
       `[X-GIS] ${tileLabel} fetch failed after ${backoffsMs.length + 1} attempts ` +
         `(${lastErr?.message ?? 'unknown error'}). ` +

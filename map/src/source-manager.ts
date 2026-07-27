@@ -578,6 +578,7 @@ export class SourceManager {
       strokeColorExprs: maps.strokeColorExprsBySource.get(vtKey),
     })
     source.attachBackend(backend)
+    this._dropTilingIndexWithCatalog(source, vtKey)
 
     // Camera fit from the data's bounds. Same heuristic the legacy
     // compile callback uses; the bounds come from a sync walk
@@ -703,6 +704,7 @@ export class SourceManager {
       strokeColorExprs: maps.strokeColorExprsBySource.get(sourceName),
     })
     source.attachBackend(backend)
+    this._dropTilingIndexWithCatalog(source, sourceName)
 
     // A7 — staleness was already ruled out at entry (no await since), so the
     // dead-device catalog + shared-map writes below cannot leak into a winner.
@@ -746,6 +748,26 @@ export class SourceManager {
         })
       }
     }
+  }
+
+  /** Bind the tiling-worker index the just-attached backend built for
+   *  `sourceName` to the lifetime of the catalog that serves it (#1353). The
+   *  worker is a process-global singleton that retains every index handed to
+   *  it, so otherwise each SPA mount/destroy cycle leaks one GeoJSONVT index
+   *  per source for the page's lifetime. `XGISMap.teardownSource` destroys the
+   *  catalog of every registered vt source, reached from both `destroy()` and
+   *  `_teardownForReinit` — exactly the lifetime we want.
+   *
+   *  Evicting is safe on the SHARED worker because the key is namespaced
+   *  `${instanceId}::${sourceName}` with THIS map's id, so a sibling map's index
+   *  is a different key. That is why this differs from the neighbouring decision
+   *  NOT to terminate the shared worker pools in `XGISMap.destroy()`: termination
+   *  is global and would break a sibling, dropping our own namespaced key cannot.
+   *  Lives here rather than in the backend because SourceManager owns
+   *  `_tilingInstanceId` and issues the only other eviction (`setSourceData`) —
+   *  one authority for when a key dies. */
+  private _dropTilingIndexWithCatalog(source: TileCatalog, sourceName: string): void {
+    source.onDestroy(() => tilingPool.dropSource(this._tilingInstanceId, sourceName))
   }
 
   /** Full-replace push for a GeoJSON source.

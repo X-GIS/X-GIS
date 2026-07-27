@@ -27,7 +27,7 @@ const MAX_GPU_TILES_DESKTOP = 256
 const MAX_GPU_TILES_MOBILE = 64
 export function getMaxGpuTiles(): number {
   const w = (typeof window !== 'undefined' ? window.innerWidth : 0) || 0
-  return w > 0 && w <= 900 ? MAX_GPU_TILES_MOBILE : MAX_GPU_TILES_DESKTOP
+  return isMobileClassViewport(w) ? MAX_GPU_TILES_MOBILE : MAX_GPU_TILES_DESKTOP
 }
 /** Byte-pressure hysteresis band for the polygon arenas. Eviction is
  *  triggered on UNIQUE-TILE-COUNT (getMaxGpuTiles), but the arena hard
