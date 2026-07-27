@@ -106,11 +106,10 @@ def write_s102_shape(g, nlat, nlon, origin_lon, origin_lat, d_lon, d_lat,
     grp.create_dataset("values", data=vals, **kw)
 
     # Group_F — the band metadata carrier; fillValue lives HERE (string form).
-    # FIXED-length HDF5 strings (S-strings), NOT vlen: fixed strings + compound are
-    # in the reader subset; vlen (class 9) is a hard error (neg_vlen). The real NOAA
-    # file uses vlen Group_F, so the reader errors loudly on it — its local gate
-    # reads GRID + geometry only (no Group_F). The committed synthetic corpus uses
-    # fixed strings so the fillValue is readable in-subset end-to-end.
+    # FIXED-length HDF5 strings (S-strings), matching real NOAA S-111. Real NOAA S-102
+    # writes this table as VLEN strings instead; the reader now decodes BOTH (the vlen
+    # bytes come from a global heap) — see gen_vlen_group_f for that fixture. A vlen
+    # GRID BAND remains a hard error (neg_vlen); only the string table accepts vlen.
     gf = g.create_group("Group_F")
     S = "S16"  # fits 'closedInterval' (14) / 'geSemiInterval' (14) / '1000000'
     fdt = np.dtype([("code", S), ("name", S), ("uom.name", S),
@@ -254,6 +253,38 @@ def gen_chunked_shuffle():
                          pad=True, chunks=(2, 2), shuffle=True, gzip=True)
     assert superblock_version(path) == 0
     golden_s102("chunked_shuffle", d, u, nlat, nlon, 0.0, 0.0, 1.0, 1.0)
+    return path
+
+
+# ═══ 3b. VLEN Group_F — the encoding real NOAA S-102 cells actually ship ════════
+# The rest of this corpus writes Group_F as FIXED strings, which is what real NOAA
+# S-111 uses. Real NOAA S-102 cells write it as VLEN strings (bytes in a global heap),
+# and the reader rejected those outright — so no real S-102 cell could be read at all.
+# This pins the vlen path in CI instead of leaving it to the gitignored local cell.
+# Grid values/geometry are identical to sb_v0_symtab so the goldens can be compared
+# band-for-band: only the Group_F string encoding differs.
+def gen_vlen_group_f():
+    path = os.path.join(OUT, "vlen_group_f.h5")
+    nlat, nlon = 3, 4
+    d = grid(nlat, nlon, base=10.0, step=2.0)
+    d[2, 3] = 1e6  # nodata, so the vlen-decoded fillValue is load-bearing
+    u = grid(nlat, nlon, base=0.25, step=0.05)
+    with h5py.File(path, "w", libver="earliest") as f:
+        s102_root_attrs(f)
+        write_s102_shape(f, nlat, nlon, 0.0, 0.0, 1.0, 1.0, d, u, fill=1e6)
+        # Rewrite Group_F with a VLEN-string compound (h5py special_dtype(vlen=str)).
+        del f["Group_F/BathymetryCoverage"]
+        S = h5py.special_dtype(vlen=str)
+        fdt = np.dtype([("code", S), ("name", S), ("uom.name", S),
+                        ("fillValue", S), ("datatype", S), ("lower", S),
+                        ("upper", S), ("closure", S)])
+        rows = np.array([
+            ("depth", "depth", "metres", "1000000", "H5T_FLOAT", "-14", "11050", "closedInterval"),
+            ("uncertainty", "uncertainty", "metres", "1000000", "H5T_FLOAT", "0", "", "geSemiInterval"),
+        ], dtype=fdt)
+        f["Group_F"].create_dataset("BathymetryCoverage", data=rows)
+    assert superblock_version(path) == 0
+    golden_s102("vlen_group_f", d, u, nlat, nlon, 0.0, 0.0, 1.0, 1.0)
     return path
 
 
@@ -435,7 +466,7 @@ def gen_noaa_local_golden():
 
 def main():
     made = []
-    for fn in (gen_sb_v0, gen_sb_v2, gen_chunked_shuffle, gen_sparse, gen_asym,
+    for fn in (gen_sb_v0, gen_sb_v2, gen_chunked_shuffle, gen_vlen_group_f, gen_sparse, gen_asym,
                gen_packed_compound, gen_s111, gen_neg_v3, gen_neg_fletcher32,
                gen_neg_vlen, gen_neg_bigendian, gen_neg_dense_attr):
         p = fn()

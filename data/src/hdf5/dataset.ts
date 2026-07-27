@@ -241,9 +241,64 @@ function readMember(
   throw new Hdf5Error(`cannot decode grid band of ${base.kind} datatype`)
 }
 
-/** Decode a compound of FIXED strings (Group_F band table) → rows of string
- *  fields. Used only by the S-102 metadata read; the grid path never hits it. */
-export function decodeStringTable(raw: Uint8Array, info: DatasetInfo): Record<string, string>[] {
+/** One vlen-string element's on-disk reference: length(4) + heap address(O) + index(4).
+ *  The bytes live in a global heap collection elsewhere in the file, so a decode has to
+ *  resolve the reference rather than read the element in place. */
+export interface VlenRef {
+  length: number
+  heapAddr: number
+  index: number
+}
+
+/** Parse the vlen reference at `raw[offset]`. `sizeOfOffsets` is the superblock's
+ *  address width (the `O` word), so the layout is 4 + O + 4 bytes. */
+function readVlenRef(raw: Uint8Array, offset: number, sizeOfOffsets: number): VlenRef {
+  const dv = new DataView(raw.buffer, raw.byteOffset + offset, 8 + sizeOfOffsets)
+  const length = dv.getUint32(0, true)
+  const heapAddr =
+    sizeOfOffsets === 8
+      ? dv.getUint32(8, true) * 0x1_0000_0000 + dv.getUint32(4, true)
+      : dv.getUint32(4, true)
+  const index = dv.getUint32(4 + sizeOfOffsets, true)
+  return { length, heapAddr, index }
+}
+
+/** Every distinct global-heap address a string table's vlen members reference — the
+ *  caller ensures these are resident before the synchronous decode below. */
+export function stringTableHeapAddrs(
+  raw: Uint8Array,
+  info: DatasetInfo,
+  sizeOfOffsets: number,
+): number[] {
+  const { datatype } = info
+  if (datatype.kind !== 'compound') return []
+  const addrs = new Set<number>()
+  const n = raw.length / datatype.size
+  for (let i = 0; i < n; i++)
+    for (const m of datatype.members)
+      if (m.type.kind === 'vlen') {
+        const ref = readVlenRef(raw, i * datatype.size + m.offset, sizeOfOffsets)
+        if (ref.length > 0) addrs.add(ref.heapAddr)
+      }
+  return [...addrs]
+}
+
+/** Decode a compound string table (the Group_F band table) → rows of string fields.
+ *
+ *  Both string encodings appear in the wild for the SAME table: the synthetic corpus
+ *  (and real NOAA S-111) use FIXED strings, while real NOAA S-102 cells ship VLEN ones,
+ *  whose bytes live in a global heap. `resolveVlen` reads a heap object; the caller
+ *  supplies it after ensuring the heaps are resident (`stringTableHeapAddrs`), which
+ *  keeps this function synchronous and transport-agnostic. Omit it and a vlen table
+ *  still fails loudly, exactly as before. */
+export function decodeStringTable(
+  raw: Uint8Array,
+  info: DatasetInfo,
+  opts?: {
+    sizeOfOffsets: number
+    resolveVlen: (ref: VlenRef) => Uint8Array
+  },
+): Record<string, string>[] {
   const { datatype } = info
   if (datatype.kind !== 'compound') throw new Hdf5Error('string table expected a compound datatype')
   const n = raw.length / datatype.size
@@ -251,10 +306,18 @@ export function decodeStringTable(raw: Uint8Array, info: DatasetInfo): Record<st
   for (let i = 0; i < n; i++) {
     const row: Record<string, string> = {}
     for (const m of datatype.members) {
-      if (m.type.kind !== 'string')
-        throw new Hdf5Error(`Group_F member "${m.name}" is ${m.type.kind}, expected fixed string`)
       const start = i * datatype.size + m.offset
-      row[m.name] = decodeFixedString(raw.subarray(start, start + m.type.size))
+      if (m.type.kind === 'string') {
+        row[m.name] = decodeFixedString(raw.subarray(start, start + m.type.size))
+      } else if (m.type.kind === 'vlen' && m.type.isString && opts) {
+        const ref = readVlenRef(raw, start, opts.sizeOfOffsets)
+        row[m.name] =
+          ref.length > 0 ? decodeFixedString(opts.resolveVlen(ref).subarray(0, ref.length)) : ''
+      } else {
+        throw new Hdf5Error(
+          `Group_F member "${m.name}" is ${m.type.kind}, expected a fixed or vlen string`,
+        )
+      }
     }
     rows.push(row)
   }

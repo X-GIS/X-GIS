@@ -18,16 +18,18 @@
 
 import { describe, it, expect } from 'vitest'
 import { existsSync, readFileSync } from 'node:fs'
-import { join, dirname } from 'node:path'
+import { isAbsolute, join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { readCoverageFromHdf5, readCoverageFromHdf5Url } from './coverage'
+import { openHdf5Url } from './index'
 import type { CoverageWindow } from './s102'
 
 const FIX = join(dirname(fileURLToPath(import.meta.url)), '__fixtures__')
 const CELL = 'chunked_shuffle.h5'
 
-function ab(name: string): ArrayBuffer {
-  const b = readFileSync(join(FIX, name))
+/** A fixture by name, or any file by absolute path (the local-only real cell). */
+function ab(nameOrPath: string): ArrayBuffer {
+  const b = readFileSync(isAbsolute(nameOrPath) ? nameOrPath : join(FIX, nameOrPath))
   return b.buffer.slice(b.byteOffset, b.byteOffset + b.byteLength)
 }
 
@@ -154,26 +156,53 @@ describe('bbox read window — over HTTP Range', () => {
 // the chunk b-tree (btree-v1.ts:17, NODE_WINDOW = 64 KB). Any cell smaller than roughly
 // that faults its entire tail in while merely reading the chunk index, so a windowed and
 // a whole read fetch identical byte totals — measured, not assumed: a purpose-built
-// 64×64 / 16-chunk fixture pulled 50 193 B both ways. Committing a fixture big enough to
+// 64×64 / 16-chunk fixture pulled 50,193 B both ways. Committing a fixture big enough to
 // clear the 64 KB window means committing ~½ MB of binary for one assertion.
-// So the saving is gated where it is real, on the local NOAA cell, following the
-// established local-differential pattern (no NOAA bytes committed).
+//
+// So the saving is gated on a real NOAA cell (local-only, no NOAA bytes committed) — a
+// 1663×2090 / 16 m Chesapeake cell, 4.0 MB, chunked (66,104). Gated at readBand level
+// rather than through `readCoverage`, because a real S-102 cell is PROJECTED (UTM) and
+// the coverage path refuses it (see vlen-group-f.test.ts); the byte transport being
+// measured sits below that guard either way.
+//
+// Measured, and the numbers are the point — the saving is REAL but block-size-bound:
+//   blockSize  64 KB, 10% window → 1,507,329 / 3,932,161 B = 61.7% saved (16 vs 53 reqs)
+//   blockSize 256 KB (default)   → 3,145,729 / 3,932,161 B = 20.0% saved (11 vs 14 reqs)
+// The 256 KB default Cursor block is coarse against a 4 MB cell: each touched chunk drags
+// a quarter-megabyte, diluting a selective read. A viewport-streaming caller should pass a
+// smaller `blockSize`. The assertion below is pinned at the DEFAULT block so it measures
+// what an unconfigured caller actually gets.
 const noaaFile = join(FIX, '..', '__local__', 'noaa-s102.h5')
+const GRID_PATH = 'BathymetryCoverage/BathymetryCoverage.01/Group_001/values'
 describe.skipIf(!existsSync(noaaFile))('bbox window — real NOAA S-102 cell (local-only)', () => {
-  it('a viewport window streams a fraction of the whole-cell bytes', async () => {
+  async function readCorner(
+    harness: ReturnType<typeof rangeHarness>,
+    blockSize: number,
+    region?: { start: number[]; count: number[] },
+  ): Promise<void> {
+    const f = await openHdf5Url('http://x/s102.h5', { fetch: harness.fetch, blockSize })
+    await f.readBand(GRID_PATH, 'depth', region)
+  }
+
+  it('a viewport window streams materially fewer bytes at the default block size', async () => {
     const whole = rangeHarness(noaaFile)
     const windowed = rangeHarness(noaaFile)
-    const full = await readCoverageFromHdf5Url('http://x/s102.h5', { fetch: whole.fetch })
-    // A ~1% window of the cell, taken around its own origin so this is cell-agnostic.
-    const [oLon, oLat] = full.meta.origin
-    const [dLon, dLat] = full.meta.spacing
-    const [nLon, nLat] = full.meta.size
-    const win = await readCoverageFromHdf5Url('http://x/s102.h5', {
-      fetch: windowed.fetch,
-      bbox: [oLon, oLat, oLon + dLon * (nLon / 10), oLat + dLat * (nLat / 10)],
-    })
-    expect(windowed.bytes()).toBeLessThan(whole.bytes() / 2)
-    expect(win.valueAt(oLon, oLat)).toBe(full.valueAt(oLon, oLat))
+    await readCorner(whole, 1 << 18)
+    // ~10% of each axis at the grid's SW corner (storage rows are south-first).
+    await readCorner(windowed, 1 << 18, { start: [0, 0], count: [209, 166] })
+    expect(windowed.bytes()).toBeLessThan(whole.bytes())
+    expect(windowed.bytes() / whole.bytes()).toBeLessThan(0.85) // measured 0.80
+  })
+
+  it('a smaller block size converts the selectivity into a much larger saving', async () => {
+    // Pins the finding above rather than leaving it in a comment: the same window at a
+    // 64 KB block saves far more, so the default block — not the chunk filter — is what
+    // limits the win. If this ever stops holding, the transport changed.
+    const whole = rangeHarness(noaaFile)
+    const windowed = rangeHarness(noaaFile)
+    await readCorner(whole, 1 << 16)
+    await readCorner(windowed, 1 << 16, { start: [0, 0], count: [209, 166] })
+    expect(windowed.bytes() / whole.bytes()).toBeLessThan(0.45) // measured 0.38
   })
 })
 

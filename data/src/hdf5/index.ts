@@ -16,9 +16,11 @@ import {
   readRawElements,
   decodeBand,
   decodeStringTable,
+  stringTableHeapAddrs,
   type BandValues,
   type ChunkRegion,
 } from './dataset'
+import { ensureGlobalHeap, readGlobalHeapObject } from './messages'
 
 export { Hdf5Error, BufferReader } from './bytes'
 export type { ByteReader } from './bytes'
@@ -73,12 +75,21 @@ export class Hdf5File {
     return { values: decodeBand(raw, info, memberName), dims: info.dims }
   }
 
-  /** Decode a compound-of-fixed-strings dataset (the Group_F band table) → rows. */
+  /** Decode a compound string dataset (the Group_F band table) → rows. Handles BOTH
+   *  encodings the same table appears in: fixed strings (the synthetic corpus, real
+   *  NOAA S-111) and vlen strings (real NOAA S-102), whose bytes live in a global heap
+   *  that has to be faulted in before the synchronous decode. */
   async readStringTable(path: string): Promise<Record<string, string>[]> {
     const node = await this.get(path)
     const info = node.asDataset()
     const raw = await readRawElements(this.cursor, info)
-    return decodeStringTable(raw, info)
+    const sizeOfOffsets = this.superblock.offsetSize
+    for (const addr of stringTableHeapAddrs(raw, info, sizeOfOffsets))
+      await ensureGlobalHeap(this.cursor, addr)
+    return decodeStringTable(raw, info, {
+      sizeOfOffsets,
+      resolveVlen: (ref) => readGlobalHeapObject(this.cursor, ref.heapAddr, ref.index),
+    })
   }
 }
 

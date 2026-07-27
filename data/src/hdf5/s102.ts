@@ -14,7 +14,10 @@ import { Hdf5Error } from './bytes'
 
 export type Product = 's102' | 's104' | 's111' | 'generic'
 
-/** A geographic read window [west, south, east, north] in degrees (EPSG:4326). */
+/** A read window [west, south, east, north] in the CELL'S OWN horizontal CRS units.
+ *  Geographic cells (EPSG:4326 — every cell the coverage path accepts today) make that
+ *  degrees; the units follow `gridOrigin`/`gridSpacing`, they are not degrees by
+ *  definition. */
 export type Bbox = readonly [number, number, number, number]
 
 /** The sub-region a `bbox` read actually fetched. The returned grid keeps its FULL
@@ -92,6 +95,7 @@ export async function readS102Coverage(
   const root = await file.root()
   const product = detectProduct(String(root.attr('productSpecification', warn) ?? ''))
   const horizontalCRS = numAttr(root.attr('horizontalCRS', warn))
+  assertGeographicCRS(horizontalCRS)
 
   // Locate the DCF2 feature container (BathymetryCoverage) — product-agnostic:
   // the first root-child group whose dataCodingFormat attribute is 2.
@@ -206,7 +210,31 @@ export async function readS102Coverage(
   }
 }
 
-/** Map a geographic `bbox` onto the cell's element-index window. Registration is POINT
+/** Geographic CRS codes the coverage path can place: WGS 84 2D and 3D. */
+const GEOGRAPHIC_CRS = new Set([4326, 4979])
+
+/** Fail loudly on a cell whose grid is in a PROJECTED CRS.
+ *
+ *  `coverageFromGrids` stamps every handle `crs: 'EPSG:4326'` and the renderer drapes it
+ *  by inverse-Mercator rows, so a projected cell would be read as if its metre origin
+ *  and spacing were degrees — real NOAA S-102 cells are UTM (e.g. EPSG:32618, origin
+ *  ~[420768, 4183857], spacing 16 m), which lands the grid thousands of degrees away
+ *  rather than off by a little. That is a silent mis-render of navigation data, so it is
+ *  refused here until the coverage path carries a real CRS.
+ *
+ *  An ABSENT `horizontalCRS` stays permitted: real NOAA S-111 cells omit it, and the
+ *  shipped currents path has always treated the grid as geographic. */
+function assertGeographicCRS(code: number | null): void {
+  if (code === null || GEOGRAPHIC_CRS.has(code)) return
+  throw new Hdf5Error(
+    `horizontalCRS EPSG:${code} is a PROJECTED grid — the coverage path places grids as ` +
+      `geographic (EPSG:4326) only, so reading this cell would misplace it. Projected ` +
+      `coverage support (a real CRS on CoverageHandle + reprojected drape/valueAt) is a ` +
+      `separate increment; use a geographic cell until it lands.`,
+  )
+}
+
+/** Map a `bbox` in the CELL'S OWN horizontal CRS onto its element-index window. Registration is POINT
  *  (origin = SW cell CENTRE), so cell i spans ±½ spacing around its centre; the
  *  floor/ceil pair OVER-covers by at most one cell per edge, which is the safe
  *  direction — an over-fetched chunk costs bytes, an under-fetched one loses data.
