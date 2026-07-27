@@ -10,7 +10,7 @@
 
 import { describe, expect, it } from 'vitest'
 import proj4 from 'proj4'
-import { normalizeEPSG, resolveEPSG, REGISTERED_EPSG_CODES } from './epsg-defs'
+import { normalizeEPSG, resolveEPSG, utmDefFor, REGISTERED_EPSG_CODES } from './epsg-defs'
 
 describe('epsg-defs registry', () => {
   it('resolves registered Korea codes', () => {
@@ -47,6 +47,66 @@ describe('epsg-defs registry', () => {
     expect(() => normalizeEPSG(-1)).toThrow(/Invalid EPSG code/)
     expect(() => normalizeEPSG(5179.5)).toThrow(/Invalid EPSG code/)
     expect(() => resolveEPSG('garbage')).toThrow(/Invalid EPSG code/)
+  })
+})
+
+// ─── WGS 84 / UTM, derived from the code (#1366 INC-1) ───────────────────────
+// Real IHO S-100 gridded cells arrive in UTM (a NOAA S-102 Chesapeake cell declares
+// 32618). The defs are DERIVED, so these gates own the derivation rule; the numeric
+// agreement with pyproj is the separate cross-validation (16 samples, 8 zones).
+describe('epsg-defs: WGS 84 / UTM derivation', () => {
+  it('derives north and south zones, and marks ONLY the south ones +south', () => {
+    expect(utmDefFor('EPSG:32618')).toBe(
+      '+proj=utm +zone=18 +datum=WGS84 +units=m +no_defs +type=crs',
+    )
+    expect(utmDefFor('EPSG:32718')).toBe(
+      '+proj=utm +zone=18 +datum=WGS84 +units=m +south +no_defs +type=crs',
+    )
+    // A dropped `+south` is a ~10 000 km error (the false northing), not a subtle one.
+    expect(utmDefFor('EPSG:32601')).toContain('+zone=1 ')
+    expect(utmDefFor('EPSG:32760')).toContain('+south')
+  })
+
+  it('covers the whole 1-60 range for both hemispheres', () => {
+    for (let zone = 1; zone <= 60; zone++) {
+      expect(utmDefFor(`EPSG:${32600 + zone}`)).toContain(`+zone=${zone} `)
+      expect(utmDefFor(`EPSG:${32700 + zone}`)).toContain(`+zone=${zone} `)
+    }
+  })
+
+  it('does NOT claim the UPS codes that sit just past zone 60', () => {
+    // The load-bearing bound. EPSG:32661 and 32766 are real codes — WGS 84 / UPS North
+    // and South, POLAR STEREOGRAPHIC — not "UTM zone 61/66". Deriving a UTM def for
+    // them would silently project polar data with the wrong projection.
+    expect(utmDefFor('EPSG:32661')).toBeNull()
+    expect(utmDefFor('EPSG:32766')).toBeNull()
+    expect(() => resolveEPSG('EPSG:32661')).toThrow(/Unsupported EPSG code/)
+    // …and the zone-0 slots are not codes at all.
+    expect(utmDefFor('EPSG:32600')).toBeNull()
+    expect(utmDefFor('EPSG:32700')).toBeNull()
+  })
+
+  it('is not fooled by neighbouring code ranges', () => {
+    expect(utmDefFor('EPSG:32518')).toBeNull() // different family entirely
+    expect(utmDefFor('EPSG:32818')).toBeNull()
+    expect(utmDefFor('EPSG:4326')).toBeNull()
+    expect(utmDefFor('WGS84')).toBeNull()
+  })
+
+  it('resolves a UTM code and actually transforms through proj4', () => {
+    // Registration is lazy, so the real check is that a transform WORKS after resolve —
+    // resolving the string without registering the def would throw here instead.
+    expect(resolveEPSG(32618)).toBe('EPSG:32618')
+    const [lon, lat] = proj4('EPSG:32618', 'EPSG:4326', [420767.84475419234, 4183856.856912584])
+    // The real S-102 Chesapeake cell's grid origin: it must land in Chesapeake Bay.
+    expect(lon).toBeCloseTo(-75.9, 1)
+    expect(lat).toBeCloseTo(37.8, 1)
+  })
+
+  it('resolves the same UTM code twice (idempotent registration)', () => {
+    expect(resolveEPSG('EPSG:32633')).toBe('EPSG:32633')
+    expect(resolveEPSG('EPSG:32633')).toBe('EPSG:32633')
+    expect(resolveEPSG(32633)).toBe('EPSG:32633')
   })
 })
 
