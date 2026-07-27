@@ -190,7 +190,7 @@ layer pulsing_coast {
   {
     id: 'projections',
     title: 'Projections',
-    body: 'Seven projections ship in both CPU and WGSL form. Switching is a uniform write — same source, no re-tessellation. The runtime exposes them via `getProjection(name, ...args)` from `@xgis/runtime`.',
+    body: 'Seven projections ship in both CPU and WGSL form. Switching is a uniform write — same source, no re-tessellation. The runtime exposes them via `getProjection(name, ...args)` from `@xgis/map`.',
     demoId: 'physical_map',
     demoQuery: 'proj=orthographic',
     code: `// Available names (string keys for getProjection):
@@ -208,7 +208,7 @@ layer pulsing_coast {
     title: 'JavaScript API',
     body: 'Call `new XGISMap(canvas)` then `await map.run(source, baseUrl)` where `source` is a `.xgis` source string and `baseUrl` resolves any relative `url:` references in your declarations. WebGPU is required — there is no Canvas 2D fallback: with no adapter the map fires `onWebGPUUnavailable` (or shows a default notice) instead of rendering.',
     demoId: 'minimal',
-    code: `import { XGISMap } from "@xgis/runtime"
+    code: `import { XGISMap } from "@xgis/map"
 
 const canvas = document.querySelector("canvas")
 const map = new XGISMap(canvas)

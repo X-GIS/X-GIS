@@ -37,8 +37,10 @@ the next PR, so re-run the gauntlet per PR, never batch-resolve.
   (main's side first, then the branch's, re-labelled "merge union"), then set the ceiling
   to the merged file's ACTUAL `wc -l`. Watch for the auto-merge leaving DUPLICATE keys for
   one file (later key silently wins in a JS object literal) — consolidate to one entry.
-- **Second authority (§12)**: `line.ts`/`polygon.ts`-class files are ALSO ceiling-gated in
-  `runtime/src/engine/architecture-invariants.test.ts` — union BOTH files in the same commit.
+- **Second authority (§12)**: retired — LOC ceilings now have ONE authority
+  (`map/src/loc-ceiling-ratchet.test.ts`); the former second gate died with the runtime
+  dissolution. If a merge ever surfaces a second ceiling authority again, that is a bug
+  to close in the same commit, not a file to union.
 - **`backend-identity-ratchet.test.ts`**: BASELINE is additive across sides — union the
   history comments and set BASELINE to the sum of both sides' deltas over the common
   ancestor, then let the test's own breakdown output confirm the measured count.

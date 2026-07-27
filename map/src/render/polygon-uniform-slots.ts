@@ -13,7 +13,7 @@
 // source of truth (the DSL struct) instead of three.
 
 import { reflect } from '@xgis/shader-dsl'
-import { buildPolygonModule } from '@xgis/map'
+import { buildPolygonModule } from '../shaders/dsl/polygon'
 import { uniformFieldSlots, type UniformFieldSlots } from '@xgis/rhi-webgpu'
 
 let _slots: UniformFieldSlots | undefined

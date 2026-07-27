@@ -15,7 +15,7 @@ X-GIS 맵을 **노드 그래프로 저작**하는 비주얼 에디터. Unreal Bl
 BlueprintEditor (그래프 저작)
       │  graphToXgis()
       ▼
-  .xgis source  ──►  @xgis/compiler  ──►  IR / 셰이더 / 타일  ──►  @xgis/runtime
+  .xgis source  ──►  @xgis/compiler  ──►  IR / 셰이더 / 타일  ──►  @xgis/map
       ▲
       │  xgisToGraph() / styleToGraph()   (역방향 import)
   .xgis 또는 MapLibre/Mapbox style.json
@@ -25,7 +25,7 @@ BlueprintEditor (그래프 저작)
   `@xgis/compiler`의 `LANGUAGE_SCHEMA`에서 **모듈 로드 시점에 파생**되므로 언어가
   바뀌면 에디터가 자동으로 따라간다 (드리프트는 `contract.test.ts`가 잡는다).
 - **런타임 의존성 없음.** 에디터는 순수 vanilla DOM + SVG로 동작하며 GPU나
-  `@xgis/runtime`을 import하지 않는다. 따라서 그래프를 그 자리에서 렌더 미리보기하는
+  `@xgis/map`을 import하지 않는다. 따라서 그래프를 그 자리에서 렌더 미리보기하는
   기능은 이 패키지 안에 없다 — 호스트 앱이 생성된 `.xgis`를 컴파일러/런타임에 넘겨야 한다.
 
 > 정직하게: 이 패키지는 단일 워크스페이스 의존성(`@xgis/compiler`)만 두고, `private: true`,

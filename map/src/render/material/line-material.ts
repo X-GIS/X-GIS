@@ -16,7 +16,7 @@ import type {
 } from '@xgis/engine'
 import { wrapWebGpuBindGroupLayout } from '@xgis/rhi-webgpu'
 import { Material, executeItems } from '@xgis/engine'
-import { emitLineWgsl } from '@xgis/map'
+import { emitLineWgsl } from '../../shaders/dsl/line'
 import { emitLineGlsl } from '../../shaders/dsl/line-glsl'
 
 // WebGL2 by-name bind-layout entries (#834 M5 slice 1) — the RHI-native twin

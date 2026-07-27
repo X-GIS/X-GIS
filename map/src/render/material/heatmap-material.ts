@@ -17,7 +17,7 @@ import type {
 } from '@xgis/engine'
 import { wrapWebGpuBindGroupLayout } from '@xgis/rhi-webgpu'
 import { Material, executeItems } from '@xgis/engine'
-import { emitHeatmapAccumWgsl } from '@xgis/map'
+import { emitHeatmapAccumWgsl } from '../../shaders/dsl/heatmap-accum'
 import { emitHeatmapAccumGlsl } from '../../shaders/dsl/heatmap-accum'
 import { emitHeatmapBlurWgsl, emitHeatmapBlurGlsl } from '../../shaders/dsl/heatmap-blur'
 import { emitHeatmapComposeWgsl, emitHeatmapComposeGlsl } from '../../shaders/dsl/heatmap-compose'

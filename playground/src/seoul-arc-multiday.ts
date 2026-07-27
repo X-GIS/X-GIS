@@ -22,7 +22,7 @@
 // carry 행정표준코드 (강동구=11740). Code spaces disjoint, the 25 names identical.
 
 import type { PipelineSink } from '@xgis/pipeline'
-import { XGISMap } from '@xgis/runtime'
+import { XGISMap } from '@xgis/map'
 import { decodeODB, SEOUL_SIGUNGU } from '@xgis/pipeline'
 
 const FIXTURE_DAY = '20260531'

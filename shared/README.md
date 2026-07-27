@@ -2,7 +2,7 @@
 
 The cross-package **math kernel** for the X-GIS monorepo. `src/ecef.ts` holds
 the WGS84 / ECEF coordinate math, and `src/quantize.ts` the shared vertex
-quantization, that both the `@xgis/compiler` tiler and the `@xgis/runtime`
+quantization, that both the `@xgis/compiler` tiler and the `@xgis/map`
 engine need to agree on, byte-for-byte.
 
 It is the smallest package in the repo on purpose: it is a **leaf** with
@@ -24,7 +24,7 @@ and vertex paths consume them. If the two sides used even slightly different
 WGS84 constants or a different ellipsoid forward, vertices would not line up.
 
 Before this package existed, the tiler **hand-mirrored** the constants and the
-ellipsoid forward from `runtime/src/engine/projection/ecef.ts` (the old
+ellipsoid forward from the pre-split engine's `projection/ecef.ts` (the old
 `// mirrors runtime/.../ecef.ts` comments). Those hand-copies are now **real
 imports** of a single source of truth, with precision-fuzz tests pinning
 parity.
@@ -42,7 +42,7 @@ The runtime re-exports it so existing `../projection/ecef` import paths stay
 stable — no engine consumer had to change:
 
 ```ts
-// runtime/src/engine/projection/ecef.ts
+// the renderer's projection/ecef.ts
 export * from '@xgis/shared'
 ```
 

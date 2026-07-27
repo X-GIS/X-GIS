@@ -1,6 +1,6 @@
 # X-GIS Public API Reference — `XGISMap`
 
-`XGISMap` (`runtime/src/engine/map.ts`)는 `@xgis/runtime`의 최상위 진입점입니다. 컴파일된 `.xgis`/`.xgb`를 받아 카메라·인터랙션·소스 관리·WebGPU 프레임 루프를 한데 묶습니다. 이 문서는 **앱 개발자가 호출하도록 의도된 public 메서드만** 다룹니다 — 모든 시그니처는 `map.ts`에서 그대로 읽어 확인했고, private / `_`-prefixed 내부 진단 메서드와 프레임 루프 내부(`renderFrame`, `renderLoop`, `rebuildLayers` 등)는 제외했습니다.
+`XGISMap` (`map/src/map.ts`)는 `@xgis/map`의 최상위 진입점입니다. 컴파일된 `.xgis`/`.xgb`를 받아 카메라·인터랙션·소스 관리·WebGPU 프레임 루프를 한데 묶습니다. 이 문서는 **앱 개발자가 호출하도록 의도된 public 메서드만** 다룹니다 — 모든 시그니처는 `map.ts`에서 그대로 읽어 확인했고, private / `_`-prefixed 내부 진단 메서드와 프레임 루프 내부(`renderFrame`, `renderLoop`, `rebuildLayers` 등)는 제외했습니다.
 
 > **WebGPU 전용.** `navigator.gpu`나 GPU 어댑터가 없으면 `initGPU`가 `WebGPUUnavailableError`를 던지고, `run()`/`load()`는 `onWebGPUUnavailable()` 훅을 호출한 뒤 **조용히 마운트하지 않습니다** (throw하지 않음). Canvas 2D 폴백은 없습니다. ADR: [`docs/adr/README.md`](../adr/README.md)의 WebGPU-only 노트.
 
@@ -17,7 +17,7 @@
 ## Quick start
 
 ```ts
-import { XGISMap } from '@xgis/runtime'
+import { XGISMap } from '@xgis/map'
 
 const canvas = document.querySelector('canvas')!
 const map = new XGISMap(canvas, {

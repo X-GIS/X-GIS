@@ -264,7 +264,7 @@ const playgroundUrl = `${base}/play/demo.html`
       $prevMsg.textContent = 'Rendering…'
       try {
         if (!MapCtor) {
-          const mod = await import('@xgis/runtime')
+          const mod = await import('@xgis/map')
           MapCtor = mod.XGISMap
         }
         if (token !== renderToken) return // a newer render superseded us

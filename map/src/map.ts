@@ -1807,7 +1807,7 @@ export class XGISMap {
   /** @deprecated Phase 1a (Tier 3 source-honest principle): polar-cap
    *  synthesis is no longer renderer-driven. Preprocess GeoJSON with
    *  `injectPolarCaps` / `synthesizePolarCaps` (re-exported from
-   *  `@xgis/runtime`) before `setSourceData`. This setter is a no-op +
+   *  `@xgis/map`) before `setSourceData`. This setter is a no-op +
    *  one-shot `xlog.warn` so existing host code does not throw. */
   setPolarCapsEnabled(on: boolean): void {
     // eslint-disable-next-line @typescript-eslint/no-deprecated -- deprecated wrapper delegating to the equally deprecated viewport shim, kept so host code does not throw
@@ -4344,6 +4344,9 @@ export class XGISMap {
     // per-tile ramp advances; the renderer clears the flag once every tile hits
     // full opacity, and this goes false again within rasterFadeDuration.
     if (this.rasterRenderer?.hasFadingTiles()) return true
+    // Same keep-alive for the DEM relief — a hillshade tile cross-fades on the
+    // identical ramp, so the loop must keep rendering while one is mid-fade.
+    if (this.hillshadeRenderer?.hasFadingTiles()) return true
     // Particle-flow keep-alive (mirror of the raster-fade keep-alive): a currents
     // overlay drifts its particles on the animation clock, which the graphics pass
     // advances once per RENDERED frame — so while a drawable particle-flow batch
@@ -4545,6 +4548,9 @@ export class XGISMap {
    *  label ledger does). */
   private applyEffectiveRasterFadeDuration(): void {
     this.rasterRenderer?.setRasterFadeDurationMs(this.effectiveRasterFadeDurationMs())
+    // The DEM relief fades on the SAME ramp + the same reduced-motion rule, so it
+    // reads the same effective duration (one authority, no second knob).
+    this.hillshadeRenderer?.setHillshadeFadeDurationMs(this.effectiveRasterFadeDurationMs())
   }
 
   /** #1260 — OS reduced-motion flipped while the map is live: re-resolve the

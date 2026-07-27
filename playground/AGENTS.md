@@ -11,8 +11,8 @@ Vite 8 development application and Playwright e2e gate for X-GIS. Bundles four H
 
 | File                   | Description                                                                                                                                                                                                                                                                                                                                                |
 | ---------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `package.json`         | Workspace package `@xgis/playground` (private); runtime deps: `@xgis/compiler`, `@xgis/runtime`, `shiki` ^4.0.2; dev deps: `@playwright/test` ^1.59.1, `pixelmatch` ^7.2.0, `pngjs` ^7.0.0, `maplibre-gl` ^5.24.0. Scripts: `dev`, `build`, `test:e2e`.                                                                                                    |
-| `vite.config.ts`       | Four named Rollup inputs (`main`, `demo`, `compare`, `debugLabels`), `@vitejs/plugin-basic-ssl`, base path controlled by `XGIS_DEPLOY_BASE=1` for GH Pages (`/X-GIS/play/`), `/pmtiles-proxy/protomaps` CORS proxy for demo-bucket.protomaps.com. `optimizeDeps.exclude` lists `@xgis/compiler`, `@xgis/blueprint`, `@xgis/runtime`.                       |
+| `package.json`         | Workspace package `@xgis/playground` (private); runtime deps: `@xgis/compiler`, `@xgis/map`, `shiki` ^4.0.2; dev deps: `@playwright/test` ^1.59.1, `pixelmatch` ^7.2.0, `pngjs` ^7.0.0, `maplibre-gl` ^5.24.0. Scripts: `dev`, `build`, `test:e2e`.                                                                                                        |
+| `vite.config.ts`       | Four named Rollup inputs (`main`, `demo`, `compare`, `debugLabels`), `@vitejs/plugin-basic-ssl`, base path controlled by `XGIS_DEPLOY_BASE=1` for GH Pages (`/X-GIS/play/`), `/pmtiles-proxy/protomaps` CORS proxy for demo-bucket.protomaps.com. `optimizeDeps.exclude` lists `@xgis/compiler`, `@xgis/blueprint`, `@xgis/map`.                           |
 | `playwright.config.ts` | `testDir=./e2e`, `globalTeardown=_demo-audit-report.ts`, 60s timeout, 2 workers (overrideable via `WORKERS` env), Chromium `--enable-unsafe-webgpu`, `headless=false` by default (system GPU required), `XGIS_SOFTWARE_GPU=1` SwiftShader path for CI, `XGIS_USE_SYSTEM_CHROME=1` for WSL2, visual thresholds `threshold=0.15` / `maxDiffPixelRatio=0.01`. |
 | `demo.html`            | Full interactive runner shell: Monaco editor pane (resizable, mobile-collapsible via gear toggle with `aria-label`), `#map` canvas, projection selector (all 8 surfaces), prev/next navigation, "Copy snapshot" button (`__xgisSnapshot()` → clipboard JSON), Mapbox-import button. Entry: `src/demo-runner.ts`.                                           |
 | `index.html`           | Gallery landing page with category sections, live search, demo count badge. Entry: `src/gallery.ts`.                                                                                                                                                                                                                                                       |
@@ -66,7 +66,7 @@ Vite 8 development application and Playwright e2e gate for X-GIS. Bundles four H
 
 ### Internal
 
-- `@xgis/runtime` — `XGISMap`, `registerXGISElement`, `lonLatToMercator`
+- `@xgis/map` — `XGISMap`, `registerXGISElement`, `lonLatToMercator`
 - `@xgis/compiler` — `convertMapboxStyle`, `validateSource`, `discoverFields`
 
 ### External
