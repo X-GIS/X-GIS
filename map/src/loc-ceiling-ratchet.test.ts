@@ -134,7 +134,9 @@ const CEILINGS: Record<string, number> = {
   // across raised roofs).
   // 4739→4740 (#1252): the two fillPipelineExtrudedOverride params + their use
   // at the primary/fallback extrude-pipeline selection (data-driven fill extrude).
-  'map/src/render/vector-tile-renderer.ts': 4740,
+  // 4740 → 4761 (#1342): the viewport-anchored light gains its bearing
+  // rotation in the per-tile light_dir_ecef packing. Shrink-only from here.
+  'map/src/render/vector-tile-renderer.ts': 4761,
   // 4232→4237 (#1000 heatmap relocate): the heatmap density-target OWNERSHIP
   // extracted to render/heatmap-targets.ts; map keeps only the irreducible
   // composition-root wiring — the `heatmapTargets` field + its import (mirrors
@@ -572,11 +574,12 @@ const CEILINGS: Record<string, number> = {
   // fs_fill_extrude composer placeholder, and default/variantExtrudeReturnStmts
   // (fragment re-lighting of the feat_data colour). The shading math is a
   // faithful replay of the VS lighting; not extract-worthy (§2).
-  // 1448 → 1470 (#1342): the extruded VS gained two vertex attributes
-  // (wall_base, local_merc) and the flat-arm plane-z gained its base term +
-  // Mercator vertical scale. Both authorities raised together (see CLAUDE.md
+  // 1448 → 1476 (#1342): the extruded VS gained two vertex attributes
+  // (wall_base, local_merc), the flat-arm plane-z gained its base term +
+  // Mercator vertical scale, and the wall vertical gradient gained the
+  // MapLibre `+ base` term. Both authorities raised together (see CLAUDE.md
   // §12 second-ratchet); shrink-only from here.
-  'map/src/shaders/dsl/polygon.ts': 1470,
+  'map/src/shaders/dsl/polygon.ts': 1476,
   // 1290→1314 (#1155 F3): cold-start burst tick budget — the `_coldStartBurst`
   // field + `_BURST_TICK_BUDGET` + `setColdStartBurst` + the burst-selected
   // budget in resetCompileBudget's backend tick loop.

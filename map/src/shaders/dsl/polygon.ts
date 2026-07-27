@@ -819,10 +819,16 @@ const vsMainEcefExtruded = fn(
     // shade_geom.y for the feature fragment.
     const vgGradOn = U.field.cam_ecef_off_l.w.ne(0)
     const isWall = abs(nEnu.z).lt(0.5).and(vgGradOn)
+    // MapLibre 5.24 fill_extrusion.vertex.glsl:
+    //   clamp((t + base) * pow(height / 150.0, 0.5), mix(0.7, 0.98, 1 - I), 1)
+    // The `+ base` term is why a FLOATING feature gets no bottom darkening at
+    // all: a London Eye rim capsule at base 128 m drives the product past 1 and
+    // clamps. Omitting it (pre-#1342) pinned every such wall bottom to the 0.84
+    // floor.
     const tTop = p.is_top
-    const hForGrad = max(p.wall_height, 1)
+    const hForGrad = max(p.wall_height, 0)
     const vgradWall = clamp(
-      tTop.mul(sqrt(hForGrad.div(150))),
+      tTop.add(p.wall_base).mul(sqrt(hForGrad.div(150))),
       mix(f32(0.7), 0.98, f32(1).sub(lightIntensity)),
       1,
     )

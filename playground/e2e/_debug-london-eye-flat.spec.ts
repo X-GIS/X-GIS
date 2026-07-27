@@ -72,6 +72,30 @@ const STYLES: Record<string, unknown> = {
     { 'fill-extrusion-color': 'hsl(35,8%,60%)', 'fill-extrusion-height': 200 },
     'fill-extrusion',
   ),
+  // Same as extrude-hb but translucent — isolates the fill-extrusion-opacity
+  // composite (MapLibre renders the layer opaque then composites once at the
+  // layer alpha; a per-fragment blend instead compounds where walls overlap).
+  'extrude-op80': base(
+    {
+      'fill-extrusion-color': 'hsl(35,8%,60%)',
+      'fill-extrusion-height': ['get', 'render_height'],
+      'fill-extrusion-base': ['get', 'render_min_height'],
+      'fill-extrusion-opacity': 0.8,
+    },
+    'fill-extrusion',
+  ),
+  // A low alpha is the strong discriminator for per-fragment vs
+  // composite-once: two overlapping walls at 0.3 reach 0.51 coverage if each
+  // blends separately, but stay at 0.3 if the layer composites once.
+  'extrude-op30': base(
+    {
+      'fill-extrusion-color': 'hsl(35,8%,60%)',
+      'fill-extrusion-height': ['get', 'render_height'],
+      'fill-extrusion-base': ['get', 'render_min_height'],
+      'fill-extrusion-opacity': 0.3,
+    },
+    'fill-extrusion',
+  ),
   // Flat fill AND extrusion of the SAME features in one style: any offset
   // between the two copies is an X-GIS-internal inconsistency, no MapLibre
   // needed to see it.

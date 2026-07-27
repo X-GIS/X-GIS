@@ -1,4 +1,4 @@
-// baseline: b8ffd10f90592e741b27424ef34427fff05cff2b
+// baseline: a170912a3c722516e83413560cc59bf32bccd74e
 // fixture: syn-match10
 // variant.key: syn-match10
 // pick: false
@@ -398,7 +398,7 @@ fn vs_main_ecef_extruded(@location(0) q_xy: vec4<u32>, @location(1) q_z: vec2<u3
   let _v5 = ((face_normal.x * _v2) + (face_normal.y * _v1));
   let _v6 = vec3<f32>(((face_normal.y * _v2) - (face_normal.x * _v1)), ((face_normal.z * _v4) - (_v3 * _v5)), ((_v4 * _v5) + (face_normal.z * _v3)));
   let d_geom = clamp(dot(select(face_normal, _v6, _cse3), u.light_dir_ecef.xyz), 0.0, 1.0);
-  let vgrad_factor = select(1.0, clamp((is_top * sqrt((max(wall_height, 1.0) / 150.0))), mix(0.7, 0.98, _cse7), 1.0), ((abs(_v6.z) < 0.5) && (u.cam_ecef_off_l.w != 0.0)));
+  let vgrad_factor = select(1.0, clamp(((is_top + wall_base) * sqrt((max(wall_height, 0.0) / 150.0))), mix(0.7, 0.98, _cse7), 1.0), ((abs(_v6.z) < 0.5) && (u.cam_ecef_off_l.w != 0.0)));
   let _v7 = clamp((((u.fill_color.rgb + vec3<f32>(0.03)) * (mix(_cse7, max(((1.0 - (((u.fill_color.rgb.x * 0.2126) + (u.fill_color.rgb.y * 0.7152)) + (u.fill_color.rgb.z * 0.0722))) + u.light_dir_ecef.w), 1.0), d_geom) * vgrad_factor)) * unpack4x8unorm(u.light_color_packed).xyz), vec3<f32>(0.0), vec3<f32>(1.0));
   return VertexOutput(vec4<f32>(_v0.x, _v0.y, (_v0.z - (u.layer_depth_offset * _v0.w)), _v0.w), 0.0, u32(feature_id), _cse8, _av0.w, is_top, (_cse5 * EARTH_R), (log(tan(((PI / 4.0) + (_cse2 / 2.0)))) * EARTH_R), (wall_height * is_top), vec4<f32>(_v7, u.fill_color.w), vec2<f32>(d_geom, vgrad_factor));
 }
