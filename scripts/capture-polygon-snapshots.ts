@@ -25,6 +25,13 @@
 // header ancestor check confirms the baseline is still reachable
 // from HEAD.
 //
+// ON A FEATURE BRANCH, PASS `--baseline=$(git rev-parse main)`. The default
+// stamps `git rev-parse HEAD`, i.e. a BRANCH commit — and a squash-merge
+// discards every branch commit, so the moment the PR lands the baseline is no
+// longer an ancestor of main and the ancestor gate turns main red for everyone
+// (#1397; happened to #1381). Stamping the main commit the emit was captured
+// against survives the squash, because that commit stays reachable.
+//
 // Invocation:
 //   bun scripts/capture-polygon-snapshots.ts
 // Optional:

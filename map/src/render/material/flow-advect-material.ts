@@ -58,7 +58,14 @@ export class FlowAdvectDraper {
       groups: [[...FLOW_ADVECT_BINDINGS]],
       // No blend: the step REPLACES the target (see the header).
       colorTargets: [{ format: format as 'bgra8unorm' }],
-      variants: [{ depthWrite: false, depthCompare: 'always', label: 'flow-advect-pipeline' }],
+      // NO DEPTH STATE — and that is load-bearing, not an omission. `Material` builds a
+      // depthStencil whenever `depthCompare` is truthy (material.ts:150), and WebGPU requires
+      // a pipeline's attachment state to MATCH the pass it is set on. This pass is
+      // colour-only (flow-renderer.ts begins it with one colour attachment and no
+      // depthStencilAttachment), so declaring `depthCompare: 'always'` here — copied from
+      // CoverageDraper, where it is correct because the OPAQUE pass does carry depth — makes
+      // every SetPipeline a validation error and the advection never runs at all.
+      variants: [{ label: 'flow-advect-pipeline' }],
       globalUniformSize: FLOW_ADVECT_UNIFORM_FLOATS * 4,
     })
   }

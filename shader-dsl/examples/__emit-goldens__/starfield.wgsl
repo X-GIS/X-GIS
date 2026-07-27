@@ -24,16 +24,16 @@ fn vs(@builtin(vertex_index) vi: u32) -> VsOut {
 
 @fragment
 fn fs(vo: VsOut) -> @location(0) vec4<f32> {
-  let _cse2 = vec2<f32>((((vo.uv.x * 2.0) - 1.0) * (U.resolution.x / U.resolution.y)), ((vo.uv.y * 2.0) - 1.0));
   let _licm0 = U.time;
   let _licm1 = vec2<f32>(12.3, 45.6);
   let _licm2 = vec2<f32>(78.9, 1.2);
   let _licm3 = vec3<f32>(0.75, 0.85, 1.0);
   let _licm4 = vec3<f32>(1.0, 0.9, 0.75);
   let _licm5 = (0.92 - (U.density * 0.25));
+  var _v0: vec3<f32> = vec3<f32>(0.0, 0.0, 0.0);
+  let _cse2 = vec2<f32>((((vo.uv.x * 2.0) - 1.0) * (U.resolution.x / U.resolution.y)), ((vo.uv.y * 2.0) - 1.0));
   let _cse0 = _cse2.x;
   let _cse1 = _cse2.y;
-  var _v0: vec3<f32> = vec3<f32>(0.0, 0.0, 0.0);
   for (var _v1: u32 = 0u; (_v1 < 3u); _v1 = (_v1 + 1u)) {
     let _lc0 = f32(_v1);
     let _v2 = floor(((vec2<f32>((_cse0 + (_licm0 * ((_lc0 * 0.014) + 0.01))), _cse1) * ((_lc0 * 14.0) + 18.0)) + (_lc0 * 37.7)));

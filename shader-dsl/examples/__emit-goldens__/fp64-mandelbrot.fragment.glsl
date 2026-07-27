@@ -65,8 +65,8 @@ vec2 escape_f64(vec2 cx, vec2 cy, uint iters) {
 }
 
 vec2 df64_twoSum(float a, float b) {
-  float _cse0 = texelFetch(_fp64, ivec2(0, 0), 0).x;
   float _v0 = (a + b);
+  float _cse0 = texelFetch(_fp64, ivec2(0, 0), 0).x;
   float _v1 = (((_v0 * _cse0) - a) * _cse0);
   float _v2 = (((((a - ((_v0 - _v1) * _cse0)) * _cse0) * _cse0) * _cse0) + (b - _v1));
   return vec2(_v0, _v2);
@@ -128,16 +128,16 @@ in vec2 uv;
 layout(location = 0) out vec4 _ret;
 
 vec4 fs_mandel_impl(VsOut vo) {
-  bool _cse0 = (vo.uv.x < 0.5);
-  vec2 _cse1 = vec2(u.center.hi.x, u.center.lo.x);
-  vec2 _cse2 = vec2(u.center.hi.y, u.center.lo.y);
   float _v0 = pow(10.0, (-u.zoom_exp));
   float _v1 = (vo.uv.x * 2.0);
+  bool _cse0 = (vo.uv.x < 0.5);
   float _v2 = (_v1 - (_cse0 ? 0.0 : 1.0));
   float _v3 = ((_v2 - 0.5) * _v0);
   float _v4 = (((vo.uv.y - 0.5) * _v0) * ((u.resolution.y / u.resolution.x) * 2.0));
   uint _v5 = uint(u.max_iter);
   vec2 _v6 = vec2(0.0, 0.0);
+  vec2 _cse1 = vec2(u.center.hi.x, u.center.lo.x);
+  vec2 _cse2 = vec2(u.center.hi.y, u.center.lo.y);
   if ((_cse0 || (u.fp64 < 0.5))) {
     float _v7 = (df64_narrow(_cse1) + _v3);
     float _v8 = (df64_narrow(_cse2) + _v4);

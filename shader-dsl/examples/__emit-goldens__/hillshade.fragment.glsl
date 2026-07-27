@@ -24,8 +24,8 @@ vec4 fs_impl(VsOut vo) {
   float _cse2 = terrain(_cse6, U.time);
   float _cse3 = _cse6.x;
   float _cse4 = _cse6.y;
-  float _cse5 = radians(U.sun_az);
   vec3 _cse0 = vec3(((_cse2 - terrain(vec2((_cse3 + 0.015), _cse4), U.time)) * U.exaggeration), ((_cse2 - terrain(vec2(_cse3, (_cse4 + 0.015)), U.time)) * U.exaggeration), 0.015);
+  float _cse5 = radians(U.sun_az);
   vec3 _cse1 = vec3((cos(_cse5) * 0.6), (sin(_cse5) * 0.6), 0.55);
   return vec4((mix(mix(vec3(0.16, 0.32, 0.2), vec3(0.55, 0.49, 0.3), smoothstep(0.3, 0.55, _cse2)), vec3(0.93, 0.93, 0.96), smoothstep(0.62, 0.85, _cse2)) * ((clamp(dot((_cse0 * (1.0 / length(_cse0))), (_cse1 * (1.0 / length(_cse1)))), 0.0, 1.0) * 0.8) + 0.3)), 1.0);
 }

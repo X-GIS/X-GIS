@@ -28,24 +28,24 @@ fn vs(@builtin(vertex_index) vi: u32) -> VsOut {
 @fragment
 fn fs_tiles(vo: VsOut) -> @location(0) vec4<f32> {
   let _licm0 = u.tile_z;
-  let _cse0 = (vo.uv.x < 0.5);
-  let _cse1 = vec2<f32>(u.center.hi.x, u.center.lo.x);
-  let _cse2 = vec2<f32>(u.center.hi.y, u.center.lo.y);
-  let _cse3 = vec2<f32>(0.0, 0.0);
   var _v0: f32 = 1.0;
   for (var _v1: u32 = 0u; (f32(_v1) < _licm0); _v1 = (_v1 + 1u)) {
     _v0 = (_v0 * 2.0);
   }
   let _v2 = (3.0 / _v0);
   let _v3 = (vo.uv.x * 2.0);
+  let _cse0 = (vo.uv.x < 0.5);
   let _v4 = (_v3 - select(1.0, 0.0, _cse0));
   let _v5 = ((_v4 - 0.5) * _v2);
   let _v6 = (((vo.uv.y - 0.5) * _v2) * ((u.resolution.y / u.resolution.x) * 2.0));
   let _v7 = (_cse0 || (u.fp64 < 0.5));
+  let _cse1 = vec2<f32>(u.center.hi.x, u.center.lo.x);
   let _v8 = df64_mul(df64_add(_cse1, vec2<f32>(_v5, 0.0)), vec2<f32>(_v0, 0.0));
+  let _cse2 = vec2<f32>(u.center.hi.y, u.center.lo.y);
   let _v9 = df64_mul(df64_add(_cse2, vec2<f32>(_v6, 0.0)), vec2<f32>(_v0, 0.0));
   let _v10 = df64_narrow(df64_floor(_v8));
   let _v11 = df64_narrow(df64_floor(_v9));
+  let _cse3 = vec2<f32>(0.0, 0.0);
   let _v12 = df64_narrow(df64_fract(df64_add(_v8, _cse3)));
   let _v13 = df64_narrow(df64_fract(df64_add(_v9, _cse3)));
   let _v14 = (df64_narrow(df64_fract(df64_mul(df64_add(df64_floor(_v8), df64_floor(_v9)), vec2<f32>(0.5, 0.0)))) * 2.0);
@@ -72,8 +72,8 @@ fn fs_tiles(vo: VsOut) -> @location(0) vec4<f32> {
 }
 
 fn df64_twoSum(a: f32, b: f32) -> vec2<f32> {
-  let _cse0 = textureLoad(_fp64, vec2<i32>(0, 0), 0).x;
   let _v0 = (a + b);
+  let _cse0 = textureLoad(_fp64, vec2<i32>(0, 0), 0).x;
   let _v1 = (((_v0 * _cse0) - a) * _cse0);
   let _v2 = (((((a - ((_v0 - _v1) * _cse0)) * _cse0) * _cse0) * _cse0) + (b - _v1));
   return vec2<f32>(_v0, _v2);
