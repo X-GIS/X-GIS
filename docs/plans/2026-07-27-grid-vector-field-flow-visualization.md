@@ -1,4 +1,4 @@
-# Grid vector-field flow visualization — the motion layer as a screen-space pass (#1333)
+# Grid vector-field flow visualization — the motion layer as its own pass (#1333)
 
 Design document (no production code) for how X-GIS animates a **gridded vector field** — S-111
 surface currents today, GFS wind (#1273) and any future S-100 speed+direction grid unchanged.
@@ -130,6 +130,36 @@ Why this is the right choice here:
 - **Reusable.** It is a technique over "a 2-channel velocity texture", not over S-111. Wind
   (#1273) is the same pass with a different palette.
 
+### 3.2.1 CORRECTION — the history lives in FIELD space, not screen space
+
+Van Wijk's IBFV is described in screen space, and the first draft of this document adopted
+that verbatim. Writing the shader surfaced two defects in that reading, both fatal here:
+
+1. **A screen-space pass needs a per-fragment screen→geo inverse to know where in the field
+   it is.** `coverage-ramp.ts` exists in its current form precisely because that is wrong:
+   INC-A drew a single quad and recovered latitude with an inverse Mercator, which was
+   correct _only_ under Mercator — every other flat projection misplaced rows, and the globe
+   did not draw at all. The fix was to TESSELLATE and interpolate lon/lat per vertex. A
+   fullscreen flow pass would reintroduce the exact bug that fix retired.
+2. **Screen-space history is invalidated by camera motion.** The recursion reads the previous
+   frame at a screen position; pan or zoom makes that reading stale, so the animation smears
+   or must be reset on every camera move.
+
+**So the ping-pong pair is in the coverage's own GRID space, not screen space.** Advection
+becomes pure texture math in grid uv — `uv' = uv − velocity·dt/extent` — with no projection
+anywhere in the recursive step. The resulting field texture is then drawn over the footprint
+by the EXISTING tessellated coverage geometry, which is already projection-general and
+globe-capable.
+
+This is strictly better on three counts: the history is camera-independent (panning and
+zooming no longer disturb the animation), the projection problem disappears rather than being
+re-solved, and the drape is the proven one rather than a second path.
+
+It costs the "O(screen pixels)" property claimed in §3.2 — the advection is now O(grid
+texels). That is a fair trade and usually a win: a 596×433 CBOFS cell is 258k texels against
+~2M pixels at 1080p. A grid far larger than the screen (global GFS) wants the working
+resolution capped, which is a bounded, local concern rather than an architectural one.
+
 ### 3.3 What is deliberately NOT built
 
 - Compute-shader advection (the caps-gated enhancement of the particle-flow design). IBFV does
@@ -199,8 +229,10 @@ Each phase is independently reviewable and independently green.
   catalogue-exact static portrayal.
 - **P2 — u,v field texture.** Upload the vector field as a 2-channel texture alongside the
   existing scalar value/validity textures, from the S-111 speed+direction bands.
-- **P3 — `FlowTargets` + the IBFV pass.** Ping-pong pair, the advect+noise+decay shader (dual
-  source DSL, WGSL + GLSL twin), the compose, the `scene.hasFlow` gate, and the keep-warm arming.
+- **P3 — `FlowTargets` + the IBFV pass.** Ping-pong pair sized to the grid, the advect+noise+decay
+  shader (dual source DSL, WGSL + GLSL twin), the u,v upload, the `scene.hasFlow` gate, and the
+  keep-warm arming. The DRAW of the advected field reuses the tessellated coverage drape rather
+  than a fullscreen triangle (§3.2.1), so it is projection-general and globe-capable for free.
 - **P4 — wire the demo + verify.** `s111-live.xgis`, then the §5 gate: directional pixel-diff
   before/after, and a 4×4 full-resolution read of the frame. The deterministic-probe contract
   (pinned `t`) must still hold — IBFV is frame-recursive, so the probe pins the _frame count_,
@@ -217,3 +249,7 @@ Each phase is independently reviewable and independently green.
   so it is designed for, not discovered.
 - **No visual claim without a GPU.** The environment this was authored in has none. Every
   "it looks right" statement belongs to a real-GPU run, per §5.
+- **Emission tests pin the shape now.** `coverage-ramp.ts`'s header records the same constraint
+  and the same answer: the headed readback cannot run here, so a dsl-emission test asserts the
+  structural properties (grid-space advection, no screen→geo inverse, WGSL and GLSL agreement)
+  rather than waiting for a GPU that this environment does not have.
