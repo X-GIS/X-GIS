@@ -32,7 +32,6 @@ fn fs(vo: VsOut) -> @location(0) vec4<f32> {
   let _licm4 = U.mouse.w;
   let _cse0 = vec2<f32>((U.mouse.x / U.resolution.x), (U.mouse.y / U.resolution.y));
   let _cse1 = (U.resolution.x / U.resolution.y);
-  let _cse2 = (_licm3 * 0.03);
   let _v0 = vec2<f32>((((_cse0.x * 2.0) - 1.0) * _cse1), ((_cse0.y * 2.0) - 1.0));
   var _v1: f32 = 0.0;
   var _v2: f32 = 0.0;
@@ -43,6 +42,7 @@ fn fs(vo: VsOut) -> @location(0) vec4<f32> {
     _v1 = (_v1 + _v5);
     _v2 = (_v2 + (_v5 * f32(_v3)));
   }
+  let _cse2 = (_licm3 * 0.03);
   let _lc1 = palette((((_v2 / max(_v1, 0.0001)) * 0.15) + _cse2));
   return vec4<f32>(mix((vec3<f32>(0.03, 0.04, 0.08) + (_lc1 * (_v1 * 0.08))), _lc1, smoothstep(0.95, 1.15, _v1)), 1.0);
 }

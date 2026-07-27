@@ -28,19 +28,19 @@ fn vs(@builtin(vertex_index) vi: u32) -> VsOut {
 
 @fragment
 fn fs_rtc(vo: VsOut) -> @location(0) vec4<f32> {
-  let _cse0 = (vo.uv.x < 0.5);
-  let _cse1 = vec2<f32>(u.center.hi.x, u.center.lo.x);
-  let _cse2 = vec2<f32>(u.mark.hi.x, u.mark.lo.x);
-  let _cse3 = vec2<f32>(0.0, 0.0);
-  let _cse4 = vec2<f32>(u.center.hi.y, u.center.lo.y);
-  let _cse5 = vec2<f32>(u.mark.hi.y, u.mark.lo.y);
   let _v0 = pow(10.0, (-u.zoom_exp));
   let _v1 = (vo.uv.x * 2.0);
+  let _cse0 = (vo.uv.x < 0.5);
   let _v2 = (_v1 - select(1.0, 0.0, _cse0));
   let _v3 = ((_v2 - 0.5) * _v0);
   let _v4 = (((vo.uv.y - 0.5) * _v0) * ((u.resolution.y / u.resolution.x) * 2.0));
   let _v5 = (_cse0 || (u.fp64 < 0.5));
+  let _cse1 = vec2<f32>(u.center.hi.x, u.center.lo.x);
+  let _cse2 = vec2<f32>(u.mark.hi.x, u.mark.lo.x);
+  let _cse3 = vec2<f32>(0.0, 0.0);
   let _v6 = df64_narrow(df64_sub(df64_add(_cse1, vec2<f32>(_v3, 0.0)), df64_add(_cse2, _cse3)));
+  let _cse4 = vec2<f32>(u.center.hi.y, u.center.lo.y);
+  let _cse5 = vec2<f32>(u.mark.hi.y, u.mark.lo.y);
   let _v7 = df64_narrow(df64_sub(df64_add(_cse4, vec2<f32>(_v4, 0.0)), df64_add(_cse5, _cse3)));
   let _v8 = ((df64_narrow(_cse1) + _v3) - df64_narrow(_cse2));
   let _v9 = ((df64_narrow(_cse4) + _v4) - df64_narrow(_cse5));
@@ -59,8 +59,8 @@ fn fs_rtc(vo: VsOut) -> @location(0) vec4<f32> {
 }
 
 fn df64_twoSum(a: f32, b: f32) -> vec2<f32> {
-  let _cse0 = textureLoad(_fp64, vec2<i32>(0, 0), 0).x;
   let _v0 = (a + b);
+  let _cse0 = textureLoad(_fp64, vec2<i32>(0, 0), 0).x;
   let _v1 = (((_v0 * _cse0) - a) * _cse0);
   let _v2 = (((((a - ((_v0 - _v1) * _cse0)) * _cse0) * _cse0) * _cse0) + (b - _v1));
   return vec2<f32>(_v0, _v2);

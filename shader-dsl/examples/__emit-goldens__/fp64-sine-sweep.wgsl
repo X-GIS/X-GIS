@@ -21,8 +21,8 @@ fn vs(@builtin(vertex_index) vi: u32) -> VsOut {
 
 @fragment
 fn fs_sweep(vo: VsOut) -> @location(0) vec4<f32> {
-  let _cse0 = (vo.uv.x < 0.5);
   let _v0 = (vo.uv.x * 2.0);
+  let _cse0 = (vo.uv.x < 0.5);
   let _v1 = (_v0 - select(1.0, 0.0, _cse0));
   let _v2 = (_cse0 || (u.fp64 < 0.5));
   let _v3 = df64_add(u.base, vec2<f32>((_v1 * 25.132741228718345), 0.0));
@@ -50,8 +50,8 @@ fn fs_sweep(vo: VsOut) -> @location(0) vec4<f32> {
 }
 
 fn df64_twoSum(a: f32, b: f32) -> vec2<f32> {
-  let _cse0 = textureLoad(_fp64, vec2<i32>(0, 0), 0).x;
   let _v0 = (a + b);
+  let _cse0 = textureLoad(_fp64, vec2<i32>(0, 0), 0).x;
   let _v1 = (((_v0 * _cse0) - a) * _cse0);
   let _v2 = (((((a - ((_v0 - _v1) * _cse0)) * _cse0) * _cse0) * _cse0) + (b - _v1));
   return vec2<f32>(_v0, _v2);
@@ -139,7 +139,6 @@ fn df64_cos_taylor(a: vec2<f32>) -> vec2<f32> {
 
 fn df64_sin(a: vec2<f32>) -> vec2<f32> {
   let _cse0 = vec2<f32>(6.2831854820251465, -1.7484555314695172e-7);
-  let _cse1 = vec2<f32>(0.7071067690849304, 1.2101617485882343e-8);
   let _v0 = df64_nint(df64_div(a, _cse0));
   let _v1 = df64_sub(a, df64_mul(_cse0, _v0));
   let _v2 = floor(((_v1.x / 1.5707963705062866) + 0.5));
@@ -149,6 +148,7 @@ fn df64_sin(a: vec2<f32>) -> vec2<f32> {
   let _v6 = df64_sin_taylor(_v5);
   let _v7 = df64_cos_taylor(_v5);
   let _v8 = abs(_v4);
+  let _cse1 = vec2<f32>(0.7071067690849304, 1.2101617485882343e-8);
   let _v9 = select(select(select(select(vec2<f32>(1.0, 0.0), _cse1, (_v8 == 4.0)), vec2<f32>(0.8314695954322815, 1.687026340846387e-8), (_v8 == 3.0)), vec2<f32>(0.9238795042037964, 2.830748968563057e-8), (_v8 == 2.0)), vec2<f32>(0.9807852506637573, 2.9739473106360492e-8), (_v8 == 1.0));
   let _v10 = select(select(select(select(vec2<f32>(0.0, 0.0), _cse1, (_v8 == 4.0)), vec2<f32>(0.5555702447891235, -1.1769521357507529e-8), (_v8 == 3.0)), vec2<f32>(0.3826834261417389, 6.2233507236442165e-9), (_v8 == 2.0)), vec2<f32>(0.19509032368659973, -1.6704715388726754e-9), (_v8 == 1.0));
   let _v11 = select((-_v10), _v10, (_v4 >= 0.0));

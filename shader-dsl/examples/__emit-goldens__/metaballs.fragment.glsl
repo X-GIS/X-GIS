@@ -27,7 +27,6 @@ vec4 fs_impl(VsOut vo) {
   float _licm4 = U.mouse.w;
   vec2 _cse0 = vec2((U.mouse.x / U.resolution.x), (U.mouse.y / U.resolution.y));
   float _cse1 = (U.resolution.x / U.resolution.y);
-  float _cse2 = (_licm3 * 0.03);
   vec2 _v0 = vec2((((_cse0.x * 2.0) - 1.0) * _cse1), ((_cse0.y * 2.0) - 1.0));
   float _v1 = 0.0;
   float _v2 = 0.0;
@@ -38,6 +37,7 @@ vec4 fs_impl(VsOut vo) {
     _v1 = (_v1 + _v5);
     _v2 = (_v2 + (_v5 * float(_v3)));
   }
+  float _cse2 = (_licm3 * 0.03);
   vec3 _lc1 = palette((((_v2 / max(_v1, 0.0001)) * 0.15) + _cse2));
   return vec4(mix((vec3(0.03, 0.04, 0.08) + (_lc1 * (_v1 * 0.08))), _lc1, smoothstep(0.95, 1.15, _v1)), 1.0);
 }

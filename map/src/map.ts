@@ -1189,6 +1189,7 @@ export class XGISMap {
       runBoundsFitGate: (apply) => this._runBoundsFitGate(apply),
       rebuildLayers: () => this.rebuildLayers(),
       teardownSource: (sourceId) => this.teardownSource(sourceId),
+      getVtSource: (sourceId) => this.vtSources.get(sourceId) ?? null,
       deleteFeatureIndex: (sourceId) => {
         this.featureUpdateQueue.featureIndex.delete(sourceId)
       },

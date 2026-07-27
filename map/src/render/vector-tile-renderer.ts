@@ -1662,6 +1662,10 @@ export class VectorTileRenderer {
 
   beginFrame(frameId: number = 0): void {
     this.currentFrameId = frameId
+    // #1371 — before anything else this frame, swap in any tile whose data was replaced since
+    // the last one. Runs here (outside the render pass) so the sync upload's buffer writes are
+    // never interleaved with recorded draw commands.
+    this.applyReplacedTiles()
     this.uniformRing?.resetSlot()
     // Reset the per-frame label scratch arena (Cluster F) before any
     // forEachLineLabelPolyline calls. The previous frame's xs/ys views
@@ -2218,6 +2222,53 @@ export class VectorTileRenderer {
   /** Kick the upload queue (explicit flush point). Thin forwarder. */
   private drainPendingUploads(): void {
     this._uploads.drain()
+  }
+
+  /** #1371 — re-request every tile key this renderer currently has GPU-resident. Called after
+   *  a host data push swapped the source's BACKEND: the catalog still holds (and this renderer
+   *  still draws) the previous backend's tiles, and `refreshTiles` is the one request path that
+   *  does not skip a cached key. The replacements arrive through the normal sink, and
+   *  `applyReplacedTiles` below swaps them in — so the layer never goes blank. */
+  reseedTiles(): void {
+    if (!this.source?.refreshTiles) return
+    const keys = new Set<number>()
+    for (const inner of this._store.cache().values()) for (const k of inner.keys()) keys.add(k)
+    if (keys.size > 0) this.source.refreshTiles([...keys])
+  }
+
+  /** #1371 — swap in tiles whose CPU data was replaced since the last frame. The new data is
+   *  uploaded SYNCHRONOUSLY (so it is GPU-resident before this returns, and the cache entry
+   *  flips from the old tile to the new one in a single assignment), and only then are the
+   *  superseded buffers released. A key whose upload did not replace the entry is left alone —
+   *  the old tile keeps drawing, and the next frame retries. */
+  private applyReplacedTiles(): void {
+    const replaced = this.source?.consumeReplacedKeys?.()
+    if (!replaced || replaced.length === 0) return
+    for (const [sliceLayer, inner] of this._store.cache()) {
+      for (const key of replaced) {
+        const superseded = inner.get(key)
+        if (!superseded) continue // not GPU-resident here — the normal upload path covers it
+        const data = this.source!.getTileData(key, sliceLayer)
+        // No data, or EMPTY data, means the feature left this key (a moving point crossing a
+        // tile boundary, or a slice the new backend no longer emits). There is nothing to
+        // upload, so leaving the previous tile in place would keep drawing the feature at its
+        // OLD position — a ghost. Drop it instead.
+        if (
+          !data ||
+          (data.vertices.length === 0 &&
+            data.lineVertices.length === 0 &&
+            !data.pointVertices?.length)
+        ) {
+          this._store.dropTile(sliceLayer, key, this._releaseTileHook)
+          continue
+        }
+        this._uploads.uploadSync(key, data, sliceLayer)
+        const now = inner.get(key)
+        if (now && now !== superseded) {
+          this._store.releaseSupersededTile(sliceLayer, key, superseded, this._releaseTileHook)
+        }
+      }
+    }
   }
 
   /** Drop queued + held uploads for tiles the camera moved past. Thin

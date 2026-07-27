@@ -144,9 +144,12 @@ export class VirtualPMTilesBackend implements TileSource {
     this.sink = sink
   }
 
-  loadTile(key: number): void {
+  loadTile(key: number, force = false): void {
     if (!this.sink) return
-    if (this.sink.hasTileData(key)) return
+    // `force` (#1371): a re-seed swapped this source's backend, so the sink's data for this key
+    // is the PREVIOUS backend's output — re-produce it instead of short-circuiting on "already
+    // have". The catalog only sets it from `refreshTiles`.
+    if (!force && this.sink.hasTileData(key)) return
     const sink = this.sink
     sink.trackLoading(key)
 

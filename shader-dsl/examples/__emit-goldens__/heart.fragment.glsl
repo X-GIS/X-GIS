@@ -15,9 +15,9 @@ in vec2 uv;
 layout(location = 0) out vec4 _ret;
 
 vec4 fs_impl(VsOut vo) {
-  vec2 _cse0 = vec2((((vo.uv.x * 2.0) - 1.0) * (U.resolution.x / U.resolution.y)), ((vo.uv.y * 2.0) - 1.0));
   float _v0 = (pow(abs(sin(((U.time * 3.14159) * U.beat))), 8.0) * 0.12);
   float _v1 = (0.72 + _v0);
+  vec2 _cse0 = vec2((((vo.uv.x * 2.0) - 1.0) * (U.resolution.x / U.resolution.y)), ((vo.uv.y * 2.0) - 1.0));
   float _v2 = ((_cse0.x * 1.3) / _v1);
   float _v3 = (((_cse0.y + 0.08) * 1.3) / _v1);
   float _v4 = (_v2 * _v2);
