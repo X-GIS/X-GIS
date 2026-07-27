@@ -70,14 +70,16 @@ const U = uniformStruct(
     mvp: mat4x4fT,
     // proj_params: x=type, y=centerLon, z=centerLat, w=log_depth_fc
     proj_params: vec4fT,
-    // xy = camera Mercator centre (the flat MVP is camera-at-origin); zw reserved.
+    // xy = camera Mercator centre (the flat MVP is camera-at-origin); z = the flow-only flag
+    // (1 = draw the advected field alone, no ramp colour — #1333); w reserved.
     cam_center: vec4fT,
     // outer cell EDGES (degrees): x=westLon, y=southLat, z=eastLon, w=northLat.
     cov_edges: vec4fT,
     // u/v denominators: x=westLonEdge, y=northLatEdge, z=nLon·dLon, w=nLat·dLat.
     cov_geo: vec4fT,
     // ramp map t = clamp(a·s' + b): x=a=(dataMax−dataMin)/(rangeHi−rangeLo),
-    // y=b=(dataMin−rangeLo)/(rangeHi−rangeLo); z=layer opacity (0..1); w reserved.
+    // y=b=(dataMin−rangeLo)/(rangeHi−rangeLo); z=layer opacity (0..1); w=flow-modulation
+    // depth (0 = none, and then the drape is BYTE-IDENTICAL to the pre-#1333 fill).
     ramp_params: vec4fT,
   },
 )
@@ -97,6 +99,12 @@ const texValid = resource('cov_valid', texture2dfT, { group: 0, binding: 2 })
 const covSampler = resource('cov_sampler', samplerT, { group: 0, binding: 3 })
 const texLut = resource('cov_lut', texture2dfT, { group: 0, binding: 4 })
 const lutSampler = resource('cov_lut_sampler', samplerT, { group: 0, binding: 5 })
+// The IBFV advected image (#1333) — the motion layer. Sampled at the SAME grid uv as the
+// data textures, because the ping-pong pair is allocated in the COVERAGE'S OWN raster
+// (flow-targets.ts): uv is normalized over the footprint on both sides, so this holds even
+// when FLOW_MAX_DIM caps the pair below the grid — it just samples a coarser field.
+// Shares `cov_sampler` (linear/clamp): the same filtering the data taps want.
+const texFlow = resource('cov_flow', texture2dfT, { group: 0, binding: 6 })
 
 const vs = fn(
   'vs_cov',
@@ -156,10 +164,51 @@ const fs = fn(
     const sPrime = valueSample.div(w) // nodata never contaminates neighbour values
     const t = clamp(U.field.ramp_params.x.mul(sPrime).add(U.field.ramp_params.y), f32(0), f32(1))
     const rgb = textureSample(texLut.node, lutSampler.node, vec2(t, f32(0.5))).xyz
+
+    // ── The motion layer (#1333) ────────────────────────────────────────────────────────
+    // The advected IBFV image MODULATES the ramp colour rather than replacing it, so the
+    // fill keeps answering "how fast" (the catalogue reading) while the moving light/dark
+    // streaks answer "which way". That split is the two-layer model the design argues for:
+    // the specified portrayal stays legible and the motion is additive.
+    //
+    // k = 0 ⇒ gain = 1 − 0 + 0·flow = 1.0 EXACTLY, and rgb·1.0 is exact for every finite
+    // rgb in IEEE-754. So a scalar coverage (S-102 bathymetry) and any coverage drawn while
+    // no flow field exists render BYTE-IDENTICALLY to the pre-#1333 fill — the gate is a
+    // multiplication by an exact one, not an approximate no-op.
+    const k = U.field.ramp_params.w
+    const flow = textureSample(texFlow.node, covSampler.node, uv).x
+    const gain = f32(1).sub(k).add(k.mul(flow))
+
+    // FLOW-ONLY (#1333) — the strictly-conformant case: `| flow` with no `ramp`. The IHO
+    // catalogue defines static point symbols and nothing else (no line styles, no area
+    // fills), so putting a colour scale on screen here would be adding a non-catalogue
+    // reading. Instead the drape emits a NEUTRAL luminance — white modulated by the advected
+    // field — which over imagery reads as moving water texture and leaves the catalogue
+    // arrows as the only colour authority.
+    //
+    // `mix` on the flag, not a branch: the ramp tap above is computed either way (a texture
+    // fetch inside divergent control flow is the thing to avoid), and mix(a, b, 0|1) returns
+    // EXACTLY a or b, so no blend of the two ever ships.
+    const only = U.field.cam_center.z
+    const cr = mix(rgb.x, f32(1), only)
+    const cg = mix(rgb.y, f32(1), only)
+    const cb = mix(rgb.z, f32(1), only)
+
     // alpha = validity·layerOpacity — w gives the ≤1-texel soft rim at a hole boundary,
     // ramp_params.z applies the LAYER's opacity paint (#1158; lets a coverage blend over a
-    // basemap, e.g. currents over satellite imagery). Default opacity 1 = unchanged.
-    return CovFragOut.construct({ color: vec4(rgb.x, rgb.y, rgb.z, w.mul(U.field.ramp_params.z)) })
+    // basemap, e.g. currents over satellite imagery). Default opacity 1 = unchanged. In the
+    // RAMPED case the motion rides on RGB only: modulating alpha there would make the trails
+    // punch holes in the fill, which reads as flicker rather than flow.
+    //
+    // FLOW-ONLY inverts that, because there is no fill to punch through: alpha becomes the
+    // MOTION itself (flow·k on top of validity·opacity), so the basemap shows through
+    // everywhere except where a streak currently is. A solid neutral area would grey out the
+    // imagery the currents are meant to be read against.
+    const baseA = w.mul(U.field.ramp_params.z)
+    const alpha = mix(baseA, baseA.mul(flow).mul(k), only)
+    return CovFragOut.construct({
+      color: vec4(cr.mul(gain), cg.mul(gain), cb.mul(gain), alpha),
+    })
   },
   { stage: 'fragment' },
 )
@@ -175,6 +224,7 @@ export const buildCoverageModule = (): ModuleDecl =>
       covSampler.binding,
       texLut.binding,
       lutSampler.binding,
+      texFlow.binding,
     ],
     funcs: [...getGpuProjectionFuncs(), vs, fs],
   })

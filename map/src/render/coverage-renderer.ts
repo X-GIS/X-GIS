@@ -28,10 +28,19 @@
 
 import type { GPUContext } from '@xgis/rhi-webgpu'
 import { wrapWebGpuPass } from '@xgis/rhi-webgpu'
-import type { RhiDevice, RhiTexture, RhiSampler, RhiBindGroup, RhiRenderPass } from '@xgis/engine'
+import type {
+  RhiDevice,
+  RhiTexture,
+  RhiTextureView,
+  RhiSampler,
+  RhiBindGroup,
+  RhiRenderPass,
+} from '@xgis/engine'
 import { getSampleCount } from '@xgis/engine'
 import type { CoverageHandle } from '@xgis/data'
 import { CoverageDraper } from './material/coverage-material'
+import { resolveVectorBands } from '../coverage-vector-bands'
+import { packFlowFieldUV } from './flow-field-pack'
 import {
   packCoverageValueValid,
   bakeRampLut,
@@ -43,7 +52,26 @@ interface CoverageState {
   valueTex: RhiTexture
   validTex: RhiTexture
   lutTex: RhiTexture
-  bindGroup: RhiBindGroup
+  /** East/north velocity components, r16float, normalized by `flowScale` — present ONLY for a
+   *  VECTOR coverage (S-111 and friends). Null for every scalar coverage: S-102 bathymetry
+   *  must allocate nothing here, which is the reuse boundary between the two families. */
+  flowU: RhiTexture | null
+  flowV: RhiTexture | null
+  /** Views over the pair above, minted at upload so the per-frame advection binds rather than
+   *  allocates. Null exactly when the textures are. */
+  flowUView: RhiTextureView | null
+  flowVView: RhiTextureView | null
+  /** Peak speed the components were normalized by, in the speed band's own units. 0 when the
+   *  field is calm or absent — the flow pass reads this to recover real velocity. */
+  flowScale: number
+  /** The resident views this region's bind group binds. Held so a group can be rebuilt for a
+   *  different flow view without re-uploading anything. */
+  views: { value: RhiTextureView; valid: RhiTextureView; lut: RhiTextureView }
+  /** Bind groups keyed by the FLOW view they bind at binding 6. The advection pair
+   *  ping-pongs, so the correct view alternates every frame and one eager group cannot serve
+   *  both; keyed, this settles at two entries (plus the inert one a scalar coverage uses)
+   *  instead of minting a GPU object per frame. */
+  bindGroups: Map<RhiTextureView, RhiBindGroup>
   /** west/south/east/north outer cell EDGES (degrees) for the draw quad. */
   covEdges: [number, number, number, number]
   /** westLonEdge, northLatEdge, nLon·dLon, nLat·dLat — for the fragment u/v. */
@@ -51,8 +79,35 @@ interface CoverageState {
   ramp: { a: number; b: number }
   /** Layer opacity (0..1) — multiplies output alpha (ramp_params.z). */
   opacity: number
+  /** This region draws the advected field alone, with no colour ramp (see CoverageArmOptions). */
+  flowOnly: boolean
   /** Approximate GPU bytes this region holds — the LRU budget's accounting unit. */
   bytes: number
+}
+
+/** What the drape needs to show the motion layer: the advected image for THIS frame and how
+ *  deeply it modulates the ramp colour. `mix` 0 makes the shader's gain an exact 1.0. */
+export interface FlowDrape {
+  view: RhiTextureView
+  mix: number
+}
+
+/** One region's velocity field plus the grid geometry the advection needs. Returned as ONE
+ *  value so a field and a geometry can never be paired across different regions. */
+export interface FlowFieldRegion {
+  /** Sampling views, created ONCE at upload. Views, not textures: the advection binds them every
+   *  frame, and minting a pair per frame would allocate two GPU objects per frame for handles
+   *  that only ever change when the coverage is re-armed. */
+  u: RhiTextureView
+  v: RhiTextureView
+  /** Peak speed the components were normalized by, in the speed band's own units. */
+  scale: number
+  width: number
+  height: number
+  /** Grid extent in degrees, [lon, lat]. */
+  spanDeg: readonly [number, number]
+  /** Latitude at the middle of the cell. */
+  midLatDeg: number
 }
 
 /** The region key a caller that does not name one lands on. Keeps every pre-multi-region
@@ -72,6 +127,10 @@ export interface CoverageArmOptions {
   /** Layer opacity paint (0..1); defaults to 1 (opaque). */
   opacity?: number
   bandIndex?: number | string
+  /** Draw ONLY the advected field, with no colour ramp (#1333). The strict-catalogue case:
+   *  `| flow` without a `ramp`, where the motion must be visible but the catalogue arrows
+   *  stay the only colour authority. The drape then emits a neutral luminance modulation. */
+  flowOnly?: boolean
 }
 
 export class CoverageRenderer {
@@ -139,7 +198,10 @@ export class CoverageRenderer {
    *  to stay inside the GPU byte budget (never the region just armed). */
   setCoverage(handle: CoverageHandle, opts: CoverageArmOptions, region = DEFAULT_REGION): void {
     this.releaseRegion(region)
-    const draper = this.ensureDraper()
+    // Called for its EFFECT, not its value: the draper is lazy and must be built at ARM time
+    // with the live MSAA sample count (rebuildForQuality invalidates it). The bind group is
+    // no longer built here — it is keyed by the ping-pong flow view and minted on first draw.
+    this.ensureDraper()
     this.dataSampler ??= this.rhi.createSampler({ mag: 'linear', min: 'linear' })
     this.lutSampler ??= this.rhi.createSampler({ mag: 'linear', min: 'linear' })
     const band = handle.band(opts.bandIndex ?? 0)
@@ -152,13 +214,30 @@ export class CoverageRenderer {
     const validTex = this.uploadR16f(valid, nLon, nLat)
     const lutTex = this.uploadLut(bakeRampLut(opts.ramp))
 
-    const bindGroup = draper.bindGroup(
-      this.rhi.createView(valueTex),
-      this.rhi.createView(validTex),
-      this.dataSampler,
-      this.rhi.createView(lutTex),
-      this.lutSampler,
-    )
+    // The VECTOR half, uploaded only when this coverage actually carries a current. The
+    // predicate is the shared authority (coverage-vector-bands.ts), the same one the arrow
+    // portrayal uses, so the two cannot disagree about whether a field exists — and a scalar
+    // coverage allocates nothing at all rather than a pair of zero textures.
+    const vec = resolveVectorBands(handle)
+    let flowU: RhiTexture | null = null
+    let flowV: RhiTexture | null = null
+    let flowUView: RhiTextureView | null = null
+    let flowVView: RhiTextureView | null = null
+    let flowScale = 0
+    if (vec) {
+      const packed = packFlowFieldUV(vec.speed, vec.direction, vec.speedCodes, vec.directionCodes)
+      flowScale = packed.scale
+      flowU = this.uploadR16fFrom(packed.u, nLon, nLat, 'coverage-flow-u')
+      flowV = this.uploadR16fFrom(packed.v, nLon, nLat, 'coverage-flow-v')
+      flowUView = this.rhi.createView(flowU)
+      flowVView = this.rhi.createView(flowV)
+    }
+
+    const views = {
+      value: this.rhi.createView(valueTex),
+      valid: this.rhi.createView(validTex),
+      lut: this.rhi.createView(lutTex),
+    }
 
     const [originLon, originLat] = handle.header.origin
     const [dLon, dLat] = handle.header.spacing
@@ -170,14 +249,24 @@ export class CoverageRenderer {
     this.states.set(region, {
       valueTex,
       validTex,
+      flowU,
+      flowV,
+      flowUView,
+      flowVView,
+      flowScale,
       lutTex,
-      bindGroup,
+      views,
+      bindGroups: new Map(),
       covEdges: [westEdge, southEdge, eastEdge, northEdge],
       covGeo: [westEdge, northEdge, nLon * dLon, nLat * dLat],
       ramp: computeRampUniforms(dataMin, dataMax, opts.rangeLo ?? dataMin, opts.rangeHi ?? dataMax),
       opacity: opts.opacity ?? 1,
-      // 2 × r16float over the grid + the 256×1 rgba8 LUT.
-      bytes: nLon * nLat * 2 * 2 + 256 * 4,
+      flowOnly: opts.flowOnly === true,
+      // 2 × r16float over the grid + the 256×1 rgba8 LUT, plus the vector pair when this
+      // coverage carries one. Counting the flow textures matters: they are the SAME size as
+      // the value/valid pair, so a vector coverage costs twice a scalar one and the LRU budget
+      // would evict far too late if it did not know.
+      bytes: nLon * nLat * 2 * (vec ? 4 : 2) + 256 * 4,
     })
     this.arms.set(region, { handle, opts })
     this.lastOpts = opts
@@ -190,6 +279,61 @@ export class CoverageRenderer {
   clearRegion(region: string): void {
     this.releaseRegion(region)
     this.arms.delete(region)
+  }
+
+  /** The velocity field a region carries, or null when it is a scalar coverage (S-102
+   *  bathymetry) or has not been armed. The flow pass reads this to decide whether it runs at
+   *  all — `null` is the answer that keeps a bathymetry style allocating and drawing nothing.
+   *
+   *  The GEOMETRY rides along rather than living in a second accessor: the advection step needs
+   *  the grid's degree span and centre latitude in the same breath as the textures (a degree of
+   *  longitude shrinks by cos(lat), so the two uv axes advance at different rates), and a
+   *  separate call would be a second chance to pair a field with the wrong region's geometry. */
+  flowField(region: string = DEFAULT_REGION): FlowFieldRegion | null {
+    const st = this.states.get(region)
+    // The VIEWS are the predicate, not the textures — the same one `hasFlowField` asks, so the
+    // gate and the supply cannot disagree. (They are set together at upload; asking both would
+    // be two chances to answer differently.)
+    if (!st || !st.flowUView || !st.flowVView) return null
+    const arm = this.arms.get(region)
+    if (!arm) return null
+    const [w, h] = arm.handle.header.size
+    return {
+      u: st.flowUView,
+      v: st.flowVView,
+      scale: st.flowScale,
+      width: w,
+      height: h,
+      // covGeo[2..3] are nLon·dLon / nLat·dLat — the degree span the uv axes cover.
+      spanDeg: [st.covGeo[2], st.covGeo[3]],
+      // covEdges is [west, south, east, north]; the midpoint of the OUTER edges, which is the
+      // latitude the whole cell's longitude foreshortening is approximated at.
+      midLatDeg: (st.covEdges[1] + st.covEdges[3]) / 2,
+    }
+  }
+
+  /** The field the flow layer animates: the FIRST resident region carrying one, in
+   *  least-recently-armed order.
+   *
+   *  ONE region, not all of them. Advection is a RECURSIVE filter over its own grid, so each
+   *  region would need its own history pair and its own step — real scope, not a loop here
+   *  (#1333 follow-up). Stated rather than left implicit, because the alternative failure is
+   *  silent: a mosaic would otherwise animate whichever region happened to be armed last. */
+  activeFlowField(): FlowFieldRegion | null {
+    for (const region of this.states.keys()) {
+      const f = this.flowField(region)
+      if (f) return f
+    }
+    return null
+  }
+
+  /** True when ANY resident region carries a velocity field — the `scene.hasFlow` gate and the
+   *  render-loop keep-warm, so a map with only scalar coverages never runs the advection pass.
+   *  Quantifies over the SAME predicate `activeFlowField` does (asserted by the upload test):
+   *  a true here with a null there would spin the on-demand loop on a pass that does nothing. */
+  hasFlowField(): boolean {
+    for (const st of this.states.values()) if (st.flowUView && st.flowVView) return true
+    return false
   }
 
   /** Disarm every region (scene rebuild with no coverage source). Textures are
@@ -233,6 +377,7 @@ export class CoverageRenderer {
     mvp: Float32Array | number[],
     camCenter: [number, number],
     projParams: [number, number, number, number],
+    flow?: FlowDrape | null,
   ): void {
     if (this.states.size === 0 || !this._draper) return
     // A WebGl2Device frame (renderFrameViaRhi twin) hands in an RhiRenderPass
@@ -245,6 +390,11 @@ export class CoverageRenderer {
         : wrapWebGpuPass(pass as GPURenderPassEncoder)
     // Least-recently-armed first; overlapping domains alpha-blend in that order.
     for (const s of this.states.values()) {
+      // The motion layer rides ONLY on a region that actually carries a velocity field. A
+      // scalar region in the same mosaic binds its own value texture as the inert stand-in
+      // and gets mix 0, so it draws byte-identically beside an animated neighbour.
+      const animated = flow != null && s.flowUView !== null
+      const flowView = animated ? flow.view : s.views.value
       const bytes = packCoverageUniforms({
         mvp,
         projParams,
@@ -253,18 +403,47 @@ export class CoverageRenderer {
         covGeo: s.covGeo,
         ramp: s.ramp,
         opacity: s.opacity,
+        flowMix: animated ? flow.mix : 0,
+        flowOnly: s.flowOnly,
       })
-      this._draper.draw(rhiPass, bytes as BufferSource, s.bindGroup)
+      this._draper.draw(rhiPass, bytes as BufferSource, this.groupFor(s, flowView))
     }
   }
 
+  /** This region's bind group for `flowView`, memoized. Keyed rather than rebuilt because the
+   *  advection pair alternates: two entries for an animated region, one for a scalar one. */
+  private groupFor(s: CoverageState, flowView: RhiTextureView): RhiBindGroup {
+    let bg = s.bindGroups.get(flowView)
+    if (!bg) {
+      bg = this.ensureDraper().bindGroup(
+        s.views.value,
+        s.views.valid,
+        this.dataSampler!,
+        s.views.lut,
+        this.lutSampler!,
+        flowView,
+      )
+      s.bindGroups.set(flowView, bg)
+    }
+    return bg
+  }
+
   private uploadR16f(data: Uint16Array, width: number, height: number): RhiTexture {
+    return this.uploadR16fFrom(data, width, height, 'coverage-data')
+  }
+
+  private uploadR16fFrom(
+    data: Uint16Array,
+    width: number,
+    height: number,
+    label: string,
+  ): RhiTexture {
     const tex = this.rhi.createTexture({
       width,
       height,
       format: 'r16float',
       usage: ['sample', 'copy-dst'],
-      label: 'coverage-data',
+      label,
     })
     this.rhi.writeTexture(tex, data as BufferSource, width * 2, width, height)
     return tex
@@ -290,6 +469,11 @@ export class CoverageRenderer {
     this.rhi.destroyTexture(s.valueTex)
     this.rhi.destroyTexture(s.validTex)
     this.rhi.destroyTexture(s.lutTex)
+    // The views die with their textures (RHI has no destroyView — rhi.ts:462), and a bind
+    // group holds no ownable GPU resource (same note), so the memo is just dropped.
+    s.bindGroups.clear()
+    if (s.flowU) this.rhi.destroyTexture(s.flowU)
+    if (s.flowV) this.rhi.destroyTexture(s.flowV)
     this.states.delete(region)
   }
 

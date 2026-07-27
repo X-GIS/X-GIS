@@ -47,6 +47,10 @@ export interface SceneView {
    *  graphics pass — false (the default) means the pass never runs, so a map
    *  with no host batches is byte-identical. */
   readonly hasGraphics: boolean
+  /** A resident coverage carries a velocity field (#1333) — S-111 currents, not S-102
+   *  bathymetry. Gates the flow pass, which is the ONLY thing that allocates the IBFV
+   *  ping-pong pair, so a scalar-coverage or coverage-less map is byte-identical. */
+  readonly hasFlow: boolean
   /** Which pass claims the MSAA resolveTarget this frame. */
   readonly resolveOwner: ResolveOwner
 }
@@ -61,6 +65,7 @@ type SceneHost = Pick<
   | 'heatmapRenderer'
   | 'hillshadeRenderer'
   | 'graphics'
+  | 'coverageRenderer'
 >
 
 /** Build the per-frame SceneView from the bucket scheduler. Mirrors the
@@ -80,6 +85,7 @@ export function buildSceneView(host: SceneHost, _ctx: FrameContext): SceneView {
   const hasHeatmap = host.heatmapRenderer?.hasLayers() ?? false
   const hasHillshade = host.hillshadeRenderer?.hasSource() ?? false
   const hasGraphics = host.graphics?.hasRetainedBatches() ?? false
+  const hasFlow = host.coverageRenderer?.hasFlowField() ?? false
   // Which pass owns the MSAA resolveTarget? deriveResolveOwner is the single
   // priority authority (bucket-scheduler.ts) — the last colour-writing pass
   // in PASS_CHAIN_ORDER. The heatmap pass composites AFTER labels onto the
@@ -96,6 +102,7 @@ export function buildSceneView(host: SceneHost, _ctx: FrameContext): SceneView {
     hasHeatmap,
     hasHillshade,
     hasGraphics,
+    hasFlow,
     resolveOwner,
   }
 }

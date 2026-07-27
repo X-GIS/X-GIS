@@ -1682,9 +1682,33 @@ function setupCurrentsTimeControl(map: InstanceType<typeof XGISMap>): void {
     player.pause() // also orphans an in-flight transition, so no stray frame keeps animating
   }
 
+  // COALESCED (#1367). A range input fires `input` on every pixel of the drag, and each step is
+  // a full HDF5 group decode plus a coverage re-arm — tens of milliseconds on a real cell. Firing
+  // one per event queues dozens of decodes the user has already dragged past, so the drag runs at
+  // the speed of the QUEUE rather than the pointer. Latest-wins instead: at most one step is ever
+  // in flight, and whatever hour the slider is on when it finishes is the one that runs next.
+  // (The engine also epoch-guards the arm, so a superseded step cannot land — but it would still
+  // have paid for its decode. This stops the work from being started at all.)
+  let stepInFlight = false
+  let pendingHour: number | null = null
+  const stepCoalesced = async (hour: number): Promise<void> => {
+    pendingHour = hour
+    if (stepInFlight) return
+    stepInFlight = true
+    try {
+      while (pendingHour !== null) {
+        const next = pendingHour
+        pendingHour = null
+        await step(next)
+      }
+    } finally {
+      stepInFlight = false
+    }
+  }
+
   slider.addEventListener('input', () => {
     stopPlay()
-    void step(Number(slider.value))
+    void stepCoalesced(Number(slider.value))
   })
   playBtn.addEventListener('click', () => {
     if (playing) {

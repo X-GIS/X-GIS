@@ -146,9 +146,9 @@ export interface LayerAccumulator {
   // `arrowBearing` carries the per-feature rotation (bearing-[.dir] / bearing-N).
   isArrow: boolean | undefined
   arrowBearing: SizeValue | undefined
-  // Particle-flow layer (#1333). `isParticles` is the marker the `particles`
-  // utility sets — an animated second reading of a coverage's vector field.
-  isParticles: boolean | undefined
+  // Motion layer (#1333). `isFlow` is the marker the `flow` utility sets — an animated
+  // second reading of a coverage's vector field, explicitly outside the catalogue.
+  isFlow: boolean | undefined
   // Heatmap paint axes (Phase R). isHeatmap is the marker the converter's
   // `heatmap` utility sets; the rest carry the resolved scalars + ramp.
   isHeatmap: boolean | undefined
