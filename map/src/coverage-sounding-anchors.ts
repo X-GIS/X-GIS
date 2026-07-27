@@ -41,14 +41,19 @@
 // Fine decluttering is NOT done here: the label pass's collision system already drops
 // overlapping text far better than a spacing heuristic could. This only decides candidates.
 //
-// KNOWN GAP — VIEWPORT INSIDE ONE CELL. Past the crossover above, zooming further
-// eventually puts the whole viewport inside a single cell. The numeral still anchors at
-// that cell's CENTRE, so once the centre leaves the screen the numeral goes with it and the
-// depth becomes unreadable exactly where you zoomed in to read it. Measured at z13 on the
-// fixture: panning 0.2 of a cell off the centre drops it from 1 label to 0. Whether to
-// clamp the anchor into the visible part of its cell is a portrayal decision (a gridded
-// cell is an AREA, but a chart sounding is a POINT), so it is recorded here rather than
-// decided unilaterally.
+// VIEWPORT INSIDE ONE CELL — measured, and deliberately NOT engineered around. Zoom far
+// enough and the whole viewport sits inside a single cell; the numeral still anchors at
+// that cell's CENTRE, so once the centre leaves the screen the numeral goes with it. On the
+// fixture (z13) panning 0.2 of a cell off the centre takes it from 1 label to 0.
+//
+// The obvious fix — clamp the anchor into the visible part of its cell — is not built,
+// because the regime is out of reach for the data this serves. Web Mercator at the real
+// Chesapeake cell (16 m cells, 37.95°N) puts the crossover at z≈18.7 and "one cell fills a
+// 1000 px viewport" at z≈22.9, while `Camera.maxZoom` is hard-capped at 22. The fixture hits
+// it at z13 only because its synthetic cells are ~16 KM — a thousand times coarser than a
+// real survey. So this is a fixture artifact, not a product behaviour, and clamping would be
+// speculative complexity on the frame path. Recorded with the numbers so a future cell size
+// (or a raised max zoom) can re-open it on evidence rather than on memory.
 //
 // KNOWN GAP — GLOBE. `Camera.unprojectToLonLat` returns null for the globe and the
 // azimuthal discs (projTypes 3/4/5/7), so the lattice finds nothing there and no numerals
