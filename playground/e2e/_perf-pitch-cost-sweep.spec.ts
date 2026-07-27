@@ -4,25 +4,41 @@ import { test, expect, type Page } from '@playwright/test'
 // sharply when LOWERING pitch"). Reports the cost curve; gates only on
 // invariants that must survive a fix.
 //
-// ── The mechanism, confirmed ─────────────────────────────────────────────────
+// ── The mechanism, confirmed — and since ADDRESSED by #1346 ──────────────────
 //
 //   1. pitch < 60°  => the targetSSE ramp unwinds to baseTarget = 1
-//                      (tiles-sse.ts:197-200; isolated by A/B in #1379)
+//                      (tiles-sse.ts; isolated by A/B in #1379)
 //   2.              => the selector emits ~2 LOD levels finer
 //   3.              => per-zoom simplification retains far more geometry
 //   4.              => frame cost rises with it
 //
 // Step 4 holds only when the data is dense enough that step 3 outweighs the
 // smaller ground area at low pitch. On this repo's sparse fixtures the sign is
-// the OPPOSITE, which is why the report resisted reproduction for a long time:
+// the OPPOSITE, which is why the report resisted reproduction for a long time —
+// the sign flips on DENSITY ALONE, same camera, same code, same renderer:
 //
 //     sparse (stock physical_map)  82.5° -> 0°:  39.6 -> 35.8 ms,  186 ->     8 tris
 //     dense  (seeded, see below)   82.5° -> 0°: 782.9 -> 1304.2 ms, 16380 -> 72464 tris
 //
-// The sign flips on DENSITY ALONE — same camera, same code, same renderer.
-// Worst cost is not at flat pitch but in the 58-65° band (2481 ms med at 58°,
-// 3.2x the high-pitch cost), where the LOD has already escalated while the
-// visible ground area is still large. A downward pitch drag passes through it.
+// #1346 then graded the far-field SSE ceiling by DISTANCE (in camera altitudes)
+// instead of applying it frame-wide whenever the camera is pitched, so steps 1-2
+// no longer happen: the foreground keeps native LOD at EVERY pitch. Re-measured
+// on 5f77894e, same harness, same container, two samples whose tris/maxZ columns
+// are byte-identical:
+//
+//     dense, after   82.5° -> 0°: 1846.3 -> 1084.2 ms, 108894 -> 72464 tris
+//                    maxZ 10 at every stop (was 7 -> 10 escalating as pitch fell)
+//
+// So the reported sign is GONE (0.59x, i.e. lowering pitch is now cheaper) and
+// the 58-65° spike flattened (3.2x the high-pitch cost -> a 2.08x peak that has
+// moved to high pitch). But read WHY: low pitch did not get cheaper — it is
+// unchanged at 72464 tris — the cliff closed because HIGH pitch rose to meet it
+// (16380 -> 108894 tris, 2.4x the frame time). Those are the native-LOD
+// foreground tiles a pitched view was missing entirely; whether that trade is
+// right is a policy call, and the lever is `FAR_RAMP_NEAR` in tiles-sse.ts.
+//
+// What is still unbounded is cost on the way UP: `MAX_EMITTED` counts tiles, not
+// geometry, and 8 tiles carrying 108k triangles never approaches it.
 //
 // ── Why this can run without a dense fixture ─────────────────────────────────
 //
@@ -36,10 +52,11 @@ import { test, expect, type Page } from '@playwright/test'
 //
 // ── What is asserted, and what is only reported ──────────────────────────────
 //
-// Absolute milliseconds under SwiftShader are meaningless, and #1367 is
-// UNFIXED — so a cost-ceiling assertion would be red today and would have to be
-// re-tuned by whoever fixes it. Instead the gate gates on invariants that hold
-// before AND after a fix:
+// Absolute milliseconds under SwiftShader are meaningless, and the cost curve is
+// still a live policy question (see the header: #1346 closed the way-down half,
+// nothing bounds the way-up half) — so a cost-ceiling assertion would have to be
+// re-tuned by whoever moves that policy next. Instead the gate gates on
+// invariants that hold on BOTH sides of any such change:
 //
 //   * liveness      — sources actually hold data (a dead source reports
 //                     missedTiles=0 with loaded()=true, #1364 Path B; a cost
@@ -341,8 +358,8 @@ test.describe('pitch cost sweep (#1367)', () => {
     }
 
     // ── Gates: invariants only. The cost curve above is reported, not gated —
-    //    #1367 is unfixed, so any cost ceiling would be red today and would need
-    //    re-tuning by whoever fixes it. See the header.
+    //    the cost policy is still live (#1346 closed the way-down half), so any
+    //    ceiling would need re-tuning by whoever moves it next. See the header.
     expect(
       problems,
       `page/gl errors or arena-oom during the sweep:\n${problems.join('\n')}`,
