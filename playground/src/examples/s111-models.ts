@@ -61,17 +61,39 @@ export function modelsForBounds(view: Bounds): S111Model[] {
 
 /** The single best model for `view`: most overlap, ties broken toward the SMALLER domain
  *  (the more local, higher-resolution forecast). `null` when the viewport covers no model
- *  (e.g. mid-ocean / another continent) — the demo then shows no currents. */
-export function bestModelForBounds(view: Bounds): S111Model | null {
+ *  (e.g. mid-ocean / another continent) — the demo then shows no currents.
+ *
+ *  `currentKey` + `stickiness` add HYSTERESIS: near a region-boundary tie, a pure zoom (no pan)
+ *  changes the viewport bbox enough to flip which model has marginally more raw overlap — with
+ *  no bias that flip fires on every such zoom, hard-swapping the resident coverage (wiping every
+ *  arrow) for a screen that mostly didn't move. The current model is kept unless a competitor
+ *  beats its overlap by the `stickiness` margin (default +15%), so a decisive pan still switches
+ *  normally while a boundary-adjacent zoom does not. */
+export function bestModelForBounds(
+  view: Bounds,
+  currentKey?: string | null,
+  stickiness = 1.15,
+): S111Model | null {
   let best: S111Model | null = null
   let bestO = 0
+  let currentO = 0
   for (const m of S111_MODELS) {
     const o = overlapArea(view, m.bounds)
     if (o <= 0) continue
+    if (m.key === currentKey) currentO = o
     if (o > bestO || (o === bestO && best && area(m.bounds) < area(best.bounds))) {
       best = m
       bestO = o
     }
+  }
+  if (
+    currentKey &&
+    currentO > 0 &&
+    best &&
+    best.key !== currentKey &&
+    bestO < currentO * stickiness
+  ) {
+    return S111_MODELS.find((m) => m.key === currentKey) ?? best
   }
   return best
 }
