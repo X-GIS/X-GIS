@@ -150,7 +150,7 @@ export const DEMOS_THEMATIC: Record<string, Demo> = {
     name: 'S-100 Coverage: bathymetry (#1158)',
     tag: 'thematic',
     description:
-      'S-100 gridded-coverage read IN PLACE from S-102 HDF5 (ADR-0010) — a synthetic 32×32 bathymetry grid at 50-58°N with a north→south depth ramp, a nodata hole, and 4 known corner cells. The GPU colour-ramp draw is the INC-A gate-3 (headed) item; getCoverage(...).valueAt already returns the exact positive-down value CPU-side.',
+      'S-100 gridded-coverage read IN PLACE from S-102 HDF5 (ADR-0010) — a synthetic 32×32 bathymetry grid at 50-58°N with a north→south depth ramp, a nodata hole, and 4 known corner cells. Over the ramp it prints SOUNDING NUMERALS (#1366 INC-5): depths straight off the original grid (valueAt, nearest-cell, never interpolated), picked on a screen-space lattice and thinned by the label collision pass — the reading a colour ramp cannot give. Needs NO network, so it is where the sounding render gate actually runs; the numerals read 3/6/12/17/21/26/31/36 north→south and none sits over the nodata hole. getCoverage(...).valueAt returns the same exact positive-down value CPU-side.',
     source: load('coverage-bathymetry.xgis'),
     zoom: 4.6,
     center: [4, 54],
