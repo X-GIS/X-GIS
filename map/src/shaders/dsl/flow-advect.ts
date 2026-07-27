@@ -136,7 +136,20 @@ const fsAdvect = fn(
     // Step BACKWARD along the field: where did the stuff at this texel come from? This is the
     // semi-Lagrangian step, and it is also the answer to "interpolate to the current at the
     // position it moved to" — the fetch below IS that interpolation, by construction.
-    // Grid v runs north-DOWN while the north component runs up, hence the subtraction on y.
+    // THE SIGNS, derived rather than asserted — this environment has no GPU, so this comment
+    // is the only human-readable justification, and "correcting" it the wrong way would invert
+    // the whole field into silently wrong navigational information. (flow-advect.test.ts pins
+    // both signs in the emitted WGSL, so such a change fails CI.)
+    //
+    //   uv.x increases EASTWARD  — origin is the SW cell centre, lon = originLon + col·dLon.
+    //   uv.y increases SOUTHWARD — row 0 is the NORTHERNMOST row (coverage-arrow-show.ts:83,
+    //     lat = originLat + (nLat−1−row)·dLat), packFlowFieldUV preserves row order, and both
+    //     arms map uv.y=0 to texture row 0 (the GL twin's dropped V-flip exists precisely to
+    //     make them agree with WebGPU's v=0-at-top).
+    //
+    // So displacement in uv is (+u·k, −v·k), and the BACKWARD step src = uv − displacement is
+    //   x: uv.x − u·k   (subtract)
+    //   y: uv.y + v·k   (ADD — the sign flips because north is −y)
     const back = Let(vec2(uv.x.sub(vu.mul(U.field.step.x)), uv.y.add(vv.mul(U.field.step.y))))
     // Clamp rather than wrap: a coverage cell is a bounded region, and wrapping would advect
     // the Atlantic into the Pacific across the seam.
