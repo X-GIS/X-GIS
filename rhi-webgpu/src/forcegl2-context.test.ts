@@ -2,6 +2,7 @@ import { describe, it, expect, vi } from 'vitest'
 import { initGPUForcedWebGL2, resizeCanvas } from './gpu'
 import { backendProviderChain } from './backend-providers'
 import { WebGl2Device } from '@xgis/rhi-webgl2'
+import { SurfaceUnusableError } from '@xgis/rhi'
 
 // US-001 (WebGL2 live-render milestone, Story 1): the forced-WebGL2 boot
 // (`?forcegl2=1`) builds a WebGL2-backed GPUContext. These are the GPU-free
@@ -162,14 +163,22 @@ describe('initGPUForcedWebGL2 — forced-WebGL2 boot context (US-001)', () => {
     expect(ctx._validationErrors).toEqual([])
   })
 
-  it('rejects with WebGPUUnavailableError when the canvas cannot make a webgl2 context', async () => {
+  it('rejects with SurfaceUnusableError when the canvas cannot make a webgl2 context', async () => {
     const canvas = {
       getContext(): unknown {
         return null
       },
     } as unknown as HTMLCanvasElement
+    // SurfaceUnusableError (not WebGPUUnavailableError) so `selectBackend` retries on
+    // a FRESH canvas: a null getContext usually means the element's context type is
+    // already spoken for, which no amount of retrying on THIS element can fix. The
+    // message names the boot mode instead of hard-coding `?forcegl2=1` — an auto
+    // fallback used to report a flag the host never set.
     await expect(initGPUForcedWebGL2(canvas, (gl) => new WebGl2Device(gl))).rejects.toThrow(
-      /forcegl2/,
+      SurfaceUnusableError,
+    )
+    await expect(initGPUForcedWebGL2(canvas, (gl) => new WebGl2Device(gl))).rejects.toThrow(
+      /forced WebGL2 boot/,
     )
   })
 

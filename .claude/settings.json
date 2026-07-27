@@ -1,6 +1,6 @@
 {
   "enabledPlugins": {
-    "ralph-loop@claude-plugins-official": true
+    "ralph-loop@claude-plugins-official": false
   },
   "hooks": {
     "UserPromptSubmit": [
@@ -8,11 +8,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node \"$CLAUDE_PROJECT_DIR/.claude/skills/prove-or-refute/router.cjs\""
-          },
-          {
-            "type": "command",
-            "command": "node \"$CLAUDE_PROJECT_DIR/.claude/skills/debug-toolkit/router.cjs\""
+            "command": "node \"$CLAUDE_PROJECT_DIR/.claude/skills/prompt-router.cjs\""
           }
         ]
       }

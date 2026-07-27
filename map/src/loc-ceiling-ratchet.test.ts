@@ -134,7 +134,15 @@ const CEILINGS: Record<string, number> = {
   // across raised roofs).
   // 4739→4740 (#1252): the two fillPipelineExtrudedOverride params + their use
   // at the primary/fallback extrude-pipeline selection (data-driven fill extrude).
-  'map/src/render/vector-tile-renderer.ts': 4740,
+  // 4740→4791 (#1371 atomic re-seed): `reseedTiles` (re-request the keys this renderer has
+  // uploaded) + `applyReplacedTiles` (swap a replaced tile's GPU buffers in beginFrame, drop it
+  // when the replacement is empty). Both need the store + upload coordinator + source together,
+  // which only this class holds; extracting them would export three internals to buy back 51.
+  // merge union — 4740→4761 (#1397): the viewport-anchored extrusion light gains its bearing
+  // rotation in the per-tile light_dir_ecef packing. The two edits are disjoint, so the
+  // ceilings SUM rather than max: 4740 + 51 + 21 = 4812 = the merged file's line count.
+  // Shrink-only from here.
+  'map/src/render/vector-tile-renderer.ts': 4812,
   // 4232→4237 (#1000 heatmap relocate): the heatmap density-target OWNERSHIP
   // extracted to render/heatmap-targets.ts; map keeps only the irreducible
   // composition-root wiring — the `heatmapTargets` field + its import (mirrors
@@ -414,7 +422,13 @@ const CEILINGS: Record<string, number> = {
   // resolution keeps BOTH: the extracted single authority now carries the coverage-arm-only
   // re-arm, so neither the freeze fix nor the de-duplication was dropped. Measured 5452 =
   // 5330 + 31 (main) + 91 (branch). Lower as #991 decomposes map.ts.
-  'map/src/map.ts': 5452,
+  // +1 (#1371): the `getVtSource` SourceManager dep, so a host data push swaps a source's
+  // backend on the LIVE catalog instead of tearing the pair down. One line, same union
+  // accounting as above — non-overlapping with the three bundles, so the merged file is 5362.
+  // MERGE UNION #3 (#1158 <- main @ 904a528): both sides' deltas are non-overlapping edits
+  // to different methods, so the merged file measures their SUM. Value below is the MEASURED
+  // post-hook line count, not an arithmetic guess.
+  'map/src/map.ts': 5443,
   // Baselined at #1255 (measured 830): the DOM-inspired layer API crossed
   // NEW_FILE_CAP with the paint-transition style-setter integration — the
   // StyleHost.transitions context, the shared applyNumber/applyColor
@@ -437,7 +451,15 @@ const CEILINGS: Record<string, number> = {
   // 849→841 (#1158 S-102 live refresh): the coverage attach's range-then-whole-file
   // ladder moved to `coverage-fetch.ts` so `Map.refreshCoverage` reads through the same
   // authority. Ceiling LOWERED to lock the extraction in, per this gate's own rule.
-  'map/src/source-manager.ts': 841,
+  // 849→925 (#1371 atomic re-seed): `_reseedInPlace` — the data-swap sibling of the attach.
+  // It repeats that method's bookkeeping (reproject → seeded FC → polar caps → heatmap points)
+  // against the SAME catalog, then swaps the backend. Sharing the body with the attach would
+  // mean parameterising camera-fit, pipeline setup and registration away — more coupling than
+  // the 76 lines cost.
+  // MERGE UNION: a −8 extraction and a +76 addition to different methods, so the merged file
+  // measures 849 − 8 + 76. The extraction stays locked in — the union is the SUM of the two
+  // deltas, never max() of the two ceilings.
+  'map/src/source-manager.ts': 917,
   // 1920→1930 (#1042 R3): the globe limb cull for MULTI-LINE labels must land in
   // the collision phase — the ONLY site holding the label's quad half-height (the
   // collision box IS the height authority; the label-pass dispatch site has only
@@ -623,11 +645,19 @@ const CEILINGS: Record<string, number> = {
   // fs_fill_extrude composer placeholder, and default/variantExtrudeReturnStmts
   // (fragment re-lighting of the feat_data colour). The shading math is a
   // faithful replay of the VS lighting; not extract-worthy (§2).
-  'map/src/shaders/dsl/polygon.ts': 1448,
+  // 1448 → 1476 (#1397): the extruded VS gained two vertex attributes
+  // (wall_base, local_merc), the flat-arm plane-z gained its base term +
+  // Mercator vertical scale, and the wall vertical gradient gained the
+  // MapLibre `+ base` term. Shrink-only from here. (#1343 retired the runtime/
+  // second authority, so this file is now the only one to update.)
+  'map/src/shaders/dsl/polygon.ts': 1476,
   // 1290→1314 (#1155 F3): cold-start burst tick budget — the `_coldStartBurst`
   // field + `_BURST_TICK_BUDGET` + `setColdStartBurst` + the burst-selected
   // budget in resetCompileBudget's backend tick loop.
-  'data/src/tile-catalog.ts': 1314,
+  // 1314→1360 (#1371 atomic re-seed): `refreshTiles` (re-request a CACHED key, the one thing
+  // `requestTiles` refuses) + `consumeReplacedKeys` + the two key sets they own. Cache identity
+  // and the request path both live here, so the pair cannot move out.
+  'data/src/tile-catalog.ts': 1360,
   // 1173→1180 (#1046 F1): thread the required `rhi: RhiDevice` onto the FrameContext at
   // both build sites — the main-chain init literal and the twin label stage — so a seam
   // can reach `ctx.rhi.caps.*` (doc §3-F1). +7 = two assignments + their rationale comments;
@@ -796,7 +826,10 @@ const CEILINGS: Record<string, number> = {
   // createPipeline unbinding the program after reflection. Stacked on the
   // #1057/#1062/#1060/#1196 growth — measured 1436.
   'rhi-webgl2/src/rhi-webgl2.ts': 1436,
-  'map/src/render/gpu-tile-store.ts': 941,
+  // 941→975 (#1371 atomic re-seed): `releaseSupersededTile` + `dropTile`, and the split of
+  // `_releaseTileSlots` into a resource-release body the two share with eviction. Arena/pool
+  // ownership is this class's whole reason to exist.
+  'map/src/render/gpu-tile-store.ts': 975,
   // 930→948 (#1078): the zoom-transition readiness gate now probes the SAME
   // selector the frame draws with — routeToSphereSelector picks globeVisibleTiles
   // on the globe/sphere route (vs the flat visibleTilesSSE) so cz hold/advance is
@@ -817,7 +850,13 @@ const CEILINGS: Record<string, number> = {
   // 14 max, at 7.2 ms @pitch0 / 16.3 ms @pitch60 each. +8 is the constant's
   // rationale (the measurement that picks 16 over 8) — the constant is line-neutral.
   // Gated by tile-selection-lru.test.ts (12 distinct margins → exactly 12 walks).
-  'map/src/render/tile-selection-cache.ts': 985,
+  // +2 (#1374): the SSE selector's emit cap used to truncate the visible set
+  // SILENTLY, so a partially-uncovered viewport was indistinguishable from a
+  // complete one and missing tiles reached users with no diagnostic. Reporting it
+  // costs exactly two lines here — the import and the `onTruncated` argument; the
+  // warn POLICY was extracted to render/selection-truncation.ts rather than added
+  // to this file. Single ratchet for this path since runtime/ dissolved.
+  'map/src/render/tile-selection-cache.ts': 987,
   // 870→876 (#1083): +6 for the tile-rect NE-corner Mercator calc threaded
   // into generateWallMeshExtrudedECEF so it drops clip-synthetic seam walls.
   // 876→889: visible-first cap-deferral — `_distSq` field + `resetFrameCap`

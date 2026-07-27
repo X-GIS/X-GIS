@@ -29,30 +29,30 @@ fn vs(@builtin(vertex_index) vi: u32) -> VsOut {
 
 @fragment
 fn fs_loran(vo: VsOut) -> @location(0) vec4<f32> {
-  let _cse7 = vec2<f32>(u.st_a.hi.x, u.st_a.lo.x);
-  let _cse8 = vec2<f32>(0.0, 0.0);
-  let _cse9 = vec2<f32>(u.st_a.hi.y, u.st_a.lo.y);
-  let _cse10 = vec2<f32>(u.st_b.hi.x, u.st_b.lo.x);
-  let _cse11 = vec2<f32>(u.st_b.hi.y, u.st_b.lo.y);
-  let _cse0 = (vo.uv.x < 0.5);
-  let _cse1 = vec2<f32>(u.center.hi.x, u.center.lo.x);
-  let _cse2 = vec2<f32>(u.center.hi.y, u.center.lo.y);
-  let _cse3 = df64_add(_cse7, _cse8);
-  let _cse4 = df64_add(_cse9, _cse8);
-  let _cse5 = df64_add(_cse10, _cse8);
-  let _cse6 = df64_add(_cse11, _cse8);
   let _v0 = pow(10.0, (-u.zoom_exp));
   let _v1 = (vo.uv.x * 2.0);
+  let _cse0 = (vo.uv.x < 0.5);
   let _v2 = (_v1 - select(1.0, 0.0, _cse0));
   let _v3 = ((_v2 - 0.5) * _v0);
   let _v4 = (((vo.uv.y - 0.5) * _v0) * ((u.resolution.y / u.resolution.x) * 2.0));
   let _v5 = (_cse0 || (u.fp64 < 0.5));
+  let _cse1 = vec2<f32>(u.center.hi.x, u.center.lo.x);
+  let _cse2 = vec2<f32>(u.center.hi.y, u.center.lo.y);
   let _lc0 = df64_add(_cse1, vec2<f32>(_v3, 0.0));
   let _lc1 = df64_add(_cse2, vec2<f32>(_v4, 0.0));
   let _v6 = DF64Vec2(vec2<f32>(_lc0.x, _lc1.x), vec2<f32>(_lc0.y, _lc1.y));
+  let _cse7 = vec2<f32>(u.st_a.hi.x, u.st_a.lo.x);
+  let _cse8 = vec2<f32>(0.0, 0.0);
+  let _cse3 = df64_add(_cse7, _cse8);
+  let _cse9 = vec2<f32>(u.st_a.hi.y, u.st_a.lo.y);
+  let _cse4 = df64_add(_cse9, _cse8);
   let _lc2 = df64_sub(df64_add(vec2<f32>(_v6.hi.x, _v6.lo.x), _cse8), _cse3);
   let _lc3 = df64_sub(df64_add(vec2<f32>(_v6.hi.y, _v6.lo.y), _cse8), _cse4);
   let _v7 = df64_sqrt(df64_add(df64_mul(_lc2, _lc2), df64_mul(_lc3, _lc3)));
+  let _cse10 = vec2<f32>(u.st_b.hi.x, u.st_b.lo.x);
+  let _cse5 = df64_add(_cse10, _cse8);
+  let _cse11 = vec2<f32>(u.st_b.hi.y, u.st_b.lo.y);
+  let _cse6 = df64_add(_cse11, _cse8);
   let _lc4 = df64_sub(df64_add(vec2<f32>(_v6.hi.x, _v6.lo.x), _cse8), _cse5);
   let _lc5 = df64_sub(df64_add(vec2<f32>(_v6.hi.y, _v6.lo.y), _cse8), _cse6);
   let _v8 = df64_sqrt(df64_add(df64_mul(_lc4, _lc4), df64_mul(_lc5, _lc5)));
@@ -76,8 +76,8 @@ fn fs_loran(vo: VsOut) -> @location(0) vec4<f32> {
 }
 
 fn df64_twoSum(a: f32, b: f32) -> vec2<f32> {
-  let _cse0 = textureLoad(_fp64, vec2<i32>(0, 0), 0).x;
   let _v0 = (a + b);
+  let _cse0 = textureLoad(_fp64, vec2<i32>(0, 0), 0).x;
   let _v1 = (((_v0 * _cse0) - a) * _cse0);
   let _v2 = (((((a - ((_v0 - _v1) * _cse0)) * _cse0) * _cse0) * _cse0) + (b - _v1));
   return vec2<f32>(_v0, _v2);
@@ -107,9 +107,9 @@ fn df64_twoProd(a: f32, b: f32) -> vec2<f32> {
 }
 
 fn df64_twoSqr(a: f32) -> vec2<f32> {
-  let _cse0 = textureLoad(_fp64, vec2<i32>(0, 0), 0).x;
   let _v0 = (a * a);
   let _v1 = df64_split(a);
+  let _cse0 = textureLoad(_fp64, vec2<i32>(0, 0), 0).x;
   let _v2 = (((((_v1.x * _v1.x) - _v0) * _cse0) + ((((_v1.x * _v1.y) * 2.0) * _cse0) * _cse0)) + ((((_v1.y * _v1.y) * _cse0) * _cse0) * _cse0));
   return vec2<f32>(_v0, _v2);
 }

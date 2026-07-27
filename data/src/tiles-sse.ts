@@ -87,9 +87,31 @@ const FOV_DEG = 45 // Camera.FOV — fixed in this engine
  *  target=12 sweet spot. */
 const DEFAULT_TARGET_SSE_PX = 1
 
-/** Hard cap on emitted tile count. Safety net only — well-tuned SSE
- *  in a typical view emits 9-100 tiles, but a degenerate camera (e.g.
- *  z=22 + pitch=89° + bearing change) could in theory blow up. */
+/** Where the far-field SSE ceiling starts and finishes engaging, in multiples of
+ *  the camera altitude (see `effectiveTarget` in the DFS).
+ *
+ *  NEAR is 2 because an UNPITCHED viewport is entirely inside it: with FOV 45°
+ *  the frame's corner sits at √(1 + tan²22.5° + (aspect·tan22.5°)²) ≈ 1.3
+ *  altitudes even on a wide 16:10 canvas. That is what makes the grading
+ *  behaviour-preserving at low pitch rather than merely approximately so.
+ *  FAR is 5 so the ceiling arrives gradually across the pitched ground stretch
+ *  instead of as another band edge — the kind of edge that produced the
+ *  pitch-60→70 cliff this replaces. Swept 4/5/8 on Paris z14+z16: the emitted
+ *  count barely moves (41-54) and the native-LOD count does not move at all,
+ *  because the total is set by NEAR — i.e. by how much foreground you insist on
+ *  drawing at native zoom. FAR only trims the mid-field, so it is chosen for a
+ *  smooth gradient rather than for a count. */
+const FAR_RAMP_NEAR = 2
+const FAR_RAMP_FAR = 5
+const FAR_RAMP_SPAN = FAR_RAMP_FAR - FAR_RAMP_NEAR
+
+/** Hard cap on emitted PRIMARY tile count (fallbackOnly ancestors are not
+ *  charged — see the emit-budget block in the DFS). Safety net only, but "only
+ *  in theory" was too generous: a pitched Bright/Liberty view already measures
+ *  200-300 tiles (globe-visible-tiles.ts:91) and 254 at Liberty Paris z=18.25
+ *  pitch=70 WITH the high-pitch SSE relief applied, so a denser scene reaches
+ *  this. When it does the viewport is genuinely uncovered, which is why hitting
+ *  it now reports through `onTruncated` instead of silently returning short. */
 const MAX_EMITTED = 600
 
 /** DIAGNOSTIC ONLY — hard-caps the emitted tile count so a tester can A/B
@@ -130,8 +152,14 @@ function urlMaxTiles(): number | null {
 export interface VisibleTilesSSEOptions {
   /** Subdivide-cutoff in screen pixels. Default 16. */
   targetSSEPx?: number
-  /** Hard cap on emitted tiles — safety net for pathological cameras. */
+  /** Hard cap on emitted PRIMARY tiles — safety net for pathological cameras.
+   *  fallbackOnly ancestors are not charged against it (they protect tiles
+   *  already inside the budget from eviction; they are not extra draw work). */
   maxEmitted?: number
+  /** Called when the cap actually bit, i.e. the returned set does NOT cover the
+   *  viewport. Without it the truncation is invisible — the array is the same
+   *  shape either way — and missing tiles reach the screen with no diagnostic. */
+  onTruncated?: (emitted: number, cap: number) => void
   /** Skip the globe-equivalent horizon cull (for diagnostic rendering
    *  of the full Mercator plane). Default false — horizon cull is on
    *  for Mercator. Non-cylindrical projections always ignore this
@@ -194,10 +222,21 @@ export function visibleTilesSSE(
   // pitch=80°/target=12 sweet spot. Below 60° we keep base unchanged
   // (the visual fidelity reason for lowering the default in the first
   // place).
-  let targetSSE = baseTarget
+  // The FAR-FIELD ceiling. Applied by DISTANCE, not to every tile in the frame —
+  // see `effectiveTarget` in the DFS. Raising it globally is what broke the
+  // foreground: measured on the real selector (Paris z16, 1280×800), a pitch=70
+  // frame emitted ZERO tiles at the native zoom — the whole screen, foreground
+  // included, came from z8–z14 ancestors — while pitch≤60 emitted every tile at
+  // native z16. That is the cliff behind "lowering the pitch makes it much
+  // heavier": crossing 60° downward, 12 coarse tiles become 20 native ones, and
+  // since buildings only exist at z≥14 the pitched view carried almost no
+  // buildings at all until the pitch came down. The claim above — "without
+  // affecting the foreground (foreground SSE stays high regardless of target)" —
+  // simply was not true; a global target coarsens near tiles just as hard.
+  let farTargetSSE = baseTarget
   if (opts.targetSSEPx === undefined && pitchDeg > 60) {
     const t = Math.min(1, (pitchDeg - 60) / 20)
-    targetSSE = Math.min(24, baseTarget + t * (12 - baseTarget))
+    farTargetSSE = Math.min(24, baseTarget + t * (12 - baseTarget))
     // iter-190 — additional ramp for high-z + high-pitch views.
     // Probe 2026-05-20 Liberty Paris z=18.25 pitch=70: idle frame
     // 85 ms, 254 tiles, 1.7M vertices. z=18 multiplies the fore-
@@ -209,7 +248,7 @@ export function visibleTilesSSE(
     // to native resolution.
     if (camera.zoom > 17) {
       const zBoost = Math.min(1, (camera.zoom - 17) / 1.5)
-      targetSSE = Math.min(24, targetSSE + zBoost * (24 - targetSSE))
+      farTargetSSE = Math.min(24, farTargetSSE + zBoost * (24 - farTargetSSE))
     }
   }
   // `?maxtiles=N` (diagnostic) wins over the explicit opt and the default so
@@ -400,11 +439,19 @@ export function visibleTilesSSE(
     // worldCopy fits ±10 (overhead bits), z ≤ 22 (5 bits), x/y ≤ 2^22.
     ((worldCopy + 16) * 32 + z) * (1 << 22) * (1 << 22) + x * (1 << 22) + y
 
+  // ── Emit budget (#1374) ───────────────────────────────────────────────────
+  // The cap governs PRIMARY tiles only. It used to test `result.length`, which
+  // also counts the fallbackOnly ancestors pushed below — those are eviction-
+  // protection metadata for tiles already inside the budget, not additional draw
+  // work, so charging them shrank the real tile budget by ~24% (deduped, they
+  // amortise to ≈0.31 pushes per primary) with nothing in the docs saying so.
+  let emitted = 0
+
   // DFS. `n` = 2^z = number of tiles per side at this level. The
   // mercator x range is shifted by `worldCopy * EARTH_CIRC_M` so a
   // single DFS pass can be driven from each world copy's root.
   const visit = (z: number, x: number, y: number, worldCopy: number): void => {
-    if (result.length >= maxEmitted) return
+    if (emitted >= maxEmitted) return
 
     const n = 1 << z
     const tileSize = EARTH_CIRC_M / n
@@ -454,7 +501,24 @@ export function visibleTilesSSE(
     // distance / 2 / tanHalfFov) handles all of it.
     const ssePx = (geometricError * canvasHeight) / (distance * 2 * tanHalfFov)
 
-    if (ssePx > targetSSE && z < maxZ) {
+    // Distance-graded target. The far-field ceiling engages by how far the tile
+    // is compared with the camera's own altitude — the quantity that actually
+    // says "this is horizon, not foreground" — instead of being applied to every
+    // tile whenever the camera happens to be pitched. Below FAR_RAMP_NEAR the
+    // tile keeps the base target, so it still subdivides to native zoom no matter
+    // how steep the pitch; past FAR_RAMP_FAR it pays the full ceiling.
+    //
+    // Low-pitch views are UNTOUCHED by construction: with a 45° FOV every tile in
+    // an unpitched viewport sits within ~1.3 altitudes of the camera (corner
+    // included), which is below FAR_RAMP_NEAR, so `farness` is 0 and the target is
+    // exactly `baseTarget` — the same value the old code used there.
+    const farness =
+      farTargetSSE === baseTarget
+        ? 0
+        : Math.min(1, Math.max(0, (distance / altitude - FAR_RAMP_NEAR) / FAR_RAMP_SPAN))
+    const effectiveTarget = baseTarget + farness * (farTargetSSE - baseTarget)
+
+    if (ssePx > effectiveTarget && z < maxZ) {
       // Subdivide. DFS order is camera-side first to bias the safety
       // cap toward the visually-important quadrant. We use distance to
       // child centres as the priority — closest first.
@@ -475,6 +539,7 @@ export function visibleTilesSSE(
       // Emit at this level. `ox = x + worldCopy * 2^z` per the
       // TileCoord absolute-x contract (see loader/tiles.ts:39).
       result.push({ z, x, y, ox: x + worldCopy * n })
+      emitted++
 
       // fallbackOnly parent inject — push (z-1, z-2) parents flagged
       // `fallbackOnly` so eviction protects them. Renderer routes
@@ -508,9 +573,28 @@ export function visibleTilesSSE(
   // projections resolve to `worldCopies = [0]` (one iteration), while the
   // cylindrical family (mercator/equirect/natural_earth/oblique) enumerates
   // the ±N copies.
-  const worldCopies = worldCopiesFor(projType)
-  for (const wc of worldCopies) {
+  //
+  // NEAREST COPY FIRST. The table order is [-2,-1,0,1,2] — the camera's own
+  // world sits THIRD — while the emit cap is a shared running total checked at
+  // `visit` entry. So the two off-screen copies got first claim on the budget
+  // and, whenever they legitimately consumed it (a camera spanning the
+  // antimeridian, where more than one copy really is on screen), the PRIMARY
+  // world returned at its root and emitted nothing: a contiguous band of map
+  // simply absent. Sorting by distance from the camera's own copy makes the
+  // budget flow to the most relevant world first, so anything the cap drops is
+  // the least relevant copy rather than the one the user is looking at. Copies
+  // are otherwise independent, so ordering changes nothing else — and a
+  // single-copy projection has nothing to sort.
+  const copyOrder = [...worldCopiesFor(projType)].sort((a, b) => Math.abs(a) - Math.abs(b))
+  for (const wc of copyOrder) {
     visit(0, 0, 0, wc)
   }
+  // Truncation is a COVERAGE failure, not a perf detail: the viewport is left
+  // partially uncovered and the array alone cannot say so, which is exactly how
+  // "tiles that should be visible are missing" reaches a user with no diagnostic
+  // anywhere. Report it so the caller can surface/degrade deliberately. Optional
+  // and side-effect-free when unset, so the return shape stays identical to
+  // `visibleTilesFrustum` (the swap-behind-a-flag contract).
+  if (emitted >= maxEmitted) opts.onTruncated?.(emitted, maxEmitted)
   return result
 }

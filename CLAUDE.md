@@ -267,6 +267,14 @@ scripts/gap-matrix.md`) — read the script header before assuming write-in-plac
   converting anything; convert only a source that truly cannot be read as-is, server-side,
   only TO a standard. If you're writing a magic number, stop.
   → `2026-07-21-the-custom-format-trap.md`
+- A pipeline VARIANT is not portable between passes — copying a draper copies an assumption
+  about the pass it draws into. `Material` synthesises a depth-stencil from a TRUTHY
+  `depthCompare`, so `depthCompare: 'always'` (right in an opaque-pass draper) makes every
+  `SetPipeline` on an offscreen COLOUR-ONLY pass a validation error, and the layer never runs
+  once. Invisible without a GPU: the step succeeds against a recorder and the only symptom is
+  motion that never starts. Re-derive depth/sample state from the TARGET pass, and gate it by
+  asserting the created descriptor through the real `Material` path.
+  → `2026-07-27-the-pipeline-that-was-right-somewhere-else.md`
 
 This section deliberately has NO separate index file: the posts themselves (their
 frontmatter descriptions) are the single authority, and a hand-synced index would be
