@@ -101,6 +101,32 @@ side-by-side composite. `Read` downscales large images, so this silently loses t
 sub-pixel offsets, seams, missing shields, and width changes that real bugs live in.
 Eyeballing a downscaled composite is NOT verification.
 
+### "There is no GPU here" is HALF true — and the wrong half is the one that matters
+
+**WebGL2 RENDERS in this environment. WebGPU does not.** SwiftShader gives a real WebGL2
+context headlessly, which is exactly what CI's `render-gate` leg drives; WebGpuDevice has
+no software adapter, so WebGPU-only paths (raster gates, `navigator.gpu` compute) really
+are local-GPU-only. Saying "no GPU, cannot verify" and skipping the render is therefore
+NOT a valid excuse — it is only valid for the WebGPU half.
+
+```
+cd playground && XGIS_SOFTWARE_GPU=1 HEADED=0 \
+  XGIS_CHROMIUM_EXECUTABLE=$(ls -d /opt/pw-browsers/chromium_headless_shell-*/chrome-linux/headless_shell | head -1) \
+  ./node_modules/.bin/playwright test <spec>          # page: ?forcegl2=1
+```
+
+(`XGIS_CHROMIUM_EXECUTABLE` only when Playwright's pinned build differs from the
+preinstalled one — never run `playwright install` here. Assert `backend === 'webgl2'` in
+the spec so a silent fallback cannot green it.)
+
+This was paid for: the multi-region coverage work shipped a `deps.renderer` captured
+before the GPU assigned it — `undefined` forever, breaking every ramp-only coverage push
+and every mosaic region eviction. tsc could not see it (`!` is a promise it is assigned),
+3790 unit tests could not (they inject their own deps), and 15 green CI checks did not
+drive a coverage source. ONE headless WebGL2 render threw on frame one. A `test.fixme()`
+whose stated reason is "no real GPU here" is now a bug to re-check, not a fact.
+→ `map/src/coverage-source.test.ts`, `playground/e2e/_s111-multiregion-gate.spec.ts`
+
 **Required, every time:**
 
 1. **Directional pixel-diff** with `.claude/skills/compare-parity-pixeldiff/compare-diff.py`

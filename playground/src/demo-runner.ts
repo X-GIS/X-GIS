@@ -1342,177 +1342,6 @@ function teardownMeasureOverlay(): void {
   measureCleanup?.()
 }
 
-// ── NOAA S-111 currents overlay (#1272) ──────────────────────────────
-// Activated by demos with `currents: true`. Reads the demo's `currents`
-// coverage source (the CPU-resident CoverageHandle, map.getCoverage) and
-// expands its valid cells into ONE retained particle-flow batch (#826):
-// particles drift along the surfaceCurrentDirection band while density
-// follows speed. The coverage colour ramp underneath stays the SPEED reading;
-// the particles are the DIRECTION reading of the same field.
-
-let currentsOverlayCleanup: (() => void) | null = null
-
-function setupCurrentsOverlay(map: InstanceType<typeof XGISMap>): void {
-  teardownCurrentsOverlay()
-  let cancelled = false
-  const cleanupFns: (() => void)[] = [
-    () => {
-      cancelled = true
-    },
-  ]
-  currentsOverlayCleanup = () => {
-    for (const fn of cleanupFns) fn()
-    currentsOverlayCleanup = null
-  }
-  // The coverage source may still be attaching when the post-run hooks fire —
-  // poll briefly instead of racing it.
-  const started = performance.now()
-  const tryAttach = (): void => {
-    if (cancelled) return
-    const cov = map.getCoverage('currents')
-    if (!cov) {
-      if (performance.now() - started < 8000) setTimeout(tryAttach, 120)
-      return
-    }
-    const speedBand = cov.band('surfaceCurrentSpeed')
-    const dirBand = cov.band('surfaceCurrentDirection')
-    const [nLon, nLat] = cov.meta.size
-    const [originLon, originLat] = cov.meta.origin
-    const [dLon, dLat] = cov.meta.spacing
-    // Subsample the grid to ≤ ~600 field cells; the particle packer allocates
-    // the fixed pool ∝ speed across cells, so a busy channel reads denser.
-    const step = Math.max(1, Math.ceil(Math.sqrt((nLon * nLat) / 600)))
-    interface Cell {
-      lon: number
-      lat: number
-      speed: number
-      dir: number
-    }
-    const cells: Cell[] = []
-    for (let row = 0; row < nLat; row += step) {
-      for (let col = 0; col < nLon; col += step) {
-        const i = row * nLon + col // north-up rows: row 0 = northernmost
-        const s = speedBand.values[i]!
-        const d = dirBand.values[i]!
-        if (Number.isNaN(s) || Number.isNaN(d)) continue
-        cells.push({
-          lon: originLon + col * dLon,
-          lat: originLat + (nLat - 1 - row) * dLat,
-          speed: s,
-          dir: d,
-        })
-      }
-    }
-    if (cells.length === 0) return
-    // Seed radius ≈ half the subsampled cell footprint so neighbouring cells tile.
-    const seedRadiusMeters = (step * dLat * 111320) / 2
-    const handle = map.graphics.add({
-      type: 'particle-flow',
-      data: cells,
-      getPosition: (d: Cell) => [d.lon, d.lat] as const,
-      getBearing: (d: Cell) => d.dir,
-      getVolume: (d: Cell) => d.speed,
-      getColor: '#ffffff',
-      seedRadiusMeters,
-      driftPx: 28,
-      lifetimeSeconds: 3,
-    })
-    cleanupFns.push(() => handle.remove())
-    // e2e handshake: the gate awaits this before capturing (deterministic at
-    // a pinned ?animt clock).
-    ;(window as unknown as { __xgisCurrentsCells?: number }).__xgisCurrentsCells = cells.length
-  }
-  tryAttach()
-}
-
-function teardownCurrentsOverlay(): void {
-  currentsOverlayCleanup?.()
-}
-
-// ── Official S-111 arrow portrayal (#1272) ───────────────────────────
-// The IHO S-111 portrayal draws surface currents as TIDAL-STREAM ARROWS —
-// direction by arrow orientation, magnitude by arrow LENGTH — read over the
-// speed colour-fill (the coverage ramp). This is the standard direction symbol;
-// the drifting-particle overlay above is a modern, non-standard enhancement of
-// the same field, so the two coexist (arrows = the exact standard reading,
-// particles = flow intuition). Both read the same `currents` coverage. The exact
-// speed-BAND colour palette (s111-speed, from the S-111 Portrayal Catalogue) will
-// refine the fill later; the arrows are drawn in one high-contrast tint so they
-// read over any ramp.
-let currentsArrowsCleanup: (() => void) | null = null
-
-function setupCurrentsArrows(map: InstanceType<typeof XGISMap>): void {
-  teardownCurrentsArrows()
-  let cancelled = false
-  const cleanupFns: (() => void)[] = [
-    () => {
-      cancelled = true
-    },
-  ]
-  currentsArrowsCleanup = () => {
-    for (const fn of cleanupFns) fn()
-    currentsArrowsCleanup = null
-  }
-  const started = performance.now()
-  const tryAttach = (): void => {
-    if (cancelled) return
-    const cov = map.getCoverage('currents')
-    if (!cov) {
-      if (performance.now() - started < 8000) setTimeout(tryAttach, 120)
-      return
-    }
-    const speedBand = cov.band('surfaceCurrentSpeed')
-    const dirBand = cov.band('surfaceCurrentDirection')
-    const [nLon, nLat] = cov.meta.size
-    const [originLon, originLat] = cov.meta.origin
-    const [dLon, dLat] = cov.meta.spacing
-    // Arrows read best SPARSER than the particle pool — subsample to ~250 cells so
-    // the field is a legible vector grid, not a solid mat of overlapping arrows.
-    const step = Math.max(1, Math.ceil(Math.sqrt((nLon * nLat) / 250)))
-    interface Cell {
-      lon: number
-      lat: number
-      speed: number
-      dir: number
-    }
-    const cells: Cell[] = []
-    for (let row = 0; row < nLat; row += step) {
-      for (let col = 0; col < nLon; col += step) {
-        const i = row * nLon + col // north-up rows: row 0 = northernmost
-        const s = speedBand.values[i]!
-        const d = dirBand.values[i]!
-        if (Number.isNaN(s) || Number.isNaN(d)) continue
-        cells.push({
-          lon: originLon + col * dLon,
-          lat: originLat + (nLat - 1 - row) * dLat,
-          speed: s,
-          dir: d,
-        })
-      }
-    }
-    if (cells.length === 0) return
-    const handle = map.graphics.add({
-      type: 'arrow',
-      data: cells,
-      getPosition: (c: Cell) => [c.lon, c.lat] as [number, number],
-      // Direction band is degrees true (0 = north, clockwise) — the arrow's own
-      // geographic-bearing convention, projected on the GPU (correct under pitch/globe).
-      getBearing: (c: Cell) => c.dir,
-      // Official portrayal: arrow LENGTH ∝ speed. Clamp so a strong channel does not
-      // grow off-cell; the coverage fill under the arrows carries the colour reading.
-      getSize: (c: Cell) => 8 + Math.min(c.speed, 3) * 14,
-      getColor: '#ffffff',
-    })
-    cleanupFns.push(() => handle.remove())
-    ;(window as unknown as { __xgisCurrentsArrows?: number }).__xgisCurrentsArrows = cells.length
-  }
-  tryAttach()
-}
-
-function teardownCurrentsArrows(): void {
-  currentsArrowsCleanup?.()
-}
-
 // ── NOAA S-111 viewport mosaic (#1272 E-④) ───────────────────────────
 // Activated by demos with `mosaic: true`. Installs installS111Mosaic on the `currents`
 // source: each move-end swaps the coverage to the NOAA regional model covering the view. The
@@ -2185,25 +2014,16 @@ async function loadDemo(idx: number) {
     teardownMeasureOverlay()
   }
 
-  // NOAA S-111 currents demos (#1272). The LIVE demo (mosaic) draws the OFFICIAL S-111 arrow
-  // field from the ENGINE — `| arrow` on the coverage layer (#1333), coloured/scaled/oriented
-  // per the vendored catalogue, re-derived on each region swap. No app-side overlay. The
-  // synthetic showcase keeps the demo-layer particle-flow + arrows (#826, its own e2e gate).
-  if (currentMap && demo.currents) {
-    if (demo.mosaic) {
-      teardownCurrentsArrows()
-      teardownCurrentsOverlay()
-      setupCurrentsMosaic(currentMap) // #1272 E-④ swap; #1333 engine arrows follow the swap
-      setupCurrentsTimeControl(currentMap) // #1272 E-③ forecast-hour scrubber
-    } else {
-      setupCurrentsArrows(currentMap)
-      setupCurrentsOverlay(currentMap)
-      teardownCurrentsMosaic()
-      teardownCurrentsTimeControl()
-    }
+  // NOAA S-111 currents demos (#1272). BOTH draw the OFFICIAL S-111 portrayal from the
+  // ENGINE — `| arrow` on the coverage layer (#1333), band-coloured/scaled/oriented per the
+  // vendored catalogue, plus `| flow` for the motion. There is no app-side overlay left for
+  // either: the synthetic demo used to keep one (subsampled white arrows + drifting
+  // particles), which meant the OFFLINE example taught the approach #1333 replaced.
+  // The only runtime difference is the mosaic, which is about WHICH cells are resident.
+  if (currentMap && demo.currents && demo.mosaic) {
+    setupCurrentsMosaic(currentMap) // #1272 E-④ swap; #1333 engine arrows follow the swap
+    setupCurrentsTimeControl(currentMap) // #1272 E-③ forecast-hour scrubber
   } else {
-    teardownCurrentsArrows()
-    teardownCurrentsOverlay()
     teardownCurrentsMosaic()
     teardownCurrentsTimeControl()
   }
