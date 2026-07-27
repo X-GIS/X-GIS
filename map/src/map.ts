@@ -77,7 +77,7 @@ import { ViewportModeController } from './render/viewport-mode-controller'
 import { SourceManager } from './source-manager'
 import { InteractionController } from './interaction-controller'
 import { MapRendererContent } from './render/renderer'
-import type { ShowCommand } from './render/renderer-types'
+import { coverageDrawsFill, type ShowCommand } from './render/renderer-types'
 import { resolveNumberShape } from './render/paint-shape-resolve'
 import { RenderLoop } from './render-loop'
 import { buildRenderNodes } from './render/passes/pass-chain'
@@ -3557,14 +3557,12 @@ export class XGISMap {
       // ShowCommand (#1158 INC-D, raster-color analogue) — read off `show`, not the
       // data-only marker. Opaque pass dispatches it after the raster basemap (flat arm).
       if ('_coverage' in data) {
-        // Field-only is the STRICT S-111 portrayal (#1333): the official catalogue draws
-        // band-coloured symbols (static arrows and/or the animated particle field) at each cell
-        // and NO raster fill. So a `| arrow` / `| particles` coverage with no `ramp` renders the
-        // field(s) alone; declaring a `ramp` adds the (non-standard) colour fill under them. A
-        // coverage with neither keeps its fill (default viridis) as before.
-        const fieldOnly = (show.isArrow || show.isParticles) && show.ramp === undefined
+        // Whether this show paints the raster fill or only a portrayal over it — arrows /
+        // particles (#1333) and sounding numerals (#1366) all draw fill-less unless the layer
+        // declares a `ramp`. The rule is `coverageDrawsFill` (renderer-types.ts), shared with
+        // the transient re-paint below so the two cannot drift.
         if (show.isArrow || show.isParticles) this._coverageFieldShow = show
-        if (!fieldOnly) {
+        if (coverageDrawsFill(show)) {
           this.coverageRenderer.setCoverage(data._coverage, {
             ramp: show.ramp ?? 'viridis',
             rangeLo: show.range?.[0],
@@ -4838,8 +4836,7 @@ export class XGISMap {
   private _armCoverageFields(handle: CoverageHandle): void {
     const show = this._coverageFieldShow
     if (!show) return
-    const fieldOnly = (show.isArrow || show.isParticles) && show.ramp === undefined
-    if (!fieldOnly) {
+    if (coverageDrawsFill(show)) {
       this.coverageRenderer.setCoverage(handle, {
         ramp: show.ramp ?? 'viridis',
         rangeLo: show.range?.[0],

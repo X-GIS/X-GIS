@@ -268,6 +268,25 @@ export interface ShowCommand
   label?: import('@xgis/compiler').LabelDef
 }
 
+/** Does a `coverage` show paint the raster FILL, or only a portrayal over it?
+ *
+ *  The STRICT S-111 portrayal (#1333) draws band-coloured arrows / particles at each cell
+ *  and NO fill, and sounding numerals (#1366 INC-5) work the same way — declaring a `ramp`
+ *  is what opts a coverage layer INTO the (non-standard) colour fill. A layer with no
+ *  portrayal at all keeps its default fill, as before.
+ *
+ *  This is load-bearing for labels rather than tidy: a chart's numerals sit on a SECOND
+ *  layer over the ramp layer, so ONE coverage source carries TWO shows and the arm runs for
+ *  each. Without this rule the numerals' show re-armed the fill with the default viridis,
+ *  silently repainting the `ramp: "bathymetry"` layer authored right above it.
+ *
+ *  Lives here, beside ShowCommand, because map.ts asks it from two places (the rebuild arm
+ *  and the transient re-paint) and two copies of one predicate is how they drift apart. */
+export function coverageDrawsFill(show: ShowCommand): boolean {
+  if (show.ramp !== undefined) return true
+  return !show.isArrow && !show.isParticles && show.label === undefined
+}
+
 // ═══ Render Layer ═══
 
 export interface RenderLayer {
