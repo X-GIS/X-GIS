@@ -51,7 +51,11 @@ function placedXs(lons: number[], culled: number[]): number[] {
       xs.push(x)
     },
     () => {}, // dispatchIcon — ignored
-    undefined,
+    undefined, // labelLayerName
+    undefined, // cull
+    // Integer zoom ⇒ lineLabelSpacingPx's 2^frac(zoom) tile-unit factor is 1,
+    // so the step stays the plain `spacing × dpr` these expectations assume.
+    16,
   )
   return xs.sort((a, b) => a - b)
 }

@@ -14,6 +14,35 @@ import type { LabelDef } from '@xgis/compiler'
 import type { GeoJSONFeature } from '@xgis/data'
 import type { FeatureProps } from '../../text/text-resolver'
 
+/** Mapbox `symbol-spacing` → the on-screen (physical px) step between along-line
+ *  placements. The single authority for both line paths.
+ *
+ *  The spacing is NOT a screen-space constant. MapLibre lays symbols out in TILE
+ *  units — `symbol-spacing × EXTENT / (512 × overscaling)` — inside a bucket built
+ *  for the covering integer zoom, and then the map scales that bucket. So the
+ *  step a viewer measures is `symbol-spacing × 2^(zoom − overscaledZ)`, and since
+ *  every tile of a source shares one covering zoom (`floor(zoom)`), that is
+ *  `symbol-spacing × 2^frac(zoom)`: shields sit one spacing apart at an integer
+ *  zoom and drift to nearly two by the top of the step, snapping back at the next
+ *  crossing. X-GIS walks the polyline in SCREEN space, so the tile-unit bake has
+ *  to be reintroduced here or the chain stays a flat `symbol-spacing` and renders
+ *  denser than the reference everywhere except exact integer zooms.
+ *
+ *  Verified against MapLibre GL JS on OFM Positron `highway-shield-non-us`
+ *  (symbol-spacing 200) over a zoom sweep at 37.79172/126.79102 — measured /
+ *  predicted = 0.999, 0.998, 1.000, 1.001, 1.001 at z16.0/16.2/16.5/16.7/16.9.
+ *
+ *  Returns 0 for a non-positive spacing (line-center, or an unset value), which
+ *  both callers read as "one placement at the polyline midpoint". */
+export function lineLabelSpacingPx(spacingCssPx: number, dpr: number, zoom: number): number {
+  if (!(spacingCssPx > 0)) return 0
+  const base = spacingCssPx * dpr
+  // A non-finite zoom would poison the step into NaN and silently collapse the
+  // chain to a single midpoint label; fall back to the unscaled step instead.
+  if (!Number.isFinite(zoom)) return base
+  return base * 2 ** (zoom - Math.floor(zoom))
+}
+
 /** Walk an already-projected (screen-space, physical px) polyline and emit a
  *  label placement at each `symbol-spacing` stop — the single authority for
  *  where along a line labels sit. Both feature paths delegate here:
@@ -132,7 +161,9 @@ export function placeInlineLineLabels(
     props: FeatureProps,
   ) => void,
   labelLayerName: string | undefined,
-  cull?: (px: number, py: number) => boolean,
+  cull: ((px: number, py: number) => boolean) | undefined,
+  /** Camera zoom — the along-line step is zoom-dependent (lineLabelSpacingPx). */
+  zoom: number,
 ): void {
   // Caller (label-pass.ts Path 1) already skips null-geometry features
   // before reaching this call; re-assert it here so this module doesn't
@@ -141,10 +172,9 @@ export function placeInlineLineLabels(
   const geomType = feat.geometry.type
   const props = feat.properties ?? {}
   const lineDef = applyFeatureExprs(props)
-  // symbol-spacing is CSS px → physical px (×dpr); line-center
-  // ignores spacing and always emits one label at the midpoint.
+  // line-center ignores spacing and always emits one label at the midpoint.
   const spacingCssPx = effectiveDef.placement === 'line' ? (effectiveDef.spacing ?? 0) : 0
-  const spacingPx = spacingCssPx > 0 ? spacingCssPx * dpr : 0
+  const spacingPx = lineLabelSpacingPx(spacingCssPx, dpr, zoom)
   // text-rotation-alignment: viewport keeps labels upright; 'auto'
   // / 'map' (the default for line) follows the segment tangent.
   const useTangentRotation = (effectiveDef.rotationAlignment ?? 'auto') !== 'viewport'
