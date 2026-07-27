@@ -198,13 +198,36 @@ sufficient; the pass leaves invalid regions untouched so land does not smear.
 The pass is a close sibling of the **heatmap pass**, which already solves the same structural
 problems, and should mirror it rather than invent a parallel mechanism.
 
-| concern                                                                                    | heatmap precedent                                      | flow pass                  |
-| ------------------------------------------------------------------------------------------ | ------------------------------------------------------ | -------------------------- |
-| offscreen ping-pong pair, lazily allocated at canvas size, destroyed with the map          | `HeatmapTargets` (`map/src/render/heatmap-targets.ts`) | `FlowTargets` — same shape |
-| runs after the label pass (the MSAA resolve owner), composites onto the resolved swapchain | `heatmap-pass.ts:1-6`                                  | same slot, same reason     |
-| gated so an unused feature allocates nothing and renders byte-identically                  | `scene.hasHeatmap`                                     | `scene.hasFlow`            |
-| stateless singleton implementing `RenderPass` (`label` / `shouldRun` / `execute`)          | `passes/pass.ts`                                       | same                       |
-| per-pass role view                                                                         | `HeatmapPassHost` in `pass-hosts.ts`                   | `FlowPassHost`             |
+| concern                                                                           | heatmap precedent                                      | flow pass                                                                    |
+| --------------------------------------------------------------------------------- | ------------------------------------------------------ | ---------------------------------------------------------------------------- |
+| offscreen ping-pong pair, lazily allocated at canvas size, destroyed with the map | `HeatmapTargets` (`map/src/render/heatmap-targets.ts`) | `FlowTargets` — same shape                                                   |
+| runs after the label pass, composites onto the resolved swapchain                 | `heatmap-pass.ts:1-6`                                  | **NO — see §5.1**: the flow pass is a PRODUCER and must precede its consumer |
+| gated so an unused feature allocates nothing and renders byte-identically         | `scene.hasHeatmap`                                     | `scene.hasFlow`                                                              |
+| stateless singleton implementing `RenderPass` (`label` / `shouldRun` / `execute`) | `passes/pass.ts`                                       | same                                                                         |
+| per-pass role view                                                                | `HeatmapPassHost` in `pass-hosts.ts`                   | `FlowPassHost`                                                               |
+
+### 5.1 CORRECTION — the flow pass is a PRODUCER, so it runs BEFORE opaque
+
+This document originally placed the flow pass in the heatmap's slot (after labels, compositing
+onto the resolved swapchain). Wiring it surfaced that as wrong, and the reason is structural
+rather than a detail of scheduling.
+
+**The heatmap pass is a COMPOSITOR**: it consumes its own offscreen targets and writes the final
+image, so it must run after everything it draws on top of. **The flow pass is a PRODUCER**: it
+writes an offscreen texture that the coverage drape SAMPLES in the same frame — and the coverage
+draws in the OPAQUE pass (`opaque-pass.ts:283`). A flow pass scheduled after labels would hand
+the drape last frame's advection every frame: the animation would still run, one frame stale —
+invisible in isolation, wrong under scrubbing, and exactly the class of defect this environment
+cannot see.
+
+So the slot is **between `background` and `opaque`**: after the colour clear (bucket 0 owns that,
+per `passes/AGENTS.md`) and before the consumer. The flow pass touches no swapchain attachment at
+all — it renders only into its own ping-pong pair — so it neither claims `resolveTarget` nor
+participates in the clear-ownership contract.
+
+`PASS_CHAIN_ORDER` is byte-frozen and `pass-order-parity.test.ts` pins it against a literal, so
+inserting the slot is a deliberate, reviewable edit in one authority rather than a silent drift —
+which is exactly what that freeze is for.
 
 Two contracts from `passes/AGENTS.md` that this pass must honor: colour-clear ownership belongs
 to `background-pass` (the flow pass composites with `loadOp: 'load'`), and `resolveTarget`
