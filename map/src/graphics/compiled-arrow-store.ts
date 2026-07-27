@@ -4,7 +4,7 @@
 // (its own batch record, its own lifecycle, its own DPR re-pack and draw fragment) that
 // happens to share the arrow draper with the host path. Owning it here keeps the
 // manager's remaining surface — the host retained-batch lifecycle — one concern, and
-// gives the compiled path room to grow (drift, pitch-alignment) without pushing
+// gives the compiled path room to grow (pitch-alignment) without pushing
 // graphics-manager.ts past its LOC ceiling.
 //
 // The store is DEVICE-COUPLED: it holds the same `rhi` + `arrowDraper` the manager
@@ -17,11 +17,7 @@
 // `_retired` list so the drain (at the top of renderRetained, after the in-flight submit
 // returns) stays a single authority.
 
-import {
-  packCompiledArrowFeat,
-  packCompiledArrowTint,
-  type CompiledArrowDrift,
-} from './retained-arrow-packer'
+import { packCompiledArrowFeat, packCompiledArrowTint } from './retained-arrow-packer'
 import type { RetainedArrowDraper } from '../render/material/arrow-retained-material'
 import type { RhiDevice, RhiBuffer, RhiBindGroup, RhiRenderPass } from '@xgis/engine'
 
@@ -37,22 +33,6 @@ interface CompiledArrowBatch {
   bearings: Float32Array
   sizes: Float32Array
   strokeUnits: number
-  /** Kept (like the raw arrays) so a DPR re-pack reproduces the same drift. */
-  drift: CompiledArrowDrift | undefined
-  /** Does this layer actually MOVE? Precomputed at add() because the keep-warm gate is read
-   *  once per frame and must not scan a 70k-instance drift array to answer. */
-  drifts: boolean
-}
-
-/** True when at least one instance would move: a positive drift distance AND a positive
- *  lifetime. A zero/absent drift must answer FALSE, or a purely static arrow field would
- *  pin the render loop awake forever — the whole point of the on-demand loop. */
-function driftMoves(drift: CompiledArrowDrift | undefined): boolean {
-  if (!drift || !(drift.lifetimeSeconds > 0)) return false
-  const d = drift.driftPx
-  if (typeof d === 'number') return d > 0
-  for (let i = 0; i < d.length; i++) if (d[i]! > 0) return true
-  return false
 }
 
 export class CompiledArrowStore {
@@ -82,11 +62,10 @@ export class CompiledArrowStore {
     colors: ReadonlyArray<readonly [number, number, number, number]>,
     strokeUnits: number,
     dpr: number,
-    drift?: CompiledArrowDrift,
   ): void {
     const count = lons.length
     if (count === 0 || !this.rhi || !this.draper) return
-    const feat = packCompiledArrowFeat(lons, lats, bearingsDeg, sizesPx, dpr, strokeUnits, drift)
+    const feat = packCompiledArrowFeat(lons, lats, bearingsDeg, sizesPx, dpr, strokeUnits)
     const tint = packCompiledArrowTint(colors)
     const featBuf = this.rhi.createBuffer({
       size: Math.max(feat.byteLength, 16),
@@ -115,18 +94,7 @@ export class CompiledArrowStore {
       bearings: bearingsDeg,
       sizes: sizesPx,
       strokeUnits,
-      drift,
-      drifts: driftMoves(drift),
     })
-  }
-
-  /** True when at least one resident layer ANIMATES on the frame clock. The manager ORs this
-   *  into BOTH animation gates — the per-frame clock write AND the on-demand loop's keep-warm.
-   *  Miss either and the drift is dead in a different way: a frozen clock (phase pinned at 0)
-   *  or a loop that idles on a static camera, so the motion stops the moment the user lets go
-   *  of the mouse. O(layers), not O(instances) — `drifts` is precomputed at add(). */
-  hasDrifting(): boolean {
-    return this.batches.some((b) => b.drifts)
   }
 
   /** Drop every compiled-arrow layer — called at the top of each rebuildLayers before the
@@ -168,15 +136,7 @@ export class CompiledArrowStore {
       this.rhi.writeBuffer(
         ca.featBuf,
         0,
-        packCompiledArrowFeat(
-          ca.lons,
-          ca.lats,
-          ca.bearings,
-          ca.sizes,
-          dpr,
-          ca.strokeUnits,
-          ca.drift,
-        ),
+        packCompiledArrowFeat(ca.lons, ca.lats, ca.bearings, ca.sizes, dpr, ca.strokeUnits),
       )
       this._featWrites++
     }

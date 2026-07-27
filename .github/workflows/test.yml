@@ -363,14 +363,52 @@ jobs:
     # Each upstream job is either `success` (ran and passed) or `skipped` (its
     # `changes` filter didn't fire — a path-irrelevant PR). Both are a pass;
     # anything else (failure/cancelled) fails this single stable context.
+    #
+    # `cancelled` DELIBERATELY still fails, even though the overwhelmingly common
+    # cause is benign: the `concurrency` group above cancels a PR's older in-flight
+    # run the moment a new commit is pushed, and that superseded run then reports a
+    # failure here against a SHA that is no longer the head. Tempting as it is to
+    # pass on `cancelled`, doing so opens a real hole — cancelling the run on the
+    # CURRENT head would turn this required context green with the test matrix never
+    # having run, and this is the only context branch protection requires. Branch
+    # protection evaluates the HEAD commit's checks, so a superseded run's failure
+    # never actually blocks a merge; its only cost is the false alarm. So: keep the
+    # gate strict, and spend the effort on making the false alarm self-identifying.
     steps:
-      - run: |
-          for r in "${{ needs.test.result }}" "${{ needs.typecheck.result }}" "${{ needs.site.result }}"; do
+      # `github.sha` is NOT the head on a pull_request event — it is the ephemeral
+      # merge commit, which cannot be compared against the PR head the triage note
+      # asks the reader to check. Take the real head from the PR payload, falling
+      # back to github.sha for workflow_dispatch (where there is no PR payload).
+      - env:
+          RUN_HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          fail=0
+          cancelled=0
+          for j in "test:${{ needs.test.result }}" "typecheck:${{ needs.typecheck.result }}" "site:${{ needs.site.result }}"; do
+            name=${j%%:*}; r=${j#*:}
             case "$r" in
               success|skipped) ;;
-              *) echo "upstream job result: $r"; exit 1 ;;
+              cancelled)
+                echo "::warning::$name was CANCELLED, not failed."
+                cancelled=1; fail=1 ;;
+              *) echo "::error::$name result: $r"; fail=1 ;;
             esac
           done
+          if [ "$cancelled" -ne 0 ]; then
+            echo ""
+            echo "── triage ─────────────────────────────────────────────────────────"
+            echo "A 'cancelled' upstream almost always means THIS RUN WAS SUPERSEDED"
+            echo "by a newer push to the same branch (see the 'concurrency' group at"
+            echo "the top of this workflow). Before investigating, check whether this"
+            echo "run's head commit is still the PR head:"
+            echo ""
+            echo "    this run : $RUN_HEAD_SHA"
+            echo ""
+            echo "If the PR head is a LATER commit, this failure is stale — look at"
+            echo "the run for the head SHA instead. There is nothing to fix here."
+            echo "───────────────────────────────────────────────────────────────────"
+          fi
+          exit "$fail"
 
   # Render-behavior gate: the unit suite above NEVER executes a shader
   # (deep-dive 2026-05-25 finding #1). This job runs the SHADER-MATH gate
