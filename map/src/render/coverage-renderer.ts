@@ -79,6 +79,8 @@ interface CoverageState {
   ramp: { a: number; b: number }
   /** Layer opacity (0..1) — multiplies output alpha (ramp_params.z). */
   opacity: number
+  /** This region draws the advected field alone, with no colour ramp (see CoverageArmOptions). */
+  flowOnly: boolean
   /** Approximate GPU bytes this region holds — the LRU budget's accounting unit. */
   bytes: number
 }
@@ -125,6 +127,10 @@ export interface CoverageArmOptions {
   /** Layer opacity paint (0..1); defaults to 1 (opaque). */
   opacity?: number
   bandIndex?: number | string
+  /** Draw ONLY the advected field, with no colour ramp (#1333). The strict-catalogue case:
+   *  `| flow` without a `ramp`, where the motion must be visible but the catalogue arrows
+   *  stay the only colour authority. The drape then emits a neutral luminance modulation. */
+  flowOnly?: boolean
 }
 
 export class CoverageRenderer {
@@ -255,6 +261,7 @@ export class CoverageRenderer {
       covGeo: [westEdge, northEdge, nLon * dLon, nLat * dLat],
       ramp: computeRampUniforms(dataMin, dataMax, opts.rangeLo ?? dataMin, opts.rangeHi ?? dataMax),
       opacity: opts.opacity ?? 1,
+      flowOnly: opts.flowOnly === true,
       // 2 × r16float over the grid + the 256×1 rgba8 LUT, plus the vector pair when this
       // coverage carries one. Counting the flow textures matters: they are the SAME size as
       // the value/valid pair, so a vector coverage costs twice a scalar one and the LRU budget
@@ -397,6 +404,7 @@ export class CoverageRenderer {
         ramp: s.ramp,
         opacity: s.opacity,
         flowMix: animated ? flow.mix : 0,
+        flowOnly: s.flowOnly,
       })
       this._draper.draw(rhiPass, bytes as BufferSource, this.groupFor(s, flowView))
     }

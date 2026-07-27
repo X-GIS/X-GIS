@@ -141,6 +141,9 @@ export interface CoverageUniformInput {
   /** IBFV modulation depth (#1333) — packed into ramp_params.w. 0 (the default) makes the
    *  shader's gain an EXACT 1.0, so a coverage with no flow field draws byte-identically. */
   flowMix?: number
+  /** Draw the advected field alone — no ramp colour (#1333). Packed into cam_center.z as a
+   *  0/1 flag; see the shader for why the ramp tap still happens and is simply not used. */
+  flowOnly?: boolean
 }
 export function packCoverageUniforms(u: CoverageUniformInput): Float32Array {
   const out = new Float32Array(COVERAGE_UNIFORM_FLOATS)
@@ -154,6 +157,7 @@ export function packCoverageUniforms(u: CoverageUniformInput): Float32Array {
   out[33] = u.ramp.b
   out[34] = u.opacity // ramp_params.z
   out[35] = u.flowMix ?? 0 // ramp_params.w
+  out[22] = u.flowOnly ? 1 : 0 // cam_center.z — the flow-only flag
   return out
 }
 

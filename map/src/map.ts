@@ -30,8 +30,6 @@ import { applyBodyOption } from './body-consts'
 import { addHeatmapShowLayer } from './heatmap-show'
 import { addArrowShowLayer } from './arrow-show'
 import { addCoverageArrowShowLayer } from './coverage-arrow-show'
-import { addCoverageParticleShowLayer } from './coverage-particle-show'
-import type { DrawHandle } from './graphics/graphics-types'
 import { worldBandForProjType } from '@xgis/geo'
 import { projectLonLatToScreenCss } from './render-loop-helpers'
 import {
@@ -100,6 +98,7 @@ import { resolveForecastGroup, CoverageTimePlayer } from './coverage-time'
 import { RasterRenderer } from './render/raster-renderer'
 import { HillshadeRenderer, armHillshadeSource } from './render/hillshade-renderer'
 import { CoverageRenderer } from './render/coverage-renderer'
+import { coverageDrapeArm } from './render/coverage-drape-arm'
 import type { FlowRenderer } from './render/flow-renderer'
 import { UnderOccluderRenderer } from './render/under-occluder-renderer'
 import { PointRenderer } from './render/point-renderer'
@@ -536,13 +535,12 @@ export class XGISMap {
    *  `_coverageArrowsArmed` gating the same rebuild-vs-fast-path choice on a data/time swap. A
    *  normal host DrawHandle (unlike the arrow field's specialised compiled-arrow list), owned
    *  and `.remove()`d here across rebuilds. */
-  private _coverageParticleHandle: DrawHandle<unknown> | null = null
-  private _coverageParticlesArmed = false
+  private _coverageFlowArmed = false
   /** True while EITHER the arrow or particle coverage field is armed — the single predicate a
    *  data/time swap checks to choose "rebuild (re-derive the field)" vs the fill-only fast
    *  path, so a future third field type edits this line alone. */
   private get _coverageFieldArmed(): boolean {
-    return this._coverageArrowsArmed || this._coverageParticlesArmed
+    return this._coverageArrowsArmed || this._coverageFlowArmed
   }
   /** #1333 — the ShowCommand that armed the coverage field(s) above, captured so
    *  `_armCoverageFields` (the interpolated-playback re-paint) can re-derive fill/arrow/particle
@@ -3443,9 +3441,7 @@ export class XGISMap {
     this.heatmapRenderer?.clearLayers()
     this._graphics.clearCompiledArrows()
     this._coverageArrowsArmed = false // recomputed by the coverage arm below (#1333)
-    this._coverageParticleHandle?.remove() // a normal DrawHandle — not in clearCompiledArrows()
-    this._coverageParticleHandle = null
-    this._coverageParticlesArmed = false // recomputed by the coverage arm below (#1333)
+    this._coverageFlowArmed = false // recomputed by the coverage arm below (#1333)
     this._coverageFieldShow = null // recomputed by the coverage arm below (#1333)
     this.vectorTileShows = []
     // Reset layer-id registry so re-projection produces deterministic IDs
@@ -3552,36 +3548,15 @@ export class XGISMap {
       // ShowCommand (#1158 INC-D, raster-color analogue) — read off `show`, not the
       // data-only marker. Opaque pass dispatches it after the raster basemap (flat arm).
       if ('_coverage' in data) {
-        // Field-only is the STRICT S-111 portrayal (#1333): the official catalogue draws
-        // band-coloured symbols (static arrows and/or the animated particle field) at each cell
-        // and NO raster fill. So a `| arrow` / `| particles` coverage with no `ramp` renders the
-        // field(s) alone; declaring a `ramp` adds the (non-standard) colour fill under them. A
-        // coverage with neither keeps its fill (default viridis) as before.
-        const fieldOnly = (show.isArrow || show.isParticles) && show.ramp === undefined
-        if (show.isArrow || show.isParticles) this._coverageFieldShow = show
-        if (!fieldOnly) {
-          this.coverageRenderer.setCoverage(data._coverage, {
-            ramp: show.ramp ?? 'viridis',
-            rangeLo: show.range?.[0],
-            rangeHi: show.range?.[1],
-            opacity: show.opacity ?? 1,
-          })
-        }
+        if (show.isArrow || show.isFlow) this._coverageFieldShow = show
+        this._armCoverageDrape(show, data._coverage)
         // `| arrow` on a coverage layer (#1333) draws the official S-111 vector field —
         // the engine-owned arrow portrayal, band-coloured by `ramp` (default s111-speed).
         if (show.isArrow) {
           addCoverageArrowShowLayer(this, show, data._coverage)
           this._coverageArrowsArmed = true
         }
-        // `| particles` on a coverage layer (#1333) draws an ANIMATED second reading of the
-        // same field — particles drift within their home cell and respawn, so the flow reads as
-        // moving even at rest (reuses the generic particle-flow primitive, #826). The handle is
-        // owned here (a normal host DrawHandle, not the specialised compiled-arrow list) and
-        // removed by the reset above on the next rebuild.
-        if (show.isParticles) {
-          this._coverageParticleHandle = addCoverageParticleShowLayer(this, show, data._coverage)
-          this._coverageParticlesArmed = true
-        }
+        if (show.isFlow) this._coverageFlowArmed = true
         continue
       }
 
@@ -4772,32 +4747,47 @@ export class XGISMap {
    *  A no-op when no field is armed (`_coverageFieldShow` null). Mirrors the coverage arm
    *  inside `rebuildLayers` exactly — the single authority both share is `_coverageFieldShow`
    *  (#1333). */
+  /** Arm the coverage DRAPE for a show — the single authority both the rebuild and the
+   *  transient re-arm answer to, so the two cannot disagree about when the fill draws.
+   *
+   *  THREE CASES, and the middle one is the point (#1333):
+   *
+   *  1. No field keyword           → the fill draws as always (default viridis).
+   *  2. `| flow`, no `ramp`        → FLOW-ONLY. The drape draws, but as a neutral luminance
+   *                                  modulation with no colour ramp: the motion is visible
+   *                                  while the CATALOGUE ARROWS remain the only colour
+   *                                  authority. Before this, motion was welded to the
+   *                                  non-standard fill, so a strictly-conformant style
+   *                                  (arrows, no ramp) could not have it at all.
+   *  3. `| arrow` alone, no `ramp` → the STRICT catalogue portrayal: arrows, no drape.
+   *
+   *  Declaring a `ramp` always adds the non-standard colour fill under whatever else runs. */
+  private _armCoverageDrape(show: ShowCommand, handle: CoverageHandle): void {
+    const arm = coverageDrapeArm(show)
+    if (!arm.draw) return
+    this.coverageRenderer.setCoverage(handle, {
+      ramp: show.ramp ?? 'viridis',
+      rangeLo: show.range?.[0],
+      rangeHi: show.range?.[1],
+      opacity: show.opacity ?? 1,
+      flowOnly: arm.flowOnly,
+    })
+  }
+
   private _armCoverageFields(handle: CoverageHandle): void {
     const show = this._coverageFieldShow
     if (!show) return
-    const fieldOnly = (show.isArrow || show.isParticles) && show.ramp === undefined
-    if (!fieldOnly) {
-      this.coverageRenderer.setCoverage(handle, {
-        ramp: show.ramp ?? 'viridis',
-        rangeLo: show.range?.[0],
-        rangeHi: show.range?.[1],
-        opacity: show.opacity ?? 1,
-      })
-    }
+    this._armCoverageDrape(show, handle)
     if (show.isArrow) {
       this._graphics.clearCompiledArrows()
       addCoverageArrowShowLayer(this, show, handle)
-    }
-    if (show.isParticles) {
-      this._coverageParticleHandle?.remove()
-      this._coverageParticleHandle = addCoverageParticleShowLayer(this, show, handle)
     }
     this.invalidate()
   }
 
   /** Push a TRANSIENT coverage frame for `sourceId` — e.g. an `interpolateVectorCoverage`
    *  blend between two forecast hours a caller decoded itself (a zero-network mosaic cache,
-   *  say) — re-deriving any armed `| arrow` / `| particles` field (and the fill, unless
+   *  say) — re-deriving any armed `| arrow` / `| flow` field (and the fill, unless
    *  field-only) WITHOUT persisting it as the source's stored data: `getCoverage(sourceId)`
    *  keeps returning the LAST REAL pushed/read data, and a later `setCoverageData` /
    *  `setCoverageTime` is unaffected. A no-op when `sourceId` is not the source that currently
