@@ -51,8 +51,10 @@ layer depth {
 // (`valueAt`, nearest-cell, never interpolated), so a numeral can only show a depth that is
 // actually in the cell. `.depth` is the S-102 band name, exactly as a feature property.
 //
-// Candidates are picked on a screen-space lattice and thinned by the label collision pass,
-// so they get denser as you zoom in — the chart behaviour — with no zoom rule to author.
+// Candidates are picked on a screen-space lattice, so they hold a roughly constant on-screen
+// density — the chart behaviour — with no zoom rule to author. Zoom in past one cell per
+// lattice step and the count falls toward one numeral per cell, which is the honest limit: a
+// gridded product holds no more soundings than it holds cells.
 // `round()` keeps them chart-like whole metres; the raw band is f32 to the millimetre.
 layer soundings {
   source: bathy

@@ -10,9 +10,27 @@
 //   - the candidate count is bounded by the VIEWPORT (≈ (w/spacing)·(h/spacing) ≈ a few
 //     hundred), never by the grid — a real NOAA S-102 cell is 1663×2090 = 3.5M cells, and
 //     a grid-space walk would have to visit them all every frame just to decide;
-//   - "thinned by zoom" falls out for free: the lattice is fixed in pixels, so zooming in
-//     resolves more cells and zooming out fewer, with no zoom→stride rule to tune;
+//   - thinning by scale falls out for free, with no zoom→stride rule to tune;
 //   - off-screen cells cost nothing: the unprojector rejects them before any grid work.
+//
+// What that actually yields across zoom, MEASURED on the synthetic 32×32 fixture
+// (1000×800, dpr 3) rather than assumed — collision dropped none of them:
+//
+//   z1  z2  z3  z4  z5  z6  z7  |  z8  z9  z10  z12  z14  z16
+//    0   1   2  24  68  96 109  |  35   9    9    1    1    1
+//
+// Two regimes, split where one grid cell reaches the lattice pitch (z≈7 here, cell ≈45 px):
+//
+//   - cells FINER than the pitch: a roughly CONSTANT on-screen density, one numeral per
+//     ~SOUNDING_LATTICE_CSS_PX. That is the chart behaviour. The rise from z1 to z7 above
+//     is the grid growing to fill the viewport, not the density changing.
+//   - cells COARSER than the pitch: several lattice points fall in one cell and dedupe to
+//     one numeral, so the count falls toward one per visible cell. Also correct — a gridded
+//     product holds no more soundings than cells, and repeating one value would invent
+//     detail it does not have.
+//
+// So it is NOT "denser as you zoom in" past that crossover; an earlier version of this
+// comment claimed that, and the sweep above is what corrected it.
 //
 // Each sample is then SNAPPED to its cell centre, so a numeral sits on the sounding it
 // reports rather than at an arbitrary screen point, and duplicates (several lattice points
@@ -22,6 +40,15 @@
 //
 // Fine decluttering is NOT done here: the label pass's collision system already drops
 // overlapping text far better than a spacing heuristic could. This only decides candidates.
+//
+// KNOWN GAP — VIEWPORT INSIDE ONE CELL. Past the crossover above, zooming further
+// eventually puts the whole viewport inside a single cell. The numeral still anchors at
+// that cell's CENTRE, so once the centre leaves the screen the numeral goes with it and the
+// depth becomes unreadable exactly where you zoomed in to read it. Measured at z13 on the
+// fixture: panning 0.2 of a cell off the centre drops it from 1 label to 0. Whether to
+// clamp the anchor into the visible part of its cell is a portrayal decision (a gridded
+// cell is an AREA, but a chart sounding is a POINT), so it is recorded here rather than
+// decided unilaterally.
 //
 // KNOWN GAP — GLOBE. `Camera.unprojectToLonLat` returns null for the globe and the
 // azimuthal discs (projTypes 3/4/5/7), so the lattice finds nothing there and no numerals
