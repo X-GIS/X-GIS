@@ -79,6 +79,10 @@ export * from './coverage/format'
 // Forecast-hour vector-field blending (speed/direction component interpolation) — a second
 // coverageFromGrids consumer, not a wire format; #1333.
 export * from './coverage/interpolate-vector'
+// Drape-mesh node positions in lon/lat (#1366 INC-3) — lets the renderer place a grid
+// through its OWN CRS instead of assuming the footprint is a lon/lat rectangle. proj4
+// stays on this side of the boundary; @xgis/map consumes lon/lat only.
+export * from './coverage/mesh-nodes'
 
 // S-100 (HDF5) reader (ADR-0010) — the zero-dep HDF5 subset reader + the S-100
 // semantic layer (product-agnostic: S-102 bathymetry, S-104 water level, S-111
