@@ -51,11 +51,19 @@ function overlapArea(a: Bounds, b: Bounds): number {
 
 const area = (b: Bounds): number => Math.max(0, b[2] - b[0]) * Math.max(0, b[3] - b[1])
 
-/** Every model whose domain envelope overlaps `view`, most-overlap first. */
+/** Every model whose domain envelope overlaps `view`, MOST RELEVANT FIRST — most overlap,
+ *  ties broken toward the SMALLER domain.
+ *
+ *  The tie-break is the load-bearing half, not a nicety: a bay-sized viewport sits ENTIRELY
+ *  inside both its local model and the basin-wide one (SF Bay is inside sfbofs *and* wcofs),
+ *  so both overlaps equal the whole view and raw area cannot separate them. Preferring the
+ *  smaller domain picks the higher-resolution local forecast — the same rule
+ *  `bestModelForBounds` applies, so `modelsForBounds(v)[0]` is `bestModelForBounds(v)`
+ *  whenever hysteresis is not in play. */
 export function modelsForBounds(view: Bounds): S111Model[] {
   return S111_MODELS.map((m) => ({ m, o: overlapArea(view, m.bounds) }))
     .filter((x) => x.o > 0)
-    .sort((x, y) => y.o - x.o)
+    .sort((x, y) => y.o - x.o || area(x.m.bounds) - area(y.m.bounds))
     .map((x) => x.m)
 }
 

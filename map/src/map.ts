@@ -84,25 +84,27 @@ import {
 } from './render/bucket-scheduler'
 import { interpret, type SceneCommands } from './interpreter'
 import { lonLatToMercator, type GeoJSONFeatureCollection, type CoverageHandle } from '@xgis/data'
-import {
-  readCoverage,
-  readCoverageRange,
-  interpolateVectorCoverage,
-  type Bbox,
-  type CoverageTime,
-} from '@xgis/data'
-import { resolveForecastGroup, CoverageTimePlayer } from './coverage-time'
-import { fetchCoverageHandle } from './coverage-fetch'
-import {
-  CoverageRefreshScheduler,
-  decideRefresh,
-  probeValidator,
-  type RefreshReason,
-} from './coverage-refresh'
+import { interpolateVectorCoverage } from '@xgis/data'
+import { CoverageTimePlayer } from './coverage-time'
 import { RasterRenderer } from './render/raster-renderer'
 import { HillshadeRenderer, armHillshadeSource } from './render/hillshade-renderer'
-import { CoverageRenderer } from './render/coverage-renderer'
+import { CoverageRenderer, DEFAULT_REGION } from './render/coverage-renderer'
 import { coverageDrapeArm } from './render/coverage-drape-arm'
+import {
+  refreshCoverageSource,
+  type RefreshCoverageOpts,
+  coverageHandleAt,
+  coverageRegions,
+  dropCoverageRegion,
+  primaryCoverageTime,
+  pushCoverageRegion,
+  readRegionsAtGroup,
+  stepCoverageRegions,
+  type CoverageSourceDeps,
+  type PushCoverageOpts,
+} from './coverage-source'
+import { CoverageRefreshScheduler, type RefreshReason } from './coverage-refresh'
+import type { Bbox } from '@xgis/data'
 import type { FlowRenderer } from './render/flow-renderer'
 import { UnderOccluderRenderer } from './render/under-occluder-renderer'
 import { PointRenderer } from './render/point-renderer'
@@ -531,8 +533,27 @@ export class XGISMap {
   private _docHidden = false
   /** #1272 E-③ forecast-time playback + async-reread epoch guard (see coverage-time.ts). */
   private readonly _coverageTime = new CoverageTimePlayer()
-  /** Conditional-revalidation state + the auto-refetch timers (see coverage-refresh.ts). */
+  /** What coverage-source.ts drives on this map. Built once — the region push/step/drop
+   *  bodies live there (map.ts is shrink-only), and this is their whole blast radius. */
+  /** #1158 — live-refresh state for `coverage` sources: last-seen validators + the poll
+   *  timers. The POLICY (validator comparison, the decision table, the loop lifecycle) lives
+   *  in coverage-refresh.ts and is unit-tested there; `destroy()` stops every loop.
+   *
+   *  DECLARED BEFORE `_coverageDeps`, which captures it: class fields initialise in source
+   *  order, so the other way round the deps record would capture `undefined`. */
   private readonly _coverageRefresh = new CoverageRefreshScheduler()
+  private readonly _coverageDeps: CoverageSourceDeps = {
+    rawDatasets: this.rawDatasets,
+    renderer: this.coverageRenderer,
+    time: this._coverageTime,
+    fieldArmed: () => this._coverageFieldArmed,
+    armFields: (handle, region) => this._armCoverageFields(handle, region),
+    clearArrows: (region) => this._graphics.clearCompiledArrows(region),
+    invalidate: () => this.invalidate(),
+    refresh: this._coverageRefresh,
+    guardedFetch: (label) => (u, init) => safeFetch(String(u), init, label), // SSRF guard
+    destroyed: () => this._destroyed,
+  }
   /** #1333 — set while a `coverage` layer with `| arrow` has an armed S-111 arrow field, so a
    *  coverage DATA swap (setCoverageData / setCoverageTime) re-derives the field via a rebuild
    *  instead of the fill-only fast path. Reset + recomputed on every rebuildLayers. */
@@ -3568,13 +3589,15 @@ export class XGISMap {
       // data-only marker. Opaque pass dispatches it after the raster basemap (flat arm).
       if ('_coverage' in data) {
         if (show.isArrow || show.isFlow) this._coverageFieldShow = show
-        this._armCoverageDrape(show, data._coverage)
-        // `| arrow` on a coverage layer (#1333) draws the official S-111 vector field —
-        // the engine-owned arrow portrayal, band-coloured by `ramp` (default s111-speed).
-        if (show.isArrow) {
-          addCoverageArrowShowLayer(this, show, data._coverage)
-          this._coverageArrowsArmed = true
+        // EVERY resident region, not just one: a mosaic viewport holds several adjacent
+        // NOAA domains and each needs its own drape + arrow field (#1272 E-④).
+        for (const [region, entry] of data._coverage) {
+          this._armCoverageDrape(show, entry.handle, region)
+          // `| arrow` on a coverage layer (#1333) draws the official S-111 vector field —
+          // the engine-owned arrow portrayal, band-coloured by `ramp` (default s111-speed).
+          if (show.isArrow) addCoverageArrowShowLayer(this, show, entry.handle, region)
         }
+        if (show.isArrow) this._coverageArrowsArmed = true
         if (show.isFlow) this._coverageFlowArmed = true
         continue
       }
@@ -4648,9 +4671,12 @@ export class XGISMap {
    *  positive-down value AS STORED (no sign flip), and `.meta` carries the vertical
    *  datum code/sign + band metadata. Half-precision only ever affects the colour
    *  path (the r16float texture), never this readout. */
-  getCoverage(sourceId: string): CoverageHandle | null {
-    const data = this.rawDatasets.get(sourceId)
-    return data && '_coverage' in data ? data._coverage : null
+  getCoverage(sourceId: string, at?: readonly [number, number]): CoverageHandle | null {
+    // A mosaic source holds several regions, so "the" coverage is only well-defined for a
+    // POINT: `at` picks the region whose grid actually covers it. Without one, answer with
+    // the primary (first-armed) region — the pre-mosaic behaviour, and the only sane answer
+    // for a single-region source.
+    return coverageHandleAt(this._coverageDeps, sourceId, at)
   }
 
   /** Host-push a fresh gridded-coverage payload into a declared `coverage` source
@@ -4659,71 +4685,26 @@ export class XGISMap {
    *  the only supported container) to a CoverageHandle, swaps it (so `getCoverage(...)
    *  .valueAt` updates at once), re-arms the GPU ramp, and repaints — the live-refresh
    *  seam (fetch your OWN CORS-proxied NOAA copy). `ramp`/`range` default to the declared
-   *  palette; throws if `sourceId` is not a `coverage` source. */
+   *  palette; throws if `sourceId` is not a `coverage` source.
+   *
+   *  `opts.region` names WHICH region of a mosaic this payload is (#1272 E-④). Pushing
+   *  distinct keys ACCUMULATES — several adjacent NOAA domains stay resident and draw
+   *  together; pushing the same key again replaces just that one. Omitting it keeps the
+   *  pre-mosaic behaviour exactly: one region, replaced on every push. */
   async setCoverageData(
     sourceId: string,
     bytes: ArrayBuffer,
-    opts?: { ramp?: string; range?: readonly [number, number]; url?: string; group?: number },
+    opts?: PushCoverageOpts,
   ): Promise<void> {
-    const prev = this.rawDatasets.get(sourceId)
-    if (!prev || !('_coverage' in prev)) {
-      throw new Error(
-        `[X-GIS] setCoverageData: "${sourceId}" is not a declared coverage source ` +
-          `(declare \`source ${sourceId} { type: coverage, url: … }\` first).`,
-      )
-    }
-    // `group` (1-based) re-decodes a DIFFERENT forecast hour of the SAME pushed bytes — the
-    // whole cell is already in memory (the mosaic cached it), so stepping the time axis costs
-    // one CPU decode, no network (#1272 E-③). Defaults to the first group.
-    //
-    // EPOCH-GUARDED, sharing `setCoverageTime`'s counter (#1367): the forecast slider pushes one
-    // of these per input event, and unguarded they landed in COMPLETION order — a slow decode
-    // arming over a newer one leaves the map on the wrong hour. Shared, because a region swap
-    // and a time step both change the displayed frame; the newer one must win either way.
-    const token = this._coverageTime.nextEpoch()
-    const handle = await readCoverage(
-      bytes,
-      undefined,
-      opts?.group ? { group: opts.group } : undefined,
-    )
-    if (!this._coverageTime.isCurrent(token)) return
-    // Keep `_url` when the caller names the pushed cell's URL (the viewport mosaic passes the
-    // region it fetched) so a later reload / range read can address the same cell. A urlless
-    // push stays a pure host-push.
-    this.rawDatasets.set(
-      sourceId,
-      opts?.url ? { _coverage: handle, _url: opts.url } : { _coverage: handle },
-    )
-    this._rearmCoverage(handle, opts)
+    return pushCoverageRegion(this._coverageDeps, sourceId, bytes, opts)
   }
 
-  /** Re-arm the renderer after a coverage DATA swap — the one authority the three swap
-   *  paths (setCoverageData / setCoverageTime / refreshCoverage) share.
-   *
-   *  ramp/range/opacity are LAYER paint (#1158 INC-D), so an imperative swap keeps the
-   *  renderer's armed display unless the caller overrides; a later rebuild re-arms.
-   *  A `| arrow` / `| particles` coverage (#1333) derives its field(s) from the grid, so a
-   *  data swap must re-derive them — but ONLY them (#1367). This ran `rebuildLayers()`,
-   *  rebuilding EVERY layer in the scene to re-derive one coverage's field: the reported
-   *  per-step freeze. `_armCoverageFields` is that same coverage arm without the rest of the
-   *  scene, and the show did not change (only the data did), so `_coverageFieldShow` is still
-   *  the valid authority. Otherwise the fill-only fast path keeps an imperative override. */
-  private _rearmCoverage(
-    handle: CoverageHandle,
-    override?: { ramp?: string; range?: readonly [number, number] },
-  ): void {
-    if (this._coverageFieldArmed && !override?.ramp && !override?.range) {
-      this._armCoverageFields(handle)
-    } else {
-      const cur = this.coverageRenderer.displayOpts()
-      this.coverageRenderer.setCoverage(handle, {
-        ramp: override?.ramp ?? cur.ramp,
-        rangeLo: override?.range?.[0] ?? cur.rangeLo,
-        rangeHi: override?.range?.[1] ?? cur.rangeHi,
-        opacity: cur.opacity,
-      })
-    }
-    this.invalidate()
+  /** Drop ONE region of a mosaic `coverage` source — its GPU textures and its arrow field go
+   *  with it (#1272 E-④). The viewport mosaic calls this for a domain that has panned off
+   *  screen, so residency tracks what is actually visible instead of growing until the byte
+   *  budget evicts something arbitrary. Unknown source or region: no-op. */
+  removeCoverageRegion(sourceId: string, region: string): void {
+    dropCoverageRegion(this._coverageDeps, sourceId, region)
   }
 
   /** Step the DISPLAYED forecast hour of a `coverage` source (#1272 E-③). An S-111/S-104
@@ -4731,82 +4712,46 @@ export class XGISMap {
    *  cell over HTTP Range and re-arms the GPU. `indexOrISO` is a 0-based hour index or an
    *  ISO valid time (resolveForecastGroup). A no-op when the source is single-group or
    *  host-pushed (no URL). Concurrent calls are epoch-guarded so a slow re-read that a newer
-   *  step superseded never arms stale data. */
+   *  step superseded never arms stale data.
+   *
+   *  Steps EVERY resident region (#1272 E-④). A mosaic showing two adjacent domains at the
+   *  same forecast hour is the whole point; advancing only one would leave neighbours frozen
+   *  at different times, which reads as a current discontinuity at the domain boundary — a
+   *  plausible-looking lie about the data. Regions step CONCURRENTLY and independently: one
+   *  region lacking a URL, or already sitting on the requested hour, skips itself without
+   *  holding up the others. */
   async setCoverageTime(sourceId: string, indexOrISO: number | string): Promise<void> {
-    const prev = this.rawDatasets.get(sourceId)
-    if (!prev || !('_coverage' in prev))
-      throw new Error(`[X-GIS] setCoverageTime: "${sourceId}" is not a declared coverage source.`)
-    const time = prev._coverage.meta.sourceMeta?.time as CoverageTime | undefined
-    if (!prev._url || !time || time.count <= 1) return // nothing to step
-    const group = resolveForecastGroup(time, indexOrISO)
-    if (group - 1 === time.index) return // already showing this hour
-    // Re-read the same, already-validated URL (declared source) — one group of it. No new
-    // SSRF surface; the whole-file fallback isn't needed (Range worked at first load).
-    const token = this._coverageTime.nextEpoch()
-    const handle = await readCoverageRange(prev._url, { group })
-    if (!this._coverageTime.isCurrent(token)) return // superseded by a newer step
-    this.rawDatasets.set(sourceId, { _coverage: handle, _url: prev._url })
-    // No paint override — an armed field re-derives for the stepped forecast hour (#1333),
-    // through the coverage arm ONLY, not a whole-scene rebuild (#1367; see _rearmCoverage).
-    this._rearmCoverage(handle)
+    return stepCoverageRegions(this._coverageDeps, sourceId, indexOrISO)
   }
 
   /** Re-read a `coverage` source's URL if its content changed — the live-refresh primitive
-   *  for a cell at a ROLLING url (NOAA `latest.h5`, a re-issued S-102 cell).
+   *  for a cell at a ROLLING url (NOAA `latest.h5`, a re-issued S-102 cell) (#1158).
    *
-   *  Revalidation is a cheap HEAD probe, not a conditional GET: the read path is HTTP Range
-   *  and a 304 on a ranged read is not something the reader can consume. When the probed
-   *  ETag / Last-Modified matches what the last read saw, this returns `{changed: false}`
-   *  having transferred almost nothing. Every uncertain case (no validator exposed, HEAD
-   *  blocked, first probe) re-reads — a needless read costs bandwidth, a wrongly-skipped one
-   *  leaves a stale chart. `force` skips the probe entirely.
-   *
-   *  Concurrent calls are epoch-guarded: a slow re-read a newer refresh superseded never arms.
-   *  Throws only when `sourceId` is not a URL-backed coverage source; a network failure during
-   *  the probe degrades to a re-read rather than throwing (see coverage-refresh.ts). */
+   *  Revalidation is a cheap HEAD probe, so an unchanged cell costs almost nothing and
+   *  returns `{changed: false}`. Every uncertain case READS (no validator exposed, HEAD
+   *  blocked, first probe): a needless read costs bandwidth, a wrongly-skipped one leaves a
+   *  stale chart on screen. Each resident region is probed and re-read independently.
+   *  Throws when `sourceId` is not a coverage source, or when it was host-pushed with no URL
+   *  — there is nothing to re-read then, and silently doing nothing would look like "no
+   *  change". */
   async refreshCoverage(
     sourceId: string,
-    opts?: { force?: boolean; bbox?: Bbox; group?: number },
+    opts?: RefreshCoverageOpts,
   ): Promise<{ changed: boolean; reason: RefreshReason }> {
-    const prev = this.rawDatasets.get(sourceId)
-    if (!prev || !('_coverage' in prev))
-      throw new Error(`[X-GIS] refreshCoverage: "${sourceId}" is not a declared coverage source.`)
-    if (!prev._url)
-      throw new Error(
-        `[X-GIS] refreshCoverage: "${sourceId}" was host-pushed without a URL — there is ` +
-          `nothing to re-read (pass \`url\` to setCoverageData, or declare a \`coverage\` source).`,
-      )
-    const url = prev._url
-    const label = `coverage source "${sourceId}"`
-    const safe: typeof fetch = (u, init) => safeFetch(String(u), init, label) // SSRF guard
-    const probed = opts?.force ? null : await probeValidator(url, safe)
-    const decision = decideRefresh(this._coverageRefresh.validator(sourceId), probed, opts?.force)
-    if (!decision.read) return { changed: false, reason: decision.reason }
-
-    const token = this._coverageRefresh.nextEpoch(sourceId)
-    const handle = await fetchCoverageHandle(url, label, safe, {
-      ...(opts?.bbox ? { bbox: opts.bbox } : {}),
-      ...(opts?.group ? { group: opts.group } : {}),
-    })
-    if (!this._coverageRefresh.isCurrent(sourceId, token) || this._destroyed)
-      return { changed: false, reason: decision.reason } // superseded — never arm stale data
-    this._coverageRefresh.rememberValidator(sourceId, probed)
-    this.rawDatasets.set(sourceId, { _coverage: handle, _url: url })
-    this._rearmCoverage(handle)
-    return { changed: true, reason: decision.reason }
+    return refreshCoverageSource(this._coverageDeps, sourceId, opts)
   }
 
   /** Poll `refreshCoverage(sourceId)` every `intervalMs` (clamped to ≥ 1 s). Restarts
    *  cleanly if already polling this source; `stopAutoRefreshCoverage` stops it, and
-   *  `destroy()` stops every loop. A tick re-arms only after the previous one settles, so
-   *  a read slower than the interval cannot stack up. A failed tick does NOT stop the loop
-   *  (a poll of a live network is allowed to blip) — failures surface through `onError`. */
+   *  `destroy()` stops every loop. A tick re-arms only after the previous one settles, so a
+   *  read slower than the interval cannot stack up. A failed tick does NOT stop the loop (a
+   *  poll of a live network is allowed to blip) — failures surface through `onError`. */
   autoRefreshCoverage(
     sourceId: string,
     opts: {
       intervalMs: number
+      force?: boolean
       bbox?: Bbox
-      group?: number
       onRefresh?: (result: { changed: boolean; reason: RefreshReason }) => void
       onError?: (err: unknown) => void
     },
@@ -4816,8 +4761,8 @@ export class XGISMap {
       opts.intervalMs,
       async () => {
         const result = await this.refreshCoverage(sourceId, {
+          ...(opts.force ? { force: true } : {}),
           ...(opts.bbox ? { bbox: opts.bbox } : {}),
-          ...(opts.group ? { group: opts.group } : {}),
         })
         opts.onRefresh?.(result)
       },
@@ -4853,25 +4798,36 @@ export class XGISMap {
    *  3. `| arrow` alone, no `ramp` → the STRICT catalogue portrayal: arrows, no drape.
    *
    *  Declaring a `ramp` always adds the non-standard colour fill under whatever else runs. */
-  private _armCoverageDrape(show: ShowCommand, handle: CoverageHandle): void {
+  private _armCoverageDrape(
+    show: ShowCommand,
+    handle: CoverageHandle,
+    region = DEFAULT_REGION,
+  ): void {
     const arm = coverageDrapeArm(show)
     if (!arm.draw) return
-    this.coverageRenderer.setCoverage(handle, {
-      ramp: show.ramp ?? 'viridis',
-      rangeLo: show.range?.[0],
-      rangeHi: show.range?.[1],
-      opacity: show.opacity ?? 1,
-      flowOnly: arm.flowOnly,
-    })
+    this.coverageRenderer.setCoverage(
+      handle,
+      {
+        ramp: show.ramp ?? 'viridis',
+        rangeLo: show.range?.[0],
+        rangeHi: show.range?.[1],
+        opacity: show.opacity ?? 1,
+        flowOnly: arm.flowOnly,
+      },
+      region,
+    )
   }
 
-  private _armCoverageFields(handle: CoverageHandle): void {
+  private _armCoverageFields(handle: CoverageHandle, region = DEFAULT_REGION): void {
     const show = this._coverageFieldShow
     if (!show) return
-    this._armCoverageDrape(show, handle)
+    this._armCoverageDrape(show, handle, region)
     if (show.isArrow) {
-      this._graphics.clearCompiledArrows()
-      addCoverageArrowShowLayer(this, show, handle)
+      // Clear THIS region's arrows only. Clearing all of them here is what kept the mosaic
+      // single-region even after the renderer could hold several: a neighbour's time step
+      // wiped every other domain's glyphs and re-added just its own.
+      this._graphics.clearCompiledArrows(region)
+      addCoverageArrowShowLayer(this, show, handle, region)
     }
     this.invalidate()
   }
@@ -4886,10 +4842,11 @@ export class XGISMap {
    *  time — see `_coverageFieldShow`). `playCoverageTime`'s own `interpolateSteps` uses this
    *  internally; exposed so a host app with its own playback loop (e.g. a zero-network mosaic
    *  cache) can drive the SAME smoothing without going through the network-based
-   *  `setCoverageTime`. */
-  setCoverageFrame(sourceId: string, handle: CoverageHandle): void {
+   *  `setCoverageTime`. `region` names which mosaic domain the frame belongs to (#1272 E-④);
+   *  omit it for a single-region source. */
+  setCoverageFrame(sourceId: string, handle: CoverageHandle, region = DEFAULT_REGION): void {
     if (this._coverageFieldShow?.targetName !== sourceId) return
-    this._armCoverageFields(handle)
+    this._armCoverageFields(handle, region)
   }
 
   /** Animate a `coverage` source through its forecast hours (#1272 E-③) — steps group→group
@@ -4908,14 +4865,15 @@ export class XGISMap {
    *  intentionally NOT extended to frames — a single dropped frame should not kill playback). */
   playCoverageTime(sourceId: string, opts?: { stepMs?: number; interpolateSteps?: number }): void {
     const steps = Math.max(1, Math.floor(opts?.interpolateSteps ?? 1))
-    let cachedTo: { toIndex: number; handle: CoverageHandle } | null = null
+    // Keyed by region: a mosaic blends every resident domain, so the "to" hour is decoded
+    // once PER REGION per transition and reused across that transition's sub-frames.
+    let cachedTo: { toIndex: number; handles: Map<string, CoverageHandle> } | null = null
     this._coverageTime.play(
       () => {
-        const cur = this.rawDatasets.get(sourceId)
-        const t =
-          cur && '_coverage' in cur
-            ? (cur._coverage.meta.sourceMeta?.time as CoverageTime | undefined)
-            : undefined
+        // The PRIMARY region's axis drives the cursor. Regions step in lockstep
+        // (`setCoverageTime` steps all of them), and a neighbour with a shorter forecast
+        // simply stops advancing on its own — it must not shorten everyone else's timeline.
+        const t = primaryCoverageTime(this._coverageDeps, sourceId)
         return t ? { index: t.index, count: t.count } : null
       },
       (index) => {
@@ -4927,16 +4885,21 @@ export class XGISMap {
         ? {
             steps,
             stepFraction: async (_fromIndex, toIndex, t) => {
-              const prev = this.rawDatasets.get(sourceId)
-              if (!prev || !('_coverage' in prev) || !prev._url) return // nothing to blend
+              const prev = coverageRegions(this._coverageDeps, sourceId)
+              if (!prev) return
               if (!cachedTo || cachedTo.toIndex !== toIndex) {
-                const group = toIndex + 1 // reader groups are 1-based
-                cachedTo = { toIndex, handle: await readCoverageRange(prev._url, { group }) }
+                const handles = await readRegionsAtGroup(prev, toIndex + 1) // groups are 1-based
+                cachedTo = { toIndex, handles }
               }
-              this.setCoverageFrame(
-                sourceId,
-                interpolateVectorCoverage(prev._coverage, cachedTo.handle, t),
-              )
+              for (const [region, entry] of prev) {
+                const to = cachedTo.handles.get(region)
+                if (!to) continue
+                this.setCoverageFrame(
+                  sourceId,
+                  interpolateVectorCoverage(entry.handle, to, t),
+                  region,
+                )
+              }
             },
           }
         : undefined,
@@ -5237,7 +5200,7 @@ export class XGISMap {
     this._destroyed = true
     this.running = false // next requestAnimationFrame tick early-returns
     this._coverageTime.pause() // stop any forecast-time playback timer (#1272 E-③)
-    this._coverageRefresh.stopAll() // stop every coverage auto-refresh poll loop
+    this._coverageRefresh.stopAll() // stop every coverage auto-refresh poll loop (#1158)
 
     // Pending interaction-idle debounce.
     if (this._interactionIdleTimer !== null) {

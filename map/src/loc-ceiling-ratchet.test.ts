@@ -140,9 +140,13 @@ const CEILINGS: Record<string, number> = {
   // which only this class holds; extracting them would export three internals to buy back 51.
   // merge union — 4740→4761 (#1397): the viewport-anchored extrusion light gains its bearing
   // rotation in the per-tile light_dir_ecef packing. The two edits are disjoint, so the
-  // ceilings SUM rather than max: 4740 + 51 + 21 = 4812 = the merged file's line count.
+  // ceilings SUM rather than max: 4740 + 51 + 21 = 4812.
+  // merge union — 4791→4797 (#1402): `applyReplacedTiles` now asks for a REPLACING upload and
+  // re-arms the key when the swap did not land, so an upload that bails cannot strand the tile
+  // after the replaced-set was drained. +6, all inside the existing method. Disjoint from #1397
+  // as well, so the three sum: 4740 + 51 + 21 + 6 = 4818 = the merged file's line count.
   // Shrink-only from here.
-  'map/src/render/vector-tile-renderer.ts': 4812,
+  'map/src/render/vector-tile-renderer.ts': 4818,
   // 4232→4237 (#1000 heatmap relocate): the heatmap density-target OWNERSHIP
   // extracted to render/heatmap-targets.ts; map keeps only the irreducible
   // composition-root wiring — the `heatmapTargets` field + its import (mirrors
@@ -428,7 +432,7 @@ const CEILINGS: Record<string, number> = {
   // MERGE UNION #3 (#1158 <- main @ 904a528): both sides' deltas are non-overlapping edits
   // to different methods, so the merged file measures their SUM. Value below is the MEASURED
   // post-hook line count, not an arithmetic guess.
-  'map/src/map.ts': 5443,
+  'map/src/map.ts': 5406,
   // Baselined at #1255 (measured 830): the DOM-inspired layer API crossed
   // NEW_FILE_CAP with the paint-transition style-setter integration — the
   // StyleHost.transitions context, the shared applyNumber/applyColor
@@ -459,6 +463,14 @@ const CEILINGS: Record<string, number> = {
   // MERGE UNION: a −8 extraction and a +76 addition to different methods, so the merged file
   // measures 849 − 8 + 76. The extraction stays locked in — the union is the SUM of the two
   // deltas, never max() of the two ceilings.
+  // 925→926 (#1272 E-④ multi-region): ONE line — the `DEFAULT_REGION` import. A coverage
+  // source now holds a keyed Map of regions, so the declared single cell must name the key it
+  // lands on. There is nothing to extract: the ingest branch itself did not grow, and the same
+  // change moved 100+ lines of region/time-axis logic OUT of map.ts into coverage-source.ts
+  // (map/src/map.ts came DOWN 5362→5339 in the same commit).
+  // MERGE UNION (#1158 <- #1272 E-④): a −8 extraction (the coverage attach's fetch ladder moved
+  // to coverage-fetch.ts, shared with refreshCoverage) and main's +77 are edits to different
+  // methods, so the merged file measures their SUM. The extraction stays locked in.
   'map/src/source-manager.ts': 917,
   // 1920→1930 (#1042 R3): the globe limb cull for MULTI-LINE labels must land in
   // the collision phase — the ONLY site holding the label's quad half-height (the
@@ -657,7 +669,13 @@ const CEILINGS: Record<string, number> = {
   // 1314→1360 (#1371 atomic re-seed): `refreshTiles` (re-request a CACHED key, the one thing
   // `requestTiles` refuses) + `consumeReplacedKeys` + the two key sets they own. Cache identity
   // and the request path both live here, so the pair cannot move out.
-  'data/src/tile-catalog.ts': 1360,
+  // 1360→1402 (#1402 re-seed completeness): the refresh QUEUE the #1371 pair was missing —
+  // `_refreshQueue` + `drainRefreshQueue` + the queue-first, de-duped key walk in requestTiles
+  // + `markReplaced`. `requestTiles` breaks at the concurrency cap, so a one-shot refresh
+  // re-tiled only the tiles that happened to fit and the rest kept the previous backend's data
+  // forever. The queue has to live beside the cap it works around and beside the cache identity
+  // it arms (`_pendingRefresh`), so it cannot move out.
+  'data/src/tile-catalog.ts': 1402,
   // 1173→1180 (#1046 F1): thread the required `rhi: RhiDevice` onto the FrameContext at
   // both build sites — the main-chain init literal and the twin label stage — so a seam
   // can reach `ctx.rhi.caps.*` (doc §3-F1). +7 = two assignments + their rationale comments;
@@ -908,7 +926,10 @@ const CEILINGS: Record<string, number> = {
   // 906→910 (#1155 F3 adjudication): the burst 8/4 pair now comes from the
   // shared `burstUploadBudget` authority (import + call + note) so the enqueue
   // cap and uploadBudgetFor's maxJobs can't drift out of lockstep.
-  'map/src/render/upload-coordinator.ts': 910,
+  // 910→921 (#1402): the `replace` opt-out of `_dispatch`'s "already uploaded" short-circuit,
+  // threaded through `uploadSync`. +11 is the two signatures, the amended guard, and the note
+  // recording WHY the guard was a silent no-op for the one caller that meant to overwrite.
+  'map/src/render/upload-coordinator.ts': 921,
   // 811→826 (#1152 INC-3): proj_globe gains the ellipsoid N term (sqrt +
   // (1−E2) z-compression), globe_eye_horizon_cos rescales its surface point into
   // the (a,b) sphere frame, and PROJECTION_CONSTS gains the EARTH_E2 decl (prettier

@@ -41,6 +41,7 @@ import {
   type GeoJSONGeometry,
 } from '@xgis/data'
 import type { RawDataset } from './map-types'
+import { DEFAULT_REGION } from './render/coverage-renderer'
 import { isTileTemplate } from '@xgis/data'
 import { TileCatalog } from '@xgis/data'
 import { VectorTileRenderer } from './render/vector-tile-renderer'
@@ -343,14 +344,13 @@ export class SourceManager {
     if (declaredType === 'coverage') {
       const label = `coverage source "${load.name}"`
       const safe: typeof fetch = (u, init) => safeFetch(String(u), init, label) // SSRF guard
-      // Range-stream first (metadata + the grid the handle needs, not the whole
-      // multi-timestep cell), whole-file on fallback. Shared with `Map.refreshCoverage`
-      // via `fetchCoverageHandle` so a refresh reads exactly the way this attach does —
-      // otherwise a Range-hostile server works here and breaks on the first refresh.
+      // The range-then-whole-file ladder lives in coverage-fetch.ts, shared with
+      // `refreshCoverage` (#1158): read the same way at attach and at refresh, or a
+      // Range-hostile server works once and breaks on the first re-read.
       const handle = await fetchCoverageHandle(url, label, safe)
-      // A coverage source is DATA-ONLY: ramp/range are LAYER paint now (#1158 INC-D), read at
-      // arm time off the ShowCommand. `_url` is kept only so setCoverageTime re-reads (#1272).
-      this.rawDatasets.set(load.name, { _coverage: handle, _url: url })
+      // DATA-ONLY (ramp/range are LAYER paint, #1158 INC-D); one DECLARED cell ⇒ one region,
+      // and coverage-source.ts owns residency + the time axis from here (#1272).
+      this.rawDatasets.set(load.name, { _coverage: new Map([[DEFAULT_REGION, { handle, url }]]) })
       return
     }
 
