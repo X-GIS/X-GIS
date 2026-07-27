@@ -18,6 +18,7 @@
 
 import { readCoverageFromHdf5, readCoverageFromHdf5Url } from '../hdf5/coverage'
 import type { RangeReaderOptions } from '../hdf5/index'
+import type { Bbox } from '../hdf5/s102'
 import type { CoverageHandle } from './format'
 
 export type CoverageFormat = 'hdf5' | 'grib2' | 'netcdf'
@@ -44,7 +45,7 @@ export function detectCoverageFormat(url: string): CoverageFormat | null {
 export async function readCoverage(
   bytes: ArrayBuffer,
   url?: string,
-  opts?: { group?: number },
+  opts?: { group?: number; bbox?: Bbox },
 ): Promise<CoverageHandle> {
   const format = url ? detectCoverageFormat(url) : null
   if (format === 'grib2')
@@ -64,10 +65,14 @@ export async function readCoverage(
 /** Range-streaming sibling of `readCoverage`: read a coverage over HTTP Range, pulling
  *  only the metadata + the chunks the coverage reads (the first forecast group), NOT the
  *  whole multi-timestep cell. Same URL-decisive format routing; HDF5 only today
- *  (GRIB2/NetCDF are byte-range-capable too, but their readers are separate tracks). */
+ *  (GRIB2/NetCDF are byte-range-capable too, but their readers are separate tracks).
+ *
+ *  `bbox` ([west, south, east, north] degrees) narrows the read to one viewport window —
+ *  the path for an S-102 cell too large to hold whole. Geometry stays the cell's;
+ *  outside-the-window cells read NaN (`meta.sourceMeta.window` reports what is resident). */
 export async function readCoverageRange(
   url: string,
-  opts?: RangeReaderOptions & { blockSize?: number; group?: number },
+  opts?: RangeReaderOptions & { blockSize?: number; group?: number; bbox?: Bbox },
 ): Promise<CoverageHandle> {
   const format = detectCoverageFormat(url)
   if (format === 'grib2')
