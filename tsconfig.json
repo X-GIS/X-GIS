@@ -8,7 +8,6 @@
     { "path": "./engine" },
     { "path": "./data" },
     { "path": "./map" },
-    { "path": "./runtime" },
     { "path": "./pipeline" }
   ]
 }

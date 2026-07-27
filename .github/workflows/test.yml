@@ -66,7 +66,6 @@ jobs:
           filters: |
             render:
               - 'compiler/**'
-              - 'runtime/**'
               - 'engine/**'
               - 'map/**'
               - 'shared/**'
@@ -102,7 +101,6 @@ jobs:
               - '.github/workflows/test.yml'
             code:
               - 'compiler/**'
-              - 'runtime/**'
               - 'engine/**'
               - 'map/**'
               - 'shared/**'
@@ -127,6 +125,7 @@ jobs:
               - '**/package.json'
               - 'tsconfig*.json'
               - 'vitest.config.ts'
+              - 'vitest.setup.ts'
               - '.github/workflows/test.yml'
             site:
               - 'site/**'
@@ -207,56 +206,43 @@ jobs:
             args: shader-dsl/src shader-dsl/examples --shard=1/2
           - id: shader-dsl-b
             args: shader-dsl/src shader-dsl/examples --shard=2/2
-          # SPLIT 2026-06-26: #610 demo-QA sweep grew engine-render to 122 test
-          # files (render uniform/bind-size/tile + #595/#606/#608), back over the
-          # ~110 onTaskUpdate RPC threshold — main push run 28186666263: every
-          # test PASSED, the job failed on 'Timeout calling "onTaskUpdate"'. Per
-          # the playbook above, SPLIT this id (do NOT merge). Uses vitest --shard
-          # to halve the file count per worker pool — deterministic, disjoint and
-          # complete (no glob guessing): 122 files → 2 pools of ~61, each a fresh
-          # pool well under the ~110 threshold. If render/ later doubles again,
-          # bump to --shard=1/3../3/3 rather than merging back.
-          - id: engine-render-a
-            args: runtime/src/engine/render --shard=1/2
-          - id: engine-render-b
-            args: runtime/src/engine/render --shard=2/2
-          - id: engine-proj-text
-            args: runtime/src/engine/projection runtime/src/engine/text
-          - id: engine-rest
-            args: >-
-              runtime/src/engine
-              --exclude "runtime/src/engine/render/**"
-              --exclude "runtime/src/engine/projection/**"
-              --exclude "runtime/src/engine/text/**"
-          - id: runtime-nonengine
-            args: >-
-              runtime/src
-              --exclude "runtime/src/engine/**"
-          # @xgis/map content package (extracted from runtime/src/engine in P3).
-          # The moved shaders/dsl tests + future map content tests live here; the
-          # local vitest.config includes map/src, but this CI matrix shards by
-          # directory, so without its own leg the map suite silently stops running.
-          - id: map
-            args: map/src
-          # Backend + data + pipeline packages (@xgis/engine, @xgis/rhi-webgl2,
-          # @xgis/rhi-webgpu, @xgis/data, @xgis/pipeline). These were CI-DARK:
-          # sharded by directory, the matrix never named them, and the `code`
-          # path-filter didn't list rhi*/data/pipeline, so a change there
-          # triggered NO vitest leg at all — exactly the gap the P3/M-B
-          # relocations widen as code moves INTO engine/src + rhi. Verified
-          # 2026-07-08 CI-safe: 62 test files / 618 tests pass under plain vitest
-          # (no GPU — WebGl2Device/render-target/provider suites are pure logic),
-          # well under the ~110-file onTaskUpdate RPC threshold, so they share ONE
-          # leg (rhi/src has no tests). If a future growth pushes this over ~110
-          # files, SPLIT the id per the playbook above (do NOT merge legs back).
-          # shared/src was CI-dark the same way (body.test.ts + the #798
-          # earth-literal ratchet ran in no leg) — it rides here too.
-          # geo/src rides here too (#959): its globe + projections-table suites
-          # (2 files, still well under the ~110-file threshold) were CI-dark AND
-          # run-dark — omitted from vitest.config `include`, now added there so
-          # this leg's `geo/src` positional filter actually matches them.
-          - id: engine-rhi-data
-            args: engine/src rhi-webgl2/src rhi-webgpu/src data/src pipeline/src shared/src geo/src
+          # @xgis/map content package. The five former `engine-*` / `map` legs
+          # collapsed into these on 2026-07-27, when the test corpus that lived
+          # under runtime/src/engine/** — 254 files that exercised @xgis/map and
+          # @xgis/data, not @xgis/engine — moved to the packages it tests. The
+          # leg IDs changed with it; branch protection requires `test-result`
+          # (below), not these per-leg names, so renaming them is safe.
+          #
+          # map/src is 471 files, far over the ~110 onTaskUpdate RPC threshold,
+          # so it runs as FIVE --shard pools of ~95. Sharding (not globbing) keeps
+          # the partition deterministic, disjoint and complete. Per the playbook
+          # above, when growth pushes ~95 back over ~110, bump to --shard=1/6..6/6
+          # — do NOT merge legs back together.
+          - id: map-a
+            args: map/src --shard=1/5
+          - id: map-b
+            args: map/src --shard=2/5
+          - id: map-c
+            args: map/src --shard=3/5
+          - id: map-d
+            args: map/src --shard=4/5
+          - id: map-e
+            args: map/src --shard=5/5
+          # @xgis/data (74 files after the tile-catalog / tile-selection suites
+          # arrived from runtime/src/data). Its own leg — combined with the
+          # backend leg below it would sit at ~148, over the threshold.
+          - id: data
+            args: data/src
+          # Backend + leaf packages (@xgis/engine, @xgis/rhi-webgl2,
+          # @xgis/rhi-webgpu, @xgis/pipeline, @xgis/shared, @xgis/geo). These were
+          # CI-DARK before #959/#1008: sharded by directory, the matrix never
+          # named them, and the `code` path-filter didn't list rhi*/data/pipeline,
+          # so a change there triggered NO vitest leg at all. 70 files total —
+          # under the ~110-file threshold, so they share ONE leg (rhi/src has no
+          # tests). If growth pushes this over ~110, SPLIT the id per the playbook
+          # above (do NOT merge legs back).
+          - id: engine-rhi-shared
+            args: engine/src rhi-webgl2/src rhi-webgpu/src pipeline/src shared/src geo/src
     # Distinct per-leg check name in the GitHub UI / status API, e.g.
     # "test (engine-render-a)". The single stable context for branch protection
     # is `test-result` below — require THAT, not these per-leg names.
@@ -311,7 +297,7 @@ jobs:
   typecheck:
     name: typecheck
     needs: changes
-    # Same gate as `test`: the runtime tsc pass is irrelevant to a site-only PR.
+    # Same gate as `test`: the tsc pass is irrelevant to a site-only PR.
     if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
     steps:
@@ -326,7 +312,6 @@ jobs:
           restore-keys: bun-${{ runner.os }}-
       - run: bun install --frozen-lockfile
       - run: bun run build
-      - run: ./node_modules/.bin/tsc -p runtime/tsconfig.json --noEmit
 
   # Site build gate. The engine `test` matrix used to be the only thing that
   # built the site (as a side effect of `bun run build`), so gating that matrix
@@ -355,7 +340,7 @@ jobs:
       # builds are dead weight here; only the packages the site imports through
       # package `exports` (compiler, blueprint) need dist, plus their upstream
       # chain (shared, shader-dsl). Proven 2026-07-07: site builds green with
-      # engine/runtime/map/playground dist deleted — 29s vs 72s for the full
+      # engine/map/playground dist deleted — 29s vs 72s for the full
       # build. If the site ever imports a NEW workspace package without a
       # source alias, add its build to this chain.
       - run: >-

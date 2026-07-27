@@ -1,12 +1,12 @@
 # Module dependency map
 
-Last revised: 2026-06-02 (paths refreshed 2026-06-29 for the `@xgis/shader-dsl`
-package extraction).
+Last revised: 2026-07-27 (§1 rewritten for the `@xgis/runtime` dissolution; §2–§5
+still describe the pre-split `runtime/src/engine/` tree and are STALE — see the
+note at §2).
 
-This document maps the import-direction DAG of X-GIS: the cross-package
-layering (`compiler → runtime`, acyclic) and the engine subsystem graph
-inside `runtime/src/engine/`. It also names the six god-objects that
-dominate the engine and the unexecuted decomposition plan that targets them.
+This document maps the import-direction DAG of X-GIS. §1 is authoritative and
+mechanically enforced; the sections below it predate the engine/map package
+extraction and are kept only until they are rewritten.
 
 It is a **map**, not a tutorial. Every edge below is an actual `import`
 direction in the source — verified, not aspirational. When the code moves,
@@ -16,57 +16,63 @@ this file is wrong; treat a divergence as a doc bug.
 
 ## 1. Package DAG
 
-Five published workspaces (`shared`, `shader-dsl`, `compiler`, `runtime`, plus
-the `blueprint` editor) plus consumers. `@xgis/shader-dsl` is a zero-dep leaf,
-imported by both `compiler` (codegen) and `runtime`. The arrow is the import
-direction (`A → B` = "A imports B").
+Thirteen workspaces. The graph is **not** documentation-by-convention: it is
+pinned, edge by edge, in `engine/src/dependency-direction-ratchet.test.ts`,
+which fails CI on any new cross-package `src` import outside the allowed set.
+Read that file's `ALLOWED` map as the source of truth; the table below is its
+prose rendering. The arrow is the import direction (`A → B` = "A imports B").
+
+| Package              | May import                    | Role                                                                                                   |
+| -------------------- | ----------------------------- | ------------------------------------------------------------------------------------------------------ |
+| `@xgis/shared`       | — (leaf)                      | WGS84/ECEF math, quantization, logging — the kernel both sides must agree on.                          |
+| `@xgis/shader-dsl`   | — (leaf)                      | Content-free shader IR + WGSL/GLSL/CPU-f64 emit.                                                       |
+| `@xgis/rhi`          | — (leaf)                      | The render-hardware interface: `Rhi*` handles, vertex/compute contracts.                               |
+| `@xgis/geo`          | `shared`                      | The projection library (projections-table, globe, world scale).                                        |
+| `@xgis/compiler`     | `shader-dsl`, `shared`, `rhi` | `.xgis`/Mapbox → IR + SceneCommands + CompiledTile. No GPU, no shader CODE.                            |
+| `@xgis/blueprint`    | `compiler`                    | Visual node-graph authoring; no GPU.                                                                   |
+| `@xgis/engine`       | `rhi`, `shader-dsl`, `shared` | Content-blind GPU substrate (arena, uniform packing, draw backbone).                                   |
+| `@xgis/rhi-webgpu`   | `rhi`, `shader-dsl`           | WebGPU backend + device/swapchain/timer/targets.                                                       |
+| `@xgis/rhi-webgl2`   | `rhi`, `shader-dsl`           | WebGL2 fallback backend.                                                                               |
+| `@xgis/data`         | `shared`, `geo`, `compiler`   | Tile catalog/sources/loaders, worker pools, polar caps.                                                |
+| `@xgis/map`          | every library layer above     | The composition root AND the one published package: renderers, camera, text/sprite stages, the facade. |
+| `@xgis/pipeline`     | — (leaf)                      | Offline data-prep utilities.                                                                           |
+| `playground`, `site` | consumers                     | Dev app + docs site; import `@xgis/map` (and `@xgis/compiler`/`blueprint`).                            |
 
 ```
-        ┌───────────────┐
-        │  @xgis/shared │   ecef.ts — WGS84 / ECEF math (leaf, no deps)
-        └───────▲───────┘
-                │ imported by BOTH (the shared kernel)
-        ┌───────┴────────────────────┐
-        │                            │
-┌───────┴────────┐          ┌────────┴────────┐
-│ @xgis/compiler │  ──────► │  (no edge back) │
-│  lexer/parser/ │          │                 │
-│  IR/optimizer/ │          │                 │
-│  codegen/tiler │          │                 │
-└───────▲────────┘          └─────────────────┘
-        │ @xgis/runtime imports @xgis/compiler (59 non-test files)
-┌───────┴────────┐
-│  @xgis/runtime │   engine (XGISMap, renderers, camera, shaders/dsl),
-│                │   data (TileCatalog), loader, core
-└───────▲────────┘
-        │
-┌───────┴───────────────────────┐
-│ playground / site / blueprint │   consumers (dev app, docs site, editor)
-└───────────────────────────────┘
+        shared ── geo ─┐         shader-dsl        rhi
+          │            │             │              │
+          └──▶ compiler ◀────────────┘              │
+                  │                                 │
+                  ▼                     engine ◀────┤
+                 data                      ▲        │
+                  │                        │   rhi-webgpu / rhi-webgl2
+                  └──────────▶  map  ◀─────┴────────┘
+                                 │
+                    playground / site (consumers)
 ```
 
-Edges, grounded:
+Grounded notes:
 
-- **`runtime → compiler`** — `runtime/src` has 59 non-test files importing
-  `@xgis/compiler` (lexer, parser, `lower`, `optimize`, `emitCommands`,
-  `ShaderVariant`, `tileKey`, `POLYGON_FILL_FORMAT`, …). Entry point is
-  `map.ts:5`.
-- **`compiler → runtime`: NONE.** There is still no `@xgis/runtime` import
-  inside `compiler/src`; the DAG is acyclic by construction. The codegen WGSL
-  emit no longer needs runtime — `compiler/codegen` now imports the IR + emit
-  from the zero-dep **`@xgis/shader-dsl`** package (`node-types.ts` imports
-  `Expr`/`ShaderType`; `compute-gen.ts` authors kernels through its IR). A
-  residual hand copy of the WGSL backend survives test-only in
-  `codegen/node-to-wgsl.ts` as an emit-shape oracle (see
-  `package-responsibilities.md` §5).
-- **`@xgis/shared`** is the shared math kernel (`ecef.ts`, ~9 KB). It is
-  imported by both `runtime/src/engine/projection/ecef.ts` (a thin
-  `export * from '@xgis/shared'` re-export keeping every `../projection/ecef`
-  path stable) and `compiler/src/tiler/vector-tiler.ts`. This re-export
-  exists _specifically_ so the tiler and the engine share one ECEF source
-  instead of hand-mirroring constants across the package barrier.
+- **No cycles, enforced.** The `blueprint` editor imports only `compiler`; the
+  backends implement `rhi` and may not reach up into `engine`; `engine` may not
+  import `map` or `geo` (Gates 6 and 7 in
+  `map/src/architecture-invariants.test.ts`).
+- **`@xgis/runtime` no longer exists** (dissolved 2026-07-27). It had shrunk to a
+  re-export barrel plus a large test corpus belonging to other packages; the
+  capability table and the `<xgis-map>` element moved to `@xgis/map`, which took
+  over publication (`map/src/public.ts` + `publishConfig`).
+- **`@xgis/shared` is the shared math kernel.** It is imported by both the
+  renderer's ECEF module and `compiler/src/tiler/vector-tiler.ts`, specifically so
+  the tiler and the renderer share one ECEF source instead of hand-mirroring
+  constants across the package barrier.
 
 ---
+
+> **⚠️ §2–§5 below are STALE.** They describe `runtime/src/engine/**`, a tree that
+> no longer exists: the render subsystems live in `map/src/**`, the tile pipeline in
+> `data/src/**`, the projections in `geo/src/**`. The god-object table's file paths
+> and LOC figures are superseded by `map/src/loc-ceiling-ratchet.test.ts`, which is
+> the enforced authority. Rewriting them is tracked separately; read them as history.
 
 ## 2. Engine subsystem map
 

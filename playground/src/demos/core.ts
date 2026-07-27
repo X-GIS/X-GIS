@@ -4,7 +4,7 @@
 // sources load via the shared loader; ids are unchanged (URL nav depends on
 // them). Append-only: a new demo in this category is added HERE.
 
-import { Marker } from '@xgis/runtime'
+import { Marker } from '@xgis/map'
 import { load, type Demo } from './loader'
 
 export const DEMOS_CORE: Record<string, Demo> = {

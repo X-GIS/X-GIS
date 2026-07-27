@@ -7,7 +7,7 @@
 // URL: /debug-labels.html?style=<id|url>#z/lat/lon
 //   default style = OFM Bright. Camera persists to the hash.
 
-import { XGISMap } from '@xgis/runtime'
+import { XGISMap } from '@xgis/map'
 import { convertMapboxStyle } from '@xgis/compiler'
 
 const STYLES: Record<string, string> = {

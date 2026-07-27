@@ -22,7 +22,7 @@
 // a source `refresh:` property (#1304) would move the fetch + polling into the
 // .xgis too; today they are the `fetch` + `setInterval` below.
 
-import type { XGISMap } from '@xgis/runtime'
+import type { XGISMap } from '@xgis/map'
 
 export interface Station {
   id: string

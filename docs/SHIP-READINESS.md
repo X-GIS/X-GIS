@@ -11,7 +11,7 @@
 
 **NOT SHIPPABLE as a MapLibre-style npm library. Multiple independent hard blockers; not "one fix away" — it is a closed bun monorepo, not a package.**
 
-The single biggest blocker is **packaging**: every package is `private: true` and `main`/`exports` point at raw TypeScript (`./src/index.ts`) with unresolvable `workspace:*` deps and a phantom `earcut`. `npm install @xgis/runtime` is _impossible today_ and would ship raw `.ts` even if forced. Until that is fixed, **none of the other dimensions can be exercised by a real consumer** — which is the only reason packaging outranks the WebGPU-only reach gap and the open OOM crash.
+The single biggest blocker is **packaging**. (Partly addressed 2026-07-27: `@xgis/runtime` was dissolved and `@xgis/map` became the one non-private package, with a `publishConfig` pointing `main`/`types` at the bundled `dist/` and every `@xgis/*` workspace dep bundled in rather than declared. What remains unverified is an actual publish + install-from-tarball smoke test.) Historically every package was `private: true` with `main`/`exports` pointing at raw TypeScript (`./src/index.ts`), unresolvable `workspace:*` deps and a phantom `earcut`, so `npm install` was _impossible_ and would have shipped raw `.ts` even if forced. Until that is fixed, **none of the other dimensions can be exercised by a real consumer** — which is the only reason packaging outranks the WebGPU-only reach gap and the open OOM crash.
 
 Three blocker-class problems are independent (fixing one does not help the others):
 

@@ -77,7 +77,7 @@ function buildSearchIndex(base: string, posts: BlogPostRecord[]): SearchRecord[]
   out.push({
     id: 'doc:api',
     title: 'JavaScript API',
-    body: 'Public exports from @xgis/runtime: XGISMap, Camera, projections, loaders, compute helpers, stats, custom element.',
+    body: 'Public exports from @xgis/map: XGISMap, Camera, projections, loaders, compute helpers, stats, custom element.',
     type: 'doc',
     tag: 'API',
     url: `${base}/docs/api`,

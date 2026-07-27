@@ -7,7 +7,7 @@
 
 import type { RhiBuffer, RhiDevice, RhiRenderPass } from '@xgis/engine'
 import { Material, executeItems } from '@xgis/engine'
-import { emitPointWgsl, emitPointGlsl } from '@xgis/map'
+import { emitPointWgsl, emitPointGlsl } from '../../shaders/dsl/point'
 
 type VertexBuffers = ReadonlyArray<{
   stride: number

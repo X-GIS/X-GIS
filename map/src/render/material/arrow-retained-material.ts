@@ -12,7 +12,7 @@
 
 import type { RhiBindGroup, RhiBuffer, RhiDevice, RhiRenderPass } from '@xgis/engine'
 import { Material, executeItems, type DrawItem } from '@xgis/engine'
-import { emitArrowRetainedWgsl, emitArrowRetainedGlsl } from '@xgis/map'
+import { emitArrowRetainedWgsl, emitArrowRetainedGlsl } from '../../shaders/dsl/arrow-retained'
 
 export class RetainedArrowDraper {
   private readonly material: Material

@@ -29,7 +29,7 @@ import type {
   RhiTextureView,
 } from '@xgis/engine'
 import { Material, executeItems, type DrawItem } from '@xgis/engine'
-import { emitIconRetainedWgsl, emitIconRetainedGlsl } from '@xgis/map'
+import { emitIconRetainedWgsl, emitIconRetainedGlsl } from '../../shaders/dsl/icon-retained'
 
 export class RetainedIconDraper {
   private readonly material: Material

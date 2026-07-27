@@ -83,6 +83,8 @@ runtime/src/**/*.js
 !compiler/src/tiler/earcut.d.ts
 !runtime/src/earcut.d.ts
 *.tsbuildinfo
+# map's typecheck-only tsc emit (dist/ is the publish artifact — see map/tsconfig.json)
+.tsbuild/
 nul
 
 # npm pack output — local tarballs from `npm pack` / clean-room verification

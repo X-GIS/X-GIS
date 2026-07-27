@@ -18,7 +18,7 @@ import { useEffect, useRef, useState } from 'react'
 // drag), so "draggable" needs no extra wiring — we only add a scoped
 // wheel-to-zoom handler and the lifecycle guards.
 
-type XGISMapType = import('@xgis/runtime').XGISMap
+type XGISMapType = import('@xgis/map').XGISMap
 
 interface Props {
   /** Site base URL (import.meta.env.BASE_URL, trailing slash stripped) so
@@ -80,7 +80,7 @@ export default function GlobeDemo({ base }: Props) {
       if (mountStarted || destroyed) return
       mountStarted = true
       try {
-        const { XGISMap } = await import('@xgis/runtime')
+        const { XGISMap } = await import('@xgis/map')
         if (destroyed) return
 
         canvas.addEventListener('wheel', onWheel, { capture: true, passive: false })

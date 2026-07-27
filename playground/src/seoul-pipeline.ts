@@ -8,7 +8,7 @@
 // centres) so the pulse reads. The pipeline is the point — swap in the real file
 // and nothing else changes.
 
-import { XGISMap } from '@xgis/runtime'
+import { XGISMap } from '@xgis/map'
 import {
   fromRows,
   load,

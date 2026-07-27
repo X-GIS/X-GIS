@@ -16,7 +16,7 @@ import type {
 } from '@xgis/engine'
 import { wrapWebGpuBindGroupLayout } from '@xgis/rhi-webgpu'
 import { Material, executeItems } from '@xgis/engine'
-import { emitTextWgsl } from '@xgis/map'
+import { emitTextWgsl } from '../../shaders/dsl/text'
 import { emitTextGlsl } from '../../shaders/dsl/text'
 
 // WebGL2 by-name entries — the RHI-native twin of the raw text bind-group
