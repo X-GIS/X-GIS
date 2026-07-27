@@ -25,8 +25,8 @@ fn vs(@builtin(vertex_index) vi: u32) -> VsOut {
 @fragment
 fn fs(vo: VsOut) -> @location(0) vec4<f32> {
   let _cse3 = clamp((((sin(((vo.uv.x * 6.2832) + (U.time * 0.5))) * 0.3) + 0.5) + (sin(((vo.uv.y * 6.2832) - (U.time * 0.35))) * 0.2)), 0.0, 1.0);
-  let _cse2 = (_cse3 * U.bands);
   let _cse0 = ramp(_cse3);
+  let _cse2 = (_cse3 * U.bands);
   let _cse1 = fract(_cse2);
   return vec4<f32>(mix(_cse0, (_cse0 * 0.2), clamp(((1.0 - smoothstep(0.0, (fwidth(_cse2) * 1.2), min(_cse1, (1.0 - _cse1)))) * smoothstep(0.5, 1.5, U.bands)), 0.0, 1.0)), 1.0);
 }

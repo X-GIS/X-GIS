@@ -20,8 +20,8 @@ layout(location = 0) out vec4 _ret;
 
 vec4 fs_impl(VsOut vo) {
   float _cse3 = clamp((((sin(((vo.uv.x * 6.2832) + (U.time * 0.5))) * 0.3) + 0.5) + (sin(((vo.uv.y * 6.2832) - (U.time * 0.35))) * 0.2)), 0.0, 1.0);
-  float _cse2 = (_cse3 * U.bands);
   vec3 _cse0 = ramp(_cse3);
+  float _cse2 = (_cse3 * U.bands);
   float _cse1 = fract(_cse2);
   return vec4(mix(_cse0, (_cse0 * 0.2), clamp(((1.0 - smoothstep(0.0, (fwidth(_cse2) * 1.2), min(_cse1, (1.0 - _cse1)))) * smoothstep(0.5, 1.5, U.bands)), 0.0, 1.0)), 1.0);
 }

@@ -23,14 +23,14 @@ fn vs(@builtin(vertex_index) vi: u32) -> VsOut {
 
 @fragment
 fn fs_clock(vo: VsOut) -> @location(0) vec4<f32> {
-  let _cse0 = (vo.uv.x < 0.5);
-  let _cse1 = vec2<f32>((U.resolution.x * 0.5), U.resolution.y);
   let _v0 = df64_narrow(df64_fract(df64_mul(df64_add(U.epoch, vec2<f32>(U.time, 0.0)), vec2<f32>(U.speed, 0.0))));
   let _v1 = fract(((df64_narrow(U.epoch) + U.time) * U.speed));
+  let _cse0 = (vo.uv.x < 0.5);
   let _v2 = (_cse0 || (U.fp64 < 0.5));
   let _v3 = select(_v0, _v1, _v2);
   let _v4 = (vo.uv.x * 2.0);
   let _v5 = (_v4 - select(1.0, 0.0, _cse0));
+  let _cse1 = vec2<f32>((U.resolution.x * 0.5), U.resolution.y);
   let _lc0 = vec2<f32>(_v5, vo.uv.y);
   let _v6 = vec2<f32>((((_lc0.x * 2.0) - 1.0) * (_cse1.x / _cse1.y)), ((_lc0.y * 2.0) - 1.0));
   let _v7 = length(_v6);
@@ -48,8 +48,8 @@ fn fs_clock(vo: VsOut) -> @location(0) vec4<f32> {
 }
 
 fn df64_twoSum(a: f32, b: f32) -> vec2<f32> {
-  let _cse0 = textureLoad(_fp64, vec2<i32>(0, 0), 0).x;
   let _v0 = (a + b);
+  let _cse0 = textureLoad(_fp64, vec2<i32>(0, 0), 0).x;
   let _v1 = (((_v0 * _cse0) - a) * _cse0);
   let _v2 = (((((a - ((_v0 - _v1) * _cse0)) * _cse0) * _cse0) * _cse0) + (b - _v1));
   return vec2<f32>(_v0, _v2);

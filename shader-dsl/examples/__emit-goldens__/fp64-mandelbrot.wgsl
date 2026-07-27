@@ -65,16 +65,16 @@ fn vs_full(@builtin(vertex_index) idx: u32) -> VsOut {
 
 @fragment
 fn fs_mandel(vo: VsOut) -> @location(0) vec4<f32> {
-  let _cse0 = (vo.uv.x < 0.5);
-  let _cse1 = vec2<f32>(u.center.hi.x, u.center.lo.x);
-  let _cse2 = vec2<f32>(u.center.hi.y, u.center.lo.y);
   let _v0 = pow(10.0, (-u.zoom_exp));
   let _v1 = (vo.uv.x * 2.0);
+  let _cse0 = (vo.uv.x < 0.5);
   let _v2 = (_v1 - select(1.0, 0.0, _cse0));
   let _v3 = ((_v2 - 0.5) * _v0);
   let _v4 = (((vo.uv.y - 0.5) * _v0) * ((u.resolution.y / u.resolution.x) * 2.0));
   let _v5 = u32(u.max_iter);
   var _v6: vec2<f32> = vec2<f32>(0.0, 0.0);
+  let _cse1 = vec2<f32>(u.center.hi.x, u.center.lo.x);
+  let _cse2 = vec2<f32>(u.center.hi.y, u.center.lo.y);
   if ((_cse0 || (u.fp64 < 0.5))) {
     let _v7 = (df64_narrow(_cse1) + _v3);
     let _v8 = (df64_narrow(_cse2) + _v4);
@@ -94,8 +94,8 @@ fn fs_mandel(vo: VsOut) -> @location(0) vec4<f32> {
 }
 
 fn df64_twoSum(a: f32, b: f32) -> vec2<f32> {
-  let _cse0 = textureLoad(_fp64, vec2<i32>(0, 0), 0).x;
   let _v0 = (a + b);
+  let _cse0 = textureLoad(_fp64, vec2<i32>(0, 0), 0).x;
   let _v1 = (((_v0 * _cse0) - a) * _cse0);
   let _v2 = (((((a - ((_v0 - _v1) * _cse0)) * _cse0) * _cse0) * _cse0) + (b - _v1));
   return vec2<f32>(_v0, _v2);

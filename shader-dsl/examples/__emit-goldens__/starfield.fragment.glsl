@@ -19,16 +19,16 @@ in vec2 uv;
 layout(location = 0) out vec4 _ret;
 
 vec4 fs_impl(VsOut vo) {
-  vec2 _cse2 = vec2((((vo.uv.x * 2.0) - 1.0) * (U.resolution.x / U.resolution.y)), ((vo.uv.y * 2.0) - 1.0));
   float _licm0 = U.time;
   vec2 _licm1 = vec2(12.3, 45.6);
   vec2 _licm2 = vec2(78.9, 1.2);
   vec3 _licm3 = vec3(0.75, 0.85, 1.0);
   vec3 _licm4 = vec3(1.0, 0.9, 0.75);
   float _licm5 = (0.92 - (U.density * 0.25));
+  vec3 _v0 = vec3(0.0, 0.0, 0.0);
+  vec2 _cse2 = vec2((((vo.uv.x * 2.0) - 1.0) * (U.resolution.x / U.resolution.y)), ((vo.uv.y * 2.0) - 1.0));
   float _cse0 = _cse2.x;
   float _cse1 = _cse2.y;
-  vec3 _v0 = vec3(0.0, 0.0, 0.0);
   for (uint _v1 = 0u; (_v1 < 3u); _v1 = (_v1 + 1u)) {
     float _lc0 = float(_v1);
     vec2 _v2 = floor(((vec2((_cse0 + (_licm0 * ((_lc0 * 0.014) + 0.01))), _cse1) * ((_lc0 * 14.0) + 18.0)) + (_lc0 * 37.7)));
