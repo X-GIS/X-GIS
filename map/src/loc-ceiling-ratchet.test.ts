@@ -366,7 +366,16 @@ const CEILINGS: Record<string, number> = {
   // `interpolateVectorCoverage`, `setCoverageFrame` each sub-step). The interpolation MATH
   // itself lives in @xgis/data (interpolate-vector.ts); this is the `this`-coupled wiring
   // only. +90, post-hook.
-  'map/src/map.ts': 5330,
+  // 5330→5421 (#1158 S-102 live refresh): the three public refresh methods
+  // (`refreshCoverage` — probe, decide, epoch-guarded re-read, re-arm; the
+  // `autoRefreshCoverage` / `stopAutoRefreshCoverage` pair) + the scheduler field + its
+  // destroy() stop. The POLICY (validator comparison, the decision table, the poll
+  // loop's lifecycle) lives in coverage-refresh.ts and is unit-tested there; map.ts keeps
+  // only the `this`-coupled wiring, mirroring the coverage-time.ts precedent. Partly paid
+  // for by extracting `_rearmCoverage` — the post-swap re-arm block that setCoverageData
+  // and setCoverageTime each carried a copy of, now one authority the three swap paths
+  // share. +91, post-hook. Lower as #991 decomposes map.ts.
+  'map/src/map.ts': 5421,
   // Baselined at #1255 (measured 830): the DOM-inspired layer API crossed
   // NEW_FILE_CAP with the paint-transition style-setter integration — the
   // StyleHost.transitions context, the shared applyNumber/applyColor
@@ -386,7 +395,10 @@ const CEILINGS: Record<string, number> = {
   // existing 846 measurement — no growth.)
   // 846→849 (#1272): thread the coverage source's ramp/range display options
   // onto the `_coverage` marker so rebuild arms the CoverageRenderer with them.
-  'map/src/source-manager.ts': 849,
+  // 849→841 (#1158 S-102 live refresh): the coverage attach's range-then-whole-file
+  // ladder moved to `coverage-fetch.ts` so `Map.refreshCoverage` reads through the same
+  // authority. Ceiling LOWERED to lock the extraction in, per this gate's own rule.
+  'map/src/source-manager.ts': 841,
   // 1920→1930 (#1042 R3): the globe limb cull for MULTI-LINE labels must land in
   // the collision phase — the ONLY site holding the label's quad half-height (the
   // collision box IS the height authority; the label-pass dispatch site has only

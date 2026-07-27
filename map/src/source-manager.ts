@@ -53,7 +53,7 @@ import { detectCapPoles, type CapPoles } from '@xgis/data'
 import * as tilingPool from '@xgis/data'
 import { reprojectFeatureCollection } from '@xgis/data'
 import { pointPatchToFeatureCollection, type PointPatch } from '@xgis/data'
-import { readCoverage, readCoverageRange } from '@xgis/data'
+import { fetchCoverageHandle } from './coverage-fetch'
 import { SOURCE_TYPES } from '@xgis/compiler'
 import type { SourceLoader } from './source-loader'
 
@@ -331,19 +331,11 @@ export class SourceManager {
     if (declaredType === 'coverage') {
       const label = `coverage source "${load.name}"`
       const safe: typeof fetch = (u, init) => safeFetch(String(u), init, label) // SSRF guard
-      let handle
-      try {
-        // Range-stream: only the metadata + grid read, not the whole multi-timestep cell (~⅓ bytes).
-        handle = await readCoverageRange(url, { fetch: safe })
-      } catch {
-        // Fallback when the server does not honour HTTP Range: whole-file fetch (original path).
-        const response = await safe(url)
-        if (!response.ok)
-          throw new Error(`[X-GIS] coverage "${load.name}" — HTTP ${response.status}`)
-        const raw = await readBodyCapped(response, 256 * 1024 * 1024, label)
-        const buf = raw.buffer.slice(raw.byteOffset, raw.byteOffset + raw.byteLength)
-        handle = await readCoverage(buf, url)
-      }
+      // Range-stream first (metadata + the grid the handle needs, not the whole
+      // multi-timestep cell), whole-file on fallback. Shared with `Map.refreshCoverage`
+      // via `fetchCoverageHandle` so a refresh reads exactly the way this attach does —
+      // otherwise a Range-hostile server works here and breaks on the first refresh.
+      const handle = await fetchCoverageHandle(url, label, safe)
       // A coverage source is DATA-ONLY: ramp/range are LAYER paint now (#1158 INC-D), read at
       // arm time off the ShowCommand. `_url` is kept only so setCoverageTime re-reads (#1272).
       this.rawDatasets.set(load.name, { _coverage: handle, _url: url })

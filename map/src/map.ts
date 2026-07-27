@@ -94,9 +94,17 @@ import {
   readCoverage,
   readCoverageRange,
   interpolateVectorCoverage,
+  type Bbox,
   type CoverageTime,
 } from '@xgis/data'
 import { resolveForecastGroup, CoverageTimePlayer } from './coverage-time'
+import { fetchCoverageHandle } from './coverage-fetch'
+import {
+  CoverageRefreshScheduler,
+  decideRefresh,
+  probeValidator,
+  type RefreshReason,
+} from './coverage-refresh'
 import { RasterRenderer } from './render/raster-renderer'
 import { HillshadeRenderer, armHillshadeSource } from './render/hillshade-renderer'
 import { CoverageRenderer } from './render/coverage-renderer'
@@ -524,6 +532,8 @@ export class XGISMap {
   private _docHidden = false
   /** #1272 E-③ forecast-time playback + async-reread epoch guard (see coverage-time.ts). */
   private readonly _coverageTime = new CoverageTimePlayer()
+  /** Conditional-revalidation state + the auto-refetch timers (see coverage-refresh.ts). */
+  private readonly _coverageRefresh = new CoverageRefreshScheduler()
   /** #1333 — set while a `coverage` layer with `| arrow` has an armed S-111 arrow field, so a
    *  coverage DATA swap (setCoverageData / setCoverageTime) re-derives the field via a rebuild
    *  instead of the fill-only fast path. Reset + recomputed on every rebuildLayers. */
@@ -4684,20 +4694,30 @@ export class XGISMap {
       sourceId,
       opts?.url ? { _coverage: handle, _url: opts.url } : { _coverage: handle },
     )
-    // ramp/range/opacity are LAYER paint (#1158 INC-D) — an imperative swap keeps the
-    // renderer's armed display unless the caller overrides; a later rebuild re-arms.
-    // A `| arrow` / `| particles` coverage (#1333) derives its field(s) from the grid, so a
-    // data swap must re-derive them: rebuild (re-arms fill + every armed field) when any field
-    // is armed and the caller did not override the paint; else the fill-only fast path keeps an
-    // imperative override.
-    if (this._coverageFieldArmed && !opts?.ramp && !opts?.range) {
+    this._rearmCoverage(handle, opts)
+  }
+
+  /** Re-arm the renderer after a coverage DATA swap — the one authority the three swap
+   *  paths (setCoverageData / setCoverageTime / refreshCoverage) share.
+   *
+   *  ramp/range/opacity are LAYER paint (#1158 INC-D), so an imperative swap keeps the
+   *  renderer's armed display unless the caller overrides; a later rebuild re-arms.
+   *  A `| arrow` / `| particles` coverage (#1333) derives its field(s) from the grid, so a
+   *  data swap must re-derive them: rebuild (re-arms fill + every armed field) when any
+   *  field is armed and the caller did not override the paint; else the fill-only fast
+   *  path keeps an imperative override. */
+  private _rearmCoverage(
+    handle: CoverageHandle,
+    override?: { ramp?: string; range?: readonly [number, number] },
+  ): void {
+    if (this._coverageFieldArmed && !override?.ramp && !override?.range) {
       this.rebuildLayers()
     } else {
       const cur = this.coverageRenderer.displayOpts()
       this.coverageRenderer.setCoverage(handle, {
-        ramp: opts?.ramp ?? cur.ramp,
-        rangeLo: opts?.range?.[0] ?? cur.rangeLo,
-        rangeHi: opts?.range?.[1] ?? cur.rangeHi,
+        ramp: override?.ramp ?? cur.ramp,
+        rangeLo: override?.range?.[0] ?? cur.rangeLo,
+        rangeHi: override?.range?.[1] ?? cur.rangeHi,
         opacity: cur.opacity,
       })
     }
@@ -4724,18 +4744,88 @@ export class XGISMap {
     const handle = await readCoverageRange(prev._url, { group })
     if (!this._coverageTime.isCurrent(token)) return // superseded by a newer step
     this.rawDatasets.set(sourceId, { _coverage: handle, _url: prev._url })
-    if (this._coverageFieldArmed) {
-      this.rebuildLayers() // re-derive the armed field(s) for the stepped forecast hour (#1333)
-    } else {
-      const cur = this.coverageRenderer.displayOpts()
-      this.coverageRenderer.setCoverage(handle, {
-        ramp: cur.ramp,
-        rangeLo: cur.rangeLo,
-        rangeHi: cur.rangeHi,
-        opacity: cur.opacity,
-      })
-    }
-    this.invalidate()
+    // No paint override — an armed field re-derives for the stepped forecast hour (#1333).
+    this._rearmCoverage(handle)
+  }
+
+  /** Re-read a `coverage` source's URL if its content changed — the live-refresh primitive
+   *  for a cell at a ROLLING url (NOAA `latest.h5`, a re-issued S-102 cell).
+   *
+   *  Revalidation is a cheap HEAD probe, not a conditional GET: the read path is HTTP Range
+   *  and a 304 on a ranged read is not something the reader can consume. When the probed
+   *  ETag / Last-Modified matches what the last read saw, this returns `{changed: false}`
+   *  having transferred almost nothing. Every uncertain case (no validator exposed, HEAD
+   *  blocked, first probe) re-reads — a needless read costs bandwidth, a wrongly-skipped one
+   *  leaves a stale chart. `force` skips the probe entirely.
+   *
+   *  Concurrent calls are epoch-guarded: a slow re-read a newer refresh superseded never arms.
+   *  Throws only when `sourceId` is not a URL-backed coverage source; a network failure during
+   *  the probe degrades to a re-read rather than throwing (see coverage-refresh.ts). */
+  async refreshCoverage(
+    sourceId: string,
+    opts?: { force?: boolean; bbox?: Bbox; group?: number },
+  ): Promise<{ changed: boolean; reason: RefreshReason }> {
+    const prev = this.rawDatasets.get(sourceId)
+    if (!prev || !('_coverage' in prev))
+      throw new Error(`[X-GIS] refreshCoverage: "${sourceId}" is not a declared coverage source.`)
+    if (!prev._url)
+      throw new Error(
+        `[X-GIS] refreshCoverage: "${sourceId}" was host-pushed without a URL — there is ` +
+          `nothing to re-read (pass \`url\` to setCoverageData, or declare a \`coverage\` source).`,
+      )
+    const url = prev._url
+    const label = `coverage source "${sourceId}"`
+    const safe: typeof fetch = (u, init) => safeFetch(String(u), init, label) // SSRF guard
+    const probed = opts?.force ? null : await probeValidator(url, safe)
+    const decision = decideRefresh(this._coverageRefresh.validator(sourceId), probed, opts?.force)
+    if (!decision.read) return { changed: false, reason: decision.reason }
+
+    const token = this._coverageRefresh.nextEpoch(sourceId)
+    const handle = await fetchCoverageHandle(url, label, safe, {
+      ...(opts?.bbox ? { bbox: opts.bbox } : {}),
+      ...(opts?.group ? { group: opts.group } : {}),
+    })
+    if (!this._coverageRefresh.isCurrent(sourceId, token) || this._destroyed)
+      return { changed: false, reason: decision.reason } // superseded — never arm stale data
+    this._coverageRefresh.rememberValidator(sourceId, probed)
+    this.rawDatasets.set(sourceId, { _coverage: handle, _url: url })
+    this._rearmCoverage(handle)
+    return { changed: true, reason: decision.reason }
+  }
+
+  /** Poll `refreshCoverage(sourceId)` every `intervalMs` (clamped to ≥ 1 s). Restarts
+   *  cleanly if already polling this source; `stopAutoRefreshCoverage` stops it, and
+   *  `destroy()` stops every loop. A tick re-arms only after the previous one settles, so
+   *  a read slower than the interval cannot stack up. A failed tick does NOT stop the loop
+   *  (a poll of a live network is allowed to blip) — failures surface through `onError`. */
+  autoRefreshCoverage(
+    sourceId: string,
+    opts: {
+      intervalMs: number
+      bbox?: Bbox
+      group?: number
+      onRefresh?: (result: { changed: boolean; reason: RefreshReason }) => void
+      onError?: (err: unknown) => void
+    },
+  ): void {
+    this._coverageRefresh.start(
+      sourceId,
+      opts.intervalMs,
+      async () => {
+        const result = await this.refreshCoverage(sourceId, {
+          ...(opts.bbox ? { bbox: opts.bbox } : {}),
+          ...(opts.group ? { group: opts.group } : {}),
+        })
+        opts.onRefresh?.(result)
+      },
+      opts.onError,
+    )
+  }
+
+  /** Stop auto-refresh for one source, or for every source when `sourceId` is omitted. */
+  stopAutoRefreshCoverage(sourceId?: string): void {
+    if (sourceId === undefined) this._coverageRefresh.stopAll()
+    else this._coverageRefresh.stop(sourceId)
   }
 
   /** Re-paint JUST a coverage source's armed field(s) (fill + arrow + particle) from a
@@ -5125,6 +5215,7 @@ export class XGISMap {
     this._destroyed = true
     this.running = false // next requestAnimationFrame tick early-returns
     this._coverageTime.pause() // stop any forecast-time playback timer (#1272 E-③)
+    this._coverageRefresh.stopAll() // stop every coverage auto-refresh poll loop
 
     // Pending interaction-idle debounce.
     if (this._interactionIdleTimer !== null) {
