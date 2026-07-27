@@ -252,6 +252,40 @@ to `background-pass` (the flow pass composites with `loadOp: 'load'`), and `reso
 belongs to exactly one pass per frame (`scene.resolveOwner`) — compositing onto the _resolved_
 swapchain, as heatmap does, sidesteps it.
 
+### 5.2 What actually landed, where the table above was wrong
+
+The survey was right about the files and wrong about two of the edits. Recorded here rather
+than left as drift, per the lesson that a plan doc read as landed reality is how the next
+increment gets built on fiction.
+
+- **The twin question resolved to PORT, not defer.** `RHI_TWIN_MISSING` stays `['oit',
+'overdraw-compose']`. The deciding fact is not the #1046 principle in the abstract: the
+  coverage draw the flow layer feeds ALREADY runs in `renderFrameViaRhi`, so omitting the flow
+  step would make `?forcegl2=1` render a different map rather than merely skip an extra.
+- **`map.ts` owns ONE member, not two.** The survey said "own the `FlowStepper` +
+  `FlowAdvectDraper`". That would have split the pair's storage format from the pipeline built
+  for it across two owners — the exact drift that produces a pipeline/attachment mismatch (a
+  validation error on WebGPU, a silently wrong image on WebGL2). Both now live behind
+  `render/flow-renderer.ts`, mirroring `CoverageRenderer`; `map.ts` gains one field, and the
+  construction lives in the shared `scene-renderers.ts` builder with every other renderer.
+- **The pass takes the RHI-TYPED frame encoder.** Beginning an offscreen pass is the one
+  backend-divergent step, and writing it against `GPUCommandEncoder` would have put a new file
+  outside both the concrete-backend-import ratchet and the raw-WebGPU ratchet (#991). Instead
+  `FrameContext` now also carries `rhiEncoder` — the same per-frame encoder, still
+  `RhiCommandEncoder` — and this is the first pass body to consume it. That is the F3/P5
+  direction arriving one pass at a time, not a new seam invented for this feature.
+- **`FROZEN_PRE_1004_ORDER` was restored, not extended.** `hillshade` had been edited INTO the
+  frozen literal by an earlier insertion, which quietly turns the witness into a restatement of
+  whatever `PASS_CHAIN_ORDER` currently says. The literal is now the true pre-#1004 sequence
+  again, and both later insertions (`hillshade`, `flow`) are declared rows carrying the pass
+  each sits immediately before — so a reorder of the spine, an undeclared new pass, and an
+  insertion landing in the wrong slot each fail separately.
+- **ONE region advects, not all resident ones.** Advection is recursive over its own grid, so a
+  second region needs a second history pair — real scope, deferred deliberately.
+  `CoverageRenderer.activeFlowField()` takes the first resident region carrying a field and
+  quantifies over the same predicate `hasFlowField()` does, so the gate that keeps the loop warm
+  and the supply the pass steps cannot disagree.
+
 **Keep-warm.** IBFV advances every frame, so it must arm the on-demand render loop the same way
 an animated graphics batch does — the two-gate lesson from `62e9d22b`: the animation clock write
 AND the loop keep-warm are separate gates that fail differently, and both must be armed.

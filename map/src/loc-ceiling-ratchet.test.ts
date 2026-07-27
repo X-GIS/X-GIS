@@ -381,10 +381,18 @@ const CEILINGS: Record<string, number> = {
   // fade, particle flow, pending source work); moving the fifth elsewhere would scatter one
   // decision across two files. Post-hook.
   //
-  // MERGE UNION (#1333 <- main): the hillshade fade-in (+6) and this keep-alive (+5) are
-  // non-overlapping edits to different methods, so the merged file measures their SUM, not
-  // max(5336, 5335) — the same accounting the render-loop.ts entry below records for #1272.
-  'map/src/map.ts': 5341,
+  // +10 (#1333): OWNERSHIP wiring for the FlowRenderer — the field declaration, its assignment
+  // at the two renderer-set mount points (run / runBinary), the import, and the dispose in
+  // _releaseGpuResources. Nothing extractable: the class itself is a separate file
+  // (render/flow-renderer.ts) and its construction already lives in the shared
+  // scene-renderers.ts builder; what remains here is exactly the lines that must name the
+  // member on XGISMap, which is where every other renderer's ownership also lives. Post-hook.
+  //
+  // MERGE UNION (#1333 <- main): the hillshade fade-in (+6, main) and this branch's flow work
+  // (+5 keep-alive, +10 ownership) are non-overlapping edits to different methods, so the
+  // merged file measures their SUM — not max() of the two ceilings. Same accounting the
+  // render-loop.ts entry below already records for the #1272 merge.
+  'map/src/map.ts': 5351,
   // Baselined at #1255 (measured 830): the DOM-inspired layer API crossed
   // NEW_FILE_CAP with the paint-transition style-setter integration — the
   // StyleHost.transitions context, the shared applyNumber/applyColor
@@ -669,7 +677,19 @@ const CEILINGS: Record<string, number> = {
   // WebGPU loop's idle-skip already reads, + the note explaining why a count alone
   // cannot express "still converging" (and the correction of the older comment that
   // claimed the return was derived from the count alone). +11, post-hook.
-  'map/src/render-loop.ts': 1370,
+  //
+  // +12 (#1333): the IBFV advection step joins the twin, between the background
+  // clear and the raster/fills — the producer slot for the coverage drape this
+  // twin ALREADY draws. Two statements + the rationale for why the step is here
+  // and not deferred (the GPU work itself is FlowRenderer), plus 3 lines
+  // threading the RHI-TYPED frame encoder onto the FrameContext (`rhiEncoder`,
+  // the F3/P5 direction) so that renderer names no WebGPU type and stays inside
+  // the #991 backend-import + raw-WebGPU ratchets.
+  //
+  // MERGE UNION (#1333 <- main): the hillshade keep-warm fix (+11) and the flow
+  // step (+12) touch different regions of the twin, so the merged file measures
+  // their SUM, not max(1370, 1371).
+  'map/src/render-loop.ts': 1382,
   // Baselined at 806 (hillshade tile fade-in): HillshadeRenderer crossed
   // NEW_FILE_CAP restoring the three tile-streaming fixes raster-renderer had
   // landed since hillshade was copied from it — the per-tile fade ramp + its

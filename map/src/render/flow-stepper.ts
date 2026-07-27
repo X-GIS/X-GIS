@@ -66,6 +66,20 @@ export class FlowStepper {
   readonly targets = new FlowTargets()
   /** Advances every step; the shader hashes it so the injected noise is not a frozen pattern. */
   private phase = 0
+  /** Frame clock at the previous `consumeDt`; null before the first one. */
+  private lastElapsedMs: number | null = null
+
+  /** Seconds since the previous call, from the frame clock. The delta lives HERE rather than on
+   *  the render pass because passes are stateless singletons, and the history this delta
+   *  advances is this stepper's. The FIRST call returns 0 — there is no earlier frame the
+   *  history could have been advected across, and inventing one would advect a just-cleared
+   *  field by a whole startup interval. Larger deltas are clamped downstream
+   *  (FLOW_MAX_DT_SECONDS), so a restored tab cannot teleport the field either. */
+  consumeDt(elapsedMs: number): number {
+    const prev = this.lastElapsedMs
+    this.lastElapsedMs = elapsedMs
+    return prev === null ? 0 : Math.max(0, (elapsedMs - prev) / 1000)
+  }
 
   /** Run one advection step. Returns the draw the caller must issue, or null when there is
    *  nothing to advect — a scalar coverage, or a degenerate grid. Returning the draw rather
@@ -120,5 +134,8 @@ export class FlowStepper {
   destroy(): void {
     this.targets.destroy()
     this.phase = 0
+    // The pair is gone, so the next step starts from a cleared history — a stale clock would
+    // hand that fresh field the whole destroyed-to-restored gap as its first dt.
+    this.lastElapsedMs = null
   }
 }

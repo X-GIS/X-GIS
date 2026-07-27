@@ -100,6 +100,7 @@ import { resolveForecastGroup, CoverageTimePlayer } from './coverage-time'
 import { RasterRenderer } from './render/raster-renderer'
 import { HillshadeRenderer, armHillshadeSource } from './render/hillshade-renderer'
 import { CoverageRenderer } from './render/coverage-renderer'
+import type { FlowRenderer } from './render/flow-renderer'
 import { UnderOccluderRenderer } from './render/under-occluder-renderer'
 import { PointRenderer } from './render/point-renderer'
 import { HeatmapRenderer } from './render/heatmap-renderer'
@@ -285,6 +286,9 @@ export class XGISMap {
   /** S-100 coverage colour-ramp renderer (#1158). Inert until a `_coverage`
    *  layer arms it; draws in the opaque pass right after the raster basemap. */
   coverageRenderer!: CoverageRenderer
+  /** IBFV advection arm (#1333) — the ping-pong pair + advect pipeline for a coverage carrying
+   *  a velocity field. Allocates nothing until the flow pass first steps it. */
+  flowRenderer: FlowRenderer | null = null
   /** INC-1 opaque depth-writing globe sphere just under EARTH_R (opaque-pass.ts);
    *  non-null only while a `background { fill }` is installed; globe-only. */
   underOccluder: UnderOccluderRenderer | null = null
@@ -3049,6 +3053,7 @@ export class XGISMap {
     this.applyEffectiveRasterFadeDuration()
     this.hillshadeRenderer = rendererSet.hillshadeRenderer
     this.coverageRenderer = rendererSet.coverageRenderer
+    this.flowRenderer = rendererSet.flowRenderer
     this.gpuTimer = rendererSet.gpuTimer
     // Cast: pointRenderer field is a definite-assignment non-null (like ctx);
     // buildSceneRenderers yields null only on a ctor failure, which overwrites a
@@ -4112,6 +4117,7 @@ export class XGISMap {
     this.applyEffectiveRasterFadeDuration()
     this.hillshadeRenderer = rendererSet.hillshadeRenderer
     this.coverageRenderer = rendererSet.coverageRenderer
+    this.flowRenderer = rendererSet.flowRenderer
     this.gpuTimer = rendererSet.gpuTimer
     this.pointRenderer = rendererSet.pointRenderer as PointRenderer
     this.shapeRegistry = rendererSet.shapeRegistry
@@ -5100,6 +5106,10 @@ export class XGISMap {
     this.heatmapRenderer?.clearLayers()
     this.heatmapRenderer = null
     this.heatmapTargets.destroy()
+
+    // IBFV pair + sampler (#1333) — dropping the ref alone leaks both across the scene swap.
+    this.flowRenderer?.dispose()
+    this.flowRenderer = null
 
     // Colour / scalar palette + gradient-atlas textures.
     if (this._paletteHandles) {

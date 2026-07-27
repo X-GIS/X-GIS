@@ -167,6 +167,33 @@ describe('CoverageRenderer — vector-field upload (#1333)', () => {
     expect(r.residentRegions()).toEqual(['b'])
   })
 
+  it('activeFlowField() and hasFlowField() answer over the SAME regions', () => {
+    // They are the two halves of one decision: hasFlowField gates the pass (and keeps the
+    // on-demand loop warm), activeFlowField supplies what the pass steps. A true here with a
+    // null there spins the render loop every frame on a pass that does nothing — an animation
+    // that looks merely "slow" while it is actually dead.
+    const { r } = makeRenderer()
+    expect(r.hasFlowField()).toBe(false)
+    expect(r.activeFlowField()).toBeNull()
+    // The DEFAULT region is not where the field is: a mosaic keys its regions, so an accessor
+    // hard-wired to DEFAULT_REGION would answer null here while hasFlowField answered true.
+    r.setCoverage(bathymetryHandle(), RAMP, 'bathy')
+    r.setCoverage(vectorHandle(), RAMP, 'currents')
+    expect(r.hasFlowField()).toBe(true)
+    expect(r.activeFlowField()).not.toBeNull()
+  })
+
+  it('the field carries the grid GEOMETRY the advection needs, from the same region', () => {
+    // Pairing a field with another region's span would advect at the wrong rate and the wrong
+    // angle — a plausible-looking animation over the wrong water. 4×4 cells of 1° from
+    // origin (10, 50): span 4°×4°, outer edges 49.5..53.5, so the mid latitude is 51.5.
+    const { r } = makeRenderer()
+    r.setCoverage(vectorHandle(4, 4), RAMP)
+    const f = r.activeFlowField()!
+    expect([...f.spanDeg]).toEqual([4, 4])
+    expect(f.midLatDeg).toBeCloseTo(51.5, 9)
+  })
+
   it('dispose() frees the flow pair too', () => {
     const { r, created, destroyed } = makeRenderer()
     r.setCoverage(vectorHandle(), RAMP)
