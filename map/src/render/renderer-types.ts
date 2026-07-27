@@ -267,6 +267,12 @@ export interface ShowCommand
   label?: import('@xgis/compiler').LabelDef
 }
 
+// A `coverageDrawsFill` predicate lived here briefly (#1366 INC-5). It is GONE: main's
+// #1333 follow-up extracted the same decision as `coverageDrapeArm`
+// (render/coverage-drape-arm.ts), which also carries the flow-only mode — so the label case
+// belongs THERE, and keeping a second predicate beside ShowCommand would have been exactly
+// the two-authorities drift both extractions exist to prevent.
+
 // ═══ Render Layer ═══
 
 export interface RenderLayer {

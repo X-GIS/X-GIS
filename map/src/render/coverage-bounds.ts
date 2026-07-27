@@ -6,9 +6,10 @@
 // point judged inside by one and outside by the other returns a value from a domain that
 // is not the one drawn there — the worst kind of wrong, because it looks plausible.
 
-import type { CoverageHandle } from '@xgis/data'
+import { lonLatToCellUnits, type CoverageHandle } from '@xgis/data'
 
-/** The grid's OUTER edges `[west, south, east, north]` in degrees.
+/** The grid's OUTER edges `[west, south, east, north]` in the grid's OWN CRS units —
+ *  degrees for a geographic cell, metres for a projected one (#1366).
  *
  *  `header.origin` is the first cell's CENTRE (south-west, with positive `spacing`), so the
  *  outer edge lies half a cell beyond it — the half-cell is why this is worth naming rather
@@ -30,8 +31,16 @@ export function coverageEdges(handle: CoverageHandle): [number, number, number, 
  *  the safe failure here — two regions both claiming a point resolves to the first-armed
  *  one, which is a defined answer; a gap resolves to `null`, which reads as "no data" over
  *  water that plainly has some. Covering is a bbox test, not a validity test: a point inside
- *  the envelope but over land still has no value, and `valueAt` is what reports that. */
+ *  the envelope but over land still has no value, and `valueAt` is what reports that.
+ *
+ *  CRS-AWARE (#1366). The edges are in the grid's OWN units — degrees only for a geographic
+ *  cell — so the QUERY is moved into those units rather than the edges into degrees, the
+ *  same direction `valueAtLonLat` takes and for the same reason: one transform of a point
+ *  instead of four of a rectangle, and no question about what a reprojected bbox means. On a
+ *  real S-102 cell (UTM metres) the un-transformed test could never be true, so a mosaic of
+ *  projected regions would answer `null` for every point inside it. */
 export function coverageCovers(handle: CoverageHandle, lon: number, lat: number): boolean {
   const [w, s, e, n] = coverageEdges(handle)
-  return lon >= w && lon <= e && lat >= s && lat <= n
+  const [x, y] = lonLatToCellUnits(handle.header.crs, lon, lat)
+  return x >= w && x <= e && y >= s && y <= n
 }

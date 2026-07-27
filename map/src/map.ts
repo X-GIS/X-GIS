@@ -4665,12 +4665,15 @@ export class XGISMap {
     return Array.from(this.xgisLayers.values())
   }
 
-  /** The CPU-resident CoverageHandle for an S-100 `coverage` source (#1158 GAP-1),
-   *  or null when `sourceId` is not a loaded coverage. This is the value-readout
-   *  AUTHORITY — `map.getCoverage('bathy')?.valueAt(lon, lat)` returns the exact
-   *  positive-down value AS STORED (no sign flip), and `.meta` carries the vertical
-   *  datum code/sign + band metadata. Half-precision only ever affects the colour
-   *  path (the r16float texture), never this readout. */
+  /** The CPU-resident CoverageHandle for an S-100 `coverage` source (#1158 GAP-1), or null
+   *  when `sourceId` is not a loaded coverage. This is the value-readout AUTHORITY — the
+   *  exact positive-down value AS STORED (no sign flip); `.meta` carries the vertical datum
+   *  code/sign + band metadata; half-precision only ever affects the colour path.
+   *
+   *  `handle.valueAt` indexes in the GRID'S OWN CRS UNITS, which are degrees only for a
+   *  geographic cell. From a lon/lat go through `valueAtLonLat(handle, lon, lat)` (#1366,
+   *  re-exported from @xgis/map) — on a real S-102 cell, whose grid is UTM metres, a raw
+   *  lon/lat simply misses the grid and reads null. */
   getCoverage(sourceId: string, at?: readonly [number, number]): CoverageHandle | null {
     // A mosaic source holds several regions, so "the" coverage is only well-defined for a
     // POINT: `at` picks the region whose grid actually covers it. Without one, answer with

@@ -424,6 +424,18 @@ const CEILINGS: Record<string, number> = {
   // `_rearmCoverage` extraction landed on the SAME block — the fix replaced
   // `rebuildLayers()` with `_armCoverageFields()` inside the block the extraction moved. The
   // resolution keeps BOTH: the extracted single authority now carries the coverage-arm-only
+  // re-arm, so neither the freeze fix nor the de-duplication was dropped. Lower as #991
+  // decomposes map.ts.
+  //
+  // +1 (#1371): the `getVtSource` SourceManager dep, so a host data push swaps a source's
+  // backend on the LIVE catalog instead of tearing the pair down. One line, same union
+  // accounting as above — non-overlapping with the three bundles.
+  //
+  // MERGE UNION #3 (#1366 <- main @ 023a9b7): main's #1333 follow-up extracted the drape-arm
+  // decision into `coverageDrapeArm` and retired `| particles` for `| flow`, so this branch's
+  // own `coverageDrawsFill` predicate was DELETED rather than merged — the label case moved
+  // into main's extraction, which is the single authority for it. That is a NET SHRINK on top
+  // of the sum, which is why the measured number is below 5452 + 1.
   // re-arm, so neither the freeze fix nor the de-duplication was dropped. Measured 5452 =
   // 5330 + 31 (main) + 91 (branch). Lower as #991 decomposes map.ts.
   // +1 (#1371): the `getVtSource` SourceManager dep, so a host data push swaps a source's
@@ -432,7 +444,8 @@ const CEILINGS: Record<string, number> = {
   // MERGE UNION #3 (#1158 <- main @ 904a528): both sides' deltas are non-overlapping edits
   // to different methods, so the merged file measures their SUM. Value below is the MEASURED
   // post-hook line count, not an arithmetic guess.
-  'map/src/map.ts': 5406,
+  // MERGE UNION: non-overlapping deltas; the value is the MEASURED post-hook count.
+  'map/src/map.ts': 5409,
   // Baselined at #1255 (measured 830): the DOM-inspired layer API crossed
   // NEW_FILE_CAP with the paint-transition style-setter integration — the
   // StyleHost.transitions context, the shared applyNumber/applyColor
@@ -461,6 +474,8 @@ const CEILINGS: Record<string, number> = {
   // mean parameterising camera-fit, pipeline setup and registration away — more coupling than
   // the 76 lines cost.
   // MERGE UNION: a −8 extraction and a +76 addition to different methods, so the merged file
+  // measures 849 − 8 + 76. The extraction stays locked in — the union is the sum of the two
+  // deltas, never max() of the two ceilings.
   // measures 849 − 8 + 76. The extraction stays locked in — the union is the SUM of the two
   // deltas, never max() of the two ceilings.
   // 925→926 (#1272 E-④ multi-region): ONE line — the `DEFAULT_REGION` import. A coverage
@@ -479,6 +494,7 @@ const CEILINGS: Record<string, number> = {
   // block never touched `this`, and setSourceData is now just the re-seed-vs-raw-write
   // decision. Ceiling below is the MERGED file's actual wc -l, measured after prettier.
   // MERGE UNION: both sides' deltas are non-overlapping, so the value is the MEASURED count.
+  // MERGE UNION: non-overlapping deltas; the value is the MEASURED post-hook count.
   'map/src/source-manager.ts': 903,
   // 1920→1930 (#1042 R3): the globe limb cull for MULTI-LINE labels must land in
   // the collision phase — the ONLY site holding the label's quad half-height (the
@@ -611,7 +627,14 @@ const CEILINGS: Record<string, number> = {
   // dropped instead of rendering glued half-off-screen, on BOTH the tile and inline
   // paths. The predicate + cull-aware walk live in place-labels-along-line.ts
   // (unit-proved); only wiring grew here. +32, post-hook.
-  'map/src/render/passes/label-pass.ts': 2130,
+  // 2130→2150 (#1366 INC-5 sounding labels): a THIRD dispatch arm — an S-100 gridded
+  // coverage. It matched neither existing path (a grid has no `features` and no vtSources
+  // entry), so `| label-[…]` on a coverage layer compiled and drew nothing. The selection
+  // walk AND the emit loop were both extracted (coverage-sounding-anchors.ts,
+  // dispatch-coverage-soundings.ts, both unit-proved); what remains here is the branch
+  // itself + the per-frame closures the pass owns and cannot hand off (the camera
+  // unprojector, the viewport, applyFeatureExprs, projectLonLatCopies, addLabel). +20.
+  'map/src/render/passes/label-pass.ts': 2150,
   // #1081 — per-anchor perspective distance attenuation (MapLibre parity). New
   // baseline: the wCenter + perspScale scratch-out-value lives INLINE in the two
   // existing projector closures (it rides the cw already computed per anchor —

@@ -17,6 +17,8 @@ function toHandle(cov: Awaited<ReturnType<typeof readS102Coverage>>): CoverageHa
   const [nLon, nLat] = cov.numPoints
   return coverageFromGrids({
     product: cov.product,
+    // What the cell declared, not an assumption. Null (real NOAA S-111) → 4326.
+    crs: cov.horizontalCRS,
     origin: cov.gridOrigin,
     spacing: cov.gridSpacing,
     size: cov.numPoints,

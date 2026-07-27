@@ -90,14 +90,25 @@ describe('coverage flow drape (#1333)', () => {
       ['GLSL', GLSL_FS],
     ] as const) {
       const body = src.slice(src.indexOf('fs_cov'))
-      // The uv temporary is the one built from the cov_geo denominators.
-      const uvDecl = /(\w+) = vec2(?:<f32>)?\(\(\(\w+\.lon[\s\S]*?cov_geo\.w\)\);/.exec(body)
-      expect(uvDecl, `${name}: could not find the uv temporary — repoint this gate`).not.toBeNull()
-      const uv = uvDecl![1]!
-      for (const tex of ['cov_value', 'cov_valid', 'cov_flow']) {
-        expect(body, `${name}: ${tex} must sample the SAME uv temporary (${uv})`).toMatch(
-          new RegExp(`tex\\w*\\(${tex},[^)]*\\b${uv}\\)`),
-        )
+      // REPOINTED (#1366 INC-3): uv used to be a TEMPORARY the fragment rebuilt from the
+      // `cov_geo` denominators — an inverse that only works if the footprint is a rectangle
+      // in lon/lat, which a projected cell is not. It is now a VARYING carried from the
+      // vertex stage, so the anchor is the uv the VALUE tap samples, whatever its emitted
+      // name. The INVARIANT is unchanged and is still the point: all three taps must sample
+      // the SAME uv, or the motion drifts off the data it is supposed to be moving.
+      // WGSL takes a sampler argument, GLSL does not — so the uv is the LAST argument in
+      // both, and the optional middle group is what absorbs the backend difference.
+      const tap = (tex: string) => new RegExp(`tex\\w*\\(${tex},(?:\\s*\\w+,)?\\s*([\\w.]+)\\)`)
+      const valueTap = tap('cov_value').exec(body)
+      expect(
+        valueTap,
+        `${name}: could not find the cov_value tap — repoint this gate`,
+      ).not.toBeNull()
+      const uv = valueTap![1]!
+      for (const tex of ['cov_valid', 'cov_flow']) {
+        const other = tap(tex).exec(body)
+        expect(other, `${name}: could not find the ${tex} tap`).not.toBeNull()
+        expect(other![1], `${name}: ${tex} must sample the SAME uv as cov_value`).toBe(uv)
       }
     }
   })
@@ -146,20 +157,22 @@ describe('coverage flow drape (#1333)', () => {
       mvp: new Float32Array(16),
       projParams: [0, 0, 0, 1] as [number, number, number, number],
       camCenter: [0, 0] as [number, number],
-      covEdges: [0, 0, 1, 1] as [number, number, number, number],
-      covGeo: [0, 1, 1, 1] as [number, number, number, number],
       ramp: { a: 1, b: 0 },
       opacity: 1,
     }
-    expect(packCoverageUniforms(base)[35]).toBe(0)
-    expect(packCoverageUniforms({ ...base, flowMix: FLOW_DRAPE_MIX })[35]).toBeCloseTo(
+    // REPOINTED (#1366 INC-3): `cov_edges` / `cov_geo` left the uniform block (8 floats),
+    // sliding `ramp_params` from 32 down to 24 — so flowMix is .w at 27, not 35, and the
+    // block is 28 floats, not 36. The claim being gated (the default is 0, it rides .w, and
+    // it leaves opacity alone) is unchanged; only the offsets moved.
+    expect(packCoverageUniforms(base)[27]).toBe(0)
+    expect(packCoverageUniforms({ ...base, flowMix: FLOW_DRAPE_MIX })[27]).toBeCloseTo(
       FLOW_DRAPE_MIX,
       6,
     )
     // ...in the lane the shader actually reads, and without disturbing its neighbours.
     expect(WGSL).toContain('u.ramp_params.w')
-    expect(packCoverageUniforms({ ...base, flowMix: 0.9 })[34]).toBe(1) // opacity, untouched
-    expect(COVERAGE_UNIFORM_FLOATS).toBe(36)
+    expect(packCoverageUniforms({ ...base, flowMix: 0.9 })[26]).toBe(1) // opacity, untouched
+    expect(COVERAGE_UNIFORM_FLOATS).toBe(28)
   })
 
   it('the binding is DECLARED in the shader and NAMED in the layout — WebGL2 binds by name', () => {

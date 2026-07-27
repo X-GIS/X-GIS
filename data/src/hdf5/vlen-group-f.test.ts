@@ -9,9 +9,11 @@
 //      `fillValue` lives, so it cannot simply be skipped: without it the 1e6 nodata
 //      sentinel decodes as a real 1,000,000 m depth.
 //   2. The grid is in a PROJECTED CRS (EPSG:32618, UTM 18N — origin ~[420768, 4183857],
-//      spacing 16 m). `coverageFromGrids` stamps every handle EPSG:4326 and the renderer
-//      drapes by inverse-Mercator rows, so such a cell would be placed as if metres were
-//      degrees. That is refused loudly rather than mis-rendered.
+//      spacing 16 m), which the drape could not place: it walked a lon/lat rectangle, so
+//      metres would have been read as degrees. #1366 INC-3 reprojects the drape MESH
+//      through the cell's own CRS, so such a grid is now placeable and only a CRS the
+//      EPSG registry cannot RESOLVE is refused — guessing a placement is the mis-render
+//      this guard still exists to prevent.
 //
 // The vlen fixture is committed so CI gates (1); the real cell stays local-only.
 
@@ -63,11 +65,24 @@ describe('Group_F written as vlen strings', () => {
   })
 })
 
-describe('projected-CRS cells are refused, not misplaced', () => {
+describe('CRS handling — placeable is read, unresolvable is refused', () => {
   it('a geographic cell is NOT refused (the guard is not a blanket rejection)', async () => {
     const f = await openHdf5(fixture('chunked_shuffle.h5'))
     expect((await f.root()).attr('horizontalCRS')).toBe(4326)
     await expect(readS102Coverage(f)).resolves.toBeTruthy()
+  })
+
+  // NOTE: the "unresolvable CRS is refused" half of the guard is gated one level down,
+  // where it can be driven without a bespoke fixture: `mesh-nodes.test.ts` ("rejects a
+  // CRS the registry cannot resolve") and `epsg-defs.test.ts` (resolveEPSG's own error).
+  // Reproducing it through the reader would need an .h5 whose only difference is a bad
+  // horizontalCRS — a whole fixture for an assertion already covered twice.
+
+  it('the reader propagates the DECLARED CRS onto the handle (#1366 INC-2)', async () => {
+    // Both branches of the default: a cell that declares 4326, and one that declares
+    // nothing.
+    expect((await readCoverageFromHdf5(fixture('vlen_group_f.h5'))).meta.crs).toBe('EPSG:4326')
+    expect((await readCoverageFromHdf5(fixture('noaa_s111_cbofs.h5'))).meta.crs).toBe('EPSG:4326')
   })
 
   it('an ABSENT horizontalCRS stays permitted (real NOAA S-111 omits it)', async () => {
@@ -82,14 +97,33 @@ describe('projected-CRS cells are refused, not misplaced', () => {
 // ── The real NOAA S-102 cell — local-only (no NOAA bytes committed) ────────────
 const noaaFile = join(HERE, '__local__', 'noaa-s102.h5')
 describe.skipIf(!existsSync(noaaFile))('real NOAA S-102 cell (local-only)', () => {
-  it('reads its vlen Group_F and is then refused for being projected', async () => {
+  it('reads its vlen Group_F', async () => {
     const f = await openHdf5(ab(noaaFile))
     // The table decodes — this is the fix, proven on the bytes that motivated it.
     const rows = await f.readStringTable('Group_F/BathymetryCoverage')
     expect(rows.map((r) => r['code'])).toContain('depth')
     expect(rows[0]!['fillValue']).toBeTruthy()
-    // …and the cell is still refused, because its grid is UTM, not degrees.
+  })
+
+  it('is now READ, not refused — the projected grid places through its own CRS', async () => {
+    // Until #1366 INC-3 this cell was refused outright (the drape could only walk a
+    // lon/lat rectangle). The mesh now reprojects through the cell's CRS, so a UTM grid
+    // is placeable and the blanket refusal is gone.
+    //
+    // Read a WINDOW, not the whole cell: 1663×2090 × 2 bands decodes to hundreds of MB
+    // of transient copies and OOMs a test worker. That is precisely what the bbox window
+    // exists for, so the local gate uses it — and doubles as proof the two increments
+    // compose on real bytes.
+    const f = await openHdf5(ab(noaaFile))
     expect((await f.root()).attr('horizontalCRS')).toBe(32618)
-    await expect(readS102Coverage(f)).rejects.toThrow(/PROJECTED grid/)
+    const originX = 420767.84475419234
+    const originY = 4183856.856912584
+    const cov = await readS102Coverage(f, {
+      // ~64×64 cells at the SW corner, in the cell's OWN units (metres).
+      bbox: [originX - 8, originY - 8, originX + 64 * 16, originY + 64 * 16],
+    })
+    expect(cov.horizontalCRS).toBe(32618)
+    expect(cov.window).toMatchObject({ rowStart: 0, colStart: 0 })
+    expect(cov.numPoints).toEqual([1663, 2090]) // full geometry preserved
   })
 })
