@@ -18,6 +18,11 @@
  *  semantics; oit is registered but runtime-dead — shouldRun immutably false). */
 export const PASS_CHAIN_ORDER = [
   'background',
+  // #1333 — the IBFV advection step. PRODUCER, so it must precede its consumer: the coverage
+  // drape samples the advected field and draws inside `opaque`. Touches no swapchain
+  // attachment (it renders only into its own grid-space pair), so it takes no part in the
+  // clear/resolve ownership the surrounding buckets negotiate.
+  'flow',
   'opaque',
   'oit',
   'translucent',
