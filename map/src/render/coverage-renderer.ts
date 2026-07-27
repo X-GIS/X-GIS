@@ -32,6 +32,8 @@ import type { RhiDevice, RhiTexture, RhiSampler, RhiBindGroup, RhiRenderPass } f
 import { getSampleCount } from '@xgis/engine'
 import type { CoverageHandle } from '@xgis/data'
 import { CoverageDraper } from './material/coverage-material'
+import { resolveVectorBands } from '../coverage-vector-bands'
+import { packFlowFieldUV } from './flow-field-pack'
 import {
   packCoverageValueValid,
   bakeRampLut,
@@ -43,6 +45,14 @@ interface CoverageState {
   valueTex: RhiTexture
   validTex: RhiTexture
   lutTex: RhiTexture
+  /** East/north velocity components, r16float, normalized by `flowScale` — present ONLY for a
+   *  VECTOR coverage (S-111 and friends). Null for every scalar coverage: S-102 bathymetry
+   *  must allocate nothing here, which is the reuse boundary between the two families. */
+  flowU: RhiTexture | null
+  flowV: RhiTexture | null
+  /** Peak speed the components were normalized by, in the speed band's own units. 0 when the
+   *  field is calm or absent — the flow pass reads this to recover real velocity. */
+  flowScale: number
   bindGroup: RhiBindGroup
   /** west/south/east/north outer cell EDGES (degrees) for the draw quad. */
   covEdges: [number, number, number, number]
@@ -152,6 +162,21 @@ export class CoverageRenderer {
     const validTex = this.uploadR16f(valid, nLon, nLat)
     const lutTex = this.uploadLut(bakeRampLut(opts.ramp))
 
+    // The VECTOR half, uploaded only when this coverage actually carries a current. The
+    // predicate is the shared authority (coverage-vector-bands.ts), the same one the arrow
+    // portrayal uses, so the two cannot disagree about whether a field exists — and a scalar
+    // coverage allocates nothing at all rather than a pair of zero textures.
+    const vec = resolveVectorBands(handle)
+    let flowU: RhiTexture | null = null
+    let flowV: RhiTexture | null = null
+    let flowScale = 0
+    if (vec) {
+      const packed = packFlowFieldUV(vec.speed, vec.direction, vec.speedCodes, vec.directionCodes)
+      flowScale = packed.scale
+      flowU = this.uploadR16fFrom(packed.u, nLon, nLat, 'coverage-flow-u')
+      flowV = this.uploadR16fFrom(packed.v, nLon, nLat, 'coverage-flow-v')
+    }
+
     const bindGroup = draper.bindGroup(
       this.rhi.createView(valueTex),
       this.rhi.createView(validTex),
@@ -170,14 +195,20 @@ export class CoverageRenderer {
     this.states.set(region, {
       valueTex,
       validTex,
+      flowU,
+      flowV,
+      flowScale,
       lutTex,
       bindGroup,
       covEdges: [westEdge, southEdge, eastEdge, northEdge],
       covGeo: [westEdge, northEdge, nLon * dLon, nLat * dLat],
       ramp: computeRampUniforms(dataMin, dataMax, opts.rangeLo ?? dataMin, opts.rangeHi ?? dataMax),
       opacity: opts.opacity ?? 1,
-      // 2 × r16float over the grid + the 256×1 rgba8 LUT.
-      bytes: nLon * nLat * 2 * 2 + 256 * 4,
+      // 2 × r16float over the grid + the 256×1 rgba8 LUT, plus the vector pair when this
+      // coverage carries one. Counting the flow textures matters: they are the SAME size as
+      // the value/valid pair, so a vector coverage costs twice a scalar one and the LRU budget
+      // would evict far too late if it did not know.
+      bytes: nLon * nLat * 2 * (vec ? 4 : 2) + 256 * 4,
     })
     this.arms.set(region, { handle, opts })
     this.lastOpts = opts
@@ -194,6 +225,27 @@ export class CoverageRenderer {
 
   /** Disarm every region (scene rebuild with no coverage source). Textures are
    *  destroyed; the draper + samplers stay for a later re-arm. */
+  /** The velocity field a region carries, or null when it is a scalar coverage (S-102
+   *  bathymetry) or has not been armed. The flow pass reads this to decide whether it runs at
+   *  all — `null` is the answer that keeps a bathymetry style allocating and drawing nothing. */
+  flowField(
+    region: string = DEFAULT_REGION,
+  ): { u: RhiTexture; v: RhiTexture; scale: number; width: number; height: number } | null {
+    const st = this.states.get(region)
+    if (!st || !st.flowU || !st.flowV) return null
+    const arm = this.arms.get(region)
+    if (!arm) return null
+    const [w, h] = arm.handle.header.size
+    return { u: st.flowU, v: st.flowV, scale: st.flowScale, width: w, height: h }
+  }
+
+  /** True when ANY resident region carries a velocity field — the `scene.hasFlow` gate, so a
+   *  map with only scalar coverages never runs the advection pass. */
+  hasFlowField(): boolean {
+    for (const st of this.states.values()) if (st.flowU && st.flowV) return true
+    return false
+  }
+
   clear(): void {
     for (const key of [...this.states.keys()]) this.releaseRegion(key)
     this.arms.clear()
@@ -259,12 +311,21 @@ export class CoverageRenderer {
   }
 
   private uploadR16f(data: Uint16Array, width: number, height: number): RhiTexture {
+    return this.uploadR16fFrom(data, width, height, 'coverage-data')
+  }
+
+  private uploadR16fFrom(
+    data: Uint16Array,
+    width: number,
+    height: number,
+    label: string,
+  ): RhiTexture {
     const tex = this.rhi.createTexture({
       width,
       height,
       format: 'r16float',
       usage: ['sample', 'copy-dst'],
-      label: 'coverage-data',
+      label,
     })
     this.rhi.writeTexture(tex, data as BufferSource, width * 2, width, height)
     return tex
@@ -290,6 +351,8 @@ export class CoverageRenderer {
     this.rhi.destroyTexture(s.valueTex)
     this.rhi.destroyTexture(s.validTex)
     this.rhi.destroyTexture(s.lutTex)
+    if (s.flowU) this.rhi.destroyTexture(s.flowU)
+    if (s.flowV) this.rhi.destroyTexture(s.flowV)
     this.states.delete(region)
   }
 
