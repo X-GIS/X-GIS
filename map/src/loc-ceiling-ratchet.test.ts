@@ -530,7 +530,14 @@ const CEILINGS: Record<string, number> = {
   // dropped instead of rendering glued half-off-screen, on BOTH the tile and inline
   // paths. The predicate + cull-aware walk live in place-labels-along-line.ts
   // (unit-proved); only wiring grew here. +32, post-hook.
-  'map/src/render/passes/label-pass.ts': 2130,
+  // 2130→2150 (#1366 INC-5 sounding labels): a THIRD dispatch arm — an S-100 gridded
+  // coverage. It matched neither existing path (a grid has no `features` and no vtSources
+  // entry), so `| label-[…]` on a coverage layer compiled and drew nothing. The selection
+  // walk AND the emit loop were both extracted (coverage-sounding-anchors.ts,
+  // dispatch-coverage-soundings.ts, both unit-proved); what remains here is the branch
+  // itself + the per-frame closures the pass owns and cannot hand off (the camera
+  // unprojector, the viewport, applyFeatureExprs, projectLonLatCopies, addLabel). +20.
+  'map/src/render/passes/label-pass.ts': 2150,
   // #1081 — per-anchor perspective distance attenuation (MapLibre parity). New
   // baseline: the wCenter + perspScale scratch-out-value lives INLINE in the two
   // existing projector closures (it rides the cw already computed per anchor —

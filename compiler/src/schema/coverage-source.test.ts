@@ -65,6 +65,43 @@ describe('coverage source + layer: grammar + schema (A9 / INC-D)', () => {
   })
 })
 
+describe('coverage layer: sounding LABELS reach the ShowCommand (#1366 INC-5)', () => {
+  // A coverage layer carrying `label-[…]` has always compiled — `lowerLabelProps` is
+  // source-type-blind — and the runtime then drew NOTHING, because a coverage source has
+  // neither `features` nor a vector-tile entry for the label pass to walk. The renderer
+  // now has a coverage arm; this pins the compiler half of that contract, so the label
+  // def cannot quietly stop arriving.
+  it('a label utility on a coverage layer lowers to a LabelDef with the band expression', () => {
+    const cmds = compile(
+      'source bathy { type: coverage, url: "cell.h5" }\n' +
+        'layer soundings { source: bathy\n  | label-[round(.depth)] label-size-11 label-halo-1\n}',
+    )
+    const show = cmds.shows.find((s) => s.targetName === 'bathy')!
+    expect(show.label).toBeDefined()
+    expect(show.label!.size).toBe(11)
+    expect(show.label!.halo?.width).toBe(1)
+    // The text is an EXPRESSION over the band name, exactly as it would be over a
+    // feature property — the band bag the runtime hands in is keyed by band name.
+    expect(show.label!.text.kind).toBe('expr')
+  })
+
+  it('a ramp layer and a label layer over the SAME coverage stay independent shows', () => {
+    // The shipped shape: one layer draws the colour ramp, a second prints the numerals.
+    // Two shows on one source — the fill must not acquire a label, nor the labels a ramp.
+    const cmds = compile(
+      'source bathy { type: coverage, url: "cell.h5" }\n' +
+        'layer depth { source: bathy, ramp: "bathymetry", range: [0, 30] }\n' +
+        'layer soundings { source: bathy\n  | label-[.depth]\n}',
+    )
+    const shows = cmds.shows.filter((s) => s.targetName === 'bathy')
+    expect(shows.length).toBe(2)
+    const fill = shows.find((s) => s.ramp !== undefined)!
+    const labels = shows.find((s) => s.label !== undefined)!
+    expect(fill.label).toBeUndefined()
+    expect(labels.ramp).toBeUndefined()
+  })
+})
+
 describe('coverage source: hdf5/h5 are format-name aliases (canonicalise → coverage)', () => {
   // The exact mirror of `pmtiles`/`tilejson` under `vector`: a container name is a
   // first-class spelling of the render family, canonicalised to the role name at the

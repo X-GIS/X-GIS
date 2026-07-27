@@ -45,3 +45,17 @@ layer depth {
   range: [0, 30]
   | opacity-80
 }
+
+// Sounding NUMERALS over the ramp (#1366 INC-5) — the reading a colour ramp cannot give.
+// The ramp shows the seabed's shape; these give the metres, straight off the ORIGINAL grid
+// (`valueAt`, nearest-cell, never interpolated), so a numeral can only show a depth that is
+// actually in the cell. `.depth` is the S-102 band name, exactly as a feature property.
+//
+// Candidates are picked on a screen-space lattice and thinned by the label collision pass,
+// so they get denser as you zoom in — the chart behaviour — with no zoom rule to author.
+// `round()` keeps them chart-like whole metres; the raw band is f32 to the millimetre.
+layer soundings {
+  source: bathy
+  | label-[round(.depth)] label-color-#fff label-size-11
+    label-halo-1 label-halo-color-#000
+}
