@@ -375,7 +375,13 @@ jobs:
     # never actually blocks a merge; its only cost is the false alarm. So: keep the
     # gate strict, and spend the effort on making the false alarm self-identifying.
     steps:
-      - run: |
+      # `github.sha` is NOT the head on a pull_request event — it is the ephemeral
+      # merge commit, which cannot be compared against the PR head the triage note
+      # asks the reader to check. Take the real head from the PR payload, falling
+      # back to github.sha for workflow_dispatch (where there is no PR payload).
+      - env:
+          RUN_HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
           fail=0
           cancelled=0
           for j in "test:${{ needs.test.result }}" "typecheck:${{ needs.typecheck.result }}" "site:${{ needs.site.result }}"; do
@@ -394,9 +400,9 @@ jobs:
             echo "A 'cancelled' upstream almost always means THIS RUN WAS SUPERSEDED"
             echo "by a newer push to the same branch (see the 'concurrency' group at"
             echo "the top of this workflow). Before investigating, check whether this"
-            echo "run's SHA is still the PR head:"
+            echo "run's head commit is still the PR head:"
             echo ""
-            echo "    this run : ${{ github.sha }}"
+            echo "    this run : $RUN_HEAD_SHA"
             echo ""
             echo "If the PR head is a LATER commit, this failure is stale — look at"
             echo "the run for the head SHA instead. There is nothing to fix here."
