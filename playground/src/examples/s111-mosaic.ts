@@ -57,8 +57,11 @@ export interface S111MosaicHandle {
   /** The model key currently displayed (null before the first resolve / over open ocean). */
   current(): string | null
   /** Show forecast HOUR (0-based) of the current region by re-decoding its already-downloaded
-   *  cell — no network (#1272 E-③). No-op before a region has loaded. */
-  setTime(hour: number): void
+   *  cell — no network (#1272 E-③). No-op before a region has loaded. Resolves once the swap
+   *  has LANDED (or failed), so a playback loop can await it before clocking the next hour —
+   *  a fire-and-forget step would let the loop read a stale time axis and repeat the same
+   *  hour forever (#1362). */
+  setTime(hour: number): Promise<void>
   /** Decode forecast HOUR (0-based) of the current region's ALREADY-DOWNLOADED cell WITHOUT
    *  displaying it — a pure, zero-network peek (#1333), for a caller blending two hours
    *  (`interpolateVectorCoverage`) before pushing the result itself (`setCoverageFrame`).
@@ -120,14 +123,14 @@ export function installS111Mosaic(map: MosaicMap, opts: S111MosaicOptions): S111
     })()
   }
 
-  const setTime = (hour: number): void => {
+  const setTime = async (hour: number): Promise<void> => {
     if (current == null) return
     const bytes = cache.get(current)
     if (!bytes) return // region not loaded yet
     // Re-decode the region cell ALREADY in memory at a different forecast hour — no network,
     // so time stepping can't fail on a range re-fetch (readCoverage groups are 1-based). A
     // decode error must never crash the demo, so swallow a rejected push.
-    void map
+    await map
       .setCoverageData(opts.sourceId, bytes, { url: urlFor(current), group: hour + 1 })
       .catch(() => {})
   }

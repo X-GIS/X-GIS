@@ -32,22 +32,10 @@
 //          a future consumer needing a configurable outline COLOUR should extend to feat slots
 //          mirroring CIRCLE_RETAINED_FEAT's stroke_r/g/b/a, not grow the (fully-saturated) tint
 //          buffer for this one case.
-//   DRIFT (#1333) — the arrow GLYPH itself flows along the direction it points, instead of
-//   sitting pinned at its grid cell. The motion is the SAME closed-form stateless integration
-//   the particle primitive uses (particle-retained.ts, design §3.2): position at time `t` is a
-//   pure function of these three static seeds + the animation clock, so there is no state
-//   buffer, a pinned `t` still yields a byte-reproducible frame, and the GLSL twin is free.
-//   26     drift_px — how far (px × DPR) the glyph travels along its own bearing over ONE
-//          lifetime, before fading out and respawning at its anchor. 0 = PINNED (every existing
-//          caller — packRetainedArrowFeat never writes it, so it zero-inits, and the shader
-//          then contributes exactly zero offset AND exactly 1.0 life-alpha: byte-identical).
-//   27     lifetime_s — the drift-and-respawn period in seconds.
-//   28     phase_norm — per-arrow birth-phase offset 0..1, de-syncing the field so it breathes
-//          rather than marching in lockstep.
 
 export const ARROW_RETAINED_FEAT = {
   /** f32 slots per instance in the feat_data storage buffer. */
-  stride: 29,
+  stride: 26,
   slot: {
     // tail (anchor)
     ecef_x_h: 0,
@@ -77,10 +65,6 @@ export const ARROW_RETAINED_FEAT = {
     tip_merc_y_l: 23,
     size: 24,
     stroke_units: 25,
-    // drift (#1333) — 0 drift_px = pinned, the pre-drift behaviour
-    drift_px: 26,
-    lifetime_s: 27,
-    phase_norm: 28,
   },
 } as const
 

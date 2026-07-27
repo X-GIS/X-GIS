@@ -1,14 +1,6 @@
-import { describe, it, expect, beforeAll, afterEach } from 'vitest'
+import { describe, it, expect, beforeAll } from 'vitest'
 import { GraphicsManager } from './graphics-manager'
-import { ARROW_RETAINED_FEAT } from '../shaders/dsl/arrow-retained-feat-layout'
-import type { CompiledArrowDrift } from './retained-arrow-packer'
-import { pointU } from '../shaders/dsl/point'
-import { uniformBlock } from '@xgis/engine'
 import type { Camera } from '../camera'
-
-afterEach(() => {
-  delete (globalThis as { __xgisAnimT?: number }).__xgisAnimT
-})
 
 // Compiled `| arrow` layer LIFECYCLE (#1302, extracted to CompiledArrowStore in #1333).
 //
@@ -43,15 +35,15 @@ function makeStubs() {
   let id = 0
   const created: StubBuf[] = []
   const destroyed: StubBuf[] = []
-  const writes: { buf: StubBuf; byteLength: number; data: ArrayBufferView }[] = []
+  const writes: { buf: StubBuf; byteLength: number }[] = []
   const rhi = {
     createBuffer: (d: { label?: string }) => {
       const b: StubBuf = { __id: id++, label: d.label }
       created.push(b)
       return b
     },
-    writeBuffer: (buf: StubBuf, _off: number, data: ArrayBufferView) => {
-      writes.push({ buf, byteLength: data.byteLength, data })
+    writeBuffer: (buf: StubBuf, _off: number, data: { byteLength: number }) => {
+      writes.push({ buf, byteLength: data.byteLength })
     },
     destroyBuffer: (b: StubBuf) => {
       destroyed.push(b)
@@ -111,12 +103,7 @@ function render(gm: GraphicsManager, dpr = 1, pass: object = stubPass()): void {
   )
 }
 
-function addLayer(
-  gm: GraphicsManager,
-  n: number,
-  strokeUnits = 0,
-  drift?: CompiledArrowDrift,
-): void {
+function addLayer(gm: GraphicsManager, n: number, strokeUnits = 0): void {
   gm.addCompiledArrowLayer(
     Float64Array.from({ length: n }, (_, i) => -70 + i),
     Float64Array.from({ length: n }, (_, i) => 40 + i * 0.1),
@@ -124,35 +111,7 @@ function addLayer(
     Float32Array.from({ length: n }, () => 12),
     Array.from({ length: n }, () => [1, 0, 0, 1] as const),
     strokeUnits,
-    drift,
   )
-}
-
-/** The animation clock rides the free `circle_params.y` lane of the per-copy point frame
- *  uniform. Its offset is read from the uniform block itself rather than hardcoded, so a
- *  future pointU field addition cannot silently move the probe onto the wrong float. */
-const CLOCK_FLOAT_INDEX = (() => {
-  const b = uniformBlock(pointU)
-  b.write({
-    mvp: new Float32Array(16),
-    proj_params: [0, 0, 0, 0],
-    viewport: [0, 0, 0, 0],
-    cam_ecef_h: [0, 0, 0, 0],
-    cam_ecef_l: [0, 0, 0, 0],
-    circle_params: [0, 0, 0, 0],
-    globe_eye: [0, 0, 0, 0],
-  })
-  b.set.circle_params(0, 1, 0, 0) // a unique marker in the y lane
-  const view = new Float32Array(b.buffer)
-  return view.indexOf(1)
-})()
-
-/** Reads the animation clock out of the per-copy uniform bytes the render actually uploaded. */
-function clockLaneOf(writes: { byteLength: number; data: ArrayBufferView }[]): number {
-  const uniformBytes = uniformBlock(pointU).byteLength
-  const w = writes.filter((x) => x.byteLength === uniformBytes).at(-1)
-  if (!w) throw new Error('no per-copy frame-uniform write observed — the probe is vacuous')
-  return new Float32Array(w.data.buffer, w.data.byteOffset, w.byteLength / 4)[CLOCK_FLOAT_INDEX]!
 }
 
 const compiledBufs = (created: StubBuf[]): StubBuf[] =>
@@ -257,114 +216,7 @@ describe('compiled `| arrow` layer store (#1302 / #1333)', () => {
     expect(pass3.draws).toBe(2)
   })
 
-  // ── Drift (#1333) — the wiring that makes the shader's drift actually move ──────────
-  //
-  // The drift shader + packer landed separately and were INERT: graphics-manager.ts gated
-  // the animation clock and the on-demand loop's keep-warm on host batches only, so a
-  // drifting COMPILED layer read a clock pinned at 0 AND let the loop idle. Both gates are
-  // load-bearing and fail differently, so both are tested.
-
-  const DRIFT: CompiledArrowDrift = { driftPx: 20, lifetimeSeconds: 3 }
-
-  it('drift reaches the packed feat buffer (per-instance drift_px, lifetime, phase)', () => {
-    const gm = new GraphicsManager()
-    const s = makeStubs()
-    gm.attachDevice(s.device as never, s.rhi as never, 'bgra8unorm')
-    const perInstance = Float32Array.from([5, 0, 40])
-    addLayer(gm, 3, 0, { driftPx: perInstance, lifetimeSeconds: 3 })
-    const featWrite = s.writes.find((w) => w.buf.label === 'compiled-arrow-feat')!
-    const feat = new Float32Array(
-      featWrite.data.buffer,
-      featWrite.data.byteOffset,
-      featWrite.data.byteLength / 4,
-    )
-    const stride = ARROW_RETAINED_FEAT.stride
-    const at = (i: number, slot: number): number => feat[i * stride + slot]!
-    // Per-instance drift is carried through verbatim (dpr 1), including the zero — a calm
-    // cell must stay pinned even inside a drifting batch.
-    expect([
-      at(0, ARROW_RETAINED_FEAT.slot.drift_px),
-      at(1, ARROW_RETAINED_FEAT.slot.drift_px),
-    ]).toEqual([5, 0])
-    expect(at(2, ARROW_RETAINED_FEAT.slot.drift_px)).toBe(40)
-    expect(at(0, ARROW_RETAINED_FEAT.slot.lifetime_s)).toBe(3)
-    // Phases are de-synced per instance and in [0,1) — a shared phase would make the whole
-    // field pulse in lockstep.
-    const phases = [0, 1, 2].map((i) => at(i, ARROW_RETAINED_FEAT.slot.phase_norm))
-    for (const p of phases) expect(p).toBeGreaterThanOrEqual(0)
-    for (const p of phases) expect(p).toBeLessThan(1)
-    expect(new Set(phases).size).toBe(3)
-  })
-
-  it('GATE 1 (keep-warm): a drifting layer keeps the on-demand loop awake; a static one does not', () => {
-    const gm = new GraphicsManager()
-    const s = makeStubs()
-    gm.attachDevice(s.device as never, s.rhi as never, 'bgra8unorm')
-    expect(gm.hasAnimatedGraphics(), 'empty manager idles').toBe(false)
-    addLayer(gm, 8) // no drift
-    expect(gm.hasAnimatedGraphics(), 'a static arrow field must NOT pin the loop awake').toBe(false)
-    addLayer(gm, 8, 0, DRIFT)
-    expect(gm.hasAnimatedGraphics(), 'a drifting layer keeps the loop warm').toBe(true)
-    gm.clearCompiledArrows()
-    expect(gm.hasAnimatedGraphics(), 'the gate falls once the drifting layer is gone').toBe(false)
-  })
-
-  it('a zero-distance or zero-lifetime drift is NOT animation (it would pin the loop forever)', () => {
-    const gm = new GraphicsManager()
-    const s = makeStubs()
-    gm.attachDevice(s.device as never, s.rhi as never, 'bgra8unorm')
-    addLayer(gm, 4, 0, { driftPx: 0, lifetimeSeconds: 3 })
-    expect(gm.hasAnimatedGraphics()).toBe(false)
-    gm.clearCompiledArrows()
-    addLayer(gm, 4, 0, { driftPx: 20, lifetimeSeconds: 0 })
-    expect(gm.hasAnimatedGraphics()).toBe(false)
-    gm.clearCompiledArrows()
-    // An all-zero per-instance array is equally static — a calm hour must not keep the CPU busy.
-    addLayer(gm, 4, 0, { driftPx: new Float32Array(4), lifetimeSeconds: 3 })
-    expect(gm.hasAnimatedGraphics()).toBe(false)
-    // ...but ONE moving instance among calm ones is animation.
-    gm.clearCompiledArrows()
-    addLayer(gm, 4, 0, { driftPx: Float32Array.from([0, 0, 7, 0]), lifetimeSeconds: 3 })
-    expect(gm.hasAnimatedGraphics()).toBe(true)
-  })
-
-  it('GATE 2 (clock): a drifting layer makes renderRetained write a NONZERO animation clock', () => {
-    const gm = new GraphicsManager()
-    const s = makeStubs()
-    gm.attachDevice(s.device as never, s.rhi as never, 'bgra8unorm')
-    // Pin the clock so the assertion is exact rather than "whatever performance.now() said".
-    ;(globalThis as { __xgisAnimT?: number }).__xgisAnimT = 12.5
-
-    // Static first: the clock lane MUST stay 0 so a non-animated frame is byte-identical.
-    addLayer(gm, 8)
-    s.writes.length = 0
-    render(gm)
-    expect(clockLaneOf(s.writes), 'static field leaves the clock lane at 0').toBe(0)
-
-    gm.clearCompiledArrows()
-    addLayer(gm, 8, 0, DRIFT)
-    s.writes.length = 0
-    render(gm)
-    expect(clockLaneOf(s.writes), 'drifting field advances the clock').toBe(12.5)
-  })
-
-  it('a DPR re-pack preserves drift (the raw drift is retained, not dropped)', () => {
-    const gm = new GraphicsManager()
-    const s = makeStubs()
-    gm.attachDevice(s.device as never, s.rhi as never, 'bgra8unorm')
-    addLayer(gm, 4, 0, { driftPx: 20, lifetimeSeconds: 3 })
-    s.writes.length = 0
-    render(gm, 2)
-    const w = s.writes.find((x) => x.buf.label === 'compiled-arrow-feat')!
-    const feat = new Float32Array(w.data.buffer, w.data.byteOffset, w.data.byteLength / 4)
-    // Drift is a PIXEL distance, so it scales with DPR exactly like the arrow size does.
-    expect(feat[ARROW_RETAINED_FEAT.slot.drift_px]).toBe(40)
-    expect(feat[ARROW_RETAINED_FEAT.slot.lifetime_s]).toBe(3)
-    // ...and the layer still counts as animated afterwards.
-    expect(gm.hasAnimatedGraphics()).toBe(true)
-  })
-
-  it('destroyGpu() frees every layer buffer and empties the store #anchor', () => {
+  it('destroyGpu() frees every layer buffer and empties the store', () => {
     const gm = new GraphicsManager()
     const s = makeStubs()
     gm.attachDevice(s.device as never, s.rhi as never, 'bgra8unorm')
