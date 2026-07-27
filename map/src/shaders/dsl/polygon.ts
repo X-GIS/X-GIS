@@ -311,7 +311,8 @@ const polygonRimAlpha = fn('polygon_rim_alpha', { abs_merc_x: f32T, abs_merc_y: 
 // The fill (vs_main / vs_main_ecef) and extruded (vs_main_ecef_extruded) paths
 // share one branch shape and diverge in exactly ONE way, captured by the
 // single `extruded` flag: the FLAT arms' plane-z (fill passes z = 0.0;
-// extruded inserts an extra `let z_plane[_geom] = wall_height * is_top`).
+// extruded inserts `wall_base + wall_height*is_top`, over cos(lat) on the
+// Mercator arm).
 //
 // The 3D (else) arm is now IDENTICAL for fill and extruded: both recentre
 // `ecef_cam = ecef_rtc + cam_ecef_off_h + cam_ecef_off_l` then transform. The
@@ -339,6 +340,8 @@ const emitPolygonProjectionLadder = (args: {
   extruded: boolean
   isTop?: ReadonlyNode<'f32'>
   wallHeight?: ReadonlyNode<'f32'>
+  /** Mapbox `fill-extrusion-base` (m) — #1342. */
+  wallBase?: ReadonlyNode<'f32'>
   // When provided (quantized fill VS), the flat-Mercator arm positions from
   // this PRECISE tile-local Mercator vec2 (vertex_merc − tile_origin_merc)
   // instead of re-projecting the lossy f32 abs_lon/abs_lat degrees.
@@ -358,14 +361,27 @@ const emitPolygonProjectionLadder = (args: {
     extruded,
     isTop,
     wallHeight,
+    wallBase,
     localMerc,
     discLat,
   } = args
   const deg2rad = DEG2RAD
   const earthR = EARTH_R
   const pi = PI
+  // Extruded plane-z in METRES: `base` at the wall bottom, `height` at the top
+  // + roof — Mapbox treats BOTH as ABSOLUTE altitudes, so a wall spans
+  // [base, height] (`max` mirrors the wall-mesh's clamp). Pre-#1342 this was
+  // `wall_height * is_top`, dropping the base on both FLAT arms (the 3D arm
+  // reads the pre-lifted ecef_rtc, so it was unaffected).
+  const zMetres = (): ReadonlyNode<'f32'> =>
+    wallBase!.add(max(wallHeight!.sub(wallBase!), f32(0)).mul(isTop!))
   If(projParamsV.x.lt(0.5), () => {
-    const zPlane = extruded ? wallHeight!.mul(isTop!) : f32(0)
+    // Mercator PLANE metres ≠ ground metres (stretched 1/cos(lat)) → divide, as
+    // MapLibre's `mercatorZfromAltitude` does; pre-#1342 the unscaled feed
+    // rendered walls cos(lat)× short. Clamped lat bounds the divisor ≥ 0.086.
+    const zPlane = extruded
+      ? zMetres().div(cos(radians(clamp(absLat, MERCATOR_LAT_LIMIT.neg(), MERCATOR_LAT_LIMIT))))
+      : f32(0)
     if (localMerc) {
       // PRECISE tile-local Mercator (quantized fill): rel = local_merc − cam_h
       // − cam_l. cam_h/cam_l already carry camMerc − tile_origin_merc(+worldOff)
@@ -401,7 +417,8 @@ const emitPolygonProjectionLadder = (args: {
     clip.assign(transformMat4(mvp, vec4(rel2d.x.add(worldOffM), rel2d.y, zPlane, 1)))
   })
     .elif(projParamsV.x.lt(6.5), () => {
-      const zG = extruded ? wallHeight!.mul(isTop!) : f32(0)
+      // Non-Mercator flat plane metric is true metres → no cos(lat) scale.
+      const zG = extruded ? zMetres() : f32(0)
       // #598 — mirror finalize_corner (line.ts): when the PRECISE tile-local
       // Mercator is available (quantized fill), feed flat_rel the camera-relative
       // longitude d_lon = (local_merc.x − cam_h.x − cam_l.x) / (DEG2RAD·R) instead
@@ -680,6 +697,8 @@ const vsMainEcefExtruded = fn(
     face_normal: location(5, vec3fT),
     wall_height: location(6, f32T),
     is_top: location(7, f32T),
+    wall_base: location(8, f32T),
+    local_merc: location(9, vec2fT),
   },
   (p) => {
     const mvp = U.field.mvp
@@ -703,15 +722,10 @@ const vsMainEcefExtruded = fn(
     const absLatClamped = clamp(p.abs_lat, mercLatLim.neg(), mercLatLim)
     const absMercY = log(tan(pi.div(4).add(radians(absLatClamped).div(2)))).mul(earthR)
 
-    // Display projection (see vs_main_ecef): flat Mercator reprojects onto
-    // the 2D plane with the extrude lift applied as plane-z; 3D keeps the
-    // pre-lifted ECEF-RTC. world_z = wall_height × is_top is the per-vertex
-    // lift the runtime wall-mesh baked into ECEF z. The lift is real metres
-    // while x/y are projection-plane metres, so it is unscaled relative to the
-    // plane: for Mercator that is the cos(lat) shrink (worse at high latitude);
-    // for the other flat projTypes the plane↔height metric differs again.
-    // Known approximation under f32 P1 — revisit with a per-projection vertical
-    // scale if extruded walls look wrong away from the equator.
+    // Display projection (see vs_main_ecef): flat arms apply the lift as
+    // plane-z (`wall_base + wall_height × is_top` — the altitude the wall-mesh
+    // baked into ECEF z, which they cannot read back, #1342); 3D keeps the
+    // pre-lifted ECEF-RTC.
     const projParamsV = U.field.proj_params
     const clip = vec4(0, 0, 0, 0)
     // Same flat/3D ladder as vs_main_ecef but extruded: the FLAT arms add a
@@ -730,6 +744,14 @@ const vsMainEcefExtruded = fn(
       extruded: true,
       isTop: p.is_top,
       wallHeight: p.wall_height,
+      wallBase: p.wall_base,
+      // #1342 — flat arms position from the CPU-differenced tile-local
+      // Mercator. Rebuilding it as `project(abs_lon, abs_lat) −
+      // tile_origin_merc` ran f32 tan/log on absolute degrees then cancelled
+      // two ~6.7e6 m operands; its error was bounded only by the backend's
+      // transcendental precision (a software rasteriser put the extruded layer
+      // ~200 m south of its own flat fill). Mirrors the fill VS since #598.
+      localMerc: p.local_merc,
     })
     // fill-translate viewport-anchor — GATED OFF for fill-PATTERN draws (#1154):
     // fs_fill_pattern reuses the fill_translate slots for the pattern repeat, so
@@ -797,10 +819,16 @@ const vsMainEcefExtruded = fn(
     // shade_geom.y for the feature fragment.
     const vgGradOn = U.field.cam_ecef_off_l.w.ne(0)
     const isWall = abs(nEnu.z).lt(0.5).and(vgGradOn)
+    // MapLibre 5.24 fill_extrusion.vertex.glsl:
+    //   clamp((t + base) * pow(height / 150.0, 0.5), mix(0.7, 0.98, 1 - I), 1)
+    // The `+ base` term is why a FLOATING feature gets no bottom darkening at
+    // all: a London Eye rim capsule at base 128 m drives the product past 1 and
+    // clamps. Omitting it (pre-#1342) pinned every such wall bottom to the 0.84
+    // floor.
     const tTop = p.is_top
-    const hForGrad = max(p.wall_height, 1)
+    const hForGrad = max(p.wall_height, 0)
     const vgradWall = clamp(
-      tTop.mul(sqrt(hForGrad.div(150))),
+      tTop.add(p.wall_base).mul(sqrt(hForGrad.div(150))),
       mix(f32(0.7), 0.98, f32(1).sub(lightIntensity)),
       1,
     )
