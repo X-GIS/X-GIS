@@ -11,6 +11,8 @@ import {
   type HeatmapPaint,
   emitArrowFields,
   type ArrowPaint,
+  emitParticleFields,
+  type ParticlePaint,
 } from './emit-commands-point-symbol'
 import { colorValueToShape, sizeValueToShape } from './to-property-shape'
 import { generateShaderVariant, type ShaderVariant } from '../codegen/shader-gen'
@@ -237,7 +239,7 @@ export interface ExtrudePaint {
 }
 
 export interface ShowCommand
-  extends FillPaint, LinePaint, CirclePaint, ExtrudePaint, HeatmapPaint, ArrowPaint {
+  extends FillPaint, LinePaint, CirclePaint, ExtrudePaint, HeatmapPaint, ArrowPaint, ParticlePaint {
   /** Position of this show in `Scene.renderNodes` — the key the P4
    *  compute plan uses to route output buffers back to fragment-
    *  shader paint axes. Set at emit time; immutable from there.
@@ -590,6 +592,7 @@ function emitShow(
     ...emitExtrudeFields(node),
     ...emitHeatmapFields(node),
     ...emitArrowFields(node),
+    ...emitParticleFields(node),
     paintShapes: {
       fill: { fill: colorValueToShape(node.fill) },
       line: {

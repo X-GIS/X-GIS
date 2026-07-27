@@ -58,3 +58,19 @@ export function emitArrowFields(node: RenderNode): ArrowPaint {
     arrowBearingExpr: node.arrowBearing?.kind === 'data-driven' ? node.arrowBearing.expr : null,
   }
 }
+
+/** Particle-flow axis (#1333) — an animated reading of a coverage's vector field
+ *  (surface currents, wind, ...), a second GPU primitive alongside the static
+ *  `arrow` field (one field, two representations). Present on a layer marked
+ *  with the `particles` utility; `isParticles` routes the runtime coverage arm
+ *  to also emit a `particle-flow` graphics batch. No per-feature axes yet — the
+ *  direction/position always come from the coverage bands, never a DSL override. */
+export interface ParticlePaint {
+  /** True when the layer is a `particles` layer. Routes to the animated field. */
+  isParticles?: boolean
+}
+
+/** Particle-flow paint field (#1333) — mirrors emitHeatmapFields/emitArrowFields. */
+export function emitParticleFields(node: RenderNode): ParticlePaint {
+  return { isParticles: node.isParticles }
+}

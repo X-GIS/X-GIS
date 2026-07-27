@@ -29,7 +29,7 @@ export type {
   CirclePaint,
   ExtrudePaint,
 } from './emit-commands'
-export type { HeatmapPaint, ArrowPaint } from './emit-commands-point-symbol'
+export type { HeatmapPaint, ArrowPaint, ParticlePaint } from './emit-commands-point-symbol'
 export type {
   Scene,
   SourceDef,

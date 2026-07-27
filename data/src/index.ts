@@ -76,6 +76,9 @@ export * from './globe-visible-tiles'
 // (ADR-0010). Read via the HDF5 reader below (or a COG reader), fed to the renderer
 // through coverageFromGrids — no wire format in the middle.
 export * from './coverage/format'
+// Forecast-hour vector-field blending (speed/direction component interpolation) — a second
+// coverageFromGrids consumer, not a wire format; #1333.
+export * from './coverage/interpolate-vector'
 
 // S-100 (HDF5) reader (ADR-0010) — the zero-dep HDF5 subset reader + the S-100
 // semantic layer (product-agnostic: S-102 bathymetry, S-104 water level, S-111
