@@ -39,6 +39,15 @@ export interface FrameContext {
    *  The former pass-visible `device: GPUDevice` field is gone (F2 "drops device from
    *  the pass-visible surface", doc §3-F2): it was write-only — no pass read it. */
   encoder: GPUCommandEncoder
+  /** The SAME frame encoder, still RHI-typed — the handle `encoder` above is the unwrapped
+   *  native view of. A pass whose body already routes through the RHI (the flow pass, #1333)
+   *  takes this one and never names a WebGPU type; the not-yet-converted bodies keep taking
+   *  `encoder`. This is the F3/P5 direction arriving one pass at a time, not a second encoder:
+   *  both fields are the one per-frame encoder the loop submits once.
+   *
+   *  Null under `__xgisRawFrameShell=true` (the one-release raw-shell rollback), which mints
+   *  the native encoder directly and has no RHI wrapper to offer. */
+  rhiEncoder: import('@xgis/rhi').RhiCommandEncoder | null
   /** The swapchain texture view for this frame
    *  (`context.getCurrentTexture().createView()`). */
   screenView: GPUTextureView

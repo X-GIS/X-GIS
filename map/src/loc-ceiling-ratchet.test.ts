@@ -375,7 +375,32 @@ const CEILINGS: Record<string, number> = {
   // effectiveRasterFadeDurationMs, so there is no second duration knob to drift). Two
   // one-line wirings + their notes; irreducible — neither hook can live anywhere else.
   // +6, post-hook.
-  'map/src/map.ts': 5336,
+  //
+  // +5 (#1333): the flow-field keep-alive in `shouldRenderThisFrame`. IBFV is a RECURSIVE
+  // filter, so it advances only on RENDERED frames — an idle loop stops the animation rather
+  // than pausing it. Deliberately NOT extracted: `shouldRenderThisFrame` IS the composition
+  // root's idle decision and already carries four sibling one-line gates (text fade, raster
+  // fade, particle flow, pending source work); moving the fifth elsewhere would scatter one
+  // decision across two files. Post-hook.
+  //
+  // +10 (#1333): OWNERSHIP wiring for the FlowRenderer — the field declaration, its assignment
+  // at the two renderer-set mount points (run / runBinary), the import, and the dispose in
+  // _releaseGpuResources. Nothing extractable: the class itself is a separate file
+  // (render/flow-renderer.ts) and its construction already lives in the shared
+  // scene-renderers.ts builder; what remains here is exactly the lines that must name the
+  // member on XGISMap, which is where every other renderer's ownership also lives. Post-hook.
+  //
+  // +10 (#1367): the forecast-hour step fix — an epoch guard on `setCoverageData` (2 lines) plus
+  // the rationale for BOTH swap paths re-deriving only the coverage arm instead of running a
+  // full `rebuildLayers()`. Irreducible: these are edits to the two public swap methods, which
+  // live here. The measured per-step cost that motivated them is recorded on
+  // render/coverage-timestep-cost.test.ts, not in this file. Post-hook.
+  //
+  // MERGE UNION (#1333/#1367 <- main): the hillshade fade-in (+6, main) and this branch's work
+  // (+5 keep-alive, +10 FlowRenderer ownership, +10 step fix) are non-overlapping edits to
+  // different methods, so the merged file measures their SUM — not max() of the two ceilings.
+  // Same accounting the render-loop.ts entry below already records for the #1272 merge.
+  'map/src/map.ts': 5361,
   // Baselined at #1255 (measured 830): the DOM-inspired layer API crossed
   // NEW_FILE_CAP with the paint-transition style-setter integration — the
   // StyleHost.transitions context, the shared applyNumber/applyColor
@@ -665,7 +690,25 @@ const CEILINGS: Record<string, number> = {
   // WebGPU loop's idle-skip already reads, + the note explaining why a count alone
   // cannot express "still converging" (and the correction of the older comment that
   // claimed the return was derived from the count alone). +11, post-hook.
-  'map/src/render-loop.ts': 1370,
+  //
+  // +12 (#1333): the IBFV advection step joins the twin, between the background
+  // clear and the raster/fills — the producer slot for the coverage drape this
+  // twin ALREADY draws. Two statements + the rationale for why the step is here
+  // and not deferred (the GPU work itself is FlowRenderer), plus 3 lines
+  // threading the RHI-TYPED frame encoder onto the FrameContext (`rhiEncoder`,
+  // the F3/P5 direction) so that renderer names no WebGPU type and stays inside
+  // the #991 backend-import + raw-WebGPU ratchets.
+  //
+  // MERGE UNION (#1333 <- main): the hillshade keep-warm fix (+11) and the flow
+  // step (+12) touch different regions of the twin, so the merged file measures
+  // their SUM, not max(1370, 1371).
+  //
+  // +5 (#1333 (b)): the twin's coverage draw now hands the drape the advected view
+  // (2 statements + why `currentView` is THIS frame's image here, since the step
+  // runs earlier in this same method) plus the FLOW_DRAPE_MIX import. Irreducible:
+  // it is the twin's own call site, and the shader/material work it feeds lives in
+  // coverage-ramp.ts and coverage-material.ts.
+  'map/src/render-loop.ts': 1387,
   // Baselined at 806 (hillshade tile fade-in): HillshadeRenderer crossed
   // NEW_FILE_CAP restoring the three tile-streaming fixes raster-renderer had
   // landed since hillshade was copied from it — the per-tile fade ramp + its
