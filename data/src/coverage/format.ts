@@ -187,15 +187,21 @@ export class CoverageHandle {
     return b
   }
 
-  /** Nearest-cell value at (lonDeg, latDeg) — point registration, NOT bilinear (A5).
-   *  Returns null outside the grid bounds, NaN for a nodata cell, else the verbatim
-   *  (positive-down for S-102) value. Index math is pinned by the asymmetric-grid
-   *  test: north-up storage ⇒ idx = (nLat−1−rowS)·nLon + col. */
-  valueAt(lonDeg: number, latDeg: number, bandIndex: string | number = 0): number | null {
+  /** Nearest-cell value at (x, y) in the header's OWN CRS UNITS — point registration,
+   *  NOT bilinear (A5). Returns null outside the grid bounds, NaN for a nodata cell, else
+   *  the verbatim (positive-down for S-102) value. Index math is pinned by the
+   *  asymmetric-grid test: north-up storage ⇒ idx = (nLat−1−rowS)·nLon + col.
+   *
+   *  UNIT-NATIVE BY DESIGN: it indexes with `origin`/`spacing`, which are in `header.crs`'s
+   *  units. Those units are degrees only for a geographic cell; a real NOAA S-102 cell is
+   *  UTM metres, where a lon/lat passed here lands far off the grid and returns null. This
+   *  stays unit-native so the render path does not depend on proj4 — callers holding a
+   *  LON/LAT use `valueAtLonLat` (coverage/crs.ts), which transforms the query first. */
+  valueAt(x: number, y: number, bandIndex: string | number = 0): number | null {
     const { origin, spacing, size } = this.header
     const [nLon, nLat] = size
-    const col = Math.round((lonDeg - origin[0]) / spacing[0])
-    const rowS = Math.round((latDeg - origin[1]) / spacing[1])
+    const col = Math.round((x - origin[0]) / spacing[0])
+    const rowS = Math.round((y - origin[1]) / spacing[1])
     if (col < 0 || col >= nLon || rowS < 0 || rowS >= nLat) return null
     const idx = (nLat - 1 - rowS) * nLon + col
     return this.band(bandIndex).values[idx]!

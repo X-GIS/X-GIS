@@ -14,7 +14,7 @@
 // change safe to make in the same increment.
 
 import { describe, it, expect } from 'vitest'
-import { coverageEdges, coverageMeshNodes, isGeographicCRS, meshInterpolationError } from './mesh-nodes'
+import { coverageEdges, coverageMeshNodes, meshInterpolationError } from './mesh-nodes'
 import type { CoverageHeader } from './format'
 
 function header(over: Partial<CoverageHeader> = {}): CoverageHeader {
@@ -174,14 +174,5 @@ describe('error budget — measured, and it is TWO different residuals', () => {
     // it cannot smear the data it is placing. 0.4 m of 16 m ≈ 2.6%.
     const shipped = meshInterpolationError(CHESAPEAKE, 64, 'f32') * M_PER_DEG
     expect(shipped).toBeLessThan(CELL_M / 10)
-  })
-})
-
-describe('isGeographicCRS', () => {
-  it('accepts WGS 84 2D and 3D only', () => {
-    expect(isGeographicCRS('EPSG:4326')).toBe(true)
-    expect(isGeographicCRS('EPSG:4979')).toBe(true)
-    expect(isGeographicCRS('EPSG:32618')).toBe(false)
-    expect(isGeographicCRS('EPSG:3857')).toBe(false) // projected, despite being "web"
   })
 })

@@ -631,6 +631,14 @@ export const galleryCategories: Category[] = [
         body: 'The REAL NOAA S-111 forecast — streams the newest CBOFS cell straight from the NOAA Open-Data S3 bucket, read as S-100 HDF5 in place through a CORS proxy. Speed over satellite imagery, particles along the real direction band.',
         noThumb: true,
       },
+      // noThumb: streams a real NOAA cell over the network (no egress in the
+      // capture env; needs the /noaa proxy, absent there too).
+      {
+        id: 's102-live',
+        title: 'NOAA S-102 live bathymetry (real S3)',
+        body: 'The REAL NOAA S-102 bathymetry — a Chesapeake Bay cell streamed straight from the NOAA Open-Data S3 bucket, read as S-100 HDF5 in place. The first PROJECTED coverage on the map: the grid is UTM 18N metres, so the drape reprojects its mesh through the cell’s own CRS instead of assuming degrees.',
+        noThumb: true,
+      },
       // noThumb: live NOAA fetch (no network egress in the capture env).
       {
         id: 'coops-currents',

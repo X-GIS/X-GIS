@@ -18,6 +18,7 @@
 
 import proj4 from 'proj4'
 import { resolveEPSG } from '../sources/epsg-defs'
+import { isGeographicCRS } from './crs'
 import type { CoverageHeader } from './format'
 
 /** Outer cell EDGES of a coverage footprint, in the header's own CRS units:
@@ -31,11 +32,6 @@ export function coverageEdges(header: CoverageHeader): [number, number, number, 
   const west = originX - dx / 2
   const south = originY - dy / 2
   return [west, south, west + nx * dx, south + ny * dy]
-}
-
-/** True when the header's CRS is one the mesh can be built for WITHOUT reprojection. */
-export function isGeographicCRS(crs: string): boolean {
-  return crs === 'EPSG:4326' || crs === 'EPSG:4979'
 }
 
 /** Lon/lat of every node of an `(n+1)×(n+1)` mesh over the coverage footprint, row-major

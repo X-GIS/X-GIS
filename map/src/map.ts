@@ -4649,12 +4649,12 @@ export class XGISMap {
     return Array.from(this.xgisLayers.values())
   }
 
-  /** The CPU-resident CoverageHandle for an S-100 `coverage` source (#1158 GAP-1),
-   *  or null when `sourceId` is not a loaded coverage. This is the value-readout
-   *  AUTHORITY — `map.getCoverage('bathy')?.valueAt(lon, lat)` returns the exact
-   *  positive-down value AS STORED (no sign flip), and `.meta` carries the vertical
-   *  datum code/sign + band metadata. Half-precision only ever affects the colour
-   *  path (the r16float texture), never this readout. */
+  /** The CPU-resident CoverageHandle for an S-100 `coverage` source (#1158 GAP-1), or
+   *  null when `sourceId` is not a loaded coverage. This is the value-readout AUTHORITY —
+   *  the exact positive-down value AS STORED (no sign flip); `.meta` carries the vertical
+   *  datum code/sign + band metadata; half-precision only ever affects the colour path.
+   *  `handle.valueAt` indexes in the GRID'S OWN CRS UNITS — from a lon/lat go through
+   *  `valueAtLonLat(handle, lon, lat)` (#1366), or a UTM cell's grid is simply missed. */
   getCoverage(sourceId: string): CoverageHandle | null {
     const data = this.rawDatasets.get(sourceId)
     return data && '_coverage' in data ? data._coverage : null
