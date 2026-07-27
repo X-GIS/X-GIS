@@ -37,7 +37,11 @@ import type { CoverageRegionData, RawDataset } from './map-types'
  *  list doubles as the blast radius. */
 export interface CoverageSourceDeps {
   rawDatasets: Map<string, RawDataset>
-  renderer: CoverageRenderer
+  /** LATE-BOUND, and it has to be: `XGISMap.coverageRenderer` is declared with a
+   *  definite-assignment `!` and only assigned once the GPU boots — a value captured when
+   *  the deps record is built is `undefined` forever — and it is REASSIGNED on a backend
+   *  switch, so even a correctly-timed capture would go stale. */
+  renderer: () => CoverageRenderer
   time: CoverageTimePlayer
   /** True when a `| arrow` / `| flow` field is armed — then a swap re-derives the field
    *  rather than only re-arming the fill. */
@@ -131,8 +135,9 @@ function armRegion(
     deps.armFields(handle, region)
     return
   }
-  const cur = deps.renderer.displayOpts()
-  deps.renderer.setCoverage(
+  const renderer = deps.renderer()
+  const cur = renderer.displayOpts()
+  renderer.setCoverage(
     handle,
     {
       ramp: override?.ramp ?? cur.ramp,
@@ -187,7 +192,7 @@ export function dropCoverageRegion(
   const regions = new Map(cur)
   regions.delete(region)
   deps.rawDatasets.set(sourceId, { _coverage: regions })
-  deps.renderer.clearRegion(region)
+  deps.renderer().clearRegion(region)
   deps.clearArrows(region)
   deps.invalidate()
 }
