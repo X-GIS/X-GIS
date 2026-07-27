@@ -4,25 +4,55 @@ import { test, expect, type Page } from '@playwright/test'
 // sharply when LOWERING pitch"). Reports the cost curve; gates only on
 // invariants that must survive a fix.
 //
-// ── The mechanism, confirmed ─────────────────────────────────────────────────
+// ── The mechanism, confirmed — and since ADDRESSED by #1346 ──────────────────
 //
 //   1. pitch < 60°  => the targetSSE ramp unwinds to baseTarget = 1
-//                      (tiles-sse.ts:197-200; isolated by A/B in #1379)
+//                      (tiles-sse.ts; isolated by A/B in #1379)
 //   2.              => the selector emits ~2 LOD levels finer
 //   3.              => per-zoom simplification retains far more geometry
 //   4.              => frame cost rises with it
 //
 // Step 4 holds only when the data is dense enough that step 3 outweighs the
 // smaller ground area at low pitch. On this repo's sparse fixtures the sign is
-// the OPPOSITE, which is why the report resisted reproduction for a long time:
+// the OPPOSITE, which is why the report resisted reproduction for a long time —
+// the sign flips on DENSITY ALONE, same camera, same code, same renderer:
 //
 //     sparse (stock physical_map)  82.5° -> 0°:  39.6 -> 35.8 ms,  186 ->     8 tris
 //     dense  (seeded, see below)   82.5° -> 0°: 782.9 -> 1304.2 ms, 16380 -> 72464 tris
 //
-// The sign flips on DENSITY ALONE — same camera, same code, same renderer.
-// Worst cost is not at flat pitch but in the 58-65° band (2481 ms med at 58°,
-// 3.2x the high-pitch cost), where the LOD has already escalated while the
-// visible ground area is still large. A downward pitch drag passes through it.
+// #1346 then graded the far-field SSE ceiling by DISTANCE (in camera altitudes)
+// instead of applying it frame-wide whenever the camera is pitched, so steps 1-2
+// no longer happen: the foreground keeps native LOD at EVERY pitch. Re-measured
+// on 5f77894e, same harness, same container:
+//
+//     dense, after   82.5° -> 0°: 2116.5 -> 1330.3 ms, 109586 -> 72464 tris
+//                    (repeat run: 2218.0 -> 1347.8, tris/maxZ byte-identical)
+//                    maxZ 10 at every stop (was 7 -> 10 escalating as pitch fell)
+//
+// RUN THIS SWEEP WITH `adaptive=0`. #1346 also shipped adaptive resolution
+// scaling ON by default (engine/src/gpu/adaptive-dpr.ts), and at ~2 s/frame it
+// engages every time — so a default-flag run measures a MOVING render
+// resolution and its ms column is not comparable to anything. Every ms above is
+// `DEMO='physical_map&adaptive=0'`.
+//
+// So the reported sign is GONE (0.63x, i.e. lowering pitch is now cheaper) and
+// the 58-65° spike flattened (3.2x the high-pitch cost -> a ~1.6-2.0x peak that
+// has moved to high pitch). But read WHY: low pitch did not get cheaper — it is
+// unchanged at 72464 tris — the cliff closed because HIGH pitch rose to meet it
+// (16380 -> 109586 tris, ~2.7x the frame time). Those are the native-LOD
+// foreground tiles a pitched view was missing entirely; whether that trade is
+// right is a policy call, and the lever is `FAR_RAMP_NEAR` in tiles-sse.ts.
+//
+// That new high-pitch cost is GEOMETRY-bound, not fill-bound — measured, not
+// assumed. Quartering the pixels (`&dpr=0.5`; selection is DPR-invariant, so
+// tris/maxZ barely move) takes 82.5° from 2116.5/2218.0 to 1708.2 ms, ~-21%,
+// against a ~5% endpoint run-to-run floor. Within one run the cost instead
+// tracks triangles almost linearly (1.51x tris -> 1.59x / 1.65x ms). So the
+// adaptive-DPR controller's ENTIRE range (1.0 -> 0.5) is worth about a fifth of
+// the frame and cannot absorb a 1.5x geometry swing: the budget that is missing
+// is a geometry budget, and `MAX_EMITTED` is not it — it counts TILES, so 9
+// tiles carrying 109k triangles never approach the cap. That is the half of
+// #1367 still open, tracked in #1393.
 //
 // ── Why this can run without a dense fixture ─────────────────────────────────
 //
@@ -36,10 +66,11 @@ import { test, expect, type Page } from '@playwright/test'
 //
 // ── What is asserted, and what is only reported ──────────────────────────────
 //
-// Absolute milliseconds under SwiftShader are meaningless, and #1367 is
-// UNFIXED — so a cost-ceiling assertion would be red today and would have to be
-// re-tuned by whoever fixes it. Instead the gate gates on invariants that hold
-// before AND after a fix:
+// Absolute milliseconds under SwiftShader are meaningless, and the cost curve is
+// still a live policy question (see the header: #1346 closed the way-down half,
+// nothing bounds the way-up half) — so a cost-ceiling assertion would have to be
+// re-tuned by whoever moves that policy next. Instead the gate gates on
+// invariants that hold on BOTH sides of any such change:
 //
 //   * liveness      — sources actually hold data (a dead source reports
 //                     missedTiles=0 with loaded()=true, #1364 Path B; a cost
@@ -52,8 +83,10 @@ import { test, expect, type Page } from '@playwright/test'
 // The cost curve itself is REPORTED for humans. Do not convert it into a
 // threshold without re-measuring the noise floor on the target machine.
 //
-//   DEMO=physical_map SEED=dense HEADED=0 XGIS_SOFTWARE_GPU=1 \
+//   DEMO='physical_map&adaptive=0' SEED=dense HEADED=0 XGIS_SOFTWARE_GPU=1 \
 //     playwright test _perf-pitch-cost-sweep.spec.ts
+//
+//   ...&dpr=0.5   # fill-vs-geometry control: same selection, a quarter the pixels
 //
 //   SEED=off DEMO=pmtiles_layered CAM='#11.52/35.7553/139.6973/0/0'  # real source
 
@@ -341,8 +374,8 @@ test.describe('pitch cost sweep (#1367)', () => {
     }
 
     // ── Gates: invariants only. The cost curve above is reported, not gated —
-    //    #1367 is unfixed, so any cost ceiling would be red today and would need
-    //    re-tuning by whoever fixes it. See the header.
+    //    the cost policy is still live (#1346 closed the way-down half), so any
+    //    ceiling would need re-tuning by whoever moves it next. See the header.
     expect(
       problems,
       `page/gl errors or arena-oom during the sweep:\n${problems.join('\n')}`,
