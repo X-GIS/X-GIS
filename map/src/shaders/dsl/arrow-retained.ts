@@ -26,6 +26,8 @@ import {
   clamp,
   select,
   fwidth,
+  fract,
+  smoothstep,
   length,
   mix,
   vec2,
@@ -66,6 +68,11 @@ const SH = 0.09
 const HH = 0.26
 const HB = 0.6
 const HEAD_SLOPE = HH / (1 - HB)
+
+/** Drift fade band, in phase units (#1333): the glyph fades in over the first DRIFT_FADE of its
+ *  life and out over the last, so it is invisible at phase 0/1 — hiding the instantaneous
+ *  `fract` respawn. Mirrors particle-retained.ts's FADE. */
+const DRIFT_FADE = 0.2
 
 // geo → clip, reused VERBATIM from icon-retained/point vs_point. Called TWICE (tail + tip) so the
 // arrow orientation is a projected screen direction, correct under any camera.
@@ -121,6 +128,10 @@ const ArrowOut = ioStruct('ArrowRetainedOut', {
   // caller that doesn't opt in). Per-instance constant across a quad's 6 vertices, like
   // cos_c, so 'flat' avoids pointless interpolation of an already-uniform value.
   stroke_units: location(3, f32T, 'flat'),
+  // Drift life-fade (#1333): fades the glyph in at birth and out at death so the `fract`
+  // respawn is invisible. EXACTLY 1.0 for a pinned arrow (drift_px = 0), so an un-drifted
+  // arrow's alpha is byte-unchanged — see the `select` in the VS.
+  life_alpha: location(4, f32T, 'flat'),
 })
 
 const vs = fn(
@@ -154,8 +165,6 @@ const vs = fn(
       myH: rd(F.tip_merc_y_h),
       myL: rd(F.tip_merc_y_l),
     })
-    const centerClip = tailClip
-
     // Screen-space orientation from the clip-space delta. NDC is per-axis normalized, so the raw
     // delta is aspect-skewed; scale each axis by the viewport extent to recover the true SCREEN-px
     // direction before normalizing (the ×2 NDC→px factor is common to both axes → cancels). +y
@@ -168,6 +177,30 @@ const vs = fn(
     const dlen = max(length(vec2(dsx, dsy)), f32(1e-6))
     const cc = dsx.div(dlen)
     const ss = dsy.div(dlen)
+
+    // ── DRIFT (#1333): the glyph FLOWS along the very direction it points, instead of sitting
+    // pinned at its grid cell. Closed-form and STATELESS — the same integration particle-
+    // retained.ts uses (design §3.2): position is a pure function of three static seeds + the
+    // animation clock, so there is no state buffer, a pinned `t` still yields a byte-reproducible
+    // frame, and the GLSL twin comes free. Drift reuses (cc, ss) — the already-projected screen
+    // direction — so it stays geographic under any camera bearing / pitch / globe.
+    //
+    // ZERO-REGRESSION when drift_px = 0 (every caller that does not opt in): driftPx collapses to
+    // 0 (exact — phase × 0), so centerClip == tailClip bit-for-bit, and `select` hands back a
+    // literal 1.0 life-alpha rather than a fade that would dip below 1 mid-phase. ──
+    const driftTotal = rd(F.drift_px)
+    const lifetime = max(rd(F.lifetime_s), f32(1e-3))
+    const phase = fract(pointU.field.circle_params.y.div(lifetime).add(rd(F.phase_norm)))
+    const driftPx = phase.mul(driftTotal)
+    const driftNdc = vec2(
+      driftPx.mul(cc).mul(f32(2).div(vp.x)),
+      driftPx.mul(ss).neg().mul(f32(2).div(vp.y)),
+    )
+    const centerClip = tailClip.add(vec4(driftNdc.mul(tailClip.w), 0, 0))
+    // Fade in at birth / out at death so the `fract` respawn jump is invisible.
+    const fadeIn = smoothstep(f32(0), f32(DRIFT_FADE), phase)
+    const fadeOut = f32(1).sub(smoothstep(f32(1).sub(f32(DRIFT_FADE)), f32(1), phase))
+    const lifeAlpha = select(driftTotal.gt(0), fadeIn.mul(fadeOut), f32(1))
 
     // ── bounding quad (6 verts) in unit-arrow space: qx∈{-margin,1+margin} along,
     // qy∈{-(HH+margin),HH+margin} across. `margin` is the per-instance outline stroke width
@@ -227,6 +260,7 @@ const vs = fn(
       needs_backface_cull(absLon, absLat, pointU.field.proj_params, pointU.field.globe_eye),
     )
     o.stroke_units.assign(margin)
+    o.life_alpha.assign(lifeAlpha)
     return o.$
   },
   { stage: 'vertex' },
@@ -258,7 +292,9 @@ const fs = fn(
     const covTotal = clamp(f32(0.5).sub(d.sub(su).div(aa)), 0, 1)
     const strokeCov = max(covTotal.sub(covFill), 0)
     const rgb = mix(pin.tint.swizzle('xyz'), vec3(f32(0), f32(0), f32(0)), strokeCov)
-    const out = vec4(rgb, pin.tint.w.mul(covTotal))
+    // life_alpha is EXACTLY 1.0 for a pinned (non-drifting) arrow, so this multiply is an exact
+    // identity there — the drift feature cannot perturb an existing caller's output.
+    const out = vec4(rgb, pin.tint.w.mul(covTotal).mul(pin.life_alpha))
     If(out.w.lt(f32(0.004)), () => {
       Discard()
     })
