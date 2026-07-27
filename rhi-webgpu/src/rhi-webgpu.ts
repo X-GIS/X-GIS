@@ -199,6 +199,10 @@ class WebGpuRenderPass implements RhiRenderPass {
   end(): void {
     if ('end' in this.enc) this.enc.end()
   }
+  /** Native handle for module-level unwrap (mirrors WebGpuCommandEncoder.nativeEncoder). */
+  get nativePass(): GPURenderPassEncoder | GPURenderBundleEncoder {
+    return this.enc
+  }
 }
 
 /** Wrap a live GPURenderPassEncoder OR a GPURenderBundleEncoder (the render loop's pass / a VTR tile
@@ -330,6 +334,17 @@ export function wrapWebGpuCommandEncoder(
  *  handle. The pass-body conversion (F3/P5) retires it. */
 export function unwrapWebGpuCommandEncoder(enc: RhiCommandEncoder): GPUCommandEncoder {
   return (enc as WebGpuCommandEncoder).nativeEncoder
+}
+
+/** Recover the native pass encoder from an RHI pass (the inverse of
+ *  `wrapWebGpuPass`, completing the unwrap set) — the bridge for the ONE
+ *  WebGPU-encoder concern the chain retype leaves at the gpuTimer seam
+ *  (mid-pass writeTimestamp marks; see GPUTimer.markRhi). Identity on
+ *  WebGPU — the same native encoder the wrapper holds. */
+export function unwrapWebGpuPass(
+  pass: RhiRenderPass,
+): GPURenderPassEncoder | GPURenderBundleEncoder {
+  return (pass as WebGpuRenderPass).nativePass
 }
 
 /** Recover the native `GPUTextureView` from an RHI view — used by the F2 frame
