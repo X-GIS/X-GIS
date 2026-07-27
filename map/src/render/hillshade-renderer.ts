@@ -173,7 +173,12 @@ function pushCap(
   mercDiff: number,
   gridN: number,
   capSign: number,
+  tileOpacity: number,
 ): void {
+  // writeRasterTileUniform's tail is (gridN, tileOpacity, capSign) — capSign was
+  // being passed POSITIONALLY into tileOpacity, so the cap flag never reached the
+  // shader (globe pole caps rendered as ordinary tiles) and the south cap wrote
+  // tileOpacity = −1. Pass both, in order, like raster's pushRasterCap.
   writeRasterTileUniform(
     block,
     west,
@@ -184,6 +189,7 @@ function pushCap(
     mercSouth,
     mercDiff,
     gridN,
+    tileOpacity,
     capSign,
   )
   out.push({ texture, tileBytes: new Float32Array(block.buffer.slice(0)), gridN })
@@ -319,6 +325,33 @@ export class HillshadeRenderer {
     if (Number.isFinite(o)) this._opacity = Math.max(0, Math.min(1, o))
   }
 
+  // ── Tile fade-in (ported from RasterRenderer) ──
+  // A DEM tile used to POP to full opacity the frame it arrived, so a streaming
+  // relief flickered coarse→sharp tile by tile while the raster basemap under it
+  // cross-faded smoothly. Same machinery, same paint: the ramp rides the SHARED
+  // TileUniforms fade lane (tile_ecef_center.w → VsOut.vis), which vs_tile already
+  // interpolates — fs_hillshade just never read it.
+  /** DEM tile fade-in duration (ms); 0 = instant pop-in (byte-identical to the
+   *  pre-fade path), which is what reduced-motion selects. */
+  private _fadeDurationMs = 300
+  /** True when the LAST render() left any tile mid-fade — the map's keep-alive
+   *  reads it so the ramp keeps advancing on a still camera. */
+  private _hasFadingTiles = false
+  /** The previous frame's target (exact-tile) key set. A tile RE-ENTERING the set
+   *  re-arms its ramp, so zooming back out fades in instead of snapping. */
+  private _lastTargetKeys: Set<string> = new Set()
+
+  /** Set the DEM tile fade-in duration (ms). 0 disables the fade; the map passes 0
+   *  under prefers-reduced-motion (mirror of setRasterFadeDurationMs). */
+  setHillshadeFadeDurationMs(ms: number): void {
+    if (Number.isFinite(ms)) this._fadeDurationMs = Math.max(0, ms)
+  }
+
+  /** True while any DEM tile is mid-cross-fade (render-loop keep-alive). */
+  hasFadingTiles(): boolean {
+    return this._hasFadingTiles
+  }
+
   private _hillshadeDraper?: HillshadeDraper
   private ensureHillshadeDraper(): HillshadeDraper {
     // Clamp to the device cap (mirrors RasterDraper): a getSampleCount()=4
@@ -402,14 +435,27 @@ export class HillshadeRenderer {
     if (this.rhi.backend !== 'webgl2') return loadImageTexture(this.device, url, signal)
     const bitmap = await loadImageBitmap(url, signal)
     if (!bitmap) return null
-    const tex = this.rhi.createTexture({
-      width: bitmap.width,
-      height: bitmap.height,
-      format: 'rgba8unorm',
-      usage: ['sample', 'copy-dst'],
-      label: 'hillshade-dem-tile',
-    })
-    this.rhi.copyExternalImage(tex, bitmap, bitmap.width, bitmap.height)
+    // #1153 P2 R4 (ported from raster — hillshade was the pre-fix copy):
+    // createTexture throws on a lost context (rhi-webgl2 :963) and
+    // copyExternalImage can throw too. Release the decoded bitmap + any
+    // half-created texture and normalise to the WebGPU null contract
+    // (loadImageTexture returns null on failure) so the caller's loadingTiles key
+    // is released rather than wedged; the chains' .catch is the outer backstop.
+    let tex: RhiTexture | null = null
+    try {
+      tex = this.rhi.createTexture({
+        width: bitmap.width,
+        height: bitmap.height,
+        format: 'rgba8unorm',
+        usage: ['sample', 'copy-dst'],
+        label: 'hillshade-dem-tile',
+      })
+      this.rhi.copyExternalImage(tex, bitmap, bitmap.width, bitmap.height)
+    } catch {
+      bitmap.close()
+      if (tex) this.rhi.destroyTexture(tex)
+      return null
+    }
     bitmap.close()
     return tex
   }
@@ -490,16 +536,25 @@ export class HillshadeRenderer {
       if (this.loadingTiles.size >= MAX_CONCURRENT_LOADS) break
       const ctrl = new AbortController()
       this.loadingTiles.set(key, ctrl)
-      this.loadTileTexture(tileUrl(this.urlTemplate, coord), ctrl.signal).then((texture) => {
-        this.loadingTiles.delete(key)
-        if (!texture) return
-        this.tileCache.set(key, {
-          texture,
-          lastUsedFrame: this.frameCount,
-          firstShownFrame: this.frameCount,
+      this.loadTileTexture(tileUrl(this.urlTemplate, coord), ctrl.signal)
+        // #1153 P2 R4 — narrow the release to the LOAD promise: an expected load
+        // failure resolves to null so the .then ALWAYS frees the loadingTiles slot
+        // (else the key wedges, pinning all MAX_CONCURRENT slots → the DEM stream
+        // stalls). Scoped here so a throw from the .then bookkeeping stays a visible
+        // unhandled rejection, not swallowed.
+        .catch(() => null)
+        .then((texture) => {
+          this.loadingTiles.delete(key)
+          if (!texture) return
+          // firstShownFrame -1 = "never drawn yet"; the draw loop stamps it on the
+          // tile's FIRST appearance so an off-screen prefetch still fades in.
+          this.tileCache.set(key, {
+            texture,
+            lastUsedFrame: this.frameCount,
+            firstShownFrame: -1,
+          })
+          this.evictTiles(visibleKeys)
         })
-        this.evictTiles(visibleKeys)
-      })
     }
 
     // Parent-fallback prefetch (1–2 levels up) — mirror raster.
@@ -520,15 +575,21 @@ export class HillshadeRenderer {
             ox: coord.x >> pz,
           }),
           ctrl.signal,
-        ).then((texture) => {
-          this.loadingTiles.delete(parentKey)
-          if (texture)
-            this.tileCache.set(parentKey, {
-              texture,
-              lastUsedFrame: this.frameCount,
-              firstShownFrame: this.frameCount,
-            })
-        })
+        )
+          // #1153 P2 R4 — same un-wedge backstop for the parent-fallback chain.
+          .catch(() => null)
+          .then((texture) => {
+            this.loadingTiles.delete(parentKey)
+            if (texture)
+              this.tileCache.set(parentKey, {
+                texture,
+                lastUsedFrame: this.frameCount,
+                firstShownFrame: -1,
+              })
+          })
+          .catch((e) =>
+            console.error('[X-GIS] hillshade parent-tile post-load bookkeeping failed', e),
+          )
       }
     }
 
@@ -556,37 +617,24 @@ export class HillshadeRenderer {
     // Per-frame draw dedup keyed by render coord + ox — parent fallback maps
     // every uncached child onto the same parent quad (see raster-renderer).
     const drawnKeys = new Set<string>()
-    for (const coord of tiles) {
-      const key = `${coord.z}/${coord.x}/${coord.y}`
-      let cached = this.tileCache.get(key)
-      let fallbackCoord = coord
-      let isFallback = false
-      if (!cached) {
-        for (let pz = 1; pz <= 4; pz++) {
-          const parentZ = coord.z - pz
-          if (parentZ < 0) break
-          const parentCached = this.tileCache.get(`${parentZ}/${coord.x >> pz}/${coord.y >> pz}`)
-          if (parentCached) {
-            cached = parentCached
-            fallbackCoord = {
-              z: parentZ,
-              x: coord.x >> pz,
-              y: coord.y >> pz,
-              ox: (coord.ox ?? coord.x) >> pz,
-            }
-            isFallback = true
-            break
-          }
-        }
-      }
-      if (!cached) continue
-      cached.lastUsedFrame = this.frameCount
+    // ~60 fps → durationMs·0.06 frames. 0 ⇒ instant full opacity, byte-identical
+    // to the pre-fade path (reduced motion / fade disabled).
+    const fadeFrames = this._fadeDurationMs > 0 ? this._fadeDurationMs * 0.06 : 0
+    let anyFading = false
 
-      const renderCoord = isFallback ? fallbackCoord : coord
+    // Emit one cached tile at `renderCoord` with the supplied texture + per-tile
+    // opacity, in every world copy plus its globe pole caps. Extracted (mirror of
+    // raster's emitTileAt) so the fade path can emit BOTH an underlay at opacity 1
+    // and the fading tile over it for one visible coord.
+    const emitTileAt = (
+      renderCoord: { z: number; x: number; y: number; ox?: number },
+      texture: HillshadeTile['texture'],
+      tileOpacity: number,
+    ): void => {
       const rn = Math.pow(2, renderCoord.z)
       const ox = renderCoord.ox ?? renderCoord.x
       const drawKey = `${renderCoord.z}/${renderCoord.x}/${renderCoord.y}/${ox}`
-      if (drawnKeys.has(drawKey)) continue
+      if (drawnKeys.has(drawKey)) return
       drawnKeys.add(drawKey)
       const west = (ox / rn) * 360 - 180
       const east = ((ox + 1) / rn) * 360 - 180
@@ -614,20 +662,110 @@ export class HillshadeRenderer {
           mercSouth,
           mercDiff,
           gridN,
+          tileOpacity,
         )
         tilesArr.push({
-          texture: cached.texture,
+          texture,
           tileBytes: new Float32Array(TB.buffer.slice(0)),
           gridN,
         })
         // prettier-ignore
         if (needsNorthPoleCap(projType, renderCoord.y))
-          pushCap(tilesArr, TB, cached.texture, west + wo * 360, south, east + wo * 360, north, swEcef, mercSouth, mercDiff, gridN, 1)
+          pushCap(tilesArr, TB, texture, west + wo * 360, south, east + wo * 360, north, swEcef, mercSouth, mercDiff, gridN, 1, tileOpacity)
         // prettier-ignore
         if (needsSouthPoleCap(projType, renderCoord.y, rn))
-          pushCap(tilesArr, TB, cached.texture, west + wo * 360, south, east + wo * 360, north, swEcef, mercSouth, mercDiff, gridN, -1)
+          pushCap(tilesArr, TB, texture, west + wo * 360, south, east + wo * 360, north, swEcef, mercSouth, mercDiff, gridN, -1, tileOpacity)
       }
     }
+
+    // Nearest cached ancestor (1–4 levels up) — the missing-tile fallback AND the
+    // zoom-IN cross-fade underlay.
+    const findCachedParent = (coord: { z: number; x: number; y: number; ox?: number }) => {
+      for (let pz = 1; pz <= 4; pz++) {
+        const parentZ = coord.z - pz
+        if (parentZ < 0) break
+        const px = coord.x >> pz
+        const py = coord.y >> pz
+        const entry = this.tileCache.get(`${parentZ}/${px}/${py}`)
+        if (entry)
+          return {
+            renderCoord: { z: parentZ, x: px, y: py, ox: (coord.ox ?? coord.x) >> pz },
+            entry,
+          }
+      }
+      return null
+    }
+
+    // Cached DIRECT children — on a zoom-OUT the just-departed higher-detail tiles
+    // are still cached; drawing them beneath a fading-in parent retains their detail
+    // until it is opaque (cross-fade sharp→coarse instead of a pop). Callback form
+    // (not an array) so the hot draw loop allocates nothing per visible tile.
+    const eachCachedChild = (
+      coord: { z: number; x: number; y: number; ox?: number },
+      fn: (rc: { z: number; x: number; y: number; ox: number }, entry: CachedTile) => void,
+    ): void => {
+      const cz = coord.z + 1
+      const cx0 = coord.x << 1
+      const cy0 = coord.y << 1
+      const cox0 = (coord.ox ?? coord.x) << 1
+      for (let dx = 0; dx <= 1; dx++)
+        for (let dy = 0; dy <= 1; dy++) {
+          const entry = this.tileCache.get(`${cz}/${cx0 + dx}/${cy0 + dy}`)
+          if (entry) fn({ z: cz, x: cx0 + dx, y: cy0 + dy, ox: cox0 + dx }, entry)
+        }
+    }
+
+    // Exact tile (with its fade-in + cross-fade underlay beneath), else the cached
+    // parent fallback at full opacity.
+    const curTargetKeys = new Set<string>()
+    for (const coord of tiles) {
+      const key = `${coord.z}/${coord.x}/${coord.y}`
+      curTargetKeys.add(key)
+      const exact = this.tileCache.get(key)
+      if (exact) {
+        // Re-arm the ramp when the tile ENTERS the target set — first appearance
+        // (firstShownFrame -1 from load) OR re-entry (zooming back out to a parent
+        // shown before). A tile continuing across frames keeps its ramp.
+        if (exact.firstShownFrame < 0 || !this._lastTargetKeys.has(key))
+          exact.firstShownFrame = this.frameCount
+        const fadeAlpha =
+          fadeFrames > 0 ? Math.min(1, (this.frameCount - exact.firstShownFrame) / fadeFrames) : 1
+        if (fadeAlpha < 1) {
+          anyFading = true
+          // Underlay pushed BEFORE the fading tile = drawn under it. Coarse ancestor
+          // first (zoom-IN fill), then cached direct children (zoom-OUT retention).
+          // Marking lastUsedFrame keeps them alive across the ramp so the LRU can't
+          // evict an underlay mid-fade.
+          //
+          // The underlay fades OUT (1 − fadeAlpha) where raster holds its at 1 —
+          // forced by hillshade's TRANSLUCENT output (flat terrain is transparent):
+          // an underlay at 1 shows THROUGH the tile above and is still contributing
+          // when the ramp ends, so dropping it at fadeAlpha = 1 snaps the relief
+          // lighter. Raster's opaque tiles hide theirs by then. Settled frame is
+          // unchanged either way (the underlay contributes nothing at 1).
+          const underlay = 1 - fadeAlpha
+          const parent = findCachedParent(coord)
+          if (parent) {
+            emitTileAt(parent.renderCoord, parent.entry.texture, underlay)
+            parent.entry.lastUsedFrame = this.frameCount
+          }
+          eachCachedChild(coord, (rc, entry) => {
+            emitTileAt(rc, entry.texture, underlay)
+            entry.lastUsedFrame = this.frameCount
+          })
+        }
+        emitTileAt(coord, exact.texture, fadeAlpha)
+        exact.lastUsedFrame = this.frameCount
+      } else {
+        const parent = findCachedParent(coord)
+        if (parent) {
+          emitTileAt(parent.renderCoord, parent.entry.texture, 1)
+          parent.entry.lastUsedFrame = this.frameCount
+        }
+      }
+    }
+    this._lastTargetKeys = curTargetKeys
+    this._hasFadingTiles = anyFading
 
     this.ensureHillshadeDraper().draw(
       this.rhi.backend === 'webgl2'
@@ -637,6 +775,9 @@ export class HillshadeRenderer {
       HB.buffer,
       tilesArr,
       isPickEnabled(),
+      // The method is a per-LAYER constant, so it selects a SPECIALISED pipeline
+      // rather than branching per fragment (see buildHillshadeModule).
+      hillshadeMethodFlag(this._params.method),
     )
 
     this.lastVisibleKeys = visibleKeys

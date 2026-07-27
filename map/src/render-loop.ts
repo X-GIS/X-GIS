@@ -1219,15 +1219,26 @@ export class RenderLoop {
     // _needsRender armed so the loop re-renders until the scene converges
     // (upload completion alone never repaints this isolated path, #832 M2).
     // Hillshade DEM fetches count too (same keep-alive as the WebGPU path).
-    // Publish the per-frame in-flight tile count (public `getMissingTileCount()`)
-    // and derive this path's keep-warm return from it — a single authority so the
-    // count and the "keep rendering" gate can never disagree (sum > 0 iff any of
-    // the three non-negative signals is > 0).
+    // Publish the per-frame in-flight tile count (public `getMissingTileCount()`).
+    // It remains the single authority for how many tiles are IN FLIGHT, but it is no
+    // longer the whole keep-warm answer: a fade ramp outlives the fetch that started
+    // it (see the return below), so "> 0 tiles loading" and "still converging" are
+    // genuinely different questions.
     this.host._missingTileCount =
       missingTiles +
       this.host.rasterRenderer.pendingLoadCount() +
       this.host.hillshadeRenderer.pendingLoadCount()
-    return this.host._missingTileCount > 0
+    // A tile-COUNT alone cannot express "still converging": a tile that has
+    // finished FETCHING may still be mid-fade, and the count drops to 0 the moment
+    // the last fetch lands — freezing the ramp at partial opacity until the next
+    // interaction (a permanently semi-transparent basemap / relief on this path).
+    // The WebGPU loop already ORs these flags into its own idle-skip gate
+    // (map.ts hasFadingTiles); the twin needs the same two signals.
+    return (
+      this.host._missingTileCount > 0 ||
+      this.host.rasterRenderer.hasFadingTiles() ||
+      this.host.hillshadeRenderer.hasFadingTiles()
+    )
   }
 
   private _resolveFillPatterns(): void {

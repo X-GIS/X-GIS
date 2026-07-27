@@ -150,3 +150,70 @@ describe('Phase-II hillshade shader — DSL emission', () => {
     }
   })
 })
+
+// ── Per-method pipeline specialisation (hillshade perf) ──
+//
+// `hillshade-method` is a per-LAYER constant, so it selects a SPECIALISED pipeline
+// instead of branching per fragment. The un-specialised uber-shader made every
+// fragment carry all five methods: the optimizer's shared temps hoisted each arm's
+// prerequisites (two atan2, an acos, three atan, the extra sources' Lambert terms)
+// ABOVE the dispatch, so a `basic` relief paid for standard + combined + igor +
+// multidirectional on every pixel. Measured on the software rasteriser: all five
+// methods cost the SAME (138/144/140 ms) before, and specialising cut the frame to
+// 112/106/117 ms — hillshade's excess over an identical raster tile draw fell ~60-85%.
+// Output is unchanged: the five fixture frames hash-match the un-specialised build.
+//
+// These assertions are the standing gate — they fail if a method's math leaks back
+// into another method's pipeline, or if the dispatch returns.
+describe('hillshade shader — per-method specialisation', () => {
+  const fsOf = (flag: number) => {
+    const w = emitHillshadeWgsl(false, flag)
+    return w.slice(w.indexOf('fn fs_hillshade'))
+  }
+  // A marker unique to each method's body, used to prove both presence (in its own
+  // pipeline) and absence (in every other one).
+  const MARKERS: ReadonlyArray<readonly [number, string, RegExp]> = [
+    [0, 'standard', /hs\.hs_accent/],
+    [2, 'combined', /acos\(/],
+    [4, 'multidirectional', /hs\.hs_light4/],
+  ]
+
+  it('emits ONLY the requested method and drops the runtime dispatch', () => {
+    for (const [flag, name, marker] of MARKERS) {
+      const fs = fsOf(flag)
+      expect(fs, `${name} keeps its own math`).toMatch(marker)
+      for (const [other, otherName, otherMarker] of MARKERS) {
+        if (other === flag) continue
+        expect(fs, `${name} must not carry ${otherName}'s math`).not.toMatch(otherMarker)
+      }
+      // The dispatch reads the method flag (hs_light.w); a specialised fragment
+      // must not branch on it at all.
+      expect(fs, `${name} has no method dispatch`).not.toMatch(/hs_light\.w/)
+    }
+  })
+
+  it('keeps the 8-tap Sobel + hemisphere cull in every specialisation', () => {
+    // Specialising the SHADING must not disturb the shared decode/cull prologue.
+    for (const flag of [0, 1, 2, 3, 4]) {
+      const fs = fsOf(flag)
+      expect((fs.match(/hs_elevation\(/g) ?? []).length, `method ${flag} taps`).toBe(8)
+      expect(fs, `method ${flag} cull`).toContain('needs_backface_cull(')
+      expect(fs, `method ${flag} depth`).toContain('compute_log_frag_depth(')
+    }
+  })
+
+  it('every specialisation is strictly smaller than the un-specialised uber-shader', () => {
+    // The direct hardware-independent statement of the win: less emitted fragment
+    // work per invocation. `-1` (the default) keeps the full five-way dispatch.
+    const uber = fsOf(-1).length
+    for (const flag of [0, 1, 2, 3, 4]) {
+      expect(fsOf(flag).length, `method ${flag} vs uber-shader`).toBeLessThan(uber)
+    }
+  })
+
+  it('the un-specialised default still carries all five methods (back-compat)', () => {
+    const fs = fsOf(-1)
+    for (const [, , marker] of MARKERS) expect(fs).toMatch(marker)
+    expect(fs).toMatch(/hs_light\.w/) // the dispatch is still there
+  })
+})
