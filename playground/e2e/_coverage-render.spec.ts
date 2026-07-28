@@ -63,7 +63,8 @@ test.describe('S-100 coverage colour-ramp render (#1158)', () => {
     await page.setViewportSize({ width: 900, height: 700 })
     // BLOCK the satellite basemap: with imagery loaded the nodata hole shows TILES rather than
     // background, and "the hole is darker than a valid cell" stops meaning what it says.
-    await page.route('**/arcgisonline.com/**', (r) => void r.abort())
+    // A REGEX, not a glob — `**/arcgisonline.com/**` does not match `server.arcgisonline.com`.
+    await page.route(/arcgisonline\.com/, (r) => void r.abort())
     await page.goto('/demo.html?id=coverage_bathymetry&forcegl2=1&e2e=1#5/53.875/3.875', {
       waitUntil: 'domcontentloaded',
     })

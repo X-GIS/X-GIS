@@ -74,7 +74,10 @@ async function boot(page: import('@playwright/test').Page) {
   // resolves: imagery paints every pixel, so both halves read ~1.0 in BOTH captures and the
   // delta collapses to noise — which is exactly how this passed locally (no network) and
   // failed on CI. The claim is about COVERAGE residency, so imagery is not evidence either way.
-  await page.route('**/arcgisonline.com/**', (r) => void r.abort())
+  // A REGEX, not a glob: `**/arcgisonline.com/**` does not match `server.arcgisonline.com`
+  // — the host is one path segment, not two — so the first attempt silently blocked nothing
+  // and the metric stayed exactly as vacuous as before.
+  await page.route(/arcgisonline\.com/, (r) => void r.abort())
   await page.goto(
     `/demo.html?id=s111_currents&forcegl2=1&e2e=1#${ZOOM}/${CENTRE_LAT}/${CENTRE_LON}`,
     { waitUntil: 'domcontentloaded' },
@@ -138,6 +141,15 @@ test.describe('S-111 multi-region residency (#1272 E-④)', () => {
       `[s111-multiregion] control L=${single.left.toFixed(4)} R=${single.right.toFixed(4)} | ` +
         `multi L=${multi.left.toFixed(4)} R=${multi.right.toFixed(4)} (${multi.W}x${multi.H})`,
     )
+
+    // PRECONDITION, asserted rather than assumed: with the basemap blocked the east half is
+    // background in the control. If imagery leaks back (a route pattern that stops matching),
+    // every fraction saturates and the delta below becomes meaningless — this fails FIRST and
+    // names the reason, instead of surfacing as an inscrutable "0.99 is not > 1.02".
+    expect(
+      single.right,
+      'control: east half must be BACKGROUND — is the basemap leaking through the route?',
+    ).toBeLessThan(0.02)
 
     // The west domain draws in BOTH — the second push must not evict the first.
     expect(single.left, 'control: west half painted').toBeGreaterThan(0.02)
