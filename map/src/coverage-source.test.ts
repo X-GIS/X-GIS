@@ -41,6 +41,9 @@ function makeDeps(overrides: Partial<CoverageSourceDeps> = {}): {
     refresh: { stopAll: () => {} } as unknown as CoverageSourceDeps['refresh'],
     guardedFetch: () => fetch,
     destroyed: () => false,
+    catalogues: new Map(),
+    view: () => null,
+    watchViewport: () => {},
     ...overrides,
   }
   return { deps, rawDatasets, setRenderer: (r) => (late = r), renderer: () => late }

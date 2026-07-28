@@ -498,7 +498,23 @@ const CEILINGS: Record<string, number> = {
   // swap OWED is pending work, not pending fetch) plus the two lines saying why; without it the
   // loop stopped with a re-seed replacement un-applied and the layer drew the previous seed for
   // good. Value below is the MEASURED post-merge, post-prettier count — not 5392+3 assumed.
-  'map/src/map.ts': 5395,
+  //
+  // MERGE UNION (#1453 <- main @ #1455): non-overlapping, so main's +3 and this branch's
+  // +27 COMPOSE — never take one side, never max(). Value below is the MEASURED post-merge,
+  // post-prettier count, not 5395+27 assumed.
+  // 5392→5419 (#1453 catalogue-driven coverage residency): a `coverage` source's `url:` may
+  // name a STAC catalogue of cells, and then the ENGINE owns residency from the viewport — the
+  // job `type: raster` has always done for itself. What lands HERE is only the map-shaped part
+  // of that: the per-source catalogue state (declared before `_coverageDeps`, because a field
+  // initialiser captures `undefined` the other way round — the `_coverageRefresh` lesson), the
+  // two deps members feeding it, the move-end listener + its `destroy()` detach, and the
+  // `onRegionDropped` rewire. Every DECISION — the cell/catalogue byte probe, the STAC parse,
+  // the viewport resolve, the arm loop and the stop-on-eviction rule — lives in
+  // coverage-catalogue.ts (pure) and coverage-source.ts (drives it), the same policy/driver
+  // split coverage-refresh.ts already uses, so this is wiring and not logic. An earlier draft
+  // put a `_beginCoverageLoad` method here too (+45); it was extracted into
+  // `resolveCoverageCatalogues` + `viewBbox` rather than ratcheted for. Post-hook measurement.
+  'map/src/map.ts': 5422,
   // Baselined at #1255 (measured 830): the DOM-inspired layer API crossed
   // NEW_FILE_CAP with the paint-transition style-setter integration — the
   // StyleHost.transitions context, the shared applyNumber/applyColor
