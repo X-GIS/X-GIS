@@ -488,7 +488,11 @@ const CEILINGS: Record<string, number> = {
   // boot and the backend switch), each carrying the sentence saying why the LRU needed one at
   // all: nothing else observed it, so an evicted region's arrows kept drawing against velocity
   // textures that had just been destroyed. Value below is the MEASURED post-merge count.
-  'map/src/map.ts': 5393,
+  //
+  // 5393→5392 (#1449): the three arm sites now call ONE decision point (`armCoverageArrows`),
+  // so the `if (show.isArrow) …` + `armAdvectedArrows(…)` pair here collapsed to a single call
+  // and the static-arrow import went with it. LOWERED per the shrink-only rule.
+  'map/src/map.ts': 5392,
   // Baselined at #1255 (measured 830): the DOM-inspired layer API crossed
   // NEW_FILE_CAP with the paint-transition style-setter integration — the
   // StyleHost.transitions context, the shared applyNumber/applyColor
@@ -602,7 +606,11 @@ const CEILINGS: Record<string, number> = {
   // the per-prepare makeBakeFrame + placement stamp, and the holdoverDrawToEmit
   // emit + parallel bake sweeps (empty-prepare + eviction). Math + decision live
   // extracted/unit-proved in holdover-reproject.ts. +45, measured post-hook.
-  'map/src/text/text-stage.ts': 2284,
+  // 2284→2232 (#777 IV3-2b): the module-scope constants (STAGE_DEFAULTS,
+  // TEXT_MAX_ANGLE_DEFAULT_DEG) and the pure rotateLabelTranslate helper moved to
+  // text-stage-helpers.ts — none touch `this`. A behaviour-free move that opens the
+  // headroom the ground-basis bbox work needs; the file sat exactly at its ceiling.
+  'map/src/text/text-stage.ts': 2232,
   // 1786→1719 (#727 C): the line/point dedupe + pair-key helper block was
   // EXTRACTED to passes/line-label-dedupe.ts when the world-copy fan-out would
   // otherwise have grown this file — the extract-don't-grow answer.

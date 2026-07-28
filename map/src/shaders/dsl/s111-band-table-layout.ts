@@ -38,5 +38,16 @@ export const S111_BAND_PARAMS_ROW = S111_BAND_COUNT
 /** Slot 0 of the params row: `trueLonSpan / trueLatSpan` for this coverage. */
 export const S111_PARAM_UV_ASPECT = 0
 
+/** Slot 1: this batch's BASE TEXEL in the shared arrow state (#1458).
+ *
+ *  One state texture serves every mosaic region, each owning a contiguous range, so the VS
+ *  reads texel `base + instance_index` rather than `instance_index`. Without it every region
+ *  indexed from 0: the last region armed owned every texel, its siblings' arrows were leashed
+ *  to cells in another domain, and a smaller sibling shrank the texture out from under a
+ *  larger one. Carried here rather than in a feat slot for the reason the row exists — the
+ *  advected VS has no uniform of its own, and growing the feat stride would change the STATIC
+ *  arrow shader's bytes for a value only this path reads. */
+export const S111_PARAM_STATE_BASE = 1
+
 /** Rows in the uploaded buffer: the nine bands plus the params row. */
 export const S111_BAND_TABLE_ROWS = S111_BAND_COUNT + 1
