@@ -55,7 +55,15 @@ const PASS_SOURCE: Record<PassLabel, string> = {
   graphics: 'graphics-pass.ts',
 }
 
-const source = (label: PassLabel): string => readFileSync(join(HERE, PASS_SOURCE[label]), 'utf8')
+/** Comment-stripped module source — the geometry-read rules below must match
+ *  CODE, not prose (review MINOR-2: a doc comment naming `ctx.scene` would
+ *  otherwise satisfy the seam's dual-read rule vacuously). Line + block
+ *  comments only; string literals in these modules never contain `ctx.`. */
+const source = (label: PassLabel): string =>
+  readFileSync(join(HERE, PASS_SOURCE[label]), 'utf8')
+    .replace(/\/\*[\s\S]*?\*\//g, '')
+    .replace(/^\s*\/\/.*$/gm, '')
+    .replace(/[^\n]\/\/.*$/gm, (m) => m[0])
 
 /** Does the source reach a geometry?
  *

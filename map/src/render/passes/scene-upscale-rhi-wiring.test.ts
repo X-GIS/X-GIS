@@ -4,8 +4,8 @@
 // the partition keeps apart: it samples the resolved scene colour
 // (rhiSceneColorSampleView) and writes the SCREEN-side colour attachment
 // (rhiColorViewScreen — a DISTINCT token from the scene MSAA, so a revert to
-// either side fails a pin), claims NO resolveTarget (labels stay the frame's
-// last resolver) and no depth. shouldRun is the scale-1 constructive no-op:
+// either side fails a pin), claims the MSAA resolve (the one UNCONDITIONAL
+// swapchain writer of a scaled frame — review CRITICAL-1) and no depth. shouldRun is the scale-1 constructive no-op:
 // false unless the ladder holds the scene below native. A frame whose flags
 // and bridges disagree (scaled but no sample source) fails loud.
 //
@@ -26,7 +26,9 @@ interface CapturedPass {
   draws: number[]
 }
 
-function harness(opts: { scaled?: boolean; rawShell?: boolean; noSource?: boolean } = {}) {
+function harness(
+  opts: { scaled?: boolean; rawShell?: boolean; noSource?: boolean; useResolve?: boolean } = {},
+) {
   const scaled = opts.scaled ?? true
   const captured: CapturedPass[] = []
   const beginRenderPass = vi.fn((desc: Record<string, unknown>) => {
@@ -62,7 +64,8 @@ function harness(opts: { scaled?: boolean; rawShell?: boolean; noSource?: boolea
     projection: makeProjectionToken(0, 0, 0),
     scene: scaled ? { w: 576, h: 416, dpr: 0.72 } : { w: 800, h: 600, dpr: 1 },
     screen: { w: 800, h: 600, dpr: 1 },
-    sampleCount: 4,
+    sampleCount: opts.useResolve === false ? 1 : 4,
+    useResolve: opts.useResolve ?? true,
   } as unknown as FrameContext
   // Bind-group capture: the seam's ONE group is (sampler, scene colour).
   const bindGroups: { entries: { binding: number; resource: unknown }[] }[] = []
@@ -112,8 +115,11 @@ describe('scene-upscale — the seam (#1429 INC-2)', () => {
     expect(colors[0].view).toBe(h.colorViewScreen)
     expect(colors[0].loadOp).toBe('clear')
     expect(colors[0].storeOp).toBe('store')
-    // Labels stay the frame's last colour writer — the seam never resolves.
-    expect(colors[0].resolveTarget).toBeUndefined()
+    // The seam is the scaled frame's one UNCONDITIONAL swapchain writer
+    // (review CRITICAL-1): under MSAA it must claim the resolve — labels,
+    // heatmap and graphics are all content-gated, so a label-less style
+    // otherwise presents a never-written swapchain (black frame).
+    expect(colors[0].resolveTarget).toBe((h.ctx as { rhiScreenView: unknown }).rhiScreenView)
     expect(desc.depthStencilAttachment).toBeUndefined()
     expect(h.captured[0].ended).toBe(true)
     // The fullscreen triangle landed on THAT pass.
@@ -123,6 +129,13 @@ describe('scene-upscale — the seam (#1429 INC-2)', () => {
     expect(
       entries.some((e) => (e.resource as { view?: unknown }).view === h.sceneColorSampleView),
     ).toBe(true)
+  })
+
+  it('single-sample scaled frame (sc===1) ⇒ direct swapchain write, no resolve to claim', () => {
+    const h = harness({ useResolve: false })
+    sceneUpscalePass.execute(h.ctx, h.scene, h.host as never)
+    const colors = h.captured[0].desc.colorAttachments as { resolveTarget?: unknown }[]
+    expect(colors[0].resolveTarget).toBeUndefined()
   })
 
   it('a frame whose flags and bridges disagree fails loud naming the seam', () => {

@@ -361,7 +361,9 @@ export function effectiveDpr(interacting = false): number {
  *  canvas — the single geometric authority for every device-px↔CSS-px conversion
  *  that happens OUTSIDE the render loop (project/unproject/getBounds/fitBounds/the
  *  post-compile bounds-fit). `resizeCanvas` sets `canvas.width = floor(clientWidth ·
- *  effDpr)` and may reduce `effDpr` below `effectiveDpr()` to fit the backend's
+ *  effDpr)`; the passed effDpr can sit below `effectiveDpr()` for TWO reasons —
+ *  the WebGL2 twin re-applies the adaptive ladder's scale to its canvas
+ *  (#1429 INC-2; the chain's canvas is always native), and it may be reduced to fit the backend's
  *  `maxTextureDimension2D` (#1153 M3); dividing the device width back by the CSS
  *  width recovers EXACTLY that effDpr. So these consumers never re-derive a
  *  `min(devicePixelRatio, maxDpr)` that disagrees with the swapchain the instant the

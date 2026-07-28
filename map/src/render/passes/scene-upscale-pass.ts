@@ -13,8 +13,12 @@
 // THE THIRD ROLE (pass-order.ts SEAM_PASSES): this pass reads BOTH target
 // geometries — the scene as its sample source, the screen as its write
 // target — which is exactly what disqualifies it from either half of the
-// scene/overlay partition. It claims NO resolveTarget: the label pass stays
-// the frame's last colour writer and keeps the MSAA resolve it always owned.
+// scene/overlay partition. Under MSAA it ALSO resolves to the swapchain:
+// every later screen writer (labels/heatmap/graphics) is content-gated, so
+// the seam is the one UNCONDITIONAL writer a scaled frame has — without its
+// resolve, a label-less style would present a never-written swapchain
+// (review CRITICAL-1; the pre-split deriveResolveOwner resolved without
+// conditions). A label pass that does run re-resolves and wins.
 // Twin-missing BY DESIGN (RHI_TWIN_MISSING): the WebGL2 twin scales its
 // canvas instead (design §7) — each backend internally consistent.
 
@@ -51,7 +55,7 @@ class SceneUpscalePass implements RenderPass {
       throw new Error(
         '[X-GIS] scene-upscale: seam invoked without a scaled scene pair (#1429 INC-2)',
       )
-    const { enc } = requireRhiFrame(ctx, 'scene-upscale')
+    const { enc, screenView } = requireRhiFrame(ctx, 'scene-upscale')
     let entry = this._drapers.get(host)
     if (!entry || entry.format !== host.ctx.format || entry.sampleCount !== ctx.sampleCount) {
       entry = {
@@ -72,7 +76,14 @@ class SceneUpscalePass implements RenderPass {
             clearValue: [0, 0, 0, 0],
             loadOp: 'clear',
             storeOp: 'store',
-            // NO resolveTarget — labels still own the frame's final resolve.
+            // The seam ALSO resolves to the swapchain (review CRITICAL-1):
+            // every later screen writer — labels, heatmap, graphics — is
+            // content-gated, so on a scaled MSAA frame with none of them the
+            // swapchain would otherwise have ZERO writers (the pre-split
+            // deriveResolveOwner resolved unconditionally; the seam restores
+            // that guarantee). A later label pass loads the stored screenMsaa
+            // and re-resolves — legal, and its newer content wins.
+            resolveTarget: ctx.useResolve ? screenView : undefined,
           },
         ],
       })

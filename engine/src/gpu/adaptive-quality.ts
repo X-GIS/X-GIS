@@ -17,8 +17,11 @@
 //
 // FAR-FIELD LOD is spent BEFORE device pixels. Coarsening tiles several camera
 // altitudes away is close to invisible — they are already metres-per-pixel — while
-// lowering DPR blurs labels and text across the WHOLE frame. The map spends its
-// horizon before it spends the user's legibility.
+// lowering DPR blurs what it covers. Since #1429 INC-2 the DPR lever scales the
+// SCENE target only on the WebGPU chain (the overlay composites at native
+// resolution over the upscaled scene); on the WebGL2 twin it still scales the
+// canvas, so there the whole frame — labels included — softens. The map spends
+// its horizon before it spends the user's legibility either way.
 //
 // Neither lever alone is enough, which is why both are on the ladder:
 //   * DPR bottoms out. Measured on a dense OpenFreeMap Bright building scene (Paris
