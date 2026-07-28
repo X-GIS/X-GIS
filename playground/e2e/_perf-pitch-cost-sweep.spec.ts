@@ -296,11 +296,17 @@ const SEED_LANDED_MIN_TRIS = 5000
 async function awaitSeedLanded(page: Page, features: number): Promise<void> {
   const deadline = Date.now() + 120_000
   let best = 0
+  // Kept for the failure message. This wait is INTERMITTENT (#1409) and the one thing
+  // that separates a landing run from a stuck one so far is how far the source's own
+  // initial load had got when the push arrived — stuck runs sat at cache≈19, landing
+  // ones at cache≈57. A bare "it never landed" throws that away; the trace is the lead.
+  const trace: string[] = []
   while (Date.now() < deadline) {
-    const { triangles } = await sampleFrame(page)
-    best = Math.max(best, triangles)
-    if (triangles >= SEED_LANDED_MIN_TRIS) {
-      console.log(`  seed landed: ${triangles} triangles on screen`)
+    const s = await sampleFrame(page)
+    best = Math.max(best, s.triangles)
+    trace.push(`tris=${s.triangles} vis=${s.tilesVisible} cache=${s.cacheEntries}`)
+    if (s.triangles >= SEED_LANDED_MIN_TRIS) {
+      console.log(`  seed landed: ${s.triangles} triangles on screen (${trace.length} polls)`)
       return
     }
     await frameCost(page, 2)
@@ -309,7 +315,8 @@ async function awaitSeedLanded(page: Page, features: number): Promise<void> {
   throw new Error(
     `Seeded ${features} polygons but only ${best} triangles ever reached the frame ` +
       `(need ≥ ${SEED_LANDED_MIN_TRIS}). The push did not land — measuring now would ` +
-      `report the demo's own sparse data as the dense fixture. See #1402.`,
+      `report the demo's own sparse data as the dense fixture. See #1409.\n` +
+      `  first: ${trace[0]}\n  last:  ${trace[trace.length - 1]}\n  polls: ${trace.length}`,
   )
 }
 
