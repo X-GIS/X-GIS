@@ -175,7 +175,17 @@ export class VirtualPMTilesBackend implements TileSource {
     try {
       bytes = await tilingPool.getTile(this.instanceId, this.sourceName, z, x, y, key)
     } catch (err) {
-      xlog.error('[virtual-pmtiles getTile]', (err as Error)?.stack ?? err)
+      // A get-tile that lands after its map instance was disposed (or its source
+      // replaced) rejects BY DESIGN: the worker drops the index and reports the
+      // source as gone rather than serving stale data
+      // (geojson-tiling-worker-isolation.test.ts). That is orderly teardown, not a
+      // fault — the tile is simply unproducible, which the null result below
+      // already says. Logging it at ERROR turned a routine demo swap into a red
+      // render gate (_graphics-compiled-arrow-parity loads two demos in a row and
+      // asserts a clean console). Real decode/index failures still log at error.
+      if (tilingPool.isSourceGone(err))
+        xlog.debug('[virtual-pmtiles getTile] source gone (disposed)')
+      else xlog.error('[virtual-pmtiles getTile]', (err as Error)?.stack ?? err)
       sink.acceptResult(key, null)
       sink.releaseLoading(key)
       return
