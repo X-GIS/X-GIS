@@ -171,7 +171,16 @@ describe('mip + anisotropy descriptors reach the GL objects (#1436)', () => {
     expect(rec.texParamI).toContainEqual([GL.TEXTURE_MAX_LEVEL, 3])
   })
 
-  it('a single-level texture allocates exactly one level and sets no MAX_LEVEL', () => {
+  it('a single-level texture allocates one level and STILL pins MAX_LEVEL to 0', () => {
+    // The bug this pins, found by _fills-gl2-gate rather than by any unit test: GL's default
+    // TEXTURE_MAX_LEVEL is 1000, so a single-level texture sampled by a MIPMAP min-filter is
+    // mip-INCOMPLETE and samples as opaque BLACK — not as its base level. The raster checker is
+    // exactly that texture and shares `linearSampler` with the chained tiles, so making the
+    // sampler trilinear turned the ocean black (2409 of 619200 checker pixels survived).
+    //
+    // Pinning MAX_LEVEL to the last level that actually exists is what makes one sampler
+    // shareable between chained and un-chained textures — which the RHI's own contract for
+    // `RhiSamplerDesc.mipmap` promises and could not have delivered otherwise.
     const { dev, rec } = device()
     dev.createTexture({
       width: 8,
@@ -180,7 +189,18 @@ describe('mip + anisotropy descriptors reach the GL objects (#1436)', () => {
       usage: ['sample', 'copy-dst'],
     })
     expect(rec.texImage).toEqual([{ level: 0, width: 8, height: 8 }])
-    expect(rec.texParamI.some(([p]) => p === GL.TEXTURE_MAX_LEVEL)).toBe(false)
+    expect(rec.texParamI).toContainEqual([GL.TEXTURE_MAX_LEVEL, 0])
+  })
+
+  it('a mipmap sampler against a single-level texture is COMPLETE, not black', () => {
+    // The property above, stated as the thing a caller actually cares about: a shared sampler
+    // must not depend on which textures happen to carry a chain.
+    const { dev, rec } = device()
+    dev.createTexture({ width: 8, height: 8, format: 'rgba8unorm', usage: ['sample'] })
+    dev.createSampler({ mag: 'linear', min: 'linear', mipmap: 'linear' })
+    const maxLevel = rec.texParamI.find(([p]) => p === GL.TEXTURE_MAX_LEVEL)?.[1]
+    expect(maxLevel, 'MAX_LEVEL must name a level that exists').toBe(0)
+    expect(minFilter(rec), 'and the sampler is still trilinear').toBe(GL.LINEAR_MIPMAP_LINEAR)
   })
 
   it('generateMipmaps delegates to gl.generateMipmap', () => {

@@ -87,8 +87,13 @@ export interface RhiSamplerDesc {
   mag: RhiFilter
   min: RhiFilter
   /** How to blend BETWEEN mip levels. Omitted ⇒ sample the base level only, which is the
-   *  pre-#1436 behaviour. `'linear'` with `min: 'linear'` is trilinear. Asking for this against
-   *  a single-level texture is not an error — there is simply nothing to blend to. */
+   *  pre-#1436 behaviour. `'linear'` with `min: 'linear'` is trilinear.
+   *
+   *  Safe against a single-level texture — there is simply nothing to blend to. That safety is
+   *  NOT free on WebGL2 and is upheld by the backend: GL's default TEXTURE_MAX_LEVEL is 1000, so
+   *  a mipmap min-filter against a texture with only a base level is mip-INCOMPLETE and samples
+   *  as opaque BLACK. The backend pins MAX_LEVEL to the last level that exists, which is what
+   *  makes one sampler shareable between chained and un-chained textures. */
   mipmap?: RhiFilter
   /** Max anisotropic taps (1 = isotropic). A screen pixel at pitch covers a long thin ellipse in
    *  texel space, so an isotropic tap must blur the long axis to match the short one; this is

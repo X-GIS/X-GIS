@@ -1094,7 +1094,15 @@ export class WebGl2Device implements RhiDevice {
       const h = Math.max(1, desc.height >> level)
       gl.texImage2D(gl.TEXTURE_2D, level, internal, w, h, 0, format, type, null)
     }
-    if (levels > 1) gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAX_LEVEL, levels - 1)
+    // ALWAYS, including levels === 1 (#1436). GL's default TEXTURE_MAX_LEVEL is 1000, so a
+    // single-level texture sampled by a MIPMAP min-filter is mip-INCOMPLETE — and an incomplete
+    // texture samples as opaque black, not as its base level. That is not hypothetical: the
+    // raster checker is a single-level texture sharing `linearSampler` with the chained tiles,
+    // and making that sampler trilinear turned the whole ocean black (_fills-gl2-gate: 2409 of
+    // 619200 checker pixels survived). Pinning MAX_LEVEL to the last level that actually exists
+    // makes every texture complete for any filter, which is what lets a sampler be shared
+    // between chained and un-chained textures at all.
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAX_LEVEL, levels - 1)
     // default sampling: nearest + clamp (a bound RhiSampler overrides via a sampler object).
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST)
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST)
