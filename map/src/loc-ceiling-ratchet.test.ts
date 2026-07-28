@@ -1120,7 +1120,10 @@ const CEILINGS: Record<string, number> = {
   //  lower-label 1145→1187: labelIconTextFit/labelIconTextFitPadding knob decls +
   //    the padding-prefix + enum parse arms + knob return + types + LabelDef spread.
   //  render-node 928→943: LabelDef.iconTextFit / iconTextFitPadding fields + docs.
-  'compiler/src/convert/layers-symbol.ts': 1363,
+  // 1363→1357: the text-pitch-alignment gap report (authored "map" AND the
+  // spec default chain that resolves to it) moved out to
+  // layers-helpers.pitchAlignmentGapWarning, net-shrinking the caller.
+  'compiler/src/convert/layers-symbol.ts': 1357,
   'compiler/src/ir/lower-label.ts': 1187,
   'compiler/src/tokens/colors.ts': 937,
   // 943→956 (#1302): RenderNodeArrowPaint sub-bundle (isArrow + arrowBearing).
