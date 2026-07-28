@@ -1,6 +1,7 @@
 # Overlay at native resolution — dynamic resolution must not scale the text
 
-**Status:** design, not yet implemented
+**Status:** INC-1 landed (#1416). INC-2 tracked as **#1429** — four of seven pieces proven, two
+named; see "The complete cost of INC-2, measured" below.
 **Author's problem statement:** _"잘 나오는데 반대로 말하면 다른곳에서는 제대로된 라벨도 못보잖아요"_ — it
 looks fine on a fast machine, which is exactly the complaint: on a slow one you cannot read the
 numbers.
