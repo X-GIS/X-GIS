@@ -42,10 +42,10 @@ if (import.meta.env.PROD) {
   URL_REWRITES.push([/\/noaa-s111\//g, `${NOAA_WORKER}/noaa-s111/`])
   URL_REWRITES.push([/\/noaa\//g, `${NOAA_WORKER}/noaa/`])
 }
-/** Origin for a RUNTIME NOAA fetch (the mosaic's `/noaa-s111/latest/<model>.h5`) — bare in
- *  dev (the vite proxy handles the path), the Worker in prod (no dev server). Mirrors the
- *  URL_REWRITES above for source URLs, but for imperative fetches the compiler never sees. */
-export const NOAA_PROXY_BASE = import.meta.env.PROD ? NOAA_WORKER : ''
+// (A `NOAA_PROXY_BASE` for IMPERATIVE app-side fetches lived here until #1453. Nothing fetches
+// NOAA imperatively any more: the live source declares a catalogue URL, so it goes through the
+// URL_REWRITES above like every other source URL, and the catalogue's own cell hrefs are
+// relative — they follow the document to whichever origin served it.)
 
 export function load(file: string): string {
   const key = `../examples/${file}`
@@ -123,11 +123,15 @@ export interface Demo {
    *  drifting along the direction band — the NOAA S-111 vector-field reading
    *  (#1272 / #826). The coverage colour ramp stays the speed reading. */
   currents?: boolean
-  /** When true, demo-runner installs the viewport-driven S-111 mosaic (#1272 E-④):
-   *  on each move-end it swaps the `currents` coverage to the NOAA regional model that
-   *  covers the view (installS111Mosaic), re-snapshotting the currents overlay. Implies a
-   *  live `currents` source; pair with `currents: true`. */
-  mosaic?: boolean
+  /** When true, demo-runner shows the forecast-hour scrubber over the `currents` source
+   *  (#1272 E-③) — a slider + play/pause driving `setCoverageTime` / `playCoverageTime`.
+   *  Set it for a source whose cell carries a MULTI-HOUR axis; the control hides itself
+   *  over a single-group cell anyway. Pair with `currents: true`.
+   *
+   *  This replaced a `mosaic` flag (#1453). Viewport residency is no longer something a
+   *  demo opts into: the live source's `url:` names a STAC catalogue and the ENGINE
+   *  resolves the viewport, exactly as it does for `type: raster`. */
+  timeControl?: boolean
   /** When true, demo-runner fetches NOAA CO-OPS live tidal-current stations
    *  (api.tidesandcurrents.noaa.gov, CORS `*`) and draws one retained arrow per
    *  station, refreshing periodically — the browser-DIRECT live-data path

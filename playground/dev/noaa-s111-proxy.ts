@@ -11,6 +11,10 @@
 //                                    object GET (Range preserved) OR an S3 LIST
 //                                    (`?list-type=2&prefix=…`), so a client can
 //                                    resolve the newest key for ANY dataset itself.
+//   /noaa-s111/catalog.json        — SYNTHESISED: a STAC ItemCollection of the S-111 cells
+//                                    with their domain envelopes, so a `type: coverage`
+//                                    source can name it and let the ENGINE own viewport
+//                                    residency (#1453). The only route not backed by S3.
 //   /noaa-s111/latest.h5           — convenience: newest CBOFS (Chesapeake) S-111 cell.
 //   /noaa-s111/latest/<model>.h5   — convenience: newest cell for ANY S-111 model
 //                                    (dbofs, gomofs, ngofs2, sfbofs, tbofs, wcofs, …).
@@ -22,6 +26,7 @@
 // (`noaa-s111-worker.ts`) — see playground/src/demos/loader.ts and docs/recipes.
 
 import type { Connect } from 'vite'
+import { s111CatalogueDocument } from './s111-catalogue'
 
 type FetchImpl = typeof globalThis.fetch
 
@@ -196,6 +201,21 @@ export async function handleNoaa(
   try {
     const [rawPath, search = ''] = reqUrl.split('?')
     const path = rawPath!.replace(/^\/+/, '')
+    // The S-111 cell CATALOGUE (#1453) — SYNTHESISED here, not proxied, so it is handled
+    // before `resolveTarget` (which only ever maps a path to an S3 object). A coverage source
+    // pointed at this URL lets the ENGINE own viewport residency; the NOAA-specific
+    // `bbox → cell` knowledge stays on this side of the wire, where it belongs.
+    if (path === 'noaa-s111/catalog.json') {
+      return new Response(JSON.stringify(s111CatalogueDocument()), {
+        headers: {
+          ...corsHeaders(origin),
+          'content-type': 'application/geo+json',
+          // Short, like the `latest` memo: the document is static but its hrefs resolve
+          // through `latest/`, so nothing here goes stale — this only bounds a redeploy.
+          'cache-control': 'public, max-age=300',
+        },
+      })
+    }
     const target = await resolveTarget(path, search, origin, fetchImpl)
     if (target instanceof Response) return target
     // Edge-cache the S3 fetch: `target.url` is an IMMUTABLE resolved cell key (the `latest`

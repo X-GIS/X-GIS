@@ -168,15 +168,15 @@ export const DEMOS_THEMATIC: Record<string, Demo> = {
   },
 
   s111_live: {
-    name: 'NOAA S-111 Live Currents — real S3 stream, viewport mosaic (#1272)',
+    name: 'NOAA S-111 Live Currents — real S3 stream, engine-resolved viewport (#1453)',
     tag: 'thematic',
     description:
-      'LIVE, REAL NOAA S-111 currents — streams real forecast cells straight from the NOAA Open-Data S3 bucket (noaa-s111-pds), read as the S-100 HDF5 standard IN PLACE (ADR-0010, no transcode). The NOAA bucket has no CORS, so the browser reaches it through the vite `/noaa-s111` dev proxy (a CORS-open Cloudflare Worker in prod); `latest.h5` resolves the newest published cycle so the demo never rots. Draws the STRICT OFFICIAL S-111 portrayal — the ENGINE-derived arrow field (`| arrow`, #1333): one band-coloured arrow per grid cell, oriented by the direction band, scaled per the vendored IHO catalogue (docs/standards/s-111), over Esri satellite imagery. Arrows ONLY, no raster fill (the catalogue defines coloured arrows, not a colour area). ANIMATED FLOW: `| particles` (#1333) layers a second, moving reading of the same field on top — small dots drift within their home cell and respawn, so the current visibly flows even with the camera and forecast hour both at rest. FORECAST TIME: a bottom scrubber steps the cell’s hourly groups (setCoverageTime — play/pause + slider). VIEWPORT MOSAIC: pan across the U.S. coast and the currents follow — on each move-end the demo swaps to the NOAA regional model covering the view (Chesapeake cbofs → San Francisco sfbofs → Gulf of Maine gomofs → …), hysteresis-damped so a boundary-adjacent zoom alone does not flip regions, an LRU keeping recent cells so panning back is instant. Needs network egress + the proxy; falls back to imagery only if a cell can not be reached.',
+      'LIVE, REAL NOAA S-111 currents — streams real forecast cells straight from the NOAA Open-Data S3 bucket (noaa-s111-pds), read as the S-100 HDF5 standard IN PLACE (ADR-0010, no transcode). The NOAA bucket has no CORS, so the browser reaches it through the vite `/noaa-s111` dev proxy (a CORS-open Cloudflare Worker in prod); `latest.h5` resolves the newest published cycle so the demo never rots. Draws the STRICT OFFICIAL S-111 portrayal — the ENGINE-derived arrow field (`| arrow`, #1333): one band-coloured arrow per grid cell, oriented by the direction band, scaled per the vendored IHO catalogue (docs/standards/s-111), over Esri satellite imagery. Arrows ONLY, no raster fill (the catalogue defines coloured arrows, not a colour area). ANIMATED FLOW: `| particles` (#1333) layers a second, moving reading of the same field on top — small dots drift within their home cell and respawn, so the current visibly flows even with the camera and forecast hour both at rest. FORECAST TIME: a bottom scrubber steps the cell’s hourly groups (setCoverageTime — play/pause + slider). VIEWPORT-DRIVEN, DECLARATIVELY (#1453): the source’s `url:` names a STAC catalogue of the NOAA regional cells, and the ENGINE resolves it — pan across the U.S. coast and the currents follow (Chesapeake cbofs → San Francisco sfbofs → Gulf of Maine gomofs → …), with every cell the view covers drawn TOGETHER rather than one winner, and the renderer’s GPU byte budget bounding what stays resident. That is the same deal `type: raster` has always offered; it replaced 860 lines of app-side mosaic code. Needs network egress + the proxy; falls back to imagery only if a cell can not be reached.',
     source: load('s111-live.xgis'),
     zoom: 7.4,
     center: [-76.1, 37.9],
     currents: true,
-    mosaic: true,
+    timeControl: true,
   },
 
   s102_live: {
