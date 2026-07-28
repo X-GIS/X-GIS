@@ -14,6 +14,7 @@ import {
   evictToBudget,
   overBudget,
   textureBytesOf,
+  mipLevelCountFor,
   type LoadedTexture,
 } from './raster-cache-budget'
 import { routeToSphereSelector, enumerateWorldCopies, isGlobeProj } from '@xgis/geo'
@@ -549,9 +550,16 @@ export class RasterRenderer {
         height: bitmap.height,
         format: 'rgba8unorm',
         usage: ['sample', 'copy-dst'],
+        // #1436 — a full chain. A basemap tile is the minified-appearance texture par excellence:
+        // on a pitched globe the far field IS most of the frame, and there a single-level
+        // bilinear tap averages 4 texels out of the many the pixel covers, picking a different 4
+        // next frame. That is the crawl.
+        mipLevelCount: mipLevelCountFor(bitmap.width, bitmap.height),
         label: 'raster-tile',
       })
       this.rhi.copyExternalImage(tex, bitmap, bitmap.width, bitmap.height)
+      // AFTER the base has content — a chain generated from an empty base is empty.
+      this.rhi.generateMipmaps(tex)
     } catch {
       bitmap.close()
       if (tex) this.rhi.destroyTexture(tex)
