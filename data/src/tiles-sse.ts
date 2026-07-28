@@ -352,8 +352,10 @@ export function visibleTilesSSE(
   const centerProj = projType === 0 ? [0, 0] : projection.forward(camLon, camLat)
   // Frustum cull via the camera's MVP — same matrix the renderer uses
   // to draw, so cull and rasterisation agree on screen space at any DPR.
-  const mvp = camera.getRTCMatrix(canvasWidth, canvasHeight, dpr)
-  const toScreen = (mx: number, my: number): [number, number] | null => {
+  // `far` comes from the same call so the FAR plane can bound the selection
+  // too (#1427) — see `beyondFarPlane` below.
+  const { matrix: mvp, far: farDepth } = camera.getFrameView(canvasWidth, canvasHeight, dpr)
+  const toScreen = (mx: number, my: number): [number, number, number] | null => {
     let rx: number, ry: number
     if (projType === 0) {
       rx = mx - camMx
@@ -374,7 +376,30 @@ export function visibleTilesSSE(
     if (cw <= 1e-6) return null // behind camera
     const cx = mvp[0]! * rx + mvp[4]! * ry + mvp[12]!
     const cy = mvp[1]! * rx + mvp[5]! * ry + mvp[13]!
-    return [(cx / cw + 1) * 0.5 * canvasWidth, (1 - cy / cw) * 0.5 * canvasHeight]
+    return [(cx / cw + 1) * 0.5 * canvasWidth, (1 - cy / cw) * 0.5 * canvasHeight, cw]
+  }
+
+  // ── FAR-PLANE CULL (#1427) ────────────────────────────────────────
+  // The camera's far plane is the single authority for where the rendered
+  // world ends — the GPU clips every fragment past it — so a tile entirely
+  // beyond it is pure waste. This is TIGHTER than the globe-horizon cull
+  // above (which stays as the non-Mercator / disabled-far fallback): at the
+  // reported camera the far plane reaches ~58 km of ground where the globe
+  // horizon allowed ~193 km, and it is the horizon MapLibre draws to.
+  //
+  // Exact on Mercator, where `cw` is affine in (mx, my) and its minimum over
+  // the tile rectangle is therefore attained at one of the four sampled
+  // corners. `projection.forward` is not affine, so this reuses
+  // `horizonCullActive` verbatim rather than re-deriving the same predicate —
+  // same Mercator-only scope, same `disableHorizonCull` escape hatch, and no
+  // second projType branch for the #996 ratchet to count. A corner behind the
+  // camera returns null and is skipped: it can only lower the true minimum,
+  // so skipping it can never cull a tile that should have been kept.
+  const beyondFarPlane = (corners: ([number, number, number] | null)[]): boolean => {
+    if (!horizonCullActive) return false
+    let cwMin = Infinity
+    for (const c of corners) if (c && c[2] < cwMin) cwMin = c[2]
+    return cwMin > farDepth
   }
 
   // Cheap AABB-vs-screen overlap check. Project the tile's 4 mercator
@@ -409,12 +434,13 @@ export function visibleTilesSSE(
     if (camMx >= mxMin && camMx <= mxMax && camMy >= myMin && camMy <= myMax) {
       return true
     }
-    const corners: ([number, number] | null)[] = [
+    const corners: ([number, number, number] | null)[] = [
       toScreen(mxMin, myMin),
       toScreen(mxMax, myMin),
       toScreen(mxMin, myMax),
       toScreen(mxMax, myMax),
     ]
+    if (beyondFarPlane(corners)) return false
     let allBehind = true
     let allLeft = true,
       allRight = true,

@@ -11,6 +11,26 @@
 // tilesVisible, missedTiles and triangle count the renderer actually
 // submitted, alongside frame-interval percentiles and the [FLICKER] /
 // arena-oom console traffic.
+//
+// RESTART THE DEV SERVER BETWEEN THE TWO SIDES OF AN A/B. A `git stash` /
+// `git stash pop` around a measurement does not reliably invalidate Vite's
+// module cache, and a stale run reproduces the other side's numbers to the
+// digit — which reads exactly like "the change had no effect" rather than
+// like a broken harness. Paid for during #1427: an after-run reported
+// tris=320418, identical to the before-run, and only a `rm -rf
+// node_modules/.vite` + restart revealed the real 74031.
+//
+// Measured at the reported camera, pane 639x704, both sides on FRESH servers:
+//
+//   pitch   draws          tilesVisible    triangles              cache
+//      30   106 -> 106     114 -> 114      18 870 ->  18 870      unchanged
+//      65   181 -> 161     194 -> 174      28 664 ->  25 300      117 -> 132
+//    72.4   814 -> 501     899 -> 538     320 418 ->  74 031      313 -> 182
+//      80   570 -> 447     625 -> 485     340 620 ->  65 497      268 -> 202
+//
+// (pitch 80 is noisy run-to-run — a separate before-run measured 165 253
+// triangles there. pitch 72.4 reproduced 320 418 on two independent
+// before-runs, so that is the row to quote.)
 
 import { test, expect } from '@playwright/test'
 import { mkdirSync, writeFileSync } from 'node:fs'
