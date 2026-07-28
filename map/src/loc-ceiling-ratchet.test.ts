@@ -634,7 +634,12 @@ const CEILINGS: Record<string, number> = {
   // dispatch-coverage-soundings.ts, both unit-proved); what remains here is the branch
   // itself + the per-frame closures the pass owns and cannot hand off (the camera
   // unprojector, the viewport, applyFeatureExprs, projectLonLatCopies, addLabel). +20.
-  'map/src/render/passes/label-pass.ts': 2150,
+  // 2150→2116 (overlay-native-resolution INC-1): the pass now names WHICH target geometry it
+  // reads (`ctx.screen` — it is the overlay), which cost a line the ceiling had no room for.
+  // Paid by extraction, not by a bump: `ensureBackgroundPatternAtlas` moved to
+  // background-pattern-atlas.ts (one call site, its own GPU-free gate). Ceiling lowered to the
+  // new size so the extraction is banked rather than left as headroom to re-spend.
+  'map/src/render/passes/label-pass.ts': 2116,
   // #1081 — per-anchor perspective distance attenuation (MapLibre parity). New
   // baseline: the wCenter + perspScale scratch-out-value lives INLINE in the two
   // existing projector closures (it rides the cw already computed per anchor —

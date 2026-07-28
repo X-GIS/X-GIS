@@ -41,9 +41,10 @@ function harness(groupCount: number, opts: { coverage?: boolean } = {}) {
     useResolve: false,
     rt: { stencilView: {}, pickTexture: undefined, pickView: undefined },
     projection: makeProjectionToken(0, 0, 0),
-    w: 800,
-    h: 600,
-    dpr: 1,
+    // The opaque pass is a SCENE pass, so it reads `scene`; `screen` is present because a
+    // FrameContext always carries both, and equal because INC-1 has not split them yet.
+    scene: { w: 800, h: 600, dpr: 1 },
+    screen: { w: 800, h: 600, dpr: 1 },
   }
   const rasterRenderer = {
     setOpacity: () => undefined,
