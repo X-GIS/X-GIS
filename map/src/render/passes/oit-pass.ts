@@ -25,7 +25,7 @@ class OitPass implements RenderPass {
     // Lazily allocate the OIT targets at the frame's size + sample count.
     // Gated by scene.hasOit (this pass only runs when set), so the default
     // path never allocates them. Mirrors the heatmap pass's ensureHeatmap.
-    ctx.rt.ensureOit(ctx.w, ctx.h, ctx.sampleCount)
+    ctx.rt.ensureOit(ctx.scene.w, ctx.scene.h, ctx.sampleCount)
     ctx.passScope('oit-fill', () => {
       // OIT pass shares the opaque pass's MSAA depth-stencil
       // (depthLoadOp='load' so the opaque depth is what

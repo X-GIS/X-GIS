@@ -18,6 +18,7 @@
 
 import { readCoverage, readCoverageRange } from '@xgis/data'
 import type { Bbox, CoverageHandle, CoverageTime } from '@xgis/data'
+import { xlog } from '@xgis/shared'
 import { fetchCoverageHandle } from './coverage-fetch'
 import {
   decideRefresh,
@@ -48,6 +49,12 @@ export interface CoverageSourceDeps {
   fieldArmed: () => boolean
   /** Re-derive the armed field(s) for ONE region from a handle. */
   armFields: (handle: CoverageHandle, region: string) => void
+  /** Arm a region that has NO armed display yet, straight from its LAYER's ShowCommand
+   *  (#1426). Distinct from `armRegion` below on purpose: that one preserves the LIVE display
+   *  opts across a swap, which is exactly wrong for a FIRST arm — there is no live paint to
+   *  preserve, only the renderer's defaults, so a fill-only coverage would silently lose the
+   *  `ramp:` / `range:` its layer declared. Used only by the deferred declared-source load. */
+  armFromShow: (sourceId: string, handle: CoverageHandle, region: string) => void
   /** Drop one region's compiled arrow glyphs. */
   clearArrows: (region: string) => void
   invalidate: () => void
@@ -149,6 +156,51 @@ function armRegion(
   )
 }
 
+/** Read a DECLARED `type: coverage` source's cell and arm it — the BACKGROUND half of the
+ *  attach (#1426).
+ *
+ *  The attach itself returns the moment the (empty) source is registered, because a coverage
+ *  cell is the one source type that is BOTH multi-megabyte (10-250 MB) and irrelevant to the
+ *  first frame: it never drives camera-fit, and every other layer draws without it. Awaiting
+ *  it inside run()'s load barrier put it in front of `rebuildLayers` + the first
+ *  `renderLoop()`, so the WHOLE map — the satellite basemap under a NOAA S-111 cell included
+ *  — stayed black for the entire stream, and a cell that could not be reached rethrew out of
+ *  the barrier and aborted the mount rather than degrading to imagery-only.
+ *
+ *  Guarded exactly like every other async read in this module: the per-REGION epoch (a host
+ *  push or a forecast step can genuinely beat this read — the network is the slow one, and
+ *  whoever asked LAST must win), the destroy latch, and the caller's superseded-run probe.
+ *
+ *  Never `rebuildLayers()` (the module invariant): the arm below is that one coverage's arm. */
+export async function loadDeclaredCoverage(
+  deps: CoverageSourceDeps,
+  sourceId: string,
+  url: string,
+  isStale?: () => boolean,
+): Promise<void> {
+  const region = DEFAULT_REGION
+  const label = `coverage source "${sourceId}"`
+  const token = deps.time.nextEpoch(region)
+  let handle: CoverageHandle
+  try {
+    // The range-then-whole-file ladder lives in coverage-fetch.ts, shared with
+    // `refreshCoverage` (#1158): read the same way at attach and at refresh, or a
+    // Range-hostile server works once and breaks on the first re-read.
+    handle = await fetchCoverageHandle(url, label, deps.guardedFetch(label))
+  } catch (e) {
+    // ISOLATED, never fatal. The scene is already running — that is the whole point of
+    // reading in the background — so an unreachable cell leaves every other layer drawing,
+    // which is the imagery-only fallback the live demos document. Same isolate-and-log
+    // contract run()'s load barrier gives a source with an unusable declared CRS.
+    xlog.error(`[X-GIS] ${label} — ${(e as Error).message}`)
+    return
+  }
+  if (!deps.time.isCurrent(token, region) || deps.destroyed() || isStale?.()) return
+  if (!writeRegion(deps, sourceId, region, { handle, url })) return
+  deps.armFromShow(sourceId, handle, region)
+  deps.invalidate()
+}
+
 /** Host-push a cell into one region of a coverage source. See `XGISMap.setCoverageData`. */
 export async function pushCoverageRegion(
   deps: CoverageSourceDeps,
@@ -159,7 +211,8 @@ export async function pushCoverageRegion(
   if (!coverageRegions(deps, sourceId)) {
     throw new Error(
       `[X-GIS] setCoverageData: "${sourceId}" is not a declared coverage source ` +
-        `(declare \`source ${sourceId} { type: coverage, url: … }\` first).`,
+        `(declare \`source ${sourceId} { type: coverage }\` first — \`url:\` is optional, ` +
+        `and omitting it is how you say THIS host owns residency).`,
     )
   }
   const region = opts?.region ?? DEFAULT_REGION

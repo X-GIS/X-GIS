@@ -21,6 +21,8 @@ import { HostSpriteAtlasRhi } from '../sprite/host-sprite-atlas-rhi'
 import type { IconAtlasGpu, SpriteMetadataSource } from '../sprite/icon-stage'
 import { RetainedIconDraper } from '../render/material/icon-retained-material'
 import { RetainedArrowDraper } from '../render/material/arrow-retained-material'
+import { RetainedArrowAdvectedDraper } from '../render/material/arrow-retained-advected-material'
+import type { AdvectedArrowInput, AdvectedArrowSource } from './compiled-arrow-store'
 import { RetainedCircleDraper } from '../render/material/circle-retained-material'
 import { RetainedParticleDraper } from '../render/material/particle-retained-material'
 import { packRetainedIconFeat, packRetainedIconTint } from './retained-icon-packer'
@@ -106,6 +108,7 @@ export class GraphicsManager {
   private rhi: RhiDevice | null = null
   private draper: RetainedIconDraper | null = null
   private arrowDraper: RetainedArrowDraper | null = null
+  private advectedArrowDraper: RetainedArrowAdvectedDraper | null = null
   private circleDraper: RetainedCircleDraper | null = null
   private particleDraper: RetainedParticleDraper | null = null
   private frameBlock: UniformBlockOf<typeof pointU> | null = null
@@ -290,8 +293,28 @@ export class GraphicsManager {
     )
   }
 
+  /** True when an ADVECTED arrow layer is resident (#1419). The frame runs the arrow advection
+   *  step only then, so a scene without one allocates neither the ping-pong nor its pipeline.
+   *  Keep-warm needs no separate signal: an advected batch exists only where a coverage carries
+   *  a velocity field, and `coverageRenderer.hasFlowField()` already arms the on-demand loop for
+   *  exactly that case. */
+  hasAdvectedArrows(): boolean {
+    return this._compiledArrows.hasAdvected
+  }
+
+  /** Where the ADVECTED arrows' state lives (#1419) — FlowRenderer, which owns the step. Set
+   *  before attachDevice: the store captures it there, and an advected batch added without it is
+   *  dropped rather than drawn as a static field frozen at its launch instant. */
+  setAdvectedArrowSource(source: AdvectedArrowSource | null): void {
+    // Straight through to the store, which is where it is needed. Held nowhere here: on a fresh
+    // run attachDevice has ALREADY happened by the time buildSceneRenderers makes a
+    // FlowRenderer, so a copy kept for the next attach would only be a copy that can go stale.
+    this._compiledArrows.setAdvectedSource(source)
+  }
+
   /** Registers a DECLARATIVE `| arrow` layer (#1302) — delegated to the compiled-arrow
-   *  store, which owns the compiled path's packing/lifecycle (same draper as host). */
+   *  store, which owns the compiled path's packing/lifecycle (same draper as host).
+   *  `advected` (#1419) opts the batch into the particle portrayal. */
   addCompiledArrowLayer(
     lons: Float64Array,
     lats: Float64Array,
@@ -300,6 +323,7 @@ export class GraphicsManager {
     colors: ReadonlyArray<readonly [number, number, number, number]>,
     strokeUnits = 0,
     region = '',
+    advected: AdvectedArrowInput | null = null,
   ): void {
     this._compiledArrows.add(
       lons,
@@ -310,6 +334,7 @@ export class GraphicsManager {
       strokeUnits,
       this.dpr,
       region,
+      advected,
     )
   }
 
@@ -705,9 +730,12 @@ export class GraphicsManager {
     this.rhi = rhi
     this.draper = new RetainedIconDraper(rhi, format, 1, pointUniformBytes())
     this.arrowDraper = new RetainedArrowDraper(rhi, format, 1, pointUniformBytes())
+    this.advectedArrowDraper = new RetainedArrowAdvectedDraper(rhi, format, 1, pointUniformBytes())
     this.circleDraper = new RetainedCircleDraper(rhi, format, 1, pointUniformBytes())
     this.particleDraper = new RetainedParticleDraper(rhi, format, 1, pointUniformBytes())
-    this._compiledArrows.attach(rhi, this.arrowDraper)
+    // The advected DRAPER is available now; its frame-side source (the FlowRenderer that owns
+    // the arrow state) is handed over separately, once buildSceneRenderers has made one.
+    this._compiledArrows.attach(rhi, this.arrowDraper, this.advectedArrowDraper)
     this.frameBlock = uniformBlock(pointU)
     this._blockView = new Float32Array(this.frameBlock.buffer)
     for (const b of this.batches) this.materialise(b)

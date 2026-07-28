@@ -32,7 +32,12 @@ class GraphicsPass implements RenderPass {
 
   execute(ctx: FrameContext, _scene: SceneView, host: GraphicsPassHost): void {
     const { projType, centerLon, centerLat } = unwrapProjection(ctx.projection)
-    const frame = host.camera.getViewForProjection(projType, ctx.w, ctx.h, ctx.dpr)
+    const frame = host.camera.getViewForProjection(
+      projType,
+      ctx.screen.w,
+      ctx.screen.h,
+      ctx.screen.dpr,
+    )
     ctx.passScope('graphics-icons', () => {
       const pass = ctx.encoder.beginRenderPass({
         colorAttachments: [{ view: ctx.screenView, loadOp: 'load', storeOp: 'store' }],
@@ -44,9 +49,9 @@ class GraphicsPass implements RenderPass {
         projType,
         centerLon,
         centerLat,
-        ctx.w,
-        ctx.h,
-        ctx.dpr,
+        ctx.screen.w,
+        ctx.screen.h,
+        ctx.screen.dpr,
       )
       pass.end()
     })

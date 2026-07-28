@@ -61,9 +61,9 @@ class PointsPass implements RenderPass {
         projType,
         centerLon,
         centerLat,
-        ctx.w,
-        ctx.h,
-        ctx.dpr,
+        ctx.scene.w,
+        ctx.scene.h,
+        ctx.scene.dpr,
       )
       ptPass.end()
     })

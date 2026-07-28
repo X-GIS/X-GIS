@@ -30,6 +30,12 @@ import { applyBodyOption } from './body-consts'
 import { addHeatmapShowLayer } from './heatmap-show'
 import { addArrowShowLayer } from './arrow-show'
 import { addCoverageArrowShowLayer } from './coverage-arrow-show'
+import {
+  armAdvectedArrows,
+  armCoverageDrape,
+  armCoverageShow,
+  armLandedCoverage,
+} from './coverage-arm'
 import { worldBandForProjType } from '@xgis/geo'
 import { projectLonLatToScreenCss } from './render-loop-helpers'
 import {
@@ -89,13 +95,13 @@ import { CoverageTimePlayer } from './coverage-time'
 import { RasterRenderer } from './render/raster-renderer'
 import { HillshadeRenderer, armHillshadeSource } from './render/hillshade-renderer'
 import { CoverageRenderer, DEFAULT_REGION } from './render/coverage-renderer'
-import { coverageDrapeArm } from './render/coverage-drape-arm'
 import {
   refreshCoverageSource,
   type RefreshCoverageOpts,
   coverageHandleAt,
   coverageRegions,
   dropCoverageRegion,
+  loadDeclaredCoverage,
   primaryCoverageTime,
   pushCoverageRegion,
   readRegionsAtGroup,
@@ -551,6 +557,8 @@ export class XGISMap {
     time: this._coverageTime,
     fieldArmed: () => this._coverageFieldArmed,
     armFields: (handle, region) => this._armCoverageFields(handle, region),
+    armFromShow: (id, handle, region) =>
+      armLandedCoverage(this, this.showCommands, id, handle, region),
     clearArrows: (region) => this._graphics.clearCompiledArrows(region),
     invalidate: () => this.invalidate(),
     refresh: this._coverageRefresh,
@@ -1227,6 +1235,8 @@ export class XGISMap {
       deleteFeatureIndex: (sourceId) => {
         this.featureUpdateQueue.featureIndex.delete(sourceId)
       },
+      beginCoverageLoad: (sourceId, url, isStale) =>
+        loadDeclaredCoverage(this._coverageDeps, sourceId, url, isStale),
     })
     // Pick / interaction QUERY cluster — receives the shared camera +
     // layer/source state by reference; ctx / pickTexture / projectionName /
@@ -3095,6 +3105,9 @@ export class XGISMap {
     this.hillshadeRenderer = rendererSet.hillshadeRenderer
     this.coverageRenderer = rendererSet.coverageRenderer
     this.flowRenderer = rendererSet.flowRenderer
+    // The advected arrows' state lives on the FlowRenderer (#1419); the graphics store needs a
+    // handle on it to bind — and to upload each batch's origins the moment it is added.
+    this.graphics.setAdvectedArrowSource(rendererSet.flowRenderer)
     this.gpuTimer = rendererSet.gpuTimer
     // Cast: pointRenderer field is a definite-assignment non-null (like ctx);
     // buildSceneRenderers yields null only on a ctor failure, which overwrites a
@@ -3595,10 +3608,11 @@ export class XGISMap {
         // EVERY resident region, not just one: a mosaic viewport holds several adjacent
         // NOAA domains and each needs its own drape + arrow field (#1272 E-④).
         for (const [region, entry] of data._coverage) {
-          this._armCoverageDrape(show, entry.handle, region)
+          armCoverageDrape(this, show, entry.handle, region)
           // `| arrow` on a coverage layer (#1333) draws the official S-111 vector field —
           // the engine-owned arrow portrayal, band-coloured by `ramp` (default s111-speed).
           if (show.isArrow) addCoverageArrowShowLayer(this, show, entry.handle, region)
+          armAdvectedArrows(this, show, entry.handle, region)
         }
         if (show.isArrow) this._coverageArrowsArmed = true
         if (show.isFlow) this._coverageFlowArmed = true
@@ -4130,6 +4144,9 @@ export class XGISMap {
     this.hillshadeRenderer = rendererSet.hillshadeRenderer
     this.coverageRenderer = rendererSet.coverageRenderer
     this.flowRenderer = rendererSet.flowRenderer
+    // The advected arrows' state lives on the FlowRenderer (#1419); the graphics store needs a
+    // handle on it to bind — and to upload each batch's origins the moment it is added.
+    this.graphics.setAdvectedArrowSource(rendererSet.flowRenderer)
     this.gpuTimer = rendererSet.gpuTimer
     this.pointRenderer = rendererSet.pointRenderer as PointRenderer
     this.shapeRegistry = rendererSet.shapeRegistry
@@ -4789,52 +4806,10 @@ export class XGISMap {
    *  A no-op when no field is armed (`_coverageFieldShow` null). Mirrors the coverage arm
    *  inside `rebuildLayers` exactly — the single authority both share is `_coverageFieldShow`
    *  (#1333). */
-  /** Arm the coverage DRAPE for a show — the single authority both the rebuild and the
-   *  transient re-arm answer to, so the two cannot disagree about when the fill draws.
-   *
-   *  THREE CASES, and the middle one is the point (#1333):
-   *
-   *  1. No field keyword           → the fill draws as always (default viridis).
-   *  2. `| flow`, no `ramp`        → FLOW-ONLY. The drape draws, but as a neutral luminance
-   *                                  modulation with no colour ramp: the motion is visible
-   *                                  while the CATALOGUE ARROWS remain the only colour
-   *                                  authority. Before this, motion was welded to the
-   *                                  non-standard fill, so a strictly-conformant style
-   *                                  (arrows, no ramp) could not have it at all.
-   *  3. `| arrow` alone, no `ramp` → the STRICT catalogue portrayal: arrows, no drape.
-   *
-   *  Declaring a `ramp` always adds the non-standard colour fill under whatever else runs. */
-  private _armCoverageDrape(
-    show: ShowCommand,
-    handle: CoverageHandle,
-    region = DEFAULT_REGION,
-  ): void {
-    const arm = coverageDrapeArm(show)
-    if (!arm.draw) return
-    this.coverageRenderer.setCoverage(
-      handle,
-      {
-        ramp: show.ramp ?? 'viridis',
-        rangeLo: show.range?.[0],
-        rangeHi: show.range?.[1],
-        opacity: show.opacity ?? 1,
-        flowOnly: arm.flowOnly,
-      },
-      region,
-    )
-  }
-
   private _armCoverageFields(handle: CoverageHandle, region = DEFAULT_REGION): void {
     const show = this._coverageFieldShow
     if (!show) return
-    this._armCoverageDrape(show, handle, region)
-    if (show.isArrow) {
-      // Clear THIS region's arrows only. Clearing all of them here is what kept the mosaic
-      // single-region even after the renderer could hold several: a neighbour's time step
-      // wiped every other domain's glyphs and re-added just its own.
-      this._graphics.clearCompiledArrows(region)
-      addCoverageArrowShowLayer(this, show, handle, region)
-    }
+    armCoverageShow(this, show, handle, region)
     this.invalidate()
   }
 

@@ -121,7 +121,7 @@ export const LAYOUT_SYMBOL: readonly CoverageEntry[] = [
     name: 'text-pitch-alignment',
     status: 'partial',
     impact: 'medium',
-    note: "Converter emits, runtime ignores — labels never project onto ground plane. Iter 10 surfaced an explicit warning when `map` is authored (the gap-revealing case) so authors of pitched-view styles see the diagnostic. `viewport` and `auto` match X-GIS' billboard-rendering default and stay silent.",
+    note: 'Converter emits, runtime ignores — labels never project onto ground plane (`LabelDef.pitchAlignment` has NO consumer in map/src; the text vertex path emits screen-px quads at z=0). NOT opt-in, and this was under-reported until #777 IV3 was re-scoped: the spec default `auto` matches text-rotation-alignment, whose own `auto` is `map` for line / line-center placement, so EVERY line-placed label resolves to map without authoring anything — 5 text-bearing layers per OFM style (road names, waterway names, along-line shields), 0 of which author the property. The converter now warns on the RESOLVED value, not just an explicit `map`; only an explicit `viewport` (on either knob) or point placement stays silent. Icon-only line layers are excluded — their gap is icon-pitch-alignment.',
     source: 'map.ts:2461',
   },
   {
@@ -139,7 +139,7 @@ export const LAYOUT_SYMBOL: readonly CoverageEntry[] = [
   {
     name: 'text-max-angle',
     status: 'supported',
-    note: "Max degrees between adjacent glyphs on a line-placed label. Threaded end-to-end: layout `text-max-angle` → `label-max-angle-N` → LabelDef.maxAngle → TextStage curved-loop angular gate (drops the label when the wrapped per-glyph tangent delta exceeds the threshold). UNSET = no clamp (X-GIS historical behaviour preserved byte-for-byte for styles that don't author it); authoring a value (incl. spec default 45) activates the gate.",
+    note: "Max degrees between adjacent glyphs on a line-placed label. Threaded end-to-end: layout `text-max-angle` → `label-max-angle-N` → LabelDef.maxAngle → TextStage curved-loop angular gate (drops the label when the wrapped per-glyph tangent delta exceeds the threshold). UNSET = the spec default of 45, which MapLibre applies to every line-placed label whether or not the style authors the property. It previously meant NO clamp, to keep unauthored styles byte-identical — but omitting it is the norm (not one of OFM Positron's five line-placed symbol layers sets it), so the gate never ran on the style parity is measured against.",
     source: 'layers-symbol.ts:1072',
   },
   {
