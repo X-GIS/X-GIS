@@ -18,6 +18,7 @@ import { bumpAlloc } from '../__profile__/alloc-counter'
 import { FrameArena } from '@xgis/engine'
 import type { TileCatalog } from '@xgis/data'
 import { tileKeyParent } from '@xgis/compiler'
+import { tileEntryDistance } from './tile-entry-distance'
 import { EARTH, activeBody } from '@xgis/shared'
 
 export class LabelFeatureSource {
@@ -37,6 +38,9 @@ export class LabelFeatureSource {
       xs: Float64Array
       ys: Float64Array
       props: Record<string, unknown>
+      /** Arc-length (mercator metres) from vertex 0 to the tile boundary — the
+       *  world-anchored phase origin. Camera-independent, hence cacheable. */
+      entry: number
     }>
   >()
   private static readonly LINE_LABEL_RUNS_CACHE_MAX = 4096
@@ -374,6 +378,8 @@ export class LabelFeatureSource {
       polylineMercX: Float64Array,
       polylineMercY: Float64Array,
       props: Record<string, unknown>,
+      /** INC-1 — mercator arc-length at which this run enters its own tile. */
+      tileEntryM: number,
     ) => void,
   ): void {
     const table = source.getPropertyTable()
@@ -445,7 +451,7 @@ export class LabelFeatureSource {
         // LRU touch.
         this._lineLabelRunsCache.delete(cacheKey)
         this._lineLabelRunsCache.set(cacheKey, cachedRuns)
-        for (const run of cachedRuns) fn(run.xs, run.ys, run.props)
+        for (const run of cachedRuns) fn(run.xs, run.ys, run.props, run.entry)
         continue
       }
       const tileData = source.getTileData(key, sliceLayer)
@@ -453,6 +459,14 @@ export class LabelFeatureSource {
       const lv = tileData.lineVertices
       const li = tileData.lineIndices
       if (lv.length < STRIDE * 2 || li.length < 2) continue
+      // Tile bounds in mercator metres — INC-1's phase origin is where a run
+      // crosses INTO them (MVT geometry starts out in the buffer).
+      const tileMinX = tileData.tileWest * DEG2RAD * R
+      const tileMaxX = (tileData.tileWest + tileData.tileWidth) * DEG2RAD * R
+      const latToMercY = (lat: number): number =>
+        Math.log(Math.tan(Math.PI / 4 + (clampLat(lat) * DEG2RAD) / 2)) * R
+      const tileMinY = latToMercY(tileData.tileSouth)
+      const tileMaxY = latToMercY(tileData.tileSouth + tileData.tileHeight)
       const tileMercX = tileData.tileWest * DEG2RAD * R
       const tileMercY =
         Math.log(Math.tan(Math.PI / 4 + (clampLat(tileData.tileSouth) * DEG2RAD) / 2)) * R
@@ -477,6 +491,11 @@ export class LabelFeatureSource {
         ys: Float64Array
         len: number
         props: Record<string, unknown>
+        /** INC-1 — mercator arc-length at which this run enters its OWN tile.
+         *  MVT geometry carries a buffer, so a run starts OUTSIDE the bounds and
+         *  that overhang is exactly the line-label phase error against MapLibre.
+         *  Camera-independent, so it caches with the run. */
+        entry: number
       }
       bumpAlloc('vtr.forEachLineLabelPolyline.tileRuns.Map')
       const tileRuns = new Map<number, RunEntry>()
@@ -494,11 +513,22 @@ export class LabelFeatureSource {
           }
           const existing = tileRuns.get(runFeatId)
           if (!existing || existing.len < total) {
+            const runXs = xs.slice(0, runLen)
+            const runYs = ys.slice(0, runLen)
             tileRuns.set(runFeatId, {
-              xs: xs.slice(0, runLen),
-              ys: ys.slice(0, runLen),
+              xs: runXs,
+              ys: runYs,
               len: total,
               props: runProps,
+              entry: tileEntryDistance(
+                runXs,
+                runYs,
+                runLen,
+                tileMinX,
+                tileMinY,
+                tileMaxX,
+                tileMaxY,
+              ),
             })
           }
         }
@@ -566,11 +596,15 @@ export class LabelFeatureSource {
       // skip the walk entirely. tileRuns Map is local to this
       // iteration; the array holds the runs (xs/ys are already
       // independent Float64Array slices made by flushRun).
-      const runsArr: Array<{ xs: Float64Array; ys: Float64Array; props: Record<string, unknown> }> =
-        []
+      const runsArr: Array<{
+        xs: Float64Array
+        ys: Float64Array
+        props: Record<string, unknown>
+        entry: number
+      }> = []
       for (const run of tileRuns.values()) {
-        runsArr.push({ xs: run.xs, ys: run.ys, props: run.props })
-        fn(run.xs, run.ys, run.props)
+        runsArr.push({ xs: run.xs, ys: run.ys, props: run.props, entry: run.entry })
+        fn(run.xs, run.ys, run.props, run.entry)
       }
       // LRU cap.
       if (this._lineLabelRunsCache.size >= LabelFeatureSource.LINE_LABEL_RUNS_CACHE_MAX) {

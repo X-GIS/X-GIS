@@ -21,9 +21,10 @@
 //   `?dpr=N`                 override max devicePixelRatio cap
 //   `?adaptiveDpr=N`         drop DPR to N during pointer/wheel
 //                            interaction, restore on idle (null = off)
-//   `?adaptive=0`            disable adaptive resolution scaling (on by
-//                            default; steps DPR down only while measured
-//                            frames stay over budget — see adaptive-dpr.ts)
+//   `?adaptive=0`            disable the adaptive quality ladder (on by
+//                            default; coarsens far-field LOD then steps DPR
+//                            down while measured frames stay over budget —
+//                            see adaptive-quality.ts)
 //   `?safe=1`                back-compat alias for `?quality=battery`
 //                            (existing flag, kept working)
 //
@@ -31,7 +32,7 @@
 // `?quality=performance&msaa=2` keeps performance preset's other knobs
 // but bumps MSAA back to 2× for slightly cleaner edges.
 
-import { adaptiveDprScale, setAdaptiveDprEnabled } from './adaptive-dpr'
+import { adaptiveDprScale, setAdaptiveQualityEnabled } from './adaptive-quality'
 
 export interface QualityConfig {
   /** MSAA sample count: 1, 2, or 4. Init-time only — pipelines bake
@@ -56,13 +57,16 @@ export interface QualityConfig {
    *  pass. Off by default — 8 bytes/pixel of VRAM + minor fragment cost.
    *  Requires `msaa = 1` (silently forced). */
   picking: boolean
-  /** Adaptive resolution scaling (adaptive-dpr.ts). When the measured frame
-   *  interval stays over budget, the device-pixel scale steps down; when it is
-   *  comfortably fast again it steps back up. ON by default: the knobs above are
-   *  a static bet on the host's hardware, and a map that has been proven unable
-   *  to hold 30 fps is already not delivering the fidelity that bet promised.
-   *  It never engages on a host that keeps up, so a machine that was fine before
-   *  renders identically. `?adaptive=0` opts out. */
+  /** Adaptive quality ladder (adaptive-quality.ts). When the measured frame
+   *  interval stays over budget the ladder steps down; when it is comfortably fast
+   *  again it steps back up. Two levers, in order: the far-field LOD ceiling is
+   *  coarsened FIRST, device-pixel scale only after — the horizon is spent before
+   *  the user's legibility. ON by default: the knobs above are a static bet on the
+   *  host's hardware, and a map that has been proven unable to hold 30 fps is
+   *  already not delivering the fidelity that bet promised. It never engages on a
+   *  host that keeps up, so a machine that was fine before renders identically.
+   *  `?adaptive=0` opts out — and note that it now pins TILE SELECTION as well as
+   *  resolution, so any measurement that compares geometry counts must set it. */
   adaptive: boolean
 }
 
@@ -258,7 +262,7 @@ function resolveQuality(): QualityConfig {
 export const QUALITY: QualityConfig = resolveQuality()
 // The controller defaults to enabled; a `?adaptive=0` boot must disable it BEFORE
 // the first frame is sampled, so apply the resolved policy at module load.
-setAdaptiveDprEnabled(QUALITY.adaptive)
+setAdaptiveQualityEnabled(QUALITY.adaptive)
 
 /** Change listeners — `map.setQuality()` registers so it can orchestrate
  *  the heavy renderer rebuilds that MSAA / picking flips require. */
@@ -281,7 +285,7 @@ export function updateQuality(patch: Partial<QualityConfig>): void {
   if (patch.interactionDpr !== undefined) QUALITY.interactionDpr = patch.interactionDpr
   if (patch.adaptive !== undefined) {
     QUALITY.adaptive = patch.adaptive
-    setAdaptiveDprEnabled(patch.adaptive)
+    setAdaptiveQualityEnabled(patch.adaptive)
   }
   if (patch.picking !== undefined) {
     QUALITY.picking = patch.picking

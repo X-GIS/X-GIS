@@ -146,7 +146,7 @@ const CEILINGS: Record<string, number> = {
   // after the replaced-set was drained. +6, all inside the existing method. Disjoint from #1397
   // as well, so the three sum: 4740 + 51 + 21 + 6 = 4818 = the merged file's line count.
   // Shrink-only from here.
-  'map/src/render/vector-tile-renderer.ts': 4818,
+  'map/src/render/vector-tile-renderer.ts': 4815,
   // 4232→4237 (#1000 heatmap relocate): the heatmap density-target OWNERSHIP
   // extracted to render/heatmap-targets.ts; map keeps only the irreducible
   // composition-root wiring — the `heatmapTargets` field + its import (mirrors
@@ -445,7 +445,13 @@ const CEILINGS: Record<string, number> = {
   // to different methods, so the merged file measures their SUM. Value below is the MEASURED
   // post-hook line count, not an arithmetic guess.
   // MERGE UNION: non-overlapping deltas; the value is the MEASURED post-hook count.
-  'map/src/map.ts': 5409,
+  // 5409→5412 (#1272 E-④ follow-up): the coverage deps record binds the renderer through a
+  // THUNK instead of capturing it. `coverageRenderer` is declared `!` and assigned only at
+  // GPU boot, so the captured form was `undefined` forever — it broke every ramp-only
+  // coverage push and every mosaic region eviction, and shipped green. +3 is the one-line
+  // change plus the three-line reason; there is nothing to extract from a single binding,
+  // and dropping the comment would leave the next reader free to "simplify" it back.
+  'map/src/map.ts': 5412,
   // Baselined at #1255 (measured 830): the DOM-inspired layer API crossed
   // NEW_FILE_CAP with the paint-transition style-setter integration — the
   // StyleHost.transitions context, the shared applyNumber/applyColor
@@ -634,7 +640,7 @@ const CEILINGS: Record<string, number> = {
   // dispatch-coverage-soundings.ts, both unit-proved); what remains here is the branch
   // itself + the per-frame closures the pass owns and cannot hand off (the camera
   // unprojector, the viewport, applyFeatureExprs, projectLonLatCopies, addLabel). +20.
-  'map/src/render/passes/label-pass.ts': 2150,
+  'map/src/render/passes/label-pass.ts': 2148,
   // #1081 — per-anchor perspective distance attenuation (MapLibre parity). New
   // baseline: the wCenter + perspScale scratch-out-value lives INLINE in the two
   // existing projector closures (it rides the cw already computed per anchor —
@@ -885,7 +891,10 @@ const CEILINGS: Record<string, number> = {
   // 941→975 (#1371 atomic re-seed): `releaseSupersededTile` + `dropTile`, and the split of
   // `_releaseTileSlots` into a resource-release body the two share with eviction. Arena/pool
   // ownership is this class's whole reason to exist.
-  'map/src/render/gpu-tile-store.ts': 975,
+  // 975→946 (#1357): the pooled-buffer recycler moved out to gpu-buffer-pool.ts
+  // (bucketing + entry cap + the new byte cap), which also orphaned the raw
+  // `device` field — its only reader was the pool's createBuffer.
+  'map/src/render/gpu-tile-store.ts': 946,
   // 930→948 (#1078): the zoom-transition readiness gate now probes the SAME
   // selector the frame draws with — routeToSphereSelector picks globeVisibleTiles
   // on the globe/sphere route (vs the flat visibleTilesSSE) so cz hold/advance is
@@ -912,7 +921,16 @@ const CEILINGS: Record<string, number> = {
   // costs exactly two lines here — the import and the `onTruncated` argument; the
   // warn POLICY was extracted to render/selection-truncation.ts rather than added
   // to this file. Single ratchet for this path since runtime/ dissolved.
-  'map/src/render/tile-selection-cache.ts': 987,
+  // 987→997 (#1393): the adaptive quality ladder's far-field notch reaches the selector
+  // from here — the import plus the `farTargetBoost` argument on BOTH selection calls
+  // (the drawing one and the readiness gate, which must agree or the zoom advance stalls
+  // waiting for tiles a coarser selection never asks for). The POLICY stays in engine's
+  // adaptive-quality.ts and the mechanism in data's tiles-sse.ts; this file only carries
+  // the wire, which is exactly where the composition root belongs. The notch also joins
+  // `FrameTileCache` + its validity check: a STATIC camera never bumps `frameId`, so
+  // without that the memo would keep serving the pre-degrade selection for exactly as
+  // long as the user held still — measured, 0.6% instead of 26%.
+  'map/src/render/tile-selection-cache.ts': 1011,
   // 870→876 (#1083): +6 for the tile-rect NE-corner Mercator calc threaded
   // into generateWallMeshExtrudedECEF so it drops clip-synthetic seam walls.
   // 876→889: visible-first cap-deferral — `_distSq` field + `resetFrameCap`
@@ -1022,7 +1040,13 @@ const CEILINGS: Record<string, number> = {
   // 1452→1457 (#1333 `| particles`): `isParticles` local + its 3 acc-thread/return sites —
   // mirrors isArrow's shape exactly (no arrowBearing-like companion needed), no new logic.
   // Measured after prettier: wc -l = 1457.
-  'compiler/src/ir/lower.ts': 1457,
+  // 1457→1463 (#1418): threading `flowPortrayal` through the lowering — one `let`, one
+  // read-back from the accumulator, one return field, plus the three lines saying why the
+  // default is deliberately left UNDEFINED here rather than baked in. A declarative surface
+  // has to touch this file to exist; there is nothing to extract from six lines of threading,
+  // and dropping the comment would invite a later reader to "helpfully" default it and create
+  // the second authority it exists to prevent.
+  'compiler/src/ir/lower.ts': 1463,
   // #777 I-B icon-keep-upright + I-F icon value-forms (merged) grow three
   // symbol-lowering god-files (per-row justification in
   // architecture-invariants.test.ts, the second authority):
@@ -1048,7 +1072,10 @@ const CEILINGS: Record<string, number> = {
   // 956→957 (merge union with #1305 RenderNodeCoveragePaint).
   // 957→966 (#1333): RenderNodeParticlePaint sub-bundle (isParticles) + its merge into
   // RenderNode's extends list.
-  'compiler/src/ir/render-node.ts': 966,
+  // 966→969 (#1418): the `flowPortrayal` field on RenderNode plus its doc comment. A field on
+  // the IR node type is the whole point of the file; extracting one property would split the
+  // node's shape across two places for no gain.
+  'compiler/src/ir/render-node.ts': 969,
   'compiler/src/convert/paint-helpers.ts': 826,
   'blueprint/src/editor.ts': 1448,
 }

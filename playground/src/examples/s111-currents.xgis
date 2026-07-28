@@ -1,13 +1,17 @@
 xgis 1
 
-// NOAA S-111 surface currents (#1272) — a SYNTHETIC Chesapeake-Bay-shaped
-// tidal field (northward channel + counter-clockwise gyre, coast-shaped nodata
-// margins) carrying the real S-111 band names/units/fill. The speed band draws
-// through the OFFICIAL IHO S-111 speed-band palette (`s111-speed`, 0-13 kn); the demo runner
-// overlays drifting particles along the direction band (Demo.currents →
-// retained particle-flow, #826). The `coverage` source reads the S-111 HDF5 IN
-// PLACE (ADR-0010, no `.xgcov` transcode); regenerate the asset with
+// NOAA S-111 surface currents (#1272) — a SYNTHETIC Chesapeake-Bay-shaped tidal field
+// (northward channel + counter-clockwise gyre, coast-shaped nodata margins) carrying the
+// real S-111 band names/units/fill. The `coverage` source reads the S-111 HDF5 IN PLACE
+// (ADR-0010, no `.xgcov` transcode); regenerate the asset with
 // `python playground/scripts/gen-demo-coverage.py`.
+//
+// This is the OFFLINE twin of `s111_live`, and it draws the SAME WAY — the engine's
+// standard portrayal, not a demo-layer overlay. It used to be the odd one out: a bare
+// `ramp` fill plus app-side JS that subsampled every 33rd grid cell into hard-coded WHITE
+// arrows and seeded drifting particles over them. Both of those are exactly what #1333
+// replaced, so a reader opening the offline example first was learning the superseded
+// approach.
 
 // Esri World Imagery satellite basemap (same source the satellite_map demo uses) —
 // the currents draw OVER real imagery for real-world nautical context. CORS `*`, so it
@@ -26,9 +30,18 @@ layer imagery {
   source: basemap
 }
 
+// `| arrow` (#1333) is the OFFICIAL S-111 portrayal, generated in the engine: one arrow per
+// valid grid cell, band-coloured, oriented by the direction band and scaled per the vendored
+// IHO catalogue (docs/standards/s-111/). Those arrows are STATIC, exactly as the catalogue
+// specifies. No `ramp` is declared, so no colour fill is drawn under them — declaring one
+// would add the NON-standard colour area the catalogue does not define.
+//
+// `| flow` is the MOTION layer, deliberately separate and explicitly non-catalogue: an
+// image-based (IBFV) advection whose carrier is a texture, not a discrete glyph. That is why
+// it cannot blink — there are no particles to recycle, so there is no respawn to fade. A
+// strictly conformant style simply omits this one line and keeps the arrows alone.
 layer speed {
   source: currents
-  ramp: "s111-speed"
-  range: [0, 13]
-  | opacity-70
+  | arrow
+  | flow
 }

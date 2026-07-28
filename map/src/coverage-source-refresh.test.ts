@@ -48,10 +48,13 @@ function harness(regions: Array<[string, string | undefined]>): Harness {
   const refresh = new CoverageRefreshScheduler()
   const deps = {
     rawDatasets,
-    renderer: {
+    // A THUNK — `deps.renderer` is resolved at call time, because the map's real
+    // `coverageRenderer` does not exist when the deps record is built (see
+    // coverage-source.test.ts for the contract and the bug that forced it).
+    renderer: () => ({
       displayOpts: () => ({ ramp: 'viridis', rangeLo: 0, rangeHi: 1, opacity: 1 }),
       setCoverage: (_h: unknown, _o: unknown, region: string) => void armed.push(region),
-    },
+    }),
     time: new CoverageTimePlayer(),
     fieldArmed: () => false,
     armFields: () => {},

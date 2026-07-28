@@ -516,10 +516,24 @@ export const miscUtilHandlers: BindingHandler[] = [
   // catalogue arrows alone. Named `flow` rather than `particles` because the motion carrier
   // is an ADVECTED FIELD (IBFV), not a particle pool: a particle pool must recycle, and
   // recycling is what made the earlier revision blink.
+  //
+  // The PORTRAYAL rides as a modifier on the same keyword (#1418), because IBFV is the
+  // MECHANISM and how its motion is shown is a separate, declarable choice — conflating the
+  // two is why earlier revisions treated "IBFV" and "moving arrows" as an either/or:
+  //
+  //   | flow           the default portrayal (arrows), resolved at arm time
+  //   | flow-arrows    the S-111 catalogue glyphs are what moves
+  //   | flow-streaks   the advected image itself
+  //
+  // A modifier rather than a `flow-portrayal:` property because a hyphenated name is not
+  // expressible in the property namespace — the lexer splits it — and `bearing-N` already
+  // establishes this exact shape for a utility that carries a value.
   {
-    match: (c) => c.name === 'flow',
+    match: (c) => c.name === 'flow' || c.name === 'flow-arrows' || c.name === 'flow-streaks',
     apply: (c) => {
       c.acc.isFlow = true
+      if (c.name === 'flow-arrows') c.acc.flowPortrayal = 'arrows'
+      else if (c.name === 'flow-streaks') c.acc.flowPortrayal = 'streaks'
       return true
     },
   },

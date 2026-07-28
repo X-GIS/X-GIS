@@ -40,6 +40,7 @@ import { SELECTOR_PROJ_NAMES, promotesToGlobeWhenTilted, representsCenterAs } fr
 import type { TileCatalog } from '@xgis/data'
 import type { FrameDrawStats } from './frame-draw-stats'
 import { warnSelectionTruncated } from './selection-truncation'
+import { adaptiveFarLodBoost } from '@xgis/engine'
 
 /** MapLibre-parity per-source-layer visibility cull (#613). A source-
  *  layer's tilejson `vector_layers` entry declares the [minzoom, maxzoom]
@@ -91,6 +92,12 @@ export interface FrameTileCache {
    *  within a frame (rare but possible during initial load), the
    *  cache invalidates. */
   maxLevel: number
+  /** The adaptive far-field notch this selection was walked at (#1393). Part of the
+   *  validity check because a STATIC camera does not bump `frameId`, so without it a
+   *  ladder change would be computed, passed to the selector, and then never observed —
+   *  the memo would keep serving the pre-degrade set for as long as the user held
+   *  still, which is exactly when the controller most needs to act. */
+  farBoost: number
   /** For each tile i: when `tiles[i].z > maxLevel`, the maxLevel
    *  ancestor key (the over-zoom fallback parent). Else `-1`.
    *  Sliced layer-independent — depends only on tile coord +
@@ -277,6 +284,11 @@ export class TileSelectionCache {
       projType >= 1 && projType <= 6
         ? getProjection(SELECTOR_PROJ_NAMES[projType]!, projCenterLon, projCenterLat)
         : mercatorProj
+
+    // #1393 — the adaptive ladder's far-field notch, read ONCE for this selection so the
+    // readiness gate, the drawing walk, and the memo's validity check cannot disagree
+    // about which notch produced the tile set they are each reasoning about.
+    const farBoost = adaptiveFarLodBoost()
 
     // Round-based currentZ with anti-oscillation hysteresis. Diagnosis:
     // pinch-zoom input on iOS Safari delivers fractional camera.zoom
@@ -495,6 +507,10 @@ export class TileSelectionCache {
                   canvasHeight,
                   offsetMarginPx,
                   dpr,
+                  // Same boost as the drawing selection below. The readiness gate must
+                  // measure the set that will actually be DRAWN: a gate holding out for
+                  // tiles a coarser selection never asks for would stall the zoom advance.
+                  { farTargetBoost: farBoost },
                 )
             this._gateSSECache.set(gateKey, stepTiles)
           }
@@ -628,12 +644,14 @@ export class TileSelectionCache {
     // ping-ponged the single slot). Invalidation is UNCHANGED — a hit still needs
     // frameId + currentZ + maxLevel to match (marginPx is now the key), so a
     // camera move (frameId bump) / intra-frame cz step re-selects as before.
+
     const cached = this._frameTileCacheLru.get(offsetMarginPx)
     if (
       cached &&
       cached.frameId === frameId &&
       cached.currentZ === currentZ &&
-      cached.maxLevel === maxLevel
+      cached.maxLevel === maxLevel &&
+      cached.farBoost === farBoost
     ) {
       // Refresh LRU recency (re-insert as most-recently-used).
       this._frameTileCacheLru.delete(offsetMarginPx)
@@ -771,7 +789,12 @@ export class TileSelectionCache {
               canvasHeight,
               offsetMarginPx,
               dpr,
-              { onTruncated: warnSelectionTruncated },
+              {
+                onTruncated: warnSelectionTruncated,
+                // #1393 — the adaptive ladder's far-field notch. 1 when the host keeps
+                // up, so this path is byte-identical until the controller has acted.
+                farTargetBoost: farBoost,
+              },
             )
           : _pitchDeg < 30
             ? visibleTilesFrustumSampled(
@@ -961,6 +984,7 @@ export class TileSelectionCache {
         protectedAncestors,
         worldOffDeg,
         maxLevel,
+        farBoost,
         parentAtMaxLevel,
         archiveAncestor,
       }

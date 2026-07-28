@@ -175,7 +175,14 @@ export class VirtualPMTilesBackend implements TileSource {
     try {
       bytes = await tilingPool.getTile(this.instanceId, this.sourceName, z, x, y, key)
     } catch (err) {
-      xlog.error('[virtual-pmtiles getTile]', (err as Error)?.stack ?? err)
+      // Detached ⇒ this source was torn down while the request was in flight, and the worker
+      // index went with it (SourceManager evicts it from the catalog's onDestroy). The worker
+      // then answers "unknown source", which is the EXPECTED shape of teardown, not a fault —
+      // reporting it made every style swap emit one console error per tile still in the air.
+      // A live sink rejecting is still a real failure and still gets logged.
+      if (this.sink !== null) {
+        xlog.error('[virtual-pmtiles getTile]', (err as Error)?.stack ?? err)
+      }
       sink.acceptResult(key, null)
       sink.releaseLoading(key)
       return
