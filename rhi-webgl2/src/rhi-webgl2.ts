@@ -65,7 +65,6 @@ import type {
   RhiRenderPassDesc,
 } from '@xgis/rhi'
 import { stashGl2RestoreToken } from '@xgis/rhi'
-import { devAssert } from '@xgis/shared'
 
 // Each opaque RHI handle stores a rich GL record (cast both ways inside this
 // module). WebGL2 needs MORE per-handle metadata than WebGPU (a buffer's GL
@@ -96,14 +95,20 @@ interface Gl2StorageBuffer {
  *  So the SOFTWARE backend enforces the STRICTER contract. Dev-only, because in production the
  *  worst case is the WebGPU error the app would get anyway — but in dev, in tests, and in every
  *  e2e gate, the class becomes impossible to reintroduce without a loud failure naming the
- *  texture. Verified-by-construction beats remembering. */
+ *  texture. Verified-by-construction beats remembering.
+ *
+ *  The dev check is spelled out here rather than imported from `@xgis/shared`'s `devAssert`:
+ *  this backend deliberately carries NO package dependency beyond @xgis/rhi and the DSL (its
+ *  tsconfig even sets `types: []`), and the dependency-direction ratchet enforces that. Three
+ *  lines of duplicated env-check are the cheaper side of that trade. */
 function assertCopyDst(t: Gl2Texture, op: string): void {
-  devAssert(
-    t.usage.includes('copy-dst'),
-    () =>
-      `${op}: texture "${t.label ?? '(unlabelled)'}" was created with usage [${t.usage.join(', ')}] ` +
-      `— WebGPU requires 'copy-dst' on any texture a queue write targets. WebGL2 does not check, ` +
-      `so this would pass here and fail on WebGPU only.`,
+  // Cast, not a type import: `types: []` keeps vite's client types out of this package.
+  if ((import.meta as { env?: { DEV?: boolean } }).env?.DEV !== true) return
+  if (t.usage.includes('copy-dst')) return
+  throw new Error(
+    `[xgis] ${op}: texture "${t.label ?? '(unlabelled)'}" was created with usage ` +
+      `[${t.usage.join(', ')}] — WebGPU requires 'copy-dst' on any texture a queue write ` +
+      `targets. WebGL2 does not check, so this would pass here and fail on WebGPU only.`,
   )
 }
 

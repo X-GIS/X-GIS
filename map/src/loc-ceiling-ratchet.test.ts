@@ -949,7 +949,7 @@ const CEILINGS: Record<string, number> = {
   // contract in dev, which is the only place the class is catchable without a WebGPU adapter.
   // +28 is the guard, the `usage`/`label` fields it reads, and the reason — the reason being
   // the part that stops someone deleting a check their own backend does not need.
-  'rhi-webgl2/src/rhi-webgl2.ts': 1464,
+  'rhi-webgl2/src/rhi-webgl2.ts': 1469,
   // 941→975 (#1371 atomic re-seed): `releaseSupersededTile` + `dropTile`, and the split of
   // `_releaseTileSlots` into a resource-release body the two share with eviction. Arena/pool
   // ownership is this class's whole reason to exist.
