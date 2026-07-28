@@ -95,15 +95,17 @@ export class RenderLoop {
    *  (map.ts → render/passes/pass-chain.ts) right after construction. */
   private readonly _nodes: RenderNode[] = []
 
-  /** #1046 F3 (doc §3-F3) — whether the unified `_nodes` chain can EXECUTE on the
-   *  WebGL2 backend yet. It cannot until the pass bodies retype from the native
-   *  WebGPU encoder to the RHI encoder (F2 landed the frame-shell seam only, not the
-   *  pass retype), so this is held `false`: it keeps `?rhichain=1` (RHI_CHAIN) from
-   *  bypassing the twin into a native-encoder crash on WebGL2. The frame encoder's
-   *  `beginRenderPass` (the chain's WebGL2 origination seam) + the flag land in F3;
-   *  flip this to a real capability check once the passes execute on WebGL2 (F3
-   *  remaining — the twin-parity ratchet scaffold tracks that port). */
-  private readonly _chainRunsOnWebgl2 = false
+  /** #1046 Inc-4 (doc §3-F3) — whether the unified `_nodes` chain can EXECUTE on
+   *  this frame's backend: the DEVICE's own claim (`rhi.caps.chainFrame`), not a
+   *  hardcoded hold. All 12 pass bodies originate through requireRhiFrame (F3b
+   *  complete), so the remaining blocker is the chain's loop TAIL — render-target
+   *  allocation, error scopes, compute dispatch — which WebGl2Device answers for
+   *  with `chainFrame: false` until #991 P4/P5 lands that tail on the RHI. Until
+   *  then `?rhichain=1` (RHI_CHAIN) still routes the twin — a safe no-op by the
+   *  device's own word rather than by a flag someone must remember to flip. */
+  private get _chainRunsOnWebgl2(): boolean {
+    return this.host.ctx.rhi?.caps.chainFrame === true
+  }
 
   /** F3b: memoized native→RHI view wraps for the ported passes — WeakMap keyed
    *  on the native view, so steady-state frames allocate nothing (this loop is

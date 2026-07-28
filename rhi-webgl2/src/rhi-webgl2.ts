@@ -688,6 +688,10 @@ export class WebGl2Device implements RhiDevice {
       compute: 'fragment-emulated',
       timestampQuery: false,
       executionModel: 'immediate',
+      // #1046 Inc-4 — false until #991 P4/P5 lands the chain's loop tail
+      // (RHI render targets / error scopes / compute guard) on this backend;
+      // the pass surface itself is already chain-capable (WebGl2FrameEncoder).
+      chainFrame: false,
     } as const)
 
     // #1153 P2 R3 — own the canvas context-loss listeners. GUARDED: the fake

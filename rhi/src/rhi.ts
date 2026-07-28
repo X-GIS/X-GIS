@@ -448,6 +448,15 @@ export interface RhiCaps {
    *  upload/draw primitives (UniformRing / staging flush policy inside
    *  executeItems) — never passes, never renderers (§5.3 confinement gate). */
   readonly executionModel: 'deferred' | 'immediate'
+  /** This device can host the UNIFIED pass chain's whole frame (#1046 Inc-4):
+   *  the frame encoder, the multi-pass origination surface AND the loop tail
+   *  the chain body still runs natively (render-target allocation, error
+   *  scopes, compute dispatch, timer resolve). WebGPU: true. WebGL2: false
+   *  until #991 P4/P5 lands that tail on the RHI — the pass SURFACE is
+   *  already chain-capable (WebGl2FrameEncoder dispatches the universal
+   *  beginRenderPass), so flipping this is P4/P5's one-line act, not a
+   *  rewrite. Consumer: RenderLoop's chain-vs-twin routing ONLY. */
+  readonly chainFrame: boolean
 }
 
 /** The device — creates resources + pipelines. One impl per backend. */

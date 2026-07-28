@@ -22,6 +22,7 @@ const CAPS_FIELDS = [
   'presentablePassMrt',
   'pickReadback',
   'floatBlendTargets',
+  'chainFrame',
   'compute',
   'timestampQuery',
   'executionModel',
@@ -49,7 +50,7 @@ function fakeGl(supportedExtensions: string[] | null): WebGL2RenderingContext {
 }
 
 describe('RhiCaps — WebGpuDevice native truths (#1046 F1)', () => {
-  it('exposes exactly the 7 caps fields, frozen', () => {
+  it('exposes exactly the 8 caps fields, frozen', () => {
     const caps = new WebGpuDevice(fakeGpuDevice([])).caps
     expect(Object.keys(caps).sort()).toEqual([...CAPS_FIELDS].sort())
     expect(Object.isFrozen(caps)).toBe(true)
@@ -74,7 +75,7 @@ describe('RhiCaps — WebGpuDevice native truths (#1046 F1)', () => {
 })
 
 describe('RhiCaps — WebGl2Device truths + float-blend detection (#1046 F1)', () => {
-  it('exposes exactly the 7 caps fields, frozen', () => {
+  it('exposes exactly the 8 caps fields, frozen', () => {
     const caps = new WebGl2Device(fakeGl([])).caps
     expect(Object.keys(caps).sort()).toEqual([...CAPS_FIELDS].sort())
     expect(Object.isFrozen(caps)).toBe(true)

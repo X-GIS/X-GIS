@@ -392,6 +392,7 @@ export class WebGpuDevice implements RhiDevice {
       compute: 'native',
       timestampQuery: device.features?.has('timestamp-query') ?? false,
       executionModel: 'deferred',
+      chainFrame: true,
     } as const)
   }
 
