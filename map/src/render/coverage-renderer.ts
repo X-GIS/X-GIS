@@ -537,11 +537,14 @@ export class CoverageRenderer {
       // MERGE UNION (#1366 INC-3 <- #1333): the indexed node mesh (INC-3) drawn with the
       // flow-keyed bind group (#1333) — the two changes touch different draw arguments.
       // The region's OWN draper: the predicate is baked into the pipeline, so a filtered
-      // region and an unfiltered one in the same mosaic are different pipelines.
-      this.draperFor(s).draw(
+      // region and an unfiltered one in the same mosaic are different pipelines — and the
+      // bind group must come from the SAME draper, because binding 0 is that draper's global
+      // uniform buffer and `draw` writes only its own.
+      const draper = this.draperFor(s)
+      draper.draw(
         rhiPass,
         bytes as BufferSource,
-        this.groupFor(s, flowView),
+        this.groupFor(s, flowView, draper),
         s.nodeBuf,
         this.ensureIndexBuf(),
       )
@@ -605,11 +608,23 @@ export class CoverageRenderer {
   }
 
   /** This region's bind group for `flowView`, memoized. Keyed rather than rebuilt because the
-   *  advection pair alternates: two entries for an animated region, one for a scalar one. */
-  private groupFor(s: CoverageState, flowView: RhiTextureView): RhiBindGroup {
+   *  advection pair alternates: two entries for an animated region, one for a scalar one.
+   *
+   *  `draper` is a PARAMETER, not `ensureDraper()`. It used to be the latter, which was correct
+   *  only while there was one draper: once #1437 keyed drapers by predicate, the group bound
+   *  the UNFILTERED draper's global uniform buffer (binding 0) while the draw ran the FILTERED
+   *  draper's pipeline and wrote the filtered draper's buffer. The shader then read a buffer
+   *  nobody had written — `cov_data` all zeros, so every raw value came out 0 and the predicate
+   *  discarded the entire drape. Invisible to 4 020 unit tests and a green build; one headless
+   *  WebGL2 render showed a black map (CLAUDE.md §5). Passing it in removes the choice. */
+  private groupFor(
+    s: CoverageState,
+    flowView: RhiTextureView,
+    draper: CoverageDraper,
+  ): RhiBindGroup {
     let bg = s.bindGroups.get(flowView)
     if (!bg) {
-      bg = this.ensureDraper().bindGroup(
+      bg = draper.bindGroup(
         s.views.value,
         s.views.valid,
         this.dataSampler!,
