@@ -20,6 +20,7 @@ import {
   unwrapPairScalars,
   VALID_ANCHORS,
   parseMapboxFontName,
+  pitchAlignmentGapWarning,
 } from './layers-helpers'
 
 /** TEXT PAINT pass — text-color / text-opacity / text-size / text-halo-*.
@@ -1259,22 +1260,15 @@ export function convertTextLayoutProperties(
   const pitchAlign = unwrapLiteralScalar(layout['text-pitch-alignment'])
   if (pitchAlign === 'map' || pitchAlign === 'viewport' || pitchAlign === 'auto') {
     utils.push(`label-pitch-alignment-${pitchAlign}`)
-    // text-pitch-alignment=map projects label glyphs onto the ground
-    // plane so they tilt with the camera. Runtime currently renders
-    // labels as billboards (viewport-aligned) regardless of this
-    // utility; surface the gap explicitly so authors of pitched
-    // styles know why their map-aligned labels still look upright.
-    // Plan §3.1 deferred — needs text-stage ground projection.
-    if (pitchAlign === 'map') {
-      warnings.push(
-        `Symbol layer "${layer.id}" — text-pitch-alignment "map" set but runtime renders labels viewport-aligned regardless; ground-projection not yet implemented.`,
-      )
-    }
   } else if (typeof pitchAlign === 'string') {
     warnings.push(
       `Symbol layer "${layer.id}" — text-pitch-alignment "${pitchAlign.slice(0, 40)}" is not a valid enum; expected 'map' | 'viewport' | 'auto'.`,
     )
   }
+  // Both arms of the ground-projection gap — authored "map" AND the spec
+  // default chain that reaches "map" without authoring it. See the helper.
+  const pitchGap = pitchAlignmentGapWarning(layer, layout, placement, rotAlign, pitchAlign)
+  if (pitchGap !== null) warnings.push(pitchGap)
 
   // symbol-spacing — distance between repeated labels along a line
   // in pixels. Only meaningful for placement: line. Default 250 in

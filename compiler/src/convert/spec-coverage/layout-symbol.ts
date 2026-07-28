@@ -121,7 +121,7 @@ export const LAYOUT_SYMBOL: readonly CoverageEntry[] = [
     name: 'text-pitch-alignment',
     status: 'partial',
     impact: 'medium',
-    note: "Converter emits, runtime ignores — labels never project onto ground plane. Iter 10 surfaced an explicit warning when `map` is authored (the gap-revealing case) so authors of pitched-view styles see the diagnostic. `viewport` and `auto` match X-GIS' billboard-rendering default and stay silent.",
+    note: 'Converter emits, runtime ignores — labels never project onto ground plane (`LabelDef.pitchAlignment` has NO consumer in map/src; the text vertex path emits screen-px quads at z=0). NOT opt-in, and this was under-reported until #777 IV3 was re-scoped: the spec default `auto` matches text-rotation-alignment, whose own `auto` is `map` for line / line-center placement, so EVERY line-placed label resolves to map without authoring anything — 5 text-bearing layers per OFM style (road names, waterway names, along-line shields), 0 of which author the property. The converter now warns on the RESOLVED value, not just an explicit `map`; only an explicit `viewport` (on either knob) or point placement stays silent. Icon-only line layers are excluded — their gap is icon-pitch-alignment.',
     source: 'map.ts:2461',
   },
   {
