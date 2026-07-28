@@ -331,9 +331,14 @@ async function armCatalogueItem(
   inFlight: Set<string>,
   isStale?: () => boolean,
 ): Promise<void> {
-  const label = `coverage source "${sourceId}" region "${item.id}"`
-  const token = deps.time.nextEpoch(item.id)
-  inFlight.add(item.id)
+  // The STAC item id IS this cell's region key — named so, because every epoch claim and check
+  // in this module must be visibly region-scoped (a single global counter let each newly
+  // loading region cancel its neighbours' in-flight decodes, collapsing a mosaic to whichever
+  // domain started last, #1272 E-④). `coverage-timestep-cost.test.ts` enforces exactly that.
+  const region = item.id
+  const label = `coverage source "${sourceId}" region "${region}"`
+  const token = deps.time.nextEpoch(region)
+  inFlight.add(region)
   let handle: CoverageHandle
   try {
     handle = await fetchCoverageHandle(item.href, label, deps.guardedFetch(label))
@@ -342,11 +347,11 @@ async function armCatalogueItem(
     xlog.error(`[X-GIS] ${label} — ${(e as Error).message}`)
     return
   } finally {
-    inFlight.delete(item.id)
+    inFlight.delete(region)
   }
-  if (!deps.time.isCurrent(token, item.id) || deps.destroyed() || isStale?.()) return
-  if (!writeRegion(deps, sourceId, item.id, { handle, url: item.href })) return
-  deps.armFromShow(sourceId, handle, item.id)
+  if (!deps.time.isCurrent(token, region) || deps.destroyed() || isStale?.()) return
+  if (!writeRegion(deps, sourceId, region, { handle, url: item.href })) return
+  deps.armFromShow(sourceId, handle, region)
   deps.invalidate()
 }
 
