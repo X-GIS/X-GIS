@@ -110,7 +110,9 @@ class HillshadePass implements RenderPass {
     applyHillshadePaint(hr, host._hillshadeShow, host.camera.zoom, host._elapsedMs)
 
     // F3b: RHI origination — descriptor-equivalent on WebGPU, executable on
-    // WebGL2 after the flip (hr.render already accepts an RhiRenderPass).
+    // WebGL2 after the flip. hr.render takes RhiRenderPass ONLY (narrowed in
+    // the F3b review — its former native union hid a backend-keyed re-wrap
+    // that double-wrapped the chain's handle on WebGPU).
     const { enc, screenView, colorView, stencilView } = requireRhiFrame(ctx, 'hillshade')
     ctx.passScope('hillshade', () => {
       const hsPass = enc.beginRenderPass({

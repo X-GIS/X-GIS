@@ -448,10 +448,17 @@ export class RenderLoop {
       )
       ctx.useResolve = useResolve
       ctx.colorView = colorView
-      // F3b bridges for the RHI-ported passes — memoized wraps of the same
-      // per-frame targets (null under the raw-shell escape, ported passes
-      // fail loud there via requireRhiFrame).
-      ctx.rhiColorView = rawFrameShell ? null : this._rhiViewFor(colorView)
+      // F3b bridges for the RHI-ported passes — the same per-frame targets
+      // (null under the raw-shell escape, ported passes fail loud there via
+      // requireRhiFrame). When colorView IS the swapchain view (sampleCount 1:
+      // mobile / ?safe / ?msaa=1), reuse the device's rebind-per-frame screen
+      // wrapper instead of memo-wrapping a view that is minted fresh every
+      // frame — that path would otherwise allocate one wrapper per frame.
+      ctx.rhiColorView = rawFrameShell
+        ? null
+        : colorView === screenView
+          ? rhiScreenView
+          : this._rhiViewFor(colorView)
       ctx.rhiStencilView = rawFrameShell ? null : this._rhiViewFor(ctx.rt.stencilView!)
 
       // Reset per-frame uniform ring cursors (dynamic-offset slots).

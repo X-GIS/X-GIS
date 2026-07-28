@@ -126,7 +126,9 @@ const BASELINE: Record<string, number> = {
   // (GPUTexture cache, GPUDevice, the native GPURenderPassEncoder bridged via
   // wrapWebGpuPass). Same raw-token surface as raster-renderer, gap-blocked until
   // #991 P6 hands the pass chain a neutral RhiRenderPass.
-  'map/src/render/hillshade-renderer.ts': 7,
+  // 7→5 (#1046 F3b review): render() narrowed to RhiRenderPass — the native
+  // union member + the double-wrap cast died with the backend-keyed adaptation.
+  'map/src/render/hillshade-renderer.ts': 5,
   'map/src/render/heatmap-renderer.ts': 25,
   'map/src/render/line-renderer.ts': 28,
   'map/src/render/material/heatmap-material.ts': 1,

@@ -45,8 +45,11 @@ export interface FrameContext {
    *  `encoder`. This is the F3/P5 direction arriving one pass at a time, not a second encoder:
    *  both fields are the one per-frame encoder the loop submits once.
    *
-   *  Null under `__xgisRawFrameShell=true` (the one-release raw-shell rollback), which mints
-   *  the native encoder directly and has no RHI wrapper to offer. */
+   *  Null under `__xgisRawFrameShell=true`, which mints the native encoder directly and has
+   *  no RHI wrapper to offer. Since the F3b pass ports, that escape is NO LONGER a working
+   *  whole-frame rollback: a ported pass fails loud on the null bridge (requireRhiFrame)
+   *  rather than render a wrong frame; only the unported bodies still honour it. It
+   *  retires with the F3b field collapse. */
   rhiEncoder: import('@xgis/rhi').RhiCommandEncoder | null
   /** F3b parallel RHI handles for the ported chain passes — the same targets as
    *  `screenView` / `colorView` / `rt.stencilView`, RHI-wrapped once per frame by

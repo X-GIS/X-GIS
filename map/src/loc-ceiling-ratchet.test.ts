@@ -731,8 +731,11 @@ const CEILINGS: Record<string, number> = {
   // in both ctx branches + the MSAA block, and the WeakMap-memoized
   // _rhiViewFor wrap helper (allocation-free steady state). All of it is
   // transitional plumbing that the F3b FrameContext field collapse deletes
-  // together with the native trio. +31, post-hook.
-  'map/src/render-loop.ts': 1418,
+  // together with the native trio. +31, post-hook. 1418→1425 (F3b review):
+  // the msaa=1 bridge reuses the device's rebind screen wrapper instead of
+  // memo-wrapping a per-frame-minted view — keeps the loop allocation-free
+  // on that path too. +7, post-hook.
+  'map/src/render-loop.ts': 1425,
   // Baselined at 806 (hillshade tile fade-in): HillshadeRenderer crossed
   // NEW_FILE_CAP restoring the three tile-streaming fixes raster-renderer had
   // landed since hillshade was copied from it — the per-tile fade ramp + its

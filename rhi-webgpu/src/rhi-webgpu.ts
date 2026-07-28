@@ -206,8 +206,17 @@ class WebGpuRenderPass implements RhiRenderPass {
 }
 
 /** Wrap a live GPURenderPassEncoder OR a GPURenderBundleEncoder (the render loop's pass / a VTR tile
- *  bundle) as an RHI pass so renderers record against the interface, not the native encoder. */
+ *  bundle) as an RHI pass so renderers record against the interface, not the native encoder.
+ *  Fail-loud on an ALREADY-WRAPPED pass (#1046 F3b review): the chain retype hands RhiRenderPass
+ *  handles down paths that used to receive natives, and a cast-laundered re-wrap here is silent
+ *  corruption — the double wrapper unwraps to the inner WRAPPER, so the real encoder receives
+ *  undefined pipelines/groups. Caught live in the hillshade port; a throw turns the whole class
+ *  into an immediate, named failure instead of a dead frame. */
 export function wrapWebGpuPass(enc: GPURenderPassEncoder | GPURenderBundleEncoder): RhiRenderPass {
+  if (enc instanceof WebGpuRenderPass)
+    throw new Error(
+      'wrapWebGpuPass: received an RhiRenderPass wrapper — already RHI; pass it through instead (double wrap corrupts the native encoder)',
+    )
   return new WebGpuRenderPass(enc)
 }
 

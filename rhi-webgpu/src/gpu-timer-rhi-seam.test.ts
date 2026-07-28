@@ -67,6 +67,24 @@ describe('beginTimedPass — the gpuTimer seam (#1046 F3b)', () => {
   })
 })
 
+describe('wrapWebGpuPass — double-wrap fail-loud (#1046 F3b review)', () => {
+  it('throws by name on an already-wrapped pass instead of corrupting silently', () => {
+    // The confirmed failure shape: a chain-supplied RhiRenderPass reaching a
+    // legacy adaptation site that re-wraps it. Pre-guard, the double wrapper
+    // unwrapped to the INNER WRAPPER and the real encoder received undefined
+    // pipelines — a dead frame with no named error. The guard converts the
+    // whole class into this immediate throw.
+    const native = {} as GPURenderPassEncoder
+    const once = wrapWebGpuPass(native)
+    expect(() => wrapWebGpuPass(once as unknown as GPURenderPassEncoder)).toThrow(/double wrap/)
+  })
+
+  it('a genuine native pass still wraps exactly as before', () => {
+    const native = {} as GPURenderPassEncoder
+    expect(() => wrapWebGpuPass(native)).not.toThrow()
+  })
+})
+
 describe('markRhi — sprinkle-unconditionally safety', () => {
   it('no-ops BEFORE unwrapping when inside-passes marking is off', () => {
     // A bare prototype instance: insidePasses/querySet are undefined ⇒ every

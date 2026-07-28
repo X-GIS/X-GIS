@@ -104,7 +104,8 @@ const BASELINE: Record<string, number> = {
   'map/src/render/frame-context.ts': 1,
   'map/src/render/frame-renderer.ts': 3,
   'map/src/render/graticule-renderer.ts': 1,
-  'map/src/render/hillshade-renderer.ts': 2,
+  // 2→1 (#1046 F3b review): wrapWebGpuPass import retired with the re-wrap branch.
+  'map/src/render/hillshade-renderer.ts': 1,
   'map/src/render/hillshade-uniform-slots.ts': 1,
   'map/src/render/heatmap-renderer.ts': 1,
   // Heatmap density-target content relocated here from @xgis/rhi-webgpu (#1000):

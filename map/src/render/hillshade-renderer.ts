@@ -20,7 +20,6 @@ import { activeBody } from '@xgis/shared'
 import { lonLatToECEF, type ECEF } from '@xgis/shared'
 import type { RhiDevice, RhiRenderPass, RhiTexture } from '@xgis/engine'
 import { HillshadeDraper, type HillshadeTile } from './material/hillshade-material'
-import { wrapWebGpuPass } from '@xgis/rhi-webgpu'
 import { routeToSphereSelector, enumerateWorldCopies } from '@xgis/geo'
 import { isPickEnabled, getSampleCount } from '@xgis/engine'
 import { globeVisibleTiles } from '@xgis/data'
@@ -461,7 +460,10 @@ export class HillshadeRenderer {
   }
 
   render(
-    pass: GPURenderPassEncoder | RhiRenderPass,
+    // RhiRenderPass ONLY (#1046 F3b review): both callers supply RHI handles,
+    // and the former native union hid a backend-keyed re-wrap (double wrap ⇒
+    // undefined at the native encoder). Narrowed = unrepresentable.
+    pass: RhiRenderPass,
     camera: Camera,
     projType: number,
     projCenterLon: number,
@@ -768,9 +770,7 @@ export class HillshadeRenderer {
     this._hasFadingTiles = anyFading
 
     this.ensureHillshadeDraper().draw(
-      this.rhi.backend === 'webgl2'
-        ? (pass as RhiRenderPass)
-        : wrapWebGpuPass(pass as GPURenderPassEncoder),
+      pass,
       B.buffer,
       HB.buffer,
       tilesArr,
