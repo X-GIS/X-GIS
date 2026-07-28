@@ -489,7 +489,10 @@ const CEILINGS: Record<string, number> = {
   // all: nothing else observed it, so an evicted region's arrows kept drawing against velocity
   // textures that had just been destroyed. Value below is the MEASURED post-merge count.
   //
-  // 5393→5420 (#1453 catalogue-driven coverage residency): a `coverage` source's `url:` may
+  // 5393→5392 (#1449): the three arm sites now call ONE decision point (`armCoverageArrows`),
+  // so the `if (show.isArrow) …` + `armAdvectedArrows(…)` pair here collapsed to a single call
+  // and the static-arrow import went with it. LOWERED per the shrink-only rule.
+  // 5392→5419 (#1453 catalogue-driven coverage residency): a `coverage` source's `url:` may
   // name a STAC catalogue of cells, and then the ENGINE owns residency from the viewport — the
   // job `type: raster` has always done for itself. What lands HERE is only the map-shaped part
   // of that: the per-source catalogue state (declared before `_coverageDeps`, because a field
@@ -501,7 +504,7 @@ const CEILINGS: Record<string, number> = {
   // split coverage-refresh.ts already uses, so this is wiring and not logic. An earlier draft
   // put a `_beginCoverageLoad` method here too (+45); it was extracted into
   // `resolveCoverageCatalogues` + `viewBbox` rather than ratcheted for. Post-hook measurement.
-  'map/src/map.ts': 5420,
+  'map/src/map.ts': 5419,
   // Baselined at #1255 (measured 830): the DOM-inspired layer API crossed
   // NEW_FILE_CAP with the paint-transition style-setter integration — the
   // StyleHost.transitions context, the shared applyNumber/applyColor

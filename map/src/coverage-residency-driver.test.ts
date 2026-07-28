@@ -135,9 +135,12 @@ function makeDeps(view: Bbox | null, budgetBytes?: number) {
     } as unknown as CoverageSourceDeps['time'],
     fieldArmed: () => false,
     armFields: () => {},
+    // Stands in for the real show-derived arm (#1449): a layer claims the source, so it
+    // returns true and puts the region under the renderer's real byte budget.
     armFromShow: (_id: string, handle: CoverageHandle, region: string) => {
       armed.push(region)
       renderer.setCoverage(handle, { ramp: 's111-speed' }, region)
+      return true
     },
     clearArrows: () => {},
     invalidate: () => {},

@@ -95,7 +95,9 @@ function setup(regions: string[]): {
     time: { nextEpoch: () => 1, isCurrent: () => true } as unknown as CoverageSourceDeps['time'],
     fieldArmed: () => false,
     armFields: () => {},
-    armFromShow: () => {},
+    // No show claims the source here (#1449's contract): these gates arm the renderer
+    // directly, so nothing should route through the show-derived drape.
+    armFromShow: () => false,
     clearArrows: (r) => void clearedArrows.push(r),
     invalidate: vi.fn(),
     refresh: { stopAll: () => {} } as unknown as CoverageSourceDeps['refresh'],
