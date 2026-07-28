@@ -934,6 +934,13 @@ export class TileCatalog {
   destroy(): void {
     this._skeletonPrewarm?.stop()
     this._skeletonPrewarm = null
+    // Detach every backend BEFORE the owner callbacks run. A backend's in-flight work outlives
+    // this call, and the callbacks below are what pull the ground out from under it — the
+    // GeoJSON one evicts the tiling worker's index — so a backend that learns it is detached
+    // only afterwards has no way to tell "my source was torn down" from "the worker broke".
+    // Routed through detachBackend rather than a bare `detach()` loop so there stays ONE
+    // detach path; iterate a copy, since it splices `backends`.
+    for (const b of [...this.backends]) this.detachBackend(b)
     // Owner-registered teardown, drained so a repeated destroy() is a no-op.
     for (const fn of this._onDestroy.splice(0)) fn()
   }
