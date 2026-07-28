@@ -919,15 +919,15 @@ export class RenderLoop {
     // begun and restores FBO 0 on end(); `encoder: null` — this path mints no frame encoder,
     // and the beginOffscreenPass arm it takes needs none.
     const flowField = this.host.coverageRenderer.activeFlowField()
-    // Twin of the flow pass's declaration, and outside the `if` for the same reason (#1419).
-    this.host.flowRenderer?.setArrowField(flowField)
+    // Twin of the flow pass's declaration, outside the `if` for the same reason (#1419), and
+    // EVERY region's field rather than the first — the arrows are per region (#1458).
+    this.host.flowRenderer?.setArrowFields(this.host.coverageRenderer.flowFields())
     if (flowField) {
       const frame = { elapsedMs: this.host._elapsedMs, encoder: null }
       // #1419 twin of the flow pass's arrow step, and gated the same way — omitting it would
       // make ?forcegl2=1 show a field of arrows frozen at their origins, which is exactly the
       // "different map on the other backend" this twin exists to prevent.
-      if (this.host.graphics.hasAdvectedArrows())
-        this.host.flowRenderer?.stepArrows(frame, flowField)
+      if (this.host.graphics.hasAdvectedArrows()) this.host.flowRenderer?.stepArrows(frame)
       if (this.host.coverageRenderer.hasDrapedFlowField())
         this.host.flowRenderer?.step(frame, flowField)
     }
