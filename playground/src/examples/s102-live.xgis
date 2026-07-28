@@ -16,10 +16,10 @@ xgis 1
 // Access-Control-Allow-Origin, so the browser reaches it through the general `/noaa/
 // <bucket>/<key>` dev-proxy bridge (a CORS-open Worker in prod).
 //
-// Cell choice: S-102 keys are STABLE (a cell is re-issued in place when its survey
-// updates — the content rolls, the key does not), unlike the S-111 rolling date tree that
-// needs a `latest` resolver. So naming the key directly does not rot. This one is
-// Chesapeake Bay, 1663×2090 cells at 16 m.
+// Cell choice is no longer hard-coded (#1453) — the catalogue picks whatever the viewport
+// covers. S-102 keys are STABLE (a cell is re-issued in place when its survey updates — the
+// content rolls, the key does not), unlike the S-111 rolling date tree that needs a `latest`
+// resolver, so the catalogue's hrefs do not rot either.
 
 // Esri World Imagery satellite basemap (same source the S-111 live demo uses), so the
 // bathymetry draws over real nautical imagery. CORS `*`.
@@ -28,9 +28,23 @@ source basemap {
   url: "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}"
 }
 
+// The `url:` names a CATALOGUE of cells, not one cell (#1453) — and unlike S-111, this one is
+// NOAA'S OWN. `noaa-s102-pds/ed3.0.0/_CATALOG/CATALOG.XML` is an IHO S-100 Exchange Catalogue
+// listing all 4313 published cells with their bounding boxes; nothing here invents that table.
+// The proxy translates it to STAC server-side so the browser reads ~1 MB of JSON instead of
+// 19 MB of XML for what is only a bbox lookup — the cells themselves are still read IN PLACE
+// as HDF5 over Range (ADR-0010).
+//
+// So panning works: the ENGINE intersects the viewport with those envelopes on each move-end
+// and loads the cells that cover it. Before this the demo hard-coded ONE cell key, and moving
+// off Chesapeake Bay simply showed nothing — there was no machinery to load a neighbour, and
+// unlike S-111 this demo never even had the app-side kind.
+//
+// NOT FOR NAVIGATION: NOAA marks this edition test-and-evaluation, and each catalogue item
+// carries that flag through.
 source bathy {
   type: coverage
-  url: "/noaa/noaa-s102-pds/ed3.0.0/Mid_Atlantic/Chesapeake_Bay/102US004MD1AF262297.h5"
+  url: "/noaa-s102/catalog.json"
 }
 
 layer imagery {
@@ -51,13 +65,19 @@ layer depth {
 // (`valueAt`, nearest-cell, never interpolated), so a numeral can only show a depth that is
 // actually in the cell. `.depth` is the S-102 band name, exactly as a feature property.
 //
-// Candidates are picked on a screen-space lattice, so they hold a roughly constant on-screen
-// density — the chart behaviour — with no zoom rule to author. Zoom in past one cell per
-// lattice step and the count falls toward one numeral per cell, which is the honest limit: a
-// gridded product holds no more soundings than it holds cells.
-// `round()` keeps them chart-like whole metres; the raw band is f32 to the millimetre.
+// Candidates are picked on a GRID-anchored lattice — every stride'th cell, the stride a power
+// of two derived from the current pixels-per-cell. That holds a roughly constant on-screen
+// density (the chart behaviour) with no zoom rule to author, and it keeps the chosen SET from
+// changing when the camera only rotates or pitches. Zoom in past one cell per lattice step and
+// the count falls toward one numeral per cell, which is the honest limit: a gridded product
+// holds no more soundings than it holds cells.
+//
+// `{.depth:.1f}` is the label text-format mini-language — `{<expr>:<spec>}` with the familiar
+// printf/Python spec `[fill][align][sign][#][0][width][grouping][.precision][type]`, plus GIS
+// types (`dms`, `mgrs`, …) and a `;<locale>` tail. One decimal is what a metric chart carries;
+// the raw band is f32 to the millimetre, which is precision the survey does not have.
 layer soundings {
   source: bathy
-  | label-[round(.depth)] label-color-#fff label-size-11
+  | label-["{.depth:.1f}"] label-color-#fff label-size-11
     label-halo-1 label-halo-color-#000
 }

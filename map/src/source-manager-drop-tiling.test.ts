@@ -69,6 +69,7 @@ function makeManager() {
     fireError: () => {},
     getVtSource: () => null,
     deleteFeatureIndex,
+    beginCoverageLoad: () => Promise.resolve(),
   })
   return { mgr, rawDatasets, teardownSource, rebuildLayers, order, registered }
 }

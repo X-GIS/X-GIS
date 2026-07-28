@@ -166,9 +166,9 @@ class OpaquePass implements RenderPass {
             projType,
             centerLon,
             centerLat,
-            ctx.w,
-            ctx.h,
-            ctx.dpr,
+            ctx.scene.w,
+            ctx.scene.h,
+            ctx.scene.dpr,
           )
           host.gpuTimer?.mark(subPass, 'after_raster')
           host.renderer.renderToPass(
@@ -191,9 +191,9 @@ class OpaquePass implements RenderPass {
             projType,
             centerLon,
             centerLat,
-            ctx.w,
-            ctx.h,
-            ctx.dpr,
+            ctx.scene.w,
+            ctx.scene.h,
+            ctx.scene.dpr,
           )
         }
 
@@ -278,7 +278,12 @@ class OpaquePass implements RenderPass {
             !host.camera.globeMode &&
             !isGlobeProj(projType)
           ) {
-            const frame = host.camera.getViewForProjection(projType, ctx.w, ctx.h, ctx.dpr)
+            const frame = host.camera.getViewForProjection(
+              projType,
+              ctx.scene.w,
+              ctx.scene.h,
+              ctx.scene.dpr,
+            )
             // Raw encoder — CoverageRenderer.render wraps it internally (the backend fork
             // lives there, mirroring raster), keeping this pass file backend-import-free.
             // The advected field this frame's flow pass just produced (#1333). Null before
@@ -291,6 +296,9 @@ class OpaquePass implements RenderPass {
               [host.camera.centerX, host.camera.centerY],
               [projType, centerLon, centerLat, frame.logDepthFc],
               flowView ? { view: flowView, mix: FLOW_DRAPE_MIX } : null,
+              // Live zoom, for a `zoom`-dependent `filter:` on the drape (#1437) — the same
+              // value the sounding arm already hands its copy of the clause.
+              host.camera.zoom,
             )
           }
           host.renderer.renderGraticuleOverlay(subPass, host.camera, projType, centerLon, centerLat)

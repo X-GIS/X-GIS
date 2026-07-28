@@ -18,6 +18,7 @@ import { wrapWebGpuBindGroupLayout } from '@xgis/rhi-webgpu'
 import { Material, executeItems } from '@xgis/engine'
 import { emitTextWgsl } from '../../shaders/dsl/text'
 import { emitTextGlsl } from '../../shaders/dsl/text'
+import { wgslFor } from './wgsl-for'
 
 // WebGL2 by-name entries — the RHI-native twin of the raw text bind-group
 // layout (#834 M5 slice 3). Names from the DSL: UBO tag = struct name;
@@ -57,7 +58,7 @@ export class TextDraper {
   ) {
     const gl2 = rhi.backend === 'webgl2'
     this.material = new Material(rhi, {
-      shader: emitTextWgsl(),
+      shader: wgslFor(rhi, emitTextWgsl),
       vsEntry: 'vs',
       fsEntry: 'fs',
       vsCode: gl2 ? emitTextGlsl('vertex') : undefined,

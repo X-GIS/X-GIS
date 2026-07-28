@@ -41,6 +41,8 @@ import { getSampleCount } from '@xgis/engine'
 import type { CoverageHandle } from '@xgis/data'
 import { cellUnitsToLonLat, coverageEdges, coverageMeshNodes } from '@xgis/data'
 import { CoverageDraper, COVERAGE_NODE_STRIDE } from './material/coverage-material'
+import { compileCoverageFilter, type CoverageFilterFn } from '../shaders/dsl/coverage-filter'
+import type * as AST from '@xgis/compiler'
 import { resolveVectorBands } from '../coverage-vector-bands'
 import { packFlowFieldUV } from './flow-field-pack'
 import {
@@ -91,6 +93,15 @@ interface CoverageState {
   opacity: number
   /** This region draws the advected field alone, with no colour ramp (see CoverageArmOptions). */
   flowOnly: boolean
+  /** Resident, but the drape paints nothing for it (see CoverageArmOptions). */
+  hidden: boolean
+  /** Which draper draws this region — the compiled `filter:` predicate's key, or '' for an
+   *  unfiltered layer (#1437). The predicate is baked into the pipeline, so a region cannot
+   *  be drawn by a draper compiled for a different one. */
+  filterKey: string
+  /** The band's raw value window. `packCoverageValueValid` normalizes values to [0,1], so the
+   *  fragment predicate needs (min, span) to test the RAW units the CPU sounding arm uses. */
+  data: { min: number; max: number }
   /** Approximate GPU bytes this region holds — the LRU budget's accounting unit. */
   bytes: number
 }
@@ -137,16 +148,35 @@ export interface CoverageArmOptions {
   /** Layer opacity paint (0..1); defaults to 1 (opaque). */
   opacity?: number
   bandIndex?: number | string
+  /** The layer's `filter:` clause (#1437) — compiled into the fragment stage, so a filtered
+   *  drape discards the cells the predicate rejects instead of painting them. Rejected
+   *  loudly, never silently, when the predicate is outside the compilable subset: a filter
+   *  that draws everything is the exact defect this binding has already had twice. */
+  filter?: { ast: unknown } | null
   /** Draw ONLY the advected field, with no colour ramp (#1333). The strict-catalogue case:
    *  `| flow` without a `ramp`, where the motion must be visible but the catalogue arrows
    *  stay the only colour authority. The drape then emits a neutral luminance modulation. */
   flowOnly?: boolean
+  /** RESIDENT BUT NOT DRAWN (#1419). The region's textures — the velocity pair above all —
+   *  are uploaded and available to everything that reads them, while the drape itself paints
+   *  nothing.
+   *
+   *  This exists because residency and painting are different questions, and welding them
+   *  cost the advected arrow field its whole data source: under the `arrows` portrayal the
+   *  drape has nothing to add (the moving glyphs ARE the motion layer), and skipping the arm
+   *  to express that also skipped the upload — so the velocity textures never existed, the
+   *  arrow field could not be built, and the layer rendered NOTHING. Caught by a headless
+   *  WebGL2 render, not by 3900 green unit tests. */
+  hidden?: boolean
 }
 
 export class CoverageRenderer {
   private readonly rhi: RhiDevice
   private readonly format: string
-  private _draper: CoverageDraper | null = null
+  /** Drapers keyed by compiled-predicate key ('' = unfiltered). The predicate is baked into
+   *  the pipeline, so this is the variant cache — and it holds ONE entry for the overwhelming
+   *  majority of maps, which declare no coverage filter at all. */
+  private readonly drapers = new Map<string, CoverageDraper>()
   private dataSampler: RhiSampler | null = null
   private lutSampler: RhiSampler | null = null
   /** Shared drape-mesh index buffer — topology depends only on COVERAGE_GRID_N, so every
@@ -173,12 +203,18 @@ export class CoverageRenderer {
   /** Lazily build the draper with the LIVE sample count — mirrors raster's
    *  ensureRasterDraper exactly (min(getSampleCount, maxSampleCount) works for the
    *  WebGPU opaque MSAA target AND the WebGL2 twin screen pass; no backend fork). */
-  private ensureDraper(): CoverageDraper {
-    return (this._draper ??= new CoverageDraper(
-      this.rhi,
-      this.format,
-      Math.min(getSampleCount(), this.rhi.caps.maxSampleCount),
-    ))
+  private ensureDraper(filter?: CoverageFilterFn, key = ''): CoverageDraper {
+    let d = this.drapers.get(key)
+    if (!d) {
+      d = new CoverageDraper(
+        this.rhi,
+        this.format,
+        Math.min(getSampleCount(), this.rhi.caps.maxSampleCount),
+        filter,
+      )
+      this.drapers.set(key, d)
+    }
+    return d
   }
 
   hasCoverage(): boolean {
@@ -194,12 +230,22 @@ export class CoverageRenderer {
    *  nothing is armed yet. `map.setCoverageData` reuses this so an imperative data swap
    *  keeps the drawing layer's display (LAYER paint, #1158 INC-D) without re-reading the
    *  ShowCommand; a later rebuild re-arms from the layer. */
-  displayOpts(): { ramp: string; rangeLo?: number; rangeHi?: number; opacity?: number } {
+  displayOpts(): {
+    ramp: string
+    rangeLo?: number
+    rangeHi?: number
+    opacity?: number
+    filter?: { ast: unknown } | null
+  } {
     return {
       ramp: this.lastOpts?.ramp ?? 'viridis',
       rangeLo: this.lastOpts?.rangeLo,
       rangeHi: this.lastOpts?.rangeHi,
       opacity: this.lastOpts?.opacity,
+      // Carried for the same reason ramp/range are: an imperative `setCoverageData` swap
+      // re-arms from this, and dropping the filter there would silently un-filter the layer —
+      // the defect class #1437 exists to close, arriving through the back door.
+      filter: this.lastOpts?.filter,
     }
   }
 
@@ -214,13 +260,18 @@ export class CoverageRenderer {
     // Called for its EFFECT, not its value: the draper is lazy and must be built at ARM time
     // with the live MSAA sample count (rebuildForQuality invalidates it). The bind group is
     // no longer built here — it is keyed by the ping-pong flow view and minted on first draw.
-    this.ensureDraper()
     this.dataSampler ??= this.rhi.createSampler({ mag: 'linear', min: 'linear' })
     this.lutSampler ??= this.rhi.createSampler({ mag: 'linear', min: 'linear' })
     const band = handle.band(opts.bandIndex ?? 0)
     const [nLon, nLat] = handle.header.size
     const dataMin = band.header.min
     const dataMax = band.header.max
+
+    // `filter:` → a fragment predicate (#1437). Called for its EFFECT as well as its value:
+    // the draper is lazy and must exist at ARM time with the live MSAA sample count
+    // (rebuildForQuality clears them), and it is keyed by the predicate, which is baked into
+    // the pipeline.
+    const filterKey = this.armFilter(opts.filter, band.header.name)
 
     const { value, valid } = packCoverageValueValid(band.values, dataMin, dataMax, band.codes)
     const valueTex = this.uploadR16f(value, nLon, nLat)
@@ -272,6 +323,9 @@ export class CoverageRenderer {
       ramp: computeRampUniforms(dataMin, dataMax, opts.rangeLo ?? dataMin, opts.rangeHi ?? dataMax),
       opacity: opts.opacity ?? 1,
       flowOnly: opts.flowOnly === true,
+      hidden: opts.hidden === true,
+      filterKey,
+      data: { min: dataMin, max: dataMax },
       // 2 × r16float over the grid + the 256×1 rgba8 LUT, plus the vector pair when this
       // coverage carries one, plus the drape-mesh node buffer (#1366 INC-3). Counting the
       // flow textures matters: they are the SAME size as the value/valid pair, so a vector
@@ -291,7 +345,19 @@ export class CoverageRenderer {
   clearRegion(region: string): void {
     this.releaseRegion(region)
     this.arms.delete(region)
+    this.onRegionDropped?.(region)
   }
+
+  /** Called after a region is DROPPED — by an explicit `removeCoverageRegion`, or by the LRU
+   *  budget under `evictOverBudget`. Set by the map to clear that region's compiled arrows.
+   *
+   *  The explicit drop already clears them (`dropCoverageRegion`); the LRU one did not, and
+   *  that is the gap: zooming out and panning to another domain evicts the far region while
+   *  its advected arrow batch stays resident and keeps drawing — a batch whose data is gone
+   *  and which accumulates one per eviction (#1419). NOT hooked into `releaseRegion`, which
+   *  also fires for a re-arm and for `rebuildForQuality`, where the region is coming straight
+   *  back and its glyphs must survive. */
+  onRegionDropped: ((region: string) => void) | null = null
 
   /** The velocity field a region carries, or null when it is a scalar coverage (S-102
    *  bathymetry) or has not been armed. The flow pass reads this to decide whether it runs at
@@ -357,6 +423,53 @@ export class CoverageRenderer {
     return false
   }
 
+  /** True when a VISIBLE region carries a velocity field — i.e. when the IBFV trail this
+   *  renderer's drape samples has a consumer at all (#1419). Under the `arrows` portrayal every
+   *  flow region is resident-but-hidden, so the trail image would be advected each frame and
+   *  then drawn by nobody: a full-screen pass per frame for a picture no one looks at. */
+  hasDrapedFlowField(): boolean {
+    for (const st of this.states.values()) {
+      if (st.flowUView && st.flowVView && !st.hidden) return true
+    }
+    return false
+  }
+
+  /** The draper a region draws through. A region is only ever armed alongside its draper
+   *  (`armFilter`), so a miss here means the two went out of step — loud beats a blank layer. */
+  private draperFor(s: CoverageState): CoverageDraper {
+    const d = this.drapers.get(s.filterKey)
+    if (!d) throw new Error(`[coverage] no draper for filter key "${s.filterKey}"`)
+    return d
+  }
+
+  /** Compile a layer's `filter:` into the fragment predicate and arm the draper that carries
+   *  it, returning the key the region draws under ('' when there is no filter).
+   *
+   *  THROWS on a predicate outside the compilable subset, matching `bakeRampLut`'s
+   *  unknown-ramp behaviour and for the same reason: the alternative to a loud failure here
+   *  is a drape that paints every cell while the style says otherwise, which is the defect
+   *  this binding has now had twice. The message names the band the layer actually drapes, so
+   *  the author can see why `.speed` was refused on a `.depth` layer. */
+  private armFilter(filter: { ast: unknown } | null | undefined, band: string): string {
+    if (!filter?.ast) {
+      this.ensureDraper()
+      return ''
+    }
+    const compiled = compileCoverageFilter(filter.ast as AST.Expr)
+    if (!compiled.ok) {
+      throw new Error(`[coverage] filter: ${compiled.reason} (this layer drapes \`${band}\`)`)
+    }
+    if (compiled.band !== band) {
+      // The drape binds ONE data texture — this layer's band. A predicate over another band
+      // is real work (#1437 phase 2), not something to quietly evaluate somewhere else.
+      throw new Error(
+        `[coverage] filter: reads \`.${compiled.band}\`, but this layer drapes \`${band}\``,
+      )
+    }
+    this.ensureDraper(compiled.decl, compiled.key)
+    return compiled.key
+  }
+
   /** Disarm every region (scene rebuild with no coverage source). Textures are
    *  destroyed; the draper + samplers stay for a later re-arm. */
   clear(): void {
@@ -370,7 +483,7 @@ export class CoverageRenderer {
   rebuildForQuality(): void {
     const prior = [...this.arms.entries()] // snapshot: setCoverage below mutates `arms`
     for (const key of [...this.states.keys()]) this.releaseRegion(key)
-    this._draper = null
+    this.drapers.clear()
     for (const [key, { handle, opts }] of prior) this.setCoverage(handle, opts, key)
   }
 
@@ -399,8 +512,11 @@ export class CoverageRenderer {
     camCenter: [number, number],
     projParams: [number, number, number, number],
     flow?: FlowDrape | null,
+    /** Live camera zoom, for a `zoom`-dependent `filter:` (#1437). The sounding arm already
+     *  reads it; leaving the drape blind to it would make one clause mean two things. */
+    cameraZoom?: number,
   ): void {
-    if (this.states.size === 0 || !this._draper) return
+    if (this.states.size === 0 || this.drapers.size === 0) return
     // A WebGl2Device frame (renderFrameViaRhi twin) hands in an RhiRenderPass
     // already; the WebGPU opaque pass hands in a GPURenderPassEncoder that needs
     // wrapping — the ONE backend fork, mirroring raster-renderer.render. Wrapped ONCE,
@@ -411,6 +527,9 @@ export class CoverageRenderer {
         : wrapWebGpuPass(pass as GPURenderPassEncoder)
     // Least-recently-armed first; overlapping domains alpha-blend in that order.
     for (const s of this.states.values()) {
+      // Resident for its data, not for its paint (#1419) — the velocity pair is uploaded and
+      // the arrow field is built from it, while the drape itself stays out of the frame.
+      if (s.hidden) continue
       // The motion layer rides ONLY on a region that actually carries a velocity field. A
       // scalar region in the same mosaic binds its own value texture as the inert stand-in
       // and gets mix 0, so it draws byte-identically beside an animated neighbour.
@@ -424,13 +543,20 @@ export class CoverageRenderer {
         opacity: s.opacity,
         flowMix: animated ? flow.mix : 0,
         flowOnly: s.flowOnly,
+        data: s.data,
+        cameraZoom,
       })
       // MERGE UNION (#1366 INC-3 <- #1333): the indexed node mesh (INC-3) drawn with the
       // flow-keyed bind group (#1333) — the two changes touch different draw arguments.
-      this._draper.draw(
+      // The region's OWN draper: the predicate is baked into the pipeline, so a filtered
+      // region and an unfiltered one in the same mosaic are different pipelines — and the
+      // bind group must come from the SAME draper, because binding 0 is that draper's global
+      // uniform buffer and `draw` writes only its own.
+      const draper = this.draperFor(s)
+      draper.draw(
         rhiPass,
         bytes as BufferSource,
-        this.groupFor(s, flowView),
+        this.groupFor(s, flowView, draper),
         s.nodeBuf,
         this.ensureIndexBuf(),
       )
@@ -494,11 +620,23 @@ export class CoverageRenderer {
   }
 
   /** This region's bind group for `flowView`, memoized. Keyed rather than rebuilt because the
-   *  advection pair alternates: two entries for an animated region, one for a scalar one. */
-  private groupFor(s: CoverageState, flowView: RhiTextureView): RhiBindGroup {
+   *  advection pair alternates: two entries for an animated region, one for a scalar one.
+   *
+   *  `draper` is a PARAMETER, not `ensureDraper()`. It used to be the latter, which was correct
+   *  only while there was one draper: once #1437 keyed drapers by predicate, the group bound
+   *  the UNFILTERED draper's global uniform buffer (binding 0) while the draw ran the FILTERED
+   *  draper's pipeline and wrote the filtered draper's buffer. The shader then read a buffer
+   *  nobody had written — `cov_data` all zeros, so every raw value came out 0 and the predicate
+   *  discarded the entire drape. Invisible to 4 020 unit tests and a green build; one headless
+   *  WebGL2 render showed a black map (CLAUDE.md §5). Passing it in removes the choice. */
+  private groupFor(
+    s: CoverageState,
+    flowView: RhiTextureView,
+    draper: CoverageDraper,
+  ): RhiBindGroup {
     let bg = s.bindGroups.get(flowView)
     if (!bg) {
-      bg = this.ensureDraper().bindGroup(
+      bg = draper.bindGroup(
         s.views.value,
         s.views.valid,
         this.dataSampler!,

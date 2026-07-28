@@ -100,6 +100,7 @@ export {
   Hdf5Error,
   BufferReader,
   RangeReader,
+  isHdf5,
 } from './hdf5/index'
 export type {
   Hdf5Node,

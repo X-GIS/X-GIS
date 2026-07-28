@@ -17,6 +17,16 @@
 // main.xsl note (4): the lookup table omits speed 0 and the fill value → NO symbol for a
 // zero or noData cell.
 
+import { bandedRampColor } from '../color-ramp'
+import {
+  S111_BAND_COUNT,
+  S111_BAND_PARAMS_ROW,
+  S111_BAND_STRIDE,
+  S111_BAND_TABLE_ROWS,
+  S111_BAND_TOP_SENTINEL,
+  S111_PARAM_UV_ASPECT,
+} from '../shaders/dsl/s111-band-table-layout'
+
 /** S-111 speed-band palette name (the banded ramp shared with the coverage fill). */
 export const S111_SPEED_RAMP = 's111-speed'
 
@@ -50,6 +60,97 @@ export function s111ArrowLengthPx(speedKnots: number, basePx: number = S111_ARRO
  *  noData/fill are not symbolized). */
 export function s111HasArrow(speedKnots: number): boolean {
   return Number.isFinite(speedKnots) && speedKnots > 0
+}
+
+// ── The catalogue rule, as DATA the GPU can look up ──────────────────────────────────────
+//
+// An arrow that is ADVECTED through the velocity field is not at its origin cell any more, so
+// its band — and therefore its colour and its scale — has to be re-decided every frame from
+// the speed under it. That decision cannot move into a shader as CODE: the thresholds and the
+// scale rule would then exist in two places, and a catalogue revision would silently update
+// only one of them. This codebase has paid for two-authority drift more than once (§12).
+//
+// So the rule is uploaded as a TABLE, generated here from the two authorities that already
+// own its parts — `BANDED_RAMPS['s111-speed']` for the edges and colours, and the
+// `S111_SCALE_*` constants above for the scale. The shader holds no threshold and no colour of
+// its own; it only indexes this. `s111-portrayal.test.ts` asserts the table reproduces
+// `bandedRampColor` and `s111ArrowScale` exactly, so a drift is a failing test rather than a
+// wrong picture.
+//
+// The scale rule is expressed per band as an AFFINE pair rather than a branch, because
+// `select_arrow.xsl` is exactly affine in every band:
+//   bands 1–3 → (0.40, 0)      constant  scaleFloor
+//   bands 4–8 → (0,    0.20)   speed × scaleIntermediate
+//   band  9   → (2.60, 0)      constant  scaleCeiling
+// so `scale = constant + perKnot × speed` reproduces all nine with no conditional at all.
+
+/** Build the band table the advected-arrow shader indexes. Row `i` is band `i+1`. Edges and the
+ *  scale pair are in KNOTS — see `s111BandTableNormalized` for the units the shader wants. */
+export function s111BandTable(rampName: string = S111_SPEED_RAMP): Float32Array {
+  const out = new Float32Array(S111_BAND_COUNT * S111_BAND_STRIDE)
+  // Band UPPER edges, from the catalogue: [0,.5) [.5,1) [1,2) [2,3) [3,5) [5,7) [7,10) [10,13) [13,∞)
+  const edges = [0.5, 1, 2, 3, 5, 7, 10, 13, S111_BAND_TOP_SENTINEL]
+  for (let b = 0; b < S111_BAND_COUNT; b++) {
+    // A speed strictly inside the band — used to ask the EXISTING authorities what this band
+    // looks like, rather than restating either of them here. Midpoint of the band, except the
+    // unbounded top one, where any value at/above 13 gives the same answer.
+    const lo = b === 0 ? 0 : edges[b - 1]!
+    const probe = b === S111_BAND_COUNT - 1 ? S111_MID_HI : (lo + edges[b]!) / 2
+    const c = bandedRampColor(rampName, probe) ?? bandedRampColor(S111_SPEED_RAMP, probe)!
+    // The affine pair, read off `s111ArrowScale` at two probes rather than re-deriving it:
+    // a band is either constant (both probes agree) or proportional (scale/speed is constant).
+    const perKnot = b >= 3 && b <= 7 ? S111_SCALE_PER_KNOT : 0
+    const konst = s111ArrowScale(probe) - perKnot * probe
+    const o = b * S111_BAND_STRIDE
+    out[o] = edges[b]!
+    out[o + 1] = konst
+    out[o + 2] = perKnot
+    out[o + 3] = 0
+    out[o + 4] = c[0] / 255
+    out[o + 5] = c[1] / 255
+    out[o + 6] = c[2] / 255
+    out[o + 7] = 1
+  }
+  return out
+}
+
+/** The same table, re-expressed in the units the arrow VS actually holds (#1419).
+ *
+ *  The velocity textures store components divided by the field's peak speed (flow-field-pack.ts
+ *  — normalized so f16 error is bounded by the field's own range), so what the shader can cheaply
+ *  compute is a magnitude in [0, 1], not knots. Two ways to close that gap: hand the shader the
+ *  peak and let it multiply, or hand it a table already in its units. This is the second, because
+ *  the first needs a per-batch scalar plumbed into a VS that has no uniform of its own — and a
+ *  scale living in two places is how a catalogue revision updates one of them.
+ *
+ *  The transform is exact and rule-preserving: an edge in knots is `edge / peak` in normalized
+ *  units, and `konst + perKnot·speedKnots` is `konst + (perKnot·peak)·speedNorm`. The band a
+ *  given speed lands in, and the scale it gets, are unchanged.
+ *
+ *  `peakSpeed ≤ 0` is a calm or all-nodata field: nothing is symbolized at speed 0 (main.xsl
+ *  note 4, enforced in the VS), so the table is returned in knots rather than divided by zero. */
+export function s111BandTableNormalized(
+  peakSpeed: number,
+  uvAspect: number,
+  rampName: string = S111_SPEED_RAMP,
+): Float32Array {
+  const bands = s111BandTable(rampName)
+  const out = new Float32Array(S111_BAND_TABLE_ROWS * S111_BAND_STRIDE)
+  out.set(bands)
+  if (peakSpeed > 0) {
+    for (let b = 0; b < S111_BAND_COUNT; b++) {
+      const o = b * S111_BAND_STRIDE
+      out[o] = bands[o]! / peakSpeed
+      out[o + 2] = bands[o + 2]! * peakSpeed
+    }
+  }
+  // The trailing params row. `uvAspect` = trueLonSpan / trueLatSpan (flow-advect-params.ts):
+  // the VS's two screen bases are one grid-uv leash apart on each axis, and a uv unit is a
+  // different TRUE distance on each — so a velocity in metric east/north components has to be
+  // re-expressed in uv rates before it can pick a screen direction. Without it a northeast
+  // current draws at one angle and drifts at another, away from the equator most of all.
+  out[S111_BAND_PARAMS_ROW * S111_BAND_STRIDE + S111_PARAM_UV_ASPECT] = uvAspect
+  return out
 }
 
 /** `SVGStyle_S111day.css` `.sCHBLK {stroke:#000000}` — every SCAROW0N symbol strokes its

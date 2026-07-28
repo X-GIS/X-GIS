@@ -45,58 +45,57 @@ describe('getMaxGpuTiles — GPU-cache cap routes through isMobileClassViewport 
   })
 })
 
-describe('visibleTilesFrustum — the frustum budget classifies on the LARGER CSS axis (#1350)', () => {
-  it('a 1200x800 desktop canvas gets the desktop frustum budget, not the phone budget', () => {
-    // Reaches the module-private `isMobileViewport` through the only exported
-    // entry point that consumes it: isMobileViewport -> maxFrustumTilesFor ->
-    // the DFS cap inside visibleTilesFrustum.
-    //
-    // 1200x800 is the discriminating shape: max=1200 (>900) is desktop, but
-    // min=800 (<=900) is phone-class, so a Math.min/Math.max swap misclassifies
-    // an ordinary desktop window as a phone. At pitch>=60 (pitchMul=2) the two
-    // budgets are 160 tiles (desktop: area/12000, floor 60) vs 106 (phone:
-    // area/18000, floor 12). This camera saturates the cap, and the measured
-    // selection is 169 tiles with Math.max vs 133 with Math.min — the counts
-    // sit above each cap because the camera-region inject bypasses it. 150
-    // separates them with margin on both sides.
-    //
-    // No pointer stub: 1200 > 900 fails isMobileClassViewport's size gate before
-    // matchMedia is consulted, so this case is pointer-independent by construction.
-    const cam = new Camera(-73.95, 40.8, 16)
-    cam.pitch = 85
-    cam.bearing = 30
-    const tiles = visibleTilesFrustum(cam, mercator, 18, 1200, 800, 0, 1)
-    expect(tiles.length).toBeGreaterThan(150)
-  })
+describe('visibleTilesFrustum — the budget is WIRED to the selector (#1350)', () => {
+  // The classification and the cap themselves are asserted exactly in
+  // `data/src/tile-select-budget.test.ts`, which can call them directly now
+  // that they live in their own module. What THAT file cannot check is that
+  // `visibleTilesFrustum` actually consults them — a selector that ignored
+  // `maxFrustumTilesFor` entirely would leave it green. This is that check,
+  // and it is all that is left here.
+  //
+  // History worth keeping: these cases used to prove the classification by
+  // picking a camera that SATURATED the budget and reading the tile count.
+  // That inference kept weakening — the #1427 far-plane cull dropped the old
+  // 1200x800 camera from 169 selected to 98 against a 160/106 pair of caps, so
+  // neither cap bound and both pointers returned the same number. Chasing a
+  // still-saturating camera would just defer the next re-baseline; testing the
+  // budget directly ends it.
 
-  it('a small 860px window is DESKTOP on a fine pointer and PHONE on a coarse one', () => {
-    // The case above cannot reach the classifier's POINTER branch: 1200 > 900
-    // fails isMobileClassViewport's size gate first, so it is satisfied by any
-    // mutant that keeps width-only classification. This one is the pointer
-    // test — same canvas, same camera, only `pointer: coarse` differs — so the
-    // ONLY thing that can move the count is the classification itself.
-    //
-    // Asserted as a RELATION, not two pinned constants. `fine > coarse` is what
-    // "the pointer decides" means, and it is what fails for every mutation of
-    // this classifier: a constant `return false` (phone budget deleted), a
-    // constant `return true` (desktop budget deleted), and a restored
-    // width-only rule (860 is phone-class on width, so the pointer stops
-    // mattering) all collapse the two sides to the SAME count. It also survives
-    // unrelated selector drift, which a pinned 141-vs-85 would not.
+  it('honours the phone cap when the classifier says phone', () => {
+    // 500x400: both axes are small, so the POINTER decides — same canvas, same
+    // camera, only `pointer: coarse` differs. Any mutation of the classifier
+    // (constant true, constant false, width-only) collapses the two sides to
+    // the same count, which is why this is asserted as a relation rather than
+    // as two pinned numbers. Measured: fine 70, coarse 51.
     const camFor = () => {
-      const c = new Camera(-73.95, 40.8, 16)
+      const c = new Camera(-73.95, 40.8, 14)
       c.pitch = 85
       c.bearing = 30
       return c
     }
     stubPointer('fine')
-    const fine = visibleTilesFrustum(camFor(), mercator, 18, 860, 600, 0, 1).length
+    const fine = visibleTilesFrustum(camFor(), mercator, 18, 500, 400, 0, 1).length
     stubPointer('coarse')
-    const coarse = visibleTilesFrustum(camFor(), mercator, 18, 860, 600, 0, 1).length
+    const coarse = visibleTilesFrustum(camFor(), mercator, 18, 500, 400, 0, 1).length
 
     expect(fine, 'a fine pointer must get the desktop frustum budget').toBeGreaterThan(coarse)
     // Both sides must be doing real work — a selector that returned nothing
     // would satisfy an inequality against zero just as well.
     expect(coarse).toBeGreaterThan(0)
+  })
+
+  it('caps the emitted set at the budget, not somewhere above it', () => {
+    // The cap must BITE, not merely exist. A coarse-pointer 500x400 at
+    // pitch>=60 gets max(24, round(200000/18000)*2) = 24 from the DFS; the
+    // camera-region inject then adds its 5x5 ring on top by design, so the
+    // observable ceiling is the cap plus that ring — well under what the same
+    // camera selects on the desktop budget.
+    stubPointer('coarse')
+    const cam = new Camera(-73.95, 40.8, 14)
+    cam.pitch = 85
+    cam.bearing = 30
+    const tiles = visibleTilesFrustum(cam, mercator, 18, 500, 400, 0, 1)
+    expect(tiles.length).toBeLessThan(60)
+    expect(tiles.length).toBeGreaterThan(0)
   })
 })

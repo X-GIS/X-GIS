@@ -13,6 +13,10 @@ playground/public/data/*
 # Tiny .odb OD-flow fixture (real OA-22300 aggregated to 서울 top-2000, ~26KB)
 # so the .odb hero demo + its e2e gate render without the 345MB raw CSV.
 !playground/public/data/fixture-*.odb
+# Synthetic S-100 cells (~26KB each): the coverage demos and their render gates read
+# these directly, so they must travel with the tests. `synthetic-currents-east.h5` is
+# the abutting twin the multi-region gate needs — one domain cannot demonstrate two.
+!playground/public/data/synthetic-*.h5
 # Seoul demo backdrop (자치구 boundary) + custom-loader CSV sample — the 생활이동
 # hero demos load these; without whitelisting they deploy as 404 (the bulk-data ignore
 # above catches them, and CI's git checkout never sees the local-only files).

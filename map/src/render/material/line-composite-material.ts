@@ -12,6 +12,7 @@ import { wrapWebGpuTextureView } from '@xgis/rhi-webgpu'
 import { Material, executeItems } from '@xgis/engine'
 import { emitCompositeWgsl } from '../../shaders/dsl/line-composite'
 import { emitCompositeGlsl } from '../../shaders/dsl/line-glsl'
+import { wgslFor } from './wgsl-for'
 
 /** Composite uniform ring slot size (matches LineRenderer.COMPOSITE_SLOT). */
 const COMPOSITE_SLOT = 256
@@ -35,7 +36,7 @@ export class LineCompositeDraper {
   private mat(): Material {
     const gl2 = this.rhi.backend === 'webgl2'
     return (this._material ??= new Material(this.rhi, {
-      shader: emitCompositeWgsl(),
+      shader: wgslFor(this.rhi, emitCompositeWgsl),
       vsEntry: 'vs_full',
       fsEntry: 'fs_full',
       vsCode: gl2 ? emitCompositeGlsl('vertex') : undefined,

@@ -269,9 +269,15 @@ describe('curved-line label shaping (addCurvedLineLabel → prepare line-loop)',
 // Phase S Batch 2 — Mapbox `text-max-angle` (LabelDef.maxAngle, DEGREES).
 // A 90°-corner polyline puts glyph 0 on the horizontal segment (tangent 0°)
 // and glyph 1 on the vertical segment (tangent 90°), so the per-glyph
-// tangent delta is 90°. With maxAngle=45 the label is dropped; UNSET (the
-// historical default) places it exactly as before — proving no regression
-// for styles that don't author text-max-angle.
+// tangent delta is 90°. With maxAngle=45 the label is dropped.
+//
+// The UNSET case was originally pinned the other way — an unauthored
+// text-max-angle meant no clamp at all, to keep such styles byte-identical.
+// That was backwards in practice: omitting the property is the norm (not one of
+// OFM Positron's five line-placed symbol layers sets it), so the gate never ran
+// on the style parity is measured against, while MapLibre applied the spec
+// default throughout and dropped kinked labels X-GIS kept. UNSET now means the
+// spec default of 45.
 describe('curved-line label text-max-angle angular gate', () => {
   // polyline: (0,100)→(50,100)→(50,150). seg0 horizontal len 50 (0°),
   // seg1 vertical len 50 (90°). centerOffsetPx 56 → startS 44.
@@ -298,13 +304,48 @@ describe('curved-line label text-max-angle angular gate', () => {
     expect(captured[0]!.length).toBe(0)
   })
 
-  it('DEFAULT (maxAngle unset): same 90° corner still places — historical no-clamp behaviour', () => {
+  it('DEFAULT (maxAngle unset): same 90° corner is dropped — spec default 45 applies', () => {
     const { stage, captured } = makeStage()
     stage.beginFrame()
     stage.addCurvedLineLabel(litValue('AB'), {}, cornerPx(), cornerPy(), CENTER, curvedDef())
     stage.prepare()
+    expect(captured.length).toBe(1)
+    expect(captured[0]!.length).toBe(0)
+  })
+
+  it('an AUTHORED 0 still means "drop on any deflection" (not "unset")', () => {
+    // `?? 45` and not `|| 45`: 0 is a legitimate authored threshold, and a falsy
+    // check would silently promote it to 45 — a label that must never bend.
+    const { stage, captured } = makeStage()
+    stage.beginFrame()
+    stage.addCurvedLineLabel(
+      litValue('AB'),
+      {},
+      cornerPx(),
+      cornerPy(),
+      CENTER,
+      curvedDef({ maxAngle: 0 }),
+    )
+    stage.prepare()
+    expect(captured[0]!.length).toBe(0)
+  })
+
+  it('a STRAIGHT line is unaffected by the new default', () => {
+    // The default must only cost kinked labels. A straight polyline has zero
+    // per-glyph deflection, so it places exactly as before.
+    const { stage, captured } = makeStage()
+    stage.beginFrame()
+    stage.addCurvedLineLabel(
+      litValue('AB'),
+      {},
+      new Float32Array([0, 50, 100]),
+      new Float32Array([100, 100, 100]),
+      CENTER,
+      curvedDef(),
+    )
+    stage.prepare()
     const draw = captured[0]!.find((d) => d.glyphRotations !== undefined)
-    expect(draw, 'curved draw should still be emitted when maxAngle is unset').toBeDefined()
+    expect(draw, 'a straight curved-line label must still place').toBeDefined()
     expect(draw!.glyphs.length).toBe(2)
   })
 

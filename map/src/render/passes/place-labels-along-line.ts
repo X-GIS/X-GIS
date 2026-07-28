@@ -13,6 +13,7 @@
 import type { LabelDef } from '@xgis/compiler'
 import type { GeoJSONFeature } from '@xgis/data'
 import type { FeatureProps } from '../../text/text-resolver'
+import { lineIconIsIconOnly } from './line-label-dedupe'
 
 /** Mapbox `symbol-spacing` → the on-screen (physical px) step between along-line
  *  placements. The single authority for both line paths.
@@ -89,12 +90,23 @@ export function lineLabelEdgeInsetPx(
  *  Placement cadence (mirrors the historical viewport-aligned walk):
  *   - `spacingPx <= 0` (line-center) or a line shorter than half a spacing step
  *     → a SINGLE placement at the polyline midpoint (distance = total * 0.5);
- *   - otherwise → a placement every `spacingPx` from `spacingPx * 0.5`.
+ *   - otherwise → a placement every `spacingPx` from `spacingPx * 0.5`, or from
+ *     `phasePx` when the caller supplies a world-anchored origin (see below).
  *  `emit(pax, pay, pbx, pby, t)` receives the containing segment's projected
  *  endpoints and the fraction `t` along it; the caller derives the point and
  *  the screen-space tangent (so glyph rotation stays a caller concern). No
  *  emission when `pn < 2`. Exported for unit coverage — the callers are anon
- *  closures. */
+ *  closures.
+ *
+ *  `phasePx` (INC-1 of docs/plans/2026-07-27-line-label-world-anchored-placement.md)
+ *  is the along-polyline screen offset of a WORLD anchor — MapLibre's chain sits at
+ *  `tileEntry + k · spacing`, so the offset the caller computes is the tile-entry
+ *  crossing measured from `px[0]`. It may be negative (the anchor lies behind the
+ *  start of the projected run) or larger than one step; only its residue mod
+ *  `spacingPx` matters, since the emitted set `{phase + k·spacing} ∩ [0, total]` is
+ *  invariant under adding whole steps. That residue is what makes the chain
+ *  pan-invariant: the same road labels at the same world positions no matter where
+ *  the visible run happens to start. Undefined ⇒ the historical `spacingPx * 0.5`. */
 export function placeLabelsAlongLine(
   px: Float32Array,
   py: Float32Array,
@@ -102,6 +114,7 @@ export function placeLabelsAlongLine(
   spacingPx: number,
   emit: (pax: number, pay: number, pbx: number, pby: number, t: number) => void,
   cull?: (px: number, py: number) => boolean,
+  phasePx?: number,
 ): void {
   if (pn < 2) return
   // #1314 — optional viewport edge-inset cull. A line label whose anchor projects
@@ -140,7 +153,7 @@ export function placeLabelsAlongLine(
     }
     return
   }
-  let nextStop = spacingPx * 0.5
+  let nextStop = lineLabelFirstStopPx(phasePx, spacingPx)
   let acc = 0
   for (let i = 0; i < pn - 1; i++) {
     const dx = px[i + 1]! - px[i]!
@@ -152,6 +165,216 @@ export function placeLabelsAlongLine(
       nextStop += spacingPx
     }
     acc += segLen
+  }
+}
+
+/** Where the first along-line stop sits, given a world anchor. The single authority
+ *  for the world lattice: `placeLabelsAlongLine` (viewport-aligned branch, INC-1) and
+ *  label-pass.ts's curved walk (INC-2) both call it, so the two branches cannot drift
+ *  into different phases for the same road.
+ *
+ *  Folds the anchor into `[0, spacingPx)` — a residue, not the raw offset. The
+ *  emitted set `{phase + k · spacing}` is unchanged by adding whole steps, so a run
+ *  that starts far past the tile boundary (or, as is usual, before it) still lands on
+ *  the same lattice. JS `%` keeps the sign of the dividend, hence the second fold: a
+ *  raw `-160 % 200` would start the walk at a negative offset and emit a stop before
+ *  the polyline begins.
+ *
+ *  An undefined or non-finite phase falls back to the historical `spacingPx * 0.5` —
+ *  a NaN here would silently emit nothing at all. */
+export function lineLabelFirstStopPx(phasePx: number | undefined, spacingPx: number): number {
+  if (phasePx === undefined || !Number.isFinite(phasePx)) return spacingPx * 0.5
+  return ((phasePx % spacingPx) + spacingPx) % spacingPx
+}
+
+/** INC-2 of docs/plans/2026-07-27-line-label-world-anchored-placement.md — map a
+ *  WORLD offset (mercator arc-length from the polyline's vertex 0) to the along-
+ *  SCREEN offset of the same point, measured from the projected run's first sample.
+ *
+ *  Both line branches walk in screen space but anchor in the world, so something has
+ *  to cross between the two frames. Scaling by a single `pxPerMeter` is only right
+ *  where that ratio is constant across the run — it is not under pitch (the far end
+ *  of a road compresses) nor over a long low-zoom polyline. This is the honest
+ *  version: the projection loop already visits every sample, so it can accumulate
+ *  mercator arc-length alongside the projected points, and the conversion becomes a
+ *  lookup in the two parallel prefix sums. O(n) over samples we already have.
+ *
+ *  `pm[i]` is the mercator arc-length from vertex 0 to sample `i` — monotone
+ *  non-decreasing, and NOT generally 0 at `i = 0` (leading samples that failed to
+ *  project are dropped, so the retained run can start mid-polyline).
+ *
+ *  The result may be negative: the tile-entry anchor usually sits BEHIND the first
+ *  retained sample, which is exactly the case a plain `arc - pm[0]` scaling gets
+ *  wrong. Targets outside `[pm[0], pm[pn-1]]` extrapolate along the nearest
+ *  interval's screen-per-mercator ratio rather than clamping — clamping would
+ *  collapse every off-run anchor onto the endpoint and quantise the phase to 0.
+ *
+ *  Returns 0 when there is nothing to interpolate (`pn < 2`) or the containing
+ *  interval has zero mercator extent (a degenerate duplicate sample). */
+export function mercOffsetToScreenOffset(
+  px: Float32Array,
+  py: Float32Array,
+  pm: Float64Array,
+  pn: number,
+  targetM: number,
+): number {
+  if (pn < 2) return 0
+  let screenAcc = 0
+  for (let i = 0; i < pn - 1; i++) {
+    const dm = pm[i + 1]! - pm[i]!
+    const ds = Math.hypot(px[i + 1]! - px[i]!, py[i + 1]! - py[i]!)
+    // Last interval doubles as the extrapolation arm for targets past the end.
+    if (targetM <= pm[i + 1]! || i === pn - 2) {
+      if (!(dm > 0)) return screenAcc
+      return screenAcc + ds * ((targetM - pm[i]!) / dm)
+    }
+    screenAcc += ds
+  }
+  return screenAcc
+}
+
+/** Point + tangent at along-polyline screen offset `s` on an already-projected
+ *  (physical px) polyline. Writes `[x, y, tangentDeg]` into `out` (a caller-owned
+ *  holder — this runs once per spacing stop, so returning a fresh object showed up
+ *  in the hot loop) and returns false when `s` runs past the polyline's end.
+ *
+ *  The tangent is the containing segment's direction in degrees CCW from +x;
+ *  `icon-rotation-alignment: map` (OFM road_oneway arrows) rotates by it.
+ *
+ *  Moved out of label-pass.ts's curved branch to sit beside the placement walk that
+ *  shares its geometry — the two are the same "where along this polyline" question. */
+export function sampleAlongPolyline(
+  px: Float32Array,
+  py: Float32Array,
+  pn: number,
+  s: number,
+  out: [number, number, number],
+): boolean {
+  let acc = 0
+  for (let i = 0; i < pn - 1; i++) {
+    const dx = px[i + 1]! - px[i]!
+    const dy = py[i + 1]! - py[i]!
+    const segLen = Math.sqrt(dx * dx + dy * dy)
+    if (acc + segLen >= s) {
+      const t = segLen > 0 ? (s - acc) / segLen : 0
+      out[0] = px[i]! + dx * t
+      out[1] = py[i]! + dy * t
+      out[2] = (Math.atan2(dy, dx) * 180) / Math.PI
+      return true
+    }
+    acc += segLen
+  }
+  return false
+}
+
+/** Everything the per-stop emitter needs from the ShowCommand being dispatched.
+ *  Bundled rather than passed positionally: there are nine of them, and a
+ *  positional list of nine closures is a swap waiting to happen.
+ *
+ *  `nextPairSeq` is a FUNCTION, not a number — the paired-symbol sequence counter
+ *  is shared with label-pass.ts's curved branch, and copying its value here would
+ *  fork it into two counters that hand out the same keys. */
+export interface EmitLabelAlongSegmentDeps {
+  applyFeatureExprs: (props: FeatureProps) => LabelDef
+  addLabel: (
+    value: LabelDef['text'],
+    props: FeatureProps,
+    x: number,
+    y: number,
+    def: LabelDef,
+    fontKey: string | undefined,
+    layerName: string | undefined,
+    pairKey: string | undefined,
+  ) => void
+  dispatchIcon: (
+    def: LabelDef,
+    ax: number,
+    ay: number,
+    lineTangentDeg: number,
+    pairKey: string | undefined,
+    collide: boolean,
+    props: FeatureProps,
+  ) => void
+  /** #603 — bucketed screen-position gate for text-less line icons. */
+  isLineIconDuplicate: (x: number, y: number) => boolean
+  /** Monotonic per-anchor counter behind the paired-symbol key (iter-176). */
+  nextPairSeq: () => number
+  labelLayerName: string | undefined
+  /** text-rotation-alignment !== 'viewport' — glyphs follow the segment tangent. */
+  useTangentRotation: boolean
+  zoom: number
+}
+
+/** One label placement at an interpolated point on a projected segment — the
+ *  emit half of the vector-tile line path, paired with `placeLabelsAlongLine`
+ *  which decides WHERE the stops are.
+ *
+ *  Extracted from label-pass.ts, which sits exactly on its shrink-only LOC
+ *  ceiling: any further line-label work there (the drop-attribution counters this
+ *  extraction pays for, and whatever comes after) needs the room. Pure move — the
+ *  body, the order of the guards and the emitted labels are unchanged.
+ *
+ *  Returns the emitter rather than doing the work, because `placeLabelsAlongLine`
+ *  wants a plain callback and the deps are fixed for the whole ShowCommand. */
+export function makeEmitLabelAlongSegment(
+  d: EmitLabelAlongSegmentDeps,
+): (pax: number, pay: number, pbx: number, pby: number, t: number, props: FeatureProps) => void {
+  return (pax, pay, pbx, pby, t, props) => {
+    const x = pax + (pbx - pax) * t
+    const y = pay + (pby - pay) * t
+    // Raw segment tangent in degrees (CCW from +x). Icons with
+    // icon-rotation-alignment=map use this directly (no upright flip); text uses
+    // the flipped form so glyphs stay readable from the natural reading direction.
+    const rawTangentDeg = (Math.atan2(pby - pay, pbx - pax) * 180) / Math.PI
+    const featDef = d.applyFeatureExprs(props)
+    // Iter 112 paired-symbol collision: a text label with a paired iconImage (OFM
+    // highway-shield-* / road_shield_us at z>=11) is tied to its badge by a shared
+    // per-anchor pairKey. TextStage.prepare runs collision and stamps
+    // droppedPairKeys for any REJECTED text; IconStage.prepare drops icons whose
+    // paired text was rejected. Matches MapLibre's "text+icon as one symbol"
+    // invariant. Replaces iter 111's allowOverlap shortcut, which kept every
+    // shield instance and produced visible duplication along single routes.
+    const pairedWithIcon =
+      featDef.iconImage !== undefined && featDef.iconImage !== null && featDef.iconImage !== ''
+    const pairKey = pairedWithIcon ? `${d.labelLayerName ?? ''}:seq${d.nextPairSeq()}` : undefined
+    // #603 — cross-tile dedup for text-less line icons. With no text (road_oneway
+    // arrows) the text-name dedup doesn't gate the icon, and two tiles' polyline
+    // walks can place icons at nearby but non-overlapping screen positions at a
+    // seam. The predicate is the RESOLVED text being empty (lineIconIsIconOnly),
+    // NOT `featDef.text === undefined`: an icon-only symbol emits text === '""'
+    // (compiler symbol.ts labelExpr), so featDef.text is a non-null empty template
+    // — the old undefined test was ALWAYS true and this dedup never fired (#603).
+    if (
+      lineIconIsIconOnly(featDef.text, props, d.zoom) &&
+      pairedWithIcon &&
+      d.isLineIconDuplicate(x, y)
+    )
+      return
+    if (d.useTangentRotation) {
+      let angleDeg = rawTangentDeg
+      if (angleDeg > 90 || angleDeg < -90) angleDeg += 180
+      // No fontKey override — TextStage.composeFontKey builds the proper CSS
+      // shorthand with weight / italic / CJK fallback from featDef.
+      d.addLabel(
+        featDef.text,
+        props,
+        x,
+        y,
+        { ...featDef, rotate: angleDeg },
+        undefined,
+        d.labelLayerName,
+        pairKey,
+      )
+    } else {
+      // Viewport-aligned: place at the line position with the def's static
+      // rotate (typically 0).
+      d.addLabel(featDef.text, props, x, y, featDef, undefined, d.labelLayerName, pairKey)
+    }
+    // Icon-along-line: same anchor + same pairKey as the label. OFM
+    // highway-shield-* wants the badge + text to place/drop together. The
+    // unflipped tangent feeds icon-rotation-alignment=map so road_oneway arrows
+    // point along the road.
+    d.dispatchIcon(featDef, x, y, rawTangentDeg, pairKey, true, props)
   }
 }
 

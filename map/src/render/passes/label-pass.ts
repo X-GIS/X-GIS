@@ -31,6 +31,13 @@ import {
   type LabelReplayTransform,
 } from './label-replay-transform'
 import { computeSliceKey } from '@xgis/data'
+import {
+  LineLabelDropStats,
+  countedCull,
+  countedEmit,
+  latticeMissesRun,
+  type LineLabelDropCounts,
+} from './line-label-drop-stats'
 import { TIEBREAK_GROUP_SEP } from '../../text/text-collision'
 import type { MotionHoldoverCtx } from '../../text/holdover-reproject'
 import { TextStage } from '../../text/text-stage'
@@ -39,6 +46,7 @@ import { IconStage } from '../../sprite/icon-stage'
 import { resolveText } from '../../text/text-resolver'
 import { hexToRgba, featureAnchor } from '../../feature-helpers'
 import { dispatchCoverageSoundings } from './dispatch-coverage-soundings'
+import { ensureBackgroundPatternAtlas } from './background-pattern-atlas'
 import { type ShowCommand } from '../renderer-types'
 import type { FrameContext } from '../frame-context'
 import { unwrapProjection } from '../projection-token'
@@ -49,7 +57,11 @@ import {
   lineLabelEdgeInsetPx,
   lineLabelSpacingPx,
   placeLabelsAlongLine,
+  lineLabelFirstStopPx,
+  mercOffsetToScreenOffset,
+  makeEmitLabelAlongSegment,
   placeInlineLineLabels,
+  sampleAlongPolyline,
   withinViewportInset,
 } from './place-labels-along-line'
 // Extracted helpers (re-exported: existing importers, tests included, are unaffected).
@@ -246,6 +258,21 @@ class LabelPass implements RenderPass {
   // mutated in place thereafter, so there is no per-frame allocation.
   private readonly _skipState = new WeakMap<LabelPassHost, LabelDispatchSkipState>()
 
+  // Line-label drop attribution, keyed per host for the same reason as
+  // `_skipState` above: `labelPass` is a module-level singleton adapted per map,
+  // so a plain field would mix one map's counters into another's.
+  private readonly _dropStatsByHost = new WeakMap<LabelPassHost, LineLabelDropStats>()
+  // The host whose counters the CURRENT frame is filling, assigned at `execute`
+  // entry. A plain field is safe here only because `execute` is synchronous and
+  // non-reentrant; the per-host map above is what actually holds the state.
+  private _dropStats = new LineLabelDropStats()
+
+  /** Why `host`'s last rendered frame did not draw the line labels it walked —
+   *  see line-label-drop-stats.ts. Null before the first frame. */
+  lineLabelDropStats(host: LabelPassHost): LineLabelDropCounts | null {
+    return this._dropStatsByHost.get(host)?.snapshot() ?? null
+  }
+
   // Internal disableLabels / empty-overlays-and-shows checks short-circuit
   // the body, so this pass is always "run" from the chain.
   shouldRun(): boolean {
@@ -253,11 +280,19 @@ class LabelPass implements RenderPass {
   }
 
   execute(ctx: FrameContext, _scene: SceneView, host: LabelPassHost): void {
+    let dropStats = this._dropStatsByHost.get(host)
+    if (dropStats === undefined) {
+      dropStats = new LineLabelDropStats()
+      this._dropStatsByHost.set(host, dropStats)
+    }
+    dropStats.reset()
+    this._dropStats = dropStats
     // Phase 2 PR 2d.4: `projType`/`centerLon`/`centerLat` no longer
     // destructured — the projType-conditional label projector branches
     // collapsed to a single ECEF-based projector. Other passes still
     // consume them off FrameContext directly.
-    const { dpr, sampleCount: sc, w, h, encoder } = ctx
+    const { sampleCount: sc, encoder } = ctx,
+      { w, h, dpr } = ctx.screen // OVERLAY ⇒ screen
     // Symbol fade — advance every ramp once per RENDERED frame (S16 hit and
     // miss alike), OUTSIDE the labels-active gate below so in-flight ramps
     // still settle (and stop asking for frames via the map keep-alive) when
@@ -1078,8 +1113,7 @@ class LabelPass implements RenderPass {
               projectLonLatCopies,
               (v, p, x, y, d, f, ln, pk, cid, ps) =>
                 stage.addLabel(v, p, x, y, d, f, ln, pk, cid, ps),
-              labelLayerName,
-              region,
+              { layerName: labelLayerName, region, filter: show.filterExpr, cameraZoom },
             )
           }
           perfMarkEnd('encoder.label-dispatch.show')
@@ -1271,109 +1305,17 @@ class LabelPass implements RenderPass {
             // set up; before that block it is a no-op (single-feature paths
             // have no cross-tile ambiguity). Never-duplicate by default.
             let isLineIconDuplicate: (sx: number, sy: number) => boolean = () => false
-            const emitLabelAlongSegment = (
-              pax: number,
-              pay: number,
-              pbx: number,
-              pby: number,
-              t: number,
-              props: Record<string, unknown>,
-            ): void => {
-              const x = pax + (pbx - pax) * t
-              const y = pay + (pby - pay) * t
-              // Raw segment tangent in degrees (CCW from +x). Icons
-              // with icon-rotation-alignment=map use this directly
-              // (no upright flip); text uses the flipped form so
-              // glyphs stay readable from the natural reading
-              // direction.
-              const rawTangentDeg = (Math.atan2(pby - pay, pbx - pax) * 180) / Math.PI
-              const featDef = applyFeatureExprs(props)
-              // Iter 111: text + icon pair on a line-placement symbol
-              // layer (OFM highway-shield-* + road_shield_us at z>=11)
-              // must place TOGETHER. Text collision could reject the
-              // label while the icon (no collision gate) still emits
-              // — visible bug: shield boxes render with no road
-              // number inside ("도로 번호가 렌더링되지 않는 경우가
-              // 있음 하지만 실제 흰색 배경 아이콘은 렌더링됨").
-              // MapLibre treats text-allow-overlap=false + paired
-              // icon-image as a single symbol — both placed or both
-              // dropped. We don't have full paired-symbol collision
-              // yet; the pragmatic match is to let paired text bypass
-              // collision (allowOverlap), so it survives wherever the
-              // icon survives. symbol-spacing on these layers (200 px
-              // typical) keeps the visual spacing close enough to
-              // MapLibre's collision-resolved cadence.
-              // Iter 112 paired-symbol collision: when a text label
-              // has a paired iconImage (OFM highway-shield-* /
-              // road_shield_us at z>=11), tie them by a shared
-              // per-anchor pairKey. TextStage.prepare runs collision
-              // and stamps droppedPairKeys for any REJECTED text;
-              // IconStage.prepare drops icons whose paired text was
-              // rejected. Matches MapLibre's "text+icon as one
-              // symbol" invariant. Replaces iter 111's allowOverlap
-              // shortcut which kept every shield instance and
-              // produced visible duplication along single routes.
-              const pairedWithIcon =
-                featDef.iconImage !== undefined &&
-                featDef.iconImage !== null &&
-                featDef.iconImage !== ''
-              const pairKey = pairedWithIcon
-                ? `${labelLayerName ?? ''}:seq${_lineLabelSeq++}`
-                : undefined
-              // #603 — cross-tile dedup for text-less line icons. When
-              // there is no text (road_oneway arrows), the text-name
-              // dedup doesn't gate the icon. Two tiles' polyline walks
-              // can place icons at nearby but non-overlapping screen
-              // positions at a tile seam. Gate via bucketed screen pos.
-              // Predicate is the RESOLVED text being empty (lineIconIsIconOnly),
-              // NOT featDef.text === undefined: an icon-only symbol emits
-              // text === '""' (compiler symbol.ts labelExpr), so featDef.text
-              // is a non-null empty template — the old `featDef.text !==
-              // undefined` test was ALWAYS true and this dedup never fired for
-              // road_oneway arrows (#603).
-              if (
-                lineIconIsIconOnly(featDef.text, props, host.camera.zoom) &&
-                pairedWithIcon &&
-                isLineIconDuplicate(x, y)
-              )
-                return
-              if (useTangentRotation) {
-                let angleDeg = rawTangentDeg
-                if (angleDeg > 90 || angleDeg < -90) angleDeg += 180
-                // No fontKey override — TextStage.composeFontKey
-                // builds the proper CSS shorthand with weight / italic
-                // / CJK fallback from featDef. See note at line ~2370.
-                stage.addLabel(
-                  featDef.text,
-                  props,
-                  x,
-                  y,
-                  { ...featDef, rotate: angleDeg },
-                  undefined,
-                  labelLayerName,
-                  pairKey,
-                )
-              } else {
-                // Viewport-aligned: just place at the line position
-                // with the def's static rotate (typically 0).
-                stage.addLabel(
-                  featDef.text,
-                  props,
-                  x,
-                  y,
-                  featDef,
-                  undefined,
-                  labelLayerName,
-                  pairKey,
-                )
-              }
-              // Icon-along-line: same anchor + same pairKey as the
-              // label. OFM highway-shield-* wants the badge + text
-              // to place/drop together. The unflipped tangent feeds
-              // icon-rotation-alignment=map so road_oneway arrows
-              // point along the road.
-              dispatchIcon(featDef, x, y, rawTangentDeg, pairKey, true, props)
-            }
+            const emitLabelAlongSegment = makeEmitLabelAlongSegment({
+              applyFeatureExprs,
+              addLabel: (v, p, x, y, def, fk, ln, pk) =>
+                stage.addLabel(v, p, x, y, def, fk, ln, pk),
+              dispatchIcon,
+              isLineIconDuplicate,
+              nextPairSeq: () => _lineLabelSeq++,
+              labelLayerName,
+              useTangentRotation,
+              zoom: host.camera.zoom,
+            })
             if (spacingPx > 0) {
               // Polyline path: project all vertices, walk in screen
               // space, drop labels at spacing/2, 3*spacing/2, …. For
@@ -1445,6 +1387,10 @@ class LabelPass implements RenderPass {
               // collapses that to near-zero.
               let _pxScratch = new Float32Array(0)
               let _pyScratch = new Float32Array(0)
+              // INC-2 — mercator arc-length per retained sample, parallel to the two
+              // above. f64: these are absolute mercator metres (~10^7), where f32
+              // quantises to ~1 m and would jitter the world anchor by a pixel.
+              let _pmScratch = new Float64Array(0)
               // Static return holder for samplePosAt — closure used to
               // return `{ x, y }` on every call, which fired in the
               // hot loop below per spacing point.
@@ -1468,7 +1414,7 @@ class LabelPass implements RenderPass {
                   ? Math.hypot(_ppmB[0] - _ppmAx, _ppmB[1] - _ppmAy)
                   : 0
               const LABEL_SAMPLE_GAP_PX = 96
-              vtEntry.renderer.forEachLineLabelPolyline(sliceKey, (mxs, mys, props) => {
+              vtEntry.renderer.forEachLineLabelPolyline(sliceKey, (mxs, mys, props, tileEntryM) => {
                 perfMarkStart('encoder.label-dispatch.line.polyline')
                 if (mxs.length < 2) {
                   perfMarkEnd('encoder.label-dispatch.line.polyline')
@@ -1500,6 +1446,7 @@ class LabelPass implements RenderPass {
                 if (_pxScratch.length < upper) {
                   _pxScratch = new Float32Array(upper * 2) // 2× to amortise growth
                   _pyScratch = new Float32Array(upper * 2)
+                  _pmScratch = new Float64Array(upper * 2)
                 }
                 // #727 (C) — tile LINE labels fan out per visible world copy
                 // (points already do, ~#1700). The projector carries the copy
@@ -1508,6 +1455,10 @@ class LabelPass implements RenderPass {
                 for (const wo of visibleWorldCopies) {
                   perfMarkStart('encoder.label-dispatch.line.project')
                   let pn = 0 // active sample count
+                  // INC-2 — mercator arc-length walked so far. Recorded PER RETAINED
+                  // SAMPLE into _pmScratch so the world↔screen conversion can follow
+                  // the run's actual, varying scale instead of one pxPerMeter fit.
+                  let accM = 0
                   // Per-segment sample count from SCREEN length (segLenM ×
                   // pxPerMeter), NOT raw metres. Subdivision exists so a segment
                   // that spans the viewport but whose ENDPOINTS fall outside the
@@ -1551,12 +1502,29 @@ class LabelPass implements RenderPass {
                       if (!proj) continue
                       _pxScratch[pn] = proj[0]
                       _pyScratch[pn] = proj[1]
+                      _pmScratch[pn] = accM + segLenM * t
                       pn++
                     }
+                    accM += segLenM
                   }
                   perfMarkEnd('encoder.label-dispatch.line.project')
-                  if (pn < 2) continue
+                  if (pn < 2) {
+                    this._dropStats.bump('runTooShort')
+                    continue
+                  }
                   perfMarkStart('encoder.label-dispatch.line.emit')
+                  // INC-1/INC-2 — the world anchor (where this run crosses into its
+                  // own tile, which is where MapLibre starts its chain) expressed as
+                  // an along-screen offset from this run's first sample. Normally
+                  // NEGATIVE: MVT geometry carries a buffer, so the crossing sits
+                  // behind the run start. Both branches below phase off it.
+                  const worldPhasePx = mercOffsetToScreenOffset(
+                    _pxScratch,
+                    _pyScratch,
+                    _pmScratch,
+                    pn,
+                    tileEntryM,
+                  )
                   let total = 0
                   for (let i = 0; i < pn - 1; i++) {
                     const dx = _pxScratch[i + 1]! - _pxScratch[i]!
@@ -1643,27 +1611,8 @@ class LabelPass implements RenderPass {
                   // too close to one already labelled with the same
                   // text?" without re-running the full glyph layout.
                   // Returns true into `_samplePosOut` (shared) or false.
-                  const samplePosAt = (s: number): boolean => {
-                    let acc = 0
-                    for (let i = 0; i < pn - 1; i++) {
-                      const dx = _pxScratch[i + 1]! - _pxScratch[i]!
-                      const dy = _pyScratch[i + 1]! - _pyScratch[i]!
-                      const segLen = Math.sqrt(dx * dx + dy * dy)
-                      if (acc + segLen >= s) {
-                        const t = segLen > 0 ? (s - acc) / segLen : 0
-                        _samplePosOut[0] = _pxScratch[i]! + dx * t
-                        _samplePosOut[1] = _pyScratch[i]! + dy * t
-                        // Tangent angle in degrees (CCW from +x).
-                        // icon-rotation-alignment=map uses this to
-                        // rotate the icon along the line direction
-                        // (OFM road_oneway arrow).
-                        _samplePosOut[2] = (Math.atan2(dy, dx) * 180) / Math.PI
-                        return true
-                      }
-                      acc += segLen
-                    }
-                    return false
-                  }
+                  const samplePosAt = (s: number): boolean =>
+                    sampleAlongPolyline(_pxScratch, _pyScratch, pn, s, _samplePosOut)
                   if (useTangentRotation) {
                     // Curved-text path: pack the projected polyline
                     // and ask TextStage to lay each glyph along it.
@@ -1701,110 +1650,67 @@ class LabelPass implements RenderPass {
                       props,
                       host.camera.zoom,
                     )
+                    // One emission body for both cadences (short line → a single
+                    // midpoint stop; otherwise → one per spacing stop). They differed
+                    // only in the offset, and the paired-symbol seq, the icon dispatch
+                    // and the dedupe bookkeeping must stay in lockstep between them —
+                    // two copies is how that drifts.
+                    const emitCurvedStop = (stop: number): void => {
+                      if (!samplePosAt(stop)) return this._dropStats.bump('offRun')
+                      const sx = _samplePosOut[0],
+                        sy = _samplePosOut[1]
+                      const tang = _samplePosOut[2]
+                      if (!anchorInView(sx, sy)) return this._dropStats.bump('edgeInset')
+                      if (isTooCloseToSameText(copyTextKey, sx, sy))
+                        return this._dropStats.bump('sameTextNearby')
+                      if (curveIsIconOnly && curvePairedWithIcon && isLineIconDuplicate(sx, sy))
+                        return this._dropStats.bump('iconDuplicate')
+                      const pairKey = curvePairedWithIcon
+                        ? `${labelLayerName ?? ''}:seq${_lineLabelSeq++}`
+                        : undefined
+                      stage.addCurvedLineLabel(
+                        featDef.text,
+                        props,
+                        polyX,
+                        polyY,
+                        stop,
+                        featDef,
+                        undefined,
+                        labelLayerName,
+                        pairKey,
+                        // #605 — same-route screen-space cap: lineId is the
+                        // tile-stable route identity; anchorDistancePx is the
+                        // anchor's along-polyline screen offset.
+                        lineId,
+                        stop,
+                        lineCollisionId,
+                      )
+                      // OFM road shield + similar: icon-along-line approximation.
+                      // Dispatch the icon at the line label's anchor so
+                      // highway-shield-* layers (symbol-placement=line at z≥11)
+                      // render road badges. Per-stop icon spacing matches the
+                      // per-stop text spacing — better than no icons at all. User
+                      // report 2026-05-18. tang carries the segment direction so
+                      // icon-rotation-alignment=map (OFM road_oneway arrows) follows
+                      // the road tangent. Same pairKey as the label so the badge
+                      // drops when the road number loses collision.
+                      dispatchIcon(featDef, sx, sy, tang, pairKey, true, props, 1, lineCollisionId)
+                      recordTextPosition(copyTextKey, sx, sy)
+                      this._dropStats.bump('emitted')
+                    }
                     if (total < spacingPx * 0.5) {
-                      if (samplePosAt(total * 0.5)) {
-                        const sx = _samplePosOut[0],
-                          sy = _samplePosOut[1]
-                        const tang = _samplePosOut[2]
-                        if (
-                          anchorInView(sx, sy) &&
-                          !isTooCloseToSameText(copyTextKey, sx, sy) &&
-                          (!(curveIsIconOnly && curvePairedWithIcon) ||
-                            !isLineIconDuplicate(sx, sy))
-                        ) {
-                          const pairKey = curvePairedWithIcon
-                            ? `${labelLayerName ?? ''}:seq${_lineLabelSeq++}`
-                            : undefined
-                          stage.addCurvedLineLabel(
-                            featDef.text,
-                            props,
-                            polyX,
-                            polyY,
-                            total * 0.5,
-                            featDef,
-                            undefined,
-                            labelLayerName,
-                            pairKey,
-                            // #605 — same-route screen-space cap: lineId is the
-                            // tile-stable route identity; anchorDistancePx is the
-                            // anchor's along-polyline screen offset.
-                            lineId,
-                            total * 0.5,
-                            lineCollisionId,
-                          )
-                          // OFM road shield + similar: icon-along-line
-                          // approximation. Dispatch the icon at the
-                          // line label's anchor so highway-shield-*
-                          // layers (symbol-placement=line at z≥11)
-                          // render road badges. Per-stop icon spacing
-                          // matches the per-stop text spacing — better
-                          // than no icons at all. User report 2026-05-18.
-                          // tang carries the segment direction so
-                          // icon-rotation-alignment=map (OFM road_oneway
-                          // arrows) follows the road tangent. Same
-                          // pairKey as the label so the badge drops when
-                          // the road number loses collision.
-                          dispatchIcon(
-                            featDef,
-                            sx,
-                            sy,
-                            tang,
-                            pairKey,
-                            true,
-                            props,
-                            1,
-                            lineCollisionId,
-                          )
-                          recordTextPosition(copyTextKey, sx, sy)
-                        }
-                      }
+                      emitCurvedStop(total * 0.5)
                       perfMarkEnd('encoder.label-dispatch.line.emit')
                       continue
                     }
-                    let nextStop = spacingPx * 0.5
+                    // INC-2 — the same world lattice the viewport branch walks: the
+                    // chain starts at the tile-entry anchor's residue mod the step,
+                    // not half a step into whatever the viewport happens to show.
+                    let nextStop = lineLabelFirstStopPx(worldPhasePx, spacingPx)
+                    if (latticeMissesRun(nextStop, spacingPx, total))
+                      this._dropStats.bump('noLatticeStop')
                     while (nextStop <= total) {
-                      if (samplePosAt(nextStop)) {
-                        const sx = _samplePosOut[0],
-                          sy = _samplePosOut[1]
-                        const tang = _samplePosOut[2]
-                        if (
-                          anchorInView(sx, sy) &&
-                          !isTooCloseToSameText(copyTextKey, sx, sy) &&
-                          (!(curveIsIconOnly && curvePairedWithIcon) ||
-                            !isLineIconDuplicate(sx, sy))
-                        ) {
-                          const pairKey = curvePairedWithIcon
-                            ? `${labelLayerName ?? ''}:seq${_lineLabelSeq++}`
-                            : undefined
-                          stage.addCurvedLineLabel(
-                            featDef.text,
-                            props,
-                            polyX,
-                            polyY,
-                            nextStop,
-                            featDef,
-                            undefined,
-                            labelLayerName,
-                            pairKey,
-                            // #605 — see the short-line call above.
-                            lineId,
-                            nextStop,
-                            lineCollisionId,
-                          )
-                          dispatchIcon(
-                            featDef,
-                            sx,
-                            sy,
-                            tang,
-                            pairKey,
-                            true,
-                            props,
-                            1,
-                            lineCollisionId,
-                          )
-                          recordTextPosition(copyTextKey, sx, sy)
-                        }
-                      }
+                      emitCurvedStop(nextStop)
                       nextStop += spacingPx
                     }
                     perfMarkEnd('encoder.label-dispatch.line.emit')
@@ -1818,13 +1724,27 @@ class LabelPass implements RenderPass {
                   // labels to the prior inline loop. `total` (line ~1288) is
                   // recomputed inside the helper; the curved branch above still
                   // uses it, so it stays.
+                  if (
+                    latticeMissesRun(
+                      lineLabelFirstStopPx(worldPhasePx, spacingPx),
+                      spacingPx,
+                      total,
+                    )
+                  )
+                    this._dropStats.bump('noLatticeStop')
                   placeLabelsAlongLine(
                     _pxScratch,
                     _pyScratch,
                     pn,
                     spacingPx,
-                    (pax, pay, pbx, pby, t) => emitLabelAlongSegment(pax, pay, pbx, pby, t, props),
-                    anchorInView,
+                    countedEmit(this._dropStats, (pax, pay, pbx, pby, t) =>
+                      emitLabelAlongSegment(pax, pay, pbx, pby, t, props),
+                    ),
+                    countedCull(this._dropStats, anchorInView),
+                    // INC-1 — MapLibre anchors this chain at `tileEntry + k · spacing`
+                    // measured on the TILE-CLIPPED line, so the chain is a property of
+                    // the world, not of where the run happens to start on screen.
+                    worldPhasePx,
                   )
                   perfMarkEnd('encoder.label-dispatch.line.emit')
                 }
@@ -2079,8 +1999,8 @@ class LabelPass implements RenderPass {
           // Forced-WebGL2 frame (#834 M5 slices 3-4): draw on the live RHI
           // screen pass — no WebGPU encoder exists on this path. Icons
           // BEFORE text, matching the WebGPU ordering below.
-          iStage?.render(ctx.rhiPass, { width: ctx.w, height: ctx.h }, labelReplay)
-          stage.render(ctx.rhiPass, { width: ctx.w, height: ctx.h }, labelReplay)
+          iStage?.render(ctx.rhiPass, { width: ctx.screen.w, height: ctx.screen.h }, labelReplay)
+          stage.render(ctx.rhiPass, { width: ctx.screen.w, height: ctx.screen.h }, labelReplay)
         } else {
           ctx.passScope('text-overlay', () => {
             const tPass = encoder.beginRenderPass({
@@ -2095,8 +2015,8 @@ class LabelPass implements RenderPass {
             })
             // Icons render BEFORE text so labels read on top of their
             // POI badges — matches MapLibre's symbol-stage ordering.
-            iStage?.render(tPass, { width: ctx.w, height: ctx.h }, labelReplay)
-            stage.render(tPass, { width: ctx.w, height: ctx.h }, labelReplay)
+            iStage?.render(tPass, { width: ctx.screen.w, height: ctx.screen.h }, labelReplay)
+            stage.render(tPass, { width: ctx.screen.w, height: ctx.screen.h }, labelReplay)
             tPass.end()
           })
         }
@@ -2108,42 +2028,6 @@ class LabelPass implements RenderPass {
       iStage?.reset()
     }
   }
-}
-
-/** #777 I-E — a `background-pattern` style needs the sprite atlas loaded so
- *  the synthetic earth-surface show's fill-pattern (the pattern's carrier)
- *  can resolve its UV + repeat, even when the style has NO labels / icons /
- *  fill-patterns to otherwise trip the lazy IconStage in execute(). The
- *  `onLanded` hook must GUARANTEE a frame: `markLabelDirty()` alone re-preps
- *  labels but never re-arms a label-less idle loop, so the async atlas landed
- *  on a frozen canvas (the I-E probe's root cause B) — `invalidate()` sets
- *  `_needsRender` so the pattern paints once the sprite arrives. Kept a free
- *  exported function (mirroring backgroundClearValue) so the gate + hook are
- *  behaviour-gated by a GPU-free test with a mocked IconStage. */
-export function ensureBackgroundPatternAtlas(
-  host: Pick<
-    LabelPassHost,
-    'iconStage' | 'spriteUrl' | '_backgroundPattern' | 'ctx' | 'markLabelDirty' | 'invalidate'
-  >,
-  dpr: number,
-  sampleCount: number,
-): void {
-  if (host.iconStage !== null || host.spriteUrl === null || host._backgroundPattern === null) return
-  host.iconStage = new IconStage(
-    host.ctx.device,
-    host.ctx.rhi,
-    host.ctx.format,
-    {
-      spriteUrl: host.spriteUrl,
-      dpr,
-      onLanded: () => {
-        // Label re-prep (glyph-parity convention) + a guaranteed frame.
-        host.markLabelDirty()
-        host.invalidate()
-      },
-    },
-    sampleCount,
-  )
 }
 
 /** Stateless singleton — the per-feature label + text-overlay pass. */

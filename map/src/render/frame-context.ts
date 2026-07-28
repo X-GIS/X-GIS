@@ -17,6 +17,41 @@ import type { RhiDevice } from '@xgis/rhi'
 import type { RenderTargets } from '@xgis/rhi-webgpu'
 import type { ProjectionToken } from './projection-token'
 
+/** One render target's pixel geometry.
+ *
+ *  Two of these ride every frame — see {@link FrameContext.scene} and
+ *  {@link FrameContext.screen}. They are EQUAL today; the split exists so that when the
+ *  adaptive-DPR ladder shrinks the scene (docs/architecture/design/overlay-native-resolution.md)
+ *  a pass cannot reach for "the" size without saying WHICH, because there is no such field to
+ *  reach for. Getting it wrong is a name that does not exist, not an offset nobody notices.
+ *
+ *  INVARIANT, and the reason the camera needs no change when they diverge: `h / dpr` is the
+ *  CSS height and is the SAME for both, because both are the same CSS box measured at a
+ *  different pixel density. Every camera/MVP quantity is derived from that ratio or from clip
+ *  space, and clip space is resolution-independent — so a view built for one target is correct
+ *  for the other. Only quantities counted in DEVICE pixels differ. */
+export interface TargetGeometry {
+  /** Width / height in physical pixels. */
+  w: number
+  h: number
+  /** Device pixels per CSS pixel for THIS target. */
+  dpr: number
+}
+
+/** Point BOTH targets at one geometry — which is the whole of INC-1: the split exists, the two
+ *  are equal, nothing renders differently. Lives here rather than inline in the render loop so
+ *  the "they are the same until INC-2 says otherwise" statement has ONE site to change, and so
+ *  the loop's two population branches (first frame / reuse) cannot drift apart. Mutates in
+ *  place — the loop is allocation-paranoid and both sub-objects outlive the frame. */
+export function setFrameTargets(c: FrameContext, w: number, h: number, dpr: number): void {
+  c.scene.w = w
+  c.scene.h = h
+  c.scene.dpr = dpr
+  c.screen.w = w
+  c.screen.h = h
+  c.screen.dpr = dpr
+}
+
 /** Per-frame render state. One reused instance lives on RenderLoop; its
  *  fields are (re)populated at the start of each `render()` at the same
  *  points the equivalent locals were computed before this struct existed. */
@@ -63,11 +98,13 @@ export interface FrameContext {
    *  draw/shader signatures — the projType / RTC-centre triple that used to live
    *  here as loose scalars (P2-carve §3: FrameContext is projection-blind). */
   projection: ProjectionToken
-  /** Canvas width / height in physical pixels (`canvas.width/height`). */
-  w: number
-  h: number
-  /** Device pixel ratio (capped by `getMaxDpr()`), 1 outside the browser. */
-  dpr: number
+  /** The SCENE target's geometry — where the world is rasterised (background →
+   *  flow → opaque → oit → translucent → hillshade → points → heatmap). This is
+   *  the target the adaptive-DPR ladder is allowed to shrink. */
+  scene: TargetGeometry
+  /** The SCREEN (swapchain) target's geometry — where the OVERLAY is rasterised
+   *  (labels, graphics) and what the browser presents. */
+  screen: TargetGeometry
   /** Wall-clock ms since the first rendered frame (mirror of
    *  `host._elapsedMs`, the time-interpolation clock). */
   elapsedMs: number

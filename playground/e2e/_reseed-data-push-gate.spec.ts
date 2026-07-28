@@ -41,6 +41,31 @@ async function sourceTris(page: Page, name: string): Promise<number> {
   }, name)
 }
 
+/** Wait until the source's contribution stops moving, then return it.
+ *
+ *  A POLL, not a fixed sleep. The fixed 8-10 s waits this replaced were a guess that was both
+ *  too slow for the render-gate's budget (this became its most expensive spec, and on a loaded
+ *  runner the timeout fired during fixture setup) and not actually a convergence proof. The
+ *  measured settle is ~2.5 s; `stableFor` samples is the evidence, and the cap keeps a genuine
+ *  hang a failure rather than a wedge.
+ *
+ *  Pre-fix this still returns promptly — the stale frame settles at the WRONG value and stays
+ *  there, which is exactly what the assertion catches. */
+async function settle(page: Page, stableFor = 6, capMs = 45_000): Promise<number> {
+  const t0 = Date.now()
+  let last = -1
+  let stable = 0
+  while (Date.now() - t0 < capMs) {
+    await page.waitForTimeout(500)
+    const n = await sourceTris(page, SOURCE)
+    if (n === last) stable++
+    else stable = 0
+    last = n
+    if (stable >= stableFor) break
+  }
+  return last
+}
+
 /** Push a deterministic grid of many-vertex polygons centred on the camera. `grid²` features,
  *  so the caller can make two pushes that are unmistakably different sizes. */
 async function push(page: Page, grid: number): Promise<number> {
@@ -78,7 +103,10 @@ async function push(page: Page, grid: number): Promise<number> {
   )
 }
 
-test.describe.configure({ mode: 'serial' })
+// Serial, and the timeout is set HERE rather than inside a test body: a body-scope
+// `test.setTimeout` does not cover fixture setup, and on a loaded runner this leg's context
+// setup is exactly where the budget ran out (#1448 CI run 30344914959).
+test.describe.configure({ mode: 'serial', timeout: 180_000 })
 
 test('a host data push reaches the GPU, and a second push replaces the first (#1402)', async ({
   page,
@@ -140,4 +168,55 @@ test('a host data push reaches the GPU, and a second push replaces the first (#1
   expect(afterB, 'and must not blank the layer').toBeGreaterThan(0)
 
   expect(errors, 'no page/console errors during the pushes').toEqual([])
+})
+
+test('ONE push converges on its own — no second push, no interaction (#1448)', async ({ page }) => {
+  // THE DEFECT THIS GATES. `applyReplacedTiles` swaps a re-seed replacement in at the START of
+  // a frame, and the idle-skip gate asked only "is a tile still FETCHING?". A replacement that
+  // arrived after the last frame therefore needed a frame nobody would ask for: the loop
+  // stopped with the swap still owed and the layer drew the PREVIOUS seed's tiles for the rest
+  // of the source's life.
+  //
+  // Measured before the fix, on this fixture: one push settled at 2.3-3.5x the geometry the
+  // data contains and held it FLAT for 60 s (24 samples, `pendingLoads`/`pendingUploads` 0
+  // throughout). A single explicit `invalidate()` corrected it, which is what identified the
+  // missing keep-alive. The residue was nondeterministic (27 994 / 28 023 / 28 096 / 30 246 /
+  // 43 840 across runs) because it is however many tiles happened to land after the last frame
+  // — and that nondeterminism is what made #1420's `delta > 0.2` bound flake.
+  //
+  // The assertion is CONVERGENCE, not a magnitude: push the same data twice with a settle
+  // between, and the two readings must AGREE. A second push is the thing that used to hide the
+  // bug, so using it as the reference is what makes this gate sharp — if the first push
+  // converged, the second changes nothing.
+  const errors: string[] = []
+  page.on('pageerror', (e) => errors.push(e.message))
+
+  await page.setViewportSize({ width: 430, height: 715 })
+  await page.goto(`/demo.html?id=physical_map&forcegl2=1&e2e=1&adaptive=0${CAM}`, {
+    waitUntil: 'load',
+  })
+  await page.waitForFunction(() => (window as unknown as { __xgisReady?: boolean }).__xgisReady, {
+    timeout: 60_000,
+  })
+  await settle(page)
+
+  // Seed with the dense grid so the sparse push below has something to replace.
+  await push(page, 90)
+  await settle(page)
+
+  await push(page, 30)
+  const once = await settle(page)
+  expect(once, 'the layer must not be blank').toBeGreaterThan(0)
+
+  // The reference: the state a SECOND identical push reaches. Pre-fix this was where the
+  // stragglers finally got swapped, and `once` sat 2.3x above it.
+  await push(page, 30)
+  const twice = await settle(page)
+
+  expect(
+    Math.abs(once - twice) / twice,
+    `one push must already be converged (one=${once}, two=${twice})`,
+  ).toBeLessThan(0.02)
+
+  expect(errors, 'no page errors').toEqual([])
 })

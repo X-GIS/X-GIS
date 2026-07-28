@@ -1,55 +1,81 @@
-// ═══ S-111 currents render gate (#1272 — headed, PENDING) ═══
+// ═══ S-111 synthetic demo draws the OFFICIAL portrayal from the ENGINE (#1272 / #1333) ═══
 //
-// Two readings of ONE synthetic S-111 field (playground/public/synthetic-currents.h5,
-// real S-111 band names/units/-9999 fill): the speed band through the viridis coverage
-// colour ramp (0-2 kn), and drifting particles along the direction band (retained
-// particle-flow, #826).
+// This spec used to be `test.fixme()`'d with the reason "this environment has no real GPU".
+// That was half true and the wrong half: WebGL2 renders here under SwiftShader (it is what
+// the CI render-gate leg drives); only WebGPU has no software adapter. The fixme is gone.
 //
-// Like _coverage-render.spec.ts, the GPU draw is HEADED-ONLY — this environment has no
-// real GPU, so the render assertions are `test.fixme`'d until a headed run. NEVER report
-// this green until it actually passes on a GPU. The pieces it gates (coverage f16 packing
-// + LUT + WGSL/GLSL emit; the particle packer's density ∝ speed allocation; the read-in-
-// place path) ARE unit-tested and green without a GPU (coverage-material.test.ts,
-// retained-particle-packer.test.ts, data/src/hdf5/*.test.ts).
+// It also used to await `__xgisCurrentsCells`, a handshake from the demo-runner's app-side
+// particle overlay. That overlay is gone: the offline demo now draws the SAME way as
+// `s111_live` — `| arrow` (the catalogue portrayal, generated in the engine) plus `| flow`
+// (the non-catalogue motion). It previously subsampled every 33rd grid cell into hard-coded
+// WHITE arrows, i.e. the OFFLINE example taught the approach #1333 was filed to replace.
 //
-// The particle overlay animates, so the §5 directional pixel-diff needs a DETERMINISTIC
-// frame: `?animt=<seconds>` PINS the particle clock (debug-flags.ts), making the frame a
-// pure function of (seed, t). Capture at animt=0.25/0.5/0.75 and run compare-diff.py:
-// DC>0 where particles/ramp appear (they render), D1<D0 vs a stored reference (direction
-// correct), DC=0 on the arrow/icon/circle fixtures (no sibling regression). Read the diff
-// IMAGE in a 16-split at full resolution — numbers never decide alone (CLAUDE.md §5).
+// So what is pinned is the engine path, not an app global: the coverage is resident, the
+// COMPILED-arrow batch exists (that batch is only ever produced by the `| arrow` fork on a
+// coverage), and the frame is actually painted on WebGl2Device.
 
 import { test, expect } from '@playwright/test'
 
-test.describe('S-111 currents render (headed, PENDING)', () => {
-  // No real GPU in this environment; un-fixme once the headed capture harness runs.
-  test.fixme()
+function probe() {
+  const w = window as unknown as {
+    __xgisMap?: {
+      ctx?: { rhi?: { backend?: string; gl?: WebGL2RenderingContext } }
+      graphics?: { hasRetainedBatches(): boolean }
+      getCoverage(id: string): unknown
+    }
+  }
+  const m = w.__xgisMap
+  const gl = m?.ctx?.rhi?.gl
+  if (!gl) return { ok: false as const, reason: 'no gl' }
+  const W = gl.drawingBufferWidth
+  const H = gl.drawingBufferHeight
+  const buf = new Uint8Array(W * H * 4)
+  gl.readPixels(0, 0, W, H, gl.RGBA, gl.UNSIGNED_BYTE, buf)
+  let painted = 0
+  for (let i = 0; i < buf.length; i += 4) {
+    if (buf[i]! > 24 || buf[i + 1]! > 24 || buf[i + 2]! > 24) painted++
+  }
+  return {
+    ok: true as const,
+    backend: m?.ctx?.rhi?.backend,
+    coverage: m?.getCoverage('currents') != null,
+    batches: m?.graphics?.hasRetainedBatches() === true,
+    painted: painted / (W * H),
+  }
+}
 
-  test('coverage speed ramp + particle overlay both render over the bay', async ({ page }) => {
-    test.setTimeout(30_000)
-    await page.setViewportSize({ width: 1024, height: 1024 })
-    // Pin the particle clock so the frame is byte-reproducible (design §5.3).
-    await page.goto('/demo.html?id=s111_currents&animt=0.5', { waitUntil: 'domcontentloaded' })
+test.describe('S-111 synthetic demo — engine portrayal (#1333)', () => {
+  test('the catalogue arrow field is generated in the ENGINE and rasterises', async ({ page }) => {
+    test.setTimeout(120_000)
+    await page.setViewportSize({ width: 900, height: 700 })
+    await page.goto('/demo.html?id=s111_currents&forcegl2=1&e2e=1#8/38.1/-76.2', {
+      waitUntil: 'domcontentloaded',
+    })
     await page.waitForFunction(
       () => (window as unknown as { __xgisReady?: boolean }).__xgisReady === true,
-      null,
-      { timeout: 15_000 },
+      { timeout: 20000 },
     )
-    // The runner's currents overlay expands the coverage's valid cells into a particle
-    // batch; it advertises the cell count once packed (deterministic seed).
     await page.waitForFunction(
-      () => (window as unknown as { __xgisCurrentsCells?: number }).__xgisCurrentsCells! > 0,
-      null,
-      { timeout: 10_000 },
+      () =>
+        (
+          window as unknown as { __xgisMap?: { getCoverage(id: string): unknown } }
+        ).__xgisMap?.getCoverage('currents') != null,
+      { timeout: 20000 },
     )
-    const cells = await page.evaluate(
-      () => (window as unknown as { __xgisCurrentsCells?: number }).__xgisCurrentsCells,
-    )
-    expect(cells).toBeGreaterThan(50) // the subsampled field seeds a legible number of cells
+    await page.waitForTimeout(1200)
 
-    // Whole-frame fidelity: the headed harness 16-splits the frame + runs the DC ladder
-    // (compare-parity-pixeldiff) vs the stored reference at this pinned clock. A pixel-COUNT
-    // gate passes on broken images — assert STRUCTURE (the ramp fills the bay, particles are
-    // connected drift, not scattered confetti), not just nonBg %.
+    const r = await page.evaluate(probe)
+    expect(r.ok, 'WebGL2 context present').toBe(true)
+    if (!r.ok) return
+    await page.screenshot({ path: 'test-results/s111-synthetic-portrayal.png' })
+
+    // Asserted so a silent backend fallback cannot green this.
+    expect(r.backend, 'running on the WebGL2 backend').toBe('webgl2')
+    expect(r.coverage, 'the S-111 coverage is resident').toBe(true)
+    // The compiled-arrow batch is the engine `| arrow` fork's own product — an app-side
+    // overlay could paint pixels without ever creating one, so this is what separates
+    // "the standard portrayal ran" from "something drew".
+    expect(r.batches, 'the engine produced a compiled-arrow batch').toBe(true)
+    expect(r.painted, 'the field actually rasterises').toBeGreaterThan(0.01)
   })
 })

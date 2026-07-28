@@ -23,12 +23,33 @@ export interface LoadedTexture {
   bytes: number
 }
 
-/** Resident bytes for an `rgba8unorm` tile texture — 4 B per texel.
+/** Levels in a full mip chain down to 1x1, base included (#1436).
  *
- *  No mip pyramid factor: these are created with `usage: ['sample','copy-dst']`
- *  and no mipmaps are generated, so the base level is the whole cost. */
+ *  Shared by the texture that allocates the chain and the budget that pays for it, so the two
+ *  can never disagree about how many levels exist — the failure mode being a cache that thinks
+ *  it is under its ceiling while the GPU holds a third more than it counted. */
+export function mipLevelCountFor(width: number, height: number): number {
+  return Math.floor(Math.log2(Math.max(width, height))) + 1
+}
+
+/** Resident bytes for an `rgba8unorm` tile texture, mip chain included — 4 B per texel.
+ *
+ *  The pyramid factor is REAL now (#1436): each level is a quarter of its parent, so a full
+ *  chain sums to 4/3 of the base and the comment that used to stand here — "no mipmaps are
+ *  generated, so the base level is the whole cost" — became false the moment raster tiles got a
+ *  chain. Left uncorrected it would have let the raster cache overshoot its byte cap by a third
+ *  while reporting itself inside it.
+ *
+ *  Computed as the exact level sum rather than a flat ×4/3: a non-square or non-power-of-two
+ *  tile's chain is not exactly 4/3, and rounding UP everywhere is the safe direction for a
+ *  budget but wrong for the accounting a test reads back. */
 export function textureBytesOf(width: number, height: number): number {
-  return width * height * 4
+  let bytes = 0
+  const levels = mipLevelCountFor(width, height)
+  for (let level = 0; level < levels; level++) {
+    bytes += Math.max(1, width >> level) * Math.max(1, height >> level) * 4
+  }
+  return bytes
 }
 
 /** Byte ceiling for ONE raster-family tile texture cache.

@@ -420,12 +420,18 @@ export class WebGpuDevice implements RhiDevice {
   }
 
   createTexture(desc: RhiTextureDesc): RhiTexture {
+    const levels = desc.mipLevelCount ?? 1
     return wrap(
       this.device.createTexture({
         size: { width: desc.width, height: desc.height },
         format: desc.format as GPUTextureFormat,
-        usage: texUsage(desc.usage),
+        // #1436 — a chain must be RENDER_ATTACHMENT-able: generateMipmaps fills level N by
+        // drawing into it from level N-1, and WebGPU has no generateMipmap to do it for us. The
+        // usage widens only when a chain was actually asked for, so a single-level texture's
+        // usage is byte-identical to before.
+        usage: texUsage(desc.usage) | (levels > 1 ? GPUTextureUsage.RENDER_ATTACHMENT : 0),
         sampleCount: desc.sampleCount ?? 1,
+        mipLevelCount: levels,
         label: desc.label,
       }),
     ) as unknown as RhiTexture
@@ -474,11 +480,100 @@ export class WebGpuDevice implements RhiDevice {
       this.device.createSampler({
         magFilter: desc.mag,
         minFilter: desc.min,
+        // #1436 — both are omitted unless asked for, so a pre-#1436 descriptor produces the
+        // identical GPUSampler. WebGPU serves anisotropy natively (no extension), which is why
+        // `maxAnisotropy` below is the device ceiling rather than a negotiated one.
+        ...(desc.mipmap !== undefined ? { mipmapFilter: desc.mipmap } : {}),
+        ...(desc.maxAnisotropy !== undefined && desc.maxAnisotropy > 1
+          ? { maxAnisotropy: Math.min(desc.maxAnisotropy, this.maxAnisotropy) }
+          : {}),
         addressModeU: 'clamp-to-edge',
         addressModeV: 'clamp-to-edge',
         label: desc.label,
       }),
     ) as unknown as RhiSampler
+  }
+
+  /** WebGPU serves anisotropy natively — no extension to miss, so nothing degrades here. 16 is
+   *  the value every WebGPU implementation is required to support and the point past which the
+   *  visual return is nil; the WebGL2 twin reports whatever its driver allows, or 1. */
+  readonly maxAnisotropy = 16
+
+  /** Blit pipeline per texture FORMAT — the render target's format is baked into a pipeline, so
+   *  one cache entry cannot serve rgba8 and r16f. Built lazily: a session that never asks for a
+   *  chain pays nothing. */
+  private readonly _mipPipelines = new Map<GPUTextureFormat, GPURenderPipeline>()
+  private _mipSampler: GPUSampler | null = null
+
+  generateMipmaps(texture: RhiTexture): void {
+    const tex = u<GPUTexture>(texture)
+    if (tex.mipLevelCount <= 1) return // single-level: nothing to fill, not an error
+    const fmt = tex.format
+    let pipeline = this._mipPipelines.get(fmt)
+    if (!pipeline) {
+      // A full-screen triangle generated from the vertex index — no vertex buffer, no geometry
+      // upload. `textureSample` at the parent level with a linear sampler IS the 2x2 box
+      // downsample, so the fragment shader is one line.
+      const module = this.device.createShaderModule({
+        label: 'rhi:mipgen',
+        code: `
+@group(0) @binding(0) var src: texture_2d<f32>;
+@group(0) @binding(1) var samp: sampler;
+struct VsOut { @builtin(position) pos: vec4f, @location(0) uv: vec2f }
+@vertex fn vs(@builtin(vertex_index) i: u32) -> VsOut {
+  var p = array(vec2f(-1.0, -1.0), vec2f(3.0, -1.0), vec2f(-1.0, 3.0));
+  var o: VsOut;
+  o.pos = vec4f(p[i], 0.0, 1.0);
+  o.uv = vec2f((p[i].x + 1.0) * 0.5, 1.0 - (p[i].y + 1.0) * 0.5);
+  return o;
+}
+@fragment fn fs(in: VsOut) -> @location(0) vec4f { return textureSample(src, samp, in.uv); }`,
+      })
+      pipeline = this.device.createRenderPipeline({
+        label: `rhi:mipgen:${fmt}`,
+        layout: 'auto',
+        vertex: { module, entryPoint: 'vs' },
+        fragment: { module, entryPoint: 'fs', targets: [{ format: fmt }] },
+        primitive: { topology: 'triangle-list' },
+      })
+      this._mipPipelines.set(fmt, pipeline)
+    }
+    this._mipSampler ??= this.device.createSampler({
+      label: 'rhi:mipgen',
+      magFilter: 'linear',
+      minFilter: 'linear',
+    })
+
+    // Level N is drawn from level N-1, so the passes must run IN ORDER — each one's source is the
+    // previous one's output. One encoder, N-1 passes, one submit.
+    const encoder = this.device.createCommandEncoder({ label: 'rhi:mipgen' })
+    for (let level = 1; level < tex.mipLevelCount; level++) {
+      const bindGroup = this.device.createBindGroup({
+        layout: pipeline.getBindGroupLayout(0),
+        entries: [
+          {
+            binding: 0,
+            resource: tex.createView({ baseMipLevel: level - 1, mipLevelCount: 1 }),
+          },
+          { binding: 1, resource: this._mipSampler },
+        ],
+      })
+      const pass = encoder.beginRenderPass({
+        colorAttachments: [
+          {
+            view: tex.createView({ baseMipLevel: level, mipLevelCount: 1 }),
+            loadOp: 'clear',
+            storeOp: 'store',
+            clearValue: { r: 0, g: 0, b: 0, a: 0 },
+          },
+        ],
+      })
+      pass.setPipeline(pipeline)
+      pass.setBindGroup(0, bindGroup)
+      pass.draw(3)
+      pass.end()
+    }
+    this.device.queue.submit([encoder.finish()])
   }
 
   // GPUSampler is GC-owned — WebGPU exposes no native destroy — so this is a no-op
@@ -498,9 +593,12 @@ export class WebGpuDevice implements RhiDevice {
             }
           if (e.kind === 'storage')
             return { binding: e.binding, visibility: vis, buffer: { type: 'read-only-storage' } }
-          if (e.kind === 'texture')
-            return { binding: e.binding, visibility: GPUShaderStage.FRAGMENT, texture: {} }
-          return { binding: e.binding, visibility: GPUShaderStage.FRAGMENT, sampler: {} }
+          // Textures and samplers are FRAGMENT-only unless the layout opts in — see
+          // RhiBindLayoutEntry.vertexVisible on why this is not simply `vis` for everything
+          // (WebGPU's sampled-texture limit is per stage).
+          const texVis = e.vertexVisible ? vis : GPUShaderStage.FRAGMENT
+          if (e.kind === 'texture') return { binding: e.binding, visibility: texVis, texture: {} }
+          return { binding: e.binding, visibility: texVis, sampler: {} }
         }),
       }),
     ) as unknown as RhiBindGroupLayout

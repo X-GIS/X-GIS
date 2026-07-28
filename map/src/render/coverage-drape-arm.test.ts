@@ -16,16 +16,32 @@ describe('coverage drape arming (#1333)', () => {
     expect(coverageDrapeArm({ isArrow: true })).toEqual({ draw: false })
   })
 
-  it('THE FIX: `| flow` with no ramp DOES draw, flow-only', () => {
+  it('THE FIX: `| flow | flow-streaks` with no ramp DOES draw, flow-only', () => {
     // Without this the motion layer is unreachable from a conformant style — the whole point.
-    expect(coverageDrapeArm({ isFlow: true })).toEqual({ draw: true, flowOnly: true })
+    expect(coverageDrapeArm({ isFlow: true, flowPortrayal: 'streaks' })).toEqual({
+      draw: true,
+      flowOnly: true,
+    })
+  })
+
+  it('`| flow` under the ARROWS portrayal draws NO drape — the glyphs are the motion (#1419)', () => {
+    // The default portrayal advects the catalogue arrows themselves. A flow-only drape under
+    // them would be a SECOND, independently-advected motion layer, and the two visibly disagree
+    // about the same current.
+    expect(coverageDrapeArm({ isFlow: true })).toEqual({ draw: false })
+    expect(coverageDrapeArm({ isFlow: true, flowPortrayal: 'arrows' })).toEqual({ draw: false })
+    // A declared ramp still wins — it is the explicit opt-in to the colour fill.
+    expect(coverageDrapeArm({ isFlow: true, ramp: 's111-speed' })).toEqual({
+      draw: true,
+      flowOnly: false,
+    })
   })
 
   it('`| arrow | flow` with no ramp draws flow-only — arrows stay the colour authority', () => {
     // The composed case the live demo uses: static catalogue arrows over a neutral motion
     // texture. `flowOnly` must survive the presence of the arrow marker, or the drape would
     // fall back to a colour ramp nobody asked for.
-    expect(coverageDrapeArm({ isArrow: true, isFlow: true })).toEqual({
+    expect(coverageDrapeArm({ isArrow: true, isFlow: true, flowPortrayal: 'streaks' })).toEqual({
       draw: true,
       flowOnly: true,
     })
@@ -62,10 +78,9 @@ describe('coverage drape arming (#1333)', () => {
       flowOnly: false,
     })
     // …and labels beside a flow layer do not suppress the motion.
-    expect(coverageDrapeArm({ label: { text: 'x' }, isFlow: true })).toEqual({
-      draw: true,
-      flowOnly: true,
-    })
+    expect(
+      coverageDrapeArm({ label: { text: 'x' }, isFlow: true, flowPortrayal: 'streaks' }),
+    ).toEqual({ draw: true, flowOnly: true })
   })
 
   it('a bare coverage is unchanged — it still draws its fill', () => {

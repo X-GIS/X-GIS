@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
-import { emitCoverageWgsl, buildCoverageModule } from '../shaders/dsl/coverage-ramp'
-import { emitGlslModule } from '@xgis/shader-dsl'
+import { emitCoverageWgsl, buildCoverageModule, coverageU } from '../shaders/dsl/coverage-ramp'
+import { emitGlslModule, wgslLayout } from '@xgis/shader-dsl'
 import { packCoverageUniforms, COVERAGE_UNIFORM_FLOATS } from './material/coverage-material'
 import { FLOW_DRAPE_MIX } from './flow-stepper'
 
@@ -172,7 +172,11 @@ describe('coverage flow drape (#1333)', () => {
     // ...in the lane the shader actually reads, and without disturbing its neighbours.
     expect(WGSL).toContain('u.ramp_params.w')
     expect(packCoverageUniforms({ ...base, flowMix: 0.9 })[26]).toBe(1) // opacity, untouched
-    expect(COVERAGE_UNIFORM_FLOATS).toBe(28)
+    // The pack's length is DERIVED from the shader struct, not pinned to a remembered number.
+    // It was pinned to 28, and #1437's `cov_data` moved it to 32 — a literal here would have
+    // to be re-remembered on every block change, which is the drift §12 keeps paying for.
+    // std140 is the right layout to ask for: that is the qualifier the GLSL twin emits.
+    expect(COVERAGE_UNIFORM_FLOATS * 4).toBe(wgslLayout(coverageU.struct, 'std140').size)
   })
 
   it('the binding is DECLARED in the shader and NAMED in the layout — WebGL2 binds by name', () => {

@@ -126,6 +126,12 @@ describe('geojson-tiling-worker drop-source eviction (BUG 7)', () => {
     const a = getTile('gjt1::geojson')
     expect(a.kind).toBe('tile-error')
     expect(a.message).toContain('unknown source')
+    // …and says so STRUCTURALLY, not just in prose. Consumers must be able to
+    // tell this orderly teardown from a real decode/index failure without
+    // pattern-matching the message: an in-flight get-tile landing after its map
+    // was disposed is routine, and logging it at error level turned a demo swap
+    // into a red render gate (_graphics-compiled-arrow-parity).
+    expect(a.sourceGone).toBe(true)
 
     // Map B's sibling index survives the drop.
     const b = getTile('gjt2::geojson')

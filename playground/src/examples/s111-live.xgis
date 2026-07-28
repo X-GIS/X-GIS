@@ -9,9 +9,11 @@ xgis 1
 //
 // CORS: the NOAA bucket serves HTTP-Range but sets no Access-Control-Allow-Origin,
 // so the browser reaches it through a proxy — the vite dev-server `/noaa-s111`
-// bridge in dev, a CORS-open proxy in prod (loader.ts URL rewrite). `latest.h5`
-// resolves the newest published cycle on each load, so the demo never rots as old
-// cycles age out of the rolling bucket.
+// bridge in dev, a CORS-open proxy in prod (loader.ts URL rewrite). The proxy's
+// `/noaa-s111/latest/<model>.h5` route resolves the newest published cycle on each
+// load, so the demo never rots as old cycles age out of the rolling bucket. Those
+// URLs are named by the CATALOGUE the `currents` source points at, and fetched by
+// the engine — see that source.
 
 // Esri World Imagery satellite basemap (same source the satellite_map demo uses),
 // so the currents draw over real nautical imagery. CORS `*`.
@@ -40,9 +42,26 @@ source basemap {
 //
 // With no `ramp`, the motion renders as a neutral luminance over the satellite imagery — the
 // catalogue arrows remain the only colour authority on screen.
+// The `url:` names a CATALOGUE of cells, not one cell (#1453) — a STAC ItemCollection the
+// proxy synthesises, listing every NOAA regional model with its domain envelope. Pan across
+// the U.S. coast and the currents follow: the ENGINE intersects the viewport with those
+// envelopes on each move-end, loads the cells that cover it (a view straddling Chesapeake and
+// Delaware shows CBOFS *and* DBOFS, not whichever won a contest), and lets the renderer's GPU
+// byte budget bound what stays resident.
+//
+// That is the same deal `type: raster` has always offered — declare a URL, the engine works
+// out what the camera needs. Until #1453 a coverage source read ONE cell at attach and never
+// looked at the camera again, so this demo carried 860 lines of app-side mosaic machinery
+// (bbox overlap, relevance ordering, a byte budget, an LRU, a concurrency cap) doing the
+// engine's job. Those files are gone; this line replaced them.
+//
+// Whether the URL is a cell or a catalogue is decided by the BYTES — an S-100 cell begins with
+// the HDF5 signature — so there is no new source type and no extra syntax here. Cell hrefs in
+// the catalogue resolve through `latest/`, so the newest published cycle is what streams and
+// the demo cannot rot.
 source currents {
   type: coverage
-  url: "/noaa-s111/latest.h5"
+  url: "/noaa-s111/catalog.json"
 }
 
 layer imagery {

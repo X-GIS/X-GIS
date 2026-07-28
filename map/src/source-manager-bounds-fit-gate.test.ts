@@ -126,6 +126,7 @@ function makeSourceManager(camera: Camera, positioned: { value: boolean }) {
     fireError: () => {},
     getVtSource: () => null,
     deleteFeatureIndex: () => {},
+    beginCoverageLoad: () => Promise.resolve(),
   }
   return new SourceManager(deps)
 }

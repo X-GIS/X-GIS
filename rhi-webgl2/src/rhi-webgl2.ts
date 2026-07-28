@@ -86,11 +86,40 @@ interface Gl2StorageBuffer {
   height: number
   size: number
 }
+/** WebGPU validates every queue write against the texture's usage flags; WebGL2 validates
+ *  nothing. That asymmetry is not a detail — it means a texture written without `copy-dst`
+ *  works perfectly under SwiftShader (which is what every headless render gate here drives)
+ *  and dies at boot on WebGPU. It cost the S-111 advected arrow field exactly that: the whole
+ *  portrayal gone on the backend nobody can run in CI, behind a green render gate.
+ *
+ *  So the SOFTWARE backend enforces the STRICTER contract. Dev-only, because in production the
+ *  worst case is the WebGPU error the app would get anyway — but in dev, in tests, and in every
+ *  e2e gate, the class becomes impossible to reintroduce without a loud failure naming the
+ *  texture. Verified-by-construction beats remembering.
+ *
+ *  The dev check is spelled out here rather than imported from `@xgis/shared`'s `devAssert`:
+ *  this backend deliberately carries NO package dependency beyond @xgis/rhi and the DSL (its
+ *  tsconfig even sets `types: []`), and the dependency-direction ratchet enforces that. Three
+ *  lines of duplicated env-check are the cheaper side of that trade. */
+function assertCopyDst(t: Gl2Texture, op: string): void {
+  // Cast, not a type import: `types: []` keeps vite's client types out of this package.
+  if ((import.meta as { env?: { DEV?: boolean } }).env?.DEV !== true) return
+  if (t.usage.includes('copy-dst')) return
+  throw new Error(
+    `[xgis] ${op}: texture "${t.label ?? '(unlabelled)'}" was created with usage ` +
+      `[${t.usage.join(', ')}] — WebGPU requires 'copy-dst' on any texture a queue write ` +
+      `targets. WebGL2 does not check, so this would pass here and fail on WebGPU only.`,
+  )
+}
+
 interface Gl2Texture {
   tex: WebGLTexture
   width: number
   height: number
   format: RhiTextureFormat
+  /** Retained for the dev-only usage guard above. WebGL2 itself has no use for either. */
+  usage: ReadonlyArray<'sample' | 'render' | 'copy-dst' | 'copy-src'>
+  label?: string
 }
 interface Gl2View {
   texture: Gl2Texture
@@ -141,6 +170,8 @@ interface Gl2Pipeline {
   }>
   layouts: ReadonlyArray<Gl2BindGroupLayout>
 }
+
+import { minFilterEnum, resolveAnisotropy } from './webgl2-texture-sampling'
 
 const wrap = <T>(rec: unknown): T => rec as T
 const un = <T>(h: unknown): T => h as T
@@ -604,6 +635,15 @@ export class WebGl2Device implements RhiDevice {
    *  (record-time) execution. Detected via `getSupportedExtensions` (a pure query —
    *  unlike `getExtension` it enables nothing, so caps read stays byte-identical). */
   readonly caps: RhiCaps
+  /** #1436 — `EXT_texture_filter_anisotropic` if the driver has it, else null. WebGPU serves
+   *  anisotropy natively; on WebGL2 it is an EXTENSION, so a sampler asking for it must degrade
+   *  to plain trilinear rather than throw. Resolved once at construction (the sampler path must
+   *  not call `getExtension` per sampler — it enables state and is not free). */
+  private readonly _anisoExt: EXT_texture_filter_anisotropic | null
+  /** #1436 — the anisotropy this device will actually honour, ≥ 1. 1 means the extension is
+   *  absent and asking bought nothing; a caller reads this instead of inferring from the
+   *  platform, which is what makes the degrade OBSERVABLE rather than silent. */
+  readonly maxAnisotropy: number
   /** GL errors drained at endScreenPass (the WebGPU `_validationErrors` analog —
    *  WebGL2 has no async validation queue, so we poll `gl.getError()` per frame). */
   private _glErrors: string[] = []
@@ -636,6 +676,10 @@ export class WebGl2Device implements RhiDevice {
       gl.getExtension('EXT_color_buffer_float')
       gl.getExtension('EXT_float_blend')
     }
+    // #1436 — resolved ONCE (the sampler path must not call getExtension per sampler).
+    const aniso = resolveAnisotropy(gl, exts)
+    this._anisoExt = aniso.ext
+    this.maxAnisotropy = aniso.max
     this.caps = Object.freeze({
       maxSampleCount: 1,
       presentablePassMrt: false,
@@ -1039,7 +1083,26 @@ export class WebGl2Device implements RhiDevice {
     if (!tex) throw new Error('webgl2: createTexture failed')
     gl.bindTexture(gl.TEXTURE_2D, tex)
     const { internal, format, type } = texFmt(gl, desc.format)
+    const levels = desc.mipLevelCount ?? 1
     gl.texImage2D(gl.TEXTURE_2D, 0, internal, desc.width, desc.height, 0, format, type, null)
+    // #1436 — allocate the rest of the chain so `generateMipmap` has levels to fill and the
+    // texture is mip-COMPLETE. Declared per level rather than via texStorage2D because this
+    // texture stays mutable: writeTexture re-uploads the base in place, which immutable storage
+    // permits but several existing paths express as texImage2D.
+    for (let level = 1; level < levels; level++) {
+      const w = Math.max(1, desc.width >> level)
+      const h = Math.max(1, desc.height >> level)
+      gl.texImage2D(gl.TEXTURE_2D, level, internal, w, h, 0, format, type, null)
+    }
+    // ALWAYS, including levels === 1 (#1436). GL's default TEXTURE_MAX_LEVEL is 1000, so a
+    // single-level texture sampled by a MIPMAP min-filter is mip-INCOMPLETE — and an incomplete
+    // texture samples as opaque black, not as its base level. That is not hypothetical: the
+    // raster checker is a single-level texture sharing `linearSampler` with the chained tiles,
+    // and making that sampler trilinear turned the whole ocean black (_fills-gl2-gate: 2409 of
+    // 619200 checker pixels survived). Pinning MAX_LEVEL to the last level that actually exists
+    // makes every texture complete for any filter, which is what lets a sampler be shared
+    // between chained and un-chained textures at all.
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAX_LEVEL, levels - 1)
     // default sampling: nearest + clamp (a bound RhiSampler overrides via a sampler object).
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST)
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST)
@@ -1050,6 +1113,8 @@ export class WebGl2Device implements RhiDevice {
       width: desc.width,
       height: desc.height,
       format: desc.format,
+      usage: desc.usage,
+      label: desc.label,
     } satisfies Gl2Texture)
   }
 
@@ -1063,6 +1128,7 @@ export class WebGl2Device implements RhiDevice {
     y = 0,
   ): void {
     const t = un<Gl2Texture>(texture)
+    assertCopyDst(t, 'writeTexture')
     const gl = this.gl
     gl.bindTexture(gl.TEXTURE_2D, t.tex)
     gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1)
@@ -1078,6 +1144,7 @@ export class WebGl2Device implements RhiDevice {
     height: number,
   ): void {
     const t = un<Gl2Texture>(texture)
+    assertCopyDst(t, 'copyExternalImage')
     const gl = this.gl
     gl.bindTexture(gl.TEXTURE_2D, t.tex)
     // Top-left origin to match WebGPU copyExternalImageToTexture — no flip.
@@ -1101,11 +1168,10 @@ export class WebGl2Device implements RhiDevice {
     const gl = this.gl
     const samp = gl.createSampler()
     if (!samp) throw new Error('webgl2: createSampler failed')
-    gl.samplerParameteri(
-      samp,
-      gl.TEXTURE_MIN_FILTER,
-      desc.min === 'linear' ? gl.LINEAR : gl.NEAREST,
-    )
+    // MIN filter is TWO decisions in one GL enum (#1436): how to filter WITHIN a level and how to
+    // blend BETWEEN levels. `mipmap` absent keeps the pre-#1436 single-level enums exactly, so
+    // every existing sampler is byte-identical; present, it selects the matching *_MIPMAP_* enum.
+    gl.samplerParameteri(samp, gl.TEXTURE_MIN_FILTER, minFilterEnum(gl, desc.min, desc.mipmap))
     gl.samplerParameteri(
       samp,
       gl.TEXTURE_MAG_FILTER,
@@ -1113,7 +1179,25 @@ export class WebGl2Device implements RhiDevice {
     )
     gl.samplerParameteri(samp, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE)
     gl.samplerParameteri(samp, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE)
+    // Anisotropy DEGRADES rather than throws when the extension is absent — `this.maxAnisotropy`
+    // is 1 there, so the clamp below collapses to 1 and the parameter is never set. A caller that
+    // must know reads `maxAnisotropy`; nothing here fails silently in a way it cannot observe.
+    const aniso = this._anisoExt
+    if (aniso && desc.maxAnisotropy !== undefined && desc.maxAnisotropy > 1) {
+      gl.samplerParameterf(
+        samp,
+        aniso.TEXTURE_MAX_ANISOTROPY_EXT,
+        Math.min(desc.maxAnisotropy, this.maxAnisotropy),
+      )
+    }
     return wrap<RhiSampler>({ samp } satisfies Gl2Sampler)
+  }
+
+  generateMipmaps(texture: RhiTexture): void {
+    const gl = this.gl
+    gl.bindTexture(gl.TEXTURE_2D, un<Gl2Texture>(texture).tex)
+    gl.generateMipmap(gl.TEXTURE_2D)
+    gl.bindTexture(gl.TEXTURE_2D, null)
   }
 
   destroySampler(sampler: RhiSampler): void {

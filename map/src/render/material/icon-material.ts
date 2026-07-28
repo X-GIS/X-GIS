@@ -16,6 +16,7 @@ const ICON_ENTRIES: import('@xgis/engine').RhiBindLayoutEntry[] = [
 ]
 import { Material, executeItems } from '@xgis/engine'
 import { emitIconWgsl } from '../../shaders/dsl/icon'
+import { wgslFor } from './wgsl-for'
 
 type VertexBuffers = ReadonlyArray<{
   stride: number
@@ -45,7 +46,7 @@ export class IconDraper {
   ) {
     const gl2 = rhi.backend === 'webgl2'
     this.material = new Material(rhi, {
-      shader: emitIconWgsl(),
+      shader: wgslFor(rhi, emitIconWgsl),
       vsEntry: 'vs',
       fsEntry: 'fs',
       vsCode: gl2 ? emitIconGlsl('vertex') : undefined,

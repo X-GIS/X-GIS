@@ -990,23 +990,29 @@ function stageScope(
   return { fns, bindings, structs }
 }
 
-export function emitGlslModule(
-  m: ModuleDecl,
-  stage?: 'vertex' | 'fragment',
-  opts?: {
-    emulateStorage?: boolean
-    emulateCompute?: boolean
-    /** #923 host specialization — pin `override` values for THIS emit. GLSL ES 3.00
-     *  has no driver-side spec constants, so a specialized variant is a re-emit: each
-     *  named override becomes a hard `#define NAME <value>` (spelled via the backend
-     *  `literal()`, so a u32 gets its `u` suffix and an f32 its `.0`) emitted AFTER the
-     *  `#version`/precision preamble — never PREPENDED, which GLSL rejects (`#version`
-     *  must lead the source). Un-named overrides keep their `#ifndef` default. The
-     *  values derive from `reflect().overrides` (name→chosen value); the WGSL twin is
-     *  `createRenderPipeline({ constants })`. */
-    overrideValues?: Readonly<Record<string, number | boolean>>
-  } & EmitOptions,
-): string {
+export interface GlslEmitOptions extends EmitOptions {
+  emulateStorage?: boolean
+  emulateCompute?: boolean
+  /** #923 host specialization — pin `override` values for THIS emit. GLSL ES 3.00
+   *  has no driver-side spec constants, so a specialized variant is a re-emit: each
+   *  named override becomes a hard `#define NAME <value>` (spelled via the backend
+   *  `literal()`, so a u32 gets its `u` suffix and an f32 its `.0`) emitted AFTER the
+   *  `#version`/precision preamble — never PREPENDED, which GLSL rejects (`#version`
+   *  must lead the source). Un-named overrides keep their `#ifndef` default. The
+   *  values derive from `reflect().overrides` (name→chosen value); the WGSL twin is
+   *  `createRenderPipeline({ constants })`. */
+  overrideValues?: Readonly<Record<string, number | boolean>>
+}
+
+/** The IR half of a GLSL emit: the opt-in pre-lowerings, the shared backend pipeline
+ *  (validate → autoVars → lowerModule → fp64Lower → the optimizer FIXPOINT) and the
+ *  IR plugins. Everything here is stage-INDEPENDENT, which is why it is split from the
+ *  spelling half: a host compiling both stages of one module used to pay this twice,
+ *  and the fixpoint over a big fragment fn dominates it (hillshade multidirectional:
+ *  ~770 ms per emit, so the `vs_tile` re-emit alone cost as much as the fragment even
+ *  though the vertex fn is shared with raster's 36 ms module). `emitGlslStages` pays
+ *  it once. Pure: takes an authored module, returns a lowered one. */
+function lowerForGlsl(m: ModuleDecl, opts?: GlslEmitOptions): ModuleDecl {
   // autoVars BEFORE lowerModule (inside lowerForBackend), same order as the WGSL backend /
   // CPU oracle — materialising assigned plain-value bindings into real vars is BACKEND-NEUTRAL.
   // Opt-in storage→data-texture emulation runs FIRST so the rewritten module carries no
@@ -1033,10 +1039,20 @@ export function emitGlslModule(
   // the IR chain; their contract requires determinism on the lowered module, so
   // the vertex and fragment emits (separate calls over the same module) agree on
   // every shared transformed name.
-  const lowered = applyIRPlugins(
+  return applyIRPlugins(
     sanitizeReservedIdents(lowerForBackend(src, glslEs300Backend, undefined, opts?.fp64Flavor)),
     opts,
   )
+}
+
+/** The SPELLING half: turn an already-lowered module into one stage's GLSL text.
+ *  Reads `lowered` without mutating it, so the same lowered module can be spelled for
+ *  both stages (emitGlslStages). */
+function assembleGlsl(
+  lowered: ModuleDecl,
+  stage: 'vertex' | 'fragment' | undefined,
+  opts?: GlslEmitOptions,
+): string {
   const structs = new Map(lowered.structs.map((s) => [s.name, s]))
 
   // Stage filter through the shared predicate (#763 S3) — the old attr-string
@@ -1162,4 +1178,29 @@ export function emitGlslModule(
   if (entries.length) parts.push(entries.map((f) => emitGlslEntry(f, structs)).join('\n\n'))
 
   return applyTextPlugins(parts.join('\n') + '\n', opts)
+}
+
+/** Emit one stage (or, with `stage` omitted, the whole module) as GLSL ES 3.00. */
+export function emitGlslModule(
+  m: ModuleDecl,
+  stage?: 'vertex' | 'fragment',
+  opts?: GlslEmitOptions,
+): string {
+  return assembleGlsl(lowerForGlsl(m, opts), stage, opts)
+}
+
+/** Both stages of one module, lowered + OPTIMIZED ONCE. Byte-identical to calling
+ *  `emitGlslModule(m,'vertex')` and `emitGlslModule(m,'fragment')` — the lowering is
+ *  deterministic and the spelling half does not mutate it, which
+ *  `glsl-stages-parity.test.ts` pins — but it pays the optimizer fixpoint once instead
+ *  of twice. Use this from any host that creates a pipeline (it always needs both). */
+export function emitGlslStages(
+  m: ModuleDecl,
+  opts?: GlslEmitOptions,
+): { vertex: string; fragment: string } {
+  const lowered = lowerForGlsl(m, opts)
+  return {
+    vertex: assembleGlsl(lowered, 'vertex', opts),
+    fragment: assembleGlsl(lowered, 'fragment', opts),
+  }
 }
