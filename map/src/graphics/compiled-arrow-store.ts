@@ -57,11 +57,15 @@ export interface AdvectedArrowInput {
  *  velocity pair they are moving through — all four from `FlowRenderer`, which owns the step.
  *  Passed in per frame rather than held, because the state side alternates every step. */
 export interface AdvectedArrowSource {
-  /** Returns the batch's BASE TEXEL in the shared state (#1458). */
-  writeArrowOrigins(key: string, u: ArrayLike<number>, v: ArrayLike<number>): number
+  /** Returns the batch's BASE TEXEL in the shared state (#1458). `region` says whose velocity
+   *  field its texels are stepped through. */
+  writeArrowOrigins(key: string, region: string, u: ArrayLike<number>, v: ArrayLike<number>): number
   /** Give this batch's texel range back — its region was dropped. */
   releaseArrowOrigins(key: string): void
-  readonly arrowBinding: {
+  /** The binding for ONE region — the shared state pair plus THAT region's velocity textures.
+   *  Per region, not per map: a mosaic's domains each carry their own current, and one pair
+   *  for all of them reports another domain's water as this one's (#1458). */
+  arrowBindingFor(region: string): {
     state: RhiTextureView
     origin: RhiTextureView
     flowU: RhiTextureView
@@ -193,7 +197,12 @@ export class CompiledArrowStore {
       // serves every mosaic region — which is why the band table is patched and uploaded
       // AFTER the call rather than before it.
       const base =
-        this.arrowSource?.writeArrowOrigins(advected.key, advected.originU, advected.originV) ?? 0
+        this.arrowSource?.writeArrowOrigins(
+          advected.key,
+          region,
+          advected.originU,
+          advected.originV,
+        ) ?? 0
       advected.bandTable[S111_BAND_PARAMS_ROW * S111_BAND_STRIDE + S111_PARAM_STATE_BASE] = base
       this.rhi.writeBuffer(bandBuf, 0, advected.bandTable)
     } else {
@@ -293,7 +302,12 @@ export class CompiledArrowStore {
     perCopy: Float32Array[],
   ): number {
     const draper = this.advectedDraper
-    const bind = this.arrowSource?.arrowBinding
+    // THIS batch's region, not the map's one field (#1458): a mosaic's domains each carry their
+    // own current, and the arrow's colour, heading and scale are re-decided every frame from
+    // the velocity under it — bound from the wrong domain that is another sea reported as this
+    // one. Null when the region has left the coverage: its textures are destroyed, so a batch
+    // outliving its region by a frame draws nothing rather than binding freed memory (#1419).
+    const bind = this.arrowSource?.arrowBindingFor(ca.region)
     if (!draper || !bind || !ca.bandBuf) return 0
     // Keyed by the STATE side, but invalidated on the FIELD views — because the ping-pong
     // alternates between exactly two state views and nothing else ever appears as a key. The

@@ -166,6 +166,11 @@ must ALWAYS `Read` a file before editing it. The rule is graph-first for _findin
 not a ban on Read. Pairs with the `flow-first` skill: graph the call/data flow + blast
 radius before editing.
 
+**If the `codebase-memory` MCP is not connected** (remote/container sessions often lack it —
+verify, don't assume): fall back to Grep/Glob/Read and **say so in the reply**, so a
+graph-less search is never mistaken for a graph-backed one. The rule is unreachable, not
+waived — the blast-radius sweep a text search misses is then the reader's job.
+
 ## 7. Build & Test Discipline
 
 **Never run more than one heavy background process concurrently.** vitest, `tsc --build
