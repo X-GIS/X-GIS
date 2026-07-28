@@ -7,40 +7,66 @@ numbers.
 
 ## 1. The defect
 
-`adaptive-dpr.ts` steps the device-pixel scale down when the host cannot hold 30 fps. That scale
-multiplies the ONE device-pixel-ratio the whole frame is built from:
+> **Re-verified 2026-07-28 against landed code.** The first draft of this section was written
+> against `engine/src/gpu/adaptive-dpr.ts` and a flat `STEPS = [1, 0.85, 0.72, 0.6, 0.5]`. That
+> module no longer exists: #1406 replaced it with `adaptive-quality.ts` and a two-lever ladder.
+> The measurements and the framing below are redone against the module that actually ships.
+> CLAUDE.md §12 — plan docs drift from landed reality; re-verify the predecessor's ACTUAL landed
+> scope against the code, not against the doc's description of it.
+
+`adaptive-quality.ts` steps an ordered degradation ladder when the host cannot hold 30 fps
+(`DEGRADE_MS = 33.4`). Each notch names a far-field LOD boost and a device-pixel scale
+(`adaptive-quality.ts:64`):
+
+| notch | `farLod` | `dpr` |
+| ----- | -------- | ----- |
+| 0     | 1        | 1     |
+| 1     | 2        | 1     |
+| 2     | 4        | 1     |
+| 3     | 4        | 0.85  |
+| 4     | 4        | 0.72  |
+| 5     | 6        | 0.6   |
+| 6     | 6        | 0.5   |
+
+**The ladder already agrees with the premise of this document.** Its own header says why the two
+pure-LOD notches come first:
+
+> _"FAR-FIELD LOD is spent BEFORE device pixels. Coarsening tiles several camera altitudes away is
+> close to invisible — they are already metres-per-pixel — while lowering DPR blurs labels and text
+> across the WHOLE frame. The map spends its horizon before it spends the user's legibility."_
+
+That is a real, already-landed mitigation and this design does not replace it. What it does not do
+is survive its own success: notches 3-6 exist because LOD alone does not get a slow host to budget,
+and the moment the ladder reaches them the text blurs with everything else. The ordering buys time;
+it does not keep the reading legible.
+
+And the ladder does reach them. `adaptiveDprScale()` multiplies the one device-pixel-ratio the
+whole frame is built from:
 
 ```ts
 // engine/src/gpu/quality.ts:348
 export function effectiveDpr(interacting = false): number {
   const cap = interacting && QUALITY.interactionDpr !== null ? QUALITY.interactionDpr : getMaxDpr()
   if (typeof window === 'undefined') return 1
-  return Math.min(window.devicePixelRatio || 1, cap) * adaptiveDprScale() // ← the scale
+  return Math.min(window.devicePixelRatio || 1, cap) * adaptiveDprScale() // <- the scale
 }
 
 // map/src/render-loop.ts:138
 const dpr = resizeCanvas(this.host.ctx, effectiveDpr(this.host._interacting))
 ```
 
-`resizeCanvas` sizes the **canvas backing store** itself, so there is exactly one render resolution
-for the frame and the browser upscales the finished canvas to its CSS box. Measured on the
-`coverage_bathymetry` demo under SwiftShader (a stand-in for a slow host), CSS box 580×800:
+`resizeCanvas` sizes the **canvas backing store** itself, so there is one render resolution for the
+frame and the browser upscales the finished canvas to its CSS box. Measured on
+`coverage_bathymetry` under SwiftShader (a stand-in for a slow host), CSS box 580x800:
 
-| `devicePixelRatio` | backing store | effective scale |
-| ------------------ | ------------- | --------------- |
-| 1                  | 348×480       | **0.60×**       |
-| 2                  | 580×800       | 0.50×           |
-| 3                  | 870×1200      | 0.50×           |
+| `devicePixelRatio` | backing store | scale | ladder notch |
+| ------------------ | ------------- | ----- | ------------ |
+| 1                  | 417x576       | 0.72  | 4            |
+| 2                  | 580x800       | 0.50  | 6 (floor)    |
 
-Label count and label text were identical in all three (15 labels, `19.4 / 25.0 / 29.7 / 40.0 /
-9.0`). Only the resolution moved. `STEPS = [1, 0.85, 0.72, 0.6, 0.5]` (`adaptive-dpr.ts:44`) — the
-run had walked to the floor.
-
-The ladder is doing its job, and its own header states the trade it is making: _"a blurry map beats
-a frozen one"_. That trade is correct **for the scene**. It is wrong for the overlay, because a
-sounding numeral is not decoration that degrades gracefully — it is the only information that layer
-carries, and a chart whose depths cannot be read has failed at the thing it exists to do. The
-ladder currently has no way to express that distinction: every pixel is equal to it.
+Label count and label text were identical in both (38 labels, same numerals) — only the resolution
+moved. A sounding numeral is not decoration that degrades gracefully: it is the only information
+its layer carries, and a chart whose depths cannot be read has failed at the thing it exists to do.
 
 ## 2. What mature engines do
 
@@ -50,7 +76,8 @@ Unity's dynamic resolution scales the render target while a screen-space-overlay
 native. The split is not an optimisation — it is the recognition that text and geometry have
 different failure modes under resolution loss.
 
-X-GIS has the ladder but not the split.
+X-GIS has the ladder, and (since #1406) an ordering that protects legibility for as long as LOD
+lasts. It does not have the split, so past notch 2 the protection runs out.
 
 ## 3. Why this is smaller than it looks
 
@@ -193,5 +220,6 @@ be gated by asserting the created descriptor through the real `Material` path.
 ## 8. What this does not fix
 
 The ladder still degrades the scene, and on a slow enough host the bathymetry ramp under the
-numerals will be visibly soft. That is the intended trade. What changes is that the _reading_ stays
-a reading.
+numerals will be visibly soft. That is the intended trade, and #1406's LOD-first ordering already
+makes it as late a trade as it can be. What changes is that when the trade finally is made, the
+_reading_ stays a reading.
