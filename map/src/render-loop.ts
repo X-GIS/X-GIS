@@ -518,9 +518,13 @@ export class RenderLoop {
           bearing: this.host.camera.bearing,
           pitch: this.host.camera.pitch,
           projection: this.host.projectionName ?? 'mercator',
+          // SCREEN density, to match the SCREEN extent above (`canvas.width/height`). Equal to
+          // the scene's today, so this is byte-identical — but pairing a screen extent with a
+          // scene density would make the record internally mixed the moment INC-2 splits them,
+          // and a replayed trace would be reconstructing a viewport that never existed.
           viewportWidthPx: cw,
           viewportHeightPx: ch,
-          dpr: ctx.scene.dpr,
+          dpr: ctx.screen.dpr,
         })
       }
       // ── Bucket scheduler → SceneView ──

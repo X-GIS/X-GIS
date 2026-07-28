@@ -49,9 +49,20 @@ const PASS_SOURCE: Record<PassLabel, string> = {
 
 const source = (label: PassLabel): string => readFileSync(join(HERE, PASS_SOURCE[label]), 'utf8')
 
-/** `ctx.scene.w` / `.h` / `.dpr`, and the destructured `= ctx.scene` form the label pass uses. */
-const readsScene = (src: string): boolean => /\bctx\.scene\b/.test(src)
-const readsScreen = (src: string): boolean => /\bctx\.screen\b/.test(src)
+/** Does the source reach a geometry?
+ *
+ *  Two spellings, because one would leave a hole: the member access (`ctx.scene.w`, and the
+ *  `= ctx.screen` destructure the label pass uses), AND a destructure of the ROLE itself
+ *  (`const { screen } = ctx`), which reads the same geometry while never writing `ctx.screen`.
+ *
+ *  This is a source-text gate and says so: it polices spelling, not types, so a sufficiently
+ *  determined alias still evades it. That is an accepted boundary — the accident this catches
+ *  is a pass reaching for the wrong size, not a pass hiding that it did. */
+const reaches = (src: string, role: 'scene' | 'screen'): boolean =>
+  new RegExp(`\\bctx\\.${role}\\b`).test(src) ||
+  new RegExp(`\\{[^}]*\\b${role}\\b[^}]*\\}\\s*=\\s*ctx\\b`).test(src)
+const readsScene = (src: string): boolean => reaches(src, 'scene')
+const readsScreen = (src: string): boolean => reaches(src, 'screen')
 
 describe('scene / overlay partition', () => {
   it('covers PASS_CHAIN_ORDER exactly — nothing in both, nothing in neither', () => {
