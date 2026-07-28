@@ -101,18 +101,21 @@ export class CompiledArrowStore {
   private _featWrites = 0
   private _tintWrites = 0
 
-  /** Bind the per-run device + arrow drapers (called from GraphicsManager.attachDevice). The
-   *  advected pair is optional: without it an advected batch is DROPPED rather than silently
-   *  drawn as a static one, which would be a field that reports its launch instant forever. */
+  /** Bind the per-run device + arrow drapers (called from GraphicsManager.attachDevice).
+   *
+   *  The advected DRAPER arrives here; its frame-side SOURCE arrives later, through
+   *  `setAdvectedSource` — the two genuinely become available in that order, and requiring them
+   *  together is what left the store with no advected draper at all: at attach time the
+   *  FlowRenderer does not exist yet, so the paired form dropped every advected batch and the
+   *  portrayal rendered NOTHING. Both are still required to ADD one; they just arrive apart. */
   attach(
     rhi: RhiDevice,
     draper: RetainedArrowDraper,
-    advected?: { draper: RetainedArrowAdvectedDraper; source: AdvectedArrowSource },
+    advectedDraper?: RetainedArrowAdvectedDraper,
   ): void {
     this.rhi = rhi
     this.draper = draper
-    this.advectedDraper = advected?.draper ?? null
-    this.arrowSource = advected?.source ?? null
+    this.advectedDraper = advectedDraper ?? null
   }
 
   /** Point the advected path at its frame-side state (#1419). Separate from `attach` because
@@ -137,7 +140,9 @@ export class CompiledArrowStore {
   ): void {
     const count = lons.length
     if (count === 0 || !this.rhi || !this.draper) return
-    if (advected && !this.advectedDraper) return
+    // Both halves or nothing: an advected batch drawn through the static draper would be a
+    // field that animates nothing and reports its launch instant forever.
+    if (advected && (!this.advectedDraper || !this.arrowSource)) return
     const feat = packCompiledArrowFeat(
       lons,
       lats,
@@ -318,6 +323,5 @@ export class CompiledArrowStore {
     this.rhi = null
     this.draper = null
     this.advectedDraper = null
-    this.arrowSource = null
   }
 }

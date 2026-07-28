@@ -4817,7 +4817,15 @@ export class XGISMap {
     region = DEFAULT_REGION,
   ): void {
     const arm = coverageDrapeArm(show)
-    if (!arm.draw) return
+    // A layer that draws no drape may still need the coverage RESIDENT: the advected arrow
+    // field is built from the velocity textures this upload creates (#1419). Skipping the arm
+    // outright — which is what "no drape" used to mean — left that field with no data source
+    // at all, so the portrayal rendered nothing. `hidden` keeps the two questions apart.
+    // Only a FLOW layer needs this: the static `| arrow` portrayal is packed on the CPU from
+    // the handle and reads no GPU texture, so uploading one for it would spend a vector
+    // coverage's worth of VRAM on data nothing samples.
+    const needsResidency = show.isFlow === true
+    if (!arm.draw && !needsResidency) return
     this.coverageRenderer.setCoverage(
       handle,
       {
@@ -4825,7 +4833,8 @@ export class XGISMap {
         rangeLo: show.range?.[0],
         rangeHi: show.range?.[1],
         opacity: show.opacity ?? 1,
-        flowOnly: arm.flowOnly,
+        flowOnly: arm.draw ? arm.flowOnly : false,
+        hidden: !arm.draw,
       },
       region,
     )

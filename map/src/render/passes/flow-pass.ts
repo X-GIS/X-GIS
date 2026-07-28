@@ -46,7 +46,10 @@ class FlowPass implements RenderPass {
       // field must never reach it. It runs HERE, before the graphics pass draws the arrows,
       // because the draw binds the state this writes.
       if (host.graphics.hasAdvectedArrows()) flow.stepArrows(frame, field)
-      flow.step(frame, field)
+      // The trail step only when a VISIBLE drape samples its image: under the arrows portrayal
+      // the regions are resident-but-hidden, and advecting a full-screen image nobody draws is
+      // a per-frame cost with no picture attached.
+      if (host.coverageRenderer?.hasDrapedFlowField() === true) flow.step(frame, field)
     })
   }
 }

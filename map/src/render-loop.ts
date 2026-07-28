@@ -925,7 +925,8 @@ export class RenderLoop {
       // "different map on the other backend" this twin exists to prevent.
       if (this.host.graphics.hasAdvectedArrows())
         this.host.flowRenderer?.stepArrows(frame, flowField)
-      this.host.flowRenderer?.step(frame, flowField)
+      if (this.host.coverageRenderer.hasDrapedFlowField())
+        this.host.flowRenderer?.step(frame, flowField)
     }
     // #834 M5 slice 2 — real raster tile sources on WebGL2. With a source
     // configured, the SAME render() the WebGPU frame uses draws the tiles

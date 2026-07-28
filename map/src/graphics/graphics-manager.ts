@@ -109,9 +109,6 @@ export class GraphicsManager {
   private draper: RetainedIconDraper | null = null
   private arrowDraper: RetainedArrowDraper | null = null
   private advectedArrowDraper: RetainedArrowAdvectedDraper | null = null
-  /** Where the advected arrows' state lives (FlowRenderer). Set by the map BEFORE attachDevice
-   *  on a fresh device, since the store captures it there (#1419). */
-  private arrowSource: AdvectedArrowSource | null = null
   private circleDraper: RetainedCircleDraper | null = null
   private particleDraper: RetainedParticleDraper | null = null
   private frameBlock: UniformBlockOf<typeof pointU> | null = null
@@ -309,10 +306,9 @@ export class GraphicsManager {
    *  before attachDevice: the store captures it there, and an advected batch added without it is
    *  dropped rather than drawn as a static field frozen at its launch instant. */
   setAdvectedArrowSource(source: AdvectedArrowSource | null): void {
-    this.arrowSource = source
-    // Forward immediately: on a fresh run attachDevice has ALREADY happened by the time the
-    // scene renderers (and with them the FlowRenderer) exist, so waiting for the next attach
-    // would leave the first scene's advected batches dropped.
+    // Straight through to the store, which is where it is needed. Held nowhere here: on a fresh
+    // run attachDevice has ALREADY happened by the time buildSceneRenderers makes a
+    // FlowRenderer, so a copy kept for the next attach would only be a copy that can go stale.
     this._compiledArrows.setAdvectedSource(source)
   }
 
@@ -737,14 +733,9 @@ export class GraphicsManager {
     this.advectedArrowDraper = new RetainedArrowAdvectedDraper(rhi, format, 1, pointUniformBytes())
     this.circleDraper = new RetainedCircleDraper(rhi, format, 1, pointUniformBytes())
     this.particleDraper = new RetainedParticleDraper(rhi, format, 1, pointUniformBytes())
-    this._compiledArrows.attach(
-      rhi,
-      this.arrowDraper,
-      // The advected pair needs the frame-side source too — the arrow state lives on
-      // FlowRenderer, which the map hands over via setAdvectedArrowSource. Without it the
-      // store DROPS advected batches rather than drawing them as static ones (#1419).
-      this.arrowSource ? { draper: this.advectedArrowDraper, source: this.arrowSource } : undefined,
-    )
+    // The advected DRAPER is available now; its frame-side source (the FlowRenderer that owns
+    // the arrow state) is handed over separately, once buildSceneRenderers has made one.
+    this._compiledArrows.attach(rhi, this.arrowDraper, this.advectedArrowDraper)
     this.frameBlock = uniformBlock(pointU)
     this._blockView = new Float32Array(this.frameBlock.buffer)
     for (const b of this.batches) this.materialise(b)
