@@ -65,15 +65,17 @@ describe('label-pass — S16 replay-correction wiring (#1177)', () => {
 
   it('all four render calls receive the transform (icons + text, both backends)', () => {
     expect(SRC).toMatch(
-      /iStage\?\.render\(ctx\.rhiPass, \{ width: ctx\.w, height: ctx\.h \}, labelReplay\)/,
+      /iStage\?\.render\(ctx\.rhiPass, \{ width: ctx\.screen\.w, height: ctx\.screen\.h \}, labelReplay\)/,
     )
     expect(SRC).toMatch(
-      /stage\.render\(ctx\.rhiPass, \{ width: ctx\.w, height: ctx\.h \}, labelReplay\)/,
+      /stage\.render\(ctx\.rhiPass, \{ width: ctx\.screen\.w, height: ctx\.screen\.h \}, labelReplay\)/,
     )
     expect(SRC).toMatch(
-      /iStage\?\.render\(tPass, \{ width: ctx\.w, height: ctx\.h \}, labelReplay\)/,
+      /iStage\?\.render\(tPass, \{ width: ctx\.screen\.w, height: ctx\.screen\.h \}, labelReplay\)/,
     )
-    expect(SRC).toMatch(/stage\.render\(tPass, \{ width: ctx\.w, height: ctx\.h \}, labelReplay\)/)
+    expect(SRC).toMatch(
+      /stage\.render\(tPass, \{ width: ctx\.screen\.w, height: ctx\.screen\.h \}, labelReplay\)/,
+    )
   })
 
   it('labelReplay is assigned ONLY under the skip guard (miss ⇒ undefined ⇒ identity)', () => {

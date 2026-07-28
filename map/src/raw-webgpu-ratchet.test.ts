@@ -120,15 +120,24 @@ const BASELINE: Record<string, number> = {
   'map/src/render/frame-context.ts': 3,
   'map/src/render/frame-renderer.ts': 47,
   'map/src/render/frame-uniform.ts': 5,
-  'map/src/render/gpu-tile-store.ts': 7,
+  // 7→5 (#1357): the pooled-buffer recycler moved to gpu-buffer-pool.ts, taking
+  // its createBuffer + the raw `device` field with it.
+  'map/src/render/gpu-tile-store.ts': 5,
+  // The recycler's whole job is minting and destroying raw GPUBuffers for the
+  // per-tile line/index/outline path — the RHI exposes no pooled-buffer seam to
+  // route that through, so these are gap-blocked with gpu-tile-store's.
+  'map/src/render/gpu-buffer-pool.ts': 6,
   'map/src/render/graticule-renderer.ts': 9,
   // #777 Phase II — HillshadeRenderer mirrors RasterRenderer's tile machinery
   // (GPUTexture cache, GPUDevice, the native GPURenderPassEncoder bridged via
   // wrapWebGpuPass). Same raw-token surface as raster-renderer, gap-blocked until
   // #991 P6 hands the pass chain a neutral RhiRenderPass.
-  // 7→5 (#1046 F3b review): render() narrowed to RhiRenderPass — the native
-  // union member + the double-wrap cast died with the backend-keyed adaptation.
-  'map/src/render/hillshade-renderer.ts': 5,
+  // Merge union (#1046 F3b review + #1352): 7→5 — render() narrowed to
+  // RhiRenderPass, the native union member + the double-wrap cast died with the
+  // backend-keyed adaptation; independently 7→4 — the tile-load return type and
+  // the eviction policy moved to raster-cache-budget.ts, shared with
+  // raster-renderer. Disjoint removals over the common ancestor sum: 7−2−3.
+  'map/src/render/hillshade-renderer.ts': 2,
   'map/src/render/heatmap-renderer.ts': 25,
   'map/src/render/line-renderer.ts': 28,
   'map/src/render/material/heatmap-material.ts': 1,
@@ -149,7 +158,12 @@ const BASELINE: Record<string, number> = {
   // 16→15 (#1057 inc2): flushTilePoints's `pass: GPURenderPassEncoder` retyped to
   // `RhiRenderPass` (flushTilePointsRhi) — the wrap moved up to VTR.emitTilePointsRhi.
   'map/src/render/point-renderer.ts': 15,
-  'map/src/render/raster-renderer.ts': 8,
+  // The GPUTexture union is unavoidable here: it is the WebGPU arm of the
+  // GPUTexture | RhiTexture the two renderers already cache, lifted out of them.
+  'map/src/render/raster-cache-budget.ts': 4,
+  // 8→5 (#1352): the loaded-texture return type and the shared eviction moved to
+  // raster-cache-budget.ts.
+  'map/src/render/raster-renderer.ts': 5,
   // 20→24 (#1252): CachedPipeline gains 4 GPURenderPipeline fields for the
   // variant data-driven extruded pipelines (mirrors the existing fill/ground fields).
   'map/src/render/renderer-types.ts': 24,

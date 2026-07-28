@@ -133,6 +133,10 @@ export {
 // Linux). Per-label font stacks coming from Mapbox styles get the
 // same fallback chain appended in composeFontKey. CJK_FALLBACK_CHAIN
 // now lives in text-stage-helpers.ts alongside composeFontKey.
+/** Mapbox `text-max-angle` spec default (degrees). MapLibre applies it to every
+ *  line-placed label, authored or not — see the gate in the curved shaping loop. */
+const TEXT_MAX_ANGLE_DEFAULT_DEG = 45
+
 const DEFAULTS: Required<
   Omit<
     TextStageOptions,
@@ -1763,15 +1767,13 @@ export class TextStage {
       // visible on demotiles Tropic of Cancer / Equator labels and
       // on OFM road labels that fall inside the road carriageway.
       const verticalOffsetPx = sizePx * 0.4
-      // Mapbox `text-max-angle` (LabelDef.maxAngle, DEGREES). When set,
-      // drop the label if the tangent deflection between any two adjacent
-      // glyphs exceeds the threshold — matches Mapbox dropping kinked
-      // line labels rather than rendering them folded. UNSET = no gate
-      // (X-GIS' historical behaviour); a label whose style doesn't author
-      // text-max-angle still places exactly as before. Compared in
-      // radians against the wrapped per-glyph rotation delta.
-      const maxAngleRad =
-        p.def.maxAngle !== undefined ? (p.def.maxAngle * Math.PI) / 180 : undefined
+      // Mapbox `text-max-angle`: drop a label whose tangent deflection between two
+      // adjacent glyphs exceeds the threshold instead of rendering it folded. The
+      // gate used to require an AUTHORED value, but omitting the property is the
+      // norm (none of OFM Positron's five line-placed symbol layers set it), so it
+      // never ran on the style parity is measured against while MapLibre applied
+      // the spec default throughout. `??` keeps an authored 0.
+      const maxAngleRad = ((p.def.maxAngle ?? TEXT_MAX_ANGLE_DEFAULT_DEG) * Math.PI) / 180
       let prevGlyphAngle = NaN
       let angleGateRejected = false
       let cursor = startS
@@ -1803,20 +1805,18 @@ export class TextStage {
         glyphOffsets[gi * 2] = sx + perpX
         glyphOffsets[gi * 2 + 1] = sy + perpY
         glyphRotations[gi] = sAngle
-        if (maxAngleRad !== undefined) {
-          if (!Number.isNaN(prevGlyphAngle)) {
-            // Wrap the tangent delta into [-π, π] before |·| so a seam
-            // crossing ±π (e.g. 179°→-179°) reads as a small 2° turn,
-            // not a spurious ~358° one.
-            let d = sAngle - prevGlyphAngle
-            d = Math.atan2(Math.sin(d), Math.cos(d))
-            if (Math.abs(d) > maxAngleRad) {
-              angleGateRejected = true
-              break
-            }
+        if (!Number.isNaN(prevGlyphAngle)) {
+          // Wrap the tangent delta into [-π, π] before |·| so a seam
+          // crossing ±π (e.g. 179°→-179°) reads as a small 2° turn,
+          // not a spurious ~358° one.
+          let d = sAngle - prevGlyphAngle
+          d = Math.atan2(Math.sin(d), Math.cos(d))
+          if (Math.abs(d) > maxAngleRad) {
+            angleGateRejected = true
+            break
           }
-          prevGlyphAngle = sAngle
         }
+        prevGlyphAngle = sAngle
         if (sx < gminX) gminX = sx
         if (sx > gmaxX) gmaxX = sx
         if (sy < gminY) gminY = sy

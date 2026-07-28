@@ -150,7 +150,7 @@ export const DEMOS_THEMATIC: Record<string, Demo> = {
     name: 'S-100 Coverage: bathymetry (#1158)',
     tag: 'thematic',
     description:
-      'S-100 gridded-coverage read IN PLACE from S-102 HDF5 (ADR-0010) — a synthetic 32×32 bathymetry grid at 50-58°N with a north→south depth ramp, a nodata hole, and 4 known corner cells. The GPU colour-ramp draw is the INC-A gate-3 (headed) item; getCoverage(...).valueAt already returns the exact positive-down value CPU-side.',
+      'S-100 gridded-coverage read IN PLACE from S-102 HDF5 (ADR-0010) — a synthetic 32×32 bathymetry grid at 50-58°N with a north→south depth ramp, a nodata hole, and 4 known corner cells. Over the ramp it prints SOUNDING NUMERALS (#1366 INC-5): depths straight off the original grid (valueAt, nearest-cell, never interpolated), picked on a screen-space lattice and thinned by the label collision pass — the reading a colour ramp cannot give. Needs NO network, so it is where the sounding render gate actually runs; the numerals read 3/6/12/17/21/26/31/36 north→south and none sits over the nodata hole. getCoverage(...).valueAt returns the same exact positive-down value CPU-side.',
     source: load('coverage-bathymetry.xgis'),
     zoom: 4.6,
     center: [4, 54],
@@ -177,6 +177,16 @@ export const DEMOS_THEMATIC: Record<string, Demo> = {
     center: [-76.1, 37.9],
     currents: true,
     mosaic: true,
+  },
+
+  s102_live: {
+    name: 'NOAA S-102 Live Bathymetry — real S3 stream, PROJECTED (UTM) cell (#1366)',
+    tag: 'thematic',
+    description:
+      "LIVE, REAL NOAA S-102 bathymetry — streams a real survey cell straight from the NOAA Open-Data S3 bucket (noaa-s102-pds), read as the S-100 HDF5 standard IN PLACE (ADR-0010, no transcode). This is the first demo drawing a PROJECTED coverage: the cell's grid is EPSG:32618 (WGS 84 / UTM 18N) at 16 m spacing with a METRE origin, not degrees. Until #1366 the drape walked a lon/lat rectangle, so such a cell would have been placed as if metres were degrees — off the planet — and the reader refused it rather than mis-render; the drape now reprojects its mesh nodes through the cell's own CRS on the CPU, so the grid lands in Chesapeake Bay. Real NOAA S-102 cells are ALL projected, so this is what makes real bathymetry drawable at all. On top of the ramp it prints SOUNDING NUMERALS (#1366 INC-5) — the reading a colour ramp cannot give: depths straight off the original grid (valueAt, nearest-cell, never interpolated), picked on a screen-space lattice so they thin with scale like a real chart and thinned again by the label collision pass. The bucket has no CORS, so the browser reaches it through the general `/noaa/<bucket>/<key>` dev proxy (a CORS-open Worker in prod); S-102 keys are stable (a cell is re-issued in place when its survey updates), so naming the key directly does not rot. Needs network egress + the proxy; falls back to imagery only if the cell cannot be reached.",
+    source: load('s102-live.xgis'),
+    zoom: 10.5,
+    center: [-75.75, 37.95],
   },
 
   coops_currents: {

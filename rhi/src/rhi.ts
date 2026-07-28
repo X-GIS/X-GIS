@@ -103,6 +103,21 @@ export interface RhiBindLayoutEntry {
    *  fail-louds at layout creation when a multi-same-kind group leaves any
    *  entry unnamed (#783). */
   name?: string
+  /** Make a `texture` / `sampler` slot readable from the VERTEX stage as well as
+   *  the fragment stage. Default false, which is the historical behaviour and
+   *  byte-identical for every existing layout.
+   *
+   *  Opt-IN rather than always-on because WebGPU counts sampled textures PER
+   *  STAGE (`maxSampledTexturesPerShaderStage`): widening every texture would
+   *  charge each one against the vertex budget too, so a fat fragment material
+   *  could start failing validation for a capability it never asked for.
+   *
+   *  Needed by GPU particle advection, where the vertex stage fetches each
+   *  particle's position out of a state texture (`particle-draw.ts`). WebGL2
+   *  needs nothing here — it binds sampler uniforms by name and a GLES3 vertex
+   *  stage has its own texture units (32 measured on this environment's
+   *  SwiftShader device, spec floor 16). */
+  vertexVisible?: boolean
 }
 
 /** A backend-neutral routing handle for a render pipeline (#834 M-B3). Some

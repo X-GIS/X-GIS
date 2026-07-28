@@ -13,6 +13,8 @@
 import { describe, it, expect } from 'vitest'
 import { coverageFromGrids, type CoverageInput } from '@xgis/data/coverage'
 import { CoverageRenderer, DEFAULT_REGION } from './coverage-renderer'
+import { COVERAGE_NODE_STRIDE } from './material/coverage-material'
+import { coverageNodeCount } from '../shaders/dsl/coverage-ramp'
 
 interface MockTex {
   __tex: true
@@ -47,6 +49,9 @@ function makeMockCtx(): {
     writeBuffer: () => {},
     destroyTexture: (t: MockTex) => void destroyed.push(t),
     destroySampler: () => {},
+    // #1366 INC-3 — the drape mesh became an indexed vertex buffer (per-arm node
+    // positions + one shared topology buffer), so the double has to free buffers too.
+    destroyBuffer: () => {},
   }
   return { ctx: { rhi, format: 'bgra8unorm' }, created, destroyed }
 }
@@ -183,8 +188,12 @@ describe('CoverageRenderer — keyed multi-region residency (#1333)', () => {
 })
 
 describe('CoverageRenderer — LRU byte budget bounds accumulation (#1333)', () => {
-  // One 4×4 region = 4·4·2·2 + 1024 = 1088 bytes. A budget of 2500 holds two, not three.
-  const REGION_BYTES = 4 * 4 * 2 * 2 + 256 * 4
+  // Per-region GPU bytes, DERIVED from the same terms the renderer accounts rather than
+  // hardcoded, so the budget arithmetic cannot drift from it again: the two r16float
+  // grids + the 256×1 LUT + the drape-mesh node buffer. The node buffer (#1366 INC-3) is
+  // a per-region constant that dwarfs a tiny test grid — including it is correct, since
+  // it IS memory the region holds and bounding accumulation is the budget's whole job.
+  const REGION_BYTES = 4 * 4 * 2 * 2 + 256 * 4 + coverageNodeCount() * COVERAGE_NODE_STRIDE
 
   it('evicts the LEAST-recently-armed region when the budget is exceeded', () => {
     const { r } = makeRenderer(REGION_BYTES * 2 + 1)
@@ -208,7 +217,7 @@ describe('CoverageRenderer — LRU byte budget bounds accumulation (#1333)', () 
     r.setCoverage(handleOf(4, 4), RAMP, 'b')
     expect(destroyed).toHaveLength(0)
     r.setCoverage(handleOf(4, 4), RAMP, 'c')
-    expect(destroyed).toHaveLength(3) // 'a' was evicted AND freed
+    expect(destroyed).toHaveLength(3) // 'a' was evicted AND its 3 textures freed
   })
 
   it('a generous budget evicts nothing', () => {

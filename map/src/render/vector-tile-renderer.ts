@@ -36,6 +36,7 @@ import {
   resolveFillPatternPack,
   type FillRhiState,
 } from './material/polygon-fill-material'
+import { wgslFor, glslFor } from './material/wgsl-for'
 import { executeItems, type Material } from '@xgis/engine'
 import { emitPolygonWgsl, emitPolygonGlsl } from '../shaders/dsl/polygon'
 
@@ -706,9 +707,9 @@ export class VectorTileRenderer {
     if (this._fillMatRhi) return this._fillMatRhi
     this._fillMatRhi = buildFlatFillMaterials({
       rhi: this.rhi,
-      shader: emitPolygonWgsl(null, false),
-      vsCode: emitPolygonGlsl(null, false, 'vertex'),
-      fsCode: emitPolygonGlsl(null, false, 'fragment'),
+      shader: wgslFor(this.rhi, () => emitPolygonWgsl(null, false)),
+      vsCode: glslFor(this.rhi, () => emitPolygonGlsl(null, false, 'vertex')),
+      fsCode: glslFor(this.rhi, () => emitPolygonGlsl(null, false, 'fragment')),
       format: this.format,
       sampleCount: 1,
       rhiGroups: [[{ binding: 0, kind: 'uniform', dynamic: true, name: 'Uniforms' }]],
@@ -729,9 +730,9 @@ export class VectorTileRenderer {
     if (this._fillPickMatRhi) return this._fillPickMatRhi
     this._fillPickMatRhi = buildFlatFillMaterials({
       rhi: this.rhi,
-      shader: emitPolygonWgsl(null, true),
-      vsCode: emitPolygonGlsl(null, true, 'vertex'),
-      fsCode: emitPolygonGlsl(null, true, 'fragment'),
+      shader: wgslFor(this.rhi, () => emitPolygonWgsl(null, true)),
+      vsCode: glslFor(this.rhi, () => emitPolygonGlsl(null, true, 'vertex')),
+      fsCode: glslFor(this.rhi, () => emitPolygonGlsl(null, true, 'fragment')),
       format: this.format,
       sampleCount: 1,
       rhiGroups: [[{ binding: 0, kind: 'uniform', dynamic: true, name: 'Uniforms' }]],
@@ -768,9 +769,9 @@ export class VectorTileRenderer {
     if (this._fillPatternMatRhi) return this._fillPatternMatRhi
     this._fillPatternMatRhi = buildFillPatternGroundMaterial({
       rhi: this.rhi,
-      shader: emitPolygonWgsl(null, false),
-      vsCode: emitPolygonGlsl(null, false, 'vertex'),
-      fsCode: emitPolygonGlsl(null, false, 'fragment', 'fs_fill_pattern'),
+      shader: wgslFor(this.rhi, () => emitPolygonWgsl(null, false)),
+      vsCode: glslFor(this.rhi, () => emitPolygonGlsl(null, false, 'vertex')),
+      fsCode: glslFor(this.rhi, () => emitPolygonGlsl(null, false, 'fragment', 'fs_fill_pattern')),
       format: this.format,
       sampleCount: 1,
       rhiGroups: [
@@ -815,9 +816,9 @@ export class VectorTileRenderer {
     if (this._fillBakeMatRhi) return this._fillBakeMatRhi
     this._fillBakeMatRhi = buildBakeFillMaterial({
       rhi: this.rhi,
-      shader: emitPolygonWgsl(null, false),
-      vsCode: emitPolygonGlsl(null, false, 'vertex'),
-      fsCode: emitPolygonGlsl(null, false, 'fragment'),
+      shader: wgslFor(this.rhi, () => emitPolygonWgsl(null, false)),
+      vsCode: glslFor(this.rhi, () => emitPolygonGlsl(null, false, 'vertex')),
+      fsCode: glslFor(this.rhi, () => emitPolygonGlsl(null, false, 'fragment')),
       format: this.format,
       sampleCount: 1,
       rhiGroups: [[{ binding: 0, kind: 'uniform', dynamic: true, name: 'Uniforms' }]],
@@ -1985,26 +1986,23 @@ export class VectorTileRenderer {
     )
   }
 
-  /** Iterate visible line-feature polylines (Mapbox `symbol-placement:
-   *  line` with `symbol-spacing`). Unlike `forEachLineLabelFeature`
-   *  which collapses each feature to its longest segment, this method
-   *  yields the FULL polyline so the caller can walk it in screen
-   *  space and place a label every `spacing` pixels.
+  /** Iterate visible line-feature polylines (Mapbox `symbol-placement: line`
+   *  with `symbol-spacing`). Unlike `forEachLineLabelFeature`, which collapses
+   *  each feature to its longest segment, this yields the FULL polyline so the
+   *  caller can walk it in screen space and place a label every `spacing` px.
    *
-   *  Polylines are grouped by featId AND segment-chain continuity:
-   *  `tessellateLineToArrays` writes consecutive segments
-   *  `(0,1),(1,2),(2,3),…` so we detect chain breaks via index
-   *  discontinuity. A MultiLineString feature produces multiple
-   *  polyline calls (one per part).
-   *
-   *  Coordinates are absolute mercator metres — the caller projects
-   *  to screen and decides spacing in pixels. */
+   *  Grouped by featId AND segment-chain continuity: `tessellateLineToArrays`
+   *  writes consecutive segments `(0,1),(1,2),…`, so a chain break shows up as an
+   *  index discontinuity; a MultiLineString yields one call per part. Coordinates
+   *  are absolute mercator metres, and `tileEntryM` is the arc-length at which the
+   *  run crosses into its own tile — the phase origin for the spacing walk (INC-1). */
   forEachLineLabelPolyline(
     sliceLayer: string | undefined,
     fn: (
       polylineMercX: Float64Array,
       polylineMercY: Float64Array,
       props: Record<string, unknown>,
+      tileEntryM: number,
     ) => void,
   ): void {
     if (!this.source) return
@@ -2262,10 +2260,16 @@ export class VectorTileRenderer {
           this._store.dropTile(sliceLayer, key, this._releaseTileHook)
           continue
         }
-        this._uploads.uploadSync(key, data, sliceLayer)
+        // `replace: true` — this key IS GPU-resident (the precondition above), so without it
+        // the upload's "already uploaded" short-circuit fires every time (#1402).
+        this._uploads.uploadSync(key, data, sliceLayer, true)
         const now = inner.get(key)
         if (now && now !== superseded) {
           this._store.releaseSupersededTile(sliceLayer, key, superseded, this._releaseTileHook)
+        } else {
+          // Upload bailed (arena OOM returns before the cache set). The old tile keeps drawing,
+          // but the key is already drained — re-arm or it stays stale for the source's lifetime.
+          this.source!.markReplaced(key)
         }
       }
     }

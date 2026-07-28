@@ -115,9 +115,111 @@ So the origin is right in kind and wrong in detail. Leads, in order of likelihoo
 3. `getAnchors` resamples with `EXTENT`-quantised positions, which shifts anchors by up to half
    a tile unit — too small to explain 155 px, so this is a refinement, not the cause.
 
-The next attempt should measure MapLibre's anchor positions in TILE units directly (its
-collision-box debug already exposes them on screen; `_debug-ml-collision-boxes.spec.ts` is the
-harness) and derive the offset convention from data, rather than assuming `spacing / 2`.
+#### The convention, measured
+
+That measurement has now been done, without a browser: MapLibre's three anchor screen positions
+at z16.7 were unprojected to mercator and their arc-length along the decoded `ref=400` polyline
+(tile `14/13962/6331`) computed directly.
+
+| ML anchor (pane px) | along-line (merc px @ z16.7) | perpendicular error |
+| ------------------- | ---------------------------- | ------------------- |
+| (22, 428)           | 1094.1                       | 0.5 px              |
+| (329, 322)          | 1418.9                       | 1.6 px              |
+| (636, 216)          | 1743.8                       | 0.1 px              |
+
+The sub-2 px perpendicular error confirms the camera + geometry maths, so the along-line numbers
+are trustworthy. Two things follow:
+
+1. **The step is confirmed** — consecutive anchors are 324.8 and 324.9 px apart against the
+   `200 × 2^frac(z)` prediction of 324.9. #1358 is exactly right.
+2. **The phase residual is a constant 119.3 px**, i.e. `0.367 × step` — _not_ `step / 2`
+   (162.4). That is why the vertex-0 walk missed.
+
+And 119.3 is not an arbitrary number. Walking the polyline for tile-boundary crossings puts the
+first one at along-line **119.8** — matching the residual to 0.5 px. Predicting anchors as
+`tileEntry + k · step`:
+
+|           |       |       |       |            |            |
+| --------- | ----- | ----- | ----- | ---------- | ---------- |
+| predicted | 119.8 | 444.7 | 769.6 | **1094.5** | **1419.4** | **1744.3** |
+| measured  | —     | —     | —     | **1094.1** | **1418.9** | **1743.8** |
+
+Error 0.4 / 0.5 / 0.5 px on the three anchors that are on screen.
+
+**So the phase origin is the point where the line enters the tile, and the first anchor sits AT
+that point — offset 0, not half a step.** Lead 2 above was right that the origin is the tile
+clip; the `spacing / 2` half of the rule was the wrong part.
+
+**Caveat before implementing.** This is ONE line, three anchors, one camera. The agreement is
+tight enough that coincidence is unlikely, but the rule must be confirmed on at least a second
+route and a second zoom before it is worth wiring.
+
+#### Is X-GIS's vertex 0 already the entry point? No.
+
+The hope was that the polyline from `forEachLineLabelPolyline` is already tile-clipped, so its
+vertex 0 would BE the entry point and INC-1 would collapse to deleting the `+ step / 2`. It is
+not. The decoded `ref=400` geometry from tile `14/13962/6331` straddles the tile bounds on both
+sides — it carries the standard MVT **buffer**:
+
+|             | lon                      | vs tile edge                        |
+| ----------- | ------------------------ | ----------------------------------- |
+| tile bounds | `[126.78223, 126.80420]` | —                                   |
+| vertex 0    | `126.78154`              | **0.000687° WEST of the west edge** |
+| last vertex | `126.80489`              | **0.000691° EAST of the east edge** |
+
+13 of the 16 vertices are inside; the other three are buffer overhang, symmetric to within
+0.4 %. So the walk's origin sits ~119 px _before_ the tile edge at z16.7 — which is exactly the
+119.8 px entry offset measured above, and exactly the phase error. The two numbers agreeing from
+independent directions is the strongest evidence in this document.
+
+**Consequence for INC-1.** The phase origin must be the tile-boundary crossing, so the walk has
+to either clip the polyline to the tile bounds first or find the crossing and start the
+`k · step` chain there. Not a one-line change, but a bounded one, and the target is now a number
+rather than a guess. The crossing is a property of the polyline and the tile, not of the camera,
+so the camera invariance the vertex-0 walk did deliver is preserved.
+
+#### Both prerequisites are now met
+
+**The rule holds across the zoom sweep.** Re-running the along-line analysis on MapLibre's
+captures at every sampled zoom, and testing `(s − tileEntry) mod step` for each anchor:
+
+| zoom | step  | tile entry | residual per anchor    |
+| ---- | ----- | ---------- | ---------------------- |
+| 16.0 | 200.0 | 73.8       | +0.2, −0.8, −0.7, −0.6 |
+| 16.2 | 229.7 | 84.7       | +0.1, −0.8, −0.4, −0.3 |
+| 16.5 | 282.8 | 104.3      | −0.6, −0.1, −0.1, −0.1 |
+| 16.7 | 324.9 | 119.8      | −0.7, −0.3, −0.2       |
+| 16.9 | 373.2 | 137.6      | −0.7, −0.3             |
+
+Sixteen anchors, five zooms, every residual inside ±1 px. Note the entry offset itself moves
+73.8 → 137.6 across the sweep while the residual does not — so this is the rule reproducing,
+not a constant fitted to one camera.
+
+**The tile identity is available.** `LabelFeatureSource.forEachLineLabelPolyline` already
+iterates `for (const key of seen)` over tile keys and emits each tile's runs inside that loop;
+the key simply is not passed to the callback. Exposing it is a signature change on
+`fn(polylineMercX, polylineMercY, props)` plus one argument at the emit site — not a new lookup.
+
+#### INC-1 recipe
+
+1. Thread the tile key through `forEachLineLabelPolyline`'s callback.
+2. Per polyline, find where it crosses into the tile's own bounds (it enters from the MVT
+   buffer — see above). That crossing, in mercator arc-length, is the phase origin.
+3. Walk `origin + k · step` with `step = spacingPx / pxPerMeter`, projecting each anchor and
+   dropping the ones that fail (#1050's phantom-chord rule moves to this projection step).
+4. Gate: the z16.7 chain lands within 1 px of MapLibre's three anchors, and the pan-invariance
+   property (a clipped run's anchors are a strict subset of the full run's) still holds.
+
+Step 3 landed the other way round — the origin is carried INTO the existing screen walk as an
+along-screen offset (`origin − headSkip`, scaled by `pxPerMeter`) rather than the walk being
+rewritten in mercator. Same anchors, and it leaves #1050's run-trimming and the curved branch
+untouched, which keeps INC-1's blast radius to the one thing it is about. `headSkip` is the
+mercator arc-length the projection loop skipped before its first retained sample: leading
+samples that fail to project are dropped, so the screen run can start mid-polyline, and without
+that term the phase would be measured from the wrong place exactly when the run is clipped.
+
+`label-pass.ts` is AT its 2130-LOC ceiling, so the walk belongs in
+`place-labels-along-line.ts` alongside `lineLabelSpacingPx`.
 
 **Do not land the vertex-0 walk on its own.** Camera invariance is not worth a 155 px
 regression against the reference; the two must arrive together.
@@ -161,20 +263,86 @@ The viewport-aligned branch needs no mapping — it consumes the anchor point di
 
 Each lands separately, green, with its own gate. No increment is allowed to change the cadence.
 
-**INC-1 — world-anchored phase, viewport-aligned branch. ATTEMPTED, NOT LANDED (§3.0).**
+**INC-1 — world-anchored phase, viewport-aligned branch. LANDED.**
 Replace the screen walk with the mercator walk for `text-rotation-alignment: viewport` line
 symbols (the OFM shield layers). Smallest blast radius: no curved mapping, and the shields are
 exactly what the reference measurements cover.
-_Gate:_ the z16.7 chain lands within 1 px of MapLibre's three anchors (today: ~4 px); and a
+_Gate:_ the z16.7 chain lands within 1 px of MapLibre's three anchors (before: ~4 px); and a
 pan-invariance test — dispatch the same polyline under two camera translations and assert the
 emitted world anchors are identical, which is impossible to satisfy with the screen walk.
 
-**INC-2 — world-anchored phase, curved branch.**
+_As landed._ `tileEntryDistance` (`map/src/render/tile-entry-distance.ts`, a Liang–Barsky slab
+clip — an endpoint-inside test silently reports 0 for a segment that spans the whole tile)
+supplies the origin; `LabelFeatureSource` computes it once per run and caches it with the run,
+since it is camera-independent; `placeLabelsAlongLine` takes the origin as a `phasePx` residue
+mod the step, which is what makes the emitted set invariant under clipping.
+
+_Measured_ (OFM Positron, 1800×900, settle-until-3-identical-hashes; same-code noise floor 0 px
+at all three cameras, so every count below is signal):
+
+| camera | DC (before→after) | D0 (before vs ML) | D1 (after vs ML) |
+| ------ | ----------------- | ----------------- | ---------------- |
+| z16.0  | 1481              | 5557              | 4908 (−649)      |
+| z16.7  | 847               | 4868              | 4566 (−302)      |
+| z16.9  | 583               | 4278              | 4033 (−245)      |
+
+Both "400" shields at z16.7, measured at full resolution (box left edge, physical px): the upper
+went −4 px from MapLibre to +1, the lower −4 to 0 (exact, matching top edge too). Box width is
+25 px in all three frames — the shields moved, they did not resize.
+
+_Known cost._ At z16.7 X-GIS now also draws a route-`1` shield MapLibre does not place at this
+camera: an anchor that previously fell off the run's end now lands in view. That is the
+collision-model gap INC-3/INC-4 close, not a phase error — and D1 < D0 at every camera says the
+phase win outweighs it.
+
+**INC-2 — world-anchored phase, curved branch. LANDED.**
 Add the mercator↔screen arc-length mapping of §3.2 and switch the curved stops.
 _Gate:_ road-name labels hold position under pan (same invariance test, curved path); the
 existing curved-label suites stay green.
 
-**INC-3 — path collision, representation.**
+_As landed._ `mercOffsetToScreenOffset` is the §3.2 mapping: the projection loop already
+visits every sample, so it accumulates mercator arc-length into `_pmScratch` alongside the
+projected points, and the world→screen conversion becomes a lookup in the two parallel prefix
+sums. `lineLabelFirstStopPx` is now the single authority for the lattice — both branches call
+it, so they cannot drift into different phases for the same road. The curved branch's two
+emission sites (short-line midpoint, spacing walk) collapsed into one `emitCurvedStop`, which
+is what paid for label-pass.ts's LOC ceiling (2148 → 2116).
+
+_Measured_ (OFM Positron, 1800×900, settle-until-3-identical-hashes; same-code noise floor 0 px
+at all four cameras). Two PITCHED cameras were added — pitch is the only place the prefix-sum
+mapping and INC-1's single `pxPerMeter` scalar can disagree, and at flat z16.7 they are in fact
+bit-identical (DC = 0 when the curved branch is held fixed), so a flat-only sweep cannot tell
+them apart:
+
+| camera             | DC   | D0   | D1           |
+| ------------------ | ---- | ---- | ------------ |
+| z16.7              | 1225 | 4566 | 4601 (+35)   |
+| z16.0              | 1854 | 4908 | 4325 (−583)  |
+| z16.7 pitch 60     | 2224 | 7937 | 7762 (−175)  |
+| z16.0 pitch 45 b30 | 3635 | 8536 | 7470 (−1066) |
+
+z16.7 reads +35 — flat, not a regression. The raw ML↔X-GIS diff cannot credit what changed
+there: X-GIS now draws the `Nuhyeon-gil / 누현길` road label MapLibre also draws and previously
+drew nothing, and a label present in both but not glyph-aligned costs diff pixels at BOTH
+positions. A text-coverage measure (dark-pixel masks, dilated 4 px so "same label, 1 px off"
+counts as agreement) shows the content actually converged: ML-text-not-covered-by-X-GIS
+515 → 469, X-GIS-text-not-in-ML 1120 → 1064.
+
+_Known cost._ At z16.7 pitch 60 both coverage counts move the wrong way (+52 / +114) even though
+the pixel diff improves. The world lattice lands anchors in the pitch-compressed far field where
+MapLibre places none — because MapLibre's `getAnchors` FILTERS candidate anchors (max-angle, and
+whether the label fits) and X-GIS does not. The old half-step cadence avoided those spots by
+accident. That filter is the real missing piece and belongs with INC-3/INC-4.
+
+_Rejected by measurement._ A midpoint retry for runs the lattice misses (MapLibre re-resamples
+from the middle when its own resample yields no anchor) was implemented and measured. It does
+restore the labels — but at positions MapLibre does not use: z16.0 went −583 → −269 and z16.7
+pitch 60 went −175 → +254, worse on the text-coverage measure too. It only pays once anchors are
+filtered the way MapLibre filters them, so it was reverted rather than kept as a net-negative
+mitigation. `label-pass-line-lattice.test.ts` pins the unlabelled-run behaviour so the gap stays
+visible instead of being rediscovered.
+
+**INC-3 — path collision, representation. LANDED.**
 Extend `CollisionItem` with an optional circle chain (centre + radius per element) and teach
 `greedyPlaceBboxes` circle↔box and circle↔circle overlap. Keep AABB as the default so point
 labels and every existing test are untouched.
@@ -182,11 +350,96 @@ _Gate:_ unit tests for the three overlap pairs, plus a scene-level assertion tha
 label's circle chain and its AABB place identically (the chain must be a strict refinement, not a
 behaviour change, when the path is straight).
 
-**INC-4 — emit circle chains for line labels.**
+_As landed._ Entirely inside `text-collision.ts`. `CollisionItem.circles` is PARALLEL to
+`bboxes` — `circles[c]` refines candidate `bboxes[c]`, so a variable-anchor label gets a chain
+per candidate rather than one chain for the item. `CollisionObstacle` takes a chain too, since
+the icon obstacles are seeded into the same list. Three predicates (`bboxHitsBbox`,
+`circleHitsBbox` via the box's closest point, `circleHitsCircle`) sit behind one
+`footprintsOverlap`, which is the single place the pass asks "do these two overlap".
+
+Two details that are easy to get wrong and are pinned by tests: an absent OR EMPTY chain falls
+back to the box (reading "no circles" as "no footprint" would make every such label place on top
+of everything), and a placed item is seeded as a blocker with the SAME footprint it was judged
+by (seeding its box would make it block more than it occupies).
+
+_Gate as run._ Both refinement directions are asserted: a straight chain sweeping a blocker
+across 45 positions places exactly where its AABB does, and an L-shaped chain places in the
+concave corner its AABB over-blocks. Fail-before verified against three distinct injected bugs
+(empty-chain-as-no-footprint → 1 fail; per-axis instead of nearest-point circle↔box → 1 fail;
+seeding the box instead of the chain → 5 fail).
+
+Nothing emits chains yet, so this is dormant by construction — and measured that way rather than
+asserted: DC = 0 at all four INC-2 cameras (z16.7, z16.0, and both pitched), i.e. the render is
+bit-identical.
+
+**INC-4 — emit circle chains for line labels. BLOCKED — its witness does not hold. Read §4.1.**
 `TextStage` builds the chain from the curved layout it already has (glyph positions along the
 path) instead of one bbox.
 _Gate:_ the witness — MapLibre drops "Dogam-ro 도감로" at z16 and X-GIS must too; and a
 no-regression sweep on the shield cameras.
+
+### 4.1 The INC-4 witness was re-measured, and it does not reproduce
+
+§1.2's premise — X-GIS draws a curved road label where MapLibre drops it — was recorded before
+INC-1/INC-2, which moved line-label placement substantially. A 12-camera sweep
+(`playground/e2e/_debug-curved-label-witness.spec.ts`: z15.0–17.5 plus four pans, both panes,
+settle-until-3-identical-hashes) says the imbalance now runs the OTHER way. Counting text
+clusters present in one engine with no text within 10 px in the other, summed over the sweep:
+X-GIS draws **12 398 px** of text MapLibre does not, and MISSES **7 505 px** of MapLibre's — but
+per camera the ML-only clusters outnumber the XG-only ones almost everywhere (z16.0-n: 14 vs 1;
+z15.0: 12 vs 4). X-GIS under-labels relative to the reference; it does not over-label.
+
+The two largest genuine XG-only labels were read at full resolution, and NEITHER is a
+circle-chain case:
+
+- **z15.5, `Nuhyeon 2-gil 누현2길`** — a curved road label X-GIS draws and MapLibre does not, in
+  a neighbourhood with **nothing else in it**. There is no second label for a circle chain to
+  collide with, so a finer footprint cannot produce MapLibre's verdict. This is an ANCHOR
+  ACCEPTANCE difference, not a collision one.
+- **z16.0-w, `Geumwo-ro 금월로`** — X-GIS draws the road name, MapLibre draws a `360` route
+  shield in the same place. That is layer precedence / arbitration between two different
+  symbols, not footprint shape.
+
+**Consequence.** INC-4 must not be built on this gate. A circle chain is a SUBSET of the box it
+refines, so it can only make X-GIS collide LESS — the opposite of what §1.2 asked for. Until a
+witness exists where two line labels actually overlap and MapLibre resolves it differently,
+INC-4 has no way to distinguish a real improvement from a plausible-looking change, which is
+precisely the failure CLAUDE.md §5 exists to prevent. INC-3's capability stays dormant and
+costs nothing while it waits.
+
+### 4.2 text-max-angle: a real divergence found on the way, and what it was NOT
+
+Chasing the z15.5 witness surfaced a genuine spec divergence: X-GIS ran its `text-max-angle`
+gate ONLY when a style authored the property, to keep such styles byte-identical. Omitting it is
+the norm — **not one of OFM Positron's five line-placed symbol layers sets `text-max-angle`** —
+so the gate never ran on the style parity is measured against, while MapLibre applied the spec
+default of 45 throughout. Fixed: unset now means 45.
+
+It is NOT the explanation for the witness, and the measurement says so plainly: **DC = 0 at all
+twelve cameras.** The gate is per-ADJACENT-GLYPH, and a label that bends 30° over a dozen glyphs
+deflects ~3° per glyph — nowhere near 45. Rather than accept a 0 px diff as "no regression"
+(CLAUDE.md §12: a 0 px diff can equally mean the code never ran), the path was proved live by
+lowering the default to 3° and re-capturing: DC = 673 at z15.5. The gate runs; 45° simply does
+not bite on this style.
+
+So the fix is landed for conformance, not for pixels — it will bite on styles that author
+sharper curves, and it removes a by-construction divergence from the reference.
+
+### 4.3 The evidence-backed next step
+
+Two independent measurements now point at the same missing piece: MapLibre's `getAnchors`
+FILTERS candidate anchors, and X-GIS accepts every anchor the lattice produces.
+
+1. INC-2's z16.7/pitch-60 camera regressed on text coverage (+52 / +114) because the world
+   lattice lands anchors in the pitch-compressed far field where MapLibre places none.
+2. The z15.5 witness above is a long label on a short, curvy road — MapLibre's
+   does-the-label-fit check is the obvious candidate, and the neighbourhood being empty rules
+   out collision.
+
+`text-max-angle` is now handled (§4.2), so what remains of that filter is the LENGTH/FIT arm:
+MapLibre rejects an anchor whose label does not fit the line around it, and widens `spacing`
+when the label is long relative to it. That is the increment with a measurable gate, and it
+should precede INC-4.
 
 INC-3 and INC-4 are independently useful: INC-3 alone is a dormant capability, INC-4 without
 INC-3 is impossible. INC-1 is independently shippable and is the recommended first landing.

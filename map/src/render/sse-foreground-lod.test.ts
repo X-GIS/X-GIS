@@ -86,3 +86,65 @@ describe('SSE foreground LOD — never starved by pitch', () => {
     expect(coarse.length).toBeGreaterThan(0)
   })
 })
+
+/** Same selection, with the adaptive ladder's far-field notch applied. */
+function selectBoosted(
+  zoom: number,
+  pitch: number,
+  boost: number,
+): { total: number; atMaxZ: number } {
+  const cam = new Camera(LON, LAT, zoom)
+  cam.pitch = pitch
+  cam.projType = 0
+  const maxZ = Math.floor(zoom)
+  const primaries = visibleTilesSSE(cam, mercator, maxZ, W, H, 0, 1, {
+    farTargetBoost: boost,
+  }).filter((t) => !t.fallbackOnly)
+  return { total: primaries.length, atMaxZ: primaries.filter((t) => t.z === maxZ).length }
+}
+
+// The adaptive quality ladder's first lever (#1393). It exists to buy frame time on a
+// host that cannot keep up, and the whole reason it is spent BEFORE device pixels is
+// that it is supposed to take only the horizon. These pin that it does — because a
+// lever that quietly re-broke #1374's foreground guarantee would be indistinguishable,
+// in a frame-rate number, from one that worked.
+describe('SSE far-field boost — buys horizon, never foreground (#1393)', () => {
+  it('boost 1 is the identity — selection is byte-identical to no option at all', () => {
+    for (const pitch of [0, 40, 70, 80]) {
+      expect(selectBoosted(16, pitch, 1)).toEqual(selectAt(16, pitch))
+    }
+  })
+
+  it('a pitched view emits FEWER tiles as the boost rises', () => {
+    const counts = [1, 2, 4, 6].map((b) => selectBoosted(16, 80, b).total)
+    for (let i = 1; i < counts.length; i++) {
+      expect(counts[i]!).toBeLessThanOrEqual(counts[i - 1]!)
+    }
+    expect(counts[counts.length - 1]!).toBeLessThan(counts[0]!)
+  })
+
+  it('the foreground keeps native LOD at EVERY boost — #1374 holds at every notch', () => {
+    for (const boost of [1, 2, 4, 6]) {
+      for (const pitch of [0, 40, 60, 70, 80]) {
+        const { atMaxZ } = selectBoosted(16, pitch, boost)
+        expect(atMaxZ, `boost=${boost} pitch=${pitch} starved the foreground`).toBeGreaterThan(0)
+      }
+    }
+  })
+
+  it('an unpitched view is inert under every boost — there is no far field to spend', () => {
+    const base = selectAt(16, 0)
+    for (const boost of [2, 4, 6, 64]) {
+      expect(selectBoosted(16, 0, boost), `boost=${boost} coarsened an unpitched view`).toEqual(
+        base,
+      )
+    }
+  })
+
+  it('an absurd boost cannot coarsen past the ramp’s own ceiling', () => {
+    // The selector clamps the boosted target to the same 24 px its pitch/zoom ramp is
+    // clamped to, so a runaway multiplier saturates instead of emptying the screen.
+    expect(selectBoosted(16, 80, 64)).toEqual(selectBoosted(16, 80, 24))
+    expect(selectBoosted(16, 80, 64).atMaxZ).toBeGreaterThan(0)
+  })
+})

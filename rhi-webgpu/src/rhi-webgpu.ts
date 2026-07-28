@@ -522,9 +522,12 @@ export class WebGpuDevice implements RhiDevice {
             }
           if (e.kind === 'storage')
             return { binding: e.binding, visibility: vis, buffer: { type: 'read-only-storage' } }
-          if (e.kind === 'texture')
-            return { binding: e.binding, visibility: GPUShaderStage.FRAGMENT, texture: {} }
-          return { binding: e.binding, visibility: GPUShaderStage.FRAGMENT, sampler: {} }
+          // Textures and samplers are FRAGMENT-only unless the layout opts in — see
+          // RhiBindLayoutEntry.vertexVisible on why this is not simply `vis` for everything
+          // (WebGPU's sampled-texture limit is per stage).
+          const texVis = e.vertexVisible ? vis : GPUShaderStage.FRAGMENT
+          if (e.kind === 'texture') return { binding: e.binding, visibility: texVis, texture: {} }
+          return { binding: e.binding, visibility: texVis, sampler: {} }
         }),
       }),
     ) as unknown as RhiBindGroupLayout

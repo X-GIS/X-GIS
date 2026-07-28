@@ -35,12 +35,19 @@ import type {
   RhiSampler,
   RhiBindGroup,
   RhiRenderPass,
+  RhiBuffer,
 } from '@xgis/engine'
 import { getSampleCount } from '@xgis/engine'
 import type { CoverageHandle } from '@xgis/data'
-import { CoverageDraper } from './material/coverage-material'
+import { cellUnitsToLonLat, coverageEdges, coverageMeshNodes } from '@xgis/data'
+import { CoverageDraper, COVERAGE_NODE_STRIDE } from './material/coverage-material'
 import { resolveVectorBands } from '../coverage-vector-bands'
 import { packFlowFieldUV } from './flow-field-pack'
+import {
+  COVERAGE_GRID_N,
+  coverageNodeCount,
+  coverageGridIndexCount,
+} from '../shaders/dsl/coverage-ramp'
 import {
   packCoverageValueValid,
   bakeRampLut,
@@ -52,6 +59,10 @@ interface CoverageState {
   valueTex: RhiTexture
   validTex: RhiTexture
   lutTex: RhiTexture
+  /** Interleaved [lon, lat, u, v] per drape-mesh NODE, CPU-reprojected through the
+   *  cell's own CRS (#1366 INC-3). Replaces the cov_edges/cov_geo lon/lat rectangle,
+   *  which could not describe a projected footprint. */
+  nodeBuf: RhiBuffer
   /** East/north velocity components, r16float, normalized by `flowScale` — present ONLY for a
    *  VECTOR coverage (S-111 and friends). Null for every scalar coverage: S-102 bathymetry
    *  must allocate nothing here, which is the reuse boundary between the two families. */
@@ -72,10 +83,9 @@ interface CoverageState {
    *  both; keyed, this settles at two entries (plus the inert one a scalar coverage uses)
    *  instead of minting a GPU object per frame. */
   bindGroups: Map<RhiTextureView, RhiBindGroup>
-  /** west/south/east/north outer cell EDGES (degrees) for the draw quad. */
-  covEdges: [number, number, number, number]
-  /** westLonEdge, northLatEdge, nLon·dLon, nLat·dLat — for the fragment u/v. */
-  covGeo: [number, number, number, number]
+  // `covEdges` / `covGeo` are GONE (#1366 INC-3): both encoded "the footprint is a
+  // rectangle in lon/lat", which a projected (UTM) cell violates. `nodeBuf` above carries
+  // the reprojected mesh instead.
   ramp: { a: number; b: number }
   /** Layer opacity (0..1) — multiplies output alpha (ramp_params.z). */
   opacity: number
@@ -139,6 +149,9 @@ export class CoverageRenderer {
   private _draper: CoverageDraper | null = null
   private dataSampler: RhiSampler | null = null
   private lutSampler: RhiSampler | null = null
+  /** Shared drape-mesh index buffer — topology depends only on COVERAGE_GRID_N, so every
+   *  region reuses it. Built on first draw, destroyed with the renderer. */
+  private indexBuf: RhiBuffer | null = null
   /** Resident regions, keyed. Map iteration order is insertion order, and `setCoverage`
    *  delete-then-sets, so the FRONT is always the least-recently-armed — the LRU eviction
    *  order, and the draw order. */
@@ -239,12 +252,10 @@ export class CoverageRenderer {
       lut: this.rhi.createView(lutTex),
     }
 
-    const [originLon, originLat] = handle.header.origin
-    const [dLon, dLat] = handle.header.spacing
-    const westEdge = originLon - dLon / 2
-    const southEdge = originLat - dLat / 2
-    const eastEdge = westEdge + nLon * dLon
-    const northEdge = southEdge + nLat * dLat
+    // Drape-mesh nodes, reprojected through the cell's OWN CRS on the CPU (#1366 INC-3).
+    // For a geographic cell `coverageMeshNodes` runs the identical `mix` arithmetic the
+    // shader used to, so the drape is unchanged by construction.
+    const nodeBuf = this.uploadNodes(handle)
 
     this.states.set(region, {
       valueTex,
@@ -255,18 +266,19 @@ export class CoverageRenderer {
       flowVView,
       flowScale,
       lutTex,
+      nodeBuf,
       views,
       bindGroups: new Map(),
-      covEdges: [westEdge, southEdge, eastEdge, northEdge],
-      covGeo: [westEdge, northEdge, nLon * dLon, nLat * dLat],
       ramp: computeRampUniforms(dataMin, dataMax, opts.rangeLo ?? dataMin, opts.rangeHi ?? dataMax),
       opacity: opts.opacity ?? 1,
       flowOnly: opts.flowOnly === true,
       // 2 × r16float over the grid + the 256×1 rgba8 LUT, plus the vector pair when this
-      // coverage carries one. Counting the flow textures matters: they are the SAME size as
-      // the value/valid pair, so a vector coverage costs twice a scalar one and the LRU budget
-      // would evict far too late if it did not know.
-      bytes: nLon * nLat * 2 * (vec ? 4 : 2) + 256 * 4,
+      // coverage carries one, plus the drape-mesh node buffer (#1366 INC-3). Counting the
+      // flow textures matters: they are the SAME size as the value/valid pair, so a vector
+      // coverage costs twice a scalar one and the LRU budget would evict far too late if it
+      // did not know. The node term is small but constant per region, so it is counted for
+      // the same reason rather than rounded away.
+      bytes: nLon * nLat * 2 * (vec ? 4 : 2) + 256 * 4 + coverageNodeCount() * COVERAGE_NODE_STRIDE,
     })
     this.arms.set(region, { handle, opts })
     this.lastOpts = opts
@@ -298,17 +310,26 @@ export class CoverageRenderer {
     const arm = this.arms.get(region)
     if (!arm) return null
     const [w, h] = arm.handle.header.size
+    // MERGE (#1366 INC-3 <- #1333): these came off `covGeo` / `covEdges`, the lon/lat
+    // footprint rectangle INC-3 deleted because a projected cell violates it. Derived from
+    // the header instead, THROUGH the cell's own CRS — so the numbers stay real degrees
+    // whatever the grid's units are. For a geographic cell the transform is the identity and
+    // the span is `nLon·dLon` / `nLat·dLat` exactly as before, so no S-111 cell moves.
+    const crs = arm.handle.header.crs
+    const [westEdge, southEdge, eastEdge, northEdge] = coverageEdges(arm.handle.header)
+    const [westLon, southLat] = cellUnitsToLonLat(crs, westEdge, southEdge)
+    const [eastLon, northLat] = cellUnitsToLonLat(crs, eastEdge, northEdge)
     return {
       u: st.flowUView,
       v: st.flowVView,
       scale: st.flowScale,
       width: w,
       height: h,
-      // covGeo[2..3] are nLon·dLon / nLat·dLat — the degree span the uv axes cover.
-      spanDeg: [st.covGeo[2], st.covGeo[3]],
-      // covEdges is [west, south, east, north]; the midpoint of the OUTER edges, which is the
-      // latitude the whole cell's longitude foreshortening is approximated at.
-      midLatDeg: (st.covEdges[1] + st.covEdges[3]) / 2,
+      // The degree span the uv axes cover.
+      spanDeg: [eastLon - westLon, northLat - southLat],
+      // Midpoint of the OUTER edges — the latitude the whole cell's longitude foreshortening
+      // is approximated at.
+      midLatDeg: (southLat + northLat) / 2,
     }
   }
 
@@ -399,15 +420,77 @@ export class CoverageRenderer {
         mvp,
         projParams,
         camCenter,
-        covEdges: s.covEdges,
-        covGeo: s.covGeo,
         ramp: s.ramp,
         opacity: s.opacity,
         flowMix: animated ? flow.mix : 0,
         flowOnly: s.flowOnly,
       })
-      this._draper.draw(rhiPass, bytes as BufferSource, this.groupFor(s, flowView))
+      // MERGE UNION (#1366 INC-3 <- #1333): the indexed node mesh (INC-3) drawn with the
+      // flow-keyed bind group (#1333) — the two changes touch different draw arguments.
+      this._draper.draw(
+        rhiPass,
+        bytes as BufferSource,
+        this.groupFor(s, flowView),
+        s.nodeBuf,
+        this.ensureIndexBuf(),
+      )
     }
+  }
+
+  /** Build + upload this coverage's node buffer: [lon, lat, u, v] per mesh node. The
+   *  lon/lat comes from @xgis/data (proj4 lives there); uv is the footprint fraction with
+   *  v flipped to the data texture's north-up row order. */
+  private uploadNodes(handle: CoverageHandle): RhiBuffer {
+    const n = COVERAGE_GRID_N
+    const lonLat = coverageMeshNodes(handle.header, n)
+    const out = new Float32Array(coverageNodeCount() * 4)
+    for (let gy = 0; gy <= n; gy++) {
+      for (let gx = 0; gx <= n; gx++) {
+        const node = gy * (n + 1) + gx
+        out[node * 4] = lonLat[node * 2]!
+        out[node * 4 + 1] = lonLat[node * 2 + 1]!
+        out[node * 4 + 2] = gx / n
+        out[node * 4 + 3] = 1 - gy / n // v01 runs south→north; the data texture is north-up
+      }
+    }
+    const buf = this.rhi.createBuffer({
+      size: out.byteLength,
+      usage: 'vertex',
+      label: 'coverage-nodes',
+    })
+    this.rhi.writeBuffer(buf, 0, out as BufferSource)
+    return buf
+  }
+
+  /** The mesh TOPOLOGY is a function of COVERAGE_GRID_N alone, so every region shares one
+   *  index buffer — built once, never per arm. uint16 is safe: (N+1)² = 4 225 < 65 536. */
+  private ensureIndexBuf(): RhiBuffer {
+    if (this.indexBuf) return this.indexBuf
+    const n = COVERAGE_GRID_N
+    const idx = new Uint16Array(coverageGridIndexCount())
+    let w = 0
+    for (let cy = 0; cy < n; cy++) {
+      for (let cx = 0; cx < n; cx++) {
+        const sw = cy * (n + 1) + cx
+        const se = sw + 1
+        const nw = sw + (n + 1)
+        const ne = nw + 1
+        // Two triangles per cell, matching the old procedural du/dv winding.
+        idx[w++] = sw
+        idx[w++] = se
+        idx[w++] = nw
+        idx[w++] = se
+        idx[w++] = ne
+        idx[w++] = nw
+      }
+    }
+    this.indexBuf = this.rhi.createBuffer({
+      size: idx.byteLength,
+      usage: 'index',
+      label: 'coverage-mesh-indices',
+    })
+    this.rhi.writeBuffer(this.indexBuf, 0, idx as BufferSource)
+    return this.indexBuf
   }
 
   /** This region's bind group for `flowView`, memoized. Keyed rather than rebuilt because the
@@ -469,6 +552,7 @@ export class CoverageRenderer {
     this.rhi.destroyTexture(s.valueTex)
     this.rhi.destroyTexture(s.validTex)
     this.rhi.destroyTexture(s.lutTex)
+    this.rhi.destroyBuffer(s.nodeBuf)
     // The views die with their textures (RHI has no destroyView — rhi.ts:462), and a bind
     // group holds no ownable GPU resource (same note), so the memo is just dropped.
     s.bindGroups.clear()
@@ -481,6 +565,10 @@ export class CoverageRenderer {
     for (const key of [...this.states.keys()]) this.releaseRegion(key)
     if (this.dataSampler) this.rhi.destroySampler(this.dataSampler)
     if (this.lutSampler) this.rhi.destroySampler(this.lutSampler)
+    // The shared mesh-topology index buffer outlives individual regions, so it is freed
+    // here rather than in releaseRegion.
+    if (this.indexBuf) this.rhi.destroyBuffer(this.indexBuf)
+    this.indexBuf = null
     this.dataSampler = null
     this.lutSampler = null
     this.arms.clear()

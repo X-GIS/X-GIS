@@ -421,7 +421,15 @@ for case in SIMPLIFY_CASES:
 
 # pyproj transformers: each input CRS → EPSG:3857 (final reference).
 _epsg_to_3857: dict[str, pyproj.Transformer] = {}
-for _code in ["EPSG:4326", "EPSG:3857", "EPSG:5179", "EPSG:5186"]:
+for _code in [
+    "EPSG:4326", "EPSG:3857", "EPSG:5179", "EPSG:5186",
+    # WGS 84 / UTM — the CRS real IHO S-100 gridded cells arrive in (a NOAA S-102
+    # Chesapeake cell declares horizontalCRS 32618). X-GIS DERIVES these defs from the
+    # code rather than tabulating 120 of them, so the cross-validation must span the
+    # derivation: low/mid/high zones, both hemispheres, and the zone-1/60 ends.
+    "EPSG:32601", "EPSG:32618", "EPSG:32633", "EPSG:32652", "EPSG:32660",
+    "EPSG:32718", "EPSG:32733", "EPSG:32760",
+]:
     _epsg_to_3857[_code] = pyproj.Transformer.from_crs(
         _code, "EPSG:3857", always_xy=True
     )
@@ -468,6 +476,48 @@ EPSG_INPUT_POINTS: dict[str, list[tuple[str, float, float]]] = {
         ("Jeju island centre",  168119.88, 159313.41),
         ("Pyeongchang",         317768.70, 549106.25),
         ("Incheon airport",     177238.26, 539021.66),
+    ],
+    # ── WGS 84 / UTM (easting, northing in metres) ──
+    # Each zone is sampled near its central meridian AND toward a zone edge, where
+    # meridian convergence is largest and a wrong zone number diverges fastest.
+    "EPSG:32618": [
+        # Zone 18N — the zone the real NOAA S-102 Chesapeake cell is published in.
+        # The first point is that cell's own gridOrigin, so the cross-validation covers
+        # the exact coordinate the reader hands to the coverage path.
+        ("S-102 Chesapeake cell origin", 420767.84475419234, 4183856.856912584),
+        ("Zone 18N central meridian",    500000.00, 4400000.00),
+        ("Zone 18N west edge",           200000.00, 4500000.00),
+        ("Zone 18N equator",             500000.00,       0.00),
+    ],
+    "EPSG:32601": [
+        # Zone 1N — the antimeridian end of the derivation.
+        ("Zone 1N central meridian", 500000.00, 6000000.00),
+        ("Zone 1N low latitude",     460000.00,  500000.00),
+    ],
+    "EPSG:32633": [
+        ("Zone 33N Europe",      500000.00, 5500000.00),
+        ("Zone 33N east edge",   750000.00, 5000000.00),
+    ],
+    "EPSG:32652": [
+        ("Zone 52N Korea/Japan", 500000.00, 4000000.00),
+        ("Zone 52N west edge",   280000.00, 3900000.00),
+    ],
+    "EPSG:32660": [
+        # Zone 60N — the other end of the northern range.
+        ("Zone 60N central meridian", 500000.00, 6200000.00),
+    ],
+    "EPSG:32718": [
+        # Southern hemisphere: +south moves the false northing to 10 000 000 m, so a
+        # missing `+south` shows up as a ~10 000 km error rather than a subtle one.
+        ("Zone 18S Peru coast",   500000.00, 8600000.00),
+        ("Zone 18S near equator", 500000.00, 9900000.00),
+    ],
+    "EPSG:32733": [
+        ("Zone 33S Africa",     500000.00, 7500000.00),
+        ("Zone 33S east edge",  720000.00, 8000000.00),
+    ],
+    "EPSG:32760": [
+        ("Zone 60S Pacific", 500000.00, 8200000.00),
     ],
 }
 

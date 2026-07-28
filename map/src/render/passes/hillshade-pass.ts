@@ -146,7 +146,16 @@ class HillshadePass implements RenderPass {
         },
       })
       const { projType, centerLon, centerLat } = unwrapProjection(ctx.projection)
-      hr.render(hsPass, host.camera, projType, centerLon, centerLat, ctx.w, ctx.h, ctx.dpr)
+      hr.render(
+        hsPass,
+        host.camera,
+        projType,
+        centerLon,
+        centerLat,
+        ctx.scene.w,
+        ctx.scene.h,
+        ctx.scene.dpr,
+      )
       hsPass.end()
     })
   }

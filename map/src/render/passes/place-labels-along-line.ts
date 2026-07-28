@@ -89,12 +89,23 @@ export function lineLabelEdgeInsetPx(
  *  Placement cadence (mirrors the historical viewport-aligned walk):
  *   - `spacingPx <= 0` (line-center) or a line shorter than half a spacing step
  *     → a SINGLE placement at the polyline midpoint (distance = total * 0.5);
- *   - otherwise → a placement every `spacingPx` from `spacingPx * 0.5`.
+ *   - otherwise → a placement every `spacingPx` from `spacingPx * 0.5`, or from
+ *     `phasePx` when the caller supplies a world-anchored origin (see below).
  *  `emit(pax, pay, pbx, pby, t)` receives the containing segment's projected
  *  endpoints and the fraction `t` along it; the caller derives the point and
  *  the screen-space tangent (so glyph rotation stays a caller concern). No
  *  emission when `pn < 2`. Exported for unit coverage — the callers are anon
- *  closures. */
+ *  closures.
+ *
+ *  `phasePx` (INC-1 of docs/plans/2026-07-27-line-label-world-anchored-placement.md)
+ *  is the along-polyline screen offset of a WORLD anchor — MapLibre's chain sits at
+ *  `tileEntry + k · spacing`, so the offset the caller computes is the tile-entry
+ *  crossing measured from `px[0]`. It may be negative (the anchor lies behind the
+ *  start of the projected run) or larger than one step; only its residue mod
+ *  `spacingPx` matters, since the emitted set `{phase + k·spacing} ∩ [0, total]` is
+ *  invariant under adding whole steps. That residue is what makes the chain
+ *  pan-invariant: the same road labels at the same world positions no matter where
+ *  the visible run happens to start. Undefined ⇒ the historical `spacingPx * 0.5`. */
 export function placeLabelsAlongLine(
   px: Float32Array,
   py: Float32Array,
@@ -102,6 +113,7 @@ export function placeLabelsAlongLine(
   spacingPx: number,
   emit: (pax: number, pay: number, pbx: number, pby: number, t: number) => void,
   cull?: (px: number, py: number) => boolean,
+  phasePx?: number,
 ): void {
   if (pn < 2) return
   // #1314 — optional viewport edge-inset cull. A line label whose anchor projects
@@ -140,7 +152,7 @@ export function placeLabelsAlongLine(
     }
     return
   }
-  let nextStop = spacingPx * 0.5
+  let nextStop = lineLabelFirstStopPx(phasePx, spacingPx)
   let acc = 0
   for (let i = 0; i < pn - 1; i++) {
     const dx = px[i + 1]! - px[i]!
@@ -153,6 +165,105 @@ export function placeLabelsAlongLine(
     }
     acc += segLen
   }
+}
+
+/** Where the first along-line stop sits, given a world anchor. The single authority
+ *  for the world lattice: `placeLabelsAlongLine` (viewport-aligned branch, INC-1) and
+ *  label-pass.ts's curved walk (INC-2) both call it, so the two branches cannot drift
+ *  into different phases for the same road.
+ *
+ *  Folds the anchor into `[0, spacingPx)` — a residue, not the raw offset. The
+ *  emitted set `{phase + k · spacing}` is unchanged by adding whole steps, so a run
+ *  that starts far past the tile boundary (or, as is usual, before it) still lands on
+ *  the same lattice. JS `%` keeps the sign of the dividend, hence the second fold: a
+ *  raw `-160 % 200` would start the walk at a negative offset and emit a stop before
+ *  the polyline begins.
+ *
+ *  An undefined or non-finite phase falls back to the historical `spacingPx * 0.5` —
+ *  a NaN here would silently emit nothing at all. */
+export function lineLabelFirstStopPx(phasePx: number | undefined, spacingPx: number): number {
+  if (phasePx === undefined || !Number.isFinite(phasePx)) return spacingPx * 0.5
+  return ((phasePx % spacingPx) + spacingPx) % spacingPx
+}
+
+/** INC-2 of docs/plans/2026-07-27-line-label-world-anchored-placement.md — map a
+ *  WORLD offset (mercator arc-length from the polyline's vertex 0) to the along-
+ *  SCREEN offset of the same point, measured from the projected run's first sample.
+ *
+ *  Both line branches walk in screen space but anchor in the world, so something has
+ *  to cross between the two frames. Scaling by a single `pxPerMeter` is only right
+ *  where that ratio is constant across the run — it is not under pitch (the far end
+ *  of a road compresses) nor over a long low-zoom polyline. This is the honest
+ *  version: the projection loop already visits every sample, so it can accumulate
+ *  mercator arc-length alongside the projected points, and the conversion becomes a
+ *  lookup in the two parallel prefix sums. O(n) over samples we already have.
+ *
+ *  `pm[i]` is the mercator arc-length from vertex 0 to sample `i` — monotone
+ *  non-decreasing, and NOT generally 0 at `i = 0` (leading samples that failed to
+ *  project are dropped, so the retained run can start mid-polyline).
+ *
+ *  The result may be negative: the tile-entry anchor usually sits BEHIND the first
+ *  retained sample, which is exactly the case a plain `arc - pm[0]` scaling gets
+ *  wrong. Targets outside `[pm[0], pm[pn-1]]` extrapolate along the nearest
+ *  interval's screen-per-mercator ratio rather than clamping — clamping would
+ *  collapse every off-run anchor onto the endpoint and quantise the phase to 0.
+ *
+ *  Returns 0 when there is nothing to interpolate (`pn < 2`) or the containing
+ *  interval has zero mercator extent (a degenerate duplicate sample). */
+export function mercOffsetToScreenOffset(
+  px: Float32Array,
+  py: Float32Array,
+  pm: Float64Array,
+  pn: number,
+  targetM: number,
+): number {
+  if (pn < 2) return 0
+  let screenAcc = 0
+  for (let i = 0; i < pn - 1; i++) {
+    const dm = pm[i + 1]! - pm[i]!
+    const ds = Math.hypot(px[i + 1]! - px[i]!, py[i + 1]! - py[i]!)
+    // Last interval doubles as the extrapolation arm for targets past the end.
+    if (targetM <= pm[i + 1]! || i === pn - 2) {
+      if (!(dm > 0)) return screenAcc
+      return screenAcc + ds * ((targetM - pm[i]!) / dm)
+    }
+    screenAcc += ds
+  }
+  return screenAcc
+}
+
+/** Point + tangent at along-polyline screen offset `s` on an already-projected
+ *  (physical px) polyline. Writes `[x, y, tangentDeg]` into `out` (a caller-owned
+ *  holder — this runs once per spacing stop, so returning a fresh object showed up
+ *  in the hot loop) and returns false when `s` runs past the polyline's end.
+ *
+ *  The tangent is the containing segment's direction in degrees CCW from +x;
+ *  `icon-rotation-alignment: map` (OFM road_oneway arrows) rotates by it.
+ *
+ *  Moved out of label-pass.ts's curved branch to sit beside the placement walk that
+ *  shares its geometry — the two are the same "where along this polyline" question. */
+export function sampleAlongPolyline(
+  px: Float32Array,
+  py: Float32Array,
+  pn: number,
+  s: number,
+  out: [number, number, number],
+): boolean {
+  let acc = 0
+  for (let i = 0; i < pn - 1; i++) {
+    const dx = px[i + 1]! - px[i]!
+    const dy = py[i + 1]! - py[i]!
+    const segLen = Math.sqrt(dx * dx + dy * dy)
+    if (acc + segLen >= s) {
+      const t = segLen > 0 ? (s - acc) / segLen : 0
+      out[0] = px[i]! + dx * t
+      out[1] = py[i]! + dy * t
+      out[2] = (Math.atan2(dy, dx) * 180) / Math.PI
+      return true
+    }
+    acc += segLen
+  }
+  return false
 }
 
 /** #727 P1 — inline (raw-GeoJSON) line placement. A symbol layer with

@@ -32,3 +32,22 @@ layer depth {
   range: [0, 40]
   | opacity-75
 }
+
+// Sounding NUMERALS over the ramp (#1366 INC-5) — the reading a colour ramp cannot give.
+// Depths come straight off the ORIGINAL grid (`valueAt`, nearest-cell, never interpolated),
+// so a numeral can only show a depth the cell actually holds; `.depth` is the S-102 band
+// name, read exactly as a feature property would be. Candidates are picked on a GRID-anchored
+// lattice — every stride'th cell — and thinned by the label collision pass.
+//
+// `{.depth:.1f}` is the label text-format mini-language (`{<expr>:<spec>}`, the printf/Python
+// spec plus GIS types and a `;<locale>` tail), asking for one decimal.
+//
+// This demo carries them, not just the live one, because it needs NO NETWORK: the fixture is
+// committed, so the numerals are verifiable on any checkout — which is how INC-5's render
+// gate was actually run. On this fixture they climb north→south with the 0→40 m ramp, with
+// none over the nodata hole.
+layer soundings {
+  source: bathy
+  | label-["{.depth:.1f}"] label-color-#fff label-size-11
+    label-halo-1 label-halo-color-#000
+}
