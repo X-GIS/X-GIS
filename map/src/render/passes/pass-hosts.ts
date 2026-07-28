@@ -115,7 +115,7 @@ export type GraphicsPassHost = Pick<XGISMap, 'graphics' | 'camera' | 'ctx'>
  *  FlowRenderer (targets + pipeline) and the CoverageRenderer the field lives on. No camera:
  *  the advection runs in the coverage's OWN grid raster, so it is camera-independent by
  *  construction — that is the property that makes panning and zooming leave the trail alone. */
-export type FlowPassHost = Pick<XGISMap, 'flowRenderer' | 'coverageRenderer'>
+export type FlowPassHost = Pick<XGISMap, 'flowRenderer' | 'coverageRenderer' | 'graphics'>
 
 /** Per-frame scene classification (consumed by `buildSceneView`). */
 export type SceneClassifyHost = Pick<

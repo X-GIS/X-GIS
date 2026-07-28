@@ -296,11 +296,24 @@ export class GraphicsManager {
     )
   }
 
+  /** True when an ADVECTED arrow layer is resident (#1419). The frame runs the arrow advection
+   *  step only then, so a scene without one allocates neither the ping-pong nor its pipeline.
+   *  Keep-warm needs no separate signal: an advected batch exists only where a coverage carries
+   *  a velocity field, and `coverageRenderer.hasFlowField()` already arms the on-demand loop for
+   *  exactly that case. */
+  hasAdvectedArrows(): boolean {
+    return this._compiledArrows.hasAdvected
+  }
+
   /** Where the ADVECTED arrows' state lives (#1419) — FlowRenderer, which owns the step. Set
    *  before attachDevice: the store captures it there, and an advected batch added without it is
    *  dropped rather than drawn as a static field frozen at its launch instant. */
   setAdvectedArrowSource(source: AdvectedArrowSource | null): void {
     this.arrowSource = source
+    // Forward immediately: on a fresh run attachDevice has ALREADY happened by the time the
+    // scene renderers (and with them the FlowRenderer) exist, so waiting for the next attach
+    // would leave the first scene's advected batches dropped.
+    this._compiledArrows.setAdvectedSource(source)
   }
 
   /** Registers a DECLARATIVE `| arrow` layer (#1302) — delegated to the compiled-arrow

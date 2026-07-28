@@ -115,6 +115,13 @@ export class CompiledArrowStore {
     this.arrowSource = advected?.source ?? null
   }
 
+  /** Point the advected path at its frame-side state (#1419). Separate from `attach` because
+   *  the two become available in that order: the device (and this store's drapers) exist before
+   *  `buildSceneRenderers` has constructed the FlowRenderer that owns the arrow ping-pong. */
+  setAdvectedSource(source: AdvectedArrowSource | null): void {
+    this.arrowSource = source
+  }
+
   /** Registers a DECLARATIVE `| arrow` layer via the compiled packers (same draper/shader
    *  as host). `strokeUnits` (#1333, 0 = none) requests the outline stroke. */
   add(
@@ -221,6 +228,12 @@ export class CompiledArrowStore {
    *  `hasRetainedBatches` pass gate. */
   get isEmpty(): boolean {
     return this.batches.length === 0
+  }
+
+  /** True when an ADVECTED layer is resident (#1419) — what tells the frame to run the arrow
+   *  step at all, so a map with only static `| arrow` batches allocates no ping-pong. */
+  get hasAdvected(): boolean {
+    return this.batches.some((b) => b.advected !== null)
   }
 
   /** GPU-upload counters — folded into GraphicsManager.getWriteCounts(). */

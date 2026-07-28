@@ -18,6 +18,7 @@ interface Captured {
   sizes: number[]
   colors: [number, number, number, number][]
   strokeUnits: number | undefined
+  advected?: unknown
 }
 
 function makeHost(): { host: CoverageArrowShowHost; calls: Captured[] } {
@@ -31,6 +32,8 @@ function makeHost(): { host: CoverageArrowShowHost; calls: Captured[] } {
         sizes: Float32Array,
         colors: [number, number, number, number][],
         strokeUnits?: number,
+        _region?: string,
+        advected?: unknown,
       ) => {
         calls.push({
           lons: [...lons],
@@ -39,6 +42,7 @@ function makeHost(): { host: CoverageArrowShowHost; calls: Captured[] } {
           sizes: [...sizes],
           colors,
           strokeUnits,
+          advected,
         })
       },
     },
@@ -212,7 +216,7 @@ describe('coverageArrowOrigins (#1409 — advected mode)', () => {
       s111Input([0.3, 0, NaN, 2.5, 5.0, 20.0], [90, 0, 0, 180, 270, 45]),
     )
     const { host, calls } = makeHost()
-    addCoverageArrowShowLayer(host, s111Show, handle, '', { advected: true })
+    addCoverageArrowShowLayer(host, s111Show, handle, '', { advected: { peakSpeed: 20 } })
     const origins = coverageArrowOrigins(handle)!
     const emitted = calls[0]!
 
@@ -263,7 +267,7 @@ describe('coverageArrowOrigins (#1409 — advected mode)', () => {
       ],
     })
     const { host, calls } = makeHost()
-    addCoverageArrowShowLayer(host, s111Show, handle, '', { advected: true })
+    addCoverageArrowShowLayer(host, s111Show, handle, '', { advected: { peakSpeed: 20 } })
     const origins = coverageArrowOrigins(handle)!
     expect(calls[0]!.lons.length).toBeLessThanOrEqual(ARROW_ADVECT_COUNT)
     expect(origins.u).toHaveLength(calls[0]!.lons.length)
@@ -277,7 +281,7 @@ describe('coverageArrowOrigins (#1409 — advected mode)', () => {
       s111Input([0.3, 0, NaN, 2.5, 5.0, 20.0], [90, 0, 0, 180, 270, 45]),
     )
     const { host, calls } = makeHost()
-    addCoverageArrowShowLayer(host, s111Show, handle, '', { advected: true })
+    addCoverageArrowShowLayer(host, s111Show, handle, '', { advected: { peakSpeed: 20 } })
     for (const size of calls[0]!.sizes) expect(size).toBe(S111_ARROW_BASE_PX)
     // The static path still bakes it — 0.3 kn → the 0.40 floor.
     const s = makeHost()

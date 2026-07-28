@@ -23,10 +23,12 @@ import { flowTrueSpans } from './render/flow-advect-params'
 import {
   S111_ARROW_BASE_PX,
   s111ArrowLengthPx,
+  s111BandTableNormalized,
   s111HasArrow,
   S111_OUTLINE_FRAC,
   S111_SPEED_RAMP,
 } from './render/s111-portrayal'
+import type { AdvectedArrowInput } from './graphics/compiled-arrow-store'
 
 /** The slice of XGISMap the coverage-arrow build reads. */
 export interface CoverageArrowShowHost {
@@ -55,8 +57,12 @@ export interface CoverageArrowOptions {
    *  2. EACH INSTANCE CARRIES ITS ORIGIN in grid-uv. The shader adds the drift displacement to
    *     it to know WHERE to sample the field for this frame's band, bearing and scale. Without
    *     it the arrow would move but keep the colour it launched with — an animation that looks
-   *     entirely correct and reports the wrong current. */
-  advected?: boolean
+   *     entirely correct and reports the wrong current.
+   *
+   *  `peakSpeed` is the velocity textures' normalization scale (`packFlowFieldUV`), read off the
+   *  UPLOADED field rather than re-derived here — the band table is expressed in those same
+   *  units, and a second derivation of the peak is a second thing to keep in step. */
+  advected?: { peakSpeed: number }
 }
 
 /** Instance origins in grid-uv, plus the two BASIS ANCHORS the advected VS projects, parallel
@@ -167,7 +173,36 @@ export function addCoverageArrowShowLayer(
     colors,
     S111_OUTLINE_FRAC,
     region,
+    opts.advected ? advectedInput(handle, opts.advected.peakSpeed, rampName, region) : null,
   )
+}
+
+/** Assemble the advected batch's extra inputs. Separate from the emit loop above so the static
+ *  path allocates none of it, and built from `coverageArrowOrigins` so the ORDER contract (origin
+ *  `i` belongs to instance `i`) has exactly one implementation. */
+function advectedInput(
+  handle: CoverageHandle,
+  peakSpeed: number,
+  rampName: string,
+  region: string,
+): AdvectedArrowInput | null {
+  const o = coverageArrowOrigins(handle)
+  if (!o) return null
+  const [nLon, nLat] = handle.header.size
+  return {
+    originU: o.u,
+    originV: o.v,
+    uStepLon: o.uStepLon,
+    uStepLat: o.uStepLat,
+    vStepLon: o.vStepLon,
+    vStepLat: o.vStepLat,
+    bandTable: s111BandTableNormalized(peakSpeed, o.uvAspect, rampName),
+    // The INSTANCE LAYOUT, not the data: a forecast step re-arms the same region, same grid and
+    // same drawable cells, so the key is equal and the arrows keep drifting instead of snapping
+    // back to their cells. A different grid or a different drawable count is a different set of
+    // arrows per texel, and that one must re-seed.
+    key: `${region}|${nLon}x${nLat}|${o.u.length}`,
+  }
 }
 
 /** The origins the ADVECTED mode needs, for the same inputs and in the SAME order
