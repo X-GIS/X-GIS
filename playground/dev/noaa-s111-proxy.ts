@@ -15,6 +15,11 @@
 //                                    with their domain envelopes, so a `type: coverage`
 //                                    source can name it and let the ENGINE own viewport
 //                                    residency (#1453). The only route not backed by S3.
+//   /noaa-s102/catalog.json        — SYNTHESISED: NOAA's own S-100 Exchange Catalogue
+//                                    (`_CATALOG/CATALOG.XML`, 4313 cells) translated to STAC,
+//                                    so the browser reads ~1 MB of JSON rather than 19 MB of
+//                                    XML for a bbox lookup (#1453).
+//   /noaa-s102/cells/<key>         — the cells those catalogue hrefs resolve to.
 //   /noaa-s111/latest.h5           — convenience: newest CBOFS (Chesapeake) S-111 cell.
 //   /noaa-s111/latest/<model>.h5   — convenience: newest cell for ANY S-111 model
 //                                    (dbofs, gomofs, ngofs2, sfbofs, tbofs, wcofs, …).
@@ -27,6 +32,7 @@
 
 import type { Connect } from 'vite'
 import { s111CatalogueDocument } from './s111-catalogue'
+import { s102CatalogueCached } from './s102-catalogue'
 
 type FetchImpl = typeof globalThis.fetch
 
@@ -169,6 +175,13 @@ async function resolveTarget(
     const key = await resolveLatestS111Cached(model, f)
     return { url: `${S111_BUCKET}/${key}`, key }
   }
+  // The S-102 catalogue's asset hrefs are `cells/<key>` relative to `/noaa-s102/catalog.json`,
+  // so they arrive here as `noaa-s102/cells/<key>` — the sibling passthrough that keeps those
+  // hrefs RELATIVE (and therefore origin-following, dev and prod alike).
+  if (path.startsWith('noaa-s102/cells/')) {
+    const key = path.slice('noaa-s102/cells/'.length)
+    return { url: `https://noaa-s102-pds.s3.amazonaws.com/${key}${q}`, key }
+  }
   // Explicit noaa-s111-pds key passthrough (back-compat).
   if (path.startsWith('noaa-s111/')) {
     const key = path.slice('noaa-s111/'.length)
@@ -216,6 +229,20 @@ export async function handleNoaa(
         },
       })
     }
+    // The S-102 catalogue is NOAA's own — the IHO S-100 Exchange Catalogue published at
+    // `_CATALOG/CATALOG.XML` — translated to STAC here so the browser fetches ~1 MB of JSON
+    // instead of 19 MB of XML for a bbox lookup, and so the engine keeps ONE catalogue format
+    // (see s102-catalogue.ts for why that is inside ADR-0010 rather than against it).
+    if (path === 'noaa-s102/catalog.json') {
+      return new Response(JSON.stringify(await s102CatalogueCached(fetchImpl)), {
+        headers: {
+          ...corsHeaders(origin),
+          'content-type': 'application/geo+json',
+          // An hour, matching the memo: the source is re-issued per edition, not per request.
+          'cache-control': 'public, max-age=3600',
+        },
+      })
+    }
     const target = await resolveTarget(path, search, origin, fetchImpl)
     if (target instanceof Response) return target
     // Edge-cache the S3 fetch: `target.url` is an IMMUTABLE resolved cell key (the `latest`
@@ -244,7 +271,12 @@ export async function handleNoaa(
 export function createNoaaMiddleware(fetchImpl: FetchImpl = fetch): Connect.NextHandleFunction {
   return (req, res, next) => {
     const url = req.url ?? ''
-    if (!url.startsWith('/noaa/') && !url.startsWith('/noaa-s111/')) return next()
+    // Match the whole `/noaa…` family by PATTERN, not by a list of prefixes. The list was
+    // `/noaa/` + `/noaa-s111/`, so adding the S-102 routes silently fell through to vite's SPA
+    // fallback: the catalogue fetch got `index.html` with a 200, the JSON parse failed on
+    // `<!doctype`, and the source armed nothing. A route table that has to be updated in two
+    // places is a route table that will be wrong in one of them.
+    if (!/^\/noaa(\/|-)/.test(url)) return next()
     void (async () => {
       const origin = (req.headers['origin'] as string | undefined) ?? null
       const web = await handleNoaa(url, req.headers['range'] ?? null, origin, fetchImpl)
