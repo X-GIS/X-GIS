@@ -76,11 +76,12 @@ export interface RenderPass {
   execute(ctx: FrameContext, scene: SceneView, host: PassHost): void
 }
 
-/** F3b bridge for the RHI-ported pass bodies: the frame's RHI encoder + view
- *  handles, non-null-asserted in one place. Under the `__xgisRawFrameShell`
- *  debug escape these are null and a ported body CANNOT run — fail loud naming
- *  the flag rather than render a wrong frame. The unported bodies still honour
- *  the escape; it retires with the F3b FrameContext field collapse. */
+/** F3b bridge for the chain pass bodies: the frame's RHI encoder + view
+ *  handles, non-null-asserted in one place. The bridges are null ONLY on the
+ *  forced-WebGL2 twin frame (which holds its one live `rhiPass` instead) — a
+ *  chain pass reaching this with null bridges is a mis-routed frame, and the
+ *  loud throw here is what keeps that a crash with a name instead of a wrong
+ *  render. Dies with the twin (#991 P4/P5). */
 export function requireRhiFrame(
   ctx: FrameContext,
   label: string,
@@ -107,8 +108,8 @@ export function requireRhiFrame(
     !rhiColorViewScreen
   )
     throw new Error(
-      `[X-GIS] ${label}: this pass runs on the RHI frame shell and cannot execute ` +
-        `under __xgisRawFrameShell=true — unset the flag (#1046 F3b)`,
+      `[X-GIS] ${label}: this chain pass needs the RHI frame bridges, which are ` +
+        `null here — the chain must not run on the twin frame (#1046 F3b)`,
     )
   return {
     enc: rhiEncoder,

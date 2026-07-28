@@ -106,7 +106,6 @@ const BASELINE: Record<string, number> = {
   'map/src/map-types.ts': 12,
   'map/src/map.ts': 6,
   'map/src/render-loop-helpers.ts': 1,
-  'map/src/render-loop.ts': 3,
   'map/src/render/bind-group-registry.ts': 18,
   // #1046 F3b Inc-2d: ShowDrawFn + the chain's remaining pass-consuming
   // signatures narrowed to RhiRenderPass — the backend-keyed re-wrap forks
@@ -119,7 +118,6 @@ const BASELINE: Record<string, number> = {
   'map/src/render/compute-layer-handle.ts': 2,
   'map/src/render/compute-layer-registry.ts': 2,
   'map/src/render/feature-data-binder.ts': 21,
-  'map/src/render/frame-context.ts': 3,
   // 43→46 (#1046 F3b Inc-2d): drawOitCompose RELOCATED here from oit-pass
   // (the pipeline/layout owner; native until the OIT twin lands) — moved
   // tokens plus the boundary unwrap cast, retiring with that twin.

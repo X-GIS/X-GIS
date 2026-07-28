@@ -77,43 +77,22 @@ export interface FrameContext {
    *  `backend` (#1046 F1, doc §3-F1). F1 is seam-only: the handle is reachable but no
    *  pass reads it yet — byte-identical on both backends. */
   rhi: RhiDevice
-  /** This frame's command encoder. F2 (#1046) sources it through the RHI
-   *  (`rhi.acquireFrameEncoder()`) instead of the raw `device.createCommandEncoder()`;
-   *  the native handle is unwrapped for the not-yet-converted passes (still typed
-   *  `GPUCommandEncoder` here — the pass-body retype to `RhiCommandEncoder` is F3/P5).
-   *  The former pass-visible `device: GPUDevice` field is gone (F2 "drops device from
-   *  the pass-visible surface", doc §3-F2): it was write-only — no pass read it. */
-  encoder: GPUCommandEncoder
-  /** The SAME frame encoder, still RHI-typed — the handle `encoder` above is the unwrapped
-   *  native view of. A pass whose body already routes through the RHI (the flow pass, #1333)
-   *  takes this one and never names a WebGPU type; the not-yet-converted bodies keep taking
-   *  `encoder`. This is the F3/P5 direction arriving one pass at a time, not a second encoder:
-   *  both fields are the one per-frame encoder the loop submits once.
-   *
-   *  Null under `__xgisRawFrameShell=true`, which mints the native encoder directly and has
-   *  no RHI wrapper to offer. Since the F3b pass ports, that escape is NO LONGER a working
-   *  whole-frame rollback: a ported pass fails loud on the null bridge (requireRhiFrame)
-   *  rather than render a wrong frame; only the unported bodies still honour it. It
-   *  retires with the F3b field collapse. */
+  /** The frame's ONE command encoder, RHI-typed (`rhi.acquireFrameEncoder()`,
+   *  #1046 F2/F3b — the native trio and the `__xgisRawFrameShell` escape
+   *  retired with the Inc-3 field collapse; a native handle exists only as a
+   *  loop-local unwrap for the compute/timer tail). Null ONLY on the
+   *  forced-WebGL2 twin frame, which holds its one live pass (`rhiPass`)
+   *  instead of an encoder — dies with the twin (#991 P4/P5). */
   rhiEncoder: import('@xgis/rhi').RhiCommandEncoder | null
-  /** F3b parallel RHI handles for the ported chain passes — the same targets as
-   *  `screenView` / `colorView` / `rt.stencilView`, RHI-wrapped once per frame by
-   *  the loop (WeakMap-memoized on the native view, so steady-state frames
-   *  allocate nothing). Null under `__xgisRawFrameShell=true`, where a ported
-   *  pass fails loud instead of rendering a wrong frame (`requireRhiFrame`).
-   *  The F3b field collapse retires the native trio and these bridges together. */
+  /** F3b view bridges for the chain passes — the swapchain view, the SCENE
+   *  colour attachment (scene-sized MSAA under `useResolve`, the overdraw
+   *  accumulator in `?debug=overdraw`, the scene colour while the ladder
+   *  scales, else the swapchain view) and the depth-stencil, RHI-wrapped once
+   *  per frame (WeakMap-memoized — steady-state frames allocate nothing).
+   *  Null ONLY on the twin frame, like `rhiEncoder`. */
   rhiScreenView: import('@xgis/rhi').RhiTextureView | null
   rhiColorView: import('@xgis/rhi').RhiTextureView | null
   rhiStencilView: import('@xgis/rhi').RhiTextureView | null
-  /** The swapchain texture view for this frame
-   *  (`context.getCurrentTexture().createView()`). */
-  screenView: GPUTextureView
-  /** The colour attachment the SCENE passes draw into:
-   *  the (scene-sized) MSAA texture view when `useResolve`, the overdraw
-   *  accumulator in `?debug=overdraw`, the scene colour when the ladder holds
-   *  the scene below native (#1429 INC-2), else `screenView` directly.
-   *  Populated AFTER the MSAA/stencil texture management block. */
-  colorView: GPUTextureView
   /** #1429 INC-2 — where the resolve-owner SCENE pass resolves its MSAA: the
    *  scene colour while scaled, else the screen view (IDENTITY to the
    *  pre-split target — the scale-1 gate pins that). RHI-only: every ported
@@ -167,10 +146,8 @@ export interface FrameContext {
  *  loop built inline; the loop calls this once, then mutates in place. */
 export function makeFrameContext(a: {
   rhi: RhiDevice
-  encoder: FrameContext['encoder']
   rhiEncoder: FrameContext['rhiEncoder']
   rhiScreenView: FrameContext['rhiScreenView']
-  screenView: FrameContext['screenView']
   camera: Camera
   projection: ProjectionToken
   w: number
@@ -186,13 +163,10 @@ export function makeFrameContext(a: {
     // render-context.ts: "the SINGLE instance every renderer routes through"),
     // so it is set once here; the loop's reuse branch leaves it in place (#1046 F1).
     rhi: a.rhi,
-    encoder: a.encoder,
     rhiEncoder: a.rhiEncoder,
     rhiScreenView: a.rhiScreenView,
     rhiColorView: null, // set by wireFrameColour (F3b bridge)
     rhiStencilView: null, // set by wireFrameColour (F3b bridge)
-    screenView: a.screenView,
-    colorView: a.screenView, // set by wireFrameColour
     // #1429 INC-2 seam bridges — set by wireFrameColour.
     rhiSceneResolveView: null,
     rhiColorViewScreen: null,
@@ -210,20 +184,24 @@ export function makeFrameContext(a: {
   }
 }
 
+/** The native swapchain view's type, spelled without a raw-WebGPU token — the
+ *  loop holds the native view as a LOCAL (the collapse removed it from the
+ *  FrameContext surface) and threads it here for `ensure` + identity checks. */
+type NativeView = Parameters<RenderTargets['ensure']>[7]
+
 /** Per-frame colour-target wiring: RenderTargets.ensure + the F3b / #1429
- *  bridge population, extracted VERBATIM from the loop's MSAA block. When
- *  colorView IS the swapchain view (sampleCount 1: mobile / ?safe / ?msaa=1),
- *  the device's rebind-per-frame screen wrapper is reused instead of
- *  memo-wrapping a view minted fresh every frame; every #1429 bridge reduces
- *  to an existing wrapper by IDENTITY when the scene is not scaled (the
- *  scale-1 gate pins this). Null bridges under the raw-shell escape — ported
- *  passes fail loud there via requireRhiFrame. */
+ *  bridge population. When colorView IS the swapchain view (sampleCount 1:
+ *  mobile / ?safe / ?msaa=1), the device's rebind-per-frame screen wrapper is
+ *  reused instead of memo-wrapping a view minted fresh every frame; every
+ *  #1429 bridge reduces to an existing wrapper by IDENTITY when the scene is
+ *  not scaled (the scale-1 gate pins this). The native views live and die as
+ *  loop locals — no pass can reach them (Inc-3 field collapse). */
 export function wireFrameColour(
   ctx: FrameContext,
-  rawFrameShell: boolean,
-  rhiViewFor: (v: FrameContext['screenView']) => NonNullable<FrameContext['rhiScreenView']>,
+  screenView: NativeView,
+  rhiViewFor: (v: NativeView) => NonNullable<FrameContext['rhiScreenView']>,
 ): void {
-  const { screenView, rhiScreenView } = ctx
+  const { rhiScreenView } = ctx
   const sc = getSampleCount()
   ctx.sampleCount = sc
   const { useResolve, colorView, sceneResolveView, colorViewScreen, sceneColorSampleView } =
@@ -238,25 +216,16 @@ export function wireFrameColour(
       screenView,
     )
   ctx.useResolve = useResolve
-  ctx.colorView = colorView
-  ctx.rhiColorView = rawFrameShell
-    ? null
-    : colorView === screenView
-      ? rhiScreenView
-      : rhiViewFor(colorView)
-  ctx.rhiStencilView = rawFrameShell ? null : rhiViewFor(ctx.rt.stencilView!)
-  ctx.rhiSceneResolveView = rawFrameShell
-    ? null
-    : sceneResolveView === screenView
-      ? rhiScreenView
-      : rhiViewFor(sceneResolveView)
-  ctx.rhiColorViewScreen = rawFrameShell
-    ? null
-    : colorViewScreen === colorView
+  ctx.rhiColorView = colorView === screenView ? rhiScreenView : rhiViewFor(colorView)
+  ctx.rhiStencilView = rhiViewFor(ctx.rt.stencilView!)
+  ctx.rhiSceneResolveView =
+    sceneResolveView === screenView ? rhiScreenView : rhiViewFor(sceneResolveView)
+  ctx.rhiColorViewScreen =
+    colorViewScreen === colorView
       ? ctx.rhiColorView
       : colorViewScreen === screenView
         ? rhiScreenView
         : rhiViewFor(colorViewScreen)
   ctx.rhiSceneColorSampleView =
-    rawFrameShell || sceneColorSampleView === null ? null : rhiViewFor(sceneColorSampleView)
+    sceneColorSampleView === null ? null : rhiViewFor(sceneColorSampleView)
 }

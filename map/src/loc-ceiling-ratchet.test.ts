@@ -933,7 +933,10 @@ const CEILINGS: Record<string, number> = {
   // because a frame with no field is exactly the one that must say so (an evicted region's
   // textures are destroyed, and a binding still holding them dies in the next submit).
   // 1435 (merge): measured again after the #1445 +2 landed on main's side.
-  'map/src/render-loop.ts': 1435,
+  // 1435→1425 (#1046 Inc-3b): the field collapse deleted the native trio's
+  // population + the rawFrameShell escape arms — the loop SHRANK through a
+  // feature increment, which is the ratchet working as designed.
+  'map/src/render-loop.ts': 1425,
   // Baselined at 806 (hillshade tile fade-in): HillshadeRenderer crossed
   // NEW_FILE_CAP restoring the three tile-streaming fixes raster-renderer had
   // landed since hillshade was copied from it — the per-tile fade ramp + its

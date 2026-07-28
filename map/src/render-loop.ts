@@ -112,7 +112,8 @@ export class RenderLoop {
   private readonly _rhiViewMemo = new WeakMap<object, RhiTextureView>()
   /** Stable bound form of `_rhiViewFor` for wireFrameColour — allocated once
    *  (the 60 Hz loop is allocation-paranoid; an inline arrow per frame is not). */
-  private readonly _rhiViewForBound = (v: FrameContext['screenView']) => this._rhiViewFor(v)
+  private readonly _rhiViewForBound = (v: Parameters<typeof wrapWebGpuTextureView>[0]) =>
+    this._rhiViewFor(v)
 
   private _rhiViewFor(view: Parameters<typeof wrapWebGpuTextureView>[0]): RhiTextureView {
     let v = this._rhiViewMemo.get(view)
@@ -202,7 +203,7 @@ export class RenderLoop {
     // a projection-correct cursor anchor (orthographic needs the spherical
     // inverse, not the flat-Mercator-plane unproject).
     this.host.camera.projType = projType
-    const { device, context, canvas } = this.host.ctx
+    const { device, canvas } = this.host.ctx
     const w = canvas.width,
       h = canvas.height
     if (w === 0 || h === 0) {
@@ -318,20 +319,17 @@ export class RenderLoop {
     }
 
     perfMarkStart('frame.encode')
-    // Frame shell (#1046 F2 / #991 G2+G3, doc §3-F2): source the encoder + swapchain
-    // view through the RHI, unwrap native handles for the not-yet-converted passes
-    // (byte-identical). `__xgisRawFrameShell=true` restores the raw arm for one release.
+    // Frame shell (#1046 F2/F3b, Inc-3 collapse): the RHI is the ONE source of
+    // the frame encoder + swapchain view. The natives exist only as loop
+    // locals for the not-yet-RHI tail (compute dispatch, gpuTimer, error
+    // scopes, ensure) — no pass can reach them; the `__xgisRawFrameShell`
+    // escape retired with the collapse (every chain pass fails loud on null
+    // bridges anyway, so the escape could no longer render a frame).
     const rhiFrame = this.host.ctx.rhi
-    const rawFrameShell =
-      (globalThis as { __xgisRawFrameShell?: boolean }).__xgisRawFrameShell === true
-    const frameEnc = rawFrameShell ? null : rhiFrame.acquireFrameEncoder()
-    const encoder = frameEnc ? unwrapWebGpuCommandEncoder(frameEnc) : device.createCommandEncoder()
-    // Keep the RHI screen-view handle: the F3b-ported passes bind through it
-    // (ctx.rhiScreenView) while the unported bodies keep the unwrapped native.
-    const rhiScreenView = rawFrameShell ? null : rhiFrame.acquireScreenView()
-    const screenView = rhiScreenView
-      ? unwrapWebGpuTextureView(rhiScreenView)
-      : context.getCurrentTexture().createView()
+    const frameEnc = rhiFrame.acquireFrameEncoder()
+    const encoder = unwrapWebGpuCommandEncoder(frameEnc)
+    const rhiScreenView = rhiFrame.acquireScreenView()
+    const screenView = unwrapWebGpuTextureView(rhiScreenView)
     // Reset per-frame timer state BEFORE compute dispatch so the
     // first compute pass gets timestampWrites attached. `beginFrame()`
     // clears both the sub-pass counter AND the
@@ -406,10 +404,8 @@ export class RenderLoop {
     if (this._ctx === null) {
       this._ctx = makeFrameContext({
         rhi: this.host.ctx.rhi,
-        encoder,
         rhiEncoder: frameEnc,
         rhiScreenView,
-        screenView,
         camera: this.host.camera,
         projection: makeProjectionToken(projType, centerLon, centerLat),
         w,
@@ -422,10 +418,8 @@ export class RenderLoop {
       })
     } else {
       const c = this._ctx
-      c.encoder = encoder
       c.rhiEncoder = frameEnc
       c.rhiScreenView = rhiScreenView
-      c.screenView = screenView
       c.camera = this.host.camera
       setProjectionToken(c.projection, projType, centerLon, centerLat)
       c.elapsedMs = this.host._elapsedMs
@@ -452,7 +446,7 @@ export class RenderLoop {
       // / ?msaa=1, 4 on desktop default).
       // ensure() + colorView decision + the F3b / #1429 bridge population,
       // extracted VERBATIM to wireFrameColour (frame-context.ts, piece 6).
-      wireFrameColour(ctx, rawFrameShell, this._rhiViewForBound)
+      wireFrameColour(ctx, screenView, this._rhiViewForBound)
 
       // Reset per-frame uniform ring cursors (dynamic-offset slots).
       this.host.renderer.beginFrame()
@@ -607,9 +601,8 @@ export class RenderLoop {
     // matching the inner scope opened right after createCommandEncoder().
     perfMarkEnd('frame.encode')
     perfMarkStart('frame.submit')
-    // F2: the RHI frame encoder owns the single per-frame submit (kill-switch = raw).
-    if (frameEnc) frameEnc.finish()
-    else device.queue.submit([encoder.finish()])
+    // F2: the RHI frame encoder owns the single per-frame submit.
+    frameEnc.finish()
     perfMarkEnd('frame.submit')
     perfMarkEnd('frame.total')
     flushPerFrameMarks()
@@ -1199,14 +1192,11 @@ export class RenderLoop {
         // The WebGl2Device rendering this forced-WebGL2 frame — populates the required
         // FrameContext.rhi on the twin path too (#1046 F1). Inert here: no pass reads caps yet.
         rhi: this.host.ctx.rhi,
-        encoder: null as unknown as GPUCommandEncoder,
         rhiEncoder: null,
         // The twin never runs the F3b-ported chain passes — bridges stay null.
         rhiScreenView: null,
         rhiColorView: null,
         rhiStencilView: null,
-        screenView: null as unknown as GPUTextureView,
-        colorView: null as unknown as GPUTextureView,
         // #1429 INC-2 — proxy no-ops like the trio above: the twin has no
         // seam (it scales its CANVAS; scene === screen here, so labelPass's
         // rhiPass arm never reaches these).
