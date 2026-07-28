@@ -17,7 +17,7 @@ import type { ShowCommand } from './render/renderer-types'
 import type { GraphicsManager } from './graphics/graphics-manager'
 import { bandedRampColor } from './color-ramp'
 import { resolveVectorBands } from './coverage-vector-bands'
-import { ARROW_ADVECT_COUNT } from './render/arrow-advect-state'
+
 import { ARROW_DRIFT_UV } from './shaders/dsl/arrow-advect-step'
 import { flowTrueSpans } from './render/flow-advect-params'
 import {
@@ -42,17 +42,27 @@ export interface CoverageArrowShowHost {
  *  instance generation instead — out of scope here. */
 export const COVERAGE_ARROW_MAX = 100_000
 
+/** Uniform thinning over the DRAWABLE cells, so an over-ceiling grid still tiles its water
+ *  rather than losing a corner of the bbox.
+ *
+ *  ONE function because two loops walk it — the emit here and `coverageArrowOrigins` below —
+ *  and origin `i` must belong to instance `i`. Two copies of `Math.ceil(n / ceiling)` is one
+ *  edit away from an off-by-one that silently pairs every arrow with the wrong cell's origin. */
+function arrowStride(drawable: number): number {
+  return drawable > COVERAGE_ARROW_MAX ? Math.ceil(drawable / COVERAGE_ARROW_MAX) : 1
+}
+
 export interface CoverageArrowOptions {
   /** ADVECTED mode (#1409): the arrows are the particles — each one drifts through the current
    *  and is re-symbolized from the data under its new position.
    *
    *  Two things change here, and only here; the static portrayal is untouched.
    *
-   *  1. THE COUNT IS CAPPED at `ARROW_ADVECT_COUNT`. The arrow-position state is one TEXEL per
-   *     arrow, so instance `i` and state texel `i` must correspond 1:1. A grid with more valid
-   *     cells than texels is thinned over its WATER (the same uniform thinning the ceiling
-   *     already does), which is also the right display choice: a moving field reads as full at
-   *     16 384 arrows whatever the grid size.
+   *  1. THE COUNT IS THE SAME as the static path's — ONE ceiling for both (#1450 A). The
+   *     arrow-position state is one TEXEL per arrow, so instance `i` and state texel `i` must
+   *     correspond 1:1; the state now SIZES ITSELF to the batch, so that contract no longer
+   *     costs a second, lower ceiling. It used to (16 384 against 100 000), which put the two
+   *     portrayals of one field on different cells at 5x different densities — #1449.
    *
    *  2. EACH INSTANCE CARRIES ITS ORIGIN in grid-uv. The shader adds the drift displacement to
    *     it to know WHERE to sample the field for this frame's band, bearing and scale. Without
@@ -131,10 +141,9 @@ export function addCoverageArrowShowLayer(
     if (s111HasArrow(speed[i]!) && Number.isFinite(dir[i]!)) idx.push(i)
   }
   if (idx.length === 0) return
-  // The advected mode's ceiling is the state texture's texel count, not COVERAGE_ARROW_MAX:
-  // instance `i` and state texel `i` must correspond 1:1 (see CoverageArrowOptions).
-  const ceiling = opts.advected ? ARROW_ADVECT_COUNT : COVERAGE_ARROW_MAX
-  const stride = idx.length > ceiling ? Math.ceil(idx.length / ceiling) : 1
+  // ONE ceiling for both portrayals (#1450 A) — the state texture sizes itself to the batch,
+  // so the 1:1 instance/texel contract no longer needs a lower one of its own.
+  const stride = arrowStride(idx.length)
 
   const lons: number[] = []
   const lats: number[] = []
@@ -225,7 +234,7 @@ export function coverageArrowOrigins(handle: CoverageHandle): CoverageArrowOrigi
     if (s111HasArrow(vec.speed[i]!) && Number.isFinite(vec.direction[i]!)) idx.push(i)
   }
   if (idx.length === 0) return null
-  const stride = idx.length > ARROW_ADVECT_COUNT ? Math.ceil(idx.length / ARROW_ADVECT_COUNT) : 1
+  const stride = arrowStride(idx.length) // the SAME rule the emit walks — the order contract
   // One leash-length in GRID UNITS. A uv of 1 spans (n−1) cells, so this is the number of cells
   // an arrow may drift before it recycles — and the length of the basis the VS scales.
   const uSpan = ARROW_DRIFT_UV * (nLon > 1 ? nLon - 1 : 1) * dx
