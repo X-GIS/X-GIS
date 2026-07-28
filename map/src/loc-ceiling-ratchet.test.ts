@@ -921,7 +921,13 @@ const CEILINGS: Record<string, number> = {
   // +2 (#1419, third pass): the twin declares the arrow field every frame — OUTSIDE the `if`,
   // because a frame with no field is exactly the one that must say so (an evicted region's
   // textures are destroyed, and a binding still holding them dies in the next submit).
-  'map/src/render-loop.ts': 1397,
+  //
+  // −2 (#1355): the byte-telemetry gather is a call to render-stats-bytes.ts, paid for by
+  // dropping the `totalTilesVis`/`totalTilesCached` locals — `tilesVisible`/`tilesCached` now
+  // accumulate straight into `_stats` like `drawCalls`/`vertices`/`triangles`/`lines` five lines
+  // above already did. `beginFrame()` zeroes both, so the round trip through locals bought
+  // nothing but the two assignments that put them back.
+  'map/src/render-loop.ts': 1395,
   // Baselined at 806 (hillshade tile fade-in): HillshadeRenderer crossed
   // NEW_FILE_CAP restoring the three tile-streaming fixes raster-renderer had
   // landed since hillshade was copied from it — the per-tile fade ramp + its

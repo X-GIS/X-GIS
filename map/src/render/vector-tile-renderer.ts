@@ -89,7 +89,9 @@ import {
   type BakeStrokeStyle,
 } from './vector-drape-stroke'
 import { parseHexColor } from '../feature-helpers'
+import { arenaByteTotals } from '../render-stats-bytes'
 import type { GPUTile, LayerDrawPhase } from './vector-tile-renderer-types'
+import type { DrawStatsSnapshot } from './frame-draw-stats'
 import { getMaxGpuTiles, uploadBudgetFor } from './vector-tile-renderer-helpers'
 import { UniformRing } from '@xgis/engine'
 
@@ -2019,6 +2021,12 @@ export class VectorTileRenderer {
     return this._featureBinder.hasFeatureData()
   }
 
+  /** #1355 — arena live/capacity bytes for this source (same thin-accessor
+   *  shape as `getCacheSize`; the sum itself lives with the telemetry). */
+  arenaBytes(): { live: number; capacity: number } {
+    return arenaByteTotals(this._store)
+  }
+
   getCacheSize(): number {
     return this._store.cacheCount()
   }
@@ -2152,15 +2160,7 @@ export class VectorTileRenderer {
     result: number[]
   } | null = null
 
-  getDrawStats(): {
-    drawCalls: number
-    vertices: number
-    triangles: number
-    lines: number
-    tilesVisible: number
-    missedTiles: number
-    globeTilesSelected: number
-  } {
+  getDrawStats(): DrawStatsSnapshot {
     return this._drawStats.getDrawStats()
   }
 

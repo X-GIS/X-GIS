@@ -15,6 +15,7 @@
 // keeping the public/internal call surface (render-loop tick, tests)
 // unchanged.
 
+import { collectByteTelemetry } from './render-stats-bytes'
 import { EARTH, xlog } from '@xgis/shared'
 import {
   markStart as perfMarkStart,
@@ -635,9 +636,7 @@ export class RenderLoop {
     this.host._stats.bundleHits = 0
     this.host._stats.bundleMisses = 0
     this.host._stats.bundleEvictions = 0
-    let totalTilesVis = 0,
-      totalTilesCached = 0,
-      totalMissed = 0
+    let totalMissed = 0
     for (const [name, { renderer: vtR }] of this.host.vtSources) {
       if (!vtR.hasData()) continue
       const vts = vtR.getDrawStats()
@@ -651,8 +650,8 @@ export class RenderLoop {
         this.host._stats.bundleMisses += vtbs.misses
         this.host._stats.bundleEvictions += vtbs.evictions
       }
-      totalTilesVis += vts.tilesVisible
-      totalTilesCached += vtR.getCacheSize()
+      this.host._stats.tilesVisible += vts.tilesVisible
+      this.host._stats.tilesCached += vtR.getCacheSize()
       totalMissed += vts.missedTiles
       // Throttle [FLICKER] per-source to once per ~60 frames. On-demand
       // tile loading legitimately leaves some visible cells uncached for
@@ -702,8 +701,7 @@ export class RenderLoop {
       }
     }
     this.host._frameCount++
-    this.host._stats.tilesVisible = totalTilesVis
-    this.host._stats.tilesCached = totalTilesCached
+    collectByteTelemetry(this.host.vtSources.values(), this.host._stats)
     // Per-frame in-flight tile count for the public `getMissingTileCount()`
     // accessor (loading affordance). Same three signals the keep-warm gate
     // below ORs, summed: VT cells without a drawable tile + raster/hillshade
