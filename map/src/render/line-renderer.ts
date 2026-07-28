@@ -60,7 +60,7 @@ import type {
   RhiTexture,
   RhiTextureView,
 } from '@xgis/engine'
-import { LineDraper } from './material/line-material'
+import { LINE_OFFSCREEN_FORMAT, LineDraper } from './material/line-material'
 import { LineCompositeDraper } from './material/line-composite-material'
 import type { ShapeRegistry } from '../text/sdf-shape'
 import {
@@ -217,10 +217,7 @@ export class LineRenderer {
   private layerDirtyLo = 0
   private layerDirtyHi = 0
 
-  // ── Translucent line offscreen + composite ──
-  /** Single-sample offscreen RT used to render translucent line layers
-   *  with max blending. Composited onto the main framebuffer with per-layer
-   *  alpha. Lazily allocated + resized on demand. */
+  // ── Translucent line composite ──
   /** Composite uniform ring. 256-byte slots → each composite() call writes
    *  its own opacity into a fresh slot and binds via dynamic offset. This
    *  prevents the multi-layer writeBuffer clobbering hazard that a single
@@ -293,9 +290,9 @@ export class LineRenderer {
     this._compositeDraper = undefined
   }
 
-  // ── RHI (forced-WebGL2) offscreen twins (#834 M5) ──
-  /** RHI twin of the offscreen RT — rgba8unorm render+sample texture sized to
-   *  the screen. Lazily allocated + resized, mirroring `ensureOffscreen`. */
+  // ── The translucent offscreen set (#834 M5; the ONE set since Inc-2d) ──
+  /** LINE_OFFSCREEN_FORMAT render+sample texture sized to the scene. Lazily
+   *  allocated + resized; shared by the chain pass and the forced-WebGL2 twin. */
   private _offscreenTexRhi: RhiTexture | null = null
   private _offscreenViewRhi: RhiTextureView | null = null
   private _offscreenWRhi = 0
@@ -310,7 +307,8 @@ export class LineRenderer {
     this._offscreenTexRhi = this.rhi.createTexture({
       width,
       height,
-      format: 'rgba8unorm',
+      // ONE authority with the max-blend pipeline's colour target (review F1).
+      format: LINE_OFFSCREEN_FORMAT,
       usage: ['render', 'sample'],
       label: 'line-translucent-offscreen-rhi',
     })

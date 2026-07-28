@@ -116,7 +116,6 @@ const BASELINE: Record<string, number> = {
   // Same gap-blocked bridge as raster-{material,renderer,uniform-slots}; retires at #991 P6.
   'map/src/render/material/hillshade-material.ts': 1,
   'map/src/render/material/icon-material.ts': 1,
-  'map/src/render/material/line-composite-material.ts': 1,
   'map/src/render/material/line-material.ts': 1,
   'map/src/render/material/polygon-fill-material.ts': 1,
   'map/src/render/material/raster-material.ts': 1,

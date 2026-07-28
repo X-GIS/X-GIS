@@ -11,7 +11,7 @@
 // live inline in render() — every field is computed from the SAME
 // expression at the SAME point (just after the per-renderer beginFrame
 // calls), so behaviour is byte-identical. SceneView carries DATA only;
-// side effects (e.g. `lineRenderer.ensureOffscreen`) stay in render().
+// side effects stay in render().
 
 import type { ClassifiedShow, OpaqueGroup, ResolveOwner } from './bucket-scheduler'
 import { deriveResolveOwner } from './bucket-scheduler'

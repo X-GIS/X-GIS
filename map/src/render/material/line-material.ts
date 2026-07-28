@@ -20,6 +20,13 @@ import { emitLineWgsl } from '../../shaders/dsl/line'
 import { emitLineGlsl } from '../../shaders/dsl/line-glsl'
 import { wgslFor } from './wgsl-for'
 
+/** The translucent-line offscreen ACCUM format — ONE authority for the
+ *  offscreen texture (line-renderer.ensureOffscreenRhi) and the max-blend
+ *  pipeline's colour target (maxMat below). WebGPU validates the pair;
+ *  splitting them is the Inc-2d review's F1 (translucent lines vanish on a
+ *  bgra8 canvas). */
+export const LINE_OFFSCREEN_FORMAT = 'rgba8unorm' as const
+
 // WebGL2 by-name bind-layout entries (#834 M5 slice 1) — the RHI-native twin
 // of the two raw GPUBindGroupLayouts. Names come from the DSL: a uniform
 // block's tag = its struct name; texture/storage names = the binding names
@@ -138,12 +145,18 @@ export class LineDraper {
       fsEntry: 'fs_line_max',
       vsCode: gl2 ? emitLineGlsl(false, 'vertex') : undefined,
       fsCode: gl2 ? emitLineGlsl(false, 'fragment-max') : undefined,
-      format: this.format as 'bgra8unorm',
+      // The offscreen ACCUM format, not the canvas format: this pipeline draws
+      // ONLY into the translucent offscreen (LINE_OFFSCREEN_FORMAT is the one
+      // authority both the texture and this target derive from — a canvas-
+      // format target here validated fine against the OLD canvas-format
+      // offscreen, then failed silently-invisibly on WebGPU when the RHI
+      // offscreen became the one set; Inc-2d review F1).
+      format: LINE_OFFSCREEN_FORMAT,
       sampleCount: 1,
       groups: gl2
         ? [LINE_TILE_ENTRIES, LINE_LAYER_ENTRIES]
         : [wrapWebGpuBindGroupLayout(this.tileLayout), wrapWebGpuBindGroupLayout(this.layerLayout)],
-      colorTargets: [{ format: this.format as 'bgra8unorm', blend: 'max' }],
+      colorTargets: [{ format: LINE_OFFSCREEN_FORMAT, blend: 'max' }],
       variants: [{ label: 'line-pipeline-max-rhi' }], // no depth-stencil (offscreen accum)
     }))
   }

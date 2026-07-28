@@ -85,13 +85,31 @@ describe('oit pass — RHI seam wiring (#1046 F3b Inc-2d)', () => {
     oitPass.execute(h.ctx, h.scene, h.host as never)
     expect(h.captured.length).toBeGreaterThanOrEqual(2)
     const fill = h.captured[0].desc
-    const colors = fill.colorAttachments as { view: unknown; loadOp: string }[]
+    const colors = fill.colorAttachments as {
+      view: unknown
+      loadOp: string
+      storeOp: string
+      clearValue?: unknown
+    }[]
     expect(colors[0].view).toBe(h.oitAccumViewRhi)
     expect(colors[1].view).toBe(h.oitRevealageViewRhi)
     expect(colors[0].loadOp).toBe('clear')
-    const ds = fill.depthStencilAttachment as { view: unknown; depthLoadOp: string }
+    // The McGuire-Bavoil clears: accum to 0, revealage to 1 (review F4 pin).
+    expect(colors[0].clearValue).toEqual([0, 0, 0, 0])
+    expect(colors[1].clearValue).toEqual([1, 0, 0, 0])
+    expect(colors[0].storeOp).toBe('store')
+    const ds = fill.depthStencilAttachment as {
+      view: unknown
+      depthLoadOp: string
+      depthStoreOp: string
+      stencilLoadOp: string
+      stencilStoreOp: string
+    }
     expect(ds.view).toBe((h.ctx as { rhiStencilView: unknown }).rhiStencilView)
     expect(ds.depthLoadOp).toBe('load')
+    expect(ds.depthStoreOp).toBe('discard')
+    expect(ds.stencilLoadOp).toBe('load')
+    expect(ds.stencilStoreOp).toBe('discard')
     expect(h.drawn).toHaveLength(1)
     expect(h.drawn[0]).toBe(h.captured[0])
   })
@@ -151,6 +169,9 @@ describe('translucent pass — RHI seam wiring (#1046 F3b Inc-2d)', () => {
     // The line renderer is handed the frame's RHI encoder BY IDENTITY.
     expect(h.beginTranslucentPass).toHaveBeenCalledTimes(1)
     expect(h.beginTranslucentPass.mock.calls[0][0]).toBe(h.enc)
+    // Offscreen sized from the SCENE geometry (decoy screen 999×998 must not
+    // appear) — the world rasterises at scene size (review F4 pin).
+    expect(h.beginTranslucentPass.mock.calls[0].slice(1)).toEqual([800, 600])
     // The stroke draw runs on the offscreen pass the renderer returned.
     expect(h.drawn).toEqual([h.offPass])
     expect(h.offPass.end).toHaveBeenCalledTimes(1)

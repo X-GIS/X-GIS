@@ -148,7 +148,6 @@ const BASELINE: Record<string, number> = {
   // union in the tile + view-cache types, bridged via wrapWebGpuTextureView).
   'map/src/render/material/hillshade-material.ts': 5,
   'map/src/render/material/icon-material.ts': 1,
-  'map/src/render/material/line-composite-material.ts': 1,
   'map/src/render/material/line-material.ts': 2,
   'map/src/render/material/polygon-fill-material.ts': 7,
   'map/src/render/material/raster-material.ts': 6,

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 // WebGPU globals don't exist under happy-dom — stub the few constants
-// LineRenderer touches in its constructor + ensureOffscreen.
+// LineRenderer touches in its constructor + the offscreen/composite path.
 ;(
   globalThis as unknown as { GPUShaderStage: { VERTEX: number; FRAGMENT: number } }
 ).GPUShaderStage = { VERTEX: 1, FRAGMENT: 2 }

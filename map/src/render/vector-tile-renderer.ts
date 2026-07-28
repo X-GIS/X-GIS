@@ -4000,8 +4000,8 @@ export class VectorTileRenderer {
   }
 
   /** Accumulate this show's tile-point features and flush them onto `pass`.
-   *  Single authority for both backends (#1057): the WebGPU render() tail calls
-   *  it with wrapWebGpuPass(encoder); the forced-WebGL2 twin (render-loop.ts
+   *  Single authority for both backends (#1057): the WebGPU render() tail hands
+   *  it the chain's RhiRenderPass directly (Inc-2d); the forced-WebGL2 twin (render-loop.ts
    *  renderFrameViaRhi opaque loop) calls it with its screen RhiRenderPass after
    *  each show's fills+strokes. Reads `this.stableKeys` — the visible keys set by
    *  render() (WebGPU) or renderFillsRhi (twin) for THIS frame — and derives

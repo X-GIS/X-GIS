@@ -158,6 +158,18 @@ describe('opaque pass — RHI seam wiring (#1046 F3b Inc-2d)', () => {
     expect(ops[1]).toBe('load')
   })
 
+  it('depth persists into a following points/oit consumer, discards when last (persistDepth)', () => {
+    const alone = harness({ groups: 1 })
+    opaquePass.execute(alone.ctx, alone.scene, alone.host as never)
+    const dsAlone = alone.captured[0].desc.depthStencilAttachment as { depthStoreOp: string }
+    expect(dsAlone.depthStoreOp).toBe('discard')
+    const withPoints = harness({ groups: 1 })
+    ;(withPoints.scene as { hasPoints: boolean }).hasPoints = true
+    opaquePass.execute(withPoints.ctx, withPoints.scene, withPoints.host as never)
+    const dsPts = withPoints.captured[0].desc.depthStencilAttachment as { depthStoreOp: string }
+    expect(dsPts.depthStoreOp).toBe('store')
+  })
+
   it('raw-shell escape (null bridges) ⇒ throws naming the pass, encodes nothing', () => {
     const h = harness()
     ;(h.ctx as { rhiEncoder: unknown }).rhiEncoder = null

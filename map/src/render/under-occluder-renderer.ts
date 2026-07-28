@@ -27,11 +27,8 @@ import {
   isPickEnabled,
   type UniformBlockOf,
 } from '@xgis/engine'
-// wrapWebGpuPass: the opaque pass hands a NATIVE GPURenderPassEncoder; a Material /
-// executeItems draw must bridge it to an RhiRenderPass — the SAME gap-blocked pattern
-// raster-renderer / vector-drape-renderer / line-renderer carry until #991 P6 makes
-// the pass chain hand a neutral RhiRenderPass. The opaque chain is WebGPU-only today
-// (WebGL2 renders via render-loop.ts renderFrameViaRhi), so no backend branch is needed.
+// The opaque pass hands a neutral RhiRenderPass (#1046 F3b Inc-2d) — the
+// former wrapWebGpuPass bridge and its backend caveats retired with it.
 import { emitGlslModule } from '@xgis/shader-dsl'
 import { isGlobeProj } from '@xgis/geo'
 import { lonLatToECEF } from '@xgis/shared'
