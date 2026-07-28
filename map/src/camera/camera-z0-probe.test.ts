@@ -72,31 +72,37 @@ describe('iter-287 z=0 camera matrix probe (mercator flat-strip + non-merc disc)
     // z=0 altitude from 94 Mm → 60 Mm and the z=0 p=60 far from 702 Mm
     // → 450 Mm, restoring real perspective foreshortening at z=0 with
     // pitch. z=4 p=60 row unchanged (cap inactive at z≥1 with 800px H).
+    //
+    // #1427 re-baseline: `far` now ends at the SIMULATED horizon
+    // (`horizonBoundedFar`) instead of at 1.5x the ray to a 89.43deg grazing
+    // angle, so every far shrinks and m10/m14 — the only other snapshot
+    // fields that depend on the depth range — move with it. Nothing else in
+    // the dump changed. z=0 p=60 far: 450 Mm → 144 Mm.
     expect(dump).toMatchInlineSnapshot(`
       {
         "z=0 p=0": {
           "altitude": 60112500,
-          "far": 95046200,
+          "far": 60713700,
           "halfFovRad": 0.321751,
-          "m10": -1.01273,
+          "m10": -1.02,
           "m11": -1,
-          "m14": 59667800,
+          "m14": 60100500,
         },
         "z=0 p=60": {
           "altitude": 60112500,
-          "far": 449764000,
+          "far": 143650000,
           "halfFovRad": 0.321751,
-          "m10": -0.501338,
+          "m10": -0.504202,
           "m11": -0.5,
-          "m14": 59069600,
+          "m14": 59410400,
         },
         "z=4 p=60": {
           "altitude": 5870360,
-          "far": 43922200,
+          "far": 14028300,
           "halfFovRad": 0.321751,
-          "m10": -0.501338,
+          "m10": -0.504202,
           "m11": -0.5,
-          "m14": 5768510,
+          "m14": 5801800,
         },
       }
     `)

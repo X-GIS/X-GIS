@@ -27,11 +27,11 @@ import { mercator } from '@xgis/geo'
 // Measured at 1280x800 / z16 / bearing 60 (`bun
 // scripts/probe-tile-selection-pitch.ts`), before -> after:
 //
-//   pitch 59    40 ->  40   (unchanged; the cliff starts at 60)
-//   pitch 60   191 ->  43
-//   pitch 70   191 ->  56
-//   pitch 72.4 192 ->  64   <- the reported camera
-//   pitch 80   191 ->  64
+//   pitch 59    40 ->  34
+//   pitch 60   191 ->  34
+//   pitch 70   191 ->  42
+//   pitch 72.4 192 ->  42   <- the reported camera
+//   pitch 80   191 ->  43
 //
 // and the z4 population (105 tiles spanning x 0..15 of 0..15, y 0..7 at
 // pitch 72.4) drops to zero. Every assertion below FAILS on the parent
@@ -93,7 +93,7 @@ describe('visibleTilesFrustum — far-plane cull (#1427)', () => {
     expect(select(0).length).toBe(4)
     expect(select(30).length).toBe(34)
     expect(select(50).length).toBe(34)
-    expect(select(59).length).toBe(40)
+    expect(select(59).length).toBe(34)
   })
 
   it('still covers the ground with a monotone LOD taper', () => {
@@ -127,42 +127,72 @@ describe('visibleTilesFrustum — far-plane cull (#1427)', () => {
     const latToMerc = (lat: number) =>
       Math.log(Math.tan(Math.PI / 4 + (lat * Math.PI) / 180 / 2)) * R
 
-    // Sweep the z6 grid: any tile whose NEAREST corner is still in front
-    // of the camera and inside `far` must have been selected or refined
-    // into (i.e. some descendant of it is present).
-    const n = 2 ** 6
-    let checked = 0
-    for (let y = 0; y < n; y++) {
-      for (let x = 0; x < n; x++) {
-        const lonW = (x / n) * 360 - 180
-        const lonE = ((x + 1) / n) * 360 - 180
-        const latN = tileYToLat(y, n)
-        const latS = tileYToLat(y + 1, n)
-        const corners: [number, number][] = [
-          [((lonW * Math.PI) / 180) * R, latToMerc(latS)],
-          [((lonE * Math.PI) / 180) * R, latToMerc(latS)],
-          [((lonE * Math.PI) / 180) * R, latToMerc(latN)],
-          [((lonW * Math.PI) / 180) * R, latToMerc(latN)],
-        ]
-        const depths = corners.map(([mx, my]) => depthAt(mx, my))
-        const near = Math.min(...depths.filter((d) => d > 1e-6))
-        if (!Number.isFinite(near) || near > far) {
-          // Beyond the far plane (or wholly behind the camera) — no tile
-          // in this quadtree branch may be selected at ANY zoom.
-          for (const key of selected) {
-            const [tz, tx, ty] = key.split('/').map(Number)
-            const shift = tz! - 6
-            if (shift < 0) continue
-            expect(
-              Math.floor(tx! / 2 ** shift) === x && Math.floor(ty! / 2 ** shift) === y,
-              `z${tz}/${tx}/${ty} descends from far-culled z6/${x}/${y}`,
-            ).toBe(false)
-          }
-          checked++
-        }
+    /** Nearest-corner clip `w` of a tile, or null when a corner falls behind
+     *  the camera (then the true minimum is hidden and the tile cannot be
+     *  judged from corners alone). `cw` is affine in mercator (mx, my), so for
+     *  a fully-in-front tile the corner minimum IS the tile minimum. */
+    const nearestCornerDepth = (z: number, x: number, y: number): number | null => {
+      const n = 2 ** z
+      const lonW = (x / n) * 360 - 180
+      const lonE = ((x + 1) / n) * 360 - 180
+      const latN = tileYToLat(y, n)
+      const latS = tileYToLat(y + 1, n)
+      const depths = [
+        depthAt(((lonW * Math.PI) / 180) * R, latToMerc(latS)),
+        depthAt(((lonE * Math.PI) / 180) * R, latToMerc(latS)),
+        depthAt(((lonE * Math.PI) / 180) * R, latToMerc(latN)),
+        depthAt(((lonW * Math.PI) / 180) * R, latToMerc(latN)),
+      ]
+      if (depths.some((d) => d <= 1e-6)) return null
+      return Math.min(...depths)
+    }
+
+    // Stated over the SELECTED SET rather than by sweeping the globe: every
+    // tile that survived selection must have ground inside the far plane.
+    // (A whole-world sweep at a granularity fine enough to be faithful is
+    // 2^20 cells and takes minutes; this is the same invariant, exactly, in
+    // O(selected).)
+    let judged = 0
+    for (const key of selected) {
+      const [z, x, y] = key.split('/').map(Number)
+      const near = nearestCornerDepth(z!, x!, y!)
+      if (near === null) continue // straddles the camera — not judgeable here
+      judged++
+      expect(near, `selected z${z}/${x}/${y} lies wholly beyond the far plane`).toBeLessThanOrEqual(
+        far,
+      )
+    }
+    // The invariant must have had something to bite on.
+    expect(judged).toBeGreaterThan(10)
+
+    // ...and the converse: the cull is doing work rather than passing
+    // vacuously. Walk out along the view direction until past the far plane
+    // and confirm the selector left that ground alone.
+    const bearingRad = (BEARING * Math.PI) / 180
+    let beyond = 0
+    for (let km = 60; km <= 2000; km += 20) {
+      const d = km * 1000
+      const mx = cam.centerX + Math.sin(bearingRad) * d
+      const my = cam.centerY + Math.cos(bearingRad) * d
+      const nAtMax = 2 ** MAX_SOURCE_Z
+      const tx = Math.floor((((mx / R) * 180) / Math.PI / 360 + 0.5) * nAtMax)
+      const merc = my / R
+      const lat = (Math.atan(Math.sinh(merc)) * 180) / Math.PI
+      const ty = Math.floor(
+        ((1 - Math.log(Math.tan(Math.PI / 4 + (lat * Math.PI) / 360)) / Math.PI) / 2) * nAtMax,
+      )
+      if (depthAt(mx, my) <= far) continue
+      beyond++
+      // No selected tile at any zoom may contain this past-far-plane point.
+      for (const key of selected) {
+        const [z, x, y] = key.split('/').map(Number)
+        const shift = MAX_SOURCE_Z - z!
+        expect(
+          x! === tx >> shift && y! === ty >> shift,
+          `z${z}/${x}/${y} covers ground ${km} km out, past the far plane`,
+        ).toBe(false)
       }
     }
-    // Sanity: the sweep must actually have exercised the cull.
-    expect(checked).toBeGreaterThan(3000)
+    expect(beyond, 'the walk must actually reach past the far plane').toBeGreaterThan(50)
   })
 })
