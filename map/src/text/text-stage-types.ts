@@ -138,6 +138,19 @@ export interface PendingLabel {
    *  the label size by it so a far anchor's quad — collision box AND draw — shrinks.
    *  Undefined → 1 (no attenuation: overlays, flat un-pitched, line labels). */
   perspectiveScale?: number
+  /** #777 IV3 (`text-pitch-alignment: map`) — the screen-space images of this
+   *  anchor's ground-plane axes, from `groundBasisAt`. The label then lies IN the
+   *  ground plane: prepare() derives its collision box through the basis and the
+   *  renderer transforms the drawn quad by the same one, so box and quad stay
+   *  together. Undefined = viewport-aligned (the default, and every projection
+   *  whose unprojector has no inverse — azimuthal, globe).
+   *
+   *  MUTUALLY EXCLUSIVE with `perspectiveScale` above, and prepare() enforces it:
+   *  both express the same distance attenuation — perspectiveScale isotropically
+   *  (right for a billboard), the basis anisotropically (right for a quad lying on
+   *  the ground, and it also carries the tilt). Applying both shrinks a far label
+   *  twice. */
+  groundBasis?: ArrayLike<number>
   /** #777 I-G — inline images carved out of the resolved text-field (the
    *  Mapbox `["image", …]` marker), keyed by codepoint index into `text`
    *  (which is the marker-STRIPPED string). Undefined / empty = plain label
