@@ -130,7 +130,17 @@ async function run(
   page: Page,
   adaptive: boolean,
   frames: number,
-): Promise<{ before: number; after: number; medMs: number; step: number; rounds: number }> {
+): Promise<{
+  before: number
+  after: number
+  /** Visible tile count — what the ladder's lever actually moves (#1468). */
+  tiles: number
+  medMs: number
+  step: number
+  /** The far-field multiplier that reached the selector, not just the one computed. */
+  farLodBoost: number
+  rounds: number
+}> {
   await page.setViewportSize({ width: 430, height: 715 })
   const flags = adaptive ? '' : '&adaptive=0'
   await page.goto(`/demo.html?id=physical_map&forcegl2=1&e2e=1${flags}${CAM}`, {
@@ -161,7 +171,23 @@ async function run(
   }
   await page.waitForTimeout(4000)
   const after = (await frameGeometry(page)).tris
-  return { before, after, medMs, step: await adaptiveStep(page), rounds }
+  const settled = await frameGeometry(page)
+  const ad = await page.evaluate(() => {
+    const pipe = (
+      window as unknown as { __xgisMap?: { inspectPipeline(): unknown } }
+    ).__xgisMap?.inspectPipeline() as
+      { adaptive?: { step: number; farLodBoost: number } } | undefined
+    return { step: pipe?.adaptive?.step ?? 0, farLodBoost: pipe?.adaptive?.farLodBoost ?? 1 }
+  })
+  return {
+    before,
+    after,
+    tiles: settled.tiles,
+    medMs,
+    step: ad.step,
+    farLodBoost: ad.farLodBoost,
+    rounds,
+  }
 }
 
 test.describe.configure({ mode: 'serial' })
@@ -191,7 +217,7 @@ test('the ladder trades far-field geometry for frame time under sustained overlo
   console.log(
     `  adaptive=1  tris ${on.before} -> ${on.after}, med ${on.medMs.toFixed(1)} ms, notch ${on.step}` +
       ` (${on.rounds} pump round${on.rounds === 1 ? '' : 's'})` +
-      `\n  ladder bought ${(100 * (1 - on.after / off.after)).toFixed(1)}% of the settled geometry\n`,
+      `\n  ladder bought ${(100 * (1 - on.tiles / off.tiles)).toFixed(1)}% of the visible TILES (triangles ${off.after}->${on.after}: this fixture's un-generalized grid moves them the other way, see #1468)\n`,
   )
 
   // THE PREMISE, read from the controller itself (#1433 option 2). The gate is an experiment
@@ -215,11 +241,37 @@ test('the ladder trades far-field geometry for frame time under sustained overlo
 
   // THE CLAIM: it acted, and the selector HONOURED it. A step counter can tick while the
   // selection ignores it — the wire this gate exists for (#1402 showed that seam go nowhere).
+  //
+  // MEASURED ON TILES, NOT TRIANGLES (#1468/#1479). The ladder's lever is the tile selector's
+  // far-field error ceiling, so the TILE SET is what it acts on. Triangles are a property of
+  // what the source happens to put inside those tiles, and for THIS fixture the two move in
+  // opposite directions:
+  //
+  //   adaptive=0   boost 1   tiles 6   triangles 20 008
+  //   adaptive=1   boost 2   tiles 5   triangles 28 794
+  //
+  // The selector coarsened exactly as asked — one fewer tile — while the triangle count rose
+  // 44%, because the fixture seeds a raw 150x150 polygon grid through `setSourceData` and
+  // GeoJSON-VT tiles it with no per-zoom generalization: a coarser tile covers 4x the area and
+  // carries the geometry to match. A real generalized source (PMTiles) inverts that, which is
+  // why this is a property of the fixture and not of the ladder.
+  //
+  // Read on triangles, the assertion therefore accused the ladder of the REVERSE of what it
+  // does, and could not distinguish that from the wire actually being cut — both produce a
+  // failure. Cutting `adaptiveFarLodBoost()` to a constant 1 now fails with "control 6 tiles,
+  // adaptive 6 at boost 2", which names the broken half.
   expect(
-    on.after,
-    `the controller stepped to notch ${on.step} but the horizon never coarsened ` +
-      `(control settled at ${off.after}, adaptive at ${on.after})`,
-  ).toBeLessThan(off.after * 0.9)
+    on.tiles,
+    `the controller stepped to notch ${on.step} (farLodBoost ${on.farLodBoost}) but the ` +
+      `selector kept the same horizon (control ${off.tiles} tiles, adaptive ${on.tiles})`,
+  ).toBeLessThan(off.tiles)
+
+  // The lever must have actually reached the selector, not merely been computed. Asserted
+  // separately from `step` so a failure says WHICH half broke.
+  expect(
+    on.farLodBoost,
+    'the ladder stepped but its far-field lever never engaged',
+  ).toBeGreaterThan(1)
 
   // …and what it took must be the FAR field: the foreground guarantee #1374 restored has
   // to survive every notch. Pinned exhaustively over the ladder's own values in
