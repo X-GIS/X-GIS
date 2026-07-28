@@ -28,22 +28,45 @@
 // fixed-point value (`encodeArrowPosition` and its shader twin) — 1/65535 of the grid span,
 // which on a 596-cell CBOFS row is ~1/110 of a cell, far below anything visible.
 //
-// The pair does NOT resize with the coverage. A position is normalized grid-uv, so a different
-// grid re-interprets the SAME numbers against the new footprint — no reallocation, no reseed,
-// and a forecast step keeps the motion continuous instead of restarting it.
+// The pair does not resize with the coverage's GEOMETRY. A position is normalized grid-uv, so a
+// different grid re-interprets the SAME numbers against the new footprint — no reallocation, no
+// reseed, and a forecast step keeps the motion continuous instead of restarting it. It DOES
+// resize with the arrow COUNT (#1450 A), which is a different question and the reason the two
+// are stated apart: same count on a new grid keeps drifting; a different count is a different
+// set of arrows per texel, and that one re-seeds.
 
 import type { RhiDevice, RhiTexture, RhiTextureView } from '@xgis/engine'
 
-/** State-texture edge. ARROW_ADVECT_TEX_DIM² arrows are in flight at once.
+/** Upper bound on arrows in flight — the SAME ceiling the static portrayal has always used
+ *  (`COVERAGE_ARROW_MAX`), restated here because this module cannot import from the map root.
+ *  A global field (#1273) wants GPU instance generation rather than a bigger texture, so the
+ *  bound stays; what changed is its VALUE, and why.
  *
- *  This is a DISPLAY choice and deliberately NOT the cell count: the catalogue places one
- *  symbol per direct position, but a drifting symbol is not at a grid position anyway, and
- *  binding the count to the data would make a global field (#1273) unaffordable while making a
- *  small harbour look sparse. 128² = 16 384 reads as a full field at any grid size. */
-export const ARROW_ADVECT_TEX_DIM = 128
+ *  THE REVERSAL (#1450 A). This was a fixed 128² = 16 384, argued as a DISPLAY choice
+ *  deliberately not bound to the cell count: a drifting symbol is not at a grid position
+ *  anyway, and binding it to the data would make a global field unaffordable while making a
+ *  small harbour look sparse. Both halves of that still hold on their own terms — but they
+ *  were reasoning about a field drawn BESIDE the catalogue portrayal, and the advected field
+ *  is now the one that REPLACES it (#1449). Two densities for one portrayal is what shipped:
+ *  the static path emits one arrow per water cell up to 100 000, this one capped at 16 384, so
+ *  a CBOFS cell (≈ 69 700 valid) came out at stride 1 against stride 5 — different cells,
+ *  different bands, visibly different colours from the first frame.
+ *
+ *  So the count follows the batch, bounded by the ceiling the static path already trusts. The
+ *  sparse-harbour half of the old argument is unaffected (a small grid gets its own cells,
+ *  which is exactly one symbol per position — the catalogue's own rule); the affordability
+ *  half is preserved by the bound rather than by a fixed size. */
+export const ARROW_ADVECT_MAX_COUNT = 100_000
 
-/** How many arrows that dimension implies. */
-export const ARROW_ADVECT_COUNT = ARROW_ADVECT_TEX_DIM * ARROW_ADVECT_TEX_DIM
+/** The square state-texture edge holding `count` arrows, one texel each.
+ *
+ *  SQUARE, and the VS agrees by construction: it reads `textureDimensions` and derives its
+ *  texel as `(inst % dim.x, inst / dim.x)` (`shaders/dsl/arrow-retained.ts`), so the layout is
+ *  never restated on the GPU side and a resize needs no shader change at all. */
+export function arrowAdvectDim(count: number): number {
+  const n = Math.min(Math.max(0, Math.floor(count)), ARROW_ADVECT_MAX_COUNT)
+  return n <= 0 ? 0 : Math.ceil(Math.sqrt(n))
+}
 
 /** Pack a grid-uv coordinate pair into the rgba8 layout the shaders agree on: r/g carry the LOW
  *  byte of x/y, b/a the HIGH byte. Kept next to the seed that writes it so the CPU seed and the
@@ -87,8 +110,9 @@ export function seedArrowPositions(count: number): Uint8Array {
 }
 
 /** Owns the arrow-position ping-pong. Mirrors FlowTargets' lifecycle — lazy, device-swap
- *  self-healing, destroyed with the map — but with a FIXED size and a FIXED format, so it has
- *  no format agreement to keep and no resize path to get wrong. */
+ *  self-healing, destroyed with the map — and a FIXED format, so it has no format agreement to
+ *  keep. The SIZE follows the batch (#1450 A); a resize re-seeds, which is why it is driven
+ *  from `writeOrigins` (the one call that knows the count) rather than from the per-frame step. */
 export class ArrowAdvectState {
   private a: RhiTexture | null = null
   private b: RhiTexture | null = null
@@ -99,6 +123,9 @@ export class ArrowAdvectState {
   private originKey = ''
   private flipped = false
   private device: RhiDevice | null = null
+  /** The allocated square edge, and the count it was sized for. 0 = nothing allocated. */
+  private dim = 0
+  private count = 0
 
   /** What this frame's update reads FROM, and what the arrow draw's vertex stage reads. */
   get readView(): RhiTextureView | null {
@@ -136,18 +163,23 @@ export class ArrowAdvectState {
    *  property the render gate uses: on frame 0 the advected field is EXACTLY the static
    *  catalogue placement, so "the arrows moved" is a comparison against the portrayal itself. */
   writeOrigins(rhi: RhiDevice, key: string, u: ArrayLike<number>, v: ArrayLike<number>): void {
-    this.ensure(rhi)
+    // The COUNT drives the allocation (#1450 A), so this is also where a resize happens — and
+    // a resize necessarily re-seeds, which is why the key check comes after it.
+    this.ensure(rhi, Math.min(u.length, v.length))
+    if (!this.a) return // an empty batch allocates nothing
     if (key === this.originKey) return
     this.originKey = key
-    const bytes = new Uint8Array(ARROW_ADVECT_COUNT * 4)
-    const n = Math.min(u.length, v.length, ARROW_ADVECT_COUNT)
+    const dim = this.dim
+    const bytes = new Uint8Array(dim * dim * 4)
+    const n = Math.min(u.length, v.length, dim * dim)
     for (let i = 0; i < n; i++) encodeArrowPosition(u[i]!, v[i]!, bytes, i * 4)
-    // Texels past the instance count keep (0,0). No instance reads them, and the advect step
-    // stepping them is harmless — it is a fixed-size pass either way.
-    const row = ARROW_ADVECT_TEX_DIM * 4
-    rhi.writeTexture(this.origin!, bytes, row, ARROW_ADVECT_TEX_DIM, ARROW_ADVECT_TEX_DIM)
-    rhi.writeTexture(this.a!, bytes, row, ARROW_ADVECT_TEX_DIM, ARROW_ADVECT_TEX_DIM)
-    rhi.writeTexture(this.b!, bytes, row, ARROW_ADVECT_TEX_DIM, ARROW_ADVECT_TEX_DIM)
+    // Texels past the instance count keep (0,0) — the edge is `ceil(sqrt(n))`, so there are at
+    // most `2·sqrt(n)` of them. No instance reads them, and the advect step stepping them is
+    // harmless: it is a whole-texture pass either way.
+    const row = dim * 4
+    rhi.writeTexture(this.origin!, bytes, row, dim, dim)
+    rhi.writeTexture(this.a, bytes, row, dim, dim)
+    rhi.writeTexture(this.b!, bytes, row, dim, dim)
     this.flipped = false
   }
 
@@ -155,7 +187,7 @@ export class ArrowAdvectState {
    *  `needsClear` obligation handed to a caller: a cleared position state is not merely ugly,
    *  it is degenerate — every arrow stacked at grid-uv (0,0) forever — so the seed is written
    *  here, at the only moment it could be missed. */
-  ensure(rhi: RhiDevice): void {
+  ensure(rhi: RhiDevice, count = this.count): void {
     if (rhi !== this.device) {
       // A new device took the old textures with it. Drop the handles WITHOUT destroying them
       // (destroying through a dead device is the #737 hazard) and fall through to reallocate.
@@ -165,49 +197,58 @@ export class ArrowAdvectState {
       // The origins went with the old device, so the next writeOrigins must re-upload them
       // even though the batch did not change.
       this.originKey = ''
+      // Not the COUNT though: the batch is the same one, so a bare `ensure(rhi)` from the
+      // per-frame step re-allocates at the size it was already using rather than at nothing.
+      this.dim = 0
     }
-    if (this.a) return
-    this.a = this.make(rhi, 'arrow-advect-a')
-    this.b = this.make(rhi, 'arrow-advect-b')
-    this.origin = this.make(rhi, 'arrow-advect-origin')
+    const dim = arrowAdvectDim(count)
+    if (this.a && dim === this.dim) return
+    // A resize frees the old trio first — the pair is the largest thing this owns, and holding
+    // both while the new one uploads doubles it for no reason.
+    if (this.a) this.free()
+    this.count = count
+    this.dim = dim
+    if (dim === 0) return // no arrows: allocate nothing rather than a 1×1 nobody reads
+    this.a = this.make(rhi, 'arrow-advect-a', dim)
+    this.b = this.make(rhi, 'arrow-advect-b', dim)
+    this.origin = this.make(rhi, 'arrow-advect-origin', dim)
     this.aView = rhi.createView(this.a)
     this.bView = rhi.createView(this.b)
     this.originV = rhi.createView(this.origin)
     this.flipped = false
+    // The positions are about to be re-seeded at a different size, so whatever origins the old
+    // texture held cannot be reused — say so, or `writeOrigins` skips the upload on an equal key
+    // and every arrow reads (0,0).
+    this.originKey = ''
     // Seed BOTH sides. Only the read side is strictly needed, but the write side's undefined
     // contents would be visible for exactly one frame as a flash of arrows at garbage positions.
-    const seed = seedArrowPositions(ARROW_ADVECT_COUNT)
-    rhi.writeTexture(
-      this.a,
-      seed,
-      ARROW_ADVECT_TEX_DIM * 4,
-      ARROW_ADVECT_TEX_DIM,
-      ARROW_ADVECT_TEX_DIM,
-    )
-    rhi.writeTexture(
-      this.b,
-      seed,
-      ARROW_ADVECT_TEX_DIM * 4,
-      ARROW_ADVECT_TEX_DIM,
-      ARROW_ADVECT_TEX_DIM,
-    )
+    const seed = seedArrowPositions(dim * dim)
+    rhi.writeTexture(this.a, seed, dim * 4, dim, dim)
+    rhi.writeTexture(this.b, seed, dim * 4, dim, dim)
   }
 
   destroy(): void {
+    this.free()
+    this.device = null
+    this.count = 0
+  }
+
+  /** Release the trio, keeping the device — the shared half of `destroy` and a resize. */
+  private free(): void {
     if (this.a) this.device?.destroyTexture(this.a)
     if (this.b) this.device?.destroyTexture(this.b)
     if (this.origin) this.device?.destroyTexture(this.origin)
     this.a = this.b = this.origin = null
     this.aView = this.bView = this.originV = null
     this.originKey = ''
-    this.device = null
     this.flipped = false
+    this.dim = 0
   }
 
-  private make(rhi: RhiDevice, label: string): RhiTexture {
+  private make(rhi: RhiDevice, label: string, dim: number): RhiTexture {
     return rhi.createTexture({
-      width: ARROW_ADVECT_TEX_DIM,
-      height: ARROW_ADVECT_TEX_DIM,
+      width: dim,
+      height: dim,
       format: 'rgba8unorm',
       // `render` so the update can write it, `sample` so the next update AND the arrow draw's
       // vertex stage can read it (both sides need both — they alternate roles every frame), and

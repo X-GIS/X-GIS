@@ -53,8 +53,11 @@ export interface CoverageSourceDeps {
    *  (#1426). Distinct from `armRegion` below on purpose: that one preserves the LIVE display
    *  opts across a swap, which is exactly wrong for a FIRST arm — there is no live paint to
    *  preserve, only the renderer's defaults, so a fill-only coverage would silently lose the
-   *  `ramp:` / `range:` its layer declared. Used only by the deferred declared-source load. */
-  armFromShow: (sourceId: string, handle: CoverageHandle, region: string) => void
+   *  `ramp:` / `range:` its layer declared.
+   *
+   *  RETURNS whether any show claimed the source — `armRegion` needs that answer, because
+   *  `fieldArmed` is a latch a FIRST push legitimately beats. */
+  armFromShow: (sourceId: string, handle: CoverageHandle, region: string) => boolean
   /** Drop one region's compiled arrow glyphs. */
   clearArrows: (region: string) => void
   invalidate: () => void
@@ -129,19 +132,38 @@ function writeRegion(
   return true
 }
 
-/** Arm the renderer for one region, honouring a caller's ramp/range override. */
+/** Arm the renderer for one region, honouring a caller's ramp/range override.
+ *
+ *  THREE arms, and the middle one is why this is not two lines (#1449):
+ *
+ *  1. A field is already armed and the caller overrode nothing → re-derive it from the live
+ *     display opts. The steady state: a forecast step, a host frame push.
+ *  2. `fieldArmed()` is FALSE but a layer DECLARES a field → arm from the SHOWS, the same
+ *     authority the deferred declared-source read uses. `fieldArmed` is a latch set by
+ *     `rebuildLayers`, and the rebuild only reaches its coverage branch once the source HAS
+ *     data — so the very first push, which is what puts the data there, always finds the latch
+ *     false and used to fall through to the raw `setCoverage` below. That bypasses
+ *     `armCoverageDrape` entirely: no `hidden`, no `flowOnly`, no arrows. Under the arrows
+ *     portrayal a first-loaded region therefore showed the ramp drape it was supposed to hide
+ *     and none of its glyphs, until some later interaction re-armed it — and a viewport mosaic
+ *     pushes several regions in that same first batch, which is where it was most visible.
+ *  3. No field declared, or an imperative paint override → the plain fill arm.
+ */
 function armRegion(
   deps: CoverageSourceDeps,
+  sourceId: string,
   handle: CoverageHandle,
   region: string,
   override?: { ramp?: string; range?: readonly [number, number] },
 ): void {
   // ramp/range/opacity are LAYER paint (#1158 INC-D) — an imperative swap keeps the
   // renderer's armed display unless the caller overrides; a later rebuild re-arms.
-  if (deps.fieldArmed() && !override?.ramp && !override?.range) {
+  const overridden = override?.ramp != null || override?.range != null
+  if (deps.fieldArmed() && !overridden) {
     deps.armFields(handle, region)
     return
   }
+  if (!overridden && deps.armFromShow(sourceId, handle, region)) return
   const renderer = deps.renderer()
   const cur = renderer.displayOpts()
   renderer.setCoverage(
@@ -230,7 +252,7 @@ export async function pushCoverageRegion(
   // Keep the URL when the caller names the pushed cell's (the viewport mosaic passes the
   // region it fetched) so a later range read can address the same cell at another hour.
   if (!writeRegion(deps, sourceId, region, { handle, url: opts?.url })) return
-  armRegion(deps, handle, region, opts)
+  armRegion(deps, sourceId, handle, region, opts)
   deps.invalidate()
 }
 
@@ -284,7 +306,7 @@ async function stepOneRegion(
   const handle = await readCoverageRange(entry.url, { group })
   if (!deps.time.isCurrent(token, region)) return // superseded by a newer step
   if (!writeRegion(deps, sourceId, region, { handle, url: entry.url })) return
-  armRegion(deps, handle, region)
+  armRegion(deps, sourceId, handle, region)
   deps.invalidate()
 }
 
@@ -384,7 +406,7 @@ async function refreshOneRegion(
   deps.refresh.rememberValidator(key, probed)
   if (!writeRegion(deps, sourceId, region, { handle, url }))
     return { changed: false, reason: decision.reason }
-  armRegion(deps, handle, region)
+  armRegion(deps, sourceId, handle, region)
   deps.invalidate()
   return { changed: true, reason: decision.reason }
 }
