@@ -40,6 +40,12 @@ import {
 } from '../shaders/dsl/raster'
 import { hillshadeU as HILLSHADE_U } from '../shaders/dsl/hillshade'
 import {
+  tileRequestable,
+  noteFailure,
+  leafLoadBudget,
+  type FailedTile,
+} from './hillshade-tile-retry'
+import {
   writeRasterFrameUniform,
   writeRasterTileUniform,
   rasterFrameCamAnchor,
@@ -316,6 +322,10 @@ export class HillshadeRenderer {
    *  `evictTiles` are the only writers, so it cannot drift. */
   private _cachedBytes = 0
   private loadingTiles = new Map<string, AbortController>()
+  /** Tiles whose load resolved null, with the backoff state that stops them being
+   *  re-requested every frame (policy in hillshade-tile-retry.ts). Cleared when the
+   *  source is re-armed — a new URL template is a new coverage. */
+  private failedTiles = new Map<string, FailedTile>()
   private frameCount = 0
   private lastZoom = -1
   private lastVisibleKeys: Set<string> = new Set()
@@ -384,6 +394,10 @@ export class HillshadeRenderer {
   }
 
   setUrlTemplate(url: string): void {
+    // A different template is a different coverage, so past failures say nothing
+    // about it — drop the backoff state rather than carry a stale "gave up" verdict
+    // onto tiles the new source may well have.
+    if (url !== this.urlTemplate) this.failedTiles.clear()
     this.urlTemplate = url
   }
 
@@ -536,12 +550,19 @@ export class HillshadeRenderer {
     tiles.sort((a, b) => (a.z !== b.z ? a.z - b.z : 0))
     const visibleKeys = new Set(tiles.map((c) => `${c.z}/${c.x}/${c.y}`))
 
-    // Load missing tiles (leaf-first so near tiles win the concurrency budget).
+    // Load missing tiles (leaf-first so near tiles win the concurrency budget) — except
+    // on a cold start, where leafLoadBudget holds two slots back so the parent-fallback
+    // prefetch below can put a coarse tile on screen first (hillshade-tile-retry.ts).
+    const leafBudget = leafLoadBudget(MAX_CONCURRENT_LOADS, this.tileCache.size)
     const loadOrder = [...tiles].sort((a, b) => b.z - a.z)
     for (const coord of loadOrder) {
       const key = `${coord.z}/${coord.x}/${coord.y}`
       if (this.tileCache.has(key) || this.loadingTiles.has(key)) continue
-      if (this.loadingTiles.size >= MAX_CONCURRENT_LOADS) break
+      // A tile that has failed recently is not re-requested until its backoff
+      // elapses — without this, a past-max-zoom view spends the whole budget on
+      // 404s every frame (hillshade-tile-retry.ts explains why that path is common).
+      if (!tileRequestable(this.failedTiles.get(key), this.frameCount)) continue
+      if (this.loadingTiles.size >= leafBudget) break
       const ctrl = new AbortController()
       this.loadingTiles.set(key, ctrl)
       this.loadTileTexture(tileUrl(this.urlTemplate, coord), ctrl.signal)
@@ -553,7 +574,11 @@ export class HillshadeRenderer {
         .catch(() => null)
         .then((texture) => {
           this.loadingTiles.delete(key)
-          if (!texture) return
+          if (!texture) {
+            noteFailure(this.failedTiles, key, this.frameCount)
+            return
+          }
+          this.failedTiles.delete(key)
           // firstShownFrame -1 = "never drawn yet"; the draw loop stamps it on the
           // tile's FIRST appearance so an off-screen prefetch still fades in.
           this._cacheTile(key, texture)
@@ -568,6 +593,7 @@ export class HillshadeRenderer {
         if (parentZ < 0) break
         const parentKey = `${parentZ}/${coord.x >> pz}/${coord.y >> pz}`
         if (this.tileCache.has(parentKey) || this.loadingTiles.has(parentKey)) continue
+        if (!tileRequestable(this.failedTiles.get(parentKey), this.frameCount)) continue
         if (this.loadingTiles.size >= MAX_CONCURRENT_LOADS) break
         const ctrl = new AbortController()
         this.loadingTiles.set(parentKey, ctrl)
@@ -584,7 +610,12 @@ export class HillshadeRenderer {
           .catch(() => null)
           .then((texture) => {
             this.loadingTiles.delete(parentKey)
-            if (texture) this._cacheTile(parentKey, texture)
+            if (!texture) {
+              noteFailure(this.failedTiles, parentKey, this.frameCount)
+              return
+            }
+            this.failedTiles.delete(parentKey)
+            this._cacheTile(parentKey, texture)
           })
           .catch((e) =>
             console.error('[X-GIS] hillshade parent-tile post-load bookkeeping failed', e),

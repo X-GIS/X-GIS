@@ -30,6 +30,7 @@ import type {
 } from '@xgis/engine'
 import { Material, executeItems, type DrawItem } from '@xgis/engine'
 import { emitIconRetainedWgsl, emitIconRetainedGlsl } from '../../shaders/dsl/icon-retained'
+import { wgslFor } from './wgsl-for'
 
 export class RetainedIconDraper {
   private readonly material: Material
@@ -38,12 +39,12 @@ export class RetainedIconDraper {
     // #823 — GLSL ES 3.00 twins for the WebGL2 backend, emitted behind a LIVE
     // backend guard so the WebGPU boot never pays the double emit (#778 P6).
     // WebGl2Device.createPipeline requires the split sources; WebGPU ignores them.
-    const glsl =
-      rhi.backend === 'webgl2'
-        ? { vsCode: emitIconRetainedGlsl('vertex'), fsCode: emitIconRetainedGlsl('fragment') }
-        : {}
+    const gl2 = rhi.backend === 'webgl2'
+    const glsl = gl2
+      ? { vsCode: emitIconRetainedGlsl('vertex'), fsCode: emitIconRetainedGlsl('fragment') }
+      : {}
     this.material = new Material(rhi, {
-      shader: emitIconRetainedWgsl(),
+      shader: wgslFor(rhi, emitIconRetainedWgsl),
       ...glsl,
       vsEntry: 'vs_icon_retained',
       fsEntry: 'fs_icon_retained',

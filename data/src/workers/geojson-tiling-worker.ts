@@ -15,7 +15,7 @@
 //
 //   { kind: 'get-tile', indexKey, sourceName, z, x, y, key }
 //     → { kind: 'tile', sourceName, key, bytes }   (bytes transferable)
-//     → { kind: 'tile-error', message }
+//     → { kind: 'tile-error', message, sourceGone? }
 //
 //   { kind: 'drop-source', indexKey }   (fire-and-forget, no response)
 //
@@ -87,6 +87,14 @@ interface TileErrOut {
   kind: 'tile-error'
   taskId: number
   message: string
+  /** True when the failure is simply that this instance's index is GONE — the
+   *  map was disposed (or the source replaced) while this get-tile was in
+   *  flight. Designed behaviour, not a fault: the isolation contract is that a
+   *  dropped index reports "unknown source" rather than serving stale data
+   *  (geojson-tiling-worker-isolation.test.ts). Flagged structurally so the
+   *  consumer can tell teardown from a real decode/index failure without
+   *  pattern-matching the message. */
+  sourceGone?: true
 }
 
 type OutMsg = SetSourceDoneOut | SetSourceErrOut | TileOut | TileErrOut
@@ -129,6 +137,7 @@ self.addEventListener('message', (ev: MessageEvent) => {
           kind: 'tile-error',
           taskId: msg.taskId,
           message: `unknown source: ${msg.sourceName}`,
+          sourceGone: true,
         })
         return
       }
