@@ -75,6 +75,7 @@ import {
   TEXT_MAX_ANGLE_DEFAULT_DEG,
   STAGE_DEFAULTS,
   rotateLabelTranslate,
+  deriveLabelBbox,
 } from './text-stage-helpers'
 import type { TextStageOptions, PendingLabel, PendingLineLabel } from './text-stage-types'
 import { wrapWithKnuthPlass, cjkBucketFor } from './text-wrap'
@@ -782,6 +783,7 @@ export class TextStage {
     pairKey?: string,
     collisionId?: string,
     perspectiveScale?: number,
+    groundBasis?: ArrayLike<number>,
   ): void {
     const _ast = ((globalThis as Record<string, unknown>).__xgisLabelsRhi ??= {}) as Record<
       string,
@@ -822,6 +824,7 @@ export class TextStage {
       collisionId,
       layerName,
       ...(images.length > 0 ? { inlineImages: images } : {}),
+      ...(groundBasis !== undefined ? { groundBasis } : {}),
       perspectiveScale,
     })
   }
@@ -1077,7 +1080,8 @@ export class TextStage {
       // scale), so line breaks are unchanged. Quantised to 1/64 (≤1.5% steps, sub-
       // pixel) so the across-frame layout cache (keyed on sizePx) still hits during a
       // pitched pan; perspScale 1 (default) leaves sizePx byte-identical to before.
-      const perspScale = p.perspectiveScale ?? 1
+      // #777 IV3 — mutually exclusive; see PendingLabel.groundBasis for why.
+      const perspScale = p.groundBasis !== undefined ? 1 : (p.perspectiveScale ?? 1)
       const rawSizePx = p.def.size * dpr * (Math.round(perspScale * 64) / 64)
       const sizePx = rawSizePx
       // Label italic → renderer shears CJK/Hangul glyphs (synthetic oblique).
@@ -1272,12 +1276,7 @@ export class TextStage {
           const drawY = p.anchorY + hit.dy
           // Badge union — a steady scene is ~all cache hits, so the shaping
           // path alone left it a no-op (0 px change until this site landed).
-          const cachedBox = {
-            minX: drawX - hit.padding,
-            minY: drawY + hit.blockTop - hit.padding,
-            maxX: drawX + hit.totalAdvance + hit.padding,
-            maxY: drawY + hit.blockBottom + hit.padding,
-          }
+          const cachedBox = deriveLabelBbox(drawX, drawY, hit, p.groundBasis)
           this._pairBadge.union(p.pairKey, p.anchorX, p.anchorY, cachedBox)
           const haloLive =
             hit.haloGeom && p.def.halo
@@ -1303,6 +1302,7 @@ export class TextStage {
                   rotateRad: hit.rotateRad,
                   glyphOffsets: hit.glyphOffsets,
                   sdfRadius: this.opts.sdfRadius,
+                  ...(p.groundBasis !== undefined ? { groundBasis: p.groundBasis } : {}),
                 },
                 bbox: cachedBox,
               },
@@ -1478,12 +1478,13 @@ export class TextStage {
             }
           }
         }
-        const bbox = {
-          minX: drawX - padding,
-          minY: drawY + vlay.blockTop - padding,
-          maxX: drawX + totalAdvance + padding,
-          maxY: drawY + vlay.blockBottom + padding,
+        const bboxMetrics = {
+          totalAdvance,
+          blockTop: vlay.blockTop,
+          blockBottom: vlay.blockBottom,
+          padding,
         }
+        const bbox = deriveLabelBbox(drawX, drawY, bboxMetrics, p.groundBasis)
         // A shield collides as its badge, not its ref glyphs.
         this._pairBadge.union(p.pairKey, p.anchorX, p.anchorY, bbox)
         // #777 I-A — stash the shaped text box {w,h} (candidate-invariant dims)
@@ -1508,6 +1509,7 @@ export class TextStage {
             rotateRad: p.def.rotate ? (p.def.rotate * Math.PI) / 180 : undefined,
             glyphOffsets,
             sdfRadius: this.opts.sdfRadius,
+            ...(p.groundBasis !== undefined ? { groundBasis: p.groundBasis } : {}),
           },
           bbox,
           ...(imgPlacements.length > 0 ? { inlineImages: imgPlacements } : {}),
@@ -1527,10 +1529,7 @@ export class TextStage {
           this._layoutCache.set(_layoutKey, {
             dx,
             dy,
-            totalAdvance,
-            padding,
-            blockTop: vlay.blockTop,
-            blockBottom: vlay.blockBottom,
+            ...bboxMetrics,
             glyphOffsets: cachedGlyphOffsets,
             glyphs,
             generation: this.host.getGeneration(),
