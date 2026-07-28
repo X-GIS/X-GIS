@@ -149,6 +149,10 @@ export interface LayerAccumulator {
   // Motion layer (#1333). `isFlow` is the marker the `flow` utility sets — an animated
   // second reading of a coverage's vector field, explicitly outside the catalogue.
   isFlow: boolean | undefined
+  // How that motion is PORTRAYED (#1418). IBFV is the mechanism; this is the presentation
+  // built on it. Undefined = the default (`arrows`), resolved once at arm time rather than
+  // spelled at every consumer.
+  flowPortrayal: 'arrows' | 'streaks' | undefined
   // Heatmap paint axes (Phase R). isHeatmap is the marker the converter's
   // `heatmap` utility sets; the rest carry the resolved scalars + ramp.
   isHeatmap: boolean | undefined

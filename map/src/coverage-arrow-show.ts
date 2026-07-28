@@ -17,6 +17,7 @@ import type { ShowCommand } from './render/renderer-types'
 import type { GraphicsManager } from './graphics/graphics-manager'
 import { bandedRampColor } from './color-ramp'
 import { resolveVectorBands } from './coverage-vector-bands'
+import { ARROW_ADVECT_COUNT } from './render/arrow-advect-state'
 import {
   s111ArrowLengthPx,
   s111HasArrow,
@@ -36,6 +37,32 @@ export interface CoverageArrowShowHost {
  *  instance generation instead — out of scope here. */
 export const COVERAGE_ARROW_MAX = 100_000
 
+export interface CoverageArrowOptions {
+  /** ADVECTED mode (#1409): the arrows are the particles — each one drifts through the current
+   *  and is re-symbolized from the data under its new position.
+   *
+   *  Two things change here, and only here; the static portrayal is untouched.
+   *
+   *  1. THE COUNT IS CAPPED at `ARROW_ADVECT_COUNT`. The arrow-position state is one TEXEL per
+   *     arrow, so instance `i` and state texel `i` must correspond 1:1. A grid with more valid
+   *     cells than texels is thinned over its WATER (the same uniform thinning the ceiling
+   *     already does), which is also the right display choice: a moving field reads as full at
+   *     16 384 arrows whatever the grid size.
+   *
+   *  2. EACH INSTANCE CARRIES ITS ORIGIN in grid-uv. The shader adds the drift displacement to
+   *     it to know WHERE to sample the field for this frame's band, bearing and scale. Without
+   *     it the arrow would move but keep the colour it launched with — an animation that looks
+   *     entirely correct and reports the wrong current. */
+  advected?: boolean
+}
+
+/** Instance origins in grid-uv, parallel to the arrays handed to `addCompiledArrowLayer`.
+ *  Populated only in advected mode; the static portrayal has no use for it. */
+export interface CoverageArrowOrigins {
+  u: Float32Array
+  v: Float32Array
+}
+
 /** Build the S-111 arrow field for a coverage layer carrying `| arrow`. One arrow per valid
  *  (finite speed > 0) cell: position = cell centre, bearing = the direction band (degrees
  *  true, the arrow primitive's own convention), length = the per-band scale rule, colour =
@@ -49,6 +76,7 @@ export function addCoverageArrowShowLayer(
   show: ShowCommand,
   handle: CoverageHandle,
   region = '',
+  opts: CoverageArrowOptions = {},
 ): void {
   // Is this a vector field at all? SINGLE AUTHORITY (coverage-vector-bands.ts) shared with
   // the flow-field upload, so the two cannot disagree about whether a coverage has a current.
@@ -72,7 +100,10 @@ export function addCoverageArrowShowLayer(
     if (s111HasArrow(speed[i]!) && Number.isFinite(dir[i]!)) idx.push(i)
   }
   if (idx.length === 0) return
-  const stride = idx.length > COVERAGE_ARROW_MAX ? Math.ceil(idx.length / COVERAGE_ARROW_MAX) : 1
+  // The advected mode's ceiling is the state texture's texel count, not COVERAGE_ARROW_MAX:
+  // instance `i` and state texel `i` must correspond 1:1 (see CoverageArrowOptions).
+  const ceiling = opts.advected ? ARROW_ADVECT_COUNT : COVERAGE_ARROW_MAX
+  const stride = idx.length > ceiling ? Math.ceil(idx.length / ceiling) : 1
 
   const lons: number[] = []
   const lats: number[] = []
@@ -107,4 +138,34 @@ export function addCoverageArrowShowLayer(
     S111_OUTLINE_FRAC,
     region,
   )
+}
+
+/** The origins the ADVECTED mode needs, for the same inputs and in the SAME order
+ *  `addCoverageArrowShowLayer` emits its instances.
+ *
+ *  Separate from the emit rather than returned by it, because the static path — every existing
+ *  `| arrow` caller — must keep allocating nothing extra. The ORDER is the contract: origin `i`
+ *  belongs to instance `i`, so both walk `idx` with the identical stride, and
+ *  `coverage-arrow-show.test.ts` pins that they agree rather than trusting two loops to stay in
+ *  step. */
+export function coverageArrowOrigins(handle: CoverageHandle): CoverageArrowOrigins | null {
+  const vec = resolveVectorBands(handle)
+  if (!vec) return null
+  const [nLon, nLat] = handle.header.size
+  const idx: number[] = []
+  for (let i = 0; i < vec.speed.length; i++) {
+    if (s111HasArrow(vec.speed[i]!) && Number.isFinite(vec.direction[i]!)) idx.push(i)
+  }
+  if (idx.length === 0) return null
+  const stride = idx.length > ARROW_ADVECT_COUNT ? Math.ceil(idx.length / ARROW_ADVECT_COUNT) : 1
+  const u: number[] = []
+  const v: number[] = []
+  for (let k = 0; k < idx.length; k += stride) {
+    const i = idx[k]!
+    const row = Math.floor(i / nLon)
+    const col = i - row * nLon
+    u.push(nLon > 1 ? col / (nLon - 1) : 0)
+    v.push(nLat > 1 ? row / (nLat - 1) : 0)
+  }
+  return { u: Float32Array.from(u), v: Float32Array.from(v) }
 }

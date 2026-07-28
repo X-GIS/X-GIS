@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest'
 import { coverageFromGrids, type CoverageInput } from '@xgis/data/coverage'
-import { addCoverageArrowShowLayer, type CoverageArrowShowHost } from './coverage-arrow-show'
+import {
+  addCoverageArrowShowLayer,
+  coverageArrowOrigins,
+  type CoverageArrowShowHost,
+} from './coverage-arrow-show'
+import { ARROW_ADVECT_COUNT } from './render/arrow-advect-state'
 import type { ShowCommand } from './render/renderer-types'
 import { S111_ARROW_BASE_PX, S111_OUTLINE_FRAC } from './render/s111-portrayal'
 
@@ -163,5 +168,113 @@ describe('addCoverageArrowShowLayer (#1333 — engine S-111 arrow field)', () =>
     const { host, calls } = makeHost()
     addCoverageArrowShowLayer(host, s111Show, coverageFromGrids(input))
     expect(calls).toHaveLength(0)
+  })
+})
+
+// ── Advected mode: the arrows ARE the particles (#1409) ──────────────────────────────────
+//
+// Two contracts, both invisible in a frame:
+//
+//   1. ORDER. `coverageArrowOrigins` walks the same valid cells with the same stride as the
+//      emit, so origin `i` belongs to instance `i`. Two loops staying in step is exactly the
+//      kind of agreement that drifts, and the failure is silent: every arrow would advect from
+//      SOMEONE ELSE'S origin, sampling the field in the wrong place and reporting a current
+//      that does not exist there — while looking like a perfectly working animation.
+//
+//   2. COUNT. The position state is one TEXEL per arrow, so a grid with more valid cells than
+//      texels must thin to fit. An over-count would index past the state texture.
+
+describe('coverageArrowOrigins (#1409 — advected mode)', () => {
+  it('is null for a scalar coverage, like the emit', () => {
+    const handle = coverageFromGrids({
+      product: 's102',
+      origin: [0, 0],
+      spacing: [1, 1],
+      size: [2, 1],
+      vertical: { datumCode: null, sign: 'down' },
+      bands: [
+        {
+          name: 'depth',
+          unit: 'metres',
+          kind: 'f32',
+          nodata: -9999,
+          values: Float32Array.from([1, 2]),
+        },
+      ],
+    })
+    expect(coverageArrowOrigins(handle)).toBeNull()
+  })
+
+  it('emits ONE origin per emitted instance, in the SAME order', () => {
+    const handle = coverageFromGrids(
+      s111Input([0.3, 0, NaN, 2.5, 5.0, 20.0], [90, 0, 0, 180, 270, 45]),
+    )
+    const { host, calls } = makeHost()
+    addCoverageArrowShowLayer(host, s111Show, handle, '', { advected: true })
+    const origins = coverageArrowOrigins(handle)!
+    const emitted = calls[0]!
+
+    expect(origins.u).toHaveLength(emitted.lons.length)
+    expect(origins.v).toHaveLength(emitted.lons.length)
+
+    // The grid is 3 wide × 2 tall, SW centre (10,50), 1° spacing. Row 0 is the NORTH row
+    // (lat 51) and carries the skipped cells, so the drawable set is
+    //   (row0,col0) lon 10 lat 51 · (row1,col0..2) lat 50.
+    // u = col/(nLon-1), v = row/(nLat-1) — v runs SOUTH from the north row, matching the
+    // velocity textures' own packing, so the shader needs no axis fix-up.
+    expect([...origins.u]).toEqual([0, 0, 0.5, 1])
+    expect([...origins.v]).toEqual([0, 1, 1, 1])
+
+    // ...and that really is instance order: instance 0 is the north-row arrow.
+    expect(emitted.lats[0]).toBeCloseTo(51, 9)
+    expect(emitted.lats[1]).toBeCloseTo(50, 9)
+    expect(emitted.lons[2]).toBeCloseTo(11, 9)
+  })
+
+  it('thins to the state texture’s capacity, and the origins thin WITH it', () => {
+    // More valid cells than texels. Both sides must apply the identical stride, or the
+    // instance/texel correspondence breaks and every arrow reads someone else's position.
+    const n = ARROW_ADVECT_COUNT + 1000
+    const speed = new Array(n).fill(1.5)
+    const dir = new Array(n).fill(90)
+    const handle = coverageFromGrids({
+      product: 's111',
+      origin: [0, 0],
+      spacing: [0.01, 0.01],
+      size: [n, 1],
+      vertical: { datumCode: null, sign: 'up' },
+      bands: [
+        {
+          name: 'surfaceCurrentSpeed',
+          unit: 'knots',
+          kind: 'f32',
+          nodata: -9999,
+          values: Float32Array.from(speed),
+        },
+        {
+          name: 'surfaceCurrentDirection',
+          unit: 'arc-degrees',
+          kind: 'f32',
+          nodata: -9999,
+          values: Float32Array.from(dir),
+        },
+      ],
+    })
+    const { host, calls } = makeHost()
+    addCoverageArrowShowLayer(host, s111Show, handle, '', { advected: true })
+    const origins = coverageArrowOrigins(handle)!
+    expect(calls[0]!.lons.length).toBeLessThanOrEqual(ARROW_ADVECT_COUNT)
+    expect(origins.u).toHaveLength(calls[0]!.lons.length)
+  })
+
+  it('the STATIC path is untouched — no cap at the advect count, no origins needed', () => {
+    // Every existing `| arrow` consumer goes through here. The advected ceiling must not
+    // silently start thinning the catalogue-conformant one-per-cell portrayal.
+    const handle = coverageFromGrids(
+      s111Input([0.3, 0, NaN, 2.5, 5.0, 20.0], [90, 0, 0, 180, 270, 45]),
+    )
+    const { host, calls } = makeHost()
+    addCoverageArrowShowLayer(host, s111Show, handle) // no opts
+    expect(calls[0]!.lons).toHaveLength(4)
   })
 })

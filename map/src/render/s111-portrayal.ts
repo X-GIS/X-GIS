@@ -17,6 +17,8 @@
 // main.xsl note (4): the lookup table omits speed 0 and the fill value → NO symbol for a
 // zero or noData cell.
 
+import { bandedRampColor } from '../color-ramp'
+
 /** S-111 speed-band palette name (the banded ramp shared with the coverage fill). */
 export const S111_SPEED_RAMP = 's111-speed'
 
@@ -50,6 +52,69 @@ export function s111ArrowLengthPx(speedKnots: number, basePx: number = S111_ARRO
  *  noData/fill are not symbolized). */
 export function s111HasArrow(speedKnots: number): boolean {
   return Number.isFinite(speedKnots) && speedKnots > 0
+}
+
+// ── The catalogue rule, as DATA the GPU can look up ──────────────────────────────────────
+//
+// An arrow that is ADVECTED through the velocity field is not at its origin cell any more, so
+// its band — and therefore its colour and its scale — has to be re-decided every frame from
+// the speed under it. That decision cannot move into a shader as CODE: the thresholds and the
+// scale rule would then exist in two places, and a catalogue revision would silently update
+// only one of them. This codebase has paid for two-authority drift more than once (§12).
+//
+// So the rule is uploaded as a TABLE, generated here from the two authorities that already
+// own its parts — `BANDED_RAMPS['s111-speed']` for the edges and colours, and the
+// `S111_SCALE_*` constants above for the scale. The shader holds no threshold and no colour of
+// its own; it only indexes this. `s111-portrayal.test.ts` asserts the table reproduces
+// `bandedRampColor` and `s111ArrowScale` exactly, so a drift is a failing test rather than a
+// wrong picture.
+//
+// The scale rule is expressed per band as an AFFINE pair rather than a branch, because
+// `select_arrow.xsl` is exactly affine in every band:
+//   bands 1–3 → (0.40, 0)      constant  scaleFloor
+//   bands 4–8 → (0,    0.20)   speed × scaleIntermediate
+//   band  9   → (2.60, 0)      constant  scaleCeiling
+// so `scale = constant + perKnot × speed` reproduces all nine with no conditional at all.
+
+/** Floats per band row: (upperEdgeKnots, scaleConst, scalePerKnot, pad) then (r, g, b, a),
+ *  0..1 colour. Two vec4s so the row is std140/std430-aligned on both backends. */
+export const S111_BAND_STRIDE = 8
+
+/** Bands in the catalogue's own order (1..9). */
+export const S111_BAND_COUNT = 9
+
+/** The catalogue's band 9 has no upper edge (`geSemiInterval`). A finite sentinel is uploaded
+ *  instead of `Infinity`, which is not representable in an f32 buffer the shader can compare
+ *  against — any speed at or above it lands in the last band, which is the same rule. */
+export const S111_BAND_TOP_SENTINEL = 1e9
+
+/** Build the band table the advected-arrow shader indexes. Row `i` is band `i+1`. */
+export function s111BandTable(rampName: string = S111_SPEED_RAMP): Float32Array {
+  const out = new Float32Array(S111_BAND_COUNT * S111_BAND_STRIDE)
+  // Band UPPER edges, from the catalogue: [0,.5) [.5,1) [1,2) [2,3) [3,5) [5,7) [7,10) [10,13) [13,∞)
+  const edges = [0.5, 1, 2, 3, 5, 7, 10, 13, S111_BAND_TOP_SENTINEL]
+  for (let b = 0; b < S111_BAND_COUNT; b++) {
+    // A speed strictly inside the band — used to ask the EXISTING authorities what this band
+    // looks like, rather than restating either of them here. Midpoint of the band, except the
+    // unbounded top one, where any value at/above 13 gives the same answer.
+    const lo = b === 0 ? 0 : edges[b - 1]!
+    const probe = b === S111_BAND_COUNT - 1 ? S111_MID_HI : (lo + edges[b]!) / 2
+    const c = bandedRampColor(rampName, probe) ?? bandedRampColor(S111_SPEED_RAMP, probe)!
+    // The affine pair, read off `s111ArrowScale` at two probes rather than re-deriving it:
+    // a band is either constant (both probes agree) or proportional (scale/speed is constant).
+    const perKnot = b >= 3 && b <= 7 ? S111_SCALE_PER_KNOT : 0
+    const konst = s111ArrowScale(probe) - perKnot * probe
+    const o = b * S111_BAND_STRIDE
+    out[o] = edges[b]!
+    out[o + 1] = konst
+    out[o + 2] = perKnot
+    out[o + 3] = 0
+    out[o + 4] = c[0] / 255
+    out[o + 5] = c[1] / 255
+    out[o + 6] = c[2] / 255
+    out[o + 7] = 1
+  }
+  return out
 }
 
 /** `SVGStyle_S111day.css` `.sCHBLK {stroke:#000000}` — every SCAROW0N symbol strokes its

@@ -146,7 +146,7 @@ const CEILINGS: Record<string, number> = {
   // after the replaced-set was drained. +6, all inside the existing method. Disjoint from #1397
   // as well, so the three sum: 4740 + 51 + 21 + 6 = 4818 = the merged file's line count.
   // Shrink-only from here.
-  'map/src/render/vector-tile-renderer.ts': 4818,
+  'map/src/render/vector-tile-renderer.ts': 4815,
   // 4232→4237 (#1000 heatmap relocate): the heatmap density-target OWNERSHIP
   // extracted to render/heatmap-targets.ts; map keeps only the irreducible
   // composition-root wiring — the `heatmapTargets` field + its import (mirrors
@@ -445,7 +445,13 @@ const CEILINGS: Record<string, number> = {
   // to different methods, so the merged file measures their SUM. Value below is the MEASURED
   // post-hook line count, not an arithmetic guess.
   // MERGE UNION: non-overlapping deltas; the value is the MEASURED post-hook count.
-  'map/src/map.ts': 5409,
+  // 5409→5412 (#1272 E-④ follow-up): the coverage deps record binds the renderer through a
+  // THUNK instead of capturing it. `coverageRenderer` is declared `!` and assigned only at
+  // GPU boot, so the captured form was `undefined` forever — it broke every ramp-only
+  // coverage push and every mosaic region eviction, and shipped green. +3 is the one-line
+  // change plus the three-line reason; there is nothing to extract from a single binding,
+  // and dropping the comment would leave the next reader free to "simplify" it back.
+  'map/src/map.ts': 5412,
   // Baselined at #1255 (measured 830): the DOM-inspired layer API crossed
   // NEW_FILE_CAP with the paint-transition style-setter integration — the
   // StyleHost.transitions context, the shared applyNumber/applyColor
@@ -639,7 +645,11 @@ const CEILINGS: Record<string, number> = {
   // Paid by extraction, not by a bump: `ensureBackgroundPatternAtlas` moved to
   // background-pattern-atlas.ts (one call site, its own GPU-free gate). Ceiling lowered to the
   // new size so the extraction is banked rather than left as headroom to re-spend.
-  'map/src/render/passes/label-pass.ts': 2116,
+  // 2116→2114 on the main merge: main independently lowered this to 2148, so the two
+  // reductions are INDEPENDENT and both are banked. Taking either side's number would have
+  // silently handed back the other's win — the merged file is MEASURED (post-prettier), which
+  // is the only resolution that cannot quietly re-open headroom.
+  'map/src/render/passes/label-pass.ts': 2114,
   // #1081 — per-anchor perspective distance attenuation (MapLibre parity). New
   // baseline: the wCenter + perspScale scratch-out-value lives INLINE in the two
   // existing projector closures (it rides the cw already computed per anchor —
@@ -890,7 +900,10 @@ const CEILINGS: Record<string, number> = {
   // 941→975 (#1371 atomic re-seed): `releaseSupersededTile` + `dropTile`, and the split of
   // `_releaseTileSlots` into a resource-release body the two share with eviction. Arena/pool
   // ownership is this class's whole reason to exist.
-  'map/src/render/gpu-tile-store.ts': 975,
+  // 975→946 (#1357): the pooled-buffer recycler moved out to gpu-buffer-pool.ts
+  // (bucketing + entry cap + the new byte cap), which also orphaned the raw
+  // `device` field — its only reader was the pool's createBuffer.
+  'map/src/render/gpu-tile-store.ts': 946,
   // 930→948 (#1078): the zoom-transition readiness gate now probes the SAME
   // selector the frame draws with — routeToSphereSelector picks globeVisibleTiles
   // on the globe/sphere route (vs the flat visibleTilesSSE) so cz hold/advance is
@@ -1036,7 +1049,13 @@ const CEILINGS: Record<string, number> = {
   // 1452→1457 (#1333 `| particles`): `isParticles` local + its 3 acc-thread/return sites —
   // mirrors isArrow's shape exactly (no arrowBearing-like companion needed), no new logic.
   // Measured after prettier: wc -l = 1457.
-  'compiler/src/ir/lower.ts': 1457,
+  // 1457→1463 (#1418): threading `flowPortrayal` through the lowering — one `let`, one
+  // read-back from the accumulator, one return field, plus the three lines saying why the
+  // default is deliberately left UNDEFINED here rather than baked in. A declarative surface
+  // has to touch this file to exist; there is nothing to extract from six lines of threading,
+  // and dropping the comment would invite a later reader to "helpfully" default it and create
+  // the second authority it exists to prevent.
+  'compiler/src/ir/lower.ts': 1463,
   // #777 I-B icon-keep-upright + I-F icon value-forms (merged) grow three
   // symbol-lowering god-files (per-row justification in
   // architecture-invariants.test.ts, the second authority):
@@ -1062,7 +1081,10 @@ const CEILINGS: Record<string, number> = {
   // 956→957 (merge union with #1305 RenderNodeCoveragePaint).
   // 957→966 (#1333): RenderNodeParticlePaint sub-bundle (isParticles) + its merge into
   // RenderNode's extends list.
-  'compiler/src/ir/render-node.ts': 966,
+  // 966→969 (#1418): the `flowPortrayal` field on RenderNode plus its doc comment. A field on
+  // the IR node type is the whole point of the file; extracting one property would split the
+  // node's shape across two places for no gain.
+  'compiler/src/ir/render-node.ts': 969,
   'compiler/src/convert/paint-helpers.ts': 826,
   'blueprint/src/editor.ts': 1448,
 }

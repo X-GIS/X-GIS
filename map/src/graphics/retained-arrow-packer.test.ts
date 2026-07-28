@@ -1,6 +1,10 @@
 import { describe, it, expect } from 'vitest'
 import { lonLatToECEF } from '@xgis/shared'
-import { packRetainedArrowFeat, packRetainedArrowTint } from './retained-arrow-packer'
+import {
+  packRetainedArrowFeat,
+  packRetainedArrowTint,
+  packCompiledArrowFeat,
+} from './retained-arrow-packer'
 import {
   ARROW_RETAINED_FEAT,
   ARROW_RETAINED_TINT_STRIDE,
@@ -164,5 +168,59 @@ describe('#824/#825 retained-arrow packer', () => {
     expect(tuple[2]).toBeCloseTo(0.6, 5)
     expect(tuple[3]).toBeCloseTo(0.8, 5)
     expect(white.length).toBe(flows.length * ARROW_RETAINED_TINT_STRIDE)
+  })
+})
+
+// ── Advected mode: two geographic bases instead of one (#1419) ────────────────────────────
+//
+// An advected arrow's direction comes from the velocity field at its CURRENT position, so the
+// TIP block's baked bearing has no consumer and is reused as the EAST step; a NORTH step is
+// added. The pair gives the VS the two bases a 2D displacement decomposes onto. With only one,
+// an arrow can move solely along its launch bearing — the straight-line drift #65 shipped and
+// #70 reverted.
+
+describe('packCompiledArrowFeat — advected mode (#1419)', () => {
+  const F = ARROW_RETAINED_FEAT.slot
+  const S = ARROW_RETAINED_FEAT.stride
+
+  it('writes EAST into the tip block and NORTH into its own, both from the SAME anchor', () => {
+    const feat = packCompiledArrowFeat([10], [50], [123], [20], 1, 0, true)
+    // Read the lon/lat each block carries — the df64 blocks are opaque, but these are not.
+    expect(feat[F.abs_lon]).toBeCloseTo(10, 6)
+    expect(feat[F.abs_lat]).toBeCloseTo(50, 6)
+    // EAST: same latitude, longitude stepped (and cos-corrected, so it is a TRUE east step).
+    expect(feat[F.tip_abs_lat]).toBeCloseTo(50, 6)
+    expect(feat[F.tip_abs_lon]!).toBeGreaterThan(10)
+    // NORTH: same longitude, latitude stepped.
+    expect(feat[F.north_abs_lon]).toBeCloseTo(10, 6)
+    expect(feat[F.north_abs_lat]!).toBeGreaterThan(50)
+  })
+
+  it('IGNORES the bearing — direction comes from the field, not from the pack', () => {
+    // The load-bearing difference from the static path. If bearing still shaped the anchors,
+    // an advected arrow would carry a frozen launch direction and the field sample would fight
+    // it — motion that looks smooth and reports the wrong current.
+    const a = packCompiledArrowFeat([10], [50], [0], [20], 1, 0, true)
+    const b = packCompiledArrowFeat([10], [50], [270], [20], 1, 0, true)
+    expect([...a]).toEqual([...b])
+  })
+
+  it('the STATIC path is unchanged where it is written — bearing still shapes the tip', () => {
+    // Every existing `| arrow` consumer goes through here. The stride grew, but the slots the
+    // static path writes must hold exactly what they held before.
+    const n0 = packCompiledArrowFeat([10], [50], [0], [20], 1, 0)
+    const n90 = packCompiledArrowFeat([10], [50], [90], [20], 1, 0)
+    expect(n0[F.tip_abs_lat]!).toBeGreaterThan(50) // due north
+    expect(n0[F.tip_abs_lon]).toBeCloseTo(10, 6)
+    expect(n90[F.tip_abs_lon]!).toBeGreaterThan(10) // due east
+    expect(n90[F.tip_abs_lat]).toBeCloseTo(50, 6)
+    // ...and it leaves the advected-only block untouched.
+    expect(n0[F.north_abs_lon]).toBe(0)
+    expect(n0[F.north_abs_lat]).toBe(0)
+  })
+
+  it('the stride carries the north block', () => {
+    expect(S).toBe(38)
+    expect(packCompiledArrowFeat([1, 2], [3, 4], [0, 0], [1, 1], 1)).toHaveLength(2 * S)
   })
 })
