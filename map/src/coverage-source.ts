@@ -144,6 +144,7 @@ function armRegion(
       rangeLo: override?.range?.[0] ?? cur.rangeLo,
       rangeHi: override?.range?.[1] ?? cur.rangeHi,
       opacity: cur.opacity,
+      filter: cur.filter,
     },
     region,
   )

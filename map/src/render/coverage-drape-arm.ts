@@ -67,3 +67,63 @@ export function coverageDrapeArm(show: CoverageDrapeShow): CoverageDrapeArm {
   if (show.label !== undefined) return { draw: false }
   return { draw: true, flowOnly: false }
 }
+
+/** Arm the drape for a show — the decision above, plus the paint that goes with it (#1437
+ *  moved this out of `map.ts`, where it was the only coverage-arming code in a 5 400-line
+ *  file and its own ceiling's next casualty).
+ *
+ *  Structurally typed against the renderer rather than importing it: this module is the
+ *  DECISION's home and must stay testable as arithmetic, which is why `coverageDrapeArm`
+ *  above takes a narrowed show instead of a `ShowCommand`. */
+export function armCoverageDrape<H>(
+  renderer: {
+    setCoverage: (
+      handle: H,
+      opts: {
+        ramp: string
+        rangeLo?: number
+        rangeHi?: number
+        opacity?: number
+        flowOnly?: boolean
+        hidden?: boolean
+        filter?: { ast: unknown } | null
+      },
+      region?: string,
+    ) => void
+  },
+  show: CoverageDrapeShow & {
+    ramp?: string
+    range?: readonly [number, number] | null
+    opacity?: number
+    filterExpr?: { ast: unknown } | null
+  },
+  handle: H,
+  region?: string,
+): void {
+  const arm = coverageDrapeArm(show)
+  // A layer that draws no drape may still need the coverage RESIDENT: the advected arrow
+  // field is built from the velocity textures this upload creates (#1419). Skipping the arm
+  // outright — which is what "no drape" used to mean — left that field with no data source at
+  // all, so the portrayal rendered nothing. `hidden` keeps the two questions apart. Only a
+  // FLOW layer needs this: the static `| arrow` portrayal is packed on the CPU from the handle
+  // and reads no GPU texture, so uploading one for it would spend a vector coverage's worth of
+  // VRAM on data nothing samples.
+  const needsResidency = show.isFlow === true
+  if (!arm.draw && !needsResidency) return
+  renderer.setCoverage(
+    handle,
+    {
+      ramp: show.ramp ?? 'viridis',
+      rangeLo: show.range?.[0],
+      rangeHi: show.range?.[1],
+      opacity: show.opacity ?? 1,
+      flowOnly: arm.draw ? arm.flowOnly : false,
+      hidden: !arm.draw,
+      // `filter:` thins the DRAPE in the fragment shader (#1437) — the same clause the
+      // sounding arm applies per candidate cell, compiled once, so a layer's filter cannot
+      // mean two different things depending on which portrayal is looking at it.
+      filter: show.filterExpr,
+    },
+    region,
+  )
+}

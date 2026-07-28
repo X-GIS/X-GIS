@@ -89,7 +89,7 @@ import { CoverageTimePlayer } from './coverage-time'
 import { RasterRenderer } from './render/raster-renderer'
 import { HillshadeRenderer, armHillshadeSource } from './render/hillshade-renderer'
 import { CoverageRenderer, DEFAULT_REGION } from './render/coverage-renderer'
-import { coverageDrapeArm } from './render/coverage-drape-arm'
+import { armCoverageDrape } from './render/coverage-drape-arm'
 import {
   refreshCoverageSource,
   type RefreshCoverageOpts,
@@ -4796,48 +4796,15 @@ export class XGISMap {
    *  A no-op when no field is armed (`_coverageFieldShow` null). Mirrors the coverage arm
    *  inside `rebuildLayers` exactly — the single authority both share is `_coverageFieldShow`
    *  (#1333). */
-  /** Arm the coverage DRAPE for a show — the single authority both the rebuild and the
-   *  transient re-arm answer to, so the two cannot disagree about when the fill draws.
-   *
-   *  THREE CASES, and the middle one is the point (#1333):
-   *
-   *  1. No field keyword           → the fill draws as always (default viridis).
-   *  2. `| flow`, no `ramp`        → FLOW-ONLY. The drape draws, but as a neutral luminance
-   *                                  modulation with no colour ramp: the motion is visible
-   *                                  while the CATALOGUE ARROWS remain the only colour
-   *                                  authority. Before this, motion was welded to the
-   *                                  non-standard fill, so a strictly-conformant style
-   *                                  (arrows, no ramp) could not have it at all.
-   *  3. `| arrow` alone, no `ramp` → the STRICT catalogue portrayal: arrows, no drape.
-   *
-   *  Declaring a `ramp` always adds the non-standard colour fill under whatever else runs. */
+  /** Arm the coverage DRAPE for a show. The decision AND the arm live in
+   *  `coverage-drape-arm.ts`, next to each other, so the rebuild path and the transient
+   *  re-arm below cannot disagree about when — or with what paint — the fill draws. */
   private _armCoverageDrape(
     show: ShowCommand,
     handle: CoverageHandle,
     region = DEFAULT_REGION,
   ): void {
-    const arm = coverageDrapeArm(show)
-    // A layer that draws no drape may still need the coverage RESIDENT: the advected arrow
-    // field is built from the velocity textures this upload creates (#1419). Skipping the arm
-    // outright — which is what "no drape" used to mean — left that field with no data source
-    // at all, so the portrayal rendered nothing. `hidden` keeps the two questions apart.
-    // Only a FLOW layer needs this: the static `| arrow` portrayal is packed on the CPU from
-    // the handle and reads no GPU texture, so uploading one for it would spend a vector
-    // coverage's worth of VRAM on data nothing samples.
-    const needsResidency = show.isFlow === true
-    if (!arm.draw && !needsResidency) return
-    this.coverageRenderer.setCoverage(
-      handle,
-      {
-        ramp: show.ramp ?? 'viridis',
-        rangeLo: show.range?.[0],
-        rangeHi: show.range?.[1],
-        opacity: show.opacity ?? 1,
-        flowOnly: arm.draw ? arm.flowOnly : false,
-        hidden: !arm.draw,
-      },
-      region,
-    )
+    armCoverageDrape(this.coverageRenderer, show, handle, region)
   }
 
   /** The ADVECTED arrow field (#1419) — the catalogue glyphs themselves drifting through the

@@ -469,7 +469,11 @@ const CEILINGS: Record<string, number> = {
   // velocity textures and the portrayal rendered NOTHING (found by the render gate, not by any
   // unit test). +9 is the `needsResidency` fork, the `hidden` argument, and the four lines
   // saying why, which are the part a future reader needs most.
-  'map/src/map.ts': 5447,
+  // 5447→5414 (#1437): the coverage drape ARM moved out to coverage-drape-arm.ts, next to the
+  // decision that was already there. It was the only coverage-arming code in this file, and
+  // `filter:` needed one more line in it — extract rather than raise, which is what left room
+  // to spare. Measured post-hook.
+  'map/src/map.ts': 5414,
   // Baselined at #1255 (measured 830): the DOM-inspired layer API crossed
   // NEW_FILE_CAP with the paint-transition style-setter integration — the
   // StyleHost.transitions context, the shared applyNumber/applyColor
