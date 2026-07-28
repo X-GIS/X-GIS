@@ -469,7 +469,10 @@ const CEILINGS: Record<string, number> = {
   // velocity textures and the portrayal rendered NOTHING (found by the render gate, not by any
   // unit test). +9 is the `needsResidency` fork, the `hidden` argument, and the four lines
   // saying why, which are the part a future reader needs most.
-  'map/src/map.ts': 5447,
+  //
+  // +1 (#1419): the transient re-arm's arrow clear moved OUT of the `| arrow` branch, so a
+  // `| flow`-only layer stops accumulating one batch per forecast frame.
+  'map/src/map.ts': 5448,
   // Baselined at #1255 (measured 830): the DOM-inspired layer API crossed
   // NEW_FILE_CAP with the paint-transition style-setter integration — the
   // StyleHost.transitions context, the shared applyNumber/applyColor

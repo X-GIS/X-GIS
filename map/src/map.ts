@@ -4862,13 +4862,14 @@ export class XGISMap {
     const show = this._coverageFieldShow
     if (!show) return
     this._armCoverageDrape(show, handle, region)
-    if (show.isArrow) {
-      // Clear THIS region's arrows only. Clearing all of them here is what kept the mosaic
-      // single-region even after the renderer could hold several: a neighbour's time step
-      // wiped every other domain's glyphs and re-added just its own.
-      this._graphics.clearCompiledArrows(region)
-      addCoverageArrowShowLayer(this, show, handle, region)
-    }
+    // Clear THIS region's arrows only, and clear them for EITHER portrayal. Clearing all of
+    // them here is what kept the mosaic single-region even after the renderer could hold
+    // several: a neighbour's time step wiped every other domain's glyphs and re-added just its
+    // own. Scoping it to `| arrow` was the mirror mistake — a `| flow`-only layer is re-armed on
+    // every forecast frame (playback drives this many times a second) and ACCUMULATED a batch
+    // per frame, each with its own feat and band buffers.
+    this._graphics.clearCompiledArrows(region)
+    if (show.isArrow) addCoverageArrowShowLayer(this, show, handle, region)
     this._armAdvectedArrows(show, handle, region)
     this.invalidate()
   }
