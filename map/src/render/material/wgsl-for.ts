@@ -22,8 +22,10 @@
 // identity, which is what the F3–F6 sweep is for: a third backend answers the question
 // by populating `caps.shaderLanguage`, not by being added to a `!== 'webgl2'` here.
 
-/** Does this device consume the WGSL module (rather than the GLSL ES 3.00 twins)? */
-const readsWgsl = (rhi: ShaderSourceDevice): boolean => rhi.caps.shaderLanguage === 'wgsl'
+/** Does this device consume the WGSL module (rather than the GLSL ES 3.00 twins)?
+ *  Exported for the emit seam, which must decide WHETHER TO ASK for the WGSL before any
+ *  string exists — a thunk-taking helper cannot express that. */
+export const readsWgsl = (rhi: ShaderSourceDevice): boolean => rhi.caps.shaderLanguage === 'wgsl'
 
 /** The slice of the device these helpers read — the capability, nothing else. Narrow on
  *  purpose: a test stub needs only this, and no consumer can reach for `backend`. */

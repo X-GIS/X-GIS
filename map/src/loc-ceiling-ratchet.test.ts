@@ -947,7 +947,12 @@ const CEILINGS: Record<string, number> = {
   // `_cacheTile` helper REPLACED two inline four-line `tileCache.set` blocks (the leaf and
   // parent load paths), so the union is two lines SHORTER than this branch alone. Measured,
   // not guessed — shrink-only means taking the shrink.
-  'map/src/render/hillshade-renderer.ts': 834,
+  // 834→839 (off-thread emit): +5 — the `shaderEmitPending` import and the four-line
+  // reason it now rides `hasFadingTiles`. A draper whose shader is still being emitted
+  // draws NOTHING, so a loop idling on tile-count alone would leave the relief blank with
+  // its tiles already cached — the same freeze class as a stranded fade ramp, which is why
+  // it joins that signal rather than getting its own. The seam itself is in shaders/emit/.
+  'map/src/render/hillshade-renderer.ts': 839,
   // Merge union (#1060 <- main): stacked growth — measured 1174.
   'map/src/render/point-renderer.ts': 1174,
   // 1106→1120 (#1043 state-hygiene): three unmask-before-clear / state-reset fixes for the
