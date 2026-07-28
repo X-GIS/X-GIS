@@ -125,10 +125,9 @@ export interface SourceManagerDeps {
   getVtSource(sourceId: string): { source: TileCatalog; renderer: VectorTileRenderer } | null
   /** XGISMap's `_featureIndex.delete(sourceId)`. */
   deleteFeatureIndex(sourceId: string): void
-  /** #1426 — start a DECLARED `type: coverage` source's cell read in the BACKGROUND. The
-   *  attach registers the (empty) source and returns; this resolves when the cell has landed,
-   *  been written into the source's region map, and armed — or has failed and been logged.
-   *  Bodied by `loadDeclaredCoverage` (coverage-source.ts), which owns coverage residency. */
+  /** #1426 — start a DECLARED `type: coverage` source's cell read in the BACKGROUND; resolves
+   *  once the cell has landed, been written into the source's region map and armed — or has
+   *  failed and been logged. Bodied by `loadDeclaredCoverage` (coverage-source.ts). */
   beginCoverageLoad(sourceId: string, url: string, isStale?: () => boolean): Promise<void>
   /** Per-map custom source-loader registry (`XGISMapOptions.sources`), consulted by
    *  the attach dispatch when a declared `type` is not a built-in (source-loader-seam §3). */
@@ -287,7 +286,10 @@ export class SourceManager {
     }
     const url =
       load.url.startsWith('http') || load.url.startsWith('/') ? load.url : baseUrl + load.url
-    console.log(`[X-GIS] Loading: ${load.name} from ${url}`)
+    // A url-less source is host-fed and fetches nothing (#1426); do not name a URL it never
+    // requests (`Loading: currents from /data/` was exactly that lie).
+    if (load.url) console.log(`[X-GIS] Loading: ${load.name} from ${url}`)
+    else console.log(`[X-GIS] Registered: ${load.name} (host-fed, no url)`)
 
     // Source `type:` from the DSL takes precedence over URL-extension
     // sniffing so a URL without a file extension (e.g. a TileJSON
@@ -336,21 +338,19 @@ export class SourceManager {
       return
     }
     // S-100 gridded coverage (#1158, re-platformed by ADR-0010) — READ IN PLACE (HDF5, no
-    // `.xgcov` transcode). Unlike every other branch here this one does NOT await its read:
-    // it registers the source with no resident region and the cell streams in the background
+    // `.xgcov` transcode). Unlike every other branch here this one does NOT await its read: it
+    // registers the source with no resident region and streams the cell in the background
     // (#1426 — awaiting a multi-MB cell inside run()'s load barrier held the FIRST FRAME, so
-    // the whole map, basemap included, stayed black for the entire stream). Note the branch
-    // never touches `cameraFitState`: nothing about frame one depends on it. Rationale and
-    // guards: `loadDeclaredCoverage` (coverage-source.ts).
+    // the whole map, basemap included, stayed black for the entire stream). Note it never
+    // touches `cameraFitState`: nothing about frame one depends on it. Guards + rationale:
+    // `loadDeclaredCoverage` (coverage-source.ts).
     if (declaredType === 'coverage') {
-      // DATA-ONLY (ramp/range are LAYER paint, #1158 INC-D); one DECLARED cell ⇒ one region,
-      // and coverage-source.ts owns residency + the time axis from here (#1272). The empty
-      // map is a shape `rebuildLayers` already handles — it iterates `_coverage`.
+      // DATA-ONLY (ramp/range are LAYER paint, #1158 INC-D); coverage-source.ts owns residency
+      // + the time axis from here (#1272). `rebuildLayers` already handles an empty region map.
       this.rawDatasets.set(load.name, { _coverage: new Map() })
       // NO `url:` ⇒ HOST-FED (#1426): the source exists for `setCoverageData` to push into and
       // the host owns residency — the S-111 viewport mosaic is exactly that, and declaring a
-      // cell as well had it fetch one ~12 MB object twice and keep BOTH resident. See
-      // `s111-live.xgis` for the full account.
+      // cell as well had it fetch one ~12 MB object twice. See `s111-live.xgis`.
       if (load.url) void this.beginCoverageLoad(load.name, url, isStale)
       return
     }
