@@ -63,6 +63,21 @@ export interface TextDraw {
    *  ideographic-codepoint glyphs of an italic label, matching
    *  MapLibre's local-ideograph oblique. */
   italic?: boolean
+  /** #777 IV3 — `text-pitch-alignment: map`: the screen-space images of the
+   *  anchor's ground-plane axes, as `[ex, ey, nx, ny]`. A quad corner sitting
+   *  at screen offset `(dx, dy)` from the anchor is re-placed at
+   *  `anchor + dx*(ex, ey) + dy*(nx, ny)`, so the label lies IN the ground
+   *  plane — foreshortening and tilting with the camera — instead of standing
+   *  up as a billboard. The caller derives the basis by projecting two unit
+   *  ground vectors at the anchor (the arrow-basis pattern of #1424), which is
+   *  a linearization valid over the range it spans: correct for a glyph quad,
+   *  meaningless if extrapolated far beyond it.
+   *
+   *  ABSENT means viewport alignment (the default, and every label until the
+   *  caller opts in). The renderer then skips the transform ENTIRELY rather
+   *  than multiplying by an identity basis, so those vertices stay
+   *  bit-identical to the pre-IV3 output. */
+  groundBasis?: ArrayLike<number>
   /** Symbol fade box (label-fade.ts). When set, the renderer multiplies
    *  this draw's fill AND halo alpha by `fadeRef.a` at draw()-encode time
    *  every frame — the ledger mutates `.a` in place, so replayed (S16-skip)
