@@ -473,7 +473,48 @@ const CEILINGS: Record<string, number> = {
   // arm itself came OUT — armCoverageDrape/armCoverageShow/armAdvectedArrows/armLandedCoverage
   // now live in coverage-arm.ts, taking the map structurally. #1419's residency/`hidden` fork
   // and its advected-arrow fork moved WITH it, unchanged. LOWERED per the shrink-only rule.
-  'map/src/map.ts': 5387,
+  //
+  // MERGE UNION (#1419 follow-up <- main @ #1426): my side's +1 was the arrow clear moving out
+  // of the `| arrow` branch — that line now lives in coverage-arm.ts, so it adds nothing here
+  // and main's LOWER ceiling stands. Value below is the MEASURED post-merge count.
+  //
+  // #1437 likewise landed ON that extraction rather than beside it: its own drape-arm extraction
+  // was dropped on the merge and the `filter:` argument went into coverage-arm.ts, so map.ts is
+  // untouched by it too. Both merges leave the number as #1426's, re-measured each time.
+  //
+  // MERGE UNION (#1419 third pass <- main @ #1437): main's side adds nothing here (see above);
+  // my side's +6 is the coverage renderer's LRU eviction now being ANNOUNCED, with the map as
+  // the listener — a dropped region takes its compiled arrows with it. Two wire-ups (the GPU
+  // boot and the backend switch), each carrying the sentence saying why the LRU needed one at
+  // all: nothing else observed it, so an evicted region's arrows kept drawing against velocity
+  // textures that had just been destroyed.
+  //
+  // 5393→5392 (#1449): the three arm sites now call ONE decision point (`armCoverageArrows`),
+  // so the `if (show.isArrow) …` + `armAdvectedArrows(…)` pair here collapsed to a single call
+  // and the static-arrow import went with it. LOWERED per the shrink-only rule.
+  //
+  // MERGE UNION (#1448 <- main @ #1449): non-overlapping, so a SHRINK and a GROW compose —
+  // never take one side, never max(). #1448's +3 is one disjunct in `hasPendingSourceWork` (a
+  // swap OWED is pending work, not pending fetch) plus the two lines saying why; without it the
+  // loop stopped with a re-seed replacement un-applied and the layer drew the previous seed for
+  // good. Value below is the MEASURED post-merge, post-prettier count — not 5392+3 assumed.
+  //
+  // MERGE UNION (#1453 <- main @ #1455): non-overlapping, so main's +3 and this branch's
+  // +27 COMPOSE — never take one side, never max(). Value below is the MEASURED post-merge,
+  // post-prettier count, not 5395+27 assumed.
+  // 5392→5419 (#1453 catalogue-driven coverage residency): a `coverage` source's `url:` may
+  // name a STAC catalogue of cells, and then the ENGINE owns residency from the viewport — the
+  // job `type: raster` has always done for itself. What lands HERE is only the map-shaped part
+  // of that: the per-source catalogue state (declared before `_coverageDeps`, because a field
+  // initialiser captures `undefined` the other way round — the `_coverageRefresh` lesson), the
+  // two deps members feeding it, the move-end listener + its `destroy()` detach, and the
+  // `onRegionDropped` rewire. Every DECISION — the cell/catalogue byte probe, the STAC parse,
+  // the viewport resolve, the arm loop and the stop-on-eviction rule — lives in
+  // coverage-catalogue.ts (pure) and coverage-source.ts (drives it), the same policy/driver
+  // split coverage-refresh.ts already uses, so this is wiring and not logic. An earlier draft
+  // put a `_beginCoverageLoad` method here too (+45); it was extracted into
+  // `resolveCoverageCatalogues` + `viewBbox` rather than ratcheted for. Post-hook measurement.
+  'map/src/map.ts': 5422,
   // Baselined at #1255 (measured 830): the DOM-inspired layer API crossed
   // NEW_FILE_CAP with the paint-transition style-setter integration — the
   // StyleHost.transitions context, the shared applyNumber/applyColor
@@ -587,7 +628,12 @@ const CEILINGS: Record<string, number> = {
   // the per-prepare makeBakeFrame + placement stamp, and the holdoverDrawToEmit
   // emit + parallel bake sweeps (empty-prepare + eviction). Math + decision live
   // extracted/unit-proved in holdover-reproject.ts. +45, measured post-hook.
-  'map/src/text/text-stage.ts': 2284,
+  // 2284→2232 (#777 IV3-2b), →2231 (2c: the bbox arithmetic, written twice, became
+  // one deriveLabelBbox authority that also routes the ground basis): the module-scope constants (STAGE_DEFAULTS,
+  // TEXT_MAX_ANGLE_DEFAULT_DEG) and the pure rotateLabelTranslate helper moved to
+  // text-stage-helpers.ts — none touch `this`. A behaviour-free move that opens the
+  // headroom the ground-basis bbox work needs; the file sat exactly at its ceiling.
+  'map/src/text/text-stage.ts': 2231,
   // 1786→1719 (#727 C): the line/point dedupe + pair-key helper block was
   // EXTRACTED to passes/line-label-dedupe.ts when the world-copy fan-out would
   // otherwise have grown this file — the extract-don't-grow answer.
@@ -752,7 +798,12 @@ const CEILINGS: Record<string, number> = {
   // tile-full-cover-quad.ts (−47 incl. three now-orphaned ecef-packing imports) — pure geometry,
   // no `this`, and the layout with the #449 bug history is now directly assertable. Ceiling
   // below is the MERGED file's actual wc -l, measured after prettier.
-  'data/src/tile-catalog.ts': 1370,
+  // 1370→1384 (#1448): `hasReplacedKeys()` — the PEEK the render loop's idle-skip needs to see
+  // that a re-seed swap is still owed. RAISED, not paid for by an extraction: a two-line
+  // accessor has nowhere cohesive to go, and the twelve lines are the reason it must not drain
+  // (a predicate that consumed its own evidence would swallow the swap it schedules) plus the
+  // measurement that found the bug — the part a future reader needs most. Measured post-hook.
+  'data/src/tile-catalog.ts': 1384,
   // 1173→1180 (#1046 F1): thread the required `rhi: RhiDevice` onto the FrameContext at
   // both build sites — the main-chain init literal and the twin label stage — so a seam
   // can reach `ctx.rhi.caps.*` (doc §3-F1). +7 = two assignments + their rationale comments;
@@ -855,7 +906,11 @@ const CEILINGS: Record<string, number> = {
   // +1 (#1419, second pass): the twin's trail step is now gated on a VISIBLE drape — under the
   // arrows portrayal every flow region is resident-but-hidden, so advecting a full-screen image
   // nobody draws was a per-frame cost with no picture attached.
-  'map/src/render-loop.ts': 1395,
+  //
+  // +2 (#1419, third pass): the twin declares the arrow field every frame — OUTSIDE the `if`,
+  // because a frame with no field is exactly the one that must say so (an evicted region's
+  // textures are destroyed, and a binding still holding them dies in the next submit).
+  'map/src/render-loop.ts': 1397,
   // Baselined at 806 (hillshade tile fade-in): HillshadeRenderer crossed
   // NEW_FILE_CAP restoring the three tile-streaming fixes raster-renderer had
   // landed since hillshade was copied from it — the per-tile fade ramp + its
@@ -949,7 +1004,26 @@ const CEILINGS: Record<string, number> = {
   // UNPACK_ALIGNMENT restored to the GL default after ad-hoc uploads, and
   // createPipeline unbinding the program after reflection. Stacked on the
   // #1057/#1062/#1060/#1196 growth — measured 1436.
-  'rhi-webgl2/src/rhi-webgl2.ts': 1436,
+  // 1436→1464 (#1419): the dev-only texture-usage guard. WebGPU validates every queue write
+  // against the target's usage flags and WebGL2 validates nothing, so a texture missing
+  // `copy-dst` passes every headless render gate here and dies at boot on WebGPU — it cost the
+  // S-111 advected arrow field exactly that. The software backend now enforces the stricter
+  // contract in dev, which is the only place the class is catchable without a WebGPU adapter.
+  // +28 is the guard, the `usage`/`label` fields it reads, and the reason — the reason being
+  // the part that stops someone deleting a check their own backend does not need.
+  // 1469→1512 (#1436): mip + anisotropy. The RHI had no vocabulary for either, so every
+  // minified texture aliased; this backend is where the widening is hardest, because GL folds
+  // two filter decisions into one enum and anisotropy is an EXTENSION that must degrade rather
+  // than throw. PAID FOR FIRST by extracting `minFilterEnum` + `resolveAnisotropy` to
+  // webgl2-texture-sampling.ts (−24, pure functions, no `this`, now testable without a device);
+  // the residual +43 is the chain allocation in createTexture, the aniso clamp in createSampler,
+  // and `generateMipmaps` — all of which need the device and cannot leave it. Measured post-hook.
+  // 1512→1520 (#1436 round 2): the mip-COMPLETENESS fix. GL's default TEXTURE_MAX_LEVEL is
+  // 1000, so a single-level texture sampled by a mipmap min-filter is incomplete and samples as
+  // opaque BLACK — making the shared raster sampler trilinear blacked out the checker it also
+  // serves (2409 of 619200 pixels survived). +8 is one line of code and seven of incident: the
+  // texture that broke is the one nobody touched, which is the part a future reader needs.
+  'rhi-webgl2/src/rhi-webgl2.ts': 1520,
   // 941→975 (#1371 atomic re-seed): `releaseSupersededTile` + `dropTile`, and the split of
   // `_releaseTileSlots` into a resource-release body the two share with eviction. Arena/pool
   // ownership is this class's whole reason to exist.
@@ -1038,7 +1112,10 @@ const CEILINGS: Record<string, number> = {
   // ECEF) so the flat non-Mercator arm subtracts the camera in df64 and stops
   // shaking at z18+. +13 post-hook; a free function (single authority, not three
   // duplicated inline branches).
-  'map/src/render/raster-renderer.ts': 990,
+  // 990→992 (#1436): the tile texture asks for a chain and fills it after the upload. Two lines
+  // plus the sentence saying why a basemap tile is the minified-appearance texture par
+  // excellence. Measured post-hook.
+  'map/src/render/raster-renderer.ts': 992,
   // 889→906 (#1155 F3): cold-start burst enqueue cap — the `_coldStartBurst`
   // field + `setColdStartBurst` + the burst-selected 8/4 cap in enqueue().
   // 906→910 (#1155 F3 adjudication): the burst 8/4 pair now comes from the

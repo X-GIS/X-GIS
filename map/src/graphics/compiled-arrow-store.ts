@@ -18,6 +18,11 @@
 // returns) stays a single authority.
 
 import { packCompiledArrowFeat, packCompiledArrowTint } from './retained-arrow-packer'
+import {
+  S111_BAND_PARAMS_ROW,
+  S111_BAND_STRIDE,
+  S111_PARAM_STATE_BASE,
+} from '../shaders/dsl/s111-band-table-layout'
 import type { RetainedArrowDraper } from '../render/material/arrow-retained-material'
 import type { RetainedArrowAdvectedDraper } from '../render/material/arrow-retained-advected-material'
 import type {
@@ -52,7 +57,10 @@ export interface AdvectedArrowInput {
  *  velocity pair they are moving through — all four from `FlowRenderer`, which owns the step.
  *  Passed in per frame rather than held, because the state side alternates every step. */
 export interface AdvectedArrowSource {
-  writeArrowOrigins(key: string, u: ArrayLike<number>, v: ArrayLike<number>): void
+  /** Returns the batch's BASE TEXEL in the shared state (#1458). */
+  writeArrowOrigins(key: string, u: ArrayLike<number>, v: ArrayLike<number>): number
+  /** Give this batch's texel range back — its region was dropped. */
+  releaseArrowOrigins(key: string): void
   readonly arrowBinding: {
     state: RhiTextureView
     origin: RhiTextureView
@@ -76,6 +84,10 @@ interface CompiledArrowBatch {
   bandBuf: RhiBuffer | null
   /** Advected bind groups, keyed by the ping-pong side they read (two entries at rest). */
   advectedGroups: Map<RhiTextureView, RhiBindGroup>
+  /** The velocity views those groups were built against. A re-armed or evicted coverage hands
+   *  over different ones, and the groups holding the old pair must go with them. */
+  boundFlowU: RhiTextureView | null
+  boundFlowV: RhiTextureView | null
   count: number
   lons: Float64Array
   lats: Float64Array
@@ -173,11 +185,17 @@ export class CompiledArrowStore {
         writable: true,
         label: 'compiled-arrow-band',
       })
-      this.rhi.writeBuffer(bandBuf, 0, advected.bandTable)
       // The origins go up HERE, not at first draw: the advect step runs EARLIER in the frame
       // than the graphics pass, so a batch whose origins arrived at draw time would spend its
       // first step leashed to grid-uv (0, 0) — every arrow yanked toward the grid's corner.
-      this.arrowSource?.writeArrowOrigins(advected.key, advected.originU, advected.originV)
+      //
+      // It answers with this batch's BASE TEXEL in the shared state (#1458) — one texture
+      // serves every mosaic region — which is why the band table is patched and uploaded
+      // AFTER the call rather than before it.
+      const base =
+        this.arrowSource?.writeArrowOrigins(advected.key, advected.originU, advected.originV) ?? 0
+      advected.bandTable[S111_BAND_PARAMS_ROW * S111_BAND_STRIDE + S111_PARAM_STATE_BASE] = base
+      this.rhi.writeBuffer(bandBuf, 0, advected.bandTable)
     } else {
       const tint = packCompiledArrowTint(colors)
       tintBuf = this.rhi.createBuffer({
@@ -197,6 +215,8 @@ export class CompiledArrowStore {
       advected,
       bandBuf,
       advectedGroups: new Map(),
+      boundFlowU: null,
+      boundFlowV: null,
       count,
       lons,
       lats,
@@ -223,6 +243,11 @@ export class CompiledArrowStore {
         retired.push(ca.featBuf)
         if (ca.tintBuf) retired.push(ca.tintBuf)
         if (ca.bandBuf) retired.push(ca.bandBuf)
+        // …and give the shared state's texels back (#1458). Without this the ranges only ever
+        // grow: a mosaic that pans across a coast re-arms constantly, and each re-arm would
+        // append a fresh range until the allocation hit its ceiling and later regions silently
+        // got no texels at all.
+        if (ca.advected) this.arrowSource?.releaseArrowOrigins(ca.advected.key)
       } else kept.push(ca)
     }
     this.batches.length = 0
@@ -270,6 +295,19 @@ export class CompiledArrowStore {
     const draper = this.advectedDraper
     const bind = this.arrowSource?.arrowBinding
     if (!draper || !bind || !ca.bandBuf) return 0
+    // Keyed by the STATE side, but invalidated on the FIELD views — because the ping-pong
+    // alternates between exactly two state views and nothing else ever appears as a key. The
+    // first version of this cleared "when a third key shows up", which cannot happen: a
+    // re-armed coverage hands over new velocity views under the SAME two state sides, so the
+    // cached groups kept binding the old ones. After a region eviction those old ones are
+    // DESTROYED, and the next submit fails —
+    //   "destroyed texture coverage-flow-v used in a submit"
+    // reported from S-111 Live by zooming out and panning to another domain.
+    if (ca.boundFlowU !== bind.flowU || ca.boundFlowV !== bind.flowV) {
+      ca.advectedGroups.clear()
+      ca.boundFlowU = bind.flowU
+      ca.boundFlowV = bind.flowV
+    }
     let bg = ca.advectedGroups.get(bind.state)
     if (!bg) {
       bg = draper.makeBatchBindGroup(
@@ -280,9 +318,6 @@ export class CompiledArrowStore {
         bind.flowU,
         bind.flowV,
       )
-      // Two sides means this settles at two entries; a third would mean the field views changed
-      // under us, and those groups are stale rather than merely extra.
-      if (ca.advectedGroups.size >= 2) ca.advectedGroups.clear()
       ca.advectedGroups.set(bind.state, bg)
     }
     return draper.draw(pass, bg, perCopy, ca.count)

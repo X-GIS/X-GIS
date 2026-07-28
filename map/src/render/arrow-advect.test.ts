@@ -12,8 +12,8 @@
 
 import { describe, it, expect } from 'vitest'
 import {
-  ARROW_ADVECT_TEX_DIM,
-  ARROW_ADVECT_COUNT,
+  arrowAdvectDim,
+  ARROW_ADVECT_MAX_COUNT,
   encodeArrowPosition,
   decodeArrowPosition,
   seedArrowPositions,
@@ -72,18 +72,37 @@ describe('arrow position encoding — the CPU/GPU agreement', () => {
   })
 })
 
+const SEED_N = 128 * 128 // a representative field size; the seed is size-agnostic
+
 describe('the arrow seed', () => {
-  it('ARROW_ADVECT_COUNT is the square of the state-texture edge', () => {
-    // The update pass runs one fragment per texel and the draw will index arrows by
-    // `id % DIM` / `id / DIM`, so a count that is not the exact square would silently either
-    // skip arrows or read past the texture.
-    expect(ARROW_ADVECT_COUNT).toBe(ARROW_ADVECT_TEX_DIM * ARROW_ADVECT_TEX_DIM)
+  it('the edge HOLDS the count — never one texel short (#1450 A)', () => {
+    // The draw indexes arrows by `inst % dim` / `inst / dim`, so an edge that does not cover
+    // the count sends the tail instances reading past the texture: out-of-bounds
+    // `textureLoad` returns 0 on WebGPU, i.e. every one of them collapses onto grid-uv (0,0).
+    for (const n of [1, 2, 3, 4, 5, 16, 17, 16_384, 16_385, 69_700, 100_000]) {
+      const dim = arrowAdvectDim(n)
+      expect(dim * dim, `${n} arrows must fit in ${dim}x${dim}`).toBeGreaterThanOrEqual(n)
+      expect(
+        (dim - 1) * (dim - 1),
+        `${n} must not fit in ${dim - 1}²  — no wasted row`,
+      ).toBeLessThan(n)
+    }
+  })
+
+  it('an empty batch allocates NOTHING — a 1x1 nobody reads is still a texture', () => {
+    expect(arrowAdvectDim(0)).toBe(0)
+    expect(arrowAdvectDim(-5)).toBe(0)
+  })
+
+  it('the bound stays — a global field wants instance generation, not a bigger texture', () => {
+    const dim = arrowAdvectDim(ARROW_ADVECT_MAX_COUNT * 10)
+    expect(dim * dim).toBeLessThan(ARROW_ADVECT_MAX_COUNT * 1.01)
   })
 
   it('lands every arrow inside the domain', () => {
-    const bytes = seedArrowPositions(ARROW_ADVECT_COUNT)
-    expect(bytes).toHaveLength(ARROW_ADVECT_COUNT * 4)
-    for (let i = 0; i < ARROW_ADVECT_COUNT; i++) {
+    const bytes = seedArrowPositions(SEED_N)
+    expect(bytes).toHaveLength(SEED_N * 4)
+    for (let i = 0; i < SEED_N; i++) {
       const [x, y] = decodeArrowPosition(
         bytes[i * 4]!,
         bytes[i * 4 + 1]!,
@@ -101,9 +120,9 @@ describe('the arrow seed', () => {
     // The failure this forbids is a seed that is technically in-range but clumped (a bad LCG,
     // or a constant): the field would start as a blob of stacked arrows and take many seconds
     // of advection to look like anything, which reads as "the animation is broken".
-    const bytes = seedArrowPositions(ARROW_ADVECT_COUNT)
+    const bytes = seedArrowPositions(SEED_N)
     const buckets = new Set<number>()
-    for (let i = 0; i < ARROW_ADVECT_COUNT; i++) {
+    for (let i = 0; i < SEED_N; i++) {
       const [x, y] = decodeArrowPosition(
         bytes[i * 4]!,
         bytes[i * 4 + 1]!,
@@ -120,22 +139,26 @@ describe('the arrow seed', () => {
   })
 })
 
+const N = 16_384 // a representative batch
+
 describe('ArrowAdvectState lifecycle', () => {
   function stub() {
     let id = 0
     const created: string[] = []
     const written: unknown[] = []
     const destroyed: unknown[] = []
+    const descs: Array<{ label?: string; usage: readonly string[]; width: number }> = []
     const rhi = {
-      createTexture: (d: { label?: string }) => {
+      createTexture: (d: { label?: string; usage: readonly string[]; width: number }) => {
         created.push(d.label ?? '?')
+        descs.push(d)
         return { native: `tex${id++}` }
       },
       createView: (t: { native: string }) => ({ native: `view-${t.native}` }),
       writeTexture: (t: unknown) => void written.push(t),
       destroyTexture: (t: unknown) => void destroyed.push(t),
     }
-    return { rhi: rhi as unknown as RhiDevice, created, written, destroyed }
+    return { rhi: rhi as unknown as RhiDevice, created, written, destroyed, descs }
   }
 
   it('SEEDS BOTH SIDES on allocation', () => {
@@ -143,38 +166,80 @@ describe('ArrowAdvectState lifecycle', () => {
     // grid-uv (0,0) forever. And seeding only the read side leaves the write side's undefined
     // contents visible for exactly one frame — a flash of arrows at garbage positions.
     const t = stub()
-    new ArrowAdvectState().ensure(t.rhi)
+    new ArrowAdvectState().ensure(t.rhi, N)
     expect(t.created).toEqual(['arrow-advect-a', 'arrow-advect-b', 'arrow-advect-origin'])
     expect(t.written, 'both sides seeded').toHaveLength(2)
     expect(t.written[0]).not.toBe(t.written[1])
   })
 
-  it('allocates ONCE — a re-ensure every frame must not reseed', () => {
-    // Reseeding per frame would teleport all 16 384 arrows back to the lattice every frame: the
-    // field would jitter in place instead of flowing, which reads as a rate bug.
+  it('declares copy-dst on EVERY side — this module writes them all', () => {
+    // A WebGPU-only crash, and one no render gate here could have caught: WebGL2 does not
+    // validate texture usage, so the same writeTexture simply works under SwiftShader. WebGPU
+    // rejects it — "Usage (TextureBinding|RenderAttachment) of [Texture "arrow-advect-a"]
+    // doesn't include TextureUsage::CopyDst, while calling Queue.WriteTexture" — and the whole
+    // arrow field dies at boot. The property is checkable without any GPU: a texture this
+    // module seeds with writeTexture must declare that it is written.
     const t = stub()
     const p = new ArrowAdvectState()
+    p.writeOrigins(t.rhi, 'k', Float32Array.from([0.5]), Float32Array.from([0.5]))
+    expect(t.descs.length, 'both position sides and the origins').toBe(3)
+    for (const d of t.descs) {
+      expect(d.usage, `${d.label} is written by writeTexture`).toContain('copy-dst')
+      expect(d.usage, `${d.label} is sampled`).toContain('sample')
+    }
+    // …and the pair really is written, so the requirement is not hypothetical.
+    expect(t.written.length).toBeGreaterThan(0)
+  })
+
+  it('allocates ONCE — a re-ensure every frame must not reseed', () => {
+    // Reseeding per frame would teleport every arrow back to the lattice every frame: the field
+    // would jitter in place instead of flowing, which reads as a rate bug. The per-frame step
+    // calls `ensure(rhi)` with NO count, which is what makes the remembered one load-bearing.
+    const t = stub()
+    const p = new ArrowAdvectState()
+    p.ensure(t.rhi, N)
     for (let i = 0; i < 5; i++) p.ensure(t.rhi)
     expect(t.created).toHaveLength(3)
     expect(t.written).toHaveLength(2)
   })
 
-  it('does NOT resize with the coverage — grid-uv reinterprets against the new footprint', () => {
+  it('does not resize with the coverage GEOMETRY — grid-uv reinterprets against the footprint', () => {
     // Positions are normalized, so a forecast step or a different region keeps the animation
-    // continuous instead of restarting it. There is no size argument to get wrong.
+    // continuous instead of restarting it. Only the COUNT resizes it (#1450 A).
     const t = stub()
     const p = new ArrowAdvectState()
-    p.ensure(t.rhi)
-    p.ensure(t.rhi)
+    p.ensure(t.rhi, N)
+    p.ensure(t.rhi, N)
     expect(t.created).toHaveLength(3)
+  })
+
+  it('RESIZES with the count — and frees the old trio rather than holding both (#1450 A)', () => {
+    // The count is what the 1:1 instance/texel contract is against: a bigger batch on the old
+    // texture would send its tail instances reading out of bounds, which on WebGPU returns 0 —
+    // every one of them collapsed onto grid-uv (0,0).
+    const t = stub()
+    const p = new ArrowAdvectState()
+    p.ensure(t.rhi, 100)
+    expect(t.descs.map((d) => d.width)).toEqual([10, 10, 10])
+    p.ensure(t.rhi, 10_000)
+    expect(t.destroyed, 'the old trio is freed BEFORE the new one is uploaded').toHaveLength(3)
+    expect(t.descs.slice(3).map((d) => d.width)).toEqual([100, 100, 100])
+  })
+
+  it('an EMPTY batch allocates nothing at all', () => {
+    const t = stub()
+    const p = new ArrowAdvectState()
+    p.ensure(t.rhi, 0)
+    expect(t.created).toEqual([])
+    expect(p.readView).toBeNull()
   })
 
   it('reallocates on a device swap WITHOUT destroying through the dead device (#737)', () => {
     const a = stub()
     const b = stub()
     const p = new ArrowAdvectState()
-    p.ensure(a.rhi)
-    p.ensure(b.rhi)
+    p.ensure(a.rhi, N)
+    p.ensure(b.rhi) // the step's bare call: the batch did not change, only the device
     expect(a.destroyed, 'the old device is gone; its textures died with it').toEqual([])
     expect(b.created).toEqual(['arrow-advect-a', 'arrow-advect-b', 'arrow-advect-origin'])
   })
@@ -182,7 +247,7 @@ describe('ArrowAdvectState lifecycle', () => {
   it('swap() alternates the sides, and destroy() releases every texture', () => {
     const t = stub()
     const p = new ArrowAdvectState()
-    p.ensure(t.rhi)
+    p.ensure(t.rhi, N)
     const r0 = p.readView
     const w0 = p.writeView
     expect(r0).not.toEqual(w0)
@@ -249,10 +314,12 @@ describe('the arrow origins (#1419)', () => {
     const after = t.writes.length
     p.writeOrigins(t.rhi, 'cbofs/1', u, v)
     expect(t.writes).toHaveLength(after)
-    // A DIFFERENT instance set is a different arrow per texel, so a stale position belongs to
-    // someone else — that one must re-seed.
-    p.writeOrigins(t.rhi, 'cbofs/2', u, v)
-    expect(t.writes.length).toBe(after + 3)
+    // A DIFFERENT key is a different BATCH, not a replacement (#1458): it reserves its own
+    // range and uploads, so the write count moves. What it must NOT do is take the first
+    // batch's texels — that is the mosaic collision, and `arrow-advect-mosaic.test.ts` owns it.
+    const base2 = p.writeOrigins(t.rhi, 'cbofs/2', u, v)
+    expect(t.writes.length).toBeGreaterThan(after)
+    expect(base2, 'the second batch sits past the first').toBe(1)
   })
 
   it('re-uploads after a device swap even though the batch did not change', () => {

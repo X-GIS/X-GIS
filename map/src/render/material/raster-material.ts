@@ -75,7 +75,20 @@ export class RasterDraper {
       // fix) and a stale literal here would under-size the UBO and truncate the write.
       globalUniformSize: rasterUniformBytes(),
     })
-    this.linearSampler = { sampler: rhi.createSampler({ mag: 'linear', min: 'linear' }) }
+    // #1436 — trilinear + anisotropic. `mipmap: 'linear'` blends BETWEEN levels (without it a
+    // chain still bands at the level switch); anisotropy is what keeps the horizon sharp rather
+    // than mush, because a pixel at pitch covers a long thin ellipse in texel space and an
+    // isotropic tap must blur the long axis down to the short one. 16 is the WebGPU floor and
+    // the point past which the visual return is nil; the WebGL2 twin clamps to its driver and
+    // degrades to plain trilinear where the extension is missing.
+    this.linearSampler = {
+      sampler: rhi.createSampler({
+        mag: 'linear',
+        min: 'linear',
+        mipmap: 'linear',
+        maxAnisotropy: 16,
+      }),
+    }
     this.nearestSampler = { sampler: rhi.createSampler({ mag: 'nearest', min: 'nearest' }) }
   }
 

@@ -581,6 +581,17 @@ jobs:
         env:
           XGIS_SOFTWARE_GPU: '1'
           HEADED: '0'
+          # SERIAL, and it is nearly free (#1433). Two workers were not buying parallelism
+          # here — they were contending for one SwiftShader rasteriser, and losing a spec to
+          # that contention at random: three consecutive runs of #1430 went red on three
+          # DIFFERENT specs, an unrelated branch went red the same way, and a local 44-spec
+          # batch dropped `_s111-multiregion-gate` on one run and passed 40/40 on the next.
+          # MEASURED, same machine, same 44 specs: 5.7 min at 2 workers, 6.8 min at 1 — the
+          # workers were mostly waiting on each other, so serialising costs ~1 min, not the
+          # ~2x a worker count naively suggests. A leg that is red at random trains people to
+          # ignore it, which is the worst thing that can happen to a gate; ~1 min is cheap
+          # for that. The playwright config reads this (`workers: Number(WORKERS ?? 2)`).
+          WORKERS: '1'
         # _glsl-compile-gate: the ONE continuous gate on the GLSL ES 3.00 backend —
         # compiles + links emitGlslModule output on a real WebGL2 context (#763 G1).
         # _shader-dsl-mrt-render: multi-@location fragment outputs drawn into two
@@ -644,4 +655,39 @@ jobs:
         # _s111-advected-arrows-gate: #1419's own gate, which landed WITHOUT being added
         # here. It is the only check on the advected `| flow` portrayal, and #1426 moved
         # that arm into coverage-arm.ts — a refactor of code no CI gate drives. ~28 s.
-        run: ./node_modules/.bin/playwright test _shader-math-parity.spec.ts _wgsl-compile-gate.spec.ts _vs-clip-parity.spec.ts _dequant-parity.spec.ts _polygon-fill-flat-parity.spec.ts _polygon-fill-flat-pixel-gate.spec.ts _optimizer-gpu-parity.spec.ts _glsl-compile-gate.spec.ts _polygon-glsl-compile-gate.spec.ts _line-glsl-compile-gate.spec.ts _shader-dsl-mrt-render.spec.ts _shader-dsl-mouse-interaction.spec.ts _emit-obfuscate-gate.spec.ts _graphics-retained-gl2-gate.spec.ts _graphics-retained-arrow-gl2-gate.spec.ts _graphics-retained-arrow-orientation-gate.spec.ts _graphics-compiled-arrow-parity.spec.ts _graphics-retained-drawcall-gl2-gate.spec.ts _compute-gen-compile-gate.spec.ts _fills-gl2-gate.spec.ts _globe-hash-camera-gate.spec.ts _hillshade-gl2-gate.spec.ts _1221-seam-control-matrix.spec.ts _hillshade-methods-gl2-gate.spec.ts _reseed-data-push-gate.spec.ts _adaptive-quality-ladder-gate.spec.ts _s111-multiregion-gate.spec.ts _s111-currents-render.spec.ts _s111-deferred-coverage-gate.spec.ts _s111-advected-arrows-gate.spec.ts _coverage-render.spec.ts
+        # _s111-catalogue-declarative-gate: the only check that a `coverage` source whose
+        # `url:` names a STAC catalogue actually resolves the VIEWPORT and paints (#1453) —
+        # region keys must be STAC item ids, never `__default__`, which is what separates
+        # "a coverage loaded" from "the catalogue resolved the viewport". It is also the
+        # only thing left guarding that path at all: #1453 deleted the 860 lines of app-side
+        # mosaic code that used to do this job, so nothing else can mask a broken engine
+        # path. Added here rather than left local because a gate nobody runs is not a gate.
+        # UNLIKE its siblings above it needs NOAA EGRESS (it streams real cells through the
+        # dev proxy); without it the spec skips LOUDLY — with its reason — after ~45 s
+        # rather than passing vacuously or burning the leg's budget. ~2.6 min with egress.
+        # _s102-catalogue-gate: the S-102 half of the same claim (#1453), and the one that
+        # could not exist before it — that demo hard-coded ONE cell key and drew nothing
+        # elsewhere, with no app-side mosaic to fall back on. Asserts two surveys a state
+        # apart resolve to DIFFERENT S-100 cell names and both paint, which a hard-coded key
+        # cannot fake. Its catalogue is NOAA's own 19 MB exchange XML translated by the
+        # proxy, so the first run also exercises that path. Same egress caveat, ~40 s warm.
+        # SPLIT INTO TWO INVOCATIONS (#1433). Everything below measures a COMPILE, a
+        # PARITY or a PIXEL. Two specs measure WALL-CLOCK behaviour instead:
+        # `_adaptive-quality-ladder-gate` needs the host to be genuinely too slow to keep up,
+        # and `_shader-dsl-mouse-interaction` needs a page to load inside 60 s.
+        #
+        # Co-scheduling is no longer the variable it was — `WORKERS: '1'` above serialises
+        # the whole leg. What the split still buys is ORDER (see the `bash -e` note below)
+        # and a PIN: the pair keeps its own `--workers=1` so it stays serial even if the leg
+        # default is ever raised again.
+        #
+        # Neither controls the ladder's own premise — that gate infers "the host cannot keep
+        # up" from a two-rAF median whose 60 Hz floor is numerically its own 33.4 ms bar
+        # (#1433 option 2, still open, for whoever owns #1393 to decide the right signal).
+        run: |
+          # The real-signal batch FIRST: the step shell is `bash -e`, so a flake in the
+          # wall-clock pair must not abort the 44 compile/parity/pixel gates before they
+          # have reported. Quiet-machine ordering is unaffected — each invocation is its
+          # own process either way.
+          ./node_modules/.bin/playwright test _shader-math-parity.spec.ts _wgsl-compile-gate.spec.ts _vs-clip-parity.spec.ts _dequant-parity.spec.ts _polygon-fill-flat-parity.spec.ts _polygon-fill-flat-pixel-gate.spec.ts _optimizer-gpu-parity.spec.ts _glsl-compile-gate.spec.ts _polygon-glsl-compile-gate.spec.ts _line-glsl-compile-gate.spec.ts _shader-dsl-mrt-render.spec.ts _emit-obfuscate-gate.spec.ts _graphics-retained-gl2-gate.spec.ts _graphics-retained-arrow-gl2-gate.spec.ts _graphics-retained-arrow-orientation-gate.spec.ts _graphics-compiled-arrow-parity.spec.ts _graphics-retained-drawcall-gl2-gate.spec.ts _compute-gen-compile-gate.spec.ts _fills-gl2-gate.spec.ts _globe-hash-camera-gate.spec.ts _hillshade-gl2-gate.spec.ts _1221-seam-control-matrix.spec.ts _hillshade-methods-gl2-gate.spec.ts _reseed-data-push-gate.spec.ts _s111-multiregion-gate.spec.ts _s111-currents-render.spec.ts _s111-deferred-coverage-gate.spec.ts _s111-advected-arrows-gate.spec.ts _s111-catalogue-declarative-gate.spec.ts _s102-catalogue-gate.spec.ts _coverage-render.spec.ts
+          ./node_modules/.bin/playwright test --workers=1 _adaptive-quality-ladder-gate.spec.ts _shader-dsl-mouse-interaction.spec.ts

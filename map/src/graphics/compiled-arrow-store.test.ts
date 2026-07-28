@@ -295,19 +295,28 @@ function makeArrowSource() {
   const a = { native: 'state-a' } as never
   const b = { native: 'state-b' } as never
   const origin = { native: 'origin' } as never
-  const flowU = { native: 'u' } as never
-  const flowV = { native: 'v' } as never
   const originWrites: string[] = []
+  const released: string[] = []
   let flipped = false
+  let field = { u: { native: 'u' } as never, v: { native: 'v' } as never }
   return {
     originWrites,
+    released,
     swap: () => {
       flipped = !flipped
     },
+    /** A different coverage region's velocity pair — what a mosaic eviction leaves behind. */
+    rearmField: () => {
+      field = { u: { native: 'u2' } as never, v: { native: 'v2' } as never }
+    },
     source: {
-      writeArrowOrigins: (key: string) => void originWrites.push(key),
+      releaseArrowOrigins: (key: string) => void released.push(key),
+      writeArrowOrigins: (key: string) => {
+        originWrites.push(key)
+        return 0 // single-region fixtures: every batch is based at texel 0
+      },
       get arrowBinding() {
-        return { state: flipped ? b : a, origin, flowU, flowV }
+        return { state: flipped ? b : a, origin, flowU: field.u, flowV: field.v }
       },
     },
   }
@@ -410,6 +419,16 @@ describe('CompiledArrowStore — advected batches (#1419)', () => {
       during(() => render(gm)),
       'still cached — not one per frame at 60 Hz',
     ).toBe(0)
+    // ...until the VELOCITY pair changes under the same two state sides. The cache is keyed on
+    // the state view, so nothing about the key says the field moved — and after a mosaic
+    // eviction the old pair is DESTROYED, which the next submit reports as
+    //   "destroyed texture coverage-flow-v used in a submit"
+    // (S-111 Live, zoom out then pan to another domain, #1419).
+    arrows.rearmField()
+    expect(
+      during(() => render(gm)),
+      'a new velocity pair invalidates every cached group',
+    ).toBeGreaterThan(0)
   })
 
   it('retires the band buffer with the rest when the layer is cleared', () => {

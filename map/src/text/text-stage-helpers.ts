@@ -7,7 +7,8 @@ import { INLINE_IMAGE_START, INLINE_IMAGE_END } from '@xgis/compiler'
 import { FONT_KEY_SENTINEL } from './sdf/glyph-rasterizer'
 import { bumpAlloc } from '../__profile__/alloc-counter'
 import { FrameArena } from '@xgis/engine'
-import type { MlVerticalLayout } from './text-stage-types'
+import type { MlVerticalLayout, TextStageOptions } from './text-stage-types'
+import { groundBasisAabb } from './ground-basis'
 
 /** Resolve per-font typography overrides for the given fontKey against
  *  a typography table. The primary family is the first entry of the
@@ -604,4 +605,103 @@ export function fillPointGlyphOffsetsWithImages(
       out,
     )
   }
+}
+
+// ── Moved out of text-stage.ts (#777 IV3-2b): module-scope constants and one
+// pure helper, none of which touch `this` or any stage state. The move is
+// behaviour-free and pays for the ground-basis bbox work in 2c, since
+// text-stage.ts sat exactly at its shrink-only ceiling.
+
+/** Mapbox `text-max-angle` spec default (degrees). MapLibre applies it to every
+ *  line-placed label, authored or not — see the gate in the curved shaping loop. */
+export const TEXT_MAX_ANGLE_DEFAULT_DEG = 45
+
+export const STAGE_DEFAULTS: Required<
+  Omit<
+    TextStageOptions,
+    | 'rasterizer'
+    | 'glyphsUrl'
+    | 'inlineGlyphs'
+    | 'glyphProviders'
+    | 'fontTypography'
+    | 'dpr'
+    | 'onResourceLanded'
+  >
+> = {
+  slotSize: 64,
+  // iter-272 — bump atlas slots 1296 → 4096 (~3.2× headroom).
+  // User-reported bilingual label corruption on OFM Bright dense
+  // scenes (Seoul z=11) where atlas overflow cycles within the
+  // iter-268 preloadString pass, breaking the "all admissions
+  // complete before shape work" invariant. Dense bilingual scenes
+  // (Latin + Hangul ~300 syllables + CJK + numbers + punctuation ×
+  // multiple font weights) exceed 1296. 4096² R8 = 16 MB (was 5.3 MB).
+  pageSize: 4096,
+  rasterFontSize: 24,
+  sdfRadius: 8,
+  defaultFont: CJK_FALLBACK_CHAIN,
+  // Symbol fade disabled at the stage level — direct-stage callers (tests,
+  // bespoke integrations) stay byte-identical; the MAP option applies the
+  // MapLibre-default 300 ms when constructing the stage (label-pass.ts).
+  fadeDurationMs: 0,
+}
+
+/** Mapbox `text-translate-anchor`: viewport (default) returns the
+ *  [dx,dy] CSS-px offset unchanged (screen-space, historical behaviour);
+ *  map rotates it by the map bearing so it tracks the MAP world axes
+ *  (MapLibre map-anchor). Pure 2D rotation; mirror of the VTR
+ *  `rotateTranslateForAnchor` used for the fill/line clip-space bake
+ *  (Phase S Batch 2). No work when the offset is zero or anchor is
+ *  viewport. */
+export function rotateLabelTranslate(
+  dx: number,
+  dy: number,
+  anchorMap: boolean | undefined,
+  bearingDeg: number,
+): [number, number] {
+  if (!anchorMap || (dx === 0 && dy === 0)) return [dx, dy]
+  const r = (bearingDeg * Math.PI) / 180
+  const c = Math.cos(r),
+    s = Math.sin(r)
+  return [dx * c - dy * s, dx * s + dy * c]
+}
+
+/** The screen box a laid-out label occupies — the ONE place that arithmetic
+ *  lives. It had been written twice, identically, in the cache-hit and shaping
+ *  paths of prepare(); a ground basis has to reach both, and two copies of a
+ *  formula are two chances to apply it to only one.
+ *
+ *  `groundBasis` (#777 IV3, `text-pitch-alignment: map`) tilts the box into the
+ *  ground plane, matching what the renderer does to the drawn quad. Absent (the
+ *  default, and every viewport-aligned label) returns the plain upright box, so
+ *  existing callers are byte-identical.
+ *
+ *  Note what is NOT cached: the layout cache stores dx/dy/advance/blockTop/
+ *  blockBottom — all basis-INDEPENDENT, because they describe the label before
+ *  projection. The box is derived from them per frame, so a cached layout stays
+ *  valid as the camera pitches, exactly as the cached glyphOffsets do while the
+ *  renderer re-applies the basis every frame. Baking a basis into the cache
+ *  would freeze a label's footprint at the pitch it was first laid out. */
+export function deriveLabelBbox(
+  drawX: number,
+  drawY: number,
+  m: { totalAdvance: number; blockTop: number; blockBottom: number; padding: number },
+  groundBasis?: ArrayLike<number>,
+): { minX: number; minY: number; maxX: number; maxY: number } {
+  const minX = drawX - m.padding
+  const minY = drawY + m.blockTop - m.padding
+  const maxX = drawX + m.totalAdvance + m.padding
+  const maxY = drawY + m.blockBottom + m.padding
+  if (groundBasis === undefined) return { minX, minY, maxX, maxY }
+  // Pivot on the draw anchor — the same point the renderer pivots the quad on
+  // (TextDraw.anchorX is this drawX), which is what keeps box and quad together.
+  return groundBasisAabb(
+    [groundBasis[0]!, groundBasis[1]!, groundBasis[2]!, groundBasis[3]!],
+    drawX,
+    drawY,
+    minX,
+    minY,
+    maxX,
+    maxY,
+  )
 }

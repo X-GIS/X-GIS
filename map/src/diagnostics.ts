@@ -20,7 +20,12 @@
 // of the class's public type.
 
 import { tileKey as compilerTileKey } from '@xgis/compiler'
-import { getMaxDpr } from '@xgis/engine'
+import {
+  adaptiveFarLodBoost,
+  adaptiveQualityStep,
+  getMaxDpr,
+  isAdaptiveQualityEnabled,
+} from '@xgis/engine'
 import { mercatorYToLat } from '@xgis/geo'
 import type { QualityConfig } from '@xgis/engine'
 import type { XGISMap } from './map'
@@ -46,6 +51,27 @@ export interface PipelineInspection {
    *  comparing two snapshots taken across a known interval. */
   frame: number
   quality: QualityConfig
+  /** The adaptive quality ladder's LIVE position (#1393), exposed for diagnostics and
+   *  gates (#1433): `step` is how many notches down the controller currently is, 0 =
+   *  untouched; `enabled` is whether it is allowed to act at all (`?adaptive=0` pins it).
+   *
+   *  This is the honest answer to "is this host over budget", and the reason it is worth
+   *  surfacing: the controller decides from RENDERED-FRAME intervals (`stats.ts` feeds
+   *  `noteFrameInterval`), the only signal that includes the GPU work this thread merely
+   *  submits. A test that instead infers load from rAF cadence is measuring the compositor's
+   *  60 Hz tick, not the frame — which is exactly how the ladder gate ended up asserting
+   *  against a bar numerically equal to its own measurement floor. */
+  adaptive: {
+    enabled: boolean
+    step: number
+    /** The multiplier the ladder is CURRENTLY applying to the tile selector's far-field error
+     *  ceiling (#1468). 1 leaves selection byte-identical; higher coarsens the horizon.
+     *
+     *  `step` says the controller decided; this says what reached the selector. They are
+     *  different facts, and the gap between them is the seam #1402 showed can go nowhere — a
+     *  gate asserting only on `step` cannot tell "it acted" from "it acted and was honoured". */
+    farLodBoost: number
+  }
   /** True when hash sync / pointer interaction / setView declared the
    *  camera explicitly — post-compile bounds-fit is suppressed in that
    *  case. */
@@ -187,6 +213,11 @@ export function inspectMapPipeline(map: XGISMap): PipelineInspection {
     viewport: { canvasW, canvasH, dpr },
     frame: m._frameCount,
     quality: m.getQuality(),
+    adaptive: {
+      enabled: isAdaptiveQualityEnabled(),
+      step: adaptiveQualityStep(),
+      farLodBoost: adaptiveFarLodBoost(),
+    },
     cameraExplicitlyPositioned: (map as unknown as { _cameraExplicitlyPositioned: boolean })
       ._cameraExplicitlyPositioned,
     sources,

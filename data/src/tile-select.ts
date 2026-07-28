@@ -12,81 +12,12 @@ import type { TileCoord, TileSelectionCamera } from './tile-select-types'
 import { type Projection, MERCATOR_LAT_LIMIT, mercatorYToLat } from '@xgis/geo'
 import { PROJECTION_NAME_TO_TYPE } from '@xgis/geo'
 import { EARTH_R } from '@xgis/geo'
-import { isMobileClassViewport, safeFetch } from '@xgis/shared'
-
-// Mobile GPUs choke on 300 frustum tiles — each tile is a draw call plus
-// SDF-shaded line segments. 120 keeps the foreground refined and the
-// horizon at a coarse LOD.
-// Mobile classification routes through `isMobileClassViewport` — the
-// shared authority (#1350) — so a small DESKTOP window (fine primary
-// pointer) keeps the desktop tile budget instead of being throttled
-// to phone caps by width alone. Note we evaluate the canvas
-// dimensions PER CALL rather than reading `window.innerWidth` once at
-// module load; Playwright sets the viewport after import so a
-// top-level constant captures the pre-viewport default and
-// miscategorises the test as desktop.
-//
-// Inputs MUST be CSS-pixel dimensions, not device pixels. A DPR=3
-// phone's device-pixel canvas is 1290×2235 — `max > 900` would
-// flip it to "desktop" and apply the desktop tile budget. Tile
-// count is a logical/perceptual concept (one tile per ~256 CSS
-// px) and must stay DPR-invariant; only the rasterised pixel
-// count scales with DPR.
-function isMobileViewport(cssWidth: number, cssHeight: number): boolean {
-  return isMobileClassViewport(Math.max(cssWidth, cssHeight))
-}
-// Viewport-aware tile budget — replaces the old static cap.
-// Density of ~one tile per 12 K pixels keeps drawCalls bounded on
-// any viewport: desktop 1280×720 → 76 tiles, mobile 390×844 → 27
-// tiles. Floor on mobile is tighter (real iPhones throttle past
-// ~60 unique tiles ≈ 240 drawCalls).
-const MAX_FRUSTUM_TILES_CEILING = 300
-function maxFrustumTilesFor(cssWidth: number, cssHeight: number, pitchDeg: number = 0): number {
-  // Mobile cap calibrated against actual viewport coverage rather
-  // than just thermal budget. The DFS prioritises camera-side tiles,
-  // so a too-small cap leaves the viewport edges uncovered (real-
-  // device test showed canvas's lower half going black on flat-
-  // pitch with cap 5). Floor 12 + divisor 18 K covers a typical
-  // 430×715 mobile canvas (cap 14) with margin headroom; cap
-  // 12 minimum guarantees corner coverage.
-  //
-  // Inputs MUST be CSS pixels — not device pixels. Device pixels
-  // would inflate the budget by DPR² (9× on a DPR=3 phone), but
-  // the number of tiles needed to cover a viewport is the same
-  // regardless of how densely each tile is rasterised.
-  //
-  // PITCH SCALE. At flat top-down, viewport AABB is compact and
-  // ~9 tiles cover everything. Tilt to 70° and the same screen
-  // shows foreground at z=N PLUS a long horizon strip whose
-  // coverage demands many low-z tiles. Without scaling, DFS
-  // burns the whole budget on camera-side subdivisions and the
-  // horizon goes white — measured on iPhone z=15 pitch=71° before
-  // the merge-pass landed (drawn z=12 only 1 unique tile across
-  // 13 layers). 2× / 4× multipliers match the pitch bands the
-  // DFS already uses for its margin formula at line ~395, so the
-  // budget grows in lockstep with the visible horizon area. The
-  // ~3× draw-call reduction from the auto-merge (61.5 % fold on
-  // OSM-style) leaves enough headroom for the bigger budget at
-  // high pitch without exceeding the 16.7 ms 60 fps target.
-  const isMobile = isMobileViewport(cssWidth, cssHeight)
-  const baseFloor = isMobile ? 12 : 60
-  const divisor = isMobile ? 18000 : 12000
-  // Pitch multiplier was 1/2/4 — measured Bright at z=14 pitch=80°
-  // selecting 2700+ tiles, hitting 63 ms / frame frame time (16 fps).
-  // Mapbox uses ~200-400 tiles for the equivalent view because their
-  // selector picks a SINGLE coarse zoom for the horizon strip rather
-  // than letting DFS keep subdividing. We can't (yet) match that
-  // selector design — but we can clamp the budget hard so drawCall
-  // count stays in 60 fps territory: 1.5/2 multiplier instead of 2/4.
-  // The horizon strip becomes visibly chunkier (one or two zoom levels
-  // coarser) past pitch 60°, which is preferable to a 1-fps freeze.
-  const pitchMul = pitchDeg >= 60 ? 2 : pitchDeg >= 30 ? 1.5 : 1
-  const floor = Math.round(baseFloor * pitchMul)
-  return Math.max(
-    floor,
-    Math.min(MAX_FRUSTUM_TILES_CEILING, Math.round((cssWidth * cssHeight) / divisor) * pitchMul),
-  )
-}
+import { safeFetch } from '@xgis/shared'
+import {
+  MAX_FRUSTUM_TILES_CEILING,
+  isMobileViewport,
+  maxFrustumTilesFor,
+} from './tile-select-budget'
 
 /** Quadtree-based visible tile selection.
  *  Recursively subdivides from z=0, using screen-space tile size to determine LOD.
@@ -130,7 +61,8 @@ export function visibleTilesFrustum(
   // passes the same dpr to `getECEFFrameView` (post Phase 2 PR 2d.5),
   // so cull projection and rasterisation projection produce the same
   // screen positions.
-  const mvp = camera.getRTCMatrix(canvasWidth, canvasHeight, dpr)
+  // Same cached matrix `getRTCMatrix` returns, plus the far plane inside it.
+  const { matrix: mvp, far: farDepth } = camera.getFrameView(canvasWidth, canvasHeight, dpr)
   const camMercX = camera.centerX
   const camMercY = camera.centerY
   // Non-Mercator projections render a single world (no lon-periodic
@@ -165,15 +97,16 @@ export function visibleTilesFrustum(
     )
   }
 
-  // Project Mercator coords → screen pixel (returns null if behind camera)
-  const toScreen = (mx: number, my: number): [number, number] | null => {
+  // Project Mercator coords → screen pixel (null if behind camera); third
+  // component is clip `w`, the view-axis depth `farDepth` is measured in.
+  const toScreen = (mx: number, my: number): [number, number, number] | null => {
     const rx = mx - camMercX,
       ry = my - camMercY
     const cw = mvp[3] * rx + mvp[7] * ry + mvp[15]
     if (cw <= 1e-6) return null
     const cx = mvp[0] * rx + mvp[4] * ry + mvp[12]
     const cy = mvp[1] * rx + mvp[5] * ry + mvp[13]
-    return [(cx / cw + 1) * 0.5 * canvasWidth, (1 - cy / cw) * 0.5 * canvasHeight]
+    return [(cx / cw + 1) * 0.5 * canvasWidth, (1 - cy / cw) * 0.5 * canvasHeight, cw]
   }
 
   // Lon/lat → Mercator meters
@@ -250,6 +183,7 @@ export function visibleTilesFrustum(
       syMax = -Infinity
     let validCount = 0
     let behindCount = 0
+    let cwMin = Infinity
     for (const c of corners) {
       if (!c) {
         behindCount++
@@ -260,6 +194,7 @@ export function visibleTilesFrustum(
       if (c[0] > sxMax) sxMax = c[0]
       if (c[1] < syMin) syMin = c[1]
       if (c[1] > syMax) syMax = c[1]
+      if (c[2] < cwMin) cwMin = c[2]
     }
 
     // All corners behind camera — cull.
@@ -328,6 +263,13 @@ export function visibleTilesFrustum(
     if (behindCount > 0) {
       return nearViewport ? SUBDIVIDE_THRESHOLD * 2 : -1
     }
+
+    // FRUSTUM FAR-PLANE CULL (#1427). `overlapsViewport` alone never bounds a
+    // FLAT Mercator plane (vanishing line at infinity), so the whole world past
+    // the horizon passes it. Exact — `cw` is affine, so its per-tile minimum is
+    // at a sampled corner. Rationale, numbers, before/after frames:
+    // `map/src/render/tile-select-far-plane-cull.test.ts`.
+    if (cwMin > farDepth) return -1
 
     if (!overlapsViewport) return -1
 

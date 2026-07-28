@@ -919,6 +919,8 @@ export class RenderLoop {
     // begun and restores FBO 0 on end(); `encoder: null` — this path mints no frame encoder,
     // and the beginOffscreenPass arm it takes needs none.
     const flowField = this.host.coverageRenderer.activeFlowField()
+    // Twin of the flow pass's declaration, and outside the `if` for the same reason (#1419).
+    this.host.flowRenderer?.setArrowField(flowField)
     if (flowField) {
       const frame = { elapsedMs: this.host._elapsedMs, encoder: null }
       // #1419 twin of the flow pass's arrow step, and gated the same way — omitting it would

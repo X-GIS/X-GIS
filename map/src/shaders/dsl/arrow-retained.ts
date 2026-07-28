@@ -36,6 +36,7 @@ import {
   vec4,
   toF32,
   toI32,
+  toU32,
   textureLoad,
   textureDimensions,
   when,
@@ -59,6 +60,7 @@ import {
   S111_BAND_COUNT,
   S111_BAND_PARAMS_ROW,
   S111_BAND_STRIDE,
+  S111_PARAM_STATE_BASE,
   S111_PARAM_UV_ASPECT,
 } from './s111-band-table-layout'
 import {
@@ -387,9 +389,16 @@ const vsAdvected = fn(
     const basisU = pxDelta(uStepClip)
     const basisV = pxDelta(vStepClip)
 
-    // Where this arrow is, and where it belongs — texel `instance_index` in both textures.
+    // Where this arrow is, and where it belongs — texel `base + instance_index` in both.
+    //
+    // The BASE is what makes a MOSAIC work (#1458). One state texture serves every resident
+    // region and each owns a contiguous range, so a batch's instance 0 is not texel 0. It was,
+    // once: every region indexed from 0, the last one armed owned every texel, and its siblings'
+    // arrows were leashed to origin cells belonging to another NOAA domain — reported as the
+    // field breaking up as soon as a second HDF5 came on screen.
     const dim = textureDimensions(stateTex.node)
-    const texel = vec2i(toI32(p.inst.mod(dim.x)), toI32(p.inst.div(dim.x)))
+    const idx = p.inst.add(toU32(bandAt(u32(S111_BAND_PARAMS_ROW), S111_PARAM_STATE_BASE)))
+    const texel = vec2i(toI32(idx.mod(dim.x)), toI32(idx.div(dim.x)))
     const pos = decodeArrowPos({ c: textureLoad(stateTex.node, texel, u32(0)) })
     const origin = decodeArrowPos({ c: textureLoad(originTex.node, texel, u32(0)) })
     // In units of the packed basis: the anchors are ARROW_DRIFT_UV away and the advect step
@@ -431,12 +440,25 @@ const vsAdvected = fn(
     const scale = bandAt(row, 1).add(bandAt(row, 2).mul(speed))
     const tint = vec4(bandAt(row, 4), bandAt(row, 5), bandAt(row, 6), bandAt(row, 7))
 
+    // THE PERSPECTIVE GUARD. Both bases are perspective divides by a DIFFERENT anchor's w, and
+    // those anchors sit one leash length away — most of a degree on a regional cell. Lower the
+    // camera pitch and an anchor crosses behind the eye plane: w passes through zero, the divide
+    // explodes, and the arrow is flung off screen (reported as "the particles fly off into
+    // space"). The static path never sees this — it takes only a DIRECTION from its delta, and
+    // its tip step is 0.02°. This VS is the only one that uses a projected delta as a MAGNITUDE.
+    //
+    // An arrow whose basis cannot be computed is NOT DRAWN. That is the honest outcome: its
+    // position is unknown this frame, so no position is claimed for it. It returns as soon as
+    // its anchors are in front of the camera again.
+    const minW = min(originClip.w, min(uStepClip.w, vStepClip.w))
+
     // main.xsl note (4): no symbol for speed 0 or noData — and a packed nodata cell is exactly
     // (0, 0). A zero length collapses the quad, so the arrow is not drawn at all rather than
     // drawn at some floor size in water that has no current.
     const size = rd(F.size)
       .mul(scale)
       .mul(step(f32(1e-6), speed))
+      .mul(step(f32(1e-6), minW))
 
     const margin = rd(F.stroke_units)
     const qx = f32(0)
@@ -472,8 +494,12 @@ const vsAdvected = fn(
 
     const lx = qx.mul(size)
     const ly = qy.mul(size)
-    const rx = lx.mul(cc).sub(ly.mul(ss)).add(driftPx.x)
-    const ry = lx.mul(ss).add(ly.mul(cc)).add(driftPx.y)
+    // The drift is gated by the SAME guard: `size` collapses the quad, but the displacement is
+    // added to the anchor independently, so an unguarded drift would still carry a zero-area
+    // quad to a garbage position.
+    const live = step(f32(1e-6), minW)
+    const rx = lx.mul(cc).sub(ly.mul(ss)).add(driftPx.x.mul(live))
+    const ry = lx.mul(ss).add(ly.mul(cc)).add(driftPx.y.mul(live))
     const offNdc = vec2(rx.mul(f32(2).div(vp.x)), ry.neg().mul(f32(2).div(vp.y)))
     const clip = originClip.add(vec4(offNdc.mul(originClip.w), 0, 0))
 

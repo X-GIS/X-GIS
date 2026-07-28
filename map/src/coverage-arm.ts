@@ -60,6 +60,10 @@ export function armCoverageDrape(
       opacity: show.opacity ?? 1,
       flowOnly: arm.draw ? arm.flowOnly : false,
       hidden: !arm.draw,
+      // `filter:` thins the DRAPE in the fragment shader (#1437) — the same clause the
+      // sounding arm applies per candidate cell, compiled once, so a layer's filter cannot
+      // mean two different things depending on which portrayal is looking at it.
+      filter: show.filterExpr,
     },
     region,
   )
@@ -73,17 +77,45 @@ export function armCoverageDrape(
  *  handle: the band table is expressed in the textures' normalized units, so a second
  *  derivation of the peak is a second thing that can disagree with them. A region whose field
  *  has not been uploaded yet simply arms nothing — the next rebuild re-adds, which is the
- *  same pattern every other coverage-dependent layer here follows. */
+ *  same pattern every other coverage-dependent layer here follows.
+ *
+ *  RETURNS whether it armed, because that answer is what decides the static batch (#1449). See
+ *  `staticArrowsSuppressed`. */
 export function armAdvectedArrows(
   host: CoverageArmHost,
   show: ShowCommand,
   handle: CoverageHandle,
   region: string,
-): void {
-  if (show.isFlow !== true || show.flowPortrayal === 'streaks') return
+): boolean {
+  if (show.isFlow !== true || show.flowPortrayal === 'streaks') return false
   const field = host.coverageRenderer?.flowField(region)
-  if (!field || !(field.scale > 0)) return
+  if (!field || !(field.scale > 0)) return false
   addCoverageArrowShowLayer(host, show, handle, region, { advected: { peakSpeed: field.scale } })
+  return true
+}
+
+/** Arm this region's arrows — the ONE place that decides which of the two arrow batches a show
+ *  gets, so the three arm sites cannot answer it differently (#1449).
+ *
+ *  The advected field IS the catalogue portrayal, drifting: same glyph, same banded ramp, same
+ *  scale rule, seeded so that frame 0 is exactly the static placement. Adding the static batch
+ *  as well therefore draws ONE symbology TWICE — and not even congruently, because the two
+ *  paths thin to different ceilings (100 000 vs the state texture's 16 384), so on a CBOFS-sized
+ *  cell they land on different cells at 5× different densities and disagree about colour from
+ *  the first frame. That is what S-111 Live showed.
+ *
+ *  So the advected arm goes FIRST and the static one fills in only when it did not take over —
+ *  which also covers the region whose velocity field has not been uploaded yet: it draws the
+ *  static catalogue field, and the rebuild after the upload swaps it for the drifting one.
+ *  Something is always on screen, and never two things. */
+export function armCoverageArrows(
+  host: CoverageArmHost,
+  show: ShowCommand,
+  handle: CoverageHandle,
+  region: string,
+): void {
+  const advected = armAdvectedArrows(host, show, handle, region)
+  if (show.isArrow && !advected) addCoverageArrowShowLayer(host, show, handle, region)
 }
 
 /** Arm ONE region for ONE show, REPLACING whatever that region held — drape + arrow, the
@@ -96,14 +128,14 @@ export function armCoverageShow(
   region: string,
 ): void {
   armCoverageDrape(host, show, handle, region)
-  if (show.isArrow) {
-    // Clear THIS region's arrows only. Clearing all of them here is what kept the mosaic
-    // single-region even after the renderer could hold several: a neighbour's time step
-    // wiped every other domain's glyphs and re-added just its own.
-    host.graphics.clearCompiledArrows(region)
-    addCoverageArrowShowLayer(host, show, handle, region)
-  }
-  armAdvectedArrows(host, show, handle, region)
+  // Clear THIS region's arrows only, and clear them for EITHER portrayal. Clearing all of them
+  // here is what kept the mosaic single-region even after the renderer could hold several: a
+  // neighbour's time step wiped every other domain's glyphs and re-added just its own. Scoping
+  // the clear to `| arrow` was the mirror mistake — a `| flow`-only layer is re-armed on every
+  // forecast frame (playback drives this many times a second) and ACCUMULATED one advected
+  // batch per frame, each with its own feat and band buffers.
+  host.graphics.clearCompiledArrows(region)
+  armCoverageArrows(host, show, handle, region)
 }
 
 /** Arm a region whose cell has just landed from the DEFERRED declared-source read (#1426),
@@ -121,12 +153,14 @@ export function armLandedCoverage(
   sourceId: string,
   handle: CoverageHandle,
   region: string,
-): void {
+): boolean {
   host.graphics.clearCompiledArrows(region)
+  let armed = false
   for (const show of shows) {
     if (show.targetName !== sourceId) continue
     armCoverageDrape(host, show, handle, region)
-    if (show.isArrow) addCoverageArrowShowLayer(host, show, handle, region)
-    armAdvectedArrows(host, show, handle, region)
+    armCoverageArrows(host, show, handle, region)
+    armed = true
   }
+  return armed
 }

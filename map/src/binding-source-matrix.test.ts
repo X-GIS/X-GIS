@@ -47,18 +47,51 @@ const read = (rel: string): string => readFileSync(join(HERE, rel), 'utf8')
  *  alias must still be a SOURCE_TYPES member, or this list has gone stale. */
 const CANONICALISED_ALIASES = ['pmtiles', 'tilejson', 'hdf5', 'h5'] as const
 
-/** A binding's fate on one source kind: the file+token that consumes it, or why it cannot. */
-type Cell = { consumer: { file: string; token: string } } | { na: string }
+/** Where a binding is evaluated. Not a label — the rule (see FILTER) is that a predicate runs
+ *  where its operand lives, so a cell whose domain looks wrong for its operand is a design bug,
+ *  not a formatting one. */
+type Domain = 'cpu' | 'gpu'
 
-/** `filter:` — the binding that motivated this gate. */
+/** A binding's fate on one draw path: the file+token that consumes it, or why it cannot.
+ *
+ *  `kind` is the SOURCE KIND when the row key names a draw path instead ('coverage/ramp'), so a
+ *  source kind with several draw paths still resolves against SOURCE_TYPES. Cells keyed by a
+ *  plain source kind leave it out. */
+type Cell =
+  | { consumer: { file: string; token: string }; domain: Domain; kind?: string }
+  | { na: string; kind?: string }
+
+/** `filter:` — the binding that motivated this gate, and then broke it (#1437).
+ *
+ *  A `coverage` layer has TWO draw paths, and the first version of this table had ONE cell for
+ *  it: anchored to the sounding dispatch, it asserted "filter works on coverage" while the ramp
+ *  drape ignored the clause entirely. That is the very shape the gate exists to catch — known
+ *  binding, no consumer on this path — reproduced one level down, which is why cells now carry
+ *  a DRAW PATH and the evaluation DOMAIN that goes with it.
+ *
+ *  The domain is not decoration. It records the rule the two coverage cells follow: a predicate
+ *  is evaluated where its OPERAND lives, because that is where filtering removes downstream
+ *  work. A feature property lives in a JS object, so filtering it on the CPU means the feature
+ *  is never uploaded; a band value at a fragment lives in a texture, so filtering it on the GPU
+ *  saves the LUT tap and the blend, and a CPU mask would be a full-grid pass plus an upload. */
 const FILTER: Record<string, Cell> = {
-  geojson: { consumer: { file: 'map.ts', token: 'applyFilter(' } },
-  vector: { consumer: { file: 'render/vector-tile-renderer.ts', token: 'show.filterExpr' } },
-  coverage: {
+  geojson: { consumer: { file: 'map.ts', token: 'applyFilter(' }, domain: 'cpu' },
+  vector: {
+    consumer: { file: 'render/vector-tile-renderer.ts', token: 'show.filterExpr' },
+    domain: 'cpu',
+  },
+  'coverage/soundings': {
+    kind: 'coverage',
     consumer: {
       file: 'render/passes/dispatch-coverage-soundings.ts',
-      token: 'filterAcceptsProps(',
+      token: 'coverageCellPredicate(',
     },
+    domain: 'cpu',
+  },
+  'coverage/ramp': {
+    kind: 'coverage',
+    consumer: { file: 'shaders/dsl/coverage-ramp.ts', token: 'filter({ v: raw' },
+    domain: 'gpu',
   },
   raster: { na: 'a raster tile has no features to filter' },
   'raster-dem': { na: 'a DEM has no features to filter' },
@@ -67,14 +100,24 @@ const FILTER: Record<string, Cell> = {
 
 /** `| label-[…]` — the binding whose coverage cell was empty until #1366 INC-5. */
 const LABEL: Record<string, Cell> = {
-  geojson: { consumer: { file: 'render/passes/label-pass.ts', token: 'data.features' } },
-  vector: { consumer: { file: 'render/passes/label-pass.ts', token: 'computeSliceKey(' } },
+  geojson: {
+    consumer: { file: 'render/passes/label-pass.ts', token: 'data.features' },
+    domain: 'cpu',
+  },
+  vector: {
+    consumer: { file: 'render/passes/label-pass.ts', token: 'computeSliceKey(' },
+    domain: 'cpu',
+  },
   coverage: {
     consumer: { file: 'render/passes/label-pass.ts', token: 'dispatchCoverageSoundings(' },
+    domain: 'cpu',
   },
   raster: { na: 'a raster tile carries no per-feature properties to label' },
   'raster-dem': { na: 'a DEM carries no per-feature properties to label' },
-  binary: { consumer: { file: 'render/passes/label-pass.ts', token: 'computeSliceKey(' } },
+  binary: {
+    consumer: { file: 'render/passes/label-pass.ts', token: 'computeSliceKey(' },
+    domain: 'cpu',
+  },
 }
 
 const MATRIX: ReadonlyArray<{ binding: string; cells: Record<string, Cell> }> = [
@@ -101,16 +144,77 @@ describe('layer binding × source kind', () => {
   it('every binding declares a cell for every runtime source kind', () => {
     const holes: string[] = []
     for (const { binding, cells } of MATRIX) {
+      // A cell's source kind is `kind` when the row key names a DRAW PATH, else the key
+      // itself — so 'coverage/ramp' and 'coverage/soundings' both cover `coverage`, and a
+      // source kind with several draw paths is still covered exactly once or more.
+      const covered = new Set(Object.entries(cells).map(([key, c]) => c.kind ?? key))
       for (const kind of RUNTIME_SOURCE_KINDS) {
-        if (!(kind in cells)) holes.push(`${binding} × ${kind}`)
+        if (!covered.has(kind)) holes.push(`${binding} × ${kind}`)
       }
-      for (const kind of Object.keys(cells)) {
+      for (const kind of covered) {
         if (!(RUNTIME_SOURCE_KINDS as readonly string[]).includes(kind)) {
           holes.push(`${binding} × ${kind} — not a runtime source kind`)
         }
       }
+      // A path-keyed row must SAY which kind it belongs to. Without this the `kind ?? key`
+      // fallback above would silently accept 'coverage/ramp' as its own source kind, and the
+      // completeness check would go quiet about `coverage` rather than red.
+      for (const [key, c] of Object.entries(cells)) {
+        if (key.includes('/') && c.kind === undefined) {
+          holes.push(`${binding} × ${key} — a draw-path key must declare its source \`kind\``)
+        }
+      }
     }
     expect(holes, `undeclared cells:\n${holes.join('\n')}`).toEqual([])
+  })
+
+  it('every draw path of a MULTI-PATH source kind is spelled out separately', () => {
+    // The #1437 regression, gated. A coverage layer draws a ramp AND numerals; one cell
+    // covering both is how `filter:` came to be asserted-supported while the ramp ignored it.
+    // Any source kind that some binding splits by draw path must stay split — collapsing it
+    // back to a single cell is the exact move that made this gate lie.
+    const split = new Map<string, Set<string>>()
+    for (const { cells } of MATRIX) {
+      for (const [key, c] of Object.entries(cells)) {
+        if (!key.includes('/')) continue
+        const kind = c.kind as string
+        if (!split.has(kind)) split.set(kind, new Set())
+        split.get(kind)!.add(key)
+      }
+    }
+    for (const [kind, paths] of split) {
+      expect(
+        paths.size,
+        `${kind} is split by draw path, so it needs more than one`,
+      ).toBeGreaterThan(1)
+    }
+    // And the split that motivated all this must still be there, by name — a rename that
+    // dropped one path would otherwise leave the rule above vacuously satisfied.
+    expect([...(split.get('coverage') ?? [])].sort()).toEqual([
+      'coverage/ramp',
+      'coverage/soundings',
+    ])
+  })
+
+  it('every supported cell declares WHERE it is evaluated', () => {
+    // The domain is the rule this matrix now carries: a predicate is evaluated where its
+    // operand lives. A cell that claims support without saying where cannot be checked
+    // against that rule, and the rule is what keeps a texel predicate off the CPU.
+    for (const { binding, cells } of MATRIX) {
+      for (const [key, cell] of Object.entries(cells)) {
+        if (!('consumer' in cell)) continue
+        expect(['cpu', 'gpu'], `${binding} × ${key} has no evaluation domain`).toContain(
+          cell.domain,
+        )
+      }
+    }
+    // Non-vacuity: at least one cell must be GPU-evaluated, or the axis is a constant column
+    // that would stay green through the very regression it exists to catch.
+    const domains = MATRIX.flatMap(({ cells }) =>
+      Object.values(cells).flatMap((c) => ('consumer' in c ? [c.domain] : [])),
+    )
+    expect(domains).toContain('gpu')
+    expect(domains).toContain('cpu')
   })
 
   it('every supported cell names a consumer that is really in that file', () => {

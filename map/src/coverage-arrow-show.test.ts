@@ -7,7 +7,7 @@ import {
 } from './coverage-arrow-show'
 import { ARROW_DRIFT_UV } from './shaders/dsl/arrow-advect-step'
 import { flowTrueSpans } from './render/flow-advect-params'
-import { ARROW_ADVECT_COUNT } from './render/arrow-advect-state'
+import { COVERAGE_ARROW_MAX } from './coverage-arrow-show'
 import type { ShowCommand } from './render/renderer-types'
 import { S111_ARROW_BASE_PX, S111_OUTLINE_FRAC } from './render/s111-portrayal'
 
@@ -237,10 +237,10 @@ describe('coverageArrowOrigins (#1409 — advected mode)', () => {
     expect(emitted.lons[2]).toBeCloseTo(11, 9)
   })
 
-  it('thins to the state texture’s capacity, and the origins thin WITH it', () => {
+  it('thins to the ONE ceiling both portrayals share, and the origins thin WITH it', () => {
     // More valid cells than texels. Both sides must apply the identical stride, or the
     // instance/texel correspondence breaks and every arrow reads someone else's position.
-    const n = ARROW_ADVECT_COUNT + 1000
+    const n = COVERAGE_ARROW_MAX + 1000
     const speed = new Array(n).fill(1.5)
     const dir = new Array(n).fill(90)
     const handle = coverageFromGrids({
@@ -269,7 +269,7 @@ describe('coverageArrowOrigins (#1409 — advected mode)', () => {
     const { host, calls } = makeHost()
     addCoverageArrowShowLayer(host, s111Show, handle, '', { advected: { peakSpeed: 20 } })
     const origins = coverageArrowOrigins(handle)!
-    expect(calls[0]!.lons.length).toBeLessThanOrEqual(ARROW_ADVECT_COUNT)
+    expect(calls[0]!.lons.length).toBeLessThanOrEqual(COVERAGE_ARROW_MAX)
     expect(origins.u).toHaveLength(calls[0]!.lons.length)
   })
 

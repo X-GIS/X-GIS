@@ -175,10 +175,39 @@ export class FlowRenderer {
     return state && origin && flowU && flowV ? { state, origin, flowU, flowV } : null
   }
 
+  /** Declare which velocity pair the arrows are currently stepping through — `null` when no
+   *  region carries one any more.
+   *
+   *  Called by the flow pass EVERY frame, before the step, and deliberately not folded into
+   *  `stepArrows`: the step has several early returns (a zero dt, a pass the encoder refused),
+   *  and every one of them would leave the previous field cached. That is not a stale-data
+   *  problem, it is a lifetime one — the mosaic evicts a region and DESTROYS its flow textures,
+   *  so a binding built from the views held here goes into the next submit pointing at freed
+   *  memory:
+   *
+   *    destroyed texture "coverage-flow-v" used in a submit
+   *
+   *  reported from S-111 Live by zooming out and panning to another domain (#1419). The views
+   *  live exactly as long as the pass keeps saying they do. */
+  setArrowField(field: FlowFieldRegion | null): void {
+    const u = field?.u ?? null
+    const v = field?.v ?? null
+    if (u === this.arrowFieldU && v === this.arrowFieldV) return
+    // The cached groups were built against the outgoing pair.
+    this.arrowBindGroups.clear()
+    this.arrowFieldU = u
+    this.arrowFieldV = v
+  }
+
   /** Hand this batch's origins to the state (see `ArrowAdvectState.writeOrigins`) — `key`
    *  identifies the instance layout, so an unchanged batch skips the upload and keeps drifting. */
-  writeArrowOrigins(key: string, u: ArrayLike<number>, v: ArrayLike<number>): void {
-    this.arrows.writeOrigins(this.rhi, key, u, v)
+  writeArrowOrigins(key: string, u: ArrayLike<number>, v: ArrayLike<number>): number {
+    return this.arrows.writeOrigins(this.rhi, key, u, v)
+  }
+
+  /** Give a dropped batch's texel range back to the shared state (#1458). */
+  releaseArrowOrigins(key: string): void {
+    this.arrows.releaseOrigins(key)
   }
 
   /** Advance every arrow one frame along `field`.
@@ -292,10 +321,8 @@ export class FlowRenderer {
     return bg
   }
 
-  /** The arrow step's bind group, memoized per read side and invalidated when the coverage
-   *  re-arms — the same rule the trail's groups follow, and for the same reason: a stale group
-   *  would keep the previous forecast hour's velocities bound while the arrows drift through
-   *  data nobody is looking at. */
+  /** The arrow step's bind group, memoized per read side. The field views themselves are
+   *  `setArrowField`'s to own — this only builds against whatever is current. */
   private arrowBindGroupFor(
     draper: ArrowAdvectDraper,
     read: RhiTextureView,
@@ -304,11 +331,6 @@ export class FlowRenderer {
     nearest: RhiSampler,
     linear: RhiSampler,
   ): RhiBindGroup {
-    if (field.u !== this.arrowFieldU || field.v !== this.arrowFieldV) {
-      this.arrowBindGroups.clear()
-      this.arrowFieldU = field.u
-      this.arrowFieldV = field.v
-    }
     let bg = this.arrowBindGroups.get(read)
     if (!bg) {
       bg = draper.bindGroup(read, field.u, field.v, nearest, linear, origin)

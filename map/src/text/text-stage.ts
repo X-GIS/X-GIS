@@ -65,7 +65,6 @@ import {
   composeFontKey,
   ONE_EM,
   SHAPING_DEFAULT_OFFSET,
-  CJK_FALLBACK_CHAIN,
   parseInlineImages,
   resolveInlineImageSprites,
   fillPointGlyphOffsetsWithImages,
@@ -73,6 +72,10 @@ import {
   type ShapedInlineImage,
   type InlineImageSpriteSource,
   type InlineImagePlacement,
+  TEXT_MAX_ANGLE_DEFAULT_DEG,
+  STAGE_DEFAULTS,
+  rotateLabelTranslate,
+  deriveLabelBbox,
 } from './text-stage-helpers'
 import type { TextStageOptions, PendingLabel, PendingLineLabel } from './text-stage-types'
 import { wrapWithKnuthPlass, cjkBucketFor } from './text-wrap'
@@ -133,60 +136,6 @@ export {
 // Linux). Per-label font stacks coming from Mapbox styles get the
 // same fallback chain appended in composeFontKey. CJK_FALLBACK_CHAIN
 // now lives in text-stage-helpers.ts alongside composeFontKey.
-/** Mapbox `text-max-angle` spec default (degrees). MapLibre applies it to every
- *  line-placed label, authored or not — see the gate in the curved shaping loop. */
-const TEXT_MAX_ANGLE_DEFAULT_DEG = 45
-
-const DEFAULTS: Required<
-  Omit<
-    TextStageOptions,
-    | 'rasterizer'
-    | 'glyphsUrl'
-    | 'inlineGlyphs'
-    | 'glyphProviders'
-    | 'fontTypography'
-    | 'dpr'
-    | 'onResourceLanded'
-  >
-> = {
-  slotSize: 64,
-  // iter-272 — bump atlas slots 1296 → 4096 (~3.2× headroom).
-  // User-reported bilingual label corruption on OFM Bright dense
-  // scenes (Seoul z=11) where atlas overflow cycles within the
-  // iter-268 preloadString pass, breaking the "all admissions
-  // complete before shape work" invariant. Dense bilingual scenes
-  // (Latin + Hangul ~300 syllables + CJK + numbers + punctuation ×
-  // multiple font weights) exceed 1296. 4096² R8 = 16 MB (was 5.3 MB).
-  pageSize: 4096,
-  rasterFontSize: 24,
-  sdfRadius: 8,
-  defaultFont: CJK_FALLBACK_CHAIN,
-  // Symbol fade disabled at the stage level — direct-stage callers (tests,
-  // bespoke integrations) stay byte-identical; the MAP option applies the
-  // MapLibre-default 300 ms when constructing the stage (label-pass.ts).
-  fadeDurationMs: 0,
-}
-
-/** Mapbox `text-translate-anchor`: viewport (default) returns the
- *  [dx,dy] CSS-px offset unchanged (screen-space, historical behaviour);
- *  map rotates it by the map bearing so it tracks the MAP world axes
- *  (MapLibre map-anchor). Pure 2D rotation; mirror of the VTR
- *  `rotateTranslateForAnchor` used for the fill/line clip-space bake
- *  (Phase S Batch 2). No work when the offset is zero or anchor is
- *  viewport. */
-function rotateLabelTranslate(
-  dx: number,
-  dy: number,
-  anchorMap: boolean | undefined,
-  bearingDeg: number,
-): [number, number] {
-  if (!anchorMap || (dx === 0 && dy === 0)) return [dx, dy]
-  const r = (bearingDeg * Math.PI) / 180
-  const c = Math.cos(r),
-    s = Math.sin(r)
-  return [dx * c - dy * s, dx * s + dy * c]
-}
-
 export class TextStage {
   readonly host: GlyphAtlasHost
   readonly gpu: GlyphAtlasGPU
@@ -383,7 +332,7 @@ export class TextStage {
     options: TextStageOptions = {},
     sampleCount: number = 1,
   ) {
-    this.opts = { ...DEFAULTS, ...options } as Required<
+    this.opts = { ...STAGE_DEFAULTS, ...options } as Required<
       Omit<
         TextStageOptions,
         | 'rasterizer'
@@ -834,6 +783,7 @@ export class TextStage {
     pairKey?: string,
     collisionId?: string,
     perspectiveScale?: number,
+    groundBasis?: ArrayLike<number>,
   ): void {
     const _ast = ((globalThis as Record<string, unknown>).__xgisLabelsRhi ??= {}) as Record<
       string,
@@ -874,6 +824,7 @@ export class TextStage {
       collisionId,
       layerName,
       ...(images.length > 0 ? { inlineImages: images } : {}),
+      ...(groundBasis !== undefined ? { groundBasis } : {}),
       perspectiveScale,
     })
   }
@@ -1129,7 +1080,8 @@ export class TextStage {
       // scale), so line breaks are unchanged. Quantised to 1/64 (≤1.5% steps, sub-
       // pixel) so the across-frame layout cache (keyed on sizePx) still hits during a
       // pitched pan; perspScale 1 (default) leaves sizePx byte-identical to before.
-      const perspScale = p.perspectiveScale ?? 1
+      // #777 IV3 — mutually exclusive; see PendingLabel.groundBasis for why.
+      const perspScale = p.groundBasis !== undefined ? 1 : (p.perspectiveScale ?? 1)
       const rawSizePx = p.def.size * dpr * (Math.round(perspScale * 64) / 64)
       const sizePx = rawSizePx
       // Label italic → renderer shears CJK/Hangul glyphs (synthetic oblique).
@@ -1324,12 +1276,7 @@ export class TextStage {
           const drawY = p.anchorY + hit.dy
           // Badge union — a steady scene is ~all cache hits, so the shaping
           // path alone left it a no-op (0 px change until this site landed).
-          const cachedBox = {
-            minX: drawX - hit.padding,
-            minY: drawY + hit.blockTop - hit.padding,
-            maxX: drawX + hit.totalAdvance + hit.padding,
-            maxY: drawY + hit.blockBottom + hit.padding,
-          }
+          const cachedBox = deriveLabelBbox(drawX, drawY, hit, p.groundBasis)
           this._pairBadge.union(p.pairKey, p.anchorX, p.anchorY, cachedBox)
           const haloLive =
             hit.haloGeom && p.def.halo
@@ -1355,6 +1302,7 @@ export class TextStage {
                   rotateRad: hit.rotateRad,
                   glyphOffsets: hit.glyphOffsets,
                   sdfRadius: this.opts.sdfRadius,
+                  ...(p.groundBasis !== undefined ? { groundBasis: p.groundBasis } : {}),
                 },
                 bbox: cachedBox,
               },
@@ -1530,12 +1478,13 @@ export class TextStage {
             }
           }
         }
-        const bbox = {
-          minX: drawX - padding,
-          minY: drawY + vlay.blockTop - padding,
-          maxX: drawX + totalAdvance + padding,
-          maxY: drawY + vlay.blockBottom + padding,
+        const bboxMetrics = {
+          totalAdvance,
+          blockTop: vlay.blockTop,
+          blockBottom: vlay.blockBottom,
+          padding,
         }
+        const bbox = deriveLabelBbox(drawX, drawY, bboxMetrics, p.groundBasis)
         // A shield collides as its badge, not its ref glyphs.
         this._pairBadge.union(p.pairKey, p.anchorX, p.anchorY, bbox)
         // #777 I-A — stash the shaped text box {w,h} (candidate-invariant dims)
@@ -1560,6 +1509,7 @@ export class TextStage {
             rotateRad: p.def.rotate ? (p.def.rotate * Math.PI) / 180 : undefined,
             glyphOffsets,
             sdfRadius: this.opts.sdfRadius,
+            ...(p.groundBasis !== undefined ? { groundBasis: p.groundBasis } : {}),
           },
           bbox,
           ...(imgPlacements.length > 0 ? { inlineImages: imgPlacements } : {}),
@@ -1579,10 +1529,7 @@ export class TextStage {
           this._layoutCache.set(_layoutKey, {
             dx,
             dy,
-            totalAdvance,
-            padding,
-            blockTop: vlay.blockTop,
-            blockBottom: vlay.blockBottom,
+            ...bboxMetrics,
             glyphOffsets: cachedGlyphOffsets,
             glyphs,
             generation: this.host.getGeneration(),
