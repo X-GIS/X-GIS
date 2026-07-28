@@ -7,6 +7,34 @@
 // and the ECEF helpers) lets every layer share one implementation without a
 // dependency on @xgis/engine or a cartography package.
 
+/** Vertical field of view of the engine's perspective camera, in RADIANS.
+ *
+ *  SINGLE AUTHORITY (#1440). This value is load-bearing in two packages that
+ *  cannot import each other — `@xgis/map`'s camera builds its projection from
+ *  it, and `@xgis/data`'s SSE tile selector re-derives the camera altitude and
+ *  the screen-space error from it — so it lived as a literal in each. They
+ *  drifted: the selector's copy said 45 deg, annotated "Camera.FOV — fixed in
+ *  this engine", while the camera's was (and is) 36.87 deg. That inflated the
+ *  selector's `tanHalfFov` by 24 % and fed a wrong altitude, ssePx, horizon
+ *  distance and far-field ramp into every selection.
+ *
+ *  It lives here, in the zero-dep bedrock both packages already import, so
+ *  there is nothing left to keep in sync.
+ *
+ *  THE VALUE. 0.6435011087932844 rad = 36.87 deg is MapLibre's default
+ *  `_fovInRadians`; X-GIS matches it so a shared camera hash frames the same
+ *  view in both engines. The engine's earlier 45 deg was visibly wider at
+ *  pitched views — at z=4.96 pitch=45 over Korea, X-GIS rendered up to
+ *  Khabarovsk where MapLibre's frustum cut off around Tongliao. Pitch-0 views
+ *  are FOV-invariant (altitude derives from FOV to fit the zoom-determined
+ *  ground viewport), so the narrower value is inert at pitch 0 and tightens
+ *  horizon parity above it. */
+export const CAMERA_FOV_RAD = 0.6435011087932844
+
+/** The same field of view in DEGREES, for the callers that build a matrix from
+ *  a degree-valued `CameraView`. */
+export const CAMERA_FOV_DEG = (CAMERA_FOV_RAD * 180) / Math.PI
+
 /** Multiply 4×4 matrix (column-major) by vec4 */
 export function mulVec4(m: Float32Array, v: number[]): number[] {
   return [

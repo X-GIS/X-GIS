@@ -54,6 +54,10 @@ function camera(overrides: Partial<TileSelectionCamera> = {}): TileSelectionCame
     projType: 0,
     globeMode: false,
     getRTCMatrix: () => flatMvp(),
+    // `far: Infinity` states plainly that this fixture does not exercise the
+    // #1427 far-plane cull — its subject is the emit budget, and `flatMvp`
+    // gives every point clip w = 1 anyway, so no finite bound would bite.
+    getFrameView: () => ({ matrix: flatMvp(), far: Infinity }),
     ...overrides,
   } as unknown as TileSelectionCamera
 }

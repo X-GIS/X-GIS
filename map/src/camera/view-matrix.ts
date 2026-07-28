@@ -61,6 +61,73 @@ const _T = new Array(16).fill(0)
 const _Rx = new Array(16).fill(0)
 const _Rz = new Array(16).fill(0)
 
+/** MapLibre's `maxMercatorHorizonAngle` (5.24) — the pitch past which the
+ *  simulated horizon stops receding and is pinned. */
+const MAX_MERCATOR_HORIZON_ANGLE_RAD = (89.25 * Math.PI) / 180
+/** MapLibre's `minFovCenterToHorizonRadians` — the floor the horizon half-angle
+ *  is held at once pitch has passed the clamp above. */
+const MIN_FOV_CENTER_TO_HORIZON_RAD = ((90 - 89.25) * Math.PI) / 180
+
+const clampAngle = (a: number): number => Math.min(Math.PI - 0.01, Math.max(0.01, a))
+
+/** Far-plane distance for a flat-Mercator perspective camera, bounded at the
+ *  SIMULATED horizon (#1427).
+ *
+ *  A flat Mercator plane has no horizon: its vanishing line is at infinity, so
+ *  "cover all the visible ground" has no finite answer and the previous formula
+ *  — `altitude / cos(min(pitch + halfFov, 90° - 0.01)) * 1.5` — degenerated into
+ *  a flat 150x altitude the moment `pitch + halfFov` reached the clamp. At the
+ *  #1427 camera that reached ~252 km of ground, four times MapLibre's ~58 km,
+ *  and every tile selector inherits its reach from this number.
+ *
+ *  So borrow the bound MapLibre uses (`_calculateNearFarZIfNeeded`, 5.24): pick
+ *  the SMALLER of the distance the FOV's top edge reaches and the distance to a
+ *  horizon simulated by scaling `tan(90° - pitch)` by 0.85 — as if the ground
+ *  curved away like a real Earth. Past that line the map draws background, the
+ *  same as MapLibre, instead of smearing the rest of the world into a few pixels
+ *  of horizon strip.
+ *
+ *  Derived from `altitude` + `pitch` alone (elevation 0, roll 0, no centre
+ *  offset — none of which this engine's flat path has), so it is a pure function
+ *  of the two and unit-testable against MapLibre's own arithmetic.
+ *
+ *  Returns view-axis depth in the same metres `altitude` is given in. */
+export function horizonBoundedFar(altitude: number, pitchRad: number, halfFovRad: number): number {
+  const limitedPitch = Math.min(pitchRad, MAX_MERCATOR_HORIZON_ANGLE_RAD)
+  // `altitude` IS MapLibre's `cameraToCenterDistance`, with no cos(pitch)
+  // correction: this is an ORBIT camera (`MVP = P × T(0,0,-altitude) × Rx ×
+  // Rz` — the translate happens AFTER the rotation), so the camera sits that
+  // distance from the map centre along the view axis at every pitch, and
+  // `mvp[15]` is `altitude` regardless of tilt. Its HEIGHT above the plane is
+  // `altitude * cos(pitch)`, which is a different number and not the one any
+  // term here wants.
+  const centreDistance = altitude
+  const groundAngle = Math.PI / 2 + limitedPitch
+
+  // `getMercatorHorizon(transform) / cameraToCenterDistance`. The 0.85 is
+  // MapLibre's earth-radius stand-in; the second term pins the horizon once
+  // pitch passes 89.25° (and goes negative beyond it, hence the floor below).
+  const horizonOverCentre = Math.min(
+    Math.tan(Math.PI / 2 - pitchRad) * 0.85,
+    Math.tan(MAX_MERCATOR_HORIZON_ANGLE_RAD - pitchRad),
+  )
+  const fovCentreToHorizon = Math.max(Math.atan(horizonOverCentre), MIN_FOV_CENTER_TO_HORIZON_RAD)
+
+  // Law of sines, twice: how far along the ground the top of the frustum
+  // reaches, and how far the simulated horizon sits. The tighter one wins.
+  const topHalfToHorizon =
+    (Math.sin(fovCentreToHorizon) * centreDistance) /
+    Math.sin(clampAngle(Math.PI - groundAngle - fovCentreToHorizon))
+  const topHalfToFovEdge =
+    (Math.sin(halfFovRad) * centreDistance) /
+    Math.sin(clampAngle(Math.PI - groundAngle - halfFovRad))
+
+  // The 1.01 keeps a fragment sitting exactly on the bound from z-clipping.
+  return (
+    (Math.sin(limitedPitch) * Math.min(topHalfToHorizon, topHalfToFovEdge) + centreDistance) * 1.01
+  )
+}
+
 /** Core flat/Mercator RTC matrix builder. Writes the column-major MVP into
  *  `out` and returns the far-plane value. Byte-identical to the body of
  *  `Camera._buildRTCMatrix` (minus its cache check + cache writes, which stay
@@ -92,11 +159,10 @@ export function buildRTCMatrix(
   const viewHeightMeters = Math.min(rawViewHeightMeters, viewHeightCap)
   const altitude = viewHeightMeters / 2 / Math.tan(halfFov)
 
-  // Near/far planes: cover all visible ground including horizon
-  const maxViewAngle = Math.min(pitchRad + halfFov, Math.PI / 2 - 0.01)
-  const farthestGround = altitude / Math.cos(maxViewAngle)
+  // Near/far planes. `far` ends at the SIMULATED horizon rather than trying to
+  // cover a flat plane's infinite one — see `horizonBoundedFar` (#1427).
   const near = Math.max(1.0, altitude * 0.01)
-  const far = farthestGround * 1.5
+  const far = horizonBoundedFar(altitude, pitchRad, halfFov)
 
   // Perspective matrix (column-major)
   const f = 1 / Math.tan(halfFov)
