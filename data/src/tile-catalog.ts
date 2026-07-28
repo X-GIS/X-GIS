@@ -56,7 +56,7 @@ import {
   type VirtualCatalog,
 } from './tile-types'
 import { runSkeletonPrewarm, type SkeletonPrewarmHandle } from './tile-skeleton-prewarm'
-import { unionBounds } from './tile-catalog-helpers'
+import { unionBounds, layoutVersionMismatch } from './tile-catalog-helpers'
 import { buildFullCoverQuad } from './tile-full-cover-quad'
 import { TileDataCache } from './tile-data-cache'
 import { CompileBudget } from './tile-compile-budget'
@@ -268,15 +268,12 @@ export class TileCatalog {
    *  running runtime's `TILE_LAYOUT_VERSION`. On mismatch, evict any
    *  cached tiles attributable to this backend (and the legacy
    *  unattributed entries — see {@link evictTilesForBackend}) so the next
-   *  visible frame re-decodes through the new layout. Backends shipped
-   *  before the field existed surface as `undefined`; that's treated as
-   *  `TILE_LAYOUT_VERSION_BASE`. The warn fires once per (catalog,
-   *  backend) pair via `_layoutMismatchWarned`. */
+   *  visible frame re-decodes through the new layout. The comparison itself
+   *  is `layoutVersionMismatch`; the warn fires once per (catalog, backend)
+   *  pair via `_layoutMismatchWarned`. */
   private checkLayoutVersion(backend: TileSource): void {
     const v = backend.meta.layoutVersion
-    const mismatch =
-      v === undefined ? TILE_LAYOUT_VERSION > TILE_LAYOUT_VERSION_BASE : v !== TILE_LAYOUT_VERSION
-    if (!mismatch) return
+    if (!layoutVersionMismatch(v)) return
     this.evictTilesForBackend(backend)
     if (!this._layoutMismatchWarned.has(backend)) {
       this._layoutMismatchWarned.add(backend)
@@ -934,6 +931,9 @@ export class TileCatalog {
   destroy(): void {
     this._skeletonPrewarm?.stop()
     this._skeletonPrewarm = null
+    // Detach BEFORE the owner callbacks: they evict the data a backend's in-flight work still
+    // reads, so one told afterwards cannot tell teardown from breakage (virtual-pmtiles-teardown).
+    for (const b of [...this.backends]) this.detachBackend(b)
     // Owner-registered teardown, drained so a repeated destroy() is a no-op.
     for (const fn of this._onDestroy.splice(0)) fn()
   }
