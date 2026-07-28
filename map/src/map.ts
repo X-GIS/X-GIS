@@ -29,9 +29,8 @@ import { configureProjections } from './shaders/dsl/projections'
 import { applyBodyOption } from './body-consts'
 import { addHeatmapShowLayer } from './heatmap-show'
 import { addArrowShowLayer } from './arrow-show'
-import { addCoverageArrowShowLayer } from './coverage-arrow-show'
 import {
-  armAdvectedArrows,
+  armCoverageArrows,
   armCoverageDrape,
   armCoverageShow,
   armLandedCoverage,
@@ -3612,10 +3611,10 @@ export class XGISMap {
         // NOAA domains and each needs its own drape + arrow field (#1272 E-④).
         for (const [region, entry] of data._coverage) {
           armCoverageDrape(this, show, entry.handle, region)
-          // `| arrow` on a coverage layer (#1333) draws the official S-111 vector field —
-          // the engine-owned arrow portrayal, band-coloured by `ramp` (default s111-speed).
-          if (show.isArrow) addCoverageArrowShowLayer(this, show, entry.handle, region)
-          armAdvectedArrows(this, show, entry.handle, region)
+          // `| arrow` on a coverage layer (#1333) draws the official S-111 vector field — the
+          // engine-owned arrow portrayal, band-coloured by `ramp` (default s111-speed). ONE
+          // batch, static or drifting: see `armCoverageArrows` (#1449).
+          armCoverageArrows(this, show, entry.handle, region)
         }
         if (show.isArrow) this._coverageArrowsArmed = true
         if (show.isFlow) this._coverageFlowArmed = true

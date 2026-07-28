@@ -58,6 +58,9 @@ function harness(regions: Array<[string, string | undefined]>): Harness {
     time: new CoverageTimePlayer(),
     fieldArmed: () => false,
     armFields: () => {},
+    // No `| arrow` / `| flow` layer in these fixtures: a refresh re-arms the FILL, which is
+    // what `armed` above records (#1449).
+    armFromShow: () => false,
     clearArrows: () => {},
     invalidate: () => {},
     refresh,

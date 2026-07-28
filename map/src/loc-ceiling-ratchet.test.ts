@@ -489,12 +489,16 @@ const CEILINGS: Record<string, number> = {
   // all: nothing else observed it, so an evicted region's arrows kept drawing against velocity
   // textures that had just been destroyed.
   //
-  // MERGE UNION (#1448 <- main @ #1445): non-overlapping again, so they SUM — never take one
-  // side, never max(). #1448's +3 is one disjunct in `hasPendingSourceWork` (a swap OWED is
-  // pending work, not pending fetch) plus the two lines saying why; without it the loop stopped
-  // with a re-seed replacement un-applied and the layer drew the previous seed for good. Value
-  // below is the MEASURED post-merge, post-prettier count.
-  'map/src/map.ts': 5396,
+  // 5393→5392 (#1449): the three arm sites now call ONE decision point (`armCoverageArrows`),
+  // so the `if (show.isArrow) …` + `armAdvectedArrows(…)` pair here collapsed to a single call
+  // and the static-arrow import went with it. LOWERED per the shrink-only rule.
+  //
+  // MERGE UNION (#1448 <- main @ #1449): non-overlapping, so a SHRINK and a GROW compose —
+  // never take one side, never max(). #1448's +3 is one disjunct in `hasPendingSourceWork` (a
+  // swap OWED is pending work, not pending fetch) plus the two lines saying why; without it the
+  // loop stopped with a re-seed replacement un-applied and the layer drew the previous seed for
+  // good. Value below is the MEASURED post-merge, post-prettier count — not 5392+3 assumed.
+  'map/src/map.ts': 5395,
   // Baselined at #1255 (measured 830): the DOM-inspired layer API crossed
   // NEW_FILE_CAP with the paint-transition style-setter integration — the
   // StyleHost.transitions context, the shared applyNumber/applyColor

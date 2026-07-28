@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest'
-import { dropCoverageRegion, type CoverageSourceDeps } from './coverage-source'
+import { dropCoverageRegion, pushCoverageRegion, type CoverageSourceDeps } from './coverage-source'
 import type { CoverageRenderer } from './render/coverage-renderer'
 import type { RawDataset } from './map-types'
 
@@ -32,7 +32,7 @@ function makeDeps(overrides: Partial<CoverageSourceDeps> = {}): {
     time: { nextEpoch: () => 1, isCurrent: () => true } as unknown as CoverageSourceDeps['time'],
     fieldArmed: () => false,
     armFields: () => {},
-    armFromShow: () => {},
+    armFromShow: () => false,
     clearArrows: () => {},
     invalidate: () => {},
     // Live-refresh deps (#1158): inert here. These gates exercise residency only, and the
@@ -53,6 +53,12 @@ function stubRenderer(): CoverageRenderer & { clearRegion: ReturnType<typeof vi.
     setCoverage: vi.fn(),
   } as unknown as CoverageRenderer & { clearRegion: ReturnType<typeof vi.fn> }
 }
+
+// `pushCoverageRegion` decodes the pushed bytes; the decode is not what these gates are about.
+vi.mock('@xgis/data', async () => ({
+  ...(await vi.importActual<Record<string, unknown>>('@xgis/data')),
+  readCoverage: async () => ({ meta: {} }),
+}))
 
 const handle = { meta: {} } as never
 
@@ -116,5 +122,84 @@ describe('coverage-source deps contract (#1272 E-④)', () => {
     expect(r.clearRegion).not.toHaveBeenCalled()
     const left = rawDatasets.get('currents') as { _coverage: ReadonlyMap<string, unknown> }
     expect([...left._coverage.keys()]).toEqual(['cbofs'])
+  })
+})
+
+// ─── THE FIRST PUSH BEATS THE LATCH (#1449) ──────────────────────────────────────────────
+//
+// `fieldArmed()` is a latch set by `rebuildLayers`, and the rebuild only reaches its coverage
+// branch once the source HAS data. The very first push is what puts the data there, so it
+// ALWAYS finds the latch false — and used to fall through to a raw `setCoverage`, bypassing
+// `armCoverageDrape`: no `hidden`, no `flowOnly`, no arrows. Under the S-111 arrows portrayal
+// a first-loaded region therefore showed the ramp drape it was meant to hide and none of its
+// glyphs, until some later interaction re-armed it. A viewport mosaic pushes several regions
+// in that first batch, which is where it showed up worst.
+describe('armRegion — a FIRST push arms from the SHOWS, not from the latch (#1449)', () => {
+  const bytes = new ArrayBuffer(8)
+
+  it('latch false + a layer declaring a field → armed from the shows, NOT the raw fill arm', async () => {
+    const armed: string[] = []
+    const { deps, rawDatasets, setRenderer } = makeDeps({
+      fieldArmed: () => false, // the real state of a first push
+      armFromShow: (_id, _h, region) => {
+        armed.push(region)
+        return true // a `| arrow` / `| flow` layer claims this source
+      },
+    })
+    const r = stubRenderer()
+    setRenderer(r)
+    rawDatasets.set('currents', { _coverage: new Map() })
+    await pushCoverageRegion(deps, 'currents', bytes, { region: 'cbofs' })
+    expect(armed, 'the show authority arms the region').toEqual(['cbofs'])
+    expect(
+      r.setCoverage,
+      'and the bypass that loses `hidden` / the arrows never runs',
+    ).not.toHaveBeenCalled()
+  })
+
+  it('no field declared → still the plain fill arm, unchanged', async () => {
+    const { deps, rawDatasets, setRenderer } = makeDeps({
+      fieldArmed: () => false,
+      armFromShow: () => false, // ramp-only coverage: no show claims a field
+    })
+    const r = stubRenderer()
+    setRenderer(r)
+    rawDatasets.set('currents', { _coverage: new Map() })
+    await pushCoverageRegion(deps, 'currents', bytes, { region: 'cbofs' })
+    expect(r.setCoverage).toHaveBeenCalled()
+  })
+
+  it('an imperative ramp override still wins — it is the caller naming the paint', async () => {
+    // The override is the one case that must NOT be re-derived from the layer's declaration.
+    const armed: string[] = []
+    const { deps, rawDatasets, setRenderer } = makeDeps({
+      fieldArmed: () => false,
+      armFromShow: (_id, _h, region) => {
+        armed.push(region)
+        return true
+      },
+    })
+    const r = stubRenderer()
+    setRenderer(r)
+    rawDatasets.set('currents', { _coverage: new Map() })
+    await pushCoverageRegion(deps, 'currents', bytes, { region: 'cbofs', ramp: 'magma' })
+    expect(armed).toEqual([])
+    expect(r.setCoverage).toHaveBeenCalled()
+  })
+
+  it('once the latch IS set, the steady-state path is unchanged', async () => {
+    // A forecast step / host frame push keeps re-deriving from the LIVE display opts.
+    const fields: string[] = []
+    const { deps, rawDatasets, setRenderer } = makeDeps({
+      fieldArmed: () => true,
+      armFields: (_h, region) => void fields.push(region),
+      armFromShow: () => {
+        throw new Error('the latch owns this case — the show path must not run')
+      },
+    })
+    setRenderer(stubRenderer())
+    rawDatasets.set('currents', { _coverage: new Map() })
+    await pushCoverageRegion(deps, 'currents', bytes, { region: 'cbofs' })
+    expect(fields).toEqual(['cbofs'])
   })
 })
