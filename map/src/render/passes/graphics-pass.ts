@@ -19,9 +19,8 @@
 import { DEBUG_OVERDRAW } from '../../debug-flags'
 import type { FrameContext } from '../frame-context'
 import { unwrapProjection } from '../projection-token'
-import { wrapWebGpuPass } from '@xgis/rhi-webgpu'
 import type { SceneView } from '../scene-view'
-import type { RenderPass, GraphicsPassHost } from './pass'
+import { requireRhiFrame, type RenderPass, type GraphicsPassHost } from './pass'
 
 class GraphicsPass implements RenderPass {
   readonly label = 'graphics'
@@ -33,12 +32,15 @@ class GraphicsPass implements RenderPass {
   execute(ctx: FrameContext, _scene: SceneView, host: GraphicsPassHost): void {
     const { projType, centerLon, centerLat } = unwrapProjection(ctx.projection)
     const frame = host.camera.getViewForProjection(projType, ctx.w, ctx.h, ctx.dpr)
+    // F3b: RHI origination — the pass handle is already an RhiRenderPass, so
+    // the local wrapWebGpuPass adaptation (and this file's backend import) die.
+    const { enc, screenView } = requireRhiFrame(ctx, 'graphics')
     ctx.passScope('graphics-icons', () => {
-      const pass = ctx.encoder.beginRenderPass({
-        colorAttachments: [{ view: ctx.screenView, loadOp: 'load', storeOp: 'store' }],
+      const pass = enc.beginRenderPass({
+        colorAttachments: [{ view: screenView, loadOp: 'load', storeOp: 'store' }],
       })
       host.graphics.renderRetained(
-        wrapWebGpuPass(pass),
+        pass,
         frame,
         host.camera,
         projType,

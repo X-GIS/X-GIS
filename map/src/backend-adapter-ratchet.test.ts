@@ -132,7 +132,6 @@ const BASELINE: Record<string, number> = {
   // The import moved off map.ts (5→4) — net-neutral, not new coupling. Routing the
   // palette upload through the neutral RHI (0 here) is the future 0.3 phase.
   'map/src/render/palette-textures.ts': 1,
-  'map/src/render/passes/graphics-pass.ts': 1,
   'map/src/render/pipeline-factory.ts': 3,
   'map/src/render/point-renderer.ts': 3,
   'map/src/render/polygon-uniform-slots.ts': 1,

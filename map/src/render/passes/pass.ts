@@ -71,3 +71,31 @@ export interface RenderPass {
   /** Emit the pass's GPU commands into `ctx.encoder`. */
   execute(ctx: FrameContext, scene: SceneView, host: PassHost): void
 }
+
+/** F3b bridge for the RHI-ported pass bodies: the frame's RHI encoder + view
+ *  handles, non-null-asserted in one place. Under the `__xgisRawFrameShell`
+ *  debug escape these are null and a ported body CANNOT run — fail loud naming
+ *  the flag rather than render a wrong frame. The unported bodies still honour
+ *  the escape; it retires with the F3b FrameContext field collapse. */
+export function requireRhiFrame(
+  ctx: FrameContext,
+  label: string,
+): {
+  enc: NonNullable<FrameContext['rhiEncoder']>
+  screenView: NonNullable<FrameContext['rhiScreenView']>
+  colorView: NonNullable<FrameContext['rhiColorView']>
+  stencilView: NonNullable<FrameContext['rhiStencilView']>
+} {
+  const { rhiEncoder, rhiScreenView, rhiColorView, rhiStencilView } = ctx
+  if (!rhiEncoder || !rhiScreenView || !rhiColorView || !rhiStencilView)
+    throw new Error(
+      `[X-GIS] ${label}: this pass runs on the RHI frame shell and cannot execute ` +
+        `under __xgisRawFrameShell=true — unset the flag (#1046 F3b)`,
+    )
+  return {
+    enc: rhiEncoder,
+    screenView: rhiScreenView,
+    colorView: rhiColorView,
+    stencilView: rhiStencilView,
+  }
+}

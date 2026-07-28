@@ -726,7 +726,13 @@ const CEILINGS: Record<string, number> = {
   // runs earlier in this same method) plus the FLOW_DRAPE_MIX import. Irreducible:
   // it is the twin's own call site, and the shader/material work it feeds lives in
   // coverage-ramp.ts and coverage-material.ts.
-  'map/src/render-loop.ts': 1387,
+  // 1387→1418 (#1046 F3b Inc-2a): the F3b bridge — keep the RHI screen-view
+  // handle beside its unwrap, populate the three parallel rhi*View ctx fields
+  // in both ctx branches + the MSAA block, and the WeakMap-memoized
+  // _rhiViewFor wrap helper (allocation-free steady state). All of it is
+  // transitional plumbing that the F3b FrameContext field collapse deletes
+  // together with the native trio. +31, post-hook.
+  'map/src/render-loop.ts': 1418,
   // Baselined at 806 (hillshade tile fade-in): HillshadeRenderer crossed
   // NEW_FILE_CAP restoring the three tile-streaming fixes raster-renderer had
   // landed since hillshade was copied from it — the per-tile fade ramp + its

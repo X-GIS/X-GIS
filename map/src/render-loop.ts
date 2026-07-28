@@ -33,6 +33,7 @@ import {
   resizeCanvas,
   unwrapWebGpuCommandEncoder,
   unwrapWebGpuTextureView,
+  wrapWebGpuTextureView,
   pushValidationError,
 } from '@xgis/rhi-webgpu'
 import { DEBUG_OVERDRAW, DEBUG_RHI_CHECKER, RHI_CHAIN } from './debug-flags'
@@ -98,6 +99,20 @@ export class RenderLoop {
    *  flip this to a real capability check once the passes execute on WebGL2 (F3
    *  remaining — the twin-parity ratchet scaffold tracks that port). */
   private readonly _chainRunsOnWebgl2 = false
+
+  /** F3b: memoized native→RHI view wraps for the ported passes — WeakMap keyed
+   *  on the native view, so steady-state frames allocate nothing (this loop is
+   *  allocation-paranoid); a resize mints new native views and the memo
+   *  follows. Retires with the F3b FrameContext field collapse. */
+  private readonly _rhiViewMemo = new WeakMap<object, RhiTextureView>()
+  private _rhiViewFor(view: Parameters<typeof wrapWebGpuTextureView>[0]): RhiTextureView {
+    let v = this._rhiViewMemo.get(view)
+    if (!v) {
+      v = wrapWebGpuTextureView(view)
+      this._rhiViewMemo.set(view, v)
+    }
+    return v
+  }
 
   /** Content (map.ts) hands the engine its ordered RenderNode chain. */
   registerNodes(nodes: readonly RenderNode[]): void {
@@ -290,9 +305,12 @@ export class RenderLoop {
       (globalThis as { __xgisRawFrameShell?: boolean }).__xgisRawFrameShell === true
     const frameEnc = rawFrameShell ? null : rhiFrame.acquireFrameEncoder()
     const encoder = frameEnc ? unwrapWebGpuCommandEncoder(frameEnc) : device.createCommandEncoder()
-    const screenView = rawFrameShell
-      ? context.getCurrentTexture().createView()
-      : unwrapWebGpuTextureView(rhiFrame.acquireScreenView())
+    // Keep the RHI screen-view handle: the F3b-ported passes bind through it
+    // (ctx.rhiScreenView) while the unported bodies keep the unwrapped native.
+    const rhiScreenView = rawFrameShell ? null : rhiFrame.acquireScreenView()
+    const screenView = rhiScreenView
+      ? unwrapWebGpuTextureView(rhiScreenView)
+      : context.getCurrentTexture().createView()
     // Reset per-frame timer state BEFORE compute dispatch so the
     // first compute pass gets timestampWrites attached. `beginFrame()`
     // clears both the sub-pass counter AND the
@@ -372,6 +390,9 @@ export class RenderLoop {
         rhi: this.host.ctx.rhi,
         encoder,
         rhiEncoder: frameEnc,
+        rhiScreenView,
+        rhiColorView: null, // set in the MSAA block below (F3b bridge)
+        rhiStencilView: null, // set in the MSAA block below (F3b bridge)
         screenView,
         colorView: screenView, // set in the MSAA block below
         camera: this.host.camera,
@@ -390,6 +411,7 @@ export class RenderLoop {
       const c = this._ctx
       c.encoder = encoder
       c.rhiEncoder = frameEnc
+      c.rhiScreenView = rhiScreenView
       c.screenView = screenView
       c.camera = this.host.camera
       setProjectionToken(c.projection, projType, centerLon, centerLat)
@@ -426,6 +448,11 @@ export class RenderLoop {
       )
       ctx.useResolve = useResolve
       ctx.colorView = colorView
+      // F3b bridges for the RHI-ported passes — memoized wraps of the same
+      // per-frame targets (null under the raw-shell escape, ported passes
+      // fail loud there via requireRhiFrame).
+      ctx.rhiColorView = rawFrameShell ? null : this._rhiViewFor(colorView)
+      ctx.rhiStencilView = rawFrameShell ? null : this._rhiViewFor(ctx.rt.stencilView!)
 
       // Reset per-frame uniform ring cursors (dynamic-offset slots).
       this.host.renderer.beginFrame()
@@ -1162,6 +1189,10 @@ export class RenderLoop {
         rhi: this.host.ctx.rhi,
         encoder: null as unknown as GPUCommandEncoder,
         rhiEncoder: null,
+        // The twin never runs the F3b-ported chain passes — bridges stay null.
+        rhiScreenView: null,
+        rhiColorView: null,
+        rhiStencilView: null,
         screenView: null as unknown as GPUTextureView,
         colorView: null as unknown as GPUTextureView,
         camera: this.host.camera,

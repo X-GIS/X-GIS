@@ -48,6 +48,15 @@ export interface FrameContext {
    *  Null under `__xgisRawFrameShell=true` (the one-release raw-shell rollback), which mints
    *  the native encoder directly and has no RHI wrapper to offer. */
   rhiEncoder: import('@xgis/rhi').RhiCommandEncoder | null
+  /** F3b parallel RHI handles for the ported chain passes — the same targets as
+   *  `screenView` / `colorView` / `rt.stencilView`, RHI-wrapped once per frame by
+   *  the loop (WeakMap-memoized on the native view, so steady-state frames
+   *  allocate nothing). Null under `__xgisRawFrameShell=true`, where a ported
+   *  pass fails loud instead of rendering a wrong frame (`requireRhiFrame`).
+   *  The F3b field collapse retires the native trio and these bridges together. */
+  rhiScreenView: import('@xgis/rhi').RhiTextureView | null
+  rhiColorView: import('@xgis/rhi').RhiTextureView | null
+  rhiStencilView: import('@xgis/rhi').RhiTextureView | null
   /** The swapchain texture view for this frame
    *  (`context.getCurrentTexture().createView()`). */
   screenView: GPUTextureView

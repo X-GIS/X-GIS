@@ -21,7 +21,7 @@ import { unwrapProjection } from '../projection-token'
 import type { SceneView } from '../scene-view'
 import { resolveNumberShape, resolveColorShape } from '../paint-shape-resolve'
 import type { HillshadeRenderer } from '../hillshade-renderer'
-import type { RenderPass, HillshadePassHost } from './pass'
+import { requireRhiFrame, type RenderPass, type HillshadePassHost } from './pass'
 
 type RGBA = readonly [number, number, number, number]
 
@@ -109,12 +109,14 @@ class HillshadePass implements RenderPass {
     if (!hr || !hr.hasSource()) return
     applyHillshadePaint(hr, host._hillshadeShow, host.camera.zoom, host._elapsedMs)
 
-    const encoder = ctx.encoder
+    // F3b: RHI origination — descriptor-equivalent on WebGPU, executable on
+    // WebGL2 after the flip (hr.render already accepts an RhiRenderPass).
+    const { enc, screenView, colorView, stencilView } = requireRhiFrame(ctx, 'hillshade')
     ctx.passScope('hillshade', () => {
-      const hsPass = encoder.beginRenderPass({
+      const hsPass = enc.beginRenderPass({
         colorAttachments: [
           {
-            view: ctx.colorView,
+            view: colorView,
             // Mid-chain overlay — a downstream pass (points/labels) usually
             // owns the MSAA resolve. But when hillshade is the LAST colour
             // writer (hillshade-only scene: no points), scene.resolveOwner
@@ -122,13 +124,13 @@ class HillshadePass implements RenderPass {
             // multisample target after the opaque resolve already ran and
             // never reaches the swapchain (black at msaa>1, every backend).
             resolveTarget:
-              ctx.useResolve && scene.resolveOwner === 'hillshade' ? ctx.screenView : undefined,
+              ctx.useResolve && scene.resolveOwner === 'hillshade' ? screenView : undefined,
             loadOp: 'load',
             storeOp: 'store',
           },
         ],
         depthStencilAttachment: {
-          view: ctx.rt.stencilView!,
+          view: stencilView,
           // Load the opaque depth; the hillshade pipeline is depthCompare:'always'
           // + depthWrite:false, so it reads nothing and writes nothing — the
           // per-fragment hemisphere cull (fs_hillshade) is the visibility test.
