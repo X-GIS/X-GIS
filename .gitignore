@@ -40,6 +40,17 @@ playground/public/data/*
 !playground/public/data/ne_110m_lakes.geojson
 !playground/public/data/ne_110m_populated_places.geojson
 
+# Natural Earth 50m rivers + lakes (~1.5 MB total) — #1349 step 1. These are the
+# only two files `physical-map-50m.xgis` was missing, and their absence is why
+# `physical_map_50m` (and every stability spec that renders it) could not run
+# from a clean clone: at 110m, z=10.35 inland is one polygon filling the
+# viewport, so there was no multi-tile vector scene in CI at all. 50m is the
+# lowest resolution that produces one. Same public-domain upstream and same
+# transform as the 110m files above — re-derivable via
+# `bun scripts/fetch-ne-50m-fixtures.ts`, which must leave `git diff` empty.
+!playground/public/data/ne_50m_rivers.geojson
+!playground/public/data/ne_50m_lakes.geojson
+
 # `land.geojson` — small (232KB) Natural-Earth land-only feature set,
 # mirrored from site/public/data/land.geojson so the blueprint editor's
 # default starter graph (`source land { url: "land.geojson" }`) works
