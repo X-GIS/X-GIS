@@ -20,7 +20,12 @@
 // of the class's public type.
 
 import { tileKey as compilerTileKey } from '@xgis/compiler'
-import { adaptiveQualityStep, getMaxDpr, isAdaptiveQualityEnabled } from '@xgis/engine'
+import {
+  adaptiveFarLodBoost,
+  adaptiveQualityStep,
+  getMaxDpr,
+  isAdaptiveQualityEnabled,
+} from '@xgis/engine'
 import { mercatorYToLat } from '@xgis/geo'
 import type { QualityConfig } from '@xgis/engine'
 import type { XGISMap } from './map'
@@ -56,7 +61,17 @@ export interface PipelineInspection {
    *  submits. A test that instead infers load from rAF cadence is measuring the compositor's
    *  60 Hz tick, not the frame — which is exactly how the ladder gate ended up asserting
    *  against a bar numerically equal to its own measurement floor. */
-  adaptive: { enabled: boolean; step: number }
+  adaptive: {
+    enabled: boolean
+    step: number
+    /** The multiplier the ladder is CURRENTLY applying to the tile selector's far-field error
+     *  ceiling (#1468). 1 leaves selection byte-identical; higher coarsens the horizon.
+     *
+     *  `step` says the controller decided; this says what reached the selector. They are
+     *  different facts, and the gap between them is the seam #1402 showed can go nowhere — a
+     *  gate asserting only on `step` cannot tell "it acted" from "it acted and was honoured". */
+    farLodBoost: number
+  }
   /** True when hash sync / pointer interaction / setView declared the
    *  camera explicitly — post-compile bounds-fit is suppressed in that
    *  case. */
@@ -198,7 +213,11 @@ export function inspectMapPipeline(map: XGISMap): PipelineInspection {
     viewport: { canvasW, canvasH, dpr },
     frame: m._frameCount,
     quality: m.getQuality(),
-    adaptive: { enabled: isAdaptiveQualityEnabled(), step: adaptiveQualityStep() },
+    adaptive: {
+      enabled: isAdaptiveQualityEnabled(),
+      step: adaptiveQualityStep(),
+      farLodBoost: adaptiveFarLodBoost(),
+    },
     cameraExplicitlyPositioned: (map as unknown as { _cameraExplicitlyPositioned: boolean })
       ._cameraExplicitlyPositioned,
     sources,
