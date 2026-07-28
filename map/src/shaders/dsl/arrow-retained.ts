@@ -36,6 +36,7 @@ import {
   vec4,
   toF32,
   toI32,
+  toU32,
   textureLoad,
   textureDimensions,
   when,
@@ -59,6 +60,7 @@ import {
   S111_BAND_COUNT,
   S111_BAND_PARAMS_ROW,
   S111_BAND_STRIDE,
+  S111_PARAM_STATE_BASE,
   S111_PARAM_UV_ASPECT,
 } from './s111-band-table-layout'
 import {
@@ -387,9 +389,16 @@ const vsAdvected = fn(
     const basisU = pxDelta(uStepClip)
     const basisV = pxDelta(vStepClip)
 
-    // Where this arrow is, and where it belongs — texel `instance_index` in both textures.
+    // Where this arrow is, and where it belongs — texel `base + instance_index` in both.
+    //
+    // The BASE is what makes a MOSAIC work (#1458). One state texture serves every resident
+    // region and each owns a contiguous range, so a batch's instance 0 is not texel 0. It was,
+    // once: every region indexed from 0, the last one armed owned every texel, and its siblings'
+    // arrows were leashed to origin cells belonging to another NOAA domain — reported as the
+    // field breaking up as soon as a second HDF5 came on screen.
     const dim = textureDimensions(stateTex.node)
-    const texel = vec2i(toI32(p.inst.mod(dim.x)), toI32(p.inst.div(dim.x)))
+    const idx = p.inst.add(toU32(bandAt(u32(S111_BAND_PARAMS_ROW), S111_PARAM_STATE_BASE)))
+    const texel = vec2i(toI32(idx.mod(dim.x)), toI32(idx.div(dim.x)))
     const pos = decodeArrowPos({ c: textureLoad(stateTex.node, texel, u32(0)) })
     const origin = decodeArrowPos({ c: textureLoad(originTex.node, texel, u32(0)) })
     // In units of the packed basis: the anchors are ARROW_DRIFT_UV away and the advect step

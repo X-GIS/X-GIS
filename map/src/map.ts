@@ -101,13 +101,16 @@ import {
   coverageRegions,
   dropCoverageRegion,
   loadDeclaredCoverage,
+  onCoverageRegionDropped,
   primaryCoverageTime,
   pushCoverageRegion,
   readRegionsAtGroup,
+  resolveCoverageCatalogues,
   stepCoverageRegions,
   type CoverageSourceDeps,
   type PushCoverageOpts,
 } from './coverage-source'
+import { viewBbox, type CoverageCatalogueState } from './coverage-catalogue'
 import { CoverageRefreshScheduler, type RefreshReason } from './coverage-refresh'
 import type { Bbox } from '@xgis/data'
 import type { FlowRenderer } from './render/flow-renderer'
@@ -547,6 +550,13 @@ export class XGISMap {
    *  DECLARED BEFORE `_coverageDeps`, which captures it: class fields initialise in source
    *  order, so the other way round the deps record would capture `undefined`. */
   private readonly _coverageRefresh = new CoverageRefreshScheduler()
+  /** #1453 — per-source STAC catalogue residency state, for coverage sources whose `url:`
+   *  named a catalogue of cells rather than one cell. Empty for every other coverage source,
+   *  and the move-end resolve returns immediately when it is.
+   *
+   *  DECLARED BEFORE `_coverageDeps` for the same reason `_coverageRefresh` is: class fields
+   *  initialise in source order, so the other way round the deps record captures `undefined`. */
+  private readonly _coverageCatalogues = new Map<string, CoverageCatalogueState>()
   private readonly _coverageDeps: CoverageSourceDeps = {
     rawDatasets: this.rawDatasets,
     // A THUNK, not `this.coverageRenderer`: this record is a field initialiser, and
@@ -563,7 +573,18 @@ export class XGISMap {
     refresh: this._coverageRefresh,
     guardedFetch: (label) => (u, init) => safeFetch(String(u), init, label), // SSRF guard
     destroyed: () => this._destroyed,
+    catalogues: this._coverageCatalogues,
+    view: () => viewBbox(this.getBounds()),
+    // Installed on the FIRST catalogue, never on construction: a map that declares no
+    // catalogue must not gain a `moveend` listener it would then have to explain.
+    watchViewport: () => {
+      if (this._coverageMoveHandler) return
+      this._coverageMoveHandler = () => resolveCoverageCatalogues(this._coverageDeps)
+      this.on('moveend', this._coverageMoveHandler)
+    },
   }
+  /** The move-end listener driving the catalogue resolve, kept so `destroy()` can detach it. */
+  private _coverageMoveHandler: (() => void) | null = null
   /** #1333 — set while a `coverage` layer with `| arrow` has an armed S-111 arrow field, so a
    *  coverage DATA swap (setCoverageData / setCoverageTime) re-derives the field via a rebuild
    *  instead of the fill-only fast path. Reset + recomputed on every rebuildLayers. */
@@ -3105,7 +3126,7 @@ export class XGISMap {
     this.coverageRenderer = rendererSet.coverageRenderer
     // A dropped region takes its arrows with it — including the LRU evictions the renderer
     // makes on its own, which nothing else observes (#1419).
-    this.coverageRenderer.onRegionDropped = (region) => this._graphics.clearCompiledArrows(region)
+    this.coverageRenderer.onRegionDropped = (r) => onCoverageRegionDropped(this._coverageDeps, r)
     this.flowRenderer = rendererSet.flowRenderer
     // The advected arrows' state lives on the FlowRenderer (#1419); the graphics store needs a
     // handle on it to bind — and to upload each batch's origins the moment it is added.
@@ -4147,7 +4168,7 @@ export class XGISMap {
     this.coverageRenderer = rendererSet.coverageRenderer
     // A dropped region takes its arrows with it — including the LRU evictions the renderer
     // makes on its own, which nothing else observes (#1419).
-    this.coverageRenderer.onRegionDropped = (region) => this._graphics.clearCompiledArrows(region)
+    this.coverageRenderer.onRegionDropped = (r) => onCoverageRegionDropped(this._coverageDeps, r)
     this.flowRenderer = rendererSet.flowRenderer
     // The advected arrows' state lives on the FlowRenderer (#1419); the graphics store needs a
     // handle on it to bind — and to upload each batch's origins the moment it is added.
@@ -4433,6 +4454,9 @@ export class XGISMap {
   private hasPendingSourceWork(): boolean {
     for (const { source, renderer } of this.vtSources.values()) {
       if (source.hasPendingLoads?.()) return true
+      // #1448 — a swap OWED is pending work, not pending fetch: without this the loop stops
+      // with the replacement un-applied and the layer draws the previous seed for good.
+      if (source.hasReplacedKeys?.()) return true
       if (renderer.hasPendingUploads?.()) return true
       const stats = renderer.getDrawStats?.()
       if (
@@ -5231,6 +5255,12 @@ export class XGISMap {
       this.off('moveend', this._hashMoveHandler)
       this._hashMoveHandler = null
     }
+    // #1453 — the coverage catalogue resolve is a move-end listener of the same leak class.
+    if (this._coverageMoveHandler) {
+      this.off('moveend', this._coverageMoveHandler)
+      this._coverageMoveHandler = null
+    }
+    this._coverageCatalogues.clear()
     if (this._hashWriteTimer !== null) {
       clearTimeout(this._hashWriteTimer)
       this._hashWriteTimer = null

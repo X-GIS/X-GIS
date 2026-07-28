@@ -50,7 +50,10 @@ for (const pitch of PITCHES) {
       waitUntil: 'domcontentloaded',
     })
     await page.waitForFunction(
-      () => (window as unknown as { __xgisReady?: boolean }).__xgisReady === true,
+      () => {
+        const w = window as unknown as { __xgisReady?: boolean; __mlReady?: boolean }
+        return w.__xgisReady === true && w.__mlReady === true
+      },
       null,
       { timeout: 150_000 },
     )
@@ -73,6 +76,11 @@ for (const pitch of PITCHES) {
 
     const png = await page.locator('#xg-canv').screenshot()
     writeFileSync(join(OUT, `p${pitch}.png`), png)
+    // MapLibre's pane too — the far-plane bound is a PARITY change, so the
+    // directional diff (X-GIS vs ML, before and after) is the gate, not just
+    // the before/after self-diff.
+    const mlPng = await page.locator('#ml-map canvas').first().screenshot()
+    writeFileSync(join(OUT, `ml-p${pitch}.png`), mlPng)
     writeFileSync(
       join(OUT, `p${pitch}.json`),
       JSON.stringify({ pitch, ...diag, flickerWarnings: warnings.length }, null, 2),

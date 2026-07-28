@@ -22,6 +22,7 @@ import {
 } from './dataset'
 import { ensureGlobalHeap, readGlobalHeapObject } from './messages'
 
+export { isHdf5 } from './superblock'
 export { Hdf5Error, BufferReader } from './bytes'
 export type { ByteReader } from './bytes'
 export { RangeReader } from './range-reader'
