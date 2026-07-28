@@ -50,8 +50,10 @@ async function makeRasterRenderer(): Promise<RasterRenderer> {
   return new RasterRenderer(ctx)
 }
 
-/** The fake bitmap is 4×4 rgba8unorm ⇒ 4·4·4 B. */
-const FAKE_BITMAP_BYTES = 4 * 4 * 4
+/** The fake bitmap is 4×4 rgba8unorm. Cost is the MIP CHAIN, not the base level (#1436):
+ *  4·4·4 + 2·2·4 + 1·1·4 — raster tiles carry a chain now, and the cache must be charged for
+ *  every level it actually holds. */
+const FAKE_BITMAP_BYTES = 4 * 4 * 4 + 2 * 2 * 4 + 1 * 1 * 4
 
 function installFakeBitmap(): { close: ReturnType<typeof vi.fn> } {
   const close = vi.fn()
@@ -73,7 +75,14 @@ function useWebgl2Rhi(
     destroyTexture: () => void
   },
 ): void {
-  ;(rr as unknown as { rhi: unknown }).rhi = { backend: 'webgl2', ...rhi }
+  // `generateMipmaps` defaults to a no-op: the loader calls it after the upload (#1436) and a
+  // stub without it would make every load throw into the cleanup path, turning this file's
+  // happy-path assertion into a silent test of the failure branch.
+  ;(rr as unknown as { rhi: unknown }).rhi = {
+    backend: 'webgl2',
+    generateMipmaps: () => {},
+    ...rhi,
+  }
 }
 
 const URL = 'https://example.com/tile.png' // public → passes the SSRF literal check
