@@ -481,7 +481,10 @@ const CEILINGS: Record<string, number> = {
   // #1437 likewise landed ON that extraction rather than beside it: its own drape-arm extraction
   // was dropped on the merge and the `filter:` argument went into coverage-arm.ts, so map.ts is
   // untouched by it too. Both merges leave the number as #1426's, re-measured each time.
-  'map/src/map.ts': 5387,
+  // 5387→5390 (#1448): one disjunct in `hasPendingSourceWork` — a swap OWED is pending work,
+  // not pending fetch — plus the two lines saying why. Same shape as #1419's +9 above: the
+  // growth IS the explanation. Measured post-hook.
+  'map/src/map.ts': 5390,
   // Baselined at #1255 (measured 830): the DOM-inspired layer API crossed
   // NEW_FILE_CAP with the paint-transition style-setter integration — the
   // StyleHost.transitions context, the shared applyNumber/applyColor
@@ -760,7 +763,12 @@ const CEILINGS: Record<string, number> = {
   // tile-full-cover-quad.ts (−47 incl. three now-orphaned ecef-packing imports) — pure geometry,
   // no `this`, and the layout with the #449 bug history is now directly assertable. Ceiling
   // below is the MERGED file's actual wc -l, measured after prettier.
-  'data/src/tile-catalog.ts': 1370,
+  // 1370→1384 (#1448): `hasReplacedKeys()` — the PEEK the render loop's idle-skip needs to see
+  // that a re-seed swap is still owed. RAISED, not paid for by an extraction: a two-line
+  // accessor has nowhere cohesive to go, and the twelve lines are the reason it must not drain
+  // (a predicate that consumed its own evidence would swallow the swap it schedules) plus the
+  // measurement that found the bug — the part a future reader needs most. Measured post-hook.
+  'data/src/tile-catalog.ts': 1384,
   // 1173→1180 (#1046 F1): thread the required `rhi: RhiDevice` onto the FrameContext at
   // both build sites — the main-chain init literal and the twin label stage — so a seam
   // can reach `ctx.rhi.caps.*` (doc §3-F1). +7 = two assignments + their rationale comments;

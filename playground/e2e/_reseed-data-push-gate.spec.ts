@@ -141,3 +141,58 @@ test('a host data push reaches the GPU, and a second push replaces the first (#1
 
   expect(errors, 'no page/console errors during the pushes').toEqual([])
 })
+
+test('ONE push converges on its own — no second push, no interaction (#1448)', async ({ page }) => {
+  // THE DEFECT THIS GATES. `applyReplacedTiles` swaps a re-seed replacement in at the START of
+  // a frame, and the idle-skip gate asked only "is a tile still FETCHING?". A replacement that
+  // arrived after the last frame therefore needed a frame nobody would ask for: the loop
+  // stopped with the swap still owed and the layer drew the PREVIOUS seed's tiles for the rest
+  // of the source's life.
+  //
+  // Measured before the fix, on this fixture: one push settled at 2.3-3.5x the geometry the
+  // data contains and held it FLAT for 60 s (24 samples, `pendingLoads`/`pendingUploads` 0
+  // throughout). A single explicit `invalidate()` corrected it, which is what identified the
+  // missing keep-alive. The residue was nondeterministic (27 994 / 28 023 / 28 096 / 30 246 /
+  // 43 840 across runs) because it is however many tiles happened to land after the last frame
+  // — and that nondeterminism is what made #1420's `delta > 0.2` bound flake.
+  //
+  // The assertion is CONVERGENCE, not a magnitude: push the same data twice with a settle
+  // between, and the two readings must AGREE. A second push is the thing that used to hide the
+  // bug, so using it as the reference is what makes this gate sharp — if the first push
+  // converged, the second changes nothing.
+  // Four settle windows plus the initial load put this well past Playwright's 60 s default.
+  test.setTimeout(180_000)
+  const errors: string[] = []
+  page.on('pageerror', (e) => errors.push(e.message))
+
+  await page.setViewportSize({ width: 430, height: 715 })
+  await page.goto(`/demo.html?id=physical_map&forcegl2=1&e2e=1&adaptive=0${CAM}`, {
+    waitUntil: 'load',
+  })
+  await page.waitForFunction(() => (window as unknown as { __xgisReady?: boolean }).__xgisReady, {
+    timeout: 60_000,
+  })
+  await page.waitForTimeout(12_000)
+
+  // Seed with the dense grid so the sparse push below has something to replace.
+  await push(page, 90)
+  await page.waitForTimeout(8000)
+
+  await push(page, 30)
+  await page.waitForTimeout(10_000)
+  const once = await sourceTris(page, SOURCE)
+  expect(once, 'the layer must not be blank').toBeGreaterThan(0)
+
+  // The reference: the state a SECOND identical push reaches. Pre-fix this was where the
+  // stragglers finally got swapped, and `once` sat 2.3x above it.
+  await push(page, 30)
+  await page.waitForTimeout(10_000)
+  const twice = await sourceTris(page, SOURCE)
+
+  expect(
+    Math.abs(once - twice) / twice,
+    `one push must already be converged (one=${once}, two=${twice})`,
+  ).toBeLessThan(0.02)
+
+  expect(errors, 'no page errors').toEqual([])
+})

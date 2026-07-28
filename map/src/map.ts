@@ -4428,6 +4428,9 @@ export class XGISMap {
   private hasPendingSourceWork(): boolean {
     for (const { source, renderer } of this.vtSources.values()) {
       if (source.hasPendingLoads?.()) return true
+      // #1448 — a swap OWED is pending work, not pending fetch: without this the loop stops
+      // with the replacement un-applied and the layer draws the previous seed for good.
+      if (source.hasReplacedKeys?.()) return true
       if (renderer.hasPendingUploads?.()) return true
       const stats = renderer.getDrawStats?.()
       if (
