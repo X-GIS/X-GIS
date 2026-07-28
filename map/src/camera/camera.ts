@@ -16,7 +16,7 @@ import {
   promotesToGlobeWhenTilted,
   representsCenterAs,
 } from '@xgis/geo'
-import { invert4x4 } from '@xgis/shared'
+import { invert4x4, CAMERA_FOV_DEG } from '@xgis/shared'
 import { discAnchorFor, convergeFlatAnchor } from './camera-helpers'
 import {
   type CameraView,
@@ -124,15 +124,12 @@ export class Camera {
    *  city-level deployment that should never show a country-wide view). */
   minZoom = 0
 
-  /** Perspective field of view in degrees.
-   *  Matches MapLibre's default `_fovInRadians = 0.6435011087932844`
-   *  (≈ 36.87°). The earlier 45° was visibly wider than ML at pitched
-   *  views: at z=4.96 pitch=45 over Korea, X-GIS rendered up to
-   *  Khabarovsk while ML's frustum cut off around Tongliao. Pitch-0
-   *  views are FOV-invariant (altitude derives from FOV to fit the
-   *  zoom-determined ground viewport), so this change is visually
-   *  inert at pitch=0 and tightens horizon parity at pitch>0. */
-  static readonly FOV = (0.6435011087932844 * 180) / Math.PI
+  /** Perspective field of view in degrees. Re-exported from `@xgis/shared`,
+   *  not restated (#1440): `@xgis/data`'s selector needs the same number and
+   *  cannot import this package, so the two literals drifted — its copy said
+   *  45°, annotated as if it matched. The shared constant documents the value
+   *  and the MapLibre-parity reason; neither package owns it now. */
+  static readonly FOV = CAMERA_FOV_DEG
 
   constructor(lon = 0, lat = 0, zoom = 2) {
     const [mx, my] = lonLatToMercator(lon, lat)

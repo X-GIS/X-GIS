@@ -42,7 +42,7 @@
 // (window-level) so we can A/B against the existing selector with
 // real data + measurements before flipping the default.
 
-import { EARTH } from '@xgis/shared'
+import { EARTH, CAMERA_FOV_RAD } from '@xgis/shared'
 import type { Projection } from '@xgis/geo'
 import { mercatorYToLat } from '@xgis/geo'
 import { worldCopiesFor, TILE_PX } from '@xgis/geo'
@@ -51,7 +51,6 @@ import type { TileCoord, TileSelectionCamera } from './tile-select-types'
 
 const EARTH_CIRC_M = EARTH.worldMerc
 const PI_R = Math.PI * EARTH.sphereR
-const FOV_DEG = 45 // Camera.FOV — fixed in this engine
 
 /** Default screen-space-error target in pixels.
  *
@@ -288,7 +287,11 @@ export function visibleTilesSSE(
   // viewport (matches camera.ts:120 — must stay DPR-invariant so the
   // selector and renderer compute the same world view).
   const cssHeight = canvasHeight / dpr
-  const halfFovRad = (FOV_DEG * Math.PI) / 180 / 2
+  // #1440: was a local `FOV_DEG = 45` annotated "Camera.FOV — fixed in this
+  // engine". Camera.FOV is 36.87 deg; the two had drifted, inflating
+  // tanHalfFov by 24 % and with it the altitude, ssePx, horizon distance and
+  // far-field ramp below. Both packages now read the one constant.
+  const halfFovRad = CAMERA_FOV_RAD / 2
   const tanHalfFov = Math.tan(halfFovRad)
   const metersPerPixelGround = EARTH_CIRC_M / TILE_PX / Math.pow(2, camera.zoom)
   const viewHeightMetersGround = cssHeight * metersPerPixelGround
