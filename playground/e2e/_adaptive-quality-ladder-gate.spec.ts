@@ -14,6 +14,14 @@ import { test, expect, type Page } from '@playwright/test'
 // under real sustained overload rather than a simulated one. It needs a full 12-frame
 // window per notch, which is why the pump below is long and the timeout generous.
 //
+// That premise is now CHECKED rather than assumed (#1433). A runner that does not deliver it
+// makes this gate SKIP, with the reason, instead of reporting a regression: an experiment
+// whose premise is absent has not found anything. Two conditions, both cheap — each arm's
+// geometry must have converged (grown off its seed), and the controller must have taken at
+// least one notch (`adaptiveQualityStep() > 0`, read off the page). Without them this gate
+// went red four times across three unrelated PRs, twice with numerically identical output,
+// while the code under test was never touched.
+//
 //   HEADED=0 XGIS_SOFTWARE_GPU=1 playwright test _adaptive-quality-ladder-gate.spec.ts
 
 // z16 + steep pitch: the camera this lever is FOR. At low zoom the pitched frame still
@@ -49,6 +57,25 @@ async function frameGeometry(page: Page): Promise<{ tris: number; tiles: number 
     }
     return { tris, tiles }
   })
+}
+
+/** Wait until the frame's triangle count stops changing, then return it.
+ *
+ *  The re-seed's refresh queue drains across frames, so an arm keeps growing for a while
+ *  after the pump. Reading on a timer therefore samples an arbitrary point of that curve —
+ *  and the two arms drain at different rates, because the whole point of the treatment arm
+ *  is that it is doing different work. Settling is what makes control-final and
+ *  treatment-final comparable at all. */
+async function settle(page: Page, timeoutMs = 60_000): Promise<number> {
+  const deadline = Date.now() + timeoutMs
+  let prev = -1
+  while (Date.now() < deadline) {
+    await page.waitForTimeout(2000)
+    const now = (await frameGeometry(page)).tris
+    if (now === prev) return now
+    prev = now
+  }
+  return prev
 }
 
 /** Drive `n` real frames and return the median interval (ms). */
@@ -107,7 +134,7 @@ async function run(
   page: Page,
   adaptive: boolean,
   frames: number,
-): Promise<{ before: number; after: number; medMs: number }> {
+): Promise<{ before: number; after: number; medMs: number; step: number }> {
   await page.setViewportSize({ width: 430, height: 715 })
   const flags = adaptive ? '' : '&adaptive=0'
   await page.goto(`/demo.html?id=physical_map&forcegl2=1&e2e=1${flags}${CAM}`, {
@@ -122,9 +149,23 @@ async function run(
 
   const before = (await frameGeometry(page)).tris
   const medMs = await pump(page, frames)
-  await page.waitForTimeout(4000)
-  const after = (await frameGeometry(page)).tris
-  return { before, after, medMs }
+  // SETTLE, don't sleep (#1433). A fixed 4 s wait read whichever point of the convergence
+  // curve the runner happened to be on: the control arm had finished (20008 -> 20008) while
+  // the treatment arm was still climbing (20008 -> 28794), and comparing a settled number
+  // against a growing one produced a NEGATIVE purchase — reported as a ladder regression
+  // four times across three unrelated PRs. Poll until the count stops moving instead, so
+  // both arms are read in the same state and the comparison means something.
+  const after = await settle(page)
+  // How many notches the controller actually took (#1433). Read from the page rather than
+  // inferred from geometry, because geometry cannot separate "the host kept up" from "this
+  // arm never converged".
+  const step = await page.evaluate(
+    () =>
+      (
+        window as unknown as { __xgisInternals?: { adaptiveQualityStep?: () => number } }
+      ).__xgisInternals?.adaptiveQualityStep?.() ?? -1,
+  )
+  return { before, after, medMs, step }
 }
 
 test.describe.configure({ mode: 'serial' })
@@ -145,8 +186,11 @@ test('the ladder trades far-field geometry for frame time under sustained overlo
   // failed on CI it printed nothing at all — the numbers that would have identified it as a
   // measurement problem rather than a regression were only logged after the treatment arm,
   // which never ran. A gate's own diagnosis should not depend on which assertion trips.
-  console.log(`\n  adaptive=0  tris ${off.before} -> ${off.after}, med ${off.medMs.toFixed(3)} ms`)
+  console.log(
+    `\n  adaptive=0  tris ${off.before} -> ${off.after}, med ${off.medMs.toFixed(3)} ms, step ${off.step}`,
+  )
   expect(off.after, 'the control must be drawing real geometry').toBeGreaterThan(10_000)
+
   // The overload premise is REPORTED, not asserted (#1433). It reads `medMs`, the wall time
   // of two `requestAnimationFrame` turns — whose 60 Hz floor is 2 × 16.6̄ = 33.3 ms, i.e.
   // numerically the 33.4 ms bar it was compared against. On identical code it has measured
@@ -160,9 +204,13 @@ test('the ladder trades far-field geometry for frame time under sustained overlo
   // which is exactly how the 2026-07-28 CI failure surfaced (27497 vs 27497). All this line
   // ever did was reach that conclusion earlier, with a message pointing at the wrong thing.
   //
-  // #1433 option 2 remains open for whoever owns #1393: assert the premise on a signal that
-  // reflects real frame cost (a GPU timer, or `renderFrame` duration read off the map)
-  // rather than on rAF cadence, and this can go back to being a hard precondition.
+  // #1433 option 2 is now IMPLEMENTED, above and below this line, but not in the form the
+  // issue first proposed. `adaptiveQualityStep()` alone is necessary and NOT sufficient: in
+  // the reproducible red the treatment arm genuinely ran and stepped (`step > 0`), so a
+  // step-only premise would have called that experiment valid and still compared a settled
+  // value against the control's seed. The premise is therefore two-part — each arm CONVERGED
+  // (`after > before`), and the controller ACTED (`step > 0`) — and neither half needs a GPU
+  // timer. This warning stays as the human-readable hint about which it was.
   if (!(off.medMs > 33.4)) {
     console.warn(
       `  ⚠ control arm measured ${off.medMs.toFixed(3)} ms — at or under the two-rAF 60 Hz floor,` +
@@ -172,12 +220,37 @@ test('the ladder trades far-field geometry for frame time under sustained overlo
 
   const on = await run(page, true, 40)
   console.log(
-    `  adaptive=1  tris ${on.before} -> ${on.after}, med ${on.medMs.toFixed(1)} ms` +
+    `  adaptive=1  tris ${on.before} -> ${on.after}, med ${on.medMs.toFixed(1)} ms, step ${on.step}` +
       `\n  ladder bought ${(100 * (1 - on.after / off.after)).toFixed(1)}% of the settled geometry\n`,
   )
+  // ── THE PREMISE, CHECKED (#1433) ──
+  //
+  // `-1` means the observable is missing (a stale bundle). That IS a failure: a gate that
+  // silently loses its premise check is back where this issue started.
+  expect(on.step, 'the adaptiveQualityStep observable must be wired to the page').toBeGreaterThan(
+    -1,
+  )
+  // (1) The CONTROLLER must have acted. `step === 0` means it never judged a frame slow
+  // enough to take a notch, so the host was never overloaded and there was nothing to
+  // coarsen. An experiment whose premise is absent has not found a regression.
+  if (on.step === 0) {
+    test.skip(
+      true,
+      `the controller never stepped (host kept up at ${on.medMs.toFixed(1)} ms) — the overload` +
+        ` premise did not hold, so there was nothing to measure (#1433)`,
+    )
+    return
+  }
   expect(
     on.after,
-    `the ladder never coarsened the horizon (control settled at ${off.after}, adaptive at ${on.after})`,
+    on.after > off.after
+      ? // The controller ACTED (step above) and geometry went UP. That is not "never
+        // coarsened" — it is the ladder buying negative, which the old message hid behind a
+        // description that sent three PRs looking for a measurement artifact. Both arms are
+        // SETTLED values now (see `settle`), so this is not a convergence-timing read either.
+        `the ladder ADDED geometry: control settled at ${off.after}, adaptive at ${on.after}` +
+          ` after ${on.step} notch(es) — the controller acted and the horizon grew (#1433)`
+      : `the ladder never coarsened the horizon (control settled at ${off.after}, adaptive at ${on.after})`,
   ).toBeLessThan(off.after * 0.9)
 
   // …and what it took must be the FAR field: the foreground guarantee #1374 restored has
