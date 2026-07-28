@@ -13,6 +13,7 @@
 import type { LabelDef } from '@xgis/compiler'
 import type { GeoJSONFeature } from '@xgis/data'
 import type { FeatureProps } from '../../text/text-resolver'
+import { lineIconIsIconOnly } from './line-label-dedupe'
 
 /** Mapbox `symbol-spacing` → the on-screen (physical px) step between along-line
  *  placements. The single authority for both line paths.
@@ -264,6 +265,117 @@ export function sampleAlongPolyline(
     acc += segLen
   }
   return false
+}
+
+/** Everything the per-stop emitter needs from the ShowCommand being dispatched.
+ *  Bundled rather than passed positionally: there are nine of them, and a
+ *  positional list of nine closures is a swap waiting to happen.
+ *
+ *  `nextPairSeq` is a FUNCTION, not a number — the paired-symbol sequence counter
+ *  is shared with label-pass.ts's curved branch, and copying its value here would
+ *  fork it into two counters that hand out the same keys. */
+export interface EmitLabelAlongSegmentDeps {
+  applyFeatureExprs: (props: FeatureProps) => LabelDef
+  addLabel: (
+    value: LabelDef['text'],
+    props: FeatureProps,
+    x: number,
+    y: number,
+    def: LabelDef,
+    fontKey: string | undefined,
+    layerName: string | undefined,
+    pairKey: string | undefined,
+  ) => void
+  dispatchIcon: (
+    def: LabelDef,
+    ax: number,
+    ay: number,
+    lineTangentDeg: number,
+    pairKey: string | undefined,
+    collide: boolean,
+    props: FeatureProps,
+  ) => void
+  /** #603 — bucketed screen-position gate for text-less line icons. */
+  isLineIconDuplicate: (x: number, y: number) => boolean
+  /** Monotonic per-anchor counter behind the paired-symbol key (iter-176). */
+  nextPairSeq: () => number
+  labelLayerName: string | undefined
+  /** text-rotation-alignment !== 'viewport' — glyphs follow the segment tangent. */
+  useTangentRotation: boolean
+  zoom: number
+}
+
+/** One label placement at an interpolated point on a projected segment — the
+ *  emit half of the vector-tile line path, paired with `placeLabelsAlongLine`
+ *  which decides WHERE the stops are.
+ *
+ *  Extracted from label-pass.ts, which sits exactly on its shrink-only LOC
+ *  ceiling: any further line-label work there (the drop-attribution counters this
+ *  extraction pays for, and whatever comes after) needs the room. Pure move — the
+ *  body, the order of the guards and the emitted labels are unchanged.
+ *
+ *  Returns the emitter rather than doing the work, because `placeLabelsAlongLine`
+ *  wants a plain callback and the deps are fixed for the whole ShowCommand. */
+export function makeEmitLabelAlongSegment(
+  d: EmitLabelAlongSegmentDeps,
+): (pax: number, pay: number, pbx: number, pby: number, t: number, props: FeatureProps) => void {
+  return (pax, pay, pbx, pby, t, props) => {
+    const x = pax + (pbx - pax) * t
+    const y = pay + (pby - pay) * t
+    // Raw segment tangent in degrees (CCW from +x). Icons with
+    // icon-rotation-alignment=map use this directly (no upright flip); text uses
+    // the flipped form so glyphs stay readable from the natural reading direction.
+    const rawTangentDeg = (Math.atan2(pby - pay, pbx - pax) * 180) / Math.PI
+    const featDef = d.applyFeatureExprs(props)
+    // Iter 112 paired-symbol collision: a text label with a paired iconImage (OFM
+    // highway-shield-* / road_shield_us at z>=11) is tied to its badge by a shared
+    // per-anchor pairKey. TextStage.prepare runs collision and stamps
+    // droppedPairKeys for any REJECTED text; IconStage.prepare drops icons whose
+    // paired text was rejected. Matches MapLibre's "text+icon as one symbol"
+    // invariant. Replaces iter 111's allowOverlap shortcut, which kept every
+    // shield instance and produced visible duplication along single routes.
+    const pairedWithIcon =
+      featDef.iconImage !== undefined && featDef.iconImage !== null && featDef.iconImage !== ''
+    const pairKey = pairedWithIcon ? `${d.labelLayerName ?? ''}:seq${d.nextPairSeq()}` : undefined
+    // #603 — cross-tile dedup for text-less line icons. With no text (road_oneway
+    // arrows) the text-name dedup doesn't gate the icon, and two tiles' polyline
+    // walks can place icons at nearby but non-overlapping screen positions at a
+    // seam. The predicate is the RESOLVED text being empty (lineIconIsIconOnly),
+    // NOT `featDef.text === undefined`: an icon-only symbol emits text === '""'
+    // (compiler symbol.ts labelExpr), so featDef.text is a non-null empty template
+    // — the old undefined test was ALWAYS true and this dedup never fired (#603).
+    if (
+      lineIconIsIconOnly(featDef.text, props, d.zoom) &&
+      pairedWithIcon &&
+      d.isLineIconDuplicate(x, y)
+    )
+      return
+    if (d.useTangentRotation) {
+      let angleDeg = rawTangentDeg
+      if (angleDeg > 90 || angleDeg < -90) angleDeg += 180
+      // No fontKey override — TextStage.composeFontKey builds the proper CSS
+      // shorthand with weight / italic / CJK fallback from featDef.
+      d.addLabel(
+        featDef.text,
+        props,
+        x,
+        y,
+        { ...featDef, rotate: angleDeg },
+        undefined,
+        d.labelLayerName,
+        pairKey,
+      )
+    } else {
+      // Viewport-aligned: place at the line position with the def's static
+      // rotate (typically 0).
+      d.addLabel(featDef.text, props, x, y, featDef, undefined, d.labelLayerName, pairKey)
+    }
+    // Icon-along-line: same anchor + same pairKey as the label. OFM
+    // highway-shield-* wants the badge + text to place/drop together. The
+    // unflipped tangent feeds icon-rotation-alignment=map so road_oneway arrows
+    // point along the road.
+    d.dispatchIcon(featDef, x, y, rawTangentDeg, pairKey, true, props)
+  }
 }
 
 /** #727 P1 — inline (raw-GeoJSON) line placement. A symbol layer with
