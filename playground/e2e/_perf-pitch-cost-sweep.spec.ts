@@ -29,10 +29,11 @@ import { test, expect, type Page } from '@playwright/test'
 //                    (repeat run: 2218.0 -> 1347.8, tris/maxZ byte-identical)
 //                    maxZ 10 at every stop (was 7 -> 10 escalating as pitch fell)
 //
-// RUN THIS SWEEP WITH `adaptive=0`. #1346 also shipped adaptive resolution
-// scaling ON by default (engine/src/gpu/adaptive-quality.ts), and at ~2 s/frame it
-// engages every time — so a default-flag run measures a MOVING render
-// resolution and its ms column is not comparable to anything. Every ms above is
+// RUN THIS SWEEP WITH `adaptive=0`. The adaptive quality ladder is ON by default
+// (engine/src/gpu/adaptive-quality.ts) and at ~2 s/frame it engages every time. It
+// moves BOTH render resolution and — since #1406 — the far-field LOD ceiling, so a
+// default-flag run has neither a fixed ms column nor a fixed tris column, and
+// nothing in it is comparable to anything. Every number above is
 // `DEMO='physical_map&adaptive=0'`.
 //
 // So the reported sign is GONE (0.63x, i.e. lowering pitch is now cheaper) and
@@ -43,16 +44,27 @@ import { test, expect, type Page } from '@playwright/test'
 // foreground tiles a pitched view was missing entirely; whether that trade is
 // right is a policy call, and the lever is `FAR_RAMP_NEAR` in tiles-sse.ts.
 //
-// That new high-pitch cost is GEOMETRY-bound, not fill-bound — measured, not
-// assumed. Quartering the pixels (`&dpr=0.5`; selection is DPR-invariant, so
-// tris/maxZ barely move) takes 82.5° from 2116.5/2218.0 to 1708.2 ms, ~-21%,
-// against a ~5% endpoint run-to-run floor. Within one run the cost instead
-// tracks triangles almost linearly (1.51x tris -> 1.59x / 1.65x ms). So the
-// adaptive-DPR controller's ENTIRE range (1.0 -> 0.5) is worth about a fifth of
-// the frame and cannot absorb a 1.5x geometry swing: the budget that is missing
-// is a geometry budget, and `MAX_EMITTED` is not it — it counts TILES, so 9
-// tiles carrying 109k triangles never approach the cap. That is the half of
-// #1367 still open, tracked in #1393.
+// ON THIS FIXTURE that new cost looks geometry-bound: quartering the pixels
+// (`&dpr=0.5`; selection is DPR-invariant, so tris/maxZ barely move) takes 82.5°
+// from 2116.5/2218.0 to 1708.2 ms — only ~-21% against a ~5% endpoint run-to-run
+// floor — while within one run the cost tracks triangles almost linearly (1.51x
+// tris -> 1.59x / 1.65x ms).
+//
+// DO NOT GENERALISE THAT. It is a property of THIS fixture, not of the renderer,
+// and reading it as one sent #1393 down the wrong path for a while. The seeded
+// grid is 8100 uniform many-vertex polygons over a fixed span — unusually heavy
+// geometry per pixel — and a real basemap is the opposite: measured on dense
+// OpenFreeMap Bright buildings (Paris z16, pitch 70, real GPU), quartering the
+// pixels took the frame 3.84 s -> 1.61 s, i.e. ~75% pixel-proportional. Same
+// question, opposite answer, because the DATA differs. Whenever this harness's
+// ratios are used to argue about where cost lives, say "on this fixture".
+//
+// What both measurements agree on is the useful part: the DPR lever alone runs
+// out — it has a 0.5 floor and a fraction of the frame is immune to it either
+// way. That is what #1406 answered, by making the controller an ordered ladder
+// (far-field LOD first, device pixels second) rather than a second budget in the
+// selector. `MAX_EMITTED` still counts TILES, deliberately: see #1393 for why a
+// hard geometry cap was NOT the fix.
 //
 // ── Why this can run without a dense fixture ─────────────────────────────────
 //
@@ -68,8 +80,9 @@ import { test, expect, type Page } from '@playwright/test'
 //
 // Absolute milliseconds under SwiftShader are meaningless, and the cost curve is
 // still a live policy question (see the header: #1346 closed the way-down half,
-// nothing bounds the way-up half) — so a cost-ceiling assertion would have to be
-// re-tuned by whoever moves that policy next. Instead the gate gates on
+// #1406 answered the way-up half with an adaptive ladder rather than a fixed
+// budget) — so a cost-ceiling assertion would have to be re-tuned by whoever
+// moves that policy next. Instead the gate gates on
 // invariants that hold on BOTH sides of any such change:
 //
 //   * liveness      — sources actually hold data (a dead source reports
@@ -254,6 +267,52 @@ async function seedDense(page: Page, grid: number, ring: number, sourceId: strin
   )
 }
 
+/** Minimum triangles the seeded grid must contribute before a measurement is allowed.
+ *  The stock physical_map coastline is a few hundred at this camera and the grid is
+ *  five orders of magnitude denser, so any threshold in between separates them; this
+ *  one is deliberately far below what the grid actually produces so it tests
+ *  "the push landed", not "the push produced exactly N". */
+const SEED_LANDED_MIN_TRIS = 5000
+
+/** Block until the seeded geometry is actually ON SCREEN, or fail loudly.
+ *
+ *  A fixed sleep is not enough and quietly produced WRONG measurements: runs that
+ *  sampled too early reported the stock sparse coastline (178 triangles) as though it
+ *  were the dense fixture, and the harness's own liveness check passed the whole time
+ *  because the sources genuinely did hold data — just not the pushed data. That is
+ *  #1402's lesson repeating one layer up: assert the thing you actually need, not a
+ *  proxy that is true either way.
+ *
+ *  This is a WAIT, not a diagnosis. A push is frame-paced (the catalog re-tiles in
+ *  rounds bounded by the load-concurrency cap, and each round's replacement is swapped
+ *  onto the GPU inside a frame), so under a software rasteriser it legitimately needs
+ *  far longer than the old `SETTLE_MS * 3` — but a run observed here never landed at
+ *  all within 120 s of pumped frames, which no amount of settling explains. When this
+ *  throws, treat it as a REPORT, not a flake: the fixture is deterministic and the
+ *  push either reaches the frame or does not.
+ *
+ *  Frames are pumped rather than waited for, because an idle map draws nothing and the
+ *  swap only happens in a frame. */
+async function awaitSeedLanded(page: Page, features: number): Promise<void> {
+  const deadline = Date.now() + 120_000
+  let best = 0
+  while (Date.now() < deadline) {
+    const { triangles } = await sampleFrame(page)
+    best = Math.max(best, triangles)
+    if (triangles >= SEED_LANDED_MIN_TRIS) {
+      console.log(`  seed landed: ${triangles} triangles on screen`)
+      return
+    }
+    await frameCost(page, 2)
+    await page.waitForTimeout(500)
+  }
+  throw new Error(
+    `Seeded ${features} polygons but only ${best} triangles ever reached the frame ` +
+      `(need ≥ ${SEED_LANDED_MIN_TRIS}). The push did not land — measuring now would ` +
+      `report the demo's own sparse data as the dense fixture. See #1402.`,
+  )
+}
+
 async function setPitch(page: Page, pitch: number, settleMs: number) {
   await page.evaluate((p) => {
     ;(window as unknown as { __xgisMap?: { setPitch(p: number): void } }).__xgisMap?.setPitch(p)
@@ -308,7 +367,7 @@ test.describe('pitch cost sweep (#1367)', () => {
       console.log(
         `\n  seeded ${seeded.features} polygons x ${seeded.vertsPerFeature} verts into source "${SEED_SOURCE}"`,
       )
-      await page.waitForTimeout(SETTLE_MS * 3)
+      await awaitSeedLanded(page, seeded.features)
     }
 
     const probe = await sampleFrame(page)
