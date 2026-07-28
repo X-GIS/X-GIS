@@ -70,6 +70,11 @@ function readHalves() {
 /** The demo, framed on the domain pair, with its declared coverage actually resident. */
 async function boot(page: import('@playwright/test').Page) {
   await page.setViewportSize({ width: 900, height: 700 })
+  // BLOCK the satellite basemap. Without this the metric is vacuous wherever the network
+  // resolves: imagery paints every pixel, so both halves read ~1.0 in BOTH captures and the
+  // delta collapses to noise — which is exactly how this passed locally (no network) and
+  // failed on CI. The claim is about COVERAGE residency, so imagery is not evidence either way.
+  await page.route('**/arcgisonline.com/**', (r) => void r.abort())
   await page.goto(
     `/demo.html?id=s111_currents&forcegl2=1&e2e=1#${ZOOM}/${CENTRE_LAT}/${CENTRE_LON}`,
     { waitUntil: 'domcontentloaded' },
