@@ -445,7 +445,11 @@ const CEILINGS: Record<string, number> = {
   // to different methods, so the merged file measures their SUM. Value below is the MEASURED
   // post-hook line count, not an arithmetic guess.
   // MERGE UNION: non-overlapping deltas; the value is the MEASURED post-hook count.
-  'map/src/map.ts': 5409,
+  // 5409→5402 (#1364): the post-allSettled outcome policy moved out to
+  // source-load-outcome.ts — it depends on nothing about the map instance
+  // beyond raising an error event, and inline it needed a live GPU context
+  // to reach, so it had no test.
+  'map/src/map.ts': 5402,
   // Baselined at #1255 (measured 830): the DOM-inspired layer API crossed
   // NEW_FILE_CAP with the paint-transition style-setter integration — the
   // StyleHost.transitions context, the shared applyNumber/applyColor
@@ -454,7 +458,10 @@ const CEILINGS: Record<string, number> = {
   // machine itself lives in paint-transitions.ts). Cohesive layer-API
   // ownership (registry + style proxy + feature events) — shrink-only
   // from now; split (LayerIdRegistry / events vs style) if it grows again.
-  'map/src/layer.ts': 830,
+  // 830→820 (#1364): the map-level error-event payload moved out to
+  // map-error-event.ts — a self-contained cluster nothing else in this file
+  // touches. Re-exported here, so existing import paths are unchanged.
+  'map/src/layer.ts': 820,
   // Baselined at #1235 (measured 846): SourceManager crossed NEW_FILE_CAP with
   // the gap-1/gap-2 seams — the setSourceData virtual re-seed branch (the
   // legacy worker-compile path renders fills/points but no line segments) +
@@ -495,7 +502,10 @@ const CEILINGS: Record<string, number> = {
   // decision. Ceiling below is the MERGED file's actual wc -l, measured after prettier.
   // MERGE UNION: both sides' deltas are non-overlapping, so the value is the MEASURED count.
   // MERGE UNION: non-overlapping deltas; the value is the MEASURED post-hook count.
-  'map/src/source-manager.ts': 903,
+  // 903→898 (#1364): the heatmap point split moved out to
+  // heatmap-point-split.ts — it was duplicated verbatim at both sites that
+  // tile a GeoJSON source (initial attach + the #1371 in-place re-seed).
+  'map/src/source-manager.ts': 898,
   // 1920→1930 (#1042 R3): the globe limb cull for MULTI-LINE labels must land in
   // the collision phase — the ONLY site holding the label's quad half-height (the
   // collision box IS the height authority; the label-pass dispatch site has only

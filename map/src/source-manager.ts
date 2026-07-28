@@ -41,6 +41,7 @@ import {
   type GeoJSONGeometry,
 } from '@xgis/data'
 import type { RawDataset } from './map-types'
+import type { XGISMapErrorInfo } from './layer'
 import { DEFAULT_REGION } from './render/coverage-renderer'
 import { isTileTemplate } from '@xgis/data'
 import { TileCatalog } from '@xgis/data'
@@ -58,6 +59,7 @@ import { fetchCoverageHandle } from './coverage-fetch'
 import { SOURCE_TYPES } from '@xgis/compiler'
 import type { SourceLoader } from './source-loader'
 import { normaliseHostPushedData } from './source-data-normalize'
+import { setHeatmapPoints } from './heatmap-point-split'
 
 /** The built-in source `type:` values the dispatch handles natively; anything else
  *  routes to the per-map custom source-loader registry (source-loader-seam §4).
@@ -121,6 +123,8 @@ export interface SourceManagerDeps {
   rebuildLayers(): void
   /** XGISMap's `teardownSource` — destroy GPU resources for a source. */
   teardownSource(sourceId: string): void
+  /** Raise a map-level `error` event (#1364). */
+  fireError(info: XGISMapErrorInfo): void
   /** #1371 — the live (catalog, renderer) pair for `sourceId`, or null. Lets a host data push
    *  swap the source's BACKEND on the SAME catalog instead of tearing the pair down, so the
    *  tiles already on the GPU keep drawing until their replacements land. */
@@ -160,6 +164,7 @@ export class SourceManager {
    *  replacement without destroying the catalog. */
   private readonly vtBackends = new Map<string, VirtualPMTilesBackend>()
   private readonly teardownSource: (sourceId: string) => void
+  private readonly fireError: (info: XGISMapErrorInfo) => void
   private readonly deleteFeatureIndex: (sourceId: string) => void
   private readonly sourceLoaders?: Readonly<Record<string, SourceLoader>>
 
@@ -199,6 +204,7 @@ export class SourceManager {
     this._runBoundsFitGate = deps.runBoundsFitGate
     this.rebuildLayers = deps.rebuildLayers
     this.teardownSource = deps.teardownSource
+    this.fireError = deps.fireError
     this.getVtSource = deps.getVtSource
     this.deleteFeatureIndex = deps.deleteFeatureIndex
     this.sourceLoaders = deps.sourceLoaders
@@ -436,6 +442,10 @@ export class SourceManager {
         showSlices: maps.showSlicesBySource.get(load.name),
         strokeWidthExprs: maps.strokeWidthExprsBySource.get(load.name),
         strokeColorExprs: maps.strokeColorExprsBySource.get(load.name),
+        // #1364 — the attach still soft-fails; this only stops it being
+        // INVISIBLE (see PMTilesSourceOptions.onResolveError).
+        onResolveError: (error) =>
+          this.fireError({ phase: 'source', source: load.name, fatal: false, error }),
       })
       // A7 — a superseded run must not register a dead-device catalog into the
       // winner's shared vtSources. Destroy the locally built pair (mirror
@@ -489,8 +499,9 @@ export class SourceManager {
     // host-supplied; block private/loopback/non-http(s) targets, and
     // re-check every redirect hop (safeFetch follows manually) so an
     // allowlisted host can't 302 to an internal address. Throws
-    // XGISSecurityError, caught at _attachOneSource's existing boundary so
-    // the bad source fails cleanly without taking down the map.
+    // XGISSecurityError. NOTE (#1364): this does NOT fail cleanly — there is no
+    // such boundary here. It propagates to `settleSourceLoads`, which isolates
+    // ONLY `xgisReprojectFailure` and re-throws the rest, aborting run().
     const response = await safeFetch(url, undefined, `GeoJSON source "${load.name}"`)
     if (!response.ok) {
       throw new Error(
@@ -719,15 +730,7 @@ export class SourceManager {
     // HeatmapRenderer BEFORE the next line overwrites `rawDatasets` with the
     // `{ _vectorTile: true }` marker (points move into the tile backend). Use
     // the reprojected `data` FC so the heatmap coords match the tiled output.
-    const heatmapPts = (data.features ?? []).filter(
-      (f) => f.geometry?.type === 'Point' || f.geometry?.type === 'MultiPoint',
-    )
-    if (heatmapPts.length)
-      this.heatmapPointData.set(sourceName, {
-        type: 'FeatureCollection',
-        features: heatmapPts,
-      } as GeoJSONFeatureCollection)
-    else this.heatmapPointData.delete(sourceName)
+    setHeatmapPoints(this.heatmapPointData, sourceName, data)
     this.rawDatasets.set(sourceName, { _vectorTile: true })
 
     // Camera-fit: derive bounds from the GeoJSON features themselves
@@ -794,15 +797,7 @@ export class SourceManager {
     const capPoles = detectCapPoles(reprojected)
     if (capPoles.north || capPoles.south) this.geojsonCapPoles.set(sourceId, capPoles)
     else this.geojsonCapPoles.delete(sourceId)
-    const heatmapPts = (reprojected.features ?? []).filter(
-      (f) => f.geometry?.type === 'Point' || f.geometry?.type === 'MultiPoint',
-    )
-    if (heatmapPts.length)
-      this.heatmapPointData.set(sourceId, {
-        type: 'FeatureCollection',
-        features: heatmapPts,
-      } as GeoJSONFeatureCollection)
-    else this.heatmapPointData.delete(sourceId)
+    setHeatmapPoints(this.heatmapPointData, sourceId, reprojected)
 
     const inferred = maps.usedSourceLayers.get(sourceId)
     const backend = new VirtualPMTilesBackend({

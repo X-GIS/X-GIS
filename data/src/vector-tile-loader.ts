@@ -292,6 +292,12 @@ export abstract class VectorTileSource {
 
   constructor(public readonly url: string) {}
 
+  /** Why the last {@link resolve} soft-failed, or null if it did not (#1364).
+   *  `resolve` returns null on failure by design — the attach is a soft-fail —
+   *  which loses the cause. Stashing it here lets {@link attachTo} report it
+   *  through `opts.onResolveError` without changing that contract. */
+  protected lastResolveError: unknown = null
+
   /** Fetch metadata + build a fetcher closure. Sources that don't go
    *  through `PMTilesBackend` (e.g. XGVT-binary) return null and override
    *  `attachTo`. Returns null on a soft failure (e.g. CORS). */
@@ -305,7 +311,14 @@ export abstract class VectorTileSource {
    *  Polymorphic — XGVT-binary overrides since it bypasses PMTilesBackend. */
   async attachTo(catalog: TileCatalog, opts: PMTilesSourceOptions): Promise<void> {
     const meta = await this.resolve()
-    if (!meta) return // soft-fail: catalog stays empty, demo still loads
+    if (!meta) {
+      // Soft-fail by design: the catalog stays empty and the rest of the map
+      // still loads. Report it so that is a CHOICE the host can see rather
+      // than a silent one (#1364) — before this, a dead source left `loaded()`
+      // true and `missedTiles` at 0, which reads as perfect health.
+      opts.onResolveError?.(this.lastResolveError)
+      return
+    }
 
     const formatName = meta.format === 'pmtiles' ? 'PMTiles' : 'TileJSON'
     const layerSummary =
@@ -379,6 +392,7 @@ export class PMTilesArchiveSource extends VectorTileSource {
           `  host (e.g. pmtiles.io) or proxy the archive through your dev\n` +
           `  server (vite.config.ts proxy entry).`,
       )
+      this.lastResolveError = e
       return null
     }
     const { archive, header } = cached
@@ -450,6 +464,7 @@ export class TileJSONSource extends VectorTileSource {
           `  Access-Control-Allow-Origin for your origin. Use a host\n` +
           `  that allows your origin in its CORS settings.`,
       )
+      this.lastResolveError = e
       return null
     }
     return {

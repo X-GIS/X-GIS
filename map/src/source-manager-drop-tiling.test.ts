@@ -66,6 +66,7 @@ function makeManager() {
       order.push('teardown')
       teardownSource(id)
     },
+    fireError: () => {},
     getVtSource: () => null,
     deleteFeatureIndex,
   })
