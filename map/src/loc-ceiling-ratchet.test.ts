@@ -473,7 +473,22 @@ const CEILINGS: Record<string, number> = {
   // arm itself came OUT — armCoverageDrape/armCoverageShow/armAdvectedArrows/armLandedCoverage
   // now live in coverage-arm.ts, taking the map structurally. #1419's residency/`hidden` fork
   // and its advected-arrow fork moved WITH it, unchanged. LOWERED per the shrink-only rule.
-  'map/src/map.ts': 5387,
+  //
+  // MERGE UNION (#1419 follow-up <- main @ #1426): my side's +1 was the arrow clear moving out
+  // of the `| arrow` branch — that line now lives in coverage-arm.ts, so it adds nothing here
+  // and main's LOWER ceiling stands. Value below is the MEASURED post-merge count.
+  //
+  // #1437 likewise landed ON that extraction rather than beside it: its own drape-arm extraction
+  // was dropped on the merge and the `filter:` argument went into coverage-arm.ts, so map.ts is
+  // untouched by it too. Both merges leave the number as #1426's, re-measured each time.
+  //
+  // MERGE UNION (#1419 third pass <- main @ #1437): main's side adds nothing here (see above);
+  // my side's +6 is the coverage renderer's LRU eviction now being ANNOUNCED, with the map as
+  // the listener — a dropped region takes its compiled arrows with it. Two wire-ups (the GPU
+  // boot and the backend switch), each carrying the sentence saying why the LRU needed one at
+  // all: nothing else observed it, so an evicted region's arrows kept drawing against velocity
+  // textures that had just been destroyed. Value below is the MEASURED post-merge count.
+  'map/src/map.ts': 5393,
   // Baselined at #1255 (measured 830): the DOM-inspired layer API crossed
   // NEW_FILE_CAP with the paint-transition style-setter integration — the
   // StyleHost.transitions context, the shared applyNumber/applyColor
@@ -673,7 +688,7 @@ const CEILINGS: Record<string, number> = {
   // banked: the resolution is the MEASURED post-prettier size of the merged file, never either
   // side's number. Picking one would silently hand back the other's reduction as headroom to
   // re-spend, which is the quiet way a shrink-only ratchet stops shrinking.
-  'map/src/render/passes/label-pass.ts': 2081,
+  'map/src/render/passes/label-pass.ts': 2034,
   // #1081 — per-anchor perspective distance attenuation (MapLibre parity). New
   // baseline: the wCenter + perspScale scratch-out-value lives INLINE in the two
   // existing projector closures (it rides the cw already computed per anchor —
@@ -868,7 +883,11 @@ const CEILINGS: Record<string, number> = {
   // 1433 (merge, F3b branch × #1419/#1424): both sides GREW independently — the F3b
   // bridge (+38 over 1387) and the twin's arrow step (+8 over 1387) touch disjoint
   // regions; the ceiling is the MEASURED post-merge size, not either side's number.
-  'map/src/render-loop.ts': 1433,
+  // +2 (#1419, third pass): the twin declares the arrow field every frame — OUTSIDE the `if`,
+  // because a frame with no field is exactly the one that must say so (an evicted region's
+  // textures are destroyed, and a binding still holding them dies in the next submit).
+  // 1435 (merge): measured again after the #1445 +2 landed on main's side.
+  'map/src/render-loop.ts': 1435,
   // Baselined at 806 (hillshade tile fade-in): HillshadeRenderer crossed
   // NEW_FILE_CAP restoring the three tile-streaming fixes raster-renderer had
   // landed since hillshade was copied from it — the per-tile fade ramp + its
@@ -962,7 +981,14 @@ const CEILINGS: Record<string, number> = {
   // UNPACK_ALIGNMENT restored to the GL default after ad-hoc uploads, and
   // createPipeline unbinding the program after reflection. Stacked on the
   // #1057/#1062/#1060/#1196 growth — measured 1436.
-  'rhi-webgl2/src/rhi-webgl2.ts': 1436,
+  // 1436→1464 (#1419): the dev-only texture-usage guard. WebGPU validates every queue write
+  // against the target's usage flags and WebGL2 validates nothing, so a texture missing
+  // `copy-dst` passes every headless render gate here and dies at boot on WebGPU — it cost the
+  // S-111 advected arrow field exactly that. The software backend now enforces the stricter
+  // contract in dev, which is the only place the class is catchable without a WebGPU adapter.
+  // +28 is the guard, the `usage`/`label` fields it reads, and the reason — the reason being
+  // the part that stops someone deleting a check their own backend does not need.
+  'rhi-webgl2/src/rhi-webgl2.ts': 1469,
   // 941→975 (#1371 atomic re-seed): `releaseSupersededTile` + `dropTile`, and the split of
   // `_releaseTileSlots` into a resource-release body the two share with eviction. Arena/pool
   // ownership is this class's whole reason to exist.

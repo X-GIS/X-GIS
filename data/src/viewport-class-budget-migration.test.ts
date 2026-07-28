@@ -103,7 +103,7 @@ describe('#1350 — the cross-package / private sites route through the authorit
   })
 
   it('the frustum selector isMobileViewport delegates instead of re-deriving 900', () => {
-    const body = bodyOf('data/src/tile-select.ts', 'function isMobileViewport')
+    const body = bodyOf('data/src/tile-select-budget.ts', 'export function isMobileViewport')
     expect(body).toContain('isMobileClassViewport')
     expect(body).not.toMatch(/900/)
   })

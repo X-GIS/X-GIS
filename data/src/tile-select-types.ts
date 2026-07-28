@@ -70,6 +70,24 @@ export interface TileSelectionCamera {
   pitch: number
   /** RTC (focus-relative) view-projection matrix, column-major 4x4. */
   getRTCMatrix(canvasWidth: number, canvasHeight: number, dpr?: number): Float32Array
+  /** The same RTC matrix PLUS the far-plane distance it was built with.
+   *
+   *  `far` is the SINGLE AUTHORITY for where the rendered world ends: the
+   *  camera derives it, bakes it into the projection matrix, and the GPU
+   *  clips every fragment past it. A selector that enumerates tiles beyond
+   *  `far` is asking for data the renderer cannot draw — which is exactly
+   *  the high-pitch blowup in #1427. So the frustum selector culls against
+   *  this value rather than re-deriving a bound of its own (a second
+   *  authority would drift the moment the camera's near/far math changed).
+   *
+   *  Units match clip-space `w` from `matrix` (`w = -view.z`), i.e. both
+   *  are view-axis depth in projected metres, so `w > far` is literally
+   *  "outside the frustum's far plane". */
+  getFrameView(
+    canvasWidth: number,
+    canvasHeight: number,
+    dpr?: number,
+  ): { matrix: Float32Array; far: number }
   /** Unproject a device-pixel screen point onto the projected z=0 ground plane;
    *  null when the ray misses the ground (above the horizon). */
   unprojectToZ0(

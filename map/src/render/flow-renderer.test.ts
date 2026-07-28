@@ -313,6 +313,7 @@ describe('FlowRenderer — the arrow step (#1419)', () => {
     const t = makeCtx({ backend: 'webgl2' })
     const fr = new FlowRenderer(t.dev)
     const field = makeField()
+    fr.setArrowField(field)
     fr.stepArrows(frameAt(0), field) // no-op: no interval yet
     fr.stepArrows(frameAt(16), field)
     const steps = () => t.passes.filter((p) => p.desc.label === 'arrow-advect')
@@ -347,17 +348,39 @@ describe('FlowRenderer — the arrow step (#1419)', () => {
     const t = makeCtx({ backend: 'webgl2' })
     const fr = new FlowRenderer(t.dev)
     const field = makeField()
+    fr.setArrowField(field)
     for (let i = 0; i <= 6; i++) fr.stepArrows(frameAt(i * 16), field)
     const settled = t.bindGroups.length
     expect(settled).toBe(2)
-    fr.stepArrows(frameAt(7 * 16), makeField()) // re-armed: new u/v views
+    const rearmed = makeField() // re-armed: new u/v views
+    fr.setArrowField(rearmed)
+    fr.stepArrows(frameAt(7 * 16), rearmed)
     expect(t.bindGroups.length).toBeGreaterThan(settled)
+  })
+
+  it('a field that is GONE is forgotten — the draw cannot bind a destroyed texture', () => {
+    // The lifetime rule, not a staleness one. The mosaic evicts a region under its LRU budget
+    // and DESTROYS that region's velocity textures; anything still holding those views hands
+    // them to the next submit —
+    //   "destroyed texture coverage-flow-v used in a submit"
+    // which is what S-111 Live reported on zooming out and panning to another domain. The pass
+    // declares the field every frame, so `null` has to actually clear it.
+    const t = makeCtx({ backend: 'webgl2' })
+    const fr = new FlowRenderer(t.dev)
+    const field = makeField()
+    fr.setArrowField(field)
+    fr.stepArrows(frameAt(0), field)
+    fr.stepArrows(frameAt(16), field)
+    expect(fr.arrowBinding).not.toBeNull()
+    fr.setArrowField(null)
+    expect(fr.arrowBinding).toBeNull()
   })
 
   it('binds the origin texture — without it every arrow is leashed to grid-uv (0,0)', () => {
     const t = makeCtx({ backend: 'webgl2' })
     const fr = new FlowRenderer(t.dev)
     const field = makeField()
+    fr.setArrowField(field)
     fr.stepArrows(frameAt(0), field)
     fr.stepArrows(frameAt(16), field)
     const entries = t.bindGroups.at(-1)!.entries as Array<{ binding: number; resource: unknown }>

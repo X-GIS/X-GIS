@@ -18,6 +18,7 @@ import {
   buildCoverageModule,
   coverageGridIndexCount,
 } from '../../shaders/dsl/coverage-ramp'
+import type { CoverageFilterFn } from '../../shaders/dsl/coverage-filter'
 
 /** Interleaved node vertex: [lon, lat, u, v] — 4 × f32. */
 export const COVERAGE_NODE_STRIDE = 16
@@ -135,7 +136,11 @@ export function bakeRampLut(rampName: string): Uint8Array {
 // encoded "the footprint is a rectangle in lon/lat", which a projected (UTM) cell
 // violates. Node lon/lat is a vertex attribute now and uv a varying, so neither field
 // has anywhere left to be re-introduced from.
-export const COVERAGE_UNIFORM_FLOATS = 28 // 112 bytes / 4
+// 32 floats / 128 bytes since #1437 added `cov_data` (dataMin, span, zoom) — the raw-unit
+// mapping the fragment `filter:` predicate tests against. Present whether or not a layer
+// declares a filter: a std140 block's layout is fixed by its qualifier, not by which members
+// are read, so one layout beats two that must be kept in step.
+export const COVERAGE_UNIFORM_FLOATS = 32 // 128 bytes / 4
 export interface CoverageUniformInput {
   mvp: Float32Array | number[] // 16
   projParams: [number, number, number, number]
@@ -149,6 +154,14 @@ export interface CoverageUniformInput {
   /** Draw the advected field alone — no ramp colour (#1333). Packed into cam_center.z as a
    *  0/1 flag; see the shader for why the ramp tap still happens and is simply not used. */
   flowOnly?: boolean
+  /** The band's raw value window, so the fragment `filter:` predicate can undo the [0,1]
+   *  normalization the A3 packing applies and test RAW units — the same quantity the CPU
+   *  sounding arm evaluates the identical predicate on (#1437). Absent ⇒ (0, 0), which is
+   *  never read: a drape with no filter emits no call site at all. */
+  data?: { min: number; max: number }
+  /** Live camera zoom, so a `zoom`-dependent filter reads the same value on the drape that it
+   *  already reads on the sounding arm. */
+  cameraZoom?: number
 }
 export function packCoverageUniforms(u: CoverageUniformInput): Float32Array {
   const out = new Float32Array(COVERAGE_UNIFORM_FLOATS)
@@ -167,6 +180,12 @@ export function packCoverageUniforms(u: CoverageUniformInput): Float32Array {
   out[25] = u.ramp.b
   out[26] = u.opacity // ramp_params.z
   out[27] = u.flowMix ?? 0 // ramp_params.w
+  // cov_data (#1437) — x=dataMin, y=span, so the fragment recovers raw units as
+  // `min + s'·span`. A zero span leaves every cell at dataMin, which is the honest reading of
+  // a constant grid rather than a divide-by-zero dressed up as a filter result.
+  out[28] = u.data?.min ?? 0
+  out[29] = u.data ? u.data.max - u.data.min : 0
+  out[30] = u.cameraZoom ?? 0 // cov_data.z
   return out
 }
 
@@ -178,10 +197,14 @@ export class CoverageDraper {
     private readonly rhi: RhiDevice,
     format: string,
     sampleCount: number,
+    /** The layer's compiled `filter:` predicate, spliced into the fragment stage (#1437).
+     *  A draper is built PER PREDICATE — the caller keys its cache on
+     *  `CoverageFilterProgram.key` — because the predicate is baked into the pipeline. */
+    filter?: CoverageFilterFn,
   ) {
-    const mod = buildCoverageModule()
+    const mod = buildCoverageModule(filter)
     this.material = new Material(rhi, {
-      shader: emitCoverageWgsl(),
+      shader: emitCoverageWgsl(filter),
       vsEntry: 'vs_cov',
       fsEntry: 'fs_cov',
       vsCode: emitGlslModule(mod, 'vertex'),
