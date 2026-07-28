@@ -609,7 +609,13 @@ const CEILINGS: Record<string, number> = {
   // right one, the one failure mode the warning above cannot see. +3 = the token/CSS
   // resolver ahead of the NULLABLE parse (one line, replacing two) plus the four lines
   // naming why, mirroring what render/passes/label-pass.ts has always done. MEASURED.
-  'map/src/map.ts': 5439,
+  //
+  // 5439→5432 (#1364, adopted onto main @ e54a892): the post-allSettled outcome policy
+  // moved out to source-load-outcome.ts — it depends on nothing about the map instance
+  // beyond raising an error event, and inline it needed a live GPU context to reach, so it
+  // had no test. On the PR's own base that read 5409→5402 (−7); ADOPTION re-measures rather
+  // than re-uses that number, because main's base moved under it. MEASURED post-pick.
+  'map/src/map.ts': 5432,
   // Baselined at #1255 (measured 830): the DOM-inspired layer API crossed
   // NEW_FILE_CAP with the paint-transition style-setter integration — the
   // StyleHost.transitions context, the shared applyNumber/applyColor
@@ -622,7 +628,13 @@ const CEILINGS: Record<string, number> = {
   // hex regex, existing only to turn the total parser's opaque black back into the null the
   // setters gate on. feature-helpers' `hexToRgba` now IS that contract, so the setters call
   // it directly. Deleting a duplicate authority, not moving lines elsewhere.
-  'map/src/layer.ts': 817,
+  //
+  // 817→807 (#1364, adopted onto main @ e54a892): the map-level error-event payload
+  // moved out to map-error-event.ts — a self-contained cluster nothing else in this file
+  // touches. Re-exported here, so existing import paths are unchanged. On the PR's own base
+  // that read 830→820 (−10); ADOPTION re-measures on top of #1666's shrink instead of
+  // carrying the stale number. MEASURED post-pick.
+  'map/src/layer.ts': 807,
   // Baselined at #1235 (measured 846): SourceManager crossed NEW_FILE_CAP with
   // the gap-1/gap-2 seams — the setSourceData virtual re-seed branch (the
   // legacy worker-compile path renders fills/points but no line segments) +
@@ -666,7 +678,15 @@ const CEILINGS: Record<string, number> = {
   // #1426 left this file at its ceiling exactly: the `type: coverage` branch stopped awaiting
   // its multi-MB read (retiring the fetch/read imports) and spent the saved lines on the
   // host-fed `url`-less guard + its reason. Net 0 — nothing to lower.
-  'map/src/source-manager.ts': 903,
+  //
+  // 903→898 (#1364, adopted onto main @ e54a892): the heatmap point split moved out to
+  // heatmap-point-split.ts — it was duplicated verbatim at both sites that tile a GeoJSON
+  // source (initial attach + the #1371 in-place re-seed). The PR also carried a
+  // `DEFAULT_REGION` import for its own base's `_coverage` seeding; #1426 replaced that
+  // branch with an empty region map on main, so the import would be orphaned and was DROPPED
+  // in adoption — the source-failure payload (`XGISMapErrorInfo`/`fireError`) is the part
+  // that lands. MEASURED post-pick.
+  'map/src/source-manager.ts': 898,
   // 1920→1930 (#1042 R3): the globe limb cull for MULTI-LINE labels must land in
   // the collision phase — the ONLY site holding the label's quad half-height (the
   // collision box IS the height authority; the label-pass dispatch site has only

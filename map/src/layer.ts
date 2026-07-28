@@ -634,18 +634,8 @@ export type XGISMapEventType =
   | 'error'
   | 'backendresolved'
 
-/** Phase of a fired map-level `'error'` event. */
-export type XGISMapErrorPhase = 'boot' | 'devicelost' | 'halt'
-
-/** Payload carried by a map-level `'error'` event (on the XGISMapEvent). `fatal`
- *  separates an unrecoverable stop (boot failure, 3-strike halt) from a
- *  recoverable fault the engine auto-recovers from (device loss); `error` is the
- *  underlying cause (an Error, a RhiDeviceLostInfo, …). */
-export interface XGISMapErrorInfo {
-  phase: XGISMapErrorPhase
-  fatal: boolean
-  error: unknown
-}
+import type { XGISMapErrorPhase } from './map-error-event'
+export type { XGISMapErrorPhase, XGISMapErrorInfo } from './map-error-event'
 
 /** Payload delivered to map-level lifecycle / camera listeners. Carries
  *  the current camera state (center [lon, lat], zoom, bearing, pitch) so
