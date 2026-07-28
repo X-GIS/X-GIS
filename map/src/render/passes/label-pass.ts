@@ -1078,8 +1078,7 @@ class LabelPass implements RenderPass {
               projectLonLatCopies,
               (v, p, x, y, d, f, ln, pk, cid, ps) =>
                 stage.addLabel(v, p, x, y, d, f, ln, pk, cid, ps),
-              labelLayerName,
-              region,
+              { layerName: labelLayerName, region, filter: show.filterExpr, cameraZoom },
             )
           }
           perfMarkEnd('encoder.label-dispatch.show')
