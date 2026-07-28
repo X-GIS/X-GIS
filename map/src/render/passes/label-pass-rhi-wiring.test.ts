@@ -51,11 +51,17 @@ function harness(opts: { useResolve?: boolean; twin?: boolean; rawShell?: boolea
   // here; after the port nothing may touch it on any arm.
   const nativeBegin = vi.fn(() => ({ end: () => undefined }))
   const twinPass = { __twinLivePass: true }
+  // The twin frame carries NO RHI bridges (render-loop.ts builds the twin ctx
+  // with them null — only rhiPass is live), so the twin harness mirrors that
+  // shape exactly: the ctx.rhiPass check MUST run before requireRhiFrame, and
+  // hoisting the shell requirement above the branch turns the twin case RED
+  // here instead of throwing every real forced-WebGL2 frame (review MINOR-5).
+  const bridged = !opts.twin && !opts.rawShell
   const ctx = {
-    rhiEncoder: opts.rawShell ? null : enc,
-    rhiScreenView: { __rhiScreenView: true },
-    rhiColorView: { __rhiColorView: true },
-    rhiStencilView: { __rhiStencilView: true },
+    rhiEncoder: bridged ? enc : null,
+    rhiScreenView: bridged ? { __rhiScreenView: true } : null,
+    rhiColorView: bridged ? { __rhiColorView: true } : null,
+    rhiStencilView: bridged ? { __rhiStencilView: true } : null,
     rhiPass: opts.twin ? twinPass : undefined,
     encoder: { beginRenderPass: nativeBegin },
     colorView: { __nativeColorView: true },
@@ -181,7 +187,7 @@ describe('label pass — RHI seam wiring (#1046 F3b, the last chain pass)', () =
     expect(colors[0].resolveTarget).toBeUndefined()
   })
 
-  it('twin arm (ctx.rhiPass) draws onto the live pass by identity and originates NOTHING', () => {
+  it('twin arm (ctx.rhiPass, null bridges — the real twin frame shape) draws onto the live pass by identity and originates NOTHING', () => {
     const h = harness({ twin: true })
     labelPass.execute(h.ctx, h.scene, h.host as never)
     expect(h.beginRenderPass).not.toHaveBeenCalled()
