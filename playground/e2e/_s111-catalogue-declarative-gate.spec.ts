@@ -25,8 +25,14 @@ import { test, expect } from '@playwright/test'
 
 /** Chesapeake — cbofs' domain, the demo's own opening view. */
 const CHESAPEAKE = { lon: -76.1, lat: 37.9, zoom: 7.4 }
-/** San Francisco Bay — sfbofs only, and a continent away from cbofs. */
-const SF_BAY = { lon: -122.35, lat: 37.75, zoom: 8 }
+/** San Francisco Bay, framed INSIDE the local domain — a continent away from cbofs.
+ *
+ *  The zoom is load-bearing. `itemsForView` ranks by overlap AREA and only breaks a TIE toward
+ *  the smaller bbox, so a view WIDER than sfbofs (z8 spans ~4.9° against sfbofs' 1.9°) gives the
+ *  basin-wide `wcofs` strictly more overlap and it leads legitimately. The tie — and with it the
+ *  "prefer the local, higher-resolution cell" rule this is here to pin — only exists once the
+ *  view sits inside BOTH domains. z10 spans ~1.2°, which does. */
+const SF_BAY = { lon: -122.35, lat: 37.75, zoom: 10 }
 
 interface Probe {
   ok: boolean
@@ -80,23 +86,29 @@ async function boot(page: import('@playwright/test').Page, at: typeof CHESAPEAKE
   )
 }
 
-/** Wait until the renderer holds at least one region, or report that the network did not
- *  deliver — never a silent pass. */
+/** Wait until the resident set has SETTLED — unchanged across two polls a second apart — or
+ *  report that the network did not deliver. A fixed sleep is what made this gate lie once
+ *  already: it read the set 1.5 s in, while the second cell of the view was still streaming,
+ *  and reported the first arrival as the final answer. */
 async function waitForResidency(page: import('@playwright/test').Page): Promise<boolean> {
-  try {
-    await page.waitForFunction(
+  const regions = (): Promise<string[]> =>
+    page.evaluate(
       () =>
-        ((
+        (
           window as unknown as {
             __xgisMap?: { coverageRenderer?: { residentRegions(): string[] } }
           }
-        ).__xgisMap?.coverageRenderer?.residentRegions().length ?? 0) > 0,
-      { timeout: 120_000 },
+        ).__xgisMap?.coverageRenderer?.residentRegions() ?? [],
     )
-    return true
-  } catch {
-    return false
+  const deadline = Date.now() + 180_000
+  let prev = ''
+  while (Date.now() < deadline) {
+    await page.waitForTimeout(1000)
+    const now = JSON.stringify(await regions())
+    if (now !== '[]' && now === prev) return true
+    prev = now
   }
+  return false
 }
 
 test.describe('S-111 live: the catalogue resolves the viewport (#1453)', () => {
@@ -110,7 +122,6 @@ test.describe('S-111 live: the catalogue resolves the viewport (#1453)', () => {
       test.skip(true, 'no NOAA egress — the live cell never arrived, so nothing is proven')
       return
     }
-    await page.waitForTimeout(1500)
     const chesapeake = await page.evaluate(probe)
 
     expect(chesapeake.ok, 'WebGL2 context present').toBe(true)
@@ -131,7 +142,6 @@ test.describe('S-111 live: the catalogue resolves the viewport (#1453)', () => {
       test.skip(true, 'no NOAA egress for the second domain')
       return
     }
-    await page.waitForTimeout(1500)
     const sf = await page.evaluate(probe)
     await page.screenshot({ path: 'test-results/s111-catalogue-sfbay.png' })
 
