@@ -152,7 +152,10 @@ const CEILINGS: Record<string, number> = {
   // per site on WebGL2, and the mirror waste of the GLSL pair on WebGPU. No statement was
   // added: the existing shader/vsCode/fsCode expressions were wrapped in place, and the
   // decision itself lives in material/wgsl-for.ts.
-  'map/src/render/vector-tile-renderer.ts': 4816,
+  // +4 (#1046 F3b Inc-2d): the render() boundary — the chain hands the neutral
+  // RhiRenderPass and the internal native tile plumbing unwraps it ONCE. The
+  // seam retires with the VTR cluster's own #991 flip.
+  'map/src/render/vector-tile-renderer.ts': 4820,
   // 4232→4237 (#1000 heatmap relocate): the heatmap density-target OWNERSHIP
   // extracted to render/heatmap-targets.ts; map keeps only the irreducible
   // composition-root wiring — the `heatmapTargets` field + its import (mirrors
@@ -1007,7 +1010,10 @@ const CEILINGS: Record<string, number> = {
   // accum quad's quad_id) with its UNSIGNED_INT glType arm.
   // Merge union (#1060 <- main): stacked growth — measured 1000.
   // 1000→986 (#1046 F3b Inc-2c): heatmap forwarders retired — win banked.
-  'map/src/render/renderer.ts': 986,
+  // +12 (#1046 F3b Inc-2d): renderToPass/renderGraticuleOverlay narrowed to
+  // RhiRenderPass with a one-line native unwrap each (legacy plumbing), plus
+  // the drawOitCompose forwarder. Retires with the legacy-layer cluster.
+  'map/src/render/renderer.ts': 998,
   // Merge union (#1060 <- main): stacked growth — measured 1397.
   // 1397→1404 (#1196, merge union): destroy() stashes the pre-loss
   // WEBGL_lose_context handle on the canvas (stashGl2RestoreToken) —

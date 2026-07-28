@@ -108,20 +108,22 @@ const BASELINE: Record<string, number> = {
   'map/src/render-loop-helpers.ts': 1,
   'map/src/render-loop.ts': 3,
   'map/src/render/bind-group-registry.ts': 18,
-  'map/src/render/bucket-scheduler.ts': 5,
+  // #1046 F3b Inc-2d: ShowDrawFn + the chain's remaining pass-consuming
+  // signatures narrowed to RhiRenderPass — the backend-keyed re-wrap forks
+  // (the 34d4695 double-wrap class) and their unions died with it.
+  'map/src/render/bucket-scheduler.ts': 4,
   // #1046 F3b Inc-2c: the heatmap chain re-originated through the RHI drapers —
   // the native accum bridge, blur/compose pipelines + their factory/forwarder
   // layers and the native density-target pair all retired with it.
   'map/src/render/compose-pipelines.ts': 9,
   'map/src/render/compute-layer-handle.ts': 2,
   'map/src/render/compute-layer-registry.ts': 2,
-  // render()'s `pass: GPURenderPassEncoder` param + its `as` cast bridged via
-  // wrapWebGpuPass — the ONE raw-token pattern raster-renderer/line-renderer carry,
-  // gap-blocked until the #991 neutral pass retires the bridge. #1272.
-  'map/src/render/coverage-renderer.ts': 2,
   'map/src/render/feature-data-binder.ts': 21,
   'map/src/render/frame-context.ts': 3,
-  'map/src/render/frame-renderer.ts': 43,
+  // 43→46 (#1046 F3b Inc-2d): drawOitCompose RELOCATED here from oit-pass
+  // (the pipeline/layout owner; native until the OIT twin lands) — moved
+  // tokens plus the boundary unwrap cast, retiring with that twin.
+  'map/src/render/frame-renderer.ts': 46,
   'map/src/render/frame-uniform.ts': 5,
   // 7→5 (#1357): the pooled-buffer recycler moved to gpu-buffer-pool.ts, taking
   // its createBuffer + the raw `device` field with it.
@@ -141,7 +143,7 @@ const BASELINE: Record<string, number> = {
   // the eviction policy moved to raster-cache-budget.ts, shared with
   // raster-renderer. Disjoint removals over the common ancestor sum: 7−2−3.
   'map/src/render/hillshade-renderer.ts': 2,
-  'map/src/render/line-renderer.ts': 28,
+  'map/src/render/line-renderer.ts': 21,
   // #777 Phase II — HillshadeDraper mirrors RasterDraper (GPUTexture/RhiTexture
   // union in the tile + view-cache types, bridged via wrapWebGpuTextureView).
   'map/src/render/material/hillshade-material.ts': 5,
@@ -151,7 +153,6 @@ const BASELINE: Record<string, number> = {
   'map/src/render/material/polygon-fill-material.ts': 7,
   'map/src/render/material/raster-material.ts': 6,
   'map/src/render/material/text-material.ts': 1,
-  'map/src/render/passes/opaque-pass.ts': 1,
   // 82→85 (#1252): the variant data-driven extruded pipeline descriptors
   // (fillExtruded/fallback in both variant builders) name GPURenderPipeline{,Descriptor} —
   // the same raw-WebGPU surface the existing base extruded builders carry.
@@ -164,17 +165,15 @@ const BASELINE: Record<string, number> = {
   'map/src/render/raster-cache-budget.ts': 4,
   // 8→5 (#1352): the loaded-texture return type and the shared eviction moved to
   // raster-cache-budget.ts.
-  'map/src/render/raster-renderer.ts': 5,
+  'map/src/render/raster-renderer.ts': 3,
   // 20→24 (#1252): CachedPipeline gains 4 GPURenderPipeline fields for the
   // variant data-driven extruded pipelines (mirrors the existing fill/ground fields).
   'map/src/render/renderer-types.ts': 24,
-  'map/src/render/renderer.ts': 56,
+  // 56→58 (#1046 F3b Inc-2d): renderToPass/renderGraticuleOverlay narrowed
+  // to RhiRenderPass with one boundary unwrap cast each (legacy plumbing —
+  // retires with the legacy-layer cluster).
+  'map/src/render/renderer.ts': 58,
   'map/src/render/tile-compute-resources.ts': 7,
-  // INC-1 under-occluder sphere: a Material/executeItems draw in the opaque pass,
-  // which hands a NATIVE GPURenderPassEncoder — the param type is the ONE raw token,
-  // bridged via wrapWebGpuPass exactly like raster-renderer/vector-drape/line-renderer.
-  // Gap-blocked until #991 P6 makes the pass chain hand a neutral RhiRenderPass.
-  'map/src/render/under-occluder-renderer.ts': 1,
   'map/src/render/upload-coordinator.ts': 22,
   'map/src/render/vector-tile-renderer-types.ts': 5,
   'map/src/render/vector-tile-renderer.ts': 20,

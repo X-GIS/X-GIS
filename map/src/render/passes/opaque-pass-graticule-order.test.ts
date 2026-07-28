@@ -34,12 +34,15 @@ function harness(groupCount: number, opts: { coverage?: boolean } = {}) {
   const order: string[] = []
   const subPass = { end: () => undefined }
   const ctx = {
-    encoder: { beginRenderPass: () => subPass },
+    // Repointed to the RHI frame shell (Inc-2d) — same contract, moved seam:
+    // the pass originates on ctx.rhiEncoder with the bridge views.
+    rhiEncoder: { beginRenderPass: () => subPass },
+    rhiScreenView: {},
+    rhiColorView: {},
+    rhiStencilView: {},
     passScope: (_label: string, fn: () => void) => fn(),
-    colorView: {},
-    screenView: {},
     useResolve: false,
-    rt: { stencilView: {}, pickTexture: undefined, pickView: undefined },
+    rt: { pickTexture: undefined, pickViewRhi: undefined },
     projection: makeProjectionToken(0, 0, 0),
     // The opaque pass is a SCENE pass, so it reads `scene`; `screen` is present because a
     // FrameContext always carries both, and equal because INC-1 has not split them yet.

@@ -18,6 +18,8 @@
 
 import { OIT_ACCUM_FORMAT, OIT_REVEALAGE_FORMAT } from './gpu-shared'
 import type { GPUContext } from './gpu'
+import { wrapWebGpuTextureView } from './rhi-webgpu'
+import type { RhiTextureView } from '@xgis/rhi'
 
 /** Result of `RenderTargets.ensure` — the per-frame colour-attachment
  *  decision that depends on `sampleCount` / `debugOverdraw`. Identical to
@@ -78,6 +80,19 @@ export class RenderTargets {
     }
     return v
   }
+  // RHI twin of the cache above, for the F3b chain passes (#1046 Inc-2d):
+  // the SAME cached native view, wrapped ONCE per texture identity, so an
+  // RHI-originated pass descriptor targets these adapter-owned textures
+  // without a per-frame wrap and with no second cache to desync.
+  private readonly _rhiViewCache = new WeakMap<GPUTexture, RhiTextureView>()
+  private rhiViewOf(tex: GPUTexture): RhiTextureView {
+    let v = this._rhiViewCache.get(tex)
+    if (v === undefined) {
+      v = wrapWebGpuTextureView(this.viewOf(tex))
+      this._rhiViewCache.set(tex, v)
+    }
+    return v
+  }
   /** Cached default view of `stencilTexture` (null until `ensure`). */
   get stencilView(): GPUTextureView | null {
     return this.stencilTexture ? this.viewOf(this.stencilTexture) : null
@@ -101,6 +116,19 @@ export class RenderTargets {
   /** Cached default view of `oitRevealageTexture` (null until `ensureOit`). */
   get oitRevealageView(): GPUTextureView | null {
     return this.oitRevealageTexture ? this.viewOf(this.oitRevealageTexture) : null
+  }
+  /** RHI form of `pickView` for the F3b chain descriptors (same cached native
+   *  view underneath — identity-stable per texture). */
+  get pickViewRhi(): RhiTextureView | null {
+    return this.pickTexture ? this.rhiViewOf(this.pickTexture) : null
+  }
+  /** RHI form of `oitAccumView` (see pickViewRhi). */
+  get oitAccumViewRhi(): RhiTextureView | null {
+    return this.oitAccumTexture ? this.rhiViewOf(this.oitAccumTexture) : null
+  }
+  /** RHI form of `oitRevealageView` (see pickViewRhi). */
+  get oitRevealageViewRhi(): RhiTextureView | null {
+    return this.oitRevealageTexture ? this.rhiViewOf(this.oitRevealageTexture) : null
   }
   /** Size the textures were last allocated at (recreate gate). */
   msaaWidth = 0

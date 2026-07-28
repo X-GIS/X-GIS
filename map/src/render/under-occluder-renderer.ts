@@ -19,7 +19,7 @@
 // Mirrors RasterDraper's construction; the sphere VS/FS reuse the polygon eye-
 // horizon cull + rim + log-depth so the occluder z-registers with the vector fills.
 
-import type { RhiDevice, RhiBuffer, RhiBindGroup } from '@xgis/engine'
+import type { RhiDevice, RhiBuffer, RhiBindGroup, RhiRenderPass } from '@xgis/engine'
 import {
   Material,
   executeItems,
@@ -32,7 +32,6 @@ import {
 // raster-renderer / vector-drape-renderer / line-renderer carry until #991 P6 makes
 // the pass chain hand a neutral RhiRenderPass. The opaque chain is WebGPU-only today
 // (WebGL2 renders via render-loop.ts renderFrameViaRhi), so no backend branch is needed.
-import { wrapWebGpuPass } from '@xgis/rhi-webgpu'
 import { emitGlslModule } from '@xgis/shader-dsl'
 import { isGlobeProj } from '@xgis/geo'
 import { lonLatToECEF } from '@xgis/shared'
@@ -190,7 +189,7 @@ export class UnderOccluderRenderer {
   /** Draw the occluder sphere. Caller MUST gate to globe (projType 7) so flat /
    *  disc paths stay byte-identical. `w`/`h`/`dpr` size the camera frame. */
   render(
-    pass: GPURenderPassEncoder,
+    pass: RhiRenderPass,
     camera: Camera,
     projType: number,
     centerLon: number,
@@ -203,7 +202,7 @@ export class UnderOccluderRenderer {
     // accessor (#996), never a raw `projType === 7`. Disc {3,4,5} reproject from
     // degrees (flat_rel) and are not seated by an ECEF sphere — separate work.
     if (!isGlobeProj(projType)) return
-    const rhiPass = wrapWebGpuPass(pass)
+    const rhiPass = pass
     const frame = camera.getViewForProjection(projType, w, h, dpr)
     const anchor = rasterGlobeCamAnchor(centerLon, centerLat)
     const ge = globeEyeUniform(frame.eye)

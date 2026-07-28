@@ -244,6 +244,15 @@ export class GPUTimer {
     this.mark(unwrapWebGpuPass(pass) as GPURenderPassEncoder, label)
   }
 
+  /** Instance form of the module-level `beginTimedPass` seam, so a chain pass
+   *  consumes it off the timer the host already exposes
+   *  (`host.gpuTimer?.beginTimedPass(enc, desc) ?? enc.beginRenderPass(desc)`)
+   *  without the pass FILE importing this adapter module — keeping
+   *  backend-import-free pass files that way (#1046 F3b Inc-2d). */
+  beginTimedPass(enc: RhiCommandEncoder, desc: RhiRenderPassDesc): RhiRenderPass {
+    return beginTimedPass(this, enc, desc)
+  }
+
   /** Encode resolveQuerySet + copyBufferToBuffer into the frame's
    *  command encoder. MUST be called AFTER all sub-pass.end() calls
    *  and BEFORE encoder.finish(). Picks the next IDLE slot; skips

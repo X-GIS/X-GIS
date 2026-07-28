@@ -99,7 +99,7 @@ const BASELINE: Record<string, number> = {
   // Coverage colour-ramp draw mirrors raster-renderer EXACTLY (same 2): the
   // GPUContext ctor param (type) + wrapWebGpuPass for the WebGPU pass wrap in
   // render(), so the opaque pass file stays backend-adapter-free. #1272.
-  'map/src/render/coverage-renderer.ts': 2,
+  'map/src/render/coverage-renderer.ts': 1,
   'map/src/render/feature-data-binder.ts': 1,
   'map/src/render/frame-context.ts': 1,
   'map/src/render/frame-renderer.ts': 3,
@@ -129,14 +129,10 @@ const BASELINE: Record<string, number> = {
   'map/src/render/pipeline-factory.ts': 3,
   'map/src/render/point-renderer.ts': 3,
   'map/src/render/polygon-uniform-slots.ts': 1,
-  'map/src/render/raster-renderer.ts': 2,
+  'map/src/render/raster-renderer.ts': 1,
   'map/src/render/raster-uniform-slots.ts': 1,
   'map/src/render/renderer.ts': 1,
   'map/src/render/tile-compute-resources.ts': 1,
-  // INC-1 under-occluder sphere: wrapWebGpuPass bridges the opaque pass's native
-  // encoder to an RhiRenderPass for the Material/executeItems draw — the identical
-  // gap-blocked bridge raster-renderer (2) carries. Retires at #991 P6 (neutral pass).
-  'map/src/render/under-occluder-renderer.ts': 1,
   'map/src/render/upload-coordinator.ts': 2,
   'map/src/render/vector-tile-renderer.ts': 4,
   // Composition-root boot relocated out of map.ts (#1153 P1): buildSceneRenderers

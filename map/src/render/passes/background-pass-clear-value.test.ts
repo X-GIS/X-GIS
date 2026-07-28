@@ -90,7 +90,11 @@ describe('AC2c.3.6 — opaque-pass no longer owns the colour clear', () => {
   })
 
   it('opaque-pass still clears depth/stencil and the pick attachment on its first sub-pass', () => {
-    expect(OPAQUE_PASS_SRC).toContain("depthLoadOp: isFirst ? 'clear' : 'load'")
-    expect(OPAQUE_PASS_SRC).toContain('{ r: 0, g: 0, b: 0, a: 0 }') // pick clear on isFirst
+    // Inc-2d RHI spelling ('as const' literals, tuple clearValue) — same
+    // contract; the descriptor-level assert lives in opaque-pass-rhi-wiring.
+    expect(OPAQUE_PASS_SRC).toContain(
+      "depthLoadOp: isFirst ? ('clear' as const) : ('load' as const)",
+    )
+    expect(OPAQUE_PASS_SRC).toContain('clearValue: isFirst ? [0, 0, 0, 0] : undefined') // pick
   })
 })

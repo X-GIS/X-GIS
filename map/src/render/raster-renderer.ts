@@ -16,7 +16,6 @@ import {
   textureBytesOf,
   type LoadedTexture,
 } from './raster-cache-budget'
-import { wrapWebGpuPass } from '@xgis/rhi-webgpu'
 import { routeToSphereSelector, enumerateWorldCopies, isGlobeProj } from '@xgis/geo'
 import { isPickEnabled, getSampleCount } from '@xgis/engine'
 import { DEBUG_OVERDRAW } from '../debug-flags'
@@ -564,7 +563,7 @@ export class RasterRenderer {
   }
 
   render(
-    pass: GPURenderPassEncoder | RhiRenderPass,
+    pass: RhiRenderPass,
     camera: Camera,
     projType: number,
     projCenterLon: number,
@@ -940,17 +939,9 @@ export class RasterRenderer {
     // owns the per-tile pool + the global/texture/sampler bind group. pick = the opaque-pass MRT.
     // Always called (even with 0 visible tiles) so the global uniform is written every frame —
     // matching the legacy path (it wrote the global before the loop): 0 tiles → global write, no draws.
-    // A WebGl2Device frame hands in an RhiRenderPass already; the WebGPU frame
-    // still passes the raw encoder (wrapped here, flips with its cluster).
-    this.ensureRasterDraper().draw(
-      this.rhi.backend === 'webgl2'
-        ? (pass as RhiRenderPass)
-        : wrapWebGpuPass(pass as GPURenderPassEncoder),
-      B.buffer,
-      tilesArr,
-      this._nearest,
-      isPickEnabled(),
-    )
+    // Both frame shapes hand in an RhiRenderPass (Inc-2d) — the old
+    // backend-keyed re-wrap was the 34d4695 double-wrap class.
+    this.ensureRasterDraper().draw(pass, B.buffer, tilesArr, this._nearest, isPickEnabled())
 
     // Capture this frame's visible set; deferred eviction runs in the next
     // beginFrame(). Eviction used to run inline here, but destroying tile

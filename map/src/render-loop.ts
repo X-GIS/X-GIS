@@ -580,8 +580,6 @@ export class RenderLoop {
       //      now always runs when direct-layer points exist.
       const scene = buildSceneView(this.host, ctx)
 
-      if (scene.hasTranslucent) this.host.lineRenderer!.ensureOffscreen(ctx.scene.w, ctx.scene.h)
-
       // ── Render-pass chain ── (content-registered RenderNode[] — render/render-node.ts)
       // Iterate the frozen-order node list registered by content (map.ts →
       // render/passes/pass-chain.ts): background → opaque → oit → translucent →
@@ -1134,7 +1132,7 @@ export class RenderLoop {
         'max',
       )
       offPass.end()
-      this.host.lineRenderer.compositeRhi(pass, c.resolvedShow.opacity)
+      this.host.lineRenderer.composite(pass, c.resolvedShow.opacity)
     }
     // #777 Phase II — HILLSHADE on WebGL2. Ported to the twin so the shaded
     // relief renders under ?forcegl2=1 (the _hillshade-gl2-gate reads it back).

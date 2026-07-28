@@ -15,7 +15,7 @@ import type {
   RhiTextureView,
 } from '@xgis/engine'
 import type { GPUContext, WebGpuDevice } from '@xgis/rhi-webgpu'
-import { toVertexBufferLayout, wrapWebGpuPass, wrapWebGpuBindGroup } from '@xgis/rhi-webgpu'
+import { toVertexBufferLayout, unwrapWebGpuPass, wrapWebGpuBindGroup } from '@xgis/rhi-webgpu'
 import { POLYGON_FILL_FORMAT } from '@xgis/compiler'
 import { polygonUniformBytes } from './polygon-uniform-slots'
 import { DEBUG_OVERDRAW } from '../debug-flags'
@@ -2292,7 +2292,7 @@ export class VectorTileRenderer {
 
   /** Render visible tiles into a render pass */
   render(
-    pass: GPURenderPassEncoder,
+    rhiPass: RhiRenderPass,
     camera: Camera,
     projType: number,
     projCenterLon: number,
@@ -2357,6 +2357,10 @@ export class VectorTileRenderer {
     fillPipelineExtrudedOverride?: RhiPipelineHandle,
     fillPipelineExtrudedFallbackOverride?: RhiPipelineHandle,
   ): void {
+    // Inc-2d boundary: unwrap the chain's neutral handle ONCE — the internal
+    // tile plumbing is still gap-blocked native debt; drape + tile-points
+    // take the RHI handle directly.
+    const pass = unwrapWebGpuPass(rhiPass) as GPURenderPassEncoder
     if (!this.source?.hasData()) return
     const index = this.source.getIndex()
     if (!index) return
@@ -3394,7 +3398,7 @@ export class VectorTileRenderer {
       // ECEF-chord stroke draw for this show (see `drawStrokes` in renderTileKeys).
       this._drapeStrokes = this._bakeStrokeActive
       this._drape.renderGlobeFills(
-        wrapWebGpuPass(pass),
+        rhiPass,
         frame,
         projType,
         projCenterLon,
@@ -3982,7 +3986,7 @@ export class VectorTileRenderer {
     // frame wraps its native encoder; the single-authority body lives in
     // emitTilePointsRhi (#1057), shared with the forced-WebGL2 twin.
     this.emitTilePointsRhi(
-      wrapWebGpuPass(pass),
+      rhiPass,
       camera,
       projType,
       projCenterLon,
