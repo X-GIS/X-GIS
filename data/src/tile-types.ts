@@ -8,7 +8,7 @@
 // behaviour change.
 
 import type { CompiledTile, RingPolygon } from '@xgis/compiler'
-import { isMobileClassViewport } from '@xgis/shared'
+import { isMobileClassViewport, linkBudgetClass, linkScaledConcurrency } from '@xgis/shared'
 import type { TileSource } from './tile-source'
 
 // ═══ Tile lifecycle state ═══
@@ -256,7 +256,10 @@ function readInnerWidthMemoised(): number {
 
 export function maxConcurrentLoads(): number {
   const w = readInnerWidthMemoised()
-  return isMobileClassViewport(w) ? 8 : 32
+  // Device class sets how much parallelism the hardware can drain; link class
+  // then scales it by what a byte costs on this connection (#1356). A metered
+  // desktop used to get the full 32.
+  return linkScaledConcurrency(isMobileClassViewport(w) ? 8 : 32)
 }
 
 /** Viewport-aware default skeleton depth for `TileCatalog.prewarmSkeleton`.
@@ -282,7 +285,12 @@ export function defaultSkeletonDepth(): number {
  *  `isMobileClassViewport` gate as the sibling caps. */
 export function defaultSkeletonByteBudget(): number {
   const w = readInnerWidthMemoised()
-  return isMobileClassViewport(w) ? 1.5 * 1024 * 1024 : 4 * 1024 * 1024
+  const base = isMobileClassViewport(w) ? 1.5 * 1024 * 1024 : 4 * 1024 * 1024
+  // Under Save-Data the prewarm is cut to the floor levels (#1356). The budget
+  // buys pan-ahead smoothness with tiles the camera may never reach, which is
+  // precisely the trade a data-saving user has declined; z0+z1 complete
+  // regardless of this number, so navigation still works, just less eagerly.
+  return linkBudgetClass() === 'saver' ? 0 : base
 }
 
 // ═══ VirtualCatalog (legacy hook — to be replaced by TileSource in Step 3) ═══
