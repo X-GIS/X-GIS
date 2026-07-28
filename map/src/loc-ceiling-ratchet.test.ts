@@ -469,11 +469,14 @@ const CEILINGS: Record<string, number> = {
   // velocity textures and the portrayal rendered NOTHING (found by the render gate, not by any
   // unit test). +9 is the `needsResidency` fork, the `hidden` argument, and the four lines
   // saying why, which are the part a future reader needs most.
-  // 5447→5414 (#1437): the coverage drape ARM moved out to coverage-drape-arm.ts, next to the
-  // decision that was already there. It was the only coverage-arming code in this file, and
-  // `filter:` needed one more line in it — extract rather than raise, which is what left room
-  // to spare. Measured post-hook.
-  'map/src/map.ts': 5414,
+  // 5447→5387 (#1426): the deferred coverage attach needed a THIRD arm site, so the
+  // arm itself came OUT — armCoverageDrape/armCoverageShow/armAdvectedArrows/armLandedCoverage
+  // now live in coverage-arm.ts, taking the map structurally. #1419's residency/`hidden` fork
+  // and its advected-arrow fork moved WITH it, unchanged. LOWERED per the shrink-only rule.
+  // #1437 landed on top of that extraction rather than beside it: its own drape-arm extraction
+  // was dropped on the merge and the `filter:` argument went into coverage-arm.ts, so map.ts is
+  // untouched by it and this number is #1426's, re-measured on the merged file.
+  'map/src/map.ts': 5387,
   // Baselined at #1255 (measured 830): the DOM-inspired layer API crossed
   // NEW_FILE_CAP with the paint-transition style-setter integration — the
   // StyleHost.transitions context, the shared applyNumber/applyColor
@@ -523,6 +526,9 @@ const CEILINGS: Record<string, number> = {
   // decision. Ceiling below is the MERGED file's actual wc -l, measured after prettier.
   // MERGE UNION: both sides' deltas are non-overlapping, so the value is the MEASURED count.
   // MERGE UNION: non-overlapping deltas; the value is the MEASURED post-hook count.
+  // #1426 left this file at its ceiling exactly: the `type: coverage` branch stopped awaiting
+  // its multi-MB read (retiring the fetch/read imports) and spent the saved lines on the
+  // host-fed `url`-less guard + its reason. Net 0 — nothing to lower.
   'map/src/source-manager.ts': 903,
   // 1920→1930 (#1042 R3): the globe limb cull for MULTI-LINE labels must land in
   // the collision phase — the ONLY site holding the label's quad half-height (the
@@ -1124,7 +1130,10 @@ const CEILINGS: Record<string, number> = {
   //  lower-label 1145→1187: labelIconTextFit/labelIconTextFitPadding knob decls +
   //    the padding-prefix + enum parse arms + knob return + types + LabelDef spread.
   //  render-node 928→943: LabelDef.iconTextFit / iconTextFitPadding fields + docs.
-  'compiler/src/convert/layers-symbol.ts': 1363,
+  // 1363→1357: the text-pitch-alignment gap report (authored "map" AND the
+  // spec default chain that resolves to it) moved out to
+  // layers-helpers.pitchAlignmentGapWarning, net-shrinking the caller.
+  'compiler/src/convert/layers-symbol.ts': 1357,
   'compiler/src/ir/lower-label.ts': 1187,
   'compiler/src/tokens/colors.ts': 937,
   // 943→956 (#1302): RenderNodeArrowPaint sub-bundle (isArrow + arrowBearing).
