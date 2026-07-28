@@ -216,3 +216,80 @@ describe('#1419 advected-arrow shader — DSL emission', () => {
     expect(gfs).toContain('discard;')
   })
 })
+
+// #1419 — THE HALF THAT STILL LOOKS RIGHT WHEN IT IS WRONG.
+//
+// "The arrows move" is easy to see and easy to get right. The failure that survives a look is an
+// arrow that MOVES while keeping the colour and size it launched with: a smooth animation
+// reporting a current that is not under it. The catalogue binds symbol, colour, rotation and
+// scale to (speed, direction) AT THE POSITION — so what has to be pinned is that every one of
+// those comes from the field where the arrow IS, not where it started.
+//
+// Traced through the emitted WGSL rather than asserted as a substring, because the compiler
+// names its own temporaries: resolve the binding that holds the decoded STATE position, then
+// require the velocity fetches to use it. A regression that samples `origin_tex` instead would
+// keep every arrow's launch colour — and would still animate perfectly.
+describe('#1419 advected arrow — re-symbolized from the field UNDER it', () => {
+  const w = emitArrowRetainedAdvectedWgsl()
+  /** `let X = <expr>;` → the expression, for the emitter's generated temporaries. */
+  const letOf = (name: string): string => {
+    const m = new RegExp(`let ${name} = ([^;]+);`).exec(w)
+    expect(m, `${name} must be bound in the emitted VS`).not.toBeNull()
+    return m![1]!
+  }
+  /** Resolve a chain of single-alias `let`s (`let a = b.x;`) down to its root binding. */
+  const rootOf = (name: string): string => {
+    let cur = name
+    for (let i = 0; i < 8; i++) {
+      const e = letOf(cur)
+      const alias = /^(_cse\d+|_v\d+|_lc\d+)(\.[xyzw])?$/.exec(e)
+      if (!alias) return e
+      cur = alias[1]!
+    }
+    return letOf(cur)
+  }
+
+  it('samples the velocity pair at the STATE position — never at the origin', () => {
+    for (const tex of ['flow_u_tex', 'flow_v_tex']) {
+      const load = new RegExp(`textureLoad\\(${tex}, vec2<i32>\\(i32\\(\\((\\w+) \\*`).exec(w)
+      expect(load, `${tex} must be read with textureLoad`).not.toBeNull()
+      const root = rootOf(load![1]!)
+      expect(root, `${tex} is sampled where the arrow IS`).toContain('textureLoad(state_tex')
+      expect(root).toContain('decode_arrow_pos')
+      expect(root, `${tex} must NOT be sampled at the launch cell`).not.toContain('origin_tex')
+    }
+  })
+
+  it('the band index, the SCALE and the TINT all derive from that sampled speed', () => {
+    // One expression feeds all three, so an arrow cannot change colour without changing size,
+    // and cannot change either without having moved into different water.
+    const cmp = /_v\d+ = select\(1u, _v\d+, \((\w+) < band_data\[0u\]\)\)/.exec(w)
+    expect(cmp, 'band 1 is decided by comparing a speed against band_data[0]').not.toBeNull()
+    const speed = letOf(cmp![1]!)
+    expect(speed, 'the speed is the magnitude of the two sampled components').toMatch(
+      /^length\(vec2<f32>\(_cse\d+, _cse\d+\)\)$/,
+    )
+    const [uSample, vSample] = /length\(vec2<f32>\((\w+), (\w+)\)\)/.exec(speed)!.slice(1)
+    expect(letOf(uSample!)).toContain('textureLoad(flow_u_tex')
+    expect(letOf(vSample!)).toContain('textureLoad(flow_v_tex')
+    // …and the colour is a band ROW, not anything carried per instance.
+    expect(w).toMatch(
+      /\.tint = vec4<f32>\(band_data\[\(\w+ \+ 4u\)\], band_data\[\(\w+ \+ 5u\)\], band_data\[\(\w+ \+ 6u\)\], band_data\[\(\w+ \+ 7u\)\]\)/,
+    )
+  })
+
+  it('the origin is used ONLY to measure how far the arrow has drifted', () => {
+    // Its one legitimate consumer is the displacement. If it also reached the field sample or
+    // the band lookup, the arrow would report its launch cell forever.
+    const originLet = /let (\w+) = decode_arrow_pos\(textureLoad\(origin_tex/.exec(w)
+    expect(originLet).not.toBeNull()
+    const name = originLet![1]!
+    const uses = [...w.matchAll(new RegExp(`\\b${name}\\b`, 'g'))]
+    expect(uses.length, 'bound once, then read for x and y').toBeLessThanOrEqual(3)
+    for (const line of w.split('\n')) {
+      if (!line.includes(name) || line.includes('= decode_arrow_pos')) continue
+      expect(line, 'the origin never reaches a field sample').not.toContain('flow_')
+      expect(line, 'the origin never reaches the catalogue table').not.toContain('band_data')
+    }
+  })
+})
