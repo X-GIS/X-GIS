@@ -34,6 +34,10 @@ function makeRenderer(budgetBytes?: number) {
     writeTexture: () => {},
     writeBuffer: () => {},
     destroyTexture: (t: MockTex) => void destroyed.push(t),
+    // #1366 INC-3 — a region also owns its drape-mesh node buffer, which releaseRegion /
+    // dispose now free. Without this the mock throws where the renderer frees, so a leak
+    // gate would fail for a reason that has nothing to do with leaks.
+    destroyBuffer: () => {},
     destroySampler: () => {},
   }
   const r = new CoverageRenderer(

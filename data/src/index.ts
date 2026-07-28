@@ -79,6 +79,14 @@ export * from './coverage/format'
 // Forecast-hour vector-field blending (speed/direction component interpolation) — a second
 // coverageFromGrids consumer, not a wire format; #1333.
 export * from './coverage/interpolate-vector'
+// Drape-mesh node positions in lon/lat (#1366 INC-3) — lets the renderer place a grid
+// through its OWN CRS instead of assuming the footprint is a lon/lat rectangle. proj4
+// stays on this side of the boundary; @xgis/map consumes lon/lat only.
+export * from './coverage/mesh-nodes'
+// lon/lat ↔ the grid's own CRS units (#1366): `valueAtLonLat` is the CRS-aware value
+// readout. Separate from format.ts on purpose — CoverageHandle is proj4-free so a bundle
+// that merely draws a coverage does not pull the projection library in.
+export * from './coverage/crs'
 
 // S-100 (HDF5) reader (ADR-0010) — the zero-dep HDF5 subset reader + the S-100
 // semantic layer (product-agnostic: S-102 bathymetry, S-104 water level, S-111
@@ -103,7 +111,14 @@ export type {
   ChunkRegion,
 } from './hdf5/index'
 export { readS102Coverage } from './hdf5/s102'
-export type { S100Coverage, CoverageBand, CoverageTime, Product } from './hdf5/s102'
+export type {
+  S100Coverage,
+  CoverageBand,
+  CoverageTime,
+  CoverageWindow,
+  Bbox,
+  Product,
+} from './hdf5/s102'
 // The runtime read-in-place path the `coverage` source consumes (replaces the
 // retired `decodeCoverage(.xgcov)`): HDF5 bytes → CoverageHandle, no wire format.
 export { readCoverageFromHdf5, readCoverageFromHdf5Url } from './hdf5/coverage'

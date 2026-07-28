@@ -24,13 +24,17 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 // `tilingPool.*` reads (import * as tilingPool from '@xgis/data') pick up the stubs
 // at call time — load-order-independent.
 import * as xgisData from '@xgis/data'
+import * as vtrModule from './render/vector-tile-renderer'
 import { SourceManager } from './source-manager'
+import { TileCatalog, TILE_LAYOUT_VERSION } from '@xgis/data'
 import type { GeoJSONFeatureCollection } from '@xgis/data'
+import type { ShowSourceMaps } from './show-source-maps'
 
 const dropSource = vi.fn()
 let mintCount = 0
 
 function makeManager() {
+  const registered = new Map<string, TileCatalog>()
   const rawDatasets = new Map<string, GeoJSONFeatureCollection>()
   const teardownSource = vi.fn()
   const rebuildLayers = vi.fn()
@@ -40,7 +44,9 @@ function makeManager() {
 
   const mgr = new SourceManager({
     rawDatasets,
-    registerVtSource: () => {},
+    registerVtSource: (key, source) => {
+      registered.set(key, source)
+    },
     sourceCRS: new Map(), // no declared CRS ⇒ reproject is a no-op
     geojsonCapPoles: new Map(),
     heatmapPointData: new Map(),
@@ -63,7 +69,7 @@ function makeManager() {
     getVtSource: () => null,
     deleteFeatureIndex,
   })
-  return { mgr, rawDatasets, teardownSource, rebuildLayers, order }
+  return { mgr, rawDatasets, teardownSource, rebuildLayers, order, registered }
 }
 
 const FC: GeoJSONFeatureCollection = {
@@ -124,5 +130,110 @@ describe('SourceManager.setSourceData — drops the old tiling index (BUG 7)', (
     const idA = dropSource.mock.calls[0][0]
     const idB = dropSource.mock.calls[1][0]
     expect(idA).not.toBe(idB)
+  })
+})
+
+// ── #1353: the SPA-churn half of BUG 7 ────────────────────────────────────
+// setSourceData was the only path that ever freed a tiling-worker index; a map
+// that was simply destroyed pinned every index it ever built for the lifetime
+// of the page (the worker is a process-global singleton, so nothing collects
+// them). XGISMap.teardownSource — reached by BOTH destroy() and
+// _teardownForReinit — calls `catalog.destroy()` on every registered vt source,
+// so the eviction hangs off the catalog's lifetime.
+//
+// The attach builds a VectorTileRenderer (needs a GPU device) and a real
+// VirtualPMTilesBackend (spawns the tiling Worker); neither exists in the node
+// test env, so both are replaced with inert stubs on the shared namespaces —
+// same technique and rationale as source-manager-bounds-fit-gate.test.ts. The
+// TileCatalog stays REAL: its destroy() is the production hook under test.
+class StubVectorTileRenderer {
+  setBindGroupLayout(): void {}
+  setPaletteResources(): void {}
+  setSpriteAtlasView(): void {}
+  setExtrudedPipelines(): void {}
+  setGroundPipelines(): void {}
+  setPatternPipelines(): void {}
+  setPatternExtrudedPipelines(): void {}
+  setOITPipeline(): void {}
+  setLineRenderer(): void {}
+  setSource(): void {}
+}
+class StubVirtualPMTilesBackend {
+  meta = {
+    bounds: [-180, -85, 180, 85] as [number, number, number, number],
+    minZoom: 0,
+    maxZoom: 14,
+    scheme: 'web-mercator-xyz' as const,
+    layoutVersion: TILE_LAYOUT_VERSION,
+  }
+  has(): boolean {
+    return false
+  }
+  attach(): void {}
+  loadTile(): void {}
+  detach(): void {}
+}
+
+/** No per-source layer filter / extrude / stroke overrides — the attach reads
+ *  these maps but a single-point FC needs none. */
+function emptyMaps(): ShowSourceMaps {
+  return {
+    usedSourceLayers: new Map(),
+    extrudeExprsBySource: new Map(),
+    extrudeBaseExprsBySource: new Map(),
+    showSlicesBySource: new Map(),
+    strokeWidthExprsBySource: new Map(),
+    strokeColorExprsBySource: new Map(),
+  } as unknown as ShowSourceMaps
+}
+
+describe('SourceManager teardown — drops the tiling index with its catalog (#1353)', () => {
+  beforeEach(() => {
+    vi.spyOn(vtrModule, 'VectorTileRenderer').mockImplementation(
+      (() => new StubVectorTileRenderer()) as never,
+    )
+    vi.spyOn(xgisData, 'VirtualPMTilesBackend').mockImplementation(
+      (() => new StubVirtualPMTilesBackend()) as never,
+    )
+  })
+
+  it('URL-GeoJSON attach: catalog.destroy() posts dropSource for this map + source', async () => {
+    const { mgr, registered } = makeManager()
+
+    await mgr._attachGeoJSONViaVirtualPMTiles('geojson', FC, emptyMaps(), { fit: false })
+    const catalog = registered.get('geojson')
+    expect(catalog).toBeDefined()
+    // Attaching must not evict the index it just built.
+    expect(dropSource).not.toHaveBeenCalled()
+
+    // Exactly what XGISMap.teardownSource does for each vtSources entry.
+    catalog!.destroy()
+
+    expect(dropSource).toHaveBeenCalledTimes(1)
+    expect(dropSource.mock.calls[0]).toEqual(['gjt-test-1', 'geojson'])
+  })
+
+  it('inline-GeoJSON attach registers the same eviction on the caller-owned catalog', () => {
+    const { mgr } = makeManager()
+    // The inline path is handed a catalog XGISMap already built.
+    const catalog = new TileCatalog()
+
+    mgr._attachInlineGeoJSONViaVirtualPMTiles('geojson__1', FC, emptyMaps(), catalog)
+    expect(dropSource).not.toHaveBeenCalled()
+
+    catalog.destroy()
+
+    expect(dropSource).toHaveBeenCalledTimes(1)
+    expect(dropSource.mock.calls[0]).toEqual(['gjt-test-1', 'geojson__1'])
+  })
+
+  it('a second destroy() does not re-post the eviction', async () => {
+    const { mgr, registered } = makeManager()
+    await mgr._attachGeoJSONViaVirtualPMTiles('geojson', FC, emptyMaps(), { fit: false })
+
+    registered.get('geojson')!.destroy()
+    registered.get('geojson')!.destroy()
+
+    expect(dropSource).toHaveBeenCalledTimes(1)
   })
 })

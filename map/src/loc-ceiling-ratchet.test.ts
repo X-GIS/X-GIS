@@ -138,7 +138,15 @@ const CEILINGS: Record<string, number> = {
   // uploaded) + `applyReplacedTiles` (swap a replaced tile's GPU buffers in beginFrame, drop it
   // when the replacement is empty). Both need the store + upload coordinator + source together,
   // which only this class holds; extracting them would export three internals to buy back 51.
-  'map/src/render/vector-tile-renderer.ts': 4791,
+  // merge union — 4740→4761 (#1397): the viewport-anchored extrusion light gains its bearing
+  // rotation in the per-tile light_dir_ecef packing. The two edits are disjoint, so the
+  // ceilings SUM rather than max: 4740 + 51 + 21 = 4812.
+  // merge union — 4791→4797 (#1402): `applyReplacedTiles` now asks for a REPLACING upload and
+  // re-arms the key when the swap did not land, so an upload that bails cannot strand the tile
+  // after the replaced-set was drained. +6, all inside the existing method. Disjoint from #1397
+  // as well, so the three sum: 4740 + 51 + 21 + 6 = 4818 = the merged file's line count.
+  // Shrink-only from here.
+  'map/src/render/vector-tile-renderer.ts': 4818,
   // 4232→4237 (#1000 heatmap relocate): the heatmap density-target OWNERSHIP
   // extracted to render/heatmap-targets.ts; map keeps only the irreducible
   // composition-root wiring — the `heatmapTargets` field + its import (mirrors
@@ -403,10 +411,41 @@ const CEILINGS: Record<string, number> = {
   // different methods, so the merged file measures their SUM — not max() of the two ceilings.
   // Same accounting the render-loop.ts entry below already records for the #1272 merge.
   //
+  // +91 (#1158 S-102 live refresh): the three public refresh methods (`refreshCoverage` —
+  // probe, decide, epoch-guarded re-read, re-arm; the `autoRefreshCoverage` /
+  // `stopAutoRefreshCoverage` pair) + the scheduler field + its destroy() stop. The POLICY
+  // (validator comparison, the decision table, the poll loop's lifecycle) lives in
+  // coverage-refresh.ts and is unit-tested there; map.ts keeps only the `this`-coupled
+  // wiring, mirroring the coverage-time.ts precedent. Partly paid for by extracting
+  // `_rearmCoverage` — the post-swap re-arm block setCoverageData and setCoverageTime each
+  // carried a copy of, now one authority the three swap paths share. Post-hook.
+  //
+  // MERGE UNION #2 (#1158 <- main @ 4accf02): main's #1367 freeze fix and this branch's
+  // `_rearmCoverage` extraction landed on the SAME block — the fix replaced
+  // `rebuildLayers()` with `_armCoverageFields()` inside the block the extraction moved. The
+  // resolution keeps BOTH: the extracted single authority now carries the coverage-arm-only
+  // re-arm, so neither the freeze fix nor the de-duplication was dropped. Lower as #991
+  // decomposes map.ts.
+  //
+  // +1 (#1371): the `getVtSource` SourceManager dep, so a host data push swaps a source's
+  // backend on the LIVE catalog instead of tearing the pair down. One line, same union
+  // accounting as above — non-overlapping with the three bundles.
+  //
+  // MERGE UNION #3 (#1366 <- main @ 023a9b7): main's #1333 follow-up extracted the drape-arm
+  // decision into `coverageDrapeArm` and retired `| particles` for `| flow`, so this branch's
+  // own `coverageDrawsFill` predicate was DELETED rather than merged — the label case moved
+  // into main's extraction, which is the single authority for it. That is a NET SHRINK on top
+  // of the sum, which is why the measured number is below 5452 + 1.
+  // re-arm, so neither the freeze fix nor the de-duplication was dropped. Measured 5452 =
+  // 5330 + 31 (main) + 91 (branch). Lower as #991 decomposes map.ts.
   // +1 (#1371): the `getVtSource` SourceManager dep, so a host data push swaps a source's
   // backend on the LIVE catalog instead of tearing the pair down. One line, same union
   // accounting as above — non-overlapping with the three bundles, so the merged file is 5362.
-  'map/src/map.ts': 5362,
+  // MERGE UNION #3 (#1158 <- main @ 904a528): both sides' deltas are non-overlapping edits
+  // to different methods, so the merged file measures their SUM. Value below is the MEASURED
+  // post-hook line count, not an arithmetic guess.
+  // MERGE UNION: non-overlapping deltas; the value is the MEASURED post-hook count.
+  'map/src/map.ts': 5409,
   // Baselined at #1255 (measured 830): the DOM-inspired layer API crossed
   // NEW_FILE_CAP with the paint-transition style-setter integration — the
   // StyleHost.transitions context, the shared applyNumber/applyColor
@@ -426,12 +465,37 @@ const CEILINGS: Record<string, number> = {
   // existing 846 measurement — no growth.)
   // 846→849 (#1272): thread the coverage source's ramp/range display options
   // onto the `_coverage` marker so rebuild arms the CoverageRenderer with them.
+  // 849→841 (#1158 S-102 live refresh): the coverage attach's range-then-whole-file
+  // ladder moved to `coverage-fetch.ts` so `Map.refreshCoverage` reads through the same
+  // authority. Ceiling LOWERED to lock the extraction in, per this gate's own rule.
   // 849→925 (#1371 atomic re-seed): `_reseedInPlace` — the data-swap sibling of the attach.
   // It repeats that method's bookkeeping (reproject → seeded FC → polar caps → heatmap points)
   // against the SAME catalog, then swaps the backend. Sharing the body with the attach would
   // mean parameterising camera-fit, pipeline setup and registration away — more coupling than
   // the 76 lines cost.
-  'map/src/source-manager.ts': 925,
+  // MERGE UNION: a −8 extraction and a +76 addition to different methods, so the merged file
+  // measures 849 − 8 + 76. The extraction stays locked in — the union is the sum of the two
+  // deltas, never max() of the two ceilings.
+  // measures 849 − 8 + 76. The extraction stays locked in — the union is the SUM of the two
+  // deltas, never max() of the two ceilings.
+  // 925→926 (#1272 E-④ multi-region): ONE line — the `DEFAULT_REGION` import. A coverage
+  // source now holds a keyed Map of regions, so the declared single cell must name the key it
+  // lands on. There is nothing to extract: the ingest branch itself did not grow, and the same
+  // change moved 100+ lines of region/time-axis logic OUT of map.ts into coverage-source.ts
+  // (map/src/map.ts came DOWN 5362→5339 in the same commit).
+  // MERGE UNION (#1158 <- #1272 E-④): a −8 extraction (the coverage attach's fetch ladder moved
+  // to coverage-fetch.ts, shared with refreshCoverage) and main's +77 are edits to different
+  // methods, so the merged file measures their SUM. The extraction stays locked in.
+  // MERGE UNION (#1353 × #1371/#1272): both sides edited this file over the same 849 base and
+  // the edits do not overlap, so they SUM — never take one side, never max() the two ceilings.
+  // #1353's teardown fix added `_dropTilingIndexWithCatalog` + its two attach call sites (+22)
+  // and paid for it by EXTRACTING setSourceData's input contract (Feature/bare-Geometry lift,
+  // features-array guard, ingest-budget guard) to source-data-normalize.ts (−36 net) — that
+  // block never touched `this`, and setSourceData is now just the re-seed-vs-raw-write
+  // decision. Ceiling below is the MERGED file's actual wc -l, measured after prettier.
+  // MERGE UNION: both sides' deltas are non-overlapping, so the value is the MEASURED count.
+  // MERGE UNION: non-overlapping deltas; the value is the MEASURED post-hook count.
+  'map/src/source-manager.ts': 903,
   // 1920→1930 (#1042 R3): the globe limb cull for MULTI-LINE labels must land in
   // the collision phase — the ONLY site holding the label's quad half-height (the
   // collision box IS the height authority; the label-pass dispatch site has only
@@ -563,7 +627,14 @@ const CEILINGS: Record<string, number> = {
   // dropped instead of rendering glued half-off-screen, on BOTH the tile and inline
   // paths. The predicate + cull-aware walk live in place-labels-along-line.ts
   // (unit-proved); only wiring grew here. +32, post-hook.
-  'map/src/render/passes/label-pass.ts': 2130,
+  // 2130→2150 (#1366 INC-5 sounding labels): a THIRD dispatch arm — an S-100 gridded
+  // coverage. It matched neither existing path (a grid has no `features` and no vtSources
+  // entry), so `| label-[…]` on a coverage layer compiled and drew nothing. The selection
+  // walk AND the emit loop were both extracted (coverage-sounding-anchors.ts,
+  // dispatch-coverage-soundings.ts, both unit-proved); what remains here is the branch
+  // itself + the per-frame closures the pass owns and cannot hand off (the camera
+  // unprojector, the viewport, applyFeatureExprs, projectLonLatCopies, addLabel). +20.
+  'map/src/render/passes/label-pass.ts': 2150,
   // #1081 — per-anchor perspective distance attenuation (MapLibre parity). New
   // baseline: the wCenter + perspScale scratch-out-value lives INLINE in the two
   // existing projector closures (it rides the cw already computed per anchor —
@@ -617,14 +688,32 @@ const CEILINGS: Record<string, number> = {
   // fs_fill_extrude composer placeholder, and default/variantExtrudeReturnStmts
   // (fragment re-lighting of the feat_data colour). The shading math is a
   // faithful replay of the VS lighting; not extract-worthy (§2).
-  'map/src/shaders/dsl/polygon.ts': 1448,
+  // 1448 → 1476 (#1397): the extruded VS gained two vertex attributes
+  // (wall_base, local_merc), the flat-arm plane-z gained its base term +
+  // Mercator vertical scale, and the wall vertical gradient gained the
+  // MapLibre `+ base` term. Shrink-only from here. (#1343 retired the runtime/
+  // second authority, so this file is now the only one to update.)
+  'map/src/shaders/dsl/polygon.ts': 1476,
   // 1290→1314 (#1155 F3): cold-start burst tick budget — the `_coldStartBurst`
   // field + `_BURST_TICK_BUDGET` + `setColdStartBurst` + the burst-selected
   // budget in resetCompileBudget's backend tick loop.
   // 1314→1360 (#1371 atomic re-seed): `refreshTiles` (re-request a CACHED key, the one thing
   // `requestTiles` refuses) + `consumeReplacedKeys` + the two key sets they own. Cache identity
   // and the request path both live here, so the pair cannot move out.
-  'data/src/tile-catalog.ts': 1360,
+  // 1360→1402 (#1402 re-seed completeness): the refresh QUEUE the #1371 pair was missing —
+  // `_refreshQueue` + `drainRefreshQueue` + the queue-first, de-duped key walk in requestTiles
+  // + `markReplaced`. `requestTiles` breaks at the concurrency cap, so a one-shot refresh
+  // re-tiled only the tiles that happened to fit and the rest kept the previous backend's data
+  // forever. The queue has to live beside the cap it works around and beside the cache identity
+  // it arms (`_pendingRefresh`), so it cannot move out.
+  // MERGE UNION (#1353 × #1371 × #1402): non-overlapping edits over a common base, so they SUM
+  // — never take one side, never max() the ceilings. #1353's teardown fix added the
+  // `_onDestroy` list + `onDestroy` + the destroy() drain (+15) and paid for it by EXTRACTING
+  // the quantized-ECEF quad construction out of createFullCoverTileData to
+  // tile-full-cover-quad.ts (−47 incl. three now-orphaned ecef-packing imports) — pure geometry,
+  // no `this`, and the layout with the #449 bug history is now directly assertable. Ceiling
+  // below is the MERGED file's actual wc -l, measured after prettier.
+  'data/src/tile-catalog.ts': 1370,
   // 1173→1180 (#1046 F1): thread the required `rhi: RhiDevice` onto the FrameContext at
   // both build sites — the main-chain init literal and the twin label stage — so a seam
   // can reach `ctx.rhi.caps.*` (doc §3-F1). +7 = two assignments + their rationale comments;
@@ -823,7 +912,16 @@ const CEILINGS: Record<string, number> = {
   // costs exactly two lines here — the import and the `onTruncated` argument; the
   // warn POLICY was extracted to render/selection-truncation.ts rather than added
   // to this file. Single ratchet for this path since runtime/ dissolved.
-  'map/src/render/tile-selection-cache.ts': 987,
+  // 987→997 (#1393): the adaptive quality ladder's far-field notch reaches the selector
+  // from here — the import plus the `farTargetBoost` argument on BOTH selection calls
+  // (the drawing one and the readiness gate, which must agree or the zoom advance stalls
+  // waiting for tiles a coarser selection never asks for). The POLICY stays in engine's
+  // adaptive-quality.ts and the mechanism in data's tiles-sse.ts; this file only carries
+  // the wire, which is exactly where the composition root belongs. The notch also joins
+  // `FrameTileCache` + its validity check: a STATIC camera never bumps `frameId`, so
+  // without that the memo would keep serving the pre-degrade selection for exactly as
+  // long as the user held still — measured, 0.6% instead of 26%.
+  'map/src/render/tile-selection-cache.ts': 1011,
   // 870→876 (#1083): +6 for the tile-rect NE-corner Mercator calc threaded
   // into generateWallMeshExtrudedECEF so it drops clip-synthetic seam walls.
   // 876→889: visible-first cap-deferral — `_distSq` field + `resetFrameCap`
@@ -875,7 +973,10 @@ const CEILINGS: Record<string, number> = {
   // 906→910 (#1155 F3 adjudication): the burst 8/4 pair now comes from the
   // shared `burstUploadBudget` authority (import + call + note) so the enqueue
   // cap and uploadBudgetFor's maxJobs can't drift out of lockstep.
-  'map/src/render/upload-coordinator.ts': 910,
+  // 910→921 (#1402): the `replace` opt-out of `_dispatch`'s "already uploaded" short-circuit,
+  // threaded through `uploadSync`. +11 is the two signatures, the amended guard, and the note
+  // recording WHY the guard was a silent no-op for the one caller that meant to overwrite.
+  'map/src/render/upload-coordinator.ts': 921,
   // 811→826 (#1152 INC-3): proj_globe gains the ellipsoid N term (sqrt +
   // (1−E2) z-compression), globe_eye_horizon_cos rescales its surface point into
   // the (a,b) sphere frame, and PROJECTION_CONSTS gains the EARTH_E2 decl (prettier

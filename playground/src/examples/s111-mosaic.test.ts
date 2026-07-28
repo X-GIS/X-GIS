@@ -16,12 +16,28 @@ const MID_PACIFIC: LngLatBounds = [
   [-160, 10],
   [-150, 20],
 ]
+// The cbofs/dbofs shared zone — same witness bounds as the s111-models hysteresis suite.
+// Both views overlap BOTH domains, which is the whole point: the resident set is identical
+// either side of the zoom, so a boundary zoom can no longer wipe anything.
+const WIDE: LngLatBounds = [
+  [-76.9, 37.3],
+  [-73.9, 40.3],
+] // half-extent 1.5° — cbofs wins the primary outright
+const ZOOMED_IN: LngLatBounds = [
+  [-75.7, 38.5],
+  [-75.1, 39.1],
+] // SAME centre, half-extent 0.3° — primary would tip to dbofs without hysteresis
 
 function makeMap(initial: LngLatBounds) {
   let bounds = initial
   let listener: (() => void) | null = null
   const armed: string[] = [] // model key of each setCoverageData call, in order
-  const armedOpts: ({ url?: string; group?: number } | undefined)[] = []
+  const armedOpts: ({ url?: string; group?: number; region?: string } | undefined)[] = []
+  const removed: string[] = [] // region keys dropped via removeCoverageRegion
+  /** The regions the MAP believes are resident — armed minus removed. The mosaic's own
+   *  `regions()` is its intent; this is what actually reached the engine, so a test that
+   *  checks both cannot be fooled by the mosaic bookkeeping a region it never pushed. */
+  const live = new Set<string>()
   const map: MosaicMap = {
     getBounds: () => bounds,
     on: (_t, l) => {
@@ -33,6 +49,11 @@ function makeMap(initial: LngLatBounds) {
     setCoverageData: async (_id, bytes, opts) => {
       armed.push(new TextDecoder().decode(bytes))
       armedOpts.push(opts)
+      if (opts?.region) live.add(opts.region)
+    },
+    removeCoverageRegion: (_id, region) => {
+      removed.push(region)
+      live.delete(region)
     },
   }
   return {
@@ -43,6 +64,8 @@ function makeMap(initial: LngLatBounds) {
     },
     armed,
     armedOpts,
+    removed,
+    live: () => [...live].sort(),
     hasListener: () => listener !== null,
   }
 }
@@ -61,6 +84,33 @@ function countingFetch() {
 const flush = (): Promise<void> => new Promise((r) => setTimeout(r, 0))
 
 describe('installS111Mosaic (#1272 E-④)', () => {
+  // THE REPORTED BUG: several S-111 domains were never visible at once. The mosaic picked the
+  // single best-covering model and REPLACED the resident cell on every move-end, so a viewport
+  // straddling two NOAA domains showed one of them and a blank half. Every assertion about a
+  // multi-model viewport below exists because of that report.
+  it('THE FIX: a viewport spanning two domains ends with BOTH resident', async () => {
+    const f = countingFetch()
+    const m = makeMap(WIDE) // straddles cbofs and dbofs
+    const h = installS111Mosaic(m.map, { sourceId: 'currents', fetch: f.fetch })
+    await flush()
+    expect(h.regions().sort()).toEqual(['cbofs', 'dbofs'])
+    expect(f.fetched.sort()).toEqual(['cbofs', 'dbofs'])
+    // …and both actually reached the engine, each under its own region key.
+    expect(m.live()).toEqual(['cbofs', 'dbofs'])
+    expect(m.armedOpts.map((o) => o?.region).sort()).toEqual(['cbofs', 'dbofs'])
+  })
+
+  it('a nested pair loads together, local model primary (SF Bay is inside sfbofs AND wcofs)', async () => {
+    const f = countingFetch()
+    const m = makeMap(SF_BAY)
+    const h = installS111Mosaic(m.map, { sourceId: 'currents', fetch: f.fetch })
+    await flush()
+    // Both fully contain the view, so overlap ties; the SMALLER (higher-resolution) domain is
+    // the primary, matching what the single-model selector always picked.
+    expect(h.current()).toBe('sfbofs')
+    expect(h.regions().sort()).toEqual(['sfbofs', 'wcofs'])
+  })
+
   it('loads the covering model for the initial view, then swaps on a pan', async () => {
     const f = countingFetch()
     const m = makeMap(CHESAPEAKE)
@@ -73,8 +123,11 @@ describe('installS111Mosaic (#1272 E-④)', () => {
     m.pan(SF_BAY)
     await flush()
     expect(h.current()).toBe('sfbofs')
-    expect(f.fetched).toEqual(['cbofs', 'sfbofs'])
-    expect(m.armed).toEqual(['cbofs', 'sfbofs'])
+    // cbofs left the viewport → dropped, not merely shadowed. Residency tracks what is
+    // actually on screen; keeping a whole east-coast domain loaded while looking at
+    // California is what the byte budget exists to prevent.
+    expect(m.removed).toEqual(['cbofs'])
+    expect(m.live()).toEqual(['sfbofs', 'wcofs'])
   })
 
   it('serves a pan-back from the LRU — no re-fetch', async () => {
@@ -86,21 +139,41 @@ describe('installS111Mosaic (#1272 E-④)', () => {
     await flush()
     m.pan(CHESAPEAKE) // back
     await flush()
-    // cbofs was cached → NOT fetched again, but IS re-armed
-    expect(f.fetched).toEqual(['cbofs', 'sfbofs'])
-    expect(m.armed).toEqual(['cbofs', 'sfbofs', 'cbofs'])
+    // cbofs was cached → NOT fetched again, but IS re-armed. (sfbofs/wcofs come from the SF
+    // view; the point here is that returning to cbofs costs no network.)
+    expect(f.fetched.filter((k) => k === 'cbofs')).toEqual(['cbofs'])
+    expect(m.armed.filter((k) => k === 'cbofs')).toEqual(['cbofs', 'cbofs'])
   })
 
-  it('does nothing over open ocean (no covering model)', async () => {
+  it('drops everything over open ocean (no covering model)', async () => {
     const f = countingFetch()
     const m = makeMap(CHESAPEAKE)
     const h = installS111Mosaic(m.map, { sourceId: 'currents', fetch: f.fetch })
     await flush()
     m.pan(MID_PACIFIC)
     await flush()
-    expect(h.current()).toBe('cbofs') // last covering model stays shown
+    // Behaviour CHANGE, and deliberate: the old mosaic left the last covering model armed, so
+    // panning to mid-Pacific kept drawing Chesapeake currents off-screen forever. Nothing
+    // overlaps here, so nothing should be resident.
+    expect(h.regions()).toEqual([])
+    expect(h.current()).toBeNull()
+    expect(m.live()).toEqual([])
     expect(f.fetched).toEqual(['cbofs']) // no fetch over open ocean
-    expect(m.armed).toEqual(['cbofs'])
+  })
+
+  it('honours the resident BYTE budget, keeping the most relevant domains', async () => {
+    const f = countingFetch()
+    const m = makeMap(WIDE) // cbofs + dbofs overlap
+    // Below one nominal cell (10 MB), so only the primary survives the prefix — the budget is
+    // a cap on bytes, never a promise that every overlapping domain loads.
+    const h = installS111Mosaic(m.map, {
+      sourceId: 'currents',
+      fetch: f.fetch,
+      maxResidentBytes: 1024,
+    })
+    await flush()
+    expect(h.regions()).toEqual(['cbofs']) // the primary, not an arbitrary one
+    expect(f.fetched).toEqual(['cbofs']) // the dropped domain is never even fetched
   })
 
   it('evicts the least-recently-used cell past maxCached', async () => {
@@ -108,22 +181,27 @@ describe('installS111Mosaic (#1272 E-④)', () => {
     const m = makeMap(CHESAPEAKE)
     installS111Mosaic(m.map, { sourceId: 'currents', fetch: f.fetch, maxCached: 1 })
     await flush()
-    m.pan(SF_BAY) // evicts cbofs (maxCached 1)
+    m.pan(SF_BAY) // loads sfbofs + wcofs, evicting cbofs from the 1-entry byte cache
     await flush()
     m.pan(CHESAPEAKE) // cbofs evicted → must re-fetch
     await flush()
-    expect(f.fetched).toEqual(['cbofs', 'sfbofs', 'cbofs'])
+    // Asserted on cbofs alone: how many OTHER cells the SF view happens to pull is the
+    // selection rule's business, not the cache's, and pinning the whole list here would make
+    // this test fail for a reason that has nothing to do with eviction.
+    expect(f.fetched.filter((k) => k === 'cbofs')).toEqual(['cbofs', 'cbofs'])
   })
 
-  it('fires onSwap with the model key after each successful swap (overlay re-arm hook)', async () => {
+  it('fires onSwap per region that lands (overlay re-arm hook)', async () => {
     const f = countingFetch()
     const m = makeMap(CHESAPEAKE)
     const swaps: string[] = []
     installS111Mosaic(m.map, { sourceId: 'currents', fetch: f.fetch, onSwap: (k) => swaps.push(k) })
     await flush()
+    expect(swaps).toEqual(['cbofs'])
     m.pan(SF_BAY)
     await flush()
-    expect(swaps).toEqual(['cbofs', 'sfbofs'])
+    // One per REGION now, not one per swap — the SF view loads two nested domains.
+    expect(swaps.slice(1).sort()).toEqual(['sfbofs', 'wcofs'])
   })
 
   it('fires onLoadStart only for a real fetch, never on a cache hit (loading-indicator hook)', async () => {
@@ -140,11 +218,11 @@ describe('installS111Mosaic (#1272 E-④)', () => {
 
     m.pan(SF_BAY)
     await flush()
-    expect(starts).toEqual(['cbofs', 'sfbofs']) // new region — a real fetch
+    expect(starts.slice(1).sort()).toEqual(['sfbofs', 'wcofs']) // both new regions fetch
 
     m.pan(CHESAPEAKE) // back to a cached cell — NO fetch, so no loading start
     await flush()
-    expect(starts).toEqual(['cbofs', 'sfbofs'])
+    expect(starts).toHaveLength(3)
   })
 
   it('fires onLoadError with the model key + error on a failed fetch, never on success', async () => {
@@ -191,14 +269,16 @@ describe('installS111Mosaic (#1272 E-④)', () => {
     const m = makeMap(CHESAPEAKE)
     const h = installS111Mosaic(m.map, { sourceId: 'currents', fetch: failing })
     await flush()
-    m.pan(SF_BAY) // sfbofs fetch 502s → revert, no swap, no throw
+    m.pan(SF_BAY) // sfbofs 502s; its NEIGHBOUR wcofs still loads — no throw
     await flush()
-    expect(h.current()).toBe('cbofs')
-    expect(m.armed).toEqual(['cbofs'])
-    m.pan(SF_BAY) // retry — succeeds this time
+    // The surviving region is what matters: one domain failing must not blank the view. (The
+    // old single-region mosaic had nothing to fall back to, so it reverted to the off-screen
+    // cbofs instead — which drew east-coast currents over California.)
+    expect(h.regions()).toEqual(['wcofs'])
+    expect(m.live()).toEqual(['wcofs'])
+    m.pan(SF_BAY) // retry — sfbofs succeeds this time and joins its neighbour
     await flush()
-    expect(h.current()).toBe('sfbofs')
-    expect(m.armed).toEqual(['cbofs', 'sfbofs'])
+    expect(h.regions().sort()).toEqual(['sfbofs', 'wcofs'])
   })
 
   it('remove() detaches the move-end listener', async () => {
@@ -227,6 +307,24 @@ describe('installS111Mosaic (#1272 E-④)', () => {
     const last = m.armedOpts[m.armedOpts.length - 1]
     expect(last?.group).toBe(4)
     expect(last?.url).toMatch(/latest\/cbofs\.h5$/)
+    expect(last?.region).toBe('cbofs') // re-armed IN PLACE, not as a new region
+  })
+
+  it('setTime steps EVERY resident region to the same hour', async () => {
+    // Stepping only the primary would leave the neighbour frozen an hour behind, drawing as a
+    // current discontinuity right along the domain boundary — a plausible-looking lie.
+    const f = countingFetch()
+    const m = makeMap(WIDE) // cbofs + dbofs
+    const h = installS111Mosaic(m.map, { sourceId: 'currents', fetch: f.fetch })
+    await flush()
+    expect(h.regions().sort()).toEqual(['cbofs', 'dbofs'])
+    const before = m.armedOpts.length
+
+    await h.setTime(3)
+    const stepped = m.armedOpts.slice(before)
+    expect(stepped.map((o) => o?.region).sort()).toEqual(['cbofs', 'dbofs'])
+    expect(stepped.every((o) => o?.group === 4)).toBe(true) // the SAME hour for both
+    expect(f.fetched.sort()).toEqual(['cbofs', 'dbofs']) // still zero network for the step
   })
 
   it('setTime is a no-op before a region has loaded', async () => {
@@ -277,26 +375,26 @@ describe('installS111Mosaic (#1272 E-④)', () => {
   // used to flip `current` on every such zoom (bestModelForBounds had no hysteresis), firing a
   // hard coverage swap — wiping every arrow — for a screen that mostly didn't move. Same witness
   // bounds as the s111-models.test.ts hysteresis suite, centred on the cbofs/dbofs shared zone.
-  it('a boundary-adjacent zoom-in (same centre) does NOT flip the resident region (#1333)', async () => {
-    const WIDE: LngLatBounds = [
-      [-76.9, 37.3],
-      [-73.9, 40.3],
-    ] // half-extent 1.5° — cbofs wins outright
-    const ZOOMED_IN: LngLatBounds = [
-      [-75.7, 38.5],
-      [-75.1, 39.1],
-    ] // SAME centre, half-extent 0.3° — a tie without hysteresis, resolving to dbofs (the bug)
+  //
+  // Loading BOTH domains makes the wipe structurally impossible rather than merely damped:
+  // the resident set is {cbofs, dbofs} on either side of the zoom, so there is nothing left to
+  // swap out. The hysteresis now only steadies which one is PRIMARY (the forecast-time axis).
+  it('a boundary-adjacent zoom-in (same centre) disturbs NOTHING (#1333)', async () => {
     const f = countingFetch()
     const m = makeMap(WIDE)
     const h = installS111Mosaic(m.map, { sourceId: 'currents', fetch: f.fetch })
     await flush()
     expect(h.current()).toBe('cbofs')
+    expect(h.regions().sort()).toEqual(['cbofs', 'dbofs'])
+    const armedBefore = m.armed.length
 
     m.pan(ZOOMED_IN) // a zoom, routed through the SAME moveend listener as a pan
     await flush()
-    expect(h.current()).toBe('cbofs') // stays — no flip to dbofs
-    expect(f.fetched).toEqual(['cbofs']) // no second fetch
-    expect(m.armed).toEqual(['cbofs']) // no re-arm / no arrow wipe
+    expect(h.current()).toBe('cbofs') // primary stays — no flip to dbofs
+    expect(h.regions().sort()).toEqual(['cbofs', 'dbofs']) // set unchanged
+    expect(m.removed).toEqual([]) // nothing evicted → no arrow wipe
+    expect(m.armed).toHaveLength(armedBefore) // no re-arm at all
+    expect(f.fetched.sort()).toEqual(['cbofs', 'dbofs']) // no second fetch
   })
 
   // demo-runner's real call site passes NO `fetch` option (proxyBase only) — installS111Mosaic

@@ -42,8 +42,49 @@ const BUNDLED_DEFS: Readonly<Record<string, string>> = {
     '+ellps=GRS80 +units=m +no_defs +type=crs',
 }
 
+// ─── WGS 84 / UTM, DERIVED rather than tabulated ───
+//
+// Real IHO S-100 gridded cells arrive in UTM: a NOAA S-102 bathymetry cell for the
+// Chesapeake declares `horizontalCRS = 32618` with a metre origin and 16 m spacing.
+// Tabulating 120 near-identical def strings would be a data dump; the EPSG codes are
+// systematic, so ONE rule covers every zone:
+//
+//   EPSG:326zz — WGS 84 / UTM zone zz NORTH,  zz ∈ [1, 60]
+//   EPSG:327zz — WGS 84 / UTM zone zz SOUTH,  zz ∈ [1, 60]
+//
+// The zone bound is load-bearing, not defensive: 32661 and 32766 exist but are WGS 84 /
+// UPS North and South — polar stereographic, NOT "UTM zone 61/66". Deriving a UTM def
+// for them would silently project polar data with the wrong projection, so anything
+// outside [1, 60] falls through to the unsupported-code error.
+const UTM_NORTH_BASE = 32600
+const UTM_SOUTH_BASE = 32700
+const UTM_ZONE_MIN = 1
+const UTM_ZONE_MAX = 60
+
+/** The proj4 def for a WGS 84 / UTM code, or null when `normalized` is not one. */
+export function utmDefFor(normalized: string): string | null {
+  const m = /^EPSG:(\d+)$/.exec(normalized)
+  if (!m) return null
+  const code = Number(m[1])
+  const base =
+    code > UTM_NORTH_BASE && code < UTM_NORTH_BASE + 100
+      ? UTM_NORTH_BASE
+      : code > UTM_SOUTH_BASE && code < UTM_SOUTH_BASE + 100
+        ? UTM_SOUTH_BASE
+        : null
+  if (base === null) return null
+  const zone = code - base
+  if (zone < UTM_ZONE_MIN || zone > UTM_ZONE_MAX) return null
+  const south = base === UTM_SOUTH_BASE ? ' +south' : ''
+  return `+proj=utm +zone=${zone} +datum=WGS84 +units=m${south} +no_defs +type=crs`
+}
+
 // proj4's own built-ins, recognised without registration.
 const PROJ4_BUILTINS = new Set(['EPSG:4326', 'EPSG:3857', 'WGS84'])
+
+/** UTM codes registered on demand — derived defs are registered the first time a code
+ *  is resolved rather than eagerly, so a caller that never touches UTM pays nothing. */
+const derivedRegistered = new Set<string>()
 
 let registered = false
 
@@ -99,10 +140,18 @@ export function resolveEPSG(code: string | number): string {
   if (PROJ4_BUILTINS.has(normalized) || normalized in BUNDLED_DEFS) {
     return normalized
   }
+  const utm = utmDefFor(normalized)
+  if (utm !== null) {
+    if (!derivedRegistered.has(normalized)) {
+      proj4.defs(normalized, utm)
+      derivedRegistered.add(normalized)
+    }
+    return normalized
+  }
   throw new Error(
     `Unsupported EPSG code: "${normalized}". ` +
       `Registered codes: ${Object.keys(BUNDLED_DEFS).join(', ')}, ` +
-      `EPSG:4326, EPSG:3857. ` +
+      `EPSG:4326, EPSG:3857, and WGS 84 / UTM (EPSG:326zz north / 327zz south, zone 1-60). ` +
       `Register a proj4 def for "${normalized}" to use it.`,
   )
 }

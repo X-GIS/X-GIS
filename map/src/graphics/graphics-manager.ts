@@ -299,15 +299,27 @@ export class GraphicsManager {
     sizesPx: Float32Array,
     colors: ReadonlyArray<readonly [number, number, number, number]>,
     strokeUnits = 0,
+    region = '',
   ): void {
-    this._compiledArrows.add(lons, lats, bearingsDeg, sizesPx, colors, strokeUnits, this.dpr)
+    this._compiledArrows.add(
+      lons,
+      lats,
+      bearingsDeg,
+      sizesPx,
+      colors,
+      strokeUnits,
+      this.dpr,
+      region,
+    )
   }
 
-  /** Drop every compiled-arrow layer — called at the top of each rebuildLayers before the
-   *  isArrow fork re-adds. Buffers go through `_retired` (drained next renderRetained) so an
-   *  in-flight submit that bound them completes first, mirroring the host batch remove(). */
-  clearCompiledArrows(): void {
-    this._compiledArrows.clear(this._retired)
+  /** Drop compiled-arrow layers — every one, or (given `region`) just that owner's. Called
+   *  unscoped at the top of each rebuildLayers before the isArrow fork re-adds, and scoped
+   *  when one mosaic region re-arms or leaves the viewport (#1272 E-④). Buffers go through
+   *  `_retired` (drained next renderRetained) so an in-flight submit that bound them
+   *  completes first, mirroring the host batch remove(). */
+  clearCompiledArrows(region?: string): void {
+    this._compiledArrows.clear(this._retired, region)
   }
 
   /** True when the graphics layer is mid-animation and needs continuous redraw — a DRAWABLE batch

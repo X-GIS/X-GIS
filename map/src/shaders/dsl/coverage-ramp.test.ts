@@ -16,7 +16,8 @@ import {
   emitCoverageWgsl,
   buildCoverageModule,
   COVERAGE_GRID_N,
-  coverageGridVertexCount,
+  coverageGridIndexCount,
+  coverageNodeCount,
 } from './coverage-ramp'
 import { emitGlslModule } from '@xgis/shader-dsl'
 
@@ -25,16 +26,20 @@ const glslFrag = emitGlslModule(buildCoverageModule(), 'fragment')
 const glslVert = emitGlslModule(buildCoverageModule(), 'vertex')
 
 describe('coverage-ramp dsl emission (projection-general drape)', () => {
-  it('the vertex stage tessellates vertex_index into an N×N grid (WGSL + GLSL)', () => {
-    // A single quad has no modulo and no grid constant; the tessellated grid decode
-    // (cell = vid/6, cx = cell % N, …) emits both. That distinguishes the two.
-    for (const [src, label] of [
-      [wgsl, 'wgsl'],
-      [glslVert, 'glslVert'],
-    ] as const) {
-      expect(src, label).toMatch(/%/) // integer modulo — the grid-cell split
-      expect(src, label).toContain(String(COVERAGE_GRID_N)) // the grid N (64)
-    }
+  it('the mesh is still an N×N tessellation — now INDEXED, not decoded from vertex_index', () => {
+    // The drape is still a fine mesh (that is what keeps it projection-general); #1366
+    // INC-3 only moved WHERE the topology is built. It used to be decoded in the shader
+    // from vertex_index (cell = vid/6, cx = cell % N); it is now a CPU index buffer, so
+    // the vertex stage consumes attributes and does no grid arithmetic at all.
+    const vsCov = wgsl.match(/fn vs_cov[\s\S]*?\n\}/)?.[0] ?? ''
+    expect(vsCov).not.toBe('')
+    expect(vsCov).not.toMatch(/vertex_index/)
+    expect(vsCov).not.toMatch(/%/) // no grid-cell split left in the shader
+    // The tessellation itself is unchanged and asserted on the CPU counts.
+    expect(coverageGridIndexCount()).toBe(COVERAGE_GRID_N * COVERAGE_GRID_N * 6)
+    expect(coverageNodeCount()).toBe((COVERAGE_GRID_N + 1) * (COVERAGE_GRID_N + 1))
+    // uint16 indices are only valid while the node count stays under 65 536.
+    expect(coverageNodeCount()).toBeLessThan(65536)
   })
 
   it('the vertex stage projects per-vertex via the shared projection dispatch', () => {
@@ -63,12 +68,38 @@ describe('coverage-ramp dsl emission (projection-general drape)', () => {
     expect(vsCov).not.toMatch(/merc_y/)
     expect(fsCov).not.toMatch(/merc_y/)
     expect(vsOut).not.toMatch(/merc_y/)
-    // the VsOut struct carries + the fragment reads the `lat` varying (UV from latitude).
-    expect(vsOut).toMatch(/\blat\b/)
-    expect(fsCov).toMatch(/\.lat\b/)
-    // GLSL varyings are renamed by the backend, so pin the coverage-specific signal that
-    // the fragment computes its UV from the geo edges (not a linear texture-V): cov_geo.
-    expect(glslFrag).toMatch(/cov_geo/)
+    // #1366 INC-3 — uv is now CARRIED, not recovered. The VsOut struct holds uv and no
+    // lon/lat varying at all: the fragment must not be able to reconstruct uv from
+    // geography, because for a projected (UTM) grid uv is NOT affine in lon/lat.
+    expect(vsOut).toMatch(/\buv\b/)
+    expect(vsOut).not.toMatch(/\blat\b/)
+    expect(vsOut).not.toMatch(/\blon\b/)
+  })
+
+  it('the geographic-rectangle assumption has NO representation left (#1366 INC-3)', () => {
+    // `cov_edges` (the lon/lat footprint rect) and `cov_geo` (the u/v denominators) both
+    // encoded "the footprint is a rectangle in lon/lat" — false for a projected cell.
+    // They are gone from the uniform block entirely, so nothing can re-derive from them;
+    // asserting their ABSENCE is what stops the assumption creeping back.
+    for (const [src, label] of [
+      [wgsl, 'wgsl'],
+      [glslVert, 'glslVert'],
+      [glslFrag, 'glslFrag'],
+    ] as const) {
+      expect(src, label).not.toMatch(/cov_edges/)
+      expect(src, label).not.toMatch(/cov_geo/)
+    }
+  })
+
+  it('the vertex stage READS node lon/lat as an attribute instead of deriving it', () => {
+    // The load-bearing shape of INC-3: geography enters the vertex stage as data the CPU
+    // reprojected through the cell's own CRS, not as arithmetic over a lon/lat rectangle.
+    // A regression to `mix(edges, u01)` would drop these attribute declarations.
+    expect(wgsl).toMatch(/@location\(0\)\s+node_lonlat/)
+    expect(wgsl).toMatch(/@location\(1\)\s+node_uv/)
+    // GLSL renames varyings but keeps attribute names for the vertex stage.
+    expect(glslVert).toMatch(/node_lonlat/)
+    expect(glslVert).toMatch(/node_uv/)
   })
 
   it('WGSL + GLSL both perform the validity-weighted division (value ÷ valid)', () => {
@@ -92,7 +123,7 @@ describe('coverage-ramp dsl emission (projection-general drape)', () => {
   })
 
   it('the draw count matches the N×N·6 tessellation', () => {
-    expect(coverageGridVertexCount()).toBe(COVERAGE_GRID_N * COVERAGE_GRID_N * 6)
+    expect(coverageGridIndexCount()).toBe(COVERAGE_GRID_N * COVERAGE_GRID_N * 6)
   })
 
   it('both stages emit as non-empty strings on both backends (WebGL2 twin lands)', () => {

@@ -143,7 +143,7 @@ describe('surface geoid unification — bg + extrusion share the tiler ellipsoid
   })
 
   it('EXTRUSION-WALL ECEF (roof + base) == tiler ellipsoid ECEF at high latitude', () => {
-    const STRIDE = 11 // POLYGON_EXTRUDED_FORMAT stride / 4
+    const STRIDE = 14 // POLYGON_EXTRUDED_FORMAT stride / 4
     // Footprint at high latitude (lon=10, lat=60) so the sphere↔ellipsoid
     // delta (~10 m at lat=60 on the z-axis) is well above the 1 mm gate.
     const cx = 10,
@@ -169,7 +169,9 @@ describe('surface geoid unification — bg + extrusion share the tiler ellipsoid
         rings: [[corners[0], corners[1], corners[2], corners[3], corners[0]]],
       },
     ]
-    const heights = new Map<number, number>([[5, topH - baseH]])
+    // Mapbox semantics (#1397): `fill-extrusion-height` is the ABSOLUTE top
+    // altitude, not a thickness above the base — so the map holds topH itself.
+    const heights = new Map<number, number>([[5, topH]])
     const bases = new Map<number, number>([[5, baseH]])
     const center = tileEcefCenterFromMerc(corners[0][0], corners[0][1])
 
@@ -228,7 +230,7 @@ describe('surface geoid unification — bg + extrusion share the tiler ellipsoid
     // assert their reconstructed absolute ECEF agree to ≤ the bg quant step.
     // If bg and walls ever drift onto different geoids, this fails directly even
     // if each independently happened to match some shared reference formula.
-    const STRIDE = 11
+    const STRIDE = 14
 
     // ── bg surface: the z=0 mesh vertex at (lon=0, lat=0) (col=16, row=8). ──
     const [bgTileMx, bgTileMy] = lonLatToMerc(-180, Z0_DECODED_SOUTH)

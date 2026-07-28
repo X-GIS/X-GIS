@@ -15,7 +15,7 @@ import { test, expect } from '@playwright/test'
 // Node — same convention as _polygon-glsl-compile-gate.spec.ts.
 import { configureProjections } from '../../map/src/shaders/dsl/projections'
 import { emitLineGlsl, emitCompositeGlsl } from '../../map/src/shaders/dsl/line-glsl'
-import { PROJECTIONS } from '../../engine/src/index'
+import { PROJECTIONS } from '../../geo/src/projections-table'
 
 /** Compile both stages + link on a scratch WebGL2 context (page side). */
 const COMPILE_LINK = ({ vertex, fragment }: { vertex: string; fragment: string }) => {

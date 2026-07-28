@@ -8,6 +8,7 @@
 // behaviour change.
 
 import type { CompiledTile, RingPolygon } from '@xgis/compiler'
+import { isMobileClassViewport } from '@xgis/shared'
 import type { TileSource } from './tile-source'
 
 // ═══ Tile lifecycle state ═══
@@ -200,7 +201,7 @@ export function maxCachedBytes(): number {
   // 200 MB for headroom. Evaluated lazily for the same Playwright /
   // mobile-DPR-init reasons as the concurrency caps.
   const w = readInnerWidthMemoised()
-  return (w > 0 && w <= 900 ? 100 : 200) * 1024 * 1024
+  return (isMobileClassViewport(w) ? 100 : 200) * 1024 * 1024
 }
 /** @deprecated Use {@link maxCachedBytes}() instead — module-init
  *  evaluation captured the wrong viewport. Kept as a back-compat
@@ -253,7 +254,7 @@ function readInnerWidthMemoised(): number {
 
 export function maxConcurrentLoads(): number {
   const w = readInnerWidthMemoised()
-  return w > 0 && w <= 900 ? 8 : 32
+  return isMobileClassViewport(w) ? 8 : 32
 }
 
 /** Viewport-aware default skeleton depth for `TileCatalog.prewarmSkeleton`.
@@ -267,7 +268,7 @@ export function maxConcurrentLoads(): number {
  *  Playwright / mobile DPR setup. */
 export function defaultSkeletonDepth(): number {
   const w = readInnerWidthMemoised()
-  return w > 0 && w <= 900 ? 2 : 3
+  return isMobileClassViewport(w) ? 2 : 3
 }
 
 /** Byte budget for the skeleton prewarm — the ORIGINAL ~4 MB design cost
@@ -276,10 +277,10 @@ export function defaultSkeletonDepth(): number {
  *  heuristic's assumption). The floor levels (z0+z1) always complete
  *  regardless; past them the prewarm pump stops enqueueing once ARRIVED
  *  skeleton bytes cross this budget (overshoot ≤ one 2-tile wave). Same
- *  `innerWidth ≤ 900` threshold as the sibling caps. */
+ *  `isMobileClassViewport` gate as the sibling caps. */
 export function defaultSkeletonByteBudget(): number {
   const w = readInnerWidthMemoised()
-  return w > 0 && w <= 900 ? 1.5 * 1024 * 1024 : 4 * 1024 * 1024
+  return isMobileClassViewport(w) ? 1.5 * 1024 * 1024 : 4 * 1024 * 1024
 }
 
 // ═══ VirtualCatalog (legacy hook — to be replaced by TileSource in Step 3) ═══

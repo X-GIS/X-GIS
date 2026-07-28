@@ -103,7 +103,7 @@ function render(gm: GraphicsManager, dpr = 1, pass: object = stubPass()): void {
   )
 }
 
-function addLayer(gm: GraphicsManager, n: number, strokeUnits = 0): void {
+function addLayer(gm: GraphicsManager, n: number, strokeUnits = 0, region = ''): void {
   gm.addCompiledArrowLayer(
     Float64Array.from({ length: n }, (_, i) => -70 + i),
     Float64Array.from({ length: n }, (_, i) => 40 + i * 0.1),
@@ -111,6 +111,7 @@ function addLayer(gm: GraphicsManager, n: number, strokeUnits = 0): void {
     Float32Array.from({ length: n }, () => 12),
     Array.from({ length: n }, () => [1, 0, 0, 1] as const),
     strokeUnits,
+    region,
   )
 }
 
@@ -173,6 +174,42 @@ describe('compiled `| arrow` layer store (#1302 / #1333)', () => {
     render(gm)
     expect(s.destroyed).toEqual(bufs)
     expect(gm.hasRetainedBatches()).toBe(false)
+  })
+
+  // #1272 E-④ — a mosaic keeps one arrow layer PER NOAA domain. The unscoped clear ran on
+  // every single-region re-arm, so a neighbour's forecast step wiped every other domain's
+  // glyphs and re-added only its own: with the drape already multi-region, the arrows were
+  // the remaining reason only one domain was ever visible.
+  it('a region-scoped clear() drops ONLY that region, leaving its neighbours resident', () => {
+    const gm = new GraphicsManager()
+    const s = makeStubs()
+    gm.attachDevice(s.device as never, s.rhi as never, 'bgra8unorm')
+    addLayer(gm, 4, 0, 'cbofs')
+    addLayer(gm, 4, 0, 'dbofs')
+    const [cbofsFeat, cbofsTint, dbofsFeat, dbofsTint] = compiledBufs(s.created)
+
+    gm.clearCompiledArrows('cbofs')
+    render(gm)
+    expect(s.destroyed).toEqual([cbofsFeat, cbofsTint]) // dbofs untouched
+    // The neighbour still draws — the whole point. One instanced draw per world copy.
+    expect(gm.hasRetainedBatches()).toBe(true)
+
+    // …and the unscoped clear still means EVERY region (the rebuildLayers lifecycle).
+    gm.clearCompiledArrows()
+    render(gm)
+    expect(s.destroyed).toEqual([cbofsFeat, cbofsTint, dbofsFeat, dbofsTint])
+    expect(gm.hasRetainedBatches()).toBe(false)
+  })
+
+  it('clearing an UNKNOWN region drops nothing (a region that never armed is not an error)', () => {
+    const gm = new GraphicsManager()
+    const s = makeStubs()
+    gm.attachDevice(s.device as never, s.rhi as never, 'bgra8unorm')
+    addLayer(gm, 4, 0, 'cbofs')
+    gm.clearCompiledArrows('sfbofs')
+    render(gm)
+    expect(s.destroyed).toEqual([])
+    expect(gm.hasRetainedBatches()).toBe(true)
   })
 
   it('a DPR change re-packs every layer feat from the retained raw arrays (tint untouched)', () => {
