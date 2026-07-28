@@ -488,7 +488,20 @@ const CEILINGS: Record<string, number> = {
   // boot and the backend switch), each carrying the sentence saying why the LRU needed one at
   // all: nothing else observed it, so an evicted region's arrows kept drawing against velocity
   // textures that had just been destroyed. Value below is the MEASURED post-merge count.
-  'map/src/map.ts': 5393,
+  //
+  // 5393→5420 (#1453 catalogue-driven coverage residency): a `coverage` source's `url:` may
+  // name a STAC catalogue of cells, and then the ENGINE owns residency from the viewport — the
+  // job `type: raster` has always done for itself. What lands HERE is only the map-shaped part
+  // of that: the per-source catalogue state (declared before `_coverageDeps`, because a field
+  // initialiser captures `undefined` the other way round — the `_coverageRefresh` lesson), the
+  // two deps members feeding it, the move-end listener + its `destroy()` detach, and the
+  // `onRegionDropped` rewire. Every DECISION — the cell/catalogue byte probe, the STAC parse,
+  // the viewport resolve, the arm loop and the stop-on-eviction rule — lives in
+  // coverage-catalogue.ts (pure) and coverage-source.ts (drives it), the same policy/driver
+  // split coverage-refresh.ts already uses, so this is wiring and not logic. An earlier draft
+  // put a `_beginCoverageLoad` method here too (+45); it was extracted into
+  // `resolveCoverageCatalogues` + `viewBbox` rather than ratcheted for. Post-hook measurement.
+  'map/src/map.ts': 5420,
   // Baselined at #1255 (measured 830): the DOM-inspired layer API crossed
   // NEW_FILE_CAP with the paint-transition style-setter integration — the
   // StyleHost.transitions context, the shared applyNumber/applyColor

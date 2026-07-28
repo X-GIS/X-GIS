@@ -12,6 +12,20 @@ import { Cursor, Hdf5Error } from './bytes'
 
 const SIGNATURE = [0x89, 0x48, 0x44, 0x46, 0x0d, 0x0a, 0x1a, 0x0a] // ‰HDF\r\n␚\n
 
+/** Does `head` begin an HDF5 file? The signature alone, tested against the same constant the
+ *  reader parses with, so a caller that only needs "is this HDF5 at all?" never restates it.
+ *
+ *  Used to tell a coverage URL that is ONE CELL from one that is a CATALOGUE of cells (#1453) —
+ *  a discriminator on the BYTES, which cannot be wrong about a conforming file, where a URL
+ *  extension convention is only a guess about a server's naming taste. Deliberately checks
+ *  offset 0 alone: a signature further in is a user block, which `findSuperblock` rejects
+ *  loudly anyway, and treating one as "not HDF5" here would misroute it into a JSON parse. */
+export function isHdf5(head: Uint8Array): boolean {
+  if (head.length < SIGNATURE.length) return false
+  for (let i = 0; i < SIGNATURE.length; i++) if (head[i] !== SIGNATURE[i]) return false
+  return true
+}
+
 export interface Superblock {
   version: number
   offsetSize: number
