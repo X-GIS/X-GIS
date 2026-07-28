@@ -10,6 +10,13 @@
 #   • synthetic-currents.h5   — S-111, 32×48 Chesapeake-shaped tidal field (a northward
 #     channel + a CCW gyre, coast-shaped nodata margins), real S-111 band names/units/
 #     -9999 fill (the #1272 demo field, re-platformed from gen-synthetic-currents.ts).
+#   • synthetic-currents-south.h5 — the same field on a DELIBERATELY DIFFERENT GRID
+#     (23×29, south of the first), so a mosaic gate has two domains whose arrow counts
+#     and grid-uv origins actually differ. The committed east twin does not: it is the
+#     32×48 field translated, so both domains carry identical origins and a state-texel
+#     collision between them writes the same numbers back — invisible on screen, which
+#     is exactly how a mosaic gate passed against the bug it was written to catch
+#     (#1458). A gate needs a fixture that can disagree.
 #
 # NOT real NOAA data (synthetic closed-form fields; real cells stay local-only for
 # licensing). h5py is the OFFLINE writer — NEVER linked into the shipped reader;
@@ -152,9 +159,57 @@ def currents():
     return path, int(valid.sum()), float(speed[valid].max())
 
 
+def currents_south():
+    """The currents field on a DIFFERENT grid — 23x29 rather than 32x48, placed south of
+    it and slightly overlapping in longitude.
+
+    The point is the SHAPE, not the physics: two mosaic domains must differ in valid-cell
+    COUNT and in grid-uv origin layout, or a gate cannot tell "each region reads its own
+    arrow state" from "they all read region 0's" (#1458). Prime-ish dimensions so the
+    count is unlikely to coincide with anything.
+    """
+    N_LON, N_LAT = 23, 29
+    ORIGIN = (-76.30, 34.90)
+    SPACING = (0.031, 0.047)
+    FILL = -9999.0
+    D2R = np.pi / 180.0
+    speed = np.zeros((N_LAT, N_LON), dtype=np.float32)      # NORTH-UP: row 0 = north
+    direction = np.zeros((N_LAT, N_LON), dtype=np.float32)
+    for row in range(N_LAT):
+        gy = 1 - row / (N_LAT - 1)
+        # A different coast shape, so the nodata mask is not a rescaling of the first's.
+        west_land = 0.08 + 0.10 * np.sin(gy * 2.3 + 0.7)
+        east_land = 0.12 + 0.05 * np.cos(gy * 6.1)
+        for col in range(N_LON):
+            gx = col / (N_LON - 1)
+            if gx < west_land or gx > 1 - east_land:
+                speed[row, col] = FILL
+                direction[row, col] = FILL
+                continue
+            # A single southeastward jet, banded across the speed range so the arrows
+            # exercise more than one catalogue colour.
+            ch = max(0.0, 1 - abs(gx - 0.45) / 0.55) ** 1.2
+            sp = 0.4 + 2.6 * ch * (0.5 + 0.5 * np.sin(gy * 3.1))
+            speed[row, col] = min(3.4, sp)
+            direction[row, col] = (135 + 30 * np.sin(gy * 2.0)) % 360
+    gf = [
+        ["surfaceCurrentSpeed", "Surface current speed", "knots", str(FILL), "H5T_FLOAT", "0.00", "", "geSemiInterval"],
+        ["surfaceCurrentDirection", "Surface current dir", "arc-degree", str(FILL), "H5T_FLOAT", "0.0", "359.9", "closedInterval"],
+    ]
+    path = os.path.join(OUT, "synthetic-currents-south.h5")
+    with h5py.File(path, "w", libver="earliest") as f:
+        f.attrs["productSpecification"] = "INT.IHO.S-111.1.2"
+        f.attrs["horizontalCRS"] = np.int32(4326)
+        f.attrs["surfaceCurrentDepth"] = np.float32(-2.0)
+        _write_dcf2(f, "SurfaceCurrent", N_LAT, N_LON, ORIGIN[0], ORIGIN[1], SPACING[0], SPACING[1],
+                    [("surfaceCurrentSpeed", speed[::-1, :]), ("surfaceCurrentDirection", direction[::-1, :])], gf)
+    valid = speed != FILL
+    return path, int(valid.sum()), float(speed[valid].max())
+
+
 def main():
     os.makedirs(OUT, exist_ok=True)
-    for fn in (bathymetry, currents):
+    for fn in (bathymetry, currents, currents_south):
         path, valid, mx = fn()
         print(f"wrote {os.path.relpath(path):44s} {os.path.getsize(path):6d} B  "
               f"valid={valid} max={mx:.2f}")

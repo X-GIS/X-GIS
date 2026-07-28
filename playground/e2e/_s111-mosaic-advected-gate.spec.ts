@@ -1,21 +1,34 @@
 // ═══ Two resident domains keep advecting a LEASHED field ═══
 //
-// WHAT THIS GATE DOES NOT DO, first, because it was written believing otherwise: it does **not**
-// discriminate the mosaic texel collision of #1458. That was checked rather than assumed — the
-// fix was disabled (every batch forced back to base 0, the pre-#1458 behaviour) and this gate
-// still passed, with numbers identical to three decimal places:
+// THIS GATE DOES NOT DISCRIMINATE #1458, and the two attempts that established that are worth
+// more than the gate itself. Both were run by disabling the fix (every batch forced back to
+// base 0) and checking whether this went red. Neither did:
 //
-//     fixed:  t0 L=0.4053 R=0.4005 | t3 L=0.3727 R=0.3840 | Δ L=0.0325 R=0.0166
-//     broken: t0 L=0.4041 R=0.3999 | t3 L=0.3739 R=0.3834 | Δ L=0.0303 R=0.0165
+//   1. With the committed east twin — Δ fixed 0.0325/0.0166 vs broken 0.0303/0.0165. The
+//      FIXTURE could not disagree: `synthetic-currents-east.h5` is the 32×48 field translated,
+//      so both domains carry identical grid-uv origins and one overwriting the other writes the
+//      same numbers back.
+//   2. With `synthetic-currents-south.h5` (23×29, 467 valid cells against 1187, a different
+//      coast mask) — Δ fixed 0.0008/0.0018 vs broken 0.0012/0.0016. The domains now genuinely
+//      disagree, so this time the fault was the METRIC.
 //
-// The reason is the FIXTURE, not the gate or the fix (the emitted WGSL really does read
-// `inst + u32(band_data[73u])`, verified separately): `synthetic-currents-east.h5` is the west
-// fixture translated east, so both domains have the same grid and the same valid-cell pattern —
-// and therefore **identical origin arrays in grid-uv**. One region overwriting the other's
-// texels writes the same numbers back. A fixture that discriminates needs a second domain with
-// a DIFFERENT cell count, which is also what would exercise the overflow half of #1458.
+// WHY COVERAGE IS THE WRONG METRIC, which is also a correction to how #1458 described itself.
+// The VS reads `pos` AND `origin` from the SAME texel (arrow-retained.ts). A foreign texel is
+// foreign for both, so `pos − origin` stays inside the leash either way — the arrows are NOT
+// flung anywhere. Screen position is dominated by the CPU-packed per-instance lon/lat, with the
+// drift a small addend on top. What the collision actually corrupts is that `pos` is also the
+// coordinate the velocity textures are sampled at, so the arrows read the WRONG CELL's current:
+// wrong band colour, wrong heading, wrong size, and two regions moving in lockstep. Positions
+// stay broadly right, which is exactly why a painted-fraction gate is blind to it.
 //
-// WHAT IT DOES ASSERT, and this is real: the field stays LEASHED while two domains are resident.
+// A gate that CAN see it has to measure colour: frame 0 of the advected field is the static
+// catalogue placement, so a per-region directional diff against a static-only render is near
+// the noise floor when each region reads its own uv and large when it does not — the parity
+// rung `_s111-advected-arrows-gate` already uses, applied per half. That is the work this
+// leaves open.
+//
+// WHAT THIS GATE DOES ASSERT, and it is real and was missing: the field stays LEASHED while two
+// domains are resident.
 // The drift a VS draws is
 //
 //     (position − origin) / ARROW_DRIFT_UV  ×  screen basis
@@ -33,13 +46,16 @@
 
 import { test, expect } from '@playwright/test'
 
-// Same framing as the residency gate: the west fixture and its eastern twin abut at this lon.
-const CENTRE_LON = -75.78
-const CENTRE_LAT = 38.17
-const ZOOM = 7
-const EAST_FIXTURE = '/data/synthetic-currents-east.h5'
+// Framed to hold BOTH domains: the 32×48 Chesapeake field (lat 36.85–39.49) above, the
+// 23×29 southern one (lat 34.90–36.26) below, split by the horizontal midline rather than the
+// vertical one the residency gate uses.
+const CENTRE_LON = -76.2
+const CENTRE_LAT = 37.2
+const ZOOM = 6
+const SOUTH_FIXTURE = '/data/synthetic-currents-south.h5'
 
-/** Painted fraction of the left half, the right half, and the whole frame. */
+/** Painted fraction of the NORTH and SOUTH halves — the two domains sit one above the other.
+ *  `readPixels` origin is bottom-left, so y < H/2 is the southern (23×29) domain. */
 function readHalves() {
   const w = window as unknown as {
     __xgisMap?: { ctx?: { rhi?: { backend?: string; gl?: WebGL2RenderingContext } } }
@@ -50,20 +66,20 @@ function readHalves() {
   const H = gl.drawingBufferHeight
   const buf = new Uint8Array(W * H * 4)
   gl.readPixels(0, 0, W, H, gl.RGBA, gl.UNSIGNED_BYTE, buf)
-  let left = 0
-  let right = 0
-  let leftTot = 0
-  let rightTot = 0
+  let south = 0
+  let north = 0
+  let southTot = 0
+  let northTot = 0
   for (let y = 0; y < H; y++) {
     for (let x = 0; x < W; x++) {
       const i = (y * W + x) * 4
       const painted = buf[i]! > 24 || buf[i + 1]! > 24 || buf[i + 2]! > 24
-      if (x < W / 2) {
-        leftTot++
-        if (painted) left++
+      if (y < H / 2) {
+        southTot++
+        if (painted) south++
       } else {
-        rightTot++
-        if (painted) right++
+        northTot++
+        if (painted) north++
       }
     }
   }
@@ -72,8 +88,8 @@ function readHalves() {
     backend: w.__xgisMap?.ctx?.rhi?.backend,
     W,
     H,
-    left: left / leftTot,
-    right: right / rightTot,
+    left: south / southTot,
+    right: north / northTot,
   }
 }
 
@@ -105,8 +121,8 @@ test.describe('S-111 mosaic — two domains keep advecting a LEASHED field', () 
       { timeout: 20000 },
     )
 
-    // The EASTERN twin under its own region key — the second domain, and the one whose batch
-    // used to take the first's texels.
+    // The SOUTHERN domain under its own region key — a different grid, so its batch has a
+    // different count and different origins from the one already resident.
     await page.evaluate(async (file) => {
       const w = window as unknown as {
         __xgisMap?: {
@@ -119,13 +135,13 @@ test.describe('S-111 mosaic — two domains keep advecting a LEASHED field', () 
         }
       }
       const res = await fetch(file)
-      if (!res.ok) throw new Error(`east fixture ${file}: HTTP ${res.status}`)
+      if (!res.ok) throw new Error(`south fixture ${file}: HTTP ${res.status}`)
       await w.__xgisMap!.setCoverageData('currents', await res.arrayBuffer(), {
-        region: 'east',
+        region: 'south',
         url: file,
       })
       w.__xgisMap!.invalidate?.()
-    }, EAST_FIXTURE)
+    }, SOUTH_FIXTURE)
     await page.waitForTimeout(1200)
 
     const t0 = await page.evaluate(readHalves)
@@ -145,23 +161,23 @@ test.describe('S-111 mosaic — two domains keep advecting a LEASHED field', () 
     const dLeft = Math.abs(t1.left - t0.left)
     const dRight = Math.abs(t1.right - t0.right)
     console.log(
-      `[s111-mosaic-advected] t0 L=${t0.left.toFixed(4)} R=${t0.right.toFixed(4)} | ` +
-        `t3 L=${t1.left.toFixed(4)} R=${t1.right.toFixed(4)} | ` +
-        `Δ L=${dLeft.toFixed(4)} R=${dRight.toFixed(4)} (${t1.W}x${t1.H})`,
+      `[s111-mosaic-advected] t0 S=${t0.left.toFixed(4)} N=${t0.right.toFixed(4)} | ` +
+        `t3 S=${t1.left.toFixed(4)} N=${t1.right.toFixed(4)} | ` +
+        `Δ S=${dLeft.toFixed(4)} N=${dRight.toFixed(4)} (${t1.W}x${t1.H})`,
     )
 
     // PRECONDITIONS, asserted rather than assumed: both domains are actually drawing. Without
     // these, a page that rendered nothing would satisfy the stability claim perfectly.
-    expect(t0.left, 'west domain painted at t0').toBeGreaterThan(0.02)
-    expect(t0.right, 'east domain painted at t0').toBeGreaterThan(0.02)
-    expect(t1.left, 'west domain still painted at t3').toBeGreaterThan(0.02)
-    expect(t1.right, 'east domain still painted at t3').toBeGreaterThan(0.02)
+    expect(t0.left, 'south domain painted at t0').toBeGreaterThan(0.02)
+    expect(t0.right, 'north domain painted at t0').toBeGreaterThan(0.02)
+    expect(t1.left, 'south domain still painted at t3').toBeGreaterThan(0.02)
+    expect(t1.right, 'north domain still painted at t3').toBeGreaterThan(0.02)
 
     // THE CLAIM. A leashed field's coverage barely moves; an unbounded drift sprays it across
     // the frame and off it, which shows up here as a large swing in either direction. The bound
     // is generous on purpose — it is not a tuned threshold, it is "the same field, still"
     // versus "a different field entirely". See the header for what this does NOT discriminate.
-    expect(dLeft, 'west: coverage steady across the drift').toBeLessThan(0.05)
-    expect(dRight, 'east: coverage steady across the drift').toBeLessThan(0.05)
+    expect(dLeft, 'south: coverage steady across the drift').toBeLessThan(0.05)
+    expect(dRight, 'north: coverage steady across the drift').toBeLessThan(0.05)
   })
 })
