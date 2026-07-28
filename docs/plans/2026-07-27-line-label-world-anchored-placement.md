@@ -178,8 +178,40 @@ to either clip the polyline to the tile bounds first or find the crossing and st
 rather than a guess. The crossing is a property of the polyline and the tile, not of the camera,
 so the camera invariance the vertex-0 walk did deliver is preserved.
 
-One open question before wiring: whether `forEachLineLabelPolyline` exposes the tile identity
-the crossing must be computed against, or whether that has to be threaded through.
+#### Both prerequisites are now met
+
+**The rule holds across the zoom sweep.** Re-running the along-line analysis on MapLibre's
+captures at every sampled zoom, and testing `(s − tileEntry) mod step` for each anchor:
+
+| zoom | step  | tile entry | residual per anchor    |
+| ---- | ----- | ---------- | ---------------------- |
+| 16.0 | 200.0 | 73.8       | +0.2, −0.8, −0.7, −0.6 |
+| 16.2 | 229.7 | 84.7       | +0.1, −0.8, −0.4, −0.3 |
+| 16.5 | 282.8 | 104.3      | −0.6, −0.1, −0.1, −0.1 |
+| 16.7 | 324.9 | 119.8      | −0.7, −0.3, −0.2       |
+| 16.9 | 373.2 | 137.6      | −0.7, −0.3             |
+
+Sixteen anchors, five zooms, every residual inside ±1 px. Note the entry offset itself moves
+73.8 → 137.6 across the sweep while the residual does not — so this is the rule reproducing,
+not a constant fitted to one camera.
+
+**The tile identity is available.** `LabelFeatureSource.forEachLineLabelPolyline` already
+iterates `for (const key of seen)` over tile keys and emits each tile's runs inside that loop;
+the key simply is not passed to the callback. Exposing it is a signature change on
+`fn(polylineMercX, polylineMercY, props)` plus one argument at the emit site — not a new lookup.
+
+#### INC-1 recipe
+
+1. Thread the tile key through `forEachLineLabelPolyline`'s callback.
+2. Per polyline, find where it crosses into the tile's own bounds (it enters from the MVT
+   buffer — see above). That crossing, in mercator arc-length, is the phase origin.
+3. Walk `origin + k · step` with `step = spacingPx / pxPerMeter`, projecting each anchor and
+   dropping the ones that fail (#1050's phantom-chord rule moves to this projection step).
+4. Gate: the z16.7 chain lands within 1 px of MapLibre's three anchors, and the pan-invariance
+   property (a clipped run's anchors are a strict subset of the full run's) still holds.
+
+`label-pass.ts` is AT its 2130-LOC ceiling, so the walk belongs in
+`place-labels-along-line.ts` alongside `lineLabelSpacingPx`.
 
 **Do not land the vertex-0 walk on its own.** Camera invariance is not worth a 155 px
 regression against the reference; the two must arrive together.
