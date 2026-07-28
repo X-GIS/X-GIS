@@ -36,6 +36,7 @@
 // uploadQueue active-count probe used by compaction arrives via a
 // caller-supplied predicate so the store never references the queue.
 
+import { GpuBufferPool } from './gpu-buffer-pool'
 import { GPUArena } from '@xgis/engine'
 // Backend-blind: the store's arena create/compaction/retire all route through the
 // RhiDevice (#832 — the engine arena no longer exposes native buffers); `device`
@@ -58,9 +59,9 @@ function align4(bytes: number): number {
 }
 
 export class GpuTileStore {
-  private device: GPUDevice
-  /** RHI device the ARENA routes createBuffer + compaction-copy through; `device`
-   *  stays raw for the pooled per-tile buffers + retire queue (§4 coupling rule). */
+  /** RHI device the ARENA routes createBuffer + compaction-copy through. The raw
+   *  `GPUDevice` is no longer held here: the only consumer left was the pooled
+   *  per-tile buffer creation, which moved into GpuBufferPool (#1357). */
   private rhi: RhiDevice
 
   /** GPU tile cache keyed by `${tileKey}|${sourceLayer}`. The `sourceLayer`
@@ -94,23 +95,9 @@ export class GpuTileStore {
    *  the per-call `stableKeys`, so it never carries state across calls. */
   private _scratchProtectedKeys = new Set<number>()
 
-  /** GPU buffer pool — keyed by `{powerOfTwoBucketSize}:{usage}`.
-   *  doUploadTile and evictGPUTiles together create + destroy 5+
-   *  GPUBuffers per tile, several times per frame on mobile during
-   *  fast pinch/pan. Each createBuffer / destroy is a GPU driver
-   *  call; pooling lets us hand a freed buffer straight back to
-   *  the next acquire instead of round-tripping through the
-   *  driver. Buckets are powers of two from 2 KB → 4 MB so size-
-   *  fit reuse works across tiles with similar feature density.
-   *  Cap per bucket prevents the pool itself from holding GPU
-   *  memory hostage. */
-  private _bufferPool = new Map<string, GPUBuffer[]>()
-  private static readonly _BUFFER_POOL_CAP_PER_BUCKET = 16
-  private static _bufferBucketSize(size: number): number {
-    let bucket = 2048
-    while (bucket < size) bucket *= 2
-    return bucket
-  }
+  /** Pooled GPU buffer recycler — extracted to gpu-buffer-pool.ts (#1357),
+   *  which owns the bucketing, the per-bucket entry cap and the byte cap. */
+  private readonly _pool: GpuBufferPool
 
   /** Phase 6a.2 (iter-208) — shared polygon vertex arena. Lazily created
    *  on first alloc so the GPUDevice is guaranteed alive (constructor runs
@@ -245,8 +232,8 @@ export class GpuTileStore {
   private zBufferArena: GPUArena | null = null
 
   constructor(device: GPUDevice, rhi: RhiDevice) {
-    this.device = device
     this.rhi = rhi
+    this._pool = new GpuBufferPool(device)
   }
 
   // ── Cache accessors (cheap monomorphic field-deref getters for the
@@ -305,25 +292,10 @@ export class GpuTileStore {
 
   // ── GPU buffer pool ─────────────────────────────────────────────────
   acquireBuffer(size: number, usage: GPUBufferUsageFlags, label: string): GPUBuffer {
-    const bucket = GpuTileStore._bufferBucketSize(size)
-    const key = `${bucket}:${usage}`
-    const pool = this._bufferPool.get(key)
-    if (pool && pool.length > 0) return pool.pop()!
-    return this.device.createBuffer({ size: bucket, usage, label })
+    return this._pool.acquire(size, usage, label)
   }
   releaseBuffer(buf: GPUBuffer | null | undefined): void {
-    if (!buf) return
-    const key = `${buf.size}:${buf.usage}`
-    let pool = this._bufferPool.get(key)
-    if (!pool) {
-      pool = []
-      this._bufferPool.set(key, pool)
-    }
-    if (pool.length < GpuTileStore._BUFFER_POOL_CAP_PER_BUCKET) {
-      pool.push(buf)
-    } else {
-      buf.destroy()
-    }
+    this._pool.release(buf)
   }
 
   // ── Arena getters (lazy-init; allocation-free probes via the public
@@ -969,7 +941,6 @@ export class GpuTileStore {
     // standalone GPUBuffers (NOT arena slices), so the arena destroys above do
     // not reclaim them. Without this they leak until device loss across SPA
     // map create/destroy cycles.
-    for (const pool of this._bufferPool.values()) for (const b of pool) b.destroy()
-    this._bufferPool.clear()
+    this._pool.destroy()
   }
 }
