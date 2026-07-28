@@ -4,8 +4,31 @@ import Graticule from '../components/Graticule.astro'
 import Header from '../components/Header.astro'
 import Footer from '../components/Footer.astro'
 import { Eyebrow, SectionHead } from '@/components/kit'
+import { MAPBOX_COVERAGE } from '@xgis/compiler'
+import { coverage } from '@/lib/mapbox-coverage'
 const base = import.meta.env.BASE_URL.replace(/\/+$/, '')
 const playgroundUrl = `${base}/play/demo.html`
+
+// ── Compatibility cards: DERIVED from MAPBOX_COVERAGE, never hand-written ──
+// These three cards used to be prose lists maintained by hand, and they
+// rotted: they still claimed symbol/text layers, circle, heatmap, hillshade,
+// `concat` and `step` were unsupported long after the converter shipped them
+// (road labels convert end-to-end via label-along-path). /docs/mapbox-spec
+// already renders MAPBOX_COVERAGE as the authoritative table; deriving the
+// summary from the same rows is the only way the two can't disagree.
+const sectionCoverage = MAPBOX_COVERAGE.map(s => {
+  const applicable = s.entries.filter(e => e.status !== 'na')
+  return {
+    title: s.title,
+    id: s.id,
+    supported: applicable.filter(e => e.status === 'supported').length,
+    applicable: applicable.length,
+  }
+}).filter(s => s.applicable > 0)
+const namesByStatus = (status: 'partial' | 'unsupported' | 'na') =>
+  MAPBOX_COVERAGE.flatMap(s => s.entries.filter(e => e.status === status).map(e => e.name))
+const partialNames = namesByStatus('partial')
+const unsupportedNames = namesByStatus('unsupported')
 
 interface Preset {
   id: string
@@ -156,42 +179,41 @@ const presets: Preset[] = [
     <section class="mt-16 border-t border-line pt-10">
       <h2 class="font-display text-fg text-[20px] font-normal tracking-[-0.02em]">Mapbox style spec compatibility</h2>
       <p class="mt-2 text-fg-dim text-[13px] max-w-[680px]">
-        Goal: 100% of the style spec round-trips. Current state below is what the
-        converter <em>knows about</em> — anything else lands in the conversion
-        notes block when present.
+        Goal: 100% of the style spec round-trips. Today
+        <strong class="text-fg">{coverage.supported} of {coverage.applicable}</strong>
+        applicable properties ({coverage.pctSupported}%) convert fully —
+        {coverage.partial} partial, {coverage.unsupported} unsupported,
+        {coverage.na} with no xgis equivalent. Every figure and name below is
+        derived at build time from the same table the
+        <a href={`${base}/docs/mapbox-spec`} class="text-accent hover:text-accent-hover underline">spec-coverage reference</a>
+        renders, so this page cannot drift from the converter.
       </p>
       <div class="mt-6 grid grid-cols-1 md:grid-cols-3 gap-4 text-[12px]">
         <div class="border border-line rounded-[8px] p-4 bg-bg-card">
-          <div class="font-mono text-fg-mute text-[11px] uppercase tracking-[0.16em] mb-3">Supported</div>
+          <div class="font-mono text-fg-mute text-[11px] uppercase tracking-[0.16em] mb-3">Supported by section</div>
           <ul class="text-fg-dim space-y-1.5">
-            <li>• Sources: vector (PMTiles + TileJSON), raster, GeoJSON</li>
-            <li>• Layers: background, fill, line, fill-extrusion</li>
-            <li>• Paint: fill-color/-opacity, line-color/-width/-dasharray/-opacity, fill-extrusion-color/-opacity/-height/-base</li>
-            <li>• Filters: legacy + expression form (==/!=/&lt;/&gt;/all/any/in/!in/has/!has)</li>
-            <li>• Expressions: get / coalesce / case / match / arithmetic / min / max / to-number</li>
-            <li>• Zoom: <code>interpolate(zoom, …)</code> with linear curve</li>
+            {sectionCoverage.map(s => (
+              <li class="flex items-baseline justify-between gap-3">
+                <a href={`${base}/docs/mapbox-spec#${s.id}`} class="hover:text-fg">{s.title}</a>
+                <span class="font-mono tabular-nums text-fg-mute whitespace-nowrap">{s.supported}/{s.applicable}</span>
+              </li>
+            ))}
           </ul>
         </div>
         <div class="border border-line rounded-[8px] p-4 bg-bg-card">
-          <div class="font-mono text-fg-mute text-[11px] uppercase tracking-[0.16em] mb-3">Lossy / heuristic</div>
+          <div class="font-mono text-fg-mute text-[11px] uppercase tracking-[0.16em] mb-3">Partial ({partialNames.length})</div>
+          <p class="text-fg-mute mb-3 leading-[1.5]">Converted, but a sub-form or a runtime effect is missing — see the notes column in the full table.</p>
           <ul class="text-fg-dim space-y-1.5">
-            <li>• <code>interpolate</code> curve type (exponential / cubic-bezier) folded to linear</li>
-            <li>• <code>fill-translate</code>, <code>line-translate</code> dropped</li>
-            <li>• <code>fill-outline-color</code> emitted as a separate stroke layer when paired</li>
-            <li>• <code>$type</code> / <code>$id</code> filters dropped (geometry type implied by utility)</li>
-            <li>• Symbol-style <code>fill-pattern</code> / <code>line-pattern</code> dropped (bitmap atlases unimplemented)</li>
+            {partialNames.map(n => <li>• <code>{n}</code></li>)}
           </ul>
         </div>
         <div class="border border-line rounded-[8px] p-4 bg-bg-card">
-          <div class="font-mono text-fg-mute text-[11px] uppercase tracking-[0.16em] mb-3">Unsupported (engine)</div>
+          <div class="font-mono text-fg-mute text-[11px] uppercase tracking-[0.16em] mb-3">Unsupported ({unsupportedNames.length})</div>
+          <p class="text-fg-mute mb-3 leading-[1.5]">Authored values are dropped and reported in the conversion notes block.</p>
           <ul class="text-fg-dim space-y-1.5">
-            <li>• Symbol layers (text + icons) — SDF font + glyph atlas pending</li>
-            <li>• Circle, heatmap, hillshade, sky layers</li>
-            <li>• <code>let</code> / <code>var</code> bindings, <code>concat</code>, <code>downcase</code>, <code>number-format</code></li>
-            <li>• <code>step</code> expressions, <code>at</code>, <code>distance</code>, <code>distance-from-center</code></li>
-            <li>• Top-level <code>light</code>, <code>fog</code>, <code>terrain</code></li>
-            <li>• Paint property <code>transition</code> overrides</li>
+            {unsupportedNames.map(n => <li>• <code>{n}</code></li>)}
           </ul>
+          <p class="text-fg-mute mt-3 leading-[1.5]">Plus {coverage.na} n/a rows — Mapbox-only concepts with no xgis equivalent.</p>
         </div>
       </div>
     </section>

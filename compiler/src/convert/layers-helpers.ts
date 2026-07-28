@@ -540,3 +540,43 @@ export function parseSymbolPlacementStep(layer: MapboxLayer): Array<{
   }
   return collapsed
 }
+
+/** text-pitch-alignment → the ground-projection runtime-gap warning (#777 IV3).
+ *
+ *  The gap: X-GIS renders every label as a viewport-aligned billboard, because
+ *  `LabelDef.pitchAlignment` has no consumer in map/src and the text vertex
+ *  path emits screen-px quads at z=0. It used to be reported only when a style
+ *  authored `text-pitch-alignment: "map"` outright. Nothing does — the spec
+ *  routes styles into it by DEFAULT instead: `auto` (the default) matches
+ *  text-rotation-alignment, whose own `auto` is `map` for line / line-center
+ *  placement. So every road name, waterway name and along-line shield resolves
+ *  to map without authoring anything — 5 text-bearing layers per OFM style —
+ *  and used to convert with a clean notes block while rendering upright under
+ *  pitch. Resolving the chain here makes the conversion report name them.
+ *
+ *  Returns the authored-"map" message, else the resolved-to-"map" message
+ *  (never both), else null: resolved `viewport`, or an icon-only layer — a TEXT
+ *  warning on a layer with no text-field is noise; that gap is I6's row.
+ */
+export function pitchAlignmentGapWarning(
+  layer: { id: string },
+  layout: Record<string, unknown>,
+  placement: unknown,
+  rotAlign: unknown,
+  pitchAlign: unknown,
+): string | null {
+  if (pitchAlign === 'map') {
+    return `Symbol layer "${layer.id}" — text-pitch-alignment "map" set but runtime renders labels viewport-aligned regardless; ground-projection not yet implemented.`
+  }
+  if (pitchAlign === 'viewport' || isOmittedValue(layout['text-field'])) return null
+  const linePlaced = placement === 'line' || placement === 'line-center'
+  const resolvedRotation =
+    rotAlign === 'map' || rotAlign === 'viewport' ? rotAlign : linePlaced ? 'map' : 'viewport'
+  if (resolvedRotation !== 'map') return null
+  return (
+    `Symbol layer "${layer.id}" — text-pitch-alignment resolves to "map" ` +
+    `(spec default: auto → text-rotation-alignment → map${linePlaced ? ` for "${String(placement)}" placement` : ''}) ` +
+    `but runtime renders labels viewport-aligned regardless; ground-projection not yet implemented. ` +
+    `Labels stay upright billboards under pitch instead of lying in the ground plane.`
+  )
+}

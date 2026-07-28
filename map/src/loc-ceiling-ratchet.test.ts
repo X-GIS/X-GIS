@@ -457,7 +457,23 @@ const CEILINGS: Record<string, number> = {
   // coverage push and every mosaic region eviction, and shipped green. +3 is the one-line
   // change plus the three-line reason; there is nothing to extract from a single binding,
   // and dropping the comment would leave the next reader free to "simplify" it back.
-  'map/src/map.ts': 5412,
+  // 5412→5438 (#1419): the advected-arrow arm — `_armAdvectedArrows` (the `| flow` +
+  // `arrows` portrayal fork, the peak-speed read off the UPLOADED field, and why a
+  // not-yet-uploaded region arms nothing), its two call sites, and the one line handing the
+  // graphics store the FlowRenderer that owns the arrow state. It is a coverage ARM, which is
+  // what this file's coverage section already is; extracting a five-line fork to a module of
+  // its own would move the decision away from the other three arms it must stay consistent
+  // with. Measured post-hook.
+  // 5438→5447 (#1419, second pass): the drape arm now keeps RESIDENCY and PAINTING apart —
+  // skipping the arm was also skipping the coverage upload, so the advected arrow field had no
+  // velocity textures and the portrayal rendered NOTHING (found by the render gate, not by any
+  // unit test). +9 is the `needsResidency` fork, the `hidden` argument, and the four lines
+  // saying why, which are the part a future reader needs most.
+  // 5447→5387 (#1426): the deferred coverage attach needed a THIRD arm site, so the
+  // arm itself came OUT — armCoverageDrape/armCoverageShow/armAdvectedArrows/armLandedCoverage
+  // now live in coverage-arm.ts, taking the map structurally. #1419's residency/`hidden` fork
+  // and its advected-arrow fork moved WITH it, unchanged. LOWERED per the shrink-only rule.
+  'map/src/map.ts': 5387,
   // Baselined at #1255 (measured 830): the DOM-inspired layer API crossed
   // NEW_FILE_CAP with the paint-transition style-setter integration — the
   // StyleHost.transitions context, the shared applyNumber/applyColor
@@ -507,6 +523,9 @@ const CEILINGS: Record<string, number> = {
   // decision. Ceiling below is the MERGED file's actual wc -l, measured after prettier.
   // MERGE UNION: both sides' deltas are non-overlapping, so the value is the MEASURED count.
   // MERGE UNION: non-overlapping deltas; the value is the MEASURED post-hook count.
+  // #1426 left this file at its ceiling exactly: the `type: coverage` branch stopped awaiting
+  // its multi-MB read (retiring the fetch/read imports) and spent the saved lines on the
+  // host-fed `url`-less guard + its reason. Net 0 — nothing to lower.
   'map/src/source-manager.ts': 903,
   // 1920→1930 (#1042 R3): the globe limb cull for MULTI-LINE labels must land in
   // the collision phase — the ONLY site holding the label's quad half-height (the
@@ -835,7 +854,21 @@ const CEILINGS: Record<string, number> = {
   // the msaa=1 bridge reuses the device's rebind screen wrapper instead of
   // memo-wrapping a per-frame-minted view — keeps the loop allocation-free
   // on that path too. +7, post-hook.
-  'map/src/render-loop.ts': 1425,
+  //
+  // +7 (#1419, measured after the prettier hook wrapped the call): the WebGL2 twin's
+  // arrow-advection step, beside the trail step it already ran.
+  // Irreducible for the same reason the +12 above was: this is the twin's own call site, and
+  // omitting it is exactly the "?forcegl2=1 shows a different map" failure the twin exists to
+  // prevent — here, a field of arrows frozen at their origins.
+  //
+  // +1 (#1419, second pass): the twin's trail step is now gated on a VISIBLE drape — under the
+  // arrows portrayal every flow region is resident-but-hidden, so advecting a full-screen image
+  // nobody draws was a per-frame cost with no picture attached.
+  //
+  // 1433 (merge, F3b branch × #1419/#1424): both sides GREW independently — the F3b
+  // bridge (+38 over 1387) and the twin's arrow step (+8 over 1387) touch disjoint
+  // regions; the ceiling is the MEASURED post-merge size, not either side's number.
+  'map/src/render-loop.ts': 1433,
   // Baselined at 806 (hillshade tile fade-in): HillshadeRenderer crossed
   // NEW_FILE_CAP restoring the three tile-streaming fixes raster-renderer had
   // landed since hillshade was copied from it — the per-tile fade ramp + its
@@ -1107,7 +1140,10 @@ const CEILINGS: Record<string, number> = {
   //  lower-label 1145→1187: labelIconTextFit/labelIconTextFitPadding knob decls +
   //    the padding-prefix + enum parse arms + knob return + types + LabelDef spread.
   //  render-node 928→943: LabelDef.iconTextFit / iconTextFitPadding fields + docs.
-  'compiler/src/convert/layers-symbol.ts': 1363,
+  // 1363→1357: the text-pitch-alignment gap report (authored "map" AND the
+  // spec default chain that resolves to it) moved out to
+  // layers-helpers.pitchAlignmentGapWarning, net-shrinking the caller.
+  'compiler/src/convert/layers-symbol.ts': 1357,
   'compiler/src/ir/lower-label.ts': 1187,
   'compiler/src/tokens/colors.ts': 937,
   // 943→956 (#1302): RenderNodeArrowPaint sub-bundle (isArrow + arrowBearing).

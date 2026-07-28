@@ -91,6 +91,8 @@ interface CoverageState {
   opacity: number
   /** This region draws the advected field alone, with no colour ramp (see CoverageArmOptions). */
   flowOnly: boolean
+  /** Resident, but the drape paints nothing for it (see CoverageArmOptions). */
+  hidden: boolean
   /** Approximate GPU bytes this region holds — the LRU budget's accounting unit. */
   bytes: number
 }
@@ -141,6 +143,17 @@ export interface CoverageArmOptions {
    *  `| flow` without a `ramp`, where the motion must be visible but the catalogue arrows
    *  stay the only colour authority. The drape then emits a neutral luminance modulation. */
   flowOnly?: boolean
+  /** RESIDENT BUT NOT DRAWN (#1419). The region's textures — the velocity pair above all —
+   *  are uploaded and available to everything that reads them, while the drape itself paints
+   *  nothing.
+   *
+   *  This exists because residency and painting are different questions, and welding them
+   *  cost the advected arrow field its whole data source: under the `arrows` portrayal the
+   *  drape has nothing to add (the moving glyphs ARE the motion layer), and skipping the arm
+   *  to express that also skipped the upload — so the velocity textures never existed, the
+   *  arrow field could not be built, and the layer rendered NOTHING. Caught by a headless
+   *  WebGL2 render, not by 3900 green unit tests. */
+  hidden?: boolean
 }
 
 export class CoverageRenderer {
@@ -272,6 +285,7 @@ export class CoverageRenderer {
       ramp: computeRampUniforms(dataMin, dataMax, opts.rangeLo ?? dataMin, opts.rangeHi ?? dataMax),
       opacity: opts.opacity ?? 1,
       flowOnly: opts.flowOnly === true,
+      hidden: opts.hidden === true,
       // 2 × r16float over the grid + the 256×1 rgba8 LUT, plus the vector pair when this
       // coverage carries one, plus the drape-mesh node buffer (#1366 INC-3). Counting the
       // flow textures matters: they are the SAME size as the value/valid pair, so a vector
@@ -357,6 +371,17 @@ export class CoverageRenderer {
     return false
   }
 
+  /** True when a VISIBLE region carries a velocity field — i.e. when the IBFV trail this
+   *  renderer's drape samples has a consumer at all (#1419). Under the `arrows` portrayal every
+   *  flow region is resident-but-hidden, so the trail image would be advected each frame and
+   *  then drawn by nobody: a full-screen pass per frame for a picture no one looks at. */
+  hasDrapedFlowField(): boolean {
+    for (const st of this.states.values()) {
+      if (st.flowUView && st.flowVView && !st.hidden) return true
+    }
+    return false
+  }
+
   /** Disarm every region (scene rebuild with no coverage source). Textures are
    *  destroyed; the draper + samplers stay for a later re-arm. */
   clear(): void {
@@ -411,6 +436,9 @@ export class CoverageRenderer {
         : wrapWebGpuPass(pass as GPURenderPassEncoder)
     // Least-recently-armed first; overlapping domains alpha-blend in that order.
     for (const s of this.states.values()) {
+      // Resident for its data, not for its paint (#1419) — the velocity pair is uploaded and
+      // the arrow field is built from it, while the drape itself stays out of the frame.
+      if (s.hidden) continue
       // The motion layer rides ONLY on a region that actually carries a velocity field. A
       // scalar region in the same mosaic binds its own value texture as the inert stand-in
       // and gets mix 0, so it draws byte-identically beside an animated neighbour.

@@ -11,10 +11,16 @@ import {
   S111_SCALE_PER_KNOT,
   S111_SPEED_RAMP,
   s111BandTable,
-  S111_BAND_COUNT,
-  S111_BAND_STRIDE,
-  S111_BAND_TOP_SENTINEL,
+  s111BandTableNormalized,
 } from './s111-portrayal'
+import {
+  S111_BAND_COUNT,
+  S111_BAND_PARAMS_ROW,
+  S111_BAND_STRIDE,
+  S111_BAND_TABLE_ROWS,
+  S111_BAND_TOP_SENTINEL,
+  S111_PARAM_UV_ASPECT,
+} from '../shaders/dsl/s111-band-table-layout'
 
 // The authority for every number below is the vendored catalogue at docs/standards/s-111/
 // (portrayal/XSLT/Rules/select_arrow.xsl, main.xsl, Symbols/SVGStyle_S111day.css).
@@ -157,5 +163,41 @@ describe('s111BandTable — the catalogue rule as GPU-indexable data', () => {
     // ...and the constant bands carry the catalogue's own floor/ceiling.
     expect(table[0 * S111_BAND_STRIDE + 1]).toBeCloseTo(S111_SCALE_FLOOR, 6)
     expect(table[8 * S111_BAND_STRIDE + 1]).toBeCloseTo(S111_SCALE_CEILING, 6)
+  })
+})
+
+// #1419 — the same table in the units the advected VS holds, plus the per-batch params row.
+describe('s111BandTableNormalized (#1419)', () => {
+  const PEAK = 4 // knots at a normalized component magnitude of 1
+
+  it('re-expresses edges and the scale rule without changing either', () => {
+    const knots = s111BandTable()
+    const norm = s111BandTableNormalized(PEAK, 1)
+    for (let b = 0; b < S111_BAND_COUNT; b++) {
+      const o = b * S111_BAND_STRIDE
+      // An edge in knots is edge/peak in normalized units…
+      expect(norm[o]).toBeCloseTo(knots[o]! / PEAK, 6)
+      // …and the affine scale evaluated at the SAME physical speed is unchanged, which is the
+      // property that actually matters: same water, same glyph size.
+      const speedKnots = 3
+      const fromKnots = knots[o + 1]! + knots[o + 2]! * speedKnots
+      const fromNorm = norm[o + 1]! + norm[o + 2]! * (speedKnots / PEAK)
+      expect(fromNorm).toBeCloseTo(fromKnots, 6)
+      // Colour is carried across verbatim.
+      for (let s = 4; s < 8; s++) expect(norm[o + s]).toBe(knots[o + s])
+    }
+  })
+
+  it('carries uvAspect in the params row', () => {
+    const norm = s111BandTableNormalized(PEAK, 2.5)
+    expect(norm).toHaveLength(S111_BAND_TABLE_ROWS * S111_BAND_STRIDE)
+    expect(norm[S111_BAND_PARAMS_ROW * S111_BAND_STRIDE + S111_PARAM_UV_ASPECT]).toBe(2.5)
+  })
+
+  it('a calm field (peak 0) is left in knots rather than divided by zero', () => {
+    // Nothing is symbolized at speed 0 anyway (main.xsl note 4, enforced in the VS), so the
+    // table's contents are moot — what must not happen is Infinity reaching a GPU buffer.
+    const norm = s111BandTableNormalized(0, 1)
+    for (const x of norm) expect(Number.isFinite(x)).toBe(true)
   })
 })

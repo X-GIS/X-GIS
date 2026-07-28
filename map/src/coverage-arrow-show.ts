@@ -18,12 +18,17 @@ import type { GraphicsManager } from './graphics/graphics-manager'
 import { bandedRampColor } from './color-ramp'
 import { resolveVectorBands } from './coverage-vector-bands'
 import { ARROW_ADVECT_COUNT } from './render/arrow-advect-state'
+import { ARROW_DRIFT_UV } from './shaders/dsl/arrow-advect-step'
+import { flowTrueSpans } from './render/flow-advect-params'
 import {
+  S111_ARROW_BASE_PX,
   s111ArrowLengthPx,
+  s111BandTableNormalized,
   s111HasArrow,
   S111_OUTLINE_FRAC,
   S111_SPEED_RAMP,
 } from './render/s111-portrayal'
+import type { AdvectedArrowInput } from './graphics/compiled-arrow-store'
 
 /** The slice of XGISMap the coverage-arrow build reads. */
 export interface CoverageArrowShowHost {
@@ -52,15 +57,41 @@ export interface CoverageArrowOptions {
    *  2. EACH INSTANCE CARRIES ITS ORIGIN in grid-uv. The shader adds the drift displacement to
    *     it to know WHERE to sample the field for this frame's band, bearing and scale. Without
    *     it the arrow would move but keep the colour it launched with — an animation that looks
-   *     entirely correct and reports the wrong current. */
-  advected?: boolean
+   *     entirely correct and reports the wrong current.
+   *
+   *  `peakSpeed` is the velocity textures' normalization scale (`packFlowFieldUV`), read off the
+   *  UPLOADED field rather than re-derived here — the band table is expressed in those same
+   *  units, and a second derivation of the peak is a second thing to keep in step. */
+  advected?: { peakSpeed: number }
 }
 
-/** Instance origins in grid-uv, parallel to the arrays handed to `addCompiledArrowLayer`.
- *  Populated only in advected mode; the static portrayal has no use for it. */
+/** Instance origins in grid-uv, plus the two BASIS ANCHORS the advected VS projects, parallel
+ *  to the arrays handed to `addCompiledArrowLayer`. Populated only in advected mode; the static
+ *  portrayal has no use for either.
+ *
+ *  The anchors are the geographic positions of `origin + ARROW_DRIFT_UV` along grid-u and along
+ *  grid-v. The VS projects all three points and maps a displacement to screen as
+ *  `(d/ARROW_DRIFT_UV)·(anchorClip − originClip)`, so the linearization spans EXACTLY the
+ *  excursion the leash allows — no uniform, no scale factor, no trigonometry in the shader.
+ *
+ *  They are computed HERE, through the cell's own CRS (`cellUnitsToLonLat`), and not in the
+ *  packer: a packer that steps degrees is right for a geographic grid and silently wrong for a
+ *  projected one, which is the #1366 failure this generator already paid for once. */
 export interface CoverageArrowOrigins {
   u: Float32Array
   v: Float32Array
+  /** Geographic position of origin + ARROW_DRIFT_UV along grid-u (lon, lat interleaved pairs
+   *  would hide the parallel-array contract; two arrays keep it explicit). */
+  uStepLon: Float64Array
+  uStepLat: Float64Array
+  /** Same, along grid-v — which runs SOUTHWARD (row 0 is the northernmost row), the identical
+   *  sign convention the advect step derives in its header. */
+  vStepLon: Float64Array
+  vStepLat: Float64Array
+  /** `trueLonSpan / trueLatSpan` for this grid (flow-advect-params.ts). A batch scalar, uploaded
+   *  in the band table's params row: the VS needs it to point each glyph along the direction the
+   *  advection actually moves it, since a uv unit is a different true distance on each axis. */
+  uvAspect: number
 }
 
 /** Build the S-111 arrow field for a coverage layer carrying `| arrow`. One arrow per valid
@@ -125,7 +156,12 @@ export function addCoverageArrowShowLayer(
     lons.push(lon)
     lats.push(lat)
     bearings.push(dir[i]!)
-    sizes.push(s111ArrowLengthPx(s))
+    // ADVECTED: the BASE length only. The band multiplier is re-applied in the shader from the
+    // speed under the arrow's CURRENT position (`s111BandTableNormalized`), so baking this
+    // cell's multiplier in as well would scale every arrow twice — by the water it launched
+    // from and by the water it is in. Bearing and colour are likewise ignored downstream in
+    // that mode; they stay in the call because the batch shape is shared with the static path.
+    sizes.push(opts.advected ? S111_ARROW_BASE_PX : s111ArrowLengthPx(s))
     colors.push([c[0] / 255, c[1] / 255, c[2] / 255, 1])
   }
 
@@ -137,7 +173,36 @@ export function addCoverageArrowShowLayer(
     colors,
     S111_OUTLINE_FRAC,
     region,
+    opts.advected ? advectedInput(handle, opts.advected.peakSpeed, rampName, region) : null,
   )
+}
+
+/** Assemble the advected batch's extra inputs. Separate from the emit loop above so the static
+ *  path allocates none of it, and built from `coverageArrowOrigins` so the ORDER contract (origin
+ *  `i` belongs to instance `i`) has exactly one implementation. */
+function advectedInput(
+  handle: CoverageHandle,
+  peakSpeed: number,
+  rampName: string,
+  region: string,
+): AdvectedArrowInput | null {
+  const o = coverageArrowOrigins(handle)
+  if (!o) return null
+  const [nLon, nLat] = handle.header.size
+  return {
+    originU: o.u,
+    originV: o.v,
+    uStepLon: o.uStepLon,
+    uStepLat: o.uStepLat,
+    vStepLon: o.vStepLon,
+    vStepLat: o.vStepLat,
+    bandTable: s111BandTableNormalized(peakSpeed, o.uvAspect, rampName),
+    // The INSTANCE LAYOUT, not the data: a forecast step re-arms the same region, same grid and
+    // same drawable cells, so the key is equal and the arrows keep drifting instead of snapping
+    // back to their cells. A different grid or a different drawable count is a different set of
+    // arrows per texel, and that one must re-seed.
+    key: `${region}|${nLon}x${nLat}|${o.u.length}`,
+  }
 }
 
 /** The origins the ADVECTED mode needs, for the same inputs and in the SAME order
@@ -152,20 +217,58 @@ export function coverageArrowOrigins(handle: CoverageHandle): CoverageArrowOrigi
   const vec = resolveVectorBands(handle)
   if (!vec) return null
   const [nLon, nLat] = handle.header.size
+  const [originX, originY] = handle.header.origin
+  const [dx, dy] = handle.header.spacing
+  const crs = handle.header.crs
   const idx: number[] = []
   for (let i = 0; i < vec.speed.length; i++) {
     if (s111HasArrow(vec.speed[i]!) && Number.isFinite(vec.direction[i]!)) idx.push(i)
   }
   if (idx.length === 0) return null
   const stride = idx.length > ARROW_ADVECT_COUNT ? Math.ceil(idx.length / ARROW_ADVECT_COUNT) : 1
+  // One leash-length in GRID UNITS. A uv of 1 spans (n−1) cells, so this is the number of cells
+  // an arrow may drift before it recycles — and the length of the basis the VS scales.
+  const uSpan = ARROW_DRIFT_UV * (nLon > 1 ? nLon - 1 : 1) * dx
+  const vSpan = ARROW_DRIFT_UV * (nLat > 1 ? nLat - 1 : 1) * dy
   const u: number[] = []
   const v: number[] = []
+  const uStepLon: number[] = []
+  const uStepLat: number[] = []
+  const vStepLon: number[] = []
+  const vStepLat: number[] = []
   for (let k = 0; k < idx.length; k += stride) {
     const i = idx[k]!
     const row = Math.floor(i / nLon)
     const col = i - row * nLon
     u.push(nLon > 1 ? col / (nLon - 1) : 0)
     v.push(nLat > 1 ? row / (nLat - 1) : 0)
+    const gx = originX + col * dx
+    const gy = originY + (nLat - 1 - row) * dy
+    // +u is +x in the grid's own units; +v is SOUTHWARD, which is −y (row 0 is northernmost —
+    // the same derivation arrow-advect-step.ts's header spells out for the advection sign).
+    const [ulon, ulat] = cellUnitsToLonLat(crs, gx + uSpan, gy)
+    const [vlon, vlat] = cellUnitsToLonLat(crs, gx, gy - vSpan)
+    uStepLon.push(ulon)
+    uStepLat.push(ulat)
+    vStepLon.push(vlon)
+    vStepLat.push(vlat)
   }
-  return { u: Float32Array.from(u), v: Float32Array.from(v) }
+  // The SAME derivation the advect step's own params use — one function, so the drawn heading
+  // and the drifted heading cannot disagree.
+  const [swLon, swLat] = cellUnitsToLonLat(crs, originX, originY)
+  const [neLon, neLat] = cellUnitsToLonLat(
+    crs,
+    originX + (nLon - 1) * dx,
+    originY + (nLat - 1) * dy,
+  )
+  const { trueLon, trueLat } = flowTrueSpans([neLon - swLon, neLat - swLat], (swLat + neLat) / 2)
+  return {
+    u: Float32Array.from(u),
+    v: Float32Array.from(v),
+    uStepLon: Float64Array.from(uStepLon),
+    uStepLat: Float64Array.from(uStepLat),
+    vStepLon: Float64Array.from(vStepLon),
+    vStepLat: Float64Array.from(vStepLat),
+    uvAspect: trueLat > 0 ? trueLon / trueLat : 1,
+  }
 }
