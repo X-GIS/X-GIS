@@ -606,7 +606,11 @@ const CEILINGS: Record<string, number> = {
   // the per-prepare makeBakeFrame + placement stamp, and the holdoverDrawToEmit
   // emit + parallel bake sweeps (empty-prepare + eviction). Math + decision live
   // extracted/unit-proved in holdover-reproject.ts. +45, measured post-hook.
-  'map/src/text/text-stage.ts': 2284,
+  // 2284→2232 (#777 IV3-2b): the module-scope constants (STAGE_DEFAULTS,
+  // TEXT_MAX_ANGLE_DEFAULT_DEG) and the pure rotateLabelTranslate helper moved to
+  // text-stage-helpers.ts — none touch `this`. A behaviour-free move that opens the
+  // headroom the ground-basis bbox work needs; the file sat exactly at its ceiling.
+  'map/src/text/text-stage.ts': 2232,
   // 1786→1719 (#727 C): the line/point dedupe + pair-key helper block was
   // EXTRACTED to passes/line-label-dedupe.ts when the world-copy fan-out would
   // otherwise have grown this file — the extract-don't-grow answer.
