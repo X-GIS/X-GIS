@@ -18,10 +18,29 @@
     <link rel="icon" href="data:," />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <!-- NON-RENDER-BLOCKING (measured). As a plain `rel="stylesheet"` this
+       third-party sheet gates first paint AND DOMContentLoaded on
+       fonts.googleapis.com being reachable: where it is not — a corporate
+       proxy, a region that blocks it, an offline dev box — the request hangs
+       until the connection gives up and the WHOLE page waits it out. Measured
+       in a network-less sandbox: DOMContentLoaded at 13.1 s, of which 12.6 s
+       was this one request timing out, with the main thread 96% idle. Nothing
+       else on the page was slow.
+       `media="print"` makes it non-blocking; the onload flip applies it the
+       moment it lands. `display=swap` (already on the URL) governs the FONT,
+       not the stylesheet fetch, so it could never have covered this. -->
     <link
       href="https://fonts.googleapis.com/css2?family=Geist+Mono:wght@400;500&family=Inter:wght@400;500;700&display=swap"
       rel="stylesheet"
+      media="print"
+      onload="this.media = 'all'"
     />
+    <noscript>
+      <link
+        href="https://fonts.googleapis.com/css2?family=Geist+Mono:wght@400;500&family=Inter:wght@400;500;700&display=swap"
+        rel="stylesheet"
+      />
+    </noscript>
     <!-- Self-hosted Open Sans / Noto Sans were planned (see
        public/fonts/map-fonts.css) but the actual .woff2 files were
        never vendored — the CSS @font-face declarations triggered
