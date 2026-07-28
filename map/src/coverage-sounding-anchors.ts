@@ -112,32 +112,33 @@ export function coverageSoundingAnchors(
   const [nLon, nLat] = size
   const [originX, originY] = origin
   const [dx, dy] = spacing
-  const step = opts.spacingPx
-  if (!(step > 0) || nLon < 1 || nLat < 1) return []
+  if (!(opts.spacingPx > 0) || nLon < 1 || nLat < 1) return []
   const max = opts.max ?? SOUNDING_MAX_CANDIDATES
 
+  // What the camera can see, in CELL indices. Probed with the same unprojector, but only to
+  // bound the walk — the cells chosen inside these bounds do not depend on where the probes
+  // landed, which is the whole difference from the screen-anchored version.
+  const view = visibleCellRange(handle, unproject, opts)
+  if (!view) return []
+
+  // One stride for both axes, so the pattern stays square on screen and a rotation cannot
+  // swap which axis is coarser. Quantised to a POWER OF TWO: any continuous stride would
+  // change on every zoom delta, and each change re-picks every cell.
+  const stride = quantiseStride(opts.spacingPx / view.pxPerCell)
+
   const out: SoundingAnchor[] = []
-  const seen = new Set<number>()
-  // Half-step inset so the lattice is centred in the viewport rather than hugging its
-  // top-left corner — the labels then sit symmetrically as the camera pans.
-  for (let py = step / 2; py < opts.height; py += step) {
-    for (let px = step / 2; px < opts.width; px += step) {
+  // Anchored on cell 0, NOT on the visible range: a phase tied to the view would slide the
+  // whole pattern as the camera moves, which is the churn this design exists to remove.
+  const first = (lo: number): number => Math.ceil(lo / stride) * stride
+  for (let rowFromSouth = first(view.rowLo); rowFromSouth <= view.rowHi; rowFromSouth += stride) {
+    for (let col = first(view.colLo); col <= view.colHi; col += stride) {
       if (out.length >= max) return out
-      const lonLat = unproject(px, py)
-      if (!lonLat) continue
-      const [x, y] = lonLatToCellUnits(crs, lonLat[0], lonLat[1])
-      const col = Math.round((x - originX) / dx)
-      const rowFromSouth = Math.round((y - originY) / dy)
-      if (col < 0 || col >= nLon || rowFromSouth < 0 || rowFromSouth >= nLat) continue
-      const key = rowFromSouth * nLon + col
-      if (seen.has(key)) continue
-      seen.add(key)
-      // Snap to the cell CENTRE and read there, so the numeral marks the sounding it
-      // reports. `valueAt` is unit-native, and these are already the grid's own units.
+      // Cell CENTRE — the numeral marks the sounding it reports, and `valueAt` is
+      // unit-native, so these are already the grid's own units.
       const cx = originX + col * dx
       const cy = originY + rowFromSouth * dy
-      const first = handle.valueAt(cx, cy)
-      if (first === null || Number.isNaN(first)) continue
+      const primary = handle.valueAt(cx, cy)
+      if (primary === null || Number.isNaN(primary)) continue
       const values: Record<string, number> = {}
       for (const band of handle.bands) {
         const v = handle.valueAt(cx, cy, band.header.name)
@@ -148,4 +149,100 @@ export function coverageSoundingAnchors(
     }
   }
   return out
+}
+
+/** Round a desired stride to a power of two, ≥ 1.
+ *
+ *  The quantisation is the point, not tidiness. A stride that tracked zoom continuously would
+ *  take a new value on every wheel delta, and since the chosen cells are `col % stride === 0`,
+ *  every change re-picks the ENTIRE set — the numerals would boil during a zoom. Powers of two
+ *  change rarely, and when they do, half the previous cells SURVIVE (every second one), so the
+ *  transition reads as thinning rather than as a new pattern. */
+function quantiseStride(want: number): number {
+  if (!Number.isFinite(want) || want <= 1) return 1
+  return 2 ** Math.round(Math.log2(want))
+}
+
+/** The cell-index rectangle the camera can see, plus how many pixels one cell spans.
+ *
+ *  Probes a small screen lattice rather than the four corners alone: under pitch or on a
+ *  globe the corners are exactly where the ray misses the surface, and four nulls would read
+ *  as "nothing visible" while the middle of the screen is full of grid. Returns null when no
+ *  probe lands on the surface at all. */
+function visibleCellRange(
+  handle: CoverageHandle,
+  unproject: (px: number, py: number) => [number, number] | null,
+  opts: SoundingAnchorOptions,
+): { colLo: number; colHi: number; rowLo: number; rowHi: number; pxPerCell: number } | null {
+  const { crs, origin, spacing, size } = handle.header
+  const [nLon, nLat] = size
+  const [originX, originY] = origin
+  const [dx, dy] = spacing
+  let colLo = Infinity
+  let colHi = -Infinity
+  let rowLo = Infinity
+  let rowHi = -Infinity
+  const PROBES = 8
+  for (let iy = 0; iy <= PROBES; iy++) {
+    for (let ix = 0; ix <= PROBES; ix++) {
+      const lonLat = unproject((ix / PROBES) * opts.width, (iy / PROBES) * opts.height)
+      if (!lonLat) continue
+      const [x, y] = lonLatToCellUnits(crs, lonLat[0], lonLat[1])
+      const col = (x - originX) / dx
+      const row = (y - originY) / dy
+      if (col < colLo) colLo = col
+      if (col > colHi) colHi = col
+      if (row < rowLo) rowLo = row
+      if (row > rowHi) rowHi = row
+    }
+  }
+  if (!Number.isFinite(colLo)) return null
+  // Clamp to the grid, and widen by one cell so a numeral whose centre sits just outside the
+  // probed hull still enters the walk (it is the collision pass's job to drop it, not this).
+  const cLo = Math.max(0, Math.floor(colLo) - 1)
+  const cHi = Math.min(nLon - 1, Math.ceil(colHi) + 1)
+  const rLo = Math.max(0, Math.floor(rowLo) - 1)
+  const rHi = Math.min(nLat - 1, Math.ceil(rowHi) + 1)
+  if (cLo > cHi || rLo > rHi) return null
+  const pxPerCell = localPxPerCell(handle, unproject, opts)
+  if (pxPerCell === null) return null
+  return { colLo: cLo, colHi: cHi, rowLo: rLo, rowHi: rHi, pxPerCell }
+}
+
+/** Pixels per grid cell, measured LOCALLY at the screen centre.
+ *
+ *  Deliberately not derived from the visible range: the axis-aligned hull of a ROTATED
+ *  viewport is up to √2 larger than the viewport itself, so a hull-based scale reads a
+ *  rotation as a zoom-out and can flip the stride — numerals thinning by half purely because
+ *  the user turned the map. A local finite difference is rotation-invariant by construction,
+ *  because a rotation preserves distance. */
+function localPxPerCell(
+  handle: CoverageHandle,
+  unproject: (px: number, py: number) => [number, number] | null,
+  opts: SoundingAnchorOptions,
+): number | null {
+  const { crs, origin, spacing } = handle.header
+  const [originX, originY] = origin
+  const [dx, dy] = spacing
+  const D = Math.max(8, Math.min(opts.width, opts.height) / 8)
+  const midX = opts.width / 2
+  const midY = opts.height / 2
+  const at = (px: number, py: number): [number, number] | null => {
+    const lonLat = unproject(px, py)
+    if (!lonLat) return null
+    const [x, y] = lonLatToCellUnits(crs, lonLat[0], lonLat[1])
+    return [(x - originX) / dx, (y - originY) / dy]
+  }
+  // Probe both axes and take the LARGER cell-space step: under pitch the two differ (the
+  // far side of the screen covers more ground), and the smaller one would make the stride
+  // too fine for the far field, which is where crowding actually happens.
+  const c = at(midX, midY)
+  const ex = at(midX + D, midY)
+  const ey = at(midX, midY + D)
+  if (!c) return null
+  let cells = 0
+  if (ex) cells = Math.max(cells, Math.hypot(ex[0] - c[0], ex[1] - c[1]))
+  if (ey) cells = Math.max(cells, Math.hypot(ey[0] - c[0], ey[1] - c[1]))
+  if (!(cells > 0)) return null
+  return D / cells
 }
