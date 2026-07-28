@@ -458,7 +458,12 @@ const CEILINGS: Record<string, number> = {
   // what this file's coverage section already is; extracting a five-line fork to a module of
   // its own would move the decision away from the other three arms it must stay consistent
   // with. Measured post-hook.
-  'map/src/map.ts': 5438,
+  // 5438→5447 (#1419, second pass): the drape arm now keeps RESIDENCY and PAINTING apart —
+  // skipping the arm was also skipping the coverage upload, so the advected arrow field had no
+  // velocity textures and the portrayal rendered NOTHING (found by the render gate, not by any
+  // unit test). +9 is the `needsResidency` fork, the `hidden` argument, and the four lines
+  // saying why, which are the part a future reader needs most.
+  'map/src/map.ts': 5447,
   // Baselined at #1255 (measured 830): the DOM-inspired layer API crossed
   // NEW_FILE_CAP with the paint-transition style-setter integration — the
   // StyleHost.transitions context, the shared applyNumber/applyColor
@@ -825,7 +830,11 @@ const CEILINGS: Record<string, number> = {
   // Irreducible for the same reason the +12 above was: this is the twin's own call site, and
   // omitting it is exactly the "?forcegl2=1 shows a different map" failure the twin exists to
   // prevent — here, a field of arrows frozen at their origins.
-  'map/src/render-loop.ts': 1394,
+  //
+  // +1 (#1419, second pass): the twin's trail step is now gated on a VISIBLE drape — under the
+  // arrows portrayal every flow region is resident-but-hidden, so advecting a full-screen image
+  // nobody draws was a per-frame cost with no picture attached.
+  'map/src/render-loop.ts': 1395,
   // Baselined at 806 (hillshade tile fade-in): HillshadeRenderer crossed
   // NEW_FILE_CAP restoring the three tile-streaming fixes raster-renderer had
   // landed since hillshade was copied from it — the per-tile fade ramp + its
