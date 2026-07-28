@@ -41,6 +41,31 @@ async function sourceTris(page: Page, name: string): Promise<number> {
   }, name)
 }
 
+/** Wait until the source's contribution stops moving, then return it.
+ *
+ *  A POLL, not a fixed sleep. The fixed 8-10 s waits this replaced were a guess that was both
+ *  too slow for the render-gate's budget (this became its most expensive spec, and on a loaded
+ *  runner the timeout fired during fixture setup) and not actually a convergence proof. The
+ *  measured settle is ~2.5 s; `stableFor` samples is the evidence, and the cap keeps a genuine
+ *  hang a failure rather than a wedge.
+ *
+ *  Pre-fix this still returns promptly — the stale frame settles at the WRONG value and stays
+ *  there, which is exactly what the assertion catches. */
+async function settle(page: Page, stableFor = 6, capMs = 45_000): Promise<number> {
+  const t0 = Date.now()
+  let last = -1
+  let stable = 0
+  while (Date.now() - t0 < capMs) {
+    await page.waitForTimeout(500)
+    const n = await sourceTris(page, SOURCE)
+    if (n === last) stable++
+    else stable = 0
+    last = n
+    if (stable >= stableFor) break
+  }
+  return last
+}
+
 /** Push a deterministic grid of many-vertex polygons centred on the camera. `grid²` features,
  *  so the caller can make two pushes that are unmistakably different sizes. */
 async function push(page: Page, grid: number): Promise<number> {
@@ -78,7 +103,10 @@ async function push(page: Page, grid: number): Promise<number> {
   )
 }
 
-test.describe.configure({ mode: 'serial' })
+// Serial, and the timeout is set HERE rather than inside a test body: a body-scope
+// `test.setTimeout` does not cover fixture setup, and on a loaded runner this leg's context
+// setup is exactly where the budget ran out (#1448 CI run 30344914959).
+test.describe.configure({ mode: 'serial', timeout: 180_000 })
 
 test('a host data push reaches the GPU, and a second push replaces the first (#1402)', async ({
   page,
@@ -160,8 +188,6 @@ test('ONE push converges on its own — no second push, no interaction (#1448)',
   // between, and the two readings must AGREE. A second push is the thing that used to hide the
   // bug, so using it as the reference is what makes this gate sharp — if the first push
   // converged, the second changes nothing.
-  // Four settle windows plus the initial load put this well past Playwright's 60 s default.
-  test.setTimeout(180_000)
   const errors: string[] = []
   page.on('pageerror', (e) => errors.push(e.message))
 
@@ -172,22 +198,20 @@ test('ONE push converges on its own — no second push, no interaction (#1448)',
   await page.waitForFunction(() => (window as unknown as { __xgisReady?: boolean }).__xgisReady, {
     timeout: 60_000,
   })
-  await page.waitForTimeout(12_000)
+  await settle(page)
 
   // Seed with the dense grid so the sparse push below has something to replace.
   await push(page, 90)
-  await page.waitForTimeout(8000)
+  await settle(page)
 
   await push(page, 30)
-  await page.waitForTimeout(10_000)
-  const once = await sourceTris(page, SOURCE)
+  const once = await settle(page)
   expect(once, 'the layer must not be blank').toBeGreaterThan(0)
 
   // The reference: the state a SECOND identical push reaches. Pre-fix this was where the
   // stragglers finally got swapped, and `once` sat 2.3x above it.
   await push(page, 30)
-  await page.waitForTimeout(10_000)
-  const twice = await sourceTris(page, SOURCE)
+  const twice = await settle(page)
 
   expect(
     Math.abs(once - twice) / twice,
