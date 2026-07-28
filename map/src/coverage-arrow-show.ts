@@ -12,7 +12,7 @@
 // ./render/s111-portrayal.ts + the s111-speed BANDED_RAMPS palette (color-ramp.ts), one
 // source of truth with the fill.
 
-import type { CoverageHandle } from '@xgis/data'
+import { cellUnitsToLonLat, type CoverageHandle } from '@xgis/data'
 import type { ShowCommand } from './render/renderer-types'
 import type { GraphicsManager } from './graphics/graphics-manager'
 import { bandedRampColor } from './color-ramp'
@@ -59,8 +59,9 @@ export function addCoverageArrowShowLayer(
   if (!vec) return
 
   const [nLon, nLat] = handle.header.size
-  const [originLon, originLat] = handle.header.origin // SW cell CENTRE (point registration)
-  const [dLon, dLat] = handle.header.spacing
+  const [originX, originY] = handle.header.origin // SW cell CENTRE (point registration)
+  const [dx, dy] = handle.header.spacing
+  const crs = handle.header.crs
   const rampName = show.ramp ?? S111_SPEED_RAMP
   const speed = vec.speed
   const dir = vec.direction
@@ -85,8 +86,13 @@ export function addCoverageArrowShowLayer(
     const col = i - row * nLon
     const s = speed[i]!
     const c = bandedRampColor(rampName, s) ?? bandedRampColor(S111_SPEED_RAMP, s) ?? [255, 255, 255]
-    lons.push(originLon + col * dLon)
-    lats.push(originLat + (nLat - 1 - row) * dLat)
+    // Through the cell's OWN CRS (#1366). `origin + col·spacing` is in the GRID's units,
+    // which are degrees only for a geographic cell — real S-111 cells are, which is why
+    // this read as correct, but INC-3 made PROJECTED cells placeable and a UTM grid's
+    // metres pushed as lon/lat would land continents away. One authority with the drape.
+    const [lon, lat] = cellUnitsToLonLat(crs, originX + col * dx, originY + (nLat - 1 - row) * dy)
+    lons.push(lon)
+    lats.push(lat)
     bearings.push(dir[i]!)
     sizes.push(s111ArrowLengthPx(s))
     colors.push([c[0] / 255, c[1] / 255, c[2] / 255, 1])

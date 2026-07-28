@@ -124,8 +124,13 @@ describe('source-manager: coverage dispatch (A9)', () => {
   it('a non-200 coverage fetch throws a source-attributable error', async () => {
     vi.spyOn(shared, 'safeFetch').mockResolvedValue(new Response(null, { status: 404 }) as never)
     const { mgr } = makeManager()
+    // Wording note: the attach branch used to say `coverage "bathy"` here while labelling
+    // the SAME source `coverage source "bathy"` for its fetch guard. Extracting the read
+    // into `fetchCoverageHandle` (shared with Map.refreshCoverage) collapsed the two onto
+    // the one label. Both asserted properties — source attribution + the status code —
+    // are unchanged.
     await expect(mgr._attachOneSource(load(), '', MAPS, { fit: false })).rejects.toThrow(
-      /coverage "bathy".*404/,
+      /coverage source "bathy".*404/,
     )
   })
 })

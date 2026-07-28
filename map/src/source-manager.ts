@@ -54,9 +54,10 @@ import { detectCapPoles, type CapPoles } from '@xgis/data'
 import * as tilingPool from '@xgis/data'
 import { reprojectFeatureCollection } from '@xgis/data'
 import { pointPatchToFeatureCollection, type PointPatch } from '@xgis/data'
-import { readCoverage, readCoverageRange } from '@xgis/data'
+import { fetchCoverageHandle } from './coverage-fetch'
 import { SOURCE_TYPES } from '@xgis/compiler'
 import type { SourceLoader } from './source-loader'
+import { normaliseHostPushedData } from './source-data-normalize'
 
 /** The built-in source `type:` values the dispatch handles natively; anything else
  *  routes to the per-map custom source-loader registry (source-loader-seam §4).
@@ -344,19 +345,10 @@ export class SourceManager {
     if (declaredType === 'coverage') {
       const label = `coverage source "${load.name}"`
       const safe: typeof fetch = (u, init) => safeFetch(String(u), init, label) // SSRF guard
-      let handle
-      try {
-        // Range-stream: only the metadata + grid read, not the whole multi-timestep cell (~⅓ bytes).
-        handle = await readCoverageRange(url, { fetch: safe })
-      } catch {
-        // Fallback when the server does not honour HTTP Range: whole-file fetch (original path).
-        const response = await safe(url)
-        if (!response.ok)
-          throw new Error(`[X-GIS] coverage "${load.name}" — HTTP ${response.status}`)
-        const raw = await readBodyCapped(response, 256 * 1024 * 1024, label)
-        const buf = raw.buffer.slice(raw.byteOffset, raw.byteOffset + raw.byteLength)
-        handle = await readCoverage(buf, url)
-      }
+      // The range-then-whole-file ladder lives in coverage-fetch.ts, shared with
+      // `refreshCoverage` (#1158): read the same way at attach and at refresh, or a
+      // Range-hostile server works once and breaks on the first re-read.
+      const handle = await fetchCoverageHandle(url, label, safe)
       // DATA-ONLY (ramp/range are LAYER paint, #1158 INC-D); one DECLARED cell ⇒ one region,
       // and coverage-source.ts owns residency + the time axis from here (#1272).
       this.rawDatasets.set(load.name, { _coverage: new Map([[DEFAULT_REGION, { handle, url }]]) })
@@ -591,6 +583,7 @@ export class SourceManager {
       strokeColorExprs: maps.strokeColorExprsBySource.get(vtKey),
     })
     source.attachBackend(backend)
+    this._dropTilingIndexWithCatalog(source, vtKey)
 
     // Camera fit from the data's bounds. Same heuristic the legacy
     // compile callback uses; the bounds come from a sync walk
@@ -716,6 +709,7 @@ export class SourceManager {
       strokeColorExprs: maps.strokeColorExprsBySource.get(sourceName),
     })
     source.attachBackend(backend)
+    this._dropTilingIndexWithCatalog(source, sourceName)
     this.vtBackends.set(sourceName, backend) // #1371 — so a re-seed can swap it in place
 
     // A7 — staleness was already ruled out at entry (no await since), so the
@@ -760,6 +754,26 @@ export class SourceManager {
         })
       }
     }
+  }
+
+  /** Bind the tiling-worker index the just-attached backend built for
+   *  `sourceName` to the lifetime of the catalog that serves it (#1353). The
+   *  worker is a process-global singleton that retains every index handed to
+   *  it, so otherwise each SPA mount/destroy cycle leaks one GeoJSONVT index
+   *  per source for the page's lifetime. `XGISMap.teardownSource` destroys the
+   *  catalog of every registered vt source, reached from both `destroy()` and
+   *  `_teardownForReinit` — exactly the lifetime we want.
+   *
+   *  Evicting is safe on the SHARED worker because the key is namespaced
+   *  `${instanceId}::${sourceName}` with THIS map's id, so a sibling map's index
+   *  is a different key. That is why this differs from the neighbouring decision
+   *  NOT to terminate the shared worker pools in `XGISMap.destroy()`: termination
+   *  is global and would break a sibling, dropping our own namespaced key cannot.
+   *  Lives here rather than in the backend because SourceManager owns
+   *  `_tilingInstanceId` and issues the only other eviction (`setSourceData`) —
+   *  one authority for when a key dies. */
+  private _dropTilingIndexWithCatalog(source: TileCatalog, sourceName: string): void {
+    source.onDestroy(() => tilingPool.dropSource(this._tilingInstanceId, sourceName))
   }
 
   /** #1371 — re-seed a virtual-tiled geojson source WITHOUT destroying its catalog/renderer.
@@ -823,46 +837,9 @@ export class SourceManager {
     if (!this.rawDatasets.has(sourceId)) {
       throw new Error(`[X-GIS] setSourceData: unknown source "${sourceId}"`)
     }
-    // Validate FeatureCollection shape. Pre-fix a host passing
-    // `null` / `[]` / a Feature / a Geometry directly polluted the
-    // rawDatasets entry and crashed rebuildLayers on .features
-    // access. Normalise to a safe FeatureCollection rather than
-    // storing whatever the caller passed verbatim.
-    if (!data || typeof data !== 'object' || Array.isArray(data)) {
-      throw new Error(`[X-GIS] setSourceData: data must be a FeatureCollection object`)
-    }
-    // Auto-promote a single Feature → FeatureCollection (Mapbox API
-    // accepts both; was previously a confusing throw). Same lift the
-    // compiler-side normaliseInlineGeoJSON does for inline source.data.
-    // Also accept a bare Geometry (`{ type: 'Point', coordinates: … }`)
-    // by wrapping it in a Feature inside a FeatureCollection.
-    // The typed union narrows directly: `data.type === 'Feature'` and the
-    // `'coordinates' in data` presence check discriminate the three arms with
-    // no cast. A GeometryCollection (no `coordinates`) falls to the FC arm and
-    // is rejected by the features-array guard below, matching the prior path.
-    let normalized: GeoJSONFeatureCollection
-    if (data.type === 'Feature') {
-      normalized = { type: 'FeatureCollection', features: [data] }
-    } else if ('coordinates' in data) {
-      // Bare Geometry (Point / LineString / Polygon / Multi*).
-      normalized = {
-        type: 'FeatureCollection',
-        features: [{ type: 'Feature', geometry: data, properties: {} }],
-      }
-    } else {
-      normalized = data as GeoJSONFeatureCollection
-    }
-    if (!Array.isArray((normalized as { features?: unknown }).features)) {
-      throw new Error(
-        `[X-GIS] setSourceData: data.features must be an array (got ${typeof (normalized as { features?: unknown }).features})`,
-      )
-    }
-    // DoS guard: refuse a pathological host-pushed collection before it
-    // is reprojected / retiled / uploaded (unbounded feature/vertex OOM).
-    assertIngestBudget(
-      (normalized as { features?: unknown }).features,
-      `setSourceData("${sourceId}")`,
-    )
+    // Shape-normalise + validate the pushed value (Feature / bare Geometry
+    // lift, features-array guard, ingest-budget DoS guard).
+    let normalized = normaliseHostPushedData(sourceId, data)
     // #1235 gap 1 — a source that was attached through the virtual-PMTiles
     // tiling (rawDatasets holds the `_vectorTile` marker: inline `data:` and
     // URL-loaded GeoJSON alike) must be RE-SEEDED through that same attach.

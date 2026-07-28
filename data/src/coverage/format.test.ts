@@ -89,6 +89,47 @@ describe('CoverageHandle.valueAt — the value-readout authority', () => {
   })
 })
 
+// ─── the handle carries the cell's REAL CRS (#1366 INC-2) ────────────────────
+// `crs` used to be pinned to the literal 'EPSG:4326'. Real S-100 cells are frequently
+// projected (a NOAA S-102 cell declares 32618 — UTM 18N, a metre grid), so a handle
+// that always claims 4326 is a handle that lies about where its numbers live.
+describe('coverageFromGrids — horizontal CRS', () => {
+  it('defaults to EPSG:4326 when the cell declares none — the S-111 path, unchanged', () => {
+    // Load-bearing back-compat: real NOAA S-111 cells omit horizontalCRS entirely and
+    // have always been read as geographic. Omitted and explicit-null must both land on
+    // exactly the string the header carried before this change.
+    expect(coverageFromGrids(baseInput()).header.crs).toBe('EPSG:4326')
+    expect(coverageFromGrids({ ...baseInput(), crs: null }).header.crs).toBe('EPSG:4326')
+    expect(coverageFromGrids({ ...baseInput(), crs: 4326 }).header.crs).toBe('EPSG:4326')
+  })
+
+  it('carries a projected code through verbatim', () => {
+    // The reader refuses to BUILD one of these from a real cell today
+    // (assertGeographicCRS) — placing a projected grid is INC-3. This gate is at the
+    // seam below that refusal, pinning that the code survives the grids→handle step.
+    expect(coverageFromGrids({ ...baseInput(), crs: 32618 }).header.crs).toBe('EPSG:32618')
+    expect(coverageFromGrids({ ...baseInput(), crs: 5179 }).header.crs).toBe('EPSG:5179')
+  })
+
+  it('rejects a non-integer CRS loudly instead of falling back to 4326', () => {
+    // A silent fallback would relabel a projected grid as geographic — the exact
+    // mis-render this field exists to prevent.
+    expect(() => coverageFromGrids({ ...baseInput(), crs: 4326.5 })).toThrow(/positive EPSG/)
+    expect(() => coverageFromGrids({ ...baseInput(), crs: -1 })).toThrow(/positive EPSG/)
+    expect(() => coverageFromGrids({ ...baseInput(), crs: 0 })).toThrow(/positive EPSG/)
+  })
+
+  it('changes nothing else about the handle', () => {
+    // The whole header, minus crs, must be identical whichever CRS was supplied —
+    // this field must not perturb geometry, bands or the vertical datum.
+    const geographic = coverageFromGrids(baseInput()).header
+    const projected = coverageFromGrids({ ...baseInput(), crs: 32618 }).header
+    const { crs: _a, ...restGeo } = geographic
+    const { crs: _b, ...restProj } = projected
+    expect(restProj).toEqual(restGeo)
+  })
+})
+
 describe('southFirstToNorthUp — the ONE orientation normalize', () => {
   // The reader stores south-row-first (row 0 = grid origin = south); the handle is
   // north-up. This is the flip readCoverageFromHdf5 applies.

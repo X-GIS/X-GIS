@@ -752,6 +752,91 @@ describe('XGISMap.rebuildLayers — characterization (pins current behaviour)', 
     })
   })
 
+  // ── Coverage: which shows arm the FILL (#1366 INC-5) ──────────────
+  //
+  // This arm runs PER SHOW, and a chart puts its sounding numerals on a SECOND layer
+  // over the ramp layer — two shows on ONE coverage source. The label-only show used to
+  // re-arm the fill with the DEFAULT viridis ramp, silently repainting the
+  // `ramp: "bathymetry"` layer authored right above it. That was found by a before/after
+  // render diff (the fill flipped colour when the numerals were added), which is exactly
+  // the class of bug no unit gate was watching for — so it gets one here.
+  describe('coverage fill arming', () => {
+    // A coverage source holds a keyed Map of REGIONS (#1272 E-④), not one handle.
+    const covData = {
+      _coverage: new Map([
+        [
+          '__default__',
+          {
+            handle: {
+              header: {
+                crs: 'EPSG:4326',
+                origin: [0, 0],
+                spacing: [1, 1],
+                size: [2, 2],
+                bands: [],
+              },
+              bands: [],
+            },
+            url: 'x.h5',
+          },
+        ],
+      ]),
+    }
+    const label = { kind: 'expr', expr: { ast: { kind: 'StringLiteral', value: '1' } } }
+
+    function armCoverage(shows: unknown[]): ReturnType<typeof makeMocks> {
+      const mocks = makeMocks()
+      const { internals } = makeMap(mocks)
+      ;(internals.rawDatasets as unknown as Map<string, unknown>).set('bathy', covData)
+      internals.showCommands = shows
+      internals.rebuildLayers()
+      return mocks
+    }
+
+    it('a ramp layer arms the fill with ITS ramp', () => {
+      const mocks = armCoverage([show('bathy', { ramp: 'bathymetry', range: [0, 40] })])
+      expect(mocks.coverageRenderer.setCoverage).toHaveBeenCalledTimes(1)
+      expect(mocks.coverageRenderer.setCoverage.mock.calls[0]![1]).toMatchObject({
+        ramp: 'bathymetry',
+        rangeLo: 0,
+        rangeHi: 40,
+      })
+    })
+
+    it('a LABEL-ONLY layer does not arm the fill at all', () => {
+      const mocks = armCoverage([show('bathy', { label })])
+      expect(mocks.coverageRenderer.setCoverage).not.toHaveBeenCalled()
+    })
+
+    it('a label layer over a ramp layer leaves the ramp ALONE — the shipped shape', () => {
+      // Fail-before: without the label-only rule the second show re-armed the fill with
+      // the default viridis, so this asserted ramp came back 'viridis'.
+      const mocks = armCoverage([
+        show('bathy', { layerName: 'depth', ramp: 'bathymetry', range: [0, 40] }),
+        show('bathy', { layerName: 'soundings', label }),
+      ])
+      expect(mocks.coverageRenderer.setCoverage).toHaveBeenCalledTimes(1)
+      expect(mocks.coverageRenderer.setCoverage.mock.calls[0]![1]).toMatchObject({
+        ramp: 'bathymetry',
+      })
+    })
+
+    it('a layer carrying BOTH a ramp and labels still arms its own fill', () => {
+      const mocks = armCoverage([show('bathy', { ramp: 'bathymetry', label })])
+      expect(mocks.coverageRenderer.setCoverage).toHaveBeenCalledTimes(1)
+      expect(mocks.coverageRenderer.setCoverage.mock.calls[0]![1]).toMatchObject({
+        ramp: 'bathymetry',
+      })
+    })
+
+    it('a plain coverage layer still gets the default viridis fill (unchanged)', () => {
+      const mocks = armCoverage([show('bathy')])
+      expect(mocks.coverageRenderer.setCoverage.mock.calls[0]![1]).toMatchObject({
+        ramp: 'viridis',
+      })
+    })
+  })
+
   describe('empty scene', () => {
     it('produces zero layers and zero draws with no shows', () => {
       const mocks = makeMocks()
