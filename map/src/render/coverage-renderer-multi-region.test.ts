@@ -220,6 +220,35 @@ describe('CoverageRenderer — LRU byte budget bounds accumulation (#1333)', () 
     expect(destroyed).toHaveLength(3) // 'a' was evicted AND its 3 textures freed
   })
 
+  it('an eviction is ANNOUNCED — nothing else can observe the LRU dropping a region (#1419)', () => {
+    // An explicit `removeCoverageRegion` clears that region's compiled arrows on the way out.
+    // The LRU drop had no such path: the region's textures were freed while its advected arrow
+    // batch stayed resident and kept drawing — one more batch per eviction, binding a velocity
+    // pair that no longer exists. Reported from S-111 Live as
+    //   "destroyed texture coverage-flow-v used in a submit"
+    // after zooming out and panning to another domain.
+    const { r } = makeRenderer(REGION_BYTES * 2 + 1)
+    const dropped: string[] = []
+    r.onRegionDropped = (region) => void dropped.push(region)
+    r.setCoverage(handleOf(4, 4), RAMP, 'a')
+    r.setCoverage(handleOf(4, 4), RAMP, 'b')
+    expect(dropped, 'arming announces nothing — only a DROP does').toEqual([])
+    r.setCoverage(handleOf(4, 4), RAMP, 'c')
+    expect(dropped).toEqual(['a'])
+  })
+
+  it('a RE-ARM is not a drop — the region is coming straight back, glyphs and all', () => {
+    // The hook fires from `clearRegion`, not `releaseRegion`, precisely so a forecast step (or
+    // an MSAA rebuild) cannot wipe the arrows it is about to re-add.
+    const { r } = makeRenderer()
+    const dropped: string[] = []
+    r.onRegionDropped = (region) => void dropped.push(region)
+    r.setCoverage(handleOf(4, 4), RAMP, 'a')
+    r.setCoverage(handleOf(4, 4), RAMP, 'a') // same key: release + re-arm
+    r.rebuildForQuality()
+    expect(dropped).toEqual([])
+  })
+
   it('a generous budget evicts nothing', () => {
     const { r, destroyed } = makeRenderer(REGION_BYTES * 100)
     for (const k of ['a', 'b', 'c', 'd', 'e']) r.setCoverage(handleOf(4, 4), RAMP, k)

@@ -345,7 +345,19 @@ export class CoverageRenderer {
   clearRegion(region: string): void {
     this.releaseRegion(region)
     this.arms.delete(region)
+    this.onRegionDropped?.(region)
   }
+
+  /** Called after a region is DROPPED — by an explicit `removeCoverageRegion`, or by the LRU
+   *  budget under `evictOverBudget`. Set by the map to clear that region's compiled arrows.
+   *
+   *  The explicit drop already clears them (`dropCoverageRegion`); the LRU one did not, and
+   *  that is the gap: zooming out and panning to another domain evicts the far region while
+   *  its advected arrow batch stays resident and keeps drawing — a batch whose data is gone
+   *  and which accumulates one per eviction (#1419). NOT hooked into `releaseRegion`, which
+   *  also fires for a re-arm and for `rebuildForQuality`, where the region is coming straight
+   *  back and its glyphs must survive. */
+  onRegionDropped: ((region: string) => void) | null = null
 
   /** The velocity field a region carries, or null when it is a scalar coverage (S-102
    *  bathymetry) or has not been armed. The flow pass reads this to decide whether it runs at
