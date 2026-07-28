@@ -120,12 +120,25 @@ export class ArrowAdvectState {
   private bView: RhiTextureView | null = null
   private origin: RhiTexture | null = null
   private originV: RhiTextureView | null = null
-  private originKey = ''
   private flipped = false
   private device: RhiDevice | null = null
   /** The allocated square edge, and the count it was sized for. 0 = nothing allocated. */
   private dim = 0
   private count = 0
+  /** Each resident batch's contiguous texel range, by instance-layout key — the MOSAIC's whole
+   *  point (#1453). One state texture serves every region; a region owns `[base, base+count)`
+   *  and the VS adds `base` to its instance index. Without this every region's batch indexed
+   *  from texel 0, so the last one armed owned them all: sibling arrows were leashed to cells
+   *  in another domain, and after #1450 A a smaller sibling shrank the texture out from under
+   *  a larger one. */
+  private readonly slots = new Map<string, { base: number; count: number }>()
+  /** Ranges freed by a dropped region, reused by the next batch that fits. */
+  private holes: Array<{ base: number; count: number }> = []
+  /** One past the highest reserved texel. */
+  private end = 0
+  /** CPU-side copy of every resident origin — the only one that survives a reallocation, and
+   *  therefore what a resize re-uploads for the siblings that did not change. */
+  private mirror = new Uint8Array(0)
 
   /** What this frame's update reads FROM, and what the arrow draw's vertex stage reads. */
   get readView(): RhiTextureView | null {
@@ -162,25 +175,84 @@ export class ArrowAdvectState {
    *  Seeding the positions FROM the origins (rather than from `seedArrowPositions`) buys a
    *  property the render gate uses: on frame 0 the advected field is EXACTLY the static
    *  catalogue placement, so "the arrows moved" is a comparison against the portrayal itself. */
-  writeOrigins(rhi: RhiDevice, key: string, u: ArrayLike<number>, v: ArrayLike<number>): void {
-    // The COUNT drives the allocation (#1450 A), so this is also where a resize happens — and
-    // a resize necessarily re-seeds, which is why the key check comes after it.
-    this.ensure(rhi, Math.min(u.length, v.length))
-    if (!this.a) return // an empty batch allocates nothing
-    if (key === this.originKey) return
-    this.originKey = key
+  writeOrigins(rhi: RhiDevice, key: string, u: ArrayLike<number>, v: ArrayLike<number>): number {
+    const n = Math.min(u.length, v.length)
+    const slot = this.slots.get(key)
+    if (slot && slot.count === n && this.device === rhi && this.a) return slot.base
+    const base = this.reserve(key, n)
+    this.writeMirror(base, n, u, v)
+    this.ensure(rhi, this.end)
+    if (!this.a) return base
+    // The WHOLE mirror, not just this batch's range: a resize reallocates the textures, so the
+    // siblings' texels have to be re-uploaded too, and a sub-rect write over a fresh texture
+    // would leave every other region reading zeros. The mirror is the CPU-side authority for
+    // exactly this reason — it is the only copy of the origins that survives a reallocation.
     const dim = this.dim
-    const bytes = new Uint8Array(dim * dim * 4)
-    const n = Math.min(u.length, v.length, dim * dim)
-    for (let i = 0; i < n; i++) encodeArrowPosition(u[i]!, v[i]!, bytes, i * 4)
-    // Texels past the instance count keep (0,0) — the edge is `ceil(sqrt(n))`, so there are at
-    // most `2·sqrt(n)` of them. No instance reads them, and the advect step stepping them is
-    // harmless: it is a whole-texture pass either way.
+    const bytes = this.mirrorFor(dim)
     const row = dim * 4
     rhi.writeTexture(this.origin!, bytes, row, dim, dim)
     rhi.writeTexture(this.a, bytes, row, dim, dim)
     rhi.writeTexture(this.b!, bytes, row, dim, dim)
     this.flipped = false
+    return base
+  }
+
+  /** Forget one batch's slot — its region was dropped, so its texels are free to be reused.
+   *  Trailing slots shrink the allocation; an interior one leaves a hole rather than re-basing
+   *  its neighbours, because a re-based batch would read someone else's positions until the
+   *  next upload. Holes are reused by the next batch that fits. */
+  releaseOrigins(key: string): void {
+    const slot = this.slots.get(key)
+    if (!slot) return
+    this.slots.delete(key)
+    if (slot.base + slot.count === this.end) this.end = slot.base
+    else this.holes.push(slot)
+  }
+
+  /** This batch's base texel — where instance 0 of `key` lives in the shared state.
+   *
+   *  ONE texture for every region, because the advect step is a whole-texture pass and N
+   *  textures would be N passes (plus N ping-pong pairs of VRAM). Each region gets a
+   *  contiguous range instead, and the VS adds this base to its instance index.
+   *
+   *  Reserving rather than always appending: a re-armed region with an unchanged count keeps
+   *  the base it had, which is what lets its arrows keep drifting through a forecast step. */
+  private reserve(key: string, count: number): number {
+    const prior = this.slots.get(key)
+    // Same key, same size — reuse the range in place, even after a device swap.
+    if (prior && prior.count === count) return prior.base
+    if (prior) this.releaseOrigins(key)
+    const holeIdx = this.holes.findIndex((h) => h.count >= count)
+    if (holeIdx >= 0) {
+      const hole = this.holes[holeIdx]!
+      this.holes.splice(holeIdx, 1)
+      // The remainder stays a hole rather than being lost.
+      if (hole.count > count)
+        this.holes.push({ base: hole.base + count, count: hole.count - count })
+      this.slots.set(key, { base: hole.base, count })
+      return hole.base
+    }
+    const base = this.end
+    this.end += count
+    this.slots.set(key, { base, count })
+    return base
+  }
+
+  private writeMirror(base: number, n: number, u: ArrayLike<number>, v: ArrayLike<number>): void {
+    const need = (base + n) * 4
+    if (this.mirror.length < need) {
+      const grown = new Uint8Array(Math.max(need, this.mirror.length * 2))
+      grown.set(this.mirror)
+      this.mirror = grown
+    }
+    for (let i = 0; i < n; i++) encodeArrowPosition(u[i]!, v[i]!, this.mirror, (base + i) * 4)
+  }
+
+  /** The mirror padded to `dim²` texels — the exact payload a whole-texture write wants. */
+  private mirrorFor(dim: number): Uint8Array {
+    const bytes = new Uint8Array(dim * dim * 4)
+    bytes.set(this.mirror.subarray(0, Math.min(this.mirror.length, bytes.length)))
+    return bytes
   }
 
   /** Allocate the pair on first use, and SEED it. Unlike a trail buffer there is no
@@ -194,10 +266,10 @@ export class ArrowAdvectState {
       this.device = rhi
       this.a = this.b = this.origin = null
       this.aView = this.bView = this.originV = null
-      // The origins went with the old device, so the next writeOrigins must re-upload them
-      // even though the batch did not change.
-      this.originKey = ''
-      // Not the COUNT though: the batch is the same one, so a bare `ensure(rhi)` from the
+      // The slots and the mirror SURVIVE: they describe the batches, not the textures, and the
+      // next writeOrigins re-uploads the whole mirror into the fresh trio. Only the allocation
+      // is gone.
+      // Not the COUNT either: the batch is the same one, so a bare `ensure(rhi)` from the
       // per-frame step re-allocates at the size it was already using rather than at nothing.
       this.dim = 0
     }
@@ -216,10 +288,6 @@ export class ArrowAdvectState {
     this.bView = rhi.createView(this.b)
     this.originV = rhi.createView(this.origin)
     this.flipped = false
-    // The positions are about to be re-seeded at a different size, so whatever origins the old
-    // texture held cannot be reused — say so, or `writeOrigins` skips the upload on an equal key
-    // and every arrow reads (0,0).
-    this.originKey = ''
     // Seed BOTH sides. Only the read side is strictly needed, but the write side's undefined
     // contents would be visible for exactly one frame as a flash of arrows at garbage positions.
     const seed = seedArrowPositions(dim * dim)
@@ -231,6 +299,10 @@ export class ArrowAdvectState {
     this.free()
     this.device = null
     this.count = 0
+    this.slots.clear()
+    this.holes = []
+    this.end = 0
+    this.mirror = new Uint8Array(0)
   }
 
   /** Release the trio, keeping the device — the shared half of `destroy` and a resize. */
@@ -240,7 +312,6 @@ export class ArrowAdvectState {
     if (this.origin) this.device?.destroyTexture(this.origin)
     this.a = this.b = this.origin = null
     this.aView = this.bView = this.originV = null
-    this.originKey = ''
     this.flipped = false
     this.dim = 0
   }

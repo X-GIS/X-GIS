@@ -1,13 +1,19 @@
-// ═══ REPRODUCTION: what a MOSAIC does to one shared arrow state ═══
+// ═══ A MOSAIC shares one arrow state by RANGE, not by collision (#1453) ═══
 //
-// Reported: several NOAA HDF5 domains on screen at once and the arrow field breaks up. The
-// question to settle is whether that is an OFFSET (arrows drawn at the wrong place) or an
-// OVERFLOW (arrows indexing past what exists) — so this drives the real objects and asserts
-// what each region's batch actually receives, rather than reasoning about it.
+// Reported: several NOAA HDF5 domains on screen at once and the arrow field breaks up. It was
+// BOTH failures at once, and both followed from one fact — the FlowRenderer owns ONE
+// ArrowAdvectState while every region gets its own advected batch, and each batch indexed the
+// state from texel 0:
 //
-// The setup under test: ONE `ArrowAdvectState` on the FlowRenderer, and one advected BATCH per
-// region, each of which calls `writeArrowOrigins` with its own key and then draws its own
-// instance count starting at texel 0.
+//   OFFSET   — the last region armed owned every texel, so its siblings' arrows were leashed to
+//              origin cells belonging to another domain.
+//   OVERFLOW — once the size followed the batch (#1450 A), a smaller sibling shrank the texture
+//              under a larger one, whose tail instances then read out of bounds (0 on WebGPU,
+//              i.e. collapsed onto grid-uv (0,0)) against textures that had just been freed.
+//
+// Each batch now RESERVES a contiguous range and the VS reads `base + instance_index`. These
+// tests were written as a reproduction first (they asserted the breakage), then inverted here —
+// so what they check is exactly what was measured to be wrong.
 
 import { describe, expect, it } from 'vitest'
 import { ArrowAdvectState, decodeArrowPosition } from './arrow-advect-state'
@@ -74,24 +80,47 @@ function originTexel(uploads: Upload[], i: number): [number, number] | null {
 }
 
 describe('MOSAIC × one shared arrow state — offset or overflow?', () => {
-  it('THE OFFSET: region B’s origins land on the texels region A’s instances read', () => {
-    // Both batches index the state from texel 0, so region A instance `i` and region B
-    // instance `i` are the SAME texel. Whichever region wrote last owns it.
+  it('NO OFFSET COLLISION: each region keeps its own origins, at its own base', () => {
     const t = stub()
     const s = new ArrowAdvectState()
     const a = origins(400, 0.25)
     const b = origins(400, 0.75)
-    s.writeOrigins(t.rhi, 'cbofs|20x20|400', a.u, a.v)
-    s.writeOrigins(t.rhi, 'dbofs|20x20|400', b.u, b.v)
+    const baseA = s.writeOrigins(t.rhi, 'cbofs|20x20|400', a.u, a.v)
+    const baseB = s.writeOrigins(t.rhi, 'dbofs|20x20|400', b.u, b.v)
 
-    const [x] = originTexel(t.uploads, 0)!
-    expect(x, 'texel 0 belongs to whoever wrote LAST, not to region A').toBeCloseTo(0.75, 2)
-    // Region A's batch still draws 400 instances against these texels: every one of its arrows
-    // is now leashed to a cell in the OTHER domain, and the drift it draws is the difference
-    // between its own position and a foreign origin.
+    expect(baseA).toBe(0)
+    expect(baseB, 'the second region starts where the first ends').toBe(400)
+    expect(originTexel(t.uploads, baseA)![0], 'region A still owns its texels').toBeCloseTo(0.25, 2)
+    expect(originTexel(t.uploads, baseB)![0], 'region B has its own').toBeCloseTo(0.75, 2)
+    expect(originTexel(t.uploads, baseA + 399)![0], "…across region A's whole range").toBeCloseTo(
+      0.25,
+      2,
+    )
   })
 
-  it('THE OVERFLOW: a smaller second region SHRINKS the texture under the larger first one', () => {
+  it('a re-armed region keeps its BASE, so a forecast step does not snap it home', () => {
+    // Same key, same count — the arrows keep drifting. This is the property the forecast step
+    // depends on, and a naive append-per-arm would have destroyed it.
+    const t = stub()
+    const s = new ArrowAdvectState()
+    const a = origins(400, 0.25)
+    const first = s.writeOrigins(t.rhi, 'cbofs|20x20|400', a.u, a.v)
+    s.writeOrigins(t.rhi, 'dbofs|20x20|400', origins(400, 0.75).u, origins(400, 0.75).v)
+    const again = s.writeOrigins(t.rhi, 'cbofs|20x20|400', a.u, a.v)
+    expect(again).toBe(first)
+  })
+
+  it('a dropped region frees its range for the next one', () => {
+    const t = stub()
+    const s = new ArrowAdvectState()
+    s.writeOrigins(t.rhi, 'cbofs|20x20|400', origins(400, 0.25).u, origins(400, 0.25).v)
+    const b = s.writeOrigins(t.rhi, 'dbofs|20x20|400', origins(400, 0.75).u, origins(400, 0.75).v)
+    s.releaseOrigins('dbofs|20x20|400')
+    const c = s.writeOrigins(t.rhi, 'sfbofs|20x20|300', origins(300, 0.5).u, origins(300, 0.5).v)
+    expect(c, 'the freed range is reused rather than appended past').toBe(b)
+  })
+
+  it('NO OVERFLOW: a smaller second region does not shrink the texture under a larger first', () => {
     // #1450 A made the state size follow the batch. With one region that is exactly right; with
     // a mosaic it means the LAST region armed decides the size, and a larger sibling's tail
     // instances index texels that no longer exist. Out-of-bounds textureLoad returns 0 on
@@ -103,25 +132,28 @@ describe('MOSAIC × one shared arrow state — offset or overflow?', () => {
     s.writeOrigins(t.rhi, 'cbofs|100x40|4000', big.u, big.v)
     s.writeOrigins(t.rhi, 'sfbofs|10x10|100', small.u, small.v)
 
-    expect(originTexel(t.uploads, 99), 'the last region fits').not.toBeNull()
     expect(
       originTexel(t.uploads, 3_999),
-      "the first region's last instance has no texel to read",
-    ).toBeNull()
+      "the first region's last instance still reads",
+    ).not.toBeNull()
+    expect(originTexel(t.uploads, 3_999)![0], '…and still reads ITS OWN origin').toBeCloseTo(
+      0.25,
+      2,
+    )
+    expect(originTexel(t.uploads, 4_099)![0], 'the second region sits past it').toBeCloseTo(0.75, 2)
   })
 
-  it('and the shrink DESTROYS the textures the larger region’s draw is still bound to', () => {
-    // The resize frees the old trio. Any bind group still holding those views is now pointing
-    // at freed memory — the same class as the destroyed-texture crash fixed in #1445, reached
-    // by a different route.
+  it('GROWING for a new region re-uploads the siblings — the mirror is what survives', () => {
+    // A grow DOES reallocate, and the old trio's contents die with it. The CPU-side mirror is
+    // the only copy of every resident origin, so the whole thing is re-uploaded; without that,
+    // the region that did not change would read zeros and stack on grid-uv (0,0).
     const t = stub()
     const s = new ArrowAdvectState()
-    const big = origins(4_000, 0.25)
-    const small = origins(100, 0.75)
-    s.writeOrigins(t.rhi, 'cbofs|100x40|4000', big.u, big.v)
-    const afterFirst = new Set(t.live)
-    s.writeOrigins(t.rhi, 'sfbofs|10x10|100', small.u, small.v)
-    const stillLive = [...afterFirst].filter((n) => t.live.has(n))
-    expect(stillLive, 'the first region’s trio is gone').toEqual([])
+    s.writeOrigins(t.rhi, 'cbofs|20x20|400', origins(400, 0.25).u, origins(400, 0.25).v)
+    s.writeOrigins(t.rhi, 'dbofs|100x40|4000', origins(4_000, 0.75).u, origins(4_000, 0.75).v)
+    expect(originTexel(t.uploads, 0)![0], 'the untouched sibling survived the grow').toBeCloseTo(
+      0.25,
+      2,
+    )
   })
 })

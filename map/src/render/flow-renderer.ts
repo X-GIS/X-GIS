@@ -201,8 +201,13 @@ export class FlowRenderer {
 
   /** Hand this batch's origins to the state (see `ArrowAdvectState.writeOrigins`) — `key`
    *  identifies the instance layout, so an unchanged batch skips the upload and keeps drifting. */
-  writeArrowOrigins(key: string, u: ArrayLike<number>, v: ArrayLike<number>): void {
-    this.arrows.writeOrigins(this.rhi, key, u, v)
+  writeArrowOrigins(key: string, u: ArrayLike<number>, v: ArrayLike<number>): number {
+    return this.arrows.writeOrigins(this.rhi, key, u, v)
+  }
+
+  /** Give a dropped batch's texel range back to the shared state (#1453). */
+  releaseArrowOrigins(key: string): void {
+    this.arrows.releaseOrigins(key)
   }
 
   /** Advance every arrow one frame along `field`.
