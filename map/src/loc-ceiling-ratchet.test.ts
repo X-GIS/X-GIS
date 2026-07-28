@@ -146,7 +146,13 @@ const CEILINGS: Record<string, number> = {
   // after the replaced-set was drained. +6, all inside the existing method. Disjoint from #1397
   // as well, so the three sum: 4740 + 51 + 21 + 6 = 4818 = the merged file's line count.
   // Shrink-only from here.
-  'map/src/render/vector-tile-renderer.ts': 4818,
+  // 4818→4819 (draper source gating): +1, the `import { wgslFor, glslFor }` line. The four
+  // polygon pipelines below it emitted BOTH shader languages unconditionally while each
+  // device reads only one — ~130 ms of discarded WGSL per site on WebGL2, and the mirror
+  // waste of the GLSL pair on WebGPU. No statement was added: the existing shader/vsCode/
+  // fsCode expressions were wrapped in place, and the decision itself lives in
+  // material/wgsl-for.ts.
+  'map/src/render/vector-tile-renderer.ts': 4819,
   // 4232→4237 (#1000 heatmap relocate): the heatmap density-target OWNERSHIP
   // extracted to render/heatmap-targets.ts; map keeps only the irreducible
   // composition-root wiring — the `heatmapTargets` field + its import (mirrors

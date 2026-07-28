@@ -25,6 +25,7 @@ import { rasterTileBytes, rasterUniformBytes } from '../raster-uniform-slots'
 import { hillshadeUniformBytes } from '../hillshade-uniform-slots'
 import type { RasterTile } from './raster-material'
 import { emitGlslStages } from '@xgis/shader-dsl'
+import { wgslFor } from './wgsl-for'
 
 /** One hillshade DEM tile to draw. Structurally identical to a raster tile — the
  *  per-tile bytes are the SHARED raster 'TileUniforms' (writeRasterTileUniform),
@@ -67,12 +68,9 @@ export class HillshadeDraper {
    *  This runs SYNCHRONOUSLY inside the first draw() of a hillshade layer, so its cost
    *  IS the layer's time-to-first-pixel. Two things keep it off the critical path:
    *
-   *   • the WGSL is not emitted on WebGL2 at all — rhi-webgl2's createPipeline requires
-   *     GLSL vsCode/fsCode and never reads `desc.code` (pinned by that backend's
-   *     createpipeline-dual-source-guard.test.ts, which fail-louds on a WGSL-only desc),
-   *     so emitting it was pure waste — 693 ms of a measured 2211 ms first-draw block
-   *     for `multidirectional`, the heaviest method and the one the Multidirectional
-   *     Relief demo authors;
+   *   • the WGSL is not emitted on a device that cannot read it (wgslFor) — 693 ms of a
+   *     measured 2211 ms first-draw block for `multidirectional`, the heaviest method and
+   *     the one the Multidirectional Relief demo authors;
    *   • both GLSL stages come from ONE emitGlslStages call, which lowers + runs the
    *     optimizer fixpoint once rather than once per stage. Per-stage lowering made the
    *     vertex emit as expensive as the fragment (~770 ms each) even though `vs_tile` is
@@ -86,7 +84,7 @@ export class HillshadeDraper {
     const mod = buildHillshadeModule(pick, methodFlag)
     const glsl = emitGlslStages(mod)
     const mat = new Material(this.rhi, {
-      shader: this.rhi.backend === 'webgl2' ? '' : emitHillshadeWgsl(pick, methodFlag),
+      shader: wgslFor(this.rhi, () => emitHillshadeWgsl(pick, methodFlag)),
       vsEntry: 'vs_tile',
       fsEntry: 'fs_hillshade',
       vsCode: glsl.vertex,
