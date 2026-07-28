@@ -778,7 +778,13 @@ const CEILINGS: Record<string, number> = {
   // Mercator vertical scale, and the wall vertical gradient gained the
   // MapLibre `+ base` term. Shrink-only from here. (#1343 retired the runtime/
   // second authority, so this file is now the only one to update.)
-  'map/src/shaders/dsl/polygon.ts': 1476,
+  // 1476→1498 (shared-lowering twin): +22 for `emitPolygonGlslStages` — a 5-line
+  // rationale, the 9-line emitter, and the 8 lines prettier adds re-wrapping the now
+  // 106-char shader-dsl import. It exists because the per-stage `emitPolygonGlsl` above
+  // prunes the module before EACH emit, so the four polygon pipelines (three in VTR, one
+  // graticule) each lowered + ran the optimizer fixpoint twice; the module build is 2 ms
+  // against ~80 ms for one emit, so that lowering is the entire cost.
+  'map/src/shaders/dsl/polygon.ts': 1498,
   // 1290→1314 (#1155 F3): cold-start burst tick budget — the `_coldStartBurst`
   // field + `_BURST_TICK_BUDGET` + `setColdStartBurst` + the burst-selected
   // budget in resetCompileBudget's backend tick loop.

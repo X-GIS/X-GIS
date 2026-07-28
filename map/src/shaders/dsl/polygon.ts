@@ -75,7 +75,14 @@ import {
   type BindingDecl,
 } from '@xgis/shader-dsl'
 import { ioStruct, builtin, location, uniformStruct, resource } from '@xgis/shader-dsl'
-import { emitModule, emitGlslModule, emitFunc, composeModule, stageOf } from '@xgis/shader-dsl'
+import {
+  emitModule,
+  emitGlslModule,
+  emitGlslStages,
+  emitFunc,
+  composeModule,
+  stageOf,
+} from '@xgis/shader-dsl'
 import {
   project,
   flat_rel,
@@ -1474,3 +1481,18 @@ export const emitPolygonGlsl = (
     stage,
   )
 }
+
+/** Both GLSL stages of one polygon variant from ONE lowering. `emitPolygonGlsl` prunes
+ *  the module before each emit, so a pipeline — which always needs both — lowered it
+ *  twice; the build is 2 ms against ~80 ms for an emit, so the lowering IS the cost.
+ *  Same entry defaults as the per-stage form. Byte-identical to two `emitPolygonGlsl`
+ *  calls — pinned by map/src/render/material/glsl-stage-entry-parity.test.ts. */
+export const emitPolygonGlslStages = (
+  variant: PolygonVariantSpec | null,
+  pickEnabled: boolean,
+  entries?: { vertex?: string; fragment?: string },
+): { vertex: string; fragment: string } =>
+  emitGlslStages(buildPolygonModule(variant, pickEnabled), {
+    vertexEntry: entries?.vertex ?? 'vs_main_ecef',
+    fragmentEntry: entries?.fragment ?? 'fs_fill',
+  })

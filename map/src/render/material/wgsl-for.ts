@@ -34,3 +34,22 @@ export function wgslFor(rhi: { readonly backend: string }, emit: () => string): 
 export function glslFor(rhi: { readonly backend: string }, emit: () => string): string | undefined {
   return readsWgsl(rhi) ? undefined : emit()
 }
+
+/** BOTH GLSL halves at once, as MaterialDesc fields — spread it into the descriptor.
+ *
+ *  Prefer this over two `glslFor` calls: a family's `…GlslStages` emitter lowers and
+ *  optimises the module ONCE for both stages, where two per-stage emitters lower it
+ *  twice, and that lowering is the entire cost (`buildPolygonModule` measures 2 ms
+ *  against 80 ms for the vertex emit alone).
+ *
+ *  Returning the fields rather than the strings is what lets a draper drop its own
+ *  `const gl2 = rhi.backend === 'webgl2'`: the empty object spreads to nothing, which is
+ *  exactly the `{}` those call sites were building by hand. */
+export function glslStagesFor(
+  rhi: { readonly backend: string },
+  emit: () => { vertex: string; fragment: string },
+): { vsCode?: string; fsCode?: string } {
+  if (readsWgsl(rhi)) return {}
+  const { vertex, fragment } = emit()
+  return { vsCode: vertex, fsCode: fragment }
+}

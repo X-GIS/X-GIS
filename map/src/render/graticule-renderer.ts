@@ -28,8 +28,12 @@ import { activeBody } from '@xgis/shared'
 import { generateGraticule } from '../graticule'
 import { visibleWorldCopiesFor, type VisibleWorldCopiesHost } from '../camera/camera-world-copies'
 import { UniformRing } from '@xgis/engine'
-import { polygonU as POLYGON_U, emitPolygonWgsl, emitPolygonGlsl } from '../shaders/dsl/polygon'
-import { wgslFor, glslFor } from './material/wgsl-for'
+import {
+  polygonU as POLYGON_U,
+  emitPolygonWgsl,
+  emitPolygonGlslStages,
+} from '../shaders/dsl/polygon'
+import { wgslFor, glslStagesFor } from './material/wgsl-for'
 import { polygonUniformBytes } from './polygon-uniform-slots'
 import { buildGraticuleLineMaterial } from './material/polygon-fill-material'
 import { LINE_FORMAT } from './line-vertex-format'
@@ -437,8 +441,9 @@ export class GraticuleRenderer {
       {
         rhi: this.ctx.rhi,
         shader: wgslFor(this.ctx.rhi, () => emitPolygonWgsl(null, false)),
-        vsCode: glslFor(this.ctx.rhi, () => emitPolygonGlsl(null, false, 'vertex', 'vs_main')),
-        fsCode: glslFor(this.ctx.rhi, () => emitPolygonGlsl(null, false, 'fragment', 'fs_stroke')),
+        ...glslStagesFor(this.ctx.rhi, () =>
+          emitPolygonGlslStages(null, false, { vertex: 'vs_main', fragment: 'fs_stroke' }),
+        ),
         format: this.ctx.format,
         sampleCount: 1,
         rhiGroups: [[{ binding: 0, kind: 'uniform', dynamic: true, name: 'Uniforms' }]],

@@ -40,6 +40,14 @@
 // requires GLSL vsCode/fsCode and never reads `desc.code`, so on that backend the emit
 // was 693 ms of a measured 2211 ms first-draw main-thread block for `multidirectional`.
 // All three retire together the moment RhiCaps grows that field (F3–F6).
+// 47→43 (shared-lowering twin): `glslStagesFor` moved the GLSL half of the
+// source selection into wgsl-for.ts beside `wgslFor`, both routed through its single
+// `readsWgsl`. Five drapers — arrow / circle / icon / particle retained, and point — held
+// a `const gl2` for NOTHING BUT that selection, so switching them RETIRED five reads
+// outright; a sixth arrived from main in the same window, which is why the measured
+// count is 43 rather than 42. This is the shrink the F3–F6 sweep is for, taken early
+// because the call sites now go through one place. Lowered to the measured count, not
+// to a round number.
 //
 // Applies the #996 lesson (a source-scan gate whose matcher silently matches nothing is
 // vacuously green): two guards below prove the regex still matches AND the walk still
@@ -51,7 +59,7 @@ import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const MAP_SRC = join(dirname(fileURLToPath(import.meta.url)))
-const BASELINE = 47
+const BASELINE = 43
 
 // `.backend` identity comparison, either direction, against either backend literal.
 const PATTERN = 'backend\\s*(===|!==)\\s*[\'"](webgl2|webgpu)[\'"]'
