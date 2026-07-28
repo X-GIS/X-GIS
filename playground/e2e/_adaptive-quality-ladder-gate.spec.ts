@@ -51,7 +51,22 @@ async function frameGeometry(page: Page): Promise<{ tris: number; tiles: number 
   })
 }
 
-/** Drive `n` real frames and return the median interval (ms). */
+/** How many notches DOWN the controller currently is, straight from the controller (#1433).
+ *  This is the premise "the host cannot keep up", read at its source: the ladder steps off
+ *  RENDERED-frame intervals, the only signal that includes the GPU work this thread merely
+ *  submits. `pump`'s rAF median cannot see that — it measures the compositor's 60 Hz tick —
+ *  which is how the old precondition ended up compared against a bar equal to its own floor. */
+async function adaptiveStep(page: Page): Promise<number> {
+  return await page.evaluate(() => {
+    const pipe = (
+      window as unknown as { __xgisMap?: { inspectPipeline(): unknown } }
+    ).__xgisMap?.inspectPipeline() as { adaptive?: { step: number } } | undefined
+    return pipe?.adaptive?.step ?? -1
+  })
+}
+
+/** Drive `n` real frames and return the median interval (ms). Reported, never asserted on —
+ *  see `adaptiveStep`. */
 async function pump(page: Page, n: number): Promise<number> {
   return await page.evaluate(async (count) => {
     const m = (window as unknown as { __xgisMap?: { invalidate?: () => void } }).__xgisMap
@@ -102,12 +117,20 @@ async function seed(page: Page): Promise<number> {
   )
 }
 
-/** Load the demo, seed it, settle, then pump `frames` frames at a FIXED camera. */
+/** Load the demo, seed it, settle, then pump at a FIXED camera until the controller has had
+ *  a real chance to act. `frames` is ONE pump round; the treatment arm keeps pumping while
+ *  the ladder is still at notch 0, up to `MAX_ROUNDS`.
+ *
+ *  Rounds rather than one fixed count (#1433): a notch costs the controller a full 12-frame
+ *  window of RENDERED frames, and a borderline host can spend most of a round just filling
+ *  that window. One 40-frame pump therefore asked "did it step in time", not "will it step" —
+ *  and answered no often enough to redden the leg. */
+const MAX_ROUNDS = 4
 async function run(
   page: Page,
   adaptive: boolean,
   frames: number,
-): Promise<{ before: number; after: number; medMs: number }> {
+): Promise<{ before: number; after: number; medMs: number; step: number; rounds: number }> {
   await page.setViewportSize({ width: 430, height: 715 })
   const flags = adaptive ? '' : '&adaptive=0'
   await page.goto(`/demo.html?id=physical_map&forcegl2=1&e2e=1${flags}${CAM}`, {
@@ -121,10 +144,24 @@ async function run(
   await page.waitForTimeout(12_000)
 
   const before = (await frameGeometry(page)).tris
-  const medMs = await pump(page, frames)
+  let medMs = await pump(page, frames)
+  let rounds = 1
+  // Extra rounds ONLY while the ladder is still at notch 0, so a run that steps in round 1 —
+  // the normal case — costs exactly what it always did. Only the treatment arm can step at
+  // all (`adaptive=0` pins it), so the control arm always runs one round.
+  //
+  // Deliberately NOT "pump until the notch settles". Measured: settling reaches notch 6 and
+  // 28.6% coarsening but takes 3.4 min against 2.2, and the extra margin is not what fixes
+  // this gate — the premise assertion is. The notch is now logged, so the spread the old runs
+  // showed (14.1% at notch 1, 28.6% deeper down) reads as what it is, a rung, rather than as
+  // unexplained noise.
+  while (adaptive && rounds < MAX_ROUNDS && (await adaptiveStep(page)) === 0) {
+    medMs = await pump(page, frames)
+    rounds++
+  }
   await page.waitForTimeout(4000)
   const after = (await frameGeometry(page)).tris
-  return { before, after, medMs }
+  return { before, after, medMs, step: await adaptiveStep(page), rounds }
 }
 
 test.describe.configure({ mode: 'serial' })
@@ -141,43 +178,47 @@ test('the ladder trades far-field geometry for frame time under sustained overlo
   // Both arms settle the same way from the same fixture at the same camera; what differs
   // is only whether the controller is allowed to act.
   const off = await run(page, false, 40)
-  // Report the control arm BEFORE asserting on it (#1433). When the precondition below
-  // failed on CI it printed nothing at all — the numbers that would have identified it as a
-  // measurement problem rather than a regression were only logged after the treatment arm,
-  // which never ran. A gate's own diagnosis should not depend on which assertion trips.
-  console.log(`\n  adaptive=0  tris ${off.before} -> ${off.after}, med ${off.medMs.toFixed(3)} ms`)
+  // Report each arm BEFORE asserting on it (#1433). When the premise failed on CI it printed
+  // nothing at all — the numbers were only logged after the treatment arm, which never ran —
+  // so the red said "regression" about what was actually a measurement problem.
+  console.log(
+    `\n  adaptive=0  tris ${off.before} -> ${off.after}, med ${off.medMs.toFixed(1)} ms, notch ${off.step}`,
+  )
   expect(off.after, 'the control must be drawing real geometry').toBeGreaterThan(10_000)
-  // The overload premise is REPORTED, not asserted (#1433). It reads `medMs`, the wall time
-  // of two `requestAnimationFrame` turns — whose 60 Hz floor is 2 × 16.6̄ = 33.3 ms, i.e.
-  // numerically the 33.4 ms bar it was compared against. On identical code it has measured
-  // 33.39999999999418 (red), 33.4 (green) and 34.3 (green): a coin flip on scheduler noise,
-  // not a statement about load. Running the spec alone (see the workflow's render-gate step)
-  // makes it tighter still, because the machine is quiet.
-  //
-  // Nothing is lost by demoting it. The assertion below is STRICTLY STRONGER on the same
-  // condition: a host that was never overloaded is a host whose controller never judged a
-  // frame too slow, so it cannot coarsen, so `on.after < off.after * 0.9` fails anyway —
-  // which is exactly how the 2026-07-28 CI failure surfaced (27497 vs 27497). All this line
-  // ever did was reach that conclusion earlier, with a message pointing at the wrong thing.
-  //
-  // #1433 option 2 remains open for whoever owns #1393: assert the premise on a signal that
-  // reflects real frame cost (a GPU timer, or `renderFrame` duration read off the map)
-  // rather than on rAF cadence, and this can go back to being a hard precondition.
-  if (!(off.medMs > 33.4)) {
-    console.warn(
-      `  ⚠ control arm measured ${off.medMs.toFixed(3)} ms — at or under the two-rAF 60 Hz floor,` +
-        ` so this run may not be a real overload experiment (#1433).`,
-    )
-  }
+  expect(off.step, '`adaptive=0` must pin the ladder at notch 0').toBe(0)
 
   const on = await run(page, true, 40)
   console.log(
-    `  adaptive=1  tris ${on.before} -> ${on.after}, med ${on.medMs.toFixed(1)} ms` +
+    `  adaptive=1  tris ${on.before} -> ${on.after}, med ${on.medMs.toFixed(1)} ms, notch ${on.step}` +
+      ` (${on.rounds} pump round${on.rounds === 1 ? '' : 's'})` +
       `\n  ladder bought ${(100 * (1 - on.after / off.after)).toFixed(1)}% of the settled geometry\n`,
   )
+
+  // THE PREMISE, read from the controller itself (#1433 option 2). The gate is an experiment
+  // on a host that cannot keep up; if the controller never judged a frame too slow, the
+  // experiment did not run and the geometry assertion below would report an ENVIRONMENT as a
+  // REGRESSION — which is exactly what the 2026-07-28 CI red did (27497 vs 27497).
+  //
+  // This replaces the old `off.medMs > 33.4`, which inferred load from the wall time of two
+  // rAF turns: a quantity whose 60 Hz floor (2 × 16.6̄ = 33.3 ms) is numerically the bar it
+  // was compared against, and which measured 33.39999999999418 (red), 33.4 (green) and 34.3
+  // (green) on identical code. The notch is the controller's own verdict, taken from
+  // RENDERED-frame intervals — the only signal that includes the GPU work this thread merely
+  // submits — so it cannot disagree with the behaviour under test the way rAF cadence did.
+  expect(
+    on.step,
+    `the controller never left notch 0 after ${on.rounds} pump rounds — this host kept up, so ` +
+      `there was no overload to observe. That is an ENVIRONMENT result, not a regression: ` +
+      `raise SEED_GRID (currently ${SEED_GRID}) or MAX_ROUNDS until the frame is decisively ` +
+      `over budget here.`,
+  ).toBeGreaterThan(0)
+
+  // THE CLAIM: it acted, and the selector HONOURED it. A step counter can tick while the
+  // selection ignores it — the wire this gate exists for (#1402 showed that seam go nowhere).
   expect(
     on.after,
-    `the ladder never coarsened the horizon (control settled at ${off.after}, adaptive at ${on.after})`,
+    `the controller stepped to notch ${on.step} but the horizon never coarsened ` +
+      `(control settled at ${off.after}, adaptive at ${on.after})`,
   ).toBeLessThan(off.after * 0.9)
 
   // …and what it took must be the FAR field: the foreground guarantee #1374 restored has

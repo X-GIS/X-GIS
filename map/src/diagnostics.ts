@@ -20,7 +20,7 @@
 // of the class's public type.
 
 import { tileKey as compilerTileKey } from '@xgis/compiler'
-import { getMaxDpr } from '@xgis/engine'
+import { adaptiveQualityStep, getMaxDpr, isAdaptiveQualityEnabled } from '@xgis/engine'
 import { mercatorYToLat } from '@xgis/geo'
 import type { QualityConfig } from '@xgis/engine'
 import type { XGISMap } from './map'
@@ -46,6 +46,17 @@ export interface PipelineInspection {
    *  comparing two snapshots taken across a known interval. */
   frame: number
   quality: QualityConfig
+  /** The adaptive quality ladder's LIVE position (#1393), exposed for diagnostics and
+   *  gates (#1433): `step` is how many notches down the controller currently is, 0 =
+   *  untouched; `enabled` is whether it is allowed to act at all (`?adaptive=0` pins it).
+   *
+   *  This is the honest answer to "is this host over budget", and the reason it is worth
+   *  surfacing: the controller decides from RENDERED-FRAME intervals (`stats.ts` feeds
+   *  `noteFrameInterval`), the only signal that includes the GPU work this thread merely
+   *  submits. A test that instead infers load from rAF cadence is measuring the compositor's
+   *  60 Hz tick, not the frame — which is exactly how the ladder gate ended up asserting
+   *  against a bar numerically equal to its own measurement floor. */
+  adaptive: { enabled: boolean; step: number }
   /** True when hash sync / pointer interaction / setView declared the
    *  camera explicitly — post-compile bounds-fit is suppressed in that
    *  case. */
@@ -187,6 +198,7 @@ export function inspectMapPipeline(map: XGISMap): PipelineInspection {
     viewport: { canvasW, canvasH, dpr },
     frame: m._frameCount,
     quality: m.getQuality(),
+    adaptive: { enabled: isAdaptiveQualityEnabled(), step: adaptiveQualityStep() },
     cameraExplicitlyPositioned: (map as unknown as { _cameraExplicitlyPositioned: boolean })
       ._cameraExplicitlyPositioned,
     sources,
