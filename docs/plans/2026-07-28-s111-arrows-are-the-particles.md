@@ -84,6 +84,34 @@ Bearing, band colour and scale come from sampling `flowU`/`flowV` at origin+disp
 looking up `s111BandTable()` — the catalogue rule uploaded as data, so the shader holds no
 threshold and no colour of its own.
 
+### Turning the displacement into a screen offset needs TWO bases, not one
+
+The VS has exactly one geographic→screen basis today: the clip-space delta between the tail
+anchor and the TIP anchor, where the tip is one step along the arrow's baked initial bearing
+(`arrow-retained.ts` — `project_geo` is called twice and the delta gives `(cc, ss)`).
+
+Scaling that single vector moves an arrow only along its launch bearing. That is a straight
+line, which is precisely the closed-form drift #65 shipped and #70 reverted: it does not follow
+a curving current, which is the whole point here.
+
+So the instance packs THREE anchors instead of two — the origin, origin+east-step, and
+origin+north-step — all df64, all CPU-computed exactly as the existing two already are. Then
+
+```
+screenOffset = du · (eastClip − originClip) + dv · (northClip − originClip)
+```
+
+maps any 2D grid-uv displacement to screen with no new projection math, because every term is a
+delta between two points the CPU placed.
+
+This also SIMPLIFIES the bearing. Today the tip anchor exists to carry the arrow's direction;
+in advected mode the direction comes from sampling the field at origin+displacement, so the tip
+is not needed for orientation at all — the two step anchors serve both purposes. The static
+path keeps its tail/tip pair untouched.
+
+Cost: the advected feat layout grows by one anchor's worth of df64 slots. That is per-instance
+memory on a capped 16 384 instances, not per-cell, so it is bounded regardless of grid size.
+
 ## Recycling without a blink
 
 An arrow that leaves the domain, or lands where speed is 0 / noData (catalogue note 4 — no
