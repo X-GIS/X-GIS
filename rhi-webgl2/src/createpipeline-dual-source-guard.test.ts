@@ -51,4 +51,14 @@ describe('WebGl2Device.createPipeline dual-source guard (#783)', () => {
       device().createPipeline({ ...WGSL_ONLY, fsCode: '#version 300 es\nvoid main(){}' }),
     ).toThrow(/requires GLSL vsCode\/fsCode/)
   })
+
+  // `caps.shaderLanguage` is the ADVERTISED form of the three throws above, and the map's
+  // wgslFor / glslFor / glslStagesFor seam decides which source to EMIT from it — so if
+  // this device ever advertised 'wgsl', those helpers would build the WGSL, skip the GLSL
+  // twins, and hand createPipeline exactly the desc it fail-louds on. Every pipeline on
+  // this backend would throw at first draw. Asserted HERE, beside the behaviour it
+  // claims, rather than in a caps-shape test that could drift from it.
+  it('advertises the language it actually consumes', () => {
+    expect(device().caps.shaderLanguage).toBe('glsl-es300')
+  })
 })

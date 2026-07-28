@@ -1029,7 +1029,10 @@ const CEILINGS: Record<string, number> = {
   // opaque BLACK — making the shared raster sampler trilinear blacked out the checker it also
   // serves (2409 of 619200 pixels survived). +8 is one line of code and seven of incident: the
   // texture that broke is the one nobody touched, which is the part a future reader needs.
-  'rhi-webgl2/src/rhi-webgl2.ts': 1520,
+  // 1520→1523 (RhiCaps.shaderLanguage): +3 — the new cap value plus the two-line note
+  // that it is the advertised form of this file's own dual-source throw (createPipeline
+  // requires vsCode/fsCode and never reads `code`). Pure declaration; no logic added.
+  'rhi-webgl2/src/rhi-webgl2.ts': 1523,
   // 941→975 (#1371 atomic re-seed): `releaseSupersededTile` + `dropTile`, and the split of
   // `_releaseTileSlots` into a resource-release body the two share with eviction. Arena/pool
   // ownership is this class's whole reason to exist.

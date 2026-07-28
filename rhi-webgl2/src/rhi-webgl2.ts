@@ -688,6 +688,9 @@ export class WebGl2Device implements RhiDevice {
       compute: 'fragment-emulated',
       timestampQuery: false,
       executionModel: 'immediate',
+      // This backend requires the split GLSL sources and never reads `code` —
+      // createPipeline fail-louds on a WGSL-only desc (dual-source guard, #783).
+      shaderLanguage: 'glsl-es300',
     } as const)
 
     // #1153 P2 R3 — own the canvas context-loss listeners. GUARDED: the fake
