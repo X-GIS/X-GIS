@@ -41,7 +41,6 @@ import {
   type GeoJSONGeometry,
 } from '@xgis/data'
 import type { RawDataset } from './map-types'
-import { DEFAULT_REGION } from './render/coverage-renderer'
 import { isTileTemplate } from '@xgis/data'
 import { TileCatalog } from '@xgis/data'
 import { VectorTileRenderer } from './render/vector-tile-renderer'
@@ -54,7 +53,6 @@ import { detectCapPoles, type CapPoles } from '@xgis/data'
 import * as tilingPool from '@xgis/data'
 import { reprojectFeatureCollection } from '@xgis/data'
 import { pointPatchToFeatureCollection, type PointPatch } from '@xgis/data'
-import { fetchCoverageHandle } from './coverage-fetch'
 import { SOURCE_TYPES } from '@xgis/compiler'
 import type { SourceLoader } from './source-loader'
 import { normaliseHostPushedData } from './source-data-normalize'
@@ -127,6 +125,11 @@ export interface SourceManagerDeps {
   getVtSource(sourceId: string): { source: TileCatalog; renderer: VectorTileRenderer } | null
   /** XGISMap's `_featureIndex.delete(sourceId)`. */
   deleteFeatureIndex(sourceId: string): void
+  /** #1426 — start a DECLARED `type: coverage` source's cell read in the BACKGROUND. The
+   *  attach registers the (empty) source and returns; this resolves when the cell has landed,
+   *  been written into the source's region map, and armed — or has failed and been logged.
+   *  Bodied by `loadDeclaredCoverage` (coverage-source.ts), which owns coverage residency. */
+  beginCoverageLoad(sourceId: string, url: string, isStale?: () => boolean): Promise<void>
   /** Per-map custom source-loader registry (`XGISMapOptions.sources`), consulted by
    *  the attach dispatch when a declared `type` is not a built-in (source-loader-seam §3). */
   sourceLoaders?: Readonly<Record<string, SourceLoader>>
@@ -161,6 +164,7 @@ export class SourceManager {
   private readonly vtBackends = new Map<string, VirtualPMTilesBackend>()
   private readonly teardownSource: (sourceId: string) => void
   private readonly deleteFeatureIndex: (sourceId: string) => void
+  private readonly beginCoverageLoad: SourceManagerDeps['beginCoverageLoad']
   private readonly sourceLoaders?: Readonly<Record<string, SourceLoader>>
 
   /** Per-SourceManager (≈ per-map) id used to namespace this map's GeoJSON
@@ -201,6 +205,7 @@ export class SourceManager {
     this.teardownSource = deps.teardownSource
     this.getVtSource = deps.getVtSource
     this.deleteFeatureIndex = deps.deleteFeatureIndex
+    this.beginCoverageLoad = deps.beginCoverageLoad
     this.sourceLoaders = deps.sourceLoaders
   }
 
@@ -330,28 +335,22 @@ export class SourceManager {
       await this._attachGeoJSONViaVirtualPMTiles(load.name, fc, maps, cameraFitState, isStale)
       return
     }
-    // S-100 gridded coverage (#1158, re-platformed by ADR-0010). A built-in
-    // `type: coverage` source READS THE STANDARD IN PLACE: fetch the gridded payload
-    // (same SSRF guard + body cap as the geojson branch), read it → CoverageHandle via
-    // `readCoverage` (picks the reader by URL extension, like detectVectorTileFormat →
-    // HDF5 today, no `.xgcov` transcode), store a `{ _coverage }` marker (map-types.ts).
-    // The handle is the value-readout authority (map.getCoverage(...).valueAt); the
-    // renderer owns the GPU texture separately.
-    // REBASE HAZARD (#1153 P1): this worktree is at clean HEAD, whose _attachOneSource
-    // has no `isStale` staleness probe yet. When P1's isStale threading lands, this
-    // branch MUST thread it and guard the rawDatasets.set below (the marker write
-    // lands after the fetch await), per P1's contract "any NEW attach call site …
-    // MUST thread isStale" — otherwise a superseded run reopens the stale-write hole.
+    // S-100 gridded coverage (#1158, re-platformed by ADR-0010) — READ IN PLACE (HDF5, no
+    // `.xgcov` transcode). Unlike every other branch here this one does NOT await its read:
+    // it registers the source with no resident region and the cell streams in the background
+    // (#1426 — awaiting a multi-MB cell inside run()'s load barrier held the FIRST FRAME, so
+    // the whole map, basemap included, stayed black for the entire stream). Note the branch
+    // never touches `cameraFitState`: nothing about frame one depends on it. Rationale and
+    // guards: `loadDeclaredCoverage` (coverage-source.ts).
     if (declaredType === 'coverage') {
-      const label = `coverage source "${load.name}"`
-      const safe: typeof fetch = (u, init) => safeFetch(String(u), init, label) // SSRF guard
-      // The range-then-whole-file ladder lives in coverage-fetch.ts, shared with
-      // `refreshCoverage` (#1158): read the same way at attach and at refresh, or a
-      // Range-hostile server works once and breaks on the first re-read.
-      const handle = await fetchCoverageHandle(url, label, safe)
       // DATA-ONLY (ramp/range are LAYER paint, #1158 INC-D); one DECLARED cell ⇒ one region,
-      // and coverage-source.ts owns residency + the time axis from here (#1272).
-      this.rawDatasets.set(load.name, { _coverage: new Map([[DEFAULT_REGION, { handle, url }]]) })
+      // and coverage-source.ts owns residency + the time axis from here (#1272). The empty
+      // map is a shape `rebuildLayers` already handles — it iterates `_coverage`.
+      this.rawDatasets.set(load.name, { _coverage: new Map() })
+      // Fire-and-forget by design: the loader contains its own read failures (isolate-and-log,
+      // like the barrier's bad-CRS path) and is epoch/destroy/`isStale` guarded, so nothing it
+      // settles into can land on a superseded run.
+      void this.beginCoverageLoad(load.name, url, isStale)
       return
     }
 

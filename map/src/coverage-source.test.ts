@@ -32,6 +32,7 @@ function makeDeps(overrides: Partial<CoverageSourceDeps> = {}): {
     time: { nextEpoch: () => 1, isCurrent: () => true } as unknown as CoverageSourceDeps['time'],
     fieldArmed: () => false,
     armFields: () => {},
+    armFromShow: () => {},
     clearArrows: () => {},
     invalidate: () => {},
     // Live-refresh deps (#1158): inert here. These gates exercise residency only, and the

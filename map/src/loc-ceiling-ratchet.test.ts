@@ -451,7 +451,10 @@ const CEILINGS: Record<string, number> = {
   // coverage push and every mosaic region eviction, and shipped green. +3 is the one-line
   // change plus the three-line reason; there is nothing to extract from a single binding,
   // and dropping the comment would leave the next reader free to "simplify" it back.
-  'map/src/map.ts': 5412,
+  // 5412→5375 (#1426): the deferred coverage attach needed a THIRD arm site, so the arm
+  // itself came OUT — armCoverageDrape/armCoverageShow/armLandedCoverage now live in
+  // coverage-arm.ts, taking the map structurally. −37; LOWERED per the shrink-only rule.
+  'map/src/map.ts': 5375,
   // Baselined at #1255 (measured 830): the DOM-inspired layer API crossed
   // NEW_FILE_CAP with the paint-transition style-setter integration — the
   // StyleHost.transitions context, the shared applyNumber/applyColor
@@ -501,7 +504,10 @@ const CEILINGS: Record<string, number> = {
   // decision. Ceiling below is the MERGED file's actual wc -l, measured after prettier.
   // MERGE UNION: both sides' deltas are non-overlapping, so the value is the MEASURED count.
   // MERGE UNION: non-overlapping deltas; the value is the MEASURED post-hook count.
-  'map/src/source-manager.ts': 903,
+  // 903→902 (#1426): the `type: coverage` branch stopped awaiting its multi-MB read (it now
+  // registers the source and hands the URL to the background loader), which retired the
+  // fetch/read imports. −1; LOWERED per the shrink-only rule.
+  'map/src/source-manager.ts': 902,
   // 1920→1930 (#1042 R3): the globe limb cull for MULTI-LINE labels must land in
   // the collision phase — the ONLY site holding the label's quad half-height (the
   // collision box IS the height authority; the label-pass dispatch site has only
