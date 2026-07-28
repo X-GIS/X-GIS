@@ -1010,7 +1010,14 @@ const CEILINGS: Record<string, number> = {
   // contract in dev, which is the only place the class is catchable without a WebGPU adapter.
   // +28 is the guard, the `usage`/`label` fields it reads, and the reason — the reason being
   // the part that stops someone deleting a check their own backend does not need.
-  'rhi-webgl2/src/rhi-webgl2.ts': 1469,
+  // 1469→1512 (#1436): mip + anisotropy. The RHI had no vocabulary for either, so every
+  // minified texture aliased; this backend is where the widening is hardest, because GL folds
+  // two filter decisions into one enum and anisotropy is an EXTENSION that must degrade rather
+  // than throw. PAID FOR FIRST by extracting `minFilterEnum` + `resolveAnisotropy` to
+  // webgl2-texture-sampling.ts (−24, pure functions, no `this`, now testable without a device);
+  // the residual +43 is the chain allocation in createTexture, the aniso clamp in createSampler,
+  // and `generateMipmaps` — all of which need the device and cannot leave it. Measured post-hook.
+  'rhi-webgl2/src/rhi-webgl2.ts': 1512,
   // 941→975 (#1371 atomic re-seed): `releaseSupersededTile` + `dropTile`, and the split of
   // `_releaseTileSlots` into a resource-release body the two share with eviction. Arena/pool
   // ownership is this class's whole reason to exist.
@@ -1099,7 +1106,10 @@ const CEILINGS: Record<string, number> = {
   // ECEF) so the flat non-Mercator arm subtracts the camera in df64 and stops
   // shaking at z18+. +13 post-hook; a free function (single authority, not three
   // duplicated inline branches).
-  'map/src/render/raster-renderer.ts': 990,
+  // 990→992 (#1436): the tile texture asks for a chain and fills it after the upload. Two lines
+  // plus the sentence saying why a basemap tile is the minified-appearance texture par
+  // excellence. Measured post-hook.
+  'map/src/render/raster-renderer.ts': 992,
   // 889→906 (#1155 F3): cold-start burst enqueue cap — the `_coldStartBurst`
   // field + `setColdStartBurst` + the burst-selected 8/4 cap in enqueue().
   // 906→910 (#1155 F3 adjudication): the burst 8/4 pair now comes from the

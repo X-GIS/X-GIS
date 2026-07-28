@@ -73,6 +73,12 @@ export interface RhiTextureDesc {
   format: RhiTextureFormat
   usage: ReadonlyArray<'sample' | 'render' | 'copy-dst' | 'copy-src'>
   sampleCount?: number
+  /** Levels in the mip chain, base included. Omitted or 1 ⇒ a single-level texture, which is
+   *  what every pre-#1436 caller gets and what a DATA texture must keep: averaging a value grid
+   *  across levels fabricates readings the source never contained (see CoverageRenderer). Only
+   *  meaningful for an APPEARANCE texture that gets minified. The chain is allocated here but
+   *  left undefined past the base — `generateMipmaps` fills it. */
+  mipLevelCount?: number
   label?: string
 }
 
@@ -80,6 +86,19 @@ export type RhiFilter = 'nearest' | 'linear'
 export interface RhiSamplerDesc {
   mag: RhiFilter
   min: RhiFilter
+  /** How to blend BETWEEN mip levels. Omitted ⇒ sample the base level only, which is the
+   *  pre-#1436 behaviour. `'linear'` with `min: 'linear'` is trilinear. Asking for this against
+   *  a single-level texture is not an error — there is simply nothing to blend to. */
+  mipmap?: RhiFilter
+  /** Max anisotropic taps (1 = isotropic). A screen pixel at pitch covers a long thin ellipse in
+   *  texel space, so an isotropic tap must blur the long axis to match the short one; this is
+   *  what keeps the horizon sharp rather than mush.
+   *
+   *  A REQUEST, not a guarantee. WebGPU serves it natively; WebGL2 needs
+   *  `EXT_texture_filter_anisotropic`, and where it is absent the sampler degrades to plain
+   *  trilinear rather than throwing. Read {@link RhiDevice.maxAnisotropy} to see what the device
+   *  will actually honour — the degrade is observable by contract, never silent. */
+  maxAnisotropy?: number
   label?: string
 }
 
@@ -474,6 +493,23 @@ export interface RhiDevice {
   ): void
   createView(texture: RhiTexture): RhiTextureView
   createSampler(desc: RhiSamplerDesc): RhiSampler
+  /** Fill every level past the base of `texture` by successive downsample (#1436).
+   *
+   *  An EXPLICIT operation rather than a side effect of `writeTexture` or a descriptor flag: the
+   *  two backends disagree deeply — WebGL2 has `gl.generateMipmap`, WebGPU has NO equivalent and
+   *  must run a blit pass per level — and that asymmetry belongs behind this seam, not as raw
+   *  WebGPU in `map/` (which `raw-webgpu-ratchet` forbids). Hiding it inside an upload would also
+   *  make "write the base, then regenerate" impossible to say.
+   *
+   *  Call AFTER the base level has content; a chain generated from an empty base is empty. A
+   *  single-level texture is a no-op, not an error. */
+  generateMipmaps(texture: RhiTexture): void
+  /** Greatest anisotropy this device will actually honour, ≥ 1 (#1436).
+   *
+   *  Exists so {@link RhiSamplerDesc.maxAnisotropy}'s degrade is OBSERVABLE. WebGL2 without
+   *  `EXT_texture_filter_anisotropic` reports 1, meaning "asking bought you nothing" — a caller
+   *  that needs to know whether it got aniso reads this instead of guessing from the platform. */
+  readonly maxAnisotropy: number
   /** Release a sampler (#782). WebGL2 `gl.deleteSampler`; on WebGPU a `GPUSampler` has NO native
    *  destroy (GC-owned) → no-op. A texture VIEW likewise has no destroy (WebGL2: the view IS the
    *  texture; WebGPU: `GPUTextureView` is GC-owned), so there is deliberately no `destroyView`. */
