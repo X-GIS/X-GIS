@@ -445,7 +445,13 @@ const CEILINGS: Record<string, number> = {
   // to different methods, so the merged file measures their SUM. Value below is the MEASURED
   // post-hook line count, not an arithmetic guess.
   // MERGE UNION: non-overlapping deltas; the value is the MEASURED post-hook count.
-  'map/src/map.ts': 5409,
+  // 5409→5412 (#1272 E-④ follow-up): the coverage deps record binds the renderer through a
+  // THUNK instead of capturing it. `coverageRenderer` is declared `!` and assigned only at
+  // GPU boot, so the captured form was `undefined` forever — it broke every ramp-only
+  // coverage push and every mosaic region eviction, and shipped green. +3 is the one-line
+  // change plus the three-line reason; there is nothing to extract from a single binding,
+  // and dropping the comment would leave the next reader free to "simplify" it back.
+  'map/src/map.ts': 5412,
   // Baselined at #1255 (measured 830): the DOM-inspired layer API crossed
   // NEW_FILE_CAP with the paint-transition style-setter integration — the
   // StyleHost.transitions context, the shared applyNumber/applyColor
@@ -1034,7 +1040,13 @@ const CEILINGS: Record<string, number> = {
   // 1452→1457 (#1333 `| particles`): `isParticles` local + its 3 acc-thread/return sites —
   // mirrors isArrow's shape exactly (no arrowBearing-like companion needed), no new logic.
   // Measured after prettier: wc -l = 1457.
-  'compiler/src/ir/lower.ts': 1457,
+  // 1457→1463 (#1418): threading `flowPortrayal` through the lowering — one `let`, one
+  // read-back from the accumulator, one return field, plus the three lines saying why the
+  // default is deliberately left UNDEFINED here rather than baked in. A declarative surface
+  // has to touch this file to exist; there is nothing to extract from six lines of threading,
+  // and dropping the comment would invite a later reader to "helpfully" default it and create
+  // the second authority it exists to prevent.
+  'compiler/src/ir/lower.ts': 1463,
   // #777 I-B icon-keep-upright + I-F icon value-forms (merged) grow three
   // symbol-lowering god-files (per-row justification in
   // architecture-invariants.test.ts, the second authority):
@@ -1060,7 +1072,10 @@ const CEILINGS: Record<string, number> = {
   // 956→957 (merge union with #1305 RenderNodeCoveragePaint).
   // 957→966 (#1333): RenderNodeParticlePaint sub-bundle (isParticles) + its merge into
   // RenderNode's extends list.
-  'compiler/src/ir/render-node.ts': 966,
+  // 966→969 (#1418): the `flowPortrayal` field on RenderNode plus its doc comment. A field on
+  // the IR node type is the whole point of the file; extracting one property would split the
+  // node's shape across two places for no gain.
+  'compiler/src/ir/render-node.ts': 969,
   'compiler/src/convert/paint-helpers.ts': 826,
   'blueprint/src/editor.ts': 1448,
 }

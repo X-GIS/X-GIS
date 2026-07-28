@@ -133,6 +133,12 @@ export function packCompiledArrowFeat(
   sizesPx: ArrayLike<number>,
   dpr: number,
   strokeUnits = 0,
+  /** ADVECTED mode (#1419): the arrows are the particles. The tip block becomes the EAST step
+   *  and a NORTH step is written, giving the VS two geographic→screen bases instead of one —
+   *  a single basis can only move an arrow along its launch bearing (the straight-line drift
+   *  #70 reverted). Direction is no longer baked here; it comes from the velocity field at the
+   *  arrow's current position, which is why the tip block is free to reuse. */
+  advected = false,
 ): Float32Array {
   const n = lons.length
   const feat = new Float32Array(n * STRIDE)
@@ -144,11 +150,20 @@ export function packCompiledArrowFeat(
 
     // Tip = anchor stepped along the geographic bearing (0=north, CW) — identical
     // to packRetainedArrowFeat, so declarative and host arrows orient the same.
-    const br = (bearingsDeg[i] ?? 0) * DEG2RAD
-    const dLat = Math.cos(br) * TIP_STEP_DEG
     const cosLat = Math.cos(lat * DEG2RAD) || 1
-    const dLon = (Math.sin(br) * TIP_STEP_DEG) / cosLat
-    packGeoPoint(feat, o + F.tip_ecef_x_h, lon + dLon, lat + dLat) // tip block (base 12)
+    if (advected) {
+      // EAST into the tip block, NORTH into its own. Both are ONE step from the same anchor,
+      // so the VS's clip-space deltas are the two bases the displacement decomposes onto.
+      packGeoPoint(feat, o + F.tip_ecef_x_h, lon + TIP_STEP_DEG / cosLat, lat)
+      packGeoPoint(feat, o + F.north_ecef_x_h, lon, lat + TIP_STEP_DEG)
+    } else {
+      // Tip = anchor stepped along the geographic bearing (0=north, CW) — identical to
+      // packRetainedArrowFeat, so declarative and host arrows orient the same.
+      const br = (bearingsDeg[i] ?? 0) * DEG2RAD
+      const dLat = Math.cos(br) * TIP_STEP_DEG
+      const dLon = (Math.sin(br) * TIP_STEP_DEG) / cosLat
+      packGeoPoint(feat, o + F.tip_ecef_x_h, lon + dLon, lat + dLat) // tip block (base 12)
+    }
 
     feat[o + F.size] = (sizesPx[i] ?? 1) * dpr
     feat[o + F.stroke_units] = strokeUnits
