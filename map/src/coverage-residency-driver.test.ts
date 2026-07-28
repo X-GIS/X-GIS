@@ -64,7 +64,7 @@ function catalogueDoc(items: Array<[string, Bbox]> = ITEMS): unknown {
 
 /** Serves bytes per URL, honouring Range (the coverage read path range-streams, and the
  *  cell/catalogue probe reads exactly 8 bytes). `unreachable` 404s. */
-function stubServer(opts: { doc?: unknown; unreachable?: Set<string> } = {}) {
+function stubServer(opts: { doc?: unknown; unreachable?: Set<string>; hold?: string } = {}) {
   const doc = opts.doc ?? catalogueDoc()
   const body = (url: string): Uint8Array | null => {
     if (opts.unreachable?.has(url)) return null
@@ -73,9 +73,19 @@ function stubServer(opts: { doc?: unknown; unreachable?: Set<string> } = {}) {
     return null
   }
   const calls: string[] = []
+  // `hold` blocks the first read of one cell until `release()`, so a test can interleave a
+  // camera move with a fetch that is genuinely in flight — the only way the stale-arm race
+  // reproduces (an instant stub completes the whole loop before anything can move).
+  let releaseHold = (): void => {}
+  const held = new Promise<void>((r) => (releaseHold = r))
+  let holdArmed = opts.hold !== undefined
   const spy = vi.spyOn(shared, 'safeFetch').mockImplementation(async (u, init) => {
     const url = String(u)
     calls.push(url)
+    if (holdArmed && opts.hold !== undefined && url.endsWith(opts.hold)) {
+      holdArmed = false
+      await held
+    }
     const bytes = body(url)
     if (!bytes) return new Response('nope', { status: 404 }) as never
     const range = (init?.headers as Record<string, string> | undefined)?.['Range']
@@ -89,7 +99,7 @@ function stubServer(opts: { doc?: unknown; unreachable?: Set<string> } = {}) {
       headers: { 'content-range': `bytes ${start}-${start + slice.length - 1}/${bytes.length}` },
     }) as never
   })
-  return { spy, calls }
+  return { spy, calls, release: () => releaseHold() }
 }
 
 function mockCtx(): { rhi: unknown; format: string } {
@@ -307,8 +317,34 @@ describe('ONE residency authority: the renderer’s GPU byte budget (#1453)', ()
     const { deps, renderer, cpuRegions } = makeDeps(MID_ATLANTIC, 1)
     await loadDeclaredCoverage(deps, 'currents', CATALOGUE_URL)
 
-    expect(renderer.residentRegions()).toEqual(['dbofs'])
+    // cbofs, not dbofs. This expectation used to read `['dbofs']` — whichever was armed LAST
+    // — which was the bug the live render gate found: the LRU evicts least-recently-armed,
+    // and arms go most-relevant-first, so the cell the viewport most wants was the one thrown
+    // out. The overflowing arm is backed out now, so the survivor is the most relevant cell.
+    expect(renderer.residentRegions()).toEqual(['cbofs'])
     expect(cpuRegions()).toEqual(renderer.residentRegions())
+  })
+
+  it('THE PREFIX INVARIANT: the budget evicting the MOST relevant cell is backed out', async () => {
+    // Found by the live render gate: over San Francisco the resident set came back as
+    // `["wcofs"]` — the basin-wide cell — with `sfbofs`, the local one the viewport actually
+    // wanted, evicted. Recency and relevance run in OPPOSITE directions: arms go
+    // most-relevant-first, so the most relevant cell is the least-recently-armed and is
+    // exactly what the LRU throws out. The frame went from 45% painted to 2%.
+    const { calls } = stubServer({
+      doc: catalogueDoc([
+        ['sfbofs', [-123.2, 36.9, -121.3, 38.5]], // local — smaller bbox wins the tie
+        ['wcofs', [-134.0, 30.0, -117.0, 49.0]], // basin-wide, same overlap over SF
+      ]),
+    })
+    const { deps, renderer, cpuRegions } = makeDeps(SF_BAY, 1) // budget fits exactly one
+    await loadDeclaredCoverage(deps, 'currents', CATALOGUE_URL)
+
+    // The LOCAL cell must be what survives, not whichever was armed last.
+    expect(cpuRegions()).toEqual(['sfbofs'])
+    expect(renderer.residentRegions()).toEqual(['sfbofs'])
+    // wcofs was tried (that is how the budget spoke) and then backed out.
+    expect(calls.some((u) => u.endsWith('wcofs.h5'))).toBe(true)
   })
 
   it('the driver STOPS arming once the budget evicts something it still wants', async () => {
@@ -330,14 +366,19 @@ describe('ONE residency authority: the renderer’s GPU byte budget (#1453)', ()
     expect(calls.some((u) => u.endsWith('sliver.h5'))).toBe(false)
   })
 
-  it('a re-resolve over the SAME cells does not re-arm the evicted one — no thrash', async () => {
+  it('a re-resolve over the SAME cells fetches NOTHING more — no thrash', async () => {
     const { calls } = stubServer()
-    const { deps } = makeDeps(MID_ATLANTIC, 1)
+    const { deps, cpuRegions } = makeDeps(MID_ATLANTIC, 1)
     await loadDeclaredCoverage(deps, 'currents', CATALOGUE_URL)
-    const before = calls.filter((u) => u.endsWith('cbofs.h5')).length
+    const settled = cpuRegions()
+    const before = calls.filter((u) => u.endsWith('.h5')).length
 
-    await syncCoverageResidency(deps, 'currents') // same viewport, same wanted set
-    expect(calls.filter((u) => u.endsWith('cbofs.h5')).length).toBe(before)
+    // Counting EVERY cell fetch, not just cbofs': the back-out re-arms the victim, so a
+    // per-cell count moves for a legitimate reason. What must not move is the total across a
+    // second resolve of the SAME viewport — that would be the budget-boundary thrash.
+    await syncCoverageResidency(deps, 'currents')
+    expect(calls.filter((u) => u.endsWith('.h5')).length).toBe(before)
+    expect(cpuRegions()).toEqual(settled)
   })
 
   it('a CHANGED wanted set lifts the suppression — that is the only event that makes room', async () => {
@@ -351,6 +392,52 @@ describe('ONE residency authority: the renderer’s GPU byte budget (#1453)', ()
     pan(MID_ATLANTIC) // and back
     await syncCoverageResidency(deps, 'currents')
     expect(calls.filter((u) => u.endsWith('cbofs.h5')).length).toBeGreaterThan(before)
+  })
+})
+
+describe('a resolve whose viewport moved on must not land (#1453)', () => {
+  beforeEach(() => vi.restoreAllMocks())
+
+  it('THE STALE ARM: a cell fetched for the OLD view is dropped, not armed', async () => {
+    // Found by the LIVE RENDER GATE, not by a unit test: panning Chesapeake → San Francisco
+    // left DELAWARE resident and the screen empty. The epoch guard cannot catch this — it is
+    // per REGION, and dbofs' read was never superseded by another dbofs read. What changed is
+    // that nobody WANTS dbofs any more, which is a different question entirely.
+    //
+    // The race needs a real gap in the cell fetch, which is why the ordinary stub (instant)
+    // could not reproduce it: `hold` blocks cbofs' read until the pan has been resolved.
+    const { release } = stubServer({ hold: 'cbofs.h5' })
+    const { deps, pan, cpuRegions } = makeDeps(MID_ATLANTIC)
+
+    // 1. Start the mid-Atlantic resolve. It reaches cbofs' fetch and blocks there.
+    const inFlight = loadDeclaredCoverage(deps, 'currents', CATALOGUE_URL)
+    await vi.waitFor(() => expect(deps.catalogues.get('currents')?.inFlight.size).toBe(1))
+
+    // 2. The camera moves a continent away and that resolve completes.
+    pan(SF_BAY)
+    await syncCoverageResidency(deps, 'currents')
+
+    // 3. Only now does the Chesapeake cell arrive.
+    release()
+    await inFlight
+
+    // It must NOT be armed: an Atlantic domain over San Francisco draws nothing and costs a
+    // GPU slot the wanted cell needs.
+    expect(cpuRegions()).toEqual(['sfbofs'])
+  })
+
+  it('the stale loop STOPS rather than working through the old wanted list', async () => {
+    const { calls, release } = stubServer({ hold: 'cbofs.h5' })
+    const { deps, pan } = makeDeps(MID_ATLANTIC)
+    const inFlight = loadDeclaredCoverage(deps, 'currents', CATALOGUE_URL)
+    await vi.waitFor(() => expect(deps.catalogues.get('currents')?.inFlight.size).toBe(1))
+    pan(SF_BAY)
+    await syncCoverageResidency(deps, 'currents')
+    release()
+    await inFlight
+    // cbofs' read had already started and cannot be recalled; dbofs' had not, and must never
+    // start — the viewport it was wanted for is gone.
+    expect(calls.some((u) => u.endsWith('dbofs.h5'))).toBe(false)
   })
 })
 
