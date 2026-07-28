@@ -13,7 +13,8 @@
   },
   "dependencies": {
     "@xgis/rhi": "workspace:*",
-    "@xgis/shader-dsl": "workspace:*"
+    "@xgis/shader-dsl": "workspace:*",
+    "@xgis/shared": "workspace:*"
   },
   "devDependencies": {
     "@xgis/engine": "workspace:*"

@@ -16,9 +16,15 @@
       // twin against the engine emit); src has no engine import (#929 B).
       "@xgis/engine": ["../engine/dist/index.d.ts"],
       "@xgis/shader-dsl": ["../shader-dsl/dist/index.d.ts"],
-      "@xgis/shader-dsl/*": ["../shader-dsl/dist/*"]
+      "@xgis/shader-dsl/*": ["../shader-dsl/dist/*"],
+      "@xgis/shared": ["../shared/dist/index.d.ts"]
     }
   },
-  "references": [{ "path": "../rhi" }, { "path": "../engine" }, { "path": "../shader-dsl" }],
+  "references": [
+    { "path": "../rhi" },
+    { "path": "../engine" },
+    { "path": "../shader-dsl" },
+    { "path": "../shared" }
+  ],
   "include": ["src/**/*.ts"]
 }

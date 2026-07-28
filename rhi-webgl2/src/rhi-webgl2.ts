@@ -65,6 +65,7 @@ import type {
   RhiRenderPassDesc,
 } from '@xgis/rhi'
 import { stashGl2RestoreToken } from '@xgis/rhi'
+import { devAssert } from '@xgis/shared'
 
 // Each opaque RHI handle stores a rich GL record (cast both ways inside this
 // module). WebGL2 needs MORE per-handle metadata than WebGPU (a buffer's GL
@@ -86,11 +87,34 @@ interface Gl2StorageBuffer {
   height: number
   size: number
 }
+/** WebGPU validates every queue write against the texture's usage flags; WebGL2 validates
+ *  nothing. That asymmetry is not a detail — it means a texture written without `copy-dst`
+ *  works perfectly under SwiftShader (which is what every headless render gate here drives)
+ *  and dies at boot on WebGPU. It cost the S-111 advected arrow field exactly that: the whole
+ *  portrayal gone on the backend nobody can run in CI, behind a green render gate.
+ *
+ *  So the SOFTWARE backend enforces the STRICTER contract. Dev-only, because in production the
+ *  worst case is the WebGPU error the app would get anyway — but in dev, in tests, and in every
+ *  e2e gate, the class becomes impossible to reintroduce without a loud failure naming the
+ *  texture. Verified-by-construction beats remembering. */
+function assertCopyDst(t: Gl2Texture, op: string): void {
+  devAssert(
+    t.usage.includes('copy-dst'),
+    () =>
+      `${op}: texture "${t.label ?? '(unlabelled)'}" was created with usage [${t.usage.join(', ')}] ` +
+      `— WebGPU requires 'copy-dst' on any texture a queue write targets. WebGL2 does not check, ` +
+      `so this would pass here and fail on WebGPU only.`,
+  )
+}
+
 interface Gl2Texture {
   tex: WebGLTexture
   width: number
   height: number
   format: RhiTextureFormat
+  /** Retained for the dev-only usage guard above. WebGL2 itself has no use for either. */
+  usage: ReadonlyArray<'sample' | 'render' | 'copy-dst' | 'copy-src'>
+  label?: string
 }
 interface Gl2View {
   texture: Gl2Texture
@@ -1050,6 +1074,8 @@ export class WebGl2Device implements RhiDevice {
       width: desc.width,
       height: desc.height,
       format: desc.format,
+      usage: desc.usage,
+      label: desc.label,
     } satisfies Gl2Texture)
   }
 
@@ -1063,6 +1089,7 @@ export class WebGl2Device implements RhiDevice {
     y = 0,
   ): void {
     const t = un<Gl2Texture>(texture)
+    assertCopyDst(t, 'writeTexture')
     const gl = this.gl
     gl.bindTexture(gl.TEXTURE_2D, t.tex)
     gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1)
@@ -1078,6 +1105,7 @@ export class WebGl2Device implements RhiDevice {
     height: number,
   ): void {
     const t = un<Gl2Texture>(texture)
+    assertCopyDst(t, 'copyExternalImage')
     const gl = this.gl
     gl.bindTexture(gl.TEXTURE_2D, t.tex)
     // Top-left origin to match WebGPU copyExternalImageToTexture — no flip.
