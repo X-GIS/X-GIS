@@ -272,6 +272,16 @@ export interface TileSource {
    *  range-request merging. */
   loadTilesBatch?(keys: number[]): void
 
+  /** OPTIONAL teardown notice. `TileCatalog.destroy()` calls this on every
+   *  attached backend BEFORE running its owner-registered teardown, so a
+   *  backend can tell "the catalog I serve is gone" apart from a genuine
+   *  fault. That distinction matters because the owner teardown can pull
+   *  process-global state out from under work already in flight — #1353's
+   *  callback drops the GeoJSON tiling-worker index, and any `getTile`
+   *  already posted against it rejects once that lands. Those rejections
+   *  have no consumer left and must not be reported as errors. */
+  onCatalogDestroyed?(): void
+
   /** OPTIONAL teardown. Called by catalog.detachBackend. */
   detach?(): void
 
