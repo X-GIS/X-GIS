@@ -249,6 +249,13 @@ export class TextRenderer {
           fade,
         })
       }
+      // #777 IV3-a ground basis, hoisted out of the glyph loop: four scalars
+      // read once per draw rather than four indexed loads per corner.
+      const groundBasis = d.groundBasis
+      const gEx = groundBasis !== undefined ? groundBasis[0]! : 1
+      const gEy = groundBasis !== undefined ? groundBasis[1]! : 0
+      const gNx = groundBasis !== undefined ? groundBasis[2]! : 0
+      const gNy = groundBasis !== undefined ? groundBasis[3]! : 1
       // Whole-label rotation around (anchorX, anchorY). Used when
       // glyphRotations isn't set; one trig-pair beats stamping a
       // rotation matrix per quad.
@@ -358,6 +365,34 @@ export class TextRenderer {
           ;[blx, bly] = rotateXY(x0 + shBot, y1)
           ;[brx, bry] = rotateXY(x1 + shBot, y1)
           ;[trx, try_] = rotateXY(x1 + shTop, y0)
+        }
+        // #777 IV3-a — lay the quad IN the ground plane. Each corner's screen
+        // offset from the anchor is re-expressed along the anchor's projected
+        // ground axes, which is what makes the label foreshorten and tilt with
+        // the camera. Applied AFTER rotation so the label's in-plane angle
+        // (text-rotate / the along-line tangent) is what gets projected —
+        // rotating a foreshortened quad would shear it instead.
+        // Skipped wholesale when absent: viewport-aligned labels never touch
+        // this arithmetic, so their vertices stay bit-identical (the gate).
+        if (groundBasis !== undefined) {
+          const ax = d.anchorX
+          const ay = d.anchorY
+          const tlDx = tlx - ax
+          const tlDy = tly - ay
+          const blDx = blx - ax
+          const blDy = bly - ay
+          const brDx = brx - ax
+          const brDy = bry - ay
+          const trDx = trx - ax
+          const trDy = try_ - ay
+          tlx = ax + tlDx * gEx + tlDy * gNx
+          tly = ay + tlDx * gEy + tlDy * gNy
+          blx = ax + blDx * gEx + blDy * gNx
+          bly = ay + blDx * gEy + blDy * gNy
+          brx = ax + brDx * gEx + brDy * gNx
+          bry = ay + brDx * gEy + brDy * gNy
+          trx = ax + trDx * gEx + trDy * gNx
+          try_ = ay + trDx * gEy + trDy * gNy
         }
 
         const off = glyphIdx * FLOATS_PER_GLYPH

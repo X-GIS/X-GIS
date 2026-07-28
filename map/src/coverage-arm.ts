@@ -100,13 +100,14 @@ export function armCoverageShow(
   region: string,
 ): void {
   armCoverageDrape(host, show, handle, region)
-  if (show.isArrow) {
-    // Clear THIS region's arrows only. Clearing all of them here is what kept the mosaic
-    // single-region even after the renderer could hold several: a neighbour's time step
-    // wiped every other domain's glyphs and re-added just its own.
-    host.graphics.clearCompiledArrows(region)
-    addCoverageArrowShowLayer(host, show, handle, region)
-  }
+  // Clear THIS region's arrows only, and clear them for EITHER portrayal. Clearing all of them
+  // here is what kept the mosaic single-region even after the renderer could hold several: a
+  // neighbour's time step wiped every other domain's glyphs and re-added just its own. Scoping
+  // the clear to `| arrow` was the mirror mistake — a `| flow`-only layer is re-armed on every
+  // forecast frame (playback drives this many times a second) and ACCUMULATED one advected
+  // batch per frame, each with its own feat and band buffers.
+  host.graphics.clearCompiledArrows(region)
+  if (show.isArrow) addCoverageArrowShowLayer(host, show, handle, region)
   armAdvectedArrows(host, show, handle, region)
 }
 
