@@ -3104,6 +3104,9 @@ export class XGISMap {
     this.applyEffectiveRasterFadeDuration()
     this.hillshadeRenderer = rendererSet.hillshadeRenderer
     this.coverageRenderer = rendererSet.coverageRenderer
+    // A dropped region takes its arrows with it — including the LRU evictions the renderer
+    // makes on its own, which nothing else observes (#1419).
+    this.coverageRenderer.onRegionDropped = (region) => this._graphics.clearCompiledArrows(region)
     this.flowRenderer = rendererSet.flowRenderer
     // The advected arrows' state lives on the FlowRenderer (#1419); the graphics store needs a
     // handle on it to bind — and to upload each batch's origins the moment it is added.
@@ -4143,6 +4146,9 @@ export class XGISMap {
     this.applyEffectiveRasterFadeDuration()
     this.hillshadeRenderer = rendererSet.hillshadeRenderer
     this.coverageRenderer = rendererSet.coverageRenderer
+    // A dropped region takes its arrows with it — including the LRU evictions the renderer
+    // makes on its own, which nothing else observes (#1419).
+    this.coverageRenderer.onRegionDropped = (region) => this._graphics.clearCompiledArrows(region)
     this.flowRenderer = rendererSet.flowRenderer
     // The advected arrows' state lives on the FlowRenderer (#1419); the graphics store needs a
     // handle on it to bind — and to upload each batch's origins the moment it is added.

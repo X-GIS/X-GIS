@@ -477,7 +477,13 @@ const CEILINGS: Record<string, number> = {
   // MERGE UNION (#1419 follow-up <- main @ #1426): my side's +1 was the arrow clear moving out
   // of the `| arrow` branch — that line now lives in coverage-arm.ts, so it adds nothing here
   // and main's LOWER ceiling stands. Value below is the MEASURED post-merge count.
-  'map/src/map.ts': 5387,
+  //
+  // +6 (#1419, third pass): the coverage renderer's LRU eviction is now ANNOUNCED, and the map
+  // is what listens — a dropped region takes its compiled arrows with it. Two wire-ups (the
+  // GPU boot and the backend switch), each with the sentence saying why the LRU needed one at
+  // all: nothing else observed it, so an evicted region's arrows kept drawing against velocity
+  // textures that had just been destroyed.
+  'map/src/map.ts': 5393,
   // Baselined at #1255 (measured 830): the DOM-inspired layer API crossed
   // NEW_FILE_CAP with the paint-transition style-setter integration — the
   // StyleHost.transitions context, the shared applyNumber/applyColor
@@ -859,7 +865,11 @@ const CEILINGS: Record<string, number> = {
   // +1 (#1419, second pass): the twin's trail step is now gated on a VISIBLE drape — under the
   // arrows portrayal every flow region is resident-but-hidden, so advecting a full-screen image
   // nobody draws was a per-frame cost with no picture attached.
-  'map/src/render-loop.ts': 1395,
+  //
+  // +2 (#1419, third pass): the twin declares the arrow field every frame — OUTSIDE the `if`,
+  // because a frame with no field is exactly the one that must say so (an evicted region's
+  // textures are destroyed, and a binding still holding them dies in the next submit).
+  'map/src/render-loop.ts': 1397,
   // Baselined at 806 (hillshade tile fade-in): HillshadeRenderer crossed
   // NEW_FILE_CAP restoring the three tile-streaming fixes raster-renderer had
   // landed since hillshade was copied from it — the per-tile fade ramp + its
