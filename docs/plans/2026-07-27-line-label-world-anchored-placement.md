@@ -295,10 +295,52 @@ camera: an anchor that previously fell off the run's end now lands in view. That
 collision-model gap INC-3/INC-4 close, not a phase error — and D1 < D0 at every camera says the
 phase win outweighs it.
 
-**INC-2 — world-anchored phase, curved branch.**
+**INC-2 — world-anchored phase, curved branch. LANDED.**
 Add the mercator↔screen arc-length mapping of §3.2 and switch the curved stops.
 _Gate:_ road-name labels hold position under pan (same invariance test, curved path); the
 existing curved-label suites stay green.
+
+_As landed._ `mercOffsetToScreenOffset` is the §3.2 mapping: the projection loop already
+visits every sample, so it accumulates mercator arc-length into `_pmScratch` alongside the
+projected points, and the world→screen conversion becomes a lookup in the two parallel prefix
+sums. `lineLabelFirstStopPx` is now the single authority for the lattice — both branches call
+it, so they cannot drift into different phases for the same road. The curved branch's two
+emission sites (short-line midpoint, spacing walk) collapsed into one `emitCurvedStop`, which
+is what paid for label-pass.ts's LOC ceiling (2148 → 2116).
+
+_Measured_ (OFM Positron, 1800×900, settle-until-3-identical-hashes; same-code noise floor 0 px
+at all four cameras). Two PITCHED cameras were added — pitch is the only place the prefix-sum
+mapping and INC-1's single `pxPerMeter` scalar can disagree, and at flat z16.7 they are in fact
+bit-identical (DC = 0 when the curved branch is held fixed), so a flat-only sweep cannot tell
+them apart:
+
+| camera             | DC   | D0   | D1           |
+| ------------------ | ---- | ---- | ------------ |
+| z16.7              | 1225 | 4566 | 4601 (+35)   |
+| z16.0              | 1854 | 4908 | 4325 (−583)  |
+| z16.7 pitch 60     | 2224 | 7937 | 7762 (−175)  |
+| z16.0 pitch 45 b30 | 3635 | 8536 | 7470 (−1066) |
+
+z16.7 reads +35 — flat, not a regression. The raw ML↔X-GIS diff cannot credit what changed
+there: X-GIS now draws the `Nuhyeon-gil / 누현길` road label MapLibre also draws and previously
+drew nothing, and a label present in both but not glyph-aligned costs diff pixels at BOTH
+positions. A text-coverage measure (dark-pixel masks, dilated 4 px so "same label, 1 px off"
+counts as agreement) shows the content actually converged: ML-text-not-covered-by-X-GIS
+515 → 469, X-GIS-text-not-in-ML 1120 → 1064.
+
+_Known cost._ At z16.7 pitch 60 both coverage counts move the wrong way (+52 / +114) even though
+the pixel diff improves. The world lattice lands anchors in the pitch-compressed far field where
+MapLibre places none — because MapLibre's `getAnchors` FILTERS candidate anchors (max-angle, and
+whether the label fits) and X-GIS does not. The old half-step cadence avoided those spots by
+accident. That filter is the real missing piece and belongs with INC-3/INC-4.
+
+_Rejected by measurement._ A midpoint retry for runs the lattice misses (MapLibre re-resamples
+from the middle when its own resample yields no anchor) was implemented and measured. It does
+restore the labels — but at positions MapLibre does not use: z16.0 went −583 → −269 and z16.7
+pitch 60 went −175 → +254, worse on the text-coverage measure too. It only pays once anchors are
+filtered the way MapLibre filters them, so it was reverted rather than kept as a net-negative
+mitigation. `label-pass-line-lattice.test.ts` pins the unlabelled-run behaviour so the gap stays
+visible instead of being rediscovered.
 
 **INC-3 — path collision, representation.**
 Extend `CollisionItem` with an optional circle chain (centre + radius per element) and teach
