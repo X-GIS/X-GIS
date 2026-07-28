@@ -26,9 +26,17 @@
 
 import { test, expect } from '@playwright/test'
 
-/** Painted fraction + the state the ordering is about, read off the live map. */
-function probe() {
+/** State + frame, read off the live map. Stashes the frame under `key`; when `prev` names an
+ *  earlier stash, also reports the fraction of pixels that CHANGED between the two.
+ *
+ *  A changed-pixel fraction, not a bigger painted fraction: where the basemap tiles actually
+ *  arrive (CI has egress, this sandbox does not) the satellite imagery covers the frame
+ *  completely, `painted` saturates at 1.0, and "more pixels are painted after" becomes
+ *  unsatisfiable by construction — 1 > 1 is false. That is exactly the count-gate trap §12
+ *  warns about, and it cost this spec a red CI run. A directional diff cannot saturate. */
+function probe(arg: { key: string; prev?: string }) {
   const w = window as unknown as {
+    __frames?: Record<string, Uint8Array>
     __xgisMap?: {
       running?: boolean
       ctx?: { rhi?: { backend?: string; gl?: WebGL2RenderingContext } }
@@ -48,6 +56,21 @@ function probe() {
   for (let i = 0; i < buf.length; i += 4) {
     if (buf[i]! > 24 || buf[i + 1]! > 24 || buf[i + 2]! > 24) painted++
   }
+  w.__frames ??= {}
+  const before = arg.prev ? w.__frames[arg.prev] : undefined
+  let changed = -1
+  if (before && before.length === buf.length) {
+    changed = 0
+    for (let i = 0; i < buf.length; i += 4) {
+      if (
+        Math.abs(buf[i]! - before[i]!) > 8 ||
+        Math.abs(buf[i + 1]! - before[i + 1]!) > 8 ||
+        Math.abs(buf[i + 2]! - before[i + 2]!) > 8
+      )
+        changed++
+    }
+  }
+  w.__frames[arg.key] = buf
   return {
     ok: true as const,
     backend: m?.ctx?.rhi?.backend,
@@ -56,6 +79,7 @@ function probe() {
     coverage: m?.getCoverage('currents') != null,
     batches: m?.graphics?.hasRetainedBatches() === true,
     painted: painted / (W * H),
+    changed: changed < 0 ? -1 : changed / (W * H),
   }
 }
 
@@ -96,7 +120,7 @@ test.describe('deferred coverage attach (#1426)', () => {
     // Let the render loop actually tick a few frames with the cell still held.
     await page.waitForTimeout(2000)
 
-    const during = await page.evaluate(probe)
+    const during = await page.evaluate(probe, { key: 'during' })
     expect(cellRequested, 'the cell WAS requested — the deferral is a delay, not a skip').toBe(true)
     expect(during.ok, during.ok ? '' : during.reason).toBe(true)
     if (!during.ok) return
@@ -112,6 +136,10 @@ test.describe('deferred coverage attach (#1426)', () => {
     expect(basemapRequests, 'basemap tiles fetched while the cell was outstanding').toBeGreaterThan(
       0,
     )
+    // The coverage layer has drawn NOTHING yet: the compiled-arrow batch is produced only by
+    // the `| arrow` fork on a resident coverage, so its absence here and presence below is the
+    // saturation-proof before/after — true whether or not the basemap's own pixels arrive.
+    expect(during.batches, 'no arrow field before the cell lands').toBe(false)
 
     // Now let the cell through. The deferred arm must re-derive the `| arrow` field from the
     // layer's own show.
@@ -125,14 +153,21 @@ test.describe('deferred coverage attach (#1426)', () => {
     )
     await page.waitForTimeout(1500)
 
-    const after = await page.evaluate(probe)
+    const after = await page.evaluate(probe, { key: 'after', prev: 'during' })
     expect(after.ok).toBe(true)
     if (!after.ok) return
+    console.log(
+      `[deferred-coverage] during painted=${during.painted.toFixed(4)} batches=${during.batches}` +
+        ` | after painted=${after.painted.toFixed(4)} batches=${after.batches}` +
+        ` changed=${after.changed.toFixed(4)}`,
+    )
     expect(after.coverage).toBe(true)
     expect(after.batches, 'the engine `| arrow` field armed on the LATE handle').toBe(true)
-    // Real pixels, and strictly more of them than before the cell landed — the arrows are
-    // additive, so the deferred arm cannot be a no-op that merely stopped throwing.
     expect(after.painted, 'the late-armed field rasterises').toBeGreaterThan(0.01)
-    expect(after.painted).toBeGreaterThan(during.painted)
+    // And the frame MOVED. Directional, so it cannot saturate the way a painted-fraction does.
+    // Honest about what it proves: pixels changed after the cell landed — paired with the
+    // arrow batch appearing (above), which only the coverage `| arrow` fork can create. The
+    // diff alone is not attributed purely to arrows; late basemap tiles also change pixels.
+    expect(after.changed, 'the frame changed once the cell landed').toBeGreaterThan(0.002)
   })
 })
