@@ -477,6 +477,10 @@ const CEILINGS: Record<string, number> = {
   // MERGE UNION (#1419 follow-up <- main @ #1426): my side's +1 was the arrow clear moving out
   // of the `| arrow` branch — that line now lives in coverage-arm.ts, so it adds nothing here
   // and main's LOWER ceiling stands. Value below is the MEASURED post-merge count.
+  //
+  // #1437 likewise landed ON that extraction rather than beside it: its own drape-arm extraction
+  // was dropped on the merge and the `filter:` argument went into coverage-arm.ts, so map.ts is
+  // untouched by it too. Both merges leave the number as #1426's, re-measured each time.
   'map/src/map.ts': 5387,
   // Baselined at #1255 (measured 830): the DOM-inspired layer API crossed
   // NEW_FILE_CAP with the paint-transition style-setter integration — the

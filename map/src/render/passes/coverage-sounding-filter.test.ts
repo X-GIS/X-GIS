@@ -16,6 +16,7 @@ import { describe, it, expect } from 'vitest'
 import { coverageFromGrids, type CoverageHandle } from '@xgis/data'
 import { Lexer, Parser, lower, type LabelDef } from '@xgis/compiler'
 import { applyFilter } from '../../feature-helpers'
+import { coverageCellPredicate } from '../../shaders/dsl/coverage-filter-cpu'
 import { dispatchCoverageSoundings } from './dispatch-coverage-soundings'
 
 const N = 8
@@ -101,6 +102,13 @@ describe('coverage soundings honour `filter:`', () => {
   it('means the SAME thing as it does on a feature layer', () => {
     const all = dispatchedDepths()
     const expr = filterExpr('.depth > 20')
+    // Since #1437 this clause is served by the COMPILED shader-dsl predicate — the same IR the
+    // ramp drape emits as WGSL/GLSL — not by the general AST evaluator. Assert that here, or a
+    // silent fallback to the old path would keep this test green while proving nothing about
+    // the arm that actually runs, and the drape↔numeral agreement would go unmeasured.
+    expect(coverageCellPredicate(expr, 0), 'the shared predicate must be the live path').not.toBe(
+      null,
+    )
     const asFeatures = {
       type: 'FeatureCollection' as const,
       features: all.map((depth) => ({

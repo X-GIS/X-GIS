@@ -60,6 +60,10 @@ export function armCoverageDrape(
       opacity: show.opacity ?? 1,
       flowOnly: arm.draw ? arm.flowOnly : false,
       hidden: !arm.draw,
+      // `filter:` thins the DRAPE in the fragment shader (#1437) — the same clause the
+      // sounding arm applies per candidate cell, compiled once, so a layer's filter cannot
+      // mean two different things depending on which portrayal is looking at it.
+      filter: show.filterExpr,
     },
     region,
   )
