@@ -41,12 +41,14 @@ for (const name of names) {
     console.log(`${name}: MISSING in one side — skipped`)
     continue
   }
+  // The compare harness's two panes can differ by a pixel of layout rounding
+  // (639 vs 640 wide); diff the shared top-left region rather than refusing,
+  // and say so, since a 1-column shortfall is not what the gate is about.
   if (a.width !== b.width || a.height !== b.height) {
-    console.log(`${name}: SIZE MISMATCH ${a.width}x${a.height} vs ${b.width}x${b.height}`)
-    continue
+    console.log(`  (size ${a.width}x${a.height} vs ${b.width}x${b.height} — diffing the overlap)`)
   }
-
-  const { width: W, height: H } = a
+  const W = Math.min(a.width, b.width)
+  const H = Math.min(a.height, b.height)
   const diff = new PNG({ width: W, height: H })
   // 4x4 tile grid — index = (row * 4 + col).
   const cellDiff = new Array<number>(16).fill(0)
@@ -57,10 +59,12 @@ for (const name of names) {
   for (let y = 0; y < H; y++) {
     const row = Math.min(3, Math.floor((y * 4) / H))
     for (let x = 0; x < W; x++) {
+      const ia = (y * a.width + x) * 4
+      const ib = (y * b.width + x) * 4
       const i = (y * W + x) * 4
-      const dr = Math.abs(a.data[i]! - b.data[i]!)
-      const dg = Math.abs(a.data[i + 1]! - b.data[i + 1]!)
-      const db = Math.abs(a.data[i + 2]! - b.data[i + 2]!)
+      const dr = Math.abs(a.data[ia]! - b.data[ib]!)
+      const dg = Math.abs(a.data[ia + 1]! - b.data[ib + 1]!)
+      const db = Math.abs(a.data[ia + 2]! - b.data[ib + 2]!)
       const m = Math.max(dr, dg, db)
       sumAbs += (dr + dg + db) / 3
       const cell = row * 4 + Math.min(3, Math.floor((x * 4) / W))
