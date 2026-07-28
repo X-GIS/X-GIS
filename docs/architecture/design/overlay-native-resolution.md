@@ -230,20 +230,57 @@ pick texture.
   it hits at scale 1, and the frame-time median at scale 0.5 within noise of today's measured on
   the same commit both ways.
 
-## 7. Backend fork — the part that bites
+## 7. Backend fork — a PREREQUISITE, not follow-up work
 
-`flow-renderer.ts:17` states it plainly: _"Beginning a pass into an offscreen attachment is the one
-thing the two backends do not agree about."_ Both orchestrations must land together:
+> **Corrected after building INC-2 far enough for the gates to answer.** The first draft filed
+> the WebGL2 twin under "the part that bites", implying it could trail. It cannot: it blocks.
 
-- the native pass-chain (`pass-chain.ts` `buildRenderNodes`, the WebGPU authority), and
-- the forced-WebGL2 linear twin (`render-loop.ts` `renderFrameViaRhi`),
+`flow-renderer.ts:17` states the shape of the problem — _"Beginning a pass into an offscreen
+attachment is the one thing the two backends do not agree about."_ The sequencing consequence was
+only visible once the code existed:
 
-with `pass-order-parity.test.ts` holding them in step. And CLAUDE.md §12's pipeline lesson applies
-directly to the new compose: a pipeline built for the scene pass carries that pass's depth/sample
-state, and reusing it on a colour-only compose makes every `SetPipeline` a validation error that is
-**invisible without a GPU** — the step succeeds against a recorder and the only symptom is a layer
-that never draws. The compose pipeline must derive its depth/sample state from the target pass and
-be gated by asserting the created descriptor through the real `Material` path.
+**Removing the ladder's scale from `effectiveDpr()` disables the DPR lever on the twin.** The
+canvas becomes native for BOTH backends, but only the WebGPU pass-chain gains a scaled scene
+target and an upscale to carry it. `renderFrameViaRhi` draws to FBO 0 and has no offscreen scene,
+so on WebGL2 the ladder's notches 3-6 would stop shrinking anything at all — the lever silently
+becomes a no-op on the backend that most needs it. That is a worse regression than the blurred
+text this design exists to fix, and it is not something to land and follow up on.
+
+So INC-2 lands as ONE change across both orchestrations, or not at all. `pass-order-parity.test.ts`
+enforces exactly this and said so unprompted:
+
+> _"twin ≠ authority − RHI_TWIN_MISSING: either a pass was ported (shrink RHI_TWIN_MISSING in this
+> commit — lock the win) or a new pass was added without declaring its twin status"_
+
+Declaring `scene-upscale` in `RHI_TWIN_MISSING` would satisfy the gate and ship the regression;
+the gate is asking the right question and the honest answer is to port the twin.
+
+CLAUDE.md §12's pipeline lesson still applies to the new compose and is already handled in the
+build: `buildSceneUpscalePipeline` takes the SCREEN attachment's `sampleCount`, because that
+attachment is the MSAA texture whenever `useResolve` and a pipeline whose multisample state
+disagrees with its pass fails validation on every `SetPipeline` — invisible without a GPU.
+
+### Acceptance gates, from a real build
+
+INC-2 was implemented to a green `bun run build` and then reverted; the suite named the complete
+set of structural gates it must satisfy. These are the acceptance criteria, not guesses:
+
+| gate                            | what it demands of INC-2                                                                                     |
+| ------------------------------- | ------------------------------------------------------------------------------------------------------------ |
+| `pass-order-parity` (authority) | `scene-upscale` declared in `DOCUMENTED_INSERTIONS` with the pass it precedes                                |
+| `pass-order-parity` (twin)      | the twin ports it — see above                                                                                |
+| `target-role-partition`         | scene/overlay is no longer a partition; the upscale is a SEAM that reads both, so the gate becomes three-way |
+| `loc-ceiling-ratchet`           | `render-loop.ts` + `render-targets.ts` growth paid by extraction                                             |
+| `raw-webgpu-ratchet`            | the new pass's raw WebGPU tokens routed through the RHI, or the baseline moved with justification            |
+| `forced-cast-ratchet`           | no new `as unknown as` — the twin's FrameContext literal needs real values, not casts                        |
+
+The design's own additions that survived the build unchanged: `EnsureResult` grows
+`sceneResolveView` / `colorViewScreen` / `sceneScaled`; scene-side attachments (stencil, pick,
+overdraw, scene MSAA, scene colour) size from SCENE pixels while the screen MSAA stays at canvas
+size; `RenderTargets` needs a second size tracker because the ladder can move the scene while the
+canvas is unchanged. The scene keeps its `sampleCount` rather than dropping to 1 when scaled —
+scene pipelines are built at `getSampleCount()` and rebuilding them per notch is the 100-300 ms
+cost `adaptive-quality.ts` says a frame-rate controller may not pay.
 
 ## 8. What this does not fix
 
