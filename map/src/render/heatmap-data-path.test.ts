@@ -25,7 +25,7 @@ import {
 } from '../../../rhi-webgpu/src/__test-support__/webgpu-stub'
 import { initGPU, type GPUContext } from '@xgis/rhi-webgpu'
 import { HeatmapRenderer } from '@xgis/map'
-import { WebGpuDevice } from '@xgis/rhi-webgpu'
+import { WebGpuDevice, wrapWebGpuPass } from '@xgis/rhi-webgpu'
 import { Camera } from '@xgis/map'
 
 let stub: StubInstallation
@@ -132,9 +132,9 @@ function captureHeatmapUploads(ctx: GPUContext): Captured {
   ).createCommandEncoder()
   const pass = encoder.beginRenderPass()
   // #834 lazy-native contract: compose-params buffer write lives in getLayers(),
-  // not addLayer() — call it before compose, matching heatmap-pass.ts:59.
+  // not addLayer() — call it before compose, matching the renderChainRhi order.
   renderer.getLayers()
-  renderer.drawLayerAccum(pass, 0)
+  renderer.drawLayerAccumRhi(wrapWebGpuPass(pass), 0)
 
   return captured
 }

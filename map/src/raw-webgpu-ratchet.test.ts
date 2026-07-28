@@ -109,7 +109,10 @@ const BASELINE: Record<string, number> = {
   'map/src/render-loop.ts': 3,
   'map/src/render/bind-group-registry.ts': 18,
   'map/src/render/bucket-scheduler.ts': 5,
-  'map/src/render/compose-pipelines.ts': 18,
+  // #1046 F3b Inc-2c: the heatmap chain re-originated through the RHI drapers —
+  // the native accum bridge, blur/compose pipelines + their factory/forwarder
+  // layers and the native density-target pair all retired with it.
+  'map/src/render/compose-pipelines.ts': 9,
   'map/src/render/compute-layer-handle.ts': 2,
   'map/src/render/compute-layer-registry.ts': 2,
   // render()'s `pass: GPURenderPassEncoder` param + its `as` cast bridged via
@@ -118,7 +121,7 @@ const BASELINE: Record<string, number> = {
   'map/src/render/coverage-renderer.ts': 2,
   'map/src/render/feature-data-binder.ts': 21,
   'map/src/render/frame-context.ts': 3,
-  'map/src/render/frame-renderer.ts': 47,
+  'map/src/render/frame-renderer.ts': 43,
   'map/src/render/frame-uniform.ts': 5,
   // 7→5 (#1357): the pooled-buffer recycler moved to gpu-buffer-pool.ts, taking
   // its createBuffer + the raw `device` field with it.
@@ -138,9 +141,10 @@ const BASELINE: Record<string, number> = {
   // the eviction policy moved to raster-cache-budget.ts, shared with
   // raster-renderer. Disjoint removals over the common ancestor sum: 7−2−3.
   'map/src/render/hillshade-renderer.ts': 2,
-  'map/src/render/heatmap-renderer.ts': 25,
+  // 25→11 (#1046 F3b Inc-2c): drawLayerAccum's native bridge + the lazy _native
+  // block (bind-group layout, blur-dir buffers, ramp sampler) retired.
+  'map/src/render/heatmap-renderer.ts': 11,
   'map/src/render/line-renderer.ts': 28,
-  'map/src/render/material/heatmap-material.ts': 1,
   // #777 Phase II — HillshadeDraper mirrors RasterDraper (GPUTexture/RhiTexture
   // union in the tile + view-cache types, bridged via wrapWebGpuTextureView).
   'map/src/render/material/hillshade-material.ts': 5,
@@ -154,7 +158,7 @@ const BASELINE: Record<string, number> = {
   // 82→85 (#1252): the variant data-driven extruded pipeline descriptors
   // (fillExtruded/fallback in both variant builders) name GPURenderPipeline{,Descriptor} —
   // the same raw-WebGPU surface the existing base extruded builders carry.
-  'map/src/render/pipeline-factory.ts': 85,
+  'map/src/render/pipeline-factory.ts': 79,
   // 16→15 (#1057 inc2): flushTilePoints's `pass: GPURenderPassEncoder` retyped to
   // `RhiRenderPass` (flushTilePointsRhi) — the wrap moved up to VTR.emitTilePointsRhi.
   'map/src/render/point-renderer.ts': 15,
@@ -167,7 +171,7 @@ const BASELINE: Record<string, number> = {
   // 20→24 (#1252): CachedPipeline gains 4 GPURenderPipeline fields for the
   // variant data-driven extruded pipelines (mirrors the existing fill/ground fields).
   'map/src/render/renderer-types.ts': 24,
-  'map/src/render/renderer.ts': 60,
+  'map/src/render/renderer.ts': 56,
   'map/src/render/tile-compute-resources.ts': 7,
   // INC-1 under-occluder sphere: a Material/executeItems draw in the opaque pass,
   // which hands a NATIVE GPURenderPassEncoder — the param type is the ONE raw token,

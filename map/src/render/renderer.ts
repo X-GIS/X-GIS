@@ -204,12 +204,6 @@ export class MapRendererContent {
   get overdrawComposeBindGroupLayout(): GPUBindGroupLayout {
     return this.engine.overdrawComposeBindGroupLayout
   }
-  get heatmapBlurBindGroupLayout(): GPUBindGroupLayout {
-    return this.engine.heatmapBlurBindGroupLayout
-  }
-  get heatmapComposeBindGroupLayout(): GPUBindGroupLayout {
-    return this.engine.heatmapComposeBindGroupLayout
-  }
   get fillPipelineOverdraw(): GPURenderPipeline | null {
     return this.engine.fillPipelineOverdraw
   }
@@ -294,14 +288,6 @@ export class MapRendererContent {
   /** Lazy-build the `?debug=overdraw` final compose pipeline. */
   ensureOverdrawCompose(): GPURenderPipeline {
     return this.engine.ensureOverdrawCompose()
-  }
-  /** Lazy-build the heatmap blur pipeline (Phase R). */
-  ensureHeatmapBlur(): GPURenderPipeline {
-    return this.engine.ensureHeatmapBlur()
-  }
-  /** Lazy-build the heatmap compose pipeline (Phase R). */
-  ensureHeatmapCompose(): GPURenderPipeline {
-    return this.engine.ensureHeatmapCompose()
   }
   /** Reset the ring-buffer slot cursor. Call once per frame before any draws. */
   beginFrame(): void {

@@ -101,11 +101,10 @@ export type LabelPassHost = Pick<
 /** Overdraw debug-compose pass (?debug=overdraw). */
 export type OverdrawComposePassHost = Pick<XGISMap, 'ctx' | 'renderer'>
 
-/** Heatmap pass (Phase R) — the 3-pass accum/blur/compose pipeline. */
-export type HeatmapPassHost = Pick<
-  XGISMap,
-  'camera' | 'ctx' | 'heatmapRenderer' | 'heatmapTargets' | 'renderer'
->
+/** Heatmap pass (Phase R) — the 3-pass accum/blur/compose pipeline, whole
+ *  loop behind HeatmapRenderer.renderChainRhi (F3b Inc-2c); the camera comes
+ *  off the FrameContext, so the host is just renderer + targets. */
+export type HeatmapPassHost = Pick<XGISMap, 'heatmapRenderer' | 'heatmapTargets'>
 
 /** Graphics pass (#797 P1) — the retained host-drawing icon batches. Reaches
  *  the map.graphics façade + the camera/ctx it projects + draws through. */

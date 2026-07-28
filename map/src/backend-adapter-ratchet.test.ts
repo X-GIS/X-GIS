@@ -107,16 +107,9 @@ const BASELINE: Record<string, number> = {
   // 2→1 (#1046 F3b review): wrapWebGpuPass import retired with the re-wrap branch.
   'map/src/render/hillshade-renderer.ts': 1,
   'map/src/render/hillshade-uniform-slots.ts': 1,
-  'map/src/render/heatmap-renderer.ts': 1,
-  // Heatmap density-target content relocated here from @xgis/rhi-webgpu (#1000):
-  // it drives the backend's generic render-target primitive (createRenderTarget)
-  // with the r16float density-target size/format. A new composition site (mirrors
-  // palette-textures.ts); routing it through the neutral RHI (0 here) is future work.
-  'map/src/render/heatmap-targets.ts': 1,
   'map/src/render/heatmap-uniform-slots.ts': 1,
   'map/src/render/line-renderer.ts': 3,
   'map/src/render/line-uniform-slots.ts': 1,
-  'map/src/render/material/heatmap-material.ts': 1,
   // #777 Phase II — hillshade files mirror raster's rhi-webgpu bridge imports:
   // hillshade-material wrapWebGpuTextureView; hillshade-renderer GPUContext +
   // wrapWebGpuPass (=2); hillshade-uniform-slots uniformFieldSlots (reflect seam).

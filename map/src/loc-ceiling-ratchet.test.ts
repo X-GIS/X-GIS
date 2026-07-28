@@ -712,7 +712,9 @@ const CEILINGS: Record<string, number> = {
   // WGSL, feature layout). Cohesive with the existing per-style flat/ground
   // twin machinery it mirrors; lower as #991 decomposes the render SCC.
   // (measured 1621 post-prettier reflow of the extruded descriptors.)
-  'map/src/render/pipeline-factory.ts': 1621,
+  // 1621→1568 (#1046 F3b Inc-2c): the heatmap blur/compose factories retired
+  // with the chain's RHI re-origination — win banked.
+  'map/src/render/pipeline-factory.ts': 1568,
   'map/src/camera/camera.ts': 1419,
   'map/src/shaders/dsl/line.ts': 1441,
   // 1373→1422 (#1246): the flat-projection stroke-width fix. The VS clamp's flat
@@ -969,7 +971,8 @@ const CEILINGS: Record<string, number> = {
   // color-renderable + blendable, plus the scalar `uint32` vertex format (the
   // accum quad's quad_id) with its UNSIGNED_INT glType arm.
   // Merge union (#1060 <- main): stacked growth — measured 1000.
-  'map/src/render/renderer.ts': 1000,
+  // 1000→986 (#1046 F3b Inc-2c): heatmap forwarders retired — win banked.
+  'map/src/render/renderer.ts': 986,
   // Merge union (#1060 <- main): stacked growth — measured 1397.
   // 1397→1404 (#1196, merge union): destroy() stashes the pre-loss
   // WEBGL_lose_context handle on the canvas (stashGl2RestoreToken) —
