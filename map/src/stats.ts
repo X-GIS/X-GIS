@@ -108,7 +108,7 @@ export class StatsTracker {
   /** Call at the start of each frame */
   beginFrame(): void {
     const now = performance.now()
-    // Adaptive resolution scaling (engine adaptive-dpr.ts) needs the interval
+    // Adaptive resolution scaling (engine adaptive-quality.ts) needs the interval
     // between RENDERED frames, and this is already the single authority for that
     // clock — `beginFrame` runs exactly once per drawn frame, past the render
     // loop's skip gate. Feeding the controller from here rather than starting a

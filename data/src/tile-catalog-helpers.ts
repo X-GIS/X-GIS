@@ -3,6 +3,18 @@
 // (no `this`, no module-mutable state, no side effects). Behaviour-
 // preserving structural split only; no logic or symbol renames.
 
+import { TILE_LAYOUT_VERSION, TILE_LAYOUT_VERSION_BASE } from './tile-source'
+
+/** Does a backend's declared tile layout differ from the running runtime's?
+ *  Backends shipped before the field existed surface as `undefined`, which
+ *  means `TILE_LAYOUT_VERSION_BASE`. Used by checkLayoutVersion, which owns
+ *  the eviction + one-shot warn this predicate gates. */
+export function layoutVersionMismatch(v: number | undefined): boolean {
+  return v === undefined
+    ? TILE_LAYOUT_VERSION > TILE_LAYOUT_VERSION_BASE
+    : v !== TILE_LAYOUT_VERSION
+}
+
 /** Bounding union of two lon/lat rectangles. Used by mergeBackendMeta
  *  when multiple backends contribute coverage. */
 export function unionBounds(

@@ -544,7 +544,10 @@ export class XGISMap {
   private readonly _coverageRefresh = new CoverageRefreshScheduler()
   private readonly _coverageDeps: CoverageSourceDeps = {
     rawDatasets: this.rawDatasets,
-    renderer: this.coverageRenderer,
+    // A THUNK, not `this.coverageRenderer`: this record is a field initialiser, and
+    // `coverageRenderer` is declared `!` and only assigned when the GPU boots — capturing it
+    // here stores `undefined` forever. It is also reassigned on a backend switch.
+    renderer: () => this.coverageRenderer,
     time: this._coverageTime,
     fieldArmed: () => this._coverageFieldArmed,
     armFields: (handle, region) => this._armCoverageFields(handle, region),

@@ -175,15 +175,25 @@ export class VirtualPMTilesBackend implements TileSource {
     try {
       bytes = await tilingPool.getTile(this.instanceId, this.sourceName, z, x, y, key)
     } catch (err) {
-      // A get-tile that lands after its map instance was disposed (or its source
-      // replaced) rejects BY DESIGN: the worker drops the index and reports the
-      // source as gone rather than serving stale data
-      // (geojson-tiling-worker-isolation.test.ts). That is orderly teardown, not a
-      // fault — the tile is simply unproducible, which the null result below
-      // already says. Logging it at ERROR turned a routine demo swap into a red
-      // render gate (_graphics-compiled-arrow-parity loads two demos in a row and
-      // asserts a clean console). Real decode/index failures still log at error.
-      if (tilingPool.isSourceGone(err))
+      // Two independent teardown signals, both meaning "the tile is unproducible
+      // because its source is gone" — which the null result below already says, so
+      // neither is a fault. Reporting either at ERROR made a routine style swap emit
+      // one console error per tile still in the air, and turned it into a red render
+      // gate (_graphics-compiled-arrow-parity loads two demos in a row and asserts a
+      // clean console).
+      //
+      //  • DETACHED here — SourceManager evicted this source from the catalog's
+      //    onDestroy while the request was in flight, so `this.sink` is null.
+      //  • SOURCE GONE at the WORKER — it drops the instance's index on disposal and
+      //    thereafter reports the source unknown rather than serving stale data (the
+      //    isolation contract, geojson-tiling-worker-isolation.test.ts). Structural
+      //    (`sourceGone` on the rejection), not a message regex.
+      //
+      // They are not the same event and neither subsumes the other: a source can be
+      // replaced worker-side while this backend still holds a live sink, and a
+      // detached backend can reject for an unrelated reason. A genuine decode/index
+      // failure on a LIVE sink still logs at error, which is the case worth seeing.
+      if (this.sink === null || tilingPool.isSourceGone(err))
         xlog.debug('[virtual-pmtiles getTile] source gone (disposed)')
       else xlog.error('[virtual-pmtiles getTile]', (err as Error)?.stack ?? err)
       sink.acceptResult(key, null)

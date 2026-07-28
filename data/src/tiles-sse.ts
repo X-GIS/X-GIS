@@ -105,6 +105,15 @@ const FAR_RAMP_NEAR = 2
 const FAR_RAMP_FAR = 5
 const FAR_RAMP_SPAN = FAR_RAMP_FAR - FAR_RAMP_NEAR
 
+/** Ceiling on the far-field target once `farTargetBoost` has been applied. Higher than
+ *  the ramp's own 24 on purpose: the ramp's top is what a HEALTHY host should be asked
+ *  to draw, while the boost only ever arrives from a host that is already missing its
+ *  frame budget, where a coarser horizon beats a frozen map. Bounded all the same, so
+ *  a runaway multiplier saturates instead of emptying the screen — and the foreground
+ *  is unreachable from here regardless, since this scales the DISTANCE-graded target
+ *  only. */
+const ADAPTIVE_FAR_SSE_MAX = 64
+
 /** Hard cap on emitted PRIMARY tile count (fallbackOnly ancestors are not
  *  charged — see the emit-budget block in the DFS). Safety net only, but "only
  *  in theory" was too generous: a pitched Bright/Liberty view already measures
@@ -160,6 +169,18 @@ export interface VisibleTilesSSEOptions {
    *  viewport. Without it the truncation is invisible — the array is the same
    *  shape either way — and missing tiles reach the screen with no diagnostic. */
   onTruncated?: (emitted: number, cap: number) => void
+  /** Multiplier on the FAR-FIELD error ceiling only (#1393). 1 (default) leaves
+   *  selection byte-identical. Injected rather than read from a controller so this
+   *  package stays content- and policy-blind — the composition root owns the quality
+   *  ladder and passes the notch's value down, the same inversion `selectBackend`
+   *  uses for `renewSurface`.
+   *
+   *  It scales `farTargetSSE`, never `baseTarget`, so what it coarsens is what the
+   *  distance grading already treats as horizon; the foreground #1346 restored keeps
+   *  native LOD at every pitch and every notch. On an UNPITCHED camera there is no
+   *  far field (a 45° FOV frame lies inside `FAR_RAMP_NEAR`), so this is inert there
+   *  by construction — flat dense scenes are the DPR lever's job, not this one. */
+  farTargetBoost?: number
   /** Skip the globe-equivalent horizon cull (for diagnostic rendering
    *  of the full Mercator plane). Default false — horizon cull is on
    *  for Mercator. Non-cylindrical projections always ignore this
@@ -251,6 +272,14 @@ export function visibleTilesSSE(
       farTargetSSE = Math.min(24, farTargetSSE + zBoost * (24 - farTargetSSE))
     }
   }
+  // Adaptive far-field relief (#1393). Multiplies the ramp's OWN far target rather
+  // than the base, so it composes with the pitch/zoom ramp instead of competing with
+  // it — at pitch 80 the ramp already asks for 12, and a multiple of the base (1)
+  // would be silently swallowed by it. Only engages where the ramp did, so a view
+  // whose far field the grading left alone is untouched here too.
+  const boost = opts.farTargetBoost ?? 1
+  if (boost > 1 && farTargetSSE > baseTarget)
+    farTargetSSE = Math.min(ADAPTIVE_FAR_SSE_MAX, farTargetSSE * boost)
   // `?maxtiles=N` (diagnostic) wins over the explicit opt and the default so
   // the A/B cap applies on every selection path; null/absent → normal behaviour.
   const maxEmitted = maxTilesCap() ?? opts.maxEmitted ?? MAX_EMITTED

@@ -15,6 +15,14 @@
 import type { GPUContext } from '@xgis/rhi-webgpu'
 import type { Camera } from '../camera'
 import { visibleTilesFrustum, tileUrl, loadImageTexture, loadImageBitmap } from '@xgis/data'
+import {
+  admitTile,
+  type EvictableTile,
+  evictToBudget,
+  overBudget,
+  textureBytesOf,
+  type LoadedTexture,
+} from './raster-cache-budget'
 import { mercator as mercatorProj, mercatorYToLat } from '@xgis/geo'
 import { activeBody } from '@xgis/shared'
 import { lonLatToECEF, type ECEF } from '@xgis/shared'
@@ -285,11 +293,7 @@ export function writeHillshadeGlobalUniform(
   })
 }
 
-interface CachedTile {
-  texture: GPUTexture | RhiTexture
-  lastUsedFrame: number
-  firstShownFrame: number
-}
+type CachedTile = EvictableTile
 
 const MAX_CACHED_TILES = 256
 const MAX_CONCURRENT_LOADS = 6
@@ -314,6 +318,9 @@ export class HillshadeRenderer {
   private format: GPUTextureFormat = 'bgra8unorm'
 
   private tileCache = new Map<string, CachedTile>()
+  /** Running sum of `tileCache`'s texture bytes (#1352) — `_cacheTile` and
+   *  `evictTiles` are the only writers, so it cannot drift. */
+  private _cachedBytes = 0
   private loadingTiles = new Map<string, AbortController>()
   /** Tiles whose load resolved null, with the backoff state that stops them being
    *  re-requested every frame (policy in hillshade-tile-retry.ts). Cleared when the
@@ -442,11 +449,11 @@ export class HillshadeRenderer {
 
   /** Backend-appropriate DEM tile load — verbatim raster loadTileTexture (a DEM
    *  is an RGBA8 PNG; the NEAREST decode is a sampler concern, in the draper). */
-  private async loadTileTexture(
-    url: string,
-    signal: AbortSignal,
-  ): Promise<GPUTexture | RhiTexture | null> {
-    if (this.rhi.backend !== 'webgl2') return loadImageTexture(this.device, url, signal)
+  private async loadTileTexture(url: string, signal: AbortSignal): Promise<LoadedTexture | null> {
+    if (this.rhi.backend !== 'webgl2') {
+      const t = await loadImageTexture(this.device, url, signal)
+      return t ? { texture: t, bytes: textureBytesOf(t.width, t.height) } : null
+    }
     const bitmap = await loadImageBitmap(url, signal)
     if (!bitmap) return null
     // #1153 P2 R4 (ported from raster — hillshade was the pre-fix copy):
@@ -470,8 +477,9 @@ export class HillshadeRenderer {
       if (tex) this.rhi.destroyTexture(tex)
       return null
     }
+    const bytes = textureBytesOf(bitmap.width, bitmap.height)
     bitmap.close()
-    return tex
+    return { texture: tex, bytes }
   }
 
   render(
@@ -573,11 +581,7 @@ export class HillshadeRenderer {
           this.failedTiles.delete(key)
           // firstShownFrame -1 = "never drawn yet"; the draw loop stamps it on the
           // tile's FIRST appearance so an off-screen prefetch still fades in.
-          this.tileCache.set(key, {
-            texture,
-            lastUsedFrame: this.frameCount,
-            firstShownFrame: -1,
-          })
+          this._cacheTile(key, texture)
           this.evictTiles(visibleKeys)
         })
     }
@@ -611,11 +615,7 @@ export class HillshadeRenderer {
               return
             }
             this.failedTiles.delete(parentKey)
-            this.tileCache.set(parentKey, {
-              texture,
-              lastUsedFrame: this.frameCount,
-              firstShownFrame: -1,
-            })
+            this._cacheTile(parentKey, texture)
           })
           .catch((e) =>
             console.error('[X-GIS] hillshade parent-tile post-load bookkeeping failed', e),
@@ -816,21 +816,19 @@ export class HillshadeRenderer {
   /** Deferred eviction — runs from beginFrame() only (the previous frame's
    *  queue.submit() has returned, so destroying textures can't poison a submit). */
   beginFrame(): void {
-    if (this.tileCache.size > MAX_CACHED_TILES) this.evictTiles(this.lastVisibleKeys)
+    if (overBudget(this.tileCache.size, this._cachedBytes, MAX_CACHED_TILES))
+      this.evictTiles(this.lastVisibleKeys)
   }
 
-  private evictTiles(visibleKeys: Set<string>): void {
-    if (this.tileCache.size <= MAX_CACHED_TILES) return
-    const entries = [...this.tileCache.entries()]
-      .filter(([key]) => !visibleKeys.has(key))
-      .sort((a, b) => a[1].lastUsedFrame - b[1].lastUsedFrame)
-    const toEvict = this.tileCache.size - MAX_CACHED_TILES
-    for (let i = 0; i < toEvict && i < entries.length; i++) {
-      const [key, tile] = entries[i]
-      if (this.rhi.backend === 'webgl2') this.rhi.destroyTexture(tile.texture as RhiTexture)
-      else (tile.texture as GPUTexture).destroy()
-      this._hillshadeDraper?.dropTexture(tile.texture)
-      this.tileCache.delete(key)
-    }
+  /** Drop LRU tiles until back under the count AND byte caps (#1352).
+   *  Policy lives in raster-cache-budget so both renderers share one copy. */
+  private _cacheTile(k: string, t: LoadedTexture): void {
+    this._cachedBytes = admitTile(this.tileCache, k, t, this.frameCount, this._cachedBytes)
+  }
+
+  private evictTiles(vis: Set<string>): void {
+    const b = this._cachedBytes
+    const d = this._hillshadeDraper
+    this._cachedBytes = evictToBudget(this.tileCache, vis, MAX_CACHED_TILES, b, this.rhi, d)
   }
 }

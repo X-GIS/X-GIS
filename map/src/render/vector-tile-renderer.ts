@@ -1986,26 +1986,23 @@ export class VectorTileRenderer {
     )
   }
 
-  /** Iterate visible line-feature polylines (Mapbox `symbol-placement:
-   *  line` with `symbol-spacing`). Unlike `forEachLineLabelFeature`
-   *  which collapses each feature to its longest segment, this method
-   *  yields the FULL polyline so the caller can walk it in screen
-   *  space and place a label every `spacing` pixels.
+  /** Iterate visible line-feature polylines (Mapbox `symbol-placement: line`
+   *  with `symbol-spacing`). Unlike `forEachLineLabelFeature`, which collapses
+   *  each feature to its longest segment, this yields the FULL polyline so the
+   *  caller can walk it in screen space and place a label every `spacing` px.
    *
-   *  Polylines are grouped by featId AND segment-chain continuity:
-   *  `tessellateLineToArrays` writes consecutive segments
-   *  `(0,1),(1,2),(2,3),…` so we detect chain breaks via index
-   *  discontinuity. A MultiLineString feature produces multiple
-   *  polyline calls (one per part).
-   *
-   *  Coordinates are absolute mercator metres — the caller projects
-   *  to screen and decides spacing in pixels. */
+   *  Grouped by featId AND segment-chain continuity: `tessellateLineToArrays`
+   *  writes consecutive segments `(0,1),(1,2),…`, so a chain break shows up as an
+   *  index discontinuity; a MultiLineString yields one call per part. Coordinates
+   *  are absolute mercator metres, and `tileEntryM` is the arc-length at which the
+   *  run crosses into its own tile — the phase origin for the spacing walk (INC-1). */
   forEachLineLabelPolyline(
     sliceLayer: string | undefined,
     fn: (
       polylineMercX: Float64Array,
       polylineMercY: Float64Array,
       props: Record<string, unknown>,
+      tileEntryM: number,
     ) => void,
   ): void {
     if (!this.source) return

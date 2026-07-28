@@ -50,6 +50,7 @@ import {
   lineLabelSpacingPx,
   placeLabelsAlongLine,
   placeInlineLineLabels,
+  sampleAlongPolyline,
   withinViewportInset,
 } from './place-labels-along-line'
 // Extracted helpers (re-exported: existing importers, tests included, are unaffected).
@@ -1468,7 +1469,7 @@ class LabelPass implements RenderPass {
                   ? Math.hypot(_ppmB[0] - _ppmAx, _ppmB[1] - _ppmAy)
                   : 0
               const LABEL_SAMPLE_GAP_PX = 96
-              vtEntry.renderer.forEachLineLabelPolyline(sliceKey, (mxs, mys, props) => {
+              vtEntry.renderer.forEachLineLabelPolyline(sliceKey, (mxs, mys, props, tileEntryM) => {
                 perfMarkStart('encoder.label-dispatch.line.polyline')
                 if (mxs.length < 2) {
                   perfMarkEnd('encoder.label-dispatch.line.polyline')
@@ -1508,6 +1509,13 @@ class LabelPass implements RenderPass {
                 for (const wo of visibleWorldCopies) {
                   perfMarkStart('encoder.label-dispatch.line.project')
                   let pn = 0 // active sample count
+                  // INC-1 — mercator arc-length walked so far, and the arc-length at
+                  // the FIRST sample this world copy actually retained. Leading
+                  // samples that fail to project are skipped (below), so the screen
+                  // run can start mid-polyline; the world anchor is measured from
+                  // vertex 0, and `headM` is what converts between the two.
+                  let accM = 0
+                  let headM = 0
                   // Per-segment sample count from SCREEN length (segLenM ×
                   // pxPerMeter), NOT raw metres. Subdivision exists so a segment
                   // that spans the viewport but whose ENDPOINTS fall outside the
@@ -1549,10 +1557,12 @@ class LabelPass implements RenderPass {
                       // #1050 — first null ends the run (no phantom-chord label).
                       if (!proj && pn > 0) break outer
                       if (!proj) continue
+                      if (pn === 0) headM = accM + segLenM * t
                       _pxScratch[pn] = proj[0]
                       _pyScratch[pn] = proj[1]
                       pn++
                     }
+                    accM += segLenM
                   }
                   perfMarkEnd('encoder.label-dispatch.line.project')
                   if (pn < 2) continue
@@ -1643,27 +1653,8 @@ class LabelPass implements RenderPass {
                   // too close to one already labelled with the same
                   // text?" without re-running the full glyph layout.
                   // Returns true into `_samplePosOut` (shared) or false.
-                  const samplePosAt = (s: number): boolean => {
-                    let acc = 0
-                    for (let i = 0; i < pn - 1; i++) {
-                      const dx = _pxScratch[i + 1]! - _pxScratch[i]!
-                      const dy = _pyScratch[i + 1]! - _pyScratch[i]!
-                      const segLen = Math.sqrt(dx * dx + dy * dy)
-                      if (acc + segLen >= s) {
-                        const t = segLen > 0 ? (s - acc) / segLen : 0
-                        _samplePosOut[0] = _pxScratch[i]! + dx * t
-                        _samplePosOut[1] = _pyScratch[i]! + dy * t
-                        // Tangent angle in degrees (CCW from +x).
-                        // icon-rotation-alignment=map uses this to
-                        // rotate the icon along the line direction
-                        // (OFM road_oneway arrow).
-                        _samplePosOut[2] = (Math.atan2(dy, dx) * 180) / Math.PI
-                        return true
-                      }
-                      acc += segLen
-                    }
-                    return false
-                  }
+                  const samplePosAt = (s: number): boolean =>
+                    sampleAlongPolyline(_pxScratch, _pyScratch, pn, s, _samplePosOut)
                   if (useTangentRotation) {
                     // Curved-text path: pack the projected polyline
                     // and ask TextStage to lay each glyph along it.
@@ -1825,6 +1816,13 @@ class LabelPass implements RenderPass {
                     spacingPx,
                     (pax, pay, pbx, pby, t) => emitLabelAlongSegment(pax, pay, pbx, pby, t, props),
                     anchorInView,
+                    // INC-1 — MapLibre anchors this chain at `tileEntry + k · spacing`
+                    // measured on the TILE-CLIPPED line, so the chain is a property of
+                    // the world, not of where the run happens to start on screen. The
+                    // offset is in mercator metres from vertex 0; pxPerMeter carries it
+                    // into the screen space the walk works in. No scale (projection
+                    // failed) ⇒ undefined ⇒ the historical viewport-relative cadence.
+                    pxPerMeter > 0 ? (tileEntryM - headM) * pxPerMeter : undefined,
                   )
                   perfMarkEnd('encoder.label-dispatch.line.emit')
                 }
