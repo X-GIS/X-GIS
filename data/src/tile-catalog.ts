@@ -613,6 +613,20 @@ export class TileCatalog {
     return this.loadingTiles.size > 0
   }
 
+  /** #1448 — true when a re-seed replacement is waiting for a frame to swap it in.
+   *
+   *  The idle-skip gate used to ask only "is a tile still FETCHING?". The swap happens in the
+   *  renderer's `applyReplacedTiles`, which runs at the START of a frame, so a replacement that
+   *  arrives after the last frame needs ONE more — and the fetch count reached 0 on that very
+   *  arrival, so nothing asked for it. Measured: one push left 1-2 of 7 tiles drawing the
+   *  PREVIOUS seed, flat for 60 s, and one `invalidate()` fixed it.
+   *
+   *  A PEEK, deliberately: `consumeReplacedKeys` drains, and a predicate that consumed its own
+   *  evidence would swallow the swap it exists to schedule. */
+  hasReplacedKeys(): boolean {
+    return this._replacedKeys.size > 0
+  }
+
   getCacheSize(): number {
     return this.cache.size
   }

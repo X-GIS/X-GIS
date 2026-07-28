@@ -487,12 +487,18 @@ const CEILINGS: Record<string, number> = {
   // the listener — a dropped region takes its compiled arrows with it. Two wire-ups (the GPU
   // boot and the backend switch), each carrying the sentence saying why the LRU needed one at
   // all: nothing else observed it, so an evicted region's arrows kept drawing against velocity
-  // textures that had just been destroyed. Value below is the MEASURED post-merge count.
+  // textures that had just been destroyed.
   //
   // 5393→5392 (#1449): the three arm sites now call ONE decision point (`armCoverageArrows`),
   // so the `if (show.isArrow) …` + `armAdvectedArrows(…)` pair here collapsed to a single call
   // and the static-arrow import went with it. LOWERED per the shrink-only rule.
-  'map/src/map.ts': 5392,
+  //
+  // MERGE UNION (#1448 <- main @ #1449): non-overlapping, so a SHRINK and a GROW compose —
+  // never take one side, never max(). #1448's +3 is one disjunct in `hasPendingSourceWork` (a
+  // swap OWED is pending work, not pending fetch) plus the two lines saying why; without it the
+  // loop stopped with a re-seed replacement un-applied and the layer drew the previous seed for
+  // good. Value below is the MEASURED post-merge, post-prettier count — not 5392+3 assumed.
+  'map/src/map.ts': 5395,
   // Baselined at #1255 (measured 830): the DOM-inspired layer API crossed
   // NEW_FILE_CAP with the paint-transition style-setter integration — the
   // StyleHost.transitions context, the shared applyNumber/applyColor
@@ -775,7 +781,12 @@ const CEILINGS: Record<string, number> = {
   // tile-full-cover-quad.ts (−47 incl. three now-orphaned ecef-packing imports) — pure geometry,
   // no `this`, and the layout with the #449 bug history is now directly assertable. Ceiling
   // below is the MERGED file's actual wc -l, measured after prettier.
-  'data/src/tile-catalog.ts': 1370,
+  // 1370→1384 (#1448): `hasReplacedKeys()` — the PEEK the render loop's idle-skip needs to see
+  // that a re-seed swap is still owed. RAISED, not paid for by an extraction: a two-line
+  // accessor has nowhere cohesive to go, and the twelve lines are the reason it must not drain
+  // (a predicate that consumed its own evidence would swallow the swap it schedules) plus the
+  // measurement that found the bug — the part a future reader needs most. Measured post-hook.
+  'data/src/tile-catalog.ts': 1384,
   // 1173→1180 (#1046 F1): thread the required `rhi: RhiDevice` onto the FrameContext at
   // both build sites — the main-chain init literal and the twin label stage — so a seam
   // can reach `ctx.rhi.caps.*` (doc §3-F1). +7 = two assignments + their rationale comments;
