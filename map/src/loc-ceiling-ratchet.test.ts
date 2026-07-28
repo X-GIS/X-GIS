@@ -504,10 +504,10 @@ const CEILINGS: Record<string, number> = {
   // decision. Ceiling below is the MERGED file's actual wc -l, measured after prettier.
   // MERGE UNION: both sides' deltas are non-overlapping, so the value is the MEASURED count.
   // MERGE UNION: non-overlapping deltas; the value is the MEASURED post-hook count.
-  // 903→902 (#1426): the `type: coverage` branch stopped awaiting its multi-MB read (it now
-  // registers the source and hands the URL to the background loader), which retired the
-  // fetch/read imports. −1; LOWERED per the shrink-only rule.
-  'map/src/source-manager.ts': 902,
+  // #1426 left this file at its ceiling exactly: the `type: coverage` branch stopped awaiting
+  // its multi-MB read (retiring the fetch/read imports) and spent the saved lines on the
+  // host-fed `url`-less guard + its reason. Net 0 — nothing to lower.
+  'map/src/source-manager.ts': 903,
   // 1920→1930 (#1042 R3): the globe limb cull for MULTI-LINE labels must land in
   // the collision phase — the ONLY site holding the label's quad half-height (the
   // collision box IS the height authority; the label-pass dispatch site has only

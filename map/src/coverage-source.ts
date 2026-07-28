@@ -211,7 +211,8 @@ export async function pushCoverageRegion(
   if (!coverageRegions(deps, sourceId)) {
     throw new Error(
       `[X-GIS] setCoverageData: "${sourceId}" is not a declared coverage source ` +
-        `(declare \`source ${sourceId} { type: coverage, url: … }\` first).`,
+        `(declare \`source ${sourceId} { type: coverage }\` first — \`url:\` is optional, ` +
+        `and omitting it is how you say THIS host owns residency).`,
     )
   }
   const region = opts?.region ?? DEFAULT_REGION

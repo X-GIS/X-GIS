@@ -152,6 +152,21 @@ describe('source-manager: coverage dispatch (A9)', () => {
     await mgr._attachOneSource(load(), '', MAPS, { fit: false }, isStale)
     expect(beginCoverageLoad).toHaveBeenCalledWith('bathy', URL_, isStale)
   })
+
+  it('NO `url:` ⇒ host-fed: the source is registered and nothing is loaded (#1426)', async () => {
+    // A urlless coverage source already compiles (`url: ""`); without this guard the attach
+    // built a URL out of the bare baseUrl and fetched the data DIRECTORY. Omitting `url:` is
+    // how a host says it owns residency — the S-111 viewport mosaic is exactly that, and
+    // declaring a cell as well made it hold two resident copies of one field.
+    const { mgr, rawDatasets, beginCoverageLoad } = makeManager()
+
+    await mgr._attachOneSource(load({ url: '' }), '/data/', MAPS, { fit: false })
+
+    const entry = rawDatasets.get('bathy')!
+    expect('_coverage' in entry).toBe(true)
+    expect([...(entry as { _coverage: ReadonlyMap<string, unknown> })._coverage.keys()]).toEqual([])
+    expect(beginCoverageLoad).not.toHaveBeenCalled()
+  })
 })
 
 describe('coverage-source: the deferred declared-source load (#1426)', () => {

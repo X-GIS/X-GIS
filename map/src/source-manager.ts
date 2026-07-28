@@ -347,10 +347,11 @@ export class SourceManager {
       // and coverage-source.ts owns residency + the time axis from here (#1272). The empty
       // map is a shape `rebuildLayers` already handles — it iterates `_coverage`.
       this.rawDatasets.set(load.name, { _coverage: new Map() })
-      // Fire-and-forget by design: the loader contains its own read failures (isolate-and-log,
-      // like the barrier's bad-CRS path) and is epoch/destroy/`isStale` guarded, so nothing it
-      // settles into can land on a superseded run.
-      void this.beginCoverageLoad(load.name, url, isStale)
+      // NO `url:` ⇒ HOST-FED (#1426): the source exists for `setCoverageData` to push into and
+      // the host owns residency — the S-111 viewport mosaic is exactly that, and declaring a
+      // cell as well had it fetch one ~12 MB object twice and keep BOTH resident. See
+      // `s111-live.xgis` for the full account.
+      if (load.url) void this.beginCoverageLoad(load.name, url, isStale)
       return
     }
 
