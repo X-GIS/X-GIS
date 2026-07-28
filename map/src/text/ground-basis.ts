@@ -117,3 +117,52 @@ export function groundBasisAt(
   if (!Number.isFinite(det) || Math.abs(det) < 1e-6) return null
   return basis
 }
+
+/** The screen AABB a basis-transformed box occupies.
+ *
+ *  The collision box and the drawn quad must agree, and they are computed in
+ *  different places — text-stage derives the box while the renderer transforms
+ *  the quad corners. Both pivot on the SAME point (the TextDraw anchor, which is
+ *  the layout's drawX/drawY), so routing the box through this function makes the
+ *  two share one basis and one pivot. A label that lies down while its collision
+ *  box stays upright places wrong: it reserves the upright footprint, so it
+ *  loses collisions it should win and blocks labels it should not.
+ *
+ *  Takes the UNTRANSFORMED box in absolute screen px and returns the AABB of its
+ *  four transformed corners. A foreshortened basis therefore yields a SMALLER
+ *  box — which is correct, and is why the box cannot simply be left alone.
+ */
+export function groundBasisAabb(
+  basis: GroundBasis,
+  pivotX: number,
+  pivotY: number,
+  minX: number,
+  minY: number,
+  maxX: number,
+  maxY: number,
+): { minX: number; minY: number; maxX: number; maxY: number } {
+  const [ex, ey, nx, ny] = basis
+  let oMinX = Infinity
+  let oMinY = Infinity
+  let oMaxX = -Infinity
+  let oMaxY = -Infinity
+  // All four corners, not just the diagonal pair: a basis with off-diagonal
+  // terms (pitch + bearing) rotates the box, so the extremes can come from the
+  // other two.
+  for (const [cx, cy] of [
+    [minX, minY],
+    [maxX, minY],
+    [maxX, maxY],
+    [minX, maxY],
+  ] as const) {
+    const dx = cx - pivotX
+    const dy = cy - pivotY
+    const tx = pivotX + dx * ex + dy * nx
+    const ty = pivotY + dx * ey + dy * ny
+    if (tx < oMinX) oMinX = tx
+    if (tx > oMaxX) oMaxX = tx
+    if (ty < oMinY) oMinY = ty
+    if (ty > oMaxY) oMaxY = ty
+  }
+  return { minX: oMinX, minY: oMinY, maxX: oMaxX, maxY: oMaxY }
+}
