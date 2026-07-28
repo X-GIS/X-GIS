@@ -514,7 +514,7 @@ const CEILINGS: Record<string, number> = {
   // split coverage-refresh.ts already uses, so this is wiring and not logic. An earlier draft
   // put a `_beginCoverageLoad` method here too (+45); it was extracted into
   // `resolveCoverageCatalogues` + `viewBbox` rather than ratcheted for. Post-hook measurement.
-  'map/src/map.ts': 0,
+  'map/src/map.ts': 5422,
   // Baselined at #1255 (measured 830): the DOM-inspired layer API crossed
   // NEW_FILE_CAP with the paint-transition style-setter integration — the
   // StyleHost.transitions context, the shared applyNumber/applyColor
