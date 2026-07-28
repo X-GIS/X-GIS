@@ -342,13 +342,35 @@ filtered the way MapLibre filters them, so it was reverted rather than kept as a
 mitigation. `label-pass-line-lattice.test.ts` pins the unlabelled-run behaviour so the gap stays
 visible instead of being rediscovered.
 
-**INC-3 — path collision, representation.**
+**INC-3 — path collision, representation. LANDED.**
 Extend `CollisionItem` with an optional circle chain (centre + radius per element) and teach
 `greedyPlaceBboxes` circle↔box and circle↔circle overlap. Keep AABB as the default so point
 labels and every existing test are untouched.
 _Gate:_ unit tests for the three overlap pairs, plus a scene-level assertion that a straight
 label's circle chain and its AABB place identically (the chain must be a strict refinement, not a
 behaviour change, when the path is straight).
+
+_As landed._ Entirely inside `text-collision.ts`. `CollisionItem.circles` is PARALLEL to
+`bboxes` — `circles[c]` refines candidate `bboxes[c]`, so a variable-anchor label gets a chain
+per candidate rather than one chain for the item. `CollisionObstacle` takes a chain too, since
+the icon obstacles are seeded into the same list. Three predicates (`bboxHitsBbox`,
+`circleHitsBbox` via the box's closest point, `circleHitsCircle`) sit behind one
+`footprintsOverlap`, which is the single place the pass asks "do these two overlap".
+
+Two details that are easy to get wrong and are pinned by tests: an absent OR EMPTY chain falls
+back to the box (reading "no circles" as "no footprint" would make every such label place on top
+of everything), and a placed item is seeded as a blocker with the SAME footprint it was judged
+by (seeding its box would make it block more than it occupies).
+
+_Gate as run._ Both refinement directions are asserted: a straight chain sweeping a blocker
+across 45 positions places exactly where its AABB does, and an L-shaped chain places in the
+concave corner its AABB over-blocks. Fail-before verified against three distinct injected bugs
+(empty-chain-as-no-footprint → 1 fail; per-axis instead of nearest-point circle↔box → 1 fail;
+seeding the box instead of the chain → 5 fail).
+
+Nothing emits chains yet, so this is dormant by construction — and measured that way rather than
+asserted: DC = 0 at all four INC-2 cameras (z16.7, z16.0, and both pitched), i.e. the render is
+bit-identical.
 
 **INC-4 — emit circle chains for line labels.**
 `TextStage` builds the chain from the curved layout it already has (glyph positions along the
