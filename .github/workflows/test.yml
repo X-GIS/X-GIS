@@ -644,4 +644,23 @@ jobs:
         # _s111-advected-arrows-gate: #1419's own gate, which landed WITHOUT being added
         # here. It is the only check on the advected `| flow` portrayal, and #1426 moved
         # that arm into coverage-arm.ts — a refactor of code no CI gate drives. ~28 s.
-        run: ./node_modules/.bin/playwright test _shader-math-parity.spec.ts _wgsl-compile-gate.spec.ts _vs-clip-parity.spec.ts _dequant-parity.spec.ts _polygon-fill-flat-parity.spec.ts _polygon-fill-flat-pixel-gate.spec.ts _optimizer-gpu-parity.spec.ts _glsl-compile-gate.spec.ts _polygon-glsl-compile-gate.spec.ts _line-glsl-compile-gate.spec.ts _shader-dsl-mrt-render.spec.ts _shader-dsl-mouse-interaction.spec.ts _emit-obfuscate-gate.spec.ts _graphics-retained-gl2-gate.spec.ts _graphics-retained-arrow-gl2-gate.spec.ts _graphics-retained-arrow-orientation-gate.spec.ts _graphics-compiled-arrow-parity.spec.ts _graphics-retained-drawcall-gl2-gate.spec.ts _compute-gen-compile-gate.spec.ts _fills-gl2-gate.spec.ts _globe-hash-camera-gate.spec.ts _hillshade-gl2-gate.spec.ts _1221-seam-control-matrix.spec.ts _hillshade-methods-gl2-gate.spec.ts _reseed-data-push-gate.spec.ts _adaptive-quality-ladder-gate.spec.ts _s111-multiregion-gate.spec.ts _s111-currents-render.spec.ts _s111-deferred-coverage-gate.spec.ts _s111-advected-arrows-gate.spec.ts _coverage-render.spec.ts
+        # SPLIT INTO TWO INVOCATIONS (#1433). Everything below measures a COMPILE, a
+        # PARITY or a PIXEL — none of it cares who else is on the runner. Two specs do:
+        # `_adaptive-quality-ladder-gate` needs the host to be genuinely too slow to keep
+        # up, and `_shader-dsl-mouse-interaction` needs a page to load inside 60 s. Sharing
+        # a 2-worker runner with 44 other SwiftShader tests moved both, and the leg went red
+        # on three different specs across three consecutive runs — on an unrelated branch
+        # too, which is what rules the diffs out. They now run ALONE, `--workers=1`, before
+        # anything else is scheduled.
+        #
+        # This removes CO-SCHEDULING as a variable. It does NOT control the ladder's own
+        # premise — that gate infers "the host cannot keep up" from a two-rAF median whose
+        # 60 Hz floor is numerically its own 33.4 ms bar (#1433 option 2, still open, for
+        # whoever owns #1393 to decide the right signal).
+        run: |
+          # The real-signal batch FIRST: the step shell is `bash -e`, so a flake in the
+          # wall-clock pair must not abort the 44 compile/parity/pixel gates before they
+          # have reported. Quiet-machine ordering is unaffected — each invocation is its
+          # own process either way.
+          ./node_modules/.bin/playwright test _shader-math-parity.spec.ts _wgsl-compile-gate.spec.ts _vs-clip-parity.spec.ts _dequant-parity.spec.ts _polygon-fill-flat-parity.spec.ts _polygon-fill-flat-pixel-gate.spec.ts _optimizer-gpu-parity.spec.ts _glsl-compile-gate.spec.ts _polygon-glsl-compile-gate.spec.ts _line-glsl-compile-gate.spec.ts _shader-dsl-mrt-render.spec.ts _emit-obfuscate-gate.spec.ts _graphics-retained-gl2-gate.spec.ts _graphics-retained-arrow-gl2-gate.spec.ts _graphics-retained-arrow-orientation-gate.spec.ts _graphics-compiled-arrow-parity.spec.ts _graphics-retained-drawcall-gl2-gate.spec.ts _compute-gen-compile-gate.spec.ts _fills-gl2-gate.spec.ts _globe-hash-camera-gate.spec.ts _hillshade-gl2-gate.spec.ts _1221-seam-control-matrix.spec.ts _hillshade-methods-gl2-gate.spec.ts _reseed-data-push-gate.spec.ts _s111-multiregion-gate.spec.ts _s111-currents-render.spec.ts _s111-deferred-coverage-gate.spec.ts _s111-advected-arrows-gate.spec.ts _coverage-render.spec.ts
+          ./node_modules/.bin/playwright test --workers=1 _adaptive-quality-ladder-gate.spec.ts _shader-dsl-mouse-interaction.spec.ts

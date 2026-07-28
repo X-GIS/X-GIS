@@ -481,10 +481,20 @@ const CEILINGS: Record<string, number> = {
   // #1437 likewise landed ON that extraction rather than beside it: its own drape-arm extraction
   // was dropped on the merge and the `filter:` argument went into coverage-arm.ts, so map.ts is
   // untouched by it too. Both merges leave the number as #1426's, re-measured each time.
-  // 5387→5390 (#1448): one disjunct in `hasPendingSourceWork` — a swap OWED is pending work,
-  // not pending fetch — plus the two lines saying why. Same shape as #1419's +9 above: the
-  // growth IS the explanation. Measured post-hook.
-  'map/src/map.ts': 5390,
+  //
+  // MERGE UNION (#1419 third pass <- main @ #1437): main's side adds nothing here (see above);
+  // my side's +6 is the coverage renderer's LRU eviction now being ANNOUNCED, with the map as
+  // the listener — a dropped region takes its compiled arrows with it. Two wire-ups (the GPU
+  // boot and the backend switch), each carrying the sentence saying why the LRU needed one at
+  // all: nothing else observed it, so an evicted region's arrows kept drawing against velocity
+  // textures that had just been destroyed.
+  //
+  // MERGE UNION (#1448 <- main @ #1445): non-overlapping again, so they SUM — never take one
+  // side, never max(). #1448's +3 is one disjunct in `hasPendingSourceWork` (a swap OWED is
+  // pending work, not pending fetch) plus the two lines saying why; without it the loop stopped
+  // with a re-seed replacement un-applied and the layer drew the previous seed for good. Value
+  // below is the MEASURED post-merge, post-prettier count.
+  'map/src/map.ts': 5396,
   // Baselined at #1255 (measured 830): the DOM-inspired layer API crossed
   // NEW_FILE_CAP with the paint-transition style-setter integration — the
   // StyleHost.transitions context, the shared applyNumber/applyColor
@@ -871,7 +881,11 @@ const CEILINGS: Record<string, number> = {
   // +1 (#1419, second pass): the twin's trail step is now gated on a VISIBLE drape — under the
   // arrows portrayal every flow region is resident-but-hidden, so advecting a full-screen image
   // nobody draws was a per-frame cost with no picture attached.
-  'map/src/render-loop.ts': 1395,
+  //
+  // +2 (#1419, third pass): the twin declares the arrow field every frame — OUTSIDE the `if`,
+  // because a frame with no field is exactly the one that must say so (an evicted region's
+  // textures are destroyed, and a binding still holding them dies in the next submit).
+  'map/src/render-loop.ts': 1397,
   // Baselined at 806 (hillshade tile fade-in): HillshadeRenderer crossed
   // NEW_FILE_CAP restoring the three tile-streaming fixes raster-renderer had
   // landed since hillshade was copied from it — the per-tile fade ramp + its

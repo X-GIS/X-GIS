@@ -37,8 +37,13 @@ class FlowPass implements RenderPass {
 
   execute(ctx: FrameContext, _scene: SceneView, host: FlowPassHost): void {
     const flow = host.flowRenderer
-    const field = host.coverageRenderer?.activeFlowField()
-    if (!flow || !field) return
+    const field = host.coverageRenderer?.activeFlowField() ?? null
+    if (!flow) return
+    // BEFORE the early return, not after it: what the arrow draw binds is whatever this last
+    // declared, so a frame with no field has to say so or the draw keeps the evicted region's
+    // (now destroyed) textures bound. See `FlowRenderer.setArrowField`.
+    flow.setArrowField(field)
+    if (!field) return
     ctx.passScope('flow', () => {
       const frame = { elapsedMs: ctx.elapsedMs, encoder: ctx.rhiEncoder }
       // #1419 — the arrow step, only when an advected batch is resident: it allocates the
