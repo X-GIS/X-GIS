@@ -66,6 +66,18 @@ export * from './color-ramp'
 // loop `Map.playCoverageTime` does, instead of hand-rolling a timer that races its own async
 // step (#1362).
 export * from './coverage-time'
+// The STAC catalogue a `coverage` source's `url:` may name (#1453) — the PURE half: parse a
+// served ItemCollection into its cells, and resolve a viewport to the cells that cover it,
+// most-relevant first. Exported because the catalogue is a public contract the moment a host
+// can point a source at one: whoever PUBLISHES a catalogue needs to check the engine reads it
+// the way they meant, against the engine itself rather than a restatement of its rules. The
+// driving half (fetch, arm, evict) stays internal — that is the engine's job, not a host's.
+export {
+  parseCoverageCatalogue,
+  itemsForView,
+  viewBbox,
+  type CoverageCatalogueItem,
+} from './coverage-catalogue'
 // Leaf machinery: compose/blur pipeline builders, compute feat_data packer, label feature
 // source, tile-selection cache.
 export * from './render/compose-pipelines'

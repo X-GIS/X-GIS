@@ -8,6 +8,7 @@ import { FONT_KEY_SENTINEL } from './sdf/glyph-rasterizer'
 import { bumpAlloc } from '../__profile__/alloc-counter'
 import { FrameArena } from '@xgis/engine'
 import type { MlVerticalLayout, TextStageOptions } from './text-stage-types'
+import { groundBasisAabb } from './ground-basis'
 
 /** Resolve per-font typography overrides for the given fontKey against
  *  a typography table. The primary family is the first entry of the
@@ -663,4 +664,44 @@ export function rotateLabelTranslate(
   const c = Math.cos(r),
     s = Math.sin(r)
   return [dx * c - dy * s, dx * s + dy * c]
+}
+
+/** The screen box a laid-out label occupies — the ONE place that arithmetic
+ *  lives. It had been written twice, identically, in the cache-hit and shaping
+ *  paths of prepare(); a ground basis has to reach both, and two copies of a
+ *  formula are two chances to apply it to only one.
+ *
+ *  `groundBasis` (#777 IV3, `text-pitch-alignment: map`) tilts the box into the
+ *  ground plane, matching what the renderer does to the drawn quad. Absent (the
+ *  default, and every viewport-aligned label) returns the plain upright box, so
+ *  existing callers are byte-identical.
+ *
+ *  Note what is NOT cached: the layout cache stores dx/dy/advance/blockTop/
+ *  blockBottom — all basis-INDEPENDENT, because they describe the label before
+ *  projection. The box is derived from them per frame, so a cached layout stays
+ *  valid as the camera pitches, exactly as the cached glyphOffsets do while the
+ *  renderer re-applies the basis every frame. Baking a basis into the cache
+ *  would freeze a label's footprint at the pitch it was first laid out. */
+export function deriveLabelBbox(
+  drawX: number,
+  drawY: number,
+  m: { totalAdvance: number; blockTop: number; blockBottom: number; padding: number },
+  groundBasis?: ArrayLike<number>,
+): { minX: number; minY: number; maxX: number; maxY: number } {
+  const minX = drawX - m.padding
+  const minY = drawY + m.blockTop - m.padding
+  const maxX = drawX + m.totalAdvance + m.padding
+  const maxY = drawY + m.blockBottom + m.padding
+  if (groundBasis === undefined) return { minX, minY, maxX, maxY }
+  // Pivot on the draw anchor — the same point the renderer pivots the quad on
+  // (TextDraw.anchorX is this drawX), which is what keeps box and quad together.
+  return groundBasisAabb(
+    [groundBasis[0]!, groundBasis[1]!, groundBasis[2]!, groundBasis[3]!],
+    drawX,
+    drawY,
+    minX,
+    minY,
+    maxX,
+    maxY,
+  )
 }

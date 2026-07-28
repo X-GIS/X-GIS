@@ -4,7 +4,7 @@ import * as monaco from 'monaco-editor'
 import editorWorker from 'monaco-editor/esm/vs/editor/editor.worker?worker'
 import tsWorker from 'monaco-editor/esm/vs/language/typescript/ts.worker?worker'
 
-import { XGISMap, lonLatToMercator, Marker, Popup, CoverageTimePlayer } from '@xgis/map'
+import { XGISMap, lonLatToMercator, Marker, Popup } from '@xgis/map'
 import { haversineDistance } from '@xgis/compiler'
 import { SCENE_BUILDER_TWINS } from '@xgis/compiler/builder/twin-corpus'
 // Raw text of the SAME module — the JS tab (#1194 A3b) extracts each twin's
@@ -16,9 +16,6 @@ import twinCorpusRaw from '@xgis/compiler/builder/twin-corpus?raw'
 // executes — imported once for exec, once as ?raw for display (single authority).
 import { installCoopsCurrents } from './examples/coops-currents.recipe'
 import coopsRecipeRaw from './examples/coops-currents.recipe?raw'
-import { installS111Mosaic, type S111MosaicHandle } from './examples/s111-mosaic'
-import { playS111Time } from './examples/s111-time-playback'
-import { NOAA_PROXY_BASE } from './demos/loader'
 import { DEMOS } from './demos'
 import { extractMapboxProjectionName, extractMapboxLight } from './mapbox-projection'
 import {
@@ -1342,114 +1339,19 @@ function teardownMeasureOverlay(): void {
   measureCleanup?.()
 }
 
-// ── NOAA S-111 viewport mosaic (#1272 E-④) ───────────────────────────
-// Activated by demos with `mosaic: true`. Installs installS111Mosaic on the `currents`
-// source: each move-end swaps the coverage to the NOAA regional model covering the view. The
-// engine re-derives the `| arrow` field on the swap (#1333) — no app-side overlay re-arm. The
-// selection + LRU logic is unit-tested in s111-mosaic.ts.
-let currentsMosaicHandle: S111MosaicHandle | null = null
-let currentsLoadingBadge: HTMLDivElement | null = null
-let currentsLoadingHideTimer: number | null = null
-
-/** A top-right badge that appears the moment a region swap starts a REAL network fetch
- *  (never on a cache hit — LRU reuse is instant) and disappears on success; a failed swap
- *  flashes briefly instead of hanging silently. Answers "is it loading or just broken?" — the
- *  original complaint that a ~10 MB region swap gave no feedback while it streamed in. */
-function setupCurrentsLoadingBadge(): HTMLDivElement {
-  const badge = document.createElement('div')
-  badge.id = 'currents-loading'
-  badge.style.cssText = [
-    'position:absolute',
-    'top:12px',
-    'right:12px',
-    'z-index:20',
-    'display:none',
-    'align-items:center',
-    'gap:7px',
-    'font:11px/1.4 "DM Mono",monospace',
-    'color:#dde',
-    'background:rgba(10,10,10,0.82)',
-    'backdrop-filter:blur(6px)',
-    'padding:6px 10px',
-    'border:1px solid rgba(255,255,255,0.14)',
-    'border-radius:6px',
-    'pointer-events:none',
-  ].join(';')
-  const spinner = document.createElement('span')
-  spinner.textContent = '◐'
-  spinner.style.cssText = 'display:inline-block;animation:xgis-spin 0.8s linear infinite'
-  const label = document.createElement('span')
-  badge.append(spinner, label)
-  document.getElementById('map-pane')!.appendChild(badge)
-  if (!document.getElementById('xgis-spin-kf')) {
-    const kf = document.createElement('style')
-    kf.id = 'xgis-spin-kf'
-    kf.textContent = '@keyframes xgis-spin{to{transform:rotate(360deg)}}'
-    document.head.appendChild(kf)
-  }
-  return badge
-}
-
-function showCurrentsLoading(text: string, spin: boolean, autoHideMs?: number): void {
-  const badge = currentsLoadingBadge
-  if (!badge) return
-  if (currentsLoadingHideTimer != null) {
-    clearTimeout(currentsLoadingHideTimer)
-    currentsLoadingHideTimer = null
-  }
-  // `.children` is an HTMLCollection, not iterable — index into it directly (no destructuring).
-  const spinner = badge.children[0] as HTMLElement
-  const label = badge.children[1] as HTMLElement
-  spinner.style.display = spin ? 'inline-block' : 'none'
-  label.textContent = text
-  badge.style.display = 'flex'
-  if (autoHideMs != null) {
-    currentsLoadingHideTimer = window.setTimeout(() => {
-      badge.style.display = 'none'
-      currentsLoadingHideTimer = null
-    }, autoHideMs)
-  }
-}
-
-function setupCurrentsMosaic(map: InstanceType<typeof XGISMap>): void {
-  teardownCurrentsMosaic()
-  currentsLoadingBadge = setupCurrentsLoadingBadge()
-  currentsMosaicHandle = installS111Mosaic(map, {
-    sourceId: 'currents',
-    proxyBase: NOAA_PROXY_BASE,
-    // No app-side overlay re-arm: setCoverageData re-derives the engine `| arrow` S-111 field
-    // for the swapped-in region (#1333), so the arrows follow the pan without a snapshot here.
-    onLoadStart: (key) => showCurrentsLoading(`Loading ${key}…`, true),
-    onSwap: () => {
-      if (currentsLoadingBadge) currentsLoadingBadge.style.display = 'none'
-    },
-    onLoadError: (key) =>
-      showCurrentsLoading(`${key} failed to load — retry on next pan`, false, 2500),
-  })
-}
-
-function teardownCurrentsMosaic(): void {
-  currentsMosaicHandle?.remove()
-  currentsMosaicHandle = null
-  if (currentsLoadingHideTimer != null) {
-    clearTimeout(currentsLoadingHideTimer)
-    currentsLoadingHideTimer = null
-  }
-  currentsLoadingBadge?.remove()
-  currentsLoadingBadge = null
-}
-
 // ── S-111 forecast-time scrubber (#1272 E-③) ─────────────────────────
 // A bottom-centre control for the live demo: a slider + play/pause over the cell's numGRP
-// hourly forecast groups. It steps time by re-decoding the mosaic's ALREADY-DOWNLOADED region
-// cell at a different hour (currentsMosaicHandle.setTime → setCoverageData({group})) — no
-// network, so play can't fail on a range re-fetch. It polls getCoverage('currents') for the
-// axis, self-syncs after a region swap (reloads at hour 0), and hides over a single-group
-// cell. The engine re-derives the `| arrow` field on each step (#1333).
-// PLAY additionally smooths the hour-to-hour cut with transient interpolated frames (#1333) —
-// the slider still jumps directly on drag (an instant scrub is the expected feel there). The
-// playback CLOCK + blend wiring is ./examples/s111-time-playback (#1362, unit-tested there);
-// this function owns only the DOM control and its lifecycle.
+// hourly forecast groups. It polls getCoverage('currents') for the axis and hides over a
+// single-group cell. The engine re-derives the `| arrow` field on each step (#1333).
+//
+// Both halves now go through the ENGINE (#1453): the slider steps with `setCoverageTime` (a
+// Range re-read of that hour for EVERY resident region), and play hands the whole clock to
+// `playCoverageTime`, which already blends the hour-to-hour cut per region. This file used to
+// own a playback loop of its own, because the app-side mosaic held the cell BYTES and could
+// blend two hours with no network; residency moved into the engine, so that cache — and the
+// only reason for a second clock — went with it. The slider still jumps directly on drag,
+// which is the expected feel for a scrub. This function owns only the DOM control and its
+// lifecycle.
 type CoverageTimeAxis = { index: number; count: number; valueISO?: string; firstISO?: string }
 let currentsTimeCleanup: (() => void) | null = null
 
@@ -1458,7 +1360,6 @@ function setupCurrentsTimeControl(map: InstanceType<typeof XGISMap>): void {
   let cancelled = false
   let pollTimer: number | null = null
   let playing = false
-  const player = new CoverageTimePlayer()
 
   const wrap = document.createElement('div')
   wrap.id = 'currents-time'
@@ -1500,15 +1401,22 @@ function setupCurrentsTimeControl(map: InstanceType<typeof XGISMap>): void {
   const axis = (): CoverageTimeAxis | undefined =>
     map.getCoverage('currents')?.meta.sourceMeta?.time as CoverageTimeAxis | undefined
 
-  // Step by re-decoding the mosaic's cached region cell (no network) — never the range path.
+  // Step through the ENGINE, which range-reads that hour of every resident region (#1453).
+  // This used to re-decode bytes the app-side mosaic had cached, which is why the demo owned
+  // a playback loop at all; with residency in the engine there is no app-side byte cache to
+  // decode from, and re-reading one HDF5 group over Range is what the engine already does for
+  // a declared source. Stepping all regions together matters: a neighbour left on another hour
+  // draws as a current discontinuity along the domain boundary — a plausible-looking lie.
   const step = async (hour: number): Promise<void> => {
-    await currentsMosaicHandle?.setTime(hour)
+    await map.setCoverageTime('currents', hour)
   }
 
   const stopPlay = (): void => {
     playing = false
     playBtn.textContent = '▶'
-    player.pause() // also orphans an in-flight transition, so no stray frame keeps animating
+    // The ENGINE owns the clock now (#1453) — pausing a local player would leave the engine's
+    // loop running and the button lying about it.
+    map.pauseCoverageTime()
   }
 
   // COALESCED (#1367). A range input fires `input` on every pixel of the drag, and each step is
@@ -1546,16 +1454,12 @@ function setupCurrentsTimeControl(map: InstanceType<typeof XGISMap>): void {
     }
     playing = true
     playBtn.textContent = '❚❚'
-    playS111Time(player, {
-      axis: () => {
-        const t = axis()
-        return cancelled || !t ? null : { index: t.index, count: t.count }
-      },
-      displayed: () => map.getCoverage('currents'),
-      peek: async (hour) => (await currentsMosaicHandle?.peekTime(hour)) ?? null,
-      land: step,
-      frame: (handle) => map.setCoverageFrame('currents', handle),
-    })
+    // The ENGINE's own playback loop (#1453). It is the same self-clocked, deadline-scheduled
+    // clock the app-side loop used, and it already blends the hour-to-hour cut per REGION
+    // (`readRegionsAtGroup` decodes the "to" hour once per region and reuses it across the
+    // transition's sub-frames). The app-side version existed to blend out of the mosaic's
+    // cached BYTES; that cache went with the mosaic, so the reason went with it.
+    map.playCoverageTime('currents', { interpolateSteps: 4 })
   })
 
   const sync = (): void => {
@@ -1579,7 +1483,7 @@ function setupCurrentsTimeControl(map: InstanceType<typeof XGISMap>): void {
   currentsTimeCleanup = () => {
     cancelled = true
     if (pollTimer != null) clearTimeout(pollTimer)
-    player.pause()
+    map.pauseCoverageTime()
     wrap.remove()
     currentsTimeCleanup = null
   }
@@ -2019,12 +1923,12 @@ async function loadDemo(idx: number) {
   // vendored catalogue, plus `| flow` for the motion. There is no app-side overlay left for
   // either: the synthetic demo used to keep one (subsampled white arrows + drifting
   // particles), which meant the OFFLINE example taught the approach #1333 replaced.
-  // The only runtime difference is the mosaic, which is about WHICH cells are resident.
-  if (currentMap && demo.currents && demo.mosaic) {
-    setupCurrentsMosaic(currentMap) // #1272 E-④ swap; #1333 engine arrows follow the swap
+  // WHICH cells are resident is no longer a runtime difference either (#1453): the live demo's
+  // source names a STAC catalogue and the ENGINE resolves the viewport, so the app installs no
+  // mosaic. `timeControl` marks the demos whose cell carries a multi-hour forecast axis.
+  if (currentMap && demo.currents && demo.timeControl) {
     setupCurrentsTimeControl(currentMap) // #1272 E-③ forecast-hour scrubber
   } else {
-    teardownCurrentsMosaic()
     teardownCurrentsTimeControl()
   }
 
