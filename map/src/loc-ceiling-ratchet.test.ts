@@ -722,7 +722,12 @@ const CEILINGS: Record<string, number> = {
   // banked: the resolution is the MEASURED post-prettier size of the merged file, never either
   // side's number. Picking one would silently hand back the other's reduction as headroom to
   // re-spend, which is the quiet way a shrink-only ratchet stops shrinking.
-  'map/src/render/passes/label-pass.ts': 2034,
+  // 2034→2013 (#1046 F3b, the LAST chain pass): the text-overlay sub-pass originates
+  // through requireRhiFrame (+9 — the seam call, the conditional-resolve rationale, and
+  // the reworded twin-arm comment). Paid by extraction, not a bump: resolveIconRotateRad
+  // (+JSDoc) moved VERBATIM to icon-keep-upright-rotate.ts (pure, one call site, its own
+  // unit gate keeps importing the same symbol).
+  'map/src/render/passes/label-pass.ts': 2013,
   // #1081 — per-anchor perspective distance attenuation (MapLibre parity). New
   // baseline: the wCenter + perspScale scratch-out-value lives INLINE in the two
   // existing projector closures (it rides the cw already computed per anchor —

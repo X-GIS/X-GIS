@@ -177,11 +177,11 @@ const BASELINE: Record<string, number> = {
   'map/src/render/vector-tile-renderer-types.ts': 5,
   'map/src/render/vector-tile-renderer.ts': 20,
   'map/src/sprite/host-sprite-atlas-gpu.ts': 14,
-  'map/src/sprite/icon-renderer.ts': 12,
-  'map/src/sprite/icon-stage.ts': 8,
+  'map/src/sprite/icon-renderer.ts': 10,
+  'map/src/sprite/icon-stage.ts': 7,
   'map/src/sprite/sprite-atlas-gpu.ts': 12,
-  'map/src/text/text-renderer.ts': 13,
-  'map/src/text/text-stage.ts': 3,
+  'map/src/text/text-renderer.ts': 11,
+  'map/src/text/text-stage.ts': 2,
 }
 
 describe('raw-WebGPU ratchet: map/src routes GPU through the RHI (#991)', () => {

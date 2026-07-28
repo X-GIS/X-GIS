@@ -143,7 +143,7 @@ const BASELINE: Record<string, number> = {
   'map/src/source-manager.ts': 1,
   'map/src/sprite/host-sprite-atlas-gpu.ts': 1,
   'map/src/sprite/icon-renderer.ts': 2,
-  'map/src/text/text-renderer.ts': 2,
+  'map/src/text/text-renderer.ts': 1,
 }
 
 describe('backend-adapter ratchet: map/src imports the concrete backend only at the root (#991)', () => {

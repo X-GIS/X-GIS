@@ -15,7 +15,7 @@
 // resolved rotateRad is byte-identical to today's always-follow-tangent render.
 
 import { describe, it, expect } from 'vitest'
-import { resolveIconRotateRad } from './label-pass'
+import { resolveIconRotateRad } from './icon-keep-upright-rotate'
 
 const DEG = Math.PI / 180
 /** Resolved rotateRad back to degrees, normalised to (-180°, 180°]. */

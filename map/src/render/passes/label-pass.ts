@@ -9,11 +9,12 @@
 // screen-space collision + atlas plumbing.
 //
 // Mechanical changes only: `this.host.X` -> `host.X`; the render-local
-// scalars the block read (device / dpr / sampleCount / w / h / encoder) are
-// re-bound from ctx at the top, and projType / centerLon / centerLat are
-// decoded from the opaque ctx.projection token (projection-token.ts) — this
-// pass owns that unwrap. `visibleWorldCopies` is produced + consumed entirely
-// here (label-node-local state, no longer a FrameContext field).
+// scalars the block read (dpr / sampleCount / w / h) are re-bound from ctx
+// at the top, and projType / centerLon / centerLat are decoded from the
+// opaque ctx.projection token (projection-token.ts) — this pass owns that
+// unwrap. `visibleWorldCopies` is produced + consumed entirely here
+// (label-node-local state, no longer a FrameContext field). The text-overlay
+// sub-pass originates through the RHI frame shell (#1046 F3b).
 
 import { evaluate, makeEvalProps, resolveColor } from '@xgis/compiler'
 import { markStart as perfMarkStart, markEnd as perfMarkEnd } from '../../__profile__/perf-marks'
@@ -45,13 +46,14 @@ import type { TextStageOptions } from '../../text/text-stage-types'
 import { IconStage } from '../../sprite/icon-stage'
 import { resolveText } from '../../text/text-resolver'
 import { hexToRgba, featureAnchor } from '../../feature-helpers'
+import { resolveIconRotateRad } from './icon-keep-upright-rotate'
 import { dispatchCoverageSoundings } from './dispatch-coverage-soundings'
 import { ensureBackgroundPatternAtlas } from './background-pattern-atlas'
 import { type ShowCommand } from '../renderer-types'
 import type { FrameContext } from '../frame-context'
 import { unwrapProjection } from '../projection-token'
 import type { SceneView } from '../scene-view'
-import type { RenderPass, LabelPassHost } from './pass'
+import { requireRhiFrame, type RenderPass, type LabelPassHost } from './pass'
 import {
   LINE_LABEL_EDGE_INSET_CSS_PX,
   lineLabelEdgeInsetPx,
@@ -106,36 +108,6 @@ export function labelCollisionId(
   const width = String(Math.max(1, showCount)).length
   const invLayer = String(showCount - showIdx).padStart(width, '0')
   return `${invLayer}${TIEBREAK_GROUP_SEP}${featureIdentity}`
-}
-
-/** #777 I-B — resolve a line-placed icon's rotation (radians) for dispatchIcon,
- *  applying the Mapbox `icon-keep-upright` half-plane fold. Under
- *  icon-rotation-alignment=map the icon follows the per-segment `lineTangentDeg`
- *  (0° for point / viewport placement). `icon-keep-upright: true` keeps the icon
- *  facing up by flipping a DOWNWARD tangent 180° — the icon twin of the text
- *  keep-upright flip (text-stage.ts:1500-1530, `midAngle > π/2`). A tangent
- *  outside (-90°, 90°] screen-space gets +180°, so the resolved angle lands in
- *  the upright half-plane. The fold activates ONLY on an EXPLICITLY authored
- *  `keepUpright === true`; absent/false leaves the tangent untouched, so the
- *  rotation is byte-identical to today's always-follow-tangent render (the
- *  icon-allow-overlap absent-default convention). Not map-aligned → tangent is 0,
- *  so the fold is inert (icon-rotate alone).
- *  Exported for unit coverage — dispatchIcon is an anon closure. */
-export function resolveIconRotateRad(
-  iconRotateDeg: number,
-  lineTangentDeg: number,
-  rotationAlignmentMap: boolean,
-  keepUpright: boolean | undefined,
-): number {
-  let tangent = rotationAlignmentMap ? lineTangentDeg : 0
-  // Upright half-plane fold: on an EXPLICITLY authored keep-upright, a tangent
-  // pointing down (outside (-90°, 90°]) gets +180° so the resolved rotation
-  // lands upright — the icon twin of the text angle fold (label-pass.ts text
-  // arm / text-stage.ts midAngle test).
-  if (rotationAlignmentMap && keepUpright === true && (tangent > 90 || tangent < -90)) {
-    tangent += 180
-  }
-  return ((iconRotateDeg + tangent) * Math.PI) / 180
 }
 
 /** Per-segment sample count for line-label placement, computed from the
@@ -291,7 +263,7 @@ class LabelPass implements RenderPass {
     // destructured — the projType-conditional label projector branches
     // collapsed to a single ECEF-based projector. Other passes still
     // consume them off FrameContext directly.
-    const { sampleCount: sc, encoder } = ctx,
+    const { sampleCount: sc } = ctx,
       { w, h, dpr } = ctx.screen // OVERLAY ⇒ screen
     // Symbol fade — advance every ramp once per RENDERED frame (S16 hit and
     // miss alike), OUTSIDE the labels-active gate below so in-flight ramps
@@ -1997,17 +1969,24 @@ class LabelPass implements RenderPass {
       if (!DEBUG_OVERDRAW) {
         if (ctx.rhiPass) {
           // Forced-WebGL2 frame (#834 M5 slices 3-4): draw on the live RHI
-          // screen pass — no WebGPU encoder exists on this path. Icons
-          // BEFORE text, matching the WebGPU ordering below.
+          // screen pass — the twin frame holds its ONE pass open, so this
+          // arm originates nothing. Icons BEFORE text, matching the chain
+          // ordering below. Dies with the twin (#1046 Inc-4).
           iStage?.render(ctx.rhiPass, { width: ctx.screen.w, height: ctx.screen.h }, labelReplay)
           stage.render(ctx.rhiPass, { width: ctx.screen.w, height: ctx.screen.h }, labelReplay)
         } else {
+          // F3b: originate through the RHI frame encoder — on WebGPU this
+          // maps to the identical native descriptor (rhiRenderPassToGpu
+          // parity), and it is what lets this pass execute on WebGL2 once
+          // the chain flips. Last colour writer of the frame ⇒ it claims
+          // the conditional MSAA resolve.
+          const { enc, screenView, colorView } = requireRhiFrame(ctx, 'labels')
           ctx.passScope('text-overlay', () => {
-            const tPass = encoder.beginRenderPass({
+            const tPass = enc.beginRenderPass({
               colorAttachments: [
                 {
-                  view: ctx.colorView,
-                  resolveTarget: ctx.useResolve ? ctx.screenView : undefined,
+                  view: colorView,
+                  resolveTarget: ctx.useResolve ? screenView : undefined,
                   loadOp: 'load',
                   storeOp: 'store',
                 },
