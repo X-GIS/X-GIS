@@ -885,7 +885,10 @@ const CEILINGS: Record<string, number> = {
   // 941→975 (#1371 atomic re-seed): `releaseSupersededTile` + `dropTile`, and the split of
   // `_releaseTileSlots` into a resource-release body the two share with eviction. Arena/pool
   // ownership is this class's whole reason to exist.
-  'map/src/render/gpu-tile-store.ts': 975,
+  // 975→946 (#1357): the pooled-buffer recycler moved out to gpu-buffer-pool.ts
+  // (bucketing + entry cap + the new byte cap), which also orphaned the raw
+  // `device` field — its only reader was the pool's createBuffer.
+  'map/src/render/gpu-tile-store.ts': 946,
   // 930→948 (#1078): the zoom-transition readiness gate now probes the SAME
   // selector the frame draws with — routeToSphereSelector picks globeVisibleTiles
   // on the globe/sphere route (vs the flat visibleTilesSSE) so cz hold/advance is

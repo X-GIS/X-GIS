@@ -50,6 +50,9 @@ async function makeRasterRenderer(): Promise<RasterRenderer> {
   return new RasterRenderer(ctx)
 }
 
+/** The fake bitmap is 4×4 rgba8unorm ⇒ 4·4·4 B. */
+const FAKE_BITMAP_BYTES = 4 * 4 * 4
+
 function installFakeBitmap(): { close: ReturnType<typeof vi.fn> } {
   const close = vi.fn()
   globalThis.fetch = (async () => new Response('tile', { status: 200 })) as typeof fetch
@@ -75,11 +78,11 @@ function useWebgl2Rhi(
 
 const URL = 'https://example.com/tile.png' // public → passes the SSRF literal check
 
-function loadTile(rr: RasterRenderer): Promise<GPUTexture | RhiTexture | null> {
+type Loaded = { texture: GPUTexture | RhiTexture; bytes: number } | null
+
+function loadTile(rr: RasterRenderer): Promise<Loaded> {
   return (
-    rr as unknown as {
-      loadTileTexture: (u: string, s: AbortSignal) => Promise<GPUTexture | RhiTexture | null>
-    }
+    rr as unknown as { loadTileTexture: (u: string, s: AbortSignal) => Promise<Loaded> }
   ).loadTileTexture(URL, new AbortController().signal)
 }
 
@@ -122,14 +125,17 @@ describe('RasterRenderer.loadTileTexture webgl2 failure cleanup (#1153 P2 R4)', 
     expect(destroyTexture).toHaveBeenCalledWith(fakeTex)
   })
 
-  it('happy path returns the texture and closes the bitmap once (no destroy)', async () => {
+  it('happy path returns the texture + its byte cost, closing the bitmap once (no destroy)', async () => {
     const rr = await makeRasterRenderer()
     const { close } = installFakeBitmap()
     const fakeTex = { __tex: true } as unknown as RhiTexture
     const destroyTexture = vi.fn()
     useWebgl2Rhi(rr, { createTexture: () => fakeTex, copyExternalImage: () => {}, destroyTexture })
 
-    await expect(loadTile(rr)).resolves.toBe(fakeTex)
+    // #1352 — the loader now returns { texture, bytes }: the resident cost has
+    // to be captured here, while the decoded bitmap's dimensions are still
+    // reachable (RhiTexture is an opaque handle and the bitmap is closed next).
+    await expect(loadTile(rr)).resolves.toEqual({ texture: fakeTex, bytes: FAKE_BITMAP_BYTES })
     expect(close).toHaveBeenCalledTimes(1)
     expect(destroyTexture).not.toHaveBeenCalled()
   })
