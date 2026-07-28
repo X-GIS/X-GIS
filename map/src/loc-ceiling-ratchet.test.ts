@@ -469,7 +469,11 @@ const CEILINGS: Record<string, number> = {
   // velocity textures and the portrayal rendered NOTHING (found by the render gate, not by any
   // unit test). +9 is the `needsResidency` fork, the `hidden` argument, and the four lines
   // saying why, which are the part a future reader needs most.
-  'map/src/map.ts': 5447,
+  // 5447→5387 (#1426): the deferred coverage attach needed a THIRD arm site, so the
+  // arm itself came OUT — armCoverageDrape/armCoverageShow/armAdvectedArrows/armLandedCoverage
+  // now live in coverage-arm.ts, taking the map structurally. #1419's residency/`hidden` fork
+  // and its advected-arrow fork moved WITH it, unchanged. LOWERED per the shrink-only rule.
+  'map/src/map.ts': 5387,
   // Baselined at #1255 (measured 830): the DOM-inspired layer API crossed
   // NEW_FILE_CAP with the paint-transition style-setter integration — the
   // StyleHost.transitions context, the shared applyNumber/applyColor
@@ -519,6 +523,9 @@ const CEILINGS: Record<string, number> = {
   // decision. Ceiling below is the MERGED file's actual wc -l, measured after prettier.
   // MERGE UNION: both sides' deltas are non-overlapping, so the value is the MEASURED count.
   // MERGE UNION: non-overlapping deltas; the value is the MEASURED post-hook count.
+  // #1426 left this file at its ceiling exactly: the `type: coverage` branch stopped awaiting
+  // its multi-MB read (retiring the fetch/read imports) and spent the saved lines on the
+  // host-fed `url`-less guard + its reason. Net 0 — nothing to lower.
   'map/src/source-manager.ts': 903,
   // 1920→1930 (#1042 R3): the globe limb cull for MULTI-LINE labels must land in
   // the collision phase — the ONLY site holding the label's quad half-height (the
