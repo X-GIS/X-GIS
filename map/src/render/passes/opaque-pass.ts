@@ -38,7 +38,7 @@ class OpaquePass implements RenderPass {
     // WebGL2 after the flip. The timer rides the Inc-1 seam: beginTimedPass
     // folds the QuerySet's timestampWrites into the SAME rhiRenderPassToGpu
     // mapping (omitted when dead), markRhi guards before unwrapping.
-    const { enc, screenView, colorView, stencilView } = requireRhiFrame(ctx, 'opaque')
+    const { enc, colorView, stencilView, sceneResolveView } = requireRhiFrame(ctx, 'opaque')
     // ── Bucket 1: opaque ──
     // Always emit at least one pass so raster + canvas background
     // can run even if there are no vector layers to draw. The first
@@ -79,7 +79,7 @@ class OpaquePass implements RenderPass {
         >[0]['colorAttachments'][number][] = [
           {
             view: colorView,
-            resolveTarget: resolveHere ? screenView : undefined,
+            resolveTarget: resolveHere ? sceneResolveView : undefined,
             // The colour target is cleared by the background pass (bucket 0,
             // render/passes/background-pass.ts) which now owns the
             // whole-viewport clear — the coverage seam from VISION §5 gap #1.

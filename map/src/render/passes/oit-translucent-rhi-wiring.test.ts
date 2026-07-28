@@ -35,11 +35,15 @@ function rhiFrame() {
     return p
   })
   const enc = { beginRenderPass, __rhiEncoder: true }
+  // #1429 INC-2 — distinct scene-resolve token (see the opaque harness note).
+  const sceneResolveView = { __sceneResolve: true }
   const ctx = {
     rhiEncoder: enc,
     rhiScreenView: { __screen: true },
     rhiColorView: { __color: true },
     rhiStencilView: { __stencil: true },
+    rhiSceneResolveView: sceneResolveView,
+    rhiColorViewScreen: { __colorScreen: true },
     passScope: (_l: string, fn: () => void) => fn(),
     useResolve: true,
     projection: makeProjectionToken(0, 0, 0),
@@ -48,7 +52,7 @@ function rhiFrame() {
     screen: { w: 999, h: 998, dpr: 9 },
     sampleCount: 4,
   } as unknown as FrameContext
-  return { ctx, captured, beginRenderPass, enc }
+  return { ctx, captured, beginRenderPass, enc, sceneResolveView }
 }
 
 describe('oit pass — RHI seam wiring (#1046 F3b Inc-2d)', () => {
@@ -120,7 +124,7 @@ describe('oit pass — RHI seam wiring (#1046 F3b Inc-2d)', () => {
     const comp = h.captured[1].desc
     const colors = comp.colorAttachments as { view: unknown; resolveTarget?: unknown }[]
     expect(colors[0].view).toBe((h.ctx as { rhiColorView: unknown }).rhiColorView)
-    expect(colors[0].resolveTarget).toBe((h.ctx as { rhiScreenView: unknown }).rhiScreenView)
+    expect(colors[0].resolveTarget).toBe(h.sceneResolveView)
     expect(h.composeCalls).toHaveLength(1)
     expect(h.composeCalls[0]).toBe(h.captured[1])
   })
@@ -181,7 +185,7 @@ describe('translucent pass — RHI seam wiring (#1046 F3b Inc-2d)', () => {
     const comp = h.captured[0].desc
     const colors = comp.colorAttachments as { view: unknown; resolveTarget?: unknown }[]
     expect(colors[0].view).toBe((h.ctx as { rhiColorView: unknown }).rhiColorView)
-    expect(colors[0].resolveTarget).toBe((h.ctx as { rhiScreenView: unknown }).rhiScreenView)
+    expect(colors[0].resolveTarget).toBe(h.sceneResolveView)
     expect(h.composites).toEqual([{ pass: h.captured[0], opacity: 0.42 }])
   })
 

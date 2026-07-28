@@ -113,7 +113,7 @@ class HillshadePass implements RenderPass {
     // WebGL2 after the flip. hr.render takes RhiRenderPass ONLY (narrowed in
     // the F3b review — its former native union hid a backend-keyed re-wrap
     // that double-wrapped the chain's handle on WebGPU).
-    const { enc, screenView, colorView, stencilView } = requireRhiFrame(ctx, 'hillshade')
+    const { enc, colorView, stencilView, sceneResolveView } = requireRhiFrame(ctx, 'hillshade')
     ctx.passScope('hillshade', () => {
       const hsPass = enc.beginRenderPass({
         colorAttachments: [
@@ -126,7 +126,7 @@ class HillshadePass implements RenderPass {
             // multisample target after the opaque resolve already ran and
             // never reaches the swapchain (black at msaa>1, every backend).
             resolveTarget:
-              ctx.useResolve && scene.resolveOwner === 'hillshade' ? screenView : undefined,
+              ctx.useResolve && scene.resolveOwner === 'hillshade' ? sceneResolveView : undefined,
             loadOp: 'load',
             storeOp: 'store',
           },

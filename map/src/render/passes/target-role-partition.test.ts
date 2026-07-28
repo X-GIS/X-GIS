@@ -1,4 +1,4 @@
-// ═══ Scene / overlay partition — a pass reads the geometry its ROLE names ═══
+// ═══ Scene / seam / overlay partition — a pass reads the geometry its ROLE names ═══
 //
 // `FrameContext` carries two target geometries (`scene` / `screen`). They are equal today; the
 // split exists so that when the adaptive-DPR ladder shrinks the scene and leaves the overlay
@@ -10,8 +10,9 @@
 // arrangement is precisely what makes the swapchain and the frame math unable to disagree.
 // CLAUDE.md §12's "second ratchet" is the same shape: two authorities drift, silently.
 //
-// So the partition is DERIVED (SCENE_PASSES = PASS_CHAIN_ORDER − OVERLAY_PASSES) and this gate
-// proves three things a reviewer would otherwise have to take on trust:
+// So the partition is DERIVED (SCENE_PASSES = PASS_CHAIN_ORDER − OVERLAY_PASSES − SEAM_PASSES;
+// the seam is #1429 INC-2's upscale, which reads BOTH sides) and this gate proves three things
+// a reviewer would otherwise have to take on trust:
 //
 //   1. the two sets cover PASS_CHAIN_ORDER exactly — no pass in both, none in neither, so a
 //      pass added tomorrow cannot be silently role-less;
@@ -27,7 +28,13 @@ import { describe, it, expect } from 'vitest'
 import { readFileSync } from 'node:fs'
 import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { PASS_CHAIN_ORDER, OVERLAY_PASSES, SCENE_PASSES, type PassLabel } from './pass-order'
+import {
+  PASS_CHAIN_ORDER,
+  OVERLAY_PASSES,
+  SCENE_PASSES,
+  SEAM_PASSES,
+  type PassLabel,
+} from './pass-order'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
 
@@ -41,6 +48,7 @@ const PASS_SOURCE: Record<PassLabel, string> = {
   translucent: 'translucent-pass.ts',
   hillshade: 'hillshade-pass.ts',
   points: 'points-pass.ts',
+  'scene-upscale': 'scene-upscale-pass.ts',
   labels: 'label-pass.ts',
   heatmap: 'heatmap-pass.ts',
   'overdraw-compose': 'overdraw-compose-pass.ts',
@@ -64,18 +72,20 @@ const reaches = (src: string, role: 'scene' | 'screen'): boolean =>
 const readsScene = (src: string): boolean => reaches(src, 'scene')
 const readsScreen = (src: string): boolean => reaches(src, 'screen')
 
-describe('scene / overlay partition', () => {
-  it('covers PASS_CHAIN_ORDER exactly — nothing in both, nothing in neither', () => {
+describe('scene / seam / overlay partition', () => {
+  it('covers PASS_CHAIN_ORDER exactly — every pass in exactly one of the three roles', () => {
     const overlay = new Set<string>(OVERLAY_PASSES)
+    const seam = new Set<string>(SEAM_PASSES)
     const scene = new Set<string>(SCENE_PASSES)
     for (const label of PASS_CHAIN_ORDER) {
-      const inOverlay = overlay.has(label)
-      const inScene = scene.has(label)
-      expect(inOverlay !== inScene, `${label} must be in exactly one role`).toBe(true)
+      const roles = [overlay.has(label), seam.has(label), scene.has(label)].filter(Boolean)
+      expect(roles.length, `${label} must be in exactly one role`).toBe(1)
     }
-    expect(SCENE_PASSES.length + OVERLAY_PASSES.length).toBe(PASS_CHAIN_ORDER.length)
-    // And neither set may name a pass the order does not have.
-    for (const label of [...OVERLAY_PASSES, ...SCENE_PASSES]) {
+    expect(SCENE_PASSES.length + SEAM_PASSES.length + OVERLAY_PASSES.length).toBe(
+      PASS_CHAIN_ORDER.length,
+    )
+    // And no set may name a pass the order does not have.
+    for (const label of [...OVERLAY_PASSES, ...SEAM_PASSES, ...SCENE_PASSES]) {
       expect(
         PASS_CHAIN_ORDER as readonly string[],
         `${label} is not in PASS_CHAIN_ORDER`,
@@ -101,6 +111,17 @@ describe('scene / overlay partition', () => {
   it('an OVERLAY pass never reads the scene geometry', () => {
     for (const label of OVERLAY_PASSES) {
       expect(readsScene(source(label)), `${label} (overlay) reads ctx.scene`).toBe(false)
+    }
+  })
+
+  it('the SEAM reads BOTH geometries — that is what makes it the seam', () => {
+    // The upscale samples the scene target (scene size decides its source rect / whether it
+    // runs at all) and writes the screen attachment (screen size is its viewport). Filing it
+    // into either half would falsify that half's rule, so the partition asserts the dual read
+    // POSITIVELY — a seam pass that stops reading one side has silently changed role.
+    for (const label of SEAM_PASSES) {
+      expect(readsScene(source(label)), `${label} (seam) reads no ctx.scene`).toBe(true)
+      expect(readsScreen(source(label)), `${label} (seam) reads no ctx.screen`).toBe(true)
     }
   })
 

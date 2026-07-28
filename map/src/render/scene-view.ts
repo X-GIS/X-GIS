@@ -53,6 +53,11 @@ export interface SceneView {
   readonly hasFlow: boolean
   /** Which pass claims the MSAA resolveTarget this frame. */
   readonly resolveOwner: ResolveOwner
+  /** #1429 INC-2 — the adaptive ladder holds the scene target below native
+   *  this frame. Gates the scene-upscale seam; false (the ladder at notch
+   *  0-2, the twin always) keeps the frame byte-identical: no scene pair
+   *  allocated, no seam pass, one colour attachment as before the split. */
+  readonly sceneScaled: boolean
 }
 
 /** Members of the owning map that SceneView derivation reads. */
@@ -70,9 +75,9 @@ type SceneHost = Pick<
 
 /** Build the per-frame SceneView from the bucket scheduler. Mirrors the
  *  inline block formerly at render()'s bucket-scheduler section. */
-// `_ctx` is retained for signature stability (callers pass the FrameContext)
-// but is no longer read: hasOit went content-based, which was its only use.
-export function buildSceneView(host: SceneHost, _ctx: FrameContext): SceneView {
+// `ctx` supplies the two target geometries the sceneScaled flag derives from
+// (#1429 INC-2); hasOit stays content-based.
+export function buildSceneView(host: SceneHost, ctx: FrameContext): SceneView {
   const { opaque, translucent, oit } = host.classifyVectorTileShows()
   const opaqueGroups = host.groupOpaqueBySource(opaque)
   const hasTranslucent = translucent.length > 0 && host.lineRenderer !== null
@@ -104,5 +109,9 @@ export function buildSceneView(host: SceneHost, _ctx: FrameContext): SceneView {
     hasGraphics,
     hasFlow,
     resolveOwner,
+    // DERIVED from the frame's two geometries, not remembered — the loop set
+    // them from the one setFrameTargets site, so the flag cannot disagree
+    // with the targets the passes actually attach (#1429 INC-2).
+    sceneScaled: ctx.scene.w !== ctx.screen.w || ctx.scene.h !== ctx.screen.h,
   }
 }

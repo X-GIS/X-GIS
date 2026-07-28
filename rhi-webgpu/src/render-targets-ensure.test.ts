@@ -62,7 +62,7 @@ describe('RenderTargets.ensure', () => {
     const fake = makeFakeDevice()
     const rt = new RenderTargets(() => makeCtx(fake.device))
 
-    const { useResolve, colorView } = rt.ensure(800, 600, 1, false, false, screenView)
+    const { useResolve, colorView } = rt.ensure(800, 600, 800, 600, 1, false, false, screenView)
 
     expect(useResolve).toBe(false)
     // sc === 1 → no MSAA texture, no pick (disabled), no overdraw.
@@ -89,7 +89,7 @@ describe('RenderTargets.ensure', () => {
     const fake = makeFakeDevice()
     const rt = new RenderTargets(() => makeCtx(fake.device))
 
-    const { useResolve, colorView } = rt.ensure(640, 480, 4, true, true, screenView)
+    const { useResolve, colorView } = rt.ensure(640, 480, 640, 480, 4, true, true, screenView)
 
     expect(useResolve).toBe(true)
     expect(rt.msaaTexture).not.toBeNull()
@@ -117,7 +117,7 @@ describe('RenderTargets.ensure', () => {
   it('ensureOit lazily allocates the 3 OIT targets once, recreates on size/sample change', () => {
     const fake = makeFakeDevice()
     const rt = new RenderTargets(() => makeCtx(fake.device))
-    rt.ensure(800, 600, 1, false, false, screenView)
+    rt.ensure(800, 600, 800, 600, 1, false, false, screenView)
     const afterEnsure = fake.created.length // stencil only
 
     rt.ensureOit(800, 600, 1)
@@ -144,11 +144,11 @@ describe('RenderTargets.ensure', () => {
     const fake = makeFakeDevice()
     const rt = new RenderTargets(() => makeCtx(fake.device))
 
-    rt.ensure(800, 600, 1, false, false, screenView)
+    rt.ensure(800, 600, 800, 600, 1, false, false, screenView)
     const countAfterFirst = fake.created.length
     const stencilFirst = rt.stencilTexture
 
-    rt.ensure(800, 600, 1, false, false, screenView)
+    rt.ensure(800, 600, 800, 600, 1, false, false, screenView)
 
     // No new textures, same handles.
     expect(fake.created.length).toBe(countAfterFirst)
@@ -159,11 +159,11 @@ describe('RenderTargets.ensure', () => {
     const fake = makeFakeDevice()
     const rt = new RenderTargets(() => makeCtx(fake.device))
 
-    rt.ensure(800, 600, 1, false, false, screenView)
+    rt.ensure(800, 600, 800, 600, 1, false, false, screenView)
     const firstBatch = [...fake.created]
     const countAfterFirst = fake.created.length
 
-    rt.ensure(1024, 768, 1, false, false, screenView)
+    rt.ensure(1024, 768, 1024, 768, 1, false, false, screenView)
 
     // New textures allocated for the new size.
     expect(fake.created.length).toBe(countAfterFirst * 2)
@@ -185,14 +185,14 @@ describe('RenderTargets.ensure', () => {
     const fake = makeFakeDevice()
     const rt = new RenderTargets(() => makeCtx(fake.device))
 
-    rt.ensure(800, 600, 1, false, false, screenView)
+    rt.ensure(800, 600, 800, 600, 1, false, false, screenView)
     const texA = rt.stencilTexture
     const viewA = rt.stencilView
     expect(viewA).not.toBeNull()
     // Same texture → same cached view object (no per-call allocation).
     expect(rt.stencilView).toBe(viewA)
 
-    rt.ensure(1024, 768, 1, false, false, screenView)
+    rt.ensure(1024, 768, 1024, 768, 1, false, false, screenView)
     expect(rt.stencilTexture).not.toBe(texA) // recreated
     // The getter now derives from the new texture: a different view object,
     // and never the one bound to the destroyed texture.
@@ -200,22 +200,116 @@ describe('RenderTargets.ensure', () => {
     expect(rt.stencilView).not.toBeNull()
   })
 
+  it('NOT scaled ⇒ the pre-split frame by IDENTITY — no scene pair, every seam field reduces (#1429)', () => {
+    // The scale-1 constructive no-op gate: a host that never trips the
+    // ladder allocates nothing new and every INC-2 field is the identity of
+    // a pre-split field — not an equal value, the SAME object.
+    const fake = makeFakeDevice()
+    const rt = new RenderTargets(() => makeCtx(fake.device))
+
+    const r1 = rt.ensure(800, 600, 800, 600, 1, false, false, screenView)
+    expect(r1.sceneScaled).toBe(false)
+    expect(rt.sceneColorTexture).toBeNull()
+    expect(rt.screenMsaaTexture).toBeNull()
+    expect(r1.sceneColorSampleView).toBeNull()
+    expect(r1.sceneResolveView).toBe(screenView)
+    expect(r1.colorViewScreen).toBe(r1.colorView)
+    expect(fake.created.length).toBe(1) // stencil only — the pre-split count
+
+    const fake4 = makeFakeDevice()
+    const rt4 = new RenderTargets(() => makeCtx(fake4.device))
+    const r4 = rt4.ensure(640, 480, 640, 480, 4, false, false, screenView)
+    expect(r4.sceneScaled).toBe(false)
+    expect(r4.sceneResolveView).toBe(screenView)
+    expect(r4.colorViewScreen).toBe(r4.colorView)
+    expect(fake4.created.length).toBe(2) // msaa + stencil — the pre-split count
+  })
+
+  it('scaled + MSAA ⇒ scene-sized scene block, sceneColor + screenMsaa pair, seam fields split (#1429)', () => {
+    const fake = makeFakeDevice()
+    const rt = new RenderTargets(() => makeCtx(fake.device))
+
+    const r = rt.ensure(576, 416, 800, 600, 4, false, false, screenView)
+    expect(r.sceneScaled).toBe(true)
+    // Scene block sized from SCENE pixels.
+    const msaa = rt.msaaTexture as unknown as FakeTexture
+    expect((msaa.descriptor.size as { width: number }).width).toBe(576)
+    const stencil = rt.stencilTexture as unknown as FakeTexture
+    expect((stencil.descriptor.size as { width: number }).width).toBe(576)
+    // The pair: sceneColor single-sample scene-sized + sampleable; screenMsaa
+    // at native size with the frame's sample count.
+    const sceneColor = rt.sceneColorTexture as unknown as FakeTexture
+    expect((sceneColor.descriptor.size as { width: number }).width).toBe(576)
+    expect(sceneColor.descriptor.sampleCount).toBe(1)
+    const screenMsaa = rt.screenMsaaTexture as unknown as FakeTexture
+    expect((screenMsaa.descriptor.size as { width: number }).width).toBe(800)
+    expect(screenMsaa.descriptor.sampleCount).toBe(4)
+    // Scene passes write the scene MSAA and resolve into sceneColor; the
+    // seam samples sceneColor; seam + overlay write screenMsaa.
+    expect(r.colorView).toBe(rt.msaaView)
+    expect(r.sceneResolveView).toBe(r.sceneColorSampleView)
+    expect(r.sceneResolveView).not.toBe(screenView)
+    expect(r.colorViewScreen).not.toBe(r.colorView)
+  })
+
+  it('scaled without MSAA ⇒ sceneColor is the direct scene target; overlay writes the swapchain (#1429)', () => {
+    const fake = makeFakeDevice()
+    const rt = new RenderTargets(() => makeCtx(fake.device))
+
+    const r = rt.ensure(576, 416, 800, 600, 1, false, false, screenView)
+    expect(r.sceneScaled).toBe(true)
+    expect(rt.screenMsaaTexture).toBeNull() // sc === 1 — no MSAA anywhere
+    expect(r.colorView).toBe(r.sceneColorSampleView) // direct scene write
+    expect(r.colorViewScreen).toBe(screenView)
+  })
+
+  it('a ladder notch moves the scene while the canvas is unchanged ⇒ scene block + pair recreate (#1429)', () => {
+    const fake = makeFakeDevice()
+    const rt = new RenderTargets(() => makeCtx(fake.device))
+
+    rt.ensure(576, 416, 800, 600, 4, false, false, screenView)
+    const colorA = rt.sceneColorTexture as unknown as FakeTexture
+    rt.ensure(480, 352, 800, 600, 4, false, false, screenView)
+    expect(colorA.destroyed).toBe(true)
+    const colorB = rt.sceneColorTexture as unknown as FakeTexture
+    expect((colorB.descriptor.size as { width: number }).width).toBe(480)
+    expect(rt.msaaWidth).toBe(480)
+  })
+
+  it('the ladder recovering to native retires the pair (#1429)', () => {
+    const fake = makeFakeDevice()
+    const rt = new RenderTargets(() => makeCtx(fake.device))
+
+    rt.ensure(576, 416, 800, 600, 4, false, false, screenView)
+    const sceneColor = rt.sceneColorTexture as unknown as FakeTexture
+    const screenMsaa = rt.screenMsaaTexture as unknown as FakeTexture
+
+    const r = rt.ensure(800, 600, 800, 600, 4, false, false, screenView)
+    expect(r.sceneScaled).toBe(false)
+    expect(sceneColor.destroyed).toBe(true)
+    expect(screenMsaa.destroyed).toBe(true)
+    expect(rt.sceneColorTexture).toBeNull()
+    expect(rt.screenMsaaTexture).toBeNull()
+    expect(r.sceneResolveView).toBe(screenView)
+    expect(r.colorViewScreen).toBe(r.colorView)
+  })
+
   it('invalidate() forces a recreate even when w/h are unchanged', () => {
     const fake = makeFakeDevice()
     const rt = new RenderTargets(() => makeCtx(fake.device))
 
-    rt.ensure(800, 600, 1, false, false, screenView)
+    rt.ensure(800, 600, 800, 600, 1, false, false, screenView)
     const countAfterFirst = fake.created.length
 
     // Same size → no recreate without invalidate.
-    rt.ensure(800, 600, 1, false, false, screenView)
+    rt.ensure(800, 600, 800, 600, 1, false, false, screenView)
     expect(fake.created.length).toBe(countAfterFirst)
 
     // invalidate zeroes the size tracker → next ensure recreates.
     rt.invalidate()
     expect(rt.msaaWidth).toBe(0)
     expect(rt.msaaHeight).toBe(0)
-    rt.ensure(800, 600, 1, false, false, screenView)
+    rt.ensure(800, 600, 800, 600, 1, false, false, screenView)
     expect(fake.created.length).toBe(countAfterFirst * 2)
   })
 })

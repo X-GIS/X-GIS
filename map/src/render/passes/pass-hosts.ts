@@ -110,6 +110,11 @@ export type HeatmapPassHost = Pick<XGISMap, 'heatmapRenderer' | 'heatmapTargets'
  *  the map.graphics façade + the camera/ctx it projects + draws through. */
 export type GraphicsPassHost = Pick<XGISMap, 'graphics' | 'camera' | 'ctx'>
 
+/** Scene-upscale seam (#1429 INC-2) — samples the resolved scene colour into
+ *  the screen attachment. Reaches only `ctx` (rhi + format for its lazily
+ *  built Material); every view it touches rides the FrameContext bridges. */
+export type SceneUpscalePassHost = Pick<XGISMap, 'ctx'>
+
 /** Flow pass (#1333) — the IBFV advection step for an S-111-style velocity field. Reaches the
  *  FlowRenderer (targets + pipeline) and the CoverageRenderer the field lives on. No camera:
  *  the advection runs in the coverage's OWN grid raster, so it is camera-independent by
@@ -169,5 +174,6 @@ export type RenderLoopHost = BackgroundPassHost &
   HeatmapPassHost &
   GraphicsPassHost &
   FlowPassHost &
+  SceneUpscalePassHost &
   SceneClassifyHost &
   FrameLoopHost

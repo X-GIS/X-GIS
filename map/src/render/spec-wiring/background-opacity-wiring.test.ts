@@ -80,6 +80,8 @@ function capturedClearAlpha(opacityShape: PropertyShape<number> | null): number 
     rhiScreenView: {} as unknown as FrameContext['rhiScreenView'],
     rhiColorView: {} as unknown as FrameContext['rhiColorView'],
     rhiStencilView: {} as unknown as FrameContext['rhiStencilView'],
+    rhiSceneResolveView: {} as unknown as FrameContext['rhiSceneResolveView'],
+    rhiColorViewScreen: {} as unknown as FrameContext['rhiColorViewScreen'],
     passScope: (_label: string, fn: () => void): void => {
       fn()
     },

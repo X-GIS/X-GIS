@@ -57,11 +57,18 @@ function harness(opts: { useResolve?: boolean; twin?: boolean; rawShell?: boolea
   // hoisting the shell requirement above the branch turns the twin case RED
   // here instead of throwing every real forced-WebGL2 frame (review MINOR-5).
   const bridged = !opts.twin && !opts.rawShell
+  // #1429 INC-2 — the overlay writes the SCREEN-side colour attachment, a
+  // DISTINCT token from rhiColorView (the scene MSAA): a label pass reverting
+  // to the scene attachment — the exact bug a scaled ladder frame would show
+  // as blurry labels — fails the view pin below.
+  const colorViewScreen = { __rhiColorViewScreen: true }
   const ctx = {
     rhiEncoder: bridged ? enc : null,
     rhiScreenView: bridged ? { __rhiScreenView: true } : null,
     rhiColorView: bridged ? { __rhiColorView: true } : null,
     rhiStencilView: bridged ? { __rhiStencilView: true } : null,
+    rhiSceneResolveView: bridged ? { __rhiSceneResolveView: true } : null,
+    rhiColorViewScreen: bridged ? colorViewScreen : null,
     rhiPass: opts.twin ? twinPass : undefined,
     encoder: { beginRenderPass: nativeBegin },
     colorView: { __nativeColorView: true },
@@ -144,7 +151,17 @@ function harness(opts: { useResolve?: boolean; twin?: boolean; rawShell?: boolea
     _backgroundPattern: null,
   }
   const scene = {} as unknown as SceneView
-  return { ctx, host, scene, captured, order, beginRenderPass, nativeBegin, twinPass }
+  return {
+    ctx,
+    host,
+    scene,
+    captured,
+    order,
+    beginRenderPass,
+    nativeBegin,
+    twinPass,
+    colorViewScreen,
+  }
 }
 
 describe('label pass — RHI seam wiring (#1046 F3b, the last chain pass)', () => {
@@ -162,7 +179,7 @@ describe('label pass — RHI seam wiring (#1046 F3b, the last chain pass)', () =
       storeOp: string
     }[]
     expect(colors).toHaveLength(1)
-    expect(colors[0].view).toBe((h.ctx as { rhiColorView: unknown }).rhiColorView)
+    expect(colors[0].view).toBe(h.colorViewScreen)
     // Last colour writer of the frame: it claims the MSAA resolve.
     expect(colors[0].resolveTarget).toBe((h.ctx as { rhiScreenView: unknown }).rhiScreenView)
     expect(colors[0].loadOp).toBe('load')

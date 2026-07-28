@@ -1980,12 +1980,12 @@ class LabelPass implements RenderPass {
           // parity), and it is what lets this pass execute on WebGL2 once
           // the chain flips. Last colour writer of the frame ⇒ it claims
           // the conditional MSAA resolve.
-          const { enc, screenView, colorView } = requireRhiFrame(ctx, 'labels')
+          const { enc, screenView, colorViewScreen } = requireRhiFrame(ctx, 'labels')
           ctx.passScope('text-overlay', () => {
             const tPass = enc.beginRenderPass({
               colorAttachments: [
                 {
-                  view: colorView,
+                  view: colorViewScreen,
                   resolveTarget: ctx.useResolve ? screenView : undefined,
                   loadOp: 'load',
                   storeOp: 'store',

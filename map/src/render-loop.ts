@@ -28,7 +28,7 @@ import {
   promotesToGlobeWhenTilted,
   poleLimit,
 } from '@xgis/geo'
-import { effectiveDpr, getSampleCount, isPickEnabled } from '@xgis/engine'
+import { adaptiveDprScale, effectiveDpr } from '@xgis/engine'
 import {
   resizeCanvas,
   unwrapWebGpuCommandEncoder,
@@ -44,7 +44,12 @@ import { backgroundClearValue } from './render/passes/background-pass'
 import { labelPass } from './render/passes/label-pass'
 import { applyHillshadePaint } from './render/passes/hillshade-pass'
 import { resolveColorShape, resolveNumberShape } from './render/paint-shape-resolve'
-import { setFrameTargets, type FrameContext } from './render/frame-context'
+import {
+  makeFrameContext,
+  setFrameTargets,
+  wireFrameColour,
+  type FrameContext,
+} from './render/frame-context'
 import { makeProjectionToken, setProjectionToken } from './render/projection-token'
 import type { RhiDevice, RhiScreenPassDevice, RhiTexture, RhiTextureView } from '@xgis/engine'
 import { asScreenPassDevice } from '@xgis/engine'
@@ -105,6 +110,10 @@ export class RenderLoop {
    *  allocation-paranoid); a resize mints new native views and the memo
    *  follows. Retires with the F3b FrameContext field collapse. */
   private readonly _rhiViewMemo = new WeakMap<object, RhiTextureView>()
+  /** Stable bound form of `_rhiViewFor` for wireFrameColour — allocated once
+   *  (the 60 Hz loop is allocation-paranoid; an inline arrow per frame is not). */
+  private readonly _rhiViewForBound = (v: FrameContext['screenView']) => this._rhiViewFor(v)
+
   private _rhiViewFor(view: Parameters<typeof wrapWebGpuTextureView>[0]): RhiTextureView {
     let v = this._rhiViewMemo.get(view)
     if (!v) {
@@ -150,7 +159,19 @@ export class RenderLoop {
     // actually sized the buffer — adopt THAT for the camera/MVP math below so the
     // swapchain-vs-frame-math divergence stays structurally impossible. An opted-in
     // host renders at reduced QUALITY.interactionDpr during pan/zoom, full at rest.
-    const dpr = resizeCanvas(this.host.ctx, effectiveDpr(this.host._interacting))
+    //
+    // #1429 INC-2 — the DPR split: the ladder's scale left effectiveDpr(). The
+    // chain keeps its CANVAS native (the SCENE shrinks; the seam reinflates it);
+    // the twin still scales its canvas — it has no offscreen scene, so dropping
+    // the scale there would disable the DPR lever on WebGL2 (design §7).
+    // ?debug=overdraw pins 1: that mode writes the accumulator, not the scene
+    // colour the seam samples.
+    const rendersViaTwin =
+      asScreenPassDevice(this.host.ctx.rhi) !== null && !(RHI_CHAIN && this._chainRunsOnWebgl2)
+    const adaptiveScale = DEBUG_OVERDRAW ? 1 : adaptiveDprScale()
+    const canvasScale = rendersViaTwin ? adaptiveScale : 1
+    const dpr = resizeCanvas(this.host.ctx, effectiveDpr(this.host._interacting) * canvasScale)
+    const sceneScale = rendersViaTwin ? 1 : adaptiveScale
     this._resolveFillPatterns()
 
     // Seed the animation clock on first rendered frame, then compute the
@@ -383,29 +404,22 @@ export class RenderLoop {
     // token is allocated once and repopulated in place (allocation-paranoid).
     // Lazily allocate the context once on the first frame, then mutate in place.
     if (this._ctx === null) {
-      this._ctx = {
-        // The single injected RHI device (immutable across the loop's lifetime —
-        // render-context.ts: "the SINGLE instance every renderer routes through"),
-        // so it is set once here; the reuse branch below leaves it in place (#1046 F1).
+      this._ctx = makeFrameContext({
         rhi: this.host.ctx.rhi,
         encoder,
         rhiEncoder: frameEnc,
         rhiScreenView,
-        rhiColorView: null, // set in the MSAA block below (F3b bridge)
-        rhiStencilView: null, // set in the MSAA block below (F3b bridge)
         screenView,
-        colorView: screenView, // set in the MSAA block below
         camera: this.host.camera,
         projection: makeProjectionToken(projType, centerLon, centerLat),
-        scene: { w, h, dpr },
-        screen: { w, h, dpr },
+        w,
+        h,
+        dpr,
         elapsedMs: this.host._elapsedMs,
         frameCount: this.host._frameCount,
-        sampleCount: 1, // set in the MSAA block below
-        useResolve: false, // set in the MSAA block below
         passScope,
         rt: this.host.renderTargets,
-      }
+      })
     } else {
       const c = this._ctx
       c.encoder = encoder
@@ -414,7 +428,6 @@ export class RenderLoop {
       c.screenView = screenView
       c.camera = this.host.camera
       setProjectionToken(c.projection, projType, centerLon, centerLat)
-      setFrameTargets(c, w, h, dpr)
       c.elapsedMs = this.host._elapsedMs
       c.frameCount = this.host._frameCount
       c.passScope = passScope
@@ -423,6 +436,10 @@ export class RenderLoop {
       // (deeper) computation points below.
     }
     const ctx = this._ctx
+    // BOTH population branches route through the one geometry site (its doc's
+    // contract): screen = the native canvas, scene = screen × the ladder's
+    // scale (1 on the twin — it scaled the canvas instead, #1429 INC-2).
+    setFrameTargets(ctx, w, h, dpr, sceneScale)
 
     {
       // ═══ Direct rendering: vertex shader handles all projections ═══
@@ -433,30 +450,9 @@ export class RenderLoop {
       // the per-frame colorView decision. sample count tracks the
       // pipeline-time SAMPLE_COUNT (1 on mobile / ?safe / ?quality=performance
       // / ?msaa=1, 4 on desktop default).
-      const sc = getSampleCount()
-      ctx.sampleCount = sc
-      const { useResolve, colorView } = ctx.rt.ensure(
-        w,
-        h,
-        sc,
-        isPickEnabled(),
-        DEBUG_OVERDRAW,
-        screenView,
-      )
-      ctx.useResolve = useResolve
-      ctx.colorView = colorView
-      // F3b bridges for the RHI-ported passes — the same per-frame targets
-      // (null under the raw-shell escape, ported passes fail loud there via
-      // requireRhiFrame). When colorView IS the swapchain view (sampleCount 1:
-      // mobile / ?safe / ?msaa=1), reuse the device's rebind-per-frame screen
-      // wrapper instead of memo-wrapping a view that is minted fresh every
-      // frame — that path would otherwise allocate one wrapper per frame.
-      ctx.rhiColorView = rawFrameShell
-        ? null
-        : colorView === screenView
-          ? rhiScreenView
-          : this._rhiViewFor(colorView)
-      ctx.rhiStencilView = rawFrameShell ? null : this._rhiViewFor(ctx.rt.stencilView!)
+      // ensure() + colorView decision + the F3b / #1429 bridge population,
+      // extracted VERBATIM to wireFrameColour (frame-context.ts, piece 6).
+      wireFrameColour(ctx, rawFrameShell, this._rhiViewForBound)
 
       // Reset per-frame uniform ring cursors (dynamic-offset slots).
       this.host.renderer.beginFrame()
@@ -1211,6 +1207,12 @@ export class RenderLoop {
         rhiStencilView: null,
         screenView: null as unknown as GPUTextureView,
         colorView: null as unknown as GPUTextureView,
+        // #1429 INC-2 — proxy no-ops like the trio above: the twin has no
+        // seam (it scales its CANVAS; scene === screen here, so labelPass's
+        // rhiPass arm never reaches these).
+        rhiSceneResolveView: null,
+        rhiColorViewScreen: null,
+        rhiSceneColorSampleView: null,
         camera: this.host.camera,
         projection: makeProjectionToken(projType, centerLon, centerLat),
         scene: { w, h, dpr },

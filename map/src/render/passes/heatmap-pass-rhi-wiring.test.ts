@@ -29,6 +29,8 @@ function harness() {
     rhiEncoder: enc,
     rhiScreenView: screenView,
     rhiColorView: { __rhiColorView: true },
+    rhiSceneResolveView: { __sceneResolve: true },
+    rhiColorViewScreen: { __colorScreen: true },
     rhiStencilView: { __rhiStencilView: true },
     camera,
     projection: makeProjectionToken(3, 10, 20),

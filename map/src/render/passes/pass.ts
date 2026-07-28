@@ -26,6 +26,7 @@ import type {
   HeatmapPassHost,
   GraphicsPassHost,
   FlowPassHost,
+  SceneUpscalePassHost,
 } from './pass-hosts'
 // Re-export the per-pass role views so each concrete pass imports its role
 // alongside RenderPass from this one module (single import line per pass).
@@ -41,6 +42,7 @@ export type {
   HeatmapPassHost,
   GraphicsPassHost,
   FlowPassHost,
+  SceneUpscalePassHost,
 } from './pass-hosts'
 
 /** The owning-map view a pass reaches its renderers / stages / camera
@@ -59,7 +61,8 @@ export type PassHost = BackgroundPassHost &
   OverdrawComposePassHost &
   HeatmapPassHost &
   GraphicsPassHost &
-  FlowPassHost
+  FlowPassHost &
+  SceneUpscalePassHost
 
 /** One stage of the fixed render-pass chain. */
 export interface RenderPass {
@@ -85,9 +88,23 @@ export function requireRhiFrame(
   screenView: NonNullable<FrameContext['rhiScreenView']>
   colorView: NonNullable<FrameContext['rhiColorView']>
   stencilView: NonNullable<FrameContext['rhiStencilView']>
+  /** #1429 INC-2 — where the resolve-owner SCENE pass resolves (the scene
+   *  colour while the ladder scales; IDENTITY to `screenView` when not). */
+  sceneResolveView: NonNullable<FrameContext['rhiSceneResolveView']>
+  /** #1429 INC-2 — the SEAM/OVERLAY colour attachment (the screen-sized
+   *  MSAA while scaled; IDENTITY to `colorView` when not). */
+  colorViewScreen: NonNullable<FrameContext['rhiColorViewScreen']>
 } {
   const { rhiEncoder, rhiScreenView, rhiColorView, rhiStencilView } = ctx
-  if (!rhiEncoder || !rhiScreenView || !rhiColorView || !rhiStencilView)
+  const { rhiSceneResolveView, rhiColorViewScreen } = ctx
+  if (
+    !rhiEncoder ||
+    !rhiScreenView ||
+    !rhiColorView ||
+    !rhiStencilView ||
+    !rhiSceneResolveView ||
+    !rhiColorViewScreen
+  )
     throw new Error(
       `[X-GIS] ${label}: this pass runs on the RHI frame shell and cannot execute ` +
         `under __xgisRawFrameShell=true — unset the flag (#1046 F3b)`,
@@ -97,5 +114,7 @@ export function requireRhiFrame(
     screenView: rhiScreenView,
     colorView: rhiColorView,
     stencilView: rhiStencilView,
+    sceneResolveView: rhiSceneResolveView,
+    colorViewScreen: rhiColorViewScreen,
   }
 }

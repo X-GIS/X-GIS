@@ -25,7 +25,7 @@ class TranslucentPass implements RenderPass {
   execute(ctx: FrameContext, scene: SceneView, host: TranslucentPassHost): void {
     // F3b: RHI origination (Inc-2d) — the offscreen MAX-blend pass begins on
     // the frame's RHI encoder via the narrowed LineRenderer entry.
-    const { enc, screenView, colorView } = requireRhiFrame(ctx, 'translucent')
+    const { enc, colorView, sceneResolveView } = requireRhiFrame(ctx, 'translucent')
     for (let li = 0; li < scene.translucent.length; li++) {
       const cs = scene.translucent[li]
       const isLastTranslucent = li === scene.translucent.length - 1
@@ -45,7 +45,7 @@ class TranslucentPass implements RenderPass {
           colorAttachments: [
             {
               view: colorView,
-              resolveTarget: resolveHere ? screenView : undefined,
+              resolveTarget: resolveHere ? sceneResolveView : undefined,
               loadOp: 'load',
               storeOp: 'store',
             },

@@ -39,6 +39,8 @@ function harness(groupCount: number, opts: { coverage?: boolean } = {}) {
     rhiEncoder: { beginRenderPass: () => subPass },
     rhiScreenView: {},
     rhiColorView: {},
+    rhiSceneResolveView: { __sceneResolve: true },
+    rhiColorViewScreen: { __colorScreen: true },
     rhiStencilView: {},
     passScope: (_label: string, fn: () => void) => fn(),
     useResolve: false,

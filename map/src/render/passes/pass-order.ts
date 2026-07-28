@@ -28,6 +28,12 @@ export const PASS_CHAIN_ORDER = [
   'translucent',
   'hillshade',
   'points',
+  // #1429 INC-2 — the scene→screen seam. When the adaptive ladder scales the scene
+  // target below native, this pass samples the resolved scene colour up into the
+  // screen attachment; every pass BEFORE it writes scene-sized attachments, every
+  // pass AFTER it writes the native screen attachment. At scale 1 it does not run
+  // (shouldRun false) and the frame is byte-identical to the pre-split frame.
+  'scene-upscale',
   'labels',
   'heatmap',
   'overdraw-compose',
@@ -48,12 +54,22 @@ export type PassLabel = (typeof PASS_CHAIN_ORDER)[number]
  *  cannot be edited apart. */
 export const OVERLAY_PASSES: readonly PassLabel[] = ['labels', 'graphics']
 
+/** The scene→screen SEAM (#1429 INC-2) — the third role. The upscale READS the scene
+ *  target and WRITES the screen attachment, so filing it into either half would falsify
+ *  the rules that half asserts (a scene pass must not read `ctx.screen`; an overlay pass
+ *  must not read `ctx.scene`). The seam must read BOTH — the partition gate asserts that
+ *  positively. NOTE the read-role partition and the WRITE-target split are different
+ *  axes: `heatmap`/`overdraw-compose` sit AFTER the seam in the order (they composite
+ *  onto the native screen attachment) while keeping the scene READ-role — their grids
+ *  rasterise at scene/own resolution and their composes are full-screen draws. */
+export const SEAM_PASSES: readonly PassLabel[] = ['scene-upscale']
+
 /** The world-rasterising half — DERIVED, never listed. A pass added to PASS_CHAIN_ORDER is a
- *  scene pass unless it declares itself overlay above, so the sets cannot both forget it; the
- *  partition gate (target-role-partition.test.ts) proves they cover the order exactly and that
- *  each pass's SOURCE reads the geometry its role names. */
+ *  scene pass unless it declares itself overlay or seam above, so the sets cannot all forget
+ *  it; the partition gate (target-role-partition.test.ts) proves the three roles cover the
+ *  order exactly and that each pass's SOURCE reads the geometry its role names. */
 export const SCENE_PASSES: readonly PassLabel[] = PASS_CHAIN_ORDER.filter(
-  (label) => !OVERLAY_PASSES.includes(label),
+  (label) => !OVERLAY_PASSES.includes(label) && !SEAM_PASSES.includes(label),
 )
 
 /** Passes the renderFrameViaRhi twin does NOT yet port (#1004 shrink-only
@@ -68,4 +84,9 @@ export const RHI_TWIN_MISSING: readonly PassLabel[] = [
   // 'points' ported in #1057 (direct-layer + the VT tile-points inline path);
   // 'heatmap' ported in #1060 (renderFrameViaRhi -> heatmapRenderer.renderRhi).
   'overdraw-compose',
+  // #1429 INC-2 — genuinely twin-missing BY DESIGN, not backlog: the twin draws
+  // one screen pass on FBO 0 with no offscreen scene, so it keeps applying the
+  // ladder's scale to its CANVAS (each backend internally consistent; design
+  // §7). Porting it is a follow-up that IMPROVES WebGL2, not a regression fix.
+  'scene-upscale',
 ]

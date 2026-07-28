@@ -43,12 +43,18 @@ function harness(opts: { pick?: boolean; resolveOwner?: string; groups?: number 
   const screenView = { __rhiScreenView: true }
   const colorView = { __rhiColorView: true }
   const stencilView = { __rhiStencilView: true }
+  // #1429 INC-2 — the resolve moved to the scene-resolve bridge. A DISTINCT
+  // token (not screenView) so a pass reverting to the screen view — the bug
+  // class a scaled frame exposes — fails the pin.
+  const sceneResolveView = { __rhiSceneResolveView: true }
   const pickView = opts.pick ? { __rhiPickView: true } : null
   const ctx = {
     rhiEncoder: enc,
     rhiScreenView: screenView,
     rhiColorView: colorView,
     rhiStencilView: stencilView,
+    rhiSceneResolveView: sceneResolveView,
+    rhiColorViewScreen: colorView,
     passScope: (_label: string, fn: () => void) => fn(),
     useResolve: opts.resolveOwner !== undefined,
     // pick rides RT-side RHI accessors (adapter-owned textures), not a
@@ -104,7 +110,17 @@ function harness(opts: { pick?: boolean; resolveOwner?: string; groups?: number 
     hasPoints: false,
     hasOit: false,
   } as unknown as SceneView
-  return { ctx, host, scene, captured, order, beginRenderPass, screenView, stencilView, pickView }
+  return {
+    ctx,
+    host,
+    scene,
+    captured,
+    order,
+    beginRenderPass,
+    sceneResolveView,
+    stencilView,
+    pickView,
+  }
 }
 
 describe('opaque pass — RHI seam wiring (#1046 F3b Inc-2d)', () => {
@@ -136,7 +152,7 @@ describe('opaque pass — RHI seam wiring (#1046 F3b Inc-2d)', () => {
     )
     expect(resolves[0]).toBeUndefined()
     expect(resolves[1]).toBeUndefined()
-    expect(resolves[2]).toBe(h.screenView)
+    expect(resolves[2]).toBe(h.sceneResolveView)
   })
 
   it('pick armed ⇒ the second colour attachment is rt.pickViewRhi (clear then load)', () => {

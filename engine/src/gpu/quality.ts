@@ -32,7 +32,7 @@
 // `?quality=performance&msaa=2` keeps performance preset's other knobs
 // but bumps MSAA back to 2× for slightly cleaner edges.
 
-import { adaptiveDprScale, setAdaptiveQualityEnabled } from './adaptive-quality'
+import { setAdaptiveQualityEnabled } from './adaptive-quality'
 
 export interface QualityConfig {
   /** MSAA sample count: 1, 2, or 4. Init-time only — pipelines bake
@@ -342,17 +342,19 @@ export const isPickEnabled = (): boolean => QUALITY.picking
  *  the actual buffer size and the zoom-scale jumps on every gesture under
  *  presets that set `interactionDpr`. Single source of truth. SSR/no-GPU → 1.
  *
- *  The adaptive scale multiplies the POLICY cap here rather than anywhere
- *  downstream, so it inherits that single-authority property whole: every
- *  consumer — the render loop, the MVP altitude, `canvasEffectiveDpr`'s fallback —
- *  already reads through this one function, and the swapchain and the frame math
- *  cannot disagree about how many device pixels exist. The scale is 1 until the
- *  controller has measured a sustained breach, so a host that keeps up gets the
- *  byte-identical value it got before adaptive scaling existed. */
+ *  #1429 INC-2 — the ADAPTIVE scale no longer multiplies in here: the canvas
+ *  is native again, and the ladder's scale applies to the SCENE target only
+ *  (the render loop's ONE resize call is the split point — the WebGL2 twin
+ *  re-applies the scale to its canvas there, the chain hands it to
+ *  `setFrameTargets` as the scene scale). That REMOVES a real inconsistency
+ *  rather than adding one: `canvasEffectiveDpr`, the device↔CSS-px authority
+ *  for project/unproject/getBounds outside the loop, used to wobble every
+ *  time the ladder notched because the canvas WAS the scaled buffer; now
+ *  those conversions no longer depend on the ladder at all (design §5.1). */
 export function effectiveDpr(interacting = false): number {
   const cap = interacting && QUALITY.interactionDpr !== null ? QUALITY.interactionDpr : getMaxDpr()
   if (typeof window === 'undefined') return 1
-  return Math.min(window.devicePixelRatio || 1, cap) * adaptiveDprScale()
+  return Math.min(window.devicePixelRatio || 1, cap)
 }
 
 /** The device-pixel-ratio a canvas is CURRENTLY sized at, read back FROM the

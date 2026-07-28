@@ -16,6 +16,8 @@ import type { Camera } from '../camera'
 import type { RhiDevice } from '@xgis/rhi'
 import type { RenderTargets } from '@xgis/rhi-webgpu'
 import type { ProjectionToken } from './projection-token'
+import { getSampleCount, isPickEnabled } from '@xgis/engine'
+import { DEBUG_OVERDRAW } from '../debug-flags'
 
 /** One render target's pixel geometry.
  *
@@ -38,15 +40,22 @@ export interface TargetGeometry {
   dpr: number
 }
 
-/** Point BOTH targets at one geometry — which is the whole of INC-1: the split exists, the two
- *  are equal, nothing renders differently. Lives here rather than inline in the render loop so
- *  the "they are the same until INC-2 says otherwise" statement has ONE site to change, and so
- *  the loop's two population branches (first frame / reuse) cannot drift apart. Mutates in
- *  place — the loop is allocation-paranoid and both sub-objects outlive the frame. */
-export function setFrameTargets(c: FrameContext, w: number, h: number, dpr: number): void {
-  c.scene.w = w
-  c.scene.h = h
-  c.scene.dpr = dpr
+/** Point the two targets at their geometries. INC-1 landed this with both equal ("the split
+ *  exists, nothing renders differently"); INC-2 (#1429) makes the SCENE the one the adaptive
+ *  ladder may hold below native — `sceneScale` is `adaptiveDprScale()` on the WebGPU chain and
+ *  1 on the twin (which scales its CANVAS instead, design §7). ONE site so the loop's two
+ *  population branches (first frame / reuse) cannot drift apart. Mutates in place — the loop
+ *  is allocation-paranoid and both sub-objects outlive the frame. */
+export function setFrameTargets(
+  c: FrameContext,
+  w: number,
+  h: number,
+  dpr: number,
+  sceneScale = 1,
+): void {
+  c.scene.w = Math.max(1, Math.round(w * sceneScale))
+  c.scene.h = Math.max(1, Math.round(h * sceneScale))
+  c.scene.dpr = dpr * sceneScale
   c.screen.w = w
   c.screen.h = h
   c.screen.dpr = dpr
@@ -98,11 +107,26 @@ export interface FrameContext {
   /** The swapchain texture view for this frame
    *  (`context.getCurrentTexture().createView()`). */
   screenView: GPUTextureView
-  /** The colour attachment the opaque/translucent passes draw into:
-   *  the MSAA texture view when `useResolve`, the overdraw accumulator in
-   *  `?debug=overdraw`, else `screenView` directly. Populated AFTER the
-   *  MSAA/stencil texture management block (it depends on `useResolve`). */
+  /** The colour attachment the SCENE passes draw into:
+   *  the (scene-sized) MSAA texture view when `useResolve`, the overdraw
+   *  accumulator in `?debug=overdraw`, the scene colour when the ladder holds
+   *  the scene below native (#1429 INC-2), else `screenView` directly.
+   *  Populated AFTER the MSAA/stencil texture management block. */
   colorView: GPUTextureView
+  /** #1429 INC-2 — where the resolve-owner SCENE pass resolves its MSAA: the
+   *  scene colour while scaled, else the screen view (IDENTITY to the
+   *  pre-split target — the scale-1 gate pins that). RHI-only: every ported
+   *  pass reads through requireRhiFrame, so no native twin exists for a pass
+   *  to reach past the seam. */
+  rhiSceneResolveView: import('@xgis/rhi').RhiTextureView | null
+  /** #1429 INC-2 — the colour attachment the SEAM + OVERLAY passes draw
+   *  into: the screen-sized MSAA while scaled (labels keep the final
+   *  resolve), else exactly the scene colour attachment. RHI-only, as above. */
+  rhiColorViewScreen: import('@xgis/rhi').RhiTextureView | null
+  /** #1429 INC-2 — the resolved scene colour as the upscale seam's sample
+   *  source (RHI handle; the seam is RHI-native from birth). Null unless the
+   *  ladder holds the scene below native this frame. */
+  rhiSceneColorSampleView: import('@xgis/rhi').RhiTextureView | null
   /** The owning map's camera (live reference, not a snapshot). */
   camera: Camera
   /** Opaque projection handle (projection-token.ts). The engine transports it
@@ -142,4 +166,103 @@ export interface FrameContext {
    *  takes the unchanged raw-WebGPU branch). The handle itself is reached as
    *  `host.ctx.rhi`; this flag is only the per-frame branch predicate. */
   useRhi?: boolean
+}
+
+/** First-frame FrameContext construction (#1429 piece 6 — the factory the
+ *  design said belongs here regardless). The literal is VERBATIM the one the
+ *  loop built inline; the loop calls this once, then mutates in place. */
+export function makeFrameContext(a: {
+  rhi: RhiDevice
+  encoder: FrameContext['encoder']
+  rhiEncoder: FrameContext['rhiEncoder']
+  rhiScreenView: FrameContext['rhiScreenView']
+  screenView: FrameContext['screenView']
+  camera: Camera
+  projection: ProjectionToken
+  w: number
+  h: number
+  dpr: number
+  elapsedMs: number
+  frameCount: number
+  passScope: FrameContext['passScope']
+  rt: RenderTargets
+}): FrameContext {
+  return {
+    // The single injected RHI device (immutable across the loop's lifetime —
+    // render-context.ts: "the SINGLE instance every renderer routes through"),
+    // so it is set once here; the loop's reuse branch leaves it in place (#1046 F1).
+    rhi: a.rhi,
+    encoder: a.encoder,
+    rhiEncoder: a.rhiEncoder,
+    rhiScreenView: a.rhiScreenView,
+    rhiColorView: null, // set by wireFrameColour (F3b bridge)
+    rhiStencilView: null, // set by wireFrameColour (F3b bridge)
+    screenView: a.screenView,
+    colorView: a.screenView, // set by wireFrameColour
+    // #1429 INC-2 seam bridges — set by wireFrameColour.
+    rhiSceneResolveView: null,
+    rhiColorViewScreen: null,
+    rhiSceneColorSampleView: null,
+    camera: a.camera,
+    projection: a.projection,
+    scene: { w: a.w, h: a.h, dpr: a.dpr },
+    screen: { w: a.w, h: a.h, dpr: a.dpr },
+    elapsedMs: a.elapsedMs,
+    frameCount: a.frameCount,
+    sampleCount: 1, // set by wireFrameColour
+    useResolve: false, // set by wireFrameColour
+    passScope: a.passScope,
+    rt: a.rt,
+  }
+}
+
+/** Per-frame colour-target wiring: RenderTargets.ensure + the F3b / #1429
+ *  bridge population, extracted VERBATIM from the loop's MSAA block. When
+ *  colorView IS the swapchain view (sampleCount 1: mobile / ?safe / ?msaa=1),
+ *  the device's rebind-per-frame screen wrapper is reused instead of
+ *  memo-wrapping a view minted fresh every frame; every #1429 bridge reduces
+ *  to an existing wrapper by IDENTITY when the scene is not scaled (the
+ *  scale-1 gate pins this). Null bridges under the raw-shell escape — ported
+ *  passes fail loud there via requireRhiFrame. */
+export function wireFrameColour(
+  ctx: FrameContext,
+  rawFrameShell: boolean,
+  rhiViewFor: (v: FrameContext['screenView']) => NonNullable<FrameContext['rhiScreenView']>,
+): void {
+  const { screenView, rhiScreenView } = ctx
+  const sc = getSampleCount()
+  ctx.sampleCount = sc
+  const { useResolve, colorView, sceneResolveView, colorViewScreen, sceneColorSampleView } =
+    ctx.rt.ensure(
+      ctx.scene.w,
+      ctx.scene.h,
+      ctx.screen.w,
+      ctx.screen.h,
+      sc,
+      isPickEnabled(),
+      DEBUG_OVERDRAW,
+      screenView,
+    )
+  ctx.useResolve = useResolve
+  ctx.colorView = colorView
+  ctx.rhiColorView = rawFrameShell
+    ? null
+    : colorView === screenView
+      ? rhiScreenView
+      : rhiViewFor(colorView)
+  ctx.rhiStencilView = rawFrameShell ? null : rhiViewFor(ctx.rt.stencilView!)
+  ctx.rhiSceneResolveView = rawFrameShell
+    ? null
+    : sceneResolveView === screenView
+      ? rhiScreenView
+      : rhiViewFor(sceneResolveView)
+  ctx.rhiColorViewScreen = rawFrameShell
+    ? null
+    : colorViewScreen === colorView
+      ? ctx.rhiColorView
+      : colorViewScreen === screenView
+        ? rhiScreenView
+        : rhiViewFor(colorViewScreen)
+  ctx.rhiSceneColorSampleView =
+    rawFrameShell || sceneColorSampleView === null ? null : rhiViewFor(sceneColorSampleView)
 }

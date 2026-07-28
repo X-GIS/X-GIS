@@ -60,6 +60,8 @@ function capturedClearValue(
     rhiScreenView: {} as unknown as FrameContext['rhiScreenView'],
     rhiColorView: {} as unknown as FrameContext['rhiColorView'],
     rhiStencilView: {} as unknown as FrameContext['rhiStencilView'],
+    rhiSceneResolveView: {} as unknown as FrameContext['rhiSceneResolveView'],
+    rhiColorViewScreen: {} as unknown as FrameContext['rhiColorViewScreen'],
     // colorShape/opacityShape are null below, so the resolve branches never
     // read camera.zoom / elapsedMs — a bare stub camera is sufficient.
     camera: { zoom: 5 } as unknown as FrameContext['camera'],

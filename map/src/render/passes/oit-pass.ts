@@ -25,7 +25,7 @@ class OitPass implements RenderPass {
     // F3b: RHI origination (Inc-2d) — the fill targets ride the RT-side RHI
     // accessors (adapter-owned textures), the compose draws through the
     // narrowed renderer entry.
-    const { enc, screenView, colorView, stencilView } = requireRhiFrame(ctx, 'oit')
+    const { enc, colorView, stencilView, sceneResolveView } = requireRhiFrame(ctx, 'oit')
     // Lazily allocate the OIT targets at the frame's size + sample count.
     // Gated by scene.hasOit (this pass only runs when set), so the default
     // path never allocates them. Mirrors the heatmap pass's ensureHeatmap.
@@ -85,7 +85,7 @@ class OitPass implements RenderPass {
               !scene.hasTranslucent &&
               !scene.hasPoints &&
               scene.resolveOwner === 'composite'
-                ? screenView
+                ? sceneResolveView
                 : undefined,
             loadOp: 'load',
             storeOp: 'store',

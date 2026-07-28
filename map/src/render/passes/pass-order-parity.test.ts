@@ -64,6 +64,11 @@ const DOCUMENTED_INSERTIONS: ReadonlyArray<{ label: PassLabel; before: PassLabel
     before: 'opaque',
     why: '#1333 — IBFV advection is a PRODUCER; the coverage drape consumes it inside opaque, so a later slot would drape last frame’s field',
   },
+  {
+    label: 'scene-upscale',
+    before: 'labels',
+    why: '#1429 INC-2 — the scene→screen seam: it must run after every scene-attachment writer and before the first native-screen writer (labels), so the overlay composites onto the upscaled scene at native resolution',
+  },
 ]
 
 describe('pass-order parity: one authority, two orchestrations (#1004)', () => {

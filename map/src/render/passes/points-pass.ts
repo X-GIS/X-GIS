@@ -25,13 +25,13 @@ class PointsPass implements RenderPass {
   execute(ctx: FrameContext, _scene: SceneView, host: PointsPassHost): void {
     // F3b: RHI origination + the renderer's RHI entry (#1057 renderRhi) —
     // descriptor-equivalent on WebGPU, executable on WebGL2 after the flip.
-    const { enc, screenView, colorView, stencilView } = requireRhiFrame(ctx, 'points')
+    const { enc, colorView, stencilView, sceneResolveView } = requireRhiFrame(ctx, 'points')
     ctx.passScope('points', () => {
       const ptPass = enc.beginRenderPass({
         colorAttachments: [
           {
             view: colorView,
-            resolveTarget: ctx.useResolve ? screenView : undefined,
+            resolveTarget: ctx.useResolve ? sceneResolveView : undefined,
             loadOp: 'load',
             storeOp: 'store',
           },
