@@ -319,9 +319,10 @@ function makeArrowSource() {
         originWrites.push(key)
         return 0 // single-region fixtures: every batch is based at texel 0
       },
-      get arrowBinding() {
-        return { state: flipped ? b : a, origin, flowU: field.u, flowV: field.v }
-      },
+      // Single-region fixtures: one field, whatever region is asked for. The PER-REGION
+      // contract is pinned where it can actually be observed — two real regions against a real
+      // FlowRenderer, in render/arrow-field-per-region.test.ts (#1458).
+      arrowBindingFor: () => ({ state: flipped ? b : a, origin, flowU: field.u, flowV: field.v }),
     },
   }
 }
