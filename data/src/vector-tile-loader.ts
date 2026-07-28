@@ -146,6 +146,21 @@ const MAX_TILE_BYTES = 8 * 1024 * 1024
 // manifest yet bounds a size-bomb response before JSON.parse materialises it.
 const MAX_TILEJSON_BYTES = 4 * 1024 * 1024
 
+/** Cumulative tile bytes this page has pulled over the network (#1355).
+ *
+ *  Counted AFTER the streaming cap, so it is bytes actually accepted rather
+ *  than bytes announced — a lying Content-Length cannot inflate it. Tiles only:
+ *  a manifest is fetched once per source and would just add noise to a figure
+ *  whose whole point is the per-session tile traffic. Monotonic for the page
+ *  lifetime; a session total is what a host budgets against, so it is
+ *  deliberately NOT reset by map teardown. */
+let _sessionNetworkBytes = 0
+
+/** Read the cumulative tile bytes fetched this session (#1355). */
+export function sessionNetworkBytes(): number {
+  return _sessionNetworkBytes
+}
+
 /** Mask digit runs in `logKey`'s QUERY STRING for console display. The key
  *  itself stays the raw template — that is the source's identity and what the
  *  throttle must key on. But the template can carry a credential
@@ -233,7 +248,9 @@ async function fetchTileWithRetry(
         // cap. An over-budget body resolves to the same negative-cached
         // 'failed' as any other fetch failure.
         try {
-          return await readBodyCapped(resp, MAX_TILE_BYTES, tileLabel)
+          const body = await readBodyCapped(resp, MAX_TILE_BYTES, tileLabel)
+          _sessionNetworkBytes += body.byteLength
+          return body
         } catch {
           negativeCacheSet(url, Date.now())
           return 'failed'

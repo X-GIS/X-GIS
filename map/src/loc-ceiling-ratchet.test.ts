@@ -191,7 +191,14 @@ const CEILINGS: Record<string, number> = {
   // 4913 -> 4911 (#1679 inc 6): the four polygon call sites moved their emit+key pairing
   // into material/polygon-baked.ts, which is the 'extract, don't grow' this ratchet asks
   // for — the id wiring landed OUTSIDE the god-file and took two lines of imports with it.
-  'map/src/render/vector-tile-renderer.ts': 4911,
+  // 4911→4920 (#1355, adopted onto main @ e54a892): the byte-telemetry read-out — the
+  // `arenaBytes()` thin accessor (the sum itself lives in render-stats-bytes.ts, NOT here)
+  // plus its two imports and one line of comment on the getDrawStats forwarder. On the PR's
+  // own base this held at 4816 because naming `DrawStatsSnapshot` in frame-draw-stats.ts paid
+  // for it by deleting the inline literal restated here; main had ALREADY banked that saving
+  // with `ReturnType<FrameDrawStats['getDrawStats']>`, so the same extraction cannot be
+  // spent twice and the +9 is genuinely new. MEASURED post-pick.
+  'map/src/render/vector-tile-renderer.ts': 4920,
   // Baselined 801: #1602 (the drape's overlap winner is relevance, not re-arm recency)
   // brought the file to exactly NEW_FILE_CAP (800), and the independent #1603 material-
   // release fix landed on main one line above it in the same file, pushing it to 801 on
@@ -1123,7 +1130,15 @@ const CEILINGS: Record<string, number> = {
   // Ceiling re-measured on the MERGED file below: 945→937, a real shrink — the four
   // twin-only imports went with the body, and #1587's pumpFramePrefetch extraction
   // took the inline prefetch block out of the chain path too.
-  'map/src/render-loop.ts': 937,
+  //
+  // 937→935 (#1355, adopted onto main @ e54a892): the byte-telemetry gather is a call to
+  // render-stats-bytes.ts, paid for by dropping the `totalTilesVis`/`totalTilesCached` locals
+  // — `tilesVisible`/`tilesCached` now accumulate straight into `_stats` like
+  // `drawCalls`/`vertices`/`triangles`/`lines` five lines above already did. `beginFrame()`
+  // zeroes both, so the round trip through locals bought nothing but the two assignments that
+  // put them back. On the PR's own base that read −2 off 1397; main's twin deletion means the
+  // number is re-MEASURED here, never carried.
+  'map/src/render-loop.ts': 935,
   // Baselined at 806 (hillshade tile fade-in): HillshadeRenderer crossed
   // NEW_FILE_CAP restoring the three tile-streaming fixes raster-renderer had
   // landed since hillshade was copied from it — the per-tile fade ramp + its

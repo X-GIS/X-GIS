@@ -97,7 +97,9 @@ import {
 } from './vector-drape-stroke'
 import { hexToRgba } from '../feature-helpers'
 import { mirrorFillRhi, releaseFillRhi } from './fill-rhi-slot'
+import { arenaByteTotals } from '../render-stats-bytes'
 import type { GPUTile, LayerDrawPhase } from './vector-tile-renderer-types'
+import type { DrawStatsSnapshot } from './frame-draw-stats'
 import { getMaxGpuTiles, uploadBudgetFor } from './vector-tile-renderer-helpers'
 import { UniformRing } from '@xgis/engine'
 import { buildTilePointPackKey, hashStableKeys, worldCopyMaskOf } from './tile-point-pack-key'
@@ -2079,6 +2081,12 @@ export class VectorTileRenderer {
     return this._featureBinder.hasFeatureData()
   }
 
+  /** #1355 — arena live/capacity bytes for this source (same thin-accessor
+   *  shape as `getCacheSize`; the sum itself lives with the telemetry). */
+  arenaBytes(): { live: number; capacity: number } {
+    return arenaByteTotals(this._store)
+  }
+
   getCacheSize(): number {
     return this._store.cacheCount()
   }
@@ -2217,8 +2225,9 @@ export class VectorTileRenderer {
 
   /** Thin forwarder. The shape is DERIVED from the owner rather than restated:
    *  the hand-copied literal that used to live here was a second authority for
-   *  one type, and adding a field meant editing both. */
-  getDrawStats(): ReturnType<FrameDrawStats['getDrawStats']> {
+   *  one type, and adding a field meant editing both. `DrawStatsSnapshot` (#1355)
+   *  is that single authority, named by the owner. */
+  getDrawStats(): DrawStatsSnapshot {
     return this._drawStats.getDrawStats()
   }
 

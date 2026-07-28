@@ -2,6 +2,8 @@
 // Tracks per-frame GPU rendering metrics, similar to Three.js stats panel.
 
 import { noteFrameInterval } from '@xgis/engine'
+import { maxCachedBytes, sessionNetworkBytes } from '@xgis/data'
+import { getMaxGpuTiles } from './render/vector-tile-renderer-helpers'
 
 export interface RenderStats {
   fps: number
@@ -60,6 +62,35 @@ export interface RenderStats {
    *  N frames (window = 30). Smooths over GC spikes / settle
    *  jitter. Sentinel 0 when unavailable. */
   heapDeltaAvgBytes: number
+  /** #1355 — BYTE-level telemetry. Counts alone cannot be budgeted against:
+   *  a cache holding 256 entries is 64 MB of 256² tiles or 4 GB of 2048² ones,
+   *  and `heapDeltaBytes` cannot substitute — it is Chrome/Edge-only, measures
+   *  the whole JS heap, attributes nothing, and sees no GPU memory at all.
+   *
+   *  Every field below is a read of an accumulator the engine already
+   *  maintains for its OWN enforcement, so sampling costs nothing on the hot
+   *  path and the numbers cannot disagree with the policy they describe.
+   *  Purely observational — none of these is settable; a host that could write
+   *  a budget here would desync eviction from its own accounting. */
+  /** Decoded tile bytes held on the CPU, summed across sources. */
+  cachedBytes: number
+  /** The budget `evictTiles` actually enforces `cachedBytes` against. */
+  cachedBytesBudget: number
+  /** Live bytes in the created GPU arenas (un-created arenas contribute 0). */
+  arenaLiveBytes: number
+  /** Capacity of those same arenas — the denominator for the eviction
+   *  watermarks. */
+  arenaCapacityBytes: number
+  /** The cap resident GPU tiles are evicted to. No matching `resident` field:
+   *  `tilesCached` above already IS that count, and a second name for one
+   *  number is two authorities that can only drift. The count was never the
+   *  gap — publishing it without the cap it is measured against was. */
+  gpuTilesBudget: number
+  /** Tile fetches in flight across all sources. */
+  inflightRequests: number
+  /** Cumulative tile bytes fetched this session — monotonic for the page
+   *  lifetime, so a host can budget bandwidth over a whole visit. */
+  sessionNetworkBytes: number
 }
 
 export class StatsTracker {
@@ -72,6 +103,10 @@ export class StatsTracker {
   tilesLoaded = 0
   tilesCached = 0
   gpuBuffers = 0
+  cachedBytes = 0
+  arenaLiveBytes = 0
+  arenaCapacityBytes = 0
+  inflightRequests = 0
   zoom = 0
   /** iter-222 — bundle stats. Lifetime counters (NOT per-frame
    *  reset). Aggregated across all BundleCache instances. */
@@ -128,6 +163,10 @@ export class StatsTracker {
     this.tilesLoaded = 0
     this.tilesCached = 0
     this.gpuBuffers = 0
+    this.cachedBytes = 0
+    this.arenaLiveBytes = 0
+    this.arenaCapacityBytes = 0
+    this.inflightRequests = 0
   }
 
   /** Call at the end of each frame */
@@ -211,6 +250,13 @@ export class StatsTracker {
       bundleReplaysThisFrame: this.bundleReplaysThisFrame,
       heapDeltaBytes: this.heapDeltaBytes,
       heapDeltaAvgBytes: this.heapDeltaAvgBytes,
+      cachedBytes: this.cachedBytes,
+      cachedBytesBudget: maxCachedBytes(),
+      arenaLiveBytes: this.arenaLiveBytes,
+      arenaCapacityBytes: this.arenaCapacityBytes,
+      gpuTilesBudget: getMaxGpuTiles(),
+      inflightRequests: this.inflightRequests,
+      sessionNetworkBytes: sessionNetworkBytes(),
     }
   }
 }
