@@ -713,11 +713,7 @@ const CEILINGS: Record<string, number> = {
   // tile-full-cover-quad.ts (−47 incl. three now-orphaned ecef-packing imports) — pure geometry,
   // no `this`, and the layout with the #449 bug history is now directly assertable. Ceiling
   // below is the MERGED file's actual wc -l, measured after prettier.
-  // 1370→1354 (#1414): the attach-time tile-layout-version check moved out to
-  // tile-layout-version-check.ts — the one attach concern with no dependency on
-  // catalog internals beyond two injectable seams. Paid for the teardown notice
-  // registered in attachBackend.
-  'data/src/tile-catalog.ts': 1354,
+  'data/src/tile-catalog.ts': 1370,
   // 1173→1180 (#1046 F1): thread the required `rhi: RhiDevice` onto the FrameContext at
   // both build sites — the main-chain init literal and the twin label stage — so a seam
   // can reach `ctx.rhi.caps.*` (doc §3-F1). +7 = two assignments + their rationale comments;

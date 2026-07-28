@@ -87,10 +87,6 @@ const WORLD_BOUNDS: [number, number, number, number] = [-180, -85, 180, 85]
 export class VirtualPMTilesBackend implements TileSource {
   readonly meta: TileSourceMeta
   private sink: TileSourceSink | null = null
-  /** Set by {@link onCatalogDestroyed}. Distinguishes "the catalog I serve was
-   *  torn down" from a genuine tiling failure, so the two are not reported the
-   *  same way. */
-  private _catalogDestroyed = false
   private indexReady: Promise<void>
 
   private readonly sourceName: string
@@ -148,11 +144,6 @@ export class VirtualPMTilesBackend implements TileSource {
     this.sink = sink
   }
 
-  /** The catalog that owns this backend is being destroyed (see TileSource). */
-  onCatalogDestroyed(): void {
-    this._catalogDestroyed = true
-  }
-
   loadTile(key: number, force = false): void {
     if (!this.sink) return
     // `force` (#1371): a re-seed swapped this source's backend, so the sink's data for this key
@@ -184,14 +175,12 @@ export class VirtualPMTilesBackend implements TileSource {
     try {
       bytes = await tilingPool.getTile(this.instanceId, this.sourceName, z, x, y, key)
     } catch (err) {
-      // A rejection AFTER our catalog was destroyed is our own teardown, not a
-      // fault: #1353 drops this map's worker index at catalog destroy, and any
-      // getTile already posted against it then rejects "unknown source: <name>".
-      // The tile has no consumer left — the catalog and its renderer are gone —
-      // so reporting it is pure noise. A re-run (`_teardownForReinit`) hits this
-      // every time, which is how it surfaced: one console.error per in-flight
-      // tile. A rejection while the catalog is LIVE is still a real error.
-      if (!this._catalogDestroyed) {
+      // Detached ⇒ this source was torn down while the request was in flight, and the worker
+      // index went with it (SourceManager evicts it from the catalog's onDestroy). The worker
+      // then answers "unknown source", which is the EXPECTED shape of teardown, not a fault —
+      // reporting it made every style swap emit one console error per tile still in the air.
+      // A live sink rejecting is still a real failure and still gets logged.
+      if (this.sink !== null) {
         xlog.error('[virtual-pmtiles getTile]', (err as Error)?.stack ?? err)
       }
       sink.acceptResult(key, null)

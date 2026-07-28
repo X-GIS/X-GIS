@@ -32,8 +32,9 @@ import { visibleTiles } from './tile-select-helpers'
 import { VirtualCatalogAdapter } from './sources/virtual-catalog-adapter'
 import { GeoJSONRuntimeBackend } from './sources/geojson-runtime-backend'
 import { SubTileGenerator } from './sub-tile-generator'
-import { checkTileLayoutVersion } from './tile-layout-version-check'
 import {
+  TILE_LAYOUT_VERSION,
+  TILE_LAYOUT_VERSION_BASE,
   type TileSource,
   type TileSourceSink,
   type BackendTileResult,
@@ -55,7 +56,7 @@ import {
   type VirtualCatalog,
 } from './tile-types'
 import { runSkeletonPrewarm, type SkeletonPrewarmHandle } from './tile-skeleton-prewarm'
-import { unionBounds } from './tile-catalog-helpers'
+import { unionBounds, layoutVersionMismatch } from './tile-catalog-helpers'
 import { buildFullCoverQuad } from './tile-full-cover-quad'
 import { TileDataCache } from './tile-data-cache'
 import { CompileBudget } from './tile-compile-budget'
@@ -258,14 +259,28 @@ export class TileCatalog {
    *  §1.2 for rationale. */
   attachBackend(backend: TileSource): void {
     backend.attach(this.makeSink(backend))
-    if (backend.onCatalogDestroyed) this.onDestroy(() => backend.onCatalogDestroyed!())
     this.backends.push(backend)
     this.mergeBackendMeta(backend)
     this.checkLayoutVersion(backend)
   }
 
+  /** Compare the attaching backend's `meta.layoutVersion` against the
+   *  running runtime's `TILE_LAYOUT_VERSION`. On mismatch, evict any
+   *  cached tiles attributable to this backend (and the legacy
+   *  unattributed entries — see {@link evictTilesForBackend}) so the next
+   *  visible frame re-decodes through the new layout. The comparison itself
+   *  is `layoutVersionMismatch`; the warn fires once per (catalog, backend)
+   *  pair via `_layoutMismatchWarned`. */
   private checkLayoutVersion(backend: TileSource): void {
-    checkTileLayoutVersion(backend, this._layoutMismatchWarned, (b) => this.evictTilesForBackend(b))
+    const v = backend.meta.layoutVersion
+    if (!layoutVersionMismatch(v)) return
+    this.evictTilesForBackend(backend)
+    if (!this._layoutMismatchWarned.has(backend)) {
+      this._layoutMismatchWarned.add(backend)
+      xlog.warn(
+        `[X-GIS] tile-layout-version mismatch for source: cached=${v ?? TILE_LAYOUT_VERSION_BASE}, running=${TILE_LAYOUT_VERSION} — evicting cache + re-decoding`,
+      )
+    }
   }
 
   /** Drop every cached tile key whose slice list either matches this
@@ -916,9 +931,10 @@ export class TileCatalog {
   destroy(): void {
     this._skeletonPrewarm?.stop()
     this._skeletonPrewarm = null
+    // Detach BEFORE the owner callbacks: they evict the data a backend's in-flight work still
+    // reads, so one told afterwards cannot tell teardown from breakage (virtual-pmtiles-teardown).
+    for (const b of [...this.backends]) this.detachBackend(b)
     // Owner-registered teardown, drained so a repeated destroy() is a no-op.
-    // Each backend's notice is registered at attachBackend, hence BEFORE any
-    // owner callback that frees state it is mid-flight against (#1353).
     for (const fn of this._onDestroy.splice(0)) fn()
   }
 
