@@ -328,7 +328,7 @@ async function armCatalogueItem(
   deps: CoverageSourceDeps,
   sourceId: string,
   item: CoverageCatalogueItem,
-  inFlight: Set<string>,
+  state: CoverageCatalogueState,
   isStale?: () => boolean,
 ): Promise<void> {
   // The STAC item id IS this cell's region key — named so, because every epoch claim and check
@@ -338,7 +338,7 @@ async function armCatalogueItem(
   const region = item.id
   const label = `coverage source "${sourceId}" region "${region}"`
   const token = deps.time.nextEpoch(region)
-  inFlight.add(region)
+  state.inFlight.add(region)
   let handle: CoverageHandle
   try {
     handle = await fetchCoverageHandle(item.href, label, deps.guardedFetch(label))
@@ -347,8 +347,15 @@ async function armCatalogueItem(
     xlog.error(`[X-GIS] ${label} — ${(e as Error).message}`)
     return
   } finally {
-    inFlight.delete(region)
+    state.inFlight.delete(region)
   }
+  // STILL WANTED? A cell is multi-megabyte, so the camera can easily move a continent away
+  // while one streams, and the epoch guard cannot see that: it is per REGION, and this read
+  // was never superseded by another read of THIS region — what changed is that nobody wants
+  // the region at all. Arming anyway put Delaware on screen over San Francisco, drawing
+  // nothing and holding a GPU slot the wanted cell needed. Found by the live render gate;
+  // `coverage-residency-driver.test.ts` now holds the fetch open to reproduce it.
+  if (!state.wanted.includes(region)) return
   if (!deps.time.isCurrent(token, region) || deps.destroyed() || isStale?.()) return
   if (!writeRegion(deps, sourceId, region, { handle, url: item.href })) return
   deps.armFromShow(sourceId, handle, region)
@@ -385,14 +392,45 @@ export async function syncCoverageResidency(
 
   for (const item of wanted) {
     if (deps.destroyed() || isStale?.()) return
+    // A NEWER resolve has replaced `state.wanted` — this loop is walking a list the camera
+    // has moved past, so every remaining fetch would be work for a viewport nobody is looking
+    // at. Stop; the newer resolve is already arming the right cells.
+    if (!state.wanted.includes(item.id)) return
     if (state.suppressed.has(item.id) || state.inFlight.has(item.id)) continue
     if (coverageRegions(deps, sourceId)?.has(item.id)) continue
-    await armCatalogueItem(deps, sourceId, item, state.inFlight, isStale)
-    // THE BUDGET SPOKE. Arming that cell evicted one this resolve still wants, so there is no
-    // room for the rest of the list — and the rest is its least relevant part. Listening beats
-    // predicting: a second byte budget up here would be counting FILE bytes against the
-    // renderer's GPU bytes, two numbers that cannot be made to agree.
-    if (state.suppressed.size > 0) return
+    await armCatalogueItem(deps, sourceId, item, state, isStale)
+    if (state.suppressed.size === 0) continue
+
+    // THE BUDGET SPOKE — and it evicted the WRONG cell, so this backs the arm out.
+    //
+    // The renderer's LRU evicts the least-recently-ARMED region. Arms go in relevance order,
+    // so the most relevant cell is the oldest and is exactly what gets evicted: over San
+    // Francisco, arming the basin-wide `wcofs` threw out the local `sfbofs` that had just been
+    // armed for it, leaving a coarse cell drawing 2% of the frame where the right one had
+    // drawn 45%. Recency and relevance run in opposite directions; no arming order fixes that
+    // (least-relevant-first would make the user wait for a cell they do not need).
+    //
+    // So the arm that overflowed the budget is undone and its victims restored. That leaves
+    // exactly the invariant the resolve is for — the resident set is the most-relevant PREFIX
+    // that fits — while the budget itself stays the one authority: it still decides WHEN the
+    // set is full, this only declines the trade it offered. Bounded to once per resolve,
+    // because the loop returns immediately after.
+    dropCoverageRegion(deps, sourceId, item.id)
+    const victims = [...state.suppressed].filter((r) => r !== item.id)
+    state.suppressed.clear()
+    // THE CELL THAT DID NOT FIT is what gets suppressed — not (only) its victims. Suppressing
+    // the victims instead left this loop re-trying the same over-budget arm on every move-end:
+    // arm it, evict the good cell, back out, restore, and again on the next resolve — four
+    // wasted reads per move for a cell that provably does not fit. The suppression lifts when
+    // the wanted SET changes, which is the only event that can make room.
+    state.suppressed.add(item.id)
+    for (const key of victims) {
+      const victim = wanted.find((w) => w.id === key)
+      if (victim) await armCatalogueItem(deps, sourceId, victim, state, isStale)
+      // A victim that could not be restored must not be retried every move-end either.
+      if (!coverageRegions(deps, sourceId)?.has(key)) state.suppressed.add(key)
+    }
+    return
   }
 }
 
