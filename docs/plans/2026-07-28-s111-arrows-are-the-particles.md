@@ -48,27 +48,39 @@ out are closed:
 
 ## The design that avoids both
 
-Split the position into a part the CPU already knows exactly and a part small enough for f32.
+Store a DISPLACEMENT, not an absolute position.
+
+State texel `i` corresponds 1:1 to arrow instance `i`, and holds how far that arrow has drifted
+from **its own origin cell** in grid-uv. The instance buffer is untouched — every arrow still
+carries the exact df64 origin the CPU packed for it, exactly as today.
 
 ```
-state texture           continuous grid-uv position         (arrow-advect-state.ts)
+feat buffer[i]        exact df64 origin  (CPU, packed once — unchanged)
+state texture[i]      displacement in grid-uv, bounded and small
       │
-      ├── floor(uv × gridSize) ──► CELL INDEX
-      │        └── indexes the CPU-packed per-cell geo table (df64, exactly as today)
-      │            → an EXACT anchor, with no new projection math
+      ├── origin + displacement ──► sample flowU/flowV there
+      │        └── bearing, and speed → s111BandTable() → colour + scale
       │
-      └── frac(uv × gridSize) ──► SUB-CELL REMAINDER, < 1 cell
-               └── added as a small screen-space offset, where f32 is ample
+      └── displacement ──► a small screen-space px offset added to the projected anchor
+               └── bounded, so f32 is ample and NO projection math is recomputed
 ```
 
-The cell table is what `coverage-arrow-show.ts` already builds; it is only re-indexed — by cell
-rather than by instance — instead of being rebuilt.
+The earlier draft here split the position into a cell index plus a sub-cell remainder, which
+needed a new cell→instance lookup table and a re-indexing of the generator. That is unnecessary:
+`instance_index` already selects the exact origin, so the only thing the GPU has to produce is
+the offset from it.
 
-This gives both properties the previous options each gave only one of: arrows travel the whole
-domain (the cell index is unbounded), and the motion is smooth (the sub-cell remainder is
-continuous). Placement authority stays on the CPU.
+What this trades away is unbounded travel — an arrow wanders a bounded distance and then
+recycles rather than crossing the whole domain. That is not a loss: recycling is required
+anyway (an arrow must leave stale water and re-seed), and a bounded excursion of several cells
+already reads as flow. It buys a very large simplification and keeps placement authority
+entirely on the CPU.
 
-Bearing, band colour and scale come from sampling `flowU`/`flowV` at the CONTINUOUS uv and
+A consequence: state texel ↔ instance is 1:1, so the advected mode thins the generator's output
+to `ARROW_ADVECT_COUNT` instances (16 384 — which reads as a full field at any grid size)
+instead of one per valid cell.
+
+Bearing, band colour and scale come from sampling `flowU`/`flowV` at origin+displacement and
 looking up `s111BandTable()` — the catalogue rule uploaded as data, so the shader holds no
 threshold and no colour of its own.
 
@@ -90,10 +102,12 @@ a fade is what makes a retirement legible, and staggering removes the need for o
 
 ## Remaining
 
-1. Per-cell geo table: re-index `coverage-arrow-show.ts`'s output by cell instead of instance.
-2. Arrow VS advected path: cell index + sub-cell offset from the state texture; bearing, colour
-   and scale from the field and the band table. Kept off the existing `| arrow` path (Point
-   sources) so that stays byte-identical.
+1. `coverage-arrow-show.ts`: in advected mode, thin to `ARROW_ADVECT_COUNT` instances and emit
+   each instance's ORIGIN grid-uv alongside its geo, so the VS can sample the field at
+   origin+displacement. (Static mode unchanged.)
+2. Arrow VS advected path: displacement from the state texture → screen offset; bearing, colour
+   and scale from the field at origin+displacement via `s111BandTable()`. Kept off the existing
+   `| arrow` path (Point sources) so that stays byte-identical.
 3. Wire the advect step into the frame, alongside the existing flow pass.
 4. Render gate: the arrows MOVE, and an arrow's colour changes when it crosses a band edge —
    the second half matters, because arrows that move while keeping their launch colour is the
