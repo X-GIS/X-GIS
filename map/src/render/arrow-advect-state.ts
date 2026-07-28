@@ -210,8 +210,17 @@ export class ArrowAdvectState {
       height: ARROW_ADVECT_TEX_DIM,
       format: 'rgba8unorm',
       // `render` so the update can write it, `sample` so the next update AND the arrow draw's
-      // vertex stage can read it. Both sides need both — they alternate roles every frame.
-      usage: ['render', 'sample'],
+      // vertex stage can read it (both sides need both — they alternate roles every frame), and
+      // `copy-dst` because THIS MODULE SEEDS THEM WITH writeTexture: the initial scatter in
+      // `ensure` and every `writeOrigins` upload are queue writes, which WebGPU validates
+      // against the usage flags.
+      //
+      // Its absence was a WebGPU-only crash — "Usage (TextureBinding|RenderAttachment) of
+      // [Texture "arrow-advect-a"] doesn't include TextureUsage::CopyDst, while calling
+      // Queue.WriteTexture" — and invisible to the headless render gate, because WebGL2 has no
+      // usage validation at all: the same call simply works there. A texture this module writes
+      // must declare that it is written.
+      usage: ['render', 'sample', 'copy-dst'],
       label,
     })
   }

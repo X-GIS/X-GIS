@@ -126,16 +126,18 @@ describe('ArrowAdvectState lifecycle', () => {
     const created: string[] = []
     const written: unknown[] = []
     const destroyed: unknown[] = []
+    const descs: Array<{ label?: string; usage: readonly string[] }> = []
     const rhi = {
-      createTexture: (d: { label?: string }) => {
+      createTexture: (d: { label?: string; usage: readonly string[] }) => {
         created.push(d.label ?? '?')
+        descs.push(d)
         return { native: `tex${id++}` }
       },
       createView: (t: { native: string }) => ({ native: `view-${t.native}` }),
       writeTexture: (t: unknown) => void written.push(t),
       destroyTexture: (t: unknown) => void destroyed.push(t),
     }
-    return { rhi: rhi as unknown as RhiDevice, created, written, destroyed }
+    return { rhi: rhi as unknown as RhiDevice, created, written, destroyed, descs }
   }
 
   it('SEEDS BOTH SIDES on allocation', () => {
@@ -147,6 +149,25 @@ describe('ArrowAdvectState lifecycle', () => {
     expect(t.created).toEqual(['arrow-advect-a', 'arrow-advect-b', 'arrow-advect-origin'])
     expect(t.written, 'both sides seeded').toHaveLength(2)
     expect(t.written[0]).not.toBe(t.written[1])
+  })
+
+  it('declares copy-dst on EVERY side — this module writes them all', () => {
+    // A WebGPU-only crash, and one no render gate here could have caught: WebGL2 does not
+    // validate texture usage, so the same writeTexture simply works under SwiftShader. WebGPU
+    // rejects it — "Usage (TextureBinding|RenderAttachment) of [Texture "arrow-advect-a"]
+    // doesn't include TextureUsage::CopyDst, while calling Queue.WriteTexture" — and the whole
+    // arrow field dies at boot. The property is checkable without any GPU: a texture this
+    // module seeds with writeTexture must declare that it is written.
+    const t = stub()
+    const p = new ArrowAdvectState()
+    p.writeOrigins(t.rhi, 'k', Float32Array.from([0.5]), Float32Array.from([0.5]))
+    expect(t.descs.length, 'both position sides and the origins').toBe(3)
+    for (const d of t.descs) {
+      expect(d.usage, `${d.label} is written by writeTexture`).toContain('copy-dst')
+      expect(d.usage, `${d.label} is sampled`).toContain('sample')
+    }
+    // …and the pair really is written, so the requirement is not hypothetical.
+    expect(t.written.length).toBeGreaterThan(0)
   })
 
   it('allocates ONCE — a re-ensure every frame must not reseed', () => {
