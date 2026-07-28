@@ -24,11 +24,29 @@ import { test, expect, type Page } from '@playwright/test'
 //
 //   HEADED=0 XGIS_SOFTWARE_GPU=1 playwright test _adaptive-quality-ladder-gate.spec.ts
 
-// z16 + steep pitch: the camera this lever is FOR. At low zoom the pitched frame still
-// lies inside `FAR_RAMP_NEAR` (an earlier draft used z10.35 and measured a 0.6% change —
-// correctly, because that scene has no far field to spend), so the gate has to stand
-// where the horizon actually stretches.
-const CAM = '#16/48.84778/2.33194/0/80'
+// z14 + steep pitch: the camera this lever is FOR. The far field has to actually EXIST here
+// or the gate measures nothing — at low zoom the pitched frame lies inside `FAR_RAMP_NEAR`
+// (an early draft used z10.35 and measured 0.6%, correctly), and at high zoom there is no
+// horizon left to stretch.
+//
+// MOVED from z16/p80 (#1433). That camera stopped working the day #1427 (`21291c5`) ended
+// the far plane at the simulated horizon and culled the frustum tiles beyond it: the ladder
+// and that change are aimed at the same triangles, and the cheaper one now gets there first,
+// so nothing is left for a notch to buy. Bisected — 14.1% at #1427's parent, 0.0% at #1427
+// itself, and the gate then read red on three unrelated PRs for a product change rather than
+// a regression in what it tests.
+//
+// The lever is alive; #1427 only moved where its far field lives. Swept on the same host,
+// current main, this spec's own measurement:
+//
+//   z16 p80  control  20008 | adaptive  28794  step 1  =>  -43.9%   (the old camera)
+//   z14 p85  control 104299 | adaptive  47278  step 2  =>  +54.7%   ← here
+//   z18 p85  control   3551 | adaptive   3551  step 0  =>    0.0%   (nothing to do)
+//   z12 p85  control 215458 | adaptive 215458  step 3  =>    0.0%   (inside FAR_RAMP_NEAR)
+//
+// z14/p85 also buys far more margin over the 10% bar than z16/p80 ever did (54.7% vs 14.1%),
+// which is worth having on a gate whose whole history is boundary noise.
+const CAM = '#14/48.84778/2.33194/0/85'
 const SOURCE = 'land'
 /** 120 → 150 (#1433). The gate's premise is that the host genuinely cannot keep up, and at
  *  120 that was MARGINAL rather than assured: on a quiet runner the controller sometimes
