@@ -41,8 +41,12 @@ class FlowPass implements RenderPass {
     if (!flow) return
     // BEFORE the early return, not after it: what the arrow draw binds is whatever this last
     // declared, so a frame with no field has to say so or the draw keeps the evicted region's
-    // (now destroyed) textures bound. See `FlowRenderer.setArrowField`.
-    flow.setArrowField(field)
+    // (now destroyed) textures bound. See `FlowRenderer.setArrowFields`.
+    //
+    // EVERY region's field, not `activeFlowField`'s first one: the arrows are per region and
+    // read the current they stand in (#1458). The TRAIL below still takes the single field —
+    // it is one recursive filter over one grid, which is a real limitation and not this bug.
+    flow.setArrowFields(host.coverageRenderer?.flowFields() ?? new Map())
     if (!field) return
     ctx.passScope('flow', () => {
       const frame = { elapsedMs: ctx.elapsedMs, encoder: ctx.rhiEncoder }
@@ -50,7 +54,7 @@ class FlowPass implements RenderPass {
       // ping-pong and its pipeline on first use, so a scene with only the static catalogue
       // field must never reach it. It runs HERE, before the graphics pass draws the arrows,
       // because the draw binds the state this writes.
-      if (host.graphics.hasAdvectedArrows()) flow.stepArrows(frame, field)
+      if (host.graphics.hasAdvectedArrows()) flow.stepArrows(frame)
       // The trail step only when a VISIBLE drape samples its image: under the arrows portrayal
       // the regions are resident-but-hidden, and advecting a full-screen image nobody draws is
       // a per-frame cost with no picture attached.
