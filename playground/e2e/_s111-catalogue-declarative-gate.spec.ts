@@ -100,13 +100,22 @@ async function waitForResidency(page: import('@playwright/test').Page): Promise<
           }
         ).__xgisMap?.coverageRenderer?.residentRegions() ?? [],
     )
-  const deadline = Date.now() + 180_000
-  let prev = ''
-  while (Date.now() < deadline) {
+  // TWO phases, because the no-egress case must be cheap. A CI leg without NOAA reachability
+  // should give up in ~45 s, not sit out a settle deadline it can never meet.
+  const firstBy = Date.now() + 45_000
+  while (Date.now() < firstBy) {
     await page.waitForTimeout(1000)
+    if ((await regions()).length > 0) break
+  }
+  if ((await regions()).length === 0) return false
+
+  const settleBy = Date.now() + 120_000
+  let prev = ''
+  while (Date.now() < settleBy) {
     const now = JSON.stringify(await regions())
     if (now !== '[]' && now === prev) return true
     prev = now
+    await page.waitForTimeout(1000)
   }
   return false
 }
