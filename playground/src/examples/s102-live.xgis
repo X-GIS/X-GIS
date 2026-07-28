@@ -51,13 +51,19 @@ layer depth {
 // (`valueAt`, nearest-cell, never interpolated), so a numeral can only show a depth that is
 // actually in the cell. `.depth` is the S-102 band name, exactly as a feature property.
 //
-// Candidates are picked on a screen-space lattice, so they hold a roughly constant on-screen
-// density — the chart behaviour — with no zoom rule to author. Zoom in past one cell per
-// lattice step and the count falls toward one numeral per cell, which is the honest limit: a
-// gridded product holds no more soundings than it holds cells.
-// `round()` keeps them chart-like whole metres; the raw band is f32 to the millimetre.
+// Candidates are picked on a GRID-anchored lattice — every stride'th cell, the stride a power
+// of two derived from the current pixels-per-cell. That holds a roughly constant on-screen
+// density (the chart behaviour) with no zoom rule to author, and it keeps the chosen SET from
+// changing when the camera only rotates or pitches. Zoom in past one cell per lattice step and
+// the count falls toward one numeral per cell, which is the honest limit: a gridded product
+// holds no more soundings than it holds cells.
+//
+// `{.depth:.1f}` is the label text-format mini-language — `{<expr>:<spec>}` with the familiar
+// printf/Python spec `[fill][align][sign][#][0][width][grouping][.precision][type]`, plus GIS
+// types (`dms`, `mgrs`, …) and a `;<locale>` tail. One decimal is what a metric chart carries;
+// the raw band is f32 to the millimetre, which is precision the survey does not have.
 layer soundings {
   source: bathy
-  | label-[round(.depth)] label-color-#fff label-size-11
+  | label-["{.depth:.1f}"] label-color-#fff label-size-11
     label-halo-1 label-halo-color-#000
 }
