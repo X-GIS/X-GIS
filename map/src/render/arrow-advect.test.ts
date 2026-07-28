@@ -314,7 +314,7 @@ describe('the arrow origins (#1419)', () => {
     const after = t.writes.length
     p.writeOrigins(t.rhi, 'cbofs/1', u, v)
     expect(t.writes).toHaveLength(after)
-    // A DIFFERENT key is a different BATCH, not a replacement (#1453): it reserves its own
+    // A DIFFERENT key is a different BATCH, not a replacement (#1458): it reserves its own
     // range and uploads, so the write count moves. What it must NOT do is take the first
     // batch's texels — that is the mosaic collision, and `arrow-advect-mosaic.test.ts` owns it.
     const base2 = p.writeOrigins(t.rhi, 'cbofs/2', u, v)

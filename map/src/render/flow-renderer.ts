@@ -205,7 +205,7 @@ export class FlowRenderer {
     return this.arrows.writeOrigins(this.rhi, key, u, v)
   }
 
-  /** Give a dropped batch's texel range back to the shared state (#1453). */
+  /** Give a dropped batch's texel range back to the shared state (#1458). */
   releaseArrowOrigins(key: string): void {
     this.arrows.releaseOrigins(key)
   }

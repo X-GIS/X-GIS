@@ -38,7 +38,7 @@ export const S111_BAND_PARAMS_ROW = S111_BAND_COUNT
 /** Slot 0 of the params row: `trueLonSpan / trueLatSpan` for this coverage. */
 export const S111_PARAM_UV_ASPECT = 0
 
-/** Slot 1: this batch's BASE TEXEL in the shared arrow state (#1453).
+/** Slot 1: this batch's BASE TEXEL in the shared arrow state (#1458).
  *
  *  One state texture serves every mosaic region, each owning a contiguous range, so the VS
  *  reads texel `base + instance_index` rather than `instance_index`. Without it every region

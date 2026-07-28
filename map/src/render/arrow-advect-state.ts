@@ -126,7 +126,7 @@ export class ArrowAdvectState {
   private dim = 0
   private count = 0
   /** Each resident batch's contiguous texel range, by instance-layout key — the MOSAIC's whole
-   *  point (#1453). One state texture serves every region; a region owns `[base, base+count)`
+   *  point (#1458). One state texture serves every region; a region owns `[base, base+count)`
    *  and the VS adds `base` to its instance index. Without this every region's batch indexed
    *  from texel 0, so the last one armed owned them all: sibling arrows were leashed to cells
    *  in another domain, and after #1450 A a smaller sibling shrank the texture out from under

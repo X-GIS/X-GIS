@@ -57,7 +57,7 @@ export interface AdvectedArrowInput {
  *  velocity pair they are moving through — all four from `FlowRenderer`, which owns the step.
  *  Passed in per frame rather than held, because the state side alternates every step. */
 export interface AdvectedArrowSource {
-  /** Returns the batch's BASE TEXEL in the shared state (#1453). */
+  /** Returns the batch's BASE TEXEL in the shared state (#1458). */
   writeArrowOrigins(key: string, u: ArrayLike<number>, v: ArrayLike<number>): number
   /** Give this batch's texel range back — its region was dropped. */
   releaseArrowOrigins(key: string): void
@@ -189,7 +189,7 @@ export class CompiledArrowStore {
       // than the graphics pass, so a batch whose origins arrived at draw time would spend its
       // first step leashed to grid-uv (0, 0) — every arrow yanked toward the grid's corner.
       //
-      // It answers with this batch's BASE TEXEL in the shared state (#1453) — one texture
+      // It answers with this batch's BASE TEXEL in the shared state (#1458) — one texture
       // serves every mosaic region — which is why the band table is patched and uploaded
       // AFTER the call rather than before it.
       const base =
@@ -243,7 +243,7 @@ export class CompiledArrowStore {
         retired.push(ca.featBuf)
         if (ca.tintBuf) retired.push(ca.tintBuf)
         if (ca.bandBuf) retired.push(ca.bandBuf)
-        // …and give the shared state's texels back (#1453). Without this the ranges only ever
+        // …and give the shared state's texels back (#1458). Without this the ranges only ever
         // grow: a mosaic that pans across a coast re-arms constantly, and each re-arm would
         // append a fresh range until the allocation hit its ceiling and later regions silently
         // got no texels at all.

@@ -391,7 +391,7 @@ const vsAdvected = fn(
 
     // Where this arrow is, and where it belongs — texel `base + instance_index` in both.
     //
-    // The BASE is what makes a MOSAIC work (#1453). One state texture serves every resident
+    // The BASE is what makes a MOSAIC work (#1458). One state texture serves every resident
     // region and each owns a contiguous range, so a batch's instance 0 is not texel 0. It was,
     // once: every region indexed from 0, the last one armed owned every texel, and its siblings'
     // arrows were leashed to origin cells belonging to another NOAA domain — reported as the
