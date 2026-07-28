@@ -22,7 +22,14 @@ import { test, expect, type Page } from '@playwright/test'
 // where the horizon actually stretches.
 const CAM = '#16/48.84778/2.33194/0/80'
 const SOURCE = 'land'
-const SEED_GRID = 120
+/** 120 → 150 (#1433). The gate's premise is that the host genuinely cannot keep up, and at
+ *  120 that was MARGINAL rather than assured: on a quiet runner the controller sometimes
+ *  never judged a frame slow, never stepped a notch, and the gate then failed for having
+ *  nothing to measure (`ladder bought 0.0%`) — reproduced locally 1 run in 2, and the shape
+ *  of the 2026-07-28 CI red. 150 is +56% polygons, which puts the frame decisively over
+ *  budget every run instead of near it. Raising the LOAD, not lowering the bar: every
+ *  assertion below is unchanged. */
+const SEED_GRID = 150
 /** Degrees the seeded grid spans. Must cover the pitched view's FAR ground stretch, not
  *  just the foreground, or the lever has nothing out there to coarsen. */
 const SEED_SPAN = 0.3
@@ -134,13 +141,38 @@ test('the ladder trades far-field geometry for frame time under sustained overlo
   // Both arms settle the same way from the same fixture at the same camera; what differs
   // is only whether the controller is allowed to act.
   const off = await run(page, false, 40)
+  // Report the control arm BEFORE asserting on it (#1433). When the precondition below
+  // failed on CI it printed nothing at all — the numbers that would have identified it as a
+  // measurement problem rather than a regression were only logged after the treatment arm,
+  // which never ran. A gate's own diagnosis should not depend on which assertion trips.
+  console.log(`\n  adaptive=0  tris ${off.before} -> ${off.after}, med ${off.medMs.toFixed(3)} ms`)
   expect(off.after, 'the control must be drawing real geometry').toBeGreaterThan(10_000)
-  expect(off.medMs, 'the host must actually be over the 33.4 ms degrade bar').toBeGreaterThan(33.4)
+  // The overload premise is REPORTED, not asserted (#1433). It reads `medMs`, the wall time
+  // of two `requestAnimationFrame` turns — whose 60 Hz floor is 2 × 16.6̄ = 33.3 ms, i.e.
+  // numerically the 33.4 ms bar it was compared against. On identical code it has measured
+  // 33.39999999999418 (red), 33.4 (green) and 34.3 (green): a coin flip on scheduler noise,
+  // not a statement about load. Running the spec alone (see the workflow's render-gate step)
+  // makes it tighter still, because the machine is quiet.
+  //
+  // Nothing is lost by demoting it. The assertion below is STRICTLY STRONGER on the same
+  // condition: a host that was never overloaded is a host whose controller never judged a
+  // frame too slow, so it cannot coarsen, so `on.after < off.after * 0.9` fails anyway —
+  // which is exactly how the 2026-07-28 CI failure surfaced (27497 vs 27497). All this line
+  // ever did was reach that conclusion earlier, with a message pointing at the wrong thing.
+  //
+  // #1433 option 2 remains open for whoever owns #1393: assert the premise on a signal that
+  // reflects real frame cost (a GPU timer, or `renderFrame` duration read off the map)
+  // rather than on rAF cadence, and this can go back to being a hard precondition.
+  if (!(off.medMs > 33.4)) {
+    console.warn(
+      `  ⚠ control arm measured ${off.medMs.toFixed(3)} ms — at or under the two-rAF 60 Hz floor,` +
+        ` so this run may not be a real overload experiment (#1433).`,
+    )
+  }
 
   const on = await run(page, true, 40)
   console.log(
-    `\n  adaptive=0  tris ${off.before} -> ${off.after}, med ${off.medMs.toFixed(1)} ms` +
-      `\n  adaptive=1  tris ${on.before} -> ${on.after}, med ${on.medMs.toFixed(1)} ms` +
+    `  adaptive=1  tris ${on.before} -> ${on.after}, med ${on.medMs.toFixed(1)} ms` +
       `\n  ladder bought ${(100 * (1 - on.after / off.after)).toFixed(1)}% of the settled geometry\n`,
   )
   expect(
