@@ -51,7 +51,7 @@ if (DEBUG_RHI_CHECKER && typeof window !== 'undefined') {
 }
 
 /** `?rhichain=1` (URL) OR `globalThis.__xgisRhiChain === true` (global mirror — the
- *  `__xgisRawFrameShell` seam pattern, render-loop.ts) — read at module load like the
+ *  `__xgisDisableLabels` seam pattern, label-pass.ts) — read at module load like the
  *  rest. A distinct URL param, not a `?debug=` value, so it reads its own key. */
 function readRhiChainFlag(): boolean {
   if ((globalThis as { __xgisRhiChain?: boolean }).__xgisRhiChain === true) return true

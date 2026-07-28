@@ -1184,8 +1184,8 @@ export class RenderLoop {
     // #834 M5 slice 3 — LABELS on WebGL2. The SAME labelPass the WebGPU
     // frame runs (dispatch → collision → TextStage) with a minimal
     // FrameContext whose `rhiPass` short-circuits the WebGPU encoder tail:
-    // the text overlay draws directly on this screen pass. The WebGPU-only
-    // fields (encoder / views) are inert on that branch; sprite ICONS
+    // the text overlay draws directly on this screen pass. The chain-only
+    // rhi* bridges are null on that branch; sprite ICONS
     // (iStage) are a follow-up slice. `scene` is a null placeholder (`_scene` unused).
     labelPass.execute(
       {

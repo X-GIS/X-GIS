@@ -330,7 +330,7 @@ shader-dsl emit only (no hand GLSL). Ratchet touches (LOC ceilings
   probe matrix (`ofm_bright_local` flat + `proj=globe`, `fixture_extrude_local`,
   `multi_layer&picking=1`); WebGL2 DC=0 trivially (untouched). Commit-vs-revert frame-time
   on `ofm_bright_local` (hot-path move, §7 discipline).
-- **Kill-switch:** `globalThis.__xgisRawFrameShell = true` restores the raw
+- **Kill-switch:** `globalThis.__xgisRawFrameShell = true` restores the raw _(RETIRED in #1046 Inc-3b — the flag is a silent no-op now; every chain pass fails loud on null bridges, so the escape could no longer render a frame.)_
   encoder/swapchain arm for one release (the `__xgisVtrFillViaRhi` seam pattern,
   `docs/architecture/engine-content-split-P1-status.md:31`).
 
