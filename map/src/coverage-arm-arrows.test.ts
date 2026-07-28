@@ -2,11 +2,13 @@
 //
 // The advected field IS the catalogue portrayal, drifting: same glyph, same banded ramp, same
 // scale rule, seeded so frame 0 is exactly the static placement. Arming the static batch as
-// well draws one symbology twice — and not congruently, because the two paths thin to
-// different ceilings (COVERAGE_ARROW_MAX = 100 000 vs the state texture's 16 384). On a
-// CBOFS-sized cell that is stride 1 against stride 5: different cells, different speeds,
-// different bands, visibly different colours from the first frame. S-111 Live showed exactly
-// that, with `| arrow | flow` declared.
+// well draws one symbology twice. When this landed it was worse than redundant: the two paths
+// thinned to different ceilings (COVERAGE_ARROW_MAX = 100 000 vs the state texture's fixed
+// 16 384), so a CBOFS-sized cell came out at stride 1 against stride 5 — different cells,
+// different speeds, different bands, visibly different colours from the first frame. That is
+// what S-111 Live showed with `| arrow | flow` declared. #1450 A then closed the density gap
+// (the state texture sizes itself to the batch), which leaves the suppression standing on the
+// simpler reason: one portrayal, drawn once.
 //
 // These tests drive `armCoverageArrows` — the single decision point the three arm sites now
 // call — and count the batches that reach the graphics manager.
@@ -14,7 +16,7 @@
 import { describe, expect, it } from 'vitest'
 import { coverageFromGrids, type CoverageInput } from '@xgis/data/coverage'
 import { armCoverageArrows, type CoverageArmHost } from './coverage-arm'
-import { ARROW_ADVECT_COUNT } from './render/arrow-advect-state'
+import { ARROW_ADVECT_MAX_COUNT } from './render/arrow-advect-state'
 import { COVERAGE_ARROW_MAX } from './coverage-arrow-show'
 import type { ShowCommand } from './render/renderer-types'
 
@@ -135,9 +137,12 @@ describe('armCoverageArrows — one batch, static or drifting (#1449)', () => {
     expect(batches).toEqual([])
   })
 
-  it('THE REASON: the two paths thin to different ceilings, so they were never congruent', () => {
-    // Stated here rather than left in a comment, because the day these two become equal is the
-    // day the suppression above stops being necessary — and this is what will say so (#1450 A).
-    expect(ARROW_ADVECT_COUNT).toBeLessThan(COVERAGE_ARROW_MAX)
+  it('the two paths now thin to ONE ceiling — the density gap is closed (#1450 A)', () => {
+    // This assertion is the inverse of the one it replaces. The suppression above shipped while
+    // the advected ceiling was 16 384 against the static path's 100 000, and this said so; the
+    // state texture now sizes itself to the batch, so the two are congruent and the ONLY reason
+    // the static batch is still suppressed is that drawing one portrayal twice is pointless —
+    // not that the two disagree.
+    expect(ARROW_ADVECT_MAX_COUNT).toBe(COVERAGE_ARROW_MAX)
   })
 })
