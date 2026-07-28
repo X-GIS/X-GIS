@@ -1017,7 +1017,12 @@ const CEILINGS: Record<string, number> = {
   // webgl2-texture-sampling.ts (−24, pure functions, no `this`, now testable without a device);
   // the residual +43 is the chain allocation in createTexture, the aniso clamp in createSampler,
   // and `generateMipmaps` — all of which need the device and cannot leave it. Measured post-hook.
-  'rhi-webgl2/src/rhi-webgl2.ts': 1512,
+  // 1512→1520 (#1436 round 2): the mip-COMPLETENESS fix. GL's default TEXTURE_MAX_LEVEL is
+  // 1000, so a single-level texture sampled by a mipmap min-filter is incomplete and samples as
+  // opaque BLACK — making the shared raster sampler trilinear blacked out the checker it also
+  // serves (2409 of 619200 pixels survived). +8 is one line of code and seven of incident: the
+  // texture that broke is the one nobody touched, which is the part a future reader needs.
+  'rhi-webgl2/src/rhi-webgl2.ts': 1520,
   // 941→975 (#1371 atomic re-seed): `releaseSupersededTile` + `dropTile`, and the split of
   // `_releaseTileSlots` into a resource-release body the two share with eviction. Arena/pool
   // ownership is this class's whole reason to exist.
