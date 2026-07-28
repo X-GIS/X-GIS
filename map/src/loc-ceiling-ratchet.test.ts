@@ -146,7 +146,13 @@ const CEILINGS: Record<string, number> = {
   // after the replaced-set was drained. +6, all inside the existing method. Disjoint from #1397
   // as well, so the three sum: 4740 + 51 + 21 + 6 = 4818 = the merged file's line count.
   // Shrink-only from here.
-  'map/src/render/vector-tile-renderer.ts': 4815,
+  // merge union — main shrank this to 4815; +1 for the `import { wgslFor, glslFor }` line
+  // (draper source gating). The four polygon pipelines below it emitted BOTH shader
+  // languages unconditionally while each device reads only one — ~130 ms of discarded WGSL
+  // per site on WebGL2, and the mirror waste of the GLSL pair on WebGPU. No statement was
+  // added: the existing shader/vsCode/fsCode expressions were wrapped in place, and the
+  // decision itself lives in material/wgsl-for.ts.
+  'map/src/render/vector-tile-renderer.ts': 4816,
   // 4232→4237 (#1000 heatmap relocate): the heatmap density-target OWNERSHIP
   // extracted to render/heatmap-targets.ts; map keeps only the irreducible
   // composition-root wiring — the `heatmapTargets` field + its import (mirrors
@@ -824,7 +830,26 @@ const CEILINGS: Record<string, number> = {
   // the two are deliberately separate so the hillshade prepare-pass upgrade can
   // diverge. Shrink-only from now; both collapse together when #991 decomposes
   // the render SCC.
-  'map/src/render/hillshade-renderer.ts': 806,
+  // 806→828 (failed-tile backoff): a DEM load that resolves null used to be
+  // re-requested EVERY FRAME forever — and that is the common path, since a DEM
+  // source has a real max zoom (terrarium stops at z15) while rasterCoverZoom asks
+  // for zoom+1, so zooming past it makes every visible tile a permanent 404 that
+  // pins all 6 concurrency slots. +22 for the failedTiles map, the two request-site
+  // guards, the two failure/clear branches and the re-arm reset; the POLICY itself
+  // (backoff curve + attempt cap) went to hillshade-tile-retry.ts rather than in
+  // here, so it is unit-testable without a GPU and this file stays near its mark.
+  // 828→836 (cold-start load budget): the leaf loop broke only at the FULL concurrency
+  // budget, so on the first frame it took all 6 slots and the parent-fallback prefetch
+  // right below it got none — nothing was drawable until a full-resolution DEM tile
+  // landed, and terrarium PNGs measure ~131-143 KB against ~19-28 KB for a satellite
+  // JPEG over the same ground. +8 = the 3-line rationale, the one `leafBudget` binding,
+  // and the 4 lines prettier adds re-wrapping the now-101-char retry import. The POLICY
+  // is again in hillshade-tile-retry.ts (leafLoadBudget), same split as the backoff.
+  // 836→834 (merge union, #1413 <- main): the byte-budget cache landed here too, and its
+  // `_cacheTile` helper REPLACED two inline four-line `tileCache.set` blocks (the leaf and
+  // parent load paths), so the union is two lines SHORTER than this branch alone. Measured,
+  // not guessed — shrink-only means taking the shrink.
+  'map/src/render/hillshade-renderer.ts': 834,
   // Merge union (#1060 <- main): stacked growth — measured 1174.
   'map/src/render/point-renderer.ts': 1174,
   // 1106→1120 (#1043 state-hygiene): three unmask-before-clear / state-reset fixes for the

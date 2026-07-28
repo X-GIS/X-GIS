@@ -39,6 +39,11 @@ vi.mock('../workers/geojson-tiling-pool', () => ({
     new Promise<Uint8Array>((_resolve, reject) => {
       hoisted.rejectTile = reject
     }),
+  // The backend asks this to tell an orderly worker-side teardown (the instance's
+  // index was dropped, so the source is genuinely gone) from a real failure. This
+  // file's rejections are plain Errors carrying no such flag, which is exactly the
+  // CONTROL case below: they must still reach the error log while the sink is live.
+  isSourceGone: () => false,
 }))
 
 const EMPTY_FC = { type: 'FeatureCollection' as const, features: [] }
