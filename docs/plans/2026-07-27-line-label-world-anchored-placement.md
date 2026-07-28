@@ -115,9 +115,47 @@ So the origin is right in kind and wrong in detail. Leads, in order of likelihoo
 3. `getAnchors` resamples with `EXTENT`-quantised positions, which shifts anchors by up to half
    a tile unit — too small to explain 155 px, so this is a refinement, not the cause.
 
-The next attempt should measure MapLibre's anchor positions in TILE units directly (its
-collision-box debug already exposes them on screen; `_debug-ml-collision-boxes.spec.ts` is the
-harness) and derive the offset convention from data, rather than assuming `spacing / 2`.
+#### The convention, measured
+
+That measurement has now been done, without a browser: MapLibre's three anchor screen positions
+at z16.7 were unprojected to mercator and their arc-length along the decoded `ref=400` polyline
+(tile `14/13962/6331`) computed directly.
+
+| ML anchor (pane px) | along-line (merc px @ z16.7) | perpendicular error |
+| ------------------- | ---------------------------- | ------------------- |
+| (22, 428)           | 1094.1                       | 0.5 px              |
+| (329, 322)          | 1418.9                       | 1.6 px              |
+| (636, 216)          | 1743.8                       | 0.1 px              |
+
+The sub-2 px perpendicular error confirms the camera + geometry maths, so the along-line numbers
+are trustworthy. Two things follow:
+
+1. **The step is confirmed** — consecutive anchors are 324.8 and 324.9 px apart against the
+   `200 × 2^frac(z)` prediction of 324.9. #1358 is exactly right.
+2. **The phase residual is a constant 119.3 px**, i.e. `0.367 × step` — _not_ `step / 2`
+   (162.4). That is why the vertex-0 walk missed.
+
+And 119.3 is not an arbitrary number. Walking the polyline for tile-boundary crossings puts the
+first one at along-line **119.8** — matching the residual to 0.5 px. Predicting anchors as
+`tileEntry + k · step`:
+
+|           |       |       |       |            |            |
+| --------- | ----- | ----- | ----- | ---------- | ---------- |
+| predicted | 119.8 | 444.7 | 769.6 | **1094.5** | **1419.4** | **1744.3** |
+| measured  | —     | —     | —     | **1094.1** | **1418.9** | **1743.8** |
+
+Error 0.4 / 0.5 / 0.5 px on the three anchors that are on screen.
+
+**So the phase origin is the point where the line enters the tile, and the first anchor sits AT
+that point — offset 0, not half a step.** Lead 2 above was right that the origin is the tile
+clip; the `spacing / 2` half of the rule was the wrong part.
+
+**Caveat before implementing.** This is ONE line, three anchors, one camera. The agreement is
+tight enough that coincidence is unlikely, but the rule must be confirmed on at least a second
+route and a second zoom before it is worth wiring — and X-GIS's own polyline is the tile-sliced
+geometry from `forEachLineLabelPolyline`, so its vertex 0 may ALREADY be that entry point, in
+which case the fix is simply dropping the `+ step/2` rather than changing the origin. Check that
+first; it would make INC-1 a one-line change.
 
 **Do not land the vertex-0 walk on its own.** Camera invariance is not worth a 155 px
 regression against the reference; the two must arrive together.
