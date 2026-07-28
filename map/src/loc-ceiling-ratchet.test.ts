@@ -646,7 +646,7 @@ const CEILINGS: Record<string, number> = {
   // dispatch-coverage-soundings.ts, both unit-proved); what remains here is the branch
   // itself + the per-frame closures the pass owns and cannot hand off (the camera
   // unprojector, the viewport, applyFeatureExprs, projectLonLatCopies, addLabel). +20.
-  'map/src/render/passes/label-pass.ts': 2148,
+  'map/src/render/passes/label-pass.ts': 2116,
   // #1081 — per-anchor perspective distance attenuation (MapLibre parity). New
   // baseline: the wCenter + perspScale scratch-out-value lives INLINE in the two
   // existing projector closures (it rides the cw already computed per anchor —
