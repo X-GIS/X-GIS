@@ -190,6 +190,35 @@ code** beyond the minimum needed to write the report — the deliverable is the 
 a code change. **Confirm scope before touching any files.** (A freeze/crash report is the
 opposite: there the fix _is_ the deliverable — see §8.)
 
+## 9.5 Long Sessions — file the ISSUE before the context is gone
+
+**A long session silently loses detail.** Facts established early — a measured constraint, a
+rejected approach and _why_, a decision the user already made — fall out of context, and the
+work then re-derives them, re-proposes what was rejected, and asks again what was already
+answered. The user sees the same ground covered three times. This is not a memory problem to
+apologise for; it is a process problem with a fix.
+
+**The fix: durable artifacts, written while the detail is still fresh.**
+
+- **File a GitHub issue per work item BEFORE starting it**, not after finishing. One
+  self-contained issue per shippable unit, written so someone with **zero context** can pick it
+  up: the symptom, the root cause at `file:line`, what was already ruled out and by what
+  evidence, the open decisions, and the verification that closes it.
+- **Record a constraint the moment it is discovered**, in the issue or a `docs/plans/` note —
+  especially one that took real work to find (a precision limit, a measured cost, a backend
+  asymmetry). A constraint that is expensive to discover and cheap to forget WILL be rediscovered
+  the expensive way.
+- **Write down a rejected approach WITH its reason.** Without the reason it gets re-proposed;
+  the reason is the whole value.
+- **A decision the user made is a fact, not a preference to re-weigh.** Put it in the issue. Do
+  not re-open it in a later turn because the supporting detail scrolled away.
+- Prefer **one issue at a time, closed properly**, over several half-finished in parallel. The
+  session-local task list is scratch; the issue is the record.
+
+**These guidelines are working if:** the user is never asked the same question twice, no rejected
+approach comes back, and any single issue can be resumed cold without re-reading the
+conversation.
+
 ## 10. Parallel Agents / Workflows
 
 **Verify sub-agent work on disk** — files actually written, no orphaned imports, the
