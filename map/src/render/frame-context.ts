@@ -66,9 +66,10 @@ export function setFrameTargets(
  *  points the equivalent locals were computed before this struct existed. */
 export interface FrameContext {
   /** Set ONLY by the forced-WebGL2 frame (#834 M5 slice 3): the live RHI
-   *  screen pass. A pass that draws overlay content (labels) branches on it
-   *  instead of encoding a WebGPU render pass — the other FrameContext
-   *  fields (`encoder`, `colorView`, …) are proxy no-ops there. */
+   *  screen pass. The label pass branches on it and draws INTO it instead of
+   *  originating a sub-pass — on that frame the RHI bridges are null (the
+   *  twin holds its one pass open), so requireRhiFrame must never run on the
+   *  rhiPass arm. Dies with the twin (#991 P4/P5). */
   rhiPass?: import('@xgis/rhi').RhiRenderPass
   /** The backend RHI device for this frame (`host.ctx.rhi` — the single injected
    *  instance, WebGpuDevice or WebGl2Device). Threaded onto the frame so a pass or
@@ -159,13 +160,6 @@ export interface FrameContext {
    *  textures (stencil / oitAccum / oitRevealage / pick / overdrawAccum)
    *  for their render-pass attachments. */
   rt: RenderTargets
-  /** True under the forced-WebGL2 boot (`?forcegl2=1` → `host.ctx.rhi != null`).
-   *  Selects the RHI screen-pass lifecycle for the raster slice instead of the raw
-   *  WebGPU encoder path. Populated at the FrameContext build site from
-   *  `host.ctx.rhi != null`; undefined/false on the normal WebGPU path (the loop then
-   *  takes the unchanged raw-WebGPU branch). The handle itself is reached as
-   *  `host.ctx.rhi`; this flag is only the per-frame branch predicate. */
-  useRhi?: boolean
 }
 
 /** First-frame FrameContext construction (#1429 piece 6 — the factory the

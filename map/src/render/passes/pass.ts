@@ -71,7 +71,8 @@ export interface RenderPass {
   /** Whether this pass emits anything this frame — the gate the inline
    *  `if (...)` block used. */
   shouldRun(scene: SceneView): boolean
-  /** Emit the pass's GPU commands into `ctx.encoder`. */
+  /** Emit the pass's GPU commands through the RHI frame shell
+   *  (`requireRhiFrame(ctx, label)` — every chain pass since #1046 F3b). */
   execute(ctx: FrameContext, scene: SceneView, host: PassHost): void
 }
 

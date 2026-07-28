@@ -100,6 +100,11 @@ const BASELINE: Record<string, number> = {
   // GPUContext ctor param (type) + wrapWebGpuPass for the WebGPU pass wrap in
   // render(), so the opaque pass file stays backend-adapter-free. #1272.
   'map/src/render/coverage-renderer.ts': 1,
+  // Inc-3a (#1046): the debug compose originates on the RHI shell but its
+  // colormap pipeline/bind group stay native behind ONE boundary unwrap (the
+  // VTR idiom) — this row is that unwrap import. Retires when the compose
+  // moves onto a Material.
+  'map/src/render/passes/overdraw-compose-pass.ts': 1,
   'map/src/render/feature-data-binder.ts': 1,
   'map/src/render/frame-context.ts': 1,
   'map/src/render/frame-renderer.ts': 3,
