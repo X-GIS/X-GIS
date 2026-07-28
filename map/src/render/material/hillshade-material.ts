@@ -24,7 +24,7 @@ import { rasterGridVertexCount } from '../../shaders/dsl/raster'
 import { rasterTileBytes, rasterUniformBytes } from '../raster-uniform-slots'
 import { hillshadeUniformBytes } from '../hillshade-uniform-slots'
 import type { RasterTile } from './raster-material'
-import { emitGlslModule } from '@xgis/shader-dsl'
+import { emitGlslStages } from '@xgis/shader-dsl'
 
 /** One hillshade DEM tile to draw. Structurally identical to a raster tile — the
  *  per-tile bytes are the SHARED raster 'TileUniforms' (writeRasterTileUniform),
@@ -62,18 +62,35 @@ export class HillshadeDraper {
     this.hsPickUniform = rhi.createBuffer({ size: hillshadeUniformBytes(), usage: 'uniform' })
   }
 
-  /** The pipeline for one (method, pick) pair — memoised. */
+  /** The pipeline for one (method, pick) pair — memoised.
+   *
+   *  This runs SYNCHRONOUSLY inside the first draw() of a hillshade layer, so its cost
+   *  IS the layer's time-to-first-pixel. Two things keep it off the critical path:
+   *
+   *   • the WGSL is not emitted on WebGL2 at all — rhi-webgl2's createPipeline requires
+   *     GLSL vsCode/fsCode and never reads `desc.code` (pinned by that backend's
+   *     createpipeline-dual-source-guard.test.ts, which fail-louds on a WGSL-only desc),
+   *     so emitting it was pure waste — 693 ms of a measured 2211 ms first-draw block
+   *     for `multidirectional`, the heaviest method and the one the Multidirectional
+   *     Relief demo authors;
+   *   • both GLSL stages come from ONE emitGlslStages call, which lowers + runs the
+   *     optimizer fixpoint once rather than once per stage. Per-stage lowering made the
+   *     vertex emit as expensive as the fragment (~770 ms each) even though `vs_tile` is
+   *     the SAME function raster emits in 36 ms — the fixpoint was re-optimising
+   *     `fs_hillshade` on the vertex call too.
+   */
   private materialFor(methodFlag: number, pick: boolean): Material {
     const key = `${methodFlag}:${pick ? 'p' : 'n'}`
     const hit = this.materials.get(key)
     if (hit) return hit
     const mod = buildHillshadeModule(pick, methodFlag)
+    const glsl = emitGlslStages(mod)
     const mat = new Material(this.rhi, {
-      shader: emitHillshadeWgsl(pick, methodFlag),
+      shader: this.rhi.backend === 'webgl2' ? '' : emitHillshadeWgsl(pick, methodFlag),
       vsEntry: 'vs_tile',
       fsEntry: 'fs_hillshade',
-      vsCode: emitGlslModule(mod, 'vertex'),
-      fsCode: emitGlslModule(mod, 'fragment'),
+      vsCode: glsl.vertex,
+      fsCode: glsl.fragment,
       format: this.format as 'bgra8unorm',
       sampleCount: this.sampleCount,
       groups: [

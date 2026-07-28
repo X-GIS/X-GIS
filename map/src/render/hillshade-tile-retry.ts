@@ -1,4 +1,9 @@
-// ═══ Hillshade DEM tile failed-load backoff ═══
+// ═══ Hillshade DEM tile REQUEST policy — failed-load backoff + cold-start budget ═══
+//
+// Both halves answer the same question the renderer asks every frame: may this tile be
+// requested now? They live together because they contend for the same scarce resource
+// (the renderer's concurrency slots) and because a GPU-free unit test can settle either
+// one, while HillshadeRenderer itself needs a real device.
 //
 // A DEM tile load that resolves null (404, network error, a decode/upload throw)
 // leaves its key in NEITHER the tile cache NOR the in-flight set, so the very next
@@ -45,6 +50,32 @@ export function tileRequestable(failed: FailedTile | undefined, frameCount: numb
   if (!failed) return true
   if (failed.attempts >= MAX_TILE_ATTEMPTS) return false
   return frameCount - failed.lastFailedFrame >= retryDelayFrames(failed.attempts)
+}
+
+/** Slots held back from the leaf loop on a cold start, for the parent-fallback
+ *  prefetch that follows it. Two, because the fallback asks for 1 AND 2 levels up. */
+export const COLD_START_PARENT_SLOTS = 2
+
+/** How many of the `maxConcurrent` slots the LEAF (full-resolution) loop may take this
+ *  frame.
+ *
+ *  The leaf loop runs first and breaks at the budget, so with the full budget it takes
+ *  every slot and the parent-fallback prefetch below it gets NONE on the frame that
+ *  matters — the first one. Nothing is then drawable until a full-resolution DEM tile
+ *  lands, and DEM tiles are heavy: terrarium PNGs measure ~131–143 KB against ~19–28 KB
+ *  for a satellite JPEG covering the same ground, because elevation cannot survive lossy
+ *  compression. One COARSE tile covers 4x (one level up) or 16x (two) the area of a leaf
+ *  for the same bytes, so spending two slots on ancestors is what puts relief on screen
+ *  first, blurry, instead of leaving it empty.
+ *
+ *  Cold start ONLY (nothing cached). Once any tile is in hand there IS drawable
+ *  coverage, and leaf-first priority resumes unchanged — it is load-bearing for pitched
+ *  and mixed-LOD views, where requesting in draw order starved the actual visible leaves.
+ *  A source swap that leaves the previous source's tiles cached does not re-trigger this;
+ *  that case still has (stale) coverage to draw, which is the condition being protected. */
+export function leafLoadBudget(maxConcurrent: number, cachedTiles: number): number {
+  if (cachedTiles > 0) return maxConcurrent
+  return Math.max(1, maxConcurrent - COLD_START_PARENT_SLOTS)
 }
 
 /** Fold one null load result into the backoff state for `key`. */

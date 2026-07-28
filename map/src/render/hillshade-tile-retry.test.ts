@@ -1,9 +1,11 @@
 import { describe, it, expect } from 'vitest'
 import {
   MAX_TILE_ATTEMPTS,
+  COLD_START_PARENT_SLOTS,
   retryDelayFrames,
   tileRequestable,
   noteFailure,
+  leafLoadBudget,
   type FailedTile,
 } from './hillshade-tile-retry'
 
@@ -82,5 +84,33 @@ describe('hillshade failed-tile backoff', () => {
     // (second failure) still is not.
     expect(tileRequestable(failed.get('b'), 60)).toBe(true)
     expect(tileRequestable(failed.get('a'), 60)).toBe(false)
+  })
+})
+
+// The defect this encodes: on the FIRST frame the leaf loop breaks only at the full
+// concurrency budget, so it consumed all 6 slots and the parent-fallback prefetch
+// directly below it got none. Nothing was drawable until a full-resolution DEM tile
+// landed — and those are ~131-143 KB (terrarium PNG) against ~19-28 KB for a satellite
+// JPEG over the same ground, so "empty until the leaves arrive" is exactly the
+// slow-to-appear symptom hillshade has and the raster basemap does not.
+describe('hillshade cold-start load budget', () => {
+  it('holds slots back for the parent prefetch when nothing is cached', () => {
+    // Before: 6 — every slot to leaves, zero coarse tiles requested on frame 1.
+    expect(leafLoadBudget(6, 0)).toBe(6 - COLD_START_PARENT_SLOTS)
+  })
+
+  it('gives the leaf loop the full budget as soon as anything is drawable', () => {
+    // Leaf-first is load-bearing under pitch / mixed LOD — it must come back
+    // unchanged the moment there is coverage to fall back on.
+    expect(leafLoadBudget(6, 1)).toBe(6)
+    expect(leafLoadBudget(6, 500)).toBe(6)
+  })
+
+  it('never starves the leaf loop to zero, whatever the concurrency limit', () => {
+    // A budget of 0 would deadlock the cold start: no leaf ever requested, so the
+    // cache never becomes non-empty, so the budget never recovers.
+    expect(leafLoadBudget(1, 0)).toBe(1)
+    expect(leafLoadBudget(2, 0)).toBe(1)
+    expect(leafLoadBudget(COLD_START_PARENT_SLOTS, 0)).toBeGreaterThan(0)
   })
 })

@@ -31,7 +31,12 @@ import {
   rasterTileU as RASTER_TILE_U,
 } from '../shaders/dsl/raster'
 import { hillshadeU as HILLSHADE_U } from '../shaders/dsl/hillshade'
-import { tileRequestable, noteFailure, type FailedTile } from './hillshade-tile-retry'
+import {
+  tileRequestable,
+  noteFailure,
+  leafLoadBudget,
+  type FailedTile,
+} from './hillshade-tile-retry'
 import {
   writeRasterFrameUniform,
   writeRasterTileUniform,
@@ -537,7 +542,10 @@ export class HillshadeRenderer {
     tiles.sort((a, b) => (a.z !== b.z ? a.z - b.z : 0))
     const visibleKeys = new Set(tiles.map((c) => `${c.z}/${c.x}/${c.y}`))
 
-    // Load missing tiles (leaf-first so near tiles win the concurrency budget).
+    // Load missing tiles (leaf-first so near tiles win the concurrency budget) — except
+    // on a cold start, where leafLoadBudget holds two slots back so the parent-fallback
+    // prefetch below can put a coarse tile on screen first (hillshade-tile-retry.ts).
+    const leafBudget = leafLoadBudget(MAX_CONCURRENT_LOADS, this.tileCache.size)
     const loadOrder = [...tiles].sort((a, b) => b.z - a.z)
     for (const coord of loadOrder) {
       const key = `${coord.z}/${coord.x}/${coord.y}`
@@ -546,7 +554,7 @@ export class HillshadeRenderer {
       // elapses — without this, a past-max-zoom view spends the whole budget on
       // 404s every frame (hillshade-tile-retry.ts explains why that path is common).
       if (!tileRequestable(this.failedTiles.get(key), this.frameCount)) continue
-      if (this.loadingTiles.size >= MAX_CONCURRENT_LOADS) break
+      if (this.loadingTiles.size >= leafBudget) break
       const ctrl = new AbortController()
       this.loadingTiles.set(key, ctrl)
       this.loadTileTexture(tileUrl(this.urlTemplate, coord), ctrl.signal)

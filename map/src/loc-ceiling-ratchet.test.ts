@@ -826,7 +826,14 @@ const CEILINGS: Record<string, number> = {
   // guards, the two failure/clear branches and the re-arm reset; the POLICY itself
   // (backoff curve + attempt cap) went to hillshade-tile-retry.ts rather than in
   // here, so it is unit-testable without a GPU and this file stays near its mark.
-  'map/src/render/hillshade-renderer.ts': 828,
+  // 828→836 (cold-start load budget): the leaf loop broke only at the FULL concurrency
+  // budget, so on the first frame it took all 6 slots and the parent-fallback prefetch
+  // right below it got none — nothing was drawable until a full-resolution DEM tile
+  // landed, and terrarium PNGs measure ~131-143 KB against ~19-28 KB for a satellite
+  // JPEG over the same ground. +8 = the 3-line rationale, the one `leafBudget` binding,
+  // and the 4 lines prettier adds re-wrapping the now-101-char retry import. The POLICY
+  // is again in hillshade-tile-retry.ts (leafLoadBudget), same split as the backoff.
+  'map/src/render/hillshade-renderer.ts': 836,
   // Merge union (#1060 <- main): stacked growth — measured 1174.
   'map/src/render/point-renderer.ts': 1174,
   // 1106→1120 (#1043 state-hygiene): three unmask-before-clear / state-reset fixes for the
