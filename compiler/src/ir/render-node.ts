@@ -263,6 +263,10 @@ export interface RenderNodeArrowPaint {
 export interface RenderNodeFlowPaint {
   /** True when the layer is a `flow` layer (the `flow` marker utility). */
   isFlow?: boolean
+  /** How `| flow`'s motion is portrayed (#1418). IBFV is the MECHANISM; this is the
+   *  presentation built on it. Undefined = the default (`arrows`), resolved at arm time so the
+   *  default lives in ONE place rather than being spelled at every consumer. */
+  flowPortrayal?: 'arrows' | 'streaks'
 }
 
 export interface RenderNode

@@ -481,6 +481,9 @@ function lowerLayer(
   let arrowBearing: SizeValue | undefined
   // Particle-flow layer (#1333): marker for an animated coverage vector-field reading.
   let isFlow: boolean | undefined
+  // How that motion is PORTRAYED (#1418) — set by the `flow-arrows` / `flow-streaks`
+  // modifiers. Undefined = the default, resolved at arm time so it has ONE authority.
+  let flowPortrayal: 'arrows' | 'streaks' | undefined
   let isHeatmap: boolean | undefined
   let heatmapRadius: number | undefined
   let heatmapWeight: number | undefined
@@ -793,6 +796,7 @@ function lowerLayer(
     isArrow,
     arrowBearing,
     isFlow,
+    flowPortrayal,
     heatmapRadius,
     heatmapWeight,
     heatmapIntensity,
@@ -964,6 +968,7 @@ function lowerLayer(
   isArrow = acc.isArrow
   arrowBearing = acc.arrowBearing
   isFlow = acc.isFlow
+  flowPortrayal = acc.flowPortrayal
   isHeatmap = acc.isHeatmap
   heatmapRadius = acc.heatmapRadius
   heatmapWeight = acc.heatmapWeight
@@ -1223,6 +1228,7 @@ function lowerLayer(
     isArrow,
     arrowBearing,
     isFlow,
+    flowPortrayal,
     heatmapRadius,
     heatmapWeight,
     heatmapIntensity,

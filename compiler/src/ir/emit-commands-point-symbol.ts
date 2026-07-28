@@ -67,9 +67,11 @@ export function emitArrowFields(node: RenderNode): ArrowPaint {
 export interface FlowPaint {
   /** True when the layer is a `flow` layer. Routes to the animated field. */
   isFlow?: boolean
+  /** The portrayal `| flow` uses (#1418) — `arrows` (default) or `streaks`. */
+  flowPortrayal?: 'arrows' | 'streaks'
 }
 
 /** Particle-flow paint field (#1333) — mirrors emitHeatmapFields/emitArrowFields. */
 export function emitFlowFields(node: RenderNode): FlowPaint {
-  return { isFlow: node.isFlow }
+  return { isFlow: node.isFlow, flowPortrayal: node.flowPortrayal }
 }
