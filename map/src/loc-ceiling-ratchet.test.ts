@@ -478,11 +478,16 @@ const CEILINGS: Record<string, number> = {
   // of the `| arrow` branch — that line now lives in coverage-arm.ts, so it adds nothing here
   // and main's LOWER ceiling stands. Value below is the MEASURED post-merge count.
   //
-  // +6 (#1419, third pass): the coverage renderer's LRU eviction is now ANNOUNCED, and the map
-  // is what listens — a dropped region takes its compiled arrows with it. Two wire-ups (the
-  // GPU boot and the backend switch), each with the sentence saying why the LRU needed one at
+  // #1437 likewise landed ON that extraction rather than beside it: its own drape-arm extraction
+  // was dropped on the merge and the `filter:` argument went into coverage-arm.ts, so map.ts is
+  // untouched by it too. Both merges leave the number as #1426's, re-measured each time.
+  //
+  // MERGE UNION (#1419 third pass <- main @ #1437): main's side adds nothing here (see above);
+  // my side's +6 is the coverage renderer's LRU eviction now being ANNOUNCED, with the map as
+  // the listener — a dropped region takes its compiled arrows with it. Two wire-ups (the GPU
+  // boot and the backend switch), each carrying the sentence saying why the LRU needed one at
   // all: nothing else observed it, so an evicted region's arrows kept drawing against velocity
-  // textures that had just been destroyed.
+  // textures that had just been destroyed. Value below is the MEASURED post-merge count.
   'map/src/map.ts': 5393,
   // Baselined at #1255 (measured 830): the DOM-inspired layer API crossed
   // NEW_FILE_CAP with the paint-transition style-setter integration — the

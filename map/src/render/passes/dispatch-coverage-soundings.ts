@@ -15,6 +15,7 @@ import type { LabelDef } from '@xgis/compiler'
 import type { CoverageHandle } from '@xgis/data'
 import { coverageSoundingAnchors, SOUNDING_LATTICE_CSS_PX } from '../../coverage-sounding-anchors'
 import { filterAcceptsProps } from '../../feature-helpers'
+import { coverageCellPredicate } from '../../shaders/dsl/coverage-filter-cpu'
 
 /** `TextStage.addLabel`, narrowed to the arguments this arm passes. */
 type AddLabel = (
@@ -66,13 +67,23 @@ export function dispatchCoverageSoundings(
     height: viewport.height,
     spacingPx: SOUNDING_LATTICE_CSS_PX * viewport.dpr,
   })
+  // `filter:` reaches a coverage layer's NUMERALS here (GeoJSON is pre-filtered into its own
+  // FeatureCollection and vector tiles fold the filter into the worker slice key; a grid is
+  // neither). The cell's bands are the property bag, so `.depth > 20` reads as it would on a
+  // feature.
+  //
+  // The SHARED predicate comes first (#1437): when the clause compiles to the coverage
+  // fragment predicate, this arm runs that same IR through the DSL's CPU backend, so a layer
+  // drawing both a ramp and numerals cannot filter them differently. When it does not compile
+  // — a string operand, two bands, a form only a property bag can answer — the general AST
+  // evaluator still applies. That fallback is never reached by a layer that also drapes: the
+  // ramp arm REFUSES an uncompilable predicate outright, so the two evaluators are never both
+  // live for one clause.
+  const shared = coverageCellPredicate(opts.filter, opts.cameraZoom ?? 0)
   for (const a of anchors) {
-    // `filter:` reaches a coverage layer HERE and nowhere else. GeoJSON is pre-filtered into a
-    // separate FeatureCollection and vector tiles fold the filter into the worker slice key;
-    // a grid is neither, so before this the clause compiled cleanly and did nothing at all —
-    // the same silent no-op `| label-` itself was before INC-5. The cell's bands are the
-    // property bag, so `.depth > 20` reads as it would on a feature.
-    if (!filterAcceptsProps(opts.filter, a.values, opts.cameraZoom)) continue
+    if (shared) {
+      if (!shared(a.values)) continue
+    } else if (!filterAcceptsProps(opts.filter, a.values, opts.cameraZoom)) continue
     const def = applyFeatureExprs(a.values)
     for (const projected of projectLonLatCopies(a.lon, a.lat)) {
       addLabel(
