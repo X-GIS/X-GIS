@@ -141,9 +141,6 @@ const BASELINE: Record<string, number> = {
   // the eviction policy moved to raster-cache-budget.ts, shared with
   // raster-renderer. Disjoint removals over the common ancestor sum: 7−2−3.
   'map/src/render/hillshade-renderer.ts': 2,
-  // 25→11 (#1046 F3b Inc-2c): drawLayerAccum's native bridge + the lazy _native
-  // block (bind-group layout, blur-dir buffers, ramp sampler) retired.
-  'map/src/render/heatmap-renderer.ts': 11,
   'map/src/render/line-renderer.ts': 28,
   // #777 Phase II — HillshadeDraper mirrors RasterDraper (GPUTexture/RhiTexture
   // union in the tile + view-cache types, bridged via wrapWebGpuTextureView).

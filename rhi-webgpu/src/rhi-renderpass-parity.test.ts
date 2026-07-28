@@ -232,7 +232,7 @@ describe('rhiRenderPassToGpu — byte-identity vs the raw passes/ descriptors', 
     })
   })
 
-  it('heatmap accum / blur — offscreen r16float clear, no depth (heatmap-pass.ts:62)', () => {
+  it('heatmap accum / blur — offscreen r16float clear, no depth (HeatmapRenderer.renderChainRhi accum/blur shape)', () => {
     expect(
       rhiRenderPassToGpu({
         colorAttachments: [
@@ -251,7 +251,7 @@ describe('rhiRenderPassToGpu — byte-identity vs the raw passes/ descriptors', 
     })
   })
 
-  it('heatmap compose — screenView load, no clear, no resolve (heatmap-pass.ts:124)', () => {
+  it('heatmap compose — screenView load, no clear, no resolve (HeatmapRenderer.renderChainRhi compose shape)', () => {
     expect(
       rhiRenderPassToGpu({
         colorAttachments: [{ view: SCREEN, loadOp: 'load', storeOp: 'store' }],

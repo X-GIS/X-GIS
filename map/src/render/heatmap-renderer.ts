@@ -10,11 +10,11 @@
 // Gaussian splat quad per point into the offscreen R16Float density target.
 //
 // The renderer ALSO bakes each layer's `heatmap-color` ramp into a 256×1
-// RGBA8 LUT texture (sampled by the compose pass) and exposes the layer's
-// intensity / opacity for the compose uniform. The blur + compose pipelines
-// live in pipeline-factory (model on ensureOverdrawCompose); this renderer
-// owns only the accum pipeline (vertex + per-feature storage, like
-// PointRenderer) and the per-layer GPU buffers + ramp LUT.
+// RGBA8 LUT texture (sampled by the compose pass) and threads the layer's
+// intensity / opacity into the compose uniform. The accum/blur/compose draw
+// machinery lives in the RHI drapers (material/heatmap-material.ts, one
+// Material per stage, both frame shapes); this renderer owns the per-layer
+// data (packing, ramp LUT, params) and the two pass-loop orchestrations.
 //
 // SCOPE: GeoJSON-source / direct-layer points only (the map.ts Point/
 // MultiPoint fork). Tile-sourced heatmaps (addTilePoint/flushTilePoints) are
@@ -84,13 +84,6 @@ interface HeatmapLayer {
    *  so the LUT is device-free at addLayer time (the forced-WebGL2 stub device
    *  throws on any access, #834). */
   rampBytes: Uint8Array
-  /** 256×1 RGBA8 colour ramp LUT for this layer (native/WebGPU). Built LAZILY by
-   *  getLayers() on the WebGPU frame path — never in addLayer, so a heatmap style
-   *  boots on the forced-WebGL2 twin without touching the stub device. */
-  rampTexture?: GPUTexture
-  /** Compose params uniform (intensity, opacity) — one PER layer (native/WebGPU).
-   *  Built LAZILY by getLayers() (same reason as rampTexture). */
-  paramsBuf?: GPUBuffer
   // Per-layer GPU buffers (created lazily on first renderAccum, resized as
   // point count changes). Routed through the RHI seam (§4 batch-seam migration):
   // Rhi* handles, byte-identical to the raw VERTEX|COPY_DST / INDEX|COPY_DST /
@@ -166,7 +159,6 @@ export function writeHeatmapFrameUniform(
 }
 
 export class HeatmapRenderer {
-  private device: GPUDevice
   /** The RHI seam (§4 batch-seam migration). One instance, reused for the accum
    *  set (uniform + per-layer vert/idx/feat buffers + accum bind group) and the
    *  drapers. On WebGPU `createBuffer === device.createBuffer`,
@@ -181,8 +173,10 @@ export class HeatmapRenderer {
    *  (nominal on WebGL2's default framebuffer, but the descriptor requires it). */
   private readonly format: string
 
-  constructor(ctx: { device: GPUDevice; rhi: RhiDevice; format: string }) {
-    this.device = ctx.device
+  // The ctx param stays structurally satisfied by the boot's richer context
+  // object; `device` is deliberately NOT accepted — every resource routes
+  // through the RHI (F3b Inc-2c retired the last native touch).
+  constructor(ctx: { rhi: RhiDevice; format: string }) {
     this.rhi = ctx.rhi
     this.format = ctx.format
 
@@ -197,6 +191,11 @@ export class HeatmapRenderer {
 
   hasLayers(): boolean {
     return this.layers.length > 0
+  }
+
+  /** Number of registered heatmap layers (the pass loops over them). */
+  layerCount(): number {
+    return this.layers.length
   }
 
   /** Bake a 256×4 RGBA8 colour LUT (linear interp between stops) — the single
@@ -225,25 +224,6 @@ export class HeatmapRenderer {
       }
     }
     return data
-  }
-
-  /** Build a native 256×1 RGBA8 colour LUT texture from baked LUT bytes (WebGPU
-   *  only; touches this.device, so it runs LAZILY on the WebGPU frame path). */
-  private buildRampTexture(rampBytes: Uint8Array): GPUTexture {
-    const W = 256
-    const tex = this.device.createTexture({
-      size: { width: W, height: 1 },
-      format: 'rgba8unorm',
-      usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST,
-      label: 'heatmap-ramp-lut',
-    })
-    this.device.queue.writeTexture(
-      { texture: tex },
-      rampBytes,
-      { bytesPerRow: W * 4, rowsPerImage: 1 },
-      { width: W, height: 1 },
-    )
-    return tex
   }
 
   /** Add a heatmap layer from GeoJSON Point/MultiPoint features.
@@ -316,15 +296,12 @@ export class HeatmapRenderer {
 
   clearLayers(): void {
     for (const layer of this.layers) {
-      // Native ramp/params are lazily built on the WebGPU path only — `?.` guards
-      // the twin (they stay undefined there).
-      layer.rampTexture?.destroy()
-      layer.paramsBuf?.destroy()
-      // Accum buffers route through the RHI seam; ramp/params stay raw (separate set).
+      // Accum buffers route through the RHI seam.
       if (layer._vertBuf) this.rhi.destroyBuffer(layer._vertBuf)
       if (layer._idxBuf) this.rhi.destroyBuffer(layer._idxBuf)
       if (layer._featBuf) this.rhi.destroyBuffer(layer._featBuf)
-      // Forced-WebGL2 twin per-layer resources (#1060).
+      // Per-layer compose resources (ramp LUT + params) — shared by both frame
+      // shapes since the chain re-originated through the drapers (F3b Inc-2c).
       if (layer._rhiRampTex) this.rhi.destroyTexture(layer._rhiRampTex)
       if (layer._rhiParamsBuf) this.rhi.destroyBuffer(layer._rhiParamsBuf)
     }
@@ -337,29 +314,6 @@ export class HeatmapRenderer {
    *  each layer correctly. Builds the native GPU resources LAZILY here (first
    *  WebGPU frame) so addLayer stays device-free — this getter is the WebGPU path
    *  (the twin reads this.layers directly via renderRhi). */
-  // Return type via Required<Pick<…>> (not inline GPU* annotations): the getter
-  // GUARANTEES the two lazy native fields, and spelling the raw types here again
-  // would grow the #991 raw-WebGPU ratchet for a pure type restatement.
-  getLayers(): readonly Required<Pick<HeatmapLayer, 'rampTexture' | 'paramsBuf'>>[] {
-    for (const layer of this.layers) {
-      if (!layer.rampTexture) layer.rampTexture = this.buildRampTexture(layer.rampBytes)
-      if (!layer.paramsBuf) {
-        const buf = this.device.createBuffer({
-          size: 16,
-          usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
-          label: 'heatmap-compose-params',
-        })
-        this.device.queue.writeBuffer(
-          buf,
-          0,
-          new Float32Array([layer.intensity, layer.opacity, 0, 0]),
-        )
-        layer.paramsBuf = buf
-      }
-    }
-    return this.layers as readonly { rampTexture: GPUTexture; paramsBuf: GPUBuffer }[]
-  }
-
   /** Write the shared per-frame accum frame uniform (mvp / proj_params /
    *  viewport / camera anchor). Called ONCE per frame by the heatmap pass
    *  before the per-layer draws; the uniform is layer-independent. */
@@ -557,7 +511,11 @@ export class HeatmapRenderer {
   /** Lazily build this layer's RHI ramp LUT texture + compose-params uniform
    *  from the baked rampBytes / intensity / opacity (the native rampTexture +
    *  paramsBuf are proxy-device stubs on the twin). */
-  private ensureLayerComposeRhi(layerIndex: number): {
+  /** Lazily build this layer's compose resources (256×1 ramp-LUT texture +
+   *  [intensity, opacity] params uniform) on the RHI device. Public as the
+   *  compose data-path entry (heatmap-data-path.test.ts drives it directly to
+   *  capture the uploaded params bytes). */
+  ensureLayerComposeRhi(layerIndex: number): {
     rampView: RhiTextureView
     paramsBuf: RhiBuffer
   } {
@@ -574,7 +532,12 @@ export class HeatmapRenderer {
       layer._rhiRampView = this.rhi.createView(layer._rhiRampTex)
     }
     if (!layer._rhiParamsBuf) {
-      layer._rhiParamsBuf = this.rhi.createBuffer({ size: 16, usage: 'uniform', writable: true })
+      layer._rhiParamsBuf = this.rhi.createBuffer({
+        size: 16,
+        usage: 'uniform',
+        writable: true,
+        label: 'heatmap-compose-params',
+      })
       this.rhi.writeBuffer(
         layer._rhiParamsBuf,
         0,

@@ -56,6 +56,8 @@ export class HeatmapAccumTwinDraper {
       sampleCount: 1,
       groups: [
         [
+          // RHI kind entries lower to VERTEX|FRAGMENT visibility — a strict
+          // superset of the retired native bgl's VERTEX-only; same buffer types.
           { binding: 0, kind: 'uniform', name: 'Uniforms' },
           { binding: 1, kind: 'storage', name: 'feat_data' },
         ],
@@ -112,6 +114,9 @@ export class HeatmapBlurDraper {
       sampleCount: 1,
       groups: [
         [
+          // kind 'texture' lowers to sampleType 'float' (filterable). Valid for
+          // r16float; if the density target ever becomes r32float this needs the
+          // float32-filterable feature or an unfilterable-float entry.
           { binding: 0, kind: 'texture', name: 'src_tex' },
           { binding: 1, kind: 'uniform', name: 'BlurParams' },
         ],
