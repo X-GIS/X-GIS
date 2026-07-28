@@ -5885,6 +5885,134 @@
       "inputY": 539021.66,
       "refMercX": 14108939.381844131,
       "refMercY": 4502063.205588482
+    },
+    {
+      "label": "S-102 Chesapeake cell origin",
+      "fromEPSG": "EPSG:32618",
+      "inputX": 420767.84475419234,
+      "inputY": 4183856.856912584,
+      "refMercX": -8449147.05777057,
+      "refMercY": 4551021.049929547
+    },
+    {
+      "label": "Zone 18N central meridian",
+      "fromEPSG": "EPSG:32618",
+      "inputX": 500000,
+      "inputY": 4400000,
+      "refMercX": -8348961.809495518,
+      "refMercY": 4829665.799611477
+    },
+    {
+      "label": "Zone 18N west edge",
+      "fromEPSG": "EPSG:32618",
+      "inputX": 200000,
+      "inputY": 4500000,
+      "refMercX": -8743614.761043886,
+      "refMercY": 4952993.070314802
+    },
+    {
+      "label": "Zone 18N equator",
+      "fromEPSG": "EPSG:32618",
+      "inputX": 500000,
+      "inputY": 0,
+      "refMercX": -8348961.809495518,
+      "refMercY": 0
+    },
+    {
+      "label": "Zone 1N central meridian",
+      "fromEPSG": "EPSG:32601",
+      "inputX": 500000,
+      "inputY": 6000000,
+      "refMercX": -19703549.87040942,
+      "refMercY": 7198255.485297485
+    },
+    {
+      "label": "Zone 1N low latitude",
+      "fromEPSG": "EPSG:32601",
+      "inputX": 460000,
+      "inputY": 500000,
+      "refMercX": -19743689.8126804,
+      "refMercY": 504074.60987111455
+    },
+    {
+      "label": "Zone 33N Europe",
+      "fromEPSG": "EPSG:32633",
+      "inputX": 500000,
+      "inputY": 5500000,
+      "refMercX": 1669792.3618991016,
+      "refMercY": 6386318.428620992
+    },
+    {
+      "label": "Zone 33N east edge",
+      "fromEPSG": "EPSG:32633",
+      "inputX": 750000,
+      "inputY": 5000000,
+      "refMercX": 2023568.1436505392,
+      "refMercY": 5638735.2358204415
+    },
+    {
+      "label": "Zone 52N Korea/Japan",
+      "fromEPSG": "EPSG:32652",
+      "inputX": 500000,
+      "inputY": 4000000,
+      "refMercX": 14360214.312332287,
+      "refMercY": 4320552.6740945
+    },
+    {
+      "label": "Zone 52N west edge",
+      "fromEPSG": "EPSG:32652",
+      "inputX": 280000,
+      "inputY": 3900000,
+      "refMercX": 14091140.675488306,
+      "refMercY": 4193673.829254567
+    },
+    {
+      "label": "Zone 60N central meridian",
+      "fromEPSG": "EPSG:32660",
+      "inputX": 500000,
+      "inputY": 6200000,
+      "refMercX": 19703549.870409418,
+      "refMercY": 7547549.040222336
+    },
+    {
+      "label": "Zone 18S Peru coast",
+      "fromEPSG": "EPSG:32718",
+      "inputX": 500000,
+      "inputY": 8600000,
+      "refMercX": -8348961.809495518,
+      "refMercY": -1421392.2403610963
+    },
+    {
+      "label": "Zone 18S near equator",
+      "fromEPSG": "EPSG:32718",
+      "inputX": 500000,
+      "inputY": 9900000,
+      "refMercX": -8348961.809495518,
+      "refMercY": -100718.33693570735
+    },
+    {
+      "label": "Zone 33S Africa",
+      "fromEPSG": "EPSG:32733",
+      "inputX": 500000,
+      "inputY": 7500000,
+      "refMercX": 1669792.3618991016,
+      "refMercY": -2584543.3507180996
+    },
+    {
+      "label": "Zone 33S east edge",
+      "fromEPSG": "EPSG:32733",
+      "inputX": 720000,
+      "inputY": 8000000,
+      "refMercX": 1901192.6912645118,
+      "refMercY": -2046623.2312456756
+    },
+    {
+      "label": "Zone 60S Pacific",
+      "fromEPSG": "EPSG:32760",
+      "inputX": 500000,
+      "inputY": 8200000,
+      "refMercX": 19703549.870409418,
+      "refMercY": -1837267.845052642
     }
   ]
 }

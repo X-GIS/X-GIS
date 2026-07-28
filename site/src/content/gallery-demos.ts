@@ -612,7 +612,7 @@ export const galleryCategories: Category[] = [
       {
         id: 'coverage-bathymetry',
         title: 'S-100 bathymetry coverage',
-        body: 'S-100 gridded coverage read in place from S-102 HDF5 — a synthetic bathymetry grid with a north→south depth ramp and a nodata hole.',
+        body: 'S-100 gridded coverage read in place from S-102 HDF5 — a synthetic bathymetry grid with a north→south depth ramp and a nodata hole, with sounding numerals over it: the exact depths, straight off the grid, the way a chart is meant to be read.',
         noThumb: true,
       },
       // noThumb: flip together with coverage-bathymetry once a real-GPU
@@ -629,6 +629,14 @@ export const galleryCategories: Category[] = [
         id: 's111-live',
         title: 'NOAA S-111 live currents (real S3)',
         body: 'The REAL NOAA S-111 forecast — streams the newest CBOFS cell straight from the NOAA Open-Data S3 bucket, read as S-100 HDF5 in place through a CORS proxy. Speed over satellite imagery, particles along the real direction band.',
+        noThumb: true,
+      },
+      // noThumb: streams a real NOAA cell over the network (no egress in the
+      // capture env; needs the /noaa proxy, absent there too).
+      {
+        id: 's102-live',
+        title: 'NOAA S-102 live bathymetry (real S3)',
+        body: 'The REAL NOAA S-102 bathymetry — a Chesapeake Bay cell streamed straight from the NOAA Open-Data S3 bucket, read as S-100 HDF5 in place. The first PROJECTED coverage on the map: the grid is UTM 18N metres, so the drape reprojects its mesh through the cell’s own CRS instead of assuming degrees. Sounding numerals over the ramp print the depths a colour scale cannot, straight off the original grid.',
         noThumb: true,
       },
       // noThumb: live NOAA fetch (no network egress in the capture env).

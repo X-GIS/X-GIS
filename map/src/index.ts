@@ -253,6 +253,11 @@ export * from './web/component'
 // barrel stays a superset of `public.ts`; both must agree, and public.ts is the
 // curated npm surface.
 export { loadGeoJSON, lonLatToMercator } from '@xgis/data'
+// The CRS-aware coverage readout (#1366): `getCoverage(...)` hands back a handle whose
+// `valueAt` is unit-native, and a real S-102 cell's units are UTM metres — so a caller
+// holding a lon/lat needs this. Exported beside `getCoverage` rather than left to a
+// direct @xgis/data dependency, since that is where the handle comes from.
+export { valueAtLonLat, lonLatToCellUnits } from '@xgis/data'
 export {
   injectPolarCaps,
   findClampBoundarySpans,

@@ -119,6 +119,30 @@ describe('addCoverageArrowShowLayer (#1333 — engine S-111 arrow field)', () =>
     expect(calls).toHaveLength(0)
   })
 
+  it('places a PROJECTED grid through its own CRS, not as if metres were degrees (#1366)', () => {
+    // The arrow field derived positions as `origin + col·spacing` — the grid's own units,
+    // which are degrees only for a geographic cell. Every real S-111 cell is geographic,
+    // so it read as correct; #1366 INC-3 made PROJECTED cells placeable, and this field
+    // would then have pushed UTM metres as lon/lat — 420 768° east, off the planet.
+    const handle = coverageFromGrids({
+      ...s111Input([1, 1, 1, 1, 1, 1], [0, 0, 0, 0, 0, 0]),
+      crs: 32618, // WGS 84 / UTM 18N — the real NOAA S-102 Chesapeake cell's CRS
+      origin: [420767.84475419234, 4183856.856912584],
+      spacing: [16, 16],
+    })
+    const { host, calls } = makeHost()
+    addCoverageArrowShowLayer(host, s111Show, handle)
+    const c = calls[0]!
+    // Chesapeake Bay, in degrees — NOT the metre numbers the old derivation emitted.
+    for (const lon of c.lons) expect(lon).toBeGreaterThan(-76.1)
+    for (const lon of c.lons) expect(lon).toBeLessThan(-75.8)
+    for (const lat of c.lats) expect(lat).toBeGreaterThan(37.7)
+    for (const lat of c.lats) expect(lat).toBeLessThan(37.9)
+    // The cells stay ordered west→east and the grid stays north-up.
+    expect(c.lons[1]!).toBeLessThan(c.lons[2]!)
+    expect(c.lats[0]!).toBeGreaterThan(c.lats[3]!)
+  })
+
   it('no-ops on a single-band coverage (no direction to orient the arrow)', () => {
     const input: CoverageInput = {
       product: 's111',

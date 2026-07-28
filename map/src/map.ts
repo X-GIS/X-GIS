@@ -91,6 +91,8 @@ import { HillshadeRenderer, armHillshadeSource } from './render/hillshade-render
 import { CoverageRenderer, DEFAULT_REGION } from './render/coverage-renderer'
 import { coverageDrapeArm } from './render/coverage-drape-arm'
 import {
+  refreshCoverageSource,
+  type RefreshCoverageOpts,
   coverageHandleAt,
   coverageRegions,
   dropCoverageRegion,
@@ -101,6 +103,8 @@ import {
   type CoverageSourceDeps,
   type PushCoverageOpts,
 } from './coverage-source'
+import { CoverageRefreshScheduler, type RefreshReason } from './coverage-refresh'
+import type { Bbox } from '@xgis/data'
 import type { FlowRenderer } from './render/flow-renderer'
 import { UnderOccluderRenderer } from './render/under-occluder-renderer'
 import { PointRenderer } from './render/point-renderer'
@@ -531,6 +535,13 @@ export class XGISMap {
   private readonly _coverageTime = new CoverageTimePlayer()
   /** What coverage-source.ts drives on this map. Built once — the region push/step/drop
    *  bodies live there (map.ts is shrink-only), and this is their whole blast radius. */
+  /** #1158 — live-refresh state for `coverage` sources: last-seen validators + the poll
+   *  timers. The POLICY (validator comparison, the decision table, the loop lifecycle) lives
+   *  in coverage-refresh.ts and is unit-tested there; `destroy()` stops every loop.
+   *
+   *  DECLARED BEFORE `_coverageDeps`, which captures it: class fields initialise in source
+   *  order, so the other way round the deps record would capture `undefined`. */
+  private readonly _coverageRefresh = new CoverageRefreshScheduler()
   private readonly _coverageDeps: CoverageSourceDeps = {
     rawDatasets: this.rawDatasets,
     renderer: this.coverageRenderer,
@@ -539,6 +550,9 @@ export class XGISMap {
     armFields: (handle, region) => this._armCoverageFields(handle, region),
     clearArrows: (region) => this._graphics.clearCompiledArrows(region),
     invalidate: () => this.invalidate(),
+    refresh: this._coverageRefresh,
+    guardedFetch: (label) => (u, init) => safeFetch(String(u), init, label), // SSRF guard
+    destroyed: () => this._destroyed,
   }
   /** #1333 — set while a `coverage` layer with `| arrow` has an armed S-111 arrow field, so a
    *  coverage DATA swap (setCoverageData / setCoverageTime) re-derives the field via a rebuild
@@ -4651,12 +4665,15 @@ export class XGISMap {
     return Array.from(this.xgisLayers.values())
   }
 
-  /** The CPU-resident CoverageHandle for an S-100 `coverage` source (#1158 GAP-1),
-   *  or null when `sourceId` is not a loaded coverage. This is the value-readout
-   *  AUTHORITY — `map.getCoverage('bathy')?.valueAt(lon, lat)` returns the exact
-   *  positive-down value AS STORED (no sign flip), and `.meta` carries the vertical
-   *  datum code/sign + band metadata. Half-precision only ever affects the colour
-   *  path (the r16float texture), never this readout. */
+  /** The CPU-resident CoverageHandle for an S-100 `coverage` source (#1158 GAP-1), or null
+   *  when `sourceId` is not a loaded coverage. This is the value-readout AUTHORITY — the
+   *  exact positive-down value AS STORED (no sign flip); `.meta` carries the vertical datum
+   *  code/sign + band metadata; half-precision only ever affects the colour path.
+   *
+   *  `handle.valueAt` indexes in the GRID'S OWN CRS UNITS, which are degrees only for a
+   *  geographic cell. From a lon/lat go through `valueAtLonLat(handle, lon, lat)` (#1366,
+   *  re-exported from @xgis/map) — on a real S-102 cell, whose grid is UTM metres, a raw
+   *  lon/lat simply misses the grid and reads null. */
   getCoverage(sourceId: string, at?: readonly [number, number]): CoverageHandle | null {
     // A mosaic source holds several regions, so "the" coverage is only well-defined for a
     // POINT: `at` picks the region whose grid actually covers it. Without one, answer with
@@ -4708,6 +4725,58 @@ export class XGISMap {
    *  holding up the others. */
   async setCoverageTime(sourceId: string, indexOrISO: number | string): Promise<void> {
     return stepCoverageRegions(this._coverageDeps, sourceId, indexOrISO)
+  }
+
+  /** Re-read a `coverage` source's URL if its content changed — the live-refresh primitive
+   *  for a cell at a ROLLING url (NOAA `latest.h5`, a re-issued S-102 cell) (#1158).
+   *
+   *  Revalidation is a cheap HEAD probe, so an unchanged cell costs almost nothing and
+   *  returns `{changed: false}`. Every uncertain case READS (no validator exposed, HEAD
+   *  blocked, first probe): a needless read costs bandwidth, a wrongly-skipped one leaves a
+   *  stale chart on screen. Each resident region is probed and re-read independently.
+   *  Throws when `sourceId` is not a coverage source, or when it was host-pushed with no URL
+   *  — there is nothing to re-read then, and silently doing nothing would look like "no
+   *  change". */
+  async refreshCoverage(
+    sourceId: string,
+    opts?: RefreshCoverageOpts,
+  ): Promise<{ changed: boolean; reason: RefreshReason }> {
+    return refreshCoverageSource(this._coverageDeps, sourceId, opts)
+  }
+
+  /** Poll `refreshCoverage(sourceId)` every `intervalMs` (clamped to ≥ 1 s). Restarts
+   *  cleanly if already polling this source; `stopAutoRefreshCoverage` stops it, and
+   *  `destroy()` stops every loop. A tick re-arms only after the previous one settles, so a
+   *  read slower than the interval cannot stack up. A failed tick does NOT stop the loop (a
+   *  poll of a live network is allowed to blip) — failures surface through `onError`. */
+  autoRefreshCoverage(
+    sourceId: string,
+    opts: {
+      intervalMs: number
+      force?: boolean
+      bbox?: Bbox
+      onRefresh?: (result: { changed: boolean; reason: RefreshReason }) => void
+      onError?: (err: unknown) => void
+    },
+  ): void {
+    this._coverageRefresh.start(
+      sourceId,
+      opts.intervalMs,
+      async () => {
+        const result = await this.refreshCoverage(sourceId, {
+          ...(opts.force ? { force: true } : {}),
+          ...(opts.bbox ? { bbox: opts.bbox } : {}),
+        })
+        opts.onRefresh?.(result)
+      },
+      opts.onError,
+    )
+  }
+
+  /** Stop auto-refresh for one source, or for every source when `sourceId` is omitted. */
+  stopAutoRefreshCoverage(sourceId?: string): void {
+    if (sourceId === undefined) this._coverageRefresh.stopAll()
+    else this._coverageRefresh.stop(sourceId)
   }
 
   /** Re-paint JUST a coverage source's armed field(s) (fill + arrow + particle) from a
@@ -5134,6 +5203,7 @@ export class XGISMap {
     this._destroyed = true
     this.running = false // next requestAnimationFrame tick early-returns
     this._coverageTime.pause() // stop any forecast-time playback timer (#1272 E-③)
+    this._coverageRefresh.stopAll() // stop every coverage auto-refresh poll loop (#1158)
 
     // Pending interaction-idle debounce.
     if (this._interactionIdleTimer !== null) {

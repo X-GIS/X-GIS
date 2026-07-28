@@ -48,6 +48,26 @@ describe('coverage drape arming (#1333)', () => {
     }
   })
 
+  it('SOUNDING NUMERALS alone draw no drape — the case a render diff found (#1366 INC-5)', () => {
+    // A chart puts its numerals on a SECOND layer over the ramp layer, so ONE coverage source
+    // carries TWO shows and this arm runs for each. Without this case the numerals' show
+    // re-armed the drape with the DEFAULT viridis, silently repainting the
+    // `ramp: "bathymetry"` layer authored right above it — the seabed flipped colour the
+    // moment labels were added, and no unit gate was watching.
+    expect(coverageDrapeArm({ label: { text: 'x' } })).toEqual({ draw: false })
+    // …but a layer that asks for BOTH still draws its own ramp: declaring a ramp is the
+    // explicit opt-in, exactly as it is for the field keywords.
+    expect(coverageDrapeArm({ label: { text: 'x' }, ramp: 'bathymetry' })).toEqual({
+      draw: true,
+      flowOnly: false,
+    })
+    // …and labels beside a flow layer do not suppress the motion.
+    expect(coverageDrapeArm({ label: { text: 'x' }, isFlow: true })).toEqual({
+      draw: true,
+      flowOnly: true,
+    })
+  })
+
   it('a bare coverage is unchanged — it still draws its fill', () => {
     // Every pre-#1333 coverage layer. If this regressed, an S-102 bathymetry map would go
     // blank, which is a far louder failure than anything else here — and it is exactly what a
