@@ -76,6 +76,10 @@ interface CompiledArrowBatch {
   bandBuf: RhiBuffer | null
   /** Advected bind groups, keyed by the ping-pong side they read (two entries at rest). */
   advectedGroups: Map<RhiTextureView, RhiBindGroup>
+  /** The velocity views those groups were built against. A re-armed or evicted coverage hands
+   *  over different ones, and the groups holding the old pair must go with them. */
+  boundFlowU: RhiTextureView | null
+  boundFlowV: RhiTextureView | null
   count: number
   lons: Float64Array
   lats: Float64Array
@@ -197,6 +201,8 @@ export class CompiledArrowStore {
       advected,
       bandBuf,
       advectedGroups: new Map(),
+      boundFlowU: null,
+      boundFlowV: null,
       count,
       lons,
       lats,
@@ -270,6 +276,19 @@ export class CompiledArrowStore {
     const draper = this.advectedDraper
     const bind = this.arrowSource?.arrowBinding
     if (!draper || !bind || !ca.bandBuf) return 0
+    // Keyed by the STATE side, but invalidated on the FIELD views — because the ping-pong
+    // alternates between exactly two state views and nothing else ever appears as a key. The
+    // first version of this cleared "when a third key shows up", which cannot happen: a
+    // re-armed coverage hands over new velocity views under the SAME two state sides, so the
+    // cached groups kept binding the old ones. After a region eviction those old ones are
+    // DESTROYED, and the next submit fails —
+    //   "destroyed texture coverage-flow-v used in a submit"
+    // reported from S-111 Live by zooming out and panning to another domain.
+    if (ca.boundFlowU !== bind.flowU || ca.boundFlowV !== bind.flowV) {
+      ca.advectedGroups.clear()
+      ca.boundFlowU = bind.flowU
+      ca.boundFlowV = bind.flowV
+    }
     let bg = ca.advectedGroups.get(bind.state)
     if (!bg) {
       bg = draper.makeBatchBindGroup(
@@ -280,9 +299,6 @@ export class CompiledArrowStore {
         bind.flowU,
         bind.flowV,
       )
-      // Two sides means this settles at two entries; a third would mean the field views changed
-      // under us, and those groups are stale rather than merely extra.
-      if (ca.advectedGroups.size >= 2) ca.advectedGroups.clear()
       ca.advectedGroups.set(bind.state, bg)
     }
     return draper.draw(pass, bg, perCopy, ca.count)

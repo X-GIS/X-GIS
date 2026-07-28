@@ -296,6 +296,9 @@ class OpaquePass implements RenderPass {
               [host.camera.centerX, host.camera.centerY],
               [projType, centerLon, centerLat, frame.logDepthFc],
               flowView ? { view: flowView, mix: FLOW_DRAPE_MIX } : null,
+              // Live zoom, for a `zoom`-dependent `filter:` on the drape (#1437) — the same
+              // value the sounding arm already hands its copy of the clause.
+              host.camera.zoom,
             )
           }
           host.renderer.renderGraticuleOverlay(subPass, host.camera, projType, centerLon, centerLat)

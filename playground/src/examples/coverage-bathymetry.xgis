@@ -26,10 +26,19 @@ layer imagery {
   source: basemap
 }
 
+// `filter:` on a coverage layer thins the RAMP in the fragment shader (#1437) — the predicate
+// is compiled once to shader-dsl IR, emitted into `fs_cov` as a discard, and run on the CPU
+// through the same IR for the numerals below. Before that it reached the numerals only, so a
+// `ramp:` layer painted every valid cell and the clause looked ignored.
+//
+// Here it drops the land/zero shelf so the ramp spends its whole range on real water. On this
+// synthetic fixture the north edge sits at 0 m, and the nodata hole is discarded already by
+// the validity test — the filter is what removes the exactly-zero row.
 layer depth {
   source: bathy
   ramp: "bathymetry"
   range: [0, 40]
+  filter: .depth > 0.0
   | opacity-75
 }
 
