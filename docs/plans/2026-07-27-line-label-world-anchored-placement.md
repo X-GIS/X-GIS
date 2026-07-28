@@ -210,6 +210,14 @@ the key simply is not passed to the callback. Exposing it is a signature change 
 4. Gate: the z16.7 chain lands within 1 px of MapLibre's three anchors, and the pan-invariance
    property (a clipped run's anchors are a strict subset of the full run's) still holds.
 
+Step 3 landed the other way round — the origin is carried INTO the existing screen walk as an
+along-screen offset (`origin − headSkip`, scaled by `pxPerMeter`) rather than the walk being
+rewritten in mercator. Same anchors, and it leaves #1050's run-trimming and the curved branch
+untouched, which keeps INC-1's blast radius to the one thing it is about. `headSkip` is the
+mercator arc-length the projection loop skipped before its first retained sample: leading
+samples that fail to project are dropped, so the screen run can start mid-polyline, and without
+that term the phase would be measured from the wrong place exactly when the run is clipped.
+
 `label-pass.ts` is AT its 2130-LOC ceiling, so the walk belongs in
 `place-labels-along-line.ts` alongside `lineLabelSpacingPx`.
 
@@ -255,13 +263,37 @@ The viewport-aligned branch needs no mapping — it consumes the anchor point di
 
 Each lands separately, green, with its own gate. No increment is allowed to change the cadence.
 
-**INC-1 — world-anchored phase, viewport-aligned branch. ATTEMPTED, NOT LANDED (§3.0).**
+**INC-1 — world-anchored phase, viewport-aligned branch. LANDED.**
 Replace the screen walk with the mercator walk for `text-rotation-alignment: viewport` line
 symbols (the OFM shield layers). Smallest blast radius: no curved mapping, and the shields are
 exactly what the reference measurements cover.
-_Gate:_ the z16.7 chain lands within 1 px of MapLibre's three anchors (today: ~4 px); and a
+_Gate:_ the z16.7 chain lands within 1 px of MapLibre's three anchors (before: ~4 px); and a
 pan-invariance test — dispatch the same polyline under two camera translations and assert the
 emitted world anchors are identical, which is impossible to satisfy with the screen walk.
+
+_As landed._ `tileEntryDistance` (`map/src/render/tile-entry-distance.ts`, a Liang–Barsky slab
+clip — an endpoint-inside test silently reports 0 for a segment that spans the whole tile)
+supplies the origin; `LabelFeatureSource` computes it once per run and caches it with the run,
+since it is camera-independent; `placeLabelsAlongLine` takes the origin as a `phasePx` residue
+mod the step, which is what makes the emitted set invariant under clipping.
+
+_Measured_ (OFM Positron, 1800×900, settle-until-3-identical-hashes; same-code noise floor 0 px
+at all three cameras, so every count below is signal):
+
+| camera | DC (before→after) | D0 (before vs ML) | D1 (after vs ML) |
+| ------ | ----------------- | ----------------- | ---------------- |
+| z16.0  | 1481              | 5557              | 4908 (−649)      |
+| z16.7  | 847               | 4868              | 4566 (−302)      |
+| z16.9  | 583               | 4278              | 4033 (−245)      |
+
+Both "400" shields at z16.7, measured at full resolution (box left edge, physical px): the upper
+went −4 px from MapLibre to +1, the lower −4 to 0 (exact, matching top edge too). Box width is
+25 px in all three frames — the shields moved, they did not resize.
+
+_Known cost._ At z16.7 X-GIS now also draws a route-`1` shield MapLibre does not place at this
+camera: an anchor that previously fell off the run's end now lands in view. That is the
+collision-model gap INC-3/INC-4 close, not a phase error — and D1 < D0 at every camera says the
+phase win outweighs it.
 
 **INC-2 — world-anchored phase, curved branch.**
 Add the mercator↔screen arc-length mapping of §3.2 and switch the curved stops.
