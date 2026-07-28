@@ -155,13 +155,24 @@ export class FlowRenderer {
   // the coupling without the cohesion. The trail and the arrows are otherwise independent;
   // either can run without the other.
 
-  /** Where the arrows are (read side), and where they belong. Null until the first step has
-   *  allocated the pair — the draw binds BOTH, so a caller must treat null as "no advected
-   *  draw this frame" rather than substituting anything. */
-  get arrowViews(): { state: RhiTextureView; origin: RhiTextureView } | null {
+  /** Everything the advected DRAW binds: where the arrows are (read side), where they belong,
+   *  and the velocity pair they are stepping through.
+   *
+   *  All four together, from one place, deliberately: the draw must read the SAME field the step
+   *  moved the arrows through, or the glyphs report a forecast hour they are not standing in.
+   *  Null until the first step has run — a caller treats that as "no advected draw this frame"
+   *  rather than substituting anything. */
+  get arrowBinding(): {
+    state: RhiTextureView
+    origin: RhiTextureView
+    flowU: RhiTextureView
+    flowV: RhiTextureView
+  } | null {
     const state = this.arrows.readView
     const origin = this.arrows.originView
-    return state && origin ? { state, origin } : null
+    const flowU = this.arrowFieldU
+    const flowV = this.arrowFieldV
+    return state && origin && flowU && flowV ? { state, origin, flowU, flowV } : null
   }
 
   /** Hand this batch's origins to the state (see `ArrowAdvectState.writeOrigins`) — `key`

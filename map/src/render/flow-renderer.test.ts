@@ -313,15 +313,18 @@ describe('FlowRenderer — the arrow step (#1419)', () => {
     const t = makeCtx({ backend: 'webgl2' })
     const fr = new FlowRenderer(t.dev)
     const field = makeField()
-    fr.stepArrows(frameAt(0), field)
-    const before = fr.arrowViews!.state
+    fr.stepArrows(frameAt(0), field) // no-op: no interval yet
     fr.stepArrows(frameAt(16), field)
-    const pass = t.passes.find((p) => p.desc.label === 'arrow-advect')!
-    expect(pass.desc.loadOp).toBe('load')
-    expect(pass.desc.view, 'writes the side it was NOT reading').not.toEqual(before)
-    expect(pass.ended).toBe(true)
-    // The swap happens after the draw, so what the DRAW will now bind is what the step wrote.
-    expect(fr.arrowViews!.state).toEqual(pass.desc.view)
+    const steps = () => t.passes.filter((p) => p.desc.label === 'arrow-advect')
+    const first = steps()[0]!
+    expect(first.desc.loadOp).toBe('load')
+    expect(first.ended).toBe(true)
+    // The swap happens AFTER the draw, so what the draw will now bind is what the step wrote.
+    expect(fr.arrowBinding!.state).toEqual(first.desc.view)
+    // ...and the next step writes the OTHER side rather than the one it is reading, which is
+    // undefined behaviour on both backends.
+    fr.stepArrows(frameAt(32), field)
+    expect(steps()[1]!.desc.view).not.toEqual(first.desc.view)
   })
 
   it('runs independently of the trail — an arrows-only portrayal still animates', () => {
@@ -359,7 +362,7 @@ describe('FlowRenderer — the arrow step (#1419)', () => {
     fr.stepArrows(frameAt(16), field)
     const entries = t.bindGroups.at(-1)!.entries as Array<{ binding: number; resource: unknown }>
     expect(entries.find((e) => e.binding === 7)?.resource).toEqual({
-      view: fr.arrowViews!.origin,
+      view: fr.arrowBinding!.origin,
     })
   })
 

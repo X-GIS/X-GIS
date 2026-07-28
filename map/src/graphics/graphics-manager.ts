@@ -21,6 +21,8 @@ import { HostSpriteAtlasRhi } from '../sprite/host-sprite-atlas-rhi'
 import type { IconAtlasGpu, SpriteMetadataSource } from '../sprite/icon-stage'
 import { RetainedIconDraper } from '../render/material/icon-retained-material'
 import { RetainedArrowDraper } from '../render/material/arrow-retained-material'
+import { RetainedArrowAdvectedDraper } from '../render/material/arrow-retained-advected-material'
+import type { AdvectedArrowInput, AdvectedArrowSource } from './compiled-arrow-store'
 import { RetainedCircleDraper } from '../render/material/circle-retained-material'
 import { RetainedParticleDraper } from '../render/material/particle-retained-material'
 import { packRetainedIconFeat, packRetainedIconTint } from './retained-icon-packer'
@@ -106,6 +108,10 @@ export class GraphicsManager {
   private rhi: RhiDevice | null = null
   private draper: RetainedIconDraper | null = null
   private arrowDraper: RetainedArrowDraper | null = null
+  private advectedArrowDraper: RetainedArrowAdvectedDraper | null = null
+  /** Where the advected arrows' state lives (FlowRenderer). Set by the map BEFORE attachDevice
+   *  on a fresh device, since the store captures it there (#1419). */
+  private arrowSource: AdvectedArrowSource | null = null
   private circleDraper: RetainedCircleDraper | null = null
   private particleDraper: RetainedParticleDraper | null = null
   private frameBlock: UniformBlockOf<typeof pointU> | null = null
@@ -290,8 +296,16 @@ export class GraphicsManager {
     )
   }
 
+  /** Where the ADVECTED arrows' state lives (#1419) — FlowRenderer, which owns the step. Set
+   *  before attachDevice: the store captures it there, and an advected batch added without it is
+   *  dropped rather than drawn as a static field frozen at its launch instant. */
+  setAdvectedArrowSource(source: AdvectedArrowSource | null): void {
+    this.arrowSource = source
+  }
+
   /** Registers a DECLARATIVE `| arrow` layer (#1302) — delegated to the compiled-arrow
-   *  store, which owns the compiled path's packing/lifecycle (same draper as host). */
+   *  store, which owns the compiled path's packing/lifecycle (same draper as host).
+   *  `advected` (#1419) opts the batch into the particle portrayal. */
   addCompiledArrowLayer(
     lons: Float64Array,
     lats: Float64Array,
@@ -300,6 +314,7 @@ export class GraphicsManager {
     colors: ReadonlyArray<readonly [number, number, number, number]>,
     strokeUnits = 0,
     region = '',
+    advected: AdvectedArrowInput | null = null,
   ): void {
     this._compiledArrows.add(
       lons,
@@ -310,6 +325,7 @@ export class GraphicsManager {
       strokeUnits,
       this.dpr,
       region,
+      advected,
     )
   }
 
@@ -705,9 +721,17 @@ export class GraphicsManager {
     this.rhi = rhi
     this.draper = new RetainedIconDraper(rhi, format, 1, pointUniformBytes())
     this.arrowDraper = new RetainedArrowDraper(rhi, format, 1, pointUniformBytes())
+    this.advectedArrowDraper = new RetainedArrowAdvectedDraper(rhi, format, 1, pointUniformBytes())
     this.circleDraper = new RetainedCircleDraper(rhi, format, 1, pointUniformBytes())
     this.particleDraper = new RetainedParticleDraper(rhi, format, 1, pointUniformBytes())
-    this._compiledArrows.attach(rhi, this.arrowDraper)
+    this._compiledArrows.attach(
+      rhi,
+      this.arrowDraper,
+      // The advected pair needs the frame-side source too — the arrow state lives on
+      // FlowRenderer, which the map hands over via setAdvectedArrowSource. Without it the
+      // store DROPS advected batches rather than drawing them as static ones (#1419).
+      this.arrowSource ? { draper: this.advectedArrowDraper, source: this.arrowSource } : undefined,
+    )
     this.frameBlock = uniformBlock(pointU)
     this._blockView = new Float32Array(this.frameBlock.buffer)
     for (const b of this.batches) this.materialise(b)
