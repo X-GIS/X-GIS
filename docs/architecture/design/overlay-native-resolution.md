@@ -111,26 +111,62 @@ SIZE from the swapchain, and give the already-separate overlay pass the native o
 
 ## 4. Target architecture
 
+> **Revised after reading the target lifecycle.** Two findings changed the plan; both make it
+> smaller, and one of them dissolves an increment.
+
+**Finding 1 — the offscreen seam is conditional.** §3's "passes already render into an offscreen
+MSAA texture" holds only when MSAA is on. `render-targets.ts:250` is explicit:
+
+> _"When SAMPLE_COUNT === 1 (mobile / no MSAA), render DIRECTLY to the swapchain texture and never
+> set a resolveTarget."_
+
+So on mobile, under `?safe`, and on the software-GPU path this container actually runs, there is no
+offscreen at all. The scene therefore needs its OWN target rather than a resized existing one.
+
+**Finding 2 — the overlay needs no change, so INC-3 folds into INC-2.** The right move is not to
+give the overlay a new native target; it is to leave the existing screen attachment exactly where
+it is — canvas-sized, which is now native — and give the SCENE the new smaller pair:
+
 ```
-scene passes (background → flow → opaque → oit → translucent → hillshade → points → heatmap)
-        ↓ render into                     sceneColor MSAA   @ sceneW × sceneH
-        ↓ resolve into                    sceneColor        @ sceneW × sceneH
-        ↓ full-screen upscale draw into   screenView        @ screenW × screenH
-overlay passes (labels, graphics)
-        ↓ render into                     screenView        @ screenW × screenH
+scene passes    → sceneMsaa @ sceneSize (sc)  ─resolve→  sceneColor @ sceneSize (1)
+scene-upscale   → sceneColor  ─sampled, full-screen draw→  the SCREEN attachment @ screenSize
+overlay passes  → the SCREEN attachment, loadOp 'load'          (UNCHANGED — as today)
 ```
 
-- `screenW/H = round(clientSize × screenDpr)` where `screenDpr` is `min(devicePixelRatio, cap)`
-  **without** the adaptive scale. The canvas backing store is native again.
-- `sceneW/H = round(screenW/H × adaptiveDprScale())`.
-- The upscale is a full-screen textured draw. `map/src/render/compose-pipelines.ts` already owns
-  MSAA-aware full-screen compose pipelines for the OIT / overdraw paths; this is another consumer,
-  not a new concept.
+where "the SCREEN attachment" is whatever it already is: the screen-sized MSAA texture when
+`useResolve`, else `screenView` itself. This matters for one specific reason: **every existing
+pipeline keeps its `sampleCount`.** Pointing the label pass at a single-sample view instead would
+have needed a second pipeline variant, and a pipeline whose sample state does not match its pass is
+a validation error that is invisible without a GPU — CLAUDE.md §12's pipeline lesson, and the exact
+trap this design was most likely to fall into. Only ONE new pipeline appears: the upscale, built
+for the screen attachment's sample count.
 
-**Clip space is resolution-independent**, so the camera and every MVP are unchanged — a matrix that
-is correct for the scene target is correct for the screen target. Only quantities measured in
-device pixels differ, and they are already per-pass inputs (`{ width, height }` handed to
-`stage.render`, `ctx.dpr` for text/icon sizing).
+INC-1 already pays for this: scene passes read `ctx.scene`, which simply starts reporting the
+smaller size. Their `resolveTarget` moves from `ctx.screenView` to a new `ctx.sceneResolveView`
+(the sceneColor view when scaled, `screenView` when not), which the partition gate can police the
+same way it polices the geometry.
+
+**Both new targets exist only while `adaptiveDprScale() < 1`.** At notch 0-2 the frame is
+byte-for-byte what it is today: no extra texture, no extra pass, no upscale. That is worth stating
+as a property rather than an optimisation — it means a host that never trips the ladder cannot be
+regressed by this change at all, and it makes INC-2's "scale 1 ⇒ identical" gate a statement about
+code that does not run rather than about a blit being exactly identity.
+
+- `screenW/H = round(clientSize × screenDpr)`, `screenDpr = min(devicePixelRatio, cap)` with **no**
+  adaptive scale. The canvas backing store is native again.
+- `sceneW/H = max(1, round(screenW/H × adaptiveDprScale()))`, `sceneDpr = screenDpr × scale`.
+
+**Clip space is resolution-independent**, so the camera and every MVP are unchanged — a matrix
+correct for the scene target is correct for the screen target. Only device-pixel quantities differ,
+and INC-1 made every one of them name its target.
+
+**Consequence — the pick attachment.** `pickTexture` is a scene-pass attachment, so it is
+scene-sized, while `pickAt` converts CSS→device pixels against `canvas.width`
+(`interaction-controller.ts:178`). That would read the wrong texel the moment the two diverge. The
+fix is single-authority rather than a scale factor threaded to the call site: derive the coordinate
+from the texture being read, not from the canvas. The forced-WebGL2 branch has the same shape with
+its own offscreen pick RT. A gate must cover a pick at scale < 1, or this is a silent
+off-by-a-fraction that only appears on slow hosts — the same class of bug as the one being fixed.
 
 ## 5. The hazard this design must not create
 
@@ -172,35 +208,27 @@ Mitigations, in order of strength:
 
 ## 6. Increments
 
-Each lands green on its own; none is a refactor-and-hope.
+**INC-1 — make the distinction exist, change nothing. LANDED.** `FrameContext` carries `scene` /
+`screen`, both populated from the same numbers; `ctx.w` no longer exists. Scene/overlay membership
+derived from `PASS_CHAIN_ORDER` with a partition gate (`target-role-partition.test.ts`).
 
-**INC-1 — make the distinction exist, change nothing.** Split `FrameContext` into `scene` / `screen`
-sub-objects, both populated from the same numbers. Add the partition gate over `PASS_CHAIN_ORDER`.
+- _Gate as run:_ hash equality was attempted and is NOT reachable on this scene — two same-code
+  runs differ — so the honest rung is the directional diff. Cross-code 0.0167-0.0240% against a
+  same-code noise band of 0.0165-0.0217%: a no-op within noise.
 
-- _Gate:_ frame hash-equality — the strongest rung of the §12 render ladder — before vs after, at
-  ladder scale 1 AND at a pinned 0.6. Same code path, so `md5sum` equality is reachable and a
-  directional diff is not good enough here.
+**INC-2 — the scene gets its own smaller target (absorbs the former INC-3).** Canvas sized at
+`screenDpr`; scene MSAA + sceneColor allocated at scene size _only when the scale is below 1_;
+scene passes resolve into sceneColor; a new upscale pass composites sceneColor into the screen
+attachment before the overlay draws. Overlay passes unchanged. Pick coordinate derived from the
+pick texture.
 
-**INC-2 — decouple the canvas from the ladder.** `resizeCanvas` takes `screenDpr` (no adaptive
-scale); the scene target takes the scaled size; add the upscale compose between the scene resolve
-and the overlay passes. Overlay passes still draw at the scene's resolution.
-
-- _Gate:_ at scale 1, frame hash-equality against INC-1 (the upscale is identity, so this must be
-  byte-exact — if it is not, the compose is wrong and that is the bug this rung exists to catch).
-  At scale 0.6, a directional diff proving DC > 0 and the scene visibly resampled.
-
-**INC-3 — move the overlay to native.** Label + graphics passes render into `screenView` at
-`screenDpr`; text/icon sizing reads `screen.dpr`.
-
-- _Gate:_ at scale 0.6, ×8 crops of a numeral before/after read at full resolution (§5 — the whole
-  point is glyph sharpness, and a scalar cannot judge it); label COUNT and label TEXT must be
-  unchanged (they were resolution-independent already, per §1's table, so any change is a
-  positioning regression); frame-time median at scale 0.6 within noise of INC-2's, measured on the
-  same commit both ways per §12.
-
-**Out of scope, deliberately:** the picking buffer (`render-loop.ts:815-835`) keeps the scene's
-resolution — picking is a scene query and gains nothing from native pixels; `?debug=overdraw`'s
-accumulator likewise stays scene-side.
+- _Gate:_ at scale 1, the new code does not run — assert that constructively (no scene texture
+  allocated, upscale pass `shouldRun()` false) rather than by diffing pixels. At a pinned scale
+  0.72 and 0.5: label COUNT and label TEXT unchanged (they are resolution-independent — §1's table
+  is the evidence), ×8 crops of a numeral read at full resolution before/after (§5 — the whole
+  point is glyph sharpness and no scalar can judge it), a pick at scale < 1 hits the same feature
+  it hits at scale 1, and the frame-time median at scale 0.5 within noise of today's measured on
+  the same commit both ways.
 
 ## 7. Backend fork — the part that bites
 
