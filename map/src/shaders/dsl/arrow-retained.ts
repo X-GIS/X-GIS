@@ -431,12 +431,25 @@ const vsAdvected = fn(
     const scale = bandAt(row, 1).add(bandAt(row, 2).mul(speed))
     const tint = vec4(bandAt(row, 4), bandAt(row, 5), bandAt(row, 6), bandAt(row, 7))
 
+    // THE PERSPECTIVE GUARD. Both bases are perspective divides by a DIFFERENT anchor's w, and
+    // those anchors sit one leash length away — most of a degree on a regional cell. Lower the
+    // camera pitch and an anchor crosses behind the eye plane: w passes through zero, the divide
+    // explodes, and the arrow is flung off screen (reported as "the particles fly off into
+    // space"). The static path never sees this — it takes only a DIRECTION from its delta, and
+    // its tip step is 0.02°. This VS is the only one that uses a projected delta as a MAGNITUDE.
+    //
+    // An arrow whose basis cannot be computed is NOT DRAWN. That is the honest outcome: its
+    // position is unknown this frame, so no position is claimed for it. It returns as soon as
+    // its anchors are in front of the camera again.
+    const minW = min(originClip.w, min(uStepClip.w, vStepClip.w))
+
     // main.xsl note (4): no symbol for speed 0 or noData — and a packed nodata cell is exactly
     // (0, 0). A zero length collapses the quad, so the arrow is not drawn at all rather than
     // drawn at some floor size in water that has no current.
     const size = rd(F.size)
       .mul(scale)
       .mul(step(f32(1e-6), speed))
+      .mul(step(f32(1e-6), minW))
 
     const margin = rd(F.stroke_units)
     const qx = f32(0)
@@ -472,8 +485,12 @@ const vsAdvected = fn(
 
     const lx = qx.mul(size)
     const ly = qy.mul(size)
-    const rx = lx.mul(cc).sub(ly.mul(ss)).add(driftPx.x)
-    const ry = lx.mul(ss).add(ly.mul(cc)).add(driftPx.y)
+    // The drift is gated by the SAME guard: `size` collapses the quad, but the displacement is
+    // added to the anchor independently, so an unguarded drift would still carry a zero-area
+    // quad to a garbage position.
+    const live = step(f32(1e-6), minW)
+    const rx = lx.mul(cc).sub(ly.mul(ss)).add(driftPx.x.mul(live))
+    const ry = lx.mul(ss).add(ly.mul(cc)).add(driftPx.y.mul(live))
     const offNdc = vec2(rx.mul(f32(2).div(vp.x)), ry.neg().mul(f32(2).div(vp.y)))
     const clip = originClip.add(vec4(offNdc.mul(originClip.w), 0, 0))
 

@@ -473,6 +473,10 @@ const CEILINGS: Record<string, number> = {
   // arm itself came OUT — armCoverageDrape/armCoverageShow/armAdvectedArrows/armLandedCoverage
   // now live in coverage-arm.ts, taking the map structurally. #1419's residency/`hidden` fork
   // and its advected-arrow fork moved WITH it, unchanged. LOWERED per the shrink-only rule.
+  //
+  // MERGE UNION (#1419 follow-up <- main @ #1426): my side's +1 was the arrow clear moving out
+  // of the `| arrow` branch — that line now lives in coverage-arm.ts, so it adds nothing here
+  // and main's LOWER ceiling stands. Value below is the MEASURED post-merge count.
   'map/src/map.ts': 5387,
   // Baselined at #1255 (measured 830): the DOM-inspired layer API crossed
   // NEW_FILE_CAP with the paint-transition style-setter integration — the
@@ -949,7 +953,14 @@ const CEILINGS: Record<string, number> = {
   // UNPACK_ALIGNMENT restored to the GL default after ad-hoc uploads, and
   // createPipeline unbinding the program after reflection. Stacked on the
   // #1057/#1062/#1060/#1196 growth — measured 1436.
-  'rhi-webgl2/src/rhi-webgl2.ts': 1436,
+  // 1436→1464 (#1419): the dev-only texture-usage guard. WebGPU validates every queue write
+  // against the target's usage flags and WebGL2 validates nothing, so a texture missing
+  // `copy-dst` passes every headless render gate here and dies at boot on WebGPU — it cost the
+  // S-111 advected arrow field exactly that. The software backend now enforces the stricter
+  // contract in dev, which is the only place the class is catchable without a WebGPU adapter.
+  // +28 is the guard, the `usage`/`label` fields it reads, and the reason — the reason being
+  // the part that stops someone deleting a check their own backend does not need.
+  'rhi-webgl2/src/rhi-webgl2.ts': 1469,
   // 941→975 (#1371 atomic re-seed): `releaseSupersededTile` + `dropTile`, and the split of
   // `_releaseTileSlots` into a resource-release body the two share with eviction. Arena/pool
   // ownership is this class's whole reason to exist.
