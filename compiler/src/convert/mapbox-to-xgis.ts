@@ -21,25 +21,16 @@
 // Public API (re-exports below) is intentionally narrow:
 // `convertMapboxStyle` plus the three Mapbox type names.
 //
-// Coverage summary:
-//   • Sources: vector (PMTiles auto, TileJSON otherwise), raster,
-//     geojson (URL only).
-//   • Layer types: background, fill, line, fill-extrusion.
-//   • Common paint properties: fill-color/-opacity, line-color/
-//     -width/-dasharray/-opacity, fill-extrusion-color/-opacity/
-//     -height/-base.
-//   • Filters: legacy + expression form (==, !=, <, <=, >, >=,
-//     all, any, in, !in, has, !has, geometry-type / id stripped).
-//   • Expressions: literal, get, coalesce, case, match, arithmetic,
-//     min, max, to-number, interpolate-by-zoom.
-//
-// Not yet covered (warnings emitted in the trailing notes block):
-//   • Symbol layers (text + icon) — the engine doesn't render text.
-//   • Circle / heatmap / hillshade layers.
-//   • Sprite atlas, fill-pattern, line-pattern (bitmap atlases).
-//   • interpolate curve type (exponential, cubic-bezier) — folded
-//     to linear.
-//   • Top-level light / fog / terrain.
+// Coverage is NOT restated here. `spec-coverage/*` is the single
+// authority — one row per Mapbox Style Spec property, each classified
+// supported / partial / unsupported / n/a with its converter source
+// reference, checked against this code at build time. The site renders
+// those same rows at /docs/mapbox-spec and /convert. A hand-written
+// snapshot in this header is exactly what rotted before: it claimed
+// symbol/text layers, circle, heatmap and hillshade were unimplemented
+// long after they shipped end-to-end. Anything a style authors that the
+// converter can't carry surfaces as a warning in the trailing notes
+// block — that is the run-time answer; spec-coverage is the static one.
 
 import type { MapboxStyle, MapboxLayer } from './types'
 import { convertSource, type ConvertSourceOptions } from './sources'
