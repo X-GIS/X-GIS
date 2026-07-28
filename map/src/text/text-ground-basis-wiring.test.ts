@@ -36,6 +36,7 @@ import { TextRenderer } from '@xgis/map'
 import { WebGpuDevice } from '@xgis/rhi-webgpu'
 import type { TextDraw } from '@xgis/map'
 import type { GlyphInfo } from '@xgis/map'
+import { groundBasisAabb, type GroundBasis } from './ground-basis'
 
 let stub: StubInstallation
 
@@ -79,7 +80,7 @@ const GLYPH: GlyphInfo = {
   rasterFontSize: 24,
 }
 
-function makeDraw(groundBasis?: number[], rotateRad?: number): TextDraw {
+function makeDraw(groundBasis?: ArrayLike<number>, rotateRad?: number): TextDraw {
   return {
     anchorX: ANCHOR_X,
     anchorY: ANCHOR_Y,
@@ -144,7 +145,7 @@ function positions(verts: Float32Array): [number, number][] {
 }
 
 /** The contract, applied independently of the renderer. */
-function applyBasis(p: [number, number][], b: number[]): [number, number][] {
+function applyBasis(p: [number, number][], b: ArrayLike<number>): [number, number][] {
   return p.map(([x, y]) => {
     const dx = x - ANCHOR_X,
       dy = y - ANCHOR_Y
@@ -166,11 +167,11 @@ const near = (a: [number, number][], b: [number, number][]): void => {
 // A pitched camera foreshortens the ground's screen-vertical axis and leaves the
 // horizontal one alone: this is the shape of a real `map`-aligned basis, not an
 // arbitrary matrix. ny = 0.5 ⇒ the quad is half as tall on screen.
-const PITCH_BASIS = [1, 0, 0, 0.5]
+const PITCH_BASIS: GroundBasis = [1, 0, 0, 0.5]
 // Bearing + pitch: the ground axes are no longer screen-aligned, so this also
 // exercises the off-diagonal terms (a diagonal-only basis would let a renderer
 // that dropped ex.y / nx.x still pass).
-const PITCH_BEARING_BASIS = [0.94, 0.34, -0.17, 0.47]
+const PITCH_BEARING_BASIS: GroundBasis = [0.94, 0.34, -0.17, 0.47]
 
 describe('#777 IV3-a — TextDraw.groundBasis lays the glyph quad in the ground plane', () => {
   it('an absent basis is bit-identical to an identity basis (the viewport-alignment gate)', async () => {
@@ -243,5 +244,56 @@ describe('#777 IV3-a — TextDraw.groundBasis lays the glyph quad in the ground 
       return [ANCHOR_X + dx * c - dy * s, ANCHOR_Y + dx * s + dy * c] as [number, number]
     })
     expect(both).not.toEqual(basisFirst)
+  })
+})
+
+// The anti-drift pin. The collision box is derived in text-stage while the quad
+// is transformed in the renderer — two sites, one basis. If they ever disagree,
+// a label lies down while its box stays upright: it reserves the wrong
+// footprint, loses collisions it should win, and blocks labels it should not.
+// This asserts groundBasisAabb (what text-stage will use) against the REAL
+// renderer's emitted vertices, so the two cannot drift apart silently.
+describe('#777 IV3-2c — the collision AABB equals the renderer quad footprint', () => {
+  const aabbOf = (p: [number, number][]) => ({
+    minX: Math.min(...p.map((q) => q[0])),
+    minY: Math.min(...p.map((q) => q[1])),
+    maxX: Math.max(...p.map((q) => q[0])),
+    maxY: Math.max(...p.map((q) => q[1])),
+  })
+
+  for (const [name, basis] of [
+    ['pitch only', PITCH_BASIS],
+    ['pitch + bearing (off-diagonal)', PITCH_BEARING_BASIS],
+  ] as const) {
+    it(`matches the drawn quad under ${name}`, async () => {
+      const ctx = await makeCtx()
+      const plain = aabbOf(positions(capturedVerts(ctx, makeDraw(undefined))))
+      const drawn = aabbOf(positions(capturedVerts(ctx, makeDraw([...basis]))))
+      const predicted = groundBasisAabb(
+        basis,
+        ANCHOR_X,
+        ANCHOR_Y,
+        plain.minX,
+        plain.minY,
+        plain.maxX,
+        plain.maxY,
+      )
+      expect(predicted.minX).toBeCloseTo(drawn.minX, 4)
+      expect(predicted.minY).toBeCloseTo(drawn.minY, 4)
+      expect(predicted.maxX).toBeCloseTo(drawn.maxX, 4)
+      expect(predicted.maxY).toBeCloseTo(drawn.maxY, 4)
+      // Non-vacuity: a foreshortening basis must actually shrink the footprint,
+      // or this would pass for a helper that returned its input unchanged.
+      const area = (b: typeof drawn) => (b.maxX - b.minX) * (b.maxY - b.minY)
+      expect(area(drawn)).toBeLessThan(area(plain))
+    })
+  }
+
+  it('leaving the box untransformed would be wrong — the sizes genuinely differ', () => {
+    // Pins the reason the box cannot simply be left alone: the identity-vs-basis
+    // difference is not a rounding artefact.
+    const box = groundBasisAabb(PITCH_BASIS, 0, 0, -10, -20, 30, 40)
+    expect(box.maxY - box.minY).toBeCloseTo(30, 6) // 60 px tall * 0.5 squash
+    expect(box.maxX - box.minX).toBeCloseTo(40, 6) // width untouched at this basis
   })
 })
