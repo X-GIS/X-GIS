@@ -32,6 +32,14 @@
 // 45→46 (#1272): CoverageRenderer.render mirrors raster/hillshade's draw-pass wrap
 // (webgl2 RhiRenderPass vs webgpu wrapWebGpuPass) — the same still-blocked pattern,
 // retires with them when the pass-wrap moves behind rhi.caps.*.
+// 46→47 (hillshade first-paint): HillshadeDraper.materialFor skips the WGSL emit when
+// the device cannot consume it. Same structurally-blocked class as the #826 particle and
+// #1057 point entries — "which shader language does this backend consume" has no RhiCaps
+// field, so selecting (or here, DECLINING to build) a source language still costs one
+// identity read. It is load-bearing rather than cosmetic: rhi-webgl2's createPipeline
+// requires GLSL vsCode/fsCode and never reads `desc.code`, so on that backend the emit
+// was 693 ms of a measured 2211 ms first-draw main-thread block for `multidirectional`.
+// All three retire together the moment RhiCaps grows that field (F3–F6).
 //
 // Applies the #996 lesson (a source-scan gate whose matcher silently matches nothing is
 // vacuously green): two guards below prove the regex still matches AND the walk still
@@ -43,7 +51,7 @@ import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const MAP_SRC = join(dirname(fileURLToPath(import.meta.url)))
-const BASELINE = 46
+const BASELINE = 47
 
 // `.backend` identity comparison, either direction, against either backend literal.
 const PATTERN = 'backend\\s*(===|!==)\\s*[\'"](webgl2|webgpu)[\'"]'

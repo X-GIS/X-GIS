@@ -79,6 +79,8 @@ function makeCtx(opts: { backend: 'webgl2' | 'webgpu'; floatBlendTargets?: boole
     },
     createBuffer: () => ({ native: 'buf' }),
     writeBuffer: () => {},
+    // The arrow state seeds its textures on allocation (#1419).
+    writeTexture: () => {},
     // Present ONLY on webgl2, because `asScreenPassDevice` narrows on exactly these.
     ...(opts.backend === 'webgl2'
       ? {
@@ -290,5 +292,85 @@ describe('FlowRenderer — the advection arm (#1333)', () => {
     new FlowRenderer(t.dev).step(frameAt(0), makeField({ width: 0 }))
     expect(t.passes).toHaveLength(0)
     expect(t.pipelines).toHaveLength(0)
+  })
+})
+
+// #1419 — the arrow ping-pong. Same recorder discipline as the trail above: every property here
+// is one a frame cannot show. An arrow field that samples the side it is writing, or that never
+// swaps, still animates — wrongly.
+describe('FlowRenderer — the arrow step (#1419)', () => {
+  it('does nothing on the FIRST frame — there is no interval to advance across', () => {
+    // The trail's own consumeDt makes the same choice, for the same reason: inventing a startup
+    // interval would teleport every arrow on frame one, and frame one is exactly when the field
+    // is supposed to BE the static catalogue placement.
+    const t = makeCtx({ backend: 'webgl2' })
+    const fr = new FlowRenderer(t.dev)
+    fr.stepArrows(frameAt(0), makeField())
+    expect(t.passes.filter((p) => p.desc.label === 'arrow-advect')).toHaveLength(0)
+  })
+
+  it('renders into the WRITE side, then swaps — never sampling what it wrote', () => {
+    const t = makeCtx({ backend: 'webgl2' })
+    const fr = new FlowRenderer(t.dev)
+    const field = makeField()
+    fr.stepArrows(frameAt(0), field) // no-op: no interval yet
+    fr.stepArrows(frameAt(16), field)
+    const steps = () => t.passes.filter((p) => p.desc.label === 'arrow-advect')
+    const first = steps()[0]!
+    expect(first.desc.loadOp).toBe('load')
+    expect(first.ended).toBe(true)
+    // The swap happens AFTER the draw, so what the draw will now bind is what the step wrote.
+    expect(fr.arrowBinding!.state).toEqual(first.desc.view)
+    // ...and the next step writes the OTHER side rather than the one it is reading, which is
+    // undefined behaviour on both backends.
+    fr.stepArrows(frameAt(32), field)
+    expect(steps()[1]!.desc.view).not.toEqual(first.desc.view)
+  })
+
+  it('runs independently of the trail — an arrows-only portrayal still animates', () => {
+    // #1418 makes the two portrayals selectable. Sharing the trail's dt would have made the
+    // arrows stand still whenever the trail layer was off.
+    const t = makeCtx({ backend: 'webgl2' })
+    const fr = new FlowRenderer(t.dev)
+    const field = makeField()
+    fr.stepArrows(frameAt(0), field)
+    fr.stepArrows(frameAt(16), field)
+    fr.stepArrows(frameAt(32), field)
+    expect(t.passes.filter((p) => p.desc.label === 'arrow-advect')).toHaveLength(2)
+    expect(t.passes.filter((p) => p.desc.label === 'flow-advect')).toHaveLength(0)
+  })
+
+  it('memoizes the bind group per read side, and drops them when the coverage re-arms', () => {
+    // Two sides means two groups, settled after two frames — not one per frame at 60 Hz. And a
+    // new forecast hour brings new field views: a kept group would leave the arrows drifting
+    // through the previous hour's velocities.
+    const t = makeCtx({ backend: 'webgl2' })
+    const fr = new FlowRenderer(t.dev)
+    const field = makeField()
+    for (let i = 0; i <= 6; i++) fr.stepArrows(frameAt(i * 16), field)
+    const settled = t.bindGroups.length
+    expect(settled).toBe(2)
+    fr.stepArrows(frameAt(7 * 16), makeField()) // re-armed: new u/v views
+    expect(t.bindGroups.length).toBeGreaterThan(settled)
+  })
+
+  it('binds the origin texture — without it every arrow is leashed to grid-uv (0,0)', () => {
+    const t = makeCtx({ backend: 'webgl2' })
+    const fr = new FlowRenderer(t.dev)
+    const field = makeField()
+    fr.stepArrows(frameAt(0), field)
+    fr.stepArrows(frameAt(16), field)
+    const entries = t.bindGroups.at(-1)!.entries as Array<{ binding: number; resource: unknown }>
+    expect(entries.find((e) => e.binding === 7)?.resource).toEqual({
+      view: fr.arrowBinding!.origin,
+    })
+  })
+
+  it('a degenerate grid is a no-op, not a pass', () => {
+    const t = makeCtx({ backend: 'webgl2' })
+    const fr = new FlowRenderer(t.dev)
+    fr.stepArrows(frameAt(0), makeField({ width: 0 }))
+    fr.stepArrows(frameAt(16), makeField({ width: 0 }))
+    expect(t.passes).toHaveLength(0)
   })
 })

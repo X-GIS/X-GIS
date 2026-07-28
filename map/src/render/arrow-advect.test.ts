@@ -144,7 +144,7 @@ describe('ArrowAdvectState lifecycle', () => {
     // contents visible for exactly one frame — a flash of arrows at garbage positions.
     const t = stub()
     new ArrowAdvectState().ensure(t.rhi)
-    expect(t.created).toEqual(['arrow-advect-a', 'arrow-advect-b'])
+    expect(t.created).toEqual(['arrow-advect-a', 'arrow-advect-b', 'arrow-advect-origin'])
     expect(t.written, 'both sides seeded').toHaveLength(2)
     expect(t.written[0]).not.toBe(t.written[1])
   })
@@ -155,7 +155,7 @@ describe('ArrowAdvectState lifecycle', () => {
     const t = stub()
     const p = new ArrowAdvectState()
     for (let i = 0; i < 5; i++) p.ensure(t.rhi)
-    expect(t.created).toHaveLength(2)
+    expect(t.created).toHaveLength(3)
     expect(t.written).toHaveLength(2)
   })
 
@@ -166,7 +166,7 @@ describe('ArrowAdvectState lifecycle', () => {
     const p = new ArrowAdvectState()
     p.ensure(t.rhi)
     p.ensure(t.rhi)
-    expect(t.created).toHaveLength(2)
+    expect(t.created).toHaveLength(3)
   })
 
   it('reallocates on a device swap WITHOUT destroying through the dead device (#737)', () => {
@@ -176,10 +176,10 @@ describe('ArrowAdvectState lifecycle', () => {
     p.ensure(a.rhi)
     p.ensure(b.rhi)
     expect(a.destroyed, 'the old device is gone; its textures died with it').toEqual([])
-    expect(b.created).toEqual(['arrow-advect-a', 'arrow-advect-b'])
+    expect(b.created).toEqual(['arrow-advect-a', 'arrow-advect-b', 'arrow-advect-origin'])
   })
 
-  it('swap() alternates the sides, and destroy() releases both', () => {
+  it('swap() alternates the sides, and destroy() releases every texture', () => {
     const t = stub()
     const p = new ArrowAdvectState()
     p.ensure(t.rhi)
@@ -190,7 +190,81 @@ describe('ArrowAdvectState lifecycle', () => {
     expect(p.readView).toEqual(w0)
     expect(p.writeView).toEqual(r0)
     p.destroy()
-    expect(t.destroyed).toHaveLength(2)
+    expect(t.destroyed, 'both position sides AND the origins').toHaveLength(3)
     expect(p.readView).toBeNull()
+  })
+})
+
+describe('the arrow origins (#1419)', () => {
+  function stub() {
+    let id = 0
+    const created: string[] = []
+    const writes: Array<{ tex: { native: string }; bytes: Uint8Array }> = []
+    const rhi = {
+      createTexture: (d: { label?: string }) => {
+        created.push(d.label ?? '?')
+        return { native: `tex${id++}` }
+      },
+      createView: (t: { native: string }) => ({ native: `view-${t.native}` }),
+      writeTexture: (t: { native: string }, bytes: Uint8Array) =>
+        void writes.push({ tex: t, bytes }),
+      destroyTexture: () => {},
+    }
+    return { rhi: rhi as unknown as RhiDevice, created, writes }
+  }
+
+  it('lands every instance at its OWN origin — the first frame IS the static portrayal', () => {
+    // The property the render gate leans on: before any advect step, an advected batch draws
+    // exactly where `coverage-arrow-show` placed its glyphs. "The arrows moved" is then a
+    // comparison against the catalogue placement itself, not against an arbitrary scatter.
+    const t = stub()
+    const p = new ArrowAdvectState()
+    const u = Float32Array.from([0.25, 0.5, 0.75])
+    const v = Float32Array.from([0.1, 0.6, 0.9])
+    p.writeOrigins(t.rhi, 'cbofs/3', u, v)
+    const seeded = t.writes.slice(-3) // origins, then both position sides
+    expect(seeded).toHaveLength(3)
+    for (const w of seeded) {
+      for (let i = 0; i < u.length; i++) {
+        const [x, y] = decodeArrowPosition(
+          w.bytes[i * 4]!,
+          w.bytes[i * 4 + 1]!,
+          w.bytes[i * 4 + 2]!,
+          w.bytes[i * 4 + 3]!,
+        )
+        expect(x).toBeCloseTo(u[i]!, 4)
+        expect(y).toBeCloseTo(v[i]!, 4)
+      }
+    }
+  })
+
+  it('an unchanged key SKIPS the upload — a forecast step must not teleport the field home', () => {
+    // Same instance layout, new data underneath: the arrows keep drifting. Re-seeding here is
+    // the visible failure of a continuous animation restarting on every data refresh.
+    const t = stub()
+    const p = new ArrowAdvectState()
+    const u = Float32Array.from([0.25])
+    const v = Float32Array.from([0.25])
+    p.writeOrigins(t.rhi, 'cbofs/1', u, v)
+    const after = t.writes.length
+    p.writeOrigins(t.rhi, 'cbofs/1', u, v)
+    expect(t.writes).toHaveLength(after)
+    // A DIFFERENT instance set is a different arrow per texel, so a stale position belongs to
+    // someone else — that one must re-seed.
+    p.writeOrigins(t.rhi, 'cbofs/2', u, v)
+    expect(t.writes.length).toBe(after + 3)
+  })
+
+  it('re-uploads after a device swap even though the batch did not change', () => {
+    // The origins went with the dead device. Keeping the key would leave the new device's
+    // origin texture at all-zero — every arrow leashed to grid-uv (0,0).
+    const a = stub()
+    const b = stub()
+    const p = new ArrowAdvectState()
+    const u = Float32Array.from([0.4])
+    const v = Float32Array.from([0.4])
+    p.writeOrigins(a.rhi, 'cbofs/1', u, v)
+    p.writeOrigins(b.rhi, 'cbofs/1', u, v)
+    expect(b.writes.length, 'seed on ensure, then origins + both sides').toBe(5)
   })
 })

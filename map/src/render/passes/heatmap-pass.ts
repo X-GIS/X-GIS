@@ -40,7 +40,7 @@ class HeatmapPass implements RenderPass {
       // Lazily (re)allocate the density targets at canvas size. No-op when
       // unchanged; never allocates in the default no-heatmap path. Map owns the
       // targets (#1000); they drive the backend's generic render-target primitive.
-      host.heatmapTargets.ensure(host.ctx.device, ctx.w, ctx.h)
+      host.heatmapTargets.ensure(host.ctx.device, ctx.scene.w, ctx.scene.h)
       const accumView = host.heatmapTargets.accumView
       const blurView = host.heatmapTargets.blurView
       if (!accumView || !blurView) return
@@ -54,7 +54,15 @@ class HeatmapPass implements RenderPass {
 
       // Write the shared accum frame uniform once.
       const { projType, centerLon, centerLat } = unwrapProjection(ctx.projection)
-      hr.updateFrameUniform(ctx.camera, projType, centerLon, centerLat, ctx.w, ctx.h, ctx.dpr)
+      hr.updateFrameUniform(
+        ctx.camera,
+        projType,
+        centerLon,
+        centerLat,
+        ctx.scene.w,
+        ctx.scene.h,
+        ctx.scene.dpr,
+      )
 
       const layers = hr.getLayers()
       for (let li = 0; li < layers.length; li++) {

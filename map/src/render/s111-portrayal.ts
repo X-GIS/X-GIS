@@ -18,6 +18,14 @@
 // zero or noData cell.
 
 import { bandedRampColor } from '../color-ramp'
+import {
+  S111_BAND_COUNT,
+  S111_BAND_PARAMS_ROW,
+  S111_BAND_STRIDE,
+  S111_BAND_TABLE_ROWS,
+  S111_BAND_TOP_SENTINEL,
+  S111_PARAM_UV_ASPECT,
+} from '../shaders/dsl/s111-band-table-layout'
 
 /** S-111 speed-band palette name (the banded ramp shared with the coverage fill). */
 export const S111_SPEED_RAMP = 's111-speed'
@@ -76,19 +84,8 @@ export function s111HasArrow(speedKnots: number): boolean {
 //   band  9   → (2.60, 0)      constant  scaleCeiling
 // so `scale = constant + perKnot × speed` reproduces all nine with no conditional at all.
 
-/** Floats per band row: (upperEdgeKnots, scaleConst, scalePerKnot, pad) then (r, g, b, a),
- *  0..1 colour. Two vec4s so the row is std140/std430-aligned on both backends. */
-export const S111_BAND_STRIDE = 8
-
-/** Bands in the catalogue's own order (1..9). */
-export const S111_BAND_COUNT = 9
-
-/** The catalogue's band 9 has no upper edge (`geSemiInterval`). A finite sentinel is uploaded
- *  instead of `Infinity`, which is not representable in an f32 buffer the shader can compare
- *  against — any speed at or above it lands in the last band, which is the same rule. */
-export const S111_BAND_TOP_SENTINEL = 1e9
-
-/** Build the band table the advected-arrow shader indexes. Row `i` is band `i+1`. */
+/** Build the band table the advected-arrow shader indexes. Row `i` is band `i+1`. Edges and the
+ *  scale pair are in KNOTS — see `s111BandTableNormalized` for the units the shader wants. */
 export function s111BandTable(rampName: string = S111_SPEED_RAMP): Float32Array {
   const out = new Float32Array(S111_BAND_COUNT * S111_BAND_STRIDE)
   // Band UPPER edges, from the catalogue: [0,.5) [.5,1) [1,2) [2,3) [3,5) [5,7) [7,10) [10,13) [13,∞)
@@ -114,6 +111,45 @@ export function s111BandTable(rampName: string = S111_SPEED_RAMP): Float32Array 
     out[o + 6] = c[2] / 255
     out[o + 7] = 1
   }
+  return out
+}
+
+/** The same table, re-expressed in the units the arrow VS actually holds (#1419).
+ *
+ *  The velocity textures store components divided by the field's peak speed (flow-field-pack.ts
+ *  — normalized so f16 error is bounded by the field's own range), so what the shader can cheaply
+ *  compute is a magnitude in [0, 1], not knots. Two ways to close that gap: hand the shader the
+ *  peak and let it multiply, or hand it a table already in its units. This is the second, because
+ *  the first needs a per-batch scalar plumbed into a VS that has no uniform of its own — and a
+ *  scale living in two places is how a catalogue revision updates one of them.
+ *
+ *  The transform is exact and rule-preserving: an edge in knots is `edge / peak` in normalized
+ *  units, and `konst + perKnot·speedKnots` is `konst + (perKnot·peak)·speedNorm`. The band a
+ *  given speed lands in, and the scale it gets, are unchanged.
+ *
+ *  `peakSpeed ≤ 0` is a calm or all-nodata field: nothing is symbolized at speed 0 (main.xsl
+ *  note 4, enforced in the VS), so the table is returned in knots rather than divided by zero. */
+export function s111BandTableNormalized(
+  peakSpeed: number,
+  uvAspect: number,
+  rampName: string = S111_SPEED_RAMP,
+): Float32Array {
+  const bands = s111BandTable(rampName)
+  const out = new Float32Array(S111_BAND_TABLE_ROWS * S111_BAND_STRIDE)
+  out.set(bands)
+  if (peakSpeed > 0) {
+    for (let b = 0; b < S111_BAND_COUNT; b++) {
+      const o = b * S111_BAND_STRIDE
+      out[o] = bands[o]! / peakSpeed
+      out[o + 2] = bands[o + 2]! * peakSpeed
+    }
+  }
+  // The trailing params row. `uvAspect` = trueLonSpan / trueLatSpan (flow-advect-params.ts):
+  // the VS's two screen bases are one grid-uv leash apart on each axis, and a uv unit is a
+  // different TRUE distance on each — so a velocity in metric east/north components has to be
+  // re-expressed in uv rates before it can pick a screen direction. Without it a northeast
+  // current draws at one angle and drifts at another, away from the equator most of all.
+  out[S111_BAND_PARAMS_ROW * S111_BAND_STRIDE + S111_PARAM_UV_ASPECT] = uvAspect
   return out
 }
 

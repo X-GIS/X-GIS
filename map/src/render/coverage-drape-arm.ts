@@ -21,6 +21,9 @@ export interface CoverageDrapeShow {
   /** Presence only — a layer whose portrayal is sounding NUMERALS (#1366 INC-5). Typed
    *  `unknown` because this rule needs to know THAT there are labels, never what they say. */
   label?: unknown
+  /** Which motion portrayal a `| flow` layer asked for (#1418). Undefined resolves to `arrows`
+   *  HERE rather than in the compiler, which is where the decision was recorded. */
+  flowPortrayal?: 'arrows' | 'streaks'
 }
 
 /** Whether the coverage drape draws, and whether it draws the advected field ALONE. */
@@ -36,8 +39,10 @@ export type CoverageDrapeArm =
 /**
  * 1. `| arrow` alone, no `ramp` → **no drape**. The strict catalogue portrayal: coloured
  *    symbols at grid points and nothing else. This is the only case that draws nothing.
- * 2. `| flow`, no `ramp` → **drape, flow-only**. The motion is visible without inventing a
- *    colour scale the catalogue does not define.
+ * 2. `| flow`, no `ramp` → depends on the PORTRAYAL (#1418/#1419): `streaks` → **drape,
+ *    flow-only** (the motion is visible without inventing a colour scale the catalogue does not
+ *    define); `arrows`, the default → **no drape**, because the moving catalogue glyphs ARE the
+ *    motion layer.
  * 3. sounding numerals alone, no `ramp` → **no drape** (#1366 INC-5). Same shape as case 1,
  *    and load-bearing for the same reason the extraction was: a chart puts its numerals on a
  *    SECOND layer over the ramp layer, so ONE coverage source carries TWO shows and this arm
@@ -50,7 +55,14 @@ export type CoverageDrapeArm =
  */
 export function coverageDrapeArm(show: CoverageDrapeShow): CoverageDrapeArm {
   if (show.ramp !== undefined) return { draw: true, flowOnly: false }
-  if (show.isFlow === true) return { draw: true, flowOnly: true }
+  if (show.isFlow === true) {
+    // #1419 — the portrayal decides WHICH motion layer, and only one of them may draw. Under
+    // `arrows` (the default) the catalogue glyphs themselves are the particles, so a flow-only
+    // drape has nothing left to contribute: it would put a second, independently-advected
+    // motion layer under arrows that are already moving, and the two disagree visibly about the
+    // same current. `streaks` keeps the IBFV drape, unchanged.
+    return show.flowPortrayal === 'streaks' ? { draw: true, flowOnly: true } : { draw: false }
+  }
   if (show.isArrow === true) return { draw: false }
   if (show.label !== undefined) return { draw: false }
   return { draw: true, flowOnly: false }

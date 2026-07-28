@@ -342,7 +342,7 @@ filtered the way MapLibre filters them, so it was reverted rather than kept as a
 mitigation. `label-pass-line-lattice.test.ts` pins the unlabelled-run behaviour so the gap stays
 visible instead of being rediscovered.
 
-**INC-3 — path collision, representation.**
+**INC-3 — path collision, representation. LANDED.**
 Extend `CollisionItem` with an optional circle chain (centre + radius per element) and teach
 `greedyPlaceBboxes` circle↔box and circle↔circle overlap. Keep AABB as the default so point
 labels and every existing test are untouched.
@@ -350,11 +350,96 @@ _Gate:_ unit tests for the three overlap pairs, plus a scene-level assertion tha
 label's circle chain and its AABB place identically (the chain must be a strict refinement, not a
 behaviour change, when the path is straight).
 
-**INC-4 — emit circle chains for line labels.**
+_As landed._ Entirely inside `text-collision.ts`. `CollisionItem.circles` is PARALLEL to
+`bboxes` — `circles[c]` refines candidate `bboxes[c]`, so a variable-anchor label gets a chain
+per candidate rather than one chain for the item. `CollisionObstacle` takes a chain too, since
+the icon obstacles are seeded into the same list. Three predicates (`bboxHitsBbox`,
+`circleHitsBbox` via the box's closest point, `circleHitsCircle`) sit behind one
+`footprintsOverlap`, which is the single place the pass asks "do these two overlap".
+
+Two details that are easy to get wrong and are pinned by tests: an absent OR EMPTY chain falls
+back to the box (reading "no circles" as "no footprint" would make every such label place on top
+of everything), and a placed item is seeded as a blocker with the SAME footprint it was judged
+by (seeding its box would make it block more than it occupies).
+
+_Gate as run._ Both refinement directions are asserted: a straight chain sweeping a blocker
+across 45 positions places exactly where its AABB does, and an L-shaped chain places in the
+concave corner its AABB over-blocks. Fail-before verified against three distinct injected bugs
+(empty-chain-as-no-footprint → 1 fail; per-axis instead of nearest-point circle↔box → 1 fail;
+seeding the box instead of the chain → 5 fail).
+
+Nothing emits chains yet, so this is dormant by construction — and measured that way rather than
+asserted: DC = 0 at all four INC-2 cameras (z16.7, z16.0, and both pitched), i.e. the render is
+bit-identical.
+
+**INC-4 — emit circle chains for line labels. BLOCKED — its witness does not hold. Read §4.1.**
 `TextStage` builds the chain from the curved layout it already has (glyph positions along the
 path) instead of one bbox.
 _Gate:_ the witness — MapLibre drops "Dogam-ro 도감로" at z16 and X-GIS must too; and a
 no-regression sweep on the shield cameras.
+
+### 4.1 The INC-4 witness was re-measured, and it does not reproduce
+
+§1.2's premise — X-GIS draws a curved road label where MapLibre drops it — was recorded before
+INC-1/INC-2, which moved line-label placement substantially. A 12-camera sweep
+(`playground/e2e/_debug-curved-label-witness.spec.ts`: z15.0–17.5 plus four pans, both panes,
+settle-until-3-identical-hashes) says the imbalance now runs the OTHER way. Counting text
+clusters present in one engine with no text within 10 px in the other, summed over the sweep:
+X-GIS draws **12 398 px** of text MapLibre does not, and MISSES **7 505 px** of MapLibre's — but
+per camera the ML-only clusters outnumber the XG-only ones almost everywhere (z16.0-n: 14 vs 1;
+z15.0: 12 vs 4). X-GIS under-labels relative to the reference; it does not over-label.
+
+The two largest genuine XG-only labels were read at full resolution, and NEITHER is a
+circle-chain case:
+
+- **z15.5, `Nuhyeon 2-gil 누현2길`** — a curved road label X-GIS draws and MapLibre does not, in
+  a neighbourhood with **nothing else in it**. There is no second label for a circle chain to
+  collide with, so a finer footprint cannot produce MapLibre's verdict. This is an ANCHOR
+  ACCEPTANCE difference, not a collision one.
+- **z16.0-w, `Geumwo-ro 금월로`** — X-GIS draws the road name, MapLibre draws a `360` route
+  shield in the same place. That is layer precedence / arbitration between two different
+  symbols, not footprint shape.
+
+**Consequence.** INC-4 must not be built on this gate. A circle chain is a SUBSET of the box it
+refines, so it can only make X-GIS collide LESS — the opposite of what §1.2 asked for. Until a
+witness exists where two line labels actually overlap and MapLibre resolves it differently,
+INC-4 has no way to distinguish a real improvement from a plausible-looking change, which is
+precisely the failure CLAUDE.md §5 exists to prevent. INC-3's capability stays dormant and
+costs nothing while it waits.
+
+### 4.2 text-max-angle: a real divergence found on the way, and what it was NOT
+
+Chasing the z15.5 witness surfaced a genuine spec divergence: X-GIS ran its `text-max-angle`
+gate ONLY when a style authored the property, to keep such styles byte-identical. Omitting it is
+the norm — **not one of OFM Positron's five line-placed symbol layers sets `text-max-angle`** —
+so the gate never ran on the style parity is measured against, while MapLibre applied the spec
+default of 45 throughout. Fixed: unset now means 45.
+
+It is NOT the explanation for the witness, and the measurement says so plainly: **DC = 0 at all
+twelve cameras.** The gate is per-ADJACENT-GLYPH, and a label that bends 30° over a dozen glyphs
+deflects ~3° per glyph — nowhere near 45. Rather than accept a 0 px diff as "no regression"
+(CLAUDE.md §12: a 0 px diff can equally mean the code never ran), the path was proved live by
+lowering the default to 3° and re-capturing: DC = 673 at z15.5. The gate runs; 45° simply does
+not bite on this style.
+
+So the fix is landed for conformance, not for pixels — it will bite on styles that author
+sharper curves, and it removes a by-construction divergence from the reference.
+
+### 4.3 The evidence-backed next step
+
+Two independent measurements now point at the same missing piece: MapLibre's `getAnchors`
+FILTERS candidate anchors, and X-GIS accepts every anchor the lattice produces.
+
+1. INC-2's z16.7/pitch-60 camera regressed on text coverage (+52 / +114) because the world
+   lattice lands anchors in the pitch-compressed far field where MapLibre places none.
+2. The z15.5 witness above is a long label on a short, curvy road — MapLibre's
+   does-the-label-fit check is the obvious candidate, and the neighbourhood being empty rules
+   out collision.
+
+`text-max-angle` is now handled (§4.2), so what remains of that filter is the LENGTH/FIT arm:
+MapLibre rejects an anchor whose label does not fit the line around it, and widens `spacing`
+when the label is long relative to it. That is the increment with a measurable gate, and it
+should precede INC-4.
 
 INC-3 and INC-4 are independently useful: INC-3 alone is a dormant capability, INC-4 without
 INC-3 is impossible. INC-1 is independently shippable and is the recommended first landing.

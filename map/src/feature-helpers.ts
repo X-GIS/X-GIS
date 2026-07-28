@@ -355,6 +355,47 @@ function ringBboxCentre(ring: [number, number][]): [number, number] | null {
 
 // ─── Feature collection transforms ─────────────────────────────────
 
+/** Decide whether a filter AST accepts an already-built eval bag.
+ *
+ *  The truthiness rules are the CONTRACT, not a detail, which is why they live in one
+ *  function: booleans pass through; a number accepts only when non-zero AND finite (pre-fix,
+ *  a filter returning NaN — a corrupted property divided by zero — let every feature through);
+ *  a throw rejects, so one malformed feature or one pathological expression cannot nuke the
+ *  rest of the collection. Everything else is JS-truthy.
+ *
+ *  Shared by {@link applyFilter} (feature collections) and {@link filterAcceptsProps} (bare
+ *  property bags) so the two cannot drift into disagreeing about what a filter means. */
+function evalFilterTruthy(ast: AST.Expr, bag: Record<string, unknown>): boolean {
+  let result: unknown
+  try {
+    result = evaluate(ast, bag)
+  } catch {
+    return false
+  }
+  if (typeof result === 'boolean') return result
+  if (typeof result === 'number') return result !== 0 && Number.isFinite(result)
+  return !!result
+}
+
+/** `filter:` against a bare property bag — no geometry, no feature id, nothing to reproject.
+ *
+ *  For a gridded S-100 coverage the cell's BANDS are its properties (#1366), so
+ *  `filter: .depth > 20` on a coverage layer reads exactly as it does on a feature layer.
+ *  There is no FeatureCollection to pre-filter the way `applyFilter` does for GeoJSON, and no
+ *  worker slice key the way vector tiles do, so the predicate is applied per candidate cell at
+ *  dispatch time instead. `cameraZoom` is threaded so `zoom`-dependent filters see the live
+ *  value, matching what the label pass already hands the text/size/colour expressions.
+ *
+ *  No filter ⇒ accepts, so the caller needs no null branch. */
+export function filterAcceptsProps(
+  filterExpr: { ast: unknown } | null | undefined,
+  props: Record<string, unknown>,
+  cameraZoom?: number,
+): boolean {
+  if (!filterExpr?.ast) return true
+  return evalFilterTruthy(filterExpr.ast as AST.Expr, makeEvalProps({ props, cameraZoom }))
+}
+
 /** Filter a FeatureCollection by an xgis expression AST (`filter:`
  *  clause). Returns a new collection with only the features whose
  *  evaluated expression is truthy. Pass-through (returns the input
@@ -401,20 +442,7 @@ export function applyFilter(
     // in the collection. Treat a throw as "filter rejects" — same as
     // a null/false return. Mirror of the per-layer try/catch isolation
     // (compiler/0c81006) at the runtime applyFilter boundary.
-    let result: unknown
-    try {
-      result = evaluate(ast, propsBag)
-    } catch {
-      return false
-    }
-    // Truthy check: non-zero numbers, true booleans, non-empty strings.
-    if (typeof result === 'boolean') return result
-    // NaN filter result → false. Mirror of filter-eval.ts NaN guard:
-    // pre-fix `result !== 0` accepted NaN as truthy and a filter
-    // returning NaN (e.g. corrupted property divided by zero) let
-    // every feature through.
-    if (typeof result === 'number') return result !== 0 && Number.isFinite(result)
-    return !!result
+    return evalFilterTruthy(ast, propsBag)
   })
   if (filtered.length === data.features.length) return data
   return { ...data, features: filtered }

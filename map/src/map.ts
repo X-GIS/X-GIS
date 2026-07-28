@@ -30,7 +30,12 @@ import { applyBodyOption } from './body-consts'
 import { addHeatmapShowLayer } from './heatmap-show'
 import { addArrowShowLayer } from './arrow-show'
 import { addCoverageArrowShowLayer } from './coverage-arrow-show'
-import { armCoverageDrape, armCoverageShow, armLandedCoverage } from './coverage-arm'
+import {
+  armAdvectedArrows,
+  armCoverageDrape,
+  armCoverageShow,
+  armLandedCoverage,
+} from './coverage-arm'
 import { worldBandForProjType } from '@xgis/geo'
 import { projectLonLatToScreenCss } from './render-loop-helpers'
 import {
@@ -3100,6 +3105,9 @@ export class XGISMap {
     this.hillshadeRenderer = rendererSet.hillshadeRenderer
     this.coverageRenderer = rendererSet.coverageRenderer
     this.flowRenderer = rendererSet.flowRenderer
+    // The advected arrows' state lives on the FlowRenderer (#1419); the graphics store needs a
+    // handle on it to bind — and to upload each batch's origins the moment it is added.
+    this.graphics.setAdvectedArrowSource(rendererSet.flowRenderer)
     this.gpuTimer = rendererSet.gpuTimer
     // Cast: pointRenderer field is a definite-assignment non-null (like ctx);
     // buildSceneRenderers yields null only on a ctor failure, which overwrites a
@@ -3604,6 +3612,7 @@ export class XGISMap {
           // `| arrow` on a coverage layer (#1333) draws the official S-111 vector field —
           // the engine-owned arrow portrayal, band-coloured by `ramp` (default s111-speed).
           if (show.isArrow) addCoverageArrowShowLayer(this, show, entry.handle, region)
+          armAdvectedArrows(this, show, entry.handle, region)
         }
         if (show.isArrow) this._coverageArrowsArmed = true
         if (show.isFlow) this._coverageFlowArmed = true
@@ -4135,6 +4144,9 @@ export class XGISMap {
     this.hillshadeRenderer = rendererSet.hillshadeRenderer
     this.coverageRenderer = rendererSet.coverageRenderer
     this.flowRenderer = rendererSet.flowRenderer
+    // The advected arrows' state lives on the FlowRenderer (#1419); the graphics store needs a
+    // handle on it to bind — and to upload each batch's origins the moment it is added.
+    this.graphics.setAdvectedArrowSource(rendererSet.flowRenderer)
     this.gpuTimer = rendererSet.gpuTimer
     this.pointRenderer = rendererSet.pointRenderer as PointRenderer
     this.shapeRegistry = rendererSet.shapeRegistry

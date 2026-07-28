@@ -94,6 +94,9 @@ export class ArrowAdvectState {
   private b: RhiTexture | null = null
   private aView: RhiTextureView | null = null
   private bView: RhiTextureView | null = null
+  private origin: RhiTexture | null = null
+  private originV: RhiTextureView | null = null
+  private originKey = ''
   private flipped = false
   private device: RhiDevice | null = null
 
@@ -107,9 +110,45 @@ export class ArrowAdvectState {
     return this.flipped ? this.aView : this.bView
   }
 
+  /** Where each arrow BELONGS — texel `i` is instance `i`'s origin cell in grid-uv, in the same
+   *  rgba8 encoding as the position pair. Null until `writeOrigins`. Read by the advect step
+   *  (to leash and to recycle an arrow back to its own cell) and by the arrow VS (the
+   *  displacement it draws is position − origin), so there is ONE copy of the origins and no
+   *  chance of the two stages disagreeing about where an arrow started. */
+  get originView(): RhiTextureView | null {
+    return this.originV
+  }
+
   /** Exchange the sides — once per update, AFTER the draw that used them. */
   swap(): void {
     this.flipped = !this.flipped
+  }
+
+  /** Upload the origins for the current arrow batch, and start every arrow AT its origin.
+   *
+   *  `key` identifies the batch's instance layout (region + grid size + count): an equal key
+   *  means origin `i` still belongs to instance `i`, so the upload is SKIPPED and the arrows
+   *  keep drifting. That is what makes a forecast step continuous — the data under the arrows
+   *  is replaced, the arrows themselves do not jump back to their cells. An unequal key is a
+   *  different instance set, where a stale position is a position belonging to another arrow.
+   *
+   *  Seeding the positions FROM the origins (rather than from `seedArrowPositions`) buys a
+   *  property the render gate uses: on frame 0 the advected field is EXACTLY the static
+   *  catalogue placement, so "the arrows moved" is a comparison against the portrayal itself. */
+  writeOrigins(rhi: RhiDevice, key: string, u: ArrayLike<number>, v: ArrayLike<number>): void {
+    this.ensure(rhi)
+    if (key === this.originKey) return
+    this.originKey = key
+    const bytes = new Uint8Array(ARROW_ADVECT_COUNT * 4)
+    const n = Math.min(u.length, v.length, ARROW_ADVECT_COUNT)
+    for (let i = 0; i < n; i++) encodeArrowPosition(u[i]!, v[i]!, bytes, i * 4)
+    // Texels past the instance count keep (0,0). No instance reads them, and the advect step
+    // stepping them is harmless — it is a fixed-size pass either way.
+    const row = ARROW_ADVECT_TEX_DIM * 4
+    rhi.writeTexture(this.origin!, bytes, row, ARROW_ADVECT_TEX_DIM, ARROW_ADVECT_TEX_DIM)
+    rhi.writeTexture(this.a!, bytes, row, ARROW_ADVECT_TEX_DIM, ARROW_ADVECT_TEX_DIM)
+    rhi.writeTexture(this.b!, bytes, row, ARROW_ADVECT_TEX_DIM, ARROW_ADVECT_TEX_DIM)
+    this.flipped = false
   }
 
   /** Allocate the pair on first use, and SEED it. Unlike a trail buffer there is no
@@ -121,14 +160,19 @@ export class ArrowAdvectState {
       // A new device took the old textures with it. Drop the handles WITHOUT destroying them
       // (destroying through a dead device is the #737 hazard) and fall through to reallocate.
       this.device = rhi
-      this.a = this.b = null
-      this.aView = this.bView = null
+      this.a = this.b = this.origin = null
+      this.aView = this.bView = this.originV = null
+      // The origins went with the old device, so the next writeOrigins must re-upload them
+      // even though the batch did not change.
+      this.originKey = ''
     }
     if (this.a) return
     this.a = this.make(rhi, 'arrow-advect-a')
     this.b = this.make(rhi, 'arrow-advect-b')
+    this.origin = this.make(rhi, 'arrow-advect-origin')
     this.aView = rhi.createView(this.a)
     this.bView = rhi.createView(this.b)
+    this.originV = rhi.createView(this.origin)
     this.flipped = false
     // Seed BOTH sides. Only the read side is strictly needed, but the write side's undefined
     // contents would be visible for exactly one frame as a flash of arrows at garbage positions.
@@ -152,8 +196,10 @@ export class ArrowAdvectState {
   destroy(): void {
     if (this.a) this.device?.destroyTexture(this.a)
     if (this.b) this.device?.destroyTexture(this.b)
-    this.a = this.b = null
-    this.aView = this.bView = null
+    if (this.origin) this.device?.destroyTexture(this.origin)
+    this.a = this.b = this.origin = null
+    this.aView = this.bView = this.originV = null
+    this.originKey = ''
     this.device = null
     this.flipped = false
   }
