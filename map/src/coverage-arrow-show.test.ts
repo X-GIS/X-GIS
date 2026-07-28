@@ -5,6 +5,8 @@ import {
   coverageArrowOrigins,
   type CoverageArrowShowHost,
 } from './coverage-arrow-show'
+import { ARROW_DRIFT_UV } from './shaders/dsl/arrow-advect-step'
+import { flowTrueSpans } from './render/flow-advect-params'
 import { ARROW_ADVECT_COUNT } from './render/arrow-advect-state'
 import type { ShowCommand } from './render/renderer-types'
 import { S111_ARROW_BASE_PX, S111_OUTLINE_FRAC } from './render/s111-portrayal'
@@ -265,6 +267,62 @@ describe('coverageArrowOrigins (#1409 — advected mode)', () => {
     const origins = coverageArrowOrigins(handle)!
     expect(calls[0]!.lons.length).toBeLessThanOrEqual(ARROW_ADVECT_COUNT)
     expect(origins.u).toHaveLength(calls[0]!.lons.length)
+  })
+
+  it('emits the BASE length only — the band multiplier is the shader’s job now (#1419)', () => {
+    // Double-scaling is the failure: the shader re-applies the band multiplier from the speed
+    // under the arrow's CURRENT position, so a per-cell multiplier baked in here would scale
+    // every arrow by the water it launched from AND the water it is in.
+    const handle = coverageFromGrids(
+      s111Input([0.3, 0, NaN, 2.5, 5.0, 20.0], [90, 0, 0, 180, 270, 45]),
+    )
+    const { host, calls } = makeHost()
+    addCoverageArrowShowLayer(host, s111Show, handle, '', { advected: true })
+    for (const size of calls[0]!.sizes) expect(size).toBe(S111_ARROW_BASE_PX)
+    // The static path still bakes it — 0.3 kn → the 0.40 floor.
+    const s = makeHost()
+    addCoverageArrowShowLayer(s.host, s111Show, handle)
+    expect(s.calls[0]!.sizes[0]).toBeCloseTo(S111_ARROW_BASE_PX * 0.4, 4)
+  })
+
+  it('emits the two BASIS ANCHORS, one leash length along each grid axis (#1419)', () => {
+    // These are what the advected VS projects to turn a drift into a screen offset. Two things
+    // must be right and neither is visible from the shader side:
+    //   • the DISTANCE is exactly ARROW_DRIFT_UV of the grid span, because the VS divides by
+    //     that constant — a mismatch scales every arrow's displacement by a silent factor;
+    //   • grid-v runs SOUTHWARD (row 0 is the north row), so +v steps to LOWER latitude. Get
+    //     that backwards and the field flows smoothly against its own arrowheads.
+    const handle = coverageFromGrids(
+      s111Input([0.3, 0, NaN, 2.5, 5.0, 20.0], [90, 0, 0, 180, 270, 45]),
+    )
+    const o = coverageArrowOrigins(handle)!
+    // 3 wide × 2 tall, 1° spacing → one uv unit is 2° in lon and 1° in lat.
+    const uSpanDeg = ARROW_DRIFT_UV * 2
+    const vSpanDeg = ARROW_DRIFT_UV * 1
+    // instance 0 = the north-row arrow at (10, 51).
+    expect(o.uStepLon[0]).toBeCloseTo(10 + uSpanDeg, 9)
+    expect(o.uStepLat[0]).toBeCloseTo(51, 9)
+    expect(o.vStepLon[0]).toBeCloseTo(10, 9)
+    expect(o.vStepLat[0]).toBeCloseTo(51 - vSpanDeg, 9)
+    // …and every instance carries its own pair, parallel to the origins.
+    expect(o.uStepLon).toHaveLength(o.u.length)
+    expect(o.vStepLat).toHaveLength(o.u.length)
+  })
+
+  it('reports the grid’s TRUE-distance aspect, cos(lat) folded in (#1419)', () => {
+    // The VS points each glyph along the direction the ADVECTION moves it. Both sides derive
+    // that anisotropy from `flowTrueSpans`, so a grid whose uv axes span different true
+    // distances cannot end up with the arrowhead at one angle and the motion at another.
+    const handle = coverageFromGrids(
+      s111Input([0.3, 0, NaN, 2.5, 5.0, 20.0], [90, 0, 0, 180, 270, 45]),
+    )
+    // 3×2 cells, 1° spacing → 2° of lon and 1° of lat between the corner cell centres, at a
+    // mid-latitude of 50.5°.
+    const expected = flowTrueSpans([2, 1], 50.5)
+    expect(coverageArrowOrigins(handle)!.uvAspect).toBeCloseTo(
+      expected.trueLon / expected.trueLat,
+      9,
+    )
   })
 
   it('the STATIC path is untouched — no cap at the advect count, no origins needed', () => {

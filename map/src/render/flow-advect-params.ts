@@ -56,17 +56,25 @@ const MIN_COS_LAT = Math.cos(89.9 * DEG2RAD)
  *  a recursive filter cannot recover from that the way a stateless one would. */
 export const FLOW_MAX_DT_SECONDS = 0.1
 
+/** The grid's spans in TRUE distance, in units of "degrees of latitude" (the common 111 km
+ *  factor cancels — only the ratio between the two axes shapes the flow).
+ *
+ *  Exported because the advected ARROW path (#1419) must draw each glyph along the direction
+ *  the advection actually moves it: the same anisotropy that keeps a northeast current from
+ *  drifting at the wrong angle would, if the draw ignored it, point the arrowhead at a
+ *  different angle than the motion. One derivation, two consumers. */
+export function flowTrueSpans(
+  spanDeg: readonly [number, number],
+  midLatDeg: number,
+): { trueLon: number; trueLat: number } {
+  const cosLat = Math.max(Math.abs(Math.cos(midLatDeg * DEG2RAD)), MIN_COS_LAT)
+  return { trueLon: Math.abs(spanDeg[0]) * cosLat, trueLat: Math.abs(spanDeg[1]) }
+}
+
 export function flowAdvectParams(input: FlowAdvectInput): FlowAdvectParams {
-  const [spanLon, spanLat] = input.spanDeg
   const dt = Math.min(Math.max(input.dtSeconds, 0), FLOW_MAX_DT_SECONDS)
   const travel = input.ratePerSec * dt
-
-  // True-distance spans, in units of "degrees of latitude" (the common 111 km factor cancels,
-  // because only the RATIO between the two axes shapes the flow — the absolute scale lives in
-  // ratePerSec).
-  const cosLat = Math.max(Math.abs(Math.cos(input.midLatDeg * DEG2RAD)), MIN_COS_LAT)
-  const trueLon = Math.abs(spanLon) * cosLat
-  const trueLat = Math.abs(spanLat)
+  const { trueLon, trueLat } = flowTrueSpans(input.spanDeg, input.midLatDeg)
 
   return {
     stepX: trueLon > 0 ? travel / trueLon : 0,

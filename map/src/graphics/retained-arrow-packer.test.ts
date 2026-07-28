@@ -174,34 +174,53 @@ describe('#824/#825 retained-arrow packer', () => {
 // ── Advected mode: two geographic bases instead of one (#1419) ────────────────────────────
 //
 // An advected arrow's direction comes from the velocity field at its CURRENT position, so the
-// TIP block's baked bearing has no consumer and is reused as the EAST step; a NORTH step is
-// added. The pair gives the VS the two bases a 2D displacement decomposes onto. With only one,
-// an arrow can move solely along its launch bearing — the straight-line drift #65 shipped and
-// #70 reverted.
+// TIP block's baked bearing has no consumer and is reused as the GRID-U step anchor; a GRID-V
+// one is added. The pair gives the VS the two bases a 2D displacement decomposes onto. With only
+// one, an arrow can move solely along its launch bearing — the straight-line drift #65 shipped
+// and #70 reverted. Both anchors are SUPPLIED by the generator, one leash length away.
 
 describe('packCompiledArrowFeat — advected mode (#1419)', () => {
   const F = ARROW_RETAINED_FEAT.slot
   const S = ARROW_RETAINED_FEAT.stride
 
-  it('writes EAST into the tip block and NORTH into its own, both from the SAME anchor', () => {
-    const feat = packCompiledArrowFeat([10], [50], [123], [20], 1, 0, true)
-    // Read the lon/lat each block carries — the df64 blocks are opaque, but these are not.
+  const advected = {
+    uStepLon: [10.1],
+    uStepLat: [50],
+    vStepLon: [10],
+    vStepLat: [49.9],
+  }
+
+  it('writes the SUPPLIED grid-step anchors — it derives neither of them', () => {
+    // The anchors come from the generator, which is the only side that knows the coverage's
+    // grid and CRS: a packer stepping DEGREES is right for a geographic cell and silently wrong
+    // for a projected one, the #1366 failure this pipeline already paid for once.
+    const feat = packCompiledArrowFeat([10], [50], [123], [20], 1, 0, advected)
     expect(feat[F.abs_lon]).toBeCloseTo(10, 6)
     expect(feat[F.abs_lat]).toBeCloseTo(50, 6)
-    // EAST: same latitude, longitude stepped (and cos-corrected, so it is a TRUE east step).
-    expect(feat[F.tip_abs_lat]).toBeCloseTo(50, 6)
-    expect(feat[F.tip_abs_lon]!).toBeGreaterThan(10)
-    // NORTH: same longitude, latitude stepped.
-    expect(feat[F.north_abs_lon]).toBeCloseTo(10, 6)
-    expect(feat[F.north_abs_lat]!).toBeGreaterThan(50)
+    // grid-u step into the tip block…
+    expect(feat[F.tip_abs_lon]).toBe(Math.fround(10.1))
+    expect(feat[F.tip_abs_lat]).toBe(50)
+    // …grid-v step into its own. +v runs SOUTHWARD (row 0 is the north row), so it steps to a
+    // LOWER latitude — the same axis convention the advect step derives for its own step.
+    expect(feat[F.north_abs_lon]).toBe(10)
+    expect(feat[F.north_abs_lat]).toBe(Math.fround(49.9))
+  })
+
+  it('packs each anchor through the SAME geo authority as the tail — no second path', () => {
+    // The 12-slot ECEF/Mercator block for an anchor must equal the block a batch placed AT that
+    // point produces. Anything else is a second projection of the same point, which is where a
+    // sub-metre placement split between fill and glyph would come from.
+    const feat = packCompiledArrowFeat([10], [50], [0], [20], 1, 0, advected)
+    const atUStep = packCompiledArrowFeat([10.1], [50], [0], [20], 1, 0)
+    for (let s = 0; s < 12; s++) expect(feat[F.tip_ecef_x_h + s]).toBe(atUStep[s])
   })
 
   it('IGNORES the bearing — direction comes from the field, not from the pack', () => {
     // The load-bearing difference from the static path. If bearing still shaped the anchors,
     // an advected arrow would carry a frozen launch direction and the field sample would fight
     // it — motion that looks smooth and reports the wrong current.
-    const a = packCompiledArrowFeat([10], [50], [0], [20], 1, 0, true)
-    const b = packCompiledArrowFeat([10], [50], [270], [20], 1, 0, true)
+    const a = packCompiledArrowFeat([10], [50], [0], [20], 1, 0, advected)
+    const b = packCompiledArrowFeat([10], [50], [270], [20], 1, 0, advected)
     expect([...a]).toEqual([...b])
   })
 

@@ -1,5 +1,11 @@
 import { describe, it, expect } from 'vitest'
-import { emitArrowRetainedWgsl, emitArrowRetainedGlsl } from './arrow-retained'
+import {
+  emitArrowRetainedWgsl,
+  emitArrowRetainedGlsl,
+  emitArrowRetainedAdvectedWgsl,
+  emitArrowRetainedAdvectedGlsl,
+} from './arrow-retained'
+import { ARROW_DRIFT_UV, emitArrowAdvectWgsl } from './arrow-advect-step'
 
 // #824/#825 retained geo-anchored ARROW shader — instanced procedural bounding
 // quad (instance_index + vertex_index), the point.ts geo→clip ladder (reused
@@ -106,5 +112,107 @@ describe('#823 retained-arrow shader — GLSL ES 3.00 twin', () => {
 
   it('composites the outline via mix(fill, black, strokeCov) in GLSL too', () => {
     expect(fs).toMatch(/mix\(in_\.tint\.xyz, vec3\(0\.0, 0\.0, 0\.0\), max\(/)
+  })
+})
+
+// #1419 — the ADVECTED variant: the catalogue glyph IS the particle. A SECOND MODULE rather
+// than a second entry in the static one, because `module()` declares bindings at module level:
+// adding the state/velocity/band resources to the static module would change the static
+// shader's emitted text even though its VS body is untouched. The first describe below is the
+// property that buys — the static emit is provably free of everything this feature added.
+describe('#1419 advected-arrow shader — the static path is untouched', () => {
+  const w = emitArrowRetainedWgsl()
+  const vs = emitArrowRetainedGlsl('vertex')
+
+  it('no advected resource, and no advected entry, reaches the static module', () => {
+    for (const leak of [
+      'state_tex',
+      'origin_tex',
+      'flow_u_tex',
+      'flow_v_tex',
+      'band_data',
+      'decode_arrow_pos',
+      'vs_arrow_retained_advected',
+    ]) {
+      expect(w, `${leak} must not appear in the static WGSL`).not.toContain(leak)
+      expect(vs, `${leak} must not appear in the static GLSL`).not.toContain(leak)
+    }
+  })
+
+  it('still binds exactly feat + tint at group(1)', () => {
+    expect(w).toContain('@group(1) @binding(0) var<storage, read> feat_data: array<f32>;')
+    expect(w).toContain('@group(1) @binding(1) var<storage, read> tint_data: array<vec4<f32>>;')
+    expect(w).not.toContain('@group(1) @binding(2)')
+  })
+})
+
+describe('#1419 advected-arrow shader — DSL emission', () => {
+  const w = emitArrowRetainedAdvectedWgsl()
+
+  it('binds the state, the origins, the velocity pair and the band table — and NO tint', () => {
+    expect(w).toContain('@group(1) @binding(0) var<storage, read> feat_data: array<f32>;')
+    expect(w).toContain('@group(1) @binding(1) var<storage, read> band_data: array<f32>;')
+    expect(w).toContain('@group(1) @binding(2) var state_tex: texture_2d<f32>;')
+    expect(w).toContain('@group(1) @binding(3) var origin_tex: texture_2d<f32>;')
+    expect(w).toContain('@group(1) @binding(4) var flow_u_tex: texture_2d<f32>;')
+    expect(w).toContain('@group(1) @binding(5) var flow_v_tex: texture_2d<f32>;')
+    // The colour is the band the arrow is standing in, so there is no launch colour to keep.
+    expect(w).not.toContain('tint_data')
+  })
+
+  it('reads every texture with textureLoad — textureSample is illegal in a vertex stage', () => {
+    expect(w).toContain('textureLoad(state_tex')
+    expect(w).toContain('textureLoad(origin_tex')
+    expect(w).toContain('textureLoad(flow_u_tex')
+    expect(w).toContain('textureLoad(flow_v_tex')
+    expect(w).not.toContain('textureSample')
+    // …and therefore declares no sampler at all, which is also what keeps the WebGL2
+    // sampler-follows-its-texture ordering rule out of the vertex stage.
+    expect(w).not.toContain(': sampler')
+  })
+
+  it('projects THREE anchors — the origin and BOTH grid-step bases', () => {
+    // Two would be the static path's tail→tip pair, and scaling a single basis moves an arrow
+    // along a straight line: the closed-form drift #65 shipped and #70 reverted.
+    expect(w.match(/project_geo\(/g) ?? []).toHaveLength(4) // 1 definition + 3 calls
+    expect(w).toContain('vs_arrow_retained_advected')
+  })
+
+  it('scales the displacement by the SAME leash the advect step enforces', () => {
+    // The anchors are packed one ARROW_DRIFT_UV away, so this division is what makes the
+    // multiplier land in [-1, 1] — the range the linearization is valid over.
+    expect(w).toContain(`/ ${ARROW_DRIFT_UV}`)
+  })
+
+  it('shares decode_arrow_pos with the advect step — ONE encoding, not a twin', () => {
+    // A second copy of this expression is the failure arrow-advect-state.ts's header names:
+    // arrows that advect correctly and are DRAWN somewhere else.
+    const body = (src: string) =>
+      src.slice(
+        src.indexOf('fn decode_arrow_pos'),
+        src.indexOf('}', src.indexOf('fn decode_arrow_pos')),
+      )
+    expect(body(w)).toBe(body(emitArrowAdvectWgsl()))
+  })
+
+  it('holds no catalogue threshold of its own — it indexes the uploaded band table', () => {
+    // Nine bands, compared against band_data's own edges. A literal knot value here would be a
+    // second authority for the catalogue rule (s111-portrayal.ts owns it).
+    expect(w.match(/band_data\[/g)?.length ?? 0).toBeGreaterThanOrEqual(9)
+    expect(w).not.toContain('13.0') // band 9's edge, if it had been inlined
+  })
+
+  it('emits a GLSL twin per stage, storage lowered to data textures', () => {
+    const gvs = emitArrowRetainedAdvectedGlsl('vertex')
+    const gfs = emitArrowRetainedAdvectedGlsl('fragment')
+    expect(gvs).toContain('#version 300 es')
+    expect(gvs).toContain('void main()')
+    expect(gvs).toContain('uniform sampler2D feat_data;')
+    expect(gvs).toContain('uniform sampler2D band_data;')
+    expect(gvs).toContain('texelFetch(state_tex,')
+    expect(gvs).toContain('texelFetch(origin_tex,')
+    expect(gvs).not.toMatch(/\btexture\(/) // no filtered sample survives into the vertex stage
+    expect(gfs).toContain('void main()')
+    expect(gfs).toContain('discard;')
   })
 })

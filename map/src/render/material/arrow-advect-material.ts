@@ -38,6 +38,9 @@ export const ARROW_ADVECT_BINDINGS = [
   { binding: 4, kind: 'texture', name: 'v_tex' },
   { binding: 5, kind: 'sampler', name: 'v_samp' },
   { binding: 6, kind: 'uniform', name: 'ArrowAdvectParams' },
+  // Where each arrow belongs (#1419). Read with textureLoad, so it has no sampler and the
+  // interleaving rule above does not apply to it.
+  { binding: 7, kind: 'texture', name: 'origin_tex' },
 ] as const
 
 export class ArrowAdvectDraper {
@@ -79,6 +82,7 @@ export class ArrowAdvectDraper {
     v: RhiTextureView,
     nearest: RhiSampler,
     linear: RhiSampler,
+    origin: RhiTextureView,
   ): RhiBindGroup {
     return this.rhi.createBindGroup(this.material.layout(0), [
       { binding: 0, resource: { view: prev } },
@@ -88,6 +92,7 @@ export class ArrowAdvectDraper {
       { binding: 4, resource: { view: v } },
       { binding: 5, resource: { sampler: linear } },
       { binding: 6, resource: { buffer: this.material.globalUniform! } },
+      { binding: 7, resource: { view: origin } },
     ])
   }
 
