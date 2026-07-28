@@ -152,10 +152,34 @@ clip; the `spacing / 2` half of the rule was the wrong part.
 
 **Caveat before implementing.** This is ONE line, three anchors, one camera. The agreement is
 tight enough that coincidence is unlikely, but the rule must be confirmed on at least a second
-route and a second zoom before it is worth wiring — and X-GIS's own polyline is the tile-sliced
-geometry from `forEachLineLabelPolyline`, so its vertex 0 may ALREADY be that entry point, in
-which case the fix is simply dropping the `+ step/2` rather than changing the origin. Check that
-first; it would make INC-1 a one-line change.
+route and a second zoom before it is worth wiring.
+
+#### Is X-GIS's vertex 0 already the entry point? No.
+
+The hope was that the polyline from `forEachLineLabelPolyline` is already tile-clipped, so its
+vertex 0 would BE the entry point and INC-1 would collapse to deleting the `+ step / 2`. It is
+not. The decoded `ref=400` geometry from tile `14/13962/6331` straddles the tile bounds on both
+sides — it carries the standard MVT **buffer**:
+
+|             | lon                      | vs tile edge                        |
+| ----------- | ------------------------ | ----------------------------------- |
+| tile bounds | `[126.78223, 126.80420]` | —                                   |
+| vertex 0    | `126.78154`              | **0.000687° WEST of the west edge** |
+| last vertex | `126.80489`              | **0.000691° EAST of the east edge** |
+
+13 of the 16 vertices are inside; the other three are buffer overhang, symmetric to within
+0.4 %. So the walk's origin sits ~119 px _before_ the tile edge at z16.7 — which is exactly the
+119.8 px entry offset measured above, and exactly the phase error. The two numbers agreeing from
+independent directions is the strongest evidence in this document.
+
+**Consequence for INC-1.** The phase origin must be the tile-boundary crossing, so the walk has
+to either clip the polyline to the tile bounds first or find the crossing and start the
+`k · step` chain there. Not a one-line change, but a bounded one, and the target is now a number
+rather than a guess. The crossing is a property of the polyline and the tile, not of the camera,
+so the camera invariance the vertex-0 walk did deliver is preserved.
+
+One open question before wiring: whether `forEachLineLabelPolyline` exposes the tile identity
+the crossing must be computed against, or whether that has to be threaded through.
 
 **Do not land the vertex-0 walk on its own.** Camera invariance is not worth a 155 px
 regression against the reference; the two must arrive together.
