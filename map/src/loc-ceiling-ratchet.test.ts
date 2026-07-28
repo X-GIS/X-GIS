@@ -912,7 +912,16 @@ const CEILINGS: Record<string, number> = {
   // costs exactly two lines here — the import and the `onTruncated` argument; the
   // warn POLICY was extracted to render/selection-truncation.ts rather than added
   // to this file. Single ratchet for this path since runtime/ dissolved.
-  'map/src/render/tile-selection-cache.ts': 987,
+  // 987→997 (#1393): the adaptive quality ladder's far-field notch reaches the selector
+  // from here — the import plus the `farTargetBoost` argument on BOTH selection calls
+  // (the drawing one and the readiness gate, which must agree or the zoom advance stalls
+  // waiting for tiles a coarser selection never asks for). The POLICY stays in engine's
+  // adaptive-quality.ts and the mechanism in data's tiles-sse.ts; this file only carries
+  // the wire, which is exactly where the composition root belongs. The notch also joins
+  // `FrameTileCache` + its validity check: a STATIC camera never bumps `frameId`, so
+  // without that the memo would keep serving the pre-degrade selection for exactly as
+  // long as the user held still — measured, 0.6% instead of 26%.
+  'map/src/render/tile-selection-cache.ts': 1011,
   // 870→876 (#1083): +6 for the tile-rect NE-corner Mercator calc threaded
   // into generateWallMeshExtrudedECEF so it drops clip-synthetic seam walls.
   // 876→889: visible-first cap-deferral — `_distSq` field + `resetFrameCap`
