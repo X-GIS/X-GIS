@@ -296,10 +296,12 @@ function makeArrowSource() {
   const b = { native: 'state-b' } as never
   const origin = { native: 'origin' } as never
   const originWrites: string[] = []
+  const released: string[] = []
   let flipped = false
   let field = { u: { native: 'u' } as never, v: { native: 'v' } as never }
   return {
     originWrites,
+    released,
     swap: () => {
       flipped = !flipped
     },
@@ -308,7 +310,11 @@ function makeArrowSource() {
       field = { u: { native: 'u2' } as never, v: { native: 'v2' } as never }
     },
     source: {
-      writeArrowOrigins: (key: string) => void originWrites.push(key),
+      releaseArrowOrigins: (key: string) => void released.push(key),
+      writeArrowOrigins: (key: string) => {
+        originWrites.push(key)
+        return 0 // single-region fixtures: every batch is based at texel 0
+      },
       get arrowBinding() {
         return { state: flipped ? b : a, origin, flowU: field.u, flowV: field.v }
       },
