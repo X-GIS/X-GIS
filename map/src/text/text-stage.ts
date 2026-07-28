@@ -65,7 +65,6 @@ import {
   composeFontKey,
   ONE_EM,
   SHAPING_DEFAULT_OFFSET,
-  CJK_FALLBACK_CHAIN,
   parseInlineImages,
   resolveInlineImageSprites,
   fillPointGlyphOffsetsWithImages,
@@ -73,6 +72,9 @@ import {
   type ShapedInlineImage,
   type InlineImageSpriteSource,
   type InlineImagePlacement,
+  TEXT_MAX_ANGLE_DEFAULT_DEG,
+  STAGE_DEFAULTS,
+  rotateLabelTranslate,
 } from './text-stage-helpers'
 import type { TextStageOptions, PendingLabel, PendingLineLabel } from './text-stage-types'
 import { wrapWithKnuthPlass, cjkBucketFor } from './text-wrap'
@@ -133,60 +135,6 @@ export {
 // Linux). Per-label font stacks coming from Mapbox styles get the
 // same fallback chain appended in composeFontKey. CJK_FALLBACK_CHAIN
 // now lives in text-stage-helpers.ts alongside composeFontKey.
-/** Mapbox `text-max-angle` spec default (degrees). MapLibre applies it to every
- *  line-placed label, authored or not — see the gate in the curved shaping loop. */
-const TEXT_MAX_ANGLE_DEFAULT_DEG = 45
-
-const DEFAULTS: Required<
-  Omit<
-    TextStageOptions,
-    | 'rasterizer'
-    | 'glyphsUrl'
-    | 'inlineGlyphs'
-    | 'glyphProviders'
-    | 'fontTypography'
-    | 'dpr'
-    | 'onResourceLanded'
-  >
-> = {
-  slotSize: 64,
-  // iter-272 — bump atlas slots 1296 → 4096 (~3.2× headroom).
-  // User-reported bilingual label corruption on OFM Bright dense
-  // scenes (Seoul z=11) where atlas overflow cycles within the
-  // iter-268 preloadString pass, breaking the "all admissions
-  // complete before shape work" invariant. Dense bilingual scenes
-  // (Latin + Hangul ~300 syllables + CJK + numbers + punctuation ×
-  // multiple font weights) exceed 1296. 4096² R8 = 16 MB (was 5.3 MB).
-  pageSize: 4096,
-  rasterFontSize: 24,
-  sdfRadius: 8,
-  defaultFont: CJK_FALLBACK_CHAIN,
-  // Symbol fade disabled at the stage level — direct-stage callers (tests,
-  // bespoke integrations) stay byte-identical; the MAP option applies the
-  // MapLibre-default 300 ms when constructing the stage (label-pass.ts).
-  fadeDurationMs: 0,
-}
-
-/** Mapbox `text-translate-anchor`: viewport (default) returns the
- *  [dx,dy] CSS-px offset unchanged (screen-space, historical behaviour);
- *  map rotates it by the map bearing so it tracks the MAP world axes
- *  (MapLibre map-anchor). Pure 2D rotation; mirror of the VTR
- *  `rotateTranslateForAnchor` used for the fill/line clip-space bake
- *  (Phase S Batch 2). No work when the offset is zero or anchor is
- *  viewport. */
-function rotateLabelTranslate(
-  dx: number,
-  dy: number,
-  anchorMap: boolean | undefined,
-  bearingDeg: number,
-): [number, number] {
-  if (!anchorMap || (dx === 0 && dy === 0)) return [dx, dy]
-  const r = (bearingDeg * Math.PI) / 180
-  const c = Math.cos(r),
-    s = Math.sin(r)
-  return [dx * c - dy * s, dx * s + dy * c]
-}
-
 export class TextStage {
   readonly host: GlyphAtlasHost
   readonly gpu: GlyphAtlasGPU
@@ -383,7 +331,7 @@ export class TextStage {
     options: TextStageOptions = {},
     sampleCount: number = 1,
   ) {
-    this.opts = { ...DEFAULTS, ...options } as Required<
+    this.opts = { ...STAGE_DEFAULTS, ...options } as Required<
       Omit<
         TextStageOptions,
         | 'rasterizer'
