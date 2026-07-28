@@ -139,7 +139,7 @@ export const LAYOUT_SYMBOL: readonly CoverageEntry[] = [
   {
     name: 'text-max-angle',
     status: 'supported',
-    note: "Max degrees between adjacent glyphs on a line-placed label. Threaded end-to-end: layout `text-max-angle` → `label-max-angle-N` → LabelDef.maxAngle → TextStage curved-loop angular gate (drops the label when the wrapped per-glyph tangent delta exceeds the threshold). UNSET = no clamp (X-GIS historical behaviour preserved byte-for-byte for styles that don't author it); authoring a value (incl. spec default 45) activates the gate.",
+    note: "Max degrees between adjacent glyphs on a line-placed label. Threaded end-to-end: layout `text-max-angle` → `label-max-angle-N` → LabelDef.maxAngle → TextStage curved-loop angular gate (drops the label when the wrapped per-glyph tangent delta exceeds the threshold). UNSET = the spec default of 45, which MapLibre applies to every line-placed label whether or not the style authors the property. It previously meant NO clamp, to keep unauthored styles byte-identical — but omitting it is the norm (not one of OFM Positron's five line-placed symbol layers sets it), so the gate never ran on the style parity is measured against.",
     source: 'layers-symbol.ts:1072',
   },
   {

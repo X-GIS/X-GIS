@@ -3095,6 +3095,9 @@ export class XGISMap {
     this.hillshadeRenderer = rendererSet.hillshadeRenderer
     this.coverageRenderer = rendererSet.coverageRenderer
     this.flowRenderer = rendererSet.flowRenderer
+    // The advected arrows' state lives on the FlowRenderer (#1419); the graphics store needs a
+    // handle on it to bind — and to upload each batch's origins the moment it is added.
+    this.graphics.setAdvectedArrowSource(rendererSet.flowRenderer)
     this.gpuTimer = rendererSet.gpuTimer
     // Cast: pointRenderer field is a definite-assignment non-null (like ctx);
     // buildSceneRenderers yields null only on a ctor failure, which overwrites a
@@ -3599,6 +3602,7 @@ export class XGISMap {
           // `| arrow` on a coverage layer (#1333) draws the official S-111 vector field —
           // the engine-owned arrow portrayal, band-coloured by `ramp` (default s111-speed).
           if (show.isArrow) addCoverageArrowShowLayer(this, show, entry.handle, region)
+          this._armAdvectedArrows(show, entry.handle, region)
         }
         if (show.isArrow) this._coverageArrowsArmed = true
         if (show.isFlow) this._coverageFlowArmed = true
@@ -4130,6 +4134,9 @@ export class XGISMap {
     this.hillshadeRenderer = rendererSet.hillshadeRenderer
     this.coverageRenderer = rendererSet.coverageRenderer
     this.flowRenderer = rendererSet.flowRenderer
+    // The advected arrows' state lives on the FlowRenderer (#1419); the graphics store needs a
+    // handle on it to bind — and to upload each batch's origins the moment it is added.
+    this.graphics.setAdvectedArrowSource(rendererSet.flowRenderer)
     this.gpuTimer = rendererSet.gpuTimer
     this.pointRenderer = rendererSet.pointRenderer as PointRenderer
     this.shapeRegistry = rendererSet.shapeRegistry
@@ -4810,7 +4817,15 @@ export class XGISMap {
     region = DEFAULT_REGION,
   ): void {
     const arm = coverageDrapeArm(show)
-    if (!arm.draw) return
+    // A layer that draws no drape may still need the coverage RESIDENT: the advected arrow
+    // field is built from the velocity textures this upload creates (#1419). Skipping the arm
+    // outright — which is what "no drape" used to mean — left that field with no data source
+    // at all, so the portrayal rendered nothing. `hidden` keeps the two questions apart.
+    // Only a FLOW layer needs this: the static `| arrow` portrayal is packed on the CPU from
+    // the handle and reads no GPU texture, so uploading one for it would spend a vector
+    // coverage's worth of VRAM on data nothing samples.
+    const needsResidency = show.isFlow === true
+    if (!arm.draw && !needsResidency) return
     this.coverageRenderer.setCoverage(
       handle,
       {
@@ -4818,10 +4833,29 @@ export class XGISMap {
         rangeLo: show.range?.[0],
         rangeHi: show.range?.[1],
         opacity: show.opacity ?? 1,
-        flowOnly: arm.flowOnly,
+        flowOnly: arm.draw ? arm.flowOnly : false,
+        hidden: !arm.draw,
       },
       region,
     )
+  }
+
+  /** The ADVECTED arrow field (#1419) — the catalogue glyphs themselves drifting through the
+   *  current. Armed for a `| flow` layer whose portrayal resolves to `arrows` (the default,
+   *  resolved HERE rather than in the compiler — #1418).
+   *
+   *  The peak speed comes off the UPLOADED velocity field rather than being re-derived from the
+   *  handle: the band table is expressed in the textures' normalized units, so a second
+   *  derivation of the peak is a second thing that can disagree with them. A region whose field
+   *  has not been uploaded yet simply arms nothing — the next rebuild re-adds, which is the
+   *  same pattern every other coverage-dependent layer here follows. */
+  private _armAdvectedArrows(show: ShowCommand, handle: CoverageHandle, region: string): void {
+    if (show.isFlow !== true || show.flowPortrayal === 'streaks') return
+    const field = this.coverageRenderer?.flowField(region)
+    if (!field || !(field.scale > 0)) return
+    addCoverageArrowShowLayer(this, show, handle, region, {
+      advected: { peakSpeed: field.scale },
+    })
   }
 
   private _armCoverageFields(handle: CoverageHandle, region = DEFAULT_REGION): void {
@@ -4835,6 +4869,7 @@ export class XGISMap {
       this._graphics.clearCompiledArrows(region)
       addCoverageArrowShowLayer(this, show, handle, region)
     }
+    this._armAdvectedArrows(show, handle, region)
     this.invalidate()
   }
 

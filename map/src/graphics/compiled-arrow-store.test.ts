@@ -282,3 +282,147 @@ describe('compiled `| arrow` layer store (#1302 / #1333)', () => {
     expect(gm.hasRetainedBatches()).toBe(true)
   })
 })
+
+// ── ADVECTED batches (#1419) ─────────────────────────────────────────────────────────────
+//
+// The particle portrayal shares this store's lifecycle but not its resources: it uploads a band
+// table instead of a tint buffer, and its bind group also binds the arrow ping-pong's READ side,
+// which alternates every step. Both differences are invisible in a frame — an advected batch
+// drawn with a stale group animates perfectly and reports the wrong instant — so they are pinned
+// here, through the same public surface the static cases use.
+
+function makeArrowSource() {
+  const a = { native: 'state-a' } as never
+  const b = { native: 'state-b' } as never
+  const origin = { native: 'origin' } as never
+  const flowU = { native: 'u' } as never
+  const flowV = { native: 'v' } as never
+  const originWrites: string[] = []
+  let flipped = false
+  return {
+    originWrites,
+    swap: () => {
+      flipped = !flipped
+    },
+    source: {
+      writeArrowOrigins: (key: string) => void originWrites.push(key),
+      get arrowBinding() {
+        return { state: flipped ? b : a, origin, flowU, flowV }
+      },
+    },
+  }
+}
+
+function addAdvected(gm: GraphicsManager, n: number, key = 'cbofs/1', region = ''): void {
+  gm.addCompiledArrowLayer(
+    Float64Array.from({ length: n }, (_, i) => -70 + i),
+    Float64Array.from({ length: n }, (_, i) => 40 + i * 0.1),
+    Float32Array.from({ length: n }, () => 0),
+    Float32Array.from({ length: n }, () => 34),
+    Array.from({ length: n }, () => [1, 0, 0, 1] as const),
+    0.06,
+    region,
+    {
+      originU: Float32Array.from({ length: n }, (_, i) => i / n),
+      originV: Float32Array.from({ length: n }, () => 0.5),
+      uStepLon: Float64Array.from({ length: n }, (_, i) => -70 + i + 0.1),
+      uStepLat: Float64Array.from({ length: n }, (_, i) => 40 + i * 0.1),
+      vStepLon: Float64Array.from({ length: n }, (_, i) => -70 + i),
+      vStepLat: Float64Array.from({ length: n }, (_, i) => 40 + i * 0.1 - 0.1),
+      bandTable: new Float32Array(80),
+      key,
+    },
+  )
+}
+
+describe('CompiledArrowStore — advected batches (#1419)', () => {
+  it('uploads a BAND table and no tint — there is no launch colour to keep', () => {
+    const t = makeStubs()
+    const gm = new GraphicsManager()
+    const arrows = makeArrowSource()
+    gm.setAdvectedArrowSource(arrows.source)
+    gm.attachDevice(t.device as never, t.rhi as never, 'bgra8unorm' as never)
+    addAdvected(gm, 4)
+    const labels = compiledBufs(t.created).map((b) => b.label)
+    expect(labels).toContain('compiled-arrow-feat')
+    expect(labels).toContain('compiled-arrow-band')
+    expect(labels).not.toContain('compiled-arrow-tint')
+  })
+
+  it('uploads the ORIGINS at ADD time, not at first draw', () => {
+    // The advect step runs EARLIER in the frame than the graphics pass. Origins that arrived at
+    // draw time would leave the first step leashing every arrow to grid-uv (0,0) — the whole
+    // field yanked toward the grid's corner for a frame.
+    const t = makeStubs()
+    const gm = new GraphicsManager()
+    const arrows = makeArrowSource()
+    gm.setAdvectedArrowSource(arrows.source)
+    gm.attachDevice(t.device as never, t.rhi as never, 'bgra8unorm' as never)
+    addAdvected(gm, 4, 'cbofs/4')
+    expect(arrows.originWrites).toEqual(['cbofs/4'])
+  })
+
+  it('DROPS an advected batch when no arrow source is attached', () => {
+    // The alternative — falling back to the static draper — is a field that animates nothing
+    // and reports its launch instant forever, which looks like a working portrayal.
+    const t = makeStubs()
+    const gm = new GraphicsManager()
+    gm.attachDevice(t.device as never, t.rhi as never, 'bgra8unorm' as never)
+    addAdvected(gm, 4)
+    expect(compiledBufs(t.created)).toHaveLength(0)
+  })
+
+  it('rebuilds its bind group when the ping-pong swaps, and settles at two', () => {
+    const t = makeStubs()
+    const gm = new GraphicsManager()
+    const arrows = makeArrowSource()
+    gm.setAdvectedArrowSource(arrows.source)
+    gm.attachDevice(t.device as never, t.rhi as never, 'bgra8unorm' as never)
+    let groups = 0
+    t.rhi.createBindGroup = () => {
+      groups++
+      return {}
+    }
+    addAdvected(gm, 4)
+    const during = (fn: () => void): number => {
+      const before = groups
+      fn()
+      return groups - before
+    }
+    // The counter also sees the material's own pooled group on the first draw, so the property
+    // is stated as DELTAS: a side not seen before costs a group, a side already seen costs none.
+    expect(
+      during(() => render(gm)),
+      'first side',
+    ).toBeGreaterThan(0)
+    arrows.swap()
+    expect(
+      during(() => render(gm)),
+      'the other side needs its own group',
+    ).toBeGreaterThan(0)
+    arrows.swap()
+    expect(
+      during(() => render(gm)),
+      'both sides are now cached',
+    ).toBe(0)
+    arrows.swap()
+    expect(
+      during(() => render(gm)),
+      'still cached — not one per frame at 60 Hz',
+    ).toBe(0)
+  })
+
+  it('retires the band buffer with the rest when the layer is cleared', () => {
+    const t = makeStubs()
+    const gm = new GraphicsManager()
+    const arrows = makeArrowSource()
+    gm.setAdvectedArrowSource(arrows.source)
+    gm.attachDevice(t.device as never, t.rhi as never, 'bgra8unorm' as never)
+    addAdvected(gm, 4)
+    gm.clearCompiledArrows()
+    render(gm)
+    const freed = t.destroyed.map((b) => b.label)
+    expect(freed).toContain('compiled-arrow-feat')
+    expect(freed).toContain('compiled-arrow-band')
+  })
+})

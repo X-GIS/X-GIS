@@ -39,6 +39,7 @@ import { IconStage } from '../../sprite/icon-stage'
 import { resolveText } from '../../text/text-resolver'
 import { hexToRgba, featureAnchor } from '../../feature-helpers'
 import { dispatchCoverageSoundings } from './dispatch-coverage-soundings'
+import { ensureBackgroundPatternAtlas } from './background-pattern-atlas'
 import { type ShowCommand } from '../renderer-types'
 import type { FrameContext } from '../frame-context'
 import { unwrapProjection } from '../projection-token'
@@ -260,7 +261,8 @@ class LabelPass implements RenderPass {
     // destructured — the projType-conditional label projector branches
     // collapsed to a single ECEF-based projector. Other passes still
     // consume them off FrameContext directly.
-    const { dpr, sampleCount: sc, w, h, encoder } = ctx
+    const { sampleCount: sc, encoder } = ctx,
+      { w, h, dpr } = ctx.screen // OVERLAY ⇒ screen
     // Symbol fade — advance every ramp once per RENDERED frame (S16 hit and
     // miss alike), OUTSIDE the labels-active gate below so in-flight ramps
     // still settle (and stop asking for frames via the map keep-alive) when
@@ -2044,8 +2046,8 @@ class LabelPass implements RenderPass {
           // Forced-WebGL2 frame (#834 M5 slices 3-4): draw on the live RHI
           // screen pass — no WebGPU encoder exists on this path. Icons
           // BEFORE text, matching the WebGPU ordering below.
-          iStage?.render(ctx.rhiPass, { width: ctx.w, height: ctx.h }, labelReplay)
-          stage.render(ctx.rhiPass, { width: ctx.w, height: ctx.h }, labelReplay)
+          iStage?.render(ctx.rhiPass, { width: ctx.screen.w, height: ctx.screen.h }, labelReplay)
+          stage.render(ctx.rhiPass, { width: ctx.screen.w, height: ctx.screen.h }, labelReplay)
         } else {
           ctx.passScope('text-overlay', () => {
             const tPass = encoder.beginRenderPass({
@@ -2060,8 +2062,8 @@ class LabelPass implements RenderPass {
             })
             // Icons render BEFORE text so labels read on top of their
             // POI badges — matches MapLibre's symbol-stage ordering.
-            iStage?.render(tPass, { width: ctx.w, height: ctx.h }, labelReplay)
-            stage.render(tPass, { width: ctx.w, height: ctx.h }, labelReplay)
+            iStage?.render(tPass, { width: ctx.screen.w, height: ctx.screen.h }, labelReplay)
+            stage.render(tPass, { width: ctx.screen.w, height: ctx.screen.h }, labelReplay)
             tPass.end()
           })
         }
@@ -2073,42 +2075,6 @@ class LabelPass implements RenderPass {
       iStage?.reset()
     }
   }
-}
-
-/** #777 I-E — a `background-pattern` style needs the sprite atlas loaded so
- *  the synthetic earth-surface show's fill-pattern (the pattern's carrier)
- *  can resolve its UV + repeat, even when the style has NO labels / icons /
- *  fill-patterns to otherwise trip the lazy IconStage in execute(). The
- *  `onLanded` hook must GUARANTEE a frame: `markLabelDirty()` alone re-preps
- *  labels but never re-arms a label-less idle loop, so the async atlas landed
- *  on a frozen canvas (the I-E probe's root cause B) — `invalidate()` sets
- *  `_needsRender` so the pattern paints once the sprite arrives. Kept a free
- *  exported function (mirroring backgroundClearValue) so the gate + hook are
- *  behaviour-gated by a GPU-free test with a mocked IconStage. */
-export function ensureBackgroundPatternAtlas(
-  host: Pick<
-    LabelPassHost,
-    'iconStage' | 'spriteUrl' | '_backgroundPattern' | 'ctx' | 'markLabelDirty' | 'invalidate'
-  >,
-  dpr: number,
-  sampleCount: number,
-): void {
-  if (host.iconStage !== null || host.spriteUrl === null || host._backgroundPattern === null) return
-  host.iconStage = new IconStage(
-    host.ctx.device,
-    host.ctx.rhi,
-    host.ctx.format,
-    {
-      spriteUrl: host.spriteUrl,
-      dpr,
-      onLanded: () => {
-        // Label re-prep (glyph-parity convention) + a guaranteed frame.
-        host.markLabelDirty()
-        host.invalidate()
-      },
-    },
-    sampleCount,
-  )
 }
 
 /** Stateless singleton — the per-feature label + text-overlay pass. */

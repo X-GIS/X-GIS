@@ -24,15 +24,20 @@
 //   18     lon (deg)            · 19     lat (deg)
 //   20-23  Mercator DSFUN (x hi, x lo, y hi, y lo)
 //   ADVECTED ONLY (#1419) — slots 12-23 are REINTERPRETED and 26-37 are added:
-//   12-23  EAST step  (anchor + one step east)   ← the TIP block, reused
-//   26-37  NORTH step (anchor + one step north)
+//   12-23  GRID-U step (anchor + ARROW_DRIFT_UV along grid-u)   ← the TIP block, reused
+//   26-37  GRID-V step (anchor + ARROW_DRIFT_UV along grid-v, which runs SOUTHWARD)
 //          An advected arrow's direction comes from sampling the velocity field at its CURRENT
 //          position, so the tip's baked bearing has no consumer and its block is free. The two
 //          step anchors give the VS the pair of geographic→screen bases it needs:
-//            screenOffset = du·(eastClip − originClip) + dv·(northClip − originClip)
+//            screenOffset = (du/ARROW_DRIFT_UV)·(uClip − originClip) + (dv/…)·(vClip − originClip)
 //          One basis is not enough — scaling the single tail→tip delta moves an arrow along its
 //          launch bearing in a straight line, which is the closed-form drift #65 shipped and
 //          #70 reverted. Reusing the tip block takes the stride 26→38 rather than 26→50.
+//
+//          The step is ONE LEASH LENGTH, not an arbitrary small delta, and the anchors are
+//          computed by the GENERATOR through the coverage's own CRS (coverage-arrow-show.ts) —
+//          so the linearization the VS performs spans exactly the excursion the advect step
+//          allows, and a projected grid is stepped in its own units rather than in degrees.
 //
 //          ONE stride serves both modes, so the static path carries 12 unwritten slots. That is
 //          deliberate: a second stride means a second pipeline variant and a second packer
@@ -79,7 +84,7 @@ export const ARROW_RETAINED_FEAT = {
     tip_merc_y_l: 23,
     size: 24,
     stroke_units: 25,
-    // north step (advected only — see the header)
+    // grid-v step (advected only — see the header)
     north_ecef_x_h: 26,
     north_ecef_y_h: 27,
     north_ecef_z_h: 28,

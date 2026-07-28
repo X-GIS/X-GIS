@@ -32,7 +32,7 @@ import {
   buildSyntheticEarthSurfaceShow,
   syntheticEarthSurfaceCarrier,
 } from '../../synthetic-earth-surface-show'
-import { ensureBackgroundPatternAtlas } from './label-pass'
+import { ensureBackgroundPatternAtlas } from './background-pattern-atlas'
 
 const BG: [number, number, number, number] = [0.13, 0.57, 0.42, 1]
 
