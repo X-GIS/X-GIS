@@ -66,12 +66,18 @@ function makeCoverageDeps(rawDatasets: Map<string, RawDataset>) {
     time: { nextEpoch: () => 1, isCurrent: () => true } as unknown as CoverageSourceDeps['time'],
     fieldArmed: () => false,
     armFields: () => {},
-    armFromShow: (sourceId, handle, region) => armed.push({ sourceId, handle, region }),
+    armFromShow: (sourceId, handle, region) => {
+      armed.push({ sourceId, handle, region })
+      return false // no field show in these fixtures — armRegion falls through to the fill arm
+    },
     clearArrows: () => {},
     invalidate,
     refresh: { stopAll: () => {} } as unknown as CoverageSourceDeps['refresh'],
     guardedFetch: (label) => (u, init) => shared.safeFetch(String(u), init, label),
     destroyed: () => false,
+    catalogues: new Map(),
+    view: () => null,
+    watchViewport: () => {},
   }
   return { deps, armed, invalidate }
 }

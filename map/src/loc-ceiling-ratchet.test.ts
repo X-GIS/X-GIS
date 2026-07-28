@@ -487,8 +487,34 @@ const CEILINGS: Record<string, number> = {
   // the listener — a dropped region takes its compiled arrows with it. Two wire-ups (the GPU
   // boot and the backend switch), each carrying the sentence saying why the LRU needed one at
   // all: nothing else observed it, so an evicted region's arrows kept drawing against velocity
-  // textures that had just been destroyed. Value below is the MEASURED post-merge count.
-  'map/src/map.ts': 5393,
+  // textures that had just been destroyed.
+  //
+  // 5393→5392 (#1449): the three arm sites now call ONE decision point (`armCoverageArrows`),
+  // so the `if (show.isArrow) …` + `armAdvectedArrows(…)` pair here collapsed to a single call
+  // and the static-arrow import went with it. LOWERED per the shrink-only rule.
+  //
+  // MERGE UNION (#1448 <- main @ #1449): non-overlapping, so a SHRINK and a GROW compose —
+  // never take one side, never max(). #1448's +3 is one disjunct in `hasPendingSourceWork` (a
+  // swap OWED is pending work, not pending fetch) plus the two lines saying why; without it the
+  // loop stopped with a re-seed replacement un-applied and the layer drew the previous seed for
+  // good. Value below is the MEASURED post-merge, post-prettier count — not 5392+3 assumed.
+  //
+  // MERGE UNION (#1453 <- main @ #1455): non-overlapping, so main's +3 and this branch's
+  // +27 COMPOSE — never take one side, never max(). Value below is the MEASURED post-merge,
+  // post-prettier count, not 5395+27 assumed.
+  // 5392→5419 (#1453 catalogue-driven coverage residency): a `coverage` source's `url:` may
+  // name a STAC catalogue of cells, and then the ENGINE owns residency from the viewport — the
+  // job `type: raster` has always done for itself. What lands HERE is only the map-shaped part
+  // of that: the per-source catalogue state (declared before `_coverageDeps`, because a field
+  // initialiser captures `undefined` the other way round — the `_coverageRefresh` lesson), the
+  // two deps members feeding it, the move-end listener + its `destroy()` detach, and the
+  // `onRegionDropped` rewire. Every DECISION — the cell/catalogue byte probe, the STAC parse,
+  // the viewport resolve, the arm loop and the stop-on-eviction rule — lives in
+  // coverage-catalogue.ts (pure) and coverage-source.ts (drives it), the same policy/driver
+  // split coverage-refresh.ts already uses, so this is wiring and not logic. An earlier draft
+  // put a `_beginCoverageLoad` method here too (+45); it was extracted into
+  // `resolveCoverageCatalogues` + `viewBbox` rather than ratcheted for. Post-hook measurement.
+  'map/src/map.ts': 5422,
   // Baselined at #1255 (measured 830): the DOM-inspired layer API crossed
   // NEW_FILE_CAP with the paint-transition style-setter integration — the
   // StyleHost.transitions context, the shared applyNumber/applyColor
@@ -602,7 +628,11 @@ const CEILINGS: Record<string, number> = {
   // the per-prepare makeBakeFrame + placement stamp, and the holdoverDrawToEmit
   // emit + parallel bake sweeps (empty-prepare + eviction). Math + decision live
   // extracted/unit-proved in holdover-reproject.ts. +45, measured post-hook.
-  'map/src/text/text-stage.ts': 2284,
+  // 2284→2232 (#777 IV3-2b): the module-scope constants (STAGE_DEFAULTS,
+  // TEXT_MAX_ANGLE_DEFAULT_DEG) and the pure rotateLabelTranslate helper moved to
+  // text-stage-helpers.ts — none touch `this`. A behaviour-free move that opens the
+  // headroom the ground-basis bbox work needs; the file sat exactly at its ceiling.
+  'map/src/text/text-stage.ts': 2232,
   // 1786→1719 (#727 C): the line/point dedupe + pair-key helper block was
   // EXTRACTED to passes/line-label-dedupe.ts when the world-copy fan-out would
   // otherwise have grown this file — the extract-don't-grow answer.
@@ -769,7 +799,12 @@ const CEILINGS: Record<string, number> = {
   // tile-full-cover-quad.ts (−47 incl. three now-orphaned ecef-packing imports) — pure geometry,
   // no `this`, and the layout with the #449 bug history is now directly assertable. Ceiling
   // below is the MERGED file's actual wc -l, measured after prettier.
-  'data/src/tile-catalog.ts': 1370,
+  // 1370→1384 (#1448): `hasReplacedKeys()` — the PEEK the render loop's idle-skip needs to see
+  // that a re-seed swap is still owed. RAISED, not paid for by an extraction: a two-line
+  // accessor has nowhere cohesive to go, and the twelve lines are the reason it must not drain
+  // (a predicate that consumed its own evidence would swallow the swap it schedules) plus the
+  // measurement that found the bug — the part a future reader needs most. Measured post-hook.
+  'data/src/tile-catalog.ts': 1384,
   // 1173→1180 (#1046 F1): thread the required `rhi: RhiDevice` onto the FrameContext at
   // both build sites — the main-chain init literal and the twin label stage — so a seam
   // can reach `ctx.rhi.caps.*` (doc §3-F1). +7 = two assignments + their rationale comments;

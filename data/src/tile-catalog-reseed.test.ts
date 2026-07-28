@@ -199,6 +199,31 @@ describe('TileCatalog re-seed is not bounded by the concurrency cap (#1402)', ()
     expect(catalog.consumeReplacedKeys()).toEqual([K]) // …this
   })
 
+  it('hasReplacedKeys PEEKS — a swap owed is visible without consuming the evidence (#1448)', () => {
+    // THE BUG THIS CLOSES. The render loop's idle-skip asked only "is a tile still FETCHING?",
+    // so a replacement arriving after the last frame was never swapped in: `applyReplacedTiles`
+    // runs at the START of a frame and nothing asked for another one. Measured on the real
+    // demo — one `setSourceData` left 1-2 of 7 tiles drawing the PREVIOUS seed, flat for 60 s,
+    // and a single `invalidate()` corrected it.
+    //
+    // It must PEEK. An idle-skip predicate that drained would consume the very swap it exists
+    // to schedule, and the bug would survive the fix that named it.
+    const first = fakeBackend(1)
+    const catalog = catalogWithBackend(first)
+    catalog.requestTiles([K])
+    expect(catalog.hasReplacedKeys(), 'a first write owes no swap').toBe(false)
+
+    const second = fakeBackend(2)
+    catalog.detachBackend(first)
+    catalog.attachBackend(second)
+    catalog.refreshTiles([K])
+
+    expect(catalog.hasReplacedKeys(), 'a replacement is owed').toBe(true)
+    expect(catalog.hasReplacedKeys(), 'and asking did not consume it').toBe(true)
+    expect(catalog.consumeReplacedKeys()).toEqual([K]) // still there for the real consumer
+    expect(catalog.hasReplacedKeys(), 'false once the swap has been handed over').toBe(false)
+  })
+
   it('markReplaced is a no-op for a key with no cached data — nothing to swap in', () => {
     const catalog = catalogWithBackend(fakeBackend(1))
     catalog.markReplaced(K)
