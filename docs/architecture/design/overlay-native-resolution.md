@@ -284,30 +284,31 @@ carries a "⏳ Pending — by-construction gates pass; the on-screen result is n
 option for exactly this case. INC-2 lands with every structural gate green and that box ticked,
 naming the view: a scaled-ladder frame on the WebGPU backend.
 
-### Acceptance gates, from a real build
+### The complete cost of INC-2, measured
 
-INC-2 was implemented to a green `bun run build` and reverted; the suite named the complete set
-of structural gates it must satisfy. These are criteria, not guesses:
+INC-2 was implemented three times, each to a green `bun run build`, and reverted each time. The
+third pass drove every structural gate to its verdict, so this is an accounting rather than an
+estimate. **Four of the seven pieces are done and proven; two remain and are well-defined.**
 
-| gate                            | what it demands                                                                                          |
-| ------------------------------- | -------------------------------------------------------------------------------------------------------- |
-| `pass-order-parity` (authority) | `scene-upscale` declared in `DOCUMENTED_INSERTIONS` with the pass it precedes                            |
-| `pass-order-parity` (twin)      | `scene-upscale` added to `RHI_TWIN_MISSING` — honest, given the above                                    |
-| `target-role-partition`         | scene/overlay stops being a partition; the upscale is a SEAM that reads both, so the gate goes three-way |
-| `loc-ceiling-ratchet`           | `render-loop.ts` + `render-targets.ts` growth paid by extraction                                         |
-| `raw-webgpu-ratchet`            | the new pass's raw WebGPU tokens routed through the RHI, or the baseline moved with justification        |
-| `forced-cast-ratchet`           | no new `as unknown as`                                                                                   |
+| #   | piece                                           | state                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| --- | ----------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | Upscale shader (DSL module, dual-emit capable)  | ✅ emits correct WGSL — `textureSample` through a FILTERING sampler, so the upscale reads as a resolution scale and not a mosaic                                                                                                                                                                                                                                                                                       |
+| 2   | Scene targets + resolve retarget                | ✅ `EnsureResult` grows `sceneResolveView` / `colorViewScreen` / `sceneScaled`; scene-side attachments size from SCENE pixels, screen MSAA stays at canvas size; a SECOND size tracker, because the ladder can move the scene while the canvas is unchanged                                                                                                                                                            |
+| 3   | Pass order + twin declaration + partition       | ✅ `pass-order-parity` green (insertion declared, `scene-upscale` in `RHI_TWIN_MISSING`); `target-role-partition` widened to THREE roles — the upscale is a SEAM that reads the scene target and writes the screen attachment, so forcing it into a half would have broken the rules the halves assert                                                                                                                 |
+| 4   | Twin keeps its canvas scale                     | ✅ no WebGL2 regression — each backend internally consistent                                                                                                                                                                                                                                                                                                                                                           |
+| 5   | **The pass must be RHI-native, not raw WebGPU** | ❌ `raw-webgpu-ratchet`: "route through the RHI, don't grow the baseline". `flow-renderer.ts` is the model and says so explicitly — it is "inside both the concrete-backend-import ratchet and the raw-WebGPU ratchet with no baseline entry — the F3/P5 direction, arriving one pass at a time." A new pass should be RHI-typed from birth. That means an RHI pipeline/`Material`, not `device.createRenderPipeline`. |
+| 6   | `render-loop.ts` −15 LOC                        | ❌ the FrameContext construction extracts to a `frame-context.ts` factory — where it belongs anyway                                                                                                                                                                                                                                                                                                                    |
+| 7   | Forced-cast −2                                  | ❌ trivial: the twin's FrameContext literal has four `null as unknown as GPUTextureView`; one shared constant takes the file from 8 casts to 5, BELOW its baseline of 6                                                                                                                                                                                                                                                |
 
-Design elements the build already validated: `EnsureResult` grows `sceneResolveView` /
-`colorViewScreen` / `sceneScaled`; scene-side attachments (stencil, pick, overdraw, scene MSAA,
-scene colour) size from SCENE pixels while the screen MSAA stays at canvas size; `RenderTargets`
-needs a SECOND size tracker, because the ladder can move the scene while the canvas is unchanged;
-the scene keeps its `sampleCount` rather than dropping to 1, since scene pipelines are built at
-`getSampleCount()` and rebuilding them per notch is the 100-300 ms cost `adaptive-quality.ts`
-says a frame-rate controller may not pay. The shader emits correct WGSL (`textureSample` through
-a FILTERING sampler — linear, so the upscale reads as a resolution scale and not a mosaic) and
-`buildSceneUpscalePipeline` takes the SCREEN attachment's `sampleCount`, which is §12's pipeline
-lesson applied rather than re-learned.
+The ratchets are not bureaucracy here — they are the reason this accounting exists. Each one
+named a real property the first two attempts had not thought about, and #5 in particular is a
+genuine architectural instruction: the increment's new pass should arrive on the RHI side of the
+#991 migration rather than adding to the raw-WebGPU debt it is shrinking.
+
+**Scoping consequence.** INC-2 is not "implement the feature". It is the feature PLUS an
+RHI-native pass PLUS a god-file extraction, and its render verification is pending real GPU
+access this environment does not have. That is a deliberate scoping decision for whoever picks
+it up, not something to discover halfway through a fourth attempt.
 
 ## 8. What this does not fix
 
