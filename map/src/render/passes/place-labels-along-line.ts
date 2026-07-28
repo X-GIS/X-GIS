@@ -152,13 +152,7 @@ export function placeLabelsAlongLine(
     }
     return
   }
-  // Fold the world anchor into [0, spacingPx) — a residue, not the raw offset, so
-  // a run that starts far past the tile boundary (or before it) still lands on the
-  // same world lattice. A non-finite phase falls back to the historical cadence.
-  let nextStop = spacingPx * 0.5
-  if (phasePx !== undefined && Number.isFinite(phasePx)) {
-    nextStop = ((phasePx % spacingPx) + spacingPx) % spacingPx
-  }
+  let nextStop = lineLabelFirstStopPx(phasePx, spacingPx)
   let acc = 0
   for (let i = 0; i < pn - 1; i++) {
     const dx = px[i + 1]! - px[i]!
@@ -171,6 +165,71 @@ export function placeLabelsAlongLine(
     }
     acc += segLen
   }
+}
+
+/** Where the first along-line stop sits, given a world anchor. The single authority
+ *  for the world lattice: `placeLabelsAlongLine` (viewport-aligned branch, INC-1) and
+ *  label-pass.ts's curved walk (INC-2) both call it, so the two branches cannot drift
+ *  into different phases for the same road.
+ *
+ *  Folds the anchor into `[0, spacingPx)` — a residue, not the raw offset. The
+ *  emitted set `{phase + k · spacing}` is unchanged by adding whole steps, so a run
+ *  that starts far past the tile boundary (or, as is usual, before it) still lands on
+ *  the same lattice. JS `%` keeps the sign of the dividend, hence the second fold: a
+ *  raw `-160 % 200` would start the walk at a negative offset and emit a stop before
+ *  the polyline begins.
+ *
+ *  An undefined or non-finite phase falls back to the historical `spacingPx * 0.5` —
+ *  a NaN here would silently emit nothing at all. */
+export function lineLabelFirstStopPx(phasePx: number | undefined, spacingPx: number): number {
+  if (phasePx === undefined || !Number.isFinite(phasePx)) return spacingPx * 0.5
+  return ((phasePx % spacingPx) + spacingPx) % spacingPx
+}
+
+/** INC-2 of docs/plans/2026-07-27-line-label-world-anchored-placement.md — map a
+ *  WORLD offset (mercator arc-length from the polyline's vertex 0) to the along-
+ *  SCREEN offset of the same point, measured from the projected run's first sample.
+ *
+ *  Both line branches walk in screen space but anchor in the world, so something has
+ *  to cross between the two frames. Scaling by a single `pxPerMeter` is only right
+ *  where that ratio is constant across the run — it is not under pitch (the far end
+ *  of a road compresses) nor over a long low-zoom polyline. This is the honest
+ *  version: the projection loop already visits every sample, so it can accumulate
+ *  mercator arc-length alongside the projected points, and the conversion becomes a
+ *  lookup in the two parallel prefix sums. O(n) over samples we already have.
+ *
+ *  `pm[i]` is the mercator arc-length from vertex 0 to sample `i` — monotone
+ *  non-decreasing, and NOT generally 0 at `i = 0` (leading samples that failed to
+ *  project are dropped, so the retained run can start mid-polyline).
+ *
+ *  The result may be negative: the tile-entry anchor usually sits BEHIND the first
+ *  retained sample, which is exactly the case a plain `arc - pm[0]` scaling gets
+ *  wrong. Targets outside `[pm[0], pm[pn-1]]` extrapolate along the nearest
+ *  interval's screen-per-mercator ratio rather than clamping — clamping would
+ *  collapse every off-run anchor onto the endpoint and quantise the phase to 0.
+ *
+ *  Returns 0 when there is nothing to interpolate (`pn < 2`) or the containing
+ *  interval has zero mercator extent (a degenerate duplicate sample). */
+export function mercOffsetToScreenOffset(
+  px: Float32Array,
+  py: Float32Array,
+  pm: Float64Array,
+  pn: number,
+  targetM: number,
+): number {
+  if (pn < 2) return 0
+  let screenAcc = 0
+  for (let i = 0; i < pn - 1; i++) {
+    const dm = pm[i + 1]! - pm[i]!
+    const ds = Math.hypot(px[i + 1]! - px[i]!, py[i + 1]! - py[i]!)
+    // Last interval doubles as the extrapolation arm for targets past the end.
+    if (targetM <= pm[i + 1]! || i === pn - 2) {
+      if (!(dm > 0)) return screenAcc
+      return screenAcc + ds * ((targetM - pm[i]!) / dm)
+    }
+    screenAcc += ds
+  }
+  return screenAcc
 }
 
 /** Point + tangent at along-polyline screen offset `s` on an already-projected

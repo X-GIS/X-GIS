@@ -22,11 +22,38 @@ interface CollisionBbox {
   maxY: number
 }
 
+/** INC-3 of docs/plans/2026-07-27-line-label-world-anchored-placement.md — one
+ *  element of a label's path-shaped collision footprint. MapLibre models a line
+ *  symbol as a chain of circles along the label's PATH (`CollisionFeature` with
+ *  `circleDiameter`, roughly one circle per box-size of path length), not as a
+ *  single axis-aligned box. */
+export interface CollisionCircle {
+  x: number
+  y: number
+  r: number
+}
+
 export interface CollisionItem {
   /** Candidate bboxes in priority order. Greedy pass tries each
    *  and picks the first non-colliding one. Single-anchor labels
    *  pass a one-element array. */
   bboxes: CollisionBbox[]
+  /** INC-3 — optional path-shaped footprint, PARALLEL to `bboxes`: `circles[c]`
+   *  refines candidate `bboxes[c]`. When present and non-empty for the candidate
+   *  under test, overlap is decided by the chain instead of the box, and the chain
+   *  is what gets seeded as a blocker if the item places.
+   *
+   *  Why a chain: a long road name that curves across other labels only conflicts
+   *  where its single box happens to overlap, so X-GIS draws "Dogam-ro 도감로"
+   *  where MapLibre drops it; conversely a straight label's box is a poor fit for a
+   *  curved path and over-blocks on the concave side.
+   *
+   *  A missing entry (undefined array, or an undefined/empty chain for this
+   *  candidate) falls back to `bboxes[c]`, so point labels, icons and every
+   *  existing caller are untouched — this stays a dormant capability until INC-4
+   *  emits chains. The chain SHOULD cover its own bbox: the box remains the
+   *  authority for anything that reads item extents outside this pass. */
+  circles?: (readonly CollisionCircle[] | undefined)[]
   allowOverlap?: boolean
   ignorePlacement?: boolean
   /** Mapbox `symbol-sort-key`. Lower values place first (win
@@ -91,8 +118,62 @@ export interface CollisionItem {
  *  Obstacles always block and are never themselves dropped. */
 export interface CollisionObstacle {
   bbox: CollisionBbox
+  /** INC-3 — path-shaped footprint refining `bbox`, same contract as
+   *  `CollisionItem.circles` (empty / absent ⇒ the box decides). */
+  circles?: readonly CollisionCircle[]
   /** Same-group items (the icon's own paired text) are not blocked. */
   groupKey?: string
+}
+
+/** Do two axis-aligned boxes overlap? Touching edges do NOT count, matching the
+ *  strict comparisons this pass has always used. */
+function bboxHitsBbox(a: CollisionBbox, b: CollisionBbox): boolean {
+  return a.minX < b.maxX && a.maxX > b.minX && a.minY < b.maxY && a.maxY > b.minY
+}
+
+/** Circle vs axis-aligned box, via the box's closest point to the centre — the
+ *  standard exact test, and the one that makes a circle chain a strict REFINEMENT
+ *  of the box it covers rather than a different answer. Squared distances only. */
+function circleHitsBbox(c: CollisionCircle, b: CollisionBbox): boolean {
+  const nx = c.x < b.minX ? b.minX : c.x > b.maxX ? b.maxX : c.x
+  const ny = c.y < b.minY ? b.minY : c.y > b.maxY ? b.maxY : c.y
+  const dx = c.x - nx
+  const dy = c.y - ny
+  return dx * dx + dy * dy < c.r * c.r
+}
+
+/** Circle vs circle. Strict, to match the box test: exactly-touching does not
+ *  collide, so a chain whose consecutive circles just touch does not self-report. */
+function circleHitsCircle(a: CollisionCircle, b: CollisionCircle): boolean {
+  const dx = a.x - b.x
+  const dy = a.y - b.y
+  const rr = a.r + b.r
+  return dx * dx + dy * dy < rr * rr
+}
+
+/** Overlap between two footprints, each either a circle chain or its fallback box.
+ *  The three pairings (box↔box, circle↔box, circle↔circle) are what INC-3 adds;
+ *  when neither side has a chain this is byte-identical to the historical test. */
+function footprintsOverlap(
+  aBox: CollisionBbox,
+  aCircles: readonly CollisionCircle[] | undefined,
+  bBox: CollisionBbox,
+  bCircles: readonly CollisionCircle[] | undefined,
+): boolean {
+  if (aCircles === undefined || aCircles.length === 0) {
+    if (bCircles === undefined || bCircles.length === 0) return bboxHitsBbox(aBox, bBox)
+    for (const c of bCircles) if (circleHitsBbox(c, aBox)) return true
+    return false
+  }
+  if (bCircles === undefined || bCircles.length === 0) {
+    for (const c of aCircles) if (circleHitsBbox(c, bBox)) return true
+    return false
+  }
+  // Chain vs chain. Both are short (one circle per ~box-size of path), and the
+  // cheap box test above already rejects the common far-apart case in callers
+  // that keep their boxes tight, so the quadratic here is over single digits.
+  for (const ca of aCircles) for (const cb of bCircles) if (circleHitsCircle(ca, cb)) return true
+  return false
 }
 
 export interface CollisionPlacement {
@@ -155,11 +236,16 @@ export function greedyPlaceBboxes(
   const out: CollisionPlacement[] = new Array(items.length)
   // Each blocker carries its groupKey so an item is never blocked by a
   // blocker of its OWN collision group (a paired symbol's icon vs its text).
-  const blocking: { bbox: CollisionBbox; groupKey?: string }[] = []
+  const blocking: {
+    bbox: CollisionBbox
+    circles?: readonly CollisionCircle[]
+    groupKey?: string
+  }[] = []
   // Seed the icon obstacles first (MapLibre: placed icon boxes live in the
   // same grid every later label hit-tests against). They always block.
   if (opts.obstacles) {
-    for (const o of opts.obstacles) blocking.push({ bbox: o.bbox, groupKey: o.groupKey })
+    for (const o of opts.obstacles)
+      blocking.push({ bbox: o.bbox, circles: o.circles, groupKey: o.groupKey })
   }
   // Per-lineId list of along-line distances already claimed by a
   // placed label. Same-line check is O(items-per-line) but items
@@ -256,17 +342,13 @@ export function greedyPlaceBboxes(
         pickedIdx = c
         break
       }
+      // INC-3 — this candidate's path chain, when the caller supplied one.
+      const chain = it.circles?.[c]
       let collides = false
       for (const b of blocking) {
         // Same collision group (icon ↔ its own paired text) never collides.
         if (it.groupKey !== undefined && b.groupKey === it.groupKey) continue
-        const bb = b.bbox
-        if (
-          bbox.minX < bb.maxX &&
-          bbox.maxX > bb.minX &&
-          bbox.minY < bb.maxY &&
-          bbox.maxY > bb.minY
-        ) {
+        if (footprintsOverlap(bbox, chain, b.bbox, b.circles)) {
           collides = true
           break
         }
@@ -281,7 +363,14 @@ export function greedyPlaceBboxes(
       continue
     }
     out[i] = { placed: true, chosen: pickedIdx }
-    if (!it.ignorePlacement) blocking.push({ bbox: it.bboxes[pickedIdx]!, groupKey: it.groupKey })
+    if (!it.ignorePlacement)
+      blocking.push({
+        bbox: it.bboxes[pickedIdx]!,
+        // Block with the SAME footprint the item was tested with — seeding the box
+        // for an item judged by its chain would make it block more than it occupies.
+        circles: it.circles?.[pickedIdx],
+        groupKey: it.groupKey,
+      })
     if (it.lineId !== undefined && it.anchorDistancePx !== undefined) {
       let arr = placedByLine.get(it.lineId)
       if (!arr) {

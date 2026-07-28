@@ -42,8 +42,12 @@ export function formatValue(value: unknown, spec: FormatSpec | undefined): strin
 
   const type = spec.type
 
-  // strftime
-  if (type !== undefined && type.startsWith('%')) {
+  // strftime. A LONE '%' is the percent NUMERIC type, not a date format — `'%'.startsWith('%')`
+  // is true, so without the length test this arm swallowed `{x:.2%}` and returned strftime's
+  // rendering of a format string with no directives: the literal "%". The routing table above
+  // has always listed '%' under the number formatter, and `formatPercent` has always been
+  // implemented there; it was simply unreachable through this entry point.
+  if (type !== undefined && type.length > 1 && type.startsWith('%')) {
     if (value === null || value === undefined) return ''
     return formatDate(value as DateInput, spec)
   }

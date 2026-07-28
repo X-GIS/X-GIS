@@ -30,6 +30,16 @@ describe('formatValue dispatch', () => {
     expect(out).toBe('2026-05-09')
   })
 
+  it('routes a LONE "%" to percent, not to strftime', () => {
+    // `'%'.startsWith('%')` is true, so the strftime arm used to swallow the percent type and
+    // return strftime's rendering of a directive-free format string — the bare "%". Percent was
+    // documented in the routing table and implemented in formatNumber, yet unreachable through
+    // formatValue. Asserted end-to-end through the parser too, since `{x:.2%}` is the authoring
+    // form that hit it.
+    expect(formatValue(0.6342, { precision: 2, type: '%' })).toBe('63.42%')
+    expect(formatValue(0.5, parseFormatSpec('.1%').spec)).toBe('50.0%')
+  })
+
   it('routes "bearing" to 3-digit pad', () => {
     expect(formatValue(5, { type: 'bearing' })).toBe('005°')
     expect(formatValue(45, { type: 'bearing' })).toBe('045°')

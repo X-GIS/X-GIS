@@ -18,6 +18,7 @@ import { wrapWebGpuBindGroupLayout } from '@xgis/rhi-webgpu'
 import { Material, executeItems } from '@xgis/engine'
 import { emitLineWgsl } from '../../shaders/dsl/line'
 import { emitLineGlsl } from '../../shaders/dsl/line-glsl'
+import { wgslFor } from './wgsl-for'
 
 // WebGL2 by-name bind-layout entries (#834 M5 slice 1) — the RHI-native twin
 // of the two raw GPUBindGroupLayouts. Names come from the DSL: a uniform
@@ -91,7 +92,7 @@ export class LineDraper {
     // wrapped. Pick stays WebGPU-only (fail-closed on WebGl2Device).
     const gl2 = this.rhi.backend === 'webgl2'
     return new Material(this.rhi, {
-      shader: emitLineWgsl(pick),
+      shader: wgslFor(this.rhi, () => emitLineWgsl(pick)),
       vsEntry: 'vs_line',
       fsEntry: 'fs_line',
       vsCode: gl2 ? emitLineGlsl(pick, 'vertex') : undefined,
@@ -132,7 +133,7 @@ export class LineDraper {
   private maxMat(): Material {
     const gl2 = this.rhi.backend === 'webgl2'
     return (this._maxMaterial ??= new Material(this.rhi, {
-      shader: emitLineWgsl(false),
+      shader: wgslFor(this.rhi, () => emitLineWgsl(false)),
       vsEntry: 'vs_line',
       fsEntry: 'fs_line_max',
       vsCode: gl2 ? emitLineGlsl(false, 'vertex') : undefined,

@@ -43,7 +43,7 @@ import { backgroundClearValue } from './render/passes/background-pass'
 import { labelPass } from './render/passes/label-pass'
 import { applyHillshadePaint } from './render/passes/hillshade-pass'
 import { resolveColorShape, resolveNumberShape } from './render/paint-shape-resolve'
-import { type FrameContext } from './render/frame-context'
+import { setFrameTargets, type FrameContext } from './render/frame-context'
 import { makeProjectionToken, setProjectionToken } from './render/projection-token'
 import type { RhiDevice, RhiScreenPassDevice, RhiTexture, RhiTextureView } from '@xgis/engine'
 import { asScreenPassDevice } from '@xgis/engine'
@@ -376,9 +376,8 @@ export class RenderLoop {
         colorView: screenView, // set in the MSAA block below
         camera: this.host.camera,
         projection: makeProjectionToken(projType, centerLon, centerLat),
-        w,
-        h,
-        dpr,
+        scene: { w, h, dpr },
+        screen: { w, h, dpr },
         elapsedMs: this.host._elapsedMs,
         frameCount: this.host._frameCount,
         sampleCount: 1, // set in the MSAA block below
@@ -393,9 +392,7 @@ export class RenderLoop {
       c.screenView = screenView
       c.camera = this.host.camera
       setProjectionToken(c.projection, projType, centerLon, centerLat)
-      c.w = w
-      c.h = h
-      c.dpr = dpr
+      setFrameTargets(c, w, h, dpr)
       c.elapsedMs = this.host._elapsedMs
       c.frameCount = this.host._frameCount
       c.passScope = passScope
@@ -473,7 +470,7 @@ export class RenderLoop {
       for (const [, { renderer: vtR }] of this.host.vtSources) {
         // projType is the render-loop local (camera-resolved above); the engine
         // reads it directly rather than decoding the opaque ctx.projection token.
-        vtR.pumpPrefetch(this.host.camera, projType, ctx.w, ctx.h, ctx.dpr)
+        vtR.pumpPrefetch(this.host.camera, projType, ctx.scene.w, ctx.scene.h, ctx.scene.dpr)
       }
 
       // ══════ Bucket scheduler ══════
@@ -521,9 +518,13 @@ export class RenderLoop {
           bearing: this.host.camera.bearing,
           pitch: this.host.camera.pitch,
           projection: this.host.projectionName ?? 'mercator',
+          // SCREEN density, to match the SCREEN extent above (`canvas.width/height`). Equal to
+          // the scene's today, so this is byte-identical — but pairing a screen extent with a
+          // scene density would make the record internally mixed the moment INC-2 splits them,
+          // and a replayed trace would be reconstructing a viewport that never existed.
           viewportWidthPx: cw,
           viewportHeightPx: ch,
-          dpr: ctx.dpr,
+          dpr: ctx.screen.dpr,
         })
       }
       // ── Bucket scheduler → SceneView ──
@@ -545,7 +546,7 @@ export class RenderLoop {
       //      now always runs when direct-layer points exist.
       const scene = buildSceneView(this.host, ctx)
 
-      if (scene.hasTranslucent) this.host.lineRenderer!.ensureOffscreen(ctx.w, ctx.h)
+      if (scene.hasTranslucent) this.host.lineRenderer!.ensureOffscreen(ctx.scene.w, ctx.scene.h)
 
       // ── Render-pass chain ── (content-registered RenderNode[] — render/render-node.ts)
       // Iterate the frozen-order node list registered by content (map.ts →
@@ -1174,9 +1175,8 @@ export class RenderLoop {
         colorView: null as unknown as GPUTextureView,
         camera: this.host.camera,
         projection: makeProjectionToken(projType, centerLon, centerLat),
-        w,
-        h,
-        dpr,
+        scene: { w, h, dpr },
+        screen: { w, h, dpr },
         elapsedMs: this.host._elapsedMs,
         frameCount: this.host._frameCount,
         sampleCount: 1,

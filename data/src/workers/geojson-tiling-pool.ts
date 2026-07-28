@@ -27,6 +27,27 @@ interface Pending<T> {
 const pendingSetSource = new Map<number, Pending<void>>()
 const pendingGetTile = new Map<number, Pending<Uint8Array>>()
 
+/** A get-tile rejection that carries WHY it failed. `sourceGone` marks the one
+ *  benign case: the instance's index was dropped (map disposed, or the source
+ *  replaced) while the request was in flight, so the tile can never be produced.
+ *  Callers use it to tell teardown from a real failure — see
+ *  {@link isSourceGone}. */
+export interface TileLoadError extends Error {
+  sourceGone?: true
+}
+
+function tileError(message: string, sourceGone?: true): TileLoadError {
+  const e: TileLoadError = new Error(message)
+  if (sourceGone) e.sourceGone = true
+  return e
+}
+
+/** True when a get-tile rejection is the disposal signal rather than a fault.
+ *  A structural check — never a match on the message text. */
+export function isSourceGone(err: unknown): boolean {
+  return (err as TileLoadError | null)?.sourceGone === true
+}
+
 function getWorker(): Worker {
   if (_worker !== null) return _worker
   // Vite-style worker creation. The `?worker` import suffix is
@@ -56,7 +77,7 @@ function getWorker(): Worker {
       const p = pendingGetTile.get(m.taskId)
       if (p) {
         pendingGetTile.delete(m.taskId)
-        p.reject(new Error(m.message))
+        p.reject(tileError(m.message, m.sourceGone))
       }
     }
   })
