@@ -273,7 +273,22 @@ export class CoverageRenderer {
     // the pipeline.
     const filterKey = this.armFilter(opts.filter, band.header.name)
 
-    const { value, valid } = packCoverageValueValid(band.values, dataMin, dataMax, band.codes)
+    // #1503 — on a DEPTH band the file's own datum semantics say what "below zero" means:
+    // `vertical.sign === 'down'` is positive-down from chart datum, so a negative sample is
+    // ABOVE datum — land, not a shallow sounding. Those are excluded here rather than in the
+    // style, because `filter:` would fix the ramp alone and leave land in the sounding
+    // numerals (a numeral reading `-3.2 m` is not a depth) and in the band statistics.
+    //
+    // Derived, not hard-coded per product: a coverage with sign 'up', or none, keeps every
+    // sample, so a temperature or velocity band that is legitimately negative is untouched.
+    const minValid = handle.header.vertical.sign === 'down' ? 0 : undefined
+    const { value, valid } = packCoverageValueValid(
+      band.values,
+      dataMin,
+      dataMax,
+      band.codes,
+      minValid,
+    )
     const valueTex = this.uploadR16f(value, nLon, nLat)
     const validTex = this.uploadR16f(valid, nLon, nLat)
     const lutTex = this.uploadLut(bakeRampLut(opts.ramp))
