@@ -24,26 +24,29 @@
 // the table is locally near-conformal and agrees with it to first order there, so the residual
 // starts small and Newton contracts quadratically from it.
 //
-// ── THE GLOBE IS SOLVED EXACTLY, AND THE f32 TRAP IS REMOVED RATHER THAN OUT-PRECISIONED ──────
+// ── THE f32 TRAP IS AVOIDED BY CHOICE OF FRAME, NOT OUT-PRECISIONED ───────────────────────────
 //
-// `proj_globe` maps to 3D ECEF, so there is no 2D forward to invert; the ray meets the ellipsoid
+// `proj_globe` maps to 3D ECEF, so there is no 2D forward to invert there; the ray meets the earth
 // in closed form. That closed form has one trap, already paid for once:
 //
 //   geo/src/globe.ts:358 — "An f32 inverse quantises that back-projection by ~1 m, so the ray hit
 //   … shook ~8 px at screen centre and tens of px under motion at z17+."
 //
-// A shader has no f64, so every earth-radius-scale CANCELLATION has to be written out of the
-// arithmetic instead:
+// A shader has no f64, so every earth-radius-scale CANCELLATION has to be kept out of the
+// arithmetic in the first place. Three choices do that, and each is stated at its own function:
 //
-//   • No matrix is inverted. The ray comes from three orthonormal basis vectors and the tangent of
-//     the half FOV — exact in f32 at any altitude, because no term reaches 6.4e6.
-//   • The quadratic's constant term is `|O|² − a²`, a difference of two numbers near 4.1e13. It is
-//     written `h·(2a + h)` with `h` the camera ALTITUDE, which carries no cancellation at all.
-//   • The hit is turned into lon/lat as a small OFFSET from the camera centre, never by taking
-//     `atan2` of two absolute ECEF components — that step is where the surviving ~0.4 m would be.
+//   • NOTHING IS INVERTED HERE. The CPU unprojects the four NDC corners through the f64 MVP
+//     inverse and the VS blends them, which is exact for a perspective projection —
+//     `ray_from_corners`.
+//   • THE WORLD SPACE IS ENU, so the earth centre is `(0, 0, −(R + h))` and the quadratic's
+//     constant term IS `h·(2R + h)` — it never has to be recovered from `|O|² − R²` —
+//     `ray_hit_sphere_enu`. That is also why the intersection is not solved in ECEF: the answer
+//     would then need a rotation into the frame the MVP actually uses.
+//   • THE HIT BECOMES lon/lat AS AN OFFSET from the camera centre, never as `atan2` of two
+//     absolute ECEF components — `enu_to_lonlat`. That step is where the surviving ~0.4 m would be.
 //
-// `h` and the unit eye both come out of `globe_eye` (xyz = normalize(eye_ecef), w = EARTH_R/|eye|),
-// which the frame uniform already carries for the horizon cull. No new uniform for either.
+// `h` comes out of `globe_eye.w` (= EARTH_R/|eye_ecef|), which the frame uniform already carries
+// for the horizon cull — see `eye_altitude`. No new uniform for it.
 
 import {
   fn,
