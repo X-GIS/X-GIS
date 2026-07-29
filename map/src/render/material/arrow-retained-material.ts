@@ -12,8 +12,11 @@
 
 import type { RhiBindGroup, RhiBuffer, RhiDevice, RhiRenderPass } from '@xgis/engine'
 import { Material, executeItems, type DrawItem } from '@xgis/engine'
-import { emitArrowRetainedWgsl, emitArrowRetainedGlsl } from '../../shaders/dsl/arrow-retained'
-import { wgslFor } from './wgsl-for'
+import {
+  emitArrowRetainedWgsl,
+  emitArrowRetainedGlslStages,
+} from '../../shaders/dsl/arrow-retained'
+import { wgslFor, glslStagesFor } from './wgsl-for'
 
 export class RetainedArrowDraper {
   private readonly material: Material
@@ -22,13 +25,9 @@ export class RetainedArrowDraper {
     // #823 — GLSL ES 3.00 twins for the WebGL2 backend, emitted behind a LIVE backend guard
     // so the WebGPU boot never pays the double emit (#778 P6). WebGl2Device.createPipeline
     // requires the split sources; WebGPU ignores them. Mirrors RetainedIconDraper.
-    const gl2 = rhi.backend === 'webgl2'
-    const glsl = gl2
-      ? { vsCode: emitArrowRetainedGlsl('vertex'), fsCode: emitArrowRetainedGlsl('fragment') }
-      : {}
     this.material = new Material(rhi, {
       shader: wgslFor(rhi, emitArrowRetainedWgsl),
-      ...glsl,
+      ...glslStagesFor(rhi, emitArrowRetainedGlslStages),
       vsEntry: 'vs_arrow_retained',
       fsEntry: 'fs_arrow_retained',
       format: format as 'bgra8unorm',
