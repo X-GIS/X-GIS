@@ -152,7 +152,10 @@ const CEILINGS: Record<string, number> = {
   // per site on WebGL2, and the mirror waste of the GLSL pair on WebGPU. No statement was
   // added: the existing shader/vsCode/fsCode expressions were wrapped in place, and the
   // decision itself lives in material/wgsl-for.ts.
-  'map/src/render/vector-tile-renderer.ts': 4816,
+  // #1479: −5. The `getDrawStats` forwarder restated its return type by hand — a second
+  // authority for one shape. Deriving it (`ReturnType<FrameDrawStats['getDrawStats']>`)
+  // paid for the `drawnByZoom` field and left the file smaller than before.
+  'map/src/render/vector-tile-renderer.ts': 4811,
   // 4232→4237 (#1000 heatmap relocate): the heatmap density-target OWNERSHIP
   // extracted to render/heatmap-targets.ts; map keeps only the irreducible
   // composition-root wiring — the `heatmapTargets` field + its import (mirrors

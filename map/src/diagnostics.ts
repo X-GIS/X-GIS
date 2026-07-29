@@ -99,6 +99,11 @@ export interface PipelineInspection {
       missedTiles: number
       triangles: number
       lines: number
+      /** `[zoom, tilesDrawn]` pairs, ascending — how COARSE the drawn tile
+       *  set is, which `tilesVisible` and `triangles` both fail to say.
+       *  See `FrameDrawStats.drawnByZoom` for why this is the observable
+       *  the adaptive ladder must be judged on (#1479). */
+      drawnByZoom: Array<[number, number]>
     }
   }>
   /** Recent FLICKER ring-buffer events (oldest first). Empty in
@@ -197,6 +202,7 @@ export function inspectMapPipeline(map: XGISMap): PipelineInspection {
         missedTiles: stats.missedTiles,
         triangles: stats.triangles,
         lines: stats.lines,
+        drawnByZoom: stats.drawnByZoom,
       },
     })
   }
