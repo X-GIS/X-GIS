@@ -41,7 +41,6 @@ import {
   vec4,
   toF32,
   toI32,
-  toU32,
   textureLoad,
   textureDimensions,
   when,
@@ -60,12 +59,17 @@ import {
 } from '@xgis/shader-dsl'
 import { ioStruct, builtin, location, storageBuffer, resource } from '@xgis/shader-dsl'
 import { emitModule, emitGlslModule, emitGlslStages, stageOf } from '@xgis/shader-dsl'
-import { ARROW_DRIFT_UV, decodeArrowPos } from './arrow-advect-step'
+import {
+  ARROW_DRIFT_UV,
+  ARROW_DRIFT_TAPS,
+  ARROW_PHASE_SECONDS,
+  arrow_phase_alpha,
+  arrow_phase_offset,
+} from './arrow-drift'
 import {
   S111_BAND_COUNT,
   S111_BAND_PARAMS_ROW,
   S111_BAND_STRIDE,
-  S111_PARAM_STATE_BASE,
   S111_PARAM_UV_ASPECT,
   S111_PARAM_STEPS_U,
   S111_PARAM_STEPS_V,
@@ -314,10 +318,8 @@ const fs = fn(
 //     failure that still looks like a working animation, so the colour is NOT taken from the
 //     tint buffer here — the advected module does not even bind one.
 const bandB = storageBuffer('band_data', f32T, { group: 1, binding: 1, access: 'read' })
-const stateTex = resource('state_tex', texture2dfT, { group: 1, binding: 2 })
-const originTex = resource('origin_tex', texture2dfT, { group: 1, binding: 3 })
-const flowUTex = resource('flow_u_tex', texture2dfT, { group: 1, binding: 4 })
-const flowVTex = resource('flow_v_tex', texture2dfT, { group: 1, binding: 5 })
+const flowUTex = resource('flow_u_tex', texture2dfT, { group: 1, binding: 2 })
+const flowVTex = resource('flow_v_tex', texture2dfT, { group: 1, binding: 3 })
 
 /** Fetch the cell OWNING a grid-uv position, with no sampler. A vertex stage cannot call
  *  `textureSample` (no implicit derivatives), and the velocity field wants a point fetch anyway:
@@ -340,7 +342,10 @@ const flowVTex = resource('flow_v_tex', texture2dfT, { group: 1, binding: 5 })
  *  `floor(x + 0.5)`, not `round`: WGSL rounds halves to even and GLSL's tie is
  *  implementation-defined, so a node landing exactly on a footprint boundary could resolve to
  *  different cells on the two backends — a parity bug that only shows on one of them. */
-const loadAtUv = (tex: Parameters<typeof textureDimensions>[0], uv: ReturnType<typeof vec2>) => {
+const loadAtUv = (
+  tex: Parameters<typeof textureDimensions>[0],
+  uv: { x: ReturnType<typeof f32>; y: ReturnType<typeof f32> },
+) => {
   const d = textureDimensions(tex)
   const owner = (t: ReturnType<typeof f32>, n: ReturnType<typeof toF32>) =>
     toI32(clamp(floor(t.mul(n.sub(1)).add(0.5)), f32(0), n.sub(1)))
@@ -415,20 +420,47 @@ const vsAdvected = fn(
 
     // Where this arrow is, and where it belongs — texel `base + instance_index` in both.
     //
-    // The BASE is what makes a MOSAIC work (#1458). One state texture serves every resident
-    // region and each owns a contiguous range, so a batch's instance 0 is not texel 0. It was,
-    // once: every region indexed from 0, the last one armed owned every texel, and its siblings'
-    // arrows were leashed to origin cells belonging to another NOAA domain — reported as the
-    // field breaking up as soon as a second HDF5 came on screen.
-    const dim = textureDimensions(stateTex.node)
-    const idx = p.inst.add(toU32(bandAt(u32(S111_BAND_PARAMS_ROW), S111_PARAM_STATE_BASE)))
-    const texel = vec2i(toI32(idx.mod(dim.x)), toI32(idx.div(dim.x)))
-    const pos = decodeArrowPos({ c: textureLoad(stateTex.node, texel, u32(0)) })
-    const origin = decodeArrowPos({ c: textureLoad(originTex.node, texel, u32(0)) })
-    // In units of the packed basis: the anchors are ARROW_DRIFT_UV away and the advect step
-    // recycles past that, so this is bounded to [-1, 1] and the linearization never extrapolates.
-    const kx = pos.x.sub(origin.x).div(f32(ARROW_DRIFT_UV))
-    const ky = pos.y.sub(origin.y).div(f32(ARROW_DRIFT_UV))
+    // ── WHERE THIS ARROW IS, WITHOUT A STATE TEXTURE (#1520) ───────────────────────────────
+    //
+    // The drifted position used to be accumulated every frame into a texel paired 1:1 with this
+    // instance index. That pairing was the portrayal's ceiling — see `arrow-drift.ts`. Here the
+    // arrow is `(origin, phase)` and the position is a pure function of the two, so there is no
+    // state to size, no identity to preserve across a re-arm, and no reason the instance COUNT
+    // cannot change from frame to frame.
+    //
+    // The origin rides the instance (`F.origin_u/v`), not a texel.
+    const origin = Let(vec2(rd(F.origin_u), rd(F.origin_v)))
+    // The clock is the frame uniform's animation lane (circle_params.y, seconds) — already
+    // written O(1)/frame by the retained path and already pinnable (`?animt`) for a
+    // deterministic capture, which is what makes this field reproducible in a render gate.
+    const phase = Let(
+      fract(
+        pointU.field.circle_params.y
+          .div(f32(ARROW_PHASE_SECONDS))
+          .add(arrow_phase_offset({ p: origin })),
+      ),
+    )
+    // Integrate the drift over the phase — the SAME Euler step the per-frame pass ran, evaluated
+    // in one go rather than accumulated. The excursion is one leash, so the path is short enough
+    // that a handful of taps reproduce it. `aspect` re-expresses the metric components as uv
+    // rates, exactly as the step's own params did: a uv unit is a different true distance on each
+    // axis, and grid-v runs SOUTHWARD, hence the minus.
+    const aspect0 = bandAt(u32(S111_BAND_PARAMS_ROW), S111_PARAM_UV_ASPECT)
+    const tap = Let(phase.mul(f32(ARROW_DRIFT_UV / ARROW_DRIFT_TAPS)))
+    const walk = Var(origin)
+    for (let i = 0; i < ARROW_DRIFT_TAPS; i++) {
+      const su = loadAtUv(flowUTex.node, walk).x
+      const sv = loadAtUv(flowVTex.node, walk).x
+      walk.assign(vec2(walk.x.add(su.mul(tap)), walk.y.sub(sv.mul(tap).mul(aspect0))))
+    }
+    // The walk's end, named once so the reads below are legible. Not load-bearing for the emit
+    // cost — that is `vu`/`vv` below, and the difference was established by cutting each.
+    const pos = Let(vec2(walk.x, walk.y))
+    // In units of the packed basis, CLAMPED: the anchors are one leash away, so the
+    // linearization is valid on [-1, 1] and must not be extrapolated past it. The old path got
+    // that from the step's own respawn-on-leash; here it is stated where it is relied on.
+    const kx = clamp(pos.x.sub(origin.x).div(f32(ARROW_DRIFT_UV)), f32(-1), f32(1))
+    const ky = clamp(pos.y.sub(origin.y).div(f32(ARROW_DRIFT_UV)), f32(-1), f32(1))
     const driftPx = vec2(
       basisU.x.mul(kx).add(basisV.x.mul(ky)),
       basisU.y.mul(kx).add(basisV.y.mul(ky)),
@@ -443,8 +475,16 @@ const vsAdvected = fn(
     // different true distance on each axis (cell aspect × cos lat), so feeding the components
     // to the bases raw would point the arrowhead at one angle while the advection moves the
     // arrow at another — the same shear flow-advect-params.ts folds into its own step pair.
-    const vu = loadAtUv(flowUTex.node, pos).x
-    const vv = loadAtUv(flowVTex.node, pos).x
+    // `Let`, AND THIS IS LOAD-BEARING. These two are read by the nine-band select chain, by the
+    // speed, and by both direction components — and an unbound expression node is re-inlined at
+    // every read, texture fetch and all. Measured by cutting exactly these two bindings: 38
+    // velocity fetches against 10, on BOTH backends. The only symptom is a silently ~4x more
+    // expensive vertex stage, which is why `arrow-density-cull.test.ts` pins the count.
+    //
+    // (The tap loop's mutable accumulator is NOT the cause — cutting its binding changes nothing.
+    // That was the first diagnosis and it was wrong; the cut is what settled it.)
+    const vu = Let(loadAtUv(flowUTex.node, pos).x)
+    const vv = Let(loadAtUv(flowVTex.node, pos).x)
     const aspect = bandAt(u32(S111_BAND_PARAMS_ROW), S111_PARAM_UV_ASPECT)
     const dirX = basisU.x.mul(vu).sub(basisV.x.mul(vv).mul(aspect))
     const dirY = basisU.y.mul(vu).sub(basisV.y.mul(vv).mul(aspect))
@@ -462,7 +502,15 @@ const vsAdvected = fn(
     }
     const row = min(band, u32(S111_BAND_COUNT - 1))
     const scale = bandAt(row, 1).add(bandAt(row, 2).mul(speed))
-    const tint = vec4(bandAt(row, 4), bandAt(row, 5), bandAt(row, 6), bandAt(row, 7))
+    // …faded at the ends of the phase, so the wrap is not a jump. The alpha is the ONLY thing
+    // the fade touches — the band colour itself stays exactly what the catalogue says, so a
+    // fading arrow never reads as a different speed band.
+    const tint = vec4(
+      bandAt(row, 4),
+      bandAt(row, 5),
+      bandAt(row, 6),
+      bandAt(row, 7).mul(arrow_phase_alpha({ phase })),
+    )
 
     // THE PERSPECTIVE GUARD. Both bases are perspective divides by a DIFFERENT anchor's w, and
     // those anchors sit one leash length away — most of a degree on a regional cell. Lower the
@@ -674,16 +722,15 @@ export const buildArrowRetainedAdvectedModule = (): ModuleDecl =>
   module({
     consts: [...PROJECTION_CONSTS],
     structs: [pointU.struct, ArrowOut.decl],
-    bindings: [
-      pointU.binding,
-      featB.binding,
-      bandB.binding,
-      stateTex.binding,
-      originTex.binding,
-      flowUTex.binding,
-      flowVTex.binding,
+    bindings: [pointU.binding, featB.binding, bandB.binding, flowUTex.binding, flowVTex.binding],
+    funcs: [
+      ...getGpuProjectionFuncs(),
+      project_geo,
+      arrow_phase_offset,
+      arrow_phase_alpha,
+      vsAdvected,
+      fs,
     ],
-    funcs: [...getGpuProjectionFuncs(), project_geo, decodeArrowPos, vsAdvected, fs],
   })
 
 export const emitArrowRetainedAdvectedWgsl = (): string =>

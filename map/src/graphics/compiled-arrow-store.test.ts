@@ -327,7 +327,7 @@ function makeArrowSource() {
   }
 }
 
-function addAdvected(gm: GraphicsManager, n: number, key = 'cbofs/1', region = ''): void {
+function addAdvected(gm: GraphicsManager, n: number, region = ''): void {
   gm.addCompiledArrowLayer(
     Float64Array.from({ length: n }, (_, i) => -70 + i),
     Float64Array.from({ length: n }, (_, i) => 40 + i * 0.1),
@@ -344,7 +344,6 @@ function addAdvected(gm: GraphicsManager, n: number, key = 'cbofs/1', region = '
       vStepLon: Float64Array.from({ length: n }, (_, i) => -70 + i),
       vStepLat: Float64Array.from({ length: n }, (_, i) => 40 + i * 0.1 - 0.1),
       bandTable: new Float32Array(80),
-      key,
     },
   )
 }
@@ -363,17 +362,18 @@ describe('CompiledArrowStore — advected batches (#1419)', () => {
     expect(labels).not.toContain('compiled-arrow-tint')
   })
 
-  it('uploads the ORIGINS at ADD time, not at first draw', () => {
-    // The advect step runs EARLIER in the frame than the graphics pass. Origins that arrived at
-    // draw time would leave the first step leashing every arrow to grid-uv (0,0) — the whole
-    // field yanked toward the grid's corner for a frame.
+  it('carries the origins in the FEAT buffer — no separate upload, no shared state (#1520)', () => {
+    // There used to be a second upload here, of one texel per arrow into a state texture the
+    // whole map shared, and it had to happen at ADD time because the advect pass ran earlier in
+    // the frame than the graphics pass. Both are gone: the origin rides the instance record and
+    // the position is a function of it, so the batch is complete the moment its feat buffer is.
     const t = makeStubs()
     const gm = new GraphicsManager()
-    const arrows = makeArrowSource()
-    gm.setAdvectedArrowSource(arrows.source)
+    gm.setAdvectedArrowSource(makeArrowSource().source)
     gm.attachDevice(t.device as never, t.rhi as never, 'bgra8unorm' as never)
-    addAdvected(gm, 4, 'cbofs/4')
-    expect(arrows.originWrites).toEqual(['cbofs/4'])
+    addAdvected(gm, 4)
+    // feat + band, and nothing else — in particular no per-arrow state allocation.
+    expect(compiledBufs(t.created).length).toBe(2)
   })
 
   it('DROPS an advected batch when no arrow source is attached', () => {
@@ -386,11 +386,12 @@ describe('CompiledArrowStore — advected batches (#1419)', () => {
     expect(compiledBufs(t.created)).toHaveLength(0)
   })
 
-  it('rebuilds its bind group when the ping-pong swaps, and settles at two', () => {
+  it('builds ONE bind group and keeps it — there is no ping-pong left to alternate (#1520)', () => {
+    // It used to need one group per state side, rebuilt as the pair swapped every step. With no
+    // state there is nothing to alternate, so a steady camera rebuilds nothing at all.
     const t = makeStubs()
     const gm = new GraphicsManager()
-    const arrows = makeArrowSource()
-    gm.setAdvectedArrowSource(arrows.source)
+    gm.setAdvectedArrowSource(makeArrowSource().source)
     gm.attachDevice(t.device as never, t.rhi as never, 'bgra8unorm' as never)
     let groups = 0
     t.rhi.createBindGroup = () => {
@@ -403,39 +404,19 @@ describe('CompiledArrowStore — advected batches (#1419)', () => {
       fn()
       return groups - before
     }
-    // The counter also sees the material's own pooled group on the first draw, so the property
-    // is stated as DELTAS: a side not seen before costs a group, a side already seen costs none.
     expect(
       during(() => render(gm)),
-      'first side',
+      'first draw builds it',
     ).toBeGreaterThan(0)
-    arrows.swap()
     expect(
       during(() => render(gm)),
-      'the other side needs its own group',
-    ).toBeGreaterThan(0)
-    arrows.swap()
-    expect(
-      during(() => render(gm)),
-      'both sides are now cached',
+      'a second draw rebuilds nothing',
     ).toBe(0)
-    arrows.swap()
     expect(
       during(() => render(gm)),
-      'still cached — not one per frame at 60 Hz',
+      'and a third',
     ).toBe(0)
-    // ...until the VELOCITY pair changes under the same two state sides. The cache is keyed on
-    // the state view, so nothing about the key says the field moved — and after a mosaic
-    // eviction the old pair is DESTROYED, which the next submit reports as
-    //   "destroyed texture coverage-flow-v used in a submit"
-    // (S-111 Live, zoom out then pan to another domain, #1419).
-    arrows.rearmField()
-    expect(
-      during(() => render(gm)),
-      'a new velocity pair invalidates every cached group',
-    ).toBeGreaterThan(0)
   })
-
   it('retires the band buffer with the rest when the layer is cleared', () => {
     const t = makeStubs()
     const gm = new GraphicsManager()

@@ -5,7 +5,7 @@ import {
   emitArrowRetainedAdvectedWgsl,
   emitArrowRetainedAdvectedGlsl,
 } from './arrow-retained'
-import { ARROW_DRIFT_UV, emitArrowAdvectWgsl } from './arrow-advect-step'
+import { ARROW_DRIFT_UV, ARROW_DRIFT_TAPS } from './arrow-drift'
 
 // #824/#825 retained geo-anchored ARROW shader — instanced procedural bounding
 // quad (instance_index + vertex_index), the point.ts geo→clip ladder (reused
@@ -149,20 +149,21 @@ describe('#1419 advected-arrow shader — the static path is untouched', () => {
 describe('#1419 advected-arrow shader — DSL emission', () => {
   const w = emitArrowRetainedAdvectedWgsl()
 
-  it('binds the state, the origins, the velocity pair and the band table — and NO tint', () => {
+  it('binds the velocity pair and the band table — no arrow STATE, and NO tint', () => {
     expect(w).toContain('@group(1) @binding(0) var<storage, read> feat_data: array<f32>;')
     expect(w).toContain('@group(1) @binding(1) var<storage, read> band_data: array<f32>;')
-    expect(w).toContain('@group(1) @binding(2) var state_tex: texture_2d<f32>;')
-    expect(w).toContain('@group(1) @binding(3) var origin_tex: texture_2d<f32>;')
-    expect(w).toContain('@group(1) @binding(4) var flow_u_tex: texture_2d<f32>;')
-    expect(w).toContain('@group(1) @binding(5) var flow_v_tex: texture_2d<f32>;')
+    expect(w).toContain('@group(1) @binding(2) var flow_u_tex: texture_2d<f32>;')
+    expect(w).toContain('@group(1) @binding(3) var flow_v_tex: texture_2d<f32>;')
+    // The state and origin textures used to sit at 2 and 3. Their absence is the whole of
+    // #1520 — an arrow's position is a function of its origin and the frame clock, so nothing
+    // per-arrow is stored anywhere, and the instance count is bounded by no texture.
+    expect(w).not.toContain('state_tex')
+    expect(w).not.toContain('origin_tex')
     // The colour is the band the arrow is standing in, so there is no launch colour to keep.
     expect(w).not.toContain('tint_data')
   })
 
   it('reads every texture with textureLoad — textureSample is illegal in a vertex stage', () => {
-    expect(w).toContain('textureLoad(state_tex')
-    expect(w).toContain('textureLoad(origin_tex')
     expect(w).toContain('textureLoad(flow_u_tex')
     expect(w).toContain('textureLoad(flow_v_tex')
     expect(w).not.toContain('textureSample')
@@ -178,21 +179,21 @@ describe('#1419 advected-arrow shader — DSL emission', () => {
     expect(w).toContain('vs_arrow_retained_advected')
   })
 
-  it('scales the displacement by the SAME leash the advect step enforces', () => {
+  it('scales the displacement by the SAME leash the drift integrates over', () => {
     // The anchors are packed one ARROW_DRIFT_UV away, so this division is what makes the
-    // multiplier land in [-1, 1] — the range the linearization is valid over.
+    // multiplier land in [-1, 1] — the range the linearization is valid over. The leash now has
+    // one home (`arrow-drift.ts`) and three consumers: the generator that packs the anchors, the
+    // integration that walks the arrow, and this division.
     expect(w).toContain(`/ ${ARROW_DRIFT_UV}`)
   })
 
-  it('shares decode_arrow_pos with the advect step — ONE encoding, not a twin', () => {
-    // A second copy of this expression is the failure arrow-advect-state.ts's header names:
-    // arrows that advect correctly and are DRAWN somewhere else.
-    const body = (src: string) =>
-      src.slice(
-        src.indexOf('fn decode_arrow_pos'),
-        src.indexOf('}', src.indexOf('fn decode_arrow_pos')),
-      )
-    expect(body(w)).toBe(body(emitArrowAdvectWgsl()))
+  it('the drift is CLAMPED into that range, not merely expected to land in it', () => {
+    // The stateful path got this for free: the step recycled an arrow the moment it passed the
+    // leash, so the VS never saw a larger displacement. Integrating the position instead means
+    // nothing enforces the bound upstream, so the VS states it where it relies on it — otherwise
+    // an anisotropic grid extrapolates the basis and flings the glyph.
+    const vs = w.slice(w.indexOf('fn vs_arrow_retained_advected'))
+    expect(vs.slice(0, vs.indexOf('\n}'))).toMatch(/clamp\([^;]*-1(\.0)?/)
   })
 
   it('holds no catalogue threshold of its own — it indexes the uploaded band table', () => {
@@ -209,8 +210,8 @@ describe('#1419 advected-arrow shader — DSL emission', () => {
     expect(gvs).toContain('void main()')
     expect(gvs).toContain('uniform sampler2D feat_data;')
     expect(gvs).toContain('uniform sampler2D band_data;')
-    expect(gvs).toContain('texelFetch(state_tex,')
-    expect(gvs).toContain('texelFetch(origin_tex,')
+    expect(gvs).toContain('texelFetch(flow_u_tex,')
+    expect(gvs).toContain('texelFetch(flow_v_tex,')
     expect(gvs).not.toMatch(/\btexture\(/) // no filtered sample survives into the vertex stage
     expect(gfs).toContain('void main()')
     expect(gfs).toContain('discard;')
@@ -237,65 +238,76 @@ describe('#1419 advected arrow — re-symbolized from the field UNDER it', () =>
     expect(m, `${name} must be bound in the emitted VS`).not.toBeNull()
     return m![1]!
   }
-  /** Resolve a chain of single-alias `let`s (`let a = b.x;`) down to its root binding. */
-  const rootOf = (name: string): string => {
-    let cur = name
-    for (let i = 0; i < 8; i++) {
-      const e = letOf(cur)
-      const alias = /^(_cse\d+|_v\d+|_lc\d+)(\.[xyzw])?$/.exec(e)
-      if (!alias) return e
-      cur = alias[1]!
-    }
-    return letOf(cur)
-  }
 
-  it('samples the velocity pair at the STATE position — never at the origin', () => {
+  it('samples the velocity pair where the arrow IS — a DRIFTED position, never the origin', () => {
+    // The failure this pins has not changed with the mechanism (#1520): an arrow that moves while
+    // keeping the colour and size it launched with is a smooth animation reporting a current that
+    // is not under it. What changed is where the position comes from — it used to be decoded from
+    // a state texture, and it is now integrated in the shader from the origin over the phase.
+    //
+    // So the claim is structural: the fetch coordinate must be a variable that the tap loop
+    // REASSIGNS, initialised from the origin. A shader that sampled at the origin itself would
+    // match neither half.
+    const walk = /var (_v\d+): vec2<f32> = (\w+);/.exec(w)
+    expect(walk, 'the drift walks a mutable position').not.toBeNull()
+    const [sym, seed] = [walk![1]!, walk![2]!]
+
+    const assigns = [...w.matchAll(new RegExp(`^\\s*${sym} = [^\\n]*$`, 'gm'))].map((m) => m[0])
+    expect(assigns, 'one assignment per integration tap').toHaveLength(ARROW_DRIFT_TAPS)
+    for (const a of assigns) {
+      expect(a, 'each tap advances by the FIELD, not by a constant').toContain('flow_u_tex')
+      expect(a, 'each tap advances by the FIELD, not by a constant').toContain('flow_v_tex')
+    }
+
+    // …and the walk starts at the instance's own origin, read from the feat record.
+    expect(letOf(seed), 'the walk starts at the origin').toMatch(/feat_data/)
+
     for (const tex of ['flow_u_tex', 'flow_v_tex']) {
-      // The coordinate is the OWNER cell of the position (#1511): `clamp(floor(uv·(n−1) + 0.5))`.
-      // Only the innermost `uv` symbol matters to this claim — which texture the position was
-      // decoded from — so the wrapper is matched and stepped over rather than asserted here; the
-      // rounding itself is `arrow-density-cull.test.ts`'s claim.
       const load = new RegExp(
-        `textureLoad\\(${tex}, vec2<i32>\\(i32\\(clamp\\(floor\\(\\(\\((\\w+) \\*`,
+        `textureLoad\\(${tex}, vec2<i32>\\(i32\\(clamp\\(floor\\(\\(\\((\\w+)\\.x \\*`,
       ).exec(w)
       expect(load, `${tex} must be read with textureLoad`).not.toBeNull()
-      const root = rootOf(load![1]!)
-      expect(root, `${tex} is sampled where the arrow IS`).toContain('textureLoad(state_tex')
-      expect(root).toContain('decode_arrow_pos')
-      expect(root, `${tex} must NOT be sampled at the launch cell`).not.toContain('origin_tex')
+      expect(load![1]!, `${tex} is sampled at the walked position`).toBe(sym)
     }
   })
 
   it('the band index, the SCALE and the TINT all derive from that sampled speed', () => {
     // One expression feeds all three, so an arrow cannot change colour without changing size,
     // and cannot change either without having moved into different water.
-    const cmp = /_v\d+ = select\(1u, _v\d+, \((\w+) < band_data\[0u\]\)\)/.exec(w)
+    const cmp =
+      /select\(1u, _v\d+, \(length\(vec2<f32>\((\w+), (\w+)\)\) < band_data\[0u\]\)\)/.exec(w)
     expect(cmp, 'band 1 is decided by comparing a speed against band_data[0]').not.toBeNull()
-    const speed = letOf(cmp![1]!)
-    expect(speed, 'the speed is the magnitude of the two sampled components').toMatch(
-      /^length\(vec2<f32>\(_cse\d+, _cse\d+\)\)$/,
+    const [uSample, vSample] = [cmp![1]!, cmp![2]!]
+    expect(letOf(uSample), 'the speed magnitude is built from the SAMPLED u').toContain(
+      'textureLoad(flow_u_tex',
     )
-    const [uSample, vSample] = /length\(vec2<f32>\((\w+), (\w+)\)\)/.exec(speed)!.slice(1)
-    expect(letOf(uSample!)).toContain('textureLoad(flow_u_tex')
-    expect(letOf(vSample!)).toContain('textureLoad(flow_v_tex')
-    // …and the colour is a band ROW, not anything carried per instance.
+    expect(letOf(vSample), 'the speed magnitude is built from the SAMPLED v').toContain(
+      'textureLoad(flow_v_tex',
+    )
+    // …and the colour is a band ROW, not anything carried per instance. Alpha carries the phase
+    // fade on top (#1520) — the FADE touches only alpha, so a fading arrow never reads as a
+    // different speed band, which is why the rgb triple is still asserted verbatim.
     expect(w).toMatch(
-      /\.tint = vec4<f32>\(band_data\[\(\w+ \+ 4u\)\], band_data\[\(\w+ \+ 5u\)\], band_data\[\(\w+ \+ 6u\)\], band_data\[\(\w+ \+ 7u\)\]\)/,
+      /\.tint = vec4<f32>\(band_data\[\(\w+ \+ 4u\)\], band_data\[\(\w+ \+ 5u\)\], band_data\[\(\w+ \+ 6u\)\], \(band_data\[\(\w+ \+ 7u\)\] \* arrow_phase_alpha\(/,
     )
   })
 
-  it('the origin is used ONLY to measure how far the arrow has drifted', () => {
-    // Its one legitimate consumer is the displacement. If it also reached the field sample or
-    // the band lookup, the arrow would report its launch cell forever.
-    const originLet = /let (\w+) = decode_arrow_pos\(textureLoad\(origin_tex/.exec(w)
-    expect(originLet).not.toBeNull()
+  it('the origin seeds the walk and the phase — it never reaches the catalogue lookup', () => {
+    // Its legitimate consumers are the displacement it is measured against, the walk it starts,
+    // and the phase offset hashed from it. If it ALSO reached the field sample or the band
+    // lookup, the arrow would report its launch cell forever — which is the failure that still
+    // looks like a working animation.
+    const originLet = /let (\w+) = vec2<f32>\(feat_data\[[^\]]+\], feat_data\[[^\]]+\]\);/.exec(w)
+    expect(originLet, 'the origin is bound once from the feat record').not.toBeNull()
     const name = originLet![1]!
-    const uses = [...w.matchAll(new RegExp(`\\b${name}\\b`, 'g'))]
-    expect(uses.length, 'bound once, then read for x and y').toBeLessThanOrEqual(3)
     for (const line of w.split('\n')) {
-      if (!line.includes(name) || line.includes('= decode_arrow_pos')) continue
-      expect(line, 'the origin never reaches a field sample').not.toContain('flow_')
-      expect(line, 'the origin never reaches the catalogue table').not.toContain('band_data')
+      if (!line.includes(name)) continue
+      // The origin DOES meet `band_data` — the lattice steps the density cull measures with live
+      // in the params row. What it must never reach is a BAND decision: the select chain that
+      // picks the row, or the tint built from it. That is the difference between "which arrows
+      // are drawn" and "what speed this arrow reports".
+      expect(line, 'the origin never decides a band').not.toContain('select(1u,')
+      expect(line, 'the origin never reaches the tint').not.toContain('.tint =')
     }
   })
 })
