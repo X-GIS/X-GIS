@@ -9,7 +9,7 @@
 //   • the draw goes through HillshadeDraper (DEM sampled NEAREST);
 //   • the global uniform is a PAIR — the shared raster 'Uniforms' (vertex + cull,
 //     via writeRasterFrameUniform with no-op colours) + 'HillshadeUniforms'
-//     (lighting + DEM decode + per-frame deriv scale, writeHillshadeGlobalUniform);
+//     (lighting + DEM decode + the zoom-independent deriv base, writeHillshadeGlobalUniform);
 //   • the per-tile pool is the SHARED raster 'TileUniforms' (writeRasterTileUniform).
 
 import type { GPUContext } from '@xgis/rhi-webgpu'
@@ -40,12 +40,7 @@ import {
   rasterTileU as RASTER_TILE_U,
 } from '../shaders/dsl/raster'
 import { hillshadeU as HILLSHADE_U } from '../shaders/dsl/hillshade'
-import {
-  tileRequestable,
-  noteFailure,
-  leafLoadBudget,
-  type FailedTile,
-} from './hillshade-tile-retry'
+import { tileRequestable, noteFailure, leafLoadBudget, type FailedTile } from './tile-retry'
 import {
   writeRasterFrameUniform,
   writeRasterTileUniform,
@@ -93,15 +88,14 @@ export function demUnpack(encoding: DemEncoding, custom?: Partial<DemUnpack>): D
   return MAPBOX_UNPACK
 }
 
-/** Per-frame Sobel derivative scale (design §3 step 2):
- *  tileSize / pow(2, exaggeration_zoom + 28.2562 − zoom), where the zoom-exaggeration
- *  term is (zoom−15)·k, k = 0.4 (z<2) | 0.35 (z<4.5) | 0.3 (else), clamped to 0 at/above z15.
- *  Per-frame (from the render zoom): exact for the single-LOD steady state, an
- *  approximation for transient parent-fallback / pitched mixed-LOD tiles (the
- *  single-pass MVP carries no per-tile scale). */
-export function hillshadeDerivScale(tileSize: number, zoom: number): number {
-  const exaggerationZoom = zoom >= 15 ? 0 : (zoom - 15) * (zoom < 2 ? 0.4 : zoom < 4.5 ? 0.35 : 0.3)
-  return tileSize / Math.pow(2, exaggerationZoom + 28.2562 - zoom)
+/** Zoom-INDEPENDENT half of the Sobel derivative scale (design §3 step 2):
+ *  tileSize / pow(2, 28.2562). The zoom-dependent half —
+ *  pow(2, zoom − exaggeration_zoom(zoom)) — is a property of the TILE, not of the
+ *  frame, so the fragment applies it per tile from the tile's own Mercator span
+ *  (`hs_deriv_scale`). A frame-wide scale off the camera zoom mis-shaded every
+ *  parent-fallback and every magnified leaf by 2^Δz. */
+export function hillshadeDerivBase(tileSize: number): number {
+  return tileSize / Math.pow(2, 28.2562)
 }
 
 /** The Mapbox `hillshade-method` → shader method flag. All five MapLibre v5
@@ -153,6 +147,10 @@ export interface HillshadeParams {
   unpack: DemUnpack
   /** native DEM tile pixel size (256 / 512). */
   tileSize: number
+  /** Source-level `maxzoom` — the dataset's deepest real tile level. The cover zoom is
+   *  clamped to it, so the selector never asks for a tile that cannot exist. Undefined =
+   *  unbounded. */
+  maxzoom?: number
 }
 
 // Typed uniform blocks (lazy — buildHillshadeModule needs configureProjections()).
@@ -229,10 +227,14 @@ export function armHillshadeSource(
     greenFactor?: number
     blueFactor?: number
     baseShift?: number
+    maxzoom?: number
   },
 ): void {
   renderer.setUrlTemplate(dem._tileUrl)
   renderer.setParams({
+    // The DATASET's deepest real level. Undefined = unbounded (every source that does
+    // not declare it keeps the pre-existing behaviour).
+    maxzoom: dem.maxzoom,
     unpack: demUnpack((dem.encoding as DemEncoding | undefined) ?? 'mapbox', {
       redFactor: dem.redFactor,
       greenFactor: dem.greenFactor,
@@ -243,14 +245,13 @@ export function armHillshadeSource(
   })
 }
 
-/** Pack the HillshadeUniforms (lighting + DEM decode + per-frame deriv scale).
- *  SINGLE authority shared by render() + the byte-equality gate. `bearingRad` is
- *  the camera bearing (radians); folded into the azimuth only for anchor=viewport.
+/** Pack the HillshadeUniforms (lighting + DEM decode + the zoom-independent deriv
+ *  base). SINGLE authority shared by render() + the byte-equality gate. `bearingRad`
+ *  is the camera bearing (radians); folded into the azimuth only for anchor=viewport.
  *  Exported for the byte-equality test (hillshade-frame-uniform.test.ts). */
 export function writeHillshadeGlobalUniform(
   block: UniformBlockOf<typeof HILLSHADE_U>,
   p: HillshadeParams,
-  zoom: number,
   bearingRad: number,
 ): void {
   // azimuth = direction_rad + π (design §3 step 4), + camera bearing for the
@@ -281,7 +282,7 @@ export function writeHillshadeGlobalUniform(
     hs_shadow: premul(p.shadow),
     hs_highlight: premul(p.highlight),
     hs_accent: premul(p.accent),
-    hs_texel: [texel, hillshadeDerivScale(p.tileSize, zoom), 0, 0],
+    hs_texel: [texel, hillshadeDerivBase(p.tileSize), 0, 0],
     hs_light2: lightOf(ex(0), count),
     hs_light3: lightOf(ex(1), 0),
     hs_light4: lightOf(ex(2), 0),
@@ -324,7 +325,7 @@ export class HillshadeRenderer {
   private _cachedBytes = 0
   private loadingTiles = new Map<string, AbortController>()
   /** Tiles whose load resolved null, with the backoff state that stops them being
-   *  re-requested every frame (policy in hillshade-tile-retry.ts). Cleared when the
+   *  re-requested every frame (policy in tile-retry.ts). Cleared when the
    *  source is re-armed — a new URL template is a new coverage. */
   private failedTiles = new Map<string, FailedTile>()
   private frameCount = 0
@@ -505,7 +506,7 @@ export class HillshadeRenderer {
     // tileSize-aware cover zoom (rasterCoverZoom): a 256-px DEM (terrarium)
     // needs z+1 tiles under the 512-px-tile camera-zoom convention, same as
     // the raster path — one LOD short samples the DEM at half density.
-    const currentZ = rasterCoverZoom(zoom, this._params.tileSize)
+    const currentZ = rasterCoverZoom(zoom, this._params.tileSize, this._params.maxzoom)
 
     if (currentZ !== this.lastZoom) {
       for (const [key, ctrl] of this.loadingTiles) {
@@ -557,7 +558,7 @@ export class HillshadeRenderer {
 
     // Load missing tiles (leaf-first so near tiles win the concurrency budget) — except
     // on a cold start, where leafLoadBudget holds two slots back so the parent-fallback
-    // prefetch below can put a coarse tile on screen first (hillshade-tile-retry.ts).
+    // prefetch below can put a coarse tile on screen first (tile-retry.ts).
     const leafBudget = leafLoadBudget(MAX_CONCURRENT_LOADS, this.tileCache.size)
     const loadOrder = [...tiles].sort((a, b) => b.z - a.z)
     for (const coord of loadOrder) {
@@ -565,7 +566,7 @@ export class HillshadeRenderer {
       if (this.tileCache.has(key) || this.loadingTiles.has(key)) continue
       // A tile that has failed recently is not re-requested until its backoff
       // elapses — without this, a past-max-zoom view spends the whole budget on
-      // 404s every frame (hillshade-tile-retry.ts explains why that path is common).
+      // 404s every frame (tile-retry.ts explains why that path is common).
       if (!tileRequestable(this.failedTiles.get(key), this.frameCount)) continue
       if (this.loadingTiles.size >= leafBudget) break
       const ctrl = new AbortController()
@@ -645,7 +646,7 @@ export class HillshadeRenderer {
       contrast: 0,
     })
     const HB = hsBlock()
-    writeHillshadeGlobalUniform(HB, this._params, zoom, (camera.bearing ?? 0) * DEG2RAD)
+    writeHillshadeGlobalUniform(HB, this._params, (camera.bearing ?? 0) * DEG2RAD)
 
     const tilesArr: HillshadeTile[] = []
     const RASTER_WORLD_COPIES = [0]

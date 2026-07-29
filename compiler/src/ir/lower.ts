@@ -128,6 +128,8 @@ function lowerSource(
   let greenFactor: number | undefined
   let blueFactor: number | undefined
   let baseShift: number | undefined
+  let srcMaxzoom: number | undefined
+  let srcMinzoom: number | undefined
 
   for (const prop of stmt.properties) {
     if (prop.name === 'type') {
@@ -197,6 +199,12 @@ function lowerSource(
       greenFactor = prop.value.value
     } else if (prop.name === 'blueFactor' && prop.value.kind === 'NumberLiteral') {
       blueFactor = prop.value.value
+    } else if (prop.name === 'maxzoom' && prop.value.kind === 'NumberLiteral') {
+      // SOURCE-level, not the layer gate: the dataset's deepest real level. The selector
+      // clamps to it so it never asks for a tile that cannot exist (see SourceDef).
+      srcMaxzoom = prop.value.value
+    } else if (prop.name === 'minzoom' && prop.value.kind === 'NumberLiteral') {
+      srcMinzoom = prop.value.value
     } else if (prop.name === 'baseShift' && prop.value.kind === 'NumberLiteral') {
       baseShift = prop.value.value
     } else {
@@ -264,6 +272,8 @@ function lowerSource(
     greenFactor,
     blueFactor,
     baseShift,
+    maxzoom: srcMaxzoom,
+    minzoom: srcMinzoom,
   }
 }
 

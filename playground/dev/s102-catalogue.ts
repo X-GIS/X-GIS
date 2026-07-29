@@ -25,7 +25,10 @@
 
 type FetchImpl = typeof globalThis.fetch
 
-const S102_BUCKET = 'https://noaa-s102-pds.s3.amazonaws.com'
+/** The bucket's REGIONAL endpoint — the address its objects actually have, and the exact host
+ *  the bridge's allowlist carries (`scripts/gen-opendata-hosts.ts` emits this same form). */
+const S102_HOST = 'noaa-s102-pds.s3.us-east-1.amazonaws.com'
+const S102_BUCKET = `https://${S102_HOST}`
 const CATALOG_KEY = 'ed3.0.0/_CATALOG/CATALOG.XML'
 
 /** One S-102 cell, as the exchange catalogue describes it. */
@@ -85,9 +88,11 @@ export function parseS102ExchangeCatalogue(xml: string): S102Cell[] {
 /** The catalogue as a STAC ItemCollection.
  *
  *  Asset hrefs are RELATIVE for the reason S-111's are (see s111-catalogue.ts): in production the
- *  site rewrites `/noaa-s102/` to the Worker, so a root-relative href would resolve against the
- *  PAGE origin and 404 in prod and only in prod. `cells/<key>` hangs off the catalogue's own
- *  directory and follows the document to whichever origin served it.
+ *  site rewrites `/opendata/` to the Worker, so a root-relative href would resolve against the
+ *  PAGE origin and 404 in prod and only in prod. A bare `<host>/<key>` resolves against the
+ *  catalogue's own URL, so it follows the document to whichever origin served it and lands on
+ *  the bridge's passthrough — and the catalogue is served as a SIBLING of the host segment so
+ *  this needs no `..`, which the engine's resolver does not collapse.
  *
  *  `notForNavigation` rides along per item: NOAA marks these test-and-evaluation, and a chart
  *  product that quietly dropped that flag would be claiming something the producer did not. */
@@ -95,6 +100,11 @@ export function s102CatalogueDocument(cells: readonly S102Cell[]): unknown {
   return {
     type: 'FeatureCollection',
     stac_version: '1.0.0',
+    // See s111-catalogue.ts: these are what turns a silently partial catalogue into a red
+    // deploy check. Nothing is dropped after this point, so they are equal by construction —
+    // a cell with no usable envelope was already refused in `parseS102ExchangeCatalogue`.
+    numberMatched: cells.length,
+    numberReturned: cells.length,
     features: cells.map((c) => ({
       type: 'Feature',
       stac_version: '1.0.0',
@@ -119,7 +129,7 @@ export function s102CatalogueDocument(cells: readonly S102Cell[]): unknown {
       },
       assets: {
         data: {
-          href: `cells/${c.key}`,
+          href: `${S102_HOST}/${c.key}`,
           type: 'application/x-hdf5',
           title: c.title,
           roles: ['data'],

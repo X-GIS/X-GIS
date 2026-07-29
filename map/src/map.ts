@@ -3613,6 +3613,11 @@ export class XGISMap {
         // Authored tileSize (256 | 512) biases the cover zoom; unauthored keeps
         // the renderer's 256 default (the de-facto XYZ raster standard).
         this.rasterRenderer.setTileSize('tileSize' in data ? data.tileSize : undefined)
+        // Source-level maxzoom = the dataset's deepest real level. Without it the cover
+        // zoom outruns the data and every tile 404s past that depth.
+        this.rasterRenderer.setSourceMaxzoom(
+          'maxzoom' in data && typeof data.maxzoom === 'number' ? data.maxzoom : undefined,
+        )
         // Capture the show so the frame loop can resolve its
         // `paintShapes.opacity` per zoom (OFM Liberty's natural_earth
         // raster fades 0.6 → 0.1 across z=0..6). First-wins — multi-

@@ -1,0 +1,67 @@
+# ═══ The open-data CORS bridge, as a deployable unit ═══
+#
+# The hosted playground (GitHub Pages) is a static site, so it cannot proxy anything itself.
+# This worker is that server: it bridges the public open-data origins the live demos stream
+# from — the AWS Open Data Registry buckets, which serve real HTTP Range but no
+# `Access-Control-Allow-Origin` — to the browser, and synthesises the two STAC catalogues the
+# `type: coverage` demos resolve their viewports against.
+#
+# NAME. It was `noaa-s111` while S-111 was the only thing it served, then `noaa-opendata`
+# while NOAA was. It is neither: `/opendata/<host>/<path>` reaches any allowlisted open-data
+# origin — the ~955 AWS Open Data hosts generated from awslabs/open-data-registry today, and a
+# city or national portal the moment one is added. A name that says one publisher is a name that
+# lies about the blast radius of a change to it.
+#
+# This file exists so the deploy is not three flags someone has to remember from a comment —
+# forgetting to redeploy at all is exactly how S-111 Live 404'd in production once already
+# (see scripts/check-opendata-bridge.ts).
+#
+#   cd playground && npx wrangler deploy          # CLOUDFLARE_API_TOKEN in the environment
+#
+# `scripts/check-opendata-bridge.ts` then verifies the deployed worker actually serves every
+# `/opendata/…` route the shipped demos declare.
+
+name = "opendata-bridge"
+main = "dev/opendata-bridge-worker.ts"
+compatibility_date = "2024-01-01"
+
+# No bindings, no secrets, no state: it is a pure request→upstream bridge, and its host
+# allowlist lives in the code so the dev middleware enforces the identical rule.
+workers_dev = true
+
+# ── Everything below was enabled in the DASHBOARD and is mirrored here on purpose ──
+#
+# `wrangler deploy` sends the settings this file declares, so a setting that lives only in the
+# dashboard is a setting the next deploy silently reverts. That failure has the same shape as
+# the one this whole file exists for: the source and the deployment disagreeing with nobody
+# able to see it. Read back from the live worker's settings API, not typed from memory.
+
+# CACHE. The `cf: { cacheEverything, cacheTtl }` hint on the upstream fetch in
+# opendata-bridge.ts is inert on a workers.dev worker until this is on — this is the half that
+# makes a reload, or another viewer's identical range, come off the edge instead of S3.
+# `cross_version_cache = false` keeps a deploy from serving bytes a previous version cached,
+# which matters here because the two catalogue routes are SYNTHESISED: their content is this
+# worker's own code, so a code change must invalidate them.
+[cache]
+enabled = true
+cross_version_cache = false
+
+# OBSERVABILITY. Logs on, traces off. The top-level `enabled` is the legacy all-signals
+# switch; `logs.enabled` is the granular one that actually decides, which is why they read
+# opposite here. `invocation_logs` is what makes a 404 or a 403 from this bridge visible at
+# all — the production S-111 outage was invisible for exactly as long as nothing recorded
+# what the worker answered.
+[observability]
+enabled = false
+head_sampling_rate = 1
+
+[observability.logs]
+enabled = true
+head_sampling_rate = 1
+invocation_logs = true
+persist = true
+
+[observability.traces]
+enabled = false
+head_sampling_rate = 1
+persist = true

@@ -44,3 +44,52 @@ describe('rasterCoverZoom', () => {
     expect(rasterCoverZoom(25, 512)).toBe(18)
   })
 })
+
+// ── Source-level maxzoom (the 404 class) ──
+//
+// A dataset has a deepest REAL level, and asking past it is a guaranteed 404 — not a
+// tile that merely takes a while. The AWS terrarium bucket stops at z15, and the +1
+// bias above means a 256-px source outruns it from about camera z14.5, so EVERY visible
+// tile fails. Verified against the reported failure and its own lineage:
+//
+//   terrarium/16/13651/25075  -> 404
+//   terrarium/15/6825/12537   -> 200, 101 540 bytes
+//   terrarium/14/3412/6268    -> 200, 112 775 bytes
+//
+// Clamping keeps requesting the deepest real level and lets it draw magnified — MapLibre's
+// Transform#coveringZoomLevel behaviour. #1405's backoff then goes back to being a safety
+// net for genuinely-missing tiles instead of the only defence against a storm the selector
+// itself created.
+describe('rasterCoverZoom — source maxzoom', () => {
+  it('clamps to the dataset depth instead of asking for tiles that cannot exist', () => {
+    // The exact case reported: camera past terrarium's z15 on a 256-px source.
+    expect(rasterCoverZoom(15, 256)).toBe(16) // before: the 404
+    expect(rasterCoverZoom(15, 256, 15)).toBe(15) // after: the deepest REAL level
+    expect(rasterCoverZoom(17, 256, 15)).toBe(15) // and it stays there, over-zoomed
+    expect(rasterCoverZoom(22, 256, 15)).toBe(15)
+  })
+
+  it('leaves every source that declares nothing exactly as it was', () => {
+    // The whole change must be inert for the sources already working — undefined is
+    // unbounded, which is what every style says today.
+    for (const z of [0, 3, 7, 12.5, 14, 18, 25])
+      for (const ts of [256, 512])
+        expect(rasterCoverZoom(z, ts, undefined)).toBe(rasterCoverZoom(z, ts))
+  })
+
+  it('still honours the pyramid cap when a source claims to go deeper', () => {
+    // A style may declare maxzoom 22; the selector's own [0,18] ceiling still wins, so a
+    // bogus declaration cannot push the pyramid past what the rest of the engine expects.
+    expect(rasterCoverZoom(25, 512, 22)).toBe(18)
+  })
+
+  it('does not raise the zoom — a shallow camera is unaffected by a deep source', () => {
+    // Clamping is a MAXIMUM, not a target: at z3 a maxzoom-15 source still covers at z4.
+    expect(rasterCoverZoom(3, 256, 15)).toBe(4)
+  })
+
+  it('a maxzoom BELOW the camera floor still yields a valid level', () => {
+    // maxzoom 0 is legal (a single world tile) and must not produce a negative zoom.
+    expect(rasterCoverZoom(9, 256, 0)).toBe(0)
+  })
+})
