@@ -1,11 +1,7 @@
 import { describe, it, expect } from 'vitest'
-import {
-  emitArrowRetainedWgsl,
-  emitArrowRetainedGlsl,
-  emitArrowRetainedAdvectedWgsl,
-  emitArrowRetainedAdvectedGlsl,
-} from './arrow-retained'
-import { ARROW_DRIFT_UV, ARROW_DRIFT_TAPS } from './arrow-drift'
+import { emitArrowRetainedWgsl, emitArrowRetainedGlsl } from './arrow-retained'
+import { emitArrowRetainedAdvectedWgsl, emitArrowRetainedAdvectedGlsl } from './arrow-advected'
+import { ARROW_TRAIN_GLYPHS, ARROW_TRAIN_STEPS } from './arrow-view'
 
 // #824/#825 retained geo-anchored ARROW shader — instanced procedural bounding
 // quad (instance_index + vertex_index), the point.ts geo→clip ladder (reused
@@ -131,7 +127,9 @@ describe('#1419 advected-arrow shader — the static path is untouched', () => {
       'flow_u_tex',
       'flow_v_tex',
       'band_data',
-      'decode_arrow_pos',
+      'arrow_view',
+      'unproject_flat',
+      'ray_hit_sphere_enu',
       'vs_arrow_retained_advected',
     ]) {
       expect(w, `${leak} must not appear in the static WGSL`).not.toContain(leak)
@@ -146,20 +144,26 @@ describe('#1419 advected-arrow shader — the static path is untouched', () => {
   })
 })
 
-describe('#1419 advected-arrow shader — DSL emission', () => {
+describe('#1520 advected-arrow shader — the screen lattice, in the emitted bytes', () => {
   const w = emitArrowRetainedAdvectedWgsl()
 
-  it('binds the velocity pair and the band table — no arrow STATE, and NO tint', () => {
-    expect(w).toContain('@group(1) @binding(0) var<storage, read> feat_data: array<f32>;')
+  it('binds NO per-instance record at all — the instance set is the viewport, not the grid', () => {
+    // THE DELETION IS THE FEATURE. `feat_data` held one entry per grid cell: an anchor and two
+    // projected basis anchors. That is what made the field expire at z17 (#1520 measured 0
+    // painted pixels there), because the instance set scaled with the GRID and almost none of it
+    // was on screen. An instance is now `(screen seed, glyph)`, so there is nothing per instance
+    // to read — and a regression that re-adds a feat binding would be re-adding the ceiling.
+    expect(w).not.toContain('feat_data')
     expect(w).toContain('@group(1) @binding(1) var<storage, read> band_data: array<f32>;')
     expect(w).toContain('@group(1) @binding(2) var flow_u_tex: texture_2d<f32>;')
     expect(w).toContain('@group(1) @binding(3) var flow_v_tex: texture_2d<f32>;')
-    // The state and origin textures used to sit at 2 and 3. Their absence is the whole of
-    // #1520 — an arrow's position is a function of its origin and the frame clock, so nothing
-    // per-arrow is stored anywhere, and the instance count is bounded by no texture.
+    expect(w).toContain('@group(1) @binding(4) var<uniform> arrow_view: ArrowView;')
+    // The state and origin textures used to sit at 2 and 3. Their absence is #1520 step 1 — an
+    // arrow's position is a function of its seed and the frame clock, so nothing per-arrow is
+    // stored anywhere and the instance count is bounded by no texture.
     expect(w).not.toContain('state_tex')
     expect(w).not.toContain('origin_tex')
-    // The colour is the band the arrow is standing in, so there is no launch colour to keep.
+    // The colour is the band the glyph is standing in, so there is no launch colour to keep.
     expect(w).not.toContain('tint_data')
   })
 
@@ -172,33 +176,25 @@ describe('#1419 advected-arrow shader — DSL emission', () => {
     expect(w).not.toContain(': sampler')
   })
 
-  it('projects THREE anchors — the origin and BOTH grid-step bases', () => {
-    // Two would be the static path's tail→tip pair, and scaling a single basis moves an arrow
-    // along a straight line: the closed-form drift #65 shipped and #70 reverted.
-    expect(w.match(/project_geo\(/g) ?? []).toHaveLength(4) // 1 definition + 3 calls
-    expect(w).toContain('vs_arrow_retained_advected')
+  it('recovers geography by INVERTING the ladder — it projects nothing forward per instance', () => {
+    // The direction of the whole pipeline, asserted where a picture cannot show it. A screen node
+    // has no geographic anchor to project, so `project_geo` — the forward geo→clip helper the
+    // static path is built on — must not appear at all; what appears instead is the backward map.
+    expect(w, 'no per-instance forward projection survives').not.toContain('project_geo(')
+    expect(w).toContain('arrow_screen_lonlat(')
+    expect(w).toContain('arrow_grid_uv(')
+    expect(w).toContain('arrow_uv_basis(')
   })
 
-  it('scales the displacement by the SAME leash the drift integrates over', () => {
-    // The anchors are packed one ARROW_DRIFT_UV away, so this division is what makes the
-    // multiplier land in [-1, 1] — the range the linearization is valid over. The leash now has
-    // one home (`arrow-drift.ts`) and three consumers: the generator that packs the anchors, the
-    // integration that walks the arrow, and this division.
-    expect(w).toContain(`/ ${ARROW_DRIFT_UV}`)
-  })
-
-  it('the drift is FITTED into that range by SCALING, not clamped per component', () => {
-    // The stateful path got the bound for free: the step recycled an arrow the moment it passed
-    // the leash, so the VS never saw a larger displacement. Integrating the position means
-    // nothing enforces it upstream, so the VS does — but it must do it by scaling BOTH
-    // components by one factor. Clamping them independently also keeps the displacement inside
-    // the box and TURNS it, which is the reported "moves in a different direction than it
-    // points" (see arrow-drift-direction.test.ts for the angles).
+  it('the glyph position is built in SCREEN px with w = 1 — no second anchor to divide by', () => {
+    // The predecessor derived two bases by projecting anchors a leash away and dividing each by
+    // ITS OWN clip.w. Lower the pitch and an anchor crosses behind the eye plane, w passes through
+    // zero, and the glyph is flung off screen — reported as "the particles fly off into space",
+    // and it needed a perspective guard. Here the node is a lattice coordinate and the train
+    // offset is already in pixels, so the failure is not reachable rather than guarded against.
     const vs = w.slice(w.indexOf('fn vs_arrow_retained_advected'))
-    const body = vs.slice(0, vs.indexOf('\n}'))
-    expect(body, 'the fit is capped at 1 — it may shrink the drift, never grow it').toMatch(
-      /min\(1\.0,/,
-    )
+    const out = vs.slice(vs.indexOf('.position = '), vs.indexOf('.loc = '))
+    expect(out, 'the clip w is the literal 1').toMatch(/,\s*0\.0,\s*1\.0\)/)
   })
 
   it('holds no catalogue threshold of its own — it indexes the uploaded band table', () => {
@@ -208,13 +204,13 @@ describe('#1419 advected-arrow shader — DSL emission', () => {
     expect(w).not.toContain('13.0') // band 9's edge, if it had been inlined
   })
 
-  it('emits a GLSL twin per stage, storage lowered to data textures', () => {
+  it('emits a GLSL twin per stage, storage lowered to a data texture', () => {
     const gvs = emitArrowRetainedAdvectedGlsl('vertex')
     const gfs = emitArrowRetainedAdvectedGlsl('fragment')
     expect(gvs).toContain('#version 300 es')
     expect(gvs).toContain('void main()')
-    expect(gvs).toContain('uniform sampler2D feat_data;')
     expect(gvs).toContain('uniform sampler2D band_data;')
+    expect(gvs, 'the view block stays a real UBO on the WebGL2 arm').toContain('ArrowView')
     expect(gvs).toContain('texelFetch(flow_u_tex,')
     expect(gvs).toContain('texelFetch(flow_v_tex,')
     expect(gvs).not.toMatch(/\btexture\(/) // no filtered sample survives into the vertex stage
@@ -225,18 +221,23 @@ describe('#1419 advected-arrow shader — DSL emission', () => {
 
 // #1419 — THE HALF THAT STILL LOOKS RIGHT WHEN IT IS WRONG.
 //
-// "The arrows move" is easy to see and easy to get right. The failure that survives a look is an
-// arrow that MOVES while keeping the colour and size it launched with: a smooth animation
+// "The arrows move" is easy to see and easy to get right. The failure that survives a look is a
+// glyph that MOVES while keeping the colour and size its seed launched with: a smooth animation
 // reporting a current that is not under it. The catalogue binds symbol, colour, rotation and
 // scale to (speed, direction) AT THE POSITION — so what has to be pinned is that every one of
-// those comes from the field where the arrow IS, not where it started.
+// those comes from the field where the glyph IS, not where its train started.
 //
-// Traced through the emitted WGSL rather than asserted as a substring, because the compiler
-// names its own temporaries: resolve the binding that holds the decoded STATE position, then
-// require the velocity fetches to use it. A regression that samples `origin_tex` instead would
-// keep every arrow's launch colour — and would still animate perfectly.
-describe('#1419 advected arrow — re-symbolized from the field UNDER it', () => {
-  const w = emitArrowRetainedAdvectedWgsl()
+// Traced through the emitted WGSL rather than asserted as a substring, because the compiler names
+// its own temporaries: resolve the binding the streamline walk reassigns, then require the
+// velocity fetches to use it. A regression that sampled the seed's own uv would keep every train's
+// launch colour — and would still animate perfectly.
+describe('#1520 advected arrow — re-symbolized from the field UNDER it', () => {
+  // SCOPED TO THE VS BODY. The emitter restarts its temporary names at `_v0` in every function,
+  // so a module-wide search resolves `_v24` to whichever helper declared one first — which is how
+  // a structural assertion silently starts reading a different function's arithmetic and passing
+  // (or failing) for a reason that has nothing to do with the claim.
+  const all = emitArrowRetainedAdvectedWgsl()
+  const w = all.slice(all.indexOf('fn vs_arrow_retained_advected'))
   /** `let X = <expr>;` → the expression, for the emitter's generated temporaries. */
   const letOf = (name: string): string => {
     const m = new RegExp(`let ${name} = ([^;]+);`).exec(w)
@@ -244,28 +245,24 @@ describe('#1419 advected arrow — re-symbolized from the field UNDER it', () =>
     return m![1]!
   }
 
-  it('samples the velocity pair where the arrow IS — a DRIFTED position, never the origin', () => {
-    // The failure this pins has not changed with the mechanism (#1520): an arrow that moves while
-    // keeping the colour and size it launched with is a smooth animation reporting a current that
-    // is not under it. What changed is where the position comes from — it used to be decoded from
-    // a state texture, and it is now integrated in the shader from the origin over the phase.
-    //
-    // So the claim is structural: the fetch coordinate must be a variable that the tap loop
-    // REASSIGNS, initialised from the origin. A shader that sampled at the origin itself would
-    // match neither half.
+  it('samples the velocity pair where the glyph IS — a WALKED position, never the seed', () => {
+    // The claim is structural: the fetch coordinate must be a variable the walk REASSIGNS, seeded
+    // from the node's own grid-uv. A shader that sampled at the seed itself would match neither
+    // half — and would report the water at the head of the train for every glyph in it.
     const walk = /var (_v\d+): vec2<f32> = (\w+);/.exec(w)
-    expect(walk, 'the drift walks a mutable position').not.toBeNull()
+    expect(walk, 'the train walks a mutable position').not.toBeNull()
     const [sym, seed] = [walk![1]!, walk![2]!]
 
-    const assigns = [...w.matchAll(new RegExp(`^\\s*${sym} = [^\\n]*$`, 'gm'))].map((m) => m[0])
-    expect(assigns, 'one assignment per integration tap').toHaveLength(ARROW_DRIFT_TAPS)
+    const assigns = [...w.matchAll(new RegExp(`^\\s*${sym} = \\(${sym} \\+ (\\w+)\\);$`, 'gm'))]
+    expect(assigns, 'one assignment per integration step').toHaveLength(ARROW_TRAIN_STEPS)
     for (const a of assigns) {
-      expect(a, 'each tap advances by the FIELD, not by a constant').toContain('flow_u_tex')
-      expect(a, 'each tap advances by the FIELD, not by a constant').toContain('flow_v_tex')
+      expect(letOf(a[1]!), 'each step advances along the FIELD, not by a constant').toContain(
+        'arrow_uv_step(',
+      )
     }
 
-    // …and the walk starts at the instance's own origin, read from the feat record.
-    expect(letOf(seed), 'the walk starts at the origin').toMatch(/feat_data/)
+    // …and the walk starts at the seed node's own grid-uv, recovered by the backward map.
+    expect(letOf(seed), 'the walk starts at the unprojected node').toContain('arrow_grid_uv(')
 
     for (const tex of ['flow_u_tex', 'flow_v_tex']) {
       const load = new RegExp(
@@ -277,42 +274,38 @@ describe('#1419 advected arrow — re-symbolized from the field UNDER it', () =>
   })
 
   it('the band index, the SCALE and the TINT all derive from that sampled speed', () => {
-    // One expression feeds all three, so an arrow cannot change colour without changing size,
-    // and cannot change either without having moved into different water.
-    const cmp =
-      /select\(1u, _v\d+, \(length\(vec2<f32>\((\w+), (\w+)\)\) < band_data\[0u\]\)\)/.exec(w)
+    // One expression feeds all three, so a glyph cannot change colour without changing size, and
+    // cannot change either without having moved into different water.
+    const cmp = /select\(1u, \w+, \((\w+) < band_data\[0u\]\)\)/.exec(w)
     expect(cmp, 'band 1 is decided by comparing a speed against band_data[0]').not.toBeNull()
-    const [uSample, vSample] = [cmp![1]!, cmp![2]!]
+    const speed = /^length\(vec2<f32>\((\w+), (\w+)\)\)$/.exec(letOf(cmp![1]!))
+    expect(speed, 'that speed is the magnitude of a sampled velocity pair').not.toBeNull()
+    const [uSample, vSample] = [speed![1]!, speed![2]!]
     expect(letOf(uSample), 'the speed magnitude is built from the SAMPLED u').toContain(
       'textureLoad(flow_u_tex',
     )
     expect(letOf(vSample), 'the speed magnitude is built from the SAMPLED v').toContain(
       'textureLoad(flow_v_tex',
     )
-    // …and the colour is a band ROW, not anything carried per instance. Alpha carries the phase
-    // fade on top (#1520) — the FADE touches only alpha, so a fading arrow never reads as a
-    // different speed band, which is why the rgb triple is still asserted verbatim.
+    // …and the colour is a band ROW, not anything carried per instance. Alpha carries the train
+    // fade on top — the FADE touches only alpha, so a fading glyph never reads as a different
+    // speed band, which is why the rgb triple is still asserted verbatim.
     expect(w).toMatch(
-      /\.tint = vec4<f32>\(band_data\[\(\w+ \+ 4u\)\], band_data\[\(\w+ \+ 5u\)\], band_data\[\(\w+ \+ 6u\)\], \(band_data\[\(\w+ \+ 7u\)\] \* arrow_phase_alpha\(/,
+      /\.tint = vec4<f32>\(band_data\[\(\w+ \+ 4u\)\], band_data\[\(\w+ \+ 5u\)\], band_data\[\(\w+ \+ 6u\)\], \(band_data\[\(\w+ \+ 7u\)\] \* \w+\)\)/,
     )
   })
 
-  it('the origin seeds the walk and the phase — it never reaches the catalogue lookup', () => {
-    // Its legitimate consumers are the displacement it is measured against, the walk it starts,
-    // and the phase offset hashed from it. If it ALSO reached the field sample or the band
-    // lookup, the arrow would report its launch cell forever — which is the failure that still
-    // looks like a working animation.
-    const originLet = /let (\w+) = vec2<f32>\(feat_data\[[^\]]+\], feat_data\[[^\]]+\]\);/.exec(w)
-    expect(originLet, 'the origin is bound once from the feat record').not.toBeNull()
-    const name = originLet![1]!
-    for (const line of w.split('\n')) {
-      if (!line.includes(name)) continue
-      // The origin DOES meet `band_data` — the lattice steps the density cull measures with live
-      // in the params row. What it must never reach is a BAND decision: the select chain that
-      // picks the row, or the tint built from it. That is the difference between "which arrows
-      // are drawn" and "what speed this arrow reports".
-      expect(line, 'the origin never decides a band').not.toContain('select(1u,')
-      expect(line, 'the origin never reaches the tint').not.toContain('.tint =')
-    }
+  it('the train is exactly G glyphs, and the wrap moves it by exactly ONE spacing', () => {
+    // The arc length is `(j + φ)·δ`. That is what makes the wrap invisible: at φ = 1 the set of
+    // occupied arc lengths is the set at φ = 0 shifted by one, so every glyph lands where its
+    // neighbour was and the alpha — a function of `(j + φ)/G` — matches across the seam. A
+    // regression that multiplied the phase by anything else reopens the blink #1333 rejected
+    // moving glyphs over.
+    const vs = w.slice(w.indexOf('fn vs_arrow_retained_advected'))
+    const body = vs.slice(0, vs.indexOf('\n}'))
+    expect(body, 'the instance splits into seed and glyph by G').toContain(
+      `/ ${ARROW_TRAIN_GLYPHS}.0`,
+    )
+    expect(body, 'the arc length is (glyph + phase) × spacing').toMatch(/\(\(\w+ \+ \w+\) \* \w+\)/)
   })
 })

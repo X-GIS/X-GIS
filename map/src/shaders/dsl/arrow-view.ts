@@ -112,7 +112,7 @@ export const ARROW_LATTICE_FACTOR = Math.sqrt(ARROW_TRAIN_GLYPHS)
  *  anyway, so a scalar in a corner ray's `w` is genuinely free. */
 const U = uniformStruct(
   'ArrowView',
-  { group: 1, binding: 4, as: 'av' },
+  { group: 1, binding: 4, as: 'arrow_view' },
   {
     /** xyz = world-space ray direction at NDC (−1, −1); w = lattice columns `nx`. */
     ray_bl: vec4fT,

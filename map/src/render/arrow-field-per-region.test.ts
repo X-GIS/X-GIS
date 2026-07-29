@@ -76,7 +76,11 @@ function makeCtx() {
     },
     createPipeline: () => ({ native: 'pipe' }),
     createBuffer: (d: { label?: string }) => ({ native: `buf${id++}`, label: d.label }),
-    writeBuffer: (_b: unknown, _off: number, data: ArrayBufferView) => {
+    writeBuffer: (_b: unknown, _off: number, src: BufferSource) => {
+      // `UniformBlock.buffer` is documented as passable verbatim, so a write can arrive as a raw
+      // ArrayBuffer as well as a view — the advected view block takes the former.
+      const data: ArrayBufferView =
+        src instanceof ArrayBuffer ? new Uint8Array(src) : (src as ArrayBufferView)
       uniformWrites.push(
         new Float32Array(data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength)),
       )
@@ -123,17 +127,31 @@ function field(tag: string, over: Partial<FlowFieldRegion> = {}): FlowFieldRegio
 const NORTH = field('north', { width: 64, height: 64, spanDeg: [2, 3], midLatDeg: 38 })
 const SOUTH = field('south', { width: 23, height: 29, spanDeg: [0.5, 0.4], midLatDeg: 26 })
 
-/** One advected batch's inputs. `n` instances, origins on their own diagonal. */
-function advectedInput(key: string, n: number) {
+/** One advected batch's inputs. Two batch scalars — there is nothing per instance any more
+ *  (#1520): the instance set is a lattice on the screen and its size is a per-frame decision. */
+function advectedInput() {
   return {
-    originU: Float32Array.from({ length: n }, (_, i) => (i + 1) / (n + 1)),
-    originV: Float32Array.from({ length: n }, (_, i) => (i + 1) / (n + 1)),
-    uStepLon: Float64Array.from({ length: n }, () => 0),
-    uStepLat: Float64Array.from({ length: n }, () => 0),
-    vStepLon: Float64Array.from({ length: n }, () => 0),
-    vStepLat: Float64Array.from({ length: n }, () => 0),
+    grid: { originLon: -71, originLat: 39, invSpanLon: 0.5, invSpanLat: -0.5 },
     bandTable: new Float32Array(80),
-    key,
+  }
+}
+
+/** A camera the store can build a screen lattice from. An orthonormal-ish MVP over a small
+ *  camera-relative plane: what matters for these bindings tests is only that the inverse EXISTS,
+ *  so the write returns a nonzero instance count and the draw is issued. */
+function view() {
+  // A plain perspective-ish column-major MVP: x/y scaled, the eye 1000 m up the +z axis looking
+  // down, w carrying −z so the inverse is well-conditioned.
+  const m = new Float32Array([1e-3, 0, 0, 0, 0, 1e-3, 0, 0, 0, 0, -1e-3, -1, 0, 0, 1, 1000])
+  return {
+    matrix: m,
+    projType: 0,
+    globeMode: false,
+    centerLon: -70,
+    centerLat: 38,
+    canvasWidth: 512,
+    canvasHeight: 512,
+    dpr: 1,
   }
 }
 
@@ -164,7 +182,7 @@ function twoRegions() {
       0.06,
       1,
       region,
-      advectedInput(`${region}/g/${n}`, n),
+      advectedInput(),
     )
   }
   return { ctx, flow, store, add }
@@ -191,7 +209,7 @@ describe('the advected DRAW binds the batch’s OWN region field (#1458)', () =>
     add('south', 6)
 
     const before = ctx.bindGroups.length
-    store.draw(drawPass(), [new Float32Array(32)])
+    store.draw(drawPass(), [new Float32Array(32)], view())
     const drawGroups = ctx.bindGroups.slice(before).filter(hasFlowViews).map(boundFlowViews)
 
     expect(drawGroups).toHaveLength(2)
@@ -208,7 +226,7 @@ describe('the advected DRAW binds the batch’s OWN region field (#1458)', () =>
     flow.setArrowFields(new Map([['north', NORTH]]))
 
     const before = ctx.bindGroups.length
-    const calls = store.draw(drawPass(), [new Float32Array(32)])
+    const calls = store.draw(drawPass(), [new Float32Array(32)], view())
     const drawGroups = ctx.bindGroups.slice(before).filter(hasFlowViews).map(boundFlowViews)
     expect(drawGroups).toEqual([{ u: NORTH.u, v: NORTH.v }])
     expect(calls).toBe(1)

@@ -72,6 +72,36 @@ export interface ArrowViewGlyph {
   strokeUnits: number
 }
 
+/** Assemble the camera half from a frame's own inputs.
+ *
+ *  A function rather than an object literal at the call site because `renderRetained` is at its
+ *  LOC ceiling and this is not manager logic — it is the ArrowView block's own contract, including
+ *  the one judgement in it: `globeMode` mirrors `getViewForProjection`'s selector, which
+ *  `camera.ts:788` names as the place the render matrix and the shader branch stay in lockstep. */
+export function arrowViewCamera(
+  f: {
+    frame: { matrix: Float32Array }
+    camera: { globeMode: boolean }
+    projType: number
+    projCenterLon: number
+    projCenterLat: number
+    canvasWidth: number
+    canvasHeight: number
+  },
+  dpr: number,
+): ArrowViewCamera {
+  return {
+    matrix: f.frame.matrix,
+    projType: f.projType,
+    globeMode: f.camera.globeMode,
+    centerLon: f.projCenterLon,
+    centerLat: f.projCenterLat,
+    canvasWidth: f.canvasWidth,
+    canvasHeight: f.canvasHeight,
+    dpr,
+  }
+}
+
 let _block: UniformBlockOf<typeof arrowViewU> | null = null
 /** Memoized typed pack target for the std140 `ArrowView` struct. */
 export function arrowViewBlock(): UniformBlockOf<typeof arrowViewU> {

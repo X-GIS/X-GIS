@@ -48,7 +48,7 @@ export const ARROW_ADVECTED_BINDINGS = [
   { binding: 1, kind: 'storage', name: 'band_data' },
   { binding: 2, kind: 'texture', name: 'flow_u_tex', vertexVisible: true },
   { binding: 3, kind: 'texture', name: 'flow_v_tex', vertexVisible: true },
-  { binding: 4, kind: 'uniform', name: 'ArrowView' },
+  { binding: 4, kind: 'uniform', name: 'arrow_view' },
 ] as const
 
 export class RetainedArrowAdvectedDraper {

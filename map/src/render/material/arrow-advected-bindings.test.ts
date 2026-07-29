@@ -12,7 +12,7 @@
 
 import { describe, it, expect } from 'vitest'
 import { ARROW_ADVECTED_BINDINGS } from './arrow-retained-advected-material'
-import { emitArrowRetainedAdvectedWgsl } from '../../shaders/dsl/arrow-retained'
+import { emitArrowRetainedAdvectedWgsl } from '../../shaders/dsl/arrow-advected'
 
 describe('advected arrow DRAW — group 1 matches the shader', () => {
   const w = emitArrowRetainedAdvectedWgsl()
