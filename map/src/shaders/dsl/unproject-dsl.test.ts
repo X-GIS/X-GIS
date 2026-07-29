@@ -30,7 +30,7 @@ describe('screen → geographic, on the GPU (#1520)', () => {
   it('emits on both backends', () => {
     const w = wgsl()
     expect(w).toContain('fn unproject_flat(')
-    expect(w).toContain('fn ray_hit_ellipsoid(')
+    expect(w).toContain('fn ray_hit_sphere_enu(')
     const g = emitGlslModule(
       module({
         consts: PROJECTION_CONSTS,
@@ -41,29 +41,49 @@ describe('screen → geographic, on the GPU (#1520)', () => {
     expect(typeof g).toBe('string')
   })
 
-  it('INVERTS NO MATRIX — the ray is built from the camera basis', () => {
+  it('INVERTS NO MATRIX — the ray is a blend of four corner directions', () => {
     // The trap `globe.ts` paid for: inverting an MVP whose eye sits 6.4e6 m out quantises the ray
-    // hit by ~1 m in f32. There is nothing to invert if the ray comes from three unit vectors, so
-    // the check is that no inverse ever appears.
+    // hit by ~1 m in f32. There is nothing to invert if the ray arrives already unprojected, so
+    // the check is that the blend is all this body does.
     const w = wgsl()
-    expect(
-      bodyOf(w, 'camera_ray'),
-      'camera_ray builds a direction, it does not solve one',
-    ).not.toMatch(/inverse|determinant|adjugate/i)
+    const body = bodyOf(w, 'ray_from_corners')
+    expect(body, 'the ray is blended, not solved').not.toMatch(/inverse|determinant|adjugate/i)
+    expect(body, 'bilinear between the four corners').toMatch(/mix\(/)
     expect(bodyOf(w, 'ray_hit_plane')).not.toMatch(/inverse/i)
-    expect(bodyOf(w, 'ray_hit_ellipsoid')).not.toMatch(/inverse\(/i)
+    expect(bodyOf(w, 'ray_hit_sphere_enu')).not.toMatch(/inverse\(/i)
   })
 
-  it('the ellipsoid quadratic never forms |O|² − a² — the term that loses every f32 figure', () => {
-    // `|O|² − a²` is a difference of two numbers near 4.1e13; f32 holds ~7 significant digits, so
-    // the result is noise. Written `h·(2a + h) + Oz²·(k² − 1)` it is a sum of PRODUCTS and every
-    // figure survives. A regression here reads as the z17+ shake, not as a wrong picture.
-    const body = bodyOf(wgsl(), 'ray_hit_ellipsoid')
+  it('the sphere quadratic never forms |C|² − R² — the term that loses every f32 figure', () => {
+    // Solved in ENU, where the earth centre is (0, 0, −(R + h)) and the constant term falls out as
+    // `h·(2R + h)` with no rearrangement. The ECEF form would need `|O|² − R²`, a difference of two
+    // numbers near 4.1e13 that f32 reduces to noise — which reads as the z17+ shake, not as a
+    // wrong picture, so no still frame catches it.
+    const body = bodyOf(wgsl(), 'ray_hit_sphere_enu')
     expect(
       body,
       'the squared earth radius is never subtracted from a squared position',
     ).not.toMatch(/-\s*\(?\s*EARTH_R\s*\*\s*EARTH_R/)
     expect(body, 'the altitude form is the one that is emitted').toMatch(/EARTH_R\s*\+/)
+  })
+
+  it('the sphere hit is exact for a straight-down ray — the case arithmetic can be checked by hand', () => {
+    const M = compileModuleJs(
+      module({
+        consts: PROJECTION_CONSTS,
+        funcs: [...getGpuProjectionFuncs(), ...UNPROJECT_FUNCS],
+      }),
+    )
+    for (const h of [100, 1e4, 1e6]) {
+      const hit = M.fns.ray_hit_sphere_enu([0, 0, -1], h) as [number, number, number, number]
+      // Straight down from altitude h, the surface is exactly h below.
+      expect(hit[3], `h=${h} hits`).toBe(1)
+      expect(hit[2], `h=${h} depth`).toBeCloseTo(-h, 3)
+    }
+    // A ray pointing UP never meets the earth — and must say so rather than returning a far-side
+    // root, which would paint arrows on the sky.
+    expect((M.fns.ray_hit_sphere_enu([0, 0, 1], 1e6) as number[])[3], 'an upward ray misses').toBe(
+      0,
+    )
   })
 
   it('the flat inverse is NUMERICAL — it calls the generated forward, it does not restate it', () => {
