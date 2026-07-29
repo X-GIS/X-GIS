@@ -2150,15 +2150,10 @@ export class VectorTileRenderer {
     result: number[]
   } | null = null
 
-  getDrawStats(): {
-    drawCalls: number
-    vertices: number
-    triangles: number
-    lines: number
-    tilesVisible: number
-    missedTiles: number
-    globeTilesSelected: number
-  } {
+  /** Thin forwarder. The shape is DERIVED from the owner rather than restated:
+   *  the hand-copied literal that used to live here was a second authority for
+   *  one type, and adding a field meant editing both. */
+  getDrawStats(): ReturnType<FrameDrawStats['getDrawStats']> {
     return this._drawStats.getDrawStats()
   }
 

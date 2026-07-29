@@ -152,7 +152,10 @@ const CEILINGS: Record<string, number> = {
   // per site on WebGL2, and the mirror waste of the GLSL pair on WebGPU. No statement was
   // added: the existing shader/vsCode/fsCode expressions were wrapped in place, and the
   // decision itself lives in material/wgsl-for.ts.
-  'map/src/render/vector-tile-renderer.ts': 4816,
+  // #1479: −5. The `getDrawStats` forwarder restated its return type by hand — a second
+  // authority for one shape. Deriving it (`ReturnType<FrameDrawStats['getDrawStats']>`)
+  // paid for the `drawnByZoom` field and left the file smaller than before.
+  'map/src/render/vector-tile-renderer.ts': 4811,
   // 4232→4237 (#1000 heatmap relocate): the heatmap density-target OWNERSHIP
   // extracted to render/heatmap-targets.ts; map keeps only the irreducible
   // composition-root wiring — the `heatmapTargets` field + its import (mirrors
@@ -938,7 +941,7 @@ const CEILINGS: Record<string, number> = {
   // for zoom+1, so zooming past it makes every visible tile a permanent 404 that
   // pins all 6 concurrency slots. +22 for the failedTiles map, the two request-site
   // guards, the two failure/clear branches and the re-arm reset; the POLICY itself
-  // (backoff curve + attempt cap) went to hillshade-tile-retry.ts rather than in
+  // (backoff curve + attempt cap) went to tile-retry.ts rather than in
   // here, so it is unit-testable without a GPU and this file stays near its mark.
   // 828→836 (cold-start load budget): the leaf loop broke only at the FULL concurrency
   // budget, so on the first frame it took all 6 slots and the parent-fallback prefetch
@@ -946,7 +949,7 @@ const CEILINGS: Record<string, number> = {
   // landed, and terrarium PNGs measure ~131-143 KB against ~19-28 KB for a satellite
   // JPEG over the same ground. +8 = the 3-line rationale, the one `leafBudget` binding,
   // and the 4 lines prettier adds re-wrapping the now-101-char retry import. The POLICY
-  // is again in hillshade-tile-retry.ts (leafLoadBudget), same split as the backoff.
+  // is again in tile-retry.ts (leafLoadBudget), same split as the backoff.
   // 836→834 (merge union, #1413 <- main): the byte-budget cache landed here too, and its
   // `_cacheTile` helper REPLACED two inline four-line `tileCache.set` blocks (the leaf and
   // parent load paths), so the union is two lines SHORTER than this branch alone. Measured,
@@ -1137,11 +1140,20 @@ const CEILINGS: Record<string, number> = {
   // 990→992 (#1436): the tile texture asks for a chain and fills it after the upload. Two lines
   // plus the sentence saying why a basemap tile is the minified-appearance texture par
   // excellence. Measured post-hook.
-  // 992→1011 (source maxzoom, the 404 class): a dataset has a deepest REAL level and asking
-  // past it is a guaranteed 404, not a slow tile — terrarium stops at z15 while
+  // 992→1012 (#1476, from main): the failed-tile backoff wiring the raster arm never got —
+  // the `failedTiles` map, the clear on a URL-template change, one requestability guard in
+  // each of the two request loops (leaf + parent-fallback), and noteFailure/delete on both
+  // load chains. The POLICY is not here: it stays in tile-retry.ts, shared with the
+  // hillshade arm, which is why this is +20 and not +80.
+  // merge union — +19 (source maxzoom, the 404 class): a dataset has a deepest REAL level
+  // and asking past it is a guaranteed 404, not a slow tile. Terrarium stops at z15 while
   // rasterCoverZoom adds +1 on a 256-px source, so every visible tile failed from about
-  // camera z14.5 (verified: terrarium/16/13651/25075 404, its z15 parent 200). +19: the setSourceMaxzoom setter, the field, and the 10-line rationale on rasterCoverZoom itself.
-  'map/src/render/raster-renderer.ts': 1011,
+  // camera z14.5 (verified: terrarium/16/13651/25075 404, its z15 parent 200). The
+  // setSourceMaxzoom setter, the field, and the rationale on rasterCoverZoom itself. The
+  // two are disjoint — #1476 bounds a storm the selector could not avoid, this stops the
+  // selector creating one — so the ceilings SUM. Measured post-hook at 1032 rather than the
+  // 992+20+19=1031 the arithmetic predicts; the ceiling is the MEASURED count, never the sum.
+  'map/src/render/raster-renderer.ts': 1032,
   // 889→906 (#1155 F3): cold-start burst enqueue cap — the `_coldStartBurst`
   // field + `setColdStartBurst` + the burst-selected 8/4 cap in enqueue().
   // 906→910 (#1155 F3 adjudication): the burst 8/4 pair now comes from the
