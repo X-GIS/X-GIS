@@ -31,6 +31,10 @@ function captureLinePickVariants(): CapturedPipeline[] {
   const captured: CapturedPipeline[] = []
   const rhi = {
     backend: 'webgpu',
+    // The draper reads `caps.shaderLanguage` (not `backend`) to pick which shader
+    // language to emit — this is the WebGPU arm, matching the `backend` above, which is
+    // what puts the pick MRT variants on the path this gate inspects.
+    caps: { shaderLanguage: 'wgsl' },
     createPipeline: (d: CapturedPipeline) => {
       captured.push(d)
       return {}

@@ -11,8 +11,11 @@
 
 import type { RhiBindGroup, RhiBuffer, RhiDevice, RhiRenderPass } from '@xgis/engine'
 import { Material, executeItems, type DrawItem } from '@xgis/engine'
-import { emitCircleRetainedWgsl, emitCircleRetainedGlsl } from '../../shaders/dsl/circle-retained'
-import { wgslFor } from './wgsl-for'
+import {
+  emitCircleRetainedWgsl,
+  emitCircleRetainedGlslStages,
+} from '../../shaders/dsl/circle-retained'
+import { wgslFor, glslStagesFor } from './wgsl-for'
 
 export class RetainedCircleDraper {
   private readonly material: Material
@@ -20,13 +23,9 @@ export class RetainedCircleDraper {
   constructor(rhi: RhiDevice, format: string, sampleCount: number, uniformSlotSize: number) {
     // #823 — GLSL ES 3.00 twins for the WebGL2 backend, emitted behind a LIVE backend guard so
     // the WebGPU boot never pays the double emit (#778 P6). Mirrors RetainedArrowDraper.
-    const gl2 = rhi.backend === 'webgl2'
-    const glsl = gl2
-      ? { vsCode: emitCircleRetainedGlsl('vertex'), fsCode: emitCircleRetainedGlsl('fragment') }
-      : {}
     this.material = new Material(rhi, {
       shader: wgslFor(rhi, emitCircleRetainedWgsl),
-      ...glsl,
+      ...glslStagesFor(rhi, emitCircleRetainedGlslStages),
       vsEntry: 'vs_circle_retained',
       fsEntry: 'fs_circle_retained',
       format: format as 'bgra8unorm',

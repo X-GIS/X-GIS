@@ -36,6 +36,23 @@ export default defineConfig({
   // mode unconditionally — see _pixel-match-*.spec.ts.
   fullyParallel: true,
   workers: Number(process.env.WORKERS ?? 2),
+  // CI retries. The render-gate leg drives ~46 SwiftShader render/readback gates
+  // on a 4-core runner, and it failed twice in one session on DIFFERENT tests,
+  // both as bare 60 s timeouts — `_vs-clip-parity` in page.evaluate,
+  // `_shader-dsl-mouse-interaction` in page.goto — where the same tests take 8 s
+  // and 4 s locally and passed on re-run. A software rasterizer starved 3-6× past
+  // its budget is the shape of that, not a defect in either test.
+  //
+  // Retrying does NOT hide a failure: Playwright reports a retry-pass as FLAKY,
+  // distinct from passed, so a test that needs a retry stays visible in the run
+  // summary — what it stops is a transient timeout blocking an otherwise-green
+  // merge. It does mean an intermittent REAL regression takes longer to surface,
+  // which is the accepted trade; the durable fix is deterministic settling inside
+  // the specs that assert on frame-to-frame change (the settle-until-N-identical-
+  // hashes pattern), not a retry.
+  //
+  // Local runs keep 0 so a flake in front of a developer is seen, not smoothed.
+  retries: process.env.CI ? 2 : 0,
   reporter: [['list']],
   // Visual regression baselines (PR B). Per-pixel match is too strict
   // for WebGPU output across drivers / GPU vendors — a small tolerance
