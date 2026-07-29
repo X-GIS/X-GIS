@@ -38,7 +38,7 @@ import {
   type ModuleDecl,
 } from '@xgis/shader-dsl'
 import { ioStruct, builtin, location, uniformStruct, resource } from '@xgis/shader-dsl'
-import { emitModule, emitGlslModule, stageOf } from '@xgis/shader-dsl'
+import { emitModule, emitGlslModule, emitGlslStages, stageOf } from '@xgis/shader-dsl'
 
 const U = uniformStruct(
   'Uniforms',
@@ -140,3 +140,13 @@ export const emitTextGlsl = (stage: 'vertex' | 'fragment'): string => {
     stage,
   )
 }
+
+/** Both GLSL stages from ONE lowering (see emitGlslStages). The per-stage twin above
+ *  prunes the module before each emit, so it lowers + runs the optimizer fixpoint twice;
+ *  naming the entries instead shares it. Byte-identical to two calls of the per-stage
+ *  form — pinned by map/src/render/material/glsl-stage-entry-parity.test.ts. */
+export const emitTextGlslStages = (): { vertex: string; fragment: string } =>
+  emitGlslStages(TEXT_MODULE, {
+    vertexEntry: 'vs',
+    fragmentEntry: 'fs',
+  })

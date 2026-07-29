@@ -64,7 +64,7 @@ import {
   structDecl,
   storageBuffer,
 } from '@xgis/shader-dsl'
-import { emitModule, emitGlslModule, stageOf } from '@xgis/shader-dsl'
+import { emitModule, emitGlslModule, emitGlslStages, stageOf } from '@xgis/shader-dsl'
 import {
   needs_backface_cull,
   rim_alpha,
@@ -625,3 +625,14 @@ export const emitPointGlsl = (stage: 'vertex' | 'fragment'): string => {
     { emulateStorage: true },
   )
 }
+
+/** Both GLSL stages from ONE lowering (see emitGlslStages). The per-stage twin above
+ *  prunes the module before each emit, so it lowers + runs the optimizer fixpoint twice;
+ *  naming the entries instead shares it. Byte-identical to two calls of the per-stage
+ *  form — pinned by map/src/render/material/glsl-stage-entry-parity.test.ts. */
+export const emitPointGlslStages = (): { vertex: string; fragment: string } =>
+  emitGlslStages(buildPointModule(), {
+    vertexEntry: 'vs_point',
+    fragmentEntry: 'fs_point',
+    emulateStorage: true,
+  })

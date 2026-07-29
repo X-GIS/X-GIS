@@ -152,7 +152,10 @@ const CEILINGS: Record<string, number> = {
   // per site on WebGL2, and the mirror waste of the GLSL pair on WebGPU. No statement was
   // added: the existing shader/vsCode/fsCode expressions were wrapped in place, and the
   // decision itself lives in material/wgsl-for.ts.
-  'map/src/render/vector-tile-renderer.ts': 4816,
+  // #1479: −5. The `getDrawStats` forwarder restated its return type by hand — a second
+  // authority for one shape. Deriving it (`ReturnType<FrameDrawStats['getDrawStats']>`)
+  // paid for the `drawnByZoom` field and left the file smaller than before.
+  'map/src/render/vector-tile-renderer.ts': 4811,
   // 4232→4237 (#1000 heatmap relocate): the heatmap density-target OWNERSHIP
   // extracted to render/heatmap-targets.ts; map keeps only the irreducible
   // composition-root wiring — the `heatmapTargets` field + its import (mirrors
@@ -781,7 +784,13 @@ const CEILINGS: Record<string, number> = {
   // Mercator vertical scale, and the wall vertical gradient gained the
   // MapLibre `+ base` term. Shrink-only from here. (#1343 retired the runtime/
   // second authority, so this file is now the only one to update.)
-  'map/src/shaders/dsl/polygon.ts': 1476,
+  // 1476→1498 (shared-lowering twin): +22 for `emitPolygonGlslStages` — a 5-line
+  // rationale, the 9-line emitter, and the 8 lines prettier adds re-wrapping the now
+  // 106-char shader-dsl import. It exists because the per-stage `emitPolygonGlsl` above
+  // prunes the module before EACH emit, so the four polygon pipelines (three in VTR, one
+  // graticule) each lowered + ran the optimizer fixpoint twice; the module build is 2 ms
+  // against ~80 ms for one emit, so that lowering is the entire cost.
+  'map/src/shaders/dsl/polygon.ts': 1498,
   // 1290→1314 (#1155 F3): cold-start burst tick budget — the `_coldStartBurst`
   // field + `_BURST_TICK_BUDGET` + `setColdStartBurst` + the burst-selected
   // budget in resetCompileBudget's backend tick loop.
@@ -944,7 +953,12 @@ const CEILINGS: Record<string, number> = {
   // `_cacheTile` helper REPLACED two inline four-line `tileCache.set` blocks (the leaf and
   // parent load paths), so the union is two lines SHORTER than this branch alone. Measured,
   // not guessed — shrink-only means taking the shrink.
-  'map/src/render/hillshade-renderer.ts': 834,
+  // 834→839 (off-thread emit): +5 — the `shaderEmitPending` import and the four-line
+  // reason it now rides `hasFadingTiles`. A draper whose shader is still being emitted
+  // draws NOTHING, so a loop idling on tile-count alone would leave the relief blank with
+  // its tiles already cached — the same freeze class as a stranded fade ramp, which is why
+  // it joins that signal rather than getting its own. The seam itself is in shaders/emit/.
+  'map/src/render/hillshade-renderer.ts': 839,
   // Merge union (#1060 <- main): stacked growth — measured 1174.
   'map/src/render/point-renderer.ts': 1174,
   // 1106→1120 (#1043 state-hygiene): three unmask-before-clear / state-reset fixes for the
@@ -1026,7 +1040,10 @@ const CEILINGS: Record<string, number> = {
   // opaque BLACK — making the shared raster sampler trilinear blacked out the checker it also
   // serves (2409 of 619200 pixels survived). +8 is one line of code and seven of incident: the
   // texture that broke is the one nobody touched, which is the part a future reader needs.
-  'rhi-webgl2/src/rhi-webgl2.ts': 1520,
+  // 1520→1523 (RhiCaps.shaderLanguage): +3 — the new cap value plus the two-line note
+  // that it is the advertised form of this file's own dual-source throw (createPipeline
+  // requires vsCode/fsCode and never reads `code`). Pure declaration; no logic added.
+  'rhi-webgl2/src/rhi-webgl2.ts': 1523,
   // 941→975 (#1371 atomic re-seed): `releaseSupersededTile` + `dropTile`, and the split of
   // `_releaseTileSlots` into a resource-release body the two share with eviction. Arena/pool
   // ownership is this class's whole reason to exist.

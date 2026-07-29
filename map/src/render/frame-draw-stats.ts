@@ -190,6 +190,7 @@ export class FrameDrawStats {
     tilesVisible: number
     missedTiles: number
     globeTilesSelected: number
+    drawnByZoom: Array<[number, number]>
   } {
     return {
       drawCalls: this._frameDrawCalls,
@@ -199,7 +200,25 @@ export class FrameDrawStats {
       tilesVisible: this._frameTilesVisible,
       missedTiles: this._missedTiles,
       globeTilesSelected: this._frameGlobeTilesSelected,
+      drawnByZoom: this.drawnByZoom(),
     }
+  }
+
+  /** `[zoom, tilesDrawn]` pairs for this frame, ascending by zoom — the
+   *  `_frameDrawnByZoom` accumulator as a JSON-safe, ordered array.
+   *
+   *  This is the DIRECT observable for "how coarse is the tile set", and the
+   *  only one that is: `tilesVisible` counts tiles without saying how big they
+   *  are, and `triangles` measures the geometry a tile happens to carry, which
+   *  is a property of the SOURCE and not of the selection. A synthetic fixture
+   *  whose features do not generalise with zoom makes triangles rise as the
+   *  horizon coarsens — a coarser tile spans more ground, so it carries more of
+   *  a uniformly-dense source than the finer tiles it replaced. That inversion
+   *  is what left `_adaptive-quality-ladder-gate` deterministically red (#1479)
+   *  while the ladder was working correctly. Zoom cannot invert: coarsening is
+   *  DEFINED as a lower drawn zoom. */
+  drawnByZoom(): Array<[number, number]> {
+    return [...this._frameDrawnByZoom.entries()].sort((a, b) => a[0] - b[0])
   }
 
   /** Diagnostic — per-decision tile count from the last completed

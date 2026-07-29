@@ -51,6 +51,10 @@ function makeStubs() {
     createBindGroup: () => ({}),
     createBindGroupLayout: () => ({}),
     createPipeline: () => ({}),
+    // The draper's source seam (wgslFor / glslStagesFor) reads this to decide which
+    // shader language to EMIT. 'wgsl' keeps the stub cheap: the GLSL twins are skipped,
+    // so these tests exercise buffer/bind-group bookkeeping without paying a real emit.
+    caps: { shaderLanguage: 'wgsl' },
   }
   const device = {
     createSampler: () => ({}),
