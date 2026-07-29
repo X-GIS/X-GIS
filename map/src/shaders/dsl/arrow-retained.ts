@@ -41,7 +41,6 @@ import {
   vec4,
   toF32,
   toI32,
-  toU32,
   textureLoad,
   textureDimensions,
   when,
@@ -60,12 +59,18 @@ import {
 } from '@xgis/shader-dsl'
 import { ioStruct, builtin, location, storageBuffer, resource } from '@xgis/shader-dsl'
 import { emitModule, emitGlslModule, emitGlslStages, stageOf } from '@xgis/shader-dsl'
-import { ARROW_DRIFT_UV, decodeArrowPos } from './arrow-advect-step'
+import {
+  ARROW_DRIFT_UV,
+  ARROW_DRIFT_TAPS,
+  ARROW_PHASE_SECONDS,
+  ARROW_SMEAR_SLOTS,
+  arrow_phase_alpha,
+  arrow_phase_offset,
+} from './arrow-drift'
 import {
   S111_BAND_COUNT,
   S111_BAND_PARAMS_ROW,
   S111_BAND_STRIDE,
-  S111_PARAM_STATE_BASE,
   S111_PARAM_UV_ASPECT,
   S111_PARAM_STEPS_U,
   S111_PARAM_STEPS_V,
@@ -314,10 +319,8 @@ const fs = fn(
 //     failure that still looks like a working animation, so the colour is NOT taken from the
 //     tint buffer here — the advected module does not even bind one.
 const bandB = storageBuffer('band_data', f32T, { group: 1, binding: 1, access: 'read' })
-const stateTex = resource('state_tex', texture2dfT, { group: 1, binding: 2 })
-const originTex = resource('origin_tex', texture2dfT, { group: 1, binding: 3 })
-const flowUTex = resource('flow_u_tex', texture2dfT, { group: 1, binding: 4 })
-const flowVTex = resource('flow_v_tex', texture2dfT, { group: 1, binding: 5 })
+const flowUTex = resource('flow_u_tex', texture2dfT, { group: 1, binding: 2 })
+const flowVTex = resource('flow_v_tex', texture2dfT, { group: 1, binding: 3 })
 
 /** Fetch the cell OWNING a grid-uv position, with no sampler. A vertex stage cannot call
  *  `textureSample` (no implicit derivatives), and the velocity field wants a point fetch anyway:
@@ -340,7 +343,10 @@ const flowVTex = resource('flow_v_tex', texture2dfT, { group: 1, binding: 5 })
  *  `floor(x + 0.5)`, not `round`: WGSL rounds halves to even and GLSL's tie is
  *  implementation-defined, so a node landing exactly on a footprint boundary could resolve to
  *  different cells on the two backends — a parity bug that only shows on one of them. */
-const loadAtUv = (tex: Parameters<typeof textureDimensions>[0], uv: ReturnType<typeof vec2>) => {
+const loadAtUv = (
+  tex: Parameters<typeof textureDimensions>[0],
+  uv: { x: ReturnType<typeof f32>; y: ReturnType<typeof f32> },
+) => {
   const d = textureDimensions(tex)
   const owner = (t: ReturnType<typeof f32>, n: ReturnType<typeof toF32>) =>
     toI32(clamp(floor(t.mul(n.sub(1)).add(0.5)), f32(0), n.sub(1)))
@@ -413,26 +419,114 @@ const vsAdvected = fn(
     const basisU = pxDelta(uStepClip)
     const basisV = pxDelta(vStepClip)
 
+    // ── HOW FAR APART THE DRAWN ARROWS LAND ────────────────────────────────────────────────
+    //
+    // Computed HERE, before the drift, because the drift has to answer to it — see the smear
+    // scale below. The decimation that uses these lives further down, where the size is built.
+    const stepsU = bandAt(u32(S111_BAND_PARAMS_ROW), S111_PARAM_STEPS_U)
+    const stepsV = bandAt(u32(S111_BAND_PARAMS_ROW), S111_PARAM_STEPS_V)
+    const leashPxU = Let(length(basisU))
+    const leashPxV = Let(length(basisV))
+    const nodePxU = Let(
+      max(leashPxU.div(max(f32(ARROW_DRIFT_UV).mul(stepsU), f32(1e-6))), f32(1e-6)),
+    )
+    const nodePxV = Let(
+      max(leashPxV.div(max(f32(ARROW_DRIFT_UV).mul(stepsV), f32(1e-6))), f32(1e-6)),
+    )
+    const target = Let(rd(F.size).mul(bandAt(u32(0), 1)))
+    const keepU = Let(exp2(max(ceil(log2(target.div(nodePxU))), f32(0))))
+    const keepV = Let(exp2(max(ceil(log2(target.div(nodePxV))), f32(0))))
+    /** The on-screen distance between two arrows that actually get DRAWN. */
+    const drawnPx = Let(min(nodePxU.mul(keepU), nodePxV.mul(keepV)))
+
     // Where this arrow is, and where it belongs — texel `base + instance_index` in both.
     //
-    // The BASE is what makes a MOSAIC work (#1458). One state texture serves every resident
-    // region and each owns a contiguous range, so a batch's instance 0 is not texel 0. It was,
-    // once: every region indexed from 0, the last one armed owned every texel, and its siblings'
-    // arrows were leashed to origin cells belonging to another NOAA domain — reported as the
-    // field breaking up as soon as a second HDF5 came on screen.
-    const dim = textureDimensions(stateTex.node)
-    const idx = p.inst.add(toU32(bandAt(u32(S111_BAND_PARAMS_ROW), S111_PARAM_STATE_BASE)))
-    const texel = vec2i(toI32(idx.mod(dim.x)), toI32(idx.div(dim.x)))
-    const pos = decodeArrowPos({ c: textureLoad(stateTex.node, texel, u32(0)) })
-    const origin = decodeArrowPos({ c: textureLoad(originTex.node, texel, u32(0)) })
-    // In units of the packed basis: the anchors are ARROW_DRIFT_UV away and the advect step
-    // recycles past that, so this is bounded to [-1, 1] and the linearization never extrapolates.
-    const kx = pos.x.sub(origin.x).div(f32(ARROW_DRIFT_UV))
-    const ky = pos.y.sub(origin.y).div(f32(ARROW_DRIFT_UV))
-    const driftPx = vec2(
-      basisU.x.mul(kx).add(basisV.x.mul(ky)),
-      basisU.y.mul(kx).add(basisV.y.mul(ky)),
+    // ── WHERE THIS ARROW IS, WITHOUT A STATE TEXTURE (#1520) ───────────────────────────────
+    //
+    // The drifted position used to be accumulated every frame into a texel paired 1:1 with this
+    // instance index. That pairing was the portrayal's ceiling — see `arrow-drift.ts`. Here the
+    // arrow is `(origin, phase)` and the position is a pure function of the two, so there is no
+    // state to size, no identity to preserve across a re-arm, and no reason the instance COUNT
+    // cannot change from frame to frame.
+    //
+    // The origin rides the instance (`F.origin_u/v`), not a texel.
+    const origin = Let(vec2(rd(F.origin_u), rd(F.origin_v)))
+    // The clock is the frame uniform's animation lane (circle_params.y, seconds) — already
+    // written O(1)/frame by the retained path and already pinnable (`?animt`) for a
+    // deterministic capture, which is what makes this field reproducible in a render gate.
+    const phase = Let(
+      fract(
+        pointU.field.circle_params.y
+          .div(f32(ARROW_PHASE_SECONDS))
+          .add(arrow_phase_offset({ p: origin })),
+      ),
     )
+    // Integrate the drift over the phase — the SAME Euler step the per-frame pass ran, evaluated
+    // in one go rather than accumulated. The excursion is one leash, so the path is short enough
+    // that a handful of taps reproduce it. `aspect` re-expresses the metric components as uv
+    // rates, exactly as the step's own params did: a uv unit is a different true distance on each
+    // axis, and grid-v runs SOUTHWARD, hence the minus.
+    const aspect0 = bandAt(u32(S111_BAND_PARAMS_ROW), S111_PARAM_UV_ASPECT)
+    const tap = Let(phase.mul(f32(ARROW_DRIFT_UV / ARROW_DRIFT_TAPS)))
+    const walk = Var(origin)
+    for (let i = 0; i < ARROW_DRIFT_TAPS; i++) {
+      const su = loadAtUv(flowUTex.node, walk).x
+      const sv = loadAtUv(flowVTex.node, walk).x
+      walk.assign(vec2(walk.x.add(su.mul(tap)), walk.y.sub(sv.mul(tap).mul(aspect0))))
+    }
+    // The walk's end, named once so the reads below are legible. Not load-bearing for the emit
+    // cost — that is `vu`/`vv` below, and the difference was established by cutting each.
+    const pos = Let(vec2(walk.x, walk.y))
+    // ── FIT TO THE LEASH BY SCALING, NEVER BY CLAMPING EACH AXIS ──────────────────────────
+    //
+    // The displacement has to stay inside the box the two basis anchors span, or the
+    // linearization is extrapolated. Clamping x and y INDEPENDENTLY does keep it inside — and
+    // TURNS IT, because the two components are cut by different amounts. That is an arrow that
+    // MOVES in a different direction than it POINTS, and it is what was reported.
+    //
+    // It only fires when a component exceeds the leash, which needs `phase · aspect > 1` — so it
+    // is invisible on the synthetic fixture (aspect 0.24, never clamps) and shows on a real
+    // regional cell, which is usually wider than it is tall. Measured, for a NNE current at
+    // phase 0.9, as the angle between the displacement and the glyph's own direction:
+    //
+    //   aspect          0.24   0.50   1.00   1.50   2.00   3.00
+    //   per-axis clamp   0.0°   0.0°   0.0°   3.3°   7.3°  11.4°
+    //   uniform fit      0.0°   0.0°   0.0°   0.0°   0.0°   0.0°
+    //
+    // Chebyshev, matching the leash the excursion was bounded by: divide BOTH components by the
+    // larger magnitude when it passes 1. One scalar, so the direction is untouched.
+    const rawX = Let(pos.x.sub(origin.x).div(f32(ARROW_DRIFT_UV)))
+    const rawY = Let(pos.y.sub(origin.y).div(f32(ARROW_DRIFT_UV)))
+    const fit = Let(min(f32(1), f32(1).div(max(max(abs(rawX), abs(rawY)), f32(1e-6)))))
+    const kx = Let(rawX.mul(fit))
+    const ky = Let(rawY.mul(fit))
+    const stepPx = Let(
+      vec2(basisU.x.mul(kx).add(basisV.x.mul(ky)), basisU.y.mul(kx).add(basisV.y.mul(ky))),
+    )
+
+    // ── THE SMEAR IS MEASURED AGAINST THE SPACING, NOT THE GRID ───────────────────────────
+    //
+    // The leash is 5% of the GRID's span — a statement about the data, silent about how far apart
+    // the drawn arrows are. The two came apart once the field got denser than one arrow per cell:
+    // 1.55 slots became 3.3, and lattice points that each wander independently by more than a slot
+    // ARE a Poisson scatter, which is what "clumped, with gaps" looks like (`arrow-drift.ts`
+    // tabulates the gap CV over that ratio).
+    //
+    // Capped ON THE SCREEN VECTOR, after the bases have been applied — not on the uv components
+    // before them. The bound wanted is "no arrow travels further than the distance to the next
+    // drawn one", and that distance is a screen quantity; dividing a uv excursion by one axis's
+    // leash states it only for a flow along that axis, and lets a diagonal flow on an anisotropic
+    // grid past by the ratio between the two bases. A SCALAR again, never per-axis — scaling the
+    // components independently is the bug fixed directly above.
+    const smear = Let(
+      min(
+        f32(1),
+        f32(ARROW_SMEAR_SLOTS)
+          .mul(drawnPx)
+          .div(max(length(stepPx), f32(1e-6))),
+      ),
+    )
+    const driftPx = Let(stepPx.mul(smear))
 
     // The field UNDER the arrow, normalized to [-1, 1] (flow-field-pack.ts). Direction comes
     // from the same two bases, so the glyph points along the current in SCREEN space under any
@@ -443,8 +537,16 @@ const vsAdvected = fn(
     // different true distance on each axis (cell aspect × cos lat), so feeding the components
     // to the bases raw would point the arrowhead at one angle while the advection moves the
     // arrow at another — the same shear flow-advect-params.ts folds into its own step pair.
-    const vu = loadAtUv(flowUTex.node, pos).x
-    const vv = loadAtUv(flowVTex.node, pos).x
+    // `Let`, AND THIS IS LOAD-BEARING. These two are read by the nine-band select chain, by the
+    // speed, and by both direction components — and an unbound expression node is re-inlined at
+    // every read, texture fetch and all. Measured by cutting exactly these two bindings: 38
+    // velocity fetches against 10, on BOTH backends. The only symptom is a silently ~4x more
+    // expensive vertex stage, which is why `arrow-density-cull.test.ts` pins the count.
+    //
+    // (The tap loop's mutable accumulator is NOT the cause — cutting its binding changes nothing.
+    // That was the first diagnosis and it was wrong; the cut is what settled it.)
+    const vu = Let(loadAtUv(flowUTex.node, pos).x)
+    const vv = Let(loadAtUv(flowVTex.node, pos).x)
     const aspect = bandAt(u32(S111_BAND_PARAMS_ROW), S111_PARAM_UV_ASPECT)
     const dirX = basisU.x.mul(vu).sub(basisV.x.mul(vv).mul(aspect))
     const dirY = basisU.y.mul(vu).sub(basisV.y.mul(vv).mul(aspect))
@@ -462,7 +564,15 @@ const vsAdvected = fn(
     }
     const row = min(band, u32(S111_BAND_COUNT - 1))
     const scale = bandAt(row, 1).add(bandAt(row, 2).mul(speed))
-    const tint = vec4(bandAt(row, 4), bandAt(row, 5), bandAt(row, 6), bandAt(row, 7))
+    // …faded at the ends of the phase, so the wrap is not a jump. The alpha is the ONLY thing
+    // the fade touches — the band colour itself stays exactly what the catalogue says, so a
+    // fading arrow never reads as a different speed band.
+    const tint = vec4(
+      bandAt(row, 4),
+      bandAt(row, 5),
+      bandAt(row, 6),
+      bandAt(row, 7).mul(arrow_phase_alpha({ phase })),
+    )
 
     // THE PERSPECTIVE GUARD. Both bases are perspective divides by a DIFFERENT anchor's w, and
     // those anchors sit one leash length away — most of a degree on a regional cell. Lower the
@@ -503,31 +613,21 @@ const vsAdvected = fn(
     // projected distance at THIS arrow's position, which is what makes the field thin correctly
     // under PITCH: the horizon decimates harder than the foreground inside one frame, where a
     // single camera-wide stride could only pick one answer for both.
-    const stepsU = bandAt(u32(S111_BAND_PARAMS_ROW), S111_PARAM_STEPS_U)
-    const stepsV = bandAt(u32(S111_BAND_PARAMS_ROW), S111_PARAM_STEPS_V)
-    const nodePx = Let(
-      max(
-        min(
-          length(basisU).div(max(f32(ARROW_DRIFT_UV).mul(stepsU), f32(1e-6))),
-          length(basisV).div(max(f32(ARROW_DRIFT_UV).mul(stepsV), f32(1e-6))),
-        ),
-        f32(1e-6),
-      ),
-    )
-    // Keep every 2^L-th node on BOTH axes. Powers of two, so the kept sets are NESTED: an arrow
-    // that survives at L survives at every smaller L too, and thinning only ever REMOVES arrows
-    // rather than swapping which ones are drawn — the shimmer a non-power-of-two modulus
-    // produces as the camera creeps. Nesting is also what puts the catalogue placement ON the
-    // ladder instead of beside it: the lattice contains the cell centres, and they are exactly
-    // the nodes that survive `keepEvery = sub`.
+    // PER AXIS, not one level for both. The two axes rarely land at the same on-screen spacing —
+    // this fixture's cells are 2.8× further apart north-south than east-west — and a single level
+    // taken from the TIGHTER axis over-thins the looser one by exactly that ratio. Levels stay
+    // nested per axis, which is all the no-shimmer argument needs.
     //
-    // The target spacing is the glyph's own BASE length, not a tuned number: when arrows land
-    // closer together than one is long they overlap, which is exactly the condition to thin at.
-    // Base, not the band-scaled size — scaling by speed would make the level depend on the water
-    // an arrow is standing in, so a drifting arrow would flicker in and out as it crossed a band
-    // edge.
-    const lod = max(ceil(log2(rd(F.size).div(nodePx))), f32(0))
-    const keepEvery = Let(exp2(lod))
+    // `nodePxU/V`, `keepU/V`, `target` and `drawnPx` are computed with the bases at the top of
+    // this function: the DRIFT has to answer to the drawn spacing too, so the spacing cannot be
+    // derived after it.
+    //
+    // The target is the length an arrow is actually DRAWN at, which is not the base length.
+    // `F.size` carries the 34 px base in advected mode; the drawn glyph is `base × scale`, and
+    // `select_arrow.xsl` gives scale 0.40 for everything below 2 kn — most tidal water. Targeting
+    // the base spaced 13.6 px glyphs 34 px apart: a field 2.5× emptier than the rule intended.
+    // Read out of the uploaded table's band-1 constant rather than restated, so the catalogue
+    // keeps one authority.
     // The arrow's own lattice index, recovered from the origin it was seeded at — a fixed
     // property of the instance, so the decision is stable frame to frame and across a forecast
     // step. `+0.5` then floor, because the index is what the origin was BUILT from: the uv
@@ -537,7 +637,7 @@ const vsAdvected = fn(
     const nodeV = floor(origin.y.mul(stepsV).add(0.5))
     // Exact: `keepEvery` is a power of two and both indices are exact non-negative integers in
     // f32, so each fraction is exactly 0 on a kept node and at least `1/keepEvery` otherwise.
-    const off = fract(nodeU.div(keepEvery)).add(fract(nodeV.div(keepEvery)))
+    const off = fract(nodeU.div(keepU)).add(fract(nodeV.div(keepV)))
     // A batch that declared no lattice (steps = 0 — `s111BandTableNormalized` called without
     // them) draws its WHOLE field rather than thinning it to nothing: an absent number is not a
     // request for maximum decimation.
@@ -657,16 +757,15 @@ export const buildArrowRetainedAdvectedModule = (): ModuleDecl =>
   module({
     consts: [...PROJECTION_CONSTS],
     structs: [pointU.struct, ArrowOut.decl],
-    bindings: [
-      pointU.binding,
-      featB.binding,
-      bandB.binding,
-      stateTex.binding,
-      originTex.binding,
-      flowUTex.binding,
-      flowVTex.binding,
+    bindings: [pointU.binding, featB.binding, bandB.binding, flowUTex.binding, flowVTex.binding],
+    funcs: [
+      ...getGpuProjectionFuncs(),
+      project_geo,
+      arrow_phase_offset,
+      arrow_phase_alpha,
+      vsAdvected,
+      fs,
     ],
-    funcs: [...getGpuProjectionFuncs(), project_geo, decodeArrowPos, vsAdvected, fs],
   })
 
 export const emitArrowRetainedAdvectedWgsl = (): string =>

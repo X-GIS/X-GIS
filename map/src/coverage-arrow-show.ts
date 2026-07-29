@@ -18,7 +18,7 @@ import type { GraphicsManager } from './graphics/graphics-manager'
 import { bandedRampColor } from './color-ramp'
 import { resolveVectorBands } from './coverage-vector-bands'
 
-import { ARROW_DRIFT_UV } from './shaders/dsl/arrow-advect-step'
+import { ARROW_DRIFT_UV } from './shaders/dsl/arrow-drift'
 import { flowTrueSpans } from './render/flow-advect-params'
 import {
   S111_ARROW_BASE_PX,
@@ -322,7 +322,7 @@ export function addCoverageArrowShowLayer(
     colors,
     S111_OUTLINE_FRAC,
     region,
-    opts.advected ? advectedInput(handle, opts.advected.peakSpeed, rampName, region) : null,
+    opts.advected ? advectedInput(handle, opts.advected.peakSpeed, rampName) : null,
   )
 }
 
@@ -333,11 +333,9 @@ function advectedInput(
   handle: CoverageHandle,
   peakSpeed: number,
   rampName: string,
-  region: string,
 ): AdvectedArrowInput | null {
   const o = coverageArrowOrigins(handle)
   if (!o) return null
-  const [nLon, nLat] = handle.header.size
   return {
     originU: o.u,
     originV: o.v,
@@ -346,11 +344,6 @@ function advectedInput(
     vStepLon: o.vStepLon,
     vStepLat: o.vStepLat,
     bandTable: s111BandTableNormalized(peakSpeed, o.uvAspect, rampName, [o.stepsU, o.stepsV]),
-    // The INSTANCE LAYOUT, not the data: a forecast step re-arms the same region, same grid and
-    // same drawable cells, so the key is equal and the arrows keep drifting instead of snapping
-    // back to their cells. A different grid or a different drawable count is a different set of
-    // arrows per texel, and that one must re-seed.
-    key: `${region}|${nLon}x${nLat}|${o.u.length}`,
   }
 }
 

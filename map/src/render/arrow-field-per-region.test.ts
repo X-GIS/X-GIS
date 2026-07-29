@@ -29,8 +29,6 @@ import { FlowRenderer } from './flow-renderer'
 import { CompiledArrowStore } from '../graphics/compiled-arrow-store'
 import { RetainedArrowDraper } from './material/arrow-retained-material'
 import { RetainedArrowAdvectedDraper } from './material/arrow-retained-advected-material'
-import { flowAdvectParams } from './flow-advect-params'
-import { FLOW_STEP_DEFAULTS } from './flow-stepper'
 import type { FlowFieldRegion } from './coverage-renderer'
 import type { RhiCommandEncoder, RhiDevice, RhiRenderPass } from '@xgis/engine'
 
@@ -176,22 +174,21 @@ function twoRegions() {
  *  (arrow-retained-advected-material.ts). Read off `createBindGroup`, not off the source. */
 function boundFlowViews(bg: BindGroupRec): { u: unknown; v: unknown } {
   const at = (b: number): unknown => bg.entries.find((e) => e.binding === b)?.resource.view
-  return { u: at(4), v: at(5) }
+  return { u: at(2), v: at(3) }
 }
 
-/** The batch group, told apart from the per-copy uniform group by having a view at binding 4. */
+/** The batch group, told apart from the per-copy uniform group by having a view at binding 2.
+ *  The pair sat at 4/5 while bindings 2/3 held the arrow STATE and ORIGIN textures; those are
+ *  gone (#1520) and the velocity pair moved down. */
 function hasFlowViews(bg: BindGroupRec): boolean {
-  return bg.entries.some((e) => e.binding === 4 && e.resource.view !== undefined)
+  return bg.entries.some((e) => e.binding === 2 && e.resource.view !== undefined)
 }
 
 describe('the advected DRAW binds the batch’s OWN region field (#1458)', () => {
   it('two regions get two DIFFERENT velocity pairs, each its own', () => {
-    const { ctx, flow, store, add } = twoRegions()
+    const { ctx, store, add } = twoRegions()
     add('north', 4)
     add('south', 6)
-    // A step first: the draw is skipped until the state exists.
-    flow.stepArrows({ elapsedMs: 0, encoder: ctx.encoder })
-    flow.stepArrows({ elapsedMs: 16, encoder: ctx.encoder })
 
     const before = ctx.bindGroups.length
     store.draw(drawPass(), [new Float32Array(32)])
@@ -208,8 +205,6 @@ describe('the advected DRAW binds the batch’s OWN region field (#1458)', () =>
     const { ctx, flow, store, add } = twoRegions()
     add('north', 4)
     add('south', 6)
-    flow.stepArrows({ elapsedMs: 0, encoder: ctx.encoder })
-    flow.stepArrows({ elapsedMs: 16, encoder: ctx.encoder })
     flow.setArrowFields(new Map([['north', NORTH]]))
 
     const before = ctx.bindGroups.length
@@ -217,75 +212,5 @@ describe('the advected DRAW binds the batch’s OWN region field (#1458)', () =>
     const drawGroups = ctx.bindGroups.slice(before).filter(hasFlowViews).map(boundFlowViews)
     expect(drawGroups).toEqual([{ u: NORTH.u, v: NORTH.v }])
     expect(calls).toBe(1)
-  })
-})
-
-describe('the advect STEP runs per region, through its own field and geometry (#1458)', () => {
-  it('one pass per resident region, each bound to that region’s pair', () => {
-    const { ctx, flow, add } = twoRegions()
-    add('north', 4)
-    add('south', 6)
-    flow.stepArrows({ elapsedMs: 0, encoder: ctx.encoder })
-    const before = ctx.bindGroups.length
-    flow.stepArrows({ elapsedMs: 16, encoder: ctx.encoder })
-
-    const stepGroups = ctx.bindGroups.slice(before).map((bg) => {
-      const at = (b: number): unknown => bg.entries.find((e) => e.binding === b)?.resource.view
-      return { u: at(2), v: at(4) }
-    })
-    expect(stepGroups).toEqual([
-      { u: NORTH.u, v: NORTH.v },
-      { u: SOUTH.u, v: SOUTH.v },
-    ])
-  })
-
-  it('each region’s step uses ITS OWN spanDeg/midLatDeg, not the first region’s', () => {
-    // The uv step is scaled by the grid's degree extent and by cos(midLat). Two domains at
-    // 38° and 26° with different spans advect at genuinely different rates; sharing one
-    // param set is a sibling drifting at another domain's speed.
-    const { ctx, flow, add } = twoRegions()
-    add('north', 4)
-    add('south', 6)
-    flow.stepArrows({ elapsedMs: 0, encoder: ctx.encoder })
-    const before = ctx.uniformWrites.length
-    flow.stepArrows({ elapsedMs: 16, encoder: ctx.encoder })
-    const steps = ctx.uniformWrites.slice(before).map((w) => [w[0]!, w[1]!] as const)
-
-    const expected = (f: FlowFieldRegion): readonly [number, number] => {
-      const p = flowAdvectParams({
-        spanDeg: f.spanDeg,
-        midLatDeg: f.midLatDeg,
-        dtSeconds: 0.016,
-        ratePerSec: FLOW_STEP_DEFAULTS.ratePerSec,
-        decay: FLOW_STEP_DEFAULTS.decay,
-        inject: FLOW_STEP_DEFAULTS.inject,
-      })
-      // f32 on the way through the uniform buffer, so compare at the precision it survives.
-      return [Math.fround(p.stepX), Math.fround(p.stepY)]
-    }
-    expect(steps).toHaveLength(2)
-    expect(steps[0]![0]).toBeCloseTo(expected(NORTH)[0], 12)
-    expect(steps[0]![1]).toBeCloseTo(expected(NORTH)[1], 12)
-    expect(steps[1]![0]).toBeCloseTo(expected(SOUTH)[0], 12)
-    expect(steps[1]![1]).toBeCloseTo(expected(SOUTH)[1], 12)
-    // …and the two are not the same numbers, so the assertion above cannot pass vacuously.
-    expect(steps[0]![0]).not.toBeCloseTo(steps[1]![0], 6)
-  })
-
-  it('each region’s step is MASKED to its own texel range', () => {
-    // One state texture, one range per region (#1459). A whole-texture pass per region would
-    // have the LAST one overwrite every sibling's advected position with its own field's
-    // result — the collision #1459 removed, reintroduced one layer up.
-    const { ctx, flow, add } = twoRegions()
-    add('north', 4)
-    add('south', 6)
-    flow.stepArrows({ elapsedMs: 0, encoder: ctx.encoder })
-    const before = ctx.uniformWrites.length
-    flow.stepArrows({ elapsedMs: 16, encoder: ctx.encoder })
-    const ranges = ctx.uniformWrites.slice(before).map((w) => [w[8]!, w[9]!] as const)
-    expect(ranges).toEqual([
-      [0, 4],
-      [4, 10],
-    ])
   })
 })

@@ -42,6 +42,16 @@
 //          ONE stride serves both modes, so the static path carries 12 unwritten slots. That is
 //          deliberate: a second stride means a second pipeline variant and a second packer
 //          contract to keep in sync — more drift surface than the bytes are worth.
+//   38-39  ORIGIN in grid-uv — ADVECTED ONLY (#1520).
+//          This used to live in a TEXTURE, one texel per arrow, paired 1:1 with the instance
+//          index. That pairing is what bounded the whole portrayal: the state texture's size WAS
+//          the arrow ceiling (100 000, and shared across mosaic regions — #1513), the origin key
+//          existed because a changed instance COUNT re-seeded and snapped every arrow home, and
+//          the density rule had to be a cull that never changes the count because of it.
+//          Carrying the origin per INSTANCE instead of per TEXEL removes the pairing, and with
+//          it the ceiling — the count becomes a per-frame decision.
+//          Two floats, not two textures: an f32 grid-uv is far finer than the rgba8 pair it
+//          replaces (that encoding resolved 1/65535 of the grid span).
 //   24     size (px — arrow LENGTH, pre-DPR design × getSize × DPR)
 //   25     stroke_units — outline stroke width in loc-space units (same units as `loc`/qx/qy in
 //          arrow-retained.ts, i.e. a FRACTION of `size`, not px). 0 = no outline (every existing
@@ -54,7 +64,7 @@
 
 export const ARROW_RETAINED_FEAT = {
   /** f32 slots per instance in the feat_data storage buffer. */
-  stride: 38,
+  stride: 40,
   slot: {
     // tail (anchor)
     ecef_x_h: 0,
@@ -97,6 +107,9 @@ export const ARROW_RETAINED_FEAT = {
     north_merc_x_l: 35,
     north_merc_y_h: 36,
     north_merc_y_l: 37,
+    // origin in grid-uv (advected only — see the header)
+    origin_u: 38,
+    origin_v: 39,
   },
 } as const
 

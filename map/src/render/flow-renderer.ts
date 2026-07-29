@@ -39,20 +39,6 @@ import type {
 import type { FlowFieldRegion } from './coverage-renderer'
 import { FlowStepper, FLOW_STEP_DEFAULTS, type FlowStepOptions } from './flow-stepper'
 import { FlowAdvectDraper, packFlowAdvectUniform } from './material/flow-advect-material'
-import { ArrowAdvectDraper, packArrowAdvectUniform } from './material/arrow-advect-material'
-import { ArrowAdvectState } from './arrow-advect-state'
-import { flowAdvectParams } from './flow-advect-params'
-
-/** Per-frame probability that an arrow retires for no reason but the lottery, and the EXTRA
- *  probability per unit of normalized speed.
- *
- *  With the leash (arrow-advect-step.ts) doing the structural recycling, the lottery's remaining
- *  job is to keep retirement SPREAD — a few of 16 384 arrows per frame rather than a wave — and
- *  to refresh the fast water the field's convergence zones drain first. At 60 Hz the base gives a
- *  ~30 s mean life in still water; a fully saturated cell retires roughly four times sooner.
- *  Display choices, like FLOW_STEP_DEFAULTS: principled, not tuned against a screen. */
-const ARROW_DROP_BASE = 0.0005
-const ARROW_DROP_PER_SPEED = 0.0015
 
 /** What one step needs from the frame — deliberately these two fields rather than the whole
  *  FrameContext, because the forced-WebGL2 twin has none: it early-returns from
@@ -81,14 +67,10 @@ export class FlowRenderer {
   private bgFieldV: RhiTextureView | null = null
 
   /** The arrow ping-pong + its step (#1419) — see the section below. */
-  private readonly arrows = new ArrowAdvectState()
-  private arrowDraper: ArrowAdvectDraper | null = null
   private nearest: RhiSampler | null = null
-  private arrowElapsedMs: number | null = null
   /** The step's bind groups, per region and then per read side — two entries per region at
    *  rest. Keyed by region because each domain binds a DIFFERENT velocity pair (#1458): one
    *  map keyed by the read side alone would hand the first region's group to every sibling. */
-  private readonly arrowBindGroups = new Map<string, Map<RhiTextureView, RhiBindGroup>>()
   /** The velocity field each resident region carries. ONE PER REGION, not one for the map —
    *  see `setArrowFields`. */
   private readonly arrowFields = new Map<string, FlowFieldRegion>()
@@ -167,15 +149,11 @@ export class FlowRenderer {
    *  Null until the first step has run — a caller treats that as "no advected draw this frame"
    *  rather than substituting anything. */
   arrowBindingFor(region: string): {
-    state: RhiTextureView
-    origin: RhiTextureView
     flowU: RhiTextureView
     flowV: RhiTextureView
   } | null {
-    const state = this.arrows.readView
-    const origin = this.arrows.originView
     const field = this.arrowFields.get(region)
-    return state && origin && field ? { state, origin, flowU: field.u, flowV: field.v } : null
+    return field ? { flowU: field.u, flowV: field.v } : null
   }
 
   /** Declare which velocity pair EACH resident region's arrows are stepping through — an empty
@@ -191,10 +169,8 @@ export class FlowRenderer {
    *  water, and were advected through its degree span and centre latitude as well — from frame
    *  zero, not as accumulated drift.
    *
-   *  Called by the flow pass EVERY frame, before the step, and deliberately not folded into
-   *  `stepArrows`: the step has several early returns (a zero dt, a pass the encoder refused),
-   *  and every one of them would leave the previous fields cached. That is not a stale-data
-   *  problem, it is a lifetime one — the mosaic evicts a region and DESTROYS its flow textures,
+   *  Called by the flow pass EVERY frame. That is a LIFETIME requirement, not a freshness one —
+   *  the mosaic evicts a region and DESTROYS its flow textures,
    *  so a binding built from the views held here goes into the next submit pointing at freed
    *  memory:
    *
@@ -208,119 +184,20 @@ export class FlowRenderer {
       const prev = this.arrowFields.get(region)
       if (prev?.u === field.u && prev.v === field.v) continue
       // Only THIS region's cached groups were built against the outgoing pair.
-      this.arrowBindGroups.delete(region)
       this.arrowFields.set(region, field)
     }
     for (const region of [...this.arrowFields.keys()]) {
       if (fields.has(region)) continue
       this.arrowFields.delete(region)
-      this.arrowBindGroups.delete(region)
     }
-  }
-
-  /** Hand this batch's origins to the state (see `ArrowAdvectState.writeOrigins`) — `key`
-   *  identifies the instance layout, so an unchanged batch skips the upload and keeps drifting;
-   *  `region` is which domain's field its texels are stepped through (#1458). */
-  writeArrowOrigins(
-    key: string,
-    region: string,
-    u: ArrayLike<number>,
-    v: ArrayLike<number>,
-  ): number {
-    return this.arrows.writeOrigins(this.rhi, key, region, u, v)
-  }
-
-  /** Give a dropped batch's texel range back to the shared state (#1458). */
-  releaseArrowOrigins(key: string): void {
-    this.arrows.releaseOrigins(key)
-  }
-
-  /** Advance every arrow one frame along `field`.
-   *
-   *  Its own dt, not the trail's: `FlowStepper.consumeDt` is consumed by `step`, and an arrow
-   *  field must animate whether or not the trail layer is drawing — the two are independent
-   *  portrayals of the same data (#1418). */
-  /** ONE PASS PER RESIDENT REGION (#1458). Each domain has its own velocity pair and its own
-   *  grid geometry, so a single pass could only ever advect every arrow through one of them.
-   *  The passes share the state texture and each masks itself to its own texel range
-   *  (`ArrowAdvectState.residentSlots` → the shader's `range` uniform), which is why they can
-   *  run back to back into the same attachment without the last one owning the result. */
-  stepArrows(frame: FlowFrame, opts: FlowStepOptions = FLOW_STEP_DEFAULTS): void {
-    if (this.arrowFields.size === 0) return
-    this.arrows.ensure(this.rhi)
-    const read = this.arrows.readView
-    const write = this.arrows.writeView
-    const origin = this.arrows.originView
-    if (!read || !write || !origin) return
-
-    const prev = this.arrowElapsedMs
-    this.arrowElapsedMs = frame.elapsedMs
-    const dt = prev === null ? 0 : Math.max(0, (frame.elapsedMs - prev) / 1000)
-    if (dt === 0) return // the first frame has no interval to advance across
-
-    const draper = (this.arrowDraper ??= new ArrowAdvectDraper(this.rhi))
-    const nearest = (this.nearest ??= this.rhi.createSampler({ mag: 'nearest', min: 'nearest' }))
-    const linear = (this.sampler ??= this.rhi.createSampler({ mag: 'linear', min: 'linear' }))
-    // A per-frame seed off the frame clock — varying (so retirement is spread across frames)
-    // and reproducible (so a render gate replays the same field). ONE seed for every region's
-    // pass: the lottery is per arrow, and the hash already varies with the arrow's position.
-    const seed = (frame.elapsedMs % 10_000) / 10_000
-    let stepped = false
-
-    for (const slot of this.arrows.residentSlots()) {
-      if (slot.count <= 0) continue
-      // A batch whose region has left the coverage: its velocity textures are gone, so there is
-      // nothing to step it through. Skipping is safe rather than merely least-bad — the same
-      // missing field makes `arrowBindingFor` return null, so those texels are not drawn either
-      // while the batch waits for its clear. Stepping it would be a destroyed-texture submit.
-      const field = this.arrowFields.get(slot.region)
-      if (!field || field.width <= 0 || field.height <= 0) continue
-      const params = flowAdvectParams({
-        spanDeg: field.spanDeg,
-        midLatDeg: field.midLatDeg,
-        dtSeconds: dt,
-        ratePerSec: opts.ratePerSec,
-        decay: opts.decay,
-        inject: opts.inject,
-      })
-      const pass = this.begin(frame, {
-        label: 'arrow-advect',
-        // `load`, not `clear`: this pass writes only its OWN range and discards the rest, so
-        // clearing would wipe every sibling's position on the way past.
-        colorAttachments: [{ view: write, loadOp: 'load', storeOp: 'store' }],
-      })
-      if (!pass) return
-      draper.draw(
-        pass,
-        packArrowAdvectUniform(
-          params.stepX,
-          params.stepY,
-          ARROW_DROP_BASE,
-          ARROW_DROP_PER_SPEED,
-          seed,
-          slot.base,
-          slot.base + slot.count,
-        ),
-        this.arrowBindGroupFor(draper, slot.region, read, origin, field, nearest, linear),
-      )
-      pass.end()
-      stepped = true
-    }
-    // AFTER the draws that used them, exactly as the trail's pair swaps — and only when a draw
-    // actually happened, or the sides would alternate with nothing written into them.
-    if (stepped) this.arrows.swap()
   }
 
   dispose(): void {
     this.stepper.destroy()
-    this.arrows.destroy()
     if (this.sampler) this.rhi.destroySampler(this.sampler)
     if (this.nearest) this.rhi.destroySampler(this.nearest)
     this.sampler = null
     this.nearest = null
-    this.arrowDraper = null
-    this.arrowElapsedMs = null
-    this.arrowBindGroups.clear()
     this.arrowFields.clear()
     this.draper = null
     this.draperFormat = null
@@ -360,32 +237,6 @@ export class FlowRenderer {
     if (!bg) {
       bg = draper.bindGroup(read, field.u, field.v, sampler)
       this.bindGroups.set(read, bg)
-    }
-    return bg
-  }
-
-  /** The arrow step's bind group, memoized per read side. The field views themselves are
-   *  `setArrowFields`' to own — this only builds against whatever is current. Keyed by REGION
-   *  first: two domains read the same two state sides but different velocity pairs, so the read
-   *  side alone is not a key (#1458). */
-  private arrowBindGroupFor(
-    draper: ArrowAdvectDraper,
-    region: string,
-    read: RhiTextureView,
-    origin: RhiTextureView,
-    field: FlowFieldRegion,
-    nearest: RhiSampler,
-    linear: RhiSampler,
-  ): RhiBindGroup {
-    let perSide = this.arrowBindGroups.get(region)
-    if (!perSide) {
-      perSide = new Map()
-      this.arrowBindGroups.set(region, perSide)
-    }
-    let bg = perSide.get(read)
-    if (!bg) {
-      bg = draper.bindGroup(read, field.u, field.v, nearest, linear, origin)
-      perSide.set(read, bg)
     }
     return bg
   }

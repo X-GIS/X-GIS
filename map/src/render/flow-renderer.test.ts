@@ -128,9 +128,6 @@ describe('FlowRenderer — the advection arm (#1333)', () => {
     // Clearing every frame is the mirror failure: the trail could never accumulate.
     const t = makeCtx({ backend: 'webgl2' })
     const fr = new FlowRenderer(t.dev)
-    // The store writes a batch's origins at ADD time, before any step — and that is what
-    // sizes the state texture now (#1450 A), so a step with no batch has nothing to move.
-    fr.writeArrowOrigins('k', 'r', ORIGIN_U, ORIGIN_V)
     const field = makeField()
     fr.step(frameAt(0), field)
     expect(t.passes.map((p) => `${p.desc.label}:${p.desc.loadOp}`)).toEqual([
@@ -152,9 +149,6 @@ describe('FlowRenderer — the advection arm (#1333)', () => {
     // Undefined behaviour on both backends, and it renders *something* either way.
     const t = makeCtx({ backend: 'webgl2' })
     const fr = new FlowRenderer(t.dev)
-    // The store writes a batch's origins at ADD time, before any step — and that is what
-    // sizes the state texture now (#1450 A), so a step with no batch has nothing to move.
-    fr.writeArrowOrigins('k', 'r', ORIGIN_U, ORIGIN_V)
     const field = makeField()
     fr.step(frameAt(0), field)
     fr.step(frameAt(16), field)
@@ -187,9 +181,6 @@ describe('FlowRenderer — the advection arm (#1333)', () => {
     // however many frames run.
     const t = makeCtx({ backend: 'webgl2' })
     const fr = new FlowRenderer(t.dev)
-    // The store writes a batch's origins at ADD time, before any step — and that is what
-    // sizes the state texture now (#1450 A), so a step with no batch has nothing to move.
-    fr.writeArrowOrigins('k', 'r', ORIGIN_U, ORIGIN_V)
     const field = makeField()
     for (let i = 0; i < 10; i++) fr.step(frameAt(i * 16), field)
     expect(t.bindGroups).toHaveLength(2)
@@ -241,9 +232,6 @@ describe('FlowRenderer — the advection arm (#1333)', () => {
     // recursive filter has no way back from that.
     const t = makeCtx({ backend: 'webgl2' })
     const fr = new FlowRenderer(t.dev)
-    // The store writes a batch's origins at ADD time, before any step — and that is what
-    // sizes the state texture now (#1450 A), so a step with no batch has nothing to move.
-    fr.writeArrowOrigins('k', 'r', ORIGIN_U, ORIGIN_V)
     const field = makeField()
     const uni: number[][] = []
     // The packed AdvectParams ride the uniform buffer; capture them off writeBuffer.
@@ -311,123 +299,3 @@ describe('FlowRenderer — the advection arm (#1333)', () => {
 // is one a frame cannot show. An arrow field that samples the side it is writing, or that never
 // swaps, still animates — wrongly.
 // A small batch: two arrows is enough for every property here, and the state sizes to it.
-const ORIGIN_U = Float32Array.from([0.25, 0.75])
-const ORIGIN_V = Float32Array.from([0.25, 0.75])
-
-describe('FlowRenderer — the arrow step (#1419)', () => {
-  it('does nothing on the FIRST frame — there is no interval to advance across', () => {
-    // The trail's own consumeDt makes the same choice, for the same reason: inventing a startup
-    // interval would teleport every arrow on frame one, and frame one is exactly when the field
-    // is supposed to BE the static catalogue placement.
-    const t = makeCtx({ backend: 'webgl2' })
-    const fr = new FlowRenderer(t.dev)
-    fr.setArrowFields(new Map([['r', makeField()]]))
-    fr.stepArrows(frameAt(0))
-    expect(t.passes.filter((p) => p.desc.label === 'arrow-advect')).toHaveLength(0)
-  })
-
-  it('renders into the WRITE side, then swaps — never sampling what it wrote', () => {
-    const t = makeCtx({ backend: 'webgl2' })
-    const fr = new FlowRenderer(t.dev)
-    // The store writes a batch's origins at ADD time, before any step — and that is what
-    // sizes the state texture now (#1450 A), so a step with no batch has nothing to move.
-    fr.writeArrowOrigins('k', 'r', ORIGIN_U, ORIGIN_V)
-    const field = makeField()
-    fr.setArrowFields(new Map([['r', field]]))
-    fr.stepArrows(frameAt(0)) // no-op: no interval yet
-    fr.stepArrows(frameAt(16))
-    const steps = () => t.passes.filter((p) => p.desc.label === 'arrow-advect')
-    const first = steps()[0]!
-    expect(first.desc.loadOp).toBe('load')
-    expect(first.ended).toBe(true)
-    // The swap happens AFTER the draw, so what the draw will now bind is what the step wrote.
-    expect(fr.arrowBindingFor('r')!.state).toEqual(first.desc.view)
-    // ...and the next step writes the OTHER side rather than the one it is reading, which is
-    // undefined behaviour on both backends.
-    fr.stepArrows(frameAt(32))
-    expect(steps()[1]!.desc.view).not.toEqual(first.desc.view)
-  })
-
-  it('runs independently of the trail — an arrows-only portrayal still animates', () => {
-    // #1418 makes the two portrayals selectable. Sharing the trail's dt would have made the
-    // arrows stand still whenever the trail layer was off.
-    const t = makeCtx({ backend: 'webgl2' })
-    const fr = new FlowRenderer(t.dev)
-    // The store writes a batch's origins at ADD time, before any step — and that is what
-    // sizes the state texture now (#1450 A), so a step with no batch has nothing to move.
-    fr.writeArrowOrigins('k', 'r', ORIGIN_U, ORIGIN_V)
-    fr.setArrowFields(new Map([['r', makeField()]]))
-    fr.stepArrows(frameAt(0))
-    fr.stepArrows(frameAt(16))
-    fr.stepArrows(frameAt(32))
-    expect(t.passes.filter((p) => p.desc.label === 'arrow-advect')).toHaveLength(2)
-    expect(t.passes.filter((p) => p.desc.label === 'flow-advect')).toHaveLength(0)
-  })
-
-  it('memoizes the bind group per read side, and drops them when the coverage re-arms', () => {
-    // Two sides means two groups, settled after two frames — not one per frame at 60 Hz. And a
-    // new forecast hour brings new field views: a kept group would leave the arrows drifting
-    // through the previous hour's velocities.
-    const t = makeCtx({ backend: 'webgl2' })
-    const fr = new FlowRenderer(t.dev)
-    // The store writes a batch's origins at ADD time, before any step — and that is what
-    // sizes the state texture now (#1450 A), so a step with no batch has nothing to move.
-    fr.writeArrowOrigins('k', 'r', ORIGIN_U, ORIGIN_V)
-    const field = makeField()
-    fr.setArrowFields(new Map([['r', field]]))
-    for (let i = 0; i <= 6; i++) fr.stepArrows(frameAt(i * 16))
-    const settled = t.bindGroups.length
-    expect(settled).toBe(2)
-    const rearmed = makeField() // re-armed: new u/v views
-    fr.setArrowFields(new Map([['r', rearmed]]))
-    fr.stepArrows(frameAt(7 * 16))
-    expect(t.bindGroups.length).toBeGreaterThan(settled)
-  })
-
-  it('a field that is GONE is forgotten — the draw cannot bind a destroyed texture', () => {
-    // The lifetime rule, not a staleness one. The mosaic evicts a region under its LRU budget
-    // and DESTROYS that region's velocity textures; anything still holding those views hands
-    // them to the next submit —
-    //   "destroyed texture coverage-flow-v used in a submit"
-    // which is what S-111 Live reported on zooming out and panning to another domain. The pass
-    // declares the field every frame, so `null` has to actually clear it.
-    const t = makeCtx({ backend: 'webgl2' })
-    const fr = new FlowRenderer(t.dev)
-    // The store writes a batch's origins at ADD time, before any step — and that is what
-    // sizes the state texture now (#1450 A), so a step with no batch has nothing to move.
-    fr.writeArrowOrigins('k', 'r', ORIGIN_U, ORIGIN_V)
-    const field = makeField()
-    fr.setArrowFields(new Map([['r', field]]))
-    fr.stepArrows(frameAt(0))
-    fr.stepArrows(frameAt(16))
-    expect(fr.arrowBindingFor('r')).not.toBeNull()
-    fr.setArrowFields(new Map())
-    expect(fr.arrowBindingFor('r')).toBeNull()
-  })
-
-  it('binds the origin texture — without it every arrow is leashed to grid-uv (0,0)', () => {
-    const t = makeCtx({ backend: 'webgl2' })
-    const fr = new FlowRenderer(t.dev)
-    // The store writes a batch's origins at ADD time, before any step — and that is what
-    // sizes the state texture now (#1450 A), so a step with no batch has nothing to move.
-    fr.writeArrowOrigins('k', 'r', ORIGIN_U, ORIGIN_V)
-    const field = makeField()
-    fr.setArrowFields(new Map([['r', field]]))
-    fr.stepArrows(frameAt(0))
-    fr.stepArrows(frameAt(16))
-    const entries = t.bindGroups.at(-1)!.entries as Array<{ binding: number; resource: unknown }>
-    expect(entries.find((e) => e.binding === 7)?.resource).toEqual({
-      view: fr.arrowBindingFor('r')!.origin,
-    })
-  })
-
-  it('a degenerate grid is a no-op, not a pass', () => {
-    const t = makeCtx({ backend: 'webgl2' })
-    const fr = new FlowRenderer(t.dev)
-    fr.writeArrowOrigins('k', 'r', ORIGIN_U, ORIGIN_V)
-    fr.setArrowFields(new Map([['r', makeField({ width: 0 })]]))
-    fr.stepArrows(frameAt(0))
-    fr.stepArrows(frameAt(16))
-    expect(t.passes).toHaveLength(0)
-  })
-})

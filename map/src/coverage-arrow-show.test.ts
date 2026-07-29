@@ -5,7 +5,7 @@ import {
   coverageArrowOrigins,
   type CoverageArrowShowHost,
 } from './coverage-arrow-show'
-import { ARROW_DRIFT_UV } from './shaders/dsl/arrow-advect-step'
+import { ARROW_DRIFT_UV } from './shaders/dsl/arrow-drift'
 import { flowTrueSpans } from './render/flow-advect-params'
 import { COVERAGE_ARROW_MAX } from './coverage-arrow-show'
 import type { ShowCommand } from './render/renderer-types'

@@ -277,6 +277,12 @@ export const galleryCategories: Category[] = [
         title: 'Antimeridian line',
         body: 'A LineString authored across 180° with >180 longitudes — great-circle subdivision keeps the world-copy continuation instead of a seam streak.',
       },
+      {
+        id: 'long-chords',
+        title: 'Long-chord parallels',
+        body: 'Parallels carrying one vertex per 30° of longitude, with along-path labels. Straight in Mercator by construction; switch the projection to see how the pipeline handles an edge that is a chord across a curve.',
+        noThumb: true,
+      },
     ],
   },
   {

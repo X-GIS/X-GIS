@@ -74,6 +74,13 @@ async function walkGroupNode(
   }
   // Recurse/read AFTER collecting children — each descent re-`ensure`s + re-`seek`s a
   // different node, so the parent's resident window must not be relied on across the await.
+  // The whole level is faulted in first, for the reason spelled out in `walkChunkNode`: the
+  // addresses are all known here, so descending them one blocking request at a time was a
+  // serial chain the structure never required.
+  if (children.length > 1)
+    await c.ensureAll(
+      children.map((a) => ({ offset: a, length: Math.min(NODE_WINDOW, c.byteLength - a) })),
+    )
   for (const childAddr of children) {
     if (level > 0) await walkGroupNode(c, childAddr, heap, out)
     else await readSymbolTableNode(c, childAddr, heap, out)
@@ -159,5 +166,17 @@ async function walkChunkNode(
   }
   // one trailing key past the last child (skipped — the loop reads leading keys)
   // Recurse AFTER collecting — each descent re-`ensure`s a different node.
+  //
+  // The whole LEVEL is faulted in first. HDF5 interleaves b-tree nodes with the chunk data
+  // they index, so the children of one node are scattered across the file and each descent
+  // was a fresh range request that waited out a full RTT before the next was issued — nine
+  // of them, in series, on a real 4.5 MB NOAA S-102 cell. The child addresses are all known
+  // here, which is exactly the precondition `ensureAll` needs; after it the descents below
+  // are resident and cost nothing. The recursion is still depth-first and in order, so the
+  // record order every caller sees is unchanged.
+  if (internal.length > 1)
+    await c.ensureAll(
+      internal.map((a) => ({ offset: a, length: Math.min(NODE_WINDOW, c.byteLength - a) })),
+    )
   for (const childAddr of internal) await walkChunkNode(c, childAddr, rank, out)
 }

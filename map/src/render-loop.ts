@@ -944,10 +944,6 @@ export class RenderLoop {
     this.host.flowRenderer?.setArrowFields(this.host.coverageRenderer.flowFields())
     if (flowField) {
       const frame = { elapsedMs: this.host._elapsedMs, encoder: null }
-      // #1419 twin of the flow pass's arrow step, and gated the same way — omitting it would
-      // make ?forcegl2=1 show a field of arrows frozen at their origins, which is exactly the
-      // "different map on the other backend" this twin exists to prevent.
-      if (this.host.graphics.hasAdvectedArrows()) this.host.flowRenderer?.stepArrows(frame)
       if (this.host.coverageRenderer.hasDrapedFlowField())
         this.host.flowRenderer?.step(frame, flowField)
     }

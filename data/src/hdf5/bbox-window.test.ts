@@ -21,7 +21,8 @@ import { existsSync, readFileSync } from 'node:fs'
 import { isAbsolute, join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { readCoverageFromHdf5, readCoverageFromHdf5Url } from './coverage'
-import { openHdf5Url } from './index'
+import { openHdf5Range } from './index'
+import { RangeReader } from './range-reader'
 import type { CoverageWindow } from './s102'
 
 const FIX = join(dirname(fileURLToPath(import.meta.url)), '__fixtures__')
@@ -48,7 +49,12 @@ function rangeHarness(name: string): { fetch: typeof globalThis.fetch; bytes: ()
   const data = new Uint8Array(ab(name))
   let total = 0
   const fetch = (async (_u: string, init?: RequestInit) => {
-    const header = (init?.headers as Record<string, string>).Range
+    const header = (init?.headers as Record<string, string> | undefined)?.Range
+    // An UNRANGED GET is answered honestly rather than left to throw. It used to throw, and
+    // `RangeReader.residentIfSmall`'s catch turned that into a silent fall-back to the ranged
+    // path — so this harness would have kept "measuring" a transport no real caller of a
+    // 4 MB cell still takes. The tests below open the ranged reader explicitly instead.
+    if (header === undefined) return new Response(data.slice(), { status: 200 })
     const m = /bytes=(\d+)-(\d+)/.exec(header)!
     const s = Number(m[1])
     const e = Math.min(Number(m[2]), data.byteLength - 1)
@@ -180,7 +186,14 @@ describe.skipIf(!existsSync(noaaFile))('bbox window — real NOAA S-102 cell (lo
     blockSize: number,
     region?: { start: number[]; count: number[] },
   ): Promise<void> {
-    const f = await openHdf5Url('http://x/s102.h5', { fetch: harness.fetch, blockSize })
+    // `openHdf5Range` + an explicit `RangeReader`, NOT `openHdf5Url`: this 4.0 MB cell is
+    // under `WHOLE_FILE_MAX`, so the ergonomic entry now reads it in one GET and there would
+    // be no ranged transport left to measure. The windowing this suite pins is what runs
+    // above that threshold — a large survey cell — and this is how it is driven directly.
+    const f = await openHdf5Range(
+      await RangeReader.open('http://x/s102.h5', { fetch: harness.fetch }),
+      { blockSize },
+    )
     await f.readBand(GRID_PATH, 'depth', region)
   }
 

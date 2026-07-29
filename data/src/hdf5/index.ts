@@ -113,10 +113,15 @@ export async function openHdf5Range(
 /** Open a remote HDF5 cell over HTTP range requests — the ergonomic range entry
  *  (`openHdf5Range` + a `RangeReader`). Only the metadata + touched chunks are fetched.
  *  CORS applies: point `url` at your range-capable proxy/mirror, not a CORS-blocked
- *  NOAA bucket (recipes doc). */
+ *  NOAA bucket (recipes doc).
+ *
+ *  A cell small enough that ONE request beats the round trips a ranged parse needs is read
+ *  whole instead (`residentIfSmall`) — the Range probe still runs, so a server that does not
+ *  honour Range is still rejected here rather than downstream. */
 export async function openHdf5Url(
   url: string,
   opts?: RangeReaderOptions & { blockSize?: number },
 ): Promise<Hdf5File> {
-  return openHdf5Range(await RangeReader.open(url, opts), { blockSize: opts?.blockSize })
+  const ranged = await RangeReader.open(url, opts)
+  return openHdf5Range(await ranged.residentIfSmall(), { blockSize: opts?.blockSize })
 }
