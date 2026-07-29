@@ -963,7 +963,7 @@ const CEILINGS: Record<string, number> = {
   // for zoom+1, so zooming past it makes every visible tile a permanent 404 that
   // pins all 6 concurrency slots. +22 for the failedTiles map, the two request-site
   // guards, the two failure/clear branches and the re-arm reset; the POLICY itself
-  // (backoff curve + attempt cap) went to hillshade-tile-retry.ts rather than in
+  // (backoff curve + attempt cap) went to tile-retry.ts rather than in
   // here, so it is unit-testable without a GPU and this file stays near its mark.
   // 828→836 (cold-start load budget): the leaf loop broke only at the FULL concurrency
   // budget, so on the first frame it took all 6 slots and the parent-fallback prefetch
@@ -971,7 +971,7 @@ const CEILINGS: Record<string, number> = {
   // landed, and terrarium PNGs measure ~131-143 KB against ~19-28 KB for a satellite
   // JPEG over the same ground. +8 = the 3-line rationale, the one `leafBudget` binding,
   // and the 4 lines prettier adds re-wrapping the now-101-char retry import. The POLICY
-  // is again in hillshade-tile-retry.ts (leafLoadBudget), same split as the backoff.
+  // is again in tile-retry.ts (leafLoadBudget), same split as the backoff.
   // 836→834 (merge union, #1413 <- main): the byte-budget cache landed here too, and its
   // `_cacheTile` helper REPLACED two inline four-line `tileCache.set` blocks (the leaf and
   // parent load paths), so the union is two lines SHORTER than this branch alone. Measured,
@@ -1162,7 +1162,12 @@ const CEILINGS: Record<string, number> = {
   // 990→992 (#1436): the tile texture asks for a chain and fills it after the upload. Two lines
   // plus the sentence saying why a basemap tile is the minified-appearance texture par
   // excellence. Measured post-hook.
-  'map/src/render/raster-renderer.ts': 992,
+  // 992→1012 (#1476): the failed-tile backoff wiring the raster arm never got — the
+  // `failedTiles` map, the clear on a URL-template change, one requestability guard in
+  // each of the two request loops (leaf + parent-fallback), and noteFailure/delete on
+  // both load chains. The POLICY is not here: it stays in tile-retry.ts, shared with
+  // the hillshade arm, which is why this is +20 and not +80. Measured post-hook.
+  'map/src/render/raster-renderer.ts': 1012,
   // 889→906 (#1155 F3): cold-start burst enqueue cap — the `_coldStartBurst`
   // field + `setColdStartBurst` + the burst-selected 8/4 cap in enqueue().
   // 906→910 (#1155 F3 adjudication): the burst 8/4 pair now comes from the

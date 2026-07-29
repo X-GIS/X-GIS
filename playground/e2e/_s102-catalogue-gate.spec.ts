@@ -4,7 +4,7 @@
 // S-111 it never even had the app-side mosaic that could have loaded a neighbour — the
 // capability did not exist to be used.
 //
-// Its source now names `/noaa-s102/catalog.json`: NOAA's `_CATALOG/CATALOG.XML` (an IHO S-100
+// Its source now names `/opendata/s102.stac.json`: NOAA's `_CATALOG/CATALOG.XML` (an IHO S-100
 // Exchange Catalogue, 4313 published cells) translated to STAC by the proxy, with the engine
 // resolving the viewport against it. So this gate is about the thing that was impossible
 // before — moving the camera to a DIFFERENT survey and having bathymetry appear.

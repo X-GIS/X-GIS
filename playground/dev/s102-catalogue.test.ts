@@ -89,25 +89,25 @@ describe('s102CatalogueDocument → what the ENGINE reads (#1453)', () => {
     s102CatalogueDocument(parseS102ExchangeCatalogue(catalogue(WILMINGTON, PENSACOLA)))
 
   it('the engine parses it, keyed by the S-100 cell name', () => {
-    const items = parseCoverageCatalogue(doc(), '/noaa-s102/catalog.json', 'test')
+    const items = parseCoverageCatalogue(doc(), '/opendata/s102.stac.json', 'test')
     expect(items.map((i) => i.id)).toEqual(['102US004SC1EV262227', '102US004FL1WC262247'])
     expect(items[0]!.bbox).toEqual([-78.0, 33.3, -77.7, 33.6])
   })
 
   it('hrefs are RELATIVE, so they follow the document to whichever origin served it', () => {
-    // Same rule S-111 established: prod rewrites `/noaa-s102/` to the Worker, so a
+    // Same rule S-111 established: prod rewrites `/opendata/` to the Worker, so a
     // root-relative href would resolve against the PAGE origin and 404 in prod and only there.
-    const dev = parseCoverageCatalogue(doc(), '/noaa-s102/catalog.json', 'test')
+    const dev = parseCoverageCatalogue(doc(), '/opendata/s102.stac.json', 'test')
     expect(dev[0]!.href).toBe(
-      '/noaa-s102/cells/ed3.0.0/Southeast/Wilmington/102US004SC1EV262227.h5',
+      '/opendata/noaa-s102-pds.s3.us-east-1.amazonaws.com/ed3.0.0/Southeast/Wilmington/102US004SC1EV262227.h5',
     )
     const prod = parseCoverageCatalogue(
       doc(),
-      'https://noaa-s111.x-gis.workers.dev/noaa-s102/catalog.json',
+      'https://opendata-bridge.x-gis.workers.dev/opendata/s102.stac.json',
       'test',
     )
     expect(prod[0]!.href).toBe(
-      'https://noaa-s111.x-gis.workers.dev/noaa-s102/cells/ed3.0.0/Southeast/Wilmington/102US004SC1EV262227.h5',
+      'https://opendata-bridge.x-gis.workers.dev/opendata/noaa-s102-pds.s3.us-east-1.amazonaws.com/ed3.0.0/Southeast/Wilmington/102US004SC1EV262227.h5',
     )
   })
 
@@ -117,7 +117,7 @@ describe('s102CatalogueDocument → what the ENGINE reads (#1453)', () => {
   })
 
   it('a viewport picks the cell that covers it, and nothing else', () => {
-    const items = parseCoverageCatalogue(doc(), '/noaa-s102/catalog.json', 'test')
+    const items = parseCoverageCatalogue(doc(), '/opendata/s102.stac.json', 'test')
     const off = [-77.9, 33.35, -77.75, 33.55] as Bbox // inside Wilmington
     expect(itemsForView(items, off).map((i) => i.id)).toEqual(['102US004SC1EV262227'])
     expect(itemsForView(items, [-100, 10, -95, 15] as Bbox)).toEqual([])
