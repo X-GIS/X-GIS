@@ -282,3 +282,107 @@ describe('decodeMvtTile (round-trip)', () => {
     expect(features.length).toBeGreaterThan(0)
   })
 })
+
+// #1497 — fetched MVT was the one source path that reached the GPU with its
+// authored vertices only. On Mercator that is harmless; on every other
+// projection a long authored edge is a chord across a curve, and its
+// Mercator-space extrusion collapses (#1495: the same style draws continuous
+// lines from a GeoJSON source and disconnected dots from MVT, same camera).
+//
+// These assert the CONTRACT, not the implementation: no emitted edge spans
+// more than the tiler's own subdivision bound, and the original vertices
+// survive. A test that pinned the exact interpolated positions would just
+// re-encode subdivideGreatCircle and break on any refinement to it.
+describe('decodeMvtTile — line densification (#1497)', () => {
+  const z = 0,
+    x = 0,
+    y = 0
+
+  /** Longest great-circle edge in the polyline, in degrees. */
+  const maxEdgeDeg = (coords: number[][]): number => {
+    let worst = 0
+    for (let i = 0; i < coords.length - 1; i++) {
+      const [lon1, lat1] = coords[i]
+      const [lon2, lat2] = coords[i + 1]
+      const r = Math.PI / 180
+      const c =
+        Math.sin(lat1 * r) * Math.sin(lat2 * r) +
+        Math.cos(lat1 * r) * Math.cos(lat2 * r) * Math.cos((lon2 - lon1) * r)
+      worst = Math.max(worst, Math.acos(Math.min(1, Math.max(-1, c))) / r)
+    }
+    return worst
+  }
+
+  const decodeLine = (coordinates: number[][]): number[][] => {
+    const fc = {
+      type: 'FeatureCollection',
+      features: [
+        { type: 'Feature', geometry: { type: 'LineString', coordinates }, properties: {} },
+      ],
+    }
+    const tile = geojsonVt(fc, { maxZoom: 0, indexMaxZoom: 0 }).getTile(z, x, y)
+    const buf = vtpbf.fromGeojsonVt({ l: tile })
+    const features = decodeMvtTile(buf, z, x, y)
+    return (features[0].geometry as { coordinates: number[][] }).coordinates
+  }
+
+  it('breaks a world-spanning edge into sub-degree pieces', () => {
+    // A single 120°-long authored edge — the shape a z0-z2 coastline tile
+    // actually contains. Pre-fix this decoded to exactly two vertices.
+    const out = decodeLine([
+      [-60, 10],
+      [60, 10],
+    ])
+    expect(out.length).toBeGreaterThan(60)
+    expect(maxEdgeDeg(out)).toBeLessThan(2)
+  })
+
+  it('leaves an already-short edge alone', () => {
+    // Below the tiler's 0.5° skip threshold: the decoder must not pay for,
+    // or perturb, geometry that is already dense. This is the high-zoom case
+    // — every tile above ~z9 spans less than this.
+    const src = [
+      [10, 20],
+      [10.1, 20.05],
+      [10.2, 20.1],
+    ]
+    const out = decodeLine(src)
+    expect(out).toHaveLength(src.length)
+  })
+
+  it('keeps a >±180 antimeridian wrap monotone', () => {
+    // MapLibre's convention authors a seam-crossing line past ±180 and the
+    // decoder deliberately does NOT clamp longitude (clampPosLatOnly), so the
+    // renderer can draw it at world-copy +1. Interpolated vertices must stay
+    // on that same 360° branch — a naive slerp folds 185° back to -175° and
+    // shreds the polyline into ±360° jumps at the seam (#1221).
+    const out = decodeLine([
+      [170, 0],
+      [190, 0],
+    ])
+    // Non-vacuity: with only the two authored vertices the monotone check
+    // below is trivially true, so it would pass with densification removed
+    // and assert nothing. The interpolated vertices are the ones at risk.
+    expect(out.length).toBeGreaterThan(2)
+    for (let i = 0; i < out.length - 1; i++) {
+      expect(Math.abs(out[i + 1][0] - out[i][0])).toBeLessThan(180)
+    }
+  })
+
+  it('still clamps interpolated vertices to the planet in latitude', () => {
+    // The densify runs BEFORE the clamp, so an interpolated vertex is as
+    // capable of landing beyond ±85.05 as an authored one.
+    // A 160°-long great-circle arc between two 84°N endpoints bulges to
+    // ~88.95°N at its midpoint — measured, not assumed — so the interpolated
+    // vertices are genuinely out of range while both authored endpoints are
+    // in range. Without densification this assertion would only ever see the
+    // two in-range points and would assert nothing.
+    const out = decodeLine([
+      [-170, 84],
+      [-10, 84],
+    ])
+    expect(out.length).toBeGreaterThan(2)
+    expect(out.some(([, lat]) => lat === 85.0511287)).toBe(true)
+    expect(out.every(([, lat]) => Math.abs(lat) <= 85.0511287)).toBe(true)
+  })
+})

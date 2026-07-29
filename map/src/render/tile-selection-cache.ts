@@ -34,7 +34,7 @@ import {
 import { visibleTilesSSE } from '@xgis/data'
 import { globeVisibleTiles } from '@xgis/data'
 import { tileKey, tileKeyParent } from '@xgis/compiler'
-import { enumerateWorldCopies, routeToSphereSelector } from '@xgis/geo'
+import { enumerateWorldCopies, routeToSphereSelector, isGlobeProj, isMercatorProj } from '@xgis/geo'
 import { mercator as mercatorProj, getProjection, type Projection, mercatorYToLat } from '@xgis/geo'
 import { SELECTOR_PROJ_NAMES, promotesToGlobeWhenTilted, representsCenterAs } from '@xgis/geo'
 import type { TileCatalog } from '@xgis/data'
@@ -487,11 +487,10 @@ export class TileSelectionCache {
             // near the horizon/poles — a flat probe would decide cz hold/advance over
             // tiles the sphere never draws. Mirror the frame's routeToSphereSelector
             // dispatch (main selection below); flat routes keep the SSE probe verbatim.
-            const gateProjType = (camera as { projType?: number }).projType ?? 0
-            stepTiles = routeToSphereSelector(gateProjType, camera.globeMode)
+            stepTiles = routeToSphereSelector(projType, camera.globeMode)
               ? globeVisibleTiles(
                   centerLon,
-                  representsCenterAs(gateProjType) === 'lat-deg' ? camera.centerLatDeg : centerLat,
+                  representsCenterAs(projType) === 'lat-deg' ? camera.centerLatDeg : centerLat,
                   camera.zoom,
                   step,
                   canvasWidth / dpr,
@@ -702,7 +701,6 @@ export class TileSelectionCache {
       // dateline via world-copy enumeration — no hemisphere cull, which
       // would have dropped the back-of-sphere tiles a full-world flat
       // projection still displays.
-      const projType = (camera as { projType?: number }).projType ?? 0
       if (routeToSphereSelector(projType, camera.globeMode)) {
         // Globe (projType 7): sphere-aware tile selection. The
         // mercator selectors below all reason about a flat viewport
@@ -836,8 +834,10 @@ export class TileSelectionCache {
       // one in tile x=1 / lon=0..180) — no single tile contains the
       // long edge any more and the smear disappears. Globe already
       // goes through `globeVisibleTiles` above (different branch).
-      const projTypeForSplit = (camera as { projType?: number }).projType ?? 0
-      if (projTypeForSplit !== 0 && projTypeForSplit !== 7 && !camera.globeMode) {
+      // Non-Mercator flat projections, via the #996 membership accessors —
+      // exactly the set the prior `!== 0 && !== 7` selected (isMercatorProj is
+      // cylindrical-and-non-periodic: projType 0 alone).
+      if (!isMercatorProj(projType) && !isGlobeProj(projType) && !camera.globeMode) {
         // Iter 126: enumerate z=0 → 4 z=1 children PER WORLD COPY.
         // Pre-iter-126 dropped every z=0 entry and pushed 4 z=1 children
         // with hard-coded ox=0 — collapsed world-copy variants into the

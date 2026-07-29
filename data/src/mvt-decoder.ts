@@ -12,6 +12,7 @@
 import { VectorTile } from '@mapbox/vector-tile'
 import Pbf from 'pbf'
 import type { GeoJSONFeature, GeoJSONGeometry } from '@xgis/compiler'
+import { subdivideGreatCircle } from '@xgis/compiler/tiler/geometry-sphere'
 
 export interface MvtDecodeOptions {
   /** Restrict to a subset of layer names. Omit for all layers. */
@@ -109,6 +110,32 @@ function clampPosLatOnly(p: number[]): number[] {
   return [Number.isFinite(p[0]) ? p[0] : 0, clampLat(p[1])]
 }
 
+// #1497 — densify a decoded MVT line to ≤1° great-circle edges before the
+// lat clamp. Fetched vector tiles were the ONE source path with no
+// subdivision: the GeoJSON runtime path densifies to MAX_EDGE_DEGREES
+// (geojson.ts) and X-GIS's own tiler calls this same subdivideGreatCircle
+// (vector-tiler.ts makeLinePart) — but tiles baked elsewhere and fetched over
+// the wire reach the GPU with their authored vertices only. That is fine on
+// Mercator, where a straight edge stays straight, and wrong on every other
+// projection: a z1 tile's coastline segment spans tens of degrees, and its
+// Mercator-space extrusion collapses once the endpoints project far apart
+// (#1495 — the same style renders continuously from a GeoJSON source and
+// shatters into dots from MVT, at an identical camera).
+//
+// Reusing the tiler's function rather than writing a second one is the point:
+// it already solves the antimeridian case this decoder depends on. The
+// >±180-authored wrap copy (see clampPosLatOnly below) needs interpolated
+// longitudes unwrapped onto the running polyline's 360° branch, which
+// subdivideGreatCircle does (#1221); a naive slerp folds 185° back to −175°
+// and shreds the line at the seam.
+//
+// Applied BEFORE the clamp so the arc is computed from the true decoded
+// coordinates and every emitted vertex — original and interpolated alike —
+// still passes through clampPosLatOnly.
+function densifyLine(coords: number[][]): number[][] {
+  return subdivideGreatCircle(coords).map(clampPosLatOnly)
+}
+
 function clampGeometryToPlanet(g: GeoJSONGeometry): GeoJSONGeometry {
   switch (g.type) {
     case 'Point':
@@ -116,11 +143,11 @@ function clampGeometryToPlanet(g: GeoJSONGeometry): GeoJSONGeometry {
     case 'MultiPoint':
       return { type: 'MultiPoint', coordinates: g.coordinates.map(clampPos) }
     case 'LineString':
-      return { type: 'LineString', coordinates: g.coordinates.map(clampPosLatOnly) }
+      return { type: 'LineString', coordinates: densifyLine(g.coordinates) }
     case 'MultiLineString':
       return {
         type: 'MultiLineString',
-        coordinates: g.coordinates.map((ls) => ls.map(clampPosLatOnly)),
+        coordinates: g.coordinates.map(densifyLine),
       }
     case 'Polygon':
       return { type: 'Polygon', coordinates: g.coordinates.map((ring) => ring.map(clampPos)) }
