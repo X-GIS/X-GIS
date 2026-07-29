@@ -719,7 +719,10 @@ const CEILINGS: Record<string, number> = {
   // banked: the resolution is the MEASURED post-prettier size of the merged file, never either
   // side's number. Picking one would silently hand back the other's reduction as headroom to
   // re-spend, which is the quiet way a shrink-only ratchet stops shrinking.
-  'map/src/render/passes/label-pass.ts': 2034,
+  // #777 IV3: −8. The point-label dispatch loop moved to dispatch-point-labels.ts,
+  // which is also where the ground-basis producer lives — the extraction paid for
+  // the wiring rather than the file growing to hold it.
+  'map/src/render/passes/label-pass.ts': 2026,
   // #1081 — per-anchor perspective distance attenuation (MapLibre parity). New
   // baseline: the wCenter + perspScale scratch-out-value lives INLINE in the two
   // existing projector closures (it rides the cw already computed per anchor —
