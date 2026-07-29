@@ -8,6 +8,7 @@ import { activeBody } from '@xgis/shared'
 import { lonLatToECEF, type ECEF } from '@xgis/shared'
 import type { RhiDevice, RhiRenderPass, RhiTexture } from '@xgis/engine'
 import { RasterDraper, type RasterTile } from './material/raster-material'
+import { tileRequestable, noteFailure, type FailedTile } from './tile-retry'
 import {
   admitTile,
   type EvictableTile,
@@ -78,10 +79,21 @@ export function rasterFrameCamAnchor(
  *  so a given camera zoom samples raster texels at the same density as
  *  MapLibre. Round (not floor) is the raster roundZoom semantic both engines
  *  share. Clamp stays [0, 18] — the pre-existing pyramid cap.
+ *
+ *  `sourceMaxzoom` is the DATASET's deepest level, and clamping to it is what stops the
+ *  selector asking for tiles that cannot exist. The AWS terrarium bucket stops at z15,
+ *  and the +1 bias above means a 256-px source outruns it from about camera z14.5 — so
+ *  every visible tile 404s (verified against a reported failure:
+ *  `terrarium/16/13651/25075` → 404, its z15 parent `15/6825/12537` → 200, 101 KB).
+ *  Clamping instead keeps requesting the deepest REAL level and lets it draw magnified,
+ *  which is exactly MapLibre's Transform#coveringZoomLevel behaviour. The #1405 backoff
+ *  then goes back to being a safety net for genuinely-missing tiles rather than the only
+ *  defence against a storm the selector created.
  *  (exported for the zoom-selection unit gate — raster-cover-zoom.test.ts) */
-export function rasterCoverZoom(zoom: number, tileSize: number): number {
+export function rasterCoverZoom(zoom: number, tileSize: number, sourceMaxzoom?: number): number {
   const bias = Math.log2(512 / tileSize)
-  return Math.max(0, Math.min(18, Math.round(zoom + bias)))
+  const cap = sourceMaxzoom === undefined ? 18 : Math.min(18, sourceMaxzoom)
+  return Math.max(0, Math.min(cap, Math.round(zoom + bias)))
 }
 
 // ── Typed pack targets (#733 P2b) — layout from wgslLayout(U.struct), write()
@@ -294,6 +306,10 @@ export class RasterRenderer {
    *  re-arms its fade ramp, so a zoom-out cross-fades in instead of snapping to
    *  full opacity. Updated every render(); a continuing tile keeps its ramp. */
   private _lastTargetKeys = new Set<string>()
+  /** Tiles whose load resolved null, with the backoff state that stops them being
+   *  re-requested every frame (policy in tile-retry.ts). Cleared when the source is
+   *  re-armed — a new URL template is a new coverage. Same wiring as the hillshade arm. */
+  private failedTiles = new Map<string, FailedTile>()
   // (per-tile packing goes through rasterTileBlock() — #733 P2b)
   private colorParams(): RasterColorParams {
     return {
@@ -344,11 +360,21 @@ export class RasterRenderer {
   }
 
   setUrlTemplate(url: string): void {
+    if (url !== this.urlTemplate) this.failedTiles.clear()
     this.urlTemplate = url
   }
 
   /** Set the source's tile size in px (256 | 512). Values other than 256/512
    *  keep the current setting — same validation the hillshade arm uses. */
+  /** Source-level `maxzoom` — the dataset's deepest real tile level, clamping the cover
+   *  zoom so the selector never asks for a tile that cannot exist. Undefined = unbounded
+   *  (the pre-existing behaviour for a source that does not declare one). */
+  private _sourceMaxzoom: number | undefined
+  setSourceMaxzoom(maxzoom: number | undefined): void {
+    this._sourceMaxzoom =
+      typeof maxzoom === 'number' && Number.isFinite(maxzoom) ? maxzoom : undefined
+  }
+
   setTileSize(tileSize: number | undefined): void {
     if (tileSize === 256 || tileSize === 512) this._tileSize = tileSize
   }
@@ -594,7 +620,7 @@ export class RasterRenderer {
     const frame = camera.getViewForProjection(projType, canvasWidth, canvasHeight, dpr)
     const { zoom } = camera
 
-    const currentZ = rasterCoverZoom(zoom, this._tileSize)
+    const currentZ = rasterCoverZoom(zoom, this._tileSize, this._sourceMaxzoom)
 
     // On zoom change: cancel distant zoom requests but KEEP parent tiles loading
     if (currentZ !== this.lastZoom) {
@@ -669,6 +695,10 @@ export class RasterRenderer {
     for (const coord of loadOrder) {
       const key = `${coord.z}/${coord.x}/${coord.y}`
       if (this.tileCache.has(key) || this.loadingTiles.has(key)) continue
+      // A failed load leaves the key in neither map, so without this guard the next
+      // frame re-requests it — forever, at ~60 fps, pinning every concurrency slot
+      // with requests that can never succeed (tile-retry.ts explains the shape).
+      if (!tileRequestable(this.failedTiles.get(key), this.frameCount)) continue
       if (this.loadingTiles.size >= MAX_CONCURRENT_LOADS) break // respect concurrency limit
 
       const ctrl = new AbortController()
@@ -684,7 +714,11 @@ export class RasterRenderer {
         .catch(() => null)
         .then((texture) => {
           this.loadingTiles.delete(key)
-          if (!texture) return
+          if (!texture) {
+            noteFailure(this.failedTiles, key, this.frameCount)
+            return
+          }
+          this.failedTiles.delete(key)
           this._cacheTile(key, texture)
           this.evictTiles(visibleKeys)
         })
@@ -720,6 +754,7 @@ export class RasterRenderer {
         const parentY = coord.y >> pz
         const parentKey = `${parentZ}/${parentX}/${parentY}`
         if (this.tileCache.has(parentKey) || this.loadingTiles.has(parentKey)) continue
+        if (!tileRequestable(this.failedTiles.get(parentKey), this.frameCount)) continue
         if (this.loadingTiles.size >= MAX_CONCURRENT_LOADS) break
         const ctrl = new AbortController()
         this.loadingTiles.set(parentKey, ctrl)
@@ -732,7 +767,12 @@ export class RasterRenderer {
           .catch(() => null)
           .then((texture) => {
             this.loadingTiles.delete(parentKey)
-            if (texture) this._cacheTile(parentKey, texture)
+            if (!texture) {
+              noteFailure(this.failedTiles, parentKey, this.frameCount)
+              return
+            }
+            this.failedTiles.delete(parentKey)
+            this._cacheTile(parentKey, texture)
           })
           .catch((e) => console.error('[X-GIS] raster parent-tile post-load bookkeeping failed', e))
       }

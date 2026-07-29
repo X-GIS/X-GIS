@@ -38,9 +38,7 @@ const SEED_SPAN = 0.3
  *  `finest`, from the per-zoom drawn-tile histogram) plus the triangle and tile
  *  counts, which are REPORTED but never asserted on — see the note at the
  *  geometry assertion for why they cannot carry this claim. */
-async function frameGeometry(
-  page: Page,
-): Promise<{
+async function frameGeometry(page: Page): Promise<{
   tris: number
   tiles: number
   coarsest: number
@@ -208,8 +206,7 @@ async function run(
     const pipe = (
       window as unknown as { __xgisMap?: { inspectPipeline(): unknown } }
     ).__xgisMap?.inspectPipeline() as
-      | { adaptive?: { step: number; farLodBoost: number } }
-      | undefined
+      { adaptive?: { step: number; farLodBoost: number } } | undefined
     return { step: pipe?.adaptive?.step ?? 0, farLodBoost: pipe?.adaptive?.farLodBoost ?? 1 }
   })
   return { before, after, medMs, step: ad.step, farLodBoost: ad.farLodBoost, rounds }
