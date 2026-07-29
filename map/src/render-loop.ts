@@ -36,7 +36,7 @@ import {
   wrapWebGpuTextureView,
   pushValidationError,
 } from '@xgis/rhi-webgpu'
-import { DEBUG_OVERDRAW, DEBUG_RHI_CHECKER, RHI_CHAIN } from './debug-flags'
+import { DEBUG_OVERDRAW, DEBUG_RHI_CHECKER, RHI_CHAIN, sceneScalePinned } from './debug-flags'
 import { WORLD_MERC, TILE_PX } from '@xgis/geo'
 import { invalidateResolvedShowCache } from './render/resolved-show'
 import { reportErrorScope } from './render-loop-helpers'
@@ -164,11 +164,11 @@ export class RenderLoop {
     // chain keeps its CANVAS native (the SCENE shrinks; the seam reinflates it);
     // the twin still scales its canvas — it has no offscreen scene, so dropping
     // the scale there would disable the DPR lever on WebGL2 (design §7).
-    // ?debug=overdraw pins 1: that mode writes the accumulator, not the scene
-    // colour the seam samples.
+    // ?debug=overdraw pins 1 (that mode writes the accumulator, not the scene
+    // colour the seam samples); ?scenescale pins the ladder (the e2e seam gate).
     const rendersViaTwin =
       asScreenPassDevice(this.host.ctx.rhi) !== null && !(RHI_CHAIN && this._chainRunsOnWebgl2)
-    const adaptiveScale = DEBUG_OVERDRAW ? 1 : adaptiveDprScale()
+    const adaptiveScale = DEBUG_OVERDRAW ? 1 : (sceneScalePinned() ?? adaptiveDprScale())
     const canvasScale = rendersViaTwin ? adaptiveScale : 1
     const dpr = resizeCanvas(this.host.ctx, effectiveDpr(this.host._interacting) * canvasScale)
     const sceneScale = rendersViaTwin ? 1 : adaptiveScale

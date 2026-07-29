@@ -216,7 +216,7 @@ describe('label pass — RHI seam wiring (#1046 F3b, the last chain pass)', () =
     }
   })
 
-  it('raw-shell escape (null bridges, no twin pass) ⇒ throws naming the pass, encodes nothing', () => {
+  it('twin-frame null bridges (no twin pass) ⇒ throws naming the pass, encodes nothing', () => {
     const h = harness({ rawShell: true })
     expect(() => labelPass.execute(h.ctx, h.scene, h.host as never)).toThrow(/labels/)
     expect(h.nativeBegin).not.toHaveBeenCalled()

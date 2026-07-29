@@ -84,7 +84,7 @@ describe('overdraw-compose — RHI seam wiring (#1046 Inc-3a)', () => {
     expect(h.nativeBegin).not.toHaveBeenCalled()
   })
 
-  it('raw-shell escape ⇒ throws naming the pass, encodes nothing', () => {
+  it('twin-frame null bridges ⇒ throws naming the pass, encodes nothing', () => {
     const h = harness({ rawShell: true })
     expect(() => overdrawComposePass.execute(h.ctx, {} as SceneView, h.host as never)).toThrow(
       /overdraw-compose/,

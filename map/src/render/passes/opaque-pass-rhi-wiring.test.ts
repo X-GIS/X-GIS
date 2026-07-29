@@ -186,7 +186,7 @@ describe('opaque pass — RHI seam wiring (#1046 F3b Inc-2d)', () => {
     expect(dsPts.depthStoreOp).toBe('store')
   })
 
-  it('raw-shell escape (null bridges) ⇒ throws naming the pass, encodes nothing', () => {
+  it('twin-frame null bridges ⇒ throws naming the pass, encodes nothing', () => {
     const h = harness()
     ;(h.ctx as { rhiEncoder: unknown }).rhiEncoder = null
     expect(() => opaquePass.execute(h.ctx, h.scene, h.host as never)).toThrow(/opaque/)

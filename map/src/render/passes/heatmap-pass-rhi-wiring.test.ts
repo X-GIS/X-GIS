@@ -69,7 +69,7 @@ describe('heatmap pass — RHI seam wiring (#1046 F3b)', () => {
     expect(h.renderChainRhi).not.toHaveBeenCalled()
   })
 
-  it('raw-shell escape (null bridges) ⇒ throws naming the pass, encodes nothing', () => {
+  it('twin-frame null bridges ⇒ throws naming the pass, encodes nothing', () => {
     const h = harness()
     ;(h.ctx as { rhiEncoder: unknown }).rhiEncoder = null
     expect(() => heatmapPass.execute(h.ctx, SCENE, h.host as never)).toThrow(/heatmap/)

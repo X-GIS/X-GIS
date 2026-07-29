@@ -144,7 +144,7 @@ describe('scene-upscale — the seam (#1429 INC-2)', () => {
     expect(h.beginRenderPass).not.toHaveBeenCalled()
   })
 
-  it('raw-shell escape ⇒ throws naming the seam, encodes nothing', () => {
+  it('twin-frame null bridges ⇒ throws naming the seam, encodes nothing', () => {
     const h = harness({ rawShell: true })
     expect(() => sceneUpscalePass.execute(h.ctx, h.scene, h.host as never)).toThrow(/scene-upscale/)
   })

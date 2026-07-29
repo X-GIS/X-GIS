@@ -90,6 +90,10 @@ class SceneUpscalePass implements RenderPass {
       draper.draw(pass, src)
       pass.end()
     })
+    // e2e observability (the `__xgisVtrFillRhiDraws` pattern): each scaled
+    // frame draws the seam exactly once — the scaled-frame gate reads this.
+    const g = globalThis as { __xgisSceneUpscaleDraws?: number }
+    g.__xgisSceneUpscaleDraws = (g.__xgisSceneUpscaleDraws ?? 0) + 1
   }
 }
 

@@ -114,6 +114,42 @@ export function animTimePinnedSeconds(): number | null {
   return ANIM_T_URL
 }
 
+/** `?scenescale=<v>` (URL, page-load) — PIN the adaptive ladder's scale to a fixed notch
+ *  (0 < v ≤ 1) instead of the live controller. The pin lands where the render-loop fork
+ *  computes `adaptiveScale`, so each arm applies it exactly as a real ladder notch: the
+ *  chain shrinks its SCENE target (the #1429 INC-2 scaled pair + upscale seam), the twin
+ *  scales its canvas (design §7). Deterministic e2e seam for the scaled-frame gate — the
+ *  ladder otherwise engages only when the host is genuinely too slow, a wall-clock signal
+ *  CI cannot fake. Mirrors the `?animt` URL + global-mirror convention. */
+function readSceneScaleUrl(): number | null {
+  if (typeof window === 'undefined') return null
+  try {
+    const v = new URL(window.location.href).searchParams.get('scenescale')
+    if (v === null) return null
+    const n = Number(v)
+    return Number.isFinite(n) && n > 0 && n <= 1 ? n : null
+  } catch {
+    return null
+  }
+}
+
+const SCENE_SCALE_URL: number | null = readSceneScaleUrl()
+
+if (SCENE_SCALE_URL !== null && typeof window !== 'undefined') {
+  console.info(
+    `[X-GIS] ?scenescale=${SCENE_SCALE_URL} active — adaptive ladder scale PINNED (deterministic scaled-frame probe); reload without ?scenescale for the live controller`,
+  )
+}
+
+/** The pinned ladder scale (0 < v ≤ 1), or `null` when the controller runs live. Checks the
+ *  live `globalThis.__xgisSceneScale` FIRST (notch sweeps without a reload — the `__xgisAnimT`
+ *  pattern), then the page-load `?scenescale` URL param. */
+export function sceneScalePinned(): number | null {
+  const live = (globalThis as { __xgisSceneScale?: unknown }).__xgisSceneScale
+  if (typeof live === 'number' && Number.isFinite(live) && live > 0 && live <= 1) return live
+  return SCENE_SCALE_URL
+}
+
 /** Format of the overdraw accumulator render target. r16float lets
  *  per-pixel fragment counts grow well beyond the [0, 1] range that
  *  the bgra8unorm swapchain would clip; ~65 k max before overflow,

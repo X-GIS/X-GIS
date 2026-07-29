@@ -129,7 +129,7 @@ describe('oit pass — RHI seam wiring (#1046 F3b Inc-2d)', () => {
     expect(h.composeCalls[0]).toBe(h.captured[1])
   })
 
-  it('raw-shell escape ⇒ throws naming the pass', () => {
+  it('twin-frame null bridges ⇒ throws naming the pass', () => {
     const h = oitHarness()
     ;(h.ctx as { rhiEncoder: unknown }).rhiEncoder = null
     expect(() => oitPass.execute(h.ctx, h.scene, h.host as never)).toThrow(/oit/)
@@ -189,7 +189,7 @@ describe('translucent pass — RHI seam wiring (#1046 F3b Inc-2d)', () => {
     expect(h.composites).toEqual([{ pass: h.captured[0], opacity: 0.42 }])
   })
 
-  it('raw-shell escape ⇒ throws naming the pass', () => {
+  it('twin-frame null bridges ⇒ throws naming the pass', () => {
     const h = trHarness()
     ;(h.ctx as { rhiEncoder: unknown }).rhiEncoder = null
     expect(() => translucentPass.execute(h.ctx, h.scene, h.host as never)).toThrow(/translucent/)
