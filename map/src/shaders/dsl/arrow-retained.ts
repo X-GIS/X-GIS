@@ -503,16 +503,18 @@ const vsAdvected = fn(
     // projected distance at THIS arrow's position, which is what makes the field thin correctly
     // under PITCH: the horizon decimates harder than the foreground inside one frame, where a
     // single camera-wide stride could only pick one answer for both.
+    // PER AXIS, not one level for both. The two axes rarely land at the same on-screen spacing —
+    // this fixture's cells are 2.8× further apart north-south than east-west — and a single level
+    // taken from the TIGHTER axis over-thins the looser one by exactly that ratio. Measured: 36 px
+    // between columns and 102 px between rows, for a field that wanted ~36 both ways. Levels stay
+    // nested per axis, which is all the no-shimmer argument needs.
     const stepsU = bandAt(u32(S111_BAND_PARAMS_ROW), S111_PARAM_STEPS_U)
     const stepsV = bandAt(u32(S111_BAND_PARAMS_ROW), S111_PARAM_STEPS_V)
-    const nodePx = Let(
-      max(
-        min(
-          length(basisU).div(max(f32(ARROW_DRIFT_UV).mul(stepsU), f32(1e-6))),
-          length(basisV).div(max(f32(ARROW_DRIFT_UV).mul(stepsV), f32(1e-6))),
-        ),
-        f32(1e-6),
-      ),
+    const nodePxU = Let(
+      max(length(basisU).div(max(f32(ARROW_DRIFT_UV).mul(stepsU), f32(1e-6))), f32(1e-6)),
+    )
+    const nodePxV = Let(
+      max(length(basisV).div(max(f32(ARROW_DRIFT_UV).mul(stepsV), f32(1e-6))), f32(1e-6)),
     )
     // Keep every 2^L-th node on BOTH axes. Powers of two, so the kept sets are NESTED: an arrow
     // that survives at L survives at every smaller L too, and thinning only ever REMOVES arrows
@@ -521,13 +523,28 @@ const vsAdvected = fn(
     // ladder instead of beside it: the lattice contains the cell centres, and they are exactly
     // the nodes that survive `keepEvery = sub`.
     //
-    // The target spacing is the glyph's own BASE length, not a tuned number: when arrows land
-    // closer together than one is long they overlap, which is exactly the condition to thin at.
-    // Base, not the band-scaled size — scaling by speed would make the level depend on the water
-    // an arrow is standing in, so a drifting arrow would flicker in and out as it crossed a band
-    // edge.
-    const lod = max(ceil(log2(rd(F.size).div(nodePx))), f32(0))
-    const keepEvery = Let(exp2(lod))
+    // THE TARGET IS THE LENGTH AN ARROW IS ACTUALLY DRAWN AT, which is not the base length.
+    //
+    // `F.size` carries the BASE (34 px) in advected mode; the drawn glyph is `base × scale`, and
+    // `select_arrow.xsl` gives scale 0.40 for everything below 2 kn — which is most tidal water,
+    // this fixture's whole range (0.037–1.904 kn) and most of CBOFS. So targeting the base spaced
+    // 13.6 px glyphs 34 px apart: a field 2.5× emptier than the rule intended, and the reported
+    // symptom ("zoomed out there are far too few arrows" — ~22 across the whole bay at z7).
+    //
+    // The FLOOR scale, not the arrow's own: it stays a batch constant, so the level does not
+    // depend on the water an arrow is standing in and a drifting arrow cannot flicker in and out
+    // as it crosses a band edge. That was the right instinct in the first version; reading the
+    // base was the wrong way to act on it. Fast water (scale up to 2.6) then overlaps — which is
+    // what a convergence zone should look like, and it already overlapped at the old spacing.
+    //
+    // Read out of the uploaded table's band-1 constant rather than restated here. That row IS
+    // `S111_SCALE_FLOOR` by construction (band 1 is the constant 0.40 branch of
+    // `select_arrow.xsl`, and the peak normalization leaves a constant term untouched), so the
+    // catalogue keeps exactly one authority — and `s111-portrayal.ts` cannot be imported from
+    // this file anyway, it imports the layout FROM here.
+    const target = Let(rd(F.size).mul(bandAt(u32(0), 1)))
+    const keepU = Let(exp2(max(ceil(log2(target.div(nodePxU))), f32(0))))
+    const keepV = Let(exp2(max(ceil(log2(target.div(nodePxV))), f32(0))))
     // The arrow's own lattice index, recovered from the origin it was seeded at — a fixed
     // property of the instance, so the decision is stable frame to frame and across a forecast
     // step. `+0.5` then floor, because the index is what the origin was BUILT from: the uv
@@ -537,7 +554,7 @@ const vsAdvected = fn(
     const nodeV = floor(origin.y.mul(stepsV).add(0.5))
     // Exact: `keepEvery` is a power of two and both indices are exact non-negative integers in
     // f32, so each fraction is exactly 0 on a kept node and at least `1/keepEvery` otherwise.
-    const off = fract(nodeU.div(keepEvery)).add(fract(nodeV.div(keepEvery)))
+    const off = fract(nodeU.div(keepU)).add(fract(nodeV.div(keepV)))
     // A batch that declared no lattice (steps = 0 — `s111BandTableNormalized` called without
     // them) draws its WHOLE field rather than thinning it to nothing: an absent number is not a
     // request for maximum decimation.
