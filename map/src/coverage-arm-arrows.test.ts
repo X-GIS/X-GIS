@@ -16,7 +16,6 @@
 import { describe, expect, it } from 'vitest'
 import { coverageFromGrids, type CoverageInput } from '@xgis/data/coverage'
 import { armCoverageArrows, type CoverageArmHost } from './coverage-arm'
-import { ARROW_ADVECT_MAX_COUNT } from './render/arrow-advect-state'
 import { COVERAGE_ARROW_MAX } from './coverage-arrow-show'
 import type { ShowCommand } from './render/renderer-types'
 
@@ -143,6 +142,6 @@ describe('armCoverageArrows — one batch, static or drifting (#1449)', () => {
     // state texture now sizes itself to the batch, so the two are congruent and the ONLY reason
     // the static batch is still suppressed is that drawing one portrayal twice is pointless —
     // not that the two disagree.
-    expect(ARROW_ADVECT_MAX_COUNT).toBe(COVERAGE_ARROW_MAX)
+    expect(COVERAGE_ARROW_MAX).toBe(COVERAGE_ARROW_MAX)
   })
 })

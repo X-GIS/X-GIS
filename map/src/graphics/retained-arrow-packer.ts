@@ -147,6 +147,11 @@ export function packCompiledArrowFeat(
     uStepLat: ArrayLike<number>
     vStepLon: ArrayLike<number>
     vStepLat: ArrayLike<number>
+    /** The instance's own origin in grid-uv (#1520). Carried PER INSTANCE rather than in a
+     *  texel of a state texture: that 1:1 instance-to-texel pairing is what bounded the whole
+     *  portrayal to a fixed arrow ceiling. */
+    originU: ArrayLike<number>
+    originV: ArrayLike<number>
   },
 ): Float32Array {
   const n = lons.length
@@ -163,6 +168,8 @@ export function packCompiledArrowFeat(
       // bounded displacement decomposes onto.
       packGeoPoint(feat, o + F.tip_ecef_x_h, advected.uStepLon[i]!, advected.uStepLat[i]!)
       packGeoPoint(feat, o + F.north_ecef_x_h, advected.vStepLon[i]!, advected.vStepLat[i]!)
+      feat[o + F.origin_u] = advected.originU[i]!
+      feat[o + F.origin_v] = advected.originV[i]!
     } else {
       // Tip = anchor stepped along the geographic bearing (0=north, CW) — identical to
       // packRetainedArrowFeat, so declarative and host arrows orient the same.

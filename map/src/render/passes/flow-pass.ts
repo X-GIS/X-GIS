@@ -50,11 +50,9 @@ class FlowPass implements RenderPass {
     if (!field) return
     ctx.passScope('flow', () => {
       const frame = { elapsedMs: ctx.elapsedMs, encoder: ctx.rhiEncoder }
-      // #1419 — the arrow step, only when an advected batch is resident: it allocates the
-      // ping-pong and its pipeline on first use, so a scene with only the static catalogue
-      // field must never reach it. It runs HERE, before the graphics pass draws the arrows,
-      // because the draw binds the state this writes.
-      if (host.graphics.hasAdvectedArrows()) flow.stepArrows(frame)
+      // The arrow field needs NO pass of its own (#1520): an arrow's position is a function of
+      // its origin and the frame clock, so there is no state to advance before the graphics pass
+      // draws it. What used to run here was a full-texture ping-pong step per resident region.
       // The trail step only when a VISIBLE drape samples its image: under the arrows portrayal
       // the regions are resident-but-hidden, and advecting a full-screen image nobody draws is
       // a per-frame cost with no picture attached.

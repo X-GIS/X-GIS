@@ -41,10 +41,8 @@ import {
 export const ARROW_ADVECTED_BINDINGS = [
   { binding: 0, kind: 'storage', name: 'feat_data' },
   { binding: 1, kind: 'storage', name: 'band_data' },
-  { binding: 2, kind: 'texture', name: 'state_tex', vertexVisible: true },
-  { binding: 3, kind: 'texture', name: 'origin_tex', vertexVisible: true },
-  { binding: 4, kind: 'texture', name: 'flow_u_tex', vertexVisible: true },
-  { binding: 5, kind: 'texture', name: 'flow_v_tex', vertexVisible: true },
+  { binding: 2, kind: 'texture', name: 'flow_u_tex', vertexVisible: true },
+  { binding: 3, kind: 'texture', name: 'flow_v_tex', vertexVisible: true },
 ] as const
 
 export class RetainedArrowAdvectedDraper {
@@ -72,25 +70,24 @@ export class RetainedArrowAdvectedDraper {
     })
   }
 
-  /** Build a group-1 bind group. Unlike the static path's, this one is NOT cached for the
-   *  batch's life: `state` is the read side of a ping-pong that swaps every advection step, so
-   *  the caller keeps one bind group per side and alternates. Binding the side being written is
-   *  undefined behaviour on both backends. */
+  /** Build a group-1 bind group — cacheable for the batch's life now (#1520).
+   *
+   *  It used to carry a ping-pong STATE side that swapped every advection step, so the caller had
+   *  to keep one bind group per side and alternate; binding the side being written is undefined
+   *  behaviour on both backends. There is no state to swap any more — the arrow's position is a
+   *  function of its origin and the frame clock — so the only reason to rebuild this is the
+   *  region handing over a different velocity pair. */
   makeBatchBindGroup(
     feat: RhiBuffer,
     band: RhiBuffer,
-    state: RhiTextureView,
-    origin: RhiTextureView,
     flowU: RhiTextureView,
     flowV: RhiTextureView,
   ): RhiBindGroup {
     return this.material.rhi.createBindGroup(this.material.layout(1), [
       { binding: 0, resource: { buffer: feat } },
       { binding: 1, resource: { buffer: band } },
-      { binding: 2, resource: { view: state } },
-      { binding: 3, resource: { view: origin } },
-      { binding: 4, resource: { view: flowU } },
-      { binding: 5, resource: { view: flowV } },
+      { binding: 2, resource: { view: flowU } },
+      { binding: 3, resource: { view: flowV } },
     ])
   }
 

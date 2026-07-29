@@ -27,6 +27,7 @@ import {
   S111_PARAM_STATE_BASE,
 } from './s111-band-table-layout'
 import { s111BandTableNormalized } from '../../render/s111-portrayal'
+import { ARROW_DRIFT_TAPS } from './arrow-drift'
 
 const paramsAt = (t: Float32Array, slot: number): number =>
   t[S111_BAND_PARAMS_ROW * S111_BAND_STRIDE + slot]!
@@ -113,6 +114,31 @@ describe('the advected VS thins by SCREEN spacing (#1450 B, #1511)', () => {
   })
 })
 
+describe('the drift costs what it should — no re-inlined tap chain (#1520)', () => {
+  // THE ONLY SYMPTOM OF LOSING THIS IS A SILENTLY ~4x MORE EXPENSIVE SHADER, which is why it is a
+  // gate and not a comment. An unbound expression node is re-inlined at EVERY read, texture fetch
+  // and all — and the velocity pair is read by the nine-band select chain, by the speed, and by
+  // both direction components. Leave `vu`/`vv` unbound and the emit goes to 38 fetches on both
+  // backends against the 10 below; the stateful VS it replaced had 2.
+  //
+  // Established by CUTTING each candidate, not by reading: the tap loop's mutable accumulator was
+  // the first diagnosis and cutting its binding changed nothing at all.
+  //
+  // The budget is exact and derived, not a ceiling picked to pass: ARROW_DRIFT_TAPS taps read
+  // both components, and the symbolization reads them once more at the final position.
+  const budget = ARROW_DRIFT_TAPS * 2 + 2
+
+  it('fetches the velocity pair exactly once per tap, plus once to symbolize', () => {
+    const w = emitArrowRetainedAdvectedWgsl()
+    expect((w.match(/textureLoad\(flow_[uv]_tex/g) ?? []).length).toBe(budget)
+  })
+
+  it('the GLSL twin pays the same — one backend must not carry a re-inlined chain', () => {
+    const g = emitArrowRetainedAdvectedGlsl('vertex')
+    expect((g.match(/texelFetch\(flow_[uv]_tex/g) ?? []).length).toBe(budget)
+  })
+})
+
 describe('the velocity fetch reads the cell that OWNS the position (#1511)', () => {
   // The reason this is a shader-TEXT assertion rather than a numeric one: the failure it guards
   // is a coordinate CONVENTION, and a convention is only visible where the coordinate is turned
@@ -134,7 +160,10 @@ describe('the velocity fetch reads the cell that OWNS the position (#1511)', () 
       ['glsl', g, /texelFetch\(flow_[uv]_tex, (.*?), int\(0u\)\)/g],
     ] as const) {
       const coords = [...src.matchAll(fetch)].map((m) => m[1]!)
-      expect(coords.length, `${name} fetches both velocity components`).toBe(2)
+      // Not an exact count — the drift's taps fetch too (#1520), and their budget is pinned by
+      // its own test above. What matters HERE is that EVERY fetch, tap or symbolization, reads
+      // the owner cell: a tap that read a neighbour would walk the arrow through the wrong water.
+      expect(coords.length, `${name} fetches the velocity pair`).toBeGreaterThanOrEqual(2)
       for (const c of coords) {
         // `floor(x + 0.5)` — the nearest cell under point registration.
         expect(c, `${name} rounds the fetch to the nearest cell`).toMatch(/floor\(.*\+ 0\.5\)/)
@@ -142,10 +171,17 @@ describe('the velocity fetch reads the cell that OWNS the position (#1511)', () 
         // …and the scale is the uv convention's own span. The emitter hoists it, so follow the
         // symbol to its definition rather than trusting the fetch to spell it out: a bare `dim`
         // is the skew this fixes, and it is one character away.
-        const scale = /clamp\(floor\(\(\((\w+) \* (\w+)\) \+ 0\.5\)\)/.exec(c)?.[2]
+        const scale = /clamp\(floor\(\(\(([\w.]+) \* (\w+)\) \+ 0\.5\)\)/.exec(c)?.[2]
         expect(scale, `${name} scales the uv by a hoisted span`).toBeTruthy()
-        const def = src.split('\n').find((l) => new RegExp(`\\b${scale} =`).test(l)) ?? ''
-        expect(def, `${name}: ${scale} is (dim - 1), not dim`).toMatch(/- 1\.0/)
+        // Search BACKWARDS from this fetch, not the whole source: the emitter reuses local
+        // names across functions, so a forward scan happily finds `_cse2 = radians(lat_deg)`
+        // in the projection helper and asserts against the wrong line.
+        const before = src.slice(0, src.indexOf(c))
+        const defs = [...before.matchAll(new RegExp(`\\b${scale} = ([^;]+);`, 'g'))]
+        expect(defs.length, `${name}: ${scale} is bound before it is used`).toBeGreaterThan(0)
+        expect(defs[defs.length - 1]![1]!, `${name}: ${scale} is (dim - 1), not dim`).toMatch(
+          /- 1\.0/,
+        )
       }
     }
   })

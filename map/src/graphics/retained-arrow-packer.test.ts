@@ -188,7 +188,24 @@ describe('packCompiledArrowFeat — advected mode (#1419)', () => {
     uStepLat: [50],
     vStepLon: [10],
     vStepLat: [49.9],
+    originU: [0.25],
+    originV: [0.75],
   }
+
+  it('carries the instance ORIGIN in grid-uv, so no state texel has to (#1520)', () => {
+    // The origin used to live in a texture, one texel per arrow, paired 1:1 with the instance
+    // index — and that pairing WAS the arrow ceiling. Per instance instead, the count stops
+    // being bounded by a texture the whole map shares.
+    const feat = packCompiledArrowFeat([10], [50], [0], [8], 1, 0, advected)
+    expect(feat[F.origin_u]).toBeCloseTo(0.25, 6)
+    expect(feat[F.origin_v]).toBeCloseTo(0.75, 6)
+  })
+
+  it('leaves the origin slots ZERO in static mode — they are advected-only', () => {
+    const feat = packCompiledArrowFeat([10], [50], [0], [8], 1, 0)
+    expect(feat[F.origin_u]).toBe(0)
+    expect(feat[F.origin_v]).toBe(0)
+  })
 
   it('writes the SUPPLIED grid-step anchors — it derives neither of them', () => {
     // The anchors come from the generator, which is the only side that knows the coverage's
@@ -238,8 +255,10 @@ describe('packCompiledArrowFeat — advected mode (#1419)', () => {
     expect(n0[F.north_abs_lat]).toBe(0)
   })
 
-  it('the stride carries the north block', () => {
-    expect(S).toBe(38)
+  it('the stride carries the north block AND the origin pair', () => {
+    // 38 was "tail + tip/grid-u + size/stroke + grid-v". 40 adds the instance's own grid-uv
+    // origin (#1520), which used to be a texel in a state texture the whole map shared.
+    expect(S).toBe(40)
     expect(packCompiledArrowFeat([1, 2], [3, 4], [0, 0], [1, 1], 1)).toHaveLength(2 * S)
   })
 })
