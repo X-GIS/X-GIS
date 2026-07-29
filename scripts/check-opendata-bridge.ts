@@ -17,6 +17,10 @@
 // product for being a hand-maintained list. Every `/opendata/…` URL any `.xgis` example
 // declares must answer from the deployed worker.
 //
+// That is the catalogue URLs in practice, and checking them is worth more than it looks: a
+// catalogue's asset hrefs are relative, so a 200 here means the CELLS resolve to this same
+// origin too. The unit suite pins that an emitted href is a path the bridge serves.
+//
 //   node --experimental-strip-types scripts/check-opendata-bridge.ts [--origin https://…]
 //
 // NODE, not bun, and that is not incidental: in a proxied environment bun's fetch fails to
@@ -64,6 +68,28 @@ async function probeOnce(url: string): Promise<{ ok: boolean; detail: string; re
     }
     if (type.includes('xml'))
       return { ok: false, detail: `HTTP 200 but S3 XML (${type})`, retry: false }
+
+    // A 200 is not enough for a synthesised catalogue: its items are resolved against a live
+    // bucket and a failed one is DROPPED, so a half-built catalogue answers exactly like a whole
+    // one. That is not hypothetical — Cloudflare's 50-subrequest cap silently cut the S-111
+    // catalogue to 5 of 12 models in production while this check said ✓. STAC's own
+    // `numberMatched`/`numberReturned` carry the difference; a shortfall is a red.
+    if (type.includes('json')) {
+      const doc = (await res.json()) as { numberMatched?: number; numberReturned?: number }
+      const { numberMatched: want, numberReturned: got } = doc
+      if (typeof want === 'number' && typeof got === 'number' && got < want)
+        return {
+          ok: false,
+          detail: `HTTP 200 but PARTIAL — ${got}/${want} items resolved`,
+          retry: false,
+        }
+      if (typeof got === 'number')
+        return {
+          ok: true,
+          detail: `HTTP ${res.status} ${type} — ${got}/${want} items`,
+          retry: false,
+        }
+    }
     return { ok: true, detail: `HTTP ${res.status} ${type}`, retry: false }
   } catch (e) {
     return { ok: false, detail: `unreachable — ${(e as Error).message}`, retry: true }

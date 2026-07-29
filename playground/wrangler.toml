@@ -7,9 +7,10 @@
 # `type: coverage` demos resolve their viewports against.
 #
 # NAME. It was `noaa-s111` while S-111 was the only thing it served, then `noaa-opendata`
-# while NOAA was. It is neither: the `/opendata/s3/<bucket>/…` passthrough reaches any
-# allowlisted AWS Open Data bucket, and non-AWS open-data origins land here too. A name that
-# says one publisher is a name that lies about the blast radius of a change to it.
+# while NOAA was. It is neither: `/opendata/<host>/<path>` reaches any allowlisted open-data
+# origin — the ~955 AWS Open Data hosts generated from awslabs/open-data-registry today, and a
+# city or national portal the moment one is added. A name that says one publisher is a name that
+# lies about the blast radius of a change to it.
 #
 # This file exists so the deploy is not three flags someone has to remember from a comment —
 # forgetting to redeploy at all is exactly how S-111 Live 404'd in production once already
@@ -24,7 +25,7 @@ name = "opendata-bridge"
 main = "dev/opendata-bridge-worker.ts"
 compatibility_date = "2024-01-01"
 
-# No bindings, no secrets, no state: it is a pure request→upstream bridge, and its bucket
+# No bindings, no secrets, no state: it is a pure request→upstream bridge, and its host
 # allowlist lives in the code so the dev middleware enforces the identical rule.
 workers_dev = true
 

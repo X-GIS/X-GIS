@@ -1,7 +1,7 @@
 // ═══ Coverage refresh — conditional revalidation + the auto-refetch timer (#1158) ═══
 //
-// A `coverage` source fetched once at attach. A cell at a ROLLING url (NOAA's
-// `/opendata/s111/latest.h5`, a re-issued S-102 cell) changes underneath that read, so
+// A `coverage` source fetched once at attach. A cell at a ROLLING url (a rolling
+// NOAA S-111 cycle, a re-issued S-102 cell) changes underneath that read, so
 // tracking it live meant the host running its own timer and pushing bytes back through
 // `setCoverageData`. This owns the part that is actually library-worthy: deciding
 // whether a re-read is needed at all, and not tearing the display when one is in flight.

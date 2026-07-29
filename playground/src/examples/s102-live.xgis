@@ -44,7 +44,7 @@ source basemap {
 // carries that flag through.
 source bathy {
   type: coverage
-  url: "/opendata/s102/catalog.json"
+  url: "/opendata/s102.stac.json"
 }
 
 layer imagery {

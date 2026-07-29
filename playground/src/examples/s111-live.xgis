@@ -9,11 +9,9 @@ xgis 1
 //
 // CORS: the NOAA bucket serves HTTP-Range but sets no Access-Control-Allow-Origin,
 // so the browser reaches it through a proxy — the vite dev-server `/opendata`
-// bridge in dev, a CORS-open proxy in prod (loader.ts URL rewrite). The proxy's
-// `/opendata/s111/latest/<model>.h5` route resolves the newest published cycle on each
-// load, so the demo never rots as old cycles age out of the rolling bucket. Those
-// URLs are named by the CATALOGUE the `currents` source points at, and fetched by
-// the engine — see that source.
+// bridge in dev, a CORS-open proxy in prod (loader.ts URL rewrite). The catalogue
+// names each model's newest published cell, resolved when it is built, so the demo never
+// rots as old cycles age out of the rolling bucket — see that source.
 
 // Esri World Imagery satellite basemap (same source the satellite_map demo uses),
 // so the currents draw over real nautical imagery. CORS `*`.
@@ -61,7 +59,7 @@ source basemap {
 // the demo cannot rot.
 source currents {
   type: coverage
-  url: "/opendata/s111/catalog.json"
+  url: "/opendata/s111.stac.json"
 }
 
 layer imagery {

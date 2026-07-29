@@ -76,36 +76,49 @@ server, so `loader.ts` rewrites that prefix to a Cloudflare Worker (`playground/
 opendata-bridge-worker.ts`) that serves the identical contract. The bridge is **general, not
 pinned to one product** — it fronts open data at large, not a CBOFS-only shim:
 
-| Path                               | Serves                                                                            |
-| ---------------------------------- | --------------------------------------------------------------------------------- |
-| `/opendata/s3/<bucket>/<key>[?q]`  | an allowlisted AWS Open Data bucket — object GET (Range preserved) **or** S3 LIST |
-| `/opendata/s111/catalog.json`      | STAC ItemCollection of the S-111 regional cells, with their domain envelopes      |
-| `/opendata/s111/latest.h5`         | newest CBOFS (Chesapeake) S-111 cell                                              |
-| `/opendata/s111/latest/<model>.h5` | newest cell for any S-111 model (dbofs, gomofs, ngofs2, …)                        |
-| `/opendata/s102/catalog.json`      | NOAA's S-100 Exchange Catalogue (4313 cells) translated to STAC                   |
-| `/opendata/s102/cells/<key>`       | the cells those catalogue hrefs resolve to                                        |
+**Two routes. Neither names a product:**
 
-Everything hangs off ONE prefix. That is structural: the predecessor had `/noaa/` plus a
-prefix per product, matched against a hand-maintained list in the dev middleware, and adding
-the third product silently fell through to vite's SPA fallback. Buckets are allowlisted by an
-explicit registry in `opendata-bridge.ts`, so it is not an open proxy — a glob only worked
-while the scope was one publisher. The LIST route lets a client resolve the newest key for
-**any** allowlisted dataset itself, the same way the S-111 `latest` route does server-side —
-needed because these buckets are **rolling windows** (old cycles age out), so a hard-coded key
-404s within days.
+| Path                              | Serves                                                                                   |
+| --------------------------------- | ---------------------------------------------------------------------------------------- |
+| `/opendata/<host>/<path>[?query]` | an allowlisted open-data host — object GET (Range preserved) **or** an S3 LIST           |
+| `/opendata/<id>.stac.json`        | a synthesised STAC ItemCollection (`s111`, `s102`) — the only route not backed by a host |
+
+The passthrough takes a **bare host**, not an `s3/<bucket>` sugar, because the regional endpoint
+(`<bucket>.s3.<region>.amazonaws.com`) is the address an S3 object actually has — the
+region-less form answers a 307 for anything outside us-east-1, an extra round trip on every
+ranged read. Once the region is in the host, `s3/<bucket>` is just an abbreviation for a host,
+and an abbreviation is not worth a second code path. Seoul's open-data portal and a NOAA bucket
+arrive through the identical route with the identical check.
+
+The **allowlist is one set of hosts, filled from two places**: the AWS half is generated from
+[`awslabs/open-data-registry`](https://github.com/awslabs/open-data-registry) (955 hosts —
+`node --experimental-strip-types scripts/gen-opendata-hosts.ts`), and everything else is hand
+listed in `playground/dev/opendata-hosts.ts`. There is no global registry of the world's open
+data, so somebody has to name a city or national portal — but adding one is a single line, and
+it is the same single line as adding an AWS bucket. Matching is **exact**: `…amazonaws.com.evil.com`
+is a registerable domain, and a prefix or suffix rule would hand it the site's CORS grant.
+
+The LIST form (`?list-type=2&prefix=…`) lets a client resolve the newest key for any allowlisted
+bucket itself — needed because these buckets are **rolling windows** (old cycles age out), so a
+hard-coded key 404s within days.
 
 The `s111_live` demo names the **catalogue**, and the engine resolves the viewport against it
 (#1453) — pan across the U.S. coast and the currents follow, with no app-side residency code:
 
 ```
-source currents { type: coverage, url: "/opendata/s111/catalog.json" }
+source currents { type: coverage, url: "/opendata/s111.stac.json" }
 layer speed { source: currents; ramp: "viridis"; range: [0, 2] | opacity-70 }
 ```
 
-A single cell still works where that is what you want — `url: "/opendata/s111/latest/dbofs.h5"`
-— or resolve one yourself via `fetch("/opendata/s3/noaa-s102-pds/?list-type=2&prefix=…")` and
-load it. Whether the URL is a cell or a catalogue is decided by the leading BYTES (an S-100
-cell begins with the HDF5 signature), so there is no second source type.
+The catalogue is served as a **sibling** of the host segment rather than under a `stac/`
+directory, and that is load-bearing: its asset hrefs are relative so they follow the document to
+whichever origin serves it, and from a subdirectory that would need `../<host>/<key>` — which
+`parseCoverageCatalogue` joins without collapsing, so the engine would ask the bridge for
+`/opendata/stac/../<host>/…` and get a 404 off its own catalogue.
+
+A single cell still works where that is what you want — point the `url` straight at
+`/opendata/<host>/<key>`. Whether the URL is a cell or a catalogue is decided by the leading
+BYTES (an S-100 cell begins with the HDF5 signature), so there is no second source type.
 
 **When you do NOT need any of this:** CORS-open products — CO-OPS currents
 (`api.tidesandcurrents.noaa.gov`) and weather.gov alerts — already send
