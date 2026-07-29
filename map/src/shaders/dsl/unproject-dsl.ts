@@ -43,7 +43,9 @@
 //     that costs every f32 figure — and the near root is taken in the cancellation-free form
 //     `2c / (−b + √disc)`. See `ray_hit_sphere_enu`.
 //   • THE HIT BECOMES lon/lat AS AN OFFSET from the camera centre, never as `atan2` of two
-//     absolute ECEF components — `enu_to_lonlat`. That step is where the surviving ~0.4 m would be.
+//     absolute ECEF components — `sphere_to_lonlat` (exact at any angle) and `enu_to_lonlat` (its
+//     linearization, for a Newton guess and a derivative). That step is where the surviving
+//     ~0.4 m would be.
 //
 // ── THE RAY ORIGIN IS PASSED IN, BECAUSE THE EYE IS NOT AT THE WORLD ORIGIN ────────────────────
 //
@@ -69,7 +71,10 @@ import {
   max,
   min,
   sqrt,
+  sin,
   cos,
+  asin,
+  atan2,
   select,
   vec2,
   vec3,
@@ -278,6 +283,59 @@ export const flat_jacobian = fn(
   },
 )
 
+/** A world-space ground hit → lon/lat, EXACTLY on the local sphere, at any angular distance.
+ *
+ *  `enu_to_lonlat` above is the same map LINEARIZED about the centre, and that is the right answer
+ *  where it is used — a Newton initial guess, and a derivative. It is the wrong answer for the hit
+ *  itself: its error is second order in the view half-angle, which is invisible at a regional zoom
+ *  and is NOT invisible when the same coverage is looked at from a globe view. Measured, on the
+ *  round-trip gate at z5: **22 px**, a whole glyph and a half off its own lattice node.
+ *
+ *  This is the direct spherical problem instead, and it is exact for every θ. The hit's position
+ *  relative to the sphere CENTRE decomposes in the local frame as `(e, n, R + u)`, which gives the
+ *  angular distance `θ` and the azimuth `α` from the camera centre; the rest is the standard
+ *  destination-point formula.
+ *
+ *  IT IS ALSO BETTER CONDITIONED, not a precision trade. Nothing here is a difference of two
+ *  earth-radius numbers: `ρ` and `u` are the hit's own camera-relative components, `R + u` is a
+ *  SUM, and every trig operand is O(1). The f32 floor is `θ`'s own ULP — ~1e-7 rad, 0.6 m on the
+ *  ground, sub-pixel at every zoom this runs at.
+ *
+ *  `east`/`north`/`up` are the world-space local frame at the world ORIGIN, so this serves the ENU
+ *  frame and the globe's ECEF-parallel one without knowing which it was given. */
+export const sphere_to_lonlat = fn(
+  'sphere_to_lonlat',
+  {
+    hit: vec3fT,
+    east: vec3fT,
+    north: vec3fT,
+    up: vec3fT,
+    r: f32T,
+    clon: f32T,
+    clat: f32T,
+  },
+  (a) => {
+    const e = Let(dot(a.hit, a.east))
+    const n = Let(dot(a.hit, a.north))
+    const u = Let(dot(a.hit, a.up))
+    const rho = Let(sqrt(e.mul(e).add(n.mul(n))))
+    const theta = Let(atan2(rho, a.r.add(u)))
+    const inv = Let(f32(1).div(max(rho, f32(1e-9))))
+    const sinA = Let(e.mul(inv))
+    const cosA = Let(n.mul(inv))
+    const st = Let(sin(theta))
+    const ct = Let(cos(theta))
+    const p0 = Let(radians(a.clat))
+    const sp = Let(sin(p0))
+    const cp = Let(cos(p0))
+    const sinLat = Let(min(max(sp.mul(ct).add(cp.mul(st).mul(cosA)), f32(-1)), f32(1)))
+    return vec2(
+      a.clon.add(degrees(atan2(sinA.mul(st).mul(cp), ct.sub(sp.mul(sinLat))))),
+      degrees(asin(sinLat)),
+    )
+  },
+)
+
 /** Projected metres → lon/lat, by inverting the GENERATED forward ladder numerically.
  *
  *  `target` is in `project`'s OWN output space, not the MVP's world space — the two differ per
@@ -328,6 +386,7 @@ export const UNPROJECT_FUNCS = [
   ray_hit_plane.decl,
   ray_hit_sphere_enu.decl,
   enu_to_lonlat.decl,
+  sphere_to_lonlat.decl,
   flat_jacobian.decl,
   unproject_flat.decl,
 ]

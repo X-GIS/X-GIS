@@ -22,7 +22,8 @@
 // `camera.ts:788` already names as the place the matrix and the shader branch stay in lockstep.
 
 import { invert4x4, mulVec4 } from '@xgis/shared'
-import { EARTH_R, localFrame } from '@xgis/geo'
+import { localFrame, globeForward } from '@xgis/geo'
+import { EARTH } from '@xgis/shared'
 import { uniformBlock, type UniformBlockOf } from '@xgis/engine'
 import { arrowViewU, ARROW_TRAIN_GLYPHS, ARROW_LATTICE_FACTOR } from '../shaders/dsl/arrow-view'
 
@@ -209,6 +210,33 @@ function worldFrame(cam: ArrowViewCamera): {
   return { up: [...f.up], east: [...f.east], north: [...f.north] }
 }
 
+/** The radius of the local sphere the backward map solves against — the ONE number that makes the
+ *  approximation osculating rather than merely nearby, and it is NOT `EARTH_R`.
+ *
+ *  MEASURED, on the round-trip gate: a globe view at z5 recovered its lattice 1.14 px off using the
+ *  equatorial radius, and 0.02 px off using this. The cause is a pure SCALE error — the ellipsoid's
+ *  radius at lat 38 is ~8 km under the equatorial one, 0.13 %, which over a 3.4e6 m view is 4.4 km
+ *  ≈ 1 px. First order, so it does not shrink the way the sphere-vs-ellipsoid SHAPE error does.
+ *
+ *  Two conventions again, because `up` means different things in the two frames:
+ *
+ *   • the globe path's `up` is the GEOCENTRIC radial, so the sphere centred `r` below the origin
+ *     is centred at the earth's actual centre when `r = |ECEF(centre)|` — the best sphere there is;
+ *   • the ENU path's `up` is the ellipsoid NORMAL, which does not pass through the centre, so the
+ *     matching sphere is the local osculating one: the Gaussian radius `a√(1−e²)/(1−e²sin²φ)`.
+ *
+ *  Nothing downstream carries a second radius — `ray_hit_sphere_enu` and `sphere_to_lonlat` both
+ *  take it as a parameter, so the hit and the lon/lat it becomes cannot disagree about the sphere
+ *  they are on. */
+function localRadius(cam: ArrowViewCamera): number {
+  if (cam.globeMode) {
+    const p = globeForward(cam.centerLon, cam.centerLat)
+    return Math.hypot(p[0], p[1], p[2])
+  }
+  const s = Math.sin((cam.centerLat * Math.PI) / 180)
+  return (EARTH.a * Math.sqrt(1 - EARTH.e2)) / (1 - EARTH.e2 * s * s)
+}
+
 /** Write one advected batch's view block. Returns the instance count the draw must use, or `null`
  *  when the camera has no usable inverse this frame (an orthographic or degenerate matrix) — the
  *  caller draws nothing rather than a lattice built from a divide by zero. */
@@ -229,14 +257,7 @@ export function writeArrowViewUniform(
     ray_tl: [dirs[2]![0], dirs[2]![1], dirs[2]![2], glyph.basePx],
     ray_tr: [dirs[3]![0], dirs[3]![1], dirs[3]![2], glyph.basePx],
     eye: [eye[0], eye[1], eye[2], glyph.strokeUnits],
-    // EARTH_R, and NOT `|globeForward(centre)|`, deliberately. The sphere is placed tangent at the
-    // world origin (centre = −R·up), so ANY radius keeps it passing through the camera's own
-    // ground point — but the hit is turned into lon/lat by `enu_to_lonlat`, which divides by
-    // EARTH_R. A different radius here makes the two disagree by the ratio, which is a ~0.3 %
-    // SCALE error on the recovered lattice: sub-pixel at every regional zoom, and still a first-
-    // order error where the ellipsoid deviation this approximation already accepts is second-
-    // order. One constant, both halves.
-    up: [fr.up[0], fr.up[1], fr.up[2], EARTH_R],
+    up: [fr.up[0], fr.up[1], fr.up[2], localRadius(cam)],
     east: [fr.east[0], fr.east[1], fr.east[2], cam.centerLon],
     north: [fr.north[0], fr.north[1], fr.north[2], cam.centerLat],
     crs: [grid.originLon, grid.originLat, grid.invSpanLon, grid.invSpanLat],

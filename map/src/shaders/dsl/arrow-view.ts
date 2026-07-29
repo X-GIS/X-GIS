@@ -42,7 +42,11 @@ import {
   abs,
   floor,
   cos,
+  sin,
+  radians,
   dot,
+  cross,
+  normalize,
   length,
   select,
   vec2,
@@ -61,12 +65,11 @@ import {
   ray_from_corners,
   ray_hit_plane,
   ray_hit_sphere_enu,
-  enu_to_lonlat,
+  sphere_to_lonlat,
   flat_jacobian,
   unproject_flat,
 } from './unproject-dsl'
 import { pointU } from './point'
-import { EARTH_R } from './consts'
 
 // ── The lattice, and the three numbers that describe it ───────────────────────────────────────
 
@@ -202,8 +205,10 @@ export const arrow_ground_hit = fn('arrow_ground_hit', { ndc: vec2fT }, (a) => {
  *  THE TWO ARMS DIFFER IN WHAT THE HIT ALREADY IS, and that is the whole reason they are separate:
  *
  *   • On the globe the hit is a world-space DISPLACEMENT from a surface point whose lon/lat the
- *     uniform carries, so lon/lat is that point plus a small angular offset — `enu_to_lonlat`,
- *     which never forms `atan2` of two absolute 6.4e6 m components (`unproject-dsl.ts` records why).
+ *     uniform carries, so lon/lat is the direct spherical problem from that point —
+ *     `sphere_to_lonlat`, which is exact at any angular distance and never forms `atan2` of two
+ *     absolute 6.4e6 m components (`unproject-dsl.ts` records why, and what the LINEARIZED form
+ *     cost when it was tried: 22 px off at a globe view).
  *   • On a flat projection the hit is already in the MVP's PROJECTED metres, so recovering lon/lat
  *     means inverting the forward — numerically, on the generated ladder, so a projection added to
  *     the table is invertible here the day it lands.
@@ -221,9 +226,12 @@ export const arrow_screen_lonlat = fn('arrow_screen_lonlat', { ndc: vec2fT }, (a
         isGlobe(),
         () => {
           const ll = Let(
-            enu_to_lonlat({
-              east: dot(hit.swizzle('xyz'), U.field.east.swizzle('xyz')),
-              north: dot(hit.swizzle('xyz'), U.field.north.swizzle('xyz')),
+            sphere_to_lonlat({
+              hit: hit.swizzle('xyz'),
+              east: U.field.east.swizzle('xyz'),
+              north: U.field.north.swizzle('xyz'),
+              up: U.field.up.swizzle('xyz'),
+              r: U.field.up.w,
               clon: U.field.east.w,
               clat: U.field.north.w,
             }),
@@ -268,8 +276,8 @@ export const arrow_grid_uv = fn('arrow_grid_uv', { lonlat: vec2fT }, (a) =>
  *  ONLY THE CHEAP HALF IS DIFFERENCED. Re-running the whole backward map at three NDC offsets would
  *  cost two extra Newton solves on the flat arm (≈20 forward evaluations). Instead the chain is
  *  split at the metric intermediate: the ray hit is differenced (cheap, exact), and metric→lon/lat
- *  is taken in closed form — the inverse of `flat_jacobian` on the flat arm, and `enu_to_lonlat`'s
- *  own linear coefficients on the globe. Three forward evaluations total, and the Jacobian is the
+ *  is taken in closed form — the inverse of `flat_jacobian` on the flat arm, and the sphere's own
+ *  metre→degree coefficients in the LOCAL frame at the node on the globe. Three forward evaluations total, and the Jacobian is the
  *  SAME function Newton's step uses, so the two cannot drift apart.
  *
  *  Returns the zero matrix when the node's own hit missed; callers gate on that rather than
@@ -293,13 +301,27 @@ export const arrow_uv_basis = fn('arrow_uv_basis', { ndc: vec2fT, lon: f32T, lat
         [
           isGlobe(),
           () => {
-            const e = U.field.east.swizzle('xyz')
-            const n = U.field.north.swizzle('xyz')
-            // `enu_to_lonlat` is linear in (east, north) about the centre, so its coefficients
-            // ARE the derivative — no second difference, and no second statement of the
-            // metre→degree relation.
-            const kLat = Let(f32(180 / Math.PI).div(EARTH_R))
-            const kLon = Let(kLat.div(max(cos(U.field.north.w.mul(f32(Math.PI / 180))), f32(1e-3))))
+            // THE LOCAL FRAME AT THE NODE, not at the camera centre, and the distinction is not
+            // academic: over a globe view the two are up to tens of degrees apart, so using the
+            // centre's east/north rotates every glyph's heading by that angle — a field pointing
+            // confidently in the wrong direction, which no still frame reveals.
+            //
+            // Built from the hit itself, in unit vectors only. The node's position relative to the
+            // sphere CENTRE is `hit + R·up` (the centre is `−R·up` from the world origin), so its
+            // zenith is that direction; the earth's rotation axis in world space is
+            // `sin(clat)·up + cos(clat)·north`, and east is its cross with the zenith.
+            const r = U.field.up.w
+            const up0 = U.field.up.swizzle('xyz')
+            const p0 = Let(radians(U.field.north.w))
+            const axis = Let(up0.mul(sin(p0)).add(U.field.north.swizzle('xyz').mul(cos(p0))))
+            const upN = Let(normalize(h0.swizzle('xyz').add(up0.mul(r))))
+            const e = Let(normalize(cross(axis, upN)))
+            const n = Let(cross(upN, e))
+            // `sphere_to_lonlat` is a rotation of the sphere, so its derivative in the LOCAL frame
+            // is the same metre→degree relation everywhere — one statement of it, evaluated at the
+            // node's own latitude.
+            const kLat = Let(f32(180 / Math.PI).div(r))
+            const kLon = Let(kLat.div(max(cos(radians(a.lat)), f32(1e-3))))
             return vec4(
               dot(dx, e).mul(kLon),
               dot(dx, n).mul(kLat),
