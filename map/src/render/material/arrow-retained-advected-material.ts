@@ -48,7 +48,13 @@ export const ARROW_ADVECTED_BINDINGS = [
   { binding: 1, kind: 'storage', name: 'band_data' },
   { binding: 2, kind: 'texture', name: 'flow_u_tex', vertexVisible: true },
   { binding: 3, kind: 'texture', name: 'flow_v_tex', vertexVisible: true },
-  { binding: 4, kind: 'uniform', name: 'arrow_view' },
+  // 'ArrowView' — the BLOCK name, not the shader variable `arrow_view`. WebGL2 resolves a uniform
+  // entry with `getUniformBlockIndex`, which takes the GLSL block name; a name that does not
+  // resolve leaves the block at binding point 0, where it ALIASES group 0's `Uniforms` and the VS
+  // reads the frame uniform's bytes as corner rays. That is not a validation error on either
+  // backend — the field simply paints nothing, which is how it was found (the render gate, on the
+  // WebGL2 leg). The group-0 entry above names its struct for the same reason.
+  { binding: 4, kind: 'uniform', name: 'ArrowView' },
 ] as const
 
 export class RetainedArrowAdvectedDraper {
