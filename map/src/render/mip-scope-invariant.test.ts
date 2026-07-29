@@ -37,6 +37,46 @@ describe('mip chains are scoped to appearance textures (#1436)', () => {
     }
   })
 
+  it("every OTHER sampler in #1436's table stays un-mipped, each for its own reason", () => {
+    // #1436 listed these as "sites where no call site could ask". Adjudicated one at a time
+    // once the vocabulary existed, and the answer for all of them is NO — but for four
+    // different reasons, which is why this is a table rather than a blanket rule. Someone
+    // "finishing the job" by mipmapping them would be introducing correctness bugs, not
+    // completing a feature.
+    const cases = [
+      {
+        file: './material/hillshade-material.ts',
+        why:
+          'DEM relief computes slope from EIGHT NEIGHBOUR TAPS of a 3x3 (hillshade.ts:176-241, ' +
+          'pinned in hillshade-dsl.test.ts). `nearest` is load-bearing: any filtering pre-blends ' +
+          'the very texels the derivative is taken between, and a mip chain compounds it. ' +
+          'Elevation is also DATA — the coverage rule applies twice over.',
+      },
+      {
+        file: './flow-renderer.ts',
+        why:
+          'velocity components, sampled for DATA. Averaging u/v across levels fabricates ' +
+          'currents the model never produced — the coverage argument verbatim.',
+      },
+      {
+        file: '../color-ramp.ts',
+        why:
+          'a 256x1 LOOKUP TABLE indexed by a normalised value, not a surface in screen space. ' +
+          'It is never minified, so a chain would cost bytes to serve a level nothing selects — ' +
+          'and averaging along a ramp blends adjacent colour stops.',
+      },
+    ] as const
+    for (const c of cases) {
+      const src = read(c.file)
+      for (const [i, d] of descriptors(src).entries())
+        expect(d, `${c.file} createTexture #${i + 1}: ${c.why}`).not.toContain('mipLevelCount')
+      expect(
+        src.includes("mipmap: '") || src.includes('mipmap:'),
+        `${c.file} sampler must not ask for a mipmap filter — ${c.why}`,
+      ).toBe(false)
+    }
+  })
+
   it('the raster tile DOES declare one — the gate is non-vacuous', () => {
     // Without this the test above passes just as well against a tree where #1436 was reverted
     // wholesale, which would make it a tripwire for nothing.
