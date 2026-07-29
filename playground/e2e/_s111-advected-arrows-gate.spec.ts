@@ -19,62 +19,40 @@
 // z10 on this fixture — where the drawn set IS the catalogue placement, and the parity claim is
 // exact there rather than approximately true everywhere.
 //
-// WHY THE PARITY IS NO LONGER ASSERTED PIXEL-FOR-PIXEL, and this is a MEASUREMENT, not a
-// convenience. The old claim needed a frame in which the arrows had not yet moved. At the rung
-// that frame is not reachable: the leash is 5% of the grid span, which at a zoom where cells are
-// 36 px apart is 56 px — HALF AGAIN the spacing between arrows — so an arrow passes its own
-// neighbour's position within the time a style swap takes to settle. Measured across read delays
-// after residency, at the rung:
+// WHY THE PARITY IS NO LONGER ASSERTED PIXEL-FOR-PIXEL, and it is a MEASUREMENT, not a
+// convenience. The old claim needed a frame in which the arrows had not yet moved. That frame is
+// not reachable: measured across read delays after residency, parity is already saturated at
+// delay ZERO (3.08, rising to 4.45) while the painted fraction does not move — the leash is 5% of
+// the grid span, which at a legible zoom is larger than the spacing between arrows, so an arrow
+// passes its neighbour's position within the time a style swap takes to settle.
 //
-//     delay    0ms   60ms  150ms  400ms  1200ms  3000ms
-//     parity   3.08  3.70   4.28   4.38    4.45    4.13     ← already saturated at zero
-//
-// while the painted fraction sits at 0.0213 against the catalogue field's 0.0218 at every one of
-// them. The two fields draw the SAME AMOUNT in the same places-give-or-take-a-leash; what cannot
-// be recovered is WHICH pixel. (At z7, where the old gate lived, the leash was 19% of the drawn
-// spacing and the same read looked exact — that is why this worked before and cannot now.)
+// A second reason arrived with #1520 and is structural rather than a matter of timing: the field
+// is no longer ONE arrow per cell that could line up with the catalogue's. It is a per-axis,
+// view-driven density over a lattice, so there is no camera at which the two draw the same set.
 //
 // So the claim is split, each half asserted where it can be EXACT rather than approximately:
 //
-//  • PLACEMENT moves to `coverage-arrow-show.test.ts`, which checks the actual origin set: the
-//    lattice's level-0 rung — its nodes whose index is divisible by `sub` — IS the drawable cell
-//    set, in the same order. Exact, no GPU, and no drift to out-run.
-//  • COLOUR and SCALE stay HERE, because only a render can compare the CPU rule against the GPU
-//    table, and both are drift-immune: the water is the same water wherever an arrow stands in it.
+//   • PLACEMENT moves to `coverage-arrow-show.test.ts`, against the actual origin set.
+//   • DENSITY and the CATALOGUE RULE stay here, because only a render can compare the CPU rule
+//     against the GPU table — and both are stated in forms that survive the arrows drifting.
 //
 // THREE CLAIMS, and the second one is the one a look cannot make for you.
 //
-//  A. AT THE LEVEL-0 RUNG THE ADVECTED FIELD IS THE CATALOGUE FIELD — same number of arrows,
-//     same ink, same colour distribution. That is a PARITY claim between two independent
-//     implementations of one catalogue rule: `| arrow` bakes colour and size on the CPU from
-//     `bandedRampColor` + `s111ArrowScale`, while the advected VS looks them up on the GPU from
-//     the uploaded band table, at a position it decoded from a texture. Agreement is evidence the
-//     table, the normalization by peak speed and the scale rule are all right — a wrong peak puts
-//     every arrow in the wrong band, which moves both the ink (the scale rule) and the colour.
+//  A. THE FIELD IS DENSER THAN ONE ARROW PER CELL, AND PAINTS THE SAME BANDS. The catalogue
+//     portrayal at the same camera is the control — it has no density rule to confound it. The
+//     band half is a PARITY claim between two independent implementations of one rule: `| arrow`
+//     bakes colour and size on the CPU from `bandedRampColor` + `s111ArrowScale`, while the
+//     advected VS indexes the uploaded band table with a speed it read from a texture and
+//     normalized by the field's peak. A drift in the table, the peak or the scale rule moves it.
 //
-//     Note what this is NOT: a camera chosen because the density rule is switched off there. At
-//     z10 the rule is running at full tilt — it keeps 1 node in 64 — and the set it keeps is the
-//     catalogue's.
+//  B. THEN THEY MOVE. The drifted frame must differ from the first read by MUCH more than the
+//     same-code noise floor, which is measured rather than assumed. Since #1520 this also asserts
+//     the CLOCK is wired: the phase is a function of `circle_params.y`, and a frame that never
+//     sets it leaves the whole field parked at its per-arrow offsets.
 //
-//  B. THEN THEY MOVE. The drifted frame must differ from the first-read field by MUCH more than
-//     the same-code noise floor, which is measured rather than assumed.
+//  C. THE LADDER MOVES WITH THE VIEW. One zoom out must cost exactly one decimation level.
+//     Stated as a ratio OF ratios so the domain's changing footprint divides out.
 //
-//  C. THE RUNG IS A RUNG. One zoom out, the advected field must draw strictly FEWER arrows than
-//     the catalogue field — otherwise A is being asserted somewhere the ladder does not move, and
-//     a later camera change could quietly turn it back into the unconditional claim that #1450
-//     retired.
-//
-// WHY NOT A PIXEL COUNT: a painted-fraction gate passes on broken images (§12) — a field frozen
-// at its origins and a field of arrows drawn at garbage positions have the same count. Both
-// assertions below are RATIOS against a measured baseline, so what is claimed is a direction.
-//
-// WHAT THIS DELIBERATELY DOES NOT CLAIM: that an arrow's colour changes as it crosses a band
-// edge. That needs a field whose speed ramps ALONG its own flow, and this fixture's tidal field
-// has no such known gradient — over a steady-state field the colour histogram is stationary, so
-// measuring it would be a tripwire, not a verdict. The "colour follows the CURRENT position"
-// half is instead proven by construction in arrow-retained-dsl.test.ts, which traces the emitted
-// WGSL from the band lookup back to the decoded state position and is verified by mutation.
-
 import { test, expect } from '@playwright/test'
 
 /** THE LEVEL-0 RUNG, derived rather than hunted for. The cull targets the glyph's base length
@@ -176,6 +154,22 @@ function readGrid() {
   }
 }
 
+/** Distance between two mean colours as CHROMATICITY — each normalized by its own sum first.
+ *
+ *  Raw mean colour is not brightness-immune, and two things here change brightness without
+ *  changing which band is painted: a sparser field has a larger anti-aliased-edge fraction, and
+ *  an arrow fading through its phase (#1520) is the same colour at a lower alpha. Dividing each
+ *  mean by its own total drops both and keeps the hue, which is what a speed BAND is. */
+const chroma = (a: readonly number[], b: readonly number[]): number => {
+  const n = (c: readonly number[]): number[] => {
+    const s = Math.max(1e-9, c[0]! + c[1]! + c[2]!)
+    return [c[0]! / s, c[1]! / s, c[2]! / s]
+  }
+  const [ar, ag, ab] = n(a) as [number, number, number]
+  const [br, bg, bb] = n(b) as [number, number, number]
+  return Math.hypot(ar - br, ag - bg, ab - bb)
+}
+
 /** Mean absolute per-cell difference — the directional metric both claims are stated in. */
 const diff = (a: number[], b: number[]): number => {
   let s = 0
@@ -221,7 +215,7 @@ async function run(page: import('@playwright/test').Page, src: string) {
 }
 
 test.describe('S-111 advected arrows (#1419)', () => {
-  test('at the level-0 rung the advected field IS the catalogue field — and then it moves', async ({
+  test('the field is denser than the catalogue one, paints its bands, and moves', async ({
     page,
   }) => {
     test.setTimeout(180_000)
@@ -258,87 +252,90 @@ test.describe('S-111 advected arrows (#1419)', () => {
 
     const moved = diff(adv0.cells, advN.cells)
     const inkRatio = adv0.painted / Math.max(staticA.painted, 1e-9)
-    // Mean-colour distance in 0–255 units. The catalogue palette's own bands are tens of units
-    // apart, so a band-assignment error is not a small number here.
-    const dColor = Math.hypot(
-      adv0.mean[0] - staticA.mean[0],
-      adv0.mean[1] - staticA.mean[1],
-      adv0.mean[2] - staticA.mean[2],
-    )
+    const dChroma = chroma(adv0.mean, staticA.mean)
     console.log(
       `[s111-advected] floor=${floor.toFixed(4)} moved(adv0↔advN)=${moved.toFixed(4)} ` +
         `painted static=${staticA.painted.toFixed(5)} adv=${adv0.painted.toFixed(5)} ` +
-        `ink=${inkRatio.toFixed(3)} dColor=${dColor.toFixed(2)} ` +
-        `mean static=[${staticA.mean.map((v) => v.toFixed(1))}] ` +
-        `adv=[${adv0.mean.map((v) => v.toFixed(1))}]`,
+        `ink=${inkRatio.toFixed(3)} dChroma=${dChroma.toFixed(4)} ` +
+        `mean static=[${staticA.mean.map((v) => v.toFixed(0))}] ` +
+        `adv=[${adv0.mean.map((v) => v.toFixed(0))}]`,
     )
 
     // CLAIM B — the arrows moved, by much more than the same-code noise floor. Stated first
     // because it is the precondition for A meaning anything: if nothing moved, A would pass by
-    // drawing a frozen field.
+    // drawing a frozen field. It is also the assertion that the CLOCK is wired: the phase is a
+    // function of `circle_params.y`, and a frame that never sets it leaves the whole field
+    // parked at its per-arrow offsets, animating nothing (#1520).
     expect(moved, 'the advected field changed between frames').toBeGreaterThan(
       Math.max(floor * 4, 0.5),
     )
 
-    // CLAIM A, first half — the rung draws the CELL set. Same number of arrows at the same size
-    // is the same ink, and the two ways to break it are both caught: a field thinned one level
-    // too far paints a quarter as much, one drawing the whole 8× lattice paints 64× as much.
-    // Measured 0.976; the band is deliberately far tighter than either failure.
+    // CLAIM A, first half — the advected field is DENSER than one arrow per cell. This is what
+    // the portrayal is for and what the report asked for; the catalogue field at the same camera
+    // is the control, and it has no density rule to confound it.
     expect(
       inkRatio,
-      'the rung is not drawing the catalogue set — a level out, or the whole lattice',
-    ).toBeGreaterThan(0.75)
-    expect(
-      inkRatio,
-      'the rung is not drawing the catalogue set — a level out, or the whole lattice',
-    ).toBeLessThan(1.35)
+      'the advected field is no denser than the catalogue one — the density rule is not running',
+    ).toBeGreaterThan(2.5)
 
     // CLAIM A, second half — and it is the SAME CATALOGUE. Two independent implementations of
     // one rule: the static path bakes `bandedRampColor(speed)` per cell on the CPU, the advected
     // VS indexes the uploaded table with a speed it read from a texture and normalized by the
     // field's peak. A drift in the table, the peak or the scale rule moves this.
+    //
+    // CHROMATICITY, not the raw mean: an arrow fading through its phase is the same band at a
+    // lower alpha, and a denser field has a different anti-aliased-edge fraction. Both move a
+    // raw mean without any band changing.
     expect(
-      dColor,
+      dChroma,
       'the advected field paints different BANDS than the catalogue rule — the table, the peak ' +
         'normalization or the scale rule has drifted',
-    ).toBeLessThan(12)
+    ).toBeLessThan(0.05)
   })
 
-  test('the rung is a RUNG — one zoom out the same field draws fewer arrows', async ({ page }) => {
-    test.setTimeout(180_000)
-    // Without this, claim A above is a measurement at one camera with nothing saying the ladder
-    // moves at all — and the unconditional contract #1450 retired could creep back in as "parity
-    // held wherever we looked". Here the catalogue field is the invariant control: it has no
-    // density rule, so its ink changes with the zoom only as the footprint does, while the
-    // advected field must ALSO drop a decimation level.
-    await boot(page, ZOOM_OUT)
+  test('the ladder MOVES — one zoom out costs exactly one level', async ({ page }) => {
+    test.setTimeout(240_000)
+    // Without this, claim A is a measurement at one camera with nothing saying the density rule
+    // responds to the view at all — a fixed over-seeding would satisfy it just as well.
+    //
+    // The metric is a RATIO OF RATIOS, which is what makes it scale-free: at each zoom the
+    // advected field is measured against the catalogue field AT THAT SAME ZOOM, so the domain's
+    // changing on-screen footprint divides out. One decimation level is 2× per axis = 4× fewer
+    // arrows, so one zoom out must land near 0.25 — and it does, without a tuned constant.
+    const at = async (zoom: number): Promise<number> => {
+      await boot(page, zoom)
+      await run(page, style('| arrow'))
+      await page.waitForTimeout(1200)
+      const cells = await page.evaluate(readGrid)
+      expect(cells.ok, 'WebGL2 context present').toBe(true)
+      if (!cells.ok) return NaN
+      expect(cells.backend, 'running on the WebGL2 backend').toBe('webgl2')
+      expect(cells.painted, 'the catalogue control drew').toBeGreaterThan(0.002)
+      await run(page, style('| flow'))
+      await page.waitForTimeout(600)
+      const adv = await page.evaluate(readGrid)
+      if (!adv.ok) return NaN
+      return adv.painted / cells.painted
+    }
 
-    await run(page, style('| arrow'))
-    await page.waitForTimeout(1500)
-    const cells = await page.evaluate(readGrid)
-    expect(cells.ok, 'WebGL2 context present').toBe(true)
-    if (!cells.ok) return
-    expect(cells.backend, 'running on the WebGL2 backend, not a silent fallback').toBe('webgl2')
-
-    await run(page, style('| flow'))
-    await page.waitForTimeout(400)
-    const adv = await page.evaluate(readGrid)
-    if (!adv.ok) return
-
-    const ratio = adv.painted / Math.max(cells.painted, 1e-9)
+    const near = await at(ZOOM)
+    const out = await at(ZOOM_OUT)
+    const step = out / near
     console.log(
-      `[s111-advected] z${ZOOM_OUT} static painted=${cells.painted.toFixed(5)} ` +
-        `adv0 painted=${adv.painted.toFixed(5)} ratio=${ratio.toFixed(3)}`,
+      `[s111-advected] ladder z${ZOOM}=${near.toFixed(3)} z${ZOOM_OUT}=${out.toFixed(3)} ` +
+        `step=${step.toFixed(3)}`,
     )
 
-    expect(cells.painted, 'the catalogue field drew').toBeGreaterThan(0.005)
-    expect(adv.painted, 'the advected field drew').toBeGreaterThan(0)
-    // A whole decimation level is a 4× cut in arrows (2× per axis), so the bound sits well below
-    // the rung's own band above and well above the noise: the two claims cannot both be satisfied
-    // by one density.
+    // Bounded either side of a quarter, generously — the claim is "a level, not nothing and not
+    // a collapse", not a precise 0.25. A rule that ignored the view sits at 1.0; one that thinned
+    // two levels at once sits at 0.06.
     expect(
-      ratio,
-      'one zoom out the advected field did NOT thin — the ladder is not moving',
-    ).toBeLessThan(0.6)
+      step,
+      'one zoom out did NOT thin — the density rule is not reading the view',
+    ).toBeLessThan(0.5)
+    expect(
+      step,
+      'one zoom out thinned by more than a level — the ladder is not nested',
+    ).toBeGreaterThan(0.12)
   })
 })
