@@ -11,7 +11,12 @@
 import { describe, it, expect } from 'vitest'
 import { module, emitModule, emitGlslModule, compileModuleJs } from '@xgis/shader-dsl'
 import { getGpuProjectionFuncs, PROJECTION_CONSTS } from './projections'
-import { UNPROJECT_FUNCS, UNPROJECT_NEWTON_STEPS } from './unproject-dsl'
+import {
+  UNPROJECT_FUNCS,
+  UNPROJECT_NEWTON_STEPS,
+  UNPROJECT_RESIDUAL_M,
+  UNPROJECT_RESIDUAL_REL,
+} from './unproject-dsl'
 
 const wgsl = (): string =>
   emitModule(
@@ -156,6 +161,53 @@ describe('screen → geographic, on the GPU (#1520)', () => {
     // …and the Jacobian is itself two forward evaluations, so the total per step is still three.
     expect((bodyOf(src, 'flat_jacobian').match(/[^_]project\(/g) ?? []).length).toBe(2)
     expect(body, 'no projection math is restated here').not.toMatch(/0\.8707|1\.007226|log\(tan\(/)
+  })
+
+  it('the convergence threshold clears the f32 FLOOR of the coordinate it measures', () => {
+    // PAID FOR ON A REAL GPU. A fixed 1 m threshold is not reachable in f32 at Web Mercator
+    // magnitudes: x at the S-111 demo's longitude is −8 481 432 m, inside [2^23, 2^24) where the
+    // f32 ULP is exactly 1.0 m. `|chk.x − target.x| + |chk.y − target.y|` is then a multiple of
+    // 1.0 + 0.5, so `res < 1` admitted a node only when chk.x landed on the SAME f32 as target.x —
+    // and because the rounding varies smoothly across the screen, the rejections came in BANDS.
+    // The field rendered with ~40 % of its lattice missing.
+    //
+    // Nothing without a GPU could see it: the DSL's CPU lowering is f64, where the residual is
+    // ~1e-9 and the round-trip identity passes at sub-pixel with the bug live (§5).
+    //
+    // So the claim is arithmetic, not a shader-text match: at every magnitude this runs at, the
+    // threshold must exceed the ULP the residual is quantised to. Reinstating the fixed metre
+    // fails the mercator rows below, which is the fail-before.
+    const ulp = (v: number): number => 2 ** (Math.floor(Math.log2(Math.abs(v))) - 23)
+    const tol = (x: number, y: number): number =>
+      Math.max(UNPROJECT_RESIDUAL_M, (Math.abs(x) + Math.abs(y)) * UNPROJECT_RESIDUAL_REL)
+    // |x|, |y| in the forward's own metres: the S-111 demo, the antimeridian, and a point near the
+    // projection origin where the FLOOR is what carries the threshold.
+    for (const [x, y, label] of [
+      [-8_481_432, 4_593_562, 'the S-111 demo centre'],
+      [20_037_508, 20_037_508, 'the antimeridian corner'],
+      [1_000, 1_000, 'near the projection origin'],
+    ] as const) {
+      const quantum = ulp(x) + ulp(y)
+      expect(
+        tol(x, y),
+        `${label}: the threshold must clear the residual's own quantum`,
+      ).toBeGreaterThan(quantum)
+    }
+    // …and it stays FIVE ORDERS below a genuine non-convergence, so the gate still discriminates:
+    // a node past a pole or off an oval edge sits at 1e5-1e6 m.
+    expect(tol(20_037_508, 20_037_508)).toBeLessThan(1e4)
+  })
+
+  it('…and the emitted gate is that relative threshold, not a bare constant', () => {
+    // Severing the mechanism specifically: a `res < 1.0` with no magnitude term is the exact
+    // regression, and it is one character away from passing every other assertion in this file.
+    const body = bodyOf(wgsl(), 'unproject_flat')
+    expect(body, 'the threshold is built from the target magnitude').toMatch(
+      /max\(1\.0, \(\(abs\(target\.x\) \+ abs\(target\.y\)\) \* /,
+    )
+    expect(body, 'the residual is compared against it, not against a literal').toMatch(
+      /select\(0\.0, 1\.0, \(\w+ < \w+\)\)/,
+    )
   })
 
   it('a non-invertible node is reported as a MISS, never clamped to a fabricated position', () => {
