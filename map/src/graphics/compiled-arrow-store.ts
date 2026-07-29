@@ -20,6 +20,14 @@
 import { packCompiledArrowFeat, packCompiledArrowTint } from './retained-arrow-packer'
 import type { RetainedArrowDraper } from '../render/material/arrow-retained-material'
 import type { RetainedArrowAdvectedDraper } from '../render/material/arrow-retained-advected-material'
+import {
+  arrowViewBlock,
+  arrowViewUniformBytes,
+  writeArrowViewUniform,
+  type ArrowViewCamera,
+  type ArrowViewGrid,
+} from '../render/arrow-view-uniform'
+import { S111_ARROW_BASE_PX, S111_OUTLINE_FRAC } from '../render/s111-portrayal'
 import type {
   RhiDevice,
   RhiBuffer,
@@ -28,21 +36,23 @@ import type {
   RhiTextureView,
 } from '@xgis/engine'
 
-/** What an ADVECTED batch needs beyond the static one (#1419) — supplied by the coverage arm,
- *  which is the only side that knows the grid. The anchors and the origins are parallel to the
- *  lon/lat arrays: entry `i` belongs to instance `i`, and to state texel `i`. */
+/** What an ADVECTED batch needs beyond the static one — supplied by the coverage arm, which is
+ *  the only side that knows the grid.
+ *
+ *  BOTH FIELDS ARE BATCH SCALARS (#1520 step 2). This used to carry six typed arrays parallel to
+ *  the lon/lat ones — per-instance origins and two basis anchors each — because the field was
+ *  generated per grid cell. It is generated on the SCREEN now, so there is nothing per instance to
+ *  hand over: the grid box is four numbers and the shader recovers everything else per frame. */
 export interface AdvectedArrowInput {
-  /** Instance origins in grid-uv (`coverageArrowOrigins`). */
-  originU: Float32Array
-  originV: Float32Array
-  /** The two basis anchors, one leash length along grid-u and grid-v. */
-  uStepLon: Float64Array
-  uStepLat: Float64Array
-  vStepLon: Float64Array
-  vStepLat: Float64Array
+  /** The affine lon/lat → grid-uv box (`coverageArrowGrid`). */
+  grid: ArrowViewGrid
   /** The catalogue table in the shader's units (`s111BandTableNormalized`). */
   bandTable: Float32Array
 }
+
+/** The camera half of an advected draw, computed ONCE per frame by the manager and shared by
+ *  every advected batch — the camera is batch-independent; only the grid box is not. */
+export type AdvectedArrowView = ArrowViewCamera
 
 /** The frame-side half of an advected draw: where the arrows are, where they belong, and the
  *  velocity pair they are moving through — all four from `FlowRenderer`, which owns the step.
@@ -64,7 +74,9 @@ export interface AdvectedArrowSource {
 /** A DECLARATIVE `| arrow` layer (#1302) — compiler-fed twin of a host arrow batch, same
  *  ARROW_RETAINED feat/tint layout; raw arrays (incl. strokeUnits, #1333) kept for DPR re-pack. */
 interface CompiledArrowBatch {
-  featBuf: RhiBuffer
+  /** Null for an ADVECTED batch: its instances are lattice nodes of the current viewport, so
+   *  there is no per-instance record to pack and the advected module binds no feat buffer. */
+  featBuf: RhiBuffer | null
   /** Null for an ADVECTED batch: its colour is the band the arrow is standing in, so there is no
    *  launch colour to keep and the advected module binds no tint at all. */
   tintBuf: RhiBuffer | null
@@ -74,6 +86,10 @@ interface CompiledArrowBatch {
   advected: AdvectedArrowInput | null
   /** The band table, uploaded once per advected batch. */
   bandBuf: RhiBuffer | null
+  /** The ArrowView block — allocated once per advected batch, REWRITTEN every frame. Its contents
+   *  are the camera (which moves) plus this batch's grid box (which does not); the bind group
+   *  holding it is still cached, since only the bytes change. */
+  viewBuf: RhiBuffer | null
   /** The advected bind group, rebuilt only when the region's velocity pair changes. */
   advectedGroup: RhiBindGroup | null
   /** The velocity views those groups were built against. A re-armed or evicted coverage hands
@@ -143,30 +159,31 @@ export class CompiledArrowStore {
     advected: AdvectedArrowInput | null = null,
   ): void {
     const count = lons.length
-    if (count === 0 || !this.rhi || !this.draper) return
+    if (!this.rhi || !this.draper) return
+    // An ADVECTED batch carries NO instances (#1520 step 2) — its count is a per-frame decision
+    // taken from the viewport, so an empty lon/lat array is the normal case there and only the
+    // static path is empty-guarded.
+    if (!advected && count === 0) return
     // Both halves or nothing: an advected batch drawn through the static draper would be a
     // field that animates nothing and reports its launch instant forever.
     if (advected && (!this.advectedDraper || !this.arrowSource)) return
-    const feat = packCompiledArrowFeat(
-      lons,
-      lats,
-      bearingsDeg,
-      sizesPx,
-      dpr,
-      strokeUnits,
-      advected ?? undefined,
-    )
-    const featBuf = this.rhi.createBuffer({
-      size: Math.max(feat.byteLength, 16),
-      usage: 'storage',
-      writable: true,
-      label: 'compiled-arrow-feat',
-    })
-    this.rhi.writeBuffer(featBuf, 0, feat)
-    this._featWrites++
+
+    let featBuf: RhiBuffer | null = null
+    if (!advected) {
+      const feat = packCompiledArrowFeat(lons, lats, bearingsDeg, sizesPx, dpr, strokeUnits)
+      featBuf = this.rhi.createBuffer({
+        size: Math.max(feat.byteLength, 16),
+        usage: 'storage',
+        writable: true,
+        label: 'compiled-arrow-feat',
+      })
+      this.rhi.writeBuffer(featBuf, 0, feat)
+      this._featWrites++
+    }
 
     let tintBuf: RhiBuffer | null = null
     let bandBuf: RhiBuffer | null = null
+    let viewBuf: RhiBuffer | null = null
     if (advected) {
       // The catalogue rule, uploaded once. No tint buffer: the colour is re-decided every frame
       // from the band the arrow is standing in, so a launch colour would only be a wrong answer
@@ -178,6 +195,12 @@ export class CompiledArrowStore {
         label: 'compiled-arrow-band',
       })
       this.rhi.writeBuffer(bandBuf, 0, advected.bandTable)
+      viewBuf = this.rhi.createBuffer({
+        size: arrowViewUniformBytes(),
+        usage: 'uniform',
+        writable: true,
+        label: 'compiled-arrow-view',
+      })
     } else {
       const tint = packCompiledArrowTint(colors)
       tintBuf = this.rhi.createBuffer({
@@ -193,9 +216,10 @@ export class CompiledArrowStore {
     this.batches.push({
       featBuf,
       tintBuf,
-      bindGroup: tintBuf ? this.draper.makeBatchBindGroup(featBuf, tintBuf) : null,
+      bindGroup: featBuf && tintBuf ? this.draper.makeBatchBindGroup(featBuf, tintBuf) : null,
       advected,
       bandBuf,
+      viewBuf,
       advectedGroup: null,
       boundFlowU: null,
       boundFlowV: null,
@@ -222,9 +246,10 @@ export class CompiledArrowStore {
     const kept: CompiledArrowBatch[] = []
     for (const ca of this.batches) {
       if (region === undefined || ca.region === region) {
-        retired.push(ca.featBuf)
+        if (ca.featBuf) retired.push(ca.featBuf)
         if (ca.tintBuf) retired.push(ca.tintBuf)
         if (ca.bandBuf) retired.push(ca.bandBuf)
+        if (ca.viewBuf) retired.push(ca.viewBuf)
       } else kept.push(ca)
     }
     this.batches.length = 0
@@ -251,37 +276,53 @@ export class CompiledArrowStore {
   /** Draw every compiled layer through the SAME draper + per-copy uniform as the host
    *  arrows, so compiler-fed and `map.graphics` arrows are one draw authority. Returns the
    *  real draw-call count (one instanced draw per world copy per layer). */
-  draw(pass: RhiRenderPass, perCopy: Float32Array[]): number {
+  draw(pass: RhiRenderPass, perCopy: Float32Array[], view: AdvectedArrowView | null): number {
     if (!this.draper) return 0
     let calls = 0
     for (const ca of this.batches) {
-      if (ca.advected) calls += this.drawAdvected(pass, ca, perCopy)
+      if (ca.advected) calls += this.drawAdvected(pass, ca, perCopy, view)
       else if (ca.bindGroup) calls += this.draper.draw(pass, ca.bindGroup, perCopy, ca.count)
     }
     return calls
   }
 
-  /** One advected batch. Skipped — not drawn statically — until the step has produced a state:
-   *  before then there is nothing to say where any arrow is, and drawing the origins would be a
-   *  frame of the catalogue field masquerading as the animation. */
+  /** One advected batch: rewrite its view block from this frame's camera, then draw the lattice
+   *  that block describes.
+   *
+   *  THE INSTANCE COUNT COMES FROM THE WRITE, not from the batch. That is the inversion #1520 is
+   *  about — `ca.count` is the number of cells the coverage happened to have, which is exactly the
+   *  quantity that made the field expire at z17. What is drawn instead is `nx·ny·G` lattice nodes
+   *  of the CURRENT viewport, so density is constant per screen area at every zoom by construction.
+   *
+   *  `null` from the write is a camera with no usable inverse (an orthographic or degenerate
+   *  matrix): nothing is drawn, rather than a lattice built from a divide by zero. */
   private drawAdvected(
     pass: RhiRenderPass,
     ca: CompiledArrowBatch,
     perCopy: Float32Array[],
+    view: AdvectedArrowView | null,
   ): number {
     const draper = this.advectedDraper
     // THIS batch's region, not the map's one field (#1458): a mosaic's domains each carry their
-    // own current, and the arrow's colour, heading and scale are re-decided every frame from
-    // the velocity under it — bound from the wrong domain that is another sea reported as this
-    // one. Null when the region has left the coverage: its textures are destroyed, so a batch
+    // own current, and the glyph's colour, heading and scale are re-decided every frame from the
+    // velocity under it — bound from the wrong domain that is another sea reported as this one.
+    // Null when the region has left the coverage: its textures are destroyed, so a batch
     // outliving its region by a frame draws nothing rather than binding freed memory (#1419).
     const bind = this.arrowSource?.arrowBindingFor(ca.region)
-    if (!draper || !bind || !ca.bandBuf) return 0
+    if (!draper || !bind || !ca.bandBuf || !ca.viewBuf || !ca.advected || !view || !this.rhi)
+      return 0
+    const block = arrowViewBlock()
+    const count = writeArrowViewUniform(block, view, ca.advected.grid, {
+      basePx: S111_ARROW_BASE_PX * view.dpr,
+      strokeUnits: S111_OUTLINE_FRAC,
+    })
+    if (count === null || count === 0) return 0
+    this.rhi.writeBuffer(ca.viewBuf, 0, block.buffer)
     // Rebuilt only when the region hands over a DIFFERENT velocity pair. It used to be keyed by
     // the ping-pong state side as well; there is no state to alternate any more (#1520), so the
-    // group is stable for the batch's life. The invalidation still matters and for the original
-    // reason: after a region eviction the old views are DESTROYED, and a cached group holding
-    // them fails the next submit —
+    // group is stable for the batch's life — the view BUFFER is rewritten in place, not swapped.
+    // The invalidation still matters and for the original reason: after a region eviction the old
+    // views are DESTROYED, and a cached group holding them fails the next submit —
     //   "destroyed texture coverage-flow-v used in a submit"
     // reported from S-111 Live by zooming out and panning to another domain.
     if (ca.boundFlowU !== bind.flowU || ca.boundFlowV !== bind.flowV) {
@@ -291,10 +332,10 @@ export class CompiledArrowStore {
     }
     let bg = ca.advectedGroup
     if (!bg) {
-      bg = draper.makeBatchBindGroup(ca.featBuf, ca.bandBuf, bind.flowU, bind.flowV)
+      bg = draper.makeBatchBindGroup(ca.bandBuf, bind.flowU, bind.flowV, ca.viewBuf)
       ca.advectedGroup = bg
     }
-    return draper.draw(pass, bg, perCopy, ca.count)
+    return draper.draw(pass, bg, perCopy, count)
   }
 
   /** Compiled layers bake size in px too — re-pack feat from the retained raw arrays on a
@@ -302,18 +343,13 @@ export class CompiledArrowStore {
   repackForDpr(dpr: number): void {
     if (!this.rhi) return
     for (const ca of this.batches) {
+      // An advected batch bakes no size into a buffer — its glyph size rides the per-frame
+      // ArrowView block, which is written from the CURRENT dpr every frame anyway.
+      if (!ca.featBuf) continue
       this.rhi.writeBuffer(
         ca.featBuf,
         0,
-        packCompiledArrowFeat(
-          ca.lons,
-          ca.lats,
-          ca.bearings,
-          ca.sizes,
-          dpr,
-          ca.strokeUnits,
-          ca.advected ?? undefined,
-        ),
+        packCompiledArrowFeat(ca.lons, ca.lats, ca.bearings, ca.sizes, dpr, ca.strokeUnits),
       )
       this._featWrites++
     }
@@ -324,9 +360,10 @@ export class CompiledArrowStore {
    *  next rebuildLayers, so the records go too. */
   destroyGpu(): void {
     for (const ca of this.batches) {
-      this.rhi?.destroyBuffer(ca.featBuf)
+      if (ca.featBuf) this.rhi?.destroyBuffer(ca.featBuf)
       if (ca.tintBuf) this.rhi?.destroyBuffer(ca.tintBuf)
       if (ca.bandBuf) this.rhi?.destroyBuffer(ca.bandBuf)
+      if (ca.viewBuf) this.rhi?.destroyBuffer(ca.viewBuf)
     }
     this.batches.length = 0
     this.rhi = null

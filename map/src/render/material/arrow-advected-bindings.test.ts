@@ -12,7 +12,7 @@
 
 import { describe, it, expect } from 'vitest'
 import { ARROW_ADVECTED_BINDINGS } from './arrow-retained-advected-material'
-import { emitArrowRetainedAdvectedWgsl } from '../../shaders/dsl/arrow-retained'
+import { emitArrowRetainedAdvectedWgsl } from '../../shaders/dsl/arrow-advected'
 
 describe('advected arrow DRAW — group 1 matches the shader', () => {
   const w = emitArrowRetainedAdvectedWgsl()
@@ -26,17 +26,18 @@ describe('advected arrow DRAW — group 1 matches the shader', () => {
   })
 
   it('every group-1 resource the shader declares has an entry — none left unbound', () => {
-    const declared = [...w.matchAll(/@group\(1\) @binding\((\d+)\) var[^\n]*?(\w+):/g)].map(
-      (m) => ({
-        binding: Number(m[1]),
-        name: m[2],
-      }),
-    )
+    const declared = [
+      ...w.matchAll(/@group\(1\) @binding\((\d+)\) var[^\n]*?(\w+): ([\w<>, ]+?);/g),
+    ].map((m) => ({ binding: Number(m[1]), name: m[2], type: m[3] }))
     expect(declared.length).toBe(ARROW_ADVECTED_BINDINGS.length)
     for (const d of declared) {
       const entry = ARROW_ADVECTED_BINDINGS.find((e) => e.binding === d.binding)
       expect(entry, `binding ${d.binding} (${d.name}) has no layout entry`).toBeDefined()
-      expect(entry!.name).toBe(d.name)
+      // A UNIFORM entry is named for its BLOCK (the WGSL struct / GLSL block name), because that
+      // is what `getUniformBlockIndex` resolves; every other kind is named for the shader
+      // VARIABLE, which is what a sampler uniform reflects as. Conflating the two leaves the
+      // block at binding point 0, aliasing group 0 — and nothing fails, the field just goes blank.
+      expect(entry!.name).toBe(entry!.kind === 'uniform' ? d.type : d.name)
     }
   })
 

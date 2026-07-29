@@ -38,36 +38,16 @@ export const S111_BAND_PARAMS_ROW = S111_BAND_COUNT
 /** Slot 0 of the params row: `trueLonSpan / trueLatSpan` for this coverage. */
 export const S111_PARAM_UV_ASPECT = 0
 
-/** Slot 1: this batch's BASE TEXEL in the shared arrow state (#1458).
+/** Slots 1-3 are FREE.
  *
- *  One state texture serves every mosaic region, each owning a contiguous range, so the VS
- *  reads texel `base + instance_index` rather than `instance_index`. Without it every region
- *  indexed from 0: the last region armed owned every texel, its siblings' arrows were leashed
- *  to cells in another domain, and a smaller sibling shrank the texture out from under a
- *  larger one. Carried here rather than in a feat slot for the reason the row exists — the
- *  advected VS has no uniform of its own, and growing the feat stride would change the STATIC
- *  arrow shader's bytes for a value only this path reads. */
-export const S111_PARAM_STATE_BASE = 1
-
-/** Slots 2 and 3: the SAMPLE STEPS spanning uv 0→1 on each axis — `(n − 1) · sub`, where `sub`
- *  is how finely the generator subdivided each cell (#1450 B, #1511).
+ *  Slot 1 carried a base texel into the shared arrow STATE texture (#1458) — that texture is gone
+ *  (#1520 step 1), and with it the whole idea of an arrow owning a texel. Slots 2-3 carried the
+ *  seeded lattice's steps per uv unit, which the VS turned into a screen SPACING and a per-arrow
+ *  lattice index for its power-of-two decimation; the field is now seeded on the SCREEN at the
+ *  spacing it wants, so there is no grid-derived spacing to correct and no index to recover.
  *
- *  What the VS does with them is turn its two SCREEN bases into a SEEDED-POSITION SPACING. The
- *  bases span one leash (`ARROW_DRIFT_UV`) of grid-uv, which is `ARROW_DRIFT_UV · stepsU` lattice
- *  steps along u, so `|basisU| / (ARROW_DRIFT_UV · stepsU)` is how many pixels apart two adjacent
- *  seeded positions land — the quantity view-driven density has to answer to, and the one the
- *  arm-time stride could not see at all (`arrowStride` reads the cell COUNT and nothing about the
- *  view).
- *
- *  They also recover each arrow's own lattice index from its origin uv, which is what makes the
- *  thinning a nested power-of-two decimation rather than a per-frame reshuffle — and what makes
- *  its `keepEvery = sub` rung fall exactly on the cell centres.
- *
- *  NOT the cell counts. `(n − 1)`, not `n`, is the reciprocal of the uv step the origins are
- *  written in (`u = col / (n − 1)`), so this is exact where a cell count is off by `n / (n − 1)`
- *  — invisible at one arrow per cell, a whole node of index skew on a finer lattice. */
-export const S111_PARAM_STEPS_U = 2
-export const S111_PARAM_STEPS_V = 3
+ *  Left as a gap rather than compacted: the row is one std140 pair either way, and renumbering
+ *  `uvAspect` would change the uploaded table's bytes for no saving at all. */
 
 /** Rows in the uploaded buffer: the nine bands plus the params row. */
 export const S111_BAND_TABLE_ROWS = S111_BAND_COUNT + 1

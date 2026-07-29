@@ -1,134 +1,52 @@
-// ═══ View-driven arrow density, pinned at the layout and the emitted shader (#1450 B, #1511) ═══
+// ═══ Where the arrow field's DENSITY comes from, pinned at the emit (#1450 B, #1511, #1520) ═══
 //
-// The arm-time stride reads the cell COUNT and nothing about the view (`coverage-arrow-show.ts`
-// `arrowStride`), so zoomed out the arrows pile into a few pixels and zoomed in the field stays
-// as sparse as the arm decided — and could never be denser than the grid, because nothing made a
-// second arrow for one cell. The generator now seeds a finer lattice and the advected VS keeps
-// every 2^L-th node of it, so one rule runs in both directions.
+// The arm-time stride read the cell COUNT and nothing about the view (`coverage-arrow-show.ts`
+// `arrowStride`), so zoomed out the arrows piled into a few pixels and zoomed in the field stayed
+// as sparse as the arm decided. #1511 answered that with a finer seeded lattice plus a
+// power-of-two decimation in the VS — and #1520 measured that answer running out: `sub²` per cell
+// scales with the GRID, so at z17 not one seeded node was inside the viewport and the field
+// painted NOTHING.
 //
-// WHAT IS PROVEN HERE and what is not. These are LAYOUT and EMIT facts — that the lattice reaches
-// the shader, that the shader reads it, and that the cull rides the existing zero-the-size
-// mechanism rather than a second one. That the field ACTUALLY thins on zoom-out and FILLS on
-// zoom-in is a render claim and is gated where render claims belong:
-// `playground/e2e/_s111-arrow-density-gate.spec.ts`.
+// The density question is now answered by construction rather than by a rule. The instance set IS
+// a lattice on the screen, so `nodes per screen area` is a constant the CPU picks and the shader
+// never has to correct for a grid it cannot see. There is no decimation level, no lattice index,
+// and no seeded spacing — those slots are gone from the band table and the assertions that pinned
+// them with it.
 //
-// The numeric rule is deliberately NOT restated in TypeScript here. A CPU mirror of the shader's
-// decimation would be a second authority for one rule, which is the drift §12 keeps paying for —
-// the emitted text and the render gate are the two authorities that cannot silently disagree.
+// WHAT IS PROVEN HERE and what is not. These are EMIT facts — that the walk costs what it should,
+// and that every velocity fetch reads the cell that OWNS its position. That the field actually
+// paints across z7…z19 is a render claim and is gated where render claims belong:
+// `playground/e2e/_s111-arrow-density-gate.spec.ts`. The CPU half of the density rule (the
+// viewport → instance count map) is pinned in `map/src/render/arrow-view-uniform.test.ts`.
 
 import { describe, it, expect } from 'vitest'
-import { emitArrowRetainedAdvectedWgsl, emitArrowRetainedAdvectedGlsl } from './arrow-retained'
-import {
-  S111_BAND_PARAMS_ROW,
-  S111_BAND_STRIDE,
-  S111_PARAM_STEPS_U,
-  S111_PARAM_STEPS_V,
-  S111_PARAM_UV_ASPECT,
-  S111_PARAM_STATE_BASE,
-} from './s111-band-table-layout'
-import { s111BandTableNormalized } from '../../render/s111-portrayal'
-import { ARROW_DRIFT_TAPS } from './arrow-drift'
+import { emitArrowRetainedAdvectedWgsl, emitArrowRetainedAdvectedGlsl } from './arrow-advected'
+import { ARROW_TRAIN_STEPS } from './arrow-view'
 
-const paramsAt = (t: Float32Array, slot: number): number =>
-  t[S111_BAND_PARAMS_ROW * S111_BAND_STRIDE + slot]!
-
-describe('the seeded lattice reaches the shader (#1450 B, #1511)', () => {
-  it('the params row carries the steps per uv unit when a lattice is declared', () => {
-    const t = s111BandTableNormalized(2, 1.3, 's111-speed', [595 * 4, 432 * 4])
-    expect(paramsAt(t, S111_PARAM_STEPS_U)).toBe(2380)
-    expect(paramsAt(t, S111_PARAM_STEPS_V)).toBe(1728)
-  })
-
-  it('the new slots do not disturb the two the row already carried', () => {
-    // The params row is shared, and a slot collision would be invisible: the arrows would keep
-    // drawing, pointed by a uvAspect that is really a lattice step count.
-    const withLattice = s111BandTableNormalized(2, 1.3, 's111-speed', [2380, 1728])
-    expect(paramsAt(withLattice, S111_PARAM_UV_ASPECT)).toBeCloseTo(1.3, 6) // f32 round-trip
-    expect(paramsAt(withLattice, S111_PARAM_STATE_BASE)).toBe(0)
-    expect(S111_PARAM_STEPS_U).not.toBe(S111_PARAM_UV_ASPECT)
-    expect(S111_PARAM_STEPS_U).not.toBe(S111_PARAM_STATE_BASE)
-    expect(S111_PARAM_STEPS_V).not.toBe(S111_PARAM_STEPS_U)
-  })
-
-  it('an UNDECLARED lattice leaves the slots zero — the shader reads that as "do not thin"', () => {
-    // Zero must mean the whole field, not maximum decimation: a caller with no lattice to declare
-    // would otherwise silently lose its arrows.
-    const t = s111BandTableNormalized(2, 1.3)
-    expect(paramsAt(t, S111_PARAM_STEPS_U)).toBe(0)
-    expect(paramsAt(t, S111_PARAM_STEPS_V)).toBe(0)
-  })
-
-  it('the band rows are untouched by the params row gaining slots', () => {
-    const a = s111BandTableNormalized(2, 1.3, 's111-speed')
-    const b = s111BandTableNormalized(2, 1.3, 's111-speed', [2380, 1728])
-    const bandFloats = S111_BAND_PARAMS_ROW * S111_BAND_STRIDE
-    expect([...b.subarray(0, bandFloats)]).toEqual([...a.subarray(0, bandFloats)])
+describe('the STATIC arrow VS is untouched by any of it', () => {
+  it('declares no lattice, no view block and no backward map', () => {
+    // #1450's endpoint is one portrayal; until then the static path keeps its arm-time stride and
+    // its byte-identical shader. A change here would be scope this increment did not take.
+    const w = emitArrowRetainedAdvectedWgsl()
+    const before = w.slice(0, w.indexOf('fn vs_arrow_retained_advected'))
+    expect(before).not.toContain('fn vs_arrow_retained(')
   })
 })
 
-describe('the advected VS thins by SCREEN spacing (#1450 B, #1511)', () => {
-  const w = emitArrowRetainedAdvectedWgsl()
-
-  it('reads BOTH lattice slots out of the params row, at the indices the layout declares', () => {
-    // The index is COMPUTED from the layout constants rather than spelled out, so moving a slot
-    // moves this assertion with it instead of leaving a stale magic number that still passes.
-    for (const slot of [S111_PARAM_STEPS_U, S111_PARAM_STEPS_V]) {
-      const at = S111_BAND_PARAMS_ROW * S111_BAND_STRIDE + slot
-      expect(w, `band_data[${at}u] (params row slot ${slot})`).toContain(`band_data[${at}u]`)
-    }
-  })
-
-  it('derives the level from the projected BASES, not from a camera scalar', () => {
-    // The whole point of measuring at the arrow's own position is that a pitched frame decimates
-    // its horizon harder than its foreground. A camera-wide stride cannot express that, so a
-    // rewrite that reached for one would be a regression this pins.
-    expect(w).toMatch(/log2/)
-    expect(w).toMatch(/exp2/)
-    expect(w).toMatch(/ceil/)
-  })
-
-  it('the cull rides the size product — one way for an arrow not to be drawn, not two', () => {
-    // `size` is already zeroed for a speed-0 cell and for a failed perspective guard, and a zero
-    // length collapses the quad. The density factor multiplies into the SAME product. A separate
-    // early-out would be a second mechanism to keep in step with the quad emit below it — so the
-    // VS must still have exactly ONE return, and no branch that skips the emit.
-    const vs = w.slice(w.indexOf('fn vs_arrow_retained_advected'))
-    const body = vs.slice(0, vs.indexOf('\n}'))
-    expect(body.match(/\breturn\b/g) ?? []).toHaveLength(1)
-    // …and the factor itself is present: the exact-integer test the nesting argument rests on.
-    expect(body).toMatch(/fract\(/)
-  })
-
-  it('the GLSL twin carries the same thinning — one backend must not draw a denser field', () => {
-    const g = emitArrowRetainedAdvectedGlsl('vertex')
-    expect(g).toMatch(/log2/)
-    expect(g).toMatch(/exp2/)
-    expect(g).toMatch(/fract/)
-  })
-
-  it('the STATIC arrow VS is untouched — it declares no lattice and thins nothing', () => {
-    // #1450's endpoint is one portrayal; until then the static path keeps its arm-time stride
-    // and its byte-identical shader. A change here would be scope this increment did not take.
-    const vs = w.slice(0, w.indexOf('fn vs_arrow_retained_advected'))
-    expect(vs).not.toMatch(/exp2/)
-  })
-})
-
-describe('the drift costs what it should — no re-inlined tap chain (#1520)', () => {
+describe('the streamline walk costs what it should — no re-inlined tap chain (#1520)', () => {
   // THE ONLY SYMPTOM OF LOSING THIS IS A SILENTLY ~4x MORE EXPENSIVE SHADER, which is why it is a
   // gate and not a comment. An unbound expression node is re-inlined at EVERY read, texture fetch
-  // and all — and the velocity pair is read by the nine-band select chain, by the speed, and by
-  // both direction components. Leave `vu`/`vv` unbound and the emit goes to 38 fetches on both
-  // backends against the 10 below; the stateful VS it replaced had 2.
+  // and all — and the velocity pair is read by the direction it builds and by the step length.
+  // Leaving them unbound took the predecessor to 38 fetches on both backends against 10.
   //
-  // Established by CUTTING each candidate, not by reading: the tap loop's mutable accumulator was
-  // the first diagnosis and cutting its binding changed nothing at all.
+  // Established by CUTTING each candidate, not by reading: the walk's mutable accumulator was the
+  // first diagnosis and cutting its binding changed nothing at all.
   //
-  // The budget is exact and derived, not a ceiling picked to pass: ARROW_DRIFT_TAPS taps read
-  // both components, and the symbolization reads them once more at the final position.
-  const budget = ARROW_DRIFT_TAPS * 2 + 2
+  // The budget is exact and derived, not a ceiling picked to pass: every integration step reads
+  // both components, and the symbolization reads them once more at the walk's end.
+  const budget = ARROW_TRAIN_STEPS * 2 + 2
 
-  it('fetches the velocity pair exactly once per tap, plus once to symbolize', () => {
+  it('fetches the velocity pair exactly once per step, plus once to symbolize', () => {
     const w = emitArrowRetainedAdvectedWgsl()
     expect((w.match(/textureLoad\(flow_[uv]_tex/g) ?? []).length).toBe(budget)
   })
@@ -160,9 +78,9 @@ describe('the velocity fetch reads the cell that OWNS the position (#1511)', () 
       ['glsl', g, /texelFetch\(flow_[uv]_tex, (.*?), int\(0u\)\)/g],
     ] as const) {
       const coords = [...src.matchAll(fetch)].map((m) => m[1]!)
-      // Not an exact count — the drift's taps fetch too (#1520), and their budget is pinned by
-      // its own test above. What matters HERE is that EVERY fetch, tap or symbolization, reads
-      // the owner cell: a tap that read a neighbour would walk the arrow through the wrong water.
+      // Not an exact count — the walk's steps fetch too, and their budget is pinned by its own
+      // test above. What matters HERE is that EVERY fetch, step or symbolization, reads the owner
+      // cell: a step that read a neighbour would walk the train through the wrong water.
       expect(coords.length, `${name} fetches the velocity pair`).toBeGreaterThanOrEqual(2)
       for (const c of coords) {
         // `floor(x + 0.5)` — the nearest cell under point registration.

@@ -93,10 +93,17 @@ function stubPass() {
 }
 
 /** A render at the given DPR — drains `_retired` and applies the DPR re-pack. */
+/** A perspective-shaped MVP over a camera-relative ground plane. It has to be INVERTIBLE: the
+ *  advected arm builds its screen lattice from the four corner rays of this matrix's f64 inverse,
+ *  and a singular one is honestly reported as "no view this frame" and draws nothing (#1520). The
+ *  all-zero Float32Array this used to pass is exactly that case. */
+const stubMvp = (): Float32Array =>
+  new Float32Array([1e-3, 0, 0, 0, 0, 1e-3, 0, 0, 0, 0, -1e-3, -1, 0, 0, 1, 1000])
+
 function render(gm: GraphicsManager, dpr = 1, pass: object = stubPass()): void {
   gm.renderRetained(
     pass as never,
-    { matrix: new Float32Array(16), logDepthFc: 0.03 },
+    { matrix: stubMvp(), logDepthFc: 0.03 },
     stubCamera,
     0,
     0,
@@ -327,22 +334,19 @@ function makeArrowSource() {
   }
 }
 
-function addAdvected(gm: GraphicsManager, n: number, region = ''): void {
+/** An advected batch carries NO instances (#1520) — the lattice is the viewport's, decided per
+ *  frame — so the arrays are empty and the only inputs are the grid box and the band table. */
+function addAdvected(gm: GraphicsManager, region = ''): void {
   gm.addCompiledArrowLayer(
-    Float64Array.from({ length: n }, (_, i) => -70 + i),
-    Float64Array.from({ length: n }, (_, i) => 40 + i * 0.1),
-    Float32Array.from({ length: n }, () => 0),
-    Float32Array.from({ length: n }, () => 34),
-    Array.from({ length: n }, () => [1, 0, 0, 1] as const),
+    new Float64Array(0),
+    new Float64Array(0),
+    new Float32Array(0),
+    new Float32Array(0),
+    [],
     0.06,
     region,
     {
-      originU: Float32Array.from({ length: n }, (_, i) => i / n),
-      originV: Float32Array.from({ length: n }, () => 0.5),
-      uStepLon: Float64Array.from({ length: n }, (_, i) => -70 + i + 0.1),
-      uStepLat: Float64Array.from({ length: n }, (_, i) => 40 + i * 0.1),
-      vStepLon: Float64Array.from({ length: n }, (_, i) => -70 + i),
-      vStepLat: Float64Array.from({ length: n }, (_, i) => 40 + i * 0.1 - 0.1),
+      grid: { originLon: -71, originLat: 41, invSpanLon: 0.2, invSpanLat: -0.2 },
       bandTable: new Float32Array(80),
     },
   )
@@ -355,24 +359,28 @@ describe('CompiledArrowStore — advected batches (#1419)', () => {
     const arrows = makeArrowSource()
     gm.setAdvectedArrowSource(arrows.source)
     gm.attachDevice(t.device as never, t.rhi as never, 'bgra8unorm' as never)
-    addAdvected(gm, 4)
+    addAdvected(gm)
     const labels = compiledBufs(t.created).map((b) => b.label)
-    expect(labels).toContain('compiled-arrow-feat')
     expect(labels).toContain('compiled-arrow-band')
+    expect(labels).toContain('compiled-arrow-view')
     expect(labels).not.toContain('compiled-arrow-tint')
+    // …and no per-instance record at all: the instance set is the viewport's lattice, so there
+    // is nothing to pack. A feat buffer reappearing here is the z17 ceiling reappearing with it.
+    expect(labels).not.toContain('compiled-arrow-feat')
   })
 
-  it('carries the origins in the FEAT buffer — no separate upload, no shared state (#1520)', () => {
+  it('allocates exactly two buffers — no per-arrow upload of any kind (#1520)', () => {
     // There used to be a second upload here, of one texel per arrow into a state texture the
     // whole map shared, and it had to happen at ADD time because the advect pass ran earlier in
-    // the frame than the graphics pass. Both are gone: the origin rides the instance record and
-    // the position is a function of it, so the batch is complete the moment its feat buffer is.
+    // the frame than the graphics pass. Then the origins moved into the feat record. Both are
+    // gone: a glyph's position is a function of its screen seed and the frame clock, so the batch
+    // is complete once the catalogue table and its (rewritable) view block exist.
     const t = makeStubs()
     const gm = new GraphicsManager()
     gm.setAdvectedArrowSource(makeArrowSource().source)
     gm.attachDevice(t.device as never, t.rhi as never, 'bgra8unorm' as never)
-    addAdvected(gm, 4)
-    // feat + band, and nothing else — in particular no per-arrow state allocation.
+    addAdvected(gm)
+    // band + view, and nothing else — in particular nothing sized by the arrow count.
     expect(compiledBufs(t.created).length).toBe(2)
   })
 
@@ -382,7 +390,7 @@ describe('CompiledArrowStore — advected batches (#1419)', () => {
     const t = makeStubs()
     const gm = new GraphicsManager()
     gm.attachDevice(t.device as never, t.rhi as never, 'bgra8unorm' as never)
-    addAdvected(gm, 4)
+    addAdvected(gm)
     expect(compiledBufs(t.created)).toHaveLength(0)
   })
 
@@ -398,7 +406,7 @@ describe('CompiledArrowStore — advected batches (#1419)', () => {
       groups++
       return {}
     }
-    addAdvected(gm, 4)
+    addAdvected(gm)
     const during = (fn: () => void): number => {
       const before = groups
       fn()
@@ -423,11 +431,11 @@ describe('CompiledArrowStore — advected batches (#1419)', () => {
     const arrows = makeArrowSource()
     gm.setAdvectedArrowSource(arrows.source)
     gm.attachDevice(t.device as never, t.rhi as never, 'bgra8unorm' as never)
-    addAdvected(gm, 4)
+    addAdvected(gm)
     gm.clearCompiledArrows()
     render(gm)
     const freed = t.destroyed.map((b) => b.label)
-    expect(freed).toContain('compiled-arrow-feat')
     expect(freed).toContain('compiled-arrow-band')
+    expect(freed).toContain('compiled-arrow-view')
   })
 })
