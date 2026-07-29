@@ -11,12 +11,37 @@
 // CORS still applies (a browser fetch) — NOAA's S-100 S3 buckets are CORS-blocked, so
 // point this at your CORS-proxy/mirror, not the bucket directly (see the recipes doc).
 
-import { Hdf5Error, type ByteReader } from './bytes'
+import { BufferReader, Hdf5Error, type ByteReader } from './bytes'
 
 export interface RangeReaderOptions {
   /** Injectable fetch (tests / a custom-header proxy client). Default: global `fetch`. */
   fetch?: typeof globalThis.fetch
 }
+
+/** At or below this total size a cell is read in ONE request instead of ranged.
+ *
+ *  MEASURED, on a real 4.5 MB NOAA S-102 cell over the same link, in the same run:
+ *
+ *      whole-file GET                    125 ms
+ *      ranged read (bytes it needed)   2 100 ms   — and it pulled 4 608 KiB of the 4 608 KiB
+ *
+ *  The ranged read fetched the ENTIRE file and paid ten-plus serial round trips to do it,
+ *  because an unwindowed coverage read touches every chunk. That is the common case for
+ *  S-102: one survey grid, no forecast axis to skip.
+ *
+ *  The crossover is algebra, not taste. Ranged costs `K·RTT + needed/T`, whole costs
+ *  `RTT + total/T`, so whole wins while `(K−1)·RTT > (total − needed)/T`. `K` is never
+ *  below ~6 (probe → superblock → root group → object header → b-tree levels → chunks — a
+ *  chain where each address is only known once its predecessor is parsed), and this repo's
+ *  own `bbox-window.test.ts` measures the best case for ranging at the DEFAULT block size:
+ *  a 10 % viewport window over a 3.9 MB file still transfers 80 % of it across 11 requests.
+ *  So `total − needed` is small for anything this size and the latency term dominates on
+ *  every link — the slower the link, the smaller the file this fires on matters, which is
+ *  why the bound is 8 MB rather than "whenever it looks like most of the file".
+ *
+ *  Above it, ranging keeps its point: a multi-timestep S-111 cell reads one forecast group
+ *  out of dozens, and a windowed read of a large S-102 survey skips most of the grid. */
+const WHOLE_FILE_MAX = 8 * 1024 * 1024
 
 export class RangeReader implements ByteReader {
   private constructor(
@@ -47,6 +72,30 @@ export class RangeReader implements ByteReader {
     // Drain the 1-byte body so the connection can be reused.
     await res.arrayBuffer()
     return new RangeReader(url, total, doFetch)
+  }
+
+  /** The reader a caller should actually parse through: `this` for a large cell, or a
+   *  RESIDENT reader over the whole file for one small enough that a single GET beats the
+   *  round trips a ranged parse needs (see `WHOLE_FILE_MAX`).
+   *
+   *  Deliberately NOT folded into `open()`: `RangeReader` stays exactly what it says it is —
+   *  a `ByteReader` over HTTP Range — and this policy sits where the caller can see it. The
+   *  Range probe in `open()` still runs either way, so a server that does not honour Range
+   *  is still rejected loudly rather than silently whole-file'd.
+   *
+   *  Falls back to `this` if the whole-file GET fails or comes back short: a slow path is a
+   *  better outcome than a failed read, and the ranged path is known to work here (the probe
+   *  just proved it). */
+  async residentIfSmall(): Promise<ByteReader> {
+    if (this.byteLength > WHOLE_FILE_MAX) return this
+    try {
+      const res = await this.doFetch(this.url)
+      if (!res.ok) return this
+      const buf = new Uint8Array(await res.arrayBuffer())
+      return buf.byteLength === this.byteLength ? new BufferReader(buf) : this
+    } catch {
+      return this
+    }
   }
 
   async read(offset: number, length: number): Promise<Uint8Array> {

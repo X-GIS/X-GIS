@@ -66,25 +66,58 @@ export async function readRawElements(
   const strides = rowMajorStrides(dims)
   const chunkStrides = rowMajorStrides(chunkDims)
   const chunkElems = chunkDims.reduce((a, b) => a * b, 1)
-  for (const rec of selected) {
-    // Fetch ONLY this chunk's bytes (a range reader's selective read; ADR-0010 §4).
-    await c.ensure(rec.address, rec.size)
-    c.seek(rec.address)
-    const rawChunk = c.bytes(rec.size)
-    const chunkBytes = await decodeChunk(rawChunk, info.filters, rec.filterMask, itemSize)
-    // A chunk stores the FULL (padded) chunk shape; a short decode = a corrupt chunk
-    // length. copyChunk would otherwise write a PARTIAL element at the boundary (mixing
-    // real + fill bytes into one f32) and silently leave the rest as fill — loud error (A1).
-    if (chunkBytes.length < chunkElems * itemSize)
-      throw new Hdf5Error(
-        `chunk at 0x${rec.address.toString(16)} decoded to ${chunkBytes.length} B, ` +
-          `need ${chunkElems * itemSize} (${chunkElems} elems × ${itemSize} B)`,
-        rec.address,
-      )
-    copyChunk(chunkBytes, out, rec.offsets, chunkDims, dims, strides, chunkStrides, itemSize)
+  // ONE batched fault-in for every selected chunk — the residency the loop below relies on.
+  // It used to `ensure` per chunk inside the loop, which cost one serial range request each:
+  // a 4.5 MB NOAA S-102 cell took 2977 ms as 18 back-to-back requests where the whole file
+  // GETs in 125 ms, because every hop waited out a full RTT before the next was issued. The
+  // chunk list is fully known here, so the serialisation bought nothing. Still selective —
+  // `region` has already dropped the chunks outside the window, so a bbox read batches only
+  // what it was going to fetch anyway.
+  await c.ensureAll(selected.map((rec) => ({ offset: rec.address, length: rec.size })))
+  // Decoded in BATCHES, not one at a time. `decodeChunk` is async because inflate is a
+  // `DecompressionStream`, and the platform runs that off the calling thread — so awaiting
+  // one chunk before starting the next left the inflater idle for every gap and paid a
+  // separate stream setup + event-loop round trip per chunk, in series. A batch hands the
+  // platform several streams at once and only then copies them out.
+  //
+  // Batched rather than all-at-once because the raw (still compressed) bytes of every chunk
+  // in flight are held at the same time: a batch bounds that at DECODE_BATCH chunks, where
+  // `Promise.all` over `selected` would hold the whole compressed grid on top of the
+  // full-size output buffer this function already allocated.
+  //
+  // Order is preserved WITHIN and ACROSS batches, so `copyChunk` writes in exactly the
+  // sequence the serial loop did — which matters because overlapping chunks (an edge chunk
+  // and its neighbour) must resolve last-write-wins the same way.
+  for (let i = 0; i < selected.length; i += DECODE_BATCH) {
+    const batch = selected.slice(i, i + DECODE_BATCH)
+    // The raw slices come out FIRST and synchronously: `c` is one cursor with one `pos`, so
+    // reading it inside the concurrent decode would interleave seeks between chunks.
+    const raws = batch.map((rec) => c.sliceAt(rec.address, rec.size))
+    const decoded = await Promise.all(
+      batch.map((rec, k) => decodeChunk(raws[k]!, info.filters, rec.filterMask, itemSize)),
+    )
+    for (let k = 0; k < batch.length; k++) {
+      const rec = batch[k]!
+      const chunkBytes = decoded[k]!
+      // A chunk stores the FULL (padded) chunk shape; a short decode = a corrupt chunk
+      // length. copyChunk would otherwise write a PARTIAL element at the boundary (mixing
+      // real + fill bytes into one f32) and silently leave the rest as fill — loud error (A1).
+      if (chunkBytes.length < chunkElems * itemSize)
+        throw new Hdf5Error(
+          `chunk at 0x${rec.address.toString(16)} decoded to ${chunkBytes.length} B, ` +
+            `need ${chunkElems * itemSize} (${chunkElems} elems × ${itemSize} B)`,
+          rec.address,
+        )
+      copyChunk(chunkBytes, out, rec.offsets, chunkDims, dims, strides, chunkStrides, itemSize)
+    }
   }
   return out
 }
+
+/** How many chunks are decoded concurrently. Bounds the compressed bytes held in flight
+ *  (see the loop above); eight is enough to keep the platform inflater busy across the
+ *  event-loop gap that made the one-at-a-time loop serial. */
+const DECODE_BATCH = 8
 
 /** True when a chunk (origin `offsets[d]`, extent `chunkDims[d]`) overlaps `region` in
  *  every dimension — the half-open interval test `origin < regionEnd && chunkEnd > regionStart`.
