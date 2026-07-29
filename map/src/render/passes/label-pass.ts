@@ -50,6 +50,8 @@ import { ensureBackgroundPatternAtlas } from './background-pattern-atlas'
 import { type ShowCommand } from '../renderer-types'
 import type { FrameContext } from '../frame-context'
 import { unwrapProjection } from '../projection-token'
+import { Pitch0Unprojector } from '../../camera/pitch0-unproject'
+import { dispatchPointLabel, makeGroundBasisFor } from './dispatch-point-labels'
 import type { SceneView } from '../scene-view'
 import type { RenderPass, LabelPassHost } from './pass'
 import {
@@ -262,6 +264,11 @@ class LabelPass implements RenderPass {
   // `_skipState` above: `labelPass` is a module-level singleton adapted per map,
   // so a plain field would mix one map's counters into another's.
   private readonly _dropStatsByHost = new WeakMap<LabelPassHost, LineLabelDropStats>()
+  // #777 IV3 — the pitch-0 unprojector the ground basis composes against. Per
+  // HOST for the same reason as the maps above, and never per frame: it owns a
+  // matrix/inverse pair behind a cache whose whole point is that a pure tilt is
+  // a hit, which a fresh instance would throw away every frame.
+  private readonly _pitch0ByHost = new WeakMap<LabelPassHost, Pitch0Unprojector>()
   // The host whose counters the CURRENT frame is filling, assigned at `execute`
   // entry. A plain field is safe here only because `execute` is synchronous and
   // non-reentrant; the per-host map above is what actually holds the state.
@@ -656,6 +663,17 @@ class LabelPass implements RenderPass {
         isFlatProj ? undefined : host.camera.getECEFCenter(),
         true, // #1042 — label pass: apply the horizon MARGIN cull (not map.project)
       )
+
+      // #777 IV3 — the ground-basis producer for `text-pitch-alignment: map`.
+      // Built here because it composes the SAME `projectLonLat` the anchors were
+      // placed with; pairing it with any other projector would put the quad in a
+      // different frame from its own anchor.
+      let pitch0 = this._pitch0ByHost.get(host)
+      if (pitch0 === undefined) {
+        pitch0 = new Pitch0Unprojector()
+        this._pitch0ByHost.set(host, pitch0)
+      }
+      const groundBasisFor = makeGroundBasisFor(host.camera, w, h, projectLonLat, pitch0)
 
       // (a) Imperative overlays
       for (const ov of host.overlays) {
@@ -1160,43 +1178,17 @@ class LabelPass implements RenderPass {
             } else {
               const anchor = featureAnchor(feat.geometry)
               if (!anchor) continue
-              const featDef = applyFeatureExprs(feat.properties ?? {})
-              // Pass the full LabelDef and let TextStage.composeFontKey
-              // build the ctx.font shorthand (weight, italic, CJK
-              // fallback chain). Passing `def.font?.[0]` as a 6th-arg
-              // override here used to short-circuit that — every Mapbox
-              // label rendered in Regular weight and lost Hangul / Han
-              // fallback. Keep this comment on every call site so the
-              // override doesn't quietly come back.
-              for (const projected of projectLonLatCopies(anchor[0], anchor[1])) {
-                // iter 119: point-label paired-symbol collision. OFM
-                // Positron label_city/town/village pair the place name
-                // with circle_11_black icon and rely on
-                // icon-optional=false to drop the icon when text drops.
-                const pairedWithIcon =
-                  featDef.iconImage !== undefined &&
-                  featDef.iconImage !== null &&
-                  featDef.iconImage !== ''
-                const pairKey = pairedWithIcon
-                  ? pointLabelPairKey(labelLayerName, _pointLabelSeq++)
-                  : undefined
-                // #1081 — this copy's perspective distance-attenuation factor
-                // (projectLonLatCopies tuple slot 3); shared by the label + its icon.
-                const ps = projected[2]
-                stage.addLabel(
-                  featDef.text,
-                  feat.properties ?? {},
-                  projected[0],
-                  projected[1],
-                  featDef,
-                  undefined,
-                  labelLayerName,
-                  pairKey,
-                  undefined,
-                  ps,
-                )
-                dispatchIcon(featDef, projected[0], projected[1], 0, pairKey, false, undefined, ps)
-              }
+              dispatchPointLabel(feat.geometry, feat.properties ?? {}, anchor[0], anchor[1], {
+                applyFeatureExprs,
+                projectLonLatCopies,
+                addLabel: (v, p, x, y, d, f, ln, pk, cid, ps, gb) =>
+                  stage.addLabel(v, p, x, y, d, f, ln, pk, cid, ps, gb),
+                dispatchIcon,
+                layerName: labelLayerName,
+                nextPairKey: () => pointLabelPairKey(labelLayerName, _pointLabelSeq++),
+                groundBasisFor,
+                dpr,
+              })
             }
           }
           perfMarkEnd('encoder.label-dispatch.show')

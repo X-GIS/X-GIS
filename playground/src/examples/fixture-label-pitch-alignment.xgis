@@ -1,0 +1,41 @@
+xgis 1
+
+/* #777 IV3-a — `text-pitch-alignment: map` on POINT labels.
+ *
+ * A purpose-built fixture, and it has to be purpose-built: point labels resolve
+ * to `viewport` by default (the spec chain is auto -> text-rotation-alignment,
+ * whose own auto is `viewport` for point placement), and no real basemap authors
+ * the property — 25 symbol layers in bright.json, zero of them. So the ground
+ * basis has nothing to act on anywhere else, and a render gate pointed at a real
+ * style would measure a no-op and call it a pass.
+ *
+ * Two layers over the SAME anchors, so one frame carries both arms of the
+ * experiment and a diff cannot be explained by different geometry:
+ *
+ *   ground_labels    label-pitch-alignment-map      lies IN the ground plane
+ *   billboard_labels label-pitch-alignment-viewport stays upright
+ *
+ * Under pitch the two must diverge; at pitch 0 they must be identical, which is
+ * the no-regression rung (the basis is the identity there and is withheld, so
+ * the ground layer takes exactly the billboard path).
+ *
+ * Anchors are pushed via setSourceData after run() so the fixture needs no
+ * network fetch and the spec controls the geometry.
+ */
+
+source pins { type: geojson }
+
+layer ground_labels {
+  source: pins
+  | label-[.name] label-color-#ffffff label-size-22
+    label-halo-2 label-halo-color-#000000
+    label-pitch-alignment-map
+}
+
+layer billboard_labels {
+  source: pins
+  | label-[.name] label-color-#ffd400 label-size-22
+    label-halo-2 label-halo-color-#000000
+    label-pitch-alignment-viewport
+    label-offset-y-[-2.2]
+}
