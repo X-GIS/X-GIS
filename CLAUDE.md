@@ -166,6 +166,11 @@ must ALWAYS `Read` a file before editing it. The rule is graph-first for _findin
 not a ban on Read. Pairs with the `flow-first` skill: graph the call/data flow + blast
 radius before editing.
 
+**If the `codebase-memory` MCP is not connected** (remote/container sessions often lack it —
+verify, don't assume): fall back to Grep/Glob/Read and **say so in the reply**, so a
+graph-less search is never mistaken for a graph-backed one. The rule is unreachable, not
+waived — the blast-radius sweep a text search misses is then the reader's job.
+
 ## 7. Build & Test Discipline
 
 **Never run more than one heavy background process concurrently.** vitest, `tsc --build
@@ -255,6 +260,16 @@ down and still repeating it is a process bug — fix the process, then the code.
 - Generators may emit to STDOUT by contract (`bun scripts/emit-gap-matrix.ts >
 scripts/gap-matrix.md`) — read the script header before assuming write-in-place; exit 0
   ≠ file written.
+- A DIAGNOSTIC command appended after a verification command becomes the exit code — `bun run
+build > log; grep -c "error TS" log` reports FAILURE on a clean build, because grep exits 1
+  when it matches nothing. The mirror of the pipe-laundering entry above: that one hides a
+  failure, this one invents one. Capture `$?` immediately, then diagnose.
+- `cd` PERSISTS across a compound command, so a relative path in a restore step resolves
+  against the new directory — a `cd playground && … ; cp backup map/src/x.ts` silently writes
+  to `playground/map/src/`, leaving the probe's edit live. Cost a reported "the fix does not
+  work" that was actually the fix never being restored. Use ABSOLUTE paths in any
+  edit-probe-restore cycle, and assert the restore (`grep -c` the marker) before believing the
+  run that follows.
 - Worktrees share the repository's git state — stash, refs, hooks, config; only
   HEAD/index/working-files are per-worktree.
   → `2026-07-11-git-worktrees-share-more-than-you-think.md`
@@ -293,6 +308,31 @@ scripts/gap-matrix.md`) — read the script header before assuming write-in-plac
 - A pixel-COUNT render gate (nonBg %) passes on broken images — assert STRUCTURE
   (connectedness / no-seam-run / expected shape) or read the frame at full resolution;
   numbers never decide alone (#1221 round 1: 1.5% "green" on a disconnected seam-artifact line).
+- An assertion carries information only if it DISTINGUISHES the states of the thing it tests.
+  A gate can be deterministic, loud and specific and still be worthless: `_adaptive-quality-
+ladder-gate` asserted on triangles, and severing the controller→selector wire it exists to
+  watch failed IDENTICALLY to the wire working, so no premise fix could ever green it. Don't
+  just check fail-before goes red — CUT THE SPECIFIC MECHANISM and confirm the message names
+  the severed half. → `2026-07-28-the-assertion-that-failed-either-way.md`
+- Assert on the quantity the subsystem MOVES, not one downstream of it, and never attribute a
+  cause from a COMPOSITE number: triangles = tiles × geometry-per-tile, so a coarser tile set
+  read as "the ladder added 44% geometry" when the selector had done exactly its job (tiles
+  6→5) and the fixture's un-generalized grid supplied the rest. Decompose before accusing a
+  subsystem. → same post
+- Attribute against the branch's ACTUAL base, FETCHED — a `git checkout main` that is four
+  commits stale turns someone else's regression into yours. Nearly sent a fix into a raster
+  cache budget where nothing was wrong; the tell was the CONTROL arm having moved too.
+- A Playwright budget declared INSIDE a test body governs the body only — fixture setup is
+  still on the config default, which is where a loaded runner actually times out (`Test timeout
+of 60000ms exceeded while setting up "context"`). A CLI `--timeout` does not override it
+  either, so a probe can silently measure the old budget and "prove" the wrong thing. Declare it
+  where it covers setup: `test.describe.configure({ timeout })` or the per-test options object.
+  (Body-scope is the repo's prevailing idiom in 320 of 351 specs and is fine where fixtures are
+  cheap — this is about the heavy ones, not a ban.)
+- A diagnostic nothing can reach is not a diagnostic. `adaptiveQualityStep()` was documented
+  "exposed so a gate can assert the controller ACTED" and was surfaced on no public object —
+  three rounds of inference circled a question the system already knew. Intent in a comment
+  is not wiring; check the accessor is reachable from where a test runs.
 
 **Process**
 

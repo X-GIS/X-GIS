@@ -1,25 +1,30 @@
-// ═══ Hillshade DEM tile REQUEST policy — failed-load backoff + cold-start budget ═══
+// ═══ Tile REQUEST policy — failed-load backoff + cold-start budget ═══
 //
-// Both halves answer the same question the renderer asks every frame: may this tile be
+// Shared by HillshadeRenderer (DEM tiles) and RasterRenderer (basemap tiles). Both
+// halves answer the same question the renderer asks every frame: may this tile be
 // requested now? They live together because they contend for the same scarce resource
 // (the renderer's concurrency slots) and because a GPU-free unit test can settle either
-// one, while HillshadeRenderer itself needs a real device.
+// one, while the renderers themselves need a real device.
 //
-// A DEM tile load that resolves null (404, network error, a decode/upload throw)
-// leaves its key in NEITHER the tile cache NOR the in-flight set, so the very next
-// frame re-requested it — forever, at ~60 fps.
+// A tile load that resolves null (404, network error, a decode/upload throw) leaves its
+// key in NEITHER the tile cache NOR the in-flight set, so the very next frame
+// re-requested it — forever, at ~60 fps.
 //
 // That is not a rare path. A DEM source has a real maximum zoom (the AWS terrarium
 // bucket stops at z15) and `rasterCoverZoom` asks for zoom+1 on a 256-px source, so
-// merely zooming past it makes EVERY visible tile a permanent 404. The retry storm
-// then pins all of the renderer's concurrency slots with requests that can never
-// succeed, starving the parent-fallback fetches that would still have had something
-// to draw.
+// merely zooming past it makes EVERY visible tile a permanent 404; a raster source
+// whose `maxzoom` sits below what the camera asks for reproduces the same shape. The
+// retry storm then pins all of the renderer's concurrency slots with requests that can
+// never succeed, starving the parent-fallback fetches that would still have had
+// something to draw.
 //
-// The policy lives here, apart from the renderer, for two reasons: the renderer is
-// at its LOC ceiling, and a decision this load-bearing should be testable without a
-// GPU context (HillshadeRenderer needs a real device; whether to re-request a tile
-// does not).
+// `leafLoadBudget` / `COLD_START_PARENT_SLOTS` are consumed by the hillshade arm only —
+// the raster arm's leaf and parent-fallback loops share one budget already. They stay
+// here because they answer the same may-I-request question against the same slot pool.
+//
+// The policy lives here, apart from the renderers, for two reasons: both renderers are
+// at their LOC ceilings, and a decision this load-bearing should be testable without a
+// GPU context (the renderers need a real device; whether to re-request a tile does not).
 //
 // Not a permanent blocklist: state is per-source and the renderer drops it when the
 // URL template changes, since a different template is a different coverage and says

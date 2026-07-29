@@ -14,39 +14,13 @@ import { test, expect, type Page } from '@playwright/test'
 // under real sustained overload rather than a simulated one. It needs a full 12-frame
 // window per notch, which is why the pump below is long and the timeout generous.
 //
-// That premise is now CHECKED rather than assumed (#1433). A runner that does not deliver it
-// makes this gate SKIP, with the reason, instead of reporting a regression: an experiment
-// whose premise is absent has not found anything. Two conditions, both cheap — each arm's
-// geometry must have converged (grown off its seed), and the controller must have taken at
-// least one notch (`adaptiveQualityStep() > 0`, read off the page). Without them this gate
-// went red four times across three unrelated PRs, twice with numerically identical output,
-// while the code under test was never touched.
-//
 //   HEADED=0 XGIS_SOFTWARE_GPU=1 playwright test _adaptive-quality-ladder-gate.spec.ts
 
-// z14 + steep pitch: the camera this lever is FOR. The far field has to actually EXIST here
-// or the gate measures nothing — at low zoom the pitched frame lies inside `FAR_RAMP_NEAR`
-// (an early draft used z10.35 and measured 0.6%, correctly), and at high zoom there is no
-// horizon left to stretch.
-//
-// MOVED from z16/p80 (#1433). That camera stopped working the day #1427 (`21291c5`) ended
-// the far plane at the simulated horizon and culled the frustum tiles beyond it: the ladder
-// and that change are aimed at the same triangles, and the cheaper one now gets there first,
-// so nothing is left for a notch to buy. Bisected — 14.1% at #1427's parent, 0.0% at #1427
-// itself, and the gate then read red on three unrelated PRs for a product change rather than
-// a regression in what it tests.
-//
-// The lever is alive; #1427 only moved where its far field lives. Swept on the same host,
-// current main, this spec's own measurement:
-//
-//   z16 p80  control  20008 | adaptive  28794  step 1  =>  -43.9%   (the old camera)
-//   z14 p85  control 104299 | adaptive  47278  step 2  =>  +54.7%   ← here
-//   z18 p85  control   3551 | adaptive   3551  step 0  =>    0.0%   (nothing to do)
-//   z12 p85  control 215458 | adaptive 215458  step 3  =>    0.0%   (inside FAR_RAMP_NEAR)
-//
-// z14/p85 also buys far more margin over the 10% bar than z16/p80 ever did (54.7% vs 14.1%),
-// which is worth having on a gate whose whole history is boundary noise.
-const CAM = '#14/48.84778/2.33194/0/85'
+// z16 + steep pitch: the camera this lever is FOR. At low zoom the pitched frame still
+// lies inside `FAR_RAMP_NEAR` (an earlier draft used z10.35 and measured a 0.6% change —
+// correctly, because that scene has no far field to spend), so the gate has to stand
+// where the horizon actually stretches.
+const CAM = '#16/48.84778/2.33194/0/80'
 const SOURCE = 'land'
 /** 120 → 150 (#1433). The gate's premise is that the host genuinely cannot keep up, and at
  *  120 that was MARGINAL rather than assured: on a quiet runner the controller sometimes
@@ -60,43 +34,69 @@ const SEED_GRID = 150
  *  just the foreground, or the lever has nothing out there to coarsen. */
 const SEED_SPAN = 0.3
 
-/** Geometry the whole style contributed to the last frame. */
-async function frameGeometry(page: Page): Promise<{ tris: number; tiles: number }> {
+/** What the whole style drew last frame: how COARSE the tile set is (`coarsest` /
+ *  `finest`, from the per-zoom drawn-tile histogram) plus the triangle and tile
+ *  counts, which are REPORTED but never asserted on — see the note at the
+ *  geometry assertion for why they cannot carry this claim. */
+async function frameGeometry(page: Page): Promise<{
+  tris: number
+  tiles: number
+  coarsest: number
+  finest: number
+  atFinest: number
+  byZoom: string
+}> {
   return await page.evaluate(() => {
     const pipe = (
       window as unknown as { __xgisMap?: { inspectPipeline(): unknown } }
     ).__xgisMap?.inspectPipeline() as
-      { sources?: Array<{ frame: { triangles: number; tilesVisible: number } }> } | undefined
+      | {
+          sources?: Array<{
+            frame: {
+              triangles: number
+              tilesVisible: number
+              drawnByZoom: Array<[number, number]>
+            }
+          }>
+        }
+      | undefined
     let tris = 0
     let tiles = 0
+    const merged = new Map<number, number>()
     for (const s of pipe?.sources ?? []) {
       tris += s.frame.triangles
       tiles += s.frame.tilesVisible
+      for (const [z, n] of s.frame.drawnByZoom) merged.set(z, (merged.get(z) ?? 0) + n)
     }
-    return { tris, tiles }
+    const zooms = [...merged.keys()].sort((a, b) => a - b)
+    const finest = zooms[zooms.length - 1] ?? -1
+    return {
+      tris,
+      tiles,
+      coarsest: zooms[0] ?? -1,
+      finest,
+      atFinest: merged.get(finest) ?? 0,
+      byZoom: JSON.stringify(zooms.map((z) => [z, merged.get(z)])),
+    }
   })
 }
 
-/** Wait until the frame's triangle count stops changing, then return it.
- *
- *  The re-seed's refresh queue drains across frames, so an arm keeps growing for a while
- *  after the pump. Reading on a timer therefore samples an arbitrary point of that curve —
- *  and the two arms drain at different rates, because the whole point of the treatment arm
- *  is that it is doing different work. Settling is what makes control-final and
- *  treatment-final comparable at all. */
-async function settle(page: Page, timeoutMs = 60_000): Promise<number> {
-  const deadline = Date.now() + timeoutMs
-  let prev = -1
-  while (Date.now() < deadline) {
-    await page.waitForTimeout(2000)
-    const now = (await frameGeometry(page)).tris
-    if (now === prev) return now
-    prev = now
-  }
-  return prev
+/** How many notches DOWN the controller currently is, straight from the controller (#1433).
+ *  This is the premise "the host cannot keep up", read at its source: the ladder steps off
+ *  RENDERED-frame intervals, the only signal that includes the GPU work this thread merely
+ *  submits. `pump`'s rAF median cannot see that — it measures the compositor's 60 Hz tick —
+ *  which is how the old precondition ended up compared against a bar equal to its own floor. */
+async function adaptiveStep(page: Page): Promise<number> {
+  return await page.evaluate(() => {
+    const pipe = (
+      window as unknown as { __xgisMap?: { inspectPipeline(): unknown } }
+    ).__xgisMap?.inspectPipeline() as { adaptive?: { step: number } } | undefined
+    return pipe?.adaptive?.step ?? -1
+  })
 }
 
-/** Drive `n` real frames and return the median interval (ms). */
+/** Drive `n` real frames and return the median interval (ms). Reported, never asserted on —
+ *  see `adaptiveStep`. */
 async function pump(page: Page, n: number): Promise<number> {
   return await page.evaluate(async (count) => {
     const m = (window as unknown as { __xgisMap?: { invalidate?: () => void } }).__xgisMap
@@ -147,12 +147,29 @@ async function seed(page: Page): Promise<number> {
   )
 }
 
-/** Load the demo, seed it, settle, then pump `frames` frames at a FIXED camera. */
+/** Load the demo, seed it, settle, then pump at a FIXED camera until the controller has had
+ *  a real chance to act. `frames` is ONE pump round; the treatment arm keeps pumping while
+ *  the ladder is still at notch 0, up to `MAX_ROUNDS`.
+ *
+ *  Rounds rather than one fixed count (#1433): a notch costs the controller a full 12-frame
+ *  window of RENDERED frames, and a borderline host can spend most of a round just filling
+ *  that window. One 40-frame pump therefore asked "did it step in time", not "will it step" —
+ *  and answered no often enough to redden the leg. */
+const MAX_ROUNDS = 4
 async function run(
   page: Page,
   adaptive: boolean,
   frames: number,
-): Promise<{ before: number; after: number; medMs: number; step: number }> {
+): Promise<{
+  before: number
+  /** Triangles, visible tiles, AND the per-zoom drawn-tile histogram — see `frameGeometry`. */
+  after: Awaited<ReturnType<typeof frameGeometry>>
+  medMs: number
+  step: number
+  /** The far-field multiplier that reached the selector, not just the one computed. */
+  farLodBoost: number
+  rounds: number
+}> {
   await page.setViewportSize({ width: 430, height: 715 })
   const flags = adaptive ? '' : '&adaptive=0'
   await page.goto(`/demo.html?id=physical_map&forcegl2=1&e2e=1${flags}${CAM}`, {
@@ -166,24 +183,33 @@ async function run(
   await page.waitForTimeout(12_000)
 
   const before = (await frameGeometry(page)).tris
-  const medMs = await pump(page, frames)
-  // SETTLE, don't sleep (#1433). A fixed 4 s wait read whichever point of the convergence
-  // curve the runner happened to be on: the control arm had finished (20008 -> 20008) while
-  // the treatment arm was still climbing (20008 -> 28794), and comparing a settled number
-  // against a growing one produced a NEGATIVE purchase — reported as a ladder regression
-  // four times across three unrelated PRs. Poll until the count stops moving instead, so
-  // both arms are read in the same state and the comparison means something.
-  const after = await settle(page)
-  // How many notches the controller actually took (#1433). Read from the page rather than
-  // inferred from geometry, because geometry cannot separate "the host kept up" from "this
-  // arm never converged".
-  const step = await page.evaluate(
-    () =>
-      (
-        window as unknown as { __xgisInternals?: { adaptiveQualityStep?: () => number } }
-      ).__xgisInternals?.adaptiveQualityStep?.() ?? -1,
-  )
-  return { before, after, medMs, step }
+  let medMs = await pump(page, frames)
+  let rounds = 1
+  // Extra rounds ONLY while the ladder is still at notch 0, so a run that steps in round 1 —
+  // the normal case — costs exactly what it always did. Only the treatment arm can step at
+  // all (`adaptive=0` pins it), so the control arm always runs one round.
+  //
+  // Deliberately NOT "pump until the notch settles". Measured: settling reaches notch 6 and
+  // 28.6% coarsening but takes 3.4 min against 2.2, and the extra margin is not what fixes
+  // this gate — the premise assertion is. The notch is now logged, so the spread the old runs
+  // showed (14.1% at notch 1, 28.6% deeper down) reads as what it is, a rung, rather than as
+  // unexplained noise.
+  while (adaptive && rounds < MAX_ROUNDS && (await adaptiveStep(page)) === 0) {
+    medMs = await pump(page, frames)
+    rounds++
+  }
+  await page.waitForTimeout(4000)
+  const after = await frameGeometry(page)
+  // `step` and `farLodBoost` in ONE evaluate, off ONE inspection — read separately they can
+  // straddle a frame and report a notch that never had that boost.
+  const ad = await page.evaluate(() => {
+    const pipe = (
+      window as unknown as { __xgisMap?: { inspectPipeline(): unknown } }
+    ).__xgisMap?.inspectPipeline() as
+      { adaptive?: { step: number; farLodBoost: number } } | undefined
+    return { step: pipe?.adaptive?.step ?? 0, farLodBoost: pipe?.adaptive?.farLodBoost ?? 1 }
+  })
+  return { before, after, medMs, step: ad.step, farLodBoost: ad.farLodBoost, rounds }
 }
 
 test.describe.configure({ mode: 'serial' })
@@ -195,85 +221,126 @@ test('the ladder trades far-field geometry for frame time under sustained overlo
 
   // The comparison is CONTROL-FINAL vs TREATMENT-FINAL, not each arm's own before/after.
   // A freshly seeded source is still settling while the pump runs — the re-seed's refresh
-  // queue drains across frames — so within one arm the geometry legitimately GROWS, and an
+  // queue drains across frames — so within one arm the tile set legitimately moves, and an
   // earlier draft of this gate failed on exactly that (control drifted +23% on its own).
   // Both arms settle the same way from the same fixture at the same camera; what differs
   // is only whether the controller is allowed to act.
+  //
+  // Deliberately NOT asserted: that the two arms agree at `before` (#1479 proposed it). The
+  // treatment arm may already have notched during its own 24 s settle — measured, it has
+  // done so on a slower host — and then a legitimately-different `before` would redden a
+  // working ladder. `before` is reported for diagnosis and nothing rests on it.
   const off = await run(page, false, 40)
-  // Report the control arm BEFORE asserting on it (#1433). When the precondition below
-  // failed on CI it printed nothing at all — the numbers that would have identified it as a
-  // measurement problem rather than a regression were only logged after the treatment arm,
-  // which never ran. A gate's own diagnosis should not depend on which assertion trips.
+  // Report each arm BEFORE asserting on it (#1433). When the premise failed on CI it printed
+  // nothing at all — the numbers were only logged after the treatment arm, which never ran —
+  // so the red said "regression" about what was actually a measurement problem.
   console.log(
-    `\n  adaptive=0  tris ${off.before} -> ${off.after}, med ${off.medMs.toFixed(3)} ms, step ${off.step}`,
+    `\n  adaptive=0  tris ${off.before} -> ${off.after.tris}, tiles ${off.after.tiles}` +
+      ` z${off.after.coarsest}..${off.after.finest} ${off.after.byZoom},` +
+      ` med ${off.medMs.toFixed(1)} ms, notch ${off.step}`,
   )
-  expect(off.after, 'the control must be drawing real geometry').toBeGreaterThan(10_000)
-
-  // The overload premise is REPORTED, not asserted (#1433). It reads `medMs`, the wall time
-  // of two `requestAnimationFrame` turns — whose 60 Hz floor is 2 × 16.6̄ = 33.3 ms, i.e.
-  // numerically the 33.4 ms bar it was compared against. On identical code it has measured
-  // 33.39999999999418 (red), 33.4 (green) and 34.3 (green): a coin flip on scheduler noise,
-  // not a statement about load. Running the spec alone (see the workflow's render-gate step)
-  // makes it tighter still, because the machine is quiet.
-  //
-  // Nothing is lost by demoting it. The assertion below is STRICTLY STRONGER on the same
-  // condition: a host that was never overloaded is a host whose controller never judged a
-  // frame too slow, so it cannot coarsen, so `on.after < off.after * 0.9` fails anyway —
-  // which is exactly how the 2026-07-28 CI failure surfaced (27497 vs 27497). All this line
-  // ever did was reach that conclusion earlier, with a message pointing at the wrong thing.
-  //
-  // #1433 option 2 is now IMPLEMENTED, above and below this line, but not in the form the
-  // issue first proposed. `adaptiveQualityStep()` alone is necessary and NOT sufficient: in
-  // the reproducible red the treatment arm genuinely ran and stepped (`step > 0`), so a
-  // step-only premise would have called that experiment valid and still compared a settled
-  // value against the control's seed. The premise is therefore two-part — each arm CONVERGED
-  // (`after > before`), and the controller ACTED (`step > 0`) — and neither half needs a GPU
-  // timer. This warning stays as the human-readable hint about which it was.
-  if (!(off.medMs > 33.4)) {
-    console.warn(
-      `  ⚠ control arm measured ${off.medMs.toFixed(3)} ms — at or under the two-rAF 60 Hz floor,` +
-        ` so this run may not be a real overload experiment (#1433).`,
-    )
-  }
+  expect(off.after.tris, 'the control must be drawing real geometry').toBeGreaterThan(10_000)
+  expect(off.step, '`adaptive=0` must pin the ladder at notch 0').toBe(0)
 
   const on = await run(page, true, 40)
   console.log(
-    `  adaptive=1  tris ${on.before} -> ${on.after}, med ${on.medMs.toFixed(1)} ms, step ${on.step}` +
-      `\n  ladder bought ${(100 * (1 - on.after / off.after)).toFixed(1)}% of the settled geometry\n`,
+    `  adaptive=1  tris ${on.before} -> ${on.after.tris}, tiles ${on.after.tiles}` +
+      ` z${on.after.coarsest}..${on.after.finest} ${on.after.byZoom},` +
+      ` med ${on.medMs.toFixed(1)} ms, notch ${on.step}` +
+      ` (${on.rounds} pump round${on.rounds === 1 ? '' : 's'})` +
+      ` at farLodBoost ${on.farLodBoost}` +
+      `\n  ladder coarsened the horizon by ${off.after.coarsest - on.after.coarsest} zoom level(s)` +
+      ` and bought ${(100 * (1 - on.after.tiles / off.after.tiles)).toFixed(1)}% of the visible TILES` +
+      `; triangles ${off.after.tris} -> ${on.after.tris} (NOT a pass/fail signal — see the gate)\n`,
   )
-  // ── THE PREMISE, CHECKED (#1433) ──
-  //
-  // `-1` means the observable is missing (a stale bundle). That IS a failure: a gate that
-  // silently loses its premise check is back where this issue started.
-  expect(on.step, 'the adaptiveQualityStep observable must be wired to the page').toBeGreaterThan(
-    -1,
-  )
-  // (1) The CONTROLLER must have acted. `step === 0` means it never judged a frame slow
-  // enough to take a notch, so the host was never overloaded and there was nothing to
-  // coarsen. An experiment whose premise is absent has not found a regression.
-  if (on.step === 0) {
-    test.skip(
-      true,
-      `the controller never stepped (host kept up at ${on.medMs.toFixed(1)} ms) — the overload` +
-        ` premise did not hold, so there was nothing to measure (#1433)`,
-    )
-    return
-  }
-  expect(
-    on.after,
-    on.after > off.after
-      ? // The controller ACTED (step above) and geometry went UP. That is not "never
-        // coarsened" — it is the ladder buying negative, which the old message hid behind a
-        // description that sent three PRs looking for a measurement artifact. Both arms are
-        // SETTLED values now (see `settle`), so this is not a convergence-timing read either.
-        `the ladder ADDED geometry: control settled at ${off.after}, adaptive at ${on.after}` +
-          ` after ${on.step} notch(es) — the controller acted and the horizon grew (#1433)`
-      : `the ladder never coarsened the horizon (control settled at ${off.after}, adaptive at ${on.after})`,
-  ).toBeLessThan(off.after * 0.9)
 
-  // …and what it took must be the FAR field: the foreground guarantee #1374 restored has
-  // to survive every notch. Pinned exhaustively over the ladder's own values in
-  // map/src/render/sse-foreground-lod.test.ts; here the end-to-end check is simply that
-  // the layer is still drawing, not blanked.
-  expect(on.after, 'the ladder must coarsen the horizon, not empty the map').toBeGreaterThan(0)
+  // THE PREMISE, read from the controller itself (#1433 option 2). The gate is an experiment
+  // on a host that cannot keep up; if the controller never judged a frame too slow, the
+  // experiment did not run and the geometry assertion below would report an ENVIRONMENT as a
+  // REGRESSION — which is exactly what the 2026-07-28 CI red did (27497 vs 27497).
+  //
+  // This replaces the old `off.medMs > 33.4`, which inferred load from the wall time of two
+  // rAF turns: a quantity whose 60 Hz floor (2 × 16.6̄ = 33.3 ms) is numerically the bar it
+  // was compared against, and which measured 33.39999999999418 (red), 33.4 (green) and 34.3
+  // (green) on identical code. The notch is the controller's own verdict, taken from
+  // RENDERED-frame intervals — the only signal that includes the GPU work this thread merely
+  // submits — so it cannot disagree with the behaviour under test the way rAF cadence did.
+  expect(
+    on.step,
+    `the controller never left notch 0 after ${on.rounds} pump rounds — this host kept up, so ` +
+      `there was no overload to observe. That is an ENVIRONMENT result, not a regression: ` +
+      `raise SEED_GRID (currently ${SEED_GRID}) or MAX_ROUNDS until the frame is decisively ` +
+      `over budget here.`,
+  ).toBeGreaterThan(0)
+
+  // THE CLAIM: it acted, and the selector HONOURED it. A step counter can tick while the
+  // selection ignores it — the wire this gate exists for (#1402 showed that seam go nowhere).
+  //
+  // Asserted on the COARSEST DRAWN ZOOM, not on the triangle count (#1479). Triangles cannot
+  // carry this claim, and the reason is structural rather than a matter of tuning: this
+  // fixture seeds 22 500 identical polygons uniformly over the ground and nothing generalises
+  // them by zoom, so a tile's triangle count scales with the GROUND AREA it spans. Coarsening
+  // replaces fine tiles with a coarser ancestor covering 4x the ground, which therefore
+  // carries MORE geometry than the tiles it replaced. Measured on `main` at the moment of
+  // filing: the ladder correctly collapsed the far-field pair z13x2 into a single z12 while
+  // leaving the four z14 foreground tiles untouched — and triangles rose 20 008 -> 28 794,
+  // reddening this gate with `ladder bought -43.9%` while the feature worked perfectly.
+  //
+  // Zoom cannot invert that way: coarsening IS a lower drawn zoom, by definition. It also
+  // fails honestly if the wire dies — the notch moves and the histogram does not.
+  //
+  // The mean drawn zoom was rejected: it is dominated by the unchanged foreground (13.667 ->
+  // 13.600 on the same run, a 0.5% signal), so a real one-level coarsening would sit inside
+  // any tolerance wide enough to be safe.
+  expect(
+    on.after.coarsest,
+    `the controller stepped to notch ${on.step} but the selector never coarsened the horizon ` +
+      `(control drew ${off.after.byZoom}, adaptive drew ${on.after.byZoom}) — the notch reached ` +
+      `no tile. Triangles are NOT the signal here (${off.after.tris} -> ${on.after.tris}); see ` +
+      `the comment above.`,
+  ).toBeLessThan(off.after.coarsest)
+
+  // Fewer TILES corroborates it (#1482). A shallower coarsest zoom with the SAME tile count
+  // would mean the selector ADDED a coarse tile rather than replacing finer ones with it —
+  // which is not coarsening. Measured: 6 tiles -> 5, as the z13 pair became one z12.
+  expect(
+    on.after.tiles,
+    `the controller stepped to notch ${on.step} (farLodBoost ${on.farLodBoost}) but the ` +
+      `selector kept the same horizon (control ${off.after.tiles} tiles, adaptive ${on.after.tiles})`,
+  ).toBeLessThan(off.after.tiles)
+
+  // The lever must have actually reached the selector, not merely been computed (#1482).
+  // Asserted separately from `step` so a failure says WHICH half broke: cutting
+  // `adaptiveFarLodBoost()` to a constant 1 fails HERE, naming the wire, rather than looking
+  // like a controller that never stepped.
+  expect(
+    on.farLodBoost,
+    'the ladder stepped but its far-field lever never engaged',
+  ).toBeGreaterThan(1)
+
+  // …and what it took must be the FAR field: the foreground guarantee #1374 restored has to
+  // survive every notch. Pinned exhaustively over the ladder's own values in
+  // map/src/render/sse-foreground-lod.test.ts; end-to-end, the observable is that the FINEST
+  // drawn zoom is untouched while the coarsest dropped. This is the half the old triangle
+  // assertion could not express at all — a ladder that coarsened the foreground instead of
+  // the horizon would have satisfied it just as well.
+  expect(
+    on.after.finest,
+    `the ladder spent the FOREGROUND, not the horizon: finest drawn zoom fell from ` +
+      `${off.after.finest} to ${on.after.finest} (control ${off.after.byZoom}, adaptive ` +
+      `${on.after.byZoom})`,
+  ).toBe(off.after.finest)
+
+  // The finest ZOOM surviving is not enough on its own: a ladder that kept one z14 tile and
+  // dropped the other three would satisfy it while having spent exactly the foreground the
+  // #1374 guarantee protects. So the COUNT at that zoom is pinned too. Measured, both arms
+  // draw the same four z14 tiles; only the far field moves.
+  expect(
+    on.after.atFinest,
+    `the ladder thinned the FOREGROUND: ${off.after.atFinest} -> ${on.after.atFinest} tiles at ` +
+      `z${off.after.finest} (control ${off.after.byZoom}, adaptive ${on.after.byZoom})`,
+  ).toBe(off.after.atFinest)
+
+  // …and the map is still drawing, not blanked.
+  expect(on.after.tris, 'the ladder must coarsen the horizon, not empty the map').toBeGreaterThan(0)
 })

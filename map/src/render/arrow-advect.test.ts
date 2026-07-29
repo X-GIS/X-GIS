@@ -181,7 +181,7 @@ describe('ArrowAdvectState lifecycle', () => {
     // module seeds with writeTexture must declare that it is written.
     const t = stub()
     const p = new ArrowAdvectState()
-    p.writeOrigins(t.rhi, 'k', Float32Array.from([0.5]), Float32Array.from([0.5]))
+    p.writeOrigins(t.rhi, 'k', 'k', Float32Array.from([0.5]), Float32Array.from([0.5]))
     expect(t.descs.length, 'both position sides and the origins').toBe(3)
     for (const d of t.descs) {
       expect(d.usage, `${d.label} is written by writeTexture`).toContain('copy-dst')
@@ -286,7 +286,7 @@ describe('the arrow origins (#1419)', () => {
     const p = new ArrowAdvectState()
     const u = Float32Array.from([0.25, 0.5, 0.75])
     const v = Float32Array.from([0.1, 0.6, 0.9])
-    p.writeOrigins(t.rhi, 'cbofs/3', u, v)
+    p.writeOrigins(t.rhi, 'cbofs/3', 'cbofs', u, v)
     const seeded = t.writes.slice(-3) // origins, then both position sides
     expect(seeded).toHaveLength(3)
     for (const w of seeded) {
@@ -310,14 +310,14 @@ describe('the arrow origins (#1419)', () => {
     const p = new ArrowAdvectState()
     const u = Float32Array.from([0.25])
     const v = Float32Array.from([0.25])
-    p.writeOrigins(t.rhi, 'cbofs/1', u, v)
+    p.writeOrigins(t.rhi, 'cbofs/1', 'cbofs', u, v)
     const after = t.writes.length
-    p.writeOrigins(t.rhi, 'cbofs/1', u, v)
+    p.writeOrigins(t.rhi, 'cbofs/1', 'cbofs', u, v)
     expect(t.writes).toHaveLength(after)
     // A DIFFERENT key is a different BATCH, not a replacement (#1458): it reserves its own
     // range and uploads, so the write count moves. What it must NOT do is take the first
     // batch's texels — that is the mosaic collision, and `arrow-advect-mosaic.test.ts` owns it.
-    const base2 = p.writeOrigins(t.rhi, 'cbofs/2', u, v)
+    const base2 = p.writeOrigins(t.rhi, 'cbofs/2', 'cbofs', u, v)
     expect(t.writes.length).toBeGreaterThan(after)
     expect(base2, 'the second batch sits past the first').toBe(1)
   })
@@ -330,8 +330,8 @@ describe('the arrow origins (#1419)', () => {
     const p = new ArrowAdvectState()
     const u = Float32Array.from([0.4])
     const v = Float32Array.from([0.4])
-    p.writeOrigins(a.rhi, 'cbofs/1', u, v)
-    p.writeOrigins(b.rhi, 'cbofs/1', u, v)
+    p.writeOrigins(a.rhi, 'cbofs/1', 'cbofs', u, v)
+    p.writeOrigins(b.rhi, 'cbofs/1', 'cbofs', u, v)
     expect(b.writes.length, 'seed on ensure, then origins + both sides').toBe(5)
   })
 })

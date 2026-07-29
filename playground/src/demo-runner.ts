@@ -1750,17 +1750,7 @@ async function runSource(source: string, label: string) {
     // packed tileKeys back to (z, x, y) without re-importing the
     // helper through Playwright's evaluate-evaluate boundary.
     const { tileKeyUnpack } = await import('@xgis/compiler')
-    // `adaptiveQualityStep` (#1433): how many notches down the quality controller currently
-    // is, 0 = untouched. The ladder gate could only infer that from geometry counts, which
-    // cannot tell "the host kept up so there was nothing to coarsen" from "the arm never
-    // converged and its count is a seed" — the second read as a regression four times across
-    // three unrelated PRs. It is documented as "exposed for diagnostics/tests" and was
-    // reachable only from its own unit test; this is the missing wire to the page.
-    const { adaptiveQualityStep } = await import('@xgis/engine')
-    ;(window as unknown as { __xgisInternals?: unknown }).__xgisInternals = {
-      tileKeyUnpack,
-      adaptiveQualityStep,
-    }
+    ;(window as unknown as { __xgisInternals?: unknown }).__xgisInternals = { tileKeyUnpack }
     // #1194 A1b — `?runscene=1`: mount via the demo's SceneBuilder twin
     // (map.runScene) instead of the .xgis text, when a twin is registered.
     // First-mount path for the twin-render gate; falls through to run()

@@ -28,6 +28,7 @@ import { activeBody } from '@xgis/shared'
 import { lonLatToECEF, type ECEF } from '@xgis/shared'
 import type { RhiDevice, RhiRenderPass, RhiTexture } from '@xgis/engine'
 import { HillshadeDraper, type HillshadeTile } from './material/hillshade-material'
+import { shaderEmitPending } from '../shaders/emit/shader-emit-pool'
 import { wrapWebGpuPass } from '@xgis/rhi-webgpu'
 import { routeToSphereSelector, enumerateWorldCopies } from '@xgis/geo'
 import { isPickEnabled, getSampleCount } from '@xgis/engine'
@@ -39,12 +40,7 @@ import {
   rasterTileU as RASTER_TILE_U,
 } from '../shaders/dsl/raster'
 import { hillshadeU as HILLSHADE_U } from '../shaders/dsl/hillshade'
-import {
-  tileRequestable,
-  noteFailure,
-  leafLoadBudget,
-  type FailedTile,
-} from './hillshade-tile-retry'
+import { tileRequestable, noteFailure, leafLoadBudget, type FailedTile } from './tile-retry'
 import {
   writeRasterFrameUniform,
   writeRasterTileUniform,
@@ -323,7 +319,7 @@ export class HillshadeRenderer {
   private _cachedBytes = 0
   private loadingTiles = new Map<string, AbortController>()
   /** Tiles whose load resolved null, with the backoff state that stops them being
-   *  re-requested every frame (policy in hillshade-tile-retry.ts). Cleared when the
+   *  re-requested every frame (policy in tile-retry.ts). Cleared when the
    *  source is re-armed — a new URL template is a new coverage. */
   private failedTiles = new Map<string, FailedTile>()
   private frameCount = 0
@@ -366,7 +362,11 @@ export class HillshadeRenderer {
 
   /** True while any DEM tile is mid-cross-fade (render-loop keep-alive). */
   hasFadingTiles(): boolean {
-    return this._hasFadingTiles
+    // A shader still being emitted off-thread counts as "converging": the draper draws
+    // NOTHING until it lands, so a loop that idled on tile-count alone would leave the
+    // relief permanently blank with its tiles already cached — the same freeze class as
+    // a fade ramp stranded mid-way, which is why it rides the same signal.
+    return this._hasFadingTiles || shaderEmitPending()
   }
 
   private _hillshadeDraper?: HillshadeDraper
@@ -552,7 +552,7 @@ export class HillshadeRenderer {
 
     // Load missing tiles (leaf-first so near tiles win the concurrency budget) — except
     // on a cold start, where leafLoadBudget holds two slots back so the parent-fallback
-    // prefetch below can put a coarse tile on screen first (hillshade-tile-retry.ts).
+    // prefetch below can put a coarse tile on screen first (tile-retry.ts).
     const leafBudget = leafLoadBudget(MAX_CONCURRENT_LOADS, this.tileCache.size)
     const loadOrder = [...tiles].sort((a, b) => b.z - a.z)
     for (const coord of loadOrder) {
@@ -560,7 +560,7 @@ export class HillshadeRenderer {
       if (this.tileCache.has(key) || this.loadingTiles.has(key)) continue
       // A tile that has failed recently is not re-requested until its backoff
       // elapses — without this, a past-max-zoom view spends the whole budget on
-      // 404s every frame (hillshade-tile-retry.ts explains why that path is common).
+      // 404s every frame (tile-retry.ts explains why that path is common).
       if (!tileRequestable(this.failedTiles.get(key), this.frameCount)) continue
       if (this.loadingTiles.size >= leafBudget) break
       const ctrl = new AbortController()

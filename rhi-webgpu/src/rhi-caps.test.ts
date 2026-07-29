@@ -5,9 +5,9 @@ import type { RhiCaps } from '@xgis/rhi'
 
 // ═══ RhiCaps device-truth gate (#1046 F1) ═══
 //
-// Both backends populate the 7-field capability record (rhi.ts RhiCaps, doc §2.2)
+// Both backends populate the 8-field capability record (rhi.ts RhiCaps, doc §2.2)
 // once at construction, frozen. This pins:
-//   • the exact 7-field shape on BOTH devices (no more, no fewer),
+//   • the exact 8-field shape on BOTH devices (no more, no fewer),
 //   • the fixed native truths (WebGPU: 4×MSAA / MRT / async / float / native /
 //     deferred; WebGL2: 1× / no-MRT / sync / fragment-emulated / immediate),
 //   • the two HARDWARE-DETECTED values against real probes: WebGPU `timestampQuery`
@@ -15,7 +15,7 @@ import type { RhiCaps } from '@xgis/rhi'
 //     = EXT_color_buffer_float && EXT_float_blend (faked-GL, both arms).
 // A fake device/GL is enough — caps read no GPU state beyond features/extensions.
 
-// The 7 fields the record must expose (append-only by policy, doc §2.2). Locking the
+// The 8 fields the record must expose (append-only by policy, doc §2.2). Locking the
 // exact key set catches an accidental extra/missing field on either backend.
 const CAPS_FIELDS = [
   'maxSampleCount',
@@ -25,6 +25,7 @@ const CAPS_FIELDS = [
   'compute',
   'timestampQuery',
   'executionModel',
+  'shaderLanguage',
 ] as const
 
 function fakeGpuDevice(features: string[] | null): GPUDevice {
@@ -63,6 +64,10 @@ describe('RhiCaps — WebGpuDevice native truths (#1046 F1)', () => {
     expect(caps.floatBlendTargets).toBe(true)
     expect(caps.compute).toBe('native')
     expect(caps.executionModel).toBe('deferred')
+    // Reads RhiPipelineDesc.code; the GLSL halves are ignored. The map's source seam
+    // (wgslFor/glslStagesFor) emits from THIS, so an inverted value would build the
+    // wrong language for every pipeline — pinned per backend beside its behaviour too.
+    expect(caps.shaderLanguage).toBe('wgsl')
   })
 
   it('timestampQuery tracks the adapter feature the device was created with', () => {
@@ -88,6 +93,9 @@ describe('RhiCaps — WebGl2Device truths + float-blend detection (#1046 F1)', (
     expect(caps.compute).toBe('fragment-emulated')
     expect(caps.timestampQuery).toBe(false)
     expect(caps.executionModel).toBe('immediate')
+    // Requires the split GLSL sources and never reads `code` — createPipeline fail-louds
+    // on a WGSL-only desc (createpipeline-dual-source-guard.test.ts asserts both halves).
+    expect(caps.shaderLanguage).toBe('glsl-es300')
   })
 
   it('floatBlendTargets = EXT_color_buffer_float && EXT_float_blend (both required)', () => {
