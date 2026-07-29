@@ -251,7 +251,13 @@ describe('#1419 advected arrow — re-symbolized from the field UNDER it', () =>
 
   it('samples the velocity pair at the STATE position — never at the origin', () => {
     for (const tex of ['flow_u_tex', 'flow_v_tex']) {
-      const load = new RegExp(`textureLoad\\(${tex}, vec2<i32>\\(i32\\(\\((\\w+) \\*`).exec(w)
+      // The coordinate is the OWNER cell of the position (#1511): `clamp(floor(uv·(n−1) + 0.5))`.
+      // Only the innermost `uv` symbol matters to this claim — which texture the position was
+      // decoded from — so the wrapper is matched and stepped over rather than asserted here; the
+      // rounding itself is `arrow-density-cull.test.ts`'s claim.
+      const load = new RegExp(
+        `textureLoad\\(${tex}, vec2<i32>\\(i32\\(clamp\\(floor\\(\\(\\((\\w+) \\*`,
+      ).exec(w)
       expect(load, `${tex} must be read with textureLoad`).not.toBeNull()
       const root = rootOf(load![1]!)
       expect(root, `${tex} is sampled where the arrow IS`).toContain('textureLoad(state_tex')

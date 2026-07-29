@@ -1,0 +1,22 @@
+xgis 1
+
+/*
+ * Local stand-in for the demotiles `geolines` + `geolines-label` pair:
+ * parallels with one vertex per 30 degrees, plus an along-path label.
+ * Exists so the projection-dependent label drop in #1495 can be
+ * investigated without reaching demotiles.maplibre.org.
+ */
+
+source parallels { type: geojson, url: "fixture-long-chords.geojson" }
+
+layer geolines {
+  source: parallels
+  | stroke-rose-500 stroke-3
+}
+
+layer geolines_label {
+  source: parallels
+  | label-[.name] label-color-#fff label-size-14
+    label-halo-1 label-halo-color-#000
+    label-along-path
+}
