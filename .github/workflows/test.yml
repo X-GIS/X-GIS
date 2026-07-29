@@ -652,6 +652,12 @@ jobs:
         # its basemap layer armed and its raster pass fetching tiles while getCoverage() is
         # still null — then that the LATE handle arms the `| arrow` field and rasterises.
         # Needs no egress (the cell is a committed local fixture), ~25 s.
+        # _demotiles-labels-gl2-gate: the MapLibre demo style's LABELS. Five line-label PRs
+        # (#1421/#1423/#1425/#1431/#1441) were all measured against OFM Positron, and the only
+        # demo-style coverage here was _fills-gl2-gate, which asserts POLYGONS. Asserts the label
+        # PIPELINE (dispatched texts + submitted/drawn counters) so a failure names its stage
+        # rather than reporting that the screen looks wrong. Camera pinned at z2 — the demo's own
+        # default is z7.18, where this style labels nothing at all. ~20 s.
         # _s111-advected-arrows-gate: #1419's own gate, which landed WITHOUT being added
         # here. It is the only check on the advected `| flow` portrayal, and #1426 moved
         # that arm into coverage-arm.ts — a refactor of code no CI gate drives. ~28 s.
@@ -701,5 +707,5 @@ jobs:
           # wall-clock pair must not abort the 44 compile/parity/pixel gates before they
           # have reported. Quiet-machine ordering is unaffected — each invocation is its
           # own process either way.
-          ./node_modules/.bin/playwright test _shader-math-parity.spec.ts _wgsl-compile-gate.spec.ts _vs-clip-parity.spec.ts _dequant-parity.spec.ts _polygon-fill-flat-parity.spec.ts _polygon-fill-flat-pixel-gate.spec.ts _optimizer-gpu-parity.spec.ts _glsl-compile-gate.spec.ts _polygon-glsl-compile-gate.spec.ts _line-glsl-compile-gate.spec.ts _shader-dsl-mrt-render.spec.ts _emit-obfuscate-gate.spec.ts _graphics-retained-gl2-gate.spec.ts _graphics-retained-arrow-gl2-gate.spec.ts _graphics-retained-arrow-orientation-gate.spec.ts _graphics-compiled-arrow-parity.spec.ts _graphics-retained-drawcall-gl2-gate.spec.ts _compute-gen-compile-gate.spec.ts _fills-gl2-gate.spec.ts _globe-hash-camera-gate.spec.ts _hillshade-gl2-gate.spec.ts _1221-seam-control-matrix.spec.ts _hillshade-methods-gl2-gate.spec.ts _reseed-data-push-gate.spec.ts _s111-multiregion-gate.spec.ts _s111-currents-render.spec.ts _s111-deferred-coverage-gate.spec.ts _s111-advected-arrows-gate.spec.ts _s111-mosaic-arrow-field-gate.spec.ts _s111-arrow-density-gate.spec.ts _s111-catalogue-declarative-gate.spec.ts _s102-catalogue-gate.spec.ts _coverage-render.spec.ts
+          ./node_modules/.bin/playwright test _shader-math-parity.spec.ts _wgsl-compile-gate.spec.ts _vs-clip-parity.spec.ts _dequant-parity.spec.ts _polygon-fill-flat-parity.spec.ts _polygon-fill-flat-pixel-gate.spec.ts _optimizer-gpu-parity.spec.ts _glsl-compile-gate.spec.ts _polygon-glsl-compile-gate.spec.ts _line-glsl-compile-gate.spec.ts _shader-dsl-mrt-render.spec.ts _emit-obfuscate-gate.spec.ts _graphics-retained-gl2-gate.spec.ts _graphics-retained-arrow-gl2-gate.spec.ts _graphics-retained-arrow-orientation-gate.spec.ts _graphics-compiled-arrow-parity.spec.ts _graphics-retained-drawcall-gl2-gate.spec.ts _compute-gen-compile-gate.spec.ts _fills-gl2-gate.spec.ts _globe-hash-camera-gate.spec.ts _hillshade-gl2-gate.spec.ts _1221-seam-control-matrix.spec.ts _hillshade-methods-gl2-gate.spec.ts _reseed-data-push-gate.spec.ts _s111-multiregion-gate.spec.ts _s111-currents-render.spec.ts _s111-deferred-coverage-gate.spec.ts _s111-advected-arrows-gate.spec.ts _s111-mosaic-arrow-field-gate.spec.ts _s111-arrow-density-gate.spec.ts _s111-catalogue-declarative-gate.spec.ts _s102-catalogue-gate.spec.ts _coverage-render.spec.ts _demotiles-labels-gl2-gate.spec.ts
           ./node_modules/.bin/playwright test --workers=1 _adaptive-quality-ladder-gate.spec.ts _shader-dsl-mouse-interaction.spec.ts
