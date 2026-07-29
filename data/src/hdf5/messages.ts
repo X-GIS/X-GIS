@@ -224,7 +224,20 @@ export interface AttributeMsg {
 }
 export type AttrValue = number | string | number[] | string[]
 
-export function parseAttribute(c: Cursor, start: number): AttributeMsg {
+/** Parse one ATTRIBUTE message.
+ *
+ *  `onVlenHeap` puts this into COLLECT mode (#1498): every vlen string's global-heap address is
+ *  reported and the heap is NOT read, so the parse touches only the object-header bytes the
+ *  caller has already ensured. That is what lets an ASYNC caller fault the heaps in before the
+ *  synchronous `Hdf5Node.attrs()` reads them for real — see `ensureAttributeHeaps`. Collecting
+ *  through the same parser, rather than a second walker that re-derives the field offsets, is
+ *  deliberate: the name/datatype/dataspace padding rules below are exactly the thing a second
+ *  copy would get subtly wrong. */
+export function parseAttribute(
+  c: Cursor,
+  start: number,
+  onVlenHeap?: (heapAddr: number) => void,
+): AttributeMsg {
   c.seek(start)
   const version = c.u8()
   let nameSize: number
@@ -267,7 +280,7 @@ export function parseAttribute(c: Cursor, start: number): AttributeMsg {
   const dims = parseDataspace(c, dsStart)
   c.seek(dataStart)
   const count = dims.reduce((a, b) => a * b, 1)
-  const value = decodeAttrValue(c, datatype, count)
+  const value = decodeAttrValue(c, datatype, count, onVlenHeap)
   return { name, datatype, dims, value }
 }
 
@@ -310,7 +323,12 @@ export function readGlobalHeapObject(c: Cursor, heapAddr: number, index: number)
   throw new Hdf5Error(`global-heap object index ${index} not found`, heapAddr)
 }
 
-function decodeAttrValue(c: Cursor, dt: Datatype, count: number): AttrValue {
+function decodeAttrValue(
+  c: Cursor,
+  dt: Datatype,
+  count: number,
+  onVlenHeap?: (heapAddr: number) => void,
+): AttrValue {
   const readInt = (size: number, signed: boolean): number => {
     // little-endian (the metadata corpus is LE); bypasses the uint() 0xFF sentinel.
     // Read the resident bytes into a fresh view (offset 0), then advance past them.
@@ -355,6 +373,12 @@ function decodeAttrValue(c: Cursor, dt: Datatype, count: number): AttrValue {
         const index = c.u32()
         if (!dt.isString)
           throw new Hdf5Error('vlen-sequence attribute unsupported (only vlen string)', c.pos)
+        // COLLECT mode (#1498): report the heap and read nothing. The value is a placeholder no
+        // caller sees — `ensureAttributeHeaps` discards the whole AttributeMsg.
+        if (onVlenHeap) {
+          onVlenHeap(heapAddr)
+          return ''
+        }
         const save = c.pos
         const bytes = readGlobalHeapObject(c, heapAddr, index)
         c.seek(save)
