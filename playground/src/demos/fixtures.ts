@@ -33,6 +33,13 @@ export const DEMOS_FIXTURES: Record<string, Demo> = {
       'Shield sprite stretched to its PAIRED text bbox via icon-text-fit: both (#777 I-A). Two symbol layers — a 2-digit ("12") narrow shield and a 5-digit ("12345") wide one — over the local sprite atlas. Load with &sprite=/fixture-sprite. §5 probe: A/B vs MapLibre, DC>0 confined to the shield quads.',
     source: load('fixture-symbol-icon-textfit.xgis'),
   },
+  fixture_label_pitch_alignment: {
+    name: 'Fixture: text-pitch-alignment map vs viewport',
+    tag: 'fixture',
+    description:
+      'Two point-label layers over the SAME anchors (#777 IV3-a): `label-pitch-alignment-map` lies in the ground plane, `label-pitch-alignment-viewport` stays an upright billboard. Purpose-built because point labels resolve to viewport by DEFAULT and no real basemap authors the property, so the ground basis has nothing to act on elsewhere. §5 probe: pitch>0 must make the two arms diverge; at pitch 0 they must be identical (the basis is the identity there and is withheld, so the ground arm takes exactly the billboard path).',
+    source: load('fixture-label-pitch-alignment.xgis'),
+  },
   fixture_format_image: {
     name: 'Fixture: inline image in label text (local sprite)',
     tag: 'fixture',
