@@ -71,6 +71,17 @@ export interface PipelineInspection {
      *  different facts, and the gap between them is the seam #1402 showed can go nowhere — a
      *  gate asserting only on `step` cannot tell "it acted" from "it acted and was honoured". */
     farLodBoost: number
+    /** The median of the last ≤30 RENDERED-frame intervals (ms), off the same `stats.ts` clock
+     *  that feeds `noteFrameInterval` — i.e. the signal the controller actually decides on,
+     *  rather than a proxy for it. -1 until a second frame has been drawn.
+     *
+     *  `step` and `farLodBoost` say the ladder acted and was honoured; this says what it acted
+     *  ON, and whether acting bought anything. Measured on the ladder-gate fixture (#1468): the
+     *  controller walked to the bottom notch, which coarsened the tiles AND quartered the device
+     *  pixels, and this number did not move — so on that fixture the frame cost is neither
+     *  pixel- nor LOD-proportional. Without it that is invisible, and a gate can only assert
+     *  that the picture CHANGED, never that the change was worth making. */
+    medianFrameMs: number
   }
   /** True when hash sync / pointer interaction / setView declared the
    *  camera explicitly — post-compile bounds-fit is suppressed in that
@@ -217,6 +228,7 @@ export function inspectMapPipeline(map: XGISMap): PipelineInspection {
       enabled: isAdaptiveQualityEnabled(),
       step: adaptiveQualityStep(),
       farLodBoost: adaptiveFarLodBoost(),
+      medianFrameMs: m.stats.medianFrameMs,
     },
     cameraExplicitlyPositioned: (map as unknown as { _cameraExplicitlyPositioned: boolean })
       ._cameraExplicitlyPositioned,

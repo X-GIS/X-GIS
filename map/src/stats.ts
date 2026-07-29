@@ -60,6 +60,17 @@ export interface RenderStats {
    *  N frames (window = 30). Smooths over GC spikes / settle
    *  jitter. Sentinel 0 when unavailable. */
   heapDeltaAvgBytes: number
+  /** Median interval between RENDERED frames over the last ≤30 of them (ms); -1 before
+   *  the second frame. #1468 — the honest frame-cost signal, and the only one a test may
+   *  compare two runs with: `fps` is integer-per-second (useless against ~1 s frames) and
+   *  the wall time of two rAF turns cannot go below the compositor's 2 × 16.6̄ ms tick,
+   *  which is how the ladder gate ended up reading 33.4 ms for every scene weight.
+   *
+   *  These are the same samples fed to the adaptive controller's `noteFrameInterval`,
+   *  kept here rather than read back off the controller because the controller DROPS
+   *  every sample while `?adaptive=0` pins it — and a measurement comparing a pinned arm
+   *  against a free one needs the same clock running on both sides. */
+  medianFrameMs: number
 }
 
 export class StatsTracker {
@@ -104,6 +115,12 @@ export class StatsTracker {
   private fps = 0
   private frameTime = 0
   private lastFrameStart = 0
+  /** Ring (window=30) of rendered-frame intervals. See `RenderStats.medianFrameMs`.
+   *  Both buffers allocated once; the median is taken on read, not per frame. */
+  private readonly _frameMsRing = new Float64Array(30)
+  private readonly _frameMsSorted = new Float64Array(30)
+  private _frameMsIdx = 0
+  private _frameMsFilled = 0
 
   /** Call at the start of each frame */
   beginFrame(): void {
@@ -113,7 +130,13 @@ export class StatsTracker {
     // clock — `beginFrame` runs exactly once per drawn frame, past the render
     // loop's skip gate. Feeding the controller from here rather than starting a
     // second timer in the loop keeps one frame clock, not two that can disagree.
-    if (this.lastFrameStart > 0) noteFrameInterval(now - this.lastFrameStart)
+    if (this.lastFrameStart > 0) {
+      const dt = now - this.lastFrameStart
+      noteFrameInterval(dt)
+      this._frameMsRing[this._frameMsIdx] = dt
+      this._frameMsIdx = (this._frameMsIdx + 1) % this._frameMsRing.length
+      if (this._frameMsFilled < this._frameMsRing.length) this._frameMsFilled++
+    }
     this.lastFrameStart = now
     this.drawCalls = 0
     this.vertices = 0
@@ -184,6 +207,17 @@ export class StatsTracker {
     }
   }
 
+  /** Median of the ring; -1 until a second frame has been drawn. Entries `[0, filled)`
+   *  are always the valid ones — the ring only grows to its length, then wraps. */
+  private medianFrameMs(): number {
+    const n = this._frameMsFilled
+    if (n === 0) return -1
+    const s = this._frameMsSorted.subarray(0, n)
+    s.set(this._frameMsRing.subarray(0, n))
+    s.sort()
+    return s[(n - 1) >> 1] as number
+  }
+
   /** Get current snapshot */
   get(): RenderStats {
     const total = this.bundleHits + this.bundleMisses
@@ -206,6 +240,7 @@ export class StatsTracker {
       bundleReplaysThisFrame: this.bundleReplaysThisFrame,
       heapDeltaBytes: this.heapDeltaBytes,
       heapDeltaAvgBytes: this.heapDeltaAvgBytes,
+      medianFrameMs: this.medianFrameMs(),
     }
   }
 }
