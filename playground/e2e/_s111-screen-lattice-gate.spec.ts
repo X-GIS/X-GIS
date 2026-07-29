@@ -214,18 +214,23 @@ test.describe('S-111 screen-lattice arrow field (#1520 step 2)', () => {
     ).toBeLessThan(0.25)
   })
 
-  test('GATE 4 — no empty water: the field reaches everywhere the catalogue does', async ({
-    page,
-  }) => {
-    test.setTimeout(600_000)
+  test('GATE 4 — no empty water, at EVERY phase of the cycle (#1510)', async ({ page }) => {
+    test.setTimeout(900_000)
     // THE MASK IS THE STATIC PORTRAYAL at the same camera. It places one symbol per valid cell by
     // the catalogue's own rule, so a block it paints in is water — and on a chart an empty patch of
-    // water is a statement (#1510), not a cosmetic gap.
+    // water is a statement, not a cosmetic gap.
     //
     // A NECESSARY condition, not a sufficient one, and the distinction is worth keeping straight:
     // at z11 the static field is a ~6x4 lattice (cells 0.055 deg apart is ~203 px), so it marks
     // SOME water. What it cannot do is mark a block that is NOT water, which is what makes every
     // block it paints a fair thing to demand of the advected field.
+    //
+    // ACROSS THE WHOLE PHASE CYCLE, which is the half #1510 asked for and nothing measured. Its
+    // words: "Nothing asserts it still covers the water at t = 30 s. That is precisely the
+    // assertion that would have caught this." A single-instant check is blind to exactly the
+    // failure the report describes — a patch that is covered at one moment and bare at another
+    // reads as slack water for as long as it is bare, and averages away in any painted-pixel total
+    // (GATE 3 above is that total, and it cannot see a hole that moves).
     await boot(page, 11, '| arrow')
     const mask = await page.evaluate(readInk)
     expect(mask.ok).toBe(true)
@@ -233,29 +238,53 @@ test.describe('S-111 screen-lattice arrow field (#1520 step 2)', () => {
     expect(mask.backend).toBe('webgl2')
     await page.locator('canvas').first().screenshot({ path: 'test-results/s111-water-mask.png' })
 
-    await boot(page, 11, '| flow')
-    const field = await page.evaluate(readInk)
-    expect(field.ok).toBe(true)
-    if (!field.ok) return
-    await page.locator('canvas').first().screenshot({ path: 'test-results/s111-water-field.png' })
-
     // A block counts as water once the catalogue put more than a stray anti-aliased pixel in it.
     const water = mask.blocks.map((n) => n > 20)
-    const missed = water.filter((isWater, i) => isWater && field.blocks[i]! === 0).length
     const wet = water.filter(Boolean).length
-    console.log(`[s111-water] water blocks=${wet} missed by the advected field=${missed}`)
 
     // PRECONDITION: the mask means something. A camera where the catalogue field paints one block
     // would make the claim vacuous — §12's "an assertion carries information only if it
     // DISTINGUISHES the states of the thing it tests".
     expect(wet, 'the catalogue field marks enough water to test against').toBeGreaterThan(8)
 
-    // THE CLAIM. Every block of water the catalogue reaches, the advected field reaches too.
+    const worst: { t: number; missed: number }[] = []
+    for (let i = 0; i < PHASE_SAMPLES; i++) {
+      const t = (i * PHASE_SECONDS) / PHASE_SAMPLES
+      await boot(page, 11, '| flow', t)
+      const field = await page.evaluate(readInk)
+      expect(field.ok).toBe(true)
+      if (!field.ok) return
+      expect(field.backend).toBe('webgl2')
+      if (i === 0) {
+        await page
+          .locator('canvas')
+          .first()
+          .screenshot({ path: 'test-results/s111-water-field.png' })
+      }
+      worst.push({
+        t,
+        missed: water.filter((isWater, b) => isWater && field.blocks[b]! === 0).length,
+      })
+    }
+    console.log(
+      `[s111-water] water blocks=${wet} | missed per phase: ` +
+        worst.map((w) => `t=${w.t}:${w.missed}`).join(' '),
+    )
+
+    // THE CLAIM. Every block of water the catalogue reaches, the advected field reaches — at every
+    // instant, not on average.
     //
-    // FAIL-BEFORE, measured: with `unproject_flat`'s convergence threshold at a fixed 1 m — below
-    // the f32 ULP of a Web Mercator coordinate, so ~40 % of the lattice was rejected in horizontal
-    // bands — this reported 14 of 33 blocks missed. That bug was invisible to all 10 058 unit
-    // tests, because the DSL's CPU lowering is f64; this gate is what saw it.
-    expect(missed, 'the advected field left water empty (#1510)').toBe(0)
+    // TWO FAIL-BEFORES, both measured rather than reasoned to:
+    //  · with `unproject_flat`'s convergence threshold at a fixed 1 m — below the f32 ULP of a Web
+    //    Mercator coordinate, so ~40 % of the lattice was rejected in horizontal bands — the
+    //    single-instant form of this reported 14 of 33 blocks missed. That bug was invisible to all
+    //    10 060 unit tests, because the DSL's CPU lowering is f64; this gate is what saw it.
+    //  · the mechanism #1510 was filed against held a POSITION and recycled on a lottery, so an
+    //    arrow that drifted into slack water was invisible for a mean ~33 s AND left its origin
+    //    unrepresented. A seed here emits its train every frame from a position that is a pure
+    //    function of the clock, so neither hole is reachable — which is what this asserts.
+    for (const w of worst) {
+      expect(w.missed, `t=${w.t}s: the advected field left water empty (#1510)`).toBe(0)
+    }
   })
 })
