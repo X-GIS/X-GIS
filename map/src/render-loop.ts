@@ -95,14 +95,11 @@ export class RenderLoop {
    *  (map.ts → render/passes/pass-chain.ts) right after construction. */
   private readonly _nodes: RenderNode[] = []
 
-  /** #1046 Inc-4 (doc §3-F3) — whether the unified `_nodes` chain can EXECUTE on
-   *  this frame's backend: the DEVICE's own claim (`rhi.caps.chainFrame`), not a
-   *  hardcoded hold. All 12 pass bodies originate through requireRhiFrame (F3b
-   *  complete), so the remaining blocker is the chain's loop TAIL — render-target
-   *  allocation, error scopes, compute dispatch — which WebGl2Device answers for
-   *  with `chainFrame: false` until #991 P4/P5 lands that tail on the RHI. Until
-   *  then `?rhichain=1` (RHI_CHAIN) still routes the twin — a safe no-op by the
-   *  device's own word rather than by a flag someone must remember to flip. */
+  /** #1046 Inc-4 (doc §3-F3) — whether the unified `_nodes` chain can EXECUTE
+   *  on this backend: the DEVICE's own claim (`rhi.caps.chainFrame` — see its
+   *  doc), not a hardcoded hold. All 12 pass bodies ride requireRhiFrame, so
+   *  the blocker is the chain's loop TAIL; WebGl2Device answers false until
+   *  #991 P4/P5, and `?rhichain=1` stays a safe no-op by the device's word. */
   private get _chainRunsOnWebgl2(): boolean {
     return this.host.ctx.rhi?.caps.chainFrame === true
   }

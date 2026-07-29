@@ -583,16 +583,15 @@ class WebGl2CommandEncoder implements RhiCommandEncoder {
   }
 }
 
-/** The PER-FRAME command encoder (`acquireFrameEncoder`, #1046 F3 / doc §2.4): the
- *  seam the unified `this._nodes` chain reaches through `ctx.encoder.beginRenderPass`
- *  on WebGL2. Unlike the copy-scoped encoder above, `beginRenderPass` is LIVE — it
- *  dispatches through the device's universal `beginRenderPass` (the FBO-0 sentinel
- *  screen arm + the offscreen/MRT arm), the #1049 descriptor-parity umbrella.
- *  `copyBufferToBuffer` supports in-frame arena relocation; `finish()` is the single
- *  per-frame present (gl.flush() + error drain — the endScreenPass analog). Byte-
- *  identical on the DEFAULT WebGL2 boot: the forced-WebGL2 twin early-returns before
- *  the frame shell, so this encoder is never acquired until `?rhichain=1` routes the
- *  chain here (F3 remaining — the pass bodies retype from the native encoder). */
+/** The PER-FRAME command encoder (`acquireFrameEncoder`, #1046 F3 / doc §2.4): the seam the
+ *  unified chain reaches through `requireRhiFrame(ctx).enc` on WebGL2. Unlike the copy-scoped
+ *  encoder above, `beginRenderPass` is LIVE — it dispatches through the device's universal
+ *  `beginRenderPass` (the FBO-0 sentinel screen arm + the offscreen/MRT arm), the #1049
+ *  descriptor-parity umbrella. `copyBufferToBuffer` supports in-frame arena relocation;
+ *  `finish()` is the single per-frame present (gl.flush() + error drain — the endScreenPass
+ *  analog). Byte-identical on the DEFAULT WebGL2 boot: the forced-WebGL2 twin early-returns
+ *  before the frame shell, so this encoder is never acquired until `?rhichain=1` routes the
+ *  chain here (cap-gated since #1046 Inc-4: `caps.chainFrame`, false until #991 P4/P5). */
 class WebGl2FrameEncoder implements RhiCommandEncoder {
   constructor(private readonly device: WebGl2Device) {}
   beginRenderPass(desc: RhiRenderPassDesc): RhiRenderPass {
@@ -688,10 +687,7 @@ export class WebGl2Device implements RhiDevice {
       compute: 'fragment-emulated',
       timestampQuery: false,
       executionModel: 'immediate',
-      // #1046 Inc-4 — false until #991 P4/P5 lands the chain's loop tail
-      // (RHI render targets / error scopes / compute guard) on this backend;
-      // the pass surface itself is already chain-capable (WebGl2FrameEncoder).
-      chainFrame: false,
+      chainFrame: false, // #1046 Inc-4 — true at #991 P4/P5 (see the RhiCaps doc)
     } as const)
 
     // #1153 P2 R3 — own the canvas context-loss listeners. GUARDED: the fake
