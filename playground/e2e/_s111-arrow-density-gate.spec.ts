@@ -33,24 +33,31 @@ const ZOOM_FAR = 7
  *  2.2 km across, so the canvas spans only a few of them and one arrow per cell is a handful of
  *  glyphs — the reported symptom exactly, and the reason it gets worse the closer you look.
  *
- *  MEASURED, both portrayals, same camera, painted pixels on a 480×700 canvas:
+ *  MEASURED on the shipped configuration, both portrayals, same camera, painted pixels on a
+ *  480×700 canvas — and the un-filled control beside it, produced by capping the subdivision at
+ *  level 0 so the lattice is the cell grid again:
  *
- *    zoom   | arrow (one per cell)   | flow (seeded 8× finer)
- *    z11         2031                     7722
- *    z12          677                     7941
- *    z13          179                     8272
- *    z14            0                     1772
+ *    zoom   | arrow    | flow (filled)   ratio    | flow (un-filled)   ratio
+ *    z10       7324          7167         0.98           6997           0.96   ← the level-0 rung
+ *    z11       2031          7689         3.79           2317           1.14
+ *    z12        677          8181        12.08            781           1.15   ← measured here
+ *    z13        179          1871        10.45            178           0.99
+ *    z14          0           624            —              0              —
  *
- *  z13 rather than z14 because at z14 the catalogue field paints NOTHING AT ALL — not one cell
- *  centre falls inside the viewport — and a control of zero makes the ratio meaningless however
- *  emphatic it looks. z13 keeps a live control and still separates by 45×.
+ *  z12, for three reasons that are all visible in that table. It is where the filled field peaks
+ *  (the lattice is 4× finer per axis and the rung is z10, so z12 is the last zoom with a node to
+ *  spare — past it the field thins again at the same rate the catalogue field does, which is the
+ *  honest limit of finite seeding). Its control is live, unlike z14 where the catalogue field
+ *  paints NOTHING AT ALL — not one cell centre falls inside the viewport — and a ratio against
+ *  zero is meaningless however emphatic it looks. And the un-filled arm there is 1.15, so the
+ *  separation is real rather than inherited from the zoom.
  *
- *  The advected field's OWN fall from z13 to z14 is the seeding depth expiring, exactly where it
- *  was designed to: the lattice is 8× finer per axis and the level-0 rung is z10, so z13 is the
- *  last zoom with a node to spare (`arrowLattice`). Past it the field thins again at the same
- *  4×-per-zoom rate the catalogue field does — which is the honest limit of finite seeding, not a
- *  bug, and is why the cap is stated in zooms. */
-const ZOOM_DEEP = 13
+ *  NOT z13, which an earlier revision of this gate used. That number (45×) was measured before
+ *  the seeding cap that ships (`S111_SUBCELL_SEED_MAX`, which the shared-state over-subscription
+ *  in #1513 forced) took the lattice from 8× to 4×, and it was never re-measured after. The gate
+ *  then sat 1.2× above its own bound — the shape that flakes (§12). Re-measured here, on the
+ *  merged tree, both arms. */
+const ZOOM_DEEP = 12
 
 const style = (portrayal: '| arrow' | '| flow'): string => `xgis 1
 
@@ -241,7 +248,7 @@ test.describe('S-111 advected arrows — view-driven density (#1450 B)', () => {
     expect(
       cells.frame,
       'static: one arrow per cell is SPARSE this far in — the symptom this fixes',
-    ).toBeLessThan(0.005)
+    ).toBeLessThan(0.01)
     // Deliberately a bare "it rasterised" floor, not a density floor: the un-filled arm draws
     // 260 px, so a stricter precondition would fail FIRST and report "the field drew" for what
     // is really a density regression. A precondition that steals the claim's failure message is
@@ -252,15 +259,14 @@ test.describe('S-111 advected arrows — view-driven density (#1450 B)', () => {
     // field instead of a handful of glyphs. A RATIO against the static control, not a pixel
     // count: what is claimed is a direction.
     //
-    // Bound at the GEOMETRIC MIDPOINT of the two arms, 8.2. The un-filled arm is not assumed —
-    // it is MEASURED, by capping the subdivision level at 0 so the lattice is the cell grid
-    // again: 179 static against 260 advected, ratio 1.45. (Not 1.00, because the advected field
-    // also drifts, so it paints a little outside the cells it was seeded on — which is why the
-    // control has to be measured rather than reasoned to.) 46.2 green against 1.45 red, 5.6×
-    // either way.
+    // Bound at the GEOMETRIC MIDPOINT of the two arms, 3.7. The un-filled arm is not assumed —
+    // it is MEASURED (the table above): 677 static against 781 advected, ratio 1.15. Not 1.00,
+    // because the advected field also drifts and so paints a little outside the cells it was
+    // seeded on, which is exactly why the control has to be measured rather than reasoned to.
+    // 12.08 green against 1.15 red, 3.2× either way.
     expect(
       filled.frame / Math.max(cells.frame, 1e-9),
       'the advected field is no denser than one arrow per cell — the filling half is not running',
-    ).toBeGreaterThan(8.2)
+    ).toBeGreaterThan(3.7)
   })
 })

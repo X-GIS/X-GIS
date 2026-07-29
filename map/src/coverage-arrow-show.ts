@@ -86,11 +86,15 @@ interface ArrowLattice {
  *     as a basin. The ceiling was argued for a field where every instance is DRAWN.
  *   • Past a few levels there is nothing left to gain. The cull holds the drawn spacing in
  *     [34, 68) px whatever is seeded, so a level does not add density — it extends the ZOOM
- *     RANGE over which that density survives, by exactly one zoom each. On the demo fixture
- *     (2.2 km cells, TILE_PX 512) one arrow per cell is right at z10, and each level carries
- *     that one zoom deeper — measured, and measured to expire exactly where the lattice runs
- *     out. Past a few levels the screen spans a few hundred metres of a 2.2 km cell and the
- *     datum itself has nothing finer to say.
+ *     RANGE over which that density survives, by exactly one zoom each. Measured on the demo
+ *     fixture (2.2 km cells, TILE_PX 512), painted pixels, `| flow` against `| arrow`:
+ *
+ *       zoom      z10    z11    z12    z13    z14
+ *       ratio    0.98   3.79  12.08  10.45      —   (the catalogue field paints 0 at z14)
+ *
+ *     One arrow per cell is right at z10, and the two seeded levels carry it to z12 — where it
+ *     peaks and then expires exactly as the arithmetic says. Past that the screen spans a few
+ *     hundred metres of a 2.2 km cell and the datum itself has nothing finer to say.
  *
  *  So: at most 64 arrows per cell, three zooms past the level-0 rung — and in practice the
  *  SEED bound below is what binds first on a grid of any size. */
