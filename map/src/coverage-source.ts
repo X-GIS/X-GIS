@@ -284,7 +284,7 @@ async function readHead(res: Response, n: number): Promise<Uint8Array> {
  *  The discriminator is the leading bytes, not the URL: an S-100 cell begins with the HDF5
  *  signature, so a content sniff needs no file extension, no new `type:`, and therefore no DSL
  *  change at all. The alternative — deciding by `.json` vs `.h5` — is a guess about a server's
- *  naming taste, and the S-111 proxy's own `/noaa-s111/latest/<model>.h5` route shows how
+ *  naming taste, and the S-111 bridge's own `/opendata/s111/latest/<model>.h5` route shows how
  *  little a path says about what answers it. */
 async function probeCoverageUrl(
   deps: CoverageSourceDeps,

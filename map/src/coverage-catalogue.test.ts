@@ -82,12 +82,12 @@ describe('cell vs catalogue: the discriminator is the HDF5 signature (#1453)', (
 describe('parseCoverageCatalogue — STAC ItemCollection (#1453)', () => {
   it('reads id, bbox and the data asset href', () => {
     const items = parseCoverageCatalogue(
-      collection([item('cbofs', [-77.3, 36.0, -74.9, 39.6], '/noaa-s111/latest/cbofs.h5')]),
-      '/noaa-s111/catalog.json',
+      collection([item('cbofs', [-77.3, 36.0, -74.9, 39.6], '/opendata/s111/latest/cbofs.h5')]),
+      '/opendata/s111/catalog.json',
       LABEL,
     )
     expect(items).toEqual([
-      { id: 'cbofs', bbox: [-77.3, 36.0, -74.9, 39.6], href: '/noaa-s111/latest/cbofs.h5' },
+      { id: 'cbofs', bbox: [-77.3, 36.0, -74.9, 39.6], href: '/opendata/s111/latest/cbofs.h5' },
     ])
   })
 
@@ -98,11 +98,11 @@ describe('parseCoverageCatalogue — STAC ItemCollection (#1453)', () => {
         item('b', [0, 0, 1, 1], '/abs/b.h5'),
         item('c', [0, 0, 1, 1], 'https://example.com/c.h5'),
       ]),
-      '/noaa-s111/catalog.json',
+      '/opendata/s111/catalog.json',
       LABEL,
     )
     expect(items.map((i) => i.href)).toEqual([
-      '/noaa-s111/cells/a.h5',
+      '/opendata/s111/cells/a.h5',
       '/abs/b.h5',
       'https://example.com/c.h5',
     ])

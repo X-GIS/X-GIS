@@ -62,7 +62,7 @@ jobs:
       # to main, the worker by hand — and nothing tied them together until #1453 shipped a
       # demo asking for a worker route that did not exist yet. The site went out, the worker
       # kept running old code, and S-111 Live 404'd in production while every local gate and
-      # every CI leg was green (the dev proxy and the worker share `handleNoaa`, so they agree
+      # every CI leg was green (the dev bridge and the worker share `handleOpenData`, so they agree
       # in the source; only the DEPLOYMENTS had diverged).
       #
       # So the routes the demos declare are checked against the LIVE worker before the site
@@ -70,9 +70,9 @@ jobs:
       # it must not block a site deploy that is otherwise fine — the live demos degrade to
       # imagery-only, which is the documented fallback, and the fix is a worker redeploy
       # rather than a revert here.
-      - name: Check the deployed NOAA worker serves what the demos ask for
+      - name: Check the deployed open-data bridge serves what the demos ask for
         continue-on-error: true
-        run: node --experimental-strip-types scripts/check-noaa-worker.ts
+        run: node --experimental-strip-types scripts/check-opendata-bridge.ts
 
       - uses: actions/upload-pages-artifact@v3
         with:

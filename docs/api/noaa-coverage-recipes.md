@@ -69,35 +69,43 @@ The browser then points a `type: coverage` source's `url` at this edge — it on
 ever talks to your origin, never NOAA.
 
 **Live in the playground (`s111_live` demo).** The playground ships this end to end
-against the REAL buckets. In dev the vite server is the proxy — `playground/dev/
-noaa-s111-proxy.ts` bridges the `/noaa*` paths to the NOAA S3 buckets with a CORS header,
-the same locus as the `/pmtiles-proxy` entry. In prod the hosted static site has no
-server, so `loader.ts` rewrites those paths to a Cloudflare Worker (`playground/dev/
-noaa-s111-worker.ts`) that serves the identical contract. The proxy is **general, not
-pinned to one product** — it is a CORS bridge to any NOAA Open-Data bucket, not a
-CBOFS-only shim:
+against the REAL buckets. In dev the vite server is the bridge — `playground/dev/
+opendata-bridge.ts` serves the `/opendata/*` paths from the AWS Open Data buckets with a CORS
+header, the same locus as the `/pmtiles-proxy` entry. In prod the hosted static site has no
+server, so `loader.ts` rewrites that prefix to a Cloudflare Worker (`playground/dev/
+opendata-bridge-worker.ts`) that serves the identical contract. The bridge is **general, not
+pinned to one product** — it fronts open data at large, not a CBOFS-only shim:
 
-| Path                           | Serves                                                            |
-| ------------------------------ | ----------------------------------------------------------------- |
-| `/noaa/<bucket>/<key>[?query]` | any `noaa-*` bucket — object GET (Range preserved) **or** S3 LIST |
-| `/noaa-s111/latest.h5`         | newest CBOFS (Chesapeake) S-111 cell                              |
-| `/noaa-s111/latest/<model>.h5` | newest cell for any S-111 model (dbofs, gomofs, ngofs2, …)        |
-| `/noaa-s111/<key>`             | explicit `noaa-s111-pds` key                                      |
+| Path                               | Serves                                                                            |
+| ---------------------------------- | --------------------------------------------------------------------------------- |
+| `/opendata/s3/<bucket>/<key>[?q]`  | an allowlisted AWS Open Data bucket — object GET (Range preserved) **or** S3 LIST |
+| `/opendata/s111/catalog.json`      | STAC ItemCollection of the S-111 regional cells, with their domain envelopes      |
+| `/opendata/s111/latest.h5`         | newest CBOFS (Chesapeake) S-111 cell                                              |
+| `/opendata/s111/latest/<model>.h5` | newest cell for any S-111 model (dbofs, gomofs, ngofs2, …)                        |
+| `/opendata/s102/catalog.json`      | NOAA's S-100 Exchange Catalogue (4313 cells) translated to STAC                   |
+| `/opendata/s102/cells/<key>`       | the cells those catalogue hrefs resolve to                                        |
 
-The bucket is allowlisted to the `noaa-*` naming (public read-only Open-Data buckets), so
-it is not an open proxy. The LIST route lets a client resolve the newest key for **any**
-dataset itself (S-102 bathymetry, GOES, GFS, NWM, …), the same way the S-111 `latest`
-route does server-side — needed because these buckets are **rolling windows** (old cycles
-age out), so a hard-coded key 404s within days. The `s111_live` demo names the stable
-`latest.h5` path and never rots:
+Everything hangs off ONE prefix. That is structural: the predecessor had `/noaa/` plus a
+prefix per product, matched against a hand-maintained list in the dev middleware, and adding
+the third product silently fell through to vite's SPA fallback. Buckets are allowlisted by an
+explicit registry in `opendata-bridge.ts`, so it is not an open proxy — a glob only worked
+while the scope was one publisher. The LIST route lets a client resolve the newest key for
+**any** allowlisted dataset itself, the same way the S-111 `latest` route does server-side —
+needed because these buckets are **rolling windows** (old cycles age out), so a hard-coded key
+404s within days.
+
+The `s111_live` demo names the **catalogue**, and the engine resolves the viewport against it
+(#1453) — pan across the U.S. coast and the currents follow, with no app-side residency code:
 
 ```
-source currents { type: coverage, url: "/noaa-s111/latest.h5" }
+source currents { type: coverage, url: "/opendata/s111/catalog.json" }
 layer speed { source: currents; ramp: "viridis"; range: [0, 2] | opacity-70 }
 ```
 
-Other models / datasets use the same proxy — e.g. `url: "/noaa-s111/latest/dbofs.h5"`, or
-resolve a cell yourself via `fetch("/noaa/noaa-s102-pds/?list-type=2&prefix=…")` then load it.
+A single cell still works where that is what you want — `url: "/opendata/s111/latest/dbofs.h5"`
+— or resolve one yourself via `fetch("/opendata/s3/noaa-s102-pds/?list-type=2&prefix=…")` and
+load it. Whether the URL is a cell or a catalogue is decided by the leading BYTES (an S-100
+cell begins with the HDF5 signature), so there is no second source type.
 
 **When you do NOT need any of this:** CORS-open products — CO-OPS currents
 (`api.tidesandcurrents.noaa.gov`) and weather.gov alerts — already send

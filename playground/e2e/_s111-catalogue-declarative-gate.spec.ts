@@ -2,7 +2,7 @@
 //
 // `s111_live` used to install `installS111Mosaic`: 860 lines of app code doing bbox overlap,
 // relevance ordering, a byte budget, an LRU and a concurrency cap on every move-end. Its
-// source now declares `url: "/noaa-s111/catalog.json"` and the ENGINE does that job — the same
+// source now declares `url: "/opendata/s111/catalog.json"` and the ENGINE does that job — the same
 // deal `type: raster` has always offered.
 //
 // A unit test cannot close this. The claim is that a REAL demo, over the REAL proxy, streaming

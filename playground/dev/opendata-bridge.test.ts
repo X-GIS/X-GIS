@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { handleNoaa, resolveLatestS111Cached } from './noaa-s111-proxy'
+import { handleOpenData, resolveLatestS111Cached } from './opendata-bridge'
 import { S111_MODELS } from './s111-catalogue'
 import { parseCoverageCatalogue, itemsForView } from '@xgis/map'
 
@@ -71,46 +71,46 @@ const NEVER_FETCH = (async () => {
   throw new Error('the catalogue route must not touch the network')
 }) as unknown as FetchImpl
 
-describe('GET /noaa-s111/catalog.json', () => {
+describe('GET /opendata/s111/catalog.json', () => {
   it('is served without an upstream fetch, as CORS-open geo+json', async () => {
-    const res = await handleNoaa('/noaa-s111/catalog.json', null, null, NEVER_FETCH)
+    const res = await handleOpenData('/opendata/s111/catalog.json', null, null, NEVER_FETCH)
     expect(res.status).toBe(200)
     expect(res.headers.get('content-type')).toBe('application/geo+json')
     expect(res.headers.get('access-control-allow-origin')).toBeTruthy()
   })
 
   it('the ENGINE parses it — every model becomes one addressable cell', async () => {
-    const res = await handleNoaa('/noaa-s111/catalog.json', null, null, NEVER_FETCH)
-    const items = parseCoverageCatalogue(await res.json(), '/noaa-s111/catalog.json', 'test')
+    const res = await handleOpenData('/opendata/s111/catalog.json', null, null, NEVER_FETCH)
+    const items = parseCoverageCatalogue(await res.json(), '/opendata/s111/catalog.json', 'test')
     expect(items).toHaveLength(S111_MODELS.length)
     expect(items.map((i) => i.id).sort()).toEqual(S111_MODELS.map((m) => m.key).sort())
   })
 
   it('hrefs are RELATIVE, so they follow the catalogue to whichever origin served it', async () => {
-    // The production site rewrites `/noaa-s111/` to the Cloudflare Worker, so the catalogue
+    // The production site rewrites `/opendata/` to the Cloudflare Worker, so the catalogue
     // arrives from the WORKER's origin. A root-relative href would resolve against the PAGE
     // origin (github.io), which serves no cells — every item would 404 in prod and ONLY in
     // prod. Both resolutions are asserted here so that cannot regress silently.
-    const res = await handleNoaa('/noaa-s111/catalog.json', null, null, NEVER_FETCH)
+    const res = await handleOpenData('/opendata/s111/catalog.json', null, null, NEVER_FETCH)
     const doc = await res.json()
-    const dev = parseCoverageCatalogue(doc, '/noaa-s111/catalog.json', 'test')
-    expect(dev.find((i) => i.id === 'cbofs')!.href).toBe('/noaa-s111/latest/cbofs.h5')
+    const dev = parseCoverageCatalogue(doc, '/opendata/s111/catalog.json', 'test')
+    expect(dev.find((i) => i.id === 'cbofs')!.href).toBe('/opendata/s111/latest/cbofs.h5')
 
     const prod = parseCoverageCatalogue(
       doc,
-      'https://noaa-s111.x-gis.workers.dev/noaa-s111/catalog.json',
+      'https://opendata-bridge.x-gis.workers.dev/opendata/s111/catalog.json',
       'test',
     )
     expect(prod.find((i) => i.id === 'cbofs')!.href).toBe(
-      'https://noaa-s111.x-gis.workers.dev/noaa-s111/latest/cbofs.h5',
+      'https://opendata-bridge.x-gis.workers.dev/opendata/s111/latest/cbofs.h5',
     )
   })
 
   it('the demo viewports still resolve to the cells the mosaic used to pick', async () => {
     // The witnesses `s111-models.test.ts` carried, now proven END TO END: served document →
     // engine parse → engine selection. The demo's own opening view is the Chesapeake one.
-    const res = await handleNoaa('/noaa-s111/catalog.json', null, null, NEVER_FETCH)
-    const items = parseCoverageCatalogue(await res.json(), '/noaa-s111/catalog.json', 'test')
+    const res = await handleOpenData('/opendata/s111/catalog.json', null, null, NEVER_FETCH)
+    const items = parseCoverageCatalogue(await res.json(), '/opendata/s111/catalog.json', 'test')
     const keys = (v: [number, number, number, number]): string[] =>
       itemsForView(items, v).map((i) => i.id)
 
@@ -130,5 +130,64 @@ describe('GET /noaa-s111/catalog.json', () => {
       expect(seen.has(m.key), `duplicate key ${m.key}`).toBe(false)
       seen.add(m.key)
     }
+  })
+})
+
+// ── The bucket allowlist ──
+//
+// `/opendata/s3/<bucket>/<key>` can name ANY bucket on S3, so this registry is the only thing
+// between the bridge and being an open proxy anyone could borrow to launder bandwidth through
+// the x-gis account. The predecessor was a `noaa-*` glob, which only worked while the scope was
+// one publisher; AWS Open Data is thousands of publishers with no shared naming, so the check
+// has to be a list — and a list nobody exercises is a list that silently loosens.
+
+/** Records the URL a passthrough resolved to, and answers with an empty 200. */
+function recordingFetch(): { fetch: FetchImpl; urls: string[] } {
+  const urls: string[] = []
+  const f = (async (input: string | URL): Promise<Response> => {
+    urls.push(String(input))
+    return new Response('', { status: 200 })
+  }) as unknown as FetchImpl
+  return { fetch: f, urls }
+}
+
+describe('GET /opendata/s3/<bucket>/<key> (AWS Open Data passthrough)', () => {
+  it('streams an allowlisted bucket, preserving the key and the query', async () => {
+    const rec = recordingFetch()
+    const res = await handleOpenData(
+      '/opendata/s3/noaa-s111-pds/?list-type=2&prefix=ed1.0.1/',
+      null,
+      null,
+      rec.fetch,
+    )
+    expect(res.status).toBe(200)
+    expect(rec.urls).toEqual([
+      'https://noaa-s111-pds.s3.amazonaws.com/?list-type=2&prefix=ed1.0.1/',
+    ])
+  })
+
+  it('REFUSES a bucket that is not in the registry — without fetching it', async () => {
+    const res = await handleOpenData(
+      '/opendata/s3/some-private-bucket/secret',
+      null,
+      null,
+      NEVER_FETCH,
+    )
+    expect(res.status).toBe(403)
+    expect(await res.text()).toContain('some-private-bucket')
+  })
+
+  it('refuses a NEAR-MISS of an allowlisted name (no prefix/suffix slack)', async () => {
+    // `noaa-s111-pds.evil.com` is a legal S3 bucket name and starts with an allowlisted one;
+    // a `startsWith` check would have handed it the x-gis origin's CORS grant.
+    for (const bucket of ['noaa-s111-pds.evil.com', 'x-noaa-s111-pds', 'noaa-s111-pds2']) {
+      const res = await handleOpenData(`/opendata/s3/${bucket}/k`, null, null, NEVER_FETCH)
+      expect(res.status, bucket).toBe(403)
+    }
+  })
+
+  it('404s a path outside the /opendata prefix rather than proxying it', async () => {
+    const res = await handleOpenData('/noaa-s111/catalog.json', null, null, NEVER_FETCH)
+    expect(res.status).toBe(404)
   })
 })

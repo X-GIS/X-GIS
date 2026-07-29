@@ -85,7 +85,7 @@ export function parseS102ExchangeCatalogue(xml: string): S102Cell[] {
 /** The catalogue as a STAC ItemCollection.
  *
  *  Asset hrefs are RELATIVE for the reason S-111's are (see s111-catalogue.ts): in production the
- *  site rewrites `/noaa-s102/` to the Worker, so a root-relative href would resolve against the
+ *  site rewrites `/opendata/` to the Worker, so a root-relative href would resolve against the
  *  PAGE origin and 404 in prod and only in prod. `cells/<key>` hangs off the catalogue's own
  *  directory and follows the document to whichever origin served it.
  *

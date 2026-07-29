@@ -1,0 +1,29 @@
+# ═══ The open-data CORS bridge, as a deployable unit ═══
+#
+# The hosted playground (GitHub Pages) is a static site, so it cannot proxy anything itself.
+# This worker is that server: it bridges the public open-data origins the live demos stream
+# from — the AWS Open Data Registry buckets, which serve real HTTP Range but no
+# `Access-Control-Allow-Origin` — to the browser, and synthesises the two STAC catalogues the
+# `type: coverage` demos resolve their viewports against.
+#
+# NAME. It was `noaa-s111` while S-111 was the only thing it served, then `noaa-opendata`
+# while NOAA was. It is neither: the `/opendata/s3/<bucket>/…` passthrough reaches any
+# allowlisted AWS Open Data bucket, and non-AWS open-data origins land here too. A name that
+# says one publisher is a name that lies about the blast radius of a change to it.
+#
+# This file exists so the deploy is not three flags someone has to remember from a comment —
+# forgetting to redeploy at all is exactly how S-111 Live 404'd in production once already
+# (see scripts/check-opendata-bridge.ts).
+#
+#   cd playground && npx wrangler deploy          # CLOUDFLARE_API_TOKEN in the environment
+#
+# `scripts/check-opendata-bridge.ts` then verifies the deployed worker actually serves every
+# `/opendata/…` route the shipped demos declare.
+
+name = "opendata-bridge"
+main = "dev/opendata-bridge-worker.ts"
+compatibility_date = "2024-01-01"
+
+# No bindings, no secrets, no state: it is a pure request→upstream bridge, and its bucket
+# allowlist lives in the code so the dev middleware enforces the identical rule.
+workers_dev = true

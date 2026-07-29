@@ -8,9 +8,9 @@ xgis 1
 // direction.
 //
 // CORS: the NOAA bucket serves HTTP-Range but sets no Access-Control-Allow-Origin,
-// so the browser reaches it through a proxy — the vite dev-server `/noaa-s111`
+// so the browser reaches it through a proxy — the vite dev-server `/opendata`
 // bridge in dev, a CORS-open proxy in prod (loader.ts URL rewrite). The proxy's
-// `/noaa-s111/latest/<model>.h5` route resolves the newest published cycle on each
+// `/opendata/s111/latest/<model>.h5` route resolves the newest published cycle on each
 // load, so the demo never rots as old cycles age out of the rolling bucket. Those
 // URLs are named by the CATALOGUE the `currents` source points at, and fetched by
 // the engine — see that source.
@@ -61,7 +61,7 @@ source basemap {
 // the demo cannot rot.
 source currents {
   type: coverage
-  url: "/noaa-s111/catalog.json"
+  url: "/opendata/s111/catalog.json"
 }
 
 layer imagery {

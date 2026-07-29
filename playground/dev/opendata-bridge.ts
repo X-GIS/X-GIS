@@ -1,34 +1,43 @@
-// ═══ NOAA dev proxy — general CORS bridge to the NOAA Open-Data S3 buckets ═══
+// ═══ The open-data bridge — one CORS front for the public datasets the demos stream ═══
 //
-// NOAA's public S3 buckets (`noaa-s111-pds`, `noaa-s102-pds`, `noaa-oisst-pds`,
-// `noaa-goes*`, …) serve real data over plain HTTP Range but set NO
-// `Access-Control-Allow-Origin`, so a browser `fetch` from the playground origin is
-// CORS-blocked. This is the local CORS bridge — the same role `/pmtiles-proxy` plays
-// for the protomaps bucket — and it is DELIBERATELY GENERAL, not pinned to one
-// product: point a `type: coverage` (or any) source at one of these paths.
+// The AWS Open Data Registry buckets (`noaa-s111-pds`, `noaa-s102-pds`, …) serve real data
+// over plain HTTP Range but set NO `Access-Control-Allow-Origin`, so a browser `fetch` from
+// the playground origin is CORS-blocked. This is the bridge that fixes that — the same role
+// `/pmtiles-proxy` plays for the protomaps bucket — and it is deliberately named for the
+// SCOPE rather than for the first dataset that needed it: it fronts AWS Open Data today and
+// is where any other open-data origin lands when one arrives.
 //
-//   /noaa/<bucket>/<key…>[?query]  — passthrough to any NOAA bucket (`noaa-*`): an
-//                                    object GET (Range preserved) OR an S3 LIST
-//                                    (`?list-type=2&prefix=…`), so a client can
-//                                    resolve the newest key for ANY dataset itself.
-//   /noaa-s111/catalog.json        — SYNTHESISED: a STAC ItemCollection of the S-111 cells
-//                                    with their domain envelopes, so a `type: coverage`
-//                                    source can name it and let the ENGINE own viewport
-//                                    residency (#1453). The only route not backed by S3.
-//   /noaa-s102/catalog.json        — SYNTHESISED: NOAA's own S-100 Exchange Catalogue
-//                                    (`_CATALOG/CATALOG.XML`, 4313 cells) translated to STAC,
-//                                    so the browser reads ~1 MB of JSON rather than 19 MB of
-//                                    XML for a bbox lookup (#1453).
-//   /noaa-s102/cells/<key>         — the cells those catalogue hrefs resolve to.
-//   /noaa-s111/latest.h5           — convenience: newest CBOFS (Chesapeake) S-111 cell.
-//   /noaa-s111/latest/<model>.h5   — convenience: newest cell for ANY S-111 model
-//                                    (dbofs, gomofs, ngofs2, sfbofs, tbofs, wcofs, …).
-//   /noaa-s111/<key…>              — explicit noaa-s111-pds key passthrough.
+// ONE PREFIX, `/opendata/`. Everything hangs off it, and that is structural rather than
+// tidy: the previous scheme had `/noaa/` and `/noaa-s111/` and then `/noaa-s102/`, matched
+// against a hand-maintained prefix LIST in the dev middleware, and adding the third product
+// silently fell through to vite's SPA fallback — a catalogue fetch that got `index.html`
+// with a 200. A route table that must be updated in two places will be wrong in one of them.
+// With a single prefix there is nothing to keep in sync.
 //
-// The bucket is allowlisted to the `noaa-*` naming (public read-only Open-Data buckets),
-// so this is NOT an open proxy. This is DEV TOOLING (never bundled into the library); the
-// production static site rewrites these paths to the same-contract Cloudflare Worker
-// (`noaa-s111-worker.ts`) — see playground/src/demos/loader.ts and docs/recipes.
+//   /opendata/s3/<bucket>/<key…>[?query]  — passthrough to an ALLOWLISTED AWS Open Data
+//                                           bucket: an object GET (Range preserved) OR an S3
+//                                           LIST (`?list-type=2&prefix=…`), so a client can
+//                                           resolve the newest key for any dataset itself.
+//   /opendata/s111/catalog.json           — SYNTHESISED: a STAC ItemCollection of the S-111
+//                                           cells with their domain envelopes, so a
+//                                           `type: coverage` source can name it and let the
+//                                           ENGINE own viewport residency (#1453).
+//   /opendata/s111/latest.h5              — convenience: newest CBOFS (Chesapeake) cell.
+//   /opendata/s111/latest/<model>.h5      — convenience: newest cell for ANY S-111 model
+//                                           (dbofs, gomofs, ngofs2, sfbofs, tbofs, wcofs, …).
+//   /opendata/s102/catalog.json           — SYNTHESISED: NOAA's own S-100 Exchange Catalogue
+//                                           (`_CATALOG/CATALOG.XML`, 4313 cells) translated to
+//                                           STAC, so the browser reads ~1 MB of JSON rather
+//                                           than 19 MB of XML for a bbox lookup (#1453).
+//   /opendata/s102/cells/<key…>           — the cells those catalogue hrefs resolve to.
+//
+// The product namespaces (`s111/`, `s102/`) exist because a synthesised catalogue's asset
+// hrefs are RELATIVE, so the cells must live in the catalogue's own DIRECTORY — see the two
+// catalogue modules for why relative is load-bearing.
+//
+// This is DEV TOOLING (never bundled into the library); the production static site rewrites
+// `/opendata/` to the same-contract Cloudflare Worker (`opendata-bridge-worker.ts`) — see
+// playground/src/demos/loader.ts and docs/api/noaa-coverage-recipes.md.
 
 import type { Connect } from 'vite'
 import { s111CatalogueDocument } from './s111-catalogue'
@@ -36,15 +45,33 @@ import { s102CatalogueCached } from './s102-catalogue'
 
 type FetchImpl = typeof globalThis.fetch
 
-const S111_BUCKET = 'https://noaa-s111-pds.s3.amazonaws.com'
-/** Allowlist: NOAA Open-Data buckets all begin `noaa-` (public, read-only, anonymous).
- *  Anything else is refused — this bridges NOAA data, it is not an open proxy. */
-const NOAA_BUCKET_RE = /^noaa-[a-z0-9][a-z0-9.-]*$/
+/** ═══ The allowlist ═══
+ *
+ *  A REGISTRY, not a pattern. `/opendata/s3/<bucket>/…` can name any bucket in the world, so
+ *  the only thing standing between this bridge and being an open proxy — one anyone could
+ *  borrow to launder S3 bandwidth through the x-gis account — is this list. The previous
+ *  `noaa-*` glob worked only because the scope was one publisher; AWS Open Data is thousands
+ *  of publishers with no shared naming, so a glob would either admit everything or admit the
+ *  wrong things.
+ *
+ *  Adding a dataset is one line here plus a worker redeploy, and the redeploy is not on
+ *  anyone's memory: `scripts/check-opendata-bridge.ts` reads the routes the shipped demos
+ *  declare and fails the deploy when the live bridge does not serve one. */
+const AWS_OPEN_DATA_BUCKETS = new Set([
+  'noaa-s111-pds', // S-111 surface currents (IHO S-100)
+  'noaa-s102-pds', // S-102 bathymetric surface (IHO S-100)
+])
+
+/** An AWS Open Data bucket's anonymous HTTPS origin. */
+const s3Origin = (bucket: string): string => `https://${bucket}.s3.amazonaws.com`
+
+const S111_BUCKET = s3Origin('noaa-s111-pds')
+const S102_BUCKET = s3Origin('noaa-s102-pds')
 
 /** CORS is LOCKED to the X-GIS site (plus localhost for a dev hitting the prod worker
- *  directly). This worker exists to serve the X-GIS demos — not as an open CORS proxy
- *  anyone can borrow to launder NOAA bandwidth through the x-gis account. A browser from
- *  any other origin is refused by the mismatched `Access-Control-Allow-Origin`. */
+ *  directly). This bridge exists to serve the X-GIS demos — not as an open CORS proxy
+ *  anyone can borrow. A browser from any other origin is refused by the mismatched
+ *  `Access-Control-Allow-Origin`. */
 const ALLOWED_ORIGINS = new Set([
   'https://x-gis.github.io',
   'https://localhost:3000',
@@ -61,7 +88,7 @@ export function corsHeaders(origin: string | null): Record<string, string> {
     'access-control-allow-origin': allowOrigin(origin),
     vary: 'origin',
     'access-control-expose-headers':
-      'content-range, content-length, accept-ranges, etag, x-noaa-key, cf-cache-status',
+      'content-range, content-length, accept-ranges, etag, x-opendata-key, cf-cache-status',
   }
 }
 
@@ -146,13 +173,14 @@ export function resolveLatestS111Cached(model: string, f: FetchImpl = fetch): Pr
 const STREAM_HEADERS = ['content-length', 'content-type', 'content-range', 'accept-ranges', 'etag']
 
 function errorResponse(status: number, message: string, origin: string | null): Response {
-  return new Response(`NOAA proxy: ${message}`, {
+  return new Response(`opendata bridge: ${message}`, {
     status,
     headers: { 'content-type': 'text/plain', ...corsHeaders(origin) },
   })
 }
 
-/** Resolve a `/noaa…` request path to the upstream S3 URL + the key we serve. */
+/** Resolve an `/opendata/…` request path (prefix already stripped) to the upstream URL + the
+ *  key we serve. */
 async function resolveTarget(
   path: string,
   search: string,
@@ -160,52 +188,41 @@ async function resolveTarget(
   f: FetchImpl,
 ): Promise<{ url: string; key: string } | Response> {
   const q = search ? `?${search}` : ''
-  // Back-compat: the pre-generalization prod rewrite STRIPPED the `/noaa-s111/` prefix,
-  // so a hosted site built before this change sends a bare `latest.h5` / `latest/<model>.h5`.
-  // Normalize those to the S-111 form so the worker serves both loader versions (no broken
-  // window across the deploy). Harmless once every site build carries the prefix-preserving rewrite.
-  if (path === 'latest.h5' || path.startsWith('latest/')) path = `noaa-s111/${path}`
   // S-111 "latest" convenience — CBOFS by default, any model via /latest/<model>.h5.
-  if (path === 'noaa-s111/latest.h5' || path.startsWith('noaa-s111/latest/')) {
+  if (path === 's111/latest.h5' || path.startsWith('s111/latest/')) {
     const model =
-      path === 'noaa-s111/latest.h5'
-        ? 'cbofs'
-        : path.slice('noaa-s111/latest/'.length).replace(/\.h5$/, '')
+      path === 's111/latest.h5' ? 'cbofs' : path.slice('s111/latest/'.length).replace(/\.h5$/, '')
     if (!/^[a-z0-9_]+$/.test(model)) return errorResponse(400, `bad model "${model}"`, origin)
     const key = await resolveLatestS111Cached(model, f)
     return { url: `${S111_BUCKET}/${key}`, key }
   }
-  // The S-102 catalogue's asset hrefs are `cells/<key>` relative to `/noaa-s102/catalog.json`,
-  // so they arrive here as `noaa-s102/cells/<key>` — the sibling passthrough that keeps those
-  // hrefs RELATIVE (and therefore origin-following, dev and prod alike).
-  if (path.startsWith('noaa-s102/cells/')) {
-    const key = path.slice('noaa-s102/cells/'.length)
-    return { url: `https://noaa-s102-pds.s3.amazonaws.com/${key}${q}`, key }
+  // The S-102 catalogue's asset hrefs are `cells/<key>` relative to `/opendata/s102/catalog.json`,
+  // so they arrive here as `s102/cells/<key>` — the sibling passthrough that keeps those hrefs
+  // RELATIVE (and therefore origin-following, dev and prod alike).
+  if (path.startsWith('s102/cells/')) {
+    const key = path.slice('s102/cells/'.length)
+    return { url: `${S102_BUCKET}/${key}${q}`, key }
   }
-  // Explicit noaa-s111-pds key passthrough (back-compat).
-  if (path.startsWith('noaa-s111/')) {
-    const key = path.slice('noaa-s111/'.length)
-    return { url: `${S111_BUCKET}/${key}${q}`, key }
-  }
-  // General passthrough: /noaa/<bucket>/<key> — any allowlisted NOAA bucket, object or LIST.
-  if (path.startsWith('noaa/')) {
-    const rest = path.slice('noaa/'.length)
+  // General passthrough: /opendata/s3/<bucket>/<key> — any allowlisted AWS Open Data bucket,
+  // object or LIST.
+  if (path.startsWith('s3/')) {
+    const rest = path.slice('s3/'.length)
     const slash = rest.indexOf('/')
     const bucket = slash === -1 ? rest : rest.slice(0, slash)
     const key = slash === -1 ? '' : rest.slice(slash + 1)
-    if (!NOAA_BUCKET_RE.test(bucket))
+    if (!AWS_OPEN_DATA_BUCKETS.has(bucket))
       return errorResponse(403, `bucket not allowed: "${bucket}"`, origin)
-    return { url: `https://${bucket}.s3.amazonaws.com/${key}${q}`, key: `${bucket}/${key}` }
+    return { url: `${s3Origin(bucket)}/${key}${q}`, key: `${bucket}/${key}` }
   }
   return errorResponse(404, `unknown route "${path}"`, origin)
 }
 
-/** The portable core: turn a `/noaa…` request (full path + query) into a CORS-open web
- *  `Response` streaming the S3 object. Web-standard in/out, so the SAME function backs
+/** The portable core: turn an `/opendata/…` request (full path + query) into a CORS-open web
+ *  `Response` streaming the upstream object. Web-standard in/out, so the SAME function backs
  *  both the vite dev middleware (below) and the production Cloudflare Worker
- *  (`noaa-s111-worker.ts`) — one authority, no drift (CLAUDE.md §12). `fetchImpl` is
+ *  (`opendata-bridge-worker.ts`) — one authority, no drift (CLAUDE.md §12). `fetchImpl` is
  *  injectable so the logic is testable off a working transport. */
-export async function handleNoaa(
+export async function handleOpenData(
   reqUrl: string,
   range: string | null,
   origin: string | null = null,
@@ -213,12 +230,14 @@ export async function handleNoaa(
 ): Promise<Response> {
   try {
     const [rawPath, search = ''] = reqUrl.split('?')
-    const path = rawPath!.replace(/^\/+/, '')
+    const full = rawPath!.replace(/^\/+/, '')
+    if (!full.startsWith('opendata/')) return errorResponse(404, `unknown route "${full}"`, origin)
+    const path = full.slice('opendata/'.length)
     // The S-111 cell CATALOGUE (#1453) — SYNTHESISED here, not proxied, so it is handled
-    // before `resolveTarget` (which only ever maps a path to an S3 object). A coverage source
-    // pointed at this URL lets the ENGINE own viewport residency; the NOAA-specific
+    // before `resolveTarget` (which only ever maps a path to an upstream object). A coverage
+    // source pointed at this URL lets the ENGINE own viewport residency; the NOAA-specific
     // `bbox → cell` knowledge stays on this side of the wire, where it belongs.
-    if (path === 'noaa-s111/catalog.json') {
+    if (path === 's111/catalog.json') {
       return new Response(JSON.stringify(s111CatalogueDocument()), {
         headers: {
           ...corsHeaders(origin),
@@ -233,7 +252,7 @@ export async function handleNoaa(
     // `_CATALOG/CATALOG.XML` — translated to STAC here so the browser fetches ~1 MB of JSON
     // instead of 19 MB of XML for a bbox lookup, and so the engine keeps ONE catalogue format
     // (see s102-catalogue.ts for why that is inside ADR-0010 rather than against it).
-    if (path === 'noaa-s102/catalog.json') {
+    if (path === 's102/catalog.json') {
       return new Response(JSON.stringify(await s102CatalogueCached(fetchImpl)), {
         headers: {
           ...corsHeaders(origin),
@@ -245,7 +264,7 @@ export async function handleNoaa(
     }
     const target = await resolveTarget(path, search, origin, fetchImpl)
     if (target instanceof Response) return target
-    // Edge-cache the S3 fetch: `target.url` is an IMMUTABLE resolved cell key (the `latest`
+    // Edge-cache the upstream fetch: `target.url` is an IMMUTABLE resolved key (the `latest`
     // → key resolution is memoized above), so Cloudflare can serve a reload / another
     // viewer's identical range from its edge instead of round-tripping to S3 — the dominant
     // REPEAT-load cost once `resolveLatestS111Cached` removed the redundant walks. `cf` is a
@@ -255,7 +274,7 @@ export async function handleNoaa(
       headers: range ? { Range: range } : undefined,
       cf: { cacheEverything: true, cacheTtl: 1800 },
     } as RequestInit)
-    const headers = new Headers({ ...corsHeaders(origin), 'x-noaa-key': target.key })
+    const headers = new Headers({ ...corsHeaders(origin), 'x-opendata-key': target.key })
     for (const h of [...STREAM_HEADERS, 'cf-cache-status']) {
       const v = upstream.headers.get(h)
       if (v) headers.set(h, v)
@@ -266,20 +285,16 @@ export async function handleNoaa(
   }
 }
 
-/** A connect middleware bridging `/noaa/*` and `/noaa-s111/*` to the NOAA buckets with
- *  CORS — the vite dev-server adapter over `handleNoaa`. */
-export function createNoaaMiddleware(fetchImpl: FetchImpl = fetch): Connect.NextHandleFunction {
+/** A connect middleware bridging `/opendata/*` to the open-data origins with CORS — the vite
+ *  dev-server adapter over `handleOpenData`. One prefix, so this matcher can never fall out of
+ *  step with the route table the way a list of prefixes did. */
+export function createOpenDataMiddleware(fetchImpl: FetchImpl = fetch): Connect.NextHandleFunction {
   return (req, res, next) => {
     const url = req.url ?? ''
-    // Match the whole `/noaa…` family by PATTERN, not by a list of prefixes. The list was
-    // `/noaa/` + `/noaa-s111/`, so adding the S-102 routes silently fell through to vite's SPA
-    // fallback: the catalogue fetch got `index.html` with a 200, the JSON parse failed on
-    // `<!doctype`, and the source armed nothing. A route table that has to be updated in two
-    // places is a route table that will be wrong in one of them.
-    if (!/^\/noaa(\/|-)/.test(url)) return next()
+    if (!url.startsWith('/opendata/')) return next()
     void (async () => {
       const origin = (req.headers['origin'] as string | undefined) ?? null
-      const web = await handleNoaa(url, req.headers['range'] ?? null, origin, fetchImpl)
+      const web = await handleOpenData(url, req.headers['range'] ?? null, origin, fetchImpl)
       res.statusCode = web.status
       web.headers.forEach((v, k) => res.setHeader(k, v))
       res.end(new Uint8Array(await web.arrayBuffer()))
@@ -288,11 +303,11 @@ export function createNoaaMiddleware(fetchImpl: FetchImpl = fetch): Connect.Next
 }
 
 /** Vite plugin form — registers the middleware on the dev server. */
-export function noaaProxy() {
+export function openDataBridge() {
   return {
-    name: 'noaa-proxy',
+    name: 'opendata-bridge',
     configureServer(server: { middlewares: Connect.Server }) {
-      server.middlewares.use(createNoaaMiddleware())
+      server.middlewares.use(createOpenDataMiddleware())
     },
   }
 }

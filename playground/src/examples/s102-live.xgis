@@ -13,8 +13,8 @@ xgis 1
 // so the grid lands in Chesapeake Bay where it belongs.
 //
 // CORS: like the S-111 bucket, noaa-s102-pds serves HTTP-Range but sets no
-// Access-Control-Allow-Origin, so the browser reaches it through the general `/noaa/
-// <bucket>/<key>` dev-proxy bridge (a CORS-open Worker in prod).
+// Access-Control-Allow-Origin, so the browser reaches it through the `/opendata`
+// dev bridge (a CORS-open Worker in prod).
 //
 // Cell choice is no longer hard-coded (#1453) — the catalogue picks whatever the viewport
 // covers. S-102 keys are STABLE (a cell is re-issued in place when its survey updates — the
@@ -44,7 +44,7 @@ source basemap {
 // carries that flag through.
 source bathy {
   type: coverage
-  url: "/noaa-s102/catalog.json"
+  url: "/opendata/s102/catalog.json"
 }
 
 layer imagery {

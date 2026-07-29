@@ -13,7 +13,7 @@
 //    generalise to exactly one product.
 //  • The demo stops owning residency. `installS111Mosaic` re-implemented bbox overlap,
 //    relevance ordering, a byte budget, an LRU and a concurrency cap in app code — the job
-//    `type: raster` has always done for itself. That is now `url: "/noaa-s111/catalog.json"`.
+//    `type: raster` has always done for itself. That is now `url: "/opendata/s111/catalog.json"`.
 //
 // The `bounds` are APPROXIMATE operational-domain envelopes (deg, [W, S, E, N]) — enough to
 // pick cells for a viewport. The EXACT grid geometry always comes from the streamed cell's own
@@ -49,8 +49,8 @@ export const S111_MODELS: readonly S111Model[] = [
  *
  *  Asset hrefs are RELATIVE (`latest/<key>.h5`), and that is load-bearing rather than tidy.
  *  In dev the catalogue is served from the page origin; in production the site rewrites
- *  `/noaa-s111/` to the Cloudflare Worker, so the catalogue arrives from the WORKER's origin.
- *  A root-relative `/noaa-s111/latest/cbofs.h5` would then resolve against the PAGE origin
+ *  `/opendata/` to the Cloudflare Worker, so the catalogue arrives from the WORKER's origin.
+ *  A root-relative `/opendata/s111/latest/cbofs.h5` would then resolve against the PAGE origin
  *  (github.io), which serves no cells — every item would 404 in prod and only in prod. A
  *  relative href resolves against the catalogue's own URL, so it follows the document to
  *  whichever origin served it. An absolute href would need this file to know the deploy
