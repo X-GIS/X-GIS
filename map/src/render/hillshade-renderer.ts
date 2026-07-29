@@ -29,7 +29,6 @@ import { lonLatToECEF, type ECEF } from '@xgis/shared'
 import type { RhiDevice, RhiRenderPass, RhiTexture } from '@xgis/engine'
 import { HillshadeDraper, type HillshadeTile } from './material/hillshade-material'
 import { shaderEmitPending } from '../shaders/emit/shader-emit-pool'
-import { wrapWebGpuPass } from '@xgis/rhi-webgpu'
 import { routeToSphereSelector, enumerateWorldCopies } from '@xgis/geo'
 import { isPickEnabled, getSampleCount } from '@xgis/engine'
 import { globeVisibleTiles } from '@xgis/data'
@@ -488,9 +487,8 @@ export class HillshadeRenderer {
   }
 
   render(
-    // RhiRenderPass ONLY (#1046 F3b review): both callers supply RHI handles,
-    // and the former native union hid a backend-keyed re-wrap (double wrap ⇒
-    // undefined at the native encoder). Narrowed = unrepresentable.
+    // RhiRenderPass ONLY (#1046 F3b review): both callers supply RHI handles; the old
+    // native union hid a backend-keyed re-wrap (double wrap ⇒ undefined). Narrowed.
     pass: RhiRenderPass,
     camera: Camera,
     projType: number,

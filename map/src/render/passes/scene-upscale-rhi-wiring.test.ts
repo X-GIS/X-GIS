@@ -71,6 +71,7 @@ function harness(
   const bindGroups: { entries: { binding: number; resource: unknown }[] }[] = []
   const rhi = {
     backend: 'webgpu',
+    caps: { shaderLanguage: 'wgsl' }, // #1473 — the source seam asks the capability
     createSampler: () => ({ __sampler: true }),
     createPipeline: () => ({}),
     createBindGroupLayout: () => ({}),
