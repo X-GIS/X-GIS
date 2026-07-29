@@ -95,11 +95,11 @@ export class RenderLoop {
    *  (map.ts → render/passes/pass-chain.ts) right after construction. */
   private readonly _nodes: RenderNode[] = []
 
-  /** #1046 Inc-4 (doc §3-F3) — whether the unified `_nodes` chain can EXECUTE
-   *  on this backend: the DEVICE's own claim (`rhi.caps.chainFrame` — see its
-   *  doc), not a hardcoded hold. All 12 pass bodies ride requireRhiFrame, so
-   *  the blocker is the chain's loop TAIL; WebGl2Device answers false until
-   *  #991 P4/P5, and `?rhichain=1` stays a safe no-op by the device's word. */
+  /** #1046 Inc-4 (doc §3-F3) — whether the unified `_nodes` chain can EXECUTE on
+   *  this backend: the DEVICE's own claim (`rhi.caps.chainFrame`), not a hardcoded
+   *  hold. Every pass body is RHI-typed (11 via requireRhiFrame; flow null-skips
+   *  `ctx.rhiEncoder`), so the blocker is the chain's loop TAIL — WebGl2Device says
+   *  false until #991 P4/P5, and `?rhichain=1` stays a safe no-op by its word. */
   private get _chainRunsOnWebgl2(): boolean {
     return this.host.ctx.rhi?.caps.chainFrame === true
   }
@@ -297,8 +297,8 @@ export class RenderLoop {
     // cannot execute on WebGL2 until the pass bodies are RHI-typed (F2 landed the frame-
     // shell seam only), so `_chainRunsOnWebgl2` gates the bypass OFF — the twin renders
     // whether or not the flag is set (byte-identical to before this seam), so `?rhichain=1`
-    // never yields a crash/blank frame. Flip `_chainRunsOnWebgl2` to route the chain once
-    // the passes execute on WebGL2 (F3 remaining; the twin-parity ratchet tracks the port).
+    // never yields a crash/blank frame. The cap flips at #991 P4/P5 (the loop tail — the
+    // pass bodies are already RHI-typed), and the routing follows with no edit here.
     if (rhi && !(RHI_CHAIN && this._chainRunsOnWebgl2)) {
       const rhiWorkPending = this.renderFrameViaRhi(rhi, w, h, projType, centerLon, centerLat, dpr)
       // Mirror the WebGPU path's end-of-frame idle bookkeeping (#746): snapshot

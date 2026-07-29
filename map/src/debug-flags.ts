@@ -68,14 +68,14 @@ function readRhiChainFlag(): boolean {
  *  forced-WebGL2 twin (`renderFrameViaRhi`). DEFAULT-OFF is the kill-switch: the twin
  *  stays the WebGL2 frame until the twin-parity ratchet reads zero on every fixture
  *  (F4 flips the default). No effect on the WebGPU frame — that is already the chain.
- *  The router (render-loop.ts) holds this OFF at the executor until the pass bodies are
- *  RHI-typed (F3 remaining); the flag + the frame encoder's `beginRenderPass` (the
- *  chain's WebGL2 origination seam) land in this phase. */
+ *  The router (render-loop.ts) gates this by the DEVICE's word (`caps.chainFrame` —
+ *  Inc-4): the pass bodies are RHI-typed, and WebGl2Device answers false until #991
+ *  P4/P5 lands the chain's loop tail, so the flag stays a safe no-op until then. */
 export const RHI_CHAIN: boolean = readRhiChainFlag()
 
 if (RHI_CHAIN && typeof window !== 'undefined') {
   console.info(
-    '[X-GIS] ?rhichain=1 active — WebGL2 unified-chain routing requested (#1046 F3); the twin still renders until the chain executes on WebGL2 (F3 remaining)',
+    '[X-GIS] ?rhichain=1 active — WebGL2 unified-chain routing requested (#1046 F3); the twin still renders while caps.chainFrame is false (#991 P4/P5 lands the loop tail)',
   )
 }
 

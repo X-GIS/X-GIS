@@ -6,7 +6,7 @@
 // the frame's RHI handles (reference identity — a re-wrap or a re-derive is the
 // double-wrap class 34d4695 killed), the SCENE geometry (it rasterises the
 // world; target-role-partition polices the source, this pins the values), and
-// must fail loud on the raw-shell escape instead of encoding a wrong frame.
+// must fail loud on twin-frame null bridges instead of encoding a wrong frame.
 //
 // GPU-free: stub FrameContext + host, no device. Fail-before: on the native
 // heatmap-pass body (pre-Inc-2c) case 1 is RED — renderChainRhi is never

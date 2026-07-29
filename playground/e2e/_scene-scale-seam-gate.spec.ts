@@ -130,21 +130,31 @@ test('a pinned-scale frame runs the seam, paints, and picks like scale 1', async
     await page.waitForTimeout(2000)
     scaled = await readState(page)
   }
+  // STRICT increase on invalidate (a `>= before` here would be information-free
+  // — the counter is monotonic): poll until a NEW scaled frame has drawn the
+  // seam, so a seam that ran once at boot and then dropped out of the chain
+  // cannot pass.
   const before = scaled.seamDraws
-  await page.evaluate(() => {
-    ;(window as unknown as { __xgisMap?: { invalidate?: () => void } }).__xgisMap?.invalidate?.()
-  })
-  await page.waitForTimeout(1500)
-  scaled = await readState(page)
+  const incDeadline = Date.now() + 20_000
+  while (Date.now() < incDeadline && scaled.seamDraws <= before) {
+    await page.evaluate(() => {
+      ;(window as unknown as { __xgisMap?: { invalidate?: () => void } }).__xgisMap?.invalidate?.()
+    })
+    await page.waitForTimeout(1000)
+    scaled = await readState(page)
+  }
 
   const png = PNG.sync.read(await page.locator('#map').screenshot({ type: 'png' }))
   writeFileSync(join(OUT, 'scene-scale-seam-0.72.png'), PNG.sync.write(png))
   const colours = countQuadrantColours(png)
   const scaledHits = await pickSweep(page)
 
-  // Unscaled reference on a second page: seam must NOT run; picks must agree.
+  // Scale-1 reference on a second page: seam must NOT run; picks must agree.
+  // PINNED to 1 (not left to the live controller): a loaded CI runner could
+  // otherwise engage the real ladder on this page and legitimately run the
+  // seam — the exact wall-clock nondeterminism this spec exists to remove.
   const ref = await context.newPage()
-  await boot(ref, '')
+  await boot(ref, '&scenescale=1')
   const refState = await readState(ref)
   const refHits = await pickSweep(ref)
 
@@ -159,10 +169,11 @@ test('a pinned-scale frame runs the seam, paints, and picks like scale 1', async
   expect(scaled.marker, 'default backend resolved to the WebGPU chain').toBe('webgpu')
   expect(errors, 'no page/console errors on the scaled frame').toEqual([])
 
-  // The seam ran — and runs again per scaled frame.
+  // The seam ran — and STRICTLY again on a later frame (see the poll above).
   expect(scaled.seamDraws, 'seam pass drew on the pinned-scale frame').toBeGreaterThanOrEqual(1)
-  expect(scaled.seamDraws, 'seam draws again on invalidate').toBeGreaterThan(before - 1)
-  // The unscaled frame never allocates the pair — the constructive no-op.
+  expect(scaled.seamDraws, 'seam draws again on invalidate').toBeGreaterThan(before)
+  // The scale-1 frame never allocates the pair — the constructive no-op.
+  expect(refState.marker, 'reference page also on the WebGPU chain').toBe('webgpu')
   expect(refState.seamDraws, 'scale-1 frame must NOT run the seam').toBe(0)
 
   // The scene content survived the upscale: all three quadrants painted.

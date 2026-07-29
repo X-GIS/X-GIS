@@ -39,7 +39,10 @@ describe('chain routing capability (#1046 Inc-4)', () => {
       join(dirname(fileURLToPath(import.meta.url)), '..', 'render-loop.ts'),
       'utf8',
     )
-    const sites = src.match(/RHI_CHAIN && this\._chainRunsOnWebgl2/g) ?? []
+    // The FULL negated form, not the inner conjunction: a polarity flip at one
+    // site (`!` dropped) leaves the substring intact but breaks routing — the
+    // mutation this pin exists to catch, so the `!(...)` must be part of it.
+    const sites = src.match(/!\(RHI_CHAIN && this\._chainRunsOnWebgl2\)/g) ?? []
     // Exactly the two documented gates: the resize fork and the twin dispatch.
     expect(sites).toHaveLength(2)
   })
