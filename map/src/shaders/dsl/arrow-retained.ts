@@ -54,7 +54,7 @@ import {
   type ModuleDecl,
 } from '@xgis/shader-dsl'
 import { ioStruct, builtin, location, storageBuffer, resource } from '@xgis/shader-dsl'
-import { emitModule, emitGlslModule, stageOf } from '@xgis/shader-dsl'
+import { emitModule, emitGlslModule, emitGlslStages, stageOf } from '@xgis/shader-dsl'
 import { ARROW_DRIFT_UV, decodeArrowPos } from './arrow-advect-step'
 import {
   S111_BAND_COUNT,
@@ -545,6 +545,17 @@ export const emitArrowRetainedGlsl = (stage: 'vertex' | 'fragment'): string => {
   )
 }
 
+/** Both GLSL stages from ONE lowering (see emitGlslStages). The per-stage twin above
+ *  prunes the module before each emit, so it lowers + runs the optimizer fixpoint twice;
+ *  naming the entries instead shares it. Byte-identical to two calls of the per-stage
+ *  form — pinned by map/src/render/material/glsl-stage-entry-parity.test.ts. */
+export const emitArrowRetainedGlslStages = (): { vertex: string; fragment: string } =>
+  emitGlslStages(buildArrowRetainedModule(), {
+    vertexEntry: 'vs_arrow_retained',
+    fragmentEntry: 'fs_arrow_retained',
+    emulateStorage: true,
+  })
+
 /** The ADVECTED module (#1419) — same projection ladder, same fragment stage, same output
  *  struct; a different VS and the resources it needs. No tint buffer: the colour is the band
  *  the arrow is standing in, not the one it launched with. */
@@ -580,3 +591,14 @@ export const emitArrowRetainedAdvectedGlsl = (stage: 'vertex' | 'fragment'): str
     { emulateStorage: true },
   )
 }
+
+/** Both GLSL stages from ONE lowering (see emitGlslStages). The per-stage twin above
+ *  prunes the module before each emit, so it lowers + runs the optimizer fixpoint twice;
+ *  naming the entries instead shares it. Byte-identical to two calls of the per-stage
+ *  form — pinned by map/src/render/material/glsl-stage-entry-parity.test.ts. */
+export const emitArrowRetainedAdvectedGlslStages = (): { vertex: string; fragment: string } =>
+  emitGlslStages(buildArrowRetainedAdvectedModule(), {
+    vertexEntry: 'vs_arrow_retained_advected',
+    fragmentEntry: 'fs_arrow_retained',
+    emulateStorage: true,
+  })

@@ -28,6 +28,8 @@ import { activeBody } from '@xgis/shared'
 import { lonLatToECEF, type ECEF } from '@xgis/shared'
 import type { RhiDevice, RhiRenderPass, RhiTexture } from '@xgis/engine'
 import { HillshadeDraper, type HillshadeTile } from './material/hillshade-material'
+import { shaderEmitPending } from '../shaders/emit/shader-emit-pool'
+import { wrapWebGpuPass } from '@xgis/rhi-webgpu'
 import { routeToSphereSelector, enumerateWorldCopies } from '@xgis/geo'
 import { isPickEnabled, getSampleCount } from '@xgis/engine'
 import { globeVisibleTiles } from '@xgis/data'
@@ -365,7 +367,11 @@ export class HillshadeRenderer {
 
   /** True while any DEM tile is mid-cross-fade (render-loop keep-alive). */
   hasFadingTiles(): boolean {
-    return this._hasFadingTiles
+    // A shader still being emitted off-thread counts as "converging": the draper draws
+    // NOTHING until it lands, so a loop that idled on tile-count alone would leave the
+    // relief permanently blank with its tiles already cached — the same freeze class as
+    // a fade ramp stranded mid-way, which is why it rides the same signal.
+    return this._hasFadingTiles || shaderEmitPending()
   }
 
   private _hillshadeDraper?: HillshadeDraper

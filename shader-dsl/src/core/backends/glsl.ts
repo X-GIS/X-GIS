@@ -1052,13 +1052,23 @@ function assembleGlsl(
   lowered: ModuleDecl,
   stage: 'vertex' | 'fragment' | undefined,
   opts?: GlslEmitOptions,
+  /** Name of the single entry to spell for this stage. A module may declare SEVERAL
+   *  entries for one stage (fs_fill / fs_fill_pattern, fs_line / fs_line_max / …) and
+   *  GLSL allows exactly one `main` per stage, so the caller must say which. Consumers
+   *  used to express that by deleting the other entries from the module BEFORE lowering,
+   *  which forced a separate lowering per stage; selecting here instead lets both stages
+   *  share one (see emitGlslStages). */
+  keepEntry?: string,
 ): string {
   const structs = new Map(lowered.structs.map((s) => [s.name, s]))
 
   // Stage filter through the shared predicate (#763 S3) — the old attr-string
   // match silently DROPPED a structured-only entry from its own stage's emit.
   const entries = lowered.funcs.filter(
-    (f) => isEntry(f) && (stage === undefined || stageOf(f) === stage),
+    (f) =>
+      isEntry(f) &&
+      (stage === undefined || stageOf(f) === stage) &&
+      (keepEntry === undefined || f.name === keepEntry),
   )
   // Stage-scoped emit (see stageScope) — only when compiling ONE stage; the
   // whole-module form (stage === undefined, a string-shape artifact used by
@@ -1193,14 +1203,23 @@ export function emitGlslModule(
  *  `emitGlslModule(m,'vertex')` and `emitGlslModule(m,'fragment')` — the lowering is
  *  deterministic and the spelling half does not mutate it, which
  *  `glsl-stages-parity.test.ts` pins — but it pays the optimizer fixpoint once instead
- *  of twice. Use this from any host that creates a pipeline (it always needs both). */
+ *  of twice. Use this from any host that creates a pipeline (it always needs both).
+ *
+ *  `vertexEntry` / `fragmentEntry` name the single entry to spell per stage, for the
+ *  common case of a module carrying several (fs_fill / fs_fill_pattern, fs_line /
+ *  fs_line_max / fs_line_pattern). Consumers expressed that by pruning the module's
+ *  funcs before each emit, which is precisely what made the two stages need two
+ *  lowerings; naming them here keeps one. Byte-identical to the prune-first form
+ *  because every optimizer pass is per-function, so a func's spelled body does not
+ *  depend on which OTHER funcs were present — pinned per family by
+ *  `map/src/render/material/glsl-stage-entry-parity.test.ts`. */
 export function emitGlslStages(
   m: ModuleDecl,
-  opts?: GlslEmitOptions,
+  opts?: GlslEmitOptions & { vertexEntry?: string; fragmentEntry?: string },
 ): { vertex: string; fragment: string } {
   const lowered = lowerForGlsl(m, opts)
   return {
-    vertex: assembleGlsl(lowered, 'vertex', opts),
-    fragment: assembleGlsl(lowered, 'fragment', opts),
+    vertex: assembleGlsl(lowered, 'vertex', opts, opts?.vertexEntry),
+    fragment: assembleGlsl(lowered, 'fragment', opts, opts?.fragmentEntry),
   }
 }

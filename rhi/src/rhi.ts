@@ -448,6 +448,18 @@ export interface RhiCaps {
    *  upload/draw primitives (UniformRing / staging flush policy inside
    *  executeItems) — never passes, never renderers (§5.3 confinement gate). */
   readonly executionModel: 'deferred' | 'immediate'
+  /** Which shader source this device consumes: 'wgsl' reads `RhiPipelineDesc.code`
+   *  and ignores the GLSL halves; 'glsl-es300' reads `vsCode`/`fsCode` and never
+   *  touches `code` (its createPipeline fail-louds on a WGSL-only desc — see
+   *  rhi-webgl2's createpipeline-dual-source-guard.test.ts). The dual-source contract
+   *  (#783) means every MaterialDesc can carry both, so this is the answer to "which
+   *  one is worth building" — and building the other is not free: emitting a language
+   *  runs the whole shader-dsl pipeline over the module, measured at ~768 ms of a
+   *  WebGL2 session across the map's drapers, paid synchronously when each layer first
+   *  draws. Consumer: the map's `wgslFor` / `glslFor` / `glslStagesFor` seam, which is
+   *  the single site that used to ask this by backend IDENTITY
+   *  (map/src/backend-identity-ratchet.test.ts — the F3–F6 sweep's target class). */
+  readonly shaderLanguage: 'wgsl' | 'glsl-es300'
   /** This device can host the UNIFIED pass chain's whole frame (#1046 Inc-4):
    *  the frame encoder, the multi-pass origination surface AND the loop tail
    *  the chain body still runs natively (render-target allocation, error

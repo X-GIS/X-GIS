@@ -15,9 +15,9 @@ import type { RhiBindGroup, RhiBuffer, RhiDevice, RhiRenderPass } from '@xgis/en
 import { Material, executeItems, type DrawItem } from '@xgis/engine'
 import {
   emitParticleRetainedWgsl,
-  emitParticleRetainedGlsl,
+  emitParticleRetainedGlslStages,
 } from '../../shaders/dsl/particle-retained'
-import { wgslFor } from './wgsl-for'
+import { wgslFor, glslStagesFor } from './wgsl-for'
 
 export class RetainedParticleDraper {
   private readonly material: Material
@@ -27,16 +27,9 @@ export class RetainedParticleDraper {
     // WebGPU boot never pays the double emit (#778 P6). Candidate (b) is a pure dual-source DSL
     // pipeline, so the twin is FREE — no new backend branch to diverge (design §3.2). Mirrors
     // RetainedCircleDraper.
-    const gl2 = rhi.backend === 'webgl2'
-    const glsl = gl2
-      ? {
-          vsCode: emitParticleRetainedGlsl('vertex'),
-          fsCode: emitParticleRetainedGlsl('fragment'),
-        }
-      : {}
     this.material = new Material(rhi, {
       shader: wgslFor(rhi, emitParticleRetainedWgsl),
-      ...glsl,
+      ...glslStagesFor(rhi, emitParticleRetainedGlslStages),
       vsEntry: 'vs_particle_retained',
       fsEntry: 'fs_particle_retained',
       format: format as 'bgra8unorm',

@@ -392,6 +392,8 @@ export class WebGpuDevice implements RhiDevice {
       compute: 'native',
       timestampQuery: device.features?.has('timestamp-query') ?? false,
       executionModel: 'deferred',
+      // WebGPU reads `RhiPipelineDesc.code` and ignores vsCode/fsCode entirely.
+      shaderLanguage: 'wgsl',
       chainFrame: true,
     } as const)
   }

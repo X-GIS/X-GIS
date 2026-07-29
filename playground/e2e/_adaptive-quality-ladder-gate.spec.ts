@@ -34,20 +34,50 @@ const SEED_GRID = 150
  *  just the foreground, or the lever has nothing out there to coarsen. */
 const SEED_SPAN = 0.3
 
-/** Geometry the whole style contributed to the last frame. */
-async function frameGeometry(page: Page): Promise<{ tris: number; tiles: number }> {
+/** What the whole style drew last frame: how COARSE the tile set is (`coarsest` /
+ *  `finest`, from the per-zoom drawn-tile histogram) plus the triangle and tile
+ *  counts, which are REPORTED but never asserted on — see the note at the
+ *  geometry assertion for why they cannot carry this claim. */
+async function frameGeometry(page: Page): Promise<{
+  tris: number
+  tiles: number
+  coarsest: number
+  finest: number
+  atFinest: number
+  byZoom: string
+}> {
   return await page.evaluate(() => {
     const pipe = (
       window as unknown as { __xgisMap?: { inspectPipeline(): unknown } }
     ).__xgisMap?.inspectPipeline() as
-      { sources?: Array<{ frame: { triangles: number; tilesVisible: number } }> } | undefined
+      | {
+          sources?: Array<{
+            frame: {
+              triangles: number
+              tilesVisible: number
+              drawnByZoom: Array<[number, number]>
+            }
+          }>
+        }
+      | undefined
     let tris = 0
     let tiles = 0
+    const merged = new Map<number, number>()
     for (const s of pipe?.sources ?? []) {
       tris += s.frame.triangles
       tiles += s.frame.tilesVisible
+      for (const [z, n] of s.frame.drawnByZoom) merged.set(z, (merged.get(z) ?? 0) + n)
     }
-    return { tris, tiles }
+    const zooms = [...merged.keys()].sort((a, b) => a - b)
+    const finest = zooms[zooms.length - 1] ?? -1
+    return {
+      tris,
+      tiles,
+      coarsest: zooms[0] ?? -1,
+      finest,
+      atFinest: merged.get(finest) ?? 0,
+      byZoom: JSON.stringify(zooms.map((z) => [z, merged.get(z)])),
+    }
   })
 }
 
@@ -132,9 +162,8 @@ async function run(
   frames: number,
 ): Promise<{
   before: number
-  after: number
-  /** Visible tile count — what the ladder's lever actually moves (#1468). */
-  tiles: number
+  /** Triangles, visible tiles, AND the per-zoom drawn-tile histogram — see `frameGeometry`. */
+  after: Awaited<ReturnType<typeof frameGeometry>>
   medMs: number
   step: number
   /** The far-field multiplier that reached the selector, not just the one computed. */
@@ -170,8 +199,9 @@ async function run(
     rounds++
   }
   await page.waitForTimeout(4000)
-  const after = (await frameGeometry(page)).tris
-  const settled = await frameGeometry(page)
+  const after = await frameGeometry(page)
+  // `step` and `farLodBoost` in ONE evaluate, off ONE inspection — read separately they can
+  // straddle a frame and report a notch that never had that boost.
   const ad = await page.evaluate(() => {
     const pipe = (
       window as unknown as { __xgisMap?: { inspectPipeline(): unknown } }
@@ -179,15 +209,7 @@ async function run(
       { adaptive?: { step: number; farLodBoost: number } } | undefined
     return { step: pipe?.adaptive?.step ?? 0, farLodBoost: pipe?.adaptive?.farLodBoost ?? 1 }
   })
-  return {
-    before,
-    after,
-    tiles: settled.tiles,
-    medMs,
-    step: ad.step,
-    farLodBoost: ad.farLodBoost,
-    rounds,
-  }
+  return { before, after, medMs, step: ad.step, farLodBoost: ad.farLodBoost, rounds }
 }
 
 test.describe.configure({ mode: 'serial' })
@@ -199,25 +221,37 @@ test('the ladder trades far-field geometry for frame time under sustained overlo
 
   // The comparison is CONTROL-FINAL vs TREATMENT-FINAL, not each arm's own before/after.
   // A freshly seeded source is still settling while the pump runs — the re-seed's refresh
-  // queue drains across frames — so within one arm the geometry legitimately GROWS, and an
+  // queue drains across frames — so within one arm the tile set legitimately moves, and an
   // earlier draft of this gate failed on exactly that (control drifted +23% on its own).
   // Both arms settle the same way from the same fixture at the same camera; what differs
   // is only whether the controller is allowed to act.
+  //
+  // Deliberately NOT asserted: that the two arms agree at `before` (#1479 proposed it). The
+  // treatment arm may already have notched during its own 24 s settle — measured, it has
+  // done so on a slower host — and then a legitimately-different `before` would redden a
+  // working ladder. `before` is reported for diagnosis and nothing rests on it.
   const off = await run(page, false, 40)
   // Report each arm BEFORE asserting on it (#1433). When the premise failed on CI it printed
   // nothing at all — the numbers were only logged after the treatment arm, which never ran —
   // so the red said "regression" about what was actually a measurement problem.
   console.log(
-    `\n  adaptive=0  tris ${off.before} -> ${off.after}, med ${off.medMs.toFixed(1)} ms, notch ${off.step}`,
+    `\n  adaptive=0  tris ${off.before} -> ${off.after.tris}, tiles ${off.after.tiles}` +
+      ` z${off.after.coarsest}..${off.after.finest} ${off.after.byZoom},` +
+      ` med ${off.medMs.toFixed(1)} ms, notch ${off.step}`,
   )
-  expect(off.after, 'the control must be drawing real geometry').toBeGreaterThan(10_000)
+  expect(off.after.tris, 'the control must be drawing real geometry').toBeGreaterThan(10_000)
   expect(off.step, '`adaptive=0` must pin the ladder at notch 0').toBe(0)
 
   const on = await run(page, true, 40)
   console.log(
-    `  adaptive=1  tris ${on.before} -> ${on.after}, med ${on.medMs.toFixed(1)} ms, notch ${on.step}` +
+    `  adaptive=1  tris ${on.before} -> ${on.after.tris}, tiles ${on.after.tiles}` +
+      ` z${on.after.coarsest}..${on.after.finest} ${on.after.byZoom},` +
+      ` med ${on.medMs.toFixed(1)} ms, notch ${on.step}` +
       ` (${on.rounds} pump round${on.rounds === 1 ? '' : 's'})` +
-      `\n  ladder bought ${(100 * (1 - on.tiles / off.tiles)).toFixed(1)}% of the visible TILES (triangles ${off.after}->${on.after}: this fixture's un-generalized grid moves them the other way, see #1468)\n`,
+      ` at farLodBoost ${on.farLodBoost}` +
+      `\n  ladder coarsened the horizon by ${off.after.coarsest - on.after.coarsest} zoom level(s)` +
+      ` and bought ${(100 * (1 - on.after.tiles / off.after.tiles)).toFixed(1)}% of the visible TILES` +
+      `; triangles ${off.after.tris} -> ${on.after.tris} (NOT a pass/fail signal — see the gate)\n`,
   )
 
   // THE PREMISE, read from the controller itself (#1433 option 2). The gate is an experiment
@@ -242,40 +276,71 @@ test('the ladder trades far-field geometry for frame time under sustained overlo
   // THE CLAIM: it acted, and the selector HONOURED it. A step counter can tick while the
   // selection ignores it — the wire this gate exists for (#1402 showed that seam go nowhere).
   //
-  // MEASURED ON TILES, NOT TRIANGLES (#1468/#1479). The ladder's lever is the tile selector's
-  // far-field error ceiling, so the TILE SET is what it acts on. Triangles are a property of
-  // what the source happens to put inside those tiles, and for THIS fixture the two move in
-  // opposite directions:
+  // Asserted on the COARSEST DRAWN ZOOM, not on the triangle count (#1479). Triangles cannot
+  // carry this claim, and the reason is structural rather than a matter of tuning: this
+  // fixture seeds 22 500 identical polygons uniformly over the ground and nothing generalises
+  // them by zoom, so a tile's triangle count scales with the GROUND AREA it spans. Coarsening
+  // replaces fine tiles with a coarser ancestor covering 4x the ground, which therefore
+  // carries MORE geometry than the tiles it replaced. Measured on `main` at the moment of
+  // filing: the ladder correctly collapsed the far-field pair z13x2 into a single z12 while
+  // leaving the four z14 foreground tiles untouched — and triangles rose 20 008 -> 28 794,
+  // reddening this gate with `ladder bought -43.9%` while the feature worked perfectly.
   //
-  //   adaptive=0   boost 1   tiles 6   triangles 20 008
-  //   adaptive=1   boost 2   tiles 5   triangles 28 794
+  // Zoom cannot invert that way: coarsening IS a lower drawn zoom, by definition. It also
+  // fails honestly if the wire dies — the notch moves and the histogram does not.
   //
-  // The selector coarsened exactly as asked — one fewer tile — while the triangle count rose
-  // 44%, because the fixture seeds a raw 150x150 polygon grid through `setSourceData` and
-  // GeoJSON-VT tiles it with no per-zoom generalization: a coarser tile covers 4x the area and
-  // carries the geometry to match. A real generalized source (PMTiles) inverts that, which is
-  // why this is a property of the fixture and not of the ladder.
-  //
-  // Read on triangles, the assertion therefore accused the ladder of the REVERSE of what it
-  // does, and could not distinguish that from the wire actually being cut — both produce a
-  // failure. Cutting `adaptiveFarLodBoost()` to a constant 1 now fails with "control 6 tiles,
-  // adaptive 6 at boost 2", which names the broken half.
+  // The mean drawn zoom was rejected: it is dominated by the unchanged foreground (13.667 ->
+  // 13.600 on the same run, a 0.5% signal), so a real one-level coarsening would sit inside
+  // any tolerance wide enough to be safe.
   expect(
-    on.tiles,
-    `the controller stepped to notch ${on.step} (farLodBoost ${on.farLodBoost}) but the ` +
-      `selector kept the same horizon (control ${off.tiles} tiles, adaptive ${on.tiles})`,
-  ).toBeLessThan(off.tiles)
+    on.after.coarsest,
+    `the controller stepped to notch ${on.step} but the selector never coarsened the horizon ` +
+      `(control drew ${off.after.byZoom}, adaptive drew ${on.after.byZoom}) — the notch reached ` +
+      `no tile. Triangles are NOT the signal here (${off.after.tris} -> ${on.after.tris}); see ` +
+      `the comment above.`,
+  ).toBeLessThan(off.after.coarsest)
 
-  // The lever must have actually reached the selector, not merely been computed. Asserted
-  // separately from `step` so a failure says WHICH half broke.
+  // Fewer TILES corroborates it (#1482). A shallower coarsest zoom with the SAME tile count
+  // would mean the selector ADDED a coarse tile rather than replacing finer ones with it —
+  // which is not coarsening. Measured: 6 tiles -> 5, as the z13 pair became one z12.
+  expect(
+    on.after.tiles,
+    `the controller stepped to notch ${on.step} (farLodBoost ${on.farLodBoost}) but the ` +
+      `selector kept the same horizon (control ${off.after.tiles} tiles, adaptive ${on.after.tiles})`,
+  ).toBeLessThan(off.after.tiles)
+
+  // The lever must have actually reached the selector, not merely been computed (#1482).
+  // Asserted separately from `step` so a failure says WHICH half broke: cutting
+  // `adaptiveFarLodBoost()` to a constant 1 fails HERE, naming the wire, rather than looking
+  // like a controller that never stepped.
   expect(
     on.farLodBoost,
     'the ladder stepped but its far-field lever never engaged',
   ).toBeGreaterThan(1)
 
-  // …and what it took must be the FAR field: the foreground guarantee #1374 restored has
-  // to survive every notch. Pinned exhaustively over the ladder's own values in
-  // map/src/render/sse-foreground-lod.test.ts; here the end-to-end check is simply that
-  // the layer is still drawing, not blanked.
-  expect(on.after, 'the ladder must coarsen the horizon, not empty the map').toBeGreaterThan(0)
+  // …and what it took must be the FAR field: the foreground guarantee #1374 restored has to
+  // survive every notch. Pinned exhaustively over the ladder's own values in
+  // map/src/render/sse-foreground-lod.test.ts; end-to-end, the observable is that the FINEST
+  // drawn zoom is untouched while the coarsest dropped. This is the half the old triangle
+  // assertion could not express at all — a ladder that coarsened the foreground instead of
+  // the horizon would have satisfied it just as well.
+  expect(
+    on.after.finest,
+    `the ladder spent the FOREGROUND, not the horizon: finest drawn zoom fell from ` +
+      `${off.after.finest} to ${on.after.finest} (control ${off.after.byZoom}, adaptive ` +
+      `${on.after.byZoom})`,
+  ).toBe(off.after.finest)
+
+  // The finest ZOOM surviving is not enough on its own: a ladder that kept one z14 tile and
+  // dropped the other three would satisfy it while having spent exactly the foreground the
+  // #1374 guarantee protects. So the COUNT at that zoom is pinned too. Measured, both arms
+  // draw the same four z14 tiles; only the far field moves.
+  expect(
+    on.after.atFinest,
+    `the ladder thinned the FOREGROUND: ${off.after.atFinest} -> ${on.after.atFinest} tiles at ` +
+      `z${off.after.finest} (control ${off.after.byZoom}, adaptive ${on.after.byZoom})`,
+  ).toBe(off.after.atFinest)
+
+  // …and the map is still drawing, not blanked.
+  expect(on.after.tris, 'the ladder must coarsen the horizon, not empty the map').toBeGreaterThan(0)
 })

@@ -687,6 +687,9 @@ export class WebGl2Device implements RhiDevice {
       compute: 'fragment-emulated',
       timestampQuery: false,
       executionModel: 'immediate',
+      // This backend requires the split GLSL sources and never reads `code` —
+      // createPipeline fail-louds on a WGSL-only desc (dual-source guard, #783).
+      shaderLanguage: 'glsl-es300',
       chainFrame: false, // #1046 Inc-4 — true at #991 P4/P5 (see the RhiCaps doc)
     } as const)
 

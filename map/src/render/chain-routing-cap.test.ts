@@ -48,8 +48,9 @@ describe('chain routing capability (#1046 Inc-4)', () => {
   })
 
   it("the two backends' caps answer as documented (WebGPU hosts the chain, WebGL2 not yet)", async () => {
-    // Read the LITERALS, not instances (device construction needs a GL/GPU
-    // context): the cap rows are frozen construction-time truths.
+    // The SOURCE literals — instance values are pinned in rhi-webgpu's
+    // rhi-caps.test.ts; pinning the literal text here keeps the #991 P4/P5
+    // flip a REVIEWED one-line diff (this row goes red until it is updated).
     const { readFileSync: rf } = await import('node:fs')
     const here = dirname(fileURLToPath(import.meta.url))
     const gl2 = rf(join(here, '../../../rhi-webgl2/src/rhi-webgl2.ts'), 'utf8')

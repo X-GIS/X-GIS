@@ -7,8 +7,8 @@
 
 import type { RhiBuffer, RhiDevice, RhiRenderPass } from '@xgis/engine'
 import { Material, executeItems } from '@xgis/engine'
-import { emitPointWgsl, emitPointGlsl } from '../../shaders/dsl/point'
-import { wgslFor } from './wgsl-for'
+import { emitPointWgsl, emitPointGlslStages } from '../../shaders/dsl/point'
+import { wgslFor, glslStagesFor } from './wgsl-for'
 
 type VertexBuffers = ReadonlyArray<{
   stride: number
@@ -43,11 +43,9 @@ export class PointDraper {
     // guard so the WebGPU boot never pays the double emit (mirrors RetainedCircleDraper).
     // The point storage buffers (feat_data / shapes / segments) lower to data-texture
     // samplers via emulateStorage; on WebGPU these are ignored.
-    const gl2 = rhi.backend === 'webgl2'
-    const glsl = gl2 ? { vsCode: emitPointGlsl('vertex'), fsCode: emitPointGlsl('fragment') } : {}
     this.material = new Material(rhi, {
       shader: wgslFor(rhi, emitPointWgsl),
-      ...glsl,
+      ...glslStagesFor(rhi, emitPointGlslStages),
       vsEntry: 'vs_point',
       fsEntry: 'fs_point',
       format: format as 'bgra8unorm',
