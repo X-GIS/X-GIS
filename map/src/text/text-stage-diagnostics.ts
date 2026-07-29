@@ -60,6 +60,17 @@ export class TextStageDiagnostics {
    *  collision dropped them or render-but-invisible. */
   private _lastSubmittedLabelCount = 0
   private _lastDrawnLabelCount = 0
+  /** #777 IV3 — how many of the drawn labels carry a ground basis, i.e. lie IN
+   *  the ground plane rather than standing up as billboards.
+   *
+   *  This exists because the static chain from the producer to the quad is
+   *  unbroken at every link and yet DISABLING the producer changed no pixels in
+   *  the fixture — a contradiction that no frame measurement could settle,
+   *  because ink area on that fixture is dominated by collision drop rather than
+   *  by foreshortening. A count taken at the one place the draws are handed to
+   *  the renderer distinguishes the two states directly: 0 means the basis never
+   *  reached a draw, non-zero means it did. */
+  private _lastGroundAlignedCount = 0
   /** iter 152 diagnostic — per-label halo normalisation capture for
    *  the z0-halo-too-large probe (user report #1). One entry per
    *  shaped label this prepare(): resolved fontSize (= def.size·dpr),
@@ -134,6 +145,12 @@ export class TextStageDiagnostics {
   setDrawnCount(n: number): void {
     this._lastDrawnLabelCount = n
   }
+  /** Record how many of this frame's drawn labels carry a ground basis. Taken at
+   *  the `renderer.setDraws` call, so it counts what the RENDERER received —
+   *  not what the producer offered, which is the whole point. */
+  setGroundAlignedCount(n: number): void {
+    this._lastGroundAlignedCount = n
+  }
 
   /** iter 152 z0-halo probe capture. Bounded to 512 entries. Called
    *  once per shaped point label inside the point-loop. haloK=3 mirrors
@@ -204,6 +221,9 @@ export class TextStageDiagnostics {
   }
   getLastDrawnLabelCount(): number {
     return this._lastDrawnLabelCount
+  }
+  getLastGroundAlignedCount(): number {
+    return this._lastGroundAlignedCount
   }
 
   getHaloDebug(): ReadonlyArray<HaloDebugEntry> {

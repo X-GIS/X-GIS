@@ -76,6 +76,11 @@ export interface PipelineInspection {
    *  camera explicitly — post-compile bounds-fit is suppressed in that
    *  case. */
   cameraExplicitlyPositioned: boolean
+  /** Last frame's label counts (#777 IV3). `groundAligned` is how many DRAWN
+   *  labels carried a ground basis — the observable that distinguishes "the
+   *  producer's basis reached the renderer" from "it did not", which no frame
+   *  measurement on the fixture could settle. */
+  labels: { submitted: number; drawn: number; groundAligned: number }
   sources: Array<{
     name: string
     /** Deepest zoom the source CAN serve as genuine data. Over-zooming
@@ -217,6 +222,11 @@ export function inspectMapPipeline(map: XGISMap): PipelineInspection {
       maxZoom: cam.maxZoom,
     },
     viewport: { canvasW, canvasH, dpr },
+    labels: {
+      submitted: m.textStage?.getLastSubmittedLabelCount() ?? 0,
+      drawn: m.textStage?.getLastDrawnLabelCount() ?? 0,
+      groundAligned: m.textStage?.getLastGroundAlignedCount() ?? 0,
+    },
     frame: m._frameCount,
     quality: m.getQuality(),
     adaptive: {

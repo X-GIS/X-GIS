@@ -721,6 +721,11 @@ export class TextStage {
   getLastDrawnLabelCount(): number {
     return this._diag.getLastDrawnLabelCount()
   }
+  /** #777 IV3 — how many of last frame's DRAWN labels carried a ground basis
+   *  (`text-pitch-alignment: map`). 0 means every label was a billboard. */
+  getLastGroundAlignedCount(): number {
+    return this._diag.getLastGroundAlignedCount()
+  }
   /** iter 152 — drain the z0-halo probe capture (see haloDebug). */
   getHaloDebug(): ReadonlyArray<{
     text: string
@@ -882,6 +887,7 @@ export class TextStage {
       }
       this.renderer.setDraws([])
       this._diag.setDrawnCount(0)
+      this._diag.setGroundAlignedCount(0)
       this._lastPrepareFullyResolved = true // nothing to resolve
       return
     }
@@ -2196,6 +2202,11 @@ export class TextStage {
     this._diag.captureDump(draws, this.opts.slotSize, this.opts.rasterFontSize)
     this.renderer.setDraws(draws)
     this._diag.setDrawnCount(draws.length)
+    // #777 IV3 — counted HERE, from the same array the renderer just received,
+    // so the number cannot disagree with what was drawn.
+    let groundAligned = 0
+    for (const d of draws) if (d.groundBasis !== undefined) groundAligned++
+    this._diag.setGroundAlignedCount(groundAligned)
     perfMarkEnd('stage-prepare.emit')
   }
 
