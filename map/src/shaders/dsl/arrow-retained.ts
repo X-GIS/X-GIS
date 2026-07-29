@@ -29,6 +29,11 @@ import {
   step,
   fwidth,
   length,
+  ceil,
+  log2,
+  exp2,
+  floor,
+  fract,
   mix,
   vec2,
   vec2i,
@@ -62,6 +67,8 @@ import {
   S111_BAND_STRIDE,
   S111_PARAM_STATE_BASE,
   S111_PARAM_UV_ASPECT,
+  S111_PARAM_GRID_NLON,
+  S111_PARAM_GRID_NLAT,
 } from './s111-band-table-layout'
 import {
   flat_rel,
@@ -452,13 +459,70 @@ const vsAdvected = fn(
     // its anchors are in front of the camera again.
     const minW = min(originClip.w, min(uStepClip.w, vStepClip.w))
 
+    // ── VIEW-DRIVEN DENSITY (#1450 B) ──────────────────────────────────────────────────────
+    //
+    // The stride the CPU applies is decided ONCE, at arm time, from the cell count alone
+    // (`arrowStride`) — nothing in it looks at the camera. Zoomed out the arrows pile into a few
+    // pixels; zoomed in the field stays as sparse as the arm decided. This thins the field HERE
+    // instead, per instance and per frame.
+    //
+    // WHY NOT RE-STRIDE ON THE CPU. The instance COUNT is part of the origin key
+    // (`${region}|${nLon}x${nLat}|${count}`), so changing it re-seeds the state and every arrow
+    // snaps back to its cell — a visible discontinuity every time the density moves. Culling
+    // leaves the batch, the key and the texel range untouched; the advect step keeps stepping
+    // every arrow and only the DRAW skips some, so density and animation stop interfering.
+    //
+    // THE SPACING IS MEASURED, not assumed. `basisU`/`basisV` are already the screen-pixel
+    // deltas of one leash (`ARROW_DRIFT_UV` of grid-uv) along each grid axis, so a cell is
+    // `|basis| / (ARROW_DRIFT_UV · n)` pixels apart. That is a real projected distance at THIS
+    // arrow's position, which is what makes the field thin correctly under PITCH: the horizon
+    // decimates harder than the foreground inside one frame, where a single camera-wide stride
+    // could only pick one answer for both.
+    const nLon = bandAt(u32(S111_BAND_PARAMS_ROW), S111_PARAM_GRID_NLON)
+    const nLat = bandAt(u32(S111_BAND_PARAMS_ROW), S111_PARAM_GRID_NLAT)
+    const cellPx = Let(
+      max(
+        min(
+          length(basisU).div(max(f32(ARROW_DRIFT_UV).mul(nLon), f32(1e-6))),
+          length(basisV).div(max(f32(ARROW_DRIFT_UV).mul(nLat), f32(1e-6))),
+        ),
+        f32(1e-6),
+      ),
+    )
+    // Keep every 2^L-th cell on BOTH axes. Powers of two, so the kept sets are NESTED: an arrow
+    // that survives at L survives at every smaller L too, and thinning only ever REMOVES arrows
+    // rather than swapping which ones are drawn — the shimmer a non-power-of-two modulus
+    // produces as the camera creeps.
+    //
+    // The target spacing is the glyph's own BASE length, not a tuned number: when cells land
+    // closer together than an arrow is long the arrows overlap, which is exactly the condition
+    // to thin at. Base, not the band-scaled size — scaling by speed would make the level depend
+    // on the water an arrow is standing in, so a drifting arrow would flicker in and out as it
+    // crossed a band edge.
+    const lod = max(ceil(log2(rd(F.size).div(cellPx))), f32(0))
+    const keepEvery = Let(exp2(lod))
+    // The arrow's own (col, row), recovered from the origin it was seeded at — a fixed property
+    // of the instance, so the decision is stable frame to frame and across a forecast step.
+    const col = floor(origin.x.mul(nLon))
+    const rowIdx = floor(origin.y.mul(nLat))
+    // Exact: `keepEvery` is a power of two and both indices are exact integers in f32, so each
+    // fraction is exactly 0 on a kept cell and at least `1/keepEvery` otherwise.
+    const off = fract(col.div(keepEvery)).add(fract(rowIdx.div(keepEvery)))
+    // A batch that declared no grid (nLon = 0 — `s111BandTableNormalized` called without one)
+    // draws its WHOLE field rather than thinning it to nothing: an absent number is not a
+    // request for maximum decimation.
+    const declared = step(f32(0.5), min(nLon, nLat))
+    const keep = max(f32(1).sub(step(f32(1e-4), off)), f32(1).sub(declared))
+
     // main.xsl note (4): no symbol for speed 0 or noData — and a packed nodata cell is exactly
     // (0, 0). A zero length collapses the quad, so the arrow is not drawn at all rather than
-    // drawn at some floor size in water that has no current.
+    // drawn at some floor size in water that has no current. The density cull rides the SAME
+    // mechanism: one more 0/1 factor, no second way for an arrow to not be drawn.
     const size = rd(F.size)
       .mul(scale)
       .mul(step(f32(1e-6), speed))
       .mul(step(f32(1e-6), minW))
+      .mul(keep)
 
     const margin = rd(F.stroke_units)
     const qx = f32(0)

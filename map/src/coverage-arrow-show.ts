@@ -205,7 +205,7 @@ function advectedInput(
     uStepLat: o.uStepLat,
     vStepLon: o.vStepLon,
     vStepLat: o.vStepLat,
-    bandTable: s111BandTableNormalized(peakSpeed, o.uvAspect, rampName),
+    bandTable: s111BandTableNormalized(peakSpeed, o.uvAspect, rampName, [nLon, nLat]),
     // The INSTANCE LAYOUT, not the data: a forecast step re-arms the same region, same grid and
     // same drawable cells, so the key is equal and the arrows keep drifting instead of snapping
     // back to their cells. A different grid or a different drawable count is a different set of
