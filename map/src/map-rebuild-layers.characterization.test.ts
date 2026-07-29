@@ -151,6 +151,7 @@ interface RebuildMocks {
   rasterRenderer: {
     setUrlTemplate: ReturnType<typeof vi.fn>
     setTileSize: ReturnType<typeof vi.fn>
+    setSourceMaxzoom: ReturnType<typeof vi.fn>
   }
   hillshadeRenderer: {
     setUrlTemplate: ReturnType<typeof vi.fn>
@@ -188,6 +189,9 @@ function makeMocks(): RebuildMocks {
     rasterRenderer: {
       setUrlTemplate: vi.fn(),
       setTileSize: vi.fn(),
+      // Source-level maxzoom is armed alongside tileSize; the mock models the surface
+      // rebuildLayers actually calls.
+      setSourceMaxzoom: vi.fn(),
     },
     hillshadeRenderer: {
       setUrlTemplate: vi.fn(),

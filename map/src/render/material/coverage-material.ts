@@ -78,6 +78,7 @@ export function packCoverageValueValid(
   dataMin: number,
   dataMax: number,
   codes?: Uint16Array,
+  minValid?: number,
 ): PackedCoverage {
   const n = values.length
   const value = new Uint16Array(n)
@@ -86,7 +87,21 @@ export function packCoverageValueValid(
   const invRange = range > 0 ? 1 / range : 0
   for (let i = 0; i < n; i++) {
     const v = values[i]!
-    const isNodata = Number.isNaN(v) || (codes ? codes[i] === NODATA_CODE : false)
+    // #1503 — a sample BELOW `minValid` is not a low reading, it is a different thing.
+    // On a depth band (vertical sign 'down') a negative value is above chart datum — LAND —
+    // and it took none of the branches below: it is not NaN, not the nodata code, so it fell
+    // through to the clamp and came out as `s = 0`, the SHALLOWEST end of the ramp. Land was
+    // painted as the shallowest water, and (worse) stayed `valid = 1`, so it was eligible for
+    // a sounding numeral reading a negative depth and it counted toward the band statistics.
+    //
+    // The threshold is the CALLER's: this packer knows nothing about bathymetry, and a
+    // coverage of temperature or velocity is legitimately negative. `coverage-renderer`
+    // derives it from `header.vertical.sign`, which is the datum semantics the file itself
+    // declares — no product hard-coding here or there.
+    const isNodata =
+      Number.isNaN(v) ||
+      (codes ? codes[i] === NODATA_CODE : false) ||
+      (minValid !== undefined && v < minValid)
     if (isNodata) {
       value[i] = F16_ZERO
       valid[i] = F16_ZERO

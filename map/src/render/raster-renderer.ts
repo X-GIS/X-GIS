@@ -79,10 +79,21 @@ export function rasterFrameCamAnchor(
  *  so a given camera zoom samples raster texels at the same density as
  *  MapLibre. Round (not floor) is the raster roundZoom semantic both engines
  *  share. Clamp stays [0, 18] — the pre-existing pyramid cap.
+ *
+ *  `sourceMaxzoom` is the DATASET's deepest level, and clamping to it is what stops the
+ *  selector asking for tiles that cannot exist. The AWS terrarium bucket stops at z15,
+ *  and the +1 bias above means a 256-px source outruns it from about camera z14.5 — so
+ *  every visible tile 404s (verified against a reported failure:
+ *  `terrarium/16/13651/25075` → 404, its z15 parent `15/6825/12537` → 200, 101 KB).
+ *  Clamping instead keeps requesting the deepest REAL level and lets it draw magnified,
+ *  which is exactly MapLibre's Transform#coveringZoomLevel behaviour. The #1405 backoff
+ *  then goes back to being a safety net for genuinely-missing tiles rather than the only
+ *  defence against a storm the selector created.
  *  (exported for the zoom-selection unit gate — raster-cover-zoom.test.ts) */
-export function rasterCoverZoom(zoom: number, tileSize: number): number {
+export function rasterCoverZoom(zoom: number, tileSize: number, sourceMaxzoom?: number): number {
   const bias = Math.log2(512 / tileSize)
-  return Math.max(0, Math.min(18, Math.round(zoom + bias)))
+  const cap = sourceMaxzoom === undefined ? 18 : Math.min(18, sourceMaxzoom)
+  return Math.max(0, Math.min(cap, Math.round(zoom + bias)))
 }
 
 // ── Typed pack targets (#733 P2b) — layout from wgslLayout(U.struct), write()
@@ -355,6 +366,15 @@ export class RasterRenderer {
 
   /** Set the source's tile size in px (256 | 512). Values other than 256/512
    *  keep the current setting — same validation the hillshade arm uses. */
+  /** Source-level `maxzoom` — the dataset's deepest real tile level, clamping the cover
+   *  zoom so the selector never asks for a tile that cannot exist. Undefined = unbounded
+   *  (the pre-existing behaviour for a source that does not declare one). */
+  private _sourceMaxzoom: number | undefined
+  setSourceMaxzoom(maxzoom: number | undefined): void {
+    this._sourceMaxzoom =
+      typeof maxzoom === 'number' && Number.isFinite(maxzoom) ? maxzoom : undefined
+  }
+
   setTileSize(tileSize: number | undefined): void {
     if (tileSize === 256 || tileSize === 512) this._tileSize = tileSize
   }
@@ -600,7 +620,7 @@ export class RasterRenderer {
     const frame = camera.getViewForProjection(projType, canvasWidth, canvasHeight, dpr)
     const { zoom } = camera
 
-    const currentZ = rasterCoverZoom(zoom, this._tileSize)
+    const currentZ = rasterCoverZoom(zoom, this._tileSize, this._sourceMaxzoom)
 
     // On zoom change: cancel distant zoom requests but KEEP parent tiles loading
     if (currentZ !== this.lastZoom) {
