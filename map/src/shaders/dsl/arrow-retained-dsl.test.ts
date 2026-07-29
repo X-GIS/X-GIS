@@ -187,13 +187,18 @@ describe('#1419 advected-arrow shader — DSL emission', () => {
     expect(w).toContain(`/ ${ARROW_DRIFT_UV}`)
   })
 
-  it('the drift is CLAMPED into that range, not merely expected to land in it', () => {
-    // The stateful path got this for free: the step recycled an arrow the moment it passed the
-    // leash, so the VS never saw a larger displacement. Integrating the position instead means
-    // nothing enforces the bound upstream, so the VS states it where it relies on it — otherwise
-    // an anisotropic grid extrapolates the basis and flings the glyph.
+  it('the drift is FITTED into that range by SCALING, not clamped per component', () => {
+    // The stateful path got the bound for free: the step recycled an arrow the moment it passed
+    // the leash, so the VS never saw a larger displacement. Integrating the position means
+    // nothing enforces it upstream, so the VS does — but it must do it by scaling BOTH
+    // components by one factor. Clamping them independently also keeps the displacement inside
+    // the box and TURNS it, which is the reported "moves in a different direction than it
+    // points" (see arrow-drift-direction.test.ts for the angles).
     const vs = w.slice(w.indexOf('fn vs_arrow_retained_advected'))
-    expect(vs.slice(0, vs.indexOf('\n}'))).toMatch(/clamp\([^;]*-1(\.0)?/)
+    const body = vs.slice(0, vs.indexOf('\n}'))
+    expect(body, 'the fit is capped at 1 — it may shrink the drift, never grow it').toMatch(
+      /min\(1\.0,/,
+    )
   })
 
   it('holds no catalogue threshold of its own — it indexes the uploaded band table', () => {
