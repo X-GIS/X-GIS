@@ -7,7 +7,7 @@ import {
   noteFailure,
   leafLoadBudget,
   type FailedTile,
-} from './hillshade-tile-retry'
+} from './tile-retry'
 
 // The defect this encodes: a DEM tile whose load resolved null was in neither the
 // tile cache nor the in-flight set, so the next frame re-requested it — forever.

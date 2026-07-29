@@ -40,12 +40,7 @@ import {
   rasterTileU as RASTER_TILE_U,
 } from '../shaders/dsl/raster'
 import { hillshadeU as HILLSHADE_U } from '../shaders/dsl/hillshade'
-import {
-  tileRequestable,
-  noteFailure,
-  leafLoadBudget,
-  type FailedTile,
-} from './hillshade-tile-retry'
+import { tileRequestable, noteFailure, leafLoadBudget, type FailedTile } from './tile-retry'
 import {
   writeRasterFrameUniform,
   writeRasterTileUniform,
@@ -324,7 +319,7 @@ export class HillshadeRenderer {
   private _cachedBytes = 0
   private loadingTiles = new Map<string, AbortController>()
   /** Tiles whose load resolved null, with the backoff state that stops them being
-   *  re-requested every frame (policy in hillshade-tile-retry.ts). Cleared when the
+   *  re-requested every frame (policy in tile-retry.ts). Cleared when the
    *  source is re-armed — a new URL template is a new coverage. */
   private failedTiles = new Map<string, FailedTile>()
   private frameCount = 0
@@ -557,7 +552,7 @@ export class HillshadeRenderer {
 
     // Load missing tiles (leaf-first so near tiles win the concurrency budget) — except
     // on a cold start, where leafLoadBudget holds two slots back so the parent-fallback
-    // prefetch below can put a coarse tile on screen first (hillshade-tile-retry.ts).
+    // prefetch below can put a coarse tile on screen first (tile-retry.ts).
     const leafBudget = leafLoadBudget(MAX_CONCURRENT_LOADS, this.tileCache.size)
     const loadOrder = [...tiles].sort((a, b) => b.z - a.z)
     for (const coord of loadOrder) {
@@ -565,7 +560,7 @@ export class HillshadeRenderer {
       if (this.tileCache.has(key) || this.loadingTiles.has(key)) continue
       // A tile that has failed recently is not re-requested until its backoff
       // elapses — without this, a past-max-zoom view spends the whole budget on
-      // 404s every frame (hillshade-tile-retry.ts explains why that path is common).
+      // 404s every frame (tile-retry.ts explains why that path is common).
       if (!tileRequestable(this.failedTiles.get(key), this.frameCount)) continue
       if (this.loadingTiles.size >= leafBudget) break
       const ctrl = new AbortController()
