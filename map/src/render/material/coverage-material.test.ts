@@ -111,3 +111,43 @@ describe('computeRampUniforms + bakeRampLut', () => {
     expect(bakeRampLut('bathymetry').length).toBe(256 * 4) // a known ramp still bakes
   })
 })
+
+describe('sub-datum samples are INVALID, not shallow (#1503)', () => {
+  // Land on a bathymetric chart. S-102 depth is positive-down from chart datum, so a negative
+  // value is ABOVE datum — a drying height or dry land, not a shallow sounding.
+  //
+  // Before this, such a sample took none of the nodata branches (not NaN, not the nodata code),
+  // fell through to `if (s < 0) s = 0`, and came out as the SHALLOWEST end of the ramp: land
+  // painted as the shallowest water. It also stayed `valid = 1`, so it was eligible for a
+  // sounding numeral reading a negative depth, and it counted toward the band statistics.
+  const F16_ZERO = 0
+  const F16_ONE = 0x3c00
+
+  it('a negative depth is dropped when the caller says values start at 0', () => {
+    const values = new Float32Array([-3.2, 0, 5, 20])
+    const { value, valid } = packCoverageValueValid(values, -3.2, 20, undefined, 0)
+    expect(valid[0], 'land must be INVALID — not merely clamped to the ramp floor').toBe(F16_ZERO)
+    expect(value[0], 'and its value texel must be zeroed with it').toBe(F16_ZERO)
+    expect([valid[1], valid[2], valid[3]], 'every real sounding survives').toEqual([
+      F16_ONE,
+      F16_ONE,
+      F16_ONE,
+    ])
+  })
+
+  it('WITHOUT the threshold the same sample is kept and clamped — the pre-#1503 behaviour', () => {
+    // NON-VACUITY. If the packer dropped negatives unconditionally, the test above would pass
+    // against a change that broke every legitimately-negative coverage. This pins that the
+    // exclusion is the CALLER's decision, so a temperature or velocity band is untouched.
+    const values = new Float32Array([-3.2, 0, 5, 20])
+    const { value, valid } = packCoverageValueValid(values, -3.2, 20)
+    expect(valid[0], 'no threshold ⇒ the sample is still valid').toBe(F16_ONE)
+    expect(value[0], 'and it normalises to the bottom of its own range').toBe(F16_ZERO)
+  })
+
+  it('NaN and the nodata code are still dropped when a threshold is given', () => {
+    const values = new Float32Array([NaN, 8])
+    const { valid } = packCoverageValueValid(values, 0, 8, undefined, 0)
+    expect([valid[0], valid[1]]).toEqual([F16_ZERO, F16_ONE])
+  })
+})
