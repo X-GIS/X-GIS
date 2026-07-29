@@ -38,11 +38,15 @@ import {
   atan,
   atan2,
   exp,
+  exp2,
+  log2,
   cos,
   sin,
   mod,
   abs,
+  min,
   pow,
+  select,
   sqrt,
   clamp,
   dot,
@@ -96,11 +100,10 @@ const HS = uniformStruct(
     hs_shadow: vec4fT, // premultiplied shadow-side RGBA (source 1)
     hs_highlight: vec4fT, // premultiplied lit-side RGBA (source 1)
     hs_accent: vec4fT, // premultiplied accent RGBA
-    // x = dem texel size (1/dimension); y = deriv_scale =
-    // tileSize / pow(2, exaggeration_zoom + 28.2562 − zoom) (design §3 step 2),
-    // computed per-frame from the render zoom (exact for the single-LOD steady
-    // state; a documented approximation for transient parent-fallback / pitched
-    // mixed-LOD tiles — the single-pass MVP does not carry a per-tile scale). zw reserved (0).
+    // x = dem texel size (1/dimension); y = deriv_base = the ZOOM-INDEPENDENT
+    // half of the design §3 step-2 derivative scale, tileSize / pow(2, 28.2562).
+    // The zoom-dependent half is per TILE, so hs_deriv_scale applies it in the
+    // fragment from the tile's own zoom. zw reserved (0).
     hs_texel: vec4fT,
     // Extra illumination sources 2..4 (method=multidirectional only; the spec
     // allows multiple sources solely there). Each hs_lightN carries x=azimuth_rad
@@ -127,6 +130,7 @@ export { HS as hillshadeU }
 // VsOut / U / Tile / DEM texture are the raster authorities, shared verbatim.
 const VsOut = rasterVsOut
 const U = rasterU
+const Tile = rasterTileU
 const tex = rasterTex
 const texSampler = rasterTexSampler
 
@@ -145,6 +149,39 @@ const hsElevation = fn('hs_elevation', { uv: vec2fT }, ({ uv }) => {
   const t = textureSample(tex.node, texSampler.node, uv).rgb.mul(255)
   return dot(t, HS.field.hs_unpack.rgb).sub(HS.field.hs_unpack.w)
 })
+
+// Sobel derivative scale (design §3 step 2), completed PER TILE.
+//
+// The Sobel stencil measures metres of elevation per DEM texel, so turning it
+// into a slope needs the ground size of a texel — which is set by the ZOOM OF
+// THE TILE BEING DRAWN, not by the camera. MapLibre gets this for free (it bakes
+// the scale in a per-tile prepare pass, where `u_zoom` IS the tile's zoom); the
+// single-pass MVP had only the camera zoom, in a frame uniform. Every tile that
+// is not a leaf at the camera's own zoom therefore shaded at the wrong contrast:
+// a parent fallback, and — since source `maxzoom` is honoured (#1489) — every
+// magnified leaf of a shallow DEM. The error is 2^Δz, so one level out is already
+// a doubling, which is the reported tile-to-tile brightness jump.
+//
+// `merc_span` is TileUniforms.merc_y.y, and a Mercator tile row is exactly
+// 2π/2^z tall in the shader's log(tan(π/4+φ/2)) units — so the tile's own zoom
+// reads straight back out of a lane the packer already writes. That lane is
+// computed in f64 and stored whole (raster-renderer's "avoid f32 cancellation at
+// high zoom" split) rather than differenced from two near-equal f32 bounds, so
+// recovering the zoom costs no precision. `base` is hillshadeDerivBase — the
+// zoom-INDEPENDENT half, tileSize / 2^28.2562.
+export const hsDerivScale = fn(
+  'hs_deriv_scale',
+  { base: f32T, merc_span: f32T },
+  ({ base, merc_span }) => {
+    const tileZ = log2(PI.mul(2).div(merc_span))
+    // MapLibre's zoom-exaggeration ramp: (z−15)·k below z15, flat 0 at/above it.
+    // min(z−15, 0) IS that clamp — the term vanishes exactly where MapLibre's
+    // `u_zoom < 15.0` guard does, with no branch.
+    const k = select(tileZ.lt(2), f32(0.4), select(tileZ.lt(4.5), f32(0.35), f32(0.3)))
+    const exaggerationZoom = min(tileZ.sub(15), 0).mul(k)
+    return base.mul(exp2(tileZ.sub(exaggerationZoom)))
+  },
+)
 
 const buildFs = (pickEnabled: boolean, methodFlag: number) => {
   const HillshadeFragmentOutput = hillshadeFragmentOutput(pickEnabled)
@@ -195,7 +232,10 @@ const buildFs = (pickEnabled: boolean, methodFlag: number) => {
       // radians from the abs_merc_y recompute above.
       const derivX = c.add(f.mul(2)).add(i).sub(a).sub(d.mul(2)).sub(g)
       const derivY = g.add(h.mul(2)).add(i).sub(a).sub(b.mul(2)).sub(c)
-      const scale = HS.field.hs_texel.y.div(cos(latRad))
+      const scale = hsDerivScale({
+        base: HS.field.hs_texel.y,
+        merc_span: Tile.field.merc_y.y,
+      }).div(cos(latRad))
       const deriv = vec2(derivX.mul(scale), derivY.mul(scale))
 
       const azimuth = HS.field.hs_light.x
@@ -390,16 +430,17 @@ export const buildHillshadeModule = (pickEnabled: boolean, methodFlag = -1): Mod
     consts: [...PROJECTION_CONSTS, ...ECEF_CONSTS],
     structs: [
       U.struct,
-      rasterTileU.struct,
+      Tile.struct,
       HS.struct,
       VsOut.decl,
       hillshadeFragmentOutput(pickEnabled).decl,
     ],
-    bindings: [U.binding, tex.binding, texSampler.binding, HS.binding, rasterTileU.binding],
+    bindings: [U.binding, tex.binding, texSampler.binding, HS.binding, Tile.binding],
     funcs: [
       ...getGpuProjectionFuncs(),
       rasterVsTile,
       hsElevation,
+      hsDerivScale,
       buildFs(pickEnabled, methodFlag),
     ],
   })
