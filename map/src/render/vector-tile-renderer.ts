@@ -3931,7 +3931,7 @@ export class VectorTileRenderer {
         cameraZoom: camera.zoom,
         currentZ,
         maxSubTileZ,
-        projType: (camera as { projType?: number }).projType ?? 0,
+        projType,
         globeMode: camera.globeMode,
         centerX: camera.centerX,
         centerY: camera.centerY,

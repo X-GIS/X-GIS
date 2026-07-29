@@ -87,3 +87,11 @@ export {
   DEPS_ZOOM_FEATURE,
   type DepBits,
 } from './deps'
+// #777 IV3 — the text-pitch-alignment resolution chain, shared by the converter's
+// runtime-gap warning and the runtime that builds the ground basis.
+export {
+  isLinePlacement,
+  resolveRotationAlignment,
+  resolvePitchAlignment,
+  type ResolvedAlignment,
+} from './label-alignment'

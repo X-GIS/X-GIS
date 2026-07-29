@@ -37,6 +37,15 @@ const globeArmIdx = SRC.indexOf("if (host.projectionName !== 'mercator')", vtIdx
 const mercArmIdx = SRC.indexOf('for (const wo of visibleWorldCopies)', globeArmIdx)
 const mercArmEnd = SRC.indexOf('perfMarkEnd(_ldMark)', mercArmIdx)
 
+// Path 1's point loop MOVED to dispatch-point-labels.ts (#777 IV3: label-pass
+// was at its LOC ceiling, and the extraction paid for the ground-basis wiring).
+// The guard follows the code rather than going vacuous where it used to sit —
+// which is what this file's own #996 note demands, and what it did: the slice
+// below stopped matching and the suite went red instead of quietly passing.
+const POINT_SRC = readFileSync(resolve(__dirname, 'dispatch-point-labels.ts'), 'utf8').replace(
+  /\r\n/g,
+  '\n',
+)
 const path1 = SRC.slice(path1Idx, vtIdx)
 const globeArm = SRC.slice(globeArmIdx, mercArmIdx)
 const mercArm = SRC.slice(mercArmIdx, mercArmEnd)
@@ -85,11 +94,20 @@ describe('label-pass — VT point-label arms thread perspective attenuation (#10
     )
   })
 
-  it('Path 1 (GeoJSON) wiring is unchanged — guard, green before and after', () => {
-    expect(path1).toContain('const ps = projected[2]')
-    expect(path1).toMatch(/pairKey,\s*undefined,\s*ps,\s*\)/)
-    expect(path1).toContain(
-      'dispatchIcon(featDef, projected[0], projected[1], 0, pairKey, false, undefined, ps)',
+  it('Path 1 (GeoJSON) still threads ps — now from dispatch-point-labels.ts', () => {
+    expect(POINT_SRC).toContain('const ps = projected[2]')
+    // `ps` still occupies the perspectiveScale slot; #777 IV3 appended the
+    // ground basis AFTER it, so the guard pins the pair rather than the tail.
+    expect(POINT_SRC).toMatch(/pairKey,\s*undefined,\s*ps,\s*basis,\s*\)/)
+    expect(POINT_SRC).toContain(
+      'deps.dispatchIcon(featDef, projected[0], projected[1], 0, pairKey, false, undefined, ps)',
     )
+  })
+
+  it('Path 1 still calls into label-pass, and the extracted module still exists', () => {
+    // #996 again: both halves of the move must be reachable, or this file's
+    // Path-1 coverage is asserting about a file nobody calls.
+    expect(path1).toContain('dispatchPointLabel(')
+    expect(POINT_SRC).toContain('export function dispatchPointLabel(')
   })
 })

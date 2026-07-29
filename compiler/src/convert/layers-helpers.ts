@@ -5,6 +5,7 @@
 
 import type { MapboxLayer } from './types'
 import { exprToXgis, filterToXgis } from './expressions'
+import { isLinePlacement, resolvePitchAlignment } from '../ir/label-alignment'
 
 // ═══ Fail-CLOSED filter emission ═══
 // Every layer converter that honours `layer.filter` shared this body:
@@ -569,10 +570,11 @@ export function pitchAlignmentGapWarning(
     return `Symbol layer "${layer.id}" — text-pitch-alignment "map" set but runtime renders labels viewport-aligned regardless; ground-projection not yet implemented.`
   }
   if (pitchAlign === 'viewport' || isOmittedValue(layout['text-field'])) return null
-  const linePlaced = placement === 'line' || placement === 'line-center'
-  const resolvedRotation =
-    rotAlign === 'map' || rotAlign === 'viewport' ? rotAlign : linePlaced ? 'map' : 'viewport'
-  if (resolvedRotation !== 'map') return null
+  const linePlaced = isLinePlacement(placement)
+  // The chain is resolved by the SHARED authority (ir/label-alignment.ts), not
+  // restated here — the runtime builds its ground basis off the same function,
+  // and a second copy would let the warning and the behaviour drift apart.
+  if (resolvePitchAlignment(placement, rotAlign, pitchAlign) !== 'map') return null
   return (
     `Symbol layer "${layer.id}" — text-pitch-alignment resolves to "map" ` +
     `(spec default: auto → text-rotation-alignment → map${linePlaced ? ` for "${String(placement)}" placement` : ''}) ` +

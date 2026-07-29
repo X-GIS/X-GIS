@@ -152,8 +152,15 @@ test.describe('S-111 multi-region residency (#1272 E-④)', () => {
     ).toBeLessThan(0.02)
 
     // The west domain draws in BOTH — the second push must not evict the first.
-    expect(single.left, 'control: west half painted').toBeGreaterThan(0.02)
-    expect(multi.left, 'multi: west half STILL painted').toBeGreaterThan(0.02)
+    //
+    // The floor is 0.005, not the 0.02 this shipped with. That number was calibrated when the
+    // advected field drew one arrow per cell whatever the camera; it now thins to a glyph's
+    // spacing (#1450 B), and at this gate's z7 the west half legitimately paints 0.0091. The
+    // assertion's JOB is unchanged — "the west domain is still on screen at all" — and the
+    // residency claim it guards is untouched: the east half still goes 0.0000 → 0.0684, which is
+    // an order of magnitude of headroom. What moved is a density this gate never meant to pin.
+    expect(single.left, 'control: west half painted').toBeGreaterThan(0.005)
+    expect(multi.left, 'multi: west half STILL painted').toBeGreaterThan(0.005)
 
     // THE FIX: the east half gains paint only when a second region is resident.
     expect(multi.right, 'multi: east half painted').toBeGreaterThan(single.right + 0.02)

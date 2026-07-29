@@ -29,6 +29,11 @@ import {
   step,
   fwidth,
   length,
+  ceil,
+  log2,
+  exp2,
+  floor,
+  fract,
   mix,
   vec2,
   vec2i,
@@ -62,6 +67,8 @@ import {
   S111_BAND_STRIDE,
   S111_PARAM_STATE_BASE,
   S111_PARAM_UV_ASPECT,
+  S111_PARAM_STEPS_U,
+  S111_PARAM_STEPS_V,
 } from './s111-band-table-layout'
 import {
   flat_rel,
@@ -312,15 +319,32 @@ const originTex = resource('origin_tex', texture2dfT, { group: 1, binding: 3 })
 const flowUTex = resource('flow_u_tex', texture2dfT, { group: 1, binding: 4 })
 const flowVTex = resource('flow_v_tex', texture2dfT, { group: 1, binding: 5 })
 
-/** Fetch a texel by NORMALIZED coordinate, with no sampler. A vertex stage cannot call
- *  `textureSample` (no implicit derivatives), and the two things sampled here want point
- *  fetches anyway: the state/origin read must hit exactly one texel (it is an identity, not a
- *  measurement), and the velocity field is per-cell data whose band edges are the catalogue's
- *  own granularity. It also keeps every vertex-visible binding sampler-free, so the WebGL2
- *  sampler-follows-its-texture ordering rule has nothing to trip over. */
+/** Fetch the cell OWNING a grid-uv position, with no sampler. A vertex stage cannot call
+ *  `textureSample` (no implicit derivatives), and the velocity field wants a point fetch anyway:
+ *  it is per-cell data whose band edges are the catalogue's own granularity, so a cell's value
+ *  governs its whole footprint and blending two of them would invent a current between them —
+ *  the one that reads a shore cell's neighbour as half a current. It also keeps every
+ *  vertex-visible binding sampler-free, so the WebGL2 sampler-follows-its-texture ordering rule
+ *  has nothing to trip over.
+ *
+ *  OWNER, not `floor(uv · n)`. Origins are written in the convention `u = col / (n − 1)`, so the
+ *  texel containing a position is `round(u · (n − 1))` — nearest under point registration. The
+ *  old form skewed by `u`, up to a whole cell: harmless at one arrow per cell, where the skew
+ *  never reached 1 and the answer came out right by luck, and wrong for a sub-cell node (#1511),
+ *  which reads a NEIGHBOUR's velocity. That neighbour is often land, whose packed `(0, 0)`
+ *  collapses the size product — so the symptom is a hole in valid water, not a wrong colour.
+ *
+ *  It also fixes the last column and row, where the skew reached exactly `n` — out of range, so
+ *  those arrows fetched zeros and were never drawn at all in advected mode.
+ *
+ *  `floor(x + 0.5)`, not `round`: WGSL rounds halves to even and GLSL's tie is
+ *  implementation-defined, so a node landing exactly on a footprint boundary could resolve to
+ *  different cells on the two backends — a parity bug that only shows on one of them. */
 const loadAtUv = (tex: Parameters<typeof textureDimensions>[0], uv: ReturnType<typeof vec2>) => {
   const d = textureDimensions(tex)
-  const c = vec2i(toI32(uv.x.mul(toF32(d.x))), toI32(uv.y.mul(toF32(d.y))))
+  const owner = (t: ReturnType<typeof f32>, n: ReturnType<typeof toF32>) =>
+    toI32(clamp(floor(t.mul(n.sub(1)).add(0.5)), f32(0), n.sub(1)))
+  const c = vec2i(owner(uv.x, toF32(d.x)), owner(uv.y, toF32(d.y)))
   return textureLoad(tex, c, u32(0))
 }
 
@@ -452,13 +476,83 @@ const vsAdvected = fn(
     // its anchors are in front of the camera again.
     const minW = min(originClip.w, min(uStepClip.w, vStepClip.w))
 
+    // ── VIEW-DRIVEN DENSITY (#1450 B, #1511) ───────────────────────────────────────────────
+    //
+    // The stride the CPU applies is decided ONCE, at arm time, from the cell count alone
+    // (`arrowStride`) — nothing in it looks at the camera. Zoomed out the arrows pile into a few
+    // pixels; zoomed in the field stays as sparse as the arm decided. This thins the field HERE
+    // instead, per instance and per frame.
+    //
+    // ONE RULE, RUNNING BOTH WAYS. The generator seeds a lattice finer than the grid wherever the
+    // budget allows (`arrowLattice`), and this keeps every 2^L-th node of it. So `L` above the
+    // subdivision level THINS, `L` at it draws exactly the cell centres — the static catalogue
+    // placement, as a rung of this ladder — and `L` below it FILLS between the cells, which is
+    // the half no arm-time stride could reach: the density had a hard ceiling at the grid's own
+    // resolution, and a three-cell-wide channel drew three arrows at every zoom.
+    //
+    // WHY NOT RE-STRIDE ON THE CPU. The instance COUNT is part of the origin key
+    // (`${region}|${nLon}x${nLat}|${count}`), so changing it re-seeds the state and every arrow
+    // snaps back to its cell — a visible discontinuity every time the density moves. Culling
+    // leaves the batch, the key and the texel range untouched; the advect step keeps stepping
+    // every arrow and only the DRAW skips some, so density and animation stop interfering. It is
+    // also what makes the filling half safe: seeding dense ONCE is a count that never moves.
+    //
+    // THE SPACING IS MEASURED, not assumed. `basisU`/`basisV` are already the screen-pixel
+    // deltas of one leash (`ARROW_DRIFT_UV` of grid-uv) along each grid axis, so two adjacent
+    // seeded positions are `|basis| / (ARROW_DRIFT_UV · steps)` pixels apart. That is a real
+    // projected distance at THIS arrow's position, which is what makes the field thin correctly
+    // under PITCH: the horizon decimates harder than the foreground inside one frame, where a
+    // single camera-wide stride could only pick one answer for both.
+    const stepsU = bandAt(u32(S111_BAND_PARAMS_ROW), S111_PARAM_STEPS_U)
+    const stepsV = bandAt(u32(S111_BAND_PARAMS_ROW), S111_PARAM_STEPS_V)
+    const nodePx = Let(
+      max(
+        min(
+          length(basisU).div(max(f32(ARROW_DRIFT_UV).mul(stepsU), f32(1e-6))),
+          length(basisV).div(max(f32(ARROW_DRIFT_UV).mul(stepsV), f32(1e-6))),
+        ),
+        f32(1e-6),
+      ),
+    )
+    // Keep every 2^L-th node on BOTH axes. Powers of two, so the kept sets are NESTED: an arrow
+    // that survives at L survives at every smaller L too, and thinning only ever REMOVES arrows
+    // rather than swapping which ones are drawn — the shimmer a non-power-of-two modulus
+    // produces as the camera creeps. Nesting is also what puts the catalogue placement ON the
+    // ladder instead of beside it: the lattice contains the cell centres, and they are exactly
+    // the nodes that survive `keepEvery = sub`.
+    //
+    // The target spacing is the glyph's own BASE length, not a tuned number: when arrows land
+    // closer together than one is long they overlap, which is exactly the condition to thin at.
+    // Base, not the band-scaled size — scaling by speed would make the level depend on the water
+    // an arrow is standing in, so a drifting arrow would flicker in and out as it crossed a band
+    // edge.
+    const lod = max(ceil(log2(rd(F.size).div(nodePx))), f32(0))
+    const keepEvery = Let(exp2(lod))
+    // The arrow's own lattice index, recovered from the origin it was seeded at — a fixed
+    // property of the instance, so the decision is stable frame to frame and across a forecast
+    // step. `+0.5` then floor, because the index is what the origin was BUILT from: the uv
+    // carries it back through a 16-bit encoding, so it arrives near the integer rather than on
+    // it, and rounding is what recovers it exactly.
+    const nodeU = floor(origin.x.mul(stepsU).add(0.5))
+    const nodeV = floor(origin.y.mul(stepsV).add(0.5))
+    // Exact: `keepEvery` is a power of two and both indices are exact non-negative integers in
+    // f32, so each fraction is exactly 0 on a kept node and at least `1/keepEvery` otherwise.
+    const off = fract(nodeU.div(keepEvery)).add(fract(nodeV.div(keepEvery)))
+    // A batch that declared no lattice (steps = 0 — `s111BandTableNormalized` called without
+    // them) draws its WHOLE field rather than thinning it to nothing: an absent number is not a
+    // request for maximum decimation.
+    const declared = step(f32(0.5), min(stepsU, stepsV))
+    const keep = max(f32(1).sub(step(f32(1e-4), off)), f32(1).sub(declared))
+
     // main.xsl note (4): no symbol for speed 0 or noData — and a packed nodata cell is exactly
     // (0, 0). A zero length collapses the quad, so the arrow is not drawn at all rather than
-    // drawn at some floor size in water that has no current.
+    // drawn at some floor size in water that has no current. The density cull rides the SAME
+    // mechanism: one more 0/1 factor, no second way for an arrow to not be drawn.
     const size = rd(F.size)
       .mul(scale)
       .mul(step(f32(1e-6), speed))
       .mul(step(f32(1e-6), minW))
+      .mul(keep)
 
     const margin = rd(F.stroke_units)
     const qx = f32(0)
