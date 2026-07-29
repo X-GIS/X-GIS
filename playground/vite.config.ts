@@ -1,7 +1,7 @@
 import { defineConfig } from 'vite'
 import basicSsl from '@vitejs/plugin-basic-ssl'
 import { fileURLToPath, URL } from 'node:url'
-import { noaaProxy } from './dev/noaa-s111-proxy'
+import { openDataBridge } from './dev/opendata-bridge'
 
 export default defineConfig({
   // Pages-deploy serves the playground under /X-GIS/play/ so the
@@ -14,11 +14,11 @@ export default defineConfig({
   // the generic `GITHUB_ACTIONS` flag here previously broke every CI
   // playwright run because GitHub auto-sets it for ALL CI jobs.
   base: process.env.XGIS_DEPLOY_BASE === '1' ? '/X-GIS/play/' : '/',
-  // noaaProxy bridges `/noaa/<bucket>/*` (any NOAA bucket) and the S-111
-  // `/noaa-s111/latest[/<model>].h5` conveniences to the CORS-less NOAA S3 buckets,
-  // so the live real-data demos stream in dev; the hosted site rewrites the same
-  // paths to a CORS-open proxy (loader.ts).
-  plugins: [basicSsl(), noaaProxy()],
+  // openDataBridge serves the whole `/opendata/*` family — the allowlisted AWS Open Data
+  // bucket passthrough plus the synthesised S-111/S-102 catalogues — so the live real-data
+  // demos stream in dev past the buckets' missing CORS; the hosted site rewrites the same
+  // prefix to a CORS-open Worker (loader.ts).
+  plugins: [basicSsl(), openDataBridge()],
   // Dev/test resolve @xgis/map to SOURCE, not the published dist.
   // ship-P0 packaging set the package `main`/`exports` to ./dist/index.js for
   // external npm consumers; without this alias the playground (and every e2e

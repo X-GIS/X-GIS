@@ -30,21 +30,23 @@ const URL_REWRITES: Array<[RegExp, string]> = [
   ],
 ]
 
-// The live NOAA demos stream from the CORS-less NOAA S3 buckets through a proxy — the
-// vite `/noaa` + `/noaa-s111` dev middleware locally. The hosted static site has no dev
-// server, so in PROD ONLY we rewrite those path prefixes to a CORS-open Cloudflare Worker
-// that serves the same general contract (dev/noaa-s111-worker.ts). The prefix is PRESERVED
-// in the rewrite (the worker routes on the full `/noaa/<bucket>/…` or `/noaa-s111/…` path);
-// dev keeps the bare path so the vite proxy handles it. Until the worker is deployed the
-// demos degrade to imagery-only on the hosted site (see docs/api/noaa-coverage-recipes.md).
-const NOAA_WORKER = 'https://noaa-s111.x-gis.workers.dev'
+// The live demos stream from CORS-less open-data origins through a bridge — the vite
+// `/opendata` dev middleware locally. The hosted static site has no dev server, so in PROD
+// ONLY we rewrite that prefix to a CORS-open Cloudflare Worker serving the same contract
+// (dev/opendata-bridge-worker.ts). The prefix is PRESERVED in the rewrite (the worker routes
+// on the full `/opendata/…` path); dev keeps the bare path so the vite bridge handles it.
+// Until the worker is deployed the demos degrade to imagery-only on the hosted site (see
+// docs/api/noaa-coverage-recipes.md).
+//
+// ONE rule, because the bridge has ONE prefix. It was two — `/noaa-s111/` and `/noaa/` — and
+// a rewrite list that has to grow per product is a list that will be missing the next one.
+const OPENDATA_BRIDGE = 'https://opendata-bridge.x-gis.workers.dev'
 if (import.meta.env.PROD) {
-  URL_REWRITES.push([/\/noaa-s111\//g, `${NOAA_WORKER}/noaa-s111/`])
-  URL_REWRITES.push([/\/noaa\//g, `${NOAA_WORKER}/noaa/`])
+  URL_REWRITES.push([/\/opendata\//g, `${OPENDATA_BRIDGE}/opendata/`])
 }
 // (A `NOAA_PROXY_BASE` for IMPERATIVE app-side fetches lived here until #1453. Nothing fetches
-// NOAA imperatively any more: the live source declares a catalogue URL, so it goes through the
-// URL_REWRITES above like every other source URL, and the catalogue's own cell hrefs are
+// open data imperatively any more: the live source declares a catalogue URL, so it goes through
+// the URL_REWRITES above like every other source URL, and the catalogue's own cell hrefs are
 // relative — they follow the document to whichever origin served it.)
 
 export function load(file: string): string {
