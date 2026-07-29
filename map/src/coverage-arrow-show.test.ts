@@ -226,15 +226,158 @@ describe('coverageArrowOrigins (#1409 — advected mode)', () => {
     // The grid is 3 wide × 2 tall, SW centre (10,50), 1° spacing. Row 0 is the NORTH row
     // (lat 51) and carries the skipped cells, so the drawable set is
     //   (row0,col0) lon 10 lat 51 · (row1,col0..2) lat 50.
-    // u = col/(nLon-1), v = row/(nLat-1) — v runs SOUTH from the north row, matching the
-    // velocity textures' own packing, so the shader needs no axis fix-up.
-    expect([...origins.u]).toEqual([0, 0, 0.5, 1])
-    expect([...origins.v]).toEqual([0, 1, 1, 1])
-
-    // ...and that really is instance order: instance 0 is the north-row arrow.
+    // u = x/(nLon-1), v = y/(nLat-1) — v runs SOUTH from the north row, matching the
+    // velocity textures' own packing, so the shader needs no axis fix-up. `x`/`y` are the
+    // LATTICE position in cell units, which is the cell's own index only at `sub = 1` (#1511).
+    //
+    // The ORDER is per cell, and each cell's own nodes are contiguous — so instance 0 is still
+    // the north-row cell's first node, and the lon/lat arrays agree with it.
+    expect(origins.u[0]).toBe(0)
+    expect(origins.v[0]).toBe(0)
     expect(emitted.lats[0]).toBeCloseTo(51, 9)
-    expect(emitted.lats[1]).toBeCloseTo(50, 9)
-    expect(emitted.lons[2]).toBeCloseTo(11, 9)
+    // The cell centres are still emitted, and still in cell order: filter the lattice down to
+    // its integer nodes and the pre-subdivision origin set comes back exactly.
+    const centres = [...origins.u]
+      .map((u, i) => [u * 2, origins.v[i]! * 1] as const)
+      .filter(([x, y]) => Number.isInteger(x) && Number.isInteger(y))
+    expect(centres).toEqual([
+      [0, 0],
+      [0, 1],
+      [1, 1],
+      [2, 1],
+    ])
+  })
+
+  it('seeds SUB-CELL nodes, and every one of them belongs to a DRAWABLE cell (#1511)', () => {
+    // THE risk the design had to dissolve: `s111HasArrow` is per cell, so a lattice that let a
+    // node stray past half a cell would put arrows over land — a visibly wrong chart. Here the
+    // offsets are half-open on [-0.5, 0.5), so each node is within half a cell of exactly one
+    // centre, and the walker only ever visits nodes of a cell it already accepted.
+    //
+    // Non-vacuous on THIS grid: row 0 carries a speed-0 cell at col 1 and a noData at col 2, so
+    // a lattice that reached a whole cell east of (row0, col0) — which the obvious `col + j/S`
+    // form does — lands on them and this goes red.
+    const handle = coverageFromGrids(
+      s111Input([0.3, 0, NaN, 2.5, 5.0, 20.0], [90, 0, 0, 180, 270, 45]),
+    )
+    const o = coverageArrowOrigins(handle)!
+    const drawable = new Set(['0,0', '0,1', '1,1', '2,1']) // col,row
+    expect(o.u.length).toBeGreaterThan(drawable.size) // it really did subdivide
+
+    for (let i = 0; i < o.u.length; i++) {
+      const x = o.u[i]! * 2 // uv → cell units: u = x/(nLon-1), nLon = 3
+      const y = o.v[i]! * 1 //                  v = y/(nLat-1), nLat = 2
+      const owner = `${Math.round(x)},${Math.round(y)}`
+      expect(drawable, `node (${x}, ${y}) is owned by cell ${owner}`).toContain(owner)
+      // …and "owned" is the strong statement: strictly within the owner's own footprint.
+      expect(Math.abs(x - Math.round(x))).toBeLessThanOrEqual(0.5)
+      expect(Math.abs(y - Math.round(y))).toBeLessThanOrEqual(0.5)
+    }
+  })
+
+  it('the LEVEL-0 RUNG of the lattice IS the catalogue cell set, in order (#1511)', () => {
+    // THE CONTRACT THAT REPLACES FRAME-0 PIXEL PARITY. `_s111-advected-arrows-gate` used to
+    // assert "frame 0 of the advected field IS the static catalogue placement" against the
+    // rendered pixels; at the zoom where the drawn set actually is the cell set, the leash is
+    // 1.55× the cell spacing, so the arrows out-run the read and that comparison can no longer
+    // be made. It is made HERE instead, where it is exact and needs no GPU.
+    //
+    // The VS keeps nodes whose lattice index is divisible by `keepEvery`, and `keepEvery = sub`
+    // is one rung of that ladder. This asserts what that rung selects: the drawable cells, all of
+    // them, in emit order and nothing else. If the lattice ever stopped containing the cell
+    // centres — a cell-centred subdivision would, for instance — the catalogue placement would
+    // simply not be on the ladder any more, and no render gate would say so.
+    const handle = coverageFromGrids(
+      s111Input([0.3, 0, NaN, 2.5, 5.0, 20.0], [90, 0, 0, 180, 270, 45]),
+    )
+    const o = coverageArrowOrigins(handle)!
+    const sub = o.stepsU / 2 // stepsU = (nLon - 1) · sub, nLon = 3
+    expect(sub).toBeGreaterThan(1) // the fixture really is subdivided, so this is not trivial
+
+    // The shader's own recovery: index = round(uv · steps), kept when index % sub === 0.
+    const rung: Array<[number, number]> = []
+    for (let i = 0; i < o.u.length; i++) {
+      const iu = Math.round(o.u[i]! * o.stepsU)
+      const iv = Math.round(o.v[i]! * o.stepsV)
+      if (iu % sub === 0 && iv % sub === 0) rung.push([iu / sub, iv / sub])
+    }
+    // …which is exactly the drawable cells (col, row), in the order the static path emits them.
+    expect(rung).toEqual([
+      [0, 0],
+      [0, 1],
+      [1, 1],
+      [2, 1],
+    ])
+
+    // And the static portrayal emits those same four positions — the two are one set, not two
+    // that happen to agree in this test's head.
+    const s = makeHost()
+    addCoverageArrowShowLayer(s.host, s111Show, handle)
+    expect(s.calls[0]!.lons).toHaveLength(rung.length)
+  })
+
+  it('reports the lattice STEPS per uv unit, which is what the VS measures spacing with', () => {
+    // `(n - 1) · sub`, not the cell count: it is the reciprocal of the lattice's own uv step, so
+    // both of the VS's uses — the on-screen spacing of adjacent arrows and the node's own index
+    // — are exact. A cell count is off by n/(n-1), which is a whole node of skew once the
+    // lattice is finer than a cell.
+    const handle = coverageFromGrids(
+      s111Input([0.3, 0, NaN, 2.5, 5.0, 20.0], [90, 0, 0, 180, 270, 45]),
+    )
+    const o = coverageArrowOrigins(handle)!
+    const step = o.u.length > 1 ? Math.min(...[...o.u].filter((u) => u > 0)) : 0
+    expect(o.stepsU).toBeCloseTo(1 / step, 6)
+    expect(o.stepsU % 2).toBe(0) // (3-1) · a power of two
+    expect(o.stepsV).toBe(o.stepsU / 2) // (2-1) against (3-1), same sub
+  })
+
+  it('does NOT subdivide over the ceiling — filling and thinning spend one budget', () => {
+    // The two halves are mutually exclusive by construction rather than by a rule someone has to
+    // keep: a grid that needs striding cannot afford a second arrow anywhere, so the level is 0
+    // and `stepsU` is the bare cell span.
+    const n = 40_000
+    const handle = coverageFromGrids({
+      product: 's111',
+      origin: [0, 0],
+      spacing: [0.001, 0.001],
+      size: [n, 1],
+      vertical: { datumCode: null, sign: 'up' },
+      bands: [
+        {
+          name: 'surfaceCurrentSpeed',
+          unit: 'knots',
+          kind: 'f32',
+          nodata: -9999,
+          values: Float32Array.from(new Array(n).fill(1.5)),
+        },
+        {
+          name: 'surfaceCurrentDirection',
+          unit: 'arc-degrees',
+          kind: 'f32',
+          nodata: -9999,
+          values: Float32Array.from(new Array(n).fill(90)),
+        },
+      ],
+    })
+    const o = coverageArrowOrigins(handle)!
+    // 40 000 · 4 = 160 000 is over COVERAGE_ARROW_MAX, so not even one level fits.
+    expect(o.u).toHaveLength(n)
+    expect(o.stepsU).toBe(n - 1)
+  })
+
+  it('the STATIC portrayal never subdivides — one symbol per cell is the catalogue rule', () => {
+    // `main.xsl` places one symbol per cell. That is not an implementation choice this may
+    // optimise away, so the sub-cell lattice exists only where the portrayal already
+    // re-symbolizes at an untabulated position: the advected field.
+    const handle = coverageFromGrids(
+      s111Input([0.3, 0, NaN, 2.5, 5.0, 20.0], [90, 0, 0, 180, 270, 45]),
+    )
+    const s = makeHost()
+    addCoverageArrowShowLayer(s.host, s111Show, handle)
+    expect(s.calls[0]!.lons).toHaveLength(4) // the four drawable cells, and nothing between them
+    const a = makeHost()
+    addCoverageArrowShowLayer(a.host, s111Show, handle, '', { advected: { peakSpeed: 20 } })
+    expect(a.calls[0]!.lons.length).toBeGreaterThan(4)
   })
 
   it('thins to the ONE ceiling both portrayals share, and the origins thin WITH it', () => {

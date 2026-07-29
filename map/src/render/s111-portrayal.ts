@@ -25,8 +25,8 @@ import {
   S111_BAND_TABLE_ROWS,
   S111_BAND_TOP_SENTINEL,
   S111_PARAM_UV_ASPECT,
-  S111_PARAM_GRID_NLON,
-  S111_PARAM_GRID_NLAT,
+  S111_PARAM_STEPS_U,
+  S111_PARAM_STEPS_V,
 } from '../shaders/dsl/s111-band-table-layout'
 
 /** S-111 speed-band palette name (the banded ramp shared with the coverage fill). */
@@ -135,7 +135,7 @@ export function s111BandTableNormalized(
   peakSpeed: number,
   uvAspect: number,
   rampName: string = S111_SPEED_RAMP,
-  grid?: readonly [number, number],
+  steps?: readonly [number, number],
 ): Float32Array {
   const bands = s111BandTable(rampName)
   const out = new Float32Array(S111_BAND_TABLE_ROWS * S111_BAND_STRIDE)
@@ -153,14 +153,14 @@ export function s111BandTableNormalized(
   // re-expressed in uv rates before it can pick a screen direction. Without it a northeast
   // current draws at one angle and drifts at another, away from the equator most of all.
   out[S111_BAND_PARAMS_ROW * S111_BAND_STRIDE + S111_PARAM_UV_ASPECT] = uvAspect
-  // The grid's cell counts (#1450 B) — what turns the VS's screen bases into a cell SPACING,
-  // and what recovers each arrow's (col, row) from its origin uv. Optional because the static
-  // portrayal builds no band table at all and a caller that has no grid to declare should say
-  // so rather than pass a plausible number: a wrong nLon would thin the field at the wrong
-  // zoom, which looks like a density choice rather than a bug.
-  if (grid) {
-    out[S111_BAND_PARAMS_ROW * S111_BAND_STRIDE + S111_PARAM_GRID_NLON] = grid[0]
-    out[S111_BAND_PARAMS_ROW * S111_BAND_STRIDE + S111_PARAM_GRID_NLAT] = grid[1]
+  // The seeded lattice's steps per uv unit (#1450 B, #1511) — what turns the VS's screen bases
+  // into a spacing between adjacent arrows, and what recovers each arrow's lattice index from
+  // its origin uv. Optional because the static portrayal builds no band table at all, and a
+  // caller with no lattice to declare should say so rather than pass a plausible number: wrong
+  // steps thin the field at the wrong zoom, which looks like a density choice rather than a bug.
+  if (steps) {
+    out[S111_BAND_PARAMS_ROW * S111_BAND_STRIDE + S111_PARAM_STEPS_U] = steps[0]
+    out[S111_BAND_PARAMS_ROW * S111_BAND_STRIDE + S111_PARAM_STEPS_V] = steps[1]
   }
   return out
 }

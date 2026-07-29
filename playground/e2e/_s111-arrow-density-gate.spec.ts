@@ -22,15 +22,37 @@ import { test, expect } from '@playwright/test'
 
 const CENTRE_LAT = 38.1
 const CENTRE_LON = -76.19
-/** NEAR is deliberately a zoom at which the cull does NOTHING — measured: the culled and
- *  un-culled builds agree to three digits at z10 and z11 (0.0214 / 0.0216), because the cells are
- *  still further apart than a glyph is long. So the control arm is shared by both worlds, and the
- *  gate cannot pass by thinning everything everywhere. FAR is three levels down, an 8× linear
- *  convergence of the cells — well past the first decimation step. */
+/** NEAR is the LEVEL-0 RUNG — the zoom at which the drawn set is exactly the catalogue's one
+ *  arrow per cell (cell spacing 36.4 px, inside the cull's [34, 68) target band; the derivation
+ *  is spelled out in `_s111-advected-arrows-gate.spec.ts`). So the near arm is pinned to a known
+ *  density rather than to an arbitrary camera, and the same frame is what that gate asserts
+ *  parity against. FAR is three levels down, an 8× linear convergence of the cells. */
 const ZOOM_NEAR = 10
 const ZOOM_FAR = 7
+/** DEEP is where the filling half is the only thing that can help: the fixture's cells are
+ *  2.2 km across, so the canvas spans only a few of them and one arrow per cell is a handful of
+ *  glyphs — the reported symptom exactly, and the reason it gets worse the closer you look.
+ *
+ *  MEASURED, both portrayals, same camera, painted pixels on a 480×700 canvas:
+ *
+ *    zoom   | arrow (one per cell)   | flow (seeded 8× finer)
+ *    z11         2031                     7722
+ *    z12          677                     7941
+ *    z13          179                     8272
+ *    z14            0                     1772
+ *
+ *  z13 rather than z14 because at z14 the catalogue field paints NOTHING AT ALL — not one cell
+ *  centre falls inside the viewport — and a control of zero makes the ratio meaningless however
+ *  emphatic it looks. z13 keeps a live control and still separates by 45×.
+ *
+ *  The advected field's OWN fall from z13 to z14 is the seeding depth expiring, exactly where it
+ *  was designed to: the lattice is 8× finer per axis and the level-0 rung is z10, so z13 is the
+ *  last zoom with a node to spare (`arrowLattice`). Past it the field thins again at the same
+ *  4×-per-zoom rate the catalogue field does — which is the honest limit of finite seeding, not a
+ *  bug, and is why the cap is stated in zooms. */
+const ZOOM_DEEP = 13
 
-const style = `xgis 1
+const style = (portrayal: '| arrow' | '| flow'): string => `xgis 1
 
 source currents {
   type: coverage
@@ -39,7 +61,7 @@ source currents {
 
 layer speed {
   source: currents
-  | flow
+  ${portrayal}
 }
 `
 
@@ -81,10 +103,19 @@ function readInk() {
     painted,
     footprint,
     ink: footprint > 0 ? painted / footprint : 0,
+    /** Painted fraction of the whole canvas. Comparable only between two frames at the SAME
+     *  camera — which is exactly the comparison the fill claim makes, and where the footprint
+     *  normalization above would instead divide out the thing being measured (a field of three
+     *  arrows has a small bbox, so its ink per domain pixel is not small). */
+    frame: painted / (W * H),
   }
 }
 
-async function boot(page: import('@playwright/test').Page, zoom: number) {
+async function boot(
+  page: import('@playwright/test').Page,
+  zoom: number,
+  portrayal: '| arrow' | '| flow' = '| flow',
+) {
   await page.setViewportSize({ width: 900, height: 700 })
   // The basemap would paint every pixel and make the footprint the whole frame — the claim is
   // about ARROWS. A regex, not a glob: the host is one path segment (#1272's spec pays for that).
@@ -103,7 +134,7 @@ async function boot(page: import('@playwright/test').Page, zoom: number) {
   await page.evaluate(async (s) => {
     const w = window as unknown as { __xgisRunSource?: (s: string) => Promise<unknown> }
     await w.__xgisRunSource!(s)
-  }, style)
+  }, style(portrayal))
   await page.waitForFunction(
     () =>
       (
@@ -171,5 +202,65 @@ test.describe('S-111 advected arrows — view-driven density (#1450 B)', () => {
       far.ink / Math.max(near.ink, 1e-6),
       'the far frame saturated — the field is not thinning with the view (#1450 B)',
     ).toBeLessThan(7.6)
+  })
+
+  test('zooming IN fills BETWEEN the cells instead of running out of arrows', async ({ page }) => {
+    test.setTimeout(240_000)
+
+    // The other half of one rule, and the half no arm-time stride could ever reach: `arrowStride`
+    // returns 1 below the ceiling and nothing in the codebase made a second arrow for one cell,
+    // so the density had a hard ceiling at the GRID's resolution. Zooming in magnified the cells
+    // without adding anything between them.
+    //
+    // THE CONTROL IS THE STATIC PORTRAYAL AT THE SAME CAMERA — one arrow per cell, by the
+    // catalogue's own rule, which is exactly the density the advected path used to be stuck at.
+    // Same fixture, same zoom, same centre, same glyph and same scale rule, so the only thing
+    // that differs between the two frames is how many positions were seeded.
+    await boot(page, ZOOM_DEEP, '| arrow')
+    const cells = await page.evaluate(readInk)
+    expect(cells.ok, 'WebGL2 context present').toBe(true)
+    if (!cells.ok) return
+    expect(cells.backend, 'running on the WebGL2 backend').toBe('webgl2')
+    await page.locator('canvas').first().screenshot({ path: 'test-results/s111-fill-static.png' })
+
+    await boot(page, ZOOM_DEEP, '| flow')
+    const filled = await page.evaluate(readInk)
+    if (!filled.ok) return
+    await page.locator('canvas').first().screenshot({ path: 'test-results/s111-fill-advected.png' })
+
+    console.log(
+      `[s111-fill] z${ZOOM_DEEP} static painted=${cells.painted} frame=${cells.frame.toFixed(5)} | ` +
+        `advected painted=${filled.painted} frame=${filled.frame.toFixed(5)} | ` +
+        `ratio=${(filled.frame / Math.max(cells.frame, 1e-9)).toFixed(2)}`,
+    )
+
+    // PRECONDITIONS. The first is the symptom itself, asserted rather than assumed: at this zoom
+    // one arrow per cell really is a nearly empty frame, so the claim below is not being made
+    // against a control that was already dense.
+    expect(cells.painted, 'static: the catalogue field drew at all').toBeGreaterThan(0)
+    expect(
+      cells.frame,
+      'static: one arrow per cell is SPARSE this far in — the symptom this fixes',
+    ).toBeLessThan(0.005)
+    // Deliberately a bare "it rasterised" floor, not a density floor: the un-filled arm draws
+    // 260 px, so a stricter precondition would fail FIRST and report "the field drew" for what
+    // is really a density regression. A precondition that steals the claim's failure message is
+    // a gate that cannot say what broke.
+    expect(filled.painted, 'advected: the field drew').toBeGreaterThan(100)
+
+    // THE CLAIM. Sub-cell seeding puts arrows between the cells, so the same camera carries a
+    // field instead of a handful of glyphs. A RATIO against the static control, not a pixel
+    // count: what is claimed is a direction.
+    //
+    // Bound at the GEOMETRIC MIDPOINT of the two arms, 8.2. The un-filled arm is not assumed —
+    // it is MEASURED, by capping the subdivision level at 0 so the lattice is the cell grid
+    // again: 179 static against 260 advected, ratio 1.45. (Not 1.00, because the advected field
+    // also drifts, so it paints a little outside the cells it was seeded on — which is why the
+    // control has to be measured rather than reasoned to.) 46.2 green against 1.45 red, 5.6×
+    // either way.
+    expect(
+      filled.frame / Math.max(cells.frame, 1e-9),
+      'the advected field is no denser than one arrow per cell — the filling half is not running',
+    ).toBeGreaterThan(8.2)
   })
 })
