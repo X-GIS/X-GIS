@@ -413,6 +413,22 @@ export class CoverageRenderer {
     return null
   }
 
+  /** EVERY resident region's velocity field, keyed by region — what the ARROW portrayal binds.
+   *
+   *  The trail above genuinely is one region (a recursive filter over one grid, one full-screen
+   *  image), and `activeFlowField` still serves it. The arrows are not: each domain gets its own
+   *  advected batch, and an arrow is coloured, turned and scaled every frame by the water it is
+   *  standing in. Handing them all the FIRST region's field made a sibling domain report another
+   *  domain's current — from frame zero, invisible to any coverage metric (#1458). */
+  flowFields(): Map<string, FlowFieldRegion> {
+    const out = new Map<string, FlowFieldRegion>()
+    for (const region of this.states.keys()) {
+      const f = this.flowField(region)
+      if (f) out.set(region, f)
+    }
+    return out
+  }
+
   /** True when ANY resident region carries a velocity field — the `scene.hasFlow` gate and the
    *  render-loop keep-warm, so a map with only scalar coverages never runs the advection pass.
    *  Quantifies over the SAME predicate `activeFlowField` does (asserted by the upload test):

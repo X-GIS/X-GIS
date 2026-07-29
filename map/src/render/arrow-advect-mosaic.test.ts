@@ -85,8 +85,8 @@ describe('MOSAIC × one shared arrow state — offset or overflow?', () => {
     const s = new ArrowAdvectState()
     const a = origins(400, 0.25)
     const b = origins(400, 0.75)
-    const baseA = s.writeOrigins(t.rhi, 'cbofs|20x20|400', a.u, a.v)
-    const baseB = s.writeOrigins(t.rhi, 'dbofs|20x20|400', b.u, b.v)
+    const baseA = s.writeOrigins(t.rhi, 'cbofs|20x20|400', 'cbofs', a.u, a.v)
+    const baseB = s.writeOrigins(t.rhi, 'dbofs|20x20|400', 'dbofs', b.u, b.v)
 
     expect(baseA).toBe(0)
     expect(baseB, 'the second region starts where the first ends').toBe(400)
@@ -104,19 +104,31 @@ describe('MOSAIC × one shared arrow state — offset or overflow?', () => {
     const t = stub()
     const s = new ArrowAdvectState()
     const a = origins(400, 0.25)
-    const first = s.writeOrigins(t.rhi, 'cbofs|20x20|400', a.u, a.v)
-    s.writeOrigins(t.rhi, 'dbofs|20x20|400', origins(400, 0.75).u, origins(400, 0.75).v)
-    const again = s.writeOrigins(t.rhi, 'cbofs|20x20|400', a.u, a.v)
+    const first = s.writeOrigins(t.rhi, 'cbofs|20x20|400', 'cbofs', a.u, a.v)
+    s.writeOrigins(t.rhi, 'dbofs|20x20|400', 'dbofs', origins(400, 0.75).u, origins(400, 0.75).v)
+    const again = s.writeOrigins(t.rhi, 'cbofs|20x20|400', 'cbofs', a.u, a.v)
     expect(again).toBe(first)
   })
 
   it('a dropped region frees its range for the next one', () => {
     const t = stub()
     const s = new ArrowAdvectState()
-    s.writeOrigins(t.rhi, 'cbofs|20x20|400', origins(400, 0.25).u, origins(400, 0.25).v)
-    const b = s.writeOrigins(t.rhi, 'dbofs|20x20|400', origins(400, 0.75).u, origins(400, 0.75).v)
+    s.writeOrigins(t.rhi, 'cbofs|20x20|400', 'cbofs', origins(400, 0.25).u, origins(400, 0.25).v)
+    const b = s.writeOrigins(
+      t.rhi,
+      'dbofs|20x20|400',
+      'dbofs',
+      origins(400, 0.75).u,
+      origins(400, 0.75).v,
+    )
     s.releaseOrigins('dbofs|20x20|400')
-    const c = s.writeOrigins(t.rhi, 'sfbofs|20x20|300', origins(300, 0.5).u, origins(300, 0.5).v)
+    const c = s.writeOrigins(
+      t.rhi,
+      'sfbofs|20x20|300',
+      'sfbofs',
+      origins(300, 0.5).u,
+      origins(300, 0.5).v,
+    )
     expect(c, 'the freed range is reused rather than appended past').toBe(b)
   })
 
@@ -129,8 +141,8 @@ describe('MOSAIC × one shared arrow state — offset or overflow?', () => {
     const s = new ArrowAdvectState()
     const big = origins(4_000, 0.25) // dim 64 → 4096 texels
     const small = origins(100, 0.75) // dim 10 → 100 texels
-    s.writeOrigins(t.rhi, 'cbofs|100x40|4000', big.u, big.v)
-    s.writeOrigins(t.rhi, 'sfbofs|10x10|100', small.u, small.v)
+    s.writeOrigins(t.rhi, 'cbofs|100x40|4000', 'cbofs', big.u, big.v)
+    s.writeOrigins(t.rhi, 'sfbofs|10x10|100', 'sfbofs', small.u, small.v)
 
     expect(
       originTexel(t.uploads, 3_999),
@@ -149,8 +161,14 @@ describe('MOSAIC × one shared arrow state — offset or overflow?', () => {
     // the region that did not change would read zeros and stack on grid-uv (0,0).
     const t = stub()
     const s = new ArrowAdvectState()
-    s.writeOrigins(t.rhi, 'cbofs|20x20|400', origins(400, 0.25).u, origins(400, 0.25).v)
-    s.writeOrigins(t.rhi, 'dbofs|100x40|4000', origins(4_000, 0.75).u, origins(4_000, 0.75).v)
+    s.writeOrigins(t.rhi, 'cbofs|20x20|400', 'cbofs', origins(400, 0.25).u, origins(400, 0.25).v)
+    s.writeOrigins(
+      t.rhi,
+      'dbofs|100x40|4000',
+      'dbofs',
+      origins(4_000, 0.75).u,
+      origins(4_000, 0.75).v,
+    )
     expect(originTexel(t.uploads, 0)![0], 'the untouched sibling survived the grow').toBeCloseTo(
       0.25,
       2,

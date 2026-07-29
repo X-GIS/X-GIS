@@ -27,8 +27,8 @@ import {
   ARROW_ADVECT_VERTEX_COUNT,
 } from '../../shaders/dsl/arrow-advect-step'
 
-/** Floats in ArrowAdvectParams: step(4) + seed(4). */
-export const ARROW_ADVECT_UNIFORM_FLOATS = 8
+/** Floats in ArrowAdvectParams: step(4) + seed(4) + range(4). */
+export const ARROW_ADVECT_UNIFORM_FLOATS = 12
 
 export const ARROW_ADVECT_BINDINGS = [
   { binding: 0, kind: 'texture', name: 'state_tex' },
@@ -105,13 +105,16 @@ export class ArrowAdvectDraper {
   }
 }
 
-/** Pack ArrowAdvectParams: step = (x, y, dropRate, dropBump), then seed. */
+/** Pack ArrowAdvectParams: step = (x, y, dropRate, dropBump), seed, then the region's texel
+ *  range (#1458) — `[base, end)`, the half-open interval this pass is allowed to write. */
 export function packArrowAdvectUniform(
   stepX: number,
   stepY: number,
   dropRate: number,
   dropBump: number,
   seed: number,
+  base: number,
+  end: number,
 ): Float32Array {
   const out = new Float32Array(ARROW_ADVECT_UNIFORM_FLOATS)
   out[0] = stepX
@@ -119,5 +122,7 @@ export function packArrowAdvectUniform(
   out[2] = dropRate
   out[3] = dropBump
   out[4] = seed
+  out[8] = base
+  out[9] = end
   return out
 }

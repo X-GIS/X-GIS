@@ -131,7 +131,7 @@ export class ArrowAdvectState {
    *  from texel 0, so the last one armed owned them all: sibling arrows were leashed to cells
    *  in another domain, and after #1450 A a smaller sibling shrank the texture out from under
    *  a larger one. */
-  private readonly slots = new Map<string, { base: number; count: number }>()
+  private readonly slots = new Map<string, { base: number; count: number; region: string }>()
   /** Ranges freed by a dropped region, reused by the next batch that fits. */
   private holes: Array<{ base: number; count: number }> = []
   /** One past the highest reserved texel. */
@@ -175,11 +175,17 @@ export class ArrowAdvectState {
    *  Seeding the positions FROM the origins (rather than from `seedArrowPositions`) buys a
    *  property the render gate uses: on frame 0 the advected field is EXACTLY the static
    *  catalogue placement, so "the arrows moved" is a comparison against the portrayal itself. */
-  writeOrigins(rhi: RhiDevice, key: string, u: ArrayLike<number>, v: ArrayLike<number>): number {
+  writeOrigins(
+    rhi: RhiDevice,
+    key: string,
+    region: string,
+    u: ArrayLike<number>,
+    v: ArrayLike<number>,
+  ): number {
     const n = Math.min(u.length, v.length)
     const slot = this.slots.get(key)
     if (slot && slot.count === n && this.device === rhi && this.a) return slot.base
-    const base = this.reserve(key, n)
+    const base = this.reserve(key, region, n)
     this.writeMirror(base, n, u, v)
     this.ensure(rhi, this.end)
     if (!this.a) return base
@@ -217,7 +223,7 @@ export class ArrowAdvectState {
    *
    *  Reserving rather than always appending: a re-armed region with an unchanged count keeps
    *  the base it had, which is what lets its arrows keep drifting through a forecast step. */
-  private reserve(key: string, count: number): number {
+  private reserve(key: string, region: string, count: number): number {
     const prior = this.slots.get(key)
     // Same key, same size — reuse the range in place, even after a device swap.
     if (prior && prior.count === count) return prior.base
@@ -229,13 +235,27 @@ export class ArrowAdvectState {
       // The remainder stays a hole rather than being lost.
       if (hole.count > count)
         this.holes.push({ base: hole.base + count, count: hole.count - count })
-      this.slots.set(key, { base: hole.base, count })
+      this.slots.set(key, { base: hole.base, count, region })
       return hole.base
     }
     const base = this.end
     this.end += count
-    this.slots.set(key, { base, count })
+    this.slots.set(key, { base, count, region })
     return base
+  }
+
+  /** Every reserved range and the coverage region that owns it, in reservation order (#1458).
+   *
+   *  The step is one pass PER REGION — each domain has its own velocity pair and its own grid
+   *  geometry — and the pass has to know which texels are its own. This is the authority for
+   *  that: the state already had to record the ranges to hand out bases, so the alternative
+   *  (the step re-deriving ownership from the batches) would be a second copy of the same
+   *  bookkeeping, free to disagree.
+   *
+   *  One REGION may hold several keys only transiently (a re-arm before the old batch's clear
+   *  lands); both are stepped through the same field, which is correct either way. */
+  residentSlots(): Array<{ region: string; base: number; count: number }> {
+    return [...this.slots.values()].map((s) => ({ region: s.region, base: s.base, count: s.count }))
   }
 
   private writeMirror(base: number, n: number, u: ArrayLike<number>, v: ArrayLike<number>): void {
