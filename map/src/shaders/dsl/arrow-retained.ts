@@ -63,6 +63,7 @@ import {
   ARROW_DRIFT_UV,
   ARROW_DRIFT_TAPS,
   ARROW_PHASE_SECONDS,
+  ARROW_SMEAR_SLOTS,
   arrow_phase_alpha,
   arrow_phase_offset,
 } from './arrow-drift'
@@ -418,6 +419,26 @@ const vsAdvected = fn(
     const basisU = pxDelta(uStepClip)
     const basisV = pxDelta(vStepClip)
 
+    // ── HOW FAR APART THE DRAWN ARROWS LAND ────────────────────────────────────────────────
+    //
+    // Computed HERE, before the drift, because the drift has to answer to it — see the smear
+    // scale below. The decimation that uses these lives further down, where the size is built.
+    const stepsU = bandAt(u32(S111_BAND_PARAMS_ROW), S111_PARAM_STEPS_U)
+    const stepsV = bandAt(u32(S111_BAND_PARAMS_ROW), S111_PARAM_STEPS_V)
+    const leashPxU = Let(length(basisU))
+    const leashPxV = Let(length(basisV))
+    const nodePxU = Let(
+      max(leashPxU.div(max(f32(ARROW_DRIFT_UV).mul(stepsU), f32(1e-6))), f32(1e-6)),
+    )
+    const nodePxV = Let(
+      max(leashPxV.div(max(f32(ARROW_DRIFT_UV).mul(stepsV), f32(1e-6))), f32(1e-6)),
+    )
+    const target = Let(rd(F.size).mul(bandAt(u32(0), 1)))
+    const keepU = Let(exp2(max(ceil(log2(target.div(nodePxU))), f32(0))))
+    const keepV = Let(exp2(max(ceil(log2(target.div(nodePxV))), f32(0))))
+    /** The on-screen distance between two arrows that actually get DRAWN. */
+    const drawnPx = Let(min(nodePxU.mul(keepU), nodePxV.mul(keepV)))
+
     // Where this arrow is, and where it belongs — texel `base + instance_index` in both.
     //
     // ── WHERE THIS ARROW IS, WITHOUT A STATE TEXTURE (#1520) ───────────────────────────────
@@ -456,15 +477,56 @@ const vsAdvected = fn(
     // The walk's end, named once so the reads below are legible. Not load-bearing for the emit
     // cost — that is `vu`/`vv` below, and the difference was established by cutting each.
     const pos = Let(vec2(walk.x, walk.y))
-    // In units of the packed basis, CLAMPED: the anchors are one leash away, so the
-    // linearization is valid on [-1, 1] and must not be extrapolated past it. The old path got
-    // that from the step's own respawn-on-leash; here it is stated where it is relied on.
-    const kx = clamp(pos.x.sub(origin.x).div(f32(ARROW_DRIFT_UV)), f32(-1), f32(1))
-    const ky = clamp(pos.y.sub(origin.y).div(f32(ARROW_DRIFT_UV)), f32(-1), f32(1))
-    const driftPx = vec2(
-      basisU.x.mul(kx).add(basisV.x.mul(ky)),
-      basisU.y.mul(kx).add(basisV.y.mul(ky)),
+    // ── FIT TO THE LEASH BY SCALING, NEVER BY CLAMPING EACH AXIS ──────────────────────────
+    //
+    // The displacement has to stay inside the box the two basis anchors span, or the
+    // linearization is extrapolated. Clamping x and y INDEPENDENTLY does keep it inside — and
+    // TURNS IT, because the two components are cut by different amounts. That is an arrow that
+    // MOVES in a different direction than it POINTS, and it is what was reported.
+    //
+    // It only fires when a component exceeds the leash, which needs `phase · aspect > 1` — so it
+    // is invisible on the synthetic fixture (aspect 0.24, never clamps) and shows on a real
+    // regional cell, which is usually wider than it is tall. Measured, for a NNE current at
+    // phase 0.9, as the angle between the displacement and the glyph's own direction:
+    //
+    //   aspect          0.24   0.50   1.00   1.50   2.00   3.00
+    //   per-axis clamp   0.0°   0.0°   0.0°   3.3°   7.3°  11.4°
+    //   uniform fit      0.0°   0.0°   0.0°   0.0°   0.0°   0.0°
+    //
+    // Chebyshev, matching the leash the excursion was bounded by: divide BOTH components by the
+    // larger magnitude when it passes 1. One scalar, so the direction is untouched.
+    const rawX = Let(pos.x.sub(origin.x).div(f32(ARROW_DRIFT_UV)))
+    const rawY = Let(pos.y.sub(origin.y).div(f32(ARROW_DRIFT_UV)))
+    const fit = Let(min(f32(1), f32(1).div(max(max(abs(rawX), abs(rawY)), f32(1e-6)))))
+    const kx = Let(rawX.mul(fit))
+    const ky = Let(rawY.mul(fit))
+    const stepPx = Let(
+      vec2(basisU.x.mul(kx).add(basisV.x.mul(ky)), basisU.y.mul(kx).add(basisV.y.mul(ky))),
     )
+
+    // ── THE SMEAR IS MEASURED AGAINST THE SPACING, NOT THE GRID ───────────────────────────
+    //
+    // The leash is 5% of the GRID's span — a statement about the data, silent about how far apart
+    // the drawn arrows are. The two came apart once the field got denser than one arrow per cell:
+    // 1.55 slots became 3.3, and lattice points that each wander independently by more than a slot
+    // ARE a Poisson scatter, which is what "clumped, with gaps" looks like (`arrow-drift.ts`
+    // tabulates the gap CV over that ratio).
+    //
+    // Capped ON THE SCREEN VECTOR, after the bases have been applied — not on the uv components
+    // before them. The bound wanted is "no arrow travels further than the distance to the next
+    // drawn one", and that distance is a screen quantity; dividing a uv excursion by one axis's
+    // leash states it only for a flow along that axis, and lets a diagonal flow on an anisotropic
+    // grid past by the ratio between the two bases. A SCALAR again, never per-axis — scaling the
+    // components independently is the bug fixed directly above.
+    const smear = Let(
+      min(
+        f32(1),
+        f32(ARROW_SMEAR_SLOTS)
+          .mul(drawnPx)
+          .div(max(length(stepPx), f32(1e-6))),
+      ),
+    )
+    const driftPx = Let(stepPx.mul(smear))
 
     // The field UNDER the arrow, normalized to [-1, 1] (flow-field-pack.ts). Direction comes
     // from the same two bases, so the glyph points along the current in SCREEN space under any
@@ -553,46 +615,19 @@ const vsAdvected = fn(
     // single camera-wide stride could only pick one answer for both.
     // PER AXIS, not one level for both. The two axes rarely land at the same on-screen spacing —
     // this fixture's cells are 2.8× further apart north-south than east-west — and a single level
-    // taken from the TIGHTER axis over-thins the looser one by exactly that ratio. Measured: 36 px
-    // between columns and 102 px between rows, for a field that wanted ~36 both ways. Levels stay
+    // taken from the TIGHTER axis over-thins the looser one by exactly that ratio. Levels stay
     // nested per axis, which is all the no-shimmer argument needs.
-    const stepsU = bandAt(u32(S111_BAND_PARAMS_ROW), S111_PARAM_STEPS_U)
-    const stepsV = bandAt(u32(S111_BAND_PARAMS_ROW), S111_PARAM_STEPS_V)
-    const nodePxU = Let(
-      max(length(basisU).div(max(f32(ARROW_DRIFT_UV).mul(stepsU), f32(1e-6))), f32(1e-6)),
-    )
-    const nodePxV = Let(
-      max(length(basisV).div(max(f32(ARROW_DRIFT_UV).mul(stepsV), f32(1e-6))), f32(1e-6)),
-    )
-    // Keep every 2^L-th node on BOTH axes. Powers of two, so the kept sets are NESTED: an arrow
-    // that survives at L survives at every smaller L too, and thinning only ever REMOVES arrows
-    // rather than swapping which ones are drawn — the shimmer a non-power-of-two modulus
-    // produces as the camera creeps. Nesting is also what puts the catalogue placement ON the
-    // ladder instead of beside it: the lattice contains the cell centres, and they are exactly
-    // the nodes that survive `keepEvery = sub`.
     //
-    // THE TARGET IS THE LENGTH AN ARROW IS ACTUALLY DRAWN AT, which is not the base length.
+    // `nodePxU/V`, `keepU/V`, `target` and `drawnPx` are computed with the bases at the top of
+    // this function: the DRIFT has to answer to the drawn spacing too, so the spacing cannot be
+    // derived after it.
     //
-    // `F.size` carries the BASE (34 px) in advected mode; the drawn glyph is `base × scale`, and
-    // `select_arrow.xsl` gives scale 0.40 for everything below 2 kn — which is most tidal water,
-    // this fixture's whole range (0.037–1.904 kn) and most of CBOFS. So targeting the base spaced
-    // 13.6 px glyphs 34 px apart: a field 2.5× emptier than the rule intended, and the reported
-    // symptom ("zoomed out there are far too few arrows" — ~22 across the whole bay at z7).
-    //
-    // The FLOOR scale, not the arrow's own: it stays a batch constant, so the level does not
-    // depend on the water an arrow is standing in and a drifting arrow cannot flicker in and out
-    // as it crosses a band edge. That was the right instinct in the first version; reading the
-    // base was the wrong way to act on it. Fast water (scale up to 2.6) then overlaps — which is
-    // what a convergence zone should look like, and it already overlapped at the old spacing.
-    //
-    // Read out of the uploaded table's band-1 constant rather than restated here. That row IS
-    // `S111_SCALE_FLOOR` by construction (band 1 is the constant 0.40 branch of
-    // `select_arrow.xsl`, and the peak normalization leaves a constant term untouched), so the
-    // catalogue keeps exactly one authority — and `s111-portrayal.ts` cannot be imported from
-    // this file anyway, it imports the layout FROM here.
-    const target = Let(rd(F.size).mul(bandAt(u32(0), 1)))
-    const keepU = Let(exp2(max(ceil(log2(target.div(nodePxU))), f32(0))))
-    const keepV = Let(exp2(max(ceil(log2(target.div(nodePxV))), f32(0))))
+    // The target is the length an arrow is actually DRAWN at, which is not the base length.
+    // `F.size` carries the 34 px base in advected mode; the drawn glyph is `base × scale`, and
+    // `select_arrow.xsl` gives scale 0.40 for everything below 2 kn — most tidal water. Targeting
+    // the base spaced 13.6 px glyphs 34 px apart: a field 2.5× emptier than the rule intended.
+    // Read out of the uploaded table's band-1 constant rather than restated, so the catalogue
+    // keeps one authority.
     // The arrow's own lattice index, recovered from the origin it was seeded at — a fixed
     // property of the instance, so the decision is stable frame to frame and across a forecast
     // step. `+0.5` then floor, because the index is what the origin was BUILT from: the uv

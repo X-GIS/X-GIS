@@ -53,6 +53,24 @@ export const ARROW_DRIFT_UV = 0.05
  *  far within one cycle. */
 export const ARROW_PHASE_SECONDS = 8
 
+/** How far an arrow may travel, as a fraction of the distance to the next DRAWN arrow.
+ *
+ *  The leash above is a fraction of the GRID's span — a statement about the data, and silent
+ *  about how far apart the drawn arrows are. The two came apart when the field got denser: at one
+ *  arrow per cell the leash was 1.55 slots, and holding the drawn spacing at a glyph length put
+ *  it at 3.3. A lattice whose points each wander independently by more than a slot is a Poisson
+ *  scatter, which is what "clumped, with gaps" looks like — modelled, as the coefficient of
+ *  variation of the gaps between neighbours (0 = perfect lattice, 1 = Poisson):
+ *
+ *    leash / spacing   0.5    1.0    1.55    2.0    3.3
+ *    gap CV            0.20   0.41   0.55    0.64   0.77
+ *
+ *  One slot is the natural value and not a tuned one: an arrow travels exactly as far as its
+ *  neighbour's position and hands over, which reads as continuous flow while the lattice
+ *  survives. It also makes the motion ZOOM-CONSISTENT — the smear is a constant fraction of the
+ *  spacing at every zoom, instead of growing as the field densifies. */
+export const ARROW_SMEAR_SLOTS = 1.0
+
 /** Euler taps used to integrate the drift over the phase.
  *
  *  The excursion is one leash, so the path is short and curvature over it is small — this is the
