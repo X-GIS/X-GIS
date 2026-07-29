@@ -190,3 +190,45 @@ describe('#777 IV3 — isIdentityBasis', () => {
     expect(isIdentityBasis([1, 0.2, 0, 1])).toBe(false)
   })
 })
+
+describe('#777 IV3 — a projector that returns a REUSED scratch tuple', () => {
+  // The bug that made #1471 + #1492 inert on main. `makeLabelProjectors`'
+  // `projectLonLat` returns `_projScratch`, one array reused across calls, and
+  // `groundBasisAt` needs THREE projections at once. Holding them as tuples
+  // aliases all three to the last result → every difference 0 → det 0 → null,
+  // for every label, silently.
+  //
+  // Every pre-existing test here passes a projector that allocates a fresh tuple
+  // per call, which no production caller does — so they were green throughout.
+  // This one models the real contract.
+  const scratchProjector = (
+    inner: (lon: number, lat: number) => [number, number],
+  ): ((lon: number, lat: number) => readonly [number, number]) => {
+    const scratch: [number, number] = [0, 0]
+    return (lon, lat) => {
+      const v = inner(lon, lat)
+      scratch[0] = v[0]
+      scratch[1] = v[1]
+      return scratch
+    }
+  }
+
+  /** A pitched-ish projector: east compresses, north compresses more. */
+  const pitched = scratchProjector((lon, lat) => [lon * 1000, lat * 400])
+  const unproject = (x: number, y: number): [number, number] => [x / 1000, y / 1000]
+
+  it('still yields a usable basis — the scratch must not alias the result', () => {
+    const b = groundBasisAt(100, 100, 8, unproject, pitched)
+    expect(b, 'a reused-scratch projector collapsed the basis to null').not.toBeNull()
+    expect(b!.every(Number.isFinite)).toBe(true)
+    const det = b![0] * b![3] - b![1] * b![2]
+    expect(Math.abs(det), 'basis is singular — the three projections aliased').toBeGreaterThan(1e-6)
+  })
+
+  it('agrees with the same projector returning fresh tuples', () => {
+    const fresh = (lon: number, lat: number): [number, number] => [lon * 1000, lat * 400]
+    const a = groundBasisAt(100, 100, 8, unproject, pitched)!
+    const c = groundBasisAt(100, 100, 8, unproject, fresh)!
+    expect([...a]).toEqual([...c])
+  })
+})

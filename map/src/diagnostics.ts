@@ -225,7 +225,7 @@ export function inspectMapPipeline(map: XGISMap): PipelineInspection {
     labels: {
       submitted: m.textStage?.getLastSubmittedLabelCount() ?? 0,
       drawn: m.textStage?.getLastDrawnLabelCount() ?? 0,
-      groundAligned: m.textStage?.getLastGroundAlignedCount() ?? 0,
+      groundAligned: m.textStage?.renderer?.getLastGroundAlignedCount() ?? 0,
     },
     frame: m._frameCount,
     quality: m.getQuality(),

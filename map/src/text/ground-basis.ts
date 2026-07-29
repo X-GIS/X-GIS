@@ -95,18 +95,36 @@ export function groundBasisAt(
   const groundY = unprojectPitch0(anchorScreenX, anchorScreenY + probePx)
   if (groundY === null) return null
 
+  // READ EACH PROJECTION IMMEDIATELY into scalars. `project` is allowed to return
+  // a REUSED scratch tuple — the label projector does exactly that
+  // (`_projScratch` in render-loop-helpers.ts, whose own comment says to copy out
+  // before the next call). Holding p0, pX and pY as tuples across three calls
+  // aliases all three to the last result, every difference below is then 0, the
+  // determinant is 0, and this function returns null for every label.
+  //
+  // That is not hypothetical: it is what shipped. #1471 + #1492 were inert on
+  // main for exactly this reason — `labels.groundAligned` read 0 at pitch 65
+  // while the whole static chain was intact. The unit tests could not see it
+  // because their projector helper copied out of the scratch, so they exercised
+  // a projector no caller actually passes.
   const p0 = project(ground[0], ground[1])
   if (p0 === null) return null
+  const p0x = p0[0]
+  const p0y = p0[1]
   const pX = project(groundX[0], groundX[1])
   if (pX === null) return null
+  const pXx = pX[0]
+  const pXy = pX[1]
   const pY = project(groundY[0], groundY[1])
   if (pY === null) return null
+  const pYx = pY[0]
+  const pYy = pY[1]
 
   const basis: GroundBasis = [
-    (pX[0] - p0[0]) / probePx,
-    (pX[1] - p0[1]) / probePx,
-    (pY[0] - p0[0]) / probePx,
-    (pY[1] - p0[1]) / probePx,
+    (pXx - p0x) / probePx,
+    (pXy - p0y) / probePx,
+    (pYx - p0x) / probePx,
+    (pYy - p0y) / probePx,
   ]
   // A degenerate probe (the anchor sat on the horizon, or the two ground points
   // collapsed) yields a singular or non-finite basis; a label drawn through it
