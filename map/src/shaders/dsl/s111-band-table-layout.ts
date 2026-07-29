@@ -49,5 +49,18 @@ export const S111_PARAM_UV_ASPECT = 0
  *  arrow shader's bytes for a value only this path reads. */
 export const S111_PARAM_STATE_BASE = 1
 
+/** Slots 2 and 3: the coverage grid's size in cells, `nLon` and `nLat` (#1450 B).
+ *
+ *  What the VS does with them is turn its two SCREEN bases into a CELL SPACING. The bases span
+ *  one leash (`ARROW_DRIFT_UV`) of grid-uv, which is `ARROW_DRIFT_UV · nLon` cells along u, so
+ *  `|basisU| / (ARROW_DRIFT_UV · nLon)` is how many pixels apart two adjacent cells land — the
+ *  quantity view-driven density has to answer to, and the one the arm-time stride could not see
+ *  at all (`arrowStride` reads the cell COUNT and nothing about the view).
+ *
+ *  They also recover the arrow's own (col, row) from its origin uv, which is what makes the
+ *  thinning a nested power-of-two decimation rather than a per-frame reshuffle. */
+export const S111_PARAM_GRID_NLON = 2
+export const S111_PARAM_GRID_NLAT = 3
+
 /** Rows in the uploaded buffer: the nine bands plus the params row. */
 export const S111_BAND_TABLE_ROWS = S111_BAND_COUNT + 1
