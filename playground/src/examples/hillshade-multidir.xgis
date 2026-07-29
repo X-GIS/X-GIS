@@ -22,6 +22,9 @@ source terrain {
   url: "https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}/{y}.png"
   encoding: terrarium
   tileSize: 256
+  /* The AWS terrarium bucket stops at z15. Without this the selector asks for z16+
+   * (rasterCoverZoom adds +1 on a 256-px source) and every visible tile 404s. */
+  maxzoom: 15
 }
 
 layer relief {

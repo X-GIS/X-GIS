@@ -148,6 +148,10 @@ export interface HillshadeParams {
   unpack: DemUnpack
   /** native DEM tile pixel size (256 / 512). */
   tileSize: number
+  /** Source-level `maxzoom` — the dataset's deepest real tile level. The cover zoom is
+   *  clamped to it, so the selector never asks for a tile that cannot exist. Undefined =
+   *  unbounded. */
+  maxzoom?: number
 }
 
 // Typed uniform blocks (lazy — buildHillshadeModule needs configureProjections()).
@@ -224,10 +228,14 @@ export function armHillshadeSource(
     greenFactor?: number
     blueFactor?: number
     baseShift?: number
+    maxzoom?: number
   },
 ): void {
   renderer.setUrlTemplate(dem._tileUrl)
   renderer.setParams({
+    // The DATASET's deepest real level. Undefined = unbounded (every source that does
+    // not declare it keeps the pre-existing behaviour).
+    maxzoom: dem.maxzoom,
     unpack: demUnpack((dem.encoding as DemEncoding | undefined) ?? 'mapbox', {
       redFactor: dem.redFactor,
       greenFactor: dem.greenFactor,
@@ -500,7 +508,7 @@ export class HillshadeRenderer {
     // tileSize-aware cover zoom (rasterCoverZoom): a 256-px DEM (terrarium)
     // needs z+1 tiles under the 512-px-tile camera-zoom convention, same as
     // the raster path — one LOD short samples the DEM at half density.
-    const currentZ = rasterCoverZoom(zoom, this._params.tileSize)
+    const currentZ = rasterCoverZoom(zoom, this._params.tileSize, this._params.maxzoom)
 
     if (currentZ !== this.lastZoom) {
       for (const [key, ctrl] of this.loadingTiles) {

@@ -59,6 +59,14 @@ export interface LoadCommand {
   /** `type: raster-dem` native tile pixel size (256 / 512), threaded from
    *  `SourceDef.tileSize`. Default 512. */
   tileSize?: number
+  /** SOURCE-level zoom bounds — the DATASET's shallowest / deepest real tile levels,
+   *  threaded from `SourceDef`. Distinct from a layer's `minzoom`/`maxzoom` visibility
+   *  gate: a tile outside these does not EXIST, so requesting one is a guaranteed 404.
+   *  The runtime clamps its cover zoom to `maxzoom` and over-zooms the deepest real
+   *  level (rasterCoverZoom), which is what stops the terrarium z16 storm. Undefined =
+   *  unbounded, the pre-existing behaviour. */
+  maxzoom?: number
+  minzoom?: number
   /** `encoding: custom` elevation unpack factors (threaded from `SourceDef`):
    *  `elevation_m = R*redFactor + G*greenFactor + B*blueFactor - baseShift`. */
   redFactor?: number
@@ -419,6 +427,8 @@ export function emitCommands(scene: Scene, opts?: EmitOptions): SceneCommands {
     greenFactor: src.greenFactor,
     blueFactor: src.blueFactor,
     baseShift: src.baseShift,
+    maxzoom: src.maxzoom,
+    minzoom: src.minzoom,
   }))
 
   // Walk the IR once to collect every ZOOM-only paint literal /
