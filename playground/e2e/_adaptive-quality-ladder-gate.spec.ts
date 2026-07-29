@@ -40,7 +40,14 @@ const SEED_SPAN = 0.3
  *  geometry assertion for why they cannot carry this claim. */
 async function frameGeometry(
   page: Page,
-): Promise<{ tris: number; tiles: number; coarsest: number; finest: number; byZoom: string }> {
+): Promise<{
+  tris: number
+  tiles: number
+  coarsest: number
+  finest: number
+  atFinest: number
+  byZoom: string
+}> {
   return await page.evaluate(() => {
     const pipe = (
       window as unknown as { __xgisMap?: { inspectPipeline(): unknown } }
@@ -64,11 +71,13 @@ async function frameGeometry(
       for (const [z, n] of s.frame.drawnByZoom) merged.set(z, (merged.get(z) ?? 0) + n)
     }
     const zooms = [...merged.keys()].sort((a, b) => a - b)
+    const finest = zooms[zooms.length - 1] ?? -1
     return {
       tris,
       tiles,
       coarsest: zooms[0] ?? -1,
-      finest: zooms[zooms.length - 1] ?? -1,
+      finest,
+      atFinest: merged.get(finest) ?? 0,
       byZoom: JSON.stringify(zooms.map((z) => [z, merged.get(z)])),
     }
   })
@@ -155,9 +164,12 @@ async function run(
   frames: number,
 ): Promise<{
   before: number
+  /** Triangles, visible tiles, AND the per-zoom drawn-tile histogram — see `frameGeometry`. */
   after: Awaited<ReturnType<typeof frameGeometry>>
   medMs: number
   step: number
+  /** The far-field multiplier that reached the selector, not just the one computed. */
+  farLodBoost: number
   rounds: number
 }> {
   await page.setViewportSize({ width: 430, height: 715 })
@@ -190,7 +202,17 @@ async function run(
   }
   await page.waitForTimeout(4000)
   const after = await frameGeometry(page)
-  return { before, after, medMs, step: await adaptiveStep(page), rounds }
+  // `step` and `farLodBoost` in ONE evaluate, off ONE inspection — read separately they can
+  // straddle a frame and report a notch that never had that boost.
+  const ad = await page.evaluate(() => {
+    const pipe = (
+      window as unknown as { __xgisMap?: { inspectPipeline(): unknown } }
+    ).__xgisMap?.inspectPipeline() as
+      | { adaptive?: { step: number; farLodBoost: number } }
+      | undefined
+    return { step: pipe?.adaptive?.step ?? 0, farLodBoost: pipe?.adaptive?.farLodBoost ?? 1 }
+  })
+  return { before, after, medMs, step: ad.step, farLodBoost: ad.farLodBoost, rounds }
 }
 
 test.describe.configure({ mode: 'serial' })
@@ -229,7 +251,9 @@ test('the ladder trades far-field geometry for frame time under sustained overlo
       ` z${on.after.coarsest}..${on.after.finest} ${on.after.byZoom},` +
       ` med ${on.medMs.toFixed(1)} ms, notch ${on.step}` +
       ` (${on.rounds} pump round${on.rounds === 1 ? '' : 's'})` +
+      ` at farLodBoost ${on.farLodBoost}` +
       `\n  ladder coarsened the horizon by ${off.after.coarsest - on.after.coarsest} zoom level(s)` +
+      ` and bought ${(100 * (1 - on.after.tiles / off.after.tiles)).toFixed(1)}% of the visible TILES` +
       `; triangles ${off.after.tris} -> ${on.after.tris} (NOT a pass/fail signal — see the gate)\n`,
   )
 
@@ -279,6 +303,24 @@ test('the ladder trades far-field geometry for frame time under sustained overlo
       `the comment above.`,
   ).toBeLessThan(off.after.coarsest)
 
+  // Fewer TILES corroborates it (#1482). A shallower coarsest zoom with the SAME tile count
+  // would mean the selector ADDED a coarse tile rather than replacing finer ones with it —
+  // which is not coarsening. Measured: 6 tiles -> 5, as the z13 pair became one z12.
+  expect(
+    on.after.tiles,
+    `the controller stepped to notch ${on.step} (farLodBoost ${on.farLodBoost}) but the ` +
+      `selector kept the same horizon (control ${off.after.tiles} tiles, adaptive ${on.after.tiles})`,
+  ).toBeLessThan(off.after.tiles)
+
+  // The lever must have actually reached the selector, not merely been computed (#1482).
+  // Asserted separately from `step` so a failure says WHICH half broke: cutting
+  // `adaptiveFarLodBoost()` to a constant 1 fails HERE, naming the wire, rather than looking
+  // like a controller that never stepped.
+  expect(
+    on.farLodBoost,
+    'the ladder stepped but its far-field lever never engaged',
+  ).toBeGreaterThan(1)
+
   // …and what it took must be the FAR field: the foreground guarantee #1374 restored has to
   // survive every notch. Pinned exhaustively over the ladder's own values in
   // map/src/render/sse-foreground-lod.test.ts; end-to-end, the observable is that the FINEST
@@ -291,6 +333,16 @@ test('the ladder trades far-field geometry for frame time under sustained overlo
       `${off.after.finest} to ${on.after.finest} (control ${off.after.byZoom}, adaptive ` +
       `${on.after.byZoom})`,
   ).toBe(off.after.finest)
+
+  // The finest ZOOM surviving is not enough on its own: a ladder that kept one z14 tile and
+  // dropped the other three would satisfy it while having spent exactly the foreground the
+  // #1374 guarantee protects. So the COUNT at that zoom is pinned too. Measured, both arms
+  // draw the same four z14 tiles; only the far field moves.
+  expect(
+    on.after.atFinest,
+    `the ladder thinned the FOREGROUND: ${off.after.atFinest} -> ${on.after.atFinest} tiles at ` +
+      `z${off.after.finest} (control ${off.after.byZoom}, adaptive ${on.after.byZoom})`,
+  ).toBe(off.after.atFinest)
 
   // …and the map is still drawing, not blanked.
   expect(on.after.tris, 'the ladder must coarsen the horizon, not empty the map').toBeGreaterThan(0)

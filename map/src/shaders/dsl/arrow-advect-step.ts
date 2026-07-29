@@ -68,6 +68,7 @@ import {
   Var,
   If,
   Let,
+  Discard,
   u32T,
   f32T,
   vec2fT,
@@ -91,6 +92,16 @@ const U = uniformStruct(
     step: vec4fT,
     // x = per-frame random seed; y,z,w pad.
     seed: vec4fT,
+    // THE MOSAIC MASK (#1458). x = this region's BASE texel, y = one past its last.
+    //
+    // One state texture serves every resident domain, split into contiguous ranges
+    // (arrow-advect-state.ts). Each domain's velocity pair is a DIFFERENT pair of textures, so
+    // the step cannot be one pass — it is one pass per region, and each must write only its own
+    // range or the last one would overwrite every sibling's position with its own field's
+    // result. That is the #1459 collision reintroduced one layer up, which is why the mask is
+    // here rather than a scissor: a range is CONTIGUOUS IN TEXEL INDEX, not a rectangle, so it
+    // straddles partial rows and no scissor can describe it. z,w pad.
+    range: vec4fT,
   },
 )
 
@@ -186,6 +197,16 @@ const fsUpdate = fn(
     const dimU = textureDimensions(originTex.node)
     const texel = Let(vec2i(toI32(uv.x.mul(toF32(dimU.x))), toI32(uv.y.mul(toF32(dimU.y)))))
     const origin = Let(decodeArrowPos({ c: textureLoad(originTex.node, texel, u32(0)) }))
+
+    // NOT MY REGION → leave this texel alone (#1458). The linear texel index is the arrow's
+    // instance index — the SAME derivation the arrow VS inverts as `(inst % dim.x, inst / dim.x)`
+    // — so a range test on it is exactly "is this one of my arrows". `discard` rather than
+    // writing the previous value back: the pass loads the write side, so an untouched texel
+    // keeps whatever the sibling pass put there, whereas a copy-through would clobber it.
+    const lin = Let(toF32(texel.y).mul(toF32(dimU.x)).add(toF32(texel.x)))
+    If(lin.lt(U.field.range.x).or(lin.ge(U.field.range.y)), () => {
+      Discard()
+    })
 
     // Velocity WHERE THE ARROW IS — not where this texel is. The state texture's uv has no
     // geographic meaning at all; it is just which arrow we are.

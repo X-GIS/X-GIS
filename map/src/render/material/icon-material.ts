@@ -6,7 +6,7 @@
 
 import type { RhiBindGroup, RhiBuffer, RhiDevice, RhiRenderPass } from '@xgis/engine'
 import { wrapWebGpuBindGroupLayout } from '@xgis/rhi-webgpu'
-import { emitIconGlsl } from '../../shaders/dsl/icon'
+import { emitIconGlslStages } from '../../shaders/dsl/icon'
 
 // WebGL2 by-name entries (#834 M5 slice 4) — same shape as the text draper's.
 const ICON_ENTRIES: import('@xgis/engine').RhiBindLayoutEntry[] = [
@@ -16,7 +16,7 @@ const ICON_ENTRIES: import('@xgis/engine').RhiBindLayoutEntry[] = [
 ]
 import { Material, executeItems } from '@xgis/engine'
 import { emitIconWgsl } from '../../shaders/dsl/icon'
-import { wgslFor } from './wgsl-for'
+import { wgslFor, glslStagesFor } from './wgsl-for'
 
 type VertexBuffers = ReadonlyArray<{
   stride: number
@@ -49,8 +49,7 @@ export class IconDraper {
       shader: wgslFor(rhi, emitIconWgsl),
       vsEntry: 'vs',
       fsEntry: 'fs',
-      vsCode: gl2 ? emitIconGlsl('vertex') : undefined,
-      fsCode: gl2 ? emitIconGlsl('fragment') : undefined,
+      ...glslStagesFor(rhi, emitIconGlslStages),
       format: format as 'bgra8unorm',
       sampleCount,
       groups: [gl2 ? ICON_ENTRIES : wrapWebGpuBindGroupLayout(bgLayout)],

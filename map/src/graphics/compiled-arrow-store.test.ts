@@ -51,6 +51,10 @@ function makeStubs() {
     createBindGroup: () => ({}),
     createBindGroupLayout: () => ({}),
     createPipeline: () => ({}),
+    // The draper's source seam (wgslFor / glslStagesFor) reads this to decide which
+    // shader language to EMIT. 'wgsl' keeps the stub cheap: the GLSL twins are skipped,
+    // so these tests exercise buffer/bind-group bookkeeping without paying a real emit.
+    caps: { shaderLanguage: 'wgsl' },
   }
   const device = {
     createSampler: () => ({}),
@@ -315,9 +319,10 @@ function makeArrowSource() {
         originWrites.push(key)
         return 0 // single-region fixtures: every batch is based at texel 0
       },
-      get arrowBinding() {
-        return { state: flipped ? b : a, origin, flowU: field.u, flowV: field.v }
-      },
+      // Single-region fixtures: one field, whatever region is asked for. The PER-REGION
+      // contract is pinned where it can actually be observed — two real regions against a real
+      // FlowRenderer, in render/arrow-field-per-region.test.ts (#1458).
+      arrowBindingFor: () => ({ state: flipped ? b : a, origin, flowU: field.u, flowV: field.v }),
     },
   }
 }

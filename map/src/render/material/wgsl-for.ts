@@ -14,23 +14,52 @@
 // particle, and so on. It is paid synchronously, on the main thread, at the moment each
 // layer first draws.
 //
-// Both take a THUNK, so the emit does not run before the branch, and both route through
-// one `readsWgsl` — deliberately the single place in map/src that asks which language a
-// device consumes. Every call site that switches to these DROPS its own backend read
-// rather than adding one (map/src/backend-identity-ratchet.test.ts counts them), and
-// this is the site that retires the moment RhiCaps grows a shader-language field.
+// All three take a THUNK, so the emit does not run before the branch, and all route
+// through one `readsWgsl` — deliberately the single place in map/src that asks which
+// language a device consumes. Every call site that switched to these DROPPED its own
+// backend read rather than adding one (map/src/backend-identity-ratchet.test.ts counts
+// them), and `readsWgsl` itself now asks the CAPABILITY rather than the backend's
+// identity, which is what the F3–F6 sweep is for: a third backend answers the question
+// by populating `caps.shaderLanguage`, not by being added to a `!== 'webgl2'` here.
 
-/** Does this device consume the WGSL module (rather than the GLSL ES 3.00 twins)? */
-const readsWgsl = (rhi: { readonly backend: string }): boolean => rhi.backend !== 'webgl2'
+/** Does this device consume the WGSL module (rather than the GLSL ES 3.00 twins)?
+ *  Exported for the emit seam, which must decide WHETHER TO ASK for the WGSL before any
+ *  string exists — a thunk-taking helper cannot express that. */
+export const readsWgsl = (rhi: ShaderSourceDevice): boolean => rhi.caps.shaderLanguage === 'wgsl'
+
+/** The slice of the device these helpers read — the capability, nothing else. Narrow on
+ *  purpose: a test stub needs only this, and no consumer can reach for `backend`. */
+export interface ShaderSourceDevice {
+  readonly caps: { readonly shaderLanguage: 'wgsl' | 'glsl-es300' }
+}
 
 /** The `MaterialDesc.shader` for a draper that also supplies GLSL twins: the emitted
  *  WGSL on a device that reads WGSL, and nothing at all on one that does not. */
-export function wgslFor(rhi: { readonly backend: string }, emit: () => string): string {
+export function wgslFor(rhi: ShaderSourceDevice, emit: () => string): string {
   return readsWgsl(rhi) ? emit() : ''
 }
 
 /** The mirror: a `vsCode`/`fsCode` half, emitted only on a device that reads GLSL.
  *  `undefined` is what every MaterialDesc already uses for "this backend has no GLSL". */
-export function glslFor(rhi: { readonly backend: string }, emit: () => string): string | undefined {
+export function glslFor(rhi: ShaderSourceDevice, emit: () => string): string | undefined {
   return readsWgsl(rhi) ? undefined : emit()
+}
+
+/** BOTH GLSL halves at once, as MaterialDesc fields — spread it into the descriptor.
+ *
+ *  Prefer this over two `glslFor` calls: a family's `…GlslStages` emitter lowers and
+ *  optimises the module ONCE for both stages, where two per-stage emitters lower it
+ *  twice, and that lowering is the entire cost (`buildPolygonModule` measures 2 ms
+ *  against 80 ms for the vertex emit alone).
+ *
+ *  Returning the fields rather than the strings is what lets a draper drop its own
+ *  `const gl2 = rhi.backend === 'webgl2'`: the empty object spreads to nothing, which is
+ *  exactly the `{}` those call sites were building by hand. */
+export function glslStagesFor(
+  rhi: ShaderSourceDevice,
+  emit: () => { vertex: string; fragment: string },
+): { vsCode?: string; fsCode?: string } {
+  if (readsWgsl(rhi)) return {}
+  const { vertex, fragment } = emit()
+  return { vsCode: vertex, fsCode: fragment }
 }
