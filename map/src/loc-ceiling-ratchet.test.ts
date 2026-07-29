@@ -514,7 +514,11 @@ const CEILINGS: Record<string, number> = {
   // split coverage-refresh.ts already uses, so this is wiring and not logic. An earlier draft
   // put a `_beginCoverageLoad` method here too (+45); it was extracted into
   // `resolveCoverageCatalogues` + `viewBbox` rather than ratcheted for. Post-hook measurement.
-  'map/src/map.ts': 5422,
+  // 5422→5427 (source maxzoom, the 404 class): a dataset has a deepest REAL level and asking
+  // past it is a guaranteed 404, not a slow tile — terrarium stops at z15 while
+  // rasterCoverZoom adds +1 on a 256-px source, so every visible tile failed from about
+  // camera z14.5 (verified: terrarium/16/13651/25075 404, its z15 parent 200). +5: the arm call plus its two-line reason and prettier's wrap.
+  'map/src/map.ts': 5427,
   // Baselined at #1255 (measured 830): the DOM-inspired layer API crossed
   // NEW_FILE_CAP with the paint-transition style-setter integration — the
   // StyleHost.transitions context, the shared applyNumber/applyColor
@@ -952,7 +956,11 @@ const CEILINGS: Record<string, number> = {
   // draws NOTHING, so a loop idling on tile-count alone would leave the relief blank with
   // its tiles already cached — the same freeze class as a stranded fade ramp, which is why
   // it joins that signal rather than getting its own. The seam itself is in shaders/emit/.
-  'map/src/render/hillshade-renderer.ts': 839,
+  // 839→847 (source maxzoom, the 404 class): a dataset has a deepest REAL level and asking
+  // past it is a guaranteed 404, not a slow tile — terrarium stops at z15 while
+  // rasterCoverZoom adds +1 on a 256-px source, so every visible tile failed from about
+  // camera z14.5 (verified: terrarium/16/13651/25075 404, its z15 parent 200). +8: the HillshadeParams field, the arm-site plumbing, and their rationale.
+  'map/src/render/hillshade-renderer.ts': 847,
   // Merge union (#1060 <- main): stacked growth — measured 1174.
   'map/src/render/point-renderer.ts': 1174,
   // 1106→1120 (#1043 state-hygiene): three unmask-before-clear / state-reset fixes for the
@@ -1129,7 +1137,11 @@ const CEILINGS: Record<string, number> = {
   // 990→992 (#1436): the tile texture asks for a chain and fills it after the upload. Two lines
   // plus the sentence saying why a basemap tile is the minified-appearance texture par
   // excellence. Measured post-hook.
-  'map/src/render/raster-renderer.ts': 992,
+  // 992→1011 (source maxzoom, the 404 class): a dataset has a deepest REAL level and asking
+  // past it is a guaranteed 404, not a slow tile — terrarium stops at z15 while
+  // rasterCoverZoom adds +1 on a 256-px source, so every visible tile failed from about
+  // camera z14.5 (verified: terrarium/16/13651/25075 404, its z15 parent 200). +19: the setSourceMaxzoom setter, the field, and the 10-line rationale on rasterCoverZoom itself.
+  'map/src/render/raster-renderer.ts': 1011,
   // 889→906 (#1155 F3): cold-start burst enqueue cap — the `_coldStartBurst`
   // field + `setColdStartBurst` + the burst-selected 8/4 cap in enqueue().
   // 906→910 (#1155 F3 adjudication): the burst 8/4 pair now comes from the
@@ -1199,7 +1211,11 @@ const CEILINGS: Record<string, number> = {
   // has to touch this file to exist; there is nothing to extract from six lines of threading,
   // and dropping the comment would invite a later reader to "helpfully" default it and create
   // the second authority it exists to prevent.
-  'compiler/src/ir/lower.ts': 1463,
+  // 1463→1473 (source maxzoom, the 404 class): a dataset has a deepest REAL level and asking
+  // past it is a guaranteed 404, not a slow tile — terrarium stops at z15 while
+  // rasterCoverZoom adds +1 on a 256-px source, so every visible tile failed from about
+  // camera z14.5 (verified: terrarium/16/13651/25075 404, its z15 parent 200). +10: two source-property arms, their locals, and the pass-through.
+  'compiler/src/ir/lower.ts': 1473,
   // #777 I-B icon-keep-upright + I-F icon value-forms (merged) grow three
   // symbol-lowering god-files (per-row justification in
   // architecture-invariants.test.ts, the second authority):
@@ -1231,7 +1247,11 @@ const CEILINGS: Record<string, number> = {
   // 966→969 (#1418): the `flowPortrayal` field on RenderNode plus its doc comment. A field on
   // the IR node type is the whole point of the file; extracting one property would split the
   // node's shape across two places for no gain.
-  'compiler/src/ir/render-node.ts': 969,
+  // 969→980 (source maxzoom, the 404 class): a dataset has a deepest REAL level and asking
+  // past it is a guaranteed 404, not a slow tile — terrarium stops at z15 while
+  // rasterCoverZoom adds +1 on a 256-px source, so every visible tile failed from about
+  // camera z14.5 (verified: terrarium/16/13651/25075 404, its z15 parent 200). +11: the two SourceDef fields and the doc that says why a tile outside them cannot exist.
+  'compiler/src/ir/render-node.ts': 980,
   'compiler/src/convert/paint-helpers.ts': 826,
   'blueprint/src/editor.ts': 1448,
 }
