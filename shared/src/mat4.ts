@@ -36,7 +36,7 @@ export const CAMERA_FOV_RAD = 0.6435011087932844
 export const CAMERA_FOV_DEG = (CAMERA_FOV_RAD * 180) / Math.PI
 
 /** Multiply 4×4 matrix (column-major) by vec4 */
-export function mulVec4(m: Float32Array, v: number[]): number[] {
+export function mulVec4(m: ArrayLike<number>, v: number[]): number[] {
   return [
     m[0] * v[0] + m[4] * v[1] + m[8] * v[2] + m[12] * v[3],
     m[1] * v[0] + m[5] * v[1] + m[9] * v[2] + m[13] * v[3],
@@ -111,7 +111,7 @@ export function perspectiveMatrix(
 }
 
 /** Invert a 4×4 column-major matrix. Writes result into `out`. */
-export function invert4x4(m: Float32Array, out: Float32Array): boolean {
+export function invert4x4(m: ArrayLike<number>, out: Float32Array | Float64Array): boolean {
   const a00 = m[0],
     a01 = m[1],
     a02 = m[2],

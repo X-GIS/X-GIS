@@ -31,9 +31,11 @@ import { emitIconRetainedGlsl, emitIconRetainedGlslStages } from '../../shaders/
 import {
   emitArrowRetainedGlsl,
   emitArrowRetainedGlslStages,
+} from '../../shaders/dsl/arrow-retained'
+import {
   emitArrowRetainedAdvectedGlsl,
   emitArrowRetainedAdvectedGlslStages,
-} from '../../shaders/dsl/arrow-retained'
+} from '../../shaders/dsl/arrow-advected'
 import {
   emitParticleRetainedGlsl,
   emitParticleRetainedGlslStages,

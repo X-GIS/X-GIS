@@ -3,41 +3,38 @@
 // Reported from S-111 Live at `#11.30/38.74143/-74.93501` and `#12.80/38.76332/-74.97529`:
 // "the direction the arrow travels and the direction it faces are different."
 //
-// THE CAUSE, and why it hid. The displacement has to stay inside the box the two projected basis
-// anchors span, or the VS extrapolates a linearization past the range it was built for. Clamping
-// the two components INDEPENDENTLY keeps it inside — and TURNS it, because each component is cut
-// by a different amount.
+// THE ORIGINAL CAUSE, kept because the reasoning is what stops it coming back. The displacement
+// had to stay inside the box two projected basis anchors spanned, or the VS extrapolated a
+// linearization past its range. Clamping the two components INDEPENDENTLY keeps it inside — and
+// TURNS it, because each component is cut by a different amount. It only fired when a component
+// exceeded the leash, which needs `phase · uvAspect > 1`; the synthetic demo fixture has aspect
+// 0.24 and can NEVER reach it, which is why three rounds of reproduction on that fixture found
+// nothing while a real regional cell (usually wider than it is tall) showed it immediately.
 //
-// It only fires when a component actually exceeds the leash. The v component carries the grid's
-// `uvAspect` (a uv unit is a different true distance on each axis), so the condition is
-// `phase · aspect > 1`. The synthetic demo fixture has aspect 0.24 and can NEVER reach it, which
-// is why three rounds of reproduction on that fixture found nothing; a real regional cell is
-// usually wider than it is tall, so it fires there and gets worse as an arrow ages.
+// WHY THE CLASS IS NOW UNREACHABLE, not merely fixed. #1520 step 2 removed the leash box along
+// with the per-cell generator that packed its anchors. A train is walked in SCREEN ARC LENGTH: at
+// each step the sampled velocity is turned into a uv direction, that direction is mapped through
+// the node's basis, and the step is that mapped vector scaled to the step length. There is no
+// bound to fit into, so there is nothing that can cut one component more than the other — and the
+// glyph's rotation is the SAME mapped vector. Travelling and pointing are not two computations
+// that must agree; they are one.
 //
-// The fix is to fit by SCALING both components by one factor — Chebyshev, matching the leash the
-// excursion was bounded by — so the direction is untouched.
-//
-// This file tests the FIT RULE, which is pure arithmetic over the aspect, and pins the shader to
-// its shape. The angle it measures is the one a viewer sees: between the displacement and the
-// vector the glyph is rotated by.
+// So this file pins the structure that makes them one, and keeps the arithmetic of the rejected
+// fit as the fail-before: reinstating a per-axis clamp reintroduces exactly the reported angles.
 
 import { describe, it, expect } from 'vitest'
-import { emitArrowRetainedAdvectedWgsl } from './arrow-retained'
+import { emitArrowRetainedAdvectedWgsl } from './arrow-advected'
 
-/** The two candidate ways to keep a displacement inside the leash box. */
+/** The two candidate ways to keep a displacement inside a leash box — the rejected one and the
+ *  one that replaced it, kept so the measured angles below stay in the record. */
 const fitPerAxis = (kx: number, ky: number): [number, number] => [
   Math.max(-1, Math.min(1, kx)),
   Math.max(-1, Math.min(1, ky)),
 ]
-const fitUniform = (kx: number, ky: number): [number, number] => {
-  const m = Math.max(Math.abs(kx), Math.abs(ky))
-  const f = m > 1 ? 1 / m : 1
-  return [kx * f, ky * f]
-}
 
-/** Angle in degrees between the displacement and the glyph's own direction. Both are expressed
- *  in the SAME uv terms the VS uses — the drift steps `(vu, −vv·aspect)` and the glyph is rotated
- *  by `(vu, −vv·aspect)`, so any angle between them comes from the fit and nothing else. */
+/** Angle in degrees between the displacement and the glyph's own direction, both expressed in the
+ *  uv terms the VS uses: the flow is `(vu, −vv·aspect)` and the glyph is rotated by the same, so
+ *  any angle between them comes from the fit and nothing else. */
 function misalignmentDeg(
   aspect: number,
   phase: number,
@@ -52,26 +49,12 @@ function misalignmentDeg(
   return (Math.acos(Math.min(1, Math.max(-1, cos))) * 180) / Math.PI
 }
 
-describe('the drift is fitted to the leash WITHOUT turning it (#1520)', () => {
+describe('the reported failure, as arithmetic — kept as the fail-before', () => {
   // Wide enough to cover a real regional cell. 0.24 is the synthetic fixture — included so the
-  // blind spot is visible in the table rather than rediscovered.
+  // blind spot stays visible in the table rather than being rediscovered.
   const aspects = [0.24, 0.5, 1, 1.5, 2, 3]
 
-  it('the uniform fit never turns the displacement, at any aspect', () => {
-    for (const a of aspects) {
-      for (const phase of [0.5, 0.9, 1]) {
-        // 0.001° — below anything a screen can show, and three orders under the 3.3° the
-        // per-axis clamp produces at the mildest aspect that triggers it. Not tighter: `acos`
-        // near zero carries its own rounding, and a bound inside that is measuring float noise.
-        expect(misalignmentDeg(a, phase, fitUniform), `aspect ${a}, phase ${phase}`).toBeLessThan(
-          1e-3,
-        )
-      }
-    }
-  })
-
-  it('…and the per-axis clamp it replaced DOES, which is the reported bug', () => {
-    // Fail-before, kept in the file: reinstating a per-axis clamp reintroduces exactly this.
+  it('a per-axis clamp turns the displacement on a wide cell', () => {
     const worst = Math.max(...aspects.map((a) => misalignmentDeg(a, 0.9, fitPerAxis)))
     expect(worst, 'the per-axis clamp turns the drift on a wide cell').toBeGreaterThan(5)
   })
@@ -80,13 +63,67 @@ describe('the drift is fitted to the leash WITHOUT turning it (#1520)', () => {
     // Recorded so nobody concludes "not reproducible" from the synthetic demo again.
     expect(misalignmentDeg(0.24, 1, fitPerAxis)).toBeLessThan(1e-3)
   })
+})
 
-  it('the VS scales by ONE factor — no per-component clamp on the displacement', () => {
-    const w = emitArrowRetainedAdvectedWgsl()
-    const vs = w.slice(w.indexOf('fn vs_arrow_retained_advected'))
-    const body = vs.slice(0, vs.indexOf('\n}'))
-    // The displacement is divided by the leash and then scaled; a `clamp(…, -1.0, 1.0)` applied
-    // to it is the broken form. The FS's coverage clamps are outside this slice.
-    expect(body, 'the drift is not clamped per component').not.toMatch(/clamp\([^)]*-1\.0, 1\.0\)/)
+describe('…and the VS makes both directions ONE computation (#1520)', () => {
+  const all = emitArrowRetainedAdvectedWgsl()
+  const vs = all.slice(all.indexOf('fn vs_arrow_retained_advected'))
+  const body = vs.slice(0, vs.indexOf('\n}'))
+  const letOf = (name: string): string => {
+    const m = new RegExp(`let ${name} = ([^;]+);`).exec(body)
+    expect(m, `${name} must be bound in the emitted VS`).not.toBeNull()
+    return m![1]!
+  }
+
+  it('the glyph is rotated by the SAME basis application the walk steps along', () => {
+    // `cos_c`/`ss` are built from `arrow_uv_to_px(basis, (vu, −vv·aspect))`, which the emitter
+    // inlines as the 2×2 product. The walk's own step is `arrow_uv_step(basis, (vu, −vv·aspect),
+    // len)` mapped through that identical product. Severing the pairing — sampling the flow for
+    // the rotation at a different position than the step uses, or applying a different basis —
+    // is the class of bug that reads as "moves one way, points another".
+    // The rotation: `(m.x·d.x + m.y·d.y, m.z·d.x + m.w·d.y)` for the basis `m` and the sampled
+    // flow `d`. Resolve `m` from it …
+    const dir = /let \w+ = vec2<f32>\(\(\((\w+)\.x \* (\w+)\) \+ \(\1\.y \* (\w+)\)\)/.exec(body)
+    expect(dir, 'the drawn direction is a basis application').not.toBeNull()
+    const basis = dir![1]!
+    // … and it must be the SAME basis every walk step is mapped through. Two bases — one for
+    // where the glyph goes and one for where it points — is precisely the reported failure, and
+    // it is the only way this VS could still produce it.
+    const steps = [...body.matchAll(/arrow_uv_step\((\w+),/g)].map((m) => m[1]!)
+    expect(steps.length, 'the walk takes its steps through a basis').toBeGreaterThan(0)
+    for (const s of steps) expect(s, 'one basis, both answers').toBe(basis)
+    // …and the rotation's operand is a velocity pair sampled from the textures, not a packed
+    // bearing frozen at add time.
+    // …and the rotation's operand is a velocity pair SAMPLED from the textures, not a packed
+    // bearing frozen at add time. Two levels: the emitter binds the component, whose expression
+    // names the temporary the textureLoad landed in.
+    const comp = letOf(dir![2]!)
+    const src = /vec2<f32>\((\w+),/.exec(comp)
+    expect(src, 'the component comes from a velocity pair').not.toBeNull()
+    expect(letOf(src![1]!), 'the direction is built from the sampled flow').toContain(
+      'textureLoad(flow_u_tex',
+    )
+  })
+
+  it('nothing clamps a displacement COMPONENT — there is no box left to fit into', () => {
+    // The leash box went with the per-cell generator. A `clamp(…, -1.0, 1.0)` reappearing in this
+    // body is that box coming back, and with it the turn. The FS's coverage clamps are outside
+    // this slice; `loadAtUv`'s texel clamp is a texture index, not a displacement, and clamps to
+    // `(0, dim−1)`.
+    expect(body, 'no displacement is clamped per component').not.toMatch(
+      /clamp\([^)]*-1\.0, 1\.0\)/,
+    )
+  })
+
+  it('the step direction is NORMALIZED before it is scaled — speed sets colour, not spacing', () => {
+    // The train's spacing is a screen constant, so the walk advances by arc LENGTH and the
+    // velocity contributes only a direction. A step proportional to the speed would space fast
+    // water's glyphs further apart than slow water's, which on a chart reads as a second,
+    // contradictory speed encoding beside the band colour the catalogue actually specifies.
+    expect(all).toContain('fn arrow_uv_step(')
+    const step = all.slice(all.indexOf('fn arrow_uv_step('))
+    expect(step.slice(0, step.indexOf('\n}')), 'the direction is unit-scaled').toMatch(
+      /max\(length\(dir_uv\)/,
+    )
   })
 })
