@@ -1,4 +1,4 @@
-// ═══ GATES 2-3 of #1520 step 2 — the screen lattice, rendered ═══
+// ═══ GATES 2-4 of #1520 step 2 — the screen lattice, rendered ═══
 //
 // GATE 1 (`map/src/render/arrow-view-uniform.test.ts`) proves the backward map: a lattice node's
 // recovered geography, projected forward again, lands back on that node. It cannot prove that
@@ -14,8 +14,11 @@
 //           lands where its neighbour was. If that is off by anything, the field pulses once per
 //           cycle — which is the blink #1333 rejected moving glyphs over, and it is invisible in
 //           any single frame.
-//
-// GATE 4 (no empty water) is NOT here — see the note where it would sit, at the bottom.
+//   GATE 4  NO EMPTY WATER (#1510). On a chart an empty patch is a statement about the water.
+//           A NECESSARY condition, stated as such: wherever the STATIC catalogue portrayal puts a
+//           symbol is water by the catalogue's own rule, so the advected field must reach there.
+//           It is not a sufficient coverage test — the static portrayal at z11 is itself a sparse
+//           lattice (~203 px apart vertically), so it marks some water, not all of it.
 //
 // The clock is pinned per frame (`?animt=`), so every capture here is reproducible — that is the
 // property the phase formulation bought (`arrow-drift.ts`) and it is what makes GATE 3 possible
@@ -51,9 +54,9 @@ layer speed {
 
 /** Painted pixels, the domain's footprint, and an 8×8 occupancy map over that footprint.
  *
- *  The occupancy map is read even though no gate here consumes it yet: a painted-pixel COUNT
- *  passes on a broken image (§12 records a 1.5 % "green" on a disconnected seam artifact), so WHERE
- *  the ink sits is the measurement GATE 4 will need. */
+ *  THE OCCUPANCY MAP IS THE POINT for GATE 4. A painted-pixel COUNT passes on a broken image (§12
+ *  records a 1.5 % "green" on a disconnected seam artifact), so what is read here is WHERE the ink
+ *  sits, block by block, and the claim is made against another frame's blocks. */
 function readInk() {
   const w = window as unknown as {
     __xgisMap?: { ctx?: { rhi?: { backend?: string; gl?: WebGL2RenderingContext } } }
@@ -211,17 +214,48 @@ test.describe('S-111 screen-lattice arrow field (#1520 step 2)', () => {
     ).toBeLessThan(0.25)
   })
 
-  // GATE 4 (no empty water, #1510) IS NOT HERE, and the reason is a measurement rather than an
-  // omission — see #1520. The obvious formulation, "every 8x8 block the STATIC portrayal paints in
-  // must also be painted by the advected field", was written and run: it reports 14 of 33 blocks
-  // missed at z11. That number is NOT evidence of a coverage gap on its own, because the static
-  // portrayal at z11 is itself a sparse lattice (one symbol per 0.055 deg cell = ~203 px apart
-  // vertically, 6x4 arrows in the frame), so the comparison is between two lattices with different
-  // spacings, not between a field and a mask.
-  //
-  // What the captured frames DO show, and what is filed rather than papered over: the advected
-  // field covers screen rows 1..410 of a 700 px canvas at z11 while the catalogue field reaches the
-  // bottom edge. The whole frame is inside the coverage (domain lat 36.85..39.435, frame lat
-  // ~38.005..38.195), so it is not the grid box clipping. Reproduce with
-  // `#11/38.1/-76.19` on `s111_currents`, `| flow` against `| arrow`.
+  test('GATE 4 — no empty water: the field reaches everywhere the catalogue does', async ({
+    page,
+  }) => {
+    test.setTimeout(600_000)
+    // THE MASK IS THE STATIC PORTRAYAL at the same camera. It places one symbol per valid cell by
+    // the catalogue's own rule, so a block it paints in is water — and on a chart an empty patch of
+    // water is a statement (#1510), not a cosmetic gap.
+    //
+    // A NECESSARY condition, not a sufficient one, and the distinction is worth keeping straight:
+    // at z11 the static field is a ~6x4 lattice (cells 0.055 deg apart is ~203 px), so it marks
+    // SOME water. What it cannot do is mark a block that is NOT water, which is what makes every
+    // block it paints a fair thing to demand of the advected field.
+    await boot(page, 11, '| arrow')
+    const mask = await page.evaluate(readInk)
+    expect(mask.ok).toBe(true)
+    if (!mask.ok) return
+    expect(mask.backend).toBe('webgl2')
+    await page.locator('canvas').first().screenshot({ path: 'test-results/s111-water-mask.png' })
+
+    await boot(page, 11, '| flow')
+    const field = await page.evaluate(readInk)
+    expect(field.ok).toBe(true)
+    if (!field.ok) return
+    await page.locator('canvas').first().screenshot({ path: 'test-results/s111-water-field.png' })
+
+    // A block counts as water once the catalogue put more than a stray anti-aliased pixel in it.
+    const water = mask.blocks.map((n) => n > 20)
+    const missed = water.filter((isWater, i) => isWater && field.blocks[i]! === 0).length
+    const wet = water.filter(Boolean).length
+    console.log(`[s111-water] water blocks=${wet} missed by the advected field=${missed}`)
+
+    // PRECONDITION: the mask means something. A camera where the catalogue field paints one block
+    // would make the claim vacuous — §12's "an assertion carries information only if it
+    // DISTINGUISHES the states of the thing it tests".
+    expect(wet, 'the catalogue field marks enough water to test against').toBeGreaterThan(8)
+
+    // THE CLAIM. Every block of water the catalogue reaches, the advected field reaches too.
+    //
+    // FAIL-BEFORE, measured: with `unproject_flat`'s convergence threshold at a fixed 1 m — below
+    // the f32 ULP of a Web Mercator coordinate, so ~40 % of the lattice was rejected in horizontal
+    // bands — this reported 14 of 33 blocks missed. That bug was invisible to all 10 058 unit
+    // tests, because the DSL's CPU lowering is f64; this gate is what saw it.
+    expect(missed, 'the advected field left water empty (#1510)').toBe(0)
+  })
 })
