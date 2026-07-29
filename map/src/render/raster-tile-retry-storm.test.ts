@@ -20,7 +20,7 @@ import {
   installWebGPUStub,
   type StubInstallation,
 } from '../../../rhi-webgpu/src/__test-support__/webgpu-stub'
-import { initGPU, type GPUContext } from '@xgis/rhi-webgpu'
+import { wrapWebGpuPass, initGPU, type GPUContext } from '@xgis/rhi-webgpu'
 import { RasterRenderer, Camera } from '@xgis/map'
 import { MAX_TILE_ATTEMPTS } from './tile-retry'
 
@@ -67,7 +67,7 @@ function renderPass(ctx: GPUContext, renderer: RasterRenderer, camera: Camera): 
       createCommandEncoder: () => { beginRenderPass: () => GPURenderPassEncoder }
     }
   ).createCommandEncoder()
-  renderer.render(encoder.beginRenderPass(), camera, 0, 0, 0, W, H, DPR)
+  renderer.render(wrapWebGpuPass(encoder.beginRenderPass()), camera, 0, 0, 0, W, H, DPR)
 }
 
 /** Every tile request 404s. Returns the per-URL attempt tally.
