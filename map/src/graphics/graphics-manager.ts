@@ -670,7 +670,23 @@ export class GraphicsManager {
 
     // Declarative `| arrow` layers (#1302) — same draper + per-copy uniform as the host
     // arrows above, so compiler-fed and `map.graphics` arrows are one draw authority.
-    this._lastFrameDrawCalls += this._compiledArrows.draw(pass, perCopy)
+    //
+    // …plus, for the ADVECTED arm only, the camera description its screen lattice is built from
+    // (#1520 step 2). Assembled HERE because this is where the frame's matrix, projType, viewport
+    // and dpr are already in hand, and it is batch-INDEPENDENT — only the grid box that pairs
+    // with it is per batch, and the store owns that. Built unconditionally rather than behind a
+    // `hasAdvected` check: it is six array reads and a 4×4 inverse, and a gate that can be wrong
+    // in one direction (skipping the build on a frame that needed it) costs a blank field.
+    this._lastFrameDrawCalls += this._compiledArrows.draw(pass, perCopy, {
+      matrix: frame.matrix,
+      projType,
+      globeMode: camera.globeMode,
+      centerLon: projCenterLon,
+      centerLat: projCenterLat,
+      canvasWidth,
+      canvasHeight,
+      dpr,
+    })
 
     if (this._timeSamples !== null) this._timeSamples.push(performance.now() - t0)
   }

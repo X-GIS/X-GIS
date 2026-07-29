@@ -28,19 +28,15 @@
 //     and no pumped convergence — pin the clock and the frame is reproducible.
 //   • Frame 0 IS the catalogue placement, for every arrow, at phase 0 — without seeding it from
 //     anywhere.
+//
+// WHAT LEFT WITH THE PER-CELL GENERATOR (#1520 step 2). The LEASH (`ARROW_DRIFT_UV`), the SMEAR
+// cap (`ARROW_SMEAR_SLOTS`) and the drift's tap count all existed to bound an excursion measured
+// in GRID-uv against a pair of packed basis anchors. The field is now seeded on the SCREEN and its
+// trains are walked in SCREEN arc length, so the bound is the inter-glyph spacing itself and the
+// tap count belongs to the walk — both live in `arrow-view.ts` beside the lattice they describe.
+// What survives here is the part that was never about the grid: an arrow is `(origin, phase)`.
 
 import { fn, f32, fract, min, vec3, vec2fT, f32T } from '@xgis/shader-dsl'
-
-/** THE LEASH — how far, in grid-uv, an arrow travels from its own origin over one phase cycle.
- *
- *  5% of the grid span is ~30 cells on a 596×433 CBOFS grid: unmistakably motion, still local
- *  enough for the VS's two-basis linearization to hold over the whole excursion. That bound is
- *  why a short fixed-tap integration can replace a per-frame accumulation at all — the path an
- *  arrow is ever allowed to take is short.
- *
- *  ONE number, two consumers: the generator packs each instance's basis anchors at exactly this
- *  distance, and the VS divides its drift by it. */
-export const ARROW_DRIFT_UV = 0.05
 
 /** Seconds for one phase cycle: origin → leash → origin. A DISPLAY control, like the rate it
  *  replaces — the catalogue says nothing about animation, and speed is read from the band colour
@@ -53,40 +49,17 @@ export const ARROW_DRIFT_UV = 0.05
  *  far within one cycle. */
 export const ARROW_PHASE_SECONDS = 8
 
-/** How far an arrow may travel, as a fraction of the distance to the next DRAWN arrow.
+/** Per-seed phase offset, so trains do not all wrap together. Value noise from the seed's own
+ *  lattice index (Hoskins' "hash without sine") — `fract`/`mul` only, deliberately NOT sine-based:
+ *  the sine hash's quality at large arguments is driver-dependent and this runs on both the WGSL
+ *  and GLSL arms, where those differ.
  *
- *  The leash above is a fraction of the GRID's span — a statement about the data, and silent
- *  about how far apart the drawn arrows are. The two came apart when the field got denser: at one
- *  arrow per cell the leash was 1.55 slots, and holding the drawn spacing at a glyph length put
- *  it at 3.3. A lattice whose points each wander independently by more than a slot is a Poisson
- *  scatter, which is what "clumped, with gaps" looks like — modelled, as the coefficient of
- *  variation of the gaps between neighbours (0 = perfect lattice, 1 = Poisson):
- *
- *    leash / spacing   0.5    1.0    1.55    2.0    3.3
- *    gap CV            0.20   0.41   0.55    0.64   0.77
- *
- *  One slot is the natural value and not a tuned one: an arrow travels exactly as far as its
- *  neighbour's position and hands over, which reads as continuous flow while the lattice
- *  survives. It also makes the motion ZOOM-CONSISTENT — the smear is a constant fraction of the
- *  spacing at every zoom, instead of growing as the field densifies. */
-export const ARROW_SMEAR_SLOTS = 1.0
-
-/** Euler taps used to integrate the drift over the phase.
- *
- *  The excursion is one leash, so the path is short and curvature over it is small — this is the
- *  same integration the per-frame pass did, just evaluated in one go instead of accumulated. Four
- *  is where the path stops visibly straightening on the demo fixture's gyre; more taps buy
- *  curvature nobody can see and cost a texture fetch each. */
-export const ARROW_DRIFT_TAPS = 4
-
-/** Per-arrow phase offset, so arrows do not all wrap together. Value noise from the origin
- *  (Hoskins' "hash without sine") — `fract`/`mul` only, deliberately NOT sine-based: the sine
- *  hash's quality at large arguments is driver-dependent and this runs on both the WGSL and GLSL
- *  arms, where those differ.
- *
- *  A FUNCTION OF THE ORIGIN, which is what makes it stable: the same arrow gets the same offset
- *  every frame, across a forecast step, and across a change in how many arrows are drawn. The
- *  lottery it replaces needed a per-frame seed and a state texture to remember its outcome. */
+ *  A FUNCTION OF THE SEED, which is what makes it stable: the same lattice node gets the same
+ *  offset every frame, across a forecast step, and across a change in how many glyphs are drawn.
+ *  It is deliberately NOT a function of the seed's grid-uv — the water under a fixed screen node
+ *  changes whenever the camera does, so a uv hash would re-roll every phase on every pan and the
+ *  field would boil instead of flow. The lottery it replaces needed a per-frame seed and a state
+ *  texture to remember its outcome. */
 export const arrow_phase_offset = fn('arrow_phase_offset', { p: vec2fT }, (a) => {
   const p3 = fract(vec3(a.p.x, a.p.y, a.p.x.add(f32(0.37))).mul(f32(0.1031)))
   const d = p3.x

@@ -38,15 +38,29 @@
 //   • NOTHING IS INVERTED HERE. The CPU unprojects the four NDC corners through the f64 MVP
 //     inverse and the VS blends them, which is exact for a perspective projection —
 //     `ray_from_corners`.
-//   • THE WORLD SPACE IS ENU, so the earth centre is `(0, 0, −(R + h))` and the quadratic's
-//     constant term IS `h·(2R + h)` — it never has to be recovered from `|O|² − R²` —
-//     `ray_hit_sphere_enu`. That is also why the intersection is not solved in ECEF: the answer
-//     would then need a rotation into the frame the MVP actually uses.
+//   • THE SPHERE IS CENTRED OFF THE WORLD ORIGIN BY A KNOWN RADIUS, so the quadratic's constant
+//     term is built as `|eye|² + 2R·(eye·up)` — two PRODUCTS, never the difference `|O|² − R²`
+//     that costs every f32 figure — and the near root is taken in the cancellation-free form
+//     `2c / (−b + √disc)`. See `ray_hit_sphere_enu`.
 //   • THE HIT BECOMES lon/lat AS AN OFFSET from the camera centre, never as `atan2` of two
 //     absolute ECEF components — `enu_to_lonlat`. That step is where the surviving ~0.4 m would be.
 //
-// `h` comes out of `globe_eye.w` (= EARTH_R/|eye_ecef|), which the frame uniform already carries
-// for the horizon cull — see `eye_altitude`. No new uniform for it.
+// ── THE RAY ORIGIN IS PASSED IN, BECAUSE THE EYE IS NOT AT THE WORLD ORIGIN ────────────────────
+//
+// #1520's plan asserted "the MVP's world space is ENU AT THE CAMERA, for BOTH paths", and both
+// halves of that turn out to be wrong in a way that a still frame would never show:
+//
+//   • `view-matrix.ts:278` `buildECEFFrameView` composes `P × T(0,0,−alt) × Rx × Rz × Renu`, and
+//     `Renu` is a pure ROTATION — so the world origin is the camera's GROUND ANCHOR on the
+//     surface, and the eye sits `alt` away from it along the pitched/bearing-rotated axis.
+//   • `geo/src/globe.ts:319` `rtcMatrix` is focus-relative with an ECEF-PARALLEL basis
+//     (`s`, `u`, `−fwd` are ECEF vectors), so the globe path's world axes are not ENU at all.
+//
+// A hit solved from an eye assumed at the origin is therefore wrong by the whole camera altitude
+// under pitch, and on the globe by a basis rotation as well. Both are removed the same way: the
+// CPU (which owns the f64 inverse anyway) hands over the eye, and the local zenith/east/north as
+// world-space unit vectors. The functions below then make no assumption about either convention —
+// they are correct for the ENU frame and the ECEF-parallel one without branching on which.
 
 import {
   fn,
@@ -131,32 +145,51 @@ export const ray_from_corners = fn(
 
 /** Ray ∩ the ground plane, for the FLAT projections' world space (metres, camera-relative).
  *
- *  The camera sits `camH` above z = 0 and the ray leaves it downward, so the hit is at
- *  `t = camH / −d.z`. Returns `(x, y, ok)`; `ok = 0` for a ray at or above the horizon, which is
- *  the same "no ground here" answer `unprojectToZ0` gives on the CPU (`camera/unproject.ts`). */
-export const ray_hit_plane = fn('ray_hit_plane', { d: vec3fT, camH: f32T }, (a) => {
+ *  `eye` is the ray origin in that world space — NOT assumed to be `(0, 0, camH)`. The flat MVP's
+ *  world origin is the camera's ground CENTRE, and a pitched camera pulls the eye back over it, so
+ *  `eye.xy` is nonzero exactly when pitch is. Dropping it tilts the whole recovered lattice
+ *  backwards by the camera's own set-back, which reads as a field that is offset from the map it
+ *  sits on rather than as anything obviously broken.
+ *
+ *  Returns `(x, y, ok)`; `ok = 0` for a ray at or above the horizon, which is the same "no ground
+ *  here" answer `unprojectToZ0` gives on the CPU (`camera/unproject.ts`). */
+export const ray_hit_plane = fn('ray_hit_plane', { eye: vec3fT, d: vec3fT }, (a) => {
   const down = Let(a.d.z.neg())
-  const t = Let(a.camH.div(max(down, f32(1e-6))))
-  return vec3(a.d.x.mul(t), a.d.y.mul(t), select(down.gt(f32(1e-6)), f32(1), f32(0)))
+  const t = Let(a.eye.z.div(max(down, f32(1e-6))))
+  return vec3(
+    a.eye.x.add(a.d.x.mul(t)),
+    a.eye.y.add(a.d.y.mul(t)),
+    select(down.gt(f32(1e-6)).and(t.gt(f32(0))), f32(1), f32(0)),
+  )
 })
 
-/** Ray ∩ the earth, in the ENU world space the globe MVP actually uses.
+/** Ray ∩ the earth, in whatever world space the 3D MVP hands over.
  *
- *  `getECEFFrameView` (camera.ts:716) builds `P × T × Rx × Rz × Renu`, so the world axes are ENU
- *  AT THE CAMERA: x east, y north, z up. The earth centre is therefore just `(0, 0, −(R + h))`,
- *  and the quadratic's constant term falls out already conditioned:
+ *  THE ONE FACT THIS NEEDS is that the world ORIGIN sits on the earth's surface, which both 3D
+ *  paths guarantee (`buildECEFFrameView` anchors ENU at the camera's ground point;
+ *  `buildGlobeMatrix`'s RTC variant is relative to `target`, the focus point on the ellipsoid).
+ *  The centre is then `−R·up` for a local sphere of radius `R` through the origin — and `up` is
+ *  passed in rather than assumed to be `(0, 0, 1)`, because the globe path's axes are ECEF-parallel
+ *  and its zenith is not a coordinate axis at all.
  *
- *      |C|² − R² = (R + h)² − R² = h·(2R + h)
+ *  NOTHING FORMS `|O|² − R²`, which is the f32 trap `geo/src/globe.ts:358` already measured
+ *  ("~8 px at screen centre and tens of px under motion at z17+"). With `O = eye + R·up` and
+ *  `|up| = 1`:
  *
- *  — no rearrangement, no difference of two ~4.1e13 numbers, nothing for f32 to lose. That is the
- *  whole reason this is solved in ENU rather than in ECEF: `geo/src/globe.ts:358` measured what the
- *  ECEF form costs when it is done in f32 ("~8 px at screen centre and tens of px under motion at
- *  z17+"), and the ENU form never forms the term that causes it.
+ *      c = |O|² − R² = |eye|² + 2R·(eye·up)
  *
- *  A LOCAL SPHERE, NOT THE ELLIPSOID, and the error is budgeted rather than assumed. The ellipsoid
- *  is not axis-aligned in ENU, so the scale-to-sphere trick `unprojectGlobe` uses does not apply
- *  here. The deviation from the local osculating sphere at angular distance θ from the camera is
- *  ≈ `R·(1 − cos θ)·f`:
+ *  — two PRODUCTS, no difference of two numbers near 4.1e13. `eye` is metres of camera altitude,
+ *  so both terms are small and exactly representable. `b = 2(eye·d + R·(up·d))` is likewise a sum
+ *  of products.
+ *
+ *  THE NEAR ROOT IS TAKEN IN THE CANCELLATION-FREE FORM. `(−b − √disc)/2a` subtracts two nearly
+ *  equal numbers whenever the camera is close to the surface (which is every deep zoom — exactly
+ *  where the shake was reported). The algebraically identical `2c/(−b + √disc)` adds them instead:
+ *  the camera looks downward so `b < 0`, `−b + √disc` is the SUM of two positive quantities, and
+ *  the root keeps every figure `c` has.
+ *
+ *  A LOCAL SPHERE, NOT THE ELLIPSOID, and the error is budgeted rather than assumed. The deviation
+ *  from the local osculating sphere at angular distance θ from the camera is ≈ `R·(1 − cos θ)·f`:
  *
  *      view half-angle θ    5° (≈ z6)     60° (globe)
  *      ground error         83 m          10 km
@@ -164,38 +197,39 @@ export const ray_hit_plane = fn('ray_hit_plane', { d: vec3fT, camH: f32T }, (a) 
  *      error in PIXELS      0.03          0.25
  *
  *  Sub-pixel everywhere, because the zooms where the approximation is worst are exactly the zooms
- *  where a pixel is largest. `h` comes from the frame uniform's existing `globe_eye.w`
- *  (= EARTH_R/|eye|), so this needs no new uniform.
+ *  where a pixel is largest.
  *
- *  Returns `(east, north, up, ok)` camera-relative; `ok = 0` when the ray misses the earth. */
-export const ray_hit_sphere_enu = fn('ray_hit_sphere_enu', { d: vec3fT, h: f32T }, (a) => {
-  const rh = Let(EARTH_R.add(a.h))
-  const qa = Let(max(dot(a.d, a.d), f32(1e-12)))
-  const qb = Let(f32(2).mul(a.d.z).mul(rh))
-  const qc = Let(a.h.mul(f32(2).mul(EARTH_R).add(a.h)))
-  const disc = Let(qb.mul(qb).sub(f32(4).mul(qa).mul(qc)))
-  const sq = Let(sqrt(max(disc, f32(0))))
-  // The NEAR hit: the ray leaves the camera outward, so the smaller positive root is the visible
-  // surface and the larger one is the far side of the earth.
-  const t = Let(qb.neg().sub(sq).div(f32(2).mul(qa)))
-  return vec4(
-    a.d.x.mul(t),
-    a.d.y.mul(t),
-    a.d.z.mul(t),
-    select(disc.gt(f32(0)).and(t.gt(f32(0))), f32(1), f32(0)),
-  )
-})
-
-/** Camera altitude, recovered from the frame uniform's `globe_eye.w` (= EARTH_R / |eye_ecef|).
- *
- *  `h = R·(1/w − 1)`: a unit vector and a ratio, so the small number stays small instead of being
- *  formed as the difference of two earth-radius magnitudes. */
-export const eye_altitude = fn('eye_altitude', { eye: vec4fT }, (a) =>
-  EARTH_R.mul(
-    f32(1)
-      .div(max(a.eye.w, f32(1e-9)))
-      .sub(f32(1)),
-  ),
+ *  Returns `(x, y, z, ok)` — the hit as a world-space offset from the origin; `ok = 0` when the ray
+ *  misses the earth or the surface is behind the eye. */
+export const ray_hit_sphere_enu = fn(
+  'ray_hit_sphere_enu',
+  { eye: vec3fT, d: vec3fT, up: vec3fT, r: f32T },
+  (a) => {
+    const qa = Let(max(dot(a.d, a.d), f32(1e-12)))
+    const qb = Let(f32(2).mul(dot(a.eye, a.d).add(a.r.mul(dot(a.up, a.d)))))
+    const qc = Let(dot(a.eye, a.eye).add(f32(2).mul(a.r).mul(dot(a.eye, a.up))))
+    const disc = Let(qb.mul(qb).sub(f32(4).mul(qa).mul(qc)))
+    const sq = Let(sqrt(max(disc, f32(0))))
+    const denom = Let(qb.neg().add(sq))
+    const t = Let(
+      f32(2)
+        .mul(qc)
+        .div(select(denom.gt(f32(1e-9)), denom, f32(1e-9))),
+    )
+    return vec4(
+      a.eye.x.add(a.d.x.mul(t)),
+      a.eye.y.add(a.d.y.mul(t)),
+      a.eye.z.add(a.d.z.mul(t)),
+      select(
+        disc
+          .gt(f32(0))
+          .and(t.gt(f32(0)))
+          .and(denom.gt(f32(1e-9))),
+        f32(1),
+        f32(0),
+      ),
+    )
+  },
 )
 
 /** A camera-relative ENU ground offset → lon/lat, as a DELTA on the camera centre.
@@ -215,6 +249,32 @@ export const enu_to_lonlat = fn(
     const scale = Let(max(cos(radians(a.clat)), f32(1e-3)))
     const lon = Let(a.clon.add(degrees(a.east.div(EARTH_R.mul(scale)))))
     return vec2(lon, lat)
+  },
+)
+
+/** ∂`project`/∂(lon, lat) at one point, as `(j00, j01, j10, j11)` — metres per DEGREE.
+ *
+ *  ONE statement of the finite difference, used twice: Newton's step below needs it to invert the
+ *  forward, and the screen-lattice VS needs it to turn a flow expressed in grid-uv into a SCREEN
+ *  direction (`arrow-view.ts`). Writing the difference twice would be two places for
+ *  `JACOBIAN_DELTA_DEG` to drift apart, and the symptom of a drifted one is a glyph that points
+ *  slightly off the current it is drawn from — a wrong chart that renders perfectly.
+ *
+ *  `f0` is passed in rather than recomputed because the Newton step already has it; recomputing
+ *  would add a fourth forward evaluation per iteration for a value the caller is holding. */
+export const flat_jacobian = fn(
+  'flat_jacobian',
+  { f0: vec2fT, lon: f32T, lat: f32T, proj_params: vec4fT },
+  (a) => {
+    const d = f32(JACOBIAN_DELTA_DEG)
+    const fx = Let(project(a.lon.add(d), a.lat, a.proj_params))
+    const fy = Let(project(a.lon, a.lat.add(d), a.proj_params))
+    return vec4(
+      fx.x.sub(a.f0.x).div(d),
+      fy.x.sub(a.f0.x).div(d),
+      fx.y.sub(a.f0.y).div(d),
+      fy.y.sub(a.f0.y).div(d),
+    )
   },
 )
 
@@ -239,15 +299,13 @@ export const unproject_flat = fn('unproject_flat', { target: vec2fT, proj_params
   )
   const lon = Var(g.x)
   const lat = Var(g.y)
-  const d = f32(JACOBIAN_DELTA_DEG)
   for (let i = 0; i < UNPROJECT_NEWTON_STEPS; i++) {
     const f0 = Let(project(lon, lat, a.proj_params))
-    const fx = Let(project(lon.add(d), lat, a.proj_params))
-    const fy = Let(project(lon, lat.add(d), a.proj_params))
-    const j00 = Let(fx.x.sub(f0.x).div(d))
-    const j01 = Let(fy.x.sub(f0.x).div(d))
-    const j10 = Let(fx.y.sub(f0.y).div(d))
-    const j11 = Let(fy.y.sub(f0.y).div(d))
+    const j = Let(flat_jacobian({ f0, lon, lat, proj_params: a.proj_params }))
+    const j00 = Let(j.x)
+    const j01 = Let(j.y)
+    const j10 = Let(j.z)
+    const j11 = Let(j.w)
     const det = Let(j00.mul(j11).sub(j01.mul(j10)))
     const rx = Let(a.target.x.sub(f0.x))
     const ry = Let(a.target.y.sub(f0.y))
@@ -269,7 +327,7 @@ export const UNPROJECT_FUNCS = [
   ray_from_corners.decl,
   ray_hit_plane.decl,
   ray_hit_sphere_enu.decl,
-  eye_altitude.decl,
   enu_to_lonlat.decl,
+  flat_jacobian.decl,
   unproject_flat.decl,
 ]

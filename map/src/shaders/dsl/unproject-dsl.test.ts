@@ -63,7 +63,29 @@ describe('screen → geographic, on the GPU (#1520)', () => {
       body,
       'the squared earth radius is never subtracted from a squared position',
     ).not.toMatch(/-\s*\(?\s*EARTH_R\s*\*\s*EARTH_R/)
-    expect(body, 'the altitude form is the one that is emitted').toMatch(/EARTH_R\s*\+/)
+    // The constant term is built from two PRODUCTS (`|eye|² + 2R(eye·up)`), so every operand is
+    // altitude-scaled and nothing near 4.1e13 is ever formed. The tell is that the only thing
+    // subtracted in this body is the discriminant's own `b² − 4ac`.
+    expect(body, 'the constant term is a sum of products').toMatch(/dot\(/)
+    const subs = body.match(/\s-\s/g) ?? []
+    expect(subs.length, 'the only subtraction is the discriminant').toBeLessThanOrEqual(2)
+  })
+
+  it('the near root is taken in the form that does not cancel', () => {
+    // `(−b − √disc)/2a` differences two nearly equal numbers whenever the camera is close to the
+    // surface — every deep zoom, which is exactly where the shake was reported. The algebraically
+    // identical `2c/(−b + √disc)` ADDS them. Severing this is invisible in a still frame and shows
+    // only as motion jitter, so it is asserted on the emitted bytes.
+    const body = bodyOf(wgsl(), 'ray_hit_sphere_enu')
+    // The denominator ADDS the root to −b …
+    const sq = body.match(/let (\w+) = sqrt\(max\(/)?.[1]
+    expect(sq, 'the discriminant root is bound').toBeTruthy()
+    expect(body, '−b + √disc, never −b − √disc').toMatch(new RegExp(`\\(-\\w+\\) \\+ ${sq}\\b`))
+    expect(body, 'the cancelling root is not the one emitted').not.toMatch(
+      new RegExp(`\\(-\\w+\\) - ${sq}\\b`),
+    )
+    // …and the numerator is twice the constant term, not −b at all.
+    expect(body, 'the numerator is 2c').toMatch(/\(2\.0 \* \w+\) \/ select\(/)
   })
 
   it('the sphere hit is exact for a straight-down ray — the case arithmetic can be checked by hand', () => {
@@ -73,30 +95,66 @@ describe('screen → geographic, on the GPU (#1520)', () => {
         funcs: [...getGpuProjectionFuncs(), ...UNPROJECT_FUNCS],
       }),
     )
+    const R = 6378137
+    const UP = [0, 0, 1]
     for (const h of [100, 1e4, 1e6]) {
-      const hit = M.fns.ray_hit_sphere_enu([0, 0, -1], h) as [number, number, number, number]
-      // Straight down from altitude h, the surface is exactly h below.
+      // Eye at altitude h over the world origin, looking straight down: the surface is exactly h
+      // below, and the hit is the origin itself.
+      const hit = M.fns.ray_hit_sphere_enu([0, 0, h], [0, 0, -1], UP, R) as [
+        number,
+        number,
+        number,
+        number,
+      ]
       expect(hit[3], `h=${h} hits`).toBe(1)
-      expect(hit[2], `h=${h} depth`).toBeCloseTo(-h, 3)
+      expect(hit[2], `h=${h} lands on the surface`).toBeCloseTo(0, 3)
     }
     // A ray pointing UP never meets the earth — and must say so rather than returning a far-side
     // root, which would paint arrows on the sky.
-    expect((M.fns.ray_hit_sphere_enu([0, 0, 1], 1e6) as number[])[3], 'an upward ray misses').toBe(
-      0,
+    expect(
+      (M.fns.ray_hit_sphere_enu([0, 0, 1e6], [0, 0, 1], UP, R) as number[])[3],
+      'an upward ray misses',
+    ).toBe(0)
+  })
+
+  it('the ray origin is the EYE, not the world origin — the pitch set-back is not dropped', () => {
+    // `buildECEFFrameView` anchors the world at the camera's GROUND point and pulls the eye back
+    // over it, so at pitch the eye has a nonzero xy. An implementation that assumed the eye at the
+    // origin returns the same answer for both of these; one that reads it returns two answers a
+    // whole set-back apart. Straight down from an eye offset 5 km north lands 5 km north.
+    const M = compileModuleJs(
+      module({
+        consts: PROJECTION_CONSTS,
+        funcs: [...getGpuProjectionFuncs(), ...UNPROJECT_FUNCS],
+      }),
     )
+    const R = 6378137
+    const overOrigin = M.fns.ray_hit_sphere_enu([0, 0, 2e4], [0, 0, -1], [0, 0, 1], R) as number[]
+    const setBack = M.fns.ray_hit_sphere_enu([0, 5e3, 2e4], [0, 0, -1], [0, 0, 1], R) as number[]
+    expect(setBack[3], 'the set-back ray still hits').toBe(1)
+    expect(setBack[1] - overOrigin[1], 'the hit moves with the eye').toBeCloseTo(5e3, 0)
+    // …and the flat plane hit carries the same set-back.
+    const planeOrigin = M.fns.ray_hit_plane([0, 0, 1e3], [0, 0, -1]) as number[]
+    const planeSetBack = M.fns.ray_hit_plane([0, 700, 1e3], [0, 0, -1]) as number[]
+    expect(planeSetBack[2], 'the set-back plane ray still hits').toBe(1)
+    expect(planeSetBack[1] - planeOrigin[1], 'the plane hit moves with the eye').toBeCloseTo(700, 6)
   })
 
   it('the flat inverse is NUMERICAL — it calls the generated forward, it does not restate it', () => {
     // The whole argument for Newton over seven hand-written inverses: a projection added to
     // `PROJECTIONS` is invertible the day it lands. That property exists only while this body
     // CALLS `project` rather than carrying its own copy of any projection's math.
-    const body = bodyOf(wgsl(), 'unproject_flat')
-    const calls = body.match(/project\(/g) ?? []
-    // Three per Newton step (the value and the two Jacobian columns), plus the centre for the
-    // initial guess and the residual check that decides `ok`.
-    expect(calls.length, 'forward evaluations in the flat inverse').toBe(
-      UNPROJECT_NEWTON_STEPS * 3 + 2,
-    )
+    const src = wgsl()
+    const body = bodyOf(src, 'unproject_flat')
+    // The value per Newton step, plus the centre for the initial guess and the residual check
+    // that decides `ok`. The two Jacobian columns are one call to `flat_jacobian` per step —
+    // ONE statement of that finite difference, shared with the screen-lattice basis.
+    const own = body.match(/[^_]project\(/g) ?? []
+    expect(own.length, 'forward evaluations in the flat inverse').toBe(UNPROJECT_NEWTON_STEPS + 2)
+    const jac = body.match(/flat_jacobian\(/g) ?? []
+    expect(jac.length, 'one Jacobian per Newton step').toBe(UNPROJECT_NEWTON_STEPS)
+    // …and the Jacobian is itself two forward evaluations, so the total per step is still three.
+    expect((bodyOf(src, 'flat_jacobian').match(/[^_]project\(/g) ?? []).length).toBe(2)
     expect(body, 'no projection math is restated here').not.toMatch(/0\.8707|1\.007226|log\(tan\(/)
   })
 
