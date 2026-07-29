@@ -11,6 +11,7 @@
 // verbatim so the caller can apply the must-understand rule at parse time.
 
 import { Cursor, Hdf5Error } from './bytes'
+import { ensureGlobalHeap, parseAttribute } from './messages'
 
 export const MSG = {
   NIL: 0x00,
@@ -62,7 +63,45 @@ export async function parseObjectHeader(c: Cursor, addr: number): Promise<RawMes
   await c.ensure(addr, Math.min(64, c.byteLength - addr)) // header prefix (v1 16 B / v2 ≤34 B)
   c.seek(addr)
   const first = c.peekU8(addr)
-  return first === 0x4f /* 'O' of "OHDR" */ ? parseV2(c, addr) : parseV1(c, addr)
+  const messages = await (first === 0x4f /* 'O' of "OHDR" */ ? parseV2(c, addr) : parseV1(c, addr))
+  await ensureAttributeHeaps(c, messages)
+  return messages
+}
+
+/** Fault in the global heaps this object's vlen-string ATTRIBUTES live in (#1498).
+ *
+ *  `Hdf5Node.attrs()` is SYNCHRONOUS — it has to be, it is a lazy accessor off a parsed node —
+ *  so it cannot `await c.ensure(...)` when a vlen string sends it to a global heap collection.
+ *  On the buffer reader that is free: everything is resident. On the RANGE reader it is a
+ *  crash, and only for a cell big enough that its heap missed the blocks something else already
+ *  faulted in:
+ *
+ *    [hdf5 @0x5072f1f] bytes @0x5072f1f not resident — ensure() first
+ *
+ *  reported from S-111 Live on an 86 MB `lsofs` cell whose heap sits 1.4 MB from the end of the
+ *  file (#1498). Every committed fixture is buffer-backed, which is why no test could see it.
+ *
+ *  So the addresses are collected HERE, at the async boundary every node already passes through,
+ *  and the heaps are ensured before anyone can read them. The collect pass reads only the object
+ *  header bytes `walk` has just ensured, so it faults nothing in of its own.
+ *
+ *  FAILURES ARE SWALLOWED, deliberately. This pass exists to find addresses, not to validate:
+ *  an attribute of an unsupported datatype must still fail where it always did — inside
+ *  `attrs()`, when someone actually asks for it — rather than turning every node that merely
+ *  CARRIES one into a header parse that throws. */
+async function ensureAttributeHeaps(c: Cursor, messages: RawMessage[]): Promise<void> {
+  const heaps = new Set<number>()
+  const save = c.pos
+  for (const m of messages) {
+    if (m.type !== MSG.ATTRIBUTE) continue
+    try {
+      parseAttribute(c, m.bodyStart, (addr) => void heaps.add(addr))
+    } catch {
+      // Not ours to report — see the note above.
+    }
+  }
+  c.seek(save)
+  for (const addr of heaps) await ensureGlobalHeap(c, addr)
 }
 
 // ── Version 1 ────────────────────────────────────────────────────────────────
