@@ -108,6 +108,20 @@ export class StatementParser extends ExpressionParser {
     const line = this.current().line
     this.expect(TokenType.Preset)
     const name = this.expect(TokenType.Identifier).value
+
+    // Optional parameter list: `preset glow(color, radius) { … }` (#1536).
+    // Zero-arg presets keep the bare `preset name { … }` grammar.
+    let params: string[] | undefined
+    if (this.check(TokenType.LParen)) {
+      this.advance()
+      params = []
+      while (!this.check(TokenType.RParen) && !this.isEnd()) {
+        params.push(this.expect(TokenType.Identifier).value)
+        if (this.check(TokenType.Comma)) this.advance()
+      }
+      this.expect(TokenType.RParen)
+    }
+
     this.expect(TokenType.LBrace)
 
     const utilities: AST.UtilityLine[] = []
@@ -123,7 +137,9 @@ export class StatementParser extends ExpressionParser {
     }
     this.expect(TokenType.RBrace)
 
-    return { kind: 'PresetStatement', name, utilities, properties, line }
+    const stmt: AST.PresetStatement = { kind: 'PresetStatement', name, utilities, properties, line }
+    if (params) stmt.params = params
+    return stmt
   }
 
   // import { name1, name2 } from "path"
@@ -522,6 +538,22 @@ export class StatementParser extends ExpressionParser {
     // Parse the utility name: hyphen-joined tokens like "fill-red-500", "stroke-2"
     const name = this.parseUtilityName()
 
+    // Call-form preset application: `apply-glow(#f59e0b, 4)` (#1536).
+    // Only `apply-*` items take an argument list; a `(` after any other
+    // utility name is left for the binding/unit logic below to reject.
+    let args: AST.Expr[] | undefined
+    if (name.startsWith('apply-') && this.check(TokenType.LParen)) {
+      this.advance()
+      args = []
+      while (!this.check(TokenType.RParen) && !this.isEnd()) {
+        // parseCoalesce, NOT parseExpr — the standing block-property rule
+        // (`??` yes, ternary no), same as data-style bindings below.
+        args.push(this.parseCoalesce())
+        if (this.check(TokenType.Comma)) this.advance()
+      }
+      this.expect(TokenType.RParen)
+    }
+
     // Check for data binding: -[expr] or [expr] or fill match(...){...} / categorical(...) / gradient(...)
     let binding: AST.Expr | null = null
 
@@ -587,7 +619,9 @@ export class StatementParser extends ExpressionParser {
       }
     }
 
-    return { kind: 'UtilityItem', modifier, name, binding, bindingUnit }
+    const item: AST.UtilityItem = { kind: 'UtilityItem', modifier, name, binding, bindingUnit }
+    if (args) item.args = args
+    return item
   }
 
   /**

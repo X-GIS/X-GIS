@@ -10,6 +10,7 @@ import { expandKeyframeTimeStops } from './lower-animation'
 import { dispatch, type LayerAccumulator, type BindingCtx } from './lower-bindings'
 import { MODIFIER_HANDLERS, BINDING_HANDLERS, UTILITY_HANDLERS } from './lower-bindings-registry'
 import { validateFnCalls } from './validate-fncalls'
+import { expandPresets, resolveStylePreset, type PresetDef, type PresetCall } from './preset-expand'
 import { isKnownUtility, suggestUtility } from './utility-registry'
 import { UNKNOWN_UTILITY } from '../diagnostics/diagnostic'
 // Re-export public types so importers of './lower' keep their surface.
@@ -32,10 +33,6 @@ import {
   hexToRgba,
   type ShapeRef,
 } from './render-node'
-
-/** A lowered preset: its `|` utility lines (inlined by expandPresets) + block properties
- *  (coverage paint `ramp:`/`range:`, merged onto a `style:`-referencing layer — #1272 E-②). */
-type PresetDef = { utilities: AST.UtilityLine[]; properties: AST.BlockProperty[] }
 
 /**
  * Lower an AST Program into an IR Scene.
@@ -60,7 +57,11 @@ export function lower(program: AST.Program, options: LowerOptions = {}): Scene {
   // order in the source file.
   for (const stmt of program.body) {
     if (stmt.kind === 'PresetStatement') {
-      presetMap.set(stmt.name, { utilities: stmt.utilities, properties: stmt.properties })
+      presetMap.set(stmt.name, {
+        utilities: stmt.utilities,
+        properties: stmt.properties,
+        params: stmt.params,
+      })
     } else if (stmt.kind === 'SymbolStatement') {
       const paths: string[] = []
       for (const el of stmt.elements) {
@@ -338,7 +339,7 @@ function lowerLayer(
   let zOrder = 0
   let minzoom: number | undefined
   let maxzoom: number | undefined
-  let styleRef = ''
+  let styleCall: PresetCall | undefined
   let filterExpr: import('../parser/ast').Expr | null = null
   let geometryExpr: import('../parser/ast').Expr | null = null
   let extrude: import('./render-node').ExtrudeValue = { kind: 'none' }
@@ -379,7 +380,14 @@ function lowerLayer(
     } else if (prop.name === 'maxzoom' && prop.value.kind === 'NumberLiteral') {
       maxzoom = prop.value.value
     } else if (prop.name === 'style' && prop.value.kind === 'Identifier') {
-      styleRef = prop.value.name
+      styleCall = { name: prop.value.name, line: prop.line }
+    } else if (
+      prop.name === 'style' &&
+      prop.value.kind === 'FnCall' &&
+      prop.value.callee.kind === 'Identifier'
+    ) {
+      // Call-form preset reference `style: glow(#f59e0b, 4)` (#1536).
+      styleCall = { name: prop.value.callee.name, args: prop.value.args, line: prop.line }
     } else if (prop.name === 'filter') {
       filterExpr = prop.value
     } else if (prop.name === 'geometry') {
@@ -409,9 +417,12 @@ function lowerLayer(
 
   // #1272 E-②: a `style:`-referenced preset can carry the coverage portrayal
   // (`ramp:`/`range:`); the layer's own paint wins, the preset fills the rest.
+  // A call-form reference (`style: p(13)`) is instantiated first, so its
+  // arguments reach the ramp/range values (#1536).
+  const styleInst = resolveStylePreset(presetMap, styleCall, diagnostics)
   ;({ ramp, range } = resolveCoveragePaint(
-    styleRef,
-    presetMap.get(styleRef)?.properties,
+    styleCall?.name ?? '',
+    styleInst?.properties,
     { ramp, range },
     stmt.name,
   ))
@@ -449,7 +460,12 @@ function lowerLayer(
   // inline `apply-<name>` items both inline that preset's utility
   // lines (the merged style/preset construct). `style:` lands first,
   // so it is the lowest-priority base that layer utilities override.
-  const expandedUtilities = expandPresets(stmt.utilities, presetMap, styleRef)
+  const expandedUtilities = expandPresets(
+    stmt.utilities,
+    presetMap,
+    diagnostics,
+    styleInst?.utilities,
+  )
 
   // Process utility lines
   let fill: ColorValue = colorNone()
@@ -1427,47 +1443,4 @@ function applyStyleProperties(
         ? pattern
         : undefined,
   }
-}
-
-/**
- * Expand preset references by inlining the preset's utility lines.
- * A leading `style: <name>` reference (styleRef) is inlined first as
- * the lowest-priority base, then each `apply-<name>` item inline in
- * declaration order; the layer's own items come after (override).
- */
-function expandPresets(
-  utilities: AST.UtilityLine[],
-  presetMap: Map<string, PresetDef>,
-  styleRef?: string,
-): AST.UtilityLine[] {
-  const result: AST.UtilityLine[] = []
-
-  // `style: <name>` — the single-preset base, inlined ahead of everything.
-  if (styleRef) {
-    const base = presetMap.get(styleRef)
-    if (base) result.push(...base.utilities)
-  }
-
-  for (const line of utilities) {
-    const expandedItems: AST.UtilityItem[] = []
-
-    for (const item of line.items) {
-      if (item.name.startsWith('apply-') && !item.modifier) {
-        const presetName = item.name.slice(6)
-        const preset = presetMap.get(presetName)
-        if (preset) {
-          // Inline preset lines before current line's remaining items
-          result.push(...preset.utilities)
-        }
-      } else {
-        expandedItems.push(item)
-      }
-    }
-
-    if (expandedItems.length > 0) {
-      result.push({ kind: 'UtilityLine', items: expandedItems, line: line.line })
-    }
-  }
-
-  return result
 }

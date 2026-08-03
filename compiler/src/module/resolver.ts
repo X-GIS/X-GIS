@@ -461,11 +461,37 @@ function applyNamespace(statements: AST.Statement[], ns: string): AST.Statement[
           utilities: namespaceUtilityLines(s.utilities, ns, localPresets, localKeyframes),
         }
       case 'LayerStatement': {
-        const properties = s.properties.map((p) =>
-          p.name === 'source' && p.value.kind === 'Identifier' && localSources.has(p.value.name)
-            ? { ...p, value: { ...p.value, name: q(p.value.name) } }
-            : p,
-        )
+        const properties = s.properties.map((p): AST.BlockProperty => {
+          if (
+            p.name === 'source' &&
+            p.value.kind === 'Identifier' &&
+            localSources.has(p.value.name)
+          ) {
+            return { ...p, value: { ...p.value, name: q(p.value.name) } }
+          }
+          // Intra-module `style:` preset references — bare (`style: glow`)
+          // and call-form (`style: glow(…)`, #1536) — follow the preset's
+          // namespaced rename, exactly like `source:` above.
+          if (
+            p.name === 'style' &&
+            p.value.kind === 'Identifier' &&
+            localPresets.has(p.value.name)
+          ) {
+            return { ...p, value: { ...p.value, name: q(p.value.name) } }
+          }
+          if (
+            p.name === 'style' &&
+            p.value.kind === 'FnCall' &&
+            p.value.callee.kind === 'Identifier' &&
+            localPresets.has(p.value.callee.name)
+          ) {
+            return {
+              ...p,
+              value: { ...p.value, callee: { ...p.value.callee, name: q(p.value.callee.name) } },
+            }
+          }
+          return p
+        })
         return {
           ...s,
           name: q(s.name),

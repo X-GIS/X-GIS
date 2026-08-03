@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest'
 import { Lexer, Parser } from '@xgis/compiler'
 import { NODE_SPECS, starterGraph, uid, type BPGraph } from '../types'
 import { graphToXgis } from '../codegen'
+import { xgisToGraph } from '../import'
 
 const parses = (src: string) => {
   new Parser(new Lexer(src).tokenize()).parse()
@@ -14,7 +15,7 @@ const FIELD_KEYS: Record<string, string[]> = {
   import: ['mode', 'names', 'path'],
   source: ['name', 'type', 'url', 'layers'],
   symbol: ['name', 'path', 'anchor'],
-  preset: ['name', 'pipe'],
+  preset: ['name', 'params', 'pipe'],
   layer: ['name', 'sourceLayer', 'minzoom', 'maxzoom', 'filter', 'pipe', 'ramp', 'range'],
   background: ['fill'],
 }
@@ -64,6 +65,24 @@ describe('@xgis/blueprint codegen contract', () => {
     expect(src).toContain('source land')
     expect(src).toMatch(/layer continents/)
     expect(() => parses(src)).not.toThrow()
+  })
+
+  it('parameterized presets round-trip codegen → compiler → import (#1536)', () => {
+    const p = {
+      id: uid('n'),
+      type: 'preset' as const,
+      x: 0,
+      y: 0,
+      data: { name: 'glow', params: 'color, radius', pipe: 'fill-[color] stroke-[radius]' },
+    }
+    const g: BPGraph = { nodes: [p], edges: [] }
+    const src = graphToXgis(g)
+    expect(src).toContain('preset glow(color, radius) {')
+    expect(() => parses(src)).not.toThrow()
+
+    const back = xgisToGraph(src)
+    const node = back.nodes.find((n) => n.type === 'preset')!
+    expect(node.data.params).toBe('color, radius')
   })
 
   it('reroute knots are transparent in codegen', () => {

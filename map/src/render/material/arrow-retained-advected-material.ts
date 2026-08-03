@@ -7,7 +7,7 @@
 //
 //   1 band_data    the catalogue rule as a table, in the shader's own units
 //   2 flow_u_tex   east component                   3 flow_v_tex  north component
-//   4 arrow_view   the per-frame camera + grid description the screen lattice is built from
+//   4 field_view   the per-frame camera + grid description the screen lattice is built from
 //
 // BINDING 0 IS DELIBERATELY EMPTY. It held `feat_data`, the per-instance anchors of a field
 // generated from the GRID; #1520 step 2 replaced that generator with a lattice on the SCREEN, so
@@ -48,13 +48,13 @@ export const ARROW_ADVECTED_BINDINGS = [
   { binding: 1, kind: 'storage', name: 'band_data' },
   { binding: 2, kind: 'texture', name: 'flow_u_tex', vertexVisible: true },
   { binding: 3, kind: 'texture', name: 'flow_v_tex', vertexVisible: true },
-  // 'ArrowView' — the BLOCK name, not the shader variable `arrow_view`. WebGL2 resolves a uniform
+  // 'FieldView' — the BLOCK name, not the shader variable `field_view`. WebGL2 resolves a uniform
   // entry with `getUniformBlockIndex`, which takes the GLSL block name; a name that does not
   // resolve leaves the block at binding point 0, where it ALIASES group 0's `Uniforms` and the VS
   // reads the frame uniform's bytes as corner rays. That is not a validation error on either
   // backend — the field simply paints nothing, which is how it was found (the render gate, on the
   // WebGL2 leg). The group-0 entry above names its struct for the same reason.
-  { binding: 4, kind: 'uniform', name: 'ArrowView' },
+  { binding: 4, kind: 'uniform', name: 'FieldView' },
 ] as const
 
 export class RetainedArrowAdvectedDraper {

@@ -1,6 +1,6 @@
 // ═══ The per-frame write behind the advected arrow field (#1520 step 2, #1534) ═══
 //
-// `arrow-view.ts` declares what the advected arrow VS needs to place a ground node on screen and
+// `field-lattice.ts` declares what a consumer's VS needs to place a ground node on screen and
 // read the geography there; this is the half that fills it in. Everything precision-critical happens HERE, in
 // f64, because that is the whole reason the shader gets four corner rays instead of a matrix:
 // `geo/src/globe.ts:358` measured an f32 MVP inverse at ~1 m, "~8 px at screen centre and tens of
@@ -25,12 +25,7 @@ import { invert4x4, mulVec4 } from '@xgis/shared'
 import { localFrame, globeForward, getProjection, SELECTOR_PROJ_NAMES } from '@xgis/geo'
 import { EARTH } from '@xgis/shared'
 import { uniformBlock, type UniformBlockOf } from '@xgis/engine'
-import {
-  arrowViewU,
-  ARROW_TRAIN_GLYPHS,
-  ARROW_LATTICE_FACTOR,
-  ARROW_MAX_GROUND_NODES,
-} from '../shaders/dsl/arrow-view'
+import { fieldViewU, FIELD_MAX_GROUND_NODES } from '../shaders/dsl/field-lattice'
 
 /** The coverage's grid box, as the affine map `uv = (lonlat − origin) · invSpan`.
  *
@@ -39,7 +34,7 @@ import {
  *  lon/lat into grid-uv, which is a second projection ladder. Those fall back to the static
  *  `| arrow` catalogue portrayal, and `coverage-arrow-show.ts` asserts the fallback so it cannot
  *  rot into a silent blank. */
-export interface ArrowViewGrid {
+export interface FieldViewGrid {
   /** lon/lat of grid-uv (0, 0) — the grid's NORTH-WEST node, matching the origin convention the
    *  velocity textures are packed in (`u = col/(n−1)`, `v = row/(n−1)`, row 0 northernmost). */
   originLon: number
@@ -52,7 +47,7 @@ export interface ArrowViewGrid {
 }
 
 /** The camera half — everything that does not depend on which coverage is being drawn. */
-export interface ArrowViewCamera {
+export interface FieldViewCamera {
   /** The MVP the frame is actually rendering through (`getViewForProjection().matrix`). */
   matrix: Float32Array
   /** Resolved projType (the promoted one — 7 for a tilted azimuthal). */
@@ -65,26 +60,33 @@ export interface ArrowViewCamera {
   /** DEVICE pixels, matching `pointU.viewport`. */
   canvasWidth: number
   canvasHeight: number
-  /** Device-pixel ratio — the glyph size and the lattice spacing are both in DEVICE px, so a
-   *  hidpi display gets a finer lattice and the field's apparent density is unchanged. */
+  /** Device-pixel ratio — the requested node spacing is in DEVICE px, so a hidpi display gets a
+   *  finer lattice and the field's apparent density on the glass is unchanged. */
   dpr: number
 }
 
-/** How big a glyph is drawn and how far apart, in DEVICE pixels. */
-export interface ArrowViewGlyph {
-  /** Base glyph LENGTH (the catalogue's `S111_ARROW_BASE_PX`, pre-multiplied by DPR). */
-  basePx: number
-  /** Outline stroke, in `loc` units — a fraction of the glyph's own size. */
-  strokeUnits: number
+/** What the CONSUMER asks the lattice for. Domain-neutral by construction (#1547): the lattice
+ *  decides where the nodes are, and has no opinion on what is drawn at one. */
+export interface FieldLatticeRequest {
+  /** Wanted spacing between nodes ON SCREEN, in DEVICE pixels. The realized spacing is the octave
+   *  at or below this (`pow2AtMost`), so the field is never sparser than asked. */
+  nodeSpacingPx: number
+  /** Instances the consumer draws per node — the returned count is `nodes × this`. The lattice does
+   *  not know why — one consumer strings several symbols along a path, another draws one. */
+  instancesPerNode: number
+  /** Three scalars the consumer defines, carried in the block's otherwise-padding lanes and read
+   *  back as `ray_tl.w`, `ray_tr.w`, `eye.w`. std140 rounds a bare `f32` up to 16 B anyway, so this
+   *  is free space rather than a field the lattice added for someone. */
+  carry: readonly [number, number, number]
 }
 
 /** Assemble the camera half from a frame's own inputs.
  *
  *  A function rather than an object literal at the call site because `renderRetained` is at its
- *  LOC ceiling and this is not manager logic — it is the ArrowView block's own contract, including
+ *  LOC ceiling and this is not manager logic — it is the FieldView block's own contract, including
  *  the one judgement in it: `globeMode` mirrors `getViewForProjection`'s selector, which
  *  `camera.ts:788` names as the place the render matrix and the shader branch stay in lockstep. */
-export function arrowViewCamera(
+export function fieldViewCamera(
   f: {
     frame: { matrix: Float32Array }
     camera: { globeMode: boolean }
@@ -95,7 +97,7 @@ export function arrowViewCamera(
     canvasHeight: number
   },
   dpr: number,
-): ArrowViewCamera {
+): FieldViewCamera {
   return {
     matrix: f.frame.matrix,
     projType: f.projType,
@@ -108,16 +110,16 @@ export function arrowViewCamera(
   }
 }
 
-let _block: UniformBlockOf<typeof arrowViewU> | null = null
-/** Memoized typed pack target for the std140 `ArrowView` struct. */
-export function arrowViewBlock(): UniformBlockOf<typeof arrowViewU> {
-  return (_block ??= uniformBlock(arrowViewU))
+let _block: UniformBlockOf<typeof fieldViewU> | null = null
+/** Memoized typed pack target for the std140 `FieldView` struct. */
+export function fieldViewBlock(): UniformBlockOf<typeof fieldViewU> {
+  return (_block ??= uniformBlock(fieldViewU))
 }
 
-/** Canonical `ArrowView` byte size, derived from the reflected layout — so the buffer the store
+/** Canonical `FieldView` byte size, derived from the reflected layout — so the buffer the store
  *  allocates and the struct the shader reads are sized from ONE declaration. */
-export function arrowViewUniformBytes(): number {
-  return arrowViewBlock().byteLength
+export function fieldViewUniformBytes(): number {
+  return fieldViewBlock().byteLength
 }
 
 /** The largest power of two that does not exceed `v`.
@@ -125,16 +127,16 @@ export function arrowViewUniformBytes(): number {
  *  POWERS OF TWO are what make the lattice stable, and both halves are needed. The anchor is a
  *  multiple of the step, so panning at a fixed zoom changes WHICH nodes are enumerated and never
  *  where one of them is; and a zoom that crosses an octave halves the step, so every surviving node
- *  stays exactly where it was and keeps its phase. A continuous step would drift with every frame of
- *  a pan (the step is read at the view centre, which moves) and re-roll every phase with it — the
- *  boil the jitter exists to prevent.
+ *  stays exactly where it was, and so does anything a consumer hashes from its index. A continuous
+ *  step would move with every frame of a pan (it is read at the view centre, which moves) and take
+ *  every such hash with it.
  *
  *  AT MOST, not nearest. Rounding to nearest lets the step land up to √2 above the wanted spacing on
  *  each axis, which is half the nodes over an area: MEASURED at 90×58 px against the 68 the
  *  portrayal asks for, 120 nodes where the screen lattice drew 154, and it broke four render gates
  *  at once (#1534). Taking the octave below instead makes the field never SPARSER than the spacing
- *  asked for — at worst denser, up to one octave per axis, which reads as arrows drawn end to end
- *  rather than as water with no current in it. */
+ *  asked for — at worst denser, up to one octave per axis, which reads as symbols packed tightly
+ *  rather than as a gap where there is data. */
 const pow2AtMost = (v: number): number => 2 ** Math.floor(Math.log2(Math.max(v, 1e-30)))
 
 /** Unproject one NDC point at a given clip depth through the f64 inverse. */
@@ -158,7 +160,7 @@ function clipW(m: ArrayLike<number>, p: readonly [number, number, number]): numb
  *
  *  A perspective projection sends the eye to `w_clip = 0`, and `w_clip` is affine along a ray, so
  *  the eye is `near + t·d` for the `t` that zeroes it. Solved on the bottom-left ray and reused for
- *  all four — they are the same point by construction, which `arrow-view-uniform.test.ts` asserts
+ *  all four — they are the same point by construction, which `field-lattice-uniform.test.ts` asserts
  *  rather than assumes. */
 function cornerRays(matrix: Float32Array): {
   dirs: [number, number, number][]
@@ -206,8 +208,8 @@ function cornerRays(matrix: Float32Array): {
  *     so the world axes ARE east/north/up and the frame is the identity.
  *
  *  Getting this backwards does not produce a broken-looking picture — it produces a field rotated
- *  into a different tangent plane, which reads as arrows pointing at plausible but wrong bearings. */
-function worldFrame(cam: ArrowViewCamera): {
+ *  into a different tangent plane, which reads as symbols at plausible but wrong bearings. */
+function worldFrame(cam: FieldViewCamera): {
   up: [number, number, number]
   east: [number, number, number]
   north: [number, number, number]
@@ -235,7 +237,7 @@ function worldFrame(cam: ArrowViewCamera): {
  *  Nothing downstream carries a second radius — `ray_hit_sphere_enu` and `sphere_to_lonlat` both
  *  take it as a parameter, so the hit and the lon/lat it becomes cannot disagree about the sphere
  *  they are on. */
-function localRadius(cam: ArrowViewCamera): number {
+function localRadius(cam: FieldViewCamera): number {
   if (cam.globeMode) {
     const p = globeForward(cam.centerLon, cam.centerLat)
     return Math.hypot(p[0], p[1], p[2])
@@ -252,7 +254,7 @@ function localRadius(cam: ArrowViewCamera): number {
 // one and nothing is displaced by half a cell.
 //
 // That needs a way to put a ground node ON SCREEN, and the forward path cannot do it: it needs a
-// DSFUN-split geographic anchor to survive at depth (`arrow_uv_basis` records what an f32 forward
+// DSFUN-split geographic anchor to survive at depth (`field_uv_basis` records what an f32 forward
 // loses), and a lattice node has none. So the node is placed in TWO parts, and neither is an
 // approximation the eye can see:
 //
@@ -262,14 +264,14 @@ function localRadius(cam: ArrowViewCamera): number {
 //      case an affine screen approximation gets catastrophically wrong.
 //   2. ONE NEWTON STEP against the exact backward map, taken in the shader. The residual of (1) is
 //      measured by unprojecting the guess and comparing the uv it lands on with the node's own; the
-//      correction is that uv error mapped through the basis the glyph is drawn with anyway. It is
+//      correction is that uv error mapped through the basis the consumer draws with anyway. It is
 //      the same arithmetic, and the same cost, the rejected snap used — but it corrects TOWARD an
 //      enumerated node instead of quantising toward the nearest one.
 //
 // The CPU half is here because it is f64: the model, the step, and the AABB of nodes worth drawing.
 
 /** The visible ground, as a box in grid-uv, plus the lattice enumerated over it. */
-export interface ArrowGroundLattice {
+export interface FieldGroundLattice {
   /** Lattice anchor in grid-uv — a multiple of the step, so it does not move when the camera does. */
   anchorU: number
   anchorV: number
@@ -293,8 +295,8 @@ const rad = (d: number): number => (d * Math.PI) / 180
 const clipRow = (m: ArrayLike<number>, r: number, p: readonly number[], pw: number): number =>
   m[r]! * p[0]! + m[4 + r]! * p[1]! + m[8 + r]! * p[2]! + m[12 + r]! * pw
 
-/** grid-uv → lon/lat — the exact inverse of the shader's `arrow_grid_uv`. */
-function uvToLonLat(grid: ArrowViewGrid, u: number, v: number): [number, number] {
+/** grid-uv → lon/lat — the exact inverse of the shader's `field_grid_uv`. */
+function uvToLonLat(grid: FieldViewGrid, u: number, v: number): [number, number] {
   return [grid.originLon + u / grid.invSpanLon, grid.originLat + v / grid.invSpanLat]
 }
 
@@ -304,7 +306,7 @@ function uvToLonLat(grid: ArrowViewGrid, u: number, v: number): [number, number]
  *  matrix itself was built from rather than as an inverse of the shader's backward map:
  *
  *   • flat — the world is the projection's own metres with the camera centre subtracted, which is
- *     what `arrow_screen_lonlat` adds back before inverting (`project(pp.yz)`), so the same
+ *     what `field_screen_lonlat` adds back before inverting (`project(pp.yz)`), so the same
  *     `getProjection` record is on both sides of the round trip;
  *   • globe — the world origin sits on the local sphere at the camera centre and the sphere's own
  *     centre is `r` below it along `up`, which is the geometry `ray_hit_sphere_enu` solves. The
@@ -312,8 +314,8 @@ function uvToLonLat(grid: ArrowViewGrid, u: number, v: number): [number, number]
  *     distance — the same formula `sphere_to_lonlat` inverts, and for the same reason the linearized
  *     form was rejected there (22 px off at a globe view). */
 function groundWorldFn(
-  cam: ArrowViewCamera,
-  grid: ArrowViewGrid,
+  cam: FieldViewCamera,
+  grid: FieldViewGrid,
 ): (u: number, v: number) => [number, number, number] {
   if (cam.globeMode) {
     const f = localFrame(cam.centerLon, cam.centerLat)
@@ -375,7 +377,7 @@ function secant(
  *  wide rather than infinitesimally: over the span the model is actually asked about, a secant is a
  *  better fit than a tangent, and it costs the same two evaluations. */
 function homographyAt(
-  cam: ArrowViewCamera,
+  cam: FieldViewCamera,
   ground: (u: number, v: number) => [number, number, number],
   u0: number,
   v0: number,
@@ -394,7 +396,7 @@ function homographyAt(
   ]) as Homography
 }
 
-/** `(û, v̂) → NDC`, or `null` behind the camera — the CPU twin of the shader's `arrow_node_ndc`. */
+/** `(û, v̂) → NDC`, or `null` behind the camera — the CPU twin of the shader's `field_node_ndc`. */
 function ndcOf(H: Homography, du: number, dv: number): [number, number] | null {
   const w = H[6] * du + H[7] * dv + H[8]
   if (!(w > 1e-9)) return null
@@ -462,11 +464,11 @@ function visibleUvBox(H: Homography): { u0: number; u1: number; v0: number; v1: 
  *  the step stays a power of two), where dropping the tail would end the field on a straight line
  *  across open water. */
 function groundLatticeFor(
-  cam: ArrowViewCamera,
-  grid: ArrowViewGrid,
+  cam: FieldViewCamera,
+  grid: FieldViewGrid,
   ground: (u: number, v: number) => [number, number, number],
-  basePx: number,
-): ArrowGroundLattice | null {
+  nodeSpacingPx: number,
+): FieldGroundLattice | null {
   const uc = (cam.centerLon - grid.originLon) * grid.invSpanLon
   const vc = (cam.centerLat - grid.originLat) * grid.invSpanLat
   // A probe one thousandth of the domain wide — small enough to be local, wide enough that the
@@ -478,7 +480,7 @@ function groundLatticeFor(
   const [pu, pv] = pxPerUv(H0, cam.canvasWidth, cam.canvasHeight, probe, probe)
   if (!(pu > 0) || !(pv > 0)) return null
 
-  const want = Math.max(basePx * ARROW_LATTICE_FACTOR, 1)
+  const want = Math.max(nodeSpacingPx, 1)
   let stepU = pow2AtMost(want / pu)
   let stepV = pow2AtMost(want / pv)
   // Clamp the box to the coverage domain BEFORE counting: a view holding the whole world would
@@ -497,7 +499,7 @@ function groundLatticeFor(
     const nx = Math.floor((u1 - aU) / stepU) - jx0 + 1
     const ny = Math.floor((v1 - aV) / stepV) - jy0 + 1
     if (nx < 1 || ny < 1) return null
-    if (nx * ny <= ARROW_MAX_GROUND_NODES) {
+    if (nx * ny <= FIELD_MAX_GROUND_NODES) {
       return { anchorU: aU, anchorV: aV, stepU, stepV, jx0, jy0, nx, ny }
     }
     stepU *= 2
@@ -510,17 +512,17 @@ function groundLatticeFor(
  *  when the camera has no usable inverse this frame (an orthographic or degenerate matrix) or the
  *  coverage's ground is not on screen — the caller draws nothing rather than a lattice built from a
  *  divide by zero. */
-export function writeArrowViewUniform(
-  block: UniformBlockOf<typeof arrowViewU>,
-  cam: ArrowViewCamera,
-  grid: ArrowViewGrid,
-  glyph: ArrowViewGlyph,
+export function writeFieldViewUniform(
+  block: UniformBlockOf<typeof fieldViewU>,
+  cam: FieldViewCamera,
+  grid: FieldViewGrid,
+  req: FieldLatticeRequest,
 ): number | null {
   const rays = cornerRays(cam.matrix)
   if (!rays) return null
   const { dirs, eye } = rays
   const ground = groundWorldFn(cam, grid)
-  const lat = groundLatticeFor(cam, grid, ground, glyph.basePx)
+  const lat = groundLatticeFor(cam, grid, ground, req.nodeSpacingPx)
   if (!lat) return null
   // Re-anchored on the lattice's OWN anchor, so the node the shader corrects from is the node the
   // model is exact at, and the secant is taken over exactly one step.
@@ -529,9 +531,9 @@ export function writeArrowViewUniform(
   block.write({
     ray_bl: [dirs[0]![0], dirs[0]![1], dirs[0]![2], lat.nx],
     ray_br: [dirs[1]![0], dirs[1]![1], dirs[1]![2], lat.ny],
-    ray_tl: [dirs[2]![0], dirs[2]![1], dirs[2]![2], glyph.basePx],
-    ray_tr: [dirs[3]![0], dirs[3]![1], dirs[3]![2], glyph.basePx],
-    eye: [eye[0], eye[1], eye[2], glyph.strokeUnits],
+    ray_tl: [dirs[2]![0], dirs[2]![1], dirs[2]![2], req.carry[0]],
+    ray_tr: [dirs[3]![0], dirs[3]![1], dirs[3]![2], req.carry[1]],
+    eye: [eye[0], eye[1], eye[2], req.carry[2]],
     up: [fr.up[0], fr.up[1], fr.up[2], localRadius(cam)],
     east: [fr.east[0], fr.east[1], fr.east[2], cam.centerLon],
     north: [fr.north[0], fr.north[1], fr.north[2], cam.centerLat],
@@ -541,7 +543,7 @@ export function writeArrowViewUniform(
     hy: [H[3], H[4], H[5], lat.anchorV],
     hw: [H[6], H[7], H[8], 0],
   })
-  return lat.nx * lat.ny * ARROW_TRAIN_GLYPHS
+  return lat.nx * lat.ny * req.instancesPerNode
 }
 
-export { groundLatticeFor as arrowGroundLatticeFor, groundWorldFn as arrowGroundWorldFn }
+export { groundLatticeFor as fieldGroundLatticeFor, groundWorldFn as fieldGroundWorldFn }

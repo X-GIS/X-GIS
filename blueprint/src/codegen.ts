@@ -78,7 +78,14 @@ function emitSymbol(n: BPNode): string {
 }
 
 function emitPreset(n: BPNode): string {
-  const lines: string[] = [`preset ${nameOf(n, 'preset')} {`]
+  // Parameterized presets (#1536): a non-empty `params` field emits the
+  // `preset name(a, b) { … }` declaration form.
+  const params = (n.data.params || '')
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean)
+  const head = params.length > 0 ? `(${params.join(', ')})` : ''
+  const lines: string[] = [`preset ${nameOf(n, 'preset')}${head} {`]
   for (const l of pipeLines(n.data.pipe)) lines.push(`  | ${l}`)
   lines.push('}')
   return lines.join('\n')

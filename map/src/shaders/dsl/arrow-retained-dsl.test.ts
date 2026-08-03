@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import { emitArrowRetainedWgsl, emitArrowRetainedGlsl } from './arrow-retained'
 import { emitArrowRetainedAdvectedWgsl, emitArrowRetainedAdvectedGlsl } from './arrow-advected'
-import { ARROW_TRAIN_GLYPHS, ARROW_TRAIN_STEPS } from './arrow-view'
+import { ARROW_TRAIN_GLYPHS, ARROW_TRAIN_STEPS } from './arrow-drift'
 
 // #824/#825 retained geo-anchored ARROW shader — instanced procedural bounding
 // quad (instance_index + vertex_index), the point.ts geo→clip ladder (reused
@@ -127,7 +127,7 @@ describe('#1419 advected-arrow shader — the static path is untouched', () => {
       'flow_u_tex',
       'flow_v_tex',
       'band_data',
-      'arrow_view',
+      'field_view',
       'unproject_flat',
       'ray_hit_sphere_enu',
       'vs_arrow_retained_advected',
@@ -157,7 +157,7 @@ describe('#1520 advected-arrow shader — the screen lattice, in the emitted byt
     expect(w).toContain('@group(1) @binding(1) var<storage, read> band_data: array<f32>;')
     expect(w).toContain('@group(1) @binding(2) var flow_u_tex: texture_2d<f32>;')
     expect(w).toContain('@group(1) @binding(3) var flow_v_tex: texture_2d<f32>;')
-    expect(w).toContain('@group(1) @binding(4) var<uniform> arrow_view: ArrowView;')
+    expect(w).toContain('@group(1) @binding(4) var<uniform> field_view: FieldView;')
     // The state and origin textures used to sit at 2 and 3. Their absence is #1520 step 1 — an
     // arrow's position is a function of its seed and the frame clock, so nothing per-arrow is
     // stored anywhere and the instance count is bounded by no texture.
@@ -190,7 +190,7 @@ describe('#1520 advected-arrow shader — the screen lattice, in the emitted byt
         )![1]!
       : arg
     expect(src, 'the phase index is the node uv over the lattice step').toMatch(
-      /arrow_view\.lattice\.x\)[\s\S]*arrow_view\.lattice\.y\)/,
+      /field_view\.lattice\.x\)[\s\S]*field_view\.lattice\.y\)/,
     )
   })
 
@@ -208,9 +208,9 @@ describe('#1520 advected-arrow shader — the screen lattice, in the emitted byt
     // has no geographic anchor to project, so `project_geo` — the forward geo→clip helper the
     // static path is built on — must not appear at all; what appears instead is the backward map.
     expect(w, 'no per-instance forward projection survives').not.toContain('project_geo(')
-    expect(w).toContain('arrow_screen_lonlat(')
-    expect(w).toContain('arrow_grid_uv(')
-    expect(w).toContain('arrow_uv_basis(')
+    expect(w).toContain('field_screen_lonlat(')
+    expect(w).toContain('field_grid_uv(')
+    expect(w).toContain('field_uv_basis(')
   })
 
   it('the glyph position is built in SCREEN px with w = 1 — no second anchor to divide by', () => {
@@ -237,7 +237,7 @@ describe('#1520 advected-arrow shader — the screen lattice, in the emitted byt
     expect(gvs).toContain('#version 300 es')
     expect(gvs).toContain('void main()')
     expect(gvs).toContain('uniform sampler2D band_data;')
-    expect(gvs, 'the view block stays a real UBO on the WebGL2 arm').toContain('ArrowView')
+    expect(gvs, 'the view block stays a real UBO on the WebGL2 arm').toContain('FieldView')
     expect(gvs).toContain('texelFetch(flow_u_tex,')
     expect(gvs).toContain('texelFetch(flow_v_tex,')
     expect(gvs).not.toMatch(/\btexture\(/) // no filtered sample survives into the vertex stage
@@ -284,17 +284,17 @@ describe('#1520 advected arrow — re-symbolized from the field UNDER it', () =>
     expect(assigns, 'one assignment per integration step').toHaveLength(ARROW_TRAIN_STEPS)
     for (const a of assigns) {
       expect(letOf(a[1]!), 'each step advances along the FIELD, not by a constant').toContain(
-        'arrow_uv_step(',
+        'field_uv_step(',
       )
     }
 
     // …and the walk starts at the seed node's own absolute grid-uv. Since #1534 that is the
-    // ENUMERATED node — `arrow_node_uv`'s `zw` lanes, exact by construction — rather than a uv
+    // ENUMERATED node — `field_node_uv`'s `zw` lanes, exact by construction — rather than a uv
     // recovered from a screen position, so the assertion follows the swizzle back to its source.
     const node = /^(\w+)\.zw$/.exec(letOf(seed))
     expect(node, 'the walk starts at the node lanes of a vec4').not.toBeNull()
     expect(letOf(node![1]!), 'the walk starts at the ENUMERATED ground node').toContain(
-      'arrow_node_uv(',
+      'field_node_uv(',
     )
 
     for (const tex of ['flow_u_tex', 'flow_v_tex']) {

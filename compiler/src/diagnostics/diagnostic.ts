@@ -31,6 +31,9 @@
 //   X-GIS0012  error  lower     Unknown function name in a DataExpr      (ir/validate-fncalls.ts — #1066)
 //   X-GIS0013  error  lower     Unknown utility (no registry prefix)     (ir/lower.ts, ir/lower-animation.ts —
 //                               — nearest-name help                       #1067; utility-registry.ts is the authority)
+//   X-GIS0014  error  lower     Preset call arity mismatch — wrong       (ir/preset-expand.ts — #1536)
+//                               argument count for a (non-)parameterized
+//                               preset; reported at the call-site line
 //
 // #1065 added only warn/info from lower (plumbing, not policy). #1066 is
 // the first lower ERROR — `X-GIS0012` (unknown-function = error, L3 in the
@@ -53,6 +56,12 @@ export const UNKNOWN_FUNCTION = 'X-GIS0012'
  *  single utility registry (utility-registry.ts), in normal lowering AND in
  *  `keyframes` blocks. The `help` carries the nearest-name suggestion. */
 export const UNKNOWN_UTILITY = 'X-GIS0013'
+/** Preset call arity mismatch (#1536) — a `style: p(…)` / `apply-p(…)`
+ *  argument list whose length differs from the preset's declared
+ *  parameter list (including arguments passed to a zero-param preset).
+ *  Reported at the call-site line; the preset is inlined unsubstituted
+ *  so lowering stays total. */
+export const PRESET_ARITY = 'X-GIS0014'
 
 /** A 1-based, document-relative source span. `line`/`col` are always
  *  present; `endLine`/`endCol` are optional (a point diagnostic omits

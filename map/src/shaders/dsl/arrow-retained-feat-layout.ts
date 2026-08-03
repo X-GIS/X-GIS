@@ -28,7 +28,7 @@
 //   block as a grid-u step anchor and add a grid-v one plus a per-instance grid-uv origin — 14
 //   slots that existed only because the instance set was generated from the DATA, one entry per
 //   grid cell. That generator is gone: instances are now `(screen seed, glyph)` and every quantity
-//   those slots carried is derived per frame from the ArrowView uniform and the backward map
+//   those slots carried is derived per frame from the FieldView uniform and the backward map
 //   (arrow-advected.ts). The advected module binds no feat buffer, so the stride is the static
 //   path's own again — 40 → 26.
 //   24     size (px — arrow LENGTH, pre-DPR design × getSize × DPR)

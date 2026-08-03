@@ -149,13 +149,14 @@ const PRESENTATION: Record<string, Presentation> = {
     outLabel: 'preset',
     fields: {
       name: { label: 'Name', kind: 'text', placeholder: 'alert_track' },
+      params: { label: 'Parameters (opt, comma)', kind: 'text', placeholder: 'color, radius' },
       pipe: {
         label: 'Utilities (one pipeline per line)',
         kind: 'textarea',
         placeholder: 'symbol-arrow fill-red-500 glow-8\nanimate-pulse-1s',
       },
     },
-    defaults: { name: 'alert_track', pipe: 'fill-red-500 stroke-white stroke-2' },
+    defaults: { name: 'alert_track', params: '', pipe: 'fill-red-500 stroke-white stroke-2' },
   },
   layer: {
     title: 'Layer',

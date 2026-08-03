@@ -1,6 +1,6 @@
 // ═══ GATES 2-4 of #1520 step 2 — the screen lattice, rendered ═══
 //
-// GATE 1 (`map/src/render/arrow-view-uniform.test.ts`) proves the backward map: a lattice node's
+// GATE 1 (`map/src/render/field-lattice-uniform.test.ts`) proves the backward map: a lattice node's
 // recovered geography, projected forward again, lands back on that node. It cannot prove that
 // anything is DRAWN there. These do, on the same WebGL2/SwiftShader leg CI's render-gate drives,
 // and each is a claim the previous mechanism measurably failed:
