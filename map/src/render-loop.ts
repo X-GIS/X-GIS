@@ -31,7 +31,6 @@ import {
 import { adaptiveDprScale, effectiveDpr } from '@xgis/engine'
 import {
   resizeCanvas,
-  unwrapWebGpuCommandEncoder,
   unwrapWebGpuTextureView,
   wrapWebGpuTextureView,
   pushValidationError,
@@ -320,12 +319,11 @@ export class RenderLoop {
     perfMarkStart('frame.encode')
     // Frame shell (#1046 F2/F3b, Inc-3 collapse): the RHI is the ONE source of
     // the frame encoder + swapchain view. The natives exist only as loop
-    // locals for the not-yet-RHI tail (compute dispatch, gpuTimer, ensure) — no pass can reach them; the `__xgisRawFrameShell`
+    // locals for the not-yet-RHI tail (ensure) — no pass can reach them; the `__xgisRawFrameShell`
     // escape retired with the collapse (every chain pass fails loud on null
     // bridges anyway, so the escape could no longer render a frame).
     const rhiFrame = this.host.ctx.rhi
     const frameEnc = rhiFrame.acquireFrameEncoder()
-    const encoder = unwrapWebGpuCommandEncoder(frameEnc)
     const rhiScreenView = rhiFrame.acquireScreenView()
     const screenView = unwrapWebGpuTextureView(rhiScreenView)
     // Reset per-frame timer state BEFORE compute dispatch so the
@@ -341,7 +339,7 @@ export class RenderLoop {
     // is attached (no variant carries `computeBindings` in production
     // today). Must run after encoder creation, before the first
     // beginRenderPass.
-    this.host.renderer.dispatchComputePass(encoder, this.host.gpuTimer)
+    this.host.renderer.dispatchComputePass(frameEnc, this.host.gpuTimer)
     // Every active VTR also runs its per-tile compute kernels here
     // — they need to fire BEFORE the first render pass for the same
     // reason as MapRenderer: fragment shaders read the kernel output
@@ -349,7 +347,7 @@ export class RenderLoop {
     // show attached. Timer is consulted by the FIRST kernel that
     // dispatches each frame — see GPUTimer.computeWrites().
     for (const vtSource of this.host.vtSources.values()) {
-      vtSource.renderer.dispatchComputePass(encoder, this.host.gpuTimer)
+      vtSource.renderer.dispatchComputePass(frameEnc, this.host.gpuTimer)
     }
     // DIAG: when set to `true`, the next frame's VTR.render() calls
     // log into __xgisDrawOrderTrace; we capture + console.log the

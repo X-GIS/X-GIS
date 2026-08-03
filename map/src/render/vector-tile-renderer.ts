@@ -13,8 +13,9 @@ import type {
   RhiTexture,
   RhiTextureFormat,
   RhiTextureView,
+  RhiCommandEncoder,
 } from '@xgis/engine'
-import type { GPUContext, WebGpuDevice } from '@xgis/rhi-webgpu'
+import type { GPUContext, WebGpuDevice, ComputeTimestampProvider } from '@xgis/rhi-webgpu'
 import { toVertexBufferLayout, unwrapWebGpuPass, wrapWebGpuBindGroup } from '@xgis/rhi-webgpu'
 import { POLYGON_FILL_FORMAT } from '@xgis/compiler'
 import { polygonUniformBytes } from './polygon-uniform-slots'
@@ -587,18 +588,15 @@ export class VectorTileRenderer {
     this._featureBinder.setComputePlan(plan)
   }
 
-  /** Run every attached compute kernel onto the encoder. Call ONCE
-   *  per frame from the orchestrator (map.ts) BEFORE the first
-   *  beginRenderPass — the fragment shader reads the kernel's output
-   *  buffer at draw time and must see populated data.
-   *
-   *  No-op when no compute handle is attached (every legacy non-
-   *  compute VTR call site stays at zero cost). */
+  /** Run every attached compute kernel onto the frame encoder. Call ONCE per frame
+   *  from the orchestrator (map.ts) BEFORE the first beginRenderPass — the fragment
+   *  shader reads the kernel's output buffer at draw time and must see populated data.
+   *  No-op when no compute handle is attached (legacy call sites stay at zero cost). */
   dispatchComputePass(
-    encoder: GPUCommandEncoder,
-    timestampWritesProvider?: { computeWrites(): GPUComputePassTimestampWrites | null } | null,
+    enc: RhiCommandEncoder,
+    timestampWritesProvider?: ComputeTimestampProvider | null,
   ): void {
-    this._featureBinder.dispatchComputePass(encoder, timestampWritesProvider)
+    this._featureBinder.dispatchComputePass(enc, timestampWritesProvider)
   }
 
   /** P3 Step 3c — set palette atlas resources used by binding 2 + 4

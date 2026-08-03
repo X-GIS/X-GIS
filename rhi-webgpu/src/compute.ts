@@ -4,11 +4,20 @@
 // Output: storage buffer (computed values: colors, sizes, etc.)
 
 import type { GPUContext } from './gpu'
-import type { ComputeKernelContract } from '@xgis/rhi'
+import type { ComputeKernelContract, RhiCommandEncoder } from '@xgis/rhi'
+import { unwrapWebGpuCommandEncoder } from './rhi-webgpu'
 // The compiler returns backend-NEUTRAL IR; the RUNTIME emits the shader for the live
 // backend (ruling i). This WebGPU dispatcher emits WGSL via emitModule; the WebGL2 path
 // (a separate dispatcher) emits GLSL via emitGlslModule({emulateCompute}).
 import { emitModule, type ModuleDecl } from '@xgis/shader-dsl'
+
+/** The loop-tail timestamp provider (#1046 F4 Inc-C): the map-side compute
+ *  thread names THIS type instead of the native `GPUComputePassTimestampWrites`
+ *  — the native descriptor stays adapter-side. `GPUTimer.computeWrites`
+ *  satisfies it structurally. */
+export type ComputeTimestampProvider = {
+  computeWrites(): GPUComputePassTimestampWrites | null
+}
 
 /** The compute kernel as this WebGPU dispatcher consumes it: the backend-neutral
  *  `ComputeKernelContract` (entryPoint / dispatchSize / …) from @xgis/rhi PLUS the
@@ -280,6 +289,30 @@ export class ComputeDispatcher {
    * so the kernel author's ceiling math is the single source of
    * truth.
    */
+  /** RHI form of `dispatchKernel` (#1046 F4 Inc-C): the map-side compute
+   *  thread hands over the RHI frame encoder and the ONE unwrap happens here,
+   *  in the adapter, where natives are legal. Same early-out first. */
+  dispatchKernelRhi(
+    enc: RhiCommandEncoder,
+    kernel: DispatchKernel,
+    inputBuffer: GPUBuffer,
+    outputBuffer: GPUBuffer,
+    countBuffer: GPUBuffer,
+    featureCount: number,
+    timestampWrites?: GPUComputePassTimestampWrites | null,
+  ): void {
+    if (featureCount <= 0) return
+    this.dispatchKernel(
+      unwrapWebGpuCommandEncoder(enc),
+      kernel,
+      inputBuffer,
+      outputBuffer,
+      countBuffer,
+      featureCount,
+      timestampWrites,
+    )
+  }
+
   dispatchKernel(
     encoder: GPUCommandEncoder,
     kernel: DispatchKernel,

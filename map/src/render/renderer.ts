@@ -16,7 +16,7 @@
 // thin delegations to the FrameRenderer — byte-identical external API, ZERO
 // call-site changes.
 
-import { unwrapWebGpuPass, type GPUContext } from '@xgis/rhi-webgpu'
+import { unwrapWebGpuPass, type GPUContext, type ComputeTimestampProvider } from '@xgis/rhi-webgpu'
 import type { Camera } from '../camera'
 import type { MeshData, LineMeshData } from '@xgis/data'
 import { DEBUG_OVERDRAW } from '../debug-flags'
@@ -26,7 +26,8 @@ import type { ShaderVariantInfo, CachedPipeline, ShowCommand, RenderLayer } from
 import { parseColor } from './renderer-helpers'
 import { GraticuleRenderer } from './graticule-renderer'
 import { polygonUniformBytes } from './polygon-uniform-slots'
-import { uniformBlock, type UniformBlockOf, type RhiRenderPass } from '@xgis/engine'
+import { uniformBlock } from '@xgis/engine'
+import type { UniformBlockOf, RhiRenderPass, RhiCommandEncoder } from '@xgis/engine'
 import { polygonU as POLYGON_U } from '../shaders/dsl/polygon'
 import { globeEyeUniform } from './globe-eye-uniform'
 
@@ -302,12 +303,9 @@ export class MapRendererContent {
   endFrame(): void {
     this.engine.endFrame()
   }
-  /** Run every attached compute kernel onto the encoder (once per frame). */
-  dispatchComputePass(
-    encoder: GPUCommandEncoder,
-    timestampWritesProvider?: { computeWrites(): GPUComputePassTimestampWrites | null } | null,
-  ): void {
-    this.engine.dispatchComputePass(encoder, timestampWritesProvider)
+  /** Run every attached compute kernel (once per frame). */
+  dispatchComputePass(enc: RhiCommandEncoder, tw?: ComputeTimestampProvider | null): void {
+    this.engine.dispatchComputePass(enc, tw)
   }
   /** Hand the scene's compute plan to the renderer before addLayer calls. */
   setComputePlan(plan: readonly import('@xgis/compiler').ComputePlanEntry[] | undefined): void {

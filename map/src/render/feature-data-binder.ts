@@ -25,7 +25,8 @@
 // ARGUMENTS. The compute-output entries (`handle.getBindGroupEntries()`)
 // stay LAST in the entries array. Pinned by `feature-bindgroup-rebuild.test.ts`.
 
-import { ComputeDispatcher } from '@xgis/rhi-webgpu'
+import { ComputeDispatcher, type ComputeTimestampProvider } from '@xgis/rhi-webgpu'
+import type { RhiCommandEncoder } from '@xgis/engine'
 import { ComputeLayerHandle } from './compute-layer-handle'
 import type { ShaderVariant } from '@xgis/compiler'
 import type { GPUTile } from './vector-tile-renderer-types'
@@ -160,12 +161,12 @@ export class FeatureDataBinder {
    *  No-op when no compute handle is attached (every legacy non-
    *  compute VTR call site stays at zero cost). */
   dispatchComputePass(
-    encoder: GPUCommandEncoder,
-    timestampWritesProvider?: { computeWrites(): GPUComputePassTimestampWrites | null } | null,
+    enc: RhiCommandEncoder,
+    timestampWritesProvider?: ComputeTimestampProvider | null,
   ): void {
     if (this.computeHandlesByTile.size === 0) return
     for (const handle of this.computeHandlesByTile.values()) {
-      handle.dispatch(encoder, timestampWritesProvider)
+      handle.dispatch(enc, timestampWritesProvider)
     }
   }
 

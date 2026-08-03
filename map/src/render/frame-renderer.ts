@@ -12,11 +12,15 @@
 // FrameRenderer holds NO back-reference to content.
 
 import type { GPUContext, WebGpuDevice } from '@xgis/rhi-webgpu'
-import { unwrapWebGpuPass, ComputeDispatcher } from '@xgis/rhi-webgpu'
+import {
+  unwrapWebGpuPass,
+  ComputeDispatcher,
+  type ComputeTimestampProvider,
+} from '@xgis/rhi-webgpu'
 import { ComputeLayerRegistry } from './compute-layer-registry'
 import { extendBindGroupLayoutEntriesForCompute } from '@xgis/rhi-webgpu'
 import type { ShaderVariantInfo, CachedPipeline } from './renderer-types'
-import { UniformRing, type RhiRenderPass } from '@xgis/engine'
+import { UniformRing, type RhiRenderPass, type RhiCommandEncoder } from '@xgis/engine'
 import { PipelineFactory } from './pipeline-factory'
 import { polygonUniformStride } from './polygon-uniform-slots'
 import { markStart as perfMarkStart, markEnd as perfMarkEnd } from '../__profile__/perf-marks'
@@ -260,10 +264,10 @@ export class FrameRenderer {
    *  No-op when no compute layer is attached (the registry is null
    *  or empty). Safe to call unconditionally from the orchestrator. */
   dispatchComputePass(
-    encoder: GPUCommandEncoder,
-    timestampWritesProvider?: { computeWrites(): GPUComputePassTimestampWrites | null } | null,
+    enc: RhiCommandEncoder,
+    timestampWritesProvider?: ComputeTimestampProvider | null,
   ): void {
-    this.computeRegistry?.dispatchAll(encoder, timestampWritesProvider)
+    this.computeRegistry?.dispatchAll(enc, timestampWritesProvider)
   }
 
   /** Hand the scene's compute plan to the renderer before issuing
