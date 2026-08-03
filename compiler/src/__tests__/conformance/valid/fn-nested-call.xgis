@@ -1,0 +1,11 @@
+// @case valid
+// @construct fn-statement
+// @desc user fns may call other user fns (acyclic) — nested calls inline through (#1535)
+xgis 1
+fn double(x) { return x * 2 }
+fn quad(x) { return double(double(x)) }
+source w { type: geojson, url: "w.geojson" }
+layer roads {
+  source: w
+  | stroke-[quad(.lanes)]
+}
