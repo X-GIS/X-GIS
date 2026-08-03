@@ -17,6 +17,7 @@ const FIELD_KEYS: Record<string, string[]> = {
   symbol: ['name', 'path', 'anchor'],
   preset: ['name', 'params', 'pipe'],
   fn: ['name', 'params', 'body'],
+  struct: ['name', 'fields'],
   layer: ['name', 'sourceLayer', 'minzoom', 'maxzoom', 'filter', 'pipe', 'ramp', 'range'],
   background: ['fill'],
 }
@@ -33,6 +34,7 @@ describe('@xgis/blueprint codegen contract', () => {
         'preset',
         'reroute',
         'source',
+        'struct',
         'symbol',
       ].sort(),
     )
@@ -113,6 +115,25 @@ describe('@xgis/blueprint codegen contract', () => {
     const node = back.nodes.find((n) => n.type === 'fn')!
     expect(node.data.params).toBe('width, base')
     expect(node.data.body).toBe('clamp(width * 1.5 + base, 1, 24)')
+  })
+
+  it('struct nodes round-trip codegen → compiler → import (#1537)', () => {
+    const s = {
+      id: uid('n'),
+      type: 'struct' as const,
+      x: 0,
+      y: 0,
+      data: { name: 'Track', fields: 'speed: f32, name: string' },
+    }
+    const g: BPGraph = { nodes: [s], edges: [] }
+    const src = graphToXgis(g)
+    expect(src).toContain('struct Track { speed: f32, name: string }')
+    expect(() => parses(src)).not.toThrow()
+
+    const back = xgisToGraph(src)
+    expect(back.nodes.find((n) => n.type === 'struct')!.data.fields).toBe(
+      'speed: f32, name: string',
+    )
   })
 
   it('reroute knots are transparent in codegen', () => {

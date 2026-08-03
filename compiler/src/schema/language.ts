@@ -20,6 +20,7 @@ export type SchemaValueKind =
   | 'expr' // an X-GIS expression
   | 'pipe' // one or more `| utility …` lines
   | 'params' // comma-separated declared parameter names (`preset p(a, b)`, #1536)
+  | 'fields' // comma-separated `name: type` field declarations (`struct T { … }`, #1537)
 
 /** Cross-block reference data-types — these become typed editor pins. */
 export type SchemaPinType = 'source' | 'preset' | 'symbol' | 'layer'
@@ -162,6 +163,19 @@ export const LANGUAGE_SCHEMA: Record<string, ConstructDef> = {
       { key: 'name', valueKind: 'identifier', required: true },
       { key: 'params', valueKind: 'params' },
       { key: 'body', valueKind: 'expr', required: true },
+    ],
+  },
+
+  // A source field schema (#1537): attached via `source x { schema: T }`,
+  // it turns `.field` reads on that source's layers into checked access.
+  // Referenced by NAME from a source property — not a wired pin.
+  struct: {
+    keyword: 'struct',
+    astKind: 'StructStatement',
+    category: 'Data',
+    properties: [
+      { key: 'name', valueKind: 'identifier', required: true },
+      { key: 'fields', valueKind: 'fields', required: true },
     ],
   },
 

@@ -161,17 +161,17 @@ becomes that keyword token, `true`/`false` become `BOOL`, otherwise `IDENT`. The
 keywords (major 1):
 
 ```
-source  layer  background  preset  fn  import  symbol  keyframes  from  to
+source  layer  background  preset  fn  struct  import  symbol  keyframes  from  to
 ```
 
 Every keyword except `from` and `to` opens a top-level statement (§2). `from` and
 `to` begin no statement — they are keyframe selectors / aliases (§2.11) and may also
-appear as `utility-name` segments (§3.10), as may `fn` (`fn-*` / `-fn-` hyphen-joined
-names stay valid, §3.10). `true` / `false` are keyed in the same table but lex as
-`BOOL`. The pre-#1072 reserved-only keywords (`let show style if else for in return
-place view on simulate analyze struct enum export`) were removed from the table — each
-now lexes as an ordinary `IDENT`; `fn` alone was REINTRODUCED as a real keyword by
-#1535 (§2.10).
+appear as `utility-name` segments (§3.10), as may `fn` and `struct` (`fn-*` /
+`-struct-` hyphen-joined names stay valid, §3.10). `true` / `false` are keyed in the
+same table but lex as `BOOL`. The pre-#1072 reserved-only keywords (`let show style if
+else for in return place view on simulate analyze enum export`) were removed from the
+table — each now lexes as an ordinary `IDENT`; `fn` and `struct` were REINTRODUCED as
+real keywords by #1535 (§2.10) and #1537 (§2.16).
 
 ## 1.7 Operators and punctuation
 
@@ -193,8 +193,8 @@ character"**), e.g. `@` or `$`.
 ```
 program   = version-pragma statement*
 statement = source-statement | layer-statement | background-statement
-          | preset-statement | fn-statement | import-statement
-          | symbol-statement | keyframes-statement
+          | preset-statement | fn-statement | struct-statement
+          | import-statement | symbol-statement | keyframes-statement
 ```
 
 `parse()` (`parser.ts`) consumes the pragma, then loops `parseStatement` to `EOF`.
@@ -526,6 +526,39 @@ removed; any token that is not a statement keyword (§2) is now a hard syntax er
 (`parseStatement`). Expressions appear only inside block / style properties and
 utility bindings.
 
+## 2.16 `struct`
+
+```
+struct-statement = "struct" IDENT "{" ( struct-field ( "," struct-field )* ","? )? "}"
+struct-field     = IDENT ":" field-type
+field-type       = "f32" | "string" | "bool"
+```
+
+A **source field schema** (#1537 — reintroduced after the #1072 prune). A source
+opts in with `schema: <StructName>`; every `.field` read on that source's layers is
+then checked against the declared field names, and an unknown one is `X-GIS0019`
+with a nearest-name suggestion — the field-side mirror of `X-GIS0012` (§2 note).
+A field type outside the three above is a hard `X-GIS0010`.
+
+The check is **opt-in by construction**: a source with no `schema:` keeps fully
+dynamic access, so no pre-#1537 style changes meaning. Reserved `$`-sigil eval keys
+(`$zoom`, `$geometryType`, …) are never treated as feature fields. Field TYPES are
+declared but v1 uses them for name checking only — type-directed classification is a
+later step. Struct names collide across files like any top-level definition and stay
+**global** under a namespaced splice (a `ns.`-qualified name is not a legal `schema:`
+identifier), like `symbol` and `fn`.
+
+```xgis
+xgis 1
+struct Track { speed: f32, heading: f32, name: string }
+source ais { type: geojson, url: "ais.geojson", schema: Track }
+layer boats {
+  source: ais
+  filter: .speed > 3
+  | size-[.speed * 2]
+}
+```
+
 ---
 
 # 3. Expressions
@@ -644,7 +677,19 @@ match-value    = COLOR | utility-name | expression
 ```
 
 A leading `.field` is implicit binding to the current datum. Postfix `.`/`[]`/`()`
-chain over any primary. A call to the identifier `match` may carry a trailing
+chain over any primary.
+
+**Vector values and component reads (#1537).** The builtins `vec2` / `vec3` / `vec4`
+construct fixed-length vectors under WGSL's rules — a lone scalar argument splats
+into every lane, and a vector argument flattens (`vec4(vec3(c), 1)`) — and any other
+lane count is a hard error rather than a silent truncation. An **explicit-object**
+`.x` / `.y` / `.z` / `.w` (or the `r` / `g` / `b` / `a` aliases) over a vector reads
+one lane and is scalar again. The object-less `.field` form always means
+feature-property access, so a feature property named `x` is never shadowed. Because
+every `[…]` binding position resolves to one number per feature, a vector left in a
+binding is `X-GIS0018`; read a lane instead.
+
+A call to the identifier `match` may carry a trailing
 `match-block` in any expression position (`parsePostfix` / `parseMatchBlock`): arms
 map a literal pattern (string, identifier, number, or bare negative number) to a
 value, with `_` as the conventional default pattern. Arm values special-case a color

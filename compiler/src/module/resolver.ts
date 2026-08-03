@@ -408,6 +408,7 @@ function definitionName(stmt: AST.Statement): string | null {
     case 'KeyframesStatement':
     case 'SymbolStatement':
     case 'FnStatement':
+    case 'StructStatement':
       return stmt.name
     default:
       return null
@@ -555,6 +556,11 @@ function getStatementName(stmt: AST.Statement): string | null {
     // — a qualified name is not a legal callee identifier, and collision
     // detection via definitionName already guards duplicates.
     case 'FnStatement':
+      return stmt.name
+    // Source schemas (#1537) travel with the sources that reference them
+    // and stay global for the same reason fns do — `schema:` names a
+    // struct by bare identifier, which a `ns.`-qualified name is not.
+    case 'StructStatement':
       return stmt.name
     default:
       return null

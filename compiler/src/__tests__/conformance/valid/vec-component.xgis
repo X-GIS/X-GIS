@@ -1,0 +1,9 @@
+// @case valid
+// @construct expression
+// @desc vec constructors with a component read in a per-feature binding (#1537)
+xgis 1
+source w { type: geojson, url: "w.geojson" }
+layer l {
+  source: w
+  | size-[vec3(.width, .width * 2, 8).y]
+}

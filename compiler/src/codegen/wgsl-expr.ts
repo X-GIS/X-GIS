@@ -29,7 +29,18 @@ import {
   f32Mul,
   f32Div,
   f32Mod,
+  vecN,
+  vecComponent,
 } from './_util/node-builders'
+import { isVecComponent } from '../ir/expr-type'
+
+/** Lane count per vec constructor name (#1537) — the GPU mirror of the
+ *  evaluator's `buildVec` arities. */
+const VEC_ARITY: ReadonlyMap<string, 2 | 3 | 4> = new Map([
+  ['vec2', 2],
+  ['vec3', 3],
+  ['vec4', 4],
+])
 
 /** GPU-safe builtin allowlist. Every name maps to the IDENTITY WGSL spelling
  *  (`name(args)`), so the package backend's intrinsic registry — not a local
@@ -85,6 +96,14 @@ export function astToNode(expr: AST.Expr, fieldMap: Map<string, number>): NodeLi
       return featDataField(expr.name, fieldMap) ?? f32Lit(0)
 
     case 'FieldAccess':
+      // Vector component read (#1537): `vec3(…).y`. Only an EXPLICIT
+      // object that is provably a vector takes this arm — the object-less
+      // `.field` binding and every legacy object-bearing form keep
+      // resolving through the feature-data lookup below, byte-identically.
+      if (expr.object && isVecComponent(expr.field)) {
+        const base = astToVecNode(expr.object, fieldMap)
+        if (base) return vecComponent(base, expr.field)
+      }
       return featDataField(expr.field, fieldMap) ?? f32Lit(0)
 
     case 'BinaryExpr': {
@@ -148,6 +167,26 @@ export function astToNode(expr: AST.Expr, fieldMap: Map<string, number>): NodeLi
  */
 export function exprToWGSL(expr: AST.Expr, fieldMap: Map<string, number>): string {
   return nodeToWgslString(astToNode(expr, fieldMap))
+}
+
+/**
+ * Lower a VECTOR-valued expression (#1537), or return null when `expr` is
+ * not provably a vector. Kept separate from `astToNode` on purpose: a vec
+ * node is not an f32 node, and the only legal consumers are a component
+ * read (which retypes to f32) and an enclosing vec argument — so the two
+ * type domains never need a cast to meet. A vector left in a scalar
+ * binding is rejected at lower time (X-GIS0018), not silently coerced.
+ */
+function astToVecNode(
+  expr: AST.Expr,
+  fieldMap: Map<string, number>,
+): NodeLike<'vec2<f32>' | 'vec3<f32>' | 'vec4<f32>'> | null {
+  if (expr.kind !== 'FnCall' || expr.callee.kind !== 'Identifier') return null
+  const arity = VEC_ARITY.get(expr.callee.name)
+  if (arity === undefined) return null
+  // Arguments are vectors themselves (WGSL's concat form) or scalars.
+  const args = expr.args.map((a) => astToVecNode(a, fieldMap) ?? astToNode(a, fieldMap))
+  return vecN(arity, args)
 }
 
 function fnCallToNode(expr: AST.FnCall, fieldMap: Map<string, number>): NodeLike<'f32'> {

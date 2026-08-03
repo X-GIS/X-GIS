@@ -47,7 +47,16 @@ export interface FieldSpec {
 }
 
 export type NodeType =
-  'import' | 'source' | 'symbol' | 'preset' | 'fn' | 'layer' | 'background' | 'map' | 'reroute'
+  | 'import'
+  | 'source'
+  | 'symbol'
+  | 'preset'
+  | 'fn'
+  | 'struct'
+  | 'layer'
+  | 'background'
+  | 'map'
+  | 'reroute'
 
 /** Catalogue grouping for a Blender/Unreal-style add palette. */
 export type NodeCategory = 'Data' | 'Style' | 'Render' | 'Logic' | 'Output' | 'Util'
@@ -172,6 +181,20 @@ const PRESENTATION: Record<string, Presentation> = {
       },
     },
     defaults: { name: 'halo', params: 'width', body: 'clamp(width * 2, 1, 24)' },
+  },
+  struct: {
+    title: 'Struct',
+    accent: '#38bdf8',
+    blurb: "A source field schema (#1537) — makes that source's `.field` reads checked.",
+    fields: {
+      name: { label: 'Name', kind: 'text', placeholder: 'Track' },
+      fields: {
+        label: 'Fields (name: type, comma-separated)',
+        kind: 'textarea',
+        placeholder: 'speed: f32, heading: f32, name: string',
+      },
+    },
+    defaults: { name: 'Track', fields: 'speed: f32, name: string' },
   },
   layer: {
     title: 'Layer',

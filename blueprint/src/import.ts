@@ -180,6 +180,16 @@ export function xgisToGraph(src: string): BPGraph {
       const n = mk('preset', { name, params, pipe: pipeText(lines) })
       nodes.push(n)
       if (name) presetByName.set(name, n.id)
+    } else if (kw === 'struct') {
+      // struct Name { a: f32, b: string } (#1537) — the body is a flat
+      // comma-separated field list, recovered verbatim.
+      const body = block.match(/\{([\s\S]*)\}\s*$/)?.[1] ?? ''
+      const fields = body
+        .split(',')
+        .map((s) => s.trim())
+        .filter(Boolean)
+        .join(', ')
+      nodes.push(mk('struct', { name, fields }))
     } else if (kw === 'fn') {
       // fn name(a, b) { return <expr> } (#1535) — expression-bodied by
       // grammar; recover the param list and the raw return expression.

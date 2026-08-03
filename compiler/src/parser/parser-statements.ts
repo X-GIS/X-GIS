@@ -170,6 +170,29 @@ export class StatementParser extends ExpressionParser {
     return { kind: 'FnStatement', name, params, body, line }
   }
 
+  // struct Track { speed: f32, heading: f32, name: string }  (#1537)
+  parseStructStatement(): AST.StructStatement {
+    const line = this.current().line
+    this.expect(TokenType.Struct)
+    const name = this.expect(TokenType.Identifier).value
+    this.expect(TokenType.LBrace)
+
+    const fields: AST.StructField[] = []
+    while (!this.check(TokenType.RBrace) && !this.isEnd()) {
+      const fieldName = this.expect(TokenType.Identifier).value
+      this.expect(TokenType.Colon)
+      const typeName = this.expect(TokenType.Identifier).value
+      if (typeName !== 'f32' && typeName !== 'string' && typeName !== 'bool') {
+        this.error(`Unknown field type \`${typeName}\` — expected f32, string, or bool`)
+      }
+      fields.push({ name: fieldName, type: typeName as AST.StructFieldType })
+      if (this.check(TokenType.Comma)) this.advance()
+    }
+    this.expect(TokenType.RBrace)
+
+    return { kind: 'StructStatement', name, fields, line }
+  }
+
   // import { name1, name2 } from "path"
   parseImportStatement(): AST.ImportStatement {
     const line = this.current().line
@@ -700,6 +723,7 @@ const STATEMENT_HANDLERS: ReadonlyMap<TokenType, StatementHandler> = new Map<
   [TokenType.Background, (p) => p.parseBackgroundStatement()],
   [TokenType.Preset, (p) => p.parsePresetStatement()],
   [TokenType.Fn, (p) => p.parseFnStatement()],
+  [TokenType.Struct, (p) => p.parseStructStatement()],
   [TokenType.Import, (p) => p.parseImportStatement()],
   [TokenType.SymbolDef, (p) => p.parseSymbolStatement()],
   [TokenType.Keyframes, (p) => p.parseKeyframesStatement()],
