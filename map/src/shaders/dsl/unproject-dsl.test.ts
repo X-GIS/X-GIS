@@ -166,8 +166,8 @@ describe('screen → geographic, on the GPU (#1520)', () => {
   it('the convergence threshold clears the f32 FLOOR of the coordinate it measures', () => {
     // PAID FOR ON A REAL GPU. A fixed 1 m threshold is not reachable in f32 at Web Mercator
     // magnitudes: x at the S-111 demo's longitude is −8 481 432 m, inside [2^23, 2^24) where the
-    // f32 ULP is exactly 1.0 m. `|chk.x − target.x| + |chk.y − target.y|` is then a multiple of
-    // 1.0 + 0.5, so `res < 1` admitted a node only when chk.x landed on the SAME f32 as target.x —
+    // f32 ULP is exactly 1.0 m. `|chk.x − tgt.x| + |chk.y − tgt.y|` is then a multiple of
+    // 1.0 + 0.5, so `res < 1` admitted a node only when chk.x landed on the SAME f32 as tgt.x —
     // and because the rounding varies smoothly across the screen, the rejections came in BANDS.
     // The field rendered with ~40 % of its lattice missing.
     //
@@ -203,7 +203,7 @@ describe('screen → geographic, on the GPU (#1520)', () => {
     // regression, and it is one character away from passing every other assertion in this file.
     const body = bodyOf(wgsl(), 'unproject_flat')
     expect(body, 'the threshold is built from the target magnitude').toMatch(
-      /max\(1\.0, \(\(abs\(target\.x\) \+ abs\(target\.y\)\) \* /,
+      /max\(1\.0, \(\(abs\(tgt\.x\) \+ abs\(tgt\.y\)\) \* /,
     )
     expect(body, 'the residual is compared against it, not against a literal').toMatch(
       /select\(0\.0, 1\.0, \(\w+ < \w+\)\)/,
