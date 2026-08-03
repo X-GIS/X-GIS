@@ -420,6 +420,16 @@ export class WebGpuDevice implements RhiDevice {
     return this._frameEncoder
   }
 
+  pushValidationScope(): void {
+    this.device.pushErrorScope('validation')
+  }
+
+  popValidationScope(): Promise<string | null> {
+    // Message-or-null; a REJECTED pop passes through untouched (Audit ⑧ B2 —
+    // the caller's rejected-pop arm is a real fault signal, never swallowed).
+    return this.device.popErrorScope().then((e) => e?.message ?? null)
+  }
+
   createCommandEncoder(label?: string): RhiCommandEncoder {
     return new WebGpuCommandEncoder(this.device, label)
   }

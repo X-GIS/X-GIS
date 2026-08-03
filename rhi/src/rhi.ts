@@ -583,6 +583,16 @@ export interface RhiDevice {
    *  frame's reused wrapper. WebGL2 is inert here — the forced-WebGL2 twin renders
    *  through the screen-pass lifecycle, not this encoder. */
   acquireFrameEncoder(): RhiCommandEncoder
+  /** Open a GPU validation scope (#1046 F4 — the chain's loop tail off natives).
+   *  WebGPU: `device.pushErrorScope('validation')`. WebGL2: no-op — an
+   *  immediate-mode context surfaces errors through the frame encoder's
+   *  `finish()` drain instead, so there is no deferred scope to open. */
+  pushValidationScope(): void
+  /** Close the innermost validation scope. Resolves the captured error MESSAGE
+   *  (null = clean); REJECTS when the pop itself fails (scope-stack mismatch /
+   *  device lost) — callers must report BOTH arms (the Audit-⑧-B2 rejected-pop
+   *  lesson lives in `reportErrorScope`). WebGL2: resolves null. */
+  popValidationScope(): Promise<string | null>
 
   // ── Screen-pass lifecycle (additive, OPTIONAL) ───────────────────────────────
   // The render loop does device-creation / swapchain-acquire / begin-pass / submit

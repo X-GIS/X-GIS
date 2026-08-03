@@ -585,13 +585,12 @@ class WebGl2CommandEncoder implements RhiCommandEncoder {
 
 /** The PER-FRAME command encoder (`acquireFrameEncoder`, #1046 F3 / doc §2.4): the seam the
  *  unified chain reaches through `requireRhiFrame(ctx).enc` on WebGL2. Unlike the copy-scoped
- *  encoder above, `beginRenderPass` is LIVE — it dispatches through the device's universal
- *  `beginRenderPass` (the FBO-0 sentinel screen arm + the offscreen/MRT arm), the #1049
- *  descriptor-parity umbrella. `copyBufferToBuffer` supports in-frame arena relocation;
- *  `finish()` is the single per-frame present (gl.flush() + error drain — the endScreenPass
- *  analog). Byte-identical on the DEFAULT WebGL2 boot: the forced-WebGL2 twin early-returns
- *  before the frame shell, so this encoder is never acquired until `?rhichain=1` routes the
- *  chain here (cap-gated since #1046 Inc-4: `caps.chainFrame`, false until #991 P4/P5). */
+ *  encoder above, `beginRenderPass` is LIVE — the device's universal `beginRenderPass` (FBO-0
+ *  sentinel screen arm + offscreen/MRT arm, the #1049 descriptor-parity umbrella).
+ *  `copyBufferToBuffer` supports in-frame arena relocation; `finish()` is the single per-frame
+ *  present (gl.flush() + error drain — the endScreenPass analog). Byte-identical on the DEFAULT
+ *  WebGL2 boot: the twin early-returns before the frame shell, so this encoder is never
+ *  acquired until `?rhichain=1` routes the chain here (`caps.chainFrame`, #991 P4/P5). */
 class WebGl2FrameEncoder implements RhiCommandEncoder {
   constructor(private readonly device: WebGl2Device) {}
   beginRenderPass(desc: RhiRenderPassDesc): RhiRenderPass {
@@ -646,10 +645,9 @@ export class WebGl2Device implements RhiDevice {
   /** GL errors drained at endScreenPass (the WebGPU `_validationErrors` analog —
    *  WebGL2 has no async validation queue, so we poll `gl.getError()` per frame). */
   private _glErrors: string[] = []
-  /** #1153 P2 R3 — context-loss subscribers + the bound DOM handlers so
-   *  `destroy()` can detach them. The device OWNS the canvas listeners; the boot
-   *  (`initGPUForcedWebGL2`) subscribes via `onContextLost` to drive
-   *  `ctx.deviceLost` + recovery, mirroring the WebGPU `GPUDevice.lost` chain. */
+  /** #1153 P2 R3 — context-loss subscribers + the bound DOM handlers so `destroy()` can
+   *  detach them. The device OWNS the canvas listeners; the boot (`initGPUForcedWebGL2`)
+   *  subscribes via `onContextLost` — the WebGPU `GPUDevice.lost` chain's mirror. */
   private readonly _contextLostCbs: Array<() => void> = []
   private readonly _contextRestoredCbs: Array<() => void> = []
   private _onGlContextLost?: (e: Event) => void
@@ -693,12 +691,11 @@ export class WebGl2Device implements RhiDevice {
       chainFrame: false, // #1046 Inc-4 — true at #991 P4/P5 (see the RhiCaps doc)
     } as const)
 
-    // #1153 P2 R3 — own the canvas context-loss listeners. GUARDED: the fake
-    // gls in rhi-device-destroy.test.ts / forcegl2-context.test.ts carry no
-    // canvas (and node has no DOM), so attach only when the canvas exposes
-    // addEventListener. The lost handler MUST call preventDefault() — without it
-    // the browser never fires 'webglcontextrestored', so the sticky-lost context
-    // can never be reused (the boot's ensure-restored preamble depends on it).
+    // #1153 P2 R3 — own the canvas context-loss listeners. GUARDED: the fake gls in
+    // rhi-device-destroy.test.ts / forcegl2-context.test.ts carry no canvas (and node has no
+    // DOM), so attach only when the canvas exposes addEventListener. The lost handler MUST
+    // preventDefault() — without it the browser never fires 'webglcontextrestored', so the
+    // sticky-lost context can never be reused (the boot's ensure-restored preamble needs it).
     const canvas = gl.canvas as HTMLCanvasElement | undefined
     if (canvas?.addEventListener) {
       this._onGlContextLost = (e: Event) => {
@@ -713,8 +710,8 @@ export class WebGl2Device implements RhiDevice {
     }
   }
 
-  /** #1153 P2 R3 — subscribe to WebGL2 'webglcontextlost'. `preventDefault()` is
-   *  already applied by the device's own handler before `cb` runs. */
+  /** #1153 P2 R3 — subscribe to 'webglcontextlost' (`preventDefault()` already
+   *  applied by the device's own handler before `cb` runs). */
   onContextLost(cb: () => void): void {
     this._contextLostCbs.push(cb)
   }
@@ -723,12 +720,10 @@ export class WebGl2Device implements RhiDevice {
     this._contextRestoredCbs.push(cb)
   }
 
-  // Frame shell (required by RhiDevice, #1046 F2/F3) — the twin still early-returns
-  // before the frame shell on the DEFAULT WebGL2 boot, so these stay uninvoked (byte-
-  // identical) until `?rhichain=1` routes the unified chain here. `acquireScreenView`
-  // hands out the FBO-0 sentinel `beginRenderPass` binds; `acquireFrameEncoder` hands
-  // out the frame encoder whose `beginRenderPass` is LIVE (below) — the chain's
-  // `ctx.encoder.beginRenderPass` seam.
+  // Frame shell (required by RhiDevice, #1046 F2/F3) — the twin still early-returns before
+  // the frame shell on the DEFAULT WebGL2 boot, so these stay uninvoked (byte-identical)
+  // until `?rhichain=1` routes the unified chain here. `acquireScreenView` hands out the
+  // FBO-0 sentinel; `acquireFrameEncoder` the LIVE-`beginRenderPass` frame encoder (below).
   acquireScreenView(): RhiTextureView {
     return SCREEN_VIEW_SENTINEL
   }
@@ -736,12 +731,17 @@ export class WebGl2Device implements RhiDevice {
     return new WebGl2FrameEncoder(this)
   }
 
+  // #1046 F4 — immediate-mode GL has no deferred scopes; finish() drains errors.
+  pushValidationScope(): void {}
+  popValidationScope(): Promise<string | null> {
+    return Promise.resolve(null)
+  }
+
   /** Universal render-pass origination (#1046 F3, doc §2.4 / §3-F3) — the ONE entry the
-   *  unified chain reaches through `ctx.encoder.beginRenderPass` on WebGL2, and the
-   *  #1049 descriptor-parity umbrella (every pass-emitted descriptor shape binds here or
-   *  fails loud). Dispatches by TARGET: a colour attachment that is the FBO-0 screen
-   *  sentinel (`acquireScreenView`) → the default-framebuffer screen arm; otherwise the
-   *  offscreen/MRT arm (the proven `beginOffscreenPass`, reused unchanged). Reached only
+   *  unified chain reaches on WebGL2, and the #1049 descriptor-parity umbrella (every
+   *  pass-emitted descriptor shape binds here or fails loud). Dispatches by TARGET: a colour
+   *  attachment that is the FBO-0 screen sentinel (`acquireScreenView`) → the screen arm;
+   *  otherwise the offscreen/MRT arm (`beginOffscreenPass`, reused unchanged). Reached only
    *  via the frame encoder — never a raw device call. */
   beginRenderPass(desc: RhiRenderPassDesc): RhiRenderPass {
     const hasSentinel = desc.colorAttachments.some((a) => a.view === SCREEN_VIEW_SENTINEL)

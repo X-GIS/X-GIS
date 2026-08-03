@@ -105,7 +105,8 @@ const BASELINE: Record<string, number> = {
   'map/src/interaction-controller.ts': 9,
   'map/src/map-types.ts': 12,
   'map/src/map.ts': 6,
-  'map/src/render-loop-helpers.ts': 1,
+  // render-loop-helpers row DELETED (#1046 F4 Inc-A): reportErrorScope takes the
+  // RHI's message-or-null promise — the GPUError type reference died with it.
   'map/src/render/bind-group-registry.ts': 18,
   // #1046 F3b Inc-2d: ShowDrawFn + the chain's remaining pass-consuming
   // signatures narrowed to RhiRenderPass — the backend-keyed re-wrap forks

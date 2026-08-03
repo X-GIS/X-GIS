@@ -202,7 +202,7 @@ export class RenderLoop {
     // a projection-correct cursor anchor (orthographic needs the spherical
     // inverse, not the flat-Mercator-plane unproject).
     this.host.camera.projType = projType
-    const { device, canvas } = this.host.ctx
+    const { canvas } = this.host.ctx
     const w = canvas.width,
       h = canvas.height
     if (w === 0 || h === 0) {
@@ -320,8 +320,7 @@ export class RenderLoop {
     perfMarkStart('frame.encode')
     // Frame shell (#1046 F2/F3b, Inc-3 collapse): the RHI is the ONE source of
     // the frame encoder + swapchain view. The natives exist only as loop
-    // locals for the not-yet-RHI tail (compute dispatch, gpuTimer, error
-    // scopes, ensure) — no pass can reach them; the `__xgisRawFrameShell`
+    // locals for the not-yet-RHI tail (compute dispatch, gpuTimer, ensure) — no pass can reach them; the `__xgisRawFrameShell`
     // escape retired with the collapse (every chain pass fails loud on null
     // bridges anyway, so the escape could no longer render a frame).
     const rhiFrame = this.host.ctx.rhi
@@ -368,7 +367,7 @@ export class RenderLoop {
     // Wrap the entire frame in a validation scope so any pass-creation or
     // draw-call validation error gets a unique log entry pointing to the
     // submit. Each block below also pushes its own scope for finer locality.
-    device.pushErrorScope('validation')
+    rhiFrame.pushValidationScope()
 
     // Per-pass scope helper: pushes an error scope, runs `fn`, then pops and
     // logs any validation error tagged with `label`. Nested inside the
@@ -380,13 +379,13 @@ export class RenderLoop {
       // iter-256 diagnostic decompose the encoder block's 13 ms
       // budget into bg / vtr / oit / text / overdraw shares.
       perfMarkStart(`encoder.pass.${label}`)
-      device.pushErrorScope('validation')
+      rhiFrame.pushValidationScope()
       try {
         fn()
       } finally {
         // Report BOTH a resolved validation error AND a rejected pop —
         // the rejection was previously swallowed (Audit ⑧ B2).
-        reportErrorScope(device.popErrorScope(), `pass:${label}`)
+        reportErrorScope(rhiFrame.popValidationScope(), `pass:${label}`)
       }
       perfMarkEnd(`encoder.pass.${label}`)
     }
@@ -637,7 +636,7 @@ export class RenderLoop {
     // Drain any readbacks that finished mapping last frame, kick mapAsync
     // on freshly-submitted ones. Cheap when disabled (no-op).
     this.host.gpuTimer?.pollReadbacks()
-    reportErrorScope(device.popErrorScope(), 'frame-validation')
+    reportErrorScope(rhiFrame.popValidationScope(), 'frame-validation')
 
     // Collect stats from renderers
     this.host._stats.zoom = this.host.camera.zoom
