@@ -252,7 +252,7 @@ export class FlowRenderer {
 
   /** THE fork (see the header). WebGL2 nests an FBO pass inside the live screen pass; every
    *  other backend records into this frame's encoder. Null when neither is available — the
-   *  `__xgisRawFrameShell` rollback leaves no RHI encoder — which skips the step rather than
+   *  twin frame carries no RHI encoder — which skips the step rather than
    *  throwing into the render loop. */
   private begin(frame: FlowFrame, desc: RhiRenderPassDesc): RhiRenderPass | null {
     const gl2 = asScreenPassDevice(this.rhi)

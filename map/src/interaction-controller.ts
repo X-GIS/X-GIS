@@ -176,8 +176,15 @@ export class InteractionController {
     // pixel (Audit ⑩ B2 — a plain floor biases toward the top-left of the
     // DPR≥2 device-pixel group, ~0.5px at DPR2, causing edge misses).
     // Out-of-element → -1 → miss.
-    const px = cssToDevicePixel(clientX - rect.left, rect.width, canvas.width)
-    const py = cssToDevicePixel(clientY - rect.top, rect.height, canvas.height)
+    //
+    // #1429 INC-2 — the extent comes from the PICK TEXTURE itself, not the
+    // canvas: the pick RT is a scene-pass attachment, and the adaptive ladder
+    // can hold the scene below the (now always native) canvas. Deriving the
+    // coordinate from the texture being read is the single authority that
+    // keeps the two from disagreeing; at scale 1 the texture IS canvas-sized,
+    // so this is byte-identical to the canvas-based conversion it replaces.
+    const px = cssToDevicePixel(clientX - rect.left, rect.width, pickTexture.width)
+    const py = cssToDevicePixel(clientY - rect.top, rect.height, pickTexture.height)
     if (px < 0 || py < 0) return null
 
     // Rent a staging buffer. Each slot is 8 bytes (one RG32Uint pixel,

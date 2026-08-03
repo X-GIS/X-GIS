@@ -53,7 +53,7 @@ describe('RenderTargets — device-identity guard (#737)', () => {
     const rt = new RenderTargets(() => ctx)
 
     // Run 1 — MSAA (sampleCount 4) colour view is allocated on device A.
-    const r1 = rt.ensure(800, 600, 4, false, false, screenView)
+    const r1 = rt.ensure(800, 600, 800, 600, 4, false, false, screenView)
     expect(r1.useResolve).toBe(true)
     expect(devOf(r1.colorView)).toBe('A')
     expect(A.created.length).toBeGreaterThan(0)
@@ -62,7 +62,7 @@ describe('RenderTargets — device-identity guard (#737)', () => {
     // device B is live, but the canvas size is IDENTICAL.
     const B = makeDevice('B')
     ctx = makeCtx(B.device)
-    const r2 = rt.ensure(800, 600, 4, false, false, screenView)
+    const r2 = rt.ensure(800, 600, 800, 600, 4, false, false, screenView)
 
     // Without the guard the size-keyed gate skips recreation and hands back
     // device A's (destroyed) texture → BeginRenderPass validation failure.
@@ -76,9 +76,9 @@ describe('RenderTargets — device-identity guard (#737)', () => {
     const ctx = makeCtx(A.device)
     const rt = new RenderTargets(() => ctx)
 
-    rt.ensure(800, 600, 4, false, false, screenView)
+    rt.ensure(800, 600, 800, 600, 4, false, false, screenView)
     const n = A.created.length
-    rt.ensure(800, 600, 4, false, false, screenView)
+    rt.ensure(800, 600, 800, 600, 4, false, false, screenView)
     // Same device, same size → the gate holds; zero new allocations.
     expect(A.created.length).toBe(n)
   })

@@ -54,12 +54,13 @@ import type {
   RhiBindGroup,
   RhiBindGroupLayout,
   RhiDevice,
+  RhiCommandEncoder,
   RhiRenderPass,
   RhiScreenPassDevice,
   RhiTexture,
   RhiTextureView,
 } from '@xgis/engine'
-import { LineDraper } from './material/line-material'
+import { LINE_OFFSCREEN_FORMAT, LineDraper } from './material/line-material'
 import { LineCompositeDraper } from './material/line-composite-material'
 import type { ShapeRegistry } from '../text/sdf-shape'
 import {
@@ -216,14 +217,7 @@ export class LineRenderer {
   private layerDirtyLo = 0
   private layerDirtyHi = 0
 
-  // ── Translucent line offscreen + composite ──
-  /** Single-sample offscreen RT used to render translucent line layers
-   *  with max blending. Composited onto the main framebuffer with per-layer
-   *  alpha. Lazily allocated + resized on demand. */
-  private offscreenTexture: GPUTexture | null = null
-  private offscreenView: GPUTextureView | null = null
-  private offscreenWidth = 0
-  private offscreenHeight = 0
+  // ── Translucent line composite ──
   /** Composite uniform ring. 256-byte slots → each composite() call writes
    *  its own opacity into a fresh slot and binds via dynamic offset. This
    *  prevents the multi-layer writeBuffer clobbering hazard that a single
@@ -296,39 +290,25 @@ export class LineRenderer {
     this._compositeDraper = undefined
   }
 
-  /** Lazily allocate / resize the offscreen RT to match the main color target. */
-  ensureOffscreen(width: number, height: number): void {
-    if (this.offscreenTexture && this.offscreenWidth === width && this.offscreenHeight === height)
-      return
-    this.offscreenTexture?.destroy()
-    this.offscreenTexture = this.device.createTexture({
-      size: { width, height },
-      format: this.format,
-      usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING,
-      label: 'line-translucent-offscreen',
-    })
-    this.offscreenView = this.offscreenTexture.createView()
-    this.offscreenWidth = width
-    this.offscreenHeight = height
-    // The composite bind group (offscreen view + sampler + opacity ring) is built per-draw by
-    // LineCompositeDraper now — nothing to pre-build here.
-  }
-
-  // ── RHI (forced-WebGL2) offscreen twins (#834 M5) ──
-  /** RHI twin of the offscreen RT — rgba8unorm render+sample texture sized to
-   *  the screen. Lazily allocated + resized, mirroring `ensureOffscreen`. */
+  // ── The translucent offscreen set (#834 M5; the ONE set since Inc-2d) ──
+  /** LINE_OFFSCREEN_FORMAT render+sample texture sized to the scene. Lazily
+   *  allocated + resized; shared by the chain pass and the forced-WebGL2 twin. */
   private _offscreenTexRhi: RhiTexture | null = null
   private _offscreenViewRhi: RhiTextureView | null = null
   private _offscreenWRhi = 0
   private _offscreenHRhi = 0
-  private ensureOffscreenRhi(width: number, height: number): RhiTextureView {
+  /** Public as the offscreen data-path entry (translucent-opacity.test.ts
+   *  arms the RHI offscreen directly; production callers go through
+   *  beginTranslucentPass / beginTranslucentPassRhi). */
+  ensureOffscreenRhi(width: number, height: number): RhiTextureView {
     if (this._offscreenViewRhi && this._offscreenWRhi === width && this._offscreenHRhi === height)
       return this._offscreenViewRhi
     if (this._offscreenTexRhi) this.rhi.destroyTexture(this._offscreenTexRhi)
     this._offscreenTexRhi = this.rhi.createTexture({
       width,
       height,
-      format: 'rgba8unorm',
+      // ONE authority with the max-blend pipeline's colour target (review F1).
+      format: LINE_OFFSCREEN_FORMAT,
       usage: ['render', 'sample'],
       label: 'line-translucent-offscreen-rhi',
     })
@@ -353,9 +333,29 @@ export class LineRenderer {
     })
   }
 
-  /** RHI twin of `composite`: same ring-slot discipline, but the offscreen view
-   *  is the RHI texture and the target pass is the forced-WebGL2 screen pass. */
-  compositeRhi(mainPass: RhiRenderPass, opacity: number): void {
+  /** Begin a translucent line render pass against the offscreen RT. */
+  beginTranslucentPass(enc: RhiCommandEncoder, width: number, height: number): RhiRenderPass {
+    // Chain shape of beginTranslucentPassRhi below: SAME RHI offscreen target
+    // (one texture set for both frame shapes), originated as a discrete pass
+    // on the frame encoder instead of nested inside the twin's screen pass.
+    const view = this.ensureOffscreenRhi(width, height)
+    return enc.beginRenderPass({
+      label: 'line-translucent-pass',
+      colorAttachments: [{ view, loadOp: 'clear', storeOp: 'store', clearValue: [0, 0, 0, 0] }],
+    })
+  }
+
+  /** Composite the offscreen RT onto a main render pass with the given opacity.
+   *  Each call allocates a fresh composite-ring slot, writes its own opacity
+   *  there, and binds via dynamic offset. Two composite() calls in one frame
+   *  with different opacities therefore read distinct slots at GPU execution
+   *  time — fixing the shared-buffer clobber where every draw sampled the
+   *  last layer's opacity. */
+  composite(mainPass: RhiRenderPass, opacity: number): void {
+    // ONE implementation for both frame shapes (Inc-2d fold of the former
+    // compositeRhi): the offscreen strokes live in the RHI texture set, the
+    // target is whichever RhiRenderPass the caller originated (the chain's
+    // discrete comp pass or the twin's live screen pass).
     if (!this._offscreenViewRhi) return
     const off =
       this.compositeSlot < this.compositeRingCapacity
@@ -370,52 +370,6 @@ export class LineRenderer {
     }
     this.rhi.writeBuffer(this.compositeRing, off, new Float32Array([opacity, 0, 0, 0]))
     this.ensureCompositeDraper().drawRhi(mainPass, this._offscreenViewRhi, this.compositeRing, off)
-  }
-
-  /** Begin a translucent line render pass against the offscreen RT. */
-  beginTranslucentPass(encoder: GPUCommandEncoder): GPURenderPassEncoder {
-    if (!this.offscreenView) throw new Error('LineRenderer: offscreen not initialised')
-    return encoder.beginRenderPass({
-      label: 'line-translucent-pass',
-      colorAttachments: [
-        {
-          view: this.offscreenView,
-          clearValue: { r: 0, g: 0, b: 0, a: 0 },
-          loadOp: 'clear',
-          storeOp: 'store',
-        },
-      ],
-    })
-  }
-
-  /** Composite the offscreen RT onto a main render pass with the given opacity.
-   *  Each call allocates a fresh composite-ring slot, writes its own opacity
-   *  there, and binds via dynamic offset. Two composite() calls in one frame
-   *  with different opacities therefore read distinct slots at GPU execution
-   *  time — fixing the shared-buffer clobber where every draw sampled the
-   *  last layer's opacity. */
-  composite(mainPass: GPURenderPassEncoder, opacity: number): void {
-    if (!this.offscreenView) return
-    const off =
-      this.compositeSlot < this.compositeRingCapacity
-        ? this.compositeSlot * LineRenderer.COMPOSITE_SLOT
-        : (this.compositeRingCapacity - 1) * LineRenderer.COMPOSITE_SLOT
-    if (this.compositeSlot >= this.compositeRingCapacity) {
-      xlog.warn(
-        '[LineRenderer] composite ring overflow — capping at capacity; opacity bleed possible',
-      )
-    } else {
-      this.compositeSlot++
-    }
-    this.rhi.writeBuffer(this.compositeRing, off, new Float32Array([opacity, 0, 0, 0]))
-    // Through the RHI Material seam (the sole path). The offscreen RT/pass origination stays raw (P2).
-    // WebGPU-only (the offscreen translucent path fail-closes on WebGl2).
-    this.ensureCompositeDraper().draw(
-      wrapWebGpuPass(mainPass),
-      this.offscreenView,
-      this.compositeRing,
-      off,
-    )
   }
 
   private _compositeDraper?: LineCompositeDraper

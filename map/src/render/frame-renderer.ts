@@ -12,11 +12,11 @@
 // FrameRenderer holds NO back-reference to content.
 
 import type { GPUContext, WebGpuDevice } from '@xgis/rhi-webgpu'
-import { ComputeDispatcher } from '@xgis/rhi-webgpu'
+import { unwrapWebGpuPass, ComputeDispatcher } from '@xgis/rhi-webgpu'
 import { ComputeLayerRegistry } from './compute-layer-registry'
 import { extendBindGroupLayoutEntriesForCompute } from '@xgis/rhi-webgpu'
 import type { ShaderVariantInfo, CachedPipeline } from './renderer-types'
-import { UniformRing } from '@xgis/engine'
+import { UniformRing, type RhiRenderPass } from '@xgis/engine'
 import { PipelineFactory } from './pipeline-factory'
 import { polygonUniformStride } from './polygon-uniform-slots'
 import { markStart as perfMarkStart, markEnd as perfMarkEnd } from '../__profile__/perf-marks'
@@ -64,12 +64,6 @@ export class FrameRenderer {
   }
   get overdrawComposeBindGroupLayout(): GPUBindGroupLayout {
     return this._pipelines.overdrawComposeBindGroupLayout
-  }
-  get heatmapBlurBindGroupLayout(): GPUBindGroupLayout {
-    return this._pipelines.heatmapBlurBindGroupLayout
-  }
-  get heatmapComposeBindGroupLayout(): GPUBindGroupLayout {
-    return this._pipelines.heatmapComposeBindGroupLayout
   }
   get fillPipelineOverdraw(): GPURenderPipeline | null {
     return this._pipelines.fillPipelineOverdraw
@@ -374,16 +368,27 @@ export class FrameRenderer {
     return this._pipelines.ensureOverdrawCompose()
   }
 
-  /** Lazy-build the heatmap blur pipeline (Phase R). Thin forwarder to the
-   *  factory; the external read site is heatmap-pass.ts. */
-  ensureHeatmapBlur(): GPURenderPipeline {
-    return this._pipelines.ensureHeatmapBlur()
-  }
-
-  /** Lazy-build the heatmap compose pipeline (Phase R). Thin forwarder to the
-   *  factory; the external read site is heatmap-pass.ts. */
-  ensureHeatmapCompose(): GPURenderPipeline {
-    return this._pipelines.ensureHeatmapCompose()
+  /** The OIT fullscreen recover draw (pipeline + accum/revealage bind group +
+   *  draw(3)) — lives on the ENGINE half because the pipeline/layout do, and
+   *  the oit PASS file stays backend-import-free (#1046 F3b Inc-2d): the
+   *  pipeline is native until the OIT twin lands, so the unwrap lives here,
+   *  in the adapter-importing layer. */
+  drawOitCompose(
+    rhiPass: RhiRenderPass,
+    accumView: GPUTextureView,
+    revealageView: GPUTextureView,
+  ): void {
+    const pass = unwrapWebGpuPass(rhiPass) as GPURenderPassEncoder
+    const bg = this.ctx.device.createBindGroup({
+      layout: this.oitComposeBindGroupLayout,
+      entries: [
+        { binding: 0, resource: accumView },
+        { binding: 1, resource: revealageView },
+      ],
+    })
+    pass.setPipeline(this.oitComposePipeline)
+    pass.setBindGroup(0, bg)
+    pass.draw(3) // oversized triangle — vs_full covers fullscreen with 3 verts
   }
 
   /** Reset the ring-buffer slot cursor. Call once per frame before any draws. */

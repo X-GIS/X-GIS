@@ -20,7 +20,6 @@ import { FrameArena } from '@xgis/engine'
 import { bumpAlloc } from '../__profile__/alloc-counter'
 import type { TextDraw } from './text-renderer-types'
 import { codePointIsIdeographic } from './text-wrap'
-import { wrapWebGpuPass } from '@xgis/rhi-webgpu'
 import type { RhiBuffer, RhiBindGroup, RhiDevice, RhiRenderPass } from '@xgis/engine'
 import { TextDraper, type TextSlice } from '../render/material/text-material'
 import { vertexField } from '@xgis/compiler'
@@ -498,9 +497,12 @@ export class TextRenderer {
 
   /** Encode draw commands. `viewport` is in physical pixels. `replay` is the
    *  #1177 S16 skip-replay screen-space correction (prepared-frame px →
-   *  current-frame px); omitted ⇒ identity (freshly-prepared frame). */
+   *  current-frame px); omitted ⇒ identity (freshly-prepared frame).
+   *  RHI-only since #1046 F3b — the label pass originates the pass on the
+   *  RHI frame shell on both backends, so no re-wrap happens here (the old
+   *  backend-keyed re-wrap was the 34d4695 double-wrap class). */
   draw(
-    pass: GPURenderPassEncoder | RhiRenderPass,
+    pass: RhiRenderPass,
     viewport: { width: number; height: number },
     replay?: { scale: number; dx: number; dy: number },
   ): void {
@@ -589,14 +591,7 @@ export class TextRenderer {
 
     if (rhiSlices.length > 0) {
       this.ensureTextDraper()
-      // A WebGl2Device frame hands in an RhiRenderPass already (#834 M5 s3).
-      this._textDraper!.draw(
-        this.rhi.backend === 'webgl2'
-          ? (pass as RhiRenderPass)
-          : wrapWebGpuPass(pass as GPURenderPassEncoder),
-        this.vertexBuf!,
-        rhiSlices,
-      )
+      this._textDraper!.draw(pass, this.vertexBuf!, rhiSlices)
     }
   }
 

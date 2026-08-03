@@ -51,7 +51,7 @@ import {
   installWebGPUStub,
   type StubInstallation,
 } from '../../../rhi-webgpu/src/__test-support__/webgpu-stub'
-import { initGPU, type GPUContext } from '@xgis/rhi-webgpu'
+import { wrapWebGpuPass, initGPU, type GPUContext } from '@xgis/rhi-webgpu'
 import { RasterRenderer, rasterCoverZoom } from '@xgis/map'
 import { Camera } from '@xgis/map'
 import { visibleTilesFrustum } from '@xgis/data'
@@ -183,7 +183,7 @@ function capturedDrawWorldPositions(ctx: GPUContext): string[] {
   ).createCommandEncoder()
   const pass = encoder.beginRenderPass()
 
-  renderer.render(pass, camera, PROJ_TYPE, 0, 0, W, H, DPR)
+  renderer.render(wrapWebGpuPass(pass), camera, PROJ_TYPE, 0, 0, W, H, DPR)
 
   return drawPositions
 }

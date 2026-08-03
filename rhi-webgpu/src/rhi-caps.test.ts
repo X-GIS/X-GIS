@@ -5,9 +5,9 @@ import type { RhiCaps } from '@xgis/rhi'
 
 // ═══ RhiCaps device-truth gate (#1046 F1) ═══
 //
-// Both backends populate the 8-field capability record (rhi.ts RhiCaps, doc §2.2)
+// Both backends populate the RhiCaps capability record (rhi.ts, doc §2.2)
 // once at construction, frozen. This pins:
-//   • the exact 8-field shape on BOTH devices (no more, no fewer),
+//   • the exact CAPS_FIELDS shape on BOTH devices (no more, no fewer),
 //   • the fixed native truths (WebGPU: 4×MSAA / MRT / async / float / native /
 //     deferred; WebGL2: 1× / no-MRT / sync / fragment-emulated / immediate),
 //   • the two HARDWARE-DETECTED values against real probes: WebGPU `timestampQuery`
@@ -15,13 +15,15 @@ import type { RhiCaps } from '@xgis/rhi'
 //     = EXT_color_buffer_float && EXT_float_blend (faked-GL, both arms).
 // A fake device/GL is enough — caps read no GPU state beyond features/extensions.
 
-// The 8 fields the record must expose (append-only by policy, doc §2.2). Locking the
-// exact key set catches an accidental extra/missing field on either backend.
+// The fields the record must expose (append-only by policy, doc §2.2). Locking the
+// exact key set catches an accidental extra/missing field on either backend; the
+// COUNT lives only here — titles derive it, so it cannot drift (it did, twice).
 const CAPS_FIELDS = [
   'maxSampleCount',
   'presentablePassMrt',
   'pickReadback',
   'floatBlendTargets',
+  'chainFrame',
   'compute',
   'timestampQuery',
   'executionModel',
@@ -50,7 +52,7 @@ function fakeGl(supportedExtensions: string[] | null): WebGL2RenderingContext {
 }
 
 describe('RhiCaps — WebGpuDevice native truths (#1046 F1)', () => {
-  it('exposes exactly the 7 caps fields, frozen', () => {
+  it(`exposes exactly the ${CAPS_FIELDS.length} caps fields, frozen`, () => {
     const caps = new WebGpuDevice(fakeGpuDevice([])).caps
     expect(Object.keys(caps).sort()).toEqual([...CAPS_FIELDS].sort())
     expect(Object.isFrozen(caps)).toBe(true)
@@ -64,6 +66,9 @@ describe('RhiCaps — WebGpuDevice native truths (#1046 F1)', () => {
     expect(caps.floatBlendTargets).toBe(true)
     expect(caps.compute).toBe('native')
     expect(caps.executionModel).toBe('deferred')
+    // WebGPU hosts the unified chain's whole frame (#1046 Inc-4) — the instance
+    // value, beside the source-literal pin in map's chain-routing-cap.test.ts.
+    expect(caps.chainFrame).toBe(true)
     // Reads RhiPipelineDesc.code; the GLSL halves are ignored. The map's source seam
     // (wgslFor/glslStagesFor) emits from THIS, so an inverted value would build the
     // wrong language for every pipeline — pinned per backend beside its behaviour too.
@@ -79,7 +84,7 @@ describe('RhiCaps — WebGpuDevice native truths (#1046 F1)', () => {
 })
 
 describe('RhiCaps — WebGl2Device truths + float-blend detection (#1046 F1)', () => {
-  it('exposes exactly the 7 caps fields, frozen', () => {
+  it(`exposes exactly the ${CAPS_FIELDS.length} caps fields, frozen`, () => {
     const caps = new WebGl2Device(fakeGl([])).caps
     expect(Object.keys(caps).sort()).toEqual([...CAPS_FIELDS].sort())
     expect(Object.isFrozen(caps)).toBe(true)
@@ -93,6 +98,9 @@ describe('RhiCaps — WebGl2Device truths + float-blend detection (#1046 F1)', (
     expect(caps.compute).toBe('fragment-emulated')
     expect(caps.timestampQuery).toBe(false)
     expect(caps.executionModel).toBe('immediate')
+    // False until #991 P4/P5 lands the chain's loop tail on this backend — the
+    // instance value that keeps `?rhichain=1` a safe no-op (#1046 Inc-4).
+    expect(caps.chainFrame).toBe(false)
     // Requires the split GLSL sources and never reads `code` — createPipeline fail-louds
     // on a WGSL-only desc (createpipeline-dual-source-guard.test.ts asserts both halves).
     expect(caps.shaderLanguage).toBe('glsl-es300')

@@ -43,6 +43,10 @@ function makeCtx(oitTexturesPresent: boolean): FrameContext {
       oitAccumTexture: oitTexturesPresent ? ({} as GPUTexture) : null,
       oitRevealageTexture: oitTexturesPresent ? ({} as GPUTexture) : null,
     },
+    // #1429 INC-2 — sceneScaled derives from the two geometries (equal here:
+    // the unscaled steady state every case in this file describes).
+    scene: { w: 800, h: 600, dpr: 1 },
+    screen: { w: 800, h: 600, dpr: 1 },
   } as unknown as FrameContext
 }
 

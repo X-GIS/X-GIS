@@ -5,13 +5,15 @@
 // offscreen MAX-blend target, then composite that target onto the main
 // colour at the show's resolved opacity. Runs after the entire opaque
 // bucket so translucent strokes always paint on top. Gated off when no
-// translucent shows or in ?debug=overdraw. Mechanical changes only:
-// `this.host.X` → `host.X`, `encoder` → `ctx.encoder`.
+// translucent shows or in ?debug=overdraw. F3b Inc-2d: originates through
+// the RHI frame shell; the offscreen strokes land in the RHI texture set
+// shared with the twin, and ONE composite implementation serves both
+// frame shapes.
 
 import { DEBUG_OVERDRAW } from '../../debug-flags'
 import type { FrameContext } from '../frame-context'
 import type { SceneView } from '../scene-view'
-import type { RenderPass, TranslucentPassHost } from './pass'
+import { requireRhiFrame, type RenderPass, type TranslucentPassHost } from './pass'
 
 class TranslucentPass implements RenderPass {
   readonly label = 'translucent'
@@ -21,14 +23,16 @@ class TranslucentPass implements RenderPass {
   }
 
   execute(ctx: FrameContext, scene: SceneView, host: TranslucentPassHost): void {
-    const encoder = ctx.encoder
+    // F3b: RHI origination (Inc-2d) — the offscreen MAX-blend pass begins on
+    // the frame's RHI encoder via the narrowed LineRenderer entry.
+    const { enc, colorView, sceneResolveView } = requireRhiFrame(ctx, 'translucent')
     for (let li = 0; li < scene.translucent.length; li++) {
       const cs = scene.translucent[li]
       const isLastTranslucent = li === scene.translucent.length - 1
       const resolveHere = ctx.useResolve && isLastTranslucent && scene.resolveOwner === 'composite'
 
       ctx.passScope(`translucent-off[${li}]`, () => {
-        const offPass = host.lineRenderer!.beginTranslucentPass(encoder)
+        const offPass = host.lineRenderer!.beginTranslucentPass(enc, ctx.scene.w, ctx.scene.h)
         // Draw via the content closure — the engine pass never touches a
         // GPURenderPipeline. phase='strokes'; translucentBucket=true (the
         // offscreen MAX-blend pass has no depth attachment).
@@ -37,11 +41,11 @@ class TranslucentPass implements RenderPass {
       })
 
       ctx.passScope(`translucent-comp[${li}]`, () => {
-        const compPass = encoder.beginRenderPass({
+        const compPass = enc.beginRenderPass({
           colorAttachments: [
             {
-              view: ctx.colorView,
-              resolveTarget: resolveHere ? ctx.screenView : undefined,
+              view: colorView,
+              resolveTarget: resolveHere ? sceneResolveView : undefined,
               loadOp: 'load',
               storeOp: 'store',
             },

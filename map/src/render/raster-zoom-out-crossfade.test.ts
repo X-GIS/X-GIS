@@ -16,7 +16,7 @@ import {
   installWebGPUStub,
   type StubInstallation,
 } from '../../../rhi-webgpu/src/__test-support__/webgpu-stub'
-import { initGPU, type GPUContext } from '@xgis/rhi-webgpu'
+import { wrapWebGpuPass, initGPU, type GPUContext } from '@xgis/rhi-webgpu'
 import { RasterRenderer, rasterCoverZoom, Camera } from '@xgis/map'
 import { visibleTilesFrustum } from '@xgis/data'
 import { mercator as mercatorProj } from '@xgis/geo'
@@ -82,7 +82,7 @@ function renderPass(
       createCommandEncoder: () => { beginRenderPass: () => GPURenderPassEncoder }
     }
   ).createCommandEncoder()
-  renderer.render(encoder.beginRenderPass(), camera, projType, 0, 0, W, H, DPR)
+  renderer.render(wrapWebGpuPass(encoder.beginRenderPass()), camera, projType, 0, 0, W, H, DPR)
 }
 
 const flatCamera = (): Camera => {

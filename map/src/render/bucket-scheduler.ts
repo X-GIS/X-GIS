@@ -32,7 +32,7 @@ import { DEBUG_OVERDRAW } from '../debug-flags'
 import type { RenderTraceRecorder, RGBA } from '../diagnostics/render-trace'
 import type { FrameContext } from './frame-context'
 import { unwrapProjection } from './projection-token'
-import type { RhiPipelineHandle } from '@xgis/engine'
+import type { RhiPipelineHandle, RhiRenderPass } from '@xgis/engine'
 import type { PointRenderer } from './point-renderer'
 
 // ── Output: post-classification show with all animation resolved ──
@@ -49,9 +49,14 @@ import type { PointRenderer } from './point-renderer'
  *
  *  (Named `ShowDrawFn`, not `DrawItem`, to avoid colliding with the RHI
  *  render-layer `DrawItem` in `material/material.ts` — a different
- *  abstraction.) */
+ *  abstraction.)
+ *
+ *  The pass is an `RhiRenderPass` (#1046 F3b Inc-2d): every chain bucket
+ *  originates through the RHI frame shell, so the closure — and the VTR
+ *  entry it forwards to — takes the neutral handle. Re-wrapping it is the
+ *  34d4695 double-wrap class and throws in wrapWebGpuPass. */
 export type ShowDrawFn = (
-  pass: GPURenderPassEncoder,
+  pass: RhiRenderPass,
   ctx: FrameContext,
   uniformBuffer: GPUBuffer,
   pointRenderer: PointRenderer | null | undefined,

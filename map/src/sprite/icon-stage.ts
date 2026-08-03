@@ -582,9 +582,10 @@ export class IconStage {
 
   /** Encode draw commands. No-op when nothing was prepared or the
    *  atlas hasn't loaded. `replay` (#1177) is the S16 skip-replay
-   *  screen-space correction; omit on prepared frames. */
+   *  screen-space correction; omit on prepared frames. RHI-only since
+   *  #1046 F3b: both frame shapes hand in an RhiRenderPass. */
   render(
-    pass: GPURenderPassEncoder | RhiRenderPass,
+    pass: RhiRenderPass,
     viewport: { width: number; height: number },
     replay?: { scale: number; dx: number; dy: number },
   ): void {

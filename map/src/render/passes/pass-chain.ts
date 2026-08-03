@@ -34,6 +34,7 @@ import { oitPass } from './oit-pass'
 import { translucentPass } from './translucent-pass'
 import { hillshadePass } from './hillshade-pass'
 import { pointsPass } from './points-pass'
+import { sceneUpscalePass } from './scene-upscale-pass'
 import { labelPass } from './label-pass'
 import { heatmapPass } from './heatmap-pass'
 import { overdrawComposePass } from './overdraw-compose-pass'
@@ -63,6 +64,7 @@ const PASSES: Record<PassLabel, RenderPass> = {
   translucent: translucentPass,
   hillshade: hillshadePass,
   points: pointsPass,
+  'scene-upscale': sceneUpscalePass,
   labels: labelPass,
   heatmap: heatmapPass,
   'overdraw-compose': overdrawComposePass,

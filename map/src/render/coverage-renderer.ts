@@ -27,7 +27,6 @@
 // here, and none is claimed.
 
 import type { GPUContext } from '@xgis/rhi-webgpu'
-import { wrapWebGpuPass } from '@xgis/rhi-webgpu'
 import type {
   RhiDevice,
   RhiTexture,
@@ -538,7 +537,7 @@ export class CoverageRenderer {
    *  supplies the camera-derived MVP (camera-at-origin), the camera Mercator centre, and
    *  the projection params — mirroring the raster flat arm. No-op when unarmed. */
   render(
-    pass: GPURenderPassEncoder | RhiRenderPass,
+    pass: RhiRenderPass,
     mvp: Float32Array | number[],
     camCenter: [number, number],
     projParams: [number, number, number, number],
@@ -548,14 +547,9 @@ export class CoverageRenderer {
     cameraZoom?: number,
   ): void {
     if (this.states.size === 0 || this.drapers.size === 0) return
-    // A WebGl2Device frame (renderFrameViaRhi twin) hands in an RhiRenderPass
-    // already; the WebGPU opaque pass hands in a GPURenderPassEncoder that needs
-    // wrapping — the ONE backend fork, mirroring raster-renderer.render. Wrapped ONCE,
-    // outside the per-region loop.
-    const rhiPass =
-      this.rhi.backend === 'webgl2'
-        ? (pass as RhiRenderPass)
-        : wrapWebGpuPass(pass as GPURenderPassEncoder)
+    // Both frame shapes hand in an RhiRenderPass (Inc-2d) — the old
+    // backend-keyed re-wrap was the 34d4695 double-wrap class.
+    const rhiPass = pass
     // Least-recently-armed first; overlapping domains alpha-blend in that order.
     for (const s of this.states.values()) {
       // Resident for its data, not for its paint (#1419) — the velocity pair is uploaded and

@@ -7,7 +7,8 @@
 // line-count — neither would catch a BROKEN DATA PATH where a paint field
 // stops being threaded into the GPU buffers.
 //
-// This drives the REAL HeatmapRenderer.addLayer + drawLayerAccum against the
+// This drives the REAL HeatmapRenderer.addLayer + ensureLayerComposeRhi +
+// drawLayerAccumRhi against the
 // WebGPU stub (no GPU) and intercepts `device.queue.writeBuffer` to read the
 // bytes the renderer actually uploads:
 //   • per-LAYER compose-params buffer (16 B) carries [intensity, opacity]
@@ -25,7 +26,7 @@ import {
 } from '../../../rhi-webgpu/src/__test-support__/webgpu-stub'
 import { initGPU, type GPUContext } from '@xgis/rhi-webgpu'
 import { HeatmapRenderer } from '@xgis/map'
-import { WebGpuDevice } from '@xgis/rhi-webgpu'
+import { WebGpuDevice, wrapWebGpuPass } from '@xgis/rhi-webgpu'
 import { Camera } from '@xgis/map'
 
 let stub: StubInstallation
@@ -100,12 +101,11 @@ function captureHeatmapUploads(ctx: GPUContext): Captured {
             (data as ArrayBufferView).byteLength / 4,
           )
     if (size === 16) {
-      // 16 B is ambiguous: compose-params AND the blur-direction uniforms.
-      // Pre-#834-S1 the blur-dir writes happened in the ctor (before this
-      // hook); the lazy-native deferral moved them AFTER addLayer (first
-      // accum draw), so last-16B-write-wins would capture a blur direction.
-      // Key on the label when the buffer carries one; otherwise keep the
-      // FIRST 16-B write (addLayer's params precedes the lazy blur-dirs).
+      // 16 B is ambiguous: compose-params AND the drapers' blur-direction
+      // uniforms (created lazily by twin() during the accum draw). The RHI
+      // params buffer carries the 'heatmap-compose-params' label through
+      // WebGpuDevice.createBuffer, so key on it; the unlabeled fallback keeps
+      // only a FIRST write and params is captured by then.
       const label = (buf as { label?: string })?.label
       if (
         label === 'heatmap-compose-params' ||
@@ -116,7 +116,6 @@ function captureHeatmapUploads(ctx: GPUContext): Captured {
   }
 
   const renderer = new HeatmapRenderer({
-    device: ctx.device,
     rhi: new WebGpuDevice(ctx.device),
     format: 'bgra8unorm',
   })
@@ -131,10 +130,11 @@ function captureHeatmapUploads(ctx: GPUContext): Captured {
     }
   ).createCommandEncoder()
   const pass = encoder.beginRenderPass()
-  // #834 lazy-native contract: compose-params buffer write lives in getLayers(),
-  // not addLayer() — call it before compose, matching heatmap-pass.ts:59.
-  renderer.getLayers()
-  renderer.drawLayerAccum(pass, 0)
+  // Lazy compose contract: the [intensity, opacity] params write lives in
+  // ensureLayerComposeRhi (the compose data-path entry renderChainRhi calls
+  // per layer), not addLayer — drive it exactly as the pass loop does.
+  renderer.ensureLayerComposeRhi(0)
+  renderer.drawLayerAccumRhi(wrapWebGpuPass(pass), 0)
 
   return captured
 }
@@ -143,14 +143,13 @@ describe('heatmap data-path wiring (GPU-free)', () => {
   it('addLayer registers exactly one layer for a Point set', async () => {
     const ctx = await makeCtx()
     const renderer = new HeatmapRenderer({
-      device: ctx.device,
       rhi: new WebGpuDevice(ctx.device),
       format: 'bgra8unorm',
     })
     expect(renderer.hasLayers()).toBe(false)
     renderer.addLayer(FEATURES as never, RADIUS, WEIGHT, INTENSITY, OPACITY)
     expect(renderer.hasLayers()).toBe(true)
-    expect(renderer.getLayers().length).toBe(1)
+    expect(renderer.layerCount()).toBe(1)
   })
 
   it('per-layer compose-params buffer carries intensity + opacity', async () => {

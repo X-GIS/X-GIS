@@ -689,6 +689,27 @@ jobs:
         # apart resolve to DIFFERENT S-100 cell names and both paint, which a hard-coded key
         # cannot fake. Its catalogue is NOAA's own 19 MB exchange XML translated by the
         # proxy, so the first run also exercises that path. Same egress caveat, ~40 s warm.
+        # ═══ #1046 Inc-4b — the CHAIN pixel gates (default backend, SwiftShader-WebGPU).
+        # The WebGPU raster gates above drive the chain's opaque/coverage passes; these six
+        # close the verticals the twin-side *-gl2-gates cover but the chain did not. All
+        # zero-egress (local fixtures / vendored NE GeoJSON / host-pushed data).
+        # _translucent-chain-gate: Inc-2d review F1's NAMED fence — a translucent stroke
+        # must BLEND through the offscreen MAX+composite bucket on a real device; the F1
+        # class (offscreen-vs-pipeline format mismatch) is a validation kill invisible to
+        # every recorder-backed unit test. ~10 s.
+        # _heatmap-chain-gate: the local _heatmap-verify CPU check promoted to pixels —
+        # the 3-pass heatmap vertical (accum → blur → compose, RHI drapers since Inc-2c)
+        # must rasterise its density ramp, counted by CHROMA over the slate base. ~12 s.
+        # _labels-chain-gate: SDF glyph cores on the DEFAULT backend — the gl2 gate's
+        # mirror; measured 111 white px, identical to the gl2 count, floor 80. ~8 s.
+        # _hillshade-chain-gate / _graphics-chain-gate: default-backend mirrors of the
+        # gl2 acceptance gates (self-calibrating luminance-spread relief; magenta-tinted
+        # retained icon, 4032/4096 px measured). ~8 s / ~20 s.
+        # _scene-scale-seam-gate: the #1429 INC-2 scaled frame driven DETERMINISTICALLY
+        # (?scenescale=0.72 pins the ladder where it forks): the seam draws (and exactly
+        # 0 at scale 1 — the constructive no-op), content paints THROUGH the upscale,
+        # pickAt parity vs scale 1, and glyph cores stay native-crisp (111 px — the
+        # overlay-native property, ADR-0004's CI-drivable half). ~40 s.
         # SPLIT INTO TWO INVOCATIONS (#1433). Everything below measures a COMPILE, a
         # PARITY or a PIXEL. Two specs measure WALL-CLOCK behaviour instead:
         # `_adaptive-quality-ladder-gate` needs the host to be genuinely too slow to keep up,
@@ -704,8 +725,8 @@ jobs:
         # (#1433 option 2, still open, for whoever owns #1393 to decide the right signal).
         run: |
           # The real-signal batch FIRST: the step shell is `bash -e`, so a flake in the
-          # wall-clock pair must not abort the 44 compile/parity/pixel gates before they
+          # wall-clock pair must not abort the compile/parity/pixel gates before they
           # have reported. Quiet-machine ordering is unaffected — each invocation is its
           # own process either way.
-          ./node_modules/.bin/playwright test _shader-math-parity.spec.ts _wgsl-compile-gate.spec.ts _vs-clip-parity.spec.ts _dequant-parity.spec.ts _polygon-fill-flat-parity.spec.ts _polygon-fill-flat-pixel-gate.spec.ts _optimizer-gpu-parity.spec.ts _glsl-compile-gate.spec.ts _polygon-glsl-compile-gate.spec.ts _line-glsl-compile-gate.spec.ts _shader-dsl-mrt-render.spec.ts _emit-obfuscate-gate.spec.ts _graphics-retained-gl2-gate.spec.ts _graphics-retained-arrow-gl2-gate.spec.ts _graphics-retained-arrow-orientation-gate.spec.ts _graphics-compiled-arrow-parity.spec.ts _graphics-retained-drawcall-gl2-gate.spec.ts _compute-gen-compile-gate.spec.ts _fills-gl2-gate.spec.ts _globe-hash-camera-gate.spec.ts _hillshade-gl2-gate.spec.ts _1221-seam-control-matrix.spec.ts _hillshade-methods-gl2-gate.spec.ts _reseed-data-push-gate.spec.ts _s111-multiregion-gate.spec.ts _s111-currents-render.spec.ts _s111-deferred-coverage-gate.spec.ts _s111-advected-arrows-gate.spec.ts _s111-mosaic-arrow-field-gate.spec.ts _s111-arrow-density-gate.spec.ts _s111-catalogue-declarative-gate.spec.ts _s102-catalogue-gate.spec.ts _coverage-render.spec.ts _demotiles-labels-gl2-gate.spec.ts _label-pitch-alignment-gate.spec.ts
+          ./node_modules/.bin/playwright test _shader-math-parity.spec.ts _wgsl-compile-gate.spec.ts _vs-clip-parity.spec.ts _dequant-parity.spec.ts _polygon-fill-flat-parity.spec.ts _polygon-fill-flat-pixel-gate.spec.ts _optimizer-gpu-parity.spec.ts _glsl-compile-gate.spec.ts _polygon-glsl-compile-gate.spec.ts _line-glsl-compile-gate.spec.ts _shader-dsl-mrt-render.spec.ts _emit-obfuscate-gate.spec.ts _graphics-retained-gl2-gate.spec.ts _graphics-retained-arrow-gl2-gate.spec.ts _graphics-retained-arrow-orientation-gate.spec.ts _graphics-compiled-arrow-parity.spec.ts _graphics-retained-drawcall-gl2-gate.spec.ts _compute-gen-compile-gate.spec.ts _fills-gl2-gate.spec.ts _globe-hash-camera-gate.spec.ts _hillshade-gl2-gate.spec.ts _1221-seam-control-matrix.spec.ts _hillshade-methods-gl2-gate.spec.ts _reseed-data-push-gate.spec.ts _s111-multiregion-gate.spec.ts _s111-currents-render.spec.ts _s111-deferred-coverage-gate.spec.ts _s111-advected-arrows-gate.spec.ts _s111-mosaic-arrow-field-gate.spec.ts _s111-arrow-density-gate.spec.ts _s111-catalogue-declarative-gate.spec.ts _s102-catalogue-gate.spec.ts _coverage-render.spec.ts _demotiles-labels-gl2-gate.spec.ts _label-pitch-alignment-gate.spec.ts _translucent-chain-gate.spec.ts _heatmap-chain-gate.spec.ts _labels-chain-gate.spec.ts _hillshade-chain-gate.spec.ts _graphics-chain-gate.spec.ts _scene-scale-seam-gate.spec.ts
           ./node_modules/.bin/playwright test --workers=1 _adaptive-quality-ladder-gate.spec.ts _shader-dsl-mouse-interaction.spec.ts

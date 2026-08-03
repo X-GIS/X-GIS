@@ -16,7 +16,7 @@
 // thin delegations to the FrameRenderer — byte-identical external API, ZERO
 // call-site changes.
 
-import type { GPUContext } from '@xgis/rhi-webgpu'
+import { unwrapWebGpuPass, type GPUContext } from '@xgis/rhi-webgpu'
 import type { Camera } from '../camera'
 import type { MeshData, LineMeshData } from '@xgis/data'
 import { DEBUG_OVERDRAW } from '../debug-flags'
@@ -198,17 +198,16 @@ export class MapRendererContent {
   get oitComposeBindGroupLayout(): GPUBindGroupLayout {
     return this.engine.oitComposeBindGroupLayout
   }
+  /** OIT fullscreen recover draw — thin forwarder to the engine half, which
+   *  owns the pipeline/layout and the native unwrap (#1046 F3b Inc-2d). */
+  drawOitCompose(pass: RhiRenderPass, accumView: GPUTextureView, revealView: GPUTextureView): void {
+    this.engine.drawOitCompose(pass, accumView, revealView)
+  }
   get overdrawComposePipeline(): GPURenderPipeline | null {
     return this.engine.overdrawComposePipeline
   }
   get overdrawComposeBindGroupLayout(): GPUBindGroupLayout {
     return this.engine.overdrawComposeBindGroupLayout
-  }
-  get heatmapBlurBindGroupLayout(): GPUBindGroupLayout {
-    return this.engine.heatmapBlurBindGroupLayout
-  }
-  get heatmapComposeBindGroupLayout(): GPUBindGroupLayout {
-    return this.engine.heatmapComposeBindGroupLayout
   }
   get fillPipelineOverdraw(): GPURenderPipeline | null {
     return this.engine.fillPipelineOverdraw
@@ -294,14 +293,6 @@ export class MapRendererContent {
   /** Lazy-build the `?debug=overdraw` final compose pipeline. */
   ensureOverdrawCompose(): GPURenderPipeline {
     return this.engine.ensureOverdrawCompose()
-  }
-  /** Lazy-build the heatmap blur pipeline (Phase R). */
-  ensureHeatmapBlur(): GPURenderPipeline {
-    return this.engine.ensureHeatmapBlur()
-  }
-  /** Lazy-build the heatmap compose pipeline (Phase R). */
-  ensureHeatmapCompose(): GPURenderPipeline {
-    return this.engine.ensureHeatmapCompose()
   }
   /** Reset the ring-buffer slot cursor. Call once per frame before any draws. */
   beginFrame(): void {
@@ -754,13 +745,17 @@ export class MapRendererContent {
 
   /** Render all layers into an existing render pass (RTC projection) */
   renderToPass(
-    pass: GPURenderPassEncoder,
+    rhiPass: RhiRenderPass,
     camera: Camera,
     projType = 0,
     projCenterLon = 0,
     projCenterLat = 20,
     elapsedMs = 0,
   ): void {
+    // Inc-2d boundary: the chain hands the neutral handle; the legacy layer
+    // draws below are still native plumbing — unwrap ONCE here (retires with
+    // the legacy MapRenderer cluster).
+    const pass = unwrapWebGpuPass(rhiPass) as GPURenderPassEncoder
     // Overdraw-debug v1: legacy MapRenderer layers (graticule, etc.)
     // bake their pipeline against the swapchain format. The pass
     // attachment in debug mode is r16float — formats mismatch. Skip
@@ -932,13 +927,16 @@ export class MapRendererContent {
    * display routes its own MVP + world-copy fan-out through the camera.
    */
   renderGraticuleOverlay(
-    pass: GPURenderPassEncoder,
+    rhiPass: RhiRenderPass,
     camera: Camera,
     projType = 0,
     projCenterLon = 0,
     projCenterLat = 20,
   ): void {
     if (DEBUG_OVERDRAW || !this._graticule.isEnabled()) return
+    // Inc-2d boundary (see renderToPass): unwrap once, native graticule
+    // plumbing unchanged until its cluster flips.
+    const pass = unwrapWebGpuPass(rhiPass) as GPURenderPassEncoder
     const { canvas } = this.ctx
     const dpr = canvas.clientWidth > 0 ? canvas.width / canvas.clientWidth : 1
     const frame = camera.getECEFFrameView(canvas.width, canvas.height, dpr)

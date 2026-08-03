@@ -26,6 +26,7 @@ import type {
   HeatmapPassHost,
   GraphicsPassHost,
   FlowPassHost,
+  SceneUpscalePassHost,
 } from './pass-hosts'
 // Re-export the per-pass role views so each concrete pass imports its role
 // alongside RenderPass from this one module (single import line per pass).
@@ -41,6 +42,7 @@ export type {
   HeatmapPassHost,
   GraphicsPassHost,
   FlowPassHost,
+  SceneUpscalePassHost,
 } from './pass-hosts'
 
 /** The owning-map view a pass reaches its renderers / stages / camera
@@ -59,7 +61,8 @@ export type PassHost = BackgroundPassHost &
   OverdrawComposePassHost &
   HeatmapPassHost &
   GraphicsPassHost &
-  FlowPassHost
+  FlowPassHost &
+  SceneUpscalePassHost
 
 /** One stage of the fixed render-pass chain. */
 export interface RenderPass {
@@ -68,6 +71,54 @@ export interface RenderPass {
   /** Whether this pass emits anything this frame — the gate the inline
    *  `if (...)` block used. */
   shouldRun(scene: SceneView): boolean
-  /** Emit the pass's GPU commands into `ctx.encoder`. */
+  /** Emit the pass's GPU commands through the RHI frame shell —
+   *  `requireRhiFrame(ctx, label)` on every chain pass since #1046 F3b
+   *  (flow alone null-skips `ctx.rhiEncoder` instead: it draws only into
+   *  its own grid-space pair, so a bridge-less frame skips the step). */
   execute(ctx: FrameContext, scene: SceneView, host: PassHost): void
+}
+
+/** F3b bridge for the chain pass bodies: the frame's RHI encoder + view
+ *  handles, non-null-asserted in one place. The bridges are null ONLY on the
+ *  forced-WebGL2 twin frame (which holds its one live `rhiPass` instead) — a
+ *  chain pass reaching this with null bridges is a mis-routed frame, and the
+ *  loud throw here is what keeps that a crash with a name instead of a wrong
+ *  render. Dies with the twin (#991 P4/P5). */
+export function requireRhiFrame(
+  ctx: FrameContext,
+  label: string,
+): {
+  enc: NonNullable<FrameContext['rhiEncoder']>
+  screenView: NonNullable<FrameContext['rhiScreenView']>
+  colorView: NonNullable<FrameContext['rhiColorView']>
+  stencilView: NonNullable<FrameContext['rhiStencilView']>
+  /** #1429 INC-2 — where the resolve-owner SCENE pass resolves (the scene
+   *  colour while the ladder scales; IDENTITY to `screenView` when not). */
+  sceneResolveView: NonNullable<FrameContext['rhiSceneResolveView']>
+  /** #1429 INC-2 — the SEAM/OVERLAY colour attachment (the screen-sized
+   *  MSAA while scaled; IDENTITY to `colorView` when not). */
+  colorViewScreen: NonNullable<FrameContext['rhiColorViewScreen']>
+} {
+  const { rhiEncoder, rhiScreenView, rhiColorView, rhiStencilView } = ctx
+  const { rhiSceneResolveView, rhiColorViewScreen } = ctx
+  if (
+    !rhiEncoder ||
+    !rhiScreenView ||
+    !rhiColorView ||
+    !rhiStencilView ||
+    !rhiSceneResolveView ||
+    !rhiColorViewScreen
+  )
+    throw new Error(
+      `[X-GIS] ${label}: this chain pass needs the RHI frame bridges, which are ` +
+        `null here — the chain must not run on the twin frame (#1046 F3b)`,
+    )
+  return {
+    enc: rhiEncoder,
+    screenView: rhiScreenView,
+    colorView: rhiColorView,
+    stencilView: rhiStencilView,
+    sceneResolveView: rhiSceneResolveView,
+    colorViewScreen: rhiColorViewScreen,
+  }
 }

@@ -199,11 +199,24 @@ class WebGpuRenderPass implements RhiRenderPass {
   end(): void {
     if ('end' in this.enc) this.enc.end()
   }
+  /** Native handle for module-level unwrap (mirrors WebGpuCommandEncoder.nativeEncoder). */
+  get nativePass(): GPURenderPassEncoder | GPURenderBundleEncoder {
+    return this.enc
+  }
 }
 
 /** Wrap a live GPURenderPassEncoder OR a GPURenderBundleEncoder (the render loop's pass / a VTR tile
- *  bundle) as an RHI pass so renderers record against the interface, not the native encoder. */
+ *  bundle) as an RHI pass so renderers record against the interface, not the native encoder.
+ *  Fail-loud on an ALREADY-WRAPPED pass (#1046 F3b review): the chain retype hands RhiRenderPass
+ *  handles down paths that used to receive natives, and a cast-laundered re-wrap here is silent
+ *  corruption — the double wrapper unwraps to the inner WRAPPER, so the real encoder receives
+ *  undefined pipelines/groups. Caught live in the hillshade port; a throw turns the whole class
+ *  into an immediate, named failure instead of a dead frame. */
 export function wrapWebGpuPass(enc: GPURenderPassEncoder | GPURenderBundleEncoder): RhiRenderPass {
+  if (enc instanceof WebGpuRenderPass)
+    throw new Error(
+      'wrapWebGpuPass: received an RhiRenderPass wrapper — already RHI; pass it through instead (double wrap corrupts the native encoder)',
+    )
   return new WebGpuRenderPass(enc)
 }
 
@@ -332,6 +345,17 @@ export function unwrapWebGpuCommandEncoder(enc: RhiCommandEncoder): GPUCommandEn
   return (enc as WebGpuCommandEncoder).nativeEncoder
 }
 
+/** Recover the native pass encoder from an RHI pass (the inverse of
+ *  `wrapWebGpuPass`, completing the unwrap set) — the bridge for the ONE
+ *  WebGPU-encoder concern the chain retype leaves at the gpuTimer seam
+ *  (mid-pass writeTimestamp marks; see GPUTimer.markRhi). Identity on
+ *  WebGPU — the same native encoder the wrapper holds. */
+export function unwrapWebGpuPass(
+  pass: RhiRenderPass,
+): GPURenderPassEncoder | GPURenderBundleEncoder {
+  return (pass as WebGpuRenderPass).nativePass
+}
+
 /** Recover the native `GPUTextureView` from an RHI view — used by the F2 frame
  *  shell to feed the RHI-acquired swapchain view (`acquireScreenView`) to the
  *  not-yet-migrated raw passes / RenderTargets. Identity on WebGPU. */
@@ -370,6 +394,7 @@ export class WebGpuDevice implements RhiDevice {
       executionModel: 'deferred',
       // WebGPU reads `RhiPipelineDesc.code` and ignores vsCode/fsCode entirely.
       shaderLanguage: 'wgsl',
+      chainFrame: true,
     } as const)
   }
 

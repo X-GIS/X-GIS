@@ -18,17 +18,36 @@
 
 import { OIT_ACCUM_FORMAT, OIT_REVEALAGE_FORMAT } from './gpu-shared'
 import type { GPUContext } from './gpu'
+import { wrapWebGpuTextureView } from './rhi-webgpu'
+import type { RhiTextureView } from '@xgis/rhi'
 
 /** Result of `RenderTargets.ensure` — the per-frame colour-attachment
- *  decision that depends on `sampleCount` / `debugOverdraw`. Identical to
- *  the locals (`useResolve`, `colorView`) the inline block computed. */
+ *  decision that depends on `sampleCount` / `debugOverdraw` / the adaptive
+ *  scene scale (#1429 INC-2). When the scene is NOT scaled every field
+ *  reduces to its pre-split value by IDENTITY (`colorViewScreen ===
+ *  colorView`, `sceneResolveView === screenView`, `sceneColorSampleView
+ *  null`) — the scale-1 constructive no-op gate pins that. */
 export interface EnsureResult {
-  /** `sampleCount > 1` — whether passes resolve MSAA to the swapchain. */
+  /** `sampleCount > 1` — whether passes resolve MSAA. */
   useResolve: boolean
-  /** The colour attachment opaque/translucent passes draw into: the
-   *  overdraw accumulator in `?debug=overdraw`, the MSAA texture view when
-   *  `useResolve`, else `screenView` directly. */
+  /** The colour attachment SCENE passes draw into: the overdraw accumulator
+   *  in `?debug=overdraw`, the (scene-sized) MSAA texture view when
+   *  `useResolve`, else the scene colour (scaled) / `screenView` directly. */
   colorView: GPUTextureView
+  /** #1429 INC-2 — true when the adaptive ladder shrank the scene target
+   *  below the canvas (`sceneW/H !== screenW/H`): the scene pair exists and
+   *  the upscale seam must run. */
+  sceneScaled: boolean
+  /** Where the resolve-owner scene pass resolves its MSAA: the scene colour
+   *  when scaled, else `screenView` (the pre-split target). */
+  sceneResolveView: GPUTextureView
+  /** The colour attachment the SEAM + OVERLAY passes draw into: the
+   *  screen-sized MSAA when scaled (labels still own the final resolve),
+   *  else exactly `colorView` (one attachment, as today). */
+  colorViewScreen: GPUTextureView
+  /** The resolved scene colour as a sampleable view — the upscale's source.
+   *  `null` unless scaled. */
+  sceneColorSampleView: GPUTextureView | null
 }
 
 /** Owns the GPU render-target textures + recreate-on-resize lifecycle. The
@@ -56,6 +75,16 @@ export class RenderTargets {
   overdrawAccumTexture: GPUTexture | null = null
   /** Pick (GPU hover/click) RG32Uint single-sample colour attachment. */
   pickTexture: GPUTexture | null = null
+  /** #1429 INC-2 — the resolved scene colour at SCENE size. Allocated ONLY
+   *  while the adaptive ladder holds the scene below native (`sceneScaled`):
+   *  the resolve destination when MSAA is on, the direct scene write target
+   *  when it is off, and always the upscale seam's sample source. */
+  sceneColorTexture: GPUTexture | null = null
+  /** #1429 INC-2 — the screen-sized MSAA the SEAM + OVERLAY passes draw
+   *  into while scaled (labels resolve it to the swapchain, exactly as they
+   *  resolved the one MSAA before the split). Allocated only when scaled AND
+   *  `sampleCount > 1`. */
+  screenMsaaTexture: GPUTexture | null = null
 
   // ── Self-healing texture-view cache ──
   // A GPUTexture.createView() with no args returns a FRESH view each call; the
@@ -75,6 +104,19 @@ export class RenderTargets {
     if (v === undefined) {
       v = tex.createView()
       this._viewCache.set(tex, v)
+    }
+    return v
+  }
+  // RHI twin of the cache above, for the F3b chain passes (#1046 Inc-2d):
+  // the SAME cached native view, wrapped ONCE per texture identity, so an
+  // RHI-originated pass descriptor targets these adapter-owned textures
+  // without a per-frame wrap and with no second cache to desync.
+  private readonly _rhiViewCache = new WeakMap<GPUTexture, RhiTextureView>()
+  private rhiViewOf(tex: GPUTexture): RhiTextureView {
+    let v = this._rhiViewCache.get(tex)
+    if (v === undefined) {
+      v = wrapWebGpuTextureView(this.viewOf(tex))
+      this._rhiViewCache.set(tex, v)
     }
     return v
   }
@@ -102,9 +144,33 @@ export class RenderTargets {
   get oitRevealageView(): GPUTextureView | null {
     return this.oitRevealageTexture ? this.viewOf(this.oitRevealageTexture) : null
   }
-  /** Size the textures were last allocated at (recreate gate). */
+  /** RHI form of `pickView` for the F3b chain descriptors (same cached native
+   *  view underneath — identity-stable per texture). */
+  get pickViewRhi(): RhiTextureView | null {
+    return this.pickTexture ? this.rhiViewOf(this.pickTexture) : null
+  }
+  /** RHI form of `oitAccumView` (see pickViewRhi). */
+  get oitAccumViewRhi(): RhiTextureView | null {
+    return this.oitAccumTexture ? this.rhiViewOf(this.oitAccumTexture) : null
+  }
+  /** RHI form of `oitRevealageView` (see pickViewRhi). */
+  get oitRevealageViewRhi(): RhiTextureView | null {
+    return this.oitRevealageTexture ? this.rhiViewOf(this.oitRevealageTexture) : null
+  }
+  /** Size the SCENE-side textures were last allocated at (recreate gate).
+   *  Pre-#1429 this was the one canvas size; it is now the scene size, which
+   *  the ladder can move while the canvas is unchanged. */
   msaaWidth = 0
   msaaHeight = 0
+  /** #1429 INC-2 — the scaled pair's own tracker (scene and screen resize
+   *  independently — a ladder notch moves the scene while the canvas is
+   *  unchanged, a window resize moves both; `0` means "not allocated",
+   *  which is also the not-scaled steady state). */
+  private screenPairW = 0
+  private screenPairH = 0
+  private scenePairW = 0
+  private scenePairH = 0
+  private screenPairSc = 0
   /** Size + sample count the OIT targets were last allocated at — a separate
    *  tracker so the lazily-allocated OIT block resizes independently of the
    *  main MSAA block and recreates when the sample count changes. */
@@ -166,20 +232,33 @@ export class RenderTargets {
     this.oitAccumTexture = null
     this.oitRevealageTexture = null
     this.offscreenExtrudeDepth = null
+    this.sceneColorTexture = null
+    this.screenMsaaTexture = null
     this.msaaWidth = 0
     this.msaaHeight = 0
+    this.screenPairW = 0
+    this.screenPairH = 0
+    this.scenePairW = 0
+    this.scenePairH = 0
+    this.screenPairSc = 0
     this.oitWidth = 0
     this.oitHeight = 0
     this.oitSampleCount = 0
   }
 
   /** (Re)allocate the render-target textures when missing or resized, then
-   *  return the per-frame colorView decision. VERBATIM port of the inline
-   *  MSAA/stencil management block + colorView choice: same formats, usages,
-   *  destroy-old order, MSAA-dims tracking, and recreate-on-resize gate. */
+   *  return the per-frame colorView decision. The SCENE-side block is the
+   *  VERBATIM port of the inline MSAA/stencil management (same formats,
+   *  usages, destroy-old order, recreate-on-resize gate), now sized from
+   *  SCENE pixels; the screen-side pair (#1429 INC-2) exists ONLY while the
+   *  adaptive ladder holds `sceneW/H` below `screenW/H`. When not scaled the
+   *  allocation AND the returned views are byte-identical to the pre-split
+   *  code — a host that never trips the ladder cannot be regressed. */
   ensure(
-    w: number,
-    h: number,
+    sceneW: number,
+    sceneH: number,
+    screenW: number,
+    screenH: number,
     sampleCount: number,
     pickEnabled: boolean,
     debugOverdraw: boolean,
@@ -189,6 +268,9 @@ export class RenderTargets {
     this.syncDevice(device)
     const sc = sampleCount
     const useResolve = sc > 1
+    const sceneScaled = sceneW !== screenW || sceneH !== screenH
+    const w = sceneW
+    const h = sceneH
     if (!this.stencilTexture || this.msaaWidth !== w || this.msaaHeight !== h) {
       this.msaaTexture?.destroy()
       this.stencilTexture?.destroy()
@@ -196,7 +278,7 @@ export class RenderTargets {
       this.overdrawAccumTexture?.destroy()
       this.overdrawAccumTexture = null
       // Allocate the MSAA color attachment ONLY when MSAA is on. When
-      // sc === 1 we render straight to the swapchain (no resolveTarget)
+      // sc === 1 we render straight to the target (no resolveTarget)
       // and the MSAA texture would just waste w×h×4 bytes per frame.
       this.msaaTexture = useResolve
         ? device.createTexture({
@@ -215,7 +297,9 @@ export class RenderTargets {
       // Pick RT: RG32Uint, single-sample. `?picking=1` forces SAMPLE_COUNT
       // to 1 globally (see quality.ts) so sc === 1 here whenever PICK is
       // true — the pick attachment and color attachment share sample count
-      // as WebGPU requires.
+      // as WebGPU requires. Scene-sized: it is a scene-pass attachment, and
+      // the pick READ derives its coordinate from this texture's own size
+      // (single authority), so the two cannot disagree.
       this.pickTexture = pickEnabled
         ? device.createTexture({
             size: { width: w, height: h },
@@ -245,9 +329,62 @@ export class RenderTargets {
       this.msaaHeight = h
     }
 
+    // ── #1429 INC-2: the screen-side pair, only while scaled ──
+    // sceneColor is the resolved scene at scene size (resolve destination
+    // under MSAA, direct scene write target without it, always the seam's
+    // sample source); screenMsaa is the native-sized MSAA the seam + overlay
+    // draw into (labels keep the final resolve). Not scaled ⇒ both retire —
+    // `screenPairW = 0` is also the steady state, so a host that never trips
+    // the ladder never allocates a byte here.
+    if (sceneScaled) {
+      if (
+        !this.sceneColorTexture ||
+        this.screenPairW !== screenW ||
+        this.screenPairH !== screenH ||
+        this.scenePairW !== w ||
+        this.scenePairH !== h ||
+        this.screenPairSc !== sc
+      ) {
+        this.sceneColorTexture?.destroy()
+        this.screenMsaaTexture?.destroy()
+        this.sceneColorTexture = device.createTexture({
+          size: { width: w, height: h },
+          format,
+          sampleCount: 1,
+          usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING,
+          label: 'scene-color',
+        })
+        this.screenMsaaTexture = useResolve
+          ? device.createTexture({
+              size: { width: screenW, height: screenH },
+              format,
+              sampleCount: sc,
+              usage: GPUTextureUsage.RENDER_ATTACHMENT,
+              label: 'screen-msaa',
+            })
+          : null
+        this.screenPairW = screenW
+        this.screenPairH = screenH
+        this.scenePairW = w
+        this.scenePairH = h
+        this.screenPairSc = sc
+      }
+    } else if (this.sceneColorTexture || this.screenMsaaTexture) {
+      this.sceneColorTexture?.destroy()
+      this.screenMsaaTexture?.destroy()
+      this.sceneColorTexture = null
+      this.screenMsaaTexture = null
+      this.screenPairW = 0
+      this.screenPairH = 0
+      this.scenePairW = 0
+      this.scenePairH = 0
+      this.screenPairSc = 0
+    }
+
     // When SAMPLE_COUNT === 1 (mobile / no MSAA), render DIRECTLY to the
-    // swapchain texture and never set a resolveTarget — single-sample
-    // attachments cannot have a resolve target per WebGPU spec.
+    // target texture and never set a resolveTarget — single-sample
+    // attachments cannot have a resolve target per WebGPU spec. Scaled, the
+    // direct target is the scene colour; native, it is the swapchain view.
     //
     // `?debug=overdraw` reroutes every opaque/translucent pass into the
     // r16float accumulator instead. A trailing compose pass at the end
@@ -255,9 +392,31 @@ export class RenderTargets {
     // the swapchain. Translucent/OIT paths still run — their debug
     // pipeline mirrors emit into the same accumulator with additive
     // blend, so the heatmap counts every contributing draw.
-    const colorView = debugOverdraw ? this.overdrawView! : useResolve ? this.msaaView! : screenView
-
-    return { useResolve, colorView }
+    const sceneColorView = this.sceneColorTexture ? this.viewOf(this.sceneColorTexture) : null
+    const colorView = debugOverdraw
+      ? this.overdrawView!
+      : useResolve
+        ? this.msaaView!
+        : sceneScaled
+          ? sceneColorView!
+          : screenView
+    // Where the resolve-owner scene pass resolves; what the seam samples;
+    // what the seam + overlay write. All three reduce to the pre-split
+    // values by IDENTITY when not scaled.
+    const sceneResolveView = sceneScaled ? sceneColorView! : screenView
+    const colorViewScreen = sceneScaled
+      ? useResolve
+        ? this.viewOf(this.screenMsaaTexture!)
+        : screenView
+      : colorView
+    return {
+      useResolve,
+      colorView,
+      sceneScaled,
+      sceneResolveView,
+      colorViewScreen,
+      sceneColorSampleView: sceneScaled ? sceneColorView : null,
+    }
   }
 
   /** Lazily (re)allocate the OIT targets (accum + revealage + offscreen-

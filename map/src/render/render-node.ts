@@ -31,7 +31,7 @@ export interface RenderNode {
    *  `if (...)` block used. MUST be pure (no side effects): the scheduler
    *  calls it for every node every frame, including the unconditional ones. */
   shouldRun(scene: SceneView): boolean
-  /** Emit the node's GPU commands into `ctx.encoder`. The node reaches its
+  /** Emit the node's GPU commands through the frame's RHI shell. The node reaches its
    *  renderers / camera / map state through the content host it captured at
    *  registration — the engine never supplies it. */
   execute(ctx: FrameContext, scene: SceneView): void

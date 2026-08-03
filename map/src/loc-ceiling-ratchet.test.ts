@@ -152,10 +152,13 @@ const CEILINGS: Record<string, number> = {
   // per site on WebGL2, and the mirror waste of the GLSL pair on WebGPU. No statement was
   // added: the existing shader/vsCode/fsCode expressions were wrapped in place, and the
   // decision itself lives in material/wgsl-for.ts.
+  // +4 (#1046 F3b Inc-2d): the render() boundary — the chain hands the neutral
+  // RhiRenderPass and the internal native tile plumbing unwraps it ONCE. The
+  // seam retires with the VTR cluster's own #991 flip.
   // #1479: −5. The `getDrawStats` forwarder restated its return type by hand — a second
   // authority for one shape. Deriving it (`ReturnType<FrameDrawStats['getDrawStats']>`)
   // paid for the `drawnByZoom` field and left the file smaller than before.
-  'map/src/render/vector-tile-renderer.ts': 4811,
+  'map/src/render/vector-tile-renderer.ts': 4813,
   // 4232→4237 (#1000 heatmap relocate): the heatmap density-target OWNERSHIP
   // extracted to render/heatmap-targets.ts; map keeps only the irreducible
   // composition-root wiring — the `heatmapTargets` field + its import (mirrors
@@ -726,10 +729,15 @@ const CEILINGS: Record<string, number> = {
   // banked: the resolution is the MEASURED post-prettier size of the merged file, never either
   // side's number. Picking one would silently hand back the other's reduction as headroom to
   // re-spend, which is the quiet way a shrink-only ratchet stops shrinking.
+  // 2034→2013 (#1046 F3b, the LAST chain pass): the text-overlay sub-pass originates
+  // through requireRhiFrame (+9 — the seam call, the conditional-resolve rationale, and
+  // the reworded twin-arm comment). Paid by extraction, not a bump: resolveIconRotateRad
+  // (+JSDoc) moved VERBATIM to icon-keep-upright-rotate.ts (pure, one call site, its own
+  // unit gate keeps importing the same symbol).
   // #777 IV3: −8. The point-label dispatch loop moved to dispatch-point-labels.ts,
   // which is also where the ground-basis producer lives — the extraction paid for
   // the wiring rather than the file growing to hold it.
-  'map/src/render/passes/label-pass.ts': 2026,
+  'map/src/render/passes/label-pass.ts': 2005,
   // #1081 — per-anchor perspective distance attenuation (MapLibre parity). New
   // baseline: the wCenter + perspScale scratch-out-value lives INLINE in the two
   // existing projector closures (it rides the cw already computed per anchor —
@@ -753,7 +761,9 @@ const CEILINGS: Record<string, number> = {
   // WGSL, feature layout). Cohesive with the existing per-style flat/ground
   // twin machinery it mirrors; lower as #991 decomposes the render SCC.
   // (measured 1621 post-prettier reflow of the extruded descriptors.)
-  'map/src/render/pipeline-factory.ts': 1621,
+  // 1621→1568 (#1046 F3b Inc-2c): the heatmap blur/compose factories retired
+  // with the chain's RHI re-origination — win banked.
+  'map/src/render/pipeline-factory.ts': 1568,
   'map/src/camera/camera.ts': 1419,
   'map/src/shaders/dsl/line.ts': 1441,
   // 1373→1422 (#1246): the flat-projection stroke-width fix. The VS clamp's flat
@@ -912,6 +922,15 @@ const CEILINGS: Record<string, number> = {
   // runs earlier in this same method) plus the FLOW_DRAPE_MIX import. Irreducible:
   // it is the twin's own call site, and the shader/material work it feeds lives in
   // coverage-ramp.ts and coverage-material.ts.
+  // 1387→1418 (#1046 F3b Inc-2a): the F3b bridge — keep the RHI screen-view
+  // handle beside its unwrap, populate the three parallel rhi*View ctx fields
+  // in both ctx branches + the MSAA block, and the WeakMap-memoized
+  // _rhiViewFor wrap helper (allocation-free steady state). All of it is
+  // transitional plumbing that the F3b FrameContext field collapse deletes
+  // together with the native trio. +31, post-hook. 1418→1425 (F3b review):
+  // the msaa=1 bridge reuses the device's rebind screen wrapper instead of
+  // memo-wrapping a per-frame-minted view — keeps the loop allocation-free
+  // on that path too. +7, post-hook.
   //
   // +7 (#1419, measured after the prettier hook wrapped the call): the WebGL2 twin's
   // arrow-advection step, beside the trail step it already ran.
@@ -923,10 +942,17 @@ const CEILINGS: Record<string, number> = {
   // arrows portrayal every flow region is resident-but-hidden, so advecting a full-screen image
   // nobody draws was a per-frame cost with no picture attached.
   //
+  // 1433 (merge, F3b branch × #1419/#1424): both sides GREW independently — the F3b
+  // bridge (+38 over 1387) and the twin's arrow step (+8 over 1387) touch disjoint
+  // regions; the ceiling is the MEASURED post-merge size, not either side's number.
   // +2 (#1419, third pass): the twin declares the arrow field every frame — OUTSIDE the `if`,
   // because a frame with no field is exactly the one that must say so (an evicted region's
   // textures are destroyed, and a binding still holding them dies in the next submit).
-  'map/src/render-loop.ts': 1397,
+  // 1435 (merge): measured again after the #1445 +2 landed on main's side.
+  // 1435→1425 (#1046 Inc-3b): the field collapse deleted the native trio's
+  // population + the rawFrameShell escape arms — the loop SHRANK through a
+  // feature increment, which is the ratchet working as designed.
+  'map/src/render-loop.ts': 1425,
   // Baselined at 806 (hillshade tile fade-in): HillshadeRenderer crossed
   // NEW_FILE_CAP restoring the three tile-streaming fixes raster-renderer had
   // landed since hillshade was copied from it — the per-tile fade ramp + its
@@ -1017,7 +1043,11 @@ const CEILINGS: Record<string, number> = {
   // color-renderable + blendable, plus the scalar `uint32` vertex format (the
   // accum quad's quad_id) with its UNSIGNED_INT glType arm.
   // Merge union (#1060 <- main): stacked growth — measured 1000.
-  'map/src/render/renderer.ts': 1000,
+  // 1000→986 (#1046 F3b Inc-2c): heatmap forwarders retired — win banked.
+  // +12 (#1046 F3b Inc-2d): renderToPass/renderGraticuleOverlay narrowed to
+  // RhiRenderPass with a one-line native unwrap each (legacy plumbing), plus
+  // the drawOitCompose forwarder. Retires with the legacy-layer cluster.
+  'map/src/render/renderer.ts': 998,
   // Merge union (#1060 <- main): stacked growth — measured 1397.
   // 1397→1404 (#1196, merge union): destroy() stashes the pre-loss
   // WEBGL_lose_context handle on the canvas (stashGl2RestoreToken) —

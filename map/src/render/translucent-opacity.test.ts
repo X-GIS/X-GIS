@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 // WebGPU globals don't exist under happy-dom — stub the few constants
-// LineRenderer touches in its constructor + ensureOffscreen.
+// LineRenderer touches in its constructor + the offscreen/composite path.
 ;(
   globalThis as unknown as { GPUShaderStage: { VERTEX: number; FRAGMENT: number } }
 ).GPUShaderStage = { VERTEX: 1, FRAGMENT: 2 }
@@ -17,7 +17,7 @@ import { describe, expect, it } from 'vitest'
   TEXTURE_BINDING: 4,
 }
 import { LineRenderer } from '@xgis/map'
-import { WebGpuDevice } from '@xgis/rhi-webgpu'
+import { wrapWebGpuPass, WebGpuDevice } from '@xgis/rhi-webgpu'
 import type { GPUContext } from '@xgis/rhi-webgpu'
 
 // ── Regression: translucent composite opacity must NOT clobber across layers ──
@@ -160,13 +160,13 @@ describe('translucent composite opacity (multi-layer clobber)', () => {
     const { lr, fakePass, writes, draws, compositeRing } = makeHarness()
     expect(compositeRing, 'composite ring buffer must be allocated').toBeTruthy()
 
-    lr.ensureOffscreen(800, 600)
+    lr.ensureOffscreenRhi(800, 600)
     lr.beginFrame()
 
     // Mimic TranslucentPass: composite once per translucent-stroke layer,
     // both encoded into the same command encoder (one mock pass), one frame.
-    lr.composite(fakePass, 0.5)
-    lr.composite(fakePass, 0.8)
+    lr.composite(wrapWebGpuPass(fakePass), 0.5)
+    lr.composite(wrapWebGpuPass(fakePass), 0.8)
 
     // Structural: two distinct dynamic offsets (not offset 0 twice).
     const compositeDraws = draws.filter((d) => d.vertexCount === 3)
@@ -184,9 +184,9 @@ describe('translucent composite opacity (multi-layer clobber)', () => {
 
   it('single-layer case stays correct (one slot, one draw)', () => {
     const { lr, fakePass, writes, draws, compositeRing } = makeHarness()
-    lr.ensureOffscreen(640, 480)
+    lr.ensureOffscreenRhi(640, 480)
     lr.beginFrame()
-    lr.composite(fakePass, 0.42)
+    lr.composite(wrapWebGpuPass(fakePass), 0.42)
 
     const compositeDraws = draws.filter((d) => d.vertexCount === 3)
     expect(compositeDraws).toHaveLength(1)
@@ -196,14 +196,14 @@ describe('translucent composite opacity (multi-layer clobber)', () => {
 
   it('beginFrame() resets the composite slot cursor between frames', () => {
     const { lr, fakePass, draws } = makeHarness()
-    lr.ensureOffscreen(320, 240)
+    lr.ensureOffscreenRhi(320, 240)
 
     lr.beginFrame()
-    lr.composite(fakePass, 0.3)
-    lr.composite(fakePass, 0.6)
+    lr.composite(wrapWebGpuPass(fakePass), 0.3)
+    lr.composite(wrapWebGpuPass(fakePass), 0.6)
 
     lr.beginFrame() // reset
-    lr.composite(fakePass, 0.9)
+    lr.composite(wrapWebGpuPass(fakePass), 0.9)
 
     const compositeDraws = draws.filter((d) => d.vertexCount === 3)
     expect(compositeDraws).toHaveLength(3)

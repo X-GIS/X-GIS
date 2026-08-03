@@ -9,9 +9,10 @@
 // across sub-passes (and into OIT / points) so later groups occlude
 // against earlier ones.
 //
-// Mechanical changes only: `this.host.X` → `host.X`, `encoder` →
-// `ctx.encoder`. All loop-local state stays inside execute(); behaviour is
-// byte-identical to the inline block.
+// F3b Inc-2d: originates through the RHI frame shell (requireRhiFrame +
+// the Inc-1 beginTimedPass/markRhi timer seam); the sub-pass topology is
+// descriptor-equivalent to the retired native block. All loop-local state
+// stays inside execute().
 
 import { DEBUG_OVERDRAW } from '../../debug-flags'
 import { isPickEnabled } from '@xgis/engine'
@@ -20,7 +21,7 @@ import { resolveNumberShape } from '../paint-shape-resolve'
 import type { FrameContext } from '../frame-context'
 import { unwrapProjection } from '../projection-token'
 import type { SceneView } from '../scene-view'
-import type { RenderPass, OpaquePassHost } from './pass'
+import { requireRhiFrame, type RenderPass, type OpaquePassHost } from './pass'
 import { FLOW_DRAPE_MIX } from '../flow-stepper'
 
 class OpaquePass implements RenderPass {
@@ -33,7 +34,11 @@ class OpaquePass implements RenderPass {
   }
 
   execute(ctx: FrameContext, scene: SceneView, host: OpaquePassHost): void {
-    const encoder = ctx.encoder
+    // F3b: RHI origination — descriptor-equivalent on WebGPU, executable on
+    // WebGL2 after the flip. The timer rides the Inc-1 seam: beginTimedPass
+    // folds the QuerySet's timestampWrites into the SAME rhiRenderPassToGpu
+    // mapping (omitted when dead), markRhi guards before unwrapping.
+    const { enc, colorView, stencilView, sceneResolveView } = requireRhiFrame(ctx, 'opaque')
     // ── Bucket 1: opaque ──
     // Always emit at least one pass so raster + canvas background
     // can run even if there are no vector layers to draw. The first
@@ -61,25 +66,20 @@ class OpaquePass implements RenderPass {
       const persistDepth = !isLastOpaque || scene.hasPoints || scene.hasOit
 
       ctx.passScope(isFirst ? 'opaque-main' : `opaque[${gi}]`, () => {
-        // Time EVERY opaque sub-pass. The timer pre-allocates a
-        // QuerySet wide enough for MAX_SUBPASSES sub-passes, with
-        // sub-pass 0 carrying the inside-passes breakdown (bg/raster/
-        // legacy/vt) and sub-passes 1..N each contributing one
-        // (begin..end) duration that aggregates into the `vt` ring.
-        // Demos like osm_style split opaque rendering across multiple
-        // groups; single-pass timing missed everything past the first.
-        const tsWrites = host.gpuTimer?.passWrites() || undefined
         // Build color attachments. When picking is enabled, add a
         // second RG32Uint attachment at location 1 — every pipeline
         // in the main passes has a matching second fragment output
         // that writes `vec2<u32>(feature_id, instance_id)`. The first
         // sub-pass clears the pick texture to (0, 0) = "no feature";
         // subsequent sub-passes load so earlier-group IDs persist
-        // where later groups didn't draw.
-        const colorAttachments: GPURenderPassColorAttachment[] = [
+        // where later groups didn't draw. The pick view rides the
+        // RT-side RHI accessor (adapter-owned texture, rt.pickViewRhi).
+        const colorAttachments: Parameters<
+          typeof enc.beginRenderPass
+        >[0]['colorAttachments'][number][] = [
           {
-            view: ctx.colorView,
-            resolveTarget: resolveHere ? ctx.screenView : undefined,
+            view: colorView,
+            resolveTarget: resolveHere ? sceneResolveView : undefined,
             // The colour target is cleared by the background pass (bucket 0,
             // render/passes/background-pass.ts) which now owns the
             // whole-viewport clear — the coverage seam from VISION §5 gap #1.
@@ -95,30 +95,37 @@ class OpaquePass implements RenderPass {
         ]
         if (isPickEnabled() && ctx.rt.pickTexture) {
           colorAttachments.push({
-            view: ctx.rt.pickView!,
-            clearValue: isFirst ? { r: 0, g: 0, b: 0, a: 0 } : undefined,
+            view: ctx.rt.pickViewRhi!,
+            clearValue: isFirst ? [0, 0, 0, 0] : undefined,
             loadOp: isFirst ? 'clear' : 'load',
             storeOp: 'store',
           })
         }
-        const subPass = encoder.beginRenderPass({
+        // Time EVERY opaque sub-pass. The timer pre-allocates a
+        // QuerySet wide enough for MAX_SUBPASSES sub-passes, with
+        // sub-pass 0 carrying the inside-passes breakdown (bg/raster/
+        // legacy/vt) and sub-passes 1..N each contributing one
+        // (begin..end) duration that aggregates into the `vt` ring.
+        // Demos like osm_style split opaque rendering across multiple
+        // groups; single-pass timing missed everything past the first.
+        const desc = {
           colorAttachments,
           depthStencilAttachment: {
-            view: ctx.rt.stencilView!,
+            view: stencilView,
             depthClearValue: 1.0,
             // First sub-pass clears depth; subsequent ones load the
             // depth their predecessor stored.
-            depthLoadOp: isFirst ? 'clear' : 'load',
-            depthStoreOp: persistDepth ? 'store' : 'discard',
+            depthLoadOp: isFirst ? ('clear' as const) : ('load' as const),
+            depthStoreOp: persistDepth ? ('store' as const) : ('discard' as const),
             // Stencil IS still per-sub-pass — each opaque group uses
             // unique IDs for its own polygon coverage and they don't
             // need to survive across groups.
             stencilClearValue: 0,
-            stencilLoadOp: 'clear',
-            stencilStoreOp: 'discard',
+            stencilLoadOp: 'clear' as const,
+            stencilStoreOp: 'discard' as const,
           },
-          timestampWrites: tsWrites,
-        })
+        }
+        const subPass = host.gpuTimer?.beginTimedPass(enc, desc) ?? enc.beginRenderPass(desc)
 
         // Projection unwrap — needed by the isFirst raster/legacy draws AND by
         // the graticule overlay in the LAST sub-pass (#970), so compute once here.
@@ -131,7 +138,7 @@ class OpaquePass implements RenderPass {
         // is now dispatched via the synthetic earth-surface
         // ShowCommand prepended to commands.shows in XGISMap.run().
         if (isFirst) {
-          host.gpuTimer?.mark(subPass, 'after_bg')
+          host.gpuTimer?.markRhi(subPass, 'after_bg')
           // Per-frame raster-opacity resolve. resolveNumberShape
           // honours constant / zoom-interpolated / time-interpolated
           // / zoom-time shapes — same code that drives every other
@@ -170,7 +177,7 @@ class OpaquePass implements RenderPass {
             ctx.scene.h,
             ctx.scene.dpr,
           )
-          host.gpuTimer?.mark(subPass, 'after_raster')
+          host.gpuTimer?.markRhi(subPass, 'after_raster')
           host.renderer.renderToPass(
             subPass,
             host.camera,
@@ -179,7 +186,7 @@ class OpaquePass implements RenderPass {
             centerLat,
             host._elapsedMs,
           )
-          host.gpuTimer?.mark(subPass, 'after_legacy')
+          host.gpuTimer?.markRhi(subPass, 'after_legacy')
           // INC-1 under-occluder sphere: an opaque depth-writing globe sphere
           // seated just under EARTH_R, drawn AFTER raster and BEFORE the vector
           // shows so a residual fill crack bleeds to the sphere colour (not the
@@ -284,8 +291,8 @@ class OpaquePass implements RenderPass {
               ctx.scene.h,
               ctx.scene.dpr,
             )
-            // Raw encoder — CoverageRenderer.render wraps it internally (the backend fork
-            // lives there, mirroring raster), keeping this pass file backend-import-free.
+            // The RHI sub-pass goes straight in — CoverageRenderer.render is
+            // narrowed to RhiRenderPass (Inc-2d; the old backend fork died).
             // The advected field this frame's flow pass just produced (#1333). Null before
             // the first step and for every scalar coverage — the drape then multiplies an
             // exact 1.0 and renders byte-identically to the pre-flow fill.

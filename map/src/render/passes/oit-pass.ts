@@ -5,13 +5,14 @@
 // opaque pass, no depth write), then blends the recovered colour onto the
 // resolved main colour with a fullscreen compose draw. Order-independent
 // by construction — no back-to-front sort. Gated off when no OIT shows or
-// in ?debug=overdraw. Mechanical changes only: `this.host.X` → `host.X`,
-// `encoder` → `ctx.encoder`.
+// in ?debug=overdraw. F3b Inc-2d: originates through the RHI frame shell;
+// the fill targets ride the RT-side RHI accessors and the compose draws
+// through the renderer entry (native pipeline until the OIT twin lands).
 
 import { DEBUG_OVERDRAW } from '../../debug-flags'
 import type { FrameContext } from '../frame-context'
 import type { SceneView } from '../scene-view'
-import type { RenderPass, OitPassHost } from './pass'
+import { requireRhiFrame, type RenderPass, type OitPassHost } from './pass'
 
 class OitPass implements RenderPass {
   readonly label = 'oit'
@@ -21,7 +22,10 @@ class OitPass implements RenderPass {
   }
 
   execute(ctx: FrameContext, scene: SceneView, host: OitPassHost): void {
-    const encoder = ctx.encoder
+    // F3b: RHI origination (Inc-2d) — the fill targets ride the RT-side RHI
+    // accessors (adapter-owned textures), the compose draws through the
+    // narrowed renderer entry.
+    const { enc, colorView, stencilView, sceneResolveView } = requireRhiFrame(ctx, 'oit')
     // Lazily allocate the OIT targets at the frame's size + sample count.
     // Gated by scene.hasOit (this pass only runs when set), so the default
     // path never allocates them. Mirrors the heatmap pass's ensureHeatmap.
@@ -35,17 +39,17 @@ class OitPass implements RenderPass {
       // correctly behind opaque foreground walls — full
       // McGuire-Bavoil order independence applies only to
       // translucent-vs-translucent.
-      const oitPass = encoder.beginRenderPass({
+      const oitPass = enc.beginRenderPass({
         colorAttachments: [
           {
-            view: ctx.rt.oitAccumView!,
-            clearValue: { r: 0, g: 0, b: 0, a: 0 },
+            view: ctx.rt.oitAccumViewRhi!,
+            clearValue: [0, 0, 0, 0],
             loadOp: 'clear',
             storeOp: 'store',
           },
           {
-            view: ctx.rt.oitRevealageView!,
-            clearValue: { r: 1, g: 0, b: 0, a: 0 },
+            view: ctx.rt.oitRevealageViewRhi!,
+            clearValue: [1, 0, 0, 0],
             loadOp: 'clear',
             storeOp: 'store',
           },
@@ -56,7 +60,7 @@ class OitPass implements RenderPass {
         // executes; restored to the canonical opaque-depth load
         // for the future opt-in path.
         depthStencilAttachment: {
-          view: ctx.rt.stencilView!,
+          view: stencilView,
           depthLoadOp: 'load',
           depthStoreOp: 'discard',
           stencilLoadOp: 'load',
@@ -72,33 +76,26 @@ class OitPass implements RenderPass {
     })
 
     ctx.passScope('oit-compose', () => {
-      const compPass = encoder.beginRenderPass({
+      const compPass = enc.beginRenderPass({
         colorAttachments: [
           {
-            view: ctx.colorView,
+            view: colorView,
             resolveTarget:
               ctx.useResolve &&
               !scene.hasTranslucent &&
               !scene.hasPoints &&
               scene.resolveOwner === 'composite'
-                ? ctx.screenView
+                ? sceneResolveView
                 : undefined,
             loadOp: 'load',
             storeOp: 'store',
           },
         ],
       })
-      // Lazy-build the bind group when texture views change.
-      const bg = host.ctx.device.createBindGroup({
-        layout: host.renderer.oitComposeBindGroupLayout,
-        entries: [
-          { binding: 0, resource: ctx.rt.oitAccumView! },
-          { binding: 1, resource: ctx.rt.oitRevealageView! },
-        ],
-      })
-      compPass.setPipeline(host.renderer.oitComposePipeline)
-      compPass.setBindGroup(0, bg)
-      compPass.draw(3) // oversized triangle — vs_full covers fullscreen with 3 verts
+      // The fullscreen recover draw (pipeline + bind group + draw(3)) lives
+      // behind the renderer entry — the pipeline is native until the OIT twin
+      // lands, and the unwrap belongs in the adapter-importing layer, not here.
+      host.renderer.drawOitCompose(compPass, ctx.rt.oitAccumView!, ctx.rt.oitRevealageView!)
       compPass.end()
     })
   }

@@ -2199,11 +2199,11 @@ export class TextStage {
     perfMarkEnd('stage-prepare.emit')
   }
 
-  /** Encode the prepared draws onto the pass. Safe to call without
-   *  a prior prepare() — emits nothing in that case. `replay` (#1177) is the
-   *  S16 skip-replay screen-space correction; omit on prepared frames. */
+  /** Encode the prepared draws onto the pass (an RhiRenderPass on BOTH frame
+   *  shapes since #1046 F3b). Safe to call without a prior prepare() — emits
+   *  nothing then. `replay` (#1177): S16 replay correction; omit when prepared. */
   render(
-    pass: GPURenderPassEncoder | RhiRenderPass,
+    pass: RhiRenderPass,
     viewport: { width: number; height: number },
     replay?: { scale: number; dx: number; dy: number },
   ): void {

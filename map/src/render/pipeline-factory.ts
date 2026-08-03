@@ -47,12 +47,7 @@ import { toVertexBufferLayout } from '@xgis/rhi-webgpu'
 import { LINE_FORMAT } from './line-vertex-format'
 import { DEBUG_OVERDRAW } from '../debug-flags'
 import type { ShaderVariantInfo, CachedPipeline } from './renderer-types'
-import {
-  buildOverdrawComposePipeline,
-  buildHeatmapBlurPipeline,
-  buildHeatmapComposePipeline,
-  buildOitComposePipeline,
-} from './compose-pipelines'
+import { buildOverdrawComposePipeline, buildOitComposePipeline } from './compose-pipelines'
 import {
   buildFlatFillMaterials,
   buildExtrudeMaterial,
@@ -336,18 +331,6 @@ export class PipelineFactory {
    *  to the swapchain. Built lazily on first call to ensureOverdrawCompose. */
   overdrawComposePipeline: GPURenderPipeline | null = null
   overdrawComposeBindGroupLayout!: GPUBindGroupLayout
-  /** Heatmap separable-Gaussian blur pipeline (Phase R). Fullscreen triangle
-   *  reads the r16float density (textureLoad) and writes the 9-tap blur back
-   *  to an r16float target; runs twice per frame (horizontal then vertical).
-   *  Built lazily on first call to ensureHeatmapBlur. */
-  heatmapBlurPipeline: GPURenderPipeline | null = null
-  heatmapBlurBindGroupLayout!: GPUBindGroupLayout
-  /** Heatmap compose pipeline (Phase R). Fullscreen triangle samples the
-   *  blurred density, maps it through the colour-ramp LUT × intensity ×
-   *  opacity, and alpha-blends over the scene. Built lazily on first call to
-   *  ensureHeatmapCompose. */
-  heatmapComposePipeline: GPURenderPipeline | null = null
-  heatmapComposeBindGroupLayout!: GPUBindGroupLayout
   /** `?debug=overdraw` — fill pipeline mirror (base bind group
    *  layout). FS replaced with `fs_overdraw`, color target r16float
    *  + additive. Variant shows that use the feature bind group
@@ -545,42 +528,6 @@ export class PipelineFactory {
     this.overdrawComposeBindGroupLayout = built.layout
     this.overdrawComposePipeline = built.pipeline
     return this.overdrawComposePipeline
-  }
-
-  /** Lazy-build the heatmap separable-Gaussian blur pipeline (Phase R).
-   *  Fullscreen triangle samples the r16float density via textureLoad
-   *  (unfilterable-float — no sampler) and writes the 9-tap blur to an
-   *  r16float target. The `direction` uniform selects horizontal vs vertical;
-   *  the pass binds the same pipeline twice. Modelled on ensureOverdrawCompose
-   *  — single-sample, no MSAA variants. Idempotent. */
-  ensureHeatmapBlur(): GPURenderPipeline {
-    if (this.heatmapBlurPipeline) return this.heatmapBlurPipeline
-    const built = buildHeatmapBlurPipeline(this.ctx.device)
-    this.heatmapBlurBindGroupLayout = built.layout
-    this.heatmapBlurPipeline = built.pipeline
-    return this.heatmapBlurPipeline
-  }
-
-  /** Lazy-build the heatmap compose pipeline (Phase R). Fullscreen triangle
-   *  samples the blurred density (textureLoad), maps it through the colour
-   *  ramp LUT (filterable rgba8, textureSample) × intensity × opacity, and
-   *  alpha-blends over the scene (src-alpha / one-minus-src-alpha). It runs as
-   *  the LAST colour pass — after the label pass has resolved MSAA to the
-   *  swapchain — and composites onto the resolved single-sample swapchain
-   *  (`ctx.screenView`), exactly like the overdraw-compose pass. This sidesteps
-   *  the MSAA resolve-ownership hazard entirely (the heatmap never has to share
-   *  the MSAA attachment). Single-sample; no MSAA variants. Idempotent.
-   *
-   *  NOTE: because it composites after labels, symbols draw UNDER the heatmap
-   *  rather than on top (Mapbox draws symbols above heatmap). For a density
-   *  overlay this is visually acceptable; threading the compose into the
-   *  pre-label MSAA chain (so symbols sit on top) is a deferred follow-up. */
-  ensureHeatmapCompose(): GPURenderPipeline {
-    if (this.heatmapComposePipeline) return this.heatmapComposePipeline
-    const built = buildHeatmapComposePipeline(this.ctx.device, this.ctx.format)
-    this.heatmapComposeBindGroupLayout = built.layout
-    this.heatmapComposePipeline = built.pipeline
-    return this.heatmapComposePipeline
   }
 
   /** Build all bind-group layouts → base pipelines → atlas stub

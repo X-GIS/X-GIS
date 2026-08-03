@@ -220,7 +220,7 @@ describe('FlowRenderer — the advection arm (#1333)', () => {
   })
 
   it('no encoder at all draws NOTHING rather than throwing into the render loop', () => {
-    // The `__xgisRawFrameShell` rollback leaves the FrameContext with no RHI encoder.
+    // The twin frame carries no RHI encoder.
     const t = makeCtx({ backend: 'webgpu' })
     expect(() => new FlowRenderer(t.dev).step(frameAt(0, null), makeField())).not.toThrow()
     expect(t.passes).toHaveLength(0)

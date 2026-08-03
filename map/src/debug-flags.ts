@@ -51,7 +51,7 @@ if (DEBUG_RHI_CHECKER && typeof window !== 'undefined') {
 }
 
 /** `?rhichain=1` (URL) OR `globalThis.__xgisRhiChain === true` (global mirror — the
- *  `__xgisRawFrameShell` seam pattern, render-loop.ts) — read at module load like the
+ *  `__xgisDisableLabels` seam pattern, label-pass.ts) — read at module load like the
  *  rest. A distinct URL param, not a `?debug=` value, so it reads its own key. */
 function readRhiChainFlag(): boolean {
   if ((globalThis as { __xgisRhiChain?: boolean }).__xgisRhiChain === true) return true
@@ -68,14 +68,14 @@ function readRhiChainFlag(): boolean {
  *  forced-WebGL2 twin (`renderFrameViaRhi`). DEFAULT-OFF is the kill-switch: the twin
  *  stays the WebGL2 frame until the twin-parity ratchet reads zero on every fixture
  *  (F4 flips the default). No effect on the WebGPU frame — that is already the chain.
- *  The router (render-loop.ts) holds this OFF at the executor until the pass bodies are
- *  RHI-typed (F3 remaining); the flag + the frame encoder's `beginRenderPass` (the
- *  chain's WebGL2 origination seam) land in this phase. */
+ *  The router (render-loop.ts) gates this by the DEVICE's word (`caps.chainFrame` —
+ *  Inc-4): the pass bodies are RHI-typed, and WebGl2Device answers false until #991
+ *  P4/P5 lands the chain's loop tail, so the flag stays a safe no-op until then. */
 export const RHI_CHAIN: boolean = readRhiChainFlag()
 
 if (RHI_CHAIN && typeof window !== 'undefined') {
   console.info(
-    '[X-GIS] ?rhichain=1 active — WebGL2 unified-chain routing requested (#1046 F3); the twin still renders until the chain executes on WebGL2 (F3 remaining)',
+    '[X-GIS] ?rhichain=1 active — WebGL2 unified-chain routing requested (#1046 F3); the twin still renders while caps.chainFrame is false (#991 P4/P5 lands the loop tail)',
   )
 }
 
@@ -112,6 +112,42 @@ export function animTimePinnedSeconds(): number | null {
   const live = (globalThis as { __xgisAnimT?: unknown }).__xgisAnimT
   if (typeof live === 'number' && Number.isFinite(live)) return live
   return ANIM_T_URL
+}
+
+/** `?scenescale=<v>` (URL, page-load) — PIN the adaptive ladder's scale to a fixed notch
+ *  (0 < v ≤ 1) instead of the live controller. The pin lands where the render-loop fork
+ *  computes `adaptiveScale`, so each arm applies it exactly as a real ladder notch: the
+ *  chain shrinks its SCENE target (the #1429 INC-2 scaled pair + upscale seam), the twin
+ *  scales its canvas (design §7). Deterministic e2e seam for the scaled-frame gate — the
+ *  ladder otherwise engages only when the host is genuinely too slow, a wall-clock signal
+ *  CI cannot fake. Mirrors the `?animt` URL + global-mirror convention. */
+function readSceneScaleUrl(): number | null {
+  if (typeof window === 'undefined') return null
+  try {
+    const v = new URL(window.location.href).searchParams.get('scenescale')
+    if (v === null) return null
+    const n = Number(v)
+    return Number.isFinite(n) && n > 0 && n <= 1 ? n : null
+  } catch {
+    return null
+  }
+}
+
+const SCENE_SCALE_URL: number | null = readSceneScaleUrl()
+
+if (SCENE_SCALE_URL !== null && typeof window !== 'undefined') {
+  console.info(
+    `[X-GIS] ?scenescale=${SCENE_SCALE_URL} active — adaptive ladder scale PINNED (deterministic scaled-frame probe); reload without ?scenescale for the live controller`,
+  )
+}
+
+/** The pinned ladder scale (0 < v ≤ 1), or `null` when the controller runs live. Checks the
+ *  live `globalThis.__xgisSceneScale` FIRST (notch sweeps without a reload — the `__xgisAnimT`
+ *  pattern), then the page-load `?scenescale` URL param. */
+export function sceneScalePinned(): number | null {
+  const live = (globalThis as { __xgisSceneScale?: unknown }).__xgisSceneScale
+  if (typeof live === 'number' && Number.isFinite(live) && live > 0 && live <= 1) return live
+  return SCENE_SCALE_URL
 }
 
 /** Format of the overdraw accumulator render target. r16float lets

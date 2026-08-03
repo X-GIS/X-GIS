@@ -1,7 +1,13 @@
 # Overlay at native resolution — dynamic resolution must not scale the text
 
-**Status:** INC-1 landed (#1416). INC-2 tracked as **#1429** — four of seven pieces proven, two
-named; see "The complete cost of INC-2, measured" below.
+**Status:** INC-1 landed (#1416). **INC-2 landed** on the #1394 A1 branch (all seven pieces —
+the ratchets forced 6/7 in exactly as §"The complete cost" predicted; piece 7 resolved as
+"delete the unread native seam fields" rather than a cast constant, taking the count BELOW
+baseline a different way). Two review deltas beyond this doc: the seam ALSO claims the MSAA
+resolve (every later screen writer is content-gated, so a label-less scaled frame otherwise
+presents a never-written swapchain — review CRITICAL-1), and `?debug=overdraw` pins scale 1 on
+BOTH backends (nothing writes the scene colour in that mode; the twin's overdraw-compose is
+unported anyway). The scaled-frame WebGPU view remains the ADR-0004 ⏳ Pending item.
 **Author's problem statement:** _"잘 나오는데 반대로 말하면 다른곳에서는 제대로된 라벨도 못보잖아요"_ — it
 looks fine on a fast machine, which is exactly the complaint: on a slow one you cannot read the
 numbers.

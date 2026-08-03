@@ -28,14 +28,15 @@ import {
   promotesToGlobeWhenTilted,
   poleLimit,
 } from '@xgis/geo'
-import { effectiveDpr, getSampleCount, isPickEnabled } from '@xgis/engine'
+import { adaptiveDprScale, effectiveDpr } from '@xgis/engine'
 import {
   resizeCanvas,
   unwrapWebGpuCommandEncoder,
   unwrapWebGpuTextureView,
+  wrapWebGpuTextureView,
   pushValidationError,
 } from '@xgis/rhi-webgpu'
-import { DEBUG_OVERDRAW, DEBUG_RHI_CHECKER, RHI_CHAIN } from './debug-flags'
+import { DEBUG_OVERDRAW, DEBUG_RHI_CHECKER, RHI_CHAIN, sceneScalePinned } from './debug-flags'
 import { WORLD_MERC, TILE_PX } from '@xgis/geo'
 import { invalidateResolvedShowCache } from './render/resolved-show'
 import { reportErrorScope } from './render-loop-helpers'
@@ -43,7 +44,12 @@ import { backgroundClearValue } from './render/passes/background-pass'
 import { labelPass } from './render/passes/label-pass'
 import { applyHillshadePaint } from './render/passes/hillshade-pass'
 import { resolveColorShape, resolveNumberShape } from './render/paint-shape-resolve'
-import { setFrameTargets, type FrameContext } from './render/frame-context'
+import {
+  makeFrameContext,
+  setFrameTargets,
+  wireFrameColour,
+  type FrameContext,
+} from './render/frame-context'
 import { makeProjectionToken, setProjectionToken } from './render/projection-token'
 import type { RhiDevice, RhiScreenPassDevice, RhiTexture, RhiTextureView } from '@xgis/engine'
 import { asScreenPassDevice } from '@xgis/engine'
@@ -89,15 +95,33 @@ export class RenderLoop {
    *  (map.ts → render/passes/pass-chain.ts) right after construction. */
   private readonly _nodes: RenderNode[] = []
 
-  /** #1046 F3 (doc §3-F3) — whether the unified `_nodes` chain can EXECUTE on the
-   *  WebGL2 backend yet. It cannot until the pass bodies retype from the native
-   *  WebGPU encoder to the RHI encoder (F2 landed the frame-shell seam only, not the
-   *  pass retype), so this is held `false`: it keeps `?rhichain=1` (RHI_CHAIN) from
-   *  bypassing the twin into a native-encoder crash on WebGL2. The frame encoder's
-   *  `beginRenderPass` (the chain's WebGL2 origination seam) + the flag land in F3;
-   *  flip this to a real capability check once the passes execute on WebGL2 (F3
-   *  remaining — the twin-parity ratchet scaffold tracks that port). */
-  private readonly _chainRunsOnWebgl2 = false
+  /** #1046 Inc-4 (doc §3-F3) — whether the unified `_nodes` chain can EXECUTE on
+   *  this backend: the DEVICE's own claim (`rhi.caps.chainFrame`), not a hardcoded
+   *  hold. Every pass body is RHI-typed (11 via requireRhiFrame; flow null-skips
+   *  `ctx.rhiEncoder`), so the blocker is the chain's loop TAIL — WebGl2Device says
+   *  false until #991 P4/P5, and `?rhichain=1` stays a safe no-op by its word. */
+  private get _chainRunsOnWebgl2(): boolean {
+    return this.host.ctx.rhi?.caps.chainFrame === true
+  }
+
+  /** F3b: memoized native→RHI view wraps for the ported passes — WeakMap keyed
+   *  on the native view, so steady-state frames allocate nothing (this loop is
+   *  allocation-paranoid); a resize mints new native views and the memo
+   *  follows. Retires with the F3b FrameContext field collapse. */
+  private readonly _rhiViewMemo = new WeakMap<object, RhiTextureView>()
+  /** Stable bound form of `_rhiViewFor` for wireFrameColour — allocated once
+   *  (the 60 Hz loop is allocation-paranoid; an inline arrow per frame is not). */
+  private readonly _rhiViewForBound = (v: Parameters<typeof wrapWebGpuTextureView>[0]) =>
+    this._rhiViewFor(v)
+
+  private _rhiViewFor(view: Parameters<typeof wrapWebGpuTextureView>[0]): RhiTextureView {
+    let v = this._rhiViewMemo.get(view)
+    if (!v) {
+      v = wrapWebGpuTextureView(view)
+      this._rhiViewMemo.set(view, v)
+    }
+    return v
+  }
 
   /** Content (map.ts) hands the engine its ordered RenderNode chain. */
   registerNodes(nodes: readonly RenderNode[]): void {
@@ -135,7 +159,19 @@ export class RenderLoop {
     // actually sized the buffer — adopt THAT for the camera/MVP math below so the
     // swapchain-vs-frame-math divergence stays structurally impossible. An opted-in
     // host renders at reduced QUALITY.interactionDpr during pan/zoom, full at rest.
-    const dpr = resizeCanvas(this.host.ctx, effectiveDpr(this.host._interacting))
+    //
+    // #1429 INC-2 — the DPR split: the ladder's scale left effectiveDpr(). The
+    // chain keeps its CANVAS native (the SCENE shrinks; the seam reinflates it);
+    // the twin still scales its canvas — it has no offscreen scene, so dropping
+    // the scale there would disable the DPR lever on WebGL2 (design §7).
+    // ?debug=overdraw pins 1 (that mode writes the accumulator, not the scene
+    // colour the seam samples); ?scenescale pins the ladder (the e2e seam gate).
+    const rendersViaTwin =
+      asScreenPassDevice(this.host.ctx.rhi) !== null && !(RHI_CHAIN && this._chainRunsOnWebgl2)
+    const adaptiveScale = DEBUG_OVERDRAW ? 1 : (sceneScalePinned() ?? adaptiveDprScale())
+    const canvasScale = rendersViaTwin ? adaptiveScale : 1
+    const dpr = resizeCanvas(this.host.ctx, effectiveDpr(this.host._interacting) * canvasScale)
+    const sceneScale = rendersViaTwin ? 1 : adaptiveScale
     this._resolveFillPatterns()
 
     // Seed the animation clock on first rendered frame, then compute the
@@ -166,7 +202,7 @@ export class RenderLoop {
     // a projection-correct cursor anchor (orthographic needs the spherical
     // inverse, not the flat-Mercator-plane unproject).
     this.host.camera.projType = projType
-    const { device, context, canvas } = this.host.ctx
+    const { device, canvas } = this.host.ctx
     const w = canvas.width,
       h = canvas.height
     if (w === 0 || h === 0) {
@@ -261,8 +297,8 @@ export class RenderLoop {
     // cannot execute on WebGL2 until the pass bodies are RHI-typed (F2 landed the frame-
     // shell seam only), so `_chainRunsOnWebgl2` gates the bypass OFF — the twin renders
     // whether or not the flag is set (byte-identical to before this seam), so `?rhichain=1`
-    // never yields a crash/blank frame. Flip `_chainRunsOnWebgl2` to route the chain once
-    // the passes execute on WebGL2 (F3 remaining; the twin-parity ratchet tracks the port).
+    // never yields a crash/blank frame. The cap flips at #991 P4/P5 (the loop tail — the
+    // pass bodies are already RHI-typed), and the routing follows with no edit here.
     if (rhi && !(RHI_CHAIN && this._chainRunsOnWebgl2)) {
       const rhiWorkPending = this.renderFrameViaRhi(rhi, w, h, projType, centerLon, centerLat, dpr)
       // Mirror the WebGPU path's end-of-frame idle bookkeeping (#746): snapshot
@@ -282,17 +318,17 @@ export class RenderLoop {
     }
 
     perfMarkStart('frame.encode')
-    // Frame shell (#1046 F2 / #991 G2+G3, doc §3-F2): source the encoder + swapchain
-    // view through the RHI, unwrap native handles for the not-yet-converted passes
-    // (byte-identical). `__xgisRawFrameShell=true` restores the raw arm for one release.
+    // Frame shell (#1046 F2/F3b, Inc-3 collapse): the RHI is the ONE source of
+    // the frame encoder + swapchain view. The natives exist only as loop
+    // locals for the not-yet-RHI tail (compute dispatch, gpuTimer, error
+    // scopes, ensure) — no pass can reach them; the `__xgisRawFrameShell`
+    // escape retired with the collapse (every chain pass fails loud on null
+    // bridges anyway, so the escape could no longer render a frame).
     const rhiFrame = this.host.ctx.rhi
-    const rawFrameShell =
-      (globalThis as { __xgisRawFrameShell?: boolean }).__xgisRawFrameShell === true
-    const frameEnc = rawFrameShell ? null : rhiFrame.acquireFrameEncoder()
-    const encoder = frameEnc ? unwrapWebGpuCommandEncoder(frameEnc) : device.createCommandEncoder()
-    const screenView = rawFrameShell
-      ? context.getCurrentTexture().createView()
-      : unwrapWebGpuTextureView(rhiFrame.acquireScreenView())
+    const frameEnc = rhiFrame.acquireFrameEncoder()
+    const encoder = unwrapWebGpuCommandEncoder(frameEnc)
+    const rhiScreenView = rhiFrame.acquireScreenView()
+    const screenView = unwrapWebGpuTextureView(rhiScreenView)
     // Reset per-frame timer state BEFORE compute dispatch so the
     // first compute pass gets timestampWrites attached. `beginFrame()`
     // clears both the sub-pass counter AND the
@@ -365,34 +401,26 @@ export class RenderLoop {
     // token is allocated once and repopulated in place (allocation-paranoid).
     // Lazily allocate the context once on the first frame, then mutate in place.
     if (this._ctx === null) {
-      this._ctx = {
-        // The single injected RHI device (immutable across the loop's lifetime —
-        // render-context.ts: "the SINGLE instance every renderer routes through"),
-        // so it is set once here; the reuse branch below leaves it in place (#1046 F1).
+      this._ctx = makeFrameContext({
         rhi: this.host.ctx.rhi,
-        encoder,
         rhiEncoder: frameEnc,
-        screenView,
-        colorView: screenView, // set in the MSAA block below
+        rhiScreenView,
         camera: this.host.camera,
         projection: makeProjectionToken(projType, centerLon, centerLat),
-        scene: { w, h, dpr },
-        screen: { w, h, dpr },
+        w,
+        h,
+        dpr,
         elapsedMs: this.host._elapsedMs,
         frameCount: this.host._frameCount,
-        sampleCount: 1, // set in the MSAA block below
-        useResolve: false, // set in the MSAA block below
         passScope,
         rt: this.host.renderTargets,
-      }
+      })
     } else {
       const c = this._ctx
-      c.encoder = encoder
       c.rhiEncoder = frameEnc
-      c.screenView = screenView
+      c.rhiScreenView = rhiScreenView
       c.camera = this.host.camera
       setProjectionToken(c.projection, projType, centerLon, centerLat)
-      setFrameTargets(c, w, h, dpr)
       c.elapsedMs = this.host._elapsedMs
       c.frameCount = this.host._frameCount
       c.passScope = passScope
@@ -401,6 +429,10 @@ export class RenderLoop {
       // (deeper) computation points below.
     }
     const ctx = this._ctx
+    // BOTH population branches route through the one geometry site (its doc's
+    // contract): screen = the native canvas, scene = screen × the ladder's
+    // scale (1 on the twin — it scaled the canvas instead, #1429 INC-2).
+    setFrameTargets(ctx, w, h, dpr, sceneScale)
 
     {
       // ═══ Direct rendering: vertex shader handles all projections ═══
@@ -411,18 +443,9 @@ export class RenderLoop {
       // the per-frame colorView decision. sample count tracks the
       // pipeline-time SAMPLE_COUNT (1 on mobile / ?safe / ?quality=performance
       // / ?msaa=1, 4 on desktop default).
-      const sc = getSampleCount()
-      ctx.sampleCount = sc
-      const { useResolve, colorView } = ctx.rt.ensure(
-        w,
-        h,
-        sc,
-        isPickEnabled(),
-        DEBUG_OVERDRAW,
-        screenView,
-      )
-      ctx.useResolve = useResolve
-      ctx.colorView = colorView
+      // ensure() + colorView decision + the F3b / #1429 bridge population,
+      // extracted VERBATIM to wireFrameColour (frame-context.ts, piece 6).
+      wireFrameColour(ctx, screenView, this._rhiViewForBound)
 
       // Reset per-frame uniform ring cursors (dynamic-offset slots).
       this.host.renderer.beginFrame()
@@ -546,8 +569,6 @@ export class RenderLoop {
       //      now always runs when direct-layer points exist.
       const scene = buildSceneView(this.host, ctx)
 
-      if (scene.hasTranslucent) this.host.lineRenderer!.ensureOffscreen(ctx.scene.w, ctx.scene.h)
-
       // ── Render-pass chain ── (content-registered RenderNode[] — render/render-node.ts)
       // Iterate the frozen-order node list registered by content (map.ts →
       // render/passes/pass-chain.ts): background → opaque → oit → translucent →
@@ -579,9 +600,8 @@ export class RenderLoop {
     // matching the inner scope opened right after createCommandEncoder().
     perfMarkEnd('frame.encode')
     perfMarkStart('frame.submit')
-    // F2: the RHI frame encoder owns the single per-frame submit (kill-switch = raw).
-    if (frameEnc) frameEnc.finish()
-    else device.queue.submit([encoder.finish()])
+    // F2: the RHI frame encoder owns the single per-frame submit.
+    frameEnc.finish()
     perfMarkEnd('frame.submit')
     perfMarkEnd('frame.total')
     flushPerFrameMarks()
@@ -1096,7 +1116,7 @@ export class RenderLoop {
         'max',
       )
       offPass.end()
-      this.host.lineRenderer.compositeRhi(pass, c.resolvedShow.opacity)
+      this.host.lineRenderer.composite(pass, c.resolvedShow.opacity)
     }
     // #777 Phase II — HILLSHADE on WebGL2. Ported to the twin so the shaded
     // relief renders under ?forcegl2=1 (the _hillshade-gl2-gate reads it back).
@@ -1159,18 +1179,25 @@ export class RenderLoop {
     // #834 M5 slice 3 — LABELS on WebGL2. The SAME labelPass the WebGPU
     // frame runs (dispatch → collision → TextStage) with a minimal
     // FrameContext whose `rhiPass` short-circuits the WebGPU encoder tail:
-    // the text overlay draws directly on this screen pass. The WebGPU-only
-    // fields (encoder / views) are inert on that branch; sprite ICONS
+    // the text overlay draws directly on this screen pass. The chain-only
+    // rhi* bridges are null on that branch; sprite ICONS
     // (iStage) are a follow-up slice. `scene` is a null placeholder (`_scene` unused).
     labelPass.execute(
       {
         // The WebGl2Device rendering this forced-WebGL2 frame — populates the required
         // FrameContext.rhi on the twin path too (#1046 F1). Inert here: no pass reads caps yet.
         rhi: this.host.ctx.rhi,
-        encoder: null as unknown as GPUCommandEncoder,
         rhiEncoder: null,
-        screenView: null as unknown as GPUTextureView,
-        colorView: null as unknown as GPUTextureView,
+        // The twin never runs the F3b-ported chain passes — bridges stay null.
+        rhiScreenView: null,
+        rhiColorView: null,
+        rhiStencilView: null,
+        // #1429 INC-2 — proxy no-ops like the trio above: the twin has no
+        // seam (it scales its CANVAS; scene === screen here, so labelPass's
+        // rhiPass arm never reaches these).
+        rhiSceneResolveView: null,
+        rhiColorViewScreen: null,
+        rhiSceneColorSampleView: null,
         camera: this.host.camera,
         projection: makeProjectionToken(projType, centerLon, centerLat),
         scene: { w, h, dpr },
