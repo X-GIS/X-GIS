@@ -88,6 +88,7 @@ layer l { source: w  | apply-plain }
 import { expandPresets, resolveStylePreset, type PresetDef } from '../ir/preset-expand'
 import type { Diagnostic } from '../diagnostics/diagnostic'
 import { lower } from '../ir/lower'
+import { resolveImports } from '../module/resolver'
 
 /** Parse a program and hand back its preset map + a layer's utility lines,
  *  mirroring lower()'s first pass. */
@@ -193,6 +194,65 @@ layer l { source: w }
       kind: 'ArrayLiteral',
       elements: [{ kind: 'NumberLiteral' }, { kind: 'NumberLiteral', value: 13 }],
     })
+  })
+
+  it('namespaced imports carry params and rewrite intra-module preset calls (#1071)', () => {
+    const files: Record<string, string> = {
+      './lib.xgis': withPragma(`
+source w { type: geojson, url: "w.geojson" }
+preset glow(color, radius) { | fill-[color] stroke-[radius] }
+layer roads {
+  source: w
+  style: glow(#f59e0b, 4)
+  | apply-glow(#22c55e, 2)
+}
+`),
+    }
+    const resolved = resolveImports(
+      parse(`import * as ns from "./lib.xgis"`),
+      './',
+      (p) => files[p] ?? null,
+    )
+
+    const preset = resolved.body.find((s) => s.kind === 'PresetStatement') as AST.PresetStatement
+    expect(preset.name).toBe('ns.glow')
+    expect(preset.params).toEqual(['color', 'radius'])
+
+    const layer = resolved.body.find((s) => s.kind === 'LayerStatement') as AST.LayerStatement
+    // Intra-module `style: glow(…)` call — callee renamed with the namespace,
+    // arguments untouched.
+    const styleProp = layer.properties.find((p) => p.name === 'style')!
+    expect(styleProp.value).toMatchObject({
+      kind: 'FnCall',
+      callee: { kind: 'Identifier', name: 'ns.glow' },
+    })
+    expect((styleProp.value as AST.FnCall).args).toHaveLength(2)
+
+    // Intra-module `apply-glow(…)` — name renamed, args preserved.
+    const apply = layer.utilities.flatMap((l) => l.items).find((i) => i.name.startsWith('apply-'))!
+    expect(apply.name).toBe('apply-ns.glow')
+    expect(apply.args).toHaveLength(2)
+  })
+
+  it('namespaced imports rewrite bare intra-module style: refs too', () => {
+    const files: Record<string, string> = {
+      './lib.xgis': withPragma(`
+source w { type: geojson, url: "w.geojson" }
+preset plain { | fill-red-500 }
+layer roads {
+  source: w
+  style: plain
+}
+`),
+    }
+    const resolved = resolveImports(
+      parse(`import * as ns from "./lib.xgis"`),
+      './',
+      (p) => files[p] ?? null,
+    )
+    const layer = resolved.body.find((s) => s.kind === 'LayerStatement') as AST.LayerStatement
+    const styleProp = layer.properties.find((p) => p.name === 'style')!
+    expect(styleProp.value).toMatchObject({ kind: 'Identifier', name: 'ns.plain' })
   })
 
   it('lower() accepts the style: call form without X-GIS0012', () => {
