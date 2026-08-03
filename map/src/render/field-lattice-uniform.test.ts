@@ -409,6 +409,95 @@ describe('GATE 1c — the model is a GUESS and the Newton step is what makes it 
   })
 })
 
+describe('GATE 1d — the INTERLEAVED node set doubles the field without moving a node', () => {
+  // The portrayal asks for twice the density `S = δ·√G` derives. It is delivered by adding a
+  // half-cell-offset COPY of the lattice, not by asking for a finer step — because the step is
+  // quantised to an octave, so a √2 request either holds (1×) or drops an octave (4×) depending on
+  // where the view falls against a power of two.
+  //
+  // THE CLAIM THAT NEEDS PINNING is not "there are more nodes" — it is that the original nodes are
+  // UNTOUCHED. Every node's uv is its identity: its velocity sample, and the hash its phase comes
+  // from. If interleaving moved one, the whole field would re-roll the moment the density changed.
+  const withInterleave = (o: Parameters<typeof scene>[0]) => {
+    const c = new Camera(o.lon, o.lat, o.zoom)
+    c.pitch = o.pitch ?? 0
+    c.globeMode = o.globe ?? false
+    const frame = c.getViewForProjection(o.projType, W, H, DPR)
+    const cam: FieldViewCamera = {
+      matrix: Float32Array.from(frame.matrix),
+      projType: o.projType,
+      globeMode: c.globeMode,
+      centerLon: o.lon,
+      centerLat: o.lat,
+      canvasWidth: W,
+      canvasHeight: H,
+      dpr: DPR,
+    }
+    const block = fieldViewBlock()
+    const n = writeFieldViewUniform(block, cam, GRID, { ...REQ, interleave: true })
+    expect(n, 'the camera has a usable inverse').not.toBeNull()
+    return { cam, view: unpack(block.buffer), instances: n! }
+  }
+  const BASE = { lon: -76, lat: 38, zoom: 12, projType: 0 }
+
+  it('doubles the instance count, and nothing else about the lattice', () => {
+    const plain = scene(BASE)
+    const inter = withInterleave(BASE)
+    expect(inter.instances, 'exactly twice the instances').toBe(plain.instances * 2)
+    // …by adding nodes, NOT by changing the step, the anchor or the window. Those four numbers
+    // decide where every node is; if any moved, the density change would have moved the field.
+    for (const f of ['lattice', 'hx', 'hy'] as const) {
+      expect(inter.view[f]!.slice(0, f === 'lattice' ? 4 : 4), `${f} is untouched`).toEqual(
+        plain.view[f]!.slice(0, 4),
+      )
+    }
+    // …and the flag itself is the only difference, carried in the one free lane.
+    expect(inter.view.hw![3], 'the interleave flag is set').toBe(1)
+    expect(plain.view.hw![3], 'and clear without it').toBe(0)
+  })
+
+  it('the added nodes sit BETWEEN the originals, at half a cell on both axes', () => {
+    const inter = withInterleave(BASE)
+    bind(inter)
+    const v = inter.view
+    const base = M.fns.field_node_uv(v.lattice![2]!, v.lattice![3]!) as number[]
+    const off = M.fns.field_node_uv(v.lattice![2]! + 0.5, v.lattice![3]! + 0.5) as number[]
+    expect(off[2]! - base[2]!, 'half a step in u').toBeCloseTo(v.lattice![0]! / 2, 9)
+    expect(off[3]! - base[3]!, 'half a step in v').toBeCloseTo(v.lattice![1]! / 2, 9)
+    // The effective spacing of the union is step/√2 — which is what "twice the density" MEANS for
+    // an area measure, and the reason this is 2× rather than the 4× a finer step would give.
+    const diag = Math.hypot(v.lattice![0]! / 2, v.lattice![1]! / 2)
+    expect(diag, 'the union is a quincunx, not a finer square grid').toBeCloseTo(
+      Math.hypot(v.lattice![0]!, v.lattice![1]!) / 2,
+      9,
+    )
+  })
+
+  it('…and a HALF-INTEGER node is placed just as exactly as an integer one', () => {
+    // The offset copy goes through the same model-plus-Newton placement. Nothing in it assumes an
+    // integral index, and this is what says so — the identity is measured on the offset nodes.
+    const s = withInterleave(BASE)
+    bind(s)
+    const v = s.view
+    let worst: number | null = null
+    for (let iy = 0; iy < v.ray_br![3]!; iy++) {
+      for (let ix = 0; ix < v.ray_bl![3]!; ix++) {
+        const p = placeNode(v.lattice![2]! + ix + 0.5, v.lattice![3]! + iy + 0.5)
+        if (!p) continue
+        const [lon, lat] = uvLonLat(p.uv[0], p.uv[1])
+        const back = forwardNdc(s, lon, lat)
+        if (!back) continue
+        const tx = ((back[0] + 1) / 2) * W
+        const ty = ((1 - back[1]) / 2) * H
+        if (tx < 0 || tx > W || ty < 0 || ty > H) continue
+        worst = Math.max(worst ?? 0, Math.hypot(p.px[0] - tx, p.px[1] - ty))
+      }
+    }
+    expect(worst, 'the offset lattice was scored at all').not.toBeNull()
+    expect(worst!, 'offset-node worst error (px)').toBeLessThan(1)
+  })
+})
+
 describe('GATE 1b — the lattice is anchored to the GROUND (#1534)', () => {
   /** Every enumerated node's absolute grid-uv, as a rounded key set. */
   function nodeUvs(s: Scene): Set<string> {

@@ -74,6 +74,18 @@ export interface FieldLatticeRequest {
   /** Instances the consumer draws per node — the returned count is `nodes × this`. The lattice does
    *  not know why — one consumer strings several symbols along a path, another draws one. */
   instancesPerNode: number
+  /** Interleave a second copy of the lattice, offset by HALF a cell on both axes — a quincunx, so
+   *  exactly 2× the nodes at an effective spacing of `step/√2`.
+   *
+   *  THE REASON IT IS NOT JUST A SMALLER `nodeSpacingPx`. The step is quantised to the octave at or
+   *  below what is asked (`pow2AtMost`), and that quantisation is load-bearing — it is what keeps a
+   *  node's uv, and therefore its phase, fixed while the camera moves. So asking for `spacing/√2`
+   *  does not give √2: for a given view the octave either holds (density unchanged) or drops one
+   *  (density ×4), and which one you get depends on where that view's scale falls against a power of
+   *  two. Half the zooms would look untouched and half would jump 4×. Interleaving sidesteps the
+   *  ladder entirely: the step is unchanged, so every existing node keeps its position AND its
+   *  phase, and the new ones land exactly between them at every zoom. */
+  interleave?: boolean
   /** Three scalars the consumer defines, carried in the block's otherwise-padding lanes and read
    *  back as `ray_tl.w`, `ray_tr.w`, `eye.w`. std140 rounds a bare `f32` up to 16 B anyway, so this
    *  is free space rather than a field the lattice added for someone. */
@@ -541,9 +553,9 @@ export function writeFieldViewUniform(
     lattice: [lat.stepU, lat.stepV, lat.jx0, lat.jy0],
     hx: [H[0], H[1], H[2], lat.anchorU],
     hy: [H[3], H[4], H[5], lat.anchorV],
-    hw: [H[6], H[7], H[8], 0],
+    hw: [H[6], H[7], H[8], req.interleave ? 1 : 0],
   })
-  return lat.nx * lat.ny * req.instancesPerNode
+  return lat.nx * lat.ny * (req.interleave ? 2 : 1) * req.instancesPerNode
 }
 
 export { groundLatticeFor as fieldGroundLatticeFor, groundWorldFn as fieldGroundWorldFn }

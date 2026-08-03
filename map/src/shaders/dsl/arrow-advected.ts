@@ -175,14 +175,25 @@ const vsAdvected = fn(
     const seed = Let(floor(instF.div(G)))
     const glyph = Let(instF.sub(seed.mul(G)))
     const nx = Let(max(av.ray_bl.w, f32(1)))
+    const ny = Let(max(av.ray_br.w, f32(1)))
     const spacingPx = Let(max(av.ray_tl.w, f32(1e-3)))
     const basePx = Let(av.ray_tr.w)
-    const row = Let(floor(seed.div(nx)))
-    const col = Let(seed.sub(row.mul(nx)))
-    // The GROUND node this instance is, as a signed lattice index. The window slides with the view;
-    // the index of a given patch of water does not, which is what makes the phase below stable.
-    const jx = Let(av.lattice.z.add(col))
-    const jy = Let(av.lattice.w.add(row))
+    // INTERLEAVED node set (`hw.w`): the second half of the instances is the same lattice offset by
+    // HALF a cell on both axes — a quincunx, so twice the nodes at an effective spacing of
+    // `step/√2`. Decoded here rather than baked into the count because the base nodes must keep
+    // their exact uv: interleaving adds nodes, it never moves one, so no glyph's phase re-rolls and
+    // no octave boundary is crossed. A finer STEP would have done neither (`FieldLatticeRequest`
+    // records why that route gives 1× or 4× per zoom rather than 2×).
+    const cells = Let(nx.mul(ny))
+    const half = Let(floor(seed.div(cells)).mul(av.hw.w).mul(f32(0.5)))
+    const cell = Let(seed.sub(floor(seed.div(cells)).mul(cells)))
+    const row = Let(floor(cell.div(nx)))
+    const col = Let(cell.sub(row.mul(nx)))
+    // The GROUND node this instance is, as a signed lattice index — half-integral on the offset
+    // copy. The window slides with the view; the index of a given patch of water does not, which is
+    // what makes the phase below stable, and a half-integer is just as stable as an integer.
+    const jx = Let(av.lattice.z.add(col).add(half))
+    const jy = Let(av.lattice.w.add(row).add(half))
 
     // ── the ground node, and where it lands on screen ─────────────────────────────────────────
     //
