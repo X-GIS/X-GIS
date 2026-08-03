@@ -79,6 +79,24 @@ export const ARROW_TRAIN_STEPS = ARROW_TRAIN_GLYPHS * ARROW_TRAIN_TAPS_PER_SPACI
  *  error: overlapping SCAROW symbols read as a faster current than the data says. */
 export const ARROW_LATTICE_FACTOR = Math.sqrt(ARROW_TRAIN_GLYPHS)
 
+/** Draw the field at TWICE the density `S = δ·√G` derives.
+ *
+ *  A DELIBERATE DEPARTURE from that derivation, not a correction to it. `S = δ·√G` targets one glyph
+ *  per δ² — the density at which SCAROW symbols sit end to end without overlapping — and the field
+ *  built to it read as sparser than wanted on real water. Doubling is a portrayal judgement, so it
+ *  lives here beside the train constants rather than in the lattice, which has no opinion on how
+ *  much ink a chart should carry.
+ *
+ *  IT IS THE NODE SET THAT DOUBLES, not the step (`FieldLatticeRequest.interleave`). Halving the
+ *  requested spacing by √2 would have been the obvious lever and it does not work: the step is
+ *  quantised to the octave at or below what is asked, and that quantisation is what pins a node's uv
+ *  — and therefore its phase — while the camera moves. Against a power-of-two ladder a √2 request
+ *  either holds the octave (density unchanged) or drops one (density ×4), so half the zooms would
+ *  look untouched and half would jump four-fold. Interleaving a half-cell-offset copy sidesteps the
+ *  ladder: every existing node keeps its exact position and phase, and the new ones land between
+ *  them at every zoom. */
+export const S111_FIELD_INTERLEAVE = true
+
 /** Seconds for one phase cycle: origin → leash → origin. A DISPLAY control, like the rate it
  *  replaces — the catalogue says nothing about animation, and speed is read from the band colour
  *  and the glyph scale, never from how fast a symbol moves. What the period buys is legibility:

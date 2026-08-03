@@ -149,7 +149,10 @@ const U = uniformStruct(
     hx: vec4fT,
     /** Row 1 of the model, `xyz`; `w` = the anchor's grid-v. */
     hy: vec4fT,
-    /** Row 2 of the model — the `clip.w` row, `xyz`. `w` unused. */
+    /** Row 2 of the model — the `clip.w` row, `xyz`. `w` = 1 when the node set is INTERLEAVED: a
+     *  second copy of the lattice offset by half a cell on both axes, so the consumer decodes twice
+     *  as many nodes at an effective spacing of `step/√2` while every original node keeps its
+     *  position and its phase. 0 for the plain lattice. */
     hw: vec4fT,
   },
 )

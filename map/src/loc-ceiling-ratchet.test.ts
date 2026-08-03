@@ -1264,7 +1264,11 @@ const CEILINGS: Record<string, number> = {
   // anchors exist, what an empty block means — moved to `ir/symbol-elements.ts` beside the
   // functions that implement it. The ratchet asked for this in as many words ("extract, don't
   // grow, then lower the ceiling") when the block grew here first; it was right.
-  'compiler/src/ir/lower.ts': 1444,
+  // 1444→1448: a CROSS-PR sum, not growth in one change. #1552 (user `fn` inlining) threaded
+  // `inlineUserFns` through `lower()` (+4) concurrently with #1550's extraction (−29); each fit
+  // its own base, and the union is 1448 — measured, per the merge playbook (stacked
+  // non-overlapping edits SUM; never pick a side).
+  'compiler/src/ir/lower.ts': 1448,
   // #777 I-B icon-keep-upright + I-F icon value-forms (merged) grow three
   // symbol-lowering god-files (per-row justification in
   // architecture-invariants.test.ts, the second authority):

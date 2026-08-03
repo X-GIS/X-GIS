@@ -28,7 +28,11 @@ import {
   type FieldViewGrid,
 } from '../render/field-lattice-uniform'
 import { S111_ARROW_BASE_PX, S111_OUTLINE_FRAC } from '../render/s111-portrayal'
-import { ARROW_LATTICE_FACTOR, ARROW_TRAIN_GLYPHS } from '../shaders/dsl/arrow-drift'
+import {
+  ARROW_LATTICE_FACTOR,
+  ARROW_TRAIN_GLYPHS,
+  S111_FIELD_INTERLEAVE,
+} from '../shaders/dsl/arrow-drift'
 import type {
   RhiDevice,
   RhiBuffer,
@@ -320,6 +324,7 @@ export class CompiledArrowStore {
     const count = writeFieldViewUniform(block, view, ca.advected.grid, {
       nodeSpacingPx: basePx * ARROW_LATTICE_FACTOR,
       instancesPerNode: ARROW_TRAIN_GLYPHS,
+      interleave: S111_FIELD_INTERLEAVE,
       carry: [basePx, basePx, S111_OUTLINE_FRAC],
     })
     if (count === null || count === 0) return 0
