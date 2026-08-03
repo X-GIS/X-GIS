@@ -82,10 +82,23 @@ describe('…and the VS makes both directions ONE computation (#1520)', () => {
     // the rotation at a different position than the step uses, or applying a different basis —
     // is the class of bug that reads as "moves one way, points another".
     // The rotation: `(m.x·d.x + m.y·d.y, m.z·d.x + m.w·d.y)` for the basis `m` and the sampled
-    // flow `d`. Resolve `m` from it …
-    const dir = /let \w+ = vec2<f32>\(\(\((\w+)\.x \* (\w+)\) \+ \(\1\.y \* (\w+)\)\)/.exec(body)
-    expect(dir, 'the drawn direction is a basis application').not.toBeNull()
-    const basis = dir![1]!
+    // flow `d`. The VS applies the basis in more than one place since #1534 — the Newton
+    // correction that places the node uses the same 2×2 shape — so the candidates are enumerated
+    // and the one whose operand reaches a velocity FETCH is the direction. Picking by position
+    // would be a test that breaks whenever a line moves; picking by what it is MADE OF is a test
+    // of the claim.
+    const cands = [
+      ...body.matchAll(/let \w+ = vec2<f32>\(\(\((\w+)\.x \* (\w+)\) \+ \(\1\.y \* (\w+)\)\)/g),
+    ]
+    expect(cands.length, 'the basis is applied at all').toBeGreaterThan(0)
+    const fromFlow = cands.filter((m) => {
+      const c = letOf(m[2]!)
+      const s = /vec2<f32>\((\w+),/.exec(c)
+      return s !== null && letOf(s[1]!).includes('textureLoad(flow_u_tex')
+    })
+    expect(fromFlow.length, 'exactly one basis application is built from the sampled flow').toBe(1)
+    const dir = fromFlow[0]!
+    const basis = dir[1]!
     // … and it must be the SAME basis every walk step is mapped through. Two bases — one for
     // where the glyph goes and one for where it points — is precisely the reported failure, and
     // it is the only way this VS could still produce it.

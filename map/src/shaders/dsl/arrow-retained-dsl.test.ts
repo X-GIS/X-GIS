@@ -167,6 +167,33 @@ describe('#1520 advected-arrow shader — the screen lattice, in the emitted byt
     expect(w).not.toContain('tint_data')
   })
 
+  it('hashes the phase from the node’s ABSOLUTE lattice index (#1534)', () => {
+    // The jitter has to be a function of WHICH WATER a node is, not of where it currently sits in
+    // the enumeration — otherwise every glyph re-rolls its phase as the camera pans and the field
+    // boils. Two nearby quantities both look right and are not: the window index `(col, row)`
+    // slides with the viewport, and the anchor-relative index `(jx, jy)` shifts a step at a time
+    // because the anchor tracks the view centre. The absolute index is `uv / step`, an integer
+    // because the anchor is a multiple of the step, and it is the only one that does not move.
+    //
+    // Asserted structurally rather than by picture, because a still frame cannot show it: a boiling
+    // field and a stable one are the same single frame.
+    const vs = w.slice(w.indexOf('fn vs_arrow_retained_advected'))
+    const body = vs.slice(0, vs.indexOf('\n}'))
+    const at = body.indexOf('arrow_phase_offset(')
+    expect(at, 'the phase is jittered at all').toBeGreaterThan(-1)
+    // The operand is `(uv.x / lattice.x, uv.y / lattice.y)` — a division by the STEP, whether the
+    // emitter inlines it or binds it to a temporary first. A hash of an index has no step in it.
+    const arg = body.slice(at, body.indexOf(';', at))
+    const src = /^arrow_phase_offset\((_v\d+)\)/.exec(arg)
+      ? new RegExp(`let ${/^arrow_phase_offset\((_v\d+)\)/.exec(arg)![1]!} = ([^;]+);`).exec(
+          body,
+        )![1]!
+      : arg
+    expect(src, 'the phase index is the node uv over the lattice step').toMatch(
+      /arrow_view\.lattice\.x\)[\s\S]*arrow_view\.lattice\.y\)/,
+    )
+  })
+
   it('reads every texture with textureLoad — textureSample is illegal in a vertex stage', () => {
     expect(w).toContain('textureLoad(flow_u_tex')
     expect(w).toContain('textureLoad(flow_v_tex')
@@ -261,8 +288,14 @@ describe('#1520 advected arrow — re-symbolized from the field UNDER it', () =>
       )
     }
 
-    // …and the walk starts at the seed node's own grid-uv, recovered by the backward map.
-    expect(letOf(seed), 'the walk starts at the unprojected node').toContain('arrow_grid_uv(')
+    // …and the walk starts at the seed node's own absolute grid-uv. Since #1534 that is the
+    // ENUMERATED node — `arrow_node_uv`'s `zw` lanes, exact by construction — rather than a uv
+    // recovered from a screen position, so the assertion follows the swizzle back to its source.
+    const node = /^(\w+)\.zw$/.exec(letOf(seed))
+    expect(node, 'the walk starts at the node lanes of a vec4').not.toBeNull()
+    expect(letOf(node![1]!), 'the walk starts at the ENUMERATED ground node').toContain(
+      'arrow_node_uv(',
+    )
 
     for (const tex of ['flow_u_tex', 'flow_v_tex']) {
       const load = new RegExp(

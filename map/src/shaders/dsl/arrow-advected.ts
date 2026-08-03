@@ -1,4 +1,4 @@
-// ═══ The ADVECTED arrow module — streamline trains on a SCREEN lattice (#1520 step 2) ═══
+// ═══ The ADVECTED arrow module — streamline trains on a GROUND lattice (#1520 step 2, #1534) ═══
 //
 // A SECOND MODULE, not a runtime flag on the static one. `module()` declares bindings at MODULE
 // level, so adding this path's resources to the static module would change the STATIC shader's
@@ -21,10 +21,11 @@
 // amount of subdivision reaches it: `sub²` per cell scales with the GRID, and holding ~34 px
 // spacing at z19 would need 355 M instances of which fewer than one is on screen.
 //
-// So the instance set is generated from the OUTPUT. Instance `i` is `(seed, glyph j)`; the seed is
-// a node of a lattice on the SCREEN, at a spacing the screen chooses; and the geography under it is
-// recovered by the backward map (`unproject-dsl.ts` / `arrow-view.ts`). Density is then constant
-// per screen area at EVERY zoom by construction, rather than by a rule that has to track the grid.
+// So the instance set is generated from the VIEW. Instance `i` is `(seed, glyph j)`; the seed is a
+// node of a lattice whose SPACING the screen chooses — a step in grid-uv sized so the nodes land
+// about `δ·√G` px apart — enumerated over the ground the view can actually see. Density is then
+// constant per screen area at EVERY zoom by construction, rather than by a rule that has to track
+// the grid, and the nodes are patches of water rather than viewport positions (#1534).
 //
 // ── STREAMLINE TRAINS, NOT WIND-MAP PARTICLES ─────────────────────────────────────────────────
 //
@@ -39,16 +40,20 @@
 // where its neighbour was. The alpha ramp is a function of the arc-length `(j + φ)/G`, so it too
 // matches across the seam. There is nothing to blink.
 //
-// ── THE LATTICE IS ANCHORED TO THE SCREEN, AND THAT IS THE TRADE ──────────────────────────────
+// ── THE LATTICE IS ANCHORED TO THE GROUND (#1534) ─────────────────────────────────────────────
 //
-// A seed sits at a fixed viewport position, so panning slides the field over the water rather than
-// carrying it along. The alternative — snapping each seed to a ground lattice — was rejected, and
-// the reason is not taste: two adjacent screen nodes then snap to the SAME ground node (drawing one
-// train twice) while others get none, which is a visibly clumped field, and the quantisation level
-// has to change at some zoom, where every train jumps at once. Screen anchoring has neither
-// failure. The phase jitter is therefore a function of the SEED INDEX, not of its uv: a hash of the
-// uv would re-roll every glyph's phase as the camera moved, which is the pulse the jitter exists to
-// prevent.
+// The first cut of this rewrite seeded on the SCREEN — a node at a fixed viewport position — and
+// the field then slid over the water as the map panned. Anchoring it to the ground was tried the
+// obvious way first, by SNAPPING each screen seed to the nearest ground node, and that fails
+// measurably rather than by taste: the snap is many-to-one, so adjacent screen seeds collapse onto
+// one node while others get none, and every survivor moves by up to half a cell. Three gates caught
+// it (#1534 records the numbers).
+//
+// So the ground lattice is ENUMERATED instead. Instance `i` names a ground node `(jx, jy)` outright
+// — one instance per node, nothing to collapse — and the work moves to putting that node on screen,
+// which is the two-part construction the seed block below describes. The phase jitter is hashed
+// from the GROUND index for the same reason it used to be hashed from the screen index: that is the
+// identity which does not change as the camera moves.
 
 import {
   fn,
@@ -99,7 +104,9 @@ import {
   ARROW_TRAIN_GLYPHS,
   ARROW_TRAIN_STEPS,
   ARROW_TRAIN_TAPS_PER_SPACING,
-  arrow_seed_ndc,
+  ARROW_NEWTON_SPACINGS,
+  arrow_node_uv,
+  arrow_node_ndc,
   arrow_screen_lonlat,
   arrow_grid_uv,
   arrow_uv_basis,
@@ -170,19 +177,37 @@ const vsAdvected = fn(
     const seed = Let(floor(instF.div(G)))
     const glyph = Let(instF.sub(seed.mul(G)))
     const nx = Let(max(av.ray_bl.w, f32(1)))
-    const ny = Let(max(av.ray_br.w, f32(1)))
     const spacingPx = Let(max(av.ray_tl.w, f32(1e-3)))
     const basePx = Let(av.ray_tr.w)
     const row = Let(floor(seed.div(nx)))
     const col = Let(seed.sub(row.mul(nx)))
+    // The GROUND node this instance is, as a signed lattice index. The window slides with the view;
+    // the index of a given patch of water does not, which is what makes the phase below stable.
+    const jx = Let(av.lattice.z.add(col))
+    const jy = Let(av.lattice.w.add(row))
 
-    // ── the seed node, and the geography under it ─────────────────────────────────────────────
-    const ndc = Let(arrow_seed_ndc({ seed, nx, ny }))
+    // ── the ground node, and where it lands on screen ─────────────────────────────────────────
+    //
+    // TWO PARTS, and the split is a precision argument rather than an optimisation (#1534). The
+    // node's uv is exact — it is an integer times a step — but putting it on screen would need a
+    // forward projection from a DSFUN-split geographic anchor, which a lattice index does not have.
+    // So the linearized model places it approximately, and ONE Newton step against the exact
+    // backward map removes the model's error: unproject the guess, see which uv it actually landed
+    // on, and correct by that uv error mapped through the node's own basis.
+    //
+    // The residual after the step is second order in the model's error, which is itself only the
+    // projection's curvature over one screen — sub-pixel everywhere the field is drawn. What it is
+    // NOT is a quantisation: the target is this instance's own node, so no two instances converge on
+    // the same one and none is displaced toward a neighbour.
+    const node = Let(arrow_node_uv({ jx, jy }))
+    const uv0 = Let(node.swizzle('zw'))
+    const guess = Let(arrow_node_ndc({ duv: node.swizzle('xy') }))
+    const ndc = Let(guess.swizzle('xy'))
     const ll = Let(arrow_screen_lonlat({ ndc }))
-    const uv0 = Let(arrow_grid_uv({ lonlat: ll.swizzle('xy') }))
     // Pixels per unit of grid-uv at this node — what replaces the two packed basis anchors the
     // per-cell generator used to ship. Zero when the node has no ground under it.
     const basis = Let(arrow_uv_basis({ ndc, lon: ll.x, lat: ll.y }))
+    const fixPx = Let(arrow_uv_to_px(basis, uv0.sub(arrow_grid_uv({ lonlat: ll.swizzle('xy') }))))
 
     // ── where this glyph is along the train ───────────────────────────────────────────────────
     //
@@ -190,14 +215,21 @@ const vsAdvected = fn(
     // O(1)/frame by the retained path and already pinnable (`?animt`) for a deterministic capture,
     // which is what makes this field reproducible in a render gate.
     //
-    // The jitter is hashed from the seed's LATTICE INDEX. A hash of its uv would look equivalent
-    // and is not: the uv under a fixed screen node changes whenever the camera does, so every
-    // glyph's phase would be re-rolled on every pan — the field would boil instead of flow.
+    // The jitter is hashed from the node's ABSOLUTE lattice index — its own uv over the step, which
+    // is an integer because the anchor is a multiple of the step. Constant under pan, and under a
+    // zoom that crosses an octave the surviving nodes' indices halve rather than shuffling, so a
+    // given patch of water keeps its phase as the camera moves.
+    //
+    // NEITHER of the two nearby quantities would do, and both look right until the camera moves.
+    // `(col, row)` is a WINDOW index and slides with the viewport. `(jx, jy)` is anchor-relative,
+    // and the anchor tracks the view centre in whole steps — so it too shifts on a pan, just one
+    // step at a time. Both re-roll every glyph as the map moves, which is the boil the jitter
+    // exists to prevent.
     const phase = Let(
       fract(
         pointU.field.circle_params.y
           .div(f32(ARROW_PHASE_SECONDS))
-          .add(arrow_phase_offset({ p: vec2(col, row) })),
+          .add(arrow_phase_offset({ p: vec2(uv0.x.div(av.lattice.x), uv0.y.div(av.lattice.y)) })),
       ),
     )
     /** Arc length from the seed, in device pixels. */
@@ -273,14 +305,22 @@ const vsAdvected = fn(
     // (0, 0). A zero length collapses the quad, so the glyph is not drawn at all rather than drawn
     // at some floor size in water that has no current. The screen-lattice rejections ride the SAME
     // mechanism — one more 0/1 factor each, no second way for a glyph to not be drawn:
-    //   · the seed had no ground under it (off the horizon, past a projection's edge);
-    //   · the seed, or the walk's end, is outside the coverage domain.
+    //   · the node's guessed screen position had no ground under it (off the horizon, past a
+    //     projection's edge), or the model put it at or behind the eye plane;
+    //   · the node, or the walk's end, is outside the coverage domain;
+    //   · the Newton correction did not settle — a MAGNITUDE test, not a per-component clamp, so it
+    //     can only reject a glyph and never turn one (`arrow-drift-direction.test.ts`). It fires
+    //     where the model's guess landed on unrelated ground, which is past the horizon in practice;
+    //     a correction of a few spacings is ordinary and is left alone.
     const onGrid = Let(inUnit(uv0.x).mul(inUnit(uv0.y)).mul(inUnit(pos.x)).mul(inUnit(pos.y)))
+    const settled = Let(step(length(fixPx), spacingPx.mul(f32(ARROW_NEWTON_SPACINGS))))
     const size = Let(
       basePx
         .mul(scale)
         .mul(step(f32(1e-6), speed))
         .mul(onGrid)
+        .mul(settled)
+        .mul(guess.z)
         .mul(step(f32(0.5), ll.z)),
     )
 
@@ -296,8 +336,8 @@ const vsAdvected = fn(
     const { qx, qy } = arrowQuadOffset(p.vi, margin)
     const lx = qx.mul(size)
     const ly = qy.mul(size)
-    const nodeX = Let(ndc.x.add(f32(1)).mul(f32(0.5)).mul(vp.x))
-    const nodeY = Let(f32(1).sub(ndc.y).mul(f32(0.5)).mul(vp.y))
+    const nodeX = Let(ndc.x.add(f32(1)).mul(f32(0.5)).mul(vp.x).add(fixPx.x))
+    const nodeY = Let(f32(1).sub(ndc.y).mul(f32(0.5)).mul(vp.y).add(fixPx.y))
     const px = Let(nodeX.add(offPx.x).add(lx.mul(cc)).sub(ly.mul(ss)))
     const py = Let(nodeY.add(offPx.y).add(lx.mul(ss)).add(ly.mul(cc)))
 
