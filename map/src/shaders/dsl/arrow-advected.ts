@@ -60,6 +60,8 @@ import {
   step,
   length,
   floor,
+  exp2,
+  log2,
   fract,
   vec2,
   vec2i,
@@ -99,6 +101,7 @@ import {
   ARROW_TRAIN_GLYPHS,
   ARROW_TRAIN_STEPS,
   ARROW_TRAIN_TAPS_PER_SPACING,
+  ARROW_LATTICE_FACTOR,
   arrow_seed_ndc,
   arrow_screen_lonlat,
   arrow_grid_uv,
@@ -173,8 +176,6 @@ const vsAdvected = fn(
     const ny = Let(max(av.ray_br.w, f32(1)))
     const spacingPx = Let(max(av.ray_tl.w, f32(1e-3)))
     const basePx = Let(av.ray_tr.w)
-    const row = Let(floor(seed.div(nx)))
-    const col = Let(seed.sub(row.mul(nx)))
 
     // ── the seed node, and the geography under it ─────────────────────────────────────────────
     const ndc = Let(arrow_seed_ndc({ seed, nx, ny }))
@@ -184,20 +185,88 @@ const vsAdvected = fn(
     // per-cell generator used to ship. Zero when the node has no ground under it.
     const basis = Let(arrow_uv_basis({ ndc, lon: ll.x, lat: ll.y }))
 
+    // ── SNAP THE SEED TO THE GROUND, so the field belongs to the map and not to the viewport ──
+    //
+    // Reported: the field read as detached — panning slid the map underneath a lattice that stayed
+    // put. That is what a purely screen-anchored seed does, and it was a deliberate trade the
+    // first cut made for a reason that turns out to be avoidable.
+    //
+    // ENUMERATION STAYS ON THE SCREEN; only the POSITION is snapped. That is the whole trick.
+    // Walking a ground lattice directly would need a forward projection per seed — which needs a
+    // DSFUN-split anchor per instance, which is precisely the per-cell generator #1520 removed.
+    // Snapping instead keeps the screen's coverage guarantee (every viewport pixel is near a node,
+    // at every zoom) and moves the node onto a ground position, and the correction is at most half
+    // a lattice cell (~34 px) — well inside the basis's own validity, which the train already
+    // relies on over four times that distance.
+    //
+    // THE LATTICE IS ANCHORED AT uv 0 AND ITS STEP IS A POWER OF TWO, so it belongs to the
+    // COVERAGE GRID rather than to the camera: panning never moves it, and a zoom change halves or
+    // doubles it, which leaves half the nodes exactly where they were instead of relocating all of
+    // them. The step is the power of two nearest the seed spacing on screen — see `pow2Near`.
+    // The lattice node's own screen position, needed both by the ownership test below and by the
+    // final placement; bound once so the two cannot drift apart.
+    const nodeScreenX = Let(ndc.x.add(f32(1)).mul(f32(0.5)).mul(vp.x))
+    const nodeScreenY = Let(f32(1).sub(ndc.y).mul(f32(0.5)).mul(vp.y))
+    const latticePx = Let(spacingPx.mul(f32(ARROW_LATTICE_FACTOR)))
+    const pxPerU = Let(max(length(vec2(basis.x, basis.z)), f32(1e-6)))
+    const pxPerV = Let(max(length(vec2(basis.y, basis.w)), f32(1e-6)))
+    // ROUNDED in log space, not `ceil`ed. `ceil` was tried and measured: it only ever rounds the
+    // step UP, so the ground lattice comes out between 1x and 2x the screen spacing on each axis —
+    // up to 4x fewer distinct nodes than the density rule asks for. That cost 23 % of the field
+    // (z13 21 583 -> 16 836 painted px) and opened holes GATE 4 caught. Rounding to the NEAREST
+    // power of two keeps the spacing in [S/√2, S·√2], so the node count stays within √2 either way
+    // and averages right, while the power-of-two anchoring that makes a zoom change relocate only
+    // half the nodes is untouched.
+    const pow2Near = (v: ReturnType<typeof f32>) =>
+      exp2(floor(log2(max(v, f32(1e-12))).add(f32(0.5))))
+    const stepU = Let(pow2Near(latticePx.div(pxPerU)))
+    const stepV = Let(pow2Near(latticePx.div(pxPerV)))
+    const uvSeed = Let(
+      vec2(
+        floor(uv0.x.div(stepU).add(f32(0.5))).mul(stepU),
+        floor(uv0.y.div(stepV).add(f32(0.5))).mul(stepV),
+      ),
+    )
+    /** How far the snap moved this node, in device px. Bounded by half a lattice cell. */
+    const snapPx = Let(arrow_uv_to_px(basis, uvSeed.sub(uv0)))
+
+    // ── DUPLICATES ARE LEFT ALONE, AND THAT IS A MEASUREMENT RATHER THAN A SHRUG ─────────────
+    //
+    // Snapping is many-to-one at the margins: two neighbouring screen nodes can round to the same
+    // ground node. An ownership test was written for that — claim the node only if the snapped
+    // position lands back in your own screen cell — and it was MEASURED to be worse on every axis
+    // there is a gate for: 23 % of the field disappeared (z13 21 583 -> 16 570 painted px) and
+    // GATE 4 went from 0 to 3 blocks of empty water.
+    //
+    // The argument it rested on was wrong, and the reason is worth keeping. "Exactly one claimant,
+    // never zero" needs neighbouring nodes to agree about WHICH lattice they are snapping to; they
+    // do not, because each derives its step from its OWN basis and the basis varies across the
+    // frame (that variation is the whole point of a per-node basis — it is what makes the field
+    // thin correctly under pitch). Two cells that disagree about the step can both decline the
+    // same ground node, and that is a hole.
+    //
+    // What a duplicate actually costs here is small, and smaller than it was before this block:
+    // the phase is hashed from the GROUND index, so two claimants draw the SAME train at the SAME
+    // position with the SAME phase — perfectly coincident, not two trains side by side. The only
+    // residue is one extra alpha-blend, `1 − (1 − a)²`, which at the catalogue's near-opaque band
+    // alpha is not a visible difference. A hole is visible; this is not.
     // ── where this glyph is along the train ───────────────────────────────────────────────────
     //
     // The clock is the frame uniform's animation lane (circle_params.y, seconds) — already written
     // O(1)/frame by the retained path and already pinnable (`?animt`) for a deterministic capture,
     // which is what makes this field reproducible in a render gate.
     //
-    // The jitter is hashed from the seed's LATTICE INDEX. A hash of its uv would look equivalent
-    // and is not: the uv under a fixed screen node changes whenever the camera does, so every
-    // glyph's phase would be re-rolled on every pan — the field would boil instead of flow.
+    // The jitter is hashed from the seed's GROUND INDEX — `uvSeed / step`, an integer that names
+    // the ground node rather than the screen cell that happened to find it. That is what makes a
+    // phase survive a pan: the same water keeps the same phase as it crosses the viewport, so the
+    // field flows instead of boiling. Hashing the raw uv would do the opposite (it changes with
+    // every camera move), and hashing the SCREEN index would pin the phase to the viewport, which
+    // is the detachment this whole block removes.
     const phase = Let(
       fract(
         pointU.field.circle_params.y
           .div(f32(ARROW_PHASE_SECONDS))
-          .add(arrow_phase_offset({ p: vec2(col, row) })),
+          .add(arrow_phase_offset({ p: vec2(uvSeed.x.div(stepU), uvSeed.y.div(stepV)) })),
       ),
     )
     /** Arc length from the seed, in device pixels. */
@@ -216,7 +285,7 @@ const vsAdvected = fn(
     // projection and under any pitch, so a train stepped in uv would bunch toward the horizon.
     const h = Let(spacingPx.div(f32(ARROW_TRAIN_TAPS_PER_SPACING)))
     const aspect = Let(bandAt(u32(S111_BAND_PARAMS_ROW), S111_PARAM_UV_ASPECT))
-    const pos = Var(uv0)
+    const pos = Var(uvSeed)
     const offPx = Var(vec2(f32(0), f32(0)))
     const remain = Var(arc)
     for (let k = 0; k < ARROW_TRAIN_STEPS; k++) {
@@ -274,8 +343,8 @@ const vsAdvected = fn(
     // at some floor size in water that has no current. The screen-lattice rejections ride the SAME
     // mechanism — one more 0/1 factor each, no second way for a glyph to not be drawn:
     //   · the seed had no ground under it (off the horizon, past a projection's edge);
-    //   · the seed, or the walk's end, is outside the coverage domain.
-    const onGrid = Let(inUnit(uv0.x).mul(inUnit(uv0.y)).mul(inUnit(pos.x)).mul(inUnit(pos.y)))
+    //   · the seed, or the walk's end, is outside the coverage domain;
+    const onGrid = Let(inUnit(uvSeed.x).mul(inUnit(uvSeed.y)).mul(inUnit(pos.x)).mul(inUnit(pos.y)))
     const size = Let(
       basePx
         .mul(scale)
@@ -296,8 +365,10 @@ const vsAdvected = fn(
     const { qx, qy } = arrowQuadOffset(p.vi, margin)
     const lx = qx.mul(size)
     const ly = qy.mul(size)
-    const nodeX = Let(ndc.x.add(f32(1)).mul(f32(0.5)).mul(vp.x))
-    const nodeY = Let(f32(1).sub(ndc.y).mul(f32(0.5)).mul(vp.y))
+    // The seed's screen position is the lattice node MOVED ONTO ITS GROUND NODE — that offset is
+    // what makes the glyph pan with the map.
+    const nodeX = Let(nodeScreenX.add(snapPx.x))
+    const nodeY = Let(nodeScreenY.add(snapPx.y))
     const px = Let(nodeX.add(offPx.x).add(lx.mul(cc)).sub(ly.mul(ss)))
     const py = Let(nodeY.add(offPx.y).add(lx.mul(ss)).add(ly.mul(cc)))
 

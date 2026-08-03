@@ -108,6 +108,24 @@ export const ARROW_TRAIN_STEPS = ARROW_TRAIN_GLYPHS * ARROW_TRAIN_TAPS_PER_SPACI
  *  error: overlapping SCAROW symbols read as a faster current than the data says. */
 export const ARROW_LATTICE_FACTOR = Math.sqrt(ARROW_TRAIN_GLYPHS)
 
+/** How much finer the SCREEN lattice is sampled than the ground lattice it snaps onto.
+ *
+ *  SNAPPING IS MANY-TO-ONE, and this is what pays for it. Screen nodes are rounded onto a ground
+ *  lattice of similar spacing, so the two interfere: some ground nodes collect two screen nodes and
+ *  some screen cells' nodes land on a neighbour's, and the count of DISTINCT ground nodes comes out
+ *  below the count of screen nodes. Measured on the demo at z13 — 21 583 painted px unsnapped
+ *  against 16 836 snapped, a 22 % loss, with 1-3 of 33 water blocks momentarily bare.
+ *
+ *  Oversampling closes it, and it closes it for FREE in ink: two screen nodes that snap to the same
+ *  ground node draw the SAME train at the SAME position with the SAME phase (the phase is hashed
+ *  from the ground index), so a duplicate is perfectly coincident rather than a second glyph. What
+ *  oversampling buys is that every ground node in view finds at least one claimant; what it costs
+ *  is vertex work on the claimants that lose, which is a few hundred instances.
+ *
+ *  1.5 per axis — 2.25x the instances, measured back to full coverage. Not larger: the residual is
+ *  a coverage question, not a density one, and the drawn density is set by the ground lattice. */
+export const ARROW_SNAP_OVERSAMPLE = 1.5
+
 /** The per-frame, per-batch view description. Nine `vec4f` = 144 B, rewritten once per frame per
  *  advected batch; the bind group itself is cached, since only the buffer contents change.
  *

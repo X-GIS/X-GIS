@@ -25,7 +25,12 @@ import { invert4x4, mulVec4 } from '@xgis/shared'
 import { localFrame, globeForward } from '@xgis/geo'
 import { EARTH } from '@xgis/shared'
 import { uniformBlock, type UniformBlockOf } from '@xgis/engine'
-import { arrowViewU, ARROW_TRAIN_GLYPHS, ARROW_LATTICE_FACTOR } from '../shaders/dsl/arrow-view'
+import {
+  arrowViewU,
+  ARROW_TRAIN_GLYPHS,
+  ARROW_LATTICE_FACTOR,
+  ARROW_SNAP_OVERSAMPLE,
+} from '../shaders/dsl/arrow-view'
 
 /** The coverage's grid box, as the affine map `uv = (lonlat − origin) · invSpan`.
  *
@@ -124,7 +129,10 @@ export function arrowLatticeFor(
   canvasHeight: number,
   basePx: number,
 ): { nx: number; ny: number; instanceCount: number } {
-  const spacing = Math.max(basePx * ARROW_LATTICE_FACTOR, 1)
+  // Oversampled, because the shader SNAPS each seed onto a ground lattice and that mapping is
+  // many-to-one — see `ARROW_SNAP_OVERSAMPLE`. The drawn density is the GROUND lattice's, not this
+  // one's, so a finer screen lattice adds claimants rather than glyphs.
+  const spacing = Math.max((basePx * ARROW_LATTICE_FACTOR) / ARROW_SNAP_OVERSAMPLE, 1)
   const nx = Math.max(1, Math.ceil(canvasWidth / spacing))
   const ny = Math.max(1, Math.ceil(canvasHeight / spacing))
   return { nx, ny, instanceCount: nx * ny * ARROW_TRAIN_GLYPHS }

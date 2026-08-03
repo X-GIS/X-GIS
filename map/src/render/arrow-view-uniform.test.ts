@@ -27,7 +27,11 @@ import { module, compileModuleJs } from '@xgis/shader-dsl'
 import { Camera } from '../camera/camera'
 import { getGpuProjectionFuncs, PROJECTION_CONSTS } from '../shaders/dsl/projections'
 import { UNPROJECT_FUNCS } from '../shaders/dsl/unproject-dsl'
-import { ARROW_VIEW_FUNCS, ARROW_TRAIN_GLYPHS } from '../shaders/dsl/arrow-view'
+import {
+  ARROW_VIEW_FUNCS,
+  ARROW_TRAIN_GLYPHS,
+  ARROW_SNAP_OVERSAMPLE,
+} from '../shaders/dsl/arrow-view'
 import { globeForward } from '@xgis/geo'
 import {
   arrowViewBlock,
@@ -286,9 +290,17 @@ describe('the lattice the identity is measured over is the one that gets drawn',
     // of `S = δ·√G` (each seed owns S² px and contributes G glyphs), so it is asserted as a band
     // rather than a value: what would be a bug is an order of magnitude, which is what the grid-
     // proportional generator produced (96 k at z13, 355 M at z19).
+    // WHAT THIS COUNTS CHANGED MEANING when the seed started snapping onto a ground lattice: the
+    // screen lattice is now OVERSAMPLED (`ARROW_SNAP_OVERSAMPLE`) because the snap is many-to-one,
+    // so this is the number of CLAIMANTS, not the number of glyphs drawn — the drawn density is
+    // the ground lattice's, and two claimants on one ground node draw the same train coincidently.
+    // The band is therefore the target scaled by the oversample, and it is still asserted as a
+    // band rather than a value: what would be a bug is an order of magnitude, which is what the
+    // grid-proportional generator produced (96 k at z13, 355 M at z19).
     const { instanceCount } = arrowLatticeFor(480, 700, 34)
-    expect(instanceCount).toBeGreaterThan(200)
-    expect(instanceCount).toBeLessThan(500)
+    const over = ARROW_SNAP_OVERSAMPLE ** 2
+    expect(instanceCount).toBeGreaterThan(200 * over)
+    expect(instanceCount).toBeLessThan(500 * over)
   })
 
   it('reports NO view — and therefore draws nothing — for a singular matrix', () => {

@@ -261,8 +261,15 @@ describe('#1520 advected arrow — re-symbolized from the field UNDER it', () =>
       )
     }
 
-    // …and the walk starts at the seed node's own grid-uv, recovered by the backward map.
-    expect(letOf(seed), 'the walk starts at the unprojected node').toContain('arrow_grid_uv(')
+    // …and the walk starts at the seed's SNAPPED ground node — the unprojected uv rounded onto the
+    // ground lattice, which is what glues the field to the map instead of to the viewport. Two
+    // levels: the snapped binding is `floor(uv/step + .5)*step`, and `uv` is the backward map's.
+    const snapped = letOf(seed)
+    expect(snapped, 'the seed is snapped to the ground lattice').toMatch(
+      /floor\(\(\(\w+\.x \/ \w+\) \+ 0\.5\)\)/,
+    )
+    const raw = /floor\(\(\((\w+)\.x \/ \w+\) \+ 0\.5\)\)/.exec(snapped)![1]!
+    expect(letOf(raw), 'and what is snapped is the unprojected node').toContain('arrow_grid_uv(')
 
     for (const tex of ['flow_u_tex', 'flow_v_tex']) {
       const load = new RegExp(

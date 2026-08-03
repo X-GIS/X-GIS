@@ -82,27 +82,28 @@ describe('…and the VS makes both directions ONE computation (#1520)', () => {
     // the rotation at a different position than the step uses, or applying a different basis —
     // is the class of bug that reads as "moves one way, points another".
     // The rotation: `(m.x·d.x + m.y·d.y, m.z·d.x + m.w·d.y)` for the basis `m` and the sampled
-    // flow `d`. Resolve `m` from it …
-    const dir = /let \w+ = vec2<f32>\(\(\((\w+)\.x \* (\w+)\) \+ \(\1\.y \* (\w+)\)\)/.exec(body)
-    expect(dir, 'the drawn direction is a basis application').not.toBeNull()
-    const basis = dir![1]!
+    // flow `d`. The VS applies the basis in more than one place now — the ground SNAP uses the
+    // same 2x2 shape — so the candidates are enumerated and the one whose operand reaches a
+    // velocity FETCH is the direction. Picking by position would be a test that breaks whenever a
+    // line moves; picking by what it is made of is a test of the claim.
+    const cands = [
+      ...body.matchAll(/let \w+ = vec2<f32>\(\(\((\w+)\.x \* (\w+)\) \+ \(\1\.y \* (\w+)\)\)/g),
+    ]
+    expect(cands.length, 'the basis is applied at all').toBeGreaterThan(0)
+    const fromFlow = cands.filter((m) => {
+      const comp = letOf(m[2]!)
+      const src = /vec2<f32>\((\w+),/.exec(comp)
+      return src !== null && letOf(src[1]!).includes('textureLoad(flow_u_tex')
+    })
+    expect(fromFlow.length, 'exactly one basis application is built from the sampled flow').toBe(1)
+    const basis = fromFlow[0]![1]!
+
     // … and it must be the SAME basis every walk step is mapped through. Two bases — one for
     // where the glyph goes and one for where it points — is precisely the reported failure, and
     // it is the only way this VS could still produce it.
     const steps = [...body.matchAll(/arrow_uv_step\((\w+),/g)].map((m) => m[1]!)
     expect(steps.length, 'the walk takes its steps through a basis').toBeGreaterThan(0)
-    for (const s of steps) expect(s, 'one basis, both answers').toBe(basis)
-    // …and the rotation's operand is a velocity pair sampled from the textures, not a packed
-    // bearing frozen at add time.
-    // …and the rotation's operand is a velocity pair SAMPLED from the textures, not a packed
-    // bearing frozen at add time. Two levels: the emitter binds the component, whose expression
-    // names the temporary the textureLoad landed in.
-    const comp = letOf(dir![2]!)
-    const src = /vec2<f32>\((\w+),/.exec(comp)
-    expect(src, 'the component comes from a velocity pair').not.toBeNull()
-    expect(letOf(src![1]!), 'the direction is built from the sampled flow').toContain(
-      'textureLoad(flow_u_tex',
-    )
+    for (const st of steps) expect(st, 'one basis, both answers').toBe(basis)
   })
 
   it('nothing clamps a displacement COMPONENT — there is no box left to fit into', () => {

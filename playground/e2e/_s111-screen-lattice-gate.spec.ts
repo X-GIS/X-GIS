@@ -14,6 +14,10 @@
 //           lands where its neighbour was. If that is off by anything, the field pulses once per
 //           cycle — which is the blink #1333 rejected moving glyphs over, and it is invisible in
 //           any single frame.
+//   GATE 5  THE FIELD BELONGS TO THE MAP. Reported as "이질감" — the lattice stayed put while the
+//           map slid under it, because a purely screen-anchored seed is glued to the viewport. The
+//           seed's uv is snapped onto a ground lattice now; this measures that a pan TRANSLATES
+//           the field by the same number of pixels the map moved.
 //   GATE 4  NO EMPTY WATER (#1510). On a chart an empty patch is a statement about the water.
 //           A NECESSARY condition, stated as such: wherever the STATIC catalogue portrayal puts a
 //           symbol is water by the catalogue's own rule, so the advected field must reach there.
@@ -51,6 +55,29 @@ layer speed {
   ${portrayal}
 }
 `
+
+/** Per-COLUMN painted counts — a 1-D profile of the frame, which is what GATE 5 correlates. A
+ *  profile rather than the whole image because the claim is about a HORIZONTAL translation, and
+ *  reducing the axis it is not about removes the noise that would otherwise blur the peak. */
+function readColumns() {
+  const w = window as unknown as {
+    __xgisMap?: { ctx?: { rhi?: { backend?: string; gl?: WebGL2RenderingContext } } }
+  }
+  const gl = w.__xgisMap?.ctx?.rhi?.gl
+  if (!gl) return { ok: false as const }
+  const W = gl.drawingBufferWidth
+  const H = gl.drawingBufferHeight
+  const buf = new Uint8Array(W * H * 4)
+  gl.readPixels(0, 0, W, H, gl.RGBA, gl.UNSIGNED_BYTE, buf)
+  const col = new Array<number>(W).fill(0)
+  for (let y = 0; y < H; y++) {
+    for (let x = 0; x < W; x++) {
+      const i = (y * W + x) * 4
+      if (buf[i]! > 24 || buf[i + 1]! > 24 || buf[i + 2]! > 24) col[x]!++
+    }
+  }
+  return { ok: true as const, backend: w.__xgisMap?.ctx?.rhi?.backend, W, col }
+}
 
 /** Painted pixels, the domain's footprint, and an 8×8 occupancy map over that footprint.
  *
@@ -101,9 +128,17 @@ function readInk() {
   }
 }
 
-async function boot(
+const boot = (
   page: import('@playwright/test').Page,
   zoom: number,
+  portrayal: '| arrow' | '| flow' = '| flow',
+  animT = 0,
+) => bootAt(page, zoom, CENTRE_LON, portrayal, animT)
+
+async function bootAt(
+  page: import('@playwright/test').Page,
+  zoom: number,
+  centreLon: number,
   portrayal: '| arrow' | '| flow' = '| flow',
   animT = 0,
 ) {
@@ -115,7 +150,7 @@ async function boot(
   // fake any of these results. `animt` pins the CLOCK, which is what makes GATE 3 reproducible.
   await page.goto(
     `/demo.html?id=s111_currents&forcegl2=1&e2e=1&adaptive=0&animt=${animT}` +
-      `#${zoom}/${CENTRE_LAT}/${CENTRE_LON}`,
+      `#${zoom}/${CENTRE_LAT}/${centreLon}`,
     { waitUntil: 'domcontentloaded' },
   )
   await page.waitForFunction(
@@ -286,5 +321,79 @@ test.describe('S-111 screen-lattice arrow field (#1520 step 2)', () => {
     for (const w of worst) {
       expect(w.missed, `t=${w.t}s: the advected field left water empty (#1510)`).toBe(0)
     }
+  })
+
+  test('GATE 5 — the field pans WITH the map, not with the viewport', async ({ page }) => {
+    test.setTimeout(600_000)
+    // THE REPORT: the field read as detached — the map slid underneath a lattice that stayed put.
+    // That is what a seed pinned to a viewport position does, and it was a deliberate trade the
+    // first cut of #1520 made. The seed's uv is snapped onto a ground lattice now (anchored at
+    // uv 0, step a power of two), so the node belongs to the coverage grid and a pan carries it.
+    //
+    // MEASURED AS A TRANSLATION, which is the only formulation that can tell the two apart. Both
+    // designs paint a similar-looking field at either camera; what differs is whether the SECOND
+    // frame is the first one SHIFTED. So: take a per-column profile at two cameras a known number
+    // of device pixels apart, and find the shift that best aligns them.
+    const SHIFT_PX = 40
+    // The camera offset that moves the map exactly `SHIFT_PX` device px at this zoom, derived from
+    // the Web Mercator scale rather than eyeballed — the gate's whole claim is a number of pixels.
+    const R = 6378137
+    const mppMerc = (2 * Math.PI * R) / 512 / 2 ** 11
+    const dLon = (((SHIFT_PX * mppMerc) / R) * 180) / Math.PI
+
+    await boot(page, 11)
+    const a = await page.evaluate(readColumns)
+    expect(a.ok).toBe(true)
+    if (!a.ok) return
+    expect(a.backend).toBe('webgl2')
+
+    await bootAt(page, 11, CENTRE_LON + dLon)
+    const b = await page.evaluate(readColumns)
+    expect(b.ok).toBe(true)
+    if (!b.ok) return
+
+    /** Mean absolute difference between the two profiles at a given shift — lower is better. */
+    const score = (shift: number): number => {
+      let sum = 0
+      let n = 0
+      for (let x = 0; x < a.col.length; x++) {
+        const xb = x + shift
+        if (xb < 0 || xb >= b.col.length) continue
+        sum += Math.abs(a.col[x]! - b.col[xb]!)
+        n++
+      }
+      return sum / Math.max(n, 1)
+    }
+    let bestShift = 0
+    let bestScore = Infinity
+    for (let sft = -80; sft <= 80; sft++) {
+      const v = score(sft)
+      if (v < bestScore) {
+        bestScore = v
+        bestShift = sft
+      }
+    }
+    const still = score(0)
+    console.log(
+      `[s111-pan] expected ${SHIFT_PX}px | best shift=${bestShift} (score ${bestScore.toFixed(2)}) ` +
+        `| shift 0 score=${still.toFixed(2)}`,
+    )
+
+    // THE CLAIM. Panning east moves content west, so the aligning shift is negative and equal in
+    // magnitude to the map's own motion. Tolerance is half a glyph — the field is a lattice of
+    // discrete symbols, not a continuous texture, so the correlation peak is only ever as sharp as
+    // the ink is.
+    expect(Math.abs(bestShift + SHIFT_PX), 'the field did not translate with the map').toBeLessThan(
+      12,
+    )
+
+    // …and the alternative is decisively worse. FAIL-BEFORE, measured on the screen-anchored build
+    // that shipped: best shift = 1 px with score 8.14 against 8.51 at zero — indistinguishable,
+    // because the lattice never moved. Ground-anchored: best shift −40, score 1.45 against 24.82.
+    // A RATIO, so nothing here is a tuned pixel count.
+    expect(
+      still / Math.max(bestScore, 1e-6),
+      'the frame is no better aligned when shifted than when still — the lattice is viewport-pinned',
+    ).toBeGreaterThan(4)
   })
 })
