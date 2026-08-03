@@ -301,6 +301,28 @@ describe('RenderTargets.ensure', () => {
     expect(r.colorViewScreen).toBe(r.colorView)
   })
 
+  it('pickSize() survives invalidate() while the texture lives — the #1429 authority is the TEXTURE (review F1)', () => {
+    // The retired native read was `pickTexture.width` — untouched by
+    // invalidate(), so a pickAt in the setQuality→next-ensure window still
+    // sampled the live texture correctly. pickSize() must mirror that
+    // lifetime exactly: recorded at mint, zeroed only when the texture goes
+    // away (device swap / pick disabled), NEVER by the recreate tracker.
+    const fake = makeFakeRhi()
+    const rt = new RenderTargets(() => makeCtx(fake.rhi))
+
+    rt.ensure(800, 600, 800, 600, 1, true, false, screenView)
+    expect(rt.pickSize()).toEqual({ width: 800, height: 600 })
+
+    rt.invalidate()
+    expect(rt.pickTexture).not.toBeNull() // the texture is still the pick source
+    expect(rt.pickSize()).toEqual({ width: 800, height: 600 }) // ← the F1 window
+
+    // Pick disabled on the next ensure ⇒ no texture ⇒ size zeroes with it.
+    rt.ensure(800, 600, 800, 600, 1, false, false, screenView)
+    expect(rt.pickTexture).toBeNull()
+    expect(rt.pickSize()).toEqual({ width: 0, height: 0 })
+  })
+
   it('invalidate() forces a recreate even when w/h are unchanged', () => {
     const fake = makeFakeRhi()
     const rt = new RenderTargets(() => makeCtx(fake.rhi))

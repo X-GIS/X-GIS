@@ -73,7 +73,8 @@ export interface InteractionControllerDeps {
   /** The pick render-target's pixel size, read fresh. RhiTexture is opaque,
    *  so the coordinate authority (#1429 — derive the sample coordinate from
    *  the texture being read, never the canvas) is surfaced by the owner,
-   *  from the same tracker its ensure block mints the texture with. */
+   *  recorded when the texture is minted and living exactly as long as it
+   *  (the retired native `.width` semantics — unaffected by invalidate()). */
   getPickTextureSize(): { width: number; height: number }
   /** The active projection key, read fresh (mutated by setProjection). */
   getProjectionName(): string
@@ -193,7 +194,7 @@ export class InteractionController {
     // keeps the two from disagreeing; at scale 1 the texture IS canvas-sized,
     // so this is byte-identical to the canvas-based conversion it replaces.
     // (Surfaced by the owner as `getPickTextureSize` since the RhiTexture
-    // retype — same tracker the ensure block mints the texture with.)
+    // retype — recorded at mint, living exactly as long as the texture.)
     const pickSize = this.getPickTextureSize()
     const px = cssToDevicePixel(clientX - rect.left, rect.width, pickSize.width)
     const py = cssToDevicePixel(clientY - rect.top, rect.height, pickSize.height)

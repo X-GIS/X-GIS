@@ -166,14 +166,19 @@ export class RenderTargets {
    *  the ladder can move while the canvas is unchanged. */
   msaaWidth = 0
   msaaHeight = 0
-  /** The pick texture's pixel size — the SAME scene tracker (`pickTexture` is
-   *  minted in the block that sets it, so the two cannot disagree). Surfaced
-   *  because RhiTexture is opaque: the pick READ derives its coordinate from
-   *  the texture being read (#1429 single authority), and `tex.width` no
-   *  longer exists to read. Pick-path frequency (not per-frame), so the
-   *  result object is minted per call. */
+  /** The pick texture's own pixel size, recorded AT MINT — the property read
+   *  the retired native `tex.width` was (#1429 single authority: the pick
+   *  READ derives its coordinate from the texture being read). Deliberately
+   *  NOT the scene recreate tracker: `invalidate()` zeroes that tracker while
+   *  the texture (and the last presented frame it holds) stays live and
+   *  pickable, so these fields live exactly as long as the texture — zeroed
+   *  only where it goes away (mint-with-pick-off / `syncDevice`). Review F1.
+   *  Pick-path frequency (not per-frame), so the result object is minted per
+   *  call. */
+  private pickW = 0
+  private pickH = 0
   pickSize(): { width: number; height: number } {
-    return { width: this.msaaWidth, height: this.msaaHeight }
+    return { width: this.pickW, height: this.pickH }
   }
   /** #1429 INC-2 — the scaled pair's own tracker (scene and screen resize
    *  independently — a ladder notch moves the scene while the canvas is
@@ -250,6 +255,8 @@ export class RenderTargets {
     this.screenMsaaTexture = null
     this.msaaWidth = 0
     this.msaaHeight = 0
+    this.pickW = 0
+    this.pickH = 0
     this.screenPairW = 0
     this.screenPairH = 0
     this.scenePairW = 0
@@ -329,6 +336,8 @@ export class RenderTargets {
             usage: ['render', 'copy-src'],
           })
         : null
+      this.pickW = pickEnabled ? w : 0
+      this.pickH = pickEnabled ? h : 0
       // The OIT + offscreen-extrude targets are NOT allocated here — they
       // move to the lazy `ensureOit()` (gated on scene OIT content), the
       // same way the map-owned heatmap density targets gate on
