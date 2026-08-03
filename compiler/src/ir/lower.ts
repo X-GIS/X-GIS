@@ -2,6 +2,7 @@
 // Converts parsed AST into the intermediate representation (Scene).
 
 import type * as AST from '../parser/ast'
+import { lowerSymbol } from './symbol-elements'
 import { resolveColor } from '../tokens/colors'
 import type { LowerOptions } from './lower-types'
 import { lowerLabelProps } from './lower-label'
@@ -63,11 +64,8 @@ export function lower(program: AST.Program, options: LowerOptions = {}): Scene {
         params: stmt.params,
       })
     } else if (stmt.kind === 'SymbolStatement') {
-      const paths: string[] = []
-      for (const el of stmt.elements) {
-        if (el.kind === 'path') paths.push(el.data)
-      }
-      if (paths.length > 0) symbols.push({ name: stmt.name, paths })
+      const sym = lowerSymbol(stmt, diagnostics)
+      if (sym) symbols.push(sym)
     } else if (stmt.kind === 'KeyframesStatement') {
       keyframesMap.set(stmt.name, stmt)
     }

@@ -1260,7 +1260,11 @@ const CEILINGS: Record<string, number> = {
   // past it is a guaranteed 404, not a slow tile — terrarium stops at z15 while
   // rasterCoverZoom adds +1 on a 256-px source, so every visible tile failed from about
   // camera z14.5 (verified: terrarium/16/13651/25075 404, its z15 parent 200). +10: two source-property arms, their locals, and the pass-through.
-  'compiler/src/ir/lower.ts': 1473,
+  // 1473→1444 (#1550): the `symbol` block's own lowering — which elements make geometry, which
+  // anchors exist, what an empty block means — moved to `ir/symbol-elements.ts` beside the
+  // functions that implement it. The ratchet asked for this in as many words ("extract, don't
+  // grow, then lower the ceiling") when the block grew here first; it was right.
+  'compiler/src/ir/lower.ts': 1444,
   // #777 I-B icon-keep-upright + I-F icon value-forms (merged) grow three
   // symbol-lowering god-files (per-row justification in
   // architecture-invariants.test.ts, the second authority):

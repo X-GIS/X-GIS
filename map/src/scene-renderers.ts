@@ -71,7 +71,7 @@ export function buildSceneRenderers(
     // dropped by the duplicate-name guard in `addShape`.
     for (const sym of opts.symbols ?? []) {
       for (const path of sym.paths) {
-        shapeRegistry.addUserShape(sym.name, path)
+        shapeRegistry.addUserShape(sym.name, path, sym.anchor)
       }
     }
     shapeRegistry.uploadToGPU()
