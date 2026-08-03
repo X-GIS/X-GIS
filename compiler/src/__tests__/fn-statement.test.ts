@@ -42,3 +42,36 @@ layer l { source: w  | shape-fn-star }
     expect(items.map((i) => i.name)).toEqual(['shape-fn-star'])
   })
 })
+
+describe('fn statement grammar (#1535 step 8)', () => {
+  function firstFn(source: string): AST.FnStatement {
+    const stmt = parse(source).body.find((s) => s.kind === 'FnStatement')
+    if (!stmt) throw new Error('no FnStatement parsed')
+    return stmt as AST.FnStatement
+  }
+
+  it('parses an expression-bodied fn declaration', () => {
+    const f = firstFn('fn halo(width, base) { return clamp(width * 1.5 + base, 1, 24) }')
+    expect(f.name).toBe('halo')
+    expect(f.params).toEqual(['width', 'base'])
+    expect(f.body).toMatchObject({ kind: 'FnCall', callee: { name: 'clamp' } })
+  })
+
+  it('parses a zero-param fn', () => {
+    const f = firstFn('fn tau() { return PI() * 2 }')
+    expect(f.params).toEqual([])
+  })
+
+  it('ternary bodies parse (the v1 branching form)', () => {
+    const f = firstFn('fn pick(x) { return x > 10 ? 1 : 0 }')
+    expect(f.body.kind).toBe('ConditionalExpr')
+  })
+
+  it('imperative bodies are rejected (pre-#1072 grammar stays dead)', () => {
+    expect(() => parse('fn scale(x) { let y = x * 2 return y }')).toThrow()
+  })
+
+  it('a body without return is rejected', () => {
+    expect(() => parse('fn scale(x) { x * 2 }')).toThrow()
+  })
+})
