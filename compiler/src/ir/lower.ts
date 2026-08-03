@@ -695,11 +695,10 @@ function lowerLayer(
   let opacityZoomStopsBase: number | undefined
   let sizeZoomStopsBase: number | undefined
 
-  // Animation metadata. Collected from top-level utilities like
-  // `animation-pulse duration-1500 ease-in-out infinite delay-200` on the
-  // layer's utility line. The actual keyframe expansion happens once after
-  // the utility loop completes, so the order of `animation-*` vs
-  // `duration-*` on the same line doesn't matter.
+  // Animation metadata, collected from top-level utilities like
+  // `animation-pulse duration-1500 ease-in-out infinite delay-200`. Keyframe
+  // expansion happens once after the utility loop completes, so same-line
+  // order of `animation-*` vs `duration-*` doesn't matter.
   let animationName: string | null = null
   let animationDurationMs = 1000
   let animationEasing: Easing = 'linear'
@@ -736,11 +735,10 @@ function lowerLayer(
       }[]
     | undefined
 
-  // Assemble the mutable LayerAccumulator from the post-cascade locals
-  // (named style → inline CSS already applied above) plus fresh per-loop
-  // collectors. The binding/utility handlers mutate THIS; lowerLayer reads
-  // it back into the locals after the loop so the promotion + return literal
-  // below stay byte-identical. See lower-bindings.ts for the registry design.
+  // Assemble the mutable LayerAccumulator from the post-cascade locals (named
+  // style → inline CSS applied above) plus fresh per-loop collectors. Handlers
+  // mutate THIS; lowerLayer reads it back after the loop so the promotion +
+  // return literal stay byte-identical (registry design: lower-bindings.ts).
   const acc: LayerAccumulator = {
     fill,
     extrude,
@@ -1004,12 +1002,10 @@ function lowerLayer(
   heatmapOpacity = acc.heatmapOpacity
   heatmapColorStops = acc.heatmapColorStops
 
-  // Expand referenced keyframes into per-property time stops. Pure
-  // sub-pass (lower-animation.ts): reads only the animation meta set in
-  // the loop above + the keyframes table, returns the six time-stop
-  // arrays consumed by the promotion block below. The call stays here —
-  // AFTER the utility loop (so animationName/Duration are set) and
-  // BEFORE the promotion (DO-NOT-SPLIT #2).
+  // Expand referenced keyframes into per-property time stops. Pure sub-pass
+  // (lower-animation.ts): reads the animation meta set above + the keyframes
+  // table, returns the six time-stop arrays the promotion consumes. Stays
+  // HERE — after the utility loop, before the promotion (DO-NOT-SPLIT #2).
   const {
     opacityTimeStops,
     fillTimeStops,
