@@ -17,11 +17,11 @@
 // and that every velocity fetch reads the cell that OWNS its position. That the field actually
 // paints across z7…z19 is a render claim and is gated where render claims belong:
 // `playground/e2e/_s111-arrow-density-gate.spec.ts`. The CPU half of the density rule (the
-// viewport → instance count map) is pinned in `map/src/render/arrow-view-uniform.test.ts`.
+// viewport → instance count map) is pinned in `map/src/render/field-lattice-uniform.test.ts`.
 
 import { describe, it, expect } from 'vitest'
 import { emitArrowRetainedAdvectedWgsl, emitArrowRetainedAdvectedGlsl } from './arrow-advected'
-import { ARROW_TRAIN_STEPS } from './arrow-view'
+import { ARROW_TRAIN_STEPS } from './arrow-drift'
 
 describe('the STATIC arrow VS is untouched by any of it', () => {
   it('declares no lattice, no view block and no backward map', () => {
