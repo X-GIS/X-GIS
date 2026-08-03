@@ -44,7 +44,7 @@ function harness(groupCount: number, opts: { coverage?: boolean } = {}) {
     rhiStencilView: {},
     passScope: (_label: string, fn: () => void) => fn(),
     useResolve: false,
-    rt: { pickTexture: undefined, pickViewRhi: undefined },
+    rt: { pickTexture: undefined, pickView: undefined },
     projection: makeProjectionToken(0, 0, 0),
     // The opaque pass is a SCENE pass, so it reads `scene`; `screen` is present because a
     // FrameContext always carries both, and equal because INC-1 has not split them yet.

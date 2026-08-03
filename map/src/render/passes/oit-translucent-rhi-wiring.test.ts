@@ -1,8 +1,8 @@
 // ═══ OIT + translucent passes → RHI seam wiring (#1046 F3b Inc-2d) ═══
 //
 // Both buckets originate through the RHI frame shell. OIT: the fill pass
-// targets the RT-side RHI accessors (rt.oitAccumViewRhi / rt.oitRevealageViewRhi
-// — adapter-owned textures, mirroring rt.pickViewRhi) with the opaque depth
+// targets the RT-side RHI accessors (rt.oitAccumView / rt.oitRevealageView
+// — adapter-owned textures, mirroring rt.pickView; RHI-native since Inc-D) with the opaque depth
 // loaded; the compose pass draws onto the colour bridge with the conditional
 // resolve. Translucent: the offscreen stroke pass comes from the narrowed
 // lineRenderer.beginTranslucentPass(RhiCommandEncoder) and the composite from
@@ -58,12 +58,15 @@ function rhiFrame() {
 describe('oit pass — RHI seam wiring (#1046 F3b Inc-2d)', () => {
   function oitHarness() {
     const f = rhiFrame()
-    const oitAccumViewRhi = { __oitAccum: true }
-    const oitRevealageViewRhi = { __oitReveal: true }
+    const oitAccumView = { __oitAccum: true }
+    const oitRevealageView = { __oitReveal: true }
     ;(f.ctx as { rt: unknown }).rt = {
       ensureOit: vi.fn(),
-      oitAccumViewRhi,
-      oitRevealageViewRhi,
+      oitAccumView,
+      oitRevealageView,
+      // The compose consumes the RT's P6-scoped native twins (Inc-D).
+      oitAccumViewNative: { __oitAccumNative: true },
+      oitRevealageViewNative: { __oitRevealNative: true },
     }
     const drawn: unknown[] = []
     const scene = {
@@ -81,7 +84,7 @@ describe('oit pass — RHI seam wiring (#1046 F3b Inc-2d)', () => {
       },
       ctx: {},
     }
-    return { ...f, scene, host, drawn, composeCalls, oitAccumViewRhi, oitRevealageViewRhi }
+    return { ...f, scene, host, drawn, composeCalls, oitAccumView, oitRevealageView }
   }
 
   it('fill pass targets the RT RHI accessors, loads opaque depth, hands cs.draw the RHI handle', () => {
@@ -95,8 +98,8 @@ describe('oit pass — RHI seam wiring (#1046 F3b Inc-2d)', () => {
       storeOp: string
       clearValue?: unknown
     }[]
-    expect(colors[0].view).toBe(h.oitAccumViewRhi)
-    expect(colors[1].view).toBe(h.oitRevealageViewRhi)
+    expect(colors[0].view).toBe(h.oitAccumView)
+    expect(colors[1].view).toBe(h.oitRevealageView)
     expect(colors[0].loadOp).toBe('clear')
     // The McGuire-Bavoil clears: accum to 0, revealage to 1 (review F4 pin).
     expect(colors[0].clearValue).toEqual([0, 0, 0, 0])

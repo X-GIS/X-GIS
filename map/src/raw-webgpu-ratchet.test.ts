@@ -102,9 +102,12 @@ const BASELINE: Record<string, number> = {
   'map/src/color-ramp.ts': 6,
   'map/src/debug-flags.ts': 3,
   'map/src/graphics/graphics-manager.ts': 2,
-  'map/src/interaction-controller.ts': 9,
+  // interaction-controller 9 → 5, map.ts 6 → 5 (#1046 F4 Inc-D): the pick RT
+  // rides RhiTexture/RhiDevice through the DI seam — the native tokens left
+  // are the readback's own (createBuffer/copyTextureToBuffer/mapAsync, G4).
+  'map/src/interaction-controller.ts': 5,
   'map/src/map-types.ts': 12,
-  'map/src/map.ts': 6,
+  'map/src/map.ts': 5,
   // render-loop-helpers row DELETED (#1046 F4 Inc-A): reportErrorScope takes the
   // RHI's message-or-null promise — the GPUError type reference died with it.
   // compute-layer-handle + compute-layer-registry rows DELETED, five rows lowered

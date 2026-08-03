@@ -1,11 +1,11 @@
 // #792 — pickAt must not issue a cross-device readback in the window between a
-// `map.run()` re-init (new GPUDevice) and the first post-swap frame that
+// `map.run()` re-init (new device) and the first post-swap frame that
 // reallocates the pick render-target on that new device.
 //
 // The pick RT is minted inside `RenderTargets.ensure*` on that class's tracked
-// device; after a re-run the context's device swaps but the pick texture is not
-// reallocated until the next frame. In that window `getPickTextureDevice()`
-// (the RT's device) lags `getCtx().device`, so `copyTextureToBuffer` would copy
+// RhiDevice; after a re-run the context's device swaps but the pick texture is
+// not reallocated until the next frame. In that window `getPickTextureDevice()`
+// (the RT's device) lags `getCtx().rhi`, so `copyTextureToBuffer` would copy
 // an old-device texture on the new device — WebGPU rejects it. The guard skips
 // the readback (returns null, a miss) until the devices agree.
 
@@ -27,7 +27,10 @@ const mockCanvas = {
 }
 
 function makeController(pickDevice: unknown, ctxDevice: unknown): InteractionController {
-  const mockCtx = { device: ctxDevice, canvas: mockCanvas }
+  // `rhi` is the RhiDevice identity the guard compares; `device` stays the
+  // raw encoder mock the steady-state readback records against. Same object
+  // for both roles — the mock plays the context's one device.
+  const mockCtx = { device: ctxDevice, rhi: ctxDevice, canvas: mockCanvas }
   const deps: InteractionControllerDeps = {
     camera: {} as never,
     layerIds: { getName: () => null } as unknown as LayerIdRegistry,
@@ -35,8 +38,10 @@ function makeController(pickDevice: unknown, ctxDevice: unknown): InteractionCon
     rawDatasets: new Map(),
     featureIndex: new Map(),
     getCtx: () => mockCtx as never,
-    getPickTexture: () => ({}) as GPUTexture,
+    // RHI-shaped ({native}) so the steady-state readback's unwrap resolves.
+    getPickTexture: () => ({ native: {} }) as never,
     getPickTextureDevice: () => pickDevice as never,
+    getPickTextureSize: () => ({ width: 100, height: 100 }),
     getProjectionName: () => 'mercator',
     getVectorTileShows: () => [],
   }

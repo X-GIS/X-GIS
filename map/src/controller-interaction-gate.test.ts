@@ -401,6 +401,7 @@ describe('GATE 2C — InteractionController.clientToLngLat routing (1/2/6 finite
       getCtx: () => ctx,
       getPickTexture: () => null,
       getPickTextureDevice: () => null,
+      getPickTextureSize: () => ({ width: 0, height: 0 }),
       getProjectionName: () => projName,
       getVectorTileShows: () => [],
     }

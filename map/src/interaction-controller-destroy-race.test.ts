@@ -67,8 +67,11 @@ function makeRaceController(useFixedGetCtx: boolean) {
     clientWidth: 100,
   }
 
-  const mockCtx = { device: mockDevice, canvas: mockCanvas }
-  const mockTexture = {} as GPUTexture
+  // `rhi` doubles as the RhiDevice identity the #792 guard compares; `device`
+  // stays the raw encoder mock the readback records against.
+  const mockCtx = { device: mockDevice, rhi: mockDevice, canvas: mockCanvas }
+  // RHI-shaped ({native}) so the readback's adapter unwrap resolves.
+  const mockTexture = { native: {} } as never
 
   const deps: InteractionControllerDeps = {
     camera: {} as never,
@@ -80,6 +83,7 @@ function makeRaceController(useFixedGetCtx: boolean) {
     getCtx: () => (useFixedGetCtx && destroyed ? null : (mockCtx as never)),
     getPickTexture: () => mockTexture,
     getPickTextureDevice: () => mockDevice as never,
+    getPickTextureSize: () => ({ width: 100, height: 100 }),
     getProjectionName: () => 'mercator',
     getVectorTileShows: () => [],
   }

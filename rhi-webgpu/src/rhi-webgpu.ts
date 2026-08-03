@@ -252,6 +252,16 @@ export function unwrapWebGpuBuffer(buffer: RhiBuffer): GPUBuffer {
   return u<GPUBuffer>(buffer)
 }
 
+/** Recover the native `GPUTexture` from an RHI texture — the inverse of the
+ *  device's `createTexture` wrap, mirroring `unwrapWebGpuBuffer`. Used at the
+ *  one raw readback sink that outlived the RenderTargets retype (#1046 F4
+ *  Inc-D): the pick `copyTextureToBuffer` + `mapAsync` path in
+ *  interaction-controller, which stays raw WebGPU until the RHI readback seam
+ *  (G4/P7). Identity on WebGPU — the same `GPUTexture` the wrap holds. */
+export function unwrapWebGpuTexture(texture: RhiTexture): GPUTexture {
+  return u<GPUTexture>(texture)
+}
+
 /** Adopt an externally-created bind-group layout (line reuses the VTR tile layout
  *  so its pipeline is layout-compatible with VTR-built tile bind groups). */
 export function wrapWebGpuBindGroupLayout(layout: GPUBindGroupLayout): RhiBindGroupLayout {

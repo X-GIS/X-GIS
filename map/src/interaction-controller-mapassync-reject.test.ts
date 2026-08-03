@@ -44,7 +44,9 @@ function makeRejectController() {
     clientWidth: 100,
   }
 
-  const mockCtx = { device: mockDevice, canvas: mockCanvas }
+  // `rhi` doubles as the RhiDevice identity the #792 guard compares; `device`
+  // stays the raw encoder mock the readback records against.
+  const mockCtx = { device: mockDevice, rhi: mockDevice, canvas: mockCanvas }
 
   const deps: InteractionControllerDeps = {
     camera: {} as never,
@@ -53,8 +55,10 @@ function makeRejectController() {
     rawDatasets: new Map(),
     featureIndex: new Map(),
     getCtx: () => mockCtx as never,
-    getPickTexture: () => ({}) as GPUTexture,
+    // RHI-shaped ({native}) so the readback's adapter unwrap resolves.
+    getPickTexture: () => ({ native: {} }) as never,
     getPickTextureDevice: () => mockDevice as never,
+    getPickTextureSize: () => ({ width: 100, height: 100 }),
     getProjectionName: () => 'mercator',
     getVectorTileShows: () => [],
   }

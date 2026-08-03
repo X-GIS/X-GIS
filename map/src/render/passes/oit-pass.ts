@@ -42,13 +42,13 @@ class OitPass implements RenderPass {
       const oitPass = enc.beginRenderPass({
         colorAttachments: [
           {
-            view: ctx.rt.oitAccumViewRhi!,
+            view: ctx.rt.oitAccumView!,
             clearValue: [0, 0, 0, 0],
             loadOp: 'clear',
             storeOp: 'store',
           },
           {
-            view: ctx.rt.oitRevealageViewRhi!,
+            view: ctx.rt.oitRevealageView!,
             clearValue: [1, 0, 0, 0],
             loadOp: 'clear',
             storeOp: 'store',
@@ -94,8 +94,13 @@ class OitPass implements RenderPass {
       })
       // The fullscreen recover draw (pipeline + bind group + draw(3)) lives
       // behind the renderer entry — the pipeline is native until the OIT twin
-      // lands, and the unwrap belongs in the adapter-importing layer, not here.
-      host.renderer.drawOitCompose(compPass, ctx.rt.oitAccumView!, ctx.rt.oitRevealageView!)
+      // lands, and the unwrap belongs in the adapter-importing layer, not
+      // here. The `*Native` accessors are the RT's P6-scoped raw residue.
+      host.renderer.drawOitCompose(
+        compPass,
+        ctx.rt.oitAccumViewNative!,
+        ctx.rt.oitRevealageViewNative!,
+      )
       compPass.end()
     })
   }

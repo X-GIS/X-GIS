@@ -87,8 +87,10 @@ export interface FrameContext {
   /** F3b view bridges for the chain passes — the swapchain view, the SCENE
    *  colour attachment (scene-sized MSAA under `useResolve`, the overdraw
    *  accumulator in `?debug=overdraw`, the scene colour while the ladder
-   *  scales, else the swapchain view) and the depth-stencil, RHI-wrapped once
-   *  per frame (WeakMap-memoized — steady-state frames allocate nothing).
+   *  scales, else the swapchain view) and the depth-stencil. RHI handles
+   *  straight from RenderTargets.ensure (#1046 F4 Inc-D — the loop-side
+   *  memo-wrap retired with the RhiTexture retype; steady-state frames
+   *  allocate nothing because the RT view cache is texture-keyed).
    *  Null ONLY on the twin frame, like `rhiEncoder`. */
   rhiScreenView: import('@xgis/rhi').RhiTextureView | null
   rhiColorView: import('@xgis/rhi').RhiTextureView | null
@@ -184,24 +186,17 @@ export function makeFrameContext(a: {
   }
 }
 
-/** The native swapchain view's type, spelled without a raw-WebGPU token — the
- *  loop holds the native view as a LOCAL (the collapse removed it from the
- *  FrameContext surface) and threads it here for `ensure` + identity checks. */
-type NativeView = Parameters<RenderTargets['ensure']>[7]
-
 /** Per-frame colour-target wiring: RenderTargets.ensure + the F3b / #1429
- *  bridge population. When colorView IS the swapchain view (sampleCount 1:
- *  mobile / ?safe / ?msaa=1), the device's rebind-per-frame screen wrapper is
- *  reused instead of memo-wrapping a view minted fresh every frame; every
- *  #1429 bridge reduces to an existing wrapper by IDENTITY when the scene is
- *  not scaled (the scale-1 gate pins this). The native views live and die as
- *  loop locals — no pass can reach them (Inc-3 field collapse). */
+ *  bridge population. `ensure` speaks RHI end-to-end (#1046 F4 Inc-D), so the
+ *  bridges are its return values BY IDENTITY — when colorView IS the swapchain
+ *  view (sampleCount 1: mobile / ?safe / ?msaa=1) `ensure` returns the very
+ *  `screenView` wrapper the loop acquired, and every #1429 field reduces to an
+ *  existing handle the same way when the scene is not scaled (the scale-1 gate
+ *  pins this). No native view exists anywhere on this path. */
 export function wireFrameColour(
   ctx: FrameContext,
-  screenView: NativeView,
-  rhiViewFor: (v: NativeView) => NonNullable<FrameContext['rhiScreenView']>,
+  screenView: NonNullable<FrameContext['rhiScreenView']>,
 ): void {
-  const { rhiScreenView } = ctx
   const sc = getSampleCount()
   ctx.sampleCount = sc
   const { useResolve, colorView, sceneResolveView, colorViewScreen, sceneColorSampleView } =
@@ -216,16 +211,9 @@ export function wireFrameColour(
       screenView,
     )
   ctx.useResolve = useResolve
-  ctx.rhiColorView = colorView === screenView ? rhiScreenView : rhiViewFor(colorView)
-  ctx.rhiStencilView = rhiViewFor(ctx.rt.stencilView!)
-  ctx.rhiSceneResolveView =
-    sceneResolveView === screenView ? rhiScreenView : rhiViewFor(sceneResolveView)
-  ctx.rhiColorViewScreen =
-    colorViewScreen === colorView
-      ? ctx.rhiColorView
-      : colorViewScreen === screenView
-        ? rhiScreenView
-        : rhiViewFor(colorViewScreen)
-  ctx.rhiSceneColorSampleView =
-    sceneColorSampleView === null ? null : rhiViewFor(sceneColorSampleView)
+  ctx.rhiColorView = colorView
+  ctx.rhiStencilView = ctx.rt.stencilView
+  ctx.rhiSceneResolveView = sceneResolveView
+  ctx.rhiColorViewScreen = colorViewScreen
+  ctx.rhiSceneColorSampleView = sceneColorSampleView
 }

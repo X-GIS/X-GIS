@@ -73,7 +73,7 @@ class OpaquePass implements RenderPass {
         // sub-pass clears the pick texture to (0, 0) = "no feature";
         // subsequent sub-passes load so earlier-group IDs persist
         // where later groups didn't draw. The pick view rides the
-        // RT-side RHI accessor (adapter-owned texture, rt.pickViewRhi).
+        // RT-side accessor (RHI-native since the Inc-D retype, rt.pickView).
         const colorAttachments: Parameters<
           typeof enc.beginRenderPass
         >[0]['colorAttachments'][number][] = [
@@ -95,7 +95,7 @@ class OpaquePass implements RenderPass {
         ]
         if (isPickEnabled() && ctx.rt.pickTexture) {
           colorAttachments.push({
-            view: ctx.rt.pickViewRhi!,
+            view: ctx.rt.pickView!,
             clearValue: isFirst ? [0, 0, 0, 0] : undefined,
             loadOp: isFirst ? 'clear' : 'load',
             storeOp: 'store',

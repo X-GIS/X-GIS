@@ -29,12 +29,7 @@ import {
   poleLimit,
 } from '@xgis/geo'
 import { adaptiveDprScale, effectiveDpr } from '@xgis/engine'
-import {
-  resizeCanvas,
-  unwrapWebGpuTextureView,
-  wrapWebGpuTextureView,
-  pushValidationError,
-} from '@xgis/rhi-webgpu'
+import { resizeCanvas, pushValidationError } from '@xgis/rhi-webgpu'
 import { DEBUG_OVERDRAW, DEBUG_RHI_CHECKER, RHI_CHAIN, sceneScalePinned } from './debug-flags'
 import { WORLD_MERC, TILE_PX } from '@xgis/geo'
 import { invalidateResolvedShowCache } from './render/resolved-show'
@@ -101,25 +96,6 @@ export class RenderLoop {
    *  false until #991 P4/P5, and `?rhichain=1` stays a safe no-op by its word. */
   private get _chainRunsOnWebgl2(): boolean {
     return this.host.ctx.rhi?.caps.chainFrame === true
-  }
-
-  /** F3b: memoized native→RHI view wraps for the ported passes — WeakMap keyed
-   *  on the native view, so steady-state frames allocate nothing (this loop is
-   *  allocation-paranoid); a resize mints new native views and the memo
-   *  follows. Retires with the F3b FrameContext field collapse. */
-  private readonly _rhiViewMemo = new WeakMap<object, RhiTextureView>()
-  /** Stable bound form of `_rhiViewFor` for wireFrameColour — allocated once
-   *  (the 60 Hz loop is allocation-paranoid; an inline arrow per frame is not). */
-  private readonly _rhiViewForBound = (v: Parameters<typeof wrapWebGpuTextureView>[0]) =>
-    this._rhiViewFor(v)
-
-  private _rhiViewFor(view: Parameters<typeof wrapWebGpuTextureView>[0]): RhiTextureView {
-    let v = this._rhiViewMemo.get(view)
-    if (!v) {
-      v = wrapWebGpuTextureView(view)
-      this._rhiViewMemo.set(view, v)
-    }
-    return v
   }
 
   /** Content (map.ts) hands the engine its ordered RenderNode chain. */
@@ -317,15 +293,14 @@ export class RenderLoop {
     }
 
     perfMarkStart('frame.encode')
-    // Frame shell (#1046 F2/F3b, Inc-3 collapse): the RHI is the ONE source of
-    // the frame encoder + swapchain view. The natives exist only as loop
-    // locals for the not-yet-RHI tail (ensure) — no pass can reach them; the `__xgisRawFrameShell`
-    // escape retired with the collapse (every chain pass fails loud on null
-    // bridges anyway, so the escape could no longer render a frame).
+    // Frame shell (#1046 F2/F3b, Inc-3 collapse; F4 Inc-D): the RHI is the
+    // ONE source of the frame encoder + swapchain view, and with
+    // RenderTargets on RhiTexture no native handle exists anywhere in the
+    // chain frame — the `__xgisRawFrameShell` escape retired with the
+    // collapse, the loop-local unwraps with the Inc-A..D retypes.
     const rhiFrame = this.host.ctx.rhi
     const frameEnc = rhiFrame.acquireFrameEncoder()
     const rhiScreenView = rhiFrame.acquireScreenView()
-    const screenView = unwrapWebGpuTextureView(rhiScreenView)
     // Reset per-frame timer state BEFORE compute dispatch so the
     // first compute pass gets timestampWrites attached. `beginFrame()`
     // clears both the sub-pass counter AND the
@@ -442,7 +417,7 @@ export class RenderLoop {
       // / ?msaa=1, 4 on desktop default).
       // ensure() + colorView decision + the F3b / #1429 bridge population,
       // extracted VERBATIM to wireFrameColour (frame-context.ts, piece 6).
-      wireFrameColour(ctx, screenView, this._rhiViewForBound)
+      wireFrameColour(ctx, rhiScreenView)
 
       // Reset per-frame uniform ring cursors (dynamic-offset slots).
       this.host.renderer.beginFrame()

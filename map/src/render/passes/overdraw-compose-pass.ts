@@ -46,7 +46,9 @@ class OverdrawComposePass implements RenderPass {
         entries: [
           {
             binding: 0,
-            resource: ctx.rt.overdrawView!,
+            // The RT's P6-scoped native accessor — this bind group is raw
+            // until the compose moves onto a Material (see file header).
+            resource: ctx.rt.overdrawViewNative!,
           },
         ],
       })

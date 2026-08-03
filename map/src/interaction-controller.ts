@@ -29,7 +29,8 @@ import { EARTH } from '@xgis/shared'
 import type { Camera } from './camera'
 import { unprojectGlobeFromCamera } from './camera'
 import { mercatorYToLat } from '@xgis/geo'
-import type { GPUContext } from '@xgis/rhi-webgpu'
+import { unwrapWebGpuTexture, type GPUContext } from '@xgis/rhi-webgpu'
+import type { RhiDevice, RhiTexture } from '@xgis/engine'
 import type { LayerIdRegistry, XGISLayer, XGISFeature, XGISFeatureEventType } from './layer'
 import type { SceneCommands } from './interpreter'
 import type { GeoJSONFeature } from '@xgis/data'
@@ -61,13 +62,19 @@ export interface InteractionControllerDeps {
   /** The WebGPU context, read fresh (populated in run() / runBinary). */
   getCtx(): GPUContext | null
   /** The single-sample pick render-target, read fresh (allocated /
-   *  destroyed during render-target setup; null when picking disabled). */
-  getPickTexture(): GPUTexture | null
-  /** The device the pick render-target was allocated on, read fresh. After a
-   *  `map.run()` re-init this lags `getCtx().device` until the first post-swap
-   *  frame reallocates the targets; `pickAt` compares the two to skip a
-   *  cross-device readback in that window (#792). */
-  getPickTextureDevice(): GPUDevice | null
+   *  destroyed during render-target setup; null when picking disabled).
+   *  RHI handle (#1046 F4 Inc-D) — the raw readback below unwraps it. */
+  getPickTexture(): RhiTexture | null
+  /** The RhiDevice the pick render-target was allocated on, read fresh.
+   *  After a `map.run()` re-init this lags `getCtx().rhi` until the first
+   *  post-swap frame reallocates the targets; `pickAt` compares the two to
+   *  skip a cross-device readback in that window (#792). */
+  getPickTextureDevice(): RhiDevice | null
+  /** The pick render-target's pixel size, read fresh. RhiTexture is opaque,
+   *  so the coordinate authority (#1429 — derive the sample coordinate from
+   *  the texture being read, never the canvas) is surfaced by the owner,
+   *  from the same tracker its ensure block mints the texture with. */
+  getPickTextureSize(): { width: number; height: number }
   /** The active projection key, read fresh (mutated by setProjection). */
   getProjectionName(): string
   /** The vectorTileShows array, read fresh (reassigned in rebuildLayers). */
@@ -100,8 +107,9 @@ export class InteractionController {
   private readonly rawDatasets: Map<string, RawDataset>
   private readonly _featureIndex: Map<string, Map<number, GeoJSONFeature>>
   private readonly getCtx: () => GPUContext | null
-  private readonly getPickTexture: () => GPUTexture | null
-  private readonly getPickTextureDevice: () => GPUDevice | null
+  private readonly getPickTexture: () => RhiTexture | null
+  private readonly getPickTextureDevice: () => RhiDevice | null
+  private readonly getPickTextureSize: () => { width: number; height: number }
   private readonly getProjectionName: () => string
   private readonly getVectorTileShows: () => VectorTileShowEntry[]
 
@@ -121,6 +129,7 @@ export class InteractionController {
     this.getCtx = deps.getCtx
     this.getPickTexture = deps.getPickTexture
     this.getPickTextureDevice = deps.getPickTextureDevice
+    this.getPickTextureSize = deps.getPickTextureSize
     this.getProjectionName = deps.getProjectionName
     this.getVectorTileShows = deps.getVectorTileShows
     this.pickRhi = deps.pickRhi
@@ -163,13 +172,13 @@ export class InteractionController {
     const pickTexture = this.getPickTexture()
     if (!pickTexture) return null
     // #792 — the pick RT is minted inside `RenderTargets.ensure*` on that
-    // class's tracked device. After a `map.run()` re-init the context swaps to
-    // a NEW device but the pick RT is not reallocated until the first
-    // post-swap frame's `ensure()`; in that window `pickTexture` still belongs
-    // to the DESTROYED prior device while `ctx.device` is the new one, so the
-    // `copyTextureToBuffer` below would be a cross-device copy WebGPU rejects.
-    // Skip the readback (treat as a miss) until the render targets catch up.
-    if (this.getPickTextureDevice() !== ctx.device) return null
+    // class's tracked RhiDevice. After a `map.run()` re-init the context
+    // swaps to a NEW device but the pick RT is not reallocated until the
+    // first post-swap frame's `ensure()`; in that window `pickTexture` still
+    // belongs to the DESTROYED prior device while `ctx.rhi` is the new one,
+    // so the `copyTextureToBuffer` below would be a cross-device copy WebGPU
+    // rejects. Skip the readback (treat as a miss) until the targets catch up.
+    if (this.getPickTextureDevice() !== ctx.rhi) return null
     const canvas = ctx.canvas
     const rect = canvas.getBoundingClientRect()
     // Convert CSS coords → physical pixels, sampling the CENTRE of the CSS
@@ -183,8 +192,11 @@ export class InteractionController {
     // coordinate from the texture being read is the single authority that
     // keeps the two from disagreeing; at scale 1 the texture IS canvas-sized,
     // so this is byte-identical to the canvas-based conversion it replaces.
-    const px = cssToDevicePixel(clientX - rect.left, rect.width, pickTexture.width)
-    const py = cssToDevicePixel(clientY - rect.top, rect.height, pickTexture.height)
+    // (Surfaced by the owner as `getPickTextureSize` since the RhiTexture
+    // retype — same tracker the ensure block mints the texture with.)
+    const pickSize = this.getPickTextureSize()
+    const px = cssToDevicePixel(clientX - rect.left, rect.width, pickSize.width)
+    const py = cssToDevicePixel(clientY - rect.top, rect.height, pickSize.height)
     if (px < 0 || py < 0) return null
 
     // Rent a staging buffer. Each slot is 8 bytes (one RG32Uint pixel,
@@ -206,7 +218,10 @@ export class InteractionController {
 
     const encoder = ctx.device.createCommandEncoder({ label: 'pick-copy' })
     encoder.copyTextureToBuffer(
-      { texture: pickTexture, origin: { x: px, y: py } },
+      // The one adapter-boundary unwrap this raw readback sink needs — the
+      // texture is RHI-owned (RenderTargets), the copy is native until the
+      // RHI readback seam lands (G4/P7).
+      { texture: unwrapWebGpuTexture(pickTexture), origin: { x: px, y: py } },
       { buffer: slot.buf, bytesPerRow: 256, rowsPerImage: 1 },
       { width: 1, height: 1 },
     )

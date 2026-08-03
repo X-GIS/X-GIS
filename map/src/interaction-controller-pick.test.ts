@@ -59,14 +59,16 @@ describe('cssToDevicePixel (Audit ⑩ B2 — DPR pick-coord rounding)', () => {
 
   it('pickAt derives its span from the pick TEXTURE, not the canvas (#1429 wiring pin)', () => {
     // Source-text pin (the label-pass-replay precedent): the call sites must
-    // read pickTexture.width/height. A revert to canvas.width would compile
+    // read the pick texture's own size — surfaced by its owner as
+    // `getPickTextureSize` since the RhiTexture retype (#1046 F4 Inc-D; the
+    // opaque handle has no `.width`). A revert to canvas.width would compile
     // and pass every math case above — this anchor is what fails it.
     const src = readFileSync(
       join(dirname(fileURLToPath(import.meta.url)), 'interaction-controller.ts'),
       'utf8',
     )
-    expect(src).toContain('cssToDevicePixel(clientX - rect.left, rect.width, pickTexture.width)')
-    expect(src).toContain('cssToDevicePixel(clientY - rect.top, rect.height, pickTexture.height)')
+    expect(src).toContain('cssToDevicePixel(clientX - rect.left, rect.width, pickSize.width)')
+    expect(src).toContain('cssToDevicePixel(clientY - rect.top, rect.height, pickSize.height)')
     // The ONE canvas-span conversion that remains is the forced-WebGL2 arm,
     // whose on-demand offscreen pick RT IS canvas-sized (the twin scales its
     // canvas — scene === canvas there, so canvas.width is that RT's span).
@@ -81,7 +83,7 @@ describe('cssToDevicePixel (Audit ⑩ B2 — DPR pick-coord rounding)', () => {
       'cssToDevicePixel(clientX - rect.left, rect.width, canvas.width)',
     )
     const textureConv = src.indexOf(
-      'cssToDevicePixel(clientX - rect.left, rect.width, pickTexture.width)',
+      'cssToDevicePixel(clientX - rect.left, rect.width, pickSize.width)',
     )
     expect(twinArm).toBeGreaterThan(-1)
     expect(canvasConv).toBeGreaterThan(twinArm)
