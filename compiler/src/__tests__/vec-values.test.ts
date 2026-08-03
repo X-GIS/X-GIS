@@ -10,6 +10,10 @@ import type * as AST from '../parser/ast'
 import { withPragma } from './_pragma'
 import { evaluate } from '../eval/evaluator'
 import { lower } from '../ir/lower'
+import { inferVecArity } from '../ir/expr-type'
+import { classifyExpr } from '../ir/classify'
+import { astToNode } from '../codegen/wgsl-expr'
+import { nodeToWgslString } from '../codegen/node-to-wgsl'
 
 function parse(source: string): AST.Program {
   return new Parser(new Lexer(withPragma(source)).tokenize()).parse()
@@ -70,6 +74,97 @@ describe('component access (#1537)', () => {
 
   it('component access on a non-vec object stays null (no coercion)', () => {
     expect(ev('.name.x', { name: 'seoul' })).toBeNull()
+  })
+})
+
+describe('vec type inference (#1537 step B)', () => {
+  const arity = (src: string) => inferVecArity(parseExpressionString(src))
+
+  it('recognises constructor calls', () => {
+    expect(arity('vec2(1, 2)')).toBe(2)
+    expect(arity('vec3(1, 2, 3)')).toBe(3)
+    expect(arity('vec4(1, 2, 3, 4)')).toBe(4)
+  })
+
+  it('propagates through component-wise arithmetic', () => {
+    expect(arity('vec3(1, 2, 3) * 2')).toBe(3)
+    expect(arity('2 * vec3(1, 2, 3)')).toBe(3)
+    expect(arity('vec2(1, 2) + vec2(3, 4)')).toBe(2)
+  })
+
+  it('a component read is scalar again', () => {
+    expect(arity('vec3(1, 2, 3).y')).toBeNull()
+  })
+
+  it('ordinary scalar expressions are not vectors', () => {
+    expect(arity('.width * 2')).toBeNull()
+    expect(arity('clamp(.w, 1, 24)')).toBeNull()
+    expect(arity('"text"')).toBeNull()
+  })
+})
+
+describe('vec GPU lowering (#1537 step B)', () => {
+  const gpu = (src: string, fields: string[] = []) =>
+    nodeToWgslString(astToNode(parseExpressionString(src), new Map(fields.map((f, i) => [f, i]))))
+
+  it('a component read emits real WGSL member access, never a 0.0 stub', () => {
+    const wgsl = gpu('vec3(1, 2, 3).y')
+    expect(wgsl).toContain('vec3')
+    expect(wgsl).toContain('.y')
+    expect(wgsl).not.toBe('0.0')
+  })
+
+  it('constructor arguments lower as expressions (feature fields survive)', () => {
+    const wgsl = gpu('vec2(.w, 2).x', ['w'])
+    expect(wgsl).toContain('feat_data')
+  })
+
+  it('a vec argument nests into the construction (WGSL concat form)', () => {
+    const wgsl = gpu('vec4(vec3(1, 2, 3), 4).w')
+    expect(wgsl).toContain('vec4')
+    expect(wgsl).toContain('vec3')
+  })
+
+  it('CPU and GPU agree on the lane a component read selects', () => {
+    // The parity that matters: same expression, same answer on both paths.
+    const src = 'vec4(10, 20, 30, 40).z'
+    expect(ev(src)).toBe(30)
+    expect(gpu(src)).toContain('.z')
+  })
+})
+
+describe('vec constructors reach the GPU classification (#1537 step B)', () => {
+  const cls = (src: string) => classifyExpr(parseExpressionString(src))
+
+  it('a vec-of-GPU-safe-parts component read classifies per-feature-gpu', () => {
+    // Non-vacuous: a silent demotion to per-feature-cpu turns this red.
+    expect(cls('vec3(.w, .w * 2, 8).y')).toBe('per-feature-gpu')
+  })
+
+  it('a vec over a CPU-only builtin still classifies per-feature-cpu', () => {
+    expect(cls('vec2(length(.name), 1).x')).toBe('per-feature-cpu')
+  })
+})
+
+describe('vector-in-scalar-position is a loud error (#1537 step B)', () => {
+  const errs = (src: string) =>
+    (lower(parse(src)).diagnostics ?? []).filter((d) => d.severity === 'error')
+
+  it('a bare vec binding is X-GIS0018, not a silent 0', () => {
+    const d = errs(`
+source w { type: geojson, url: "w.geojson" }
+layer l { source: w  | size-[vec3(1, 2, 3)] }
+`)
+    expect(d.map((x) => x.code)).toContain('X-GIS0018')
+  })
+
+  it('the same binding with a component read is accepted', () => {
+    expect(
+      errs(`
+source w { type: geojson, url: "w.geojson" }
+layer l { source: w  | size-[vec3(1, 2, 3).x] }
+`),
+    ).toEqual([])
   })
 })
 

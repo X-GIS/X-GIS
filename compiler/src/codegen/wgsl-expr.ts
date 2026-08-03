@@ -29,7 +29,18 @@ import {
   f32Mul,
   f32Div,
   f32Mod,
+  vecN,
+  vecComponent,
 } from './_util/node-builders'
+import { inferVecArity, isVecComponent } from '../ir/expr-type'
+
+/** Lane count per vec constructor name (#1537) — the GPU mirror of the
+ *  evaluator's `buildVec` arities. */
+const VEC_ARITY: ReadonlyMap<string, 2 | 3 | 4> = new Map([
+  ['vec2', 2],
+  ['vec3', 3],
+  ['vec4', 4],
+])
 
 /** GPU-safe builtin allowlist. Every name maps to the IDENTITY WGSL spelling
  *  (`name(args)`), so the package backend's intrinsic registry — not a local
@@ -85,6 +96,13 @@ export function astToNode(expr: AST.Expr, fieldMap: Map<string, number>): NodeLi
       return featDataField(expr.name, fieldMap) ?? f32Lit(0)
 
     case 'FieldAccess':
+      // Vector component read (#1537): `vec3(…).y`. Only an EXPLICIT
+      // object that is provably a vector takes this arm — the object-less
+      // `.field` binding and every legacy object-bearing form keep
+      // resolving through the feature-data lookup below, byte-identically.
+      if (expr.object && inferVecArity(expr.object) !== null && isVecComponent(expr.field)) {
+        return vecComponent(astToNode(expr.object, fieldMap), expr.field)
+      }
       return featDataField(expr.field, fieldMap) ?? f32Lit(0)
 
     case 'BinaryExpr': {
@@ -155,6 +173,15 @@ function fnCallToNode(expr: AST.FnCall, fieldMap: Map<string, number>): NodeLike
   if (!name) return f32Lit(0)
 
   const args = expr.args.map((a) => astToNode(a, fieldMap))
+
+  // Vector construction (#1537). Typed as vecN, not f32 — the only legal
+  // consumers are a component read (which retypes to f32) and an enclosing
+  // vec argument; a bare vec binding is rejected at lower time (X-GIS0018),
+  // so this node can never reach a scalar slot.
+  const vecArity = VEC_ARITY.get(name)
+  if (vecArity !== undefined) {
+    return vecN(vecArity, args) as unknown as NodeLike<'f32'>
+  }
 
   // Special cases
   if (name === 'scale') {

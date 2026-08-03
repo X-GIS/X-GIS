@@ -76,6 +76,29 @@ export function vec4f(
   } as NodeLike<'vec4<f32>'>
 }
 
+/** vecN<f32>(…) construction for the authored `vec2/vec3/vec4` builtins
+ *  (#1537). Arguments are already-lowered Nodes of ANY type — WGSL's
+ *  construction rules let a vec argument flatten (`vec4(vec3, f32)`) and a
+ *  lone scalar splat, so the emitter spells whatever the author wrote. */
+export function vecN(
+  n: 2 | 3 | 4,
+  args: ReadonlyArray<NodeLike<string>>,
+): NodeLike<'vec2<f32>' | 'vec3<f32>' | 'vec4<f32>'> {
+  return {
+    expr: {
+      op: 'construct',
+      type: { kind: 'vec', n, elem: 'f32' },
+      args: args.map((a) => a.expr),
+    },
+  } as NodeLike<'vec2<f32>' | 'vec3<f32>' | 'vec4<f32>'>
+}
+
+/** Single-lane member access on a vector Node — `v.x` / `v.r` (#1537).
+ *  Always f32: a one-component read is scalar. */
+export function vecComponent(base: NodeLike<string>, field: string): NodeLike<'f32'> {
+  return { expr: { op: 'member', type: F32_T, base: base.expr, field } } as NodeLike<'f32'>
+}
+
 /** vec4<f32> literal from an RGBA tuple — convenience for the constant-fill
  *  path which receives `value.rgba` directly. */
 export function vec4fFromRgba(

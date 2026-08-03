@@ -40,6 +40,8 @@
 //   X-GIS0017  error  lower     Non-parameter bare identifier in a user- (ir/fn-inline.ts — #1535)
 //                               fn body — params/zoom/pitch only; use
 //                               `.field` for feature data
+//   X-GIS0018  error  lower     Vector value in a scalar binding         (ir/expr-type.ts — #1537)
+//                               position — read a lane (`.x`) instead
 //
 // #1065 added only warn/info from lower (plumbing, not policy). #1066 is
 // the first lower ERROR — `X-GIS0012` (unknown-function = error, L3 in the
@@ -81,6 +83,11 @@ export const FN_ARITY = 'X-GIS0016'
  *  feature data must be explicit `.field` access (prevents accidental
  *  capture). Reported at the fn's declaration line. */
 export const FN_FREE_IDENTIFIER = 'X-GIS0017'
+/** Vector value in a scalar binding position (#1537) — every `[…]`
+ *  binding resolves to ONE number per feature, so a `vecN` there is an
+ *  authoring error. Caught by type inference rather than rendered as a
+ *  wrong-typed shader expression or an array-valued size. */
+export const VECTOR_IN_SCALAR_POSITION = 'X-GIS0018'
 
 /** A 1-based, document-relative source span. `line`/`col` are always
  *  present; `endLine`/`endCol` are optional (a point diagnostic omits

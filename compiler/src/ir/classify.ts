@@ -36,6 +36,14 @@ export const GPU_SAFE_BUILTINS = new Set([
   'acos',
   'atan',
   'atan2',
+  // Vector constructors (#1537). GPU-safe since step B: `fnCallToNode`
+  // builds a real `vecN(...)` construction node, and a vec reaching a
+  // scalar binding is rejected at lower time (X-GIS0018) rather than
+  // emitted wrong. `callBuiltin` evaluates them too, so the documented
+  // callBuiltin ⊇ GPU_SAFE_BUILTINS invariant holds.
+  'vec2',
+  'vec3',
+  'vec4',
 ])
 
 /**
@@ -54,7 +62,15 @@ export function classifyExpr(expr: AST.Expr): ExprClass {
       return 'per-feature-gpu'
 
     case 'FieldAccess':
-      return 'per-feature-gpu'
+      // An EXPLICIT object must be classified through — an expression is
+      // only as GPU-safe as its parts. Pre-#1537 this arm returned
+      // per-feature-gpu unconditionally, which was harmless while
+      // object-bearing access resolved by field name anyway; with real
+      // vector component reads (`vec2(cpuOnly(…), 1).x`) it would have
+      // sent a CPU-only body down the GPU path, where an unknown callee
+      // emits `0.0` — a silent wrong value. The object-less form (the
+      // `.field` data binding) keeps its per-feature-gpu class.
+      return expr.object ? classifyExpr(expr.object) : 'per-feature-gpu'
 
     case 'BinaryExpr':
       return merge(classifyExpr(expr.left), classifyExpr(expr.right))
