@@ -77,14 +77,16 @@ export function validateFnCalls(program: AST.Program, diagnostics: Diagnostic[])
 }
 
 /** Every name a call may legally resolve to besides the builtins: the
- *  `import`ed names (a call could target one of them). The `fn` keyword
- *  and the imperative `if`/`for` statement forms were pruned by #1072, so
- *  imports (top-level only) are now the sole non-builtin callable source. */
+ *  `import`ed names (a call could target one of them) and user `fn`
+ *  declarations (#1535 — reintroduced after the #1072 prune; the inline
+ *  pass rewrites their calls before anything evaluates them). */
 function collectDeclaredNames(program: AST.Program): Set<string> {
   const names = new Set<string>()
   for (const s of program.body) {
     if (s.kind === 'ImportStatement') {
       for (const n of s.names) names.add(n)
+    } else if (s.kind === 'FnStatement') {
+      names.add(s.name)
     }
   }
   return names
@@ -121,6 +123,11 @@ function walkStatements(
         break
       case 'KeyframesStatement':
         for (const f of s.frames) walkUtilityItems(f.utilities, f.line, diagnostics, declared)
+        break
+      case 'FnStatement':
+        // A user fn's body is an ordinary expression — its callees are
+        // validated like any other (a typo inside a fn is still X-GIS0012).
+        walkExpr(s.body, s.line, diagnostics, declared)
         break
       // ImportStatement / SymbolStatement / StyleStatement carry no
       // evaluated expressions (module names, path strings, CSS-like

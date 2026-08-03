@@ -8,6 +8,8 @@ import { Lexer } from '../lexer/lexer'
 import { Parser } from '../parser/parser'
 import type * as AST from '../parser/ast'
 import { withPragma } from './_pragma'
+import { lower } from '../ir/lower'
+import { resolveImports } from '../module/resolver'
 
 function parse(source: string): AST.Program {
   const tokens = new Lexer(withPragma(source)).tokenize()
@@ -73,5 +75,59 @@ describe('fn statement grammar (#1535 step 8)', () => {
 
   it('a body without return is rejected', () => {
     expect(() => parse('fn scale(x) { x * 2 }')).toThrow()
+  })
+})
+
+describe('fn name resolution (#1535 step 9)', () => {
+  it('a declared fn is a legal callee in a binding (no X-GIS0012)', () => {
+    const scene = lower(
+      parse(`
+fn halo(width, base) { return clamp(width * 1.5 + base, 1, 24) }
+source w { type: geojson, url: "w.geojson" }
+layer roads {
+  source: w
+  | stroke-[halo(.width, 2)]
+}
+`),
+    )
+    const errors = (scene.diagnostics ?? []).filter((d) => d.code === 'X-GIS0012')
+    expect(errors).toHaveLength(0)
+  })
+
+  it('an unknown callee inside an fn BODY is still X-GIS0012', () => {
+    const scene = lower(
+      parse(`
+fn halo(width) { return sqrrt(width) }
+source w { type: geojson, url: "w.geojson" }
+layer roads { source: w  | stroke-[halo(.width)] }
+`),
+    )
+    const errors = (scene.diagnostics ?? []).filter((d) => d.code === 'X-GIS0012')
+    expect(errors).toHaveLength(1)
+    // The flagged callee must be the body's `sqrrt`, not the declared fn.
+    expect(errors[0]!.message).toContain('sqrrt')
+  })
+
+  it('two fns with the same name across imports collide (definitionName)', () => {
+    const files: Record<string, string> = {
+      './a.xgis': withPragma('fn halo(w) { return w }'),
+      './b.xgis': withPragma('fn halo(w) { return w * 2 }'),
+    }
+    expect(() =>
+      resolveImports(parse(`import "./a.xgis"\nimport "./b.xgis"`), './', (p) => files[p] ?? null),
+    ).toThrow(/Duplicate top-level name "halo"/)
+  })
+
+  it('fns are cherry-pickable by name', () => {
+    const files: Record<string, string> = {
+      './lib.xgis': withPragma('fn halo(w) { return w }\nfn other(x) { return x }'),
+    }
+    const resolved = resolveImports(
+      parse(`import { halo } from "./lib.xgis"`),
+      './',
+      (p) => files[p] ?? null,
+    )
+    const fns = resolved.body.filter((s) => s.kind === 'FnStatement') as AST.FnStatement[]
+    expect(fns.map((f) => f.name)).toEqual(['halo'])
   })
 })

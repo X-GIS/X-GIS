@@ -407,6 +407,7 @@ function definitionName(stmt: AST.Statement): string | null {
     case 'PresetStatement':
     case 'KeyframesStatement':
     case 'SymbolStatement':
+    case 'FnStatement':
       return stmt.name
     default:
       return null
@@ -548,6 +549,12 @@ function getStatementName(stmt: AST.Statement): string | null {
     case 'SourceStatement':
       return stmt.name
     case 'SymbolStatement':
+      return stmt.name
+    // User fns (#1535) are cherry-pickable: `import { halo } from "lib.xgis"`.
+    // Like symbols they stay GLOBAL under a namespaced splice (no `ns.` rename)
+    // — a qualified name is not a legal callee identifier, and collision
+    // detection via definitionName already guards duplicates.
+    case 'FnStatement':
       return stmt.name
     default:
       return null
