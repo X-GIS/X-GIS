@@ -10,6 +10,7 @@ import { expandKeyframeTimeStops } from './lower-animation'
 import { dispatch, type LayerAccumulator, type BindingCtx } from './lower-bindings'
 import { MODIFIER_HANDLERS, BINDING_HANDLERS, UTILITY_HANDLERS } from './lower-bindings-registry'
 import { validateFnCalls } from './validate-fncalls'
+import { expandPresets, type PresetDef } from './preset-expand'
 import { isKnownUtility, suggestUtility } from './utility-registry'
 import { UNKNOWN_UTILITY } from '../diagnostics/diagnostic'
 // Re-export public types so importers of './lower' keep their surface.
@@ -32,10 +33,6 @@ import {
   hexToRgba,
   type ShapeRef,
 } from './render-node'
-
-/** A lowered preset: its `|` utility lines (inlined by expandPresets) + block properties
- *  (coverage paint `ramp:`/`range:`, merged onto a `style:`-referencing layer — #1272 E-②). */
-type PresetDef = { utilities: AST.UtilityLine[]; properties: AST.BlockProperty[] }
 
 /**
  * Lower an AST Program into an IR Scene.
@@ -1427,47 +1424,4 @@ function applyStyleProperties(
         ? pattern
         : undefined,
   }
-}
-
-/**
- * Expand preset references by inlining the preset's utility lines.
- * A leading `style: <name>` reference (styleRef) is inlined first as
- * the lowest-priority base, then each `apply-<name>` item inline in
- * declaration order; the layer's own items come after (override).
- */
-function expandPresets(
-  utilities: AST.UtilityLine[],
-  presetMap: Map<string, PresetDef>,
-  styleRef?: string,
-): AST.UtilityLine[] {
-  const result: AST.UtilityLine[] = []
-
-  // `style: <name>` — the single-preset base, inlined ahead of everything.
-  if (styleRef) {
-    const base = presetMap.get(styleRef)
-    if (base) result.push(...base.utilities)
-  }
-
-  for (const line of utilities) {
-    const expandedItems: AST.UtilityItem[] = []
-
-    for (const item of line.items) {
-      if (item.name.startsWith('apply-') && !item.modifier) {
-        const presetName = item.name.slice(6)
-        const preset = presetMap.get(presetName)
-        if (preset) {
-          // Inline preset lines before current line's remaining items
-          result.push(...preset.utilities)
-        }
-      } else {
-        expandedItems.push(item)
-      }
-    }
-
-    if (expandedItems.length > 0) {
-      result.push({ kind: 'UtilityLine', items: expandedItems, line: line.line })
-    }
-  }
-
-  return result
 }
