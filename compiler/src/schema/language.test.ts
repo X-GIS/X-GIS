@@ -11,7 +11,7 @@ const SAMPLES: Record<string, string> = {
   import: 'import "lib.xgis"',
   source: 'source s { type: geojson }',
   symbol: 'symbol sym { path "M 0 0 L 1 1 Z" }',
-  preset: 'preset p { | fill-red-500 }',
+  preset: 'preset p(a) { | fill-[a] }',
   layer: 'layer l { | fill-red-500 }',
   background: 'background { fill: sky-900 }',
 }

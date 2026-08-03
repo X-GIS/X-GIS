@@ -280,18 +280,30 @@ background { fill: sky-900 }
 ## 2.5 `preset`
 
 ```
-preset-statement = "preset" IDENT "{" utility-line+ "}"
+preset-statement = "preset" IDENT param-list? "{" preset-body "}"
+param-list       = "(" ( IDENT ( "," IDENT )* )? ")"
+preset-body      = ( utility-line | block-property )*
 ```
 
 A named bundle of utility lines — the single reusable-style construct, into which the
-former `style` block folded (#1072 / #1138, §2.6). Unlike `layer`, the body accepts
-**only** utility lines — a non-`"|"` token is a hard error (**"Expected | in preset
-block"**). How a layer consumes a preset is a lowering concern (see the registry,
-§3.11).
+former `style` block folded (#1072 / #1138, §2.6). The body accepts utility lines
+**and** block properties (coverage paint `ramp:`/`range:`, #1272 E-②), so an
+importable portrayal preset carries the full style. How a layer consumes a preset is
+a lowering concern (see the registry, §3.11).
+
+A preset may declare **parameters** (#1536). A parameterized preset is referenced in
+call form — `style: glow(#f59e0b, 4)` (§2.14) or `apply-glow(#f59e0b, 4)` (§2.12) —
+and expansion deep-clones the body with each argument expression substituted for its
+parameter name. Substitution replaces **bare identifiers only**: `.field` access
+keeps its feature-property meaning even when the field name equals a parameter, and
+an identifier in callee position always names a function. A wrong argument count
+(including arguments passed to a zero-param preset) is an `X-GIS0014` error at the
+call-site line. Zero-arg presets keep the bare pre-#1536 grammar and behavior.
 
 ```xgis
 xgis 1
 preset track { | symbol-arrow stroke-black stroke-1 }
+preset glow(color, radius) { | fill-[color] stroke-[radius] }
 ```
 
 ## 2.6 `style` — removed (#1072 / #1138), folded into `preset`
@@ -388,7 +400,9 @@ keyframes pulse { 0%: opacity-100  50%: opacity-30  to: opacity-100 }
 
 ```
 utility-line = "|" utility-item*                 (* until next "|", "}", or EOF *)
-utility-item = ( IDENT ":" )? utility-name binding? binding-unit?
+utility-item = ( IDENT ":" )? utility-name apply-args? binding? binding-unit?
+apply-args   = "(" ( expression ( "," expression )* )? ")"
+               (* only after an `apply-`-prefixed name — preset call form, #1536 *)
 binding      = "-" "[" expression "]"
              | "[" expression "]"
              | data-style-call
