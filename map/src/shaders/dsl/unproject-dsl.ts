@@ -110,14 +110,40 @@ export const UNPROJECT_NEWTON_STEPS = 3
  *  that is pure noise near the poles. */
 export const JACOBIAN_DELTA_DEG = 1e-2
 
-/** Residual, in metres, at or under which the recovered lon/lat is accepted.
+/** FLOOR on the residual at or under which the recovered lon/lat is accepted, in metres.
  *
- *  One metre is under one pixel at every zoom this runs at — the density rule never draws a glyph
- *  at coarser than ~1 m/px in the band where the arrow field is legible. A node that does not
- *  reach it is genuinely outside the projection (past the pole, off a pseudocylindrical oval, on
- *  the far side of an azimuthal disc) and must be reported as a MISS, never clamped: a clamped
- *  node stacks on the edge and paints an arrow over water it was not sampled from. */
+ *  A FLOOR, not the threshold: the threshold is RELATIVE to the target's own magnitude, and this
+ *  is only what it cannot fall below near the projection origin. `UNPROJECT_RESIDUAL_REL` is the
+ *  part that matters and carries the reasoning.
+ *
+ *  A node that does not reach the threshold is genuinely outside the projection (past the pole,
+ *  off a pseudocylindrical oval, on the far side of an azimuthal disc) and must be reported as a
+ *  MISS, never clamped: a clamped node stacks on the edge and paints an arrow over water it was
+ *  not sampled from. */
 export const UNPROJECT_RESIDUAL_M = 1
+
+/** …and the RELATIVE part, which is the one that has to exist. 2⁻²² ≈ 2.4e-7.
+ *
+ *  A FIXED METRE THRESHOLD IS UNREACHABLE AT MERCATOR MAGNITUDES, and this was paid for: the field
+ *  rendered with ~40 % of its lattice missing, in horizontal bands, and nothing in 10 058 unit
+ *  tests could see it. Web Mercator x at the S-111 demo's longitude is −8 481 432 m, which sits in
+ *  `[2²³, 2²⁴)` where the f32 ULP is exactly **1.0 m**; y is 4 593 562 m, ULP 0.5 m. So
+ *  `|chk.x − tgt.x| + |chk.y − tgt.y|` is a multiple of 1.0 + 0.5 and the old `res < 1`
+ *  admitted a node only when `chk.x` landed on the SAME f32 as `tgt.x` — a coin flip, and a
+ *  spatially correlated one, because the rounding varies smoothly across the screen.
+ *
+ *  IT WAS INVISIBLE TO EVERY NO-GPU GATE. The DSL's CPU lowering evaluates in f64, where the same
+ *  residual is ~1e-9, so the round-trip identity test passes at sub-pixel with the bug live. Only
+ *  a real f32 shader reaches the floor — the render gate found it on its first run (§5).
+ *
+ *  WHY RELATIVE IS ALSO THE RIGHT ANSWER, not merely a workaround. This gate's job is to tell
+ *  "Newton converged" from "Newton did not converge", and those differ by ORDERS of magnitude: a
+ *  converged node sits at the f32 floor (a few ULP), a node past a pole or off an oval edge sits
+ *  at 1e5–1e6 m. Scaling with the magnitude tracks the floor exactly, so the separation stays five
+ *  orders wide at every zoom, where a fixed metre is simultaneously too tight near the antimeridian
+ *  and too loose near the projection origin. Four ULP of headroom is what a few Newton steps'
+ *  accumulated rounding needs. */
+export const UNPROJECT_RESIDUAL_REL = 2 ** -22
 
 /** Screen NDC → a ray direction in the MVP's own world space, by blending the four CORNER rays.
  *
@@ -338,23 +364,28 @@ export const sphere_to_lonlat = fn(
 
 /** Projected metres → lon/lat, by inverting the GENERATED forward ladder numerically.
  *
- *  `target` is in `project`'s OWN output space, not the MVP's world space — the two differ per
+ *  `tgt` is in `project`'s OWN output space, not the MVP's world space — the two differ per
  *  projection family (mercator's forward is absolute, the pseudocylindrical ones are already
  *  recentred on `clon`), and a function that guessed which it was given would be wrong for half
- *  the table. The caller adds the centre once: `target = rayHit + project(clon, clat, pp)`.
+ *  the table. The caller adds the centre once: `tgt = rayHit + project(clon, clat, pp)`.
  *
  *  Returns `(lon_deg, lat_deg, ok)`. `ok = 0` when the residual has not contracted — the caller
  *  must treat that as "no arrow here". See the header for why this is not seven hand inverses.
+ *
+ *  `tgt`, not `target`: the DSL param key becomes the WGSL parameter name VERBATIM, and
+ *  `target` is a WGSL reserved word — Tint rejects the whole module at CreateShaderModule,
+ *  killing every pipeline that links this fn on a real WebGPU device (#1529). The GLSL
+ *  backend's sanitizeReservedIdents renames reserved params, but only against the GLSL
+ *  list — the WGSL backend emits names verbatim (no WGSL reserved-word pass exists yet),
+ *  so the key itself must stay off WGSL's reserved list.
  */
-export const unproject_flat = fn('unproject_flat', { target: vec2fT, proj_params: vec4fT }, (a) => {
+export const unproject_flat = fn('unproject_flat', { tgt: vec2fT, proj_params: vec4fT }, (a) => {
   const clon = Let(a.proj_params.y)
   const clat = Let(a.proj_params.z)
   // The centre in the forward's own space, so the initial guess can be taken from a CENTRE-
   // RELATIVE offset whatever that space is.
   const c = Let(project(clon, clat, a.proj_params))
-  const g = Let(
-    enu_to_lonlat({ east: a.target.x.sub(c.x), north: a.target.y.sub(c.y), clon, clat }),
-  )
+  const g = Let(enu_to_lonlat({ east: a.tgt.x.sub(c.x), north: a.tgt.y.sub(c.y), clon, clat }))
   const lon = Var(g.x)
   const lat = Var(g.y)
   for (let i = 0; i < UNPROJECT_NEWTON_STEPS; i++) {
@@ -365,8 +396,8 @@ export const unproject_flat = fn('unproject_flat', { target: vec2fT, proj_params
     const j10 = Let(j.z)
     const j11 = Let(j.w)
     const det = Let(j00.mul(j11).sub(j01.mul(j10)))
-    const rx = Let(a.target.x.sub(f0.x))
-    const ry = Let(a.target.y.sub(f0.y))
+    const rx = Let(a.tgt.x.sub(f0.x))
+    const ry = Let(a.tgt.y.sub(f0.y))
     // A singular Jacobian IS a non-invertible point (a pole, an oval edge). Freezing the iterate
     // there leaves the residual test below to reject it; an unguarded divide launches it to
     // infinity and then paints an arrow somewhere real.
@@ -375,8 +406,13 @@ export const unproject_flat = fn('unproject_flat', { target: vec2fT, proj_params
     lat.assign(min(max(lat.add(j00.mul(ry).sub(j10.mul(rx)).div(safe)), f32(-89.9)), f32(89.9)))
   }
   const chk = Let(project(lon, lat, a.proj_params))
-  const res = Let(abs(chk.x.sub(a.target.x)).add(abs(chk.y.sub(a.target.y))))
-  return vec3(lon, lat, select(res.lt(f32(UNPROJECT_RESIDUAL_M)), f32(1), f32(0)))
+  const res = Let(abs(chk.x.sub(a.tgt.x)).add(abs(chk.y.sub(a.tgt.y))))
+  // The threshold TRACKS THE MAGNITUDE, because the residual cannot go below the f32 ULP of the
+  // coordinate it is measured in — see `UNPROJECT_RESIDUAL_REL` for what a fixed metre cost.
+  const tol = Let(
+    max(f32(UNPROJECT_RESIDUAL_M), abs(a.tgt.x).add(abs(a.tgt.y)).mul(f32(UNPROJECT_RESIDUAL_REL))),
+  )
+  return vec3(lon, lat, select(res.lt(tol), f32(1), f32(0)))
 })
 
 /** Every function this module contributes, in dependency order. A consumer splices these AFTER
