@@ -16,7 +16,7 @@
 // So this is the load-bearing gate, and it is deliberately NOT a render test. It exercises the
 // REAL pipeline on both ends:
 //
-//   • the real CPU writer (`writeArrowViewUniform`) over a real `Camera`'s real MVP, and the bytes
+//   • the real CPU writer (`writeFieldViewUniform`) over a real `Camera`'s real MVP, and the bytes
 //     it actually packs — the uniform is read back out of the std140 block, so a layout slip fails
 //     here rather than silently feeding the shader a rotated frame;
 //   • the real shader, through the DSL's own CPU lowering (`compileModuleJs`) — the same op tree
@@ -34,29 +34,33 @@ import { module, compileModuleJs } from '@xgis/shader-dsl'
 import { Camera } from '../camera/camera'
 import { getGpuProjectionFuncs, PROJECTION_CONSTS } from '../shaders/dsl/projections'
 import { UNPROJECT_FUNCS } from '../shaders/dsl/unproject-dsl'
-import {
-  ARROW_VIEW_FUNCS,
-  ARROW_TRAIN_GLYPHS,
-  ARROW_MAX_GROUND_NODES,
-} from '../shaders/dsl/arrow-view'
+import { FIELD_LATTICE_FUNCS, FIELD_MAX_GROUND_NODES } from '../shaders/dsl/field-lattice'
+import { ARROW_TRAIN_GLYPHS, ARROW_LATTICE_FACTOR } from '../shaders/dsl/arrow-drift'
 import { globeForward } from '@xgis/geo'
 import {
-  arrowViewBlock,
-  writeArrowViewUniform,
-  arrowViewUniformBytes,
-  type ArrowViewCamera,
-  type ArrowViewGrid,
-} from './arrow-view-uniform'
+  fieldViewBlock,
+  writeFieldViewUniform,
+  fieldViewUniformBytes,
+  type FieldViewCamera,
+  type FieldViewGrid,
+} from './field-lattice-uniform'
 
 const W = 480
 const H = 700
 const DPR = 1
 const BASE_PX = 34
 
+/** The S-111 side of the neutral request (#1547) — the lattice itself knows none of these. */
+const REQ = {
+  nodeSpacingPx: BASE_PX * DPR * ARROW_LATTICE_FACTOR,
+  instancesPerNode: ARROW_TRAIN_GLYPHS,
+  carry: [BASE_PX * DPR, BASE_PX * DPR, 0.06],
+} as const
+
 /** A coverage box around the Chesapeake — the domain the S-111 fixtures live in. It is only used
- *  by `arrow_grid_uv`, which the identity below does not go through; it is supplied because the
+ *  by `field_grid_uv`, which the identity below does not go through; it is supplied because the
  *  uniform has no optional fields. */
-const GRID: ArrowViewGrid = {
+const GRID: FieldViewGrid = {
   originLon: -77,
   originLat: 39.5,
   invSpanLon: 1 / 2,
@@ -66,7 +70,7 @@ const GRID: ArrowViewGrid = {
 const M = compileModuleJs(
   module({
     consts: PROJECTION_CONSTS,
-    funcs: [...getGpuProjectionFuncs(), ...UNPROJECT_FUNCS, ...ARROW_VIEW_FUNCS],
+    funcs: [...getGpuProjectionFuncs(), ...UNPROJECT_FUNCS, ...FIELD_LATTICE_FUNCS],
   }),
 )
 
@@ -98,7 +102,7 @@ function unpack(buf: ArrayBuffer): Record<string, number[]> {
 }
 
 interface Scene {
-  cam: ArrowViewCamera
+  cam: FieldViewCamera
   view: Record<string, number[]>
   instances: number
 }
@@ -119,7 +123,7 @@ function scene(o: {
   c.globeMode = o.globe ?? false
   const frame = c.getViewForProjection(o.projType, W, H, DPR)
   // The matrix buffer is preallocated and reused by the camera, so copy before packing.
-  const cam: ArrowViewCamera = {
+  const cam: FieldViewCamera = {
     matrix: Float32Array.from(frame.matrix),
     projType: o.projType,
     globeMode: c.globeMode,
@@ -129,18 +133,15 @@ function scene(o: {
     canvasHeight: H,
     dpr: DPR,
   }
-  const block = arrowViewBlock()
-  const instances = writeArrowViewUniform(block, cam, GRID, {
-    basePx: BASE_PX * DPR,
-    strokeUnits: 0.06,
-  })
+  const block = fieldViewBlock()
+  const instances = writeFieldViewUniform(block, cam, GRID, REQ)
   expect(instances, 'the camera has a usable inverse').not.toBeNull()
   return { cam, view: unpack(block.buffer), instances: instances! }
 }
 
 /** Bind the compiled module to one scene's uniforms. */
 function bind(s: Scene): void {
-  M.setBinding('arrow_view', s.view as never)
+  M.setBinding('field_view', s.view as never)
   M.setBinding('u', {
     proj_params: [s.cam.projType, s.cam.centerLon, s.cam.centerLat, 0],
     viewport: [W, H, 1, 0.03],
@@ -180,17 +181,17 @@ function forwardNdc(s: Scene, lon: number, lat: number): [number, number] | null
 /** Screen position of a ground node, EXACTLY as the VS assembles it: the linearized model's guess
  *  plus the one Newton step taken against the backward map. Null when the VS would reject the node.
  *
- *  Run through the compiled module, not restated here — `arrow_uv_to_px` is the one exception, and
+ *  Run through the compiled module, not restated here — `field_uv_to_px` is the one exception, and
  *  only because it is an inline helper the emitter never makes a function of. */
 function placeNode(jx: number, jy: number): { px: [number, number]; uv: [number, number] } | null {
-  const node = M.fns.arrow_node_uv(jx, jy) as [number, number, number, number]
-  const g = M.fns.arrow_node_ndc([node[0], node[1]]) as [number, number, number]
+  const node = M.fns.field_node_uv(jx, jy) as [number, number, number, number]
+  const g = M.fns.field_node_ndc([node[0], node[1]]) as [number, number, number]
   if (g[2] < 0.5) return null // at or behind the eye plane
   const ndc: [number, number] = [g[0], g[1]]
-  const ll = M.fns.arrow_screen_lonlat(ndc) as [number, number, number]
+  const ll = M.fns.field_screen_lonlat(ndc) as [number, number, number]
   if (ll[2] < 0.5) return null // no ground under the guess
-  const b = M.fns.arrow_uv_basis(ndc, ll[0], ll[1]) as [number, number, number, number]
-  const uvg = M.fns.arrow_grid_uv([ll[0], ll[1]]) as [number, number]
+  const b = M.fns.field_uv_basis(ndc, ll[0], ll[1]) as [number, number, number, number]
+  const uvg = M.fns.field_grid_uv([ll[0], ll[1]]) as [number, number]
   const du = node[2] - uvg[0]
   const dv = node[3] - uvg[1]
   const fix: [number, number] = [b[0] * du + b[1] * dv, b[2] * du + b[3] * dv]
@@ -200,7 +201,7 @@ function placeNode(jx: number, jy: number): { px: [number, number]; uv: [number,
   }
 }
 
-/** grid-uv → lon/lat, the exact inverse of `arrow_grid_uv` over `GRID`. */
+/** grid-uv → lon/lat, the exact inverse of `field_grid_uv` over `GRID`. */
 const uvLonLat = (u: number, v: number): [number, number] => [
   GRID.originLon + u / GRID.invSpanLon,
   GRID.originLat + v / GRID.invSpanLat,
@@ -340,8 +341,8 @@ describe('GATE 1c — the model is a GUESS and the Newton step is what makes it 
 
   /** Where the model alone would put a node, before the correction. */
   function guessPx(jx: number, jy: number): [number, number] | null {
-    const n = M.fns.arrow_node_uv(jx, jy) as number[]
-    const g = M.fns.arrow_node_ndc([n[0]!, n[1]!]) as [number, number, number]
+    const n = M.fns.field_node_uv(jx, jy) as number[]
+    const g = M.fns.field_node_ndc([n[0]!, n[1]!]) as [number, number, number]
     if (g[2] < 0.5) return null
     return [((g[0] + 1) / 2) * W, ((1 - g[1]) / 2) * H]
   }
@@ -387,7 +388,7 @@ describe('GATE 1c — the model is a GUESS and the Newton step is what makes it 
     // to survive the change (or the placement was reading the step it was written with).
     const clean = scene({ lon: -76, lat: 38, zoom: 12, projType: 0 })
     bind(clean)
-    const before = M.fns.arrow_node_uv(
+    const before = M.fns.field_node_uv(
       clean.view.lattice![2]! + 1,
       clean.view.lattice![3]!,
     ) as number[]
@@ -399,7 +400,7 @@ describe('GATE 1c — the model is a GUESS and the Newton step is what makes it 
       clean.view.lattice![3]!,
     ]
     bind(dirty)
-    const after = M.fns.arrow_node_uv(
+    const after = M.fns.field_node_uv(
       dirty.view.lattice![2]! + 1,
       dirty.view.lattice![3]!,
     ) as number[]
@@ -415,7 +416,7 @@ describe('GATE 1b — the lattice is anchored to the GROUND (#1534)', () => {
     const out = new Set<string>()
     for (let iy = 0; iy < v.ray_br![3]!; iy++) {
       for (let ix = 0; ix < v.ray_bl![3]!; ix++) {
-        const n = M.fns.arrow_node_uv(v.lattice![2]! + ix, v.lattice![3]! + iy) as number[]
+        const n = M.fns.field_node_uv(v.lattice![2]! + ix, v.lattice![3]! + iy) as number[]
         out.add(`${n[2]!.toFixed(9)},${n[3]!.toFixed(9)}`)
       }
     }
@@ -465,14 +466,14 @@ describe('GATE 1b — the lattice is anchored to the GROUND (#1534)', () => {
     // screenful is worth. The cap is enforced by halving the resolution rather than by dropping the
     // far nodes, which would end the field on a straight line across open water.
     const s = scene({ lon: -76, lat: 38, zoom: 9, projType: 0, pitch: 60 })
-    expect(s.instances / ARROW_TRAIN_GLYPHS).toBeLessThanOrEqual(ARROW_MAX_GROUND_NODES)
+    expect(s.instances / ARROW_TRAIN_GLYPHS).toBeLessThanOrEqual(FIELD_MAX_GROUND_NODES)
   })
 
   it('reports NO view — and therefore draws nothing — for a singular matrix', () => {
     // An all-zero or orthographic MVP has no finite eye. Reporting it is the honest outcome: a
     // lattice built from a divide by zero is glyphs at undefined coordinates, which some drivers
     // rasterize as a full-screen triangle.
-    const cam: ArrowViewCamera = {
+    const cam: FieldViewCamera = {
       matrix: new Float32Array(16),
       projType: 0,
       globeMode: false,
@@ -482,13 +483,11 @@ describe('GATE 1b — the lattice is anchored to the GROUND (#1534)', () => {
       canvasHeight: H,
       dpr: 1,
     }
-    expect(writeArrowViewUniform(arrowViewBlock(), cam, GRID, { basePx: 34, strokeUnits: 0 })).toBe(
-      null,
-    )
+    expect(writeFieldViewUniform(fieldViewBlock(), cam, GRID, REQ)).toBe(null)
   })
 
   it('the block is sized from the reflected layout — thirteen vec4f, 208 B', () => {
     // The buffer the store allocates and the struct the shader reads come from ONE declaration.
-    expect(arrowViewUniformBytes()).toBe(FIELDS.length * 16)
+    expect(fieldViewUniformBytes()).toBe(FIELDS.length * 16)
   })
 })

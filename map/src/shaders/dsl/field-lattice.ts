@@ -1,6 +1,7 @@
 // ═══ The arrow field's own view description, and the screen→grid map built on it (#1520) ═══
 //
-// WHY THIS EXISTS. The S-111 arrow field used to be generated from the DATA — one instance per
+// WHY THIS EXISTS. A field over a georeferenced grid used to be generated from the DATA — one
+// instance per
 // grid cell (later per sub-cell), each carrying its geographic anchor and two projected basis
 // anchors. #1520 measured what that costs at depth: the instance set scales with the GRID, and at
 // z17 and beyond not one seeded node falls inside the viewport, so the field paints NOTHING. No
@@ -13,19 +14,19 @@
 // carried by the map instead of sliding over it. Either way a node has to answer "what geography is
 // here, and how big is it on screen?", and this module is what answers it:
 //
-//   • WHERE a screen position sits in the coverage's grid-uv (`arrow_screen_lonlat` →
-//     `arrow_grid_uv`) — the backward map (`unproject-dsl.ts`);
-//   • WHERE a ground node sits on screen (`arrow_node_uv` → `arrow_node_ndc`) — a linearized
+//   • WHERE a screen position sits in the coverage's grid-uv (`field_screen_lonlat` →
+//     `field_grid_uv`) — the backward map (`unproject-dsl.ts`);
+//   • WHERE a ground node sits on screen (`field_node_uv` → `field_node_ndc`) — a linearized
 //     forward model the VS then corrects with one Newton step against that same backward map;
-//   • HOW BIG one unit of grid-uv is ON SCREEN at that node (`arrow_uv_basis`), which is what turns
+//   • HOW BIG one unit of grid-uv is ON SCREEN at that node (`field_uv_basis`), which is what turns
 //     a velocity sampled in uv into a direction and a distance in pixels — and is also the
 //     Jacobian the Newton step uses, so the two cannot disagree.
 //
-// ── THE UNIFORM IS THE ARROW'S OWN, NOT THE SHARED FRAME UNIFORM ──────────────────────────────
+// ── THE UNIFORM IS THIS LAYER'S OWN, NOT THE SHARED FRAME UNIFORM ────────────────────────────
 //
-// `pointU` is bound by every retained shader — icon, circle, text, particle, arrow — so a field
+// `pointU` is bound by every retained shader — icon, circle, text, particle — so a field
 // added there is bytes every one of them uploads and none but this one reads. This block is bound
-// only by the advected arrow module, in ITS group 1, beside the band table and the velocity pair
+// only by the module that draws the field, in ITS group 1, beside the source data
 // that are already per-batch. It is also genuinely per-BATCH and not just per-frame: `crs` maps
 // lon/lat into one coverage domain's grid, and a mosaic holds several at once.
 //
@@ -76,42 +77,11 @@ import {
 } from './unproject-dsl'
 import { pointU } from './point'
 
-// ── The lattice, and the three numbers that describe it ───────────────────────────────────────
-
-/** Glyphs strung along ONE streamline from a seed — the "train".
- *
- *  A train, rather than one glyph per seed, is what makes the motion read as FLOW rather than as a
- *  field of independently twitching symbols: four glyphs at a fixed arc-length spacing trace the
- *  path the water actually takes, and the eye follows the line instead of each arrow.
- *
- *  It is also what makes the wrap free. Glyph `j` sits at arc-length `(j + φ)·δ`, so as `φ` runs
- *  0→1 the whole train advances by exactly ONE spacing and the set of occupied positions at φ = 1
- *  is the set at φ = 0 shifted by one — every glyph lands where its neighbour was. Only the two
- *  ENDS change, and they are faded (`arrow_phase_alpha` over `(j + φ)/G`), so the alpha at a given
- *  arc-length is the same on both sides of the wrap. The seam is not hidden; it does not exist. */
-export const ARROW_TRAIN_GLYPHS = 4
-
-/** Integration taps per inter-glyph spacing.
- *
- *  The streamline is walked in fixed steps of `δ / taps` so the position at arc-length `s` is a
- *  PURE, CONTINUOUS function of `s` — which is what the wrap argument above needs. A step count
- *  derived from `s` (say `ceil(s/h)` uniform steps) is also a pure function of `s`, but it JUMPS
- *  where the count changes, and a jump of any size at the wrap is the blink #1333 rejected moving
- *  glyphs over. Two taps per spacing resolves the curvature a glyph-length of a tidal gyre has;
- *  more buys nothing visible and costs two velocity fetches each. */
-export const ARROW_TRAIN_TAPS_PER_SPACING = 2
-
-/** Total integration steps a glyph may need — the last glyph of the train reaches
- *  `(G − 1 + 1)·δ`, so this is the fixed, unrolled bound. */
-export const ARROW_TRAIN_STEPS = ARROW_TRAIN_GLYPHS * ARROW_TRAIN_TAPS_PER_SPACING
-
-/** Seed spacing, as a multiple of the inter-glyph spacing δ.
- *
- *  DERIVED, not tuned. Each seed contributes `G` glyphs and owns `S²` pixels of screen, and the
- *  density the portrayal wants is one glyph per `δ²` — so `S² = G·δ²`, i.e. `S = δ·√G`. Seeding at
- *  δ (the obvious choice) would draw `G` times too many glyphs, which on a chart is not a cosmetic
- *  error: overlapping SCAROW symbols read as a faster current than the data says. */
-export const ARROW_LATTICE_FACTOR = Math.sqrt(ARROW_TRAIN_GLYPHS)
+// ── The lattice, and the two numbers that bound it ────────────────────────────────────────────
+//
+// The TRAIN constants that used to sit here moved to `arrow-drift.ts` with #1547: a streamline
+// train, its glyph count and its tap rate are PORTRAYAL, and a consumer that draws one symbol per
+// node (a wind barb, say) needs none of them. What is left is what the lattice itself owns.
 
 /** Ceiling on ground nodes enumerated in one frame.
  *
@@ -119,18 +89,18 @@ export const ARROW_LATTICE_FACTOR = Math.sqrt(ARROW_TRAIN_GLYPHS)
  *  more nodes than a screenful is worth. The CPU halves the resolution until the count fits rather
  *  than dropping the far ones (`groundLatticeFor` records why). Sized at roughly eight screenfuls
  *  of the flat-view lattice, which covers a 60° pitch at 1080p with room to spare. */
-export const ARROW_MAX_GROUND_NODES = 4096
+export const FIELD_MAX_GROUND_NODES = 4096
 
-/** How far the Newton correction may move a node, in inter-glyph spacings, before the node is
+/** How far the Newton correction may move a node, in node spacings, before the node is
  *  rejected instead.
  *
  *  A BLOWUP GUARD, not a fit. The model's guess is sub-pixel over the visible span, so an ordinary
  *  correction is a fraction of one spacing; a correction of eight is the guess having landed on
  *  ground that has nothing to do with the node, which happens past the horizon where the projective
  *  divide is ill-conditioned. Rejecting is a size factor like every other rejection here — it can
- *  drop a glyph but it cannot turn one, which a per-component clamp could and once did
- *  (`arrow-drift-direction.test.ts` keeps that arithmetic). */
-export const ARROW_NEWTON_SPACINGS = 8
+ *  drop a node but it cannot turn one, which a per-component clamp could and once did
+ *  (the first consumer's `arrow-drift-direction.test.ts` keeps that arithmetic). */
+export const FIELD_NEWTON_SPACINGS = 8
 
 /** The per-frame, per-batch view description. Nine `vec4f` = 144 B, rewritten once per frame per
  *  advected batch; the bind group itself is cached, since only the buffer contents change.
@@ -138,16 +108,16 @@ export const ARROW_NEWTON_SPACINGS = 8
  *  Every `w` lane carries a scalar rather than padding — std140 would round a bare `f32` up to 16 B
  *  anyway, so a scalar in a corner ray's `w` is genuinely free. */
 const U = uniformStruct(
-  'ArrowView',
-  { group: 1, binding: 4, as: 'arrow_view' },
+  'FieldView',
+  { group: 1, binding: 4, as: 'field_view' },
   {
     /** xyz = world-space ray direction at NDC (−1, −1); w = ground-lattice columns `nx`. */
     ray_bl: vec4fT,
     /** …at NDC (+1, −1); w = ground-lattice rows `ny`. */
     ray_br: vec4fT,
-    /** …at NDC (−1, +1); w = inter-glyph spacing δ, in device px. */
+    /** …at NDC (−1, +1); w = the first consumer-defined scalar (`carry[0]`). */
     ray_tl: vec4fT,
-    /** …at NDC (+1, +1); w = base glyph length, in device px. */
+    /** …at NDC (+1, +1); w = the second consumer-defined scalar (`carry[1]`). */
     ray_tr: vec4fT,
     /** xyz = the ray ORIGIN in the MVP's world space. Not assumed to be the world origin: the flat
      *  and ENU frames anchor the world at the camera's GROUND point and a pitched camera sets the
@@ -183,7 +153,7 @@ const U = uniformStruct(
     hw: vec4fT,
   },
 )
-export { U as arrowViewU }
+export { U as fieldViewU }
 
 /** True when the 3D (ECEF / globe) branch is active — the identical `< 6.5` cut the forward
  *  ladder takes, so the backward map cannot pick a different branch than the matrix it inverts. */
@@ -196,7 +166,7 @@ const isGlobe = () => pointU.field.proj_params.x.gt(f32(6.5))
  *  ABSOLUTE uv is the node's identity — where its velocity is sampled and what its phase is hashed
  *  from. Splitting them is the whole precision argument: `u` at depth is an O(1) number whose f32
  *  ULP is coarser than the lattice, but `û = j·step` is exact for every index a frame enumerates. */
-export const arrow_node_uv = fn('arrow_node_uv', { jx: f32T, jy: f32T }, (a) => {
+export const field_node_uv = fn('field_node_uv', { jx: f32T, jy: f32T }, (a) => {
   const du = Let(a.jx.mul(U.field.lattice.x))
   const dv = Let(a.jy.mul(U.field.lattice.y))
   return vec4(du, dv, U.field.hx.w.add(du), U.field.hy.w.add(dv))
@@ -205,9 +175,9 @@ export const arrow_node_uv = fn('arrow_node_uv', { jx: f32T, jy: f32T }, (a) => 
 /** A ground node's screen NDC under the linearized model, as `(ndc.x, ndc.y, ok)`.
  *
  *  `ok` is 0 when the node is at or behind the eye plane (`clip.w ≤ 0`), which is where a projective
- *  divide flips the point to the opposite side of the screen — a glyph drawn from the wrong half of
- *  the frame, which reads as a stray arrow in empty water rather than as a missing one. */
-export const arrow_node_ndc = fn('arrow_node_ndc', { duv: vec2fT }, (a) => {
+ *  divide flips the point to the opposite side of the screen — a symbol drawn from the wrong half
+ *  of the frame, which reads as a stray mark in empty space rather than as a missing one. */
+export const field_node_ndc = fn('field_node_ndc', { duv: vec2fT }, (a) => {
   const hx = U.field.hx
   const hy = U.field.hy
   const hw = U.field.hw
@@ -226,7 +196,7 @@ export const arrow_node_ndc = fn('arrow_node_ndc', { duv: vec2fT }, (a) => {
  *  Shared by the lattice node itself and by the two finite-difference probes the basis needs, so
  *  the branch between the flat plane and the sphere is stated exactly once. Returns `(x, y, z, ok)`
  *  in the MVP's own world space; the flat arm leaves `z` at 0, which is where its plane is. */
-export const arrow_ground_hit = fn('arrow_ground_hit', { ndc: vec2fT }, (a) => {
+export const field_ground_hit = fn('field_ground_hit', { ndc: vec2fT }, (a) => {
   const d = Let(
     ray_from_corners({
       ndc: a.ndc,
@@ -268,8 +238,8 @@ export const arrow_ground_hit = fn('arrow_ground_hit', { ndc: vec2fT }, (a) => {
  *  world space: the flat VS feeds `project_geom(abs) − project(clon, clat)`, so the centre has to
  *  be added back. That is `project(proj_params.yz)` — the same term `flat_rel` subtracts, read
  *  from the same uniform, so the two cannot disagree about which centre it is. */
-export const arrow_screen_lonlat = fn('arrow_screen_lonlat', { ndc: vec2fT }, (a) => {
-  const hit = Let(arrow_ground_hit({ ndc: a.ndc }))
+export const field_screen_lonlat = fn('field_screen_lonlat', { ndc: vec2fT }, (a) => {
+  const hit = Let(field_ground_hit({ ndc: a.ndc }))
   const pp = pointU.field.proj_params
   return when(
     [
@@ -300,7 +270,7 @@ export const arrow_screen_lonlat = fn('arrow_screen_lonlat', { ndc: vec2fT }, (a
 })
 
 /** lon/lat → the coverage's grid-uv. One multiply-add, and the sign of the v axis rides `crs.w`. */
-export const arrow_grid_uv = fn('arrow_grid_uv', { lonlat: vec2fT }, (a) =>
+export const field_grid_uv = fn('field_grid_uv', { lonlat: vec2fT }, (a) =>
   vec2(
     a.lonlat.x.sub(U.field.crs.x).mul(U.field.crs.z),
     a.lonlat.y.sub(U.field.crs.y).mul(U.field.crs.w),
@@ -327,20 +297,20 @@ export const arrow_grid_uv = fn('arrow_grid_uv', { lonlat: vec2fT }, (a) =>
  *  split at the metric intermediate: the ray hit is differenced (cheap, exact), and metric→lon/lat
  *  is taken in closed form — the inverse of `flat_jacobian` on the flat arm, and the sphere's own
  *  metre→degree coefficients in the LOCAL frame at the node on the globe. Three forward evaluations total, and the Jacobian is the
- *  SAME function Newton's step uses, so the two cannot drift apart.
+ *  SAME function Newton's step uses, so the two cannot fall out of step.
  *
  *  Returns the zero matrix when the node's own hit missed; callers gate on that rather than
  *  dividing by a degenerate determinant. */
-export const arrow_uv_basis = fn('arrow_uv_basis', { ndc: vec2fT, lon: f32T, lat: f32T }, (a) => {
+export const field_uv_basis = fn('field_uv_basis', { ndc: vec2fT, lon: f32T, lat: f32T }, (a) => {
   const vp = pointU.field.viewport
   // One DEVICE pixel, in NDC. Screen +y is down and NDC +y is up, hence the negated step: `hy`
   // probes the pixel BELOW the node, so the returned column is ∂/∂(screen y) with the sign the
-  // rest of the arrow path already uses.
+  // rest of this layer already uses.
   const sx = Let(f32(2).div(max(vp.x, f32(1))))
   const sy = Let(f32(2).div(max(vp.y, f32(1))))
-  const h0 = Let(arrow_ground_hit({ ndc: a.ndc }))
-  const hx = Let(arrow_ground_hit({ ndc: vec2(a.ndc.x.add(sx), a.ndc.y) }))
-  const hy = Let(arrow_ground_hit({ ndc: vec2(a.ndc.x, a.ndc.y.sub(sy)) }))
+  const h0 = Let(field_ground_hit({ ndc: a.ndc }))
+  const hx = Let(field_ground_hit({ ndc: vec2(a.ndc.x.add(sx), a.ndc.y) }))
+  const hy = Let(field_ground_hit({ ndc: vec2(a.ndc.x, a.ndc.y.sub(sy)) }))
   const dx = Let(hx.swizzle('xyz').sub(h0.swizzle('xyz')))
   const dy = Let(hy.swizzle('xyz').sub(h0.swizzle('xyz')))
   // ∂(lon, lat)/∂(screen px), as the two columns `gx` and `gy`.
@@ -352,7 +322,7 @@ export const arrow_uv_basis = fn('arrow_uv_basis', { ndc: vec2fT, lon: f32T, lat
           () => {
             // THE LOCAL FRAME AT THE NODE, not at the camera centre, and the distinction is not
             // academic: over a globe view the two are up to tens of degrees apart, so using the
-            // centre's east/north rotates every glyph's heading by that angle — a field pointing
+            // centre's east/north rotates every heading by that angle — a field pointing
             // confidently in the wrong direction, which no still frame reveals.
             //
             // Built from the hit itself, in unit vectors only. The node's position relative to the
@@ -420,42 +390,42 @@ export const arrow_uv_basis = fn('arrow_uv_basis', { ndc: vec2fT, lon: f32T, lat
   return vec4(a11.mul(ok), a01.neg().mul(ok), a10.neg().mul(ok), a00.mul(ok))
 })
 
-/** Apply an `arrow_uv_basis` result to a grid-uv vector, giving device pixels.
+/** Apply an `field_uv_basis` result to a grid-uv vector, giving device pixels.
  *
  *  An inline helper rather than a `fn`: it is four multiplies read from two places, and a call
  *  would cost the emitter a function it then has to inline anyway. */
-export const arrow_uv_to_px = (
+export const field_uv_to_px = (
   m: ReadonlyNode<'vec4<f32>'>,
   d: ReadonlyNode<'vec2<f32>'>,
 ): ReadonlyNode<'vec2<f32>'> => vec2(m.x.mul(d.x).add(m.y.mul(d.y)), m.z.mul(d.x).add(m.w.mul(d.y)))
 
 /** A grid-uv step whose SCREEN image points along `dirUv` and is exactly `px` pixels long.
  *
- *  The streamline is walked in ARC LENGTH ON SCREEN, not in uv, and that is what makes the glyph
- *  spacing a constant across the frame: a fixed uv step is a different number of pixels at every
- *  latitude, on every projection, and under any pitch, so a train stepped in uv would bunch toward
- *  the horizon and stretch toward the camera. Inverting the basis per step is not needed — the
+ *  A walk is taken in ARC LENGTH ON SCREEN, not in uv, and that is what makes its step a constant
+ *  across the frame: a fixed uv step is a different number of pixels at every latitude, on every
+ *  projection, and under any pitch, so a path stepped in uv would bunch toward the horizon and
+ *  stretch toward the camera. Inverting the basis per step is not needed — the
  *  screen length of a known uv direction is one basis application, and the step is that direction
  *  scaled by the reciprocal. */
-export const arrow_uv_step = fn('arrow_uv_step', { m: vec4fT, dir_uv: vec2fT, px: f32T }, (a) => {
+export const field_uv_step = fn('field_uv_step', { m: vec4fT, dir_uv: vec2fT, px: f32T }, (a) => {
   // A SAFE normalize, not the builtin: a land or nodata cell packs exactly (0, 0), and
-  // `normalize` of a zero vector is a NaN that propagates into the position — a glyph at an
+  // `normalize` of a zero vector is a NaN that propagates into the position — a vertex at an
   // undefined screen coordinate, which some drivers rasterize as a full-screen triangle. The
-  // guarded form returns a zero step there, so the glyph simply does not advance.
+  // guarded form returns a zero step there, so the walk simply does not advance.
   const n = Let(max(length(a.dir_uv), f32(1e-9)))
   const u = Let(vec2(a.dir_uv.x.div(n), a.dir_uv.y.div(n)))
-  const s = Let(arrow_uv_to_px(a.m, u))
+  const s = Let(field_uv_to_px(a.m, u))
   return u.mul(a.px.div(max(length(s), f32(1e-6))))
 })
 
 /** Every function this module contributes, in dependency order. A consumer splices these AFTER
  *  `getGpuProjectionFuncs()` and `UNPROJECT_FUNCS`. */
-export const ARROW_VIEW_FUNCS = [
-  arrow_node_uv.decl,
-  arrow_node_ndc.decl,
-  arrow_ground_hit.decl,
-  arrow_screen_lonlat.decl,
-  arrow_grid_uv.decl,
-  arrow_uv_basis.decl,
-  arrow_uv_step.decl,
+export const FIELD_LATTICE_FUNCS = [
+  field_node_uv.decl,
+  field_node_ndc.decl,
+  field_ground_hit.decl,
+  field_screen_lonlat.decl,
+  field_grid_uv.decl,
+  field_uv_basis.decl,
+  field_uv_step.decl,
 ]

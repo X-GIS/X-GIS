@@ -28,7 +28,7 @@ import { RetainedParticleDraper } from '../render/material/particle-retained-mat
 import { packRetainedIconFeat, packRetainedIconTint } from './retained-icon-packer'
 import { packRetainedArrowFeat, packRetainedArrowTint } from './retained-arrow-packer'
 import { CompiledArrowStore } from './compiled-arrow-store'
-import { arrowViewCamera } from '../render/arrow-view-uniform'
+import { fieldViewCamera } from '../render/field-lattice-uniform'
 import { packRetainedCircleFeat, packRetainedCircleTint } from './retained-circle-packer'
 import {
   packRetainedParticleFeat,
@@ -671,9 +671,9 @@ export class GraphicsManager {
 
     // Declarative `| arrow` layers (#1302) — same draper + per-copy uniform as the host
     // arrows above, so compiler-fed and `map.graphics` arrows are one draw authority.
-    // The third argument is the ADVECTED arm's camera (#1520 step 2) — see `arrowViewCamera`.
+    // The third argument is the ADVECTED arm's camera (#1520 step 2) — see `fieldViewCamera`.
     const cam = { frame, camera, projType, projCenterLon, projCenterLat, canvasWidth, canvasHeight }
-    this._lastFrameDrawCalls += this._compiledArrows.draw(pass, perCopy, arrowViewCamera(cam, dpr))
+    this._lastFrameDrawCalls += this._compiledArrows.draw(pass, perCopy, fieldViewCamera(cam, dpr))
 
     if (this._timeSamples !== null) this._timeSamples.push(performance.now() - t0)
   }

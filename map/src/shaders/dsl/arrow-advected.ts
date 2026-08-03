@@ -99,20 +99,18 @@ import { PROJECTION_CONSTS, getGpuProjectionFuncs } from './projections'
 import { pointU } from './point'
 import { UNPROJECT_FUNCS } from './unproject-dsl'
 import {
-  arrowViewU,
-  ARROW_VIEW_FUNCS,
-  ARROW_TRAIN_GLYPHS,
-  ARROW_TRAIN_STEPS,
-  ARROW_TRAIN_TAPS_PER_SPACING,
-  ARROW_NEWTON_SPACINGS,
-  arrow_node_uv,
-  arrow_node_ndc,
-  arrow_screen_lonlat,
-  arrow_grid_uv,
-  arrow_uv_basis,
-  arrow_uv_step,
-  arrow_uv_to_px,
-} from './arrow-view'
+  fieldViewU,
+  FIELD_LATTICE_FUNCS,
+  FIELD_NEWTON_SPACINGS,
+  field_node_uv,
+  field_node_ndc,
+  field_screen_lonlat,
+  field_grid_uv,
+  field_uv_basis,
+  field_uv_step,
+  field_uv_to_px,
+} from './field-lattice'
+import { ARROW_TRAIN_GLYPHS, ARROW_TRAIN_STEPS, ARROW_TRAIN_TAPS_PER_SPACING } from './arrow-drift'
 import { ARROW_PHASE_SECONDS, arrow_phase_alpha, arrow_phase_offset } from './arrow-drift'
 import { ArrowOut, arrowQuadOffset, fs } from './arrow-retained'
 
@@ -163,7 +161,7 @@ const vsAdvected = fn(
     vi: builtin('vertex_index', u32T),
   },
   (p) => {
-    const av = arrowViewU.field
+    const av = fieldViewU.field
     const vp = pointU.field.viewport
     const G = f32(ARROW_TRAIN_GLYPHS)
 
@@ -199,15 +197,15 @@ const vsAdvected = fn(
     // projection's curvature over one screen — sub-pixel everywhere the field is drawn. What it is
     // NOT is a quantisation: the target is this instance's own node, so no two instances converge on
     // the same one and none is displaced toward a neighbour.
-    const node = Let(arrow_node_uv({ jx, jy }))
+    const node = Let(field_node_uv({ jx, jy }))
     const uv0 = Let(node.swizzle('zw'))
-    const guess = Let(arrow_node_ndc({ duv: node.swizzle('xy') }))
+    const guess = Let(field_node_ndc({ duv: node.swizzle('xy') }))
     const ndc = Let(guess.swizzle('xy'))
-    const ll = Let(arrow_screen_lonlat({ ndc }))
+    const ll = Let(field_screen_lonlat({ ndc }))
     // Pixels per unit of grid-uv at this node — what replaces the two packed basis anchors the
     // per-cell generator used to ship. Zero when the node has no ground under it.
-    const basis = Let(arrow_uv_basis({ ndc, lon: ll.x, lat: ll.y }))
-    const fixPx = Let(arrow_uv_to_px(basis, uv0.sub(arrow_grid_uv({ lonlat: ll.swizzle('xy') }))))
+    const basis = Let(field_uv_basis({ ndc, lon: ll.x, lat: ll.y }))
+    const fixPx = Let(field_uv_to_px(basis, uv0.sub(field_grid_uv({ lonlat: ll.swizzle('xy') }))))
 
     // ── where this glyph is along the train ───────────────────────────────────────────────────
     //
@@ -265,9 +263,9 @@ const vsAdvected = fn(
       // minus is grid-v running SOUTHWARD — the identical sign the packer writes its rows in.
       const dirUv = Let(vec2(vu, vv.neg().mul(aspect)))
       const len = Let(min(remain, h))
-      const duv = Let(arrow_uv_step({ m: basis, dir_uv: dirUv, px: len }))
+      const duv = Let(field_uv_step({ m: basis, dir_uv: dirUv, px: len }))
       pos.assign(pos.add(duv))
-      offPx.assign(offPx.add(arrow_uv_to_px(basis, duv)))
+      offPx.assign(offPx.add(field_uv_to_px(basis, duv)))
       remain.assign(max(remain.sub(len), f32(0)))
     }
 
@@ -278,7 +276,7 @@ const vsAdvected = fn(
     // binds no tint buffer at all — there is no launch colour to read by accident.
     const vu = Let(loadAtUv(flowUTex.node, pos).x)
     const vv = Let(loadAtUv(flowVTex.node, pos).x)
-    const dirPx = Let(arrow_uv_to_px(basis, vec2(vu, vv.neg().mul(aspect))))
+    const dirPx = Let(field_uv_to_px(basis, vec2(vu, vv.neg().mul(aspect))))
     const dlen = Let(max(length(dirPx), f32(1e-6)))
     const cc = Let(dirPx.x.div(dlen))
     const ss = Let(dirPx.y.div(dlen))
@@ -313,7 +311,7 @@ const vsAdvected = fn(
     //     where the model's guess landed on unrelated ground, which is past the horizon in practice;
     //     a correction of a few spacings is ordinary and is left alone.
     const onGrid = Let(inUnit(uv0.x).mul(inUnit(uv0.y)).mul(inUnit(pos.x)).mul(inUnit(pos.y)))
-    const settled = Let(step(length(fixPx), spacingPx.mul(f32(ARROW_NEWTON_SPACINGS))))
+    const settled = Let(step(length(fixPx), spacingPx.mul(f32(FIELD_NEWTON_SPACINGS))))
     const size = Let(
       basePx
         .mul(scale)
@@ -374,18 +372,18 @@ const vsAdvected = fn(
 export const buildArrowRetainedAdvectedModule = (): ModuleDecl =>
   module({
     consts: [...PROJECTION_CONSTS],
-    structs: [pointU.struct, arrowViewU.struct, ArrowOut.decl],
+    structs: [pointU.struct, fieldViewU.struct, ArrowOut.decl],
     bindings: [
       pointU.binding,
       bandB.binding,
       flowUTex.binding,
       flowVTex.binding,
-      arrowViewU.binding,
+      fieldViewU.binding,
     ],
     funcs: [
       ...getGpuProjectionFuncs(),
       ...UNPROJECT_FUNCS,
-      ...ARROW_VIEW_FUNCS,
+      ...FIELD_LATTICE_FUNCS,
       arrow_phase_offset,
       arrow_phase_alpha,
       vsAdvected,
