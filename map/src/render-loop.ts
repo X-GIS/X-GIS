@@ -593,7 +593,7 @@ export class RenderLoop {
 
     // GPU timing: resolve the queryset BEFORE finish so the same command
     // buffer carries the resolve+copy. Mapping happens after submit.
-    this.host.gpuTimer?.resolveOnEncoder(encoder)
+    this.host.gpuTimer?.resolveOnRhi(frameEnc)
 
     // Outer scope catches the FRAME-level error (one entry per bad frame),
     // matching the inner scope opened right after createCommandEncoder().
