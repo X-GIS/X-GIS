@@ -590,7 +590,7 @@ class WebGl2CommandEncoder implements RhiCommandEncoder {
  *  `copyBufferToBuffer` supports in-frame arena relocation; `finish()` is the single per-frame
  *  present (gl.flush() + error drain — the endScreenPass analog). Byte-identical on the DEFAULT
  *  WebGL2 boot: the twin early-returns before the frame shell, so this encoder is never
- *  acquired until `?rhichain=1` routes the chain here (`caps.chainFrame`, #991 P4/P5). */
+ *  acquired until `?rhichain=1` routes the chain here (`caps.chainFrame=true`, Inc-E2). */
 class WebGl2FrameEncoder implements RhiCommandEncoder {
   constructor(private readonly device: WebGl2Device) {}
   beginRenderPass(desc: RhiRenderPassDesc): RhiRenderPass {

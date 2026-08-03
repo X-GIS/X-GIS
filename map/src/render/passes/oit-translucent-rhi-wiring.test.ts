@@ -81,7 +81,6 @@ describe('oit pass — RHI seam wiring (#1046 F3b Inc-2d)', () => {
     const composeCalls: { pass: unknown; accum: unknown; reveal: unknown }[] = []
     const host = {
       renderer: {
-        uniformBuffer: {},
         // Capture ALL args (verification review finding 3): the native
         // accum/revealage were previously discarded, so a swap or an
         // undefined accessor rode through green.
@@ -174,7 +173,7 @@ describe('translucent pass — RHI seam wiring (#1046 F3b Inc-2d)', () => {
       return offPass
     })
     const host = {
-      renderer: { uniformBuffer: {} },
+      renderer: {},
       lineRenderer: {
         beginTranslucentPass,
         composite: (pass: unknown, opacity: number) => composites.push({ pass, opacity }),

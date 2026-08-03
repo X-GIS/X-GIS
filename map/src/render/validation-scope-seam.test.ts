@@ -2,7 +2,8 @@
 //
 // The chain's loop TAIL held four native `device.pushErrorScope`/`popErrorScope`
 // sites (the frame-level scope + the per-pass `passScope` pair) — the first of
-// the native residues that keep `chainFrame` false on WebGl2Device. The seam:
+// the native residues that (then) kept `chainFrame` false on WebGl2Device;
+// the tail is fully RHI since Inc-A..D and the cap flipped at Inc-E2. The seam:
 // `RhiDevice.pushValidationScope()`/`popValidationScope()` — WebGPU maps to the
 // native scope stack (rejection passes through so the Audit-⑧-B2 rejected-pop
 // arm keeps firing); WebGL2 no-ops, because an immediate-mode context surfaces

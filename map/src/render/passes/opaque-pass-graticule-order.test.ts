@@ -77,7 +77,6 @@ function harness(groupCount: number, opts: { coverage?: boolean } = {}) {
       render: () => order.push('coverage'),
     },
     renderer: {
-      uniformBuffer: {},
       renderToPass: () => order.push('legacy'),
       renderGraticuleOverlay: () => order.push('graticule'),
     },

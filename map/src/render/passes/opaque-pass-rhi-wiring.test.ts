@@ -89,7 +89,6 @@ function harness(opts: { pick?: boolean; resolveOwner?: string; groups?: number 
     coverageRenderer: { hasCoverage: () => false, render: () => order.push('coverage') },
     flowRenderer: null,
     renderer: {
-      uniformBuffer: {},
       renderToPass: () => order.push('legacy'),
       renderGraticuleOverlay: () => order.push('graticule'),
     },

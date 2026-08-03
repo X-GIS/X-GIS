@@ -154,8 +154,11 @@ export class FrameRenderer {
   /** Native uniform-ring buffer for the content raw createBindGroup sites
    *  (renderer.ts — P6 debt beside `ctx.device`, WebGPU-arm only; the
    *  ShowDrawFn thread that used to carry this to the passes retired at
-   *  Inc-E2 because no terminal read it). The WebGpuDevice cast keeps this
-   *  fail-loud by construction if a WebGL2 frame ever reached it. */
+   *  Inc-E2 because no terminal read it). Public only by cross-class
+   *  delegation necessity — the SOLE reader is MapRendererContent's PRIVATE
+   *  delegate, and `engine` itself is private there, so no external path
+   *  exists. The WebGpuDevice cast fail-louds at RUNTIME (missing method)
+   *  if a WebGL2 frame ever reached it. */
   get uniformBuffer(): GPUBuffer {
     return (this.ctx.rhi as WebGpuDevice).unwrapBuffer(this.uniformRing.rhiBuffer!)
   }
