@@ -7,14 +7,19 @@
 // amount of subdivision fixes it — holding ~34 px spacing at z19 would need 355 M instances, of
 // which fewer than one is on screen.
 //
-// So the field is generated from the OUTPUT instead: a lattice on the SCREEN, at a spacing the
-// screen chooses, and every node asks "what geography is under me?". That question is the backward
-// map (`unproject-dsl.ts`), and this module is what feeds it — the per-frame camera description
-// the VS needs, plus the two derived quantities every glyph is built from:
+// So the field is generated from the VIEW instead: a lattice sized by what the screen can show, not
+// by what the grid contains. #1520 anchored that lattice to the SCREEN and #1534 moved it to the
+// GROUND — one instance per ground node, enumerated over the visible uv box — so the field is
+// carried by the map instead of sliding over it. Either way a node has to answer "what geography is
+// here, and how big is it on screen?", and this module is what answers it:
 //
-//   • WHERE a screen node sits in the coverage's grid-uv (`arrow_screen_lonlat` → `arrow_grid_uv`);
+//   • WHERE a screen position sits in the coverage's grid-uv (`arrow_screen_lonlat` →
+//     `arrow_grid_uv`) — the backward map (`unproject-dsl.ts`);
+//   • WHERE a ground node sits on screen (`arrow_node_uv` → `arrow_node_ndc`) — a linearized
+//     forward model the VS then corrects with one Newton step against that same backward map;
 //   • HOW BIG one unit of grid-uv is ON SCREEN at that node (`arrow_uv_basis`), which is what turns
-//     a velocity sampled in uv into a direction and a distance in pixels.
+//     a velocity sampled in uv into a direction and a distance in pixels — and is also the
+//     Jacobian the Newton step uses, so the two cannot disagree.
 //
 // ── THE UNIFORM IS THE ARROW'S OWN, NOT THE SHARED FRAME UNIFORM ──────────────────────────────
 //
@@ -40,7 +45,7 @@ import {
   max,
   min,
   abs,
-  floor,
+  step,
   cos,
   sin,
   radians,
@@ -108,6 +113,25 @@ export const ARROW_TRAIN_STEPS = ARROW_TRAIN_GLYPHS * ARROW_TRAIN_TAPS_PER_SPACI
  *  error: overlapping SCAROW symbols read as a faster current than the data says. */
 export const ARROW_LATTICE_FACTOR = Math.sqrt(ARROW_TRAIN_GLYPHS)
 
+/** Ceiling on ground nodes enumerated in one frame.
+ *
+ *  A near-horizon view sees ground all the way to the skyline, so the visible uv box can hold far
+ *  more nodes than a screenful is worth. The CPU halves the resolution until the count fits rather
+ *  than dropping the far ones (`groundLatticeFor` records why). Sized at roughly eight screenfuls
+ *  of the flat-view lattice, which covers a 60° pitch at 1080p with room to spare. */
+export const ARROW_MAX_GROUND_NODES = 4096
+
+/** How far the Newton correction may move a node, in inter-glyph spacings, before the node is
+ *  rejected instead.
+ *
+ *  A BLOWUP GUARD, not a fit. The model's guess is sub-pixel over the visible span, so an ordinary
+ *  correction is a fraction of one spacing; a correction of eight is the guess having landed on
+ *  ground that has nothing to do with the node, which happens past the horizon where the projective
+ *  divide is ill-conditioned. Rejecting is a size factor like every other rejection here — it can
+ *  drop a glyph but it cannot turn one, which a per-component clamp could and once did
+ *  (`arrow-drift-direction.test.ts` keeps that arithmetic). */
+export const ARROW_NEWTON_SPACINGS = 8
+
 /** The per-frame, per-batch view description. Nine `vec4f` = 144 B, rewritten once per frame per
  *  advected batch; the bind group itself is cached, since only the buffer contents change.
  *
@@ -117,9 +141,9 @@ const U = uniformStruct(
   'ArrowView',
   { group: 1, binding: 4, as: 'arrow_view' },
   {
-    /** xyz = world-space ray direction at NDC (−1, −1); w = lattice columns `nx`. */
+    /** xyz = world-space ray direction at NDC (−1, −1); w = ground-lattice columns `nx`. */
     ray_bl: vec4fT,
-    /** …at NDC (+1, −1); w = lattice rows `ny`. */
+    /** …at NDC (+1, −1); w = ground-lattice rows `ny`. */
     ray_br: vec4fT,
     /** …at NDC (−1, +1); w = inter-glyph spacing δ, in device px. */
     ray_tl: vec4fT,
@@ -141,6 +165,22 @@ const U = uniformStruct(
      *  northernmost), so the sign rides the reciprocal rather than a branch nobody would remember
      *  to keep in step with the flow-texture packer. */
     crs: vec4fT,
+    /** The ground lattice: `(stepU, stepV, jx0, jy0)`. The steps are powers of two in grid-uv and
+     *  the anchor is a multiple of them, so a node's uv — and therefore its phase — does not move
+     *  when the camera does. `jx0`/`jy0` are the SIGNED index of the first enumerated node on each
+     *  axis, so the window slides with the view while the lattice underneath it stays put. */
+    lattice: vec4fT,
+    /** Row 0 of the `(û, v̂, 1) → clip` model, `xyz`; `w` = the anchor's grid-u.
+     *
+     *  `world → clip` is exactly linear and the ground surface is a plane (flat) or its tangent
+     *  plane (globe), so the ONE thing linearized is the projection's curvature over the visible
+     *  span. Pitch — the case an affine screen approximation gets catastrophically wrong — is
+     *  exact. Whatever curvature is left is removed by one Newton step against the backward map. */
+    hx: vec4fT,
+    /** Row 1 of the model, `xyz`; `w` = the anchor's grid-v. */
+    hy: vec4fT,
+    /** Row 2 of the model — the `clip.w` row, `xyz`. `w` unused. */
+    hw: vec4fT,
   },
 )
 export { U as arrowViewU }
@@ -149,24 +189,35 @@ export { U as arrowViewU }
  *  ladder takes, so the backward map cannot pick a different branch than the matrix it inverts. */
 const isGlobe = () => pointU.field.proj_params.x.gt(f32(6.5))
 
-/** The NDC of lattice node `seed`, in a row-major `nx × ny` grid of CELL CENTRES.
+/** Ground node `(jx, jy)` → its grid-uv offset from the lattice anchor, and its absolute grid-uv.
  *
- *  Centres, not corners: a lattice on the corners puts nodes exactly on the viewport edge, where
- *  half of every glyph is clipped and the field looks like it stops short of the frame. */
-export const arrow_seed_ndc = fn('arrow_seed_ndc', { seed: f32T, nx: f32T, ny: f32T }, (a) => {
-  const row = Let(floor(a.seed.div(max(a.nx, f32(1)))))
-  const col = Let(a.seed.sub(row.mul(a.nx)))
-  return vec2(
-    col
-      .add(f32(0.5))
-      .div(max(a.nx, f32(1)))
-      .mul(f32(2))
-      .sub(f32(1)),
-    row
-      .add(f32(0.5))
-      .div(max(a.ny, f32(1)))
-      .mul(f32(2))
-      .sub(f32(1)),
+ *  Returned as `(û, v̂, u, v)` because both are needed and both are one multiply apart: the OFFSET
+ *  is what the model is evaluated at (small by construction, so f32 carries it at any zoom), and the
+ *  ABSOLUTE uv is the node's identity — where its velocity is sampled and what its phase is hashed
+ *  from. Splitting them is the whole precision argument: `u` at depth is an O(1) number whose f32
+ *  ULP is coarser than the lattice, but `û = j·step` is exact for every index a frame enumerates. */
+export const arrow_node_uv = fn('arrow_node_uv', { jx: f32T, jy: f32T }, (a) => {
+  const du = Let(a.jx.mul(U.field.lattice.x))
+  const dv = Let(a.jy.mul(U.field.lattice.y))
+  return vec4(du, dv, U.field.hx.w.add(du), U.field.hy.w.add(dv))
+})
+
+/** A ground node's screen NDC under the linearized model, as `(ndc.x, ndc.y, ok)`.
+ *
+ *  `ok` is 0 when the node is at or behind the eye plane (`clip.w ≤ 0`), which is where a projective
+ *  divide flips the point to the opposite side of the screen — a glyph drawn from the wrong half of
+ *  the frame, which reads as a stray arrow in empty water rather than as a missing one. */
+export const arrow_node_ndc = fn('arrow_node_ndc', { duv: vec2fT }, (a) => {
+  const hx = U.field.hx
+  const hy = U.field.hy
+  const hw = U.field.hw
+  const w = Let(hw.x.mul(a.duv.x).add(hw.y.mul(a.duv.y)).add(hw.z))
+  const ok = Let(step(f32(1e-9), w))
+  const inv = Let(f32(1).div(select(w.gt(f32(1e-9)), w, f32(1))))
+  return vec3(
+    hx.x.mul(a.duv.x).add(hx.y.mul(a.duv.y)).add(hx.z).mul(inv),
+    hy.x.mul(a.duv.x).add(hy.y.mul(a.duv.y)).add(hy.z).mul(inv),
+    ok,
   )
 })
 
@@ -400,7 +451,8 @@ export const arrow_uv_step = fn('arrow_uv_step', { m: vec4fT, dir_uv: vec2fT, px
 /** Every function this module contributes, in dependency order. A consumer splices these AFTER
  *  `getGpuProjectionFuncs()` and `UNPROJECT_FUNCS`. */
 export const ARROW_VIEW_FUNCS = [
-  arrow_seed_ndc.decl,
+  arrow_node_uv.decl,
+  arrow_node_ndc.decl,
   arrow_ground_hit.decl,
   arrow_screen_lonlat.decl,
   arrow_grid_uv.decl,

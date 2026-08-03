@@ -1,10 +1,17 @@
 // ═══ GATE 1 of #1520 step 2 — the ROUND-TRIP IDENTITY ═══
 //
-// The screen-lattice arrow field rests on one claim: a node's recovered geography, projected
-// FORWARD again through the very matrix the frame renders with, lands back on that node. If it
-// does not, every glyph is drawn somewhere the water it was sampled from is not — and the failure
-// looks like a working field. Nothing about a still frame reveals it; the arrows are the right
-// colour, the right size, and pointing the right way, at the wrong place.
+// The arrow field rests on one claim: a node's geography and the place the node is DRAWN are the
+// same point, checked through the very matrix the frame renders with. If they are not, every glyph
+// is drawn somewhere the water it was sampled from is not — and the failure looks like a working
+// field. Nothing about a still frame reveals it; the arrows are the right colour, the right size,
+// and pointing the right way, at the wrong place.
+//
+// #1534 INVERTED THE DIRECTION and the gate followed. Under the screen lattice a node's screen
+// position was given and its geography was recovered, so the identity was `project(unproject(node))
+// === node`. Enumerating the ground lattice makes the geography exact by construction and the
+// SCREEN position the derived half, so the identity is now measured there: place the node the way
+// the VS places it — linearized model, then one Newton step — and project its own lon/lat forward.
+// Same claim, same failure mode, measured on whichever half is derived.
 //
 // So this is the load-bearing gate, and it is deliberately NOT a render test. It exercises the
 // REAL pipeline on both ends:
@@ -27,11 +34,14 @@ import { module, compileModuleJs } from '@xgis/shader-dsl'
 import { Camera } from '../camera/camera'
 import { getGpuProjectionFuncs, PROJECTION_CONSTS } from '../shaders/dsl/projections'
 import { UNPROJECT_FUNCS } from '../shaders/dsl/unproject-dsl'
-import { ARROW_VIEW_FUNCS, ARROW_TRAIN_GLYPHS } from '../shaders/dsl/arrow-view'
+import {
+  ARROW_VIEW_FUNCS,
+  ARROW_TRAIN_GLYPHS,
+  ARROW_MAX_GROUND_NODES,
+} from '../shaders/dsl/arrow-view'
 import { globeForward } from '@xgis/geo'
 import {
   arrowViewBlock,
-  arrowLatticeFor,
   writeArrowViewUniform,
   arrowViewUniformBytes,
   type ArrowViewCamera,
@@ -60,7 +70,7 @@ const M = compileModuleJs(
   }),
 )
 
-/** The nine `vec4f`, read back OUT of the packed std140 block — so the values the shader binding
+/** Every `vec4f`, read back OUT of the packed std140 block — so the values the shader binding
  *  receives are literally the bytes the writer produced. */
 const FIELDS = [
   'ray_bl',
@@ -72,6 +82,10 @@ const FIELDS = [
   'east',
   'north',
   'crs',
+  'lattice',
+  'hx',
+  'hy',
+  'hw',
 ] as const
 
 function unpack(buf: ArrayBuffer): Record<string, number[]> {
@@ -163,21 +177,67 @@ function forwardNdc(s: Scene, lon: number, lat: number): [number, number] | null
   return [x / w, y / w]
 }
 
-/** Worst node error, in PIXELS, over the lattice this camera would actually draw. `null` when no
- *  node round-tripped (an entirely off-globe view), so a silently empty sweep cannot read green. */
+/** Screen position of a ground node, EXACTLY as the VS assembles it: the linearized model's guess
+ *  plus the one Newton step taken against the backward map. Null when the VS would reject the node.
+ *
+ *  Run through the compiled module, not restated here — `arrow_uv_to_px` is the one exception, and
+ *  only because it is an inline helper the emitter never makes a function of. */
+function placeNode(jx: number, jy: number): { px: [number, number]; uv: [number, number] } | null {
+  const node = M.fns.arrow_node_uv(jx, jy) as [number, number, number, number]
+  const g = M.fns.arrow_node_ndc([node[0], node[1]]) as [number, number, number]
+  if (g[2] < 0.5) return null // at or behind the eye plane
+  const ndc: [number, number] = [g[0], g[1]]
+  const ll = M.fns.arrow_screen_lonlat(ndc) as [number, number, number]
+  if (ll[2] < 0.5) return null // no ground under the guess
+  const b = M.fns.arrow_uv_basis(ndc, ll[0], ll[1]) as [number, number, number, number]
+  const uvg = M.fns.arrow_grid_uv([ll[0], ll[1]]) as [number, number]
+  const du = node[2] - uvg[0]
+  const dv = node[3] - uvg[1]
+  const fix: [number, number] = [b[0] * du + b[1] * dv, b[2] * du + b[3] * dv]
+  return {
+    px: [((ndc[0] + 1) / 2) * W + fix[0], ((1 - ndc[1]) / 2) * H + fix[1]],
+    uv: [node[2], node[3]],
+  }
+}
+
+/** grid-uv → lon/lat, the exact inverse of `arrow_grid_uv` over `GRID`. */
+const uvLonLat = (u: number, v: number): [number, number] => [
+  GRID.originLon + u / GRID.invSpanLon,
+  GRID.originLat + v / GRID.invSpanLat,
+]
+
+/** Worst node error, in PIXELS, over the ground lattice this camera would actually draw: the
+ *  distance between where the VS PUTS a node and where that node's own lon/lat PROJECTS.
+ *
+ *  This is the claim the whole field rests on. Under the screen lattice it was the round trip
+ *  `project(unproject(node)) === node`; enumerating the ground lattice inverts the direction — the
+ *  node's geography is now exact by construction and its screen position is what is derived — so
+ *  the identity is measured on the derived half. A failure looks identical either way: arrows the
+ *  right colour, the right size and pointing the right way, drawn where their water is not.
+ *
+ *  Only nodes the frame actually SHOWS are scored. A node off the side of the viewport is drawn by
+ *  nobody, and near the horizon the model's guess degrades exactly where no glyph is visible;
+ *  scoring it would measure the guard rather than the field. `null` when no node scored at all, so
+ *  a silently empty sweep cannot read green. */
 function worstPixelError(s: Scene): number | null {
-  const { nx, ny } = arrowLatticeFor(W, H, BASE_PX * DPR)
+  const v = s.view
+  const nx = v.ray_bl![3]!
+  const ny = v.ray_br![3]!
+  const jx0 = v.lattice![2]!
+  const jy0 = v.lattice![3]!
   let worst: number | null = null
-  for (let seed = 0; seed < nx * ny; seed++) {
-    const ndc = M.fns.arrow_seed_ndc(seed, nx, ny) as [number, number]
-    const ll = M.fns.arrow_screen_lonlat(ndc) as [number, number, number]
-    if (ll[2] < 0.5) continue // the node has no ground under it — nothing is claimed for it
-    const back = forwardNdc(s, ll[0], ll[1])
-    if (!back) continue
-    // NDC → px: the ×2 the two directions share cancels, so this is a true pixel distance.
-    const dx = ((back[0] - ndc[0]) * W) / 2
-    const dy = ((back[1] - ndc[1]) * H) / 2
-    worst = Math.max(worst ?? 0, Math.hypot(dx, dy))
+  for (let iy = 0; iy < ny; iy++) {
+    for (let ix = 0; ix < nx; ix++) {
+      const p = placeNode(jx0 + ix, jy0 + iy)
+      if (!p) continue
+      const [lon, lat] = uvLonLat(p.uv[0], p.uv[1])
+      const back = forwardNdc(s, lon, lat)
+      if (!back) continue
+      const tx = ((back[0] + 1) / 2) * W
+      const ty = ((1 - back[1]) / 2) * H
+      if (tx < 0 || tx > W || ty < 0 || ty > H) continue
+      worst = Math.max(worst ?? 0, Math.hypot(p.px[0] - tx, p.px[1] - ty))
+    }
   }
   return worst
 }
@@ -245,8 +305,14 @@ describe('GATE 1, fail-before — perturbing the uniform BREAKS the identity', (
   const GLOBE_BASE = { lon: -76, lat: 38, zoom: 5, projType: 7, globe: true, pitch: 25 }
   const FRAME = new Set(['up', 'east', 'north'])
 
+  // `crs` is downstream of the identity — it is gated by GATE 2. The ground-lattice fields are not
+  // downstream of it either, and for a more interesting reason: the model (`hx`/`hy`/`hw`) is only a
+  // GUESS and the lattice is only which nodes are enumerated, so neither can move a node off itself.
+  // The block below is their fail-before, and it is the one that proves the Newton step is live.
+  const NOT_IDENTITY = new Set(['crs', 'lattice', 'hx', 'hy', 'hw'])
+
   for (const field of FIELDS) {
-    if (field === 'crs') continue // `crs` is downstream of the identity — it is gated by GATE 2
+    if (NOT_IDENTITY.has(field)) continue
     it(`a perturbed ${field} moves the lattice off its own nodes`, () => {
       const clean = scene(FRAME.has(field) ? GLOBE_BASE : FLAT_BASE)
       bind(clean)
@@ -265,30 +331,141 @@ describe('GATE 1, fail-before — perturbing the uniform BREAKS the identity', (
   }
 })
 
-describe('the lattice the identity is measured over is the one that gets drawn', () => {
-  it('is a function of the VIEWPORT, not of any grid — the whole point of #1520', () => {
-    // The count used to be the coverage's drawable-cell count, which is why the field expired at
-    // z17: `sub²` per cell scales with the GRID and almost none of it is on screen at depth. Here
-    // it depends on the canvas and the glyph size and on nothing else, so it is the SAME at every
-    // zoom, over every coverage.
-    const a = arrowLatticeFor(W, H, BASE_PX)
-    const b = arrowLatticeFor(W, H, BASE_PX)
-    expect(a).toEqual(b)
-    // …one train per node, `G` glyphs per train.
-    expect(a.instanceCount).toBe(a.nx * a.ny * ARROW_TRAIN_GLYPHS)
-    // …and it tracks the canvas: twice the area is about twice the nodes.
-    const big = arrowLatticeFor(W * 2, H, BASE_PX)
-    expect(big.nx).toBeGreaterThanOrEqual(a.nx * 2 - 1)
+describe('GATE 1c — the model is a GUESS and the Newton step is what makes it exact (#1534)', () => {
+  // The placement is two parts: a linearized model, then one Newton step against the exact backward
+  // map. Everything above measures the SUM. These measure the split — because a sum that is right
+  // says nothing about which half did the work, and a Newton step that had quietly stopped being
+  // applied would read identically until the day the model got worse.
+  const BASE = { lon: -76, lat: 38, zoom: 12, projType: 0, pitch: 35 }
+
+  /** Where the model alone would put a node, before the correction. */
+  function guessPx(jx: number, jy: number): [number, number] | null {
+    const n = M.fns.arrow_node_uv(jx, jy) as number[]
+    const g = M.fns.arrow_node_ndc([n[0]!, n[1]!]) as [number, number, number]
+    if (g[2] < 0.5) return null
+    return [((g[0] + 1) / 2) * W, ((1 - g[1]) / 2) * H]
+  }
+
+  /** Worst distance, in px, between the model's raw guess and the corrected placement. */
+  function worstCorrection(s: Scene): number {
+    const v = s.view
+    let worst = 0
+    for (let iy = 0; iy < v.ray_br![3]!; iy++) {
+      for (let ix = 0; ix < v.ray_bl![3]!; ix++) {
+        const jx = v.lattice![2]! + ix
+        const jy = v.lattice![3]! + iy
+        const g = guessPx(jx, jy)
+        const p = placeNode(jx, jy)
+        if (!g || !p) continue
+        worst = Math.max(worst, Math.hypot(p.px[0] - g[0], p.px[1] - g[1]))
+      }
+    }
+    return worst
+  }
+
+  for (const field of ['hx', 'hy', 'hw'] as const) {
+    it(`a perturbed ${field} moves the GUESS, and the Newton step puts it back`, () => {
+      const clean = scene(BASE)
+      bind(clean)
+      expect(worstPixelError(clean)!, 'the clean placement is exact').toBeLessThan(1)
+
+      const dirty: Scene = { ...clean, view: { ...clean.view } }
+      dirty.view[field] = clean.view[field]!.map((x, i) => (i < 3 ? x * 1.01 + 1 : x))
+      bind(dirty)
+      // The perturbation is real — the model's own answer moved by pixels, not by rounding. This is
+      // the half that fails if the correction is severed: the placement would move with it.
+      expect(worstCorrection(dirty), `${field} moved the guess`).toBeGreaterThan(1)
+      // …and the placement did not, because the correction is measured against the backward map and
+      // not against the model.
+      expect(worstPixelError(dirty)!, `${field} is corrected away`).toBeLessThan(1)
+    })
+  }
+
+  it('a perturbed lattice step re-enumerates the nodes, and they are still exact', () => {
+    // `lattice` decides WHICH ground nodes are drawn, not where any of them lands. Both halves are
+    // asserted: the node set has to actually change (or the field is inert), and the identity has
+    // to survive the change (or the placement was reading the step it was written with).
+    const clean = scene({ lon: -76, lat: 38, zoom: 12, projType: 0 })
+    bind(clean)
+    const before = M.fns.arrow_node_uv(
+      clean.view.lattice![2]! + 1,
+      clean.view.lattice![3]!,
+    ) as number[]
+    const dirty: Scene = { ...clean, view: { ...clean.view } }
+    dirty.view.lattice = [
+      clean.view.lattice![0]! * 0.5,
+      clean.view.lattice![1]! * 0.5,
+      clean.view.lattice![2]!,
+      clean.view.lattice![3]!,
+    ]
+    bind(dirty)
+    const after = M.fns.arrow_node_uv(
+      dirty.view.lattice![2]! + 1,
+      dirty.view.lattice![3]!,
+    ) as number[]
+    expect(Math.abs(after[2]! - before[2]!), 'the step is load-bearing').toBeGreaterThan(1e-6)
+    expect(worstPixelError(dirty)!, 'and the new nodes are placed exactly too').toBeLessThan(1)
+  })
+})
+
+describe('GATE 1b — the lattice is anchored to the GROUND (#1534)', () => {
+  /** Every enumerated node's absolute grid-uv, as a rounded key set. */
+  function nodeUvs(s: Scene): Set<string> {
+    const v = s.view
+    const out = new Set<string>()
+    for (let iy = 0; iy < v.ray_br![3]!; iy++) {
+      for (let ix = 0; ix < v.ray_bl![3]!; ix++) {
+        const n = M.fns.arrow_node_uv(v.lattice![2]! + ix, v.lattice![3]! + iy) as number[]
+        out.add(`${n[2]!.toFixed(9)},${n[3]!.toFixed(9)}`)
+      }
+    }
+    return out
+  }
+
+  it('a PANNED camera keeps the nodes it still sees — the whole point of #1534', () => {
+    // The screen lattice's failure, as an identity rather than as a pixel diff: a node is a patch
+    // of water, so panning may add nodes and drop nodes but must never MOVE one. Under the screen
+    // lattice every node moved with the viewport and this intersection was empty.
+    const a = scene({ lon: -76, lat: 38, zoom: 12, projType: 0 })
+    bind(a)
+    const ua = nodeUvs(a)
+    const b = scene({ lon: -76.02, lat: 38, zoom: 12, projType: 0 })
+    bind(b)
+    const ub = nodeUvs(b)
+    const kept = [...ua].filter((k) => ub.has(k))
+    expect(kept.length, 'the overlap keeps its nodes').toBeGreaterThan(ua.size * 0.5)
   })
 
-  it('spends its budget near the ~294 glyphs a 480×700 canvas wants at 34 px spacing', () => {
-    // The number #1520 derived when it measured the failure. Not a tuned constant — it falls out
-    // of `S = δ·√G` (each seed owns S² px and contributes G glyphs), so it is asserted as a band
-    // rather than a value: what would be a bug is an order of magnitude, which is what the grid-
-    // proportional generator produced (96 k at z13, 355 M at z19).
-    const { instanceCount } = arrowLatticeFor(480, 700, 34)
-    expect(instanceCount).toBeGreaterThan(200)
-    expect(instanceCount).toBeLessThan(500)
+  it('…and the enumeration is a BIJECTION — no two instances land on one node', () => {
+    // The rejected approach's exact failure mode (#1534): snapping a screen lattice to the ground
+    // is many-to-one, so nodes collapse and the field thins. Enumeration cannot do that, and this
+    // is what says so.
+    const s = scene({ lon: -76, lat: 38, zoom: 12, projType: 0, pitch: 40 })
+    bind(s)
+    expect(nodeUvs(s).size).toBe(s.view.ray_bl![3]! * s.view.ray_br![3]!)
+  })
+
+  it('holds its spacing near the ~294 glyphs a 480×700 canvas wants at 34 px', () => {
+    // The number #1520 derived when it measured the per-cell generator's failure. Not a tuned
+    // constant — it falls out of `S = δ·√G` (each seed owns S² px and contributes G glyphs), so it
+    // is asserted as a band: what would be a bug is an order of magnitude, which is what the
+    // grid-proportional generator produced (96 k at z13, 355 M at z19). The band is wider than the
+    // screen lattice's because the step is quantised to a power of two in uv, which can be up to
+    // √2 off the wanted spacing on each axis.
+    for (const zoom of [11, 13, 15, 17, 19]) {
+      const s = scene({ lon: -76, lat: 38, zoom, projType: 0 })
+      expect(s.instances, `z${zoom} instances`).toBeGreaterThan(100)
+      expect(s.instances, `z${zoom} instances`).toBeLessThan(1600)
+      expect(s.instances % ARROW_TRAIN_GLYPHS, 'G glyphs per node').toBe(0)
+    }
+  })
+
+  it('bounds a near-horizon view by COARSENING, so the count stays finite', () => {
+    // A pitched camera sees ground to the skyline, so the visible uv box is far larger than a
+    // screenful is worth. The cap is enforced by halving the resolution rather than by dropping the
+    // far nodes, which would end the field on a straight line across open water.
+    const s = scene({ lon: -76, lat: 38, zoom: 9, projType: 0, pitch: 60 })
+    expect(s.instances / ARROW_TRAIN_GLYPHS).toBeLessThanOrEqual(ARROW_MAX_GROUND_NODES)
   })
 
   it('reports NO view — and therefore draws nothing — for a singular matrix', () => {
@@ -310,7 +487,7 @@ describe('the lattice the identity is measured over is the one that gets drawn',
     )
   })
 
-  it('the block is sized from the reflected layout — nine vec4f, 144 B', () => {
+  it('the block is sized from the reflected layout — thirteen vec4f, 208 B', () => {
     // The buffer the store allocates and the struct the shader reads come from ONE declaration.
     expect(arrowViewUniformBytes()).toBe(FIELDS.length * 16)
   })
