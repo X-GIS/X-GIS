@@ -150,6 +150,21 @@ export const LANGUAGE_SCHEMA: Record<string, ConstructDef> = {
     ],
   },
 
+  // User-defined function (#1535 — reintroduced end-to-end after the
+  // #1072 prune): expression-bodied, inlined at lower time so a GPU-safe
+  // body rides the per-feature-gpu path. Referenced by NAME inside
+  // expressions (no editor pin type — calls are not wires).
+  fn: {
+    keyword: 'fn',
+    astKind: 'FnStatement',
+    category: 'Logic',
+    properties: [
+      { key: 'name', valueKind: 'identifier', required: true },
+      { key: 'params', valueKind: 'params' },
+      { key: 'body', valueKind: 'expr', required: true },
+    ],
+  },
+
   layer: {
     keyword: 'layer',
     astKind: 'LayerStatement',

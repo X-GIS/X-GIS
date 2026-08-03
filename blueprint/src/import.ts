@@ -180,6 +180,12 @@ export function xgisToGraph(src: string): BPGraph {
       const n = mk('preset', { name, params, pipe: pipeText(lines) })
       nodes.push(n)
       if (name) presetByName.set(name, n.id)
+    } else if (kw === 'fn') {
+      // fn name(a, b) { return <expr> } (#1535) — expression-bodied by
+      // grammar; recover the param list and the raw return expression.
+      const params = block.match(/^[a-z]+\s+[A-Za-z_][\w-]*\s*\(([^)]*)\)/)?.[1]?.trim() ?? ''
+      const body = block.match(/\{\s*return\s+([\s\S]*?)\s*\}\s*$/)?.[1]?.trim() ?? ''
+      nodes.push(mk('fn', { name, params, body }))
     } else if (kw === 'symbol') {
       const pathLine = lines.find((l) => l.startsWith('path '))
       nodes.push(

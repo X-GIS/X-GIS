@@ -13,6 +13,7 @@ export type Statement =
   | ImportStatement
   | SymbolStatement
   | KeyframesStatement
+  | FnStatement
 
 // ═══ Expressions ═══
 
@@ -249,6 +250,19 @@ export type UtilityItem = {
   /** Call-form arguments for `apply-<preset>(…)` items (#1536).
    *  Absent on every other utility item. */
   args?: Expr[]
+}
+
+// fn halo(width, base) { return clamp(width * 1.5 + base, 1, 24) }
+// User-defined function (#1535 — reintroduced after the #1072 prune).
+// v1 is expression-bodied: the body is exactly one `return <expr>`;
+// calls are inlined at lower time (ir/fn-inline.ts), so the evaluator,
+// classifier, and WGSL codegen never see a user-fn call.
+export type FnStatement = {
+  kind: 'FnStatement'
+  name: string
+  params: string[]
+  body: Expr
+  line: number
 }
 
 // keyframes pulse { 0%: opacity-100  50%: opacity-30  100%: opacity-100 }
