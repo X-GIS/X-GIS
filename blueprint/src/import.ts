@@ -175,7 +175,9 @@ export function xgisToGraph(src: string): BPGraph {
       nodes.push(n)
       if (name) sourceByName.set(name, n.id)
     } else if (kw === 'preset') {
-      const n = mk('preset', { name, pipe: pipeText(lines) })
+      // Parameter list from the `preset name(a, b) {` declaration form (#1536).
+      const params = block.match(/^[a-z]+\s+[A-Za-z_][\w-]*\s*\(([^)]*)\)/)?.[1]?.trim() ?? ''
+      const n = mk('preset', { name, params, pipe: pipeText(lines) })
       nodes.push(n)
       if (name) presetByName.set(name, n.id)
     } else if (kw === 'symbol') {

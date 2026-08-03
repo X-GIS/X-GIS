@@ -19,6 +19,7 @@ export type SchemaValueKind =
   | 'enum' // one of `options`
   | 'expr' // an X-GIS expression
   | 'pipe' // one or more `| utility …` lines
+  | 'params' // comma-separated declared parameter names (`preset p(a, b)`, #1536)
 
 /** Cross-block reference data-types — these become typed editor pins. */
 export type SchemaPinType = 'source' | 'preset' | 'symbol' | 'layer'
@@ -134,7 +135,9 @@ export const LANGUAGE_SCHEMA: Record<string, ConstructDef> = {
 
   // The single full-surface reusable-style construct (the former
   // `style` block merged in): a named bundle of any utility lines,
-  // referenced by a layer via either `apply-<name>` or `style:`.
+  // referenced by a layer via either `apply-<name>` or `style:` —
+  // optionally parameterized (`preset glow(color, radius)`, #1536) with
+  // call-form references (`style: glow(#f59e0b, 4)`, `apply-glow(…)`).
   preset: {
     keyword: 'preset',
     astKind: 'PresetStatement',
@@ -142,6 +145,7 @@ export const LANGUAGE_SCHEMA: Record<string, ConstructDef> = {
     produces: 'preset',
     properties: [
       { key: 'name', valueKind: 'identifier', required: true },
+      { key: 'params', valueKind: 'params' },
       { key: 'pipe', valueKind: 'pipe' },
     ],
   },
