@@ -4,7 +4,7 @@
 
 import type * as AST from '../parser/ast'
 import { CAMERA_ZOOM_KEY, CAMERA_PITCH_KEY } from './reserved-keys'
-import { callBuiltin, toNumber, toBool } from './evaluator-helpers'
+import { callBuiltin, toNumber, toBool, VEC_COMPONENT_INDEX } from './evaluator-helpers'
 import type { FeatureProps } from './evaluator-types'
 
 // Public surface preserved: FeatureProps re-exported here
@@ -70,6 +70,14 @@ function evaluateFieldAccess(expr: AST.FieldAccess, props: FeatureProps): unknow
   }
   // Chained: obj.field
   const obj = evaluate(expr.object, props)
+  // Vector component access (#1537): `.x/.y/.z/.w` (and the rgba
+  // aliases) select a lane of a vec value. Only the EXPLICIT-object form
+  // reaches here, so a feature property named `x` is never shadowed —
+  // the object-less binding above still wins.
+  if (Array.isArray(obj)) {
+    const lane = VEC_COMPONENT_INDEX.get(expr.field)
+    return lane === undefined ? null : (obj[lane] ?? null)
+  }
   if (obj && typeof obj === 'object') {
     return (obj as Record<string, unknown>)[expr.field] ?? null
   }
