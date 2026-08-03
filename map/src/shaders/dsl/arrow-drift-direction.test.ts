@@ -91,10 +91,23 @@ describe('…and the VS makes both directions ONE computation (#1520)', () => {
       ...body.matchAll(/let \w+ = vec2<f32>\(\(\((\w+)\.x \* (\w+)\) \+ \(\1\.y \* (\w+)\)\)/g),
     ]
     expect(cands.length, 'the basis is applied at all').toBeGreaterThan(0)
+    // Since #1558 the drawn direction's operand is the LIVE-FOOTING velocity — a var whose
+    // in-loop assignments blend the fetch in (`vu·alive + …`) — so the trace to the fetch is one
+    // hop longer: component → tracked var → its assignments' operand → the textureLoad Let. The
+    // walk's per-step direction still reads the fetch directly, which is why the filter accepts
+    // EITHER depth and the uniqueness assertion below still bites.
+    const reachesFetch = (name: string): boolean => {
+      const direct = new RegExp(`let ${name} = ([^;]+);`).exec(body)
+      if (direct) return direct[1]!.includes('textureLoad(flow_u_tex')
+      const assigns = [...body.matchAll(new RegExp(`^\\s*${name} = \\(\\((\\w+) \\* `, 'gm'))]
+      return (
+        assigns.length > 0 && assigns.every((a) => letOf(a[1]!).includes('textureLoad(flow_u_tex'))
+      )
+    }
     const fromFlow = cands.filter((m) => {
       const c = letOf(m[2]!)
       const s = /vec2<f32>\((\w+),/.exec(c)
-      return s !== null && letOf(s[1]!).includes('textureLoad(flow_u_tex')
+      return s !== null && reachesFetch(s[1]!)
     })
     expect(fromFlow.length, 'exactly one basis application is built from the sampled flow').toBe(1)
     const dir = fromFlow[0]!
@@ -105,17 +118,13 @@ describe('…and the VS makes both directions ONE computation (#1520)', () => {
     const steps = [...body.matchAll(/field_uv_step\((\w+),/g)].map((m) => m[1]!)
     expect(steps.length, 'the walk takes its steps through a basis').toBeGreaterThan(0)
     for (const s of steps) expect(s, 'one basis, both answers').toBe(basis)
-    // …and the rotation's operand is a velocity pair sampled from the textures, not a packed
-    // bearing frozen at add time.
     // …and the rotation's operand is a velocity pair SAMPLED from the textures, not a packed
-    // bearing frozen at add time. Two levels: the emitter binds the component, whose expression
-    // names the temporary the textureLoad landed in.
+    // bearing frozen at add time — restated through the same trace the filter used, so the two
+    // cannot drift apart about what "sampled" means.
     const comp = letOf(dir![2]!)
     const src = /vec2<f32>\((\w+),/.exec(comp)
     expect(src, 'the component comes from a velocity pair').not.toBeNull()
-    expect(letOf(src![1]!), 'the direction is built from the sampled flow').toContain(
-      'textureLoad(flow_u_tex',
-    )
+    expect(reachesFetch(src![1]!), 'the direction is built from the sampled flow').toBe(true)
   })
 
   it('nothing clamps a displacement COMPONENT — there is no box left to fit into', () => {
