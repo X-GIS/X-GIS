@@ -203,7 +203,7 @@ describe('screen → geographic, on the GPU (#1520)', () => {
     // regression, and it is one character away from passing every other assertion in this file.
     const body = bodyOf(wgsl(), 'unproject_flat')
     expect(body, 'the threshold is built from the target magnitude').toMatch(
-      /max\(1\.0, \(\(abs\(target\.x\) \+ abs\(target\.y\)\) \* /,
+      /max\(1\.0, \(\(abs\(dest\.x\) \+ abs\(dest\.y\)\) \* /,
     )
     expect(body, 'the residual is compared against it, not against a literal').toMatch(
       /select\(0\.0, 1\.0, \(\w+ < \w+\)\)/,
