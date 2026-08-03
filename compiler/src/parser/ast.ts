@@ -14,6 +14,7 @@ export type Statement =
   | SymbolStatement
   | KeyframesStatement
   | FnStatement
+  | StructStatement
 
 // ═══ Expressions ═══
 
@@ -264,6 +265,24 @@ export type FnStatement = {
   body: Expr
   line: number
 }
+
+// struct Track { speed: f32, heading: f32, name: string }
+// A source field schema (#1537 — reintroduced after the #1072 prune).
+// Attached to a source via `schema: Track`; makes `.field` access on that
+// source's layers checked instead of silently null on a typo.
+export type StructStatement = {
+  kind: 'StructStatement'
+  name: string
+  fields: StructField[]
+  line: number
+}
+
+/** Declared field types. Deliberately the three the data model already
+ *  distinguishes (`spec/oracle` value kinds); v1 uses them for NAME
+ *  checking — type-directed classification is a later step. */
+export type StructFieldType = 'f32' | 'string' | 'bool'
+
+export type StructField = { name: string; type: StructFieldType }
 
 // keyframes pulse { 0%: opacity-100  50%: opacity-30  100%: opacity-100 }
 export type KeyframesStatement = {

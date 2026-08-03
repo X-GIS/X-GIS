@@ -19,7 +19,8 @@ describe('Parser', () => {
       'place',
       'view',
       'on',
-      'struct',
+      // `struct` left this list when #1537 reintroduced it as a real
+      // keyword (source field schemas) — no longer an ordinary identifier.
       'enum',
       'simulate',
       'analyze',

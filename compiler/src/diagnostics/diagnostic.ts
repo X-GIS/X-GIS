@@ -42,6 +42,9 @@
 //                               `.field` for feature data
 //   X-GIS0018  error  lower     Vector value in a scalar binding         (ir/expr-type.ts — #1537)
 //                               position — read a lane (`.x`) instead
+//   X-GIS0019  error  lower     `.field` absent from the source's        (ir/validate-schema-fields.ts
+//                               declared `struct` schema, or a `schema:`   — #1537)
+//                               naming no declared struct
 //
 // #1065 added only warn/info from lower (plumbing, not policy). #1066 is
 // the first lower ERROR — `X-GIS0012` (unknown-function = error, L3 in the
@@ -88,6 +91,11 @@ export const FN_FREE_IDENTIFIER = 'X-GIS0017'
  *  authoring error. Caught by type inference rather than rendered as a
  *  wrong-typed shader expression or an array-valued size. */
 export const VECTOR_IN_SCALAR_POSITION = 'X-GIS0018'
+/** Unknown field on a schema-annotated source (#1537) — the FIELD-side
+ *  mirror of #1066's unknown-callee error. Opt-in: only sources that
+ *  declare `schema:` are checked, so `.speeed` fails loudly there while
+ *  unannotated sources keep fully dynamic access. */
+export const UNKNOWN_SCHEMA_FIELD = 'X-GIS0019'
 
 /** A 1-based, document-relative source span. `line`/`col` are always
  *  present; `endLine`/`endCol` are optional (a point diagnostic omits

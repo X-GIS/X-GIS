@@ -13,6 +13,7 @@ import { MODIFIER_HANDLERS, BINDING_HANDLERS, UTILITY_HANDLERS } from './lower-b
 import { validateFnCalls } from './validate-fncalls'
 import { inlineUserFns } from './fn-inline'
 import { validateBindingTypes } from './expr-type'
+import { validateSchemaFields } from './validate-schema-fields'
 import { expandPresets, resolveStylePreset, type PresetDef, type PresetCall } from './preset-expand'
 import { isKnownUtility, suggestUtility } from './utility-registry'
 import { UNKNOWN_UTILITY } from '../diagnostics/diagnostic'
@@ -57,6 +58,9 @@ export function lower(program: AST.Program, options: LowerOptions = {}): Scene {
   // error. Checked AFTER inlining so a vec arriving through an fn body is
   // caught at the binding that used it.
   validateBindingTypes(program, diagnostics)
+  // #1537 — `.field` access is checked against a source's declared
+  // `struct` schema. Opt-in: unannotated sources stay fully dynamic.
+  validateSchemaFields(program, diagnostics)
   const sourceMap = new Map<string, SourceDef>()
   const presetMap = new Map<string, PresetDef>()
   const keyframesMap = new Map<string, AST.KeyframesStatement>()
