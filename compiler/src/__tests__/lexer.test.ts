@@ -91,15 +91,16 @@ describe('Lexer', () => {
     })
 
     it('pruned words lex as plain identifiers (#1072)', () => {
-      // let/fn/show/style, the never-implemented place/view/on/struct/enum/
+      // let/show/style, the never-implemented place/view/on/struct/enum/
       // simulate/analyze/export, and the fn-body-only if/else/for/in/return
-      // were all removed as keywords.
+      // were all removed as keywords. (`fn` itself was REINTRODUCED as a
+      // real keyword by #1535 — see the surviving-keywords test.)
       expect(
         types(
-          'let fn show style place view on struct enum simulate analyze export ' +
+          'let show style place view on struct enum simulate analyze export ' +
             'if else for in return',
         ),
-      ).toEqual(new Array(17).fill(TokenType.Identifier))
+      ).toEqual(new Array(16).fill(TokenType.Identifier))
     })
 
     it('identifiers are not keywords', () => {

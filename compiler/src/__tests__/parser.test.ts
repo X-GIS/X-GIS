@@ -26,7 +26,8 @@ describe('Parser', () => {
       'export',
       'show',
       'let',
-      'fn',
+      // `fn` left this list when #1535 reintroduced it as a real keyword
+      // (GPU-compiled user functions) — no longer an ordinary identifier.
       'style',
       'if',
       'else',
