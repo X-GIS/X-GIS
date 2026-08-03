@@ -2,12 +2,13 @@
 //
 // `_chainRunsOnWebgl2` is no longer a hardcoded hold: it reads
 // `rhi.caps.chainFrame` — the device's own claim that it can host the unified
-// chain's whole frame (encoder + passes + the loop tail). WebGl2Device answers
-// false until #991 P4/P5 lands the tail on the RHI, so `?rhichain=1` keeps
-// routing the twin as a safe no-op BY THE DEVICE'S WORD; when P4/P5 flips the
-// cap, the routing follows with no render-loop edit. Both gate sites must
-// stay the SAME expression — a fork that flips one site but not the other
-// would render the twin AND the chain (double frame) or neither.
+// chain's whole frame (encoder + passes + the loop tail). The loop tail landed
+// on the RHI (Inc-A..D + the E1 preconditions), so WebGl2Device now answers
+// TRUE (the Inc-E2 flip): `?rhichain=1` routes the REAL chain BY THE DEVICE'S
+// WORD, exactly as Inc-4 designed — the flip was a one-line cap edit with no
+// render-loop change. Both gate sites must stay the SAME expression — a fork
+// that flips one site but not the other would render the twin AND the chain
+// (double frame) or neither.
 
 import { describe, it, expect } from 'vitest'
 import { readFileSync } from 'node:fs'
@@ -47,15 +48,16 @@ describe('chain routing capability (#1046 Inc-4)', () => {
     expect(sites).toHaveLength(2)
   })
 
-  it("the two backends' caps answer as documented (WebGPU hosts the chain, WebGL2 not yet)", async () => {
+  it("the two backends' caps answer as documented (BOTH host the chain — the Inc-E2 flip)", async () => {
     // The SOURCE literals — instance values are pinned in rhi-webgpu's
-    // rhi-caps.test.ts; pinning the literal text here keeps the #991 P4/P5
-    // flip a REVIEWED one-line diff (this row goes red until it is updated).
+    // rhi-caps.test.ts; pinning the literal text here made the flip a
+    // REVIEWED one-line diff (this row was red until Inc-E2 updated it), and
+    // now pins the flipped state the same way against an un-reviewed revert.
     const { readFileSync: rf } = await import('node:fs')
     const here = dirname(fileURLToPath(import.meta.url))
     const gl2 = rf(join(here, '../../../rhi-webgl2/src/rhi-webgl2.ts'), 'utf8')
     const gpu = rf(join(here, '../../../rhi-webgpu/src/rhi-webgpu.ts'), 'utf8')
-    expect(gl2).toMatch(/chainFrame: false/)
+    expect(gl2).toMatch(/chainFrame: true/)
     expect(gpu).toMatch(/chainFrame: true/)
   })
 })

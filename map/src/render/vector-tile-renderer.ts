@@ -2293,7 +2293,6 @@ export class VectorTileRenderer {
     show: ShowCommand,
     fillPipeline: RhiPipelineHandle,
     linePipeline: RhiPipelineHandle,
-    _uniformBuffer: GPUBuffer,
     bindGroupLayout: GPUBindGroupLayout,
     fillPipelineFallback: RhiPipelineHandle | undefined,
     linePipelineFallback: RhiPipelineHandle | undefined,

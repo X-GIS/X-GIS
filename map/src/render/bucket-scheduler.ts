@@ -44,8 +44,10 @@ import type { PointRenderer } from './point-renderer'
  *  so an engine render pass can draw the show WITHOUT ever naming a
  *  RhiPipelineHandle / GPUBindGroupLayout. The engine supplies only the
  *  per-draw context: the sub-pass encoder, the per-frame FrameContext,
- *  the uniform ring buffer, the point renderer (or null), the layer's
- *  draw phase, and the translucent-bucket (no-depth) flag.
+ *  the point renderer (or null), the layer's draw phase, and the
+ *  translucent-bucket (no-depth) flag. (A native uniform-ring buffer used
+ *  to ride here too — retired at Inc-E2: no terminal ever read it, and its
+ *  eager unwrap was WebGpuDevice-only, crashing the first WebGL2 chain frame.)
  *
  *  (Named `ShowDrawFn`, not `DrawItem`, to avoid colliding with the RHI
  *  render-layer `DrawItem` in `material/material.ts` — a different
@@ -58,7 +60,6 @@ import type { PointRenderer } from './point-renderer'
 export type ShowDrawFn = (
   pass: RhiRenderPass,
   ctx: FrameContext,
-  uniformBuffer: GPUBuffer,
   pointRenderer: PointRenderer | null | undefined,
   phase: LayerDrawPhase,
   translucentBucket: boolean,
@@ -464,14 +465,7 @@ export function classifyVectorTileShows(input: ClassifierInput): ClassifierResul
         ? (entry.pipelines?.fillPipelineExtrudedFallbackNoPick ??
           entry.pipelines?.fillPipelineExtrudedFallback)
         : entry.pipelines?.fillPipelineExtrudedFallback
-    const draw: ShowDrawFn = (
-      pass,
-      ctx,
-      uniformBuffer,
-      pointRenderer,
-      phase,
-      translucentBucket,
-    ) => {
+    const draw: ShowDrawFn = (pass, ctx, pointRenderer, phase, translucentBucket) => {
       const { projType, centerLon, centerLat } = unwrapProjection(ctx.projection)
       vtEntry.renderer.render!(
         pass,
@@ -484,7 +478,6 @@ export function classifyVectorTileShows(input: ClassifierInput): ClassifierResul
         entry.show,
         drawFp,
         drawLp,
-        uniformBuffer,
         bgl,
         drawFpF,
         drawLpF,

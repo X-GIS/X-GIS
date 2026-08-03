@@ -243,19 +243,11 @@ class OpaquePass implements RenderPass {
           // pipelines (incl. the ?debug=overdraw substitution that
           // formerly lived here) are private to the closure. We hand it
           // only engine-side per-draw context: this sub-pass encoder, the
-          // FrameContext, the uniform ring, the point renderer (gated off
-          // in overdraw mode), the layer's fillPhase, and `false` for the
-          // translucent-bucket flag (the opaque pass has a depth
-          // attachment).
+          // FrameContext, the point renderer (gated off in overdraw mode),
+          // the layer's fillPhase, and `false` for the translucent-bucket
+          // flag (the opaque pass has a depth attachment).
           const drawShow = (cs: (typeof group.shows)[number]) => {
-            cs.draw(
-              subPass,
-              ctx,
-              host.renderer.uniformBuffer,
-              DEBUG_OVERDRAW ? null : host.pointRenderer,
-              cs.fillPhase,
-              false,
-            )
+            cs.draw(subPass, ctx, DEBUG_OVERDRAW ? null : host.pointRenderer, cs.fillPhase, false)
           }
           for (let si = 0; si < group.shows.length; si++) {
             if (!isExtruded(group.shows[si])) drawShow(group.shows[si])

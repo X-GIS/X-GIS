@@ -282,9 +282,10 @@ export class MapRendererContent {
   get paletteSampler(): GPUSampler {
     return this.engine.paletteSampler
   }
-  /** Live uniform ring buffer — read by the OIT / opaque / translucent
-   *  passes via `host.renderer.uniformBuffer`. */
-  get uniformBuffer(): GPUBuffer {
+  /** Native uniform-ring buffer for THIS class's raw createBindGroup sites
+   *  (P6 debt, WebGPU-arm only). Private since Inc-E2 — the pass-side
+   *  ShowDrawFn thread retired with the chain flip. */
+  private get uniformBuffer(): GPUBuffer {
     return this.engine.uniformBuffer
   }
   /** Rebuild all pipelines + invalidate shader variant cache (map.setQuality). */

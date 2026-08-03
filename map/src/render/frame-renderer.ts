@@ -151,14 +151,12 @@ export class FrameRenderer {
     return this._pipelines.spriteAtlasStubTextureView
   }
   private uniformRing!: UniformRing
-  /** Live uniform ring buffer. Public — read by the OIT / opaque /
-   *  translucent passes via `host.renderer.uniformBuffer` (routed through
-   *  MapRendererContent's delegating getter). Delegates to the shared
-   *  UniformRing so those callers keep working unchanged. */
+  /** Native uniform-ring buffer for the content raw createBindGroup sites
+   *  (renderer.ts — P6 debt beside `ctx.device`, WebGPU-arm only; the
+   *  ShowDrawFn thread that used to carry this to the passes retired at
+   *  Inc-E2 because no terminal read it). The WebGpuDevice cast keeps this
+   *  fail-loud by construction if a WebGL2 frame ever reached it. */
   get uniformBuffer(): GPUBuffer {
-    // The ring is RHI-neutral (#832 M2); this getter is the WebGPU frame
-    // path's seam, so the native unwrap lives here (never called on webgl2 —
-    // the forced-WebGL2 frame renders via renderFrameViaRhi).
     return (this.ctx.rhi as WebGpuDevice).unwrapBuffer(this.uniformRing.rhiBuffer!)
   }
   /** The shared UniformRing itself — MapRendererContent hands it to the

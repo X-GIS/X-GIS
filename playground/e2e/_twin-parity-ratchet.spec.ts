@@ -15,11 +15,11 @@
 // seeds the real high-water from that first run. It does NOT run in the vitest batch
 // (playground/e2e is excluded); the orchestrator owns the GPU/e2e leg.
 //
-// NOTE (F3-remaining): until the chain's pass bodies retype to the RHI encoder, the
-// router holds `?rhichain=1` on the twin (render-loop.ts `_chainRunsOnWebgl2=false`),
-// so chain and twin render identically → DC≈0. A DC≈0 here therefore means "routing
-// not yet live", NOT "parity reached"; the entries stay null until real chain
-// execution lands, at which point DC becomes the true chain-vs-twin distance.
+// NOTE (Inc-E2 — routing LIVE): `WebGl2Device.caps.chainFrame` flipped true, so
+// `?rhichain=1` runs the REAL unified chain and DC is the true chain-vs-twin
+// distance from here on. The all-null seeding therefore happened only AFTER this
+// flip (a pre-flip DC≈0 would have meant "routing not yet live", NOT parity — the
+// trap the seeding protocol existed to avoid).
 
 import { test, expect } from '@playwright/test'
 import { mkdirSync, writeFileSync, readFileSync } from 'node:fs'
@@ -80,7 +80,12 @@ async function shoot(
   rhiChain: boolean,
 ): Promise<Buffer> {
   await page.setViewportSize({ width: 900, height: 700 })
-  const params = ['e2e=1', 'forcegl2=1']
+  // Inc-E2 pinned first-flip config: the adaptive-DPR lever MEANS different
+  // things on the two frame shapes (the chain scales the SCENE target, the
+  // twin scales its CANVAS), so an unpinned ladder poisons DC with a
+  // whole-frame rasterization delta that is not a porting bug. `scenescale=1`
+  // pins both arms to native — the seam gate's own reference arm.
+  const params = ['e2e=1', 'forcegl2=1', 'scenescale=1']
   if (rhiChain) params.push('rhichain=1')
   if (fx.params) params.push(fx.params)
   const url = `/demo.html?id=${fx.id}&${params.join('&')}${fx.hash ? `#${fx.hash}` : ''}`
@@ -88,7 +93,9 @@ async function shoot(
   await page.waitForFunction(
     () => (window as unknown as { __xgisReady?: boolean }).__xgisReady === true,
     {
-      timeout: 35_000,
+      // 60s: the ofm fixtures exceeded 35s on a loaded SwiftShader runner in
+      // the TWIN arm (pre-flip path) — patience budget only, no assertion.
+      timeout: 60_000,
     },
   )
   await page.waitForTimeout(9000)
@@ -124,15 +131,44 @@ test.describe('twin-parity ratchet: chain vs twin on WebGL2 (#1046 F3)', () => {
 
   for (const fx of FIXTURES) {
     test(`${fx.key}: chain (?rhichain=1) matches the twin`, async ({ page, context }) => {
-      test.setTimeout(120_000)
-      const twinBuf = await shoot(page, fx, false)
+      // 300s: BOTH arms boot+settle serially inside one test (~70s/arm for the
+      // ofm styles on a loaded SwiftShader runner); a tighter test budget dies
+      // at the TEST level, outside the twin-arm try below (the ledger's
+      // "budget declared in the body governs the body" lesson, test-scoped).
+      test.setTimeout(300_000)
+      // TWIN-arm boot failure = a fixture/runner problem (the ofm styles blow
+      // the loaded-runner budget in the DEFAULT path too) → SKIP, truthfully
+      // "unmeasured on this runner". The CHAIN arm below is left throwing on
+      // purpose: a chain-arm boot failure after the Inc-E2 flip is a real
+      // chain regression, and converting THAT to a skip would hide it.
+      let twinBuf: Buffer
+      try {
+        twinBuf = await shoot(page, fx, false)
+      } catch (e) {
+        test.skip(
+          true,
+          `${fx.key}: TWIN arm did not boot on this runner — ${String(e).slice(0, 120)}`,
+        )
+        return
+      }
       const chainPage = await context.newPage()
       const chainBuf = await shoot(chainPage, fx, true)
       writeFileSync(`${OUT}/${fx.key}.twin.png`, twinBuf)
       writeFileSync(`${OUT}/${fx.key}.chain.png`, chainBuf)
       const dc = diffCount(PNG.sync.read(twinBuf), PNG.sync.read(chainBuf))
       measured[fx.key] = dc
-      writeFileSync(`${OUT}/dc.json`, JSON.stringify(measured, null, 2))
+      // MERGE into dc.json rather than dumping this worker's map: Playwright
+      // restarts the worker after a failed test, and the fresh module state
+      // silently dropped the pre-failure fixtures' entries from the dump
+      // (observed: `minimal` vanished when the ofm boot timed out).
+      let all: Record<string, number> = {}
+      try {
+        all = JSON.parse(readFileSync(`${OUT}/dc.json`, 'utf8')) as Record<string, number>
+      } catch {
+        // First write of the run — nothing to merge.
+      }
+      all[fx.key] = dc
+      writeFileSync(`${OUT}/dc.json`, JSON.stringify(all, null, 2))
 
       const ceil = highWater[fx.key]
       console.log(`[twin-parity] ${fx.key}: DC=${dc} high-water=${ceil ?? 'null (unmeasured)'}`)

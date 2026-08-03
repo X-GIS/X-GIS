@@ -98,9 +98,10 @@ describe('RhiCaps — WebGl2Device truths + float-blend detection (#1046 F1)', (
     expect(caps.compute).toBe('fragment-emulated')
     expect(caps.timestampQuery).toBe(false)
     expect(caps.executionModel).toBe('immediate')
-    // False until #991 P4/P5 lands the chain's loop tail on this backend — the
-    // instance value that keeps `?rhichain=1` a safe no-op (#1046 Inc-4).
-    expect(caps.chainFrame).toBe(false)
+    // TRUE since the Inc-E2 flip (#1046 F4): the loop tail landed on the RHI
+    // (Inc-A..D + E1), so this device hosts the whole chain frame and
+    // `?rhichain=1` routes the REAL chain (the Inc-4 design, cap-flipped).
+    expect(caps.chainFrame).toBe(true)
     // Requires the split GLSL sources and never reads `code` — createPipeline fail-louds
     // on a WGSL-only desc (createpipeline-dual-source-guard.test.ts asserts both halves).
     expect(caps.shaderLanguage).toBe('glsl-es300')

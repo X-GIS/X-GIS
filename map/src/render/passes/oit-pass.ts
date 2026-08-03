@@ -70,7 +70,7 @@ class OitPass implements RenderPass {
       for (const cs of scene.oit) {
         // Draw via the content closure — the engine pass never touches a
         // GPURenderPipeline. phase='oit-fill', translucentBucket=false.
-        cs.draw(oitPass, ctx, host.renderer.uniformBuffer, null, 'oit-fill', false)
+        cs.draw(oitPass, ctx, null, 'oit-fill', false)
       }
       oitPass.end()
     })

@@ -688,7 +688,10 @@ export class WebGl2Device implements RhiDevice {
       // This backend requires the split GLSL sources and never reads `code` —
       // createPipeline fail-louds on a WGSL-only desc (dual-source guard, #783).
       shaderLanguage: 'glsl-es300',
-      chainFrame: false, // #1046 Inc-4 — true at #991 P4/P5 (see the RhiCaps doc)
+      // #1046 F4 Inc-E2 — the loop tail landed on the RHI (Inc-A..D + E1), so
+      // this device hosts the unified chain's whole frame: `?rhichain=1` routes
+      // the REAL chain; the default stays the twin until the F4 flip (Inc-F).
+      chainFrame: true,
     } as const)
 
     // #1153 P2 R3 — own the canvas context-loss listeners. GUARDED: the fake gls in
@@ -748,16 +751,13 @@ export class WebGl2Device implements RhiDevice {
     return hasSentinel ? this.beginScreenRenderPass(desc) : this.beginOffscreenPass(desc)
   }
 
-  /** FBO-0 screen arm of `beginRenderPass`: the presented default framebuffer the canvas
-   *  shows. It cannot MRT (`caps.presentablePassMrt=false`) and has no MSAA resolve
-   *  (`caps.maxSampleCount=1`), so a sentinel descriptor carrying a second colour
-   *  attachment or a resolveTarget is a caps-gating error → FAIL LOUD (no silent
-   *  fallback, #1049). The clears mirror `beginScreenPass` byte-for-byte — the
-   *  colorMask/stencilMask/depthMask unmasks are the #1043/#746/#780 flicker fixes
-   *  (glClear honours the write masks; a prior pipeline's dark mask would no-op the
-   *  clear). Load semantics (loadOp `'load'`) skip the buffer's clear, same as the
-   *  offscreen arm. GL default clearDepth is 1.0 (what `beginScreenPass` relies on) — a
-   *  depthClearValue of 1 stays GL-call-identical; only a non-default value overrides. */
+  /** FBO-0 screen arm of `beginRenderPass`: the presented default framebuffer. It cannot
+   *  MRT (`caps.presentablePassMrt=false`) and has no MSAA resolve (`maxSampleCount=1`),
+   *  so a sentinel descriptor carrying either is a caps-gating error → FAIL LOUD (#1049).
+   *  The clears mirror `beginScreenPass` byte-for-byte — the colorMask/stencilMask/
+   *  depthMask unmasks are the #1043/#746/#780 flicker fixes (glClear honours the write
+   *  masks). loadOp `'load'` skips the clear, same as offscreen. GL default clearDepth
+   *  is 1.0 — a depthClearValue of 1 stays GL-call-identical; non-default overrides. */
   private beginScreenRenderPass(desc: RhiRenderPassDesc): RhiRenderPass {
     const gl = this.gl
     if (desc.colorAttachments.length !== 1)

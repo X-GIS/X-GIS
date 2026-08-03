@@ -117,7 +117,7 @@ const BASELINE: Record<string, number> = {
   // #1046 F3b Inc-2d: ShowDrawFn + the chain's remaining pass-consuming
   // signatures narrowed to RhiRenderPass — the backend-keyed re-wrap forks
   // (the 34d4695 double-wrap class) and their unions died with it.
-  'map/src/render/bucket-scheduler.ts': 4,
+  'map/src/render/bucket-scheduler.ts': 3,
   // #1046 F3b Inc-2c: the heatmap chain re-originated through the RHI drapers —
   // the native accum bridge, blur/compose pipelines + their factory/forwarder
   // layers and the native density-target pair all retired with it.
@@ -178,7 +178,7 @@ const BASELINE: Record<string, number> = {
   'map/src/render/tile-compute-resources.ts': 5,
   'map/src/render/upload-coordinator.ts': 22,
   'map/src/render/vector-tile-renderer-types.ts': 5,
-  'map/src/render/vector-tile-renderer.ts': 18,
+  'map/src/render/vector-tile-renderer.ts': 17,
   'map/src/sprite/host-sprite-atlas-gpu.ts': 14,
   'map/src/sprite/icon-renderer.ts': 10,
   'map/src/sprite/icon-stage.ts': 7,

@@ -36,7 +36,7 @@ class TranslucentPass implements RenderPass {
         // Draw via the content closure — the engine pass never touches a
         // GPURenderPipeline. phase='strokes'; translucentBucket=true (the
         // offscreen MAX-blend pass has no depth attachment).
-        cs.draw(offPass, ctx, host.renderer.uniformBuffer, null, 'strokes', true)
+        cs.draw(offPass, ctx, null, 'strokes', true)
         offPass.end()
       })
 

@@ -75,7 +75,7 @@ export const RHI_CHAIN: boolean = readRhiChainFlag()
 
 if (RHI_CHAIN && typeof window !== 'undefined') {
   console.info(
-    '[X-GIS] ?rhichain=1 active — WebGL2 unified-chain routing requested (#1046 F3); the twin still renders while caps.chainFrame is false (#991 P4/P5 lands the loop tail)',
+    '[X-GIS] ?rhichain=1 active — the unified chain renders this WebGL2 frame (#1046 F4 Inc-E2, caps.chainFrame=true); reload without ?rhichain for the default twin',
   )
 }
 
