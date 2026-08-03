@@ -12,8 +12,8 @@
 //   2. `NON_BUILTIN_CALLEES` — the legal callees handled OUTSIDE
 //      callBuiltin (evaluator special forms + colour/codegen forms +
 //      the `load` source loader), each traced to its stage below.
-//   3. `import`ed names collected from the program (the sole program-side
-//      callables since #1072 pruned the `fn` keyword).
+//   3. Program-side declared names: `import`ed names and user `fn`
+//      declarations (#1535 — reintroduced after the #1072 prune).
 //
 // Diagnostics flow through the unified #1065 channel as `X-GIS0012` errors,
 // carrying a nearest-name `help` suggestion. Callee positions that the

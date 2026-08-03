@@ -12,6 +12,7 @@ const SAMPLES: Record<string, string> = {
   source: 'source s { type: geojson }',
   symbol: 'symbol sym { path "M 0 0 L 1 1 Z" }',
   preset: 'preset p(a) { | fill-[a] }',
+  fn: 'fn halo(w) { return clamp(w, 1, 24) }',
   layer: 'layer l { | fill-red-500 }',
   background: 'background { fill: sky-900 }',
 }
