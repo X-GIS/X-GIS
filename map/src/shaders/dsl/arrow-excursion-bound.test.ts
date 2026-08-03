@@ -26,7 +26,7 @@
 
 import { describe, it, expect } from 'vitest'
 import { emitArrowRetainedAdvectedWgsl } from './arrow-advected'
-import { ARROW_TRAIN_GLYPHS, ARROW_TRAIN_TAPS_PER_SPACING } from './arrow-view'
+import { ARROW_TRAIN_GLYPHS, ARROW_TRAIN_TAPS_PER_SPACING } from './arrow-drift'
 
 const all = emitArrowRetainedAdvectedWgsl()
 const vs = all.slice(all.indexOf('fn vs_arrow_retained_advected'))
