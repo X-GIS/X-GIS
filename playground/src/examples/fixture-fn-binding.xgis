@@ -1,0 +1,24 @@
+xgis 1
+
+/* Fixture: user-fn in a per-feature GPU binding (#1535).
+ * `size-[halo(.v, 4)]` inlines at lower time to
+ * `size-[clamp(.v * 1.5 + 4, 6, 40)]`. Pixel-parity twin (hand-inlined
+ * body, must render identical): fixture-fn-binding-manual.xgis. */
+
+fn halo(v, base) { return clamp(v * 1.5 + base, 6, 40) }
+
+source pts {
+  type: geojson
+  data: { "type": "FeatureCollection", "features": [
+    { "type": "Feature", "geometry": { "type": "Point", "coordinates": [0, 0] }, "properties": { "v": 4 } },
+    { "type": "Feature", "geometry": { "type": "Point", "coordinates": [-40, 20] }, "properties": { "v": 12 } },
+    { "type": "Feature", "geometry": { "type": "Point", "coordinates": [40, -20] }, "properties": { "v": 30 } },
+    { "type": "Feature", "geometry": { "type": "Point", "coordinates": [-40, -20] }, "properties": { "v": 2 } },
+    { "type": "Feature", "geometry": { "type": "Point", "coordinates": [40, 20] }, "properties": { "v": 60 } }
+  ] }
+}
+
+layer dots {
+  source: pts
+  | fill-amber-400 stroke-amber-200 stroke-2 size-[halo(.v, 4)]
+}

@@ -525,4 +525,18 @@ export const DEMOS_FIXTURES: Record<string, Demo> = {
       'Synthetic earth-surface background fill only — AC2c.3.2 mesh density verification.',
     source: load('fixture-synth-bg-only.xgis'),
   },
+  fixture_fn_binding: {
+    name: 'Fixture: user-fn binding (#1535)',
+    tag: 'fixture',
+    description:
+      'size-[halo(.v, 4)] — a user fn inlined into a per-feature GPU binding. Pixel-parity twin: fixture_fn_binding_manual (_fn-binding-parity.spec.ts).',
+    source: load('fixture-fn-binding.xgis'),
+  },
+  fixture_fn_binding_manual: {
+    name: 'Fixture: user-fn binding, hand-inlined twin (#1535)',
+    tag: 'fixture',
+    description:
+      'The same scene with the fn body hand-inlined — must render pixel-identical to fixture_fn_binding.',
+    source: load('fixture-fn-binding-manual.xgis'),
+  },
 }
