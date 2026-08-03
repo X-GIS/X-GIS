@@ -10,10 +10,7 @@ import { resolveCoveragePaint } from './lower-coverage-paint'
 import { expandKeyframeTimeStops } from './lower-animation'
 import { dispatch, type LayerAccumulator, type BindingCtx } from './lower-bindings'
 import { MODIFIER_HANDLERS, BINDING_HANDLERS, UTILITY_HANDLERS } from './lower-bindings-registry'
-import { validateFnCalls } from './validate-fncalls'
-import { inlineUserFns } from './fn-inline'
-import { validateBindingTypes } from './expr-type'
-import { validateSchemaFields } from './validate-schema-fields'
+import { runFrontPasses } from './front-passes'
 import { expandPresets, resolveStylePreset, type PresetDef, type PresetCall } from './preset-expand'
 import { isKnownUtility, suggestUtility } from './utility-registry'
 import { UNKNOWN_UTILITY } from '../diagnostics/diagnostic'
@@ -46,21 +43,10 @@ export function lower(program: AST.Program, options: LowerOptions = {}): Scene {
   const renderNodes: RenderNode[] = []
   const symbols: import('./render-node').SymbolDef[] = []
   const diagnostics: import('./render-node').Diagnostic[] = []
-  // #1066 — reject unknown function callees (typos like `sqrrt(.x)`) as
-  // X-GIS0012 errors before they reach the evaluator's callBuiltin. Runs
-  // over the whole parsed program up front; independent of the lowering
-  // loops below (it only reads `program`).
-  validateFnCalls(program, diagnostics)
-  // #1535 — user-fn calls are inlined here, so nothing downstream
-  // (classify, evaluator, WGSL codegen) ever sees one.
-  program = inlineUserFns(program, diagnostics)
-  // #1537 — a vector value in a scalar binding position is an authoring
-  // error. Checked AFTER inlining so a vec arriving through an fn body is
-  // caught at the binding that used it.
-  validateBindingTypes(program, diagnostics)
-  // #1537 — `.field` access is checked against a source's declared
-  // `struct` schema. Opt-in: unannotated sources stay fully dynamic.
-  validateSchemaFields(program, diagnostics)
+  // Whole-program checks + rewrites (unknown callees, user-fn inlining,
+  // binding types, schema fields) — see front-passes.ts for the ordering
+  // rationale. Everything below lowers the returned, validated program.
+  program = runFrontPasses(program, diagnostics)
   const sourceMap = new Map<string, SourceDef>()
   const presetMap = new Map<string, PresetDef>()
   const keyframesMap = new Map<string, AST.KeyframesStatement>()

@@ -1,0 +1,6 @@
+// @case invalid
+// @construct struct-statement
+// @desc struct fields declare one of f32 / string / bool — any other type name is a syntax error (#1537)
+// @expect-code X-GIS0010
+xgis 1
+struct T { a: quaternion }

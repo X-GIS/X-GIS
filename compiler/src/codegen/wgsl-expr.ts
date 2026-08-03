@@ -32,7 +32,7 @@ import {
   vecN,
   vecComponent,
 } from './_util/node-builders'
-import { inferVecArity, isVecComponent } from '../ir/expr-type'
+import { isVecComponent } from '../ir/expr-type'
 
 /** Lane count per vec constructor name (#1537) — the GPU mirror of the
  *  evaluator's `buildVec` arities. */
@@ -100,8 +100,9 @@ export function astToNode(expr: AST.Expr, fieldMap: Map<string, number>): NodeLi
       // object that is provably a vector takes this arm — the object-less
       // `.field` binding and every legacy object-bearing form keep
       // resolving through the feature-data lookup below, byte-identically.
-      if (expr.object && inferVecArity(expr.object) !== null && isVecComponent(expr.field)) {
-        return vecComponent(astToNode(expr.object, fieldMap), expr.field)
+      if (expr.object && isVecComponent(expr.field)) {
+        const base = astToVecNode(expr.object, fieldMap)
+        if (base) return vecComponent(base, expr.field)
       }
       return featDataField(expr.field, fieldMap) ?? f32Lit(0)
 
@@ -168,20 +169,31 @@ export function exprToWGSL(expr: AST.Expr, fieldMap: Map<string, number>): strin
   return nodeToWgslString(astToNode(expr, fieldMap))
 }
 
+/**
+ * Lower a VECTOR-valued expression (#1537), or return null when `expr` is
+ * not provably a vector. Kept separate from `astToNode` on purpose: a vec
+ * node is not an f32 node, and the only legal consumers are a component
+ * read (which retypes to f32) and an enclosing vec argument — so the two
+ * type domains never need a cast to meet. A vector left in a scalar
+ * binding is rejected at lower time (X-GIS0018), not silently coerced.
+ */
+function astToVecNode(
+  expr: AST.Expr,
+  fieldMap: Map<string, number>,
+): NodeLike<'vec2<f32>' | 'vec3<f32>' | 'vec4<f32>'> | null {
+  if (expr.kind !== 'FnCall' || expr.callee.kind !== 'Identifier') return null
+  const arity = VEC_ARITY.get(expr.callee.name)
+  if (arity === undefined) return null
+  // Arguments are vectors themselves (WGSL's concat form) or scalars.
+  const args = expr.args.map((a) => astToVecNode(a, fieldMap) ?? astToNode(a, fieldMap))
+  return vecN(arity, args)
+}
+
 function fnCallToNode(expr: AST.FnCall, fieldMap: Map<string, number>): NodeLike<'f32'> {
   const name = expr.callee.kind === 'Identifier' ? expr.callee.name : null
   if (!name) return f32Lit(0)
 
   const args = expr.args.map((a) => astToNode(a, fieldMap))
-
-  // Vector construction (#1537). Typed as vecN, not f32 — the only legal
-  // consumers are a component read (which retypes to f32) and an enclosing
-  // vec argument; a bare vec binding is rejected at lower time (X-GIS0018),
-  // so this node can never reach a scalar slot.
-  const vecArity = VEC_ARITY.get(name)
-  if (vecArity !== undefined) {
-    return vecN(vecArity, args) as unknown as NodeLike<'f32'>
-  }
 
   // Special cases
   if (name === 'scale') {

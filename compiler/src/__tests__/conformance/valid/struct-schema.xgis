@@ -1,0 +1,11 @@
+// @case valid
+// @construct struct-statement
+// @desc a source field schema attached via `schema:`, with checked field access (#1537)
+xgis 1
+struct Track { speed: f32, heading: f32, name: string }
+source ais { type: geojson, url: "ais.geojson", schema: Track }
+layer boats {
+  source: ais
+  filter: .speed > 3
+  | size-[.speed * 2]
+}
