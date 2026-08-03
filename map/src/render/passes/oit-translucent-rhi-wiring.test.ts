@@ -60,13 +60,15 @@ describe('oit pass — RHI seam wiring (#1046 F3b Inc-2d)', () => {
     const f = rhiFrame()
     const oitAccumView = { __oitAccum: true }
     const oitRevealageView = { __oitReveal: true }
+    // The compose consumes the RT's P6-scoped native twins (Inc-D).
+    const oitAccumViewNative = { __oitAccumNative: true }
+    const oitRevealageViewNative = { __oitRevealNative: true }
     ;(f.ctx as { rt: unknown }).rt = {
       ensureOit: vi.fn(),
       oitAccumView,
       oitRevealageView,
-      // The compose consumes the RT's P6-scoped native twins (Inc-D).
-      oitAccumViewNative: { __oitAccumNative: true },
-      oitRevealageViewNative: { __oitRevealNative: true },
+      oitAccumViewNative,
+      oitRevealageViewNative,
     }
     const drawn: unknown[] = []
     const scene = {
@@ -76,15 +78,29 @@ describe('oit pass — RHI seam wiring (#1046 F3b Inc-2d)', () => {
       resolveOwner: 'composite',
       oit: [{ draw: (pass: unknown) => drawn.push(pass) }],
     } as unknown as SceneView
-    const composeCalls: unknown[] = []
+    const composeCalls: { pass: unknown; accum: unknown; reveal: unknown }[] = []
     const host = {
       renderer: {
         uniformBuffer: {},
-        drawOitCompose: (pass: unknown) => composeCalls.push(pass),
+        // Capture ALL args (verification review finding 3): the native
+        // accum/revealage were previously discarded, so a swap or an
+        // undefined accessor rode through green.
+        drawOitCompose: (pass: unknown, accum: unknown, reveal: unknown) =>
+          composeCalls.push({ pass, accum, reveal }),
       },
       ctx: {},
     }
-    return { ...f, scene, host, drawn, composeCalls, oitAccumView, oitRevealageView }
+    return {
+      ...f,
+      scene,
+      host,
+      drawn,
+      composeCalls,
+      oitAccumView,
+      oitRevealageView,
+      oitAccumViewNative,
+      oitRevealageViewNative,
+    }
   }
 
   it('fill pass targets the RT RHI accessors, loads opaque depth, hands cs.draw the RHI handle', () => {
@@ -129,7 +145,11 @@ describe('oit pass — RHI seam wiring (#1046 F3b Inc-2d)', () => {
     expect(colors[0].view).toBe((h.ctx as { rhiColorView: unknown }).rhiColorView)
     expect(colors[0].resolveTarget).toBe(h.sceneResolveView)
     expect(h.composeCalls).toHaveLength(1)
-    expect(h.composeCalls[0]).toBe(h.captured[1])
+    expect(h.composeCalls[0].pass).toBe(h.captured[1])
+    // The recover draw samples the RT's NATIVE twins by identity, in order
+    // (accum, revealage) — a swap or an undefined accessor fails here.
+    expect(h.composeCalls[0].accum).toBe(h.oitAccumViewNative)
+    expect(h.composeCalls[0].reveal).toBe(h.oitRevealageViewNative)
   })
 
   it('twin-frame null bridges ⇒ throws naming the pass', () => {

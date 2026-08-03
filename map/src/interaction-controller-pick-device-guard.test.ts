@@ -26,11 +26,18 @@ const mockCanvas = {
   clientWidth: 100,
 }
 
-function makeController(pickDevice: unknown, ctxDevice: unknown): InteractionController {
-  // `rhi` is the RhiDevice identity the guard compares; `device` stays the
-  // raw encoder mock the steady-state readback records against. Same object
-  // for both roles — the mock plays the context's one device.
-  const mockCtx = { device: ctxDevice, rhi: ctxDevice, canvas: mockCanvas }
+function makeController(
+  pickDevice: unknown,
+  rhi: unknown,
+  rawDevice: unknown,
+): InteractionController {
+  // DE-ALIASED (verification review finding 2): `rhi` is the RhiDevice
+  // identity the #792 guard compares; `device` is a DIFFERENT object serving
+  // only the raw readback mocks. When the two were one object, a guard
+  // regressed to compare ctx.device stayed green here — now the steady case
+  // holds pickDevice === rhi ≠ device, so that regression bails before the
+  // encoder and the proceed assertion below goes red.
+  const mockCtx = { device: rawDevice, rhi, canvas: mockCanvas }
   const deps: InteractionControllerDeps = {
     camera: {} as never,
     layerIds: { getName: () => null } as unknown as LayerIdRegistry,
@@ -56,7 +63,8 @@ describe('InteractionController.pickAt — device-mismatch guard (#792)', () => 
       queue: { submit: vi.fn() },
     }
     const oldDevice = { id: 'destroyed-prior-device' }
-    const ctrl = makeController(oldDevice, newDevice)
+    const newRhi = { __rhi: 'live-rhi-device' }
+    const ctrl = makeController(oldDevice, newRhi, newDevice)
 
     const r = await ctrl.pickAt(50, 50)
 
@@ -81,8 +89,11 @@ describe('InteractionController.pickAt — device-mismatch guard (#792)', () => 
       }),
       queue: { submit: vi.fn() },
     }
-    // Same device object for both the pick texture and the context.
-    const ctrl = makeController(device, device)
+    // The pick texture rides the SAME RhiDevice identity as ctx.rhi, while
+    // ctx.device is deliberately a different object — comparing the wrong
+    // field cannot pass this case.
+    const rhi = { __rhi: 'steady-rhi-device' }
+    const ctrl = makeController(rhi, rhi, device)
 
     await ctrl.pickAt(50, 50)
 

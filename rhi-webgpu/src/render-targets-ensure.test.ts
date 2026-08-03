@@ -9,6 +9,9 @@
 // failure here instead of a dead frame there.
 
 import { describe, it, expect } from 'vitest'
+import { readFileSync } from 'node:fs'
+import { join, dirname } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { RenderTargets } from '@xgis/rhi-webgpu'
 import type { GPUContext } from '@xgis/rhi-webgpu'
 import type { RhiDevice, RhiTexture, RhiTextureDesc, RhiTextureView } from '@xgis/rhi'
@@ -37,7 +40,10 @@ function makeFakeRhi(): FakeRhi {
       ;(tex as unknown as FakeTexture).destroyed = true
     },
     // Fresh object per call — the RT's identity-keyed cache is what dedupes.
-    createView: (): RhiTextureView => ({}) as RhiTextureView,
+    // Shaped like the adapter's wrapper ({native}) so the *Native getters'
+    // unwrap resolves to a definite object the P6 pin below can assert on.
+    createView: (): RhiTextureView =>
+      ({ native: { __nativeView: true } }) as unknown as RhiTextureView,
   } as unknown as RhiDevice
   return { created, rhi }
 }
@@ -299,6 +305,34 @@ describe('RenderTargets.ensure', () => {
     expect(rt.screenMsaaTexture).toBeNull()
     expect(r.sceneResolveView).toBe(screenView)
     expect(r.colorViewScreen).toBe(r.colorView)
+  })
+
+  it('*Native getters unwrap the SAME cached view — the P6 compose residue, pinned (review finding 6)', () => {
+    // The three native getters exist ONLY for the raw compose bind groups
+    // (P6); each must be the `.native` of the cached RHI view — the same
+    // object every read (cache-backed, no re-mint), never undefined.
+    const fake = makeFakeRhi()
+    const rt = new RenderTargets(() => makeCtx(fake.rhi))
+    rt.ensure(640, 480, 640, 480, 4, false, true, screenView) // overdraw on
+    rt.ensureOit(640, 480, 4)
+
+    const nativeOf = (v: RhiTextureView | null): unknown =>
+      (v as unknown as { native: unknown }).native
+    expect(rt.overdrawViewNative).toBeDefined()
+    expect(rt.overdrawViewNative).toBe(nativeOf(rt.overdrawView))
+    expect(rt.oitAccumViewNative).toBe(nativeOf(rt.oitAccumView))
+    expect(rt.oitRevealageViewNative).toBe(nativeOf(rt.oitRevealageView))
+    // Identity-stable across reads (the cache, not a per-read unwrap+mint).
+    expect(rt.overdrawViewNative).toBe(rt.overdrawViewNative)
+
+    // Source pin: exactly the THREE compose-residue call sites unwrap in
+    // render-targets.ts — a fourth is a new native leak; fewer means a
+    // getter lost its backing without this file noticing.
+    const src = readFileSync(
+      join(dirname(fileURLToPath(import.meta.url)), 'render-targets.ts'),
+      'utf8',
+    )
+    expect(src.match(/unwrapWebGpuTextureView\(/g) ?? []).toHaveLength(3)
   })
 
   it('pickSize() survives invalidate() while the texture lives — the #1429 authority is the TEXTURE (review F1)', () => {

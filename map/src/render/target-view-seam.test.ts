@@ -23,9 +23,14 @@ describe('target-view seam (#1046 F4 Inc-D)', () => {
     const src = srcOf('../render-loop.ts')
     // A survivor is a loop-tail native the WebGL2 chain frame would crash on
     // (the unwrap of a WebGl2-minted view) — the exact class of residue Inc-D
-    // exists to retire.
+    // exists to retire. `unwrapWebGpuTexture\b` closes the bypass spelling
+    // (unwrap the TEXTURE, then native .createView() on it — verification
+    // review finding 5); `.createView(` itself is NOT banned because the
+    // loop's pick path legitimately calls the RHI form `rhi.createView(...)`,
+    // and a ban that fires on correct code distinguishes nothing.
     expect(src.match(/unwrapWebGpuTextureView/g) ?? []).toHaveLength(0)
     expect(src.match(/wrapWebGpuTextureView/g) ?? []).toHaveLength(0)
+    expect(src.match(/unwrapWebGpuTexture\b/g) ?? []).toHaveLength(0)
   })
 
   it('frame-context wires the colour bridges without a native view in sight', () => {
@@ -35,6 +40,7 @@ describe('target-view seam (#1046 F4 Inc-D)', () => {
     // view type is spelled anywhere in the file.
     expect(src.match(/unwrapWebGpuTextureView/g) ?? []).toHaveLength(0)
     expect(src.match(/wrapWebGpuTextureView/g) ?? []).toHaveLength(0)
+    expect(src.match(/unwrapWebGpuTexture\b/g) ?? []).toHaveLength(0)
     expect(src.match(/GPUTextureView/g) ?? []).toHaveLength(0)
     expect(src.match(/rhiViewFor/g) ?? []).toHaveLength(0)
   })

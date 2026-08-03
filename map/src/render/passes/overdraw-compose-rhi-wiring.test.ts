@@ -20,6 +20,8 @@ import type { SceneView } from '../scene-view'
 
 function harness(opts: { rawShell?: boolean; noAccum?: boolean } = {}) {
   const calls: string[] = []
+  // The RT's P6-scoped native accessor the raw bind group consumes (Inc-D).
+  const overdrawViewNative = { __overdrawNative: true }
   const nativePass = {
     setPipeline: () => calls.push('pipeline'),
     setBindGroup: () => calls.push('bindgroup'),
@@ -44,16 +46,34 @@ function harness(opts: { rawShell?: boolean; noAccum?: boolean } = {}) {
     encoder: { beginRenderPass: nativeBegin },
     screenView: { __nativeScreenView: true },
     passScope: (_l: string, fn: () => void) => fn(),
-    rt: { overdrawAccumTexture: opts.noAccum ? null : {}, overdrawView: {} },
+    rt: { overdrawAccumTexture: opts.noAccum ? null : {}, overdrawViewNative },
   } as unknown as FrameContext
+  const bindGroupDescs: { entries: { binding: number; resource: unknown }[] }[] = []
   const host = {
-    ctx: { device: { createBindGroup: () => ({}) } },
+    ctx: {
+      device: {
+        createBindGroup: (desc: { entries: { binding: number; resource: unknown }[] }) => {
+          bindGroupDescs.push(desc)
+          return {}
+        },
+      },
+    },
     renderer: {
       ensureOverdrawCompose: () => ({ __pipeline: true }),
       overdrawComposeBindGroupLayout: {},
     },
   }
-  return { ctx, host, captured, beginRenderPass, nativeBegin, screenView, calls }
+  return {
+    ctx,
+    host,
+    captured,
+    beginRenderPass,
+    nativeBegin,
+    screenView,
+    calls,
+    bindGroupDescs,
+    overdrawViewNative,
+  }
 }
 
 describe('overdraw-compose — RHI seam wiring (#1046 Inc-3a)', () => {
@@ -75,6 +95,13 @@ describe('overdraw-compose — RHI seam wiring (#1046 Inc-3a)', () => {
     // The native colormap draw ran on the unwrapped handle, then the RHI
     // wrapper ended the pass.
     expect(h.calls).toEqual(['pipeline', 'bindgroup', 'draw3', 'end'])
+    // The bind group samples the RT's P6-scoped NATIVE accessor by identity
+    // (verification review finding 1: this was previously unasserted, so a
+    // resource of `undefined` — the exact miss when the accessor renames —
+    // kept every case green).
+    expect(h.bindGroupDescs).toHaveLength(1)
+    expect(h.bindGroupDescs[0].entries[0].binding).toBe(0)
+    expect(h.bindGroupDescs[0].entries[0].resource).toBe(h.overdrawViewNative)
   })
 
   it('no accumulator (not a ?debug=overdraw frame) ⇒ encodes nothing', () => {
