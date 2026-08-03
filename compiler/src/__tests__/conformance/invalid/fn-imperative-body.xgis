@@ -1,0 +1,6 @@
+// @case invalid
+// @construct fn-statement
+// @desc v1 fn bodies are expression-bodied (`return <expr>` only) — the imperative pre-#1072 grammar stays rejected
+// @expect-code X-GIS0010
+xgis 1
+fn scale(x) { let y = x * 2 return y }

@@ -287,7 +287,7 @@ export const enu_to_lonlat = fn(
  *
  *  ONE statement of the finite difference, used twice: Newton's step below needs it to invert the
  *  forward, and the screen-lattice VS needs it to turn a flow expressed in grid-uv into a SCREEN
- *  direction (`arrow-view.ts`). Writing the difference twice would be two places for
+ *  direction (`field-lattice.ts`). Writing the difference twice would be two places for
  *  `JACOBIAN_DELTA_DEG` to drift apart, and the symptom of a drifted one is a glyph that points
  *  slightly off the current it is drawn from — a wrong chart that renders perfectly.
  *

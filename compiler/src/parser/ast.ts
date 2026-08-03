@@ -13,6 +13,8 @@ export type Statement =
   | ImportStatement
   | SymbolStatement
   | KeyframesStatement
+  | FnStatement
+  | StructStatement
 
 // ═══ Expressions ═══
 
@@ -186,6 +188,9 @@ export type UtilityLine = {
 export type PresetStatement = {
   kind: 'PresetStatement'
   name: string
+  /** Declared parameter names from `preset name(a, b) { … }` (#1536).
+   *  Absent on zero-arg presets — the pre-params grammar unchanged. */
+  params?: string[]
   utilities: UtilityLine[]
   properties: BlockProperty[]
   line: number
@@ -243,7 +248,41 @@ export type UtilityItem = {
   name: string // e.g., "fill-red-500", "stroke-2", "opacity-80"
   binding: Expr | null // e.g., the expression inside [...] for data binding
   bindingUnit?: string | null // e.g., "km" in size-[expr]km
+  /** Call-form arguments for `apply-<preset>(…)` items (#1536).
+   *  Absent on every other utility item. */
+  args?: Expr[]
 }
+
+// fn halo(width, base) { return clamp(width * 1.5 + base, 1, 24) }
+// User-defined function (#1535 — reintroduced after the #1072 prune).
+// v1 is expression-bodied: the body is exactly one `return <expr>`;
+// calls are inlined at lower time (ir/fn-inline.ts), so the evaluator,
+// classifier, and WGSL codegen never see a user-fn call.
+export type FnStatement = {
+  kind: 'FnStatement'
+  name: string
+  params: string[]
+  body: Expr
+  line: number
+}
+
+// struct Track { speed: f32, heading: f32, name: string }
+// A source field schema (#1537 — reintroduced after the #1072 prune).
+// Attached to a source via `schema: Track`; makes `.field` access on that
+// source's layers checked instead of silently null on a typo.
+export type StructStatement = {
+  kind: 'StructStatement'
+  name: string
+  fields: StructField[]
+  line: number
+}
+
+/** Declared field types. Deliberately the three the data model already
+ *  distinguishes (`spec/oracle` value kinds); v1 uses them for NAME
+ *  checking — type-directed classification is a later step. */
+export type StructFieldType = 'f32' | 'string' | 'bool'
+
+export type StructField = { name: string; type: StructFieldType }
 
 // keyframes pulse { 0%: opacity-100  50%: opacity-30  100%: opacity-100 }
 export type KeyframesStatement = {

@@ -175,9 +175,27 @@ export function xgisToGraph(src: string): BPGraph {
       nodes.push(n)
       if (name) sourceByName.set(name, n.id)
     } else if (kw === 'preset') {
-      const n = mk('preset', { name, pipe: pipeText(lines) })
+      // Parameter list from the `preset name(a, b) {` declaration form (#1536).
+      const params = block.match(/^[a-z]+\s+[A-Za-z_][\w-]*\s*\(([^)]*)\)/)?.[1]?.trim() ?? ''
+      const n = mk('preset', { name, params, pipe: pipeText(lines) })
       nodes.push(n)
       if (name) presetByName.set(name, n.id)
+    } else if (kw === 'struct') {
+      // struct Name { a: f32, b: string } (#1537) — the body is a flat
+      // comma-separated field list, recovered verbatim.
+      const body = block.match(/\{([\s\S]*)\}\s*$/)?.[1] ?? ''
+      const fields = body
+        .split(',')
+        .map((s) => s.trim())
+        .filter(Boolean)
+        .join(', ')
+      nodes.push(mk('struct', { name, fields }))
+    } else if (kw === 'fn') {
+      // fn name(a, b) { return <expr> } (#1535) — expression-bodied by
+      // grammar; recover the param list and the raw return expression.
+      const params = block.match(/^[a-z]+\s+[A-Za-z_][\w-]*\s*\(([^)]*)\)/)?.[1]?.trim() ?? ''
+      const body = block.match(/\{\s*return\s+([\s\S]*?)\s*\}\s*$/)?.[1]?.trim() ?? ''
+      nodes.push(mk('fn', { name, params, body }))
     } else if (kw === 'symbol') {
       const pathLine = lines.find((l) => l.startsWith('path '))
       nodes.push(

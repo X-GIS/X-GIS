@@ -12,8 +12,8 @@
 //   2. `NON_BUILTIN_CALLEES` — the legal callees handled OUTSIDE
 //      callBuiltin (evaluator special forms + colour/codegen forms +
 //      the `load` source loader), each traced to its stage below.
-//   3. `import`ed names collected from the program (the sole program-side
-//      callables since #1072 pruned the `fn` keyword).
+//   3. Program-side declared names: `import`ed names and user `fn`
+//      declarations (#1535 — reintroduced after the #1072 prune).
 //
 // Diagnostics flow through the unified #1065 channel as `X-GIS0012` errors,
 // carrying a nearest-name `help` suggestion. Callee positions that the
@@ -77,14 +77,16 @@ export function validateFnCalls(program: AST.Program, diagnostics: Diagnostic[])
 }
 
 /** Every name a call may legally resolve to besides the builtins: the
- *  `import`ed names (a call could target one of them). The `fn` keyword
- *  and the imperative `if`/`for` statement forms were pruned by #1072, so
- *  imports (top-level only) are now the sole non-builtin callable source. */
+ *  `import`ed names (a call could target one of them) and user `fn`
+ *  declarations (#1535 — reintroduced after the #1072 prune; the inline
+ *  pass rewrites their calls before anything evaluates them). */
 function collectDeclaredNames(program: AST.Program): Set<string> {
   const names = new Set<string>()
   for (const s of program.body) {
     if (s.kind === 'ImportStatement') {
       for (const n of s.names) names.add(n)
+    } else if (s.kind === 'FnStatement') {
+      names.add(s.name)
     }
   }
   return names
@@ -101,7 +103,16 @@ function walkStatements(
         for (const p of s.properties) walkExpr(p.value, p.line, diagnostics, declared)
         break
       case 'LayerStatement':
-        for (const p of s.properties) walkExpr(p.value, p.line, diagnostics, declared)
+        for (const p of s.properties) {
+          // `style: glow(…)` (#1536) is a PRESET call, not a DataExpr —
+          // its callee resolves against the preset map in lower, never
+          // against callBuiltin. Validate only the argument expressions.
+          if (p.name === 'style' && p.value.kind === 'FnCall') {
+            for (const a of p.value.args) walkExpr(a, p.line, diagnostics, declared)
+          } else {
+            walkExpr(p.value, p.line, diagnostics, declared)
+          }
+        }
         walkUtilityLines(s.utilities, diagnostics, declared)
         break
       case 'BackgroundStatement':
@@ -112,6 +123,11 @@ function walkStatements(
         break
       case 'KeyframesStatement':
         for (const f of s.frames) walkUtilityItems(f.utilities, f.line, diagnostics, declared)
+        break
+      case 'FnStatement':
+        // A user fn's body is an ordinary expression — its callees are
+        // validated like any other (a typo inside a fn is still X-GIS0012).
+        walkExpr(s.body, s.line, diagnostics, declared)
         break
       // ImportStatement / SymbolStatement / StyleStatement carry no
       // evaluated expressions (module names, path strings, CSS-like
@@ -136,6 +152,9 @@ function walkUtilityItems(
 ): void {
   for (const item of items) {
     if (item.binding) walkExpr(item.binding, line, diagnostics, declared)
+    // `apply-<preset>(args…)` (#1536): the preset name is a utility name,
+    // not a callee, but its arguments are ordinary expressions.
+    if (item.args) for (const a of item.args) walkExpr(a, line, diagnostics, declared)
   }
 }
 

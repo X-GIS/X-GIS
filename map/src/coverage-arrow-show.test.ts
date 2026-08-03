@@ -274,7 +274,7 @@ describe('the advected arm emits a grid BOX, not instances (#1520)', () => {
   })
 
   it('a PROJECTED coverage falls back to the STATIC portrayal rather than drawing nothing', () => {
-    // STATED SCOPE, not a gap. `arrow_grid_uv` is an affine map in the shader and a projected CRS
+    // STATED SCOPE, not a gap. `field_grid_uv` is an affine map in the shader and a projected CRS
     // is not one; supporting it needs that CRS's forward ladder on the GPU (#1366 INC-3). The
     // fallback is asserted here so it cannot rot into a silent blank — which is exactly what an
     // unguarded advected arm would produce, since every recovered lon/lat would land outside the

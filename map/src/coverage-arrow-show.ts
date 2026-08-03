@@ -93,7 +93,7 @@ export interface CoverageArrowOptions {
  *  That replaces two Float64Arrays per axis plus two Float32Arrays of origins, per batch, per
  *  re-arm — 6 arrays × up to 25 000 entries — with four numbers.
  *
- *  GEOGRAPHIC CELLS ONLY. `arrow_grid_uv` is an affine map in the shader, which a projected CRS
+ *  GEOGRAPHIC CELLS ONLY. `field_grid_uv` is an affine map in the shader, which a projected CRS
  *  is not; supporting one would need that CRS's forward ladder on the GPU (#1366 INC-3). A
  *  projected coverage falls back to the STATIC catalogue portrayal rather than drawing nothing,
  *  and `coverage-arrow-show.test.ts` pins the fallback so it cannot rot into a silent blank. */

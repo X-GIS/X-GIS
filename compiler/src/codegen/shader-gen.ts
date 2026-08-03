@@ -37,7 +37,7 @@ import {
   vec4fFromRgba,
   matchVec4,
 } from './_util/node-builders'
-import { buildFieldMap, matchArmsKey, resolveColorFromAST } from './shader-gen-helpers'
+import { buildFieldMap, matchArmsKey, exprBodyKey, resolveColorFromAST } from './shader-gen-helpers'
 
 export type { ShaderVariant } from './shader-gen-types'
 
@@ -137,7 +137,16 @@ export function generateShaderVariant(
     // compound's pipeline for the SECOND compound's draws → roads end
     // up rendered with landuse colours (or vice versa). Hashing the
     // match Node's structural JSON disambiguates them.
-    matchArmsKey(fillResult.matchNode, strokeResult.matchNode)
+    matchArmsKey(fillResult.matchNode, strokeResult.matchNode) +
+    // Body hash for per-feature variants (#1535): the same collision
+    // class as above, reopened by general data-expr arithmetic (two
+    // inlined fn bodies over one field share `f:feat|ff:…`). Only
+    // feature-driven results embed the expr in the shader body, so
+    // uniform/constant variants keep their key bytes unchanged.
+    exprBodyKey(
+      fillResult.needsFeatures ? fillExprNode : null,
+      strokeResult.needsFeatures ? strokeExprNode : null,
+    )
 
   // Aggregate categoryOrder from fill + stroke results. Both code
   // paths sort patterns alphabetically, so a field used by BOTH fill

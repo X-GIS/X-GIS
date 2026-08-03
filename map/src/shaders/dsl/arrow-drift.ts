@@ -33,10 +33,69 @@
 // cap (`ARROW_SMEAR_SLOTS`) and the drift's tap count all existed to bound an excursion measured
 // in GRID-uv against a pair of packed basis anchors. The field is now seeded on the SCREEN and its
 // trains are walked in SCREEN arc length, so the bound is the inter-glyph spacing itself and the
-// tap count belongs to the walk — both live in `arrow-view.ts` beside the lattice they describe.
+// tap count belongs to the walk — both live below, with the rest of the train's own description.
 // What survives here is the part that was never about the grid: an arrow is `(origin, phase)`.
 
 import { fn, f32, fract, min, vec3, vec2fT, f32T } from '@xgis/shader-dsl'
+
+// ── The TRAIN: how many glyphs, how finely walked, how far apart the seeds (#1547) ────────────
+//
+// Here rather than beside the lattice, because none of it is a lattice property. A train is what
+// the S-111 portrayal makes of a node; a consumer that draws one symbol per node needs none of
+// these, and `field-lattice.ts` must not name a glyph for that consumer to reuse it.
+
+/** Glyphs strung along ONE streamline from a seed — the "train".
+ *
+ *  A train, rather than one glyph per seed, is what makes the motion read as FLOW rather than as a
+ *  field of independently twitching symbols: four glyphs at a fixed arc-length spacing trace the
+ *  path the water actually takes, and the eye follows the line instead of each arrow.
+ *
+ *  It is also what makes the wrap free. Glyph `j` sits at arc-length `(j + φ)·δ`, so as `φ` runs
+ *  0→1 the whole train advances by exactly ONE spacing and the set of occupied positions at φ = 1
+ *  is the set at φ = 0 shifted by one — every glyph lands where its neighbour was. Only the two
+ *  ENDS change, and they are faded (`arrow_phase_alpha` over `(j + φ)/G`), so the alpha at a given
+ *  arc-length is the same on both sides of the wrap. The seam is not hidden; it does not exist. */
+export const ARROW_TRAIN_GLYPHS = 4
+
+/** Integration taps per inter-glyph spacing.
+ *
+ *  The streamline is walked in fixed steps of `δ / taps` so the position at arc-length `s` is a
+ *  PURE, CONTINUOUS function of `s` — which is what the wrap argument above needs. A step count
+ *  derived from `s` (say `ceil(s/h)` uniform steps) is also a pure function of `s`, but it JUMPS
+ *  where the count changes, and a jump of any size at the wrap is the blink #1333 rejected moving
+ *  glyphs over. Two taps per spacing resolves the curvature a glyph-length of a tidal gyre has;
+ *  more buys nothing visible and costs two velocity fetches each. */
+export const ARROW_TRAIN_TAPS_PER_SPACING = 2
+
+/** Total integration steps a glyph may need — the last glyph of the train reaches
+ *  `(G − 1 + 1)·δ`, so this is the fixed, unrolled bound. */
+export const ARROW_TRAIN_STEPS = ARROW_TRAIN_GLYPHS * ARROW_TRAIN_TAPS_PER_SPACING
+
+/** Seed spacing, as a multiple of the inter-glyph spacing δ.
+ *
+ *  DERIVED, not tuned. Each seed contributes `G` glyphs and owns `S²` pixels of screen, and the
+ *  density the portrayal wants is one glyph per `δ²` — so `S² = G·δ²`, i.e. `S = δ·√G`. Seeding at
+ *  δ (the obvious choice) would draw `G` times too many glyphs, which on a chart is not a cosmetic
+ *  error: overlapping SCAROW symbols read as a faster current than the data says. */
+export const ARROW_LATTICE_FACTOR = Math.sqrt(ARROW_TRAIN_GLYPHS)
+
+/** Draw the field at TWICE the density `S = δ·√G` derives.
+ *
+ *  A DELIBERATE DEPARTURE from that derivation, not a correction to it. `S = δ·√G` targets one glyph
+ *  per δ² — the density at which SCAROW symbols sit end to end without overlapping — and the field
+ *  built to it read as sparser than wanted on real water. Doubling is a portrayal judgement, so it
+ *  lives here beside the train constants rather than in the lattice, which has no opinion on how
+ *  much ink a chart should carry.
+ *
+ *  IT IS THE NODE SET THAT DOUBLES, not the step (`FieldLatticeRequest.interleave`). Halving the
+ *  requested spacing by √2 would have been the obvious lever and it does not work: the step is
+ *  quantised to the octave at or below what is asked, and that quantisation is what pins a node's uv
+ *  — and therefore its phase — while the camera moves. Against a power-of-two ladder a √2 request
+ *  either holds the octave (density unchanged) or drops one (density ×4), so half the zooms would
+ *  look untouched and half would jump four-fold. Interleaving a half-cell-offset copy sidesteps the
+ *  ladder: every existing node keeps its exact position and phase, and the new ones land between
+ *  them at every zoom. */
+export const S111_FIELD_INTERLEAVE = true
 
 /** Seconds for one phase cycle: origin → leash → origin. A DISPLAY control, like the rate it
  *  replaces — the catalogue says nothing about animation, and speed is read from the band colour

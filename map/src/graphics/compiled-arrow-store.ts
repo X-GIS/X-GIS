@@ -21,13 +21,18 @@ import { packCompiledArrowFeat, packCompiledArrowTint } from './retained-arrow-p
 import type { RetainedArrowDraper } from '../render/material/arrow-retained-material'
 import type { RetainedArrowAdvectedDraper } from '../render/material/arrow-retained-advected-material'
 import {
-  arrowViewBlock,
-  arrowViewUniformBytes,
-  writeArrowViewUniform,
-  type ArrowViewCamera,
-  type ArrowViewGrid,
-} from '../render/arrow-view-uniform'
+  fieldViewBlock,
+  fieldViewUniformBytes,
+  writeFieldViewUniform,
+  type FieldViewCamera,
+  type FieldViewGrid,
+} from '../render/field-lattice-uniform'
 import { S111_ARROW_BASE_PX, S111_OUTLINE_FRAC } from '../render/s111-portrayal'
+import {
+  ARROW_LATTICE_FACTOR,
+  ARROW_TRAIN_GLYPHS,
+  S111_FIELD_INTERLEAVE,
+} from '../shaders/dsl/arrow-drift'
 import type {
   RhiDevice,
   RhiBuffer,
@@ -45,14 +50,14 @@ import type {
  *  hand over: the grid box is four numbers and the shader recovers everything else per frame. */
 export interface AdvectedArrowInput {
   /** The affine lon/lat → grid-uv box (`coverageArrowGrid`). */
-  grid: ArrowViewGrid
+  grid: FieldViewGrid
   /** The catalogue table in the shader's units (`s111BandTableNormalized`). */
   bandTable: Float32Array
 }
 
 /** The camera half of an advected draw, computed ONCE per frame by the manager and shared by
  *  every advected batch — the camera is batch-independent; only the grid box is not. */
-export type AdvectedArrowView = ArrowViewCamera
+export type AdvectedArrowView = FieldViewCamera
 
 /** The frame-side half of an advected draw: where the arrows are, where they belong, and the
  *  velocity pair they are moving through — all four from `FlowRenderer`, which owns the step.
@@ -86,7 +91,7 @@ interface CompiledArrowBatch {
   advected: AdvectedArrowInput | null
   /** The band table, uploaded once per advected batch. */
   bandBuf: RhiBuffer | null
-  /** The ArrowView block — allocated once per advected batch, REWRITTEN every frame. Its contents
+  /** The FieldView block — allocated once per advected batch, REWRITTEN every frame. Its contents
    *  are the camera (which moves) plus this batch's grid box (which does not); the bind group
    *  holding it is still cached, since only the bytes change. */
   viewBuf: RhiBuffer | null
@@ -196,7 +201,7 @@ export class CompiledArrowStore {
       })
       this.rhi.writeBuffer(bandBuf, 0, advected.bandTable)
       viewBuf = this.rhi.createBuffer({
-        size: arrowViewUniformBytes(),
+        size: fieldViewUniformBytes(),
         usage: 'uniform',
         writable: true,
         label: 'compiled-arrow-view',
@@ -311,10 +316,16 @@ export class CompiledArrowStore {
     const bind = this.arrowSource?.arrowBindingFor(ca.region)
     if (!draper || !bind || !ca.bandBuf || !ca.viewBuf || !ca.advected || !view || !this.rhi)
       return 0
-    const block = arrowViewBlock()
-    const count = writeArrowViewUniform(block, view, ca.advected.grid, {
-      basePx: S111_ARROW_BASE_PX * view.dpr,
-      strokeUnits: S111_OUTLINE_FRAC,
+    const block = fieldViewBlock()
+    // The S-111 side of a domain-neutral lattice (#1547): the seed spacing is `δ·√G` because each
+    // seed contributes G glyphs (`ARROW_LATTICE_FACTOR` records the derivation), and the three
+    // carried scalars are this portrayal's — inter-glyph spacing, glyph length, outline width.
+    const basePx = S111_ARROW_BASE_PX * view.dpr
+    const count = writeFieldViewUniform(block, view, ca.advected.grid, {
+      nodeSpacingPx: basePx * ARROW_LATTICE_FACTOR,
+      instancesPerNode: ARROW_TRAIN_GLYPHS,
+      interleave: S111_FIELD_INTERLEAVE,
+      carry: [basePx, basePx, S111_OUTLINE_FRAC],
     })
     if (count === null || count === 0) return 0
     this.rhi.writeBuffer(ca.viewBuf, 0, block.buffer)
@@ -344,7 +355,7 @@ export class CompiledArrowStore {
     if (!this.rhi) return
     for (const ca of this.batches) {
       // An advected batch bakes no size into a buffer — its glyph size rides the per-frame
-      // ArrowView block, which is written from the CURRENT dpr every frame anyway.
+      // FieldView block, which is written from the CURRENT dpr every frame anyway.
       if (!ca.featBuf) continue
       this.rhi.writeBuffer(
         ca.featBuf,

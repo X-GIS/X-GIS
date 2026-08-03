@@ -16,6 +16,8 @@ export enum TokenType {
   To, // to (keyframes alias for 100%)
   SymbolDef, // symbol
   Keyframes, // keyframes
+  Fn, // fn — user-defined functions (#1535; reintroduced after the #1072 prune)
+  Struct, // struct — source field schemas (#1537; reintroduced after the #1072 prune)
 
   // Units
   Px, // px
@@ -80,6 +82,8 @@ const KEYWORDS: Record<string, TokenType> = {
   to: TokenType.To,
   symbol: TokenType.SymbolDef,
   keyframes: TokenType.Keyframes,
+  fn: TokenType.Fn,
+  struct: TokenType.Struct,
   true: TokenType.Bool,
   false: TokenType.Bool,
 }

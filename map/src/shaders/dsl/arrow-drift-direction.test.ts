@@ -76,20 +76,33 @@ describe('…and the VS makes both directions ONE computation (#1520)', () => {
   }
 
   it('the glyph is rotated by the SAME basis application the walk steps along', () => {
-    // `cos_c`/`ss` are built from `arrow_uv_to_px(basis, (vu, −vv·aspect))`, which the emitter
-    // inlines as the 2×2 product. The walk's own step is `arrow_uv_step(basis, (vu, −vv·aspect),
+    // `cos_c`/`ss` are built from `field_uv_to_px(basis, (vu, −vv·aspect))`, which the emitter
+    // inlines as the 2×2 product. The walk's own step is `field_uv_step(basis, (vu, −vv·aspect),
     // len)` mapped through that identical product. Severing the pairing — sampling the flow for
     // the rotation at a different position than the step uses, or applying a different basis —
     // is the class of bug that reads as "moves one way, points another".
     // The rotation: `(m.x·d.x + m.y·d.y, m.z·d.x + m.w·d.y)` for the basis `m` and the sampled
-    // flow `d`. Resolve `m` from it …
-    const dir = /let \w+ = vec2<f32>\(\(\((\w+)\.x \* (\w+)\) \+ \(\1\.y \* (\w+)\)\)/.exec(body)
-    expect(dir, 'the drawn direction is a basis application').not.toBeNull()
-    const basis = dir![1]!
+    // flow `d`. The VS applies the basis in more than one place since #1534 — the Newton
+    // correction that places the node uses the same 2×2 shape — so the candidates are enumerated
+    // and the one whose operand reaches a velocity FETCH is the direction. Picking by position
+    // would be a test that breaks whenever a line moves; picking by what it is MADE OF is a test
+    // of the claim.
+    const cands = [
+      ...body.matchAll(/let \w+ = vec2<f32>\(\(\((\w+)\.x \* (\w+)\) \+ \(\1\.y \* (\w+)\)\)/g),
+    ]
+    expect(cands.length, 'the basis is applied at all').toBeGreaterThan(0)
+    const fromFlow = cands.filter((m) => {
+      const c = letOf(m[2]!)
+      const s = /vec2<f32>\((\w+),/.exec(c)
+      return s !== null && letOf(s[1]!).includes('textureLoad(flow_u_tex')
+    })
+    expect(fromFlow.length, 'exactly one basis application is built from the sampled flow').toBe(1)
+    const dir = fromFlow[0]!
+    const basis = dir[1]!
     // … and it must be the SAME basis every walk step is mapped through. Two bases — one for
     // where the glyph goes and one for where it points — is precisely the reported failure, and
     // it is the only way this VS could still produce it.
-    const steps = [...body.matchAll(/arrow_uv_step\((\w+),/g)].map((m) => m[1]!)
+    const steps = [...body.matchAll(/field_uv_step\((\w+),/g)].map((m) => m[1]!)
     expect(steps.length, 'the walk takes its steps through a basis').toBeGreaterThan(0)
     for (const s of steps) expect(s, 'one basis, both answers').toBe(basis)
     // …and the rotation's operand is a velocity pair sampled from the textures, not a packed
@@ -120,8 +133,8 @@ describe('…and the VS makes both directions ONE computation (#1520)', () => {
     // velocity contributes only a direction. A step proportional to the speed would space fast
     // water's glyphs further apart than slow water's, which on a chart reads as a second,
     // contradictory speed encoding beside the band colour the catalogue actually specifies.
-    expect(all).toContain('fn arrow_uv_step(')
-    const step = all.slice(all.indexOf('fn arrow_uv_step('))
+    expect(all).toContain('fn field_uv_step(')
+    const step = all.slice(all.indexOf('fn field_uv_step('))
     expect(step.slice(0, step.indexOf('\n}')), 'the direction is unit-scaled').toMatch(
       /max\(length\(dir_uv\)/,
     )

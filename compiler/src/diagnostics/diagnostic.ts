@@ -31,6 +31,20 @@
 //   X-GIS0012  error  lower     Unknown function name in a DataExpr      (ir/validate-fncalls.ts — #1066)
 //   X-GIS0013  error  lower     Unknown utility (no registry prefix)     (ir/lower.ts, ir/lower-animation.ts —
 //                               — nearest-name help                       #1067; utility-registry.ts is the authority)
+//   X-GIS0014  error  lower     Preset call arity mismatch — wrong       (ir/preset-expand.ts — #1536)
+//                               argument count for a (non-)parameterized
+//                               preset; reported at the call-site line
+//   X-GIS0015  error  lower     Recursive user fn (self or mutual) —     (ir/fn-inline.ts — #1535)
+//                               fn bodies must form an acyclic call graph
+//   X-GIS0016  error  lower     User-fn call arity mismatch              (ir/fn-inline.ts — #1535)
+//   X-GIS0017  error  lower     Non-parameter bare identifier in a user- (ir/fn-inline.ts — #1535)
+//                               fn body — params/zoom/pitch only; use
+//                               `.field` for feature data
+//   X-GIS0018  error  lower     Vector value in a scalar binding         (ir/expr-type.ts — #1537)
+//                               position — read a lane (`.x`) instead
+//   X-GIS0019  error  lower     `.field` absent from the source's        (ir/validate-schema-fields.ts
+//                               declared `struct` schema, or a `schema:`   — #1537)
+//                               naming no declared struct
 //
 // #1065 added only warn/info from lower (plumbing, not policy). #1066 is
 // the first lower ERROR — `X-GIS0012` (unknown-function = error, L3 in the
@@ -53,6 +67,35 @@ export const UNKNOWN_FUNCTION = 'X-GIS0012'
  *  single utility registry (utility-registry.ts), in normal lowering AND in
  *  `keyframes` blocks. The `help` carries the nearest-name suggestion. */
 export const UNKNOWN_UTILITY = 'X-GIS0013'
+/** Preset call arity mismatch (#1536) — a `style: p(…)` / `apply-p(…)`
+ *  argument list whose length differs from the preset's declared
+ *  parameter list (including arguments passed to a zero-param preset).
+ *  Reported at the call-site line; the preset is inlined unsubstituted
+ *  so lowering stays total. */
+export const PRESET_ARITY = 'X-GIS0014'
+/** Recursive user fn (#1535) — the user-fn call graph must be acyclic
+ *  (self or mutual recursion); compile-time inlining cannot terminate
+ *  otherwise. Reported at the offending fn's declaration line. */
+export const FN_RECURSION = 'X-GIS0015'
+/** User-fn call arity mismatch (#1535) — argument count differs from the
+ *  fn's declared parameter list. Reported at the call-site line; the call
+ *  is left unrewritten so lowering stays total. */
+export const FN_ARITY = 'X-GIS0016'
+/** Non-parameter bare identifier in a user-fn body (#1535) — bodies may
+ *  reference their params, `zoom`/`pitch`, and callable names only;
+ *  feature data must be explicit `.field` access (prevents accidental
+ *  capture). Reported at the fn's declaration line. */
+export const FN_FREE_IDENTIFIER = 'X-GIS0017'
+/** Vector value in a scalar binding position (#1537) — every `[…]`
+ *  binding resolves to ONE number per feature, so a `vecN` there is an
+ *  authoring error. Caught by type inference rather than rendered as a
+ *  wrong-typed shader expression or an array-valued size. */
+export const VECTOR_IN_SCALAR_POSITION = 'X-GIS0018'
+/** Unknown field on a schema-annotated source (#1537) — the FIELD-side
+ *  mirror of #1066's unknown-callee error. Opt-in: only sources that
+ *  declare `schema:` are checked, so `.speeed` fails loudly there while
+ *  unannotated sources keep fully dynamic access. */
+export const UNKNOWN_SCHEMA_FIELD = 'X-GIS0019'
 
 /** A 1-based, document-relative source span. `line`/`col` are always
  *  present; `endLine`/`endCol` are optional (a point diagnostic omits

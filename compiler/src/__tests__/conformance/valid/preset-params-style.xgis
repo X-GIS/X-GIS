@@ -1,0 +1,10 @@
+// @case valid
+// @construct preset-statement
+// @desc a parameterized preset applied via the style: call form (#1536)
+xgis 1
+source w { type: geojson, url: "w.geojson" }
+preset s111(hi) { ramp: "s111-speed"  range: [0, hi] }
+layer speed {
+  source: w
+  style: s111(13)
+}
