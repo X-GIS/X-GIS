@@ -197,7 +197,11 @@ export function wireFrameColour(
   ctx: FrameContext,
   screenView: NonNullable<FrameContext['rhiScreenView']>,
 ): void {
-  const sc = getSampleCount()
+  // Host policy clamped to the DEVICE cap (Inc-E1, the raster-renderer
+  // precedent): WebGl2Device caps at 1 — unclamped, a flipped chain frame
+  // would attach a resolveTarget its screen pass fail-closes on. Identity on
+  // WebGPU (cap 4 ≥ every QUALITY.msaa value).
+  const sc = Math.min(getSampleCount(), ctx.rhi.caps.maxSampleCount)
   ctx.sampleCount = sc
   const { useResolve, colorView, sceneResolveView, colorViewScreen, sceneColorSampleView } =
     ctx.rt.ensure(

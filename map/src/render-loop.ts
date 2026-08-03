@@ -268,18 +268,15 @@ export class RenderLoop {
     // path below is UNTOUCHED — this is a pure pre-guard. Rollback = delete this block.
     const rhi = asScreenPassDevice(this.host.ctx.rhi)
     // #1046 F3 routing switch (doc §3-F3): `?rhichain=1` (RHI_CHAIN) routes this WebGL2
-    // frame through the unified `this._nodes` chain below instead of this twin. The chain
-    // cannot execute on WebGL2 until the pass bodies are RHI-typed (F2 landed the frame-
-    // shell seam only), so `_chainRunsOnWebgl2` gates the bypass OFF — the twin renders
-    // whether or not the flag is set (byte-identical to before this seam), so `?rhichain=1`
-    // never yields a crash/blank frame. The cap flips at #991 P4/P5 (the loop tail — the
-    // pass bodies are already RHI-typed), and the routing follows with no edit here.
+    // frame through the unified `this._nodes` chain below instead of this twin, gated by
+    // the backend cap (`_chainRunsOnWebgl2`). The loop tail is fully RHI (Inc-A..D), so
+    // the cap flip is Inc-E2's one-liner; until then the twin renders whether or not the
+    // flag is set — `?rhichain=1` never yields a crash/blank frame.
     if (rhi && !(RHI_CHAIN && this._chainRunsOnWebgl2)) {
       const rhiWorkPending = this.renderFrameViaRhi(rhi, w, h, projType, centerLon, centerLat, dpr)
-      // Mirror the WebGPU path's end-of-frame idle bookkeeping (#746): snapshot
-      // the camera signature + clear _needsRender. Without this the early return
-      // left shouldRenderThisFrame() true forever, so the forced-WebGL2 loop
-      // re-rendered EVERY rAF and the 'idle' lifecycle event could never fire.
+      // Mirror the WebGPU path's end-of-frame idle bookkeeping (#746): snapshot the
+      // camera signature + clear _needsRender — without this the early return kept
+      // shouldRenderThisFrame() true forever and 'idle' could never fire.
       this.host._lastSigZoom = this.host.camera.zoom
       this.host._lastSigCX = this.host.camera.centerX
       this.host._lastSigCY = this.host.camera.centerY
@@ -409,12 +406,10 @@ export class RenderLoop {
     {
       // ═══ Direct rendering: vertex shader handles all projections ═══
       // MSAA + stencil + OIT + pick + overdraw render-target lifecycle
-      // (recreate-on-resize) lives in RenderTargets (render/render-targets.ts).
-      // `ensure` recreates exactly when the inline gate did (no stencil yet,
-      // or w/h changed), in the same destroy → recreate order, then returns
-      // the per-frame colorView decision. sample count tracks the
-      // pipeline-time SAMPLE_COUNT (1 on mobile / ?safe / ?quality=performance
-      // / ?msaa=1, 4 on desktop default).
+      // (recreate-on-resize) lives in RenderTargets (@xgis/rhi-webgpu):
+      // `ensure` recreates exactly when the inline gate did, in the same
+      // destroy → recreate order, then returns the per-frame colorView
+      // decision. Sample count = QUALITY.msaa clamped to the device cap.
       // ensure() + colorView decision + the F3b / #1429 bridge population,
       // extracted VERBATIM to wireFrameColour (frame-context.ts, piece 6).
       wireFrameColour(ctx, rhiScreenView)
@@ -575,6 +570,11 @@ export class RenderLoop {
     // F2: the RHI frame encoder owns the single per-frame submit.
     frameEnc.finish()
     perfMarkEnd('frame.submit')
+    // Inc-E1 (flip precondition MINOR-5): drain the WebGL2 frame-encoder GL-error
+    // queue into the capped writer (#1153 P2 R6) — the twin's consumer mirrored.
+    for (const message of rhiFrame.takeGlErrors?.() ?? []) {
+      pushValidationError(this.host.ctx, message)
+    }
     perfMarkEnd('frame.total')
     flushPerFrameMarks()
 
