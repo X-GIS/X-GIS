@@ -13,6 +13,8 @@ import { resolveImports } from '../module/resolver'
 import { inlineUserFns } from '../ir/fn-inline'
 import { evaluate } from '../eval/evaluator'
 import { classifyExpr } from '../ir/classify'
+import { generateShaderVariant } from '../codegen/shader-gen'
+import { nodeToWgslString } from '../codegen/node-to-wgsl'
 import type { Diagnostic } from '../diagnostics/diagnostic'
 
 function parse(source: string): AST.Program {
@@ -233,6 +235,41 @@ layer roads {
   it('a non-param bare identifier in a body is X-GIS0017', () => {
     const diags = inlineDiagnostics(SCENE('fn bad(x) { return x + speed }', 'bad(.width)'))
     expect(diags.some((d) => d.code === 'X-GIS0017')).toBe(true)
+  })
+
+  it('two different fn bodies over the same field produce distinct variant keys', () => {
+    // The roads-with-landuse-colours bug class the matchArmsKey comment
+    // (shader-gen.ts) documents: same `f:feat|ff:` coarse key, different
+    // shader body. Inlined fn arithmetic must disambiguate the key.
+    const scene = lower(
+      parse(`
+fn a(x) { return clamp(x * 1.5, 1, 24) }
+fn b(x) { return clamp(x * 3 + 5, 2, 48) }
+source w { type: geojson, url: "w.geojson" }
+layer la { source: w  | fill-[a(.width)] }
+layer lb { source: w  | fill-[b(.width)] }
+`),
+    )
+    const [va, vb] = scene.renderNodes.map((n) => generateShaderVariant(n))
+    expect(va!.fillExpr).toBeTruthy()
+    expect(vb!.fillExpr).toBeTruthy()
+    // The bodies genuinely differ…
+    expect(nodeToWgslString(va!.fillExpr!)).not.toBe(nodeToWgslString(vb!.fillExpr!))
+    // …so the cache keys must too.
+    expect(va!.key).not.toBe(vb!.key)
+  })
+
+  it('identical fn bodies still share one variant key (cache stays effective)', () => {
+    const scene = lower(
+      parse(`
+fn a(x) { return clamp(x * 1.5, 1, 24) }
+source w { type: geojson, url: "w.geojson" }
+layer la { source: w  | fill-[a(.width)] }
+layer lb { source: w  | fill-[a(.width)] }
+`),
+    )
+    const [va, vb] = scene.renderNodes.map((n) => generateShaderVariant(n))
+    expect(va!.key).toBe(vb!.key)
   })
 
   it('lower() end-to-end: fn scene lowers with zero error diagnostics', () => {
