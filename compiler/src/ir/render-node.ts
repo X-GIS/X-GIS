@@ -19,6 +19,9 @@ export type { RasterDemSourceFields, RenderNodeHillshadePaint, RenderNodeCoverag
 /**
  * A complete IR scene — the output of the lowering pass.
  */
+import type { SymbolDef } from './symbol-elements'
+export type { SymbolDef } from './symbol-elements'
+
 export interface Scene {
   sources: SourceDef[]
   renderNodes: RenderNode[]
@@ -48,10 +51,6 @@ export interface Scene {
 }
 
 /** A user-defined shape symbol with SVG path data. */
-export interface SymbolDef {
-  name: string
-  paths: string[]
-}
 
 /**
  * A data source definition. The `raster-dem` DEM fields (encoding / tileSize / custom

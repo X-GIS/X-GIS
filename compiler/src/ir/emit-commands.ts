@@ -3,6 +3,7 @@
 // This bridge allows the runtime to consume IR without changes.
 
 import type { Scene, RenderNode, ColorValue, TimeStop, Easing, DataExpr } from './render-node'
+import type { SymbolDef } from './render-node'
 import { rgbaToHex } from './render-node'
 import type { PaintShapes, PropertyShape } from './property-types'
 import { hasHillshadePaint, emitHillshadeShapes } from './emit-commands-hillshade'
@@ -324,7 +325,9 @@ export interface ShowCommand
 export interface SceneCommands {
   loads: LoadCommand[]
   shows: ShowCommand[]
-  symbols: { name: string; paths: string[] }[]
+  /** ONE authority (#1550): this restated `SymbolDef` inline, so adding a field to the IR
+   *  type left the command surface a field short and the map package could not read it. */
+  symbols: SymbolDef[]
   /** Resolved canvas background fill `#rrggbb` / `#rrggbbaa`. Set
    *  by `background { fill: <color> }` in the .xgis program; the
    *  runtime applies it as the WebGPU clearValue. Absent → renderer

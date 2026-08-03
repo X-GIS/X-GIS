@@ -353,9 +353,25 @@ matched as ordinary identifiers (they are not reserved keywords). `numeric-props
 reads `key: number` pairs, stopping before the next element keyword; a leading `-`
 negates. Any other token is a hard error (**"Unexpected token in symbol block"**).
 
+`rect` reads `w`/`h` (default 1) and optional `x`/`y` for the corner, defaulting to
+centred. `circle` reads `r` (default 0.5) and optional `cx`/`cy`. Both lower to paths,
+and a circle lowers to four **cubic** arcs — the renderer evaluates beziers analytically
+rather than flattening them, so a symbol is resolution-independent at any zoom.
+
+`anchor` names where the symbol's origin sits in its own bounding box: `center`
+(default), `top`, `bottom`, `left`, `right`. `anchor: top` places the top edge on the
+point, so the glyph hangs below it. **Corners are not expressible**: the anchor value is
+an `IDENT` (§1.6), which carries no hyphen, so `anchor: top-left` lexes as the expression
+`top - left`. An unrecognised anchor is a warning (`X-GIS0015`) and the symbol is centred.
+
+A `symbol` block that declares no geometry at all is a warning (`X-GIS0016`); references
+to it fall back to a circle.
+
 ```xgis
 xgis 1
 symbol arrow { path "M 0 -1 L -0.4 0.3 Z" anchor: center }
+symbol pin   { circle r: 0.4 anchor: top }
+symbol box   { rect w: 2 h: 1 }
 ```
 
 ## 2.9 `show` — removed (#1072 / #1138)
