@@ -186,6 +186,9 @@ export type UtilityLine = {
 export type PresetStatement = {
   kind: 'PresetStatement'
   name: string
+  /** Declared parameter names from `preset name(a, b) { … }` (#1536).
+   *  Absent on zero-arg presets — the pre-params grammar unchanged. */
+  params?: string[]
   utilities: UtilityLine[]
   properties: BlockProperty[]
   line: number
@@ -243,6 +246,9 @@ export type UtilityItem = {
   name: string // e.g., "fill-red-500", "stroke-2", "opacity-80"
   binding: Expr | null // e.g., the expression inside [...] for data binding
   bindingUnit?: string | null // e.g., "km" in size-[expr]km
+  /** Call-form arguments for `apply-<preset>(…)` items (#1536).
+   *  Absent on every other utility item. */
+  args?: Expr[]
 }
 
 // keyframes pulse { 0%: opacity-100  50%: opacity-30  100%: opacity-100 }
