@@ -101,7 +101,16 @@ function walkStatements(
         for (const p of s.properties) walkExpr(p.value, p.line, diagnostics, declared)
         break
       case 'LayerStatement':
-        for (const p of s.properties) walkExpr(p.value, p.line, diagnostics, declared)
+        for (const p of s.properties) {
+          // `style: glow(…)` (#1536) is a PRESET call, not a DataExpr —
+          // its callee resolves against the preset map in lower, never
+          // against callBuiltin. Validate only the argument expressions.
+          if (p.name === 'style' && p.value.kind === 'FnCall') {
+            for (const a of p.value.args) walkExpr(a, p.line, diagnostics, declared)
+          } else {
+            walkExpr(p.value, p.line, diagnostics, declared)
+          }
+        }
         walkUtilityLines(s.utilities, diagnostics, declared)
         break
       case 'BackgroundStatement':
@@ -136,6 +145,9 @@ function walkUtilityItems(
 ): void {
   for (const item of items) {
     if (item.binding) walkExpr(item.binding, line, diagnostics, declared)
+    // `apply-<preset>(args…)` (#1536): the preset name is a utility name,
+    // not a callee, but its arguments are ordinary expressions.
+    if (item.args) for (const a of item.args) walkExpr(a, line, diagnostics, declared)
   }
 }
 

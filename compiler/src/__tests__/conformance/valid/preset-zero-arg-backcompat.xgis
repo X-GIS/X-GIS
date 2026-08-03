@@ -1,0 +1,14 @@
+// @case valid
+// @construct preset-statement
+// @desc zero-arg presets keep the bare pre-#1536 grammar (no param list, bare apply/style)
+xgis 1
+source w { type: geojson, url: "w.geojson" }
+preset plain { | fill-red-500 stroke-1 }
+layer a {
+  source: w
+  style: plain
+}
+layer b {
+  source: w
+  | apply-plain opacity-80
+}

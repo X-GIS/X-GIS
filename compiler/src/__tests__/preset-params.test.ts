@@ -82,3 +82,130 @@ layer l { source: w  | apply-plain }
     expect(apply!.args).toBeUndefined()
   })
 })
+
+// ═══ Step-3 semantics: substitution, arity, hygiene ═══
+
+import { expandPresets, resolveStylePreset, type PresetDef } from '../ir/preset-expand'
+import type { Diagnostic } from '../diagnostics/diagnostic'
+import { lower } from '../ir/lower'
+
+/** Parse a program and hand back its preset map + a layer's utility lines,
+ *  mirroring lower()'s first pass. */
+function presetFixture(source: string) {
+  const program = parse(source)
+  const presetMap = new Map<string, PresetDef>()
+  for (const s of program.body) {
+    if (s.kind === 'PresetStatement') {
+      presetMap.set(s.name, { utilities: s.utilities, properties: s.properties, params: s.params })
+    }
+  }
+  const layer = program.body.find((s) => s.kind === 'LayerStatement') as AST.LayerStatement
+  return { presetMap, layer }
+}
+
+describe('preset parameter substitution (#1536 step 3)', () => {
+  it('substitutes apply-call args into utility bindings', () => {
+    const { presetMap, layer } = presetFixture(`
+source w { type: geojson, url: "w.geojson" }
+preset glow(color, radius) { | fill-[color] stroke-[radius] }
+layer l { source: w  | apply-glow(#f59e0b, 4) }
+`)
+    const diagnostics: Diagnostic[] = []
+    const expanded = expandPresets(layer.utilities, presetMap, diagnostics)
+    expect(diagnostics).toHaveLength(0)
+    const items = expanded.flatMap((l) => l.items)
+    const fill = items.find((i) => i.name === 'fill')!
+    expect(fill.binding?.kind).toBe('ColorLiteral')
+    const stroke = items.find((i) => i.name === 'stroke')!
+    expect(stroke.binding).toMatchObject({ kind: 'NumberLiteral', value: 4 })
+  })
+
+  it('substitutes params inside compound expressions, leaving .field access alone', () => {
+    const { presetMap, layer } = presetFixture(`
+source w { type: geojson, url: "w.geojson" }
+preset p(x) { | size-[.x + x] }
+layer l { source: w  | apply-p(5) }
+`)
+    const diagnostics: Diagnostic[] = []
+    const expanded = expandPresets(layer.utilities, presetMap, diagnostics)
+    const size = expanded.flatMap((l) => l.items).find((i) => i.name === 'size')!
+    expect(size.binding).toMatchObject({
+      kind: 'BinaryExpr',
+      op: '+',
+      left: { kind: 'FieldAccess', field: 'x' },
+      right: { kind: 'NumberLiteral', value: 5 },
+    })
+  })
+
+  it('does not mutate the preset definition across two call sites', () => {
+    const { presetMap, layer } = presetFixture(`
+source w { type: geojson, url: "w.geojson" }
+preset p(n) { | stroke-[n] }
+layer l { source: w  | apply-p(1)  | apply-p(2) }
+`)
+    const diagnostics: Diagnostic[] = []
+    const expanded = expandPresets(layer.utilities, presetMap, diagnostics)
+    const strokes = expanded.flatMap((l) => l.items).filter((i) => i.name === 'stroke')
+    expect(strokes.map((s) => (s.binding as { value?: number }).value)).toEqual([1, 2])
+    // The stored definition itself is untouched (still the bare param).
+    expect(presetMap.get('p')!.utilities[0]!.items[0]!.binding?.kind).toBe('Identifier')
+  })
+
+  it('arity mismatch is an X-GIS0014 error at the call-site line', () => {
+    const { presetMap, layer } = presetFixture(`
+source w { type: geojson, url: "w.geojson" }
+preset p(a, b) { | stroke-[a] }
+layer l { source: w  | apply-p(1) }
+`)
+    const diagnostics: Diagnostic[] = []
+    expandPresets(layer.utilities, presetMap, diagnostics)
+    expect(diagnostics).toHaveLength(1)
+    expect(diagnostics[0]).toMatchObject({ code: 'X-GIS0014', severity: 'error' })
+  })
+
+  it('args on a zero-param preset are an X-GIS0014 error', () => {
+    const { presetMap, layer } = presetFixture(`
+source w { type: geojson, url: "w.geojson" }
+preset plain { | fill-red-500 }
+layer l { source: w  | apply-plain(3) }
+`)
+    const diagnostics: Diagnostic[] = []
+    expandPresets(layer.utilities, presetMap, diagnostics)
+    expect(diagnostics).toHaveLength(1)
+    expect(diagnostics[0]).toMatchObject({ code: 'X-GIS0014', severity: 'error' })
+  })
+
+  it('resolveStylePreset substitutes block properties (coverage ramp/range)', () => {
+    const { presetMap } = presetFixture(`
+source w { type: geojson, url: "w.geojson" }
+preset s111(hi) { ramp: "s111-speed"  range: [0, hi] }
+layer l { source: w }
+`)
+    const diagnostics: Diagnostic[] = []
+    const inst = resolveStylePreset(
+      presetMap,
+      { name: 's111', args: [{ kind: 'NumberLiteral', value: 13, unit: null }], line: 5 },
+      diagnostics,
+    )
+    expect(diagnostics).toHaveLength(0)
+    const range = inst!.properties.find((p) => p.name === 'range')!
+    expect(range.value).toMatchObject({
+      kind: 'ArrayLiteral',
+      elements: [{ kind: 'NumberLiteral' }, { kind: 'NumberLiteral', value: 13 }],
+    })
+  })
+
+  it('lower() accepts the style: call form without X-GIS0012', () => {
+    const scene = lower(
+      parse(`
+source w { type: geojson, url: "w.geojson" }
+preset glow(color) { | fill-[color] }
+layer l {
+  source: w
+  style: glow(#f59e0b)
+}
+`),
+    )
+    expect((scene.diagnostics ?? []).filter((d) => d.severity === 'error')).toHaveLength(0)
+  })
+})
