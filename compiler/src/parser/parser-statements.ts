@@ -142,6 +142,34 @@ export class StatementParser extends ExpressionParser {
     return stmt
   }
 
+  // fn halo(width, base) { return clamp(width * 1.5 + base, 1, 24) }
+  // Expression-bodied v1 (#1535): the body is exactly one `return <expr>`.
+  // `return` lexes as an ordinary identifier (pruned by #1072), so it is
+  // matched by token VALUE — no new keyword for it.
+  parseFnStatement(): AST.FnStatement {
+    const line = this.current().line
+    this.expect(TokenType.Fn)
+    const name = this.expect(TokenType.Identifier).value
+    this.expect(TokenType.LParen)
+    const params: string[] = []
+    while (!this.check(TokenType.RParen) && !this.isEnd()) {
+      params.push(this.expect(TokenType.Identifier).value)
+      if (this.check(TokenType.Comma)) this.advance()
+    }
+    this.expect(TokenType.RParen)
+    this.expect(TokenType.LBrace)
+    if (!(this.check(TokenType.Identifier) && this.current().value === 'return')) {
+      this.error(
+        `Expected \`return <expression>\` in fn body — fn bodies are ` +
+          `expression-bodied (a single return; use \`?:\` or \`match\` for branching)`,
+      )
+    }
+    this.advance() // consume `return`
+    const body = this.parseExpr()
+    this.expect(TokenType.RBrace)
+    return { kind: 'FnStatement', name, params, body, line }
+  }
+
   // import { name1, name2 } from "path"
   parseImportStatement(): AST.ImportStatement {
     const line = this.current().line
@@ -671,6 +699,7 @@ const STATEMENT_HANDLERS: ReadonlyMap<TokenType, StatementHandler> = new Map<
   [TokenType.Layer, (p) => p.parseLayerStatement()],
   [TokenType.Background, (p) => p.parseBackgroundStatement()],
   [TokenType.Preset, (p) => p.parsePresetStatement()],
+  [TokenType.Fn, (p) => p.parseFnStatement()],
   [TokenType.Import, (p) => p.parseImportStatement()],
   [TokenType.SymbolDef, (p) => p.parseSymbolStatement()],
   [TokenType.Keyframes, (p) => p.parseKeyframesStatement()],

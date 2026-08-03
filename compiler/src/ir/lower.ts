@@ -11,6 +11,7 @@ import { expandKeyframeTimeStops } from './lower-animation'
 import { dispatch, type LayerAccumulator, type BindingCtx } from './lower-bindings'
 import { MODIFIER_HANDLERS, BINDING_HANDLERS, UTILITY_HANDLERS } from './lower-bindings-registry'
 import { validateFnCalls } from './validate-fncalls'
+import { inlineUserFns } from './fn-inline'
 import { expandPresets, resolveStylePreset, type PresetDef, type PresetCall } from './preset-expand'
 import { isKnownUtility, suggestUtility } from './utility-registry'
 import { UNKNOWN_UTILITY } from '../diagnostics/diagnostic'
@@ -48,6 +49,9 @@ export function lower(program: AST.Program, options: LowerOptions = {}): Scene {
   // over the whole parsed program up front; independent of the lowering
   // loops below (it only reads `program`).
   validateFnCalls(program, diagnostics)
+  // #1535 — user-fn calls are inlined here, so nothing downstream
+  // (classify, evaluator, WGSL codegen) ever sees one.
+  program = inlineUserFns(program, diagnostics)
   const sourceMap = new Map<string, SourceDef>()
   const presetMap = new Map<string, PresetDef>()
   const keyframesMap = new Map<string, AST.KeyframesStatement>()

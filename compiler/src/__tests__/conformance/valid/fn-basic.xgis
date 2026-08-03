@@ -1,0 +1,10 @@
+// @case valid
+// @construct fn-statement
+// @desc an expression-bodied user fn declaration (#1535 — reintroduced after the #1072 prune)
+xgis 1
+fn halo(width, base) { return clamp(width * 1.5 + base, 1, 24) }
+source w { type: geojson, url: "w.geojson" }
+layer roads {
+  source: w
+  | stroke-[halo(.width, 2)]
+}

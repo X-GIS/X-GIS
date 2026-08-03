@@ -1,0 +1,21 @@
+xgis 1
+
+/* Fixture: hand-inlined twin of fixture-fn-binding.xgis (#1535).
+ * Identical scene with the fn body written out by hand — the render
+ * gate asserts pixel-identity between the two. */
+
+source pts {
+  type: geojson
+  data: { "type": "FeatureCollection", "features": [
+    { "type": "Feature", "geometry": { "type": "Point", "coordinates": [0, 0] }, "properties": { "v": 4 } },
+    { "type": "Feature", "geometry": { "type": "Point", "coordinates": [-40, 20] }, "properties": { "v": 12 } },
+    { "type": "Feature", "geometry": { "type": "Point", "coordinates": [40, -20] }, "properties": { "v": 30 } },
+    { "type": "Feature", "geometry": { "type": "Point", "coordinates": [-40, -20] }, "properties": { "v": 2 } },
+    { "type": "Feature", "geometry": { "type": "Point", "coordinates": [40, 20] }, "properties": { "v": 60 } }
+  ] }
+}
+
+layer dots {
+  source: pts
+  | fill-amber-400 stroke-amber-200 stroke-2 size-[clamp(.v * 1.5 + 4, 6, 40)]
+}

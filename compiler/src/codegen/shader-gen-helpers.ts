@@ -44,6 +44,28 @@ export function matchArmsKey(
   return `|m:${(h >>> 0).toString(36)}`
 }
 
+/** Stable short hash of the composed per-feature fill / stroke BODY
+ *  expressions (#1535 step 11). buildKey's coarse shape (`f:feat|ff:…`)
+ *  cannot tell two different arithmetic bodies over the same field
+ *  apart — the same collision class matchArmsKey closed for match()
+ *  compounds, reopened by inlined user-fn arithmetic (`fill-[a(.w)]`
+ *  vs `fill-[b(.w)]`). Returns empty string when both are absent so
+ *  non-feature variants keep their existing cache key bytes. */
+export function exprBodyKey(
+  fillExpr: { readonly expr: unknown } | null | undefined,
+  strokeExpr: { readonly expr: unknown } | null | undefined,
+): string {
+  if (fillExpr == null && strokeExpr == null) return ''
+  const combined = `${toHashInput(fillExpr ?? undefined)}${toHashInput(strokeExpr ?? undefined)}`
+  if (combined.length === 0) return ''
+  let h = 5381
+  for (let i = 0; i < combined.length; i++) {
+    h = (h * 33) ^ combined.charCodeAt(i)
+    h |= 0
+  }
+  return `|x:${(h >>> 0).toString(36)}`
+}
+
 function toHashInput(v: string | { readonly expr: unknown } | undefined): string {
   if (v == null) return ''
   if (typeof v === 'string') return v

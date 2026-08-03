@@ -16,6 +16,7 @@ const FIELD_KEYS: Record<string, string[]> = {
   source: ['name', 'type', 'url', 'layers'],
   symbol: ['name', 'path', 'anchor'],
   preset: ['name', 'params', 'pipe'],
+  fn: ['name', 'params', 'body'],
   layer: ['name', 'sourceLayer', 'minzoom', 'maxzoom', 'filter', 'pipe', 'ramp', 'range'],
   background: ['fill'],
 }
@@ -23,7 +24,17 @@ const FIELD_KEYS: Record<string, string[]> = {
 describe('@xgis/blueprint codegen contract', () => {
   it('all editor node types are present', () => {
     expect(Object.keys(NODE_SPECS).sort()).toEqual(
-      ['background', 'import', 'layer', 'map', 'preset', 'reroute', 'source', 'symbol'].sort(),
+      [
+        'background',
+        'fn',
+        'import',
+        'layer',
+        'map',
+        'preset',
+        'reroute',
+        'source',
+        'symbol',
+      ].sort(),
     )
   })
 
@@ -83,6 +94,25 @@ describe('@xgis/blueprint codegen contract', () => {
     const back = xgisToGraph(src)
     const node = back.nodes.find((n) => n.type === 'preset')!
     expect(node.data.params).toBe('color, radius')
+  })
+
+  it('fn nodes round-trip codegen → compiler → import (#1535)', () => {
+    const f = {
+      id: uid('n'),
+      type: 'fn' as const,
+      x: 0,
+      y: 0,
+      data: { name: 'halo', params: 'width, base', body: 'clamp(width * 1.5 + base, 1, 24)' },
+    }
+    const g: BPGraph = { nodes: [f], edges: [] }
+    const src = graphToXgis(g)
+    expect(src).toContain('fn halo(width, base) { return clamp(width * 1.5 + base, 1, 24) }')
+    expect(() => parses(src)).not.toThrow()
+
+    const back = xgisToGraph(src)
+    const node = back.nodes.find((n) => n.type === 'fn')!
+    expect(node.data.params).toBe('width, base')
+    expect(node.data.body).toBe('clamp(width * 1.5 + base, 1, 24)')
   })
 
   it('reroute knots are transparent in codegen', () => {

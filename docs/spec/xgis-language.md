@@ -13,7 +13,9 @@ bug.
 > **Language work landed.** This spec describes `main` after the **#1072 / #1138**
 > grammar prune: `let`, `fn`, `show`, `style`, and the imperative control-flow
 > statements (`if` / `else` / `for` / `in` / `return`) were removed, and the former
-> `style` block folded into `preset`. It also reflects #1065 (unified spanned
+> `style` block folded into `preset`. **#1535** later REINTRODUCED `fn` end-to-end
+> in its expression-bodied form (§2.10) and **#1536** added preset parameters
+> (§2.5). It also reflects #1065 (unified spanned
 > diagnostics + parser multi-error recovery), #1071 (recursive import resolution +
 > `import * as ns`), and #1066 (unknown-function lower errors, `X-GIS0012`).
 
@@ -159,15 +161,17 @@ becomes that keyword token, `true`/`false` become `BOOL`, otherwise `IDENT`. The
 keywords (major 1):
 
 ```
-source  layer  background  preset  import  symbol  keyframes  from  to
+source  layer  background  preset  fn  import  symbol  keyframes  from  to
 ```
 
 Every keyword except `from` and `to` opens a top-level statement (§2). `from` and
 `to` begin no statement — they are keyframe selectors / aliases (§2.11) and may also
-appear as `utility-name` segments (§3.10). `true` / `false` are keyed in the same
-table but lex as `BOOL`. The pre-#1072 reserved-only keywords (`let fn show style if
-else for in return place view on simulate analyze struct enum export`) were removed
-from the table — each now lexes as an ordinary `IDENT`.
+appear as `utility-name` segments (§3.10), as may `fn` (`fn-*` / `-fn-` hyphen-joined
+names stay valid, §3.10). `true` / `false` are keyed in the same table but lex as
+`BOOL`. The pre-#1072 reserved-only keywords (`let show style if else for in return
+place view on simulate analyze struct enum export`) were removed from the table — each
+now lexes as an ordinary `IDENT`; `fn` alone was REINTRODUCED as a real keyword by
+#1535 (§2.10).
 
 ## 1.7 Operators and punctuation
 
@@ -189,8 +193,8 @@ character"**), e.g. `@` or `$`.
 ```
 program   = version-pragma statement*
 statement = source-statement | layer-statement | background-statement
-          | preset-statement | import-statement | symbol-statement
-          | keyframes-statement
+          | preset-statement | fn-statement | import-statement
+          | symbol-statement | keyframes-statement
 ```
 
 `parse()` (`parser.ts`) consumes the pragma, then loops `parseStatement` to `EOF`.
@@ -380,10 +384,42 @@ The legacy imperative `show` render form was removed. `show` now lexes as an ord
 `IDENT` and begins no statement; declarative `layer` blocks (§2.3) are the render
 surface.
 
-## 2.10 `fn` — removed (#1072 / #1138)
+## 2.10 `fn`
 
-Named functions were removed. `fn` now lexes as an ordinary `IDENT` and begins no
-statement; the language has no user-defined functions or function bodies.
+```
+fn-statement = "fn" IDENT "(" ( IDENT ( "," IDENT )* )? ")" "{" "return" expression "}"
+```
+
+A user-defined function (#1535 — reintroduced end-to-end after the #1072 prune; the
+pre-#1072 `fn` was parse-only surface and stays dead in its imperative form, §2.13).
+v1 bodies are **expression-bodied**: exactly one `return <expr>` (`return` is matched
+by identifier value, not a keyword); branching is `?:` or `match`. Any imperative body
+is a hard `X-GIS0010`.
+
+Semantics: calls are **inlined at lower time** (`ir/fn-inline.ts`), so the evaluator,
+the classifier, and the WGSL codegen never see a user-fn call — a body built from
+GPU-safe builtins rides the per-feature-GPU path unchanged. Three rules are enforced
+at inline time:
+
+- the user-fn call graph must be **acyclic** — self or mutual recursion is `X-GIS0015`;
+- call arity must match the declaration — `X-GIS0016` at the call-site line;
+- a body's bare identifiers must be its **parameters** (plus the camera identifiers
+  `zoom`/`pitch`) — `X-GIS0017`. Feature data is always explicit `.field` access, so a
+  body can never capture a feature property by accident.
+
+Fns are cherry-pickable by name through imports and collide across files like any
+top-level definition; under a namespaced splice (`import * as ns`) they stay **global**
+like `symbol` definitions — a qualified name is not a legal callee identifier.
+
+```xgis
+xgis 1
+fn halo(width, base) { return clamp(width * 1.5 + base, 1, 24) }
+source w { type: geojson, url: "w.geojson" }
+layer roads {
+  source: w
+  | stroke-[halo(.width, 2)]
+}
+```
 
 ## 2.11 `keyframes`
 
