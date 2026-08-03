@@ -278,17 +278,6 @@ export class ComputeDispatcher {
     this.device.queue.writeBuffer(buffer, 0, data.buffer, data.byteOffset, data.byteLength)
   }
 
-  /**
-   * Dispatch a compute kernel produced by the compiler's compute-gen
-   * emitters. The caller is responsible for the lifetime of the
-   * supplied buffers; `countBuffer` MUST be a 16-byte uniform buffer
-   * with the feature count in its first u32 (the WebGPU minimum for
-   * uniform bindings is 16 bytes, hence vec4<u32> on the WGSL side).
-   *
-   * Workgroup count is taken from `kernel.dispatchSize(featureCount)`
-   * so the kernel author's ceiling math is the single source of
-   * truth.
-   */
   /** RHI form of `dispatchKernel` (#1046 F4 Inc-C): the map-side compute
    *  thread hands over the RHI frame encoder and the ONE unwrap happens here,
    *  in the adapter, where natives are legal. Same early-out first. */
@@ -313,6 +302,17 @@ export class ComputeDispatcher {
     )
   }
 
+  /**
+   * Dispatch a compute kernel produced by the compiler's compute-gen
+   * emitters. The caller is responsible for the lifetime of the
+   * supplied buffers; `countBuffer` MUST be a 16-byte uniform buffer
+   * with the feature count in its first u32 (the WebGPU minimum for
+   * uniform bindings is 16 bytes, hence vec4<u32> on the WGSL side).
+   *
+   * Workgroup count is taken from `kernel.dispatchSize(featureCount)`
+   * so the kernel author's ceiling math is the single source of
+   * truth.
+   */
   dispatchKernel(
     encoder: GPUCommandEncoder,
     kernel: DispatchKernel,

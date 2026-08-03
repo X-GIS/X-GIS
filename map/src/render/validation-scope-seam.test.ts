@@ -30,10 +30,13 @@ describe('validation-scope seam (#1046 F4 Inc-A)', () => {
 
   it('render-loop speaks the RHI form at the frame + pass scopes', () => {
     const src = loopSrc()
+    // RECEIVER-pinned (review MINOR-1): the scopes must ride the FRAME device —
+    // a pair moved to a different RhiDevice would unbalance the native stack
+    // while a receiver-blind count stayed green.
     // Two pushes (frame-level + the passScope helper) and two pops (the
     // passScope finally + the frame-level report) — the same four sites,
     // RHI-spelled. Counted exactly so a half-converted loop goes red.
-    expect(src.match(/\.pushValidationScope\(\)/g) ?? []).toHaveLength(2)
-    expect(src.match(/\.popValidationScope\(\)/g) ?? []).toHaveLength(2)
+    expect(src.match(/rhiFrame\.pushValidationScope\(\)/g) ?? []).toHaveLength(2)
+    expect(src.match(/rhiFrame\.popValidationScope\(\)/g) ?? []).toHaveLength(2)
   })
 })
