@@ -242,7 +242,7 @@ export const arrow_screen_lonlat = fn('arrow_screen_lonlat', { ndc: vec2fT }, (a
     ],
     () => {
       const c = Let(project(pp.y, pp.z, pp))
-      const g = Let(unproject_flat({ tgt: vec2(hit.x.add(c.x), hit.y.add(c.y)), proj_params: pp }))
+      const g = Let(unproject_flat({ dest: vec2(hit.x.add(c.x), hit.y.add(c.y)), proj_params: pp }))
       return vec3(g.x, g.y, min(g.z, hit.w))
     },
   )
