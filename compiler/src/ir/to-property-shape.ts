@@ -12,6 +12,13 @@
 import type { ColorValue, SizeValue } from './render-node'
 import type { PropertyShape, RGBA } from './property-types'
 
+/** CPU-side stand-in for a `@color` / `@stroke` stage block (#1538). The
+ *  real colour is computed on the GPU from the authored vec4; this only
+ *  carries the facts the CPU side routes on — the paint EXISTS and is
+ *  opaque. White is arbitrary and never sampled: any consumer that would
+ *  show it is superseded by the variant expression. */
+const STAGE_CPU_PLACEHOLDER: RGBA = [1, 1, 1, 1]
+
 /** Convert a ColorValue to a PropertyShape<RGBA>. `kind: 'none'`
  *  collapses to `null` (caller treats it as "layer has no fill /
  *  stroke colour"). `kind: 'conditional'` folds to the fallback —
@@ -37,12 +44,15 @@ export function colorValueToShape(v: ColorValue): PropertyShape<RGBA> | null {
       return { kind: 'data-driven', expr: v.expr }
     case 'stage':
       // A stage block (#1538) resolves ENTIRELY on the GPU — the authored
-      // vec4 goes straight into the variant colour slot. There is no
-      // per-frame CPU value to hand a PropertyShape consumer, and inventing
-      // one (e.g. the expression as data-driven) would make the CPU path
-      // evaluate a vec4 into a colour slot. `null` = "no CPU-side colour",
-      // the same answer `none` gives.
-      return null
+      // vec4 goes straight into the variant colour slot, so there is no
+      // per-frame CPU colour to report. But the CPU shape is not just a
+      // colour: the runtime reads its ALPHA to decide bucketing and whether
+      // the paint exists at all. Returning `null` (the `none` answer) made
+      // the layer render blank even though the variant carried the
+      // expression — caught by the §5 gate. So: an OPAQUE placeholder,
+      // which states the true facts the CPU side needs ("this layer has a
+      // fill, and it is opaque") while the GPU owns the actual channels.
+      return { kind: 'constant', value: STAGE_CPU_PLACEHOLDER }
     case 'conditional':
       return colorValueToShape(v.fallback)
   }

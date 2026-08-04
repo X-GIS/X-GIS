@@ -143,9 +143,13 @@ export function generateShaderVariant(
     // inlined fn bodies over one field share `f:feat|ff:…`). Only
     // feature-driven results embed the expr in the shader body, so
     // uniform/constant variants keep their key bytes unchanged.
+    // A stage block's body is hashed UNCONDITIONALLY: it is authored shader
+    // code, so two layers can differ only in their block and would otherwise
+    // collide on the coarse key (`needsFeatures` is false for a constant
+    // body, which would skip the hash — the #1537 collision class again).
     exprBodyKey(
-      fillResult.needsFeatures ? fillExprNode : null,
-      strokeResult.needsFeatures ? strokeExprNode : null,
+      fillResult.needsFeatures || node.fill.kind === 'stage' ? fillExprNode : null,
+      strokeResult.needsFeatures || node.stroke.color.kind === 'stage' ? strokeExprNode : null,
     )
 
   // Aggregate categoryOrder from fill + stroke results. Both code
@@ -240,12 +244,21 @@ function processColorValue(
   // palette, no opacity re-composition. The escape hatch means the author
   // owns the final colour INCLUDING alpha.
   if (value.kind === 'stage') {
-    collectFields(value.expr.ast).forEach((f) => featureFields.add(f))
+    const stageFields = collectFields(value.expr.ast)
+    stageFields.forEach((f) => featureFields.add(f))
     const node = astToVec4Node(value.expr.ast, buildFieldMap(featureFields))
     return {
       preamble: [],
-      isConst: false,
-      needsFeatures: true,
+      // SELF-CONTAINED, like the constant-fill arm: the authored vec4 is the
+      // colour, so the variant must NOT request the `fill_color` uniform.
+      // Reporting `isConst: false` here pushed an unused field into the
+      // uniform block and the layer rendered NOTHING — caught by the §5 gate
+      // (stage scene 0 px, its utility twin 59188 px).
+      isConst: true,
+      isStage: true,
+      // ONLY when the body actually reads `.field`; demanding a feature
+      // buffer for a constant body binds an empty storage buffer.
+      needsFeatures: stageFields.size > 0,
       ...(node ? { nodeExpr: node } : {}),
     }
   }
@@ -572,6 +585,12 @@ function composeColorOpacityNode(
   color: ColorResult,
   opacity: OpacityResult,
 ): NodeLike<'vec4<f32>'> | null {
+  // A `@color` / `@stroke` stage block (#1538) is passed through UNTOUCHED:
+  // the escape hatch means the author owns the final colour INCLUDING alpha,
+  // so re-composing opacity on top would silently override what they wrote.
+  // It also keeps the emitted expression a plain `vec4(...)` construction
+  // rather than a member access over one.
+  if (color.isStage) return color.nodeExpr ?? null
   const opacityNode = opacity.nodeExpr
   if (!opacityNode) return null
   if (color.scalarNodeExpr) {

@@ -180,11 +180,12 @@ Emitted as fixed terminals (`lexer.ts` symbol tables). Two- and one-character fo
 ```
 "->"  ".."  "=="  "!="  "<="  ">="  "&&"  "||"  "??"
 "("  ")"  "{"  "}"  "["  "]"  ":"  ","  "."  "|"  "="
-"<"  ">"  "+"  "-"  "*"  "/"  "%"  "&"  "!"  "?"
+"<"  ">"  "+"  "-"  "*"  "/"  "%"  "&"  "!"  "?"  "@"
 ```
 
+`"@"` is not an operator — it only opens a **shader stage block** (§2.15b, #1538).
 Any character that starts none of the above is a hard lexer error (**"Unexpected
-character"**), e.g. `@` or `$`.
+character"**), e.g. `~` or `$`.
 
 ---
 
@@ -247,10 +248,11 @@ source world { type: geojson, url: "world.geojson" }
 
 ```
 layer-statement = "layer" IDENT "{" layer-item* "}"
-layer-item      = utility-line | style-property | block-property ","?
+layer-item      = stage-block | utility-line | style-property | block-property ","?
 ```
 
-The richest block. Each item is dispatched (`parseLayerStatement`): a `"|"` starts a
+The richest block. Each item is dispatched (`parseLayerStatement`): a `"@"` starts a
+**shader stage block** (§2.15b); a `"|"` starts a
 **utility line** (§2.12); a `fill|opacity|size|stroke|stroke-width` identifier
 directly followed by `":"` is a **style property** (§2.14, CSS-like); anything else
 is a **block property** (§2.14, `key: value`). The three item kinds may interleave
@@ -525,6 +527,43 @@ bare expression (`42`, `[1, 2, 3]`, `x | round`, …) at statement position was
 removed; any token that is not a statement keyword (§2) is now a hard syntax error
 (`parseStatement`). Expressions appear only inside block / style properties and
 utility bindings.
+
+## 2.15b Shader stage blocks (`@color` / `@stroke`)
+
+```
+stage-block = "@" ( "color" | "stroke" ) "{" "return" expression "}"
+```
+
+Authored inside a `layer` body (§2.3), a stage block is the language's **Level-4
+escape hatch** (DESIGN.md P7): it writes the fragment colour directly instead of
+going through the utility vocabulary. Bodies are **expression-bodied** like `fn`
+(§2.10) — exactly one `return <expr>`, `return` matched by identifier value — and
+must evaluate to **vec4** (§3.13); any other type is `X-GIS0020`.
+
+Semantics:
+
+- The body lowers to **shader-dsl IR, never WGSL/GLSL text**, so the GLSL backend,
+  the lint pass, reflection and the CPU oracle keep working. It lands in the same
+  variant colour slot a data-driven paint fills, so the composer is untouched.
+- User `fn`s are usable inside a block (they are inlined first, §2.10), as is any
+  GPU-safe expression.
+- A stage block **wins over utility-authored paint on the same axis** — the
+  explicit escape hatch is never silently overridden by a stray `fill-*`.
+- The author owns the final colour **including alpha**; opacity utilities are not
+  re-composed on top.
+- **`@position` does not exist.** Vertex displacement has no slot in the variant
+  composer today, so it is deferred rather than faked; `@position` is a syntax
+  error naming that reason.
+
+```xgis
+xgis 1
+fn tint(x) { return clamp(x * 1.5, 0, 1) }
+source w { type: geojson, url: "w.geojson" }
+layer painted {
+  source: w
+  @color { return vec4(tint(.r), 0.25, 0.5, 1) }
+}
+```
 
 ## 2.16 `struct`
 

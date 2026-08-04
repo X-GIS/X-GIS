@@ -525,6 +525,20 @@ export const DEMOS_FIXTURES: Record<string, Demo> = {
       'Synthetic earth-surface background fill only — AC2c.3.2 mesh density verification.',
     source: load('fixture-synth-bg-only.xgis'),
   },
+  fixture_stage_color: {
+    name: 'Fixture: @color stage block (#1538)',
+    tag: 'fixture',
+    description:
+      'The fragment colour authored directly as a vec4 through a `@color` shader stage block. Pixel-parity twin: fixture_stage_color_twin (_stage-block-parity.spec.ts).',
+    source: load('fixture-stage-color.xgis'),
+  },
+  fixture_stage_color_twin: {
+    name: 'Fixture: @color stage block, utility twin (#1538)',
+    tag: 'fixture',
+    description:
+      'The same scene with the colour written as an ordinary fill utility — must render pixel-identical to fixture_stage_color.',
+    source: load('fixture-stage-color-twin.xgis'),
+  },
   fixture_fn_binding: {
     name: 'Fixture: user-fn binding (#1535)',
     tag: 'fixture',

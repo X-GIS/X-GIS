@@ -1,0 +1,11 @@
+// @case valid
+// @construct stage-block
+// @desc a `@color` shader stage block authoring the fragment colour directly (#1538)
+xgis 1
+fn tint(x) { return clamp(x * 1.5, 0, 1) }
+source w { type: geojson, url: "w.geojson" }
+layer painted {
+  source: w
+  @color { return vec4(tint(.r), 0.25, 0.5, 1) }
+  @stroke { return vec4(0, 0, 0, 1) }
+}
