@@ -43,10 +43,13 @@ describe('the streamline walk costs what it should — no re-inlined tap chain (
   // first diagnosis and cutting its binding changed nothing at all.
   //
   // The budget is exact and derived, not a ceiling picked to pass: every integration step reads
-  // both components, and the symbolization reads them once more at the walk's end.
-  const budget = ARROW_TRAIN_STEPS * 2 + 2
+  // both components — and that is ALL. The end-of-walk pair went with #1558: the glyph
+  // re-symbolizes at its last LIVE footing, whose velocity the loop iteration that recorded it
+  // had already fetched, so a second read of the same cell was paying for a value the walk
+  // already held.
+  const budget = ARROW_TRAIN_STEPS * 2
 
-  it('fetches the velocity pair exactly once per step, plus once to symbolize', () => {
+  it('fetches the velocity pair exactly once per step, and never again', () => {
     const w = emitArrowRetainedAdvectedWgsl()
     expect((w.match(/textureLoad\(flow_[uv]_tex/g) ?? []).length).toBe(budget)
   })
