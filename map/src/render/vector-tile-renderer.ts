@@ -1076,27 +1076,65 @@ export class VectorTileRenderer {
     if (currentZ !== this.lastZoom) this.lastZoom = currentZ
     this.currentCameraZoom = camera.zoom
     // #1057 — record this frame's visible keys for the immediate frame's
-    // tile-point accumulation: the native render() sets stableKeys before
-    // its tail emit, but here emitTilePointsRhi (called after this show's
-    // fills+strokes in the immediate sequencing) reads what THIS pass
-    // selected. Set before the fill-null bail so a points-only layer still
-    // records keys.
+    // tile-point accumulation: the native render() sets stableKeys before its
+    // tail emit, but here emitTilePointsRhi (called after this show's fills +
+    // strokes) reads what THIS pass selected. Above the paint bails, like the
+    // acquisition below it and for the same reason.
     //
     // Point-parity with the WebGPU merged set (neededKeys + fallbackKeys +
-    // protectedAncestors): protectedAncestors (the high-pitch parent inject)
-    // merges straight off `sel` — disjoint from neededKeys, so no dedup.
-    // fallbackKeys is the ONE term not reproduced: this path runs
-    // primary-only acquisition (#1140 reverted its fallback pass for a
-    // zoom-in perf regression), so mid-load fallback-ancestor points are a
-    // known residual gap vs WebGPU, not a fabricated set.
+    // protectedAncestors): the ancestors merge straight off `sel`, disjoint from
+    // neededKeys. fallbackKeys is the ONE term not reproduced — this path runs
+    // primary-only acquisition (#1140 reverted its fallback pass for a zoom-in
+    // perf regression) — so mid-load fallback-ancestor points are a known
+    // residual gap vs WebGPU, not a fabricated set.
     this.stableKeys =
       protectedAncestors.length > 0 ? [...neededKeys, ...protectedAncestors] : neededKeys
 
+    // Release the per-frame upload cap (the WebGPU body does it via beginFrame)
+    // and acquire missing tiles: catalog-hit → queue the GPU upload (pops next
+    // frame); index-miss → batch a worker request. The classify 'primary'
+    // acquisition minus fallbacks.
+    this.resetUploadFrameCap()
+    const toLoad: number[] = []
+    // `missing` counts only keys that can still MATERIALIZE — a queued/capped
+    // upload or an in-flight worker slice. Index-absent keys (the line never
+    // crosses them) must NOT count: they never resolve, so counting them held the
+    // work-pending signal high forever and span the loop at 60 fps on a fully
+    // converged frame (#834 M5 slice 5).
+    let missing = 0
+    for (const key of neededKeys) {
+      if (layerCache.has(key)) continue
+      if (this.source.hasTileData(key, sliceLayer)) {
+        const d = this.source.getTileData(key, sliceLayer)
+        if (d) {
+          this.uploadTile(key, d, sliceLayer)
+          if (!layerCache.has(key)) missing++
+        }
+      } else if (this.source.hasEntryInIndex(key)) {
+        // Tile already parsed with SOME slice but not this one → the worker
+        // emitted no bucket for this (sourceLayer, filter): legitimately empty.
+        // render()'s classifyTile calls this 'drop-empty-slice'; re-requesting is
+        // a no-op (requestTiles skips cached keys), so counting it as missing
+        // span the forced-WebGL2 loop at 60 fps forever
+        // on any style with a feature-less layer in view (OFM Bright: park /
+        // aeroway / intermittent-water at Tokyo z14).
+        if (this.source.hasTileData(key)) continue
+        toLoad.push(key)
+        missing++
+      }
+    }
+    if (toLoad.length > 0) this.source.requestTiles(toLoad)
+
+    // …and only THEN ask what this show PAINTS. Acquisition sits ABOVE these
+    // bails (#1046 Inc-F2b): a classified, visible, in-zoom show can paint no
+    // fill — label-only, points-only, a hit area at alpha 0 — and still need its
+    // tiles, because the label dispatch and the point emit read THIS selection.
+    // Below them it never ran for those shows: they drew NOTHING, silently.
     const fill = resolvedShow.fill ?? (show.fill ? parseHexColor(show.fill) : null)
-    if (!fill) return 0
+    if (!fill) return missing
     const opacity = resolvedShow.opacity
     const fillA = fill[3] * opacity
-    if (fillA <= 0.005) return 0
+    if (fillA <= 0.005) return missing
 
     // #1059 — fill-pattern twin. The SAME single authority the WebGPU render() packs
     // decides pattern-active + the slot bytes (fill_color = atlas-UV bbox, fill_translate
@@ -1131,41 +1169,6 @@ export class VectorTileRenderer {
     // Variant 0 = STENCIL_WRITE (compare 'always') — the ref value is inert,
     // set once for determinism.
     pass.setStencilReference(1)
-
-    // Release the per-frame upload cap (the WebGPU frame body does this via
-    // its own beginFrame ordering) and acquire missing tiles: catalog-hit →
-    // queue the GPU upload (pops next frame); index-miss → batch a worker
-    // request. Mirrors the classify 'primary' acquisition minus fallbacks.
-    this.resetUploadFrameCap()
-    const toLoad: number[] = []
-    // `missing` counts only keys that can still MATERIALIZE — a queued/capped
-    // upload or an in-flight worker slice. Index-absent keys (the line never
-    // crosses them) must NOT count: they never resolve, so counting them held
-    // the returned work-pending signal high forever and the loop span at
-    // 60 fps on a fully-converged frame (#834 M5 slice 5).
-    let missing = 0
-    for (const key of neededKeys) {
-      if (layerCache.has(key)) continue
-      if (this.source.hasTileData(key, sliceLayer)) {
-        const d = this.source.getTileData(key, sliceLayer)
-        if (d) {
-          this.uploadTile(key, d, sliceLayer)
-          if (!layerCache.has(key)) missing++
-        }
-      } else if (this.source.hasEntryInIndex(key)) {
-        // Tile already parsed with SOME slice but not this one → the worker
-        // emitted no bucket for this (sourceLayer, filter): legitimately empty
-        // here. render()'s classifyTile calls this 'drop-empty-slice';
-        // requesting it again is a no-op (requestTiles skips cached keys), so
-        // counting it as missing span the forced-WebGL2 loop at 60 fps forever
-        // on any style with a feature-less layer in view (OFM Bright: park /
-        // aeroway / intermittent-water at Tokyo z14).
-        if (this.source.hasTileData(key)) continue
-        toLoad.push(key)
-        missing++
-      }
-    }
-    if (toLoad.length > 0) this.source.requestTiles(toLoad)
 
     for (let ki = 0; ki < neededKeys.length; ki++) {
       const key = neededKeys[ki]!
@@ -1540,11 +1543,9 @@ export class VectorTileRenderer {
     return missing
   }
 
-  /** Selection + tile ACQUISITION only, for label-bearing shows (#834 M5 s3):
-   *  a label-only show never enters the fills/lines acquisition (both bail on
-   *  missing paint), but the label dispatch reads this selection. Called by the
-   *  label pass — from the TWIN only, the chain drew such shows as nothing,
-   *  silently (#1046 Inc-F2b). Returns the missing count. */
+  /** Selection + tile ACQUISITION for label-bearing shows on the forced-WebGL2
+   *  frame (#834 M5 s3). Twin-only, and REDUNDANT since renderFillsRhi acquires
+   *  above its paint bails (#1046 Inc-F2b); dies with the twin. Returns misses. */
   ensureLabelTilesRhi(
     camera: Camera,
     projType: number,
@@ -1598,7 +1599,6 @@ export class VectorTileRenderer {
       }
     }
     if (toLoad.length > 0) this.source.requestTiles(toLoad)
-    this._drawStats.recordMissedTiles(missing) // the counter keep-warm reads
     return missing
   }
 
