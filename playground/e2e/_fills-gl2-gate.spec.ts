@@ -41,6 +41,7 @@ test('ne_110m country fills render on WebGl2Device (?forcegl2=1)', async ({ page
     page.evaluate(() => {
       const w = window as unknown as {
         __xgisActiveBackend?: string
+        __xgisFrameArm?: string
         __xgisMap?: {
           ctx?: {
             rhi?: { backend?: string; gl?: WebGL2RenderingContext }
@@ -70,6 +71,7 @@ test('ne_110m country fills render on WebGl2Device (?forcegl2=1)', async ({ page
         ok: true as const,
         backend: ctx?.rhi?.backend,
         marker: w.__xgisActiveBackend,
+        arm: w.__xgisFrameArm ?? null,
         validation: (ctx?._validationErrors ?? []).map((e) => e.message).slice(0, 5),
         glError: gl.getError(),
         W,
@@ -100,8 +102,33 @@ test('ne_110m country fills render on WebGl2Device (?forcegl2=1)', async ({ page
 
   // Land (stone-200 fills) must cover a substantial share of the world view —
   // ne_110m land is ~29% of the globe; require a conservative >8% so tile
-  // pop-in variance can't flake the gate, and >0 checker (ocean) proves the
-  // fills did not blanket the frame (i.e. the anchor math places them).
+  // pop-in variance can't flake the gate.
   expect(r.fill, `country-fill pixels ${r.fill}/${r.total}`).toBeGreaterThan(r.total * 0.08)
-  expect(r.checker, `checker (ocean) pixels ${r.checker}/${r.total}`).toBeGreaterThan(r.total * 0.2)
+  // …and the ocean must not be country fill (the anchor math places them). WHICH
+  // ocean, though, depends on the frame shape — so the assertion is per-arm, and
+  // NOT a single weaker bound covering both:
+  //
+  //   twin  — the analytic checker IS the ocean. `?debug=checker` is drawn at
+  //           exactly one site in the repo, `renderFrameViaRhi` (render-loop.ts),
+  //           so this arm keeps the original ">20% checker" assertion at its
+  //           original strength. Dropping to "not fill" would have been a real
+  //           coverage loss, measured: with the checker dead the frame is fill
+  //           32.6% / black 62.1%, which ">20% checker" catches and ">20% non-fill"
+  //           does not (#1046 Inc-F2 review F-1).
+  //   chain — a sourceless frame draws nothing, which is the documented production
+  //           behaviour and WebGPU's (#1041). There is no underlay to count, so the
+  //           assertion is the property the checker was standing in for.
+  //
+  // The twin branch dies with the twin; what remains is the chain one.
+  if (r.arm === 'twin') {
+    expect(
+      r.checker,
+      `checker (ocean) pixels ${r.checker}/${r.total} — twin arm draws the analytic underlay`,
+    ).toBeGreaterThan(r.total * 0.2)
+  } else {
+    expect(
+      r.total - r.fill,
+      `non-fill (ocean) pixels ${r.total - r.fill}/${r.total}, of which checker ${r.checker}`,
+    ).toBeGreaterThan(r.total * 0.2)
+  }
 })

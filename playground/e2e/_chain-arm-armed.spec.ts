@@ -50,7 +50,19 @@ test(`?forcegl2=1 runs the ${ARMED ? 'CHAIN' : 'TWIN'} frame (XGIS_E2E_CHAIN=${A
   // The device must be WebGL2 either way — otherwise the sweep is measuring the
   // wrong backend and the arm question is moot.
   expect(observed.backend, 'device backend').toBe('webgl2')
-  expect(observed.mirror, 'the server-side global mirror reached the page').toBe(ARMED)
+  // The mirror check fires FIRST in the stale-server accident, so it — not the
+  // frameArm one below — is the message an operator actually reads. It carries the
+  // diagnosis (review F-6: verified by staging that accident, where only this line
+  // printed).
+  expect(
+    observed.mirror,
+    ARMED
+      ? 'the server-side global mirror did NOT reach the page: this run is serving HTML with ' +
+          'no injection, so every ?forcegl2 spec in it measured the TWIN. Almost always a dev ' +
+          'server started WITHOUT XGIS_E2E_CHAIN=1 being handed back by ' +
+          'webServer.reuseExistingServer — stop it (pkill -f "[v]ite") and re-run.'
+      : 'the unarmed run must NOT see the mirror',
+  ).toBe(ARMED)
   expect(
     observed.frameArm,
     ARMED
