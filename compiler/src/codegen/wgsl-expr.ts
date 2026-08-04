@@ -32,7 +32,7 @@ import {
   vecN,
   vecComponent,
 } from './_util/node-builders'
-import { isVecComponent } from '../ir/expr-type'
+import { inferVecArity, isVecComponent } from '../ir/expr-type'
 
 /** Lane count per vec constructor name (#1537) — the GPU mirror of the
  *  evaluator's `buildVec` arities. */
@@ -177,6 +177,20 @@ export function exprToWGSL(expr: AST.Expr, fieldMap: Map<string, number>): strin
  * type domains never need a cast to meet. A vector left in a scalar
  * binding is rejected at lower time (X-GIS0018), not silently coerced.
  */
+/**
+ * Lower a vec4-typed expression — the shader stage-block entry point
+ * (#1538). Returns null when `expr` is not a vec4 construction, which the
+ * lower-time gate (X-GIS0020) has already rejected; the null keeps this
+ * total rather than fabricating a colour.
+ */
+export function astToVec4Node(
+  expr: AST.Expr,
+  fieldMap: Map<string, number>,
+): NodeLike<'vec4<f32>'> | null {
+  if (inferVecArity(expr) !== 4) return null
+  return astToVecNode(expr, fieldMap) as NodeLike<'vec4<f32>'> | null
+}
+
 function astToVecNode(
   expr: AST.Expr,
   fieldMap: Map<string, number>,

@@ -59,6 +59,7 @@ export enum TokenType {
   QuestionQuestion, // ?? (nullish coalesce)
   Bang, // !
   Question, // ?
+  At, // @ — shader stage blocks (`@color { … }`, #1538)
 
   // Special
   Newline,

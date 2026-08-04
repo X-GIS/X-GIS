@@ -121,6 +121,11 @@ export function getColorDeps(value: ColorValue): DepBits {
       return Dep.TIME
     case 'data-driven':
       return getDataExprDeps(value.expr)
+    case 'stage':
+      // A `@color` / `@stroke` stage block (#1538) is authored per-fragment
+      // over the same expression language, so its dependencies are read the
+      // same way a data-driven paint's are.
+      return getDataExprDeps(value.expr)
     case 'conditional': {
       // ConditionalBranch is `{ field: string; value: ColorValue }` —
       // matching on a per-feature property is FEATURE-dependent by

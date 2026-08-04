@@ -940,6 +940,11 @@ function lowerLayer(
   strokeTranslateXShape = acc.strokeTranslateXShape
   strokeTranslateYShape = acc.strokeTranslateYShape
   strokeColor = acc.strokeColor
+  // #1538 — a stage block WINS over utility paint (explicit escape hatch).
+  for (const st of stmt.stages ?? []) {
+    if (st.stage === 'color') fill = { kind: 'stage', expr: { ast: st.body } }
+    else strokeColor = { kind: 'stage', expr: { ast: st.body } }
+  }
   strokeWidth = acc.strokeWidth
   strokeWidthExpr = acc.strokeWidthExpr
   strokeColorExpr = acc.strokeColorExpr

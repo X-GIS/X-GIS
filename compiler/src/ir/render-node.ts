@@ -742,6 +742,7 @@ export type ColorValue =
   | { kind: 'constant'; rgba: import('./property-types').RGBA }
   | { kind: 'none' }
   | { kind: 'data-driven'; expr: DataExpr }
+  | { kind: 'stage'; expr: DataExpr } // #1538 shader stage block; vec4-typed by construction
   | { kind: 'conditional'; branches: ConditionalBranch<ColorValue>[]; fallback: ColorValue }
   | {
       kind: 'zoom-interpolated'

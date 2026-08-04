@@ -121,6 +121,11 @@ export interface ColorResult {
    *  composes it with opacity via `composeFillVec4(nodeExpr, opacity.nodeExpr)`.
    *  Mutually exclusive with `scalarNodeExpr` (the greyscale scalar path). */
   nodeExpr?: NodeLike<'vec4<f32>'>
+  /** Set by the `@color` / `@stroke` stage-block arm (#1538). The authored
+   *  vec4 is the FINAL colour — the escape hatch owns alpha — so the top
+   *  level passes `nodeExpr` through instead of re-composing opacity onto
+   *  it. */
+  isStage?: boolean
   /** Set by the scalar data-driven (grayscale) arm — the f32 value Node.
    *  Composed into `vec4(s, s, s, opacity)` at the top level (the colour is
    *  greyscale: the scalar drives r=g=b and opacity drives alpha), so it can't

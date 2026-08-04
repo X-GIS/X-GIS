@@ -15,7 +15,7 @@ import {
   emitFlowFields,
   type FlowPaint,
 } from './emit-commands-point-symbol'
-import { colorValueToShape, sizeValueToShape } from './to-property-shape'
+import { colorValueToShape, sizeValueToShape, stageColorHex } from './to-property-shape'
 import { generateShaderVariant, type ShaderVariant } from '../codegen/shader-gen'
 import { collectPalette, type Palette } from '../codegen/palette'
 import { planComputeKernels, type ComputePlanEntry } from '../codegen/compute-plan'
@@ -777,6 +777,7 @@ function composeStrokeWidthShape(
 function colorToHex(color: ColorValue): string | null {
   if (color.kind === 'none') return null
   if (color.kind === 'constant') return rgbaToHex(color.rgba)
+  if (color.kind === 'stage') return stageColorHex(color.expr)
   // For time-interpolated colors, the `base` snapshot is the fallback
   // pre-animation value — emitting it as a hex keeps the existing
   // shader-variant generator and raw pixel readback paths happy.
