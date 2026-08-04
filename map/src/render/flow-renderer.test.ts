@@ -107,6 +107,7 @@ function makeField(over: Partial<FlowFieldRegion> = {}): FlowFieldRegion {
   return {
     u: { native: `u${n}` } as never,
     v: { native: `v${n}` } as never,
+    valid: { native: `valid${n}` } as never,
     scale: 1.5,
     width: 8,
     height: 8,

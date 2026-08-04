@@ -117,6 +117,11 @@ import { ArrowOut, arrowQuadOffset, fs } from './arrow-retained'
 const bandB = storageBuffer('band_data', f32T, { group: 1, binding: 1, access: 'read' })
 const flowUTex = resource('flow_u_tex', texture2dfT, { group: 1, binding: 2 })
 const flowVTex = resource('flow_v_tex', texture2dfT, { group: 1, binding: 3 })
+/** 1 where the catalogue reports a real cell (moving or genuinely calm), 0 where it is nodata —
+ *  the distinction `flow_u_tex`/`flow_v_tex` alone cannot make, both packing nodata AND calm to
+ *  the identical `(0, 0)` (`flow-field-pack.ts`). Read only by `loadInterpolated` below, which is
+ *  the one place that needs to tell "no current" from "no data" apart. */
+const flowValidTex = resource('flow_valid_tex', texture2dfT, { group: 1, binding: 5 })
 
 /** Fetch the cell OWNING a grid-uv position, with no sampler. A vertex stage cannot call
  *  `textureSample` (no implicit derivatives), and the velocity field wants a point fetch anyway:
@@ -144,6 +149,66 @@ const loadAtUv = (
     toI32(clamp(floor(t.mul(n.sub(1)).add(0.5)), f32(0), n.sub(1)))
   const c = vec2i(owner(uv.x, toF32(d.x)), owner(uv.y, toF32(d.y)))
   return textureLoad(tex, c, u32(0))
+}
+
+/** Bilinear-blend the velocity at `uv` across VALID neighbours only — the smoothing
+ *  `loadAtUv`'s point fetch deliberately refuses, now offered where it cannot repeat #1511: a
+ *  cell contributes to the blend only when `flow_valid_tex` says it is real data, so a land or
+ *  nodata neighbour is excluded from the weighted sum rather than diluting it toward its packed
+ *  `(0, 0)`. A genuinely CALM neighbour (valid, zero speed) blends in normally — fading smoothly
+ *  toward slack water is correct, unlike fading toward a shore that never reported a current.
+ *
+ *  Four explicit `textureLoad`s per component, not a filtering sampler: nothing here has screen
+ *  derivatives to hand `textureSample` (this still runs in a vertex stage), and the corner
+ *  weights need per-corner validity gating a hardware sampler has no way to express anyway. Run
+ *  ONCE per glyph, after the walk settles on `posLive` — seeing the intermediate taps blur made
+ *  no visible difference (the walk only cares about arrival, not the curvature en route) and
+ *  would have multiplied this same cost by `ARROW_TRAIN_STEPS`. */
+const loadInterpolated = (uv: { x: ReturnType<typeof f32>; y: ReturnType<typeof f32> }) => {
+  const d = textureDimensions(flowUTex.node)
+  const nx = Let(toF32(d.x))
+  const ny = Let(toF32(d.y))
+  // Same `col/(n − 1)` convention `loadAtUv` uses, kept fractional here instead of rounded to one
+  // owner texel.
+  const fx = Let(clamp(uv.x.mul(nx.sub(1)), f32(0), nx.sub(1)))
+  const fy = Let(clamp(uv.y.mul(ny.sub(1)), f32(0), ny.sub(1)))
+  const x0 = Let(floor(fx))
+  const y0 = Let(floor(fy))
+  const tx = Let(fx.sub(x0))
+  const ty = Let(fy.sub(y0))
+  const x1 = Let(min(x0.add(f32(1)), nx.sub(1)))
+  const y1 = Let(min(y0.add(f32(1)), ny.sub(1)))
+  const w00 = Let(f32(1).sub(tx).mul(f32(1).sub(ty)))
+  const w10 = Let(tx.mul(f32(1).sub(ty)))
+  const w01 = Let(f32(1).sub(tx).mul(ty))
+  const w11 = Let(tx.mul(ty))
+
+  const corner = (cx: ReturnType<typeof Let<'f32'>>, cy: ReturnType<typeof Let<'f32'>>) => {
+    const c = Let(vec2i(toI32(cx), toI32(cy)))
+    return {
+      u: Let(textureLoad(flowUTex.node, c, u32(0)).x),
+      v: Let(textureLoad(flowVTex.node, c, u32(0)).x),
+      valid: Let(textureLoad(flowValidTex.node, c, u32(0)).x),
+    }
+  }
+  const c00 = corner(x0, y0)
+  const c10 = corner(x1, y0)
+  const c01 = corner(x0, y1)
+  const c11 = corner(x1, y1)
+
+  const g00 = Let(w00.mul(step(f32(0.5), c00.valid)))
+  const g10 = Let(w10.mul(step(f32(0.5), c10.valid)))
+  const g01 = Let(w01.mul(step(f32(0.5), c01.valid)))
+  const g11 = Let(w11.mul(step(f32(0.5), c11.valid)))
+  const wsum = Let(max(g00.add(g10).add(g01).add(g11), f32(1e-6)))
+
+  const u = Let(
+    c00.u.mul(g00).add(c10.u.mul(g10)).add(c01.u.mul(g01)).add(c11.u.mul(g11)).div(wsum),
+  )
+  const v = Let(
+    c00.v.mul(g00).add(c10.v.mul(g10)).add(c01.v.mul(g01)).add(c11.v.mul(g11)).div(wsum),
+  )
+  return { x: u, y: v }
 }
 
 /** Read band row `b`'s slot from the uploaded catalogue table (s111-portrayal.ts). */
@@ -274,8 +339,6 @@ const vsAdvected = fn(
     // speed 0 / noData" holds where it should, on the water the seed is actually in.
     const posLive = Var(uv0)
     const offLive = Var(vec2(f32(0), f32(0)))
-    const vuLive = Var(f32(0))
-    const vvLive = Var(f32(0))
     for (let k = 0; k < ARROW_TRAIN_STEPS; k++) {
       // `Let`, AND THIS IS LOAD-BEARING. Each is read by the direction and by the step, and an
       // unbound expression node is re-inlined at every read, texture fetch and all — measured on
@@ -292,8 +355,6 @@ const vsAdvected = fn(
       const dead = Let(f32(1).sub(alive))
       posLive.assign(pos.mul(alive).add(posLive.mul(dead)))
       offLive.assign(offPx.mul(alive).add(offLive.mul(dead)))
-      vuLive.assign(vu.mul(alive).add(vuLive.mul(dead)))
-      vvLive.assign(vv.mul(alive).add(vvLive.mul(dead)))
       // `aspect` re-expresses the metric east/north components as UV RATES. A uv unit is a
       // different true distance on each axis (cell aspect × cos lat), so feeding the components to
       // the basis raw would point the glyph at one angle while the train advanced at another. The
@@ -313,13 +374,18 @@ const vsAdvected = fn(
     // binds no tint buffer at all — there is no launch colour to read by accident.
     //
     // STANDING IN, which since #1558 means the last LIVE footing rather than the walk's raw end.
-    // The velocity there was already fetched by the loop iteration that recorded it, so the two
-    // end-of-walk fetches the raw end needed are GONE — the walk's own samples are the source of
-    // truth, and `arrow-density-cull.test.ts`'s pinned fetch count drops with them. The price is
-    // half a tap of lag: the loop never samples the final resting position itself, so a glyph
-    // stands at most `h = δ/2` short of where the raw end would have re-symbolized — the same
-    // cell in almost every frame, and a bounded offset always.
-    const dirPx = Let(field_uv_to_px(basis, vec2(vuLive, vvLive.neg().mul(aspect))))
+    // The price is half a tap of lag: the loop never samples the final resting position itself,
+    // so a glyph stands at most `h = δ/2` short of where the raw end would have re-symbolized —
+    // the same cell in almost every frame, and a bounded offset always.
+    //
+    // ONE interpolated read here (#1565), not the loop's own per-tap samples. The walk above still
+    // reads `flow_u_tex`/`flow_v_tex` at the OWNER cell — mortality only needs to know "moving or
+    // not", and blurring that test would risk a glyph surviving a step it should have died on. What
+    // reads blocky is the ARROW ITSELF — colour, length and heading all coming from one flat,
+    // cell-wide value — so the smoothing is spent where it is seen: the single velocity that draws
+    // this glyph, blended across valid neighbours of `posLive` (`loadInterpolated`).
+    const finalV = loadInterpolated(posLive)
+    const dirPx = Let(field_uv_to_px(basis, vec2(finalV.x, finalV.y.neg().mul(aspect))))
     const dlen = Let(max(length(dirPx), f32(1e-6)))
     const cc = Let(dirPx.x.div(dlen))
     const ss = Let(dirPx.y.div(dlen))
@@ -327,7 +393,7 @@ const vsAdvected = fn(
     // The catalogue rule, looked up rather than restated: the table's edges and its affine scale
     // pair are uploaded in these same normalized units (s111-portrayal.ts), so nothing here knows
     // a threshold, a colour or a knot.
-    const speed = Let(length(vec2(vuLive, vvLive)))
+    const speed = Let(length(vec2(finalV.x, finalV.y)))
     const band = Var(u32(0))
     for (let b = 0; b < S111_BAND_COUNT; b++) {
       band.assign(select(speed.lt(bandAt(u32(b), 0)), band, u32(b + 1)))
@@ -426,6 +492,7 @@ export const buildArrowRetainedAdvectedModule = (): ModuleDecl =>
       flowUTex.binding,
       flowVTex.binding,
       fieldViewU.binding,
+      flowValidTex.binding,
     ],
     funcs: [
       ...getGpuProjectionFuncs(),

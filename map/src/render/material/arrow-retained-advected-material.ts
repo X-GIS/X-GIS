@@ -5,9 +5,12 @@
 // group 1, and all of them exist so the VS can re-symbolize each arrow from the data under its
 // CURRENT position:
 //
-//   1 band_data    the catalogue rule as a table, in the shader's own units
-//   2 flow_u_tex   east component                   3 flow_v_tex  north component
-//   4 field_view   the per-frame camera + grid description the screen lattice is built from
+//   1 band_data       the catalogue rule as a table, in the shader's own units
+//   2 flow_u_tex      east component                 3 flow_v_tex  north component
+//   4 field_view      the per-frame camera + grid description the screen lattice is built from
+//   5 flow_valid_tex  real data vs. nodata (#1565) — lets the VS blend velocity across valid
+//                     neighbours instead of the single owner cell, without smearing a nodata
+//                     neighbour's packed (0, 0) into a shore-adjacent current
 //
 // BINDING 0 IS DELIBERATELY EMPTY. It held `feat_data`, the per-instance anchors of a field
 // generated from the GRID; #1520 step 2 replaced that generator with a lattice on the SCREEN, so
@@ -55,6 +58,12 @@ export const ARROW_ADVECTED_BINDINGS = [
   // backend — the field simply paints nothing, which is how it was found (the render gate, on the
   // WebGL2 leg). The group-0 entry above names its struct for the same reason.
   { binding: 4, kind: 'uniform', name: 'FieldView' },
+  // #1565: real data vs. nodata for the VALIDITY-GATED interpolation the re-symbolization step
+  // now reads its velocity through — `flow_u_tex`/`flow_v_tex` alone cannot tell "no current"
+  // from "no data" apart, both packing to `(0, 0)`. Binding 5, after FieldView, for the same
+  // reason binding 0 stays a gap: renumbering an existing entry for an addition is a diff across
+  // two files for no gain.
+  { binding: 5, kind: 'texture', name: 'flow_valid_tex', vertexVisible: true },
 ] as const
 
 export class RetainedArrowAdvectedDraper {
@@ -93,6 +102,7 @@ export class RetainedArrowAdvectedDraper {
     band: RhiBuffer,
     flowU: RhiTextureView,
     flowV: RhiTextureView,
+    flowValid: RhiTextureView,
     view: RhiBuffer,
   ): RhiBindGroup {
     return this.material.rhi.createBindGroup(this.material.layout(1), [
@@ -100,6 +110,7 @@ export class RetainedArrowAdvectedDraper {
       { binding: 2, resource: { view: flowU } },
       { binding: 3, resource: { view: flowV } },
       { binding: 4, resource: { buffer: view } },
+      { binding: 5, resource: { view: flowValid } },
     ])
   }
 
