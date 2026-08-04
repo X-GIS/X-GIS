@@ -26,6 +26,10 @@ function harness() {
   const camera = { __camera: true }
   const targets = { __heatmapTargets: true }
   const ctx = {
+    // The density accumulation blends into a float target, so the pass asks the
+    // DEVICE first (#1046 Inc-F2c) — a stub without caps would fail-close and
+    // this seam would never be exercised.
+    rhi: { caps: { floatBlendTargets: true } },
     rhiEncoder: enc,
     rhiScreenView: screenView,
     rhiColorView: { __rhiColorView: true },
