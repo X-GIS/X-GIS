@@ -50,9 +50,13 @@ export class StatementParser extends ExpressionParser {
     const properties: AST.BlockProperty[] = []
     const utilities: AST.UtilityLine[] = []
     const styleProperties: AST.StyleProperty[] = []
+    const stages: AST.StageBlock[] = []
 
     while (!this.check(TokenType.RBrace) && !this.isEnd()) {
-      if (this.check(TokenType.Pipe)) {
+      if (this.check(TokenType.At)) {
+        // Shader stage block: @color { return <expr> }  (#1538)
+        stages.push(this.parseStageBlock())
+      } else if (this.check(TokenType.Pipe)) {
         // Utility line: | item item item ...
         utilities.push(this.parseUtilityLine())
       } else if (this.isStylePropertyStart()) {
@@ -68,7 +72,42 @@ export class StatementParser extends ExpressionParser {
     }
     this.expect(TokenType.RBrace)
 
-    return { kind: 'LayerStatement', name, properties, utilities, styleProperties, line }
+    const stmt: AST.LayerStatement = {
+      kind: 'LayerStatement',
+      name,
+      properties,
+      utilities,
+      styleProperties,
+      line,
+    }
+    if (stages.length > 0) stmt.stages = stages
+    return stmt
+  }
+
+  /** `@color { return <expr> }` — a shader stage block (#1538).
+   *  Expression-bodied like `fn` (§2.10): `return` is matched by token
+   *  VALUE (it lexes as an ordinary identifier), so no new keyword. */
+  private parseStageBlock(): AST.StageBlock {
+    const line = this.current().line
+    this.expect(TokenType.At)
+    const stage = this.expect(TokenType.Identifier).value
+    if (stage !== 'color' && stage !== 'stroke') {
+      this.error(
+        `Unknown shader stage \`@${stage}\` — expected @color or @stroke. ` +
+          `(@position is not implemented: the variant composer has no vertex-side slot.)`,
+      )
+    }
+    this.expect(TokenType.LBrace)
+    if (!(this.check(TokenType.Identifier) && this.current().value === 'return')) {
+      this.error(
+        `Expected \`return <expression>\` in the @${stage} block — stage bodies are ` +
+          `expression-bodied (a single return; use \`?:\` or \`match\` for branching)`,
+      )
+    }
+    this.advance() // consume `return`
+    const body = this.parseExpr()
+    this.expect(TokenType.RBrace)
+    return { stage: stage as AST.StageBlock['stage'], body, line }
   }
 
   // background { fill: sky-900 } — Mapbox-style canvas clear color.

@@ -137,6 +137,7 @@ export class Lexer {
         '|': TokenType.Pipe,
         '!': TokenType.Bang,
         '?': TokenType.Question,
+        '@': TokenType.At,
       }
 
       const tokenType = singleChars[ch]

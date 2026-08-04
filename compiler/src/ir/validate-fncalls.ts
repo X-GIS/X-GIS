@@ -114,6 +114,9 @@ function walkStatements(
           }
         }
         walkUtilityLines(s.utilities, diagnostics, declared)
+        // #1538 — stage-block bodies are ordinary expressions; a typo'd
+        // callee inside one is still X-GIS0012.
+        for (const st of s.stages ?? []) walkExpr(st.body, st.line, diagnostics, declared)
         break
       case 'BackgroundStatement':
         walkUtilityLines(s.utilities, diagnostics, declared)

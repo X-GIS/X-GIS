@@ -149,6 +149,9 @@ export type LayerStatement = {
   kind: 'LayerStatement'
   name: string
   properties: BlockProperty[]
+  /** Shader stage blocks authored on this layer (#1538). Absent on every
+   *  layer that does not use the escape hatch. */
+  stages?: StageBlock[]
   utilities: UtilityLine[]
   styleProperties: StyleProperty[] // CSS-like properties: fill: stone-800
   line: number
@@ -262,6 +265,20 @@ export type FnStatement = {
   kind: 'FnStatement'
   name: string
   params: string[]
+  body: Expr
+  line: number
+}
+
+// @color { return vec4(.r, 0.5, 0, 1) }  —  a shader stage block (#1538).
+// The Level-4 escape hatch: the body is authored in the .xgis expression
+// language and lowers to shader-dsl IR (never WGSL text), landing in the
+// SAME variant colour slot a data-driven paint already fills. Expression-
+// bodied like `fn` (§2.10): exactly one `return <expr>`, typed vec4.
+export type StageBlock = {
+  /** Which fragment colour the block authors. `@position` (vertex
+   *  displacement) is NOT here: the variant composer has no vertex-side
+   *  slot today, so it is deferred rather than faked. */
+  stage: 'color' | 'stroke'
   body: Expr
   line: number
 }

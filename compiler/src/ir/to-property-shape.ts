@@ -35,6 +35,14 @@ export function colorValueToShape(v: ColorValue): PropertyShape<RGBA> | null {
       }
     case 'data-driven':
       return { kind: 'data-driven', expr: v.expr }
+    case 'stage':
+      // A stage block (#1538) resolves ENTIRELY on the GPU — the authored
+      // vec4 goes straight into the variant colour slot. There is no
+      // per-frame CPU value to hand a PropertyShape consumer, and inventing
+      // one (e.g. the expression as data-driven) would make the CPU path
+      // evaluate a vec4 into a colour slot. `null` = "no CPU-side colour",
+      // the same answer `none` gives.
+      return null
     case 'conditional':
       return colorValueToShape(v.fallback)
   }

@@ -4,7 +4,7 @@
 
 import type { RenderNode, ColorValue, OpacityValue } from '../ir/render-node'
 import { rgbaToHex } from '../ir/render-node'
-import { astToNode, collectFields } from './wgsl-expr'
+import { astToNode, astToVec4Node, collectFields } from './wgsl-expr'
 import { buildCatPaletteConst, CAT_PALETTE_SIZE } from './categorical-encoder'
 import type { Palette } from './palette'
 import {
@@ -231,6 +231,22 @@ function processColorValue(
       isConst: false,
       needsFeatures: false,
       nodeExpr: varRefVec4(uniformName),
+    }
+  }
+
+  // ── `@color` / `@stroke` stage block (#1538) ──
+  // The authored body is vec4 by construction (X-GIS0020 at lower time), so
+  // it lowers straight into the colour slot: no greyscale expansion, no
+  // palette, no opacity re-composition. The escape hatch means the author
+  // owns the final colour INCLUDING alpha.
+  if (value.kind === 'stage') {
+    collectFields(value.expr.ast).forEach((f) => featureFields.add(f))
+    const node = astToVec4Node(value.expr.ast, buildFieldMap(featureFields))
+    return {
+      preamble: [],
+      isConst: false,
+      needsFeatures: true,
+      ...(node ? { nodeExpr: node } : {}),
     }
   }
 

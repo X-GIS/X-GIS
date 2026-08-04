@@ -15,7 +15,7 @@
 
 import type * as AST from '../parser/ast'
 import type { Diagnostic } from '../diagnostics/diagnostic'
-import { VECTOR_IN_SCALAR_POSITION } from '../diagnostics/diagnostic'
+import { VECTOR_IN_SCALAR_POSITION, STAGE_RETURN_TYPE } from '../diagnostics/diagnostic'
 import { VEC_COMPONENT_INDEX } from '../eval/evaluator-helpers'
 
 /** Lane count of the vec constructors, keyed by callee name. */
@@ -95,6 +95,21 @@ export function validateBindingTypes(program: AST.Program, diagnostics: Diagnost
   for (const s of program.body) {
     switch (s.kind) {
       case 'LayerStatement':
+        checkLines(s.utilities)
+        // #1538 — the mirror rule for stage blocks: the variant colour slot
+        // is vec4, so a body of any other type would compile a wrong-typed
+        // shader expression. Rejected here, never coerced.
+        for (const st of s.stages ?? []) {
+          if (inferVecArity(st.body) === 4) continue
+          diagnostics.push({
+            code: STAGE_RETURN_TYPE,
+            severity: 'error',
+            span: { line: st.line, col: 1 },
+            message: `Stage block \`@${st.stage}\` must return a vec4 colour.`,
+            help: `Wrap the result, e.g. \`return vec4(r, g, b, 1)\`.`,
+          })
+        }
+        break
       case 'PresetStatement':
       case 'BackgroundStatement':
         checkLines(s.utilities)

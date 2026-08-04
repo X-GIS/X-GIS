@@ -45,6 +45,8 @@
 //   X-GIS0019  error  lower     `.field` absent from the source's        (ir/validate-schema-fields.ts
 //                               declared `struct` schema, or a `schema:`   — #1537)
 //                               naming no declared struct
+//   X-GIS0020  error  lower     A shader stage block returns a non-vec4  (ir/expr-type.ts — #1538)
+//                               value — the colour slot is vec4
 //
 // #1065 added only warn/info from lower (plumbing, not policy). #1066 is
 // the first lower ERROR — `X-GIS0012` (unknown-function = error, L3 in the
@@ -96,6 +98,10 @@ export const VECTOR_IN_SCALAR_POSITION = 'X-GIS0018'
  *  declare `schema:` are checked, so `.speeed` fails loudly there while
  *  unannotated sources keep fully dynamic access. */
 export const UNKNOWN_SCHEMA_FIELD = 'X-GIS0019'
+/** A `@color` / `@stroke` stage block whose body is not vec4 (#1538). The
+ *  variant colour slot is `Node<'vec4<f32>'>`; anything else would compile
+ *  a wrong-typed shader expression, so it fails at lower time instead. */
+export const STAGE_RETURN_TYPE = 'X-GIS0020'
 
 /** A 1-based, document-relative source span. `line`/`col` are always
  *  present; `endLine`/`endCol` are optional (a point diagnostic omits
