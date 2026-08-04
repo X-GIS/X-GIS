@@ -48,10 +48,16 @@ interface Fixture {
   hash?: string
 }
 
-// The doc §3-F3 matrix. Cameras: ofm_bright_local at #14/35.68/139.76 (the F1 probe
-// camera), flat + globe; the rest at their fixture default camera.
+// The doc §3-F3 matrix. EVERY camera is PINNED via the hash (ofm at the F1 probe
+// camera; the rest at their measured settled-fit camera): a hash arms
+// markCameraPositioned, which disables the demo's post-compile bounds-fit. That
+// fit fires PER SOURCE COMPILE, so on a loaded runner a capture can land BETWEEN
+// fits — measured live: a dashed_lines twin arm captured at the land-only fit
+// (lat -3.17744, = minimal's settled value) while its chain arm sat at the final
+// land+coast fit (lat -0.98195) → DC 34,182 of pure camera offset, no render
+// difference at all. An unpinned camera is a race, not a default.
 const FIXTURES: Fixture[] = [
-  { key: 'minimal', id: 'minimal' },
+  { key: 'minimal', id: 'minimal', hash: '0.50/-3.17744/0.00000' },
   { key: 'ofm_bright_local_flat', id: 'ofm_bright_local', hash: '14/35.68/139.76' },
   {
     key: 'ofm_bright_local_globe',
@@ -59,13 +65,18 @@ const FIXTURES: Fixture[] = [
     params: 'proj=globe',
     hash: '14/35.68/139.76',
   },
-  { key: 'dashed_lines', id: 'dashed_lines' },
+  { key: 'dashed_lines', id: 'dashed_lines', hash: '0.50/-0.98195/0.00000' },
   {
     key: 'fixture_line_image_pattern',
     id: 'fixture_line_image_pattern',
     params: 'sprite=/fixture-sprite',
+    hash: '1.81/0.00000/0.00000',
   },
-  { key: 'fixture_translucent_outline', id: 'fixture_translucent_outline' },
+  {
+    key: 'fixture_translucent_outline',
+    id: 'fixture_translucent_outline',
+    hash: '1.81/0.00000/0.00000',
+  },
 ]
 
 function readHighWater(): Record<string, number | null> {
@@ -141,6 +152,10 @@ test.describe('twin-parity ratchet: chain vs twin on WebGL2 (#1046 F3)', () => {
       // "unmeasured on this runner". The CHAIN arm below is left throwing on
       // purpose: a chain-arm boot failure after the Inc-E2 flip is a real
       // chain regression, and converting THAT to a skip would hide it.
+      // Per-arm start markers: a test-level timeout log without the second
+      // marker attributes the whole budget to the twin arm (review F1 — the
+      // ofm timeouts carried no arm evidence; these lines are that artifact).
+      console.log(`[twin-parity] ${fx.key}: twin arm begins`)
       let twinBuf: Buffer
       try {
         twinBuf = await shoot(page, fx, false)
@@ -151,6 +166,7 @@ test.describe('twin-parity ratchet: chain vs twin on WebGL2 (#1046 F3)', () => {
         )
         return
       }
+      console.log(`[twin-parity] ${fx.key}: twin arm done — chain arm begins`)
       const chainPage = await context.newPage()
       const chainBuf = await shoot(chainPage, fx, true)
       writeFileSync(`${OUT}/${fx.key}.twin.png`, twinBuf)

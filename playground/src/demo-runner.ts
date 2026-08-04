@@ -282,7 +282,10 @@ if (statusDescEl) {
   document.body.appendChild(wrap)
 
   const fmtRow = (e: { kind: string; ts: number; msg: string }) => {
-    const t = new Date(e.ts).toLocaleTimeString()
+    // Under ?e2e=1 the wall clock is FROZEN: parity captures pixel-diff two
+    // runs taken seconds apart, and the live HUD clock was the last non-zero
+    // residue (#1046 Inc-E2b — 15/16 tiles exactly 0, r3c3 = these digits).
+    const t = params.has('e2e') ? '--:--:--' : new Date(e.ts).toLocaleTimeString()
     const tag = e.kind === 'error' ? '🛑' : e.kind === 'warn' ? '⚠️' : '·'
     return `[${t}] ${tag} ${e.msg}`
   }
