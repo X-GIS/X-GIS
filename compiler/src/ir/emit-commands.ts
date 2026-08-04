@@ -15,7 +15,7 @@ import {
   emitFlowFields,
   type FlowPaint,
 } from './emit-commands-point-symbol'
-import { colorValueToShape, sizeValueToShape } from './to-property-shape'
+import { colorValueToShape, sizeValueToShape, foldStageConstantRgba } from './to-property-shape'
 import { generateShaderVariant, type ShaderVariant } from '../codegen/shader-gen'
 import { collectPalette, type Palette } from '../codegen/palette'
 import { planComputeKernels, type ComputePlanEntry } from '../codegen/compute-plan'
@@ -782,15 +782,23 @@ function colorToHex(color: ColorValue): string | null {
   if (color.kind === 'none') return null
   if (color.kind === 'constant') return rgbaToHex(color.rgba)
   // A `@color` / `@stroke` stage block (#1538) computes the colour ENTIRELY
-  // on the GPU, so there is no meaningful CPU hex. It must still report an
-  // OPAQUE one: the WebGL2/RHI fill path gates the whole draw on a resolved
-  // CPU colour (`if (!fill) return 0`, vector-tile-renderer.ts) and — unlike
-  // the WebGPU path's `_skipFillDraw` — never consults `variantProducesFill`.
-  // Reporting `null` therefore made a stage layer render NOTHING while its
-  // utility twin rendered 59188 px (caught by the §5 gate). The value is a
-  // presence-and-opacity placeholder; the variant expression overwrites every
-  // channel before anything reaches the framebuffer.
-  if (color.kind === 'stage') return STAGE_CPU_PLACEHOLDER_HEX
+  // on the GPU, so a data-driven body has no meaningful CPU hex. It must
+  // still report an OPAQUE one: the WebGL2/RHI fill path gates the whole
+  // draw on a resolved CPU colour (`if (!fill) return 0`,
+  // vector-tile-renderer.ts) and — unlike the WebGPU path's
+  // `_skipFillDraw` — never consults `variantProducesFill`, and further,
+  // that backend never compiles a GPU shader variant at all for polygon
+  // fills, so it always paints whatever hex is reported here. Reporting
+  // `null` therefore made a stage layer render NOTHING while its utility
+  // twin rendered 59188 px (caught by the §5 gate). A compile-time-constant
+  // body instead reports its REAL colour (foldStageConstantRgba) so WebGL2
+  // paints it correctly too; a data-driven body keeps this
+  // presence-and-opacity placeholder, since WebGL2 has no per-feature GPU
+  // fill to fall back on.
+  if (color.kind === 'stage') {
+    const rgba = foldStageConstantRgba(color.expr)
+    return rgba ? rgbaToHex(rgba) : STAGE_CPU_PLACEHOLDER_HEX
+  }
   // For time-interpolated colors, the `base` snapshot is the fallback
   // pre-animation value — emitting it as a hex keeps the existing
   // shader-variant generator and raw pixel readback paths happy.

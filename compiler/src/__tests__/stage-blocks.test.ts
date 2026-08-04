@@ -13,6 +13,7 @@ import { withPragma } from './_pragma'
 import { lower } from '../ir/lower'
 import { generateShaderVariant } from '../codegen/shader-gen'
 import { nodeToWgslString } from '../codegen/node-to-wgsl'
+import { emitCommands } from '../ir/emit-commands'
 
 function parse(source: string): AST.Program {
   return new Parser(new Lexer(withPragma(source)).tokenize()).parse()
@@ -120,5 +121,31 @@ describe('stage block return type is checked (#1538)', () => {
 
   it('a vec4 body is accepted', () => {
     expect(errs(SCENE('@color { return vec4(1, 0, 0, 1) }'))).toEqual([])
+  })
+})
+
+describe('stage block CPU colour fold (#1538 placeholder fix)', () => {
+  it('a compile-time-constant @color body reports its real hex, not the white placeholder', () => {
+    const cmds = emitCommands(lower(parse(SCENE('@color { return vec4(0.8, 0.4, 0.2, 1) }'))))
+    expect(cmds.shows[0]!.fill).not.toBe('#ffffffff')
+    expect(cmds.shows[0]!.fill).toBe('#cc6633') // 0.8*255=204=cc, 0.4*255=102=66, 0.2*255=51=33
+  })
+
+  it('a data-driven @color body keeps the opaque-white CPU placeholder', () => {
+    const cmds = emitCommands(lower(parse(SCENE('@color { return vec4(.r, 0, 0, 1) }'))))
+    expect(cmds.shows[0]!.fill).toBe('#ffffffff')
+  })
+
+  it('paintShapes.fill.fill mirrors the same constant/placeholder split', () => {
+    const constShow = emitCommands(lower(parse(SCENE('@color { return vec4(1, 0, 0, 1) }'))))
+      .shows[0]!
+    expect(constShow.paintShapes.fill.fill).toMatchObject({ kind: 'constant', value: [1, 0, 0, 1] })
+
+    const dataShow = emitCommands(lower(parse(SCENE('@color { return vec4(.r, 0, 0, 1) }'))))
+      .shows[0]!
+    expect(dataShow.paintShapes.fill.fill).toMatchObject({
+      kind: 'constant',
+      value: [1, 1, 1, 1],
+    })
   })
 })

@@ -1,12 +1,12 @@
 // ═══ §5 render gate for stage blocks (#1538): @color ≡ utility twin ═══
 //
 // fixture_stage_color authors the fragment colour directly as
-// `@color { return vec4(0.9, 0.4, 0.1, 1) }`; fixture_stage_color_twin
-// writes the same colour the ordinary way (`fill-#e56619`). The escape
-// hatch must reach the EXACT same pixels as the vocabulary it bypasses —
-// the strongest rung of the render-gate ladder (hash equality; the
-// harness is deterministic: fixed camera, inline data, software
-// rasterizer under XGIS_SOFTWARE_GPU=1).
+// `@color { return vec4(0.8, 0.4, 0.2, 1) }`; fixture_stage_color_twin
+// writes the same colour the ordinary way (`fill-#cc6633`, the exact 8-bit
+// round-trip of the same vec4). The escape hatch must reach the EXACT same
+// pixels as the vocabulary it bypasses — the strongest rung of the
+// render-gate ladder (hash equality; the harness is deterministic: fixed
+// camera, inline data, software rasterizer under XGIS_SOFTWARE_GPU=1).
 //
 // This is the gate that proves the stage block really drives the shader:
 // it lands in the same variant colour slot the utility path fills, so a
@@ -19,6 +19,19 @@
 // in-page `canvas.toBlob` reads a cleared buffer on a WebGL canvas
 // without preserveDrawingBuffer) and are decoded node-side with pngjs;
 // a non-background floor keeps blank-vs-blank from passing vacuously.
+//
+// `&adaptive=0` pins the adaptive quality controller off. Diagnosed by
+// direct probing: with it left on, the polygon-fill edge antialiasing
+// settles to a DIFFERENT quality tier depending on incidental navigation
+// timing (which fixture happened to load first in the page, how long the
+// self-stabilizing capture loop below took to see two matching hashes) —
+// not on anything either fixture authors. Two independently-tessellated,
+// byte-identical-content polygons (proven by a throwaway probe fixture)
+// hash-matched perfectly; the SAME pair, loaded in the opposite order,
+// did not — so the mismatch was the ladder's settle race, not a render
+// defect. `_adaptive-quality-ladder-gate.spec.ts` documents the ladder
+// needing up to ~24s to fully settle; pinning it off is the deterministic
+// fix rather than chasing that budget here.
 
 import { test, expect } from '@playwright/test'
 import { PNG } from 'pngjs'
@@ -81,7 +94,7 @@ async function captureScene(
   // ptdur=0 + fade=0: disable paint transitions and symbol fades — the
   // documented idiom for pixel-exact screenshot gates (demo-runner.ts);
   // a mid-fade capture is the hash-flake this gate cannot afford.
-  await page.goto(`/demo.html?id=${id}&backend=webgl2&e2e=1&ptdur=0&fade=0`, {
+  await page.goto(`/demo.html?id=${id}&backend=webgl2&e2e=1&ptdur=0&fade=0&adaptive=0`, {
     waitUntil: 'domcontentloaded',
   })
   await expect(page.locator('#backend-tag')).toHaveText('WebGL2', { timeout: 30_000 })
