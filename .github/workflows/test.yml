@@ -345,6 +345,14 @@ jobs:
           restore-keys: bun-${{ runner.os }}-
       - run: bun install --frozen-lockfile
       - run: bun run lint
+        # Type-aware lint builds a TS program per package; measured peak is 5.86 GB on
+        # this tree, over Node's ~4 GB default old-space (the OOM that killed this job
+        # on its first run). Runners have 16 GB, so 8 GB leaves real headroom. If a
+        # future tree pushes past THIS ceiling, SHARD this job by package the way
+        # `test` is sharded for its own resource ceiling — do not keep raising it.
+        env:
+          NODE_OPTIONS: --max-old-space-size=8192
+      # `knip` needs nothing: measured peak 1.33 GB, well inside the default.
       - run: bun run knip
 
   # Site build gate. The engine `test` matrix used to be the only thing that
