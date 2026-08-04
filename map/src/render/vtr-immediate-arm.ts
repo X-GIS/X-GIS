@@ -40,12 +40,18 @@ export interface ImmediateArmArgs {
 
 /** Draw one show through the immediate-mode entries. The caller (VTR.render)
  *  has already gated on `caps.executionModel === 'immediate'` and excluded
- *  'oit-fill'. */
-export function renderImmediateArm(vtr: VectorTileRenderer, a: ImmediateArmArgs): void {
+ *  'oit-fill'. Returns the summed MISSING-tile count the entries report as
+ *  their return values — the caller must fold it into FrameDrawStats so the
+ *  chain's keep-warm gate re-arms (arch review F1: dropping it is the
+ *  half-loaded-freeze class, #834 M5 slice 5). Order is the twin's:
+ *  fills → strokes → tile points (render-loop's opaque loop; points last so
+ *  they composite over strokes under painter's order — arch review F3). */
+export function renderImmediateArm(vtr: VectorTileRenderer, a: ImmediateArmArgs): number {
   const { rhiPass, camera, projType, projCenterLon, projCenterLat } = a
   const { canvasWidth, canvasHeight, dpr, show, resolvedShow } = a
+  let missing = 0
   if (a.phase === 'all' || a.phase === 'fills') {
-    vtr.renderFillsRhi(
+    missing += vtr.renderFillsRhi(
       rhiPass,
       camera,
       projType,
@@ -58,22 +64,9 @@ export function renderImmediateArm(vtr: VectorTileRenderer, a: ImmediateArmArgs)
       resolvedShow,
       'color',
     )
-    // Twin sequencing: the tile points read the keys the fills just selected.
-    vtr.emitTilePointsRhi(
-      rhiPass,
-      camera,
-      projType,
-      projCenterLon,
-      projCenterLat,
-      canvasWidth,
-      canvasHeight,
-      dpr,
-      show,
-      a.pointRenderer,
-    )
   }
   if (a.phase === 'all' || a.phase === 'strokes') {
-    vtr.renderLinesRhi(
+    missing += vtr.renderLinesRhi(
       rhiPass,
       camera,
       projType,
@@ -87,4 +80,21 @@ export function renderImmediateArm(vtr: VectorTileRenderer, a: ImmediateArmArgs)
       a.translucentBucket ? 'max' : 'opaque',
     )
   }
+  if (a.phase === 'all' || a.phase === 'fills') {
+    // Tile points LAST (the twin's order) — they read the keys the fills
+    // selected (stableKeys, single authority) and must land over strokes.
+    vtr.emitTilePointsRhi(
+      rhiPass,
+      camera,
+      projType,
+      projCenterLon,
+      projCenterLat,
+      canvasWidth,
+      canvasHeight,
+      dpr,
+      show,
+      a.pointRenderer,
+    )
+  }
+  return missing
 }

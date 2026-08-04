@@ -1078,8 +1078,9 @@ export class VectorTileRenderer {
     // #1057 — record this frame's visible keys for the immediate frame's
     // tile-point accumulation: the native render() sets stableKeys before
     // its tail emit, but here emitTilePointsRhi (called after this show's
-    // fills in the immediate sequencing) reads what THIS pass selected. Set
-    // before the fill-null bail so a points-only layer still records keys.
+    // fills+strokes in the immediate sequencing) reads what THIS pass
+    // selected. Set before the fill-null bail so a points-only layer still
+    // records keys.
     //
     // Point-parity with the WebGPU merged set (neededKeys + fallbackKeys +
     // protectedAncestors): protectedAncestors (the high-pitch parent inject)
@@ -2342,29 +2343,28 @@ export class VectorTileRenderer {
     fillPipelineExtrudedOverride?: RhiPipelineHandle,
     fillPipelineExtrudedFallbackOverride?: RhiPipelineHandle,
   ): void {
-    // #1046 Inc-E2 — immediate-execution arm (vtr-immediate-arm.ts): route to
-    // the *Rhi entries on an immediate device; 'oit-fill' stays native (P6).
-    if (this.rhi.caps.executionModel === 'immediate' && phase !== 'oit-fill') {
-      renderImmediateArm(this, {
-        rhiPass,
-        camera,
-        projType,
-        projCenterLon,
-        projCenterLat,
-        canvasWidth,
-        canvasHeight,
-        dpr,
-        show,
-        resolvedShow,
-        phase,
-        translucentBucket,
-        pointRenderer,
-      })
-      return
-    }
+    // #1046 Inc-E2 — immediate arm (vtr-immediate-arm.ts): *Rhi entries on an
+    // immediate device; 'oit-fill' stays native (P6). MISSING → keep-warm gate.
+    if (this.rhi.caps.executionModel === 'immediate' && phase !== 'oit-fill')
+      return this._drawStats.recordMissedTiles(
+        renderImmediateArm(this, {
+          rhiPass,
+          camera,
+          projType,
+          projCenterLon,
+          projCenterLat,
+          canvasWidth,
+          canvasHeight,
+          dpr,
+          show,
+          resolvedShow,
+          phase,
+          translucentBucket,
+          pointRenderer,
+        }),
+      )
     // Inc-2d boundary: unwrap the chain's neutral handle ONCE — the internal
-    // tile plumbing is still gap-blocked native debt; drape + tile-points
-    // take the RHI handle directly.
+    // tile plumbing is still gap-blocked native debt (drape/points take RHI).
     const pass = unwrapWebGpuPass(rhiPass) as GPURenderPassEncoder
     if (!this.source?.hasData()) return
     const index = this.source.getIndex()

@@ -11,17 +11,20 @@
 
 import { describe, it, expect, vi } from 'vitest'
 import { VectorTileRenderer } from './vector-tile-renderer'
+import { FrameDrawStats } from './frame-draw-stats'
 import type { RhiRenderPass } from '@xgis/rhi'
 
 const foreignPass = { __gl2Pass: true } as unknown as RhiRenderPass
 
-function makeVtr(executionModel: 'immediate' | 'deferred') {
+function makeVtr(executionModel: 'immediate' | 'deferred', missing = { fills: 0, lines: 0 }) {
   const vtr = Object.create(VectorTileRenderer.prototype) as VectorTileRenderer
   ;(vtr as unknown as { rhi: unknown }).rhi = { caps: { executionModel } }
-  const fills = vi.spyOn(vtr, 'renderFillsRhi').mockImplementation(() => 0)
-  const lines = vi.spyOn(vtr, 'renderLinesRhi').mockImplementation(() => 0)
+  const drawStats = new FrameDrawStats()
+  ;(vtr as unknown as { _drawStats: unknown })._drawStats = drawStats
+  const fills = vi.spyOn(vtr, 'renderFillsRhi').mockImplementation(() => missing.fills)
+  const lines = vi.spyOn(vtr, 'renderLinesRhi').mockImplementation(() => missing.lines)
   const points = vi.spyOn(vtr, 'emitTilePointsRhi').mockImplementation(() => {})
-  return { vtr, fills, lines, points }
+  return { vtr, fills, lines, points, drawStats }
 }
 
 const CAMERA = { __cam: true } as never
@@ -60,21 +63,33 @@ function callRender(
 }
 
 describe('VTR.render — immediate-arm routing (#1046 Inc-E2)', () => {
-  it("immediate + 'all' ⇒ fills('color') → tile points → strokes('opaque'), pass BY IDENTITY, no unwrap", () => {
+  it("immediate + 'all' ⇒ fills('color') → strokes('opaque') → tile points, pass BY IDENTITY, no unwrap", () => {
     const { vtr, fills, lines, points } = makeVtr('immediate')
     expect(() => callRender(vtr, 'all')).not.toThrow()
     expect(fills).toHaveBeenCalledTimes(1)
     expect(fills.mock.calls[0]![0]).toBe(foreignPass)
     expect(fills.mock.calls[0]![10]).toBe('color')
-    // Twin sequencing: points read the keys fills just selected.
+    expect(lines).toHaveBeenCalledTimes(1)
+    expect(lines.mock.calls[0]![10]).toBe('opaque')
     expect(points).toHaveBeenCalledTimes(1)
     expect(points.mock.calls[0]![0]).toBe(foreignPass)
     expect(points.mock.calls[0]![9]).toBe(POINTS)
-    expect(lines).toHaveBeenCalledTimes(1)
-    expect(lines.mock.calls[0]![10]).toBe('opaque')
-    // fills before points before lines (call order — the twin's sequencing).
-    expect(fills.mock.invocationCallOrder[0]!).toBeLessThan(points.mock.invocationCallOrder[0]!)
-    expect(points.mock.invocationCallOrder[0]!).toBeLessThan(lines.mock.invocationCallOrder[0]!)
+    // The TWIN's order (render-loop fills → lines → emit): points LAST so
+    // they composite over strokes under painter's order (arch review F3 —
+    // the first arm shipped points-before-strokes, the exact deviation this
+    // pin now fails on).
+    expect(fills.mock.invocationCallOrder[0]!).toBeLessThan(lines.mock.invocationCallOrder[0]!)
+    expect(lines.mock.invocationCallOrder[0]!).toBeLessThan(points.mock.invocationCallOrder[0]!)
+  })
+
+  it("immediate ⇒ the entries' MISSING counts fold into FrameDrawStats (the keep-warm authority)", () => {
+    // Arch review F1 (the half-loaded-freeze class, #834 M5 slice 5): the
+    // *Rhi entries report missing tiles as RETURN VALUES; the chain's
+    // keep-warm gate reads getDrawStats().missedTiles. A fork that drops
+    // the returns leaves the counter at 0 and the loop idles mid-load.
+    const { vtr, drawStats } = makeVtr('immediate', { fills: 7, lines: 3 })
+    callRender(vtr, 'all')
+    expect(drawStats.getDrawStats().missedTiles).toBe(10)
   })
 
   it("immediate + translucent 'strokes' ⇒ ONLY lines, MAX-blend material", () => {

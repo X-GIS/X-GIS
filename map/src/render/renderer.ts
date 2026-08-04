@@ -912,19 +912,12 @@ export class MapRendererContent {
   }
 
   /**
-   * Draw the lat/lon graticule overlay so it composites ON TOP of the opaque
-   * basemap. Split out of renderToPass (#970 fix): the graticule is a
-   * decoration that must land after ALL opaque content, but renderToPass runs
-   * in the opaque pass BEFORE the vector-tile group.shows (the ocean/land
-   * fills). Drawing the grid inside renderToPass therefore let the opaque fills
-   * paint over it — invisible on flat Mercator, and on globe only the lines
-   * outside the sphere disc survived. The opaque pass now invokes this in its
-   * LAST sub-pass, after that group's shows, so the grid is on top.
-   *
-   * No-ops when the overlay is disabled (default) — the ECEF frame view (same
-   * canonical builder renderToPass uses) is only computed when there's a grid
-   * to draw. mvp/eye are consumed on the globe/tilted ECEF fast path; flat
-   * display routes its own MVP + world-copy fan-out through the camera.
+   * Draw the lat/lon graticule so it composites ON TOP of the opaque basemap.
+   * Split out of renderToPass (#970): that runs BEFORE the vector-tile
+   * group.shows, so a grid drawn there was painted over by the ocean/land
+   * fills — the opaque pass invokes this in its LAST sub-pass instead. No-op
+   * while disabled (default); mvp/eye feed the globe/tilted ECEF fast path,
+   * flat display routes its own MVP + world-copy fan-out via the camera.
    */
   renderGraticuleOverlay(
     rhiPass: RhiRenderPass,
@@ -934,11 +927,18 @@ export class MapRendererContent {
     projCenterLat = 20,
   ): void {
     if (DEBUG_OVERDRAW || !this._graticule.isEnabled()) return
+    const { canvas } = this.ctx
+    const dpr = canvas.clientWidth > 0 ? canvas.width / canvas.clientWidth : 1
+    // #1046 Inc-E2 immediate arm — the RHI sibling below IS the twin's own
+    // graticule draw (#1062), so routing there is parity; the native unwrap
+    // would fail loud and kill the chain frame the moment the grid turns on.
+    if (this.ctx.rhi.caps.executionModel === 'immediate') {
+      const head = [rhiPass, camera, projType, projCenterLon, projCenterLat] as const
+      return this.renderGraticuleOverlayRhi(...head, canvas.width, canvas.height, dpr)
+    }
     // Inc-2d boundary (see renderToPass): unwrap once, native graticule
     // plumbing unchanged until its cluster flips.
     const pass = unwrapWebGpuPass(rhiPass) as GPURenderPassEncoder
-    const { canvas } = this.ctx
-    const dpr = canvas.clientWidth > 0 ? canvas.width / canvas.clientWidth : 1
     const frame = camera.getECEFFrameView(canvas.width, canvas.height, dpr)
     this._graticule.renderFrame(
       pass,

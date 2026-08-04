@@ -444,9 +444,12 @@ export interface RhiCaps {
    *  (replaces GPUContext.timestampQuerySupported plumbed per-backend). */
   readonly timestampQuery: boolean
   /** Command execution semantics: 'deferred' (work runs at submit) or
-   *  'immediate' (draws execute at record time). CONFINED consumer: engine
+   *  'immediate' (draws execute at record time). CONFINED consumers: engine
    *  upload/draw primitives (UniformRing / staging flush policy inside
-   *  executeItems) — never passes, never renderers (§5.3 confinement gate). */
+   *  executeItems) — never passes, never renderers (§5.3) — plus, INTERIM
+   *  (#1046 Inc-E2, dies at P6 with the native-bodied terminals): the map's
+   *  three terminal forks (VTR.render, renderToPass, the graticule overlay),
+   *  allowlisted per-site by map/src/render/execution-model-confinement.test.ts. */
   readonly executionModel: 'deferred' | 'immediate'
   /** Which shader source this device consumes: 'wgsl' reads `RhiPipelineDesc.code`
    *  and ignores the GLSL halves; 'glsl-es300' reads `vsCode`/`fsCode` and never
