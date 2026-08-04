@@ -140,6 +140,30 @@ export default tseslint.config(
       // The load-bearing rule (the reason linting was requested): flag any use
       // of a JSDoc-`@deprecated` symbol as an error. Needs the type info above.
       '@typescript-eslint/no-deprecated': 'error',
+      // #1565 (2): the two typed promise rules. They live in
+      // `recommendedTypeChecked`, which is NOT extended above — but its
+      // prerequisite (`projectService`, configured just above) is already paid
+      // for, so the usual adoption cost does not apply here. Enabled explicitly
+      // rather than by swapping the preset, which would turn on ~20 unrelated
+      // rules in one diff.
+      //
+      // The class this catches, from the issue: raster-renderer's leaf-tile load
+      // chain floated while its structurally identical parent chain terminated in
+      // a `.catch` — two siblings, two error channels, no rule enforcing either.
+      // The repo's discard idiom is an explicit `void`; that satisfies the rule
+      // and documents the intent at the site.
+      '@typescript-eslint/no-floating-promises': 'error',
+      // `checksVoidReturn` is OFF deliberately, and this is the only relaxation
+      // here: it flags every `el.addEventListener('click', async () => …)` in the
+      // demo runner, the inspector and the site's React components — 15 of the 16
+      // hits, none of them a defect (a DOM listener that returns a promise is the
+      // normal way to write one; the browser ignoring the return value is the
+      // intended semantics). Forcing a `() => void fn()` wrapper at each site is
+      // churn in harness code, not a fix. What stays ON is the half that catches
+      // real bugs: a promise used as a condition, spread, or returned where a
+      // non-void value is expected. Revisit if a void-return hit ever turns out
+      // to be load-bearing.
+      '@typescript-eslint/no-misused-promises': ['error', { checksVoidReturn: false }],
       // Relaxations so the pre-existing tree is not a wall of errors. Tighten
       // incrementally later; lint-staged means only touched files are checked.
       '@typescript-eslint/no-explicit-any': 'off',

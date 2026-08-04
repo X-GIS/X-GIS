@@ -12,11 +12,14 @@
     "@xgis/compiler": "workspace:*",
     "@xgis/map": "workspace:*",
     "@xgis/shader-dsl": "workspace:*",
-    "@xgis/pipeline": "workspace:*"
+    "@xgis/pipeline": "workspace:*",
+    "monaco-editor": "^0.55.1"
   },
   "devDependencies": {
     "@playwright/test": "^1.59.1",
     "@xgis/data": "workspace:*",
+    "@xgis/rhi": "workspace:*",
+    "@xgis/rhi-webgl2": "workspace:*",
     "@types/d3-geo": "^3.1.0",
     "@types/pngjs": "^6.0.5",
     "@vitejs/plugin-basic-ssl": "^2.3.0",

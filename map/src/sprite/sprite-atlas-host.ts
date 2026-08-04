@@ -215,11 +215,16 @@ export class SpriteAtlasHost {
       this.dpr >= 1.5
         ? tryLoad(HIGH_DPR_SUFFIX).catch(fallbackLoad)
         : tryLoad('').catch(handleFailure)
-    start.finally(() => {
-      this.resolveReady?.()
-      this.resolveReady = null
-      this.onLanded?.()
-    })
+    start
+      .finally(() => {
+        this.resolveReady?.()
+        this.resolveReady = null
+        this.onLanded?.()
+      })
+      // `start` itself cannot reject (both arms end in a catch), but `onLanded` is a
+      // host callback and `.finally` re-throws whatever it throws — terminate the
+      // chain so that surfaces as a log rather than an unhandled rejection (#1565).
+      .catch((e) => console.error('[X-GIS] sprite atlas landed-callback failed', e))
   }
 }
 

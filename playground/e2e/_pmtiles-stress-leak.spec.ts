@@ -171,13 +171,31 @@ test.describe('PMTiles live: world-scale pan + zoom stress', () => {
             memory?: { usedJSHeapSize: number }
           }
         ).memory
+        // #1565: every leaf used to optional-chain to the sentinel -1, and EVERY
+        // gate below is a one-sided ceiling — so -1 satisfied all of them and a
+        // renamed field degraded the spec to green-while-measuring-nothing. That
+        // had already happened: `catalog.dataCache` has not existed since the
+        // store moved to `private cache = new TileDataCache()`, so
+        // `expect(after.dataCacheSize).toBeLessThan(3000)` was asserting
+        // -1 < 3000. Read through the catalog's PUBLIC diagnostics getter and
+        // throw on any missing leaf, so the next rename kills the spec loudly
+        // (the drift this file's own #1231 comment warns about).
+        const req = <T>(v: T | undefined | null, what: string): T => {
+          if (v === undefined || v === null)
+            throw new Error(`[leak-spec] traversal leaf missing: ${what}`)
+          return v
+        }
+        const breakdown = req(catalog?.getStateBreakdown?.(), 'catalog.getStateBreakdown()') as {
+          cached: number
+          loading: number
+        }
         return {
-          abortControllers: backend?.abortControllers?.size ?? -1,
-          pendingMvt: backend?.pendingMvt?.length ?? -1,
-          failedKeys: backend?.failedKeys?.size ?? -1,
-          loadingTiles: catalog?.loadingTiles?.size ?? -1,
-          dataCacheSize: catalog?.dataCache?.size ?? -1,
-          prefetchKeys: catalog?._prefetchKeys?.size ?? -1,
+          abortControllers: req(backend?.abortControllers?.size, 'backend.abortControllers.size'),
+          pendingMvt: req(backend?.pendingMvt?.length, 'backend.pendingMvt.length'),
+          failedKeys: req(backend?.failedKeys?.size, 'backend.failedKeys.size'),
+          loadingTiles: req(breakdown.loading, 'getStateBreakdown().loading'),
+          dataCacheSize: req(breakdown.cached, 'getStateBreakdown().cached'),
+          prefetchKeys: req(catalog?._prefetchKeys?.size, 'catalog._prefetchKeys.size'),
           heapMB: heap ? Math.round(heap.usedJSHeapSize / 1024 / 1024) : null,
           cycleMs: cms,
         }

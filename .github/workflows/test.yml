@@ -87,11 +87,18 @@ jobs:
               # ONLY CI render coverage. data — _fills-gl2-gate renders ne_110m vector
               # tiles through map/src/render/*, which value-imports @xgis/data tile
               # selection/geometry (visibleTilesFrustum, computeSliceKey,
-              # buildLineSegments). NOT rhi (interfaces-only → typecheck-covered),
-              # rhi-webgpu (no SwiftShader spec drives WebGpuDevice — compute gates
-              # use raw navigator.gpu, raster gates are local-only), or pipeline
-              # (imported only by seoul-* demos, never the id=minimal these gates load).
+              # buildLineSegments). NOT rhi (interfaces-only → typecheck-covered)
+              # or pipeline (imported only by seoul-* demos, never the id=minimal
+              # these gates load).
+              # rhi-webgpu (#1565): the old exclusion claimed "no SwiftShader spec
+              # drives WebGpuDevice", which this same file falsifies below —
+              # _polygon-fill-flat-pixel-gate is a WebGPU RASTER gate under
+              # SwiftShader and the six chain gates run on the default backend.
+              # Every default-backend boot value-imports initGPUViaProviders /
+              # backendProviderChain from @xgis/rhi-webgpu (map/src/gpu-boot.ts),
+              # so a WebGpuDevice-only PR used to post green with ZERO pixel gates.
               - 'rhi-webgl2/**'
+              - 'rhi-webgpu/**'
               - 'data/**'
               - 'playground/**'
               - 'bun.lock'
@@ -312,6 +319,33 @@ jobs:
           restore-keys: bun-${{ runner.os }}-
       - run: bun install --frozen-lockfile
       - run: bun run build
+
+  # Lint + dead-code gate (#1565). Both tools were configured and neither ran in
+  # CI: ESLint executed ONLY in the pre-commit hook (so `--no-verify`, or any
+  # commit made outside the hook, shipped unlinted), and `knip.json` had sat at
+  # the repo root since 14ebd1a4 with `knip` installed nowhere and invoked by
+  # nothing — "the knip dead-code gate" that was never wired to run. The typed
+  # promise rules added in the same issue are only worth having if something
+  # runs them on every PR, so they land together with this job.
+  # Same shape as `typecheck`: job-level `if:` on `code`, skipped == pass.
+  lint:
+    name: lint
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+      - uses: actions/cache@v4
+        with:
+          path: ~/.bun/install/cache
+          key: bun-${{ runner.os }}-${{ hashFiles('**/bun.lock', '**/bun.lockb') }}
+          restore-keys: bun-${{ runner.os }}-
+      - run: bun install --frozen-lockfile
+      - run: bun run lint
+      - run: bun run knip
 
   # Site build gate. The engine `test` matrix used to be the only thing that
   # built the site (as a side effect of `bun run build`), so gating that matrix
@@ -627,11 +661,9 @@ jobs:
         # gate means "fill missing", not "boot failure" (#1127 / #1168). This is a WebGPU
         # RASTER gate (default backend, not ?forcegl2=1) — the _fills-gl2-gate precedent
         # shows raster+readback runs under SwiftShader; verified green locally on
-        # chromium-1194 with wide margins (interior 9600/9600 px). NOTE: it fires on the
-        # render filter (map / runtime / shaders / playground / …) but NOT on an
-        # rhi-webgpu-only PR — rhi-webgpu is excluded from the render filter (see the
-        # `changes` job), so a WebGpuDevice-only change won't trip it. Add rhi-webgpu to the
-        # render filter if that gap matters.
+        # chromium-1194 with wide margins (interior 9600/9600 px). Since #1565 it also
+        # fires on an rhi-webgpu-only PR — rhi-webgpu is in the render filter (see the
+        # `changes` job), so a WebGpuDevice-only change trips this gate.
         # _hillshade-gl2-gate: a raster-dem source renders as shaded relief on WebGl2Device
         # under ?forcegl2=1 (#777 Phase II) — the hillshade GLSL twin + HillshadeDraper draw
         # + the twin-ported HillshadePass, asserted by a luminance-spread pixel readback.

@@ -576,8 +576,9 @@ export class HillshadeRenderer {
         // #1153 P2 R4 — narrow the release to the LOAD promise: an expected load
         // failure resolves to null so the .then ALWAYS frees the loadingTiles slot
         // (else the key wedges, pinning all MAX_CONCURRENT slots → the DEM stream
-        // stalls). Scoped here so a throw from the .then bookkeeping stays a visible
-        // unhandled rejection, not swallowed.
+        // stalls). Scoped here so a throw from the .then bookkeeping still surfaces —
+        // through the terminal handler below, not as an unhandled rejection (#1565:
+        // the same leaf-vs-parent drift the raster twin carried).
         .catch(() => null)
         .then((texture) => {
           this.loadingTiles.delete(key)
@@ -591,6 +592,7 @@ export class HillshadeRenderer {
           this._cacheTile(key, texture)
           this.evictTiles(visibleKeys)
         })
+        .catch((e) => console.error('[X-GIS] hillshade tile post-load bookkeeping failed', e))
     }
 
     // Parent-fallback prefetch (1–2 levels up) — mirror raster.

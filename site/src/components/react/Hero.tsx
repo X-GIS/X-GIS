@@ -145,7 +145,7 @@ export default function Hero({ docsUrl, examplesUrl, convertUrl }: Props) {
     const onInteract = () => {
       userTookOver = true
       stopCycle()
-      startMount()
+      void startMount()
     }
     canvas.addEventListener('pointerdown', onInteract, { once: true, passive: true })
 
