@@ -86,6 +86,52 @@ export class PMTilesBackend implements TileSource {
    *  place. See FAILED_KEY_TTL_MS for the recovery window. */
   private failedKeys: Map<number, { expiresAt: number; count: number }> = new Map()
 
+  /** Hard cap on {@link failedKeys} (#1571). The key space is the packed tile key —
+   *  unbounded, and grown by ordinary panning: a broken upstream at z10-17 visits
+   *  10^4-10^5 distinct keys. Every entry was retained for the backend's whole life
+   *  because the only delete is a later SUCCESSFUL re-fetch, `isFailed()` reads without
+   *  pruning, and the TTL-expiry path deliberately REWRITES the entry to
+   *  `{expiresAt: 0, count}` to preserve backoff state rather than dropping it.
+   *
+   *  The repo already classifies this exact shape as a bug: `vector-tile-loader.ts`
+   *  says "panning across a broken region inserts one entry per tile... without a bound
+   *  the Map grows for the page lifetime", and caps at 4096 with a lazy sweep (#282 /
+   *  #1354). This per-instance sibling got neither; the number is the same on purpose.
+   *
+   *  Correction on record: the finder's "O(entries) staleness for every future lookup"
+   *  is wrong — `Map.get` is O(1). The cost is retention only. */
+  private static readonly FAILED_KEYS_MAX = 4096
+
+  /** How long past its TTL a fully-expired entry is kept for its backoff `count`.
+   *  Beyond this the tile has been healthy (or unvisited) for long enough that the old
+   *  failure count is no longer evidence about it, so keeping the entry buys nothing
+   *  and costs a slot. */
+  private static readonly FAILED_KEYS_GRACE_MS = 30 * 60_000
+
+  /** Record a failure, then lazily sweep + cap — mirroring `vector-tile-loader.ts`'s
+   *  `negativeCacheSet`, which is the same policy for the module-level URL negative
+   *  cache. Sweeping on WRITE keeps `isFailed()` a pure read on the hot path. */
+  private noteFailedKey(key: number, expiresAt: number, count: number): void {
+    this.failedKeys.set(key, { expiresAt, count })
+    const cutoff = Date.now() - PMTilesBackend.FAILED_KEYS_GRACE_MS
+    for (const [k, v] of this.failedKeys) {
+      if (k !== key && v.expiresAt !== 0 && v.expiresAt < cutoff) this.failedKeys.delete(k)
+    }
+    // FIFO backstop for a flood of distinct failing keys before any grace window
+    // elapses (Map preserves insertion order, so the oldest go first).
+    while (this.failedKeys.size > PMTilesBackend.FAILED_KEYS_MAX) {
+      const oldest = this.failedKeys.keys().next().value
+      if (oldest === undefined || oldest === key) break
+      this.failedKeys.delete(oldest)
+    }
+  }
+
+  /** Test-only accessor for the bound — mirrors
+   *  `__tileFetchNegativeCacheSizeForTest` in vector-tile-loader.ts. */
+  __failedKeysSizeForTest(): number {
+    return this.failedKeys.size
+  }
+
   /** Per-key AbortController for in-flight fetches. cancelStale()
    *  walks this map to abort fetches the catalog no longer wants.
    *  Cleaned up on fetch settle (success, failure, or abort). */
@@ -151,6 +197,35 @@ export class PMTilesBackend implements TileSource {
     this.sink = sink
   }
 
+  /** Teardown — the `TileSource.detach?()` obligation `TileCatalog.destroy()` calls
+   *  through `detachBackend` (#1571).
+   *
+   *  It was NOT implemented, and the optional chain `backend.detach?.()` made that a
+   *  silent no-op for the backend behind every remote PMTiles/TileJSON source. So at
+   *  `map.destroy()` AND at every `_teardownForReinit` (i.e. every style swap) nothing
+   *  aborted `abortControllers`, nothing drained `fetchQueue`, and `sink` was never
+   *  cleared — leaving `doFetch`'s only gate, `if (!this.sink) return`, passing forever.
+   *  The `PriorityQueue` runs with `autoUpdate`, and both `add` and completion
+   *  re-schedule, so EVERY queued `doFetch` dispatched; the code's own comment puts
+   *  queue depth at 200+. Post-destroy, bytes piled into `pendingMvt` (drained only by
+   *  `tick()` from `resetCompileBudget`, never called again) and 404/'failed' outcomes
+   *  called the captured sink, mutating the destroyed catalog.
+   *
+   *  Order matters and mirrors `cancelStale`: drop what has not dispatched, abort what
+   *  has, drop bytes that will never compile, THEN null the sink — so a fetch settling
+   *  during this call still finds a sink to release its loading slot on.
+   *
+   *  `VirtualPMTilesBackend` has had `detach()` (and an ordering test) all along; this
+   *  is the sibling-sweep shape #1359's digest warns about, at the one backend that
+   *  carries every remote source. */
+  detach(): void {
+    this.fetchQueue.removeByFilter(() => true)
+    for (const ctrl of this.abortControllers.values()) ctrl.abort()
+    this.abortControllers.clear()
+    this.pendingMvt.length = 0
+    this.sink = null
+  }
+
   /** Synchronous catalog-window predicate. True if (z, x, y) could
    *  plausibly be served — catalog uses this for hasEntryInIndex on
    *  non-preregistered keys. */
@@ -169,9 +244,17 @@ export class PMTilesBackend implements TileSource {
    *  prefetch back-pressure (`loadingTiles.size < _cap`) sees queued
    *  tiles too — without this, a high-pitch frame would enqueue 200+
    *  tiles instantly and prefetch would race the visible-set. */
-  loadTile(key: number): void {
+  loadTile(key: number, force = false): void {
     if (!this.sink) return
-    if (this.sink.hasTileData(key)) return
+    // #1571 — `force` (#1371) was DROPPED here while the guard it exists to bypass was
+    // present, which `tile-source.ts` states is the one combination a backend may not
+    // have: only "a backend that has no already-have guard can ignore it". The catalog
+    // arms `_pendingRefresh` for the key and deletes it from `_refreshQueue` so nothing
+    // retries, then calls loadTile(key, refresh) — and this returned before
+    // `trackLoading`, so no result ever arrived and the armed entry persisted. A
+    // `refreshTiles` against this backend silently did nothing while the catalog's
+    // bookkeeping claimed the refresh was pending. `VirtualPMTilesBackend` honours it.
+    if (!force && this.sink.hasTileData(key)) return
     // Negative cache: a recent 'failed' result short-circuits without
     // dispatching another fetch. We deliberately DON'T also call
     // acceptResult here — keeping hasTileData(key) false lets the
@@ -183,7 +266,7 @@ export class PMTilesBackend implements TileSource {
       // TTL expired — drop the timestamp but KEEP the count so the
       // next failure (if it recurs) backs off further. Successful
       // fetches clear the entry entirely in doFetch's success path.
-      this.failedKeys.set(key, { expiresAt: 0, count: failed.count })
+      this.noteFailedKey(key, 0, failed.count)
     }
     // Dedupe: already queued or actively fetching.
     if (this.fetchQueue.has(key)) return
@@ -235,7 +318,7 @@ export class PMTilesBackend implements TileSource {
         // failedKeyTtlMs); a transient blip recovers in 15 s, a truly
         // broken upstream is locked out for the 5-minute cap.
         const count = (this.failedKeys.get(key)?.count ?? 0) + 1
-        this.failedKeys.set(key, { expiresAt: Date.now() + failedKeyTtlMs(count), count })
+        this.noteFailedKey(key, Date.now() + failedKeyTtlMs(count), count)
         sink.releaseLoading(key)
         return
       }
@@ -266,7 +349,7 @@ export class PMTilesBackend implements TileSource {
       const isAbort = (err as Error)?.name === 'AbortError'
       if (!isAbort) {
         const count = (this.failedKeys.get(key)?.count ?? 0) + 1
-        this.failedKeys.set(key, { expiresAt: Date.now() + failedKeyTtlMs(count), count })
+        this.noteFailedKey(key, Date.now() + failedKeyTtlMs(count), count)
         xlog.error('[pmtiles fetch]', (err as Error)?.stack ?? err)
       }
       sink.releaseLoading(key)
