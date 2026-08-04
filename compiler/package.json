@@ -19,6 +19,7 @@
     "@xgis/rhi": "workspace:*",
     "@xgis/shader-dsl": "workspace:*",
     "@xgis/shared": "workspace:*",
+    "earcut": "^3.0.2",
     "pbf": "^4.0.1"
   },
   "devDependencies": {

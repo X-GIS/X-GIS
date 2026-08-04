@@ -5,6 +5,17 @@ import { unprojectGlobeFromCamera } from './camera'
 import { promotesToGlobeWhenTilted } from '@xgis/geo'
 import { getMaxDpr } from '@xgis/engine'
 import { xlog } from '@xgis/shared'
+import {
+  getPinchAngle,
+  getPinchCenter,
+  getPinchDistance,
+  pitchGestureDecision,
+  rotateGestureDecision,
+} from './gesture-decision'
+
+// Re-exported so `controller-pitch-gesture.test.ts` and any external consumer
+// keep importing these from './controller' after the #1566 extraction.
+export { pitchGestureDecision, rotateGestureDecision } from './gesture-decision'
 
 export interface Controller {
   name: string
@@ -247,6 +258,9 @@ export class PanZoomController implements Controller {
         // is processed by the !isNaN() guards rather than skipped.
         lastPinchAngle = getPinchAngle(activePointers)
         lastPinchCenterY = getPinchCenter(activePointers).y
+        // #1566: a fresh two-finger gesture must re-earn the rotate threshold.
+        rotateEngaged = false
+        pinchAngleAccum = 0
       }
     }
 
@@ -296,6 +310,12 @@ export class PanZoomController implements Controller {
     // the two-finger gesture ends so each new gesture re-enters via the strict
     // test.
     let pitchEngaged = false
+    // Two-finger rotate dead-zone latch + its signed accumulator
+    // (rotateGestureDecision, #1566). Same lifetime as pitchEngaged: reset
+    // wherever lastPinchAngle returns to its NaN sentinel, so each new gesture
+    // must re-earn the threshold.
+    let rotateEngaged = false
+    let pinchAngleAccum = 0
 
     const onPointerMove = (e: PointerEvent) => {
       activePointers.set(e.pointerId, { x: e.clientX, y: e.clientY })
@@ -361,7 +381,13 @@ export class PanZoomController implements Controller {
           let delta = angle - lastPinchAngle
           if (delta > 180) delta -= 360
           if (delta < -180) delta += 360
-          camera.rotate(-delta)
+          // #1566: gate on the ACCUMULATED pair-angle change, not on this
+          // frame's delta. Jitter is small per frame but every frame, so a
+          // per-frame threshold would still let a long pinch drift the bearing.
+          pinchAngleAccum += delta
+          const rot = rotateGestureDecision(pinchAngleAccum, rotateEngaged)
+          rotateEngaged = rot.engaged
+          if (rot.apply) camera.rotate(-delta)
         }
         lastPinchAngle = angle
 
@@ -536,6 +562,8 @@ export class PanZoomController implements Controller {
         lastPinchAngle = NaN
         lastPinchCenterY = NaN
         pitchEngaged = false
+        rotateEngaged = false
+        pinchAngleAccum = 0
       } else if (activePointers.size === 1) {
         // #4: lifting back to one finger after a two-pointer gesture must
         // clear pending/active rotate state so the remaining finger pans
@@ -552,6 +580,8 @@ export class PanZoomController implements Controller {
         lastPinchAngle = NaN
         lastPinchCenterY = NaN
         pitchEngaged = false
+        rotateEngaged = false
+        pinchAngleAccum = 0
         panVelX = 0
         panVelY = 0
         // Re-capture the world anchor under the remaining finger.
@@ -615,6 +645,8 @@ export class PanZoomController implements Controller {
         lastPinchAngle = NaN
         lastPinchCenterY = NaN
         pitchEngaged = false
+        rotateEngaged = false
+        pinchAngleAccum = 0
       }
       events?.onPointerCancel?.(e)
     }
@@ -731,44 +763,4 @@ export class PanZoomController implements Controller {
     this.cleanup?.()
     this.cleanup = null
   }
-}
-
-function getPinchDistance(pointers: Map<number, { x: number; y: number }>): number {
-  const pts = [...pointers.values()]
-  if (pts.length < 2) return 0
-  const dx = pts[1].x - pts[0].x
-  const dy = pts[1].y - pts[0].y
-  return Math.sqrt(dx * dx + dy * dy)
-}
-
-function getPinchAngle(pointers: Map<number, { x: number; y: number }>): number {
-  const pts = [...pointers.values()]
-  if (pts.length < 2) return 0
-  return (Math.atan2(pts[1].y - pts[0].y, pts[1].x - pts[0].x) * 180) / Math.PI
-}
-
-function getPinchCenter(pointers: Map<number, { x: number; y: number }>): { x: number; y: number } {
-  const pts = [...pointers.values()]
-  if (pts.length < 2) return pts[0] ?? { x: 0, y: 0 }
-  return { x: (pts[0].x + pts[1].x) / 2, y: (pts[0].y + pts[1].y) / 2 }
-}
-
-/** Two-finger pitch-vs-pinch disambiguation WITH HYSTERESIS. A parallel vertical
- *  drag (vertical centre movement dominating the finger-distance change) tilts
- *  the camera. Entry is STRICT (centreMove must dominate distChange 2×) so a
- *  pinch-zoom never accidentally tilts; but once engaged the test RELAXES
- *  (centreMove need only exceed distChange) so incidental finger-distance wobble
- *  — worse when LOWERING pitch, where the fingers tend to converge — no longer
- *  stutters a sustained tilt back into pinch-zoom every noisy frame (the "pitch
- *  won't go down" feel). A clear pinch (distChange dominating) disengages.
- *  Pure so the hysteresis is unit-testable without simulating touch events. */
-export function pitchGestureDecision(
-  centreMove: number,
-  distChange: number,
-  engaged: boolean,
-): { apply: boolean; engaged: boolean } {
-  const applies = engaged
-    ? centreMove > 1 && centreMove > distChange // relaxed: stay engaged through wobble
-    : centreMove > 2 && centreMove > distChange * 2 // strict: don't hijack a pinch
-  return { apply: applies, engaged: applies }
 }

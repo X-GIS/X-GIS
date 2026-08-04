@@ -40,8 +40,8 @@ test('Korea polygon fills at z=5 — multi-visible-tile dedup regression', async
   // polygon spans an additional visible tile beyond the first
   // dispatched one. Korea (lon 125-128) does this; Seoul (within
   // 126-127.5) doesn't.
-  await page.route('**/sample-mapbox-with-inline-geojson.json', (route) => {
-    route.fulfill({
+  await page.route('**/sample-mapbox-with-inline-geojson.json', async (route) => {
+    await route.fulfill({
       contentType: 'application/json',
       body: JSON.stringify({
         version: 8,

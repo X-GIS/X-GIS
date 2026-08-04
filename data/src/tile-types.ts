@@ -245,7 +245,9 @@ function readInnerWidthMemoised(): number {
       _cachedInnerW = -1
     })
   } else {
-    Promise.resolve().then(() => {
+    // Fire-and-forget by design: the microtask only drops the memo, and the body
+    // cannot throw. `void` is the repo's explicit-discard idiom (#1565).
+    void Promise.resolve().then(() => {
       _cachedInnerW = -1
     })
   }

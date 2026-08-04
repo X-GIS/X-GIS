@@ -266,7 +266,7 @@ export class UploadCoordinator {
    *  uses the queue's identity Map. Over-cap slices are held + replayed at
    *  `resetFrameCap`. */
   enqueue(key: number, data: TileData, sourceLayer = ''): void {
-    if (this.host.store.getLayer(sourceLayer)?.has(key)) return
+    if (this._destroyed || this.host.store.getLayer(sourceLayer)?.has(key)) return // #1570
     const id = `${key}:${sourceLayer}`
     if (this.uploadQueue.has(id)) return
     if (this._heldUploadIds.has(id)) return // already deferred to next frame

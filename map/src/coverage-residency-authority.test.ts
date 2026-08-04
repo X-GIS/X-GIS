@@ -103,6 +103,7 @@ function setup(regions: string[]): {
     refresh: { stopAll: () => {} } as unknown as CoverageSourceDeps['refresh'],
     guardedFetch: () => fetch,
     destroyed: () => false,
+    runEpoch: () => 0,
     // No catalogue here: these gates are about the GPU budget's authority over residency,
     // whatever put the regions there. The catalogue driver has its own suite.
     catalogues: new Map(),
