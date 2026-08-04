@@ -69,7 +69,12 @@ function makeRaceController(useFixedGetCtx: boolean) {
 
   // `rhi` doubles as the RhiDevice identity the #792 guard compares; `device`
   // stays the raw encoder mock the readback records against.
-  const mockCtx = { device: mockDevice, rhi: mockDevice, canvas: mockCanvas }
+  // `caps` is part of the RhiDevice contract: pickAt asks `caps.pickReadback` which
+  // strategy this device uses ('async' = copy-to-buffer + mapAsync, the path below).
+  // Attached to the SAME object, not a copy — `rhi` is also the identity the #792
+  // guard compares against getPickTextureDevice(), so a clone would bail the readback.
+  const rhi = Object.assign(mockDevice, { caps: { pickReadback: 'async' } })
+  const mockCtx = { device: mockDevice, rhi, canvas: mockCanvas }
   // RHI-shaped ({native}) so the readback's adapter unwrap resolves.
   const mockTexture = { native: {} } as never
 

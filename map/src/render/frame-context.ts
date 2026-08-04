@@ -203,6 +203,13 @@ export function wireFrameColour(
   // WebGPU (cap 4 ≥ every QUALITY.msaa value).
   const sc = Math.min(getSampleCount(), ctx.rhi.caps.maxSampleCount)
   ctx.sampleCount = sc
+  // Same shape for the in-frame PICK target (#1046 Inc-F): host policy, clamped by
+  // the device. A device whose presentable pass cannot carry MRT picks ON DEMAND
+  // instead (RenderLoop.pickViaRhi renders its own offscreen MRT pass), so it needs
+  // no continuous pick attachment at all — asking for one made the WebGL2 chain's
+  // opaque pass fail-loud every frame ("got 2 colour attachments") AND allocated a
+  // scene-sized rg32uint nothing on that backend ever reads.
+  const pick = isPickEnabled() && ctx.rhi.caps.presentablePassMrt
   const { useResolve, colorView, sceneResolveView, colorViewScreen, sceneColorSampleView } =
     ctx.rt.ensure(
       ctx.scene.w,
@@ -210,7 +217,7 @@ export function wireFrameColour(
       ctx.screen.w,
       ctx.screen.h,
       sc,
-      isPickEnabled(),
+      pick,
       DEBUG_OVERDRAW,
       screenView,
     )

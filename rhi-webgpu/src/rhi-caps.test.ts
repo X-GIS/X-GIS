@@ -125,4 +125,19 @@ describe('RhiCaps — cross-backend shape (#1046 F1)', () => {
     expect(webgpu.compute).toBe('native')
     expect(webgl2.compute).toBe('fragment-emulated')
   })
+
+  it('the pick pair is COHERENT: no continuous pick MRT ⇒ synchronous on-demand readback', () => {
+    // The two caps are one decision seen from both ends (#1046 Inc-F, rhi.ts):
+    // `presentablePassMrt` tells the frame wiring whether to allocate/attach a
+    // continuous pick target, `pickReadback` tells the interaction controller how a
+    // texel comes back. A device answering false/'async' would ask the controller to
+    // read a texture the wiring never allocated — a null pick with no error, which is
+    // exactly the silent-death class this increment closed on the chain arm.
+    for (const caps of [
+      new WebGpuDevice(fakeGpuDevice([])).caps,
+      new WebGl2Device(fakeGl([])).caps,
+    ] as RhiCaps[]) {
+      if (!caps.presentablePassMrt) expect(caps.pickReadback).toBe('sync')
+    }
+  })
 })

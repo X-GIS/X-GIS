@@ -63,7 +63,9 @@ describe('InteractionController.pickAt — device-mismatch guard (#792)', () => 
       queue: { submit: vi.fn() },
     }
     const oldDevice = { id: 'destroyed-prior-device' }
-    const newRhi = { __rhi: 'live-rhi-device' }
+    // caps: part of the RhiDevice contract — pickAt reads `pickReadback` to pick its
+    // strategy ('async' = the copy-to-buffer readback these cases exercise).
+    const newRhi = { __rhi: 'live-rhi-device', caps: { pickReadback: 'async' } }
     const ctrl = makeController(oldDevice, newRhi, newDevice)
 
     const r = await ctrl.pickAt(50, 50)
@@ -92,7 +94,7 @@ describe('InteractionController.pickAt — device-mismatch guard (#792)', () => 
     // The pick texture rides the SAME RhiDevice identity as ctx.rhi, while
     // ctx.device is deliberately a different object — comparing the wrong
     // field cannot pass this case.
-    const rhi = { __rhi: 'steady-rhi-device' }
+    const rhi = { __rhi: 'steady-rhi-device', caps: { pickReadback: 'async' } }
     const ctrl = makeController(rhi, rhi, device)
 
     await ctrl.pickAt(50, 50)

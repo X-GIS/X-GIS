@@ -155,10 +155,13 @@ export class InteractionController {
   ): Promise<{ featureId: number; layerId: number; instanceId: number } | null> {
     const ctx = this.getCtx()
     if (!ctx) return null
-    // #834 M5 s6 — forced-WebGL2: no continuous pick MRT exists (the frame
-    // renders to FBO 0); the injected seam renders an on-demand offscreen
-    // pick pass and reads the texel synchronously. Same decode + resolve.
-    if (ctx.rhi?.backend === 'webgl2') {
+    // #834 M5 s6 — a device that reads a pick texel SYNCHRONOUSLY has no
+    // continuous pick MRT to read from (its presentable pass cannot carry one,
+    // caps.presentablePassMrt=false — the frame renders to FBO 0): the injected
+    // seam renders an on-demand offscreen pick pass and reads the texel back
+    // synchronously. Same decode + resolve. Asked as the CAPABILITY the field
+    // was minted for (rhi.ts) rather than the backend's identity (#1046 Inc-F).
+    if (ctx.rhi?.caps.pickReadback === 'sync') {
       if (!this.pickRhi) return null
       const canvas = ctx.canvas
       const rect = canvas.getBoundingClientRect()

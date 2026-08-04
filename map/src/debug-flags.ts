@@ -75,7 +75,7 @@ export const RHI_CHAIN: boolean = readRhiChainFlag()
 
 if (RHI_CHAIN && typeof window !== 'undefined') {
   console.info(
-    '[X-GIS] ?rhichain=1 active — the unified chain routes this WebGL2 frame (#1046 F4 Inc-E2, caps.chainFrame=true). KNOWN GAP: the VT content terminals are still native-bodied, so content-ful styles halt loud after 3 frame failures; reload without ?rhichain for the default twin',
+    '[X-GIS] ?rhichain=1 active — the unified chain routes this WebGL2 frame (#1046 Inc-E2, caps.chainFrame=true). Content, picking and the graticule ride it at measured pixel parity with the twin (twin-parity DC=0); the remaining native-only paths are OIT fills and the legacy addLayer draws, which fail loud by name. Reload without ?rhichain for the twin until it is deleted (Inc-F)',
   )
 }
 

@@ -78,7 +78,9 @@ describe('cssToDevicePixel (Audit ⑩ B2 — DPR pick-coord rounding)', () => {
     const canvasSpanUses =
       src.split('cssToDevicePixel(clientX - rect.left, rect.width, canvas.width)').length - 1
     expect(canvasSpanUses).toBe(1)
-    const twinArm = src.indexOf("ctx.rhi?.backend === 'webgl2'")
+    // The sync-readback arm — asked as the CAPABILITY minted for that decision
+    // since #1046 Inc-F, not the backend's identity.
+    const twinArm = src.indexOf("ctx.rhi?.caps.pickReadback === 'sync'")
     const canvasConv = src.indexOf(
       'cssToDevicePixel(clientX - rect.left, rect.width, canvas.width)',
     )

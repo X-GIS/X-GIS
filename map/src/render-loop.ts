@@ -258,21 +258,21 @@ export class RenderLoop {
 
     perfMarkEnd('frame.prep')
 
-    // ── Forced-WebGL2 slice-1 lifecycle (?forcegl2=1) ──────────────────────────
-    // Additive EARLY RETURN: when host.ctx.rhi exposes the screen-pass lifecycle (only
-    // WebGl2Device does — the `?forcegl2=1` boot), render this frame through an ISOLATED
-    // single-sample WebGL2 screen pass and bypass the WebGPU encoder / compute / multi-
-    // pass / submit machinery below (storage buffers + MSAA fail-closed on WebGL2 —
-    // Story-5/6 scope). device/context are stubbed-undefined on this path
-    // (gpu.ts initGPUForcedWebGL2), so the raw calls at :199-200 must NOT run. The WebGPU
-    // path below is UNTOUCHED — this is a pure pre-guard. Rollback = delete this block.
+    // ── Forced-WebGL2 twin frame (?forcegl2=1) — dies in #1046 Inc-F ───────────
+    // WebGl2Device alone exposes the screen-pass lifecycle. This EARLY RETURN renders
+    // the frame through the isolated single-sample twin; `?rhichain=1` (RHI_CHAIN) plus
+    // the device's own `caps.chainFrame` word route it to the chain below instead.
     const rhi = asScreenPassDevice(this.host.ctx.rhi)
-    // #1046 F3 routing switch (doc §3-F3): `?rhichain=1` (RHI_CHAIN) routes this WebGL2
-    // frame through the unified `this._nodes` chain below instead of this twin, gated by
-    // the backend cap (`_chainRunsOnWebgl2`). The loop tail is fully RHI (Inc-A..D), so
-    // the cap flip is Inc-E2's one-liner; until then the twin renders whether or not the
-    // flag is set — `?rhichain=1` never yields a crash/blank frame.
-    if (rhi && !(RHI_CHAIN && this._chainRunsOnWebgl2)) {
+    const twin = rhi !== null && !(RHI_CHAIN && this._chainRunsOnWebgl2)
+    // Which shape ACTUALLY ran — the flags say what was ASKED for. An arm-scoped gate
+    // needs this: the routing flag and `caps.chainFrame` are true on the twin arm too.
+    if (typeof window !== 'undefined')
+      (window as { __xgisFrameArm?: string }).__xgisFrameArm = twin ? 'twin' : 'chain'
+    // Pick params of the LAST PRESENTED frame — what `pickViaRhi` samples, and both
+    // shapes present the same camera. ONE authority, above the fork: written inside the
+    // twin it left every chain-arm pickAt returning null, silently (#1046 Inc-F).
+    this._lastFramePickParams = { projType, centerLon, centerLat, dpr, w, h }
+    if (twin && rhi) {
       const rhiWorkPending = this.renderFrameViaRhi(rhi, w, h, projType, centerLon, centerLat, dpr)
       // Mirror the WebGPU path's end-of-frame idle bookkeeping (#746): snapshot the
       // camera signature + clear _needsRender — without this the early return kept
@@ -290,11 +290,10 @@ export class RenderLoop {
     }
 
     perfMarkStart('frame.encode')
-    // Frame shell (#1046 F2/F3b, Inc-3 collapse; F4 Inc-D): the RHI is the
-    // ONE source of the frame encoder + swapchain view, and with
-    // RenderTargets on RhiTexture no native handle exists anywhere in the
-    // chain frame — the `__xgisRawFrameShell` escape retired with the
-    // collapse, the loop-local unwraps with the Inc-A..D retypes.
+    // Frame shell (#1046 F2/F3b, Inc-3 collapse; F4 Inc-D): the RHI is the ONE source
+    // of the frame encoder + swapchain view, and with RenderTargets on RhiTexture no
+    // native handle exists anywhere in the chain frame — the `__xgisRawFrameShell`
+    // escape retired with the collapse, the loop-local unwraps with the Inc-A..D retypes.
     const rhiFrame = this.host.ctx.rhi
     const frameEnc = rhiFrame.acquireFrameEncoder()
     const rhiScreenView = rhiFrame.acquireScreenView()
@@ -361,14 +360,13 @@ export class RenderLoop {
     }
 
     // ── Build / repopulate the single reused FrameContext ──
-    // Bundles the per-frame locals computed above (plus the few derived
-    // deeper in the frame: colorView / sampleCount / useResolve set in the
-    // MSAA block). The values are IDENTICAL to the locals and assigned at the
-    // same points; this is a pure bundling. The projType / centerLon / centerLat
-    // triple is wrapped into the opaque ProjectionToken (projection-token.ts) —
-    // the engine FrameContext is projection-blind; only content unwraps it. The
-    // token is allocated once and repopulated in place (allocation-paranoid).
-    // Lazily allocate the context once on the first frame, then mutate in place.
+    // Bundles the per-frame locals computed above (plus the few derived deeper in the
+    // frame: colorView / sampleCount / useResolve, set in the MSAA block). The values
+    // are IDENTICAL to the locals and assigned at the same points; this is a pure
+    // bundling. The projType / centerLon / centerLat triple is wrapped into the opaque
+    // ProjectionToken (projection-token.ts) — the engine FrameContext is
+    // projection-blind; only content unwraps it. The token is allocated once and
+    // repopulated in place, like the context itself (allocation-paranoid).
     if (this._ctx === null) {
       this._ctx = makeFrameContext({
         rhi: this.host.ctx.rhi,
@@ -386,6 +384,10 @@ export class RenderLoop {
       })
     } else {
       const c = this._ctx
+      // The DEVICE too: `map.run()` re-boots swap `host.ctx` wholesale (map.ts), and a
+      // context pinned to the first frame's device answers its caps — which is fatal now
+      // that pass wiring reads them (maxSampleCount, presentablePassMrt).
+      c.rhi = this.host.ctx.rhi
       c.rhiEncoder = frameEnc
       c.rhiScreenView = rhiScreenView
       c.camera = this.host.camera
@@ -394,8 +396,9 @@ export class RenderLoop {
       c.frameCount = this.host._frameCount
       c.passScope = passScope
       c.rt = this.host.renderTargets
-      // colorView / sampleCount / useResolve are repopulated at their own
-      // (deeper) computation points below.
+      // colorView / sampleCount / useResolve: repopulated at their own (deeper)
+      // computation points below. Field parity with the builder above is GATED —
+      // frame-context-refresh-parity.test.ts (a forgotten field freezes at frame 1).
     }
     const ctx = this._ctx
     // BOTH population branches route through the one geometry site (its doc's
@@ -753,9 +756,9 @@ export class RenderLoop {
    *  This is the WHOLE forced-WebGL2 hot path — none of the WebGPU multi-pass machinery runs
    *  (storage/MSAA renderers are Story-5/6). */
   // ── #834 M5 s6 — on-demand WebGL2 PICK pass ─────────────────────────────────
-  /** Frame params snapshotted by renderFrameViaRhi so a pick samples the last
-   *  presented frame's camera/projection state. */
-  private _lastRhiFrame: {
+  /** Frame params snapshotted at the top of every frame so a pick samples the
+   *  LAST PRESENTED frame's camera/projection state (either frame shape). */
+  private _lastFramePickParams: {
     projType: number
     centerLon: number
     centerLat: number
@@ -784,7 +787,7 @@ export class RenderLoop {
    *  interaction-controller's WebGPU mapAsync pool is not involved. */
   pickViaRhi(px: number, py: number): [number, number] | null {
     const rhi = asScreenPassDevice(this.host.ctx.rhi)
-    const f = this._lastRhiFrame
+    const f = this._lastFramePickParams
     if (!rhi || !f) return null
     if (px < 0 || py < 0 || px >= f.w || py >= f.h) return null
     let rt = this._pickRtRhi
@@ -877,9 +880,6 @@ export class RenderLoop {
     centerLat: number,
     dpr: number,
   ): boolean {
-    // Snapshot the frame params for the on-demand pick pass (#834 M5 s6) —
-    // a pick samples the LAST PRESENTED frame's camera/projection state.
-    this._lastRhiFrame = { projType, centerLon, centerLat, dpr, w, h }
     // #832 — clear with the style's background, mirroring background-pass.ts
     // execute() exactly: constant `_backgroundColor`, overridden by the
     // zoom-interpolated colour shape, then the opacity shape multiplied into

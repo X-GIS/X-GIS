@@ -423,8 +423,11 @@ export interface RhiCaps {
   /** A render pass presenting to the screen can carry additional MRT colour
    *  attachments (the live rg32uint pick target). WebGPU: true (the swapchain
    *  is an ordinary texture). WebGL2: false (default framebuffer cannot MRT).
-   *  Consumer: opaque-pass pick-attachment build; false selects the on-demand
-   *  offscreen pick strategy. */
+   *  Consumer: `wireFrameColour` — it clamps the host's pick-target request, so
+   *  false means no continuous pick attachment is allocated OR attached, and the
+   *  pick strategy is the on-demand offscreen pass (`pickReadback: 'sync'`, whose
+   *  consumer is the interaction controller). The two caps are one decision seen
+   *  from the two ends; a device answering false MUST answer 'sync'. */
   readonly presentablePassMrt: boolean
   /** How a pick texel comes back: 'async' = copy-to-buffer + map (pool);
    *  'sync' = immediate readPixels. Consumer: interaction-controller readback
