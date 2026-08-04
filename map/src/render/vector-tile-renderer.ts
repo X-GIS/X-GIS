@@ -17,6 +17,7 @@ import type {
 } from '@xgis/engine'
 import type { GPUContext, WebGpuDevice, ComputeTimestampProvider } from '@xgis/rhi-webgpu'
 import { toVertexBufferLayout, unwrapWebGpuPass, wrapWebGpuBindGroup } from '@xgis/rhi-webgpu'
+import { renderImmediateArm } from './vtr-immediate-arm'
 import { POLYGON_FILL_FORMAT } from '@xgis/compiler'
 import { polygonUniformBytes } from './polygon-uniform-slots'
 import { DEBUG_OVERDRAW } from '../debug-flags'
@@ -1074,25 +1075,19 @@ export class VectorTileRenderer {
     const { neededKeys, protectedAncestors, worldOffDeg, currentZ } = sel
     if (currentZ !== this.lastZoom) this.lastZoom = currentZ
     this.currentCameraZoom = camera.zoom
-    // #1057 — record this frame's visible keys for the twin's tile-point
-    // accumulation. The WebGPU render() sets stableKeys itself before its
-    // tail emitTilePointsRhi; on the forced-WebGL2 twin render() never runs,
-    // so emitTilePointsRhi (called after this show's fills+strokes in the
-    // render-loop opaque loop) reads what THIS pass selected. Set before the
-    // fill-null bail so a points-only layer (no polygon fill) still records
-    // its keys. Twin-only side effect: renderFillsRhi is never on the WebGPU
-    // frame path.
+    // #1057 — record this frame's visible keys for the immediate frame's
+    // tile-point accumulation: the native render() sets stableKeys before
+    // its tail emit, but here emitTilePointsRhi (called after this show's
+    // fills in the immediate sequencing) reads what THIS pass selected. Set
+    // before the fill-null bail so a points-only layer still records keys.
     //
-    // Point-parity with the WebGPU merged set (render():~3763 = neededKeys +
-    // fallbackKeys + protectedAncestors): protectedAncestors (the high-pitch
-    // parent inject) is available straight off `sel`, so merge it — those
-    // ancestors' points now match WebGPU by construction. It is disjoint from
-    // neededKeys (tile-selection-cache strips it out), so a plain concat needs
-    // no dedup. fallbackKeys is the ONE term not reproduced here: the twin runs
-    // primary-only acquisition (its fallback pass was reverted in #1140 for a
-    // zoom-in perf regression — renderFillsRhi:~1034 "minus fallbacks"), so
-    // mid-load fallback-ancestor points are a known residual gap vs WebGPU, not
-    // a fabricated set.
+    // Point-parity with the WebGPU merged set (neededKeys + fallbackKeys +
+    // protectedAncestors): protectedAncestors (the high-pitch parent inject)
+    // merges straight off `sel` — disjoint from neededKeys, so no dedup.
+    // fallbackKeys is the ONE term not reproduced: this path runs
+    // primary-only acquisition (#1140 reverted its fallback pass for a
+    // zoom-in perf regression), so mid-load fallback-ancestor points are a
+    // known residual gap vs WebGPU, not a fabricated set.
     this.stableKeys =
       protectedAncestors.length > 0 ? [...neededKeys, ...protectedAncestors] : neededKeys
 
@@ -2347,6 +2342,26 @@ export class VectorTileRenderer {
     fillPipelineExtrudedOverride?: RhiPipelineHandle,
     fillPipelineExtrudedFallbackOverride?: RhiPipelineHandle,
   ): void {
+    // #1046 Inc-E2 — immediate-execution arm (vtr-immediate-arm.ts): route to
+    // the *Rhi entries on an immediate device; 'oit-fill' stays native (P6).
+    if (this.rhi.caps.executionModel === 'immediate' && phase !== 'oit-fill') {
+      renderImmediateArm(this, {
+        rhiPass,
+        camera,
+        projType,
+        projCenterLon,
+        projCenterLat,
+        canvasWidth,
+        canvasHeight,
+        dpr,
+        show,
+        resolvedShow,
+        phase,
+        translucentBucket,
+        pointRenderer,
+      })
+      return
+    }
     // Inc-2d boundary: unwrap the chain's neutral handle ONCE — the internal
     // tile plumbing is still gap-blocked native debt; drape + tile-points
     // take the RHI handle directly.
@@ -2355,22 +2370,18 @@ export class VectorTileRenderer {
     const index = this.source.getIndex()
     if (!index) return
 
-    // Sliced-source slot for this layer. PMTiles emits per-show
-    // slices when the source-attach config carries `showSlices` —
-    // the slice key combines `sourceLayer` with a stable hash of
-    // the layer's `filter:` AST so xgis layers that share a source
-    // layer but have different filters get DIFFERENT slices (only
-    // matching features). Without filter or for legacy sources
-    // (XGVT-binary, GeoJSON-runtime, no-filter PMTiles shows),
-    // sliceKey collapses to plain `sourceLayer` ('' for single-
-    // layer sources) — preserving back-compat.
-    // Inline GeoJSON shows lack explicit `sourceLayer`; the tilingPool
-    // emits MVT bytes with `_layer = sourceName`, so VTR must look up
-    // by `targetName` to match. Without this fallback, filtered shows
-    // (wealthy/top_economies in filter_gdp) computed sliceLayer='__hash'
-    // while the worker emitted 'countries__hash' — mismatch dropped
-    // their tiles silently. show-source-maps.ts mirrors this fallback
-    // so the worker emits keys matching what VTR will look up.
+    // Sliced-source slot for this layer. PMTiles emits per-show slices when
+    // the source-attach config carries `showSlices` — the slice key combines
+    // `sourceLayer` with a stable hash of the layer's `filter:` AST so xgis
+    // layers sharing a source layer but differing in filter get DIFFERENT
+    // slices. Without filter / for legacy sources (XGVT-binary,
+    // GeoJSON-runtime, no-filter PMTiles), sliceKey collapses to plain
+    // `sourceLayer` ('' for single-layer sources) — back-compat. Inline
+    // GeoJSON shows lack explicit `sourceLayer`; the tilingPool emits MVT
+    // bytes with `_layer = sourceName`, so VTR looks up by `targetName` —
+    // without this fallback, filtered shows (filter_gdp) computed
+    // sliceLayer='__hash' vs the worker's 'countries__hash' and tiles
+    // dropped silently. show-source-maps.ts mirrors the fallback.
     const effectiveSourceLayer = show.sourceLayer || show.targetName || ''
     const sliceLayer = computeSliceKey(effectiveSourceLayer, show.filterExpr?.ast ?? null)
     // DIAG: capture per-frame draw order so the cross-tile depth
@@ -2410,28 +2421,20 @@ export class VectorTileRenderer {
     // allocation, no per-tile work.
     const layerCache = this.getOrCreateLayerCache(sliceLayer)
 
-    // Variant-pipeline guard. The pipeline expects the bind group layout
-    // passed in via `bindGroupLayout`. For shader variants that need the
-    // feature buffer (match() / interpolate() etc.), the layout is
-    // `featureBindGroupLayout` — but `tileBgFeature` is built lazily,
-    // AFTER the async geojson worker compile resolves and the property
-    // table is set on the source (map.ts:1082-1084). Between layer
-    // registration and that resolution, frames render with the variant
-    // pipeline but only `tileBgDefault` is available, producing
-    // "Bind group layout of pipeline layout does not match layout of
-    // bind group" validation errors (~5 per frame on fixture_picking
-    // until the worker resolves). Skip the draw until feature bg is
-    // ready — the layer simply pops in late, same as any tile-load gap.
-    // Skip the draw when the variant pipeline expects feature layout
-    // but no feature bind group is available ANYWHERE — the GeoJSON
-    // path satisfies this with the source-level `this.tileBgFeature`;
-    // the MVT/PMTiles path satisfies it with per-tile `cached.feature
-    // BindGroup`s built at upload time. Returning unconditionally on
-    // `!this.tileBgFeature` was the OFM Bright school-fill bug — MVT
-    // path leaves `this.tileBgFeature` null by design (PMTiles
-    // PropertyTable is empty), so the compound landuse `class` match
-    // variant's render() never reached its tile loop. Per-tile feature
-    // groups are tested inside the loop via `cached.featureBindGroup`.
+    // Variant-pipeline guard. Feature-buffer variants (match()/interpolate())
+    // need `featureBindGroupLayout`, but `tileBgFeature` is built lazily
+    // AFTER the async geojson worker compile resolves (map.ts:1082-1084);
+    // between registration and resolution only `tileBgDefault` exists, and
+    // drawing produced "Bind group layout ... does not match" validation
+    // errors (~5/frame on fixture_picking). Skip until a feature bg is
+    // ready — the layer pops in late, like any tile-load gap. Skip ONLY
+    // when none is available ANYWHERE: GeoJSON satisfies this with the
+    // source-level `this.tileBgFeature`; MVT/PMTiles with per-tile
+    // `cached.featureBindGroup`s built at upload. Returning unconditionally
+    // on `!this.tileBgFeature` was the OFM Bright school-fill bug — the MVT
+    // path leaves it null by design (empty PropertyTable), so the landuse
+    // `class` match variant never reached its tile loop; per-tile groups
+    // are tested inside the loop.
     if (
       bindGroupLayout !== this._bindGroups.baseLayout() &&
       !this._bindGroups.featureGroup() &&

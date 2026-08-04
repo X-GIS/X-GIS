@@ -515,15 +515,12 @@ export class MapRendererContent {
         device.queue.writeBuffer(layer.featureDataBuffer, 0, data)
 
         // ─── Compute path attach (P4-5 integration step 2) ───
-        // When the variant carries `computeBindings`, attach a handle
-        // BEFORE building the per-layer bind group so the compute
-        // output buffer exists by the time we append its entry. The
-        // registry filters the scene plan by renderNodeIndex; drift
-        // between (variant.computeBindings.length) and
-        // (plan entries with this index) propagates as a thrown error
-        // from ComputeLayerHandle — surfacing the
-        // compiler / runtime contract violation before the WebGPU
-        // pipeline build does.
+        // When the variant carries `computeBindings`, attach a handle BEFORE
+        // building the per-layer bind group so the compute output buffer
+        // exists by the time we append its entry. The registry filters the
+        // scene plan by renderNodeIndex; drift between the variant's binding
+        // count and the plan's entries throws from ComputeLayerHandle —
+        // surfacing the contract violation before the pipeline build does.
         let extraComputeEntries: { binding: number; resource: { buffer: GPUBuffer } }[] = []
         if ((variant.computeBindings?.length ?? 0) > 0 && show.renderNodeIndex !== undefined) {
           const registry = this.engine.ensureComputeRegistry()
@@ -751,6 +748,10 @@ export class MapRendererContent {
     projCenterLat = 20,
     elapsedMs = 0,
   ): void {
+    // #1046 Inc-E2 — immediate arm: these legacy draws are native plumbing
+    // (P6) and the TWIN never drew them on WebGL2 (content rides the VTR
+    // *Rhi entries) — skipping IS parity; unwrapping would kill the frame.
+    if (this.ctx.rhi.caps.executionModel === 'immediate') return
     // Inc-2d boundary: the chain hands the neutral handle; the legacy layer
     // draws below are still native plumbing — unwrap ONCE here (retires with
     // the legacy MapRenderer cluster).
