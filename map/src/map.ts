@@ -89,7 +89,6 @@ import {
 } from './render/bucket-scheduler'
 import { interpret, type SceneCommands } from './interpreter'
 import { lonLatToMercator, type GeoJSONFeatureCollection, type CoverageHandle } from '@xgis/data'
-import { interpolateVectorCoverage } from '@xgis/data'
 import { CoverageTimePlayer } from './coverage-time'
 import { RasterRenderer } from './render/raster-renderer'
 import { HillshadeRenderer, armHillshadeSource } from './render/hillshade-renderer'
@@ -98,13 +97,10 @@ import {
   refreshCoverageSource,
   type RefreshCoverageOpts,
   coverageHandleAt,
-  coverageRegions,
   dropCoverageRegion,
   loadDeclaredCoverage,
   onCoverageRegionDropped,
-  primaryCoverageTime,
   pushCoverageRegion,
-  readRegionsAtGroup,
   resolveCoverageCatalogues,
   stepCoverageRegions,
   type CoverageSourceDeps,
@@ -199,6 +195,8 @@ import { wireDeviceLostRecovery, resumeDeviceLostRecovery } from './device-lost-
 import { ColdStartBurstController } from './map-cold-start-burst'
 import { buildSceneRenderers } from './scene-renderers'
 import { safeFetch, assertIngestBudget, readBodyCapped, isMobileClassViewport } from '@xgis/shared'
+import { stopCoverageMachinery } from './coverage-teardown'
+import { startCoverageTimePlayback } from './coverage-playback'
 
 // DoS ceilings for the top-level loader entry points (.xgis style /
 // import-resolver text and .xgb binary scene). Defensive — far above any
@@ -573,6 +571,7 @@ export class XGISMap {
     refresh: this._coverageRefresh,
     guardedFetch: (label) => (u, init) => safeFetch(String(u), init, label), // SSRF guard
     destroyed: () => this._destroyed,
+    runEpoch: () => this._runEpoch,
     catalogues: this._coverageCatalogues,
     view: () => viewBbox(this.getBounds()),
     // Installed on the FIRST catalogue, never on construction: a map that declares no
@@ -1006,6 +1005,7 @@ export class XGISMap {
   }
 
   setBackgroundFill(rgba: [number, number, number, number] | null): void {
+    if (this._destroyed) return // #1569 — inert after destroy(), like invalidate()
     if (rgba === null) {
       // Teardown the synthetic source if it was installed. Without this
       // the backend keeps emitting tiles + the synthetic show keeps
@@ -2016,6 +2016,10 @@ export class XGISMap {
    *  map.setQuality({ msaa: 4 })          // crank edge AA back up
    *  ``` */
   setQuality(patch: Partial<QualityConfig>): void {
+    // #1569 — destroy() promises inert; unlatched this mutated the process-global
+    // QUALITY and then hit renderTargets.invalidate() + five rebuildForQuality()
+    // calls on a torn-down RHI.
+    if (this._destroyed) return
     const before: QualityConfig = { ...QUALITY }
     updateQuality(patch)
     const after = QUALITY
@@ -4813,6 +4817,10 @@ export class XGISMap {
       onError?: (err: unknown) => void
     },
   ): void {
+    // #1569 — the worst member of the unguarded family: destroy()'s stopAll() has
+    // already run, so a post-destroy start() arms a loop whose tick re-arms forever
+    // (throw -> catch -> onError -> re-arm), pinning the whole map graph.
+    if (this._destroyed) return
     this._coverageRefresh.start(
       sourceId,
       opts.intervalMs,
@@ -4860,6 +4868,8 @@ export class XGISMap {
    *  `setCoverageTime`. `region` names which mosaic domain the frame belongs to (#1272 E-④);
    *  omit it for a single-region source. */
   setCoverageFrame(sourceId: string, handle: CoverageHandle, region = DEFAULT_REGION): void {
+    // #1569 — the arm chain mints samplers and textures on the destroyed device.
+    if (this._destroyed) return
     if (this._coverageFieldShow?.targetName !== sourceId) return
     this._armCoverageFields(handle, region)
   }
@@ -4879,45 +4889,16 @@ export class XGISMap {
    *  continues, matching a failed real step's silent-stop-only-on-step-failure contract is
    *  intentionally NOT extended to frames — a single dropped frame should not kill playback). */
   playCoverageTime(sourceId: string, opts?: { stepMs?: number; interpolateSteps?: number }): void {
-    const steps = Math.max(1, Math.floor(opts?.interpolateSteps ?? 1))
-    // Keyed by region: a mosaic blends every resident domain, so the "to" hour is decoded
-    // once PER REGION per transition and reused across that transition's sub-frames.
-    let cachedTo: { toIndex: number; handles: Map<string, CoverageHandle> } | null = null
-    this._coverageTime.play(
-      () => {
-        // The PRIMARY region's axis drives the cursor. Regions step in lockstep
-        // (`setCoverageTime` steps all of them), and a neighbour with a shorter forecast
-        // simply stops advancing on its own — it must not shorten everyone else's timeline.
-        const t = primaryCoverageTime(this._coverageDeps, sourceId)
-        return t ? { index: t.index, count: t.count } : null
+    startCoverageTimePlayback(
+      {
+        player: this._coverageTime,
+        deps: this._coverageDeps,
+        destroyed: () => this._destroyed,
+        stepTo: (index) => this.setCoverageTime(sourceId, index),
+        pushFrame: (handle, region) => this.setCoverageFrame(sourceId, handle, region),
       },
-      (index) => {
-        cachedTo = null // the real landing re-derives via setCoverageTime's own read
-        return this.setCoverageTime(sourceId, index)
-      },
-      opts?.stepMs ?? 700,
-      steps > 1
-        ? {
-            steps,
-            stepFraction: async (_fromIndex, toIndex, t) => {
-              const prev = coverageRegions(this._coverageDeps, sourceId)
-              if (!prev) return
-              if (!cachedTo || cachedTo.toIndex !== toIndex) {
-                const handles = await readRegionsAtGroup(prev, toIndex + 1) // groups are 1-based
-                cachedTo = { toIndex, handles }
-              }
-              for (const [region, entry] of prev) {
-                const to = cachedTo.handles.get(region)
-                if (!to) continue
-                this.setCoverageFrame(
-                  sourceId,
-                  interpolateVectorCoverage(entry.handle, to, t),
-                  region,
-                )
-              }
-            },
-          }
-        : undefined,
+      sourceId,
+      opts,
     )
   }
 
@@ -5142,7 +5123,25 @@ export class XGISMap {
     // Reset loaded() — set only on a successful run; a torn-down-then-failed swap
     // must not report loaded() === true on a blank corpse. (#1153 C)
     this._loaded = false
+    this._stopCoverageMachinery() // #1569 — the same stop-block destroy() runs
     this._releaseGpuResources()
+  }
+
+  /** The ONE coverage stop-block, run by BOTH `destroy()` and `_teardownForReinit()`.
+   *  Reasoning (which member was missing from which path, and why clearing
+   *  `rawDatasets` on a reinit is the fix) lives in coverage-teardown.ts (#1569). */
+  private _stopCoverageMachinery(): void {
+    stopCoverageMachinery({
+      time: this._coverageTime,
+      refresh: this._coverageRefresh,
+      catalogues: this._coverageCatalogues,
+      rawDatasets: this.rawDatasets,
+      detachMoveEnd: () => {
+        if (this._coverageMoveHandler) this.off('moveend', this._coverageMoveHandler)
+        this._coverageMoveHandler = null
+      },
+      clearFieldShow: () => void (this._coverageFieldShow = null),
+    })
   }
 
   /** Release every GPU resource this map allocated (per-source renderers + tile
@@ -5180,6 +5179,15 @@ export class XGISMap {
     this.flowRenderer?.dispose()
     this.flowRenderer = null
 
+    // #1569 — the one renderer this list did not name; dispose() had ZERO callers.
+    // rhi.destroy() below reclaims the GPU half but cannot reach `arms`, a plain JS
+    // Map whose CoverageHandle.bands hold the DECODED grid (~5.8 MB per band for a
+    // 1201x1201 S-102 cell, one handle per resident mosaic region). Disposed, not
+    // nulled: the field is `!`-declared and `_coverageDeps.renderer` is a THUNK
+    // reading it, so nulling hands every surviving caller a null instead of an
+    // empty renderer. dispose() clears `arms`, which is where the megabytes are.
+    this.coverageRenderer?.dispose()
+
     // Colour / scalar palette + gradient-atlas textures.
     if (this._paletteHandles) {
       this._paletteHandles.colorPalette.destroy()
@@ -5214,8 +5222,8 @@ export class XGISMap {
     if (this._destroyed) return
     this._destroyed = true
     this.running = false // next requestAnimationFrame tick early-returns
-    this._coverageTime.pause() // stop any forecast-time playback timer (#1272 E-③)
-    this._coverageRefresh.stopAll() // stop every coverage auto-refresh poll loop (#1158)
+    // #1569 — the coverage stop-block, shared with _teardownForReinit.
+    this._stopCoverageMachinery()
 
     // Pending interaction-idle debounce.
     if (this._interactionIdleTimer !== null) {
@@ -5260,12 +5268,6 @@ export class XGISMap {
       this.off('moveend', this._hashMoveHandler)
       this._hashMoveHandler = null
     }
-    // #1453 — the coverage catalogue resolve is a move-end listener of the same leak class.
-    if (this._coverageMoveHandler) {
-      this.off('moveend', this._coverageMoveHandler)
-      this._coverageMoveHandler = null
-    }
-    this._coverageCatalogues.clear()
     if (this._hashWriteTimer !== null) {
       clearTimeout(this._hashWriteTimer)
       this._hashWriteTimer = null
@@ -5309,9 +5311,6 @@ export class XGISMap {
     // teardown body (also called by _teardownForReinit). Routes the whole-device
     // teardown through the RHI (#1153 A) and clears vtSources.
     this._releaseGpuResources()
-
-    // Drop retained CPU data so it can be GC'd (vtSources already cleared above).
-    this.rawDatasets.clear()
 
     // Window globals run() installed: snapshot/replay/trace closures capture
     // `this` (GC pin) and __xgisReady advertises a live map. Mirror of the
