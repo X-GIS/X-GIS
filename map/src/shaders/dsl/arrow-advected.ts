@@ -260,6 +260,22 @@ const vsAdvected = fn(
     const pos = Var(uv0)
     const offPx = Var(vec2(f32(0), f32(0)))
     const remain = Var(arc)
+    // THE LAST LIVE FOOTING (#1558). A walk that lands in a dead cell — nodata packs (0,0), and so
+    // does genuine calm — used to erase the whole glyph, because re-symbolization sampled the END
+    // position and `step(1e-6, speed)` zeroed the size. Measured: ink within ½δ of a dead region is
+    // 0.238 against 0.31 in open water, and at a wide zoom that halo is SCREEN-fixed while the
+    // cells shrink, so scattered dead cells in real data weld their halos into the reported voids.
+    // So the walk remembers the last position whose water was ALIVE (moving, and on the grid), and
+    // the glyph re-symbolizes and draws THERE — it stops at the dead boundary instead of vanishing
+    // into it. The blend is arithmetic (`x·a + y·(1−a)`), not a component clamp — it selects a
+    // POSITION, never turns a direction (`arrow-drift-direction.test.ts` owns that distinction).
+    // A glyph still vanishes when its SEED is dead: `posLive` then never leaves `uv0`, the
+    // remembered velocity stays 0, and the size product culls it — the standard's "no symbol for
+    // speed 0 / noData" holds where it should, on the water the seed is actually in.
+    const posLive = Var(uv0)
+    const offLive = Var(vec2(f32(0), f32(0)))
+    const vuLive = Var(f32(0))
+    const vvLive = Var(f32(0))
     for (let k = 0; k < ARROW_TRAIN_STEPS; k++) {
       // `Let`, AND THIS IS LOAD-BEARING. Each is read by the direction and by the step, and an
       // unbound expression node is re-inlined at every read, texture fetch and all — measured on
@@ -268,6 +284,16 @@ const vsAdvected = fn(
       // the count.
       const vu = Let(loadAtUv(flowUTex.node, pos).x)
       const vv = Let(loadAtUv(flowVTex.node, pos).x)
+      const alive = Let(
+        step(f32(1e-6), length(vec2(vu, vv)))
+          .mul(inUnit(pos.x))
+          .mul(inUnit(pos.y)),
+      )
+      const dead = Let(f32(1).sub(alive))
+      posLive.assign(pos.mul(alive).add(posLive.mul(dead)))
+      offLive.assign(offPx.mul(alive).add(offLive.mul(dead)))
+      vuLive.assign(vu.mul(alive).add(vuLive.mul(dead)))
+      vvLive.assign(vv.mul(alive).add(vvLive.mul(dead)))
       // `aspect` re-expresses the metric east/north components as UV RATES. A uv unit is a
       // different true distance on each axis (cell aspect × cos lat), so feeding the components to
       // the basis raw would point the glyph at one angle while the train advanced at another. The
@@ -285,9 +311,15 @@ const vsAdvected = fn(
     // Not the water its seed launched from. An arrow that moves while keeping its launch colour is
     // the failure that still looks like a working animation, which is why the advected module
     // binds no tint buffer at all — there is no launch colour to read by accident.
-    const vu = Let(loadAtUv(flowUTex.node, pos).x)
-    const vv = Let(loadAtUv(flowVTex.node, pos).x)
-    const dirPx = Let(field_uv_to_px(basis, vec2(vu, vv.neg().mul(aspect))))
+    //
+    // STANDING IN, which since #1558 means the last LIVE footing rather than the walk's raw end.
+    // The velocity there was already fetched by the loop iteration that recorded it, so the two
+    // end-of-walk fetches the raw end needed are GONE — the walk's own samples are the source of
+    // truth, and `arrow-density-cull.test.ts`'s pinned fetch count drops with them. The price is
+    // half a tap of lag: the loop never samples the final resting position itself, so a glyph
+    // stands at most `h = δ/2` short of where the raw end would have re-symbolized — the same
+    // cell in almost every frame, and a bounded offset always.
+    const dirPx = Let(field_uv_to_px(basis, vec2(vuLive, vvLive.neg().mul(aspect))))
     const dlen = Let(max(length(dirPx), f32(1e-6)))
     const cc = Let(dirPx.x.div(dlen))
     const ss = Let(dirPx.y.div(dlen))
@@ -295,7 +327,7 @@ const vsAdvected = fn(
     // The catalogue rule, looked up rather than restated: the table's edges and its affine scale
     // pair are uploaded in these same normalized units (s111-portrayal.ts), so nothing here knows
     // a threshold, a colour or a knot.
-    const speed = Let(length(vec2(vu, vv)))
+    const speed = Let(length(vec2(vuLive, vvLive)))
     const band = Var(u32(0))
     for (let b = 0; b < S111_BAND_COUNT; b++) {
       band.assign(select(speed.lt(bandAt(u32(b), 0)), band, u32(b + 1)))
@@ -321,7 +353,11 @@ const vsAdvected = fn(
     //     can only reject a glyph and never turn one (`arrow-drift-direction.test.ts`). It fires
     //     where the model's guess landed on unrelated ground, which is past the horizon in practice;
     //     a correction of a few spacings is ordinary and is left alone.
-    const onGrid = Let(inUnit(uv0.x).mul(inUnit(uv0.y)).mul(inUnit(pos.x)).mul(inUnit(pos.y)))
+    // `posLive` is on-grid by construction (being on-grid is part of `alive`), so the walk-end
+    // factor collapses into the seed's own — kept for the seed, which `posLive` starts at.
+    const onGrid = Let(
+      inUnit(uv0.x).mul(inUnit(uv0.y)).mul(inUnit(posLive.x)).mul(inUnit(posLive.y)),
+    )
     const settled = Let(step(length(fixPx), spacingPx.mul(f32(FIELD_NEWTON_SPACINGS))))
     const size = Let(
       basePx
@@ -347,8 +383,8 @@ const vsAdvected = fn(
     const ly = qy.mul(size)
     const nodeX = Let(ndc.x.add(f32(1)).mul(f32(0.5)).mul(vp.x).add(fixPx.x))
     const nodeY = Let(f32(1).sub(ndc.y).mul(f32(0.5)).mul(vp.y).add(fixPx.y))
-    const px = Let(nodeX.add(offPx.x).add(lx.mul(cc)).sub(ly.mul(ss)))
-    const py = Let(nodeY.add(offPx.y).add(lx.mul(ss)).add(ly.mul(cc)))
+    const px = Let(nodeX.add(offLive.x).add(lx.mul(cc)).sub(ly.mul(ss)))
+    const py = Let(nodeY.add(offLive.y).add(lx.mul(ss)).add(ly.mul(cc)))
 
     const o = ArrowOut.var()
     o.position.assign(
