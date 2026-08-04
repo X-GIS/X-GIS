@@ -138,3 +138,56 @@ describe('#1569 coverage machinery does not outlive the map', () => {
     expect(() => map.invalidate()).not.toThrow()
   })
 })
+
+// ═══ #1570 — in-flight work is CANCELLED, not just unscheduled ═════════════
+describe('#1570 teardown cancels the coverage read chain', () => {
+  /** The map injects its abort signal through `_coverageDeps.guardedFetch`, which is
+   *  the ONE fetch the whole coverage ladder goes through — the range probe, every
+   *  chunk read, and the whole-file fallback. Reading the signal back out of it is
+   *  therefore the honest assertion: it proves the plumbing, not a mock. */
+  function signalFrom(map: XGISMap): AbortSignal | null | undefined {
+    const deps = (
+      map as unknown as { _coverageDeps: { guardedFetch: (l: string) => typeof fetch } }
+    )._coverageDeps
+    let seen: AbortSignal | null | undefined
+    const realFetch = globalThis.fetch
+    globalThis.fetch = ((_u: unknown, init?: RequestInit) => {
+      seen = init?.signal
+      return Promise.reject(new Error('probe'))
+    }) as typeof fetch
+    try {
+      void deps
+        .guardedFetch('probe')('https://example.invalid/cell.h5')
+        .catch(() => {})
+    } finally {
+      globalThis.fetch = realFetch
+    }
+    return seen
+  }
+
+  it('every coverage fetch carries the map-scoped signal, and destroy() fires it', () => {
+    const map = new XGISMap(stubCanvas())
+    const live = signalFrom(map)
+    expect(live, 'the coverage ladder had NO AbortSignal at all before this').toBeInstanceOf(
+      AbortSignal,
+    )
+    expect(live!.aborted).toBe(false)
+
+    map.destroy()
+    // A signal-less fetch is uncancellable BY SPEC, so an in-flight cell read
+    // (10-250 MB, capped at 256 MB) streamed to completion, was fully buffered and
+    // parsed, and only then discarded at a landing guard — on a dead map, competing
+    // with the replacement scene's own fetches.
+    expect(live!.aborted, 'destroy() must cancel reads already in flight').toBe(true)
+  })
+
+  it('a scene swap cancels the OUTGOING scene and hands the next one a live signal', () => {
+    const map = new XGISMap(stubCanvas())
+    const first = signalFrom(map)
+    ;(map as unknown as { _teardownForReinit(): void })._teardownForReinit()
+    expect(first!.aborted, 'the old scene-s reads are cancelled').toBe(true)
+    const second = signalFrom(map)
+    expect(second!.aborted, 'the next run must not be born pre-aborted').toBe(false)
+    expect(second).not.toBe(first)
+  })
+})

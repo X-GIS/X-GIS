@@ -1,4 +1,6 @@
-// ═══ The coverage stop-block — ONE teardown spine for two paths (#1569) ═══
+// ═══ Map teardown helpers — the stop-block, the read cancellation, the source release ═══
+//
+// ─── The coverage stop-block: ONE teardown spine for two paths (#1569) ───
 //
 // `map.destroy()` and `map._teardownForReinit()` had drifted. `destroy()` is
 // thorough — #1359 verified it healthy for rAF, timers, pointer / keyboard /
@@ -58,4 +60,56 @@ export function stopCoverageMachinery(t: CoverageTeardownTargets): void {
   t.catalogues.clear()
   t.clearFieldShow()
   t.rawDatasets.clear()
+}
+
+/** Owns the map-scoped `AbortController` every coverage HTTP read carries (#1570).
+ *
+ *  The coverage chain had no `AbortSignal` anywhere — `stopAll()` cleared setTimeouts
+ *  and nothing cancelled the reads those timers had already started — and a
+ *  signal-less `fetch` is uncancellable BY SPEC. So an in-flight cell read (10-250 MB,
+ *  capped at 256 MB) streamed to completion, was fully buffered and parsed, and only
+ *  then discarded at a landing guard, on a map the host had already destroyed,
+ *  competing for bandwidth with the replacement scene's own fetches.
+ *
+ *  `cancelAll` REPLACES the controller rather than only aborting it, so a scene swap
+ *  cancels the outgoing scene's reads and the incoming one is not born pre-aborted. */
+export class CoverageReadCancellation {
+  private controller = new AbortController()
+
+  get signal(): AbortSignal {
+    return this.controller.signal
+  }
+
+  cancelAll(): void {
+    this.controller.abort()
+    this.controller = new AbortController()
+  }
+}
+
+// ── Per-source GPU release ─────────────────────────────────────────────────
+//
+// The one piece of `_releaseGpuResources` that needs nothing from the map but the
+// registry itself, so it lives here rather than in map.ts (at its LOC ceiling).
+
+/** The shape a `vtSources` entry must have to be torn down. Structural, so the map's
+ *  real entry type satisfies it without this module importing anything. */
+export interface ReleasableSourceEntry {
+  readonly renderer: { destroy(): void }
+  readonly source: { destroy(): void }
+}
+
+/** Destroy the GPU renderer + tile catalog of every `vtSources` entry belonging to
+ *  `sourceId`, INCLUDING its filtered variants (keyed `id__N`), and drop them from the
+ *  registry. Reached by both `destroy()` and `_teardownForReinit()`. */
+export function teardownSources(
+  vtSources: Map<string, ReleasableSourceEntry>,
+  sourceId: string,
+): void {
+  for (const [key, entry] of vtSources) {
+    if (key === sourceId || key.startsWith(`${sourceId}__`)) {
+      entry.renderer.destroy()
+      entry.source.destroy()
+      vtSources.delete(key)
+    }
+  }
 }

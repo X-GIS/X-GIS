@@ -33,8 +33,6 @@ import { VirtualCatalogAdapter } from './sources/virtual-catalog-adapter'
 import { GeoJSONRuntimeBackend } from './sources/geojson-runtime-backend'
 import { SubTileGenerator } from './sub-tile-generator'
 import {
-  TILE_LAYOUT_VERSION,
-  TILE_LAYOUT_VERSION_BASE,
   type TileSource,
   type TileSourceSink,
   type BackendTileResult,
@@ -56,11 +54,12 @@ import {
   type VirtualCatalog,
 } from './tile-types'
 import { runSkeletonPrewarm, type SkeletonPrewarmHandle } from './tile-skeleton-prewarm'
-import { unionBounds, layoutVersionMismatch } from './tile-catalog-helpers'
+import { unionBounds } from './tile-catalog-helpers'
 import { buildFullCoverQuad } from './tile-full-cover-quad'
 import { TileDataCache } from './tile-data-cache'
 import { CompileBudget } from './tile-compile-budget'
 import { TileEvictionPolicy } from './tile-eviction-policy'
+import { checkBackendLayoutVersion } from './tile-catalog-layout-check'
 
 /** Shared empty result for `consumeReplacedKeys` — the common (nothing replaced) case must not
  *  allocate, it is drained once per frame per renderer. */
@@ -77,6 +76,7 @@ export class TileCatalog {
    *  sync. The catalog owns only the eviction POLICY; the cache owns
    *  the accounting MECHANISM. */
   private cache = new TileDataCache()
+  private _destroyed = false // #1570 — latched by destroy(); guards acceptResult
   private loadingTiles = new Set<number>()
   /** #1371 — keys whose cached slice was OVERWRITTEN (not first-written) since the last
    *  `consumeReplacedKeys()`. A host data push re-tiles the same keys against a new backend;
@@ -272,15 +272,9 @@ export class TileCatalog {
    *  is `layoutVersionMismatch`; the warn fires once per (catalog, backend)
    *  pair via `_layoutMismatchWarned`. */
   private checkLayoutVersion(backend: TileSource): void {
-    const v = backend.meta.layoutVersion
-    if (!layoutVersionMismatch(v)) return
-    this.evictTilesForBackend(backend)
-    if (!this._layoutMismatchWarned.has(backend)) {
-      this._layoutMismatchWarned.add(backend)
-      xlog.warn(
-        `[X-GIS] tile-layout-version mismatch for source: cached=${v ?? TILE_LAYOUT_VERSION_BASE}, running=${TILE_LAYOUT_VERSION} — evicting cache + re-decoding`,
-      )
-    }
+    checkBackendLayoutVersion(backend, this._layoutMismatchWarned, () =>
+      this.evictTilesForBackend(backend),
+    )
   }
 
   /** Drop every cached tile key whose slice list either matches this
@@ -379,6 +373,7 @@ export class TileCatalog {
     sourceLayer = '',
     backend?: TileSource,
   ): void {
+    if (this._destroyed) return // #1570 — nowhere to go; every write below is dead weight
     // #1371 — first result of a refresh: clear what the PREVIOUS backend left for this key, so
     // slices the new production does not emit cannot survive. Marked replaced either way, so
     // the renderer swaps (or drops) the tile it is currently drawing.
@@ -950,6 +945,8 @@ export class TileCatalog {
     for (const b of [...this.backends]) this.detachBackend(b)
     // Owner-registered teardown, drained so a repeated destroy() is a no-op.
     for (const fn of this._onDestroy.splice(0)) fn()
+    this._destroyed = true // #1570 — late worker results must not re-enter a dead renderer
+    this.onTileLoaded = null
   }
 
   /** Register a teardown callback keyed to this catalog's lifetime. The

@@ -195,7 +195,7 @@ import { wireDeviceLostRecovery, resumeDeviceLostRecovery } from './device-lost-
 import { ColdStartBurstController } from './map-cold-start-burst'
 import { buildSceneRenderers } from './scene-renderers'
 import { safeFetch, assertIngestBudget, readBodyCapped, isMobileClassViewport } from '@xgis/shared'
-import { stopCoverageMachinery } from './coverage-teardown'
+import { CoverageReadCancellation, stopCoverageMachinery, teardownSources } from './map-teardown'
 import { startCoverageTimePlayback } from './coverage-playback'
 
 // DoS ceilings for the top-level loader entry points (.xgis style /
@@ -555,6 +555,8 @@ export class XGISMap {
    *  DECLARED BEFORE `_coverageDeps` for the same reason `_coverageRefresh` is: class fields
    *  initialise in source order, so the other way round the deps record captures `undefined`. */
   private readonly _coverageCatalogues = new Map<string, CoverageCatalogueState>()
+  // #1570 — see map-teardown.ts. BEFORE _coverageDeps: field-initialisation order.
+  private readonly _coverageAbort = new CoverageReadCancellation()
   private readonly _coverageDeps: CoverageSourceDeps = {
     rawDatasets: this.rawDatasets,
     // A THUNK, not `this.coverageRenderer`: this record is a field initialiser, and
@@ -569,7 +571,8 @@ export class XGISMap {
     clearArrows: (region) => this._graphics.clearCompiledArrows(region),
     invalidate: () => this.invalidate(),
     refresh: this._coverageRefresh,
-    guardedFetch: (label) => (u, init) => safeFetch(String(u), init, label), // SSRF guard
+    guardedFetch: (label) => (u, init) =>
+      safeFetch(String(u), { ...init, signal: init?.signal ?? this._coverageAbort.signal }, label),
     destroyed: () => this._destroyed,
     runEpoch: () => this._runEpoch,
     catalogues: this._coverageCatalogues,
@@ -5102,13 +5105,7 @@ export class XGISMap {
 
   /** Destroy GPU + catalog resources for every vtSources entry belonging to `sourceId` (incl. its filtered variants keyed `id__N`). */
   private teardownSource(sourceId: string): void {
-    for (const [key, entry] of this.vtSources) {
-      if (key === sourceId || key.startsWith(`${sourceId}__`)) {
-        entry.renderer.destroy()
-        entry.source.destroy()
-        this.vtSources.delete(key)
-      }
-    }
+    teardownSources(this.vtSources, sourceId)
   }
 
   /** Release every GPU resource this map allocated in a prior run()/
@@ -5129,7 +5126,7 @@ export class XGISMap {
 
   /** The ONE coverage stop-block, run by BOTH `destroy()` and `_teardownForReinit()`.
    *  Reasoning (which member was missing from which path, and why clearing
-   *  `rawDatasets` on a reinit is the fix) lives in coverage-teardown.ts (#1569). */
+   *  `rawDatasets` on a reinit is the fix) lives in map-teardown.ts. */
   private _stopCoverageMachinery(): void {
     stopCoverageMachinery({
       time: this._coverageTime,
@@ -5142,6 +5139,7 @@ export class XGISMap {
       },
       clearFieldShow: () => void (this._coverageFieldShow = null),
     })
+    this._coverageAbort.cancelAll() // #1570 — cancel work already STARTED, not just scheduled
   }
 
   /** Release every GPU resource this map allocated (per-source renderers + tile
@@ -5174,6 +5172,9 @@ export class XGISMap {
     this.heatmapRenderer?.clearLayers()
     this.heatmapRenderer = null
     this.heatmapTargets.destroy()
+
+    this.rasterRenderer?.destroy()
+    this.hillshadeRenderer?.destroy()
 
     // IBFV pair + sampler (#1333) — dropping the ref alone leaks both across the scene swap.
     this.flowRenderer?.dispose()
