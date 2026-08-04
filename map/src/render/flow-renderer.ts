@@ -151,9 +151,10 @@ export class FlowRenderer {
   arrowBindingFor(region: string): {
     flowU: RhiTextureView
     flowV: RhiTextureView
+    flowValid: RhiTextureView
   } | null {
     const field = this.arrowFields.get(region)
-    return field ? { flowU: field.u, flowV: field.v } : null
+    return field ? { flowU: field.u, flowV: field.v, flowValid: field.valid } : null
   }
 
   /** Declare which velocity pair EACH resident region's arrows are stepping through — an empty

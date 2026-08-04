@@ -115,6 +115,7 @@ function field(tag: string, over: Partial<FlowFieldRegion> = {}): FlowFieldRegio
   return {
     u: { native: `u-${tag}` } as never,
     v: { native: `v-${tag}` } as never,
+    valid: { native: `valid-${tag}` } as never,
     scale: 1,
     width: 32,
     height: 48,

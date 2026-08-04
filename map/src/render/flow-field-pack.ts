@@ -37,6 +37,12 @@ export interface PackedFlowField {
   u: Uint16Array
   /** f16(v / scale) per cell — the NORTH component texture (r16float). */
   v: Uint16Array
+  /** f16(1) where the cell is real data (moving or genuinely calm), f16(0) where it is nodata —
+   *  the ONE thing `u`/`v` cannot say, since both pack nodata and calm to the identical `(0, 0)`.
+   *  Consumed by the advected shader's validity-gated interpolation (#1565), which needs to tell
+   *  "no current" from "no data" apart before blending a node toward a neighbour. Same r16float
+   *  shape as `u`/`v` so it uploads through the identical texture path. */
+  valid: Uint16Array
   /** Peak speed in the source band's units. Multiply the sampled components by this to
    *  recover real velocity. 0 when the field is entirely calm or nodata. */
   scale: number
@@ -69,16 +75,19 @@ export function packFlowFieldUV(
   }
   const u = new Uint16Array(n)
   const v = new Uint16Array(n)
+  const valid = new Uint16Array(n)
+  const F16_ONE = f32ToF16(1)
 
   // Two passes: the scale must be known before anything can be normalized, and the peak has
   // to come from the SAME validity test the write pass uses or a nodata cell could set it.
   let scale = 0
   for (let i = 0; i < n; i++) {
     if (!isValid(i, speed, directionDeg, speedCodes, dirCodes)) continue
+    valid[i] = F16_ONE
     const s = Math.abs(speed[i]!)
     if (s > scale) scale = s
   }
-  if (scale === 0) return { u, v, scale: 0 } // calm / all-nodata: already all-zero
+  if (scale === 0) return { u, v, valid, scale: 0 } // calm / all-nodata: already all-zero
 
   const inv = 1 / scale
   for (let i = 0; i < n; i++) {
@@ -92,7 +101,7 @@ export function packFlowFieldUV(
     u[i] = f32ToF16(s * Math.sin(rad))
     v[i] = f32ToF16(s * Math.cos(rad))
   }
-  return { u, v, scale }
+  return { u, v, valid, scale }
 }
 
 function isValid(

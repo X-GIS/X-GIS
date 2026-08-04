@@ -43,13 +43,15 @@ describe('the streamline walk costs what it should — no re-inlined tap chain (
   // first diagnosis and cutting its binding changed nothing at all.
   //
   // The budget is exact and derived, not a ceiling picked to pass: every integration step reads
-  // both components — and that is ALL. The end-of-walk pair went with #1558: the glyph
-  // re-symbolizes at its last LIVE footing, whose velocity the loop iteration that recorded it
-  // had already fetched, so a second read of the same cell was paying for a value the walk
-  // already held.
-  const budget = ARROW_TRAIN_STEPS * 2
+  // both components once (mortality only, at the OWNER cell) — `ARROW_TRAIN_STEPS * 2` — plus
+  // ONE validity-gated bilinear read after the walk settles (#1565), which is exactly 4 corners
+  // × 2 components = 8 more. The end-of-walk RAW-POSITION pair #1558 removed stays removed: this
+  // is not that fetch coming back, it is a wider one spent on purpose — the walk's own samples
+  // still decide mortality, only the glyph's drawn colour/length/heading now blend across the
+  // node's valid neighbours instead of reading the single cell that owns `posLive`.
+  const budget = ARROW_TRAIN_STEPS * 2 + 8
 
-  it('fetches the velocity pair exactly once per step, and never again', () => {
+  it('fetches the velocity pair once per step plus one 4-corner blend, and never more', () => {
     const w = emitArrowRetainedAdvectedWgsl()
     expect((w.match(/textureLoad\(flow_[uv]_tex/g) ?? []).length).toBe(budget)
   })
@@ -67,10 +69,14 @@ describe('the velocity fetch reads the cell that OWNS the position (#1511)', () 
   // The old `floor(u·n)` skewed by up to a whole cell, which was invisible at one arrow per cell
   // (the skew never reached 1, so the answer came out right by luck) and puts a SUB-CELL node on
   // its neighbour — usually reading land's packed (0,0) and collapsing the arrow to nothing.
+  //
+  // #1565 gave the walk's OWN taps a second consumer with a DIFFERENT convention on purpose — the
+  // post-walk bilinear blend reads four FRACTIONAL corners, not one rounded owner — so this test
+  // now splits the fetches by that convention rather than asserting one rule over all of them.
   const w = emitArrowRetainedAdvectedWgsl()
   const g = emitArrowRetainedAdvectedGlsl('vertex')
 
-  it('scales by (dim - 1) and rounds, on BOTH backends', () => {
+  it('the WALK TAPS scale by (dim - 1) and round, on BOTH backends', () => {
     // Read off the VELOCITY FETCH ITSELF, not off the whole shader. `floor(… + 0.5)` and
     // `clamp(` both occur elsewhere in this module — the density cull rounds a lattice index and
     // the FS clamps its coverage — so a whole-source match is green whatever the fetch does. It
@@ -80,14 +86,17 @@ describe('the velocity fetch reads the cell that OWNS the position (#1511)', () 
       ['wgsl', w, /textureLoad\(flow_[uv]_tex, (.*?), 0u\)/g],
       ['glsl', g, /texelFetch\(flow_[uv]_tex, (.*?), int\(0u\)\)/g],
     ] as const) {
-      const coords = [...src.matchAll(fetch)].map((m) => m[1]!)
-      // Not an exact count — the walk's steps fetch too, and their budget is pinned by its own
-      // test above. What matters HERE is that EVERY fetch, step or symbolization, reads the owner
-      // cell: a step that read a neighbour would walk the train through the wrong water.
-      expect(coords.length, `${name} fetches the velocity pair`).toBeGreaterThanOrEqual(2)
-      for (const c of coords) {
-        // `floor(x + 0.5)` — the nearest cell under point registration.
-        expect(c, `${name} rounds the fetch to the nearest cell`).toMatch(/floor\(.*\+ 0\.5\)/)
+      const allCoords = [...src.matchAll(fetch)].map((m) => m[1]!)
+      // Only the WALK'S taps are inlined at the fetch (`loadAtUv`'s `owner()` helper is not
+      // `Let`-bound, by design — see its own comment). The post-walk blend's corners ARE
+      // `Let`-bound, so their fetch argument is a bare reference, never this `floor(…+0.5)` text —
+      // which is exactly the property that lets this test tell the two conventions apart without
+      // hand-maintaining a count.
+      const ownerCoords = allCoords.filter((c) => /floor\(.*\+ 0\.5\)/.test(c))
+      expect(ownerCoords.length, `${name}: ${ARROW_TRAIN_STEPS} taps × 2 components`).toBe(
+        ARROW_TRAIN_STEPS * 2,
+      )
+      for (const c of ownerCoords) {
         expect(c, `${name} clamps the owner into range`).toMatch(/clamp\(/)
         // …and the scale is the uv convention's own span. The emitter hoists it, so follow the
         // symbol to its definition rather than trusting the fetch to spell it out: a bare `dim`
@@ -113,5 +122,32 @@ describe('the velocity fetch reads the cell that OWNS the position (#1511)', () 
     // parity bug visible on only one of them. `floor(x + 0.5)` is the same on both.
     const vs = w.slice(w.indexOf('fn vs_arrow_retained_advected'))
     expect(vs.slice(0, vs.indexOf('\n}'))).not.toMatch(/\bround\(/)
+  })
+})
+
+describe('the post-walk blend reads FOUR fractional corners, never the owner rounding (#1565)', () => {
+  // The complement of the test above: the corners must NOT carry the `+ 0.5` owner rounding
+  // (that would silently collapse the blend back to a single-cell read, undoing the whole
+  // feature while every OTHER assertion here stays green) and must still be clamped into the
+  // texture's own range so an edge node cannot read past it.
+  const w = emitArrowRetainedAdvectedWgsl()
+
+  it('none of the four corner coordinates contain the owner-cell `+ 0.5` rounding', () => {
+    const coords = [...w.matchAll(/textureLoad\(flow_u_tex, (.*?), 0u\)/g)].map((m) => m[1]!)
+    expect(coords.length, 'one flow_u_tex fetch per walk tap plus one per corner').toBe(
+      ARROW_TRAIN_STEPS + 4,
+    )
+    const cornerCoords = coords.filter((c) => !/floor\(.*\+ 0\.5\)/.test(c))
+    expect(cornerCoords.length, 'four corners, each a bare Let reference').toBe(4)
+    for (const ref of cornerCoords) {
+      // `Let`-bound, so the fetch argument is just a name — follow it to its definition and
+      // confirm THAT is a `vec2<i32>` built from two `floor`/`min`-based (never `+ 0.5`) terms,
+      // clamped into `[0, dim − 1]` upstream by the same hoisted `(dim − 1)` scale the walk taps
+      // use (`fx`/`fy`'s own `clamp`).
+      const before = w.slice(0, w.indexOf(`textureLoad(flow_u_tex, ${ref}, 0u)`))
+      const def = [...before.matchAll(new RegExp(`\\b${ref} = (vec2<i32>\\([^;]+);`, 'g'))].pop()
+      expect(def, `${ref} is a vec2<i32> corner, bound before its fetch`).toBeTruthy()
+      expect(def![1], `${ref} does not re-derive the owner's +0.5 rounding`).not.toMatch(/\+ 0\.5/)
+    }
   })
 })

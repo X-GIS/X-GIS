@@ -106,10 +106,14 @@ const RAMP = { ramp: 's111-speed' }
 const flowTex = (created: MockTex[]) => created.filter((t) => t.label.startsWith('coverage-flow-'))
 
 describe('CoverageRenderer — vector-field upload (#1333)', () => {
-  it('a VECTOR coverage uploads the u,v pair and exposes it', () => {
+  it('a VECTOR coverage uploads the u,v,valid triple and exposes it', () => {
     const { r, created } = makeRenderer()
     r.setCoverage(vectorHandle(4, 4), RAMP)
-    expect(flowTex(created).map((t) => t.label)).toEqual(['coverage-flow-u', 'coverage-flow-v'])
+    expect(flowTex(created).map((t) => t.label)).toEqual([
+      'coverage-flow-u',
+      'coverage-flow-v',
+      'coverage-flow-valid',
+    ])
     const f = r.flowField()
     expect(f).not.toBeNull()
     expect([f!.width, f!.height]).toEqual([4, 4])
@@ -147,24 +151,24 @@ describe('CoverageRenderer — vector-field upload (#1333)', () => {
     const { r, created, destroyed } = makeRenderer()
     r.setCoverage(vectorHandle(), RAMP)
     const first = flowTex(created)
-    expect(first).toHaveLength(2)
+    expect(first).toHaveLength(3)
     r.setCoverage(vectorHandle(), RAMP)
     expect(destroyed).toEqual(expect.arrayContaining(first))
-    expect(flowTex(created)).toHaveLength(4)
+    expect(flowTex(created)).toHaveLength(6)
   })
 
-  it('a vector coverage is BUDGETED at twice a scalar one of the same grid', () => {
-    // The flow pair is the same size as the value/valid pair, so a vector region costs DOUBLE
-    // a scalar one. If the accounting missed that, the LRU would evict far too late and the
-    // GPU budget would be overshot by the whole flow field.
+  it('a vector coverage is BUDGETED above a scalar one of the same grid', () => {
+    // The flow TRIPLE (u, v, valid — #1565) is the same size as the value/valid pair, so a
+    // vector region costs 2.5× a scalar one. If the accounting missed that, the LRU would evict
+    // far too late and the GPU budget would be overshot by the whole flow field.
     //
     // The budget is chosen to DISCRIMINATE, which an obvious-looking one does not: at 4x4,
     //   scalar          = 4*4*2*2 + 1024 = 1088
-    //   vector (correct)= 4*4*2*4 + 1024 = 1152
-    //   vector (if the doubling were dropped) = 1088
+    //   vector (correct)= 4*4*2*5 + 1024 = 1184
+    //   vector (if the flow textures were dropped entirely) = 1088
     // A budget of 1088 evicts on the second region either way, so it would pass on the broken
-    // accounting too. 2176 = scalar + vector-without-the-doubling is the value where the two
-    // implementations disagree: correct → 2240 > 2176 → evict; broken → 2176 ≤ 2176 → keep.
+    // accounting too. 2176 = scalar + vector-without-any-flow-textures is the value where the
+    // two implementations disagree: correct → 2272 > 2176 → evict; broken → 2176 ≤ 2176 → keep.
     const { r } = makeRenderer(2176)
     r.setCoverage(bathymetryHandle(4, 4), RAMP, 'a')
     r.setCoverage(vectorHandle(4, 4), RAMP, 'b')
