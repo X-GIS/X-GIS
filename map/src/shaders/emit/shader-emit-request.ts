@@ -17,6 +17,7 @@
 
 import { emitGlslStages } from '@xgis/shader-dsl'
 import { buildHillshadeModule, emitHillshadeWgsl } from '../dsl/hillshade'
+import { bodyEpochValue } from '../../body-epoch'
 
 /** Which shader to emit. Structured-cloneable by construction — it crosses a worker
  *  boundary — so no Nodes, no functions, no class instances. */
@@ -37,9 +38,20 @@ export interface ShaderSources {
 }
 
 /** Cache/dedup key. Must be injective over the request — two requests sharing a key
- *  would serve one's sources for the other. */
+ *  would serve one's sources for the other.
+ *
+ *  #1568 — the body epoch is part of the key even though it is not part of the
+ *  request. The one family in play declares `consts: [...PROJECTION_CONSTS,
+ *  ...ECEF_CONSTS]`, which embed EARTH_R / EARTH_E2 / WGS84_A / WGS84_E2 as EMITTED
+ *  LITERALS, so the same `(family, methodFlag, pick)` produces different bytes on
+ *  different planets. The off-thread fix already rides the body on each request
+ *  (`shader-emit-pool.ts` sends `activeBody()`), and `shader-emit-worker.ts`
+ *  documents this exact hazard — "wrong planet, silent and wrong" — but
+ *  `requestShaderSources` returns `done.get(key)` BEFORE any request is posted, so
+ *  the ridden body only mattered on a miss. Key space is 10 per epoch, so this is
+ *  staleness being fixed, not growth being introduced. */
 export function shaderRequestKey(r: ShaderEmitRequest): string {
-  return `${r.family}:${r.methodFlag}:${r.pick ? 'p' : 'n'}`
+  return `${r.family}:${r.methodFlag}:${r.pick ? 'p' : 'n'}:b${bodyEpochValue()}`
 }
 
 /** Turn a request into sources. Pure, and the single authority for both the worker and

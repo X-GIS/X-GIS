@@ -22,7 +22,7 @@
 // `rhi.destroy()` reclaims the GPU bytes. What these three functions govern is the
 // JS wrapper graph, which it cannot see.
 
-import type { FillRhiState } from './frame-renderer'
+import type { FillRhiState } from './material/polygon-fill-material'
 
 interface FillRhiSlot {
   __xgisFillRhi?: FillRhiState | null
