@@ -204,7 +204,11 @@ function walkExpr(
       for (const arm of expr.arms) walkExpr(arm.value, line, diagnostics, declared)
       break
     // Leaf kinds (NumberLiteral / StringLiteral / ColorLiteral /
-    // BoolLiteral / Identifier) have no child expressions.
+    // BoolLiteral / Identifier / InputRef) have no child expressions.
+    // NOTE: this switch has no TS exhaustiveness enforcement (no
+    // `default`/`never` assertion) — a genuinely missing case here would
+    // silently no-op rather than fail to compile. InputRef is correct
+    // as an omitted case (it's a leaf), not an oversight.
   }
 }
 

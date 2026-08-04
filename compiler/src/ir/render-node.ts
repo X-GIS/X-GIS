@@ -16,9 +16,7 @@ import type { RasterDemSourceFields, RenderNodeHillshadePaint } from './render-n
 import type { RenderNodeCoveragePaint } from './render-node-coverage'
 export type { RasterDemSourceFields, RenderNodeHillshadePaint, RenderNodeCoveragePaint }
 
-/**
- * A complete IR scene — the output of the lowering pass.
- */
+/** A complete IR scene — the output of the lowering pass. */
 import type { SymbolDef } from './symbol-elements'
 export type { SymbolDef } from './symbol-elements'
 
@@ -48,6 +46,7 @@ export interface Scene {
    *  a WeakMap — the fixture-ir-snapshot serializer MUST exclude this
    *  field, mirroring the cseAnnotation gate. */
   exprAnalysis?: import('./passes/expr-analyze').ExprAnalysis
+  inputs?: import('./resolve-inputs').ResolvedInputInfo[] // #1539
 }
 
 /** A user-defined shape symbol with SVG path data. */

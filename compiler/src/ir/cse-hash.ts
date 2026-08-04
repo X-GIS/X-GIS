@@ -98,6 +98,11 @@ export function canonicalExpr(expr: Expr): string {
       return canonicalArrayAccess(expr)
     case 'MatchBlock':
       return canonicalMatchBlock(expr)
+    case 'InputRef':
+      // Tagged by name — two different `input`s must never collide, and
+      // the SAME input referenced twice must canonicalize identically
+      // (CSE should dedupe them).
+      return `IN(${expr.name})`
   }
 }
 
