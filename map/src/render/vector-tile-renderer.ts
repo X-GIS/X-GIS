@@ -1540,12 +1540,11 @@ export class VectorTileRenderer {
     return missing
   }
 
-  /** Selection + tile ACQUISITION only, for label-bearing shows on the
-   *  forced-WebGL2 frame (#834 M5 slice 3). A label-only show never enters
-   *  the fills/lines RHI passes' acquisition (both bail on missing paint),
-   *  but the label dispatch reads THIS selection's frameTileCache + the
-   *  source's CPU tile payloads — so acquire here. Returns the missing-tile
-   *  count (loop-hot contract). */
+  /** Selection + tile ACQUISITION only, for label-bearing shows (#834 M5 s3):
+   *  a label-only show never enters the fills/lines acquisition (both bail on
+   *  missing paint), but the label dispatch reads this selection. Called by the
+   *  label pass — from the TWIN only, the chain drew such shows as nothing,
+   *  silently (#1046 Inc-F2b). Returns the missing count. */
   ensureLabelTilesRhi(
     camera: Camera,
     projType: number,
@@ -1578,8 +1577,8 @@ export class VectorTileRenderer {
     if (!sel) return 0
     this.resetUploadFrameCap()
     const toLoad: number[] = []
-    // Same missing semantics as the fills/lines acquisitions (#834 M5
-    // slice 5): count only keys that can still materialize.
+    // Same missing semantics as the fills/lines acquisitions (#834 M5 s5): count
+    // only keys that can still materialize.
     let missing = 0
     for (const key of sel.neededKeys) {
       if (layerCache.has(key)) continue
@@ -1599,6 +1598,7 @@ export class VectorTileRenderer {
       }
     }
     if (toLoad.length > 0) this.source.requestTiles(toLoad)
+    this._drawStats.recordMissedTiles(missing) // the counter keep-warm reads
     return missing
   }
 

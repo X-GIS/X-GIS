@@ -52,6 +52,7 @@ import { ensureBackgroundPatternAtlas } from './background-pattern-atlas'
 import { type ShowCommand } from '../renderer-types'
 import type { FrameContext } from '../frame-context'
 import { unwrapProjection } from '../projection-token'
+import { acquireLabelTiles } from './label-tile-acquire'
 import { Pitch0Unprojector } from '../../camera/pitch0-unproject'
 import { dispatchPointLabel, makeGroundBasisFor } from './dispatch-point-labels'
 import type { SceneView } from '../scene-view'
@@ -266,10 +267,9 @@ class LabelPass implements RenderPass {
     }
     dropStats.reset()
     this._dropStats = dropStats
-    // Phase 2 PR 2d.4: `projType`/`centerLon`/`centerLat` no longer
-    // destructured — the projType-conditional label projector branches
-    // collapsed to a single ECEF-based projector. Other passes still
-    // consume them off FrameContext directly.
+    // Phase 2 PR 2d.4: projType/centerLon/centerLat are no longer destructured
+    // here — the projType-conditional projector branches collapsed to one
+    // ECEF-based projector, and what still needs them unwraps the token itself.
     const { sampleCount: sc } = ctx,
       { w, h, dpr } = ctx.screen // OVERLAY ⇒ screen
     // Symbol fade — advance every ramp once per RENDERED frame (S16 hit and
@@ -294,10 +294,9 @@ class LabelPass implements RenderPass {
     // country-level labels that should be visible there.
     const camZ = host.camera.zoom
     // #778 P2 — refill the reused labelShows scratch in place (0 alloc, always
-    // fresh). Predicate inlined (no closure); identical to the former
-    // `host.showCommands.filter(s => s.label !== undefined && s.visible !== false
-    // && inZoomRange(s))`. `length = 0` + push reuses the array object so the
-    // ref (and .length-based S16 sig) stays stable when membership is unchanged.
+    // fresh); the predicate is the former `filter(label && visible && inZoomRange)`,
+    // inlined. `length = 0` + push reuses the array so the ref (and its
+    // .length-based S16 sig) stays stable when membership is unchanged.
     const labelShows = this._labelShowsScratch
     labelShows.length = 0
     if (!disableLabels) {
@@ -313,6 +312,7 @@ class LabelPass implements RenderPass {
           labelShows.push(s)
       }
     }
+    acquireLabelTiles(labelShows, host, ctx.projection, w, h, dpr) // or they draw NOTHING
     ensureBackgroundPatternAtlas(host, dpr, sc)
     if (!disableLabels && (host.overlays.length > 0 || labelShows.length > 0)) {
       if (host.textStage === null) {
