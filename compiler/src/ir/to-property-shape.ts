@@ -10,6 +10,7 @@
 // conversion.
 
 import type { ColorValue, DataExpr, SizeValue } from './render-node'
+import { rgbaToHex } from './render-node'
 import type { PropertyShape, RGBA } from './property-types'
 import { constFold } from './const-fold'
 
@@ -45,6 +46,19 @@ export function foldStageConstantRgba(expr: DataExpr): RGBA | null {
   // constant can't corrupt rgbaToHex's fixed-width hex encoding downstream.
   const clamp01 = (n: number) => Math.max(0, Math.min(1, n))
   return [clamp01(r), clamp01(g), clamp01(b), clamp01(a)]
+}
+
+/** Opaque CPU stand-in for a data-driven stage-block colour (#1538) — see
+ *  `stageColorHex`. Never sampled: the GPU expression owns every channel. */
+const STAGE_CPU_PLACEHOLDER_HEX = '#ffffffff'
+
+/** The hex `colorToHex` (emit-commands.ts) should report for a stage body
+ *  (#1538): its real colour when compile-time-constant, else the opaque CPU
+ *  placeholder — WebGL2/RHI never compiles that GPU variant and always
+ *  paints whichever hex is reported here, so `null` rendered nothing. */
+export function stageColorHex(expr: DataExpr): string {
+  const rgba = foldStageConstantRgba(expr)
+  return rgba ? rgbaToHex(rgba) : STAGE_CPU_PLACEHOLDER_HEX
 }
 
 /** Convert a ColorValue to a PropertyShape<RGBA>. `kind: 'none'`

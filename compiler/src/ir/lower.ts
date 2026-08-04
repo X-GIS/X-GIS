@@ -940,13 +940,10 @@ function lowerLayer(
   strokeTranslateXShape = acc.strokeTranslateXShape
   strokeTranslateYShape = acc.strokeTranslateYShape
   strokeColor = acc.strokeColor
-  // #1538 — a `@color` / `@stroke` stage block WINS over every utility-
-  // authored paint on the same axis: it is the explicit escape hatch, so a
-  // stray `fill-red-500` must not silently override the authored shader.
+  // #1538 — a stage block WINS over utility paint (explicit escape hatch).
   for (const st of stmt.stages ?? []) {
-    const value: ColorValue = { kind: 'stage', expr: { ast: st.body } }
-    if (st.stage === 'color') fill = value
-    else strokeColor = value
+    if (st.stage === 'color') fill = { kind: 'stage', expr: { ast: st.body } }
+    else strokeColor = { kind: 'stage', expr: { ast: st.body } }
   }
   strokeWidth = acc.strokeWidth
   strokeWidthExpr = acc.strokeWidthExpr

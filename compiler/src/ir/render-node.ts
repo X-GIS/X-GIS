@@ -742,11 +742,7 @@ export type ColorValue =
   | { kind: 'constant'; rgba: import('./property-types').RGBA }
   | { kind: 'none' }
   | { kind: 'data-driven'; expr: DataExpr }
-  /** A `@color` / `@stroke` shader stage block (#1538). The expression is
-   *  vec4-typed by construction (checked at lower time, X-GIS0020) and
-   *  lowers straight into the variant colour slot — the same slot a
-   *  data-driven paint fills, so the composer is untouched. */
-  | { kind: 'stage'; expr: DataExpr }
+  | { kind: 'stage'; expr: DataExpr } // #1538 shader stage block; vec4-typed by construction
   | { kind: 'conditional'; branches: ConditionalBranch<ColorValue>[]; fallback: ColorValue }
   | {
       kind: 'zoom-interpolated'
