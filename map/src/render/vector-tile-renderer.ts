@@ -89,6 +89,7 @@ import {
   type BakeStrokeStyle,
 } from './vector-drape-stroke'
 import { parseHexColor } from '../feature-helpers'
+import { mirrorFillRhi, releaseFillRhi } from './fill-rhi-slot'
 import type { GPUTile, LayerDrawPhase } from './vector-tile-renderer-types'
 import { getMaxGpuTiles, uploadBudgetFor } from './vector-tile-renderer-helpers'
 import { UniformRing } from '@xgis/engine'
@@ -419,13 +420,8 @@ export class VectorTileRenderer {
   // fill draw through it (§4 closed; an untwinned pipeline throws).
   private _fillRhi: FillRhiState | null = null
   setFillRhi(state: FillRhiState | null): void {
-    // #717 — the site's Astro island duplicates the VTR module, so setFillRhi(present) lands on
-    // one VTR instance while a DIFFERENT instance runs recordFillDraw with _fillRhi still null.
-    // Mirror the last non-null state onto a globalThis slot so the draw-side (possibly other)
-    // instance can recover it (recordFillDraw falls back to it; the pipeline-object mismatch that
-    // then arises across instances is tolerated by that fn's label match). Same single-instance
-    // discipline as the projections / RHI dual-package fix. No-op in the normal single-instance path.
-    if (state) (globalThis as { __xgisFillRhi?: FillRhiState }).__xgisFillRhi = state
+    // #717 dual-instance mirror; released in destroy(). See fill-rhi-slot.ts.
+    mirrorFillRhi(state)
     this._fillRhi = state
   }
 
@@ -2116,6 +2112,10 @@ export class VectorTileRenderer {
     // #599 I3 — free the globe vector-drape baked-fill textures.
     this._drape?.destroy()
     this._drape = null
+    // #1567 — release the #717 mirror so a destroyed map's fill Material/pipeline
+    // graph is not pinned on globalThis for the page lifetime. See fill-rhi-slot.ts.
+    releaseFillRhi(this._fillRhi)
+    this._fillRhi = null
   }
 
   // Frame-scoped draw accumulators (_frameTilesVisible,
