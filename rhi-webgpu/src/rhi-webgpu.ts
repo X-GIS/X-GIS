@@ -363,7 +363,15 @@ export function unwrapWebGpuCommandEncoder(enc: RhiCommandEncoder): GPUCommandEn
 export function unwrapWebGpuPass(
   pass: RhiRenderPass,
 ): GPURenderPassEncoder | GPURenderBundleEncoder {
-  return (pass as WebGpuRenderPass).nativePass
+  // Fail LOUD at the boundary (#1046 Inc-E2, arch review F3): a foreign
+  // wrapper (a WebGl2 pass) used to unwrap to silent `undefined` and crash
+  // far away at the first native method call — the exact failure shape of
+  // every native-bodied terminal reached on a non-WebGPU backend.
+  if (!(pass instanceof WebGpuRenderPass))
+    throw new Error(
+      'unwrapWebGpuPass: not a WebGPU pass wrapper — a native-bodied terminal was reached on a non-WebGPU backend (port it to the *Rhi entries, #1046 Inc-E2)',
+    )
+  return pass.nativePass
 }
 
 /** Recover the native `GPUTextureView` from an RHI view — used by the F2 frame
