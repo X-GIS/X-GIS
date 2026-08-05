@@ -40,6 +40,7 @@ import { DEBUG_OVERDRAW, DEBUG_RHI_CHECKER, RHI_CHAIN, sceneScalePinned } from '
 import { WORLD_MERC, TILE_PX } from '@xgis/geo'
 import { invalidateResolvedShowCache } from './render/resolved-show'
 import { reportErrorScope } from './render-loop-helpers'
+import { keepLoopWarm } from './render-loop-keep-warm'
 import { backgroundClearValue } from './render/passes/background-pass'
 import { labelPass } from './render/passes/label-pass'
 import { applyHillshadePaint } from './render/passes/hillshade-pass'
@@ -747,28 +748,12 @@ export class RenderLoop {
     this.host._lastSigH = this.host.ctx.canvas.height
     this.host._needsRender = false
 
-    // Tile/texture loads still in flight keep the loop warm so the scene
-    // converges. Covers four sources:
-    //   - VT tiles with unresolved placeholders (missedTiles > 0)
-    //   - VT tiles queued behind the per-frame upload budget
-    //   - raster tiles mid-fetch
-    //   - hillshade DEM tiles mid-fetch (a hillshade-only scene has no other
-    //     signal — without this the loop idles before the DEM arrives and the
-    //     arrival never repaints: permanent black relief until an interaction)
-    if (
-      totalMissed > 0 ||
-      this.host.rasterRenderer.hasPendingLoads() ||
-      this.host.hillshadeRenderer.hasPendingLoads()
-    ) {
-      this.host._needsRender = true
-    } else {
-      for (const [, { renderer }] of this.host.vtSources) {
-        if (renderer.hasPendingUploads()) {
-          this.host._needsRender = true
-          break
-        }
-      }
-    }
+    this.host._needsRender = keepLoopWarm({
+      totalMissed,
+      raster: this.host.rasterRenderer,
+      hillshade: this.host.hillshadeRenderer,
+      vtRenderers: this.host.vtSources.values(),
+    })
 
     this.host._scheduleFrame()
   }
@@ -994,11 +979,11 @@ export class RenderLoop {
     this.host._scratchEmittedTextNames.clear()
     const classified = this.host.classifyVectorTileShows()
     this.host.lineRenderer?.beginFrame()
-    // #1057 — drain PointRenderer's retired tile-point buffer queue (the WebGPU
-    // prelude does this at render-loop.ts:437, which this isolated twin
-    // early-returns before). Each flushTilePointsRhi retires the prior frame's
-    // vertex/index/feat buffers; without this drain the queue grows unbounded.
+    // #1057/#1579 — the WebGPU prelude (:437) drains these four every frame; this isolated
+    // twin early-returns before it, so each is re-drained here or its cache grows unbounded.
     this.host.pointRenderer?.beginFrame()
+    this.host.rasterRenderer.beginFrame()
+    this.host.hillshadeRenderer.beginFrame()
     let missingTiles = 0
     for (const c of classified.opaque) {
       const vt = this.host.vtSources.get(c.sourceName)

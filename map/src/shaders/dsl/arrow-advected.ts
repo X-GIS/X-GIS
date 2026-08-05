@@ -106,6 +106,7 @@ import {
   field_node_ndc,
   field_screen_lonlat,
   field_grid_uv,
+  field_owned_elsewhere,
   field_uv_basis,
   field_uv_step,
   field_uv_to_px,
@@ -419,18 +420,32 @@ const vsAdvected = fn(
     //     can only reject a glyph and never turn one (`arrow-drift-direction.test.ts`). It fires
     //     where the model's guess landed on unrelated ground, which is past the horizon in practice;
     //     a correction of a few spacings is ordinary and is left alone.
+    //   · the node stands on water ANOTHER resident region already owns (#1585) — see below.
     // `posLive` is on-grid by construction (being on-grid is part of `alive`), so the walk-end
     // factor collapses into the seed's own — kept for the seed, which `posLive` starts at.
     const onGrid = Let(
       inUnit(uv0.x).mul(inUnit(uv0.y)).mul(inUnit(posLive.x)).mul(inUnit(posLive.y)),
     )
     const settled = Let(step(length(fixPx), spacingPx.mul(f32(FIELD_NEWTON_SPACINGS))))
+    // THE MOSAIC OVERLAP CULL (#1585). Two regions whose footprints overlap each enumerate a full
+    // lattice over the shared water, and before this both drew on it — doubling the glyph density
+    // there. On a chart that is a misreading, not a blemish: `arrow-drift.ts` states the rule
+    // ("overlapping SCAROW symbols read as a faster current than the data says"), and it is the same
+    // rule `ARROW_LATTICE_FACTOR` exists to keep. So a node whose ground is owned by an
+    // earlier-armed region is dropped here, through the same product every other rejection uses.
+    //
+    // TESTED AT THE SEED (`ll`), not at the walk's end. A train belongs to the region its seed is
+    // in, and its glyphs stay with it even where the streamline carries them across the boundary —
+    // which is what keeps the count right: exactly one seed per patch of water owns the trains on
+    // it, and a train is never half-drawn by one region and half by another.
+    const ownedElsewhere = Let(field_owned_elsewhere({ lonlat: ll.swizzle('xy') }))
     const size = Let(
       basePx
         .mul(scale)
         .mul(step(f32(1e-6), speed))
         .mul(onGrid)
         .mul(settled)
+        .mul(f32(1).sub(ownedElsewhere))
         .mul(guess.z)
         .mul(step(f32(0.5), ll.z)),
     )

@@ -5,7 +5,7 @@
 
 import type * as AST from '../parser/ast'
 import type { Diagnostic } from '../diagnostics/diagnostic'
-import { PRESET_ARITY } from '../diagnostics/diagnostic'
+import { PRESET_ARITY, UNKNOWN_STYLE_PRESET } from '../diagnostics/diagnostic'
 import { substituteIdentifiers } from '../expr/substitute'
 
 /** A lowered preset: its `|` utility lines (inlined by expandPresets) + block properties
@@ -21,12 +21,26 @@ export type PresetDef = {
  *  `apply-glow(#f59e0b, 4)`. `args` absent = the bare zero-arg form. */
 export type PresetCall = { name: string; args?: AST.Expr[]; line: number }
 
+/** Extract a preset reference NAME from a `style:` property value: a bare
+ *  identifier (`style: glow`) or a namespaced field access (`style: ns.glow`
+ *  — the splice-rename target `module/resolver.ts`'s `applyNamespace` produces,
+ *  literally naming the preset `"ns.glow"` in presetMap). Returns null for any
+ *  other expression shape — the existing block-property convention (an
+ *  unrecognised shape is silently skipped, not a distinct error; #1606). */
+export function presetRefName(expr: AST.Expr): string | null {
+  if (expr.kind === 'Identifier') return expr.name
+  if (expr.kind === 'FieldAccess' && expr.object?.kind === 'Identifier') {
+    return `${expr.object.name}.${expr.field}`
+  }
+  return null
+}
+
 /**
  * Resolve a `style:` preset reference into a (possibly instantiated)
  * definition. Zero-param bare references return the stored definition
- * unchanged — byte-for-byte the pre-#1536 behavior. Unknown names return
- * undefined (lower's coverage-paint path treats that as "no preset",
- * matching the old `presetMap.get(ref)` miss).
+ * unchanged — byte-for-byte the pre-#1536 behavior. An unknown name is an
+ * X-GIS0027 error (#1606) — a `style:` that names nothing must not compile
+ * clean into a silently blank layer.
  */
 export function resolveStylePreset(
   presetMap: Map<string, PresetDef>,
@@ -35,8 +49,49 @@ export function resolveStylePreset(
 ): PresetDef | undefined {
   if (!call) return undefined
   const def = presetMap.get(call.name)
-  if (!def) return undefined
+  if (!def) {
+    const near = nearestPresetName(call.name, presetMap)
+    diagnostics.push({
+      code: UNKNOWN_STYLE_PRESET,
+      severity: 'error',
+      span: { line: call.line, col: 1 },
+      message: `\`style: ${call.name}\` does not match any declared preset.`,
+      ...(near ? { help: `Did you mean \`${near}\`?` } : {}),
+    })
+    return undefined
+  }
   return instantiatePreset(call.name, def, call.args, call.line, diagnostics)
+}
+
+/** Nearest declared preset name by edit distance, or null when too far to be
+ *  a plausible typo. Mirrors validate-schema-fields.ts's `nearest()` —
+ *  duplicated locally per this codebase's per-file convention (each of
+ *  utility-registry.ts / validate-fncalls.ts owns its own copy too). */
+function nearestPresetName(name: string, presetMap: Map<string, PresetDef>): string | null {
+  let best: string | null = null
+  let bestDist = Infinity
+  for (const candidate of presetMap.keys()) {
+    const d = levenshtein(name, candidate)
+    if (d < bestDist) {
+      bestDist = d
+      best = candidate
+    }
+  }
+  return best !== null && bestDist <= Math.max(2, Math.ceil(name.length / 3)) ? best : null
+}
+
+function levenshtein(a: string, b: string): number {
+  const dp: number[] = Array.from({ length: b.length + 1 }, (_, j) => j)
+  for (let i = 1; i <= a.length; i++) {
+    let prev = dp[0]!
+    dp[0] = i
+    for (let j = 1; j <= b.length; j++) {
+      const tmp = dp[j]!
+      dp[j] = a[i - 1] === b[j - 1] ? prev : 1 + Math.min(prev, dp[j]!, dp[j - 1]!)
+      prev = tmp
+    }
+  }
+  return dp[b.length]!
 }
 
 /**

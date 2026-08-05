@@ -183,15 +183,31 @@ describe('CoverageTimePlayer.play — interpolated sub-stepping (#1333)', () => 
     }
   })
 
-  it('a rejecting stepFraction stops playback silently (same crash-safety as step)', async () => {
+  // ── #1573 — a dropped frame is not the end of playback ──
+  //
+  // This assertion used to read "a rejecting stepFraction stops playback silently (same
+  // crash-safety as step)". That was never the contract: `map.ts`'s `playCoverageTime`
+  // docstring states the opposite in as many words — "a decode/interpolation failure just
+  // skips that one frame... a single dropped frame should not kill playback" — and the doc,
+  // the code and this test all landed in ONE squash (294eb360), so two in-repo authorities
+  // have contradicted each other from birth with the test entrenching the wrong one.
+  //
+  // The crash-safety the old title borrowed belongs to the REAL step branch, which still
+  // stops (a step works inside an already-loaded cell, so its failure is a fault, not a
+  // blip) — see the sibling case below. Each interpolated sub-frame, by contrast, reads
+  // every region at the target group over the network, which is allowed to fail.
+  it('a rejecting stepFraction skips that frame and playback continues', async () => {
     vi.useFakeTimers()
     try {
       const player = new CoverageTimePlayer()
       const index = 0
       const fracs: number[] = []
+      const landed: number[] = []
       player.play(
         () => ({ index, count: 5 }),
-        async () => {},
+        async (i) => {
+          landed.push(i)
+        },
         100,
         {
           steps: 4,
@@ -203,8 +219,46 @@ describe('CoverageTimePlayer.play — interpolated sub-stepping (#1333)', () => 
       )
       await vi.advanceTimersByTimeAsync(25)
       expect(fracs).toEqual([0.25])
-      await vi.advanceTimersByTimeAsync(1000) // no further ticks scheduled
-      expect(fracs).toEqual([0.25])
+      // Before the fix both of these stayed frozen at their first value: the shared catch
+      // returned without re-arming the timer, so nothing ever ticked again.
+      await vi.advanceTimersByTimeAsync(75)
+      expect(fracs, 'the later sub-frames still run').toEqual([0.25, 0.5, 0.75])
+      expect(landed, 'and the hour still lands').toEqual([1])
+      player.pause()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('CONTROL — a rejecting real step still stops playback', async () => {
+    vi.useFakeTimers()
+    try {
+      const player = new CoverageTimePlayer()
+      const fracs: number[] = []
+      let stepCalls = 0
+      player.play(
+        () => ({ index: 0, count: 5 }),
+        async () => {
+          stepCalls++
+          throw new Error('simulated forecast-step failure')
+        },
+        100,
+        {
+          steps: 4,
+          stepFraction: async (_f, _t2, t) => {
+            fracs.push(t)
+          },
+        },
+      )
+      // Three healthy sub-frames, then the landing throws.
+      await vi.advanceTimersByTimeAsync(100)
+      expect(fracs).toEqual([0.25, 0.5, 0.75])
+      expect(stepCalls).toBe(1)
+      // Without this arm, "skip and continue" applied to BOTH branches would pass the case
+      // above while quietly discarding the crash-safety that branch is for.
+      await vi.advanceTimersByTimeAsync(1000)
+      expect(stepCalls, 'no further ticks are scheduled').toBe(1)
+      expect(fracs).toEqual([0.25, 0.5, 0.75])
     } finally {
       vi.useRealTimers()
     }

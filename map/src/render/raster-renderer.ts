@@ -2,13 +2,13 @@
 
 import type { GPUContext } from '@xgis/rhi-webgpu'
 import type { Camera } from '../camera'
-import { visibleTilesFrustum, tileUrl, loadImageTexture, loadImageBitmap } from '@xgis/data'
+import { visibleTilesFrustum, tileUrl, loadImageBitmap } from '@xgis/data'
 import { mercator as mercatorProj, mercatorYToLat } from '@xgis/geo'
 import { activeBody } from '@xgis/shared'
 import { lonLatToECEF, type ECEF } from '@xgis/shared'
 import type { RhiDevice, RhiRenderPass, RhiTexture } from '@xgis/engine'
 import { RasterDraper, type RasterTile } from './material/raster-material'
-import { tileRequestable, noteFailure, type FailedTile } from './tile-retry'
+import { FailedTileLedger } from './tile-retry'
 import {
   admitTile,
   type EvictableTile,
@@ -247,7 +247,6 @@ const MAX_CACHED_TILES = 256
 const MAX_CONCURRENT_LOADS = 6
 
 export class RasterRenderer {
-  private device: GPUDevice
   /** The injected backend RHI device (ctx.rhi) — the RasterDraper routes resource
    *  creation through it (WebGpuDevice on WebGPU, WebGl2Device under ?forcegl2=1). */
   private readonly rhi: RhiDevice
@@ -309,7 +308,7 @@ export class RasterRenderer {
   /** Tiles whose load resolved null, with the backoff state that stops them being
    *  re-requested every frame (policy in tile-retry.ts). Cleared when the source is
    *  re-armed — a new URL template is a new coverage. Same wiring as the hillshade arm. */
-  private failedTiles = new Map<string, FailedTile>()
+  readonly failedTiles = new FailedTileLedger()
   // (per-tile packing goes through rasterTileBlock() — #733 P2b)
   private colorParams(): RasterColorParams {
     return {
@@ -343,7 +342,6 @@ export class RasterRenderer {
   }
 
   constructor(ctx: GPUContext) {
-    this.device = ctx.device
     this.rhi = ctx.rhi
     this.format = ctx.format
 
@@ -353,14 +351,14 @@ export class RasterRenderer {
     // only its tile cache + the per-frame paint params (_opacity/_nearest/…).
   }
 
-  /** A quality (MSAA / picking) change invalidates the raster draper so the next render()
-   *  lazily rebuilds its pipelines with the new getSampleCount() / isPickEnabled(). */
+  /** A quality flip RELEASES the raster draper (#1578) and drops it; next render rebuilds. */
   rebuildForQuality(): void {
+    this._rasterDraper?.destroy()
     this._rasterDraper = undefined
   }
 
   setUrlTemplate(url: string): void {
-    if (url !== this.urlTemplate) this.failedTiles.clear()
+    if (url !== this.urlTemplate) this.failedTiles.clearAll()
     this.urlTemplate = url
   }
 
@@ -554,15 +552,15 @@ export class RasterRenderer {
     ])
   }
 
-  /** Backend-appropriate raster tile load (#834 M5 slice 2): the WebGPU path
-   *  is the verbatim loadImageTexture (byte-identical); WebGl2Device decodes
-   *  via the shared SSRF-guarded loadImageBitmap and uploads through the RHI
-   *  copyExternalImage seam (texSubImage2D — no CPU readback). */
+  /** Tile load, through the RHI on BOTH backends (#1579 — WebGPU used to bypass the RHI
+   *  entirely via the raw-device `loadImageTexture`, which allocates ONE mip level;
+   *  #1436's crawl fix was landed on the WebGL2 arm only, so the far-field minification
+   *  fix it exists for was still live for the default backend, and every render gate CI
+   *  runs is WebGL2 — the fork was invisible to the gate built to catch exactly this.
+   *  `rhi.createTexture` / `copyExternalImage` / `generateMipmaps` are generic over both
+   *  backends by construction, so unifying costs nothing and removes a fork that could
+   *  only drift again. */
   private async loadTileTexture(url: string, signal: AbortSignal): Promise<LoadedTexture | null> {
-    if (this.rhi.backend !== 'webgl2') {
-      const t = await loadImageTexture(this.device, url, signal)
-      return t ? { texture: t, bytes: textureBytesOf(t.width, t.height) } : null
-    }
     const bitmap = await loadImageBitmap(url, signal)
     if (!bitmap) return null
     // #1153 P2 R4 — createTexture throws on a lost context (rhi-webgl2 :963) and
@@ -592,7 +590,7 @@ export class RasterRenderer {
       if (tex) this.rhi.destroyTexture(tex)
       return null
     }
-    const bytes = textureBytesOf(bitmap.width, bitmap.height)
+    const bytes = textureBytesOf(bitmap.width, bitmap.height, true)
     bitmap.close()
     return { texture: tex, bytes }
   }
@@ -698,7 +696,7 @@ export class RasterRenderer {
       // A failed load leaves the key in neither map, so without this guard the next
       // frame re-requests it — forever, at ~60 fps, pinning every concurrency slot
       // with requests that can never succeed (tile-retry.ts explains the shape).
-      if (!tileRequestable(this.failedTiles.get(key), this.frameCount)) continue
+      if (!this.failedTiles.requestable(key)) continue
       if (this.loadingTiles.size >= MAX_CONCURRENT_LOADS) break // respect concurrency limit
 
       const ctrl = new AbortController()
@@ -718,10 +716,10 @@ export class RasterRenderer {
         .then((texture) => {
           this.loadingTiles.delete(key)
           if (!texture) {
-            noteFailure(this.failedTiles, key, this.frameCount)
+            this.failedTiles.noteOutcome(key, ctrl.signal.aborted)
             return
           }
-          this.failedTiles.delete(key)
+          this.failedTiles.clear(key)
           this._cacheTile(key, texture)
           this.evictTiles(visibleKeys)
         })
@@ -758,7 +756,7 @@ export class RasterRenderer {
         const parentY = coord.y >> pz
         const parentKey = `${parentZ}/${parentX}/${parentY}`
         if (this.tileCache.has(parentKey) || this.loadingTiles.has(parentKey)) continue
-        if (!tileRequestable(this.failedTiles.get(parentKey), this.frameCount)) continue
+        if (!this.failedTiles.requestable(parentKey)) continue
         if (this.loadingTiles.size >= MAX_CONCURRENT_LOADS) break
         const ctrl = new AbortController()
         this.loadingTiles.set(parentKey, ctrl)
@@ -772,10 +770,10 @@ export class RasterRenderer {
           .then((texture) => {
             this.loadingTiles.delete(parentKey)
             if (!texture) {
-              noteFailure(this.failedTiles, parentKey, this.frameCount)
+              this.failedTiles.noteOutcome(parentKey, ctrl.signal.aborted)
               return
             }
-            this.failedTiles.delete(parentKey)
+            this.failedTiles.clear(parentKey)
             this._cacheTile(parentKey, texture)
           })
           .catch((e) => console.error('[X-GIS] raster parent-tile post-load bookkeeping failed', e))

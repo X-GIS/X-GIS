@@ -196,6 +196,17 @@ const PRESENTATION: Record<string, Presentation> = {
     },
     defaults: { name: 'Track', fields: 'speed: f32, name: string' },
   },
+  input: {
+    title: 'Input',
+    accent: '#a78bfa',
+    blurb: 'A host-settable parameter (#1539) — `map.setInput(name, value)` writes it live.',
+    fields: {
+      name: { label: 'Name', kind: 'text', placeholder: 'threshold' },
+      type: { label: 'Type', kind: 'select' },
+      default: { label: 'Default', kind: 'text', placeholder: '0.5' },
+    },
+    defaults: { name: 'threshold', type: 'f32', default: '0.5' },
+  },
   layer: {
     title: 'Layer',
     accent: PIN_COLOR.layer,

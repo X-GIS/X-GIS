@@ -23,6 +23,7 @@
 import type { PropertyShape } from '@xgis/compiler'
 import type { ShowCommand } from './renderer-types'
 import { resolveNumberShape, resolveColorShape, resolveArrayShape } from './paint-shape-resolve'
+import type { InputStore } from './input-store'
 
 type ShapeRef = PropertyShape<unknown> | null | undefined
 
@@ -43,6 +44,9 @@ interface ResolveCacheEntry {
   dashOffset: ShapeRef
   zoom: number
   elapsedMs: number
+  /** #1539 — InputStore.revision at cache time; see the hit check. -1 = the
+   *  frame had no store, which never equals a real revision (they start at 0). */
+  inputsRev: number
   /** True iff any cached axis is time-interpolated / zoom-time. When
    *  true, elapsedMs MUST match for a hit; otherwise the elapsedMs
    *  field is ignored (zoom-only or constant axes don't depend on
@@ -128,6 +132,11 @@ export interface ResolvedShow {
 export interface ResolveEnv {
   readonly cameraZoom: number
   readonly elapsedMs: number
+  /** #1539 — live `input` values. An `input-dependent` paint shape (one that
+   *  reads no feature field) resolves against these each frame, exactly like a
+   *  zoom-driven shape, so `map.setInput()` changes the picture on BOTH
+   *  backends. Absent → those shapes keep their pre-#1539 fallback. */
+  readonly inputs?: InputStore | null
 }
 
 /** Collapse every per-frame-variable axis of a ShowCommand into a
@@ -137,7 +146,7 @@ export interface ResolveEnv {
  *  calls this once per ShowCommand per frame; downstream consumers
  *  read scalars / RGBA off the returned snapshot. */
 export function resolveShow(show: ShowCommand, env: ResolveEnv): ResolvedShow {
-  const { cameraZoom, elapsedMs } = env
+  const { cameraZoom, elapsedMs, inputs } = env
   const ps = show.paintShapes
 
   // Allocation-free hot path: reuse the previous frame's ResolvedShow
@@ -155,6 +164,10 @@ export function resolveShow(show: ShowCommand, env: ResolveEnv): ResolvedShow {
     cached.stroke === ps.line.stroke &&
     cached.dashOffset === show.dashOffsetShape &&
     cached.zoom === cameraZoom &&
+    // #1539 — setInput moves NONE of the keys above (same shape refs, same
+    // zoom, same clock), so without this the memo would serve the pre-set
+    // value forever and the new input would silently never reach the screen.
+    cached.inputsRev === (inputs?.revision ?? -1) &&
     (!cached.hasTimeDep || cached.elapsedMs === elapsedMs)
   ) {
     return cached.resolved
@@ -167,10 +180,20 @@ export function resolveShow(show: ShowCommand, env: ResolveEnv): ResolvedShow {
   // single-authority `show.opacity` base rather than resolveNumberShape's
   // flat 1 — which would drop an authored/imperative base on a
   // data-driven-opacity layer.
-  const opacity =
-    ps.common.opacity.kind === 'data-driven'
-      ? (show.opacity ?? 1)
-      : resolveNumberShape(ps.common.opacity, cameraZoom, elapsedMs).value
+  // #1539 — the three scalar axes below each read a static `show.*` base when the
+  // shape is `data-driven`, because resolveNumberShape's flat fallback would lose
+  // the authored value and the real per-feature value arrives in a vertex buffer.
+  // An `input-dependent` shape is NOT that case: it reads no feature field, so
+  // resolveNumberShape returns a real per-frame value and taking the static base
+  // would pin it forever. This predicate is what routes it to the resolver — and
+  // it must stay applied to ALL of them, or `| opacity-[x]` would respond to
+  // setInput while `| width-[x]` / `| size-[x]` silently did not.
+  const bakedPerFeature = (shape: { kind: string; expr?: { classification?: string } }): boolean =>
+    shape.kind === 'data-driven' && shape.expr?.classification !== 'input-dependent'
+
+  const opacity = bakedPerFeature(ps.common.opacity)
+    ? (show.opacity ?? 1)
+    : resolveNumberShape(ps.common.opacity, cameraZoom, elapsedMs, inputs).value
 
   // Stroke width — three branches:
   //   - animated   → per-frame value from resolveNumberShape
@@ -181,18 +204,15 @@ export function resolveShow(show: ShowCommand, env: ResolveEnv): ResolvedShow {
   //                  per-layer fallback that loses the user's
   //                  declared base width — so we read show
   //                  directly for this case.
-  const strokeWidth =
-    ps.line.strokeWidth.kind === 'data-driven'
-      ? (show.strokeWidth ?? 1)
-      : resolveNumberShape(ps.line.strokeWidth, cameraZoom, elapsedMs).value
+  const strokeWidth = bakedPerFeature(ps.line.strokeWidth)
+    ? (show.strokeWidth ?? 1)
+    : resolveNumberShape(ps.line.strokeWidth, cameraZoom, elapsedMs, inputs).value
 
   // Size — same rule as strokeWidth.
   const size =
-    ps.circle.size === null
+    ps.circle.size === null || bakedPerFeature(ps.circle.size)
       ? (show.size ?? 0)
-      : ps.circle.size.kind === 'data-driven'
-        ? (show.size ?? 0)
-        : resolveNumberShape(ps.circle.size, cameraZoom, elapsedMs).value
+      : resolveNumberShape(ps.circle.size, cameraZoom, elapsedMs, inputs).value
 
   // Dash offset is a STRUCTURAL stroke attribute (drift of the dash
   // pattern along the line) — it has its own PropertyShape outside the
@@ -242,9 +262,11 @@ export function resolveShow(show: ShowCommand, env: ResolveEnv): ResolvedShow {
   // HDR canvas / non-byte display surface is wired (browser
   // dependency, separate phase).
   const fillResolved =
-    ps.fill.fill !== null ? resolveColorShape(ps.fill.fill, cameraZoom, elapsedMs) : null
+    ps.fill.fill !== null ? resolveColorShape(ps.fill.fill, cameraZoom, elapsedMs, inputs) : null
   const strokeResolved =
-    ps.line.stroke !== null ? resolveColorShape(ps.line.stroke, cameraZoom, elapsedMs) : null
+    ps.line.stroke !== null
+      ? resolveColorShape(ps.line.stroke, cameraZoom, elapsedMs, inputs)
+      : null
 
   // Static-hex fallback for the `null` case. parseHexColor lives in
   // map.ts; we just hand back whatever the ShowCommand already
@@ -286,6 +308,7 @@ export function resolveShow(show: ShowCommand, env: ResolveEnv): ResolvedShow {
     cached.dashOffset = show.dashOffsetShape as ShapeRef
     cached.zoom = cameraZoom
     cached.elapsedMs = elapsedMs
+    cached.inputsRev = inputs?.revision ?? -1
     cached.hasTimeDep = hasTimeDep
     cached.resolved = resolved
   } else {
@@ -298,6 +321,7 @@ export function resolveShow(show: ShowCommand, env: ResolveEnv): ResolvedShow {
       dashOffset: show.dashOffsetShape as ShapeRef,
       zoom: cameraZoom,
       elapsedMs,
+      inputsRev: inputs?.revision ?? -1,
       hasTimeDep,
       resolved,
     })
