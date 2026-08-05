@@ -29,6 +29,7 @@ describe('@xgis/blueprint codegen contract', () => {
         'background',
         'fn',
         'import',
+        'input',
         'layer',
         'map',
         'preset',
