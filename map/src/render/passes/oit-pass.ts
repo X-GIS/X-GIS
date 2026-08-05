@@ -9,7 +9,6 @@
 // the fill targets ride the RT-side RHI accessors and the compose draws
 // through the renderer entry (native pipeline until the OIT twin lands).
 
-import { DEBUG_OVERDRAW } from '../../debug-flags'
 import type { FrameContext } from '../frame-context'
 import type { SceneView } from '../scene-view'
 import { requireRhiFrame, type RenderPass, type OitPassHost } from './pass'
@@ -18,7 +17,7 @@ class OitPass implements RenderPass {
   readonly label = 'oit'
 
   shouldRun(scene: SceneView): boolean {
-    return scene.hasOit && !DEBUG_OVERDRAW
+    return scene.hasOit && !scene.overdraw
   }
 
   execute(ctx: FrameContext, scene: SceneView, host: OitPassHost): void {

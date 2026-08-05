@@ -60,6 +60,13 @@ export interface SceneView {
    *  Kept as a frame fact rather than deleted — it is correct and cheap — but do not
    *  reintroduce it as a pass gate. */
   readonly hasFlow: boolean
+  /** Whether `?debug=overdraw` is ACTIVE this frame — mirrored from
+   *  `FrameContext.overdraw`, which is the authority (see its doc). Every
+   *  `shouldRun` gate reads THIS, never the raw `DEBUG_OVERDRAW` const: the mode
+   *  is whole-frame and cross-cutting, so a pass consulting the URL flag while
+   *  the targets were routed from the device-aware truth is how the frame ended
+   *  up half-gated (#1046 Inc-F2d review F1/F2). */
+  readonly overdraw: boolean
   /** Which pass claims the MSAA resolveTarget this frame. */
   readonly resolveOwner: ResolveOwner
   /** #1429 INC-2 — the adaptive ladder holds the scene target below native
@@ -117,6 +124,7 @@ export function buildSceneView(host: SceneHost, ctx: FrameContext): SceneView {
     hasHillshade,
     hasGraphics,
     hasFlow,
+    overdraw: ctx.overdraw,
     resolveOwner,
     // DERIVED from the frame's two geometries, not remembered — the loop set
     // them from the one setFrameTargets site, so the flag cannot disagree

@@ -53,7 +53,7 @@ function run(hasSource: boolean, executionModel: 'immediate' | 'deferred' = 'imm
     passScope: (_l: string, fn: () => void) => fn(),
     useResolve: false,
     rt: { pickTexture: undefined, pickView: null },
-    projection: makeProjectionToken(0, 0, 0),
+    projection: makeProjectionToken(7, 12.5, -33.25),
     camera: { __camera: true },
     scene: { w: 800, h: 600, dpr: 1 },
     screen: { w: 999, h: 998, dpr: 9 },
@@ -119,10 +119,11 @@ describe('opaque pass — the checker arm (#1046 Inc-F2d)', () => {
     ).toBe(rhi)
     expect(passArg, 'the checker rides the opaque sub-pass').toBe(captured[0])
     expect(camArg, 'the frame camera, not a substitute').toHaveProperty('getViewForProjection')
-    // projType/lon/lat come from the pass's own unwrapProjection of ctx.projection,
-    // which this harness built as (0, 0, 0). A transposed lon/lat pair passed the
-    // first version of this test.
-    expect([projType, lon, lat], 'the projection triplet, in order').toEqual([0, 0, 0])
+    // projType/lon/lat come from the pass's own unwrapProjection of ctx.projection.
+    // The values are DISTINCT and distinctly-signed on purpose: the first two
+    // versions of this assertion used (0, 0, 0), which is invariant under every
+    // permutation, so transposing centreLon/centreLat in the call passed twice.
+    expect([projType, lon, lat], 'the projection triplet, in order').toEqual([7, 12.5, -33.25])
     expect([w, h, dpr], 'scene geometry, never screen').toEqual([800, 600, 1])
   })
 
@@ -135,23 +136,23 @@ describe('opaque pass — the checker arm (#1046 Inc-F2d)', () => {
     expect(renderRhiChecker, 'the checker must never cover a real source').not.toHaveBeenCalled()
   })
 
-  it('a DEFERRED device draws NOTHING sourceless — the #1041 parity contract', () => {
-    // debug-flags.ts declares it: "Production sourceless frames draw nothing
-    // there (WebGPU parity … #1041)". The checker is not portable to that
-    // backend even if we wanted it: `renderRhiChecker` bakes
-    // `RasterDraper(rhi, 'rgba8unorm', 1)`, shaped for the twin's single-sample
-    // screen pass, so on a bgra8unorm/MSAA-4 WebGPU pass it is a validation
-    // error every frame — and neither this file nor the WebGL2-only live-render
-    // gate would ever see it.
-    const { render, renderRhiChecker } = run(false, 'deferred')
+  it('is NOT device-forked — the same arm runs on a deferred device', () => {
+    // The first fix here gated this arm on `executionModel === 'immediate'`,
+    // because `renderRhiChecker` baked `RasterDraper(rhi, 'rgba8unorm', 1)` — a
+    // pipeline shaped for the twin's single-sample screen pass, and a validation
+    // error on a bgra8unorm/MSAA-4 WebGPU pass. That fork guarded the defect
+    // instead of fixing it, and `executionModel` does not even answer the
+    // question ("is the target rgba8unorm and single-sample"): rhi.ts states
+    // WebGL2's maxSampleCount is 1 *today* with a change expected.
+    //
+    // The draper now derives format + sample count from the target, so the call
+    // is correct on both backends by construction. This case pins that the fork
+    // does not come back: a device fork here would be backend identity wearing a
+    // capability's name (#1046 Inc-F2d review F3).
+    const { renderRhiChecker } = run(false, 'deferred')
     expect(
       renderRhiChecker,
-      'the checker ran on a deferred device: that breaks the documented #1041 sourceless-parity ' +
-        'contract AND binds a twin-shaped pipeline into a WebGPU pass',
-    ).not.toHaveBeenCalled()
-    expect(
-      render,
-      'sourceless means the real draw is skipped too — a blank frame',
-    ).not.toHaveBeenCalled()
+      'the checker arm was device-forked again — fix the draper at its owner instead',
+    ).toHaveBeenCalledTimes(1)
   })
 })

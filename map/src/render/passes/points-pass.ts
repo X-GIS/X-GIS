@@ -9,7 +9,6 @@
 // off when no direct-layer points or in ?debug=overdraw. Mechanical
 // changes only: `this.host.X` → `host.X`, `encoder` → `ctx.encoder`.
 
-import { DEBUG_OVERDRAW } from '../../debug-flags'
 import type { FrameContext } from '../frame-context'
 import { unwrapProjection } from '../projection-token'
 import type { SceneView } from '../scene-view'
@@ -19,7 +18,7 @@ class PointsPass implements RenderPass {
   readonly label = 'points'
 
   shouldRun(scene: SceneView): boolean {
-    return scene.hasPoints && !DEBUG_OVERDRAW
+    return scene.hasPoints && !scene.overdraw
   }
 
   execute(ctx: FrameContext, _scene: SceneView, host: PointsPassHost): void {

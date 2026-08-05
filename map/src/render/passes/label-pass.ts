@@ -18,7 +18,6 @@
 
 import { evaluate, makeEvalProps, resolveColor } from '@xgis/compiler'
 import { markStart as perfMarkStart, markEnd as perfMarkEnd } from '../../__profile__/perf-marks'
-import { DEBUG_OVERDRAW } from '../../debug-flags'
 import { WORLD_MERC } from '@xgis/geo'
 import { activeBody } from '@xgis/shared'
 import { mercatorYToLat } from '@xgis/geo'
@@ -1955,10 +1954,11 @@ class LabelPass implements RenderPass {
         iStage?.prepare(holdoverOk, motionHoldover)
       }
       perfMarkEnd('encoder.stage-prepare')
-      // Text overlay v1: skipped in debug=overdraw — text pipeline
-      // targets the swapchain format, not r16float. Phase 2 adds
-      // a text debug pipeline so glyph + halo overdraw counts.
-      if (!DEBUG_OVERDRAW) {
+      // Text overlay v1: skipped in debug=overdraw — text targets the swapchain
+      // format, not r16float. The FRAME's truth, never the URL flag: where the
+      // mode cannot run the attachment IS the swapchain, so reading the flag
+      // here drops the overlay for an r16float never allocated (Inc-F2d F1/F2).
+      if (!ctx.overdraw) {
         if (ctx.rhiPass) {
           // Forced-WebGL2 frame (#834 M5 slices 3-4): draw on the live RHI
           // screen pass — the twin frame holds its ONE pass open, so this

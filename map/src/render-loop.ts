@@ -1156,9 +1156,9 @@ export class RenderLoop {
     // (iStage) are a follow-up slice. `scene` is a null placeholder (`_scene` unused).
     labelPass.execute(
       {
-        // The WebGl2Device rendering this forced-WebGL2 frame — populates the required
-        // FrameContext.rhi on the twin path too (#1046 F1). Inert here: no pass reads caps yet.
+        // WebGl2Device for this frame (#1046 F1); overdraw stays RAW — see its field doc.
         rhi: this.host.ctx.rhi,
+        overdraw: DEBUG_OVERDRAW,
         rhiEncoder: null,
         // The twin never runs the F3b-ported chain passes — bridges stay null.
         rhiScreenView: null,

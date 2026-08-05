@@ -134,6 +134,26 @@ export interface FrameContext {
   sampleCount: number
   /** `sampleCount > 1` — whether passes resolve MSAA to the swapchain. */
   useResolve: boolean
+  /** Whether `?debug=overdraw` is ACTIVE for this frame — the single authority,
+   *  and the only thing any pass or renderer may consult about the mode.
+   *
+   *  The raw `DEBUG_OVERDRAW` flag is a URL truth; this is a FRAME truth, and the
+   *  two differ on an immediate device, where the mode cannot run at all: its
+   *  compose is raw WebGPU (P6) and every scene pass would otherwise render into
+   *  an r16float accumulator that nothing could then resolve to the swapchain.
+   *
+   *  The render-graph doc states the invariant this exists to keep: overdraw is a
+   *  WHOLE-FRAME mode and its gates are cross-cutting, NOT independent per-pass
+   *  booleans. Reading the module const in one place and this in another is what
+   *  produced a half-gated frame — targets routed as if the mode were off while
+   *  passes still skipped themselves as if it were on, silently dropping the
+   *  translucent and hillshade the twin drew (#1046 Inc-F2d review F1/F2).
+   *
+   *  The TWIN's minimal label context deliberately passes the raw flag instead:
+   *  it routes no accumulator and has always skipped its label overlay under
+   *  ?debug=overdraw, and handing it this device-aware truth would change the
+   *  very arm the parity ratchet measures. That dies with the twin. */
+  overdraw: boolean
   /** Per-pass validation-scope + perf-marks helper. Re-bound each frame
    *  because it closes over this frame's `device`. */
   passScope: (label: string, fn: () => void) => void
@@ -181,6 +201,7 @@ export function makeFrameContext(a: {
     frameCount: a.frameCount,
     sampleCount: 1, // set by wireFrameColour
     useResolve: false, // set by wireFrameColour
+    overdraw: false, // set by wireFrameColour (device-aware; see the field doc)
     passScope: a.passScope,
     rt: a.rt,
   }
@@ -226,6 +247,7 @@ export function wireFrameColour(
   // binds FBO 0 directly and never consults RenderTargets at all — an ordinary
   // map on a transparent clear (#1046 Inc-F2d).
   const overdraw = DEBUG_OVERDRAW && ctx.rhi.caps.executionModel !== 'immediate'
+  ctx.overdraw = overdraw
   const { useResolve, colorView, sceneResolveView, colorViewScreen, sceneColorSampleView } =
     ctx.rt.ensure(
       ctx.scene.w,

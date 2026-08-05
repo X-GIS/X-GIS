@@ -323,10 +323,6 @@ export class RasterRenderer {
 
   // ── Forced-WebGL2 raster slice (US-003) ──
   // A SECOND draper backed by the WebGl2Device (host.ctx.rhi), drawing an analytic
-  // checker tile through the engine's RHI screen pass — the milestone proof that a real
-  // layer renders on the WebGL2 backend, not just offscreen. Distinct from `_rasterDraper`
-  // (the WebGPU pilot). Created lazily on the first forced-WebGL2 frame.
-  private _rhiDraper?: RasterDraper
   private _rhiChecker?: RhiTexture
   /** The WebGPU RasterDraper — render()'s sole draw path (P1.4). Lazily built with the
    *  swapchain format + sample count; rebuilt on a quality (MSAA) change via invalidation. */
@@ -504,7 +500,15 @@ export class RasterRenderer {
     h: number,
     dpr: number,
   ): void {
-    this._rhiDraper ??= new RasterDraper(rhi, 'rgba8unorm', 1)
+    // The SAME draper the live raster path uses, so the pipeline is derived from
+    // the target pass rather than assumed. It used to bake ('rgba8unorm', 1) —
+    // correct for the forced-WebGL2 twin's single-sample isolated screen pass,
+    // where format and sample count are inert anyway (WebGL2 pipelines are
+    // programs), and a validation error the moment the same call ran on a
+    // WebGPU frame: bgra8unorm, MSAA 4. That baked pair was why the chain port
+    // of this call needed a device fork to be safe; deriving here removes the
+    // reason for the fork (#1046 Inc-F2d review F3).
+    const draper = this.ensureRasterDraper()
     const checker = this.ensureRhiChecker(rhi)
     const frame = camera.getViewForProjection(projType, w, h, dpr)
 
@@ -548,7 +552,7 @@ export class RasterRenderer {
       gridN,
     )
 
-    this._rhiDraper.draw(pass, B.buffer, [
+    draper.draw(pass, B.buffer, [
       { texture: checker, tileBytes: new Float32Array(TB.buffer.slice(0)), gridN },
     ])
   }

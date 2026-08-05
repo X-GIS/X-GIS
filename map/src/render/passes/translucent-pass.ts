@@ -10,7 +10,6 @@
 // shared with the twin, and ONE composite implementation serves both
 // frame shapes.
 
-import { DEBUG_OVERDRAW } from '../../debug-flags'
 import type { FrameContext } from '../frame-context'
 import type { SceneView } from '../scene-view'
 import { requireRhiFrame, type RenderPass, type TranslucentPassHost } from './pass'
@@ -19,7 +18,7 @@ class TranslucentPass implements RenderPass {
   readonly label = 'translucent'
 
   shouldRun(scene: SceneView): boolean {
-    return scene.hasTranslucent && !DEBUG_OVERDRAW
+    return scene.hasTranslucent && !scene.overdraw
   }
 
   execute(ctx: FrameContext, scene: SceneView, host: TranslucentPassHost): void {

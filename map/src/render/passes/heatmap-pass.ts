@@ -14,7 +14,6 @@
 // renders byte-identically. The density targets are lazily ensured inside
 // renderChainRhi (NOT per-frame allocated — HeatmapTargets tracks size).
 
-import { DEBUG_OVERDRAW } from '../../debug-flags'
 import type { FrameContext } from '../frame-context'
 import { unwrapProjection } from '../projection-token'
 import type { SceneView } from '../scene-view'
@@ -24,7 +23,7 @@ class HeatmapPass implements RenderPass {
   readonly label = 'heatmap'
 
   shouldRun(scene: SceneView): boolean {
-    return scene.hasHeatmap && !DEBUG_OVERDRAW
+    return scene.hasHeatmap && !scene.overdraw
   }
 
   execute(ctx: FrameContext, _scene: SceneView, host: HeatmapPassHost): void {

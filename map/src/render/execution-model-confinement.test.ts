@@ -3,28 +3,25 @@
 // `RhiCaps.executionModel` is a DEVICE truth for engine upload/draw primitives
 // (rhi.ts contract): map-layer passes and renderers must not fork on it — that
 // would be backend identity wearing a capability's name. The Inc-E2 chain flip
-// grants exactly five INTERIM exceptions — native-bodied sites that route the
-// immediate arm to the *Rhi entries, decline, or steer a frame away from a
-// native-bodied consumer; all dying at P6 with the native bodies themselves:
+// grants exactly four INTERIM exceptions — native-bodied sites that route the
+// immediate arm to the *Rhi entries, or steer a frame away from a native-bodied
+// consumer; all dying at P6 with the native bodies themselves:
 //
-//   vector-tile-renderer.ts  ×1  VTR.render fork → renderImmediateArm
-//   renderer.ts              ×2  renderToPass legacy-layer skip + graticule fork
-//   frame-context.ts         ×1  ?debug=overdraw target routing (#1046 Inc-F2d)
-//   opaque-pass.ts           ×1  the ?debug=checker arm (#1046 Inc-F2d)
+//   vector-tile-renderer.ts  x1  VTR.render fork -> renderImmediateArm
+//   renderer.ts              x2  renderToPass legacy-layer skip + graticule fork
+//   frame-context.ts         x1  ?debug=overdraw frame gate (#1046 Inc-F2d)
 //
-// The last two were granted for reasons the gate should force into the open:
+// The fourth is granted for a reason the gate should force into the open: the
+// overdraw compose is raw WebGPU and threw every frame on an immediate device.
+// It gates the MODE for the whole frame at the wiring site, not the compose that
+// consumes it -- gating the consumer alone stops the crash but leaves the
+// accumulator routing, so nothing writes the swapchain and the frame goes blank.
+// One read, one authority: every pass reads `scene.overdraw`/`ctx.overdraw`.
 //
-//   frame-context — the overdraw ACCUMULATOR routing, not the compose that
-//     consumes it. The compose is raw WebGPU and threw every frame on an
-//     immediate device until map.ts halted the loop; gating the compose alone
-//     stops the crash but leaves the routing, so nothing writes the swapchain
-//     and the frame goes blank. Gating the routing reproduces the twin, which
-//     binds FBO 0 and never consults RenderTargets.
-//   opaque-pass — `renderRhiChecker` bakes `RasterDraper(rhi,'rgba8unorm',1)`,
-//     a pipeline shaped for the twin's single-sample screen pass. On WebGPU it
-//     would bind into a bgra8unorm/MSAA-4 pass. debug-flags.ts already declares
-//     sourceless WebGPU frames blank (#1041), so this keeps a contract rather
-//     than adding a fork for convenience.
+// A FIFTH was added and then removed in the same increment: the ?debug=checker
+// arm was device-forked to dodge a baked ('rgba8unorm', 1) draper. Fixing the
+// draper at its owner (raster-renderer.ts) deleted the need, which is the shape
+// to prefer -- a fork here should never be the cheaper way to avoid a fix.
 //
 // This gate pins the consumer set EXACTLY: a new `.caps.executionModel` read
 // anywhere in map/src — or a new one inside the allowlisted files — fails with
@@ -50,7 +47,6 @@ const READ_ALLOWLIST: Record<string, number> = {
   'render/vector-tile-renderer.ts': 1,
   'render/renderer.ts': 2,
   'render/frame-context.ts': 1,
-  'render/passes/opaque-pass.ts': 1,
 }
 
 /** Files allowed to MENTION the token at all (reads + docs). */

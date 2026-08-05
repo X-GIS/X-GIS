@@ -15,7 +15,6 @@
 // paintShapes.hillshade; the DEM decode (encoding / tileSize) was armed once at
 // rebuildLayers time (map.ts, from the `_dem` source marker).
 
-import { DEBUG_OVERDRAW } from '../../debug-flags'
 import type { FrameContext } from '../frame-context'
 import { unwrapProjection } from '../projection-token'
 import type { SceneView } from '../scene-view'
@@ -101,7 +100,7 @@ class HillshadePass implements RenderPass {
   readonly label = 'hillshade'
 
   shouldRun(scene: SceneView): boolean {
-    return scene.hasHillshade && !DEBUG_OVERDRAW
+    return scene.hasHillshade && !scene.overdraw
   }
 
   execute(ctx: FrameContext, scene: SceneView, host: HillshadePassHost): void {

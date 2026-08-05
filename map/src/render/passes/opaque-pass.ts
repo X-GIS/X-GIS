@@ -14,7 +14,7 @@
 // descriptor-equivalent to the retired native block. All loop-local state
 // stays inside execute().
 
-import { DEBUG_OVERDRAW, DEBUG_RHI_CHECKER } from '../../debug-flags'
+import { DEBUG_RHI_CHECKER } from '../../debug-flags'
 import { isPickEnabled } from '@xgis/engine'
 import { isGlobeProj } from '@xgis/geo'
 import { resolveNumberShape } from '../paint-shape-resolve'
@@ -178,7 +178,7 @@ class OpaquePass implements RenderPass {
               ctx.scene.h,
               ctx.scene.dpr,
             )
-          } else if (DEBUG_RHI_CHECKER && ctx.rhi.caps.executionModel === 'immediate') {
+          } else if (DEBUG_RHI_CHECKER) {
             // US-003/US-004's analytic z0 world tile — a real raster draw through
             // the SAME RasterDraper, with no network. Ported from the twin, which
             // was its ONLY caller (#1046 Inc-F2d): without it a deleted twin
@@ -188,16 +188,19 @@ class OpaquePass implements RenderPass {
             // runners without egress, so re-fixturing onto one would trade a
             // deterministic gate for a flaky one.
             //
-            // IMMEDIATE ONLY, and that is not a backend smell — it is the
-            // documented contract. debug-flags.ts states that production
-            // sourceless frames draw NOTHING on WebGPU (parity, #1041), and
-            // `renderRhiChecker` bakes a twin-shaped pipeline: it hardcodes
-            // `RasterDraper(rhi, 'rgba8unorm', 1)` where the real raster path
-            // derives format + sample count from the target pass. Running it on
-            // a WebGPU frame would bind that pipeline into a bgra8unorm / MSAA-4
-            // pass — a validation error every frame, and invisible to both the
-            // unit pins and the WebGL2-only live-render gate. Same class as
-            // 2026-07-27-the-pipeline-that-was-right-somewhere-else.
+            // NO device fork here, deliberately. The first attempt gated this on
+            // the execution-model capability because `renderRhiChecker` baked
+            // `RasterDraper(rhi, 'rgba8unorm', 1)` — a pipeline shaped for the
+            // twin's single-sample screen pass, which would be a validation
+            // error on a bgra8unorm/MSAA-4 WebGPU pass. That fork guarded a
+            // defect instead of fixing it, and the capability does not even
+            // answer the question it was asked ("is the target rgba8unorm and
+            // single-sample"): rhi.ts states WebGL2's maxSampleCount is 1
+            // *today* and a future value change is expected, at which point the
+            // fork would protect the wrong backend. The draper now derives
+            // format + sample count from the target (raster-renderer.ts), so
+            // this call is correct on both backends by construction and needs no
+            // gate (#1046 Inc-F2d review F3).
             host.rasterRenderer.renderRhiChecker(
               ctx.rhi,
               subPass,
@@ -280,7 +283,7 @@ class OpaquePass implements RenderPass {
           // the layer's fillPhase, and `false` for the translucent-bucket
           // flag (the opaque pass has a depth attachment).
           const drawShow = (cs: (typeof group.shows)[number]) => {
-            cs.draw(subPass, ctx, DEBUG_OVERDRAW ? null : host.pointRenderer, cs.fillPhase, false)
+            cs.draw(subPass, ctx, ctx.overdraw ? null : host.pointRenderer, cs.fillPhase, false)
           }
           for (let si = 0; si < group.shows.length; si++) {
             if (!isExtruded(group.shows[si])) drawShow(group.shows[si])
