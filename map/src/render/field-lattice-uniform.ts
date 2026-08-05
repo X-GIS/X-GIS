@@ -25,7 +25,7 @@ import { invert4x4, mulVec4 } from '@xgis/shared'
 import { localFrame, globeForward, getProjection, SELECTOR_PROJ_NAMES } from '@xgis/geo'
 import { EARTH } from '@xgis/shared'
 import { uniformBlock, type UniformBlockOf } from '@xgis/engine'
-import { fieldViewU, FIELD_MAX_GROUND_NODES } from '../shaders/dsl/field-lattice'
+import { fieldViewU, FIELD_MAX_GROUND_NODES, FIELD_OWNED_SLOTS } from '../shaders/dsl/field-lattice'
 
 /** The coverage's grid box, as the affine map `uv = (lonlat − origin) · invSpan`.
  *
@@ -44,6 +44,48 @@ export interface FieldViewGrid {
    *  step with the packer. */
   invSpanLon: number
   invSpanLat: number
+}
+
+/** A rectangle of ground, in absolute degrees, that some OTHER lattice owns.
+ *
+ *  Deliberately not a `FieldViewGrid`: that type is an affine map because a sampler needs a uv out
+ *  of it, and this is only ever asked a containment question. Keeping them separate types is what
+ *  stops a caller passing the coverage's outer cell edges where the owning lattice's NODE box is
+ *  meant — a half-cell difference that opens a hairline gap exactly where domains abut. */
+export interface FieldOwnedBox {
+  west: number
+  east: number
+  south: number
+  north: number
+}
+
+/** The NODE box a `FieldViewGrid` enumerates, as the rectangle another lattice must yield to.
+ *
+ *  ONE derivation, here, so the box and the grid it comes from cannot disagree: `uv ∈ [0,1]²`
+ *  maps to lon/lat `origin … origin + 1/invSpan` on each axis, and `invSpanLat` is negative (grid-v
+ *  runs southward), so the latitude that reciprocal produces is the SOUTH edge and the origin is the
+ *  north one. A degenerate axis (a single-column or single-row coverage) has a zero reciprocal and
+ *  no extent to own; it yields an empty box rather than an infinite one. */
+export function fieldOwnedBoxOf(grid: FieldViewGrid): FieldOwnedBox {
+  if (grid.invSpanLon === 0 || grid.invSpanLat === 0) return EMPTY_OWNED_BOX
+  const lonB = grid.originLon + 1 / grid.invSpanLon
+  const latB = grid.originLat + 1 / grid.invSpanLat
+  return {
+    west: Math.min(grid.originLon, lonB),
+    east: Math.max(grid.originLon, lonB),
+    south: Math.min(grid.originLat, latB),
+    north: Math.max(grid.originLat, latB),
+  }
+}
+
+/** A box no coordinate is inside — the encoding an UNUSED slot is written as. An empty interval,
+ *  not zeros: a zeroed slot is the box `[0,0]×[0,0]`, a real point in the Gulf of Guinea. */
+const EMPTY_OWNED_BOX: FieldOwnedBox = { west: 1e30, east: -1e30, south: 1e30, north: -1e30 }
+
+/** True when the two boxes share any ground, edges included — the filter that keeps the slot budget
+ *  spent only on boxes that can actually suppress a node of this lattice. */
+export function fieldBoxesOverlap(a: FieldOwnedBox, b: FieldOwnedBox): boolean {
+  return a.west <= b.east && b.west <= a.east && a.south <= b.north && b.south <= a.north
 }
 
 /** The camera half — everything that does not depend on which coverage is being drawn. */
@@ -90,6 +132,18 @@ export interface FieldLatticeRequest {
    *  back as `ray_tl.w`, `ray_tr.w`, `eye.w`. std140 rounds a bare `f32` up to 16 B anyway, so this
    *  is free space rather than a field the lattice added for someone. */
   carry: readonly [number, number, number]
+  /** Ground that ANOTHER lattice owns — this one emits no node inside any of these (#1585).
+   *
+   *  DOMAIN-NEUTRAL, like everything else here: the lattice is told which ground is already spoken
+   *  for, and has no opinion on who spoke for it or why. The consumer owns the tie-break; for the
+   *  mosaic that rule is "first-armed wins", which `coverage-bounds.ts` already states and
+   *  `coverageHandleAt` already implements, so the drawn field agrees with the queried value.
+   *
+   *  Pass the owning lattice's NODE box (`fieldOwnedBoxOf`), never a coverage's outer cell edges —
+   *  the latter reach half a cell further than any node and would clip a rim the owner never draws.
+   *  Boxes beyond `FIELD_OWNED_SLOTS` are dropped WITH A WARNING naming the count, never silently.
+   *  Filter to boxes that genuinely overlap before passing them, and that limit stays unreachable. */
+  suppress?: readonly FieldOwnedBox[]
 }
 
 /** Assemble the camera half from a frame's own inputs.
@@ -554,8 +608,29 @@ export function writeFieldViewUniform(
     hx: [H[0], H[1], H[2], lat.anchorU],
     hy: [H[3], H[4], H[5], lat.anchorV],
     hw: [H[6], H[7], H[8], req.interleave ? 1 : 0],
+    own_0: ownedSlot(req.suppress, 0),
+    own_1: ownedSlot(req.suppress, 1),
+    own_2: ownedSlot(req.suppress, 2),
+    own_3: ownedSlot(req.suppress, 3),
   })
+  if (req.suppress && req.suppress.length > FIELD_OWNED_SLOTS) {
+    // LOUD, because the failure it reports is invisible: the dropped boxes' ground goes back to
+    // being enumerated by two lattices at once, which reads as denser DATA rather than as a bug.
+    console.warn(
+      `[field-lattice] ${req.suppress.length} owned boxes exceed the ${FIELD_OWNED_SLOTS} slots — ` +
+        `${req.suppress.length - FIELD_OWNED_SLOTS} dropped, and that ground stays double-drawn`,
+    )
+  }
   return lat.nx * lat.ny * (req.interleave ? 2 : 1) * req.instancesPerNode
+}
+
+/** Slot `i` as the block's four floats — the box if there is one, an empty interval if not. */
+function ownedSlot(
+  boxes: readonly FieldOwnedBox[] | undefined,
+  i: number,
+): [number, number, number, number] {
+  const b = boxes?.[i] ?? EMPTY_OWNED_BOX
+  return [b.west, b.east, b.south, b.north]
 }
 
 export { groundLatticeFor as fieldGroundLatticeFor, groundWorldFn as fieldGroundWorldFn }

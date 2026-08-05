@@ -79,8 +79,11 @@ export interface CoverageArrowOptions {
    *
    *  `peakSpeed` is the velocity textures' normalization scale (`packFlowFieldUV`), read off the
    *  UPLOADED field rather than re-derived here — the band table is expressed in those same
-   *  units, and a second derivation of the peak is a second thing to keep in step. */
-  advected?: { peakSpeed: number }
+   *  units, and a second derivation of the peak is a second thing to keep in step.
+   *
+   *  `priority` is this region's place in the mosaic's ownership order (`AdvectedArrowInput`) —
+   *  lower wins where two domains cover the same water (#1585). */
+  advected?: { peakSpeed: number; priority: number }
 }
 
 /** What the ADVECTED portrayal needs from the grid, and it is no longer per instance (#1520).
@@ -170,7 +173,7 @@ export function addCoverageArrowShowLayer(
       [],
       S111_OUTLINE_FRAC,
       region,
-      advectedInput(handle, opts.advected.peakSpeed, rampName),
+      advectedInput(handle, opts.advected.peakSpeed, rampName, opts.advected.priority),
     )
     return
   }
@@ -225,11 +228,13 @@ function advectedInput(
   handle: CoverageHandle,
   peakSpeed: number,
   rampName: string,
+  priority: number,
 ): AdvectedArrowInput {
   const grid = coverageArrowGrid(handle)
   return {
     grid,
     bandTable: s111BandTableNormalized(peakSpeed, grid.uvAspect, rampName),
+    priority,
   }
 }
 

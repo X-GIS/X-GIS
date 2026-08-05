@@ -29,7 +29,7 @@
 // eye's set-back, a corner ray, the local frame, the sign of `crs.w` — and the whole lattice shifts
 // or shears. `_perturb` below does exactly that, per field, and asserts the identity breaks.
 
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, vi } from 'vitest'
 import { module, compileModuleJs } from '@xgis/shader-dsl'
 import { Camera } from '../camera/camera'
 import { getGpuProjectionFuncs, PROJECTION_CONSTS } from '../shaders/dsl/projections'
@@ -38,9 +38,12 @@ import { FIELD_LATTICE_FUNCS, FIELD_MAX_GROUND_NODES } from '../shaders/dsl/fiel
 import { ARROW_TRAIN_GLYPHS, ARROW_LATTICE_FACTOR } from '../shaders/dsl/arrow-drift'
 import { globeForward } from '@xgis/geo'
 import {
+  fieldBoxesOverlap,
+  fieldOwnedBoxOf,
   fieldViewBlock,
   writeFieldViewUniform,
   fieldViewUniformBytes,
+  type FieldLatticeRequest,
   type FieldViewCamera,
   type FieldViewGrid,
 } from './field-lattice-uniform'
@@ -90,6 +93,10 @@ const FIELDS = [
   'hx',
   'hy',
   'hw',
+  'own_0',
+  'own_1',
+  'own_2',
+  'own_3',
 ] as const
 
 function unpack(buf: ArrayBuffer): Record<string, number[]> {
@@ -108,15 +115,18 @@ interface Scene {
 }
 
 /** Stand a real camera up, take the MVP the frame would render with, and pack the block. */
-function scene(o: {
-  lon: number
-  lat: number
-  zoom: number
-  projType: number
-  pitch?: number
-  bearing?: number
-  globe?: boolean
-}): Scene {
+function scene(
+  o: {
+    lon: number
+    lat: number
+    zoom: number
+    projType: number
+    pitch?: number
+    bearing?: number
+    globe?: boolean
+  },
+  reqOver: Partial<FieldLatticeRequest> = {},
+): Scene {
   const c = new Camera(o.lon, o.lat, o.zoom)
   c.pitch = o.pitch ?? 0
   c.bearing = o.bearing ?? 0
@@ -134,7 +144,7 @@ function scene(o: {
     dpr: DPR,
   }
   const block = fieldViewBlock()
-  const instances = writeFieldViewUniform(block, cam, GRID, REQ)
+  const instances = writeFieldViewUniform(block, cam, GRID, { ...REQ, ...reqOver })
   expect(instances, 'the camera has a usable inverse').not.toBeNull()
   return { cam, view: unpack(block.buffer), instances: instances! }
 }
@@ -310,7 +320,22 @@ describe('GATE 1, fail-before — perturbing the uniform BREAKS the identity', (
   // downstream of it either, and for a more interesting reason: the model (`hx`/`hy`/`hw`) is only a
   // GUESS and the lattice is only which nodes are enumerated, so neither can move a node off itself.
   // The block below is their fail-before, and it is the one that proves the Newton step is live.
-  const NOT_IDENTITY = new Set(['crs', 'lattice', 'hx', 'hy', 'hw'])
+  //
+  // The `own_*` slots (#1585) are excluded for the plainest reason of the three: they decide whether
+  // a node is DRAWN, not where it lands. Moving one cannot move a node off itself by construction —
+  // the identity this block measures never reads them. Their own fail-before is GATE 1e, which
+  // asserts on the encoding, and the render gate, which asserts on what disappears.
+  const NOT_IDENTITY = new Set([
+    'crs',
+    'lattice',
+    'hx',
+    'hy',
+    'hw',
+    'own_0',
+    'own_1',
+    'own_2',
+    'own_3',
+  ])
 
   for (const field of FIELDS) {
     if (NOT_IDENTITY.has(field)) continue
@@ -575,8 +600,91 @@ describe('GATE 1b — the lattice is anchored to the GROUND (#1534)', () => {
     expect(writeFieldViewUniform(fieldViewBlock(), cam, GRID, REQ)).toBe(null)
   })
 
-  it('the block is sized from the reflected layout — thirteen vec4f, 208 B', () => {
+  it('the block is sized from the reflected layout — seventeen vec4f, 272 B', () => {
     // The buffer the store allocates and the struct the shader reads come from ONE declaration.
     expect(fieldViewUniformBytes()).toBe(FIELDS.length * 16)
+  })
+})
+
+describe('GATE 1e — ground another lattice OWNS is described exactly (#1585)', () => {
+  // Where two mosaic domains overlap, both lattices used to enumerate the shared water and both
+  // drew on it. The tie is broken by handing the later region the earlier one's NODE box; these
+  // pin the box's derivation and its encoding, which are the two places it can silently go wrong.
+
+  it('the box is the grid’s node extent, with the southward v axis put right way up', () => {
+    // `invSpanLat` is NEGATIVE, so `origin + 1/invSpanLat` is the SOUTH edge and the origin is the
+    // north one. Getting that backwards yields an inverted interval that contains nothing — the
+    // suppression would silently never fire, which is the failure mode this asserts against.
+    const box = fieldOwnedBoxOf(GRID)
+    expect(box.west).toBeCloseTo(-77, 9)
+    expect(box.east).toBeCloseTo(-75, 9) // −77 + 1/(1/2)
+    expect(box.north).toBeCloseTo(39.5, 9)
+    expect(box.south).toBeCloseTo(37.5, 9) // 39.5 + 1/(−1/2)
+    expect(box.south, 'a non-empty interval, or nothing is ever suppressed').toBeLessThan(box.north)
+  })
+
+  it('a degenerate axis owns NOTHING rather than everything', () => {
+    // A single-column coverage has a zero reciprocal. Dividing by it gives ±Infinity, and an
+    // infinite box would suppress a neighbour's entire field.
+    const box = fieldOwnedBoxOf({ ...GRID, invSpanLon: 0 })
+    expect(box.west > box.east || box.south > box.north, 'empty, not infinite').toBe(true)
+  })
+
+  it('overlap is edge-INCLUSIVE, matching coverageCovers', () => {
+    // Abutting NOAA domains share an edge. `coverage-bounds.ts` resolves a point on it to the
+    // first-armed region rather than to neither, and this must answer the same way.
+    const a = fieldOwnedBoxOf(GRID) // lon [−77, −75]
+    const touching = { west: -75, east: -73, south: 37.5, north: 39.5 }
+    const apart = { west: -74, east: -73, south: 37.5, north: 39.5 }
+    expect(fieldBoxesOverlap(a, touching), 'a shared edge counts as overlap').toBe(true)
+    expect(fieldBoxesOverlap(a, apart), 'a gap does not').toBe(false)
+  })
+
+  it('an UNUSED slot is an empty interval, never zeros', () => {
+    // The trap this exists to stop: zeros are the box [0,0]×[0,0] — a real point in the Gulf of
+    // Guinea. A lattice drawn over West Africa would lose a node to a region that does not exist.
+    const s = scene({ lon: -76, lat: 38, zoom: 12, projType: 0 })
+    for (const slot of ['own_0', 'own_1', 'own_2', 'own_3'] as const) {
+      const [w, e, so, n] = s.view[slot]!
+      expect(w! > e! && so! > n!, `${slot} is an empty interval when unused`).toBe(true)
+    }
+    // …and 0,0 must NOT be inside it, stated directly rather than inferred from the above.
+    const [w, e, so, n] = s.view.own_0!
+    expect(0 >= w! && 0 <= e! && 0 >= so! && 0 <= n!, 'the null island is not suppressed').toBe(
+      false,
+    )
+  })
+
+  it('the boxes handed in land in the slots, in order', () => {
+    const boxes = [
+      { west: -80, east: -78, south: 30, north: 32 },
+      { west: -70, east: -68, south: 40, north: 42 },
+    ]
+    const s = scene({ lon: -76, lat: 38, zoom: 12, projType: 0 }, { suppress: boxes })
+    expect(s.view.own_0).toEqual([-80, -78, 30, 32])
+    expect(s.view.own_1).toEqual([-70, -68, 40, 42])
+    const [w, e] = s.view.own_2!
+    expect(w! > e!, 'the tail stays empty').toBe(true)
+  })
+
+  it('more boxes than slots WARNS by name — the dropped ground stays double-drawn', () => {
+    // §12: no silent caps. Losing a box does not fail loudly on screen — it looks like a denser
+    // current, which reads as data rather than as a bug — so the log is the only tripwire.
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    try {
+      const many = Array.from({ length: 6 }, (_, i) => ({
+        west: -80 + i,
+        east: -79 + i,
+        south: 30,
+        north: 32,
+      }))
+      scene({ lon: -76, lat: 38, zoom: 12, projType: 0 }, { suppress: many })
+      expect(warn).toHaveBeenCalledTimes(1)
+      expect(String(warn.mock.calls[0]![0]), 'names the count and the consequence').toMatch(
+        /6 owned boxes.*4 slots.*2 dropped.*double-drawn/,
+      )
+    } finally {
+      warn.mockRestore()
+    }
   })
 })
