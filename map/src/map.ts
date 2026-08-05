@@ -195,7 +195,15 @@ import { wireDeviceLostRecovery, resumeDeviceLostRecovery } from './device-lost-
 import { ColdStartBurstController } from './map-cold-start-burst'
 import { buildSceneRenderers } from './scene-renderers'
 import { safeFetch, assertIngestBudget, readBodyCapped, isMobileClassViewport } from '@xgis/shared'
-import { CoverageReadCancellation, stopCoverageMachinery, teardownSources } from './map-teardown'
+import { makeStyleImportResolver } from './style-import-resolver'
+import {
+  CoverageReadCancellation,
+  stopCoverageMachinery,
+  teardownSources,
+  disposeOrphanedBoot,
+  absoluteBaseUrl,
+  type PendingGpuBoot,
+} from './map-teardown'
 import { startCoverageTimePlayback } from './coverage-playback'
 
 // DoS ceilings for the top-level loader entry points (.xgis style /
@@ -2702,7 +2710,7 @@ export class XGISMap {
       this._eventBus.fireErrorEvent({ phase: 'boot', fatal: false, error: e })
       throw e
     }
-    return this._runProgram(ast, baseUrl)
+    return this._runGuarded(ast, baseUrl)
   }
 
   /** Run a SceneBuilder program — the same post-parse pipeline as `run()`
@@ -2712,8 +2720,26 @@ export class XGISMap {
     if (this._destroyed) return
     if (scene?.__xgisSceneProgram !== true)
       throw new Error('runScene: pass the SceneProgram returned by SceneBuilder.build()')
-    return this._runProgram(scene.program, baseUrl)
+    return this._runGuarded(scene.program, baseUrl)
   }
+
+  /** #1577 — the ONE exit `_runProgram`'s kickoff-to-await window did not have. A throw
+   *  in that window (a failed import, one of `lower()`'s six user-reachable throws, an
+   *  emit failure) left the freshly-minted GPUDevice reachable only through a promise
+   *  nobody held. Wrapping at the call site rather than around the window keeps the fix
+   *  to one place instead of re-indenting 300 lines. */
+  private async _runGuarded(ast: AST.Program, baseUrl: string): Promise<void> {
+    try {
+      return await this._runProgram(ast, baseUrl)
+    } catch (e) {
+      await disposeOrphanedBoot(this._pendingGpuBoot, this.ctx)
+      this._pendingGpuBoot = null
+      throw e
+    }
+  }
+
+  /** #1577 — the GPU boot this run kicked off, until it is adopted or disposed. */
+  private _pendingGpuBoot: PendingGpuBoot = null
 
   /** The shared post-parse body of run()/runScene: epoch claim, teardown,
    *  import resolution, lower → optimize → emitCommands, GPU init, mount. */
@@ -2738,19 +2764,7 @@ export class XGISMap {
     // afterwards (via setView, hash sync, or pointer interaction).
     this._cameraExplicitlyPositioned = false
 
-    // Promote baseUrl to an absolute URL. `new URL(path, base)` requires
-    // `base` to be absolute — passing a bare path like '/data/' throws
-    // TypeError: Invalid base URL. Accepts '', '/data/', relative URLs, or
-    // fully-qualified URLs.
-    const absBase = (() => {
-      if (typeof window === 'undefined') return baseUrl // SSR / tests
-      if (!baseUrl) return window.location.href
-      try {
-        return new URL(baseUrl, window.location.href).href
-      } catch {
-        return window.location.href
-      }
-    })()
+    const absBase = absoluteBaseUrl(baseUrl)
 
     // 0. Kick off GPU init in parallel with the REMAINING synchronous IR
     // pipeline. `initGPU()` is dominated by `requestDevice()` which takes
@@ -2764,51 +2778,23 @@ export class XGISMap {
     // GPU init has no dependency on the IR result — it just needs
     // `this.canvas`. Errors propagate exactly as before via the awaited
     // catch.
-    const gpuInit = bootGpuContext(this._gpuBootDeps()).catch((err) => {
+    // #1577 — published so a THROW anywhere in the window below can still reach it; see
+    // `disposeOrphanedBoot`. Compared by identity there, so the successful path (where
+    // this very context becomes `this.ctx`) is never destroyed.
+    const gpuInit = (this._pendingGpuBoot = bootGpuContext(this._gpuBootDeps()).catch((err) => {
       // Hold the rejection here so the await below converts it to a
       // sync throw at the same call site as the previous code. We
       // don't want unhandled-rejection noise if step 1 errors out
       // before step 2 awaits.
       return err as Error
-    })
+    }))
 
     // 1. Resolve imports (async fetch) → IR → Commands. The lex/parse ran at
     // the TOP of run() (pre-teardown — D2/A1); `ast` is already populated.
     // Resolve any `import { ... } from "..."` statements via fetch.
     // Errors are logged (via console.error → in-page overlay) so future
     // module-resolution failures aren't opaque on iOS.
-    const resolver = async (path: string): Promise<string | null> => {
-      let url: string
-      try {
-        url = new URL(path, absBase).href
-      } catch (e) {
-        xlog.error(
-          `[X-GIS import] cannot build URL for "${path}" against base "${absBase}":`,
-          (e as Error).message,
-        )
-        return null
-      }
-      try {
-        // SSRF guard: an imported style can `import { … } from "<url>"` —
-        // block private/loopback/non-http(s) targets before fetch, AND
-        // re-check every redirect hop (safeFetch follows manually) so an
-        // allowlisted host can't 302 to an internal address. Throws into
-        // the catch below → null (the import resolves to nothing, same as a
-        // 404), so an attacker can't probe internal hosts.
-        const resp = await safeFetch(url, undefined, 'style import URL')
-        if (!resp.ok) {
-          xlog.error(`[X-GIS import] fetch ${url} failed: ${resp.status} ${resp.statusText}`)
-          return null
-        }
-        // Cap the module body — a lying/absent Content-Length otherwise lets
-        // an unbounded .text() OOM the tab.
-        const bytes = await readBodyCapped(resp, MAX_STYLE_BYTES, `style import ${url}`)
-        return new TextDecoder().decode(bytes)
-      } catch (e) {
-        xlog.error(`[X-GIS import] fetch ${url} threw:`, (e as Error).message)
-        return null
-      }
-    }
+    const resolver = makeStyleImportResolver(absBase)
     // Output collector: any inline GeoJSON `source.data` objects found
     // inside an imported Mapbox style get stashed here. Seeded into
     // rawDatasets after the source-load Promise.all so the first
@@ -2835,8 +2821,7 @@ export class XGISMap {
     // (a plain return would orphan it — gpuInit's .catch value-wraps rejections,
     // so this await never throws). Also stops the stale spriteUrl write below.
     if (this._epochStale(epoch)) {
-      const r = await gpuInit
-      if (r && !(r instanceof Error)) (r as GPUContext).rhi?.destroy()
+      await disposeOrphanedBoot(gpuInit, this.ctx)
       return
     }
     // Wire the imported sprite atlas. An explicit constructor `spriteUrl` /

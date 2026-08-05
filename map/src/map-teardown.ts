@@ -113,3 +113,52 @@ export function teardownSources(
     }
   }
 }
+
+// ═══ The in-flight GPU boot nobody has claimed yet (#1577) ═══
+//
+// `_runProgram` kicks off `bootGpuContext` and awaits it ~300 lines later, and that
+// window is linear — no try/catch/finally. A resolved `GPUContext` is reachable ONLY
+// through that promise, so anything that throws in between (a semantically invalid style:
+// an import that fails to resolve, one of `lower()`'s six user-reachable throws, an emit
+// failure) exited without awaiting it, while `requestDevice` resolved 100-500 ms later
+// into a promise nobody held. `ctx` was never set and `_ctxOwned` was false, so the next
+// run's teardown gate skipped it and `destroy()` freed only the published ctx — one live
+// GPUDevice leaked per failed run, unreclaimable by any lifecycle path. WebGPU devices
+// are reclaimed only by an explicit `destroy()`.
+//
+// The invariant is the authors' own, stated twice in map.ts: D2/A1 moved lex/parse above
+// the kickoff so "a parse throw must never orphan a freshly-minted device", and the G1
+// stale-exit awaits and destroys for the same reason. The throw route between them was
+// the one exit with no equivalent.
+
+/** The pending-boot promise's settled shape: a context, the boot's own error, or nothing. */
+export type PendingGpuBoot = Promise<unknown> | null
+
+/** Destroy a boot that resolved but was never adopted.
+ *
+ *  `liveCtx` is compared BY IDENTITY, so the successful path — where the very same
+ *  context became the map's — is never destroyed out from under a running map. A
+ *  rejection was already value-wrapped by the kickoff's `.catch`, so awaiting here cannot
+ *  throw and this is safe to call from an error path. */
+export async function disposeOrphanedBoot(
+  pending: PendingGpuBoot,
+  liveCtx: unknown,
+): Promise<void> {
+  if (!pending) return
+  const settled = await pending
+  if (!settled || settled instanceof Error || settled === liveCtx) return
+  ;(settled as { rhi?: { destroy(): void } }).rhi?.destroy()
+}
+
+/** Promote `baseUrl` to an absolute URL. `new URL(path, base)` requires an absolute
+ *  `base` — a bare path like '/data/' throws `TypeError: Invalid base URL`. Accepts '',
+ *  '/data/', a relative URL, or a fully-qualified one. */
+export function absoluteBaseUrl(baseUrl: string): string {
+  if (typeof window === 'undefined') return baseUrl // SSR / tests
+  if (!baseUrl) return window.location.href
+  try {
+    return new URL(baseUrl, window.location.href).href
+  } catch {
+    return window.location.href
+  }
+}

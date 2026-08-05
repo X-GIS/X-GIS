@@ -524,7 +524,11 @@ const CEILINGS: Record<string, number> = {
   // past it is a guaranteed 404, not a slow tile — terrarium stops at z15 while
   // rasterCoverZoom adds +1 on a 256-px source, so every visible tile failed from about
   // camera z14.5 (verified: terrarium/16/13651/25075 404, its z15 parent 200). +5: the arm call plus its two-line reason and prettier's wrap.
-  'map/src/map.ts': 5427,
+  // 5427→5412 (#1577): the style-import resolver (SSRF guard + body cap + the
+  // log-every-failure contract) moved whole to style-import-resolver.ts, and the
+  // absolute-base-URL helper joined map-teardown.ts — headroom for the orphaned-boot
+  // guard, paid for rather than borrowed.
+  'map/src/map.ts': 5412,
   // Baselined at #1255 (measured 830): the DOM-inspired layer API crossed
   // NEW_FILE_CAP with the paint-transition style-setter integration — the
   // StyleHost.transitions context, the shared applyNumber/applyColor
