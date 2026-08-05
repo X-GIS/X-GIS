@@ -353,9 +353,9 @@ export class RasterRenderer {
     // only its tile cache + the per-frame paint params (_opacity/_nearest/…).
   }
 
-  /** A quality (MSAA / picking) change invalidates the raster draper so the next render()
-   *  lazily rebuilds its pipelines with the new getSampleCount() / isPickEnabled(). */
+  /** A quality flip RELEASES the raster draper (#1578) and drops it; next render rebuilds. */
   rebuildForQuality(): void {
+    this._rasterDraper?.destroy()
     this._rasterDraper = undefined
   }
 

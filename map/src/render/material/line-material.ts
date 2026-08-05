@@ -63,6 +63,19 @@ export interface LineBatch {
 }
 
 export class LineDraper {
+  /** Release the GPU objects this draper owns (#1578). Called by `rebuildForQuality()`
+   *  before the reference is dropped — a quality flip is live-session churn, not teardown,
+   *  so nothing else would ever reclaim these. */
+  destroy(): void {
+    this.material.destroy()
+    this._pickMaterial?.destroy()
+    this._maxMaterial?.destroy()
+    this._bakeMaterial?.destroy()
+    this._pickMaterial = undefined
+    this._maxMaterial = undefined
+    this._bakeMaterial = undefined
+  }
+
   private readonly material: Material // non-pick: single colour target, fs_line / fs_line_pattern
   // pick pass: colour + rg32uint pick MRT. The line pick fragment writes vec2u(0,0) — lines are
   // not pickable; the target exists only for opaque-pass MRT compatibility when picking is on. The
