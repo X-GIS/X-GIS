@@ -18,6 +18,8 @@
 // to "re-read unconditionally" — a throw here would kill the polling loop instead of
 // costing it some bandwidth.
 
+import { xlog } from '@xgis/shared'
+
 /** The cache validators a probe recovered; null when the server exposed neither. */
 export interface CoverageValidator {
   etag: string | null
@@ -145,7 +147,17 @@ export class CoverageRefreshScheduler {
       try {
         await tick()
       } catch (err) {
-        onError?.(err)
+        // #1573 — guarded, because this call is the ONE path that could stop the loop the
+        // docstring above promises never stops. Unguarded, a host `onError` that itself
+        // throws propagated out of this catch, rejected the async `run()` (invoked as
+        // `void run()`, so the rejection was discarded), and skipped the re-arm below —
+        // live polling of a safety-relevant chart dead forever, while the `timers` entry
+        // left behind kept `isRunning()` answering true. Mirrors `ListenerRegistry.dispatch`.
+        try {
+          onError?.(err)
+        } catch (handlerErr) {
+          xlog.error('[X-GIS] coverage refresh onError handler threw', handlerErr)
+        }
       }
       // Re-arm only if THIS loop still owns the source — a stop() during the tick drops
       // the entry, and a restart replaces `gen`, so neither can be re-armed over.

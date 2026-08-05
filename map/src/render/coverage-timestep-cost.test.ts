@@ -38,7 +38,12 @@ function fnBody(signature: string): string {
 }
 
 const push = () => fnBody('export async function pushCoverageRegion(')
-const stepOne = () => fnBody('async function stepOneRegion(')
+// #1573 split the step into two phases — read every region, then commit every region — so a
+// sibling's failure can no longer leave the mosaic on mixed forecast hours. The two halves
+// each own one of the invariants this file gates: `stepCoverageRegions` now holds the ARM,
+// and `planOneRegion` (formerly the read half of `stepOneRegion`) holds the EPOCH claim.
+const stepCommit = () => fnBody('export async function stepCoverageRegions(')
+const stepRead = () => fnBody('async function planOneRegion(')
 
 describe('forecast-hour step cost (#1367)', () => {
   it('THE FIX: a data swap re-derives the COVERAGE arm, not the whole scene', () => {
@@ -55,7 +60,7 @@ describe('forecast-hour step cost (#1367)', () => {
   })
 
   it('...and so does a time step', () => {
-    expect(stepOne()).toContain('armRegion(')
+    expect(stepCommit()).toContain('armRegion(')
     expect(MAP_SRC).toContain(
       'return stepCoverageRegions(this._coverageDeps, sourceId, indexOrISO)',
     )
@@ -92,7 +97,10 @@ describe('forecast-hour step cost (#1367)', () => {
     // A region swap (pan) and a time step both change the displayed frame. On separate counters
     // a pan landing after a time step would silently revert the hour.
     expect(push()).toContain('deps.time.nextEpoch(region)')
-    expect(stepOne()).toContain('deps.time.nextEpoch(region)')
+    expect(stepRead()).toContain('deps.time.nextEpoch(region)')
+    // The step's check moved with its commit, so pin BOTH halves — a claim with no matching
+    // check would leave the shared counter proving nothing (#1573).
+    expect(stepCommit()).toContain('deps.time.isCurrent(plan.token, plan.region)')
   })
 
   it('THE MOSAIC GUARD: the epoch is claimed PER REGION, never globally (#1272 E-④)', () => {

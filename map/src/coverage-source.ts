@@ -532,7 +532,20 @@ export function dropCoverageRegion(
   deps.invalidate()
 }
 
-/** Step EVERY resident region to the same forecast hour. See `XGISMap.setCoverageTime`. */
+/** Step EVERY resident region to the same forecast hour. See `XGISMap.setCoverageTime`.
+ *
+ *  ATOMIC — read every region, then commit every region (#1573). The step used to be a
+ *  `Promise.all` of read-and-commit-each, and `Promise.all` neither cancels nor unwinds a
+ *  settled sibling: one region's 404 (rolling NOAA URLs re-issue per region, so a blip hits
+ *  one and not the others) left its neighbours armed at hour N+1 while it stayed on hour N,
+ *  and the mosaic drew two different valid times as one continuous current field. For a
+ *  navigational chart that is worse than an error — it is a plausible-looking lie about the
+ *  data — so the whole step now fails instead of half-succeeding, leaving the mosaic
+ *  coherent at the hour it was already on.
+ *
+ *  The two-phase shape is not new here: `readRegionsAtGroup` below already reads every
+ *  region at one group before playback shows any of it, so the peak of holding N new
+ *  handles beside N old ones is a cost this file's interpolation path already pays. */
 export async function stepCoverageRegions(
   deps: CoverageSourceDeps,
   sourceId: string,
@@ -541,32 +554,42 @@ export async function stepCoverageRegions(
   const regions = coverageRegions(deps, sourceId)
   if (!regions)
     throw new Error(`[X-GIS] setCoverageTime: "${sourceId}" is not a declared coverage source.`)
-  // Concurrently and independently: a region without a URL, or already on the requested hour,
-  // skips itself without holding up its neighbours.
-  await Promise.all(
-    [...regions].map(([region, entry]) => stepOneRegion(deps, sourceId, region, entry, indexOrISO)),
+  // Phase 1 — READ. Concurrent and independent: a region without a URL, or already on the
+  // requested hour, plans nothing without holding up its neighbours. A rejection here has
+  // committed nothing, so it leaves the mosaic exactly as it was.
+  const plans = await Promise.all(
+    [...regions].map(([region, entry]) => planOneRegion(deps, region, entry, indexOrISO)),
   )
+  // Phase 2 — COMMIT. Synchronous by construction: no `await` between the writes, so a
+  // competing step cannot interleave and land the mosaic on mixed hours by another route.
+  let committed = false
+  for (const plan of plans) {
+    if (!plan) continue
+    if (!deps.time.isCurrent(plan.token, plan.region)) continue // superseded by a newer step
+    if (!writeRegion(deps, sourceId, plan.region, { handle: plan.handle, url: plan.url })) continue
+    armRegion(deps, sourceId, plan.handle, plan.region)
+    committed = true
+  }
+  if (committed) deps.invalidate()
 }
 
-async function stepOneRegion(
+/** One region's half of phase 1: resolve the target group and read it, committing nothing.
+ *  `null` means "this region has nowhere to go" — no URL, no time axis, or already there. */
+async function planOneRegion(
   deps: CoverageSourceDeps,
-  sourceId: string,
   region: string,
   entry: CoverageRegionData,
   indexOrISO: number | string,
-): Promise<void> {
+): Promise<{ region: string; url: string; handle: CoverageHandle; token: number } | null> {
   const time = entry.handle.meta.sourceMeta?.time as CoverageTime | undefined
-  if (!entry.url || !time || time.count <= 1) return // nothing to step
+  if (!entry.url || !time || time.count <= 1) return null // nothing to step
   const group = resolveForecastGroup(time, indexOrISO)
-  if (group - 1 === time.index) return // already showing this hour
+  if (group - 1 === time.index) return null // already showing this hour
   // Re-read the same, already-validated URL (declared source) — one group of it. No new SSRF
   // surface; the whole-file fallback isn't needed (Range worked at first load).
   const token = deps.time.nextEpoch(region)
   const handle = await readCoverageRange(entry.url, { group })
-  if (!deps.time.isCurrent(token, region)) return // superseded by a newer step
-  if (!writeRegion(deps, sourceId, region, { handle, url: entry.url })) return
-  armRegion(deps, sourceId, handle, region)
-  deps.invalidate()
+  return { region, url: entry.url, handle, token }
 }
 
 /** Decode `group` of every region that has a URL, keyed by region — the "to" side of a
