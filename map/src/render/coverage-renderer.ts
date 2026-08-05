@@ -99,6 +99,10 @@ interface CoverageState {
   flowOnly: boolean
   /** Resident, but the drape paints nothing for it (see CoverageArmOptions). */
   hidden: boolean
+  /** Where this region sits in the mosaic's RELEVANCE order — lower is more relevant, and wins
+   *  an overlap by being drawn LAST (#1602). Supplied by the arm from the `_coverage` Map index,
+   *  the same authority `coverageHandleAt` resolves a point query by. */
+  priority: number
   /** Which draper draws this region — the compiled `filter:` predicate's key, or '' for an
    *  unfiltered layer (#1437). The predicate is baked into the pipeline, so a region cannot
    *  be drawn by a draper compiled for a different one. */
@@ -176,6 +180,15 @@ export interface CoverageArmOptions {
    *  arrow field could not be built, and the layer rendered NOTHING. Caught by a headless
    *  WebGL2 render, not by 3900 green unit tests. */
   hidden?: boolean
+  /** This region's place in the mosaic's RELEVANCE order — lower wins an overlap (#1602).
+   *
+   *  The catalogue already ranks overlapping cells (`itemsForView`: most overlap, ties toward the
+   *  SMALLER bbox, i.e. the higher-resolution local cell) and arms them in that order, so the
+   *  region's index in the `_coverage` Map IS its relevance. That is the same index
+   *  `coverageHandleAt` resolves a point query by and the advected arrows cull by, which is what
+   *  keeps the drape, the arrows and `getCoverage` from naming three different domains for one
+   *  patch of water. Single-region callers leave it at 0: with one region there is no tie. */
+  priority?: number
 }
 
 export class CoverageRenderer {
@@ -229,7 +242,8 @@ export class CoverageRenderer {
     return this.states.size > 0
   }
 
-  /** The resident region keys, least-recently-armed first (= the draw order). */
+  /** The resident region keys, least-recently-armed first — the LRU/EVICTION order. NOT the draw
+   *  order any more: that is relevance (`drawOrder`, #1602), which recency must not decide. */
   residentRegions(): string[] {
     return [...this.states.keys()]
   }
@@ -353,6 +367,7 @@ export class CoverageRenderer {
       opacity: opts.opacity ?? 1,
       flowOnly: opts.flowOnly === true,
       hidden: opts.hidden === true,
+      priority: opts.priority ?? 0,
       filterKey,
       data: { min: dataMin, max: dataMax },
       // 2 × r16float over the grid + the 256×1 rgba8 LUT, plus the vector TRIPLE (u, v, valid)
@@ -537,6 +552,19 @@ export class CoverageRenderer {
    *  `keep` (the region just armed) is never evicted — arming a region must always leave it
    *  resident, even if it alone exceeds the budget (a single oversized domain still draws;
    *  the budget bounds ACCUMULATION, it is not a per-region size cap). */
+  /** The resident regions in DRAW order: least relevant first, so the most relevant paints last
+   *  and therefore on top of any overlap (#1602).
+   *
+   *  A stable sort on `priority` descending. Stable matters — regions that share a priority (every
+   *  single-region caller leaves it at 0) keep their arm order, so nothing about the
+   *  one-region case changes. Allocates one array per frame over a handful of regions, which is
+   *  the same shape `residentRegions()` already has; the alternative (keeping a second sorted Map
+   *  in step with `states` through arm, re-arm and evict) is a second authority to drift. */
+  private drawOrder(): CoverageState[] {
+    if (this.states.size < 2) return [...this.states.values()]
+    return [...this.states.values()].sort((a, b) => b.priority - a.priority)
+  }
+
   private evictOverBudget(keep: string): void {
     let total = 0
     for (const s of this.states.values()) total += s.bytes
@@ -566,8 +594,23 @@ export class CoverageRenderer {
     // Both frame shapes hand in an RhiRenderPass (Inc-2d) — the old
     // backend-keyed re-wrap was the 34d4695 double-wrap class.
     const rhiPass = pass
-    // Least-recently-armed first; overlapping domains alpha-blend in that order.
-    for (const s of this.states.values()) {
+    // MOST RELEVANT LAST, so it lands on top where domains overlap (#1602).
+    //
+    // This used to walk `states` directly, which is an LRU: `setCoverage` delete-then-sets, so the
+    // back is the most recently ARMED region — and with `blend: 'alpha'` the back is what paints
+    // over everything. Re-arms fire per region on every forecast tick, so the overlap's winner
+    // changed several times a second, picked by recency, and disagreed with the region
+    // `getCoverage(id, at)` reports for the same point.
+    //
+    // Relevance is not invented here. The catalogue ranks overlapping cells by overlap area with
+    // ties toward the smaller bbox — the higher-resolution local cell — and arms them in that
+    // order, which is exactly what the `priority` index carries. Sorting ASCENDING and drawing in
+    // that order puts priority 0 last only if reversed, so the comparator is descending: least
+    // relevant first, most relevant last.
+    //
+    // `states` keeps its LRU untouched — that order is still correct for EVICTION, which wants
+    // least-recently-used. One Map served both until the two started wanting opposite directions.
+    for (const s of this.drawOrder()) {
       // Resident for its data, not for its paint (#1419) — the velocity pair is uploaded and
       // the arrow field is built from it, while the drape itself stays out of the frame.
       if (s.hidden) continue
