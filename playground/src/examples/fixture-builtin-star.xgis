@@ -1,0 +1,19 @@
+xgis 1
+
+/* Fixture: the BUILT-IN star, as the parity twin of fixture_stdlib_star.
+ *
+ * Same point, same colour, same size — the only difference is that this
+ * layer names the engine's `shape-star` while its twin names a symbol
+ * declared in an imported .xgis module. Pixel equality between the two is
+ * what proves a user-authored symbolizer reaches the same rendering.
+ */
+
+source one_point {
+  type: geojson
+  url: "fixture-point.geojson"
+}
+
+layer the_star {
+  source: one_point
+  | shape-star fill-[#fbbf24] size-80
+}

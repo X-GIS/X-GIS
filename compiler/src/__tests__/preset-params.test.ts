@@ -269,3 +269,145 @@ layer l {
     expect((scene.diagnostics ?? []).filter((d) => d.severity === 'error')).toHaveLength(0)
   })
 })
+
+// ═══ #1606: `style:` reference resolution is total — every unmatched form
+// is now an X-GIS0027 error, and a namespaced call from the IMPORTING module
+// (`style: ns.name(...)`, a FieldAccess callee) actually applies the preset
+// instead of silently dropping it. ═══
+
+describe('style: resolution is total, not silently swallowed (#1606)', () => {
+  it('an unknown bare identifier is X-GIS0027', () => {
+    const scene = lower(
+      parse(`
+source w { type: geojson, url: "w.geojson" }
+layer l { source: w  style: nope }
+`),
+    )
+    const errors = (scene.diagnostics ?? []).filter((d) => d.severity === 'error')
+    expect(errors).toHaveLength(1)
+    expect(errors[0]).toMatchObject({ code: 'X-GIS0027' })
+  })
+
+  it('an unknown call-form reference is X-GIS0027', () => {
+    const scene = lower(
+      parse(`
+source w { type: geojson, url: "w.geojson" }
+layer l { source: w  style: nope(#f59e0b) }
+`),
+    )
+    const errors = (scene.diagnostics ?? []).filter((d) => d.severity === 'error')
+    expect(errors).toHaveLength(1)
+    expect(errors[0]).toMatchObject({ code: 'X-GIS0027' })
+  })
+
+  it('offers a nearest-name suggestion for a close typo', () => {
+    const scene = lower(
+      parse(`
+source w { type: geojson, url: "w.geojson" }
+preset glow(color) { | fill-[color] }
+layer l { source: w  style: glo(#f59e0b) }
+`),
+    )
+    const err = (scene.diagnostics ?? []).find((d) => d.code === 'X-GIS0027')!
+    expect(err.help).toContain('glow')
+  })
+
+  it('gives no suggestion when nothing declared is remotely close', () => {
+    const scene = lower(
+      parse(`
+source w { type: geojson, url: "w.geojson" }
+preset totallyUnrelatedName(color) { | fill-[color] }
+layer l { source: w  style: z }
+`),
+    )
+    const err = (scene.diagnostics ?? []).find((d) => d.code === 'X-GIS0027')!
+    expect(err.help).toBeUndefined()
+  })
+
+  it('regression: plain-splice import + bare style: <name> still resolves', () => {
+    const files: Record<string, string> = {
+      './lib.xgis': withPragma(`
+source w { type: geojson, url: "w.geojson" }
+preset glow(color) { | fill-[color] }
+`),
+    }
+    const resolved = resolveImports(
+      parse(`
+import "./lib.xgis"
+source w { type: geojson, url: "w.geojson" }
+layer l { source: w  style: glow(#f59e0b) }
+`),
+      './',
+      (p) => files[p] ?? null,
+    )
+    const scene = lower(resolved)
+    expect((scene.diagnostics ?? []).filter((d) => d.severity === 'error')).toHaveLength(0)
+    const show = scene.renderNodes.find((l) => l.name === 'l')!
+    // Default (no preset applied) is colorNone() — `data-driven` with the
+    // literal argument as its expr proves the preset's `fill-[color]` line
+    // actually inlined, not just "compiled without error".
+    expect(show.fill).toMatchObject({
+      kind: 'data-driven',
+      expr: { ast: { kind: 'ColorLiteral' } },
+    })
+  })
+
+  it('BUG → FIX: `import * as ns` then `style: ns.name(...)` applies the preset', () => {
+    const files: Record<string, string> = {
+      './lib.xgis': withPragma(`
+source w { type: geojson, url: "w.geojson" }
+preset glow(color) { | fill-[color] }
+`),
+    }
+    const resolved = resolveImports(
+      parse(`
+import * as ns from "./lib.xgis"
+source w { type: geojson, url: "w.geojson" }
+layer l { source: w  style: ns.glow(#f59e0b) }
+`),
+      './',
+      (p) => files[p] ?? null,
+    )
+    // The consuming module's `ns.glow(...)` is a FieldAccess callee — never
+    // rewritten by the resolver (only intra-module refs are); lower() must
+    // recognise it directly against the "ns.glow"-keyed presetMap entry.
+    const layer = resolved.body.find((s) => s.kind === 'LayerStatement') as AST.LayerStatement
+    const styleProp = layer.properties.find((p) => p.name === 'style')!
+    expect(styleProp.value).toMatchObject({
+      kind: 'FnCall',
+      callee: { kind: 'FieldAccess', object: { kind: 'Identifier', name: 'ns' }, field: 'glow' },
+    })
+
+    const scene = lower(resolved)
+    expect((scene.diagnostics ?? []).filter((d) => d.severity === 'error')).toHaveLength(0)
+    const show = scene.renderNodes.find((l) => l.name === 'l')!
+    expect(show.fill).toMatchObject({
+      kind: 'data-driven',
+      expr: { ast: { kind: 'ColorLiteral' } },
+    })
+  })
+
+  it('BUG → FIX: bare namespaced form `style: ns.name` (no args) also applies', () => {
+    const files: Record<string, string> = {
+      './lib.xgis': withPragma(`
+source w { type: geojson, url: "w.geojson" }
+preset plain { | fill-red-500 }
+`),
+    }
+    const resolved = resolveImports(
+      parse(`
+import * as ns from "./lib.xgis"
+source w { type: geojson, url: "w.geojson" }
+layer l { source: w  style: ns.plain }
+`),
+      './',
+      (p) => files[p] ?? null,
+    )
+    const scene = lower(resolved)
+    expect((scene.diagnostics ?? []).filter((d) => d.severity === 'error')).toHaveLength(0)
+    const show = scene.renderNodes.find((l) => l.name === 'l')!
+    // Default (no preset applied) is colorNone() — landing on `constant`
+    // proves the preset's `fill-red-500` utility line actually inlined.
+    expect(show.fill.kind).toBe('constant')
+  })
+})

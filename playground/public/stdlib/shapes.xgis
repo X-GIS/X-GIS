@@ -1,0 +1,43 @@
+xgis 1
+
+/* ═══ X-GIS stdlib — point symbolizers, authored in .xgis ═══
+ *
+ * The self-hosting proof for #1540: these symbolizers are defined entirely in
+ * the language, fetched over HTTP by the ordinary `import` path, and rendered
+ * with ZERO library TS edits.
+ *
+ * `star5` reproduces the built-in `shape-star` coordinate-for-coordinate
+ * (map/src/text/sdf-shape.ts's `starPath(5, 1.0, 0.38)`), so the two can be
+ * pixel-compared — that parity IS the claim. It is deliberately NOT named
+ * `star`: a user symbol shadows a built-in of the same name, so reusing the
+ * name would make the comparison test compare the module against itself.
+ *
+ * `star7` has no built-in twin at all. It is the other half of the proof: a
+ * symbolizer that exists only because someone wrote this file.
+ *
+ * What this does NOT prove — worth stating where a reader will meet it first:
+ * a shape here is PATH DATA, not shader math. Every shape in the engine runs
+ * through one shared bezier path rasterizer (`sdf_shape`, point.ts), so
+ * authoring a shape is authoring geometry. Self-hosting a rendering
+ * COMPUTATION is a separate capability; today the `@color` / `@stroke` seam
+ * exists on polygon fill/stroke only. See docs/notes/2026-08-05-self-hosting-proof.md.
+ */
+
+// Coordinates at max(|coord|) = 1.0, the convention BUILTIN_SHAPES uses so the
+// source self-documents the on-screen extent (the registry normalizes anyway).
+symbol star5 {
+  path "M 0.0000 -1.0000 L 0.2234 -0.3074 L 0.9511 -0.3090 L 0.3614 0.1174 L 0.5878 0.8090 L 0.0000 0.3800 L -0.5878 0.8090 L -0.3614 0.1174 L -0.9511 -0.3090 L -0.2234 -0.3074 Z"
+  anchor: center
+}
+
+// No built-in twin — 7 points, inner radius 0.5.
+symbol star7 {
+  path "M 0.0000 -1.0000 L 0.2169 -0.4505 L 0.7818 -0.6235 L 0.4875 -0.1113 L 0.9749 0.2225 L 0.3909 0.3117 L 0.4339 0.9010 L 0.0000 0.5000 L -0.4339 0.9010 L -0.3909 0.3117 L -0.9749 0.2225 L -0.4875 -0.1113 L -0.7818 -0.6235 L -0.2169 -0.4505 Z"
+  anchor: center
+}
+
+// The importable surface. A preset is namespaced by `import * as shapes`
+// (`shapes.star(...)`); the `symbol` it references stays GLOBAL after the
+// splice, which is why the bodies below name `star5` / `star7` bare.
+preset star(color, size) { | shape-star5 fill-[color] size-[size] }
+preset star7pt(color, size) { | shape-star7 fill-[color] size-[size] }

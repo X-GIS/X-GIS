@@ -979,11 +979,11 @@ export class RenderLoop {
     this.host._scratchEmittedTextNames.clear()
     const classified = this.host.classifyVectorTileShows()
     this.host.lineRenderer?.beginFrame()
-    // #1057 — drain PointRenderer's retired tile-point buffer queue (the WebGPU
-    // prelude does this at render-loop.ts:437, which this isolated twin
-    // early-returns before). Each flushTilePointsRhi retires the prior frame's
-    // vertex/index/feat buffers; without this drain the queue grows unbounded.
+    // #1057/#1579 — the WebGPU prelude (:437) drains these four every frame; this isolated
+    // twin early-returns before it, so each is re-drained here or its cache grows unbounded.
     this.host.pointRenderer?.beginFrame()
+    this.host.rasterRenderer.beginFrame()
+    this.host.hillshadeRenderer.beginFrame()
     let missingTiles = 0
     for (const c of classified.opaque) {
       const vt = this.host.vtSources.get(c.sourceName)
