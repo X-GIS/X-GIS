@@ -11,11 +11,14 @@
 // shader samples the single-channel value and thresholds at 192/255
 // for the glyph fill, with optional smoothstep for halo.
 //
-// Multi-page is plumbed but bounded: currently each call to
-// `flush()` handles whatever pages already exist; growing past the
-// initial page count requires `addPage()` (the renderer can
-// pre-allocate based on expected glyph count, or wait for the
-// host's pageCount to grow and call addPage on demand).
+// SINGLE PAGE, by contract (#1580): AtlasState.allocatePage() is reachable
+// only while both its free-slot stack AND its entry map are empty, which by
+// construction (freeSlots + entries == pageCount * slotsPerPage, and nothing
+// ever clears `entries`) is true exactly once, before the first page — every
+// miss past that point evicts instead of growing. `host.state.pageCount` can
+// therefore never exceed 1; `ensurePage()` below asserts that invariant
+// rather than silently looping/defending against a page count this class can
+// never actually see.
 
 import type { GlyphAtlasHost } from './glyph-atlas-host'
 import type { RhiDevice, RhiSampler, RhiTexture, RhiTextureView } from '@xgis/engine'
@@ -33,8 +36,9 @@ export class GlyphAtlasGPU {
   private readonly host: GlyphAtlasHost
   private readonly pageSize: number
   private readonly label: string
-  private readonly pages: RhiTexture[] = []
-  private readonly views: RhiTextureView[] = []
+  /** At most one entry — see the SINGLE PAGE contract above. */
+  private page?: RhiTexture
+  private view?: RhiTextureView
   /** Sampler shared by all atlas reads. Linear magnify so SDF upscales
    *  smoothly; clamp-to-edge (both backends' RHI sampler convention) so a
    *  near-edge sample never bleeds into a neighbouring slot. Backend-blind
@@ -54,38 +58,51 @@ export class GlyphAtlasGPU {
     })
   }
 
-  /** GPUTexture for the given page, or undefined if not allocated.
-   *  The renderer uses page 0 for now (multi-page extends naturally
-   *  once the host needs it). */
+  /** GPUTexture for the given page, or undefined if not allocated yet.
+   *  `index` must be 0 — see the SINGLE PAGE contract above. */
   getPage(index: number): RhiTexture | undefined {
-    return this.pages[index]
+    if (index !== 0)
+      throw new Error(`GlyphAtlasGPU: page ${index} requested — atlas is single-page`)
+    return this.page
   }
 
-  /** Cached RHI view for a page — one createView per page, not per frame. */
+  /** Cached RHI view for the page — one createView call, not per frame. */
   pageView(index: number): RhiTextureView | undefined {
-    const tex = this.pages[index]
-    if (!tex) return undefined
-    return (this.views[index] ??= this.rhi.createView(tex))
+    if (index !== 0)
+      throw new Error(`GlyphAtlasGPU: page ${index} requested — atlas is single-page`)
+    if (!this.page) return undefined
+    return (this.view ??= this.rhi.createView(this.page))
   }
   get pageCount(): number {
-    return this.pages.length
+    return this.page ? 1 : 0
   }
-  /** Page side length in pixels (all pages are square and same-sized). */
+  /** Page side length in pixels. */
   get pageSizePx(): number {
     return this.pageSize
   }
 
-  /** Allocate a new page texture. Lazy — the host calls this when
-   *  its own pageCount grows. */
-  addPage(): void {
-    const tex = this.rhi.createTexture({
-      width: this.pageSize,
-      height: this.pageSize,
-      format: 'r8unorm',
-      usage: ['sample', 'copy-dst'],
-      label: `${this.label}-page-${this.pages.length}`,
-    })
-    this.pages.push(tex)
+  /** Allocate the page texture. Lazy — called once, from `flush()`'s first
+   *  dirty glyph. Asserts the single-page contract rather than looping over
+   *  `host.state.pageCount`: that count can never exceed 1 (see above), so a
+   *  second call — or any `host.state.pageCount` above 1 — is a broken
+   *  invariant, not a growth case to handle silently. */
+  private ensurePage(): RhiTexture {
+    if (this.host.state.pageCount > 1) {
+      throw new Error(
+        `GlyphAtlasGPU: host reports pageCount=${this.host.state.pageCount} — ` +
+          'AtlasState is contracted to never grow past one page (#1580)',
+      )
+    }
+    if (!this.page) {
+      this.page = this.rhi.createTexture({
+        width: this.pageSize,
+        height: this.pageSize,
+        format: 'r8unorm',
+        usage: ['sample', 'copy-dst'],
+        label: `${this.label}-page-0`,
+      })
+    }
+    return this.page
   }
 
   /** Drain the host's dirty queue and upload each new SDF to the
@@ -96,20 +113,15 @@ export class GlyphAtlasGPU {
    *  Returns the count of glyphs uploaded so the caller can log
    *  perf in dev / surface a "fonts still loading" indicator. */
   flush(): number {
-    // Make sure we have enough pages allocated for whatever the host
-    // grew into (e.g. via prewarm before the GPU wrapper saw it).
-    while (this.pages.length < this.host.state.pageCount) this.addPage()
-
     const dirty = this.host.consumeDirty()
     if (dirty.length === 0) return 0
 
+    const tex = this.ensurePage()
     for (const d of dirty) {
-      const tex = this.pages[d.slot.page]
-      if (!tex) {
-        // Host outpaced us — defensive page alloc, then continue.
-        // Shouldn't happen in normal flow because we synced above.
-        this.addPage()
-        continue
+      if (d.slot.page !== 0) {
+        throw new Error(
+          `GlyphAtlasGPU: glyph slot targets page ${d.slot.page} — atlas is single-page`,
+        )
       }
       this.rhi.writeTexture(
         tex,
@@ -125,8 +137,8 @@ export class GlyphAtlasGPU {
   }
 
   destroy(): void {
-    for (const tex of this.pages) this.rhi.destroyTexture(tex)
-    this.pages.length = 0
-    this.views.length = 0
+    if (this.page) this.rhi.destroyTexture(this.page)
+    this.page = undefined
+    this.view = undefined
   }
 }
