@@ -528,7 +528,9 @@ const CEILINGS: Record<string, number> = {
   // log-every-failure contract) moved whole to style-import-resolver.ts, and the
   // absolute-base-URL helper joined map-teardown.ts — headroom for the orphaned-boot
   // guard, paid for rather than borrowed.
-  'map/src/map.ts': 5412,
+  // 5412→5411 (#1576): the visible-resume branch lost its duplicated latch commentary —
+  // the latch's own declaration already carries it — paying for the recovery settler.
+  'map/src/map.ts': 5411,
   // Baselined at #1255 (measured 830): the DOM-inspired layer API crossed
   // NEW_FILE_CAP with the paint-transition style-setter integration — the
   // StyleHost.transitions context, the shared applyNumber/applyColor
