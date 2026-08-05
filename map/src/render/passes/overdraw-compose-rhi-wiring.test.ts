@@ -47,6 +47,11 @@ function harness(opts: { rawShell?: boolean; noAccum?: boolean } = {}) {
     screenView: { __nativeScreenView: true },
     passScope: (_l: string, fn: () => void) => fn(),
     rt: { overdrawAccumTexture: opts.noAccum ? null : {}, overdrawViewNative },
+    // This pass's body is raw WebGPU, so it declines on an immediate device
+    // rather than crashing there (#1046 Inc-F2d). `rhi` is a REQUIRED
+    // FrameContext field that the `as unknown as` cast let this stub omit —
+    // without it the read throws before any wiring below is exercised.
+    rhi: { caps: { executionModel: 'deferred' } },
   } as unknown as FrameContext
   const bindGroupDescs: { entries: { binding: number; resource: unknown }[] }[] = []
   const host = {

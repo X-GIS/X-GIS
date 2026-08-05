@@ -83,6 +83,10 @@ function harness(opts: { pick?: boolean; resolveOwner?: string; groups?: number 
       setOpacity: () => undefined,
       setColorAdjust: () => undefined,
       setResampling: () => undefined,
+      // The raster draw is now the `hasSource()` arm of a two-arm choice, the
+      // other being the analytic checker the twin used to own (#1046 Inc-F2d).
+      // True here so this file keeps pinning the raster draw it was written for.
+      hasSource: () => true,
       render: (pass: unknown) => order.push(`raster:${pass === captured[0] ? 'rhi0' : '?'}`),
     },
     underOccluder: undefined,

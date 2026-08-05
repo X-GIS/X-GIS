@@ -14,7 +14,7 @@
 // descriptor-equivalent to the retired native block. All loop-local state
 // stays inside execute().
 
-import { DEBUG_OVERDRAW } from '../../debug-flags'
+import { DEBUG_OVERDRAW, DEBUG_RHI_CHECKER } from '../../debug-flags'
 import { isPickEnabled } from '@xgis/engine'
 import { isGlobeProj } from '@xgis/geo'
 import { resolveNumberShape } from '../paint-shape-resolve'
@@ -167,16 +167,38 @@ class OpaquePass implements RenderPass {
             host.rasterRenderer.setColorAdjust(0, 0, 1, 0, 0)
             host.rasterRenderer.setResampling(false)
           }
-          host.rasterRenderer.render(
-            subPass,
-            host.camera,
-            projType,
-            centerLon,
-            centerLat,
-            ctx.scene.w,
-            ctx.scene.h,
-            ctx.scene.dpr,
-          )
+          if (host.rasterRenderer.hasSource()) {
+            host.rasterRenderer.render(
+              subPass,
+              host.camera,
+              projType,
+              centerLon,
+              centerLat,
+              ctx.scene.w,
+              ctx.scene.h,
+              ctx.scene.dpr,
+            )
+          } else if (DEBUG_RHI_CHECKER) {
+            // US-003/US-004's analytic z0 world tile — a real raster draw through
+            // the SAME RasterDraper, with no network. Ported from the twin, which
+            // was its ONLY caller (#1046 Inc-F2d): without it a deleted twin
+            // leaves `?debug=checker` painting nothing and takes the live-render
+            // gate red with it. Kept rather than retired precisely BECAUSE it
+            // needs no network — the gates that fetch real tiles already fail on
+            // runners without egress, so re-fixturing onto one would trade a
+            // deterministic gate for a flaky one.
+            host.rasterRenderer.renderRhiChecker(
+              ctx.rhi,
+              subPass,
+              host.camera,
+              projType,
+              centerLon,
+              centerLat,
+              ctx.scene.w,
+              ctx.scene.h,
+              ctx.scene.dpr,
+            )
+          }
           host.gpuTimer?.markRhi(subPass, 'after_raster')
           host.renderer.renderToPass(
             subPass,

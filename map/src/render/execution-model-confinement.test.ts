@@ -3,12 +3,18 @@
 // `RhiCaps.executionModel` is a DEVICE truth for engine upload/draw primitives
 // (rhi.ts contract): map-layer passes and renderers must not fork on it — that
 // would be backend identity wearing a capability's name. The Inc-E2 chain flip
-// grants exactly three INTERIM exceptions — the native-bodied-terminal forks
-// that route the immediate arm to the *Rhi entries, all dying at P6 with the
-// terminals themselves:
+// grants exactly four INTERIM exceptions — native-bodied sites that either route
+// the immediate arm to the *Rhi entries or decline, all dying at P6 with the
+// native bodies themselves:
 //
-//   vector-tile-renderer.ts  ×1  VTR.render fork → renderImmediateArm
-//   renderer.ts              ×2  renderToPass legacy-layer skip + graticule fork
+//   vector-tile-renderer.ts   ×1  VTR.render fork → renderImmediateArm
+//   renderer.ts               ×2  renderToPass legacy-layer skip + graticule fork
+//   overdraw-compose-pass.ts  ×1  the raw-WebGPU compose DECLINES (#1046 Inc-F2d)
+//
+// The fourth was granted because the alternative was a CRASH, not a wrong
+// picture: that pass unwraps a native pass encoder and calls `ctx.device`, so on
+// an immediate device `?debug=overdraw` threw every frame until map.ts halted the
+// loop. Declining reproduces the forced-WebGL2 twin, which had no compose at all.
 //
 // This gate pins the consumer set EXACTLY: a new `.caps.executionModel` read
 // anywhere in map/src — or a new one inside the allowlisted files — fails with
@@ -33,6 +39,7 @@ const TOKEN = () => /\bexecutionModel\b/g
 const READ_ALLOWLIST: Record<string, number> = {
   'render/vector-tile-renderer.ts': 1,
   'render/renderer.ts': 2,
+  'render/passes/overdraw-compose-pass.ts': 1,
 }
 
 /** Files allowed to MENTION the token at all (reads + docs). */

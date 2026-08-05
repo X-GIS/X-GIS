@@ -55,6 +55,10 @@ function harness(groupCount: number, opts: { coverage?: boolean } = {}) {
     setOpacity: () => undefined,
     setColorAdjust: () => undefined,
     setResampling: () => undefined,
+    // The raster draw is the `hasSource()` arm of a two-arm choice since the
+    // analytic checker moved off the twin (#1046 Inc-F2d); true keeps this
+    // file's `order` expectations on the raster draw they were written for.
+    hasSource: () => true,
     render: () => order.push('raster'),
   }
   const host = {
