@@ -22,8 +22,8 @@ import { DEBUG_OVERDRAW } from '../debug-flags'
 import { Camera } from '../camera'
 import type { ShowCommand } from './renderer-types'
 import { variantProducesFill } from './renderer-helpers'
+import { reportRhiFillGap } from './rhi-fill-gap-warning'
 import { uniformBlock } from '@xgis/engine'
-import { polygonU as POLYGON_U } from '../shaders/dsl/polygon'
 import { globeEyeUniform } from './globe-eye-uniform'
 import { xlog, activeBody, EARTH } from '@xgis/shared'
 import { computeTileCameraAnchor, clampMercLat } from './tile-camera-anchor'
@@ -38,6 +38,7 @@ import {
 } from './material/polygon-fill-material'
 import { wgslFor, glslStagesFor } from './material/wgsl-for'
 import { executeItems, type Material } from '@xgis/engine'
+import { polygonU as POLYGON_U } from '../shaders/dsl/polygon'
 import { emitPolygonWgsl, emitPolygonGlslStages } from '../shaders/dsl/polygon'
 
 // Per-tile uniform packing goes through a typed UniformBlock over the polygon
@@ -73,8 +74,7 @@ import { BundleCache, type BundleEncodeDescriptor } from '@xgis/rhi-webgpu'
 import { isPickEnabled, getSampleCount } from '@xgis/engine'
 import { UploadCoordinator } from './upload-coordinator'
 import type { ShaderVariant } from '@xgis/compiler'
-import type { TileCatalog } from '@xgis/data'
-import type { TileData } from '@xgis/data'
+import type { TileCatalog, TileData } from '@xgis/data'
 import { computeSliceKey } from '@xgis/data'
 import { mercator as mercatorProj, getProjection, type Projection } from '@xgis/geo'
 import { SELECTOR_PROJ_NAMES } from '@xgis/geo'
@@ -1095,7 +1095,7 @@ export class VectorTileRenderer {
       protectedAncestors.length > 0 ? [...neededKeys, ...protectedAncestors] : neededKeys
 
     const fill = resolvedShow.fill ?? (show.fill ? parseHexColor(show.fill) : null)
-    if (!fill) return 0
+    if (!fill) return reportRhiFillGap(show, this.rhi.backend) // #1583 — blank, but loud
     const opacity = resolvedShow.opacity
     const fillA = fill[3] * opacity
     if (fillA <= 0.005) return 0
