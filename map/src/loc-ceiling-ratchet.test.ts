@@ -962,7 +962,10 @@ const CEILINGS: Record<string, number> = {
   // 1425→1392 (#1046 F4 Inc-D): the native→RHI view memo (_rhiViewMemo/
   // _rhiViewFor/_rhiViewForBound) + the screen-view unwrap retired with the
   // RenderTargets RhiTexture retype.
-  'map/src/render-loop.ts': 957,
+  // 957→958 (#1046 F3b, doc sweep): two comments still described the deleted
+  // forced-WebGL2 twin in the present tense (a review-round finding); one
+  // reword net +1 line, the other net 0.
+  'map/src/render-loop.ts': 958,
   // Baselined at 806 (hillshade tile fade-in): HillshadeRenderer crossed
   // NEW_FILE_CAP restoring the three tile-streaming fixes raster-renderer had
   // landed since hillshade was copied from it — the per-tile fade ramp + its

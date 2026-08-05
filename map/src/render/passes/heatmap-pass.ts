@@ -5,9 +5,9 @@
 // which avoids the MSAA resolve-ownership hazard. The whole 3-pass GPU
 // pipeline per direct-layer heatmap layer (ACCUM splat → separable Gaussian
 // BLUR ping-pong → COMPOSE through the layer's colour-ramp LUT) lives behind
-// HeatmapRenderer.renderChainRhi (#1046 F3b Inc-2c), which shares every
-// draper/shader/target with the forced-WebGL2 twin's renderRhi (#1060) — one
-// implementation, two frame shapes, so the backends cannot drift.
+// HeatmapRenderer.renderChainRhi (#1046 F3b Inc-2c) — the sole frame shape
+// since the forced-WebGL2 twin's renderRhi (#1060), which used to share the
+// same drapers/shader/targets, was deleted (#1046 Inc-F3a/F3b).
 //
 // GATED OFF when no direct-layer heatmap exists (scene.hasHeatmap === false)
 // or in ?debug=overdraw — so a style with no heatmap allocates no targets and

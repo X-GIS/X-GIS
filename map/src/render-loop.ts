@@ -367,7 +367,8 @@ export class RenderLoop {
     const ctx = this._ctx
     // BOTH population branches route through the one geometry site (its doc's
     // contract): screen = the native canvas, scene = screen × the ladder's
-    // scale (1 on the twin — it scaled the canvas instead, #1429 INC-2).
+    // scale (the forced-WebGL2 twin, deleted #1046 Inc-F3a, scaled the canvas
+    // instead of the scene target, #1429 INC-2).
     setFrameTargets(ctx, w, h, dpr, sceneScale)
 
     {
@@ -840,10 +841,10 @@ export class RenderLoop {
     // wired by this point.
     if (!this.host._spriteAtlasViewPushed) {
       if (this.host.ctx.rhi.backend === 'webgl2') {
-        // #834 M5 slice 5 — the webgl2 twin: push the atlas's RHI handles so
-        // the VTR line-pattern tile bind group samples the real sprite atlas
-        // (the native GPUTextureView push below rebuilds WebGPU bind groups,
-        // which are proxy no-ops on this backend).
+        // #834 M5 slice 5 — push the atlas's RHI handles so the VTR
+        // line-pattern tile bind group samples the real sprite atlas (the
+        // native GPUTextureView push below rebuilds WebGPU bind groups, which
+        // are proxy no-ops on this backend).
         const gpu = this.host.iconStage?.gpu
         const rhiView = gpu?.rhiView?.()
         const rhiSampler = gpu?.rhiSampler?.()
