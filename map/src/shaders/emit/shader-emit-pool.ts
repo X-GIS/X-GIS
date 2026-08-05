@@ -27,11 +27,23 @@ import {
   type ShaderEmitRequest,
   type ShaderSources,
 } from './shader-emit-request'
+import { bodyEpochValue } from '../../body-epoch'
 import type { EmitInMsg, EmitOutMsg } from './shader-emit-worker'
+
+/** An emit posted to the worker and not yet answered. The REQUEST is retained beside the
+ *  resolver because every failure path settles it through the main-thread `emitFor` — see
+ *  `settleOnMainThread`. Without the request there is nothing to fall back TO, which is
+ *  how the dropped-resolver bug (#1572 A) survived: the pool stored a bare resolver, so
+ *  the only thing an error reply could do with it was throw it away. */
+interface PendingEmit {
+  readonly resolve: (s: ShaderSources) => void
+  readonly req: ShaderEmitRequest
+  readonly wantWgsl: boolean
+}
 
 const done = new Map<string, ShaderSources>()
 const inFlight = new Map<string, Promise<ShaderSources>>()
-const pending = new Map<number, (s: ShaderSources) => void>()
+const pending = new Map<number, PendingEmit>()
 let _worker: Worker | null = null
 let _workerUnavailable = false
 let nextTask = 1
@@ -52,13 +64,46 @@ function getWorker(): Worker | null {
   }
   _worker.addEventListener('message', (ev: MessageEvent) => {
     const m = ev.data as EmitOutMsg
-    const resolve = pending.get(m.taskId)
-    if (!resolve) return
+    const p = pending.get(m.taskId)
+    if (!p) return
     pending.delete(m.taskId)
-    if (m.kind === 'sources') resolve(m.sources)
-    else xlog.error('[shader-emit] worker emit failed', m.message)
+    if (m.kind === 'sources') p.resolve(m.sources)
+    else {
+      // #1572 A — the resolver used to be deleted and only logged, so the promise never
+      // settled: `inFlight` kept the key forever, `shaderEmitPending()` stayed true for
+      // the page lifetime (both keep-rendering predicates pinned hot), and the layer was
+      // permanently blank with no retry possible. Settling through the SAME synchronous
+      // emit a worker-less host uses turns a failed worker into the documented fallback.
+      xlog.error('[shader-emit] worker emit failed, emitting on the main thread', m.message)
+      settleOnMainThread(p)
+    }
+  })
+  _worker.addEventListener('error', (ev: ErrorEvent) => {
+    // #1572 A — the second half: `try/catch` above covers SYNCHRONOUS construction only,
+    // so an async worker-load failure (404'd module chunk on a deploy rollover, CSP
+    // block) left `_worker` non-null and every later request posted into a dead worker
+    // and hung. All three sibling pools register this listener; this one did not.
+    //
+    // A worker whose script failed to load never recovers, so it is retired rather than
+    // retried: `_workerUnavailable` routes every LATER request straight to the main
+    // thread, and the orphans it was holding settle there too.
+    xlog.error('[shader-emit] worker failed, falling back to main-thread emit', ev.message)
+    _worker = null
+    _workerUnavailable = true
+    const orphans = [...pending.values()]
+    pending.clear()
+    for (const p of orphans) settleOnMainThread(p)
   })
   return _worker
+}
+
+/** Settle a worker request the worker cannot answer, using the main-thread emit.
+ *  Resolving rather than rejecting is deliberate: the sole production caller is
+ *  `hillshade-material.ts:87`, which fires this as `void requestShaderSources(...)` every
+ *  frame until the sources land, so a rejection here would be an unhandled rejection per
+ *  frame — and there is a real answer available, which is strictly better than an error. */
+function settleOnMainThread(p: PendingEmit): void {
+  p.resolve(emitFor(p.req, p.wantWgsl))
 }
 
 /** Sources for `req` if they have already arrived. Cheap — call it every frame. */
@@ -82,15 +127,21 @@ export function requestShaderSources(
   const p = worker
     ? new Promise<ShaderSources>((resolve) => {
         const taskId = nextTask++
-        pending.set(taskId, resolve)
+        pending.set(taskId, { resolve, req, wantWgsl })
         const msg: EmitInMsg = { taskId, req, wantWgsl, body: activeBody() }
         worker.postMessage(msg)
       })
     : Promise.resolve(emitFor(req, wantWgsl))
 
+  const epoch = bodyEpochValue()
   const tracked = p.then((s) => {
-    done.set(key, s)
     inFlight.delete(key)
+    // The worker path always matches: the body rides on the request, so the bytes belong
+    // to the key. A main-thread fallback (#1572 A) emits under whatever body is active
+    // WHEN IT RUNS, which a `map.setBody` between post and failure could have moved — and
+    // `key` carries the body epoch (#1568), so caching then would serve one planet's
+    // shader under another's key. Dropping it costs one re-emit under the new key.
+    if (bodyEpochValue() === epoch) done.set(key, s)
     return s
   })
   inFlight.set(key, tracked)
