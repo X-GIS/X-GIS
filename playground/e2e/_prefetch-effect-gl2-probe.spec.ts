@@ -112,14 +112,29 @@ test.describe('anticipatory prefetch — measurement (#1587)', () => {
 
       // Then hold still and watch it converge. Time-to-zero is the direct "did the tiles arrive
       // sooner" reading; the integral above is "how much hole did the pan show".
+      //
+      // CONVERGENCE and "NOTHING LEFT IN FLIGHT" are different questions and are sampled at
+      // different times on purpose. `missed` (needed-but-absent) can hit zero while
+      // `catalogLoading` is still nonzero — a genuinely different counter — because prefetch
+      // fetching ONE MORE tile for the next pan the instant the visible set finishes is not a
+      // bug, it is the feature working. Breaking the loop the instant `missed` hits zero and
+      // reading `catalogLoading` off that SAME sample confuses "still converging" with "a
+      // speculative fetch happened to be mid-flight this millisecond" — which is what made this
+      // probe flaky in CI: two runs of the identical scene read missed=0 both times, but
+      // catalogLoading 1 then 0 a run apart, because the sample landed on either side of a
+      // trailing prefetch fetch. So a GRACE WINDOW runs past convergence, and "permanently in
+      // flight" is read at the END of it rather than at the convergence instant itself.
+      const GRACE_SAMPLES = 10 // ~500ms past convergence for a trailing prefetch fetch to land
       let convergedAt = -1
+      let samplesSinceConverged = -1
       for (let i = 0; i < 120; i++) {
         await new Promise((r) => setTimeout(r, 50))
         const s = sample(performance.now() - t0)
         samples.push(s)
-        if (s.missed === 0 && convergedAt < 0) {
-          convergedAt = s.t
-          break
+        if (s.missed === 0 && convergedAt < 0) convergedAt = s.t
+        if (convergedAt >= 0) {
+          samplesSinceConverged++
+          if (samplesSinceConverged >= GRACE_SAMPLES) break
         }
       }
       return { ok: true as const, during, after: samples, panEnd, convergedAt }
@@ -143,13 +158,16 @@ test.describe('anticipatory prefetch — measurement (#1587)', () => {
       `the tile source must actually be serving tiles — peak needed was ${peakNeeded}. If this is ` +
         `~1 the archive did not load (no network?) and every measurement below is vacuous`,
     ).toBeGreaterThan(8)
+    // `last` is the sample at the END of the post-convergence grace window (or the final sample,
+    // if convergence never happened) — NOT the instant `missed` first hit zero. See the grace
+    // window comment above for why that distinction is what stopped this being flaky.
     const last = (result.after as Sample[]).at(-1)
     console.log(
       `[prefetch-probe] missedIntegral=${integral.toFixed(0)} (missed-tiles·ms) ` +
         `peakMissed=${peak} panEnd=${result.panEnd.toFixed(0)}ms ` +
         `convergedAt=${result.convergedAt < 0 ? 'NEVER' : result.convergedAt.toFixed(0) + 'ms'} ` +
         `(${(result.convergedAt - result.panEnd).toFixed(0)}ms after the pan stopped) ` +
-        `finalCached=${last?.catalogCached ?? -1} finalLoading=${last?.catalogLoading ?? -1}`,
+        `finalCached=${last?.catalogCached ?? -1} finalLoading(post-grace)=${last?.catalogLoading ?? -1}`,
     )
 
     // ── The assertions, which are about REGRESSION, not about prefetch being better ──
@@ -165,7 +183,8 @@ test.describe('anticipatory prefetch — measurement (#1587)', () => {
     ).toBeGreaterThan(-1)
     expect(
       last?.catalogLoading ?? -1,
-      'and nothing may be left permanently in flight',
+      'nothing may be left PERMANENTLY in flight — read half a second after convergence, past ' +
+        'any trailing prefetch fetch that was merely mid-flight the instant missed hit zero',
     ).toBeLessThan(1)
   })
 })
