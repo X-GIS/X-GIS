@@ -4540,6 +4540,7 @@ export class XGISMap {
       vtSources: this.vtSources,
       cameraZoom: this.camera.zoom,
       elapsedMs: this._elapsedMs,
+      inputs: this.inputs,
       rendererDefaults: {
         fillPipeline: this.renderer.fillPipeline,
         fillPipelineGround: this.renderer.fillPipelineGround,

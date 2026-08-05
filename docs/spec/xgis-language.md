@@ -648,10 +648,14 @@ map.setInput('threshold', 0.8) // next frame only — no recompile
 map.getInput('threshold') // → 0.8
 ```
 
-> Backend note: an `input` referenced from a PAINT expression is read in the shader
-> (the compiler routes `input`-dependent paint values to GPU codegen, not to a CPU
-> re-evaluation). The WebGL2 backend compiles no per-feature polygon fill variant, so
-> `input`-driven paint is **WebGPU-only** today. Tracked on #1539.
+> Backend note. An `input` reference that reads no feature field is a per-frame
+> CONSTANT: the runtime evaluates it once per frame on the CPU into the ordinary
+> paint uniforms, so it works on **both** backends. An `input` MIXED with a feature
+> read (`.score / threshold`) must be evaluated per fragment, so it is read from a
+> reserved shader uniform pool instead — and that half is **WebGPU-only**, because
+> the WebGL2 backend compiles no per-feature polygon fill variant. A `@color` /
+> `@stroke` stage block (§2.15b) is likewise shader-side, hence WebGPU-only.
+> Tracked on #1539.
 
 ---
 

@@ -6,21 +6,21 @@
 // name and hands it to the two consumers that need it:
 //
 //   • the CPU evaluator, via `toEvalInputs()` → `makeEvalProps({ inputs })`,
-//     which prefixes each name with `INPUT_KEY_PREFIX`. This covers the eval
-//     sites that run per feature at build time — filters, labels/text, point
-//     sizes — where an `InputRef` is resolved by `evaluate()` directly.
+//     which prefixes each name with `INPUT_KEY_PREFIX`. Two kinds of caller:
+//     the per-feature eval sites (filters, labels/text, point sizes), and —
+//     the important one — `paint-shape-resolve.ts`, which resolves an
+//     `input-dependent` paint shape ONCE PER FRAME, the same way it resolves a
+//     zoom-driven one. That path writes the existing `u.opacity` /
+//     `u.fill_color` uniform, so it works on BOTH backends.
 //   • the GPU reserved uniform pool (`u.input_f32_N` / `u.input_color_N` in
 //     the polygon Uniforms struct), via `f32Slots` / `colorSlots`.
 //
-// The GPU pool is the path every PAINT expression takes: optimize.ts folds a
-// `data-driven` paint value only when `classifyExpr` says `'constant'`, so an
-// `input-dependent` opacity/colour stays data-driven and reaches shader
-// codegen — there is no per-frame CPU re-evaluation of paint values to route
-// it through instead. The pool's struct fields are NOT wired yet (polygon.ts
-// is at its LOC ceiling and UniformBlock rejects array fields, so the 12
-// scalar lanes need their own change); `f32Slots`/`colorSlots` are the
-// already-correct CPU side of that write, kept here so the slot mapping has
-// one home.
+// Which path a given reference takes is decided by `classifyExpr`: an
+// expression that reads no feature field is `'input-dependent'` and resolves on
+// the CPU per frame; one MIXED with a feature read (`.score / threshold`) is
+// `'per-feature-gpu'` and must be read in the shader, so it needs the pool —
+// and that half is WebGPU-only, since WebGL2 compiles no per-feature polygon
+// fill variant at all. The two paths are complementary, not alternatives.
 //
 // Slot indices are assigned by the COMPILER (declaration order, independently
 // per type) and arrive on each `ResolvedInputInfo` — this store never invents
@@ -45,6 +45,11 @@ export class InputStore {
    *  (colour as RGBA 0..1, matching `u.fill_color`'s convention). */
   readonly f32Slots = new Float32Array(INPUT_F32_POOL_SIZE)
   readonly colorSlots = new Float32Array(INPUT_COLOR_POOL_SIZE * 4)
+  /** Monotonic version, bumped whenever a value actually changes. `resolveShow`
+   *  memoises a frame's resolved paint on (shape refs, zoom, clock) — none of
+   *  which `setInput` moves — so this is the key that lets a new input reach the
+   *  screen instead of being served the pre-set value forever. */
+  revision = 0
   /** Memoised `toEvalInputs()` result — rebuilt only when a value changes.
    *  The eval path calls this per feature per frame; a fresh object each
    *  time would allocate in the paint hot loop. */
@@ -66,6 +71,7 @@ export class InputStore {
     }
     this.values = kept
     this.evalCache = null
+    this.revision++
     this.f32Slots.fill(0)
     this.colorSlots.fill(0)
     for (const d of this.decls.values()) this.writeSlot(d, this.values.get(d.name)!)
@@ -92,6 +98,7 @@ export class InputStore {
     if (this.values.get(name) === value) return false
     this.values.set(name, value)
     this.evalCache = null
+    this.revision++
     this.writeSlot(decl, value)
     return true
   }
