@@ -35,6 +35,7 @@ import {
 } from '../shaders/dsl/polygon'
 import { wgslFor, glslStagesFor } from './material/wgsl-for'
 import { polygonUniformBytes } from './polygon-uniform-slots'
+import { inputPoolValues } from './input-pool'
 import { buildGraticuleLineMaterial } from './material/polygon-fill-material'
 import { LINE_FORMAT } from './line-vertex-format'
 import { globeEyeUniform } from './globe-eye-uniform'
@@ -391,6 +392,9 @@ export class GraticuleRenderer {
   ): ArrayBuffer {
     const B = gratBlock()
     B.write({
+      // The graticule is a built-in overlay with no user style, so it can
+      // declare no `input` (#1539) — the pool lanes stay zero.
+      ...inputPoolValues(null),
       mvp,
       fill_color: [1, 1, 1, 0.15], // white @ 15% (minor grid line colour)
       stroke_color: [1, 1, 1, 0.15],

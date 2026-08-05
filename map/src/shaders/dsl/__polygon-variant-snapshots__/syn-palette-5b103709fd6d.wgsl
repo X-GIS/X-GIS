@@ -1,4 +1,4 @@
-// baseline: 12b6185efe3615de2cf1fde616e52fc1eee92739
+// baseline: 6395120f5e87a170fab86b0c94fe3aad144efd66
 // fixture: syn-palette
 // variant.key: syn-palette
 // pick: false
@@ -36,6 +36,18 @@ struct Uniforms {
   cam_ecef_off_l: vec4<f32>,
   light_dir_ecef: vec4<f32>,
   globe_eye: vec4<f32>,
+  input_f32_0: f32,
+  input_f32_1: f32,
+  input_f32_2: f32,
+  input_f32_3: f32,
+  input_f32_4: f32,
+  input_f32_5: f32,
+  input_f32_6: f32,
+  input_f32_7: f32,
+  input_color_0: vec4<f32>,
+  input_color_1: vec4<f32>,
+  input_color_2: vec4<f32>,
+  input_color_3: vec4<f32>,
 }
 
 struct VertexOutput {

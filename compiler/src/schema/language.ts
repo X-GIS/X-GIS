@@ -179,6 +179,19 @@ export const LANGUAGE_SCHEMA: Record<string, ConstructDef> = {
     ],
   },
 
+  // #1539 — a host-settable parameter. `default` is a literal of the declared
+  // type (checked at parse time), so it is an `expr` pin like any other value.
+  input: {
+    keyword: 'input',
+    astKind: 'InputStatement',
+    category: 'Data',
+    properties: [
+      { key: 'name', valueKind: 'identifier', required: true },
+      { key: 'type', valueKind: 'enum', options: ['f32', 'color'], required: true },
+      { key: 'default', valueKind: 'expr', required: true },
+    ],
+  },
+
   layer: {
     keyword: 'layer',
     astKind: 'LayerStatement',

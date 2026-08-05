@@ -286,6 +286,8 @@ export class LineRenderer {
   rebuildForQuality(): void {
     // The line + composite draws come from LineDraper / LineCompositeDraper, which capture the MSAA
     // sample count at construction — drop them so the next draw rebuilds against the new QUALITY.
+    this._lineDraper?.destroy()
+    this._compositeDraper?.destroy()
     this._lineDraper = undefined
     this._compositeDraper = undefined
   }

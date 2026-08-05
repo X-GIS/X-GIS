@@ -203,6 +203,38 @@ export class Material {
     const buf = this.poolBufs[idx]
     return { write: (b) => this.rhi.writeBuffer(buf, 0, b), bg: this.poolBGs[idx] }
   }
+
+  /** Release everything this material's CONSTRUCTOR created (#1578).
+   *
+   *  Materials are not only torn down at end of life: `map.setQuality({msaa})` or
+   *  `{picking}` discards six RHI-seam drapers by nulling their references and rebuilds
+   *  them at the new sample count. Each dropped draper owned one of these, and nothing
+   *  released it — `destroyPipeline` had ZERO production callers repo-wide, while its
+   *  siblings `destroyBuffer` / `destroySampler` are called from text, icon and heatmap.
+   *  An omission, not a policy.
+   *
+   *  On WebGL2 that leaked linked GL programs on a live context — `rhi-webgl2.ts`'s own
+   *  comment states a program is NOT GC-collected. On WebGPU the pipelines are GC-owned
+   *  by spec, but the uniform and pool `GPUBuffer`s free only if their JS wrappers happen
+   *  to be collected, and this codebase already has a name for that: the iOS staircase.
+   *
+   *  `layouts` and `poolBGs` are deliberately NOT released: `rhi.ts` documents bind
+   *  groups and bind-group layouts as GC-owned with no `destroy` — "the documented
+   *  exception to the create/destroy pairing" — and some layouts are caller-owned here
+   *  anyway (the non-array branch of the ctor's `groups` map).
+   *
+   *  Idempotent: a draper destroyed twice (a quality flip during teardown) must not
+   *  double-free. */
+  destroy(): void {
+    if (this._destroyed) return
+    this._destroyed = true
+    for (const p of this.pipelines) this.rhi.destroyPipeline(p)
+    if (this.globalUniform) this.rhi.destroyBuffer(this.globalUniform)
+    for (const b of this.poolBufs) this.rhi.destroyBuffer(b)
+    this.poolBufs.length = 0
+    this.poolBGs.length = 0
+  }
+  private _destroyed = false
 }
 
 /** Issue draw items through a material + RHI pass. Primitive-agnostic. Returns

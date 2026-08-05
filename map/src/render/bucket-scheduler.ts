@@ -26,6 +26,7 @@ import type { LayerDrawPhase } from './vector-tile-renderer-types'
 import type { VectorTileRenderer } from './vector-tile-renderer'
 import type { ShowCommand } from './renderer-types'
 import { resolveNumberShape } from './paint-shape-resolve'
+import type { InputStore } from './input-store'
 import { resolveShow, type ResolvedShow } from './resolved-show'
 import { isSafeMode } from '@xgis/engine'
 import { DEBUG_OVERDRAW } from '../debug-flags'
@@ -203,6 +204,10 @@ export interface ClassifierInput {
   vtSources: Map<string, ClassifierVTSource>
   cameraZoom: number
   elapsedMs: number
+  /** #1539 — live `input` values, so an `input-dependent` paint shape resolves
+   *  to its current value this frame (and the resolve memo invalidates when the
+   *  host calls setInput). Absent → those shapes keep their pre-#1539 fallback. */
+  inputs?: InputStore | null
   rendererDefaults: ClassifierRendererDefaults
   /** Optional override for the `?safe` boot flag — defaults to `isSafeMode()`.
    *  Tests use this to flip translucent-stroke detection on/off
@@ -419,6 +424,7 @@ export function classifyVectorTileShows(input: ClassifierInput): ClassifierResul
     const resolvedShow = resolveShow(entry.show, {
       cameraZoom: input.cameraZoom,
       elapsedMs: input.elapsedMs,
+      inputs: input.inputs,
     })
     // Bake this show's opaque draw closure. It captures the resolved
     // content pipelines + bind-group layout + the source's VTR + the

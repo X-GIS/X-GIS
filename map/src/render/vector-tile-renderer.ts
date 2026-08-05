@@ -20,6 +20,8 @@ import { toVertexBufferLayout, unwrapWebGpuPass, wrapWebGpuBindGroup } from '@xg
 import { renderImmediateArm } from './vtr-immediate-arm'
 import { POLYGON_FILL_FORMAT } from '@xgis/compiler'
 import { polygonUniformBytes } from './polygon-uniform-slots'
+import { writeInputPool } from './input-pool'
+import type { InputStore } from './input-store'
 import { DEBUG_OVERDRAW } from '../debug-flags'
 import { Camera } from '../camera'
 import type { ShowCommand } from './renderer-types'
@@ -296,6 +298,8 @@ export class VectorTileRenderer {
    *  never clobbers frameBlock's frame-constant mvp/proj_params/globe_eye (which
    *  the same show's stroke draw reads after the drape). */
   private _bakeBlock = uniformBlock(POLYGON_U)
+  /** Live `input` values (#1539); null = no user style, pool lanes stay zero. */
+  readonly inputs: InputStore | null
   /** #599 I2 — set per render() when flat globe fills must DRAPE (baked→sphere
    *  grid) instead of drawing as ECEF chords; false off the globe (flat path
    *  byte-identical). Read by renderTileKeys to skip the direct fill draw. */
@@ -436,7 +440,8 @@ export class VectorTileRenderer {
    *  nor references VTR/gpuCache (they arrive as call args). */
   private readonly _featureBinder: FeatureDataBinder
 
-  constructor(ctx: GPUContext) {
+  constructor(ctx: GPUContext, inputs: InputStore | null = null) {
+    this.inputs = inputs
     this.format = ctx.format
     this.stagingPool = new StagingBufferPool(ctx.device)
     this.bundleCache = new BundleCache(ctx.device)
@@ -887,6 +892,7 @@ export class VectorTileRenderer {
     B.set.fill_color(fill[0], fill[1], fill[2], fill[3])
     B.set.proj_params(0, 0, 0, 0)
     B.set.globe_eye(0, 0, 0, 1)
+    writeInputPool(B, this.inputs)
     B.set.cam_h(0, 0)
     B.set.cam_l(0, 0)
     B.set.cam_ecef_off_h(0, 0, 0, 1)
@@ -1162,6 +1168,7 @@ export class VectorTileRenderer {
     this.currentProjType = projType
     const ge = globeEyeUniform(frame.eye)
     B.set.globe_eye(ge[0], ge[1], ge[2], ge[3])
+    writeInputPool(B, this.inputs)
     // Variant 0 = STENCIL_WRITE (compare 'always') — the ref value is inert,
     // set once for determinism.
     pass.setStencilReference(1)
@@ -1463,6 +1470,7 @@ export class VectorTileRenderer {
     this.currentProjType = projType
     const ge = globeEyeUniform(frame.eye)
     B.set.globe_eye(ge[0], ge[1], ge[2], ge[3])
+    writeInputPool(B, this.inputs)
 
     for (let ki = 0; ki < neededKeys.length; ki++) {
       const key = neededKeys[ki]!
@@ -2014,22 +2022,17 @@ export class VectorTileRenderer {
   /** FLICKER class diagnostic. Returns a per-frame partition of where
    *  the visible-tile set stands:
    *
-   *    needed         — last frame's `_frameTilesVisible` (visible
-   *                     unique tile count emitted by the per-tile
-   *                     loop, sum across all sliceLayers)
-   *    missed         — `_missedTiles`: tiles classified as 'pending'
-   *                     (no fallback resolved this frame)
-   *    gpuUnique      — `_gpuCacheCount`: unique (sliceLayer, key)
-   *                     pairs resident on GPU
-   *    catalogCached  — catalog.getCacheSize() (CPU-side dataCache
-   *                     entries)
-   *    catalogLoading — catalog.getPendingLoadCount() (in-flight
-   *                     fetches)
-   *    uploadQueued   — VTR's uploadQueue.size (decoded but not yet
-   *                     uploaded to GPU; bounded by uploadBudgetFor)
-   *    gpuCapDesktop  — current MAX_GPU_TILES (256 desktop / 64
-   *                     mobile); FLICKER fires when needed > cap
-   *                     AND fallback walk doesn't resolve
+   *    needed         — last frame's `_frameTilesVisible` (visible unique tile
+   *                     count from the per-tile loop, across all sliceLayers)
+   *    missed         — `_missedTiles`: tiles classified 'pending' (no
+   *                     fallback resolved this frame)
+   *    gpuUnique      — `_gpuCacheCount`: unique (sliceLayer, key) pairs on GPU
+   *    catalogCached  — catalog.getCacheSize() (CPU-side dataCache entries)
+   *    catalogLoading — catalog.getPendingLoadCount() (in-flight fetches)
+   *    uploadQueued   — VTR's uploadQueue.size (decoded but not yet uploaded;
+   *                     bounded by uploadBudgetFor)
+   *    gpuCapDesktop  — current MAX_GPU_TILES (256 desktop / 64 mobile);
+   *                     FLICKER fires when needed > cap AND fallback misses
    *
    *  Cheap; only Map.size + integer reads. Designed for `__xgisMap`
    *  shell-injection from a Playwright probe or a manual user
@@ -2746,6 +2749,7 @@ export class VectorTileRenderer {
     this.currentProjType = projType
     const ge = globeEyeUniform(frame.eye)
     B.set.globe_eye(ge[0], ge[1], ge[2], ge[3])
+    writeInputPool(B, this.inputs)
 
     // Allocate + write SDF line layer slot for this render() call. All
     // drawSegments() calls below will use this same byte offset.
@@ -3488,15 +3492,13 @@ export class VectorTileRenderer {
       // includes every input that affects the recorded draws OR the bundle
       // descriptor; the next miss re-encodes from scratch.
       //
-      // Hit path: re-runs renderTileKeys for state side effects
-      // (uniform staging, strokeQueue population) but
-      // `_skipFillDrawForBundle` + `_skipStrokeDrawForBundle` mute
-      // the actual draw emit. `executeBundles([bundle])` replays
-      // the cached commands.
-      //
-      // Miss path: getOrEncode runs renderTileKeys with the
-      // bundle encoder. State side effects + draws recorded into
-      // the bundle. `executeBundles` replays into the real pass.
+      // Hit path: re-runs renderTileKeys for state side effects (uniform
+      // staging, strokeQueue population) but `_skipFillDrawForBundle` +
+      // `_skipStrokeDrawForBundle` mute the actual draw emit;
+      // `executeBundles([bundle])` replays the cached commands.
+      // Miss path: getOrEncode runs renderTileKeys with the bundle encoder —
+      // state side effects + draws recorded into the bundle, then
+      // `executeBundles` replays into the real pass.
       // Bundle ONLY when every needed tile is in layer cache. Partial-set
       // bundles caused the user-reported flicker (OFM Bright import + wheel
       // zoom):
@@ -3517,16 +3519,14 @@ export class VectorTileRenderer {
       //      also bundled with the same gap.
       //
       // Gating shouldBundle on the all-loaded invariant eliminates the
-      // partial-encode case. During fast zoom we fall through to a
-      // direct renderTileKeys call (no bundle, no cache); steady-state
-      // (all tiles loaded) keeps the 97.6% hit rate.
-      //
-      // Bundle path is DEFAULT OFF: a prior re-enable (gated on the
-      // all-loaded invariant) was validated against only a SINGLE STATIC
-      // SCREENSHOT per scene and missed interactive cases — iPhone OFM
-      // Bright z=7.53/36.97/127.46 + pitch 3.6 showed a MOSTLY EMPTY canvas
-      // (polygons + lines almost all missing). Bundle replay during
-      // interactive navigation / pitch produces broken state.
+      // partial-encode case. During fast zoom we fall through to a direct
+      // renderTileKeys call (no bundle, no cache); steady-state (all tiles
+      // loaded) keeps the 97.6% hit rate. Bundle path is DEFAULT OFF: a prior
+      // re-enable (gated on the all-loaded invariant) was validated against
+      // only a SINGLE STATIC SCREENSHOT per scene and missed interactive cases
+      // — iPhone OFM Bright z=7.53/36.97/127.46 + pitch 3.6 showed a MOSTLY
+      // EMPTY canvas (polygons + lines almost all missing). Bundle replay
+      // during interactive navigation / pitch produces broken state.
       //   __XGIS_BUNDLE_FORCE_ON = true   to force enable (testing only)
       let allTilesLoaded = true
       for (let i = 0; i < neededKeys.length; i++) {

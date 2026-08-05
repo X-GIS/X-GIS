@@ -134,28 +134,52 @@ describe('raster failed-tile backoff (#1476)', () => {
   })
 
   it('a key that has spent its window does not retry inside the next backoff', async () => {
+    // #1575 moved the backoff onto the WALL clock, so driving frames is no longer enough
+    // to advance it — that is the point of the change: the frame counter froze whenever
+    // the loop stopped, which is exactly when a failed tile needed it to keep running.
+    // The clock is therefore driven explicitly here. `Date.now` rather than fake timers
+    // because the load chain settles on real microtasks + setTimeout(0).
     const ctx = await makeCtx()
     const camera = flatCamera()
     const renderer = new RasterRenderer(ctx)
     renderer.setUrlTemplate('https://tiles.example.com/{z}/{x}/{y}.png')
     const perUrl = install404Fetch()
 
-    // Frame 0 + the first backoff window (30 frames): attempts 1 and 2 land here.
-    for (let i = 0; i < 35; i++) {
+    let clock = Date.now()
+    const realNow = Date.now
+    vi.spyOn(Date, 'now').mockImplementation(() => clock)
+    try {
+      // Frame 0, then past the first 0.5 s backoff: attempts 1 and 2 land here.
       renderPass(ctx, renderer, camera)
       await settle()
-    }
-    const settled = new Map(perUrl)
-    const witness = [...settled.entries()].sort((a, b) => b[1] - a[1])[0]!
-    expect(witness[1]).toBeGreaterThanOrEqual(2) // it really did retry once
+      clock += 600
+      for (let i = 0; i < 3; i++) {
+        renderPass(ctx, renderer, camera)
+        await settle()
+      }
+      const settled = new Map(perUrl)
+      const witness = [...settled.entries()].sort((a, b) => b[1] - a[1])[0]!
+      expect(witness[1], 'it really did retry once').toBeGreaterThanOrEqual(2)
 
-    // The next delay is 120 frames, so this key may not be requested again across the
-    // following 30. Pre-fix it would have gained 30 more attempts.
-    for (let i = 0; i < 30; i++) {
+      // The next delay is 2 s. Neither more frames NOR a shorter wait may re-request it.
+      for (let i = 0; i < 30; i++) {
+        renderPass(ctx, renderer, camera)
+        await settle()
+      }
+      clock += 1_400
       renderPass(ctx, renderer, camera)
       await settle()
+      expect(perUrl.get(witness[0]), 'still inside the 2 s window').toBe(witness[1])
+
+      // …and it DOES come back once that window closes. Without this arm the assertion
+      // above would pass just as well against a tile that had been abandoned outright.
+      clock += 700
+      renderPass(ctx, renderer, camera)
+      await settle()
+      expect(perUrl.get(witness[0]), 'the backoff elapses on wall time').toBe(witness[1] + 1)
+    } finally {
+      Date.now = realNow
     }
-    expect(perUrl.get(witness[0])).toBe(witness[1])
   })
 
   it('re-arming the source clears the backoff — not a permanent blocklist', async () => {

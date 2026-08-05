@@ -76,6 +76,7 @@ import { ViewportModeController } from './render/viewport-mode-controller'
 import { SourceManager } from './source-manager'
 import { InteractionController } from './interaction-controller'
 import { MapRendererContent } from './render/renderer'
+import { InputStore } from './render/input-store'
 import type { ShowCommand } from './render/renderer-types'
 import { resolveNumberShape } from './render/paint-shape-resolve'
 import { RenderLoop } from './render-loop'
@@ -195,7 +196,15 @@ import { wireDeviceLostRecovery, resumeDeviceLostRecovery } from './device-lost-
 import { ColdStartBurstController } from './map-cold-start-burst'
 import { buildSceneRenderers } from './scene-renderers'
 import { safeFetch, assertIngestBudget, readBodyCapped, isMobileClassViewport } from '@xgis/shared'
-import { CoverageReadCancellation, stopCoverageMachinery, teardownSources } from './map-teardown'
+import { makeStyleImportResolver } from './style-import-resolver'
+import {
+  CoverageReadCancellation,
+  stopCoverageMachinery,
+  teardownSources,
+  disposeOrphanedBoot,
+  absoluteBaseUrl,
+  type PendingGpuBoot,
+} from './map-teardown'
 import { startCoverageTimePlayback } from './coverage-playback'
 
 // DoS ceilings for the top-level loader entry points (.xgis style /
@@ -856,16 +865,17 @@ export class XGISMap {
    *  GPU + catalogs. */
   private _syntheticBackend: SyntheticEarthSurfaceBackend | null = null
 
-  // ── Idle-render skip ──
-  // Before this, `renderLoop` called `renderFrame()` every rAF (~60Hz) even
-  // when nothing changed. On mobile the SDF line shader + mobile GPU is
-  // heavy enough that a static minimal.xgis map pegged the tile units for
-  // zero visual benefit ("엄청난 랙"). Now we compare camera state + canvas
-  // size each tick and skip the frame when the signature matches, the
-  // scene has no time-based animation, and no external invalidate is
-  // pending. Any camera input, data push, or active animation resumes
-  // per-frame rendering naturally.
+  // ── Idle-render skip ── Before this, `renderLoop` called `renderFrame()` every rAF (~60Hz) even
+  // when nothing changed. On mobile the SDF line shader + mobile GPU is heavy enough that a static
+  // minimal.xgis map pegged the tile units for zero visual benefit ("엄청난 랙"). Now we compare camera
+  // state + canvas size each tick and skip the frame when the signature matches, the scene has no
+  // time-based animation, and no external invalidate is pending. Any camera input, data push, or
+  // active animation resumes per-frame rendering naturally.
   _needsRender = true
+  /** Live values for the style's declared `input`s (#1539). Handed to every
+   *  VectorTileRenderer at construction and to the non-tiled renderer, which
+   *  write it into the polygon uniform pool once per frame. */
+  readonly inputs = new InputStore()
   private _dirty = new DirtyTracker()
   private _sceneHasAnimation = false
   /** True when a label carries a time-driven shape (text-size/-color/-halo/
@@ -887,6 +897,22 @@ export class XGISMap {
    *  RenderLoop holds this map by reference and reads renderer / ctx /
    *  stages fresh at render time (they're populated lazily in run()). */
   private renderLoopInstance!: RenderLoop
+
+  /** Set a declared `input`'s live value (#1539). Uniform-write only — the
+   *  value lands in the polygon uniform pool on the next frame and NO pipeline
+   *  is rebuilt (same contract as setPaintProperty / layer.style.opacity).
+   *  Throws on an unknown name or a value whose type doesn't match the
+   *  declaration; a silent no-op is what `input` exists to remove. */
+  setInput(name: string, value: number | string): void {
+    if (!this.inputs.set(name, value)) return
+    this._dirty.tag(DirtyDomain.STYLE)
+    this.invalidate()
+  }
+
+  /** A declared `input`'s live value, or undefined when it isn't declared. */
+  getInput(name: string): number | string | undefined {
+    return this.inputs.get(name)
+  }
 
   /** Explicit render trigger for code paths that change state outside the
    *  camera (setSourceData, updateFeature, tile load completion, etc.). */
@@ -1088,7 +1114,7 @@ export class XGISMap {
       return
     }
     const catalog = new TileCatalog()
-    const vtRenderer = new VectorTileRenderer(this.ctx)
+    const vtRenderer = new VectorTileRenderer(this.ctx, this.inputs)
     vtRenderer.setBindGroupLayout(this.renderer.bindGroupLayout)
     vtRenderer.setPaletteResources(
       this.renderer.paletteColorAtlasView,
@@ -1136,6 +1162,7 @@ export class XGISMap {
   private _polarCapHost(): PolarCapInstallHost {
     return {
       ctx: this.ctx,
+      inputs: this.inputs,
       renderer: this.renderer,
       lineRenderer: this.lineRenderer,
       projectionName: this.projectionName,
@@ -1245,6 +1272,7 @@ export class XGISMap {
       camera: this.camera,
       getCanvas: () => this.canvas,
       getCtx: () => this.ctx,
+      inputs: this.inputs,
       getRenderer: () => this.renderer,
       getLineRenderer: () => this.lineRenderer,
       invalidate: () => this.invalidate(),
@@ -1428,18 +1456,11 @@ export class XGISMap {
     this._docHidden = false
     if (this._destroyed) return
     if (this.ctx?.deviceLost) {
-      // Arm the deferred re-init ONCE per loss. The latch stops a duplicate 'visible'
-      // signal (bfcache restore fires pageshow AND visibilitychange) — or a
-      // hide/show/hide/show while the re-init is still awaiting initGPU — from
-      // burning a second budget unit and racing a second concurrent run() (#1153 M5c).
-      if (this._deviceLostRecover && !this._deviceLostResumePending) {
-        if (
-          resumeDeviceLostRecovery(this.ctx, this._deviceLostBudget, {
-            recover: this._deviceLostRecover,
-          })
-        )
-          this._deviceLostResumePending = true
-      }
+      if (this._deviceLostRecover && !this._deviceLostResumePending)
+        this._deviceLostResumePending = resumeDeviceLostRecovery(this.ctx, this._deviceLostBudget, {
+          recover: this._deviceLostRecover,
+          fireError: (info) => this._eventBus.fireErrorEvent(info),
+        })
       return
     }
     this.invalidate()
@@ -1615,17 +1636,21 @@ export class XGISMap {
   /** Bounded device-lost recovery budget (#1153 B) — persists across re-runs. */
   private readonly _deviceLostBudget = { recoveries: 0, max: 2 }
 
-  /** Register bounded device-lost auto-recovery on the freshly-resolved ctx: on loss,
-   *  fire the 'error' event and (budget + visibility permitting) re-run in a microtask. */
+  /** #1576 A/C — settle a recovery re-run whichever way it goes; the two wedges this
+   *  closes, and why each half is needed, are in device-lost-recovery.ts's header. */
+  private _settleRecovery(run: Promise<void>, recoverFrom: { epoch: number }): void {
+    void run
+      .catch((error) => this._eventBus.fireErrorEvent({ phase: 'devicelost', fatal: true, error }))
+      .finally(() => {
+        this._deviceLostResumePending = false
+        recoverFrom.epoch = this._runEpoch
+      })
+  }
+
+  /** Register bounded device-lost auto-recovery on the freshly-resolved ctx. */
   private _armDeviceLostRecovery(recover: () => void): void {
     if (!this.ctx) return
-    // Stash the recovery re-run so the visibilitychange→visible handler can arm the
-    // re-init a loss deferred WHILE HIDDEN (the loss hook skips + never re-fires;
-    // #1153 M5c). Re-stashed on every re-run — a stale closure is a safe no-op.
     this._deviceLostRecover = recover
-    // A fresh ctx is now installed (deviceLost=false) — the deferred-resume latch
-    // that guarded the just-completed re-init is spent; clear it so the NEXT
-    // hidden-tab loss can re-arm (#1153 M5c).
     this._deviceLostResumePending = false
     wireDeviceLostRecovery(this.ctx, this._deviceLostBudget, {
       fireError: (info) => this._eventBus.fireErrorEvent(info),
@@ -2042,44 +2067,33 @@ export class XGISMap {
       this.coverageRenderer.rebuildForQuality()
       this.lineRenderer?.rebuildForQuality()
       this.pointRenderer?.rebuildForQuality()
-      // Per-show variant pipelines + layouts both went stale: the
-      // pipelines embed the OLD pick-attachment/MSAA target state, and
-      // the layouts reference the OLD base/feature bind-group-layouts
-      // that initPipelines just replaced. We can't simply null
-      // `entry.pipelines` and rely on a "lazy rebuild" — the
-      // bucket-scheduler never calls `getOrCreateVariantPipelines`; it
-      // just falls back to `defaults.fillPipeline` (base-only) while
-      // `entry.layout` still points at the old feature/compute layout.
-      // That mismatch tripped per-frame `[BindGroupLayout
-      // "mr-baseBindGroupLayout"] of pipeline layout
-      // "mr-mainPipelineLayout(base-only)" does not match layout
-      // [BindGroupLayout "mr-featureBindGroupLayout"]` validation and
-      // the data-driven match() polygons stopped painting (fixture_
-      // picking regression). Re-resolve both immediately so the entry
-      // stays internally consistent.
+      // Per-show variant pipelines + layouts both went stale: the pipelines embed the OLD pick-
+      // attachment/MSAA target state, and the layouts reference the OLD base/feature bind-group-
+      // layouts that initPipelines just replaced. We can't simply null `entry.pipelines` and rely
+      // on a "lazy rebuild" — the bucket-scheduler never calls `getOrCreateVariantPipelines`; it
+      // just falls back to `defaults.fillPipeline` (base-only) while `entry.layout` still points at
+      // the old feature/compute layout. That mismatch tripped per-frame `[BindGroupLayout "mr-
+      // baseBindGroupLayout"] of pipeline layout "mr-mainPipelineLayout(base-only)" does not match
+      // layout [BindGroupLayout "mr-featureBindGroupLayout"]` validation and the data-driven
+      // match() polygons stopped painting (fixture_ picking regression). Re-resolve both
+      // immediately so the entry stays internally consistent.
       this._reResolveVariantPipelines()
-      // VTRs hold their own references to the renderer's `extruded`
-      // and `ground` pipelines (set once at attach time). After a
-      // rebuild those references go stale — same pipeline-attachment-
-      // mismatch panic, just one indirection deeper. Re-wire every
-      // VTR to the freshly built pipelines.
+      // VTRs hold their own references to the renderer's `extruded` and `ground` pipelines (set
+      // once at attach time). After a rebuild those references go stale — same pipeline-attachment-
+      // mismatch panic, just one indirection deeper. Re-wire every VTR to the freshly built
+      // pipelines.
       //
-      // ALSO re-wire the bind-group layouts: VTR caches
-      // `baseBindGroupLayout` (set once via setBindGroupLayout) AND
-      // `featureBindGroupLayout` (captured per-variant by
-      // buildFeatureDataBuffer). After `initPipelines` replaces both
-      // layout objects on the renderer, every per-tile bind group VTR
-      // already built (tileBgDefault, tileBgFeature, per-tile-feature-
-      // bg) still references the OLD layouts. Drawing those bind
-      // groups against the freshly-rebuilt fillPipeline (whose
-      // pipelineLayout points at the NEW base BGL) is a layout
-      // mismatch — WebGPU drops the draw call but does not throw a
-      // catchable JS error (the validation error fires in the GPU
-      // process and is async / silent at the JS layer), so the canvas
-      // just goes dark with no console signal. multi_layer + countries
-      // demo regressed this way after setQuality({picking:true}); fixed
-      // by re-wiring the base BGL here. featureBindGroupLayout is
-      // re-captured inside `_reResolveVariantPipelines` when each
+      // ALSO re-wire the bind-group layouts: VTR caches `baseBindGroupLayout` (set once via
+      // setBindGroupLayout) AND `featureBindGroupLayout` (captured per-variant by
+      // buildFeatureDataBuffer). After `initPipelines` replaces both layout objects on the
+      // renderer, every per-tile bind group VTR already built (tileBgDefault, tileBgFeature, per-
+      // tile-feature- bg) still references the OLD layouts. Drawing those bind groups against the
+      // freshly-rebuilt fillPipeline (whose pipelineLayout points at the NEW base BGL) is a layout
+      // mismatch — WebGPU drops the draw call but does not throw a catchable JS error (the
+      // validation error fires in the GPU process and is async / silent at the JS layer), so the
+      // canvas just goes dark with no console signal. multi_layer + countries demo regressed this
+      // way after setQuality({picking:true}); fixed by re-wiring the base BGL here.
+      // featureBindGroupLayout is re-captured inside `_reResolveVariantPipelines` when each
       // variant-bearing show re-calls getOrBuildVariantLayout.
       for (const { renderer: vtRenderer } of this.vtSources.values()) {
         vtRenderer.setBindGroupLayout(this.renderer.bindGroupLayout)
@@ -2701,7 +2715,7 @@ export class XGISMap {
       this._eventBus.fireErrorEvent({ phase: 'boot', fatal: false, error: e })
       throw e
     }
-    return this._runProgram(ast, baseUrl)
+    return this._runGuarded(ast, baseUrl)
   }
 
   /** Run a SceneBuilder program — the same post-parse pipeline as `run()`
@@ -2711,8 +2725,26 @@ export class XGISMap {
     if (this._destroyed) return
     if (scene?.__xgisSceneProgram !== true)
       throw new Error('runScene: pass the SceneProgram returned by SceneBuilder.build()')
-    return this._runProgram(scene.program, baseUrl)
+    return this._runGuarded(scene.program, baseUrl)
   }
+
+  /** #1577 — the ONE exit `_runProgram`'s kickoff-to-await window did not have. A throw
+   *  in that window (a failed import, one of `lower()`'s six user-reachable throws, an
+   *  emit failure) left the freshly-minted GPUDevice reachable only through a promise
+   *  nobody held. Wrapping at the call site rather than around the window keeps the fix
+   *  to one place instead of re-indenting 300 lines. */
+  private async _runGuarded(ast: AST.Program, baseUrl: string): Promise<void> {
+    try {
+      return await this._runProgram(ast, baseUrl)
+    } catch (e) {
+      await disposeOrphanedBoot(this._pendingGpuBoot, this.ctx)
+      this._pendingGpuBoot = null
+      throw e
+    }
+  }
+
+  /** #1577 — the GPU boot this run kicked off, until it is adopted or disposed. */
+  private _pendingGpuBoot: PendingGpuBoot = null
 
   /** The shared post-parse body of run()/runScene: epoch claim, teardown,
    *  import resolution, lower → optimize → emitCommands, GPU init, mount. */
@@ -2737,19 +2769,7 @@ export class XGISMap {
     // afterwards (via setView, hash sync, or pointer interaction).
     this._cameraExplicitlyPositioned = false
 
-    // Promote baseUrl to an absolute URL. `new URL(path, base)` requires
-    // `base` to be absolute — passing a bare path like '/data/' throws
-    // TypeError: Invalid base URL. Accepts '', '/data/', relative URLs, or
-    // fully-qualified URLs.
-    const absBase = (() => {
-      if (typeof window === 'undefined') return baseUrl // SSR / tests
-      if (!baseUrl) return window.location.href
-      try {
-        return new URL(baseUrl, window.location.href).href
-      } catch {
-        return window.location.href
-      }
-    })()
+    const absBase = absoluteBaseUrl(baseUrl)
 
     // 0. Kick off GPU init in parallel with the REMAINING synchronous IR
     // pipeline. `initGPU()` is dominated by `requestDevice()` which takes
@@ -2763,51 +2783,23 @@ export class XGISMap {
     // GPU init has no dependency on the IR result — it just needs
     // `this.canvas`. Errors propagate exactly as before via the awaited
     // catch.
-    const gpuInit = bootGpuContext(this._gpuBootDeps()).catch((err) => {
+    // #1577 — published so a THROW anywhere in the window below can still reach it; see
+    // `disposeOrphanedBoot`. Compared by identity there, so the successful path (where
+    // this very context becomes `this.ctx`) is never destroyed.
+    const gpuInit = (this._pendingGpuBoot = bootGpuContext(this._gpuBootDeps()).catch((err) => {
       // Hold the rejection here so the await below converts it to a
       // sync throw at the same call site as the previous code. We
       // don't want unhandled-rejection noise if step 1 errors out
       // before step 2 awaits.
       return err as Error
-    })
+    }))
 
     // 1. Resolve imports (async fetch) → IR → Commands. The lex/parse ran at
     // the TOP of run() (pre-teardown — D2/A1); `ast` is already populated.
     // Resolve any `import { ... } from "..."` statements via fetch.
     // Errors are logged (via console.error → in-page overlay) so future
     // module-resolution failures aren't opaque on iOS.
-    const resolver = async (path: string): Promise<string | null> => {
-      let url: string
-      try {
-        url = new URL(path, absBase).href
-      } catch (e) {
-        xlog.error(
-          `[X-GIS import] cannot build URL for "${path}" against base "${absBase}":`,
-          (e as Error).message,
-        )
-        return null
-      }
-      try {
-        // SSRF guard: an imported style can `import { … } from "<url>"` —
-        // block private/loopback/non-http(s) targets before fetch, AND
-        // re-check every redirect hop (safeFetch follows manually) so an
-        // allowlisted host can't 302 to an internal address. Throws into
-        // the catch below → null (the import resolves to nothing, same as a
-        // 404), so an attacker can't probe internal hosts.
-        const resp = await safeFetch(url, undefined, 'style import URL')
-        if (!resp.ok) {
-          xlog.error(`[X-GIS import] fetch ${url} failed: ${resp.status} ${resp.statusText}`)
-          return null
-        }
-        // Cap the module body — a lying/absent Content-Length otherwise lets
-        // an unbounded .text() OOM the tab.
-        const bytes = await readBodyCapped(resp, MAX_STYLE_BYTES, `style import ${url}`)
-        return new TextDecoder().decode(bytes)
-      } catch (e) {
-        xlog.error(`[X-GIS import] fetch ${url} threw:`, (e as Error).message)
-        return null
-      }
-    }
+    const resolver = makeStyleImportResolver(absBase)
     // Output collector: any inline GeoJSON `source.data` objects found
     // inside an imported Mapbox style get stashed here. Seeded into
     // rawDatasets after the source-load Promise.all so the first
@@ -2834,8 +2826,7 @@ export class XGISMap {
     // (a plain return would orphan it — gpuInit's .catch value-wraps rejections,
     // so this await never throws). Also stops the stale spriteUrl write below.
     if (this._epochStale(epoch)) {
-      const r = await gpuInit
-      if (r && !(r instanceof Error)) (r as GPUContext).rhi?.destroy()
+      await disposeOrphanedBoot(gpuInit, this.ctx)
       return
     }
     // Wire the imported sprite atlas. An explicit constructor `spriteUrl` /
@@ -2884,22 +2875,22 @@ export class XGISMap {
     } else {
       commands = interpret(ast)
     }
+    // Adopt this compile's `input` declarations (#1539) — seeds defaults, drops
+    // names the new style no longer declares, keeps a host-set value whose
+    // declared type still matches.
+    this.inputs.reset(commands.inputs)
 
-    // background { fill: <color> } — Mapbox-style earth-surface fill.
-    // Phase 2 PR 2c.3 ships this through the standard polygon ECEF
-    // pipeline (SyntheticEarthSurfaceBackend serves a z=0 lat/lon-grid
-    // mesh projected to ECEF; the synthetic ShowCommand prepended to
-    // `commands.shows` carries the fill paint). Sphere projections see
-    // the fill curve naturally; flat projections see the band fill at
-    // sort-order 0 just like the legacy BackgroundRenderer path. Color
-    // lookup: utility lines first (`| fill-sky-900` → resolveUtilities →
-    // hex), then style properties (`fill: sky-900` or `fill: #082f49`).
-    // StyleProperty stores the raw string; `sky-900` resolves via
-    // resolveColor(); bare `#rrggbb` passes through.
-    // WS-1 — reset the per-frame zoom-interp background shapes before the
-    // parse so a re-run() with a CONSTANT background clears a stale shape
-    // left by a previous zoom-interp style (the constant path below sets
-    // `_backgroundColor` but never touches these).
+    // background { fill: <color> } — Mapbox-style earth-surface fill. Phase 2 PR 2c.3 ships this
+    // through the standard polygon ECEF pipeline (SyntheticEarthSurfaceBackend serves a z=0
+    // lat/lon-grid mesh projected to ECEF; the synthetic ShowCommand prepended to `commands.shows`
+    // carries the fill paint). Sphere projections see the fill curve naturally; flat projections
+    // see the band fill at sort-order 0 just like the legacy BackgroundRenderer path. Color lookup:
+    // utility lines first (`| fill-sky-900` → resolveUtilities → hex), then style properties
+    // (`fill: sky-900` or `fill: #082f49`). StyleProperty stores the raw string; `sky-900` resolves
+    // via resolveColor(); bare `#rrggbb` passes through. WS-1 — reset the per-frame zoom-interp
+    // background shapes before the parse so a re-run() with a CONSTANT background clears a stale
+    // shape left by a previous zoom-interp style (the constant path below sets `_backgroundColor`
+    // but never touches these).
     this._backgroundColorShape = null
     this._backgroundOpacityShape = null
     // #777 I-E — reset the background pattern before the parse (mirror of the
@@ -2987,32 +2978,26 @@ export class XGISMap {
 
     console.log('[X-GIS] Parsed:', commands.loads.length, 'loads,', commands.shows.length, 'shows')
 
-    // AC11b: build the per-source declared-CRS registry from the
-    // LoadCommand carrier (`commands.loads[].crs`, threaded from IR
-    // SourceDef.crs). The IR Scene is not retained past emitCommands, so
-    // this Map is the runtime's only carrier for the host-push path —
-    // setSourceData(sourceId, fc) looks the declared CRS up here later.
-    // Rebuilt fresh each run() so a re-run with a different program
-    // doesn't leak stale CRS declarations.
-    // Cast: interpreter's LoadCommand type doesn't carry `crs` (it's a
-    // compiler-LoadCommand-only field — the legacy interpreter path
-    // assumes EPSG:4326, see interpreter.ts:67-74). Field access returns
-    // undefined uniformly when absent, so the legacy path leaves the
-    // registry empty (every source treated as 4326 / no-op).
+    // AC11b: build the per-source declared-CRS registry from the LoadCommand carrier
+    // (`commands.loads[].crs`, threaded from IR SourceDef.crs). The IR Scene is not retained past
+    // emitCommands, so this Map is the runtime's only carrier for the host-push path —
+    // setSourceData(sourceId, fc) looks the declared CRS up here later. Rebuilt fresh each run() so
+    // a re-run with a different program doesn't leak stale CRS declarations. Cast: interpreter's
+    // LoadCommand type doesn't carry `crs` (it's a compiler-LoadCommand-only field — the legacy
+    // interpreter path assumes EPSG:4326, see interpreter.ts:67-74). Field access returns undefined
+    // uniformly when absent, so the legacy path leaves the registry empty (every source treated as
+    // 4326 / no-op).
     //
-    // #1242 gap-2 fix follow-up: lower.ts (`resolvedCrs`) fills EVERY
-    // `type: geojson` source's `crs` with the literal 'EPSG:4326' default
-    // when the .xgis omits `crs:` entirely — so `load.crs` is truthy for
-    // ALL geojson sources, declared or not. Registering those here made
-    // `sourceCRS.has(id)` true universally, which made getSeededFC() (the
-    // gap-2 updateFeature-patchability check) reject EVERY .xgis-declared
-    // /URL geojson source, silently keeping the gap-2 fix dead end-to-end
-    // (caught by the animate-line/realtime-update ports' real-GPU probe,
-    // #1192 batch 5 — the existing unit coverage seeds sourceCRS directly
-    // and never exercises this real run() population path). Skip the
-    // no-op default so the registry holds only a GENUINE reprojection
-    // need, matching _reprojectIngest's own "no declared CRS ⇒ 4326 /
-    // no-op" contract this Map was documented to carry.
+    // #1242 gap-2 fix follow-up: lower.ts (`resolvedCrs`) fills EVERY `type: geojson` source's
+    // `crs` with the literal 'EPSG:4326' default when the .xgis omits `crs:` entirely — so
+    // `load.crs` is truthy for ALL geojson sources, declared or not. Registering those here made
+    // `sourceCRS.has(id)` true universally, which made getSeededFC() (the gap-2 updateFeature-
+    // patchability check) reject EVERY .xgis-declared /URL geojson source, silently keeping the
+    // gap-2 fix dead end-to-end (caught by the animate-line/realtime-update ports' real-GPU probe,
+    // #1192 batch 5 — the existing unit coverage seeds sourceCRS directly and never exercises this
+    // real run() population path). Skip the no-op default so the registry holds only a GENUINE
+    // reprojection need, matching _reprojectIngest's own "no declared CRS ⇒ 4326 / no-op" contract
+    // this Map was documented to carry.
     this.sourceCRS.clear()
     for (const load of commands.loads as { name: string; crs?: string }[]) {
       if (load.crs && load.crs !== 'EPSG:4326') this.sourceCRS.set(load.name, load.crs)
@@ -3106,13 +3091,14 @@ export class XGISMap {
     // (do not re-derive the condition): a genuine device loss queues recover() in a
     // microtask; if the user calls run(newSource) / stop() / destroy() before it drains,
     // the guard no-ops instead of resurrecting THIS old source and killing the newer run.
+    const recoverFrom = { epoch }
     this._armDeviceLostRecovery(() => {
-      if (this._epochStale(epoch)) return
+      if (this._epochStale(recoverFrom.epoch)) return
       // Re-run from the (import-resolved) AST, not the source text — #1194 A1b:
       // works for BOTH entries (a runScene scene has no text), skips a re-parse,
       // and cannot double-splice (resolveImportsAsync returned a NEW Program with
       // ImportStatements stripped, so the resolution branch no-ops on re-entry).
-      void this._runProgram(ast, baseUrl)
+      this._settleRecovery(this._runProgram(ast, baseUrl), recoverFrom)
     })
     // #797 P0/P1 — (re)attach the host DRAWING API GPU atlas + retained-icon
     // draper to this run's device (rematerialises any batches added pre-run).
@@ -3126,6 +3112,7 @@ export class XGISMap {
       symbols: commands.symbols,
     })
     this.renderer = rendererSet.renderer
+    this.renderer.inputs = this.inputs // #1539 — non-tiled polygon path reads the pool too
     this.rasterRenderer = rendererSet.rasterRenderer
     this.applyEffectiveRasterFadeDuration()
     this.hillshadeRenderer = rendererSet.hillshadeRenderer
@@ -3184,21 +3171,17 @@ export class XGISMap {
     // (pointRenderer / shapeRegistry / heatmapRenderer / lineRenderer are built
     // by buildSceneRenderers above — D4/A8.)
 
-    // F1 — KICK the shader-variant pipeline prewarm HERE, before the
-    // data-load `Promise.allSettled` below, so the GPU driver compiles the
-    // variant pipeline sets in PARALLEL with the tile-source network settle
-    // instead of serialized after it (audit #1/#2 — the prewarm used to
-    // start only at the await site far below, adding min(driver-compile,
-    // attach-RTT) 1:1 to time-to-first-map). The variant list derives from
-    // `commands.shows` now: the synthetic earth-surface show prepended
-    // post-attach carries NO shaderVariant and the polar-cap installs reuse
-    // existing shows, so this early list is complete; the await site
-    // re-collects the FINAL list (post synthetic-surface / polar-cap) and
-    // prewarms only the DELTA (keys not in the early list), which avoids a
-    // double-compile race if the network settles before the driver does.
-    // `.catch` swallows here so an early rejection cannot surface as an
-    // unhandled rejection across the data-load await; the gate is `await`ed
-    // below before rebuildLayers.
+    // F1 — KICK the shader-variant pipeline prewarm HERE, before the data-load `Promise.allSettled`
+    // below, so the GPU driver compiles the variant pipeline sets in PARALLEL with the tile-source
+    // network settle instead of serialized after it (audit #1/#2 — the prewarm used to start only
+    // at the await site far below, adding min(driver-compile, attach-RTT) 1:1 to time-to-first-
+    // map). The variant list derives from `commands.shows` now: the synthetic earth-surface show
+    // prepended post-attach carries NO shaderVariant and the polar-cap installs reuse existing
+    // shows, so this early list is complete; the await site re-collects the FINAL list (post
+    // synthetic-surface / polar-cap) and prewarms only the DELTA (keys not in the early list),
+    // which avoids a double-compile race if the network settles before the driver does. `.catch`
+    // swallows here so an early rejection cannot surface as an unhandled rejection across the data-
+    // load await; the gate is `await`ed below before rebuildLayers.
     const earlyVariants = this._collectShaderVariants(commands.shows)
     const earlyVariantKeys = new Set(earlyVariants.map((v) => v.key))
     const shaderPrewarm = this.renderer
@@ -3884,7 +3867,7 @@ export class XGISMap {
       }
 
       const source = new TileCatalog()
-      const vtRenderer = new VectorTileRenderer(this.ctx)
+      const vtRenderer = new VectorTileRenderer(this.ctx, this.inputs)
       vtRenderer.setBindGroupLayout(this.renderer.bindGroupLayout)
       vtRenderer.setPaletteResources(
         this.renderer.paletteColorAtlasView,
@@ -4020,17 +4003,14 @@ export class XGISMap {
           // lookup with the correct feature id attached.
           source.setRawParts(parts, tileSet.levels.length > 0 ? 22 : 0)
 
-          // Feature data buffer MUST be built after the property table
-          // is set on the source — which only happens in `addTileLevel`
-          // above. Building it earlier (inside the sync rebuildLayers
-          // block below) silently no-ops because `getPropertyTable()`
-          // returns undefined before the worker returns, leaving the
-          // variant pipeline paired with the default bind-group layout
-          // and tripping a WebGPU validation error on every draw. Fixture
-          // audit surfaced this as the `match()`-based fixtures
-          // (fixture_categorical, reftest_triangle_match, etc.) logging
-          // "Bind group layout of pipeline layout does not match layout
-          // of bind group".
+          // Feature data buffer MUST be built after the property table is set on the source — which
+          // only happens in `addTileLevel` above. Building it earlier (inside the sync
+          // rebuildLayers block below) silently no-ops because `getPropertyTable()` returns
+          // undefined before the worker returns, leaving the variant pipeline paired with the
+          // default bind-group layout and tripping a WebGPU validation error on every draw. Fixture
+          // audit surfaced this as the `match()`-based fixtures (fixture_categorical,
+          // reftest_triangle_match, etc.) logging "Bind group layout of pipeline layout does not
+          // match layout of bind group".
           const variant = show.shaderVariant
           if (variant && variant.needsFeatureBuffer && !vtRenderer.hasFeatureData()) {
             // Compute-aware layout selection — matches the same call in
@@ -4157,9 +4137,10 @@ export class XGISMap {
     this._ctxOwned = true // A4 — this run now owns the published device.
     if (this._onDeviceLost) this.ctx.onDeviceLost = this._onDeviceLost
     // A6 — epoch-guard the recovery closure via _epochStale (mirror of run(); see there).
+    const recoverFrom = { epoch }
     this._armDeviceLostRecovery(() => {
-      if (this._epochStale(epoch)) return
-      void this.runBinary(buffer, baseUrl)
+      if (this._epochStale(recoverFrom.epoch)) return
+      this._settleRecovery(this.runBinary(buffer, baseUrl), recoverFrom)
     })
     // #797 P0/P1 — (re)attach the host DRAWING API GPU atlas + retained-icon
     // draper to this run's device (rematerialises any batches added pre-run).
@@ -4173,6 +4154,7 @@ export class XGISMap {
       symbols: undefined,
     })
     this.renderer = rendererSet.renderer
+    this.renderer.inputs = this.inputs // #1539 — non-tiled polygon path reads the pool too
     this.rasterRenderer = rendererSet.rasterRenderer
     this.applyEffectiveRasterFadeDuration()
     this.hillshadeRenderer = rendererSet.hillshadeRenderer
@@ -4541,6 +4523,7 @@ export class XGISMap {
       vtSources: this.vtSources,
       cameraZoom: this.camera.zoom,
       elapsedMs: this._elapsedMs,
+      inputs: this.inputs,
       rendererDefaults: {
         fillPipeline: this.renderer.fillPipeline,
         fillPipelineGround: this.renderer.fillPipelineGround,

@@ -233,10 +233,10 @@ export class PointRenderer {
     })
   }
 
-  /** A quality (MSAA) change invalidates the point draper so the next draw lazily rebuilds
-   *  its pipelines with the new getSampleCount(). Points do no GPU picking (single colour
-   *  attachment), so only the sample count matters. Safe to call mid-session. */
+  /** A quality flip RELEASES the point draper (#1578) and drops it; the next draw rebuilds
+   *  at the new getSampleCount(). Points do no GPU picking, so only sample count matters. */
   rebuildForQuality(): void {
+    this._pointDraper?.destroy()
     this._pointDraper = undefined
   }
 
