@@ -751,7 +751,10 @@ const CEILINGS: Record<string, number> = {
   // not extract-worthy, §2), plus the perspectiveScale() getter, the 3-slot
   // projectLonLatCopies tuple, and the 6-member return objects prettier now wraps
   // multi-line — together nudging this helper just over NEW_FILE_CAP (773→818).
-  'map/src/render-loop-helpers.ts': 818,
+  // 818→817 (#1575): the end-of-frame keep-warm gate moved to render-loop-keep-warm.ts,
+  // where it is unit-testable — previously it was reachable only through a full GPU
+  // frame, which is why the disjunct MISSING from it could not be gated at all.
+  'map/src/render-loop-helpers.ts': 817,
   // 1458→1505 (#1155 F4 mount-hang): the per-variant WGSL emit is deduped —
   // buildShader now memoizes emitPolygonWgsl by (variant.key, pickEnabled), and
   // the already-emitted wgsl is plumbed through create{Variant}Pipelines[Async]
@@ -961,7 +964,8 @@ const CEILINGS: Record<string, number> = {
   // 1435→1425 (#1046 Inc-3b): the field collapse deleted the native trio's
   // population + the rawFrameShell escape arms — the loop SHRANK through a
   // feature increment, which is the ratchet working as designed.
-  'map/src/render-loop.ts': 1425,
+  // 1425→1405 (#1575): ditto — the disjunction itself left this file with the helper.
+  'map/src/render-loop.ts': 1405,
   // Baselined at 806 (hillshade tile fade-in): HillshadeRenderer crossed
   // NEW_FILE_CAP restoring the three tile-streaming fixes raster-renderer had
   // landed since hillshade was copied from it — the per-tile fade ramp + its
@@ -1001,7 +1005,10 @@ const CEILINGS: Record<string, number> = {
   // past it is a guaranteed 404, not a slow tile — terrarium stops at z15 while
   // rasterCoverZoom adds +1 on a 256-px source, so every visible tile failed from about
   // camera z14.5 (verified: terrarium/16/13651/25075 404, its z15 parent 200). +8: the HillshadeParams field, the arm-site plumbing, and their rationale.
-  'map/src/render/hillshade-renderer.ts': 847,
+  // 847→846 (#1575): the failed-tile Map + its four call sites became one owned
+  // FailedTileLedger in tile-retry.ts — the policy had drifted into three separate
+  // copies across the repo and only the vector one was bounded.
+  'map/src/render/hillshade-renderer.ts': 846,
   // Merge union (#1060 <- main): stacked growth — measured 1174.
   'map/src/render/point-renderer.ts': 1174,
   // 1106→1120 (#1043 state-hygiene): three unmask-before-clear / state-reset fixes for the
