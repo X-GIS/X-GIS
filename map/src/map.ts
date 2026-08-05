@@ -574,9 +574,9 @@ export class XGISMap {
     renderer: () => this.coverageRenderer,
     time: this._coverageTime,
     fieldArmed: () => this._coverageFieldArmed,
-    armFields: (handle, region) => this._armCoverageFields(handle, region),
-    armFromShow: (id, handle, region) =>
-      armLandedCoverage(this, this.showCommands, id, handle, region),
+    armFields: (handle, region, priority) => this._armCoverageFields(handle, region, priority),
+    armFromShow: (id, handle, region, priority) =>
+      armLandedCoverage(this, this.showCommands, id, handle, region, priority),
     clearArrows: (region) => this._graphics.clearCompiledArrows(region),
     invalidate: () => this.invalidate(),
     refresh: this._coverageRefresh,
@@ -3625,12 +3625,12 @@ export class XGISMap {
         if (show.isArrow || show.isFlow) this._coverageFieldShow = show
         // EVERY resident region, not just one: a mosaic viewport holds several adjacent
         // NOAA domains and each needs its own drape + arrow field (#1272 E-④).
-        for (const [region, entry] of data._coverage) {
+        for (const [i, [region, entry]] of [...data._coverage].entries()) {
           armCoverageDrape(this, show, entry.handle, region)
           // `| arrow` on a coverage layer (#1333) draws the official S-111 vector field — the
           // engine-owned arrow portrayal, band-coloured by `ramp` (default s111-speed). ONE
-          // batch, static or drifting: see `armCoverageArrows` (#1449).
-          armCoverageArrows(this, show, entry.handle, region)
+          // batch, static or drifting: see `armCoverageArrows` (#1449). `i` = owner order (#1585).
+          armCoverageArrows(this, show, entry.handle, region, i)
         }
         if (show.isArrow) this._coverageArrowsArmed = true
         if (show.isFlow) this._coverageFlowArmed = true
@@ -4834,10 +4834,10 @@ export class XGISMap {
    *  A no-op when no field is armed (`_coverageFieldShow` null). Mirrors the coverage arm
    *  inside `rebuildLayers` exactly — the single authority both share is `_coverageFieldShow`
    *  (#1333). */
-  private _armCoverageFields(handle: CoverageHandle, region = DEFAULT_REGION): void {
+  private _armCoverageFields(handle: CoverageHandle, region = DEFAULT_REGION, priority = 0): void {
     const show = this._coverageFieldShow
     if (!show) return
-    armCoverageShow(this, show, handle, region)
+    armCoverageShow(this, show, handle, region, priority)
     this.invalidate()
   }
 

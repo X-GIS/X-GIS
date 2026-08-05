@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeAll } from 'vitest'
 import { GraphicsManager } from './graphics-manager'
 import type { Camera } from '../camera'
+import type { FieldViewGrid } from '../render/field-lattice-uniform'
 
 // Compiled `| arrow` layer LIFECYCLE (#1302, extracted to CompiledArrowStore in #1333).
 //
@@ -350,7 +351,11 @@ function makeArrowSource() {
 
 /** An advected batch carries NO instances (#1520) — the lattice is the viewport's, decided per
  *  frame — so the arrays are empty and the only inputs are the grid box and the band table. */
-function addAdvected(gm: GraphicsManager, region = ''): void {
+function addAdvected(
+  gm: GraphicsManager,
+  region = '',
+  over: { priority?: number; grid?: FieldViewGrid } = {},
+): void {
   gm.addCompiledArrowLayer(
     new Float64Array(0),
     new Float64Array(0),
@@ -360,10 +365,26 @@ function addAdvected(gm: GraphicsManager, region = ''): void {
     0.06,
     region,
     {
-      grid: { originLon: -71, originLat: 41, invSpanLon: 0.2, invSpanLat: -0.2 },
+      grid: over.grid ?? { originLon: -71, originLat: 41, invSpanLon: 0.2, invSpanLat: -0.2 },
       bandTable: new Float32Array(80),
+      priority: over.priority ?? 0,
     },
   )
+}
+
+/** The suppression list each advected batch is carrying, keyed by region — reached through the
+ *  store the same way `draw` reaches it, so the assertion reads what the uniform writer would. */
+function suppressionOf(gm: GraphicsManager): Record<string, number> {
+  const batches = (gm as unknown as { _compiledArrows: { batches: CompiledArrowBatchProbe[] } })
+    ._compiledArrows.batches
+  const out: Record<string, number> = {}
+  for (const b of batches) if (b.advected) out[b.region] = b.suppress.length
+  return out
+}
+interface CompiledArrowBatchProbe {
+  region: string
+  advected: unknown
+  suppress: readonly unknown[]
 }
 
 describe('CompiledArrowStore — advected batches (#1419)', () => {
@@ -451,5 +472,69 @@ describe('CompiledArrowStore — advected batches (#1419)', () => {
     const freed = t.destroyed.map((b) => b.label)
     expect(freed).toContain('compiled-arrow-band')
     expect(freed).toContain('compiled-arrow-view')
+  })
+})
+
+// ── Mosaic overlap ownership (#1585) ──────────────────────────────────────────────────────────
+//
+// Two regions whose footprints overlap each enumerate a full lattice over the shared water. Before
+// this both drew there, doubling the glyph density — which on a chart reads as a faster current
+// than the data says (`arrow-drift.ts`), not as a blemish. The tie is broken the way the rest of
+// the engine already breaks it: `coverage-bounds.ts` resolves a point claimed by two regions to the
+// FIRST-ARMED one, and `coverageHandleAt` returns that region's value, so this makes the drawn
+// field agree with the queried value instead of contradicting it.
+
+/** Two boxes 2° wide sharing their eastern/western half — an overlap, not an abutment. */
+const WEST_GRID = { originLon: -71, originLat: 41, invSpanLon: 0.5, invSpanLat: -0.5 }
+const OVERLAP_GRID = { originLon: -70, originLat: 41, invSpanLon: 0.5, invSpanLat: -0.5 }
+/** Far enough east to share no ground with either of the above. */
+const APART_GRID = { originLon: -50, originLat: 41, invSpanLon: 0.5, invSpanLat: -0.5 }
+
+function twoRegions(over: { second?: typeof WEST_GRID } = {}) {
+  const t = makeStubs()
+  const gm = new GraphicsManager()
+  gm.setAdvectedArrowSource(makeArrowSource().source)
+  gm.attachDevice(t.device as never, t.rhi as never, 'bgra8unorm' as never)
+  addAdvected(gm, 'west', { priority: 0, grid: WEST_GRID })
+  addAdvected(gm, 'east', { priority: 1, grid: over.second ?? OVERLAP_GRID })
+  return { t, gm }
+}
+
+describe('CompiledArrowStore — overlapping regions yield to the first-armed one (#1585)', () => {
+  it('the LATER region yields; the earlier one never suppresses itself', () => {
+    const { gm } = twoRegions()
+    expect(suppressionOf(gm)).toEqual({ west: 0, east: 1 })
+  })
+
+  it('regions that share no ground do not suppress each other', () => {
+    // The slot budget is only unreachable because the boxes are filtered to real overlappers. A
+    // filter that passed everything would still be "correct" on screen and would burn the cap.
+    const { gm } = twoRegions({ second: APART_GRID })
+    expect(suppressionOf(gm)).toEqual({ west: 0, east: 0 })
+  })
+
+  it('OWNERSHIP SURVIVES A RE-ARM — the forecast tick must not flip it', () => {
+    // THE ONE THAT NEARLY WENT WRONG. `armCoverageShow` does `clearCompiledArrows(region)` then
+    // adds again, so a re-armed region's batch moves to the END of `batches` — and re-arms fire on
+    // every forecast tick and playback frame. Deriving priority from array position would hand
+    // ownership to whichever region stepped last, flickering the overlap several times a second
+    // and contradicting `coverageHandleAt`. Priority comes from the `_coverage` Map order instead,
+    // which `writeRegion` preserves across a re-arm; this is that claim, exercised.
+    const { gm } = twoRegions()
+    const before = suppressionOf(gm)
+    // The WEST region steps its forecast hour — it is cleared and re-added, landing last.
+    gm.clearCompiledArrows('west')
+    addAdvected(gm, 'west', { priority: 0, grid: WEST_GRID })
+    expect(suppressionOf(gm), 'the later region still yields, not the earlier').toEqual(before)
+  })
+
+  it('a DROPPED region stops suppressing — no permanent hole over its water', () => {
+    // `onCoverageRegionDropped` clears only the departing region's arrows. A survivor still holding
+    // the departed box would suppress arrows over that water forever — a blank patch nobody would
+    // trace back to an eviction minutes earlier, and one no e2e would attribute correctly.
+    const { gm } = twoRegions()
+    expect(suppressionOf(gm).east).toBe(1)
+    gm.clearCompiledArrows('west')
+    expect(suppressionOf(gm), 'the departed box is gone with it').toEqual({ east: 0 })
   })
 })

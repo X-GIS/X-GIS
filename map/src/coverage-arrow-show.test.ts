@@ -197,7 +197,9 @@ describe('the advected arm emits a grid BOX, not instances (#1520)', () => {
     // The whole per-cell walk is skipped: it would allocate six arrays of up to 100 000 entries
     // for a buffer nothing binds. A regression that re-adds them is re-adding the z17 ceiling.
     const { host, calls } = makeHost()
-    addCoverageArrowShowLayer(host, s111Show, anyFlow(), '', { advected: { peakSpeed: 20 } })
+    addCoverageArrowShowLayer(host, s111Show, anyFlow(), '', {
+      advected: { peakSpeed: 20, priority: 0 },
+    })
     expect(calls).toHaveLength(1)
     expect(calls[0]!.lons).toHaveLength(0)
     expect(calls[0]!.sizes).toHaveLength(0)
@@ -210,7 +212,9 @@ describe('the advected arm emits a grid BOX, not instances (#1520)', () => {
     // a different statement and has to be made here.
     const handle = coverageFromGrids(s111Input([0, 0, NaN, 0, NaN, 0], [90, 0, 0, 180, 270, 45]))
     const { host, calls } = makeHost()
-    addCoverageArrowShowLayer(host, s111Show, handle, '', { advected: { peakSpeed: 20 } })
+    addCoverageArrowShowLayer(host, s111Show, handle, '', {
+      advected: { peakSpeed: 20, priority: 0 },
+    })
     expect(calls).toHaveLength(0)
   })
 
@@ -286,7 +290,9 @@ describe('the advected arm emits a grid BOX, not instances (#1520)', () => {
       spacing: [16, 16],
     })
     const { host, calls } = makeHost()
-    addCoverageArrowShowLayer(host, s111Show, handle, '', { advected: { peakSpeed: 20 } })
+    addCoverageArrowShowLayer(host, s111Show, handle, '', {
+      advected: { peakSpeed: 20, priority: 0 },
+    })
     expect(calls).toHaveLength(1)
     expect(calls[0]!.advected, 'the advected arm declined it').toBeFalsy()
     expect(calls[0]!.lons.length, 'the static portrayal drew it instead').toBe(6)

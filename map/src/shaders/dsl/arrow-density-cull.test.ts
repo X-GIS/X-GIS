@@ -151,3 +151,52 @@ describe('the post-walk blend reads FOUR fractional corners, never the owner rou
     }
   })
 })
+
+describe('a node on ground another region OWNS is culled, on both backends (#1585)', () => {
+  // Two overlapping mosaic domains each enumerate a lattice over the shared water. Both drawing
+  // there is not a cosmetic doubling — `arrow-drift.ts` states the rule it breaks ("overlapping
+  // SCAROW symbols read as a faster current than the data says"), which is the same rule
+  // `ARROW_LATTICE_FACTOR` exists to keep. The tie goes to the first-armed region, matching
+  // `coverage-bounds.ts` and `coverageHandleAt`, so the drawn field agrees with the queried value.
+  //
+  // ASSERTED AT THE EMIT because the alternative is invisible: a suppression term that is computed
+  // and then not multiplied in compiles, runs, costs the same, and draws the doubled field.
+
+  it('the suppression is a FACTOR of the size product, not a dangling let', () => {
+    const w = emitArrowRetainedAdvectedWgsl()
+    const vs = w.slice(w.indexOf('fn vs_arrow_retained_advected'))
+    const body = vs.slice(0, vs.indexOf('\n}'))
+    const call = /let (\w+) = field_owned_elsewhere\(/.exec(body)
+    expect(call, 'the VS asks whether this ground is owned elsewhere').not.toBeNull()
+    const name = call![1]!
+    // `size` is one long product; the term must appear inside it as `(1.0 - owned)`. Reading the
+    // product rather than the whole body is the point — a `let` nobody multiplies is the failure.
+    const size = /let \w+ = \(*basePx[^;]*;/.exec(body) ?? /\* \(1\.0 - \w+\)/.exec(body)
+    expect(size, 'a size product exists to read').not.toBeNull()
+    expect(body, 'the term is subtracted from one and multiplied in').toMatch(
+      new RegExp(`\\* \\(1\\.0 - ${name}\\)`),
+    )
+  })
+
+  it('the GLSL twin culls too — a mosaic must not double-draw on one backend only', () => {
+    const g = emitArrowRetainedAdvectedGlsl('vertex')
+    expect(g, 'the fn is emitted').toContain('field_owned_elsewhere')
+    const call = /(\w+) = field_owned_elsewhere\(/.exec(g)
+    expect(call).not.toBeNull()
+    expect(g).toMatch(new RegExp(`\\* \\(1\\.0 - ${call![1]!}\\)`))
+  })
+
+  it('all FOUR slots are read — a truncated unroll silently stops suppressing', () => {
+    // The slots are filled in order and the tail is an empty interval, so a loop that read only
+    // the first would be correct for one overlapper and wrong for two, which is the harder case
+    // to notice and the one real mosaics reach (wcofs ⊃ sfbofs, plus a neighbour).
+    for (const [name, src] of [
+      ['wgsl', emitArrowRetainedAdvectedWgsl()],
+      ['glsl', emitArrowRetainedAdvectedGlsl('vertex')],
+    ] as const) {
+      for (const slot of ['own_0', 'own_1', 'own_2', 'own_3']) {
+        expect(src, `${name} reads ${slot}`).toContain(slot)
+      }
+    }
+  })
+})
