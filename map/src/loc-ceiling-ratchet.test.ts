@@ -159,6 +159,12 @@ const CEILINGS: Record<string, number> = {
   // authority for one shape. Deriving it (`ReturnType<FrameDrawStats['getDrawStats']>`)
   // paid for the `drawnByZoom` field and left the file smaller than before.
   'map/src/render/vector-tile-renderer.ts': 4813,
+  // Baselined 801: #1602 (the drape's overlap winner is relevance, not re-arm recency)
+  // brought the file to exactly NEW_FILE_CAP (800), and the independent #1603 material-
+  // release fix landed on main one line above it in the same file, pushing it to 801 on
+  // merge. Genuine collision between two unrelated PRs sharing a file, not scope creep —
+  // nothing here is extract-worthy.
+  'map/src/render/coverage-renderer.ts': 801,
   // 4232→4237 (#1000 heatmap relocate): the heatmap density-target OWNERSHIP
   // extracted to render/heatmap-targets.ts; map keeps only the irreducible
   // composition-root wiring — the `heatmapTargets` field + its import (mirrors
