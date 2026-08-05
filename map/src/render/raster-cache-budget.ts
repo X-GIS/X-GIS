@@ -32,18 +32,24 @@ export function mipLevelCountFor(width: number, height: number): number {
   return Math.floor(Math.log2(Math.max(width, height))) + 1
 }
 
-/** Resident bytes for an `rgba8unorm` tile texture, mip chain included — 4 B per texel.
+/** Resident bytes for an `rgba8unorm` tile texture — 4 B per texel, mip chain included
+ *  ONLY when `mipped` is true.
  *
- *  The pyramid factor is REAL now (#1436): each level is a quarter of its parent, so a full
- *  chain sums to 4/3 of the base and the comment that used to stand here — "no mipmaps are
- *  generated, so the base level is the whole cost" — became false the moment raster tiles got a
- *  chain. Left uncorrected it would have let the raster cache overshoot its byte cap by a third
- *  while reporting itself inside it.
+ *  `mipped` is REQUIRED, not defaulted (#1579): this function has exactly four call
+ *  sites and used to charge the full chain unconditionally, which was correct for
+ *  raster-on-WebGL2 (the only arm that actually built a chain) and an over-charge by
+ *  ~4/3 everywhere else — including DEM/hillshade tiles, which `mip-scope-invariant.test.ts`
+ *  pins as DELIBERATELY un-mipped (elevation is DATA; averaging levels fabricates terrain
+ *  slope-derivatives never sampled). A silently-defaulted flag would let a future un-mipped
+ *  caller inherit the wrong answer instead of choosing one; every call site names its case.
  *
- *  Computed as the exact level sum rather than a flat ×4/3: a non-square or non-power-of-two
- *  tile's chain is not exactly 4/3, and rounding UP everywhere is the safe direction for a
- *  budget but wrong for the accounting a test reads back. */
-export function textureBytesOf(width: number, height: number): number {
+ *  The pyramid factor is REAL for a mipped texture (#1436): each level is a quarter of its
+ *  parent, so a full chain sums to 4/3 of the base. Computed as the exact level sum rather
+ *  than a flat ×4/3: a non-square or non-power-of-two tile's chain is not exactly 4/3, and
+ *  rounding UP everywhere is the safe direction for a budget but wrong for the accounting a
+ *  test reads back. */
+export function textureBytesOf(width: number, height: number, mipped: boolean): number {
+  if (!mipped) return width * height * 4
   let bytes = 0
   const levels = mipLevelCountFor(width, height)
   for (let level = 0; level < levels; level++) {
@@ -82,6 +88,20 @@ export function textureBytesOf(width: number, height: number): number {
 export function maxRasterCachedBytes(): number {
   const w = typeof window !== 'undefined' ? window.innerWidth : 0
   return isMobileClassViewport(w) ? 96 * 1024 * 1024 : 384 * 1024 * 1024
+}
+
+/** Entry count that keeps a cache of UNIFORM `entryBytes`-sized textures inside
+ *  `maxRasterCachedBytes()` (#1579).
+ *
+ *  For the raster/hillshade tile caches above, entry size varies by publisher
+ *  (256²..2048²), so `evictToBudget` sums real bytes per entry. The vector-drape bake
+ *  cache is the opposite shape — every bake is exactly `BAKE_PX²` RGBA8 — so a COUNT
+ *  cap is already an exact byte cap; it only needed to be VIEWPORT-AWARE instead of a
+ *  flat desktop-sized 256 (≈256 MiB, 2.7× the mobile raster ceiling this shares a GPU
+ *  with). Routed through the one authority both siblings answer to, rather than a
+ *  second copy of the mobile/desktop split. */
+export function maxCachedEntriesFor(entryBytes: number): number {
+  return Math.max(1, Math.floor(maxRasterCachedBytes() / entryBytes))
 }
 
 /** The cache-entry shape the shared insert/evict below need. Both renderers'

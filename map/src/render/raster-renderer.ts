@@ -2,7 +2,7 @@
 
 import type { GPUContext } from '@xgis/rhi-webgpu'
 import type { Camera } from '../camera'
-import { visibleTilesFrustum, tileUrl, loadImageTexture, loadImageBitmap } from '@xgis/data'
+import { visibleTilesFrustum, tileUrl, loadImageBitmap } from '@xgis/data'
 import { mercator as mercatorProj, mercatorYToLat } from '@xgis/geo'
 import { activeBody } from '@xgis/shared'
 import { lonLatToECEF, type ECEF } from '@xgis/shared'
@@ -247,7 +247,6 @@ const MAX_CACHED_TILES = 256
 const MAX_CONCURRENT_LOADS = 6
 
 export class RasterRenderer {
-  private device: GPUDevice
   /** The injected backend RHI device (ctx.rhi) — the RasterDraper routes resource
    *  creation through it (WebGpuDevice on WebGPU, WebGl2Device under ?forcegl2=1). */
   private readonly rhi: RhiDevice
@@ -343,7 +342,6 @@ export class RasterRenderer {
   }
 
   constructor(ctx: GPUContext) {
-    this.device = ctx.device
     this.rhi = ctx.rhi
     this.format = ctx.format
 
@@ -554,15 +552,15 @@ export class RasterRenderer {
     ])
   }
 
-  /** Backend-appropriate raster tile load (#834 M5 slice 2): the WebGPU path
-   *  is the verbatim loadImageTexture (byte-identical); WebGl2Device decodes
-   *  via the shared SSRF-guarded loadImageBitmap and uploads through the RHI
-   *  copyExternalImage seam (texSubImage2D — no CPU readback). */
+  /** Tile load, through the RHI on BOTH backends (#1579 — WebGPU used to bypass the RHI
+   *  entirely via the raw-device `loadImageTexture`, which allocates ONE mip level;
+   *  #1436's crawl fix was landed on the WebGL2 arm only, so the far-field minification
+   *  fix it exists for was still live for the default backend, and every render gate CI
+   *  runs is WebGL2 — the fork was invisible to the gate built to catch exactly this.
+   *  `rhi.createTexture` / `copyExternalImage` / `generateMipmaps` are generic over both
+   *  backends by construction, so unifying costs nothing and removes a fork that could
+   *  only drift again. */
   private async loadTileTexture(url: string, signal: AbortSignal): Promise<LoadedTexture | null> {
-    if (this.rhi.backend !== 'webgl2') {
-      const t = await loadImageTexture(this.device, url, signal)
-      return t ? { texture: t, bytes: textureBytesOf(t.width, t.height) } : null
-    }
     const bitmap = await loadImageBitmap(url, signal)
     if (!bitmap) return null
     // #1153 P2 R4 — createTexture throws on a lost context (rhi-webgl2 :963) and
@@ -592,7 +590,7 @@ export class RasterRenderer {
       if (tex) this.rhi.destroyTexture(tex)
       return null
     }
-    const bytes = textureBytesOf(bitmap.width, bitmap.height)
+    const bytes = textureBytesOf(bitmap.width, bitmap.height, true)
     bitmap.close()
     return { texture: tex, bytes }
   }
