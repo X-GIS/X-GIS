@@ -76,6 +76,14 @@ export interface CoverageSourceDeps {
   guardedFetch: (label: string) => typeof fetch
   /** True once the map is destroyed — a re-read that lands afterwards must not arm. */
   destroyed: () => boolean
+  /** The map's current run epoch (#1569). `destroyed()` alone cannot see a SCENE SWAP:
+   *  `run()` on a live map is a documented, legitimate re-run, and `_destroyed` is false
+   *  across one — so a refresh tick armed under scene A could commit its handle into
+   *  scene B's renderer, drawing coverage the new scene never declared. The epoch is
+   *  bumped by `run()` immediately before its teardown, so capturing it at tick entry and
+   *  re-checking after each await distinguishes "still the same scene" from "the map is
+   *  gone", which are different questions with different answers. */
+  runEpoch: () => number
   /** Per-source catalogue residency state (#1453), for the sources whose `url:` named a STAC
    *  ItemCollection rather than a single cell. Empty for every other coverage source. */
   catalogues: Map<string, CoverageCatalogueState>
@@ -637,6 +645,9 @@ async function refreshOneRegion(
 ): Promise<{ changed: boolean; reason: RefreshReason }> {
   // A urlless host push has nothing to re-read; its siblings still refresh.
   if (!url) return { changed: false, reason: 'unchanged' }
+  // #1569 — snapshot the scene this tick belongs to. Both awaits below (the HEAD
+  // probe and the cell read) can outlive a scene swap.
+  const epoch = deps.runEpoch()
   const label = `coverage source "${sourceId}"`
   const safe = deps.guardedFetch(label)
   // Revalidation is a cheap HEAD probe, NOT a conditional GET: the read path is HTTP Range,
@@ -645,14 +656,17 @@ async function refreshOneRegion(
   const key = validatorKey(sourceId, region)
   const decision = decideRefresh(deps.refresh.validator(key), probed, opts?.force)
   if (!decision.read) return { changed: false, reason: decision.reason }
+  if (deps.destroyed() || deps.runEpoch() !== epoch)
+    return { changed: false, reason: decision.reason }
 
   const token = deps.time.nextEpoch(region)
   const handle = await fetchCoverageHandle(url, label, safe, {
     ...(opts?.bbox ? { bbox: opts.bbox } : {}),
     ...(opts?.group ? { group: opts.group } : {}),
   })
-  // Superseded by a newer read of THIS region, or the map went away — never arm stale data.
-  if (!deps.time.isCurrent(token, region) || deps.destroyed())
+  // Superseded by a newer read of THIS region, the map went away, or the SCENE was
+  // swapped under us (#1569) — never arm stale data.
+  if (!deps.time.isCurrent(token, region) || deps.destroyed() || deps.runEpoch() !== epoch)
     return { changed: false, reason: decision.reason }
   deps.refresh.rememberValidator(key, probed)
   if (!writeRegion(deps, sourceId, region, { handle, url }))

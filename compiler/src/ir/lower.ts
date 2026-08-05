@@ -43,10 +43,9 @@ export function lower(program: AST.Program, options: LowerOptions = {}): Scene {
   const renderNodes: RenderNode[] = []
   const symbols: import('./render-node').SymbolDef[] = []
   const diagnostics: import('./render-node').Diagnostic[] = []
-  // Whole-program checks + rewrites (unknown callees, user-fn inlining,
-  // binding types, schema fields) — see front-passes.ts for the ordering
-  // rationale. Everything below lowers the returned, validated program.
-  program = runFrontPasses(program, diagnostics)
+  // Whole-program checks + rewrites (ordering rationale: front-passes.ts).
+  const front = runFrontPasses(program, diagnostics)
+  program = front.program
   const sourceMap = new Map<string, SourceDef>()
   const presetMap = new Map<string, PresetDef>()
   const keyframesMap = new Map<string, AST.KeyframesStatement>()
@@ -98,7 +97,7 @@ export function lower(program: AST.Program, options: LowerOptions = {}): Scene {
     }
   }
 
-  return { sources, renderNodes, symbols, diagnostics }
+  return { sources, renderNodes, symbols, diagnostics, inputs: front.inputs }
 }
 
 // ═══ New syntax lowering ═══
@@ -940,6 +939,11 @@ function lowerLayer(
   strokeTranslateXShape = acc.strokeTranslateXShape
   strokeTranslateYShape = acc.strokeTranslateYShape
   strokeColor = acc.strokeColor
+  // #1538 — a stage block WINS over utility paint (explicit escape hatch).
+  for (const st of stmt.stages ?? []) {
+    if (st.stage === 'color') fill = { kind: 'stage', expr: { ast: st.body } }
+    else strokeColor = { kind: 'stage', expr: { ast: st.body } }
+  }
   strokeWidth = acc.strokeWidth
   strokeWidthExpr = acc.strokeWidthExpr
   strokeColorExpr = acc.strokeColorExpr

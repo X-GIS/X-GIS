@@ -132,3 +132,81 @@ describe('MvtWorkerPool — per-worker error isolation', () => {
     expect(pendingSize(pool)).toBe(0)
   })
 })
+
+// ═══ #1572 B — a worker that has failed must stop RECEIVING work ═══
+//
+// The isolation fix above settles the jobs in flight AT the error and stops there. Per the
+// HTML spec a worker whose script failed is terminated after `'error'` and `postMessage`
+// then silently does nothing — so a dead index that keeps its round-robin turn swallows
+// 1/N of every LATER compile. Those tiles never settle, the catalog's only slot release
+// (`compile().finally(releaseLoading)`) never runs, the source halts once the concurrency
+// cap fills, and `hasPendingLoads()` keeps the render loop hot the whole time.
+describe('#1572 B — a dead worker is removed from the rotation', () => {
+  beforeEach(() => {
+    FakeWorker.instances = []
+    vi.stubGlobal('navigator', { hardwareConcurrency: 4 }) // size = 3
+    vi.stubGlobal('Worker', FakeWorker)
+  })
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  it('skips the crashed index and dispatches to the survivors instead', async () => {
+    const pool = new MvtWorkerPool()
+
+    // One dispatch per worker so the fleet is materialised and each index identified by
+    // the message it received.
+    void dispatch(pool).catch(() => {})
+    void dispatch(pool).catch(() => {})
+    void dispatch(pool).catch(() => {})
+    const [w0, w1, w2] = FakeWorker.instances
+    expect([w0, w1, w2].every((w) => w.postedMessages.length === 1)).toBe(true)
+
+    // Worker 0 dies. `nextWorker` is back at 0, so the very next compile is the one that
+    // used to vanish.
+    w0.emit('error', { message: 'worker0 crashed' })
+    const before = w0.postedMessages.length
+
+    void dispatch(pool).catch(() => {})
+    void dispatch(pool).catch(() => {})
+
+    expect(w0.postedMessages.length, 'nothing more may be posted to the dead worker').toBe(before)
+    // Both went to the two survivors — the round robin closed over the gap rather than
+    // dropping every third tile into it.
+    expect(w1.postedMessages.length + w2.postedMessages.length).toBe(4)
+  })
+
+  it('rejects immediately once the whole fleet is dead, instead of hanging forever', async () => {
+    const pool = new MvtWorkerPool()
+    void dispatch(pool).catch(() => {})
+    for (const w of FakeWorker.instances) w.emit('error', { message: 'fleet down' })
+
+    // A rejection is what releases the catalog's loading slot (`.finally`), so the key can
+    // be requested again. Silently hanging is what made a fleet failure look like "the
+    // tiles are still loading" for the rest of the session.
+    //
+    // Raced against a macrotask, not awaited outright: without the fix nothing settles at
+    // all, and a bare `await` reports that as a 30 s suite timeout instead of the
+    // assertion naming it.
+    let outcome: string = 'never settled'
+    void dispatch(pool).then(
+      () => {
+        outcome = 'resolved'
+      },
+      (e: Error) => {
+        outcome = e.message
+      },
+    )
+    await new Promise((r) => setTimeout(r, 0))
+    expect(outcome).toMatch(/every mvt compile worker has failed/)
+    expect(pendingSize(pool), 'and nothing is left in flight to leak').toBe(0)
+  })
+
+  it('CONTROL — with a healthy fleet every worker still takes its turn', async () => {
+    const pool = new MvtWorkerPool()
+    for (let i = 0; i < 6; i++) void dispatch(pool).catch(() => {})
+    // Without this, a `nextLiveWorker` that always returned index 0 would pass both cases
+    // above (nothing is posted to a dead worker if nothing is posted anywhere else).
+    expect(FakeWorker.instances.map((w) => w.postedMessages.length)).toEqual([2, 2, 2])
+  })
+})

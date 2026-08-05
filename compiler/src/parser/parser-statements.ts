@@ -1,6 +1,7 @@
 import { TokenType } from '../lexer/tokens'
 import type * as AST from './ast'
 import { ExpressionParser } from './parser-expressions'
+import { INPUT_BAD_TYPE, INPUT_DEFAULT_TYPE_MISMATCH } from '../diagnostics/diagnostic'
 
 /** Statement handlers + the keyword→handler registry.
  *
@@ -50,9 +51,13 @@ export class StatementParser extends ExpressionParser {
     const properties: AST.BlockProperty[] = []
     const utilities: AST.UtilityLine[] = []
     const styleProperties: AST.StyleProperty[] = []
+    const stages: AST.StageBlock[] = []
 
     while (!this.check(TokenType.RBrace) && !this.isEnd()) {
-      if (this.check(TokenType.Pipe)) {
+      if (this.check(TokenType.At)) {
+        // Shader stage block: @color { return <expr> }  (#1538)
+        stages.push(this.parseStageBlock())
+      } else if (this.check(TokenType.Pipe)) {
         // Utility line: | item item item ...
         utilities.push(this.parseUtilityLine())
       } else if (this.isStylePropertyStart()) {
@@ -68,7 +73,42 @@ export class StatementParser extends ExpressionParser {
     }
     this.expect(TokenType.RBrace)
 
-    return { kind: 'LayerStatement', name, properties, utilities, styleProperties, line }
+    const stmt: AST.LayerStatement = {
+      kind: 'LayerStatement',
+      name,
+      properties,
+      utilities,
+      styleProperties,
+      line,
+    }
+    if (stages.length > 0) stmt.stages = stages
+    return stmt
+  }
+
+  /** `@color { return <expr> }` — a shader stage block (#1538).
+   *  Expression-bodied like `fn` (§2.10): `return` is matched by token
+   *  VALUE (it lexes as an ordinary identifier), so no new keyword. */
+  private parseStageBlock(): AST.StageBlock {
+    const line = this.current().line
+    this.expect(TokenType.At)
+    const stage = this.expect(TokenType.Identifier).value
+    if (stage !== 'color' && stage !== 'stroke') {
+      this.error(
+        `Unknown shader stage \`@${stage}\` — expected @color or @stroke. ` +
+          `(@position is not implemented: the variant composer has no vertex-side slot.)`,
+      )
+    }
+    this.expect(TokenType.LBrace)
+    if (!(this.check(TokenType.Identifier) && this.current().value === 'return')) {
+      this.error(
+        `Expected \`return <expression>\` in the @${stage} block — stage bodies are ` +
+          `expression-bodied (a single return; use \`?:\` or \`match\` for branching)`,
+      )
+    }
+    this.advance() // consume `return`
+    const body = this.parseExpr()
+    this.expect(TokenType.RBrace)
+    return { stage: stage as AST.StageBlock['stage'], body, line }
   }
 
   // background { fill: sky-900 } — Mapbox-style canvas clear color.
@@ -170,6 +210,14 @@ export class StatementParser extends ExpressionParser {
     return { kind: 'FnStatement', name, params, body, line }
   }
 
+  /** Parse a `: TYPE` annotation — shared by `struct` fields and `input` (#1539). */
+  private parseTypeAnnotation(allowed: readonly string[], errorCode?: string): string {
+    const typeName = this.expect(TokenType.Identifier).value
+    if (!allowed.includes(typeName))
+      this.error(`Expected ${allowed.join('/')}, got \`${typeName}\``, errorCode)
+    return typeName
+  }
+
   // struct Track { speed: f32, heading: f32, name: string }  (#1537)
   parseStructStatement(): AST.StructStatement {
     const line = this.current().line
@@ -181,16 +229,31 @@ export class StatementParser extends ExpressionParser {
     while (!this.check(TokenType.RBrace) && !this.isEnd()) {
       const fieldName = this.expect(TokenType.Identifier).value
       this.expect(TokenType.Colon)
-      const typeName = this.expect(TokenType.Identifier).value
-      if (typeName !== 'f32' && typeName !== 'string' && typeName !== 'bool') {
-        this.error(`Unknown field type \`${typeName}\` — expected f32, string, or bool`)
-      }
+      const typeName = this.parseTypeAnnotation(['f32', 'string', 'bool'])
       fields.push({ name: fieldName, type: typeName as AST.StructFieldType })
       if (this.check(TokenType.Comma)) this.advance()
     }
     this.expect(TokenType.RBrace)
 
     return { kind: 'StructStatement', name, fields, line }
+  }
+
+  // input threshold: f32 = 0.5 — a host-settable uniform (#1539).
+  parseInputStatement(): AST.InputStatement {
+    const line = this.current().line
+    this.expect(TokenType.Input)
+    const name = this.expect(TokenType.Identifier).value
+    this.expect(TokenType.Colon)
+    const type = this.parseTypeAnnotation(['f32', 'color'], INPUT_BAD_TYPE) as AST.InputType
+    this.expect(TokenType.Eq)
+    const expr = this.parseExpr()
+    if (type === 'f32' && expr.kind === 'NumberLiteral') {
+      return { kind: 'InputStatement', name, type, default: expr, line }
+    }
+    if (type === 'color' && expr.kind === 'ColorLiteral') {
+      return { kind: 'InputStatement', name, type, default: expr, line }
+    }
+    this.error(`\`input\` default doesn't match \`: ${type}\``, INPUT_DEFAULT_TYPE_MISMATCH)
   }
 
   // import { name1, name2 } from "path"
@@ -724,6 +787,7 @@ const STATEMENT_HANDLERS: ReadonlyMap<TokenType, StatementHandler> = new Map<
   [TokenType.Preset, (p) => p.parsePresetStatement()],
   [TokenType.Fn, (p) => p.parseFnStatement()],
   [TokenType.Struct, (p) => p.parseStructStatement()],
+  [TokenType.Input, (p) => p.parseInputStatement()],
   [TokenType.Import, (p) => p.parseImportStatement()],
   [TokenType.SymbolDef, (p) => p.parseSymbolStatement()],
   [TokenType.Keyframes, (p) => p.parseKeyframesStatement()],

@@ -75,6 +75,7 @@ function makeCoverageDeps(rawDatasets: Map<string, RawDataset>) {
     refresh: { stopAll: () => {} } as unknown as CoverageSourceDeps['refresh'],
     guardedFetch: (label) => (u, init) => shared.safeFetch(String(u), init, label),
     destroyed: () => false,
+    runEpoch: () => 0,
     catalogues: new Map(),
     view: () => null,
     watchViewport: () => {},

@@ -14,6 +14,7 @@ import {
   type EvictableTile,
   evictToBudget,
   overBudget,
+  abortLoadingTiles,
   textureBytesOf,
   mipLevelCountFor,
   type LoadedTexture,
@@ -710,7 +711,10 @@ export class RasterRenderer {
         // failure (bitmap fetch reject, or createTexture throw on a lost context)
         // resolves to null so the .then ALWAYS frees the loadingTiles slot (else the
         // key wedges, pinning all MAX_CONCURRENT slots → raster stalls). Scoped here so
-        // a throw from the .then bookkeeping stays a visible unhandled rejection, not swallowed.
+        // a throw from the .then bookkeeping still surfaces — through the terminal
+        // handler below, not as an unhandled rejection (#1565: this leaf chain floated
+        // while its parent-fallback sibling 50 lines down already terminated; two
+        // siblings, two error channels, and no rule enforcing either until now).
         .catch(() => null)
         .then((texture) => {
           this.loadingTiles.delete(key)
@@ -722,6 +726,7 @@ export class RasterRenderer {
           this._cacheTile(key, texture)
           this.evictTiles(visibleKeys)
         })
+        .catch((e) => console.error('[X-GIS] raster tile post-load bookkeeping failed', e))
     }
 
     // Write global uniforms through the typed block (#733 P2b — the single
@@ -1014,6 +1019,10 @@ export class RasterRenderer {
    *  Policy lives in raster-cache-budget so both renderers share one copy. */
   private _cacheTile(k: string, t: LoadedTexture): void {
     this._cachedBytes = admitTile(this.tileCache, k, t, this.frameCount, this._cachedBytes)
+  }
+
+  destroy(): void {
+    abortLoadingTiles(this.loadingTiles) // #1570 — teardown must CANCEL, not just unschedule
   }
 
   private evictTiles(vis: Set<string>): void {

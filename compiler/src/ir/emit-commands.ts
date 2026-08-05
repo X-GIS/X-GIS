@@ -15,7 +15,7 @@ import {
   emitFlowFields,
   type FlowPaint,
 } from './emit-commands-point-symbol'
-import { colorValueToShape, sizeValueToShape } from './to-property-shape'
+import { colorValueToShape, sizeValueToShape, stageColorHex } from './to-property-shape'
 import { generateShaderVariant, type ShaderVariant } from '../codegen/shader-gen'
 import { collectPalette, type Palette } from '../codegen/palette'
 import { planComputeKernels, type ComputePlanEntry } from '../codegen/compute-plan'
@@ -348,6 +348,9 @@ export interface SceneCommands {
    *  paint axis routes to compute — runtime falls back to the
    *  legacy uniform / inline-fragment path uniformly. */
   computePlan?: ComputePlanEntry[]
+  /** Program-wide `input` declarations (#1539), passed through from
+   *  `Scene.inputs` — see resolve-inputs.ts. Seeds map.ts's InputStore. */
+  inputs?: import('./resolve-inputs').ResolvedInputInfo[]
 }
 
 /**
@@ -505,6 +508,7 @@ export function emitCommands(scene: Scene, opts?: EmitOptions): SceneCommands {
     symbols: scene.symbols,
     palette,
     ...(computePlan.length > 0 ? { computePlan } : {}),
+    ...(scene.inputs?.length ? { inputs: scene.inputs } : {}),
   }
 }
 
@@ -777,6 +781,7 @@ function composeStrokeWidthShape(
 function colorToHex(color: ColorValue): string | null {
   if (color.kind === 'none') return null
   if (color.kind === 'constant') return rgbaToHex(color.rgba)
+  if (color.kind === 'stage') return stageColorHex(color.expr)
   // For time-interpolated colors, the `base` snapshot is the fallback
   // pre-animation value — emitting it as a hex keeps the existing
   // shader-variant generator and raw pixel readback paths happy.

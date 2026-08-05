@@ -31,8 +31,10 @@ import {
   f32Mod,
   vecN,
   vecComponent,
+  refF32,
+  varRefVec4,
 } from './_util/node-builders'
-import { isVecComponent } from '../ir/expr-type'
+import { inferVecArity, isVecComponent } from '../ir/expr-type'
 
 /** Lane count per vec constructor name (#1537) — the GPU mirror of the
  *  evaluator's `buildVec` arities. */
@@ -94,6 +96,17 @@ export function astToNode(expr: AST.Expr, fieldMap: Map<string, number>): NodeLi
 
     case 'Identifier':
       return featDataField(expr.name, fieldMap) ?? f32Lit(0)
+
+    case 'InputRef':
+      // A declared `input` (#1539) — a real uniform read, never the
+      // Identifier arm's `?? f32Lit(0)` fallback (the same fallback that
+      // makes a bare `zoom` silently compile to 0.0 today; InputRef exists
+      // specifically so this class of trap can't recur for `input`). A
+      // `color`-typed input reaching a scalar (f32) position is rejected
+      // upstream at lower time (X-GIS0018, via inferVecArity) — this
+      // branch should be unreachable for `type: 'color'`; f32Lit(0) here
+      // is a defensive fallback, not a real answer.
+      return expr.type === 'f32' ? refF32(`u.input_f32_${expr.slot}`) : f32Lit(0)
 
     case 'FieldAccess':
       // Vector component read (#1537): `vec3(…).y`. Only an EXPLICIT
@@ -177,10 +190,30 @@ export function exprToWGSL(expr: AST.Expr, fieldMap: Map<string, number>): strin
  * type domains never need a cast to meet. A vector left in a scalar
  * binding is rejected at lower time (X-GIS0018), not silently coerced.
  */
+/**
+ * Lower a vec4-typed expression — the shader stage-block entry point
+ * (#1538). Returns null when `expr` is not a vec4 construction, which the
+ * lower-time gate (X-GIS0020) has already rejected; the null keeps this
+ * total rather than fabricating a colour.
+ */
+export function astToVec4Node(
+  expr: AST.Expr,
+  fieldMap: Map<string, number>,
+): NodeLike<'vec4<f32>'> | null {
+  if (inferVecArity(expr) !== 4) return null
+  return astToVecNode(expr, fieldMap) as NodeLike<'vec4<f32>'> | null
+}
+
 function astToVecNode(
   expr: AST.Expr,
   fieldMap: Map<string, number>,
 ): NodeLike<'vec2<f32>' | 'vec3<f32>' | 'vec4<f32>'> | null {
+  // A `color`-typed `input` (#1539) IS a vec4 value in its own right —
+  // no `vecN(...)` construction needed, just a direct uniform read.
+  // Mirrors inferVecArity's matching case (ir/expr-type.ts).
+  if (expr.kind === 'InputRef') {
+    return expr.type === 'color' ? varRefVec4(`u.input_color_${expr.slot}`) : null
+  }
   if (expr.kind !== 'FnCall' || expr.callee.kind !== 'Identifier') return null
   const arity = VEC_ARITY.get(expr.callee.name)
   if (arity === undefined) return null

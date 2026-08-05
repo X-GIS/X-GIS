@@ -73,6 +73,7 @@ export interface AdvectedArrowSource {
   arrowBindingFor(region: string): {
     flowU: RhiTextureView
     flowV: RhiTextureView
+    flowValid: RhiTextureView
   } | null
 }
 
@@ -101,6 +102,7 @@ interface CompiledArrowBatch {
    *  over different ones, and the groups holding the old pair must go with them. */
   boundFlowU: RhiTextureView | null
   boundFlowV: RhiTextureView | null
+  boundFlowValid: RhiTextureView | null
   count: number
   lons: Float64Array
   lats: Float64Array
@@ -228,6 +230,7 @@ export class CompiledArrowStore {
       advectedGroup: null,
       boundFlowU: null,
       boundFlowV: null,
+      boundFlowValid: null,
       count,
       lons,
       lats,
@@ -336,14 +339,19 @@ export class CompiledArrowStore {
     // views are DESTROYED, and a cached group holding them fails the next submit —
     //   "destroyed texture coverage-flow-v used in a submit"
     // reported from S-111 Live by zooming out and panning to another domain.
-    if (ca.boundFlowU !== bind.flowU || ca.boundFlowV !== bind.flowV) {
+    if (
+      ca.boundFlowU !== bind.flowU ||
+      ca.boundFlowV !== bind.flowV ||
+      ca.boundFlowValid !== bind.flowValid
+    ) {
       ca.advectedGroup = null
       ca.boundFlowU = bind.flowU
       ca.boundFlowV = bind.flowV
+      ca.boundFlowValid = bind.flowValid
     }
     let bg = ca.advectedGroup
     if (!bg) {
-      bg = draper.makeBatchBindGroup(ca.bandBuf, bind.flowU, bind.flowV, ca.viewBuf)
+      bg = draper.makeBatchBindGroup(ca.bandBuf, bind.flowU, bind.flowV, bind.flowValid, ca.viewBuf)
       ca.advectedGroup = bg
     }
     return draper.draw(pass, bg, perCopy, count)

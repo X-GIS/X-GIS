@@ -1,0 +1,18 @@
+xgis 1
+
+/* Fixture: `@color` shader stage block (#1538).
+ * The fragment colour is authored directly as a vec4 instead of through
+ * the utility vocabulary. Pixel-parity twin (the same colour written as a
+ * fill utility): fixture-stage-color-twin.xgis. */
+
+source poly {
+  type: geojson
+  data: { "type": "FeatureCollection", "features": [
+    { "type": "Feature", "geometry": { "type": "Polygon", "coordinates": [[[-40, -25], [40, -25], [40, 25], [-40, 25], [-40, -25]]] }, "properties": {} }
+  ] }
+}
+
+layer painted {
+  source: poly
+  @color { return vec4(0.8, 0.4, 0.2, 1) }
+}

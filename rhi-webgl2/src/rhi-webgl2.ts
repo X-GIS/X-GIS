@@ -64,7 +64,6 @@ import type {
   RhiCommandEncoder,
   RhiRenderPassDesc,
 } from '@xgis/rhi'
-import { stashGl2RestoreToken } from '@xgis/rhi'
 
 // Each opaque RHI handle stores a rich GL record (cast both ways inside this
 // module). WebGL2 needs MORE per-handle metadata than WebGPU (a buffer's GL
@@ -172,6 +171,7 @@ interface Gl2Pipeline {
 }
 
 import { minFilterEnum, resolveAnisotropy } from './webgl2-texture-sampling'
+import { DeviceLifecycle, loseGl2ContextForTeardown } from './device-lifecycle'
 
 const wrap = <T>(rec: unknown): T => rec as T
 const un = <T>(h: unknown): T => h as T
@@ -637,6 +637,8 @@ export class WebGl2Device implements RhiDevice {
    *  anisotropy natively; on WebGL2 it is an EXTENSION, so a sampler asking for it must degrade
    *  to plain trilinear rather than throw. Resolved once at construction (the sampler path must
    *  not call `getExtension` per sampler — it enables state and is not free). */
+  /** #1570 — see device-lifecycle.ts. */
+  private readonly _life = new DeviceLifecycle()
   private readonly _anisoExt: EXT_texture_filter_anisotropic | null
   /** #1436 — the anisotropy this device will actually honour, ≥ 1. 1 means the extension is
    *  absent and asking bought nothing; a caller reads this instead of inferring from the
@@ -999,6 +1001,7 @@ export class WebGl2Device implements RhiDevice {
   }
 
   createBuffer(desc: RhiBufferDesc): RhiBuffer {
+    this._life.assertLive('createBuffer')
     const gl = this.gl
     if (desc.usage === 'storage') {
       // emulate as a 2D-TILED R32F data texture (the GLSL storageFetchF32 reads it via
@@ -1084,6 +1087,7 @@ export class WebGl2Device implements RhiDevice {
   // single-sample. Documented clamp, not fail-loud: callers clamp to
   // `caps.maxSampleCount` (=1) at the frame's seed (wireFrameColour).
   createTexture(desc: RhiTextureDesc): RhiTexture {
+    this._life.assertLive('createTexture')
     const gl = this.gl
     const tex = gl.createTexture()
     if (!tex) throw new Error('webgl2: createTexture failed')
@@ -1423,39 +1427,10 @@ export class WebGl2Device implements RhiDevice {
   // Whole-device teardown (RhiDevice.destroy, #1153 A) — the WebGL2 twin of GPUDevice.destroy().
   // WebGL2 has no device object; WEBGL_lose_context drops every GL resource this device created
   // (buffers, textures, programs, VAOs, pick FBOs) AND returns the per-page context to the pool.
+  // The restorability dance the teardown has to perform lives in device-lifecycle.ts.
   destroy(): void {
-    // #1153 P2 R3 — an INTENTIONAL teardown must (a) NOT fire device-lost recovery
-    // (that would resurrect a destroyed map) yet (b) leave the context RESTORABLE for
-    // a remount on this canvas. loseContext() dispatches 'webglcontextlost' as a
-    // deferred TASK and the browser sets restore_allowed_ = event.defaultPrevented()
-    // at that dispatch; if the event is not preventDefault'd the context is PERMANENTLY
-    // unrestorable, so a remount's ensure-restored preamble (gpu.ts) would call
-    // restoreContext() to no-op (INVALID_OPERATION) and never see 'webglcontextrestored'
-    // — the exact restorability invariant the constructor's lost-handler documents.
-    // So: drop the FAN-OUT listeners (kills recovery, the 'destroyed'-reason analog of
-    // the WebGPU device.lost guard) but leave a bare one-shot preventDefault listener
-    // for the deferred loss (keeps it restorable), self-removing so nothing outlives
-    // the teardown.
-    const canvas = this.gl.canvas as HTMLCanvasElement | undefined
-    if (canvas?.removeEventListener) {
-      if (this._onGlContextLost)
-        canvas.removeEventListener('webglcontextlost', this._onGlContextLost)
-      if (this._onGlContextRestored)
-        canvas.removeEventListener('webglcontextrestored', this._onGlContextRestored)
-      // Only when loseContext() will actually dispatch a NEW loss: an already-lost
-      // context dispatches nothing, so a once-listener would leak (never firing) — and
-      // its restorability was already set by the natural loss that the fan-out handler
-      // preventDefaulted.
-      if (canvas.addEventListener && !this.gl.isContextLost?.())
-        canvas.addEventListener('webglcontextlost', (e) => e.preventDefault(), { once: true })
-    }
-    // #1196 — stash the extension OBJECT before losing: on a lost context
-    // getExtension() returns null (WebGL spec), so the remount's ensure-
-    // restored preamble can only call restoreContext() through a handle
-    // captured pre-loss. The canvas is the identity both boots share.
-    const loseExt = this.gl.getExtension('WEBGL_lose_context')
-    if (loseExt && canvas) stashGl2RestoreToken(canvas, loseExt)
-    loseExt?.loseContext()
+    this._life.markDestroyed() // #1570 — a stale device must not allocate
+    loseGl2ContextForTeardown(this.gl, this._onGlContextLost, this._onGlContextRestored)
   }
 
   /** Run a compute-as-draw (the M2 compute→fragment-GPGPU lowering) into an offscreen

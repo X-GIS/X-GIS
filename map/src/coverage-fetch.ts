@@ -9,6 +9,26 @@
 // multi-timestep cell), falling back to a capped whole-file fetch when the server does
 // not honour Range. `fetchFn` carries the caller's SSRF guard — this module never picks
 // a fetch itself.
+//
+// ## Cancellation (#1570) — why there is no `signal` parameter here
+//
+// This chain had NO `AbortSignal` anywhere, and a signal-less `fetch` is uncancellable
+// BY SPEC. `map.destroy()` ran `_coverageRefresh.stopAll()`, which clears setTimeouts
+// and nothing else — so a read those timers had already begun streamed to completion,
+// was fully buffered and parsed, and only then discarded at a landing guard, on a map
+// the host had already unmounted. Cells are 10-250 MB (capped at 256 MB below), so a
+// route change mid-load was a quarter-gigabyte transient allocation and a bandwidth
+// burst competing with the replacement scene's own fetches; the pending continuations
+// also pinned the `deps` closure, and through it the map graph, until every region
+// settled.
+//
+// The signal is injected into `fetchFn` itself (map.ts's `guardedFetch`, cancelled by
+// `CoverageReadCancellation` in map-teardown.ts) rather than threaded as a parameter
+// through this module, the range reader and the whole-file fallback. One injection
+// point covers the WHOLE ladder — the range probe, every chunk read, and the fallback
+// — including code paths inside `@xgis/data` that never took an options bag, and
+// aborting mid-transfer also cancels the response body stream `readBodyCapped` is
+// draining. A `signal` parameter here would cover strictly less and cost more.
 
 import { readCoverage, readCoverageRange, type Bbox, type CoverageHandle } from '@xgis/data'
 import { readBodyCapped } from '@xgis/shared'

@@ -89,6 +89,10 @@ export function substituteIdentifiers(
       }
     case 'MatchBlock':
       return substituteMatchBlock(expr, bindings)
+    case 'InputRef':
+      // Leaf, like the literal kinds — never bound by a substitution site
+      // (an `input` name is a program-wide declaration, not a param).
+      return { ...expr }
   }
 }
 

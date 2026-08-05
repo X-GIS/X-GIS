@@ -71,8 +71,8 @@ test('df64 probe on macOS Metal (WebGPU gate)', async ({ page }) => {
         .trim()
       return `gpu ${done.length}/${cells.length} last=${lastDone} | ${summary}`
     })
-  const poller = setInterval(async () => {
-    console.log(`[progress] ${await raced(snapshot, 5000)}`)
+  const poller = setInterval(() => {
+    void raced(snapshot, 5000).then((s) => console.log(`[progress] ${s}`))
   }, 15000)
 
   // ── the gate: WEBGPU column fully resolved. Run 8 proved WebGPU runs headed

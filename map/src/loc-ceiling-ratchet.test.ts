@@ -763,7 +763,9 @@ const CEILINGS: Record<string, number> = {
   // (measured 1621 post-prettier reflow of the extruded descriptors.)
   // 1621→1568 (#1046 F3b Inc-2c): the heatmap blur/compose factories retired
   // with the chain's RHI re-origination — win banked.
-  'map/src/render/pipeline-factory.ts': 1568,
+  // 1568→1496 (#1568): the ShaderVariantInfo→WGSL choke point + its memo moved to
+  // polygon-shader-cache.ts to pay for the body-epoch key — win banked.
+  'map/src/render/pipeline-factory.ts': 1496,
   'map/src/camera/camera.ts': 1419,
   'map/src/shaders/dsl/line.ts': 1441,
   // 1373→1422 (#1246): the flat-projection stroke-width fix. The VS clamp's flat

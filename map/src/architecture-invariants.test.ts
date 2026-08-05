@@ -34,7 +34,9 @@
 //     to own (#1005) plus map/engine/geo/data/rhi*. That retires the "two LOC
 //     authorities" trap recorded in CLAUDE.md §12.
 //
-// What remains are the three live locks below (Gates 2, 6, 7).
+// What remains are the live locks below (Gates 2, 6, 7, and 8 — added by #1565,
+// which locks the CI render paths-filter against the same vacuous-gate failure
+// mode this header is otherwise a record of).
 // GPU-free; rides the `test (map-*)` CI legs.
 
 import { describe, it, expect } from 'vitest'
@@ -125,5 +127,79 @@ describe('arch ratchet: Gate-7 — @xgis/engine is geo-free (#781)', () => {
       exists,
       'engine/src/projection/ must not exist — the projection library moved to @xgis/geo (3c), the camera cluster to @xgis/map (3b), and the ecef shim was dropped (3d)',
     ).toBe(false)
+  })
+})
+
+// ── Gate 8: the CI `render` paths-filter covers every rendering package (#1565) ──
+// A package in `code` but not in `render` is CI-dark for pixels: `render-gate` has
+// no job-level `if:` (every STEP is `if: needs.changes.outputs.render == 'true'`),
+// so a PR touching only that package posts the required check GREEN with zero pixel
+// gates run. That is exactly what happened to `rhi-webgpu/**` — the package every
+// default-backend boot value-imports (map/src/gpu-boot.ts → initGPUViaProviders /
+// backendProviderChain) — while the same workflow ran a SwiftShader-WebGPU raster
+// gate against it. The exclusion comment asserted the opposite and nothing checked.
+//
+// The lock is stated as a DIFFERENCE, not a list: every package glob in `code` must
+// be in `render` too, unless it is in EXEMPT below with a written reason. So adding
+// a new package to `code` and forgetting `render` goes red naming that package, and
+// deleting `rhi-webgpu/**` from `render` goes red naming `rhi-webgpu/**`.
+function pathsFilterGlobs(yaml: string, name: string): string[] {
+  const lines = yaml.split('\n')
+  const start = lines.findIndex((l) => new RegExp(`^\\s{12}${name}:\\s*$`).test(l))
+  expect(
+    start,
+    `the \`${name}\` paths-filter block must exist in .github/workflows/test.yml`,
+  ).toBeGreaterThanOrEqual(0)
+  const out: string[] = []
+  for (const line of lines.slice(start + 1)) {
+    if (/^\s{0,12}\S/.test(line)) break // next filter name (or dedent) ends the block
+    const m = /^\s{14}-\s+'([^']+)'\s*$/.exec(line)
+    if (m?.[1] !== undefined) out.push(m[1])
+  }
+  return out
+}
+
+describe('arch ratchet: Gate-8 — the CI `render` filter covers every rendering package (#1565)', () => {
+  // Reason required per entry. `rhi` is interfaces-only (erased by tsc, so a change
+  // there cannot alter a rendered pixel without also touching an implementor, which
+  // IS in `render`); `pipeline` is imported only by the seoul-* demos, never by the
+  // `id=minimal` fixtures every render gate boots.
+  const EXEMPT: Record<string, string> = {
+    'rhi/**': 'interfaces-only → typecheck-covered; no emitted code',
+    'pipeline/**': 'imported only by seoul-* demos, never the id=minimal gate fixtures',
+  }
+
+  it('every package glob in `code` is in `render` too, or exempt with a reason', () => {
+    const yaml = readFileSync(join(ROOT, '.github/workflows/test.yml'), 'utf8')
+    const code = pathsFilterGlobs(yaml, 'code')
+    const render = new Set(pathsFilterGlobs(yaml, 'render'))
+    // Package globs only — the shared lockfile/manifest/tsconfig entries are not
+    // packages and are filtered by both blocks on their own terms.
+    const missing = code
+      .filter((g) => g.endsWith('/**'))
+      .filter((g) => !render.has(g) && EXEMPT[g] === undefined)
+    expect(
+      missing,
+      `these packages fire the \`code\` filter but NOT \`render\`, so a PR touching only them posts render-gate GREEN with zero pixel gates run (#1565):\n${missing.join(
+        '\n',
+      )}\nAdd each to the \`render\` filter, or to Gate-8's EXEMPT map with the reason it cannot affect a rendered pixel.`,
+    ).toEqual([])
+  })
+
+  it('rhi-webgpu is in the `render` filter — every default-backend boot imports it', () => {
+    const yaml = readFileSync(join(ROOT, '.github/workflows/test.yml'), 'utf8')
+    // Named explicitly as well as covered by the difference above: this is the
+    // instance #1565 was filed on, and the falsified premise ("no SwiftShader spec
+    // drives WebGpuDevice") is the kind of claim that gets re-added by a reader who
+    // trusts the comment. The boot import is the load-bearing fact.
+    const boot = readFileSync(join(ROOT, 'map/src/gpu-boot.ts'), 'utf8')
+    expect(
+      /from\s+['"]@xgis\/rhi-webgpu['"]/.test(boot),
+      'map/src/gpu-boot.ts must value-import @xgis/rhi-webgpu — if this moved, Gate-8 needs re-aiming, not deleting',
+    ).toBe(true)
+    expect(
+      pathsFilterGlobs(yaml, 'render').includes('rhi-webgpu/**'),
+      '`rhi-webgpu/**` must be in the CI `render` paths-filter (#1565) — map/src/gpu-boot.ts value-imports it on every default-backend boot, and _polygon-fill-flat-pixel-gate is a SwiftShader-WebGPU RASTER gate',
+    ).toBe(true)
   })
 })

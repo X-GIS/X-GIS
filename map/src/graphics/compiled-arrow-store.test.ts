@@ -309,7 +309,11 @@ function makeArrowSource() {
   const originWrites: string[] = []
   const released: string[] = []
   let flipped = false
-  let field = { u: { native: 'u' } as never, v: { native: 'v' } as never }
+  let field = {
+    u: { native: 'u' } as never,
+    v: { native: 'v' } as never,
+    valid: { native: 'valid' } as never,
+  }
   return {
     originWrites,
     released,
@@ -318,7 +322,11 @@ function makeArrowSource() {
     },
     /** A different coverage region's velocity pair — what a mosaic eviction leaves behind. */
     rearmField: () => {
-      field = { u: { native: 'u2' } as never, v: { native: 'v2' } as never }
+      field = {
+        u: { native: 'u2' } as never,
+        v: { native: 'v2' } as never,
+        valid: { native: 'valid2' } as never,
+      }
     },
     source: {
       releaseArrowOrigins: (key: string) => void released.push(key),
@@ -329,7 +337,13 @@ function makeArrowSource() {
       // Single-region fixtures: one field, whatever region is asked for. The PER-REGION
       // contract is pinned where it can actually be observed — two real regions against a real
       // FlowRenderer, in render/arrow-field-per-region.test.ts (#1458).
-      arrowBindingFor: () => ({ state: flipped ? b : a, origin, flowU: field.u, flowV: field.v }),
+      arrowBindingFor: () => ({
+        state: flipped ? b : a,
+        origin,
+        flowU: field.u,
+        flowV: field.v,
+        flowValid: field.valid,
+      }),
     },
   }
 }

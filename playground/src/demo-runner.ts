@@ -1054,7 +1054,7 @@ hashBadge.style.cssText = [
 ].join(';')
 document.getElementById('map-pane')!.appendChild(hashBadge)
 hashBadge.addEventListener('click', () => {
-  navigator.clipboard?.writeText(location.href).then(() => {
+  void navigator.clipboard?.writeText(location.href).then(() => {
     hashBadge.style.color = '#8f8'
     setTimeout(() => {
       hashBadge.style.color = '#dde'
@@ -1854,7 +1854,7 @@ async function loadDemo(idx: number) {
   history.replaceState(null, '', navUrl.toString())
 
   // Discover fields from GeoJSON URLs in source (async, non-blocking)
-  discoverFields(demo.source, import.meta.env.BASE_URL + 'data/')
+  void discoverFields(demo.source, import.meta.env.BASE_URL + 'data/')
 
   await runSource(demo.source, demo.name)
 
@@ -2056,8 +2056,8 @@ function applyFixtureAutoPush(id: string, map: InstanceType<typeof XGISMap>): vo
 // ── Run button ──
 runBtn.addEventListener('click', () => {
   const src = editor.getValue()
-  discoverFields(src, import.meta.env.BASE_URL + 'data/')
-  runSource(src, 'Custom')
+  void discoverFields(src, import.meta.env.BASE_URL + 'data/')
+  void runSource(src, 'Custom')
 })
 
 // ── Gallery back-link ──
@@ -2080,10 +2080,10 @@ runBtn.addEventListener('click', () => {
 
 // ── Navigation ──
 prevBtn.addEventListener('click', () => {
-  if (currentIdx > 0) loadDemo(currentIdx - 1)
+  if (currentIdx > 0) void loadDemo(currentIdx - 1)
 })
 nextBtn.addEventListener('click', () => {
-  if (currentIdx < demoIds.length - 1) loadDemo(currentIdx + 1)
+  if (currentIdx < demoIds.length - 1) void loadDemo(currentIdx + 1)
 })
 selectEl.addEventListener('change', () => loadDemo(parseInt(selectEl.value)))
 
@@ -2096,7 +2096,7 @@ selectEl.addEventListener('change', () => loadDemo(parseInt(selectEl.value)))
 ;(
   window as unknown as { __xgisImportMapbox?: (json: string | object) => void }
 ).__xgisImportMapbox = (json: string | object) => {
-  import('@xgis/compiler').then(async ({ convertMapboxStyle }) => {
+  void import('@xgis/compiler').then(async ({ convertMapboxStyle }) => {
     try {
       // Parse once so we can read the top-level `glyphs` URL without
       // touching the xgis source. `glyphs` is a pure runtime concern
@@ -2228,7 +2228,7 @@ projSelectEl.addEventListener('change', () => {
   else url.searchParams.delete('proj')
   history.replaceState(null, '', url.toString())
   // Empty value = reload demo to restore the source's declared projection.
-  if (!value) loadDemo(currentIdx)
+  if (!value) void loadDemo(currentIdx)
   else currentMap?.setProjection(value)
 })
 
@@ -2261,10 +2261,10 @@ document.addEventListener('keydown', (e) => {
   // canvas holds focus, so they work from anywhere outside the editor.
   if ((e.key === 'ArrowLeft' || e.key === '[') && currentIdx > 0) {
     e.preventDefault()
-    loadDemo(currentIdx - 1)
+    void loadDemo(currentIdx - 1)
   } else if ((e.key === 'ArrowRight' || e.key === ']') && currentIdx < demoIds.length - 1) {
     e.preventDefault()
-    loadDemo(currentIdx + 1)
+    void loadDemo(currentIdx + 1)
   }
 })
 
@@ -2389,8 +2389,8 @@ if (params.get('id') === '__import') {
     document.title = (label ?? 'Imported') + ' — X-GIS'
     tagEl.textContent = 'imported'
     editor.setValue(imported.trim())
-    discoverFields(imported, import.meta.env.BASE_URL + 'data/')
-    runSource(imported, label ?? 'Imported').then(() => {
+    void discoverFields(imported, import.meta.env.BASE_URL + 'data/')
+    void runSource(imported, label ?? 'Imported').then(() => {
       // Seed inline GeoJSON handed off from the convert page once the
       // map (and its empty geojson source stubs) exist.
       pushImportedInlineGeoJSON(importInline)
@@ -2398,10 +2398,10 @@ if (params.get('id') === '__import') {
     // Don't clear yet — the user may want to reload. Cleared on next
     // demo navigation via the regular loadDemo path.
   } else {
-    loadDemo(currentIdx)
+    void loadDemo(currentIdx)
   }
 } else {
-  loadDemo(currentIdx)
+  void loadDemo(currentIdx)
 }
 
 // (Old top-right overlay was here. Replaced by xgis-inspector.ts —

@@ -45,7 +45,32 @@
 //   X-GIS0019  error  lower     `.field` absent from the source's        (ir/validate-schema-fields.ts
 //                               declared `struct` schema, or a `schema:`   — #1537)
 //                               naming no declared struct
+//   X-GIS0020  error  lower     A shader stage block returns a non-vec4  (ir/expr-type.ts — #1538)
+//                               value — the colour slot is vec4
+//   X-GIS0021  error  parser    `input` declaration's type annotation    (parser-statements.ts — #1539)
+//                               is not `f32`/`color`
+//   X-GIS0022  error  parser    `input` declaration's default literal    (parser-statements.ts — #1539)
+//                               kind doesn't match its declared type
+//   X-GIS0023  error  lower     Duplicate `input` declaration (same      (ir/resolve-inputs.ts — #1539)
+//                               name declared twice in one program)
+//   X-GIS0024  warn   lower     `input` declared but never referenced    (ir/resolve-inputs.ts — #1539)
+//                               by any expression in this program — NEVER
+//                               drops the declaration (unlike the dead-
+//                               source precedent): a host may legitimately
+//                               setInput a knob the current style doesn't
+//                               visibly use yet
+//   X-GIS0025  error  lower     Reserved input-uniform-pool exhausted —  (ir/resolve-inputs.ts — #1539)
+//                               more `f32`/`color` inputs declared than
+//                               the fixed pool holds
+//   X-GIS0026  error  lower     `input` reference reaches a paint        (ir/resolve-inputs.ts — #1539)
+//                               property this milestone doesn't wire the
+//                               uniform pool into (label/icon paint)
 //
+// NOTE: a `color`-typed input in a scalar position needs NO new code —
+// ir/expr-type.ts's inferVecArity() treats a color input as vec4-arity,
+// so the EXISTING X-GIS0018 (vector in scalar position) already rejects
+// it, and X-GIS0020 (stage-block return type) already accepts a bare
+// color-input stage body as a valid vec4 return, both for free.
 // #1065 added only warn/info from lower (plumbing, not policy). #1066 is
 // the first lower ERROR — `X-GIS0012` (unknown-function = error, L3 in the
 // research doc) — raised through this same channel with no type migration,
@@ -96,6 +121,33 @@ export const VECTOR_IN_SCALAR_POSITION = 'X-GIS0018'
  *  declare `schema:` are checked, so `.speeed` fails loudly there while
  *  unannotated sources keep fully dynamic access. */
 export const UNKNOWN_SCHEMA_FIELD = 'X-GIS0019'
+/** A `@color` / `@stroke` stage block whose body is not vec4 (#1538). The
+ *  variant colour slot is `Node<'vec4<f32>'>`; anything else would compile
+ *  a wrong-typed shader expression, so it fails at lower time instead. */
+export const STAGE_RETURN_TYPE = 'X-GIS0020'
+/** `input` declaration's type annotation is not `f32`/`color` (#1539). */
+export const INPUT_BAD_TYPE = 'X-GIS0021'
+/** `input` declaration's default literal kind doesn't match its declared
+ *  type (#1539) — `f32` needs a `NumberLiteral` default, `color` a
+ *  `ColorLiteral` default. */
+export const INPUT_DEFAULT_TYPE_MISMATCH = 'X-GIS0022'
+/** Duplicate `input` declaration (#1539) — the same name declared twice
+ *  in one program. Reported at the second declaration's line. */
+export const INPUT_DUPLICATE = 'X-GIS0023'
+/** `input` declared but never referenced by any expression anywhere in
+ *  this program (#1539). Warn-only — the declaration is NEVER dropped
+ *  from emit (unlike the dead-`source` precedent in convert/*): a host
+ *  may legitimately `setInput` a knob the current style doesn't visibly
+ *  use yet (staged rollout, A/B toggle). */
+export const INPUT_UNUSED = 'X-GIS0024'
+/** Reserved input-uniform-pool exhausted (#1539) — the program declares
+ *  more `f32` (or `color`) inputs than the fixed-size pool
+ *  (map/src/shaders/dsl/consts.ts) holds for that type. */
+export const INPUT_POOL_EXHAUSTED = 'X-GIS0025'
+/** An `input` reference reaches a paint property this milestone doesn't
+ *  wire the uniform pool into (#1539) — label/icon (text/icon) paint;
+ *  only polygon/line/point carry the reserved pool today. */
+export const INPUT_UNSUPPORTED_PAINT_TARGET = 'X-GIS0026'
 
 /** A 1-based, document-relative source span. `line`/`col` are always
  *  present; `endLine`/`endCol` are optional (a point diagnostic omits

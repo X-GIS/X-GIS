@@ -114,6 +114,9 @@ function walkStatements(
           }
         }
         walkUtilityLines(s.utilities, diagnostics, declared)
+        // #1538 — stage-block bodies are ordinary expressions; a typo'd
+        // callee inside one is still X-GIS0012.
+        for (const st of s.stages ?? []) walkExpr(st.body, st.line, diagnostics, declared)
         break
       case 'BackgroundStatement':
         walkUtilityLines(s.utilities, diagnostics, declared)
@@ -201,7 +204,11 @@ function walkExpr(
       for (const arm of expr.arms) walkExpr(arm.value, line, diagnostics, declared)
       break
     // Leaf kinds (NumberLiteral / StringLiteral / ColorLiteral /
-    // BoolLiteral / Identifier) have no child expressions.
+    // BoolLiteral / Identifier / InputRef) have no child expressions.
+    // NOTE: this switch has no TS exhaustiveness enforcement (no
+    // `default`/`never` assertion) — a genuinely missing case here would
+    // silently no-op rather than fail to compile. InputRef is correct
+    // as an omitted case (it's a leaf), not an oversight.
   }
 }
 

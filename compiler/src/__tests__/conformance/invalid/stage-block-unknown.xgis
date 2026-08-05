@@ -1,0 +1,10 @@
+// @case invalid
+// @construct stage-block
+// @desc only @color / @stroke exist — @position has no vertex-side composer slot and is not implemented (#1538)
+// @expect-code X-GIS0010
+xgis 1
+source w { type: geojson, url: "w.geojson" }
+layer l {
+  source: w
+  @position { return vec4(0, 0, 0, 1) }
+}

@@ -164,3 +164,25 @@ export function evictToBudget<T extends EvictableTile>(
   }
   return bytes
 }
+
+/** Abort every in-flight tile fetch and drop the loading ledger (#1570).
+ *
+ *  Shared by RasterRenderer and HillshadeRenderer, which are deliberately separate
+ *  classes over the same tile machinery — so their teardown is one copy, not two that
+ *  can drift (the drift class this campaign keeps finding).
+ *
+ *  Neither had a teardown at all: the per-tile `AbortController`s existed (the
+ *  zoom-change sweep uses them) but nothing fired them when the map went away, and
+ *  `_releaseGpuResources` never named these renderers. On WebGL2 that was not merely
+ *  wasted bandwidth — `gpu.ts` hands back and RESTORES the same `gl` object on a
+ *  remount, so a fetch that resolved after the reboot found a live context,
+ *  `rhi.createTexture` no longer threw, and the texture landed in a cache
+ *  `buildSceneRenderers` had already replaced: unreachable, undrawable, and never
+ *  evicted, because eviction is render-driven and nothing renders that cache.
+ *
+ *  Only the FETCH side — the textures are owned by the device, which
+ *  `_releaseGpuResources` destroys one call later. */
+export function abortLoadingTiles(loadingTiles: Map<string, AbortController>): void {
+  for (const ctrl of loadingTiles.values()) ctrl.abort()
+  loadingTiles.clear()
+}

@@ -10,6 +10,7 @@
 import { describe, it, expect, vi, afterEach } from 'vitest'
 import { XGISMap } from '@xgis/map'
 import { serializeXGB } from '@xgis/compiler'
+import { CoverageRenderer } from './render/coverage-renderer'
 import {
   installWebGPUStub,
   type StubInstallation,
@@ -443,5 +444,34 @@ describe("#1153 P1 — runBinary mid-loop staleness (T15, G3')", () => {
     expect(rd.has('a')).toBe(true) // first load stored
     expect(rd.has('b')).toBe(false) // G3' stopped the loop before the 2nd rawDatasets.set
     expect(rebuild).not.toHaveBeenCalled() // stale run returned before rebuildLayers
+  })
+})
+
+// ═══ #1569 — the coverage renderer is released on teardown ═════════════════
+//
+// `CoverageRenderer.dispose()` existed and had ZERO callers: repo-wide the only
+// non-test `.dispose()` in map/src was `flowRenderer`'s. `rhi.destroy()` reclaims
+// the GPU half, but not `arms` — a plain JS Map whose CoverageHandle.bands carry
+// the full DECODED grid (an S-102 cell at 1201x1201 f32 is ~5.8 MB per band, one
+// handle per resident mosaic region). A host that kept the map object after
+// destroy() kept all of it. This drives the real boot path so the assertion is
+// about the wiring, not about a hand-built renderer.
+describe('#1569 destroy() releases the coverage renderer', () => {
+  it('calls coverageRenderer.dispose() exactly once, and again on a scene re-run', async () => {
+    const stub = install({ freshDevices: true })
+    const spy = vi.spyOn(CoverageRenderer.prototype, 'dispose')
+    const map = makeMap()
+    await map.run('xgis 1')
+    spy.mockClear() // ignore anything the boot itself did
+
+    // A scene swap goes through _teardownForReinit -> _releaseGpuResources, the
+    // same shared body destroy() uses — so the release must happen on BOTH paths,
+    // which is the whole point of the shared body.
+    await map.run('xgis 1')
+    expect(spy, 'a re-run releases the previous scene-s coverage renderer').toHaveBeenCalledTimes(1)
+
+    map.destroy()
+    expect(spy).toHaveBeenCalledTimes(2)
+    expect(live(stub)).toBe(0)
   })
 })

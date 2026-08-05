@@ -91,18 +91,23 @@ describe('…and the VS makes both directions ONE computation (#1520)', () => {
       ...body.matchAll(/let \w+ = vec2<f32>\(\(\((\w+)\.x \* (\w+)\) \+ \(\1\.y \* (\w+)\)\)/g),
     ]
     expect(cands.length, 'the basis is applied at all').toBeGreaterThan(0)
-    // Since #1558 the drawn direction's operand is the LIVE-FOOTING velocity — a var whose
-    // in-loop assignments blend the fetch in (`vu·alive + …`) — so the trace to the fetch is one
-    // hop longer: component → tracked var → its assignments' operand → the textureLoad Let. The
-    // walk's per-step direction still reads the fetch directly, which is why the filter accepts
-    // EITHER depth and the uniqueness assertion below still bites.
-    const reachesFetch = (name: string): boolean => {
+    // Since #1565 the drawn direction's operand is a VALIDITY-GATED BILINEAR BLEND
+    // (`loadInterpolated`) across `posLive`'s valid neighbours, not a single fetch — so the trace
+    // to the fetch is a chain through the blend's own named terms (the four corner fetches and
+    // their weights) rather than one hop. The walk's per-step direction still reads the fetch
+    // directly (one hop), which is why the filter accepts ANY depth and the uniqueness assertion
+    // below still bites: whichever candidate's operand chain bottoms out at a real fetch is it.
+    const reachesFetch = (name: string, depth = 4): boolean => {
       const direct = new RegExp(`let ${name} = ([^;]+);`).exec(body)
-      if (direct) return direct[1]!.includes('textureLoad(flow_u_tex')
+      if (direct?.[1]!.includes('textureLoad(flow_u_tex')) return true
+      if (depth <= 0) return false
+      // Legacy #1558 shape: a mutable var whose in-loop assignments blend the fetch in.
       const assigns = [...body.matchAll(new RegExp(`^\\s*${name} = \\(\\((\\w+) \\* `, 'gm'))]
-      return (
-        assigns.length > 0 && assigns.every((a) => letOf(a[1]!).includes('textureLoad(flow_u_tex'))
-      )
+      if (assigns.length > 0) return assigns.every((a) => reachesFetch(a[1]!, depth - 1))
+      // #1565 shape: recurse into every identifier the binding itself references.
+      if (!direct) return false
+      const refs = [...new Set([...direct[1]!.matchAll(/\b_?[a-zA-Z]\w*\b/g)].map((m) => m[0]))]
+      return refs.some((r) => r !== name && reachesFetch(r, depth - 1))
     }
     const fromFlow = cands.filter((m) => {
       const c = letOf(m[2]!)

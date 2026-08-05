@@ -233,3 +233,72 @@ describe('adaptive DPR — opt-out and input hygiene', () => {
     expect(noteFrameInterval(SLOW)).toBe(true)
   })
 })
+
+// ═══ #1567 — per-source sample windows, one shared notch ═══════════════════
+//
+// Two concurrent maps are a supported configuration, and they used to interleave
+// their frame intervals into ONE 12-slot ring. The median then described neither
+// map: a fast map could fill the window with its own good frames and deny a
+// struggling sibling the degrade it needed. The NOTCH stays process-global — that
+// is documented and deliberate (adaptive-quality.ts header) — only the window is
+// per-source now.
+describe('#1567 per-source sample windows', () => {
+  beforeEach(() => {
+    _resetAdaptiveQualityForTests()
+  })
+
+  it('a fast sibling cannot deny a slow map its degrade', () => {
+    const slowMap = {}
+    const fastMap = {}
+    // Interleave: one slow frame, one fast frame, twelve times each. Under the old
+    // shared ring the window holds 6 slow + 6 fast and the lower-middle median is
+    // FAST — the slow map never degrades. Per-source, the slow map's own window
+    // fills with slow frames and it degrades on its 12th.
+    let slowChanges = 0
+    for (let i = 0; i < 12; i++) {
+      if (noteFrameInterval(SLOW, slowMap)) slowChanges++
+      noteFrameInterval(FAST, fastMap)
+    }
+    expect(slowChanges, 'the slow map must act on its OWN twelve frames').toBe(1)
+    expect(adaptiveQualityStep()).toBe(1)
+  })
+
+  it('one source filling its window does not fill another source-s', () => {
+    const a = {}
+    const b = {}
+    // 11 samples into A — one short of a decision.
+    for (let i = 0; i < 11; i++) expect(noteFrameInterval(SLOW, a)).toBe(false)
+    // B is untouched, so its first 11 must also decide nothing. If the rings were
+    // shared, B's very first sample would complete A's window and act here.
+    for (let i = 0; i < 11; i++) expect(noteFrameInterval(SLOW, b)).toBe(false)
+    expect(adaptiveQualityStep(), 'neither window is full yet').toBe(0)
+    expect(noteFrameInterval(SLOW, b), 'B-s twelfth completes B-s own window').toBe(true)
+  })
+
+  it('a notch change clears EVERY source window, not just the one that moved', () => {
+    const a = {}
+    const b = {}
+    // Fill B to 11 slow samples, then let A trigger a degrade.
+    for (let i = 0; i < 11; i++) noteFrameInterval(SLOW, b)
+    for (let i = 0; i < 12; i++) noteFrameInterval(SLOW, a)
+    expect(adaptiveQualityStep(), 'A degraded').toBe(1)
+    // B's 11 pre-change samples were measured at the OLD notch. If they survived,
+    // B's next single sample would complete a full slow window and degrade again
+    // immediately — header property 2 violated across sources.
+    expect(noteFrameInterval(SLOW, b), 'B-s stale window must have been cleared').toBe(false)
+    expect(adaptiveQualityStep()).toBe(1)
+  })
+
+  it('the notch itself stays process-global across sources', () => {
+    const a = {}
+    const b = {}
+    for (let i = 0; i < 12; i++) noteFrameInterval(SLOW, a)
+    expect(adaptiveQualityStep()).toBe(1)
+    // B never fed a sample, but it reads the SAME learned notch — this is the
+    // host-capability semantics the file header requires, and it must survive the
+    // per-source split.
+    for (let i = 0; i < 12; i++) noteFrameInterval(SLOW, b)
+    expect(adaptiveQualityStep(), 'B stepped down from A-s notch, not from 0').toBe(2)
+    expect(adaptiveDprScale()).toBe(1) // notch 2 is still a pure-LOD rung
+  })
+})

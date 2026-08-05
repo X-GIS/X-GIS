@@ -7,7 +7,8 @@
 
 import type * as AST from '../parser/ast'
 
-export type ExprClass = 'constant' | 'zoom-dependent' | 'per-feature-gpu' | 'per-feature-cpu'
+export type ExprClass =
+  'constant' | 'zoom-dependent' | 'input-dependent' | 'per-feature-gpu' | 'per-feature-cpu'
 
 /** GPU-safe built-in functions that map directly to WGSL. Exported so a
  *  test can assert this set ⊆ `BUILTIN_FN_NAMES` — every name routed to GPU
@@ -60,6 +61,13 @@ export function classifyExpr(expr: AST.Expr): ExprClass {
     case 'Identifier':
       if (expr.name === 'zoom') return 'zoom-dependent'
       return 'per-feature-gpu'
+
+    // A declared `input` (#1539) — a per-frame uniform, never per-feature.
+    // Resolved to this distinct kind by ir/resolve-inputs.ts before this
+    // function ever runs, so there is no name to string-match here (unlike
+    // `zoom` above); every InputRef reaching classify is already known-good.
+    case 'InputRef':
+      return 'input-dependent'
 
     case 'FieldAccess':
       // An EXPLICIT object must be classified through — an expression is
@@ -130,6 +138,7 @@ function merge(a: ExprClass, b: ExprClass): ExprClass {
   const order: Record<ExprClass, number> = {
     constant: 0,
     'zoom-dependent': 1,
+    'input-dependent': 1,
     'per-feature-gpu': 2,
     'per-feature-cpu': 3,
   }

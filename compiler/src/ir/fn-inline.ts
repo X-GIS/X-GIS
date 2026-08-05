@@ -93,6 +93,7 @@ function mapChildren(expr: AST.Expr, f: (e: AST.Expr) => AST.Expr): AST.Expr {
     case 'ColorLiteral':
     case 'BoolLiteral':
     case 'Identifier':
+    case 'InputRef':
       return expr
     case 'FieldAccess':
       return expr.object ? { ...expr, object: f(expr.object) } : expr
@@ -155,7 +156,16 @@ function rewriteStatement(
     case 'SourceStatement':
       return { ...s, properties: rewriteProps(s.properties) }
     case 'LayerStatement':
-      return { ...s, properties: rewriteProps(s.properties), utilities: rewriteLines(s.utilities) }
+      return {
+        ...s,
+        properties: rewriteProps(s.properties),
+        utilities: rewriteLines(s.utilities),
+        // #1538 — a stage-block body is an ordinary expression, so user fns
+        // are usable inside it and are inlined here like anywhere else.
+        ...(s.stages
+          ? { stages: s.stages.map((st) => ({ ...st, body: rewrite(st.body, st.line) })) }
+          : {}),
+      }
     case 'BackgroundStatement':
       return { ...s, utilities: rewriteLines(s.utilities) }
     case 'PresetStatement':

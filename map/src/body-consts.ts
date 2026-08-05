@@ -28,6 +28,7 @@
 
 import { activeBody, configureBody, type Body } from '@xgis/shared'
 import type { ConstDecl } from '@xgis/shader-dsl'
+import { bumpBodyEpoch } from './body-epoch'
 import { ECEF_CONSTS } from './shaders/dsl/ecef'
 import { PROJECTION_CONSTS } from './shaders/dsl/projections'
 
@@ -66,6 +67,14 @@ export function configureBodyConsts(body: Body): void {
   setConst(EARTH_E2_C, body.e2)
   setConst(WGS84_A_C, body.a)
   setConst(WGS84_E2_C, body.e2)
+  // #1568 — "Idempotent; safe to re-apply on a body switch" above is true for the
+  // ConstDecls and false for every consumer that SNAPSHOTS them. Mutating in place
+  // is invisible to a cache that already baked the old values into its entry, so
+  // this seam is also the single place that invalidates them: bump the epoch every
+  // key derived from a body-dependent emit folds in. Unconditional rather than
+  // `if (changed)` — the values are also written by the EARTH default path, and a
+  // wrong-planet frame costs more than an occasional cold key.
+  bumpBodyEpoch()
 }
 
 /** Construction-time body boot — the ONE seam the XGISMap ctor calls (#798 P2+P3).

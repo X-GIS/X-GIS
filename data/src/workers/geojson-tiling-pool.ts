@@ -14,6 +14,7 @@
 //   - dropSource(instanceId, name)                   → void (evict index)
 
 import type { GeoJSONVTOptions } from '@xgis/compiler'
+import { xlog } from '@xgis/shared'
 import type { InMsg, OutMsg } from './geojson-tiling-worker'
 
 let _worker: Worker | null = null
@@ -26,6 +27,22 @@ interface Pending<T> {
 
 const pendingSetSource = new Map<number, Pending<void>>()
 const pendingGetTile = new Map<number, Pending<Uint8Array>>()
+
+/** #1572 D — every index this pool has registered and not dropped, so a RESPAWNED worker
+ *  can be given them back.
+ *
+ *  A worker 'error' nulls `_worker`; the next `getTile` lazily spawns a fresh one whose
+ *  `indexes` map is empty, and an unknown index answers `tile-error` with
+ *  `sourceGone: true` — the flag that means "map disposed / source replaced". The
+ *  consumer reads that as benign teardown, caches an empty placeholder, and the key is
+ *  never requested again: after ONE mid-session crash every newly requested tile of a
+ *  still-live source renders empty forever, logged at `debug`.
+ *
+ *  The retained `geojson` is the SAME object `SourceManager.hostSeededFC` already holds
+ *  for the source's lifetime (#1235 gap 2), so this is one extra pointer, not a copy —
+ *  and `dropSource` / `disposeGeoJSONTilingPool` release it on the same schedule the
+ *  worker-side index is released. */
+const registered = new Map<string, InMsg & { kind: 'set-source' }>()
 
 /** A get-tile rejection that carries WHY it failed. `sourceGone` marks the one
  *  benign case: the instance's index was dropped (map disposed, or the source
@@ -52,7 +69,15 @@ function getWorker(): Worker {
   if (_worker !== null) return _worker
   // Vite-style worker creation. The `?worker` import suffix is
   // resolved at bundle time to a Worker constructor.
-  _worker = new Worker(new URL('./geojson-tiling-worker.ts', import.meta.url), { type: 'module' })
+  const spawned = new Worker(new URL('./geojson-tiling-worker.ts', import.meta.url), {
+    type: 'module',
+  })
+  _worker = spawned
+  // #1572 D — hand a respawned worker back every index it is expected to know, BEFORE any
+  // `get-tile` reaches it. No promise plumbing is needed: the worker processes its message
+  // queue in order, so a `get-tile` posted right after these finds the index built. On the
+  // first spawn `registered` is empty and this loop does nothing.
+  for (const msg of registered.values()) spawned.postMessage({ ...msg, taskId: _nextTaskId++ })
   _worker.addEventListener('message', (ev: MessageEvent) => {
     const m = ev.data as OutMsg
     if (m.kind === 'set-source-done') {
@@ -66,6 +91,11 @@ function getWorker(): Worker {
       if (p) {
         pendingSetSource.delete(m.taskId)
         p.reject(new Error(m.message))
+      } else {
+        // No awaiter ⇒ this was a post-respawn replay (#1572 D). Nothing can be retried
+        // from here, but it must not be silent: every tile of that source will now come
+        // back `sourceGone` and render empty.
+        xlog.error('[geojson-tiling] index replay failed after worker respawn', m.message)
       }
     } else if (m.kind === 'tile') {
       const p = pendingGetTile.get(m.taskId)
@@ -126,9 +156,17 @@ export function setSource(
 ): Promise<void> {
   const taskId = _nextTaskId++
   const indexKey = composeIndexKey(instanceId, sourceName)
+  const msg = { kind: 'set-source', taskId, indexKey, sourceName, geojson, options } as const
+  // Resolve the worker BEFORE recording, because a lazy spawn replays `registered` — and a
+  // key recorded first would be replayed AND posted below, indexing it twice on every
+  // first attach. Recording still precedes the post, so a worker that dies while this very
+  // build is in flight is handed the index on respawn (#1572 D). Replacing a source
+  // overwrites the entry, which is what the worker's own index map does with the same key.
+  const worker = getWorker()
+  registered.set(indexKey, msg)
   return new Promise<void>((resolve, reject) => {
     pendingSetSource.set(taskId, { resolve, reject })
-    post({ kind: 'set-source', taskId, indexKey, sourceName, geojson, options })
+    worker.postMessage(msg)
   })
 }
 
@@ -157,9 +195,13 @@ export function getTile(
  *  on the shared singleton: only this caller's namespaced key is dropped,
  *  so a sibling map's live index is untouched. */
 export function dropSource(instanceId: string, sourceName: string): void {
+  const indexKey = composeIndexKey(instanceId, sourceName)
+  // Released here as well as worker-side, so a dropped source's FeatureCollection is not
+  // pinned by the replay record and a respawn does not rebuild an index nobody wants.
+  registered.delete(indexKey)
   // No worker yet ⇒ nothing was ever indexed under this key.
   if (_worker === null) return
-  post({ kind: 'drop-source', indexKey: composeIndexKey(instanceId, sourceName) })
+  post({ kind: 'drop-source', indexKey })
 }
 
 /** Terminate the underlying worker. Test cleanup only — production
@@ -173,4 +215,5 @@ export function disposeGeoJSONTilingPool(): void {
   for (const p of pendingGetTile.values()) p.reject(new Error('pool disposed'))
   pendingSetSource.clear()
   pendingGetTile.clear()
+  registered.clear()
 }

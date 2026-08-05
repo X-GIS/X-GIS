@@ -313,21 +313,23 @@ describe('#1520 advected arrow — re-symbolized from the field UNDER it', () =>
     expect(cmp, 'band 1 is decided by comparing a speed against band_data[0]').not.toBeNull()
     const speed = /^length\(vec2<f32>\((\w+), (\w+)\)\)$/.exec(letOf(cmp![1]!))
     expect(speed, 'that speed is the magnitude of a sampled velocity pair').not.toBeNull()
-    // Since #1558 the pair is the LIVE-FOOTING tracker — a mutable whose every assignment blends
-    // the loop's OWN texture fetch in (`vu·alive + vuLive·(1−alive)`), so the value is still a
-    // sampled velocity, one hop removed. Following that hop is the assertion: each tracked
-    // component must be a var, and its in-loop assignments must be fed by the fetch.
+    // Since #1565 the pair is a VALIDITY-GATED BILINEAR BLEND across `posLive`'s valid
+    // neighbours (`loadInterpolated`), not a single raw fetch — so each component is bound to a
+    // division (the weighted sum over its weight total), and that division's four corner terms
+    // must themselves be fed by this component's texture. The corner fetches are counted, not
+    // parsed out of the weighted-sum expression: `arrow-density-cull.test.ts` already pins there
+    // being exactly four of them per component.
     for (const [name, tex] of [
       [speed![1]!, 'flow_u_tex'],
       [speed![2]!, 'flow_v_tex'],
     ] as const) {
-      const assigns = [...w.matchAll(new RegExp(`^\\s*${name} = \\(\\((\\w+) \\* `, 'gm'))]
-      expect(assigns.length, `${name} is the tracked live component`).toBeGreaterThan(0)
-      for (const a of assigns) {
-        expect(letOf(a[1]!), `each ${name} assignment blends the loop's own fetch`).toContain(
-          `textureLoad(${tex}`,
-        )
-      }
+      const def = letOf(name)
+      expect(def, `${name} is a weighted blend, not a bare fetch`).toContain('/')
+      const before = w.slice(0, w.indexOf(`let ${name} = `))
+      expect(
+        (before.match(new RegExp(`textureLoad\\(${tex}`, 'g')) ?? []).length,
+        `${name} is downstream of ${tex}'s four corner fetches`,
+      ).toBeGreaterThanOrEqual(4)
     }
     // …and the colour is a band ROW, not anything carried per instance. Alpha carries the train
     // fade on top — the FADE touches only alpha, so a fading glyph never reads as a different

@@ -52,6 +52,26 @@
 // The notch is a page-global singleton for the same reason the quality policy is: it
 // describes the HOST's capability, so it must survive a device-lost re-boot or an SPA
 // remount rather than re-learning the machine is slow every time.
+//
+// ## Why the NOTCH is global but the SAMPLE WINDOW is not (#1567)
+//
+// The paragraph above is the reason this file does NOT reset on a map boot, and it
+// stands. What did not follow from it is the sample ring being shared too. Two
+// concurrent maps are a supported configuration (mvt-worker-pool.ts reasons about
+// "two maps" explicitly), and they interleaved their per-map frame intervals into
+// ONE 12-slot window — so the median described neither map, and a fast map could
+// deny a struggling sibling its degrade by filling the window with its own good
+// frames. Each frame-clock source now keeps its own ring, keyed by a token it
+// passes in; the LEARNED NOTCH stays process-global exactly as the paragraph above
+// requires.
+//
+// The rings live in a WeakMap keyed by that token, so a ring dies with the object
+// that feeds it — no registry to enumerate and no teardown call to forget. Property
+// 2 (WINDOW CLEAR ON CHANGE) still holds across every source: a notch change bumps
+// a generation counter, and a ring whose generation is stale clears itself before
+// accepting its next sample. That is the same invariant, applied lazily, and it is
+// what stops map B's pre-change samples from immediately re-justifying the reverse
+// move for map A.
 
 /** The degradation ladder. Descending quality; index 0 is untouched.
  *
@@ -90,13 +110,45 @@ const RESTORE_MS = 20
  *  3 s — slow enough to be sure, fast enough that the user is not left in the jank. */
 const WINDOW = 12
 
-const samples = new Float64Array(WINDOW)
-let count = 0
-let write = 0
+/** One frame-clock source's sample window. `gen` is the notch generation the ring
+ *  was filled under; a stale one clears before its next sample (see the header). */
+interface SampleRing {
+  readonly samples: Float64Array
+  count: number
+  write: number
+  gen: number
+}
+
+/** Per-source rings. WeakMap so a ring is reclaimed with the object that feeds it —
+ *  a destroyed map's window cannot outlive it and there is nothing to unregister. */
+const rings = new WeakMap<object, SampleRing>()
+
+/** The ring for callers that pass no token — the single-map case and every unit
+ *  test. Shared, but shared by exactly the callers that could not tell two sources
+ *  apart anyway. */
+const DEFAULT_SOURCE: object = Object.freeze({})
+
 let stepIndex = 0
 let enabled = true
+/** Bumped on every notch change. See header property 2 — this is what clears every
+ *  source's window, not just the one whose sample triggered the change. */
+let notchGen = 0
 /** Scratch buffer for the median so a per-frame decision allocates nothing. */
 const sorted = new Float64Array(WINDOW)
+
+function ringFor(source: object): SampleRing {
+  let r = rings.get(source)
+  if (r === undefined) {
+    r = { samples: new Float64Array(WINDOW), count: 0, write: 0, gen: notchGen }
+    rings.set(source, r)
+  } else if (r.gen !== notchGen) {
+    // Lazy window clear: these samples were measured at a different notch.
+    r.count = 0
+    r.write = 0
+    r.gen = notchGen
+  }
+  return r
+}
 
 /** Turn the controller on/off. Off pins the ladder at notch 0 and drops every sample,
  *  so a host that opts out gets byte-identical behaviour to before this existed. */
@@ -112,8 +164,9 @@ export function isAdaptiveQualityEnabled(): boolean {
 
 function reset(nextStep: number): void {
   stepIndex = nextStep
-  count = 0
-  write = 0
+  // Every source's window is now stale — see header property 2. Bumping the
+  // generation invalidates all of them at once without holding strong refs.
+  notchGen++
 }
 
 /** The multiplier the DPR policy applies. 1 until the controller has proof the host
@@ -149,15 +202,24 @@ export function _resetAdaptiveQualityForTests(): void {
  *  idle map's ticks are cheap BY DEFINITION — sampling those would let a map sitting
  *  still convince the controller the machine is fast and undo a degrade the user
  *  needs. Returns true when the notch changed, so the caller can react without
- *  diffing the value itself. */
-export function noteFrameInterval(dtMs: number): boolean {
+ *  diffing the value itself.
+ *
+ *  `source` identifies the frame clock feeding this sample (#1567). Pass the object
+ *  that owns the clock — one map's RenderStats — so two concurrent maps keep
+ *  separate windows and the median describes ONE map's frames instead of an
+ *  interleave of both. Omitting it is correct for a single map and for tests. */
+export function noteFrameInterval(dtMs: number, source?: object): boolean {
   if (!enabled) return false
   // A non-finite or non-positive delta is a clock artifact, not a frame cost.
   if (!(dtMs > 0) || !Number.isFinite(dtMs)) return false
-  samples[write] = dtMs
-  write = (write + 1) % WINDOW
-  if (count < WINDOW) count++
-  if (count < WINDOW) return false
+  // #1567 — one ring per frame-clock source. Callers that pass nothing share
+  // DEFAULT_SOURCE, which is the pre-existing behaviour for a single map.
+  const ring = ringFor(source ?? DEFAULT_SOURCE)
+  const { samples } = ring
+  samples[ring.write] = dtMs
+  ring.write = (ring.write + 1) % WINDOW
+  if (ring.count < WINDOW) ring.count++
+  if (ring.count < WINDOW) return false
 
   sorted.set(samples)
   sorted.sort()

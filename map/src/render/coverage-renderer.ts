@@ -73,6 +73,11 @@ interface CoverageState {
    *  allocates. Null exactly when the textures are. */
   flowUView: RhiTextureView | null
   flowVView: RhiTextureView | null
+  /** f16(1)/f16(0) per cell — real data vs. nodata, the one thing `flowU`/`flowV` cannot say on
+   *  their own (#1565). Same lifetime as the pair above: present, and only present, alongside
+   *  them. */
+  flowValid: RhiTexture | null
+  flowValidView: RhiTextureView | null
   /** Peak speed the components were normalized by, in the speed band's own units. 0 when the
    *  field is calm or absent — the flow pass reads this to recover real velocity. */
   flowScale: number
@@ -120,6 +125,10 @@ export interface FlowFieldRegion {
    *  that only ever change when the coverage is re-armed. */
   u: RhiTextureView
   v: RhiTextureView
+  /** f16(1)/f16(0) validity mask over the SAME grid as `u`/`v` — lets a consumer blend across
+   *  cells the catalogue actually reports without smearing a nodata neighbour's packed `(0, 0)`
+   *  into the mix (#1565). */
+  valid: RhiTextureView
   /** Peak speed the components were normalized by, in the speed band's own units. */
   scale: number
   width: number
@@ -307,14 +316,18 @@ export class CoverageRenderer {
     let flowV: RhiTexture | null = null
     let flowUView: RhiTextureView | null = null
     let flowVView: RhiTextureView | null = null
+    let flowValid: RhiTexture | null = null
+    let flowValidView: RhiTextureView | null = null
     let flowScale = 0
     if (vec) {
       const packed = packFlowFieldUV(vec.speed, vec.direction, vec.speedCodes, vec.directionCodes)
       flowScale = packed.scale
       flowU = this.uploadR16fFrom(packed.u, nLon, nLat, 'coverage-flow-u')
       flowV = this.uploadR16fFrom(packed.v, nLon, nLat, 'coverage-flow-v')
+      flowValid = this.uploadR16fFrom(packed.valid, nLon, nLat, 'coverage-flow-valid')
       flowUView = this.rhi.createView(flowU)
       flowVView = this.rhi.createView(flowV)
+      flowValidView = this.rhi.createView(flowValid)
     }
 
     const views = {
@@ -335,6 +348,8 @@ export class CoverageRenderer {
       flowV,
       flowUView,
       flowVView,
+      flowValid,
+      flowValidView,
       flowScale,
       lutTex,
       nodeBuf,
@@ -346,13 +361,13 @@ export class CoverageRenderer {
       hidden: opts.hidden === true,
       filterKey,
       data: { min: dataMin, max: dataMax },
-      // 2 × r16float over the grid + the 256×1 rgba8 LUT, plus the vector pair when this
-      // coverage carries one, plus the drape-mesh node buffer (#1366 INC-3). Counting the
-      // flow textures matters: they are the SAME size as the value/valid pair, so a vector
-      // coverage costs twice a scalar one and the LRU budget would evict far too late if it
-      // did not know. The node term is small but constant per region, so it is counted for
-      // the same reason rather than rounded away.
-      bytes: nLon * nLat * 2 * (vec ? 4 : 2) + 256 * 4 + coverageNodeCount() * COVERAGE_NODE_STRIDE,
+      // 2 × r16float over the grid + the 256×1 rgba8 LUT, plus the vector TRIPLE (u, v, valid)
+      // when this coverage carries one, plus the drape-mesh node buffer (#1366 INC-3). Counting
+      // the flow textures matters: they are the SAME size as the value/valid pair, so a vector
+      // coverage costs 2.5× a scalar one (#1565 added the validity mask alongside u/v) and the
+      // LRU budget would evict far too late if it did not know. The node term is small but
+      // constant per region, so it is counted for the same reason rather than rounded away.
+      bytes: nLon * nLat * 2 * (vec ? 5 : 2) + 256 * 4 + coverageNodeCount() * COVERAGE_NODE_STRIDE,
     })
     this.arms.set(region, { handle, opts })
     this.lastOpts = opts
@@ -392,7 +407,7 @@ export class CoverageRenderer {
     // The VIEWS are the predicate, not the textures — the same one `hasFlowField` asks, so the
     // gate and the supply cannot disagree. (They are set together at upload; asking both would
     // be two chances to answer differently.)
-    if (!st || !st.flowUView || !st.flowVView) return null
+    if (!st || !st.flowUView || !st.flowVView || !st.flowValidView) return null
     const arm = this.arms.get(region)
     if (!arm) return null
     const [w, h] = arm.handle.header.size
@@ -408,6 +423,7 @@ export class CoverageRenderer {
     return {
       u: st.flowUView,
       v: st.flowVView,
+      valid: st.flowValidView,
       scale: st.flowScale,
       width: w,
       height: h,
@@ -732,6 +748,7 @@ export class CoverageRenderer {
     s.bindGroups.clear()
     if (s.flowU) this.rhi.destroyTexture(s.flowU)
     if (s.flowV) this.rhi.destroyTexture(s.flowV)
+    if (s.flowValid) this.rhi.destroyTexture(s.flowValid)
     this.states.delete(region)
   }
 

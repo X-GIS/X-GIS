@@ -109,4 +109,48 @@ describe('MvtWorkerPool — dispose() cancels a scheduled resolve-drain (D1)', (
     expect(inner.resolveScheduled).toBe(false)
     expect(inner.resolveQueue.length).toBe(0)
   })
+
+  // ═══ #1572 C — a BUFFERED job must be settled, not just discarded ═══
+  //
+  // The D1 fix above cleared `resolveQueue`, which is necessary and not sufficient: a
+  // 'compile-done' DELETES its job from `pending` (mvt-worker-pool.ts:199) and parks it
+  // here, so the rejection loop in dispose() — which iterates `pending` only — never sees
+  // it. The job was therefore in NEITHER settle path, its awaiter never settled, and the
+  // catalog loading slot it owns (released only by `compile().finally`) wedged for good.
+  //
+  // The D1 test could not observe this: it buffers a no-op `{resolve(){}, reject(){}}` and
+  // asserts only on `resolveQueue.length`. This one awaits a REAL promise.
+  it('rejects a job already buffered for drain instead of dropping it', async () => {
+    const pool = new MvtWorkerPool()
+    const inner = internals(pool)
+
+    let settled: 'resolved' | 'rejected' | 'never' = 'never'
+    const buffered = new Promise<void>((resolve, reject) => {
+      inner.resolveQueue.push({
+        job: { resolve: () => resolve(), reject: (e: Error) => reject(e), workerIndex: 0 },
+        slices: [],
+      })
+    })
+    const tracked = buffered.then(
+      () => {
+        settled = 'resolved'
+      },
+      () => {
+        settled = 'rejected'
+      },
+    )
+    inner.scheduleResolveDrain()
+
+    pool.dispose()
+    // Raced against a macrotask rather than awaited outright: without the fix the promise
+    // never settles, and a bare `await` would report that as a 5 s suite TIMEOUT instead
+    // of the assertion below naming what went wrong.
+    await Promise.race([tracked, new Promise((r) => setTimeout(r, 0))])
+
+    // Before the fix this stayed 'never' across every subsequent macrotask — the promise
+    // simply had no path to settlement left. Rejection (not resolution) is the contract:
+    // the pool is gone, so resolving would push slices into a torn-down sink.
+    expect(settled, 'a buffered job must settle when the pool is disposed').toBe('rejected')
+    expect(inner.resolveQueue.length).toBe(0)
+  })
 })

@@ -66,13 +66,27 @@ test.describe('PMTiles live: fast zoom should not leak backend state', () => {
             memory?: { usedJSHeapSize: number }
           }
         ).memory
+        // #1565: no `?? -1` sentinels — see the twin spec's note. Every gate below
+        // is a one-sided ceiling that -1 satisfies, and `catalog.dataCache` had
+        // already been dead since the store moved to `TileDataCache`, so
+        // `expect(after.dataCacheSize).toBeLessThan(2000)` asserted -1 < 2000.
+        // Throw on a missing leaf instead, so a rename kills the spec loudly.
+        const req = <T>(v: T | undefined | null, what: string): T => {
+          if (v === undefined || v === null)
+            throw new Error(`[leak-spec] traversal leaf missing: ${what}`)
+          return v
+        }
+        const breakdown = req(catalog?.getStateBreakdown?.(), 'catalog.getStateBreakdown()') as {
+          cached: number
+          loading: number
+        }
         return {
-          abortControllers: backend?.abortControllers?.size ?? -1,
-          pendingMvt: backend?.pendingMvt?.length ?? -1,
-          failedKeys: backend?.failedKeys?.size ?? -1,
-          loadingTiles: catalog?.loadingTiles?.size ?? -1,
-          dataCacheSize: catalog?.dataCache?.size ?? -1,
-          prefetchKeys: catalog?._prefetchKeys?.size ?? -1,
+          abortControllers: req(backend?.abortControllers?.size, 'backend.abortControllers.size'),
+          pendingMvt: req(backend?.pendingMvt?.length, 'backend.pendingMvt.length'),
+          failedKeys: req(backend?.failedKeys?.size, 'backend.failedKeys.size'),
+          loadingTiles: req(breakdown.loading, 'getStateBreakdown().loading'),
+          dataCacheSize: req(breakdown.cached, 'getStateBreakdown().cached'),
+          prefetchKeys: req(catalog?._prefetchKeys?.size, 'catalog._prefetchKeys.size'),
           heapMB: heap ? Math.round(heap.usedJSHeapSize / 1024 / 1024) : null,
         }
       })

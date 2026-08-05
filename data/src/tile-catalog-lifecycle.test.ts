@@ -160,3 +160,41 @@ describe('TileCatalog lifecycle (BUG 13: evict-shield drains under budget)', () 
     ).toBeLessThanOrEqual(2)
   })
 })
+
+// ═══ #1570 — a result that lands after destroy() has nowhere to go ═════════
+//
+// `destroy()` detached backends and drained the onDestroy callbacks but never
+// cleared `onTileLoaded` and set no latch. The window is real on EVERY
+// destroy-mid-load, because the shared MVT worker pool is a deliberately
+// never-disposed module singleton whose rAF / 250 ms self-drain keeps resolving
+// results after teardown. A late `acceptResult` then ran cacheTileData -> setSlice
+// + onTileLoaded -> VTR.uploadTile on a renderer that is gone, re-growing the dead
+// catalog's cache on the way out.
+describe('#1570 TileCatalog.destroy() latches out late results', () => {
+  it('clears onTileLoaded and drops a post-destroy acceptResult', () => {
+    const catalog = new TileCatalog()
+    const sink = vi.fn()
+    catalog.onTileLoaded = sink
+    const inner = catalog as unknown as {
+      acceptResult(key: number, result: unknown, sourceLayer?: string): void
+      cache: { size: number }
+    }
+    const key = tileKey(2, 1, 1)
+
+    // Control arm FIRST: while live, the same call reaches the sink and the cache.
+    // Without this the destroyed-arm below would pass on a catalog that never
+    // worked at all — the vacuous-gate shape (#996).
+    inner.acceptResult(key, null, 'l')
+    expect(sink, 'a live catalog fans out to its sink').toHaveBeenCalled()
+    const liveSize = inner.cache.size
+    expect(liveSize).toBeGreaterThan(0)
+    sink.mockClear()
+
+    catalog.destroy()
+    expect(catalog.onTileLoaded, 'the sink is unwired, not just unused').toBeNull()
+
+    inner.acceptResult(tileKey(2, 1, 2), null, 'l')
+    expect(sink, 'a late result must not re-enter the destroyed renderer').not.toHaveBeenCalled()
+    expect(inner.cache.size, 'and must not re-grow the dead catalog').toBe(liveSize)
+  })
+})
