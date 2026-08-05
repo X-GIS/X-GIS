@@ -15,6 +15,7 @@ export type Statement =
   | KeyframesStatement
   | FnStatement
   | StructStatement
+  | InputStatement
 
 // ═══ Expressions ═══
 
@@ -33,6 +34,7 @@ export type Expr =
   | ConditionalExpr
   | UnaryExpr
   | MatchBlock
+  | InputRef
 
 export type NumberLiteral = {
   kind: 'NumberLiteral'
@@ -300,6 +302,49 @@ export type StructStatement = {
 export type StructFieldType = 'f32' | 'string' | 'bool'
 
 export type StructField = { name: string; type: StructFieldType }
+
+// input threshold: f32 = 0.5
+// input highlight: color = #f59e0b
+// A language-defined host contract (#1539): the host sets the live value
+// at runtime via `map.setInput(name, v)`, uniform-write-only (never
+// recompiles). Referenced by NAME as a bare identifier elsewhere in the
+// program — resolved to `InputRef` by `ir/resolve-inputs.ts` before
+// classify/codegen ever run (mirrors how `ir/fn-inline.ts` resolves `fn`
+// calls away before classify sees them).
+export type InputStatement = {
+  kind: 'InputStatement'
+  name: string
+  type: InputType
+  /** A narrow literal, not a general Expr: the default seeds both the
+   *  initial GPU uniform-pool bytes and the compile-time CPU fallback —
+   *  both need a value knowable with zero runtime context. */
+  default: NumberLiteral | ColorLiteral
+  line: number
+}
+
+/** Deliberately its own union, not `StructFieldType` widened: a uniform
+ *  buffer can't hold a `string`/`bool`, and `color` has no meaning as a
+ *  per-feature schema column type. Different type universes. */
+export type InputType = 'f32' | 'color'
+
+/** A bare identifier resolved (by ir/resolve-inputs.ts, before classify
+ *  ever runs) to a reference to a declared `input`. Distinct Expr kind —
+ *  not `Identifier` — so every exhaustive switch over `Expr` is forced by
+ *  the compiler to handle it explicitly instead of silently falling
+ *  through the generic per-feature-field path (the `zoom` trap:
+ *  compiler/src/codegen/wgsl-expr.ts's bare-Identifier fallback silently
+ *  compiles an unrecognised name to the literal 0.0). Carries its own
+ *  `default` AND its resolved uniform-pool `slot` so no downstream
+ *  consumer (evaluator, GPU codegen, the runtime) needs a symbol table —
+ *  the slot is a fixed index within the fixed-size pool for its type,
+ *  assigned once by ir/resolve-inputs.ts in declaration order. */
+export type InputRef = {
+  kind: 'InputRef'
+  name: string
+  type: InputType
+  slot: number
+  default: NumberLiteral | ColorLiteral
+}
 
 // keyframes pulse { 0%: opacity-100  50%: opacity-30  100%: opacity-100 }
 export type KeyframesStatement = {

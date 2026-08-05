@@ -31,6 +31,16 @@ export const CAMERA_ZOOM_KEY = '$zoom' as const
  *  tileZoom. */
 export const CAMERA_PITCH_KEY = '$pitch' as const
 
+/** Reserved key PREFIX for a declared `input`'s live value (#1539) —
+ *  `props[INPUT_KEY_PREFIX + name]`. The evaluator's `InputRef` node
+ *  (resolved from a bare identifier by ir/resolve-inputs.ts before
+ *  evaluate() ever sees it) looks up this key, falling back to the
+ *  node's own carried `default` when absent — so a compile-time
+ *  const-fold (which passes `{}` as props) and a runtime host-set value
+ *  both resolve correctly through the same evaluator. Prefix, not a
+ *  single fixed key like $zoom/$pitch, since there can be many inputs. */
+export const INPUT_KEY_PREFIX = '$input:' as const
+
 /** Reserved key for the feature's stable ID. Mapbox `["id"]` (PR #91)
  *  and `["get", "$featureId"]` both resolve through this slot.
  *  Worker / runtime inject `feature.id` here when present. */

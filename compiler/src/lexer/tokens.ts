@@ -18,6 +18,7 @@ export enum TokenType {
   Keyframes, // keyframes
   Fn, // fn — user-defined functions (#1535; reintroduced after the #1072 prune)
   Struct, // struct — source field schemas (#1537; reintroduced after the #1072 prune)
+  Input, // input — host-contract declarations (#1539)
 
   // Units
   Px, // px
@@ -85,6 +86,7 @@ const KEYWORDS: Record<string, TokenType> = {
   keyframes: TokenType.Keyframes,
   fn: TokenType.Fn,
   struct: TokenType.Struct,
+  input: TokenType.Input,
   true: TokenType.Bool,
   false: TokenType.Bool,
 }

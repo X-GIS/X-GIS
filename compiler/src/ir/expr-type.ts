@@ -40,6 +40,13 @@ export function inferVecArity(expr: AST.Expr): 2 | 3 | 4 | null {
   switch (expr.kind) {
     case 'FnCall':
       return expr.callee.kind === 'Identifier' ? (VEC_ARITY.get(expr.callee.name) ?? null) : null
+    case 'InputRef':
+      // A `color`-typed input (#1539) IS a vec4 value — reusing this
+      // authority means the EXISTING X-GIS0018 (vector in scalar
+      // position) check automatically rejects `opacity-[highlight]`
+      // without a new diagnostic code, and stage blocks (X-GIS0020) can
+      // return a bare color input directly (`@color { return highlight }`).
+      return expr.type === 'color' ? 4 : null
     case 'FieldAccess':
       // An explicit-object component read collapses a vector to a lane.
       // (The object-less form is feature-property access — scalar.)

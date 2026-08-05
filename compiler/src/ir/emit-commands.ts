@@ -348,6 +348,9 @@ export interface SceneCommands {
    *  paint axis routes to compute — runtime falls back to the
    *  legacy uniform / inline-fragment path uniformly. */
   computePlan?: ComputePlanEntry[]
+  /** Program-wide `input` declarations (#1539), passed through from
+   *  `Scene.inputs` — see resolve-inputs.ts. Seeds map.ts's InputStore. */
+  inputs?: import('./resolve-inputs').ResolvedInputInfo[]
 }
 
 /**
@@ -505,6 +508,7 @@ export function emitCommands(scene: Scene, opts?: EmitOptions): SceneCommands {
     symbols: scene.symbols,
     palette,
     ...(computePlan.length > 0 ? { computePlan } : {}),
+    ...(scene.inputs?.length ? { inputs: scene.inputs } : {}),
   }
 }
 

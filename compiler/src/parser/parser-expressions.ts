@@ -376,6 +376,7 @@ export class ExpressionParser extends ParserCursor {
       t === TokenType.Preset ||
       t === TokenType.Fn ||
       t === TokenType.Struct ||
+      t === TokenType.Input ||
       // Short keywords that naturally appear inside utility names, e.g.
       // `from-red-500`, `to-blue-500`. Without these, `from` / `to`
       // would short-circuit the hyphen-joined name accumulator and
@@ -412,8 +413,10 @@ export class ExpressionParser extends ParserCursor {
         next.type === TokenType.SymbolDef ||
         next.type === TokenType.Source ||
         next.type === TokenType.Layer ||
+        next.type === TokenType.Preset ||
         next.type === TokenType.Fn ||
         next.type === TokenType.Struct ||
+        next.type === TokenType.Input ||
         // Short keywords that appear mid-name: from-red-500,
         // to-blue-500, etc. (`in` lexes as a plain identifier.)
         next.type === TokenType.From ||
