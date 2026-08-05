@@ -1,0 +1,22 @@
+xgis 1
+
+/* Fixture: `input` host-contract declarations (#1539).
+ * `threshold` and `highlight` are declared parameters the host sets at
+ * runtime with `map.setInput(name, value)` — a uniform write only, with no
+ * pipeline rebuild. With no host call they hold the defaults below. */
+
+input threshold: f32 = 1.0
+input highlight: color = #f59e0b
+
+source poly {
+  type: geojson
+  data: { "type": "FeatureCollection", "features": [
+    { "type": "Feature", "geometry": { "type": "Polygon", "coordinates": [[[-40, -25], [40, -25], [40, 25], [-40, 25], [-40, -25]]] }, "properties": {} }
+  ] }
+}
+
+layer painted {
+  source: poly
+  @color { return highlight }
+  | opacity-[threshold]
+}

@@ -161,17 +161,18 @@ becomes that keyword token, `true`/`false` become `BOOL`, otherwise `IDENT`. The
 keywords (major 1):
 
 ```
-source  layer  background  preset  fn  struct  import  symbol  keyframes  from  to
+source  layer  background  preset  fn  struct  input  import  symbol  keyframes  from  to
 ```
 
 Every keyword except `from` and `to` opens a top-level statement (§2). `from` and
 `to` begin no statement — they are keyframe selectors / aliases (§2.11) and may also
-appear as `utility-name` segments (§3.10), as may `fn` and `struct` (`fn-*` /
-`-struct-` hyphen-joined names stay valid, §3.10). `true` / `false` are keyed in the
+appear as `utility-name` segments (§3.10), as may `fn`, `struct` and `input` (`fn-*` /
+`-struct-` / `input-*` hyphen-joined names stay valid, §3.10). `true` / `false` are keyed in the
 same table but lex as `BOOL`. The pre-#1072 reserved-only keywords (`let show style if
 else for in return place view on simulate analyze enum export`) were removed from the
-table — each now lexes as an ordinary `IDENT`; `fn` and `struct` were REINTRODUCED as
-real keywords by #1535 (§2.10) and #1537 (§2.16).
+table — each now lexes as an ordinary `IDENT`; `fn`, `struct` and `input` were
+REINTRODUCED / ADDED as real keywords by #1535 (§2.10), #1537 (§2.16) and #1539
+(§2.17).
 
 ## 1.7 Operators and punctuation
 
@@ -597,6 +598,60 @@ layer boats {
   | size-[.speed * 2]
 }
 ```
+
+## 2.17 `input`
+
+```
+input-statement = "input" IDENT ":" input-type "=" default-literal
+input-type      = "f32" | "color"
+default-literal = NUMBER    (* when input-type is "f32"   *)
+                | COLOR     (* when input-type is "color" *)
+```
+
+A **host contract** (#1539): a named, typed parameter the embedding application sets
+at runtime with `map.setInput(name, value)`, referenced from any expression by bare
+name. The declaration is what makes the name resolvable — an undeclared identifier
+keeps its existing meaning (a feature-field read), so `input` adds a namespace rather
+than shadowing one.
+
+The default is a **literal of the declared type**, checked at parse time: a `#hex` on
+an `: f32` (or a number on a `: color`) is `X-GIS0022`, and a type outside the two
+above is `X-GIS0021`. A duplicate name is `X-GIS0023`; a declared-but-never-referenced
+input is `X-GIS0024` (a WARNING, not an error — a host may legitimately set an input
+the current style doesn't visibly use).
+
+Each declaration is assigned a slot in a fixed-size reserved uniform pool, in
+declaration order and independently per type (8 `f32`, 4 `color`). Exceeding either
+pool is `X-GIS0025`. A `color` input is a vec4 value in its own right, so it may be
+returned from a `@color` / `@stroke` stage block (§2.15b) directly, and using one in a
+scalar position is the ordinary `X-GIS0018`.
+
+Setting an input is a **uniform write only** — no pipeline is rebuilt, which is the
+whole point of declaring it rather than recompiling the style. `setInput` throws on an
+undeclared name or a value whose type doesn't match the declaration; it never silently
+does nothing.
+
+```xgis
+xgis 1
+input threshold: f32 = 0.5
+input highlight: color = #f59e0b
+source w { type: geojson, url: "w.geojson" }
+layer risk {
+  source: w
+  | opacity-[threshold]
+  @color { return highlight }
+}
+```
+
+```js
+map.setInput('threshold', 0.8) // next frame only — no recompile
+map.getInput('threshold') // → 0.8
+```
+
+> Backend note: an `input` referenced from a PAINT expression is read in the shader
+> (the compiler routes `input`-dependent paint values to GPU codegen, not to a CPU
+> re-evaluation). The WebGL2 backend compiles no per-feature polygon fill variant, so
+> `input`-driven paint is **WebGPU-only** today. Tracked on #1539.
 
 ---
 

@@ -1,0 +1,8 @@
+// @case invalid
+// @construct input-statement
+// @desc an `input` default literal must match the declared type — a colour on an `: f32` is rejected
+// @expect-code X-GIS0022
+xgis 1
+input threshold: f32 = #f59e0b
+source w { type: geojson, url: "w.geojson" }
+layer l { source: w  | opacity-80 }

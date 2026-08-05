@@ -13,6 +13,7 @@
 // touches only the shared Maps + the injected callbacks (all vi.fn stubs).
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { InputStore } from './render/input-store'
 
 // Spy the tiling-pool functions on the SHARED @xgis/data namespace so
 // newTilingInstanceId is deterministic and dropSource is observable. (The real
@@ -44,6 +45,7 @@ function makeManager() {
 
   const mgr = new SourceManager({
     rawDatasets,
+    inputs: new InputStore(),
     registerVtSource: (key, source) => {
       registered.set(key, source)
     },

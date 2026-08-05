@@ -1,0 +1,9 @@
+// @case valid
+// @construct input-statement
+// @desc `input` declares a typed host parameter; f32 and color forms, each referenced by bare name
+xgis 1
+input threshold: f32 = 0.5
+input highlight: color = #f59e0b
+source w { type: geojson, url: "w.geojson" }
+layer risk { source: w  | opacity-[threshold] }
+layer tint { source: w  @color { return highlight } }

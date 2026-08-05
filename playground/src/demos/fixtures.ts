@@ -539,6 +539,13 @@ export const DEMOS_FIXTURES: Record<string, Demo> = {
       'The same scene with the colour written as an ordinary fill utility — must render pixel-identical to fixture_stage_color.',
     source: load('fixture-stage-color-twin.xgis'),
   },
+  fixture_input_live: {
+    name: 'Fixture: `input` host contract (#1539)',
+    tag: 'fixture',
+    description:
+      'Declared `input`s driving opacity and @color. Drive them live from the console: `__xgisMap.setInput("threshold", 0.3)` / `setInput("highlight", "#22c55e")` — a uniform write, no pipeline rebuild.',
+    source: load('fixture-input-live.xgis'),
+  },
   fixture_fn_binding: {
     name: 'Fixture: user-fn binding (#1535)',
     tag: 'fixture',
