@@ -118,6 +118,20 @@ export interface PbfRasterizerDeps {
    *  glyph is the PRIMARY render, not a placeholder awaiting a PBF that never
    *  comes. Defaults to `fallback` when omitted (legacy: CJK via PBF). */
   cjkFull?: GlyphRasterizer
+  /** Full Canvas2D rasterizer used when NO PBF is coming for a codepoint (#1574): every
+   *  async provider has RESOLVED the range and none of them has the glyph.
+   *
+   *  `fallback` is metrics-only by design — correct layout, all-zero SDF — because it
+   *  covers the 50-200 ms window before the range lands, and paying the ~8 ms full
+   *  Canvas2D path per glyph on a cold pan is what it exists to avoid. That premise
+   *  expires the moment the range fails: `GlyphPbfCache` marks a failed range terminal for
+   *  the session, so the placeholder became the FINAL answer and one blip on range 0-255
+   *  left every Latin label correctly spaced and completely inkless. Once nothing is
+   *  coming, the cost argument is gone and the glyph must actually be drawn.
+   *
+   *  Same rasterizer `cjkFull` gets in practice (text-stage wires one `fullFallback` to
+   *  both); the defaulting chain keeps a caller that supplies neither working as before. */
+  fullFallback?: GlyphRasterizer
   /** Ordered chain of glyph sources. Walked left-to-right per glyph;
    *  the first sync hit wins. Adding a provider later via
    *  `addProvider()` appends to the chain. */
@@ -131,12 +145,14 @@ export interface PbfRasterizerDeps {
 export class PbfRasterizer implements GlyphRasterizer {
   private readonly fallback: GlyphRasterizer
   private readonly cjkFull: GlyphRasterizer
+  private readonly fullFallback: GlyphRasterizer
   private readonly providers: GlyphProvider[]
   private readonly onLanded: (fontKey: string, codepoint: number) => void
 
   constructor(deps: PbfRasterizerDeps) {
     this.fallback = deps.fallback
     this.cjkFull = deps.cjkFull ?? deps.fallback
+    this.fullFallback = deps.fullFallback ?? deps.cjkFull ?? deps.fallback
     // Defensive copy — caller's array can still be mutated, but our
     // walking-order isn't affected by their later splices.
     this.providers = [...deps.providers]
@@ -205,12 +221,43 @@ export class PbfRasterizer implements GlyphRasterizer {
     const { fontKey, codepoint } = req
     for (const p of this.providers) {
       if (!p.ensure) continue
+      // Already terminal for this range, and the sync probe above missed: there is nothing
+      // left to schedule and nothing new to report. Skipping also suppresses the
+      // SYNCHRONOUS `onReady` a LOADED range fires on every `ensure` — harmless while the
+      // callback re-checked `get()`, but with the unconditional notify below it would
+      // invalidate the slot on every frame for a codepoint the range simply lacks.
+      if (p.isResolved?.(fontstack, codepoint)) continue
       p.ensure(fontstack, codepoint, () => {
-        if (p.get(fontstack, codepoint)) this.onLanded(fontKey, codepoint)
+        // Fire on EITHER outcome (#1574). A landed glyph upgrades the slot, as before —
+        // but a range that resolved WITHOUT the glyph must invalidate it too, because the
+        // cached slot is the metrics-only placeholder and step 3 answers differently once
+        // nothing is coming. The old re-check (`if (p.get(...))`) skipped exactly the case
+        // that needed the invalidation most, leaving the inkless slot on screen. A failed
+        // range never queues a callback again, so this cannot loop.
+        this.onLanded(fontKey, codepoint)
       })
     }
 
-    // 3. Fall back to the Canvas2D / system path so this frame draws.
-    return this.fallback.rasterize(req)
+    // 3. Fall back to the Canvas2D / system path so this frame draws. WHICH path depends
+    //    on whether a PBF is still coming: metrics-only (zero SDF, cheap) while a range is
+    //    still in flight, the full drawing path once every async provider has resolved and
+    //    none of them has this glyph — see `fullFallback`.
+    return this.noGlyphIsComing(fontstack, codepoint)
+      ? this.fullFallback.rasterize(req)
+      : this.fallback.rasterize(req)
+  }
+
+  /** True when every async-capable provider has reached a terminal state for this
+   *  codepoint's range and none of them produced the glyph. A provider that cannot answer
+   *  (`isResolved` absent) is treated as still pending — the conservative side, since it
+   *  keeps the cheap placeholder rather than paying the full path on a cold pan. */
+  private noGlyphIsComing(fontstack: string, codepoint: number): boolean {
+    let anyAsync = false
+    for (const p of this.providers) {
+      if (!p.ensure) continue
+      anyAsync = true
+      if (!p.isResolved?.(fontstack, codepoint)) return false
+    }
+    return anyAsync
   }
 }
