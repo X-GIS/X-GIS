@@ -546,6 +546,27 @@ export const DEMOS_FIXTURES: Record<string, Demo> = {
       'Declared `input`s driving opacity and @color. Drive them live from the console: `__xgisMap.setInput("threshold", 0.3)` / `setInput("highlight", "#22c55e")` — a uniform write, no pipeline rebuild.',
     source: load('fixture-input-live.xgis'),
   },
+  fixture_stdlib_star: {
+    name: 'Fixture: stdlib star, authored in .xgis (#1540)',
+    tag: 'fixture',
+    description:
+      'A symbolizer defined in /stdlib/shapes.xgis and imported over HTTP. Pixel-parity twin: fixture_builtin_star (_stdlib-shape-parity.spec.ts).',
+    source: load('fixture-stdlib-star.xgis'),
+  },
+  fixture_builtin_star: {
+    name: 'Fixture: built-in star (parity twin of #1540)',
+    tag: 'fixture',
+    description:
+      'The same glyph via the engine built-in `shape-star` — must render pixel-identical to fixture_stdlib_star.',
+    source: load('fixture-builtin-star.xgis'),
+  },
+  fixture_stdlib_star7: {
+    name: 'Fixture: stdlib star7, no built-in twin (#1540)',
+    tag: 'fixture',
+    description:
+      'A 7-pointed star that exists only because the imported .xgis module declares it — the extension half of the self-hosting proof.',
+    source: load('fixture-stdlib-star7.xgis'),
+  },
   fixture_fn_binding: {
     name: 'Fixture: user-fn binding (#1535)',
     tag: 'fixture',
