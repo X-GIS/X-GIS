@@ -210,6 +210,22 @@ export function wireFrameColour(
   // opaque pass fail-loud every frame ("got 2 colour attachments") AND allocated a
   // scene-sized rg32uint nothing on that backend ever reads.
   const pick = isPickEnabled() && ctx.rhi.caps.presentablePassMrt
+  // ?debug=overdraw routes EVERY scene pass's colour target to the r16float
+  // accumulator (render-targets.ts), and only the trailing compose writes the
+  // swapchain — but that compose is still raw WebGPU (P6): it unwraps a native
+  // pass encoder and calls `ctx.device`. On an immediate device it therefore
+  // throws every frame until map.ts halts the loop, and merely declining IN the
+  // compose is not the fix — it leaves the accumulator routing in place, so
+  // nothing writes the swapchain at all and the frame goes BLANK.
+  //
+  // The gate belongs here, at the authority that routes the target: with
+  // overdraw off for the frame, no accumulator is allocated, the colour target
+  // resolves normally, the scene passes draw straight to the swapchain, and the
+  // compose declines through its own `!overdrawAccumTexture` guard with no
+  // capability check of its own. THAT reproduces the forced-WebGL2 twin, which
+  // binds FBO 0 directly and never consults RenderTargets at all — an ordinary
+  // map on a transparent clear (#1046 Inc-F2d).
+  const overdraw = DEBUG_OVERDRAW && ctx.rhi.caps.executionModel !== 'immediate'
   const { useResolve, colorView, sceneResolveView, colorViewScreen, sceneColorSampleView } =
     ctx.rt.ensure(
       ctx.scene.w,
@@ -218,7 +234,7 @@ export function wireFrameColour(
       ctx.screen.h,
       sc,
       pick,
-      DEBUG_OVERDRAW,
+      overdraw,
       screenView,
     )
   ctx.useResolve = useResolve

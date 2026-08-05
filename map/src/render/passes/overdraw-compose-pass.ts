@@ -28,20 +28,6 @@ class OverdrawComposePass implements RenderPass {
   execute(ctx: FrameContext, _scene: SceneView, host: OverdrawComposePassHost): void {
     if (!ctx.rt.overdrawAccumTexture) return
     const { enc, screenView } = requireRhiFrame(ctx, 'overdraw-compose')
-    // This body is still raw WebGPU (P6): `unwrapWebGpuPass` below throws by
-    // design on a foreign wrapper, and `ctx.device` is the fail-loud stub on
-    // WebGL2 — so on an immediate device the pass CRASHES the frame rather than
-    // declining it, and `map.ts` halts the loop after three such frames. The
-    // accumulator guard above does not prevent it: the texture is provisioned on
-    // `debugOverdraw` alone, with no backend condition (render-targets.ts), so a
-    // WebGL2 device allocates one and walks straight in.
-    //
-    // Skipping matches the forced-WebGL2 twin exactly — it has no accumulator
-    // and no compose, so `?debug=overdraw` there renders an ordinary map on a
-    // transparent clear. The fourth and last interim executionModel fork
-    // (execution-model-confinement.test.ts); it dies with this body's move onto
-    // a Material, like the other three (#1046 Inc-F2d).
-    if (ctx.rhi.caps.executionModel === 'immediate') return
     ctx.passScope('overdraw-compose', () => {
       const pipeline = host.renderer.ensureOverdrawCompose()
       const rhiPass = enc.beginRenderPass({

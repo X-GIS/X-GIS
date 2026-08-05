@@ -34,15 +34,16 @@ import { makeProjectionToken } from '../projection-token'
 import type { FrameContext } from '../frame-context'
 import type { SceneView } from '../scene-view'
 
-function run(hasSource: boolean) {
+function run(hasSource: boolean, executionModel: 'immediate' | 'deferred' = 'immediate') {
   const captured: unknown[] = []
   const beginRenderPass = vi.fn((desc: Record<string, unknown>) => {
     const p = { desc, end: () => undefined }
     captured.push(p)
     return p
   })
+  const rhi = { __rhiDevice: true, caps: { executionModel } }
   const ctx = {
-    rhi: { __rhiDevice: true, caps: { executionModel: 'deferred' } },
+    rhi,
     rhiEncoder: { beginRenderPass },
     rhiScreenView: { __screen: true },
     rhiColorView: { __color: true },
@@ -95,27 +96,33 @@ function run(hasSource: boolean) {
     hasOit: false,
   } as unknown as SceneView
   opaquePass.execute(ctx, scene, host as never)
-  return { render, renderRhiChecker, captured }
+  return { render, renderRhiChecker, captured, rhi }
 }
 
 describe('opaque pass — the checker arm (#1046 Inc-F2d)', () => {
-  it('NO raster source + ?debug=checker ⇒ the analytic checker is drawn', () => {
-    const { render, renderRhiChecker, captured } = run(false)
+  it('NO raster source + ?debug=checker + immediate ⇒ the analytic checker is drawn', () => {
+    const { render, renderRhiChecker, captured, rhi } = run(false)
     expect(
       renderRhiChecker,
       'the chain drew no checker with ?debug=checker and no raster source — the twin was this ' +
         "call's only caller, so deleting the twin leaves the live-render gate with a blank frame",
     ).toHaveBeenCalledTimes(1)
     expect(render, 'the real raster draw has no source to draw').not.toHaveBeenCalled()
-    // Drawn INTO the frame's sub-pass, not some pass of its own, and at SCENE
-    // geometry like every other draw in this pass (screen is deliberately a
-    // different size in this harness, so a screen/scene mix-up cannot pass).
-    const [rhiArg, passArg, , , , , w, h, dpr] = renderRhiChecker.mock.calls[0]!
-    expect(rhiArg, 'the RHI device by identity, not a re-wrap').toEqual({
-      __rhiDevice: true,
-      caps: { executionModel: 'deferred' },
-    })
+    // Every argument, because the e2e that consumes this asserts a texel
+    // PERCENTAGE — a checker drawn with a swapped centre or at screen geometry
+    // still clears 60% and would sail through the only other gate there is.
+    const [rhiArg, passArg, camArg, projType, lon, lat, w, h, dpr] = renderRhiChecker.mock.calls[0]!
+    expect(
+      rhiArg,
+      'the RHI device BY IDENTITY — the draper + checker texture are cached per ' +
+        'device, so a re-wrap silently re-bakes both',
+    ).toBe(rhi)
     expect(passArg, 'the checker rides the opaque sub-pass').toBe(captured[0])
+    expect(camArg, 'the frame camera, not a substitute').toHaveProperty('getViewForProjection')
+    // projType/lon/lat come from the pass's own unwrapProjection of ctx.projection,
+    // which this harness built as (0, 0, 0). A transposed lon/lat pair passed the
+    // first version of this test.
+    expect([projType, lon, lat], 'the projection triplet, in order').toEqual([0, 0, 0])
     expect([w, h, dpr], 'scene geometry, never screen').toEqual([800, 600, 1])
   })
 
@@ -126,5 +133,25 @@ describe('opaque pass — the checker arm (#1046 Inc-F2d)', () => {
     const { render, renderRhiChecker } = run(true)
     expect(render).toHaveBeenCalledTimes(1)
     expect(renderRhiChecker, 'the checker must never cover a real source').not.toHaveBeenCalled()
+  })
+
+  it('a DEFERRED device draws NOTHING sourceless — the #1041 parity contract', () => {
+    // debug-flags.ts declares it: "Production sourceless frames draw nothing
+    // there (WebGPU parity … #1041)". The checker is not portable to that
+    // backend even if we wanted it: `renderRhiChecker` bakes
+    // `RasterDraper(rhi, 'rgba8unorm', 1)`, shaped for the twin's single-sample
+    // screen pass, so on a bgra8unorm/MSAA-4 WebGPU pass it is a validation
+    // error every frame — and neither this file nor the WebGL2-only live-render
+    // gate would ever see it.
+    const { render, renderRhiChecker } = run(false, 'deferred')
+    expect(
+      renderRhiChecker,
+      'the checker ran on a deferred device: that breaks the documented #1041 sourceless-parity ' +
+        'contract AND binds a twin-shaped pipeline into a WebGPU pass',
+    ).not.toHaveBeenCalled()
+    expect(
+      render,
+      'sourceless means the real draw is skipped too — a blank frame',
+    ).not.toHaveBeenCalled()
   })
 })
