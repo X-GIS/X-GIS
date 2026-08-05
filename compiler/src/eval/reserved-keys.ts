@@ -115,6 +115,17 @@ export function makeEvalProps(opts: {
   /** Raw GeoJSON geometry object — exposed via `["within"]` containment.
    *  Only the filter-eval sites that hold the full geometry supply it. */
   geometry?: unknown
+  /** Live values for declared `input`s (#1539), keyed by the DECLARED name
+   *  (no sigil — this helper applies `INPUT_KEY_PREFIX`). Only the render-path
+   *  eval sites that hold the map's InputStore supply it; worker / decode
+   *  sites omit it and every `InputRef` falls back to its carried compile-time
+   *  default, the same proxy contract `["zoom"]` has with tileZoom.
+   *
+   *  Value shape mirrors what `evaluate()` yields for the corresponding
+   *  literal, so a live value and a carried default are interchangeable
+   *  downstream: `f32` → number, `color` → hex STRING (ColorLiteral
+   *  evaluates to `expr.value`, the hex text — not an RGBA tuple). */
+  inputs?: Readonly<Record<string, number | string>>
 }): Record<string, unknown> {
   // Defensive: coerce non-plain-object props to {}. A host passing
   // a string or array (TypeScript-typed-as-record cast at the
@@ -136,5 +147,10 @@ export function makeEvalProps(opts: {
     out[GEOMETRY_TYPE_KEY] = normalizeGeometryType(opts.geometryType)
   }
   if (opts.geometry !== undefined) out[GEOMETRY_KEY] = opts.geometry
+  if (opts.inputs !== undefined) {
+    // Prefixed, so a declared input can never collide with a feature
+    // property of the same name (the props spread above owns bare keys).
+    for (const name of Object.keys(opts.inputs)) out[INPUT_KEY_PREFIX + name] = opts.inputs[name]
+  }
   return out
 }

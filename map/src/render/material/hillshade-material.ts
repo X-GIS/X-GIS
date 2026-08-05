@@ -34,6 +34,15 @@ export type HillshadeTile = RasterTile
 const HS_GLOBAL_BINDING = 3
 
 export class HillshadeDraper {
+  /** Release the GPU objects this draper owns (#1578). Called by `rebuildForQuality()`
+   *  before the reference is dropped — a quality flip is live-session churn, not teardown,
+   *  so nothing else would ever reclaim these. */
+  destroy(): void {
+    for (const m of this.materials.values()) m.destroy()
+    this.materials.clear()
+    this.rhi.destroySampler(this.nearestSampler.sampler)
+  }
+
   /** One Material per `${methodFlag}:${pick}` — the fragment is SPECIALISED to the
    *  layer's hillshade-method (see buildHillshadeModule), so the pipeline carries
    *  only that method's math instead of branching over all five per fragment. Built

@@ -16,16 +16,17 @@
 // Slot assignment: each declared input gets a fixed index into the
 // map/src reserved uniform pool for its type (`input_f32_0..7`,
 // `input_color_0..3`), assigned deterministically by declaration order,
-// independently per type. The pool sizes here MUST match
-// map/src/shaders/dsl/consts.ts's INPUT_F32_POOL_SIZE /
-// INPUT_COLOR_POOL_SIZE — duplicated rather than imported because
-// compiler/ has no dependency on map/ (and must not gain one).
+// independently per type. The pool sizes below are the LANGUAGE limit and
+// the single authority: map/src/shaders/dsl/polygon.ts's reserved
+// `input_f32_N` / `input_color_N` fields are pinned against these exact
+// constants (imported via @xgis/compiler, never mirrored), so the two
+// cannot drift.
 
 import type * as AST from '../parser/ast'
 import type { Diagnostic } from '../diagnostics/diagnostic'
 import { INPUT_DUPLICATE, INPUT_UNUSED, INPUT_POOL_EXHAUSTED } from '../diagnostics/diagnostic'
 
-/** Mirror of map/src/shaders/dsl/consts.ts's pool sizes — see file header. */
+/** Reserved GPU uniform-pool sizes — see file header. */
 export const INPUT_F32_POOL_SIZE = 8
 export const INPUT_COLOR_POOL_SIZE = 4
 
@@ -77,7 +78,7 @@ export function resolveInputs(
         message:
           `\`input ${decl.name}\` exceeds the reserved \`${decl.type}\` input pool ` +
           `(${poolSize} slots — ${slot + 1} declared).`,
-        help: `Reduce the number of \`${decl.type}\`-typed inputs, or raise INPUT_${decl.type === 'f32' ? 'F32' : 'COLOR'}_POOL_SIZE in map/src/shaders/dsl/consts.ts.`,
+        help: `Reduce the number of \`${decl.type}\`-typed inputs, or raise INPUT_${decl.type === 'f32' ? 'F32' : 'COLOR'}_POOL_SIZE (and the matching reserved uniform fields in map's polygon struct).`,
       })
       continue
     }

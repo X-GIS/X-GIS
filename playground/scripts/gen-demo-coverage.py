@@ -152,9 +152,46 @@ def currents():
     return path, int(valid.sum()), float(speed[valid].max())
 
 
+def currents_overlap():
+    """S-111 twin that OVERLAPS synthetic-currents.h5 by half its width — the #1585 fixture.
+
+    The existing eastern twin (synthetic-currents-east.h5) is shifted by EXACTLY one width so the
+    two domains ABUT, which is what `_s111-multiregion-gate` needs and is also why that gate is
+    structurally blind to overlap ownership: with no shared ground, no region can draw on another's
+    water. Shifting by HALF a width instead puts this domain's western half on top of the west
+    fixture's eastern half, which is the real NOAA shape (cbofs ∩ dbofs, wcofs ⊃ sfbofs).
+
+    NO nodata and a CONSTANT field, deliberately. Every node in the box is valid, so a suppression
+    failure shows as the overlap band filling with this domain's colour rather than as a subtle
+    thinning; and 6.5 kn due east is far outside the west fixture's range (max ≈ 2.2 kn, flowing
+    broadly north), so the two are separated in BOTH the band colour and the heading. A fixture
+    that could only be told apart by density would be a weak discriminator here, since density is
+    exactly what the bug perturbs."""
+    N_LON, N_LAT = 32, 48
+    # The west fixture's origin plus HALF its node span: 31 × 0.025 / 2 = 0.3875.
+    ORIGIN = (-76.58 + 0.3875, 36.85)
+    SPACING = (0.025, 0.055)
+    FILL = -9999.0
+    speed = np.full((N_LAT, N_LON), 6.5, dtype=np.float32)
+    direction = np.full((N_LAT, N_LON), 90.0, dtype=np.float32)  # due east
+    gf = [
+        ["surfaceCurrentSpeed", "Surface current speed", "knots", str(FILL), "H5T_FLOAT", "0.00", "", "geSemiInterval"],
+        ["surfaceCurrentDirection", "Surface current dir", "arc-degree", str(FILL), "H5T_FLOAT", "0.0", "359.9", "closedInterval"],
+    ]
+    path = os.path.join(OUT, "synthetic-currents-overlap.h5")
+    with h5py.File(path, "w", libver="earliest") as f:
+        f.attrs["productSpecification"] = "INT.IHO.S-111.1.2"
+        f.attrs["horizontalCRS"] = np.int32(4326)
+        f.attrs["surfaceCurrentDepth"] = np.float32(-2.0)
+        _write_dcf2(f, "SurfaceCurrent", N_LAT, N_LON, ORIGIN[0], ORIGIN[1], SPACING[0], SPACING[1],
+                    [("surfaceCurrentSpeed", speed[::-1, :]), ("surfaceCurrentDirection", direction[::-1, :])], gf)
+    valid = speed != FILL
+    return path, int(valid.sum()), float(speed[valid].max())
+
+
 def main():
     os.makedirs(OUT, exist_ok=True)
-    for fn in (bathymetry, currents):
+    for fn in (bathymetry, currents, currents_overlap):
         path, valid, mx = fn()
         print(f"wrote {os.path.relpath(path):44s} {os.path.getsize(path):6d} B  "
               f"valid={valid} max={mx:.2f}")

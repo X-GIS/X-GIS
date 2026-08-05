@@ -393,9 +393,9 @@ export class HillshadeRenderer {
     this.format = ctx.format
   }
 
-  /** A quality (MSAA / picking) change invalidates the draper so the next render()
-   *  lazily rebuilds its pipelines with the new getSampleCount() / isPickEnabled(). */
+  /** A quality flip RELEASES the draper (#1578) and drops it; the next render() rebuilds. */
   rebuildForQuality(): void {
+    this._hillshadeDraper?.destroy()
     this._hillshadeDraper = undefined
   }
 
@@ -458,7 +458,7 @@ export class HillshadeRenderer {
   private async loadTileTexture(url: string, signal: AbortSignal): Promise<LoadedTexture | null> {
     if (this.rhi.backend !== 'webgl2') {
       const t = await loadImageTexture(this.device, url, signal)
-      return t ? { texture: t, bytes: textureBytesOf(t.width, t.height) } : null
+      return t ? { texture: t, bytes: textureBytesOf(t.width, t.height, false) } : null // #1579 — never mipped
     }
     const bitmap = await loadImageBitmap(url, signal)
     if (!bitmap) return null
@@ -483,7 +483,7 @@ export class HillshadeRenderer {
       if (tex) this.rhi.destroyTexture(tex)
       return null
     }
-    const bytes = textureBytesOf(bitmap.width, bitmap.height)
+    const bytes = textureBytesOf(bitmap.width, bitmap.height, false) // #1579 — un-mipped, as above
     bitmap.close()
     return { texture: tex, bytes }
   }

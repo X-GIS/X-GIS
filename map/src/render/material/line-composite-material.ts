@@ -17,6 +17,15 @@ import { wgslFor } from './wgsl-for'
 const COMPOSITE_SLOT = 256
 
 export class LineCompositeDraper {
+  /** Release the GPU objects this draper owns (#1578). Called by `rebuildForQuality()`
+   *  before the reference is dropped — a quality flip is live-session churn, not teardown,
+   *  so nothing else would ever reclaim these. */
+  destroy(): void {
+    this._material?.destroy()
+    this._material = undefined
+    this.rhi.destroySampler(this.sampler.sampler)
+  }
+
   private _material?: Material
   private readonly sampler
 

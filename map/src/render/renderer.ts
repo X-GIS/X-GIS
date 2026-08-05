@@ -26,6 +26,8 @@ import type { ShaderVariantInfo, CachedPipeline, ShowCommand, RenderLayer } from
 import { parseColor } from './renderer-helpers'
 import { GraticuleRenderer } from './graticule-renderer'
 import { polygonUniformBytes } from './polygon-uniform-slots'
+import { inputPoolValues } from './input-pool'
+import type { InputStore } from './input-store'
 import { uniformBlock, type UniformBlockOf, type RhiRenderPass } from '@xgis/engine'
 import { polygonU as POLYGON_U } from '../shaders/dsl/polygon'
 import { globeEyeUniform } from './globe-eye-uniform'
@@ -123,15 +125,14 @@ export class MapRendererContent {
   // (memoised) at ctor/draw time. It MUST NOT be a `static readonly` field:
   // polygonUniformBytes() reflects the polygon module = a projection emit, which
   // throws until configureProjections() has run (post-GPU-init), and a static
-  // field evaluates at class-definition (IMPORT) time — that crashed the entire
-  // map init. The BGL omits minBindingSize, so a smaller bind `size` than the
+  // field evaluates at class-definition (IMPORT) time — that crashed map init.
+  // The BGL omits minBindingSize, so a bind `size` smaller than the
   // shader-derived struct fails draw validation.
-  // P3 Step 3c palette atlas — the LIVE view stays on the CONTENT half (plan
-  // §5 FB#3 + Step 1 invariant: atlas views do NOT survive in the engine). It
-  // starts as the factory's 1×1 transparent STUB view (so every bind group is
-  // valid before the real atlas lands) and `setPaletteColorAtlas` swaps it
-  // in-place + rebuilds bindGroup + per-layer groups when the scene compile
-  // finishes. Seeded in the ctor from `engine.paletteStubTextureView`.
+  // P3 Step 3c palette atlas — the LIVE view stays on the CONTENT half (plan §5
+  // FB#3 + Step 1 invariant: atlas views do NOT survive in the engine). It starts
+  // as the factory's 1×1 transparent STUB view (so every bind group is valid
+  // before the real atlas lands) and `setPaletteColorAtlas` swaps it in-place +
+  // rebuilds bindGroup + per-layer groups when the scene compile finishes.
   /** Currently-bound color gradient atlas view. Defaults to the factory's
    *  1×1 stub; set to the real atlas via `setPaletteColorAtlas`. In the
    *  external read contract (map.ts:557 / source-manager.ts). */
@@ -144,6 +145,8 @@ export class MapRendererContent {
   spriteAtlasView!: GPUTextureView
   private bindGroup!: GPUBindGroup
   private layers: RenderLayer[] = []
+  /** Live `input` values (#1539) — same contract as the VTR's field. */
+  inputs: InputStore | null = null
   /** Lat/lon grid overlay collaborator. Owns its own GPU-buffer lifecycle
    *  + zoom-bucket regeneration + WeakMap cache; borrows linePipeline +
    *  base bindGroup + the engine's uniformRing per frame (passed into
@@ -515,16 +518,12 @@ export class MapRendererContent {
         })
         device.queue.writeBuffer(layer.featureDataBuffer, 0, data)
 
-        // ─── Compute path attach (P4-5 integration step 2) ───
-        // When the variant carries `computeBindings`, attach a handle
-        // BEFORE building the per-layer bind group so the compute
-        // output buffer exists by the time we append its entry. The
-        // registry filters the scene plan by renderNodeIndex; drift
-        // between (variant.computeBindings.length) and
-        // (plan entries with this index) propagates as a thrown error
-        // from ComputeLayerHandle — surfacing the
-        // compiler / runtime contract violation before the WebGPU
-        // pipeline build does.
+        // ─── Compute path attach (P4-5 integration step 2) ─── When the variant carries
+        // `computeBindings`, attach a handle BEFORE building the per-layer bind group so the
+        // compute output buffer exists by the time we append its entry. The registry filters the
+        // scene plan by renderNodeIndex; drift between (variant.computeBindings.length) and (plan
+        // entries with this index) propagates as a thrown error from ComputeLayerHandle — surfacing
+        // the compiler / runtime contract violation before the WebGPU pipeline build does.
         let extraComputeEntries: { binding: number; resource: { buffer: GPUBuffer } }[] = []
         if ((variant.computeBindings?.length ?? 0) > 0 && show.renderNodeIndex !== undefined) {
           const registry = this.engine.ensureComputeRegistry()
@@ -840,6 +839,7 @@ export class MapRendererContent {
       const ge = globeEyeUniform(frame.eye)
       const B = polyBlock()
       B.write({
+        ...inputPoolValues(this.inputs),
         mvp,
         fill_color: fillColor,
         stroke_color: strokeColor,

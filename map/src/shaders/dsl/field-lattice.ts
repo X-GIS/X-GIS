@@ -102,11 +102,12 @@ export const FIELD_MAX_GROUND_NODES = 4096
  *  (the first consumer's `arrow-drift-direction.test.ts` keeps that arithmetic). */
 export const FIELD_NEWTON_SPACINGS = 8
 
-/** The per-frame, per-batch view description. Nine `vec4f` = 144 B, rewritten once per frame per
- *  advected batch; the bind group itself is cached, since only the buffer contents change.
+/** The per-frame, per-batch view description. Seventeen `vec4f` = 272 B, rewritten once per frame
+ *  per advected batch; the bind group itself is cached, since only the buffer contents change.
  *
  *  Every `w` lane carries a scalar rather than padding — std140 would round a bare `f32` up to 16 B
- *  anyway, so a scalar in a corner ray's `w` is genuinely free. */
+ *  anyway, so a scalar in a corner ray's `w` is genuinely free. (The four `own_*` lanes below are
+ *  the one exception: they are a whole-vec4 payload, not a spare `w`.) */
 const U = uniformStruct(
   'FieldView',
   { group: 1, binding: 4, as: 'field_view' },
@@ -154,9 +155,32 @@ const U = uniformStruct(
      *  as many nodes at an effective spacing of `step/√2` while every original node keeps its
      *  position and its phase. 0 for the plain lattice. */
     hw: vec4fT,
+    /** Up to four boxes of ground ANOTHER lattice already owns, each `(west, east, south, north)`
+     *  in absolute degrees. A node inside one of them must not be emitted by this lattice (#1585).
+     *
+     *  ABSOLUTE EDGES, not the affine form `crs` uses, and that difference is the point: `crs` has to
+     *  produce a uv because the sampler needs one, while this only ever asks CONTAINMENT — so four
+     *  `step`s answer it with no divide and no reciprocal to keep in sign-step with a packer.
+     *
+     *  AN UNUSED SLOT IS AN EMPTY INTERVAL (`west = +1e30`, `east = −1e30`), which no coordinate can
+     *  satisfy. That is what removes the need for a separate count lane: the same four `step`s
+     *  evaluate to 0 for an inactive slot with no branch and no index compare. Writing a slot as
+     *  all-zeros instead would be a box containing the Gulf of Guinea, which is exactly the kind of
+     *  quiet default this encoding exists to make unrepresentable. */
+    own_0: vec4fT,
+    own_1: vec4fT,
+    own_2: vec4fT,
+    own_3: vec4fT,
   },
 )
 export { U as fieldViewU }
+
+/** How many "owned by another lattice" boxes the block carries. A CAP, and a loud one: the writer
+ *  warns by name when a consumer hands over more than this, rather than silently dropping the tail
+ *  and leaving a region double-drawn with nothing in the log to say so. Four is chosen against the
+ *  real shape of the problem — the boxes are filtered to those that ACTUALLY overlap the requesting
+ *  lattice, and a NOAA domain has a handful of neighbours, not a hundred. */
+export const FIELD_OWNED_SLOTS = 4
 
 /** True when the 3D (ECEF / globe) branch is active — the identical `< 6.5` cut the forward
  *  ladder takes, so the backward map cannot pick a different branch than the matrix it inverts. */
@@ -279,6 +303,32 @@ export const field_grid_uv = fn('field_grid_uv', { lonlat: vec2fT }, (a) =>
     a.lonlat.y.sub(U.field.crs.y).mul(U.field.crs.w),
   ),
 )
+
+/** 1 when this lon/lat is ground ANOTHER lattice already owns, 0 otherwise (#1585).
+ *
+ *  WHY A LATTICE NEEDS THIS AT ALL. Two coverage regions whose domains overlap each enumerate a
+ *  full lattice over the shared ground, so without a tie-break both emit a node there and whatever
+ *  the consumer draws is drawn twice. The lattice does not decide the tie — it is handed the boxes
+ *  that are already spoken for and told to keep off them; the consumer owns the rule, and for the
+ *  mosaic that rule is the one `coverage-bounds.ts` already states for the same question.
+ *
+ *  CLOSED ON ALL FOUR SIDES, matching `inUnit`'s closed `step(0,v)·step(v,1)`. A node exactly on a
+ *  shared edge is therefore emitted by the owner and suppressed for the later region — once, never
+ *  zero times. Inclusive is only safe because the boxes handed in are NODE boxes (the set the owning
+ *  lattice actually enumerates) rather than a coverage's outer cell edges, which reach half a cell
+ *  further and would open a hairline gap right where adjacent domains are published to abut.
+ *
+ *  Unrolled over the four slots, branchless: an inactive slot is an empty interval and falls out of
+ *  the same arithmetic. `max` rather than a sum, so two overlapping owners still read as 1. */
+export const field_owned_elsewhere = fn('field_owned_elsewhere', { lonlat: vec2fT }, (a) => {
+  const inBox = (b: typeof U.field.own_0) =>
+    step(b.x, a.lonlat.x)
+      .mul(step(a.lonlat.x, b.y))
+      .mul(step(b.z, a.lonlat.y))
+      .mul(step(a.lonlat.y, b.w))
+  const f = U.field
+  return max(max(inBox(f.own_0), inBox(f.own_1)), max(inBox(f.own_2), inBox(f.own_3)))
+})
 
 /** How many device PIXELS one unit of grid-uv spans at this node, as the 2×2
  *  `(∂px.x/∂u, ∂px.x/∂v, ∂px.y/∂u, ∂px.y/∂v)`.
@@ -429,6 +479,7 @@ export const FIELD_LATTICE_FUNCS = [
   field_ground_hit.decl,
   field_screen_lonlat.decl,
   field_grid_uv.decl,
+  field_owned_elsewhere.decl,
   field_uv_basis.decl,
   field_uv_step.decl,
 ]

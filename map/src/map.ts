@@ -76,6 +76,7 @@ import { ViewportModeController } from './render/viewport-mode-controller'
 import { SourceManager } from './source-manager'
 import { InteractionController } from './interaction-controller'
 import { MapRendererContent } from './render/renderer'
+import { InputStore } from './render/input-store'
 import type { ShowCommand } from './render/renderer-types'
 import { resolveNumberShape } from './render/paint-shape-resolve'
 import { RenderLoop } from './render-loop'
@@ -573,9 +574,9 @@ export class XGISMap {
     renderer: () => this.coverageRenderer,
     time: this._coverageTime,
     fieldArmed: () => this._coverageFieldArmed,
-    armFields: (handle, region) => this._armCoverageFields(handle, region),
-    armFromShow: (id, handle, region) =>
-      armLandedCoverage(this, this.showCommands, id, handle, region),
+    armFields: (handle, region, priority) => this._armCoverageFields(handle, region, priority),
+    armFromShow: (id, handle, region, priority) =>
+      armLandedCoverage(this, this.showCommands, id, handle, region, priority),
     clearArrows: (region) => this._graphics.clearCompiledArrows(region),
     invalidate: () => this.invalidate(),
     refresh: this._coverageRefresh,
@@ -866,16 +867,17 @@ export class XGISMap {
    *  GPU + catalogs. */
   private _syntheticBackend: SyntheticEarthSurfaceBackend | null = null
 
-  // ── Idle-render skip ──
-  // Before this, `renderLoop` called `renderFrame()` every rAF (~60Hz) even
-  // when nothing changed. On mobile the SDF line shader + mobile GPU is
-  // heavy enough that a static minimal.xgis map pegged the tile units for
-  // zero visual benefit ("엄청난 랙"). Now we compare camera state + canvas
-  // size each tick and skip the frame when the signature matches, the
-  // scene has no time-based animation, and no external invalidate is
-  // pending. Any camera input, data push, or active animation resumes
-  // per-frame rendering naturally.
+  // ── Idle-render skip ── Before this, `renderLoop` called `renderFrame()` every rAF (~60Hz) even
+  // when nothing changed. On mobile the SDF line shader + mobile GPU is heavy enough that a static
+  // minimal.xgis map pegged the tile units for zero visual benefit ("엄청난 랙"). Now we compare camera
+  // state + canvas size each tick and skip the frame when the signature matches, the scene has no
+  // time-based animation, and no external invalidate is pending. Any camera input, data push, or
+  // active animation resumes per-frame rendering naturally.
   _needsRender = true
+  /** Live values for the style's declared `input`s (#1539). Handed to every
+   *  VectorTileRenderer at construction and to the non-tiled renderer, which
+   *  write it into the polygon uniform pool once per frame. */
+  readonly inputs = new InputStore()
   private _dirty = new DirtyTracker()
   private _sceneHasAnimation = false
   /** True when a label carries a time-driven shape (text-size/-color/-halo/
@@ -897,6 +899,22 @@ export class XGISMap {
    *  RenderLoop holds this map by reference and reads renderer / ctx /
    *  stages fresh at render time (they're populated lazily in run()). */
   private renderLoopInstance!: RenderLoop
+
+  /** Set a declared `input`'s live value (#1539). Uniform-write only — the
+   *  value lands in the polygon uniform pool on the next frame and NO pipeline
+   *  is rebuilt (same contract as setPaintProperty / layer.style.opacity).
+   *  Throws on an unknown name or a value whose type doesn't match the
+   *  declaration; a silent no-op is what `input` exists to remove. */
+  setInput(name: string, value: number | string): void {
+    if (!this.inputs.set(name, value)) return
+    this._dirty.tag(DirtyDomain.STYLE)
+    this.invalidate()
+  }
+
+  /** A declared `input`'s live value, or undefined when it isn't declared. */
+  getInput(name: string): number | string | undefined {
+    return this.inputs.get(name)
+  }
 
   /** Explicit render trigger for code paths that change state outside the
    *  camera (setSourceData, updateFeature, tile load completion, etc.). */
@@ -1098,7 +1116,7 @@ export class XGISMap {
       return
     }
     const catalog = new TileCatalog()
-    const vtRenderer = new VectorTileRenderer(this.ctx)
+    const vtRenderer = new VectorTileRenderer(this.ctx, this.inputs)
     vtRenderer.setBindGroupLayout(this.renderer.bindGroupLayout)
     vtRenderer.setPaletteResources(
       this.renderer.paletteColorAtlasView,
@@ -1146,6 +1164,7 @@ export class XGISMap {
   private _polarCapHost(): PolarCapInstallHost {
     return {
       ctx: this.ctx,
+      inputs: this.inputs,
       renderer: this.renderer,
       lineRenderer: this.lineRenderer,
       projectionName: this.projectionName,
@@ -1255,6 +1274,7 @@ export class XGISMap {
       camera: this.camera,
       getCanvas: () => this.canvas,
       getCtx: () => this.ctx,
+      inputs: this.inputs,
       getRenderer: () => this.renderer,
       getLineRenderer: () => this.lineRenderer,
       invalidate: () => this.invalidate(),
@@ -2048,44 +2068,33 @@ export class XGISMap {
       this.coverageRenderer.rebuildForQuality()
       this.lineRenderer?.rebuildForQuality()
       this.pointRenderer?.rebuildForQuality()
-      // Per-show variant pipelines + layouts both went stale: the
-      // pipelines embed the OLD pick-attachment/MSAA target state, and
-      // the layouts reference the OLD base/feature bind-group-layouts
-      // that initPipelines just replaced. We can't simply null
-      // `entry.pipelines` and rely on a "lazy rebuild" — the
-      // bucket-scheduler never calls `getOrCreateVariantPipelines`; it
-      // just falls back to `defaults.fillPipeline` (base-only) while
-      // `entry.layout` still points at the old feature/compute layout.
-      // That mismatch tripped per-frame `[BindGroupLayout
-      // "mr-baseBindGroupLayout"] of pipeline layout
-      // "mr-mainPipelineLayout(base-only)" does not match layout
-      // [BindGroupLayout "mr-featureBindGroupLayout"]` validation and
-      // the data-driven match() polygons stopped painting (fixture_
-      // picking regression). Re-resolve both immediately so the entry
-      // stays internally consistent.
+      // Per-show variant pipelines + layouts both went stale: the pipelines embed the OLD pick-
+      // attachment/MSAA target state, and the layouts reference the OLD base/feature bind-group-
+      // layouts that initPipelines just replaced. We can't simply null `entry.pipelines` and rely
+      // on a "lazy rebuild" — the bucket-scheduler never calls `getOrCreateVariantPipelines`; it
+      // just falls back to `defaults.fillPipeline` (base-only) while `entry.layout` still points at
+      // the old feature/compute layout. That mismatch tripped per-frame `[BindGroupLayout "mr-
+      // baseBindGroupLayout"] of pipeline layout "mr-mainPipelineLayout(base-only)" does not match
+      // layout [BindGroupLayout "mr-featureBindGroupLayout"]` validation and the data-driven
+      // match() polygons stopped painting (fixture_ picking regression). Re-resolve both
+      // immediately so the entry stays internally consistent.
       this._reResolveVariantPipelines()
-      // VTRs hold their own references to the renderer's `extruded`
-      // and `ground` pipelines (set once at attach time). After a
-      // rebuild those references go stale — same pipeline-attachment-
-      // mismatch panic, just one indirection deeper. Re-wire every
-      // VTR to the freshly built pipelines.
+      // VTRs hold their own references to the renderer's `extruded` and `ground` pipelines (set
+      // once at attach time). After a rebuild those references go stale — same pipeline-attachment-
+      // mismatch panic, just one indirection deeper. Re-wire every VTR to the freshly built
+      // pipelines.
       //
-      // ALSO re-wire the bind-group layouts: VTR caches
-      // `baseBindGroupLayout` (set once via setBindGroupLayout) AND
-      // `featureBindGroupLayout` (captured per-variant by
-      // buildFeatureDataBuffer). After `initPipelines` replaces both
-      // layout objects on the renderer, every per-tile bind group VTR
-      // already built (tileBgDefault, tileBgFeature, per-tile-feature-
-      // bg) still references the OLD layouts. Drawing those bind
-      // groups against the freshly-rebuilt fillPipeline (whose
-      // pipelineLayout points at the NEW base BGL) is a layout
-      // mismatch — WebGPU drops the draw call but does not throw a
-      // catchable JS error (the validation error fires in the GPU
-      // process and is async / silent at the JS layer), so the canvas
-      // just goes dark with no console signal. multi_layer + countries
-      // demo regressed this way after setQuality({picking:true}); fixed
-      // by re-wiring the base BGL here. featureBindGroupLayout is
-      // re-captured inside `_reResolveVariantPipelines` when each
+      // ALSO re-wire the bind-group layouts: VTR caches `baseBindGroupLayout` (set once via
+      // setBindGroupLayout) AND `featureBindGroupLayout` (captured per-variant by
+      // buildFeatureDataBuffer). After `initPipelines` replaces both layout objects on the
+      // renderer, every per-tile bind group VTR already built (tileBgDefault, tileBgFeature, per-
+      // tile-feature- bg) still references the OLD layouts. Drawing those bind groups against the
+      // freshly-rebuilt fillPipeline (whose pipelineLayout points at the NEW base BGL) is a layout
+      // mismatch — WebGPU drops the draw call but does not throw a catchable JS error (the
+      // validation error fires in the GPU process and is async / silent at the JS layer), so the
+      // canvas just goes dark with no console signal. multi_layer + countries demo regressed this
+      // way after setQuality({picking:true}); fixed by re-wiring the base BGL here.
+      // featureBindGroupLayout is re-captured inside `_reResolveVariantPipelines` when each
       // variant-bearing show re-calls getOrBuildVariantLayout.
       for (const { renderer: vtRenderer } of this.vtSources.values()) {
         vtRenderer.setBindGroupLayout(this.renderer.bindGroupLayout)
@@ -2867,22 +2876,22 @@ export class XGISMap {
     } else {
       commands = interpret(ast)
     }
+    // Adopt this compile's `input` declarations (#1539) — seeds defaults, drops
+    // names the new style no longer declares, keeps a host-set value whose
+    // declared type still matches.
+    this.inputs.reset(commands.inputs)
 
-    // background { fill: <color> } — Mapbox-style earth-surface fill.
-    // Phase 2 PR 2c.3 ships this through the standard polygon ECEF
-    // pipeline (SyntheticEarthSurfaceBackend serves a z=0 lat/lon-grid
-    // mesh projected to ECEF; the synthetic ShowCommand prepended to
-    // `commands.shows` carries the fill paint). Sphere projections see
-    // the fill curve naturally; flat projections see the band fill at
-    // sort-order 0 just like the legacy BackgroundRenderer path. Color
-    // lookup: utility lines first (`| fill-sky-900` → resolveUtilities →
-    // hex), then style properties (`fill: sky-900` or `fill: #082f49`).
-    // StyleProperty stores the raw string; `sky-900` resolves via
-    // resolveColor(); bare `#rrggbb` passes through.
-    // WS-1 — reset the per-frame zoom-interp background shapes before the
-    // parse so a re-run() with a CONSTANT background clears a stale shape
-    // left by a previous zoom-interp style (the constant path below sets
-    // `_backgroundColor` but never touches these).
+    // background { fill: <color> } — Mapbox-style earth-surface fill. Phase 2 PR 2c.3 ships this
+    // through the standard polygon ECEF pipeline (SyntheticEarthSurfaceBackend serves a z=0
+    // lat/lon-grid mesh projected to ECEF; the synthetic ShowCommand prepended to `commands.shows`
+    // carries the fill paint). Sphere projections see the fill curve naturally; flat projections
+    // see the band fill at sort-order 0 just like the legacy BackgroundRenderer path. Color lookup:
+    // utility lines first (`| fill-sky-900` → resolveUtilities → hex), then style properties
+    // (`fill: sky-900` or `fill: #082f49`). StyleProperty stores the raw string; `sky-900` resolves
+    // via resolveColor(); bare `#rrggbb` passes through. WS-1 — reset the per-frame zoom-interp
+    // background shapes before the parse so a re-run() with a CONSTANT background clears a stale
+    // shape left by a previous zoom-interp style (the constant path below sets `_backgroundColor`
+    // but never touches these).
     this._backgroundColorShape = null
     this._backgroundOpacityShape = null
     // #777 I-E — reset the background pattern before the parse (mirror of the
@@ -2970,32 +2979,26 @@ export class XGISMap {
 
     console.log('[X-GIS] Parsed:', commands.loads.length, 'loads,', commands.shows.length, 'shows')
 
-    // AC11b: build the per-source declared-CRS registry from the
-    // LoadCommand carrier (`commands.loads[].crs`, threaded from IR
-    // SourceDef.crs). The IR Scene is not retained past emitCommands, so
-    // this Map is the runtime's only carrier for the host-push path —
-    // setSourceData(sourceId, fc) looks the declared CRS up here later.
-    // Rebuilt fresh each run() so a re-run with a different program
-    // doesn't leak stale CRS declarations.
-    // Cast: interpreter's LoadCommand type doesn't carry `crs` (it's a
-    // compiler-LoadCommand-only field — the legacy interpreter path
-    // assumes EPSG:4326, see interpreter.ts:67-74). Field access returns
-    // undefined uniformly when absent, so the legacy path leaves the
-    // registry empty (every source treated as 4326 / no-op).
+    // AC11b: build the per-source declared-CRS registry from the LoadCommand carrier
+    // (`commands.loads[].crs`, threaded from IR SourceDef.crs). The IR Scene is not retained past
+    // emitCommands, so this Map is the runtime's only carrier for the host-push path —
+    // setSourceData(sourceId, fc) looks the declared CRS up here later. Rebuilt fresh each run() so
+    // a re-run with a different program doesn't leak stale CRS declarations. Cast: interpreter's
+    // LoadCommand type doesn't carry `crs` (it's a compiler-LoadCommand-only field — the legacy
+    // interpreter path assumes EPSG:4326, see interpreter.ts:67-74). Field access returns undefined
+    // uniformly when absent, so the legacy path leaves the registry empty (every source treated as
+    // 4326 / no-op).
     //
-    // #1242 gap-2 fix follow-up: lower.ts (`resolvedCrs`) fills EVERY
-    // `type: geojson` source's `crs` with the literal 'EPSG:4326' default
-    // when the .xgis omits `crs:` entirely — so `load.crs` is truthy for
-    // ALL geojson sources, declared or not. Registering those here made
-    // `sourceCRS.has(id)` true universally, which made getSeededFC() (the
-    // gap-2 updateFeature-patchability check) reject EVERY .xgis-declared
-    // /URL geojson source, silently keeping the gap-2 fix dead end-to-end
-    // (caught by the animate-line/realtime-update ports' real-GPU probe,
-    // #1192 batch 5 — the existing unit coverage seeds sourceCRS directly
-    // and never exercises this real run() population path). Skip the
-    // no-op default so the registry holds only a GENUINE reprojection
-    // need, matching _reprojectIngest's own "no declared CRS ⇒ 4326 /
-    // no-op" contract this Map was documented to carry.
+    // #1242 gap-2 fix follow-up: lower.ts (`resolvedCrs`) fills EVERY `type: geojson` source's
+    // `crs` with the literal 'EPSG:4326' default when the .xgis omits `crs:` entirely — so
+    // `load.crs` is truthy for ALL geojson sources, declared or not. Registering those here made
+    // `sourceCRS.has(id)` true universally, which made getSeededFC() (the gap-2 updateFeature-
+    // patchability check) reject EVERY .xgis-declared /URL geojson source, silently keeping the
+    // gap-2 fix dead end-to-end (caught by the animate-line/realtime-update ports' real-GPU probe,
+    // #1192 batch 5 — the existing unit coverage seeds sourceCRS directly and never exercises this
+    // real run() population path). Skip the no-op default so the registry holds only a GENUINE
+    // reprojection need, matching _reprojectIngest's own "no declared CRS ⇒ 4326 / no-op" contract
+    // this Map was documented to carry.
     this.sourceCRS.clear()
     for (const load of commands.loads as { name: string; crs?: string }[]) {
       if (load.crs && load.crs !== 'EPSG:4326') this.sourceCRS.set(load.name, load.crs)
@@ -3110,6 +3113,7 @@ export class XGISMap {
       symbols: commands.symbols,
     })
     this.renderer = rendererSet.renderer
+    this.renderer.inputs = this.inputs // #1539 — non-tiled polygon path reads the pool too
     this.rasterRenderer = rendererSet.rasterRenderer
     this.applyEffectiveRasterFadeDuration()
     this.hillshadeRenderer = rendererSet.hillshadeRenderer
@@ -3168,21 +3172,17 @@ export class XGISMap {
     // (pointRenderer / shapeRegistry / heatmapRenderer / lineRenderer are built
     // by buildSceneRenderers above — D4/A8.)
 
-    // F1 — KICK the shader-variant pipeline prewarm HERE, before the
-    // data-load `Promise.allSettled` below, so the GPU driver compiles the
-    // variant pipeline sets in PARALLEL with the tile-source network settle
-    // instead of serialized after it (audit #1/#2 — the prewarm used to
-    // start only at the await site far below, adding min(driver-compile,
-    // attach-RTT) 1:1 to time-to-first-map). The variant list derives from
-    // `commands.shows` now: the synthetic earth-surface show prepended
-    // post-attach carries NO shaderVariant and the polar-cap installs reuse
-    // existing shows, so this early list is complete; the await site
-    // re-collects the FINAL list (post synthetic-surface / polar-cap) and
-    // prewarms only the DELTA (keys not in the early list), which avoids a
-    // double-compile race if the network settles before the driver does.
-    // `.catch` swallows here so an early rejection cannot surface as an
-    // unhandled rejection across the data-load await; the gate is `await`ed
-    // below before rebuildLayers.
+    // F1 — KICK the shader-variant pipeline prewarm HERE, before the data-load `Promise.allSettled`
+    // below, so the GPU driver compiles the variant pipeline sets in PARALLEL with the tile-source
+    // network settle instead of serialized after it (audit #1/#2 — the prewarm used to start only
+    // at the await site far below, adding min(driver-compile, attach-RTT) 1:1 to time-to-first-
+    // map). The variant list derives from `commands.shows` now: the synthetic earth-surface show
+    // prepended post-attach carries NO shaderVariant and the polar-cap installs reuse existing
+    // shows, so this early list is complete; the await site re-collects the FINAL list (post
+    // synthetic-surface / polar-cap) and prewarms only the DELTA (keys not in the early list),
+    // which avoids a double-compile race if the network settles before the driver does. `.catch`
+    // swallows here so an early rejection cannot surface as an unhandled rejection across the data-
+    // load await; the gate is `await`ed below before rebuildLayers.
     const earlyVariants = this._collectShaderVariants(commands.shows)
     const earlyVariantKeys = new Set(earlyVariants.map((v) => v.key))
     const shaderPrewarm = this.renderer
@@ -3625,12 +3625,12 @@ export class XGISMap {
         if (show.isArrow || show.isFlow) this._coverageFieldShow = show
         // EVERY resident region, not just one: a mosaic viewport holds several adjacent
         // NOAA domains and each needs its own drape + arrow field (#1272 E-④).
-        for (const [region, entry] of data._coverage) {
+        for (const [i, [region, entry]] of [...data._coverage].entries()) {
           armCoverageDrape(this, show, entry.handle, region)
           // `| arrow` on a coverage layer (#1333) draws the official S-111 vector field — the
           // engine-owned arrow portrayal, band-coloured by `ramp` (default s111-speed). ONE
-          // batch, static or drifting: see `armCoverageArrows` (#1449).
-          armCoverageArrows(this, show, entry.handle, region)
+          // batch, static or drifting: see `armCoverageArrows` (#1449). `i` = owner order (#1585).
+          armCoverageArrows(this, show, entry.handle, region, i)
         }
         if (show.isArrow) this._coverageArrowsArmed = true
         if (show.isFlow) this._coverageFlowArmed = true
@@ -3868,7 +3868,7 @@ export class XGISMap {
       }
 
       const source = new TileCatalog()
-      const vtRenderer = new VectorTileRenderer(this.ctx)
+      const vtRenderer = new VectorTileRenderer(this.ctx, this.inputs)
       vtRenderer.setBindGroupLayout(this.renderer.bindGroupLayout)
       vtRenderer.setPaletteResources(
         this.renderer.paletteColorAtlasView,
@@ -4004,17 +4004,14 @@ export class XGISMap {
           // lookup with the correct feature id attached.
           source.setRawParts(parts, tileSet.levels.length > 0 ? 22 : 0)
 
-          // Feature data buffer MUST be built after the property table
-          // is set on the source — which only happens in `addTileLevel`
-          // above. Building it earlier (inside the sync rebuildLayers
-          // block below) silently no-ops because `getPropertyTable()`
-          // returns undefined before the worker returns, leaving the
-          // variant pipeline paired with the default bind-group layout
-          // and tripping a WebGPU validation error on every draw. Fixture
-          // audit surfaced this as the `match()`-based fixtures
-          // (fixture_categorical, reftest_triangle_match, etc.) logging
-          // "Bind group layout of pipeline layout does not match layout
-          // of bind group".
+          // Feature data buffer MUST be built after the property table is set on the source — which
+          // only happens in `addTileLevel` above. Building it earlier (inside the sync
+          // rebuildLayers block below) silently no-ops because `getPropertyTable()` returns
+          // undefined before the worker returns, leaving the variant pipeline paired with the
+          // default bind-group layout and tripping a WebGPU validation error on every draw. Fixture
+          // audit surfaced this as the `match()`-based fixtures (fixture_categorical,
+          // reftest_triangle_match, etc.) logging "Bind group layout of pipeline layout does not
+          // match layout of bind group".
           const variant = show.shaderVariant
           if (variant && variant.needsFeatureBuffer && !vtRenderer.hasFeatureData()) {
             // Compute-aware layout selection — matches the same call in
@@ -4158,6 +4155,7 @@ export class XGISMap {
       symbols: undefined,
     })
     this.renderer = rendererSet.renderer
+    this.renderer.inputs = this.inputs // #1539 — non-tiled polygon path reads the pool too
     this.rasterRenderer = rendererSet.rasterRenderer
     this.applyEffectiveRasterFadeDuration()
     this.hillshadeRenderer = rendererSet.hillshadeRenderer
@@ -4526,6 +4524,7 @@ export class XGISMap {
       vtSources: this.vtSources,
       cameraZoom: this.camera.zoom,
       elapsedMs: this._elapsedMs,
+      inputs: this.inputs,
       rendererDefaults: {
         fillPipeline: this.renderer.fillPipeline,
         fillPipelineGround: this.renderer.fillPipelineGround,
@@ -4835,10 +4834,10 @@ export class XGISMap {
    *  A no-op when no field is armed (`_coverageFieldShow` null). Mirrors the coverage arm
    *  inside `rebuildLayers` exactly — the single authority both share is `_coverageFieldShow`
    *  (#1333). */
-  private _armCoverageFields(handle: CoverageHandle, region = DEFAULT_REGION): void {
+  private _armCoverageFields(handle: CoverageHandle, region = DEFAULT_REGION, priority = 0): void {
     const show = this._coverageFieldShow
     if (!show) return
-    armCoverageShow(this, show, handle, region)
+    armCoverageShow(this, show, handle, region, priority)
     this.invalidate()
   }
 
