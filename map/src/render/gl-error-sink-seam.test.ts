@@ -25,7 +25,7 @@ describe('GL-error sink seam (#1046 F4 Inc-E1)', () => {
     // so a half-wired loop (either consumer missing) goes red. The twin row
     // retires with the twin (Inc-F updates this to 0).
     expect(src.match(/rhiFrame\.takeGlErrors\?\.\(\) \?\? \[\]/g) ?? []).toHaveLength(1)
-    expect(src.match(/rhi\.takeGlErrors\?\.\(\) \?\? \[\]/g) ?? []).toHaveLength(1)
+    expect(src.match(/rhi\.takeGlErrors\?\.\(\) \?\? \[\]/g) ?? []).toHaveLength(0)
   })
 
   it('the chain drain sits AFTER the frame submit and routes through the capped writer', () => {
@@ -39,6 +39,6 @@ describe('GL-error sink seam (#1046 F4 Inc-E1)', () => {
     expect(drainAt).toBeGreaterThan(finishAt)
     // Both consumers route through pushValidationError (capped, #1153 P2 R6)
     // — one call site per consumer, no direct logging.
-    expect(src.match(/pushValidationError\(this\.host\.ctx, /g) ?? []).toHaveLength(2)
+    expect(src.match(/pushValidationError\(this\.host\.ctx, /g) ?? []).toHaveLength(1)
   })
 })

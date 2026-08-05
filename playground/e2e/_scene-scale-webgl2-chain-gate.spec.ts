@@ -18,15 +18,17 @@
 // makes `rendersViaTwin` constant-false, i.e. flips every WebGL2 client onto the
 // second arm.
 //
-// THE HARNESS MAKES THAT REACHABLE BEFORE THE DELETION. With `XGIS_E2E_CHAIN=1`
-// the vite plugin arms `globalThis.__xgisRhiChain`, so `RHI_CHAIN` is true and
-// `rendersViaTwin` is already false on a WebGL2 device. This gate therefore
-// verifies the post-deletion path while the twin is still there to fall back
-// on — the deletion's fail-before, run early rather than discovered late.
+// This gate was written BEFORE the deletion and run through the
+// `XGIS_E2E_CHAIN` harness, which made `rendersViaTwin` false while the twin was
+// still there to fall back on — the deletion's fail-before, run early rather
+// than discovered late. It passed, which is why the deletion went ahead.
 //
-// Requires `XGIS_E2E_CHAIN=1`; skips loudly otherwise rather than passing on the
-// twin arm and reporting a green it did not earn (the stale-dev-server trap that
-// `_chain-arm-armed` exists to catch).
+// The harness requirement is now GONE, and removing it was mandatory rather than
+// tidy-up: with the twin deleted `?forcegl2=1` IS the chain, so a
+// `skip(!XGIS_E2E_CHAIN)` guard would have turned this gate into a permanent
+// skip — green forever, measuring nothing. The `__xgisFrameArm === 'chain'`
+// assertion stays and is now unconditionally true; if it ever fails, a second
+// frame shape survived the deletion.
 //
 // `?debug=checker` supplies the CONTENT. A sourceless `id=minimal` frame draws
 // nothing by design (#1041 parity), so without it both arms read 0/25 painted
@@ -37,7 +39,6 @@
 
 import { test, expect } from '@playwright/test'
 
-const ARMED = process.env.XGIS_E2E_CHAIN === '1'
 const VIEW = { width: 800, height: 600 }
 
 async function probe(page: import('@playwright/test').Page, sceneScale: string) {
@@ -122,7 +123,6 @@ async function probe(page: import('@playwright/test').Page, sceneScale: string) 
 test('CONTROL: scenescale=1 on the WebGL2 chain paints (the fixture is not the problem)', async ({
   page,
 }) => {
-  test.skip(!ARMED, 'needs XGIS_E2E_CHAIN=1 — without it this would measure the twin arm')
   const { s } = await probe(page, '1')
   expect(s.arm, 'control must also run on the chain arm').toBe('chain')
   expect(
@@ -135,7 +135,6 @@ test('CONTROL: scenescale=1 on the WebGL2 chain paints (the fixture is not the p
 test('the adaptive ladder scales the SCENE on a WebGL2 chain frame (#1046 Inc-F3)', async ({
   page,
 }) => {
-  test.skip(!ARMED, 'needs XGIS_E2E_CHAIN=1 — without it this would measure the twin arm')
   const { s, s2, errors } = await probe(page, '0.72')
   expect(s.rhiBackend, 'device is WebGl2Device').toBe('webgl2')
   expect(s.marker, 'the boot marker agrees').toBe('webgl2')

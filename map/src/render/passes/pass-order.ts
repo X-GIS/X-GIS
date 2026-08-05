@@ -71,22 +71,3 @@ export const SEAM_PASSES: readonly PassLabel[] = ['scene-upscale']
 export const SCENE_PASSES: readonly PassLabel[] = PASS_CHAIN_ORDER.filter(
   (label) => !OVERLAY_PASSES.includes(label) && !SEAM_PASSES.includes(label),
 )
-
-/** Passes the renderFrameViaRhi twin does NOT yet port (#1004 shrink-only
- *  baseline): porting one to the twin must REMOVE it here in the same commit
- *  (pass-order-parity.test.ts fails otherwise — locks the win). oit is dead in
- *  both paths but stays listed for order fidelity. Close-out = [] when the
- *  #991 P4/P5 unification runs the RenderNode chain over RHI passes. */
-export const RHI_TWIN_MISSING: readonly PassLabel[] = [
-  'oit',
-  // hillshade IS ported to the twin (render-loop.ts renderFrameViaRhi) so the
-  // relief renders under ?forcegl2=1 for the _hillshade-gl2-gate (#777 Phase II).
-  // 'points' ported in #1057 (direct-layer + the VT tile-points inline path);
-  // 'heatmap' ported in #1060 (renderFrameViaRhi -> heatmapRenderer.renderRhi).
-  'overdraw-compose',
-  // #1429 INC-2 — genuinely twin-missing BY DESIGN, not backlog: the twin draws
-  // one screen pass on FBO 0 with no offscreen scene, so it keeps applying the
-  // ladder's scale to its CANVAS (each backend internally consistent; design
-  // §7). Porting it is a follow-up that IMPROVES WebGL2, not a regression fix.
-  'scene-upscale',
-]
