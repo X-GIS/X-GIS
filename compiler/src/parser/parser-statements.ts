@@ -1,6 +1,7 @@
 import { TokenType } from '../lexer/tokens'
 import type * as AST from './ast'
 import { ExpressionParser } from './parser-expressions'
+import { INPUT_BAD_TYPE, INPUT_DEFAULT_TYPE_MISMATCH } from '../diagnostics/diagnostic'
 
 /** Statement handlers + the keyword→handler registry.
  *
@@ -209,6 +210,14 @@ export class StatementParser extends ExpressionParser {
     return { kind: 'FnStatement', name, params, body, line }
   }
 
+  /** Parse a `: TYPE` annotation — shared by `struct` fields and `input` (#1539). */
+  private parseTypeAnnotation(allowed: readonly string[], errorCode?: string): string {
+    const typeName = this.expect(TokenType.Identifier).value
+    if (!allowed.includes(typeName))
+      this.error(`Expected ${allowed.join('/')}, got \`${typeName}\``, errorCode)
+    return typeName
+  }
+
   // struct Track { speed: f32, heading: f32, name: string }  (#1537)
   parseStructStatement(): AST.StructStatement {
     const line = this.current().line
@@ -220,16 +229,31 @@ export class StatementParser extends ExpressionParser {
     while (!this.check(TokenType.RBrace) && !this.isEnd()) {
       const fieldName = this.expect(TokenType.Identifier).value
       this.expect(TokenType.Colon)
-      const typeName = this.expect(TokenType.Identifier).value
-      if (typeName !== 'f32' && typeName !== 'string' && typeName !== 'bool') {
-        this.error(`Unknown field type \`${typeName}\` — expected f32, string, or bool`)
-      }
+      const typeName = this.parseTypeAnnotation(['f32', 'string', 'bool'])
       fields.push({ name: fieldName, type: typeName as AST.StructFieldType })
       if (this.check(TokenType.Comma)) this.advance()
     }
     this.expect(TokenType.RBrace)
 
     return { kind: 'StructStatement', name, fields, line }
+  }
+
+  // input threshold: f32 = 0.5 — a host-settable uniform (#1539).
+  parseInputStatement(): AST.InputStatement {
+    const line = this.current().line
+    this.expect(TokenType.Input)
+    const name = this.expect(TokenType.Identifier).value
+    this.expect(TokenType.Colon)
+    const type = this.parseTypeAnnotation(['f32', 'color'], INPUT_BAD_TYPE) as AST.InputType
+    this.expect(TokenType.Eq)
+    const expr = this.parseExpr()
+    if (type === 'f32' && expr.kind === 'NumberLiteral') {
+      return { kind: 'InputStatement', name, type, default: expr, line }
+    }
+    if (type === 'color' && expr.kind === 'ColorLiteral') {
+      return { kind: 'InputStatement', name, type, default: expr, line }
+    }
+    this.error(`\`input\` default doesn't match \`: ${type}\``, INPUT_DEFAULT_TYPE_MISMATCH)
   }
 
   // import { name1, name2 } from "path"
@@ -763,6 +787,7 @@ const STATEMENT_HANDLERS: ReadonlyMap<TokenType, StatementHandler> = new Map<
   [TokenType.Preset, (p) => p.parsePresetStatement()],
   [TokenType.Fn, (p) => p.parseFnStatement()],
   [TokenType.Struct, (p) => p.parseStructStatement()],
+  [TokenType.Input, (p) => p.parseInputStatement()],
   [TokenType.Import, (p) => p.parseImportStatement()],
   [TokenType.SymbolDef, (p) => p.parseSymbolStatement()],
   [TokenType.Keyframes, (p) => p.parseKeyframesStatement()],

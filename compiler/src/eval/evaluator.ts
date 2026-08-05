@@ -3,7 +3,7 @@
 // Used for data-driven styling: size-[speed / 50 | clamp(4, 24)]
 
 import type * as AST from '../parser/ast'
-import { CAMERA_ZOOM_KEY, CAMERA_PITCH_KEY } from './reserved-keys'
+import { CAMERA_ZOOM_KEY, CAMERA_PITCH_KEY, INPUT_KEY_PREFIX } from './reserved-keys'
 import { callBuiltin, toNumber, toBool, VEC_COMPONENT_INDEX } from './evaluator-helpers'
 import type { FeatureProps } from './evaluator-types'
 
@@ -37,6 +37,16 @@ export function evaluate(expr: AST.Expr, props: FeatureProps): unknown {
       // inject the live camera pitch, decode-time sites leave it null.
       if (expr.name === 'pitch') return props[CAMERA_PITCH_KEY] ?? null
       return props[expr.name] ?? null
+    case 'InputRef': {
+      // A declared `input` (#1539) — mirrors zoom/pitch's reserved-key
+      // injection, but prefix-keyed since there can be many. Falls back
+      // to the node's own carried default when no live value was
+      // injected — correct both for a compile-time const-fold call
+      // (which passes `{}` props) and for any call site not yet wired to
+      // inject the live `setInput`-mutated value.
+      const live = props[INPUT_KEY_PREFIX + expr.name]
+      return live ?? expr.default.value
+    }
     case 'FieldAccess':
       return evaluateFieldAccess(expr, props)
     case 'BinaryExpr':

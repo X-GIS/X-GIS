@@ -76,6 +76,7 @@ function harness(regions: Array<[string, string | undefined]>): Harness {
         throw new Error('no network in this gate')
       }) as unknown as typeof fetch,
     destroyed: () => false,
+    runEpoch: () => 0,
   } as unknown as CoverageSourceDeps
   return { deps, armed, refresh, etags, reads }
 }

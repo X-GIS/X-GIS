@@ -113,7 +113,12 @@ export class StatsTracker {
     // clock — `beginFrame` runs exactly once per drawn frame, past the render
     // loop's skip gate. Feeding the controller from here rather than starting a
     // second timer in the loop keeps one frame clock, not two that can disagree.
-    if (this.lastFrameStart > 0) noteFrameInterval(now - this.lastFrameStart)
+    // `this` is the frame-clock SOURCE token (#1567): the controller keeps one
+    // sample window per RenderStats instance, so two concurrent maps no longer
+    // interleave their frame intervals into a single 12-slot ring whose median
+    // then governs neither of them. The learned notch stays process-global — see
+    // adaptive-quality.ts's header, that part is deliberate.
+    if (this.lastFrameStart > 0) noteFrameInterval(now - this.lastFrameStart, this)
     this.lastFrameStart = now
     this.drawCalls = 0
     this.vertices = 0

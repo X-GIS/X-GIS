@@ -8,12 +8,13 @@ import { activeBody } from '@xgis/shared'
 import { lonLatToECEF, type ECEF } from '@xgis/shared'
 import type { RhiDevice, RhiRenderPass, RhiTexture } from '@xgis/engine'
 import { RasterDraper, type RasterTile } from './material/raster-material'
-import { tileRequestable, noteFailure, type FailedTile } from './tile-retry'
+import { FailedTileLedger } from './tile-retry'
 import {
   admitTile,
   type EvictableTile,
   evictToBudget,
   overBudget,
+  abortLoadingTiles,
   textureBytesOf,
   mipLevelCountFor,
   type LoadedTexture,
@@ -308,7 +309,7 @@ export class RasterRenderer {
   /** Tiles whose load resolved null, with the backoff state that stops them being
    *  re-requested every frame (policy in tile-retry.ts). Cleared when the source is
    *  re-armed — a new URL template is a new coverage. Same wiring as the hillshade arm. */
-  private failedTiles = new Map<string, FailedTile>()
+  readonly failedTiles = new FailedTileLedger()
   // (per-tile packing goes through rasterTileBlock() — #733 P2b)
   private colorParams(): RasterColorParams {
     return {
@@ -359,7 +360,7 @@ export class RasterRenderer {
   }
 
   setUrlTemplate(url: string): void {
-    if (url !== this.urlTemplate) this.failedTiles.clear()
+    if (url !== this.urlTemplate) this.failedTiles.clearAll()
     this.urlTemplate = url
   }
 
@@ -697,7 +698,7 @@ export class RasterRenderer {
       // A failed load leaves the key in neither map, so without this guard the next
       // frame re-requests it — forever, at ~60 fps, pinning every concurrency slot
       // with requests that can never succeed (tile-retry.ts explains the shape).
-      if (!tileRequestable(this.failedTiles.get(key), this.frameCount)) continue
+      if (!this.failedTiles.requestable(key)) continue
       if (this.loadingTiles.size >= MAX_CONCURRENT_LOADS) break // respect concurrency limit
 
       const ctrl = new AbortController()
@@ -709,18 +710,22 @@ export class RasterRenderer {
         // failure (bitmap fetch reject, or createTexture throw on a lost context)
         // resolves to null so the .then ALWAYS frees the loadingTiles slot (else the
         // key wedges, pinning all MAX_CONCURRENT slots → raster stalls). Scoped here so
-        // a throw from the .then bookkeeping stays a visible unhandled rejection, not swallowed.
+        // a throw from the .then bookkeeping still surfaces — through the terminal
+        // handler below, not as an unhandled rejection (#1565: this leaf chain floated
+        // while its parent-fallback sibling 50 lines down already terminated; two
+        // siblings, two error channels, and no rule enforcing either until now).
         .catch(() => null)
         .then((texture) => {
           this.loadingTiles.delete(key)
           if (!texture) {
-            noteFailure(this.failedTiles, key, this.frameCount)
+            this.failedTiles.noteOutcome(key, ctrl.signal.aborted)
             return
           }
-          this.failedTiles.delete(key)
+          this.failedTiles.clear(key)
           this._cacheTile(key, texture)
           this.evictTiles(visibleKeys)
         })
+        .catch((e) => console.error('[X-GIS] raster tile post-load bookkeeping failed', e))
     }
 
     // Write global uniforms through the typed block (#733 P2b — the single
@@ -753,7 +758,7 @@ export class RasterRenderer {
         const parentY = coord.y >> pz
         const parentKey = `${parentZ}/${parentX}/${parentY}`
         if (this.tileCache.has(parentKey) || this.loadingTiles.has(parentKey)) continue
-        if (!tileRequestable(this.failedTiles.get(parentKey), this.frameCount)) continue
+        if (!this.failedTiles.requestable(parentKey)) continue
         if (this.loadingTiles.size >= MAX_CONCURRENT_LOADS) break
         const ctrl = new AbortController()
         this.loadingTiles.set(parentKey, ctrl)
@@ -767,10 +772,10 @@ export class RasterRenderer {
           .then((texture) => {
             this.loadingTiles.delete(parentKey)
             if (!texture) {
-              noteFailure(this.failedTiles, parentKey, this.frameCount)
+              this.failedTiles.noteOutcome(parentKey, ctrl.signal.aborted)
               return
             }
-            this.failedTiles.delete(parentKey)
+            this.failedTiles.clear(parentKey)
             this._cacheTile(parentKey, texture)
           })
           .catch((e) => console.error('[X-GIS] raster parent-tile post-load bookkeeping failed', e))
@@ -1013,6 +1018,10 @@ export class RasterRenderer {
    *  Policy lives in raster-cache-budget so both renderers share one copy. */
   private _cacheTile(k: string, t: LoadedTexture): void {
     this._cachedBytes = admitTile(this.tileCache, k, t, this.frameCount, this._cachedBytes)
+  }
+
+  destroy(): void {
+    abortLoadingTiles(this.loadingTiles) // #1570 — teardown must CANCEL, not just unschedule
   }
 
   private evictTiles(vis: Set<string>): void {

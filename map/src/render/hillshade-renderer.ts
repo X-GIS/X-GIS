@@ -20,6 +20,7 @@ import {
   type EvictableTile,
   evictToBudget,
   overBudget,
+  abortLoadingTiles,
   textureBytesOf,
   type LoadedTexture,
 } from './raster-cache-budget'
@@ -39,7 +40,7 @@ import {
   rasterTileU as RASTER_TILE_U,
 } from '../shaders/dsl/raster'
 import { hillshadeU as HILLSHADE_U } from '../shaders/dsl/hillshade'
-import { tileRequestable, noteFailure, leafLoadBudget, type FailedTile } from './tile-retry'
+import { FailedTileLedger, leafLoadBudget } from './tile-retry'
 import {
   writeRasterFrameUniform,
   writeRasterTileUniform,
@@ -326,7 +327,7 @@ export class HillshadeRenderer {
   /** Tiles whose load resolved null, with the backoff state that stops them being
    *  re-requested every frame (policy in tile-retry.ts). Cleared when the
    *  source is re-armed — a new URL template is a new coverage. */
-  private failedTiles = new Map<string, FailedTile>()
+  readonly failedTiles = new FailedTileLedger()
   private frameCount = 0
   private lastZoom = -1
   private lastVisibleKeys: Set<string> = new Set()
@@ -402,7 +403,7 @@ export class HillshadeRenderer {
     // A different template is a different coverage, so past failures say nothing
     // about it — drop the backoff state rather than carry a stale "gave up" verdict
     // onto tiles the new source may well have.
-    if (url !== this.urlTemplate) this.failedTiles.clear()
+    if (url !== this.urlTemplate) this.failedTiles.clearAll()
     this.urlTemplate = url
   }
 
@@ -568,7 +569,7 @@ export class HillshadeRenderer {
       // A tile that has failed recently is not re-requested until its backoff
       // elapses — without this, a past-max-zoom view spends the whole budget on
       // 404s every frame (tile-retry.ts explains why that path is common).
-      if (!tileRequestable(this.failedTiles.get(key), this.frameCount)) continue
+      if (!this.failedTiles.requestable(key)) continue
       if (this.loadingTiles.size >= leafBudget) break
       const ctrl = new AbortController()
       this.loadingTiles.set(key, ctrl)
@@ -576,21 +577,23 @@ export class HillshadeRenderer {
         // #1153 P2 R4 — narrow the release to the LOAD promise: an expected load
         // failure resolves to null so the .then ALWAYS frees the loadingTiles slot
         // (else the key wedges, pinning all MAX_CONCURRENT slots → the DEM stream
-        // stalls). Scoped here so a throw from the .then bookkeeping stays a visible
-        // unhandled rejection, not swallowed.
+        // stalls). Scoped here so a throw from the .then bookkeeping still surfaces —
+        // through the terminal handler below, not as an unhandled rejection (#1565:
+        // the same leaf-vs-parent drift the raster twin carried).
         .catch(() => null)
         .then((texture) => {
           this.loadingTiles.delete(key)
           if (!texture) {
-            noteFailure(this.failedTiles, key, this.frameCount)
+            this.failedTiles.noteOutcome(key, ctrl.signal.aborted)
             return
           }
-          this.failedTiles.delete(key)
+          this.failedTiles.clear(key)
           // firstShownFrame -1 = "never drawn yet"; the draw loop stamps it on the
           // tile's FIRST appearance so an off-screen prefetch still fades in.
           this._cacheTile(key, texture)
           this.evictTiles(visibleKeys)
         })
+        .catch((e) => console.error('[X-GIS] hillshade tile post-load bookkeeping failed', e))
     }
 
     // Parent-fallback prefetch (1–2 levels up) — mirror raster.
@@ -600,7 +603,7 @@ export class HillshadeRenderer {
         if (parentZ < 0) break
         const parentKey = `${parentZ}/${coord.x >> pz}/${coord.y >> pz}`
         if (this.tileCache.has(parentKey) || this.loadingTiles.has(parentKey)) continue
-        if (!tileRequestable(this.failedTiles.get(parentKey), this.frameCount)) continue
+        if (!this.failedTiles.requestable(parentKey)) continue
         if (this.loadingTiles.size >= MAX_CONCURRENT_LOADS) break
         const ctrl = new AbortController()
         this.loadingTiles.set(parentKey, ctrl)
@@ -618,10 +621,10 @@ export class HillshadeRenderer {
           .then((texture) => {
             this.loadingTiles.delete(parentKey)
             if (!texture) {
-              noteFailure(this.failedTiles, parentKey, this.frameCount)
+              this.failedTiles.noteOutcome(parentKey, ctrl.signal.aborted)
               return
             }
-            this.failedTiles.delete(parentKey)
+            this.failedTiles.clear(parentKey)
             this._cacheTile(parentKey, texture)
           })
           .catch((e) =>
@@ -829,6 +832,10 @@ export class HillshadeRenderer {
    *  Policy lives in raster-cache-budget so both renderers share one copy. */
   private _cacheTile(k: string, t: LoadedTexture): void {
     this._cachedBytes = admitTile(this.tileCache, k, t, this.frameCount, this._cachedBytes)
+  }
+
+  destroy(): void {
+    abortLoadingTiles(this.loadingTiles) // #1570 — teardown must CANCEL, not just unschedule
   }
 
   private evictTiles(vis: Set<string>): void {

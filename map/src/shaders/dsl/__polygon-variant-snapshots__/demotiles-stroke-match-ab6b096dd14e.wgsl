@@ -1,4 +1,4 @@
-// baseline: 12b6185efe3615de2cf1fde616e52fc1eee92739
+// baseline: 9e9bb7c29732453081c8287474d22dc7fe6abcbd
 // fixture: demotiles-stroke-match
 // variant.key: demotiles-stroke-match
 // pick: false
@@ -36,6 +36,18 @@ struct Uniforms {
   cam_ecef_off_l: vec4<f32>,
   light_dir_ecef: vec4<f32>,
   globe_eye: vec4<f32>,
+  input_f32_0: f32,
+  input_f32_1: f32,
+  input_f32_2: f32,
+  input_f32_3: f32,
+  input_f32_4: f32,
+  input_f32_5: f32,
+  input_f32_6: f32,
+  input_f32_7: f32,
+  input_color_0: vec4<f32>,
+  input_color_1: vec4<f32>,
+  input_color_2: vec4<f32>,
+  input_color_3: vec4<f32>,
 }
 
 struct VertexOutput {

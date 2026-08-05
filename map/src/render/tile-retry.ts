@@ -30,31 +30,60 @@
 // URL template changes, since a different template is a different coverage and says
 // nothing about what failed before.
 
+/** The retry clock. Wall time, not rendered frames (#1575) — a function rather than a
+ *  bare `Date.now()` at each call site so one import names the clock, and so a suite
+ *  driving `vi.useFakeTimers()` moves every reader of it together. */
+export function nowMs(): number {
+  return Date.now()
+}
+
 /** Backoff state the renderer keeps per failed tile key. */
 export interface FailedTile {
   /** How many times this tile's load has resolved null. */
   attempts: number
-  /** Frame counter value at the most recent failure. */
-  lastFailedFrame: number
+  /** WALL-CLOCK ms at the most recent failure (#1575).
+   *
+   *  This was a RENDERED-FRAME counter, and the counter only advances inside `render()`.
+   *  A failed-and-awaiting-retry tile was invisible to every keep-warm predicate, so on a
+   *  static camera the loop stopped, the counter froze, and `>= 30 frames` became
+   *  unreachable — a transiently failed basemap tile was a permanent hole even after the
+   *  server recovered. Wall time advances whether or not anything renders; the loop still
+   *  has to be kept warm long enough to READ it, which is `hasPendingRetries` below. */
+  lastFailedMs: number
 }
 
 /** Attempts after which a tile is abandoned until the source is re-armed. */
 export const MAX_TILE_ATTEMPTS = 4
 
-/** Frames to wait before re-requesting a tile that has failed `attempts` times:
- *  30, 120, 480 (~0.5 s, 2 s, 8 s at 60 fps), then never. Exponential so a
- *  genuinely-missing tile costs a bounded, rapidly-shrinking share of the load
- *  budget while a transient blip still recovers quickly. */
-export function retryDelayFrames(attempts: number): number {
-  return 30 * Math.pow(4, Math.max(0, attempts - 1))
+/** How long to wait before re-requesting a tile that has failed `attempts` times:
+ *  0.5 s, 2 s, 8 s, then never. Exponential so a genuinely-missing tile costs a bounded,
+ *  rapidly-shrinking share of the load budget while a transient blip still recovers
+ *  quickly. These are the same durations the frame-counter version intended (30/120/480
+ *  frames at 60 fps) — measured in the only clock that runs when the map is idle. */
+export function retryDelayMs(attempts: number): number {
+  return 500 * Math.pow(4, Math.max(0, attempts - 1))
 }
 
-/** May this tile be requested on `frameCount`? True when it has never failed, or
- *  its backoff has elapsed and it has attempts left. */
-export function tileRequestable(failed: FailedTile | undefined, frameCount: number): boolean {
+/** May this tile be requested at `nowMs`? True when it has never failed, or its backoff
+ *  has elapsed and it has attempts left. */
+export function tileRequestable(failed: FailedTile | undefined, nowMs: number): boolean {
   if (!failed) return true
   if (failed.attempts >= MAX_TILE_ATTEMPTS) return false
-  return frameCount - failed.lastFailedFrame >= retryDelayFrames(failed.attempts)
+  return nowMs - failed.lastFailedMs >= retryDelayMs(failed.attempts)
+}
+
+/** Is any tile waiting out a backoff it will come back from? The renderers OR this into
+ *  the keep-warm gate, because the retry is only ever re-attempted from inside `render()`
+ *  — a wall clock nothing reads is no better than a frozen one.
+ *
+ *  Bounded by construction, and that is the whole difference from the never-idling vector
+ *  case: a tile gets `MAX_TILE_ATTEMPTS` tries over ~10.5 s and is then abandoned, so this
+ *  goes false and the loop idles. It is true only while tiles are actually failing. */
+export function hasPendingRetries(failed: ReadonlyMap<string, FailedTile>): boolean {
+  for (const f of failed.values()) {
+    if (f.attempts < MAX_TILE_ATTEMPTS) return true
+  }
+  return false
 }
 
 /** Slots held back from the leaf loop on a cold start, for the parent-fallback
@@ -83,12 +112,70 @@ export function leafLoadBudget(maxConcurrent: number, cachedTiles: number): numb
   return Math.max(1, maxConcurrent - COLD_START_PARENT_SLOTS)
 }
 
-/** Fold one null load result into the backoff state for `key`. */
-export function noteFailure(
-  failed: Map<string, FailedTile>,
-  key: string,
-  frameCount: number,
-): void {
+/** Hard cap on a renderer's failed-tile ledger (#1575).
+ *
+ *  Mirrors `vector-tile-loader`'s `NEGATIVE_CACHE_MAX_ENTRIES`, and for the same reason:
+ *  panning across a broken region inserts one entry per tile that is never revisited.
+ *  Unlike that one these entries have no TTL to bound them — the abandon-until-re-armed
+ *  contract above is deliberate and gated (`tile-retry.test.ts`, `#1269` owns whether it
+ *  should change) — so the cap is the only bound there is. Two of the three failed-tile
+ *  ledgers in this repo were unbounded; this is the second one closed. */
+export const MAX_FAILED_TILES = 4096
+
+/** Fold one null load result into the backoff state for `key`, at wall-clock `nowMs`.
+ *
+ *  FIFO-evicts the oldest entries past the cap (Map preserves insertion order). An evicted
+ *  key simply becomes requestable again, which is the safe direction to fail: the worst
+ *  case is one extra request for a tile the user panned away from long ago. */
+export function noteFailure(failed: Map<string, FailedTile>, key: string, nowMs: number): void {
   const prev = failed.get(key)
-  failed.set(key, { attempts: (prev?.attempts ?? 0) + 1, lastFailedFrame: frameCount })
+  failed.set(key, { attempts: (prev?.attempts ?? 0) + 1, lastFailedMs: nowMs })
+  while (failed.size > MAX_FAILED_TILES) {
+    const oldest = failed.keys().next().value
+    if (oldest === undefined) break
+    failed.delete(oldest)
+  }
+}
+
+/** One renderer's failed-tile ledger: the backoff state, the cap, and the three questions
+ *  the render loop asks of it. An owned type rather than a bare `Map` at each renderer
+ *  (#1575) because the policy had drifted into three separate copies across this repo —
+ *  the raster arm, the DEM arm and `pmtiles-backend` — of which only the vector one was
+ *  bounded. Keeping the Map private is what stops a fourth interpretation appearing. */
+export class FailedTileLedger {
+  private readonly failed = new Map<string, FailedTile>()
+
+  /** May this tile be requested right now? */
+  requestable(key: string): boolean {
+    return tileRequestable(this.failed.get(key), nowMs())
+  }
+
+  /** Fold a settled load into the ledger. `aborted` is the one case that must NOT count:
+   *  a zoom change cancels every in-flight finer tile, and cancellation resolves `null`
+   *  exactly like a 404, so four oscillations across an LOD boundary used to blocklist
+   *  the very tiles the user was looking at. The header above names the set this ledger
+   *  is for, and cancellation was never in it. */
+  noteOutcome(key: string, aborted: boolean): void {
+    if (!aborted) noteFailure(this.failed, key, nowMs())
+  }
+
+  /** A successful load clears the tile's history. */
+  clear(key: string): void {
+    this.failed.delete(key)
+  }
+
+  /** A new URL template is a different coverage and says nothing about what failed. */
+  clearAll(): void {
+    this.failed.clear()
+  }
+
+  /** Is any tile still inside a backoff it will come back from? */
+  hasPendingRetries(): boolean {
+    return hasPendingRetries(this.failed)
+  }
+
+  /** Entry count — for the bound's own gate. */
+  get size(): number {
+    return this.failed.size
+  }
 }

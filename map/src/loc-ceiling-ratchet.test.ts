@@ -524,7 +524,13 @@ const CEILINGS: Record<string, number> = {
   // past it is a guaranteed 404, not a slow tile — terrarium stops at z15 while
   // rasterCoverZoom adds +1 on a 256-px source, so every visible tile failed from about
   // camera z14.5 (verified: terrarium/16/13651/25075 404, its z15 parent 200). +5: the arm call plus its two-line reason and prettier's wrap.
-  'map/src/map.ts': 5427,
+  // 5427→5412 (#1577): the style-import resolver (SSRF guard + body cap + the
+  // log-every-failure contract) moved whole to style-import-resolver.ts, and the
+  // absolute-base-URL helper joined map-teardown.ts — headroom for the orphaned-boot
+  // guard, paid for rather than borrowed.
+  // 5412→5411 (#1576): the visible-resume branch lost its duplicated latch commentary —
+  // the latch's own declaration already carries it — paying for the recovery settler.
+  'map/src/map.ts': 5411,
   // Baselined at #1255 (measured 830): the DOM-inspired layer API crossed
   // NEW_FILE_CAP with the paint-transition style-setter integration — the
   // StyleHost.transitions context, the shared applyNumber/applyColor
@@ -643,7 +649,14 @@ const CEILINGS: Record<string, number> = {
   // TEXT_MAX_ANGLE_DEFAULT_DEG) and the pure rotateLabelTranslate helper moved to
   // text-stage-helpers.ts — none touch `this`. A behaviour-free move that opens the
   // headroom the ground-basis bbox work needs; the file sat exactly at its ceiling.
-  'map/src/text/text-stage.ts': 2231,
+  // 2231→2187 (#1574): the rasterizer-wiring block — which of the three cases applies,
+  // the chain order, and WHICH of the two fallbacks a glyph gets — moved whole to
+  // glyph-rasterizer-wiring.ts. Nothing outside it read its locals, and the two-fallback
+  // rule needed a place to be written down: routing a permanently-failed range to the
+  // metrics-only placeholder is what made every Latin label inkless. The ceiling is
+  // lowered to the measured post-hook figure rather than left slack — the extraction
+  // paid for the fix's growth, so the win is banked, not spent twice.
+  'map/src/text/text-stage.ts': 2187,
   // 1786→1719 (#727 C): the line/point dedupe + pair-key helper block was
   // EXTRACTED to passes/line-label-dedupe.ts when the world-copy fan-out would
   // otherwise have grown this file — the extract-don't-grow answer.
@@ -744,7 +757,10 @@ const CEILINGS: Record<string, number> = {
   // not extract-worthy, §2), plus the perspectiveScale() getter, the 3-slot
   // projectLonLatCopies tuple, and the 6-member return objects prettier now wraps
   // multi-line — together nudging this helper just over NEW_FILE_CAP (773→818).
-  'map/src/render-loop-helpers.ts': 818,
+  // 818→817 (#1575): the end-of-frame keep-warm gate moved to render-loop-keep-warm.ts,
+  // where it is unit-testable — previously it was reachable only through a full GPU
+  // frame, which is why the disjunct MISSING from it could not be gated at all.
+  'map/src/render-loop-helpers.ts': 817,
   // 1458→1505 (#1155 F4 mount-hang): the per-variant WGSL emit is deduped —
   // buildShader now memoizes emitPolygonWgsl by (variant.key, pickEnabled), and
   // the already-emitted wgsl is plumbed through create{Variant}Pipelines[Async]
@@ -763,7 +779,9 @@ const CEILINGS: Record<string, number> = {
   // (measured 1621 post-prettier reflow of the extruded descriptors.)
   // 1621→1568 (#1046 F3b Inc-2c): the heatmap blur/compose factories retired
   // with the chain's RHI re-origination — win banked.
-  'map/src/render/pipeline-factory.ts': 1568,
+  // 1568→1496 (#1568): the ShaderVariantInfo→WGSL choke point + its memo moved to
+  // polygon-shader-cache.ts to pay for the body-epoch key — win banked.
+  'map/src/render/pipeline-factory.ts': 1496,
   'map/src/camera/camera.ts': 1419,
   'map/src/shaders/dsl/line.ts': 1441,
   // 1373→1422 (#1246): the flat-projection stroke-width fix. The VS clamp's flat
@@ -952,7 +970,8 @@ const CEILINGS: Record<string, number> = {
   // 1435→1425 (#1046 Inc-3b): the field collapse deleted the native trio's
   // population + the rawFrameShell escape arms — the loop SHRANK through a
   // feature increment, which is the ratchet working as designed.
-  'map/src/render-loop.ts': 1425,
+  // 1425→1405 (#1575): ditto — the disjunction itself left this file with the helper.
+  'map/src/render-loop.ts': 1405,
   // Baselined at 806 (hillshade tile fade-in): HillshadeRenderer crossed
   // NEW_FILE_CAP restoring the three tile-streaming fixes raster-renderer had
   // landed since hillshade was copied from it — the per-tile fade ramp + its
@@ -992,7 +1011,10 @@ const CEILINGS: Record<string, number> = {
   // past it is a guaranteed 404, not a slow tile — terrarium stops at z15 while
   // rasterCoverZoom adds +1 on a 256-px source, so every visible tile failed from about
   // camera z14.5 (verified: terrarium/16/13651/25075 404, its z15 parent 200). +8: the HillshadeParams field, the arm-site plumbing, and their rationale.
-  'map/src/render/hillshade-renderer.ts': 847,
+  // 847→846 (#1575): the failed-tile Map + its four call sites became one owned
+  // FailedTileLedger in tile-retry.ts — the policy had drifted into three separate
+  // copies across the repo and only the vector one was bounded.
+  'map/src/render/hillshade-renderer.ts': 846,
   // Merge union (#1060 <- main): stacked growth — measured 1174.
   'map/src/render/point-renderer.ts': 1174,
   // 1106→1120 (#1043 state-hygiene): three unmask-before-clear / state-reset fixes for the

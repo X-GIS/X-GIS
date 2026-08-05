@@ -24,6 +24,12 @@ export function optimize(scene: Scene): Scene {
     sources: scene.sources,
     renderNodes: scene.renderNodes.map((node) => optimizeNode(node)),
     symbols: scene.symbols,
+    // #1539 — carried through verbatim (declarations are compile-time
+    // fixed; optimize() only touches per-node paint values). Without this,
+    // emitCommands(optimize(scene)) — the actual production call shape,
+    // map.ts:2870 — would silently lose every `input` the map needs for
+    // `setInput()` to have anything to write into.
+    ...(scene.inputs ? { inputs: scene.inputs } : {}),
   }
 
   // Scene-level IR transforms now flow through PassManager. The

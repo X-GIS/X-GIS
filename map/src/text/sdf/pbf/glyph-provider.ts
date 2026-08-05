@@ -28,8 +28,19 @@ export interface GlyphProvider {
   /** Optional async load trigger. Providers with no remote source
    *  (pure inline data) omit this. Must be idempotent: repeat calls
    *  for the same (fontstack, codepoint) coalesce into one fetch.
-   *  Fires `onReady` once the glyph becomes retrievable via `get()`.
-   *  Stays silent on permanent failure (404, CORS, network) so the
-   *  rasterizer's fallback path can handle the gap. */
+   *  Fires `onReady` once the load REACHES A TERMINAL STATE — the glyph is retrievable
+   *  via `get()`, or it never will be (404, CORS, network). Both outcomes notify (#1574):
+   *  a caller that is told nothing cannot tell "still coming" from "never coming", and it
+   *  drew the awaiting-PBF placeholder forever. A repeat `ensure` for a range that has
+   *  ALREADY failed stays silent, so a re-raster prompted by that notification terminates. */
   ensure?(fontstack: string, codepoint: number, onReady: () => void): void
+
+  /** Optional terminal-state probe: has this provider finished deciding about the range
+   *  containing `codepoint`, either way? Providers that load synchronously, or that can
+   *  never load more than they already hold, omit it and are read as "still pending" —
+   *  the conservative answer, since it keeps the cheap placeholder in play.
+   *
+   *  This is what lets the rasterizer distinguish a glyph that has not ARRIVED yet from
+   *  one that is never coming, and pick a fallback accordingly. */
+  isResolved?(fontstack: string, codepoint: number): boolean
 }

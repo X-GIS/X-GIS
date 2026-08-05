@@ -12,6 +12,7 @@
 
 import { compileModule, compileModuleJs, type CpuModule } from '@xgis/shader-dsl'
 import { getPROJECTION_MODULE } from './projections'
+import { bodyEpochValue } from '../../body-epoch'
 
 // Lazy: the projection module is built from the host-injected ProjectionSpec
 // list (configureProjections), so compile on first use, not at import.
@@ -23,7 +24,17 @@ import { getPROJECTION_MODULE } from './projections'
 // js twin is BIT-IDENTICAL (same f64 op tree) — differential-gated in
 // cpu-projections-codegen.test.ts. One try/catch at first compile falls back to
 // the interpreter on a CSP `unsafe-eval` host (where `new Function` is blocked).
+//
+// #1568 — the memo is BODY-SCOPED. `cpu-codegen.ts` emits `jsNum(c.cpuValue)`
+// straight INTO the generated JS, so a module compiled under EARTH keeps
+// EARTH_R = 6378137 forever. The GPU side is not memoized this way
+// (`configureProjections` nulls the artifacts cache, and `raster.ts` re-emits per
+// Material), and consumers pair the two per frame — `raster-renderer.ts` feeds
+// `projectCpu` into the same `tile_rtc` anchor the freshly emitted shader reads.
+// So an un-scoped memo made the CPU compute on Earth while the GPU drew the Moon,
+// in one frame. Recompiling on a body change is cheap and happens once per switch.
 let _M: CpuModule | null = null
+let _MEpoch = -1
 const compileProjection = (): CpuModule => {
   const mod = getPROJECTION_MODULE()
   try {
@@ -32,7 +43,14 @@ const compileProjection = (): CpuModule => {
     return compileModule(mod)
   }
 }
-const M = (): CpuModule => (_M ??= compileProjection())
+const M = (): CpuModule => {
+  const epoch = bodyEpochValue()
+  if (_M === null || _MEpoch !== epoch) {
+    _M = compileProjection()
+    _MEpoch = epoch
+  }
+  return _M
+}
 const pp = (projType: number, clon: number, clat: number): number[] => [projType, clon, clat, 0]
 const vec2 = (v: unknown): [number, number] => v as [number, number]
 

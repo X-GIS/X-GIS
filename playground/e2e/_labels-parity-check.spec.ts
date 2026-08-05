@@ -56,7 +56,9 @@ async function shoot(page: import('@playwright/test').Page, gl2: boolean): Promi
         if (!c || typeof c.toBlob !== 'function') return reject(new Error('no canvas'))
         c.toBlob((b) => {
           if (!b) return reject(new Error('toBlob null'))
-          b.arrayBuffer().then((ab) => resolve([...new Uint8Array(ab)]))
+          b.arrayBuffer()
+            .then((ab) => resolve([...new Uint8Array(ab)]))
+            .catch(reject)
         }, 'image/png')
       }),
   )

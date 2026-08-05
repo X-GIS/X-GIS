@@ -10,6 +10,7 @@
 import { describe, it, expect, vi, afterEach } from 'vitest'
 import { XGISMap } from '@xgis/map'
 import { serializeXGB } from '@xgis/compiler'
+import { CoverageRenderer } from './render/coverage-renderer'
 import {
   installWebGPUStub,
   type StubInstallation,
@@ -165,6 +166,12 @@ const GEOJSON_SRC =
 // Unclosed brace → Parser throws synchronously.
 const BAD_SRC =
   'xgis 1\nsource world { type: geojson, url: "w.geojson" }\nlayer land { source: world'
+// #1577 — PARSES cleanly, then `lower()` throws (`data:` must be an object literal —
+// compiler/src/ir/lower.ts:155). This is the exact shape the leak needed: the parse guard
+// that D2/A1 put above the gpuInit kickoff lets it through, so a device IS minted and the
+// throw lands in the window between the kickoff and its await.
+const LOWER_THROWS_SRC =
+  'xgis 1\nsource world { type: geojson, data: "not-an-object" }\nlayer land { source: world, fill: #ff0000 }'
 
 describe('#1153 P1 — boot + soak (T7)', () => {
   it('run("xgis 1") boots to running with exactly one live device; destroy() frees it', async () => {
@@ -307,6 +314,50 @@ describe('#1153 P1 — parse-first crash isolation (T4/T12)', () => {
     expect(errs[0]!.fatal).toBe(false)
   })
 
+  // ═══ #1577 — a style error AFTER the gpuInit kickoff must not orphan the device ═══
+  //
+  // T12 above gates the PARSE route, which D2/A1 fixed by moving lex/parse above the
+  // kickoff. The route between the kickoff and its await ~300 lines later had no
+  // equivalent: that window is linear, with no try/catch/finally, and a resolved
+  // GPUContext is reachable ONLY through the promise it holds. A semantically invalid
+  // style — parses fine, throws in `lower()` — exited through it, and `ctx` was never set
+  // and `_ctxOwned` was false, so the next run's teardown gate skipped the device and
+  // `destroy()` freed only the published ctx. One live GPUDevice per failed run, on
+  // exactly the workload that produces failed runs: a style editor or live-reload loop.
+  it('T12b — a style that parses but fails to LOWER destroys its in-flight device', async () => {
+    const stub = install({ freshDevices: true })
+    const map = makeMap()
+
+    await expect(map.run(LOWER_THROWS_SRC)).rejects.toThrow(/object literal/)
+
+    // The device really was minted — otherwise this gate proves nothing about disposal.
+    await waitFor(() => stub.createdDevices.length === 1)
+    expect(stub.createdDevices, 'the kickoff ran before the throw').toHaveLength(1)
+    await waitFor(() => live(stub) === 0)
+    expect(live(stub), 'and the orphan is destroyed, not leaked').toBe(0)
+  })
+
+  it('T12c — the orphan is gone before the NEXT run, and a successful run keeps its own', async () => {
+    const stub = install({ freshDevices: true })
+    const map = makeMap()
+
+    await expect(map.run(LOWER_THROWS_SRC)).rejects.toThrow()
+    await waitFor(() => stub.createdDevices.length === 1)
+    await map.run('xgis 1')
+    await waitFor(() => stub.createdDevices.length === 2)
+
+    // The point of the identity check in `disposeOrphanedBoot`: device 0 is the orphan and
+    // must be dead; device 1 IS `map.ctx` and must be alive. A disposal that destroyed on
+    // every error path without comparing identity would kill the running map instead.
+    expect(stub.createdDevices[0]!.destroyed, 'the failed run left nothing behind').toBe(true)
+    expect(stub.createdDevices[1]!.destroyed, 'the successful run keeps its device').toBe(false)
+    expect(live(stub)).toBe(1)
+
+    map.destroy()
+    await waitFor(() => live(stub) === 0)
+    expect(live(stub), 'destroy() then frees the live one').toBe(0)
+  })
+
   it('T4 (runBinary mirror) — runBinary(corrupt) on a live map: no teardown, no device, one boot error', async () => {
     const stub = install({ freshDevices: true })
     const map = makeMap()
@@ -443,5 +494,34 @@ describe("#1153 P1 — runBinary mid-loop staleness (T15, G3')", () => {
     expect(rd.has('a')).toBe(true) // first load stored
     expect(rd.has('b')).toBe(false) // G3' stopped the loop before the 2nd rawDatasets.set
     expect(rebuild).not.toHaveBeenCalled() // stale run returned before rebuildLayers
+  })
+})
+
+// ═══ #1569 — the coverage renderer is released on teardown ═════════════════
+//
+// `CoverageRenderer.dispose()` existed and had ZERO callers: repo-wide the only
+// non-test `.dispose()` in map/src was `flowRenderer`'s. `rhi.destroy()` reclaims
+// the GPU half, but not `arms` — a plain JS Map whose CoverageHandle.bands carry
+// the full DECODED grid (an S-102 cell at 1201x1201 f32 is ~5.8 MB per band, one
+// handle per resident mosaic region). A host that kept the map object after
+// destroy() kept all of it. This drives the real boot path so the assertion is
+// about the wiring, not about a hand-built renderer.
+describe('#1569 destroy() releases the coverage renderer', () => {
+  it('calls coverageRenderer.dispose() exactly once, and again on a scene re-run', async () => {
+    const stub = install({ freshDevices: true })
+    const spy = vi.spyOn(CoverageRenderer.prototype, 'dispose')
+    const map = makeMap()
+    await map.run('xgis 1')
+    spy.mockClear() // ignore anything the boot itself did
+
+    // A scene swap goes through _teardownForReinit -> _releaseGpuResources, the
+    // same shared body destroy() uses — so the release must happen on BOTH paths,
+    // which is the whole point of the shared body.
+    await map.run('xgis 1')
+    expect(spy, 'a re-run releases the previous scene-s coverage renderer').toHaveBeenCalledTimes(1)
+
+    map.destroy()
+    expect(spy).toHaveBeenCalledTimes(2)
+    expect(live(stub)).toBe(0)
   })
 })

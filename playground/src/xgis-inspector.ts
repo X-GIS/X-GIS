@@ -197,7 +197,7 @@ function buildShell(state: InspectorState): void {
     'font-size:10px',
     'cursor:pointer',
   ].join(';')
-  copyBtn.addEventListener('click', async (e) => {
+  const onCopyClick = async (e: MouseEvent): Promise<void> => {
     e.stopPropagation()
     const text = collectAllTabsAsText(state)
     try {
@@ -232,7 +232,10 @@ function buildShell(state: InspectorState): void {
         copyBtn.style.background = '#3f3f46'
       }, 1500)
     }
-  })
+  }
+  // `addEventListener` expects a void-returning listener; hand it a sync wrapper
+  // that explicitly discards the async work (#1565, no-misused-promises).
+  copyBtn.addEventListener('click', (e) => void onCopyClick(e))
   header.appendChild(copyBtn)
 
   const minBtn = document.createElement('span')

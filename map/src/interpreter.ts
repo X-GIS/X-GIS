@@ -116,6 +116,11 @@ export interface SceneCommands {
    *  binds via `setPaletteColorAtlas`. Absent for interpreter-only
    *  paths (which don't run the compile pipeline). */
   palette?: import('@xgis/compiler').Palette
+  /** #1539 — the style's declared `input`s (name, type, uniform-pool slot,
+   *  compile-time default). Set by `emitCommands`; absent on the
+   *  interpreter-only path, which has no `input` statement support. Same
+   *  local-mirror rule as `palette` above. */
+  inputs?: import('@xgis/compiler').ResolvedInputInfo[]
 }
 
 /**

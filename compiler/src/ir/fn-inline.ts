@@ -93,6 +93,7 @@ function mapChildren(expr: AST.Expr, f: (e: AST.Expr) => AST.Expr): AST.Expr {
     case 'ColorLiteral':
     case 'BoolLiteral':
     case 'Identifier':
+    case 'InputRef':
       return expr
     case 'FieldAccess':
       return expr.object ? { ...expr, object: f(expr.object) } : expr

@@ -31,7 +31,15 @@ import { fileURLToPath } from 'node:url'
 import { uniformBlock } from '@xgis/engine'
 import { polygonU } from '../shaders/dsl/polygon'
 
-const VTR = join(dirname(fileURLToPath(import.meta.url)), 'vector-tile-renderer.ts')
+const HERE = dirname(fileURLToPath(import.meta.url))
+// The VTR plus every module it DELEGATES a frameBlock write to. #1539's 12-lane
+// `input` pool is written by input-pool.ts's writeInputPool(), called from each
+// of VTR's four frame-constant sites — the lanes are genuinely written per
+// frame, just not spelled inline in a file already at its LOC ceiling. Scanning
+// the delegate keeps this gate's guarantee intact (no polygonU field goes
+// silently unwritten) instead of parking 12 real, shader-read fields in
+// OMITTED, which is reserved for std140 padding.
+const WRITERS = ['vector-tile-renderer.ts', 'input-pool.ts'].map((f) => join(HERE, f))
 const stripComments = (s: string): string =>
   s.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/[^\n]*/g, '')
 
@@ -47,7 +55,7 @@ const OMITTED: Record<string, string> = {}
 
 describe('VTR frameBlock writes every polygonU field (#999, #600 completeness class)', () => {
   const allFields = Object.keys(uniformBlock(polygonU).set)
-  const src = stripComments(readFileSync(VTR, 'utf8'))
+  const src = stripComments(WRITERS.map((f) => readFileSync(f, 'utf8')).join('\n'))
   // Written = patched via `.set.<field>` (receiver-agnostic: `this.frameBlock` and
   // the local `B = this.frameBlock` alias both), OR supplied as a `.write({…})`
   // object key (VTR has none today — future-proofs the gate against a write() port).
@@ -60,7 +68,7 @@ describe('VTR frameBlock writes every polygonU field (#999, #600 completeness cl
     expect(
       uncovered,
       'VTR builds frameBlock = uniformBlock(polygonU) and never calls write(), so these ' +
-        'polygonU fields are written by NO .set.* / .write() in vector-tile-renderer.ts — ' +
+        'polygonU fields are written by NO .set.* / .write() in any of its writers — ' +
         'each renders as a silent 0 (the #600 globe_eye class). Write it per frame, or (only ' +
         `if it is padding the shader never reads) add it to OMITTED with a rationale:\n${uncovered.join('\n')}`,
     ).toEqual([])

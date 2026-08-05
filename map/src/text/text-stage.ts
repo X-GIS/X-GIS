@@ -22,17 +22,11 @@ import type { LabelDef, TextValue } from '@xgis/compiler'
 import { resolveText, type FeatureProps } from './text-resolver'
 import { GlyphAtlasHost, type GlyphAtlasHostOptions } from './sdf/glyph-atlas-host'
 import { GlyphAtlasGPU } from './sdf/glyph-atlas-gpu'
-import {
-  createRasterizer,
-  createMetricsRasterizer,
-  type GlyphRasterizer,
-} from './sdf/glyph-rasterizer'
-import { GlyphPbfCache } from './sdf/pbf/glyph-pbf-cache'
 import { bumpAlloc } from '../__profile__/alloc-counter'
 import { FrameArena } from '@xgis/engine'
-import { InlineGlyphProvider } from './sdf/pbf/inline-glyph-provider'
 import type { GlyphProvider } from './sdf/pbf/glyph-provider'
-import { PbfRasterizer } from './sdf/pbf-rasterizer'
+import type { PbfRasterizer } from './sdf/pbf-rasterizer'
+import { wireGlyphRasterizer } from './glyph-rasterizer-wiring'
 import { TextRenderer } from './text-renderer'
 import type { TextDraw } from './text-renderer-types'
 import {
@@ -370,58 +364,20 @@ export class TextStage {
     //      glyphProviders} supplied           → wrap Canvas2D with a
     //                                           PbfRasterizer chain
     //   3. neither                            → plain Canvas2D / Mock
-    //                                           (existing path, byte-
-    //                                           identical to pre-PBF)
     //
-    // Chain order (cheapest-source-first):
-    //   [InlineGlyphProvider, ...glyphProviders, GlyphPbfCache]
-    //
-    // The PbfRasterizer's `onLanded` forward-references `this.pbfRas`
-    // via the constructor closure — only invoked async, after the
-    // host is assigned a few lines below, so the temporal coupling
-    // is sound.
-    let rasterizer: GlyphRasterizer
-    let pbfRas: PbfRasterizer | null = null
-    if (options.rasterizer) {
-      rasterizer = options.rasterizer
-    } else if (options.glyphsUrl || options.inlineGlyphs || options.glyphProviders) {
-      // PBF environment: glyphs arrive async from the network in
-      // 50-200 ms typical. The sync fallback fires PER GLYPH on cold
-      // frames (rapid pan / zoom in-out) — the full Canvas2D path
-      // (fillText + getImageData + computeSDF) burns ~8 ms / glyph,
-      // accumulating to 100+ ms freezes on dense label scenes.
-      // Substitute a metrics-only fast path: measureText keeps the
-      // layout correct, SDF is zero (glyph invisible) for the brief
-      // window before the PBF range arrives and atlas.invalidate
-      // triggers an upgrade to the real SDF on the next frame. The
-      // full Canvas2D path is wired as the last-resort fallback for
-      // codepoints PBF can't deliver (returns zero advance from
-      // measureText → upgrade to full).
-      const fullFallback = createRasterizer()
-      const fallback = createMetricsRasterizer(fullFallback)
-      const providers: GlyphProvider[] = []
-      if (options.inlineGlyphs) providers.push(new InlineGlyphProvider(options.inlineGlyphs))
-      if (options.glyphProviders) providers.push(...options.glyphProviders)
-      if (options.glyphsUrl) providers.push(new GlyphPbfCache({ glyphsUrl: options.glyphsUrl }))
-      pbfRas = new PbfRasterizer({
-        fallback,
-        providers,
-        // Local-ideograph (#421): bucketed CJK renders via the FULL Canvas2D path.
-        cjkFull: fullFallback,
-        onLanded: (fontKey, codepoint) => {
-          // Invalidate the atlas slot (upgrade zero-SDF → real SDF next
-          // frame) AND ring the bell on the owning map (Audit ① B1): the
-          // S16 label-collision skip would otherwise keep replaying the
-          // stale glyph until the camera moves, because the dispatch
-          // signature is unchanged by a background resource landing.
-          this.host.invalidate(fontKey, codepoint)
-          options.onResourceLanded?.()
-        },
-      })
-      rasterizer = pbfRas
-    } else {
-      rasterizer = createRasterizer()
-    }
+    // The decision, the chain order and the two-fallback rule live in
+    // glyph-rasterizer-wiring.ts. `onLanded` forward-references `this.host`
+    // through this closure — only invoked async, after the host is assigned
+    // a few lines below, so the temporal coupling is sound.
+    const { rasterizer, pbf: pbfRas } = wireGlyphRasterizer(options, (fontKey, codepoint) => {
+      // Invalidate the atlas slot (upgrade zero-SDF → real SDF next
+      // frame) AND ring the bell on the owning map (Audit ① B1): the
+      // S16 label-collision skip would otherwise keep replaying the
+      // stale glyph until the camera moves, because the dispatch
+      // signature is unchanged by a background resource landing.
+      this.host.invalidate(fontKey, codepoint)
+      options.onResourceLanded?.()
+    })
     this.pbfRasterizer = pbfRas
     this.fontTypography = options.fontTypography ?? null
     const hostOpts: GlyphAtlasHostOptions = {
