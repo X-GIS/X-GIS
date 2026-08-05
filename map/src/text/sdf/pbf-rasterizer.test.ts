@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest'
 import { readFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { MockRasterizer, FONT_KEY_SENTINEL } from './glyph-rasterizer'
+import { MockRasterizer, FONT_KEY_SENTINEL, type GlyphRasterizer } from './glyph-rasterizer'
 import { GlyphPbfCache } from './pbf/glyph-pbf-cache'
 import { PbfRasterizer, deriveFontstack } from './pbf-rasterizer'
 
@@ -126,7 +126,21 @@ describe('PbfRasterizer', () => {
     expect(out2.bearingY).toBeLessThan(20)
   })
 
-  it('does NOT fire onLanded when the resolved range lacks the codepoint', async () => {
+  // ── #1574 — "resolved without the glyph" must notify too ──
+  //
+  // This assertion used to read "does NOT fire onLanded when the resolved range lacks the
+  // codepoint", and the sibling below "stays in fallback when the fetch fails" asserted the
+  // same silence. That silence is the defect: `onLanded` is what runs
+  // `GlyphAtlasHost.invalidate` + `markLabelDirty`, and the slot it invalidates holds the
+  // metrics-only placeholder (all-zero SDF) the rasterizer emits WHILE a PBF is in flight.
+  // With no notification the placeholder is never re-rasterised, so one failed range —
+  // 0-255 is all of Latin — left every label correctly spaced and completely inkless for
+  // the session, with nothing logged and no camera move recovering it.
+  //
+  // Firing on both outcomes cannot loop: `GlyphPbfCache.ensure` returns without queueing
+  // for a range that has already failed, so the re-raster this notification triggers
+  // schedules nothing further.
+  it('fires onLanded when the resolved range lacks the codepoint, so the slot re-rasterises', async () => {
     const fetchOK = () => Promise.resolve(new Response(PBF_BYTES, { status: 200 }))
     const cache = new GlyphPbfCache({
       glyphsUrl: 'https://x/{fontstack}/{range}.pbf',
@@ -145,7 +159,13 @@ describe('PbfRasterizer', () => {
     ras.rasterize({ fontKey, fontSize, codepoint: 0x00, sdfRadius, slotSize })
     await new Promise<void>((r) => setTimeout(r, 20))
 
-    expect(landed).toHaveLength(0)
+    expect(landed, 'the caller must learn that no glyph is coming').toHaveLength(1)
+
+    // …and exactly once: a second raster of the same codepoint hits a range that is already
+    // terminal, which queues nothing, so the notification cannot repeat per frame.
+    ras.rasterize({ fontKey, fontSize, codepoint: 0x00, sdfRadius, slotSize })
+    await new Promise<void>((r) => setTimeout(r, 20))
+    expect(landed).toHaveLength(1)
   })
 
   it('stays in fallback when the fetch fails', async () => {
@@ -167,10 +187,47 @@ describe('PbfRasterizer', () => {
     expect(out.bearingY).toBeCloseTo(fontSize * 0.7, 5) // Mock fallback path
 
     await new Promise<void>((r) => setTimeout(r, 20))
-    expect(landed).toHaveLength(0)
+    expect(landed, 'a failed range notifies too (#1574)').toHaveLength(1)
 
-    // Subsequent rasterize stays on fallback — no retry, no scheduled fetch.
+    // Subsequent rasterize stays on fallback — no retry, no scheduled fetch. This harness
+    // supplies no `fullFallback`, so the defaulting chain resolves it to `fallback` and the
+    // output is unchanged: proof that #1574's new routing costs an existing caller nothing.
     const out2 = ras.rasterize({ fontKey, fontSize, codepoint: 0x41, sdfRadius, slotSize })
     expect(out2.bearingY).toBeCloseTo(fontSize * 0.7, 5)
+  })
+
+  // ── #1574 — the routing itself: placeholder while pending, real ink once resolved ──
+  it('routes to fullFallback ONLY once every provider has resolved the range', async () => {
+    const fetchFail = () => Promise.resolve(new Response('', { status: 404 }))
+    const cache = new GlyphPbfCache({
+      glyphsUrl: 'https://x/{fontstack}/{range}.pbf',
+      fetch: fetchFail,
+    })
+    const log: string[] = []
+    const tag = (name: string): GlyphRasterizer => ({
+      rasterize: (req) => {
+        log.push(name)
+        return new MockRasterizer().rasterize(req)
+      },
+    })
+    const ras = new PbfRasterizer({
+      fallback: tag('metrics'),
+      fullFallback: tag('full'),
+      providers: [cache],
+      onLanded: () => {},
+    })
+    const fontKey = fontKeyOf('normal', 600, 'Open Sans')
+
+    // While the range is in flight, the CHEAP placeholder is right: paying the ~8 ms full
+    // Canvas2D path per glyph on a cold pan is exactly what it exists to avoid.
+    ras.rasterize({ fontKey, fontSize, codepoint: 0x41, sdfRadius, slotSize })
+    expect(log).toEqual(['metrics'])
+
+    await new Promise<void>((r) => setTimeout(r, 20))
+
+    // Once the range has failed, nothing is coming and the placeholder would be the FINAL
+    // answer — so the glyph must actually be drawn.
+    ras.rasterize({ fontKey, fontSize, codepoint: 0x41, sdfRadius, slotSize })
+    expect(log).toEqual(['metrics', 'full'])
   })
 })

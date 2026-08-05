@@ -643,7 +643,14 @@ const CEILINGS: Record<string, number> = {
   // TEXT_MAX_ANGLE_DEFAULT_DEG) and the pure rotateLabelTranslate helper moved to
   // text-stage-helpers.ts — none touch `this`. A behaviour-free move that opens the
   // headroom the ground-basis bbox work needs; the file sat exactly at its ceiling.
-  'map/src/text/text-stage.ts': 2231,
+  // 2231→2187 (#1574): the rasterizer-wiring block — which of the three cases applies,
+  // the chain order, and WHICH of the two fallbacks a glyph gets — moved whole to
+  // glyph-rasterizer-wiring.ts. Nothing outside it read its locals, and the two-fallback
+  // rule needed a place to be written down: routing a permanently-failed range to the
+  // metrics-only placeholder is what made every Latin label inkless. The ceiling is
+  // lowered to the measured post-hook figure rather than left slack — the extraction
+  // paid for the fix's growth, so the win is banked, not spent twice.
+  'map/src/text/text-stage.ts': 2187,
   // 1786→1719 (#727 C): the line/point dedupe + pair-key helper block was
   // EXTRACTED to passes/line-label-dedupe.ts when the world-copy fan-out would
   // otherwise have grown this file — the extract-don't-grow answer.
