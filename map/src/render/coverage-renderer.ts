@@ -529,6 +529,7 @@ export class CoverageRenderer {
   rebuildForQuality(): void {
     const prior = [...this.arms.entries()] // snapshot: setCoverage below mutates `arms`
     for (const key of [...this.states.keys()]) this.releaseRegion(key)
+    for (const d of this.drapers.values()) d.destroy()
     this.drapers.clear()
     for (const [key, { handle, opts }] of prior) this.setCoverage(handle, opts, key)
   }

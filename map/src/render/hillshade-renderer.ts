@@ -393,9 +393,9 @@ export class HillshadeRenderer {
     this.format = ctx.format
   }
 
-  /** A quality (MSAA / picking) change invalidates the draper so the next render()
-   *  lazily rebuilds its pipelines with the new getSampleCount() / isPickEnabled(). */
+  /** A quality flip RELEASES the draper (#1578) and drops it; the next render() rebuilds. */
   rebuildForQuality(): void {
+    this._hillshadeDraper?.destroy()
     this._hillshadeDraper = undefined
   }
 

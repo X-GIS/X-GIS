@@ -206,6 +206,13 @@ export function packCoverageUniforms(u: CoverageUniformInput): Float32Array {
 
 // ── RHI Material adapter ──────────────────────────────────────────────────────
 export class CoverageDraper {
+  /** Release the GPU objects this draper owns (#1578). Called by `rebuildForQuality()`
+   *  before the reference is dropped — a quality flip is live-session churn, not teardown,
+   *  so nothing else would ever reclaim these. */
+  destroy(): void {
+    this.material.destroy()
+  }
+
   private readonly material: Material
 
   constructor(
