@@ -1,0 +1,22 @@
+xgis 1
+
+/* Fixture: a symbolizer with NO built-in twin (#1540).
+ *
+ * `star7` exists only because /stdlib/shapes.xgis declares it — there is no
+ * `shape-star7` in the engine. This is the half of the proof that shows the
+ * EXTENSION path, not just the parity path: a new symbolizer added with zero
+ * library TS edits. The render gate also asserts it looks DIFFERENT from the
+ * 5-pointed star, so "the shape argument is ignored" cannot pass as success.
+ */
+
+import "/stdlib/shapes.xgis"
+
+source one_point {
+  type: geojson
+  url: "fixture-point.geojson"
+}
+
+layer the_star7 {
+  source: one_point
+  style: star7pt(#fbbf24, 80)
+}

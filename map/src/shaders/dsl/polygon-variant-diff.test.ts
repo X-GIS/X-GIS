@@ -27,6 +27,9 @@
 // the emit must be paired with a `bun scripts/capture-polygon-snapshots.ts`
 // + commit of the refreshed `__polygon-variant-snapshots__/`. The
 // ancestor-SHA gate confirms the baseline stays reachable from HEAD.
+// Capturing on a feature branch needs `--baseline=$(git rev-parse main)`, or a
+// squash merge orphans the stamped SHA and turns this gate red on main with no
+// emit change at all — the capture script's header owns that rule in full.
 
 import { describe, it, expect } from 'vitest'
 import { readFileSync, readdirSync } from 'node:fs'
