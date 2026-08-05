@@ -65,6 +65,8 @@
 //   X-GIS0026  error  lower     `input` reference reaches a paint        (ir/resolve-inputs.ts — #1539)
 //                               property this milestone doesn't wire the
 //                               uniform pool into (label/icon paint)
+//   X-GIS0027  error  lower     `style:` names no declared preset —      (ir/preset-expand.ts — #1606)
+//                               global or namespaced (`ns.name`)
 //
 // NOTE: a `color`-typed input in a scalar position needs NO new code —
 // ir/expr-type.ts's inferVecArity() treats a color input as vec4-arity,
@@ -148,6 +150,9 @@ export const INPUT_POOL_EXHAUSTED = 'X-GIS0025'
  *  wire the uniform pool into (#1539) — label/icon (text/icon) paint;
  *  only polygon/line/point carry the reserved pool today. */
 export const INPUT_UNSUPPORTED_PAINT_TARGET = 'X-GIS0026'
+/** `style: <name>` names no declared preset, global or namespaced (#1606) —
+ *  previously a silent no-op that compiled clean into a blank layer. */
+export const UNKNOWN_STYLE_PRESET = 'X-GIS0027'
 
 /** A 1-based, document-relative source span. `line`/`col` are always
  *  present; `endLine`/`endCol` are optional (a point diagnostic omits
