@@ -454,10 +454,13 @@ export class HeatmapRenderer {
   // renderChainRhi is the chain's shape (discrete passes on the frame
   // ENCODER; compose opens its own load/store pass on the resolved
   // swapchain view). Targets are the RHI r16float pair
-  // (HeatmapTargets.ensureRhi). The twin caller capability-gates on
+  // (HeatmapTargets.ensureRhi). BOTH callers capability-gate on
   // rhi.caps.floatBlendTargets — a device without EXT_color_buffer_float /
-  // EXT_float_blend fail-closes (no draw, no error); the twin path retires
-  // with the F3b flip.
+  // EXT_float_blend fail-closes (no draw, no error). The twin gated from the
+  // start; the chain's caller (passes/heatmap-pass.ts) did not until #1046
+  // Inc-F2c, which is why the delegation is stated on both entries below
+  // rather than on the twin's alone. The twin path retires with the F3b flip
+  // and the chain gate is then the only one.
   private _twin: {
     accumDraper: HeatmapAccumTwinDraper
     blurDraper: HeatmapBlurDraper
@@ -617,7 +620,11 @@ export class HeatmapRenderer {
    *  MSAA resolve, so this is single-sample — the shape every draper's
    *  Material declares: sampleCount 1, no depth-stencil). Descriptor-
    *  equivalent to the retired native block: same attachments, clears,
-   *  order and draws; only the encoding API moved. */
+   *  order and draws; only the encoding API moved.
+   *
+   *  The caller has already gated on rhi.caps.floatBlendTargets — the same
+   *  contract renderRhi states, and for the same reason: the r16float accum
+   *  target is feature-detected, not universal (#1046 Inc-F2c). */
   renderChainRhi(
     enc: RhiCommandEncoder,
     screenView: RhiTextureView,

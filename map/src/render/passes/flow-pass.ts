@@ -26,6 +26,7 @@
 // coverage draw lives in CoverageRenderer: this file is the SCHEDULING decision and nothing
 // else, so where the step runs stays reviewable on its own.
 
+import { NO_FLOW_FIELDS } from '../coverage-renderer'
 import type { FrameContext } from '../frame-context'
 import type { SceneView } from '../scene-view'
 import type { RenderPass, FlowPassHost } from './pass'
@@ -55,7 +56,7 @@ class FlowPass implements RenderPass {
     // EVERY region's field, not `activeFlowField`'s first one: the arrows are per region and
     // read the current they stand in (#1458). The TRAIL below still takes the single field —
     // it is one recursive filter over one grid, which is a real limitation and not this bug.
-    flow.setArrowFields(host.coverageRenderer?.flowFields() ?? new Map())
+    flow.setArrowFields(host.coverageRenderer?.flowFields() ?? NO_FLOW_FIELDS)
     if (!field) return
     ctx.passScope('flow', () => {
       const frame = { elapsedMs: ctx.elapsedMs, encoder: ctx.rhiEncoder }

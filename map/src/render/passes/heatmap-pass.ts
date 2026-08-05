@@ -30,18 +30,23 @@ class HeatmapPass implements RenderPass {
   execute(ctx: FrameContext, _scene: SceneView, host: HeatmapPassHost): void {
     const hr = host.heatmapRenderer
     if (!hr || !hr.hasLayers()) return
+    // F3b: RHI origination — descriptor-equivalent on WebGPU, executable on
+    // WebGL2 after the flip. The seam hands over the frame encoder + the
+    // resolved swapchain view; the renderer owns every pass it opens.
+    //
+    // FIRST, above the capability gate below: this is the mis-routed-frame
+    // tripwire, and it must keep throwing on every device. Gating ahead of it
+    // would turn a chain pass wrongly handed a twin frame into a silent return
+    // on exactly the backend (WebGL2) where that mis-route is possible.
+    const { enc, screenView } = requireRhiFrame(ctx, 'heatmap')
     // The r16float density accumulation blends into a float target, which is a
     // feature-DETECTED capability on WebGL2 (EXT_color_buffer_float +
-    // EXT_float_blend). HeatmapRenderer states that its CALLER performs this
+    // EXT_float_blend). HeatmapRenderer states that its CALLERS perform this
     // gate; the forced-WebGL2 twin is such a caller and this pass was not, so a
     // device without the extensions walked straight in (#1046 Inc-F2c). It goes
     // here rather than in `shouldRun`, which is handed no FrameContext and so
     // cannot see the device.
     if (!ctx.rhi.caps.floatBlendTargets) return
-    // F3b: RHI origination — descriptor-equivalent on WebGPU, executable on
-    // WebGL2 after the flip. The seam hands over the frame encoder + the
-    // resolved swapchain view; the renderer owns every pass it opens.
-    const { enc, screenView } = requireRhiFrame(ctx, 'heatmap')
     const { projType, centerLon, centerLat } = unwrapProjection(ctx.projection)
     ctx.passScope('heatmap', () => {
       hr.renderChainRhi(

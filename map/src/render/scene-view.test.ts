@@ -125,9 +125,10 @@ describe('buildSceneView', () => {
   })
 
   it('hasFlow follows the coverage, and stays FALSE with no coverage renderer at all (#1333)', () => {
-    // This flag is the only thing standing between a scalar-coverage (or coverage-less) map and
-    // an allocated IBFV ping-pong pair, so the default must be false — including on the very
-    // first frames, before any coverage source has been attached.
+    // The default must be false — including on the very first frames, before any coverage
+    // source has been attached. (This flag no longer GATES the flow pass: that gate moved
+    // inside the pass so the eviction frame still declares — #1046 Inc-F2c. What is pinned
+    // here is that the flag reports the coverage state correctly, not that it gates.)
     const base: HostStub = {
       opaque: [],
       translucent: [],

@@ -186,6 +186,10 @@ export class FlowRenderer {
       // Only THIS region's cached groups were built against the outgoing pair.
       this.arrowFields.set(region, field)
     }
+    // Nothing declared yet ⇒ nothing to prune, and no snapshot array to mint.
+    // The pass calls this EVERY frame now (#1046 Inc-F2c), so the common case on
+    // a coverage-less map has to cost zero allocations, not one throwaway array.
+    if (this.arrowFields.size === 0) return
     for (const region of [...this.arrowFields.keys()]) {
       if (fields.has(region)) continue
       this.arrowFields.delete(region)

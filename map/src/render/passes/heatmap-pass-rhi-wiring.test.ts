@@ -26,9 +26,12 @@ function harness() {
   const camera = { __camera: true }
   const targets = { __heatmapTargets: true }
   const ctx = {
-    // The density accumulation blends into a float target, so the pass asks the
-    // DEVICE first (#1046 Inc-F2c) — a stub without caps would fail-close and
-    // this seam would never be exercised.
+    // The density accumulation blends into a float target, so the pass reads
+    // `ctx.rhi.caps` (#1046 Inc-F2c). `rhi` is a REQUIRED FrameContext field
+    // that this stub simply did not model — the `as unknown as FrameContext`
+    // cast is what let it compile without one — so omitting it does not
+    // fail-close here, it throws `Cannot read properties of undefined
+    // (reading 'caps')` and masks the error this file actually asserts on.
     rhi: { caps: { floatBlendTargets: true } },
     rhiEncoder: enc,
     rhiScreenView: screenView,

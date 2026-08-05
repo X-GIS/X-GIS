@@ -48,8 +48,17 @@ export interface SceneView {
    *  with no host batches is byte-identical. */
   readonly hasGraphics: boolean
   /** A resident coverage carries a velocity field (#1333) — S-111 currents, not S-102
-   *  bathymetry. Gates the flow pass, which is the ONLY thing that allocates the IBFV
-   *  ping-pong pair, so a scalar-coverage or coverage-less map is byte-identical. */
+   *  bathymetry.
+   *
+   *  NO LONGER GATES THE FLOW PASS, and no production code reads it today. The pass
+   *  used to `shouldRun` on this flag; that skipped the whole execute on the frame the
+   *  LAST region evicts — the one frame the arrow declaration must happen, since this
+   *  flag IS `hasFlowField()` and turns false exactly then (#1419, #1046 Inc-F2c). The
+   *  gate moved INSIDE `flow-pass.ts` where it can sit below the declaration, so the
+   *  no-allocation property it was written for still holds: a scalar-coverage or
+   *  coverage-less map still allocates no IBFV pair and still renders byte-identically.
+   *  Kept as a frame fact rather than deleted — it is correct and cheap — but do not
+   *  reintroduce it as a pass gate. */
   readonly hasFlow: boolean
   /** Which pass claims the MSAA resolveTarget this frame. */
   readonly resolveOwner: ResolveOwner
