@@ -1436,18 +1436,11 @@ export class XGISMap {
     this._docHidden = false
     if (this._destroyed) return
     if (this.ctx?.deviceLost) {
-      // Arm the deferred re-init ONCE per loss. The latch stops a duplicate 'visible'
-      // signal (bfcache restore fires pageshow AND visibilitychange) — or a
-      // hide/show/hide/show while the re-init is still awaiting initGPU — from
-      // burning a second budget unit and racing a second concurrent run() (#1153 M5c).
-      if (this._deviceLostRecover && !this._deviceLostResumePending) {
-        if (
-          resumeDeviceLostRecovery(this.ctx, this._deviceLostBudget, {
-            recover: this._deviceLostRecover,
-          })
-        )
-          this._deviceLostResumePending = true
-      }
+      if (this._deviceLostRecover && !this._deviceLostResumePending)
+        this._deviceLostResumePending = resumeDeviceLostRecovery(this.ctx, this._deviceLostBudget, {
+          recover: this._deviceLostRecover,
+          fireError: (info) => this._eventBus.fireErrorEvent(info),
+        })
       return
     }
     this.invalidate()
@@ -1624,17 +1617,21 @@ export class XGISMap {
   /** Bounded device-lost recovery budget (#1153 B) — persists across re-runs. */
   private readonly _deviceLostBudget = { recoveries: 0, max: 2 }
 
-  /** Register bounded device-lost auto-recovery on the freshly-resolved ctx: on loss,
-   *  fire the 'error' event and (budget + visibility permitting) re-run in a microtask. */
+  /** #1576 A/C — settle a recovery re-run whichever way it goes; the two wedges this
+   *  closes, and why each half is needed, are in device-lost-recovery.ts's header. */
+  private _settleRecovery(run: Promise<void>, recoverFrom: { epoch: number }): void {
+    void run
+      .catch((error) => this._eventBus.fireErrorEvent({ phase: 'devicelost', fatal: true, error }))
+      .finally(() => {
+        this._deviceLostResumePending = false
+        recoverFrom.epoch = this._runEpoch
+      })
+  }
+
+  /** Register bounded device-lost auto-recovery on the freshly-resolved ctx. */
   private _armDeviceLostRecovery(recover: () => void): void {
     if (!this.ctx) return
-    // Stash the recovery re-run so the visibilitychange→visible handler can arm the
-    // re-init a loss deferred WHILE HIDDEN (the loss hook skips + never re-fires;
-    // #1153 M5c). Re-stashed on every re-run — a stale closure is a safe no-op.
     this._deviceLostRecover = recover
-    // A fresh ctx is now installed (deviceLost=false) — the deferred-resume latch
-    // that guarded the just-completed re-init is spent; clear it so the NEXT
-    // hidden-tab loss can re-arm (#1153 M5c).
     this._deviceLostResumePending = false
     wireDeviceLostRecovery(this.ctx, this._deviceLostBudget, {
       fireError: (info) => this._eventBus.fireErrorEvent(info),
@@ -3092,13 +3089,14 @@ export class XGISMap {
     // (do not re-derive the condition): a genuine device loss queues recover() in a
     // microtask; if the user calls run(newSource) / stop() / destroy() before it drains,
     // the guard no-ops instead of resurrecting THIS old source and killing the newer run.
+    const recoverFrom = { epoch }
     this._armDeviceLostRecovery(() => {
-      if (this._epochStale(epoch)) return
+      if (this._epochStale(recoverFrom.epoch)) return
       // Re-run from the (import-resolved) AST, not the source text — #1194 A1b:
       // works for BOTH entries (a runScene scene has no text), skips a re-parse,
       // and cannot double-splice (resolveImportsAsync returned a NEW Program with
       // ImportStatements stripped, so the resolution branch no-ops on re-entry).
-      void this._runProgram(ast, baseUrl)
+      this._settleRecovery(this._runProgram(ast, baseUrl), recoverFrom)
     })
     // #797 P0/P1 — (re)attach the host DRAWING API GPU atlas + retained-icon
     // draper to this run's device (rematerialises any batches added pre-run).
@@ -4143,9 +4141,10 @@ export class XGISMap {
     this._ctxOwned = true // A4 — this run now owns the published device.
     if (this._onDeviceLost) this.ctx.onDeviceLost = this._onDeviceLost
     // A6 — epoch-guard the recovery closure via _epochStale (mirror of run(); see there).
+    const recoverFrom = { epoch }
     this._armDeviceLostRecovery(() => {
-      if (this._epochStale(epoch)) return
-      void this.runBinary(buffer, baseUrl)
+      if (this._epochStale(recoverFrom.epoch)) return
+      this._settleRecovery(this.runBinary(buffer, baseUrl), recoverFrom)
     })
     // #797 P0/P1 — (re)attach the host DRAWING API GPU atlas + retained-icon
     // draper to this run's device (rematerialises any batches added pre-run).
