@@ -8,6 +8,7 @@
 // textures is the thin `this`-coupled wrapper around it.
 
 import type { CoverageTime } from '@xgis/data'
+import { xlog } from '@xgis/shared'
 
 /** Resolve `indexOrISO` to a 1-based forecast group in `[1, time.count]`.
  *  - number → a 0-based hour index.
@@ -105,21 +106,34 @@ export class CoverageTimePlayer {
       if (!a || a.count <= 1) return // source gone / single-group → stop
       const toIndex = (a.index + 1) % a.count
       sub++
-      try {
-        if (sub < steps) {
-          // Drop a blended frame that is already past its slot: on a machine where one frame
-          // costs more than `subMs`, rendering it anyway would stretch every hour further and
-          // further past `stepMs`. Dropping keeps the dwell honest; the landing below still runs.
-          if (Date.now() <= hourStart + sub * subMs) {
+      if (sub < steps) {
+        // Drop a blended frame that is already past its slot: on a machine where one frame
+        // costs more than `subMs`, rendering it anyway would stretch every hour further and
+        // further past `stepMs`. Dropping keeps the dwell honest; the landing below still runs.
+        if (Date.now() <= hourStart + sub * subMs) {
+          try {
             await interp!.stepFraction(a.index, toIndex, sub / steps)
+          } catch (err) {
+            // #1573 — a BLENDED frame that fails is skipped, not fatal. One catch used to
+            // cover both branches, so a single transient HTTP failure on a transition's
+            // first sub-frame (each one reads every region at the target group) stopped the
+            // animation for good — no log, no event, no re-arm — against the documented
+            // contract at `map.ts`: "a single dropped frame should not kill playback".
+            xlog.warn('[X-GIS] coverage playback: interpolated frame skipped', err)
           }
-        } else {
+        }
+      } else {
+        try {
           await step(toIndex) // the real hour swap — lands exactly where non-interp play would
           sub = 0
           hourStart = Date.now() // the next transition's dwell starts where this one landed
+        } catch (err) {
+          // The real hour swap still stops playback — it steps an already-loaded cell, so a
+          // failure there is a real fault rather than a network blip. It must not be SILENT
+          // though: the observable used to be a freeze with nothing written anywhere.
+          xlog.error('[X-GIS] coverage playback stopped — forecast step failed', err)
+          return
         }
-      } catch {
-        return // a failed step stops playback, never an unhandled rejection that crashes the app
       }
       if (gen !== this.generation) return // paused/restarted while the work above was awaited
       const delay = Math.max(0, hourStart + (sub + 1) * subMs - Date.now())
