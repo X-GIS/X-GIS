@@ -20,7 +20,7 @@ import {
   type LoadedTexture,
 } from './raster-cache-budget'
 import { routeToSphereSelector, enumerateWorldCopies, isGlobeProj } from '@xgis/geo'
-import { isPickEnabled, getSampleCount } from '@xgis/engine'
+import { pickTargetsEnabled, getSampleCount } from '@xgis/engine'
 import { DEBUG_OVERDRAW } from '../debug-flags'
 import { globeVisibleTiles } from '@xgis/data'
 import { uniformBlock, type UniformBlockOf } from '@xgis/engine'
@@ -548,10 +548,8 @@ export class RasterRenderer {
       gridN,
     )
 
-    // `pick` LAST like the live draw — the opaque sub-pass adds a pick attachment,
-    // and a non-pick pipeline there mismatches it (#1046 Inc-F2d review MAJOR-3).
     const tiles = [{ texture: checker, tileBytes: new Float32Array(TB.buffer.slice(0)), gridN }]
-    draper.draw(pass, B.buffer, tiles, false, isPickEnabled())
+    draper.draw(pass, B.buffer, tiles, false, pickTargetsEnabled(this.rhi.caps))
   }
 
   /** Backend-appropriate raster tile load (#834 M5 slice 2): the WebGPU path
@@ -994,7 +992,8 @@ export class RasterRenderer {
     // matching the legacy path (it wrote the global before the loop): 0 tiles → global write, no draws.
     // Both frame shapes hand in an RhiRenderPass (Inc-2d) — the old
     // backend-keyed re-wrap was the 34d4695 double-wrap class.
-    this.ensureRasterDraper().draw(pass, B.buffer, tilesArr, this._nearest, isPickEnabled())
+    const pick = pickTargetsEnabled(this.rhi.caps)
+    this.ensureRasterDraper().draw(pass, B.buffer, tilesArr, this._nearest, pick)
 
     // Capture this frame's visible set; deferred eviction runs in the next
     // beginFrame(). Eviction used to run inline here, but destroying tile

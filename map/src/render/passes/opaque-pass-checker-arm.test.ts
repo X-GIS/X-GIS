@@ -114,8 +114,9 @@ describe('opaque pass — the checker arm (#1046 Inc-F2d)', () => {
     const [rhiArg, passArg, camArg, projType, lon, lat, w, h, dpr] = renderRhiChecker.mock.calls[0]!
     expect(
       rhiArg,
-      'the RHI device BY IDENTITY — the draper + checker texture are cached per ' +
-        'device, so a re-wrap silently re-bakes both',
+      'the RHI device BY IDENTITY — `ensureRhiChecker(rhi)` caches the checker texture ' +
+        'per device, so a re-wrap silently re-bakes it (the draper moved to this.rhi in ' +
+        '048642a and no longer keys on this argument)',
     ).toBe(rhi)
     expect(passArg, 'the checker rides the opaque sub-pass').toBe(captured[0])
     expect(camArg, 'the frame camera, not a substitute').toHaveProperty('getViewForProjection')

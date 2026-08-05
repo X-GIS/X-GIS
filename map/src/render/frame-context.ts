@@ -16,7 +16,7 @@ import type { Camera } from '../camera'
 import type { RhiDevice } from '@xgis/rhi'
 import type { RenderTargets } from '@xgis/rhi-webgpu'
 import type { ProjectionToken } from './projection-token'
-import { getSampleCount, isPickEnabled } from '@xgis/engine'
+import { getSampleCount, pickTargetsEnabled } from '@xgis/engine'
 import { DEBUG_OVERDRAW } from '../debug-flags'
 
 /** One render target's pixel geometry.
@@ -230,7 +230,7 @@ export function wireFrameColour(
   // no continuous pick attachment at all — asking for one made the WebGL2 chain's
   // opaque pass fail-loud every frame ("got 2 colour attachments") AND allocated a
   // scene-sized rg32uint nothing on that backend ever reads.
-  const pick = isPickEnabled() && ctx.rhi.caps.presentablePassMrt
+  const pick = pickTargetsEnabled(ctx.rhi.caps)
   // ?debug=overdraw routes EVERY scene pass's colour target to the r16float
   // accumulator (render-targets.ts), and only the trailing compose writes the
   // swapchain — but that compose is still raw WebGPU (P6): it unwraps a native
@@ -246,10 +246,12 @@ export function wireFrameColour(
   // capability check of its own.
   //
   // NOT YET the twin's picture, and the gap is deliberate rather than unnoticed:
-  // ~24 DEBUG_OVERDRAW reads remain in the DRAW layer (line-renderer strokes,
+  // 18 DEBUG_OVERDRAW reads remain in the DRAW layer (line-renderer strokes,
   // VTR pipeline selection + fill patterns, bucket-scheduler's baked debug
   // pipelines, the graticule), and none of them can reach this truth — several
-  // run before a FrameContext exists. So an immediate device renders a PARTIAL
+  // run before a FrameContext exists (render-loop's adaptive-scale read is the
+  // exception — it CAN reach the device, it just does not). An immediate device
+  // therefore renders a PARTIAL
   // frame here, not an ordinary map: strictly better than the crash this
   // replaced, still not parity. Centralising those reads behind an
   // `isOverdrawActive(caps)` accessor at the flag site is #1594; this comment is

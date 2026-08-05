@@ -20,7 +20,18 @@
 // passes follow the frame rather than the URL — rather than the plumbing, because
 // the plumbing can be rewired while the defect returns.
 
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, vi } from 'vitest'
+
+// LOAD-BEARING. `DEBUG_OVERDRAW` is false under vitest, so `hasX && !DEBUG_OVERDRAW`
+// and `hasX && !scene.overdraw` are INDISTINGUISHABLE in the "overdraw OFF" arm —
+// that arm passed while translucent-pass was reverted to the URL flag, i.e. it
+// could not see the very regression its own message describes. Forcing the flag
+// true makes `scene.overdraw === false` mean what it means on an immediate
+// device: routing off, URL flag on (#1046 Inc-F2d review, item 3).
+vi.mock('../../debug-flags', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../debug-flags')>()),
+  DEBUG_OVERDRAW: true,
+}))
 import { translucentPass } from './translucent-pass'
 import { hillshadePass } from './hillshade-pass'
 import { pointsPass } from './points-pass'
@@ -28,6 +39,9 @@ import { heatmapPass } from './heatmap-pass'
 import { oitPass } from './oit-pass'
 import { graphicsPass } from './graphics-pass'
 import { overdrawComposePass } from './overdraw-compose-pass'
+import { backgroundPass } from './background-pass'
+import { makeProjectionToken } from '../projection-token'
+import type { FrameContext } from '../frame-context'
 import type { SceneView } from '../scene-view'
 
 /** A scene whose content is all present; only the frame's overdraw truth varies. */
@@ -86,5 +100,54 @@ describe('overdraw is one frame truth, not eleven flag reads (#1046 Inc-F2d)', (
     // (instead of the routing) produced.
     expect(overdrawComposePass.shouldRun(scene(true))).toBe(true)
     expect(overdrawComposePass.shouldRun(scene(false))).toBe(false)
+  })
+})
+
+describe('the execute-time consumers read the frame truth too (#1046 Inc-F2d review MAJOR-3)', () => {
+  // `shouldRun` is only half the surface. Three passes read `ctx.overdraw` inside
+  // `execute`, and severing ALL THREE at once left 40 files / 258 tests green.
+  // background is the sharp one: its clear value decides whether the r16float
+  // accumulator starts each frame at zero, so reading the wrong truth there makes
+  // ?debug=overdraw report a fragment count that was never zeroed — silently, with
+  // a correct-looking picture. `background-pass-clear-value.test.ts` pins the
+  // HELPER against a boolean literal; nothing pinned that the pass sources that
+  // boolean from the frame.
+  function clearValueFor(overdraw: boolean): number[] {
+    const captured: { clearValue?: number[] }[] = []
+    const ctx = {
+      overdraw,
+      projection: makeProjectionToken(0, 0, 0),
+      camera: { zoom: 3 },
+      elapsedMs: 0,
+      passScope: (_l: string, fn: () => void) => fn(),
+      rhiEncoder: {
+        beginRenderPass: (d: { colorAttachments: { clearValue?: number[] }[] }) => {
+          captured.push(d.colorAttachments[0]!)
+          return { end: () => undefined }
+        },
+      },
+      rhiScreenView: {},
+      rhiColorView: {},
+      rhiStencilView: {},
+      rhiSceneResolveView: {},
+      rhiColorViewScreen: {},
+    } as unknown as FrameContext
+    backgroundPass.execute(ctx, scene(overdraw), { _backgroundColor: [0.2, 0.4, 0.6, 1] } as never)
+    expect(captured, 'the background pass did not open its pass').toHaveLength(1)
+    return captured[0]!.clearValue!
+  }
+
+  it('overdraw ON ⇒ the accumulator is cleared to zero, not to the style background', () => {
+    expect(
+      clearValueFor(true),
+      'a non-zero clear seeds the r16float fragment counter, so every overdraw reading is ' +
+        'offset by the background — wrong, and invisible',
+    ).toEqual([0, 0, 0, 0])
+  })
+
+  it('overdraw OFF ⇒ the real background colour reaches the swapchain clear', () => {
+    // The anti-vacuity arm: clearing to zero unconditionally would satisfy the
+    // case above while painting every ordinary frame's backdrop black.
+    expect(clearValueFor(false), 'the style background was discarded').not.toEqual([0, 0, 0, 0])
   })
 })

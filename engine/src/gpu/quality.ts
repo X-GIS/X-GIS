@@ -335,6 +335,23 @@ export const getSampleCount = (): number => QUALITY.msaa
 export const getMaxDpr = (): number => QUALITY.maxDpr
 export const isPickEnabled = (): boolean => QUALITY.picking
 
+/** Picking clamped by the DEVICE — whether this frame may carry a pick target.
+ *
+ *  The host ASKS for picking (`QUALITY.picking`); whether the frame can carry the
+ *  rg32uint attachment is a device CAP. A presentable pass that cannot do MRT —
+ *  WebGl2Device: FBO 0 takes one colour attachment — must not be handed a
+ *  two-target pipeline, and the pick material is built lazily precisely so the
+ *  non-pick path never constructs one.
+ *
+ *  ONE authority, because the ask and the draw have to agree: RenderTargets
+ *  allocates the attachment from this, the opaque pass attaches it from this, and
+ *  every draper that selects a pick pipeline must select it from this. They were
+ *  briefly two copies of the expression, and the copy in raster-renderer drifted
+ *  (#1046 Inc-F2d review MAJOR-1) — a 2-target pipeline bound into a 1-attachment
+ *  pass on `?forcegl2=1&debug=checker&picking=1`. */
+export const pickTargetsEnabled = (caps: { presentablePassMrt: boolean }): boolean =>
+  QUALITY.picking && caps.presentablePassMrt
+
 /** The devicePixelRatio the swapchain is (re)sized to. During an interaction
  *  it drops to `QUALITY.interactionDpr` (when set), otherwise the full
  *  `getMaxDpr()` cap. The render loop MUST derive its per-frame `dpr` from
