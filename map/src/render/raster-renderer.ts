@@ -503,9 +503,8 @@ export class RasterRenderer {
   ): void {
     // The SAME draper the live raster path uses, so the pipeline is derived from
     // the target rather than assumed. It baked ('rgba8unorm', 1) — inert on the
-    // WebGL2 twin (pipelines are programs there), a validation error on a WebGPU
-    // frame (bgra8unorm, MSAA 4), and the reason the chain port of this call
-    // first reached for a device fork (#1046 Inc-F2d review F3).
+    // WebGL2 twin, a validation error on a WebGPU frame (bgra8unorm, MSAA 4),
+    // and why the chain port first reached for a device fork (Inc-F2d review F3).
     const draper = this.ensureRasterDraper()
     const checker = this.ensureRhiChecker(rhi)
     const frame = camera.getViewForProjection(projType, w, h, dpr)
