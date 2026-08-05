@@ -65,12 +65,6 @@ export function setFrameTargets(
  *  fields are (re)populated at the start of each `render()` at the same
  *  points the equivalent locals were computed before this struct existed. */
 export interface FrameContext {
-  /** Set ONLY by the forced-WebGL2 frame (#834 M5 slice 3): the live RHI
-   *  screen pass. The label pass branches on it and draws INTO it instead of
-   *  originating a sub-pass — on that frame the RHI bridges are null (the
-   *  twin holds its one pass open), so requireRhiFrame must never run on the
-   *  rhiPass arm. Dies with the twin (#991 P4/P5). */
-  rhiPass?: import('@xgis/rhi').RhiRenderPass
   /** The backend RHI device for this frame (`host.ctx.rhi` — the single injected
    *  instance, WebGpuDevice or WebGl2Device). Threaded onto the frame so a pass or
    *  seam can ask the device a capability (`ctx.rhi.caps.*`) instead of branching on
@@ -80,9 +74,10 @@ export interface FrameContext {
   /** The frame's ONE command encoder, RHI-typed (`rhi.acquireFrameEncoder()`,
    *  #1046 F2/F3b — the native trio and the `__xgisRawFrameShell` escape
    *  retired with the Inc-3 field collapse; a native handle exists only as a
-   *  loop-local unwrap for the compute/timer tail). Null ONLY on the
-   *  forced-WebGL2 twin frame, which holds its one live pass (`rhiPass`)
-   *  instead of an encoder — dies with the twin (#991 P4/P5). */
+   *  loop-local unwrap for the compute/timer tail). Nullable for the same
+   *  reason every RHI bridge on this type is: a stub FrameContext (tests) or a
+   *  never-wired frame. The forced-WebGL2 twin, which used to leave this null
+   *  on every frame, was deleted in #1046 Inc-F3a. */
   rhiEncoder: import('@xgis/rhi').RhiCommandEncoder | null
   /** F3b view bridges for the chain passes — the swapchain view, the SCENE
    *  colour attachment (scene-sized MSAA under `useResolve`, the overdraw

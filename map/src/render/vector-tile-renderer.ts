@@ -677,8 +677,8 @@ export class VectorTileRenderer {
   private currentFrameId = 0
 
   // ═══ #832 M2 — WebGL2 fills-only frame path ═══════════════════════════════
-  // A fills-only sibling of render() for the forced-WebGL2 frame
-  // (renderFrameViaRhi): same selection collaborator, same DSFUN per-tile
+  // A fills-only sibling of render() for the WebGL2 immediate arm
+  // (vtr-immediate-arm.ts): same selection collaborator, same DSFUN per-tile
   // uniform pack, same GPUArena buffers — but the draw goes straight through
   // the RHI-generic Material/executeItems seam (no native pipelines, no
   // recordFillDraw indirection, no fallback/line/label/bundle machinery).
@@ -3994,14 +3994,14 @@ export class VectorTileRenderer {
 
   /** Accumulate this show's tile-point features and flush them onto `pass`.
    *  Single authority for both backends (#1057): the WebGPU render() tail hands
-   *  it the chain's RhiRenderPass directly (Inc-2d); the forced-WebGL2 twin (render-loop.ts
-   *  renderFrameViaRhi opaque loop) calls it with its screen RhiRenderPass after
-   *  each show's fills+strokes. Reads `this.stableKeys` — the visible keys set by
-   *  render() (WebGPU) or renderFillsRhi (twin) for THIS frame — and derives
-   *  `sliceLayer` the same way both do. Parity note: the twin's stableKeys is
-   *  neededKeys + protectedAncestors; it omits fallbackKeys (twin runs primary-
-   *  only acquisition — fallback pass reverted in #1140), so mid-load fallback-
-   *  ancestor points can appear on WebGPU but not the twin. See renderFillsRhi's
+   *  it the chain's RhiRenderPass directly (Inc-2d); the WebGL2 immediate arm
+   *  (vtr-immediate-arm.ts) calls it with its screen RhiRenderPass after each
+   *  show's fills+strokes. Reads `this.stableKeys` — the visible keys set by
+   *  render() (WebGPU) or renderFillsRhi (WebGL2) for THIS frame — and derives
+   *  `sliceLayer` the same way both do. Parity note: renderFillsRhi's stableKeys
+   *  is neededKeys + protectedAncestors; it omits fallbackKeys (primary-only
+   *  acquisition — fallback pass reverted in #1140), so mid-load fallback-
+   *  ancestor points can appear on WebGPU but not WebGL2. See renderFillsRhi's
    *  assignment site for the full rationale.
    *
    *  Tile point vertices are DSFUN stride 5: [mx_h, my_h, mx_l, my_l, feat_id]

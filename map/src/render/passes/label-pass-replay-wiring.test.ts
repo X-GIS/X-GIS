@@ -6,7 +6,7 @@
 //   - a MISS (prepare) frame re-samples refs through the SAME projector
 //     family that places the labels (projectMercAny — single authority),
 //   - a HIT (replay) frame solves prepared→current and hands the transform
-//     to all four stage/iStage render calls (WebGPU + forced-WebGL2 arms),
+//     to both stage/iStage render calls,
 //   - a MISS frame renders with `undefined` (identity) — labelReplay is only
 //     assigned under the canSkipLabelPrepare guard.
 // Structural source-text assertions in the directory's established style
@@ -25,7 +25,6 @@ const SRC = readFileSync(resolve(__dirname, 'label-pass.ts'), 'utf8').replace(/\
 const missBlockIdx = SRC.indexOf('host._labelDispatchMisses++')
 const postSkipIdx = SRC.indexOf('const _postSkip = this._skipState.get(host)')
 const replaySolveIdx = SRC.indexOf('let labelReplay: LabelReplayTransform | undefined')
-const rhiRenderIdx = SRC.indexOf('stage.render(ctx.rhiPass,')
 const encoderRenderIdx = SRC.indexOf('stage.render(tPass,')
 
 const missBlock = SRC.slice(missBlockIdx, postSkipIdx)
@@ -36,8 +35,7 @@ describe('label-pass — S16 replay-correction wiring (#1177)', () => {
     expect(missBlockIdx).toBeGreaterThan(-1)
     expect(postSkipIdx).toBeGreaterThan(missBlockIdx)
     expect(replaySolveIdx).toBeGreaterThan(postSkipIdx)
-    expect(rhiRenderIdx).toBeGreaterThan(replaySolveIdx)
-    expect(encoderRenderIdx).toBeGreaterThan(rhiRenderIdx)
+    expect(encoderRenderIdx).toBeGreaterThan(replaySolveIdx)
   })
 
   it('skip state carries the replay refs + caller-owned solve scratch', () => {
@@ -63,13 +61,7 @@ describe('label-pass — S16 replay-correction wiring (#1177)', () => {
     expect(solveBlock).toContain('labelReplay = _postSkip.replayOut')
   })
 
-  it('all four render calls receive the transform (icons + text, both backends)', () => {
-    expect(SRC).toMatch(
-      /iStage\?\.render\(ctx\.rhiPass, \{ width: ctx\.screen\.w, height: ctx\.screen\.h \}, labelReplay\)/,
-    )
-    expect(SRC).toMatch(
-      /stage\.render\(ctx\.rhiPass, \{ width: ctx\.screen\.w, height: ctx\.screen\.h \}, labelReplay\)/,
-    )
+  it('both render calls receive the transform (icons + text)', () => {
     expect(SRC).toMatch(
       /iStage\?\.render\(tPass, \{ width: ctx\.screen\.w, height: ctx\.screen\.h \}, labelReplay\)/,
     )

@@ -524,7 +524,9 @@ const CEILINGS: Record<string, number> = {
   // past it is a guaranteed 404, not a slow tile — terrarium stops at z15 while
   // rasterCoverZoom adds +1 on a 256-px source, so every visible tile failed from about
   // camera z14.5 (verified: terrarium/16/13651/25075 404, its z15 parent 200). +5: the arm call plus its two-line reason and prettier's wrap.
-  'map/src/map.ts': 5427,
+  // 5427→5426 (#1046 F3b): doc-only — the `_missedTiles` comment named BOTH render
+  // paths writing it; only the render-loop path exists post-deletion.
+  'map/src/map.ts': 5426,
   // Baselined at #1255 (measured 830): the DOM-inspired layer API crossed
   // NEW_FILE_CAP with the paint-transition style-setter integration — the
   // StyleHost.transitions context, the shared applyNumber/applyColor
@@ -737,7 +739,10 @@ const CEILINGS: Record<string, number> = {
   // #777 IV3: −8. The point-label dispatch loop moved to dispatch-point-labels.ts,
   // which is also where the ground-basis producer lives — the extraction paid for
   // the wiring rather than the file growing to hold it.
-  'map/src/render/passes/label-pass.ts': 2005,
+  // 2005→1996 (#1046 F3b): the `ctx.rhiPass` twin arm (draw directly on the forced-
+  // WebGL2 frame's live screen pass) deleted; the `else` branch (originate through
+  // the RHI frame encoder) unconditional now that it is the only frame shape.
+  'map/src/render/passes/label-pass.ts': 1996,
   // #1081 — per-anchor perspective distance attenuation (MapLibre parity). New
   // baseline: the wCenter + perspScale scratch-out-value lives INLINE in the two
   // existing projector closures (it rides the cw already computed per anchor —
@@ -1052,7 +1057,10 @@ const CEILINGS: Record<string, number> = {
   // +12 (#1046 F3b Inc-2d): renderToPass/renderGraticuleOverlay narrowed to
   // RhiRenderPass with a one-line native unwrap each (legacy plumbing), plus
   // the drawOitCompose forwarder. Retires with the legacy-layer cluster.
-  'map/src/render/renderer.ts': 998,
+  // 998→999 (#1046 F3b): doc-only — the 3 comments referencing the twin/`renderFrameViaRhi`
+  // as present-tense reasoning are now false (the twin is deleted); reworded to describe
+  // the surviving RHI-native arm directly. One comment gained a line in the rewording.
+  'map/src/render/renderer.ts': 999,
   // Merge union (#1060 <- main): stacked growth — measured 1397.
   // 1397→1404 (#1196, merge union): destroy() stashes the pre-loss
   // WEBGL_lose_context handle on the canvas (stashGl2RestoreToken) —
@@ -1086,7 +1094,12 @@ const CEILINGS: Record<string, number> = {
   // 1520→1523 (RhiCaps.shaderLanguage): +3 — the new cap value plus the two-line note
   // that it is the advertised form of this file's own dual-source throw (createPipeline
   // requires vsCode/fsCode and never reads `code`). Pure declaration; no logic added.
-  'rhi-webgl2/src/rhi-webgl2.ts': 1523,
+  // 1523→1497 (#1046 F3b, measured post-hook): already 25 lines stale going in — the
+  // ceiling was never lowered for shrinkage this file banked earlier. This session's
+  // own doc-only edits (twin references retired to past tense, `?rhichain=1`/Inc-F4
+  // present-tense framing corrected now the flip is done and the twin is deleted)
+  // account for the rest.
+  'rhi-webgl2/src/rhi-webgl2.ts': 1497,
   // 941→975 (#1371 atomic re-seed): `releaseSupersededTile` + `dropTile`, and the split of
   // `_releaseTileSlots` into a resource-release body the two share with eviction. Arena/pool
   // ownership is this class's whole reason to exist.

@@ -718,8 +718,7 @@ export class LineRenderer {
     // LineDraper wraps the native layouts ONLY on its WebGPU branch (the gl2
     // arm builds entry-array groups); on webgl2 pass an inert placeholder so
     // the lazy layerBgl() never touches ctx.device on that backend (#834
-    // device retirement S1 — same inert-field pattern as renderFrameViaRhi's
-    // FrameContext).
+    // device retirement S1).
     const gl2 = this.rhi.backend === 'webgl2'
     this._lineDraper = new LineDraper(
       this.rhi,

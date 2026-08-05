@@ -588,9 +588,9 @@ class WebGl2CommandEncoder implements RhiCommandEncoder {
  *  encoder above, `beginRenderPass` is LIVE — the device's universal `beginRenderPass` (FBO-0
  *  sentinel screen arm + offscreen/MRT arm, the #1049 descriptor-parity umbrella).
  *  `copyBufferToBuffer` supports in-frame arena relocation; `finish()` is the single per-frame
- *  present (gl.flush() + error drain — the endScreenPass analog). Byte-identical on the DEFAULT
- *  WebGL2 boot: the twin early-returns before the frame shell, so this encoder is never
- *  acquired until `?rhichain=1` routes the chain here (`caps.chainFrame=true`, Inc-E2). */
+ *  present (gl.flush() + error drain — the endScreenPass analog). The unified chain acquires
+ *  this every frame on WebGL2 (`caps.chainFrame=true`, Inc-E2; the forced-WebGL2 twin that used
+ *  to bypass it was deleted in #1046 Inc-F3a). */
 class WebGl2FrameEncoder implements RhiCommandEncoder {
   constructor(private readonly device: WebGl2Device) {}
   beginRenderPass(desc: RhiRenderPassDesc): RhiRenderPass {
@@ -691,8 +691,8 @@ export class WebGl2Device implements RhiDevice {
       // createPipeline fail-louds on a WGSL-only desc (dual-source guard, #783).
       shaderLanguage: 'glsl-es300',
       // #1046 F4 Inc-E2 — the loop tail landed on the RHI (Inc-A..D + E1), so
-      // this device hosts the unified chain's whole frame: `?rhichain=1` routes
-      // the REAL chain; the default stays the twin until the F4 flip (Inc-F).
+      // this device hosts the unified chain's whole frame. The forced-WebGL2
+      // twin this flag used to hold the door open for was deleted in Inc-F3a.
       chainFrame: true,
     } as const)
 
@@ -725,10 +725,9 @@ export class WebGl2Device implements RhiDevice {
     this._contextRestoredCbs.push(cb)
   }
 
-  // Frame shell (required by RhiDevice, #1046 F2/F3) — the twin still early-returns before
-  // the frame shell on the DEFAULT WebGL2 boot, so these stay uninvoked (byte-identical)
-  // until `?rhichain=1` routes the unified chain here. `acquireScreenView` hands out the
-  // FBO-0 sentinel; `acquireFrameEncoder` the LIVE-`beginRenderPass` frame encoder (below).
+  // Frame shell (required by RhiDevice, #1046 F2/F3) — invoked every frame by the unified
+  // chain. `acquireScreenView` hands out the FBO-0 sentinel; `acquireFrameEncoder` the
+  // LIVE-`beginRenderPass` frame encoder (below).
   acquireScreenView(): RhiTextureView {
     return SCREEN_VIEW_SENTINEL
   }

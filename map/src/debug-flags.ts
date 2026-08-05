@@ -50,40 +50,11 @@ if (DEBUG_RHI_CHECKER && typeof window !== 'undefined') {
   )
 }
 
-/** `?rhichain=1` (URL) OR `globalThis.__xgisRhiChain === true` (global mirror — the
- *  `__xgisDisableLabels` seam pattern, label-pass.ts) — read at module load like the
- *  rest. A distinct URL param, not a `?debug=` value, so it reads its own key. */
-function readRhiChainFlag(): boolean {
-  if ((globalThis as { __xgisRhiChain?: boolean }).__xgisRhiChain === true) return true
-  if (typeof window === 'undefined') return false
-  try {
-    return new URL(window.location.href).searchParams.get('rhichain') === '1'
-  } catch {
-    return false
-  }
-}
-
-/** `?rhichain=1` (or `globalThis.__xgisRhiChain = true`) — #1046 F3 (doc §3-F3): route
- *  the WebGL2 frame through the unified `this._nodes` RenderNode chain instead of the
- *  forced-WebGL2 twin (`renderFrameViaRhi`). DEFAULT-OFF is the kill-switch: the twin
- *  stays the WebGL2 frame until the twin-parity ratchet reads zero on every fixture
- *  (F4 flips the default). No effect on the WebGPU frame — that is already the chain.
- *  The router (render-loop.ts) gates this by the DEVICE's word (`caps.chainFrame` —
- *  Inc-4): the pass bodies are RHI-typed, and WebGl2Device answers false until #991
- *  P4/P5 lands the chain's loop tail, so the flag stays a safe no-op until then. */
-export const RHI_CHAIN: boolean = readRhiChainFlag()
-
-if (RHI_CHAIN && typeof window !== 'undefined') {
-  console.info(
-    '[X-GIS] ?rhichain=1 active — the unified chain routes this WebGL2 frame (#1046 Inc-E2, caps.chainFrame=true). Content, picking and the graticule ride it at measured pixel parity with the twin (twin-parity DC=0); the remaining native-only paths are OIT fills and the legacy addLayer draws, which fail loud by name. Reload without ?rhichain for the twin until it is deleted (Inc-F)',
-  )
-}
-
 /** `?animt=<seconds>` (URL, page-load) — PIN the particle-flow animation clock to a fixed value
  *  instead of the live `performance.now()`. The candidate-(b) particle position is a pure function
  *  of `(seed, t)` (design §3.2), so a pinned `t` makes the whole frame byte-reproducible — the §5
  *  deterministic-probe seam (`animt=0.25/0.5/0.75` sweeps the phase for a directional pixel-diff).
- *  Mirrors the `?rhichain` URL-flag convention. */
+ *  A page-load URL flag read at module load, like the rest of this file. */
 function readAnimTUrl(): number | null {
   if (typeof window === 'undefined') return null
   try {
@@ -106,8 +77,8 @@ if (ANIM_T_URL !== null && typeof window !== 'undefined') {
 
 /** The pinned particle animation clock, in seconds, or `null` when the clock runs live. Checks the
  *  live `globalThis.__xgisAnimT` global FIRST (so a probe harness can sweep phases WITHOUT a page
- *  reload — the `__xgisRhiChain` global-mirror pattern), then the page-load `?animt` URL param.
- *  The graphics manager falls back to `performance.now()` when this returns null. */
+ *  reload — the `__xgisDisableLabels` global-mirror pattern, label-pass.ts), then the page-load
+ *  `?animt` URL param. The graphics manager falls back to `performance.now()` when this returns null. */
 export function animTimePinnedSeconds(): number | null {
   const live = (globalThis as { __xgisAnimT?: unknown }).__xgisAnimT
   if (typeof live === 'number' && Number.isFinite(live)) return live

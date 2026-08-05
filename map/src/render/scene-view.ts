@@ -70,9 +70,9 @@ export interface SceneView {
   /** Which pass claims the MSAA resolveTarget this frame. */
   readonly resolveOwner: ResolveOwner
   /** #1429 INC-2 — the adaptive ladder holds the scene target below native
-   *  this frame. Gates the scene-upscale seam; false (the ladder at notch
-   *  0-2, the twin always) keeps the frame byte-identical: no scene pair
-   *  allocated, no seam pass, one colour attachment as before the split. */
+   *  this frame. Gates the scene-upscale seam; false (the ladder at notch 0-2)
+   *  keeps the frame byte-identical: no scene pair allocated, no seam pass,
+   *  one colour attachment as before the split. */
   readonly sceneScaled: boolean
 }
 

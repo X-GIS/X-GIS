@@ -129,10 +129,9 @@ export class FrameDrawStats {
     this._missedTiles++
   }
   /** Bulk form for the immediate arm (#1046 Inc-E2b): the *Rhi entries
-   *  report missing tiles as a RETURN VALUE (the twin loop consumed it into
-   *  `_needsRender`); the chain's keep-warm gate reads THIS counter instead,
-   *  so the fork folds the sum in here — dropping it froze a half-loaded
-   *  frame (the #834 M5 slice-5 incident class). */
+   *  report missing tiles as a RETURN VALUE; the chain's keep-warm gate reads
+   *  THIS counter instead, so the fork folds the sum in here — dropping it
+   *  froze a half-loaded frame (the #834 M5 slice-5 incident class). */
   recordMissedTiles(n: number): void {
     this._missedTiles += n
   }

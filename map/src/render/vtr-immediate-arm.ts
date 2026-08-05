@@ -4,15 +4,14 @@
 // 'immediate'`, the WebGL2 truth), VTR.render's native tile body cannot run:
 // its pipelines and bind groups are WebGPU objects, and the boundary unwrap
 // fails loud (arch F3). This arm routes the draw through the *Rhi entry
-// family — the SAME immediate-mode body the twin frame drives — with the
-// phase mapping mirroring the twin's per-show sequencing: fills → tile
+// family, with the phase mapping sequencing per-show draws: fills → tile
 // points (single authority: the points read the keys the fills just
 // selected), then strokes; the translucent bucket's offscreen pass takes the
 // MAX-blend material. VTR keys the routing on the DEVICE capability (never
 // backend identity) and keeps 'oit-fill' native-only (P6): reaching it on an
 // immediate device trips the named fail-loud unwrap. Extracted from
 // VTR.render's top per the LOC ratchet's own instruction ("extract, don't
-// grow"); dies with the twin↔chain unification (P6).
+// grow"); dies with the executionModel unification (P6).
 
 import type { Camera } from '../camera'
 import type { RhiRenderPass } from '@xgis/engine'
@@ -43,9 +42,9 @@ export interface ImmediateArmArgs {
  *  'oit-fill'. Returns the summed MISSING-tile count the entries report as
  *  their return values — the caller must fold it into FrameDrawStats so the
  *  chain's keep-warm gate re-arms (arch review F1: dropping it is the
- *  half-loaded-freeze class, #834 M5 slice 5). Order is the twin's:
- *  fills → strokes → tile points (render-loop's opaque loop; points last so
- *  they composite over strokes under painter's order — arch review F3). */
+ *  half-loaded-freeze class, #834 M5 slice 5). Order: fills → strokes → tile
+ *  points, points last so they composite over strokes under painter's order
+ *  (arch review F3). */
 export function renderImmediateArm(vtr: VectorTileRenderer, a: ImmediateArmArgs): number {
   const { rhiPass, camera, projType, projCenterLon, projCenterLat } = a
   const { canvasWidth, canvasHeight, dpr, show, resolvedShow } = a
@@ -81,8 +80,8 @@ export function renderImmediateArm(vtr: VectorTileRenderer, a: ImmediateArmArgs)
     )
   }
   if (a.phase === 'all' || a.phase === 'fills') {
-    // Tile points LAST (the twin's order) — they read the keys the fills
-    // selected (stableKeys, single authority) and must land over strokes.
+    // Tile points LAST — they read the keys the fills selected (stableKeys,
+    // single authority) and must land over strokes.
     vtr.emitTilePointsRhi(
       rhiPass,
       camera,

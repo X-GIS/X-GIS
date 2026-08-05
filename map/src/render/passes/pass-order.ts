@@ -1,14 +1,13 @@
-// ═══ Pass-order authority — ONE frozen sequence, consumed by both orchestrations ═══
+// ═══ Pass-order authority — ONE frozen sequence, one orchestration ═══
 //
-// The full-frame pass sequence is executed by TWO paths (#1004): the native
-// pass-chain (pass-chain.ts buildRenderNodes — the WebGPU authority) and the
-// forced-WebGL2 linear twin (render-loop.ts renderFrameViaRhi). Before this
-// module each hand-maintained its own copy of the order, and the comments in
-// render-loop.ts enumerate the real divergence bugs that caused (vanishing
-// point labels, missing strokes, double-paint). This constant is the single
-// authority: pass-chain BUILDS from it (constructive — it cannot diverge), and
-// pass-order-parity.test.ts pins the twin's source order against it plus the
-// documented not-yet-ported set below.
+// The full-frame pass sequence used to be executed by TWO paths (#1004): the
+// native pass-chain (pass-chain.ts buildRenderNodes — the WebGPU authority) and
+// a forced-WebGL2 linear twin (render-loop.ts renderFrameViaRhi), which each
+// hand-maintained its own copy of the order — the real cause of divergence bugs
+// this constant exists to prevent (vanishing point labels, missing strokes,
+// double-paint). The twin was deleted in #1046 Inc-F3a/F3b; this constant is
+// still the single authority pass-chain BUILDS from (constructive — it cannot
+// diverge), and pass-order-parity.test.ts still pins that construction.
 //
 // Entries are the passes' real `label` strings ('labels', not 'label' — the
 // singleton's label, label-pass.ts). Pure data, zero imports — safe for both

@@ -1,27 +1,22 @@
-// ═══ pickAt survives the chain flip — TWO-ARM pick parity on WebGL2 (#1046 Inc-F) ═══
+// ═══ pickAt on WebGL2 — the frame snapshot lives on the chain path (#1046 Inc-F) ═══
 //
-// The twin owned one thing the chain frame did not: the camera/projection snapshot
-// `pickViaRhi` samples. Written only inside renderFrameViaRhi, it stayed null on a
-// chain frame, so every pickAt resolved to null — picking dead SILENTLY, with no
-// error, no blank frame, and nothing a pixel gate can see (the twin-parity fixtures
-// run with picking OFF, so DC=0 is structurally blind to it). That is the trap the
-// twin-deletion plan names first.
+// The deleted forced-WebGL2 twin owned one thing the chain frame did not: the
+// camera/projection snapshot `pickViaRhi` samples. That snapshot's home was moved
+// above the twin/chain fork in Inc-F1, so a chain frame's pickAt no longer resolves
+// to null — but the failure mode if that regressed is SILENT: no error, no blank
+// frame, and nothing a pixel gate can see (the twin-parity fixtures ran with
+// picking OFF, so a pixel diff is structurally blind to it).
 //
-// This gate runs the SAME 5×5 pickAt grid on BOTH arms and asserts the results are
-// EQUAL, coordinate by coordinate — not merely that each arm hits something. A hit
-// FLOOR only proves aliveness; two arms could both "work" while disagreeing about
-// which feature is under the cursor, and after the twin is deleted there is nothing
-// left to compare against. The comparison is only possible while both shapes exist,
-// so it is made here, once, at full strength. RETIRE _pick-gl2-gate.spec.ts (the
-// twin-only gate) and the twin arm below when renderFrameViaRhi is deleted; what
-// remains is the chain arm plus its floors.
+// This used to be a TWO-ARM gate: the same 5×5 pickAt grid run on the twin and on
+// the chain, asserting the results matched sample for sample — the strongest
+// available check while a second frame shape existed to compare against. The twin
+// was deleted in Inc-F3a and `_pick-gl2-gate.spec.ts` (the twin-only gate) retired
+// with it; this is what remains — the chain arm plus its floors.
 //
-// ARM DISCRIMINATION: the routing flag and `caps.chainFrame` are BOTH true on the
-// twin arm as well (the flag says what was asked; the cap is a frozen device
-// constant), so asserting them proves nothing about which frame shape ran — a
-// routing regression would land silently on the twin, whose picking works, and green
-// the gate. Each arm therefore asserts `window.__xgisFrameArm`, which the render loop
-// writes from the branch it actually took.
+// `window.__xgisFrameArm` is still asserted even with one arm: it is the loop's own
+// record of the branch it took, not merely of what was asked, so a routing
+// regression that silently fell back to some other frame shape would still be
+// caught rather than green because the URL was right.
 //
 // Headless SwiftShader (HEADED=0 XGIS_SOFTWARE_GPU=1) — GPU-less.
 
@@ -32,11 +27,9 @@ type Pick = { featureId: number; layerId: number; instanceId: number } | null
 
 async function pickGrid(
   page: Page,
-  arm: 'twin' | 'chain',
 ): Promise<{ picks: Pick[]; frameArm: string | null; backend: string | null }> {
-  const chain = arm === 'chain' ? '&rhichain=1' : ''
   await page.setViewportSize({ width: 1200, height: 800 })
-  await page.goto(`/demo.html?id=multi_layer&e2e=1&picking=1&forcegl2=1${chain}#1.5/20/0`, {
+  await page.goto('/demo.html?id=multi_layer&e2e=1&picking=1&forcegl2=1#1.5/20/0', {
     waitUntil: 'domcontentloaded',
   })
   await page.waitForFunction(
@@ -67,46 +60,33 @@ async function pickGrid(
   })
 }
 
-test('pickAt on the CHAIN arm matches the twin, sample for sample (?forcegl2=1)', async ({
-  page,
-  context,
-}) => {
+test('pickAt on WebGL2 hits real features, sample for sample (?forcegl2=1)', async ({ page }) => {
   test.setTimeout(240_000)
   const errors: string[] = []
-  const watch = (p: Page): void => {
-    p.on('pageerror', (e) => errors.push(e.message.slice(0, 300)))
-    p.on('console', (m) => {
-      if (m.type() === 'error' && !/Failed to load resource/.test(m.text()))
-        errors.push(m.text().slice(0, 300))
-    })
-  }
-  watch(page)
+  page.on('pageerror', (e) => errors.push(e.message.slice(0, 300)))
+  page.on('console', (m) => {
+    if (m.type() === 'error' && !/Failed to load resource/.test(m.text()))
+      errors.push(m.text().slice(0, 300))
+  })
 
-  const twin = await pickGrid(page, 'twin')
-  expect(twin.backend, 'twin arm device backend').toBe('webgl2')
-  expect(twin.frameArm, 'the frame the loop ACTUALLY ran (twin arm)').toBe('twin')
+  const r = await pickGrid(page)
+  expect(r.backend, 'device backend').toBe('webgl2')
+  expect(
+    r.frameArm,
+    'the frame the loop ACTUALLY ran — a routing fallback must not green this on some ' +
+      'other frame shape',
+  ).toBe('chain')
 
-  const chainPage = await context.newPage()
-  watch(chainPage)
-  const chain = await pickGrid(chainPage, 'chain')
-  expect(chain.backend, 'chain arm device backend').toBe('webgl2')
-  expect(chain.frameArm, 'the frame the loop ACTUALLY ran (chain arm)').toBe('chain')
+  const hits = r.picks.filter((p) => p !== null)
+  console.log(`[pick-gl2-chain] hits ${hits.length}/25`)
+  expect(errors, 'no page/console errors').toEqual([])
 
-  const hits = chain.picks.filter((p) => p !== null)
-  console.log(
-    `[pick-gl2-chain] chain hits ${hits.length}/25, twin hits ${twin.picks.filter((p) => p !== null).length}/25`,
-  )
-  expect(errors, 'no page/console errors on either arm').toEqual([])
-
-  // Aliveness floor first, so a total pick failure reports as itself rather than as
-  // "both arms agree on 25 nulls" — the equality below is satisfied by two dead arms.
+  // Aliveness floor: enough hits, real feature ids, more than one distinct feature —
+  // rules out "the whole grid landed on one giant polygon" reporting as a pass.
   expect(
     hits.length,
-    'chain-arm pick hits (0 = the frame snapshot never reached the chain)',
+    'pick hits (0 = the frame snapshot never reached the chain)',
   ).toBeGreaterThanOrEqual(5)
   for (const h of hits) expect(h!.featureId).toBeGreaterThan(0)
   expect(new Set(hits.map((h) => h!.featureId)).size).toBeGreaterThanOrEqual(2)
-
-  // THE parity assertion: same coordinates, same features, same layers, same order.
-  expect(chain.picks, 'chain-vs-twin pickAt results, sample for sample').toEqual(twin.picks)
 })

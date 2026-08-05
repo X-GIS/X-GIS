@@ -13,10 +13,10 @@
 // frame is BLANK. That was the first attempt at this fix, and it is why this test
 // lives at the wiring site instead of at the pass.
 //
-// Gating the ROUTING is what actually reproduces the forced-WebGL2 twin: the twin
-// calls `rhi.beginScreenPass` and binds FBO 0 directly, never consulting
-// RenderTargets, so `?debug=overdraw` there renders an ordinary map on a
-// transparent clear. With overdraw withheld here, no accumulator is allocated,
+// Gating the ROUTING is what reproduces how the forced-WebGL2 twin (deleted,
+// #1046 Inc-F3a) used to behave: it called `rhi.beginScreenPass` and bound FBO 0
+// directly, never consulting RenderTargets, so `?debug=overdraw` there rendered an
+// ordinary map on a transparent clear. With overdraw withheld here, no accumulator is allocated,
 // the colour target resolves normally, the scene passes draw to the swapchain,
 // and the compose declines through its own `!overdrawAccumTexture` guard — no
 // capability check of its own required.

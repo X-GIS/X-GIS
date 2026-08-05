@@ -6,12 +6,12 @@
 // desktop WebGL2 context commonly answers true, a weaker one answers false.
 //
 // HeatmapRenderer states the contract at its own entry: "The caller has already
-// gated on rhi.caps.floatBlendTargets." The forced-WebGL2 TWIN is such a caller
-// (`hasLayers() && rhi.caps.floatBlendTargets`). The chain's caller — this pass —
-// was NOT: it gated on `scene.hasHeatmap` and `hasLayers()` only, so on a device
-// without the extensions the chain walked straight into the renderer that
-// assumes its caller checked. Deleting the twin would have removed the only
-// fail-close in the product.
+// gated on rhi.caps.floatBlendTargets." The forced-WebGL2 twin (deleted, #1046
+// Inc-F3a) was such a caller (`hasLayers() && rhi.caps.floatBlendTargets`). The
+// chain's caller — this pass — was NOT: it gated on `scene.hasHeatmap` and
+// `hasLayers()` only, so on a device without the extensions the chain walked
+// straight into the renderer that assumes its caller checked. Deleting the twin
+// without this fix would have removed the only fail-close in the product.
 //
 // The gate lives in `execute`, not `shouldRun`: `shouldRun(scene)` receives no
 // FrameContext and therefore cannot see the device.
@@ -56,9 +56,8 @@ describe('heatmap pass — float-blend capability fail-close (#1046 Inc-F2c)', (
     expect(
       run(false),
       'renderChainRhi was entered on a device without EXT_color_buffer_float / ' +
-        'EXT_float_blend — the renderer documents that its CALLER performs this gate, and ' +
-        'the twin (the other caller) does. Without it the r16float accumulation target is ' +
-        'unsupported on that device.',
+        'EXT_float_blend — the renderer documents that its CALLER performs this gate. ' +
+        'Without it the r16float accumulation target is unsupported on that device.',
     ).not.toHaveBeenCalled()
   })
 })

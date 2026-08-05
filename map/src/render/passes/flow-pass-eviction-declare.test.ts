@@ -14,9 +14,10 @@
 // before-the-early-return placement never gets a chance to run: the outer gate
 // swallows the requirement its own comment states.
 //
-// The forced-WebGL2 twin never had this hole — it calls setArrowFields
-// unconditionally, outside its `if`, with a comment naming #1419 — which is why
-// this is invisible until the twin is deleted and the chain is the only frame.
+// The forced-WebGL2 twin (deleted, #1046 Inc-F3a) never had this hole — it called
+// setArrowFields unconditionally, outside its `if`, with a comment naming #1419.
+// That is why this went unnoticed until the twin's deletion left the chain as the
+// only frame.
 //
 // This gate drives the pass THROUGH THE SCHEDULER's contract (shouldRun decides
 // whether execute runs), not execute directly, because the defect lives in that

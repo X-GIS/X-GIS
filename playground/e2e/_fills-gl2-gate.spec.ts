@@ -100,35 +100,23 @@ test('ne_110m country fills render on WebGl2Device (?forcegl2=1)', async ({ page
   expect(r.validation, 'no validation errors').toEqual([])
   expect(errors, 'no page/console errors').toEqual([])
 
+  expect(r.arm, 'the frame the loop ACTUALLY ran').toBe('chain')
+
   // Land (stone-200 fills) must cover a substantial share of the world view —
   // ne_110m land is ~29% of the globe; require a conservative >8% so tile
   // pop-in variance can't flake the gate.
   expect(r.fill, `country-fill pixels ${r.fill}/${r.total}`).toBeGreaterThan(r.total * 0.08)
-  // …and the ocean must not be country fill (the anchor math places them). WHICH
-  // ocean, though, depends on the frame shape — so the assertion is per-arm, and
-  // NOT a single weaker bound covering both:
-  //
-  //   twin  — the analytic checker IS the ocean. `?debug=checker` is drawn at
-  //           exactly one site in the repo, `renderFrameViaRhi` (render-loop.ts),
-  //           so this arm keeps the original ">20% checker" assertion at its
-  //           original strength. Dropping to "not fill" would have been a real
-  //           coverage loss, measured: with the checker dead the frame is fill
-  //           32.6% / black 62.1%, which ">20% checker" catches and ">20% non-fill"
-  //           does not (#1046 Inc-F2 review F-1).
-  //   chain — a sourceless frame draws nothing, which is the documented production
-  //           behaviour and WebGPU's (#1041). There is no underlay to count, so the
-  //           assertion is the property the checker was standing in for.
-  //
-  // The twin branch dies with the twin; what remains is the chain one.
-  if (r.arm === 'twin') {
-    expect(
-      r.checker,
-      `checker (ocean) pixels ${r.checker}/${r.total} — twin arm draws the analytic underlay`,
-    ).toBeGreaterThan(r.total * 0.2)
-  } else {
-    expect(
-      r.total - r.fill,
-      `non-fill (ocean) pixels ${r.total - r.fill}/${r.total}, of which checker ${r.checker}`,
-    ).toBeGreaterThan(r.total * 0.2)
-  }
+  // …and the ocean must not be country fill (the anchor math places them). The
+  // analytic checker IS the ocean here: `?debug=checker` is a real raster draw
+  // through the shared RasterDraper on the opaque pass (opaque-pass.ts, ported off
+  // the deleted twin in #1046 Inc-F2d), so this asserts the CHECKER specifically
+  // rather than the weaker "any non-fill pixel" bound. That distinction is not
+  // cosmetic — measured with the checker dead the frame is fill 32.6% / black
+  // 62.1%, which ">20% checker" catches and ">20% non-fill" does not (Inc-F2
+  // review F-1); the bound stayed on "non-fill" for a season because the chain had
+  // no checker caller yet, and it does now.
+  expect(
+    r.checker,
+    `checker (ocean) pixels ${r.checker}/${r.total} — the checker draw did not run`,
+  ).toBeGreaterThan(r.total * 0.2)
 })

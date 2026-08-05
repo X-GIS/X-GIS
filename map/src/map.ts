@@ -1587,8 +1587,7 @@ export class XGISMap {
 
   /** Per-frame count of tiles the map is still waiting on: vector-tile cells
    *  without a drawable tile this frame PLUS raster/hillshade tiles mid-fetch.
-   *  Written by BOTH render paths (the WebGPU render-loop's end-of-frame
-   *  bookkeeping and the forced-WebGL2 `renderFrameViaRhi`) as the sum of the
+   *  Written by the render-loop's end-of-frame bookkeeping as the sum of the
    *  same three signals the loop ORs into its keep-warm `_needsRender` gate, so
    *  it settles to 0 exactly when the scene converges. Public-by-convention (no
    *  `private`) so `RenderLoopHost` can Pick it for the write. */

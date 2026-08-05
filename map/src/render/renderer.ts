@@ -369,9 +369,9 @@ export class MapRendererContent {
    *  (no layers yet), so this matches the original inline init build. */
   private rebuildUniformBindGroups(): void {
     // #832 M2 — these are NATIVE WebGPU bind groups for the WebGPU frame path;
-    // on the webgl2 backend that path never runs (renderFrameViaRhi renders the
-    // frame) and reading the native uniformBuffer getter would unwrap-throw at
-    // boot. Skip: the WebGL2 fill draws bind RHI-native groups instead.
+    // on the webgl2 backend reading the native uniformBuffer getter would
+    // unwrap-throw at boot. Skip: the WebGL2 fill draws bind RHI-native groups
+    // instead, unconditionally (#1046 Inc-F3a).
     if (this.ctx.rhi.backend === 'webgl2') return
     const { device } = this.ctx
     this.bindGroup = device.createBindGroup({
@@ -749,8 +749,8 @@ export class MapRendererContent {
     elapsedMs = 0,
   ): void {
     // #1046 Inc-E2 — immediate arm: these legacy draws are native plumbing
-    // (P6) and the TWIN never drew them on WebGL2 (content rides the VTR
-    // *Rhi entries) — skipping IS parity; unwrapping would kill the frame.
+    // (P6) with no RHI-native equivalent (content rides the VTR *Rhi
+    // entries instead) — skipping is correct; unwrapping would kill the frame.
     if (this.ctx.rhi.caps.executionModel === 'immediate') return
     // Inc-2d boundary: the chain hands the neutral handle; the legacy layer
     // draws below are still native plumbing — unwrap ONCE here (retires with
@@ -929,9 +929,9 @@ export class MapRendererContent {
     if (DEBUG_OVERDRAW || !this._graticule.isEnabled()) return
     const { canvas } = this.ctx
     const dpr = canvas.clientWidth > 0 ? canvas.width / canvas.clientWidth : 1
-    // #1046 Inc-E2 immediate arm — the RHI sibling below IS the twin's own
-    // graticule draw (#1062), so routing there is parity; the native unwrap
-    // would fail loud and kill the chain frame the moment the grid turns on.
+    // #1046 Inc-E2 immediate arm — the RHI sibling below is the only graticule
+    // draw an immediate device has (#1062); the native unwrap would fail loud
+    // and kill the frame the moment the grid turns on.
     if (this.ctx.rhi.caps.executionModel === 'immediate') {
       const head = [rhiPass, camera, projType, projCenterLon, projCenterLat] as const
       return this.renderGraticuleOverlayRhi(...head, canvas.width, canvas.height, dpr)
@@ -961,11 +961,12 @@ export class MapRendererContent {
     )
   }
 
-  /** Forced-WebGL2 twin of renderGraticuleOverlay (#1062). The isolated RHI frame
-   *  (render-loop.ts renderFrameViaRhi) has no WebGPU pass-chain, so it calls this
-   *  after its opaque fills/strokes to composite the grid on top. GraticuleRenderer
-   *  owns the RHI resources (built through ctx.rhi); this only threads the canonical
-   *  ECEF frame view + projection in, exactly like the WebGPU seam. */
+  /** RHI-native sibling of renderGraticuleOverlay (#1062), for an immediate device
+   *  (WebGL2) which has no WebGPU pass-chain to unwrap into. Called from the
+   *  opaque pass's immediate arm after fills/strokes to composite the grid on top.
+   *  GraticuleRenderer owns the RHI resources (built through ctx.rhi); this only
+   *  threads the canonical ECEF frame view + projection in, exactly like the
+   *  WebGPU seam. */
   renderGraticuleOverlayRhi(
     pass: RhiRenderPass,
     camera: Camera,

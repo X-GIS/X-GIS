@@ -69,26 +69,27 @@ describe('cssToDevicePixel (Audit ⑩ B2 — DPR pick-coord rounding)', () => {
     )
     expect(src).toContain('cssToDevicePixel(clientX - rect.left, rect.width, pickSize.width)')
     expect(src).toContain('cssToDevicePixel(clientY - rect.top, rect.height, pickSize.height)')
-    // The ONE canvas-span conversion that remains is the forced-WebGL2 arm,
-    // whose on-demand offscreen pick RT IS canvas-sized (the twin scales its
-    // canvas — scene === canvas there, so canvas.width is that RT's span).
-    // It must sit INSIDE the webgl2 branch, above the WebGPU path's
-    // texture-span pair; a second canvas-span conversion — a WebGPU-arm
-    // revert — fails here.
+    // The ONE canvas-span conversion that remains is the sync-readback arm:
+    // its on-demand offscreen pick RT is allocated at `_lastFramePickParams`'
+    // `w`/`h`, which render-loop.ts sets from `canvas.width`/`canvas.height`
+    // directly — independent of the scene-scale ladder that sizes the main
+    // scene target — so canvas.width is that RT's span. It must sit INSIDE
+    // the sync-readback branch, above the WebGPU path's texture-span pair; a
+    // second canvas-span conversion — a WebGPU-arm revert — fails here.
     const canvasSpanUses =
       src.split('cssToDevicePixel(clientX - rect.left, rect.width, canvas.width)').length - 1
     expect(canvasSpanUses).toBe(1)
     // The sync-readback arm — asked as the CAPABILITY minted for that decision
     // since #1046 Inc-F, not the backend's identity.
-    const twinArm = src.indexOf("ctx.rhi?.caps.pickReadback === 'sync'")
+    const syncArm = src.indexOf("ctx.rhi?.caps.pickReadback === 'sync'")
     const canvasConv = src.indexOf(
       'cssToDevicePixel(clientX - rect.left, rect.width, canvas.width)',
     )
     const textureConv = src.indexOf(
       'cssToDevicePixel(clientX - rect.left, rect.width, pickSize.width)',
     )
-    expect(twinArm).toBeGreaterThan(-1)
-    expect(canvasConv).toBeGreaterThan(twinArm)
+    expect(syncArm).toBeGreaterThan(-1)
+    expect(canvasConv).toBeGreaterThan(syncArm)
     expect(textureConv).toBeGreaterThan(canvasConv)
   })
 

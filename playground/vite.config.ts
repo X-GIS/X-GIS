@@ -1,27 +1,7 @@
-import { defineConfig, type Plugin } from 'vite'
+import { defineConfig } from 'vite'
 import basicSsl from '@vitejs/plugin-basic-ssl'
 import { fileURLToPath, URL } from 'node:url'
 import { openDataBridge } from './dev/opendata-bridge'
-
-/** `XGIS_E2E_CHAIN=1` — arm the unified RHI chain for EVERY page this server
- *  serves (#1046 Inc-F2). The WebGL2 chain is opt-in per URL (`?rhichain=1`)
- *  until the twin frame is deleted, but the deletion's fail-before is running
- *  the whole CI `?forcegl2=1` suite on the chain — 22 specs that today verify
- *  the twin only. Rather than edit 22 specs for a check that dies with the
- *  twin, this injects the flag's documented GLOBAL MIRROR
- *  (`globalThis.__xgisRhiChain`, read before the URL by debug-flags.ts) as a
- *  classic inline script, which runs before demo.html's module entry.
- *  Unset (the default, including every normal dev session and CI run) the
- *  plugin injects nothing at all. Dies with the flag in Inc-F3. */
-function e2eChainArm(): Plugin {
-  return {
-    name: 'xgis-e2e-chain-arm',
-    transformIndexHtml(html) {
-      if (process.env.XGIS_E2E_CHAIN !== '1') return html
-      return html.replace('<head>', '<head>\n    <script>globalThis.__xgisRhiChain = true</script>')
-    },
-  }
-}
 
 export default defineConfig({
   // Pages-deploy serves the playground under /X-GIS/play/ so the
@@ -38,7 +18,7 @@ export default defineConfig({
   // bucket passthrough plus the synthesised S-111/S-102 catalogues — so the live real-data
   // demos stream in dev past the buckets' missing CORS; the hosted site rewrites the same
   // prefix to a CORS-open Worker (loader.ts).
-  plugins: [basicSsl(), openDataBridge(), e2eChainArm()],
+  plugins: [basicSsl(), openDataBridge()],
   // Dev/test resolve @xgis/map to SOURCE, not the published dist.
   // ship-P0 packaging set the package `main`/`exports` to ./dist/index.js for
   // external npm consumers; without this alias the playground (and every e2e
