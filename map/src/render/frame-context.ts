@@ -243,9 +243,17 @@ export function wireFrameColour(
   // overdraw off for the frame, no accumulator is allocated, the colour target
   // resolves normally, the scene passes draw straight to the swapchain, and the
   // compose declines through its own `!overdrawAccumTexture` guard with no
-  // capability check of its own. THAT reproduces the forced-WebGL2 twin, which
-  // binds FBO 0 directly and never consults RenderTargets at all — an ordinary
-  // map on a transparent clear (#1046 Inc-F2d).
+  // capability check of its own.
+  //
+  // NOT YET the twin's picture, and the gap is deliberate rather than unnoticed:
+  // ~24 DEBUG_OVERDRAW reads remain in the DRAW layer (line-renderer strokes,
+  // VTR pipeline selection + fill patterns, bucket-scheduler's baked debug
+  // pipelines, the graticule), and none of them can reach this truth — several
+  // run before a FrameContext exists. So an immediate device renders a PARTIAL
+  // frame here, not an ordinary map: strictly better than the crash this
+  // replaced, still not parity. Centralising those reads behind an
+  // `isOverdrawActive(caps)` accessor at the flag site is #1594; this comment is
+  // the honest statement of where it stands until then (#1046 Inc-F2d).
   const overdraw = DEBUG_OVERDRAW && ctx.rhi.caps.executionModel !== 'immediate'
   ctx.overdraw = overdraw
   const { useResolve, colorView, sceneResolveView, colorViewScreen, sceneColorSampleView } =

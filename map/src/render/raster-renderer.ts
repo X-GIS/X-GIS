@@ -322,8 +322,7 @@ export class RasterRenderer {
     }
   }
 
-  // ── Forced-WebGL2 raster slice (US-003) ──
-  // A SECOND draper backed by the WebGl2Device (host.ctx.rhi), drawing an analytic
+  // ── Analytic checker (US-003, ?debug=checker); draper shared since #1046 Inc-F2d.
   private _rhiChecker?: RhiTexture
   /** The WebGPU RasterDraper — render()'s sole draw path (P1.4). Lazily built with the
    *  swapchain format + sample count; rebuilt on a quality (MSAA) change via invalidation. */
@@ -549,9 +548,10 @@ export class RasterRenderer {
       gridN,
     )
 
-    draper.draw(pass, B.buffer, [
-      { texture: checker, tileBytes: new Float32Array(TB.buffer.slice(0)), gridN },
-    ])
+    // `pick` LAST like the live draw — the opaque sub-pass adds a pick attachment,
+    // and a non-pick pipeline there mismatches it (#1046 Inc-F2d review MAJOR-3).
+    const tiles = [{ texture: checker, tileBytes: new Float32Array(TB.buffer.slice(0)), gridN }]
+    draper.draw(pass, B.buffer, tiles, false, isPickEnabled())
   }
 
   /** Backend-appropriate raster tile load (#834 M5 slice 2): the WebGPU path

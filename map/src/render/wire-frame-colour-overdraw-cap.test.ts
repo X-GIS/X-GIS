@@ -39,7 +39,10 @@ import { wireFrameColour } from './frame-context'
 import type { FrameContext } from './frame-context'
 
 /** The `debugOverdraw` argument `wireFrameColour` hands RenderTargets.ensure. */
-function overdrawAskedFor(executionModel: 'immediate' | 'deferred'): boolean {
+function overdrawAskedFor(executionModel: 'immediate' | 'deferred'): {
+  asked: boolean
+  published: boolean
+} {
   const ensure = vi.fn((..._args: unknown[]) => ({
     useResolve: false,
     colorView: {},
@@ -55,16 +58,26 @@ function overdrawAskedFor(executionModel: 'immediate' | 'deferred'): boolean {
   } as unknown as FrameContext
   wireFrameColour(ctx, {} as never)
   expect(ensure).toHaveBeenCalledTimes(1)
-  return ensure.mock.calls[0]![6] as boolean
+  // BOTH: what RenderTargets was asked for, and what the frame PUBLISHES for
+  // every pass to read. Asserting only the first left the authority's single
+  // write unpinned — hardwiring `ctx.overdraw = false` kept 16 tests green
+  // across 4 files (#1046 Inc-F2d review CRITICAL-2).
+  return { asked: ensure.mock.calls[0]![6] as boolean, published: ctx.overdraw }
 }
 
 describe('wireFrameColour — overdraw target routing is device-gated (#1046 Inc-F2d)', () => {
   it('an IMMEDIATE device is never handed overdraw, even with the flag ON', () => {
+    const { asked, published } = overdrawAskedFor('immediate')
     expect(
-      overdrawAskedFor('immediate'),
+      asked,
       'the overdraw accumulator was routed on an immediate device: the compose that is the ' +
         'only writer of the swapchain there is raw WebGPU, so the frame either throws ' +
         '(no gate) or goes blank (gate in the wrong place)',
+    ).toBe(false)
+    expect(
+      published,
+      'ctx.overdraw disagrees with the routing — every pass reads THAT, so the frame would ' +
+        'route targets one way and gate passes the other',
     ).toBe(false)
   })
 
@@ -72,9 +85,11 @@ describe('wireFrameColour — overdraw target routing is device-gated (#1046 Inc
     // The anti-vacuity arm. A blanket `false` satisfies the case above while
     // silently disabling ?debug=overdraw on WebGPU, the one backend it works on.
     // The two arms differ in exactly ONE input, so together they pin the gate.
+    const { asked, published } = overdrawAskedFor('deferred')
     expect(
-      overdrawAskedFor('deferred'),
+      asked,
       'WebGPU lost the overdraw heatmap — this is a capability clamp, not a feature kill',
     ).toBe(true)
+    expect(published, 'ctx.overdraw must agree with the routing').toBe(true)
   })
 })
