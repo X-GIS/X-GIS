@@ -36,6 +36,12 @@ export class UniformRing {
   private dirtyLo = 0
   private dirtyHi = 0
   private retired: RhiBuffer[] = []
+  /** #1582 site 4 — `stageSlot` minted a fresh `Uint8Array` view over `src`
+   *  on every call, even though callers stage the SAME source ArrayBuffer
+   *  every draw (VTR always passes `this.frameBlock.buffer`, allocated once
+   *  per instance). A plain ArrayBuffer's `byteLength` is immutable, so a
+   *  view cached on `src` identity stays valid for the life of that buffer. */
+  private readonly viewCache = new WeakMap<ArrayBuffer, Uint8Array>()
 
   constructor(
     private readonly rhi: RhiDevice,
@@ -99,7 +105,12 @@ export class UniformRing {
   /** Copy a draw's uniform block into the staging mirror at `offset` and
    *  extend the dirty range. */
   stageSlot(offset: number, src: ArrayBuffer): void {
-    this.staging.set(new Uint8Array(src, 0, Math.min(src.byteLength, this.slotSize)), offset)
+    let view = this.viewCache.get(src)
+    if (!view) {
+      view = new Uint8Array(src, 0, Math.min(src.byteLength, this.slotSize))
+      this.viewCache.set(src, view)
+    }
+    this.staging.set(view, offset)
     const hi = offset + this.slotSize
     if (this.dirtyHi === this.dirtyLo) {
       this.dirtyLo = offset
