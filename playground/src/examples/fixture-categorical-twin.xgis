@@ -1,0 +1,18 @@
+xgis 1
+
+/* Fixture: constant-fill twin of fixture-categorical.xgis (#1583).
+ *
+ * The SAME source, the same three polygons, the same layer — the only difference is that the fill
+ * is a constant instead of `match(.kind)`. It exists to be the control arm of
+ * `_fill-data-driven-gl2-gate.spec.ts`: a data-driven fill renders blank on WebGL2, and a blank
+ * frame on its own cannot tell "this backend has no per-feature fill path" from "the fixture, the
+ * source, or the harness is broken". This twin paints, so it distinguishes them.
+ *
+ * Keep the geometry and the source identical to the sibling. If they drift, the control stops
+ * controlling for anything. */
+
+source d { type: geojson, url: "fixture-categorical.geojson" }
+layer cats {
+  source: d
+  | fill-emerald-500
+}
