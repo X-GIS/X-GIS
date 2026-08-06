@@ -59,6 +59,7 @@ import {
   Discard,
   madd,
   outsideRange,
+  Return,
   ReturnIf,
   Switch,
   f32T,
@@ -70,9 +71,11 @@ import {
   texture2dfT,
   samplerT,
   arrayT,
-  type Node,
+  Node,
+  Builder,
   type ReadonlyNode,
   type ModuleDecl,
+  type Stmt,
 } from '@xgis/shader-dsl'
 import {
   ioStruct,
@@ -84,7 +87,7 @@ import {
   resource,
   arrayOf,
 } from '@xgis/shader-dsl'
-import { emitModule } from '@xgis/shader-dsl'
+import { emitModule, composeModule } from '@xgis/shader-dsl'
 import {
   inv_merc_lat_rad,
   flat_rel,
@@ -421,7 +424,7 @@ const sdfShape = fn(
 // Backface cull → clip-bounds → segment-frame distance → bisector clip → bevel
 // edge → endpoint cap/join → dash → 3-slot pattern stack → alpha + per-segment
 // colour override. Faithful port of the WGSL helper (renderer-shaders.ts L661-1234).
-const computeLineColor = fn('compute_line_color', { input: LineOut }, (p) => {
+const computeLineColor = fn('compute_line_color', { input: LineOut }, vec4fT, (p, b) => {
   const projParams = TILE.field.proj_params
   const tileOrigin = TILE.field.tile_origin_merc
   const clipBounds = TILE.field.clip_bounds
@@ -897,14 +900,26 @@ const computeLineColor = fn('compute_line_color', { input: LineOut }, (p) => {
   const dPx = Let(dM.div(layerMpp))
   const blurPx = max(f32(0), LAYER.field.aa_width_px.sub(1))
   const halfAa = f32(0.5).div(LAYER.field.dpr)
-  const alpha = f32(1).sub(smoothstep(halfAa.add(blurPx).neg(), halfAa, dPx))
+  // Named (not a bare local) so a foreign default-swap Stmt list (built outside this
+  // closure, mirroring polygon's wall_shade) can varref it by literal WGSL name (#1605).
+  const alpha = Let('alpha', f32(1).sub(smoothstep(halfAa.add(blurPx).neg(), halfAa, dPx)))
   If(alpha.lt(0.005), () => Discard())
 
-  // Per-segment stroke colour override.
+  // Per-segment stroke colour override — the default (no-variant) fill for line_color_out.
   const segPacked = bitcastU32(sego.color_packed)
   const segColor = unpack4x8unorm(segPacked)
-  const baseColor = select(segColor.a.gt(0), segColor, LAYER.field.color)
-  return vec4(baseColor.rgb, baseColor.a.mul(alpha))
+  const baseColor = Let('base_color', select(segColor.a.gt(0), segColor, LAYER.field.color))
+  void baseColor // referenced externally by name in defaultLineColorReturnStmts (#1605)
+  Var('line_color_out', vec4(0, 0, 0, 0))
+  // ▼ Composer-swap point (#1605) — variant.strokeExpr assigns line_color_out, OR the
+  //   composer inserts the default per-segment-override / layer-colour path above. The
+  //   antialiasing `alpha` multiply happens AFTER the swap so both paths share identical
+  //   edge falloff (mirrors polygon's rim_alpha applied after 'fill-return', polygon.ts).
+  //   ONE placeholder serves fs_line / fs_line_pattern / fs_line_max — all three call this
+  //   shared function, unlike polygon's two separate fill/stroke entries.
+  b.placeholder('line-color-return')
+  const colorOut = new Node<'vec4<f32>'>({ op: 'varref', type: vec4fT, name: 'line_color_out' })
+  Return(vec4(colorOut.rgb, colorOut.a.mul(alpha)))
 })
 
 // ── line_rim_alpha ──
@@ -1327,6 +1342,41 @@ const LINE_LOD_DEPTH_STEP = 3e-6
 const lineLodDepthBias = () =>
   log(EARTH_R.div(max(TILE.field.tile_extent_m, f32(1)))).mul(LINE_LOD_DEPTH_STEP)
 
+// A `@stroke` stage block (#1538) authored fragment math for polygon only —
+// point/line silently dropped it (#1605 Phase 0). This is the line half of
+// the seam: a feature-free (no `.field` reads) stroke expression composed
+// into `compute_line_color`'s single shared body. Mirrors polygon's
+// PolygonVariantSpec (polygon.ts) minus the per-feature-buffer fields —
+// those are Phase 1b (#1605), rejected upstream by line-shader-cache.ts's
+// toComposerLineVariant before a variant ever reaches buildLineModule.
+export interface LineVariantSpec {
+  readonly preamble: Partial<Pick<ModuleDecl, 'consts' | 'bindings' | 'funcs'>> | null
+  readonly strokeExpr: Node<'vec4<f32>'> | null
+  readonly strokePreamble: readonly Stmt[] | null
+  readonly needsFeatureBuffer: boolean
+}
+
+// Default (no-variant) path: line_color_out = base_color (the per-segment
+// override / layer-colour select compute_line_color already computed).
+const defaultLineColorReturnStmts = (): readonly Stmt[] => {
+  const b = new Builder()
+  const colorOut = new Node<'vec4<f32>'>({ op: 'varref', type: vec4fT, name: 'line_color_out' })
+  const baseColor = new Node<'vec4<f32>'>({ op: 'varref', type: vec4fT, name: 'base_color' })
+  b.assign(colorOut, baseColor)
+  return b.stmts
+}
+
+// Variant path: line_color_out = variant.strokeExpr, preceded by any
+// strokePreamble Stmts (e.g. a match() if-else chain authoring a local the
+// expr reads). Falls back to the default when the variant carries no expr.
+const variantLineColorReturnStmts = (variant: LineVariantSpec): readonly Stmt[] => {
+  if (!variant.strokeExpr) return defaultLineColorReturnStmts()
+  const b = new Builder()
+  const colorOut = new Node<'vec4<f32>'>({ op: 'varref', type: vec4fT, name: 'line_color_out' })
+  b.assign(colorOut, variant.strokeExpr)
+  return [...(variant.strokePreamble ?? []), ...b.stmts]
+}
+
 export const buildFsLine = (pickEnabled: boolean) =>
   fn(
     'fs_line',
@@ -1392,8 +1442,11 @@ export const fsLineMax = fn(
 
 // ── Module assembly ──
 
-export const buildLineModule = (pickEnabled: boolean): ModuleDecl =>
-  module({
+export const buildLineModule = (
+  variant: LineVariantSpec | null,
+  pickEnabled: boolean,
+): ModuleDecl => {
+  const base = module({
     // Shared projection + ecef constants merged in (was the getProjectionWgslConsts() /
     // ECEF_WGSL_CONSTS string prepend in emitLineWgsl). emitModule hoists them above all funcs.
     consts: [...PROJECTION_CONSTS, ...ECEF_CONSTS],
@@ -1429,12 +1482,42 @@ export const buildLineModule = (pickEnabled: boolean): ModuleDecl =>
     ],
   })
 
+  // Placeholder Stmt swap — ONE 'line-color-return' tag serves all 3 fragment
+  // entries (they all call the single shared compute_line_color). Even the
+  // null-variant case substitutes the default Stmts so the emitted WGSL is
+  // valid renderable output (#1605; mirrors polygon.ts's buildPolygonModule).
+  const swaps: Record<string, readonly Stmt[]> = {
+    'line-color-return': variant
+      ? variantLineColorReturnStmts(variant)
+      : defaultLineColorReturnStmts(),
+  }
+  if (variant?.needsFeatureBuffer) {
+    // Phase 1b (#1605) — line-shader-cache.ts's toComposerLineVariant must
+    // reject these before a variant ever reaches this function; a feature-
+    // buffer variant has no binding/storage-buffer wiring here yet.
+    throw new Error(
+      'buildLineModule: needsFeatureBuffer variants are not supported yet (#1605 Phase 1b)',
+    )
+  }
+  const composed = composeModule(base, swaps)
+  if (!variant?.preamble) return composed
+  return {
+    consts: [...composed.consts, ...(variant.preamble.consts ?? [])],
+    structs: composed.structs,
+    bindings: [...composed.bindings, ...(variant.preamble.bindings ?? [])],
+    funcs: [...composed.funcs, ...(variant.preamble.funcs ?? [])],
+  }
+}
+
 /** Full line shader: shared DSL-emitted projection consts + log-depth fns +
  *  projection fns + SDF distance/winding helpers, then the line module.
+ *  `variant` is null for the base line shader (per-segment / layer-colour
+ *  stroke); a populated LineVariantSpec composes a feature-free `@stroke`
+ *  expression into compute_line_color via placeholder Stmt swap (#1605).
  *  `pickEnabled` toggles the pick attachment field + writes (replaces the old
  *  __PICK_FIELD__ / __PICK_WRITE__ regex markers). */
-export const emitLineWgsl = (pickEnabled: boolean): string =>
-  emitModule(buildLineModule(pickEnabled))
+export const emitLineWgsl = (variant: LineVariantSpec | null, pickEnabled: boolean): string =>
+  emitModule(buildLineModule(variant, pickEnabled))
 
 // The compositor (fullscreen triangle sampling the translucent offscreen RT)
 // lives in line-composite.ts — extracted for the arch ratchet; it is a

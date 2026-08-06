@@ -55,8 +55,8 @@ const COMPILE_LINK = ({ vertex, fragment }: { vertex: string; fragment: string }
 test.describe('line GLSL twin compiles on real WebGL2 (#834 M5)', () => {
   test('vs_line + fs_line (no pick) compile + link cleanly', async ({ page }) => {
     configureProjections(PROJECTIONS)
-    const vertex = emitLineGlsl(false, 'vertex')
-    const fragment = emitLineGlsl(false, 'fragment')
+    const vertex = emitLineGlsl(null, false, 'vertex')
+    const fragment = emitLineGlsl(null, false, 'fragment')
     expect(vertex.length).toBeGreaterThan(500)
     expect(fragment.length).toBeGreaterThan(200)
     expect(vertex.startsWith('#version 300 es')).toBe(true)
@@ -123,8 +123,8 @@ test.describe('line GLSL twin compiles on real WebGL2 (#834 M5)', () => {
     // #834 M5 slice 5 — the Mapbox line-pattern fragment twin (sprite-atlas
     // sample; the pattern pipeline variant's own fsCode).
     configureProjections(PROJECTIONS)
-    const vertex = emitLineGlsl(false, 'vertex')
-    const fragment = emitLineGlsl(false, 'fragment-pattern')
+    const vertex = emitLineGlsl(null, false, 'vertex')
+    const fragment = emitLineGlsl(null, false, 'fragment-pattern')
     expect(fragment.length).toBeGreaterThan(200)
     // The pattern fragment samples the sprite atlas through the fused
     // combined sampler named after the texture binding.
@@ -183,8 +183,8 @@ test.describe('line GLSL twin compiles on real WebGL2 (#834 M5)', () => {
     // fullscreen compositor pair (vs_full/fs_full).
     configureProjections(PROJECTIONS)
     const maxPair = {
-      vertex: emitLineGlsl(false, 'vertex'),
-      fragment: emitLineGlsl(false, 'fragment-max'),
+      vertex: emitLineGlsl(null, false, 'vertex'),
+      fragment: emitLineGlsl(null, false, 'fragment-max'),
     }
     const compPair = {
       vertex: emitCompositeGlsl('vertex'),

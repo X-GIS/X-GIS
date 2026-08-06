@@ -112,11 +112,11 @@ export class LineDraper {
     // wrapped. Pick stays WebGPU-only (fail-closed on WebGl2Device).
     const gl2 = this.rhi.backend === 'webgl2'
     return new Material(this.rhi, {
-      shader: wgslFor(this.rhi, () => emitLineWgsl(pick)),
+      shader: wgslFor(this.rhi, () => emitLineWgsl(null, pick)),
       vsEntry: 'vs_line',
       fsEntry: 'fs_line',
-      vsCode: gl2 ? emitLineGlsl(pick, 'vertex') : undefined,
-      fsCode: gl2 ? emitLineGlsl(pick, 'fragment') : undefined,
+      vsCode: gl2 ? emitLineGlsl(null, pick, 'vertex') : undefined,
+      fsCode: gl2 ? emitLineGlsl(null, pick, 'fragment') : undefined,
       format: this.format as 'bgra8unorm',
       sampleCount: this.sampleCount,
       groups: gl2
@@ -140,7 +140,7 @@ export class LineDraper {
           fsEntry: 'fs_line_pattern',
           // GLSL has one main per stage — the pattern variant carries its own
           // emitted fragment twin (#834 M5 slice 5).
-          fsCode: gl2 ? emitLineGlsl(pick, 'fragment-pattern') : undefined,
+          fsCode: gl2 ? emitLineGlsl(null, pick, 'fragment-pattern') : undefined,
           label: pick ? 'line-pipeline-pattern-pick-rhi' : 'line-pipeline-pattern-rhi',
         },
       ],
@@ -153,11 +153,11 @@ export class LineDraper {
   private maxMat(): Material {
     const gl2 = this.rhi.backend === 'webgl2'
     return (this._maxMaterial ??= new Material(this.rhi, {
-      shader: wgslFor(this.rhi, () => emitLineWgsl(false)),
+      shader: wgslFor(this.rhi, () => emitLineWgsl(null, false)),
       vsEntry: 'vs_line',
       fsEntry: 'fs_line_max',
-      vsCode: gl2 ? emitLineGlsl(false, 'vertex') : undefined,
-      fsCode: gl2 ? emitLineGlsl(false, 'fragment-max') : undefined,
+      vsCode: gl2 ? emitLineGlsl(null, false, 'vertex') : undefined,
+      fsCode: gl2 ? emitLineGlsl(null, false, 'fragment-max') : undefined,
       // The offscreen ACCUM format, not the canvas format: this pipeline draws
       // ONLY into the translucent offscreen (LINE_OFFSCREEN_FORMAT is the one
       // authority both the texture and this target derive from — a canvas-
@@ -182,7 +182,7 @@ export class LineDraper {
    *  depthWrite false (inert, matches the fill bake). WebGPU-only (the bake is WebGPU-only). */
   private bakeMat(): Material {
     return (this._bakeMaterial ??= new Material(this.rhi, {
-      shader: emitLineWgsl(false),
+      shader: emitLineWgsl(null, false),
       vsEntry: 'vs_line',
       fsEntry: 'fs_line',
       format: this.format as 'bgra8unorm',
