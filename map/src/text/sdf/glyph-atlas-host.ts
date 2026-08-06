@@ -198,6 +198,11 @@ export class GlyphAtlasHost {
       // Same slot will be reused for the NEW glyph; the cached info
       // would point at the wrong codepoint + stale metrics.
       this.infoCache.delete(evictedMk)
+      // #1580 leg D — and its `stale` flag, or an evicted-then-re-ensured
+      // glyph that landed a PBF upgrade AFTER eviction (see `invalidate`)
+      // strands a permanent Set entry: `stale` is never read again for a
+      // key whose slot was reclaimed, so nothing would ever clear it.
+      this.stale.delete(evictedMk)
       // iter-190 — bump a monotonic generation counter on every slot
       // reuse. Across-frame caches that key by `(text, generation)`
       // miss after any eviction (mid-frame too — the iter-167 cache

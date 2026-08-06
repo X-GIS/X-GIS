@@ -140,7 +140,12 @@ export class IconStage {
    *  weren't found in the atlas AFTER it loaded. Helps surface
    *  sprite-atlas mismatches (the OFM `school` marker case from
    *  the iter 510 pixel-match baseline). The Set survives across
-   *  frames; clear via `clearMissingIconNames()` between tests. */
+   *  frames; clear via `clearMissingIconNames()` between tests.
+   *  Capped at 256 (#1580 leg E), mirroring the text twin
+   *  (`dispatchedLabelTexts`, text-stage-diagnostics.ts): with
+   *  data-driven `icon-image` the name domain is feature data, not
+   *  the sprite sheet, so an unbounded corpus of misses grows this
+   *  forever. */
   private missingIconNames: Set<string> = new Set()
   /** Diagnostic counterpart — icon names the style ACTUALLY
    *  dispatched (atlas resolved). Set rather than counter so the
@@ -440,7 +445,7 @@ export class IconStage {
       }
       const sprite = this.host.get(p.iconName)
       if (!sprite) {
-        if (atlasLoaded) this.missingIconNames.add(p.iconName)
+        if (atlasLoaded && this.missingIconNames.size < 256) this.missingIconNames.add(p.iconName)
         continue
       }
       if (atlasLoaded) this.dispatchedIconNames.add(p.iconName)
@@ -538,7 +543,7 @@ export class IconStage {
     for (const im of this.inlineImages) {
       const sprite = this.host.get(im.name)
       if (!sprite) {
-        if (atlasLoaded) this.missingIconNames.add(im.name)
+        if (atlasLoaded && this.missingIconNames.size < 256) this.missingIconNames.add(im.name)
         continue
       }
       if (atlasLoaded) this.dispatchedIconNames.add(im.name)
