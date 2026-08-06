@@ -65,13 +65,26 @@ function makeVtr(catalog: unknown, neededKeys: number[], frameId: number): Vecto
   ;(vtr as unknown as { currentFrameId: number }).currentFrameId = frameId
   const selection = new TileSelectionCache()
   const frameTileCache: FrameTileCache = {
-    frameId,
+    camSig: {
+      centerX: 0,
+      centerY: 0,
+      zoom: 14,
+      bearing: 0,
+      pitch: 0,
+      canvasWidth: 1024,
+      canvasHeight: 768,
+      dpr: 1,
+      proj: 0,
+      projCenterLon: 0,
+      projCenterLat: 0,
+    },
     neededKeys,
     tiles: [],
     protectedAncestors: [],
     worldOffDeg: [],
     farBoost: 1,
     maxLevel: 14,
+    indexGeneration: 0,
     parentAtMaxLevel: [],
     archiveAncestor: [],
     marginPx: 0,
