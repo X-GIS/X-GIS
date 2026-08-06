@@ -17,11 +17,11 @@ import type {
 import {
   wrapWebGpuBindGroupLayout,
   wrapWebGpuBindGroup,
-  wrapWebGpuPass,
   toVertexBufferLayout,
 } from '@xgis/rhi-webgpu'
 import { Material, executeItems } from '@xgis/engine'
 import { recoverFillRhi } from '../fill-rhi-slot'
+import { wrapWebGpuPassMemoized } from './pass-wrap-memo'
 
 /** The per-tile GPUArena fill buffers recordFillDraw reads (structural — a VTR
  *  GPUTile satisfies it). RHI handles (#832): the arena is backend-neutral and
@@ -618,7 +618,7 @@ export function recordFillDraw(
     }
     if (mat && variant >= 0) {
       const g = globalThis as { __xgisVtrFillRhiDraws?: number }
-      const rhiPass = wrapWebGpuPass(encoder)
+      const rhiPass = wrapWebGpuPassMemoized(encoder)
       const item = {
         variant,
         bindGroups: [wrapWebGpuBindGroup(tileBg)],
