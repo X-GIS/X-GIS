@@ -54,7 +54,7 @@ export interface CoverageSourceDeps {
    *  rather than only re-arming the fill. */
   fieldArmed: () => boolean
   /** Re-derive the armed field(s) for ONE region from a handle. */
-  armFields: (handle: CoverageHandle, region: string) => void
+  armFields: (handle: CoverageHandle, region: string, priority: number) => void
   /** Arm a region that has NO armed display yet, straight from its LAYER's ShowCommand
    *  (#1426). Distinct from `armRegion` below on purpose: that one preserves the LIVE display
    *  opts across a swap, which is exactly wrong for a FIRST arm — there is no live paint to
@@ -63,7 +63,12 @@ export interface CoverageSourceDeps {
    *
    *  RETURNS whether any show claimed the source — `armRegion` needs that answer, because
    *  `fieldArmed` is a latch a FIRST push legitimately beats. */
-  armFromShow: (sourceId: string, handle: CoverageHandle, region: string) => boolean
+  armFromShow: (
+    sourceId: string,
+    handle: CoverageHandle,
+    region: string,
+    priority: number,
+  ) => boolean
   /** Drop one region's compiled arrow glyphs. */
   clearArrows: (region: string) => void
   invalidate: () => void
@@ -112,6 +117,28 @@ export function coverageRegions(
 ): ReadonlyMap<string, CoverageRegionData> | null {
   const data = deps.rawDatasets.get(sourceId)
   return data && '_coverage' in data ? data._coverage : null
+}
+
+/** This region's place in the source's OWNERSHIP order — its index in the `_coverage` Map (#1585).
+ *
+ *  THE SAME ORDER `coverageHandleAt` RESOLVES A TIE BY, and that is the whole point: where two
+ *  domains cover the same water, the arrows drawn there and the value `getCoverage(id, at)` reports
+ *  must name the same domain. Deriving both from this Map is what makes that true by construction
+ *  rather than by two rules that happen to agree.
+ *
+ *  It survives a re-arm, which the alternatives do not: `writeRegion` sets an EXISTING key without
+ *  deleting it, so a forecast step leaves the order untouched, while the renderer's `states` and the
+ *  arrow store's `batches` both move a re-armed region to the back. 0 when the region is unknown —
+ *  a single-region source has no tie to break. */
+export function regionPriority(deps: CoverageSourceDeps, sourceId: string, region: string): number {
+  const regions = coverageRegions(deps, sourceId)
+  if (!regions) return 0
+  let i = 0
+  for (const key of regions.keys()) {
+    if (key === region) return i
+    i++
+  }
+  return 0
 }
 
 /** The handle answering for a point, or the primary region's when no point is given.
@@ -185,10 +212,14 @@ function armRegion(
   // renderer's armed display unless the caller overrides; a later rebuild re-arms.
   const overridden = override?.ramp != null || override?.range != null
   if (deps.fieldArmed() && !overridden) {
-    deps.armFields(handle, region)
+    deps.armFields(handle, region, regionPriority(deps, sourceId, region))
     return
   }
-  if (!overridden && deps.armFromShow(sourceId, handle, region)) return
+  if (
+    !overridden &&
+    deps.armFromShow(sourceId, handle, region, regionPriority(deps, sourceId, region))
+  )
+    return
   const renderer = deps.renderer()
   const cur = renderer.displayOpts()
   renderer.setCoverage(
@@ -256,7 +287,7 @@ export async function loadDeclaredCoverage(
   }
   if (!deps.time.isCurrent(token, region) || deps.destroyed() || isStale?.()) return
   if (!writeRegion(deps, sourceId, region, { handle, url })) return
-  deps.armFromShow(sourceId, handle, region)
+  deps.armFromShow(sourceId, handle, region, regionPriority(deps, sourceId, region))
   deps.invalidate()
 }
 
@@ -366,7 +397,7 @@ async function armCatalogueItem(
   if (!state.wanted.includes(region)) return
   if (!deps.time.isCurrent(token, region) || deps.destroyed() || isStale?.()) return
   if (!writeRegion(deps, sourceId, region, { handle, url: item.href })) return
-  deps.armFromShow(sourceId, handle, region)
+  deps.armFromShow(sourceId, handle, region, regionPriority(deps, sourceId, region))
   deps.invalidate()
 }
 

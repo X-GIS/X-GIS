@@ -122,6 +122,11 @@ const BASELINE: Record<string, number> = {
   'map/src/render/material/hillshade-material.ts': 1,
   'map/src/render/material/icon-material.ts': 1,
   'map/src/render/material/line-material.ts': 1,
+  // #1582 sites 1+2 — the wrapWebGpuPass() call that used to live in BOTH
+  // polygon-fill-material.ts and line-renderer.ts moved here as a shared
+  // WeakMap memo (one wrapper per encoder instead of one per draw). Net
+  // coupling is unchanged: this file replaces the same import, not adds one.
+  'map/src/render/material/pass-wrap-memo.ts': 1,
   'map/src/render/material/polygon-fill-material.ts': 1,
   'map/src/render/material/raster-material.ts': 1,
   'map/src/render/material/text-material.ts': 1,

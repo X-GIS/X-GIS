@@ -11,7 +11,13 @@ import { expandKeyframeTimeStops } from './lower-animation'
 import { dispatch, type LayerAccumulator, type BindingCtx } from './lower-bindings'
 import { MODIFIER_HANDLERS, BINDING_HANDLERS, UTILITY_HANDLERS } from './lower-bindings-registry'
 import { runFrontPasses } from './front-passes'
-import { expandPresets, resolveStylePreset, type PresetDef, type PresetCall } from './preset-expand'
+import {
+  expandPresets,
+  resolveStylePreset,
+  presetRefName,
+  type PresetDef,
+  type PresetCall,
+} from './preset-expand'
 import { isKnownUtility, suggestUtility } from './utility-registry'
 import { UNKNOWN_UTILITY } from '../diagnostics/diagnostic'
 // Re-export public types so importers of './lower' keep their surface.
@@ -346,10 +352,9 @@ function lowerLayer(
   // ShowCommand → the coverage-ramp arm; undefined on every non-coverage layer.
   let ramp: string | undefined
   let range: readonly [number, number] | undefined
-  // Per-feature text label + all `label-*` / `label-icon-*` visual
-  // knobs are resolved by `lowerLabelProps` (lower-label.ts) in a
-  // separate utility-loop pass; the label accumulators no longer live
-  // here. See lower-label.ts header for the disjointness invariant.
+  // Per-feature text label + all `label-*` / `label-icon-*` visual knobs are resolved by
+  // `lowerLabelProps` (lower-label.ts) in a separate utility-loop pass; the label accumulators
+  // no longer live here. See lower-label.ts header for the disjointness invariant.
 
   for (const prop of stmt.properties) {
     if (prop.name === 'source' && prop.value.kind === 'Identifier') {
@@ -363,27 +368,23 @@ function lowerLayer(
     } else if (prop.name === 'z-order' && prop.value.kind === 'NumberLiteral') {
       zOrder = prop.value.value
     } else if (prop.name === 'minzoom' && prop.value.kind === 'NumberLiteral') {
-      // Mapbox `layer.minzoom` — layer is invisible BELOW this zoom.
-      // Critical for low-zoom views: without enforcement, place
-      // sub-layers (label_city minz=3, label_state minz=5, label_town
-      // minz=6, label_village minz=9, label_other minz=8, all POIs
-      // minz=15+) all render at z=1 simultaneously, piling every
-      // OMT feature on the screen and turning the antimeridian view
-      // into a stack of all-world labels. The runtime gates per-frame
-      // visibility on `(camera.zoom >= minzoom) && (camera.zoom <
-      // maxzoom)` via the show command.
+      // Mapbox `layer.minzoom` — layer is invisible BELOW this zoom. Critical for low-zoom
+      // views: without enforcement, place sub-layers (label_city minz=3, label_state minz=5,
+      // label_town minz=6, label_village minz=9, label_other minz=8, all POIs minz=15+) all
+      // render at z=1 simultaneously, piling every OMT feature on the screen and turning the
+      // antimeridian view into a stack of all-world labels. The runtime gates per-frame
+      // visibility on `(camera.zoom >= minzoom) && (camera.zoom < maxzoom)` via the show command.
       minzoom = prop.value.value
     } else if (prop.name === 'maxzoom' && prop.value.kind === 'NumberLiteral') {
       maxzoom = prop.value.value
-    } else if (prop.name === 'style' && prop.value.kind === 'Identifier') {
-      styleCall = { name: prop.value.name, line: prop.line }
-    } else if (
-      prop.name === 'style' &&
-      prop.value.kind === 'FnCall' &&
-      prop.value.callee.kind === 'Identifier'
-    ) {
-      // Call-form preset reference `style: glow(#f59e0b, 4)` (#1536).
-      styleCall = { name: prop.value.callee.name, args: prop.value.args, line: prop.line }
+    } else if (prop.name === 'style' && prop.value.kind !== 'FnCall') {
+      // Bare or namespaced preset ref: `style: glow` / `style: ns.glow` (#1606).
+      const name = presetRefName(prop.value)
+      if (name) styleCall = { name, line: prop.line }
+    } else if (prop.name === 'style' && prop.value.kind === 'FnCall') {
+      // Call-form, bare or namespaced: `style: glow(#f59e0b, 4)` (#1536, #1606).
+      const name = presetRefName(prop.value.callee)
+      if (name) styleCall = { name, args: prop.value.args, line: prop.line }
     } else if (prop.name === 'filter') {
       filterExpr = prop.value
     } else if (prop.name === 'geometry') {

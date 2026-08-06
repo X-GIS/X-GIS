@@ -43,12 +43,8 @@ import { type GPUContext } from '@xgis/rhi-webgpu'
 import { isOverdrawActive } from '../debug-flags'
 import { asyncWriteBuffer, type StagingBufferPool, type StagingSlot } from '@xgis/rhi-webgpu'
 import { xlog } from '@xgis/shared'
-import {
-  wrapWebGpuPass,
-  wrapWebGpuBuffer,
-  wrapWebGpuBindGroup,
-  wrapWebGpuBindGroupLayout,
-} from '@xgis/rhi-webgpu'
+import { wrapWebGpuBuffer, wrapWebGpuBindGroup, wrapWebGpuBindGroupLayout } from '@xgis/rhi-webgpu'
+import { wrapWebGpuPassMemoized } from './material/pass-wrap-memo'
 import type {
   RhiBuffer,
   RhiBindGroup,
@@ -216,6 +212,14 @@ export class LineRenderer {
   private layerStaging!: Uint8Array
   private layerDirtyLo = 0
   private layerDirtyHi = 0
+  /** #1582 site 4 sibling — `writeLayerSlot` minted a fresh `Uint8Array` view
+   *  over `packLineLayerUniform`'s result every call, even though that
+   *  function always returns the SAME shared scratch buffer (its own
+   *  docstring: "Returns a SHARED scratch buffer"). Cached on the scratch
+   *  buffer's identity, mirroring `UniformRing.stageSlot`'s fix — recomputed
+   *  only if that identity ever changes (e.g. the scratch grows). */
+  private _layerSrcViewBuffer?: ArrayBuffer
+  private _layerSrcView?: Uint8Array
 
   // ── Translucent line composite ──
   /** Composite uniform ring. 256-byte slots → each composite() call writes
@@ -494,12 +498,15 @@ export class LineRenderer {
     // Stage into the CPU mirror; flushLayerStaging (called from the
     // map's render loop via `endFrame()`) emits a single writeBuffer
     // over the frame's dirty range instead of one per layer.
-    const src = new Uint8Array(
-      data.buffer,
-      data.byteOffset,
-      Math.min(data.byteLength, this.layerStride),
-    )
-    this.layerStaging.set(src, off)
+    if (this._layerSrcViewBuffer !== data.buffer) {
+      this._layerSrcView = new Uint8Array(
+        data.buffer,
+        data.byteOffset,
+        Math.min(data.byteLength, this.layerStride),
+      )
+      this._layerSrcViewBuffer = data.buffer
+    }
+    this.layerStaging.set(this._layerSrcView!, off)
     const hi = off + this.layerStride
     if (this.layerDirtyHi === this.layerDirtyLo) {
       this.layerDirtyLo = off
@@ -637,7 +644,7 @@ export class LineRenderer {
     // tileBG is the VTR tile bind group — still a raw GPUBindGroup (flips with the
     // VTR cluster) → wrapped here at the renderer call site (transient).
     this._lineDraper!.draw(
-      wrapWebGpuPass(pass),
+      wrapWebGpuPassMemoized(pass),
       {
         tileBG: wrapWebGpuBindGroup(tileBindGroup),
         layerBG: layerBindGroup,

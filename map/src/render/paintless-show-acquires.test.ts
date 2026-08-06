@@ -64,7 +64,9 @@ describe('renderFillsRhi acquires before it asks what the show paints (#1046 Inc
   // block move below the bails with the gate still green (see the header).
   const iAcqLoop = body.indexOf('for (const key of neededKeys)')
   const iRequest = body.indexOf('this.source.requestTiles(toLoad)')
-  const iFillBail = body.indexOf('if (!fill) return')
+  // #1583 wrapped this bail in a block (it now also reports the fill-gap
+  // warning), so the anchor is the block opener, not `if (!fill) return`.
+  const iFillBail = body.indexOf('if (!fill) {')
   const iAlphaBail = body.indexOf('if (fillA <= 0.005) return')
 
   it('every anchor is still present (not vacuous — #996)', () => {
@@ -117,9 +119,16 @@ describe('renderFillsRhi acquires before it asks what the show paints (#1046 Inc
   it('the bails return the miss count they earned, never a bare 0', () => {
     // `return 0` past the acquisition would drop those misses from the keep-warm
     // signal — the half-loaded-freeze class (#834 M5 slice 5).
-    expect(body.slice(iAcqLoop)).not.toMatch(/if \(!fill\) return 0\b/)
+    const fillBailEnd = body.indexOf('\n    }', iFillBail)
+    expect(fillBailEnd, 'the fill-null bail block must close').toBeGreaterThan(iFillBail)
+    const fillBailBlock = body.slice(iFillBail, fillBailEnd)
+    // #1583 — reportRhiFillGap always returns 0 (the draw count for a fill it
+    // did not draw); that 0 must not leak out as this bail's OWN return value.
+    expect(fillBailBlock, 'the fill-null bail must not return a bare 0').not.toMatch(/\breturn 0\b/)
+    expect(fillBailBlock, 'the fill-null bail must return the miss count').toContain(
+      'return missing',
+    )
     expect(body.slice(iAcqLoop)).not.toMatch(/if \(fillA <= 0\.005\) return 0\b/)
-    expect(body).toContain('if (!fill) return missing')
     expect(body).toContain('if (fillA <= 0.005) return missing')
   })
 })

@@ -21,9 +21,12 @@ import { packCompiledArrowFeat, packCompiledArrowTint } from './retained-arrow-p
 import type { RetainedArrowDraper } from '../render/material/arrow-retained-material'
 import type { RetainedArrowAdvectedDraper } from '../render/material/arrow-retained-advected-material'
 import {
+  fieldBoxesOverlap,
+  fieldOwnedBoxOf,
   fieldViewBlock,
   fieldViewUniformBytes,
   writeFieldViewUniform,
+  type FieldOwnedBox,
   type FieldViewCamera,
   type FieldViewGrid,
 } from '../render/field-lattice-uniform'
@@ -53,6 +56,16 @@ export interface AdvectedArrowInput {
   grid: FieldViewGrid
   /** The catalogue table in the shader's units (`s111BandTableNormalized`). */
   bandTable: Float32Array
+  /** Where this region sits in the mosaic's OWNERSHIP order — lower wins a geographic tie (#1585).
+   *
+   *  THE ORDER OF THE `_coverage` MAP, supplied by the arm, and that specific authority matters.
+   *  The obvious alternative — this batch's position in `batches` — is wrong: a re-arm does
+   *  `clearCompiledArrows(region)` then adds again (`coverage-arm.ts`), which moves the region to
+   *  the END of the array, and re-arms fire on every forecast tick. Ownership would flip each tick,
+   *  flickering the overlap and contradicting `coverageHandleAt`, which resolves the same tie to the
+   *  first-armed region. `writeRegion` sets an EXISTING key without deleting it, so the `_coverage`
+   *  Map's order survives a re-arm — it is the one order both sides can agree on. */
+  priority: number
 }
 
 /** The camera half of an advected draw, computed ONCE per frame by the manager and shared by
@@ -103,6 +116,9 @@ interface CompiledArrowBatch {
   boundFlowU: RhiTextureView | null
   boundFlowV: RhiTextureView | null
   boundFlowValid: RhiTextureView | null
+  /** Ground an EARLIER-armed region owns, so this batch's lattice must not seed on it (#1585).
+   *  Rebuilt from the resident set whenever that set changes — see `recomputeSuppression`. */
+  suppress: FieldOwnedBox[]
   count: number
   lons: Float64Array
   lats: Float64Array
@@ -231,6 +247,7 @@ export class CompiledArrowStore {
       boundFlowU: null,
       boundFlowV: null,
       boundFlowValid: null,
+      suppress: [],
       count,
       lons,
       lats,
@@ -239,6 +256,32 @@ export class CompiledArrowStore {
       strokeUnits,
       region,
     })
+    this.recomputeSuppression()
+  }
+
+  /** Rebuild every advected batch's "ground someone else owns" list from the CURRENT resident set.
+   *
+   *  ALL of them, on every change, rather than just the batch that moved. Suppression is monotone in
+   *  arm order, so in principle an arming region could compute its own list once and never revisit
+   *  it — but a DROP breaks that: `onCoverageRegionDropped` clears only the departing region's
+   *  arrows, and a later-armed survivor holding the departed region's box would suppress arrows over
+   *  that water forever, a permanent hole no e2e would attribute to an eviction that happened
+   *  minutes earlier. Recomputing the whole set makes a stale box unrepresentable, and it costs
+   *  nothing: this runs on arm/re-arm/drop, never per frame, over a handful of resident regions.
+   *
+   *  A batch yields only to STRICTLY lower priority, so a region never suppresses itself and two
+   *  regions can never suppress each other. Boxes are filtered to those that actually overlap, which
+   *  is what keeps the slot budget unreachable in practice rather than merely large. */
+  private recomputeSuppression(): void {
+    const advected = this.batches.filter((b) => b.advected !== null)
+    for (const b of advected) {
+      const own = fieldOwnedBoxOf(b.advected!.grid)
+      b.suppress = advected
+        .filter((o) => o.advected!.priority < b.advected!.priority)
+        .sort((x, y) => x.advected!.priority - y.advected!.priority)
+        .map((o) => fieldOwnedBoxOf(o.advected!.grid))
+        .filter((box) => fieldBoxesOverlap(box, own))
+    }
   }
 
   /** Drop compiled-arrow layers — every one, or (given `region`) just that owner's. Called
@@ -262,6 +305,8 @@ export class CompiledArrowStore {
     }
     this.batches.length = 0
     this.batches.push(...kept)
+    // A departing region must stop suppressing the survivors, or its ground stays blank (#1585).
+    this.recomputeSuppression()
   }
 
   /** True when at least one compiled arrow layer is resident — part of the manager's
@@ -329,6 +374,7 @@ export class CompiledArrowStore {
       instancesPerNode: ARROW_TRAIN_GLYPHS,
       interleave: S111_FIELD_INTERLEAVE,
       carry: [basePx, basePx, S111_OUTLINE_FRAC],
+      suppress: ca.suppress,
     })
     if (count === null || count === 0) return 0
     this.rhi.writeBuffer(ca.viewBuf, 0, block.buffer)

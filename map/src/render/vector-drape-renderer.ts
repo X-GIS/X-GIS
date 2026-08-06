@@ -21,6 +21,7 @@ import { uniformBlock, isPickEnabled, type UniformBlockOf } from '@xgis/engine'
 import { lonLatToECEF } from '@xgis/shared'
 import { RasterDraper, type RasterTile } from './material/raster-material'
 import { planBakeEvictions, drapeZoomBucket, drapeStrokeWidthScale } from './vector-drape-cache'
+import { maxCachedEntriesFor } from './raster-cache-budget'
 import {
   rasterU as RASTER_U,
   rasterTileU as RASTER_TILE_U,
@@ -39,11 +40,8 @@ const clampLat = (v: number): number => Math.max(-MERC_LIMIT, Math.min(MERC_LIMI
 const mercY = (latDeg: number): number =>
   Math.log(Math.tan(Math.PI / 4 + (clampLat(latDeg) * DEG2RAD) / 2))
 const BAKE_PX = 512
-// Hard cap on resident baked-fill textures — the drape's analogue of the raster
-// tile cache's MAX_CACHED_TILES (raster-renderer.ts). Each bake is BAKE_PX²
-// RGBA8 (~1 MB at 512px), so this LRU-bounds baked-fill VRAM the same way the
-// raster path bounds fetched tiles. Enforced at the frame boundary (beginFrame).
-const MAX_CACHED_BAKES = 256
+/** Bytes of one bake — RGBA8 at BAKE_PX², every entry the same size. */
+const BAKE_BYTES = BAKE_PX * BAKE_PX * 4
 
 /** ECEF-frame view the drape projects with — the SAME matrix + log-depth + eye
  *  the vector / raster paths already compute (camera.getViewForProjection), so
@@ -262,8 +260,10 @@ export class VectorDrapeRenderer {
 
   /** Frame-boundary cache maintenance — MUST run once per frame BEFORE this
    *  frame's renderGlobeFills calls (VTR.beginFrame drives it). Evicts the
-   *  least-recently-draped bakes past MAX_CACHED_BAKES, skipping the previous
-   *  frame's visible set, then rolls the visible set forward.
+   *  least-recently-draped bakes past the viewport-aware cap (#1579 —
+   *  `maxCachedEntriesFor`, sharing the raster cache's byte ceiling instead of a
+   *  flat desktop-sized count), skipping the previous frame's visible set, then
+   *  rolls the visible set forward.
    *
    *  Eviction is DEFERRED here rather than run inline in renderGlobeFills for
    *  the SAME lifecycle reason the raster tile cache (raster-renderer.evictTiles)
@@ -281,8 +281,9 @@ export class VectorDrapeRenderer {
       for (const t of this._retiredBakes) this.rhi.destroyTexture(t)
       this._retiredBakes.length = 0
     }
-    if (this.baked.size > MAX_CACHED_BAKES) {
-      for (const k of planBakeEvictions(this.baked, this.visibleKeys, MAX_CACHED_BAKES)) {
+    const cap = maxCachedEntriesFor(BAKE_BYTES)
+    if (this.baked.size > cap) {
+      for (const k of planBakeEvictions(this.baked, this.visibleKeys, cap)) {
         const tex = this.baked.get(k)!.tex
         this.draper.dropTexture(tex) // invalidate the draper cache before freeing
         this._retiredBakes.push(tex) // destroy next frame — the prior submit may still reference it

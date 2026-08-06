@@ -158,7 +158,12 @@ const CEILINGS: Record<string, number> = {
   // #1479: −5. The `getDrawStats` forwarder restated its return type by hand — a second
   // authority for one shape. Deriving it (`ReturnType<FrameDrawStats['getDrawStats']>`)
   // paid for the `drawnByZoom` field and left the file smaller than before.
-  'map/src/render/vector-tile-renderer.ts': 4813,
+  // 4813→4823 (#1583, main merge): the fill-null bail in renderFillsRhi now also calls
+  // reportRhiFillGap(show, this.rhi.backend) for its warning side effect, while still
+  // returning `missing` (#1046 Inc-F2b's tile-acquisition count, which this bail must
+  // not silently drop) — a #1594 merge, not new #1594 work: main's fix returned a bare
+  // 0 here; this branch's renderFillsRhi had already moved past that shape.
+  'map/src/render/vector-tile-renderer.ts': 4823,
   // 4232→4237 (#1000 heatmap relocate): the heatmap density-target OWNERSHIP
   // extracted to render/heatmap-targets.ts; map keeps only the irreducible
   // composition-root wiring — the `heatmapTargets` field + its import (mirrors
@@ -1256,7 +1261,11 @@ const CEILINGS: Record<string, number> = {
   // into a `FailedTileLedger` class, and `rebuildForQuality` now destroys the draper instead
   // of dropping the reference — a clean net shrink this branch didn't cause but is
   // measuring honestly rather than leaving 1 line of stale headroom.
-  'map/src/render/raster-renderer.ts': 1031,
+  // 1031→1029 (#1579, parallel on main, picked up in the #1594 merge): the WebGPU-only
+  // `loadImageTexture` raw-device fork removed — both backends now load through the RHI
+  // (`rhi.createTexture`/`copyExternalImage`/`generateMipmaps`), which also deletes the
+  // `device: GPUDevice` field the fork was the only reader of.
+  'map/src/render/raster-renderer.ts': 1029,
   // 889→906 (#1155 F3): cold-start burst enqueue cap — the `_coldStartBurst`
   // field + `setColdStartBurst` + the burst-selected 8/4 cap in enqueue().
   // 906→910 (#1155 F3 adjudication): the burst 8/4 pair now comes from the

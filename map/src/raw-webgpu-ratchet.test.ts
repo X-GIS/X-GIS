@@ -167,7 +167,10 @@ const BASELINE: Record<string, number> = {
   'map/src/render/raster-cache-budget.ts': 4,
   // 8→5 (#1352): the loaded-texture return type and the shared eviction moved to
   // raster-cache-budget.ts.
-  'map/src/render/raster-renderer.ts': 3,
+  // 3→2 (#1579): the WebGPU-only raw-device `loadImageTexture` arm (unmipped, bypassed the
+  // RHI entirely) was deleted in favour of routing both backends through the RHI create +
+  // generateMipmaps path the WebGL2 arm already used.
+  'map/src/render/raster-renderer.ts': 2,
   // 20→24 (#1252): CachedPipeline gains 4 GPURenderPipeline fields for the
   // variant data-driven extruded pipelines (mirrors the existing fill/ground fields).
   'map/src/render/renderer-types.ts': 24,

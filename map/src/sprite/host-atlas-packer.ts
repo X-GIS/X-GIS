@@ -20,6 +20,14 @@ export const HOST_ATLAS_PAGE = 1024
 export class HostAtlasPacker {
   /** Atlas-space metadata for every packed image, keyed by name. */
   private readonly packed = new Map<string, SpriteInfo>()
+  /** The exact registry-entry source object last packed for a name (#1580 leg
+   *  B). `addImage` always creates a fresh `HostImageEntry` — even a replace
+   *  under the same name — so identity here doubles as a version marker:
+   *  `sync()`'s `packed.has(name)` skip used to fire on ANY existing entry,
+   *  so a replaced image never re-uploaded and `get()` kept returning the
+   *  OLD texels at the OLD size, contradicting `addImage`'s own "register
+   *  (or replace)" contract. */
+  private readonly packedSource = new Map<string, ImageBitmap | ImageData>()
 
   // Shelf allocator cursor (row-based packing over the fixed page).
   private shelfX = 0
@@ -50,7 +58,12 @@ export class HostAtlasPacker {
   ): void {
     if (!this.dirty) return
     for (const [name, entry] of this.registry.entries()) {
-      if (this.packed.has(name)) continue
+      // Skip only when this EXACT source was already packed — a replace
+      // under the same name is a different entry object (addImage always
+      // creates a fresh one), so it falls through and re-packs below. The
+      // old rect is not reclaimed (documented-by-design, host-image-
+      // registry.ts) — only left un-updated, which was the actual bug.
+      if (this.packedSource.get(name) === entry.source) continue
       const pos = this.allocate(entry.w, entry.h)
       if (pos === null) {
         xlog.warn(
@@ -68,6 +81,7 @@ export class HostAtlasPacker {
         pixelRatio: 1,
         sdf: false,
       })
+      this.packedSource.set(name, entry.source)
     }
     this.dirty = false
   }
@@ -94,6 +108,7 @@ export class HostAtlasPacker {
   /** Drop all packed metadata + reset the shelf cursor (atlas destroy). */
   reset(): void {
     this.packed.clear()
+    this.packedSource.clear()
     this.shelfX = 0
     this.shelfY = 0
     this.shelfH = 0

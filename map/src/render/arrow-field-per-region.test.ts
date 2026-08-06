@@ -130,10 +130,11 @@ const SOUTH = field('south', { width: 23, height: 29, spanDeg: [0.5, 0.4], midLa
 
 /** One advected batch's inputs. Two batch scalars — there is nothing per instance any more
  *  (#1520): the instance set is a lattice on the screen and its size is a per-frame decision. */
-function advectedInput() {
+function advectedInput(priority = 0) {
   return {
     grid: { originLon: -71, originLat: 39, invSpanLon: 0.5, invSpanLat: -0.5 },
     bandTable: new Float32Array(80),
+    priority,
   }
 }
 

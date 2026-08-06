@@ -81,7 +81,7 @@ function admit(r: CachePrivates, n: number, dim: number): MockTexture[] {
     textures.push(texture)
     r._cacheTile(`${dim}/${i}`, {
       texture: texture as unknown as GPUTexture,
-      bytes: textureBytesOf(dim, dim),
+      bytes: textureBytesOf(dim, dim, true),
     })
   }
   return textures
@@ -94,19 +94,19 @@ describe('raster cache byte budget — the pure ceiling (#1352)', () => {
     // Values include the MIP CHAIN as of #1436 — raster tiles are created with one now, and a
     // cost function that still returned the base level would let the cache sit a third over its
     // ceiling while reporting itself inside it. 4/3 exactly, for a power-of-two square.
-    expect(textureBytesOf(256, 256)).toBe(349_524)
-    expect(textureBytesOf(256, 256) / (256 * 256 * 4)).toBeCloseTo(4 / 3, 4)
-    expect(textureBytesOf(2048, 2048)).toBe(22_369_620)
+    expect(textureBytesOf(256, 256, true)).toBe(349_524)
+    expect(textureBytesOf(256, 256, true) / (256 * 256 * 4)).toBeCloseTo(4 / 3, 4)
+    expect(textureBytesOf(2048, 2048, true)).toBe(22_369_620)
     // Still ~64x — area still dominates, which is the point. No longer EXACTLY 64: the chain's
     // 1x1 tail does not scale with the base, so the two pyramids differ by 21 texels' worth.
-    expect(textureBytesOf(2048, 2048) / textureBytesOf(256, 256)).toBeCloseTo(64, 3)
+    expect(textureBytesOf(2048, 2048, true) / textureBytesOf(256, 256, true)).toBeCloseTo(64, 3)
   })
 
   it('leaves ordinary 256² sources governed by the COUNT cap, not throttled by bytes', () => {
     // The byte cap must not become the binding constraint for normal tiles, or
     // it would silently shrink the working set every existing style relies on.
     stubViewport(1440, 'fine')
-    expect(256 * textureBytesOf(256, 256)).toBeLessThan(maxRasterCachedBytes())
+    expect(256 * textureBytesOf(256, 256, true)).toBeLessThan(maxRasterCachedBytes())
   })
 
   it('routes the viewport class through isMobileClassViewport, not a raw width', () => {
