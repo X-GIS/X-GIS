@@ -62,8 +62,8 @@ export interface SceneView {
   readonly hasFlow: boolean
   /** Whether `?debug=overdraw` is ACTIVE this frame — mirrored from
    *  `FrameContext.overdraw`, which is the authority (see its doc). Every
-   *  `shouldRun` gate reads THIS, never the raw `DEBUG_OVERDRAW` const: the mode
-   *  is whole-frame and cross-cutting, so a pass consulting the URL flag while
+   *  `shouldRun` gate reads THIS, never the raw URL flag: the mode is
+   *  whole-frame and cross-cutting, so a pass consulting the URL flag while
    *  the targets were routed from the device-aware truth is how the frame ended
    *  up half-gated (#1046 Inc-F2d review F1/F2). */
   readonly overdraw: boolean

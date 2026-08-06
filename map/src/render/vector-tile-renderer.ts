@@ -22,7 +22,7 @@ import { POLYGON_FILL_FORMAT } from '@xgis/compiler'
 import { polygonUniformBytes } from './polygon-uniform-slots'
 import { writeInputPool } from './input-pool'
 import type { InputStore } from './input-store'
-import { DEBUG_OVERDRAW } from '../debug-flags'
+import { isOverdrawActive } from '../debug-flags'
 import { Camera } from '../camera'
 import type { ShowCommand } from './renderer-types'
 import { variantProducesFill } from './renderer-helpers'
@@ -3446,20 +3446,20 @@ export class VectorTileRenderer {
       // swapchain format, but the caller's `fillPipelineGroundOverride`
       // is the r16float debug variant. Always prefer the override here
       // so the entire opaque pass agrees on the r16float attachment.
-      const groundForLayout: RhiPipelineHandle | null = DEBUG_OVERDRAW
+      const groundForLayout: RhiPipelineHandle | null = isOverdrawActive(this.rhi.caps)
         ? (fillPipelineGroundOverride ?? fillPipeline)
         : groundIsBase
           ? this._bindGroups.groundPipeline()
           : (fillPipelineGroundOverride ?? null)
       // Fill-pattern routing. When the show has a resolved pattern UV bbox
-      // AND the variant pipeline path isn't active AND we're not in
-      // DEBUG_OVERDRAW (r16float surface), swap the ground pipeline for the
+      // AND the variant pipeline path isn't active AND overdraw isn't
+      // active (r16float surface), swap the ground pipeline for the
       // pattern variant. The pattern pipeline uses the same base
       // bindGroupLayout, so it's only valid on the `groundIsBase` path;
       // variant + feature-data pattern shows fall through to the generic
       // fillPipeline (renders solid colour, not crash).
       const patternActive =
-        !DEBUG_OVERDRAW &&
+        !isOverdrawActive(this.rhi.caps) &&
         groundIsBase &&
         show.fillPatternUV != null &&
         this._bindGroups.patternGroundPipeline() !== null
@@ -3472,7 +3472,7 @@ export class VectorTileRenderer {
       // and the show has a resolved pattern UV bbox, route per-feature
       // extruded draws to the pattern variant. Same gate as the ground path.
       const extrudedPatternActive =
-        !DEBUG_OVERDRAW &&
+        !isOverdrawActive(this.rhi.caps) &&
         groundIsBase &&
         show.fillPatternUV != null &&
         this._bindGroups.patternExtrudedPipeline() !== null
@@ -3539,7 +3539,7 @@ export class VectorTileRenderer {
         (globalThis as { __XGIS_BUNDLE_FORCE_ON?: boolean }).__XGIS_BUNDLE_FORCE_ON === true
       const shouldBundle =
         _bundleForceOn &&
-        !DEBUG_OVERDRAW &&
+        !isOverdrawActive(this.rhi.caps) &&
         !translucentBucket &&
         phase !== 'strokes' &&
         phase !== 'oit-fill' &&
@@ -3706,14 +3706,14 @@ export class VectorTileRenderer {
       // base layout uses the renderer-level fallback ground; feature
       // layout uses the variant's fallback ground override.
       const fallbackGroundIsBase = bindGroupLayout === this._bindGroups.baseLayout()
-      const fallbackGroundForLayout: RhiPipelineHandle | null = DEBUG_OVERDRAW
+      const fallbackGroundForLayout: RhiPipelineHandle | null = isOverdrawActive(this.rhi.caps)
         ? (fillPipelineGroundFallbackOverride ?? fillPipelineFallback ?? null)
         : fallbackGroundIsBase
           ? this._bindGroups.groundPipelineFallback()
           : (fillPipelineGroundFallbackOverride ?? null)
       // Fill-pattern fallback routing (mirror of the primary path above).
       const fallbackPatternActive =
-        !DEBUG_OVERDRAW &&
+        !isOverdrawActive(this.rhi.caps) &&
         fallbackGroundIsBase &&
         show.fillPatternUV != null &&
         this._bindGroups.patternGroundPipelineFallback() !== null
@@ -3726,7 +3726,7 @@ export class VectorTileRenderer {
           : fillPipelineFallback
       // Fill-extrusion-pattern fallback path mirror.
       const fallbackExtrudedPatternActive =
-        !DEBUG_OVERDRAW &&
+        !isOverdrawActive(this.rhi.caps) &&
         fallbackGroundIsBase &&
         show.fillPatternUV != null &&
         this._bindGroups.patternExtrudedPipelineFallback() !== null
@@ -3757,7 +3757,7 @@ export class VectorTileRenderer {
         (globalThis as { __XGIS_BUNDLE_FORCE_ON?: boolean }).__XGIS_BUNDLE_FORCE_ON === true
       const fbShouldBundle =
         _fbBundleForceOn &&
-        !DEBUG_OVERDRAW &&
+        !isOverdrawActive(this.rhi.caps) &&
         !translucentBucket &&
         phase !== 'strokes' &&
         phase !== 'oit-fill' &&
@@ -4693,7 +4693,7 @@ export class VectorTileRenderer {
         // single overdraw pipeline supplied as `fillPipeline`. The
         // OIT / extruded variants target their own formats which
         // don't match the r16float accumulator attached to this pass.
-        const activePipe = DEBUG_OVERDRAW
+        const activePipe = isOverdrawActive(this.rhi.caps)
           ? fillPipeline
           : useOitPipe
             ? this._bindGroups.extrudedOITPipeline()!
@@ -4719,7 +4719,7 @@ export class VectorTileRenderer {
             // draw (exclude OIT + debug-overdraw; recordFillDraw no-ops otherwise).
             /* translucentFrontShell */ useExtrudedPipe &&
               !useOitPipe &&
-              !DEBUG_OVERDRAW &&
+              !isOverdrawActive(this.rhi.caps) &&
               this._extrudeTranslucentFrontShell,
           )
         }

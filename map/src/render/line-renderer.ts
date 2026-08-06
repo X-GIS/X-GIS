@@ -40,7 +40,7 @@
 
 import { isPickEnabled, getSampleCount } from '@xgis/engine'
 import { type GPUContext } from '@xgis/rhi-webgpu'
-import { DEBUG_OVERDRAW } from '../debug-flags'
+import { isOverdrawActive } from '../debug-flags'
 import { asyncWriteBuffer, type StagingBufferPool, type StagingSlot } from '@xgis/rhi-webgpu'
 import { xlog } from '@xgis/shared'
 import {
@@ -625,7 +625,7 @@ export class LineRenderer {
     // format; r16float accumulator would mismatch. Skip — strokes
     // don't contribute to the v1 heatmap. Phase 2 adds an additive
     // r16float variant so line overdraw counts too.
-    if (DEBUG_OVERDRAW) return
+    if (isOverdrawActive(this.rhi.caps)) return
     // RHI seam (UNCONDITIONAL): every line draw routes through the LineDraper Material seam — the
     // opaque main pass, the translucent offscreen MAX-blend pass, the pick MRT pass, AND the
     // render-BUNDLE path (the wrapped pass accepts a GPURenderBundleEncoder; setStencilReference/end

@@ -17,7 +17,7 @@ import type { RhiDevice } from '@xgis/rhi'
 import type { RenderTargets } from '@xgis/rhi-webgpu'
 import type { ProjectionToken } from './projection-token'
 import { getSampleCount, pickTargetsEnabled } from '@xgis/engine'
-import { DEBUG_OVERDRAW } from '../debug-flags'
+import { isOverdrawActive } from '../debug-flags'
 
 /** One render target's pixel geometry.
  *
@@ -130,9 +130,11 @@ export interface FrameContext {
   /** `sampleCount > 1` — whether passes resolve MSAA to the swapchain. */
   useResolve: boolean
   /** Whether `?debug=overdraw` is ACTIVE for this frame — the single authority,
-   *  and the only thing any pass or renderer may consult about the mode.
+   *  and the only thing any pass or renderer may consult about the mode (every
+   *  consumer, pass layer AND draw layer, calls `isOverdrawActive(caps)` —
+   *  debug-flags.ts — #1594).
    *
-   *  The raw `DEBUG_OVERDRAW` flag is a URL truth; this is a FRAME truth, and the
+   *  The raw URL flag is page-load truth; this is a FRAME truth, and the
    *  two differ on an immediate device, where the mode cannot run at all: its
    *  compose is raw WebGPU (P6) and every scene pass would otherwise render into
    *  an r16float accumulator that nothing could then resolve to the swapchain.
@@ -141,13 +143,8 @@ export interface FrameContext {
    *  WHOLE-FRAME mode and its gates are cross-cutting, NOT independent per-pass
    *  booleans. Reading the module const in one place and this in another is what
    *  produced a half-gated frame — targets routed as if the mode were off while
-   *  passes still skipped themselves as if it were on, silently dropping the
-   *  translucent and hillshade the twin drew (#1046 Inc-F2d review F1/F2).
-   *
-   *  The TWIN's minimal label context deliberately passes the raw flag instead:
-   *  it routes no accumulator and has always skipped its label overlay under
-   *  ?debug=overdraw, and handing it this device-aware truth would change the
-   *  very arm the parity ratchet measures. That dies with the twin. */
+   *  passes still skipped themselves as if it were on, silently dropping content
+   *  a correctly-gated frame would have drawn (#1046 Inc-F2d review F1/F2). */
   overdraw: boolean
   /** Per-pass validation-scope + perf-marks helper. Re-bound each frame
    *  because it closes over this frame's `device`. */
@@ -240,18 +237,14 @@ export function wireFrameColour(
   // compose declines through its own `!overdrawAccumTexture` guard with no
   // capability check of its own.
   //
-  // NOT YET the twin's picture, and the gap is deliberate rather than unnoticed:
-  // 18 DEBUG_OVERDRAW reads remain in the DRAW layer (line-renderer strokes,
-  // VTR pipeline selection + fill patterns, bucket-scheduler's baked debug
-  // pipelines, the graticule), and none of them can reach this truth — several
-  // run before a FrameContext exists (render-loop's adaptive-scale read is the
-  // exception — it CAN reach the device, it just does not). An immediate device
-  // therefore renders a PARTIAL
-  // frame here, not an ordinary map: strictly better than the crash this
-  // replaced, still not parity. Centralising those reads behind an
-  // `isOverdrawActive(caps)` accessor at the flag site is #1594; this comment is
-  // the honest statement of where it stands until then (#1046 Inc-F2d).
-  const overdraw = DEBUG_OVERDRAW && ctx.rhi.caps.executionModel !== 'immediate'
+  // `isOverdrawActive` (debug-flags.ts) is the single authority — every draw-layer
+  // site that used to read the raw URL flag const directly (line-renderer
+  // strokes, VTR pipeline selection + fill patterns, bucket-scheduler's baked
+  // debug pipelines, the graticule, raster, pipeline-factory's variant build)
+  // calls the same function this line does, so an immediate device renders the
+  // ORDINARY map here, not the partial frame a lower-layer-only gate used to
+  // produce (#1594; #1046 Inc-F2d landed the pass layer first).
+  const overdraw = isOverdrawActive(ctx.rhi.caps)
   ctx.overdraw = overdraw
   const { useResolve, colorView, sceneResolveView, colorViewScreen, sceneColorSampleView } =
     ctx.rt.ensure(

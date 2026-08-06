@@ -998,7 +998,10 @@ const CEILINGS: Record<string, number> = {
   // extraction touch disjoint regions of the SAME pre-merge file; the ceiling
   // is the MEASURED post-merge size, not either side's number (this file's
   // own precedent, see the F3b/#1419 merge note above).
-  'map/src/render-loop.ts': 943,
+  // 943→945 (#1594): `isOverdrawActive(this.host.ctx.rhi.caps)` in place of the
+  // bare `DEBUG_OVERDRAW` read pushed the ternary past printWidth 100 (measured
+  // 112 chars pre-wrap); prettier wraps it onto 3 lines, +2.
+  'map/src/render-loop.ts': 945,
   // Baselined at 806 (hillshade tile fade-in): HillshadeRenderer crossed
   // NEW_FILE_CAP restoring the three tile-streaming fixes raster-renderer had
   // landed since hillshade was copied from it — the per-tile fade ramp + its

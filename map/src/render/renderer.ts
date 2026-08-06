@@ -19,7 +19,7 @@
 import { unwrapWebGpuPass, type GPUContext, type ComputeTimestampProvider } from '@xgis/rhi-webgpu'
 import type { Camera } from '../camera'
 import type { MeshData, LineMeshData } from '@xgis/data'
-import { DEBUG_OVERDRAW } from '../debug-flags'
+import { isOverdrawActive } from '../debug-flags'
 import { activeBody } from '@xgis/shared'
 import { resolveNumberShape, resolveColorShape } from './paint-shape-resolve'
 import type { ShaderVariantInfo, CachedPipeline, ShowCommand, RenderLayer } from './renderer-types'
@@ -763,7 +763,7 @@ export class MapRendererContent {
     // bake their pipeline against the swapchain format. The pass
     // attachment in debug mode is r16float — formats mismatch. Skip
     // entirely. Vector content goes through VTR, not this path.
-    if (DEBUG_OVERDRAW) return
+    if (isOverdrawActive(this.ctx.rhi.caps)) return
     const { canvas } = this.ctx
     // RTC: no translation in MVP, projection center is at (0,0).
     // Compute the live DPR so the camera matrix uses CSS-pixel altitude
@@ -930,7 +930,7 @@ export class MapRendererContent {
     projCenterLon = 0,
     projCenterLat = 20,
   ): void {
-    if (DEBUG_OVERDRAW || !this._graticule.isEnabled()) return
+    if (isOverdrawActive(this.ctx.rhi.caps) || !this._graticule.isEnabled()) return
     const { canvas } = this.ctx
     const dpr = canvas.clientWidth > 0 ? canvas.width / canvas.clientWidth : 1
     // #1046 Inc-E2 immediate arm — the RHI sibling below is the only graticule
@@ -981,7 +981,7 @@ export class MapRendererContent {
     h = 0,
     dpr = 1,
   ): void {
-    if (DEBUG_OVERDRAW || !this._graticule.isEnabled()) return
+    if (isOverdrawActive(this.ctx.rhi.caps) || !this._graticule.isEnabled()) return
     const frame = camera.getECEFFrameView(w, h, dpr)
     this._graticule.renderFrameRhi(
       pass,

@@ -37,6 +37,17 @@ if (DEBUG_OVERDRAW && typeof window !== 'undefined') {
   )
 }
 
+/** Whether the overdraw heatmap is ACTIVE this frame — the single authority every
+ *  draw-layer consumer must call instead of reading `DEBUG_OVERDRAW` directly (#1594).
+ *  The mode's compose pass is raw WebGPU (P6), so it cannot run at all on an
+ *  `executionModel: 'immediate'` device (WebGL2) — the URL flag alone is not enough,
+ *  the DEVICE must agree. A pure function of the live caps, not a value latched once:
+ *  `map.run()` re-boot replaces `host.ctx` (and its device) wholesale, so a constant
+ *  captured at an earlier device-selection time would go stale across a re-boot. */
+export function isOverdrawActive(caps: { executionModel: string }): boolean {
+  return DEBUG_OVERDRAW && caps.executionModel !== 'immediate'
+}
+
 /** `?debug=checker` — keep the legacy analytic red/blue checker as the
  *  sourceless-raster background on the forced-WebGL2 frame, the US-003/
  *  US-004 live-render gate fixture. Production sourceless frames draw

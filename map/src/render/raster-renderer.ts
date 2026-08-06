@@ -21,7 +21,7 @@ import {
 } from './raster-cache-budget'
 import { routeToSphereSelector, enumerateWorldCopies, isGlobeProj } from '@xgis/geo'
 import { pickTargetsEnabled, getSampleCount } from '@xgis/engine'
-import { DEBUG_OVERDRAW } from '../debug-flags'
+import { isOverdrawActive } from '../debug-flags'
 import { globeVisibleTiles } from '@xgis/data'
 import { uniformBlock, type UniformBlockOf } from '@xgis/engine'
 import {
@@ -612,7 +612,7 @@ export class RasterRenderer {
     // its contribution would mismatch the r16float accumulator format.
     // Skip entirely — raster tiles produce uniform 1× overdraw which
     // the heatmap can do without for now.
-    if (DEBUG_OVERDRAW) return
+    if (isOverdrawActive(this.rhi.caps)) return
     this.frameCount++
 
     const frame = camera.getViewForProjection(projType, canvasWidth, canvasHeight, dpr)

@@ -27,12 +27,21 @@
 // on every device — the first version of this file asserted against the real flag
 // and passed with the gate reverted. Forcing it true is what makes the two arms
 // answer differently and the assertion mean anything.
+//
+// BOTH `DEBUG_OVERDRAW` and `isOverdrawActive` are overridden, and that pair is
+// itself load-bearing (#1594): `wireFrameColour` calls `isOverdrawActive(caps)`,
+// not the raw const, so overriding only `DEBUG_OVERDRAW` on the mocked module's
+// namespace object does nothing — `isOverdrawActive`'s closure still reads the
+// REAL module's own internal `DEBUG_OVERDRAW` binding (spreading an object
+// copies a function's VALUE, not its lexical scope), which is false under
+// vitest regardless of what the mock's plain-object property says.
 
 import { describe, it, expect, vi } from 'vitest'
 
 vi.mock('../debug-flags', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../debug-flags')>()),
   DEBUG_OVERDRAW: true,
+  isOverdrawActive: (caps: { executionModel: string }) => caps.executionModel !== 'immediate',
 }))
 
 import { wireFrameColour } from './frame-context'

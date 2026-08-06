@@ -30,7 +30,7 @@ import {
 } from '@xgis/geo'
 import { adaptiveDprScale, effectiveDpr } from '@xgis/engine'
 import { resizeCanvas, pushValidationError } from '@xgis/rhi-webgpu'
-import { DEBUG_OVERDRAW, sceneScalePinned } from './debug-flags'
+import { isOverdrawActive, sceneScalePinned } from './debug-flags'
 import { WORLD_MERC, TILE_PX } from '@xgis/geo'
 import { invalidateResolvedShowCache } from './render/resolved-show'
 import { reportErrorScope } from './render-loop-helpers'
@@ -127,7 +127,9 @@ export class RenderLoop {
     // (labels, graphics) rasterises at native resolution. ?debug=overdraw pins 1 (that
     // mode writes the accumulator, not the scene colour the seam samples); ?scenescale
     // pins the ladder (the e2e seam gates).
-    const sceneScale = DEBUG_OVERDRAW ? 1 : (sceneScalePinned() ?? adaptiveDprScale())
+    const sceneScale = isOverdrawActive(this.host.ctx.rhi.caps)
+      ? 1
+      : (sceneScalePinned() ?? adaptiveDprScale())
     const dpr = resizeCanvas(this.host.ctx, effectiveDpr(this.host._interacting))
     this._resolveFillPatterns()
 

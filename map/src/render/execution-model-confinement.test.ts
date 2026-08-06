@@ -3,20 +3,22 @@
 // `RhiCaps.executionModel` is a DEVICE truth for engine upload/draw primitives
 // (rhi.ts contract): map-layer passes and renderers must not fork on it — that
 // would be backend identity wearing a capability's name. The Inc-E2 chain flip
-// grants exactly four INTERIM exceptions — native-bodied sites that route the
+// grants exactly three INTERIM exceptions — native-bodied sites that route the
 // immediate arm to the *Rhi entries, or steer a frame away from a native-bodied
 // consumer; all dying at P6 with the native bodies themselves:
 //
 //   vector-tile-renderer.ts  x1  VTR.render fork -> renderImmediateArm
 //   renderer.ts              x2  renderToPass legacy-layer skip + graticule fork
-//   frame-context.ts         x1  ?debug=overdraw frame gate (#1046 Inc-F2d)
 //
-// The fourth is granted for a reason the gate should force into the open: the
-// overdraw compose is raw WebGPU and threw every frame on an immediate device.
-// It gates the MODE for the whole frame at the wiring site, not the compose that
-// consumes it -- gating the consumer alone stops the crash but leaves the
-// accumulator routing, so nothing writes the swapchain and the frame goes blank.
-// One read, one authority: every pass reads `scene.overdraw`/`ctx.overdraw`.
+// A fourth (frame-context.ts, the ?debug=overdraw frame gate) was retired in
+// #1594: the comparison moved into `isOverdrawActive(caps)` (debug-flags.ts),
+// so frame-context.ts no longer contains a `.caps.executionModel` read at all —
+// it calls the shared authority instead, same as every draw-layer site.
+// `debug-flags.ts` is in TOKEN_ALLOWLIST (not READ_ALLOWLIST) because
+// `isOverdrawActive` takes a flat `caps` parameter — its body reads
+// `caps.executionModel`, which the bare-token sweep catches but the strict
+// `.caps.executionModel` dotted-read regex does not (no literal `.` precedes
+// the parameter name).
 //
 // A FIFTH was added and then removed in the same increment: the ?debug=checker
 // arm was device-forked to dodge a baked ('rgba8unorm', 1) draper. Fixing the
@@ -46,7 +48,6 @@ const TOKEN = () => /\bexecutionModel\b/g
 const READ_ALLOWLIST: Record<string, number> = {
   'render/vector-tile-renderer.ts': 1,
   'render/renderer.ts': 2,
-  'render/frame-context.ts': 1,
 }
 
 /** Files allowed to MENTION the token at all (reads + docs). */
@@ -54,6 +55,9 @@ const TOKEN_ALLOWLIST = new Set([
   ...Object.keys(READ_ALLOWLIST),
   // Doc comments only — its code takes the pre-gated call (reads pinned 0 above).
   'render/vtr-immediate-arm.ts',
+  // isOverdrawActive's flat-`caps` parameter + body (#1594) — bare token only,
+  // never matches the strict dotted-read regex (see the header comment).
+  'debug-flags.ts',
 ])
 
 function walkSrcTs(absDir: string): string[] {
