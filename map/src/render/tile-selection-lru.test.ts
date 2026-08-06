@@ -1,7 +1,15 @@
 // GATE B1 (#1153 #12) — the tile-selection memo is a per-margin LRU, not a
-// single slot. Two alternating cull margins at a FIXED camera + frameId must hit
-// the cache (the 7-16 ms quadtree walk runs ONCE per distinct margin, not once
-// per show), and a camera move (new frameId) / invalidateFrame() must invalidate.
+// single slot. Two alternating cull margins at a FIXED camera must hit the
+// cache (the 7-16 ms quadtree walk runs ONCE per distinct margin, not once
+// per show), and a REAL camera move / a landed tile / invalidateFrame() must
+// invalidate.
+//
+// #1581 leg A corrected the validity key from `frameId` (which bumps on
+// every RENDERED frame, not only on camera/canvas change — see
+// tile-selection-cache.ts) to the camera signature + indexGeneration. `select`
+// below still takes a `frameId`-shaped counter argument for readability, but
+// it is no longer part of the cache key; only `camera` (and `indexGeneration`
+// via `catalogGen`) drive invalidation now.
 //
 // The walk count is instrumented via TileSelectionCache.selectionComputeCount()
 // (a cache-MISS counter). The old single slot ping-ponged: the sequence
@@ -16,15 +24,21 @@ import type { FrameDrawStats } from './frame-draw-stats'
 
 // Minimal flat-mercator-path catalog (same surface slice-zoom-range-cull uses):
 // maxLevel + hasEntryInIndex for the ancestor walk. No layer range → no cull.
-function fakeCatalog(maxLevel: number): TileCatalog {
-  return {
+// `indexGeneration` is mutable so tests can simulate a tile landing.
+function fakeCatalog(maxLevel: number): TileCatalog & { gen: number } {
+  const catalog = {
     maxLevel,
+    gen: 0,
     getLayerZoomRange: () => null,
     hasEntryInIndex: () => false,
     hasData: () => true,
     hasTileData: () => false,
     prefetchTiles: () => {},
-  } as unknown as TileCatalog
+    indexGeneration(): number {
+      return catalog.gen
+    },
+  }
+  return catalog as unknown as TileCatalog & { gen: number }
 }
 
 const NO_STATS = { setGlobeTilesSelected: () => {} } as unknown as FrameDrawStats
@@ -95,10 +109,12 @@ describe('TileSelectionCache — per-margin LRU (#1153 #12)', () => {
     // 3 distinct margins → 3 walks for the whole 13-show frame (was up to 13).
     expect(cache.selectionComputeCount()).toBe(3)
 
-    // Next frame, camera moved (new frameId): the 3 margins re-walk once each
-    // (~1 walk per camera change per distinct margin, not per show).
+    // #1581 leg A — the NEXT rendered frame at the SAME (untouched) camera
+    // must NOT re-walk: this is the exact case a keep-alive animation or a
+    // permanent flow field puts the loop in at 60 Hz. frameId (here, the
+    // `select` counter arg) bumping alone is no longer part of the cache key.
     for (const mgn of showMargins) select(cache, source, 2, mgn, camera)
-    expect(cache.selectionComputeCount()).toBe(6)
+    expect(cache.selectionComputeCount()).toBe(3)
   })
 
   it('more distinct margins than slots — a margin already walked THIS frame is never re-walked', () => {
@@ -125,7 +141,7 @@ describe('TileSelectionCache — per-margin LRU (#1153 #12)', () => {
     expect(cache.selectionComputeCount()).toBe(margins.length)
   })
 
-  it('a camera move (new frameId) invalidates every slot — both margins re-walk', () => {
+  it('a REAL camera move invalidates every slot — both margins re-walk', () => {
     const cache = new TileSelectionCache()
     const source = fakeCatalog(15)
     const camera = new Camera(139.767, 35.681, 14)
@@ -134,16 +150,60 @@ describe('TileSelectionCache — per-margin LRU (#1153 #12)', () => {
     select(cache, source, 1, 8, camera)
     expect(cache.selectionComputeCount()).toBe(2)
 
-    // frameId bumps on any camera/canvas change → the frameId guard misses for
-    // every cached margin, re-selecting exactly as the single slot did.
+    // Actually move the camera (zoom change) — the camera-signature guard
+    // misses for every cached margin, re-selecting exactly as the single
+    // slot did.
+    camera.zoom = 15
     select(cache, source, 2, 2, camera)
     select(cache, source, 2, 8, camera)
     expect(cache.selectionComputeCount()).toBe(4)
 
-    // Still cached within the new frame.
+    // Still cached at the new camera state.
     select(cache, source, 2, 2, camera)
     select(cache, source, 2, 8, camera)
     expect(cache.selectionComputeCount()).toBe(4)
+  })
+
+  it('#1581 leg A — a STATIC camera across many rendered frames never re-walks after the first', () => {
+    // The falsifiable prediction the issue states directly: with the camera
+    // untouched, selectionComputeCount() must NOT rise per rendered frame.
+    const cache = new TileSelectionCache()
+    const source = fakeCatalog(15)
+    const camera = new Camera(139.767, 35.681, 14)
+
+    select(cache, source, 1, 2, camera)
+    expect(cache.selectionComputeCount()).toBe(1)
+
+    // 60 further "rendered frames" (frameId keeps incrementing — a
+    // keep-alive animation or a permanent flow field holds the loop hot),
+    // camera never touched.
+    for (let f = 2; f <= 61; f++) select(cache, source, f, 2, camera)
+    expect(cache.selectionComputeCount()).toBe(1)
+  })
+
+  it('#1581 leg A — a tile landing (indexGeneration bump) invalidates even at a static camera', () => {
+    // The landmine the issue flags by name: archiveAncestor is a walk over
+    // hasEntryInIndex, so a memo that now survives across frames must still
+    // invalidate the instant a tile lands, or it serves pre-landing ancestor
+    // data for as long as the camera stays still.
+    const cache = new TileSelectionCache()
+    const source = fakeCatalog(15)
+    const camera = new Camera(139.767, 35.681, 14)
+
+    select(cache, source, 1, 2, camera)
+    expect(cache.selectionComputeCount()).toBe(1)
+    // Static camera, next frame — would hit (see the test above).
+    select(cache, source, 2, 2, camera)
+    expect(cache.selectionComputeCount()).toBe(1)
+
+    // A tile lands.
+    source.gen++
+    select(cache, source, 3, 2, camera)
+    expect(cache.selectionComputeCount()).toBe(2)
+
+    // CONTROL — settles again: no further landings, no further re-walks.
+    select(cache, source, 4, 2, camera)
+    expect(cache.selectionComputeCount()).toBe(2)
   })
 
   it('invalidateFrame() clears the LRU', () => {

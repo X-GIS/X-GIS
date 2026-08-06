@@ -24,6 +24,7 @@
 // guard; `_zoom-transition-*.spec.ts` are the hysteresis/readiness guards.
 
 import { Camera } from '../camera'
+import { type CamSig, buildCamSig, camSigEqual } from './cam-sig'
 import { activeBody } from '@xgis/shared'
 import {
   visibleTilesFrustum,
@@ -65,17 +66,11 @@ export function sliceOutsideDataZoomRange(
   return nativeZ < range.minzoom || nativeZ > range.maxzoom
 }
 
-/** Cache of `visibleTilesFrustum()` + the derived neededKeys /
- *  worldOffsets arrays. With one source feeding N layer
- *  ShowCommands, each VTR.render() invocation would otherwise
- *  re-compute the same tile selection N times — the camera and
- *  canvas can't change between renders within a frame. Profiling
- *  showed pmtiles_layered (4 layers) burning ~30 ms / frame on
- *  redundant frustum walks. Cache keyed by frameId + culling
- *  margin (different stroke widths produce slightly different
- *  margins; a hit requires both to match). */
+/** Cache of `visibleTilesFrustum()` + the derived neededKeys / worldOffsets
+ *  arrays, keyed by camera signature + culling margin (#1581 replaced the
+ *  old `frameId` key, which bumped every rendered frame regardless). */
 export interface FrameTileCache {
-  frameId: number
+  camSig: CamSig
   marginPx: number
   currentZ: number
   tiles: ReturnType<typeof visibleTilesFrustum>
@@ -98,6 +93,8 @@ export interface FrameTileCache {
    *  the memo would keep serving the pre-degrade set for as long as the user held
    *  still, which is exactly when the controller most needs to act. */
   farBoost: number
+  /** Source's `indexGeneration()` when computed (#1581) — invalidates a landed tile. */
+  indexGeneration: number
   /** For each tile i: when `tiles[i].z > maxLevel`, the maxLevel
    *  ancestor key (the over-zoom fallback parent). Else `-1`.
    *  Sliced layer-independent — depends only on tile coord +
@@ -171,10 +168,9 @@ export class TileSelectionCache {
   /** Per-margin LRU of the visible-tile selection + derived arrays (#1153 #12).
    *  Was a SINGLE slot that N shows with divergent per-stroke cull margins
    *  ping-ponged within a frame, re-running the 7-16 ms quadtree walk (`:603-608`)
-   *  several times per frame. Keyed by marginPx; the camera-state invalidation is
-   *  UNCHANGED (a hit still requires frameId + currentZ + maxLevel — same fields,
-   *  same equality). Bounded to FRAME_TILE_CACHE_SLOTS (evict LRU); cleared each
-   *  frame by invalidateFrame(). */
+   *  several times per frame. Keyed by marginPx; a hit requires camSig +
+   *  currentZ + maxLevel + farBoost + indexGeneration (#1581). Bounded to
+   *  FRAME_TILE_CACHE_SLOTS (evict LRU); no longer cleared every frame. */
   private readonly _frameTileCacheLru = new Map<number, FrameTileCache>()
   /** 8→16: 8 sat BELOW the frame's real distinct-margin count, so the LRU evicted a
    *  margin the SAME frame still needed and re-walked it — the very ping-pong the LRU
@@ -226,12 +222,8 @@ export class TileSelectionCache {
     return this._selectionComputeCount
   }
 
-  /** Drop the per-frame memo. Called by VTR.beginFrame — the cache
-   *  invalidates on each new frame via the frameId comparison in
-   *  selectForFrame; explicit null isn't strictly needed, but
-   *  releasing the GC reference here lets the previous frame's tile
-   *  array drop sooner if the ShowCommand list shrinks (e.g. layer
-   *  toggle). */
+  /** Explicitly drop the whole memo. NOT called every frame (#1581) —
+   *  `selectForFrame`'s own validity check already detects invalidation. */
   invalidateFrame(): void {
     this._frameTileCacheLru.clear()
   }
@@ -265,6 +257,16 @@ export class TileSelectionCache {
     const R = activeBody().sphereR
     const centerLon = (centerX / R) * (180 / Math.PI)
     const centerLat = mercatorYToLat(centerY)
+
+    const camSig: CamSig = buildCamSig(
+      camera,
+      projType,
+      projCenterLon,
+      projCenterLat,
+      canvasWidth,
+      canvasHeight,
+      dpr,
+    )
 
     // DSFUN precision lets sub-tiles work at any camera zoom. Clamp to 22
     // to match the camera's universal maxZoom, not the old maxLevel+6.
@@ -639,18 +641,15 @@ export class TileSelectionCache {
     let worldOffDeg: number[]
     let parentAtMaxLevel: number[]
     let archiveAncestor: number[]
-    // Per-margin LRU lookup (#1153 #12): keyed by offsetMarginPx (the field that
-    // ping-ponged the single slot). Invalidation is UNCHANGED — a hit still needs
-    // frameId + currentZ + maxLevel to match (marginPx is now the key), so a
-    // camera move (frameId bump) / intra-frame cz step re-selects as before.
-
+    // Per-margin LRU lookup (#1153 #12), keyed by offsetMarginPx.
     const cached = this._frameTileCacheLru.get(offsetMarginPx)
     if (
       cached &&
-      cached.frameId === frameId &&
+      camSigEqual(cached.camSig, camSig) &&
       cached.currentZ === currentZ &&
       cached.maxLevel === maxLevel &&
-      cached.farBoost === farBoost
+      cached.farBoost === farBoost &&
+      cached.indexGeneration === source.indexGeneration()
     ) {
       // Refresh LRU recency (re-insert as most-recently-used).
       this._frameTileCacheLru.delete(offsetMarginPx)
@@ -976,7 +975,7 @@ export class TileSelectionCache {
         }
       }
       const entry: FrameTileCache = {
-        frameId,
+        camSig,
         marginPx: offsetMarginPx,
         currentZ,
         tiles,
@@ -985,6 +984,7 @@ export class TileSelectionCache {
         worldOffDeg,
         maxLevel,
         farBoost,
+        indexGeneration: source.indexGeneration(),
         parentAtMaxLevel,
         archiveAncestor,
       }

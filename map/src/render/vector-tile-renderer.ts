@@ -97,6 +97,7 @@ import { mirrorFillRhi, releaseFillRhi } from './fill-rhi-slot'
 import type { GPUTile, LayerDrawPhase } from './vector-tile-renderer-types'
 import { getMaxGpuTiles, uploadBudgetFor } from './vector-tile-renderer-helpers'
 import { UniformRing } from '@xgis/engine'
+import { buildTilePointPackKey, hashStableKeys } from './tile-point-pack-key'
 
 // projType (camera.projType / proj_params.x) → projection registry name,
 // for building the projection-aware `selectorProj`. Index 0 (mercator) and
@@ -1695,12 +1696,8 @@ export class VectorTileRenderer {
     // rAF callback and the JS thread spends ~300 ms per frame in
     // staging-buffer copies. See the upload coordinator's per-frame cap.
     this.resetUploadFrameCap()
-    // Frame tile cache invalidates on each new frame via the
-    // currentFrameId comparison in render(); explicit null isn't
-    // strictly needed, but releasing the GC reference here lets the
-    // previous frame's tile array drop sooner if the ShowCommand
-    // list shrinks (e.g. layer toggle).
-    this._selection.invalidateFrame()
+    // #1581 leg A — no longer clears the frame tile cache every frame; its own
+    // validity check (tile-selection-cache.ts) now detects invalidation on its own.
     // Retired rings are NOT explicitly destroyed: a teardownSource →
     // VTR.destroy or a setBindGroup that captured a ring just before grow
     // can race the destroy ahead of submit → "Buffer vtr-uniform-ring used
@@ -3979,15 +3976,12 @@ export class VectorTileRenderer {
       this.stableKeys = neededKeys
     }
 
-    // GPU cache eviction is deferred to beginFrame() — see the comment
-    // there for why mid-frame eviction races with the bucket scheduler's
-    // multi-render-per-frame pattern. Cache may transiently hold a few
-    // tiles above MAX_GPU_TILES between frames; bounded by the per-frame
-    // upload budget, so memory pressure is unaffected.
+    // GPU cache eviction is deferred to beginFrame() — see the comment there
+    // for why mid-frame eviction races the bucket scheduler's multi-render-
+    // per-frame pattern. Bounded by the per-frame upload budget meanwhile.
 
-    // Render tile-based points via PointRenderer (if available). The WebGPU
-    // frame wraps its native encoder; the single-authority body lives in
-    // emitTilePointsRhi (#1057), shared with the forced-WebGL2 twin.
+    // Tile-based points via PointRenderer (if available); the single-
+    // authority body lives in emitTilePointsRhi (#1057), shared with the twin.
     this.emitTilePointsRhi(
       rhiPass,
       camera,
@@ -4014,23 +4008,12 @@ export class VectorTileRenderer {
    *  ancestor points can appear on WebGPU but not WebGL2. See renderFillsRhi's
    *  assignment site for the full rationale.
    *
-   *  Tile point vertices are DSFUN stride 5: [mx_h, my_h, mx_l, my_l, feat_id]
-   *  in tile-local Mercator meters. We reconstruct f64-equivalent tile-local
-   *  meters via (h + l) on the TS side and subtract the camera's tile-local
-   *  position to get a small, f32-safe camera-relative offset.
-   *
-   *  Skip when the layer hasn't opted into point rendering (no size, no shape,
-   *  no size expression). PMTiles MVT layers like 'buildings' carry centroid
-   *  Point features alongside polygons — without this guard, a polygon-only
-   *  layer like `layer buildings { | fill-stone-700 stroke-stone-500 stroke-0.5 }`
-   *  would draw circle dots over every building centroid using PointRenderer's
-   *  default style (the user reported these as "POI points appearing without
-   *  being declared"). Detect "this layer authors point style" across every
-   *  SizeValue shape: `sizeValueToShape` collapses 'none' to null and emits a
-   *  typed shape for everything else (constant / data-driven / zoom- / time-
-   *  interpolated), so `paintShapes.size != null` is the single source of truth.
-   *  Keep `show.shape` in the OR — shapes carry point intent independent of a
-   *  declared size (fixture_size_zoom surfaced the zoom-interp gap). */
+   *  Skip when the layer hasn't opted into point rendering — PMTiles MVT
+   *  layers like 'buildings' carry centroid Point features alongside polygons,
+   *  so a polygon-only layer must not draw circle dots over every centroid.
+   *  `paintShapes.size != null` (from `sizeValueToShape`) is the source of
+   *  truth; `show.shape` stays in the OR — shapes carry point intent
+   *  independent of a declared size. */
   emitTilePointsRhi(
     pass: RhiRenderPass,
     camera: Camera,
@@ -4048,15 +4031,36 @@ export class VectorTileRenderer {
       return
     const effectiveSourceLayer = show.sourceLayer || show.targetName || ''
     const sliceLayer = computeSliceKey(effectiveSourceLayer, show.filterExpr?.ast ?? null)
-    // Read ECEF DSFUN stride-9:
-    // [ex_h, ey_h, ez_h, ex_l, ey_l, ez_l, feat_id, abs_lon, abs_lat]
-    // #722 S4 — when the layer authors a data-driven size expression, thread
-    // each point's SOURCE feature properties so flushTilePointsRhi can resolve
-    // the size per feature (fixes #17 size). featureProps is PER-TILE (fid ==
-    // sourceFeatures index within THIS tile), so resolve it here where the
-    // tile's map is in scope — fids collide across tiles, so a single map read
-    // after the accumulation loop would mis-assign props. Constant-size layers
-    // pass undefined → the tile-point path stays byte-identical.
+
+    // #1581 leg B — skip accumulation + repack at a static camera with an
+    // unchanged tile set and style: reuse last frame's packed buffers.
+    const args = {
+      pass,
+      camera,
+      projType,
+      projCenterLon,
+      projCenterLat,
+      canvasWidth,
+      canvasHeight,
+      show,
+      dpr,
+    }
+    const packKey = buildTilePointPackKey(
+      hashStableKeys(this.stableKeys),
+      sliceLayer,
+      show,
+      camera.zoom,
+      camera.pitch,
+    )
+    if (pointRenderer.canSkipTilePointRepack(packKey)) {
+      pointRenderer.redrawTilePointsCached(args)
+      return
+    }
+
+    // Read ECEF DSFUN stride-9: [ex_h,ey_h,ez_h, ex_l,ey_l,ez_l, feat_id, abs_lon,abs_lat]
+    // #722 S4 — thread SOURCE feature props for a data-driven size expression
+    // (fixes #17 size); featureProps is PER-TILE (fids collide across tiles),
+    // so resolved here, not after the loop. Constant-size layers pass undefined.
     const wantsFeatProps = show.sizeExpr?.ast != null
     for (const key of this.stableKeys) {
       const tileData = this.source!.getTileData(key, sliceLayer)
@@ -4092,6 +4096,7 @@ export class VectorTileRenderer {
       canvasHeight,
       show,
       dpr,
+      packKey,
     )
   }
 

@@ -163,7 +163,14 @@ const CEILINGS: Record<string, number> = {
   // returning `missing` (#1046 Inc-F2b's tile-acquisition count, which this bail must
   // not silently drop) — a #1594 merge, not new #1594 work: main's fix returned a bare
   // 0 here; this branch's renderFillsRhi had already moved past that shape.
-  'map/src/render/vector-tile-renderer.ts': 4823,
+  // 4823→4828 (#1581, main merge): leg B's static-camera tile-point pack-key auto-
+  // merged in cleanly (buildTilePointPackKey/hashStableKeys + the canSkipTilePointRepack
+  // fast path in emitTilePointsRhi) — a real new feature, not slack. The doc comment
+  // above emitTilePointsRhi was the only textual conflict (both sides reworded the same
+  // twin-era prose); kept this branch's wording, which is longer because it names the
+  // twin's actual #1046 Track A1 replacement (the WebGL2 immediate arm) instead of
+  // main's still-twin-shaped phrasing.
+  'map/src/render/vector-tile-renderer.ts': 4828,
   // 4232→4237 (#1000 heatmap relocate): the heatmap density-target OWNERSHIP
   // extracted to render/heatmap-targets.ts; map keeps only the irreducible
   // composition-root wiring — the `heatmapTargets` field + its import (mirrors
@@ -1051,7 +1058,11 @@ const CEILINGS: Record<string, number> = {
   // copies across the repo and only the vector one was bounded.
   'map/src/render/hillshade-renderer.ts': 846,
   // Merge union (#1060 <- main): stacked growth — measured 1174.
-  'map/src/render/point-renderer.ts': 1174,
+  // 1174→1167 (#1581, main merge): leg B extracted the tile-point pack-key/uniform-
+  // refresh/draw tail into tile-point-pack-key.ts + tile-point-draw.ts (this file keeps
+  // only canSkipTilePointRepack + the two callers) — a genuine shrink, not this branch's
+  // doing (its own delta on this file was a same-length comment reword, 0 net lines).
+  'map/src/render/point-renderer.ts': 1167,
   // 1106→1120 (#1043 state-hygiene): three unmask-before-clear / state-reset fixes for the
   // WebGL2 flicker class — beginScreenPass colorMask unmask (the colour sibling of #746/#780),
   // dispatchComputeToR32UI viewport snapshot+restore, and the setPipeline no-depth arm's
