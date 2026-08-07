@@ -126,3 +126,96 @@ describe('worldCopyMaskOf encodes the copy set exactly (#1616)', () => {
     expect(worldCopyMaskOf([0, 99, -99])).toBe(COPY_0)
   })
 })
+
+// ═══ The tile-set witness must actually witness the tile set (#1616 S1) ═══
+//
+// `hashStableKeys` is the ONLY field in the key that answers WHICH tiles are
+// selected, so a pure pan is invisible to every other field. It was an XOR-fold,
+// and an XOR-fold is degenerate on these keys specifically:
+// `tileKey(z,x,y) = 4^z + morton(x,y)` with `morton = spread(x) + 2*spread(y)`
+// puts x on the even bit-plane and y on the odd one and keeps `morton < 4^z`, so
+// every addition is over disjoint bits and `tileKey ≡ (1<<2z) ^ mx(x) ^ my(y)`
+// EXACTLY. Folding a W×H rectangle with XOR then repeats `1<<2z` W·H times, each
+// `mx(x)` H times, each `my(y)` W times — and `a ^ a = 0`. With W and H both even
+// the fold is 0 for every rectangle at every origin.
+//
+// Fail-before (measured on the XOR-fold): 576 origins × {2×2, 4×2, 4×4, 6×4, 8×8}
+// at z12 produced exactly ONE hash value, zero — including rectangles sharing no
+// tile at all — so `canSkipTilePointRepack` stayed true across any pan and points
+// in newly-entered tiles never appeared. A later attempt that avalanched only the
+// FINAL sum still failed (4×4: 272/576) because `Math.imul` distributes over
+// addition, so the rectangle's structure survives a linear fold; the avalanche has
+// to happen per key, before accumulation.
+
+describe('hashStableKeys witnesses the tile SET, not a cancelling fold (#1616)', () => {
+  const tileKeyOf = (z: number, x: number, y: number): number => {
+    // Local restatement of compiler's tileKey — this gate is about the FOLD, and
+    // must keep discriminating even if that encoding is retuned.
+    const spread = (v: number): number => {
+      let r = 0
+      for (let b = 0; b < 11; b++) r |= ((v >> b) & 1) << (2 * b)
+      return r
+    }
+    return 4 ** z + spread(x) + 2 * spread(y)
+  }
+  const rect = (z: number, x0: number, y0: number, W: number, H: number): number[] => {
+    const out: number[] = []
+    for (let dy = 0; dy < H; dy++)
+      for (let dx = 0; dx < W; dx++) out.push(tileKeyOf(z, x0 + dx, y0 + dy))
+    return out
+  }
+
+  it('EVEN-sided rectangles — the XOR-fold cancellation case — still discriminate', () => {
+    // Every one of these was a single hash value (0) before the fix.
+    for (const [W, H] of [
+      [2, 2],
+      [4, 2],
+      [4, 4],
+      [6, 4],
+      [8, 8],
+    ]) {
+      const seen = new Set<number>()
+      for (let x = 100; x < 112; x++) {
+        for (let y = 200; y < 212; y++) seen.add(hashStableKeys(rect(12, x, y, W, H)))
+      }
+      expect(seen.size, `${W}x${H}: distinct hashes over 144 distinct origins`).toBe(144)
+    }
+  })
+
+  it('a ONE-TILE pan in any direction changes the hash', () => {
+    // The user-visible shape of the bug: pan a little, the tile set changes, and
+    // the pack must be rebuilt or the new tiles' points never draw.
+    const base = hashStableKeys(rect(12, 100, 200, 4, 4))
+    for (const [dx, dy] of [
+      [1, 0],
+      [-1, 0],
+      [0, 1],
+      [0, -1],
+    ]) {
+      expect(hashStableKeys(rect(12, 100 + dx, 200 + dy, 4, 4)), `pan (${dx},${dy})`).not.toBe(base)
+    }
+  })
+
+  it('disjoint tile sets of equal size do not collide', () => {
+    const a = rect(12, 100, 200, 4, 4)
+    const b = rect(12, 400, 900, 4, 4)
+    expect(
+      a.filter((k) => b.includes(k)),
+      'the fixture must share no tile',
+    ).toHaveLength(0)
+    expect(hashStableKeys(a)).not.toBe(hashStableKeys(b))
+  })
+
+  it('a subset does not collide with its superset', () => {
+    const a = rect(12, 100, 200, 4, 4)
+    expect(hashStableKeys(a.slice(0, a.length - 1))).not.toBe(hashStableKeys(a))
+  })
+
+  it('CONTROL — order independence is preserved (no sort needed at the call site)', () => {
+    // The property the XOR-fold was chosen for; the replacement must keep it, or
+    // selection-order churn would repack every frame for no reason.
+    const a = rect(12, 100, 200, 4, 4)
+    expect(hashStableKeys([...a].reverse())).toBe(hashStableKeys(a))
+    expect(hashStableKeys([...a].sort((p, q) => p - q))).toBe(hashStableKeys(a))
+  })
+})

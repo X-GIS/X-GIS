@@ -71,9 +71,12 @@ export class TileCatalog {
   private index: XGVTIndex | null = null
   /** #1581 — entries only ever grow; lets a memo invalidate a landed tile. */
   indexGeneration = (): number => this.index?.entryByHash.size ?? 0
-  /** #1616 — bumps on every OVERWRITE of a cached slice (paired with `_replacedKeys`).
-   *  `indexGeneration` only grows with NEW entries, so a re-tile of a key already held
-   *  is invisible to it. Counts replacements — rely only on "differs from last frame". */
+  /** #1616 — bumps on every slice WRITE and every refresh-drop, i.e. whenever what a
+   *  cached key CONTAINS changes. `indexGeneration` only grows with new index entries,
+   *  so neither a tile ARRIVING for an already-selected key nor a re-tile of one moves
+   *  it; the selected key set does not move either. A memo that also stops re-reading
+   *  tile data on a hit (#1581 leg B) is blind to both without this. Counts writes, not
+   *  tiles — rely only on "differs from last frame". */
   private _contentGeneration = 0
   contentGeneration = (): number => this._contentGeneration
   /** In-memory compiled-tile store + byte accounting. Extracted to
@@ -169,6 +172,7 @@ export class TileCatalog {
    *  tile-catalog-skeleton / -lifecycle / multi-layer-overzoom tests)
    *  keeps reaching the same injection path. */
   private setSlice(key: number, layer: string, data: TileData): void {
+    this._contentGeneration++ // #1616 — the ONE chokepoint every slice write passes
     this.cache.setSlice(key, layer, data)
   }
 
@@ -386,7 +390,7 @@ export class TileCatalog {
     // the renderer swaps (or drops) the tile it is currently drawing.
     if (this._pendingRefresh.delete(key) && this.cache.has(key)) {
       this._replacedKeys.add(key)
-      this._contentGeneration++ // #1616 — paired with every _replacedKeys.add
+      this._contentGeneration++ // #1616 — a DROP changes content with no setSlice to see it
       this.deleteCacheEntry(key)
     }
     if (!result) {
@@ -1234,7 +1238,6 @@ export class TileCatalog {
     // not a replacement: nothing was drawing this key yet.
     if (this.hasTileData(key, sourceLayer)) {
       this._replacedKeys.add(key)
-      this._contentGeneration++ // #1616 — paired with every _replacedKeys.add
     }
     this.setSlice(key, sourceLayer, data)
     try {

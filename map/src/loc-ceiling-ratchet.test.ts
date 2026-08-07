@@ -897,10 +897,9 @@ const CEILINGS: Record<string, number> = {
   // cannot carry, since index entries only GROW and a re-tile of an already-held key moves
   // neither them nor the selected key set. RAISED, same shape as the #1448 entry above: a
   // counter field + a one-line accessor have nowhere cohesive to extract to, and the bumps
-  // must sit inline at both `_replacedKeys.add` sites (a helper wrapping the pair measured
-  // LONGER than the two inline bumps). +9 = field + accessor + 3 doc lines + the two guarded
-  // bumps, one of which turns a single-line `if` into a block. Measured post-hook.
-  'data/src/tile-catalog.ts': 1392,
+  // sits at the ONE chokepoint every slice write passes (`setSlice`) plus the refresh-drop
+  // branch, which changes content with no write for `setSlice` to see. Measured post-hook.
+  'data/src/tile-catalog.ts': 1395,
   // 1173→1180 (#1046 F1): thread the required `rhi: RhiDevice` onto the FrameContext at
   // both build sites — the main-chain init literal and the twin label stage — so a seam
   // can reach `ctx.rhi.caps.*` (doc §3-F1). +7 = two assignments + their rationale comments;
@@ -1095,7 +1094,11 @@ const CEILINGS: Record<string, number> = {
   // refresh/draw tail into tile-point-pack-key.ts + tile-point-draw.ts (this file keeps
   // only canSkipTilePointRepack + the two callers) — a genuine shrink, not this branch's
   // doing (its own delta on this file was a same-length comment reword, 0 net lines).
-  'map/src/render/point-renderer.ts': 1167,
+  // 1167→1168 (#1616): `pointWorldCopies` now returns the shared `SINGLE_COPY` off
+  // Mercator instead of a fresh `[0]`. +1 is the import; the allocation it removes is
+  // per point-show per frame on the #1581 cache-HIT path, whose whole purpose is to
+  // allocate nothing — this commit is what made that path call it every frame.
+  'map/src/render/point-renderer.ts': 1168,
   // 1106→1120 (#1043 state-hygiene): three unmask-before-clear / state-reset fixes for the
   // WebGL2 flicker class — beginScreenPass colorMask unmask (the colour sibling of #746/#780),
   // dispatchComputeToR32UI viewport snapshot+restore, and the setPipeline no-depth arm's

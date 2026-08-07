@@ -5,6 +5,7 @@
 
 import type { Camera } from '../camera'
 import { isWebMercator } from '@xgis/geo'
+import { SINGLE_COPY } from '../camera/camera-world-copies'
 import { getSampleCount, FrameArena } from '@xgis/engine'
 import type { ShapeRegistry } from '../text/sdf-shape'
 import { parseHexColor } from '../feature-helpers'
@@ -168,7 +169,7 @@ export function pointWorldCopies(
 ): readonly number[] {
   return isWebMercator(projType)
     ? camera.getVisibleWorldCopies(canvasWidth, canvasHeight, dpr)
-    : [0]
+    : SINGLE_COPY // #1616 — shared; this runs per show per frame on the cache-hit path
 }
 
 // worldCopyMercX moved into the stateless packer (@xgis/map, #722 S0); re-exported

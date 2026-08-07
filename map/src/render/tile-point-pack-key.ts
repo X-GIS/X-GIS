@@ -89,12 +89,41 @@ export interface TilePointPackKey {
 
 /** Cheap order-independent hash over a source's `stableKeys` (numeric tile
  *  keys) — stands in for "the same tile set", without a sort or an array
- *  compare. Tile keys are already interleaved bit-packed encodings (z/x/y),
- *  so XOR-folding them is exactly as collision-safe as summing them and
- *  costs the same O(T). */
+ *  compare.
+ *
+ *  #1616 — this was an XOR-fold, and an XOR-fold is CATASTROPHICALLY degenerate
+ *  on these particular keys. `tileKey(z,x,y) = 4^z + morton(x,y)`
+ *  (`vector-tiler-helpers.ts:70`), `morton = spread(x) + 2*spread(y)` puts x on
+ *  the even bit-plane and y on the odd one, and `morton < 4^z` — every one of
+ *  those additions is over disjoint bits, so `tileKey ≡ (1<<2z) ^ mx(x) ^ my(y)`
+ *  exactly. XOR-folding a W×H rectangle of tiles therefore repeats `1<<2z`
+ *  W·H times, each `mx(x)` H times and each `my(y)` W times — and `a ^ a = 0`.
+ *  With W and H both EVEN the fold is 0 for EVERY rectangle, whatever its
+ *  origin: measured, 576 distinct origins × {2×2, 4×2, 4×4, 6×4, 8×8} at z12
+ *  produce exactly ONE hash value (zero), including rectangles sharing no tile
+ *  at all. Since this is the key's only witness of WHICH tiles are selected, a
+ *  pure pan at fixed zoom/pitch moved nothing in the key and the pack was reused
+ *  forever — points in newly-entered tiles never appeared.
+ *
+ *  The fix keeps order-independence — addition commutes, which is why a sort is
+ *  still unnecessary — but AVALANCHES EACH KEY BEFORE accumulating it. Mixing
+ *  only at the end is not enough and was measured failing: any linear combining
+ *  step (xor OR sum, with or without a multiply) stays linear in the tile's
+ *  bit-planes, because `Math.imul` distributes over addition mod 2^32, so the
+ *  rectangle's structure survives to the final mix with the information already
+ *  gone (4×4 at z12: 272 distinct hashes over 576 origins). Per-key finalization
+ *  first makes each tile contribute a value with no arithmetic relationship to
+ *  its neighbours, so the sum discriminates. Length is folded too, so a subset
+ *  cannot collide with its superset through cancellation. */
 export function hashStableKeys(keys: readonly number[]): number {
-  let h = 0
-  for (const k of keys) h = (h ^ k) | 0
+  let h = keys.length | 0
+  for (let i = 0; i < keys.length; i++) {
+    // murmur3 finalizer — full avalanche per key, before it joins the sum.
+    let k = keys[i] | 0
+    k = Math.imul(k ^ (k >>> 16), 0x85ebca6b)
+    k = Math.imul(k ^ (k >>> 13), 0xc2b2ae35)
+    h = (h + (k ^ (k >>> 16))) | 0
+  }
   return h
 }
 
