@@ -93,7 +93,11 @@ const FAMILIES: ReadonlyArray<{
   },
   { id: 'icon', stages: emitIconGlslStages, legacy: emitIconGlsl },
   { id: 'text', stages: emitTextGlslStages, legacy: emitTextGlsl },
-  { id: 'point', stages: emitPointGlslStages, legacy: emitPointGlsl },
+  {
+    id: 'point',
+    stages: () => emitPointGlslStages(null),
+    legacy: (s) => emitPointGlsl(null, s),
+  },
 ]
 
 describe('emitGlslStages entry selection is byte-identical to pruning before lowering', () => {

@@ -113,6 +113,12 @@ export interface ShaderVariant {
    *  only a genuine stage-block expression should route through the new
    *  composer seam. */
   strokeIsStage: boolean
+  /** FILL counterpart to `strokeIsStage` (#1605 Phase 2) — same reasoning:
+   *  `fillExpr`/`!fillIsDefault` don't distinguish a genuine `@color` stage
+   *  block from any other resolved fill colour. Point is the first consumer
+   *  that reads BOTH `fillIsStage` and `strokeIsStage`, independently — a
+   *  point layer can author `@color`, `@stroke`, both, or neither. */
+  fillIsStage: boolean
   /** P4-5 — populated by `mergeComputeAddendumIntoVariant` when the
    *  fill / stroke axis routed through a compute kernel. Each entry
    *  is `(paintAxis, bindGroup, binding)` so the runtime can detect

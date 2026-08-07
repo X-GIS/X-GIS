@@ -122,6 +122,7 @@ function legacyVariant(): ShaderVariant {
     // Phase 2.5 US-002 — default-sentinel flags replacing the string compare.
     fillIsDefault: true,
     strokeIsDefault: true,
+    fillIsStage: false,
     strokeIsStage: false,
   }
 }

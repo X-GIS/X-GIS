@@ -121,6 +121,46 @@ layer l { source: w  | fill-slate-800 stroke-amber-300 stroke-12 }
     expect(v.strokeIsStage).toBe(false)
   })
 
+  // #1605 Phase 2 pin: point's toComposerPointVariant (map/src/render/
+  // point-shader-cache.ts) depends on this EXACT contract for a feature-free
+  // (no `.field` read) @color body — mirrors the @stroke pin above, on the
+  // fill axis instead.
+  it('a feature-free (zoom-only) @color body is fill-real and buffer-free', () => {
+    const scene = lower(parse(SCENE('@color { return vec4(zoom / 22, 0.2, 0.1, 1) }')))
+    expect(scene.diagnostics?.filter((d) => d.severity === 'error')).toEqual([])
+    const v = generateShaderVariant(scene.renderNodes[0]!)
+    expect(v.fillExpr).not.toBeNull()
+    expect(v.fillIsDefault).toBe(false)
+    expect(v.needsFeatureBuffer).toBe(false)
+    expect(v.fillIsStage).toBe(true)
+  })
+
+  it('an ordinary fill utility (no @color block) is fillIsStage=false', () => {
+    const scene = lower(
+      parse(`
+source w { type: geojson, url: "w.geojson" }
+layer l { source: w  | fill-amber-300 }
+`),
+    )
+    const v = generateShaderVariant(scene.renderNodes[0]!)
+    expect(v.fillIsStage).toBe(false)
+  })
+
+  // Point-specific insurance: unlike line (stroke-only), point genuinely
+  // authors BOTH axes as stage blocks on the same layer — this is the one
+  // property line's Phase 1 never needed to check.
+  it('@color and @stroke stage blocks on the same layer set BOTH IsStage flags independently', () => {
+    const scene = lower(
+      parse(
+        SCENE('@color { return vec4(zoom / 22, 0, 0, 1) }\n  @stroke { return vec4(0, 0, 1, 1) }'),
+      ),
+    )
+    expect(scene.diagnostics?.filter((d) => d.severity === 'error')).toEqual([])
+    const v = generateShaderVariant(scene.renderNodes[0]!)
+    expect(v.fillIsStage).toBe(true)
+    expect(v.strokeIsStage).toBe(true)
+  })
+
   it('a user fn is usable inside a stage block (inlined before lowering)', () => {
     const scene = lower(
       parse(
