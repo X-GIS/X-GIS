@@ -15,11 +15,17 @@
 // the inline gate did (no stencil yet, or w/h changed) and in the same
 // destroy → recreate order; setQuality() zeroes the size tracker the same
 // way (now via `invalidate()`).
+//
+// #1046 F4 Inc-D: allocation runs through the neutral `RhiDevice` texture
+// primitives (`ctx.rhi`, never `ctx.device` — the WebGL2 chain frame's ctx
+// carries a fail-loud device Proxy) and every view getter hands out an
+// RhiTextureView. The three `*Native` getters below are the ONLY native
+// residue, scoped to the raw compose bind groups (P6).
 
 import { OIT_ACCUM_FORMAT, OIT_REVEALAGE_FORMAT } from './gpu-shared'
 import type { GPUContext } from './gpu'
-import { wrapWebGpuTextureView } from './rhi-webgpu'
-import type { RhiTextureView } from '@xgis/rhi'
+import { unwrapWebGpuTextureView } from './rhi-webgpu'
+import type { RhiDevice, RhiTexture, RhiTextureView } from '@xgis/rhi'
 
 /** Result of `RenderTargets.ensure` — the per-frame colour-attachment
  *  decision that depends on `sampleCount` / `debugOverdraw` / the adaptive
@@ -33,21 +39,21 @@ export interface EnsureResult {
   /** The colour attachment SCENE passes draw into: the overdraw accumulator
    *  in `?debug=overdraw`, the (scene-sized) MSAA texture view when
    *  `useResolve`, else the scene colour (scaled) / `screenView` directly. */
-  colorView: GPUTextureView
+  colorView: RhiTextureView
   /** #1429 INC-2 — true when the adaptive ladder shrank the scene target
    *  below the canvas (`sceneW/H !== screenW/H`): the scene pair exists and
    *  the upscale seam must run. */
   sceneScaled: boolean
   /** Where the resolve-owner scene pass resolves its MSAA: the scene colour
    *  when scaled, else `screenView` (the pre-split target). */
-  sceneResolveView: GPUTextureView
+  sceneResolveView: RhiTextureView
   /** The colour attachment the SEAM + OVERLAY passes draw into: the
    *  screen-sized MSAA when scaled (labels still own the final resolve),
    *  else exactly `colorView` (one attachment, as today). */
-  colorViewScreen: GPUTextureView
+  colorViewScreen: RhiTextureView
   /** The resolved scene colour as a sampleable view — the upscale's source.
    *  `null` unless scaled. */
-  sceneColorSampleView: GPUTextureView | null
+  sceneColorSampleView: RhiTextureView | null
 }
 
 /** Owns the GPU render-target textures + recreate-on-resize lifecycle. The
@@ -55,113 +61,125 @@ export interface EnsureResult {
  *  class is the single owner. */
 export class RenderTargets {
   /** Stencil buffer for tile overlap masking. */
-  stencilTexture: GPUTexture | null = null
+  stencilTexture: RhiTexture | null = null
   /** MSAA 4x render target (only allocated when sampleCount > 1). */
-  msaaTexture: GPUTexture | null = null
+  msaaTexture: RhiTexture | null = null
   /** Weighted-Blended OIT accum target (rgba16float). Lazily allocated by
    *  `ensureOit()` ONLY when the scene has OIT-extrude content (default
    *  styles keep `isOitExtrude=false`, so the default path allocates none of
    *  the ~10 B/px these two targets cost). Lazy, like the (map-owned) heatmap
    *  density targets. */
-  oitAccumTexture: GPUTexture | null = null
+  oitAccumTexture: RhiTexture | null = null
   /** Weighted-Blended OIT revealage target (r16float). Lazy — see above. */
-  oitRevealageTexture: GPUTexture | null = null
+  oitRevealageTexture: RhiTexture | null = null
   /** Fresh depth for the two-pass offscreen extrude pass. Lazy (allocated
    *  alongside the OIT targets in `ensureOit()`) — kept for the future OIT
    *  opt-in path; unread on the default path so allocating it eagerly was
    *  pure waste. */
-  offscreenExtrudeDepth: GPUTexture | null = null
+  offscreenExtrudeDepth: RhiTexture | null = null
   /** `?debug=overdraw` r16float accumulator. */
-  overdrawAccumTexture: GPUTexture | null = null
+  overdrawAccumTexture: RhiTexture | null = null
   /** Pick (GPU hover/click) RG32Uint single-sample colour attachment. */
-  pickTexture: GPUTexture | null = null
+  pickTexture: RhiTexture | null = null
   /** #1429 INC-2 — the resolved scene colour at SCENE size. Allocated ONLY
    *  while the adaptive ladder holds the scene below native (`sceneScaled`):
    *  the resolve destination when MSAA is on, the direct scene write target
    *  when it is off, and always the upscale seam's sample source. */
-  sceneColorTexture: GPUTexture | null = null
+  sceneColorTexture: RhiTexture | null = null
   /** #1429 INC-2 — the screen-sized MSAA the SEAM + OVERLAY passes draw
    *  into while scaled (labels resolve it to the swapchain, exactly as they
    *  resolved the one MSAA before the split). Allocated only when scaled AND
    *  `sampleCount > 1`. */
-  screenMsaaTexture: GPUTexture | null = null
+  screenMsaaTexture: RhiTexture | null = null
 
   // ── Self-healing texture-view cache ──
-  // A GPUTexture.createView() with no args returns a FRESH view each call; the
-  // passes used to mint one EVERY frame for stencil/pick/oit/msaa/overdraw
-  // (4–8 allocations/frame). The backing textures only change on
-  // resize, so we cache the view keyed on the texture IDENTITY: the getters
-  // below derive-and-cache through `viewOf`, which (re)creates the view IFF the
-  // underlying texture object changed. This makes the cache impossible to
-  // desync — a future texture-recreation site needs no companion "update the
-  // view" bookkeeping, and a stale view can never be handed to a render pass.
-  // The swapchain view stays per-frame (a fresh getCurrentTexture each acquire)
-  // and is never cached here. WeakMap so a retired texture's entry is GC'd with
-  // the texture; no manual eviction on resize.
-  private readonly _viewCache = new WeakMap<GPUTexture, GPUTextureView>()
-  private viewOf(tex: GPUTexture): GPUTextureView {
+  // A createView() returns a FRESH view each call; the passes used to mint
+  // one EVERY frame for stencil/pick/oit/msaa/overdraw (4–8 allocations/
+  // frame). The backing textures only change on resize, so we cache the view
+  // keyed on the texture IDENTITY: the getters below derive-and-cache through
+  // `viewOf`, which (re)creates the view IFF the underlying texture object
+  // changed. This makes the cache impossible to desync — a future
+  // texture-recreation site needs no companion "update the view"
+  // bookkeeping, and a stale view can never be handed to a render pass.
+  // ONE cache for both frame shapes (#1046 F4 Inc-D — the native/RHI twin
+  // caches collapsed with the RhiTexture retype). The swapchain view stays
+  // per-frame (a fresh acquire each frame) and is never cached here. WeakMap
+  // so a retired texture's entry is GC'd with the texture; no manual
+  // eviction on resize.
+  private readonly _viewCache = new WeakMap<RhiTexture, RhiTextureView>()
+  private viewOf(tex: RhiTexture): RhiTextureView {
     let v = this._viewCache.get(tex)
     if (v === undefined) {
-      v = tex.createView()
+      v = this.getCtx().rhi.createView(tex)
       this._viewCache.set(tex, v)
     }
     return v
   }
-  // RHI twin of the cache above, for the F3b chain passes (#1046 Inc-2d):
-  // the SAME cached native view, wrapped ONCE per texture identity, so an
-  // RHI-originated pass descriptor targets these adapter-owned textures
-  // without a per-frame wrap and with no second cache to desync.
-  private readonly _rhiViewCache = new WeakMap<GPUTexture, RhiTextureView>()
-  private rhiViewOf(tex: GPUTexture): RhiTextureView {
-    let v = this._rhiViewCache.get(tex)
-    if (v === undefined) {
-      v = wrapWebGpuTextureView(this.viewOf(tex))
-      this._rhiViewCache.set(tex, v)
-    }
-    return v
-  }
   /** Cached default view of `stencilTexture` (null until `ensure`). */
-  get stencilView(): GPUTextureView | null {
+  get stencilView(): RhiTextureView | null {
     return this.stencilTexture ? this.viewOf(this.stencilTexture) : null
   }
   /** Cached default view of `pickTexture` (null when picking disabled). */
-  get pickView(): GPUTextureView | null {
+  get pickView(): RhiTextureView | null {
     return this.pickTexture ? this.viewOf(this.pickTexture) : null
   }
   /** Cached default view of `msaaTexture` (null when sampleCount === 1). */
-  get msaaView(): GPUTextureView | null {
+  get msaaView(): RhiTextureView | null {
     return this.msaaTexture ? this.viewOf(this.msaaTexture) : null
   }
   /** Cached default view of `overdrawAccumTexture` (null unless `?debug=overdraw`). */
-  get overdrawView(): GPUTextureView | null {
+  get overdrawView(): RhiTextureView | null {
     return this.overdrawAccumTexture ? this.viewOf(this.overdrawAccumTexture) : null
   }
   /** Cached default view of `oitAccumTexture` (null until `ensureOit`). */
-  get oitAccumView(): GPUTextureView | null {
+  get oitAccumView(): RhiTextureView | null {
     return this.oitAccumTexture ? this.viewOf(this.oitAccumTexture) : null
   }
   /** Cached default view of `oitRevealageTexture` (null until `ensureOit`). */
-  get oitRevealageView(): GPUTextureView | null {
+  get oitRevealageView(): RhiTextureView | null {
     return this.oitRevealageTexture ? this.viewOf(this.oitRevealageTexture) : null
   }
-  /** RHI form of `pickView` for the F3b chain descriptors (same cached native
-   *  view underneath — identity-stable per texture). */
-  get pickViewRhi(): RhiTextureView | null {
-    return this.pickTexture ? this.rhiViewOf(this.pickTexture) : null
+  // ── Native residue (P6) ──
+  // The overdraw/OIT COMPOSE draws still build their bind groups on the raw
+  // device (frame-renderer.drawOitCompose / overdraw-compose-pass) — native
+  // pipelines until the compose moves onto a Material. These unwrap the SAME
+  // cached view (identity-stable per texture; the unwrap is a property
+  // read). WebGPU-only consumers; they retire with the P6 compose port.
+  /** Native form of `overdrawView` for the raw compose bind group (P6). */
+  get overdrawViewNative(): GPUTextureView | null {
+    return this.overdrawAccumTexture
+      ? unwrapWebGpuTextureView(this.viewOf(this.overdrawAccumTexture))
+      : null
   }
-  /** RHI form of `oitAccumView` (see pickViewRhi). */
-  get oitAccumViewRhi(): RhiTextureView | null {
-    return this.oitAccumTexture ? this.rhiViewOf(this.oitAccumTexture) : null
+  /** Native form of `oitAccumView` for the raw compose bind group (P6). */
+  get oitAccumViewNative(): GPUTextureView | null {
+    return this.oitAccumTexture ? unwrapWebGpuTextureView(this.viewOf(this.oitAccumTexture)) : null
   }
-  /** RHI form of `oitRevealageView` (see pickViewRhi). */
-  get oitRevealageViewRhi(): RhiTextureView | null {
-    return this.oitRevealageTexture ? this.rhiViewOf(this.oitRevealageTexture) : null
+  /** Native form of `oitRevealageView` for the raw compose bind group (P6). */
+  get oitRevealageViewNative(): GPUTextureView | null {
+    return this.oitRevealageTexture
+      ? unwrapWebGpuTextureView(this.viewOf(this.oitRevealageTexture))
+      : null
   }
   /** Size the SCENE-side textures were last allocated at (recreate gate).
    *  Pre-#1429 this was the one canvas size; it is now the scene size, which
    *  the ladder can move while the canvas is unchanged. */
   msaaWidth = 0
   msaaHeight = 0
+  /** The pick texture's own pixel size, recorded AT MINT — the property read
+   *  the retired native `tex.width` was (#1429 single authority: the pick
+   *  READ derives its coordinate from the texture being read). Deliberately
+   *  NOT the scene recreate tracker: `invalidate()` zeroes that tracker while
+   *  the texture (and the last presented frame it holds) stays live and
+   *  pickable, so these fields live exactly as long as the texture — zeroed
+   *  only where it goes away (mint-with-pick-off / `syncDevice`). Review F1.
+   *  Pick-path frequency (not per-frame), so the result object is minted per
+   *  call. */
+  private pickW = 0
+  private pickH = 0
+  pickSize(): { width: number; height: number } {
+    return { width: this.pickW, height: this.pickH }
+  }
   /** #1429 INC-2 — the scaled pair's own tracker (scene and screen resize
    *  independently — a ladder notch moves the scene while the canvas is
    *  unchanged, a window resize moves both; `0` means "not allocated",
@@ -177,9 +195,9 @@ export class RenderTargets {
   private oitWidth = 0
   private oitHeight = 0
   private oitSampleCount = 0
-  /** The GPUDevice every currently-cached target was allocated on. `null`
+  /** The RhiDevice every currently-cached target was allocated on. `null`
    *  until the first `ensure*`. Drives the device-identity guard below. */
-  private _device: GPUDevice | null = null
+  private _device: RhiDevice | null = null
 
   private readonly getCtx: () => GPUContext
 
@@ -191,9 +209,10 @@ export class RenderTargets {
    *  the first `ensure*`). Every cached texture — including `pickTexture` — is
    *  minted inside `ensure*` on this device and dropped when it changes
    *  (`syncDevice`), so it is authoritative for "which device owns the pick
-   *  texture". The pick path reads this to skip a cross-device readback in the
-   *  window between a `map.run()` re-init and the first post-swap frame (#792). */
-  get device(): GPUDevice | null {
+   *  texture". The pick path compares this against `ctx.rhi` to skip a
+   *  cross-device readback in the window between a `map.run()` re-init and
+   *  the first post-swap frame (#792). */
+  get device(): RhiDevice | null {
     return this._device
   }
 
@@ -206,7 +225,7 @@ export class RenderTargets {
   }
 
   /** Device-identity guard, run at the top of every `ensure*`. Each cached
-   *  render target is bound to the GPUDevice it was allocated on. A
+   *  render target is bound to the RhiDevice it was allocated on. A
    *  `map.run()` re-entry (scene swap) tears down the old device
    *  (`_teardownForReinit` → `device.destroy()`) and acquires a NEW one, but
    *  the canvas size is unchanged — so the size-keyed recreate gates below
@@ -222,9 +241,9 @@ export class RenderTargets {
    *  are nulled (not destroyed) here — the `_viewCache` WeakMap sheds their
    *  entries with them. A no-op on the first call and on every same-device
    *  frame (`===` early-out), so the steady-state path is byte-identical. */
-  private syncDevice(device: GPUDevice): void {
-    if (device === this._device) return
-    this._device = device
+  private syncDevice(rhi: RhiDevice): void {
+    if (rhi === this._device) return
+    this._device = rhi
     this.stencilTexture = null
     this.msaaTexture = null
     this.pickTexture = null
@@ -236,6 +255,8 @@ export class RenderTargets {
     this.screenMsaaTexture = null
     this.msaaWidth = 0
     this.msaaHeight = 0
+    this.pickW = 0
+    this.pickH = 0
     this.screenPairW = 0
     this.screenPairH = 0
     this.scenePairW = 0
@@ -262,52 +283,61 @@ export class RenderTargets {
     sampleCount: number,
     pickEnabled: boolean,
     debugOverdraw: boolean,
-    screenView: GPUTextureView,
+    screenView: RhiTextureView,
   ): EnsureResult {
-    const { device, format } = this.getCtx()
-    this.syncDevice(device)
+    // `ctx.rhi`, NEVER `ctx.device` — the WebGL2 chain frame's GPUContext
+    // carries a fail-loud Proxy at `device`; touching it is a crash on
+    // frame one (flip blocker #1, pinned by the booby-trapped ensure test).
+    const { rhi, format } = this.getCtx()
+    this.syncDevice(rhi)
     const sc = sampleCount
     const useResolve = sc > 1
     const sceneScaled = sceneW !== screenW || sceneH !== screenH
     const w = sceneW
     const h = sceneH
     if (!this.stencilTexture || this.msaaWidth !== w || this.msaaHeight !== h) {
-      this.msaaTexture?.destroy()
-      this.stencilTexture?.destroy()
-      this.pickTexture?.destroy()
-      this.overdrawAccumTexture?.destroy()
+      if (this.msaaTexture) rhi.destroyTexture(this.msaaTexture)
+      if (this.stencilTexture) rhi.destroyTexture(this.stencilTexture)
+      if (this.pickTexture) rhi.destroyTexture(this.pickTexture)
+      if (this.overdrawAccumTexture) rhi.destroyTexture(this.overdrawAccumTexture)
       this.overdrawAccumTexture = null
       // Allocate the MSAA color attachment ONLY when MSAA is on. When
       // sc === 1 we render straight to the target (no resolveTarget)
       // and the MSAA texture would just waste w×h×4 bytes per frame.
       this.msaaTexture = useResolve
-        ? device.createTexture({
-            size: { width: w, height: h },
+        ? rhi.createTexture({
+            width: w,
+            height: h,
             format,
             sampleCount: sc,
-            usage: GPUTextureUsage.RENDER_ATTACHMENT,
+            usage: ['render'],
           })
         : null
-      this.stencilTexture = device.createTexture({
-        size: { width: w, height: h },
+      this.stencilTexture = rhi.createTexture({
+        width: w,
+        height: h,
         format: 'depth24plus-stencil8',
         sampleCount: sc,
-        usage: GPUTextureUsage.RENDER_ATTACHMENT,
+        usage: ['render'],
       })
       // Pick RT: RG32Uint, single-sample. `?picking=1` forces SAMPLE_COUNT
       // to 1 globally (see quality.ts) so sc === 1 here whenever PICK is
       // true — the pick attachment and color attachment share sample count
       // as WebGPU requires. Scene-sized: it is a scene-pass attachment, and
       // the pick READ derives its coordinate from this texture's own size
-      // (single authority), so the two cannot disagree.
+      // (single authority, surfaced as `pickSize()`), so the two cannot
+      // disagree.
       this.pickTexture = pickEnabled
-        ? device.createTexture({
-            size: { width: w, height: h },
+        ? rhi.createTexture({
+            width: w,
+            height: h,
             format: 'rg32uint',
             sampleCount: 1,
-            usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.COPY_SRC,
+            usage: ['render', 'copy-src'],
           })
         : null
+      this.pickW = pickEnabled ? w : 0
+      this.pickH = pickEnabled ? h : 0
       // The OIT + offscreen-extrude targets are NOT allocated here — they
       // move to the lazy `ensureOit()` (gated on scene OIT content), the
       // same way the map-owned heatmap density targets gate on
@@ -317,11 +347,12 @@ export class RenderTargets {
         // r16float lets per-pixel additive accumulation grow well
         // past the [0, 1] swapchain range. MSAA forced to 1× in
         // quality.ts when debug=overdraw, so sampleCount=1 here.
-        this.overdrawAccumTexture = device.createTexture({
-          size: { width: w, height: h },
+        this.overdrawAccumTexture = rhi.createTexture({
+          width: w,
+          height: h,
           format: 'r16float',
           sampleCount: 1,
-          usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING,
+          usage: ['render', 'sample'],
           label: 'overdraw-accum',
         })
       }
@@ -345,21 +376,23 @@ export class RenderTargets {
         this.scenePairH !== h ||
         this.screenPairSc !== sc
       ) {
-        this.sceneColorTexture?.destroy()
-        this.screenMsaaTexture?.destroy()
-        this.sceneColorTexture = device.createTexture({
-          size: { width: w, height: h },
+        if (this.sceneColorTexture) rhi.destroyTexture(this.sceneColorTexture)
+        if (this.screenMsaaTexture) rhi.destroyTexture(this.screenMsaaTexture)
+        this.sceneColorTexture = rhi.createTexture({
+          width: w,
+          height: h,
           format,
           sampleCount: 1,
-          usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING,
+          usage: ['render', 'sample'],
           label: 'scene-color',
         })
         this.screenMsaaTexture = useResolve
-          ? device.createTexture({
-              size: { width: screenW, height: screenH },
+          ? rhi.createTexture({
+              width: screenW,
+              height: screenH,
               format,
               sampleCount: sc,
-              usage: GPUTextureUsage.RENDER_ATTACHMENT,
+              usage: ['render'],
               label: 'screen-msaa',
             })
           : null
@@ -370,8 +403,8 @@ export class RenderTargets {
         this.screenPairSc = sc
       }
     } else if (this.sceneColorTexture || this.screenMsaaTexture) {
-      this.sceneColorTexture?.destroy()
-      this.screenMsaaTexture?.destroy()
+      if (this.sceneColorTexture) rhi.destroyTexture(this.sceneColorTexture)
+      if (this.screenMsaaTexture) rhi.destroyTexture(this.screenMsaaTexture)
       this.sceneColorTexture = null
       this.screenMsaaTexture = null
       this.screenPairW = 0
@@ -427,8 +460,8 @@ export class RenderTargets {
    *  pass so the OIT fill can share the opaque depth attachment. Recreates on
    *  resize or sample-count change via the dedicated tracker. */
   ensureOit(w: number, h: number, sampleCount: number): void {
-    const { device } = this.getCtx()
-    this.syncDevice(device)
+    const { rhi } = this.getCtx()
+    this.syncDevice(rhi)
     if (
       this.oitAccumTexture &&
       this.oitWidth === w &&
@@ -436,34 +469,37 @@ export class RenderTargets {
       this.oitSampleCount === sampleCount
     )
       return
-    this.oitAccumTexture?.destroy()
-    this.oitRevealageTexture?.destroy()
-    this.offscreenExtrudeDepth?.destroy()
+    if (this.oitAccumTexture) rhi.destroyTexture(this.oitAccumTexture)
+    if (this.oitRevealageTexture) rhi.destroyTexture(this.oitRevealageTexture)
+    if (this.offscreenExtrudeDepth) rhi.destroyTexture(this.offscreenExtrudeDepth)
     // OIT render targets — sampleCount matches the opaque pass so both can
     // share the same depth attachment. Without that sharing the OIT pass
     // had no depth → translucent buildings didn't occlude behind opaque
     // foreground walls. Compose pass resolves the MSAA samples in-shader.
-    this.oitAccumTexture = device.createTexture({
-      size: { width: w, height: h },
+    this.oitAccumTexture = rhi.createTexture({
+      width: w,
+      height: h,
       format: OIT_ACCUM_FORMAT,
       sampleCount,
-      usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING,
+      usage: ['render', 'sample'],
       label: 'oit-accum',
     })
-    this.oitRevealageTexture = device.createTexture({
-      size: { width: w, height: h },
+    this.oitRevealageTexture = rhi.createTexture({
+      width: w,
+      height: h,
       format: OIT_REVEALAGE_FORMAT,
       sampleCount,
-      usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING,
+      usage: ['render', 'sample'],
       label: 'oit-revealage',
     })
     // Fresh depth for the two-pass offscreen extrude pass; kept for the
     // future OIT opt-in path (unread today).
-    this.offscreenExtrudeDepth = device.createTexture({
-      size: { width: w, height: h },
+    this.offscreenExtrudeDepth = rhi.createTexture({
+      width: w,
+      height: h,
       format: 'depth24plus-stencil8',
       sampleCount,
-      usage: GPUTextureUsage.RENDER_ATTACHMENT,
+      usage: ['render'],
       label: 'offscreen-extrude-depth',
     })
     this.oitWidth = w

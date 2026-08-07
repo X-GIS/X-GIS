@@ -118,3 +118,32 @@ describe('markRhi — sprinkle-unconditionally safety', () => {
     expect(markSpy.mock.calls[0]![1]).toBe('after_raster')
   })
 })
+
+describe('resolveOnRhi — the timer tail off natives (#1046 F4 Inc-B)', () => {
+  it('no-ops BEFORE unwrapping when the timer is disabled', () => {
+    // Same booby-trap protocol as markRhi above: the foreign encoder throws on
+    // nativeEncoder ACCESS, so a mutant that unwraps before its guards trips.
+    const timer = Object.create(GPUTimer.prototype) as GPUTimer
+    const foreignEnc = {
+      get nativeEncoder(): never {
+        throw new Error('resolveOnRhi unwrapped before its guards ran')
+      },
+    } as unknown as RhiCommandEncoder
+    expect(() => timer.resolveOnRhi(foreignEnc)).not.toThrow()
+  })
+
+  it('delegates to resolveOnEncoder with the UNWRAPPED native encoder when live', () => {
+    const timer = Object.create(GPUTimer.prototype) as GPUTimer
+    Object.assign(timer as unknown as Record<string, unknown>, {
+      enabled: true,
+      querySet: {},
+      resolveBuf: {},
+    })
+    const spy = vi.spyOn(timer, 'resolveOnEncoder').mockImplementation(() => {})
+    const native = { sentinel: 'native-frame-encoder' } as unknown as GPUCommandEncoder
+    const wrapped = { nativeEncoder: native } as unknown as RhiCommandEncoder
+    timer.resolveOnRhi(wrapped)
+    expect(spy).toHaveBeenCalledTimes(1)
+    expect(spy.mock.calls[0]![0]).toBe(native)
+  })
+})

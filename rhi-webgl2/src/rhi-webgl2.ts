@@ -585,13 +585,12 @@ class WebGl2CommandEncoder implements RhiCommandEncoder {
 
 /** The PER-FRAME command encoder (`acquireFrameEncoder`, #1046 F3 / doc §2.4): the seam the
  *  unified chain reaches through `requireRhiFrame(ctx).enc` on WebGL2. Unlike the copy-scoped
- *  encoder above, `beginRenderPass` is LIVE — it dispatches through the device's universal
- *  `beginRenderPass` (the FBO-0 sentinel screen arm + the offscreen/MRT arm), the #1049
- *  descriptor-parity umbrella. `copyBufferToBuffer` supports in-frame arena relocation;
- *  `finish()` is the single per-frame present (gl.flush() + error drain — the endScreenPass
- *  analog). Byte-identical on the DEFAULT WebGL2 boot: the forced-WebGL2 twin early-returns
- *  before the frame shell, so this encoder is never acquired until `?rhichain=1` routes the
- *  chain here (cap-gated since #1046 Inc-4: `caps.chainFrame`, false until #991 P4/P5). */
+ *  encoder above, `beginRenderPass` is LIVE — the device's universal `beginRenderPass` (FBO-0
+ *  sentinel screen arm + offscreen/MRT arm, the #1049 descriptor-parity umbrella).
+ *  `copyBufferToBuffer` supports in-frame arena relocation; `finish()` is the single per-frame
+ *  present (gl.flush() + error drain — the endScreenPass analog). The unified chain acquires
+ *  this every frame on WebGL2 (`caps.chainFrame=true`, Inc-E2; the forced-WebGL2 twin that used
+ *  to bypass it was deleted in #1046 Inc-F3a). */
 class WebGl2FrameEncoder implements RhiCommandEncoder {
   constructor(private readonly device: WebGl2Device) {}
   beginRenderPass(desc: RhiRenderPassDesc): RhiRenderPass {
@@ -648,10 +647,9 @@ export class WebGl2Device implements RhiDevice {
   /** GL errors drained at endScreenPass (the WebGPU `_validationErrors` analog —
    *  WebGL2 has no async validation queue, so we poll `gl.getError()` per frame). */
   private _glErrors: string[] = []
-  /** #1153 P2 R3 — context-loss subscribers + the bound DOM handlers so
-   *  `destroy()` can detach them. The device OWNS the canvas listeners; the boot
-   *  (`initGPUForcedWebGL2`) subscribes via `onContextLost` to drive
-   *  `ctx.deviceLost` + recovery, mirroring the WebGPU `GPUDevice.lost` chain. */
+  /** #1153 P2 R3 — context-loss subscribers + the bound DOM handlers so `destroy()` can
+   *  detach them. The device OWNS the canvas listeners; the boot (`initGPUForcedWebGL2`)
+   *  subscribes via `onContextLost` — the WebGPU `GPUDevice.lost` chain's mirror. */
   private readonly _contextLostCbs: Array<() => void> = []
   private readonly _contextRestoredCbs: Array<() => void> = []
   private _onGlContextLost?: (e: Event) => void
@@ -692,15 +690,17 @@ export class WebGl2Device implements RhiDevice {
       // This backend requires the split GLSL sources and never reads `code` —
       // createPipeline fail-louds on a WGSL-only desc (dual-source guard, #783).
       shaderLanguage: 'glsl-es300',
-      chainFrame: false, // #1046 Inc-4 — true at #991 P4/P5 (see the RhiCaps doc)
+      // #1046 F4 Inc-E2 — the loop tail landed on the RHI (Inc-A..D + E1), so
+      // this device hosts the unified chain's whole frame. The forced-WebGL2
+      // twin this flag used to hold the door open for was deleted in Inc-F3a.
+      chainFrame: true,
     } as const)
 
-    // #1153 P2 R3 — own the canvas context-loss listeners. GUARDED: the fake
-    // gls in rhi-device-destroy.test.ts / forcegl2-context.test.ts carry no
-    // canvas (and node has no DOM), so attach only when the canvas exposes
-    // addEventListener. The lost handler MUST call preventDefault() — without it
-    // the browser never fires 'webglcontextrestored', so the sticky-lost context
-    // can never be reused (the boot's ensure-restored preamble depends on it).
+    // #1153 P2 R3 — own the canvas context-loss listeners. GUARDED: the fake gls in
+    // rhi-device-destroy.test.ts / forcegl2-context.test.ts carry no canvas (and node has no
+    // DOM), so attach only when the canvas exposes addEventListener. The lost handler MUST
+    // preventDefault() — without it the browser never fires 'webglcontextrestored', so the
+    // sticky-lost context can never be reused (the boot's ensure-restored preamble needs it).
     const canvas = gl.canvas as HTMLCanvasElement | undefined
     if (canvas?.addEventListener) {
       this._onGlContextLost = (e: Event) => {
@@ -715,8 +715,8 @@ export class WebGl2Device implements RhiDevice {
     }
   }
 
-  /** #1153 P2 R3 — subscribe to WebGL2 'webglcontextlost'. `preventDefault()` is
-   *  already applied by the device's own handler before `cb` runs. */
+  /** #1153 P2 R3 — subscribe to 'webglcontextlost' (`preventDefault()` already
+   *  applied by the device's own handler before `cb` runs). */
   onContextLost(cb: () => void): void {
     this._contextLostCbs.push(cb)
   }
@@ -725,12 +725,9 @@ export class WebGl2Device implements RhiDevice {
     this._contextRestoredCbs.push(cb)
   }
 
-  // Frame shell (required by RhiDevice, #1046 F2/F3) — the twin still early-returns
-  // before the frame shell on the DEFAULT WebGL2 boot, so these stay uninvoked (byte-
-  // identical) until `?rhichain=1` routes the unified chain here. `acquireScreenView`
-  // hands out the FBO-0 sentinel `beginRenderPass` binds; `acquireFrameEncoder` hands
-  // out the frame encoder whose `beginRenderPass` is LIVE (below) — the chain's
-  // `ctx.encoder.beginRenderPass` seam.
+  // Frame shell (required by RhiDevice, #1046 F2/F3) — invoked every frame by the unified
+  // chain. `acquireScreenView` hands out the FBO-0 sentinel; `acquireFrameEncoder` the
+  // LIVE-`beginRenderPass` frame encoder (below).
   acquireScreenView(): RhiTextureView {
     return SCREEN_VIEW_SENTINEL
   }
@@ -738,28 +735,30 @@ export class WebGl2Device implements RhiDevice {
     return new WebGl2FrameEncoder(this)
   }
 
+  // #1046 F4 — immediate-mode GL has no deferred scopes; finish() drains errors.
+  pushValidationScope(): void {}
+  popValidationScope(): Promise<string | null> {
+    return Promise.resolve(null)
+  }
+
   /** Universal render-pass origination (#1046 F3, doc §2.4 / §3-F3) — the ONE entry the
-   *  unified chain reaches through `ctx.encoder.beginRenderPass` on WebGL2, and the
-   *  #1049 descriptor-parity umbrella (every pass-emitted descriptor shape binds here or
-   *  fails loud). Dispatches by TARGET: a colour attachment that is the FBO-0 screen
-   *  sentinel (`acquireScreenView`) → the default-framebuffer screen arm; otherwise the
-   *  offscreen/MRT arm (the proven `beginOffscreenPass`, reused unchanged). Reached only
+   *  unified chain reaches on WebGL2, and the #1049 descriptor-parity umbrella (every
+   *  pass-emitted descriptor shape binds here or fails loud). Dispatches by TARGET: a colour
+   *  attachment that is the FBO-0 screen sentinel (`acquireScreenView`) → the screen arm;
+   *  otherwise the offscreen/MRT arm (`beginOffscreenPass`, reused unchanged). Reached only
    *  via the frame encoder — never a raw device call. */
   beginRenderPass(desc: RhiRenderPassDesc): RhiRenderPass {
     const hasSentinel = desc.colorAttachments.some((a) => a.view === SCREEN_VIEW_SENTINEL)
     return hasSentinel ? this.beginScreenRenderPass(desc) : this.beginOffscreenPass(desc)
   }
 
-  /** FBO-0 screen arm of `beginRenderPass`: the presented default framebuffer the canvas
-   *  shows. It cannot MRT (`caps.presentablePassMrt=false`) and has no MSAA resolve
-   *  (`caps.maxSampleCount=1`), so a sentinel descriptor carrying a second colour
-   *  attachment or a resolveTarget is a caps-gating error → FAIL LOUD (no silent
-   *  fallback, #1049). The clears mirror `beginScreenPass` byte-for-byte — the
-   *  colorMask/stencilMask/depthMask unmasks are the #1043/#746/#780 flicker fixes
-   *  (glClear honours the write masks; a prior pipeline's dark mask would no-op the
-   *  clear). Load semantics (loadOp `'load'`) skip the buffer's clear, same as the
-   *  offscreen arm. GL default clearDepth is 1.0 (what `beginScreenPass` relies on) — a
-   *  depthClearValue of 1 stays GL-call-identical; only a non-default value overrides. */
+  /** FBO-0 screen arm of `beginRenderPass`: the presented default framebuffer. It cannot
+   *  MRT (`caps.presentablePassMrt=false`) and has no MSAA resolve (`maxSampleCount=1`),
+   *  so a sentinel descriptor carrying either is a caps-gating error → FAIL LOUD (#1049).
+   *  The clears mirror `beginScreenPass` byte-for-byte — the colorMask/stencilMask/
+   *  depthMask unmasks are the #1043/#746/#780 flicker fixes (glClear honours the write
+   *  masks). loadOp `'load'` skips the clear, same as offscreen. GL default clearDepth
+   *  is 1.0 — a depthClearValue of 1 stays GL-call-identical; non-default overrides. */
   private beginScreenRenderPass(desc: RhiRenderPassDesc): RhiRenderPass {
     const gl = this.gl
     if (desc.colorAttachments.length !== 1)
@@ -1083,6 +1082,9 @@ export class WebGl2Device implements RhiDevice {
     else this.gl.deleteBuffer(b.buf)
   }
 
+  // CONTRACT (#1049, Inc-E1): `desc.sampleCount` is IGNORED — a GL texture is
+  // single-sample. Documented clamp, not fail-loud: callers clamp to
+  // `caps.maxSampleCount` (=1) at the frame's seed (wireFrameColour).
   createTexture(desc: RhiTextureDesc): RhiTexture {
     this._life.assertLive('createTexture')
     const gl = this.gl
@@ -1093,22 +1095,19 @@ export class WebGl2Device implements RhiDevice {
     const levels = desc.mipLevelCount ?? 1
     gl.texImage2D(gl.TEXTURE_2D, 0, internal, desc.width, desc.height, 0, format, type, null)
     // #1436 — allocate the rest of the chain so `generateMipmap` has levels to fill and the
-    // texture is mip-COMPLETE. Declared per level rather than via texStorage2D because this
-    // texture stays mutable: writeTexture re-uploads the base in place, which immutable storage
-    // permits but several existing paths express as texImage2D.
+    // texture is mip-COMPLETE. Per-level (not texStorage2D) because the texture stays
+    // mutable: several existing paths re-upload the base as texImage2D.
     for (let level = 1; level < levels; level++) {
       const w = Math.max(1, desc.width >> level)
       const h = Math.max(1, desc.height >> level)
       gl.texImage2D(gl.TEXTURE_2D, level, internal, w, h, 0, format, type, null)
     }
     // ALWAYS, including levels === 1 (#1436). GL's default TEXTURE_MAX_LEVEL is 1000, so a
-    // single-level texture sampled by a MIPMAP min-filter is mip-INCOMPLETE — and an incomplete
-    // texture samples as opaque black, not as its base level. That is not hypothetical: the
-    // raster checker is a single-level texture sharing `linearSampler` with the chained tiles,
-    // and making that sampler trilinear turned the whole ocean black (_fills-gl2-gate: 2409 of
-    // 619200 checker pixels survived). Pinning MAX_LEVEL to the last level that actually exists
-    // makes every texture complete for any filter, which is what lets a sampler be shared
-    // between chained and un-chained textures at all.
+    // single-level texture under a MIPMAP min-filter is mip-INCOMPLETE and samples opaque
+    // BLACK, not its base level — the raster checker shared `linearSampler` with chained
+    // tiles and going trilinear turned the whole ocean black (_fills-gl2-gate: 2409 of
+    // 619200 checker pixels survived). Pinning MAX_LEVEL to the last real level makes every
+    // texture complete for any filter — what lets one sampler serve chained and un-chained.
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAX_LEVEL, levels - 1)
     // default sampling: nearest + clamp (a bound RhiSampler overrides via a sampler object).
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST)

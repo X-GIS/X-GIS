@@ -57,9 +57,9 @@ function harness(opts: { pick?: boolean; resolveOwner?: string; groups?: number 
     rhiColorViewScreen: colorView,
     passScope: (_label: string, fn: () => void) => fn(),
     useResolve: opts.resolveOwner !== undefined,
-    // pick rides RT-side RHI accessors (adapter-owned textures), not a
-    // FrameContext bridge — the bridges stay the per-frame MSAA trio.
-    rt: { pickTexture: opts.pick ? {} : undefined, pickViewRhi: pickView },
+    // pick rides RT-side accessors (adapter-owned textures; RHI-native since
+    // Inc-D), not a FrameContext bridge — the bridges stay the per-frame trio.
+    rt: { pickTexture: opts.pick ? {} : undefined, pickView },
     projection: makeProjectionToken(0, 0, 0),
     camera: { __camera: true },
     scene: { w: 800, h: 600, dpr: 1 },
@@ -83,13 +83,16 @@ function harness(opts: { pick?: boolean; resolveOwner?: string; groups?: number 
       setOpacity: () => undefined,
       setColorAdjust: () => undefined,
       setResampling: () => undefined,
+      // The raster draw is now the `hasSource()` arm of a two-arm choice, the
+      // other being the analytic checker the twin used to own (#1046 Inc-F2d).
+      // True here so this file keeps pinning the raster draw it was written for.
+      hasSource: () => true,
       render: (pass: unknown) => order.push(`raster:${pass === captured[0] ? 'rhi0' : '?'}`),
     },
     underOccluder: undefined,
     coverageRenderer: { hasCoverage: () => false, render: () => order.push('coverage') },
     flowRenderer: null,
     renderer: {
-      uniformBuffer: {},
       renderToPass: () => order.push('legacy'),
       renderGraticuleOverlay: () => order.push('graticule'),
     },
@@ -155,7 +158,7 @@ describe('opaque pass — RHI seam wiring (#1046 F3b Inc-2d)', () => {
     expect(resolves[2]).toBe(h.sceneResolveView)
   })
 
-  it('pick armed ⇒ the second colour attachment is rt.pickViewRhi (clear then load)', () => {
+  it('pick armed ⇒ the second colour attachment is rt.pickView (clear then load)', () => {
     const h = harness({ groups: 2, pick: true })
     const origPicking = QUALITY.picking
     QUALITY.picking = true

@@ -1,12 +1,12 @@
 // ═══ Heatmap pass → RHI seam wiring (#1046 F3b Inc-2c) ═══
 //
 // The heatmap pass's whole per-layer accum → blur → compose loop lives behind
-// HeatmapRenderer.renderChainRhi (shared drapers with the twin's renderRhi,
-// #1060). This gate pins the SEAM: execute() must hand renderChainRhi exactly
-// the frame's RHI handles (reference identity — a re-wrap or a re-derive is the
-// double-wrap class 34d4695 killed), the SCENE geometry (it rasterises the
-// world; target-role-partition polices the source, this pins the values), and
-// must fail loud on twin-frame null bridges instead of encoding a wrong frame.
+// HeatmapRenderer.renderChainRhi (#1060). This gate pins the SEAM: execute()
+// must hand renderChainRhi exactly the frame's RHI handles (reference identity
+// — a re-wrap or a re-derive is the double-wrap class 34d4695 killed), the
+// SCENE geometry (it rasterises the world; target-role-partition polices the
+// source, this pins the values), and must fail loud on null bridges (a
+// never-wired FrameContext) instead of encoding a wrong frame.
 //
 // GPU-free: stub FrameContext + host, no device. Fail-before: on the native
 // heatmap-pass body (pre-Inc-2c) case 1 is RED — renderChainRhi is never
@@ -26,6 +26,13 @@ function harness() {
   const camera = { __camera: true }
   const targets = { __heatmapTargets: true }
   const ctx = {
+    // The density accumulation blends into a float target, so the pass reads
+    // `ctx.rhi.caps` (#1046 Inc-F2c). `rhi` is a REQUIRED FrameContext field
+    // that this stub simply did not model — the `as unknown as FrameContext`
+    // cast is what let it compile without one — so omitting it does not
+    // fail-close here, it throws `Cannot read properties of undefined
+    // (reading 'caps')` and masks the error this file actually asserts on.
+    rhi: { caps: { floatBlendTargets: true } },
     rhiEncoder: enc,
     rhiScreenView: screenView,
     rhiColorView: { __rhiColorView: true },

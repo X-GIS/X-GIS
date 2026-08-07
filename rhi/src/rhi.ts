@@ -423,8 +423,11 @@ export interface RhiCaps {
   /** A render pass presenting to the screen can carry additional MRT colour
    *  attachments (the live rg32uint pick target). WebGPU: true (the swapchain
    *  is an ordinary texture). WebGL2: false (default framebuffer cannot MRT).
-   *  Consumer: opaque-pass pick-attachment build; false selects the on-demand
-   *  offscreen pick strategy. */
+   *  Consumer: `wireFrameColour` — it clamps the host's pick-target request, so
+   *  false means no continuous pick attachment is allocated OR attached, and the
+   *  pick strategy is the on-demand offscreen pass (`pickReadback: 'sync'`, whose
+   *  consumer is the interaction controller). The two caps are one decision seen
+   *  from the two ends; a device answering false MUST answer 'sync'. */
   readonly presentablePassMrt: boolean
   /** How a pick texel comes back: 'async' = copy-to-buffer + map (pool);
    *  'sync' = immediate readPixels. Consumer: interaction-controller readback
@@ -444,9 +447,12 @@ export interface RhiCaps {
    *  (replaces GPUContext.timestampQuerySupported plumbed per-backend). */
   readonly timestampQuery: boolean
   /** Command execution semantics: 'deferred' (work runs at submit) or
-   *  'immediate' (draws execute at record time). CONFINED consumer: engine
+   *  'immediate' (draws execute at record time). CONFINED consumers: engine
    *  upload/draw primitives (UniformRing / staging flush policy inside
-   *  executeItems) — never passes, never renderers (§5.3 confinement gate). */
+   *  executeItems) — never passes, never renderers (§5.3) — plus, INTERIM
+   *  (#1046 Inc-E2, dies at P6 with the native-bodied terminals): the map's
+   *  three terminal forks (VTR.render, renderToPass, the graticule overlay),
+   *  allowlisted per-site by map/src/render/execution-model-confinement.test.ts. */
   readonly executionModel: 'deferred' | 'immediate'
   /** Which shader source this device consumes: 'wgsl' reads `RhiPipelineDesc.code`
    *  and ignores the GLSL halves; 'glsl-es300' reads `vsCode`/`fsCode` and never
@@ -462,12 +468,13 @@ export interface RhiCaps {
   readonly shaderLanguage: 'wgsl' | 'glsl-es300'
   /** This device can host the UNIFIED pass chain's whole frame (#1046 Inc-4):
    *  the frame encoder, the multi-pass origination surface AND the loop tail
-   *  the chain body still runs natively (render-target allocation, error
-   *  scopes, compute dispatch, timer resolve). WebGPU: true. WebGL2: false
-   *  until #991 P4/P5 lands that tail on the RHI — the pass SURFACE is
-   *  already chain-capable (WebGl2FrameEncoder dispatches the universal
-   *  beginRenderPass), so flipping this is P4/P5's one-line act, not a
-   *  rewrite. Consumer: RenderLoop's chain-vs-twin routing ONLY. */
+   *  (render-target allocation, validation scopes, compute dispatch, timer
+   *  resolve, the GL-error drain). TRUE on BOTH backends since the Inc-E2
+   *  flip — the tail landed on the RHI (Inc-A..D + E1), and the flip was the
+   *  designed one-line cap edit. A DEVICE truth only: content code that
+   *  bypasses the RHI (the native-bodied VT terminals, counted by the
+   *  raw-webgpu ratchet) is a consumer-side debt this cap does not encode.
+   *  Consumer: RenderLoop's chain-vs-twin routing ONLY. */
   readonly chainFrame: boolean
 }
 
@@ -583,6 +590,16 @@ export interface RhiDevice {
    *  frame's reused wrapper. WebGL2 is inert here — the forced-WebGL2 twin renders
    *  through the screen-pass lifecycle, not this encoder. */
   acquireFrameEncoder(): RhiCommandEncoder
+  /** Open a GPU validation scope (#1046 F4 — the chain's loop tail off natives).
+   *  WebGPU: `device.pushErrorScope('validation')`. WebGL2: no-op — an
+   *  immediate-mode context surfaces errors through the frame encoder's
+   *  `finish()` drain instead, so there is no deferred scope to open. */
+  pushValidationScope(): void
+  /** Close the innermost validation scope. Resolves the captured error MESSAGE
+   *  (null = clean); REJECTS when the pop itself fails (scope-stack mismatch /
+   *  device lost) — callers must report BOTH arms (the Audit-⑧-B2 rejected-pop
+   *  lesson lives in `reportErrorScope`). WebGL2: resolves null. */
+  popValidationScope(): Promise<string | null>
 
   // ── Screen-pass lifecycle (additive, OPTIONAL) ───────────────────────────────
   // The render loop does device-creation / swapchain-acquire / begin-pass / submit

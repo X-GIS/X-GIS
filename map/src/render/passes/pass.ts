@@ -79,11 +79,11 @@ export interface RenderPass {
 }
 
 /** F3b bridge for the chain pass bodies: the frame's RHI encoder + view
- *  handles, non-null-asserted in one place. The bridges are null ONLY on the
- *  forced-WebGL2 twin frame (which holds its one live `rhiPass` instead) — a
- *  chain pass reaching this with null bridges is a mis-routed frame, and the
- *  loud throw here is what keeps that a crash with a name instead of a wrong
- *  render. Dies with the twin (#991 P4/P5). */
+ *  handles, non-null-asserted in one place. The bridges were null ONLY on the
+ *  now-deleted forced-WebGL2 twin frame (#1046 Inc-F3a), which held its one
+ *  live pass separately — a chain pass reaching this with null bridges today
+ *  means a FrameContext was never wired (e.g. a stub in a test), and the loud
+ *  throw here keeps that a crash with a name instead of a wrong render. */
 export function requireRhiFrame(
   ctx: FrameContext,
   label: string,

@@ -15,15 +15,18 @@
 // `resolveTarget` nor participates in the colour-clear ownership contract that
 // `passes/AGENTS.md` assigns to bucket 0.
 //
-// GATED on `scene.hasFlow`, which is false for every scalar coverage (S-102 bathymetry) and for
-// a map with no coverage at all — so those allocate nothing and render byte-identically. NOT
-// gated on the flat/globe arm the coverage draw carries: the consumer that will need that arm
-// is the drape (design §6), and the gate belongs with it rather than guessed at here.
+// The "no flow here" case (every scalar coverage — S-102 bathymetry — and every map with no
+// coverage at all) is answered INSIDE execute, not by `shouldRun`: those frames still allocate
+// nothing and render byte-identically, but they also DECLARE the empty field, which the frame
+// that evicts the last region depends on (see setArrowFields below). NOT gated on the
+// flat/globe arm the coverage draw carries either: the consumer that will need that arm is the
+// drape (design §6), and the gate belongs with it rather than guessed at here.
 //
 // The GPU work lives in FlowRenderer (targets + pipeline + the backend fork), exactly as the
 // coverage draw lives in CoverageRenderer: this file is the SCHEDULING decision and nothing
 // else, so where the step runs stays reviewable on its own.
 
+import { NO_FLOW_FIELDS } from '../coverage-renderer'
 import type { FrameContext } from '../frame-context'
 import type { SceneView } from '../scene-view'
 import type { RenderPass, FlowPassHost } from './pass'
@@ -31,8 +34,15 @@ import type { RenderPass, FlowPassHost } from './pass'
 class FlowPass implements RenderPass {
   readonly label = 'flow'
 
-  shouldRun(scene: SceneView): boolean {
-    return scene.hasFlow
+  /** ALWAYS — the declaration below has to happen on the frame the last region
+   *  evicts, and that is exactly the frame a `scene.hasFlow` gate would turn
+   *  false (hasFlow IS `hasFlowField()`). Gating here swallowed the
+   *  before-the-early-return placement the execute body requires, so the arrow
+   *  draw kept the evicted region's destroyed textures bound (#1419, found by
+   *  #1046 Inc-F2c). The no-allocation property the gate was for is unchanged:
+   *  execute returns below without touching a target when there is no field. */
+  shouldRun(): boolean {
+    return true
   }
 
   execute(ctx: FrameContext, _scene: SceneView, host: FlowPassHost): void {
@@ -46,7 +56,7 @@ class FlowPass implements RenderPass {
     // EVERY region's field, not `activeFlowField`'s first one: the arrows are per region and
     // read the current they stand in (#1458). The TRAIL below still takes the single field —
     // it is one recursive filter over one grid, which is a real limitation and not this bug.
-    flow.setArrowFields(host.coverageRenderer?.flowFields() ?? new Map())
+    flow.setArrowFields(host.coverageRenderer?.flowFields() ?? NO_FLOW_FIELDS)
     if (!field) return
     ctx.passScope('flow', () => {
       const frame = { elapsedMs: ctx.elapsedMs, encoder: ctx.rhiEncoder }

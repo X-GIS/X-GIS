@@ -1,14 +1,13 @@
-// ═══ Pass-order authority — ONE frozen sequence, consumed by both orchestrations ═══
+// ═══ Pass-order authority — ONE frozen sequence, one orchestration ═══
 //
-// The full-frame pass sequence is executed by TWO paths (#1004): the native
-// pass-chain (pass-chain.ts buildRenderNodes — the WebGPU authority) and the
-// forced-WebGL2 linear twin (render-loop.ts renderFrameViaRhi). Before this
-// module each hand-maintained its own copy of the order, and the comments in
-// render-loop.ts enumerate the real divergence bugs that caused (vanishing
-// point labels, missing strokes, double-paint). This constant is the single
-// authority: pass-chain BUILDS from it (constructive — it cannot diverge), and
-// pass-order-parity.test.ts pins the twin's source order against it plus the
-// documented not-yet-ported set below.
+// The full-frame pass sequence used to be executed by TWO paths (#1004): the
+// native pass-chain (pass-chain.ts buildRenderNodes — the WebGPU authority) and
+// a forced-WebGL2 linear twin (render-loop.ts renderFrameViaRhi), which each
+// hand-maintained its own copy of the order — the real cause of divergence bugs
+// this constant exists to prevent (vanishing point labels, missing strokes,
+// double-paint). The twin was deleted in #1046 Inc-F3a/F3b; this constant is
+// still the single authority pass-chain BUILDS from (constructive — it cannot
+// diverge), and pass-order-parity.test.ts still pins that construction.
 //
 // Entries are the passes' real `label` strings ('labels', not 'label' — the
 // singleton's label, label-pass.ts). Pure data, zero imports — safe for both
@@ -71,22 +70,3 @@ export const SEAM_PASSES: readonly PassLabel[] = ['scene-upscale']
 export const SCENE_PASSES: readonly PassLabel[] = PASS_CHAIN_ORDER.filter(
   (label) => !OVERLAY_PASSES.includes(label) && !SEAM_PASSES.includes(label),
 )
-
-/** Passes the renderFrameViaRhi twin does NOT yet port (#1004 shrink-only
- *  baseline): porting one to the twin must REMOVE it here in the same commit
- *  (pass-order-parity.test.ts fails otherwise — locks the win). oit is dead in
- *  both paths but stays listed for order fidelity. Close-out = [] when the
- *  #991 P4/P5 unification runs the RenderNode chain over RHI passes. */
-export const RHI_TWIN_MISSING: readonly PassLabel[] = [
-  'oit',
-  // hillshade IS ported to the twin (render-loop.ts renderFrameViaRhi) so the
-  // relief renders under ?forcegl2=1 for the _hillshade-gl2-gate (#777 Phase II).
-  // 'points' ported in #1057 (direct-layer + the VT tile-points inline path);
-  // 'heatmap' ported in #1060 (renderFrameViaRhi -> heatmapRenderer.renderRhi).
-  'overdraw-compose',
-  // #1429 INC-2 — genuinely twin-missing BY DESIGN, not backlog: the twin draws
-  // one screen pass on FBO 0 with no offscreen scene, so it keeps applying the
-  // ladder's scale to its CANVAS (each backend internally consistent; design
-  // §7). Porting it is a follow-up that IMPROVES WebGL2, not a regression fix.
-  'scene-upscale',
-]

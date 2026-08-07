@@ -158,13 +158,28 @@ const CEILINGS: Record<string, number> = {
   // #1479: −5. The `getDrawStats` forwarder restated its return type by hand — a second
   // authority for one shape. Deriving it (`ReturnType<FrameDrawStats['getDrawStats']>`)
   // paid for the `drawnByZoom` field and left the file smaller than before.
-  'map/src/render/vector-tile-renderer.ts': 4813,
+  // 4813→4823 (#1583, main merge): the fill-null bail in renderFillsRhi now also calls
+  // reportRhiFillGap(show, this.rhi.backend) for its warning side effect, while still
+  // returning `missing` (#1046 Inc-F2b's tile-acquisition count, which this bail must
+  // not silently drop) — a #1594 merge, not new #1594 work: main's fix returned a bare
+  // 0 here; this branch's renderFillsRhi had already moved past that shape.
+  // 4823→4828 (#1581, main merge): leg B's static-camera tile-point pack-key auto-
+  // merged in cleanly (buildTilePointPackKey/hashStableKeys + the canSkipTilePointRepack
+  // fast path in emitTilePointsRhi) — a real new feature, not slack. The doc comment
+  // above emitTilePointsRhi was the only textual conflict (both sides reworded the same
+  // twin-era prose); kept this branch's wording, which is longer because it names the
+  // twin's actual #1046 Track A1 replacement (the WebGL2 immediate arm) instead of
+  // main's still-twin-shaped phrasing.
+  'map/src/render/vector-tile-renderer.ts': 4828,
   // Baselined 801: #1602 (the drape's overlap winner is relevance, not re-arm recency)
   // brought the file to exactly NEW_FILE_CAP (800), and the independent #1603 material-
   // release fix landed on main one line above it in the same file, pushing it to 801 on
   // merge. Genuine collision between two unrelated PRs sharing a file, not scope creep —
   // nothing here is extract-worthy.
-  'map/src/render/coverage-renderer.ts': 801,
+  // 801→812 (#1544, main merge): the forced-WebGL2-twin-frame deletion reworked this
+  // renderer's frame entry points, landing 11 net lines in the same file this branch
+  // already baselined — another unrelated-PR collision, not new #1602 scope.
+  'map/src/render/coverage-renderer.ts': 812,
   // 4232→4237 (#1000 heatmap relocate): the heatmap density-target OWNERSHIP
   // extracted to render/heatmap-targets.ts; map keeps only the irreducible
   // composition-root wiring — the `heatmapTargets` field + its import (mirrors
@@ -530,13 +545,20 @@ const CEILINGS: Record<string, number> = {
   // past it is a guaranteed 404, not a slow tile — terrarium stops at z15 while
   // rasterCoverZoom adds +1 on a 256-px source, so every visible tile failed from about
   // camera z14.5 (verified: terrarium/16/13651/25075 404, its z15 parent 200). +5: the arm call plus its two-line reason and prettier's wrap.
-  // 5427→5412 (#1577): the style-import resolver (SSRF guard + body cap + the
-  // log-every-failure contract) moved whole to style-import-resolver.ts, and the
-  // absolute-base-URL helper joined map-teardown.ts — headroom for the orphaned-boot
+  // 5427→5426 (#1046 F3b): doc-only — the `_missedTiles` comment named BOTH render
+  // paths writing it; only the render-loop path exists post-deletion.
+  // 5427→5412 (#1577, parallel on main): the style-import resolver (SSRF guard + body
+  // cap + the log-every-failure contract) moved whole to style-import-resolver.ts, and
+  // the absolute-base-URL helper joined map-teardown.ts — headroom for the orphaned-boot
   // guard, paid for rather than borrowed.
-  // 5412→5411 (#1576): the visible-resume branch lost its duplicated latch commentary —
-  // the latch's own declaration already carries it — paying for the recovery settler.
-  'map/src/map.ts': 5411,
+  // 5412→5411 (#1576, parallel on main): the visible-resume branch lost its duplicated
+  // latch commentary — the latch's own declaration already carries it.
+  // Merge union (#1046 F3b <- main): both sides shrank independently — measured post-hook.
+  // 5409→5410 (merge union, #1046 F3b <- main #1605): stacked non-overlapping edits SUM —
+  // this branch's twin-deletion shrink and main's stage-block-drop warning (+1 net, which
+  // fit under main's own looser 5411) land in different regions of the same file, so the
+  // ceiling is the MERGED file's measured size, never either side's number.
+  'map/src/map.ts': 5410,
   // Baselined at #1255 (measured 830): the DOM-inspired layer API crossed
   // NEW_FILE_CAP with the paint-transition style-setter integration — the
   // StyleHost.transitions context, the shared applyNumber/applyColor
@@ -756,17 +778,28 @@ const CEILINGS: Record<string, number> = {
   // #777 IV3: −8. The point-label dispatch loop moved to dispatch-point-labels.ts,
   // which is also where the ground-basis producer lives — the extraction paid for
   // the wiring rather than the file growing to hold it.
-  'map/src/render/passes/label-pass.ts': 2005,
+  // 2005→1996 (#1046 F3b): the `ctx.rhiPass` twin arm (draw directly on the forced-
+  // WebGL2 frame's live screen pass) deleted; the `else` branch (originate through
+  // the RHI frame encoder) unconditional now that it is the only frame shape.
+  'map/src/render/passes/label-pass.ts': 1996,
   // #1081 — per-anchor perspective distance attenuation (MapLibre parity). New
   // baseline: the wCenter + perspScale scratch-out-value lives INLINE in the two
   // existing projector closures (it rides the cw already computed per anchor —
   // not extract-worthy, §2), plus the perspectiveScale() getter, the 3-slot
   // projectLonLatCopies tuple, and the 6-member return objects prettier now wraps
   // multi-line — together nudging this helper just over NEW_FILE_CAP (773→818).
-  // 818→817 (#1575): the end-of-frame keep-warm gate moved to render-loop-keep-warm.ts,
-  // where it is unit-testable — previously it was reachable only through a full GPU
-  // frame, which is why the disjunct MISSING from it could not be gated at all.
-  'map/src/render-loop-helpers.ts': 817,
+  // 818→817 (#1575, main only): the end-of-frame keep-warm gate moved to
+  // render-loop-keep-warm.ts, where it is unit-testable — previously it was reachable
+  // only through a full GPU frame, which is why the disjunct MISSING from it could not
+  // be gated at all.
+  // 817 stayed 818 on this branch (#1046 F3b merge): #1575's extraction landed on main
+  // before this branch's merge-base and never touched render-loop-helpers.ts itself here
+  // (the file's own content is untouched by #1575 on this line range) — the 817 above is
+  // main's number for a file this branch independently grew by +1 earlier in the PR,
+  // unrelated to #1575. Auto-merge silently took main's ceiling edit without the paired
+  // file edit that justified it on main's side; restored to the branch's own measured
+  // reality.
+  'map/src/render-loop-helpers.ts': 818,
   // 1458→1505 (#1155 F4 mount-hang): the per-variant WGSL emit is deduped —
   // buildShader now memoizes emitPolygonWgsl by (variant.key, pickEnabled), and
   // the already-emitted wgsl is plumbed through create{Variant}Pipelines[Async]
@@ -853,7 +886,9 @@ const CEILINGS: Record<string, number> = {
   // accessor has nowhere cohesive to go, and the twelve lines are the reason it must not drain
   // (a predicate that consumed its own evidence would swallow the swap it schedules) plus the
   // measurement that found the bug — the part a future reader needs most. Measured post-hook.
-  'data/src/tile-catalog.ts': 1384,
+  // 1384→1383 (merge union <- main): a one-line shrink banked honestly rather than left
+  // as silent headroom — the ratchet passes on shrinkage, so this would never have failed.
+  'data/src/tile-catalog.ts': 1383,
   // 1173→1180 (#1046 F1): thread the required `rhi: RhiDevice` onto the FrameContext at
   // both build sites — the main-chain init literal and the twin label stage — so a seam
   // can reach `ctx.rhi.caps.*` (doc §3-F1). +7 = two assignments + their rationale comments;
@@ -976,8 +1011,30 @@ const CEILINGS: Record<string, number> = {
   // 1435→1425 (#1046 Inc-3b): the field collapse deleted the native trio's
   // population + the rawFrameShell escape arms — the loop SHRANK through a
   // feature increment, which is the ratchet working as designed.
-  // 1425→1405 (#1575): ditto — the disjunction itself left this file with the helper.
-  'map/src/render-loop.ts': 1400,
+  // 1425→1392 (#1046 F4 Inc-D): the native→RHI view memo (_rhiViewMemo/
+  // _rhiViewFor/_rhiViewForBound) + the screen-view unwrap retired with the
+  // RenderTargets RhiTexture retype.
+  // 1392→957 (#1046 Inc-F3a): the forced-WebGL2 twin frame (renderFrameViaRhi,
+  // its dispatch fork, and the DPR fork) deleted outright.
+  // 957→958 (#1046 F3b, doc sweep): two comments still described the deleted
+  // forced-WebGL2 twin in the present tense (a review-round finding); one
+  // reword net +1 line, the other net 0.
+  // 1425→1405 (#1575, parallel on main): the keepLoopWarm extraction — the
+  // disjunction itself left this file with the helper.
+  // Merge union (#1046 F3b <- main): the twin deletion and the keepLoopWarm
+  // extraction touch disjoint regions of the SAME pre-merge file; the ceiling
+  // is the MEASURED post-merge size, not either side's number (this file's
+  // own precedent, see the F3b/#1419 merge note above).
+  // 943→945 (#1594): `isOverdrawActive(this.host.ctx.rhi.caps)` in place of the
+  // bare `DEBUG_OVERDRAW` read pushed the ternary past printWidth 100 (measured
+  // 112 chars pre-wrap); prettier wraps it onto 3 lines, +2.
+  // Merge union (#1046 F3b <- main #1587): main's row reads 1400 because main still
+  // carries the twin this branch deleted; the prefetch fix's own -/+ lands inside that
+  // body here and dies with it, leaving only the chain-side pumpFramePrefetch call.
+  // Ceiling re-measured on the MERGED file below: 945→937, a real shrink — the four
+  // twin-only imports went with the body, and #1587's pumpFramePrefetch extraction
+  // took the inline prefetch block out of the chain path too.
+  'map/src/render-loop.ts': 937,
   // Baselined at 806 (hillshade tile fade-in): HillshadeRenderer crossed
   // NEW_FILE_CAP restoring the three tile-streaming fixes raster-renderer had
   // landed since hillshade was copied from it — the per-tile fade ramp + its
@@ -1022,7 +1079,11 @@ const CEILINGS: Record<string, number> = {
   // copies across the repo and only the vector one was bounded.
   'map/src/render/hillshade-renderer.ts': 846,
   // Merge union (#1060 <- main): stacked growth — measured 1174.
-  'map/src/render/point-renderer.ts': 1174,
+  // 1174→1167 (#1581, main merge): leg B extracted the tile-point pack-key/uniform-
+  // refresh/draw tail into tile-point-pack-key.ts + tile-point-draw.ts (this file keeps
+  // only canSkipTilePointRepack + the two callers) — a genuine shrink, not this branch's
+  // doing (its own delta on this file was a same-length comment reword, 0 net lines).
+  'map/src/render/point-renderer.ts': 1167,
   // 1106→1120 (#1043 state-hygiene): three unmask-before-clear / state-reset fixes for the
   // WebGL2 flicker class — beginScreenPass colorMask unmask (the colour sibling of #746/#780),
   // dispatchComputeToR32UI viewport snapshot+restore, and the setPipeline no-depth arm's
@@ -1075,7 +1136,15 @@ const CEILINGS: Record<string, number> = {
   // +12 (#1046 F3b Inc-2d): renderToPass/renderGraticuleOverlay narrowed to
   // RhiRenderPass with a one-line native unwrap each (legacy plumbing), plus
   // the drawOitCompose forwarder. Retires with the legacy-layer cluster.
-  'map/src/render/renderer.ts': 998,
+  // 998→999 (#1046 F3b): doc-only — the 3 comments referencing the twin/`renderFrameViaRhi`
+  // as present-tense reasoning are now false (the twin is deleted); reworded to describe
+  // the surviving RHI-native arm directly. One comment gained a line in the rewording.
+  // 999→1003 (#1539, parallel on main, merge union): the `input` runtime's
+  // MapRendererContent integration — an `inputs: InputStore | null` field + its doc
+  // comment, and `...inputPoolValues(this.inputs)` spread into the polygon uniform
+  // write — auto-merged cleanly (disjoint from this branch's F3b edits); two adjacent
+  // comments' prettier-reflow saved a couple lines back. Measured post-hook.
+  'map/src/render/renderer.ts': 1003,
   // Merge union (#1060 <- main): stacked growth — measured 1397.
   // 1397→1404 (#1196, merge union): destroy() stashes the pre-loss
   // WEBGL_lose_context handle on the canvas (stashGl2RestoreToken) —
@@ -1109,7 +1178,12 @@ const CEILINGS: Record<string, number> = {
   // 1520→1523 (RhiCaps.shaderLanguage): +3 — the new cap value plus the two-line note
   // that it is the advertised form of this file's own dual-source throw (createPipeline
   // requires vsCode/fsCode and never reads `code`). Pure declaration; no logic added.
-  'rhi-webgl2/src/rhi-webgl2.ts': 1523,
+  // 1523→1497 (#1046 F3b, measured post-hook): already 25 lines stale going in — the
+  // ceiling was never lowered for shrinkage this file banked earlier. This session's
+  // own doc-only edits (twin references retired to past tense, `?rhichain=1`/Inc-F4
+  // present-tense framing corrected now the flip is done and the twin is deleted)
+  // account for the rest.
+  'rhi-webgl2/src/rhi-webgl2.ts': 1497,
   // 941→975 (#1371 atomic re-seed): `releaseSupersededTile` + `dropTile`, and the split of
   // `_releaseTileSlots` into a resource-release body the two share with eviction. Arena/pool
   // ownership is this class's whole reason to exist.
@@ -1214,7 +1288,16 @@ const CEILINGS: Record<string, number> = {
   // two are disjoint — #1476 bounds a storm the selector could not avoid, this stops the
   // selector creating one — so the ceilings SUM. Measured post-hook at 1032 rather than the
   // 992+20+19=1031 the arithmetic predicts; the ceiling is the MEASURED count, never the sum.
-  'map/src/render/raster-renderer.ts': 1032,
+  // 1032→1031 (#1595/#1578, parallel on main, picked up while re-measuring for the #1046
+  // F3b merge): tile-retry's scattered `tileRequestable`/`noteFailure` functions collapsed
+  // into a `FailedTileLedger` class, and `rebuildForQuality` now destroys the draper instead
+  // of dropping the reference — a clean net shrink this branch didn't cause but is
+  // measuring honestly rather than leaving 1 line of stale headroom.
+  // 1031→1029 (#1579, parallel on main, picked up in the #1594 merge): the WebGPU-only
+  // `loadImageTexture` raw-device fork removed — both backends now load through the RHI
+  // (`rhi.createTexture`/`copyExternalImage`/`generateMipmaps`), which also deletes the
+  // `device: GPUDevice` field the fork was the only reader of.
+  'map/src/render/raster-renderer.ts': 1029,
   // 889→906 (#1155 F3): cold-start burst enqueue cap — the `_coldStartBurst`
   // field + `setColdStartBurst` + the burst-selected 8/4 cap in enqueue().
   // 906→910 (#1155 F3 adjudication): the burst 8/4 pair now comes from the

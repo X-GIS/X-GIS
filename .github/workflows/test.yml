@@ -762,7 +762,7 @@ jobs:
         # cannot fake. Its catalogue is NOAA's own 19 MB exchange XML translated by the
         # proxy, so the first run also exercises that path. Same egress caveat, ~40 s warm.
         # ═══ #1046 Inc-4b — the CHAIN pixel gates (default backend, SwiftShader-WebGPU).
-        # The WebGPU raster gates above drive the chain's opaque/coverage passes; these six
+        # The WebGPU raster gates above drive the chain's opaque/coverage passes; these seven
         # close the verticals the twin-side *-gl2-gates cover but the chain did not. All
         # zero-egress (local fixtures / vendored NE GeoJSON / host-pushed data).
         # _translucent-chain-gate: Inc-2d review F1's NAMED fence — a translucent stroke
@@ -782,6 +782,24 @@ jobs:
         # 0 at scale 1 — the constructive no-op), content paints THROUGH the upscale,
         # pickAt parity vs scale 1, and glyph cores stay native-crisp (111 px — the
         # overlay-native property, ADR-0004's CI-drivable half). ~40 s.
+        # _pick-gl2-chain-gate: pickAt on WebGL2 — a 5×5 grid, asserting a hit FLOOR and that
+        # the frame reports the shape the loop actually ran (`__xgisFrameArm === 'chain'`), so
+        # a routing fallback cannot green it. The pick path was the one thing the deleted
+        # forced-WebGL2 twin owned outright (its frame snapshot + the on-demand offscreen
+        # MRT), and its failure mode is a SILENT null, invisible to every pixel gate. Used to
+        # be a two-arm parity check against the twin (#1046 Inc-F); that comparison retired
+        # with it (Inc-F3b) and this is what remains. ~1 min.
+        # _webgl2-live-render-gate: US-003/US-004 — the analytic ?debug=checker tile renders
+        # through the engine's normal opaque pass on WebGl2Device with zero validation/gl
+        # errors. The only CI coverage for the sourceless-raster path since the checker moved
+        # off the deleted twin onto opaque-pass.ts (#1046 Inc-F2d). ~10 s.
+        # _scene-scale-webgl2-chain-gate: the adaptive-DPR ladder on a WebGL2 frame — a path
+        # that had NEVER RUN before the twin's deletion made it the default (the twin scaled
+        # its canvas instead; #1046 Inc-F3a). Pins the single number that distinguishes the
+        # two shapes (canvas stays native, the SCENE target shrinks), the upscale seam
+        # actually drawing and increasing across frames, and zero gl/validation errors on the
+        # untested offscreen-vs-sentinel dispatch. Carries its own scenescale=1 control arm.
+        # ~15 s.
         # SPLIT INTO TWO INVOCATIONS (#1433). Everything below measures a COMPILE, a
         # PARITY or a PIXEL. Two specs measure WALL-CLOCK behaviour instead:
         # `_adaptive-quality-ladder-gate` needs the host to be genuinely too slow to keep up,
@@ -800,5 +818,5 @@ jobs:
           # wall-clock pair must not abort the compile/parity/pixel gates before they
           # have reported. Quiet-machine ordering is unaffected — each invocation is its
           # own process either way.
-          ./node_modules/.bin/playwright test _shader-math-parity.spec.ts _wgsl-compile-gate.spec.ts _vs-clip-parity.spec.ts _dequant-parity.spec.ts _polygon-fill-flat-parity.spec.ts _polygon-fill-flat-pixel-gate.spec.ts _optimizer-gpu-parity.spec.ts _glsl-compile-gate.spec.ts _polygon-glsl-compile-gate.spec.ts _line-glsl-compile-gate.spec.ts _shader-dsl-mrt-render.spec.ts _emit-obfuscate-gate.spec.ts _graphics-retained-gl2-gate.spec.ts _graphics-retained-arrow-gl2-gate.spec.ts _graphics-retained-arrow-orientation-gate.spec.ts _graphics-compiled-arrow-parity.spec.ts _graphics-retained-drawcall-gl2-gate.spec.ts _compute-gen-compile-gate.spec.ts _fills-gl2-gate.spec.ts _fill-data-driven-gl2-gate.spec.ts _stage-block-parity.spec.ts _prefetch-effect-gl2-probe.spec.ts _globe-hash-camera-gate.spec.ts _hillshade-gl2-gate.spec.ts _1221-seam-control-matrix.spec.ts _hillshade-methods-gl2-gate.spec.ts _reseed-data-push-gate.spec.ts _s111-multiregion-gate.spec.ts _s111-overlap-ownership-gate.spec.ts _s111-currents-render.spec.ts _s111-deferred-coverage-gate.spec.ts _s111-advected-arrows-gate.spec.ts _s111-mosaic-arrow-field-gate.spec.ts _s111-arrow-density-gate.spec.ts _s111-dead-boundary-halo-gate.spec.ts _s111-catalogue-declarative-gate.spec.ts _s102-catalogue-gate.spec.ts _coverage-render.spec.ts _demotiles-labels-gl2-gate.spec.ts _label-pitch-alignment-gate.spec.ts _translucent-chain-gate.spec.ts _heatmap-chain-gate.spec.ts _labels-chain-gate.spec.ts _hillshade-chain-gate.spec.ts _graphics-chain-gate.spec.ts _scene-scale-seam-gate.spec.ts
+          ./node_modules/.bin/playwright test _shader-math-parity.spec.ts _wgsl-compile-gate.spec.ts _vs-clip-parity.spec.ts _dequant-parity.spec.ts _polygon-fill-flat-parity.spec.ts _polygon-fill-flat-pixel-gate.spec.ts _optimizer-gpu-parity.spec.ts _glsl-compile-gate.spec.ts _polygon-glsl-compile-gate.spec.ts _line-glsl-compile-gate.spec.ts _shader-dsl-mrt-render.spec.ts _emit-obfuscate-gate.spec.ts _graphics-retained-gl2-gate.spec.ts _graphics-retained-arrow-gl2-gate.spec.ts _graphics-retained-arrow-orientation-gate.spec.ts _graphics-compiled-arrow-parity.spec.ts _graphics-retained-drawcall-gl2-gate.spec.ts _compute-gen-compile-gate.spec.ts _fills-gl2-gate.spec.ts _fill-data-driven-gl2-gate.spec.ts _stage-block-parity.spec.ts _prefetch-effect-gl2-probe.spec.ts _globe-hash-camera-gate.spec.ts _hillshade-gl2-gate.spec.ts _1221-seam-control-matrix.spec.ts _hillshade-methods-gl2-gate.spec.ts _reseed-data-push-gate.spec.ts _s111-multiregion-gate.spec.ts _s111-overlap-ownership-gate.spec.ts _s111-currents-render.spec.ts _s111-deferred-coverage-gate.spec.ts _s111-advected-arrows-gate.spec.ts _s111-mosaic-arrow-field-gate.spec.ts _s111-arrow-density-gate.spec.ts _s111-dead-boundary-halo-gate.spec.ts _s111-catalogue-declarative-gate.spec.ts _s102-catalogue-gate.spec.ts _coverage-render.spec.ts _demotiles-labels-gl2-gate.spec.ts _label-pitch-alignment-gate.spec.ts _translucent-chain-gate.spec.ts _heatmap-chain-gate.spec.ts _labels-chain-gate.spec.ts _hillshade-chain-gate.spec.ts _graphics-chain-gate.spec.ts _scene-scale-seam-gate.spec.ts _pick-gl2-chain-gate.spec.ts _webgl2-live-render-gate.spec.ts _scene-scale-webgl2-chain-gate.spec.ts
           ./node_modules/.bin/playwright test --workers=1 _adaptive-quality-ladder-gate.spec.ts _shader-dsl-mouse-interaction.spec.ts

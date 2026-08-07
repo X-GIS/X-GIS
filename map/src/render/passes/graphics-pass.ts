@@ -16,7 +16,6 @@
 // batch, so it is O(COPIES) in cost, independent of icon count (the #797 P1
 // N-independence gate).
 
-import { DEBUG_OVERDRAW } from '../../debug-flags'
 import type { FrameContext } from '../frame-context'
 import { unwrapProjection } from '../projection-token'
 import type { SceneView } from '../scene-view'
@@ -26,7 +25,7 @@ class GraphicsPass implements RenderPass {
   readonly label = 'graphics'
 
   shouldRun(scene: SceneView): boolean {
-    return scene.hasGraphics && !DEBUG_OVERDRAW
+    return scene.hasGraphics && !scene.overdraw
   }
 
   execute(ctx: FrameContext, _scene: SceneView, host: GraphicsPassHost): void {

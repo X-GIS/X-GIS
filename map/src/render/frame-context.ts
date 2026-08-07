@@ -16,8 +16,8 @@ import type { Camera } from '../camera'
 import type { RhiDevice } from '@xgis/rhi'
 import type { RenderTargets } from '@xgis/rhi-webgpu'
 import type { ProjectionToken } from './projection-token'
-import { getSampleCount, isPickEnabled } from '@xgis/engine'
-import { DEBUG_OVERDRAW } from '../debug-flags'
+import { getSampleCount, pickTargetsEnabled } from '@xgis/engine'
+import { isOverdrawActive } from '../debug-flags'
 
 /** One render target's pixel geometry.
  *
@@ -65,12 +65,6 @@ export function setFrameTargets(
  *  fields are (re)populated at the start of each `render()` at the same
  *  points the equivalent locals were computed before this struct existed. */
 export interface FrameContext {
-  /** Set ONLY by the forced-WebGL2 frame (#834 M5 slice 3): the live RHI
-   *  screen pass. The label pass branches on it and draws INTO it instead of
-   *  originating a sub-pass — on that frame the RHI bridges are null (the
-   *  twin holds its one pass open), so requireRhiFrame must never run on the
-   *  rhiPass arm. Dies with the twin (#991 P4/P5). */
-  rhiPass?: import('@xgis/rhi').RhiRenderPass
   /** The backend RHI device for this frame (`host.ctx.rhi` — the single injected
    *  instance, WebGpuDevice or WebGl2Device). Threaded onto the frame so a pass or
    *  seam can ask the device a capability (`ctx.rhi.caps.*`) instead of branching on
@@ -80,15 +74,18 @@ export interface FrameContext {
   /** The frame's ONE command encoder, RHI-typed (`rhi.acquireFrameEncoder()`,
    *  #1046 F2/F3b — the native trio and the `__xgisRawFrameShell` escape
    *  retired with the Inc-3 field collapse; a native handle exists only as a
-   *  loop-local unwrap for the compute/timer tail). Null ONLY on the
-   *  forced-WebGL2 twin frame, which holds its one live pass (`rhiPass`)
-   *  instead of an encoder — dies with the twin (#991 P4/P5). */
+   *  loop-local unwrap for the compute/timer tail). Nullable for the same
+   *  reason every RHI bridge on this type is: a stub FrameContext (tests) or a
+   *  never-wired frame. The forced-WebGL2 twin, which used to leave this null
+   *  on every frame, was deleted in #1046 Inc-F3a. */
   rhiEncoder: import('@xgis/rhi').RhiCommandEncoder | null
   /** F3b view bridges for the chain passes — the swapchain view, the SCENE
    *  colour attachment (scene-sized MSAA under `useResolve`, the overdraw
    *  accumulator in `?debug=overdraw`, the scene colour while the ladder
-   *  scales, else the swapchain view) and the depth-stencil, RHI-wrapped once
-   *  per frame (WeakMap-memoized — steady-state frames allocate nothing).
+   *  scales, else the swapchain view) and the depth-stencil. RHI handles
+   *  straight from RenderTargets.ensure (#1046 F4 Inc-D — the loop-side
+   *  memo-wrap retired with the RhiTexture retype; steady-state frames
+   *  allocate nothing because the RT view cache is texture-keyed).
    *  Null ONLY on the twin frame, like `rhiEncoder`. */
   rhiScreenView: import('@xgis/rhi').RhiTextureView | null
   rhiColorView: import('@xgis/rhi').RhiTextureView | null
@@ -132,6 +129,23 @@ export interface FrameContext {
   sampleCount: number
   /** `sampleCount > 1` — whether passes resolve MSAA to the swapchain. */
   useResolve: boolean
+  /** Whether `?debug=overdraw` is ACTIVE for this frame — the single authority,
+   *  and the only thing any pass or renderer may consult about the mode (every
+   *  consumer, pass layer AND draw layer, calls `isOverdrawActive(caps)` —
+   *  debug-flags.ts — #1594).
+   *
+   *  The raw URL flag is page-load truth; this is a FRAME truth, and the
+   *  two differ on an immediate device, where the mode cannot run at all: its
+   *  compose is raw WebGPU (P6) and every scene pass would otherwise render into
+   *  an r16float accumulator that nothing could then resolve to the swapchain.
+   *
+   *  The render-graph doc states the invariant this exists to keep: overdraw is a
+   *  WHOLE-FRAME mode and its gates are cross-cutting, NOT independent per-pass
+   *  booleans. Reading the module const in one place and this in another is what
+   *  produced a half-gated frame — targets routed as if the mode were off while
+   *  passes still skipped themselves as if it were on, silently dropping content
+   *  a correctly-gated frame would have drawn (#1046 Inc-F2d review F1/F2). */
+  overdraw: boolean
   /** Per-pass validation-scope + perf-marks helper. Re-bound each frame
    *  because it closes over this frame's `device`. */
   passScope: (label: string, fn: () => void) => void
@@ -179,31 +193,59 @@ export function makeFrameContext(a: {
     frameCount: a.frameCount,
     sampleCount: 1, // set by wireFrameColour
     useResolve: false, // set by wireFrameColour
+    overdraw: false, // set by wireFrameColour (device-aware; see the field doc)
     passScope: a.passScope,
     rt: a.rt,
   }
 }
 
-/** The native swapchain view's type, spelled without a raw-WebGPU token — the
- *  loop holds the native view as a LOCAL (the collapse removed it from the
- *  FrameContext surface) and threads it here for `ensure` + identity checks. */
-type NativeView = Parameters<RenderTargets['ensure']>[7]
-
 /** Per-frame colour-target wiring: RenderTargets.ensure + the F3b / #1429
- *  bridge population. When colorView IS the swapchain view (sampleCount 1:
- *  mobile / ?safe / ?msaa=1), the device's rebind-per-frame screen wrapper is
- *  reused instead of memo-wrapping a view minted fresh every frame; every
- *  #1429 bridge reduces to an existing wrapper by IDENTITY when the scene is
- *  not scaled (the scale-1 gate pins this). The native views live and die as
- *  loop locals — no pass can reach them (Inc-3 field collapse). */
+ *  bridge population. `ensure` speaks RHI end-to-end (#1046 F4 Inc-D), so the
+ *  bridges are its return values BY IDENTITY — when colorView IS the swapchain
+ *  view (sampleCount 1: mobile / ?safe / ?msaa=1) `ensure` returns the very
+ *  `screenView` wrapper the loop acquired, and every #1429 field reduces to an
+ *  existing handle the same way when the scene is not scaled (the scale-1 gate
+ *  pins this). No native view exists anywhere on this path. */
 export function wireFrameColour(
   ctx: FrameContext,
-  screenView: NativeView,
-  rhiViewFor: (v: NativeView) => NonNullable<FrameContext['rhiScreenView']>,
+  screenView: NonNullable<FrameContext['rhiScreenView']>,
 ): void {
-  const { rhiScreenView } = ctx
-  const sc = getSampleCount()
+  // Host policy clamped to the DEVICE cap (Inc-E1, the raster-renderer
+  // precedent): WebGl2Device caps at 1 — unclamped, a flipped chain frame
+  // would attach a resolveTarget its screen pass fail-closes on. Identity on
+  // WebGPU (cap 4 ≥ every QUALITY.msaa value).
+  const sc = Math.min(getSampleCount(), ctx.rhi.caps.maxSampleCount)
   ctx.sampleCount = sc
+  // Same shape for the in-frame PICK target (#1046 Inc-F): host policy, clamped by
+  // the device. A device whose presentable pass cannot carry MRT picks ON DEMAND
+  // instead (RenderLoop.pickViaRhi renders its own offscreen MRT pass), so it needs
+  // no continuous pick attachment at all — asking for one made the WebGL2 chain's
+  // opaque pass fail-loud every frame ("got 2 colour attachments") AND allocated a
+  // scene-sized rg32uint nothing on that backend ever reads.
+  const pick = pickTargetsEnabled(ctx.rhi.caps)
+  // ?debug=overdraw routes EVERY scene pass's colour target to the r16float
+  // accumulator (render-targets.ts), and only the trailing compose writes the
+  // swapchain — but that compose is still raw WebGPU (P6): it unwraps a native
+  // pass encoder and calls `ctx.device`. On an immediate device it therefore
+  // throws every frame until map.ts halts the loop, and merely declining IN the
+  // compose is not the fix — it leaves the accumulator routing in place, so
+  // nothing writes the swapchain at all and the frame goes BLANK.
+  //
+  // The gate belongs here, at the authority that routes the target: with
+  // overdraw off for the frame, no accumulator is allocated, the colour target
+  // resolves normally, the scene passes draw straight to the swapchain, and the
+  // compose declines through its own `!overdrawAccumTexture` guard with no
+  // capability check of its own.
+  //
+  // `isOverdrawActive` (debug-flags.ts) is the single authority — every draw-layer
+  // site that used to read the raw URL flag const directly (line-renderer
+  // strokes, VTR pipeline selection + fill patterns, bucket-scheduler's baked
+  // debug pipelines, the graticule, raster, pipeline-factory's variant build)
+  // calls the same function this line does, so an immediate device renders the
+  // ORDINARY map here, not the partial frame a lower-layer-only gate used to
+  // produce (#1594; #1046 Inc-F2d landed the pass layer first).
+  const overdraw = isOverdrawActive(ctx.rhi.caps)
+  ctx.overdraw = overdraw
   const { useResolve, colorView, sceneResolveView, colorViewScreen, sceneColorSampleView } =
     ctx.rt.ensure(
       ctx.scene.w,
@@ -211,21 +253,14 @@ export function wireFrameColour(
       ctx.screen.w,
       ctx.screen.h,
       sc,
-      isPickEnabled(),
-      DEBUG_OVERDRAW,
+      pick,
+      overdraw,
       screenView,
     )
   ctx.useResolve = useResolve
-  ctx.rhiColorView = colorView === screenView ? rhiScreenView : rhiViewFor(colorView)
-  ctx.rhiStencilView = rhiViewFor(ctx.rt.stencilView!)
-  ctx.rhiSceneResolveView =
-    sceneResolveView === screenView ? rhiScreenView : rhiViewFor(sceneResolveView)
-  ctx.rhiColorViewScreen =
-    colorViewScreen === colorView
-      ? ctx.rhiColorView
-      : colorViewScreen === screenView
-        ? rhiScreenView
-        : rhiViewFor(colorViewScreen)
-  ctx.rhiSceneColorSampleView =
-    sceneColorSampleView === null ? null : rhiViewFor(sceneColorSampleView)
+  ctx.rhiColorView = colorView
+  ctx.rhiStencilView = ctx.rt.stencilView
+  ctx.rhiSceneResolveView = sceneResolveView
+  ctx.rhiColorViewScreen = colorViewScreen
+  ctx.rhiSceneColorSampleView = sceneColorSampleView
 }

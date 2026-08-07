@@ -12,6 +12,12 @@ import {
 } from '@xgis/compiler'
 import type { ShaderVariant, ComputePlanEntry } from '@xgis/compiler'
 import { varRefVec4 } from '@xgis/compiler'
+import type { RhiCommandEncoder } from '@xgis/engine'
+
+// #1046 F4 Inc-C harness shim: the dispatch thread is RHI-typed now; the fake
+// native encoder rides behind the one unwrap surface the adapter reads.
+const asRhiEnc = (e: GPUCommandEncoder): RhiCommandEncoder =>
+  ({ nativeEncoder: e }) as unknown as RhiCommandEncoder
 
 beforeAll(() => {
   if (typeof globalThis.GPUBufferUsage === 'undefined') {
@@ -183,7 +189,7 @@ describe('ComputeLayerHandle — uploadFromProps + dispatch', () => {
     const variant = mergedVariantFor([entry])
     const handle = new ComputeLayerHandle(dispatcher, variant, [entry], 0)
     handle.uploadFromProps((_fid) => ({ class: 'a' }), 100)
-    handle.dispatch(encoder)
+    handle.dispatch(asRhiEnc(encoder))
     expect(dispatches).toHaveLength(1)
     expect(dispatches[0]!.entryPoint).toBe('eval_match')
     // ceil(100/64) = 2 workgroups
@@ -194,7 +200,7 @@ describe('ComputeLayerHandle — uploadFromProps + dispatch', () => {
     const { dispatcher, encoder, dispatches } = makeFakeContext()
     const entry = makeMatchEntry('class', 0)
     const handle = new ComputeLayerHandle(dispatcher, mergedVariantFor([entry]), [entry], 0)
-    handle.dispatch(encoder)
+    handle.dispatch(asRhiEnc(encoder))
     expect(dispatches).toHaveLength(0)
   })
 
@@ -207,7 +213,7 @@ describe('ComputeLayerHandle — uploadFromProps + dispatch', () => {
     // Internal: same featureCount → no reallocation; verifying through
     // the public API (the dispatch still fires correctly).
     const { encoder } = makeFakeContext()
-    handle.dispatch(encoder)
+    handle.dispatch(asRhiEnc(encoder))
   })
 })
 

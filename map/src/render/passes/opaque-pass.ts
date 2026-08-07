@@ -14,7 +14,7 @@
 // descriptor-equivalent to the retired native block. All loop-local state
 // stays inside execute().
 
-import { DEBUG_OVERDRAW } from '../../debug-flags'
+import { DEBUG_RHI_CHECKER } from '../../debug-flags'
 import { isPickEnabled } from '@xgis/engine'
 import { isGlobeProj } from '@xgis/geo'
 import { resolveNumberShape } from '../paint-shape-resolve'
@@ -73,7 +73,7 @@ class OpaquePass implements RenderPass {
         // sub-pass clears the pick texture to (0, 0) = "no feature";
         // subsequent sub-passes load so earlier-group IDs persist
         // where later groups didn't draw. The pick view rides the
-        // RT-side RHI accessor (adapter-owned texture, rt.pickViewRhi).
+        // RT-side accessor (RHI-native since the Inc-D retype, rt.pickView).
         const colorAttachments: Parameters<
           typeof enc.beginRenderPass
         >[0]['colorAttachments'][number][] = [
@@ -95,7 +95,7 @@ class OpaquePass implements RenderPass {
         ]
         if (isPickEnabled() && ctx.rt.pickTexture) {
           colorAttachments.push({
-            view: ctx.rt.pickViewRhi!,
+            view: ctx.rt.pickView!,
             clearValue: isFirst ? [0, 0, 0, 0] : undefined,
             loadOp: isFirst ? 'clear' : 'load',
             storeOp: 'store',
@@ -167,16 +167,52 @@ class OpaquePass implements RenderPass {
             host.rasterRenderer.setColorAdjust(0, 0, 1, 0, 0)
             host.rasterRenderer.setResampling(false)
           }
-          host.rasterRenderer.render(
-            subPass,
-            host.camera,
-            projType,
-            centerLon,
-            centerLat,
-            ctx.scene.w,
-            ctx.scene.h,
-            ctx.scene.dpr,
-          )
+          if (host.rasterRenderer.hasSource()) {
+            host.rasterRenderer.render(
+              subPass,
+              host.camera,
+              projType,
+              centerLon,
+              centerLat,
+              ctx.scene.w,
+              ctx.scene.h,
+              ctx.scene.dpr,
+            )
+          } else if (DEBUG_RHI_CHECKER) {
+            // US-003/US-004's analytic z0 world tile — a real raster draw through
+            // the SAME RasterDraper, with no network. Ported from the twin, which
+            // was its ONLY caller (#1046 Inc-F2d): without it a deleted twin
+            // leaves `?debug=checker` painting nothing and takes the live-render
+            // gate red with it. Kept rather than retired precisely BECAUSE it
+            // needs no network — the gates that fetch real tiles already fail on
+            // runners without egress, so re-fixturing onto one would trade a
+            // deterministic gate for a flaky one.
+            //
+            // NO device fork here, deliberately. The first attempt gated this on
+            // the execution-model capability because `renderRhiChecker` baked
+            // `RasterDraper(rhi, 'rgba8unorm', 1)` — a pipeline shaped for the
+            // twin's single-sample screen pass, which would be a validation
+            // error on a bgra8unorm/MSAA-4 WebGPU pass. That fork guarded a
+            // defect instead of fixing it, and the capability does not even
+            // answer the question it was asked ("is the target rgba8unorm and
+            // single-sample"): rhi.ts states WebGL2's maxSampleCount is 1
+            // *today* and a future value change is expected, at which point the
+            // fork would protect the wrong backend. The draper now derives
+            // format + sample count from the target (raster-renderer.ts), so
+            // this call is correct on both backends by construction and needs no
+            // gate (#1046 Inc-F2d review F3).
+            host.rasterRenderer.renderRhiChecker(
+              ctx.rhi,
+              subPass,
+              host.camera,
+              projType,
+              centerLon,
+              centerLat,
+              ctx.scene.w,
+              ctx.scene.h,
+              ctx.scene.dpr,
+            )
+          }
           host.gpuTimer?.markRhi(subPass, 'after_raster')
           host.renderer.renderToPass(
             subPass,
@@ -243,19 +279,11 @@ class OpaquePass implements RenderPass {
           // pipelines (incl. the ?debug=overdraw substitution that
           // formerly lived here) are private to the closure. We hand it
           // only engine-side per-draw context: this sub-pass encoder, the
-          // FrameContext, the uniform ring, the point renderer (gated off
-          // in overdraw mode), the layer's fillPhase, and `false` for the
-          // translucent-bucket flag (the opaque pass has a depth
-          // attachment).
+          // FrameContext, the point renderer (gated off in overdraw mode),
+          // the layer's fillPhase, and `false` for the translucent-bucket
+          // flag (the opaque pass has a depth attachment).
           const drawShow = (cs: (typeof group.shows)[number]) => {
-            cs.draw(
-              subPass,
-              ctx,
-              host.renderer.uniformBuffer,
-              DEBUG_OVERDRAW ? null : host.pointRenderer,
-              cs.fillPhase,
-              false,
-            )
+            cs.draw(subPass, ctx, ctx.overdraw ? null : host.pointRenderer, cs.fillPhase, false)
           }
           for (let si = 0; si < group.shows.length; si++) {
             if (!isExtruded(group.shows[si])) drawShow(group.shows[si])

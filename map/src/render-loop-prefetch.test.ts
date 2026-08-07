@@ -24,12 +24,14 @@ const SOURCE = readFileSync(join(dirname(fileURLToPath(import.meta.url)), 'rende
 
 /** The WebGPU frame's pass-chain loop — what populates every source's frame tile selection. */
 const NODE_LOOP = 'for (const node of this._nodes) {'
-/** The WebGPU frame's pump call. */
+/** The frame's pump call. */
 const WGPU_PUMP = 'pumpFramePrefetch(this.host, projType, ctx.scene)'
-/** The WebGL2 twin's screen pass ending — after every renderFillsRhi / renderLinesRhi. */
-const GL2_PASS_END = 'rhi.endScreenPass(pass)'
-/** The WebGL2 twin's pump call. */
-const GL2_PUMP = 'pumpFramePrefetch(this.host, projType, { w, h, dpr })'
+
+// #1046 Inc-F3a deleted the forced-WebGL2 twin (`renderFrameViaRhi`), so this file's
+// twin-arm anchors (`rhi.endScreenPass(pass)`, the twin's own pump call) no longer
+// resolve and its twin-ordering case has no subject. The ordering property itself did
+// not weaken — it STRENGTHENED: both backends now run this one chain frame, so the
+// single pump asserted below is the whole product, not one of two arms.
 
 describe('prefetch ordering in the frame body (#1587)', () => {
   it('every anchor still resolves — a renamed anchor must fail loudly, not vacuously', () => {
@@ -37,9 +39,7 @@ describe('prefetch ordering in the frame body (#1587)', () => {
     // position assertions below would silently compare -1 to -1 and pass over a moved pump.
     for (const [name, anchor] of [
       ['node loop', NODE_LOOP],
-      ['WebGPU pump', WGPU_PUMP],
-      ['GL2 screen-pass end', GL2_PASS_END],
-      ['GL2 pump', GL2_PUMP],
+      ['frame pump', WGPU_PUMP],
     ] as const) {
       expect(
         SOURCE.indexOf(anchor),
@@ -59,24 +59,18 @@ describe('prefetch ordering in the frame body (#1587)', () => {
     ).toBeGreaterThan(SOURCE.indexOf(NODE_LOOP))
   })
 
-  it('the WebGL2 twin pumps AFTER its screen pass', () => {
-    expect(
-      SOURCE.indexOf(GL2_PUMP),
-      'the twin must pump after endScreenPass — its selection is populated by the ' +
-        'renderFillsRhi / renderLinesRhi calls inside that pass',
-    ).toBeGreaterThan(SOURCE.indexOf(GL2_PASS_END))
-  })
-
-  it('exactly TWO arms pump — the pick pass must not', () => {
+  it('exactly ONE arm pumps — the pick pass must not', () => {
     // `pickViaRhi` renders an offscreen hit-test at whatever cadence the host asks questions. It
     // is not a display frame, so pumping there would sample the pan velocity over a dt unrelated
     // to on-screen motion, and would double-pump any frame that also serviced a pick.
+    // Was 2 while the forced-WebGL2 twin existed; #1046 Inc-F3a deleted it, so the single
+    // chain frame is now the only display path on BOTH backends.
     const calls = SOURCE.split('pumpFramePrefetch(').length - 1
     expect(
       calls,
-      'expected exactly 2 pump call sites (WebGPU frame + WebGL2 twin); a third is probably the ' +
-        'pick pass, which must stay out — see skipPrefetchForPickPass',
-    ).toBe(2)
+      'expected exactly 1 pump call site (the frame body); a second is probably the pick pass, ' +
+        'which must stay out — see skipPrefetchForPickPass',
+    ).toBe(1)
   })
 })
 

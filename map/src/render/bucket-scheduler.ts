@@ -29,7 +29,7 @@ import { resolveNumberShape } from './paint-shape-resolve'
 import type { InputStore } from './input-store'
 import { resolveShow, type ResolvedShow } from './resolved-show'
 import { isSafeMode } from '@xgis/engine'
-import { DEBUG_OVERDRAW } from '../debug-flags'
+import { isOverdrawActive } from '../debug-flags'
 import type { RenderTraceRecorder, RGBA } from '../diagnostics/render-trace'
 import type { FrameContext } from './frame-context'
 import { unwrapProjection } from './projection-token'
@@ -45,8 +45,10 @@ import type { PointRenderer } from './point-renderer'
  *  so an engine render pass can draw the show WITHOUT ever naming a
  *  RhiPipelineHandle / GPUBindGroupLayout. The engine supplies only the
  *  per-draw context: the sub-pass encoder, the per-frame FrameContext,
- *  the uniform ring buffer, the point renderer (or null), the layer's
- *  draw phase, and the translucent-bucket (no-depth) flag.
+ *  the point renderer (or null), the layer's draw phase, and the
+ *  translucent-bucket (no-depth) flag. (A native uniform-ring buffer used
+ *  to ride here too — retired at Inc-E2: no terminal ever read it, and its
+ *  eager unwrap was WebGpuDevice-only, crashing the first WebGL2 chain frame.)
  *
  *  (Named `ShowDrawFn`, not `DrawItem`, to avoid colliding with the RHI
  *  render-layer `DrawItem` in `material/material.ts` — a different
@@ -59,7 +61,6 @@ import type { PointRenderer } from './point-renderer'
 export type ShowDrawFn = (
   pass: RhiRenderPass,
   ctx: FrameContext,
-  uniformBuffer: GPUBuffer,
   pointRenderer: PointRenderer | null | undefined,
   phase: LayerDrawPhase,
   translucentBucket: boolean,
@@ -183,9 +184,9 @@ interface ClassifierRendererDefaults {
   fillPipelineFallbackNoPick?: RhiPipelineHandle
   fillPipelineGroundFallbackNoPick?: RhiPipelineHandle
   linePipelineFallbackNoPick?: RhiPipelineHandle
-  /** ?debug=overdraw substitution handles — read ONLY when DEBUG_OVERDRAW
-   *  is active. The classifier bakes the overdraw pipeline into each
-   *  show's draw closure (replacing the layer's own fill/line pipelines);
+  /** ?debug=overdraw substitution handles — read ONLY when `isOverdrawActive(caps)`
+   *  is true at draw time (#1594). The draw closure substitutes the overdraw
+   *  pipeline for each show's own fill/line pipelines on every call;
    *  `featureBindGroupLayout` selects the feature-layout overdraw variant
    *  for data-driven shows. Optional: the production non-debug path never
    *  reads them, so test fixtures can omit them. */
@@ -432,25 +433,13 @@ export function classifyVectorTileShows(input: ClassifierInput): ClassifierResul
     // RhiPipelineHandle / GPUBindGroupLayout (Step 2 inversion).
     //
     // The ?debug=overdraw pipeline substitution (formerly inline in
-    // opaque-pass.ts) bakes HERE: DEBUG_OVERDRAW is frame-constant, and
-    // the overdraw pipelines / featureBindGroupLayout / bgl are stable
-    // within a frame, so pre-substituting at classify time is byte-
-    // identical to substituting per-draw (pipeline-factory.ts:777
-    // documents this as a map-side override). The OIT / translucent
-    // passes are gated off under DEBUG_OVERDRAW, so one closure serving
-    // all three buckets is safe.
-    const debugFp = DEBUG_OVERDRAW
-      ? bgl === defaults.featureBindGroupLayout
-        ? defaults.fillPipelineOverdrawFeature!
-        : defaults.fillPipelineOverdraw!
-      : null
-    const debugLp = DEBUG_OVERDRAW ? defaults.linePipelineOverdraw! : null
-    const drawFp = debugFp ?? fp
-    const drawLp = debugLp ?? lp
-    const drawFpF = debugFp ?? fpF
-    const drawLpF = debugLp ?? lpF
-    const drawFpG = debugFp ?? fpG
-    const drawFpGF = debugFp ?? fpGF
+    // opaque-pass.ts) resolves INSIDE the closure, not here: classify time has
+    // no device/caps in scope, and `isOverdrawActive(caps)` (#1594) needs one.
+    // The overdraw pipelines / featureBindGroupLayout / bgl are stable within a
+    // frame, so resolving on each `draw()` call (up to 2x for a translucent-
+    // stroke show — once per bucket) is cheap, a few ternaries, not a rebuild.
+    // The OIT / translucent passes are gated off under overdraw, so one
+    // closure serving all three buckets is still safe.
     // #1252 — the SHOW's variant EXTRUDED pipelines (feature layout). Passed to
     // VTR ONLY for a DATA-DRIVEN fill (needsFeatureBuffer): those need the
     // feature-layout extruded pipeline so fs_fill_extrude can sample
@@ -470,14 +459,20 @@ export function classifyVectorTileShows(input: ClassifierInput): ClassifierResul
         ? (entry.pipelines?.fillPipelineExtrudedFallbackNoPick ??
           entry.pipelines?.fillPipelineExtrudedFallback)
         : entry.pipelines?.fillPipelineExtrudedFallback
-    const draw: ShowDrawFn = (
-      pass,
-      ctx,
-      uniformBuffer,
-      pointRenderer,
-      phase,
-      translucentBucket,
-    ) => {
+    const draw: ShowDrawFn = (pass, ctx, pointRenderer, phase, translucentBucket) => {
+      const overdrawActive = isOverdrawActive(ctx.rhi.caps)
+      const debugFp = overdrawActive
+        ? bgl === defaults.featureBindGroupLayout
+          ? defaults.fillPipelineOverdrawFeature!
+          : defaults.fillPipelineOverdraw!
+        : null
+      const debugLp = overdrawActive ? defaults.linePipelineOverdraw! : null
+      const drawFp = debugFp ?? fp
+      const drawLp = debugLp ?? lp
+      const drawFpF = debugFp ?? fpF
+      const drawLpF = debugLp ?? lpF
+      const drawFpG = debugFp ?? fpG
+      const drawFpGF = debugFp ?? fpGF
       const { projType, centerLon, centerLat } = unwrapProjection(ctx.projection)
       vtEntry.renderer.render!(
         pass,
@@ -490,7 +485,6 @@ export function classifyVectorTileShows(input: ClassifierInput): ClassifierResul
         entry.show,
         drawFp,
         drawLp,
-        uniformBuffer,
         bgl,
         drawFpF,
         drawLpF,
