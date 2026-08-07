@@ -67,8 +67,8 @@ const EMITTERS: ReadonlyArray<readonly [string, () => string]> = [
   ['hillshade (pick)', () => emitHillshadeWgsl(true)],
   ['icon', emitIconWgsl],
   ['icon-retained', emitIconRetainedWgsl],
-  ['line', () => emitLineWgsl(false)],
-  ['line (pick)', () => emitLineWgsl(true)],
+  ['line', () => emitLineWgsl(null, false)],
+  ['line (pick)', () => emitLineWgsl(null, true)],
   ['line-composite', emitCompositeWgsl],
   // Parameterised emitters get REAL arguments, and both variants where the parameter changes the
   // emitted text — a variant is a separate shader as far as `CreateShaderModule` is concerned.

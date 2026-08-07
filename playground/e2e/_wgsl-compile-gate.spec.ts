@@ -54,8 +54,8 @@ function allVariants(): Array<{ name: string; wgsl: string }> {
   FIXTURES.filter((fx) => !fx.variant).forEach((fx, i) =>
     out.push({ name: `polygon-base[${i}] ${fx.note ?? ''}`.trim(), wgsl: emitForFixture(fx) }),
   )
-  out.push({ name: 'line(pick=false)', wgsl: emitLineWgsl(false) })
-  out.push({ name: 'line(pick=true)', wgsl: emitLineWgsl(true) })
+  out.push({ name: 'line(pick=false)', wgsl: emitLineWgsl(null, false) })
+  out.push({ name: 'line(pick=true)', wgsl: emitLineWgsl(null, true) })
   out.push({ name: 'line-composite', wgsl: emitCompositeWgsl() })
   out.push({ name: 'point', wgsl: emitPointWgsl() })
   out.push({ name: 'raster(pick=false)', wgsl: emitRasterWgsl(false) })
