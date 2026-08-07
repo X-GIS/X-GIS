@@ -23,6 +23,7 @@ import {
 import { uploadPalette, type PaletteTextures } from './render/palette-textures'
 import { HeatmapTargets } from './render/heatmap-targets'
 import { warnStageBlockUnsupported } from './render/stage-block-warning'
+import { toComposerPointVariant } from './render/point-shader-cache'
 import type * as AST from '@xgis/compiler'
 import { SyntheticEarthSurfaceBackend } from '@xgis/data'
 import { PROJECTION_NAME_TO_TYPE, PROJECTIONS } from '@xgis/geo'
@@ -3827,10 +3828,16 @@ export class XGISMap {
         // Resolve shape name to GPU shape_id
         const shapeId = show.shape ? (this.shapeRegistry?.getShapeId(show.shape) ?? 0) : 0
 
+        // #1605 Phase 2 — narrowed to the genuinely-rejected case now that a
+        // feature-free @color/@stroke is actually consumed (toComposerPointVariant
+        // is the single rejection authority; recomputed at draw time by
+        // ensurePointDraper, cheaply, mirroring line's own precedent).
+        const pointVariant = toComposerPointVariant(show.shaderVariant)
         warnStageBlockUnsupported(
           show.targetName,
           'point',
-          Boolean(show.shaderVariant?.fillExpr || show.shaderVariant?.strokeExpr),
+          Boolean(show.shaderVariant?.fillIsStage || show.shaderVariant?.strokeIsStage) &&
+            !pointVariant,
         )
 
         this.pointRenderer.addLayer(
@@ -3863,6 +3870,7 @@ export class XGISMap {
           // the layer paints a constant colour → constant path unchanged).
           perFeatureFills,
           perFeatureStrokes,
+          show.shaderVariant ?? null, // #1605 Phase 2 — trailing
         )
         continue
       }

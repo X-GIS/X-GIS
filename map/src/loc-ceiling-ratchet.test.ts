@@ -557,7 +557,11 @@ const CEILINGS: Record<string, number> = {
   // this branch's twin-deletion shrink and main's stage-block-drop warning (+1 net, which
   // fit under main's own looser 5411) land in different regions of the same file, so the
   // ceiling is the MERGED file's measured size, never either side's number.
-  'map/src/map.ts': 5410,
+  // 5410→5418 (#1605 Phase 2 PR B): the point runtime-wiring import + the narrowed
+  // warnStageBlockUnsupported gate (toComposerPointVariant local + fillIsStage/
+  // strokeIsStage condition) + the trailing shaderVariant arg on pointRenderer.addLayer —
+  // mirrors line's own Phase 1 wiring at this same call site.
+  'map/src/map.ts': 5418,
   // Baselined at #1255 (measured 830): the DOM-inspired layer API crossed
   // NEW_FILE_CAP with the paint-transition style-setter integration — the
   // StyleHost.transitions context, the shared applyNumber/applyColor
@@ -1088,7 +1092,11 @@ const CEILINGS: Record<string, number> = {
   // refresh/draw tail into tile-point-pack-key.ts + tile-point-draw.ts (this file keeps
   // only canSkipTilePointRepack + the two callers) — a genuine shrink, not this branch's
   // doing (its own delta on this file was a same-length comment reword, 0 net lines).
-  'map/src/render/point-renderer.ts': 1167,
+  // 1167→1197 (#1605 Phase 2 PR B): the variant-keyed _pointDrapers Map replacing the
+  // single _pointDraper field, ensurePointDraper's WebGL2-forced-base-variant + cache-key
+  // logic, the two call-site updates, and addLayer's trailing shaderVariant param —
+  // mirrors LineRenderer's own Map<string, LineDraper> cache (#1605 Phase 1 Step 3).
+  'map/src/render/point-renderer.ts': 1197,
   // 1106→1120 (#1043 state-hygiene): three unmask-before-clear / state-reset fixes for the
   // WebGL2 flicker class — beginScreenPass colorMask unmask (the colour sibling of #746/#780),
   // dispatchComputeToR32UI viewport snapshot+restore, and the setPipeline no-depth arm's

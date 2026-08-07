@@ -568,6 +568,27 @@ export const DEMOS_FIXTURES: Record<string, Demo> = {
       'A NON-constant `@stroke` body (reads zoom) — the one that actually exercises the line composer seam. WebGPU-only; not CI-checkable (no software WebGPU adapter). Zoom in/out to see the stroke colour shift.',
     source: load('fixture-stage-line-color-zoom.xgis'),
   },
+  fixture_stage_point_color: {
+    name: 'Fixture: @color stage block on point (#1605)',
+    tag: 'fixture',
+    description:
+      'A constant `@color` colour authored directly as a vec4 on a point layer. CPU-folded (does not exercise the new WGSL composer). Pixel-parity twin: fixture_stage_point_color_twin (_stage-block-point-parity.spec.ts).',
+    source: load('fixture-stage-point-color.xgis'),
+  },
+  fixture_stage_point_color_twin: {
+    name: 'Fixture: @color stage block on point, utility twin (#1605)',
+    tag: 'fixture',
+    description:
+      'The same scene with the fill colour written as an ordinary fill utility — must render pixel-identical to fixture_stage_point_color.',
+    source: load('fixture-stage-point-color-twin.xgis'),
+  },
+  fixture_stage_point_color_zoom: {
+    name: 'Fixture: @color + @stroke stage blocks on point, zoom-driven (#1605)',
+    tag: 'fixture',
+    description:
+      'NON-constant `@color` AND `@stroke` bodies (both read zoom), composing independently — the one that actually exercises the point composer seam. WebGPU-only; not CI-checkable (no software WebGPU adapter). Zoom in/out to see the fill and stroke colours shift independently.',
+    source: load('fixture-stage-point-color-zoom.xgis'),
+  },
   fixture_input_live: {
     name: 'Fixture: `input` host contract (#1539)',
     tag: 'fixture',
