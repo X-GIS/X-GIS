@@ -32,6 +32,7 @@ type MapWin = {
     invalidate?: () => void
     setCenter?: (lon: number, lat: number) => void
     getCenter?: () => [number, number]
+    getMissingTileCount?: () => number
     ctx?: { rhi?: { backend?: string; gl?: WebGL2RenderingContext } }
   }
 }
@@ -71,6 +72,62 @@ const readFrame = (page: Page) =>
     return { ok: true as const, hash: h >>> 0, nonBg, total: W * H, backend: gl ? 'webgl2' : '' }
   })
 
+type Frame = Awaited<ReturnType<typeof readFrame>>
+
+/** #1620 — wait for the scene to CONVERGE, instead of sleeping a guessed duration.
+ *
+ *  Every wait in this spec used to be a fixed `waitForTimeout`, and all of this
+ *  gate's observed flake modes were that one defect wearing different hats: a tile
+ *  landing after the sleep read as `nonBg === 0` (settle), as hash drift across the
+ *  static-camera loop, or as a post-`setCenter` frame that had not finished
+ *  re-selecting. None of them were product bugs; the spec was asserting on a scene
+ *  it had not waited for.
+ *
+ *  Convergence is TWO conditions, and both are load-bearing:
+ *
+ *   1. `getMissingTileCount() === 0` — the map's own "nothing is still resolving"
+ *      signal, documented at `map.ts:1617-1624` as settling to 0 exactly when the
+ *      scene converges.
+ *   2. the same frame hash on three consecutive reads.
+ *
+ *  Neither alone is enough: a hash-only predicate accepts the plateau where tiles
+ *  are still in flight but nothing has landed *yet*, so the frame is momentarily
+ *  stable without being finished.
+ *
+ *  Bounded by a deadline so a genuinely stuck frame still fails (loudly, on the
+ *  caller's own assertion) rather than hanging. Modeled on
+ *  `_graticule-gl2-gate.spec.ts`'s `fillFraction` deadline loop.
+ *
+ *  This does NOT weaken anything: the invariants below are untouched, and the
+ *  static-camera hash-equality assertion stays exactly as strict. Removing the
+ *  still-loading confound is what lets that assertion mean what it claims. */
+async function settleFrame(
+  page: Page,
+  opts: { requireContent?: boolean; timeoutMs?: number } = {},
+): Promise<Frame> {
+  const { requireContent = false, timeoutMs = 60_000 } = opts
+  const deadline = Date.now() + timeoutMs
+  let prev = await readFrame(page)
+  let stable = 0
+  while (Date.now() < deadline) {
+    await invalidate(page)
+    await page.waitForTimeout(100)
+    const cur = await readFrame(page)
+    const inFlight = await page.evaluate(
+      () => (window as unknown as MapWin).__xgisMap?.getMissingTileCount?.() ?? 0,
+    )
+    const contentOk = !requireContent || (cur.ok && cur.nonBg > 0)
+    if (inFlight === 0 && cur.ok && prev.ok && cur.hash === prev.hash && contentOk) {
+      // Two confirmations after the first match — three identical reads in a row.
+      if (++stable >= 2) return cur
+    } else {
+      stable = 0
+    }
+    prev = cur
+  }
+  return prev
+}
+
 test('static-camera memo (#1581): identical pixels across static frames, real change on camera move, converges back', async ({
   page,
 }, testInfo) => {
@@ -79,7 +136,17 @@ test('static-camera memo (#1581): identical pixels across static frames, real ch
   page.on('pageerror', (e) => errors.push(e.message.slice(0, 300)))
 
   await page.setViewportSize({ width: 600, height: 600 })
-  await page.goto('/demo.html?id=fixture_point&forcegl2=1&preserve=1', {
+  // `adaptive=0` (#1620) — this gate compares a frame captured BEFORE its 20-frame
+  // static loop against one captured after, and that loop invalidates every 30ms.
+  // On a software rasterizer that reads as a struggling machine, so the adaptive
+  // quality ladder does exactly its job and drops a notch: the scene target shrinks
+  // and is upscaled, which makes the point cover ~38% more pixels (21,020 → 29,053,
+  // linear ~1.18 — the shape of a sceneScale step, measured). The two frames are
+  // then at different quality notches and the hash comparison is meaningless.
+  // Pinning the ladder is what its sibling `_prefetch-effect-gl2-probe` already
+  // does, and the ladder has its own gate (`_adaptive-quality-ladder-gate`) — this
+  // one is about the #1581 memo's fidelity, so the notch must be held still.
+  await page.goto('/demo.html?id=fixture_point&forcegl2=1&preserve=1&adaptive=0', {
     waitUntil: 'domcontentloaded',
   })
   await page.waitForFunction(() => (window as unknown as MapWin).__xgisReady === true, {
@@ -89,13 +156,11 @@ test('static-camera memo (#1581): identical pixels across static frames, real ch
     await page.evaluate(() => (window as unknown as MapWin).__xgisMap?.ctx?.rhi?.backend),
   ).toBe('webgl2')
 
-  // Settle the initial tile load (a few frames) before the static-camera
-  // invariant starts — otherwise a still-loading tile would look like drift.
-  for (let i = 0; i < 5; i++) {
-    await invalidate(page)
-    await page.waitForTimeout(300)
-  }
-  const settled = await readFrame(page)
+  // Settle the initial tile load before the static-camera invariant starts —
+  // otherwise a still-loading tile looks like drift. Waits for convergence
+  // (#1620) rather than a fixed 5x300ms, which is what made `nonBg === 0` a
+  // recurring flake here rather than the real signal it reads as.
+  const settled = await settleFrame(page, { requireContent: true })
   expect(settled.ok).toBe(true)
   if (!settled.ok) return
   expect(settled.nonBg, 'the point fixture drew something').toBeGreaterThan(0)
@@ -126,19 +191,17 @@ test('static-camera memo (#1581): identical pixels across static frames, real ch
   // CONTROL — a real camera move must still re-select/re-pack (the opposite
   // bug: a memo that never invalidates would leave the OLD frame on screen).
   await setCenter(page, 5, 5)
-  await invalidate(page)
-  await page.waitForTimeout(300)
-  const moved = await readFrame(page)
+  const moved = await settleFrame(page, { requireContent: true })
   expect(moved.ok).toBe(true)
   if (!moved.ok) return
   expect(moved.hash, 'camera move: pixels must change').not.toBe(settled.hash)
 
   // Return to the original camera: must converge back to the SAME pixels —
   // proving re-selection at a revisited camera state is correct, not partial.
+  // "Converge" is now waited for rather than assumed after 300ms (#1620) — the
+  // assertion is unchanged, but a slow re-select no longer reads as a wrong frame.
   await setCenter(page, 0, 0)
-  await invalidate(page)
-  await page.waitForTimeout(300)
-  const back = await readFrame(page)
+  const back = await settleFrame(page, { requireContent: true })
   expect(back.ok).toBe(true)
   if (!back.ok) return
   expect(back.hash, 'camera returned to origin: pixels match the original frame').toBe(settled.hash)
