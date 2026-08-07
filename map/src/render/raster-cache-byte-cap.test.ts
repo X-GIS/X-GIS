@@ -23,6 +23,7 @@
 
 import { describe, expect, it, vi, afterEach } from 'vitest'
 import type { GPUContext } from '@xgis/rhi-webgpu'
+import type { RhiTexture } from '@xgis/engine'
 import { RasterRenderer } from './raster-renderer'
 import { HillshadeRenderer } from './hillshade-renderer'
 import { maxRasterCachedBytes, textureBytesOf, type LoadedTexture } from './raster-cache-budget'
@@ -39,25 +40,64 @@ function stubViewport(width: number, pointer: 'coarse' | 'fine'): void {
   }))
 }
 
+/** BOTH arms of the cached-tile union, at their REAL runtime shapes (#1607).
+ *
+ *  The original mock had a bare top-level `destroy()` — a raw `GPUTexture`. That is
+ *  one real arm (hillshade's WebGPU `loadImageTexture` fork still returns it), but
+ *  it is NOT the arm the raster loader produces: since #1579 raster builds through
+ *  `rhi.createTexture` on both backends, so its handle is the opaque
+ *  `{ native: GPUTexture }` wrapper (rhi-webgpu.ts:33), which has NO `.destroy`.
+ *  Mocking only the raw arm is what let `evictToBudget`'s `rhi.backend` fork ship a
+ *  `texture.destroy is not a function` on the default backend: the assertion could
+ *  not distinguish the states of the thing it was testing. Every eviction case below
+ *  now runs over both arms, so a free that handles only one goes red. */
 interface MockTexture {
   destroyed: boolean
-  destroy(): void
+  /** Present on the RAW arm only — a native `GPUTexture.destroy()`. */
+  destroy?: () => void
+  /** Present on the RHI arm only — the `{ native }` box `wrap` puts around the
+   *  real texture (rhi-webgpu.ts:33). `owner` closes the loop back to the flag. */
+  native?: { owner: MockTexture }
 }
-function mockTexture(): MockTexture {
-  const t: MockTexture = {
-    destroyed: false,
-    destroy() {
-      t.destroyed = true
-    },
+
+function rawGpuTexture(): MockTexture {
+  const t: MockTexture = { destroyed: false }
+  t.destroy = () => {
+    t.destroyed = true
   }
   return t
 }
+/** No top-level `destroy` — freeing this one MUST go through `rhi.destroyTexture`. */
+function rhiTextureHandle(): MockTexture {
+  const t: MockTexture = { destroyed: false }
+  t.native = { owner: t }
+  return t
+}
+const HANDLE_ARMS = [
+  ['raw GPUTexture (hillshade WebGPU loadImageTexture)', rawGpuTexture],
+  ['RhiTexture wrapper (rhi.createTexture — raster, both backends)', rhiTextureHandle],
+] as const
 
-/** `backend: 'webgpu'` so evictTiles takes the `texture.destroy()` arm. */
+/** `backend: 'webgpu'` — the arm the raster demos actually run on, and the one whose
+ *  handle shape the old reach-behind-the-handle free got wrong.
+ *
+ *  `destroyTexture` UNWRAPS `.native` first, exactly as `WebGpuDevice.destroyTexture`
+ *  does (rhi-webgpu.ts:497). That fidelity is what makes the arm grid above able to
+ *  distinguish (#1607, §12 "the assertion that failed either way"): a mock that just
+ *  set a flag on whatever it was handed would green an UNCONDITIONAL
+ *  `rhi.destroyTexture`, which is the mirror-image TypeError on a raw texture. Both
+ *  wrong frees now fail here, and each names the arm it was handed. */
 function mockCtx(): GPUContext {
   return {
     device: {} as GPUDevice,
-    rhi: { backend: 'webgpu', destroyTexture() {} },
+    rhi: {
+      backend: 'webgpu',
+      destroyTexture(t: MockTexture) {
+        if (!t.native)
+          throw new TypeError('destroyTexture: handle has no .native — this is a raw GPUTexture')
+        t.native.owner.destroyed = true
+      },
+    },
     format: 'bgra8unorm',
   } as unknown as GPUContext
 }
@@ -73,14 +113,14 @@ interface CachePrivates {
 const privatesOf = (r: RasterRenderer | HillshadeRenderer): CachePrivates =>
   r as unknown as CachePrivates
 
-/** Admit `n` tiles of `dim`² through the renderer's real insert path. */
-function admit(r: CachePrivates, n: number, dim: number): MockTexture[] {
+/** Admit `n` tiles of `dim`², built on `arm`, through the renderer's real insert path. */
+function admit(r: CachePrivates, n: number, dim: number, arm: () => MockTexture): MockTexture[] {
   const textures: MockTexture[] = []
   for (let i = 0; i < n; i++) {
-    const texture = mockTexture()
+    const texture = arm()
     textures.push(texture)
     r._cacheTile(`${dim}/${i}`, {
-      texture: texture as unknown as GPUTexture,
+      texture: texture as unknown as RhiTexture,
       bytes: textureBytesOf(dim, dim, true),
     })
   }
@@ -123,17 +163,24 @@ describe('raster cache byte budget — the pure ceiling (#1352)', () => {
   })
 })
 
-describe.each([
-  ['RasterRenderer', () => new RasterRenderer(mockCtx())],
-  ['HillshadeRenderer', () => new HillshadeRenderer(mockCtx())],
-] as const)('%s bounds its texture cache by BYTES (#1352)', (_name, make) => {
+// Both renderers × both handle arms. The cross product is the point (#1607): a free
+// that only understands one arm has to go red somewhere in this grid.
+type Case = [name: string, make: () => RasterRenderer | HillshadeRenderer, arm: () => MockTexture]
+const CASES: Case[] = (
+  [
+    ['RasterRenderer', () => new RasterRenderer(mockCtx())],
+    ['HillshadeRenderer', () => new HillshadeRenderer(mockCtx())],
+  ] as const
+).flatMap(([n, make]) => HANDLE_ARMS.map(([armName, arm]): Case => [`${n}, ${armName}`, make, arm]))
+
+describe.each(CASES)('%s bounds its texture cache by BYTES (#1352)', (_name, make, arm) => {
   it('evicts under byte pressure the count cap never sees', () => {
     stubViewport(1440, 'fine')
     const r = privatesOf(make())
 
     // 40 × 2048² = 640 MB. Forty entries is FAR under the 256 count cap, so a
     // count-only bound evicts nothing and the cache stays hundreds of MB over.
-    const textures = admit(r, 40, 2048)
+    const textures = admit(r, 40, 2048, arm)
     expect(r.tileCache.size, 'premise: the count cap cannot fire at 40').toBeLessThan(256)
     expect(r._cachedBytes).toBeGreaterThan(maxRasterCachedBytes())
 
@@ -154,7 +201,7 @@ describe.each([
   it('never evicts a texture the current frame is about to sample', () => {
     stubViewport(1440, 'fine')
     const r = privatesOf(make())
-    const textures = admit(r, 40, 2048)
+    const textures = admit(r, 40, 2048, arm)
 
     // Every key visible ⇒ nothing is eligible, even though we are way over.
     const allVisible = new Set([...r.tileCache.keys()])
@@ -170,7 +217,7 @@ describe.each([
   it('leaves a normal 256² working set completely alone', () => {
     stubViewport(1440, 'fine')
     const r = privatesOf(make())
-    const textures = admit(r, 200, 256)
+    const textures = admit(r, 200, 256, arm)
 
     r.evictTiles(new Set())
 

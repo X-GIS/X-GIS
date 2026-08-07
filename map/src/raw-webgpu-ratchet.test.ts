@@ -164,7 +164,11 @@ const BASELINE: Record<string, number> = {
   'map/src/render/point-renderer.ts': 15,
   // The GPUTexture union is unavoidable here: it is the WebGPU arm of the
   // GPUTexture | RhiTexture the two renderers already cache, lifted out of them.
-  'map/src/render/raster-cache-budget.ts': 4,
+  // 4→5 (#1607): `destroyTileTexture` names the raw arm once more — the eviction free
+  // now discriminates on the HANDLE (only a native GPUTexture has `.destroy`) instead
+  // of on `rhi.backend`, which stopped tracking the arm when #1579 moved the raster
+  // loader's WebGPU path onto the RHI. Retires with hillshade's `loadImageTexture` fork.
+  'map/src/render/raster-cache-budget.ts': 5,
   // 8→5 (#1352): the loaded-texture return type and the shared eviction moved to
   // raster-cache-budget.ts.
   // 3→2 (#1579): the WebGPU-only raw-device `loadImageTexture` arm (unmipped, bypassed the
