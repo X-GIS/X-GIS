@@ -69,6 +69,8 @@ const EMPTY_KEYS: number[] = []
 
 export class TileCatalog {
   private index: XGVTIndex | null = null
+  /** #1581 — entries only ever grow; lets a memo invalidate a landed tile. */
+  indexGeneration = (): number => this.index?.entryByHash.size ?? 0
   /** In-memory compiled-tile store + byte accounting. Extracted to
    *  TileDataCache (redesign §3.5): owns the per-(tile key, source-
    *  layer) TileData map, the cumulative byte total, and the

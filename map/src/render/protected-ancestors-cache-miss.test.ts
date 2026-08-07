@@ -61,6 +61,7 @@ function makeMockCatalog(): TileCatalog {
     // protectedAncestors (which is populated purely from the selector's
     // fallbackOnly flag), it just keeps the walk cheap.
     hasEntryInIndex: () => true,
+    indexGeneration: () => 0,
   }
   return catalog as unknown as TileCatalog
 }

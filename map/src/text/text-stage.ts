@@ -120,9 +120,10 @@ export {
 // Hangul/Han Canvas2D path, but the user-visible labels go through
 // PBF on every supported style; the trade-off swung the wrong way.)
 //
-// pageSize 2304 = 36 slots/side at slotSize 64 → 1296 slots per
-// page. Multi-page atlases handle CJK-heavy maps via the renderer's
-// per-page bind groups; no change to that path.
+// pageSize 4096 = 64 slots/side at slotSize 64 → 4096 slots (iter-272 bumped
+// this from 1296; see STAGE_DEFAULTS). The atlas is single-page by contract
+// (#1580, GlyphAtlasGPU) — 4096 slots is the hard ceiling, not a working set
+// that grows.
 //
 // defaultFont chains common CJK fallbacks AFTER sans-serif so an
 // engine-level label without a Mapbox font stack still reads
@@ -239,22 +240,6 @@ export class TextStage {
   getInlineImagePlacements(): readonly InlineImagePlacement[] {
     return this._inlineImagePlacements
   }
-  /** iter 167 — across-frame glyph-string cache (#10 Phase A first
-   *  slice). `host.ensureString` per-character atlas-slot lookup
-   *  dominates drag CPU (iter-161 profile: ensure 21.5% +
-   *  ensureString 7.1% = 28.6%). For the SAME (fontKey, text) the
-   *  result is camera-independent; cache it across frames. Cap at
-   *  4096 entries (well above any label-dense scene; OFM Bright
-   *  Korea z=5 has ~5k addLabel calls but most share a tiny set of
-   *  unique texts). Invalidated wholesale on atlas eviction (rare).
-   *
-   *  Key: FNV-1a hash of (fontKey, text codepoints) — same shape as
-   *  pretextCacheKey. Value: GlyphInfo[] (one per codepoint, same
-   *  array shape host.ensureString would return). */
-  private readonly _glyphsByTextCache = new Map<
-    number,
-    import('./sdf/glyph-atlas-host').GlyphInfo[]
-  >()
   /** iter 168 — Phase A slice 2: across-frame layout cache.
    *  Caches the per-anchor camera-independent layout output (dx, dy,
    *  glyphOffsets, totalAdvance, blockTop, blockBottom, haloGeom,
@@ -904,7 +889,6 @@ export class TextStage {
       // heap-carried refs; affected fade-outs pop, matching the caches).
       this._fadeHoldover.clear()
       this._fadeHoldoverBake.clear()
-      this._glyphsByTextCache.clear()
       // iter-168: layout cache entries reference GlyphInfo[] whose
       // slot.pxX/pxY would point to the wrong glyph after eviction.
       this._layoutCache.clear()

@@ -715,6 +715,26 @@ jobs:
         # band must read as the FIRST-armed domain, matching how coverageHandleAt resolves the
         # same tie. Verified both directions (shared-to-west 0.107 fixed / 0.810 broken, and
         # 1.02x vs 2.47x the owner's ink). ~15 s.
+        # _fill-data-driven-gl2-gate: the only check that a DATA-DRIVEN fill (`fill match(…)`,
+        # `fill gradient(…)`) announces itself on WebGL2 instead of silently rendering nothing
+        # (#1583). That backend compiles no shader variant, so the colour has nowhere to come
+        # from and the layer is blank — #1592 is the capability. No other gate covers a
+        # data-driven fill on WebGL2 at all: _fills-gl2-gate uses a CONSTANT fill-stone-200.
+        # A constant-fill twin is the control arm, so the blank arm cannot pass on a broken
+        # harness. Verified both directions (warning present/absent; pixels unchanged at
+        # twin 0.359 / data-driven 0.000). Goes RED when #1592 lands, by design. ~20 s.
+        # _stage-block-parity: the #1563 sibling gate — a @color stage block must render
+        # pixel-identical to its utility twin on webgl2. It has existed since #1538 and was
+        # registered in NO workflow, so it ran nowhere (#1587 folded it in). Verified green
+        # locally before registering. ~20 s.
+        # _prefetch-effect-gl2-probe: MEASUREMENT for #1587, not a pass/fail gate on prefetch
+        # being better. Both prefetch routes had never executed; this reports the missed-tile
+        # integral and time-to-converge over a scripted pan so the change is measured rather
+        # than assumed. Its assertions are regression-only (the scene must still converge; the
+        # pump shields 16 speculative keys/frame against a bounded cache). It asserts a
+        # PRECONDITION that the archive actually served tiles, so it fails loudly rather than
+        # reporting a perfect score over a scene that never loaded — which is also why it
+        # cannot run without network egress. ~40 s.
         # _s111-dead-boundary-halo-gate: the only check that trains STOP at a nodata/calm
         # boundary instead of being erased there (#1558) — the exact class the real-data
         # empty-water report came from, invisible to GATE 4's 8x8 blocks. Ratio-bound
@@ -780,5 +800,5 @@ jobs:
           # wall-clock pair must not abort the compile/parity/pixel gates before they
           # have reported. Quiet-machine ordering is unaffected — each invocation is its
           # own process either way.
-          ./node_modules/.bin/playwright test _shader-math-parity.spec.ts _wgsl-compile-gate.spec.ts _vs-clip-parity.spec.ts _dequant-parity.spec.ts _polygon-fill-flat-parity.spec.ts _polygon-fill-flat-pixel-gate.spec.ts _optimizer-gpu-parity.spec.ts _glsl-compile-gate.spec.ts _polygon-glsl-compile-gate.spec.ts _line-glsl-compile-gate.spec.ts _shader-dsl-mrt-render.spec.ts _emit-obfuscate-gate.spec.ts _graphics-retained-gl2-gate.spec.ts _graphics-retained-arrow-gl2-gate.spec.ts _graphics-retained-arrow-orientation-gate.spec.ts _graphics-compiled-arrow-parity.spec.ts _graphics-retained-drawcall-gl2-gate.spec.ts _compute-gen-compile-gate.spec.ts _fills-gl2-gate.spec.ts _globe-hash-camera-gate.spec.ts _hillshade-gl2-gate.spec.ts _1221-seam-control-matrix.spec.ts _hillshade-methods-gl2-gate.spec.ts _reseed-data-push-gate.spec.ts _s111-multiregion-gate.spec.ts _s111-overlap-ownership-gate.spec.ts _s111-currents-render.spec.ts _s111-deferred-coverage-gate.spec.ts _s111-advected-arrows-gate.spec.ts _s111-mosaic-arrow-field-gate.spec.ts _s111-arrow-density-gate.spec.ts _s111-dead-boundary-halo-gate.spec.ts _s111-catalogue-declarative-gate.spec.ts _s102-catalogue-gate.spec.ts _coverage-render.spec.ts _demotiles-labels-gl2-gate.spec.ts _label-pitch-alignment-gate.spec.ts _translucent-chain-gate.spec.ts _heatmap-chain-gate.spec.ts _labels-chain-gate.spec.ts _hillshade-chain-gate.spec.ts _graphics-chain-gate.spec.ts _scene-scale-seam-gate.spec.ts
+          ./node_modules/.bin/playwright test _shader-math-parity.spec.ts _wgsl-compile-gate.spec.ts _vs-clip-parity.spec.ts _dequant-parity.spec.ts _polygon-fill-flat-parity.spec.ts _polygon-fill-flat-pixel-gate.spec.ts _optimizer-gpu-parity.spec.ts _glsl-compile-gate.spec.ts _polygon-glsl-compile-gate.spec.ts _line-glsl-compile-gate.spec.ts _shader-dsl-mrt-render.spec.ts _emit-obfuscate-gate.spec.ts _graphics-retained-gl2-gate.spec.ts _graphics-retained-arrow-gl2-gate.spec.ts _graphics-retained-arrow-orientation-gate.spec.ts _graphics-compiled-arrow-parity.spec.ts _graphics-retained-drawcall-gl2-gate.spec.ts _compute-gen-compile-gate.spec.ts _fills-gl2-gate.spec.ts _fill-data-driven-gl2-gate.spec.ts _stage-block-parity.spec.ts _prefetch-effect-gl2-probe.spec.ts _globe-hash-camera-gate.spec.ts _hillshade-gl2-gate.spec.ts _1221-seam-control-matrix.spec.ts _hillshade-methods-gl2-gate.spec.ts _reseed-data-push-gate.spec.ts _s111-multiregion-gate.spec.ts _s111-overlap-ownership-gate.spec.ts _s111-currents-render.spec.ts _s111-deferred-coverage-gate.spec.ts _s111-advected-arrows-gate.spec.ts _s111-mosaic-arrow-field-gate.spec.ts _s111-arrow-density-gate.spec.ts _s111-dead-boundary-halo-gate.spec.ts _s111-catalogue-declarative-gate.spec.ts _s102-catalogue-gate.spec.ts _coverage-render.spec.ts _demotiles-labels-gl2-gate.spec.ts _label-pitch-alignment-gate.spec.ts _translucent-chain-gate.spec.ts _heatmap-chain-gate.spec.ts _labels-chain-gate.spec.ts _hillshade-chain-gate.spec.ts _graphics-chain-gate.spec.ts _scene-scale-seam-gate.spec.ts
           ./node_modules/.bin/playwright test --workers=1 _adaptive-quality-ladder-gate.spec.ts _shader-dsl-mouse-interaction.spec.ts

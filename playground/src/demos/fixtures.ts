@@ -169,8 +169,16 @@ export const DEMOS_FIXTURES: Record<string, Demo> = {
   fixture_categorical: {
     name: 'Fixture: categorical',
     tag: 'fixture',
-    description: 'match() data-driven fill.',
+    description:
+      'match() data-driven fill. Renders BLANK on the WebGL2 backend, which has no per-feature GPU fill path (#1592) — control twin: fixture_categorical_twin (_fill-data-driven-gl2-gate.spec.ts).',
     source: load('fixture-categorical.xgis'),
+  },
+  fixture_categorical_twin: {
+    name: 'Fixture: categorical (constant twin)',
+    tag: 'fixture',
+    description:
+      'The same three polygons with a constant fill — the control arm proving the source and harness paint on WebGL2, so the sibling’s blank frame reads as the backend gap and not as a broken fixture.',
+    source: load('fixture-categorical-twin.xgis'),
   },
   fixture_picking: {
     name: 'Fixture: picking',

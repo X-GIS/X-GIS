@@ -25,106 +25,63 @@ import { captureCanvas } from './helpers/visual'
 const __filename_eq = fileURLToPath(import.meta.url)
 const __dirname_eq = dirname(__filename_eq)
 
-// Hand-curated ~51 demos that the /examples gallery surfaces. Stays
-// in sync with the `categories` array in
-// site/src/pages/examples.astro — when a card lands or leaves the
-// gallery, update both. (A shared list would break the site → playground
-// no-cycle rule we intentionally maintain.)
+// The thumbnail-bearing cards of the /examples gallery. Stays in sync
+// with `galleryCategories` in site/src/content/gallery-demos.ts — when a
+// card lands, leaves, or flips its `noThumb`, update both. (A shared list
+// would break the site → playground no-cycle rule we intentionally
+// maintain; the site's build-time gallery-drift gate compares the two
+// lists instead and fails the build on a mismatch.)
 const GALLERY_DEMOS = [
   // Basics
   'minimal',
-  'ocean_land',
-  'dark',
-  'styled_world',
   'inline_data',
-  // multi_layer is absent: its OSM raster base needs network egress the
-  // capture environment lacks, so its card is noThumb for now.
-  // PMTiles + MVT
+  'dark',
+  'physical_map',
+  // Vector tiles — import_maplibre_demo / openfreemap_bright are
+  // deliberately absent: their cards are noThumb (a live remote style
+  // takes longer than the 20 s tile-settle to paint a first frame).
   'pmtiles_source',
   'pmtiles_layered',
   'osm_style',
-  'pmtiles_only_landuse',
-  'pmtiles_v4',
-  // openfreemap_bright, along_path_roads and zoom_building_color are
-  // deliberately absent: their cards are noThumb (live-style settle /
-  // protomaps egress — see the card notes).
   // Data-driven styling
   'continent_match',
-  'continent_outlines',
-  'filter_gdp',
   'gdp_gradient',
-  'income_match',
-  'population_gradient',
-  'megacities',
-  'categorical',
-  'vector_categorical',
+  'filter_gdp',
   'step_and_concat',
+  'zoom',
   // Lines & strokes
-  'bold_borders',
-  'dashed_borders',
-  'dashed_lines',
-  'layered_borders',
-  'line_offset',
   'line_styles',
-  'pattern_lines',
+  'dashed_lines',
+  'line_offset',
   'stroke_align',
-  'translucent_lines',
+  'pattern_lines',
   'multi_layer_line',
-  'bucket_order',
-  'line_antimeridian',
   // Symbols & points
   'custom_symbol',
-  'custom_shapes',
-  'gradient_points',
-  'populated_places',
-  'procedural_circles',
-  'sdf_points',
   'shape_gallery',
   'heatmap',
-  // Symbols & points — custom heatmap ramp
-  'heatmap_ramp',
-  // Text labels (multiline_labels is absent: labels-only over black
-  // reads as an empty card — noThumb)
+  // Text labels — labels / text_overlay are standalone pages and
+  // along_path_roads needs protomaps egress, so only this one captures.
   'layer_below_labels',
-  // Animation
-  'animation_pulse',
-  'animation_showcase',
-  // Zoom behavior
-  'zoom',
-  'zoom_lod',
-  // Camera & interaction
-  'picking_demo',
+  // Camera, interaction & animation — measure_distances and
+  // realtime_update rest EMPTY until the user acts, so they stay
+  // noThumb.
   'fly_to',
   'fit_bounds',
-  'jump_to_locations',
   'pitch_bearing',
-  'color_switcher',
   'mouse_position',
-  'camera_around_point',
+  'picking_demo',
+  'color_switcher',
   'animate_point_route',
-  // Terrain & 3D — globe_extrusion only: the live-tile cards
-  // (hillshade_terrarium / hillshade_multidir / satellite_map) are
-  // noThumb on the gallery (external DEM/imagery hosts are not
-  // reachable from every capture environment).
-  'globe_extrusion',
-  // Raster basemaps
+  'animation_showcase',
+  // Raster, terrain & 3D — satellite_map / hillshade_terrarium are
+  // absent: live-tile fetches need network egress the capture
+  // environment lacks (cards noThumb).
   'raster',
   'raster_overlay',
-  // satellite_map / hillshade_terrarium are absent: live-tile fetches
-  // need network egress the capture environment lacks (cards noThumb).
-  // Geographic compositions
-  'physical_map',
-  'physical_map_10m',
-  'physical_map_50m',
-  'night_map',
-  'rivers_lakes',
-  'rivers_10m',
-  'states_provinces',
-  'coastline',
-  'coastline_10m',
-  // states_10m / water_hierarchy are absent (gitignored ne_10m_* data),
-  // as is coverage_bathymetry (colour-ramp draw is the #1158 headed
-  // gate-3 item) — their cards are noThumb until a local capture.
+  'globe_extrusion',
+  // The S-100 marine and real-world-data cards are all noThumb: they
+  // stream real NOAA cells / standalone pages the capture cannot reach.
 ]
 
 // Resolve once so multiple specs running in parallel don't all do

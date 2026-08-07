@@ -24,8 +24,8 @@ import { DEBUG_OVERDRAW } from '../debug-flags'
 import { Camera } from '../camera'
 import type { ShowCommand } from './renderer-types'
 import { variantProducesFill } from './renderer-helpers'
+import { reportRhiFillGap } from './rhi-fill-gap-warning'
 import { uniformBlock } from '@xgis/engine'
-import { polygonU as POLYGON_U } from '../shaders/dsl/polygon'
 import { globeEyeUniform } from './globe-eye-uniform'
 import { xlog, activeBody, EARTH } from '@xgis/shared'
 import { computeTileCameraAnchor, clampMercLat } from './tile-camera-anchor'
@@ -40,6 +40,7 @@ import {
 } from './material/polygon-fill-material'
 import { wgslFor, glslStagesFor } from './material/wgsl-for'
 import { executeItems, type Material } from '@xgis/engine'
+import { polygonU as POLYGON_U } from '../shaders/dsl/polygon'
 import { emitPolygonWgsl, emitPolygonGlslStages } from '../shaders/dsl/polygon'
 
 // Per-tile uniform packing goes through a typed UniformBlock over the polygon
@@ -75,8 +76,7 @@ import { BundleCache, type BundleEncodeDescriptor } from '@xgis/rhi-webgpu'
 import { isPickEnabled, getSampleCount } from '@xgis/engine'
 import { UploadCoordinator } from './upload-coordinator'
 import type { ShaderVariant } from '@xgis/compiler'
-import type { TileCatalog } from '@xgis/data'
-import type { TileData } from '@xgis/data'
+import type { TileCatalog, TileData } from '@xgis/data'
 import { computeSliceKey } from '@xgis/data'
 import { mercator as mercatorProj, getProjection, type Projection } from '@xgis/geo'
 import { SELECTOR_PROJ_NAMES } from '@xgis/geo'
@@ -84,6 +84,7 @@ import { bakesVectorDrape } from '@xgis/geo'
 import { VectorDrapeRenderer } from './vector-drape-renderer'
 import type { PointRenderer } from './point-renderer'
 import type { LineRenderer } from './line-renderer'
+import { warnStageBlockUnsupported } from './stage-block-warning'
 import {
   bakeTileStrokes,
   emptyBakeStrokeStyle,
@@ -95,6 +96,7 @@ import { mirrorFillRhi, releaseFillRhi } from './fill-rhi-slot'
 import type { GPUTile, LayerDrawPhase } from './vector-tile-renderer-types'
 import { getMaxGpuTiles, uploadBudgetFor } from './vector-tile-renderer-helpers'
 import { UniformRing } from '@xgis/engine'
+import { buildTilePointPackKey, hashStableKeys } from './tile-point-pack-key'
 
 // projType (camera.projType / proj_params.x) → projection registry name,
 // for building the projection-aware `selectorProj`. Index 0 (mercator) and
@@ -1101,7 +1103,7 @@ export class VectorTileRenderer {
       protectedAncestors.length > 0 ? [...neededKeys, ...protectedAncestors] : neededKeys
 
     const fill = resolvedShow.fill ?? (show.fill ? parseHexColor(show.fill) : null)
-    if (!fill) return 0
+    if (!fill) return reportRhiFillGap(show, this.rhi.backend) // #1583 — blank, but loud
     const opacity = resolvedShow.opacity
     const fillA = fill[3] * opacity
     if (fillA <= 0.005) return 0
@@ -1411,19 +1413,17 @@ export class VectorTileRenderer {
         anchor: anchorMap[p.anchor ?? 'repeat'],
       }))
       .filter((p) => p.shapeId > 0)
-    // Mapbox IMAGE line-pattern (#834 M5 slice 5) — render()'s slot reuse
-    // verbatim: fs_line_pattern reads layer.color.r/.a as the x/y repeat
-    // metres and tile.stroke_color as the sprite-atlas UV bbox, so the
-    // pattern show trades its solid stroke colour for the atlas sample.
+    // Mapbox IMAGE line-pattern (#834 M5 slice 5) — render()'s slot reuse verbatim:
+    // fs_line_pattern reads layer.color.r/.a as the x/y repeat metres and tile.stroke_color as
+    // the sprite-atlas UV bbox, so the pattern show trades its solid stroke colour for the atlas.
     const linePatternActive = show.linePatternUV != null && show.linePatternRepeatM != null
     const lineSlotColor: [number, number, number, number] = linePatternActive
       ? [show.linePatternRepeatM![0], 0, 0, show.linePatternRepeatM![1]]
       : [stroke[0], stroke[1], stroke[2], stroke[3]]
-    // Stroke alignment → effective perpendicular offset (render():2274's
-    // derivation verbatim): inset/outset shift by ±half-width, additive with
-    // an explicit stroke-offset-N. The slice-1 hardcoded 0 drew every inset/
-    // outset stroke centred (#834 M5 slice 6, _translucent-outline-parity).
-    // line-gap-width's double-draw stays a follow-up.
+    // Stroke alignment → effective perpendicular offset (render():2274's derivation verbatim):
+    // inset/outset shift by ±half-width, additive with an explicit stroke-offset-N. The slice-1
+    // hardcoded 0 drew every inset/outset stroke centred (#834 M5 slice 6,
+    // _translucent-outline-parity). line-gap-width's double-draw stays a follow-up.
     const explicitOffset = show.strokeOffset ?? 0
     const alignDelta =
       show.strokeAlign === 'inset'
@@ -1435,6 +1435,11 @@ export class VectorTileRenderer {
     // Translucent bucket ('max'): the show's opacity applies ONCE, at
     // composite time — the accumulation draws at 1.0 (render():2269).
     const layerOpacity = mode === 'max' ? 1.0 : opacity
+    warnStageBlockUnsupported(
+      show.targetName,
+      'line',
+      Boolean(show.shaderVariant?.fillExpr || show.shaderVariant?.strokeExpr),
+    )
     const layerOffset = this.lineRenderer.writeLayerSlot(
       lineSlotColor,
       strokeWidthPx,
@@ -1691,12 +1696,8 @@ export class VectorTileRenderer {
     // rAF callback and the JS thread spends ~300 ms per frame in
     // staging-buffer copies. See the upload coordinator's per-frame cap.
     this.resetUploadFrameCap()
-    // Frame tile cache invalidates on each new frame via the
-    // currentFrameId comparison in render(); explicit null isn't
-    // strictly needed, but releasing the GC reference here lets the
-    // previous frame's tile array drop sooner if the ShowCommand
-    // list shrinks (e.g. layer toggle).
-    this._selection.invalidateFrame()
+    // #1581 leg A — no longer clears the frame tile cache every frame; its own
+    // validity check (tile-selection-cache.ts) now detects invalidation on its own.
     // Retired rings are NOT explicitly destroyed: a teardownSource →
     // VTR.destroy or a setBindGroup that captured a ring just before grow
     // can race the destroy ahead of submit → "Buffer vtr-uniform-ring used
@@ -1748,8 +1749,8 @@ export class VectorTileRenderer {
   }
 
   /** Frame-scope anticipatory prefetch. Called by `map.ts:renderFrame`
-   *  exactly ONCE per wall-clock frame (right after the per-source
-   *  `beginFrame` loop), NOT inside `render()` — the bucket scheduler
+   *  exactly ONCE per wall-clock frame (after the frame's draw passes,
+   *  see below), NOT inside `render()` — the bucket scheduler
    *  invokes `render()` per ShowCommand, which on dense styles reaches
    *  ~80 calls per frame; re-firing prefetch in that loop would flood
    *  `_evictShield`, race visible-tile fetches for the catalog's
@@ -1768,10 +1769,10 @@ export class VectorTileRenderer {
     dpr: number,
   ): void {
     if (!this.source) return
-    // We need a populated `_frameTileCache.neededKeys` to do anything
-    // — the cache is filled by the first `render()` call each frame,
-    // so on the very first frame after attach (before any render()
-    // ran) we silently skip and pick up next frame.
+    // Needs `_frameTileCache.neededKeys`, which the frame's draw passes
+    // fill — so the CALLER must pump AFTER them (#1587). This once said
+    // the skip cost only the first frame after attach; it cost EVERY
+    // frame, the pump having run ahead of those passes.
     const cache = this._selection.frameTileCache()
     if (!cache) return
     this.prefetchScheduler.pump(
@@ -2843,17 +2844,13 @@ export class VectorTileRenderer {
         }))
         .filter((p) => p.shapeId > 0)
 
-      // In translucent mode the offscreen RT must hold the FULL color +
-      // stroke alpha (no opacity multiply). The composite step then blends
-      // with the layer opacity. Otherwise we'd double-apply opacity.
-      // In 'strokes' phase the offscreen RT holds the FULL color + stroke
-      // alpha (no opacity multiply). The composite step then blends with the
-      // layer opacity — otherwise we'd double-apply it.
+      // In translucent mode ('strokes' phase) the offscreen RT must hold the FULL color + stroke
+      // alpha (no opacity multiply); the composite step then blends with the layer opacity —
+      // otherwise we'd double-apply it.
       const layerOpacity = phase === 'strokes' ? 1.0 : this.currentOpacity
 
-      // Resolve stroke alignment to an effective offset. Inset/outset
-      // shift by ±half_width; combines additively with explicit
-      // stroke-offset-N (so users can fine-tune around the baseline).
+      // Resolve stroke alignment to an effective offset. Inset/outset shift by ±half_width;
+      // combines additively with explicit stroke-offset-N (fine-tune around the baseline).
       const explicitOffset = show.strokeOffset ?? 0
       const alignDelta =
         show.strokeAlign === 'inset'
@@ -2863,24 +2860,19 @@ export class VectorTileRenderer {
             : 0
       const effectiveOffset = explicitOffset + alignDelta
 
-      // Mapbox line-gap-width: render the line as TWO parallel
-      // strokes with perpendicular offsets ±(gap + stroke) / 2.
-      // OFM Liberty waterway_tunnel is the only fixture hit. Zero or
-      // absent gap stays on the legacy single-line path. The half-
-      // offset is added/subtracted from `effectiveOffset` so existing
-      // alignment + explicit offset stack correctly (a line authored
-      // with stroke-offset-right-2 + line-gap-width:6 + line-width:1
-      // ends up with one stroke at offset 2 + 3.5 = 5.5 and one at
-      // offset 2 − 3.5 = −1.5).
+      // Mapbox line-gap-width: render the line as TWO parallel strokes with perpendicular
+      // offsets ±(gap + stroke) / 2. OFM Liberty waterway_tunnel is the only fixture hit. Zero
+      // or absent gap stays on the legacy single-line path. The half-offset is added/subtracted
+      // from `effectiveOffset` so existing alignment + explicit offset stack correctly (a line
+      // authored with stroke-offset-right-2 + line-gap-width:6 + line-width:1 ends up with one
+      // stroke at offset 2 + 3.5 = 5.5 and one at offset 2 − 3.5 = −1.5).
       const gapWidth = show.strokeGapWidth ?? 0
       const halfGap = gapWidth > 0 ? (gapWidth + strokeWidthPx) / 2 : 0
 
-      // Line-pattern override. When the show has a resolved pattern repeat,
-      // replace strokeColor.r / .a with the x / y repeat metres
-      // (fs_line_pattern reads layer.color.r/.a as repeat axes). The solid
-      // stroke colour is lost on the pattern path, but the sprite atlas
-      // sample provides the visual colour band (mirror of fill-pattern's
-      // fill_color slot reuse).
+      // Line-pattern override. When the show has a resolved pattern repeat, replace
+      // strokeColor.r / .a with the x / y repeat metres (fs_line_pattern reads layer.color.r/.a
+      // as repeat axes). The solid stroke colour is lost on the pattern path, but the sprite
+      // atlas sample provides the visual colour band (mirror of fill-pattern's fill_color reuse).
       const linePatternActive = show.linePatternUV != null && show.linePatternRepeatM != null
       const lineSlotColor: [number, number, number, number] = linePatternActive
         ? [show.linePatternRepeatM![0], 0, 0, show.linePatternRepeatM![1]]
@@ -2891,6 +2883,11 @@ export class VectorTileRenderer {
             this.cachedStrokeColor[3],
           ]
 
+      warnStageBlockUnsupported(
+        show.targetName,
+        'line',
+        Boolean(show.shaderVariant?.fillExpr || show.shaderVariant?.strokeExpr),
+      )
       lineLayerOffset = this.lineRenderer.writeLayerSlot(
         lineSlotColor,
         strokeWidthPx,
@@ -3969,15 +3966,12 @@ export class VectorTileRenderer {
       this.stableKeys = neededKeys
     }
 
-    // GPU cache eviction is deferred to beginFrame() — see the comment
-    // there for why mid-frame eviction races with the bucket scheduler's
-    // multi-render-per-frame pattern. Cache may transiently hold a few
-    // tiles above MAX_GPU_TILES between frames; bounded by the per-frame
-    // upload budget, so memory pressure is unaffected.
+    // GPU cache eviction is deferred to beginFrame() — see the comment there
+    // for why mid-frame eviction races the bucket scheduler's multi-render-
+    // per-frame pattern. Bounded by the per-frame upload budget meanwhile.
 
-    // Render tile-based points via PointRenderer (if available). The WebGPU
-    // frame wraps its native encoder; the single-authority body lives in
-    // emitTilePointsRhi (#1057), shared with the forced-WebGL2 twin.
+    // Tile-based points via PointRenderer (if available); the single-
+    // authority body lives in emitTilePointsRhi (#1057), shared with the twin.
     this.emitTilePointsRhi(
       rhiPass,
       camera,
@@ -3993,34 +3987,18 @@ export class VectorTileRenderer {
   }
 
   /** Accumulate this show's tile-point features and flush them onto `pass`.
-   *  Single authority for both backends (#1057): the WebGPU render() tail hands
-   *  it the chain's RhiRenderPass directly (Inc-2d); the forced-WebGL2 twin (render-loop.ts
-   *  renderFrameViaRhi opaque loop) calls it with its screen RhiRenderPass after
-   *  each show's fills+strokes. Reads `this.stableKeys` — the visible keys set by
-   *  render() (WebGPU) or renderFillsRhi (twin) for THIS frame — and derives
-   *  `sliceLayer` the same way both do. Parity note: the twin's stableKeys is
-   *  neededKeys + protectedAncestors; it omits fallbackKeys (twin runs primary-
-   *  only acquisition — fallback pass reverted in #1140), so mid-load fallback-
-   *  ancestor points can appear on WebGPU but not the twin. See renderFillsRhi's
-   *  assignment site for the full rationale.
+   *  Single authority for both backends (#1057). Reads `this.stableKeys` — the
+   *  visible keys set for THIS frame — and derives `sliceLayer` the same way
+   *  both backends do. Parity note: the twin's stableKeys omits fallbackKeys
+   *  (primary-only acquisition), so mid-load fallback-ancestor points can
+   *  appear on WebGPU but not the twin.
    *
-   *  Tile point vertices are DSFUN stride 5: [mx_h, my_h, mx_l, my_l, feat_id]
-   *  in tile-local Mercator meters. We reconstruct f64-equivalent tile-local
-   *  meters via (h + l) on the TS side and subtract the camera's tile-local
-   *  position to get a small, f32-safe camera-relative offset.
-   *
-   *  Skip when the layer hasn't opted into point rendering (no size, no shape,
-   *  no size expression). PMTiles MVT layers like 'buildings' carry centroid
-   *  Point features alongside polygons — without this guard, a polygon-only
-   *  layer like `layer buildings { | fill-stone-700 stroke-stone-500 stroke-0.5 }`
-   *  would draw circle dots over every building centroid using PointRenderer's
-   *  default style (the user reported these as "POI points appearing without
-   *  being declared"). Detect "this layer authors point style" across every
-   *  SizeValue shape: `sizeValueToShape` collapses 'none' to null and emits a
-   *  typed shape for everything else (constant / data-driven / zoom- / time-
-   *  interpolated), so `paintShapes.size != null` is the single source of truth.
-   *  Keep `show.shape` in the OR — shapes carry point intent independent of a
-   *  declared size (fixture_size_zoom surfaced the zoom-interp gap). */
+   *  Skip when the layer hasn't opted into point rendering — PMTiles MVT
+   *  layers like 'buildings' carry centroid Point features alongside polygons,
+   *  so a polygon-only layer must not draw circle dots over every centroid.
+   *  `paintShapes.size != null` (from `sizeValueToShape`) is the source of
+   *  truth; `show.shape` stays in the OR — shapes carry point intent
+   *  independent of a declared size. */
   emitTilePointsRhi(
     pass: RhiRenderPass,
     camera: Camera,
@@ -4038,15 +4016,36 @@ export class VectorTileRenderer {
       return
     const effectiveSourceLayer = show.sourceLayer || show.targetName || ''
     const sliceLayer = computeSliceKey(effectiveSourceLayer, show.filterExpr?.ast ?? null)
-    // Read ECEF DSFUN stride-9:
-    // [ex_h, ey_h, ez_h, ex_l, ey_l, ez_l, feat_id, abs_lon, abs_lat]
-    // #722 S4 — when the layer authors a data-driven size expression, thread
-    // each point's SOURCE feature properties so flushTilePointsRhi can resolve
-    // the size per feature (fixes #17 size). featureProps is PER-TILE (fid ==
-    // sourceFeatures index within THIS tile), so resolve it here where the
-    // tile's map is in scope — fids collide across tiles, so a single map read
-    // after the accumulation loop would mis-assign props. Constant-size layers
-    // pass undefined → the tile-point path stays byte-identical.
+
+    // #1581 leg B — skip accumulation + repack at a static camera with an
+    // unchanged tile set and style: reuse last frame's packed buffers.
+    const args = {
+      pass,
+      camera,
+      projType,
+      projCenterLon,
+      projCenterLat,
+      canvasWidth,
+      canvasHeight,
+      show,
+      dpr,
+    }
+    const packKey = buildTilePointPackKey(
+      hashStableKeys(this.stableKeys),
+      sliceLayer,
+      show,
+      camera.zoom,
+      camera.pitch,
+    )
+    if (pointRenderer.canSkipTilePointRepack(packKey)) {
+      pointRenderer.redrawTilePointsCached(args)
+      return
+    }
+
+    // Read ECEF DSFUN stride-9: [ex_h,ey_h,ez_h, ex_l,ey_l,ez_l, feat_id, abs_lon,abs_lat]
+    // #722 S4 — thread SOURCE feature props for a data-driven size expression
+    // (fixes #17 size); featureProps is PER-TILE (fids collide across tiles),
+    // so resolved here, not after the loop. Constant-size layers pass undefined.
     const wantsFeatProps = show.sizeExpr?.ast != null
     for (const key of this.stableKeys) {
       const tileData = this.source!.getTileData(key, sliceLayer)
@@ -4082,6 +4081,7 @@ export class VectorTileRenderer {
       canvasHeight,
       show,
       dpr,
+      packKey,
     )
   }
 
