@@ -547,6 +547,27 @@ export const DEMOS_FIXTURES: Record<string, Demo> = {
       'The same scene with the colour written as an ordinary fill utility — must render pixel-identical to fixture_stage_color.',
     source: load('fixture-stage-color-twin.xgis'),
   },
+  fixture_stage_line_color: {
+    name: 'Fixture: @stroke stage block on line (#1605)',
+    tag: 'fixture',
+    description:
+      'A constant `@stroke` colour authored directly as a vec4 on a line layer. CPU-folded (does not exercise the new WGSL composer). Pixel-parity twin: fixture_stage_line_color_twin (_stage-block-line-parity.spec.ts).',
+    source: load('fixture-stage-line-color.xgis'),
+  },
+  fixture_stage_line_color_twin: {
+    name: 'Fixture: @stroke stage block on line, utility twin (#1605)',
+    tag: 'fixture',
+    description:
+      'The same scene with the stroke colour written as an ordinary stroke utility — must render pixel-identical to fixture_stage_line_color.',
+    source: load('fixture-stage-line-color-twin.xgis'),
+  },
+  fixture_stage_line_color_zoom: {
+    name: 'Fixture: @stroke stage block on line, zoom-driven (#1605)',
+    tag: 'fixture',
+    description:
+      'A NON-constant `@stroke` body (reads zoom) — the one that actually exercises the line composer seam. WebGPU-only; not CI-checkable (no software WebGPU adapter). Zoom in/out to see the stroke colour shift.',
+    source: load('fixture-stage-line-color-zoom.xgis'),
+  },
   fixture_input_live: {
     name: 'Fixture: `input` host contract (#1539)',
     tag: 'fixture',

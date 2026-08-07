@@ -85,6 +85,42 @@ describe('stage block lowering (#1538)', () => {
     expect(nodeToWgslString(v.strokeExpr!)).toContain('vec4')
   })
 
+  // #1605 Phase 1 pin: line's toComposerLineVariant (map/src/render/
+  // line-shader-cache.ts) depends on this EXACT contract for a feature-free
+  // (no `.field` read) @stroke body — a zoom-only expression must populate
+  // strokeExpr, with strokeIsDefault=false and needsFeatureBuffer=false, so
+  // the runtime's feature-free-only gate accepts it. generateShaderVariant is
+  // geometry-kind-agnostic (§0 of this file's header), so this fixture needs
+  // no `type: line` declaration to exercise the same slot line's renderer reads.
+  it('a feature-free (zoom-only) @stroke body is stroke-real and buffer-free', () => {
+    const scene = lower(parse(SCENE('@stroke { return vec4(zoom / 22, 0.2, 0.1, 1) }')))
+    expect(scene.diagnostics?.filter((d) => d.severity === 'error')).toEqual([])
+    const v = generateShaderVariant(scene.renderNodes[0]!)
+    expect(v.strokeExpr).not.toBeNull()
+    expect(v.strokeIsDefault).toBe(false)
+    expect(v.needsFeatureBuffer).toBe(false)
+    expect(v.strokeIsStage).toBe(true)
+  })
+
+  // #1605 PR B round-1 regression: an ORDINARY stroke utility (no @stroke
+  // block at all) also gets strokeExpr populated + strokeIsDefault=false —
+  // the compiler composes an expression for every real layer regardless of
+  // stage blocks (shader-gen.ts:127). toComposerLineVariant must gate on
+  // strokeIsStage, not on strokeExpr/strokeIsDefault, or it wrongly routes
+  // every ordinary stroke through the new composer seam.
+  it('an ordinary stroke utility (no @stroke block) is strokeIsStage=false', () => {
+    const scene = lower(
+      parse(`
+source w { type: geojson, url: "w.geojson" }
+layer l { source: w  | fill-slate-800 stroke-amber-300 stroke-12 }
+`),
+    )
+    const v = generateShaderVariant(scene.renderNodes[0]!)
+    expect(v.strokeExpr).not.toBeNull()
+    expect(v.strokeIsDefault).toBe(false)
+    expect(v.strokeIsStage).toBe(false)
+  })
+
   it('a user fn is usable inside a stage block (inlined before lowering)', () => {
     const scene = lower(
       parse(

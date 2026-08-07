@@ -16,7 +16,7 @@ import type {
 } from '@xgis/engine'
 import { wrapWebGpuBindGroupLayout } from '@xgis/rhi-webgpu'
 import { Material, executeItems } from '@xgis/engine'
-import { emitLineWgsl } from '../../shaders/dsl/line'
+import { emitLineWgsl, type LineVariantSpec } from '../../shaders/dsl/line'
 import { emitLineGlsl } from '../../shaders/dsl/line-glsl'
 import { wgslFor } from './wgsl-for'
 
@@ -102,6 +102,13 @@ export class LineDraper {
     private readonly sampleCount: number,
     private readonly tileLayout: GPUBindGroupLayout,
     private readonly layerLayout: GPUBindGroupLayout,
+    /** A feature-free `@stroke` composer variant (#1605), or null for the
+     *  default per-segment-override / layer-colour stroke. Threaded into
+     *  ALL THREE materials below (main, maxMat, bakeMat) — missing any one
+     *  would silently revert that draw mode's colour to the default for a
+     *  variant-carrying layer (translucent-opacity strokes and globe-drape
+     *  strokes both call compute_line_color same as the main material). */
+    private readonly variant: LineVariantSpec | null = null,
   ) {
     this.material = this.buildMaterial(false)
   }
@@ -112,9 +119,14 @@ export class LineDraper {
     // wrapped. Pick stays WebGPU-only (fail-closed on WebGl2Device).
     const gl2 = this.rhi.backend === 'webgl2'
     return new Material(this.rhi, {
-      shader: wgslFor(this.rhi, () => emitLineWgsl(null, pick)),
+      shader: wgslFor(this.rhi, () => emitLineWgsl(this.variant, pick)),
       vsEntry: 'vs_line',
       fsEntry: 'fs_line',
+      // WebGL2 twin stays on the base (null) shader for variant pipelines this
+      // slice — #1605 Phase 3 threads `this.variant` here too, once WebGL2
+      // parity lands. LineRenderer never constructs a non-null-variant
+      // LineDraper on the webgl2 backend, so this hardcoded null never
+      // diverges from what actually renders.
       vsCode: gl2 ? emitLineGlsl(null, pick, 'vertex') : undefined,
       fsCode: gl2 ? emitLineGlsl(null, pick, 'fragment') : undefined,
       format: this.format as 'bgra8unorm',
@@ -153,7 +165,7 @@ export class LineDraper {
   private maxMat(): Material {
     const gl2 = this.rhi.backend === 'webgl2'
     return (this._maxMaterial ??= new Material(this.rhi, {
-      shader: wgslFor(this.rhi, () => emitLineWgsl(null, false)),
+      shader: wgslFor(this.rhi, () => emitLineWgsl(this.variant, false)),
       vsEntry: 'vs_line',
       fsEntry: 'fs_line_max',
       vsCode: gl2 ? emitLineGlsl(null, false, 'vertex') : undefined,
@@ -182,7 +194,7 @@ export class LineDraper {
    *  depthWrite false (inert, matches the fill bake). WebGPU-only (the bake is WebGPU-only). */
   private bakeMat(): Material {
     return (this._bakeMaterial ??= new Material(this.rhi, {
-      shader: emitLineWgsl(null, false),
+      shader: emitLineWgsl(this.variant, false),
       vsEntry: 'vs_line',
       fsEntry: 'fs_line',
       format: this.format as 'bgra8unorm',

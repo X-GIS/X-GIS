@@ -170,7 +170,15 @@ const CEILINGS: Record<string, number> = {
   // twin-era prose); kept this branch's wording, which is longer because it names the
   // twin's actual #1046 Track A1 replacement (the WebGL2 immediate arm) instead of
   // main's still-twin-shaped phrasing.
-  'map/src/render/vector-tile-renderer.ts': 4828,
+  // 4828→4863 (#1605 Phase 1 PR B, measured post-prettier per §12): thread
+  // show.shaderVariant into the SDF line draw dispatch (2 drawSegmentsRhi call
+  // sites in renderLinesRhi + a new lineVariant param on renderTileKeys, kept
+  // TRAILING rather than mid-list so reflection-based unit tests calling this
+  // private method positionally don't shift, threaded to its 6 call sites and
+  // 2 drawSegments calls), and narrow the two warnStageBlockUnsupported('line',
+  // ...) call sites to the genuinely-rejected case now that a feature-free
+  // @stroke expression is actually consumed.
+  'map/src/render/vector-tile-renderer.ts': 4863,
   // 4232→4237 (#1000 heatmap relocate): the heatmap density-target OWNERSHIP
   // extracted to render/heatmap-targets.ts; map keeps only the irreducible
   // composition-root wiring — the `heatmapTargets` field + its import (mirrors
