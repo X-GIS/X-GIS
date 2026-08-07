@@ -557,7 +557,11 @@ const CEILINGS: Record<string, number> = {
   // this branch's twin-deletion shrink and main's stage-block-drop warning (+1 net, which
   // fit under main's own looser 5411) land in different regions of the same file, so the
   // ceiling is the MERGED file's measured size, never either side's number.
-  'map/src/map.ts': 5410,
+  // 5410→5418 (#1605 Phase 2 PR B): the point runtime-wiring import + the narrowed
+  // warnStageBlockUnsupported gate (toComposerPointVariant local + fillIsStage/
+  // strokeIsStage condition) + the trailing shaderVariant arg on pointRenderer.addLayer —
+  // mirrors line's own Phase 1 wiring at this same call site.
+  'map/src/map.ts': 5418,
   // Baselined at #1255 (measured 830): the DOM-inspired layer API crossed
   // NEW_FILE_CAP with the paint-transition style-setter integration — the
   // StyleHost.transitions context, the shared applyNumber/applyColor
@@ -1096,11 +1100,17 @@ const CEILINGS: Record<string, number> = {
   // refresh/draw tail into tile-point-pack-key.ts + tile-point-draw.ts (this file keeps
   // only canSkipTilePointRepack + the two callers) — a genuine shrink, not this branch's
   // doing (its own delta on this file was a same-length comment reword, 0 net lines).
+  // 1167→1197 (#1605 Phase 2 PR B): the variant-keyed _pointDrapers Map replacing the
+  // single _pointDraper field, ensurePointDraper's WebGL2-forced-base-variant + cache-key
+  // logic, the two call-site updates, and addLayer's trailing shaderVariant param —
+  // mirrors LineRenderer's own Map<string, LineDraper> cache (#1605 Phase 1 Step 3).
+  // Merge union (#1616 <- main): the two sides edited disjoint regions, so they SUM —
+  // 1197 + 1 = 1198, measured on the merged file, not picked from either side.
   // 1167→1168 (#1616): `pointWorldCopies` now returns the shared `SINGLE_COPY` off
   // Mercator instead of a fresh `[0]`. +1 is the import; the allocation it removes is
   // per point-show per frame on the #1581 cache-HIT path, whose whole purpose is to
   // allocate nothing — this commit is what made that path call it every frame.
-  'map/src/render/point-renderer.ts': 1168,
+  'map/src/render/point-renderer.ts': 1198,
   // 1106→1120 (#1043 state-hygiene): three unmask-before-clear / state-reset fixes for the
   // WebGL2 flicker class — beginScreenPass colorMask unmask (the colour sibling of #746/#780),
   // dispatchComputeToR32UI viewport snapshot+restore, and the setPipeline no-depth arm's
