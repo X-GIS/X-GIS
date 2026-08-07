@@ -71,6 +71,11 @@ export class TileCatalog {
   private index: XGVTIndex | null = null
   /** #1581 — entries only ever grow; lets a memo invalidate a landed tile. */
   indexGeneration = (): number => this.index?.entryByHash.size ?? 0
+  /** #1616 — bumps on every OVERWRITE of a cached slice (paired with `_replacedKeys`).
+   *  `indexGeneration` only grows with NEW entries, so a re-tile of a key already held
+   *  is invisible to it. Counts replacements — rely only on "differs from last frame". */
+  private _contentGeneration = 0
+  contentGeneration = (): number => this._contentGeneration
   /** In-memory compiled-tile store + byte accounting. Extracted to
    *  TileDataCache (redesign §3.5): owns the per-(tile key, source-
    *  layer) TileData map, the cumulative byte total, and the
@@ -381,6 +386,7 @@ export class TileCatalog {
     // the renderer swaps (or drops) the tile it is currently drawing.
     if (this._pendingRefresh.delete(key) && this.cache.has(key)) {
       this._replacedKeys.add(key)
+      this._contentGeneration++ // #1616 — paired with every _replacedKeys.add
       this.deleteCacheEntry(key)
     }
     if (!result) {
@@ -1226,7 +1232,10 @@ export class TileCatalog {
     // #1371 — record an OVERWRITE (a re-tile of a key we already served) before the write, so
     // the renderer can swap that tile's GPU buffers instead of being blanked. A first write is
     // not a replacement: nothing was drawing this key yet.
-    if (this.hasTileData(key, sourceLayer)) this._replacedKeys.add(key)
+    if (this.hasTileData(key, sourceLayer)) {
+      this._replacedKeys.add(key)
+      this._contentGeneration++ // #1616 — paired with every _replacedKeys.add
+    }
     this.setSlice(key, sourceLayer, data)
     try {
       this.onTileLoaded?.(key, data, sourceLayer)

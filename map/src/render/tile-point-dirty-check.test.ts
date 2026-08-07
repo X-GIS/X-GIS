@@ -105,6 +105,8 @@ describe('tile-point dirty-check gate (#1581 leg B, GPU-free)', () => {
       show,
       camera.zoom,
       camera.pitch,
+      0, // contentGeneration — no tile replaced in this scenario (#1616)
+      0b00100, // worldCopyMask — copy 0 only (#1616)
     )
 
     const encoder = (
@@ -148,6 +150,8 @@ describe('tile-point dirty-check gate (#1581 leg B, GPU-free)', () => {
       changedShow,
       camera.zoom,
       camera.pitch,
+      0,
+      0b00100,
     )
     expect(renderer.canSkipTilePointRepack(key2)).toBe(false)
     addPoint(renderer, 10, 30)

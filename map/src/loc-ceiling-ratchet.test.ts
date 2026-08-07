@@ -893,7 +893,14 @@ const CEILINGS: Record<string, number> = {
   // measurement that found the bug — the part a future reader needs most. Measured post-hook.
   // 1384→1383 (merge union <- main): a one-line shrink banked honestly rather than left
   // as silent headroom — the ratchet passes on shrinkage, so this would never have failed.
-  'data/src/tile-catalog.ts': 1383,
+  // 1383→1392 (#1616): `contentGeneration()` — the signal `indexGeneration` structurally
+  // cannot carry, since index entries only GROW and a re-tile of an already-held key moves
+  // neither them nor the selected key set. RAISED, same shape as the #1448 entry above: a
+  // counter field + a one-line accessor have nowhere cohesive to extract to, and the bumps
+  // must sit inline at both `_replacedKeys.add` sites (a helper wrapping the pair measured
+  // LONGER than the two inline bumps). +9 = field + accessor + 3 doc lines + the two guarded
+  // bumps, one of which turns a single-line `if` into a block. Measured post-hook.
+  'data/src/tile-catalog.ts': 1392,
   // 1173→1180 (#1046 F1): thread the required `rhi: RhiDevice` onto the FrameContext at
   // both build sites — the main-chain init literal and the twin label stage — so a seam
   // can reach `ctx.rhi.caps.*` (doc §3-F1). +7 = two assignments + their rationale comments;
