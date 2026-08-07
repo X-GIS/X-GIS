@@ -1,0 +1,18 @@
+xgis 1
+
+/* Fixture: utility-authored twin of fixture-stage-point-color.xgis (#1605).
+ * Identical scene, the same colour written the ordinary way — the render
+ * gate asserts the stage block reaches the exact same pixels.
+ * #cc6633 == vec4(0.8, 0.4, 0.2, 1) exactly at 8-bit (204, 102, 51). */
+
+source p {
+  type: geojson
+  data: { "type": "FeatureCollection", "features": [
+    { "type": "Feature", "geometry": { "type": "Point", "coordinates": [0, 0] }, "properties": {} }
+  ] }
+}
+
+layer painted {
+  source: p
+  | fill-#cc6633 size-40
+}
