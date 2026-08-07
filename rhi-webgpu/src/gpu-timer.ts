@@ -253,6 +253,15 @@ export class GPUTimer {
     return beginTimedPass(this, enc, desc)
   }
 
+  /** RHI form of `resolveOnEncoder` (#1046 F4 Inc-B — the `markRhi` precedent):
+   *  every early-out runs BEFORE the unwrap, so a disabled timer — or a frame
+   *  encoder that is not WebGPU-backed once the chain runs on WebGl2Device —
+   *  is a no-op, never an unwrap error. */
+  resolveOnRhi(enc: RhiCommandEncoder): void {
+    if (!this.enabled || !this.querySet || !this.resolveBuf) return
+    this.resolveOnEncoder(unwrapWebGpuCommandEncoder(enc))
+  }
+
   /** Encode resolveQuerySet + copyBufferToBuffer into the frame's
    *  command encoder. MUST be called AFTER all sub-pass.end() calls
    *  and BEFORE encoder.finish(). Picks the next IDLE slot; skips

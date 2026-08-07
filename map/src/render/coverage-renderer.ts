@@ -178,6 +178,12 @@ export interface CoverageArmOptions {
   hidden?: boolean
 }
 
+/** The empty answer from `flowFields()` / the flow pass's own fallback — shared
+ *  because the pass declares every frame and a per-frame `new Map()` on every
+ *  coverage-less map is pure garbage (#1046 Inc-F2c). Exposed as ReadonlyMap so
+ *  sharing cannot become aliasing. */
+export const NO_FLOW_FIELDS: ReadonlyMap<string, FlowFieldRegion> = new Map()
+
 export class CoverageRenderer {
   private readonly rhi: RhiDevice
   private readonly format: string
@@ -451,7 +457,12 @@ export class CoverageRenderer {
    *  advected batch, and an arrow is coloured, turned and scaled every frame by the water it is
    *  standing in. Handing them all the FIRST region's field made a sibling domain report another
    *  domain's current — from frame zero, invisible to any coverage metric (#1458). */
-  flowFields(): Map<string, FlowFieldRegion> {
+  flowFields(): ReadonlyMap<string, FlowFieldRegion> {
+    // The flow pass declares EVERY frame now, including on maps that will never
+    // have a coverage (#1046 Inc-F2c) — so the empty answer must not mint a Map
+    // per frame. Returning the shared instance is safe by CONSTRUCTION, not by
+    // convention: the return type is ReadonlyMap, so no caller can write to it.
+    if (this.states.size === 0) return NO_FLOW_FIELDS
     const out = new Map<string, FlowFieldRegion>()
     for (const region of this.states.keys()) {
       const f = this.flowField(region)

@@ -31,6 +31,12 @@ import {
 import { ComputeDispatcher } from '@xgis/rhi-webgpu'
 import { ComputeLayerRegistry } from '@xgis/map'
 import { extendBindGroupLayoutEntriesForCompute } from '@xgis/rhi-webgpu'
+import type { RhiCommandEncoder } from '@xgis/engine'
+
+// #1046 F4 Inc-C harness shim: the dispatch thread is RHI-typed now; the fake
+// native encoder rides behind the one unwrap surface the adapter reads.
+const asRhiEnc = (e: GPUCommandEncoder): RhiCommandEncoder =>
+  ({ nativeEncoder: e }) as unknown as RhiCommandEncoder
 
 beforeAll(() => {
   if (typeof globalThis.GPUBufferUsage === 'undefined') {
@@ -237,7 +243,7 @@ describe('continent-match.xgis — renderer wire-up against fake GPU', () => {
     )
 
     // Per-frame dispatch.
-    registry.dispatchAll(encoder)
+    registry.dispatchAll(asRhiEnc(encoder))
     expect(dispatches).toHaveLength(1)
     expect(dispatches[0]!.entryPoint).toBe('eval_match')
     // 200 / 64 = 4 workgroups.

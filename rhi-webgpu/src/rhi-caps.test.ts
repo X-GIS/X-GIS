@@ -98,9 +98,10 @@ describe('RhiCaps — WebGl2Device truths + float-blend detection (#1046 F1)', (
     expect(caps.compute).toBe('fragment-emulated')
     expect(caps.timestampQuery).toBe(false)
     expect(caps.executionModel).toBe('immediate')
-    // False until #991 P4/P5 lands the chain's loop tail on this backend — the
-    // instance value that keeps `?rhichain=1` a safe no-op (#1046 Inc-4).
-    expect(caps.chainFrame).toBe(false)
+    // TRUE since the Inc-E2 flip (#1046 F4): the loop tail landed on the RHI
+    // (Inc-A..D + E1), so this device hosts the whole chain frame — the only
+    // frame shape on WebGL2 since the twin's deletion (Inc-F3a).
+    expect(caps.chainFrame).toBe(true)
     // Requires the split GLSL sources and never reads `code` — createPipeline fail-louds
     // on a WGSL-only desc (createpipeline-dual-source-guard.test.ts asserts both halves).
     expect(caps.shaderLanguage).toBe('glsl-es300')
@@ -123,5 +124,20 @@ describe('RhiCaps — cross-backend shape (#1046 F1)', () => {
     const webgl2: RhiCaps = new WebGl2Device(fakeGl([])).caps
     expect(webgpu.compute).toBe('native')
     expect(webgl2.compute).toBe('fragment-emulated')
+  })
+
+  it('the pick pair is COHERENT: no continuous pick MRT ⇒ synchronous on-demand readback', () => {
+    // The two caps are one decision seen from both ends (#1046 Inc-F, rhi.ts):
+    // `presentablePassMrt` tells the frame wiring whether to allocate/attach a
+    // continuous pick target, `pickReadback` tells the interaction controller how a
+    // texel comes back. A device answering false/'async' would ask the controller to
+    // read a texture the wiring never allocated — a null pick with no error, which is
+    // exactly the silent-death class this increment closed on the chain arm.
+    for (const caps of [
+      new WebGpuDevice(fakeGpuDevice([])).caps,
+      new WebGl2Device(fakeGl([])).caps,
+    ] as RhiCaps[]) {
+      if (!caps.presentablePassMrt) expect(caps.pickReadback).toBe('sync')
+    }
   })
 })

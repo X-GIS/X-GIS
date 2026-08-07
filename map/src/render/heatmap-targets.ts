@@ -10,11 +10,12 @@
 //   - accum : r16float density-accumulation target (additive Gaussian splats)
 //   - blur  : r16float ping-pong target for the separable Gaussian
 //
-// One RHI target set serves BOTH frame shapes (#1046 F3b Inc-2c): the chain's
-// renderChainRhi and the forced-WebGL2 twin's renderRhi allocate through the
-// neutral `RhiDevice` texture primitives — the backend never learns what a
-// heatmap is. (The former parallel NATIVE createRenderTarget pair retired with
-// the native heatmap-pass body; this file no longer touches @xgis/rhi-webgpu.)
+// One RHI target set (#1046 F3b Inc-2c): HeatmapRenderer.renderChainRhi
+// allocates through the neutral `RhiDevice` texture primitives — the backend
+// never learns what a heatmap is. (The former parallel NATIVE
+// createRenderTarget pair retired with the native heatmap-pass body; this file
+// no longer touches @xgis/rhi-webgpu. A forced-WebGL2 twin frame used to share
+// this same target set through a second entry point that #1046 Inc-F3b deleted.)
 
 import type { RhiDevice, RhiTexture, RhiTextureView } from '@xgis/engine'
 

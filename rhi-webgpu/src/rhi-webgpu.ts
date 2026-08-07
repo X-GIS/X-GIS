@@ -252,6 +252,16 @@ export function unwrapWebGpuBuffer(buffer: RhiBuffer): GPUBuffer {
   return u<GPUBuffer>(buffer)
 }
 
+/** Recover the native `GPUTexture` from an RHI texture — the inverse of the
+ *  device's `createTexture` wrap, mirroring `unwrapWebGpuBuffer`. Used at the
+ *  one raw readback sink that outlived the RenderTargets retype (#1046 F4
+ *  Inc-D): the pick `copyTextureToBuffer` + `mapAsync` path in
+ *  interaction-controller, which stays raw WebGPU until the RHI readback seam
+ *  (G4/P7). Identity on WebGPU — the same `GPUTexture` the wrap holds. */
+export function unwrapWebGpuTexture(texture: RhiTexture): GPUTexture {
+  return u<GPUTexture>(texture)
+}
+
 /** Adopt an externally-created bind-group layout (line reuses the VTR tile layout
  *  so its pipeline is layout-compatible with VTR-built tile bind groups). */
 export function wrapWebGpuBindGroupLayout(layout: GPUBindGroupLayout): RhiBindGroupLayout {
@@ -353,7 +363,15 @@ export function unwrapWebGpuCommandEncoder(enc: RhiCommandEncoder): GPUCommandEn
 export function unwrapWebGpuPass(
   pass: RhiRenderPass,
 ): GPURenderPassEncoder | GPURenderBundleEncoder {
-  return (pass as WebGpuRenderPass).nativePass
+  // Fail LOUD at the boundary (#1046 Inc-E2, arch review F3): a foreign
+  // wrapper (a WebGl2 pass) used to unwrap to silent `undefined` and crash
+  // far away at the first native method call — the exact failure shape of
+  // every native-bodied terminal reached on a non-WebGPU backend.
+  if (!(pass instanceof WebGpuRenderPass))
+    throw new Error(
+      'unwrapWebGpuPass: not a WebGPU pass wrapper — a native-bodied terminal was reached on a non-WebGPU backend (port it to the *Rhi entries, #1046 Inc-E2)',
+    )
+  return pass.nativePass
 }
 
 /** Recover the native `GPUTextureView` from an RHI view — used by the F2 frame
@@ -418,6 +436,16 @@ export class WebGpuDevice implements RhiDevice {
     if (this._frameEncoder) this._frameEncoder.rebind(enc)
     else this._frameEncoder = new WebGpuCommandEncoder(this.device, { own: enc })
     return this._frameEncoder
+  }
+
+  pushValidationScope(): void {
+    this.device.pushErrorScope('validation')
+  }
+
+  popValidationScope(): Promise<string | null> {
+    // Message-or-null; a REJECTED pop passes through untouched (Audit ⑧ B2 —
+    // the caller's rejected-pop arm is a real fault signal, never swallowed).
+    return this.device.popErrorScope().then((e) => e?.message ?? null)
   }
 
   createCommandEncoder(label?: string): RhiCommandEncoder {

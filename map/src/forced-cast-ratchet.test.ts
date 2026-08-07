@@ -113,7 +113,7 @@ const BASELINE: Record<string, number> = {
   'map/src/feature-update-queue.ts': 1,
   'map/src/layer.ts': 1,
   'map/src/map.ts': 6,
-  'map/src/render-loop.ts': 3,
+  'map/src/render-loop.ts': 2,
   'map/src/render/line-renderer.ts': 1,
   'map/src/render/passes/label-pass.ts': 1,
   'map/src/render/pipeline-factory.ts': 1,

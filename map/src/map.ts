@@ -56,7 +56,7 @@ import { canvasEffectiveDpr, getSampleCount } from '@xgis/engine'
 // #834 M-B2 — the neutral surface (BackendChoice = public XGISMapOptions.backend
 // type; RhiDeviceLostInfo = onDeviceLost payload) comes from @xgis/engine, not
 // the concrete backend. GPUContext + boot providers stay on rhi-webgpu (Layer 2).
-import type { BackendChoice, RhiDeviceLostInfo } from '@xgis/engine'
+import type { BackendChoice, RhiDeviceLostInfo, RhiTexture } from '@xgis/engine'
 import { WebGPUUnavailableError, type GPUContext } from '@xgis/rhi-webgpu'
 import { bootGpuContext, type GpuBootDeps } from './gpu-boot'
 import { QUALITY, updateQuality, type QualityConfig } from '@xgis/engine'
@@ -682,27 +682,25 @@ export class XGISMap {
   }
 
   // GPU render-target texture lifecycle (stencil / msaa / OIT accum +
-  // revealage / offscreen-extrude depth / overdraw accumulator / pick),
-  // including their recreate-on-resize gate. Extracted into RenderTargets
-  // (render/render-targets.ts) — RenderLoop reads its textures via
-  // FrameContext.rt; the pick path reads `pickTexture` (getter below).
-  // Constructed lazily-by-ctx-accessor so it survives ctx reassignment in
-  // run(). Instantiated alongside renderLoopInstance in the constructor.
+  // revealage / offscreen-extrude depth / overdraw accumulator / pick) with
+  // the recreate-on-resize gate — RenderTargets (@xgis/rhi-webgpu). RenderLoop
+  // reads it via FrameContext.rt; the pick path via `pickTexture` below.
+  // Ctx-accessor construction so it survives ctx reassignment in run().
   renderTargets: RenderTargets = new RenderTargets(() => this.ctx)
 
   // Heatmap density targets (accum+blur) — data-viz content the content layer
   // owns (#1000); drives the backend's generic render-target primitive.
   heatmapTargets: HeatmapTargets = new HeatmapTargets()
 
-  // Pick (GPU hover/click) — secondary color attachment that every main-pass
-  // pipeline writes `vec2<u32>(feature_id, instance_id)` into. 1-tex design
-  // with RG32Uint keeps per-pass overhead to a single extra color-attachment
-  // descriptor and 8 bytes/pixel of VRAM. OPT-IN: allocated only when picking
-  // is on (render-targets.ts `pickEnabled ? createTexture : null`) and every
-  // quality preset ships `picking: false`, so this is NULL by default and
-  // `pickAt` short-circuits before its readback. Single-sample regardless of
-  // SAMPLE_COUNT — picking wants deterministic, non-resolved IDs.
-  get pickTexture(): GPUTexture | null {
+  // Pick (GPU hover/click) — the secondary color attachment every main-pass
+  // pipeline writes `vec2<u32>(feature_id, instance_id)` into. 1-tex RG32Uint:
+  // one extra attachment descriptor + 8 B/px of VRAM. OPT-IN (render-targets
+  // `pickEnabled ? createTexture : null`): every quality preset ships
+  // `picking: false`, so this is NULL by default and `pickAt` short-circuits
+  // before its readback. Single-sample regardless of SAMPLE_COUNT — picking
+  // wants deterministic, non-resolved IDs. RHI handle since Inc-D (#1046
+  // F4); the raw readback unwraps it at the adapter.
+  get pickTexture(): RhiTexture | null {
     return this.renderTargets.pickTexture
   }
 
@@ -1303,6 +1301,8 @@ export class XGISMap {
       getCtx: () => (this._destroyed ? null : this.ctx),
       getPickTexture: () => this.pickTexture,
       getPickTextureDevice: () => this.renderTargets.device,
+      // Pick RT size — opaque RhiTexture; #1429 authority = the RT's tracker.
+      getPickTextureSize: () => this.renderTargets.pickSize(),
       getProjectionName: () => this.projectionName,
       getVectorTileShows: () => this.vectorTileShows,
       // #834 M5 s6 — the forced-WebGL2 on-demand pick pass (offscreen
@@ -1609,8 +1609,7 @@ export class XGISMap {
 
   /** Per-frame count of tiles the map is still waiting on: vector-tile cells
    *  without a drawable tile this frame PLUS raster/hillshade tiles mid-fetch.
-   *  Written by BOTH render paths (the WebGPU render-loop's end-of-frame
-   *  bookkeeping and the forced-WebGL2 `renderFrameViaRhi`) as the sum of the
+   *  Written by the render-loop's end-of-frame bookkeeping as the sum of the
    *  same three signals the loop ORs into its keep-warm `_needsRender` gate, so
    *  it settles to 0 exactly when the scene converges. Public-by-convention (no
    *  `private`) so `RenderLoopHost` can Pick it for the write. */

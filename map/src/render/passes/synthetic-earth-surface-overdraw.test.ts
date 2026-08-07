@@ -3,7 +3,7 @@
 // Verifies that SyntheticEarthSurfaceBackend emits vertices that are
 // consumed by the standard VTR polygon dispatch path — the same path
 // that the bucket scheduler's draw closure overrides with
-// fillPipelineOverdraw / fs_overdraw when DEBUG_OVERDRAW is active.
+// fillPipelineOverdraw / fs_overdraw when overdraw is active.
 // Because the synthetic backend produces
 // a standard BackendTileResult (same shape as any polygon tile), the
 // overdraw accumulator sees exactly one additive r16float write per
@@ -176,10 +176,10 @@ describe('AC2c.3.7 — buildSyntheticEarthSurfaceShow routes through ground (2D)
 // ─────────────────────────────────────────────────────────────────────────────
 
 describe('AC2c.3.7 — overdraw override is unconditional (no synthetic exclusion)', () => {
-  it('the draw closure selects debugFp for every show when DEBUG_OVERDRAW is active', () => {
-    // The bucket scheduler bakes the override into each show's draw
-    // closure:
-    //   const debugFp = DEBUG_OVERDRAW ? (bgl === featureLayout ? … : …) : null
+  it('the draw closure selects debugFp for every show when overdraw is active', () => {
+    // The bucket scheduler resolves the override inside each show's draw
+    // closure, per draw() call (#1594):
+    //   const debugFp = isOverdrawActive(caps) ? (bgl === featureLayout ? … : …) : null
     // There is NO early-return, layer-name guard, or source-name guard
     // that would bypass the override for the synthetic show. Structural
     // check: neither the scheduler nor the opaque pass references a
@@ -192,7 +192,7 @@ describe('AC2c.3.7 — overdraw override is unconditional (no synthetic exclusio
     }
   })
 
-  it('the draw closure replaces fp with debugFp when DEBUG_OVERDRAW is truthy', () => {
+  it('the draw closure replaces fp with debugFp when overdraw is active', () => {
     // The pattern: `const drawFp = debugFp ?? fp` — debugFp shadows the
     // layer's own fill pipeline for every show, including the synthetic one.
     expect(BUCKET_SCHEDULER_SRC).toContain('const drawFp = debugFp ?? fp')

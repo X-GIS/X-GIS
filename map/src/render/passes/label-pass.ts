@@ -18,7 +18,6 @@
 
 import { evaluate, makeEvalProps, resolveColor } from '@xgis/compiler'
 import { markStart as perfMarkStart, markEnd as perfMarkEnd } from '../../__profile__/perf-marks'
-import { DEBUG_OVERDRAW } from '../../debug-flags'
 import { WORLD_MERC } from '@xgis/geo'
 import { activeBody } from '@xgis/shared'
 import { mercatorYToLat } from '@xgis/geo'
@@ -1955,42 +1954,34 @@ class LabelPass implements RenderPass {
         iStage?.prepare(holdoverOk, motionHoldover)
       }
       perfMarkEnd('encoder.stage-prepare')
-      // Text overlay v1: skipped in debug=overdraw — text pipeline
-      // targets the swapchain format, not r16float. Phase 2 adds
-      // a text debug pipeline so glyph + halo overdraw counts.
-      if (!DEBUG_OVERDRAW) {
-        if (ctx.rhiPass) {
-          // Forced-WebGL2 frame (#834 M5 slices 3-4): draw on the live RHI
-          // screen pass — the twin frame holds its ONE pass open, so this
-          // arm originates nothing. Icons BEFORE text, matching the chain
-          // ordering below. Dies with the twin (#1046 Inc-4).
-          iStage?.render(ctx.rhiPass, { width: ctx.screen.w, height: ctx.screen.h }, labelReplay)
-          stage.render(ctx.rhiPass, { width: ctx.screen.w, height: ctx.screen.h }, labelReplay)
-        } else {
-          // F3b: originate through the RHI frame encoder — on WebGPU this
-          // maps to the identical native descriptor (rhiRenderPassToGpu
-          // parity), and it is what lets this pass execute on WebGL2 once
-          // the chain flips. Last colour writer of the frame ⇒ it claims
-          // the conditional MSAA resolve.
-          const { enc, screenView, colorViewScreen } = requireRhiFrame(ctx, 'labels')
-          ctx.passScope('text-overlay', () => {
-            const tPass = enc.beginRenderPass({
-              colorAttachments: [
-                {
-                  view: colorViewScreen,
-                  resolveTarget: ctx.useResolve ? screenView : undefined,
-                  loadOp: 'load',
-                  storeOp: 'store',
-                },
-              ],
-            })
-            // Icons render BEFORE text so labels read on top of their
-            // POI badges — matches MapLibre's symbol-stage ordering.
-            iStage?.render(tPass, { width: ctx.screen.w, height: ctx.screen.h }, labelReplay)
-            stage.render(tPass, { width: ctx.screen.w, height: ctx.screen.h }, labelReplay)
-            tPass.end()
+      // Text overlay v1: skipped in debug=overdraw — text targets the swapchain
+      // format, not r16float. The FRAME's truth, never the URL flag: where the
+      // mode cannot run the attachment IS the swapchain, so reading the flag
+      // here drops the overlay for an r16float never allocated (Inc-F2d F1/F2).
+      if (!ctx.overdraw) {
+        // F3b: originate through the RHI frame encoder — on WebGPU this maps
+        // to the identical native descriptor (rhiRenderPassToGpu parity), and
+        // it is what lets this pass execute on WebGL2 (the only frame shape
+        // since the twin's deletion, #1046 Inc-F3a/F3b). Last colour writer
+        // of the frame ⇒ it claims the conditional MSAA resolve.
+        const { enc, screenView, colorViewScreen } = requireRhiFrame(ctx, 'labels')
+        ctx.passScope('text-overlay', () => {
+          const tPass = enc.beginRenderPass({
+            colorAttachments: [
+              {
+                view: colorViewScreen,
+                resolveTarget: ctx.useResolve ? screenView : undefined,
+                loadOp: 'load',
+                storeOp: 'store',
+              },
+            ],
           })
-        }
+          // Icons render BEFORE text so labels read on top of their
+          // POI badges — matches MapLibre's symbol-stage ordering.
+          iStage?.render(tPass, { width: ctx.screen.w, height: ctx.screen.h }, labelReplay)
+          stage.render(tPass, { width: ctx.screen.w, height: ctx.screen.h }, labelReplay)
+          tPass.end()
+        })
       }
       // Drop both stages' per-frame dispatch queues. iStage.reset() mirrors
       // stage.reset() so a frame that skipped iStage.prepare() (S16) cannot

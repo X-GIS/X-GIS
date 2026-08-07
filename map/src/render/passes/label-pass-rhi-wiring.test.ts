@@ -6,10 +6,12 @@
 // descriptor topology the native block declared survives byte-for-byte
 // (colour bridge, loadOp 'load', conditional resolveTarget — the label pass
 // is the frame's LAST colour writer), and both stages receive the RHI
-// sub-pass handle directly, icons before text. The twin arm (ctx.rhiPass —
-// the forced-WebGL2 live screen pass) is pinned unchanged: it draws onto
-// the live pass and originates nothing. Raw-shell escape (null bridges)
-// fails loud naming the pass.
+// sub-pass handle directly, icons before text. Raw-shell escape (null
+// bridges — a stub FrameContext that was never wired) fails loud naming the
+// pass; this used to also be the shape of the forced-WebGL2 twin frame,
+// which held its own live pass instead of an encoder and drew onto it
+// directly. The twin was deleted in #1046 Inc-F3a/F3b, and with it the arm
+// that made null bridges a REAL frame shape rather than only a stub.
 //
 // The viewport handed to both stages is the SCREEN geometry (decoy scene
 // 800×600 must not appear) — labels are a screen-space overlay (#1429
@@ -18,9 +20,9 @@
 // GPU-free: stub FrameContext + host (stage/iStage stubs absorb the
 // dispatch machinery; one overlay opens the labels-active gate with zero
 // shows, so the ~1200-line show loop never runs). Fail-before: on the
-// native body every case below except the twin pin is RED — the overlay
-// pass begins on the DECOY native ctx.encoder, no RHI descriptor is
-// captured, and the raw-shell case encodes instead of throwing.
+// native body every case below is RED — the overlay pass begins on the
+// DECOY native ctx.encoder, no RHI descriptor is captured, and the
+// raw-shell case encodes instead of throwing.
 
 import { describe, it, expect, vi } from 'vitest'
 import { labelPass } from './label-pass'
@@ -33,7 +35,7 @@ interface CapturedPass {
   ended: boolean
 }
 
-function harness(opts: { useResolve?: boolean; twin?: boolean; rawShell?: boolean } = {}) {
+function harness(opts: { useResolve?: boolean; rawShell?: boolean } = {}) {
   const captured: CapturedPass[] = []
   const beginRenderPass = vi.fn((desc: Record<string, unknown>) => {
     const p = {
@@ -48,15 +50,9 @@ function harness(opts: { useResolve?: boolean; twin?: boolean; rawShell?: boolea
   })
   const enc = { beginRenderPass, __rhiEncoder: true }
   // Decoy NATIVE encoder — the pre-port body encoded the text-overlay pass
-  // here; after the port nothing may touch it on any arm.
+  // here; after the port nothing may touch it.
   const nativeBegin = vi.fn(() => ({ end: () => undefined }))
-  const twinPass = { __twinLivePass: true }
-  // The twin frame carries NO RHI bridges (render-loop.ts builds the twin ctx
-  // with them null — only rhiPass is live), so the twin harness mirrors that
-  // shape exactly: the ctx.rhiPass check MUST run before requireRhiFrame, and
-  // hoisting the shell requirement above the branch turns the twin case RED
-  // here instead of throwing every real forced-WebGL2 frame (review MINOR-5).
-  const bridged = !opts.twin && !opts.rawShell
+  const bridged = !opts.rawShell
   // #1429 INC-2 — the overlay writes the SCREEN-side colour attachment, a
   // DISTINCT token from rhiColorView (the scene MSAA): a label pass reverting
   // to the scene attachment — the exact bug a scaled ladder frame would show
@@ -69,7 +65,6 @@ function harness(opts: { useResolve?: boolean; twin?: boolean; rawShell?: boolea
     rhiStencilView: bridged ? { __rhiStencilView: true } : null,
     rhiSceneResolveView: bridged ? { __rhiSceneResolveView: true } : null,
     rhiColorViewScreen: bridged ? colorViewScreen : null,
-    rhiPass: opts.twin ? twinPass : undefined,
     encoder: { beginRenderPass: nativeBegin },
     colorView: { __nativeColorView: true },
     screenView: { __nativeScreenView: true },
@@ -159,7 +154,6 @@ function harness(opts: { useResolve?: boolean; twin?: boolean; rawShell?: boolea
     order,
     beginRenderPass,
     nativeBegin,
-    twinPass,
     colorViewScreen,
   }
 }
@@ -204,19 +198,7 @@ describe('label pass — RHI seam wiring (#1046 F3b, the last chain pass)', () =
     expect(colors[0].resolveTarget).toBeUndefined()
   })
 
-  it('twin arm (ctx.rhiPass, null bridges — the real twin frame shape) draws onto the live pass by identity and originates NOTHING', () => {
-    const h = harness({ twin: true })
-    labelPass.execute(h.ctx, h.scene, h.host as never)
-    expect(h.beginRenderPass).not.toHaveBeenCalled()
-    expect(h.nativeBegin).not.toHaveBeenCalled()
-    expect(h.order.map((o) => o.kind)).toEqual(['icon', 'text'])
-    for (const o of h.order) {
-      expect(o.pass).toBe(h.twinPass)
-      expect(o.viewport).toEqual({ width: 999, height: 998 })
-    }
-  })
-
-  it('twin-frame null bridges (no twin pass) ⇒ throws naming the pass, encodes nothing', () => {
+  it('null bridges (a never-wired FrameContext) ⇒ throws naming the pass, encodes nothing', () => {
     const h = harness({ rawShell: true })
     expect(() => labelPass.execute(h.ctx, h.scene, h.host as never)).toThrow(/labels/)
     expect(h.nativeBegin).not.toHaveBeenCalled()

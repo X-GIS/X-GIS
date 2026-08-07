@@ -27,7 +27,8 @@
 //     dispatch later if profiling shows the per-tile overhead.
 
 import type { ComputeKernel, ComputePlanEntry } from '@xgis/compiler'
-import { ComputeDispatcher } from '@xgis/rhi-webgpu'
+import { ComputeDispatcher, type ComputeTimestampProvider } from '@xgis/rhi-webgpu'
+import type { RhiCommandEncoder } from '@xgis/engine'
 import { packFeatureData, type FeaturePropertyBag } from './compute-feature-packer'
 
 /** One unique-kernel's GPU resources. Entries that share a kernel
@@ -200,8 +201,8 @@ export class TileComputeResources {
    *  the first kernel's time as a representative sample; single-kernel
    *  scenes (continent-match etc.) get full compute time. */
   dispatch(
-    encoder: GPUCommandEncoder,
-    timestampWritesProvider?: { computeWrites(): GPUComputePassTimestampWrites | null } | null,
+    enc: RhiCommandEncoder,
+    timestampWritesProvider?: ComputeTimestampProvider | null,
   ): void {
     // Debug override — when set on globalThis, the dirty short-circuit is
     // bypassed so the compute pass dispatches every frame. Used by the
@@ -220,8 +221,8 @@ export class TileComputeResources {
       // 100% of compute dispatches.
       if (!forceEveryFrame && !r.dirty) continue
       const tw = timestampWritesProvider?.computeWrites() ?? null
-      this.dispatcher.dispatchKernel(
-        encoder,
+      this.dispatcher.dispatchKernelRhi(
+        enc,
         r.representative.kernel,
         r.featBuffer,
         r.outBuffer,

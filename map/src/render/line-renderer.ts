@@ -40,7 +40,7 @@
 
 import { isPickEnabled, getSampleCount } from '@xgis/engine'
 import { type GPUContext } from '@xgis/rhi-webgpu'
-import { DEBUG_OVERDRAW } from '../debug-flags'
+import { isOverdrawActive } from '../debug-flags'
 import { asyncWriteBuffer, type StagingBufferPool, type StagingSlot } from '@xgis/rhi-webgpu'
 import { xlog } from '@xgis/shared'
 import { wrapWebGpuBuffer, wrapWebGpuBindGroup, wrapWebGpuBindGroupLayout } from '@xgis/rhi-webgpu'
@@ -632,7 +632,7 @@ export class LineRenderer {
     // format; r16float accumulator would mismatch. Skip — strokes
     // don't contribute to the v1 heatmap. Phase 2 adds an additive
     // r16float variant so line overdraw counts too.
-    if (DEBUG_OVERDRAW) return
+    if (isOverdrawActive(this.rhi.caps)) return
     // RHI seam (UNCONDITIONAL): every line draw routes through the LineDraper Material seam — the
     // opaque main pass, the translucent offscreen MAX-blend pass, the pick MRT pass, AND the
     // render-BUNDLE path (the wrapped pass accepts a GPURenderBundleEncoder; setStencilReference/end
@@ -727,8 +727,7 @@ export class LineRenderer {
     // LineDraper wraps the native layouts ONLY on its WebGPU branch (the gl2
     // arm builds entry-array groups); on webgl2 pass an inert placeholder so
     // the lazy layerBgl() never touches ctx.device on that backend (#834
-    // device retirement S1 — same inert-field pattern as renderFrameViaRhi's
-    // FrameContext).
+    // device retirement S1).
     const gl2 = this.rhi.backend === 'webgl2'
     this._lineDraper = new LineDraper(
       this.rhi,

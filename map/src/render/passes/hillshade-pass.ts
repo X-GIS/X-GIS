@@ -15,7 +15,6 @@
 // paintShapes.hillshade; the DEM decode (encoding / tileSize) was armed once at
 // rebuildLayers time (map.ts, from the `_dem` source marker).
 
-import { DEBUG_OVERDRAW } from '../../debug-flags'
 import type { FrameContext } from '../frame-context'
 import { unwrapProjection } from '../projection-token'
 import type { SceneView } from '../scene-view'
@@ -26,11 +25,10 @@ import { requireRhiFrame, type RenderPass, type HillshadePassHost } from './pass
 type RGBA = readonly [number, number, number, number]
 
 /** Resolve the active hillshade show's paint (direction / altitude / exaggeration
- *  / colours / method) and push it to the renderer. Shared by the native
- *  HillshadePass and the forced-WebGL2 twin (render-loop.ts renderFrameViaRhi) so
- *  both resolve paint identically. Constant forms in the MVP; zoom/time shapes
- *  resolve transparently if ever plumbed. A default hillshade layer (no authored
- *  paint) carries no bundle → the renderer keeps its DEFAULT_PARAMS + armed DEM. */
+ *  / colours / method) and push it to the renderer. Constant forms in the MVP;
+ *  zoom/time shapes resolve transparently if ever plumbed. A default hillshade
+ *  layer (no authored paint) carries no bundle → the renderer keeps its
+ *  DEFAULT_PARAMS + armed DEM. */
 export function applyHillshadePaint(
   hr: HillshadeRenderer,
   hillshadeShow:
@@ -101,7 +99,7 @@ class HillshadePass implements RenderPass {
   readonly label = 'hillshade'
 
   shouldRun(scene: SceneView): boolean {
-    return scene.hasHillshade && !DEBUG_OVERDRAW
+    return scene.hasHillshade && !scene.overdraw
   }
 
   execute(ctx: FrameContext, scene: SceneView, host: HillshadePassHost): void {

@@ -10,7 +10,6 @@
 // pins the adaptive scale to 1 (render-loop fork), so screen === scene here
 // and the swapchain target needs no seam awareness.
 
-import { DEBUG_OVERDRAW } from '../../debug-flags'
 import { unwrapWebGpuPass } from '@xgis/rhi-webgpu'
 import type { FrameContext } from '../frame-context'
 import type { SceneView } from '../scene-view'
@@ -19,10 +18,12 @@ import { requireRhiFrame, type RenderPass, type OverdrawComposePassHost } from '
 class OverdrawComposePass implements RenderPass {
   readonly label = 'overdraw-compose'
 
-  // Gated on the build-time debug flag; execute() also guards the
-  // accumulator texture (only present when DEBUG_OVERDRAW provisioned it).
-  shouldRun(): boolean {
-    return DEBUG_OVERDRAW
+  // Gated on the FRAME's overdraw truth (FrameContext.overdraw), not the raw
+  // URL flag — the mode cannot run on an immediate device, where this body's
+  // raw-WebGPU unwrap would throw. execute() also guards the accumulator
+  // texture, which is only provisioned when that same truth is on.
+  shouldRun(scene: SceneView): boolean {
+    return scene.overdraw
   }
 
   execute(ctx: FrameContext, _scene: SceneView, host: OverdrawComposePassHost): void {
@@ -46,7 +47,9 @@ class OverdrawComposePass implements RenderPass {
         entries: [
           {
             binding: 0,
-            resource: ctx.rt.overdrawView!,
+            // The RT's P6-scoped native accessor — this bind group is raw
+            // until the compose moves onto a Material (see file header).
+            resource: ctx.rt.overdrawViewNative!,
           },
         ],
       })

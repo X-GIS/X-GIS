@@ -20,8 +20,8 @@ import {
   type LoadedTexture,
 } from './raster-cache-budget'
 import { routeToSphereSelector, enumerateWorldCopies, isGlobeProj } from '@xgis/geo'
-import { isPickEnabled, getSampleCount } from '@xgis/engine'
-import { DEBUG_OVERDRAW } from '../debug-flags'
+import { pickTargetsEnabled, getSampleCount } from '@xgis/engine'
+import { isOverdrawActive } from '../debug-flags'
 import { globeVisibleTiles } from '@xgis/data'
 import { uniformBlock, type UniformBlockOf } from '@xgis/engine'
 import {
@@ -321,12 +321,7 @@ export class RasterRenderer {
     }
   }
 
-  // ── Forced-WebGL2 raster slice (US-003) ──
-  // A SECOND draper backed by the WebGl2Device (host.ctx.rhi), drawing an analytic
-  // checker tile through the engine's RHI screen pass — the milestone proof that a real
-  // layer renders on the WebGL2 backend, not just offscreen. Distinct from `_rasterDraper`
-  // (the WebGPU pilot). Created lazily on the first forced-WebGL2 frame.
-  private _rhiDraper?: RasterDraper
+  // ── Analytic checker (US-003, ?debug=checker); draper shared since #1046 Inc-F2d.
   private _rhiChecker?: RhiTexture
   /** The WebGPU RasterDraper — render()'s sole draw path (P1.4). Lazily built with the
    *  swapchain format + sample count; rebuilt on a quality (MSAA) change via invalidation. */
@@ -503,7 +498,11 @@ export class RasterRenderer {
     h: number,
     dpr: number,
   ): void {
-    this._rhiDraper ??= new RasterDraper(rhi, 'rgba8unorm', 1)
+    // The SAME draper the live raster path uses, so the pipeline is derived from
+    // the target rather than assumed. It baked ('rgba8unorm', 1) — inert on the
+    // WebGL2 twin, a validation error on a WebGPU frame (bgra8unorm, MSAA 4),
+    // and why the chain port first reached for a device fork (Inc-F2d review F3).
+    const draper = this.ensureRasterDraper()
     const checker = this.ensureRhiChecker(rhi)
     const frame = camera.getViewForProjection(projType, w, h, dpr)
 
@@ -547,9 +546,8 @@ export class RasterRenderer {
       gridN,
     )
 
-    this._rhiDraper.draw(pass, B.buffer, [
-      { texture: checker, tileBytes: new Float32Array(TB.buffer.slice(0)), gridN },
-    ])
+    const tiles = [{ texture: checker, tileBytes: new Float32Array(TB.buffer.slice(0)), gridN }]
+    draper.draw(pass, B.buffer, tiles, false, pickTargetsEnabled(this.rhi.caps))
   }
 
   /** Tile load, through the RHI on BOTH backends (#1579 — WebGPU used to bypass the RHI
@@ -612,7 +610,7 @@ export class RasterRenderer {
     // its contribution would mismatch the r16float accumulator format.
     // Skip entirely — raster tiles produce uniform 1× overdraw which
     // the heatmap can do without for now.
-    if (DEBUG_OVERDRAW) return
+    if (isOverdrawActive(this.rhi.caps)) return
     this.frameCount++
 
     const frame = camera.getViewForProjection(projType, canvasWidth, canvasHeight, dpr)
@@ -992,7 +990,8 @@ export class RasterRenderer {
     // matching the legacy path (it wrote the global before the loop): 0 tiles → global write, no draws.
     // Both frame shapes hand in an RhiRenderPass (Inc-2d) — the old
     // backend-keyed re-wrap was the 34d4695 double-wrap class.
-    this.ensureRasterDraper().draw(pass, B.buffer, tilesArr, this._nearest, isPickEnabled())
+    const pick = pickTargetsEnabled(this.rhi.caps)
+    this.ensureRasterDraper().draw(pass, B.buffer, tilesArr, this._nearest, pick)
 
     // Capture this frame's visible set; deferred eviction runs in the next
     // beginFrame(). Eviction used to run inline here, but destroying tile

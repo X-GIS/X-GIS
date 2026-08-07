@@ -55,6 +55,13 @@
 // populating a cap, not by joining a `!== 'webgl2'` chain. Every consumer takes the
 // narrow `ShaderSourceDevice` (caps only), so nothing downstream can reach for .backend.
 //
+// 42→38 (#1046 Inc-F, measured at this commit): `interaction-controller.pickAt` asked
+// which backend it was on to choose the pick READBACK strategy; it now asks
+// `caps.pickReadback === 'sync'` — the cap minted for exactly that decision, whose
+// rhi.ts doc names this call site as its consumer. That is one read (39→38); the other
+// three were already retired by earlier increments in this program without the baseline
+// being lowered to match, so this locks the measured count rather than a remembered one.
+//
 // Applies the #996 lesson (a source-scan gate whose matcher silently matches nothing is
 // vacuously green): two guards below prove the regex still matches AND the walk still
 // reaches the real tree, so `count <= BASELINE` can never pass by scanning an empty set.
@@ -65,7 +72,7 @@ import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const MAP_SRC = join(dirname(fileURLToPath(import.meta.url)))
-const BASELINE = 42
+const BASELINE = 38
 
 // `.backend` identity comparison, either direction, against either backend literal.
 const PATTERN = 'backend\\s*(===|!==)\\s*[\'"](webgl2|webgpu)[\'"]'

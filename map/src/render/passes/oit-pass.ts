@@ -9,7 +9,6 @@
 // the fill targets ride the RT-side RHI accessors and the compose draws
 // through the renderer entry (native pipeline until the OIT twin lands).
 
-import { DEBUG_OVERDRAW } from '../../debug-flags'
 import type { FrameContext } from '../frame-context'
 import type { SceneView } from '../scene-view'
 import { requireRhiFrame, type RenderPass, type OitPassHost } from './pass'
@@ -18,7 +17,7 @@ class OitPass implements RenderPass {
   readonly label = 'oit'
 
   shouldRun(scene: SceneView): boolean {
-    return scene.hasOit && !DEBUG_OVERDRAW
+    return scene.hasOit && !scene.overdraw
   }
 
   execute(ctx: FrameContext, scene: SceneView, host: OitPassHost): void {
@@ -42,13 +41,13 @@ class OitPass implements RenderPass {
       const oitPass = enc.beginRenderPass({
         colorAttachments: [
           {
-            view: ctx.rt.oitAccumViewRhi!,
+            view: ctx.rt.oitAccumView!,
             clearValue: [0, 0, 0, 0],
             loadOp: 'clear',
             storeOp: 'store',
           },
           {
-            view: ctx.rt.oitRevealageViewRhi!,
+            view: ctx.rt.oitRevealageView!,
             clearValue: [1, 0, 0, 0],
             loadOp: 'clear',
             storeOp: 'store',
@@ -70,7 +69,7 @@ class OitPass implements RenderPass {
       for (const cs of scene.oit) {
         // Draw via the content closure — the engine pass never touches a
         // GPURenderPipeline. phase='oit-fill', translucentBucket=false.
-        cs.draw(oitPass, ctx, host.renderer.uniformBuffer, null, 'oit-fill', false)
+        cs.draw(oitPass, ctx, null, 'oit-fill', false)
       }
       oitPass.end()
     })
@@ -94,8 +93,13 @@ class OitPass implements RenderPass {
       })
       // The fullscreen recover draw (pipeline + bind group + draw(3)) lives
       // behind the renderer entry — the pipeline is native until the OIT twin
-      // lands, and the unwrap belongs in the adapter-importing layer, not here.
-      host.renderer.drawOitCompose(compPass, ctx.rt.oitAccumView!, ctx.rt.oitRevealageView!)
+      // lands, and the unwrap belongs in the adapter-importing layer, not
+      // here. The `*Native` accessors are the RT's P6-scoped raw residue.
+      host.renderer.drawOitCompose(
+        compPass,
+        ctx.rt.oitAccumViewNative!,
+        ctx.rt.oitRevealageViewNative!,
+      )
       compPass.end()
     })
   }

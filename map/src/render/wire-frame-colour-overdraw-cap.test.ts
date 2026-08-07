@@ -1,0 +1,104 @@
+// ═══ wireFrameColour withholds ?debug=overdraw from an immediate device (#1046 Inc-F2d) ═══
+//
+// `?debug=overdraw` routes EVERY scene pass's colour target to an r16float
+// accumulator (render-targets.ts: `colorView = debugOverdraw ? overdrawView : …`,
+// and unscaled `colorViewScreen === colorView`, so the overlays go there too).
+// Only the trailing compose writes the swapchain — and that compose is still raw
+// WebGPU (P6): it unwraps a native pass encoder and calls `ctx.device`.
+//
+// On an immediate device that compose threw every frame, and map.ts halts the
+// render loop after three consecutive frame failures. The tempting fix — decline
+// inside the compose — stops the crash and produces a WORSE artifact: the
+// accumulator routing is still in force, so no pass writes the swapchain and the
+// frame is BLANK. That was the first attempt at this fix, and it is why this test
+// lives at the wiring site instead of at the pass.
+//
+// Gating the ROUTING is what reproduces how the forced-WebGL2 twin (deleted,
+// #1046 Inc-F3a) used to behave: it called `rhi.beginScreenPass` and bound FBO 0
+// directly, never consulting RenderTargets, so `?debug=overdraw` there rendered an
+// ordinary map on a transparent clear. With overdraw withheld here, no accumulator is allocated,
+// the colour target resolves normally, the scene passes draw to the swapchain,
+// and the compose declines through its own `!overdrawAccumTexture` guard — no
+// capability check of its own required.
+//
+// THE FLAG IS MOCKED, and that is load-bearing rather than convenience.
+// `DEBUG_OVERDRAW` is a module-level const, false under vitest, so `DEBUG_OVERDRAW
+// && executionModel !== 'immediate'` and a bare `DEBUG_OVERDRAW` are BOTH false
+// on every device — the first version of this file asserted against the real flag
+// and passed with the gate reverted. Forcing it true is what makes the two arms
+// answer differently and the assertion mean anything.
+//
+// BOTH `DEBUG_OVERDRAW` and `isOverdrawActive` are overridden, and that pair is
+// itself load-bearing (#1594): `wireFrameColour` calls `isOverdrawActive(caps)`,
+// not the raw const, so overriding only `DEBUG_OVERDRAW` on the mocked module's
+// namespace object does nothing — `isOverdrawActive`'s closure still reads the
+// REAL module's own internal `DEBUG_OVERDRAW` binding (spreading an object
+// copies a function's VALUE, not its lexical scope), which is false under
+// vitest regardless of what the mock's plain-object property says.
+
+import { describe, it, expect, vi } from 'vitest'
+
+vi.mock('../debug-flags', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../debug-flags')>()),
+  DEBUG_OVERDRAW: true,
+  isOverdrawActive: (caps: { executionModel: string }) => caps.executionModel !== 'immediate',
+}))
+
+import { wireFrameColour } from './frame-context'
+import type { FrameContext } from './frame-context'
+
+/** The `debugOverdraw` argument `wireFrameColour` hands RenderTargets.ensure. */
+function overdrawAskedFor(executionModel: 'immediate' | 'deferred'): {
+  asked: boolean
+  published: boolean
+} {
+  const ensure = vi.fn((..._args: unknown[]) => ({
+    useResolve: false,
+    colorView: {},
+    sceneResolveView: undefined,
+    colorViewScreen: {},
+    sceneColorSampleView: undefined,
+  }))
+  const ctx = {
+    rhi: { caps: { maxSampleCount: 1, presentablePassMrt: true, executionModel } },
+    rt: { ensure, stencilView: {} },
+    scene: { w: 800, h: 600 },
+    screen: { w: 800, h: 600 },
+  } as unknown as FrameContext
+  wireFrameColour(ctx, {} as never)
+  expect(ensure).toHaveBeenCalledTimes(1)
+  // BOTH: what RenderTargets was asked for, and what the frame PUBLISHES for
+  // every pass to read. Asserting only the first left the authority's single
+  // write unpinned — hardwiring `ctx.overdraw = false` kept 16 tests green
+  // across 4 files (#1046 Inc-F2d review CRITICAL-2).
+  return { asked: ensure.mock.calls[0]![6] as boolean, published: ctx.overdraw }
+}
+
+describe('wireFrameColour — overdraw target routing is device-gated (#1046 Inc-F2d)', () => {
+  it('an IMMEDIATE device is never handed overdraw, even with the flag ON', () => {
+    const { asked, published } = overdrawAskedFor('immediate')
+    expect(
+      asked,
+      'the overdraw accumulator was routed on an immediate device: the compose that is the ' +
+        'only writer of the swapchain there is raw WebGPU, so the frame either throws ' +
+        '(no gate) or goes blank (gate in the wrong place)',
+    ).toBe(false)
+    expect(
+      published,
+      'ctx.overdraw disagrees with the routing — every pass reads THAT, so the frame would ' +
+        'route targets one way and gate passes the other',
+    ).toBe(false)
+  })
+
+  it('a DEFERRED device still gets it — a clamp, not an off-switch', () => {
+    // The anti-vacuity arm. A blanket `false` satisfies the case above while
+    // silently disabling ?debug=overdraw on WebGPU, the one backend it works on.
+    // The two arms differ in exactly ONE input, so together they pin the gate.
+    const { asked, published } = overdrawAskedFor('deferred')
+    expect(
+      asked,
+      'WebGPU lost the overdraw heatmap — this is a capability clamp, not a feature kill',
+    ).toBe(true)
+    expect(published, 'ctx.overdraw must agree with the routing').toBe(true)
+  })
+})

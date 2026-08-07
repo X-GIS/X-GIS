@@ -48,6 +48,12 @@ import { nodeToWgslString } from '@xgis/compiler'
 import { ComputeDispatcher } from '@xgis/rhi-webgpu'
 import { TileComputeResources } from '@xgis/map'
 import { packFeatureData } from '@xgis/map'
+import type { RhiCommandEncoder } from '@xgis/engine'
+
+// #1046 F4 Inc-C harness shim: the dispatch thread is RHI-typed now; the fake
+// native encoder rides behind the one unwrap surface the adapter reads.
+const asRhiEnc = (e: GPUCommandEncoder): RhiCommandEncoder =>
+  ({ nativeEncoder: e }) as unknown as RhiCommandEncoder
 
 beforeAll(() => {
   if (typeof globalThis.GPUBufferUsage === 'undefined') {
@@ -282,7 +288,7 @@ describe('P4 end-to-end — compiler ↔ runtime contract', () => {
     const resources = new TileComputeResources(dispatcher, cmds.computePlan ?? [])
     const props = (_fid: number) => ({ class: 'school' })
     resources.uploadFromProps(props, 200)
-    resources.dispatch(encoder)
+    resources.dispatch(asRhiEnc(encoder))
 
     expect(dispatches).toHaveLength(1)
     expect(dispatches[0]!.entryPoint).toBe('eval_match')
@@ -371,7 +377,7 @@ describe('P4 end-to-end — compiler ↔ runtime contract', () => {
     expect(writes).toHaveLength(2)
 
     // Dispatch fires once for the unique kernel.
-    resources.dispatch(encoder)
+    resources.dispatch(asRhiEnc(encoder))
     expect(dispatches).toHaveLength(1)
     expect(dispatches[0]!.entryPoint).toBe('eval_match')
   })

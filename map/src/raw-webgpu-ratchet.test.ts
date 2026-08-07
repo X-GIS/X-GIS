@@ -102,26 +102,31 @@ const BASELINE: Record<string, number> = {
   'map/src/color-ramp.ts': 6,
   'map/src/debug-flags.ts': 3,
   'map/src/graphics/graphics-manager.ts': 2,
-  'map/src/interaction-controller.ts': 9,
+  // interaction-controller 9 → 5, map.ts 6 → 5 (#1046 F4 Inc-D): the pick RT
+  // rides RhiTexture/RhiDevice through the DI seam — the native tokens left
+  // are the readback's own (createBuffer/copyTextureToBuffer/mapAsync, G4).
+  'map/src/interaction-controller.ts': 5,
   'map/src/map-types.ts': 12,
-  'map/src/map.ts': 6,
-  'map/src/render-loop-helpers.ts': 1,
+  'map/src/map.ts': 5,
+  // render-loop-helpers row DELETED (#1046 F4 Inc-A): reportErrorScope takes the
+  // RHI's message-or-null promise — the GPUError type reference died with it.
+  // compute-layer-handle + compute-layer-registry rows DELETED, five rows lowered
+  // (#1046 F4 Inc-C): the compute thread is RHI-typed end-to-end — the one unwrap
+  // lives in ComputeDispatcher.dispatchKernelRhi (the adapter).
   'map/src/render/bind-group-registry.ts': 18,
   // #1046 F3b Inc-2d: ShowDrawFn + the chain's remaining pass-consuming
   // signatures narrowed to RhiRenderPass — the backend-keyed re-wrap forks
   // (the 34d4695 double-wrap class) and their unions died with it.
-  'map/src/render/bucket-scheduler.ts': 4,
+  'map/src/render/bucket-scheduler.ts': 3,
   // #1046 F3b Inc-2c: the heatmap chain re-originated through the RHI drapers —
   // the native accum bridge, blur/compose pipelines + their factory/forwarder
   // layers and the native density-target pair all retired with it.
   'map/src/render/compose-pipelines.ts': 9,
-  'map/src/render/compute-layer-handle.ts': 2,
-  'map/src/render/compute-layer-registry.ts': 2,
-  'map/src/render/feature-data-binder.ts': 21,
+  'map/src/render/feature-data-binder.ts': 19,
   // 43→46 (#1046 F3b Inc-2d): drawOitCompose RELOCATED here from oit-pass
   // (the pipeline/layout owner; native until the OIT twin lands) — moved
   // tokens plus the boundary unwrap cast, retiring with that twin.
-  'map/src/render/frame-renderer.ts': 46,
+  'map/src/render/frame-renderer.ts': 44,
   'map/src/render/frame-uniform.ts': 5,
   // 7→5 (#1357): the pooled-buffer recycler moved to gpu-buffer-pool.ts, taking
   // its createBuffer + the raw `device` field with it.
@@ -172,11 +177,11 @@ const BASELINE: Record<string, number> = {
   // 56→58 (#1046 F3b Inc-2d): renderToPass/renderGraticuleOverlay narrowed
   // to RhiRenderPass with one boundary unwrap cast each (legacy plumbing —
   // retires with the legacy-layer cluster).
-  'map/src/render/renderer.ts': 58,
-  'map/src/render/tile-compute-resources.ts': 7,
+  'map/src/render/renderer.ts': 56,
+  'map/src/render/tile-compute-resources.ts': 5,
   'map/src/render/upload-coordinator.ts': 22,
   'map/src/render/vector-tile-renderer-types.ts': 5,
-  'map/src/render/vector-tile-renderer.ts': 20,
+  'map/src/render/vector-tile-renderer.ts': 17,
   'map/src/sprite/host-sprite-atlas-gpu.ts': 14,
   'map/src/sprite/icon-renderer.ts': 10,
   'map/src/sprite/icon-stage.ts': 7,
