@@ -1749,8 +1749,8 @@ export class VectorTileRenderer {
   }
 
   /** Frame-scope anticipatory prefetch. Called by `map.ts:renderFrame`
-   *  exactly ONCE per wall-clock frame (right after the per-source
-   *  `beginFrame` loop), NOT inside `render()` — the bucket scheduler
+   *  exactly ONCE per wall-clock frame (after the frame's draw passes,
+   *  see below), NOT inside `render()` — the bucket scheduler
    *  invokes `render()` per ShowCommand, which on dense styles reaches
    *  ~80 calls per frame; re-firing prefetch in that loop would flood
    *  `_evictShield`, race visible-tile fetches for the catalog's
@@ -1769,10 +1769,10 @@ export class VectorTileRenderer {
     dpr: number,
   ): void {
     if (!this.source) return
-    // We need a populated `_frameTileCache.neededKeys` to do anything
-    // — the cache is filled by the first `render()` call each frame,
-    // so on the very first frame after attach (before any render()
-    // ran) we silently skip and pick up next frame.
+    // Needs `_frameTileCache.neededKeys`, which the frame's draw passes
+    // fill — so the CALLER must pump AFTER them (#1587). This once said
+    // the skip cost only the first frame after attach; it cost EVERY
+    // frame, the pump having run ahead of those passes.
     const cache = this._selection.frameTileCache()
     if (!cache) return
     this.prefetchScheduler.pump(

@@ -971,7 +971,7 @@ const CEILINGS: Record<string, number> = {
   // population + the rawFrameShell escape arms — the loop SHRANK through a
   // feature increment, which is the ratchet working as designed.
   // 1425→1405 (#1575): ditto — the disjunction itself left this file with the helper.
-  'map/src/render-loop.ts': 1405,
+  'map/src/render-loop.ts': 1400,
   // Baselined at 806 (hillshade tile fade-in): HillshadeRenderer crossed
   // NEW_FILE_CAP restoring the three tile-streaming fixes raster-renderer had
   // landed since hillshade was copied from it — the per-tile fade ramp + its
