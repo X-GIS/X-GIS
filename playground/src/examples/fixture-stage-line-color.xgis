@@ -1,0 +1,23 @@
+xgis 1
+
+/* Fixture: `@stroke` shader stage block on a line layer (#1605 Phase 1).
+ * The stroke colour is authored directly as a vec4 instead of through the
+ * utility vocabulary. Pixel-parity twin (the same colour written as a
+ * stroke utility): fixture-stage-line-color-twin.xgis. This constant body
+ * gets CPU-folded (foldStageConstantRgba) — it does NOT exercise the new
+ * WGSL composer seam, only that a constant @stroke on a line layer still
+ * renders correctly. See fixture-stage-line-color-zoom.xgis for the
+ * fixture that actually proves the seam. */
+
+source l {
+  type: geojson
+  data: { "type": "FeatureCollection", "features": [
+    { "type": "Feature", "geometry": { "type": "LineString", "coordinates": [[-40, 0], [40, 0]] }, "properties": {} }
+  ] }
+}
+
+layer painted {
+  source: l
+  @stroke { return vec4(0.8, 0.4, 0.2, 1) }
+  | stroke-16
+}

@@ -58,6 +58,8 @@ import type {
 } from '@xgis/engine'
 import { LINE_OFFSCREEN_FORMAT, LineDraper } from './material/line-material'
 import { LineCompositeDraper } from './material/line-composite-material'
+import { toComposerLineVariant } from './line-shader-cache'
+import type { ShaderVariantInfo } from './renderer-types'
 import type { ShapeRegistry } from '../text/sdf-shape'
 import {
   lineUniformSize,
@@ -290,9 +292,9 @@ export class LineRenderer {
   rebuildForQuality(): void {
     // The line + composite draws come from LineDraper / LineCompositeDraper, which capture the MSAA
     // sample count at construction — drop them so the next draw rebuilds against the new QUALITY.
-    this._lineDraper?.destroy()
+    this._lineDrapers.forEach((d) => d.destroy())
+    this._lineDrapers.clear()
     this._compositeDraper?.destroy()
-    this._lineDraper = undefined
     this._compositeDraper = undefined
   }
 
@@ -596,7 +598,7 @@ export class LineRenderer {
     // #834 M5) so reflection-by-name binds the emulated storage textures.
     const layout =
       this.rhi.backend === 'webgl2'
-        ? (this.ensureLineDraper(), this._lineDraper!.layerLayoutRhi())
+        ? this.ensureLineDraper().layerLayoutRhi()
         : wrapWebGpuBindGroupLayout(this.layerBgl())
     return this.rhi.createBindGroup(layout, [
       { binding: 0, resource: { buffer: this.layerRing, offset: 0, size: lineUniformSize() } },
@@ -626,6 +628,7 @@ export class LineRenderer {
     layerOffset: number,
     translucent: boolean = false,
     patternActive: boolean = false,
+    variant?: ShaderVariantInfo | null,
   ): void {
     if (segmentCount === 0) return
     // Overdraw-debug v1: SDF stroke pipeline targets the swapchain
@@ -639,11 +642,11 @@ export class LineRenderer {
     // no-op there). mode 'opaque' / 'max' / 'pick' (lines write pick=vec2u(0,0)). There is no raw
     // line draw + no opt-out flag (the flip is complete, like the §4 fill seam). Offscreen RT/pass
     // ORIGINATION stays raw (deferred to P2).
-    this.ensureLineDraper()
+    const draper = this.ensureLineDraper(variant)
     // layerBG is line's RhiBindGroup (createLayerBindGroup, via the RHI seam);
     // tileBG is the VTR tile bind group — still a raw GPUBindGroup (flips with the
     // VTR cluster) → wrapped here at the renderer call site (transient).
-    this._lineDraper!.draw(
+    draper.draw(
       wrapWebGpuPassMemoized(pass),
       {
         tileBG: wrapWebGpuBindGroup(tileBindGroup),
@@ -673,10 +676,11 @@ export class LineRenderer {
     layerOffset: number,
     pattern = false,
     mode: 'opaque' | 'max' = 'opaque',
+    variant?: ShaderVariantInfo | null,
   ): void {
     if (segmentCount === 0) return
-    this.ensureLineDraper()
-    this._lineDraper!.draw(
+    const draper = this.ensureLineDraper(variant)
+    draper.draw(
       pass,
       {
         tileBG,
@@ -704,38 +708,51 @@ export class LineRenderer {
     tileOffset: number,
     layerOffset: number,
     pattern = false,
+    variant?: ShaderVariantInfo | null,
   ): void {
     if (segmentCount === 0) return
-    this.ensureLineDraper()
-    this._lineDraper!.draw(
-      pass,
-      { tileBG, layerBG, tileOffset, layerOffset, pattern, segmentCount },
-      'bake',
-    )
+    const draper = this.ensureLineDraper(variant)
+    draper.draw(pass, { tileBG, layerBG, tileOffset, layerOffset, pattern, segmentCount }, 'bake')
   }
 
   /** The line Material's group-0 (tile) layout — VTR builds its WebGL2 tile
-   *  bind group against it (#834 M5). */
+   *  bind group against it (#834 M5). Always the BASE draper: bind-group
+   *  LAYOUTS never differ across variants in this slice (guaranteed by
+   *  toComposerLineVariant's reject-on-needsFeatureBuffer/preamble.bindings
+   *  guard) — #1605 Phase 1b, which adds a feature-buffer binding, will need
+   *  to thread a variant here too. */
   tileLayoutRhi(): RhiBindGroupLayout {
-    this.ensureLineDraper()
-    return this._lineDraper!.tileLayoutRhi()
+    return this.ensureLineDraper().tileLayoutRhi()
   }
 
-  private _lineDraper?: LineDraper
-  private ensureLineDraper(): void {
-    if (this._lineDraper) return
+  // Variant-keyed cache (#1605) — '__base__' for the default (no-variant)
+  // draper, or `variant.key` for a feature-free @stroke composer variant.
+  // Replaces the prior single-draper field so a layer with a stage-block
+  // stroke gets its own pipeline without disturbing every other line layer.
+  private _lineDrapers = new Map<string, LineDraper>()
+  private ensureLineDraper(variant?: ShaderVariantInfo | null): LineDraper {
+    const gl2 = this.rhi.backend === 'webgl2'
+    // Variant pipelines are WebGPU-only for now (#1605 Phase 3 adds WebGL2
+    // parity — mirrors polygon's own pipeline-factory.ts precedent). webgl2
+    // always draws the base draper regardless of what the show's variant carries.
+    const composerVariant = gl2 ? null : toComposerLineVariant(variant)
+    const key = composerVariant ? variant!.key : '__base__'
+    const cached = this._lineDrapers.get(key)
+    if (cached) return cached
     // LineDraper wraps the native layouts ONLY on its WebGPU branch (the gl2
     // arm builds entry-array groups); on webgl2 pass an inert placeholder so
     // the lazy layerBgl() never touches ctx.device on that backend (#834
     // device retirement S1).
-    const gl2 = this.rhi.backend === 'webgl2'
-    this._lineDraper = new LineDraper(
+    const d = new LineDraper(
       this.rhi,
       this.format,
       getSampleCount(),
       this.tileBindGroupLayout,
       gl2 ? (null as unknown as GPUBindGroupLayout) : this.layerBgl(),
+      composerVariant,
     )
+    this._lineDrapers.set(key, d)
+    return d
   }
 
   clearLayers(): void {

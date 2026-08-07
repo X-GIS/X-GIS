@@ -1,0 +1,31 @@
+xgis 1
+
+/* Fixture: a NON-constant `@stroke` shader stage block on a line layer
+ * (#1605 Phase 1) — the one that actually exercises the new WGSL composer
+ * seam (map/src/shaders/dsl/line.ts's 'line-color-return' placeholder).
+ *
+ * Unlike fixture-stage-line-color.xgis (a constant body, CPU-folded, never
+ * reaches the composer), this body reads `zoom`, so it is NOT foldable at
+ * compile time and genuinely depends on the runtime variant seam to render.
+ *
+ * The seam is WebGPU-only for now (#1605 Phase 3 is the WebGL2 follow-up),
+ * and this sandbox has no software WebGPU adapter (CLAUDE.md §5), so this
+ * fixture cannot be a headless CI render gate. It is verified manually with
+ * a real GPU: `HEADED=1` locally, comparing the rendered stroke colour at
+ * two different zooms against the hand-computed vec4(zoom/22, 0.2, 0.1, 1)
+ * expectation (compare-parity-pixeldiff / tile-crop-review skills). Opening
+ * this in the playground and zooming in/out is the one channel — besides
+ * that manual local run — to actually SEE the seam work. */
+
+source l {
+  type: geojson
+  data: { "type": "FeatureCollection", "features": [
+    { "type": "Feature", "geometry": { "type": "LineString", "coordinates": [[-40, 0], [40, 0]] }, "properties": {} }
+  ] }
+}
+
+layer painted {
+  source: l
+  @stroke { return vec4(zoom / 22, 0.2, 0.1, 1) }
+  | stroke-16
+}
