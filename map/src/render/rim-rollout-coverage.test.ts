@@ -31,7 +31,7 @@ describe('rim_alpha rollout coverage', () => {
 
   it('line shader calls line_rim_alpha in fs_line and fs_line_max', () => {
     // WGSL is now emitted from runtime/src/engine/shaders/dsl/line.ts.
-    const src = emitLineWgsl(false)
+    const src = emitLineWgsl(null, false)
     const occurrences = (src.match(/line_rim_alpha/g) ?? []).length
     // 1 definition + 3 uses (fs_line + fs_line_pattern + fs_line_max).
     expect(occurrences).toBeGreaterThanOrEqual(3)

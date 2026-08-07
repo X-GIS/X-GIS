@@ -427,10 +427,11 @@ export class PointRenderer {
   }
 
   /** Flush accumulated tile points as a single draw call onto an RHI pass. ONE
-   *  authority for both backends (#1057): the WebGPU frame reaches it via
-   *  VectorTileRenderer.emitTilePointsRhi; the forced-WebGL2 twin passes its
-   *  screen RhiRenderPass straight through — the pack/uniform/draw plumbing
-   *  is backend-neutral RHI already, only the pass handle differs. */
+   *  authority for both backends (#1057), reached through
+   *  VectorTileRenderer.emitTilePointsRhi: a wrapped native encoder on WebGPU, the
+   *  screen RhiRenderPass directly on WebGL2. The pack / writePointFrameUniform /
+   *  PointDraper draw plumbing is backend-neutral RHI already — only the pass
+   *  handle differs. */
   flushTilePointsRhi(
     pass: RhiRenderPass,
     camera: Camera,
@@ -994,10 +995,10 @@ export class PointRenderer {
   }
 
   /** Draw all direct-layer point layers onto an RHI pass. ONE authority for both
-   *  backends (#1057): the WebGPU frame reaches it via render() (wrapped encoder);
-   *  the forced-WebGL2 twin (render-loop.ts renderFrameViaRhi) passes its screen
-   *  RhiRenderPass directly. The uploadLayer / writePointFrameUniform / PointDraper
-   *  draw plumbing is backend-neutral RHI already — only the pass handle differs. */
+   *  backends (#1057), reached through the points pass: a wrapped native encoder
+   *  on WebGPU, the screen RhiRenderPass directly on WebGL2. The uploadLayer /
+   *  writePointFrameUniform / PointDraper draw plumbing is backend-neutral RHI
+   *  already — only the pass handle differs. */
   renderRhi(
     pass: RhiRenderPass,
     camera: Camera,

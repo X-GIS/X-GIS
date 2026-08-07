@@ -29,8 +29,7 @@ describe('reportErrorScope (Audit ⑧ B2 — un-swallow validation rejections)',
   })
 
   it('logs a resolved validation error with the tag', async () => {
-    const err = { message: 'bind group layout mismatch' } as GPUError
-    reportErrorScope(Promise.resolve(err), 'pass:fill')
+    reportErrorScope(Promise.resolve('bind group layout mismatch'), 'pass:fill')
     await flush()
     expect(xlog.error).toHaveBeenCalledTimes(1)
     const [prefix, msg] = vi.mocked(xlog.error).mock.calls[0]!

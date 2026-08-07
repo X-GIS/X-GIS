@@ -45,7 +45,7 @@ import { isPickEnabled, getSampleCount } from '@xgis/engine'
 import { POLYGON_FILL_FORMAT, POLYGON_EXTRUDED_FORMAT } from '@xgis/compiler'
 import { toVertexBufferLayout } from '@xgis/rhi-webgpu'
 import { LINE_FORMAT } from './line-vertex-format'
-import { DEBUG_OVERDRAW } from '../debug-flags'
+import { isOverdrawActive } from '../debug-flags'
 import type { ShaderVariantInfo, CachedPipeline } from './renderer-types'
 import { buildShader } from './polygon-shader-cache'
 import { buildOverdrawComposePipeline, buildOitComposePipeline } from './compose-pipelines'
@@ -841,7 +841,7 @@ export class PipelineFactory {
     // mode convention). One pipeline per primitive type covers every
     // fill / line draw in the opaque bucket — map.ts overrides
     // cs.fp / cs.lp / cs.fpF etc. to point at these in debug mode.
-    if (DEBUG_OVERDRAW) {
+    if (isOverdrawActive(this.ctx.rhi.caps)) {
       const overdrawTargets: GPUColorTargetState[] = [
         {
           format: 'r16float',

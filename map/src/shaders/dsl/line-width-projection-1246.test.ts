@@ -119,9 +119,9 @@ describe('#1246 flat width scale — numeric (CPU projection Jacobian)', () => {
 
 // ── EMISSION: the flat width-ratio correction must be in the shader ──────────
 describe('#1246 flat width correction is emitted (WGSL + GLSL twin)', () => {
-  const wgsl = emitLineWgsl(false)
-  const wgslPick = emitLineWgsl(true)
-  const glslVert = emitLineGlsl(false, 'vertex')
+  const wgsl = emitLineWgsl(null, false)
+  const wgslPick = emitLineWgsl(null, true)
+  const glslVert = emitLineGlsl(null, false, 'vertex')
   const vsOf = (w: string) => w.slice(w.indexOf('fn vs_line'), w.indexOf('fn fs_line'))
 
   it('emits a screen-size RATIO length(merc)/length(proj) for the flat width scale — absent pre-fix', () => {

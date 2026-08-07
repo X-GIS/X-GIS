@@ -26,7 +26,6 @@
 // never claims `resolveTarget` — the resolveOwner chain (opaque /
 // composite / points) and the label pass own the MSAA resolve unchanged.
 
-import { DEBUG_OVERDRAW } from '../../debug-flags'
 import { worldBandForProjType } from '@xgis/geo'
 import { resolveColorShape, resolveNumberShape } from '../paint-shape-resolve'
 import type { FrameContext } from '../frame-context'
@@ -88,7 +87,7 @@ class BackgroundPass implements RenderPass {
     const clearValue = backgroundClearValue(
       unwrapProjection(ctx.projection).projType,
       bg,
-      DEBUG_OVERDRAW,
+      ctx.overdraw,
     )
     // F3b: originate through the RHI frame encoder — on WebGPU this maps to
     // the identical native descriptor (rhiRenderPassToGpu parity), and it is

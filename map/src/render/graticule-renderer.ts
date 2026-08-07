@@ -132,9 +132,9 @@ export class GraticuleRenderer {
   setEnabled(on: boolean): void {
     this.graticuleEnabled = on
     // Eager WebGPU-buffer prime so the first frame after enabling draws without a
-    // zoom-bucket stall. Skipped on the forced-WebGL2 twin: `ctx.device` is a fail-
-    // loud proxy there (no native GPUDevice), so the RHI buffer is built lazily in
-    // renderFrameRhi instead (#1062).
+    // zoom-bucket stall. Skipped on WebGL2: `ctx.device` is a fail-loud proxy there
+    // (no native GPUDevice) regardless of frame shape, so the RHI buffer is built
+    // lazily in renderFrameRhi instead (#1062).
     if (on && !this.graticuleBuffer && this.ctx.rhi?.backend !== 'webgl2')
       this.initGraticule(this.lastGratZoom >= 0 ? this.lastGratZoom : 2)
   }
@@ -226,9 +226,10 @@ export class GraticuleRenderer {
 
   /** Compute the per-world-copy uniform-pack parameters for this frame — the
    *  SINGLE authority for the graticule's globe/flat fan-out, shared by the WebGPU
-   *  (renderFrame) and forced-WebGL2 (renderFrameRhi) draws. Only the per-copy MVP,
-   *  DSFUN camera anchor, tile_origin_merc, log-depth factor, and globe_eye vary;
-   *  each backend then packs + draws through its own pipeline plumbing (#1062). */
+   *  (renderFrame) and RHI-native/WebGL2 (renderFrameRhi) draws. Only the per-copy
+   *  MVP, DSFUN camera anchor, tile_origin_merc, log-depth factor, and globe_eye
+   *  vary; each backend then packs + draws through its own pipeline plumbing
+   *  (#1062). */
   private copyParams(
     frame: GraticuleFrame,
     camera: GraticuleCamera,
@@ -294,7 +295,8 @@ export class GraticuleRenderer {
     return out
   }
 
-  /** Draw the graticule grid on the forced-WebGL2 twin (#1062). RHI sibling of
+  /** Draw the graticule grid on an immediate-mode device (#1062, called from
+   *  renderer.ts's `renderGraticuleOverlayRhi` on WebGL2). RHI sibling of
    *  renderFrame: the SAME zoom-bucket cache + copyParams fan-out + polygon
    *  Uniforms pack, but the geometry lives in an RhiBuffer, the uniforms in an
    *  RHI UniformRing, and the draw routes through the graticule line Material
@@ -423,10 +425,10 @@ export class GraticuleRenderer {
     return B.buffer
   }
 
-  // ── Forced-WebGL2 twin state (#1062) — parallel to the WebGPU buffer/ring above.
-  // The zoom-bucket CPU cache (graticule.ts, keyed by GraticuleData identity) is
-  // shared; only the GPU handle differs (RhiBuffer vs GPUBuffer), so the twin keeps
-  // its own RhiBuffer cache + UniformRing + bind group.
+  // ── RHI-native (WebGL2/immediate) draw state (#1062) — parallel to the WebGPU
+  // buffer/ring above. The zoom-bucket CPU cache (graticule.ts, keyed by
+  // GraticuleData identity) is shared; only the GPU handle differs (RhiBuffer vs
+  // GPUBuffer), so this arm keeps its own RhiBuffer cache + UniformRing + bind group.
   private graticuleRhiBuffer: RhiBuffer | null = null
   private graticuleRhiVertexCount = 0
   private lastGratZoomRhi = -1

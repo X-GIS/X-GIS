@@ -13,7 +13,7 @@
 //   3. new ComputeLayerRegistry(dispatcher) — frame-level aggregator
 //   4. registry.attach(key, variant, plan, idx) — per-show
 //   5. handle.uploadFromProps(getProps, featureCount) — per-tile
-//   6. registry.dispatchAll(encoder) — once per frame
+//   6. registry.dispatchAll(asRhiEnc(encoder)) — once per frame
 //   7. handle.getBindGroupEntries() — bind-group entry assembly
 //   8. device.createBindGroup({ layout, entries: [...legacy, ...computeEntries] })
 //   9. registry.detach(key) / destroyAll() — cleanup
@@ -39,6 +39,12 @@ import { nodeToWgslString } from '@xgis/compiler'
 import { ComputeDispatcher } from '@xgis/rhi-webgpu'
 import { ComputeLayerRegistry } from '@xgis/map'
 import { extendBindGroupLayoutEntriesForCompute } from '@xgis/rhi-webgpu'
+import type { RhiCommandEncoder } from '@xgis/engine'
+
+// #1046 F4 Inc-C harness shim: the dispatch thread is RHI-typed now; the fake
+// native encoder rides behind the one unwrap surface the adapter reads.
+const asRhiEnc = (e: GPUCommandEncoder): RhiCommandEncoder =>
+  ({ nativeEncoder: e }) as unknown as RhiCommandEncoder
 
 beforeAll(() => {
   if (typeof globalThis.GPUBufferUsage === 'undefined') {
@@ -244,7 +250,7 @@ describe('Renderer compute integration — full pipeline simulation', () => {
     handle!.uploadFromProps(props, 50)
 
     // ── Step 5: per-frame dispatch ──
-    registry.dispatchAll(encoder)
+    registry.dispatchAll(asRhiEnc(encoder))
     expect(dispatches).toHaveLength(1)
     expect(dispatches[0]!.entryPoint).toBe('eval_match')
     // 50 / 64 → 1 workgroup
@@ -326,7 +332,7 @@ describe('Renderer compute integration — full pipeline simulation', () => {
     expect(buffers).toHaveLength(0)
 
     // dispatchAll is safe to call (no-op).
-    registry.dispatchAll(encoder)
+    registry.dispatchAll(asRhiEnc(encoder))
     expect(dispatches).toHaveLength(0)
   })
 
@@ -408,7 +414,7 @@ describe('Renderer compute integration — full pipeline simulation', () => {
     }
     expect(registry.size).toBe(2)
 
-    registry.dispatchAll(encoder)
+    registry.dispatchAll(asRhiEnc(encoder))
     expect(dispatches).toHaveLength(2)
     registry.destroyAll()
     expect(registry.size).toBe(0)

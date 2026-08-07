@@ -36,7 +36,7 @@ describe('emitLineWgsl — line-pattern loop reachability', () => {
 
   for (const pick of [false, true]) {
     it(`pattern anchor block is reachable (no stray continue), pick=${pick}`, () => {
-      const wgsl = emitLineWgsl(pick)
+      const wgsl = emitLineWgsl(null, pick)
 
       // Locate the anchor==0 branch (the head of the per-pattern body).
       const anchorMatch = wgsl.match(ANCHOR_BRANCH)

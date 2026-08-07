@@ -1,9 +1,9 @@
 // ═══ Heatmap RHI drapers — accum / blur / compose over the generic Material ═══
 //
 // The 3-pass heatmap's draw machinery (accum splat → separable Gaussian blur →
-// ramp compose), one Material per stage, shared by BOTH frame shapes (#1046
-// F3b Inc-2c): the chain's renderChainRhi and the forced-WebGL2 twin's
-// renderRhi (#1060) drive the same drapers, so the backends cannot drift. The
+// ramp compose), one Material per stage, driven by HeatmapRenderer.renderChainRhi
+// (#1046 F3b Inc-2c; a forced-WebGL2 twin frame used to drive the same drapers
+// through a second entry point, renderRhi, until #1046 Inc-F3b deleted it). The
 // shader is single-authority (one DSL module → WGSL for WebGPU, GLSL ES 3.00
 // for WebGL2 — emitted UNCONDITIONALLY; WebGPU's createPipeline ignores
 // vsCode/fsCode, so no backend-identity read is needed to select it). Every
@@ -96,7 +96,7 @@ export class HeatmapAccumTwinDraper {
   }
 }
 
-/** Blur draw for the twin: fullscreen triangle, reads the r16float density
+/** Separable Gaussian blur draw: fullscreen triangle, reads the r16float density
  *  (textureLoad → texelFetch; the RHI binds the target's NEAREST params so the
  *  unfilterable-float read is complete) + a direction uniform, writes the 9-tap
  *  Gaussian to the r16float ping-pong target (no blend — a clean overwrite). */
@@ -135,7 +135,7 @@ export class HeatmapBlurDraper {
   }
 }
 
-/** Compose draw for the twin: fullscreen triangle samples the blurred density
+/** Compose draw: fullscreen triangle samples the blurred density
  *  (texelFetch), maps it through the ramp LUT (linear textureSample) × intensity
  *  × opacity, and alpha-blends onto the screen pass. `format` is the screen
  *  colour format (nominal on WebGL2's default framebuffer). */

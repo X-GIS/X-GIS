@@ -2,6 +2,8 @@
 // Extracted from repeated patterns across MapRenderer, RasterRenderer,
 // PointRenderer, and VectorTileRenderer. Avoids configuration drift.
 
+import type { RhiTextureFormat } from '@xgis/rhi'
+
 // ── Blend States ──
 
 /** Standard alpha blending — used by all renderers whose fragment
@@ -55,13 +57,15 @@ export const BLEND_OIT_REVEALAGE: GPUBlendState = {
 
 /** OIT accumulation target format — 16-bit float per channel so
  *  the (color × weight) sum can grow well above 1 without
- *  saturating. */
-export const OIT_ACCUM_FORMAT: GPUTextureFormat = 'rgba16float'
+ *  saturating. RHI-typed (#1046 F4 Inc-D — RenderTargets allocates through
+ *  the RHI); every member of RhiTextureFormat is a valid GPUTextureFormat
+ *  literal, so the native pipeline descriptors consume it unchanged. */
+export const OIT_ACCUM_FORMAT: RhiTextureFormat = 'rgba16float'
 
 /** OIT revealage target format — single 16-bit float. r8unorm
  *  also works at low quality but quantises (1 - α) too coarsely
- *  when many low-α layers stack. */
-export const OIT_REVEALAGE_FORMAT: GPUTextureFormat = 'r16float'
+ *  when many low-α layers stack. RHI-typed — see OIT_ACCUM_FORMAT. */
+export const OIT_REVEALAGE_FORMAT: RhiTextureFormat = 'r16float'
 
 // ── Stencil States ──
 //

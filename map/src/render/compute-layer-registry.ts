@@ -48,7 +48,8 @@
 //     propagate.
 
 import type { ComputePlanEntry, ShaderVariant } from '@xgis/compiler'
-import { ComputeDispatcher } from '@xgis/rhi-webgpu'
+import { ComputeDispatcher, type ComputeTimestampProvider } from '@xgis/rhi-webgpu'
+import type { RhiCommandEncoder } from '@xgis/engine'
 import { ComputeLayerHandle } from './compute-layer-handle'
 
 export class ComputeLayerRegistry {
@@ -102,11 +103,11 @@ export class ComputeLayerRegistry {
    *  before any render pass begins. No-op when the registry is
    *  empty — the renderer can call this unconditionally. */
   dispatchAll(
-    encoder: GPUCommandEncoder,
-    timestampWritesProvider?: { computeWrites(): GPUComputePassTimestampWrites | null } | null,
+    enc: RhiCommandEncoder,
+    timestampWritesProvider?: ComputeTimestampProvider | null,
   ): void {
     for (const handle of this.handles.values()) {
-      handle.dispatch(encoder, timestampWritesProvider)
+      handle.dispatch(enc, timestampWritesProvider)
     }
   }
 

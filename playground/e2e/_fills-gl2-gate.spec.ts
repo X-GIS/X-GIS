@@ -41,6 +41,7 @@ test('ne_110m country fills render on WebGl2Device (?forcegl2=1)', async ({ page
     page.evaluate(() => {
       const w = window as unknown as {
         __xgisActiveBackend?: string
+        __xgisFrameArm?: string
         __xgisMap?: {
           ctx?: {
             rhi?: { backend?: string; gl?: WebGL2RenderingContext }
@@ -70,6 +71,7 @@ test('ne_110m country fills render on WebGl2Device (?forcegl2=1)', async ({ page
         ok: true as const,
         backend: ctx?.rhi?.backend,
         marker: w.__xgisActiveBackend,
+        arm: w.__xgisFrameArm ?? null,
         validation: (ctx?._validationErrors ?? []).map((e) => e.message).slice(0, 5),
         glError: gl.getError(),
         W,
@@ -98,10 +100,23 @@ test('ne_110m country fills render on WebGl2Device (?forcegl2=1)', async ({ page
   expect(r.validation, 'no validation errors').toEqual([])
   expect(errors, 'no page/console errors').toEqual([])
 
+  expect(r.arm, 'the frame the loop ACTUALLY ran').toBe('chain')
+
   // Land (stone-200 fills) must cover a substantial share of the world view —
   // ne_110m land is ~29% of the globe; require a conservative >8% so tile
-  // pop-in variance can't flake the gate, and >0 checker (ocean) proves the
-  // fills did not blanket the frame (i.e. the anchor math places them).
+  // pop-in variance can't flake the gate.
   expect(r.fill, `country-fill pixels ${r.fill}/${r.total}`).toBeGreaterThan(r.total * 0.08)
-  expect(r.checker, `checker (ocean) pixels ${r.checker}/${r.total}`).toBeGreaterThan(r.total * 0.2)
+  // …and the ocean must not be country fill (the anchor math places them). The
+  // analytic checker IS the ocean here: `?debug=checker` is a real raster draw
+  // through the shared RasterDraper on the opaque pass (opaque-pass.ts, ported off
+  // the deleted twin in #1046 Inc-F2d), so this asserts the CHECKER specifically
+  // rather than the weaker "any non-fill pixel" bound. That distinction is not
+  // cosmetic — measured with the checker dead the frame is fill 32.6% / black
+  // 62.1%, which ">20% checker" catches and ">20% non-fill" does not (Inc-F2
+  // review F-1); the bound stayed on "non-fill" for a season because the chain had
+  // no checker caller yet, and it does now.
+  expect(
+    r.checker,
+    `checker (ocean) pixels ${r.checker}/${r.total} — the checker draw did not run`,
+  ).toBeGreaterThan(r.total * 0.2)
 })

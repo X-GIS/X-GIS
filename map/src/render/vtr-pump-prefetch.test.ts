@@ -189,12 +189,46 @@ describe('VectorTileRenderer.pumpPrefetch — frame-scope orchestration', () => 
     expect(() => vtr.pumpPrefetch(camera, 0, 1024, 768, 1)).not.toThrow()
   })
 
-  it('skips both routes when neededKeys is empty (cache not yet populated)', () => {
+  it('skips both routes when the frame genuinely selected no tiles', () => {
+    // NARROWED (#1587). This used to be titled "cache not yet populated" and stood for the state
+    // the product was ACTUALLY in on every frame — the pump ran before the draw passes, so the
+    // selection was always empty and this test certified that as correct. A dead path with a
+    // green test over it. The empty-selection case is still worth pinning, but as what it is: a
+    // frame that selected nothing (off-world camera, no data), not the frame's normal state.
+    // The ORDERING that made it normal is pinned in `render-loop-prefetch.test.ts`.
     const { catalog, prefetchSpy } = makeMockCatalog()
     const vtr = makeVtr(catalog, [], 1)
     const camera = new Camera(SEOUL.lon, SEOUL.lat, 14)
     vtr.pumpPrefetch(camera, 0, 1024, 768, 1)
     expect(prefetchSpy).not.toHaveBeenCalled()
+  })
+
+  it('the frame-start clear empties the very cache the pump reads — the #1587 mechanism', () => {
+    // Driven rather than described. `beginFrame` itself is not called here: it touches ~15
+    // collaborators this GPU-less harness would have to fake, and a test that stubs that much is
+    // asserting against its own scaffolding — the failure mode this whole file is being corrected
+    // for. So it drives the REAL `TileSelectionCache.invalidateFrame`, which is the one thing
+    // `beginFrame` does to the pump's input. That the frame ORDER puts this before the draw
+    // passes, and the pump therefore has to come after them, is pinned in
+    // `render-loop-prefetch.test.ts` against the frame body itself.
+    const { catalog, prefetchSpy } = makeMockCatalog()
+    const vtr = makeVtr(catalog, [tileKey(14, 14000, 6500)], 1)
+    const camera = new Camera(SEOUL.lon, SEOUL.lat, 14)
+    const selection = (vtr as unknown as { _selection: TileSelectionCache })._selection
+
+    // A populated selection — what the frame looks like AFTER its draw passes ran.
+    vtr.pumpPrefetch(camera, 0, 1024, 768, 1)
+    expect(prefetchSpy, 'given a populated selection the pump prefetches').toHaveBeenCalled()
+
+    // …and the state the old call site pumped in, one statement after the frame-start clear.
+    prefetchSpy.mockClear()
+    selection.invalidateFrame()
+    vtr.pumpPrefetch(camera, 0, 1024, 768, 1)
+    expect(
+      prefetchSpy,
+      'straight after the frame-start clear the selection is empty — pumping here is the no-op ' +
+        'that made both prefetch routes dead in the product',
+    ).not.toHaveBeenCalled()
   })
 
   it('skips loadSiblings when all siblings are already cached', () => {

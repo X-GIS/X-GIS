@@ -12,7 +12,8 @@
 // no-cycle rule, see the capture spec's header), so this gate makes the
 // drift IMPOSSIBLE instead: it fs-reads the two playground files at
 // astro build time and throws — failing the build — unless every
-// visible playground demo has a card, every card resolves to a real
+// visible playground demo is accounted for (a card, or an explicit
+// `unlistedDemoIds` curation entry), every card resolves to a real
 // demo, the capture list matches the thumbnail-bearing cards exactly,
 // and every expected thumbnail JPG is committed. It runs in every CI
 // path: the root `bun run build` (all code legs) builds the site, and
@@ -23,7 +24,12 @@
 
 import { existsSync, readFileSync, readdirSync } from 'node:fs'
 import { dirname, join } from 'node:path'
-import { galleryCategories, featuredDemos, runIdOf } from '../content/gallery-demos'
+import {
+  galleryCategories,
+  featuredDemos,
+  unlistedDemoIds,
+  runIdOf,
+} from '../content/gallery-demos'
 
 /** Walk upward from the build's cwd to the monorepo root. import.meta.url
  *  is useless here: astro prerender executes this module from a bundled
@@ -100,13 +106,35 @@ export function assertGalleryInSync(): void {
 
   const problems: string[] = []
 
-  // 1. Every visible playground demo has a site card.
+  // 1. Every visible playground demo is ACCOUNTED FOR — either it has a
+  //    site card, or it is explicitly curated out via `unlistedDemoIds`.
+  //    The gallery is deliberately a subset (one card per capability),
+  //    so silence is the thing to forbid, not absence: a new playground
+  //    demo must be a decision, never an oversight.
   const cardRunIds = new Set(runnerCards.map(runIdOf))
-  const missingCards = [...pgIds].filter((id) => !cardRunIds.has(id)).sort()
+  const unlisted = new Set(unlistedDemoIds)
+  const missingCards = [...pgIds].filter((id) => !cardRunIds.has(id) && !unlisted.has(id)).sort()
   if (missingCards.length > 0) {
     problems.push(
-      `playground demos with NO site gallery card (add cards to ` +
-        `site/src/content/gallery-demos.ts): ${missingCards.join(', ')}`,
+      `playground demos that are neither carded nor curated out (add a card ` +
+        `or an unlistedDemoIds entry in site/src/content/gallery-demos.ts): ` +
+        missingCards.join(', '),
+    )
+  }
+
+  // 1b. The curation list itself cannot rot: every entry must still name a
+  //     registered playground demo, and must not also carry a card.
+  const staleUnlisted = unlistedDemoIds.filter((id) => !pgIds.has(id)).sort()
+  if (staleUnlisted.length > 0) {
+    problems.push(
+      `unlistedDemoIds entries that are not registered playground demos ` +
+        `(remove them from site/src/content/gallery-demos.ts): ${staleUnlisted.join(', ')}`,
+    )
+  }
+  const contradictory = unlistedDemoIds.filter((id) => cardRunIds.has(id)).sort()
+  if (contradictory.length > 0) {
+    problems.push(
+      `demos listed in unlistedDemoIds AND carried by a gallery card: ${contradictory.join(', ')}`,
     )
   }
 

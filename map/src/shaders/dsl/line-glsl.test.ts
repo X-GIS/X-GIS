@@ -9,7 +9,7 @@ import { emitLineGlsl } from './line-glsl'
 
 describe('emitLineGlsl — GLSL twin shape (#834 M5)', () => {
   it('vertex stage: single main, instance/vertex builtin glue, storage lowered', () => {
-    const vs = emitLineGlsl(false, 'vertex')
+    const vs = emitLineGlsl(null, false, 'vertex')
     expect(vs).toContain('#version 300 es')
     expect((vs.match(/void main\(\)/g) ?? []).length).toBe(1)
     // Instanced segment quad: both builtins feed vs_line.
@@ -21,7 +21,7 @@ describe('emitLineGlsl — GLSL twin shape (#834 M5)', () => {
   })
 
   it('fragment stage: single main, no pattern entry, uniform block tagged', () => {
-    const fs = emitLineGlsl(false, 'fragment')
+    const fs = emitLineGlsl(null, false, 'fragment')
     expect(fs).toContain('#version 300 es')
     expect((fs.match(/void main\(\)/g) ?? []).length).toBe(1)
     // The stage split keeps fs_line only — the pattern/max variants are

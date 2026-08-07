@@ -1,11 +1,11 @@
 // #792 — pickAt must not issue a cross-device readback in the window between a
-// `map.run()` re-init (new GPUDevice) and the first post-swap frame that
+// `map.run()` re-init (new device) and the first post-swap frame that
 // reallocates the pick render-target on that new device.
 //
 // The pick RT is minted inside `RenderTargets.ensure*` on that class's tracked
-// device; after a re-run the context's device swaps but the pick texture is not
-// reallocated until the next frame. In that window `getPickTextureDevice()`
-// (the RT's device) lags `getCtx().device`, so `copyTextureToBuffer` would copy
+// RhiDevice; after a re-run the context's device swaps but the pick texture is
+// not reallocated until the next frame. In that window `getPickTextureDevice()`
+// (the RT's device) lags `getCtx().rhi`, so `copyTextureToBuffer` would copy
 // an old-device texture on the new device — WebGPU rejects it. The guard skips
 // the readback (returns null, a miss) until the devices agree.
 
@@ -26,8 +26,18 @@ const mockCanvas = {
   clientWidth: 100,
 }
 
-function makeController(pickDevice: unknown, ctxDevice: unknown): InteractionController {
-  const mockCtx = { device: ctxDevice, canvas: mockCanvas }
+function makeController(
+  pickDevice: unknown,
+  rhi: unknown,
+  rawDevice: unknown,
+): InteractionController {
+  // DE-ALIASED (verification review finding 2): `rhi` is the RhiDevice
+  // identity the #792 guard compares; `device` is a DIFFERENT object serving
+  // only the raw readback mocks. When the two were one object, a guard
+  // regressed to compare ctx.device stayed green here — now the steady case
+  // holds pickDevice === rhi ≠ device, so that regression bails before the
+  // encoder and the proceed assertion below goes red.
+  const mockCtx = { device: rawDevice, rhi, canvas: mockCanvas }
   const deps: InteractionControllerDeps = {
     camera: {} as never,
     layerIds: { getName: () => null } as unknown as LayerIdRegistry,
@@ -35,8 +45,10 @@ function makeController(pickDevice: unknown, ctxDevice: unknown): InteractionCon
     rawDatasets: new Map(),
     featureIndex: new Map(),
     getCtx: () => mockCtx as never,
-    getPickTexture: () => ({}) as GPUTexture,
+    // RHI-shaped ({native}) so the steady-state readback's unwrap resolves.
+    getPickTexture: () => ({ native: {} }) as never,
     getPickTextureDevice: () => pickDevice as never,
+    getPickTextureSize: () => ({ width: 100, height: 100 }),
     getProjectionName: () => 'mercator',
     getVectorTileShows: () => [],
   }
@@ -51,7 +63,10 @@ describe('InteractionController.pickAt — device-mismatch guard (#792)', () => 
       queue: { submit: vi.fn() },
     }
     const oldDevice = { id: 'destroyed-prior-device' }
-    const ctrl = makeController(oldDevice, newDevice)
+    // caps: part of the RhiDevice contract — pickAt reads `pickReadback` to pick its
+    // strategy ('async' = the copy-to-buffer readback these cases exercise).
+    const newRhi = { __rhi: 'live-rhi-device', caps: { pickReadback: 'async' } }
+    const ctrl = makeController(oldDevice, newRhi, newDevice)
 
     const r = await ctrl.pickAt(50, 50)
 
@@ -76,8 +91,11 @@ describe('InteractionController.pickAt — device-mismatch guard (#792)', () => 
       }),
       queue: { submit: vi.fn() },
     }
-    // Same device object for both the pick texture and the context.
-    const ctrl = makeController(device, device)
+    // The pick texture rides the SAME RhiDevice identity as ctx.rhi, while
+    // ctx.device is deliberately a different object — comparing the wrong
+    // field cannot pass this case.
+    const rhi = { __rhi: 'steady-rhi-device', caps: { pickReadback: 'async' } }
+    const ctrl = makeController(rhi, rhi, device)
 
     await ctrl.pickAt(50, 50)
 

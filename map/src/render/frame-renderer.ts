@@ -12,11 +12,15 @@
 // FrameRenderer holds NO back-reference to content.
 
 import type { GPUContext, WebGpuDevice } from '@xgis/rhi-webgpu'
-import { unwrapWebGpuPass, ComputeDispatcher } from '@xgis/rhi-webgpu'
+import {
+  unwrapWebGpuPass,
+  ComputeDispatcher,
+  type ComputeTimestampProvider,
+} from '@xgis/rhi-webgpu'
 import { ComputeLayerRegistry } from './compute-layer-registry'
 import { extendBindGroupLayoutEntriesForCompute } from '@xgis/rhi-webgpu'
 import type { ShaderVariantInfo, CachedPipeline } from './renderer-types'
-import { UniformRing, type RhiRenderPass } from '@xgis/engine'
+import { UniformRing, type RhiRenderPass, type RhiCommandEncoder } from '@xgis/engine'
 import { PipelineFactory } from './pipeline-factory'
 import { polygonUniformStride } from './polygon-uniform-slots'
 import { markStart as perfMarkStart, markEnd as perfMarkEnd } from '../__profile__/perf-marks'
@@ -147,14 +151,15 @@ export class FrameRenderer {
     return this._pipelines.spriteAtlasStubTextureView
   }
   private uniformRing!: UniformRing
-  /** Live uniform ring buffer. Public — read by the OIT / opaque /
-   *  translucent passes via `host.renderer.uniformBuffer` (routed through
-   *  MapRendererContent's delegating getter). Delegates to the shared
-   *  UniformRing so those callers keep working unchanged. */
+  /** Native uniform-ring buffer for the content raw createBindGroup sites
+   *  (renderer.ts — P6 debt beside `ctx.device`, WebGPU-arm only; the
+   *  ShowDrawFn thread that used to carry this to the passes retired at
+   *  Inc-E2 because no terminal read it). Public only by cross-class
+   *  delegation necessity — the SOLE reader is MapRendererContent's PRIVATE
+   *  delegate, and `engine` itself is private there, so no external path
+   *  exists. The WebGpuDevice cast fail-louds at RUNTIME (missing method)
+   *  if a WebGL2 frame ever reached it. */
   get uniformBuffer(): GPUBuffer {
-    // The ring is RHI-neutral (#832 M2); this getter is the WebGPU frame
-    // path's seam, so the native unwrap lives here (never called on webgl2 —
-    // the forced-WebGL2 frame renders via renderFrameViaRhi).
     return (this.ctx.rhi as WebGpuDevice).unwrapBuffer(this.uniformRing.rhiBuffer!)
   }
   /** The shared UniformRing itself — MapRendererContent hands it to the
@@ -260,10 +265,10 @@ export class FrameRenderer {
    *  No-op when no compute layer is attached (the registry is null
    *  or empty). Safe to call unconditionally from the orchestrator. */
   dispatchComputePass(
-    encoder: GPUCommandEncoder,
-    timestampWritesProvider?: { computeWrites(): GPUComputePassTimestampWrites | null } | null,
+    enc: RhiCommandEncoder,
+    timestampWritesProvider?: ComputeTimestampProvider | null,
   ): void {
-    this.computeRegistry?.dispatchAll(encoder, timestampWritesProvider)
+    this.computeRegistry?.dispatchAll(enc, timestampWritesProvider)
   }
 
   /** Hand the scene's compute plan to the renderer before issuing

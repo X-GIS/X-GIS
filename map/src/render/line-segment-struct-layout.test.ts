@@ -54,7 +54,7 @@ function parseStructFieldTypes(wgsl: string, name: string): string[] {
 }
 
 describe('LineSegment storage-struct layout (CPU writer ↔ WGSL reader)', () => {
-  const wgsl = emitLineWgsl(false)
+  const wgsl = emitLineWgsl(null, false)
   const fieldTypes = parseStructFieldTypes(wgsl, 'LineSegment')
   const wgslStride = structStd430Size(fieldTypes)
 

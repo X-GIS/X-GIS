@@ -12,6 +12,9 @@
 //    raster/hillshade `beginFrame()` — their ONLY over-budget eviction backstop — so under
 //    that backend the tile caches grew without bound. #1057 re-added the point/line pair
 //    when this same class of gap hit them; raster/hillshade were left out.
+//    (#1046 Track A1 deleted the twin — `render()`'s single chain path now drains all four
+//    caches unconditionally, so B's fix is real but has no twin-specific shape left to pin;
+//    its verification block was removed rather than adapted to a moot subject.)
 
 import { describe, expect, it } from 'vitest'
 import { readFileSync } from 'node:fs'
@@ -86,49 +89,5 @@ describe('#1579 A — raster-renderer no longer bypasses the RHI on WebGPU', () 
     // from the budget that charges for it.
     expect(mipLevelCountFor(2048, 2048)).toBe(12)
     expect(read('./raster-renderer.ts')).toContain('mipLevelCountFor(bitmap.width, bitmap.height)')
-  })
-})
-
-describe('#1579 B — the WebGL2 twin drains raster/hillshade eviction, not just point/line', () => {
-  const src = read('../render-loop.ts')
-
-  function methodBody(marker: string, nextMarker: string): string {
-    const start = src.indexOf(marker)
-    expect(start, `render-loop.ts must still contain "${marker}"`).toBeGreaterThan(-1)
-    const end = src.indexOf(nextMarker, start)
-    expect(
-      end,
-      `render-loop.ts must still contain "${nextMarker}" after the marker`,
-    ).toBeGreaterThan(start)
-    return src.slice(start, end)
-  }
-
-  it('the twin (renderFrameViaRhi) calls both beginFrame — the gap this issue closes', () => {
-    const twin = methodBody('private renderFrameViaRhi(', 'private _resolveFillPatterns(')
-    expect(twin, 'twin must drain the raster tile cache').toContain(
-      'this.host.rasterRenderer.beginFrame()',
-    )
-    expect(twin, 'twin must drain the hillshade tile cache').toContain(
-      'this.host.hillshadeRenderer.beginFrame()',
-    )
-  })
-
-  it('CONTROL — the WebGPU prelude (render()) already called both, unchanged by this fix', () => {
-    // Without this control, a passing twin assertion above could not distinguish "the fix
-    // landed" from "the text merely appears somewhere in the file" (e.g. moved OUT of the
-    // prelude instead of ADDED to the twin).
-    const prelude = methodBody('render(): void {', 'private renderFrameViaRhi(')
-    expect(prelude, 'the WebGPU prelude must still drain raster').toContain(
-      'this.host.rasterRenderer.beginFrame()',
-    )
-    expect(prelude, 'the WebGPU prelude must still drain hillshade').toContain(
-      'this.host.hillshadeRenderer.beginFrame()',
-    )
-  })
-
-  it('CONTROL — the twin still drains point/line (#1057), so this is additive, not a rewrite', () => {
-    const twin = methodBody('private renderFrameViaRhi(', 'private _resolveFillPatterns(')
-    expect(twin).toContain('this.host.lineRenderer?.beginFrame()')
-    expect(twin).toContain('this.host.pointRenderer?.beginFrame()')
   })
 })

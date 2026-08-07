@@ -19,7 +19,7 @@
 // resolve, a label-less style would present a never-written swapchain
 // (review CRITICAL-1; the pre-split deriveResolveOwner resolved without
 // conditions). A label pass that does run re-resolves and wins.
-// Twin-missing BY DESIGN (RHI_TWIN_MISSING): the WebGL2 twin scales its
+// Runs on EVERY backend since #1046 Inc-F3a. It used to be declared twin-missing:
 // canvas instead (design §7) — each backend internally consistent.
 
 import type { FrameContext } from '../frame-context'
