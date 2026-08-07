@@ -195,8 +195,10 @@ export function generateShaderVariant(
     // cached uniform colour + skip-fill-draw fast path".
     fillIsDefault: fillExpr === null,
     strokeIsDefault: strokeExpr === null,
-    // #1605 — narrower than `!strokeIsDefault` (see the field's own doc):
-    // only a genuine `@stroke` stage block, not every real stroke colour.
+    // #1605 Phase 2 — narrower than `!fillIsDefault`/`!strokeIsDefault` (see
+    // the fields' own doc): only a genuine `@color`/`@stroke` stage block,
+    // not every real fill/stroke colour.
+    fillIsStage: node.fill.kind === 'stage',
     strokeIsStage: node.stroke.color.kind === 'stage',
   }
 }

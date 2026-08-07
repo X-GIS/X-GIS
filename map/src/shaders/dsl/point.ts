@@ -54,7 +54,10 @@ import {
   Switch,
   Return,
   Discard,
+  Node,
+  Builder,
   type ModuleDecl,
+  type Stmt,
 } from '@xgis/shader-dsl'
 import {
   ioStruct,
@@ -64,7 +67,13 @@ import {
   structDecl,
   storageBuffer,
 } from '@xgis/shader-dsl'
-import { emitModule, emitGlslModule, emitGlslStages, stageOf } from '@xgis/shader-dsl'
+import {
+  emitModule,
+  emitGlslModule,
+  emitGlslStages,
+  stageOf,
+  composeModule,
+} from '@xgis/shader-dsl'
 import {
   needs_backface_cull,
   rim_alpha,
@@ -501,13 +510,16 @@ const vs = fn(
 const fs = fn(
   'fs_point',
   { in: PointOut },
-  (p) => {
+  (p, b) => {
     const pin = p.in
     // Backface cull for globe projections — cos_c is +1 for flat projections.
     If(pin.cos_c.lt(0), () => {
       Discard()
     })
-    const fid = pin.feat_id
+    // Named (not a bare alias) so the module-scope default/variant colour-assign
+    // builders below (composed OUTSIDE this closure) can varref it by literal
+    // WGSL name — mirrors line's `alpha`/`base_color` trick (#1605).
+    const fid = Let('fid', pin.feat_id)
     // shape_id moved to slot 19 in PR 2d.2's stride-20 layout (was slot 13).
     const shapeId = toU32(featData.at(fid.mul(STRIDE).add(F.shape_id), f32T))
 
@@ -528,19 +540,30 @@ const fs = fn(
       () => sdfShape({ uv_in: pin.uv, shape_id: shapeId.sub(1) }),
     )
 
-    // Per-feature style.
-    const fillColor = vec4(
-      featData.at(fid.mul(STRIDE).add(F.fill_r), f32T),
-      featData.at(fid.mul(STRIDE).add(F.fill_g), f32T),
-      featData.at(fid.mul(STRIDE).add(F.fill_b), f32T),
-      featData.at(fid.mul(STRIDE).add(F.fill_a), f32T),
-    )
-    const strokeColor = vec4(
-      featData.at(fid.mul(STRIDE).add(F.stroke_r), f32T),
-      featData.at(fid.mul(STRIDE).add(F.stroke_g), f32T),
-      featData.at(fid.mul(STRIDE).add(F.stroke_b), f32T),
-      featData.at(fid.mul(STRIDE).add(F.stroke_a), f32T),
-    )
+    // Per-feature style. Composer-swap points (#1605 Phase 2). Each axis
+    // independently: default reads the CPU-resolved colour already packed
+    // into POINT'S OWN feat_data buffer (correct for constant / data-driven /
+    // zoom-interpolated fill+stroke, AND for a stage axis whose body folded
+    // to a compile-time constant — the CPU bakes that real value too). A
+    // genuine feature-free stage axis instead evaluates variant.fillExpr/
+    // strokeExpr live, ignoring the CPU-baked opaque-white placeholder for
+    // THAT axis only. This is NOT the compiler's own per-feature buffer
+    // mechanism — see PointVariantSpec's doc below.
+    Var('point_fill_color', vec4(0, 0, 0, 0))
+    b.placeholder('point-fill-color')
+    const fillColor = new Node<'vec4<f32>'>({
+      op: 'varref',
+      type: vec4fT,
+      name: 'point_fill_color',
+    })
+
+    Var('point_stroke_color', vec4(0, 0, 0, 0))
+    b.placeholder('point-stroke-color')
+    const strokeColor = new Node<'vec4<f32>'>({
+      op: 'varref',
+      type: vec4fT,
+      name: 'point_stroke_color',
+    })
     const strokeWPx = featData.at(fid.mul(STRIDE).add(F.stroke_width_px), f32T)
     const flags = toU32(featData.at(fid.mul(STRIDE).add(F.flags_packed), f32T))
 
@@ -587,10 +610,89 @@ const fs = fn(
   { stage: 'fragment' },
 )
 
+/** A feature-free `@color`/`@stroke` composer variant (#1605 Phase 2) — mirrors
+ *  `PolygonVariantSpec`'s two-axis shape (point genuinely authors both fill AND
+ *  stroke, unlike line which only has stroke). Each axis composes independently:
+ *  a `@color`-only layer leaves the stroke placeholder on its default swap, and
+ *  vice versa. `needsFeatureBuffer` is always false in accepted variants —
+ *  `toComposerPointVariant` rejects true upstream. This is NOT point's own
+ *  per-instance feat_data buffer (@group(0)@binding(1), CPU-packed stride-24,
+ *  always bound regardless of variant) — it refers to the COMPILER's separate,
+ *  GPU-evaluated per-feature buffer (polygon's `needsFeatureBuffer` path), which
+ *  happens to share the WGSL identifier `feat_data`. A future per-`.field` point
+ *  phase must resolve that name collision explicitly, not port polygon's
+ *  binding-injection code verbatim. */
+export interface PointVariantSpec {
+  readonly preamble: Partial<Pick<ModuleDecl, 'consts' | 'bindings' | 'funcs'>> | null
+  readonly fillExpr: Node<'vec4<f32>'> | null
+  readonly strokeExpr: Node<'vec4<f32>'> | null
+  readonly fillPreamble: readonly Stmt[] | null
+  readonly strokePreamble: readonly Stmt[] | null
+  readonly needsFeatureBuffer: boolean
+}
+
+const fidRef = (): Node<'u32'> => new Node<'u32'>({ op: 'varref', type: u32T, name: 'fid' })
+
+// Default (no-variant) path: point_fill_color = the per-feature colour already
+// packed into point's own feat_data buffer at addLayer/updateDynamicSizes time.
+const defaultFillColorStmts = (): readonly Stmt[] => {
+  const b = new Builder()
+  const target = new Node<'vec4<f32>'>({ op: 'varref', type: vec4fT, name: 'point_fill_color' })
+  const fid = fidRef()
+  b.assign(
+    target,
+    vec4(
+      featData.at(fid.mul(STRIDE).add(F.fill_r), f32T),
+      featData.at(fid.mul(STRIDE).add(F.fill_g), f32T),
+      featData.at(fid.mul(STRIDE).add(F.fill_b), f32T),
+      featData.at(fid.mul(STRIDE).add(F.fill_a), f32T),
+    ),
+  )
+  return b.stmts
+}
+const defaultStrokeColorStmts = (): readonly Stmt[] => {
+  const b = new Builder()
+  const target = new Node<'vec4<f32>'>({ op: 'varref', type: vec4fT, name: 'point_stroke_color' })
+  const fid = fidRef()
+  b.assign(
+    target,
+    vec4(
+      featData.at(fid.mul(STRIDE).add(F.stroke_r), f32T),
+      featData.at(fid.mul(STRIDE).add(F.stroke_g), f32T),
+      featData.at(fid.mul(STRIDE).add(F.stroke_b), f32T),
+      featData.at(fid.mul(STRIDE).add(F.stroke_a), f32T),
+    ),
+  )
+  return b.stmts
+}
+
+// Variant path: point_fill_color = variant.fillExpr (falls back to the default
+// feat_data read when the fill axis carries no expr — independent composition).
+const variantFillColorStmts = (variant: PointVariantSpec): readonly Stmt[] => {
+  if (!variant.fillExpr) return defaultFillColorStmts()
+  const b = new Builder()
+  const target = new Node<'vec4<f32>'>({ op: 'varref', type: vec4fT, name: 'point_fill_color' })
+  b.assign(target, variant.fillExpr)
+  return [...(variant.fillPreamble ?? []), ...b.stmts]
+}
+const variantStrokeColorStmts = (variant: PointVariantSpec): readonly Stmt[] => {
+  if (!variant.strokeExpr) return defaultStrokeColorStmts()
+  const b = new Builder()
+  const target = new Node<'vec4<f32>'>({ op: 'varref', type: vec4fT, name: 'point_stroke_color' })
+  b.assign(target, variant.strokeExpr)
+  return [...(variant.strokePreamble ?? []), ...b.stmts]
+}
+
 // A build-fn (not a top-level const) so the injection-deferred getGpuProjectionFuncs() is
 // gathered at emit time, post-configureProjections() — same reason buildLineModule is a fn.
-export const buildPointModule = (): ModuleDecl =>
-  module({
+export const buildPointModule = (variant: PointVariantSpec | null = null): ModuleDecl => {
+  if (variant?.needsFeatureBuffer) {
+    // toComposerPointVariant must reject these before a variant ever reaches
+    // this function; there is no compiler-feature-buffer binding wiring here
+    // yet (#1605 — see PointVariantSpec's doc on the feat_data name collision).
+    throw new Error('buildPointModule: needsFeatureBuffer variants are not supported yet (#1605)')
+  }
+  const base = module({
     // Shared projection constants merged in (was the getProjectionWgslConsts() string prepend).
     consts: [...PROJECTION_CONSTS],
     structs: [U.struct, ShapeDesc.decl, Segment.decl, PointOut.decl, PointFragmentOutput.decl],
@@ -605,19 +707,36 @@ export const buildPointModule = (): ModuleDecl =>
       fs,
     ],
   })
+  const composed = composeModule(base, {
+    'point-fill-color': variant ? variantFillColorStmts(variant) : defaultFillColorStmts(),
+    'point-stroke-color': variant ? variantStrokeColorStmts(variant) : defaultStrokeColorStmts(),
+  })
+  if (!variant?.preamble) return composed
+  return {
+    consts: [...composed.consts, ...(variant.preamble.consts ?? [])],
+    structs: composed.structs,
+    bindings: [...composed.bindings, ...(variant.preamble.bindings ?? [])],
+    funcs: [...composed.funcs, ...(variant.preamble.funcs ?? [])],
+  }
+}
 
 /** Full point shader: one module — shared projection consts + log-depth + projection fns
  *  merged ahead of the point structs / bindings / helpers. No pick variant. */
-export const emitPointWgsl = (): string => emitModule(buildPointModule())
+export const emitPointWgsl = (variant: PointVariantSpec | null = null): string =>
+  emitModule(buildPointModule(variant))
 
 /** GLSL ES 3.00 twin for the WebGL2 backend (#1057) — the SAME point module, split per
  *  stage, with `emulateStorage` lowering the feat_data / shapes / segments storage buffers
  *  to R32F data-texture samplers (WebGl2Device's storage-buffer emulation). GLSL ES has one
  *  `main` per stage, so the non-kept stage entry is filtered out. Consumed by PointDraper
  *  behind a live `rhi.backend === 'webgl2'` guard, so the WebGPU boot never pays this emit
- *  (mirrors emitCircleRetainedGlsl / emitLineGlsl). */
-export const emitPointGlsl = (stage: 'vertex' | 'fragment'): string => {
-  const m = buildPointModule()
+ *  (mirrors emitCircleRetainedGlsl / emitLineGlsl). `variant` is always null on WebGL2 this
+ *  slice (#1605 Phase 2 is WebGPU-only) — the param exists for signature symmetry. */
+export const emitPointGlsl = (
+  variant: PointVariantSpec | null,
+  stage: 'vertex' | 'fragment',
+): string => {
+  const m = buildPointModule(variant)
   const keep = stage === 'vertex' ? 'vs_point' : 'fs_point'
   return emitGlslModule(
     { ...m, funcs: m.funcs.filter((f) => stageOf(f) === undefined || f.name === keep) },
@@ -630,8 +749,10 @@ export const emitPointGlsl = (stage: 'vertex' | 'fragment'): string => {
  *  prunes the module before each emit, so it lowers + runs the optimizer fixpoint twice;
  *  naming the entries instead shares it. Byte-identical to two calls of the per-stage
  *  form — pinned by map/src/render/material/glsl-stage-entry-parity.test.ts. */
-export const emitPointGlslStages = (): { vertex: string; fragment: string } =>
-  emitGlslStages(buildPointModule(), {
+export const emitPointGlslStages = (
+  variant: PointVariantSpec | null = null,
+): { vertex: string; fragment: string } =>
+  emitGlslStages(buildPointModule(variant), {
     vertexEntry: 'vs_point',
     fragmentEntry: 'fs_point',
     emulateStorage: true,

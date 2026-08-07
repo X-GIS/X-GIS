@@ -1,5 +1,12 @@
 import { describe, it, expect } from 'vitest'
-import { emitPointWgsl } from './point'
+import { vec4, f32, Node, vec4fT } from '@xgis/shader-dsl'
+import {
+  emitPointWgsl,
+  emitPointGlsl,
+  emitPointGlslStages,
+  buildPointModule,
+  type PointVariantSpec,
+} from './point'
 
 // Phase-2 point (SDF marker) shader — exercises storage<read> bindings with
 // runtime-sized arrays + bitwise unpacking of per-feature flags. No pick
@@ -133,5 +140,118 @@ describe('Phase-2 point shader — DSL emission', () => {
       // Every uv assignment must divide by max(..., 1.0) — no bare assignment.
       expect(line).toMatch(/\/\s*max\(/)
     }
+  })
+})
+
+describe('PointVariantSpec composer (#1605 Phase 2)', () => {
+  const fsBody = (variant: PointVariantSpec | null) => {
+    const w = emitPointWgsl(variant)
+    const start = w.indexOf('fn fs_point')
+    return w.slice(start, w.indexOf('\nfn ', start + 1))
+  }
+
+  it('a null variant emits both default feat_data-read assigns, no placeholder residue', () => {
+    const body = fsBody(null)
+    expect(body).toMatch(/point_fill_color\s*=\s*vec4<f32>\(feat_data\[/)
+    expect(body).toMatch(/point_stroke_color\s*=\s*vec4<f32>\(feat_data\[/)
+    expect(body).not.toContain('__placeholder')
+  })
+
+  it('a fill-only variant swaps the fill axis; the stroke axis still reads feat_data', () => {
+    const variant: PointVariantSpec = {
+      preamble: null,
+      fillExpr: vec4(f32(0.9), f32(0.8), f32(0.7), f32(1)),
+      strokeExpr: null,
+      fillPreamble: null,
+      strokePreamble: null,
+      needsFeatureBuffer: false,
+    }
+    const body = fsBody(variant)
+    expect(body).toMatch(/point_fill_color\s*=\s*vec4<f32>\(0\.9,\s*0\.8,\s*0\.7,\s*1\.0\)/)
+    expect(body).toMatch(/point_stroke_color\s*=\s*vec4<f32>\(feat_data\[/)
+  })
+
+  it('a stroke-only variant swaps the stroke axis; the fill axis still reads feat_data', () => {
+    const variant: PointVariantSpec = {
+      preamble: null,
+      fillExpr: null,
+      strokeExpr: vec4(f32(0.1), f32(0.2), f32(0.3), f32(1)),
+      fillPreamble: null,
+      strokePreamble: null,
+      needsFeatureBuffer: false,
+    }
+    const body = fsBody(variant)
+    expect(body).toMatch(/point_fill_color\s*=\s*vec4<f32>\(feat_data\[/)
+    expect(body).toMatch(/point_stroke_color\s*=\s*vec4<f32>\(0\.1,\s*0\.2,\s*0\.3,\s*1\.0\)/)
+  })
+
+  it('a both-axes variant swaps fill and stroke independently, in the same body', () => {
+    const variant: PointVariantSpec = {
+      preamble: null,
+      fillExpr: vec4(f32(0.9), f32(0.8), f32(0.7), f32(1)),
+      strokeExpr: vec4(f32(0.1), f32(0.2), f32(0.3), f32(1)),
+      fillPreamble: null,
+      strokePreamble: null,
+      needsFeatureBuffer: false,
+    }
+    const body = fsBody(variant)
+    expect(body).toMatch(/point_fill_color\s*=\s*vec4<f32>\(0\.9,\s*0\.8,\s*0\.7,\s*1\.0\)/)
+    expect(body).toMatch(/point_stroke_color\s*=\s*vec4<f32>\(0\.1,\s*0\.2,\s*0\.3,\s*1\.0\)/)
+    expect(body).not.toContain('feat_data[(_lc0 + 1u')
+  })
+
+  it('fillPreamble / strokePreamble Stmts are emitted ahead of their respective assigns', () => {
+    const variant: PointVariantSpec = {
+      preamble: null,
+      fillExpr: new Node<'vec4<f32>'>({ op: 'varref', type: vec4fT, name: '_fill_tmp' }),
+      strokeExpr: new Node<'vec4<f32>'>({ op: 'varref', type: vec4fT, name: '_stroke_tmp' }),
+      fillPreamble: [
+        {
+          s: 'var',
+          name: '_fill_tmp',
+          type: vec4fT,
+          init: vec4(f32(0.5), f32(0.5), f32(0.5), f32(1)).expr,
+        },
+      ],
+      strokePreamble: [
+        {
+          s: 'var',
+          name: '_stroke_tmp',
+          type: vec4fT,
+          init: vec4(f32(0.4), f32(0.4), f32(0.4), f32(1)).expr,
+        },
+      ],
+      needsFeatureBuffer: false,
+    }
+    const body = fsBody(variant)
+    expect(body).toContain('var _fill_tmp: vec4<f32> = vec4<f32>(0.5, 0.5, 0.5, 1.0)')
+    expect(body).toMatch(/point_fill_color\s*=\s*_fill_tmp/)
+    expect(body).toContain('var _stroke_tmp: vec4<f32> = vec4<f32>(0.4, 0.4, 0.4, 1.0)')
+    expect(body).toMatch(/point_stroke_color\s*=\s*_stroke_tmp/)
+  })
+
+  it('buildPointModule throws on needsFeatureBuffer (not supported yet, #1605)', () => {
+    const variant: PointVariantSpec = {
+      preamble: null,
+      fillExpr: vec4(f32(0), f32(0), f32(0), f32(1)),
+      strokeExpr: null,
+      fillPreamble: null,
+      strokePreamble: null,
+      needsFeatureBuffer: true,
+    }
+    expect(() => buildPointModule(variant)).toThrow(/needsFeatureBuffer/)
+  })
+
+  it('emitPointGlsl / emitPointGlslStages compose cleanly for both stages with variant: null', () => {
+    // Regression guard mirroring line's mandatory line-glsl.ts fix — point's
+    // emitPointGlsl already reused buildPointModule (verified against live
+    // code before this change), so this pins that it keeps doing so once the
+    // placeholders exist, rather than silently reverting to a fresh rebuild.
+    for (const stage of ['vertex', 'fragment'] as const) {
+      expect(emitPointGlsl(null, stage)).not.toContain('__placeholder')
+    }
+    const stages = emitPointGlslStages(null)
+    expect(stages.vertex).not.toContain('__placeholder')
+    expect(stages.fragment).not.toContain('__placeholder')
   })
 })

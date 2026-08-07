@@ -40,6 +40,7 @@ function makeLegacyVariant(overrides: Partial<ShaderVariant> = {}): ShaderVarian
     // override these to false via the `overrides` spread.
     fillIsDefault: true,
     strokeIsDefault: true,
+    fillIsStage: false,
     strokeIsStage: false,
     ...overrides,
   }
