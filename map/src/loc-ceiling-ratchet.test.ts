@@ -898,8 +898,10 @@ const CEILINGS: Record<string, number> = {
   // neither them nor the selected key set. RAISED, same shape as the #1448 entry above: a
   // counter field + a one-line accessor have nowhere cohesive to extract to, and the bumps
   // sits at the ONE chokepoint every slice write passes (`setSlice`) plus the refresh-drop
-  // branch, which changes content with no write for `setSlice` to see. Measured post-hook.
-  'data/src/tile-catalog.ts': 1395,
+  // branch, which changes content with no write for `setSlice` to see. +4 more for the
+  // review correction: the doc had claimed it fires "whenever content changes", which is
+  // false — eviction deletes bypass this class entirely. Measured post-hook.
+  'data/src/tile-catalog.ts': 1399,
   // 1173→1180 (#1046 F1): thread the required `rhi: RhiDevice` onto the FrameContext at
   // both build sites — the main-chain init literal and the twin label stage — so a seam
   // can reach `ctx.rhi.caps.*` (doc §3-F1). +7 = two assignments + their rationale comments;

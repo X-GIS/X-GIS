@@ -98,12 +98,20 @@ export interface TilePointPackKey {
  *  those additions is over disjoint bits, so `tileKey ≡ (1<<2z) ^ mx(x) ^ my(y)`
  *  exactly. XOR-folding a W×H rectangle of tiles therefore repeats `1<<2z`
  *  W·H times, each `mx(x)` H times and each `my(y)` W times — and `a ^ a = 0`.
- *  With W and H both EVEN the fold is 0 for EVERY rectangle, whatever its
- *  origin: measured, 576 distinct origins × {2×2, 4×2, 4×4, 6×4, 8×8} at z12
- *  produce exactly ONE hash value (zero), including rectangles sharing no tile
- *  at all. Since this is the key's only witness of WHICH tiles are selected, a
- *  pure pan at fixed zoom/pitch moved nothing in the key and the pack was reused
- *  forever — points in newly-entered tiles never appeared.
+ *  So THREE of the four parity combinations are degenerate, not one:
+ *    · W even ∧ H even — every term cancels; the fold is 0 for EVERY rectangle at
+ *      EVERY origin (measured: 576 origins × {2×2, 4×2, 4×4, 6×4, 8×8} at z12 →
+ *      exactly ONE hash value, zero, including rectangles sharing no tile at all);
+ *    · exactly one side even — the fold collapses to a function of ONE axis, so a
+ *      pan along the other is completely invisible (5×4, 3×4 → 5 distinct hashes
+ *      over 576 origins);
+ *    · only W odd ∧ H odd discriminates (3×3 → 576/576).
+ *  Since this is the key's only witness of WHICH tiles are selected, a pure pan at
+ *  fixed zoom/pitch moved nothing in the key: for a rectangular selection with an
+ *  even side the pack was reused at every origin, and points in newly-entered
+ *  tiles never appeared. (Scope, measured rather than assumed: `PointRenderer`
+ *  holds ONE cache slot shared by all shows, so with ≥2 point-style shows the memo
+ *  already missed every frame — this bit single-point-show scenes.)
  *
  *  The fix keeps order-independence — addition commutes, which is why a sort is
  *  still unnecessary — but AVALANCHES EACH KEY BEFORE accumulating it. Mixing
@@ -113,8 +121,16 @@ export interface TilePointPackKey {
  *  rectangle's structure survives to the final mix with the information already
  *  gone (4×4 at z12: 272 distinct hashes over 576 origins). Per-key finalization
  *  first makes each tile contribute a value with no arithmetic relationship to
- *  its neighbours, so the sum discriminates. Length is folded too, so a subset
- *  cannot collide with its superset through cancellation. */
+ *  its neighbours, so the sum discriminates. Length is folded too — not against
+ *  "cancellation" (a sum of avalanched values does not cancel; scanning ~3M real
+ *  keys found no k with `fin(k) ≡ -1`), but for one concrete case: `tileKey(16,0,0)`
+ *  truncates to 0 and `fin(0) = 0`, so that key contributes NOTHING to the sum and
+ *  only the length separates S from S ∪ {that key}.
+ *
+ *  Pre-existing and carried over: `keys[i] | 0` truncates above z 15, so
+ *  `tileKey(16,5,7) | 0 === tileKey(17,5,7) | 0`. Reachable only if two keys whose
+ *  low 32 morton bits coincide sit in `stableKeys` together — different z, far
+ *  apart geographically. The XOR-fold truncated identically. */
 export function hashStableKeys(keys: readonly number[]): number {
   let h = keys.length | 0
   for (let i = 0; i < keys.length; i++) {

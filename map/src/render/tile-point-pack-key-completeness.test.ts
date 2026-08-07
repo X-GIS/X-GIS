@@ -182,6 +182,23 @@ describe('hashStableKeys witnesses the tile SET, not a cancelling fold (#1616)',
     }
   })
 
+  it('MIXED-parity rectangles — degenerate along one axis — also discriminate', () => {
+    // The first pass documented only the even×even case. Review measured that ONE
+    // even side is enough: the fold collapses to a function of the other axis, so a
+    // pan along the even side was invisible (5×4, 3×4: 5 distinct over 576 origins).
+    for (const [W, H] of [
+      [5, 4],
+      [3, 4],
+      [4, 3],
+    ]) {
+      const seen = new Set<number>()
+      for (let x = 100; x < 112; x++) {
+        for (let y = 200; y < 212; y++) seen.add(hashStableKeys(rect(12, x, y, W, H)))
+      }
+      expect(seen.size, `${W}x${H}: distinct hashes over 144 distinct origins`).toBe(144)
+    }
+  })
+
   it('a ONE-TILE pan in any direction changes the hash', () => {
     // The user-visible shape of the bug: pan a little, the tile set changes, and
     // the pack must be rebuilt or the new tiles' points never draw.

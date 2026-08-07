@@ -71,8 +71,12 @@ export class TileCatalog {
   private index: XGVTIndex | null = null
   /** #1581 — entries only ever grow; lets a memo invalidate a landed tile. */
   indexGeneration = (): number => this.index?.entryByHash.size ?? 0
-  /** #1616 — bumps on every slice WRITE and every refresh-drop, i.e. whenever what a
-   *  cached key CONTAINS changes. `indexGeneration` only grows with new index entries,
+  /** #1616 — bumps on every slice WRITE (`setSlice`, the one chokepoint they all pass)
+   *  and on the refresh-drop, which changes content with no write to see it. NOT on
+   *  eviction: `TileEvictionPolicy` calls `cache.deleteCacheEntry` directly, bypassing
+   *  this class — safe for the point path only because eviction skips `protectedKeys`
+   *  ⊇ the selected set, so a key a pack depends on is not evicted under it.
+   *  `indexGeneration` only grows with new index entries,
    *  so neither a tile ARRIVING for an already-selected key nor a re-tile of one moves
    *  it; the selected key set does not move either. A memo that also stops re-reading
    *  tile data on a hit (#1581 leg B) is blind to both without this. Counts writes, not
