@@ -32,6 +32,7 @@ type MapWin = {
     invalidate?: () => void
     setCenter?: (lon: number, lat: number) => void
     getCenter?: () => [number, number]
+    getMissingTileCount?: () => number
     ctx?: { rhi?: { backend?: string; gl?: WebGL2RenderingContext } }
   }
 }
@@ -71,6 +72,73 @@ const readFrame = (page: Page) =>
     return { ok: true as const, hash: h >>> 0, nonBg, total: W * H, backend: gl ? 'webgl2' : '' }
   })
 
+type Frame = Awaited<ReturnType<typeof readFrame>>
+
+/** #1620 — wait for the scene to CONVERGE, instead of sleeping a guessed duration.
+ *
+ *  Every wait in this spec used to be a fixed `waitForTimeout`, and all of this
+ *  gate's observed flake modes were that one defect wearing different hats: a tile
+ *  landing after the sleep read as `nonBg === 0` (settle), as hash drift across the
+ *  static-camera loop, or as a post-`setCenter` frame that had not finished
+ *  re-selecting. None of them were product bugs; the spec was asserting on a scene
+ *  it had not waited for.
+ *
+ *  Convergence is TWO conditions, and both are load-bearing:
+ *
+ *   1. `getMissingTileCount() === 0` — the map's own "nothing is still resolving"
+ *      signal, documented at `map.ts:1617-1624` as settling to 0 exactly when the
+ *      scene converges.
+ *   2. the same frame hash on three consecutive reads.
+ *
+ *  Neither alone is enough: a hash-only predicate accepts the plateau where tiles
+ *  are still in flight but nothing has landed *yet*, so the frame is momentarily
+ *  stable without being finished.
+ *
+ *  Measured effect, 8 consecutive runs at --workers=1 (#1620): pre-fix 7/8 failed,
+ *  across three different modes (`nonBg === 0`, static-camera hash drift, and the
+ *  round-trip mismatch below). With this predicate the first two modes no longer
+ *  occur at all — every remaining failure is the round-trip one, which is NOT a
+ *  timing artifact: `getMissingTileCount()` reads 0, the hash is stable, the camera
+ *  is back at the same centre, and the frame still differs (21,020 vs 29,053
+ *  non-background pixels). Reading the two frames at full resolution shows why —
+ *  the SDF point is drawn SMALLER on first paint and larger after a pan away and
+ *  back. That is a real product defect this gate is correctly catching, tracked
+ *  separately; do not "fix" it by loosening anything here.
+ *
+ *  Bounded by a deadline so a genuinely stuck frame still fails (loudly, on the
+ *  caller's own assertion) rather than hanging. Modeled on
+ *  `_graticule-gl2-gate.spec.ts`'s `fillFraction` deadline loop.
+ *
+ *  This does NOT weaken anything: the invariants below are untouched, and the
+ *  static-camera hash-equality assertion stays exactly as strict. Removing the
+ *  still-loading confound is what lets that assertion mean what it claims. */
+async function settleFrame(
+  page: Page,
+  opts: { requireContent?: boolean; timeoutMs?: number } = {},
+): Promise<Frame> {
+  const { requireContent = false, timeoutMs = 60_000 } = opts
+  const deadline = Date.now() + timeoutMs
+  let prev = await readFrame(page)
+  let stable = 0
+  while (Date.now() < deadline) {
+    await invalidate(page)
+    await page.waitForTimeout(100)
+    const cur = await readFrame(page)
+    const inFlight = await page.evaluate(
+      () => (window as unknown as MapWin).__xgisMap?.getMissingTileCount?.() ?? 0,
+    )
+    const contentOk = !requireContent || (cur.ok && cur.nonBg > 0)
+    if (inFlight === 0 && cur.ok && prev.ok && cur.hash === prev.hash && contentOk) {
+      // Two confirmations after the first match — three identical reads in a row.
+      if (++stable >= 2) return cur
+    } else {
+      stable = 0
+    }
+    prev = cur
+  }
+  return prev
+}
+
 test('static-camera memo (#1581): identical pixels across static frames, real change on camera move, converges back', async ({
   page,
 }, testInfo) => {
@@ -89,13 +157,11 @@ test('static-camera memo (#1581): identical pixels across static frames, real ch
     await page.evaluate(() => (window as unknown as MapWin).__xgisMap?.ctx?.rhi?.backend),
   ).toBe('webgl2')
 
-  // Settle the initial tile load (a few frames) before the static-camera
-  // invariant starts — otherwise a still-loading tile would look like drift.
-  for (let i = 0; i < 5; i++) {
-    await invalidate(page)
-    await page.waitForTimeout(300)
-  }
-  const settled = await readFrame(page)
+  // Settle the initial tile load before the static-camera invariant starts —
+  // otherwise a still-loading tile looks like drift. Waits for convergence
+  // (#1620) rather than a fixed 5x300ms, which is what made `nonBg === 0` a
+  // recurring flake here rather than the real signal it reads as.
+  const settled = await settleFrame(page, { requireContent: true })
   expect(settled.ok).toBe(true)
   if (!settled.ok) return
   expect(settled.nonBg, 'the point fixture drew something').toBeGreaterThan(0)
@@ -126,19 +192,17 @@ test('static-camera memo (#1581): identical pixels across static frames, real ch
   // CONTROL — a real camera move must still re-select/re-pack (the opposite
   // bug: a memo that never invalidates would leave the OLD frame on screen).
   await setCenter(page, 5, 5)
-  await invalidate(page)
-  await page.waitForTimeout(300)
-  const moved = await readFrame(page)
+  const moved = await settleFrame(page, { requireContent: true })
   expect(moved.ok).toBe(true)
   if (!moved.ok) return
   expect(moved.hash, 'camera move: pixels must change').not.toBe(settled.hash)
 
   // Return to the original camera: must converge back to the SAME pixels —
   // proving re-selection at a revisited camera state is correct, not partial.
+  // "Converge" is now waited for rather than assumed after 300ms (#1620) — the
+  // assertion is unchanged, but a slow re-select no longer reads as a wrong frame.
   await setCenter(page, 0, 0)
-  await invalidate(page)
-  await page.waitForTimeout(300)
-  const back = await readFrame(page)
+  const back = await settleFrame(page, { requireContent: true })
   expect(back.ok).toBe(true)
   if (!back.ok) return
   expect(back.hash, 'camera returned to origin: pixels match the original frame').toBe(settled.hash)
