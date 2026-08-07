@@ -7,7 +7,7 @@
 
 import type { RhiBuffer, RhiDevice, RhiRenderPass } from '@xgis/engine'
 import { Material, executeItems } from '@xgis/engine'
-import { emitPointWgsl, emitPointGlslStages } from '../../shaders/dsl/point'
+import { emitPointWgsl, emitPointGlslStages, type PointVariantSpec } from '../../shaders/dsl/point'
 import { wgslFor, glslStagesFor } from './wgsl-for'
 
 type VertexBuffers = ReadonlyArray<{
@@ -44,15 +44,29 @@ export class PointDraper {
 
   private readonly material: Material
 
-  constructor(rhi: RhiDevice, format: string, sampleCount: number, vertexBuffers: VertexBuffers) {
+  constructor(
+    rhi: RhiDevice,
+    format: string,
+    sampleCount: number,
+    vertexBuffers: VertexBuffers,
+    /** A feature-free @color/@stroke composer variant (#1605 Phase 2), or null
+     *  for the default feat_data-read path. Named `shaderVariant`, NOT `variant`
+     *  — `PointBatch.variant` below is an unrelated depth-bias pipeline index
+     *  (0=opaque/1=translucent/2=flat); reusing the name would shadow/confuse
+     *  the two inside draw(). WebGL2 stays on the default (null) shader this
+     *  slice — #1605 Phase 2 is WebGPU-only, mirroring line's own staging;
+     *  PointRenderer never constructs a non-null-variant PointDraper on
+     *  webgl2, so this never diverges from what actually draws. */
+    private readonly shaderVariant: PointVariantSpec | null = null,
+  ) {
     const bias = { constant: -10, slopeScale: -1, clamp: 0 }
     // #1057 — GLSL ES 3.00 twins for the WebGL2 backend, emitted behind a LIVE backend
     // guard so the WebGPU boot never pays the double emit (mirrors RetainedCircleDraper).
     // The point storage buffers (feat_data / shapes / segments) lower to data-texture
     // samplers via emulateStorage; on WebGPU these are ignored.
     this.material = new Material(rhi, {
-      shader: wgslFor(rhi, emitPointWgsl),
-      ...glslStagesFor(rhi, emitPointGlslStages),
+      shader: wgslFor(rhi, () => emitPointWgsl(this.shaderVariant)),
+      ...glslStagesFor(rhi, () => emitPointGlslStages(null)),
       vsEntry: 'vs_point',
       fsEntry: 'fs_point',
       format: format as 'bgra8unorm',

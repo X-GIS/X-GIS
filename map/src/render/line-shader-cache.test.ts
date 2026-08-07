@@ -27,6 +27,7 @@ function baseVariant(overrides: Partial<ShaderVariantInfo> = {}): ShaderVariantI
     opacityUsesPalette: false,
     fillIsDefault: true,
     strokeIsDefault: false,
+    fillIsStage: false,
     strokeIsStage: true,
     ...overrides,
   } as ShaderVariantInfo
