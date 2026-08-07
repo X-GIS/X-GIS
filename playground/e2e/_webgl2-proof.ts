@@ -15,7 +15,12 @@
 import { WebGl2Device, wrapWebGl2Pass } from '@xgis/rhi-webgl2'
 import { Material, executeItems } from '@xgis/map'
 import { overdrawComposeModule } from '../../engine/src/shaders/dsl/overdraw-compose'
-import { buildPointModule } from '@xgis/map'
+import {
+  buildPointModule,
+  emitLineGlsl,
+  type PointVariantSpec,
+  type LineVariantSpec,
+} from '@xgis/map'
 import {
   emitGlslModule,
   mat4x4fT,
@@ -26,6 +31,9 @@ import {
   structT,
   texture2dfT,
   samplerT,
+  Node,
+  vec4,
+  f32,
   type ShaderType,
   type Expr,
   type ModuleDecl,
@@ -1632,7 +1640,7 @@ export function runWebgl2StructStorageProof(): Webgl2StructStorageResult {
   }
 }
 
-// ═══ REAL point shader COMPILE+LINK on WebGL2 (US-006 capstone) ═══
+// ═══ REAL point/line shader COMPILE+LINK on WebGL2 (US-006 capstone; #1605 Phase 3) ═══
 export interface PointLinkResult {
   emitVs: string
   emitFs: string
@@ -1641,12 +1649,17 @@ export interface PointLinkResult {
   link: boolean
   log: string
 }
-export function pointLinkAttempt(): PointLinkResult {
+
+/** Shared compile+link core — emits vertex/fragment GLSL via `emitStage`, compiles both
+ *  on a REAL `webgl2` context, links, and reports pass/fail + the compiler/linker log.
+ *  Used by both `pointLinkAttempt`/`lineLinkAttempt` so the two geometries share one
+ *  verified harness (#1605 Phase 3 Step 0). */
+function compileLinkAttempt(emitStage: (stage: 'vertex' | 'fragment') => string): PointLinkResult {
   let vsSrc = '',
     fsSrc = ''
   try {
-    vsSrc = emitGlslModule(buildPointModule(), 'vertex', { emulateStorage: true })
-    fsSrc = emitGlslModule(buildPointModule(), 'fragment', { emulateStorage: true })
+    vsSrc = emitStage('vertex')
+    fsSrc = emitStage('fragment')
   } catch (e) {
     return {
       emitVs: 'THROW: ' + (e as Error).message,
@@ -1699,6 +1712,78 @@ export function pointLinkAttempt(): PointLinkResult {
     link,
     log,
   }
+}
+
+/** A synthetic PointVariantSpec carrying BOTH a real fillExpr/strokeExpr AND non-empty
+ *  preamble consts/funcs — #1605 Phase 3's specific untested combination: does
+ *  `emulateStorage`'s storage→data-texture lowering coexist with a composed module's
+ *  injected preamble when actually compiled on real WebGL2 (not just emitted as text)?
+ *  Mirrors the shape a real `match()`-authored @color body would produce. */
+export function testPointVariant(): PointVariantSpec {
+  return {
+    preamble: {
+      consts: [{ name: 'TEST_TINT_K', type: f32T, wgslValue: 0.5, cpuValue: 0.5 }],
+      funcs: [
+        {
+          name: 'test_helper',
+          params: [],
+          ret: f32T,
+          body: [{ s: 'return', expr: f32(1).expr }],
+        },
+      ],
+    },
+    fillExpr: vec4(f32(0.9), f32(0.8), f32(0.7), f32(1)),
+    strokeExpr: new Node<'vec4<f32>'>({ op: 'varref', type: vec4fT, name: '_stroke_tmp' }),
+    fillPreamble: null,
+    strokePreamble: [
+      {
+        s: 'var',
+        name: '_stroke_tmp',
+        type: vec4fT,
+        init: vec4(f32(0.1), f32(0.2), f32(0.3), f32(1)).expr,
+      },
+    ],
+    needsFeatureBuffer: false,
+  }
+}
+
+/** The LineVariantSpec sibling of `testPointVariant` — one axis (line has only stroke),
+ *  same preamble shape. */
+export function testLineVariant(): LineVariantSpec {
+  return {
+    preamble: {
+      consts: [{ name: 'TEST_TINT_K', type: f32T, wgslValue: 0.5, cpuValue: 0.5 }],
+      funcs: [
+        {
+          name: 'test_helper',
+          params: [],
+          ret: f32T,
+          body: [{ s: 'return', expr: f32(1).expr }],
+        },
+      ],
+    },
+    strokeExpr: vec4(f32(0.9), f32(0.8), f32(0.7), f32(1)),
+    strokePreamble: null,
+    needsFeatureBuffer: false,
+  }
+}
+
+/** REAL point shader compile+link, optionally with a composer variant (null = the default
+ *  no-variant module, matching the original US-006 gate; a real variant exercises #1605
+ *  Phase 3's untested emulateStorage-vs-preamble combination). */
+export function pointLinkAttempt(variant: PointVariantSpec | null = null): PointLinkResult {
+  return compileLinkAttempt((stage) =>
+    emitGlslModule(buildPointModule(variant), stage, { emulateStorage: true }),
+  )
+}
+
+/** REAL line shader compile+link, the point sibling above. `pickEnabled` is always false —
+ *  pick is WebGPU-only. Uses `emitLineGlsl` (not a bare `emitGlslModule` call) because
+ *  line's composed module carries 3 fragment entries (fs_line/fs_line_pattern/fs_line_max)
+ *  — GLSL allows exactly one `main` per stage, so the entry must be filtered before emit
+ *  (emitLineGlsl already does this; point never needs it, having a single fragment entry). */
+export function lineLinkAttempt(variant: LineVariantSpec | null = null): PointLinkResult {
+  return compileLinkAttempt((stage) => emitLineGlsl(variant, false, stage))
 }
 
 // ═══ The generic Material + executeItems render on WebGl2Device (render-loop US-002/003) ═══
