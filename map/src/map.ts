@@ -22,6 +22,7 @@ import {
 } from '@xgis/compiler'
 import { uploadPalette, type PaletteTextures } from './render/palette-textures'
 import { HeatmapTargets } from './render/heatmap-targets'
+import { warnStageBlockUnsupported } from './render/stage-block-warning'
 import type * as AST from '@xgis/compiler'
 import { SyntheticEarthSurfaceBackend } from '@xgis/data'
 import { PROJECTION_NAME_TO_TYPE, PROJECTIONS } from '@xgis/geo'
@@ -3693,13 +3694,11 @@ export class XGISMap {
           try {
             pipelines = this.renderer.getOrCreateVariantPipelines(variant)
             layout = this.renderer.getOrBuildVariantLayout(variant)
-            // Mirror of the sibling branch above — same compute-
-            // context hand-off so this code path (existing VT source)
-            // sees the compute plan for the new show.
-            // Plan goes through `setComputePlan`; renderNodeIndex
-            // travels with the variant via `buildFeatureDataBuffer`
-            // so the two CANNOT drift across shows that share this
-            // VTR. The plan setter is idempotent + scene-scoped.
+            // Mirror of the sibling branch above — same compute-context hand-off so this code
+            // path (existing VT source) sees the compute plan for the new show. Plan goes through
+            // `setComputePlan`; renderNodeIndex travels with the variant via `buildFeatureDataBuffer`
+            // so the two CANNOT drift across shows that share this VTR. The plan setter is
+            // idempotent + scene-scoped.
             vtEntry.renderer.setComputePlan(this._currentComputePlan)
             if (variant.needsFeatureBuffer && !vtEntry.renderer.hasFeatureData()) {
               vtEntry.renderer.buildFeatureDataBuffer(variant, layout, show.renderNodeIndex)
@@ -3757,12 +3756,10 @@ export class XGISMap {
               : resolveNumberShape(sizeShape, this.camera.zoom, performance.now()).value
             : 8
 
-        // Evaluate per-feature size if data-driven. Inject reserved
-        // keys (`$zoom` / `$geometryType` / `$featureId`) via
-        // makeEvalProps so size expressions like
-        // `interpolate(zoom, …)` or `case([==, ["geometry-type"],
-        // "Point"], …)` see the live values. Pre-fix the raw props
-        // bag meant size-by-zoom collapsed to baseSize uniformly.
+        // Evaluate per-feature size if data-driven. Inject reserved keys (`$zoom` /
+        // `$geometryType` / `$featureId`) via makeEvalProps so size expressions like
+        // `interpolate(zoom, …)` or `case([==, ["geometry-type"], "Point"], …)` see the live
+        // values. Pre-fix the raw props bag meant size-by-zoom collapsed to baseSize uniformly.
         let perFeatureSizes: number[] | null = null
         if (show.sizeExpr?.ast) {
           const ast = show.sizeExpr.ast as import('@xgis/compiler').Expr
@@ -3789,14 +3786,12 @@ export class XGISMap {
           })
         }
 
-        // #732 S5 — per-feature FILL / STROKE colour (data-driven point
-        // paint), the colour-axis mirror of perFeatureSizes above. The
-        // compiler emits show.fillColorExpr / show.strokeColorExpr when a
-        // point layer's fill/stroke is a match/interpolate over a feature
-        // property. Evaluate the AST per feature (reserved keys injected,
-        // throw-isolated like applyFilter), parse the resolved hex → rgba,
-        // and fall back to the layer constant so an unmatched feature paints
-        // the default arm. null (no expr) keeps the constant path unchanged.
+        // #732 S5 — per-feature FILL / STROKE colour (data-driven point paint), the colour-axis
+        // mirror of perFeatureSizes above. The compiler emits show.fillColorExpr /
+        // show.strokeColorExpr when a point layer's fill/stroke is a match/interpolate over a
+        // feature property. Evaluate the AST per feature (reserved keys injected, throw-isolated
+        // like applyFilter), parse the resolved hex → rgba, and fall back to the layer constant so
+        // an unmatched feature paints the default arm. null (no expr) keeps the constant unchanged.
         const evalPerFeatureColor = (
           expr: { ast?: unknown } | null | undefined,
           fallback: [number, number, number, number] | null,
@@ -3831,6 +3826,12 @@ export class XGISMap {
 
         // Resolve shape name to GPU shape_id
         const shapeId = show.shape ? (this.shapeRegistry?.getShapeId(show.shape) ?? 0) : 0
+
+        warnStageBlockUnsupported(
+          show.targetName,
+          'point',
+          Boolean(show.shaderVariant?.fillExpr || show.shaderVariant?.strokeExpr),
+        )
 
         this.pointRenderer.addLayer(
           filtered.features,

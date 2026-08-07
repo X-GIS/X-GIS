@@ -86,6 +86,7 @@ import { bakesVectorDrape } from '@xgis/geo'
 import { VectorDrapeRenderer } from './vector-drape-renderer'
 import type { PointRenderer } from './point-renderer'
 import type { LineRenderer } from './line-renderer'
+import { warnStageBlockUnsupported } from './stage-block-warning'
 import {
   bakeTileStrokes,
   emptyBakeStrokeStyle,
@@ -1419,19 +1420,17 @@ export class VectorTileRenderer {
         anchor: anchorMap[p.anchor ?? 'repeat'],
       }))
       .filter((p) => p.shapeId > 0)
-    // Mapbox IMAGE line-pattern (#834 M5 slice 5) — render()'s slot reuse
-    // verbatim: fs_line_pattern reads layer.color.r/.a as the x/y repeat
-    // metres and tile.stroke_color as the sprite-atlas UV bbox, so the
-    // pattern show trades its solid stroke colour for the atlas sample.
+    // Mapbox IMAGE line-pattern (#834 M5 slice 5) — render()'s slot reuse verbatim:
+    // fs_line_pattern reads layer.color.r/.a as the x/y repeat metres and tile.stroke_color as
+    // the sprite-atlas UV bbox, so the pattern show trades its solid stroke colour for the atlas.
     const linePatternActive = show.linePatternUV != null && show.linePatternRepeatM != null
     const lineSlotColor: [number, number, number, number] = linePatternActive
       ? [show.linePatternRepeatM![0], 0, 0, show.linePatternRepeatM![1]]
       : [stroke[0], stroke[1], stroke[2], stroke[3]]
-    // Stroke alignment → effective perpendicular offset (render():2274's
-    // derivation verbatim): inset/outset shift by ±half-width, additive with
-    // an explicit stroke-offset-N. The slice-1 hardcoded 0 drew every inset/
-    // outset stroke centred (#834 M5 slice 6, _translucent-outline-parity).
-    // line-gap-width's double-draw stays a follow-up.
+    // Stroke alignment → effective perpendicular offset (render():2274's derivation verbatim):
+    // inset/outset shift by ±half-width, additive with an explicit stroke-offset-N. The slice-1
+    // hardcoded 0 drew every inset/outset stroke centred (#834 M5 slice 6,
+    // _translucent-outline-parity). line-gap-width's double-draw stays a follow-up.
     const explicitOffset = show.strokeOffset ?? 0
     const alignDelta =
       show.strokeAlign === 'inset'
@@ -1443,6 +1442,11 @@ export class VectorTileRenderer {
     // Translucent bucket ('max'): the show's opacity applies ONCE, at
     // composite time — the accumulation draws at 1.0 (render():2269).
     const layerOpacity = mode === 'max' ? 1.0 : opacity
+    warnStageBlockUnsupported(
+      show.targetName,
+      'line',
+      Boolean(show.shaderVariant?.fillExpr || show.shaderVariant?.strokeExpr),
+    )
     const layerOffset = this.lineRenderer.writeLayerSlot(
       lineSlotColor,
       strokeWidthPx,
@@ -2850,17 +2854,13 @@ export class VectorTileRenderer {
         }))
         .filter((p) => p.shapeId > 0)
 
-      // In translucent mode the offscreen RT must hold the FULL color +
-      // stroke alpha (no opacity multiply). The composite step then blends
-      // with the layer opacity. Otherwise we'd double-apply opacity.
-      // In 'strokes' phase the offscreen RT holds the FULL color + stroke
-      // alpha (no opacity multiply). The composite step then blends with the
-      // layer opacity — otherwise we'd double-apply it.
+      // In translucent mode ('strokes' phase) the offscreen RT must hold the FULL color + stroke
+      // alpha (no opacity multiply); the composite step then blends with the layer opacity —
+      // otherwise we'd double-apply it.
       const layerOpacity = phase === 'strokes' ? 1.0 : this.currentOpacity
 
-      // Resolve stroke alignment to an effective offset. Inset/outset
-      // shift by ±half_width; combines additively with explicit
-      // stroke-offset-N (so users can fine-tune around the baseline).
+      // Resolve stroke alignment to an effective offset. Inset/outset shift by ±half_width;
+      // combines additively with explicit stroke-offset-N (fine-tune around the baseline).
       const explicitOffset = show.strokeOffset ?? 0
       const alignDelta =
         show.strokeAlign === 'inset'
@@ -2870,24 +2870,19 @@ export class VectorTileRenderer {
             : 0
       const effectiveOffset = explicitOffset + alignDelta
 
-      // Mapbox line-gap-width: render the line as TWO parallel
-      // strokes with perpendicular offsets ±(gap + stroke) / 2.
-      // OFM Liberty waterway_tunnel is the only fixture hit. Zero or
-      // absent gap stays on the legacy single-line path. The half-
-      // offset is added/subtracted from `effectiveOffset` so existing
-      // alignment + explicit offset stack correctly (a line authored
-      // with stroke-offset-right-2 + line-gap-width:6 + line-width:1
-      // ends up with one stroke at offset 2 + 3.5 = 5.5 and one at
-      // offset 2 − 3.5 = −1.5).
+      // Mapbox line-gap-width: render the line as TWO parallel strokes with perpendicular
+      // offsets ±(gap + stroke) / 2. OFM Liberty waterway_tunnel is the only fixture hit. Zero
+      // or absent gap stays on the legacy single-line path. The half-offset is added/subtracted
+      // from `effectiveOffset` so existing alignment + explicit offset stack correctly (a line
+      // authored with stroke-offset-right-2 + line-gap-width:6 + line-width:1 ends up with one
+      // stroke at offset 2 + 3.5 = 5.5 and one at offset 2 − 3.5 = −1.5).
       const gapWidth = show.strokeGapWidth ?? 0
       const halfGap = gapWidth > 0 ? (gapWidth + strokeWidthPx) / 2 : 0
 
-      // Line-pattern override. When the show has a resolved pattern repeat,
-      // replace strokeColor.r / .a with the x / y repeat metres
-      // (fs_line_pattern reads layer.color.r/.a as repeat axes). The solid
-      // stroke colour is lost on the pattern path, but the sprite atlas
-      // sample provides the visual colour band (mirror of fill-pattern's
-      // fill_color slot reuse).
+      // Line-pattern override. When the show has a resolved pattern repeat, replace
+      // strokeColor.r / .a with the x / y repeat metres (fs_line_pattern reads layer.color.r/.a
+      // as repeat axes). The solid stroke colour is lost on the pattern path, but the sprite
+      // atlas sample provides the visual colour band (mirror of fill-pattern's fill_color reuse).
       const linePatternActive = show.linePatternUV != null && show.linePatternRepeatM != null
       const lineSlotColor: [number, number, number, number] = linePatternActive
         ? [show.linePatternRepeatM![0], 0, 0, show.linePatternRepeatM![1]]
@@ -2898,6 +2893,11 @@ export class VectorTileRenderer {
             this.cachedStrokeColor[3],
           ]
 
+      warnStageBlockUnsupported(
+        show.targetName,
+        'line',
+        Boolean(show.shaderVariant?.fillExpr || show.shaderVariant?.strokeExpr),
+      )
       lineLayerOffset = this.lineRenderer.writeLayerSlot(
         lineSlotColor,
         strokeWidthPx,

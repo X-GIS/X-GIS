@@ -545,7 +545,11 @@ const CEILINGS: Record<string, number> = {
   // 5412→5411 (#1576, parallel on main): the visible-resume branch lost its duplicated
   // latch commentary — the latch's own declaration already carries it.
   // Merge union (#1046 F3b <- main): both sides shrank independently — measured post-hook.
-  'map/src/map.ts': 5409,
+  // 5409→5410 (merge union, #1046 F3b <- main #1605): stacked non-overlapping edits SUM —
+  // this branch's twin-deletion shrink and main's stage-block-drop warning (+1 net, which
+  // fit under main's own looser 5411) land in different regions of the same file, so the
+  // ceiling is the MERGED file's measured size, never either side's number.
+  'map/src/map.ts': 5410,
   // Baselined at #1255 (measured 830): the DOM-inspired layer API crossed
   // NEW_FILE_CAP with the paint-transition style-setter integration — the
   // StyleHost.transitions context, the shared applyNumber/applyColor
@@ -873,7 +877,9 @@ const CEILINGS: Record<string, number> = {
   // accessor has nowhere cohesive to go, and the twelve lines are the reason it must not drain
   // (a predicate that consumed its own evidence would swallow the swap it schedules) plus the
   // measurement that found the bug — the part a future reader needs most. Measured post-hook.
-  'data/src/tile-catalog.ts': 1384,
+  // 1384→1383 (merge union <- main): a one-line shrink banked honestly rather than left
+  // as silent headroom — the ratchet passes on shrinkage, so this would never have failed.
+  'data/src/tile-catalog.ts': 1383,
   // 1173→1180 (#1046 F1): thread the required `rhi: RhiDevice` onto the FrameContext at
   // both build sites — the main-chain init literal and the twin label stage — so a seam
   // can reach `ctx.rhi.caps.*` (doc §3-F1). +7 = two assignments + their rationale comments;
