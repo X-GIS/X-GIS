@@ -20,7 +20,7 @@ const modules = (): Record<string, ReturnType<typeof getPROJECTION_MODULE>> => (
   text: TEXT_MODULE,
   sdf: SDF_MODULE,
   'log-depth': LOG_DEPTH_MODULE,
-  line: buildLineModule(false),
+  line: buildLineModule(null, false),
   raster: buildRasterModule(false),
   point: buildPointModule(),
 })

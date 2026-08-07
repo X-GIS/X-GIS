@@ -813,7 +813,13 @@ const CEILINGS: Record<string, number> = {
   // polygon-shader-cache.ts to pay for the body-epoch key — win banked.
   'map/src/render/pipeline-factory.ts': 1496,
   'map/src/camera/camera.ts': 1419,
-  'map/src/shaders/dsl/line.ts': 1441,
+  // 1441→1524 (#1605 Phase 1, measured post-prettier per §12): compute_line_color gains
+  // an explicit vec4 return type + a 'line-color-return' placeholder (named alpha/
+  // base_color Lets + a line_color_out Var so a foreign composer Stmt list can varref
+  // them), plus the new LineVariantSpec type, its two composer helpers, and
+  // buildLineModule/emitLineWgsl threading a variant param through — the line half of
+  // the polygon-only @stroke fragment seam.
+  'map/src/shaders/dsl/line.ts': 1524,
   // 1373→1422 (#1246): the flat-projection stroke-width fix. The VS clamp's flat
   // branch is rewritten from the (miscalibrated, no-op) targetNdc clamp to a
   // self-calibrating length(mercProbe)/length(projProbe) = 1/J screen-size ratio

@@ -95,7 +95,7 @@ describe('shader WGSL never declares an identifier that is a reserved word', () 
   const sources: [string, string][] = [
     ['WGSL_PROJECTION_FNS', WGSL_PROJECTION_FNS()],
     ['emitPolygonWgsl', emitPolygonWgsl(null, true)],
-    ['emitLineWgsl', emitLineWgsl(true)],
+    ['emitLineWgsl', emitLineWgsl(null, true)],
     ['emitRasterWgsl', emitRasterWgsl(true)],
   ]
   for (const [name, src] of sources) {

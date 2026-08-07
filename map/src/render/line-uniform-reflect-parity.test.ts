@@ -79,7 +79,8 @@ describe('line uniform sizes — reflect parity (re-hardcode guard)', () => {
     // The line VS shares group(0) with VTR's polygon bind group, so line.ts's
     // TileUniforms MUST match polygon Uniforms field offsets / size exactly (see
     // the TileUniforms doc in line.ts). Lock the invariant to both reflect sources.
-    const tileBytes = uniformFieldSlots(reflect(buildLineModule(false)), 'TileUniforms').slots * 4
+    const tileBytes =
+      uniformFieldSlots(reflect(buildLineModule(null, false)), 'TileUniforms').slots * 4
     expect(tileBytes).toBe(polygonUniformBytes())
   })
 })
