@@ -100,6 +100,19 @@ export interface ShaderVariant {
   fillIsDefault: boolean
   /** Stroke counterpart to `fillIsDefault`. */
   strokeIsDefault: boolean
+  /** True when the STROKE colour came from a `@stroke` shader stage block
+   *  (#1538), as opposed to an ordinary constant/data-driven/zoom-
+   *  interpolated colour. `strokeExpr`/`!strokeIsDefault` do NOT distinguish
+   *  these — `strokeExpr` is unconditionally populated (shader-gen.ts:127)
+   *  and `strokeIsDefault` is only true when NO stroke is declared at all
+   *  (`kind === 'none'`), so polygon's fs_stroke composes an expression for
+   *  virtually every real layer, stage block or not. Line (#1605) needs a
+   *  narrower signal: it has no general "always specialize per layer"
+   *  strategy the way polygon does — its existing flat-uniform CPU-resolve
+   *  path already renders every constant/data-driven stroke correctly, so
+   *  only a genuine stage-block expression should route through the new
+   *  composer seam. */
+  strokeIsStage: boolean
   /** P4-5 — populated by `mergeComputeAddendumIntoVariant` when the
    *  fill / stroke axis routed through a compute kernel. Each entry
    *  is `(paintAxis, bindGroup, binding)` so the runtime can detect

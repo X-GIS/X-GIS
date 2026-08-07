@@ -99,6 +99,26 @@ describe('stage block lowering (#1538)', () => {
     expect(v.strokeExpr).not.toBeNull()
     expect(v.strokeIsDefault).toBe(false)
     expect(v.needsFeatureBuffer).toBe(false)
+    expect(v.strokeIsStage).toBe(true)
+  })
+
+  // #1605 PR B round-1 regression: an ORDINARY stroke utility (no @stroke
+  // block at all) also gets strokeExpr populated + strokeIsDefault=false —
+  // the compiler composes an expression for every real layer regardless of
+  // stage blocks (shader-gen.ts:127). toComposerLineVariant must gate on
+  // strokeIsStage, not on strokeExpr/strokeIsDefault, or it wrongly routes
+  // every ordinary stroke through the new composer seam.
+  it('an ordinary stroke utility (no @stroke block) is strokeIsStage=false', () => {
+    const scene = lower(
+      parse(`
+source w { type: geojson, url: "w.geojson" }
+layer l { source: w  | fill-slate-800 stroke-amber-300 stroke-12 }
+`),
+    )
+    const v = generateShaderVariant(scene.renderNodes[0]!)
+    expect(v.strokeExpr).not.toBeNull()
+    expect(v.strokeIsDefault).toBe(false)
+    expect(v.strokeIsStage).toBe(false)
   })
 
   it('a user fn is usable inside a stage block (inlined before lowering)', () => {

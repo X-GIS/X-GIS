@@ -29,6 +29,7 @@ function legacyVariant(): ShaderVariant {
     // runtime's legacy `fillExpr === 'u.fill_color'` string compare).
     fillIsDefault: true,
     strokeIsDefault: true,
+    strokeIsStage: false,
   }
 }
 

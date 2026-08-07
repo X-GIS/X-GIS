@@ -37,6 +37,7 @@ function variant(opts: Partial<ShaderVariant>): ShaderVariant {
     opacityUsesPalette: false,
     fillIsDefault: true,
     strokeIsDefault: true,
+    strokeIsStage: false,
     ...opts,
   }
 }

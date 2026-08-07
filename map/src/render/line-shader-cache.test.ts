@@ -27,6 +27,7 @@ function baseVariant(overrides: Partial<ShaderVariantInfo> = {}): ShaderVariantI
     opacityUsesPalette: false,
     fillIsDefault: true,
     strokeIsDefault: false,
+    strokeIsStage: true,
     ...overrides,
   } as ShaderVariantInfo
 }
@@ -41,8 +42,26 @@ describe('toComposerLineVariant (#1605)', () => {
     expect(toComposerLineVariant(baseVariant({ strokeExpr: null }))).toBeNull()
   })
 
-  it('strokeIsDefault → null even if strokeExpr is set', () => {
-    expect(toComposerLineVariant(baseVariant({ strokeIsDefault: true }))).toBeNull()
+  it('strokeIsStage=false → null even if strokeExpr is set (#1605 regression, round 1)', () => {
+    // THE bug: an ordinary constant/data-driven stroke (no @stroke block at
+    // all) ALSO has a non-null strokeExpr and strokeIsDefault=false — the
+    // compiler always composes an expression for polygon's fs_stroke
+    // (shader-gen.ts:127), and strokeIsDefault only means "no stroke
+    // declared at all" (kind === 'none'), not "boring/default colour".
+    // Gating on those two alone routed EVERY real stroke into this seam and
+    // broke fixture_translucent_outline (a plain fill+stroke layer, no
+    // stage block) — caught by the full local render-gate suite, not by
+    // any unit/compile-time gate, none of which exercised a real
+    // compiler-generated variant. strokeIsStage is the correct signal.
+    expect(
+      toComposerLineVariant(baseVariant({ strokeIsStage: false, strokeIsDefault: false })),
+    ).toBeNull()
+  })
+
+  it('strokeIsDefault alone (kind: none, no stroke declared) is unrelated — still gated by strokeIsStage', () => {
+    expect(
+      toComposerLineVariant(baseVariant({ strokeIsDefault: true, strokeIsStage: false })),
+    ).toBeNull()
   })
 
   it('needsFeatureBuffer → null (Phase 1b, not supported yet)', () => {

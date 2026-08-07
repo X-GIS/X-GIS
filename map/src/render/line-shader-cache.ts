@@ -15,14 +15,28 @@ import type { ShaderVariantInfo } from './renderer-types'
 
 /** Bridge a renderer-side ShaderVariantInfo to line's composer-variant shape.
  *  Returns null (→ draw the default per-segment-override / layer-colour path,
- *  never a crash) for: no variant, no real stroke expr (constant/zoom/time-
- *  interpolated/default paths — mirrors polygon-shader-cache.ts's own
- *  strokeIsDefault guard), OR anything this slice doesn't support yet
- *  (needsFeatureBuffer, computeBindings, palette gradients, extra preamble
- *  bindings) — #1605 Phase 1b/2/3. */
+ *  never a crash) for: no variant, no genuine `@stroke` stage block, OR
+ *  anything this slice doesn't support yet (needsFeatureBuffer,
+ *  computeBindings, palette gradients, extra preamble bindings) — #1605
+ *  Phase 1b/2/3.
+ *
+ *  Gates on `strokeIsStage`, NOT `!strokeIsDefault`/`strokeExpr` presence —
+ *  those two are NOT a "does this need the composer" signal the way they are
+ *  for polygon. `strokeExpr` is unconditionally populated by the compiler
+ *  (shader-gen.ts) for every layer, stage block or not, and `strokeIsDefault`
+ *  is only true when no stroke is declared at all. Polygon's fs_stroke
+ *  ALWAYS composes a per-layer expression (its rendering strategy bakes
+ *  every colour as a WGSL const) — line has no such "always specialize"
+ *  precedent; its existing flat-uniform CPU-resolve path (`writeLayerSlot`)
+ *  already renders every constant/data-driven/zoom-interpolated stroke
+ *  correctly. Routing an ordinary constant stroke through this composer
+ *  broke a previously-green render gate (fixture_translucent_outline,
+ *  #1605 PR B round 1) — caught by re-running the FULL local render-gate
+ *  suite before merge, not by the unit/compile-time gates, which never
+ *  exercised a real compiler-generated (non-synthetic) variant. */
 export function toComposerLineVariant(variant?: ShaderVariantInfo | null): LineVariantSpec | null {
   if (!variant) return null
-  if (!variant.strokeExpr || variant.strokeIsDefault) return null
+  if (!variant.strokeIsStage || !variant.strokeExpr) return null
   if (variant.needsFeatureBuffer) return null
   if ((variant.computeBindings?.length ?? 0) > 0) return null
   if ((variant.paletteColorGradients?.length ?? 0) > 0) return null

@@ -1444,16 +1444,14 @@ export class VectorTileRenderer {
     // composite time — the accumulation draws at 1.0 (render():2269).
     const layerOpacity = mode === 'max' ? 1.0 : opacity
     const lineVariant = toComposerLineVariant(show.shaderVariant)
-    // #1605 Phase 1 — narrowed to the genuinely-rejected case now that a
-    // feature-free @stroke expression is actually consumed below; a
-    // constant/zoom/time-only stroke that toComposerLineVariant accepts no
-    // longer warns.
+    // #1605 Phase 1 — narrowed to a genuine @stroke stage block that
+    // toComposerLineVariant rejected for another reason (needsFeatureBuffer
+    // etc, Phase 1b+); an ordinary constant/zoom/time-only stroke is NOT a
+    // stage block (strokeIsStage is false for it) and never warns.
     warnStageBlockUnsupported(
       show.targetName,
       'line',
-      Boolean(show.shaderVariant?.strokeExpr) &&
-        !show.shaderVariant?.strokeIsDefault &&
-        !lineVariant,
+      Boolean(show.shaderVariant?.strokeIsStage) && !lineVariant,
     )
     const layerOffset = this.lineRenderer.writeLayerSlot(
       lineSlotColor,
@@ -2904,16 +2902,14 @@ export class VectorTileRenderer {
           ]
 
       const lineVariant = toComposerLineVariant(show.shaderVariant)
-      // #1605 Phase 1 — narrowed to the genuinely-rejected case now that a
-      // feature-free @stroke expression is actually consumed below; a
-      // constant/zoom/time-only stroke that toComposerLineVariant accepts no
-      // longer warns.
+      // #1605 Phase 1 — narrowed to a genuine @stroke stage block that
+      // toComposerLineVariant rejected for another reason (needsFeatureBuffer
+      // etc, Phase 1b+); an ordinary constant/zoom/time-only stroke is NOT a
+      // stage block (strokeIsStage is false for it) and never warns.
       warnStageBlockUnsupported(
         show.targetName,
         'line',
-        Boolean(show.shaderVariant?.strokeExpr) &&
-          !show.shaderVariant?.strokeIsDefault &&
-          !lineVariant,
+        Boolean(show.shaderVariant?.strokeIsStage) && !lineVariant,
       )
       lineLayerOffset = this.lineRenderer.writeLayerSlot(
         lineSlotColor,
