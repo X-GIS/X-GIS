@@ -1019,7 +1019,13 @@ const CEILINGS: Record<string, number> = {
   // 943→945 (#1594): `isOverdrawActive(this.host.ctx.rhi.caps)` in place of the
   // bare `DEBUG_OVERDRAW` read pushed the ternary past printWidth 100 (measured
   // 112 chars pre-wrap); prettier wraps it onto 3 lines, +2.
-  'map/src/render-loop.ts': 945,
+  // Merge union (#1046 F3b <- main #1587): main's row reads 1400 because main still
+  // carries the twin this branch deleted; the prefetch fix's own -/+ lands inside that
+  // body here and dies with it, leaving only the chain-side pumpFramePrefetch call.
+  // Ceiling re-measured on the MERGED file below: 945→937, a real shrink — the four
+  // twin-only imports went with the body, and #1587's pumpFramePrefetch extraction
+  // took the inline prefetch block out of the chain path too.
+  'map/src/render-loop.ts': 937,
   // Baselined at 806 (hillshade tile fade-in): HillshadeRenderer crossed
   // NEW_FILE_CAP restoring the three tile-streaming fixes raster-renderer had
   // landed since hillshade was copied from it — the per-tile fade ramp + its

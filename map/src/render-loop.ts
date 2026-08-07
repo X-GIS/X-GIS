@@ -35,6 +35,7 @@ import { WORLD_MERC, TILE_PX } from '@xgis/geo'
 import { invalidateResolvedShowCache } from './render/resolved-show'
 import { reportErrorScope } from './render-loop-helpers'
 import { keepLoopWarm } from './render-loop-keep-warm'
+import { pumpFramePrefetch } from './render-loop-prefetch'
 import {
   makeFrameContext,
   setFrameTargets,
@@ -420,20 +421,6 @@ export class RenderLoop {
       // (3 scalar stores); keeps each VTR's per-tile light pack current with
       // the latest setLight() without per-creation-site seeding.
       for (const [, { renderer: vtR }] of this.host.vtSources) vtR.setLight(this.host._light)
-      // Frame-scope prefetch pump — fires exactly once per wall-clock
-      // frame for every attached vector source. Hosts the
-      // Google-Earth-style pan-direction speculation + AMMOS
-      // 3D-Tiles-Renderer-style loadSiblings. Critical that this
-      // lives in renderFrame (not VTR.render, which the bucket
-      // scheduler invokes per ShowCommand ~80× on dense styles) so
-      // the prev-cam velocity vector and _evictShield population
-      // stay frame-stable. See VTR.pumpPrefetch doc.
-      for (const [, { renderer: vtR }] of this.host.vtSources) {
-        // projType is the render-loop local (camera-resolved above); the engine
-        // reads it directly rather than decoding the opaque ctx.projection token.
-        vtR.pumpPrefetch(this.host.camera, projType, ctx.scene.w, ctx.scene.h, ctx.scene.dpr)
-      }
-
       // ══════ Bucket scheduler ══════
       //
       // Layers are classified into two buckets so alpha compositing is
@@ -519,6 +506,11 @@ export class RenderLoop {
       for (const node of this._nodes) {
         if (node.shouldRun(scene)) node.execute(ctx, scene)
       }
+
+      // Anticipatory prefetch, AFTER the passes that populate each source's frame tile
+      // selection — it used to run before them, so it never ran at all (#1587). Still
+      // once per wall-clock frame, which is what living in this function is for.
+      pumpFramePrefetch(this.host, projType, ctx.scene)
     }
 
     // Flush CPU-side uniform-ring mirrors just before submit. WebGPU
