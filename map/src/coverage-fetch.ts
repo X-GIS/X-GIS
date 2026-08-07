@@ -31,7 +31,7 @@
 // draining. A `signal` parameter here would cover strictly less and cost more.
 
 import { readCoverage, readCoverageRange, type Bbox, type CoverageHandle } from '@xgis/data'
-import { readBodyCapped } from '@xgis/shared'
+import { assertNotErrorPage, readBodyCapped } from '@xgis/shared'
 
 /** Whole-file fallback cap — the attach path's long-standing budget, kept as one authority. */
 const MAX_COVERAGE_BYTES = 256 * 1024 * 1024
@@ -58,6 +58,9 @@ export async function fetchCoverageHandle(
     const response = await fetchFn(url)
     if (!response.ok) throw new Error(`[X-GIS] ${label} — HTTP ${response.status}`)
     const raw = await readBodyCapped(response, MAX_COVERAGE_BYTES, label)
+    // 200-with-HTML (a missing cell on most hosts) would reach the HDF5 reader
+    // as an unrecognised-signature error naming no URL (#1627).
+    assertNotErrorPage(response, raw, label)
     const buf = raw.buffer.slice(raw.byteOffset, raw.byteOffset + raw.byteLength)
     return readCoverage(buf, url, opts)
   }
