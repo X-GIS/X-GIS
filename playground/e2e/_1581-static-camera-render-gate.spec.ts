@@ -94,17 +94,6 @@ type Frame = Awaited<ReturnType<typeof readFrame>>
  *  are still in flight but nothing has landed *yet*, so the frame is momentarily
  *  stable without being finished.
  *
- *  Measured effect, 8 consecutive runs at --workers=1 (#1620): pre-fix 7/8 failed,
- *  across three different modes (`nonBg === 0`, static-camera hash drift, and the
- *  round-trip mismatch below). With this predicate the first two modes no longer
- *  occur at all — every remaining failure is the round-trip one, which is NOT a
- *  timing artifact: `getMissingTileCount()` reads 0, the hash is stable, the camera
- *  is back at the same centre, and the frame still differs (21,020 vs 29,053
- *  non-background pixels). Reading the two frames at full resolution shows why —
- *  the SDF point is drawn SMALLER on first paint and larger after a pan away and
- *  back. That is a real product defect this gate is correctly catching, tracked
- *  separately; do not "fix" it by loosening anything here.
- *
  *  Bounded by a deadline so a genuinely stuck frame still fails (loudly, on the
  *  caller's own assertion) rather than hanging. Modeled on
  *  `_graticule-gl2-gate.spec.ts`'s `fillFraction` deadline loop.
@@ -147,7 +136,17 @@ test('static-camera memo (#1581): identical pixels across static frames, real ch
   page.on('pageerror', (e) => errors.push(e.message.slice(0, 300)))
 
   await page.setViewportSize({ width: 600, height: 600 })
-  await page.goto('/demo.html?id=fixture_point&forcegl2=1&preserve=1', {
+  // `adaptive=0` (#1620) — this gate compares a frame captured BEFORE its 20-frame
+  // static loop against one captured after, and that loop invalidates every 30ms.
+  // On a software rasterizer that reads as a struggling machine, so the adaptive
+  // quality ladder does exactly its job and drops a notch: the scene target shrinks
+  // and is upscaled, which makes the point cover ~38% more pixels (21,020 → 29,053,
+  // linear ~1.18 — the shape of a sceneScale step, measured). The two frames are
+  // then at different quality notches and the hash comparison is meaningless.
+  // Pinning the ladder is what its sibling `_prefetch-effect-gl2-probe` already
+  // does, and the ladder has its own gate (`_adaptive-quality-ladder-gate`) — this
+  // one is about the #1581 memo's fidelity, so the notch must be held still.
+  await page.goto('/demo.html?id=fixture_point&forcegl2=1&preserve=1&adaptive=0', {
     waitUntil: 'domcontentloaded',
   })
   await page.waitForFunction(() => (window as unknown as MapWin).__xgisReady === true, {
