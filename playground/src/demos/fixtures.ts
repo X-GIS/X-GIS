@@ -19,6 +19,13 @@ export const DEMOS_FIXTURES: Record<string, Demo> = {
       'Single SDF point at (0, 0). Used by e2e fixture tests to validate the pointRenderer code path in isolation.',
     source: load('fixture-point.xgis'),
   },
+  fixture_tile_point_memo: {
+    name: 'Fixture: single point show (tile-point pack memo)',
+    tag: 'fixture',
+    description:
+      'World cities as ONE point layer over no basemap (#1616). The tile-point pack memo has a single cache slot per scene, so every shipped point demo (halo layer + pin layer) thrashes it and can never hit — this is the smallest scene in which it does. Every non-background pixel is a point, so a pan that fails to repack shows up as an empty frame.',
+    source: load('fixture-tile-point-memo.xgis'),
+  },
   fixture_symbol_icon: {
     name: 'Fixture: symbol icon (host image)',
     tag: 'fixture',

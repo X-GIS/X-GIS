@@ -897,7 +897,15 @@ const CEILINGS: Record<string, number> = {
   // measurement that found the bug — the part a future reader needs most. Measured post-hook.
   // 1384→1383 (merge union <- main): a one-line shrink banked honestly rather than left
   // as silent headroom — the ratchet passes on shrinkage, so this would never have failed.
-  'data/src/tile-catalog.ts': 1383,
+  // 1383→1392 (#1616): `contentGeneration()` — the signal `indexGeneration` structurally
+  // cannot carry, since index entries only GROW and a re-tile of an already-held key moves
+  // neither them nor the selected key set. RAISED, same shape as the #1448 entry above: a
+  // counter field + a one-line accessor have nowhere cohesive to extract to, and the bumps
+  // sits at the ONE chokepoint every slice write passes (`setSlice`) plus the refresh-drop
+  // branch, which changes content with no write for `setSlice` to see. +4 more for the
+  // review correction: the doc had claimed it fires "whenever content changes", which is
+  // false — eviction deletes bypass this class entirely. Measured post-hook.
+  'data/src/tile-catalog.ts': 1399,
   // 1173→1180 (#1046 F1): thread the required `rhi: RhiDevice` onto the FrameContext at
   // both build sites — the main-chain init literal and the twin label stage — so a seam
   // can reach `ctx.rhi.caps.*` (doc §3-F1). +7 = two assignments + their rationale comments;
@@ -1096,7 +1104,13 @@ const CEILINGS: Record<string, number> = {
   // single _pointDraper field, ensurePointDraper's WebGL2-forced-base-variant + cache-key
   // logic, the two call-site updates, and addLayer's trailing shaderVariant param —
   // mirrors LineRenderer's own Map<string, LineDraper> cache (#1605 Phase 1 Step 3).
-  'map/src/render/point-renderer.ts': 1197,
+  // Merge union (#1616 <- main): the two sides edited disjoint regions, so they SUM —
+  // 1197 + 1 = 1198, measured on the merged file, not picked from either side.
+  // 1167→1168 (#1616): `pointWorldCopies` now returns the shared `SINGLE_COPY` off
+  // Mercator instead of a fresh `[0]`. +1 is the import; the allocation it removes is
+  // per point-show per frame on the #1581 cache-HIT path, whose whole purpose is to
+  // allocate nothing — this commit is what made that path call it every frame.
+  'map/src/render/point-renderer.ts': 1198,
   // 1106→1120 (#1043 state-hygiene): three unmask-before-clear / state-reset fixes for the
   // WebGL2 flicker class — beginScreenPass colorMask unmask (the colour sibling of #746/#780),
   // dispatchComputeToR32UI viewport snapshot+restore, and the setPipeline no-depth arm's

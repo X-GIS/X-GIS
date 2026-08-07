@@ -65,17 +65,93 @@ export interface TilePointPackKey {
   opacity: number | undefined
   zoom: number
   pitch: number
+  /** #1616 — `TileCatalog.contentGeneration()`. `stableKeysHash` answers WHICH tiles
+   *  are selected, never what they now contain: re-tiling a key already in the set
+   *  (a host data push, a PMTiles refetch, a moving feature) leaves the hash, the
+   *  index-entry count and the key set all identical. A cache hit skips the
+   *  `getTileData` re-read that used to pick such a replacement up for free on the
+   *  very next frame, so without this the superseded points redraw indefinitely. */
+  contentGeneration: number
+  /** #1616 — bitmask of the visible Mercator world copies (offset −2..+2 → bits 0..4).
+   *  `flushTilePointsRhi` BAKES this set into the packed buffer (`totalN = N *
+   *  COPIES.length`, each copy offset by `worldCopyMercX`), and the set is derived by
+   *  unprojecting the canvas corners — so it moves with pan/bearing/canvas size/DPR,
+   *  none of which the other fields carry. Keyed on the DERIVED set rather than on
+   *  those inputs: it is exactly the dependency, so it cannot over-invalidate on a pan
+   *  that leaves the copy set alone, nor drift from the real rule the way a
+   *  hand-mirrored input list would. Always 0b00100 (copy 0 only) off Mercator. */
+  worldCopyMask: number
+  /** #1616 — resolved per-frame into `stroke_a` AND folded into the opaque/translucent
+   *  pipeline `variant`, so a stale one is the wrong blend state, not just a wrong
+   *  alpha. Compared by reference like `sizeAst`: both are compiler-set once. */
+  strokeOpacityShape: unknown
 }
 
 /** Cheap order-independent hash over a source's `stableKeys` (numeric tile
  *  keys) — stands in for "the same tile set", without a sort or an array
- *  compare. Tile keys are already interleaved bit-packed encodings (z/x/y),
- *  so XOR-folding them is exactly as collision-safe as summing them and
- *  costs the same O(T). */
+ *  compare.
+ *
+ *  #1616 — this was an XOR-fold, and an XOR-fold is CATASTROPHICALLY degenerate
+ *  on these particular keys. `tileKey(z,x,y) = 4^z + morton(x,y)`
+ *  (`vector-tiler-helpers.ts:70`), `morton = spread(x) + 2*spread(y)` puts x on
+ *  the even bit-plane and y on the odd one, and `morton < 4^z` — every one of
+ *  those additions is over disjoint bits, so `tileKey ≡ (1<<2z) ^ mx(x) ^ my(y)`
+ *  exactly. XOR-folding a W×H rectangle of tiles therefore repeats `1<<2z`
+ *  W·H times, each `mx(x)` H times and each `my(y)` W times — and `a ^ a = 0`.
+ *  So THREE of the four parity combinations are degenerate, not one:
+ *    · W even ∧ H even — every term cancels; the fold is 0 for EVERY rectangle at
+ *      EVERY origin (measured: 576 origins × {2×2, 4×2, 4×4, 6×4, 8×8} at z12 →
+ *      exactly ONE hash value, zero, including rectangles sharing no tile at all);
+ *    · exactly one side even — the fold collapses to a function of ONE axis, so a
+ *      pan along the other is completely invisible (5×4, 3×4 → 5 distinct hashes
+ *      over 576 origins);
+ *    · only W odd ∧ H odd discriminates (3×3 → 576/576).
+ *  Since this is the key's only witness of WHICH tiles are selected, a pure pan at
+ *  fixed zoom/pitch moved nothing in the key: for a rectangular selection with an
+ *  even side the pack was reused at every origin, and points in newly-entered
+ *  tiles never appeared. (Scope, measured rather than assumed: `PointRenderer`
+ *  holds ONE cache slot shared by all shows, so with ≥2 point-style shows the memo
+ *  already missed every frame — this bit single-point-show scenes.)
+ *
+ *  The fix keeps order-independence — addition commutes, which is why a sort is
+ *  still unnecessary — but AVALANCHES EACH KEY BEFORE accumulating it. Mixing
+ *  only at the end is not enough and was measured failing: any linear combining
+ *  step (xor OR sum, with or without a multiply) stays linear in the tile's
+ *  bit-planes, because `Math.imul` distributes over addition mod 2^32, so the
+ *  rectangle's structure survives to the final mix with the information already
+ *  gone (4×4 at z12: 272 distinct hashes over 576 origins). Per-key finalization
+ *  first makes each tile contribute a value with no arithmetic relationship to
+ *  its neighbours, so the sum discriminates. Length is folded too — not against
+ *  "cancellation" (a sum of avalanched values does not cancel; scanning ~3M real
+ *  keys found no k with `fin(k) ≡ -1`), but for one concrete case: `tileKey(16,0,0)`
+ *  truncates to 0 and `fin(0) = 0`, so that key contributes NOTHING to the sum and
+ *  only the length separates S from S ∪ {that key}.
+ *
+ *  Pre-existing and carried over: `keys[i] | 0` truncates above z 15, so
+ *  `tileKey(16,5,7) | 0 === tileKey(17,5,7) | 0`. Reachable only if two keys whose
+ *  low 32 morton bits coincide sit in `stableKeys` together — different z, far
+ *  apart geographically. The XOR-fold truncated identically. */
 export function hashStableKeys(keys: readonly number[]): number {
-  let h = 0
-  for (const k of keys) h = (h ^ k) | 0
+  let h = keys.length | 0
+  for (let i = 0; i < keys.length; i++) {
+    // murmur3 finalizer — full avalanche per key, before it joins the sum.
+    let k = keys[i] | 0
+    k = Math.imul(k ^ (k >>> 16), 0x85ebca6b)
+    k = Math.imul(k ^ (k >>> 13), 0xc2b2ae35)
+    h = (h + (k ^ (k >>> 16))) | 0
+  }
   return h
+}
+
+/** Pack the visible world-copy offsets into one comparable scalar. Offsets are
+ *  clamped to −2..+2 by `computeVisibleWorldCopies`, so five bits hold the set
+ *  exactly — no allocation, no ordering assumption, no collision. */
+export function worldCopyMaskOf(copies: readonly number[]): number {
+  let mask = 0
+  for (const c of copies) {
+    if (c >= -2 && c <= 2) mask |= 1 << (c + 2)
+  }
+  return mask
 }
 
 export function buildTilePointPackKey(
@@ -84,6 +160,8 @@ export function buildTilePointPackKey(
   show: TilePointShow,
   cameraZoom: number,
   cameraPitch: number,
+  contentGeneration: number,
+  worldCopyMask: number,
 ): TilePointPackKey {
   return {
     stableKeysHash,
@@ -100,6 +178,9 @@ export function buildTilePointPackKey(
     opacity: show.opacity,
     zoom: cameraZoom,
     pitch: cameraPitch,
+    contentGeneration,
+    worldCopyMask,
+    strokeOpacityShape: show.circleStrokeOpacityShape ?? null,
   }
 }
 
@@ -119,6 +200,9 @@ export function tilePointPackKeyEqual(a: TilePointPackKey | null, b: TilePointPa
     a.billboard === b.billboard &&
     a.opacity === b.opacity &&
     a.zoom === b.zoom &&
-    a.pitch === b.pitch
+    a.pitch === b.pitch &&
+    a.contentGeneration === b.contentGeneration &&
+    a.worldCopyMask === b.worldCopyMask &&
+    a.strokeOpacityShape === b.strokeOpacityShape
   )
 }

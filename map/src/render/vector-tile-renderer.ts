@@ -84,7 +84,7 @@ import { mercator as mercatorProj, getProjection, type Projection } from '@xgis/
 import { SELECTOR_PROJ_NAMES } from '@xgis/geo'
 import { bakesVectorDrape } from '@xgis/geo'
 import { VectorDrapeRenderer } from './vector-drape-renderer'
-import type { PointRenderer } from './point-renderer'
+import { pointWorldCopies, type PointRenderer } from './point-renderer'
 import type { LineRenderer } from './line-renderer'
 import { warnStageBlockUnsupported } from './stage-block-warning'
 import { toComposerLineVariant } from './line-shader-cache'
@@ -99,7 +99,7 @@ import { mirrorFillRhi, releaseFillRhi } from './fill-rhi-slot'
 import type { GPUTile, LayerDrawPhase } from './vector-tile-renderer-types'
 import { getMaxGpuTiles, uploadBudgetFor } from './vector-tile-renderer-helpers'
 import { UniformRing } from '@xgis/engine'
-import { buildTilePointPackKey, hashStableKeys } from './tile-point-pack-key'
+import { buildTilePointPackKey, hashStableKeys, worldCopyMaskOf } from './tile-point-pack-key'
 
 // projType (camera.projType / proj_params.x) → projection registry name,
 // for building the projection-aware `selectorProj`. Index 0 (mercator) and
@@ -4073,6 +4073,9 @@ export class VectorTileRenderer {
       show,
       camera.zoom,
       camera.pitch,
+      // #1616 — the two the hash above cannot see; see TilePointPackKey's field docs.
+      this.source?.contentGeneration() ?? 0,
+      worldCopyMaskOf(pointWorldCopies(projType, camera, canvasWidth, canvasHeight, dpr)),
     )
     if (pointRenderer.canSkipTilePointRepack(packKey)) {
       pointRenderer.redrawTilePointsCached(args)
