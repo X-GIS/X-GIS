@@ -561,7 +561,16 @@ const CEILINGS: Record<string, number> = {
   // warnStageBlockUnsupported gate (toComposerPointVariant local + fillIsStage/
   // strokeIsStage condition) + the trailing shaderVariant arg on pointRenderer.addLayer —
   // mirrors line's own Phase 1 wiring at this same call site.
-  'map/src/map.ts': 5418,
+  // 5418→5431 (#1627): three `assertNotErrorPage` calls — the `.xgb` side-load, the
+  // `.xgb` scene and the `.xgis` style arm of `load()`. A missing file is answered
+  // 200-with-HTML by most hosts, so every `resp.ok` check here passes and the page
+  // reaches JSON.parse / the lexer, which report a position inside HTML nobody wrote.
+  // The guard itself lives in shared/src/safety.ts (one authority, eight call sites);
+  // what lands HERE is irreducible — a guard must sit at the call site that owns the
+  // body, and each needs the label naming its URL. +13 = 3 calls + 5 lines of why +
+  // the import's prettier wrap. MEASURED on the merged file, not derived from the
+  // pre-#1605 base: the two raises land in different regions and therefore SUM.
+  'map/src/map.ts': 5431,
   // Baselined at #1255 (measured 830): the DOM-inspired layer API crossed
   // NEW_FILE_CAP with the paint-transition style-setter integration — the
   // StyleHost.transitions context, the shared applyNumber/applyColor
