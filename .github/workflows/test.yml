@@ -250,6 +250,18 @@ jobs:
           # above (do NOT merge legs back).
           - id: engine-rhi-shared
             args: engine/src rhi-webgl2/src rhi-webgpu/src pipeline/src shared/src geo/src
+          # playground/ — CI-DARK until #1626, for the same reason the leg above
+          # documents: vitest.config.ts has included playground/src + playground/dev
+          # for a long time, but no matrix leg named those paths, so every test
+          # there ran ONLY in a full local `vitest run`. That covered the demo
+          # asset-reference gate (playground/src/example-asset-references.test.ts —
+          # the always-on catch for a demo referencing a file that was never
+          # committed) and the dev-tooling suites (the open-data CORS bridge, the
+          # S-102/S-111 catalogue builders). A handful of files, far under the
+          # ~110-file RPC threshold, so one leg. NOTE: the gate shells out to
+          # `git ls-files`, so this leg needs the repo checkout it already gets.
+          - id: playground
+            args: playground/src playground/dev
     # Distinct per-leg check name in the GitHub UI / status API, e.g.
     # "test (engine-render-a)". The single stable context for branch protection
     # is `test-result` below — require THAT, not these per-leg names.
