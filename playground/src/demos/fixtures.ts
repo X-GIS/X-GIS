@@ -572,7 +572,7 @@ export const DEMOS_FIXTURES: Record<string, Demo> = {
     name: 'Fixture: @stroke stage block on line, zoom-driven (#1605)',
     tag: 'fixture',
     description:
-      'A NON-constant `@stroke` body (reads zoom) — the one that actually exercises the line composer seam. WebGPU-only; not CI-checkable (no software WebGPU adapter). Zoom in/out to see the stroke colour shift.',
+      'A NON-constant `@stroke` body (reads zoom) — the one that actually exercises the line composer seam, on BOTH backends since #1605 Phase 3. CI-verified by _stage-block-line-webgl2-gate.spec.ts. NOTE: the red channel renders 0, not zoom/22 — a bare `zoom` inside a stage block still compiles to literal 0.0 (#1635, pre-existing, backend-agnostic). The green/blue constants prove the composed shader ran.',
     source: load('fixture-stage-line-color-zoom.xgis'),
   },
   fixture_stage_point_color: {
