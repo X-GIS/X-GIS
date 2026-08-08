@@ -107,7 +107,9 @@ export class LineDraper {
      *  ALL THREE materials below (main, maxMat, bakeMat) — missing any one
      *  would silently revert that draw mode's colour to the default for a
      *  variant-carrying layer (translucent-opacity strokes and globe-drape
-     *  strokes both call compute_line_color same as the main material). */
+     *  strokes both call compute_line_color same as the main material) —
+     *  and, since #1605 Phase 3, into BOTH source languages of each: the
+     *  WGSL and the GLSL twin compose the same variant. */
     private readonly variant: LineVariantSpec | null = null,
   ) {
     this.material = this.buildMaterial(false)
@@ -122,13 +124,13 @@ export class LineDraper {
       shader: wgslFor(this.rhi, () => emitLineWgsl(this.variant, pick)),
       vsEntry: 'vs_line',
       fsEntry: 'fs_line',
-      // WebGL2 twin stays on the base (null) shader for variant pipelines this
-      // slice — #1605 Phase 3 threads `this.variant` here too, once WebGL2
-      // parity lands. LineRenderer never constructs a non-null-variant
-      // LineDraper on the webgl2 backend, so this hardcoded null never
-      // diverges from what actually renders.
-      vsCode: gl2 ? emitLineGlsl(null, pick, 'vertex') : undefined,
-      fsCode: gl2 ? emitLineGlsl(null, pick, 'fragment') : undefined,
+      // #1605 Phase 3 — the WebGL2 twin composes the SAME variant as the WGSL
+      // above. Passing null here (as this did before Phase 3) would silently
+      // render the default stroke on WebGL2 for a variant-carrying layer: no
+      // crash, no failing pipeline, just the wrong colour — which is exactly
+      // why the renderer-level gate alone was not the whole fix.
+      vsCode: gl2 ? emitLineGlsl(this.variant, pick, 'vertex') : undefined,
+      fsCode: gl2 ? emitLineGlsl(this.variant, pick, 'fragment') : undefined,
       format: this.format as 'bgra8unorm',
       sampleCount: this.sampleCount,
       groups: gl2
@@ -152,7 +154,7 @@ export class LineDraper {
           fsEntry: 'fs_line_pattern',
           // GLSL has one main per stage — the pattern variant carries its own
           // emitted fragment twin (#834 M5 slice 5).
-          fsCode: gl2 ? emitLineGlsl(null, pick, 'fragment-pattern') : undefined,
+          fsCode: gl2 ? emitLineGlsl(this.variant, pick, 'fragment-pattern') : undefined,
           label: pick ? 'line-pipeline-pattern-pick-rhi' : 'line-pipeline-pattern-rhi',
         },
       ],
@@ -168,8 +170,8 @@ export class LineDraper {
       shader: wgslFor(this.rhi, () => emitLineWgsl(this.variant, false)),
       vsEntry: 'vs_line',
       fsEntry: 'fs_line_max',
-      vsCode: gl2 ? emitLineGlsl(null, false, 'vertex') : undefined,
-      fsCode: gl2 ? emitLineGlsl(null, false, 'fragment-max') : undefined,
+      vsCode: gl2 ? emitLineGlsl(this.variant, false, 'vertex') : undefined,
+      fsCode: gl2 ? emitLineGlsl(this.variant, false, 'fragment-max') : undefined,
       // The offscreen ACCUM format, not the canvas format: this pipeline draws
       // ONLY into the translucent offscreen (LINE_OFFSCREEN_FORMAT is the one
       // authority both the texture and this target derive from — a canvas-

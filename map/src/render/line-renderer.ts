@@ -732,10 +732,14 @@ export class LineRenderer {
   private _lineDrapers = new Map<string, LineDraper>()
   private ensureLineDraper(variant?: ShaderVariantInfo | null): LineDraper {
     const gl2 = this.rhi.backend === 'webgl2'
-    // Variant pipelines are WebGPU-only for now (#1605 Phase 3 adds WebGL2
-    // parity — mirrors polygon's own pipeline-factory.ts precedent). webgl2
-    // always draws the base draper regardless of what the show's variant carries.
-    const composerVariant = gl2 ? null : toComposerLineVariant(variant)
+    // #1605 Phase 3 — variant pipelines now run on BOTH backends. The prior
+    // `gl2 ? null : …` force claimed to mirror polygon's pipeline-factory.ts
+    // precedent; that was wrong (polygon has never composed GLSL on WebGL2
+    // either — pipeline-factory.ts returns before building any variant
+    // pipeline there, which is what #1592/#1583's fill-gap warning is about).
+    // Composed GLSL + emulateStorage + preamble consts/funcs is proven to
+    // compile and link on real WebGL2 by _webgl2-line-link-gate.spec.ts.
+    const composerVariant = toComposerLineVariant(variant)
     const key = composerVariant ? variant!.key : '__base__'
     const cached = this._lineDrapers.get(key)
     if (cached) return cached
