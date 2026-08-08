@@ -1119,7 +1119,12 @@ const CEILINGS: Record<string, number> = {
   // Mercator instead of a fresh `[0]`. +1 is the import; the allocation it removes is
   // per point-show per frame on the #1581 cache-HIT path, whose whole purpose is to
   // allocate nothing — this commit is what made that path call it every frame.
-  'map/src/render/point-renderer.ts': 1198,
+  // 1198→1209 (#1605 Phase 3 PR C): ensurePointDraper drops its WebGL2 null-force (the
+  // composer now runs on both backends) and `_tilePointDrawDeps` takes the show's variant
+  // instead of hardcoding null — the VT/tile-point path is what an inline-GeoJSON point
+  // source actually renders through, so without it a point stage block reached no pixels
+  // at all (browser-probed). Most of the delta is the two rationale comments.
+  'map/src/render/point-renderer.ts': 1209,
   // 1106→1120 (#1043 state-hygiene): three unmask-before-clear / state-reset fixes for the
   // WebGL2 flicker class — beginScreenPass colorMask unmask (the colour sibling of #746/#780),
   // dispatchComputeToR32UI viewport snapshot+restore, and the setPipeline no-depth arm's

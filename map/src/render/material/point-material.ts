@@ -53,10 +53,12 @@ export class PointDraper {
      *  for the default feat_data-read path. Named `shaderVariant`, NOT `variant`
      *  — `PointBatch.variant` below is an unrelated depth-bias pipeline index
      *  (0=opaque/1=translucent/2=flat); reusing the name would shadow/confuse
-     *  the two inside draw(). WebGL2 stays on the default (null) shader this
-     *  slice — #1605 Phase 2 is WebGPU-only, mirroring line's own staging;
-     *  PointRenderer never constructs a non-null-variant PointDraper on
-     *  webgl2, so this never diverges from what actually draws. */
+     *  the two inside draw(). Since #1605 Phase 3 it feeds BOTH source
+     *  languages below — the WGSL and the GLSL twin compose the same variant,
+     *  so a variant-carrying layer paints its authored colour on either
+     *  backend. (Passing null to the GLSL half, as this did before Phase 3,
+     *  rendered the default silently on WebGL2: no crash, no failing
+     *  pipeline, just the wrong colour.) */
     private readonly shaderVariant: PointVariantSpec | null = null,
   ) {
     const bias = { constant: -10, slopeScale: -1, clamp: 0 }
@@ -66,7 +68,7 @@ export class PointDraper {
     // samplers via emulateStorage; on WebGPU these are ignored.
     this.material = new Material(rhi, {
       shader: wgslFor(rhi, () => emitPointWgsl(this.shaderVariant)),
-      ...glslStagesFor(rhi, () => emitPointGlslStages(null)),
+      ...glslStagesFor(rhi, () => emitPointGlslStages(this.shaderVariant)),
       vsEntry: 'vs_point',
       fsEntry: 'fs_point',
       format: format as 'bgra8unorm',

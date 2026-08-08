@@ -299,9 +299,16 @@ export class PointRenderer {
   private _pointDrapers = new Map<string, PointDraper>()
 
   private ensurePointDraper(variant?: ShaderVariantInfo | null): PointDraper {
-    // WebGL2 stays on the base (null) shader this slice — #1605 Phase 2 is
-    // WebGPU-only, mirroring line's own staging.
-    const composerVariant = this.rhi.backend === 'webgl2' ? null : toComposerPointVariant(variant)
+    // #1605 Phase 3 — variant pipelines now run on BOTH backends. The prior
+    // `webgl2 ? null : …` force mirrored line's own Phase-2 staging, which in
+    // turn claimed to mirror polygon's pipeline-factory.ts precedent; that was
+    // wrong (polygon has never composed GLSL on WebGL2 either — it returns
+    // before building any variant pipeline there, which is what #1592/#1583's
+    // fill-gap warning is about). Composed GLSL + emulateStorage + preamble
+    // consts/funcs is proven to compile and link on real WebGL2 by
+    // _webgl2-point-link-gate.spec.ts, and to PAINT by
+    // _stage-block-point-webgl2-gate.spec.ts.
+    const composerVariant = toComposerPointVariant(variant)
     const key = composerVariant ? variant!.key : '__base__'
     const cached = this._pointDrapers.get(key)
     if (cached) return cached
@@ -631,7 +638,7 @@ export class PointRenderer {
     const variant: 0 | 1 = opacity < EPS || fillA < EPS || strokeA < EPS ? 1 : 0
 
     refreshTilePointUniformAndDraw(
-      this._tilePointDrawDeps(),
+      this._tilePointDrawDeps(show.shaderVariant),
       {
         pass,
         camera,
@@ -660,20 +667,24 @@ export class PointRenderer {
    *  translate/frame uniform and reissue the draw call. */
   redrawTilePointsCached(args: TilePointFrameArgs): void {
     refreshTilePointUniformAndDraw(
-      this._tilePointDrawDeps(),
+      // The variant is re-resolved here too, not just on the repack path: a
+      // cached redraw still picks its draper fresh, so a style change that
+      // only swaps the variant needs no repack (see TilePointShow's doc).
+      this._tilePointDrawDeps(args.show.shaderVariant),
       args,
       this._lastTilePointTotalN,
       this._lastTilePointVariant,
     )
   }
 
-  /** Resources `refreshTilePointUniformAndDraw` needs, fallbacks resolved. */
-  private _tilePointDrawDeps(): TilePointDrawDeps {
-    // #1605 Phase 2 — the VT/tile point path (TilePointShow) doesn't carry a
-    // shaderVariant yet; always the base draper here. Wiring it through is a
-    // deferred follow-up (mirrors line's own Phase 1b landmine), not a
-    // trivial extension — see the Phase 2 plan's Step 9.
-    const draper = this.ensurePointDraper(null)
+  /** Resources `refreshTilePointUniformAndDraw` needs, fallbacks resolved.
+   *  `variant` is the show's raw compiler variant (#1605 Phase 3): the VT/tile
+   *  point path now selects a composer draper too, which is what an inline
+   *  GeoJSON point source actually renders through — `map.ts`'s direct
+   *  `addLayer` path (wired in Phase 2) is NOT the path those take, so
+   *  without this a point stage block reached no pixels at all. */
+  private _tilePointDrawDeps(variant?: ShaderVariantInfo | null): TilePointDrawDeps {
+    const draper = this.ensurePointDraper(variant)
     return {
       frameBlock: this.frameBlock,
       rhi: this.rhi,
