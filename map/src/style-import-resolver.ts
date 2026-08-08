@@ -9,7 +9,7 @@
 //
 // Extracted from map.ts, a shrink-only god-file, when #1577 needed room beside it.
 
-import { safeFetch, readBodyCapped } from '@xgis/shared'
+import { safeFetch, readBodyCapped, assertNotErrorPage } from '@xgis/shared'
 import { xlog } from '@xgis/shared'
 
 /** Hard cap on one imported style module. A lying or absent Content-Length otherwise lets
@@ -45,6 +45,14 @@ export function makeStyleImportResolver(absBase: string): (path: string) => Prom
       // Cap the module body — a lying/absent Content-Length otherwise lets
       // an unbounded .text() OOM the tab.
       const bytes = await readBodyCapped(resp, MAX_STYLE_BYTES, `style import ${url}`)
+      // A MISSING module is not a 404 on most hosts — an SPA fallback answers
+      // 200 with an HTML page, which `resp.ok` above waves through and the
+      // lexer then reports as a syntax error at a line inside HTML (#1627).
+      // Throwing here lands in the catch below → `null`, which is exactly what
+      // `resolveImportsAsync` needs to raise `[Module] Could not read file
+      // "<path>" (imported by <importer> at line N)` — the message that names
+      // the import site instead of a position in a file nobody wrote.
+      assertNotErrorPage(resp, bytes, `style import ${url}`)
       return new TextDecoder().decode(bytes)
     } catch (e) {
       xlog.error(`[X-GIS import] fetch ${url} threw:`, (e as Error).message)

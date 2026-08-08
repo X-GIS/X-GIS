@@ -14,7 +14,7 @@
 // resolve to a "loaded but empty" state — the rasterizer pipeline
 // can decide to skip icons silently rather than crash.
 
-import { assertSafeRemoteUrl, readBodyCapped, safeFetch } from '@xgis/shared'
+import { assertNotErrorPage, assertSafeRemoteUrl, readBodyCapped, safeFetch } from '@xgis/shared'
 
 /** DoS ceilings for sprite assets — an atlas PNG is a few MB at most; the
  *  JSON metadata far less. Generous, but bound a size-bomb. */
@@ -188,6 +188,9 @@ export class SpriteAtlasHost {
         readBodyCapped(jsonRes, MAX_SPRITE_JSON_BYTES, 'sprite json'),
         readBodyCapped(pngRes, MAX_SPRITE_PNG_BYTES, 'sprite png'),
       ])
+      // A wrong sprite base URL yields 200 + HTML on most hosts, so the
+      // `!jsonRes.ok` check above passes and JSON.parse is what fails (#1627).
+      assertNotErrorPage(jsonRes, jsonBytes, `sprite json ${jsonUrl}`)
       const rawJson = JSON.parse(new TextDecoder().decode(jsonBytes)) as Record<
         string,
         RawSpriteEntry

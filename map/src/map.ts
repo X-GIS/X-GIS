@@ -197,7 +197,13 @@ import { MapEventBus } from './map-event-bus'
 import { wireDeviceLostRecovery, resumeDeviceLostRecovery } from './device-lost-recovery'
 import { ColdStartBurstController } from './map-cold-start-burst'
 import { buildSceneRenderers } from './scene-renderers'
-import { safeFetch, assertIngestBudget, readBodyCapped, isMobileClassViewport } from '@xgis/shared'
+import {
+  safeFetch,
+  assertIngestBudget,
+  readBodyCapped,
+  assertNotErrorPage,
+  isMobileClassViewport,
+} from '@xgis/shared'
 import { makeStyleImportResolver } from './style-import-resolver'
 import {
   CoverageReadCancellation,
@@ -4194,6 +4200,9 @@ export class XGISMap {
       // semantically — a hostile .xgb side-load can't OOM via an unbounded
       // .json() nor via an over-budget feature/vertex count.
       const rawBytes = await readBodyCapped(response, MAX_XGB_BYTES, `.xgb source "${load.name}"`)
+      // 200-with-HTML (a missing file on most hosts) would hit JSON.parse as
+      // `Unexpected token '<'`; name the URL instead (#1627).
+      assertNotErrorPage(response, rawBytes, `.xgb source "${load.name}" (${url})`)
       const data = JSON.parse(new TextDecoder().decode(rawBytes)) as GeoJSONFeatureCollection
       assertIngestBudget((data as { features?: unknown }).features, `.xgb source "${load.name}"`)
       // G3' (D1/A5) — probe staleness AFTER this iteration's safeFetch/readBodyCapped,
@@ -4266,6 +4275,9 @@ export class XGISMap {
     if (url.endsWith('.xgb')) {
       // Cap the binary scene body before materialising the ArrayBuffer.
       const bytes = await readBodyCapped(response, MAX_XGB_BYTES, `.xgb scene ${url}`)
+      // Both arms: 200-with-HTML would otherwise surface as a corrupt-binary
+      // error / a lexer error at a line inside HTML nobody wrote (#1627).
+      assertNotErrorPage(response, bytes, `.xgb scene ${url}`)
       // readBodyCapped may hand back a view onto a larger pooled buffer;
       // pass a tightly-sliced ArrayBuffer to the deserializer.
       const buffer = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength)
@@ -4273,6 +4285,7 @@ export class XGISMap {
     } else {
       // Cap the style body before decoding to text.
       const bytes = await readBodyCapped(response, MAX_STYLE_BYTES, `.xgis style ${url}`)
+      assertNotErrorPage(response, bytes, `.xgis style ${url}`)
       const source = new TextDecoder().decode(bytes)
       await this.run(source, baseUrl)
     }
