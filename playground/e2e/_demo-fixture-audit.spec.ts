@@ -13,7 +13,7 @@
 // CI artifact references.
 
 import { test, expect } from '@playwright/test'
-import { mkdirSync, writeFileSync, readFileSync } from 'node:fs'
+import { mkdirSync, writeFileSync, readFileSync, readdirSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -30,11 +30,58 @@ mkdirSync(OUT, { recursive: true })
 mkdirSync(join(OUT, 'screens'), { recursive: true })
 mkdirSync(join(OUT, 'per-demo'), { recursive: true })
 
-// Enumerate demo IDs at spec-discovery time by parsing demos.ts source.
-// import.meta.glob makes runtime import unworkable from Node; the
-// top-level key pattern is stable enough to regex.
-const DEMOS_SRC = readFileSync(resolve(HERE, '../src/demos.ts'), 'utf8')
-const DEMO_IDS = [...DEMOS_SRC.matchAll(/^ {2}([a-z_][a-z_0-9]*):\s*\{/gm)].map((m) => m[1]!)
+// Enumerate demo IDs at spec-discovery time by parsing the per-category
+// FRAGMENTS (demos/<category>.ts), not the assembler. import.meta.glob makes
+// runtime import unworkable from Node, so this reads source text.
+//
+// #1625 — this used to regex `demos.ts` itself. #1516 turned that file into an
+// assembler whose every top-level entry is a `...SPREAD`, so the key regex
+// matched NOTHING, `DEMO_IDS` was `[]`, and a `for` loop that never runs
+// declares no `test()` — the spec collected ZERO tests and said nothing. The
+// whole render audit was silently absent for that entire span; enumerating the
+// fragments restores 187 ids (#1625 said 180, counted a day earlier — the
+// corpus grows, which is exactly why the tripwire is per-file and not a
+// hardcoded expected total). The
+// sibling reader of the same population, `site/src/lib/gallery-drift-check.ts`,
+// was updated by #1516 and carries an empty-population throw; this one had
+// neither, which is why only this one died. Same shape as #996 (a gate keyed on
+// file paths dying when the files moved), with a content-keyed regex instead.
+//
+// The tripwire below is per-FRAGMENT, not just "the total is non-zero": a total
+// floor still passes if one fragment adopts a key style the regex misses, which
+// is the same silent-shrink failure in a smaller costume. Every fragment
+// declares demos, so every fragment must yield at least one id, and the message
+// names the file that stopped matching.
+//
+// `fixtures.ts` is INCLUDED here — the ~96 hidden `fixture_*` / `reftest_*`
+// entries are precisely this audit's corpus. (The gallery gate excludes it,
+// because demos.ts wraps that fragment in `asHidden()` and the gallery omits
+// hidden demos. Two readers, two correct answers — do not "unify" them.)
+const DEMO_IDS: string[] = (() => {
+  const dir = resolve(HERE, '../src/demos')
+  const ids: string[] = []
+  for (const file of readdirSync(dir).sort()) {
+    if (!file.endsWith('.ts') || file === 'loader.ts') continue
+    const src = readFileSync(join(dir, file), 'utf8')
+    const found = [...src.matchAll(/^ {2}(?:(\w+)|'([\w-]+)'|"([\w-]+)"): \{/gm)].map(
+      (m) => (m[1] ?? m[2] ?? m[3])!,
+    )
+    if (found.length === 0) {
+      // The path is derived from `dir`, not spelled out — a hardcoded prefix
+      // would name the wrong file the moment the directory moves, which is the
+      // very drift this tripwire exists to report.
+      throw new Error(
+        `[demo-audit] parsed 0 demo keys from ${join(dir, file)} — the ` +
+          'fragment format changed, so this audit would silently shrink (see #1625, ' +
+          'where the same class of miss made it collect zero tests). Update the key ' +
+          'regex in playground/e2e/_demo-fixture-audit.spec.ts to match, or drop the ' +
+          'file from the fragment directory if it no longer declares demos.',
+      )
+    }
+    ids.push(...found)
+  }
+  return ids
+})()
 
 // Console noise that fires on nearly every demo and isn't actionable.
 const CONSOLE_NOISE =
