@@ -40,20 +40,41 @@ mkdirSync(join(OUT, 'per-demo'), { recursive: true })
 // (site/src/lib/gallery-drift-check.ts, the sibling that DID get updated and
 // whose pattern this mirrors), the audit wants `fixtures.ts` INCLUDED: those
 // 89 hidden fixtures are its corpus, not noise.
-const FRAGMENT_DIR = resolve(HERE, '../src/demos')
-const DEMO_IDS = readdirSync(FRAGMENT_DIR)
-  .filter((f) => f.endsWith('.ts') && f !== 'loader.ts')
-  .flatMap((f) => [
-    ...readFileSync(join(FRAGMENT_DIR, f), 'utf8').matchAll(
-      /^ {2}(?:(\w+)|'([\w-]+)'|"([\w-]+)"): \{/gm,
-    ),
-  ])
-  .map((m) => (m[1] ?? m[2] ?? m[3])!)
-
 // The tripwire this spec did not have. A forall over an empty population is
 // green either way (CLAUDE.md §12), which is exactly how the miss above stayed
 // invisible — so an empty enumeration must be LOUD, not a zero-test no-op.
 // Module scope, so it fires at collection rather than inside one test.
+//
+// PER-FRAGMENT, not just "the total is non-zero". A total check only catches the
+// all-or-nothing case; if ONE fragment adopts a key style the regex misses, the
+// total stays comfortably positive and the audit silently drops that category —
+// the same silent shrink in a smaller costume, and the harder one to notice
+// because the spec still reports hundreds of green tests. Every fragment file in
+// this directory exists to declare demos, so every one must yield at least one
+// id, and the message names the file that stopped matching.
+const FRAGMENT_DIR = resolve(HERE, '../src/demos')
+const DEMO_IDS = readdirSync(FRAGMENT_DIR)
+  .filter((f) => f.endsWith('.ts') && f !== 'loader.ts')
+  .flatMap((f) => {
+    const ids = [
+      ...readFileSync(join(FRAGMENT_DIR, f), 'utf8').matchAll(
+        /^ {2}(?:(\w+)|'([\w-]+)'|"([\w-]+)"): \{/gm,
+      ),
+    ].map((m) => (m[1] ?? m[2] ?? m[3])!)
+    if (ids.length === 0) {
+      throw new Error(
+        `[demo-audit] parsed 0 demo keys from ${join(FRAGMENT_DIR, f)} — the fragment ` +
+          `format changed, so this audit would silently shrink by one category; update ` +
+          `the DEMO_IDS enumeration in _demo-fixture-audit.spec.ts to match — or, if ` +
+          `this file is a helper rather than a fragment, exclude it beside loader.ts ` +
+          `(see #1625).`,
+      )
+    }
+    return ids
+  })
+
+// Still needed alongside the per-fragment check above: if the directory itself
+// stops yielding fragment files, the callback never runs and nothing throws.
 if (DEMO_IDS.length === 0) {
   throw new Error(
     `[demo-audit] parsed 0 demo keys from ${FRAGMENT_DIR}/*.ts — the fragment ` +
