@@ -3633,7 +3633,7 @@ export class XGISMap {
         // EVERY resident region, not just one: a mosaic viewport holds several adjacent
         // NOAA domains and each needs its own drape + arrow field (#1272 E-④).
         for (const [i, [region, entry]] of [...data._coverage].entries()) {
-          armCoverageDrape(this, show, entry.handle, region)
+          armCoverageDrape(this, show, entry.handle, region, i)
           // `| arrow` on a coverage layer (#1333) draws the official S-111 vector field — the
           // engine-owned arrow portrayal, band-coloured by `ramp` (default s111-speed). ONE
           // batch, static or drifting: see `armCoverageArrows` (#1449). `i` = owner order (#1585).

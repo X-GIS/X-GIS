@@ -179,6 +179,19 @@ const CEILINGS: Record<string, number> = {
   // ...) call sites to the genuinely-rejected case now that a feature-free
   // @stroke expression is actually consumed.
   'map/src/render/vector-tile-renderer.ts': 4863,
+  // Baselined 801: #1602 (the drape's overlap winner is relevance, not re-arm recency)
+  // brought the file to exactly NEW_FILE_CAP (800), and the independent #1603 material-
+  // release fix landed on main one line above it in the same file, pushing it to 801 on
+  // merge. Genuine collision between two unrelated PRs sharing a file, not scope creep —
+  // nothing here is extract-worthy.
+  // 801→812 (#1544, main merge): the forced-WebGL2-twin-frame deletion reworked this
+  // renderer's frame entry points, landing 11 net lines in the same file this branch
+  // already baselined — another unrelated-PR collision, not new #1602 scope.
+  // Merge union (#1602 <- main #1605 Phase 1-3): the two sides touch DIFFERENT keys —
+  // main raised vector-tile-renderer.ts (line composer dispatch), this branch adds the
+  // coverage-renderer.ts baseline — so both entries stand; neither number is a pick
+  // between sides. Both re-measured against the merged tree.
+  'map/src/render/coverage-renderer.ts': 812,
   // 4232→4237 (#1000 heatmap relocate): the heatmap density-target OWNERSHIP
   // extracted to render/heatmap-targets.ts; map keeps only the irreducible
   // composition-root wiring — the `heatmapTargets` field + its import (mirrors

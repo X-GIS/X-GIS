@@ -40,6 +40,7 @@ export function armCoverageDrape(
   show: ShowCommand,
   handle: CoverageHandle,
   region: string,
+  priority = 0,
 ): void {
   const arm = coverageDrapeArm(show)
   // A layer that draws no drape may still need the coverage RESIDENT: the advected arrow
@@ -60,6 +61,9 @@ export function armCoverageDrape(
       opacity: show.opacity ?? 1,
       flowOnly: arm.draw ? arm.flowOnly : false,
       hidden: !arm.draw,
+      // Relevance, so the drape's overlap winner is the region `getCoverage` and the arrows
+      // already name — not whichever one re-armed most recently (#1602).
+      priority,
       // `filter:` thins the DRAPE in the fragment shader (#1437) — the same clause the
       // sounding arm applies per candidate cell, compiled once, so a layer's filter cannot
       // mean two different things depending on which portrayal is looking at it.
@@ -138,7 +142,7 @@ export function armCoverageShow(
   region: string,
   priority = 0,
 ): void {
-  armCoverageDrape(host, show, handle, region)
+  armCoverageDrape(host, show, handle, region, priority)
   // Clear THIS region's arrows only, and clear them for EITHER portrayal. Clearing all of them
   // here is what kept the mosaic single-region even after the renderer could hold several: a
   // neighbour's time step wiped every other domain's glyphs and re-added just its own. Scoping
@@ -170,7 +174,7 @@ export function armLandedCoverage(
   let armed = false
   for (const show of shows) {
     if (show.targetName !== sourceId) continue
-    armCoverageDrape(host, show, handle, region)
+    armCoverageDrape(host, show, handle, region, priority)
     armCoverageArrows(host, show, handle, region, priority)
     armed = true
   }
