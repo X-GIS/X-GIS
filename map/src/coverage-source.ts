@@ -120,6 +120,8 @@ export function coverageRegions(
 }
 
 /** This region's place in the source's OWNERSHIP order — its index in the `_coverage` Map (#1585).
+ *  THE single authority every overlap consumer derives from; stated policy in docs/adr/0011, pinned
+ *  by render/coverage-overlap-identity.test.ts (readout = drape = arrows at one probe point).
  *
  *  THE SAME ORDER `coverageHandleAt` RESOLVES A TIE BY, and that is the whole point: where two
  *  domains cover the same water, the arrows drawn there and the value `getCoverage(id, at)` reports
