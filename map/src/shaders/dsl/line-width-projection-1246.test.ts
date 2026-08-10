@@ -147,7 +147,7 @@ describe('#1246 flat width correction is emitted (WGSL + GLSL twin)', () => {
 
   it('the flat branch still routes through finalize_corner (both probe + final)', () => {
     const vs = vsOf(wgsl)
-    expect(vs).toContain('tile.proj_params.x < 6.5')
+    expect(vs).toContain('u.proj_params.x < 6.5')
     // Two clamp probes (base, base+across) + the final-clip corner = ≥ 3 calls.
     const n = (vs.match(/finalize_corner\(/g) ?? []).length
     expect(n).toBeGreaterThanOrEqual(3)

@@ -12,15 +12,13 @@ xgis 1
  * headless CI render gate: playground/e2e/_stage-block-line-webgl2-gate.spec.ts
  * samples the stroke and asserts the authored colour.
  *
- * KNOWN GAP, do not be surprised by it: the rendered red channel is 0, NOT
- * zoom/22 (#1635). A bare `zoom` in a stage block still compiles to the literal
- * 0.0 — compiler/src/codegen/wgsl-expr.ts's Identifier arm falls back to
- * f32Lit(0) and `zoom` is explicitly excluded from the feature-field set, so
- * the lookup always misses. That is pre-existing and backend-agnostic (shared
- * IR), not a WebGL2 issue, and it does not stop this fixture doing its job:
- * reading `zoom` is what makes the body unfoldable, and the green/blue
- * constants (0.2 / 0.1) render exactly, which is what proves the composed
- * shader evaluated the expression. See the spec header for the full trace. */
+ * The red channel is a live camera read: zoom in and out and it tracks
+ * zoom/22 (≈35/255 at z3, ≈128/255 at z11) while the green/blue constants
+ * (0.2 / 0.1) stay put. It rendered a flat 0 until #1635 — a bare `zoom` in a
+ * stage block compiled to the literal 0.0, because wgsl-expr.ts's Identifier
+ * arm fell back to f32Lit(0) and `zoom` is (correctly) excluded from the
+ * feature-field set, so the lookup could never hit. `zoom` is a real per-frame
+ * uniform lane now. The gate samples BOTH zooms; see its header. */
 
 source l {
   type: geojson

@@ -572,7 +572,7 @@ export const DEMOS_FIXTURES: Record<string, Demo> = {
     name: 'Fixture: @stroke stage block on line, zoom-driven (#1605)',
     tag: 'fixture',
     description:
-      'A NON-constant `@stroke` body (reads zoom) — the one that actually exercises the line composer seam, on BOTH backends since #1605 Phase 3. CI-verified by _stage-block-line-webgl2-gate.spec.ts. NOTE: the red channel renders 0, not zoom/22 — a bare `zoom` inside a stage block still compiles to literal 0.0 (#1635, pre-existing, backend-agnostic). The green/blue constants prove the composed shader ran.',
+      'A NON-constant `@stroke` body (reads zoom) — the one that actually exercises the line composer seam, on BOTH backends since #1605 Phase 3. CI-verified by _stage-block-line-webgl2-gate.spec.ts, which samples at two camera zooms. The red channel is zoom/22: zoom in and out to watch it move (it rendered a flat 0 until #1635 gave `zoom` a real uniform lane).',
     source: load('fixture-stage-line-color-zoom.xgis'),
   },
   fixture_stage_point_color: {
@@ -593,7 +593,7 @@ export const DEMOS_FIXTURES: Record<string, Demo> = {
     name: 'Fixture: @color + @stroke stage blocks on point, zoom-driven (#1605)',
     tag: 'fixture',
     description:
-      'NON-constant `@color` AND `@stroke` bodies (both read zoom), composing independently — the one that actually exercises the point composer seam. WebGPU-only; not CI-checkable (no software WebGPU adapter). Zoom in/out to see the fill and stroke colours shift independently.',
+      'NON-constant `@color` AND `@stroke` bodies (both read zoom), composing independently — the one that actually exercises the point composer seam, on BOTH backends since #1605 Phase 3. CI-verified by _stage-block-point-webgl2-gate.spec.ts, which samples at two camera zooms. Zoom in/out to see the fill and stroke colours shift independently (they were pinned at 0 until #1635).',
     source: load('fixture-stage-point-color-zoom.xgis'),
   },
   fixture_input_live: {

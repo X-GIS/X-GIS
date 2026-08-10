@@ -108,9 +108,14 @@ const JOIN_ACUTE_BIS = 0.6
 
 // ── Struct declarations ──
 
+// Instance `u`, was `tile` (#1635). Compiler-generated expressions address the
+// group(0) block as `u.<lane>` in PLAIN TEXT; #1605 made line a composer host, so
+// a spliced `u.zoom` under the old name referenced an undeclared identifier and
+// the program failed to compile. The struct TAG stays `TileUniforms` — that is
+// what the bind-group layout resolves by name. Gate: render/stage-zoom-uniform.
 const TILE = uniformStruct(
   'TileUniforms',
-  { group: 0, binding: 0, as: 'tile' },
+  { group: 0, binding: 0, as: 'u' },
   {
     // Phase 2 PR 2d.5 closeout: `mvp` holds the ECEF-MVP from
     // Camera.getECEFFrameView() — the legacy Mercator-RTC `mvp` slot was
@@ -143,11 +148,18 @@ const TILE = uniformStruct(
     outline_z_lift_m: f32T,
     // Per-tile clip mask in absolute Mercator meters (west, south, east, north).
     clip_bounds: vec4fT,
-    // Pad to mirror polygon Uniforms offsets 44..51 (zoom / extrude_base /
-    // fill_translate xy / tile_dequant scale+half) so the shared VTR uniform
-    // slot's cam_ecef_off lands at the SAME byte offset (f32 52/56) for both
-    // the line and polygon shaders. The line VS doesn't read these pads.
-    _pad_tail0: vec4fT,
+    // Mirrors polygon Uniforms offsets 44..51 so the shared VTR slot's
+    // cam_ecef_off lands at the SAME byte offset (f32 52/56) for both shaders.
+    // #1635 split the former `_pad_tail0: vec4fT` into polygon's four named f32
+    // lanes — same bytes (std140 keeps them at 176..191), but the two that carry
+    // meaning here can say so. `zoom` is the point of the split: a `@stroke` stage
+    // block reading the `zoom` builtin lowers to `u.zoom`, and VTR already WRITES
+    // this lane (it packs the buffer with the polygon layout), so naming it costs
+    // nothing and makes the composed expression's target exist.
+    zoom: f32T,
+    _pad_extrude_base: f32T,
+    fill_translate_x: f32T,
+    fill_translate_y: f32T,
     _pad_tail1: vec4fT,
     // Camera-relative RTC (ECEF): tileEcefCenter(WGS84 ellipsoid) −
     // cameraCenter(sphere), DSFUN hi/lo. VTR writes this per tile at f32
@@ -1280,14 +1292,15 @@ export const vsLine = fn(
     })
     // Mapbox fill-translate for POLYGON OUTLINES: a fill's outline draws through
     // the line pipeline sharing the fill's per-tile slot, so slots 46/47
-    // (`_pad_tail0.zw`) already carry its NDC translate. Apply the SAME viewport
-    // offset the polygon VS does (polygon.ts:345) so an outline stays glued to a
-    // translated fill (OFM building-top roof) — MapLibre parity. Standalone lines
-    // write 0 → no-op; the <0.25 guard skips the pattern-repeat-metres overload.
-    const fillT = TILE.field._pad_tail0
-    If(fillT.z.mul(fillT.z).add(fillT.w.mul(fillT.w)).lt(0.25), () => {
-      clip.x.assign(clip.x.add(fillT.z.mul(clip.w)))
-      clip.y.assign(clip.y.sub(fillT.w.mul(clip.w)))
+    // (`fill_translate_x/y`) already carry its NDC translate. Apply the SAME
+    // viewport offset the polygon VS does (polygon.ts:345) so an outline stays
+    // glued to a translated fill (OFM building-top roof) — MapLibre parity.
+    // Standalone lines write 0 → no-op; <0.25 skips the pattern-metres overload.
+    const ftx = TILE.field.fill_translate_x
+    const fty = TILE.field.fill_translate_y
+    If(ftx.mul(ftx).add(fty.mul(fty)).lt(0.25), () => {
+      clip.x.assign(clip.x.add(ftx.mul(clip.w)))
+      clip.y.assign(clip.y.sub(fty.mul(clip.w)))
     })
     // Mapbox line-translate viewport offset — applied post-MVP so the pixel
     // shift stays constant regardless of depth (mirrors fill-translate logic).

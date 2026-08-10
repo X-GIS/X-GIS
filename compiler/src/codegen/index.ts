@@ -5,6 +5,11 @@ export type { ShaderVariant } from './shader-gen'
 // replacing the removed `wgslRaw` rawString escape hatch.
 export { type NodeLike } from './node-types'
 export { varRefVec4 } from './_util/node-builders'
+// The camera-zoom uniform read every generated expression uses (`u.zoom`, #1635).
+// Exported so map's host shaders gate on the name they must DECLARE rather than a
+// re-typed literal — the compiler emits it as plain TEXT, so nothing else ties the
+// two together (mirrors INPUT_F32_POOL_SIZE / polygon-input-pool.test.ts, #1539).
+export { ZOOM_UNIFORM_REF } from './_util/node-builders'
 // Field-name extraction for an expression AST. Reused by the runtime's
 // show-source-maps to compute the minimal per-slice featureProps key set
 // (label text-field + data-driven paint fields) so the MVT worker clones

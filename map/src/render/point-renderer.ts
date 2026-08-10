@@ -151,6 +151,11 @@ export function writePointFrameUniform(
       circlePitchScaleMap ? 1 : 0,
     ],
     globe_eye: [ge[0], ge[1], ge[2], ge[3]],
+    // #1635 — the camera zoom a `@color`/`@stroke` stage block reads as `u.zoom`.
+    // `camera.zoom` is the same quantity VTR packs into the polygon/line lane
+    // (vector-tile-renderer's `currentCameraZoom = camera.zoom`), so the three
+    // composer hosts agree on what `zoom` means.
+    zoom: camera.zoom,
   })
 }
 

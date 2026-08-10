@@ -10,15 +10,14 @@ xgis 1
  * reaches the composer), both bodies read `zoom`, so neither is foldable at
  * compile time and both genuinely depend on the runtime variant seam.
  *
- * The seam is WebGPU-only for now (a future phase is the WebGL2 follow-up),
- * and this sandbox has no software WebGPU adapter (CLAUDE.md §5), so this
- * fixture cannot be a headless CI render gate. It is verified manually with
- * a real GPU: `HEADED=1` locally, comparing the rendered fill/stroke colour
- * at two different zooms against the hand-computed
- * vec4(zoom/22, 0.2, 0.1, 1) / vec4(0.1, 0.2, zoom/22, 1) expectations
- * (compare-parity-pixeldiff / tile-crop-review skills). Opening this in the
- * playground and zooming in/out is the one channel — besides that manual
- * local run — to actually SEE the seam work. */
+ * The seam runs on BOTH backends since #1605 Phase 3, so this is a headless CI
+ * render gate: playground/e2e/_stage-block-point-webgl2-gate.spec.ts scans the
+ * disc's centre row at TWO camera zooms and classifies every opaque pixel
+ * against the hand-computed vec4(zoom/22, 0.2, 0.1, 1) /
+ * vec4(0.1, 0.2, zoom/22, 1) expectations, so a half-wired axis cannot pass.
+ * The zoom-derived channels were pinned at 0 until #1635 gave the `zoom`
+ * builtin a real uniform lane; opening this in the playground and zooming
+ * in/out now shows the fill and stroke colours moving independently. */
 
 source p {
   type: geojson

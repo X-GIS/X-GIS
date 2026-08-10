@@ -125,6 +125,15 @@ const U = uniformStruct(
     // not the pitch-invariant centre hemisphere. Written by point-renderer's
     // writePointFrameUniform; ALL-ZERO on flat / disc paths (arms ignore it).
     globe_eye: vec4fT,
+    // #1635 — camera zoom, the lane a `@color`/`@stroke` stage block's `zoom`
+    // builtin reads (the compiler emits `u.zoom`). Point became a composer host in
+    // #1605 Phase 2 but had no such lane, so the spliced expression addressed a
+    // field that did not exist. AFTER globe_eye = no pre-existing field moves; the
+    // struct grows 160 → 176 B (the f32 plus std140's 12 B tail pad), which the
+    // retained icon/arrow/circle/particle drapers inherit through
+    // `pointUniformBytes()` since they share this block. Written per frame by
+    // writePointFrameUniform.
+    zoom: f32T,
   },
 )
 export { U as pointU }
