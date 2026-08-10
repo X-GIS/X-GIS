@@ -12,7 +12,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { readFileSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { linkBudgetClass, linkScaledConcurrency } from './network-class'
+import { linkBudgetClass, linkScaledConcurrency, speculativeFetchAllowed } from './network-class'
 
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..')
 
@@ -116,6 +116,22 @@ describe('linkScaledConcurrency — composes with the device cap, never replaces
   })
 })
 
+describe('speculativeFetchAllowed — one predicate for "is speculation worth it"', () => {
+  it('off only in saver; reduced still speculates because the link is usable', () => {
+    // The two speculative sites (skeleton prewarm budget, pan-ahead prefetch)
+    // must agree by construction. Asserting the mapping HERE is what makes
+    // widening it to 'reduced' a one-line change rather than a hunt.
+    stubConnection({ saveData: true })
+    expect(speculativeFetchAllowed()).toBe(false)
+    stubConnection({ effectiveType: '2g' })
+    expect(speculativeFetchAllowed()).toBe(false)
+    stubConnection({ effectiveType: '3g' })
+    expect(speculativeFetchAllowed()).toBe(true)
+    stubConnection(undefined)
+    expect(speculativeFetchAllowed()).toBe(true)
+  })
+})
+
 // ── Source gates: the four bandwidth-shaping sites #1356 names route through
 // this authority. Mirrors the viewport-class single-authority gate above it —
 // the failure mode is identical (a per-site check that drifts). ──
@@ -131,7 +147,7 @@ describe('linkBudgetClass — single authority (no per-site connection probing)'
   it('every shaping site imports the authority', () => {
     for (const f of SHAPING_SITES) {
       expect(read(f), `${f} must consult the link class`).toMatch(
-        /linkBudgetClass|linkScaledConcurrency/,
+        /linkBudgetClass|linkScaledConcurrency|speculativeFetchAllowed/,
       )
     }
   })

@@ -56,6 +56,18 @@ export function linkBudgetClass(): LinkBudgetClass {
   return 'full'
 }
 
+/** Whether SPECULATIVE work — fetching tiles the camera may never reach — is
+ *  worth its bytes on this link.
+ *
+ *  Named rather than open-coded because two independent call sites act on it
+ *  (the skeleton prewarm budget in @xgis/data, the pan-ahead prefetch pump in
+ *  @xgis/map), and `linkBudgetClass() === 'saver'` written out at each is two
+ *  authorities for one policy: widening it to also cover `'reduced'` would
+ *  otherwise mean finding every site that spelled the comparison itself. */
+export function speculativeFetchAllowed(): boolean {
+  return linkBudgetClass() !== 'saver'
+}
+
 /** Scale a device-class concurrency cap by link cost.
  *
  *  A divisor rather than a per-class table: the device-class caps already encode

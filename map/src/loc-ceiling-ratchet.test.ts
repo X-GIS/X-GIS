@@ -178,7 +178,14 @@ const CEILINGS: Record<string, number> = {
   // 2 drawSegments calls), and narrow the two warnStageBlockUnsupported('line',
   // ...) call sites to the genuinely-rejected case now that a feature-free
   // @stroke expression is actually consumed.
-  'map/src/render/vector-tile-renderer.ts': 4863,
+  // MERGE UNION (#1355 <- main): +7 over main's 4863. This row auto-merged CLEANLY and
+  // therefore silently took main's ceiling WITHOUT this branch's paired raise — the exact
+  // failure the #1575 note below records; the vitest leg, not the merge, is what caught it.
+  // What lands here is the `arenaBytes()` thin accessor (same shape as `getCacheSize`
+  // beside it) plus its two imports; the SUM it forwards to lives in render-stats-bytes.ts
+  // rather than here, so the growth is the seam and not the logic. MEASURED post-prettier
+  // on the merged file (4870), never main's number plus an assumed delta.
+  'map/src/render/vector-tile-renderer.ts': 4870,
   // Baselined 801: #1602 (the drape's overlap winner is relevance, not re-arm recency)
   // brought the file to exactly NEW_FILE_CAP (800), and the independent #1603 material-
   // release fix landed on main one line above it in the same file, pushing it to 801 on
