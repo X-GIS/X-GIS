@@ -36,9 +36,31 @@ interface BaselineDoc {
   _headroom: number
   presets: Record<string, number>
 }
-const BASELINES: BaselineDoc = JSON.parse(
-  readFileSync(join(OUT, 'BASELINES.json'), 'utf8'),
-) as BaselineDoc
+// BASELINES.json is a LOCAL artifact — `__*__` is gitignored (.gitignore:74)
+// and this directory has no carve-out, so it exists only on a machine that has
+// captured baselines. Reading it unguarded made this the single point of
+// failure for the WHOLE suite: a module-scope throw is a COLLECTION error, and
+// Playwright aborts the entire run rather than this one file, so `bun run
+// test:e2e` reported `0 tests in 0 files` in every clean checkout (#1638).
+//
+// Degrading is correct rather than merely convenient: both consumers below
+// already handle a missing preset (`baseline !== undefined` gates the hard
+// assertion; the retry ceiling falls back to an absolute 30 %), so with no
+// baselines this spec runs exactly as its header describes it — a capture-only
+// probe. `_headroom` keeps the value a captured file would carry.
+const BASELINES: BaselineDoc = readBaselinesOrCaptureOnly()
+
+function readBaselinesOrCaptureOnly(): BaselineDoc {
+  try {
+    return JSON.parse(readFileSync(join(OUT, 'BASELINES.json'), 'utf8')) as BaselineDoc
+  } catch {
+    console.log(
+      `[parity] no BASELINES.json under ${OUT} — running CAPTURE-ONLY ` +
+        `(every per-preset ceiling is skipped). Capture a run and write the file to gate.`,
+    )
+    return { _doc: 'capture-only: no baselines present', _headroom: 1.25, presets: {} }
+  }
+}
 
 interface Preset {
   fixture: string // style id in compare-runner.ts STYLES catalogue
