@@ -29,7 +29,7 @@ import { Camera } from '../camera'
 import { mercator as mercatorProj } from '@xgis/geo'
 import type { Projection } from '@xgis/geo'
 import { tileKey } from '@xgis/compiler'
-import { linkBudgetClass } from '@xgis/shared'
+import { speculativeFetchAllowed } from '@xgis/shared'
 
 /** Inputs the scheduler reads from the surrounding render loop —
  *  decoupled so VTR's frame-tile cache shape is the only contract. */
@@ -92,7 +92,7 @@ export class PrefetchScheduler {
     // Placed AFTER the snapshot update, not before: `prevPanCam` is the velocity
     // baseline, and leaving it stale through a saver period would make the first
     // pump after the link recovers measure motion against a minutes-old camera.
-    if (linkBudgetClass() === 'saver') return
+    if (!speculativeFetchAllowed()) return
 
     if (inputs.neededKeys.length === 0) return
     const needed = inputs.neededKeys

@@ -198,6 +198,11 @@ const CEILINGS: Record<string, number> = {
   // for it by deleting the inline literal restated here; main had ALREADY banked that saving
   // with `ReturnType<FrameDrawStats['getDrawStats']>`, so the same extraction cannot be
   // spent twice and the +9 is genuinely new. MEASURED post-pick.
+  // This row is the one #1355 keeps re-learning: it auto-merges CLEANLY and therefore
+  // silently takes the OTHER side's ceiling WITHOUT the paired raise — the vitest leg, not
+  // the merge, is what catches it. Fixed once on the PR's own base (4863→4870) and re-fixed
+  // here against main's 4911, because the number is a MEASUREMENT of this tree and never a
+  // number carried across a rebase.
   'map/src/render/vector-tile-renderer.ts': 4920,
   // Baselined 801: #1602 (the drape's overlap winner is relevance, not re-arm recency)
   // brought the file to exactly NEW_FILE_CAP (800), and the independent #1603 material-
