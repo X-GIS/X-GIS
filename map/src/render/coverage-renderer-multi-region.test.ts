@@ -48,6 +48,9 @@ function makeMockCtx(): {
     writeTexture: () => {},
     writeBuffer: () => {},
     destroyTexture: (t: MockTex) => void destroyed.push(t),
+    // #1578 — `rebuildForQuality` now RELEASES each draper before dropping it, and
+    // `Material.destroy()` routes its pipelines through this. A stub missing it throws.
+    destroyPipeline: () => {},
     destroySampler: () => {},
     // #1366 INC-3 — the drape mesh became an indexed vertex buffer (per-arm node
     // positions + one shared topology buffer), so the double has to free buffers too.

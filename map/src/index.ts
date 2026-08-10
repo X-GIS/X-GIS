@@ -37,6 +37,7 @@ export * from './render/material/hillshade-material'
 // Paint/frame + VTR leaf types/helpers.
 export * from './render/frame-draw-stats'
 export * from './render/line-pattern'
+export * from './render/stage-block-warning'
 export * from './render/vector-tile-renderer-types'
 export * from './render/vector-tile-renderer-helpers'
 // SELECTIVE: LayerDrawPhase collides with vector-tile-renderer-types above.

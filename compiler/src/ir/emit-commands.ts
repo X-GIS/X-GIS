@@ -3,6 +3,7 @@
 // This bridge allows the runtime to consume IR without changes.
 
 import type { Scene, RenderNode, ColorValue, TimeStop, Easing, DataExpr } from './render-node'
+import type { SymbolDef } from './render-node'
 import { rgbaToHex } from './render-node'
 import type { PaintShapes, PropertyShape } from './property-types'
 import { hasHillshadePaint, emitHillshadeShapes } from './emit-commands-hillshade'
@@ -14,7 +15,7 @@ import {
   emitFlowFields,
   type FlowPaint,
 } from './emit-commands-point-symbol'
-import { colorValueToShape, sizeValueToShape } from './to-property-shape'
+import { colorValueToShape, sizeValueToShape, stageColorHex } from './to-property-shape'
 import { generateShaderVariant, type ShaderVariant } from '../codegen/shader-gen'
 import { collectPalette, type Palette } from '../codegen/palette'
 import { planComputeKernels, type ComputePlanEntry } from '../codegen/compute-plan'
@@ -59,6 +60,14 @@ export interface LoadCommand {
   /** `type: raster-dem` native tile pixel size (256 / 512), threaded from
    *  `SourceDef.tileSize`. Default 512. */
   tileSize?: number
+  /** SOURCE-level zoom bounds — the DATASET's shallowest / deepest real tile levels,
+   *  threaded from `SourceDef`. Distinct from a layer's `minzoom`/`maxzoom` visibility
+   *  gate: a tile outside these does not EXIST, so requesting one is a guaranteed 404.
+   *  The runtime clamps its cover zoom to `maxzoom` and over-zooms the deepest real
+   *  level (rasterCoverZoom), which is what stops the terrarium z16 storm. Undefined =
+   *  unbounded, the pre-existing behaviour. */
+  maxzoom?: number
+  minzoom?: number
   /** `encoding: custom` elevation unpack factors (threaded from `SourceDef`):
    *  `elevation_m = R*redFactor + G*greenFactor + B*blueFactor - baseShift`. */
   redFactor?: number
@@ -316,7 +325,9 @@ export interface ShowCommand
 export interface SceneCommands {
   loads: LoadCommand[]
   shows: ShowCommand[]
-  symbols: { name: string; paths: string[] }[]
+  /** ONE authority (#1550): this restated `SymbolDef` inline, so adding a field to the IR
+   *  type left the command surface a field short and the map package could not read it. */
+  symbols: SymbolDef[]
   /** Resolved canvas background fill `#rrggbb` / `#rrggbbaa`. Set
    *  by `background { fill: <color> }` in the .xgis program; the
    *  runtime applies it as the WebGPU clearValue. Absent → renderer
@@ -337,6 +348,9 @@ export interface SceneCommands {
    *  paint axis routes to compute — runtime falls back to the
    *  legacy uniform / inline-fragment path uniformly. */
   computePlan?: ComputePlanEntry[]
+  /** Program-wide `input` declarations (#1539), passed through from
+   *  `Scene.inputs` — see resolve-inputs.ts. Seeds map.ts's InputStore. */
+  inputs?: import('./resolve-inputs').ResolvedInputInfo[]
 }
 
 /**
@@ -419,6 +433,8 @@ export function emitCommands(scene: Scene, opts?: EmitOptions): SceneCommands {
     greenFactor: src.greenFactor,
     blueFactor: src.blueFactor,
     baseShift: src.baseShift,
+    maxzoom: src.maxzoom,
+    minzoom: src.minzoom,
   }))
 
   // Walk the IR once to collect every ZOOM-only paint literal /
@@ -492,6 +508,7 @@ export function emitCommands(scene: Scene, opts?: EmitOptions): SceneCommands {
     symbols: scene.symbols,
     palette,
     ...(computePlan.length > 0 ? { computePlan } : {}),
+    ...(scene.inputs?.length ? { inputs: scene.inputs } : {}),
   }
 }
 
@@ -764,6 +781,7 @@ function composeStrokeWidthShape(
 function colorToHex(color: ColorValue): string | null {
   if (color.kind === 'none') return null
   if (color.kind === 'constant') return rgbaToHex(color.rgba)
+  if (color.kind === 'stage') return stageColorHex(color.expr)
   // For time-interpolated colors, the `base` snapshot is the fallback
   // pre-animation value — emitting it as a hex keeps the existing
   // shader-variant generator and raw pixel readback paths happy.

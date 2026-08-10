@@ -5,6 +5,7 @@
 
 import type { Camera } from '../camera'
 import { isWebMercator } from '@xgis/geo'
+import { SINGLE_COPY } from '../camera/camera-world-copies'
 import { getSampleCount, FrameArena } from '@xgis/engine'
 import type { ShapeRegistry } from '../text/sdf-shape'
 import { parseHexColor } from '../feature-helpers'
@@ -17,6 +18,8 @@ const F = POINT_FEAT.slot
 import { wrapWebGpuPass, wrapWebGpuBindGroupLayout } from '@xgis/rhi-webgpu'
 import type { RhiBuffer, RhiBindGroup, RhiDevice, RhiRenderPass } from '@xgis/engine'
 import { PointDraper } from './material/point-material'
+import { toComposerPointVariant } from './point-shader-cache'
+import type { ShaderVariantInfo } from './renderer-types'
 import { reflect } from '@xgis/shader-dsl'
 import { vertexField, evaluate, makeEvalProps } from '@xgis/compiler'
 import { POINT_FORMAT } from './point-vertex-format'
@@ -26,6 +29,13 @@ import { reflectionToBindGroupLayoutEntries } from '@xgis/rhi-webgpu'
 import { globeEyeUniform } from './globe-eye-uniform'
 import { cameraAnchorDsfun } from './camera-anchor-dsfun'
 import type { GeoJSONGeometry } from '@xgis/data'
+import {
+  type TilePointFrameArgs,
+  type TilePointPackKey,
+  type TilePointShow,
+  tilePointPackKeyEqual,
+} from './tile-point-pack-key'
+import { type TilePointDrawDeps, refreshTilePointUniformAndDraw } from './tile-point-draw'
 
 // Float-slot indices derived from the single-source POINT_FORMAT spec so the
 // packer cannot drift from the GPUVertexBufferLayout / vs_point @location.
@@ -161,7 +171,7 @@ export function pointWorldCopies(
 ): readonly number[] {
   return isWebMercator(projType)
     ? camera.getVisibleWorldCopies(canvasWidth, canvasHeight, dpr)
-    : [0]
+    : SINGLE_COPY // #1616 — shared; this runs per show per frame on the cache-hit path
 }
 
 // worldCopyMercX moved into the stateless packer (@xgis/map, #722 S0); re-exported
@@ -233,11 +243,12 @@ export class PointRenderer {
     })
   }
 
-  /** A quality (MSAA) change invalidates the point draper so the next draw lazily rebuilds
-   *  its pipelines with the new getSampleCount(). Points do no GPU picking (single colour
-   *  attachment), so only the sample count matters. Safe to call mid-session. */
+  /** A quality flip RELEASES every point draper (#1578) and drops them; the next draw
+   *  rebuilds at the new getSampleCount(). Points do no GPU picking, so only sample
+   *  count matters. */
   rebuildForQuality(): void {
-    this._pointDraper = undefined
+    this._pointDrapers.forEach((d) => d.destroy())
+    this._pointDrapers.clear()
   }
 
   /** Create a bind group with uniform + feat_data + shape buffers, through the
@@ -282,10 +293,25 @@ export class PointRenderer {
   // Storage buffers + vertex/index + drawIndexed through the generic Material: builds the
   // RHI pipelines once, then per-frame wraps the native uniform/feature/shape/seg/vertex/
   // index buffers + draws.
-  private _pointDraper?: PointDraper
+  // #1605 Phase 2 — keyed by variant.key ('__base__' for no variant) so a
+  // variant-carrying layer and a plain layer can coexist in one frame, mirroring
+  // LineRenderer's own Map<string, LineDraper> cache (#1605 Phase 1 Step 3).
+  private _pointDrapers = new Map<string, PointDraper>()
 
-  private ensurePointDraper(): void {
-    if (this._pointDraper) return
+  private ensurePointDraper(variant?: ShaderVariantInfo | null): PointDraper {
+    // #1605 Phase 3 — variant pipelines now run on BOTH backends. The prior
+    // `webgl2 ? null : …` force mirrored line's own Phase-2 staging, which in
+    // turn claimed to mirror polygon's pipeline-factory.ts precedent; that was
+    // wrong (polygon has never composed GLSL on WebGL2 either — it returns
+    // before building any variant pipeline there, which is what #1592/#1583's
+    // fill-gap warning is about). Composed GLSL + emulateStorage + preamble
+    // consts/funcs is proven to compile and link on real WebGL2 by
+    // _webgl2-point-link-gate.spec.ts, and to PAINT by
+    // _stage-block-point-webgl2-gate.spec.ts.
+    const composerVariant = toComposerPointVariant(variant)
+    const key = composerVariant ? variant!.key : '__base__'
+    const cached = this._pointDrapers.get(key)
+    if (cached) return cached
     const vbl = this.vertexBufferLayout!
     const vertexBuffers = [
       {
@@ -297,7 +323,15 @@ export class PointRenderer {
         })),
       },
     ]
-    this._pointDraper = new PointDraper(this.rhi, this.format, getSampleCount(), vertexBuffers)
+    const draper = new PointDraper(
+      this.rhi,
+      this.format,
+      getSampleCount(),
+      vertexBuffers,
+      composerVariant,
+    )
+    this._pointDrapers.set(key, draper)
+    return draper
   }
 
   clearLayers(): void {
@@ -344,6 +378,10 @@ export class PointRenderer {
   private tilePointBuffer: RhiBuffer | null = null
   private tilePointIndexBuffer: RhiBuffer | null = null
   private tilePointFeatBuffer: RhiBuffer | null = null
+  /** #1581 leg B — pack key the CURRENT buffers were built from. */
+  private _lastTilePointPackKey: TilePointPackKey | null = null
+  private _lastTilePointTotalN = 0
+  private _lastTilePointVariant: 0 | 1 = 0
   /** Buffers retired this frame because renderTilePoints rebuilt
    *  its tile-point geometry. Destroyed at the START of the NEXT
    *  frame so any in-flight queue.submit() that bound them via
@@ -409,12 +447,18 @@ export class PointRenderer {
     })
   }
 
+  /** #1581 leg B — true when `emitTilePointsRhi` can skip straight to
+   *  `redrawTilePointsCached` instead of accumulate + repack. */
+  canSkipTilePointRepack(key: TilePointPackKey): boolean {
+    return this.tilePointBuffer !== null && tilePointPackKeyEqual(this._lastTilePointPackKey, key)
+  }
+
   /** Flush accumulated tile points as a single draw call onto an RHI pass. ONE
-   *  authority for both backends (#1057): the WebGPU frame reaches it via
-   *  VectorTileRenderer.emitTilePointsRhi (wrapped native encoder); the forced-
-   *  WebGL2 twin (render-loop.ts renderFrameViaRhi opaque loop) passes its screen
-   *  RhiRenderPass straight through. The pack / writePointFrameUniform / PointDraper
-   *  draw plumbing is backend-neutral RHI already — only the pass handle differs. */
+   *  authority for both backends (#1057), reached through
+   *  VectorTileRenderer.emitTilePointsRhi: a wrapped native encoder on WebGPU, the
+   *  screen RhiRenderPass directly on WebGL2. The pack / writePointFrameUniform /
+   *  PointDraper draw plumbing is backend-neutral RHI already — only the pass
+   *  handle differs. */
   flushTilePointsRhi(
     pass: RhiRenderPass,
     camera: Camera,
@@ -423,26 +467,9 @@ export class PointRenderer {
     projCenterLat: number,
     canvasWidth: number,
     canvasHeight: number,
-    show: {
-      fill?: string | null
-      stroke?: string | null
-      strokeWidth?: number
-      size?: number | null
-      sizeExpr?: { ast?: unknown } | null
-      shape?: string | null
-      sizeUnit?: string | null
-      anchor?: 'center' | 'bottom' | 'top'
-      billboard?: boolean
-      opacity?: number
-      circleTranslateX?: number
-      circleTranslateY?: number
-      circleBlur?: number
-      circlePitchScaleMap?: boolean
-      circleTranslateXShape?: import('@xgis/compiler').PropertyShape<number> | null
-      circleTranslateYShape?: import('@xgis/compiler').PropertyShape<number> | null
-      circleStrokeOpacityShape?: import('@xgis/compiler').PropertyShape<number> | null
-    },
+    show: TilePointShow,
     dpr: number = 1,
+    key: TilePointPackKey | null = null,
   ): void {
     if (this.tilePoints.length === 0) return
     const N = this.tilePoints.length
@@ -454,26 +481,17 @@ export class PointRenderer {
     const stroke = strokeHex ? parseHexColor(strokeHex) : null
     const opacity = show.opacity ?? 1.0
     const radiusPx = show.size ?? 6
-    // #722 S4 — data-driven per-feature size on the tile path (fixes #17 size).
-    // Mirror of the INLINE GeoJSON path (map.ts:2688-2711): when the layer
-    // authors a size EXPRESSION, evaluate it per feature against that feature's
-    // source properties (pt.featProps, threaded on each tilePoint at
-    // accumulation). Same @xgis/compiler evaluate + makeEvalProps + per-feature
-    // throw-isolation → numeric fallback to the constant radius the inline path
-    // uses. When there is no expression (or a point lacks props), radiusPx
-    // (show.size ?? 6) is written verbatim — BYTE-IDENTICAL to pre-S4.
+    // #722 S4 — data-driven per-feature size (fixes #17), mirrors the inline
+    // GeoJSON path: evaluate the size EXPRESSION per feature against
+    // pt.featProps; no expression (or no props) → radiusPx verbatim.
     const sizeAst = (show.sizeExpr?.ast ?? null) as import('@xgis/compiler').Expr | null
     const cameraZoom = camera.zoom
     const cameraPitch = camera.pitch
     const strokeWidth = show.strokeWidth ?? 1 // raw px, shader converts to UV
-    // #722 S2 — resolve the tile-layer shape ONCE (mirrors map.ts:2715, the
-    // inline path). Fixes #16: tile points (URL geojson / PMTiles) hardcoded
-    // shape_id 0 → custom shapes (star/…) always drew as circles. show.shape
-    // carries the compiled shape name; getShapeId maps it to the GPU slot.
+    // #722 S2 — resolve the tile-layer shape ONCE (fixes #16: custom shapes
+    // always drew as circles on the tile path); show.shape → GPU slot.
     const tileShapeId = show.shape ? (this.shapeRegistry?.getShapeId(show.shape) ?? 0) : 0
-    // WS-1 — per-frame zoom-interp on the tile-point path (mirror of the
-    // GeoJSON updateDynamicSizes path). flushTilePoints rebakes feat_data +
-    // the frame uniform every frame, so resolve the shapes here. These are
+    // WS-1 — per-frame zoom-interp (mirrors GeoJSON updateDynamicSizes);
     // zoom-only, so elapsedMs=0 is fine.
     const tileStrokeOpacity = show.circleStrokeOpacityShape
       ? Math.max(
@@ -481,22 +499,13 @@ export class PointRenderer {
           Math.min(1, resolveNumberShape(show.circleStrokeOpacityShape, camera.zoom, 0).value),
         )
       : 1
-    const tileTranslateX = show.circleTranslateXShape
-      ? resolveNumberShape(show.circleTranslateXShape, camera.zoom, 0).value
-      : (show.circleTranslateX ?? 0)
-    const tileTranslateY = show.circleTranslateYShape
-      ? resolveNumberShape(show.circleTranslateYShape, camera.zoom, 0).value
-      : (show.circleTranslateY ?? 0)
 
     let flags = 0
     if (fill) flags |= 1
     if (stroke) flags |= 2
-    // #722 S3 — mirror the inline addLayer flag byte (point-renderer.ts:591-598)
-    // exactly, so tile points honour size-unit / anchor / billboard instead of
-    // collapsing to center-anchored, pixel-sized, always-billboarded. Same
-    // encoding the point shader (map/src/shaders/dsl/point.ts) unpacks off slot
-    // 10: bits 4-7 = size_mode, bit 3 = flat, bits 8-9 = anchor. Default show
-    // (px / center / billboard) yields the identical old fill/stroke-only byte.
+    // #722 S3 — mirror the inline addLayer flag byte so tile points honour
+    // size-unit/anchor/billboard (slot 10: bits 4-7 size_mode, bit 3 flat,
+    // bits 8-9 anchor) instead of collapsing to center/px/billboard-only.
     const unitMap: Record<string, number> = { m: 1, km: 2, deg: 3, nm: 4 }
     const sizeMode = show.sizeUnit ? (unitMap[show.sizeUnit] ?? 0) : 0
     if (show.billboard === false) flags |= 8 // bit 3 = flat
@@ -619,55 +628,74 @@ export class PointRenderer {
     })
     this.rhi.writeBuffer(this.tilePointFeatBuffer, 0, featData)
 
-    const frame = camera.getViewForProjection(projType, canvasWidth, canvasHeight, dpr)
-    writePointFrameUniform(
-      this.frameBlock,
-      frame,
-      camera,
-      projType,
-      projCenterLon,
-      projCenterLat,
-      canvasWidth,
-      canvasHeight,
-      dpr,
-      tileTranslateX,
-      tileTranslateY,
-      show.circleBlur ?? 0,
-      show.circlePitchScaleMap ?? false,
-    )
-    this.rhi.writeBuffer(this.uniformBuffer, 0, this.frameBlock.buffer)
-
-    // Pick the translucent (no depth write) pipeline when the effective
-    // alpha drops below 1 so halos/glows rendered from tile sources don't
-    // occlude opaque points or layers drawn into the same depth buffer.
-    // Matches the classification used in addLayer().
+    // Pick the translucent (no depth write) pipeline when the effective alpha
+    // drops below 1 so halos/glows rendered from tile sources don't occlude
+    // opaque points or layers drawn into the same depth buffer. Matches the
+    // classification used in addLayer().
     const EPS = 0.999
     const fillA = fill ? fill[3] * opacity : 1
     const strokeA = stroke ? stroke[3] * opacity * tileStrokeOpacity : 1
-    const tileIsTranslucent = opacity < EPS || fillA < EPS || strokeA < EPS
+    const variant: 0 | 1 = opacity < EPS || fillA < EPS || strokeA < EPS ? 1 : 0
 
-    // Single draw call for all tile points, through the RHI Material seam. P1: the SOLE
-    // draw path — proven pixel-identical (DC=0, real GPU) to the legacy direct draw by
-    // playground/e2e/_point-rhi-parity. Points don't participate in GPU picking, so there
-    // is no pick variant to keep on the legacy path.
-    this.ensurePointDraper()
-    // ShapeRegistry shape/seg are RhiBuffer (step 3c) → passed directly; the empty
-    // fallback is a point-owned RhiBuffer.
-    const shapeBuf = this.shapeRegistry?.shapeBuffer
-    const segBuf = this.shapeRegistry?.segmentBuffer
-    this._pointDraper!.draw(pass, {
-      uniform: this.uniformBuffer,
-      feat: this.tilePointFeatBuffer!,
-      shape: shapeBuf ?? this.emptyStorageBuf(),
-      seg: segBuf ?? this.emptyStorageBuf(),
-      vertex: this.tilePointBuffer!,
-      index: this.tilePointIndexBuffer!,
-      indexCount: totalN * 6,
-      variant: tileIsTranslucent ? 1 : 0,
-    })
+    refreshTilePointUniformAndDraw(
+      this._tilePointDrawDeps(show.shaderVariant),
+      {
+        pass,
+        camera,
+        projType,
+        projCenterLon,
+        projCenterLat,
+        canvasWidth,
+        canvasHeight,
+        show,
+        dpr,
+      },
+      totalN,
+      variant,
+    )
+
+    // #1581 leg B — stamp what these buffers were built from.
+    this._lastTilePointPackKey = key
+    this._lastTilePointTotalN = totalN
+    this._lastTilePointVariant = variant
 
     // Clear for next frame
     this.tilePoints = []
+  }
+
+  /** #1581 leg B — buffers unchanged: skip repack, just refresh the
+   *  translate/frame uniform and reissue the draw call. */
+  redrawTilePointsCached(args: TilePointFrameArgs): void {
+    refreshTilePointUniformAndDraw(
+      // The variant is re-resolved here too, not just on the repack path: a
+      // cached redraw still picks its draper fresh, so a style change that
+      // only swaps the variant needs no repack (see TilePointShow's doc).
+      this._tilePointDrawDeps(args.show.shaderVariant),
+      args,
+      this._lastTilePointTotalN,
+      this._lastTilePointVariant,
+    )
+  }
+
+  /** Resources `refreshTilePointUniformAndDraw` needs, fallbacks resolved.
+   *  `variant` is the show's raw compiler variant (#1605 Phase 3): the VT/tile
+   *  point path now selects a composer draper too, which is what an inline
+   *  GeoJSON point source actually renders through — `map.ts`'s direct
+   *  `addLayer` path (wired in Phase 2) is NOT the path those take, so
+   *  without this a point stage block reached no pixels at all. */
+  private _tilePointDrawDeps(variant?: ShaderVariantInfo | null): TilePointDrawDeps {
+    const draper = this.ensurePointDraper(variant)
+    return {
+      frameBlock: this.frameBlock,
+      rhi: this.rhi,
+      uniformBuffer: this.uniformBuffer,
+      pointDraper: draper,
+      shapeBuf: this.shapeRegistry?.shapeBuffer ?? this.emptyStorageBuf(),
+      segBuf: this.shapeRegistry?.segmentBuffer ?? this.emptyStorageBuf(),
+      featBuffer: this.tilePointFeatBuffer!,
+      vertexBuffer: this.tilePointBuffer!,
+      indexBuffer: this.tilePointIndexBuffer!,
+    }
   }
 
   /**
@@ -704,6 +732,12 @@ export class PointRenderer {
     circlePitchScaleMap?: boolean,
     perFeatureFills?: ([number, number, number, number] | null)[] | null,
     perFeatureStrokes?: ([number, number, number, number] | null)[] | null,
+    /** A feature-free @color/@stroke composer variant (#1605 Phase 2), or
+     *  null/undefined for the default feat_data-read path. Trailing and
+     *  optional — line's Phase 1 broke 21 tests by inserting a new param
+     *  mid-list; every call site here either passes this explicitly or
+     *  relies on the default, never shifts a positional argument. */
+    shaderVariant?: ShaderVariantInfo | null,
   ): void {
     const points: { lon: number; lat: number }[] = []
 
@@ -882,6 +916,7 @@ export class PointRenderer {
       baseCircleTranslateY: circleTranslateY ?? 0,
       lastDynTranslateZoom: Number.NaN,
       circlePitchScaleMap: circlePitchScaleMap ?? false,
+      shaderVariant: shaderVariant ?? null,
     })
 
     console.log(`[X-GIS] SDF point layer: ${points.length} points`)
@@ -1002,10 +1037,10 @@ export class PointRenderer {
   }
 
   /** Draw all direct-layer point layers onto an RHI pass. ONE authority for both
-   *  backends (#1057): the WebGPU frame reaches it via render() (wrapped encoder);
-   *  the forced-WebGL2 twin (render-loop.ts renderFrameViaRhi) passes its screen
-   *  RhiRenderPass directly. The uploadLayer / writePointFrameUniform / PointDraper
-   *  draw plumbing is backend-neutral RHI already — only the pass handle differs. */
+   *  backends (#1057), reached through the points pass: a wrapped native encoder
+   *  on WebGPU, the screen RhiRenderPass directly on WebGL2. The uploadLayer /
+   *  writePointFrameUniform / PointDraper draw plumbing is backend-neutral RHI
+   *  already — only the pass handle differs. */
   renderRhi(
     pass: RhiRenderPass,
     camera: Camera,
@@ -1137,8 +1172,8 @@ export class PointRenderer {
       // fallback is a point-owned RhiBuffer.
       const shapeBuf = this.shapeRegistry?.shapeBuffer
       const segBuf = this.shapeRegistry?.segmentBuffer
-      this.ensurePointDraper()
-      this._pointDraper!.draw(pass, {
+      const draper = this.ensurePointDraper(layer.shaderVariant)
+      draper.draw(pass, {
         uniform: this.uniformBuffer,
         feat: layer._expandedFeatBuf!,
         shape: shapeBuf ?? this.emptyStorageBuf(),

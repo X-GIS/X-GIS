@@ -2,6 +2,7 @@
 // GPU 프로젝션과 함께 동작. 줌 적응형 간격 + 메이저/마이너 구분.
 
 import { lonLatToECEF, dsfunSplitECEF } from '@xgis/shared'
+import { bodyEpochValue } from './body-epoch'
 
 export interface GraticuleData {
   /** Line vertices in ECEF-DSFUN stride 9 (Phase 2 PR 2d.1D):
@@ -55,10 +56,30 @@ function stepsForZoom(zoom: number): { major: number; minor: number | null } {
  *  the same cached geometry. */
 const graticuleCache = new Map<string, GraticuleData>()
 
+/** #1568 — the cached vertices are ECEF METRES: `lonLatToECEF`'s `body` parameter
+ *  defaults to `activeBody()`, so a bucket baked under EARTH is 6378137/1737400 ≈
+ *  3.67× too large on the Moon. The key had no body in it, so the second map in a
+ *  process drew the first map's planet-sized grid.
+ *
+ *  Dropping stale epochs rather than just adding the epoch to the key ALSO closes
+ *  the retention half: the densest bucket alone is ~130k pushes × 9 floats × 4 B ≈
+ *  4.7 MB, and these buffers otherwise survive every map teardown for the page
+ *  lifetime. The per-bucket memo itself stays — it exists to kill a real
+ *  zoom-animation hitch, so deleting it would be the wrong fix. */
+let _graticuleEpoch = -1
+
+function pruneGraticuleCacheOnBodyChange(): void {
+  const epoch = bodyEpochValue()
+  if (_graticuleEpoch === epoch) return
+  graticuleCache.clear()
+  _graticuleEpoch = epoch
+}
+
 /** Generate graticule grid lines for a given zoom level. Cached by
  *  zoom bucket — repeat calls within the same bucket return the same
  *  GraticuleData instance. */
 export function generateGraticule(zoom = 2): GraticuleData {
+  pruneGraticuleCacheOnBodyChange()
   const { major, minor } = stepsForZoom(zoom)
   const cacheKey = `${major}/${minor ?? 0}`
   const cached = graticuleCache.get(cacheKey)

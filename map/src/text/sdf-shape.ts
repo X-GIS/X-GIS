@@ -245,6 +245,54 @@ function pathToSegments(cmds: PathCmd[]): {
   }
 }
 
+/** Fraction of the bbox to shift by, per axis, for each anchor. `center` — and an unknown or absent
+ *  value — is `(0, 0)`, i.e. the geometry is left exactly where the author drew it, which is what
+ *  every shape predating #1550 relies on. */
+const ANCHOR_SHIFT: Record<string, readonly [number, number]> = {
+  center: [0, 0],
+  // SIGNS ARE IN PATH SPACE, WHERE +Y IS DOWN — the SVG convention the parser reads and the one the
+  // FS restores with `uv = (uv_in.x, −uv_in.y)` (`shaders/dsl/point.ts:257`). So the visual TOP edge
+  // is the geometry's MINIMUM y, and anchoring to it means shifting the shape into positive y, i.e.
+  // +0.5. Getting this backwards is invisible to a symmetric test glyph and to any mirror-symmetry
+  // assertion; it took an absolute one to catch.
+  top: [0, 0.5],
+  bottom: [0, -0.5],
+  left: [0.5, 0],
+  right: [-0.5, 0],
+}
+
+/** Translate parsed geometry so the named anchor of its bounding box sits at the origin.
+ *
+ *  The shift is expressed as a FRACTION OF THE BOX rather than in absolute units, so it is
+ *  correct for a symbol of any size and needs no normalisation pass. `top` means "the top edge is
+ *  at the origin", i.e. the glyph hangs BELOW the point it marks — the convention a pin or a label
+ *  callout wants, and the reason `anchor` exists in the grammar at all. */
+function anchorGeometry(
+  parsed: { segments: SegmentData[]; bbox: [number, number, number, number] },
+  anchor?: string,
+): { segments: SegmentData[]; bbox: [number, number, number, number] } {
+  const shift = anchor ? ANCHOR_SHIFT[anchor] : undefined
+  if (!shift || (shift[0] === 0 && shift[1] === 0)) return parsed
+  const { bbox } = parsed
+  const dx = -(bbox[0] + bbox[2]) / 2 + shift[0] * (bbox[2] - bbox[0])
+  const dy = -(bbox[1] + bbox[3]) / 2 + shift[1] * (bbox[3] - bbox[1])
+  const segments = parsed.segments.map((s) => ({
+    ...s,
+    p0x: s.p0x + dx,
+    p0y: s.p0y + dy,
+    p1x: s.p1x + dx,
+    p1y: s.p1y + dy,
+    p2x: s.p2x + dx,
+    p2y: s.p2y + dy,
+    p3x: s.p3x + dx,
+    p3y: s.p3y + dy,
+  }))
+  return {
+    segments,
+    bbox: [bbox[0] + dx, bbox[1] + dy, bbox[2] + dx, bbox[3] + dy],
+  }
+}
+
 // ═══ Built-in Shapes ═══
 
 function regularPolygon(n: number, radius: number): string {
@@ -328,16 +376,23 @@ export class ShapeRegistry {
   /** Register a user-defined shape under the `user:` namespace so it cannot
    *  silently collide with built-ins. Callers still look it up by the bare
    *  name via `getShapeId`, which checks the prefixed key first. */
-  addUserShape(name: string, svgPath: string): number {
-    return this.addShape(USER_SHAPE_PREFIX + name, svgPath)
+  addUserShape(name: string, svgPath: string, anchor?: string): number {
+    return this.addShape(USER_SHAPE_PREFIX + name, svgPath, anchor)
   }
 
   /** Register a shape from SVG path string. Returns shape_id (1-based, 0=circle). */
-  addShape(name: string, svgPath: string): number {
+  addShape(name: string, svgPath: string, anchor?: string): number {
     if (this.shapes.has(name)) return this.shapes.get(name)!.id
 
     const cmds = parseSVGPath(svgPath)
-    const { segments, bbox } = pathToSegments(cmds)
+    const parsed = pathToSegments(cmds)
+    // #1550 — `anchor` moves the symbol's ORIGIN inside its own bounding box, and it is applied
+    // HERE because this is the only place that parses a path and therefore the only place that
+    // knows the box. Applied as a translation of the geometry rather than as a field the shader
+    // reads: the SDF evaluates path coordinates directly against the incoming uv (`point.ts:257`),
+    // so moving the points IS moving the anchor, and no shader, no GPU struct and no draw path
+    // changes. Absent anchor leaves the geometry untouched, so every existing shape is byte-identical.
+    const { segments, bbox } = anchorGeometry(parsed, anchor)
 
     const id = this.nextId++
     const desc: ShapeDescData = {

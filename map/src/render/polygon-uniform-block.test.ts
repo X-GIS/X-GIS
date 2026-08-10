@@ -16,6 +16,7 @@
 
 import { describe, it, expect } from 'vitest'
 import { uniformBlock } from '@xgis/engine'
+import { inputPoolValues } from './input-pool'
 import { polygonU as POLYGON_U } from '../shaders/dsl/polygon'
 import {
   polygonUniformSlots,
@@ -50,6 +51,8 @@ describe('polygon Uniforms — block ≡ slot writer', () => {
     // ── The block pack, same values field-by-field ──
     const block = uniformBlock(POLYGON_U)
     block.write({
+      // #1539 pool lanes — zero here; the reference bytes above leave them 0 too.
+      ...inputPoolValues(null),
       mvp: MVP,
       fill_color: [0.1, 0.2, 0.3, 0.4],
       stroke_color: [0.5, 0.6, 0.7, 0.8],

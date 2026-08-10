@@ -19,7 +19,10 @@
 // being phased out alongside Step 1d but the helpers remain
 // authoritative as the migration completes.
 
-import type { PropertyShape } from '@xgis/compiler'
+import type { PropertyShape, DataExpr, Expr } from '@xgis/compiler'
+import { evaluate, makeEvalProps } from '@xgis/compiler'
+import { hexToRgba } from '../feature-helpers'
+import type { InputStore } from './input-store'
 // #redesign Wave 0.1 — import the interpolators from their DEFINITION site
 // (renderer-helpers) instead of re-routing through renderer.ts's re-export.
 // renderer.ts:22-24 merely re-exports these 4 from './renderer-helpers'
@@ -54,12 +57,39 @@ export interface ResolvedColor {
   hasTime: boolean
 }
 
+/** #1539 — a `data-driven` shape whose expression reads NO feature field is a
+ *  per-frame CONSTANT, not a per-feature bake: `classifyExpr` returns
+ *  `'input-dependent'` for it (a declared `input`, alone or combined with
+ *  `zoom`). Those belong on the same per-frame CPU path `zoom-interpolated`
+ *  takes — evaluating them here is what makes `map.setInput()` work on BOTH
+ *  backends, since the value lands in the existing `u.opacity` / `u.fill_color`
+ *  uniform instead of the WebGPU-only shader variant. A genuinely per-feature
+ *  expression keeps the historical fallback (`1` / `null`) and its worker bake.
+ *
+ *  Returns `undefined` when this shape is not the input-dependent case, so the
+ *  caller can tell "no live value" apart from a legitimately falsy one. */
+function evalInputDependent(
+  expr: DataExpr,
+  cameraZoom: number,
+  inputs: InputStore | null | undefined,
+): unknown {
+  if (!inputs || expr.classification !== 'input-dependent') return undefined
+  try {
+    return evaluate(expr.ast as Expr, makeEvalProps({ cameraZoom, inputs: inputs.toEvalInputs() }))
+  } catch {
+    // Mirror the evaluator's throw-isolation elsewhere on the paint path: one
+    // pathological expression must not take the whole frame's resolve down.
+    return undefined
+  }
+}
+
 /** Evaluate a `PropertyShape<number>` to a per-frame scalar plus
  *  contributor flags. See module header for the five-variant rule. */
 export function resolveNumberShape(
   shape: PropertyShape<number>,
   cameraZoom: number,
   elapsedMs: number,
+  inputs?: InputStore | null,
 ): ResolvedNumber {
   switch (shape.kind) {
     case 'constant':
@@ -91,8 +121,13 @@ export function resolveNumberShape(
       )
       return { value: zoomFactor * timeFactor, hasZoom: true, hasTime: true }
     }
-    case 'data-driven':
+    case 'data-driven': {
+      const live = evalInputDependent(shape.expr, cameraZoom, inputs)
+      if (typeof live === 'number' && Number.isFinite(live)) {
+        return { value: live, hasZoom: false, hasTime: false }
+      }
       return { value: 1, hasZoom: false, hasTime: false }
+    }
   }
 }
 
@@ -103,6 +138,7 @@ export function resolveColorShape(
   shape: PropertyShape<readonly [number, number, number, number]>,
   cameraZoom: number,
   elapsedMs: number,
+  inputs?: InputStore | null,
 ): ResolvedColor | null {
   switch (shape.kind) {
     case 'constant':
@@ -146,8 +182,14 @@ export function resolveColorShape(
         hasTime: true,
       }
     }
-    case 'data-driven':
-      return null
+    case 'data-driven': {
+      // A colour evaluates to its HEX TEXT (ColorLiteral / a `color` InputRef
+      // both yield `expr.value`), so it needs the hex → RGBA 0..1 step the
+      // interpolating arms above get for free.
+      const live = evalInputDependent(shape.expr, cameraZoom, inputs)
+      const rgba = typeof live === 'string' ? hexToRgba(live) : null
+      return rgba ? { value: rgba, hasZoom: false, hasTime: false } : null
+    }
   }
 }
 

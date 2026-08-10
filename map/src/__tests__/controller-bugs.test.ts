@@ -8,7 +8,7 @@
 // #2  disc drag keeps grabbed point under cursor (needs camera.discDragAnchorAt / panDiscToScreenAnchor)
 
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { PanZoomController } from '../controller'
+import { PanZoomController, rotateGestureDecision } from '../controller'
 
 // ── minimal canvas stub ────────────────────────────────────────────────────
 function makeCanvas() {
@@ -74,6 +74,26 @@ function pe(type: string, opts: Partial<PointerEvent> & { pointerId?: number } =
     stopPropagation: vi.fn(),
     ...opts,
   } as unknown as PointerEvent
+}
+
+/** Dispatch a bare pointermove for one already-down pointer. The controller
+ *  reads only type / pointerId / clientX / clientY off the event. */
+function move(
+  canvas: HTMLCanvasElement,
+  pointerId: number,
+  clientX: number,
+  clientY: number,
+): void {
+  ;(canvas as unknown as { dispatchEvent(e: Event): void }).dispatchEvent({
+    type: 'pointermove',
+    pointerId,
+    clientX,
+    clientY,
+    button: 0,
+    ctrlKey: false,
+    preventDefault: vi.fn(),
+    stopPropagation: vi.fn(),
+  } as unknown as Event)
 }
 
 // ═══ #3 onPointerCancel full reset ════════════════════════════════════════
@@ -394,44 +414,27 @@ describe('#13 exact-0 pinch sentinels: do not skip frame when value is 0', () =>
     //   that the SECOND move after returning to angle=0 skips (0===0).
     // Let's test the returning-to-0 case:
 
-    // Move to angle ≈ 5°
-    ;(canvas as unknown as { dispatchEvent(e: Event): void }).dispatchEvent({
-      type: 'pointermove',
-      pointerId: pid2,
-      clientX: 500,
-      clientY: 317,
-      button: 0,
-      ctrlKey: false,
-      preventDefault: vi.fn(),
-      stopPropagation: vi.fn(),
-    } as unknown as Event)
+    // Cross the #1566 rotate dead-zone first, so the gesture is engaged and every
+    // subsequent frame's delta is applied — otherwise this test cannot observe
+    // anything about the 0 sentinel, because a sub-threshold gesture correctly
+    // rotates by nothing. atan2(70, 200) ≈ 19.3° > ROTATE_ENTER_DEG.
+    move(canvas, pid2, 500, 370)
     const rotateMid = (camera.rotate as ReturnType<typeof vi.fn>).mock.calls.length
+    expect(rotateMid, 'a >8° twist must engage rotation').toBeGreaterThan(0)
 
-    // Move BACK to exactly horizontal (angle = 0 again)
-    ;(canvas as unknown as { dispatchEvent(e: Event): void }).dispatchEvent({
-      type: 'pointermove',
-      pointerId: pid2,
-      clientX: 500,
-      clientY: 300,
-      button: 0,
-      ctrlKey: false,
-      preventDefault: vi.fn(),
-      stopPropagation: vi.fn(),
-    } as unknown as Event)
+    // Move BACK to exactly horizontal (angle = 0 again). THIS is the #13
+    // invariant: 0 is a real pair angle, not an "unset" sentinel — the sentinel
+    // is NaN. A frame landing exactly on 0 must still be processed.
+    move(canvas, pid2, 500, 300)
     const rotateAfter = (camera.rotate as ReturnType<typeof vi.fn>).mock.calls.length
 
-    // BUG (pre-fix): second move to angle=0 → lastPinchAngle=5°, angle=0,
-    //   condition is `lastPinchAngle !== 0` → TRUE → rotates. Actually the
-    //   BUG is `lastPinchCenterY !== 0` for pitch. Let's also test centerY=0:
-    // The real #13 bug: lastPinchCenterY===0 used as sentinel → first frame
-    // where center.y IS 0 (fingers vertically centered at canvas top edge y=0)
-    // is dropped. For pinch angle, lastPinchAngle===0 is the sentinel.
-    // After first move, lastPinchAngle gets set to angle≠0, so returning to 0
-    // DOES fire (condition: lastPinchAngle!==0 is true before update).
-    // The real skip is on the FIRST frame when initialized to 0.
-
-    // Verify: rotate was called at least once (angle changes were processed)
-    expect(rotateAfter).toBeGreaterThanOrEqual(rotateMid)
+    // STRICT: the return-to-0 frame must produce its OWN rotate call. The
+    // previous assertion here was `toBeGreaterThanOrEqual(rotateMid)` on a
+    // monotonically non-decreasing mock counter — true even if `rotate` were
+    // never called at all, so it distinguished nothing (#1566).
+    expect(rotateAfter, 'the frame that lands on angle=0 must still rotate').toBe(rotateMid + 1)
+    const lastDelta = (camera.rotate as ReturnType<typeof vi.fn>).mock.calls.at(-1)![0] as number
+    expect(lastDelta).toBeCloseTo(19.29, 1) // -(0 - 19.29)
   })
 
   it('pinch centerY exactly 0 does not skip pitch update on first frame', () => {
@@ -557,5 +560,118 @@ describe('#2 disc drag keeps grabbed point under cursor', () => {
     expect(camera.panDiscToScreenAnchor).not.toHaveBeenCalled()
     // Standard anchor path used
     expect(camera.panToScreenAnchor).toHaveBeenCalled()
+  })
+})
+
+// ═══ #1566 pinch-rotate dead-zone ═════════════════════════════════════════
+// Before the fix `camera.rotate(-delta)` ran for ANY nonzero pair-angle delta,
+// with no threshold, no accumulation and no hysteresis anywhere on the path —
+// so 2-3° of ordinary finger jitter during a pinch-zoom spun the map, and it
+// stayed spun because the 15° release snap is gated on `isRotating &&
+// rotateActivated`, both false throughout a pinch.
+//
+// Fingers start at (300,300) and (500,300) — 200 px apart, horizontal. Moving
+// the second finger to (500, 300+dy) makes the pair angle atan2(dy, 200), so
+// dy = 200·tan(θ) puts the gesture at exactly θ degrees.
+const dyForDeg = (deg: number): number => 200 * Math.tan((deg * Math.PI) / 180)
+
+describe('#1566 pinch-rotate dead-zone', () => {
+  // ── the pure decision function ──
+  it('rotateGestureDecision: strict to enter, then latched for the gesture', () => {
+    // Below threshold, disengaged → no rotation, stays disengaged.
+    expect(rotateGestureDecision(2, false)).toEqual({ apply: false, engaged: false })
+    expect(rotateGestureDecision(8, false)).toEqual({ apply: false, engaged: false })
+    // Past threshold → engage, either sign.
+    expect(rotateGestureDecision(8.1, false)).toEqual({ apply: true, engaged: true })
+    expect(rotateGestureDecision(-8.1, false)).toEqual({ apply: true, engaged: true })
+    // Once engaged it STAYS engaged even as the accumulator swings back through
+    // zero — a deliberate twist that reverses must not need to re-earn the
+    // threshold mid-gesture (this is where rotation differs from pitch, which
+    // has a competing interpretation to fall back to).
+    expect(rotateGestureDecision(0, true)).toEqual({ apply: true, engaged: true })
+    expect(rotateGestureDecision(-1, true)).toEqual({ apply: true, engaged: true })
+  })
+
+  // ── the reported symptom ──
+  it('finger jitter during a pinch does NOT rotate the map', () => {
+    _pid = 0
+    const canvas = makeCanvas()
+    const camera = makeCamera()
+    const ctrl = new PanZoomController()
+    ctrl.attach(canvas, camera as never, () => ({ projectionName: 'mercator' }))
+    const pid1 = ++_pid
+    const pid2 = ++_pid
+    canvas.dispatchEvent(pe('pointerdown', { pointerId: pid1, clientX: 300, clientY: 300 }))
+    canvas.dispatchEvent(pe('pointerdown', { pointerId: pid2, clientX: 500, clientY: 300 }))
+
+    // Wander within ±3° for a dozen frames — the ordinary touch-jitter envelope
+    // the issue describes. Note this also drives the pinch DISTANCE (the finger
+    // really is moving), so the zoom half of the gesture still runs.
+    for (const deg of [2, -1, 3, 0, -2, 2.5, -3, 1, 2, -2, 3, -1]) {
+      move(canvas, pid2, 500, 300 + dyForDeg(deg))
+    }
+
+    expect(
+      (camera.rotate as ReturnType<typeof vi.fn>).mock.calls.length,
+      'a pinch that never accumulates 8° of twist must not rotate at all',
+    ).toBe(0)
+    // Control arm: the same gesture DID reach the zoom path, so this is a
+    // dead-zone doing its job and not a handler that never ran.
+    expect(camera.zoomAt).toHaveBeenCalled()
+  })
+
+  // ── the control arm: a deliberate twist still works ──
+  it('a deliberate twist past the threshold rotates, and keeps rotating', () => {
+    _pid = 0
+    const canvas = makeCanvas()
+    const camera = makeCamera()
+    const ctrl = new PanZoomController()
+    ctrl.attach(canvas, camera as never, () => ({ projectionName: 'mercator' }))
+    const pid1 = ++_pid
+    const pid2 = ++_pid
+    canvas.dispatchEvent(pe('pointerdown', { pointerId: pid1, clientX: 300, clientY: 300 }))
+    canvas.dispatchEvent(pe('pointerdown', { pointerId: pid2, clientX: 500, clientY: 300 }))
+
+    // A steady twist: 3° per frame. The first two frames are inside the
+    // dead-zone and rotate nothing; the third crosses 8° and every frame from
+    // there on applies its own delta.
+    for (const deg of [3, 6, 9, 12, 15]) move(canvas, pid2, 500, 300 + dyForDeg(deg))
+
+    const calls = (camera.rotate as ReturnType<typeof vi.fn>).mock.calls
+    expect(calls.length, 'frames 3-5 are past the dead-zone').toBe(3)
+    // Each applied call carries THIS frame's delta (≈3°), negated — the
+    // absorbed 8° of dead-zone is not replayed as a jump.
+    for (const [delta] of calls) expect(Math.abs(delta as number)).toBeLessThan(4)
+  })
+
+  // ── the latch is per-gesture ──
+  it('lifting the fingers makes the next gesture re-earn the threshold', () => {
+    _pid = 0
+    const canvas = makeCanvas()
+    const camera = makeCamera()
+    const ctrl = new PanZoomController()
+    ctrl.attach(canvas, camera as never, () => ({ projectionName: 'mercator' }))
+    const pid1 = ++_pid
+    const pid2 = ++_pid
+    canvas.dispatchEvent(pe('pointerdown', { pointerId: pid1, clientX: 300, clientY: 300 }))
+    canvas.dispatchEvent(pe('pointerdown', { pointerId: pid2, clientX: 500, clientY: 300 }))
+    for (const deg of [5, 10, 15]) move(canvas, pid2, 500, 300 + dyForDeg(deg))
+    expect((camera.rotate as ReturnType<typeof vi.fn>).mock.calls.length).toBeGreaterThan(0)
+
+    canvas.dispatchEvent(pe('pointerup', { pointerId: pid2, clientX: 500, clientY: 300 }))
+    canvas.dispatchEvent(pe('pointerup', { pointerId: pid1, clientX: 300, clientY: 300 }))
+    ;(camera.rotate as ReturnType<typeof vi.fn>).mockClear()
+
+    // Second gesture, jitter only — must be silent again. If the latch leaked
+    // across gestures this would rotate on the first wobble.
+    const pid3 = ++_pid
+    const pid4 = ++_pid
+    canvas.dispatchEvent(pe('pointerdown', { pointerId: pid3, clientX: 300, clientY: 300 }))
+    canvas.dispatchEvent(pe('pointerdown', { pointerId: pid4, clientX: 500, clientY: 300 }))
+    for (const deg of [2, -2, 3, -1]) move(canvas, pid4, 500, 300 + dyForDeg(deg))
+    expect(
+      (camera.rotate as ReturnType<typeof vi.fn>).mock.calls.length,
+      'the rotate latch must not survive a gesture end',
+    ).toBe(0)
   })
 })

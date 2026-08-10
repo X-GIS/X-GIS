@@ -19,6 +19,10 @@ interface DemoResult {
   warns: string[]
   failedRequests: string[]
   screenshotPath: string
+  /** Set by the audit when the demo was SKIPPED rather than judged — its
+   *  asset is deliberately untracked, so a clean checkout cannot render it
+   *  (#1625). Reported, never silently dropped. */
+  skipReason?: string
 }
 
 export default function globalTeardown(): void {
@@ -43,7 +47,12 @@ export default function globalTeardown(): void {
   // Broken = not ready, real console errors, non-finite camera, or a blank
   // frame. The centre-pixel sample was dropped: it false-flagged fixtures
   // whose centre is legitimately background despite a well-painted frame. (#462)
-  const broken = results.filter(
+  // A demo whose asset is deliberately untracked was SKIPPED, not judged
+  // (#1625) — counting it as broken in a clean checkout would bury the real
+  // failures under ~14 environment artifacts.
+  const skipped = results.filter((r) => r.skipReason)
+  const judged = results.filter((r) => !r.skipReason)
+  const broken = judged.filter(
     (r) =>
       !r.ready || r.errors.length > 0 || !r.cameraFinite || (r.paintedPx < 200 && !ssrfArtifact(r)),
   )
@@ -54,9 +63,21 @@ export default function globalTeardown(): void {
   lines.push(
     `**Total**: ${results.length} | ` +
       `**Broken**: ${broken.length} | ` +
-      `**Healthy**: ${results.length - broken.length}`,
+      `**Healthy**: ${judged.length - broken.length}` +
+      (skipped.length ? ` | **Skipped**: ${skipped.length}` : ''),
   )
   lines.push('')
+
+  if (skipped.length > 0) {
+    lines.push('## Skipped (not judged)')
+    lines.push('')
+    lines.push('| ID | Reason |')
+    lines.push('|---|---|')
+    for (const r of skipped) {
+      lines.push(`| \`${r.id}\` | ${(r.skipReason ?? '').replace(/\|/g, '\\|').slice(0, 160)} |`)
+    }
+    lines.push('')
+  }
 
   lines.push('## Broken')
   lines.push('')
@@ -99,8 +120,9 @@ export default function globalTeardown(): void {
   lines.push('|---|---:|---:|---:|---:|')
   for (const r of results) {
     const ok = r.ready && r.errors.length === 0 && r.paintedPx >= 200
+    const mark = r.skipReason ? '~' : ok ? '' : '**'
     lines.push(
-      `| ${ok ? '' : '**'}\`${r.id}\`${ok ? '' : '**'} | ` +
+      `| ${mark}\`${r.id}\`${mark} | ` +
         `${r.ready ? 'Y' : '**N**'} | ${r.paintedPx} | ${r.errors.length} | ${r.warns.length} |`,
     )
   }

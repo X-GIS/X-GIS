@@ -102,23 +102,31 @@ const BASELINE: Record<string, number> = {
   'map/src/color-ramp.ts': 6,
   'map/src/debug-flags.ts': 3,
   'map/src/graphics/graphics-manager.ts': 2,
-  'map/src/interaction-controller.ts': 9,
+  // interaction-controller 9 → 5, map.ts 6 → 5 (#1046 F4 Inc-D): the pick RT
+  // rides RhiTexture/RhiDevice through the DI seam — the native tokens left
+  // are the readback's own (createBuffer/copyTextureToBuffer/mapAsync, G4).
+  'map/src/interaction-controller.ts': 5,
   'map/src/map-types.ts': 12,
-  'map/src/map.ts': 6,
-  'map/src/render-loop-helpers.ts': 1,
-  'map/src/render-loop.ts': 3,
+  'map/src/map.ts': 5,
+  // render-loop-helpers row DELETED (#1046 F4 Inc-A): reportErrorScope takes the
+  // RHI's message-or-null promise — the GPUError type reference died with it.
+  // compute-layer-handle + compute-layer-registry rows DELETED, five rows lowered
+  // (#1046 F4 Inc-C): the compute thread is RHI-typed end-to-end — the one unwrap
+  // lives in ComputeDispatcher.dispatchKernelRhi (the adapter).
   'map/src/render/bind-group-registry.ts': 18,
-  'map/src/render/bucket-scheduler.ts': 5,
-  'map/src/render/compose-pipelines.ts': 18,
-  'map/src/render/compute-layer-handle.ts': 2,
-  'map/src/render/compute-layer-registry.ts': 2,
-  // render()'s `pass: GPURenderPassEncoder` param + its `as` cast bridged via
-  // wrapWebGpuPass — the ONE raw-token pattern raster-renderer/line-renderer carry,
-  // gap-blocked until the #991 neutral pass retires the bridge. #1272.
-  'map/src/render/coverage-renderer.ts': 2,
-  'map/src/render/feature-data-binder.ts': 21,
-  'map/src/render/frame-context.ts': 3,
-  'map/src/render/frame-renderer.ts': 47,
+  // #1046 F3b Inc-2d: ShowDrawFn + the chain's remaining pass-consuming
+  // signatures narrowed to RhiRenderPass — the backend-keyed re-wrap forks
+  // (the 34d4695 double-wrap class) and their unions died with it.
+  'map/src/render/bucket-scheduler.ts': 3,
+  // #1046 F3b Inc-2c: the heatmap chain re-originated through the RHI drapers —
+  // the native accum bridge, blur/compose pipelines + their factory/forwarder
+  // layers and the native density-target pair all retired with it.
+  'map/src/render/compose-pipelines.ts': 9,
+  'map/src/render/feature-data-binder.ts': 19,
+  // 43→46 (#1046 F3b Inc-2d): drawOitCompose RELOCATED here from oit-pass
+  // (the pipeline/layout owner; native until the OIT twin lands) — moved
+  // tokens plus the boundary unwrap cast, retiring with that twin.
+  'map/src/render/frame-renderer.ts': 44,
   'map/src/render/frame-uniform.ts': 5,
   // 7→5 (#1357): the pooled-buffer recycler moved to gpu-buffer-pool.ts, taking
   // its createBuffer + the raw `device` field with it.
@@ -132,54 +140,58 @@ const BASELINE: Record<string, number> = {
   // (GPUTexture cache, GPUDevice, the native GPURenderPassEncoder bridged via
   // wrapWebGpuPass). Same raw-token surface as raster-renderer, gap-blocked until
   // #991 P6 hands the pass chain a neutral RhiRenderPass.
-  // 7→4 (#1352): the tile-load return type and the eviction policy moved to
-  // raster-cache-budget.ts, shared with raster-renderer.
-  'map/src/render/hillshade-renderer.ts': 4,
-  'map/src/render/heatmap-renderer.ts': 25,
-  'map/src/render/line-renderer.ts': 28,
-  'map/src/render/material/heatmap-material.ts': 1,
+  // Merge union (#1046 F3b review + #1352): 7→5 — render() narrowed to
+  // RhiRenderPass, the native union member + the double-wrap cast died with the
+  // backend-keyed adaptation; independently 7→4 — the tile-load return type and
+  // the eviction policy moved to raster-cache-budget.ts, shared with
+  // raster-renderer. Disjoint removals over the common ancestor sum: 7−2−3.
+  'map/src/render/hillshade-renderer.ts': 2,
+  'map/src/render/line-renderer.ts': 21,
   // #777 Phase II — HillshadeDraper mirrors RasterDraper (GPUTexture/RhiTexture
   // union in the tile + view-cache types, bridged via wrapWebGpuTextureView).
   'map/src/render/material/hillshade-material.ts': 5,
   'map/src/render/material/icon-material.ts': 1,
-  'map/src/render/material/line-composite-material.ts': 1,
   'map/src/render/material/line-material.ts': 2,
   'map/src/render/material/polygon-fill-material.ts': 7,
   'map/src/render/material/raster-material.ts': 6,
   'map/src/render/material/text-material.ts': 1,
-  'map/src/render/passes/opaque-pass.ts': 1,
   // 82→85 (#1252): the variant data-driven extruded pipeline descriptors
   // (fillExtruded/fallback in both variant builders) name GPURenderPipeline{,Descriptor} —
   // the same raw-WebGPU surface the existing base extruded builders carry.
-  'map/src/render/pipeline-factory.ts': 85,
+  'map/src/render/pipeline-factory.ts': 79,
   // 16→15 (#1057 inc2): flushTilePoints's `pass: GPURenderPassEncoder` retyped to
   // `RhiRenderPass` (flushTilePointsRhi) — the wrap moved up to VTR.emitTilePointsRhi.
   'map/src/render/point-renderer.ts': 15,
   // The GPUTexture union is unavoidable here: it is the WebGPU arm of the
   // GPUTexture | RhiTexture the two renderers already cache, lifted out of them.
-  'map/src/render/raster-cache-budget.ts': 4,
+  // 4→5 (#1607): `destroyTileTexture` names the raw arm once more — the eviction free
+  // now discriminates on the HANDLE (only a native GPUTexture has `.destroy`) instead
+  // of on `rhi.backend`, which stopped tracking the arm when #1579 moved the raster
+  // loader's WebGPU path onto the RHI. Retires with hillshade's `loadImageTexture` fork.
+  'map/src/render/raster-cache-budget.ts': 5,
   // 8→5 (#1352): the loaded-texture return type and the shared eviction moved to
   // raster-cache-budget.ts.
-  'map/src/render/raster-renderer.ts': 5,
+  // 3→2 (#1579): the WebGPU-only raw-device `loadImageTexture` arm (unmipped, bypassed the
+  // RHI entirely) was deleted in favour of routing both backends through the RHI create +
+  // generateMipmaps path the WebGL2 arm already used.
+  'map/src/render/raster-renderer.ts': 2,
   // 20→24 (#1252): CachedPipeline gains 4 GPURenderPipeline fields for the
   // variant data-driven extruded pipelines (mirrors the existing fill/ground fields).
   'map/src/render/renderer-types.ts': 24,
-  'map/src/render/renderer.ts': 60,
-  'map/src/render/tile-compute-resources.ts': 7,
-  // INC-1 under-occluder sphere: a Material/executeItems draw in the opaque pass,
-  // which hands a NATIVE GPURenderPassEncoder — the param type is the ONE raw token,
-  // bridged via wrapWebGpuPass exactly like raster-renderer/vector-drape/line-renderer.
-  // Gap-blocked until #991 P6 makes the pass chain hand a neutral RhiRenderPass.
-  'map/src/render/under-occluder-renderer.ts': 1,
+  // 56→58 (#1046 F3b Inc-2d): renderToPass/renderGraticuleOverlay narrowed
+  // to RhiRenderPass with one boundary unwrap cast each (legacy plumbing —
+  // retires with the legacy-layer cluster).
+  'map/src/render/renderer.ts': 56,
+  'map/src/render/tile-compute-resources.ts': 5,
   'map/src/render/upload-coordinator.ts': 22,
   'map/src/render/vector-tile-renderer-types.ts': 5,
-  'map/src/render/vector-tile-renderer.ts': 20,
+  'map/src/render/vector-tile-renderer.ts': 17,
   'map/src/sprite/host-sprite-atlas-gpu.ts': 14,
-  'map/src/sprite/icon-renderer.ts': 12,
-  'map/src/sprite/icon-stage.ts': 8,
+  'map/src/sprite/icon-renderer.ts': 10,
+  'map/src/sprite/icon-stage.ts': 7,
   'map/src/sprite/sprite-atlas-gpu.ts': 12,
-  'map/src/text/text-renderer.ts': 13,
-  'map/src/text/text-stage.ts': 3,
+  'map/src/text/text-renderer.ts': 11,
+  'map/src/text/text-stage.ts': 2,
 }
 
 describe('raw-WebGPU ratchet: map/src routes GPU through the RHI (#991)', () => {

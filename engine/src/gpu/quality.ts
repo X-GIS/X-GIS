@@ -32,7 +32,7 @@
 // `?quality=performance&msaa=2` keeps performance preset's other knobs
 // but bumps MSAA back to 2× for slightly cleaner edges.
 
-import { adaptiveDprScale, setAdaptiveQualityEnabled } from './adaptive-quality'
+import { setAdaptiveQualityEnabled } from './adaptive-quality'
 
 export interface QualityConfig {
   /** MSAA sample count: 1, 2, or 4. Init-time only — pipelines bake
@@ -335,6 +335,23 @@ export const getSampleCount = (): number => QUALITY.msaa
 export const getMaxDpr = (): number => QUALITY.maxDpr
 export const isPickEnabled = (): boolean => QUALITY.picking
 
+/** Picking clamped by the DEVICE — whether this frame may carry a pick target.
+ *
+ *  The host ASKS for picking (`QUALITY.picking`); whether the frame can carry the
+ *  rg32uint attachment is a device CAP. A presentable pass that cannot do MRT —
+ *  WebGl2Device: FBO 0 takes one colour attachment — must not be handed a
+ *  two-target pipeline, and the pick material is built lazily precisely so the
+ *  non-pick path never constructs one.
+ *
+ *  ONE authority, because the ask and the draw have to agree: RenderTargets
+ *  allocates the attachment from this, the opaque pass attaches it from this, and
+ *  every draper that selects a pick pipeline must select it from this. They were
+ *  briefly two copies of the expression, and the copy in raster-renderer drifted
+ *  (#1046 Inc-F2d review MAJOR-1) — a 2-target pipeline bound into a 1-attachment
+ *  pass on `?forcegl2=1&debug=checker&picking=1`. */
+export const pickTargetsEnabled = (caps: { presentablePassMrt: boolean }): boolean =>
+  QUALITY.picking && caps.presentablePassMrt
+
 /** The devicePixelRatio the swapchain is (re)sized to. During an interaction
  *  it drops to `QUALITY.interactionDpr` (when set), otherwise the full
  *  `getMaxDpr()` cap. The render loop MUST derive its per-frame `dpr` from
@@ -342,24 +359,28 @@ export const isPickEnabled = (): boolean => QUALITY.picking
  *  the actual buffer size and the zoom-scale jumps on every gesture under
  *  presets that set `interactionDpr`. Single source of truth. SSR/no-GPU → 1.
  *
- *  The adaptive scale multiplies the POLICY cap here rather than anywhere
- *  downstream, so it inherits that single-authority property whole: every
- *  consumer — the render loop, the MVP altitude, `canvasEffectiveDpr`'s fallback —
- *  already reads through this one function, and the swapchain and the frame math
- *  cannot disagree about how many device pixels exist. The scale is 1 until the
- *  controller has measured a sustained breach, so a host that keeps up gets the
- *  byte-identical value it got before adaptive scaling existed. */
+ *  #1429 INC-2 — the ADAPTIVE scale no longer multiplies in here: the canvas
+ *  is native again, and the ladder's scale applies to the SCENE target only
+ *  (the render loop's ONE resize call is the split point — the WebGL2 twin
+ *  re-applies the scale to its canvas there, the chain hands it to
+ *  `setFrameTargets` as the scene scale). That REMOVES a real inconsistency
+ *  rather than adding one: `canvasEffectiveDpr`, the device↔CSS-px authority
+ *  for project/unproject/getBounds outside the loop, used to wobble every
+ *  time the ladder notched because the canvas WAS the scaled buffer; now
+ *  those conversions no longer depend on the ladder at all (design §5.1). */
 export function effectiveDpr(interacting = false): number {
   const cap = interacting && QUALITY.interactionDpr !== null ? QUALITY.interactionDpr : getMaxDpr()
   if (typeof window === 'undefined') return 1
-  return Math.min(window.devicePixelRatio || 1, cap) * adaptiveDprScale()
+  return Math.min(window.devicePixelRatio || 1, cap)
 }
 
 /** The device-pixel-ratio a canvas is CURRENTLY sized at, read back FROM the
  *  canvas — the single geometric authority for every device-px↔CSS-px conversion
  *  that happens OUTSIDE the render loop (project/unproject/getBounds/fitBounds/the
  *  post-compile bounds-fit). `resizeCanvas` sets `canvas.width = floor(clientWidth ·
- *  effDpr)` and may reduce `effDpr` below `effectiveDpr()` to fit the backend's
+ *  effDpr)`; the passed effDpr can sit below `effectiveDpr()` for TWO reasons —
+ *  the WebGL2 twin re-applies the adaptive ladder's scale to its canvas
+ *  (#1429 INC-2; the chain's canvas is always native), and it may be reduced to fit the backend's
  *  `maxTextureDimension2D` (#1153 M3); dividing the device width back by the CSS
  *  width recovers EXACTLY that effDpr. So these consumers never re-derive a
  *  `min(devicePixelRatio, maxDpr)` that disagrees with the swapchain the instant the

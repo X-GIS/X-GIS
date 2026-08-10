@@ -13,6 +13,12 @@ import type { RhiDevice, RhiTexture } from '@xgis/engine'
 
 /** A loaded tile texture plus its resident GPU cost.
  *
+ *  The union is REAL and the two renderers no longer agree on which arm they
+ *  produce (#1607): raster builds through `rhi.createTexture` on BOTH backends
+ *  since #1579, while hillshade still forks to the raw-device `loadImageTexture`
+ *  on WebGPU. Anything consuming this must therefore discriminate on the HANDLE,
+ *  never on `rhi.backend` — see `destroyTileTexture`.
+ *
  *  The cost has to travel WITH the texture. `RhiTexture` is an opaque handle
  *  (`rhi/src/rhi.ts:20` — just a `__rhi` brand) with no dimensions to read
  *  back, and the decoded `ImageBitmap` is closed the moment the upload
@@ -32,18 +38,24 @@ export function mipLevelCountFor(width: number, height: number): number {
   return Math.floor(Math.log2(Math.max(width, height))) + 1
 }
 
-/** Resident bytes for an `rgba8unorm` tile texture, mip chain included — 4 B per texel.
+/** Resident bytes for an `rgba8unorm` tile texture — 4 B per texel, mip chain included
+ *  ONLY when `mipped` is true.
  *
- *  The pyramid factor is REAL now (#1436): each level is a quarter of its parent, so a full
- *  chain sums to 4/3 of the base and the comment that used to stand here — "no mipmaps are
- *  generated, so the base level is the whole cost" — became false the moment raster tiles got a
- *  chain. Left uncorrected it would have let the raster cache overshoot its byte cap by a third
- *  while reporting itself inside it.
+ *  `mipped` is REQUIRED, not defaulted (#1579): this function has exactly four call
+ *  sites and used to charge the full chain unconditionally, which was correct for
+ *  raster-on-WebGL2 (the only arm that actually built a chain) and an over-charge by
+ *  ~4/3 everywhere else — including DEM/hillshade tiles, which `mip-scope-invariant.test.ts`
+ *  pins as DELIBERATELY un-mipped (elevation is DATA; averaging levels fabricates terrain
+ *  slope-derivatives never sampled). A silently-defaulted flag would let a future un-mipped
+ *  caller inherit the wrong answer instead of choosing one; every call site names its case.
  *
- *  Computed as the exact level sum rather than a flat ×4/3: a non-square or non-power-of-two
- *  tile's chain is not exactly 4/3, and rounding UP everywhere is the safe direction for a
- *  budget but wrong for the accounting a test reads back. */
-export function textureBytesOf(width: number, height: number): number {
+ *  The pyramid factor is REAL for a mipped texture (#1436): each level is a quarter of its
+ *  parent, so a full chain sums to 4/3 of the base. Computed as the exact level sum rather
+ *  than a flat ×4/3: a non-square or non-power-of-two tile's chain is not exactly 4/3, and
+ *  rounding UP everywhere is the safe direction for a budget but wrong for the accounting a
+ *  test reads back. */
+export function textureBytesOf(width: number, height: number, mipped: boolean): number {
+  if (!mipped) return width * height * 4
   let bytes = 0
   const levels = mipLevelCountFor(width, height)
   for (let level = 0; level < levels; level++) {
@@ -82,6 +94,20 @@ export function textureBytesOf(width: number, height: number): number {
 export function maxRasterCachedBytes(): number {
   const w = typeof window !== 'undefined' ? window.innerWidth : 0
   return isMobileClassViewport(w) ? 96 * 1024 * 1024 : 384 * 1024 * 1024
+}
+
+/** Entry count that keeps a cache of UNIFORM `entryBytes`-sized textures inside
+ *  `maxRasterCachedBytes()` (#1579).
+ *
+ *  For the raster/hillshade tile caches above, entry size varies by publisher
+ *  (256²..2048²), so `evictToBudget` sums real bytes per entry. The vector-drape bake
+ *  cache is the opposite shape — every bake is exactly `BAKE_PX²` RGBA8 — so a COUNT
+ *  cap is already an exact byte cap; it only needed to be VIEWPORT-AWARE instead of a
+ *  flat desktop-sized 256 (≈256 MiB, 2.7× the mobile raster ceiling this shares a GPU
+ *  with). Routed through the one authority both siblings answer to, rather than a
+ *  second copy of the mobile/desktop split. */
+export function maxCachedEntriesFor(entryBytes: number): number {
+  return Math.max(1, Math.floor(maxRasterCachedBytes() / entryBytes))
 }
 
 /** The cache-entry shape the shared insert/evict below need. Both renderers'
@@ -124,6 +150,34 @@ export function overBudget(count: number, bytes: number, maxCount: number): bool
   return count > maxCount || bytes > maxRasterCachedBytes()
 }
 
+/** Free ONE cached tile texture, whichever arm of `LoadedTexture['texture']` it is.
+ *
+ *  THE BUG (#1607): the eviction loop used to pick the free by `rhi.backend` —
+ *  `webgl2 ? rhi.destroyTexture(t) : (t as GPUTexture).destroy()`. That was correct
+ *  while WebGPU meant "the raw `GPUTexture` the raw-device `loadImageTexture`
+ *  returned", and became a live TypeError the moment #1579 routed the RASTER
+ *  loader's WebGPU arm through `rhi.createTexture` as well: the cached handle is
+ *  then an opaque `{ native: GPUTexture }` wrapper (rhi-webgpu.ts:33), which has no
+ *  `.destroy` — so the first raster eviction on the default backend threw
+ *  `texture.destroy is not a function` out of the tile post-load chain, and the
+ *  cache never shed a byte again.
+ *
+ *  The backend is the WRONG discriminant because it does not answer the question
+ *  being asked. Which arm a tile is depends on WHICH LOADER built it, and the two
+ *  renderers disagree today: raster is RHI on both backends, hillshade still forks
+ *  to `loadImageTexture` on WebGPU (hillshade-renderer.ts:459). Ask the handle
+ *  instead — only a native `GPUTexture` carries `.destroy`; neither RHI handle does
+ *  (`{ native }` on WebGPU, `Gl2Texture` on WebGL2). Same discriminator, for the
+ *  same reason, as `RasterDraper.viewOf` (raster-material.ts:145): the `__rhi` brand
+ *  is compile-time only, so the runtime shape is all there is to go on.
+ *
+ *  Exported so both the free and its gate name one authority. */
+export function destroyTileTexture(rhi: RhiDevice, texture: GPUTexture | RhiTexture): void {
+  if (typeof (texture as { destroy?: unknown }).destroy === 'function')
+    (texture as GPUTexture).destroy()
+  else rhi.destroyTexture(texture as RhiTexture)
+}
+
 /** Evict least-recently-used tiles until back under BOTH limits, returning the
  *  new byte total. Shared by both raster-family renderers — the policy was
  *  duplicated verbatim, which is the drift risk the budget constant above is
@@ -153,14 +207,34 @@ export function evictToBudget<T extends EvictableTile>(
     .sort((a, b) => a[1].lastUsedFrame - b[1].lastUsedFrame)
   for (const [key, tile] of entries) {
     if (!overBudget(cache.size, bytes, maxCount)) break
-    // Free order matches what both renderers did inline: destroy through the
-    // backend-appropriate path, then drop the draper's cached bind group
+    // Free by HANDLE SHAPE (#1607), then drop the draper's cached bind group
     // BEFORE the texture is gone.
-    if (rhi.backend === 'webgl2') rhi.destroyTexture(tile.texture as RhiTexture)
-    else (tile.texture as GPUTexture).destroy()
+    destroyTileTexture(rhi, tile.texture)
     draper?.dropTexture(tile.texture)
     cache.delete(key)
     bytes -= tile.bytes
   }
   return bytes
+}
+
+/** Abort every in-flight tile fetch and drop the loading ledger (#1570).
+ *
+ *  Shared by RasterRenderer and HillshadeRenderer, which are deliberately separate
+ *  classes over the same tile machinery — so their teardown is one copy, not two that
+ *  can drift (the drift class this campaign keeps finding).
+ *
+ *  Neither had a teardown at all: the per-tile `AbortController`s existed (the
+ *  zoom-change sweep uses them) but nothing fired them when the map went away, and
+ *  `_releaseGpuResources` never named these renderers. On WebGL2 that was not merely
+ *  wasted bandwidth — `gpu.ts` hands back and RESTORES the same `gl` object on a
+ *  remount, so a fetch that resolved after the reboot found a live context,
+ *  `rhi.createTexture` no longer threw, and the texture landed in a cache
+ *  `buildSceneRenderers` had already replaced: unreachable, undrawable, and never
+ *  evicted, because eviction is render-driven and nothing renders that cache.
+ *
+ *  Only the FETCH side — the textures are owned by the device, which
+ *  `_releaseGpuResources` destroys one call later. */
+export function abortLoadingTiles(loadingTiles: Map<string, AbortController>): void {
+  for (const ctrl of loadingTiles.values()) ctrl.abort()
+  loadingTiles.clear()
 }

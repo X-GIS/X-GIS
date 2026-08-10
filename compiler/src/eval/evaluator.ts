@@ -3,8 +3,8 @@
 // Used for data-driven styling: size-[speed / 50 | clamp(4, 24)]
 
 import type * as AST from '../parser/ast'
-import { CAMERA_ZOOM_KEY, CAMERA_PITCH_KEY } from './reserved-keys'
-import { callBuiltin, toNumber, toBool } from './evaluator-helpers'
+import { CAMERA_ZOOM_KEY, CAMERA_PITCH_KEY, INPUT_KEY_PREFIX } from './reserved-keys'
+import { callBuiltin, toNumber, toBool, VEC_COMPONENT_INDEX } from './evaluator-helpers'
 import type { FeatureProps } from './evaluator-types'
 
 // Public surface preserved: FeatureProps re-exported here
@@ -37,6 +37,16 @@ export function evaluate(expr: AST.Expr, props: FeatureProps): unknown {
       // inject the live camera pitch, decode-time sites leave it null.
       if (expr.name === 'pitch') return props[CAMERA_PITCH_KEY] ?? null
       return props[expr.name] ?? null
+    case 'InputRef': {
+      // A declared `input` (#1539) — mirrors zoom/pitch's reserved-key
+      // injection, but prefix-keyed since there can be many. Falls back
+      // to the node's own carried default when no live value was
+      // injected — correct both for a compile-time const-fold call
+      // (which passes `{}` props) and for any call site not yet wired to
+      // inject the live `setInput`-mutated value.
+      const live = props[INPUT_KEY_PREFIX + expr.name]
+      return live ?? expr.default.value
+    }
     case 'FieldAccess':
       return evaluateFieldAccess(expr, props)
     case 'BinaryExpr':
@@ -70,6 +80,14 @@ function evaluateFieldAccess(expr: AST.FieldAccess, props: FeatureProps): unknow
   }
   // Chained: obj.field
   const obj = evaluate(expr.object, props)
+  // Vector component access (#1537): `.x/.y/.z/.w` (and the rgba
+  // aliases) select a lane of a vec value. Only the EXPLICIT-object form
+  // reaches here, so a feature property named `x` is never shadowed —
+  // the object-less binding above still wins.
+  if (Array.isArray(obj)) {
+    const lane = VEC_COMPONENT_INDEX.get(expr.field)
+    return lane === undefined ? null : (obj[lane] ?? null)
+  }
   if (obj && typeof obj === 'object') {
     return (obj as Record<string, unknown>)[expr.field] ?? null
   }

@@ -33,8 +33,6 @@ import { VirtualCatalogAdapter } from './sources/virtual-catalog-adapter'
 import { GeoJSONRuntimeBackend } from './sources/geojson-runtime-backend'
 import { SubTileGenerator } from './sub-tile-generator'
 import {
-  TILE_LAYOUT_VERSION,
-  TILE_LAYOUT_VERSION_BASE,
   type TileSource,
   type TileSourceSink,
   type BackendTileResult,
@@ -56,11 +54,12 @@ import {
   type VirtualCatalog,
 } from './tile-types'
 import { runSkeletonPrewarm, type SkeletonPrewarmHandle } from './tile-skeleton-prewarm'
-import { unionBounds, layoutVersionMismatch } from './tile-catalog-helpers'
+import { unionBounds } from './tile-catalog-helpers'
 import { buildFullCoverQuad } from './tile-full-cover-quad'
 import { TileDataCache } from './tile-data-cache'
 import { CompileBudget } from './tile-compile-budget'
 import { TileEvictionPolicy } from './tile-eviction-policy'
+import { checkBackendLayoutVersion } from './tile-catalog-layout-check'
 
 /** Shared empty result for `consumeReplacedKeys` — the common (nothing replaced) case must not
  *  allocate, it is drained once per frame per renderer. */
@@ -70,6 +69,20 @@ const EMPTY_KEYS: number[] = []
 
 export class TileCatalog {
   private index: XGVTIndex | null = null
+  /** #1581 — entries only ever grow; lets a memo invalidate a landed tile. */
+  indexGeneration = (): number => this.index?.entryByHash.size ?? 0
+  /** #1616 — bumps on every slice WRITE (`setSlice`, the one chokepoint they all pass)
+   *  and on the refresh-drop, which changes content with no write to see it. NOT on
+   *  eviction: `TileEvictionPolicy` calls `cache.deleteCacheEntry` directly, bypassing
+   *  this class — safe for the point path only because eviction skips `protectedKeys`
+   *  ⊇ the selected set, so a key a pack depends on is not evicted under it.
+   *  `indexGeneration` only grows with new index entries,
+   *  so neither a tile ARRIVING for an already-selected key nor a re-tile of one moves
+   *  it; the selected key set does not move either. A memo that also stops re-reading
+   *  tile data on a hit (#1581 leg B) is blind to both without this. Counts writes, not
+   *  tiles — rely only on "differs from last frame". */
+  private _contentGeneration = 0
+  contentGeneration = (): number => this._contentGeneration
   /** In-memory compiled-tile store + byte accounting. Extracted to
    *  TileDataCache (redesign §3.5): owns the per-(tile key, source-
    *  layer) TileData map, the cumulative byte total, and the
@@ -77,6 +90,7 @@ export class TileCatalog {
    *  sync. The catalog owns only the eviction POLICY; the cache owns
    *  the accounting MECHANISM. */
   private cache = new TileDataCache()
+  private _destroyed = false // #1570 — latched by destroy(); guards acceptResult
   private loadingTiles = new Set<number>()
   /** #1371 — keys whose cached slice was OVERWRITTEN (not first-written) since the last
    *  `consumeReplacedKeys()`. A host data push re-tiles the same keys against a new backend;
@@ -162,6 +176,7 @@ export class TileCatalog {
    *  tile-catalog-skeleton / -lifecycle / multi-layer-overzoom tests)
    *  keeps reaching the same injection path. */
   private setSlice(key: number, layer: string, data: TileData): void {
+    this._contentGeneration++ // #1616 — the ONE chokepoint every slice write passes
     this.cache.setSlice(key, layer, data)
   }
 
@@ -272,15 +287,9 @@ export class TileCatalog {
    *  is `layoutVersionMismatch`; the warn fires once per (catalog, backend)
    *  pair via `_layoutMismatchWarned`. */
   private checkLayoutVersion(backend: TileSource): void {
-    const v = backend.meta.layoutVersion
-    if (!layoutVersionMismatch(v)) return
-    this.evictTilesForBackend(backend)
-    if (!this._layoutMismatchWarned.has(backend)) {
-      this._layoutMismatchWarned.add(backend)
-      xlog.warn(
-        `[X-GIS] tile-layout-version mismatch for source: cached=${v ?? TILE_LAYOUT_VERSION_BASE}, running=${TILE_LAYOUT_VERSION} — evicting cache + re-decoding`,
-      )
-    }
+    checkBackendLayoutVersion(backend, this._layoutMismatchWarned, () =>
+      this.evictTilesForBackend(backend),
+    )
   }
 
   /** Drop every cached tile key whose slice list either matches this
@@ -379,11 +388,13 @@ export class TileCatalog {
     sourceLayer = '',
     backend?: TileSource,
   ): void {
+    if (this._destroyed) return // #1570 — nowhere to go; every write below is dead weight
     // #1371 — first result of a refresh: clear what the PREVIOUS backend left for this key, so
     // slices the new production does not emit cannot survive. Marked replaced either way, so
     // the renderer swaps (or drops) the tile it is currently drawing.
     if (this._pendingRefresh.delete(key) && this.cache.has(key)) {
       this._replacedKeys.add(key)
+      this._contentGeneration++ // #1616 — a DROP changes content with no setSlice to see it
       this.deleteCacheEntry(key)
     }
     if (!result) {
@@ -950,6 +961,8 @@ export class TileCatalog {
     for (const b of [...this.backends]) this.detachBackend(b)
     // Owner-registered teardown, drained so a repeated destroy() is a no-op.
     for (const fn of this._onDestroy.splice(0)) fn()
+    this._destroyed = true // #1570 — late worker results must not re-enter a dead renderer
+    this.onTileLoaded = null
   }
 
   /** Register a teardown callback keyed to this catalog's lifetime. The
@@ -1227,7 +1240,9 @@ export class TileCatalog {
     // #1371 — record an OVERWRITE (a re-tile of a key we already served) before the write, so
     // the renderer can swap that tile's GPU buffers instead of being blanked. A first write is
     // not a replacement: nothing was drawing this key yet.
-    if (this.hasTileData(key, sourceLayer)) this._replacedKeys.add(key)
+    if (this.hasTileData(key, sourceLayer)) {
+      this._replacedKeys.add(key)
+    }
     this.setSlice(key, sourceLayer, data)
     try {
       this.onTileLoaded?.(key, data, sourceLayer)

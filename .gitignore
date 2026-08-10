@@ -64,6 +64,19 @@ playground/public/data/*
 # Same rationale as the ne_110m_* set: must ship or those demos 404.
 !playground/public/data/countries.geojson
 
+# `libs/` — hand-authored .xgis symbol/preset libraries a demo `import`s. NOT
+# bulk data: tiny source files that must travel with the repo, like the
+# fixtures above. `import` resolves against the /data/ base, so this directory
+# is the only place an importable library is reachable from.
+# The DIRECTORY is un-ignored, not its contents: `playground/public/data/*`
+# excludes the `libs` entry itself, and git cannot re-include a file whose
+# parent directory is excluded — a `!.../libs/*.xgis` line alone would match
+# nothing and fail silently. Once the directory is back, its children were
+# never matched by that pattern (gitignore `*` does not cross `/`).
+# Cost of getting this wrong: #1626 — pattern_lines imported a library that
+# was never committed, so the demo could not load in ANY fresh checkout.
+!playground/public/data/libs/
+
 # Playwright e2e artifacts
 playground/test-results/
 playground/playwright-report/

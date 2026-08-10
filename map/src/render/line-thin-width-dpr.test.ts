@@ -95,7 +95,7 @@ function coverageDev(
 describe('#606 thin-line width — dpr-aware AA (closed-form, GPU-free)', () => {
   // ── (1) EMITTED-WGSL structure: FS feather divides by layer.dpr ──
   it('FS edge feather divides by layer.dpr (fails before: was a fixed 0.5)', () => {
-    const wgsl = emitLineWgsl(false)
+    const wgsl = emitLineWgsl(null, false)
     // The fragment coverage half-band is `0.5 / layer.dpr` (CSE/inlining may
     // rename temporaries, but the `0.5 / layer.dpr` node survives). The OLD
     // code emitted a bare `0.5` with no division by dpr in the coverage path.

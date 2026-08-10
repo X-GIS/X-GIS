@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeAll } from 'vitest'
 import { GraphicsManager } from './graphics-manager'
 import type { Camera } from '../camera'
+import type { FieldViewGrid } from '../render/field-lattice-uniform'
 
 // Compiled `| arrow` layer LIFECYCLE (#1302, extracted to CompiledArrowStore in #1333).
 //
@@ -51,6 +52,10 @@ function makeStubs() {
     createBindGroup: () => ({}),
     createBindGroupLayout: () => ({}),
     createPipeline: () => ({}),
+    // The draper's source seam (wgslFor / glslStagesFor) reads this to decide which
+    // shader language to EMIT. 'wgsl' keeps the stub cheap: the GLSL twins are skipped,
+    // so these tests exercise buffer/bind-group bookkeeping without paying a real emit.
+    caps: { shaderLanguage: 'wgsl' },
   }
   const device = {
     createSampler: () => ({}),
@@ -89,10 +94,17 @@ function stubPass() {
 }
 
 /** A render at the given DPR — drains `_retired` and applies the DPR re-pack. */
+/** A perspective-shaped MVP over a camera-relative ground plane. It has to be INVERTIBLE: the
+ *  advected arm builds its screen lattice from the four corner rays of this matrix's f64 inverse,
+ *  and a singular one is honestly reported as "no view this frame" and draws nothing (#1520). The
+ *  all-zero Float32Array this used to pass is exactly that case. */
+const stubMvp = (): Float32Array =>
+  new Float32Array([1e-3, 0, 0, 0, 0, 1e-3, 0, 0, 0, 0, -1e-3, -1, 0, 0, 1, 1000])
+
 function render(gm: GraphicsManager, dpr = 1, pass: object = stubPass()): void {
   gm.renderRetained(
     pass as never,
-    { matrix: new Float32Array(16), logDepthFc: 0.03 },
+    { matrix: stubMvp(), logDepthFc: 0.03 },
     stubCamera,
     0,
     0,
@@ -298,7 +310,11 @@ function makeArrowSource() {
   const originWrites: string[] = []
   const released: string[] = []
   let flipped = false
-  let field = { u: { native: 'u' } as never, v: { native: 'v' } as never }
+  let field = {
+    u: { native: 'u' } as never,
+    v: { native: 'v' } as never,
+    valid: { native: 'valid' } as never,
+  }
   return {
     originWrites,
     released,
@@ -307,7 +323,11 @@ function makeArrowSource() {
     },
     /** A different coverage region's velocity pair — what a mosaic eviction leaves behind. */
     rearmField: () => {
-      field = { u: { native: 'u2' } as never, v: { native: 'v2' } as never }
+      field = {
+        u: { native: 'u2' } as never,
+        v: { native: 'v2' } as never,
+        valid: { native: 'valid2' } as never,
+      }
     },
     source: {
       releaseArrowOrigins: (key: string) => void released.push(key),
@@ -315,33 +335,56 @@ function makeArrowSource() {
         originWrites.push(key)
         return 0 // single-region fixtures: every batch is based at texel 0
       },
-      get arrowBinding() {
-        return { state: flipped ? b : a, origin, flowU: field.u, flowV: field.v }
-      },
+      // Single-region fixtures: one field, whatever region is asked for. The PER-REGION
+      // contract is pinned where it can actually be observed — two real regions against a real
+      // FlowRenderer, in render/arrow-field-per-region.test.ts (#1458).
+      arrowBindingFor: () => ({
+        state: flipped ? b : a,
+        origin,
+        flowU: field.u,
+        flowV: field.v,
+        flowValid: field.valid,
+      }),
     },
   }
 }
 
-function addAdvected(gm: GraphicsManager, n: number, key = 'cbofs/1', region = ''): void {
+/** An advected batch carries NO instances (#1520) — the lattice is the viewport's, decided per
+ *  frame — so the arrays are empty and the only inputs are the grid box and the band table. */
+function addAdvected(
+  gm: GraphicsManager,
+  region = '',
+  over: { priority?: number; grid?: FieldViewGrid } = {},
+): void {
   gm.addCompiledArrowLayer(
-    Float64Array.from({ length: n }, (_, i) => -70 + i),
-    Float64Array.from({ length: n }, (_, i) => 40 + i * 0.1),
-    Float32Array.from({ length: n }, () => 0),
-    Float32Array.from({ length: n }, () => 34),
-    Array.from({ length: n }, () => [1, 0, 0, 1] as const),
+    new Float64Array(0),
+    new Float64Array(0),
+    new Float32Array(0),
+    new Float32Array(0),
+    [],
     0.06,
     region,
     {
-      originU: Float32Array.from({ length: n }, (_, i) => i / n),
-      originV: Float32Array.from({ length: n }, () => 0.5),
-      uStepLon: Float64Array.from({ length: n }, (_, i) => -70 + i + 0.1),
-      uStepLat: Float64Array.from({ length: n }, (_, i) => 40 + i * 0.1),
-      vStepLon: Float64Array.from({ length: n }, (_, i) => -70 + i),
-      vStepLat: Float64Array.from({ length: n }, (_, i) => 40 + i * 0.1 - 0.1),
+      grid: over.grid ?? { originLon: -71, originLat: 41, invSpanLon: 0.2, invSpanLat: -0.2 },
       bandTable: new Float32Array(80),
-      key,
+      priority: over.priority ?? 0,
     },
   )
+}
+
+/** The suppression list each advected batch is carrying, keyed by region — reached through the
+ *  store the same way `draw` reaches it, so the assertion reads what the uniform writer would. */
+function suppressionOf(gm: GraphicsManager): Record<string, number> {
+  const batches = (gm as unknown as { _compiledArrows: { batches: CompiledArrowBatchProbe[] } })
+    ._compiledArrows.batches
+  const out: Record<string, number> = {}
+  for (const b of batches) if (b.advected) out[b.region] = b.suppress.length
+  return out
+}
+interface CompiledArrowBatchProbe {
+  region: string
+  advected: unknown
+  suppress: readonly unknown[]
 }
 
 describe('CompiledArrowStore — advected batches (#1419)', () => {
@@ -351,24 +394,29 @@ describe('CompiledArrowStore — advected batches (#1419)', () => {
     const arrows = makeArrowSource()
     gm.setAdvectedArrowSource(arrows.source)
     gm.attachDevice(t.device as never, t.rhi as never, 'bgra8unorm' as never)
-    addAdvected(gm, 4)
+    addAdvected(gm)
     const labels = compiledBufs(t.created).map((b) => b.label)
-    expect(labels).toContain('compiled-arrow-feat')
     expect(labels).toContain('compiled-arrow-band')
+    expect(labels).toContain('compiled-arrow-view')
     expect(labels).not.toContain('compiled-arrow-tint')
+    // …and no per-instance record at all: the instance set is the viewport's lattice, so there
+    // is nothing to pack. A feat buffer reappearing here is the z17 ceiling reappearing with it.
+    expect(labels).not.toContain('compiled-arrow-feat')
   })
 
-  it('uploads the ORIGINS at ADD time, not at first draw', () => {
-    // The advect step runs EARLIER in the frame than the graphics pass. Origins that arrived at
-    // draw time would leave the first step leashing every arrow to grid-uv (0,0) — the whole
-    // field yanked toward the grid's corner for a frame.
+  it('allocates exactly two buffers — no per-arrow upload of any kind (#1520)', () => {
+    // There used to be a second upload here, of one texel per arrow into a state texture the
+    // whole map shared, and it had to happen at ADD time because the advect pass ran earlier in
+    // the frame than the graphics pass. Then the origins moved into the feat record. Both are
+    // gone: a glyph's position is a function of its screen seed and the frame clock, so the batch
+    // is complete once the catalogue table and its (rewritable) view block exist.
     const t = makeStubs()
     const gm = new GraphicsManager()
-    const arrows = makeArrowSource()
-    gm.setAdvectedArrowSource(arrows.source)
+    gm.setAdvectedArrowSource(makeArrowSource().source)
     gm.attachDevice(t.device as never, t.rhi as never, 'bgra8unorm' as never)
-    addAdvected(gm, 4, 'cbofs/4')
-    expect(arrows.originWrites).toEqual(['cbofs/4'])
+    addAdvected(gm)
+    // band + view, and nothing else — in particular nothing sized by the arrow count.
+    expect(compiledBufs(t.created).length).toBe(2)
   })
 
   it('DROPS an advected batch when no arrow source is attached', () => {
@@ -377,71 +425,116 @@ describe('CompiledArrowStore — advected batches (#1419)', () => {
     const t = makeStubs()
     const gm = new GraphicsManager()
     gm.attachDevice(t.device as never, t.rhi as never, 'bgra8unorm' as never)
-    addAdvected(gm, 4)
+    addAdvected(gm)
     expect(compiledBufs(t.created)).toHaveLength(0)
   })
 
-  it('rebuilds its bind group when the ping-pong swaps, and settles at two', () => {
+  it('builds ONE bind group and keeps it — there is no ping-pong left to alternate (#1520)', () => {
+    // It used to need one group per state side, rebuilt as the pair swapped every step. With no
+    // state there is nothing to alternate, so a steady camera rebuilds nothing at all.
     const t = makeStubs()
     const gm = new GraphicsManager()
-    const arrows = makeArrowSource()
-    gm.setAdvectedArrowSource(arrows.source)
+    gm.setAdvectedArrowSource(makeArrowSource().source)
     gm.attachDevice(t.device as never, t.rhi as never, 'bgra8unorm' as never)
     let groups = 0
     t.rhi.createBindGroup = () => {
       groups++
       return {}
     }
-    addAdvected(gm, 4)
+    addAdvected(gm)
     const during = (fn: () => void): number => {
       const before = groups
       fn()
       return groups - before
     }
-    // The counter also sees the material's own pooled group on the first draw, so the property
-    // is stated as DELTAS: a side not seen before costs a group, a side already seen costs none.
     expect(
       during(() => render(gm)),
-      'first side',
+      'first draw builds it',
     ).toBeGreaterThan(0)
-    arrows.swap()
     expect(
       during(() => render(gm)),
-      'the other side needs its own group',
-    ).toBeGreaterThan(0)
-    arrows.swap()
-    expect(
-      during(() => render(gm)),
-      'both sides are now cached',
+      'a second draw rebuilds nothing',
     ).toBe(0)
-    arrows.swap()
     expect(
       during(() => render(gm)),
-      'still cached — not one per frame at 60 Hz',
+      'and a third',
     ).toBe(0)
-    // ...until the VELOCITY pair changes under the same two state sides. The cache is keyed on
-    // the state view, so nothing about the key says the field moved — and after a mosaic
-    // eviction the old pair is DESTROYED, which the next submit reports as
-    //   "destroyed texture coverage-flow-v used in a submit"
-    // (S-111 Live, zoom out then pan to another domain, #1419).
-    arrows.rearmField()
-    expect(
-      during(() => render(gm)),
-      'a new velocity pair invalidates every cached group',
-    ).toBeGreaterThan(0)
   })
-
   it('retires the band buffer with the rest when the layer is cleared', () => {
     const t = makeStubs()
     const gm = new GraphicsManager()
     const arrows = makeArrowSource()
     gm.setAdvectedArrowSource(arrows.source)
     gm.attachDevice(t.device as never, t.rhi as never, 'bgra8unorm' as never)
-    addAdvected(gm, 4)
+    addAdvected(gm)
     gm.clearCompiledArrows()
     render(gm)
     const freed = t.destroyed.map((b) => b.label)
-    expect(freed).toContain('compiled-arrow-feat')
     expect(freed).toContain('compiled-arrow-band')
+    expect(freed).toContain('compiled-arrow-view')
+  })
+})
+
+// ── Mosaic overlap ownership (#1585) ──────────────────────────────────────────────────────────
+//
+// Two regions whose footprints overlap each enumerate a full lattice over the shared water. Before
+// this both drew there, doubling the glyph density — which on a chart reads as a faster current
+// than the data says (`arrow-drift.ts`), not as a blemish. The tie is broken the way the rest of
+// the engine already breaks it: `coverage-bounds.ts` resolves a point claimed by two regions to the
+// FIRST-ARMED one, and `coverageHandleAt` returns that region's value, so this makes the drawn
+// field agree with the queried value instead of contradicting it.
+
+/** Two boxes 2° wide sharing their eastern/western half — an overlap, not an abutment. */
+const WEST_GRID = { originLon: -71, originLat: 41, invSpanLon: 0.5, invSpanLat: -0.5 }
+const OVERLAP_GRID = { originLon: -70, originLat: 41, invSpanLon: 0.5, invSpanLat: -0.5 }
+/** Far enough east to share no ground with either of the above. */
+const APART_GRID = { originLon: -50, originLat: 41, invSpanLon: 0.5, invSpanLat: -0.5 }
+
+function twoRegions(over: { second?: typeof WEST_GRID } = {}) {
+  const t = makeStubs()
+  const gm = new GraphicsManager()
+  gm.setAdvectedArrowSource(makeArrowSource().source)
+  gm.attachDevice(t.device as never, t.rhi as never, 'bgra8unorm' as never)
+  addAdvected(gm, 'west', { priority: 0, grid: WEST_GRID })
+  addAdvected(gm, 'east', { priority: 1, grid: over.second ?? OVERLAP_GRID })
+  return { t, gm }
+}
+
+describe('CompiledArrowStore — overlapping regions yield to the first-armed one (#1585)', () => {
+  it('the LATER region yields; the earlier one never suppresses itself', () => {
+    const { gm } = twoRegions()
+    expect(suppressionOf(gm)).toEqual({ west: 0, east: 1 })
+  })
+
+  it('regions that share no ground do not suppress each other', () => {
+    // The slot budget is only unreachable because the boxes are filtered to real overlappers. A
+    // filter that passed everything would still be "correct" on screen and would burn the cap.
+    const { gm } = twoRegions({ second: APART_GRID })
+    expect(suppressionOf(gm)).toEqual({ west: 0, east: 0 })
+  })
+
+  it('OWNERSHIP SURVIVES A RE-ARM — the forecast tick must not flip it', () => {
+    // THE ONE THAT NEARLY WENT WRONG. `armCoverageShow` does `clearCompiledArrows(region)` then
+    // adds again, so a re-armed region's batch moves to the END of `batches` — and re-arms fire on
+    // every forecast tick and playback frame. Deriving priority from array position would hand
+    // ownership to whichever region stepped last, flickering the overlap several times a second
+    // and contradicting `coverageHandleAt`. Priority comes from the `_coverage` Map order instead,
+    // which `writeRegion` preserves across a re-arm; this is that claim, exercised.
+    const { gm } = twoRegions()
+    const before = suppressionOf(gm)
+    // The WEST region steps its forecast hour — it is cleared and re-added, landing last.
+    gm.clearCompiledArrows('west')
+    addAdvected(gm, 'west', { priority: 0, grid: WEST_GRID })
+    expect(suppressionOf(gm), 'the later region still yields, not the earlier').toEqual(before)
+  })
+
+  it('a DROPPED region stops suppressing — no permanent hole over its water', () => {
+    // `onCoverageRegionDropped` clears only the departing region's arrows. A survivor still holding
+    // the departed box would suppress arrows over that water forever — a blank patch nobody would
+    // trace back to an eviction minutes earlier, and one no e2e would attribute correctly.
+    const { gm } = twoRegions()
+    expect(suppressionOf(gm).east).toBe(1)
+    gm.clearCompiledArrows('west')
+    expect(suppressionOf(gm), 'the departed box is gone with it').toEqual({ east: 0 })
   })
 })

@@ -16,9 +16,10 @@ import type { RasterDemSourceFields, RenderNodeHillshadePaint } from './render-n
 import type { RenderNodeCoveragePaint } from './render-node-coverage'
 export type { RasterDemSourceFields, RenderNodeHillshadePaint, RenderNodeCoveragePaint }
 
-/**
- * A complete IR scene — the output of the lowering pass.
- */
+/** A complete IR scene — the output of the lowering pass. */
+import type { SymbolDef } from './symbol-elements'
+export type { SymbolDef } from './symbol-elements'
+
 export interface Scene {
   sources: SourceDef[]
   renderNodes: RenderNode[]
@@ -45,13 +46,10 @@ export interface Scene {
    *  a WeakMap — the fixture-ir-snapshot serializer MUST exclude this
    *  field, mirroring the cseAnnotation gate. */
   exprAnalysis?: import('./passes/expr-analyze').ExprAnalysis
+  inputs?: import('./resolve-inputs').ResolvedInputInfo[] // #1539
 }
 
 /** A user-defined shape symbol with SVG path data. */
-export interface SymbolDef {
-  name: string
-  paths: string[]
-}
 
 /**
  * A data source definition. The `raster-dem` DEM fields (encoding / tileSize / custom
@@ -78,6 +76,17 @@ export interface SourceDef extends RasterDemSourceFields {
   /** Inline GeoJSON embedded in the source block via `data: {...}` —
    *  runtime seeds this instead of fetching `url`. */
   inlineData?: unknown
+  /** The DATASET's shallowest / deepest real tile levels — Mapbox source-level
+   *  `minzoom` / `maxzoom`, distinct from a LAYER's per-show visibility gate. A tile
+   *  outside them does not exist, so requesting one is a guaranteed 404: the AWS
+   *  terrarium bucket stops at z15 while `rasterCoverZoom` asks for zoom+1 on a 256-px
+   *  source, which made every visible tile fail from about camera z14.5 (verified:
+   *  `terrarium/16/13651/25075` 404, its z15 parent 200). The selector clamps its cover
+   *  zoom to `maxzoom` and over-zooms the deepest real level, as MapLibre does.
+   *  Undefined = unbounded, which is the pre-existing behaviour for every source that
+   *  does not declare them. */
+  maxzoom?: number
+  minzoom?: number
   /** Non-reserved source-block properties for a CUSTOM (registry-resolved)
    *  `type`. `lowerSource` collects every prop whose name is not a reserved
    *  key (name/type/url/data/layers/crs); undefined for built-in sources, so
@@ -732,6 +741,7 @@ export type ColorValue =
   | { kind: 'constant'; rgba: import('./property-types').RGBA }
   | { kind: 'none' }
   | { kind: 'data-driven'; expr: DataExpr }
+  | { kind: 'stage'; expr: DataExpr } // #1538 shader stage block; vec4-typed by construction
   | { kind: 'conditional'; branches: ConditionalBranch<ColorValue>[]; fallback: ColorValue }
   | {
       kind: 'zoom-interpolated'

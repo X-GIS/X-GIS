@@ -15,22 +15,20 @@
 // paintShapes.hillshade; the DEM decode (encoding / tileSize) was armed once at
 // rebuildLayers time (map.ts, from the `_dem` source marker).
 
-import { DEBUG_OVERDRAW } from '../../debug-flags'
 import type { FrameContext } from '../frame-context'
 import { unwrapProjection } from '../projection-token'
 import type { SceneView } from '../scene-view'
 import { resolveNumberShape, resolveColorShape } from '../paint-shape-resolve'
 import type { HillshadeRenderer } from '../hillshade-renderer'
-import type { RenderPass, HillshadePassHost } from './pass'
+import { requireRhiFrame, type RenderPass, type HillshadePassHost } from './pass'
 
 type RGBA = readonly [number, number, number, number]
 
 /** Resolve the active hillshade show's paint (direction / altitude / exaggeration
- *  / colours / method) and push it to the renderer. Shared by the native
- *  HillshadePass and the forced-WebGL2 twin (render-loop.ts renderFrameViaRhi) so
- *  both resolve paint identically. Constant forms in the MVP; zoom/time shapes
- *  resolve transparently if ever plumbed. A default hillshade layer (no authored
- *  paint) carries no bundle → the renderer keeps its DEFAULT_PARAMS + armed DEM. */
+ *  / colours / method) and push it to the renderer. Constant forms in the MVP;
+ *  zoom/time shapes resolve transparently if ever plumbed. A default hillshade
+ *  layer (no authored paint) carries no bundle → the renderer keeps its
+ *  DEFAULT_PARAMS + armed DEM. */
 export function applyHillshadePaint(
   hr: HillshadeRenderer,
   hillshadeShow:
@@ -101,7 +99,7 @@ class HillshadePass implements RenderPass {
   readonly label = 'hillshade'
 
   shouldRun(scene: SceneView): boolean {
-    return scene.hasHillshade && !DEBUG_OVERDRAW
+    return scene.hasHillshade && !scene.overdraw
   }
 
   execute(ctx: FrameContext, scene: SceneView, host: HillshadePassHost): void {
@@ -109,12 +107,16 @@ class HillshadePass implements RenderPass {
     if (!hr || !hr.hasSource()) return
     applyHillshadePaint(hr, host._hillshadeShow, host.camera.zoom, host._elapsedMs)
 
-    const encoder = ctx.encoder
+    // F3b: RHI origination — descriptor-equivalent on WebGPU, executable on
+    // WebGL2 after the flip. hr.render takes RhiRenderPass ONLY (narrowed in
+    // the F3b review — its former native union hid a backend-keyed re-wrap
+    // that double-wrapped the chain's handle on WebGPU).
+    const { enc, colorView, stencilView, sceneResolveView } = requireRhiFrame(ctx, 'hillshade')
     ctx.passScope('hillshade', () => {
-      const hsPass = encoder.beginRenderPass({
+      const hsPass = enc.beginRenderPass({
         colorAttachments: [
           {
-            view: ctx.colorView,
+            view: colorView,
             // Mid-chain overlay — a downstream pass (points/labels) usually
             // owns the MSAA resolve. But when hillshade is the LAST colour
             // writer (hillshade-only scene: no points), scene.resolveOwner
@@ -122,13 +124,13 @@ class HillshadePass implements RenderPass {
             // multisample target after the opaque resolve already ran and
             // never reaches the swapchain (black at msaa>1, every backend).
             resolveTarget:
-              ctx.useResolve && scene.resolveOwner === 'hillshade' ? ctx.screenView : undefined,
+              ctx.useResolve && scene.resolveOwner === 'hillshade' ? sceneResolveView : undefined,
             loadOp: 'load',
             storeOp: 'store',
           },
         ],
         depthStencilAttachment: {
-          view: ctx.rt.stencilView!,
+          view: stencilView,
           // Load the opaque depth; the hillshade pipeline is depthCompare:'always'
           // + depthWrite:false, so it reads nothing and writes nothing — the
           // per-fragment hemisphere cull (fs_hillshade) is the visibility test.

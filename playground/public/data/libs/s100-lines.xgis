@@ -1,0 +1,31 @@
+xgis 1
+
+// S-100-inspired LINE DECORATION library, packaged as importable symbols.
+//
+//   import { railway_tie, cliff_tooth } from "libs/s100-lines.xgis"
+//   layer coast { source: c | stroke-pattern-railway_tie stroke-pattern-size-14px }
+//
+// Shapes are authored in the symbol unit square — roughly [-1, 1] on both
+// axes, scaled at draw time by `stroke-pattern-size-*`. The pattern placer
+// walks the line along +x and stamps each instance with -y pointing to the
+// line's left, so a decoration that should sit ACROSS the line spans y and
+// one that should hang OFF it extends in -y only.
+//
+// This file lives under `public/data/` (not `src/examples/`) because that is
+// the base an `import` resolves against: the demo requests
+// `/data/libs/s100-lines.xgis`. It is whitelisted in .gitignore — the bulk
+// -data ignore would otherwise drop it, and a demo whose library is missing
+// cannot load at all (#1626).
+
+// Railway / cable tie: a bar laid ACROSS the line, the S-52 idiom for a
+// railway, a pipeline or a submarine cable.
+symbol railway_tie {
+  path "M -0.16 -0.85 L 0.16 -0.85 L 0.16 0.85 L -0.16 0.85 Z"
+}
+
+// Escarpment tooth: a triangle hanging off ONE side, the S-52 idiom for a
+// cliff, a slope or a depth-contour hachure. Asymmetric on purpose — which
+// side it falls on is what the symbol encodes.
+symbol cliff_tooth {
+  path "M -0.45 0 L 0.45 0 L 0 -0.95 Z"
+}

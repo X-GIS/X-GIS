@@ -12,6 +12,12 @@ import {
 } from '@xgis/compiler'
 import type { ShaderVariant, ComputePlanEntry } from '@xgis/compiler'
 import { varRefVec4 } from '@xgis/compiler'
+import type { RhiCommandEncoder } from '@xgis/engine'
+
+// #1046 F4 Inc-C harness shim: the dispatch thread is RHI-typed now; the fake
+// native encoder rides behind the one unwrap surface the adapter reads.
+const asRhiEnc = (e: GPUCommandEncoder): RhiCommandEncoder =>
+  ({ nativeEncoder: e }) as unknown as RhiCommandEncoder
 
 beforeAll(() => {
   if (typeof globalThis.GPUBufferUsage === 'undefined') {
@@ -116,6 +122,8 @@ function legacyVariant(): ShaderVariant {
     // Phase 2.5 US-002 — default-sentinel flags replacing the string compare.
     fillIsDefault: true,
     strokeIsDefault: true,
+    fillIsStage: false,
+    strokeIsStage: false,
   }
 }
 
@@ -224,7 +232,7 @@ describe('ComputeLayerRegistry — dispatchAll', () => {
   it('empty registry → no-op', () => {
     const { dispatcher, encoder, dispatches } = makeFakeContext()
     const reg = new ComputeLayerRegistry(dispatcher)
-    reg.dispatchAll(encoder)
+    reg.dispatchAll(asRhiEnc(encoder))
     expect(dispatches).toHaveLength(0)
   })
 
@@ -234,7 +242,7 @@ describe('ComputeLayerRegistry — dispatchAll', () => {
     const entry = makeMatchEntry('class', 0)
     const handle = reg.attach('layer-a', mergedVariantFor([entry]), [entry], 0)
     handle!.uploadFromProps(() => ({ class: 'a' }), 100)
-    reg.dispatchAll(encoder)
+    reg.dispatchAll(asRhiEnc(encoder))
     expect(dispatches).toHaveLength(1)
     expect(dispatches[0]!.entryPoint).toBe('eval_match')
   })
@@ -248,7 +256,7 @@ describe('ComputeLayerRegistry — dispatchAll', () => {
     const h2 = reg.attach('layer-b', mergedVariantFor([e2]), [e2], 1)
     h1!.uploadFromProps(() => ({ class: 'a' }), 10)
     h2!.uploadFromProps(() => ({ rank: 1 }), 10)
-    reg.dispatchAll(encoder)
+    reg.dispatchAll(asRhiEnc(encoder))
     expect(dispatches).toHaveLength(2)
   })
 
@@ -260,7 +268,7 @@ describe('ComputeLayerRegistry — dispatchAll', () => {
     reg.attach('layer-a', mergedVariantFor([e1]), [e1], 0)
     const h2 = reg.attach('layer-b', mergedVariantFor([e2]), [e2], 1)
     h2!.uploadFromProps(() => ({ rank: 1 }), 10)
-    reg.dispatchAll(encoder)
+    reg.dispatchAll(asRhiEnc(encoder))
     expect(dispatches).toHaveLength(1) // only the uploaded one fires
   })
 })

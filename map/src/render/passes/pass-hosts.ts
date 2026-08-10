@@ -101,15 +101,19 @@ export type LabelPassHost = Pick<
 /** Overdraw debug-compose pass (?debug=overdraw). */
 export type OverdrawComposePassHost = Pick<XGISMap, 'ctx' | 'renderer'>
 
-/** Heatmap pass (Phase R) — the 3-pass accum/blur/compose pipeline. */
-export type HeatmapPassHost = Pick<
-  XGISMap,
-  'camera' | 'ctx' | 'heatmapRenderer' | 'heatmapTargets' | 'renderer'
->
+/** Heatmap pass (Phase R) — the 3-pass accum/blur/compose pipeline, whole
+ *  loop behind HeatmapRenderer.renderChainRhi (F3b Inc-2c); the camera comes
+ *  off the FrameContext, so the host is just renderer + targets. */
+export type HeatmapPassHost = Pick<XGISMap, 'heatmapRenderer' | 'heatmapTargets'>
 
 /** Graphics pass (#797 P1) — the retained host-drawing icon batches. Reaches
  *  the map.graphics façade + the camera/ctx it projects + draws through. */
 export type GraphicsPassHost = Pick<XGISMap, 'graphics' | 'camera' | 'ctx'>
+
+/** Scene-upscale seam (#1429 INC-2) — samples the resolved scene colour into
+ *  the screen attachment. Reaches only `ctx` (rhi + format for its lazily
+ *  built Material); every view it touches rides the FrameContext bridges. */
+export type SceneUpscalePassHost = Pick<XGISMap, 'ctx'>
 
 /** Flow pass (#1333) — the IBFV advection step for an S-111-style velocity field. Reaches the
  *  FlowRenderer (targets + pipeline) and the CoverageRenderer the field lives on. No camera:
@@ -170,5 +174,6 @@ export type RenderLoopHost = BackgroundPassHost &
   HeatmapPassHost &
   GraphicsPassHost &
   FlowPassHost &
+  SceneUpscalePassHost &
   SceneClassifyHost &
   FrameLoopHost

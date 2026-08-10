@@ -25,7 +25,7 @@ import {
   installWebGPUStub,
   type StubInstallation,
 } from '../../../../rhi-webgpu/src/__test-support__/webgpu-stub'
-import { initGPU, type GPUContext } from '@xgis/rhi-webgpu'
+import { wrapWebGpuPass, initGPU, type GPUContext } from '@xgis/rhi-webgpu'
 import { RasterRenderer } from '@xgis/map'
 import { Camera } from '@xgis/map'
 import { rasterUniformBytes } from '@xgis/map'
@@ -108,7 +108,7 @@ function capturedBrightnessMin(ctx: GPUContext, brightnessMin: number): number {
     }
   ).createCommandEncoder()
   const pass = encoder.beginRenderPass()
-  renderer.render(pass, camera, 0, 10, 20, W, H, 1)
+  renderer.render(wrapWebGpuPass(pass), camera, 0, 10, 20, W, H, 1)
 
   return lane
 }

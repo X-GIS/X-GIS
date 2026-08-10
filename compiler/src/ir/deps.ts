@@ -57,6 +57,12 @@ export const Dep = {
   ZOOM: 1 << 0,
   TIME: 1 << 1,
   FEATURE: 1 << 2,
+  /** Depends on a declared `input` (#1539) — a per-frame, host-settable
+   *  uniform. Same weight class as ZOOM (not per-feature, not foldable),
+   *  kept as a distinct bit rather than reusing ZOOM so a downstream
+   *  consumer never mistakes "depends on input" for "depends on camera
+   *  zoom" — see classify.ts's merge() for the matching rank. */
+  INPUT: 1 << 3,
 } as const
 
 export type DepBits = number
@@ -97,6 +103,8 @@ export function getDataExprDeps(expr: DataExpr): DepBits {
       return Dep.NONE
     case 'zoom-dependent':
       return Dep.ZOOM
+    case 'input-dependent':
+      return Dep.INPUT
     case 'per-feature-gpu':
     case 'per-feature-cpu':
       // FEATURE alone — the existing classifier doesn't split out
@@ -120,6 +128,11 @@ export function getColorDeps(value: ColorValue): DepBits {
     case 'time-interpolated':
       return Dep.TIME
     case 'data-driven':
+      return getDataExprDeps(value.expr)
+    case 'stage':
+      // A `@color` / `@stroke` stage block (#1538) is authored per-fragment
+      // over the same expression language, so its dependencies are read the
+      // same way a data-driven paint's are.
       return getDataExprDeps(value.expr)
     case 'conditional': {
       // ConditionalBranch is `{ field: string; value: ColorValue }` —

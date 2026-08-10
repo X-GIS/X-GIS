@@ -77,8 +77,35 @@ function emitSymbol(n: BPNode): string {
   return lines.join('\n')
 }
 
+// struct Track { speed: f32, name: string } (#1537)
+function emitStruct(n: BPNode): string {
+  const fields = (n.data.fields || '')
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean)
+  return `struct ${nameOf(n, 'struct')} { ${fields.join(', ')} }`
+}
+
+// fn halo(width, base) { return clamp(width * 1.5 + base, 1, 24) } (#1535)
+// Expression-bodied by grammar; `body` holds the raw return expression text.
+function emitFn(n: BPNode): string {
+  const params = (n.data.params || '')
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean)
+  const body = (n.data.body || '0').trim()
+  return `fn ${nameOf(n, 'fn')}(${params.join(', ')}) { return ${body} }`
+}
+
 function emitPreset(n: BPNode): string {
-  const lines: string[] = [`preset ${nameOf(n, 'preset')} {`]
+  // Parameterized presets (#1536): a non-empty `params` field emits the
+  // `preset name(a, b) { … }` declaration form.
+  const params = (n.data.params || '')
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean)
+  const head = params.length > 0 ? `(${params.join(', ')})` : ''
+  const lines: string[] = [`preset ${nameOf(n, 'preset')}${head} {`]
   for (const l of pipeLines(n.data.pipe)) lines.push(`  | ${l}`)
   lines.push('}')
   return lines.join('\n')
@@ -161,6 +188,8 @@ export function graphToXgis(g: BPGraph): string {
   const pick = (t: string) => g.nodes.filter((n) => n.type === t)
 
   for (const n of pick('import')) blocks.push(emitImport(n))
+  for (const n of pick('struct')) blocks.push(emitStruct(n))
+  for (const n of pick('fn')) blocks.push(emitFn(n))
   for (const n of pick('source')) blocks.push(emitSource(n))
   for (const n of pick('symbol')) blocks.push(emitSymbol(n))
   for (const n of pick('preset')) blocks.push(emitPreset(n))

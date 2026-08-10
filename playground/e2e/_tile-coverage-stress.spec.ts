@@ -100,6 +100,9 @@ test('tile coverage — no persistent gaps under interaction', async ({ page }) 
       return { missed: mi, needed: need }
     }
     // Settle: poll until nothing in flight for 2 consecutive reads, cap ~16s.
+    // #1565: the cap used to RETURN silently, so a pipeline that never settles
+    // degraded into an ordinary measurement instead of a failure — and a dead
+    // scene settles FASTEST of all, which is the wrong direction for a gate.
     const settle = async () => {
       let stable = 0
       for (let i = 0; i < 40; i++) {
@@ -109,6 +112,7 @@ test('tile coverage — no persistent gaps under interaction', async ({ page }) 
           if (++stable >= 2) return
         } else stable = 0
       }
+      throw new Error(`[coverage-stress] never settled in 16s — still ${inflight()} in flight`)
     }
     const phases: [string, [number, number, number]][] = [
       ['continent-pan z3 (Asia→Americas)', [127, 35, 3]],
@@ -136,6 +140,21 @@ test('tile coverage — no persistent gaps under interaction', async ({ page }) 
   // tiles at extreme deep zoom (OFM 404s / viewport-corner LOD) is
   // noise. Fail when a phase leaves >5% (and >5 absolute) of needed
   // tiles uncovered after the pipeline fully settled.
+  //
+  // #1565 — the PRECONDITION this gate was missing. `getTileLoadDiagnostic()`
+  // iterates `this.vtSources` and returns `{}` when none is attached, so a boot
+  // whose style host is unreachable yields needed=0 missed=0 for every phase and
+  // reads as the healthiest possible run. (Note the correction on record: the
+  // `frac` ternary below is NOT the defect — `r.missed > 5` is already false on a
+  // dead scene. The absence of any "a source was actually attached and asked for
+  // tiles" assertion is.) Without this, wiring the spec into CI produces a green
+  // signal that means nothing — the #996 vacuous-gate class.
+  const dead = reports.filter((r) => r.needed === 0)
+  expect(
+    dead.map((r) => r.phase),
+    'phases that requested ZERO tiles — nothing was attached, so "0 missed" measures nothing (#1565)',
+  ).toEqual([])
+
   const offenders: string[] = []
   for (const r of reports) {
     const frac = r.needed > 0 ? r.missed / r.needed : 0

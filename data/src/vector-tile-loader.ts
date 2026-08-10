@@ -23,7 +23,7 @@
 // loader instance for isolated caches.
 
 import { xlog } from '@xgis/shared'
-import { readBodyCapped, assertSafeRemoteUrl, safeFetch } from '@xgis/shared'
+import { readBodyCapped, assertNotErrorPage, assertSafeRemoteUrl, safeFetch } from '@xgis/shared'
 import { PMTiles, TileType } from 'pmtiles'
 import { TileCatalog } from './tile-catalog'
 import { PMTilesBackend } from './sources/pmtiles-backend'
@@ -726,6 +726,10 @@ export class VectorTileLoader {
       // Cap the manifest body before JSON.parse — a lying/absent
       // Content-Length otherwise lets an unbounded .json() OOM the tab.
       const tjBytes = await readBodyCapped(resp, MAX_TILEJSON_BYTES, `TileJSON ${url}`)
+      // A mistyped manifest URL is a 200 HTML page on most hosts, not a 404, so
+      // the `!resp.ok` check above misses it and JSON.parse reports `Unexpected
+      // token '<'` with no URL in it (#1627).
+      assertNotErrorPage(resp, tjBytes, `TileJSON ${url}`)
       const tj = JSON.parse(new TextDecoder().decode(tjBytes)) as RawTileJSON
       if (!tj.tiles || tj.tiles.length === 0) {
         throw new Error(`TileJSON ${url}: missing or empty tiles[] template`)

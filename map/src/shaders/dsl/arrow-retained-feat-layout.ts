@@ -23,25 +23,14 @@
 //   12-14  ECEF DSFUN hi        · 15-17  ECEF DSFUN lo
 //   18     lon (deg)            · 19     lat (deg)
 //   20-23  Mercator DSFUN (x hi, x lo, y hi, y lo)
-//   ADVECTED ONLY (#1419) — slots 12-23 are REINTERPRETED and 26-37 are added:
-//   12-23  GRID-U step (anchor + ARROW_DRIFT_UV along grid-u)   ← the TIP block, reused
-//   26-37  GRID-V step (anchor + ARROW_DRIFT_UV along grid-v, which runs SOUTHWARD)
-//          An advected arrow's direction comes from sampling the velocity field at its CURRENT
-//          position, so the tip's baked bearing has no consumer and its block is free. The two
-//          step anchors give the VS the pair of geographic→screen bases it needs:
-//            screenOffset = (du/ARROW_DRIFT_UV)·(uClip − originClip) + (dv/…)·(vClip − originClip)
-//          One basis is not enough — scaling the single tail→tip delta moves an arrow along its
-//          launch bearing in a straight line, which is the closed-form drift #65 shipped and
-//          #70 reverted. Reusing the tip block takes the stride 26→38 rather than 26→50.
 //
-//          The step is ONE LEASH LENGTH, not an arbitrary small delta, and the anchors are
-//          computed by the GENERATOR through the coverage's own CRS (coverage-arrow-show.ts) —
-//          so the linearization the VS performs spans exactly the excursion the advect step
-//          allows, and a projected grid is stepped in its own units rather than in degrees.
-//
-//          ONE stride serves both modes, so the static path carries 12 unwritten slots. That is
-//          deliberate: a second stride means a second pipeline variant and a second packer
-//          contract to keep in sync — more drift surface than the bytes are worth.
+//   THE ADVECTED PATH NO LONGER USES THIS LAYOUT AT ALL (#1520). It used to reinterpret the tip
+//   block as a grid-u step anchor and add a grid-v one plus a per-instance grid-uv origin — 14
+//   slots that existed only because the instance set was generated from the DATA, one entry per
+//   grid cell. That generator is gone: instances are now `(screen seed, glyph)` and every quantity
+//   those slots carried is derived per frame from the FieldView uniform and the backward map
+//   (arrow-advected.ts). The advected module binds no feat buffer, so the stride is the static
+//   path's own again — 40 → 26.
 //   24     size (px — arrow LENGTH, pre-DPR design × getSize × DPR)
 //   25     stroke_units — outline stroke width in loc-space units (same units as `loc`/qx/qy in
 //          arrow-retained.ts, i.e. a FRACTION of `size`, not px). 0 = no outline (every existing
@@ -54,7 +43,7 @@
 
 export const ARROW_RETAINED_FEAT = {
   /** f32 slots per instance in the feat_data storage buffer. */
-  stride: 38,
+  stride: 26,
   slot: {
     // tail (anchor)
     ecef_x_h: 0,
@@ -84,19 +73,6 @@ export const ARROW_RETAINED_FEAT = {
     tip_merc_y_l: 23,
     size: 24,
     stroke_units: 25,
-    // grid-v step (advected only — see the header)
-    north_ecef_x_h: 26,
-    north_ecef_y_h: 27,
-    north_ecef_z_h: 28,
-    north_ecef_x_l: 29,
-    north_ecef_y_l: 30,
-    north_ecef_z_l: 31,
-    north_abs_lon: 32,
-    north_abs_lat: 33,
-    north_merc_x_h: 34,
-    north_merc_x_l: 35,
-    north_merc_y_h: 36,
-    north_merc_y_l: 37,
   },
 } as const
 

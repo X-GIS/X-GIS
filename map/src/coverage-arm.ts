@@ -40,6 +40,7 @@ export function armCoverageDrape(
   show: ShowCommand,
   handle: CoverageHandle,
   region: string,
+  priority = 0,
 ): void {
   const arm = coverageDrapeArm(show)
   // A layer that draws no drape may still need the coverage RESIDENT: the advected arrow
@@ -60,6 +61,9 @@ export function armCoverageDrape(
       opacity: show.opacity ?? 1,
       flowOnly: arm.draw ? arm.flowOnly : false,
       hidden: !arm.draw,
+      // Relevance, so the drape's overlap winner is the region `getCoverage` and the arrows
+      // already name — not whichever one re-armed most recently (#1602).
+      priority,
       // `filter:` thins the DRAPE in the fragment shader (#1437) — the same clause the
       // sounding arm applies per candidate cell, compiled once, so a layer's filter cannot
       // mean two different things depending on which portrayal is looking at it.
@@ -86,11 +90,14 @@ export function armAdvectedArrows(
   show: ShowCommand,
   handle: CoverageHandle,
   region: string,
+  priority = 0,
 ): boolean {
   if (show.isFlow !== true || show.flowPortrayal === 'streaks') return false
   const field = host.coverageRenderer?.flowField(region)
   if (!field || !(field.scale > 0)) return false
-  addCoverageArrowShowLayer(host, show, handle, region, { advected: { peakSpeed: field.scale } })
+  addCoverageArrowShowLayer(host, show, handle, region, {
+    advected: { peakSpeed: field.scale, priority },
+  })
   return true
 }
 
@@ -107,14 +114,21 @@ export function armAdvectedArrows(
  *  So the advected arm goes FIRST and the static one fills in only when it did not take over —
  *  which also covers the region whose velocity field has not been uploaded yet: it draws the
  *  static catalogue field, and the rebuild after the upload swaps it for the drifting one.
- *  Something is always on screen, and never two things. */
+ *  Something is always on screen, and never two things.
+ *
+ *  `priority` is the region's place in the mosaic's ownership order — the index of its key in the
+ *  `_coverage` Map, which survives a re-arm (`writeRegion` sets an existing key without deleting
+ *  it). Where two domains cover the same water the lower one owns it and the higher one draws no
+ *  arrows there (#1585), matching how `coverageHandleAt` already resolves the same tie.
+ *  Single-region callers leave it at 0: with one region there is no tie to break. */
 export function armCoverageArrows(
   host: CoverageArmHost,
   show: ShowCommand,
   handle: CoverageHandle,
   region: string,
+  priority = 0,
 ): void {
-  const advected = armAdvectedArrows(host, show, handle, region)
+  const advected = armAdvectedArrows(host, show, handle, region, priority)
   if (show.isArrow && !advected) addCoverageArrowShowLayer(host, show, handle, region)
 }
 
@@ -126,8 +140,9 @@ export function armCoverageShow(
   show: ShowCommand,
   handle: CoverageHandle,
   region: string,
+  priority = 0,
 ): void {
-  armCoverageDrape(host, show, handle, region)
+  armCoverageDrape(host, show, handle, region, priority)
   // Clear THIS region's arrows only, and clear them for EITHER portrayal. Clearing all of them
   // here is what kept the mosaic single-region even after the renderer could hold several: a
   // neighbour's time step wiped every other domain's glyphs and re-added just its own. Scoping
@@ -135,7 +150,7 @@ export function armCoverageShow(
   // forecast frame (playback drives this many times a second) and ACCUMULATED one advected
   // batch per frame, each with its own feat and band buffers.
   host.graphics.clearCompiledArrows(region)
-  armCoverageArrows(host, show, handle, region)
+  armCoverageArrows(host, show, handle, region, priority)
 }
 
 /** Arm a region whose cell has just landed from the DEFERRED declared-source read (#1426),
@@ -153,13 +168,14 @@ export function armLandedCoverage(
   sourceId: string,
   handle: CoverageHandle,
   region: string,
+  priority = 0,
 ): boolean {
   host.graphics.clearCompiledArrows(region)
   let armed = false
   for (const show of shows) {
     if (show.targetName !== sourceId) continue
-    armCoverageDrape(host, show, handle, region)
-    armCoverageArrows(host, show, handle, region)
+    armCoverageDrape(host, show, handle, region, priority)
+    armCoverageArrows(host, show, handle, region, priority)
     armed = true
   }
   return armed

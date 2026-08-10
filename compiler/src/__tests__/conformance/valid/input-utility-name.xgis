@@ -1,0 +1,6 @@
+// @case valid
+// @construct input-statement
+// @desc `input` became a keyword but stays legal inside a hyphen-joined utility name (the fn/struct trap)
+xgis 1
+source w { type: geojson, url: "w.geojson" }
+layer l { source: w  | input-foo-2 shape-input-star opacity-80 }

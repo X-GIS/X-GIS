@@ -6,6 +6,7 @@
 // surface.
 
 import type { RhiBuffer, RhiBindGroup } from '@xgis/engine'
+import type { ShaderVariantInfo } from './renderer-types'
 
 export interface PointLayer {
   vertexBuffer: RhiBuffer
@@ -81,6 +82,13 @@ export interface PointLayer {
    *  `writePointFrameUniform` sets circle_params.w=1 and the point VS scales
    *  the quad expansion by w_ref/clip.w so circles foreshorten with pitch. */
   circlePitchScaleMap: boolean
+  /** A feature-free @color/@stroke composer variant (#1605 Phase 2), or null
+   *  for the default feat_data-read path on both axes. Resolved once at
+   *  addLayer time from the compiler's ShaderVariant; ensurePointDraper
+   *  re-derives the actual PointVariantSpec (via toComposerPointVariant) at
+   *  draw time — the raw ShaderVariantInfo is what's cached here so the
+   *  rejection gate stays the single authority in one place. */
+  shaderVariant: ShaderVariantInfo | null
   // Expanded buffers for 3× world copies (created on first render)
   _expandedVertBuf?: RhiBuffer
   _expandedIdxBuf?: RhiBuffer

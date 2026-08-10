@@ -99,31 +99,34 @@ const BASELINE: Record<string, number> = {
   // Coverage colour-ramp draw mirrors raster-renderer EXACTLY (same 2): the
   // GPUContext ctor param (type) + wrapWebGpuPass for the WebGPU pass wrap in
   // render(), so the opaque pass file stays backend-adapter-free. #1272.
-  'map/src/render/coverage-renderer.ts': 2,
+  'map/src/render/coverage-renderer.ts': 1,
+  // Inc-3a (#1046): the debug compose originates on the RHI shell but its
+  // colormap pipeline/bind group stay native behind ONE boundary unwrap (the
+  // VTR idiom) — this row is that unwrap import. Retires when the compose
+  // moves onto a Material.
+  'map/src/render/passes/overdraw-compose-pass.ts': 1,
   'map/src/render/feature-data-binder.ts': 1,
   'map/src/render/frame-context.ts': 1,
   'map/src/render/frame-renderer.ts': 3,
   'map/src/render/graticule-renderer.ts': 1,
-  'map/src/render/hillshade-renderer.ts': 2,
+  // 2→1 (#1046 F3b review): wrapWebGpuPass import retired with the re-wrap branch.
+  'map/src/render/hillshade-renderer.ts': 1,
   'map/src/render/hillshade-uniform-slots.ts': 1,
-  'map/src/render/heatmap-renderer.ts': 1,
-  // Heatmap density-target content relocated here from @xgis/rhi-webgpu (#1000):
-  // it drives the backend's generic render-target primitive (createRenderTarget)
-  // with the r16float density-target size/format. A new composition site (mirrors
-  // palette-textures.ts); routing it through the neutral RHI (0 here) is future work.
-  'map/src/render/heatmap-targets.ts': 1,
   'map/src/render/heatmap-uniform-slots.ts': 1,
   'map/src/render/line-renderer.ts': 3,
   'map/src/render/line-uniform-slots.ts': 1,
-  'map/src/render/material/heatmap-material.ts': 1,
   // #777 Phase II — hillshade files mirror raster's rhi-webgpu bridge imports:
   // hillshade-material wrapWebGpuTextureView; hillshade-renderer GPUContext +
   // wrapWebGpuPass (=2); hillshade-uniform-slots uniformFieldSlots (reflect seam).
   // Same gap-blocked bridge as raster-{material,renderer,uniform-slots}; retires at #991 P6.
   'map/src/render/material/hillshade-material.ts': 1,
   'map/src/render/material/icon-material.ts': 1,
-  'map/src/render/material/line-composite-material.ts': 1,
   'map/src/render/material/line-material.ts': 1,
+  // #1582 sites 1+2 — the wrapWebGpuPass() call that used to live in BOTH
+  // polygon-fill-material.ts and line-renderer.ts moved here as a shared
+  // WeakMap memo (one wrapper per encoder instead of one per draw). Net
+  // coupling is unchanged: this file replaces the same import, not adds one.
+  'map/src/render/material/pass-wrap-memo.ts': 1,
   'map/src/render/material/polygon-fill-material.ts': 1,
   'map/src/render/material/raster-material.ts': 1,
   'map/src/render/material/text-material.ts': 1,
@@ -132,18 +135,13 @@ const BASELINE: Record<string, number> = {
   // The import moved off map.ts (5→4) — net-neutral, not new coupling. Routing the
   // palette upload through the neutral RHI (0 here) is the future 0.3 phase.
   'map/src/render/palette-textures.ts': 1,
-  'map/src/render/passes/graphics-pass.ts': 1,
   'map/src/render/pipeline-factory.ts': 3,
   'map/src/render/point-renderer.ts': 3,
   'map/src/render/polygon-uniform-slots.ts': 1,
-  'map/src/render/raster-renderer.ts': 2,
+  'map/src/render/raster-renderer.ts': 1,
   'map/src/render/raster-uniform-slots.ts': 1,
   'map/src/render/renderer.ts': 1,
   'map/src/render/tile-compute-resources.ts': 1,
-  // INC-1 under-occluder sphere: wrapWebGpuPass bridges the opaque pass's native
-  // encoder to an RhiRenderPass for the Material/executeItems draw — the identical
-  // gap-blocked bridge raster-renderer (2) carries. Retires at #991 P6 (neutral pass).
-  'map/src/render/under-occluder-renderer.ts': 1,
   'map/src/render/upload-coordinator.ts': 2,
   'map/src/render/vector-tile-renderer.ts': 4,
   // Composition-root boot relocated out of map.ts (#1153 P1): buildSceneRenderers
@@ -155,7 +153,7 @@ const BASELINE: Record<string, number> = {
   'map/src/source-manager.ts': 1,
   'map/src/sprite/host-sprite-atlas-gpu.ts': 1,
   'map/src/sprite/icon-renderer.ts': 2,
-  'map/src/text/text-renderer.ts': 2,
+  'map/src/text/text-renderer.ts': 1,
 }
 
 describe('backend-adapter ratchet: map/src imports the concrete backend only at the root (#991)', () => {

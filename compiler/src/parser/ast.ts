@@ -13,6 +13,9 @@ export type Statement =
   | ImportStatement
   | SymbolStatement
   | KeyframesStatement
+  | FnStatement
+  | StructStatement
+  | InputStatement
 
 // ═══ Expressions ═══
 
@@ -31,6 +34,7 @@ export type Expr =
   | ConditionalExpr
   | UnaryExpr
   | MatchBlock
+  | InputRef
 
 export type NumberLiteral = {
   kind: 'NumberLiteral'
@@ -147,6 +151,9 @@ export type LayerStatement = {
   kind: 'LayerStatement'
   name: string
   properties: BlockProperty[]
+  /** Shader stage blocks authored on this layer (#1538). Absent on every
+   *  layer that does not use the escape hatch. */
+  stages?: StageBlock[]
   utilities: UtilityLine[]
   styleProperties: StyleProperty[] // CSS-like properties: fill: stone-800
   line: number
@@ -186,6 +193,9 @@ export type UtilityLine = {
 export type PresetStatement = {
   kind: 'PresetStatement'
   name: string
+  /** Declared parameter names from `preset name(a, b) { … }` (#1536).
+   *  Absent on zero-arg presets — the pre-params grammar unchanged. */
+  params?: string[]
   utilities: UtilityLine[]
   properties: BlockProperty[]
   line: number
@@ -243,6 +253,97 @@ export type UtilityItem = {
   name: string // e.g., "fill-red-500", "stroke-2", "opacity-80"
   binding: Expr | null // e.g., the expression inside [...] for data binding
   bindingUnit?: string | null // e.g., "km" in size-[expr]km
+  /** Call-form arguments for `apply-<preset>(…)` items (#1536).
+   *  Absent on every other utility item. */
+  args?: Expr[]
+}
+
+// fn halo(width, base) { return clamp(width * 1.5 + base, 1, 24) }
+// User-defined function (#1535 — reintroduced after the #1072 prune).
+// v1 is expression-bodied: the body is exactly one `return <expr>`;
+// calls are inlined at lower time (ir/fn-inline.ts), so the evaluator,
+// classifier, and WGSL codegen never see a user-fn call.
+export type FnStatement = {
+  kind: 'FnStatement'
+  name: string
+  params: string[]
+  body: Expr
+  line: number
+}
+
+// @color { return vec4(.r, 0.5, 0, 1) }  —  a shader stage block (#1538).
+// The Level-4 escape hatch: the body is authored in the .xgis expression
+// language and lowers to shader-dsl IR (never WGSL text), landing in the
+// SAME variant colour slot a data-driven paint already fills. Expression-
+// bodied like `fn` (§2.10): exactly one `return <expr>`, typed vec4.
+export type StageBlock = {
+  /** Which fragment colour the block authors. `@position` (vertex
+   *  displacement) is NOT here: the variant composer has no vertex-side
+   *  slot today, so it is deferred rather than faked. */
+  stage: 'color' | 'stroke'
+  body: Expr
+  line: number
+}
+
+// struct Track { speed: f32, heading: f32, name: string }
+// A source field schema (#1537 — reintroduced after the #1072 prune).
+// Attached to a source via `schema: Track`; makes `.field` access on that
+// source's layers checked instead of silently null on a typo.
+export type StructStatement = {
+  kind: 'StructStatement'
+  name: string
+  fields: StructField[]
+  line: number
+}
+
+/** Declared field types. Deliberately the three the data model already
+ *  distinguishes (`spec/oracle` value kinds); v1 uses them for NAME
+ *  checking — type-directed classification is a later step. */
+export type StructFieldType = 'f32' | 'string' | 'bool'
+
+export type StructField = { name: string; type: StructFieldType }
+
+// input threshold: f32 = 0.5
+// input highlight: color = #f59e0b
+// A language-defined host contract (#1539): the host sets the live value
+// at runtime via `map.setInput(name, v)`, uniform-write-only (never
+// recompiles). Referenced by NAME as a bare identifier elsewhere in the
+// program — resolved to `InputRef` by `ir/resolve-inputs.ts` before
+// classify/codegen ever run (mirrors how `ir/fn-inline.ts` resolves `fn`
+// calls away before classify sees them).
+export type InputStatement = {
+  kind: 'InputStatement'
+  name: string
+  type: InputType
+  /** A narrow literal, not a general Expr: the default seeds both the
+   *  initial GPU uniform-pool bytes and the compile-time CPU fallback —
+   *  both need a value knowable with zero runtime context. */
+  default: NumberLiteral | ColorLiteral
+  line: number
+}
+
+/** Deliberately its own union, not `StructFieldType` widened: a uniform
+ *  buffer can't hold a `string`/`bool`, and `color` has no meaning as a
+ *  per-feature schema column type. Different type universes. */
+export type InputType = 'f32' | 'color'
+
+/** A bare identifier resolved (by ir/resolve-inputs.ts, before classify
+ *  ever runs) to a reference to a declared `input`. Distinct Expr kind —
+ *  not `Identifier` — so every exhaustive switch over `Expr` is forced by
+ *  the compiler to handle it explicitly instead of silently falling
+ *  through the generic per-feature-field path (the `zoom` trap:
+ *  compiler/src/codegen/wgsl-expr.ts's bare-Identifier fallback silently
+ *  compiles an unrecognised name to the literal 0.0). Carries its own
+ *  `default` AND its resolved uniform-pool `slot` so no downstream
+ *  consumer (evaluator, GPU codegen, the runtime) needs a symbol table —
+ *  the slot is a fixed index within the fixed-size pool for its type,
+ *  assigned once by ir/resolve-inputs.ts in declaration order. */
+export type InputRef = {
+  kind: 'InputRef'
+  name: string
+  type: InputType
+  slot: number
+  default: NumberLiteral | ColorLiteral
 }
 
 // keyframes pulse { 0%: opacity-100  50%: opacity-30  100%: opacity-100 }

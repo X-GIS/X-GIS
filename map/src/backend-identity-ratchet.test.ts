@@ -40,6 +40,27 @@
 // requires GLSL vsCode/fsCode and never reads `desc.code`, so on that backend the emit
 // was 693 ms of a measured 2211 ms first-draw main-thread block for `multidirectional`.
 // All three retire together the moment RhiCaps grows that field (F3–F6).
+// 47→43 (shared-lowering twin): `glslStagesFor` moved the GLSL half of the
+// source selection into wgsl-for.ts beside `wgslFor`, both routed through its single
+// `readsWgsl`. Five drapers — arrow / circle / icon / particle retained, and point — held
+// a `const gl2` for NOTHING BUT that selection, so switching them RETIRED five reads
+// outright; a sixth arrived from main in the same window, which is why the measured
+// count is 43 rather than 42. This is the shrink the F3–F6 sweep is for, taken early
+// because the call sites now go through one place. Lowered to the measured count, not
+// to a round number.
+// 43→42 (RhiCaps.shaderLanguage): `readsWgsl` now asks the CAPABILITY — 'wgsl' reads
+// RhiPipelineDesc.code, 'glsl-es300' reads vsCode/fsCode — instead of the backend's
+// identity, retiring the last read in that seam. This is the shape the doc's §1.4/§2 ask
+// for and the one #826/#1057 said did not exist yet: a THIRD backend now answers by
+// populating a cap, not by joining a `!== 'webgl2'` chain. Every consumer takes the
+// narrow `ShaderSourceDevice` (caps only), so nothing downstream can reach for .backend.
+//
+// 42→38 (#1046 Inc-F, measured at this commit): `interaction-controller.pickAt` asked
+// which backend it was on to choose the pick READBACK strategy; it now asks
+// `caps.pickReadback === 'sync'` — the cap minted for exactly that decision, whose
+// rhi.ts doc names this call site as its consumer. That is one read (39→38); the other
+// three were already retired by earlier increments in this program without the baseline
+// being lowered to match, so this locks the measured count rather than a remembered one.
 //
 // Applies the #996 lesson (a source-scan gate whose matcher silently matches nothing is
 // vacuously green): two guards below prove the regex still matches AND the walk still
@@ -51,7 +72,7 @@ import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const MAP_SRC = join(dirname(fileURLToPath(import.meta.url)))
-const BASELINE = 47
+const BASELINE = 38
 
 // `.backend` identity comparison, either direction, against either backend literal.
 const PATTERN = 'backend\\s*(===|!==)\\s*[\'"](webgl2|webgpu)[\'"]'

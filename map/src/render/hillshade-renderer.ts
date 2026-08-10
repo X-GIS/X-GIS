@@ -9,7 +9,7 @@
 //   • the draw goes through HillshadeDraper (DEM sampled NEAREST);
 //   • the global uniform is a PAIR — the shared raster 'Uniforms' (vertex + cull,
 //     via writeRasterFrameUniform with no-op colours) + 'HillshadeUniforms'
-//     (lighting + DEM decode + per-frame deriv scale, writeHillshadeGlobalUniform);
+//     (lighting + DEM decode + the zoom-independent deriv base, writeHillshadeGlobalUniform);
 //   • the per-tile pool is the SHARED raster 'TileUniforms' (writeRasterTileUniform).
 
 import type { GPUContext } from '@xgis/rhi-webgpu'
@@ -20,6 +20,7 @@ import {
   type EvictableTile,
   evictToBudget,
   overBudget,
+  abortLoadingTiles,
   textureBytesOf,
   type LoadedTexture,
 } from './raster-cache-budget'
@@ -28,7 +29,7 @@ import { activeBody } from '@xgis/shared'
 import { lonLatToECEF, type ECEF } from '@xgis/shared'
 import type { RhiDevice, RhiRenderPass, RhiTexture } from '@xgis/engine'
 import { HillshadeDraper, type HillshadeTile } from './material/hillshade-material'
-import { wrapWebGpuPass } from '@xgis/rhi-webgpu'
+import { shaderEmitPending } from '../shaders/emit/shader-emit-pool'
 import { routeToSphereSelector, enumerateWorldCopies } from '@xgis/geo'
 import { isPickEnabled, getSampleCount } from '@xgis/engine'
 import { globeVisibleTiles } from '@xgis/data'
@@ -39,12 +40,7 @@ import {
   rasterTileU as RASTER_TILE_U,
 } from '../shaders/dsl/raster'
 import { hillshadeU as HILLSHADE_U } from '../shaders/dsl/hillshade'
-import {
-  tileRequestable,
-  noteFailure,
-  leafLoadBudget,
-  type FailedTile,
-} from './hillshade-tile-retry'
+import { FailedTileLedger, leafLoadBudget } from './tile-retry'
 import {
   writeRasterFrameUniform,
   writeRasterTileUniform,
@@ -92,15 +88,14 @@ export function demUnpack(encoding: DemEncoding, custom?: Partial<DemUnpack>): D
   return MAPBOX_UNPACK
 }
 
-/** Per-frame Sobel derivative scale (design §3 step 2):
- *  tileSize / pow(2, exaggeration_zoom + 28.2562 − zoom), where the zoom-exaggeration
- *  term is (zoom−15)·k, k = 0.4 (z<2) | 0.35 (z<4.5) | 0.3 (else), clamped to 0 at/above z15.
- *  Per-frame (from the render zoom): exact for the single-LOD steady state, an
- *  approximation for transient parent-fallback / pitched mixed-LOD tiles (the
- *  single-pass MVP carries no per-tile scale). */
-export function hillshadeDerivScale(tileSize: number, zoom: number): number {
-  const exaggerationZoom = zoom >= 15 ? 0 : (zoom - 15) * (zoom < 2 ? 0.4 : zoom < 4.5 ? 0.35 : 0.3)
-  return tileSize / Math.pow(2, exaggerationZoom + 28.2562 - zoom)
+/** Zoom-INDEPENDENT half of the Sobel derivative scale (design §3 step 2):
+ *  tileSize / pow(2, 28.2562). The zoom-dependent half —
+ *  pow(2, zoom − exaggeration_zoom(zoom)) — is a property of the TILE, not of the
+ *  frame, so the fragment applies it per tile from the tile's own Mercator span
+ *  (`hs_deriv_scale`). A frame-wide scale off the camera zoom mis-shaded every
+ *  parent-fallback and every magnified leaf by 2^Δz. */
+export function hillshadeDerivBase(tileSize: number): number {
+  return tileSize / Math.pow(2, 28.2562)
 }
 
 /** The Mapbox `hillshade-method` → shader method flag. All five MapLibre v5
@@ -152,6 +147,10 @@ export interface HillshadeParams {
   unpack: DemUnpack
   /** native DEM tile pixel size (256 / 512). */
   tileSize: number
+  /** Source-level `maxzoom` — the dataset's deepest real tile level. The cover zoom is
+   *  clamped to it, so the selector never asks for a tile that cannot exist. Undefined =
+   *  unbounded. */
+  maxzoom?: number
 }
 
 // Typed uniform blocks (lazy — buildHillshadeModule needs configureProjections()).
@@ -228,10 +227,14 @@ export function armHillshadeSource(
     greenFactor?: number
     blueFactor?: number
     baseShift?: number
+    maxzoom?: number
   },
 ): void {
   renderer.setUrlTemplate(dem._tileUrl)
   renderer.setParams({
+    // The DATASET's deepest real level. Undefined = unbounded (every source that does
+    // not declare it keeps the pre-existing behaviour).
+    maxzoom: dem.maxzoom,
     unpack: demUnpack((dem.encoding as DemEncoding | undefined) ?? 'mapbox', {
       redFactor: dem.redFactor,
       greenFactor: dem.greenFactor,
@@ -242,14 +245,13 @@ export function armHillshadeSource(
   })
 }
 
-/** Pack the HillshadeUniforms (lighting + DEM decode + per-frame deriv scale).
- *  SINGLE authority shared by render() + the byte-equality gate. `bearingRad` is
- *  the camera bearing (radians); folded into the azimuth only for anchor=viewport.
+/** Pack the HillshadeUniforms (lighting + DEM decode + the zoom-independent deriv
+ *  base). SINGLE authority shared by render() + the byte-equality gate. `bearingRad`
+ *  is the camera bearing (radians); folded into the azimuth only for anchor=viewport.
  *  Exported for the byte-equality test (hillshade-frame-uniform.test.ts). */
 export function writeHillshadeGlobalUniform(
   block: UniformBlockOf<typeof HILLSHADE_U>,
   p: HillshadeParams,
-  zoom: number,
   bearingRad: number,
 ): void {
   // azimuth = direction_rad + π (design §3 step 4), + camera bearing for the
@@ -280,7 +282,7 @@ export function writeHillshadeGlobalUniform(
     hs_shadow: premul(p.shadow),
     hs_highlight: premul(p.highlight),
     hs_accent: premul(p.accent),
-    hs_texel: [texel, hillshadeDerivScale(p.tileSize, zoom), 0, 0],
+    hs_texel: [texel, hillshadeDerivBase(p.tileSize), 0, 0],
     hs_light2: lightOf(ex(0), count),
     hs_light3: lightOf(ex(1), 0),
     hs_light4: lightOf(ex(2), 0),
@@ -323,9 +325,9 @@ export class HillshadeRenderer {
   private _cachedBytes = 0
   private loadingTiles = new Map<string, AbortController>()
   /** Tiles whose load resolved null, with the backoff state that stops them being
-   *  re-requested every frame (policy in hillshade-tile-retry.ts). Cleared when the
+   *  re-requested every frame (policy in tile-retry.ts). Cleared when the
    *  source is re-armed — a new URL template is a new coverage. */
-  private failedTiles = new Map<string, FailedTile>()
+  readonly failedTiles = new FailedTileLedger()
   private frameCount = 0
   private lastZoom = -1
   private lastVisibleKeys: Set<string> = new Set()
@@ -366,7 +368,11 @@ export class HillshadeRenderer {
 
   /** True while any DEM tile is mid-cross-fade (render-loop keep-alive). */
   hasFadingTiles(): boolean {
-    return this._hasFadingTiles
+    // A shader still being emitted off-thread counts as "converging": the draper draws
+    // NOTHING until it lands, so a loop that idled on tile-count alone would leave the
+    // relief permanently blank with its tiles already cached — the same freeze class as
+    // a fade ramp stranded mid-way, which is why it rides the same signal.
+    return this._hasFadingTiles || shaderEmitPending()
   }
 
   private _hillshadeDraper?: HillshadeDraper
@@ -387,9 +393,9 @@ export class HillshadeRenderer {
     this.format = ctx.format
   }
 
-  /** A quality (MSAA / picking) change invalidates the draper so the next render()
-   *  lazily rebuilds its pipelines with the new getSampleCount() / isPickEnabled(). */
+  /** A quality flip RELEASES the draper (#1578) and drops it; the next render() rebuilds. */
   rebuildForQuality(): void {
+    this._hillshadeDraper?.destroy()
     this._hillshadeDraper = undefined
   }
 
@@ -397,7 +403,7 @@ export class HillshadeRenderer {
     // A different template is a different coverage, so past failures say nothing
     // about it — drop the backoff state rather than carry a stale "gave up" verdict
     // onto tiles the new source may well have.
-    if (url !== this.urlTemplate) this.failedTiles.clear()
+    if (url !== this.urlTemplate) this.failedTiles.clearAll()
     this.urlTemplate = url
   }
 
@@ -452,7 +458,7 @@ export class HillshadeRenderer {
   private async loadTileTexture(url: string, signal: AbortSignal): Promise<LoadedTexture | null> {
     if (this.rhi.backend !== 'webgl2') {
       const t = await loadImageTexture(this.device, url, signal)
-      return t ? { texture: t, bytes: textureBytesOf(t.width, t.height) } : null
+      return t ? { texture: t, bytes: textureBytesOf(t.width, t.height, false) } : null // #1579 — never mipped
     }
     const bitmap = await loadImageBitmap(url, signal)
     if (!bitmap) return null
@@ -477,13 +483,15 @@ export class HillshadeRenderer {
       if (tex) this.rhi.destroyTexture(tex)
       return null
     }
-    const bytes = textureBytesOf(bitmap.width, bitmap.height)
+    const bytes = textureBytesOf(bitmap.width, bitmap.height, false) // #1579 — un-mipped, as above
     bitmap.close()
     return { texture: tex, bytes }
   }
 
   render(
-    pass: GPURenderPassEncoder | RhiRenderPass,
+    // RhiRenderPass ONLY (#1046 F3b review): both callers supply RHI handles; the old
+    // native union hid a backend-keyed re-wrap (double wrap ⇒ undefined). Narrowed.
+    pass: RhiRenderPass,
     camera: Camera,
     projType: number,
     projCenterLon: number,
@@ -500,7 +508,7 @@ export class HillshadeRenderer {
     // tileSize-aware cover zoom (rasterCoverZoom): a 256-px DEM (terrarium)
     // needs z+1 tiles under the 512-px-tile camera-zoom convention, same as
     // the raster path — one LOD short samples the DEM at half density.
-    const currentZ = rasterCoverZoom(zoom, this._params.tileSize)
+    const currentZ = rasterCoverZoom(zoom, this._params.tileSize, this._params.maxzoom)
 
     if (currentZ !== this.lastZoom) {
       for (const [key, ctrl] of this.loadingTiles) {
@@ -552,7 +560,7 @@ export class HillshadeRenderer {
 
     // Load missing tiles (leaf-first so near tiles win the concurrency budget) — except
     // on a cold start, where leafLoadBudget holds two slots back so the parent-fallback
-    // prefetch below can put a coarse tile on screen first (hillshade-tile-retry.ts).
+    // prefetch below can put a coarse tile on screen first (tile-retry.ts).
     const leafBudget = leafLoadBudget(MAX_CONCURRENT_LOADS, this.tileCache.size)
     const loadOrder = [...tiles].sort((a, b) => b.z - a.z)
     for (const coord of loadOrder) {
@@ -560,8 +568,8 @@ export class HillshadeRenderer {
       if (this.tileCache.has(key) || this.loadingTiles.has(key)) continue
       // A tile that has failed recently is not re-requested until its backoff
       // elapses — without this, a past-max-zoom view spends the whole budget on
-      // 404s every frame (hillshade-tile-retry.ts explains why that path is common).
-      if (!tileRequestable(this.failedTiles.get(key), this.frameCount)) continue
+      // 404s every frame (tile-retry.ts explains why that path is common).
+      if (!this.failedTiles.requestable(key)) continue
       if (this.loadingTiles.size >= leafBudget) break
       const ctrl = new AbortController()
       this.loadingTiles.set(key, ctrl)
@@ -569,21 +577,23 @@ export class HillshadeRenderer {
         // #1153 P2 R4 — narrow the release to the LOAD promise: an expected load
         // failure resolves to null so the .then ALWAYS frees the loadingTiles slot
         // (else the key wedges, pinning all MAX_CONCURRENT slots → the DEM stream
-        // stalls). Scoped here so a throw from the .then bookkeeping stays a visible
-        // unhandled rejection, not swallowed.
+        // stalls). Scoped here so a throw from the .then bookkeeping still surfaces —
+        // through the terminal handler below, not as an unhandled rejection (#1565:
+        // the same leaf-vs-parent drift the raster twin carried).
         .catch(() => null)
         .then((texture) => {
           this.loadingTiles.delete(key)
           if (!texture) {
-            noteFailure(this.failedTiles, key, this.frameCount)
+            this.failedTiles.noteOutcome(key, ctrl.signal.aborted)
             return
           }
-          this.failedTiles.delete(key)
+          this.failedTiles.clear(key)
           // firstShownFrame -1 = "never drawn yet"; the draw loop stamps it on the
           // tile's FIRST appearance so an off-screen prefetch still fades in.
           this._cacheTile(key, texture)
           this.evictTiles(visibleKeys)
         })
+        .catch((e) => console.error('[X-GIS] hillshade tile post-load bookkeeping failed', e))
     }
 
     // Parent-fallback prefetch (1–2 levels up) — mirror raster.
@@ -593,7 +603,7 @@ export class HillshadeRenderer {
         if (parentZ < 0) break
         const parentKey = `${parentZ}/${coord.x >> pz}/${coord.y >> pz}`
         if (this.tileCache.has(parentKey) || this.loadingTiles.has(parentKey)) continue
-        if (!tileRequestable(this.failedTiles.get(parentKey), this.frameCount)) continue
+        if (!this.failedTiles.requestable(parentKey)) continue
         if (this.loadingTiles.size >= MAX_CONCURRENT_LOADS) break
         const ctrl = new AbortController()
         this.loadingTiles.set(parentKey, ctrl)
@@ -611,10 +621,10 @@ export class HillshadeRenderer {
           .then((texture) => {
             this.loadingTiles.delete(parentKey)
             if (!texture) {
-              noteFailure(this.failedTiles, parentKey, this.frameCount)
+              this.failedTiles.noteOutcome(parentKey, ctrl.signal.aborted)
               return
             }
-            this.failedTiles.delete(parentKey)
+            this.failedTiles.clear(parentKey)
             this._cacheTile(parentKey, texture)
           })
           .catch((e) =>
@@ -640,7 +650,7 @@ export class HillshadeRenderer {
       contrast: 0,
     })
     const HB = hsBlock()
-    writeHillshadeGlobalUniform(HB, this._params, zoom, (camera.bearing ?? 0) * DEG2RAD)
+    writeHillshadeGlobalUniform(HB, this._params, (camera.bearing ?? 0) * DEG2RAD)
 
     const tilesArr: HillshadeTile[] = []
     const RASTER_WORLD_COPIES = [0]
@@ -798,9 +808,7 @@ export class HillshadeRenderer {
     this._hasFadingTiles = anyFading
 
     this.ensureHillshadeDraper().draw(
-      this.rhi.backend === 'webgl2'
-        ? (pass as RhiRenderPass)
-        : wrapWebGpuPass(pass as GPURenderPassEncoder),
+      pass,
       B.buffer,
       HB.buffer,
       tilesArr,
@@ -824,6 +832,10 @@ export class HillshadeRenderer {
    *  Policy lives in raster-cache-budget so both renderers share one copy. */
   private _cacheTile(k: string, t: LoadedTexture): void {
     this._cachedBytes = admitTile(this.tileCache, k, t, this.frameCount, this._cachedBytes)
+  }
+
+  destroy(): void {
+    abortLoadingTiles(this.loadingTiles) // #1570 — teardown must CANCEL, not just unschedule
   }
 
   private evictTiles(vis: Set<string>): void {

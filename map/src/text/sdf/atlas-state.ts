@@ -7,10 +7,15 @@
 // GPUTexture and calls into this module to decide WHERE a glyph
 // goes; this module never touches a pixel itself.
 //
-// Layout: one or more square ATLAS PAGES, each tiled into uniform
-// SLOTS. Page size and slot size are both configurable but slots
-// must divide pages evenly. A 2048-px page with 32-px slots gives
-// 64×64 = 4096 slots — enough for the BMP even with multiple sizes.
+// Layout: a square ATLAS PAGE, tiled into uniform SLOTS (page size and slot
+// size are configurable; slots must divide the page evenly). `allocatePage()`
+// below is written generically but is a SINGLE-PAGE contract in practice
+// (#1580): it fires only when both `freeSlots` and `entries` are empty, which
+// by construction (freeSlots + entries == pageCount * slotsPerPage, and
+// nothing ever clears `entries`) is true exactly once, before the first page
+// — every later miss evicts instead of growing. `pageCount` can therefore
+// never exceed 1; GlyphAtlasGPU owns that as an explicit assertion rather
+// than plumbing for a second page this class will never allocate.
 //
 // LRU order is maintained by Map insertion order (V8 / SpiderMonkey
 // guarantee insertion-order iteration). On `touch`/`ensure` we
@@ -150,7 +155,9 @@ export class AtlasState {
         }
         this.evictionCount += 1
       } else {
-        // Nothing to evict — grow.
+        // Nothing to evict — grow. Fires exactly once, before the first
+        // page (see the file header): every later miss takes the evict
+        // branch above instead.
         this.allocatePage()
         slot = this.freeSlots.pop()!
       }

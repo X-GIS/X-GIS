@@ -9,33 +9,34 @@
 // off when no direct-layer points or in ?debug=overdraw. Mechanical
 // changes only: `this.host.X` → `host.X`, `encoder` → `ctx.encoder`.
 
-import { DEBUG_OVERDRAW } from '../../debug-flags'
 import type { FrameContext } from '../frame-context'
 import { unwrapProjection } from '../projection-token'
 import type { SceneView } from '../scene-view'
-import type { RenderPass, PointsPassHost } from './pass'
+import { requireRhiFrame, type RenderPass, type PointsPassHost } from './pass'
 
 class PointsPass implements RenderPass {
   readonly label = 'points'
 
   shouldRun(scene: SceneView): boolean {
-    return scene.hasPoints && !DEBUG_OVERDRAW
+    return scene.hasPoints && !scene.overdraw
   }
 
   execute(ctx: FrameContext, _scene: SceneView, host: PointsPassHost): void {
-    const encoder = ctx.encoder
+    // F3b: RHI origination + the renderer's RHI entry (#1057 renderRhi) —
+    // descriptor-equivalent on WebGPU, executable on WebGL2 after the flip.
+    const { enc, colorView, stencilView, sceneResolveView } = requireRhiFrame(ctx, 'points')
     ctx.passScope('points', () => {
-      const ptPass = encoder.beginRenderPass({
+      const ptPass = enc.beginRenderPass({
         colorAttachments: [
           {
-            view: ctx.colorView,
-            resolveTarget: ctx.useResolve ? ctx.screenView : undefined,
+            view: colorView,
+            resolveTarget: ctx.useResolve ? sceneResolveView : undefined,
             loadOp: 'load',
             storeOp: 'store',
           },
         ],
         depthStencilAttachment: {
-          view: ctx.rt.stencilView!,
+          view: stencilView,
           // Load the depth the last opaque sub-pass stored above so
           // billboards on the back side of a globe / pitched surface
           // are correctly occluded by the front-facing opaque
@@ -55,7 +56,7 @@ class PointsPass implements RenderPass {
       // zoomSizeStops; internally skipped when zoom is unchanged.
       host.pointRenderer!.updateDynamicSizes(host.camera.zoom, performance.now())
       const { projType, centerLon, centerLat } = unwrapProjection(ctx.projection)
-      host.pointRenderer!.render(
+      host.pointRenderer!.renderRhi(
         ptPass,
         host.camera,
         projType,

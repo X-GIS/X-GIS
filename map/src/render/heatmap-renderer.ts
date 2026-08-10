@@ -10,11 +10,11 @@
 // Gaussian splat quad per point into the offscreen R16Float density target.
 //
 // The renderer ALSO bakes each layer's `heatmap-color` ramp into a 256×1
-// RGBA8 LUT texture (sampled by the compose pass) and exposes the layer's
-// intensity / opacity for the compose uniform. The blur + compose pipelines
-// live in pipeline-factory (model on ensureOverdrawCompose); this renderer
-// owns only the accum pipeline (vertex + per-feature storage, like
-// PointRenderer) and the per-layer GPU buffers + ramp LUT.
+// RGBA8 LUT texture (sampled by the compose pass) and threads the layer's
+// intensity / opacity into the compose uniform. The accum/blur/compose draw
+// machinery lives in the RHI drapers (material/heatmap-material.ts, one
+// Material per stage, both frame shapes); this renderer owns the per-layer
+// data (packing, ramp LUT, params) and the two pass-loop orchestrations.
 //
 // SCOPE: GeoJSON-source / direct-layer points only (the map.ts Point/
 // MultiPoint fork). Tile-sourced heatmaps (addTilePoint/flushTilePoints) are
@@ -28,16 +28,14 @@ import { FrameArena } from '@xgis/engine'
 import type {
   RhiBuffer,
   RhiBindGroup,
+  RhiCommandEncoder,
   RhiDevice,
   RhiRenderPass,
   RhiSampler,
-  RhiScreenPassDevice,
   RhiTexture,
   RhiTextureView,
 } from '@xgis/engine'
-import { wrapWebGpuPass, wrapWebGpuBindGroupLayout } from '@xgis/rhi-webgpu'
 import {
-  HeatmapDraper,
   HeatmapAccumTwinDraper,
   HeatmapBlurDraper,
   HeatmapComposeDraper,
@@ -85,13 +83,6 @@ interface HeatmapLayer {
    *  so the LUT is device-free at addLayer time (the forced-WebGL2 stub device
    *  throws on any access, #834). */
   rampBytes: Uint8Array
-  /** 256×1 RGBA8 colour ramp LUT for this layer (native/WebGPU). Built LAZILY by
-   *  getLayers() on the WebGPU frame path — never in addLayer, so a heatmap style
-   *  boots on the forced-WebGL2 twin without touching the stub device. */
-  rampTexture?: GPUTexture
-  /** Compose params uniform (intensity, opacity) — one PER layer (native/WebGPU).
-   *  Built LAZILY by getLayers() (same reason as rampTexture). */
-  paramsBuf?: GPUBuffer
   // Per-layer GPU buffers (created lazily on first renderAccum, resized as
   // point count changes). Routed through the RHI seam (§4 batch-seam migration):
   // Rhi* handles, byte-identical to the raw VERTEX|COPY_DST / INDEX|COPY_DST /
@@ -167,10 +158,9 @@ export function writeHeatmapFrameUniform(
 }
 
 export class HeatmapRenderer {
-  private device: GPUDevice
   /** The RHI seam (§4 batch-seam migration). One instance, reused for the accum
    *  set (uniform + per-layer vert/idx/feat buffers + accum bind group) and the
-   *  HeatmapDraper. On WebGPU `createBuffer === device.createBuffer`,
+   *  drapers. On WebGPU `createBuffer === device.createBuffer`,
    *  `createBindGroup === device.createBindGroup`, `destroyBuffer === GPUBuffer.destroy()`,
    *  so the GPU command stream is unchanged. */
   private rhi: RhiDevice
@@ -178,26 +168,14 @@ export class HeatmapRenderer {
   private frameBlock = heatmapBlock() // typed std140 pack target (mvp/proj/viewport/cam_h/cam_l/globe_eye, #600)
   private readonly _frameArena = new FrameArena(64 * 1024)
   private layers: HeatmapLayer[] = []
-  /** Native WebGPU resources, created LAZILY at first use (#834 device
-   *  retirement S1). Every consumer is on the WebGPU frame path (the heatmap
-   *  pass getters, the accum bind group, the HeatmapDraper layout), so the
-   *  constructor no longer touches `ctx.device` — a prerequisite for the
-   *  forced-WebGL2 boot dropping its no-op device Proxy. blurDirH/V are the
-   *  blur direction uniforms (two 16-byte buffers so one encoder can bind
-   *  both without a mid-frame overwrite); rampSampler filters the ramp LUT. */
-  private _native: {
-    bindGroupLayout: GPUBindGroupLayout
-    blurDirH: GPUBuffer
-    blurDirV: GPUBuffer
-    rampSampler: GPUSampler
-  } | null = null
-
-  /** Screen colour format — threaded to the twin compose draper's colour target
+  /** Screen colour format — threaded to the compose draper's colour target
    *  (nominal on WebGL2's default framebuffer, but the descriptor requires it). */
   private readonly format: string
 
-  constructor(ctx: { device: GPUDevice; rhi: RhiDevice; format: string }) {
-    this.device = ctx.device
+  // The ctx param stays structurally satisfied by the boot's richer context
+  // object; `device` is deliberately NOT accepted — every resource routes
+  // through the RHI (F3b Inc-2c retired the last native touch).
+  constructor(ctx: { rhi: RhiDevice; format: string }) {
     this.rhi = ctx.rhi
     this.format = ctx.format
 
@@ -210,58 +188,18 @@ export class HeatmapRenderer {
     })
   }
 
-  private native(): NonNullable<HeatmapRenderer['_native']> {
-    if (this._native) return this._native
-    const device = this.device
-    const bindGroupLayout = device.createBindGroupLayout({
-      label: 'heatmap-accum-bgl',
-      entries: [
-        { binding: 0, visibility: GPUShaderStage.VERTEX, buffer: { type: 'uniform' } },
-        { binding: 1, visibility: GPUShaderStage.VERTEX, buffer: { type: 'read-only-storage' } },
-      ],
-    })
-    // The accum draw goes through the RHI Material seam (HeatmapDraper, which owns the
-    // additive r16float single-sample pipeline); the shared bind-group layout feeds it.
-    const blurDirH = device.createBuffer({
-      size: 16,
-      usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
-      label: 'heatmap-blur-dir-h',
-    })
-    const blurDirV = device.createBuffer({
-      size: 16,
-      usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
-      label: 'heatmap-blur-dir-v',
-    })
-    device.queue.writeBuffer(blurDirH, 0, new Float32Array([1, 0, 0, 0]))
-    device.queue.writeBuffer(blurDirV, 0, new Float32Array([0, 1, 0, 0]))
-    const rampSampler = device.createSampler({
-      magFilter: 'linear',
-      minFilter: 'linear',
-      label: 'heatmap-ramp-sampler',
-    })
-    this._native = { bindGroupLayout, blurDirH, blurDirV, rampSampler }
-    return this._native
-  }
-
-  /** Blur direction uniform buffers (H / V) — read by the heatmap pass. */
-  getBlurDirBuffers(): { h: GPUBuffer; v: GPUBuffer } {
-    const n = this.native()
-    return { h: n.blurDirH, v: n.blurDirV }
-  }
-
-  /** Ramp sampler — read by the heatmap pass for the compose bind group. The
-   *  per-layer compose-params buffer lives on each layer (getLayers()). */
-  getRampSampler(): GPUSampler {
-    return this.native().rampSampler
-  }
-
   hasLayers(): boolean {
     return this.layers.length > 0
   }
 
+  /** Number of registered heatmap layers (the pass loops over them). */
+  layerCount(): number {
+    return this.layers.length
+  }
+
   /** Bake a 256×4 RGBA8 colour LUT (linear interp between stops) — the single
-   *  ramp authority, uploaded to the native texture (WebGPU) and, on the twin,
-   *  the RHI ramp texture (both read the SAME bytes). */
+   *  ramp authority, uploaded to the native texture (WebGPU) and the RHI ramp
+   *  texture (WebGL2) — both read the SAME bytes. */
   private buildRampBytes(stops: readonly HeatmapColorStop[]): Uint8Array {
     const W = 256
     const data = new Uint8Array(W * 4)
@@ -285,25 +223,6 @@ export class HeatmapRenderer {
       }
     }
     return data
-  }
-
-  /** Build a native 256×1 RGBA8 colour LUT texture from baked LUT bytes (WebGPU
-   *  only; touches this.device, so it runs LAZILY on the WebGPU frame path). */
-  private buildRampTexture(rampBytes: Uint8Array): GPUTexture {
-    const W = 256
-    const tex = this.device.createTexture({
-      size: { width: W, height: 1 },
-      format: 'rgba8unorm',
-      usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST,
-      label: 'heatmap-ramp-lut',
-    })
-    this.device.queue.writeTexture(
-      { texture: tex },
-      rampBytes,
-      { bytesPerRow: W * 4, rowsPerImage: 1 },
-      { width: W, height: 1 },
-    )
-    return tex
   }
 
   /** Add a heatmap layer from GeoJSON Point/MultiPoint features.
@@ -376,15 +295,12 @@ export class HeatmapRenderer {
 
   clearLayers(): void {
     for (const layer of this.layers) {
-      // Native ramp/params are lazily built on the WebGPU path only — `?.` guards
-      // the twin (they stay undefined there).
-      layer.rampTexture?.destroy()
-      layer.paramsBuf?.destroy()
-      // Accum buffers route through the RHI seam; ramp/params stay raw (separate set).
+      // Accum buffers route through the RHI seam.
       if (layer._vertBuf) this.rhi.destroyBuffer(layer._vertBuf)
       if (layer._idxBuf) this.rhi.destroyBuffer(layer._idxBuf)
       if (layer._featBuf) this.rhi.destroyBuffer(layer._featBuf)
-      // Forced-WebGL2 twin per-layer resources (#1060).
+      // Per-layer compose resources (ramp LUT + params) — shared by both frame
+      // shapes since the chain re-originated through the drapers (F3b Inc-2c).
       if (layer._rhiRampTex) this.rhi.destroyTexture(layer._rhiRampTex)
       if (layer._rhiParamsBuf) this.rhi.destroyBuffer(layer._rhiParamsBuf)
     }
@@ -395,31 +311,7 @@ export class HeatmapRenderer {
    *  to drive the compose. Each heatmap layer is accum→blur→composed independently
    *  with its OWN params (intensity/opacity), so a multi-heatmap style composes
    *  each layer correctly. Builds the native GPU resources LAZILY here (first
-   *  WebGPU frame) so addLayer stays device-free — this getter is the WebGPU path
-   *  (the twin reads this.layers directly via renderRhi). */
-  // Return type via Required<Pick<…>> (not inline GPU* annotations): the getter
-  // GUARANTEES the two lazy native fields, and spelling the raw types here again
-  // would grow the #991 raw-WebGPU ratchet for a pure type restatement.
-  getLayers(): readonly Required<Pick<HeatmapLayer, 'rampTexture' | 'paramsBuf'>>[] {
-    for (const layer of this.layers) {
-      if (!layer.rampTexture) layer.rampTexture = this.buildRampTexture(layer.rampBytes)
-      if (!layer.paramsBuf) {
-        const buf = this.device.createBuffer({
-          size: 16,
-          usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
-          label: 'heatmap-compose-params',
-        })
-        this.device.queue.writeBuffer(
-          buf,
-          0,
-          new Float32Array([layer.intensity, layer.opacity, 0, 0]),
-        )
-        layer.paramsBuf = buf
-      }
-    }
-    return this.layers as readonly { rampTexture: GPUTexture; paramsBuf: GPUBuffer }[]
-  }
-
+   *  WebGPU frame) so addLayer stays device-free. */
   /** Write the shared per-frame accum frame uniform (mvp / proj_params /
    *  viewport / camera anchor). Called ONCE per frame by the heatmap pass
    *  before the per-layer draws; the uniform is layer-independent. */
@@ -551,48 +443,19 @@ export class HeatmapRenderer {
     return N * 6
   }
 
-  /** WebGPU accum draw: pack this layer, then splat additively into the bound
-   *  accum render pass through the RHI Material seam. The accum target is
-   *  r16float; this native-pass path is the WebGPU authority (the twin uses
-   *  drawLayerAccumRhi). One draw call. */
-  drawLayerAccum(pass: GPURenderPassEncoder, layerIndex: number): void {
-    const indexCount = this.packLayerBuffers(layerIndex)
-    const layer = this.layers[layerIndex]
-    if (!layer || indexCount === 0) return
-    if (!layer._bindGroup) {
-      layer._bindGroup = this.rhi.createBindGroup(
-        wrapWebGpuBindGroupLayout(this.native().bindGroupLayout),
-        [
-          { binding: 0, resource: { buffer: this.uniformBuffer } },
-          { binding: 1, resource: { buffer: layer._featBuf! } },
-        ],
-      )
-    }
-    this.ensureHeatmapDraper()
-    this._heatmapDraper!.draw(wrapWebGpuPass(pass), {
-      bindGroup: layer._bindGroup,
-      vertBuf: layer._vertBuf!,
-      idxBuf: layer._idxBuf!,
-      indexCount,
-    })
-  }
-
-  private _heatmapDraper?: HeatmapDraper
-  private ensureHeatmapDraper(): void {
-    if (this._heatmapDraper) return
-    this._heatmapDraper = new HeatmapDraper(this.rhi, this.native().bindGroupLayout)
-  }
-
-  // ═══ Forced-WebGL2 twin 3-pass render (#1060) ═══
+  // ═══ RHI 3-pass render — chain (#1046 F3b Inc-2c) ═══
   //
-  // The WebGPU heatmap pass (heatmap-pass.ts) runs the accum→blur→compose
-  // pipeline through native pipelines + a GPUCommandEncoder. The twin frame has
-  // no native device, so the whole pipeline re-originates through the RHI seam:
-  // RHI r16float targets (HeatmapTargets.ensureRhi), RHI drapers carrying the
-  // same shader DSL emitted as GLSL, and RHI offscreen passes. Capability-gated
-  // by the CALLER on rhi.caps.floatBlendTargets — a device without
-  // EXT_color_buffer_float / EXT_float_blend fail-closes (no draw, no error).
-  private _twin: {
+  // ONE draper set (accum/blur/compose, dual-emit shader DSL) drives the
+  // whole pipeline: discrete passes on the frame ENCODER, compose opening its
+  // own load/store pass on the resolved swapchain view. Targets are the RHI
+  // r16float pair (HeatmapTargets.ensureRhi). The caller (passes/heatmap-pass.ts)
+  // capability-gates on rhi.caps.floatBlendTargets — a device without
+  // EXT_color_buffer_float / EXT_float_blend fail-closes (no draw, no error;
+  // #1046 Inc-F2c). A forced-WebGL2 twin frame used to drive this same draper
+  // set through a second entry point (renderRhi, nesting offscreen passes
+  // inside its own live screen pass); that entry point died with the twin
+  // (#1046 Inc-F3b) and renderChainRhi below is the only caller left.
+  private _drapers: {
     accumDraper: HeatmapAccumTwinDraper
     blurDraper: HeatmapBlurDraper
     composeDraper: HeatmapComposeDraper
@@ -601,13 +464,13 @@ export class HeatmapRenderer {
     rampSampler: RhiSampler
   } | null = null
 
-  private twin(): NonNullable<HeatmapRenderer['_twin']> {
-    if (this._twin) return this._twin
+  private drapers(): NonNullable<HeatmapRenderer['_drapers']> {
+    if (this._drapers) return this._drapers
     const dirH = this.rhi.createBuffer({ size: 16, usage: 'uniform', writable: true })
     const dirV = this.rhi.createBuffer({ size: 16, usage: 'uniform', writable: true })
     this.rhi.writeBuffer(dirH, 0, new Float32Array([1, 0, 0, 0]))
     this.rhi.writeBuffer(dirV, 0, new Float32Array([0, 1, 0, 0]))
-    this._twin = {
+    this._drapers = {
       accumDraper: new HeatmapAccumTwinDraper(this.rhi),
       blurDraper: new HeatmapBlurDraper(this.rhi),
       composeDraper: new HeatmapComposeDraper(this.rhi, this.format),
@@ -615,17 +478,19 @@ export class HeatmapRenderer {
       dirV,
       rampSampler: this.rhi.createSampler({ mag: 'linear', min: 'linear' }),
     }
-    return this._twin
+    return this._drapers
   }
 
-  /** Twin accum draw: pack this layer, then splat additively into the bound RHI
-   *  offscreen accum pass. Builds the RHI-native accum bind group (uniform +
-   *  storage; the storage lowers to a data texture on WebGL2) lazily. */
-  private drawLayerAccumRhi(pass: RhiRenderPass, layerIndex: number): void {
+  /** Accum draw (both frame shapes): pack this layer, then splat additively
+   *  into the bound RHI accum pass. Builds the RHI-native accum bind group
+   *  (uniform + storage; the storage lowers to a data texture on WebGL2)
+   *  lazily. Public as the accum data-path entry (heatmap-data-path.test.ts
+   *  drives it directly to capture the uploaded bytes). */
+  drawLayerAccumRhi(pass: RhiRenderPass, layerIndex: number): void {
     const indexCount = this.packLayerBuffers(layerIndex)
     const layer = this.layers[layerIndex]
     if (!layer || indexCount === 0) return
-    const tw = this.twin()
+    const tw = this.drapers()
     if (!layer._rhiAccumBG) {
       layer._rhiAccumBG = this.rhi.createBindGroup(tw.accumDraper.layout(), [
         { binding: 0, resource: { buffer: this.uniformBuffer } },
@@ -642,8 +507,12 @@ export class HeatmapRenderer {
 
   /** Lazily build this layer's RHI ramp LUT texture + compose-params uniform
    *  from the baked rampBytes / intensity / opacity (the native rampTexture +
-   *  paramsBuf are proxy-device stubs on the twin). */
-  private ensureLayerComposeRhi(layerIndex: number): {
+   *  paramsBuf are proxy-device stubs on WebGL2). */
+  /** Lazily build this layer's compose resources (256×1 ramp-LUT texture +
+   *  [intensity, opacity] params uniform) on the RHI device. Public as the
+   *  compose data-path entry (heatmap-data-path.test.ts drives it directly to
+   *  capture the uploaded params bytes). */
+  ensureLayerComposeRhi(layerIndex: number): {
     rampView: RhiTextureView
     paramsBuf: RhiBuffer
   } {
@@ -660,7 +529,12 @@ export class HeatmapRenderer {
       layer._rhiRampView = this.rhi.createView(layer._rhiRampTex)
     }
     if (!layer._rhiParamsBuf) {
-      layer._rhiParamsBuf = this.rhi.createBuffer({ size: 16, usage: 'uniform', writable: true })
+      layer._rhiParamsBuf = this.rhi.createBuffer({
+        size: 16,
+        usage: 'uniform',
+        writable: true,
+        label: 'heatmap-compose-params',
+      })
       this.rhi.writeBuffer(
         layer._rhiParamsBuf,
         0,
@@ -670,13 +544,22 @@ export class HeatmapRenderer {
     return { rampView: layer._rhiRampView, paramsBuf: layer._rhiParamsBuf }
   }
 
-  /** Run the full 3-pass heatmap pipeline on the forced-WebGL2 twin, compositing
-   *  onto the given screen pass. Each LAYER is accum→blur→composed independently
-   *  (its own radius / weight / ramp / intensity), the accum target cleared per
-   *  layer. The caller has already gated on rhi.caps.floatBlendTargets. */
-  renderRhi(
-    rhi: RhiScreenPassDevice,
-    screenPass: RhiRenderPass,
+  /** Chain-shaped RHI heatmap (#1046 F3b Inc-2c): a per-layer
+   *  accum → blur-H → blur-V → compose loop, originated as
+   *  discrete passes on the frame ENCODER — the chain has no live screen pass
+   *  to nest inside. Compose opens its own load/store pass on `screenView`
+   *  (the resolved swapchain; the pass runs after the label pass owns the
+   *  MSAA resolve, so this is single-sample — the shape every draper's
+   *  Material declares: sampleCount 1, no depth-stencil). Descriptor-
+   *  equivalent to the retired native block: same attachments, clears,
+   *  order and draws; only the encoding API moved.
+   *
+   *  The caller has already gated on rhi.caps.floatBlendTargets — the same
+   *  contract renderRhi states, and for the same reason: the r16float accum
+   *  target is feature-detected, not universal (#1046 Inc-F2c). */
+  renderChainRhi(
+    enc: RhiCommandEncoder,
+    screenView: RhiTextureView,
     targets: HeatmapTargets,
     camera: Camera,
     projType: number,
@@ -691,14 +574,13 @@ export class HeatmapRenderer {
     const accumView = targets.accumViewRhi
     const blurView = targets.blurViewRhi
     if (!accumView || !blurView) return
-    const tw = this.twin()
-    // Shared per-frame accum uniform (layer-independent) — written once.
+    const tw = this.drapers()
     this.updateFrameUniform(camera, projType, centerLon, centerLat, w, h, dpr)
 
     for (let li = 0; li < this.layers.length; li++) {
       // ── Pass 1: ACCUM ── clear accum, additively splat this layer.
-      const ap = rhi.beginOffscreenPass({
-        label: 'heatmap-accum-rhi',
+      const ap = enc.beginRenderPass({
+        label: 'heatmap-accum',
         colorAttachments: [
           { view: accumView, loadOp: 'clear', storeOp: 'store', clearValue: [0, 0, 0, 0] },
         ],
@@ -707,8 +589,8 @@ export class HeatmapRenderer {
       ap.end()
 
       // ── Pass 2a: BLUR horizontal (accum → blur) ──
-      const bh = rhi.beginOffscreenPass({
-        label: 'heatmap-blur-h-rhi',
+      const bh = enc.beginRenderPass({
+        label: 'heatmap-blur-h',
         colorAttachments: [
           { view: blurView, loadOp: 'clear', storeOp: 'store', clearValue: [0, 0, 0, 0] },
         ],
@@ -717,8 +599,8 @@ export class HeatmapRenderer {
       bh.end()
 
       // ── Pass 2b: BLUR vertical (blur → accum) ──
-      const bv = rhi.beginOffscreenPass({
-        label: 'heatmap-blur-v-rhi',
+      const bv = enc.beginRenderPass({
+        label: 'heatmap-blur-v',
         colorAttachments: [
           { view: accumView, loadOp: 'clear', storeOp: 'store', clearValue: [0, 0, 0, 0] },
         ],
@@ -726,9 +608,15 @@ export class HeatmapRenderer {
       tw.blurDraper.draw(bv, blurView, tw.dirV)
       bv.end()
 
-      // ── Pass 3: COMPOSE ── sample blurred density, alpha-blend onto the screen.
+      // ── Pass 3: COMPOSE ── own pass onto the resolved swapchain, loading
+      // what the label pass left there.
+      const cp = enc.beginRenderPass({
+        label: 'heatmap-compose',
+        colorAttachments: [{ view: screenView, loadOp: 'load', storeOp: 'store' }],
+      })
       const { rampView, paramsBuf } = this.ensureLayerComposeRhi(li)
-      tw.composeDraper.draw(screenPass, accumView, rampView, tw.rampSampler, paramsBuf)
+      tw.composeDraper.draw(cp, accumView, rampView, tw.rampSampler, paramsBuf)
+      cp.end()
     }
   }
 

@@ -17,10 +17,11 @@ import type {
 import {
   wrapWebGpuBindGroupLayout,
   wrapWebGpuBindGroup,
-  wrapWebGpuPass,
   toVertexBufferLayout,
 } from '@xgis/rhi-webgpu'
 import { Material, executeItems } from '@xgis/engine'
+import { recoverFillRhi } from '../fill-rhi-slot'
+import { wrapWebGpuPassMemoized } from './pass-wrap-memo'
 
 /** The per-tile GPUArena fill buffers recordFillDraw reads (structural — a VTR
  *  GPUTile satisfies it). RHI handles (#832): the arena is backend-neutral and
@@ -505,9 +506,9 @@ export function recordFillDraw(
 ): void {
   // #717 — the draw-side VTR instance can have _fillRhi still null (the site's Astro island splits
   // the VTR module: setFillRhi(present) lands on one instance, the draw runs on another). Recover
-  // the last-good fill state from the globalThis slot setFillRhi mirrors it to. In the single-instance
-  // playground fillRhi is always present, so this is a no-op there.
-  const eff = fillRhi ?? (globalThis as { __xgisFillRhi?: FillRhiState }).__xgisFillRhi ?? null
+  // the mirrored fill state from the shared slot (fill-rhi-slot.ts, which also owns the release
+  // path #1567 added). In the single-instance playground fillRhi is always present → no-op.
+  const eff = fillRhi ?? recoverFillRhi()
   if (eff) {
     let mat: Material | null = null
     let variant = -1
@@ -617,7 +618,7 @@ export function recordFillDraw(
     }
     if (mat && variant >= 0) {
       const g = globalThis as { __xgisVtrFillRhiDraws?: number }
-      const rhiPass = wrapWebGpuPass(encoder)
+      const rhiPass = wrapWebGpuPassMemoized(encoder)
       const item = {
         variant,
         bindGroups: [wrapWebGpuBindGroup(tileBg)],

@@ -39,20 +39,6 @@ import type {
 import type { FlowFieldRegion } from './coverage-renderer'
 import { FlowStepper, FLOW_STEP_DEFAULTS, type FlowStepOptions } from './flow-stepper'
 import { FlowAdvectDraper, packFlowAdvectUniform } from './material/flow-advect-material'
-import { ArrowAdvectDraper, packArrowAdvectUniform } from './material/arrow-advect-material'
-import { ArrowAdvectState } from './arrow-advect-state'
-import { flowAdvectParams } from './flow-advect-params'
-
-/** Per-frame probability that an arrow retires for no reason but the lottery, and the EXTRA
- *  probability per unit of normalized speed.
- *
- *  With the leash (arrow-advect-step.ts) doing the structural recycling, the lottery's remaining
- *  job is to keep retirement SPREAD — a few of 16 384 arrows per frame rather than a wave — and
- *  to refresh the fast water the field's convergence zones drain first. At 60 Hz the base gives a
- *  ~30 s mean life in still water; a fully saturated cell retires roughly four times sooner.
- *  Display choices, like FLOW_STEP_DEFAULTS: principled, not tuned against a screen. */
-const ARROW_DROP_BASE = 0.0005
-const ARROW_DROP_PER_SPEED = 0.0015
 
 /** What one step needs from the frame — deliberately these two fields rather than the whole
  *  FrameContext, because the forced-WebGL2 twin has none: it early-returns from
@@ -81,13 +67,13 @@ export class FlowRenderer {
   private bgFieldV: RhiTextureView | null = null
 
   /** The arrow ping-pong + its step (#1419) — see the section below. */
-  private readonly arrows = new ArrowAdvectState()
-  private arrowDraper: ArrowAdvectDraper | null = null
   private nearest: RhiSampler | null = null
-  private arrowElapsedMs: number | null = null
-  private readonly arrowBindGroups = new Map<RhiTextureView, RhiBindGroup>()
-  private arrowFieldU: RhiTextureView | null = null
-  private arrowFieldV: RhiTextureView | null = null
+  /** The step's bind groups, per region and then per read side — two entries per region at
+   *  rest. Keyed by region because each domain binds a DIFFERENT velocity pair (#1458): one
+   *  map keyed by the read side alone would hand the first region's group to every sibling. */
+  /** The velocity field each resident region carries. ONE PER REGION, not one for the map —
+   *  see `setArrowFields`. */
+  private readonly arrowFields = new Map<string, FlowFieldRegion>()
 
   constructor(private readonly rhi: RhiDevice) {}
 
@@ -162,123 +148,62 @@ export class FlowRenderer {
    *  moved the arrows through, or the glyphs report a forecast hour they are not standing in.
    *  Null until the first step has run — a caller treats that as "no advected draw this frame"
    *  rather than substituting anything. */
-  get arrowBinding(): {
-    state: RhiTextureView
-    origin: RhiTextureView
+  arrowBindingFor(region: string): {
     flowU: RhiTextureView
     flowV: RhiTextureView
+    flowValid: RhiTextureView
   } | null {
-    const state = this.arrows.readView
-    const origin = this.arrows.originView
-    const flowU = this.arrowFieldU
-    const flowV = this.arrowFieldV
-    return state && origin && flowU && flowV ? { state, origin, flowU, flowV } : null
+    const field = this.arrowFields.get(region)
+    return field ? { flowU: field.u, flowV: field.v, flowValid: field.valid } : null
   }
 
-  /** Declare which velocity pair the arrows are currently stepping through — `null` when no
-   *  region carries one any more.
+  /** Declare which velocity pair EACH resident region's arrows are stepping through — an empty
+   *  map when no region carries one any more.
    *
-   *  Called by the flow pass EVERY frame, before the step, and deliberately not folded into
-   *  `stepArrows`: the step has several early returns (a zero dt, a pass the encoder refused),
-   *  and every one of them would leave the previous field cached. That is not a stale-data
-   *  problem, it is a lifetime one — the mosaic evicts a region and DESTROYS its flow textures,
+   *  ONE PAIR PER REGION, and that is the whole of #1458's second half. This used to be a single
+   *  pair, fed from `CoverageRenderer.activeFlowField()` — the FIRST resident region's field —
+   *  and handed to every advected batch whatever domain it belonged to. The arrows still landed
+   *  in roughly the right places (screen position comes from the CPU-packed per-instance
+   *  lon/lat, and `pos`/`origin` are read from the same texel so the leash held), which is why
+   *  a coverage metric could not see it. What was wrong is everything DERIVED from the field: a
+   *  sibling domain's arrows took their band colour, heading and scale from another domain's
+   *  water, and were advected through its degree span and centre latitude as well — from frame
+   *  zero, not as accumulated drift.
+   *
+   *  Called by the flow pass EVERY frame. That is a LIFETIME requirement, not a freshness one —
+   *  the mosaic evicts a region and DESTROYS its flow textures,
    *  so a binding built from the views held here goes into the next submit pointing at freed
    *  memory:
    *
    *    destroyed texture "coverage-flow-v" used in a submit
    *
    *  reported from S-111 Live by zooming out and panning to another domain (#1419). The views
-   *  live exactly as long as the pass keeps saying they do. */
-  setArrowField(field: FlowFieldRegion | null): void {
-    const u = field?.u ?? null
-    const v = field?.v ?? null
-    if (u === this.arrowFieldU && v === this.arrowFieldV) return
-    // The cached groups were built against the outgoing pair.
-    this.arrowBindGroups.clear()
-    this.arrowFieldU = u
-    this.arrowFieldV = v
-  }
-
-  /** Hand this batch's origins to the state (see `ArrowAdvectState.writeOrigins`) — `key`
-   *  identifies the instance layout, so an unchanged batch skips the upload and keeps drifting. */
-  writeArrowOrigins(key: string, u: ArrayLike<number>, v: ArrayLike<number>): number {
-    return this.arrows.writeOrigins(this.rhi, key, u, v)
-  }
-
-  /** Give a dropped batch's texel range back to the shared state (#1458). */
-  releaseArrowOrigins(key: string): void {
-    this.arrows.releaseOrigins(key)
-  }
-
-  /** Advance every arrow one frame along `field`.
-   *
-   *  Its own dt, not the trail's: `FlowStepper.consumeDt` is consumed by `step`, and an arrow
-   *  field must animate whether or not the trail layer is drawing — the two are independent
-   *  portrayals of the same data (#1418). */
-  stepArrows(
-    frame: FlowFrame,
-    field: FlowFieldRegion,
-    opts: FlowStepOptions = FLOW_STEP_DEFAULTS,
-  ): void {
-    if (field.width <= 0 || field.height <= 0) return
-    this.arrows.ensure(this.rhi)
-    const read = this.arrows.readView
-    const write = this.arrows.writeView
-    const origin = this.arrows.originView
-    if (!read || !write || !origin) return
-
-    const prev = this.arrowElapsedMs
-    this.arrowElapsedMs = frame.elapsedMs
-    const dt = prev === null ? 0 : Math.max(0, (frame.elapsedMs - prev) / 1000)
-    if (dt === 0) return // the first frame has no interval to advance across
-
-    const params = flowAdvectParams({
-      spanDeg: field.spanDeg,
-      midLatDeg: field.midLatDeg,
-      dtSeconds: dt,
-      ratePerSec: opts.ratePerSec,
-      decay: opts.decay,
-      inject: opts.inject,
-    })
-    const draper = (this.arrowDraper ??= new ArrowAdvectDraper(this.rhi))
-    const nearest = (this.nearest ??= this.rhi.createSampler({ mag: 'nearest', min: 'nearest' }))
-    const linear = (this.sampler ??= this.rhi.createSampler({ mag: 'linear', min: 'linear' }))
-    const pass = this.begin(frame, {
-      label: 'arrow-advect',
-      // `clear` would be wrong for the same reason it is wrong for the trail, and worse: the
-      // draw writes every texel of the state outright, so there is nothing to discard.
-      colorAttachments: [{ view: write, loadOp: 'load', storeOp: 'store' }],
-    })
-    if (!pass) return
-    draper.draw(
-      pass,
-      packArrowAdvectUniform(
-        params.stepX,
-        params.stepY,
-        ARROW_DROP_BASE,
-        ARROW_DROP_PER_SPEED,
-        // A per-frame seed off the frame clock — varying (so retirement is spread across
-        // frames) and reproducible (so a render gate replays the same field).
-        (frame.elapsedMs % 10_000) / 10_000,
-      ),
-      this.arrowBindGroupFor(draper, read, origin, field, nearest, linear),
-    )
-    pass.end()
-    // AFTER the draw that used them, exactly as the trail's pair swaps.
-    this.arrows.swap()
+   *  live exactly as long as the pass keeps saying they do — now per region, so one domain
+   *  leaving cannot invalidate a sibling's still-valid pair. */
+  setArrowFields(fields: ReadonlyMap<string, FlowFieldRegion>): void {
+    for (const [region, field] of fields) {
+      const prev = this.arrowFields.get(region)
+      if (prev?.u === field.u && prev.v === field.v) continue
+      // Only THIS region's cached groups were built against the outgoing pair.
+      this.arrowFields.set(region, field)
+    }
+    // Nothing declared yet ⇒ nothing to prune, and no snapshot array to mint.
+    // The pass calls this EVERY frame now (#1046 Inc-F2c), so the common case on
+    // a coverage-less map has to cost zero allocations, not one throwaway array.
+    if (this.arrowFields.size === 0) return
+    for (const region of [...this.arrowFields.keys()]) {
+      if (fields.has(region)) continue
+      this.arrowFields.delete(region)
+    }
   }
 
   dispose(): void {
     this.stepper.destroy()
-    this.arrows.destroy()
     if (this.sampler) this.rhi.destroySampler(this.sampler)
     if (this.nearest) this.rhi.destroySampler(this.nearest)
     this.sampler = null
     this.nearest = null
-    this.arrowDraper = null
-    this.arrowElapsedMs = null
-    this.arrowBindGroups.clear()
-    this.arrowFieldU = this.arrowFieldV = null
+    this.arrowFields.clear()
     this.draper = null
     this.draperFormat = null
     this.bindGroups.clear()
@@ -321,24 +246,6 @@ export class FlowRenderer {
     return bg
   }
 
-  /** The arrow step's bind group, memoized per read side. The field views themselves are
-   *  `setArrowField`'s to own — this only builds against whatever is current. */
-  private arrowBindGroupFor(
-    draper: ArrowAdvectDraper,
-    read: RhiTextureView,
-    origin: RhiTextureView,
-    field: FlowFieldRegion,
-    nearest: RhiSampler,
-    linear: RhiSampler,
-  ): RhiBindGroup {
-    let bg = this.arrowBindGroups.get(read)
-    if (!bg) {
-      bg = draper.bindGroup(read, field.u, field.v, nearest, linear, origin)
-      this.arrowBindGroups.set(read, bg)
-    }
-    return bg
-  }
-
   /** Wipe one side of the pair — a pass with a clear load-op and no draw. */
   private clearView(frame: FlowFrame, view: RhiTextureView): void {
     const pass = this.begin(frame, {
@@ -350,7 +257,7 @@ export class FlowRenderer {
 
   /** THE fork (see the header). WebGL2 nests an FBO pass inside the live screen pass; every
    *  other backend records into this frame's encoder. Null when neither is available — the
-   *  `__xgisRawFrameShell` rollback leaves no RHI encoder — which skips the step rather than
+   *  twin frame carries no RHI encoder — which skips the step rather than
    *  throwing into the render loop. */
   private begin(frame: FlowFrame, desc: RhiRenderPassDesc): RhiRenderPass | null {
     const gl2 = asScreenPassDevice(this.rhi)

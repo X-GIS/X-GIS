@@ -179,53 +179,27 @@ describe('#824/#825 retained-arrow packer', () => {
 // one, an arrow can move solely along its launch bearing — the straight-line drift #65 shipped
 // and #70 reverted. Both anchors are SUPPLIED by the generator, one leash length away.
 
-describe('packCompiledArrowFeat — advected mode (#1419)', () => {
-  const F = ARROW_RETAINED_FEAT.slot
-  const S = ARROW_RETAINED_FEAT.stride
+describe('packCompiledArrowFeat — the ADVECTED path no longer comes through here (#1520)', () => {
+  // It used to. The tip block was reinterpreted as a grid-u step anchor, a grid-v block was
+  // appended, and each instance carried its own grid-uv origin — 14 slots and a whole second
+  // packing mode, all of it because the instance set was generated from the DATA, one entry per
+  // grid cell. #1520 step 2 replaced that generator with a lattice on the SCREEN, so the advected
+  // module binds no feat buffer at all and there is nothing for this packer to write for it.
+  //
+  // Asserted rather than simply deleted, because "the advected mode is gone from the packer" is
+  // exactly the kind of claim that a re-added optional parameter would quietly falsify.
 
-  const advected = {
-    uStepLon: [10.1],
-    uStepLat: [50],
-    vStepLon: [10],
-    vStepLat: [49.9],
-  }
-
-  it('writes the SUPPLIED grid-step anchors — it derives neither of them', () => {
-    // The anchors come from the generator, which is the only side that knows the coverage's
-    // grid and CRS: a packer stepping DEGREES is right for a geographic cell and silently wrong
-    // for a projected one, the #1366 failure this pipeline already paid for once.
-    const feat = packCompiledArrowFeat([10], [50], [123], [20], 1, 0, advected)
-    expect(feat[F.abs_lon]).toBeCloseTo(10, 6)
-    expect(feat[F.abs_lat]).toBeCloseTo(50, 6)
-    // grid-u step into the tip block…
-    expect(feat[F.tip_abs_lon]).toBe(Math.fround(10.1))
-    expect(feat[F.tip_abs_lat]).toBe(50)
-    // …grid-v step into its own. +v runs SOUTHWARD (row 0 is the north row), so it steps to a
-    // LOWER latitude — the same axis convention the advect step derives for its own step.
-    expect(feat[F.north_abs_lon]).toBe(10)
-    expect(feat[F.north_abs_lat]).toBe(Math.fround(49.9))
-  })
-
-  it('packs each anchor through the SAME geo authority as the tail — no second path', () => {
-    // The 12-slot ECEF/Mercator block for an anchor must equal the block a batch placed AT that
-    // point produces. Anything else is a second projection of the same point, which is where a
-    // sub-metre placement split between fill and glyph would come from.
-    const feat = packCompiledArrowFeat([10], [50], [0], [20], 1, 0, advected)
-    const atUStep = packCompiledArrowFeat([10.1], [50], [0], [20], 1, 0)
-    for (let s = 0; s < 12; s++) expect(feat[F.tip_ecef_x_h + s]).toBe(atUStep[s])
-  })
-
-  it('IGNORES the bearing — direction comes from the field, not from the pack', () => {
-    // The load-bearing difference from the static path. If bearing still shaped the anchors,
-    // an advected arrow would carry a frozen launch direction and the field sample would fight
-    // it — motion that looks smooth and reports the wrong current.
-    const a = packCompiledArrowFeat([10], [50], [0], [20], 1, 0, advected)
-    const b = packCompiledArrowFeat([10], [50], [270], [20], 1, 0, advected)
-    expect([...a]).toEqual([...b])
+  it("takes no advected input — the stride is the static path's own again", () => {
+    // 40 was tail + tip/grid-u + size/stroke + grid-v + origin. 26 is what the static catalogue
+    // portrayal has always needed, and the twelve slots it never wrote are gone with the mode
+    // that did.
+    expect(S).toBe(26)
+    expect(packCompiledArrowFeat.length, 'no advected parameter survives').toBeLessThanOrEqual(6)
+    expect(packCompiledArrowFeat([1, 2], [3, 4], [0, 0], [1, 1], 1)).toHaveLength(2 * S)
   })
 
   it('the STATIC path is unchanged where it is written — bearing still shapes the tip', () => {
-    // Every existing `| arrow` consumer goes through here. The stride grew, but the slots the
+    // Every existing `| arrow` consumer goes through here. The stride shrank; the slots the
     // static path writes must hold exactly what they held before.
     const n0 = packCompiledArrowFeat([10], [50], [0], [20], 1, 0)
     const n90 = packCompiledArrowFeat([10], [50], [90], [20], 1, 0)
@@ -233,13 +207,5 @@ describe('packCompiledArrowFeat — advected mode (#1419)', () => {
     expect(n0[F.tip_abs_lon]).toBeCloseTo(10, 6)
     expect(n90[F.tip_abs_lon]!).toBeGreaterThan(10) // due east
     expect(n90[F.tip_abs_lat]).toBeCloseTo(50, 6)
-    // ...and it leaves the advected-only block untouched.
-    expect(n0[F.north_abs_lon]).toBe(0)
-    expect(n0[F.north_abs_lat]).toBe(0)
-  })
-
-  it('the stride carries the north block', () => {
-    expect(S).toBe(38)
-    expect(packCompiledArrowFeat([1, 2], [3, 4], [0, 0], [1, 1], 1)).toHaveLength(2 * S)
   })
 })

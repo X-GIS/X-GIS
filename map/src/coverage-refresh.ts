@@ -1,7 +1,7 @@
 // ═══ Coverage refresh — conditional revalidation + the auto-refetch timer (#1158) ═══
 //
-// A `coverage` source fetched once at attach. A cell at a ROLLING url (NOAA's
-// `/noaa-s111/latest.h5`, a re-issued S-102 cell) changes underneath that read, so
+// A `coverage` source fetched once at attach. A cell at a ROLLING url (a rolling
+// NOAA S-111 cycle, a re-issued S-102 cell) changes underneath that read, so
 // tracking it live meant the host running its own timer and pushing bytes back through
 // `setCoverageData`. This owns the part that is actually library-worthy: deciding
 // whether a re-read is needed at all, and not tearing the display when one is in flight.
@@ -17,6 +17,8 @@
 // proxy that blocks HEAD, or a CORS response that does not expose ETag, must fall back
 // to "re-read unconditionally" — a throw here would kill the polling loop instead of
 // costing it some bandwidth.
+
+import { xlog } from '@xgis/shared'
 
 /** The cache validators a probe recovered; null when the server exposed neither. */
 export interface CoverageValidator {
@@ -145,7 +147,17 @@ export class CoverageRefreshScheduler {
       try {
         await tick()
       } catch (err) {
-        onError?.(err)
+        // #1573 — guarded, because this call is the ONE path that could stop the loop the
+        // docstring above promises never stops. Unguarded, a host `onError` that itself
+        // throws propagated out of this catch, rejected the async `run()` (invoked as
+        // `void run()`, so the rejection was discarded), and skipped the re-arm below —
+        // live polling of a safety-relevant chart dead forever, while the `timers` entry
+        // left behind kept `isRunning()` answering true. Mirrors `ListenerRegistry.dispatch`.
+        try {
+          onError?.(err)
+        } catch (handlerErr) {
+          xlog.error('[X-GIS] coverage refresh onError handler threw', handlerErr)
+        }
       }
       // Re-arm only if THIS loop still owns the source — a stop() during the tick drops
       // the entry, and a restart replaces `gen`, so neither can be re-armed over.

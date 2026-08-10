@@ -9,15 +9,15 @@
 // screen-space collision + atlas plumbing.
 //
 // Mechanical changes only: `this.host.X` -> `host.X`; the render-local
-// scalars the block read (device / dpr / sampleCount / w / h / encoder) are
-// re-bound from ctx at the top, and projType / centerLon / centerLat are
-// decoded from the opaque ctx.projection token (projection-token.ts) — this
-// pass owns that unwrap. `visibleWorldCopies` is produced + consumed entirely
-// here (label-node-local state, no longer a FrameContext field).
+// scalars the block read (dpr / sampleCount / w / h) are re-bound from ctx
+// at the top, and projType / centerLon / centerLat are decoded from the
+// opaque ctx.projection token (projection-token.ts) — this pass owns that
+// unwrap. `visibleWorldCopies` is produced + consumed entirely here
+// (label-node-local state, no longer a FrameContext field). The text-overlay
+// sub-pass originates through the RHI frame shell (#1046 F3b).
 
 import { evaluate, makeEvalProps, resolveColor } from '@xgis/compiler'
 import { markStart as perfMarkStart, markEnd as perfMarkEnd } from '../../__profile__/perf-marks'
-import { DEBUG_OVERDRAW } from '../../debug-flags'
 import { WORLD_MERC } from '@xgis/geo'
 import { activeBody } from '@xgis/shared'
 import { mercatorYToLat } from '@xgis/geo'
@@ -45,13 +45,16 @@ import type { TextStageOptions } from '../../text/text-stage-types'
 import { IconStage } from '../../sprite/icon-stage'
 import { resolveText } from '../../text/text-resolver'
 import { hexToRgba, featureAnchor } from '../../feature-helpers'
+import { resolveIconRotateRad } from './icon-keep-upright-rotate'
 import { dispatchCoverageSoundings } from './dispatch-coverage-soundings'
 import { ensureBackgroundPatternAtlas } from './background-pattern-atlas'
 import { type ShowCommand } from '../renderer-types'
 import type { FrameContext } from '../frame-context'
 import { unwrapProjection } from '../projection-token'
+import { Pitch0Unprojector } from '../../camera/pitch0-unproject'
+import { dispatchPointLabel, makeGroundBasisFor } from './dispatch-point-labels'
 import type { SceneView } from '../scene-view'
-import type { RenderPass, LabelPassHost } from './pass'
+import { requireRhiFrame, type RenderPass, type LabelPassHost } from './pass'
 import {
   LINE_LABEL_EDGE_INSET_CSS_PX,
   lineLabelEdgeInsetPx,
@@ -106,36 +109,6 @@ export function labelCollisionId(
   const width = String(Math.max(1, showCount)).length
   const invLayer = String(showCount - showIdx).padStart(width, '0')
   return `${invLayer}${TIEBREAK_GROUP_SEP}${featureIdentity}`
-}
-
-/** #777 I-B — resolve a line-placed icon's rotation (radians) for dispatchIcon,
- *  applying the Mapbox `icon-keep-upright` half-plane fold. Under
- *  icon-rotation-alignment=map the icon follows the per-segment `lineTangentDeg`
- *  (0° for point / viewport placement). `icon-keep-upright: true` keeps the icon
- *  facing up by flipping a DOWNWARD tangent 180° — the icon twin of the text
- *  keep-upright flip (text-stage.ts:1500-1530, `midAngle > π/2`). A tangent
- *  outside (-90°, 90°] screen-space gets +180°, so the resolved angle lands in
- *  the upright half-plane. The fold activates ONLY on an EXPLICITLY authored
- *  `keepUpright === true`; absent/false leaves the tangent untouched, so the
- *  rotation is byte-identical to today's always-follow-tangent render (the
- *  icon-allow-overlap absent-default convention). Not map-aligned → tangent is 0,
- *  so the fold is inert (icon-rotate alone).
- *  Exported for unit coverage — dispatchIcon is an anon closure. */
-export function resolveIconRotateRad(
-  iconRotateDeg: number,
-  lineTangentDeg: number,
-  rotationAlignmentMap: boolean,
-  keepUpright: boolean | undefined,
-): number {
-  let tangent = rotationAlignmentMap ? lineTangentDeg : 0
-  // Upright half-plane fold: on an EXPLICITLY authored keep-upright, a tangent
-  // pointing down (outside (-90°, 90°]) gets +180° so the resolved rotation
-  // lands upright — the icon twin of the text angle fold (label-pass.ts text
-  // arm / text-stage.ts midAngle test).
-  if (rotationAlignmentMap && keepUpright === true && (tangent > 90 || tangent < -90)) {
-    tangent += 180
-  }
-  return ((iconRotateDeg + tangent) * Math.PI) / 180
 }
 
 /** Per-segment sample count for line-label placement, computed from the
@@ -262,6 +235,11 @@ class LabelPass implements RenderPass {
   // `_skipState` above: `labelPass` is a module-level singleton adapted per map,
   // so a plain field would mix one map's counters into another's.
   private readonly _dropStatsByHost = new WeakMap<LabelPassHost, LineLabelDropStats>()
+  // #777 IV3 — the pitch-0 unprojector the ground basis composes against. Per
+  // HOST for the same reason as the maps above, and never per frame: it owns a
+  // matrix/inverse pair behind a cache whose whole point is that a pure tilt is
+  // a hit, which a fresh instance would throw away every frame.
+  private readonly _pitch0ByHost = new WeakMap<LabelPassHost, Pitch0Unprojector>()
   // The host whose counters the CURRENT frame is filling, assigned at `execute`
   // entry. A plain field is safe here only because `execute` is synchronous and
   // non-reentrant; the per-host map above is what actually holds the state.
@@ -291,7 +269,7 @@ class LabelPass implements RenderPass {
     // destructured — the projType-conditional label projector branches
     // collapsed to a single ECEF-based projector. Other passes still
     // consume them off FrameContext directly.
-    const { sampleCount: sc, encoder } = ctx,
+    const { sampleCount: sc } = ctx,
       { w, h, dpr } = ctx.screen // OVERLAY ⇒ screen
     // Symbol fade — advance every ramp once per RENDERED frame (S16 hit and
     // miss alike), OUTSIDE the labels-active gate below so in-flight ramps
@@ -656,6 +634,17 @@ class LabelPass implements RenderPass {
         isFlatProj ? undefined : host.camera.getECEFCenter(),
         true, // #1042 — label pass: apply the horizon MARGIN cull (not map.project)
       )
+
+      // #777 IV3 — the ground-basis producer for `text-pitch-alignment: map`.
+      // Built here because it composes the SAME `projectLonLat` the anchors were
+      // placed with; pairing it with any other projector would put the quad in a
+      // different frame from its own anchor.
+      let pitch0 = this._pitch0ByHost.get(host)
+      if (pitch0 === undefined) {
+        pitch0 = new Pitch0Unprojector()
+        this._pitch0ByHost.set(host, pitch0)
+      }
+      const groundBasisFor = makeGroundBasisFor(host.camera, w, h, projectLonLat, pitch0)
 
       // (a) Imperative overlays
       for (const ov of host.overlays) {
@@ -1160,43 +1149,17 @@ class LabelPass implements RenderPass {
             } else {
               const anchor = featureAnchor(feat.geometry)
               if (!anchor) continue
-              const featDef = applyFeatureExprs(feat.properties ?? {})
-              // Pass the full LabelDef and let TextStage.composeFontKey
-              // build the ctx.font shorthand (weight, italic, CJK
-              // fallback chain). Passing `def.font?.[0]` as a 6th-arg
-              // override here used to short-circuit that — every Mapbox
-              // label rendered in Regular weight and lost Hangul / Han
-              // fallback. Keep this comment on every call site so the
-              // override doesn't quietly come back.
-              for (const projected of projectLonLatCopies(anchor[0], anchor[1])) {
-                // iter 119: point-label paired-symbol collision. OFM
-                // Positron label_city/town/village pair the place name
-                // with circle_11_black icon and rely on
-                // icon-optional=false to drop the icon when text drops.
-                const pairedWithIcon =
-                  featDef.iconImage !== undefined &&
-                  featDef.iconImage !== null &&
-                  featDef.iconImage !== ''
-                const pairKey = pairedWithIcon
-                  ? pointLabelPairKey(labelLayerName, _pointLabelSeq++)
-                  : undefined
-                // #1081 — this copy's perspective distance-attenuation factor
-                // (projectLonLatCopies tuple slot 3); shared by the label + its icon.
-                const ps = projected[2]
-                stage.addLabel(
-                  featDef.text,
-                  feat.properties ?? {},
-                  projected[0],
-                  projected[1],
-                  featDef,
-                  undefined,
-                  labelLayerName,
-                  pairKey,
-                  undefined,
-                  ps,
-                )
-                dispatchIcon(featDef, projected[0], projected[1], 0, pairKey, false, undefined, ps)
-              }
+              dispatchPointLabel(feat.geometry, feat.properties ?? {}, anchor[0], anchor[1], {
+                applyFeatureExprs,
+                projectLonLatCopies,
+                addLabel: (v, p, x, y, d, f, ln, pk, cid, ps, gb) =>
+                  stage.addLabel(v, p, x, y, d, f, ln, pk, cid, ps, gb),
+                dispatchIcon,
+                layerName: labelLayerName,
+                nextPairKey: () => pointLabelPairKey(labelLayerName, _pointLabelSeq++),
+                groundBasisFor,
+                dpr,
+              })
             }
           }
           perfMarkEnd('encoder.label-dispatch.show')
@@ -1991,35 +1954,34 @@ class LabelPass implements RenderPass {
         iStage?.prepare(holdoverOk, motionHoldover)
       }
       perfMarkEnd('encoder.stage-prepare')
-      // Text overlay v1: skipped in debug=overdraw — text pipeline
-      // targets the swapchain format, not r16float. Phase 2 adds
-      // a text debug pipeline so glyph + halo overdraw counts.
-      if (!DEBUG_OVERDRAW) {
-        if (ctx.rhiPass) {
-          // Forced-WebGL2 frame (#834 M5 slices 3-4): draw on the live RHI
-          // screen pass — no WebGPU encoder exists on this path. Icons
-          // BEFORE text, matching the WebGPU ordering below.
-          iStage?.render(ctx.rhiPass, { width: ctx.screen.w, height: ctx.screen.h }, labelReplay)
-          stage.render(ctx.rhiPass, { width: ctx.screen.w, height: ctx.screen.h }, labelReplay)
-        } else {
-          ctx.passScope('text-overlay', () => {
-            const tPass = encoder.beginRenderPass({
-              colorAttachments: [
-                {
-                  view: ctx.colorView,
-                  resolveTarget: ctx.useResolve ? ctx.screenView : undefined,
-                  loadOp: 'load',
-                  storeOp: 'store',
-                },
-              ],
-            })
-            // Icons render BEFORE text so labels read on top of their
-            // POI badges — matches MapLibre's symbol-stage ordering.
-            iStage?.render(tPass, { width: ctx.screen.w, height: ctx.screen.h }, labelReplay)
-            stage.render(tPass, { width: ctx.screen.w, height: ctx.screen.h }, labelReplay)
-            tPass.end()
+      // Text overlay v1: skipped in debug=overdraw — text targets the swapchain
+      // format, not r16float. The FRAME's truth, never the URL flag: where the
+      // mode cannot run the attachment IS the swapchain, so reading the flag
+      // here drops the overlay for an r16float never allocated (Inc-F2d F1/F2).
+      if (!ctx.overdraw) {
+        // F3b: originate through the RHI frame encoder — on WebGPU this maps
+        // to the identical native descriptor (rhiRenderPassToGpu parity), and
+        // it is what lets this pass execute on WebGL2 (the only frame shape
+        // since the twin's deletion, #1046 Inc-F3a/F3b). Last colour writer
+        // of the frame ⇒ it claims the conditional MSAA resolve.
+        const { enc, screenView, colorViewScreen } = requireRhiFrame(ctx, 'labels')
+        ctx.passScope('text-overlay', () => {
+          const tPass = enc.beginRenderPass({
+            colorAttachments: [
+              {
+                view: colorViewScreen,
+                resolveTarget: ctx.useResolve ? screenView : undefined,
+                loadOp: 'load',
+                storeOp: 'store',
+              },
+            ],
           })
-        }
+          // Icons render BEFORE text so labels read on top of their
+          // POI badges — matches MapLibre's symbol-stage ordering.
+          iStage?.render(tPass, { width: ctx.screen.w, height: ctx.screen.h }, labelReplay)
+          stage.render(tPass, { width: ctx.screen.w, height: ctx.screen.h }, labelReplay)
+          tPass.end()
+        })
       }
       // Drop both stages' per-frame dispatch queues. iStage.reset() mirrors
       // stage.reset() so a frame that skipped iStage.prepare() (S16) cannot

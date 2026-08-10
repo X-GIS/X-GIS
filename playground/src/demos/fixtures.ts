@@ -19,6 +19,13 @@ export const DEMOS_FIXTURES: Record<string, Demo> = {
       'Single SDF point at (0, 0). Used by e2e fixture tests to validate the pointRenderer code path in isolation.',
     source: load('fixture-point.xgis'),
   },
+  fixture_tile_point_memo: {
+    name: 'Fixture: single point show (tile-point pack memo)',
+    tag: 'fixture',
+    description:
+      'World cities as ONE point layer over no basemap (#1616). The tile-point pack memo has a single cache slot per scene, so every shipped point demo (halo layer + pin layer) thrashes it and can never hit — this is the smallest scene in which it does. Every non-background pixel is a point, so a pan that fails to repack shows up as an empty frame.',
+    source: load('fixture-tile-point-memo.xgis'),
+  },
   fixture_symbol_icon: {
     name: 'Fixture: symbol icon (host image)',
     tag: 'fixture',
@@ -32,6 +39,13 @@ export const DEMOS_FIXTURES: Record<string, Demo> = {
     description:
       'Shield sprite stretched to its PAIRED text bbox via icon-text-fit: both (#777 I-A). Two symbol layers — a 2-digit ("12") narrow shield and a 5-digit ("12345") wide one — over the local sprite atlas. Load with &sprite=/fixture-sprite. §5 probe: A/B vs MapLibre, DC>0 confined to the shield quads.',
     source: load('fixture-symbol-icon-textfit.xgis'),
+  },
+  fixture_label_pitch_alignment: {
+    name: 'Fixture: text-pitch-alignment map vs viewport',
+    tag: 'fixture',
+    description:
+      'Two point-label layers over the SAME anchors (#777 IV3-a): `label-pitch-alignment-map` lies in the ground plane, `label-pitch-alignment-viewport` stays an upright billboard. Purpose-built because point labels resolve to viewport by DEFAULT and no real basemap authors the property, so the ground basis has nothing to act on elsewhere. §5 probe: pitch>0 must make the two arms diverge; at pitch 0 they must be identical (the basis is the identity there and is withheld, so the ground arm takes exactly the billboard path).',
+    source: load('fixture-label-pitch-alignment.xgis'),
   },
   fixture_format_image: {
     name: 'Fixture: inline image in label text (local sprite)',
@@ -162,8 +176,16 @@ export const DEMOS_FIXTURES: Record<string, Demo> = {
   fixture_categorical: {
     name: 'Fixture: categorical',
     tag: 'fixture',
-    description: 'match() data-driven fill.',
+    description:
+      'match() data-driven fill. Renders BLANK on the WebGL2 backend, which has no per-feature GPU fill path (#1592) — control twin: fixture_categorical_twin (_fill-data-driven-gl2-gate.spec.ts).',
     source: load('fixture-categorical.xgis'),
+  },
+  fixture_categorical_twin: {
+    name: 'Fixture: categorical (constant twin)',
+    tag: 'fixture',
+    description:
+      'The same three polygons with a constant fill — the control arm proving the source and harness paint on WebGL2, so the sibling’s blank frame reads as the backend gap and not as a broken fixture.',
+    source: load('fixture-categorical-twin.xgis'),
   },
   fixture_picking: {
     name: 'Fixture: picking',
@@ -517,5 +539,103 @@ export const DEMOS_FIXTURES: Record<string, Demo> = {
     description:
       'Synthetic earth-surface background fill only — AC2c.3.2 mesh density verification.',
     source: load('fixture-synth-bg-only.xgis'),
+  },
+  fixture_stage_color: {
+    name: 'Fixture: @color stage block (#1538)',
+    tag: 'fixture',
+    description:
+      'The fragment colour authored directly as a vec4 through a `@color` shader stage block. Pixel-parity twin: fixture_stage_color_twin (_stage-block-parity.spec.ts).',
+    source: load('fixture-stage-color.xgis'),
+  },
+  fixture_stage_color_twin: {
+    name: 'Fixture: @color stage block, utility twin (#1538)',
+    tag: 'fixture',
+    description:
+      'The same scene with the colour written as an ordinary fill utility — must render pixel-identical to fixture_stage_color.',
+    source: load('fixture-stage-color-twin.xgis'),
+  },
+  fixture_stage_line_color: {
+    name: 'Fixture: @stroke stage block on line (#1605)',
+    tag: 'fixture',
+    description:
+      'A constant `@stroke` colour authored directly as a vec4 on a line layer. CPU-folded (does not exercise the new WGSL composer). Pixel-parity twin: fixture_stage_line_color_twin (_stage-block-line-parity.spec.ts).',
+    source: load('fixture-stage-line-color.xgis'),
+  },
+  fixture_stage_line_color_twin: {
+    name: 'Fixture: @stroke stage block on line, utility twin (#1605)',
+    tag: 'fixture',
+    description:
+      'The same scene with the stroke colour written as an ordinary stroke utility — must render pixel-identical to fixture_stage_line_color.',
+    source: load('fixture-stage-line-color-twin.xgis'),
+  },
+  fixture_stage_line_color_zoom: {
+    name: 'Fixture: @stroke stage block on line, zoom-driven (#1605)',
+    tag: 'fixture',
+    description:
+      'A NON-constant `@stroke` body (reads zoom) — the one that actually exercises the line composer seam, on BOTH backends since #1605 Phase 3. CI-verified by _stage-block-line-webgl2-gate.spec.ts. NOTE: the red channel renders 0, not zoom/22 — a bare `zoom` inside a stage block still compiles to literal 0.0 (#1635, pre-existing, backend-agnostic). The green/blue constants prove the composed shader ran.',
+    source: load('fixture-stage-line-color-zoom.xgis'),
+  },
+  fixture_stage_point_color: {
+    name: 'Fixture: @color stage block on point (#1605)',
+    tag: 'fixture',
+    description:
+      'A constant `@color` colour authored directly as a vec4 on a point layer. CPU-folded (does not exercise the new WGSL composer). Pixel-parity twin: fixture_stage_point_color_twin (_stage-block-point-parity.spec.ts).',
+    source: load('fixture-stage-point-color.xgis'),
+  },
+  fixture_stage_point_color_twin: {
+    name: 'Fixture: @color stage block on point, utility twin (#1605)',
+    tag: 'fixture',
+    description:
+      'The same scene with the fill colour written as an ordinary fill utility — must render pixel-identical to fixture_stage_point_color.',
+    source: load('fixture-stage-point-color-twin.xgis'),
+  },
+  fixture_stage_point_color_zoom: {
+    name: 'Fixture: @color + @stroke stage blocks on point, zoom-driven (#1605)',
+    tag: 'fixture',
+    description:
+      'NON-constant `@color` AND `@stroke` bodies (both read zoom), composing independently — the one that actually exercises the point composer seam. WebGPU-only; not CI-checkable (no software WebGPU adapter). Zoom in/out to see the fill and stroke colours shift independently.',
+    source: load('fixture-stage-point-color-zoom.xgis'),
+  },
+  fixture_input_live: {
+    name: 'Fixture: `input` host contract (#1539)',
+    tag: 'fixture',
+    description:
+      'Declared `input`s driving opacity and @color. Drive them live from the console: `__xgisMap.setInput("threshold", 0.3)` / `setInput("highlight", "#22c55e")` — a uniform write, no pipeline rebuild.',
+    source: load('fixture-input-live.xgis'),
+  },
+  fixture_stdlib_star: {
+    name: 'Fixture: stdlib star, authored in .xgis (#1540)',
+    tag: 'fixture',
+    description:
+      'A symbolizer defined in /stdlib/shapes.xgis and imported over HTTP. Pixel-parity twin: fixture_builtin_star (_stdlib-shape-parity.spec.ts).',
+    source: load('fixture-stdlib-star.xgis'),
+  },
+  fixture_builtin_star: {
+    name: 'Fixture: built-in star (parity twin of #1540)',
+    tag: 'fixture',
+    description:
+      'The same glyph via the engine built-in `shape-star` — must render pixel-identical to fixture_stdlib_star.',
+    source: load('fixture-builtin-star.xgis'),
+  },
+  fixture_stdlib_star7: {
+    name: 'Fixture: stdlib star7, no built-in twin (#1540)',
+    tag: 'fixture',
+    description:
+      'A 7-pointed star that exists only because the imported .xgis module declares it — the extension half of the self-hosting proof.',
+    source: load('fixture-stdlib-star7.xgis'),
+  },
+  fixture_fn_binding: {
+    name: 'Fixture: user-fn binding (#1535)',
+    tag: 'fixture',
+    description:
+      'size-[halo(.v, 4)] — a user fn inlined into a per-feature GPU binding. Pixel-parity twin: fixture_fn_binding_manual (_fn-binding-parity.spec.ts).',
+    source: load('fixture-fn-binding.xgis'),
+  },
+  fixture_fn_binding_manual: {
+    name: 'Fixture: user-fn binding, hand-inlined twin (#1535)',
+    tag: 'fixture',
+    description:
+      'The same scene with the fn body hand-inlined — must render pixel-identical to fixture_fn_binding.',
+    source: load('fixture-fn-binding-manual.xgis'),
   },
 }

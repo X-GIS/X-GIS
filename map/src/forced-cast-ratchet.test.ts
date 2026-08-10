@@ -103,12 +103,17 @@ const BASELINE: Record<string, number> = {
   'compiler/src/tiler/geojsonvt/transform.ts': 3,
   'data/src/workers/geojson-compile-worker.ts': 3,
   'data/src/workers/geojson-tiling-worker.ts': 1,
+  // The shader-emit worker's single reply seam. `self` types as a Window under the app's
+  // DOM lib rather than a DedicatedWorkerGlobalScope, so posting needs one cast; both
+  // replies funnel through one documented `post()` so it stays at one, and the message it
+  // takes is a checked EmitOutMsg. Identical seam and reason to the tiling worker above.
+  'map/src/shaders/emit/shader-emit-worker.ts': 1,
   'data/src/workers/mvt-worker.ts': 4,
   'map/src/diagnostics.ts': 5,
   'map/src/feature-update-queue.ts': 1,
   'map/src/layer.ts': 1,
   'map/src/map.ts': 6,
-  'map/src/render-loop.ts': 6,
+  'map/src/render-loop.ts': 2,
   'map/src/render/line-renderer.ts': 1,
   'map/src/render/passes/label-pass.ts': 1,
   'map/src/render/pipeline-factory.ts': 1,

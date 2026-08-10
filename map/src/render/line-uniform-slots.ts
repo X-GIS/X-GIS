@@ -29,7 +29,7 @@ let _layer: UniformFieldSlots | undefined
  *  struct, derived from reflect(buildLineModule()). Memoised — the layout is static
  *  (pick-variant-independent: pick only touches the fragment output struct). */
 export function lineLayerUniformSlots(): UniformFieldSlots {
-  return (_layer ??= uniformFieldSlots(reflect(buildLineModule(false)), 'LineLayer'))
+  return (_layer ??= uniformFieldSlots(reflect(buildLineModule(null, false)), 'LineLayer'))
 }
 
 /** Canonical `LineLayer` byte size, derived from reflect() (= slots × 4). Use wherever

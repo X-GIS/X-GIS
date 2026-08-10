@@ -19,8 +19,8 @@
 //
 // This drives the REAL `backgroundPass.execute` (the exported singleton) with
 // a minimal hand-rolled FrameContext + BackgroundPassHost. No GPU: the only
-// device interaction the pass makes is `encoder.beginRenderPass({ colorAttachments:
-// [{ clearValue }] })`, which a fake encoder intercepts to read clearValue.a.
+// device interaction the pass makes is `rhiEncoder.beginRenderPass({ colorAttachments:
+// [{ clearValue }] })` (F3b seam), which a fake encoder intercepts to read the tuple alpha.
 //
 // Non-vacuous: base background alpha is 0.8 and the zoom-interp opacity shape
 // resolves to 0.5 at zoom 5 (0→0.25 .. 10→0.75, linear midpoint), so the
@@ -60,12 +60,14 @@ const ZOOM = 5
 function capturedClearAlpha(opacityShape: PropertyShape<number> | null): number {
   let clearAlpha = Number.NaN
 
+  // F3b seam: the ported pass originates through ctx.rhiEncoder (requireRhiFrame)
+  // and hands the RHI descriptor an RGBA clear TUPLE.
   const fakeEncoder = {
     beginRenderPass(desc: {
-      colorAttachments: { clearValue?: { r: number; g: number; b: number; a: number } }[]
+      colorAttachments: { clearValue?: readonly [number, number, number, number] }[]
     }): { end: () => void } {
       const cv = desc.colorAttachments[0]?.clearValue
-      if (cv) clearAlpha = cv.a
+      if (cv) clearAlpha = cv[3]
       return { end(): void {} }
     },
   }
@@ -74,8 +76,12 @@ function capturedClearAlpha(opacityShape: PropertyShape<number> | null): number 
     projection: makeProjectionToken(0, 0, 0), // mercator → flat, worldBand !== 'sphere-full'
     camera: { zoom: ZOOM },
     elapsedMs: 0,
-    colorView: {} as GPUTextureView,
-    encoder: fakeEncoder,
+    rhiEncoder: fakeEncoder as unknown as FrameContext['rhiEncoder'],
+    rhiScreenView: {} as unknown as FrameContext['rhiScreenView'],
+    rhiColorView: {} as unknown as FrameContext['rhiColorView'],
+    rhiStencilView: {} as unknown as FrameContext['rhiStencilView'],
+    rhiSceneResolveView: {} as unknown as FrameContext['rhiSceneResolveView'],
+    rhiColorViewScreen: {} as unknown as FrameContext['rhiColorViewScreen'],
     passScope: (_label: string, fn: () => void): void => {
       fn()
     },

@@ -100,6 +100,25 @@ export interface ShaderVariant {
   fillIsDefault: boolean
   /** Stroke counterpart to `fillIsDefault`. */
   strokeIsDefault: boolean
+  /** True when the STROKE colour came from a `@stroke` shader stage block
+   *  (#1538), as opposed to an ordinary constant/data-driven/zoom-
+   *  interpolated colour. `strokeExpr`/`!strokeIsDefault` do NOT distinguish
+   *  these — `strokeExpr` is unconditionally populated (shader-gen.ts:127)
+   *  and `strokeIsDefault` is only true when NO stroke is declared at all
+   *  (`kind === 'none'`), so polygon's fs_stroke composes an expression for
+   *  virtually every real layer, stage block or not. Line (#1605) needs a
+   *  narrower signal: it has no general "always specialize per layer"
+   *  strategy the way polygon does — its existing flat-uniform CPU-resolve
+   *  path already renders every constant/data-driven stroke correctly, so
+   *  only a genuine stage-block expression should route through the new
+   *  composer seam. */
+  strokeIsStage: boolean
+  /** FILL counterpart to `strokeIsStage` (#1605 Phase 2) — same reasoning:
+   *  `fillExpr`/`!fillIsDefault` don't distinguish a genuine `@color` stage
+   *  block from any other resolved fill colour. Point is the first consumer
+   *  that reads BOTH `fillIsStage` and `strokeIsStage`, independently — a
+   *  point layer can author `@color`, `@stroke`, both, or neither. */
+  fillIsStage: boolean
   /** P4-5 — populated by `mergeComputeAddendumIntoVariant` when the
    *  fill / stroke axis routed through a compute kernel. Each entry
    *  is `(paintAxis, bindGroup, binding)` so the runtime can detect
@@ -121,6 +140,11 @@ export interface ColorResult {
    *  composes it with opacity via `composeFillVec4(nodeExpr, opacity.nodeExpr)`.
    *  Mutually exclusive with `scalarNodeExpr` (the greyscale scalar path). */
   nodeExpr?: NodeLike<'vec4<f32>'>
+  /** Set by the `@color` / `@stroke` stage-block arm (#1538). The authored
+   *  vec4 is the FINAL colour — the escape hatch owns alpha — so the top
+   *  level passes `nodeExpr` through instead of re-composing opacity onto
+   *  it. */
+  isStage?: boolean
   /** Set by the scalar data-driven (grayscale) arm — the f32 value Node.
    *  Composed into `vec4(s, s, s, opacity)` at the top level (the colour is
    *  greyscale: the scalar drives r=g=b and opacity drives alpha), so it can't

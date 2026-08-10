@@ -26,13 +26,12 @@
 // never claims `resolveTarget` — the resolveOwner chain (opaque /
 // composite / points) and the label pass own the MSAA resolve unchanged.
 
-import { DEBUG_OVERDRAW } from '../../debug-flags'
 import { worldBandForProjType } from '@xgis/geo'
 import { resolveColorShape, resolveNumberShape } from '../paint-shape-resolve'
 import type { FrameContext } from '../frame-context'
 import { unwrapProjection } from '../projection-token'
 import type { SceneView } from '../scene-view'
-import type { RenderPass, BackgroundPassHost } from './pass'
+import { requireRhiFrame, type RenderPass, type BackgroundPassHost } from './pass'
 
 /** RGBA in straight-alpha unit floats (0..1), as `XGISMap._backgroundColor`
  *  stores it. */
@@ -88,15 +87,19 @@ class BackgroundPass implements RenderPass {
     const clearValue = backgroundClearValue(
       unwrapProjection(ctx.projection).projType,
       bg,
-      DEBUG_OVERDRAW,
+      ctx.overdraw,
     )
+    // F3b: originate through the RHI frame encoder — on WebGPU this maps to
+    // the identical native descriptor (rhiRenderPassToGpu parity), and it is
+    // what lets this pass execute on WebGL2 once the chain flips.
+    const { enc, colorView } = requireRhiFrame(ctx, 'background')
     ctx.passScope('background', () => {
-      const pass = ctx.encoder.beginRenderPass({
+      const pass = enc.beginRenderPass({
         colorAttachments: [
           {
-            view: ctx.colorView,
+            view: colorView,
             // Never the last colour writer → no resolveTarget.
-            clearValue,
+            clearValue: [clearValue.r, clearValue.g, clearValue.b, clearValue.a],
             loadOp: 'clear',
             storeOp: 'store',
           },

@@ -185,6 +185,28 @@ describe('CoverageRefreshScheduler — the poll loop', () => {
     expect(tick).toHaveBeenCalledTimes(3) // the loop survived the failure
   })
 
+  // #1573 — the case above uses a benign `vi.fn()` handler, so it never reached the one
+  // path that COULD stop this loop. `onError?.(err)` ran unguarded INSIDE the catch, so a
+  // host handler that itself throws propagated out, rejected the async `run()` — invoked as
+  // `void run()`, so the rejection was discarded — and skipped the conditional re-arm.
+  // Polling of a live safety-relevant chart then stopped forever while the `timers` entry
+  // left behind kept `isRunning()` answering true: bookkeeping alive, loop dead.
+  it('survives an onError handler that itself throws', async () => {
+    const s = new CoverageRefreshScheduler()
+    const onError = vi.fn(() => {
+      throw new Error('the host error handler is buggy')
+    })
+    let calls = 0
+    const tick = vi.fn(async () => {
+      if (++calls === 1) throw new Error('502 from the proxy')
+    })
+    s.start('bathy', 1000, tick, onError)
+    await vi.advanceTimersByTimeAsync(3100)
+    // Before the fix: tick ran exactly ONCE and no timer was pending, with isRunning true.
+    expect(tick).toHaveBeenCalledTimes(3)
+    expect(s.isRunning('bathy'), 'and the bookkeeping still matches reality').toBe(true)
+  })
+
   it('a restart is not doubled by the tick that was in flight', async () => {
     // start() during an in-flight tick must leave exactly ONE loop running: the old tick
     // re-arming on top of the new loop would silently double the poll rate.

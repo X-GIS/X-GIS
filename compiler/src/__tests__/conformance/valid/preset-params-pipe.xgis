@@ -1,0 +1,10 @@
+// @case valid
+// @construct preset-statement
+// @desc a parameterized preset applied in pipe position with a call-form apply item (#1536)
+xgis 1
+source w { type: geojson, url: "w.geojson" }
+preset glow(color, radius) { | fill-[color] stroke-[radius] }
+layer roads {
+  source: w
+  | apply-glow(#f59e0b, 4) opacity-80
+}

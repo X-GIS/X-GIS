@@ -2,25 +2,26 @@
 
 import type { GPUContext } from '@xgis/rhi-webgpu'
 import type { Camera } from '../camera'
-import { visibleTilesFrustum, tileUrl, loadImageTexture, loadImageBitmap } from '@xgis/data'
+import { visibleTilesFrustum, tileUrl, loadImageBitmap } from '@xgis/data'
 import { mercator as mercatorProj, mercatorYToLat } from '@xgis/geo'
 import { activeBody } from '@xgis/shared'
 import { lonLatToECEF, type ECEF } from '@xgis/shared'
 import type { RhiDevice, RhiRenderPass, RhiTexture } from '@xgis/engine'
 import { RasterDraper, type RasterTile } from './material/raster-material'
+import { FailedTileLedger } from './tile-retry'
 import {
   admitTile,
   type EvictableTile,
   evictToBudget,
   overBudget,
+  abortLoadingTiles,
   textureBytesOf,
   mipLevelCountFor,
   type LoadedTexture,
 } from './raster-cache-budget'
-import { wrapWebGpuPass } from '@xgis/rhi-webgpu'
 import { routeToSphereSelector, enumerateWorldCopies, isGlobeProj } from '@xgis/geo'
-import { isPickEnabled, getSampleCount } from '@xgis/engine'
-import { DEBUG_OVERDRAW } from '../debug-flags'
+import { pickTargetsEnabled, getSampleCount } from '@xgis/engine'
+import { isOverdrawActive } from '../debug-flags'
 import { globeVisibleTiles } from '@xgis/data'
 import { uniformBlock, type UniformBlockOf } from '@xgis/engine'
 import {
@@ -78,10 +79,21 @@ export function rasterFrameCamAnchor(
  *  so a given camera zoom samples raster texels at the same density as
  *  MapLibre. Round (not floor) is the raster roundZoom semantic both engines
  *  share. Clamp stays [0, 18] — the pre-existing pyramid cap.
+ *
+ *  `sourceMaxzoom` is the DATASET's deepest level, and clamping to it is what stops the
+ *  selector asking for tiles that cannot exist. The AWS terrarium bucket stops at z15,
+ *  and the +1 bias above means a 256-px source outruns it from about camera z14.5 — so
+ *  every visible tile 404s (verified against a reported failure:
+ *  `terrarium/16/13651/25075` → 404, its z15 parent `15/6825/12537` → 200, 101 KB).
+ *  Clamping instead keeps requesting the deepest REAL level and lets it draw magnified,
+ *  which is exactly MapLibre's Transform#coveringZoomLevel behaviour. The #1405 backoff
+ *  then goes back to being a safety net for genuinely-missing tiles rather than the only
+ *  defence against a storm the selector created.
  *  (exported for the zoom-selection unit gate — raster-cover-zoom.test.ts) */
-export function rasterCoverZoom(zoom: number, tileSize: number): number {
+export function rasterCoverZoom(zoom: number, tileSize: number, sourceMaxzoom?: number): number {
   const bias = Math.log2(512 / tileSize)
-  return Math.max(0, Math.min(18, Math.round(zoom + bias)))
+  const cap = sourceMaxzoom === undefined ? 18 : Math.min(18, sourceMaxzoom)
+  return Math.max(0, Math.min(cap, Math.round(zoom + bias)))
 }
 
 // ── Typed pack targets (#733 P2b) — layout from wgslLayout(U.struct), write()
@@ -235,7 +247,6 @@ const MAX_CACHED_TILES = 256
 const MAX_CONCURRENT_LOADS = 6
 
 export class RasterRenderer {
-  private device: GPUDevice
   /** The injected backend RHI device (ctx.rhi) — the RasterDraper routes resource
    *  creation through it (WebGpuDevice on WebGPU, WebGl2Device under ?forcegl2=1). */
   private readonly rhi: RhiDevice
@@ -294,6 +305,10 @@ export class RasterRenderer {
    *  re-arms its fade ramp, so a zoom-out cross-fades in instead of snapping to
    *  full opacity. Updated every render(); a continuing tile keeps its ramp. */
   private _lastTargetKeys = new Set<string>()
+  /** Tiles whose load resolved null, with the backoff state that stops them being
+   *  re-requested every frame (policy in tile-retry.ts). Cleared when the source is
+   *  re-armed — a new URL template is a new coverage. Same wiring as the hillshade arm. */
+  readonly failedTiles = new FailedTileLedger()
   // (per-tile packing goes through rasterTileBlock() — #733 P2b)
   private colorParams(): RasterColorParams {
     return {
@@ -306,12 +321,7 @@ export class RasterRenderer {
     }
   }
 
-  // ── Forced-WebGL2 raster slice (US-003) ──
-  // A SECOND draper backed by the WebGl2Device (host.ctx.rhi), drawing an analytic
-  // checker tile through the engine's RHI screen pass — the milestone proof that a real
-  // layer renders on the WebGL2 backend, not just offscreen. Distinct from `_rasterDraper`
-  // (the WebGPU pilot). Created lazily on the first forced-WebGL2 frame.
-  private _rhiDraper?: RasterDraper
+  // ── Analytic checker (US-003, ?debug=checker); draper shared since #1046 Inc-F2d.
   private _rhiChecker?: RhiTexture
   /** The WebGPU RasterDraper — render()'s sole draw path (P1.4). Lazily built with the
    *  swapchain format + sample count; rebuilt on a quality (MSAA) change via invalidation. */
@@ -327,7 +337,6 @@ export class RasterRenderer {
   }
 
   constructor(ctx: GPUContext) {
-    this.device = ctx.device
     this.rhi = ctx.rhi
     this.format = ctx.format
 
@@ -337,18 +346,28 @@ export class RasterRenderer {
     // only its tile cache + the per-frame paint params (_opacity/_nearest/…).
   }
 
-  /** A quality (MSAA / picking) change invalidates the raster draper so the next render()
-   *  lazily rebuilds its pipelines with the new getSampleCount() / isPickEnabled(). */
+  /** A quality flip RELEASES the raster draper (#1578) and drops it; next render rebuilds. */
   rebuildForQuality(): void {
+    this._rasterDraper?.destroy()
     this._rasterDraper = undefined
   }
 
   setUrlTemplate(url: string): void {
+    if (url !== this.urlTemplate) this.failedTiles.clearAll()
     this.urlTemplate = url
   }
 
   /** Set the source's tile size in px (256 | 512). Values other than 256/512
    *  keep the current setting — same validation the hillshade arm uses. */
+  /** Source-level `maxzoom` — the dataset's deepest real tile level, clamping the cover
+   *  zoom so the selector never asks for a tile that cannot exist. Undefined = unbounded
+   *  (the pre-existing behaviour for a source that does not declare one). */
+  private _sourceMaxzoom: number | undefined
+  setSourceMaxzoom(maxzoom: number | undefined): void {
+    this._sourceMaxzoom =
+      typeof maxzoom === 'number' && Number.isFinite(maxzoom) ? maxzoom : undefined
+  }
+
   setTileSize(tileSize: number | undefined): void {
     if (tileSize === 256 || tileSize === 512) this._tileSize = tileSize
   }
@@ -479,7 +498,11 @@ export class RasterRenderer {
     h: number,
     dpr: number,
   ): void {
-    this._rhiDraper ??= new RasterDraper(rhi, 'rgba8unorm', 1)
+    // The SAME draper the live raster path uses, so the pipeline is derived from
+    // the target rather than assumed. It baked ('rgba8unorm', 1) — inert on the
+    // WebGL2 twin, a validation error on a WebGPU frame (bgra8unorm, MSAA 4),
+    // and why the chain port first reached for a device fork (Inc-F2d review F3).
+    const draper = this.ensureRasterDraper()
     const checker = this.ensureRhiChecker(rhi)
     const frame = camera.getViewForProjection(projType, w, h, dpr)
 
@@ -523,20 +546,19 @@ export class RasterRenderer {
       gridN,
     )
 
-    this._rhiDraper.draw(pass, B.buffer, [
-      { texture: checker, tileBytes: new Float32Array(TB.buffer.slice(0)), gridN },
-    ])
+    const tiles = [{ texture: checker, tileBytes: new Float32Array(TB.buffer.slice(0)), gridN }]
+    draper.draw(pass, B.buffer, tiles, false, pickTargetsEnabled(this.rhi.caps))
   }
 
-  /** Backend-appropriate raster tile load (#834 M5 slice 2): the WebGPU path
-   *  is the verbatim loadImageTexture (byte-identical); WebGl2Device decodes
-   *  via the shared SSRF-guarded loadImageBitmap and uploads through the RHI
-   *  copyExternalImage seam (texSubImage2D — no CPU readback). */
+  /** Tile load, through the RHI on BOTH backends (#1579 — WebGPU used to bypass the RHI
+   *  entirely via the raw-device `loadImageTexture`, which allocates ONE mip level;
+   *  #1436's crawl fix was landed on the WebGL2 arm only, so the far-field minification
+   *  fix it exists for was still live for the default backend, and every render gate CI
+   *  runs is WebGL2 — the fork was invisible to the gate built to catch exactly this.
+   *  `rhi.createTexture` / `copyExternalImage` / `generateMipmaps` are generic over both
+   *  backends by construction, so unifying costs nothing and removes a fork that could
+   *  only drift again. */
   private async loadTileTexture(url: string, signal: AbortSignal): Promise<LoadedTexture | null> {
-    if (this.rhi.backend !== 'webgl2') {
-      const t = await loadImageTexture(this.device, url, signal)
-      return t ? { texture: t, bytes: textureBytesOf(t.width, t.height) } : null
-    }
     const bitmap = await loadImageBitmap(url, signal)
     if (!bitmap) return null
     // #1153 P2 R4 — createTexture throws on a lost context (rhi-webgl2 :963) and
@@ -566,13 +588,13 @@ export class RasterRenderer {
       if (tex) this.rhi.destroyTexture(tex)
       return null
     }
-    const bytes = textureBytesOf(bitmap.width, bitmap.height)
+    const bytes = textureBytesOf(bitmap.width, bitmap.height, true)
     bitmap.close()
     return { texture: tex, bytes }
   }
 
   render(
-    pass: GPURenderPassEncoder | RhiRenderPass,
+    pass: RhiRenderPass,
     camera: Camera,
     projType: number,
     projCenterLon: number,
@@ -588,13 +610,13 @@ export class RasterRenderer {
     // its contribution would mismatch the r16float accumulator format.
     // Skip entirely — raster tiles produce uniform 1× overdraw which
     // the heatmap can do without for now.
-    if (DEBUG_OVERDRAW) return
+    if (isOverdrawActive(this.rhi.caps)) return
     this.frameCount++
 
     const frame = camera.getViewForProjection(projType, canvasWidth, canvasHeight, dpr)
     const { zoom } = camera
 
-    const currentZ = rasterCoverZoom(zoom, this._tileSize)
+    const currentZ = rasterCoverZoom(zoom, this._tileSize, this._sourceMaxzoom)
 
     // On zoom change: cancel distant zoom requests but KEEP parent tiles loading
     if (currentZ !== this.lastZoom) {
@@ -669,6 +691,10 @@ export class RasterRenderer {
     for (const coord of loadOrder) {
       const key = `${coord.z}/${coord.x}/${coord.y}`
       if (this.tileCache.has(key) || this.loadingTiles.has(key)) continue
+      // A failed load leaves the key in neither map, so without this guard the next
+      // frame re-requests it — forever, at ~60 fps, pinning every concurrency slot
+      // with requests that can never succeed (tile-retry.ts explains the shape).
+      if (!this.failedTiles.requestable(key)) continue
       if (this.loadingTiles.size >= MAX_CONCURRENT_LOADS) break // respect concurrency limit
 
       const ctrl = new AbortController()
@@ -680,14 +706,22 @@ export class RasterRenderer {
         // failure (bitmap fetch reject, or createTexture throw on a lost context)
         // resolves to null so the .then ALWAYS frees the loadingTiles slot (else the
         // key wedges, pinning all MAX_CONCURRENT slots → raster stalls). Scoped here so
-        // a throw from the .then bookkeeping stays a visible unhandled rejection, not swallowed.
+        // a throw from the .then bookkeeping still surfaces — through the terminal
+        // handler below, not as an unhandled rejection (#1565: this leaf chain floated
+        // while its parent-fallback sibling 50 lines down already terminated; two
+        // siblings, two error channels, and no rule enforcing either until now).
         .catch(() => null)
         .then((texture) => {
           this.loadingTiles.delete(key)
-          if (!texture) return
+          if (!texture) {
+            this.failedTiles.noteOutcome(key, ctrl.signal.aborted)
+            return
+          }
+          this.failedTiles.clear(key)
           this._cacheTile(key, texture)
           this.evictTiles(visibleKeys)
         })
+        .catch((e) => console.error('[X-GIS] raster tile post-load bookkeeping failed', e))
     }
 
     // Write global uniforms through the typed block (#733 P2b — the single
@@ -720,6 +754,7 @@ export class RasterRenderer {
         const parentY = coord.y >> pz
         const parentKey = `${parentZ}/${parentX}/${parentY}`
         if (this.tileCache.has(parentKey) || this.loadingTiles.has(parentKey)) continue
+        if (!this.failedTiles.requestable(parentKey)) continue
         if (this.loadingTiles.size >= MAX_CONCURRENT_LOADS) break
         const ctrl = new AbortController()
         this.loadingTiles.set(parentKey, ctrl)
@@ -732,7 +767,12 @@ export class RasterRenderer {
           .catch(() => null)
           .then((texture) => {
             this.loadingTiles.delete(parentKey)
-            if (texture) this._cacheTile(parentKey, texture)
+            if (!texture) {
+              this.failedTiles.noteOutcome(parentKey, ctrl.signal.aborted)
+              return
+            }
+            this.failedTiles.clear(parentKey)
+            this._cacheTile(parentKey, texture)
           })
           .catch((e) => console.error('[X-GIS] raster parent-tile post-load bookkeeping failed', e))
       }
@@ -948,17 +988,10 @@ export class RasterRenderer {
     // owns the per-tile pool + the global/texture/sampler bind group. pick = the opaque-pass MRT.
     // Always called (even with 0 visible tiles) so the global uniform is written every frame —
     // matching the legacy path (it wrote the global before the loop): 0 tiles → global write, no draws.
-    // A WebGl2Device frame hands in an RhiRenderPass already; the WebGPU frame
-    // still passes the raw encoder (wrapped here, flips with its cluster).
-    this.ensureRasterDraper().draw(
-      this.rhi.backend === 'webgl2'
-        ? (pass as RhiRenderPass)
-        : wrapWebGpuPass(pass as GPURenderPassEncoder),
-      B.buffer,
-      tilesArr,
-      this._nearest,
-      isPickEnabled(),
-    )
+    // Both frame shapes hand in an RhiRenderPass (Inc-2d) — the old
+    // backend-keyed re-wrap was the 34d4695 double-wrap class.
+    const pick = pickTargetsEnabled(this.rhi.caps)
+    this.ensureRasterDraper().draw(pass, B.buffer, tilesArr, this._nearest, pick)
 
     // Capture this frame's visible set; deferred eviction runs in the next
     // beginFrame(). Eviction used to run inline here, but destroying tile
@@ -982,6 +1015,10 @@ export class RasterRenderer {
    *  Policy lives in raster-cache-budget so both renderers share one copy. */
   private _cacheTile(k: string, t: LoadedTexture): void {
     this._cachedBytes = admitTile(this.tileCache, k, t, this.frameCount, this._cachedBytes)
+  }
+
+  destroy(): void {
+    abortLoadingTiles(this.loadingTiles) // #1570 — teardown must CANCEL, not just unschedule
   }
 
   private evictTiles(vis: Set<string>): void {

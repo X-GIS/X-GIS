@@ -3,12 +3,11 @@
 // The second half of the translucent-line path: after the MAX-blend offscreen accumulation
 // (LineDraper 'max' mode), a fullscreen pass samples that offscreen RT and composites it onto
 // the main target with the per-layer opacity (a dynamic-offset ring slot), premultiplied-alpha
-// blended. On webgl2 the Material carries the GLSL twins + by-name entry groups and the
-// offscreen view arrives as an RHI handle via drawRhi (#834 M5); the WebGPU path keeps its
-// raw-GPUTextureView draw() verbatim.
+// blended. The Material carries the GLSL twins +
+// by-name entry groups; both frame shapes hand the offscreen view as an RHI
+// handle via drawRhi (#834 M5, chain since Inc-2d).
 
 import type { RhiBuffer, RhiDevice, RhiRenderPass, RhiTextureView } from '@xgis/engine'
-import { wrapWebGpuTextureView } from '@xgis/rhi-webgpu'
 import { Material, executeItems } from '@xgis/engine'
 import { emitCompositeWgsl } from '../../shaders/dsl/line-composite'
 import { emitCompositeGlsl } from '../../shaders/dsl/line-glsl'
@@ -18,6 +17,15 @@ import { wgslFor } from './wgsl-for'
 const COMPOSITE_SLOT = 256
 
 export class LineCompositeDraper {
+  /** Release the GPU objects this draper owns (#1578). Called by `rebuildForQuality()`
+   *  before the reference is dropped — a quality flip is live-session churn, not teardown,
+   *  so nothing else would ever reclaim these. */
+  destroy(): void {
+    this._material?.destroy()
+    this._material = undefined
+    this.rhi.destroySampler(this.sampler.sampler)
+  }
+
   private _material?: Material
   private readonly sampler
 
@@ -55,17 +63,10 @@ export class LineCompositeDraper {
     }))
   }
 
-  /** Composite the offscreen RT onto the bound (main) pass. `ring`/`offset` are the per-layer
-   *  opacity ring + its dynamic offset (the renderer wrote the opacity before calling). */
-  draw(pass: RhiRenderPass, offscreenView: GPUTextureView, ring: RhiBuffer, offset: number): void {
-    // `ring` is line's PRIVATE composite-opacity ring (RhiBuffer, §4 seam) → passed
-    // straight through; the offscreen view stays a raw GPUTextureView (the offscreen
-    // RT/pass origination is deferred to P2) → adopted via wrapWebGpuTextureView.
-    this.drawRhi(pass, wrapWebGpuTextureView(offscreenView), ring, offset)
-  }
-
-  /** Backend-blind sibling: the offscreen view arrives as an RHI handle (the
-   *  forced-WebGL2 frame's offscreen RT — #834 M5). */
+  /** Composite the offscreen RT (an RHI handle — the one offscreen set both
+   *  frame shapes share) onto the bound main pass. `ring`/`offset` are the
+   *  per-layer opacity ring + its dynamic offset (the renderer wrote the
+   *  opacity before calling). */
   drawRhi(
     pass: RhiRenderPass,
     offscreenView: RhiTextureView,

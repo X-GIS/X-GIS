@@ -14,7 +14,7 @@
 // resolve to a "loaded but empty" state — the rasterizer pipeline
 // can decide to skip icons silently rather than crash.
 
-import { assertSafeRemoteUrl, readBodyCapped, safeFetch } from '@xgis/shared'
+import { assertNotErrorPage, assertSafeRemoteUrl, readBodyCapped, safeFetch } from '@xgis/shared'
 
 /** DoS ceilings for sprite assets — an atlas PNG is a few MB at most; the
  *  JSON metadata far less. Generous, but bound a size-bomb. */
@@ -188,6 +188,9 @@ export class SpriteAtlasHost {
         readBodyCapped(jsonRes, MAX_SPRITE_JSON_BYTES, 'sprite json'),
         readBodyCapped(pngRes, MAX_SPRITE_PNG_BYTES, 'sprite png'),
       ])
+      // A wrong sprite base URL yields 200 + HTML on most hosts, so the
+      // `!jsonRes.ok` check above passes and JSON.parse is what fails (#1627).
+      assertNotErrorPage(jsonRes, jsonBytes, `sprite json ${jsonUrl}`)
       const rawJson = JSON.parse(new TextDecoder().decode(jsonBytes)) as Record<
         string,
         RawSpriteEntry
@@ -215,11 +218,16 @@ export class SpriteAtlasHost {
       this.dpr >= 1.5
         ? tryLoad(HIGH_DPR_SUFFIX).catch(fallbackLoad)
         : tryLoad('').catch(handleFailure)
-    start.finally(() => {
-      this.resolveReady?.()
-      this.resolveReady = null
-      this.onLanded?.()
-    })
+    start
+      .finally(() => {
+        this.resolveReady?.()
+        this.resolveReady = null
+        this.onLanded?.()
+      })
+      // `start` itself cannot reject (both arms end in a catch), but `onLanded` is a
+      // host callback and `.finally` re-throws whatever it throws — terminate the
+      // chain so that surfaces as a log rather than an unhandled rejection (#1565).
+      .catch((e) => console.error('[X-GIS] sprite atlas landed-callback failed', e))
   }
 }
 

@@ -8,9 +8,6 @@
 
 import { BLEND_ALPHA } from '@xgis/rhi-webgpu'
 import { emitOverdrawComposeWgsl } from '@xgis/engine'
-import { HEATMAP_DENSITY_FORMAT } from './heatmap-targets'
-import { emitHeatmapBlurWgsl } from '../shaders/dsl/heatmap-blur'
-import { emitHeatmapComposeWgsl } from '../shaders/dsl/heatmap-compose'
 import { emitOitComposeWgsl } from '../shaders/dsl/oit-compose'
 
 interface BuiltPipeline {
@@ -88,81 +85,7 @@ export function buildOverdrawComposePipeline(
   return { pipeline, layout }
 }
 
-/** Heatmap separable-Gaussian blur: fullscreen triangle samples the r16float density via textureLoad
- *  and writes the 9-tap blur to an r16float target. The `direction` uniform selects H vs V. */
-export function buildHeatmapBlurPipeline(device: GPUDevice): BuiltPipeline {
-  const module = device.createShaderModule({
-    code: emitHeatmapBlurWgsl(),
-    label: 'heatmap-blur-shader',
-  })
-  const layout = device.createBindGroupLayout({
-    label: 'heatmap-blur-bgl',
-    entries: [
-      {
-        binding: 0,
-        visibility: GPUShaderStage.FRAGMENT,
-        texture: { sampleType: 'unfilterable-float', multisampled: false },
-      },
-      { binding: 1, visibility: GPUShaderStage.FRAGMENT, buffer: { type: 'uniform' } },
-    ],
-  })
-  const pipeline = device.createRenderPipeline({
-    label: 'heatmap-blur-pipeline',
-    layout: device.createPipelineLayout({ bindGroupLayouts: [layout] }),
-    vertex: { module, entryPoint: 'vs_full' },
-    fragment: { module, entryPoint: 'fs_blur', targets: [{ format: HEATMAP_DENSITY_FORMAT }] },
-    primitive: { topology: 'triangle-list' },
-    multisample: { count: 1 },
-  })
-  return { pipeline, layout }
-}
-
-/** Heatmap compose: samples the blurred density (textureLoad), maps it through the colour-ramp LUT
- *  (filterable rgba8, textureSample) × intensity × opacity, alpha-blended over the resolved swapchain. */
-export function buildHeatmapComposePipeline(
-  device: GPUDevice,
-  format: GPUTextureFormat,
-): BuiltPipeline {
-  const module = device.createShaderModule({
-    code: emitHeatmapComposeWgsl(),
-    label: 'heatmap-compose-shader',
-  })
-  const layout = device.createBindGroupLayout({
-    label: 'heatmap-compose-bgl',
-    entries: [
-      {
-        binding: 0,
-        visibility: GPUShaderStage.FRAGMENT,
-        texture: { sampleType: 'unfilterable-float', multisampled: false },
-      },
-      {
-        binding: 1,
-        visibility: GPUShaderStage.FRAGMENT,
-        texture: { sampleType: 'float', multisampled: false },
-      },
-      { binding: 2, visibility: GPUShaderStage.FRAGMENT, sampler: { type: 'filtering' } },
-      { binding: 3, visibility: GPUShaderStage.FRAGMENT, buffer: { type: 'uniform' } },
-    ],
-  })
-  const pipeline = device.createRenderPipeline({
-    label: 'heatmap-compose-pipeline',
-    layout: device.createPipelineLayout({ bindGroupLayouts: [layout] }),
-    vertex: { module, entryPoint: 'vs_full' },
-    fragment: {
-      module,
-      entryPoint: 'fs_compose',
-      targets: [
-        {
-          format,
-          blend: {
-            color: { srcFactor: 'src-alpha', dstFactor: 'one-minus-src-alpha', operation: 'add' },
-            alpha: { srcFactor: 'one', dstFactor: 'one-minus-src-alpha', operation: 'add' },
-          },
-        },
-      ],
-    },
-    primitive: { topology: 'triangle-list' },
-    multisample: { count: 1 },
-  })
-  return { pipeline, layout }
-}
+// (The heatmap blur/compose pipelines moved behind the RHI drapers in
+// material/heatmap-material.ts — one Material per stage drives BOTH frame
+// shapes, #1046 F3b Inc-2c. The WGSL here and there was already the same
+// shader-dsl emit; only the native pipeline plumbing was duplicated.)

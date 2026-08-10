@@ -53,7 +53,7 @@ function layout(wgsl: string, structName: string): { off: Record<string, number>
 
 describe('polygon Uniforms ↔ line TileUniforms byte-parity (#998)', () => {
   const poly = layout(emitPolygonWgsl(null, false), 'Uniforms')
-  const line = layout(emitLineWgsl(false), 'TileUniforms')
+  const line = layout(emitLineWgsl(null, false), 'TileUniforms')
 
   it('every field shared by name lands at the same byte offset in both structs', () => {
     const shared = Object.keys(poly.off).filter((f) => f in line.off)

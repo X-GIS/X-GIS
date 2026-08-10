@@ -199,11 +199,24 @@ class WebGpuRenderPass implements RhiRenderPass {
   end(): void {
     if ('end' in this.enc) this.enc.end()
   }
+  /** Native handle for module-level unwrap (mirrors WebGpuCommandEncoder.nativeEncoder). */
+  get nativePass(): GPURenderPassEncoder | GPURenderBundleEncoder {
+    return this.enc
+  }
 }
 
 /** Wrap a live GPURenderPassEncoder OR a GPURenderBundleEncoder (the render loop's pass / a VTR tile
- *  bundle) as an RHI pass so renderers record against the interface, not the native encoder. */
+ *  bundle) as an RHI pass so renderers record against the interface, not the native encoder.
+ *  Fail-loud on an ALREADY-WRAPPED pass (#1046 F3b review): the chain retype hands RhiRenderPass
+ *  handles down paths that used to receive natives, and a cast-laundered re-wrap here is silent
+ *  corruption — the double wrapper unwraps to the inner WRAPPER, so the real encoder receives
+ *  undefined pipelines/groups. Caught live in the hillshade port; a throw turns the whole class
+ *  into an immediate, named failure instead of a dead frame. */
 export function wrapWebGpuPass(enc: GPURenderPassEncoder | GPURenderBundleEncoder): RhiRenderPass {
+  if (enc instanceof WebGpuRenderPass)
+    throw new Error(
+      'wrapWebGpuPass: received an RhiRenderPass wrapper — already RHI; pass it through instead (double wrap corrupts the native encoder)',
+    )
   return new WebGpuRenderPass(enc)
 }
 
@@ -237,6 +250,16 @@ export function wrapWebGpuBuffer(buffer: GPUBuffer): RhiBuffer {
  *  identical to the pre-migration `device.createBuffer` handle. */
 export function unwrapWebGpuBuffer(buffer: RhiBuffer): GPUBuffer {
   return u<GPUBuffer>(buffer)
+}
+
+/** Recover the native `GPUTexture` from an RHI texture — the inverse of the
+ *  device's `createTexture` wrap, mirroring `unwrapWebGpuBuffer`. Used at the
+ *  one raw readback sink that outlived the RenderTargets retype (#1046 F4
+ *  Inc-D): the pick `copyTextureToBuffer` + `mapAsync` path in
+ *  interaction-controller, which stays raw WebGPU until the RHI readback seam
+ *  (G4/P7). Identity on WebGPU — the same `GPUTexture` the wrap holds. */
+export function unwrapWebGpuTexture(texture: RhiTexture): GPUTexture {
+  return u<GPUTexture>(texture)
 }
 
 /** Adopt an externally-created bind-group layout (line reuses the VTR tile layout
@@ -332,6 +355,25 @@ export function unwrapWebGpuCommandEncoder(enc: RhiCommandEncoder): GPUCommandEn
   return (enc as WebGpuCommandEncoder).nativeEncoder
 }
 
+/** Recover the native pass encoder from an RHI pass (the inverse of
+ *  `wrapWebGpuPass`, completing the unwrap set) — the bridge for the ONE
+ *  WebGPU-encoder concern the chain retype leaves at the gpuTimer seam
+ *  (mid-pass writeTimestamp marks; see GPUTimer.markRhi). Identity on
+ *  WebGPU — the same native encoder the wrapper holds. */
+export function unwrapWebGpuPass(
+  pass: RhiRenderPass,
+): GPURenderPassEncoder | GPURenderBundleEncoder {
+  // Fail LOUD at the boundary (#1046 Inc-E2, arch review F3): a foreign
+  // wrapper (a WebGl2 pass) used to unwrap to silent `undefined` and crash
+  // far away at the first native method call — the exact failure shape of
+  // every native-bodied terminal reached on a non-WebGPU backend.
+  if (!(pass instanceof WebGpuRenderPass))
+    throw new Error(
+      'unwrapWebGpuPass: not a WebGPU pass wrapper — a native-bodied terminal was reached on a non-WebGPU backend (port it to the *Rhi entries, #1046 Inc-E2)',
+    )
+  return pass.nativePass
+}
+
 /** Recover the native `GPUTextureView` from an RHI view — used by the F2 frame
  *  shell to feed the RHI-acquired swapchain view (`acquireScreenView`) to the
  *  not-yet-migrated raw passes / RenderTargets. Identity on WebGPU. */
@@ -368,6 +410,9 @@ export class WebGpuDevice implements RhiDevice {
       compute: 'native',
       timestampQuery: device.features?.has('timestamp-query') ?? false,
       executionModel: 'deferred',
+      // WebGPU reads `RhiPipelineDesc.code` and ignores vsCode/fsCode entirely.
+      shaderLanguage: 'wgsl',
+      chainFrame: true,
     } as const)
   }
 
@@ -391,6 +436,16 @@ export class WebGpuDevice implements RhiDevice {
     if (this._frameEncoder) this._frameEncoder.rebind(enc)
     else this._frameEncoder = new WebGpuCommandEncoder(this.device, { own: enc })
     return this._frameEncoder
+  }
+
+  pushValidationScope(): void {
+    this.device.pushErrorScope('validation')
+  }
+
+  popValidationScope(): Promise<string | null> {
+    // Message-or-null; a REJECTED pop passes through untouched (Audit ⑧ B2 —
+    // the caller's rejected-pop arm is a real fault signal, never swallowed).
+    return this.device.popErrorScope().then((e) => e?.message ?? null)
   }
 
   createCommandEncoder(label?: string): RhiCommandEncoder {

@@ -9,9 +9,29 @@
 // multi-timestep cell), falling back to a capped whole-file fetch when the server does
 // not honour Range. `fetchFn` carries the caller's SSRF guard — this module never picks
 // a fetch itself.
+//
+// ## Cancellation (#1570) — why there is no `signal` parameter here
+//
+// This chain had NO `AbortSignal` anywhere, and a signal-less `fetch` is uncancellable
+// BY SPEC. `map.destroy()` ran `_coverageRefresh.stopAll()`, which clears setTimeouts
+// and nothing else — so a read those timers had already begun streamed to completion,
+// was fully buffered and parsed, and only then discarded at a landing guard, on a map
+// the host had already unmounted. Cells are 10-250 MB (capped at 256 MB below), so a
+// route change mid-load was a quarter-gigabyte transient allocation and a bandwidth
+// burst competing with the replacement scene's own fetches; the pending continuations
+// also pinned the `deps` closure, and through it the map graph, until every region
+// settled.
+//
+// The signal is injected into `fetchFn` itself (map.ts's `guardedFetch`, cancelled by
+// `CoverageReadCancellation` in map-teardown.ts) rather than threaded as a parameter
+// through this module, the range reader and the whole-file fallback. One injection
+// point covers the WHOLE ladder — the range probe, every chunk read, and the fallback
+// — including code paths inside `@xgis/data` that never took an options bag, and
+// aborting mid-transfer also cancels the response body stream `readBodyCapped` is
+// draining. A `signal` parameter here would cover strictly less and cost more.
 
 import { readCoverage, readCoverageRange, type Bbox, type CoverageHandle } from '@xgis/data'
-import { readBodyCapped } from '@xgis/shared'
+import { assertNotErrorPage, readBodyCapped } from '@xgis/shared'
 
 /** Whole-file fallback cap — the attach path's long-standing budget, kept as one authority. */
 const MAX_COVERAGE_BYTES = 256 * 1024 * 1024
@@ -38,6 +58,9 @@ export async function fetchCoverageHandle(
     const response = await fetchFn(url)
     if (!response.ok) throw new Error(`[X-GIS] ${label} — HTTP ${response.status}`)
     const raw = await readBodyCapped(response, MAX_COVERAGE_BYTES, label)
+    // 200-with-HTML (a missing cell on most hosts) would reach the HDF5 reader
+    // as an unrecognised-signature error naming no URL (#1627).
+    assertNotErrorPage(response, raw, label)
     const buf = raw.buffer.slice(raw.byteOffset, raw.byteOffset + raw.byteLength)
     return readCoverage(buf, url, opts)
   }

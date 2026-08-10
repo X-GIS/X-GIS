@@ -26,6 +26,19 @@ export interface RasterTile {
 }
 
 export class RasterDraper {
+  /** Release the GPU objects this draper owns (#1578). Called by `rebuildForQuality()`
+   *  before the reference is dropped — a quality flip is live-session churn, not teardown,
+   *  so nothing else would ever reclaim these. */
+  destroy(): void {
+    this.material.destroy()
+    this._pickMaterial?.destroy()
+    this._pickMaterial = undefined
+    this.rhi.destroySampler(this.linearSampler.sampler)
+    this.rhi.destroySampler(this.nearestSampler.sampler)
+    this.globalBGByTex.clear()
+    this.viewByTex.clear()
+  }
+
   private readonly material: Material // non-pick: single colour target
   // pick pass: colour + rg32uint pick MRT (writes 0 — raster isn't pickable). LAZY — built on the
   // first pick draw so the non-pick path (incl. the WebGl2 checker, which fail-closes on an

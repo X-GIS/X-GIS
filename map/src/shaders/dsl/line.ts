@@ -59,6 +59,7 @@ import {
   Discard,
   madd,
   outsideRange,
+  Return,
   ReturnIf,
   Switch,
   f32T,
@@ -70,9 +71,11 @@ import {
   texture2dfT,
   samplerT,
   arrayT,
-  type Node,
+  Node,
+  Builder,
   type ReadonlyNode,
   type ModuleDecl,
+  type Stmt,
 } from '@xgis/shader-dsl'
 import {
   ioStruct,
@@ -84,7 +87,7 @@ import {
   resource,
   arrayOf,
 } from '@xgis/shader-dsl'
-import { emitModule } from '@xgis/shader-dsl'
+import { emitModule, composeModule } from '@xgis/shader-dsl'
 import {
   inv_merc_lat_rad,
   flat_rel,
@@ -165,6 +168,17 @@ const TILE = uniformStruct(
     // the pitch-invariant centre hemisphere). MUST sit at byte 256 = polygon
     // Uniforms.globe_eye (shared VTR buffer). Struct grows 240→272.
     globe_eye: vec4fT,
+    // #1539 — polygon's reserved `input` pool (8 f32 + 4 vec4 = 96 B) occupies
+    // bytes 272..367 of the SHARED VTR group(0) buffer. The line shader reads no
+    // input, so it mirrors the SIZE only, as 6 vec4 pads rather than 12 named
+    // lanes. Without this the two structs disagree on total size and every line
+    // draw reads the buffer at the wrong stride (polygon-line-uniform-parity).
+    _pad_input_0: vec4fT,
+    _pad_input_1: vec4fT,
+    _pad_input_2: vec4fT,
+    _pad_input_3: vec4fT,
+    _pad_input_4: vec4fT,
+    _pad_input_5: vec4fT,
   },
 )
 
@@ -298,29 +312,24 @@ const lineEndpoint = fn('line_endpoint', { p_h: vec2fT, p_l: vec2fT }, (p) => {
   return select(projParams.x.lt(0.5), mercRel, p.p_h.add(p.p_l))
 })
 
-// finalize_corner — flat-projection reprojection (projection-display-layer-
-// restore Phase 2). Restored from the pre-ECEF path for the flat display
-// branch only; globe + 3D still use the ECEF-MVP, so finalize_corner_globe
-// stays retired. Mercator (proj<0.5): cornerLocal is already camera-relative
-// Mercator metres (line_endpoint subtracted the camera), so pass it through.
-// Non-Mercator (1-6): reproject via project_geom (world-copy aware) minus the
-// projected camera centre, both recentred onto clon = 0. Output feeds the flat
-// 2D-plane MVP.
+// finalize_corner — flat-projection reprojection (projection-display-layer- restore Phase 2).
+// Restored from the pre-ECEF path for the flat display branch only; globe + 3D still use the ECEF-
+// MVP, so finalize_corner_globe stays retired. Mercator (proj<0.5): cornerLocal is already camera-
+// relative Mercator metres (line_endpoint subtracted the camera), so pass it through. Non-Mercator
+// (1-6): reproject via project_geom (world-copy aware) minus the projected camera centre, both
+// recentred onto clon = 0. Output feeds the flat 2D-plane MVP.
 //
-// #598 — the longitude fed to the projection is the PRECISE camera-relative
-// delta, not the lossy absolute degree. `corner − (cam_h + cam_l)` is the DSFUN
-// camera-relative tile-local Mercator X (the ~1.4e7 m tile-origin magnitude
-// cancels BEFORE it reaches f32 — the renderer sets cam_h+cam_l = camMercX −
-// tileMercX, camMercX = clon·DEG2RAD·R), so d_lon = that ÷ (DEG2RAD·R) =
-// abs_lon − clon to sub-metre precision. project_geom / project depend ONLY on
-// (lon − clon) and (ref_lon − clon), so recentring onto clon = 0 (proj_params.y
-// → 0, ref_lon → tile_ref_lon − clon) is EXACT in real arithmetic — byte-
-// identical to the old abs-degree path everywhere a within-tile vertex can sit
-// (|lon_primary − ref_primary| = |abs_lon − tile_ref_lon| ≤ tile extent, never
-// near the ±180 seam-keep tie) — and it deletes the radians(abs_lon) −
-// radians(clon) f32 cancellation that shook non-Mercator strokes at high zoom.
-// Latitude keeps the abs-degree path: it has no linear camera-relative form and
-// its Mercator magnitude is far smaller, so its residual is already sub-metre.
+// #598 — the longitude fed to the projection is the PRECISE camera-relative delta, not the lossy
+// absolute degree. `corner − (cam_h + cam_l)` is the DSFUN camera-relative tile-local Mercator X
+// (the ~1.4e7 m tile-origin magnitude cancels BEFORE it reaches f32 — the renderer sets cam_h+cam_l
+// = camMercX − tileMercX, camMercX = clon·DEG2RAD·R), so d_lon = that ÷ (DEG2RAD·R) = abs_lon −
+// clon to sub-metre precision. project_geom / project depend ONLY on (lon − clon) and (ref_lon −
+// clon), so recentring onto clon = 0 (proj_params.y → 0, ref_lon → tile_ref_lon − clon) is EXACT in
+// real arithmetic — byte- identical to the old abs-degree path everywhere a within-tile vertex can
+// sit (|lon_primary − ref_primary| = |abs_lon − tile_ref_lon| ≤ tile extent, never near the ±180
+// seam-keep tie) — and it deletes the radians(abs_lon) − radians(clon) f32 cancellation that shook
+// non-Mercator strokes at high zoom. Latitude keeps the abs-degree path: it has no linear camera-
+// relative form and its Mercator magnitude is far smaller, so its residual is already sub-metre.
 const finalizeCorner = fn('finalize_corner', { corner: vec2fT }, (p) => {
   const projParams = TILE.field.proj_params
   const tileOrigin = TILE.field.tile_origin_merc
@@ -415,7 +424,7 @@ const sdfShape = fn(
 // Backface cull → clip-bounds → segment-frame distance → bisector clip → bevel
 // edge → endpoint cap/join → dash → 3-slot pattern stack → alpha + per-segment
 // colour override. Faithful port of the WGSL helper (renderer-shaders.ts L661-1234).
-const computeLineColor = fn('compute_line_color', { input: LineOut }, (p) => {
+const computeLineColor = fn('compute_line_color', { input: LineOut }, vec4fT, (p, b) => {
   const projParams = TILE.field.proj_params
   const tileOrigin = TILE.field.tile_origin_merc
   const clipBounds = TILE.field.clip_bounds
@@ -891,14 +900,26 @@ const computeLineColor = fn('compute_line_color', { input: LineOut }, (p) => {
   const dPx = Let(dM.div(layerMpp))
   const blurPx = max(f32(0), LAYER.field.aa_width_px.sub(1))
   const halfAa = f32(0.5).div(LAYER.field.dpr)
-  const alpha = f32(1).sub(smoothstep(halfAa.add(blurPx).neg(), halfAa, dPx))
+  // Named (not a bare local) so a foreign default-swap Stmt list (built outside this
+  // closure, mirroring polygon's wall_shade) can varref it by literal WGSL name (#1605).
+  const alpha = Let('alpha', f32(1).sub(smoothstep(halfAa.add(blurPx).neg(), halfAa, dPx)))
   If(alpha.lt(0.005), () => Discard())
 
-  // Per-segment stroke colour override.
+  // Per-segment stroke colour override — the default (no-variant) fill for line_color_out.
   const segPacked = bitcastU32(sego.color_packed)
   const segColor = unpack4x8unorm(segPacked)
-  const baseColor = select(segColor.a.gt(0), segColor, LAYER.field.color)
-  return vec4(baseColor.rgb, baseColor.a.mul(alpha))
+  const baseColor = Let('base_color', select(segColor.a.gt(0), segColor, LAYER.field.color))
+  void baseColor // referenced externally by name in defaultLineColorReturnStmts (#1605)
+  Var('line_color_out', vec4(0, 0, 0, 0))
+  // ▼ Composer-swap point (#1605) — variant.strokeExpr assigns line_color_out, OR the
+  //   composer inserts the default per-segment-override / layer-colour path above. The
+  //   antialiasing `alpha` multiply happens AFTER the swap so both paths share identical
+  //   edge falloff (mirrors polygon's rim_alpha applied after 'fill-return', polygon.ts).
+  //   ONE placeholder serves fs_line / fs_line_pattern / fs_line_max — all three call this
+  //   shared function, unlike polygon's two separate fill/stroke entries.
+  b.placeholder('line-color-return')
+  const colorOut = new Node<'vec4<f32>'>({ op: 'varref', type: vec4fT, name: 'line_color_out' })
+  Return(vec4(colorOut.rgb, colorOut.a.mul(alpha)))
 })
 
 // ── line_rim_alpha ──
@@ -1071,13 +1092,11 @@ export const vsLine = fn(
 
     // ── ECEF-RTC corner reconstruction (Phase 2 PR 2d.1C) ────────────────
     //
-    // Hybrid VS: emit clip via `u.mvp * vec4(ecef_rtc, 1)` while still
-    // emitting `world_local` as tile-local Mercator metres for the FS
-    // distance / clip / backface / pattern math (`compute_line_color` reads
-    // `world_local` at 6 sites — backface cull, clip-bounds, segment dist,
-    // bevel/cap geometry, rim alpha, pattern repeat). The Mercator path is
-    // unchanged; only the clip transform swaps from
-    // `u.mvp * project_geom(corner)` to `u.mvp * ecef_rtc(corner)`.
+    // Hybrid VS: emit clip via `u.mvp * vec4(ecef_rtc, 1)` while still emitting `world_local` as
+    // tile-local Mercator metres for the FS distance / clip / backface / pattern math
+    // (`compute_line_color` reads `world_local` at 6 sites — backface cull, clip-bounds, segment
+    // dist, bevel/cap geometry, rim alpha, pattern repeat). The Mercator path is unchanged; only
+    // the clip transform swaps from `u.mvp * project_geom(corner)` to `u.mvp * ecef_rtc(corner)`.
     //
     // Math chain:
     //   1. corner abs Mercator = cornerLocal + tile_origin_merc
@@ -1087,14 +1106,13 @@ export const vsLine = fn(
     //   5. ecef_rtc             = ecef_corner - tile_ecef_center
     //   6. clip                 = u.mvp * vec4(ecef_rtc, 1)
     //
-    // Mirrors the polygon ECEF VS (vs_main_ecef) contract: the runtime
-    // builds `u.mvp` (ECEF-MVP) once per frame and the per-tile vertices are
-    // RTC-relative to the tile ECEF center. The WGS84 forward is the shared
-    // `lonlat_to_ecef` primitive (ecef.ts) — the same one the raster VS calls —
-    // so the constants (WGS84_A / WGS84_E2) live in one place. NB: the shared
-    // WGS84_E2 (0.0066943799901975955) is f32-equal to the former inline literal
-    // (0.006694379990197561) — both truncate to the same f32, so this is not a
-    // precision regression despite the differing source digits. Per-vertex cost:
+    // Mirrors the polygon ECEF VS (vs_main_ecef) contract: the runtime builds `u.mvp` (ECEF-MVP)
+    // once per frame and the per-tile vertices are RTC-relative to the tile ECEF center. The WGS84
+    // forward is the shared `lonlat_to_ecef` primitive (ecef.ts) — the same one the raster VS calls
+    // — so the constants (WGS84_A / WGS84_E2) live in one place. NB: the shared WGS84_E2
+    // (0.0066943799901975955) is f32-equal to the former inline literal (0.006694379990197561) —
+    // both truncate to the same f32, so this is not a precision regression despite the differing
+    // source digits. Per-vertex cost:
     // 2 sin + 2 cos + 1 sqrt (inside lonlat_to_ecef) + 1 tan + 1 exp — modest on
     // modern GPUs and isolated to the line VS.
 
@@ -1143,20 +1161,17 @@ export const vsLine = fn(
       const mvp = TILE.field.mvp
       const projParamsW = TILE.field.proj_params
       If(projParamsW.x.lt(6.5), () => {
-        // ── FLAT (projType 0-6) #1246 width correction ────────────────────
-        // The flat display MVP scales projected metres → pixels at the SINGLE
-        // Mercator 1/mpp for ALL flat projTypes. A non-Mercator projection
-        // (equirect J_ns=cosφ, natural_earth, stereographic …) shrinks the
-        // reprojected ACROSS offset by its Merc→projection Jacobian J, collapsing
-        // the stroke to ~width·J (== width·cosφ on equirect — the #1246 defect).
-        // Measure J directly as the ratio of the Mercator-passthrough on-screen
-        // size of the across offset to its finalize_corner-reprojected on-screen
-        // size, then widen the CLIP-space quad's across by 1/J. Both probes go
-        // through the SAME mvp, so dpr / mpp / viewport / aspect / bearing cancel.
-        // On Mercator finalize_corner IS the identity passthrough, so the two
-        // probes are bit-equal ⇒ widthScale == 1.0 exactly and the += below is a
-        // byte-identical no-op (no projType gate needed). world_local is left at
-        // true Mercator (see world_local_out) so the FS is byte-unchanged.
+        // ── FLAT (projType 0-6) #1246 width correction ──────────────────── The flat display MVP
+        // scales projected metres → pixels at the SINGLE Mercator 1/mpp for ALL flat projTypes. A
+        // non-Mercator projection (equirect J_ns=cosφ, natural_earth, stereographic …) shrinks the
+        // reprojected ACROSS offset by its Merc→projection Jacobian J, collapsing the stroke to
+        // ~width·J (== width·cosφ on equirect — the #1246 defect). Measure J directly as the ratio
+        // of the Mercator-passthrough on-screen size of the across offset to its finalize_corner-
+        // reprojected on-screen size, then widen the CLIP-space quad's across by 1/J. Both probes
+        // go through the SAME mvp, so dpr / mpp / viewport / aspect / bearing cancel. On Mercator
+        // finalize_corner IS the identity passthrough, so the two probes are bit-equal ⇒ widthScale
+        // == 1.0 exactly and the += below is a byte-identical no-op (no projType gate needed).
+        // world_local is left at true Mercator (see world_local_out) so the FS is byte-unchanged.
         const mercBaseClip = transformMat4(mvp, vec4(base.x, base.y, zLift, 1))
         const mercAcrossClip = transformMat4(
           mvp,
@@ -1327,6 +1342,41 @@ const LINE_LOD_DEPTH_STEP = 3e-6
 const lineLodDepthBias = () =>
   log(EARTH_R.div(max(TILE.field.tile_extent_m, f32(1)))).mul(LINE_LOD_DEPTH_STEP)
 
+// A `@stroke` stage block (#1538) authored fragment math for polygon only —
+// point/line silently dropped it (#1605 Phase 0). This is the line half of
+// the seam: a feature-free (no `.field` reads) stroke expression composed
+// into `compute_line_color`'s single shared body. Mirrors polygon's
+// PolygonVariantSpec (polygon.ts) minus the per-feature-buffer fields —
+// those are Phase 1b (#1605), rejected upstream by line-shader-cache.ts's
+// toComposerLineVariant before a variant ever reaches buildLineModule.
+export interface LineVariantSpec {
+  readonly preamble: Partial<Pick<ModuleDecl, 'consts' | 'bindings' | 'funcs'>> | null
+  readonly strokeExpr: Node<'vec4<f32>'> | null
+  readonly strokePreamble: readonly Stmt[] | null
+  readonly needsFeatureBuffer: boolean
+}
+
+// Default (no-variant) path: line_color_out = base_color (the per-segment
+// override / layer-colour select compute_line_color already computed).
+const defaultLineColorReturnStmts = (): readonly Stmt[] => {
+  const b = new Builder()
+  const colorOut = new Node<'vec4<f32>'>({ op: 'varref', type: vec4fT, name: 'line_color_out' })
+  const baseColor = new Node<'vec4<f32>'>({ op: 'varref', type: vec4fT, name: 'base_color' })
+  b.assign(colorOut, baseColor)
+  return b.stmts
+}
+
+// Variant path: line_color_out = variant.strokeExpr, preceded by any
+// strokePreamble Stmts (e.g. a match() if-else chain authoring a local the
+// expr reads). Falls back to the default when the variant carries no expr.
+const variantLineColorReturnStmts = (variant: LineVariantSpec): readonly Stmt[] => {
+  if (!variant.strokeExpr) return defaultLineColorReturnStmts()
+  const b = new Builder()
+  const colorOut = new Node<'vec4<f32>'>({ op: 'varref', type: vec4fT, name: 'line_color_out' })
+  b.assign(colorOut, variant.strokeExpr)
+  return [...(variant.strokePreamble ?? []), ...b.stmts]
+}
+
 export const buildFsLine = (pickEnabled: boolean) =>
   fn(
     'fs_line',
@@ -1392,8 +1442,11 @@ export const fsLineMax = fn(
 
 // ── Module assembly ──
 
-export const buildLineModule = (pickEnabled: boolean): ModuleDecl =>
-  module({
+export const buildLineModule = (
+  variant: LineVariantSpec | null,
+  pickEnabled: boolean,
+): ModuleDecl => {
+  const base = module({
     // Shared projection + ecef constants merged in (was the getProjectionWgslConsts() /
     // ECEF_WGSL_CONSTS string prepend in emitLineWgsl). emitModule hoists them above all funcs.
     consts: [...PROJECTION_CONSTS, ...ECEF_CONSTS],
@@ -1429,12 +1482,42 @@ export const buildLineModule = (pickEnabled: boolean): ModuleDecl =>
     ],
   })
 
+  // Placeholder Stmt swap — ONE 'line-color-return' tag serves all 3 fragment
+  // entries (they all call the single shared compute_line_color). Even the
+  // null-variant case substitutes the default Stmts so the emitted WGSL is
+  // valid renderable output (#1605; mirrors polygon.ts's buildPolygonModule).
+  const swaps: Record<string, readonly Stmt[]> = {
+    'line-color-return': variant
+      ? variantLineColorReturnStmts(variant)
+      : defaultLineColorReturnStmts(),
+  }
+  if (variant?.needsFeatureBuffer) {
+    // Phase 1b (#1605) — line-shader-cache.ts's toComposerLineVariant must
+    // reject these before a variant ever reaches this function; a feature-
+    // buffer variant has no binding/storage-buffer wiring here yet.
+    throw new Error(
+      'buildLineModule: needsFeatureBuffer variants are not supported yet (#1605 Phase 1b)',
+    )
+  }
+  const composed = composeModule(base, swaps)
+  if (!variant?.preamble) return composed
+  return {
+    consts: [...composed.consts, ...(variant.preamble.consts ?? [])],
+    structs: composed.structs,
+    bindings: [...composed.bindings, ...(variant.preamble.bindings ?? [])],
+    funcs: [...composed.funcs, ...(variant.preamble.funcs ?? [])],
+  }
+}
+
 /** Full line shader: shared DSL-emitted projection consts + log-depth fns +
  *  projection fns + SDF distance/winding helpers, then the line module.
+ *  `variant` is null for the base line shader (per-segment / layer-colour
+ *  stroke); a populated LineVariantSpec composes a feature-free `@stroke`
+ *  expression into compute_line_color via placeholder Stmt swap (#1605).
  *  `pickEnabled` toggles the pick attachment field + writes (replaces the old
  *  __PICK_FIELD__ / __PICK_WRITE__ regex markers). */
-export const emitLineWgsl = (pickEnabled: boolean): string =>
-  emitModule(buildLineModule(pickEnabled))
+export const emitLineWgsl = (variant: LineVariantSpec | null, pickEnabled: boolean): string =>
+  emitModule(buildLineModule(variant, pickEnabled))
 
 // The compositor (fullscreen triangle sampling the translucent offscreen RT)
 // lives in line-composite.ts — extracted for the arch ratchet; it is a

@@ -40,27 +40,26 @@
 
 import { isPickEnabled, getSampleCount } from '@xgis/engine'
 import { type GPUContext } from '@xgis/rhi-webgpu'
-import { DEBUG_OVERDRAW } from '../debug-flags'
+import { isOverdrawActive } from '../debug-flags'
 import { asyncWriteBuffer, type StagingBufferPool, type StagingSlot } from '@xgis/rhi-webgpu'
 import { xlog } from '@xgis/shared'
-import {
-  wrapWebGpuPass,
-  wrapWebGpuBuffer,
-  wrapWebGpuBindGroup,
-  wrapWebGpuBindGroupLayout,
-} from '@xgis/rhi-webgpu'
+import { wrapWebGpuBuffer, wrapWebGpuBindGroup, wrapWebGpuBindGroupLayout } from '@xgis/rhi-webgpu'
+import { wrapWebGpuPassMemoized } from './material/pass-wrap-memo'
 import type {
   RhiBuffer,
   RhiBindGroup,
   RhiBindGroupLayout,
   RhiDevice,
+  RhiCommandEncoder,
   RhiRenderPass,
   RhiScreenPassDevice,
   RhiTexture,
   RhiTextureView,
 } from '@xgis/engine'
-import { LineDraper } from './material/line-material'
+import { LINE_OFFSCREEN_FORMAT, LineDraper } from './material/line-material'
 import { LineCompositeDraper } from './material/line-composite-material'
+import { toComposerLineVariant } from './line-shader-cache'
+import type { ShaderVariantInfo } from './renderer-types'
 import type { ShapeRegistry } from '../text/sdf-shape'
 import {
   lineUniformSize,
@@ -215,15 +214,16 @@ export class LineRenderer {
   private layerStaging!: Uint8Array
   private layerDirtyLo = 0
   private layerDirtyHi = 0
+  /** #1582 site 4 sibling — `writeLayerSlot` minted a fresh `Uint8Array` view
+   *  over `packLineLayerUniform`'s result every call, even though that
+   *  function always returns the SAME shared scratch buffer (its own
+   *  docstring: "Returns a SHARED scratch buffer"). Cached on the scratch
+   *  buffer's identity, mirroring `UniformRing.stageSlot`'s fix — recomputed
+   *  only if that identity ever changes (e.g. the scratch grows). */
+  private _layerSrcViewBuffer?: ArrayBuffer
+  private _layerSrcView?: Uint8Array
 
-  // ── Translucent line offscreen + composite ──
-  /** Single-sample offscreen RT used to render translucent line layers
-   *  with max blending. Composited onto the main framebuffer with per-layer
-   *  alpha. Lazily allocated + resized on demand. */
-  private offscreenTexture: GPUTexture | null = null
-  private offscreenView: GPUTextureView | null = null
-  private offscreenWidth = 0
-  private offscreenHeight = 0
+  // ── Translucent line composite ──
   /** Composite uniform ring. 256-byte slots → each composite() call writes
    *  its own opacity into a fresh slot and binds via dynamic offset. This
    *  prevents the multi-layer writeBuffer clobbering hazard that a single
@@ -292,43 +292,31 @@ export class LineRenderer {
   rebuildForQuality(): void {
     // The line + composite draws come from LineDraper / LineCompositeDraper, which capture the MSAA
     // sample count at construction — drop them so the next draw rebuilds against the new QUALITY.
-    this._lineDraper = undefined
+    this._lineDrapers.forEach((d) => d.destroy())
+    this._lineDrapers.clear()
+    this._compositeDraper?.destroy()
     this._compositeDraper = undefined
   }
 
-  /** Lazily allocate / resize the offscreen RT to match the main color target. */
-  ensureOffscreen(width: number, height: number): void {
-    if (this.offscreenTexture && this.offscreenWidth === width && this.offscreenHeight === height)
-      return
-    this.offscreenTexture?.destroy()
-    this.offscreenTexture = this.device.createTexture({
-      size: { width, height },
-      format: this.format,
-      usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING,
-      label: 'line-translucent-offscreen',
-    })
-    this.offscreenView = this.offscreenTexture.createView()
-    this.offscreenWidth = width
-    this.offscreenHeight = height
-    // The composite bind group (offscreen view + sampler + opacity ring) is built per-draw by
-    // LineCompositeDraper now — nothing to pre-build here.
-  }
-
-  // ── RHI (forced-WebGL2) offscreen twins (#834 M5) ──
-  /** RHI twin of the offscreen RT — rgba8unorm render+sample texture sized to
-   *  the screen. Lazily allocated + resized, mirroring `ensureOffscreen`. */
+  // ── The translucent offscreen set (#834 M5; the ONE set since Inc-2d) ──
+  /** LINE_OFFSCREEN_FORMAT render+sample texture sized to the scene. Lazily
+   *  allocated + resized; shared by the chain pass and the forced-WebGL2 twin. */
   private _offscreenTexRhi: RhiTexture | null = null
   private _offscreenViewRhi: RhiTextureView | null = null
   private _offscreenWRhi = 0
   private _offscreenHRhi = 0
-  private ensureOffscreenRhi(width: number, height: number): RhiTextureView {
+  /** Public as the offscreen data-path entry (translucent-opacity.test.ts
+   *  arms the RHI offscreen directly; production callers go through
+   *  beginTranslucentPass / beginTranslucentPassRhi). */
+  ensureOffscreenRhi(width: number, height: number): RhiTextureView {
     if (this._offscreenViewRhi && this._offscreenWRhi === width && this._offscreenHRhi === height)
       return this._offscreenViewRhi
     if (this._offscreenTexRhi) this.rhi.destroyTexture(this._offscreenTexRhi)
     this._offscreenTexRhi = this.rhi.createTexture({
       width,
       height,
-      format: 'rgba8unorm',
+      // ONE authority with the max-blend pipeline's colour target (review F1).
+      format: LINE_OFFSCREEN_FORMAT,
       usage: ['render', 'sample'],
       label: 'line-translucent-offscreen-rhi',
     })
@@ -353,9 +341,29 @@ export class LineRenderer {
     })
   }
 
-  /** RHI twin of `composite`: same ring-slot discipline, but the offscreen view
-   *  is the RHI texture and the target pass is the forced-WebGL2 screen pass. */
-  compositeRhi(mainPass: RhiRenderPass, opacity: number): void {
+  /** Begin a translucent line render pass against the offscreen RT. */
+  beginTranslucentPass(enc: RhiCommandEncoder, width: number, height: number): RhiRenderPass {
+    // Chain shape of beginTranslucentPassRhi below: SAME RHI offscreen target
+    // (one texture set for both frame shapes), originated as a discrete pass
+    // on the frame encoder instead of nested inside the twin's screen pass.
+    const view = this.ensureOffscreenRhi(width, height)
+    return enc.beginRenderPass({
+      label: 'line-translucent-pass',
+      colorAttachments: [{ view, loadOp: 'clear', storeOp: 'store', clearValue: [0, 0, 0, 0] }],
+    })
+  }
+
+  /** Composite the offscreen RT onto a main render pass with the given opacity.
+   *  Each call allocates a fresh composite-ring slot, writes its own opacity
+   *  there, and binds via dynamic offset. Two composite() calls in one frame
+   *  with different opacities therefore read distinct slots at GPU execution
+   *  time — fixing the shared-buffer clobber where every draw sampled the
+   *  last layer's opacity. */
+  composite(mainPass: RhiRenderPass, opacity: number): void {
+    // ONE implementation for both frame shapes (Inc-2d fold of the former
+    // compositeRhi): the offscreen strokes live in the RHI texture set, the
+    // target is whichever RhiRenderPass the caller originated (the chain's
+    // discrete comp pass or the twin's live screen pass).
     if (!this._offscreenViewRhi) return
     const off =
       this.compositeSlot < this.compositeRingCapacity
@@ -370,52 +378,6 @@ export class LineRenderer {
     }
     this.rhi.writeBuffer(this.compositeRing, off, new Float32Array([opacity, 0, 0, 0]))
     this.ensureCompositeDraper().drawRhi(mainPass, this._offscreenViewRhi, this.compositeRing, off)
-  }
-
-  /** Begin a translucent line render pass against the offscreen RT. */
-  beginTranslucentPass(encoder: GPUCommandEncoder): GPURenderPassEncoder {
-    if (!this.offscreenView) throw new Error('LineRenderer: offscreen not initialised')
-    return encoder.beginRenderPass({
-      label: 'line-translucent-pass',
-      colorAttachments: [
-        {
-          view: this.offscreenView,
-          clearValue: { r: 0, g: 0, b: 0, a: 0 },
-          loadOp: 'clear',
-          storeOp: 'store',
-        },
-      ],
-    })
-  }
-
-  /** Composite the offscreen RT onto a main render pass with the given opacity.
-   *  Each call allocates a fresh composite-ring slot, writes its own opacity
-   *  there, and binds via dynamic offset. Two composite() calls in one frame
-   *  with different opacities therefore read distinct slots at GPU execution
-   *  time — fixing the shared-buffer clobber where every draw sampled the
-   *  last layer's opacity. */
-  composite(mainPass: GPURenderPassEncoder, opacity: number): void {
-    if (!this.offscreenView) return
-    const off =
-      this.compositeSlot < this.compositeRingCapacity
-        ? this.compositeSlot * LineRenderer.COMPOSITE_SLOT
-        : (this.compositeRingCapacity - 1) * LineRenderer.COMPOSITE_SLOT
-    if (this.compositeSlot >= this.compositeRingCapacity) {
-      xlog.warn(
-        '[LineRenderer] composite ring overflow — capping at capacity; opacity bleed possible',
-      )
-    } else {
-      this.compositeSlot++
-    }
-    this.rhi.writeBuffer(this.compositeRing, off, new Float32Array([opacity, 0, 0, 0]))
-    // Through the RHI Material seam (the sole path). The offscreen RT/pass origination stays raw (P2).
-    // WebGPU-only (the offscreen translucent path fail-closes on WebGl2).
-    this.ensureCompositeDraper().draw(
-      wrapWebGpuPass(mainPass),
-      this.offscreenView,
-      this.compositeRing,
-      off,
-    )
   }
 
   private _compositeDraper?: LineCompositeDraper
@@ -538,12 +500,15 @@ export class LineRenderer {
     // Stage into the CPU mirror; flushLayerStaging (called from the
     // map's render loop via `endFrame()`) emits a single writeBuffer
     // over the frame's dirty range instead of one per layer.
-    const src = new Uint8Array(
-      data.buffer,
-      data.byteOffset,
-      Math.min(data.byteLength, this.layerStride),
-    )
-    this.layerStaging.set(src, off)
+    if (this._layerSrcViewBuffer !== data.buffer) {
+      this._layerSrcView = new Uint8Array(
+        data.buffer,
+        data.byteOffset,
+        Math.min(data.byteLength, this.layerStride),
+      )
+      this._layerSrcViewBuffer = data.buffer
+    }
+    this.layerStaging.set(this._layerSrcView!, off)
     const hi = off + this.layerStride
     if (this.layerDirtyHi === this.layerDirtyLo) {
       this.layerDirtyLo = off
@@ -633,7 +598,7 @@ export class LineRenderer {
     // #834 M5) so reflection-by-name binds the emulated storage textures.
     const layout =
       this.rhi.backend === 'webgl2'
-        ? (this.ensureLineDraper(), this._lineDraper!.layerLayoutRhi())
+        ? this.ensureLineDraper().layerLayoutRhi()
         : wrapWebGpuBindGroupLayout(this.layerBgl())
     return this.rhi.createBindGroup(layout, [
       { binding: 0, resource: { buffer: this.layerRing, offset: 0, size: lineUniformSize() } },
@@ -663,25 +628,26 @@ export class LineRenderer {
     layerOffset: number,
     translucent: boolean = false,
     patternActive: boolean = false,
+    variant?: ShaderVariantInfo | null,
   ): void {
     if (segmentCount === 0) return
     // Overdraw-debug v1: SDF stroke pipeline targets the swapchain
     // format; r16float accumulator would mismatch. Skip — strokes
     // don't contribute to the v1 heatmap. Phase 2 adds an additive
     // r16float variant so line overdraw counts too.
-    if (DEBUG_OVERDRAW) return
+    if (isOverdrawActive(this.rhi.caps)) return
     // RHI seam (UNCONDITIONAL): every line draw routes through the LineDraper Material seam — the
     // opaque main pass, the translucent offscreen MAX-blend pass, the pick MRT pass, AND the
     // render-BUNDLE path (the wrapped pass accepts a GPURenderBundleEncoder; setStencilReference/end
     // no-op there). mode 'opaque' / 'max' / 'pick' (lines write pick=vec2u(0,0)). There is no raw
     // line draw + no opt-out flag (the flip is complete, like the §4 fill seam). Offscreen RT/pass
     // ORIGINATION stays raw (deferred to P2).
-    this.ensureLineDraper()
+    const draper = this.ensureLineDraper(variant)
     // layerBG is line's RhiBindGroup (createLayerBindGroup, via the RHI seam);
     // tileBG is the VTR tile bind group — still a raw GPUBindGroup (flips with the
     // VTR cluster) → wrapped here at the renderer call site (transient).
-    this._lineDraper!.draw(
-      wrapWebGpuPass(pass),
+    draper.draw(
+      wrapWebGpuPassMemoized(pass),
       {
         tileBG: wrapWebGpuBindGroup(tileBindGroup),
         layerBG: layerBindGroup,
@@ -710,10 +676,11 @@ export class LineRenderer {
     layerOffset: number,
     pattern = false,
     mode: 'opaque' | 'max' = 'opaque',
+    variant?: ShaderVariantInfo | null,
   ): void {
     if (segmentCount === 0) return
-    this.ensureLineDraper()
-    this._lineDraper!.draw(
+    const draper = this.ensureLineDraper(variant)
+    draper.draw(
       pass,
       {
         tileBG,
@@ -741,39 +708,55 @@ export class LineRenderer {
     tileOffset: number,
     layerOffset: number,
     pattern = false,
+    variant?: ShaderVariantInfo | null,
   ): void {
     if (segmentCount === 0) return
-    this.ensureLineDraper()
-    this._lineDraper!.draw(
-      pass,
-      { tileBG, layerBG, tileOffset, layerOffset, pattern, segmentCount },
-      'bake',
-    )
+    const draper = this.ensureLineDraper(variant)
+    draper.draw(pass, { tileBG, layerBG, tileOffset, layerOffset, pattern, segmentCount }, 'bake')
   }
 
   /** The line Material's group-0 (tile) layout — VTR builds its WebGL2 tile
-   *  bind group against it (#834 M5). */
+   *  bind group against it (#834 M5). Always the BASE draper: bind-group
+   *  LAYOUTS never differ across variants in this slice (guaranteed by
+   *  toComposerLineVariant's reject-on-needsFeatureBuffer/preamble.bindings
+   *  guard) — #1605 Phase 1b, which adds a feature-buffer binding, will need
+   *  to thread a variant here too. */
   tileLayoutRhi(): RhiBindGroupLayout {
-    this.ensureLineDraper()
-    return this._lineDraper!.tileLayoutRhi()
+    return this.ensureLineDraper().tileLayoutRhi()
   }
 
-  private _lineDraper?: LineDraper
-  private ensureLineDraper(): void {
-    if (this._lineDraper) return
+  // Variant-keyed cache (#1605) — '__base__' for the default (no-variant)
+  // draper, or `variant.key` for a feature-free @stroke composer variant.
+  // Replaces the prior single-draper field so a layer with a stage-block
+  // stroke gets its own pipeline without disturbing every other line layer.
+  private _lineDrapers = new Map<string, LineDraper>()
+  private ensureLineDraper(variant?: ShaderVariantInfo | null): LineDraper {
+    const gl2 = this.rhi.backend === 'webgl2'
+    // #1605 Phase 3 — variant pipelines now run on BOTH backends. The prior
+    // `gl2 ? null : …` force claimed to mirror polygon's pipeline-factory.ts
+    // precedent; that was wrong (polygon has never composed GLSL on WebGL2
+    // either — pipeline-factory.ts returns before building any variant
+    // pipeline there, which is what #1592/#1583's fill-gap warning is about).
+    // Composed GLSL + emulateStorage + preamble consts/funcs is proven to
+    // compile and link on real WebGL2 by _webgl2-line-link-gate.spec.ts.
+    const composerVariant = toComposerLineVariant(variant)
+    const key = composerVariant ? variant!.key : '__base__'
+    const cached = this._lineDrapers.get(key)
+    if (cached) return cached
     // LineDraper wraps the native layouts ONLY on its WebGPU branch (the gl2
     // arm builds entry-array groups); on webgl2 pass an inert placeholder so
     // the lazy layerBgl() never touches ctx.device on that backend (#834
-    // device retirement S1 — same inert-field pattern as renderFrameViaRhi's
-    // FrameContext).
-    const gl2 = this.rhi.backend === 'webgl2'
-    this._lineDraper = new LineDraper(
+    // device retirement S1).
+    const d = new LineDraper(
       this.rhi,
       this.format,
       getSampleCount(),
       this.tileBindGroupLayout,
       gl2 ? (null as unknown as GPUBindGroupLayout) : this.layerBgl(),
+      composerVariant,
     )
+    this._lineDrapers.set(key, d)
+    return d
   }
 
   clearLayers(): void {

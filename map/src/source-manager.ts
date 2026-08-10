@@ -1,19 +1,17 @@
 // ═══ X-GIS SourceManager — GeoJSON / source INGEST cluster ═══
 //
-// Second structural decomposition of XGISMap: the source-ingest methods
-// (`_attachOneSource` / `_attachGeoJSONViaVirtualPMTiles` /
-// `_attachInlineGeoJSONViaVirtualPMTiles` / `_reprojectIngest` /
-// `setSourceData`) live here. XGISMap keeps the source-state Maps
-// (`rawDatasets` / `sourceCRS`) as the SHARED references — SourceManager
-// receives the SAME Map instances by reference, so every internal read in
-// renderFrame / rebuildLayers / hasPendingSourceWork / diagnostics stays
-// untouched. `vtSources` registration routes through the injected
-// `registerVtSource` callback (XGISMap's `_registerVtSource`) so the #1155 F3
-// cold-start burst flag is applied at the single write authority.
+// Second structural decomposition of XGISMap: the source-ingest methods (`_attachOneSource` /
+// `_attachGeoJSONViaVirtualPMTiles` / `_attachInlineGeoJSONViaVirtualPMTiles` / `_reprojectIngest`
+// / `setSourceData`) live here. XGISMap keeps the source-state Maps (`rawDatasets` / `sourceCRS`)
+// as the SHARED references — SourceManager receives the SAME Map instances by reference, so every
+// internal read in renderFrame / rebuildLayers / hasPendingSourceWork / diagnostics stays
+// untouched. `vtSources` registration routes through the injected `registerVtSource` callback
+// (XGISMap's `_registerVtSource`) so the #1155 F3 cold-start burst flag is applied at the single
+// write authority.
 //
-// BEHAVIOR + PUBLIC API IDENTICAL — every method below is moved verbatim
-// from map.ts; only the dependency wiring changed. The EPSG reproject /
-// ordering, polar-cap ordering, and camera-fit logic are byte-identical:
+// BEHAVIOR + PUBLIC API IDENTICAL — every method below is moved verbatim from
+// map.ts; only the dependency wiring changed. The EPSG reproject / ordering,
+// polar-cap ordering, and camera-fit logic are byte-identical:
 //   - `this.rawDatasets` / `this.sourceCRS` → the same shared Map instances,
 //     held here by reference.
 //   - `this.vtSources.set(...)`      → injected `registerVtSource` callback
@@ -28,9 +26,10 @@
 //     fresh, not captured at construction).
 //   - `this.camera` → injected; `this.getCanvas()` → thunk (gpu-boot.ts can swap it).
 
-import { assertIngestBudget, readBodyCapped, safeFetch } from '@xgis/shared'
+import { assertIngestBudget, assertNotErrorPage, readBodyCapped, safeFetch } from '@xgis/shared'
 import type { Camera } from './camera'
 import type { GPUContext } from '@xgis/rhi-webgpu'
+import type { InputStore } from './render/input-store'
 import { getMaxDpr } from '@xgis/engine'
 import type { MapRendererContent } from './render/renderer'
 import type { LineRenderer } from './render/line-renderer'
@@ -106,6 +105,8 @@ export interface SourceManagerDeps {
   getCanvas(): HTMLCanvasElement
   /** The WebGPU context, read fresh (populated in run() / runBinary). */
   getCtx(): GPUContext
+  /** Live `input` values (#1539), handed to each VectorTileRenderer. */
+  readonly inputs: InputStore
   /** The MapRenderer, read fresh (populated in run() / runBinary). */
   getRenderer(): MapRendererContent
   /** The shared SDF LineRenderer, read fresh (may be null pre-init). */
@@ -152,6 +153,7 @@ export class SourceManager {
   private readonly camera: Camera
   private readonly getCanvas: () => HTMLCanvasElement
   private readonly getCtx: () => GPUContext
+  private readonly inputs: InputStore
   private readonly getRenderer: () => MapRendererContent
   private readonly getLineRenderer: () => LineRenderer | null
   private readonly invalidate: () => void
@@ -200,6 +202,7 @@ export class SourceManager {
     this.camera = deps.camera
     this.getCanvas = deps.getCanvas
     this.getCtx = deps.getCtx
+    this.inputs = deps.inputs
     this.getRenderer = deps.getRenderer
     this.getLineRenderer = deps.getLineRenderer
     this.invalidate = deps.invalidate
@@ -297,12 +300,10 @@ export class SourceManager {
     if (load.url) console.log(`[X-GIS] Loading: ${load.name} from ${url}`)
     else console.log(`[X-GIS] Registered: ${load.name} (host-fed, no url)`)
 
-    // Source `type:` from the DSL takes precedence over URL-extension
-    // sniffing so a URL without a file extension (e.g. a TileJSON
-    // manifest at `https://tiles.example.com/planet`) still routes
-    // correctly. Without this, the misrouted URL falls into the
-    // bottom `fetch().json()` branch and the JSON gets stored as a
-    // FeatureCollection — which then crashes `applyFilter` because
+    // Source `type:` from the DSL takes precedence over URL-extension sniffing so a URL without a
+    // file extension (e.g. a TileJSON manifest at `https://tiles.example.com/planet`) still routes
+    // correctly. Without this, the misrouted URL falls into the bottom `fetch().json()` branch and
+    // the JSON gets stored as a FeatureCollection — which then crashes `applyFilter` because
     // there's no `.features` array.
     const declaredType = load.type
 
@@ -391,7 +392,7 @@ export class SourceManager {
 
     if (vectorTileFormat !== null) {
       const source = new TileCatalog()
-      const vtRenderer = new VectorTileRenderer(this.getCtx())
+      const vtRenderer = new VectorTileRenderer(this.getCtx(), this.inputs)
       vtRenderer.setBindGroupLayout(this.getRenderer().bindGroupLayout)
       vtRenderer.setPaletteResources(
         this.getRenderer().paletteColorAtlasView,
@@ -519,19 +520,21 @@ export class SourceManager {
       256 * 1024 * 1024,
       `GeoJSON source "${load.name}"`,
     )
+    // The `!response.ok` branch above warns about the HTML-404 body it cannot
+    // see: a MISSING path is 200 + HTML on most hosts, so that branch never
+    // fires and JSON.parse breaks instead. Catch it here, named (#1627).
+    assertNotErrorPage(response, rawBytes, `GeoJSON source "${load.name}" (${url})`)
     const data = JSON.parse(new TextDecoder().decode(rawBytes)) as GeoJSONFeatureCollection
     assertIngestBudget((data as { features?: unknown }).features, `GeoJSON source "${load.name}"`)
 
-    // Phase 5f: VirtualPMTilesBackend is now the default route for
-    // GeoJSON URL sources. The legacy main-thread compileSync path
-    // (GeoJSONRuntimeBackend) is still available for opt-out
+    // Phase 5f: VirtualPMTilesBackend is now the default route for GeoJSON URL sources. The legacy
+    // main-thread compileSync path (GeoJSONRuntimeBackend) is still available for opt-out
     // diagnostics during the rollout via either:
     //   - `window.__XGIS_USE_LEGACY_GEOJSON = true` in DevTools
     //   - `?legacy=1` query param
-    // The opt-out keeps the safety net while we confirm the new
-    // path is stable across every demo + fixture. Once the e2e
-    // suite has run green for a stretch, the legacy path comes
-    // out entirely (Phase 5f follow-up).
+    // The opt-out keeps the safety net while we confirm the new path is stable across every demo +
+    // fixture. Once the e2e suite has run green for a stretch, the legacy path comes out entirely
+    // (Phase 5f follow-up).
     const useLegacy =
       typeof window !== 'undefined' &&
       ((window as unknown as { __XGIS_USE_LEGACY_GEOJSON?: boolean }).__XGIS_USE_LEGACY_GEOJSON ===
@@ -677,7 +680,7 @@ export class SourceManager {
     if (capPoles.north || capPoles.south) this.geojsonCapPoles.set(sourceName, capPoles)
     else this.geojsonCapPoles.delete(sourceName)
     const source = new TileCatalog()
-    const vtRenderer = new VectorTileRenderer(this.getCtx())
+    const vtRenderer = new VectorTileRenderer(this.getCtx(), this.inputs)
     vtRenderer.setBindGroupLayout(this.getRenderer().bindGroupLayout)
     vtRenderer.setPaletteResources(
       this.getRenderer().paletteColorAtlasView,
@@ -769,12 +772,12 @@ export class SourceManager {
    *
    *  Evicting is safe on the SHARED worker because the key is namespaced
    *  `${instanceId}::${sourceName}` with THIS map's id, so a sibling map's index
-   *  is a different key. That is why this differs from the neighbouring decision
-   *  NOT to terminate the shared worker pools in `XGISMap.destroy()`: termination
-   *  is global and would break a sibling, dropping our own namespaced key cannot.
-   *  Lives here rather than in the backend because SourceManager owns
-   *  `_tilingInstanceId` and issues the only other eviction (`setSourceData`) —
-   *  one authority for when a key dies. */
+   *  is a different key — which is why this differs from the neighbouring
+   *  decision NOT to terminate the shared worker pools in `XGISMap.destroy()`:
+   *  termination is global and would break a sibling, dropping our own
+   *  namespaced key cannot. Lives here rather than in the backend because
+   *  SourceManager owns `_tilingInstanceId` and issues the only other eviction
+   *  (`setSourceData`) — one authority for when a key dies. */
   private _dropTilingIndexWithCatalog(source: TileCatalog, sourceName: string): void {
     source.onDestroy(() => tilingPool.dropSource(this._tilingInstanceId, sourceName))
   }
@@ -835,16 +838,13 @@ export class SourceManager {
     // Shape-normalise + validate the pushed value (Feature / bare Geometry
     // lift, features-array guard, ingest-budget DoS guard).
     let normalized = normaliseHostPushedData(sourceId, data)
-    // #1235 gap 1 — a source that was attached through the virtual-PMTiles
-    // tiling (rawDatasets holds the `_vectorTile` marker: inline `data:` and
-    // URL-loaded GeoJSON alike) must be RE-SEEDED through that same attach.
-    // Writing the raw FC here instead routed the rebuild into the legacy
-    // worker-compile path, which uploads fills/points but never line
-    // segments — a pushed LineString silently rendered nothing. The attach
-    // reprojects internally, re-registers the vt entry synchronously (no
-    // await before registerVtSource), and re-writes the marker; the
-    // show-source maps are the run()-scoped ones cached at attach time (a
-    // data push changes no shows).
+    // #1235 gap 1 — a source that was attached through the virtual-PMTiles tiling (rawDatasets
+    // holds the `_vectorTile` marker: inline `data:` and URL-loaded GeoJSON alike) must be RE-
+    // SEEDED through that same attach. Writing the raw FC here instead routed the rebuild into the
+    // legacy worker-compile path, which uploads fills/points but never line segments — a pushed
+    // LineString silently rendered nothing. The attach reprojects internally, re-registers the vt
+    // entry synchronously (no await before registerVtSource), and re-writes the marker; the show-
+    // source maps are the run()-scoped ones cached at attach time (a data push changes no shows).
     const prev = this.rawDatasets.get(sourceId)
     if (
       prev !== undefined &&

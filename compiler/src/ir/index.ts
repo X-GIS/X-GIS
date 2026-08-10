@@ -30,6 +30,11 @@ export type {
   ExtrudePaint,
 } from './emit-commands'
 export type { HeatmapPaint, ArrowPaint, FlowPaint } from './emit-commands-point-symbol'
+// `input` host contract (#1539). The pool sizes are the LANGUAGE limit; map's
+// reserved uniform pool mirrors them (see resolve-inputs.ts's header) and a
+// gate in map asserts the two agree, so the mirror cannot drift silently.
+export type { ResolvedInputInfo } from './resolve-inputs'
+export { INPUT_F32_POOL_SIZE, INPUT_COLOR_POOL_SIZE } from './resolve-inputs'
 export type {
   Scene,
   SourceDef,
@@ -87,3 +92,11 @@ export {
   DEPS_ZOOM_FEATURE,
   type DepBits,
 } from './deps'
+// #777 IV3 — the text-pitch-alignment resolution chain, shared by the converter's
+// runtime-gap warning and the runtime that builds the ground basis.
+export {
+  isLinePlacement,
+  resolveRotationAlignment,
+  resolvePitchAlignment,
+  type ResolvedAlignment,
+} from './label-alignment'

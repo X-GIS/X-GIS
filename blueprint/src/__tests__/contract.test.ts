@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest'
 import { Lexer, Parser } from '@xgis/compiler'
 import { NODE_SPECS, starterGraph, uid, type BPGraph } from '../types'
 import { graphToXgis } from '../codegen'
+import { xgisToGraph } from '../import'
 
 const parses = (src: string) => {
   new Parser(new Lexer(src).tokenize()).parse()
@@ -14,7 +15,9 @@ const FIELD_KEYS: Record<string, string[]> = {
   import: ['mode', 'names', 'path'],
   source: ['name', 'type', 'url', 'layers'],
   symbol: ['name', 'path', 'anchor'],
-  preset: ['name', 'pipe'],
+  preset: ['name', 'params', 'pipe'],
+  fn: ['name', 'params', 'body'],
+  struct: ['name', 'fields'],
   layer: ['name', 'sourceLayer', 'minzoom', 'maxzoom', 'filter', 'pipe', 'ramp', 'range'],
   background: ['fill'],
 }
@@ -22,7 +25,19 @@ const FIELD_KEYS: Record<string, string[]> = {
 describe('@xgis/blueprint codegen contract', () => {
   it('all editor node types are present', () => {
     expect(Object.keys(NODE_SPECS).sort()).toEqual(
-      ['background', 'import', 'layer', 'map', 'preset', 'reroute', 'source', 'symbol'].sort(),
+      [
+        'background',
+        'fn',
+        'import',
+        'input',
+        'layer',
+        'map',
+        'preset',
+        'reroute',
+        'source',
+        'struct',
+        'symbol',
+      ].sort(),
     )
   })
 
@@ -64,6 +79,62 @@ describe('@xgis/blueprint codegen contract', () => {
     expect(src).toContain('source land')
     expect(src).toMatch(/layer continents/)
     expect(() => parses(src)).not.toThrow()
+  })
+
+  it('parameterized presets round-trip codegen → compiler → import (#1536)', () => {
+    const p = {
+      id: uid('n'),
+      type: 'preset' as const,
+      x: 0,
+      y: 0,
+      data: { name: 'glow', params: 'color, radius', pipe: 'fill-[color] stroke-[radius]' },
+    }
+    const g: BPGraph = { nodes: [p], edges: [] }
+    const src = graphToXgis(g)
+    expect(src).toContain('preset glow(color, radius) {')
+    expect(() => parses(src)).not.toThrow()
+
+    const back = xgisToGraph(src)
+    const node = back.nodes.find((n) => n.type === 'preset')!
+    expect(node.data.params).toBe('color, radius')
+  })
+
+  it('fn nodes round-trip codegen → compiler → import (#1535)', () => {
+    const f = {
+      id: uid('n'),
+      type: 'fn' as const,
+      x: 0,
+      y: 0,
+      data: { name: 'halo', params: 'width, base', body: 'clamp(width * 1.5 + base, 1, 24)' },
+    }
+    const g: BPGraph = { nodes: [f], edges: [] }
+    const src = graphToXgis(g)
+    expect(src).toContain('fn halo(width, base) { return clamp(width * 1.5 + base, 1, 24) }')
+    expect(() => parses(src)).not.toThrow()
+
+    const back = xgisToGraph(src)
+    const node = back.nodes.find((n) => n.type === 'fn')!
+    expect(node.data.params).toBe('width, base')
+    expect(node.data.body).toBe('clamp(width * 1.5 + base, 1, 24)')
+  })
+
+  it('struct nodes round-trip codegen → compiler → import (#1537)', () => {
+    const s = {
+      id: uid('n'),
+      type: 'struct' as const,
+      x: 0,
+      y: 0,
+      data: { name: 'Track', fields: 'speed: f32, name: string' },
+    }
+    const g: BPGraph = { nodes: [s], edges: [] }
+    const src = graphToXgis(g)
+    expect(src).toContain('struct Track { speed: f32, name: string }')
+    expect(() => parses(src)).not.toThrow()
+
+    const back = xgisToGraph(src)
+    expect(back.nodes.find((n) => n.type === 'struct')!.data.fields).toBe(
+      'speed: f32, name: string',
+    )
   })
 
   it('reroute knots are transparent in codegen', () => {

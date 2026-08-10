@@ -13,7 +13,7 @@
 // CI artifact references.
 
 import { test, expect } from '@playwright/test'
-import { mkdirSync, writeFileSync, readFileSync } from 'node:fs'
+import { mkdirSync, writeFileSync, readFileSync, readdirSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -30,11 +30,66 @@ mkdirSync(OUT, { recursive: true })
 mkdirSync(join(OUT, 'screens'), { recursive: true })
 mkdirSync(join(OUT, 'per-demo'), { recursive: true })
 
-// Enumerate demo IDs at spec-discovery time by parsing demos.ts source.
-// import.meta.glob makes runtime import unworkable from Node; the
-// top-level key pattern is stable enough to regex.
-const DEMOS_SRC = readFileSync(resolve(HERE, '../src/demos.ts'), 'utf8')
-const DEMO_IDS = [...DEMOS_SRC.matchAll(/^ {2}([a-z_][a-z_0-9]*):\s*\{/gm)].map((m) => m[1]!)
+// Enumerate demo IDs at spec-discovery time from the per-category FRAGMENT
+// files. import.meta.glob makes runtime import unworkable from Node, so this
+// reads source text; what it must not read is `demos.ts`, which #1516 turned
+// into a pure assembler (`...DEMOS_CORE, ...DEMOS_STYLE, …`). It did read
+// demos.ts until #1625: the regex matched zero spreads, `DEMO_IDS` was `[]`,
+// the loop below never ran, and this file contributed ZERO tests — silently,
+// for every run since that split. Unlike the gallery gate
+// (site/src/lib/gallery-drift-check.ts, the sibling that DID get updated and
+// whose pattern this mirrors), the audit wants `fixtures.ts` INCLUDED: those
+// 89 hidden fixtures are its corpus, not noise.
+// The tripwire this spec did not have. A forall over an empty population is
+// green either way (CLAUDE.md §12), which is exactly how the miss above stayed
+// invisible — so an empty enumeration must be LOUD, not a zero-test no-op.
+// Module scope, so it fires at collection rather than inside one test.
+//
+// PER-FRAGMENT, not just "the total is non-zero". A total check only catches the
+// all-or-nothing case; if ONE fragment adopts a key style the regex misses, the
+// total stays comfortably positive and the audit silently drops that category —
+// the same silent shrink in a smaller costume, and the harder one to notice
+// because the spec still reports hundreds of green tests. Every fragment file in
+// this directory exists to declare demos, so every one must yield at least one
+// id, and the message names the file that stopped matching.
+const FRAGMENT_DIR = resolve(HERE, '../src/demos')
+const DEMO_IDS = readdirSync(FRAGMENT_DIR)
+  .filter((f) => f.endsWith('.ts') && f !== 'loader.ts')
+  .flatMap((f) => {
+    const ids = [
+      ...readFileSync(join(FRAGMENT_DIR, f), 'utf8').matchAll(
+        /^ {2}(?:(\w+)|'([\w-]+)'|"([\w-]+)"): \{/gm,
+      ),
+    ].map((m) => (m[1] ?? m[2] ?? m[3])!)
+    if (ids.length === 0) {
+      throw new Error(
+        `[demo-audit] parsed 0 demo keys from ${join(FRAGMENT_DIR, f)} — the fragment ` +
+          `format changed, so this audit would silently shrink by one category; update ` +
+          `the DEMO_IDS enumeration in _demo-fixture-audit.spec.ts to match — or, if ` +
+          `this file is a helper rather than a fragment, exclude it beside loader.ts ` +
+          `(see #1625).`,
+      )
+    }
+    return ids
+  })
+
+// Still needed alongside the per-fragment check above: if the directory itself
+// stops yielding fragment files, the callback never runs and nothing throws.
+if (DEMO_IDS.length === 0) {
+  throw new Error(
+    `[demo-audit] parsed 0 demo keys from ${FRAGMENT_DIR}/*.ts — the fragment ` +
+      `format changed; update the DEMO_IDS enumeration in _demo-fixture-audit.spec.ts ` +
+      `to match (see #1625).`,
+  )
+}
+
+// Assets `.gitignore:4-8` keeps OUT of the repo on purpose — bulk Natural
+// Earth extracts and tiler output, too large to track and regenerated locally.
+// A clean checkout (CI, a container, a fresh clone) legitimately cannot render
+// a demo that needs one, so those are SKIPPED rather than judged. Every other
+// missing asset stays a failure: that is #1626's class, where the file simply
+// was never committed and the fix is to commit it.
+const BULK_ASSET_RE = /ne_(?:10m|50m)_[\w-]+\.geojson|\.xgvt\b|\.pmtiles\b/i
 
 // Console noise that fires on nearly every demo and isn't actionable.
 const CONSOLE_NOISE =
@@ -56,6 +111,8 @@ interface DemoResult {
   warns: string[]
   failedRequests: string[]
   screenshotPath: string
+  /** Set when the demo was skipped rather than judged — see `assetMissing`. */
+  skipReason?: string
 }
 
 for (const id of DEMO_IDS) {
@@ -217,6 +274,37 @@ for (const id of DEMO_IDS) {
     const ssrfBlocked = result.failedRequests.some((f) =>
       /localhost|127\.0\.0\.1|\[::1\]|loopback host blocked|SSRF/i.test(f),
     )
+    // Same shape as ssrfBlocked above, for the other environment artifact:
+    // a demo whose asset is not PROVISIONED here. `.gitignore:4-8` keeps the
+    // bulk Natural Earth / xgvt data out of the repo on purpose, so a clean
+    // checkout (CI, a container, a fresh clone) cannot render those demos and
+    // must not report them as broken — the signal-to-noise that would follow
+    // is how a 180-demo audit gets ignored again.
+    //
+    // The predicate is the message #1627's loader guard emits, NOT a 4xx: a
+    // missing path is answered 200-with-HTML by the dev server, so nothing
+    // lands in `failedRequests` at all.
+    //
+    // It matches on WHICH asset is missing, not merely THAT one is. "An asset
+    // failed to load" also describes #1626 — a demo importing a file that was
+    // never committed — and skipping on that would hide the exact defect class
+    // this audit exists to surface. Only the deliberately-untracked BULK data
+    // earns a skip; anything else missing is a real failure, because the fix
+    // for it is to commit the asset, not to ignore the demo.
+    const assetMissing = result.errors.some(
+      (e) =>
+        /expected data, got an HTML document|\[Module\] Could not read file/i.test(e) &&
+        BULK_ASSET_RE.test(e),
+    )
+    if (assetMissing) {
+      result.skipReason =
+        'asset not provisioned in this checkout (bulk data is deliberately untracked — .gitignore:4-8)'
+      writeFileSync(join(OUT, 'per-demo', `${id}.json`), JSON.stringify(result, null, 2))
+    }
+    // Skipping AFTER the JSON write, so REPORT.md still carries the reason —
+    // a silent skip is the same invisible-failure shape this audit exists to
+    // catch.
+    test.skip(assetMissing, `${id}: ${result.skipReason ?? ''}`)
     expect.soft(ready, `${id} never reached __xgisReady`).toBe(true)
     expect.soft(result.errors, `${id} produced console errors`).toEqual([])
     expect.soft(cameraFinite, `${id} camera has non-finite zoom/center`).toBe(true)

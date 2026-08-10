@@ -74,6 +74,17 @@ interface SliceMsg {
 /** Shared pool — N workers, round-robin. */
 export class MvtWorkerPool {
   private workers: Worker[] = []
+  /** #1572 B — indices of workers that fired 'error'. Per the HTML spec a worker whose
+   *  script failed is terminated after that event and `postMessage` becomes a silent
+   *  no-op, so a dead index that keeps its turn in the rotation swallows 1/N of every
+   *  later compile: those tiles stay "loading" forever (the catalog's only slot release
+   *  is `compile().finally`, which never runs), the source halts once the concurrency cap
+   *  fills, and `hasPendingLoads()` keeps the render loop hot the whole time. The old
+   *  handler rejected the jobs in flight AT the error and did nothing about the next
+   *  dispatch. Kept as an index set rather than by splicing `workers` so live jobs'
+   *  `workerIndex` stays valid — the round-robin index stability the field comments
+   *  already depend on. */
+  private deadWorkers = new Set<number>()
   private nextWorker = 0
   private pending = new Map<number, PendingJob>()
   private nextTaskId = 1
@@ -224,6 +235,10 @@ export class MvtWorkerPool {
         // good results (their messages then hit the `if (!job) return`
         // early-out) and spuriously fail healthy tiles.
         const err = new Error(e.message || 'mvt worker error')
+        // #1572 B — and take this worker OUT of the rotation. Rejecting the jobs it was
+        // holding is only half the job: without this, every N-th later compile is posted
+        // into a terminated worker and never settles.
+        this.deadWorkers.add(i)
         for (const [taskId, job] of this.pending) {
           if (job.workerIndex !== i) continue
           job.reject(err)
@@ -232,6 +247,19 @@ export class MvtWorkerPool {
       })
       this.workers.push(w)
     }
+  }
+
+  /** #1572 B — the next worker in round-robin order that has not fired 'error', advancing
+   *  `nextWorker` past it. Returns -1 when the whole fleet is dead. Walks at most one full
+   *  lap, so the cost is O(size) worst case and O(1) with a healthy fleet. */
+  private nextLiveWorker(): number {
+    const n = this.workers.length
+    for (let step = 0; step < n; step++) {
+      const idx = this.nextWorker
+      this.nextWorker = (this.nextWorker + 1) % n
+      if (!this.deadWorkers.has(idx)) return idx
+    }
+    return -1
   }
 
   /** Schedule a drain of the resolve queue. Cheap dedup via `resolveScheduled`.
@@ -362,10 +390,17 @@ export class MvtWorkerPool {
     this.ensureWorkers()
     const taskId = this.nextTaskId++
     return new Promise<MvtCompileSlice[]>((resolve, reject) => {
-      const workerIndex = this.nextWorker
+      const workerIndex = this.nextLiveWorker()
+      if (workerIndex < 0) {
+        // #1572 B — every worker has failed. Reject IMMEDIATELY rather than post into a
+        // dead one: the caller's `.finally(releaseLoading)` then runs, the catalog slot is
+        // freed, and the key can be requested again. Silently hanging is what made a
+        // worker fleet failure look like "the tiles are still loading" forever.
+        reject(new Error('every mvt compile worker has failed'))
+        return
+      }
       this.pending.set(taskId, { resolve, reject, workerIndex })
       const w = this.workers[workerIndex]
-      this.nextWorker = (this.nextWorker + 1) % this.workers.length
       w.postMessage(
         {
           kind: 'compile-mvt',
@@ -408,9 +443,16 @@ export class MvtWorkerPool {
     this._rafHandle = null
     this._timerHandle = null
     this.resolveScheduled = false
-    this.resolveQueue.length = 0
+    // #1572 C — a job that already got its 'compile-done' was DELETED from `pending` and
+    // parked here, so the rejection loop below never saw it: clearing the queue left it in
+    // neither settle path and its catalog loading slot wedged. Settle before clearing.
+    // Rejecting (not resolving) is right — the pool is gone, so a resolve would push
+    // slices into a torn-down sink.
+    const buffered = this.resolveQueue.splice(0, this.resolveQueue.length)
+    for (const { job } of buffered) job.reject(new Error('mvt worker pool disposed'))
     for (const w of this.workers) w.terminate()
     this.workers.length = 0
+    this.deadWorkers.clear()
     for (const { reject } of this.pending.values()) {
       reject(new Error('mvt worker pool disposed'))
     }

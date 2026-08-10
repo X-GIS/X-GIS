@@ -13,7 +13,9 @@ bug.
 > **Language work landed.** This spec describes `main` after the **#1072 / #1138**
 > grammar prune: `let`, `fn`, `show`, `style`, and the imperative control-flow
 > statements (`if` / `else` / `for` / `in` / `return`) were removed, and the former
-> `style` block folded into `preset`. It also reflects #1065 (unified spanned
+> `style` block folded into `preset`. **#1535** later REINTRODUCED `fn` end-to-end
+> in its expression-bodied form (§2.10) and **#1536** added preset parameters
+> (§2.5). It also reflects #1065 (unified spanned
 > diagnostics + parser multi-error recovery), #1071 (recursive import resolution +
 > `import * as ns`), and #1066 (unknown-function lower errors, `X-GIS0012`).
 
@@ -159,15 +161,18 @@ becomes that keyword token, `true`/`false` become `BOOL`, otherwise `IDENT`. The
 keywords (major 1):
 
 ```
-source  layer  background  preset  import  symbol  keyframes  from  to
+source  layer  background  preset  fn  struct  input  import  symbol  keyframes  from  to
 ```
 
 Every keyword except `from` and `to` opens a top-level statement (§2). `from` and
 `to` begin no statement — they are keyframe selectors / aliases (§2.11) and may also
-appear as `utility-name` segments (§3.10). `true` / `false` are keyed in the same
-table but lex as `BOOL`. The pre-#1072 reserved-only keywords (`let fn show style if
-else for in return place view on simulate analyze struct enum export`) were removed
-from the table — each now lexes as an ordinary `IDENT`.
+appear as `utility-name` segments (§3.10), as may `fn`, `struct` and `input` (`fn-*` /
+`-struct-` / `input-*` hyphen-joined names stay valid, §3.10). `true` / `false` are keyed in the
+same table but lex as `BOOL`. The pre-#1072 reserved-only keywords (`let show style if
+else for in return place view on simulate analyze enum export`) were removed from the
+table — each now lexes as an ordinary `IDENT`; `fn`, `struct` and `input` were
+REINTRODUCED / ADDED as real keywords by #1535 (§2.10), #1537 (§2.16) and #1539
+(§2.17).
 
 ## 1.7 Operators and punctuation
 
@@ -176,11 +181,12 @@ Emitted as fixed terminals (`lexer.ts` symbol tables). Two- and one-character fo
 ```
 "->"  ".."  "=="  "!="  "<="  ">="  "&&"  "||"  "??"
 "("  ")"  "{"  "}"  "["  "]"  ":"  ","  "."  "|"  "="
-"<"  ">"  "+"  "-"  "*"  "/"  "%"  "&"  "!"  "?"
+"<"  ">"  "+"  "-"  "*"  "/"  "%"  "&"  "!"  "?"  "@"
 ```
 
+`"@"` is not an operator — it only opens a **shader stage block** (§2.15b, #1538).
 Any character that starts none of the above is a hard lexer error (**"Unexpected
-character"**), e.g. `@` or `$`.
+character"**), e.g. `~` or `$`.
 
 ---
 
@@ -189,8 +195,8 @@ character"**), e.g. `@` or `$`.
 ```
 program   = version-pragma statement*
 statement = source-statement | layer-statement | background-statement
-          | preset-statement | import-statement | symbol-statement
-          | keyframes-statement
+          | preset-statement | fn-statement | struct-statement
+          | import-statement | symbol-statement | keyframes-statement
 ```
 
 `parse()` (`parser.ts`) consumes the pragma, then loops `parseStatement` to `EOF`.
@@ -243,10 +249,11 @@ source world { type: geojson, url: "world.geojson" }
 
 ```
 layer-statement = "layer" IDENT "{" layer-item* "}"
-layer-item      = utility-line | style-property | block-property ","?
+layer-item      = stage-block | utility-line | style-property | block-property ","?
 ```
 
-The richest block. Each item is dispatched (`parseLayerStatement`): a `"|"` starts a
+The richest block. Each item is dispatched (`parseLayerStatement`): a `"@"` starts a
+**shader stage block** (§2.15b); a `"|"` starts a
 **utility line** (§2.12); a `fill|opacity|size|stroke|stroke-width` identifier
 directly followed by `":"` is a **style property** (§2.14, CSS-like); anything else
 is a **block property** (§2.14, `key: value`). The three item kinds may interleave
@@ -280,18 +287,30 @@ background { fill: sky-900 }
 ## 2.5 `preset`
 
 ```
-preset-statement = "preset" IDENT "{" utility-line+ "}"
+preset-statement = "preset" IDENT param-list? "{" preset-body "}"
+param-list       = "(" ( IDENT ( "," IDENT )* )? ")"
+preset-body      = ( utility-line | block-property )*
 ```
 
 A named bundle of utility lines — the single reusable-style construct, into which the
-former `style` block folded (#1072 / #1138, §2.6). Unlike `layer`, the body accepts
-**only** utility lines — a non-`"|"` token is a hard error (**"Expected | in preset
-block"**). How a layer consumes a preset is a lowering concern (see the registry,
-§3.11).
+former `style` block folded (#1072 / #1138, §2.6). The body accepts utility lines
+**and** block properties (coverage paint `ramp:`/`range:`, #1272 E-②), so an
+importable portrayal preset carries the full style. How a layer consumes a preset is
+a lowering concern (see the registry, §3.11).
+
+A preset may declare **parameters** (#1536). A parameterized preset is referenced in
+call form — `style: glow(#f59e0b, 4)` (§2.14) or `apply-glow(#f59e0b, 4)` (§2.12) —
+and expansion deep-clones the body with each argument expression substituted for its
+parameter name. Substitution replaces **bare identifiers only**: `.field` access
+keeps its feature-property meaning even when the field name equals a parameter, and
+an identifier in callee position always names a function. A wrong argument count
+(including arguments passed to a zero-param preset) is an `X-GIS0014` error at the
+call-site line. Zero-arg presets keep the bare pre-#1536 grammar and behavior.
 
 ```xgis
 xgis 1
 preset track { | symbol-arrow stroke-black stroke-1 }
+preset glow(color, radius) { | fill-[color] stroke-[radius] }
 ```
 
 ## 2.6 `style` — removed (#1072 / #1138), folded into `preset`
@@ -341,9 +360,25 @@ matched as ordinary identifiers (they are not reserved keywords). `numeric-props
 reads `key: number` pairs, stopping before the next element keyword; a leading `-`
 negates. Any other token is a hard error (**"Unexpected token in symbol block"**).
 
+`rect` reads `w`/`h` (default 1) and optional `x`/`y` for the corner, defaulting to
+centred. `circle` reads `r` (default 0.5) and optional `cx`/`cy`. Both lower to paths,
+and a circle lowers to four **cubic** arcs — the renderer evaluates beziers analytically
+rather than flattening them, so a symbol is resolution-independent at any zoom.
+
+`anchor` names where the symbol's origin sits in its own bounding box: `center`
+(default), `top`, `bottom`, `left`, `right`. `anchor: top` places the top edge on the
+point, so the glyph hangs below it. **Corners are not expressible**: the anchor value is
+an `IDENT` (§1.6), which carries no hyphen, so `anchor: top-left` lexes as the expression
+`top - left`. An unrecognised anchor is a warning (`X-GIS0015`) and the symbol is centred.
+
+A `symbol` block that declares no geometry at all is a warning (`X-GIS0016`); references
+to it fall back to a circle.
+
 ```xgis
 xgis 1
 symbol arrow { path "M 0 -1 L -0.4 0.3 Z" anchor: center }
+symbol pin   { circle r: 0.4 anchor: top }
+symbol box   { rect w: 2 h: 1 }
 ```
 
 ## 2.9 `show` — removed (#1072 / #1138)
@@ -352,10 +387,42 @@ The legacy imperative `show` render form was removed. `show` now lexes as an ord
 `IDENT` and begins no statement; declarative `layer` blocks (§2.3) are the render
 surface.
 
-## 2.10 `fn` — removed (#1072 / #1138)
+## 2.10 `fn`
 
-Named functions were removed. `fn` now lexes as an ordinary `IDENT` and begins no
-statement; the language has no user-defined functions or function bodies.
+```
+fn-statement = "fn" IDENT "(" ( IDENT ( "," IDENT )* )? ")" "{" "return" expression "}"
+```
+
+A user-defined function (#1535 — reintroduced end-to-end after the #1072 prune; the
+pre-#1072 `fn` was parse-only surface and stays dead in its imperative form, §2.13).
+v1 bodies are **expression-bodied**: exactly one `return <expr>` (`return` is matched
+by identifier value, not a keyword); branching is `?:` or `match`. Any imperative body
+is a hard `X-GIS0010`.
+
+Semantics: calls are **inlined at lower time** (`ir/fn-inline.ts`), so the evaluator,
+the classifier, and the WGSL codegen never see a user-fn call — a body built from
+GPU-safe builtins rides the per-feature-GPU path unchanged. Three rules are enforced
+at inline time:
+
+- the user-fn call graph must be **acyclic** — self or mutual recursion is `X-GIS0015`;
+- call arity must match the declaration — `X-GIS0016` at the call-site line;
+- a body's bare identifiers must be its **parameters** (plus the camera identifiers
+  `zoom`/`pitch`) — `X-GIS0017`. Feature data is always explicit `.field` access, so a
+  body can never capture a feature property by accident.
+
+Fns are cherry-pickable by name through imports and collide across files like any
+top-level definition; under a namespaced splice (`import * as ns`) they stay **global**
+like `symbol` definitions — a qualified name is not a legal callee identifier.
+
+```xgis
+xgis 1
+fn halo(width, base) { return clamp(width * 1.5 + base, 1, 24) }
+source w { type: geojson, url: "w.geojson" }
+layer roads {
+  source: w
+  | stroke-[halo(.width, 2)]
+}
+```
 
 ## 2.11 `keyframes`
 
@@ -388,7 +455,9 @@ keyframes pulse { 0%: opacity-100  50%: opacity-30  to: opacity-100 }
 
 ```
 utility-line = "|" utility-item*                 (* until next "|", "}", or EOF *)
-utility-item = ( IDENT ":" )? utility-name binding? binding-unit?
+utility-item = ( IDENT ":" )? utility-name apply-args? binding? binding-unit?
+apply-args   = "(" ( expression ( "," expression )* )? ")"
+               (* only after an `apply-`-prefixed name — preset call form, #1536 *)
 binding      = "-" "[" expression "]"
              | "[" expression "]"
              | data-style-call
@@ -459,6 +528,134 @@ bare expression (`42`, `[1, 2, 3]`, `x | round`, …) at statement position was
 removed; any token that is not a statement keyword (§2) is now a hard syntax error
 (`parseStatement`). Expressions appear only inside block / style properties and
 utility bindings.
+
+## 2.15b Shader stage blocks (`@color` / `@stroke`)
+
+```
+stage-block = "@" ( "color" | "stroke" ) "{" "return" expression "}"
+```
+
+Authored inside a `layer` body (§2.3), a stage block is the language's **Level-4
+escape hatch** (DESIGN.md P7): it writes the fragment colour directly instead of
+going through the utility vocabulary. Bodies are **expression-bodied** like `fn`
+(§2.10) — exactly one `return <expr>`, `return` matched by identifier value — and
+must evaluate to **vec4** (§3.13); any other type is `X-GIS0020`.
+
+Semantics:
+
+- The body lowers to **shader-dsl IR, never WGSL/GLSL text**, so the GLSL backend,
+  the lint pass, reflection and the CPU oracle keep working. It lands in the same
+  variant colour slot a data-driven paint fills, so the composer is untouched.
+- User `fn`s are usable inside a block (they are inlined first, §2.10), as is any
+  GPU-safe expression.
+- A stage block **wins over utility-authored paint on the same axis** — the
+  explicit escape hatch is never silently overridden by a stray `fill-*`.
+- The author owns the final colour **including alpha**; opacity utilities are not
+  re-composed on top.
+- **`@position` does not exist.** Vertex displacement has no slot in the variant
+  composer today, so it is deferred rather than faked; `@position` is a syntax
+  error naming that reason.
+
+```xgis
+xgis 1
+fn tint(x) { return clamp(x * 1.5, 0, 1) }
+source w { type: geojson, url: "w.geojson" }
+layer painted {
+  source: w
+  @color { return vec4(tint(.r), 0.25, 0.5, 1) }
+}
+```
+
+## 2.16 `struct`
+
+```
+struct-statement = "struct" IDENT "{" ( struct-field ( "," struct-field )* ","? )? "}"
+struct-field     = IDENT ":" field-type
+field-type       = "f32" | "string" | "bool"
+```
+
+A **source field schema** (#1537 — reintroduced after the #1072 prune). A source
+opts in with `schema: <StructName>`; every `.field` read on that source's layers is
+then checked against the declared field names, and an unknown one is `X-GIS0019`
+with a nearest-name suggestion — the field-side mirror of `X-GIS0012` (§2 note).
+A field type outside the three above is a hard `X-GIS0010`.
+
+The check is **opt-in by construction**: a source with no `schema:` keeps fully
+dynamic access, so no pre-#1537 style changes meaning. Reserved `$`-sigil eval keys
+(`$zoom`, `$geometryType`, …) are never treated as feature fields. Field TYPES are
+declared but v1 uses them for name checking only — type-directed classification is a
+later step. Struct names collide across files like any top-level definition and stay
+**global** under a namespaced splice (a `ns.`-qualified name is not a legal `schema:`
+identifier), like `symbol` and `fn`.
+
+```xgis
+xgis 1
+struct Track { speed: f32, heading: f32, name: string }
+source ais { type: geojson, url: "ais.geojson", schema: Track }
+layer boats {
+  source: ais
+  filter: .speed > 3
+  | size-[.speed * 2]
+}
+```
+
+## 2.17 `input`
+
+```
+input-statement = "input" IDENT ":" input-type "=" default-literal
+input-type      = "f32" | "color"
+default-literal = NUMBER    (* when input-type is "f32"   *)
+                | COLOR     (* when input-type is "color" *)
+```
+
+A **host contract** (#1539): a named, typed parameter the embedding application sets
+at runtime with `map.setInput(name, value)`, referenced from any expression by bare
+name. The declaration is what makes the name resolvable — an undeclared identifier
+keeps its existing meaning (a feature-field read), so `input` adds a namespace rather
+than shadowing one.
+
+The default is a **literal of the declared type**, checked at parse time: a `#hex` on
+an `: f32` (or a number on a `: color`) is `X-GIS0022`, and a type outside the two
+above is `X-GIS0021`. A duplicate name is `X-GIS0023`; a declared-but-never-referenced
+input is `X-GIS0024` (a WARNING, not an error — a host may legitimately set an input
+the current style doesn't visibly use).
+
+Each declaration is assigned a slot in a fixed-size reserved uniform pool, in
+declaration order and independently per type (8 `f32`, 4 `color`). Exceeding either
+pool is `X-GIS0025`. A `color` input is a vec4 value in its own right, so it may be
+returned from a `@color` / `@stroke` stage block (§2.15b) directly, and using one in a
+scalar position is the ordinary `X-GIS0018`.
+
+Setting an input is a **uniform write only** — no pipeline is rebuilt, which is the
+whole point of declaring it rather than recompiling the style. `setInput` throws on an
+undeclared name or a value whose type doesn't match the declaration; it never silently
+does nothing.
+
+```xgis
+xgis 1
+input threshold: f32 = 0.5
+input highlight: color = #f59e0b
+source w { type: geojson, url: "w.geojson" }
+layer risk {
+  source: w
+  | opacity-[threshold]
+  @color { return highlight }
+}
+```
+
+```js
+map.setInput('threshold', 0.8) // next frame only — no recompile
+map.getInput('threshold') // → 0.8
+```
+
+> Backend note. An `input` reference that reads no feature field is a per-frame
+> CONSTANT: the runtime evaluates it once per frame on the CPU into the ordinary
+> paint uniforms, so it works on **both** backends. An `input` MIXED with a feature
+> read (`.score / threshold`) must be evaluated per fragment, so it is read from a
+> reserved shader uniform pool instead — and that half is **WebGPU-only**, because
+> the WebGL2 backend compiles no per-feature polygon fill variant. A `@color` /
+> `@stroke` stage block (§2.15b) is likewise shader-side, hence WebGPU-only.
+> Tracked on #1539.
 
 ---
 
@@ -578,7 +775,19 @@ match-value    = COLOR | utility-name | expression
 ```
 
 A leading `.field` is implicit binding to the current datum. Postfix `.`/`[]`/`()`
-chain over any primary. A call to the identifier `match` may carry a trailing
+chain over any primary.
+
+**Vector values and component reads (#1537).** The builtins `vec2` / `vec3` / `vec4`
+construct fixed-length vectors under WGSL's rules — a lone scalar argument splats
+into every lane, and a vector argument flattens (`vec4(vec3(c), 1)`) — and any other
+lane count is a hard error rather than a silent truncation. An **explicit-object**
+`.x` / `.y` / `.z` / `.w` (or the `r` / `g` / `b` / `a` aliases) over a vector reads
+one lane and is scalar again. The object-less `.field` form always means
+feature-property access, so a feature property named `x` is never shadowed. Because
+every `[…]` binding position resolves to one number per feature, a vector left in a
+binding is `X-GIS0018`; read a lane instead.
+
+A call to the identifier `match` may carry a trailing
 `match-block` in any expression position (`parsePostfix` / `parseMatchBlock`): arms
 map a literal pattern (string, identifier, number, or bare negative number) to a
 value, with `_` as the conventional default pattern. Arm values special-case a color

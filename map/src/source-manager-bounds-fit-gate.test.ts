@@ -1,4 +1,5 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest'
+import { InputStore } from './render/input-store'
 
 // B2: every source-attach path must route its post-attach camera-fit through
 // `_runBoundsFitGate`, NOT just the per-attach `cameraFitState.fit` guard.
@@ -107,6 +108,7 @@ function makeSourceManager(camera: Camera, positioned: { value: boolean }) {
   const rendererStub = {} as unknown as MapRendererContent
   const deps: SourceManagerDeps = {
     rawDatasets: new Map(),
+    inputs: new InputStore(),
     registerVtSource: () => {},
     sourceCRS: new Map(),
     geojsonCapPoles: new Map(),

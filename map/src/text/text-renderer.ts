@@ -20,7 +20,6 @@ import { FrameArena } from '@xgis/engine'
 import { bumpAlloc } from '../__profile__/alloc-counter'
 import type { TextDraw } from './text-renderer-types'
 import { codePointIsIdeographic } from './text-wrap'
-import { wrapWebGpuPass } from '@xgis/rhi-webgpu'
 import type { RhiBuffer, RhiBindGroup, RhiDevice, RhiRenderPass } from '@xgis/engine'
 import { TextDraper, type TextSlice } from '../render/material/text-material'
 import { vertexField } from '@xgis/compiler'
@@ -186,7 +185,23 @@ export class TextRenderer {
   /** Rebuild the vertex buffer + uniform packs from the supplied
    *  draws. Call once per frame from the render loop AFTER the
    *  atlas's `flush()` (so dirty SDFs are uploaded). */
+  /** #777 IV3 — draws in the LAST setDraws that carried a ground basis, i.e.
+   *  labels lying in the ground plane rather than standing up as billboards.
+   *
+   *  Counted HERE, inside the loop that consumes the field, so it reports what
+   *  the renderer actually used rather than what was offered to it. That
+   *  distinction is the whole reason it exists: the producer, the label stage
+   *  and the renderer form an unbroken chain that can still deliver nothing, and
+   *  no measurement of the finished frame can tell the two apart — ink area on a
+   *  label fixture is dominated by collision drop, not by foreshortening. This
+   *  reads 0 or it does not. */
+  private _groundAlignedDraws = 0
+  getLastGroundAlignedCount(): number {
+    return this._groundAlignedDraws
+  }
+
   setDraws(draws: TextDraw[]): void {
+    this._groundAlignedDraws = 0
     if (draws.length === 0) {
       this.vertexCount = 0
       this.drawSlices = []
@@ -252,6 +267,7 @@ export class TextRenderer {
       // #777 IV3-a ground basis, hoisted out of the glyph loop: four scalars
       // read once per draw rather than four indexed loads per corner.
       const groundBasis = d.groundBasis
+      if (groundBasis !== undefined) this._groundAlignedDraws++
       const gEx = groundBasis !== undefined ? groundBasis[0]! : 1
       const gEy = groundBasis !== undefined ? groundBasis[1]! : 0
       const gNx = groundBasis !== undefined ? groundBasis[2]! : 0
@@ -481,9 +497,12 @@ export class TextRenderer {
 
   /** Encode draw commands. `viewport` is in physical pixels. `replay` is the
    *  #1177 S16 skip-replay screen-space correction (prepared-frame px →
-   *  current-frame px); omitted ⇒ identity (freshly-prepared frame). */
+   *  current-frame px); omitted ⇒ identity (freshly-prepared frame).
+   *  RHI-only since #1046 F3b — the label pass originates the pass on the
+   *  RHI frame shell on both backends, so no re-wrap happens here (the old
+   *  backend-keyed re-wrap was the 34d4695 double-wrap class). */
   draw(
-    pass: GPURenderPassEncoder | RhiRenderPass,
+    pass: RhiRenderPass,
     viewport: { width: number; height: number },
     replay?: { scale: number; dx: number; dy: number },
   ): void {
@@ -572,14 +591,7 @@ export class TextRenderer {
 
     if (rhiSlices.length > 0) {
       this.ensureTextDraper()
-      // A WebGl2Device frame hands in an RhiRenderPass already (#834 M5 s3).
-      this._textDraper!.draw(
-        this.rhi.backend === 'webgl2'
-          ? (pass as RhiRenderPass)
-          : wrapWebGpuPass(pass as GPURenderPassEncoder),
-        this.vertexBuf!,
-        rhiSlices,
-      )
+      this._textDraper!.draw(pass, this.vertexBuf!, rhiSlices)
     }
   }
 

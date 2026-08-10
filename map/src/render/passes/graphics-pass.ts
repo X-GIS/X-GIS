@@ -16,18 +16,16 @@
 // batch, so it is O(COPIES) in cost, independent of icon count (the #797 P1
 // N-independence gate).
 
-import { DEBUG_OVERDRAW } from '../../debug-flags'
 import type { FrameContext } from '../frame-context'
 import { unwrapProjection } from '../projection-token'
-import { wrapWebGpuPass } from '@xgis/rhi-webgpu'
 import type { SceneView } from '../scene-view'
-import type { RenderPass, GraphicsPassHost } from './pass'
+import { requireRhiFrame, type RenderPass, type GraphicsPassHost } from './pass'
 
 class GraphicsPass implements RenderPass {
   readonly label = 'graphics'
 
   shouldRun(scene: SceneView): boolean {
-    return scene.hasGraphics && !DEBUG_OVERDRAW
+    return scene.hasGraphics && !scene.overdraw
   }
 
   execute(ctx: FrameContext, _scene: SceneView, host: GraphicsPassHost): void {
@@ -38,12 +36,15 @@ class GraphicsPass implements RenderPass {
       ctx.screen.h,
       ctx.screen.dpr,
     )
+    // F3b: RHI origination — the pass handle is already an RhiRenderPass, so
+    // the local wrapWebGpuPass adaptation (and this file's backend import) die.
+    const { enc, screenView } = requireRhiFrame(ctx, 'graphics')
     ctx.passScope('graphics-icons', () => {
-      const pass = ctx.encoder.beginRenderPass({
-        colorAttachments: [{ view: ctx.screenView, loadOp: 'load', storeOp: 'store' }],
+      const pass = enc.beginRenderPass({
+        colorAttachments: [{ view: screenView, loadOp: 'load', storeOp: 'store' }],
       })
       host.graphics.renderRetained(
-        wrapWebGpuPass(pass),
+        pass,
         frame,
         host.camera,
         projType,

@@ -12,16 +12,14 @@
 // ./render/s111-portrayal.ts + the s111-speed BANDED_RAMPS palette (color-ramp.ts), one
 // source of truth with the fill.
 
-import { cellUnitsToLonLat, type CoverageHandle } from '@xgis/data'
+import { cellUnitsToLonLat, isGeographicCRS, type CoverageHandle } from '@xgis/data'
 import type { ShowCommand } from './render/renderer-types'
 import type { GraphicsManager } from './graphics/graphics-manager'
 import { bandedRampColor } from './color-ramp'
 import { resolveVectorBands } from './coverage-vector-bands'
 
-import { ARROW_DRIFT_UV } from './shaders/dsl/arrow-advect-step'
 import { flowTrueSpans } from './render/flow-advect-params'
 import {
-  S111_ARROW_BASE_PX,
   s111ArrowLengthPx,
   s111BandTableNormalized,
   s111HasArrow,
@@ -43,64 +41,76 @@ export interface CoverageArrowShowHost {
 export const COVERAGE_ARROW_MAX = 100_000
 
 /** Uniform thinning over the DRAWABLE cells, so an over-ceiling grid still tiles its water
- *  rather than losing a corner of the bbox.
- *
- *  ONE function because two loops walk it — the emit here and `coverageArrowOrigins` below —
- *  and origin `i` must belong to instance `i`. Two copies of `Math.ceil(n / ceiling)` is one
- *  edit away from an off-by-one that silently pairs every arrow with the wrong cell's origin. */
+ *  rather than losing a corner of the bbox. */
 function arrowStride(drawable: number): number {
   return drawable > COVERAGE_ARROW_MAX ? Math.ceil(drawable / COVERAGE_ARROW_MAX) : 1
 }
 
+/** Every drawable cell, in the order the emit walks them.
+ *
+ *  Sub-cell SUBDIVISION is gone (#1520 step 2). It existed because the density had a hard ceiling
+ *  at the grid's own resolution — a three-cell-wide channel drew three arrows at every zoom — and
+ *  it bought exactly three zooms before the arithmetic ran out (`sub²` per cell scales with the
+ *  GRID, so at z17 not one seeded node was on screen). The ADVECTED portrayal now seeds on the
+ *  screen instead, at whatever spacing the screen wants, so it needs no seeded positions at all.
+ *  The STATIC portrayal never subdivided: `main.xsl` places one symbol per cell, and that is a
+ *  rule rather than an implementation choice. */
+function forEachArrowSample(
+  idx: readonly number[],
+  nLon: number,
+  stride: number,
+  visit: (cell: number, x: number, y: number) => void,
+): void {
+  for (let k = 0; k < idx.length; k += stride) {
+    const i = idx[k]!
+    const row = Math.floor(i / nLon) // north-up storage: row 0 = northernmost
+    visit(i, i - row * nLon, row)
+  }
+}
+
 export interface CoverageArrowOptions {
-  /** ADVECTED mode (#1409): the arrows are the particles — each one drifts through the current
-   *  and is re-symbolized from the data under its new position.
+  /** ADVECTED mode (#1409): the glyphs ARE the particles — streamline trains that drift through
+   *  the current and are re-symbolized from the data under their current position.
    *
-   *  Two things change here, and only here; the static portrayal is untouched.
-   *
-   *  1. THE COUNT IS THE SAME as the static path's — ONE ceiling for both (#1450 A). The
-   *     arrow-position state is one TEXEL per arrow, so instance `i` and state texel `i` must
-   *     correspond 1:1; the state now SIZES ITSELF to the batch, so that contract no longer
-   *     costs a second, lower ceiling. It used to (16 384 against 100 000), which put the two
-   *     portrayals of one field on different cells at 5x different densities — #1449.
-   *
-   *  2. EACH INSTANCE CARRIES ITS ORIGIN in grid-uv. The shader adds the drift displacement to
-   *     it to know WHERE to sample the field for this frame's band, bearing and scale. Without
-   *     it the arrow would move but keep the colour it launched with — an animation that looks
-   *     entirely correct and reports the wrong current.
+   *  NO INSTANCES ARE EMITTED IN THIS MODE (#1520 step 2). The static path's per-cell arrays are
+   *  skipped entirely: the advected module binds no feat buffer, because its instance set is a
+   *  lattice on the SCREEN whose size is a per-FRAME decision. All this arm contributes is the
+   *  band table and the grid box (`CoverageArrowGrid`).
    *
    *  `peakSpeed` is the velocity textures' normalization scale (`packFlowFieldUV`), read off the
    *  UPLOADED field rather than re-derived here — the band table is expressed in those same
-   *  units, and a second derivation of the peak is a second thing to keep in step. */
-  advected?: { peakSpeed: number }
+   *  units, and a second derivation of the peak is a second thing to keep in step.
+   *
+   *  `priority` is this region's place in the mosaic's ownership order (`AdvectedArrowInput`) —
+   *  lower wins where two domains cover the same water (#1585). */
+  advected?: { peakSpeed: number; priority: number }
 }
 
-/** Instance origins in grid-uv, plus the two BASIS ANCHORS the advected VS projects, parallel
- *  to the arrays handed to `addCompiledArrowLayer`. Populated only in advected mode; the static
- *  portrayal has no use for either.
+/** What the ADVECTED portrayal needs from the grid, and it is no longer per instance (#1520).
  *
- *  The anchors are the geographic positions of `origin + ARROW_DRIFT_UV` along grid-u and along
- *  grid-v. The VS projects all three points and maps a displacement to screen as
- *  `(d/ARROW_DRIFT_UV)·(anchorClip − originClip)`, so the linearization spans EXACTLY the
- *  excursion the leash allows — no uniform, no scale factor, no trigonometry in the shader.
+ *  There are no seeded positions any more — the field is generated on the SCREEN and each node
+ *  recovers its own geography — so the only thing the coverage has to say is WHERE IT IS: the
+ *  affine box that turns a recovered lon/lat into grid-uv, matching the convention the velocity
+ *  textures are packed in (`u = col/(n−1)`, `v = row/(n−1)`, row 0 northernmost).
  *
- *  They are computed HERE, through the cell's own CRS (`cellUnitsToLonLat`), and not in the
- *  packer: a packer that steps degrees is right for a geographic grid and silently wrong for a
- *  projected one, which is the #1366 failure this generator already paid for once. */
-export interface CoverageArrowOrigins {
-  u: Float32Array
-  v: Float32Array
-  /** Geographic position of origin + ARROW_DRIFT_UV along grid-u (lon, lat interleaved pairs
-   *  would hide the parallel-array contract; two arrays keep it explicit). */
-  uStepLon: Float64Array
-  uStepLat: Float64Array
-  /** Same, along grid-v — which runs SOUTHWARD (row 0 is the northernmost row), the identical
-   *  sign convention the advect step derives in its header. */
-  vStepLon: Float64Array
-  vStepLat: Float64Array
+ *  That replaces two Float64Arrays per axis plus two Float32Arrays of origins, per batch, per
+ *  re-arm — 6 arrays × up to 25 000 entries — with four numbers.
+ *
+ *  GEOGRAPHIC CELLS ONLY. `field_grid_uv` is an affine map in the shader, which a projected CRS
+ *  is not; supporting one would need that CRS's forward ladder on the GPU (#1366 INC-3). A
+ *  projected coverage falls back to the STATIC catalogue portrayal rather than drawing nothing,
+ *  and `coverage-arrow-show.test.ts` pins the fallback so it cannot rot into a silent blank. */
+export interface CoverageArrowGrid {
+  /** lon/lat of grid-uv (0, 0) — the NORTH-WEST node. */
+  originLon: number
+  originLat: number
+  /** Reciprocal spans; `invSpanLat` is NEGATIVE because grid-v runs southward. */
+  invSpanLon: number
+  invSpanLat: number
   /** `trueLonSpan / trueLatSpan` for this grid (flow-advect-params.ts). A batch scalar, uploaded
-   *  in the band table's params row: the VS needs it to point each glyph along the direction the
-   *  advection actually moves it, since a uv unit is a different true distance on each axis. */
+   *  in the band table's params row: a uv unit is a different true distance on each axis, so a
+   *  velocity in metric east/north components has to become a uv rate before the screen basis can
+   *  turn it into a direction. */
   uvAspect: number
 }
 
@@ -135,15 +145,45 @@ export function addCoverageArrowShowLayer(
   const speed = vec.speed
   const dir = vec.direction
 
+  // ── ADVECTED: no per-cell instances at all (#1520 step 2) ────────────────────────────────
+  //
+  // The whole cell walk below exists to place ONE SYMBOL PER CELL, which is the static
+  // catalogue's rule (`main.xsl`). The advected portrayal does not place symbols on cells any
+  // more — it places them on a lattice the SCREEN decides — so running the walk would allocate
+  // six arrays of up to 100 000 entries for a buffer nothing binds. It returns early instead,
+  // with the band table and the grid box the screen lattice actually reads.
+  //
+  // The grid box is GEOGRAPHIC-ONLY, which is a stated fallback rather than a gap: the shader's
+  // lon/lat → grid-uv step is affine, and a projected CRS is not. Such a coverage takes the
+  // static branch below, which goes through `cellUnitsToLonLat` and is correct for any CRS.
+  if (opts.advected && isGeographicCRS(crs)) {
+    // One drawable cell is enough to arm the batch — the screen lattice decides where the glyphs
+    // go, and the velocity texture's own packed (0, 0) is what keeps them off land. A coverage
+    // with NO current at all still arms nothing, so an empty forecast hour draws nothing rather
+    // than a field of zero-length glyphs.
+    let drawable = false
+    for (let i = 0; i < speed.length && !drawable; i++)
+      drawable = s111HasArrow(speed[i]!) && Number.isFinite(dir[i]!)
+    if (!drawable) return
+    host.graphics.addCompiledArrowLayer(
+      EMPTY_F64,
+      EMPTY_F64,
+      EMPTY_F32,
+      EMPTY_F32,
+      [],
+      S111_OUTLINE_FRAC,
+      region,
+      advectedInput(handle, opts.advected.peakSpeed, rampName, opts.advected.priority),
+    )
+    return
+  }
+
   // Collect drawable cells first so an over-ceiling grid thins over WATER, not the bbox.
   const idx: number[] = []
   for (let i = 0; i < speed.length; i++) {
     if (s111HasArrow(speed[i]!) && Number.isFinite(dir[i]!)) idx.push(i)
   }
   if (idx.length === 0) return
-  // ONE ceiling for both portrayals (#1450 A) — the state texture sizes itself to the batch,
-  // so the 1:1 instance/texel contract no longer needs a lower one of its own.
-  const stride = arrowStride(idx.length)
 
   const lons: number[] = []
   const lats: number[] = []
@@ -151,28 +191,20 @@ export function addCoverageArrowShowLayer(
   const sizes: number[] = []
   const colors: [number, number, number, number][] = []
 
-  for (let k = 0; k < idx.length; k += stride) {
-    const i = idx[k]!
-    const row = Math.floor(i / nLon) // north-up storage: row 0 = northernmost
-    const col = i - row * nLon
+  forEachArrowSample(idx, nLon, arrowStride(idx.length), (i, x, y) => {
     const s = speed[i]!
     const c = bandedRampColor(rampName, s) ?? bandedRampColor(S111_SPEED_RAMP, s) ?? [255, 255, 255]
     // Through the cell's OWN CRS (#1366). `origin + col·spacing` is in the GRID's units,
     // which are degrees only for a geographic cell — real S-111 cells are, which is why
     // this read as correct, but INC-3 made PROJECTED cells placeable and a UTM grid's
     // metres pushed as lon/lat would land continents away. One authority with the drape.
-    const [lon, lat] = cellUnitsToLonLat(crs, originX + col * dx, originY + (nLat - 1 - row) * dy)
+    const [lon, lat] = cellUnitsToLonLat(crs, originX + x * dx, originY + (nLat - 1 - y) * dy)
     lons.push(lon)
     lats.push(lat)
     bearings.push(dir[i]!)
-    // ADVECTED: the BASE length only. The band multiplier is re-applied in the shader from the
-    // speed under the arrow's CURRENT position (`s111BandTableNormalized`), so baking this
-    // cell's multiplier in as well would scale every arrow twice — by the water it launched
-    // from and by the water it is in. Bearing and colour are likewise ignored downstream in
-    // that mode; they stay in the call because the batch shape is shared with the static path.
-    sizes.push(opts.advected ? S111_ARROW_BASE_PX : s111ArrowLengthPx(s))
+    sizes.push(s111ArrowLengthPx(s))
     colors.push([c[0] / 255, c[1] / 255, c[2] / 255, 1])
-  }
+  })
 
   host.graphics.addCompiledArrowLayer(
     Float64Array.from(lons),
@@ -182,102 +214,55 @@ export function addCoverageArrowShowLayer(
     colors,
     S111_OUTLINE_FRAC,
     region,
-    opts.advected ? advectedInput(handle, opts.advected.peakSpeed, rampName, region) : null,
+    null,
   )
 }
 
-/** Assemble the advected batch's extra inputs. Separate from the emit loop above so the static
- *  path allocates none of it, and built from `coverageArrowOrigins` so the ORDER contract (origin
- *  `i` belongs to instance `i`) has exactly one implementation. */
+const EMPTY_F64 = new Float64Array(0)
+const EMPTY_F32 = new Float32Array(0)
+
+/** Assemble the ADVECTED batch's inputs: the catalogue table in the shader's units, and the
+ *  grid box that turns a recovered lon/lat into grid-uv. Both are batch scalars — there is
+ *  nothing per instance left to build. */
 function advectedInput(
   handle: CoverageHandle,
   peakSpeed: number,
   rampName: string,
-  region: string,
-): AdvectedArrowInput | null {
-  const o = coverageArrowOrigins(handle)
-  if (!o) return null
-  const [nLon, nLat] = handle.header.size
+  priority: number,
+): AdvectedArrowInput {
+  const grid = coverageArrowGrid(handle)
   return {
-    originU: o.u,
-    originV: o.v,
-    uStepLon: o.uStepLon,
-    uStepLat: o.uStepLat,
-    vStepLon: o.vStepLon,
-    vStepLat: o.vStepLat,
-    bandTable: s111BandTableNormalized(peakSpeed, o.uvAspect, rampName),
-    // The INSTANCE LAYOUT, not the data: a forecast step re-arms the same region, same grid and
-    // same drawable cells, so the key is equal and the arrows keep drifting instead of snapping
-    // back to their cells. A different grid or a different drawable count is a different set of
-    // arrows per texel, and that one must re-seed.
-    key: `${region}|${nLon}x${nLat}|${o.u.length}`,
+    grid,
+    bandTable: s111BandTableNormalized(peakSpeed, grid.uvAspect, rampName),
+    priority,
   }
 }
 
-/** The origins the ADVECTED mode needs, for the same inputs and in the SAME order
- *  `addCoverageArrowShowLayer` emits its instances.
+/** The coverage's grid as the affine box `uv = (lonlat − origin) · invSpan`, in the SAME
+ *  convention the velocity textures are packed in: `u = col/(nLon−1)` eastward and
+ *  `v = row/(nLat−1)` SOUTHWARD, so uv (0, 0) is the north-west node.
  *
- *  Separate from the emit rather than returned by it, because the static path — every existing
- *  `| arrow` caller — must keep allocating nothing extra. The ORDER is the contract: origin `i`
- *  belongs to instance `i`, so both walk `idx` with the identical stride, and
- *  `coverage-arrow-show.test.ts` pins that they agree rather than trusting two loops to stay in
- *  step. */
-export function coverageArrowOrigins(handle: CoverageHandle): CoverageArrowOrigins | null {
-  const vec = resolveVectorBands(handle)
-  if (!vec) return null
+ *  Geographic cells only — the caller gates on `isGeographicCRS` and takes the static branch
+ *  otherwise. A degenerate axis (a single-column or single-row coverage) gets a zero reciprocal,
+ *  which pins every node to uv 0 on that axis: correct, since there is one sample to read. */
+export function coverageArrowGrid(handle: CoverageHandle): CoverageArrowGrid {
   const [nLon, nLat] = handle.header.size
-  const [originX, originY] = handle.header.origin
+  const [originX, originY] = handle.header.origin // SW cell CENTRE (point registration)
   const [dx, dy] = handle.header.spacing
-  const crs = handle.header.crs
-  const idx: number[] = []
-  for (let i = 0; i < vec.speed.length; i++) {
-    if (s111HasArrow(vec.speed[i]!) && Number.isFinite(vec.direction[i]!)) idx.push(i)
-  }
-  if (idx.length === 0) return null
-  const stride = arrowStride(idx.length) // the SAME rule the emit walks — the order contract
-  // One leash-length in GRID UNITS. A uv of 1 spans (n−1) cells, so this is the number of cells
-  // an arrow may drift before it recycles — and the length of the basis the VS scales.
-  const uSpan = ARROW_DRIFT_UV * (nLon > 1 ? nLon - 1 : 1) * dx
-  const vSpan = ARROW_DRIFT_UV * (nLat > 1 ? nLat - 1 : 1) * dy
-  const u: number[] = []
-  const v: number[] = []
-  const uStepLon: number[] = []
-  const uStepLat: number[] = []
-  const vStepLon: number[] = []
-  const vStepLat: number[] = []
-  for (let k = 0; k < idx.length; k += stride) {
-    const i = idx[k]!
-    const row = Math.floor(i / nLon)
-    const col = i - row * nLon
-    u.push(nLon > 1 ? col / (nLon - 1) : 0)
-    v.push(nLat > 1 ? row / (nLat - 1) : 0)
-    const gx = originX + col * dx
-    const gy = originY + (nLat - 1 - row) * dy
-    // +u is +x in the grid's own units; +v is SOUTHWARD, which is −y (row 0 is northernmost —
-    // the same derivation arrow-advect-step.ts's header spells out for the advection sign).
-    const [ulon, ulat] = cellUnitsToLonLat(crs, gx + uSpan, gy)
-    const [vlon, vlat] = cellUnitsToLonLat(crs, gx, gy - vSpan)
-    uStepLon.push(ulon)
-    uStepLat.push(ulat)
-    vStepLon.push(vlon)
-    vStepLat.push(vlat)
-  }
-  // The SAME derivation the advect step's own params use — one function, so the drawn heading
-  // and the drifted heading cannot disagree.
-  const [swLon, swLat] = cellUnitsToLonLat(crs, originX, originY)
-  const [neLon, neLat] = cellUnitsToLonLat(
-    crs,
-    originX + (nLon - 1) * dx,
-    originY + (nLat - 1) * dy,
-  )
-  const { trueLon, trueLat } = flowTrueSpans([neLon - swLon, neLat - swLat], (swLat + neLat) / 2)
+  const west = originX
+  const east = originX + (nLon - 1) * dx
+  const south = originY
+  const north = originY + (nLat - 1) * dy
+  // The SAME derivation the flow field's own params use — one function, so the drawn heading and
+  // the travelled heading cannot disagree.
+  const { trueLon, trueLat } = flowTrueSpans([east - west, north - south], (south + north) / 2)
   return {
-    u: Float32Array.from(u),
-    v: Float32Array.from(v),
-    uStepLon: Float64Array.from(uStepLon),
-    uStepLat: Float64Array.from(uStepLat),
-    vStepLon: Float64Array.from(vStepLon),
-    vStepLat: Float64Array.from(vStepLat),
+    originLon: west,
+    originLat: north,
+    invSpanLon: nLon > 1 ? 1 / (east - west) : 0,
+    // NEGATIVE: v runs southward, and folding the sign into the reciprocal keeps it from becoming
+    // a branch somebody has to remember to keep in step with the packer.
+    invSpanLat: nLat > 1 ? 1 / (south - north) : 0,
     uvAspect: trueLat > 0 ? trueLon / trueLat : 1,
   }
 }

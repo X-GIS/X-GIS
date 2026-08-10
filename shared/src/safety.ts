@@ -345,3 +345,54 @@ export async function readBodyCapped(
   }
   return out
 }
+
+/** An HTML document's opening bytes. Matches both a doctype preamble and a
+ *  bare `<html>` root, which between them cover every error page observed
+ *  (vite's SPA fallback, GitHub Pages' 404, S3/CDN error documents). */
+const HTML_DOCUMENT_HEAD = /^\s*<(?:!doctype\s+html|html[\s>])/i
+
+/** Allocated once: the guard runs per fetched asset, and a fresh decoder per
+ *  call would be pure garbage on a path that loads many small documents. */
+const HEAD_DECODER = /* @__PURE__ */ new TextDecoder()
+
+/**
+ * Reject a body that is an HTML error page rather than the payload asked for.
+ *
+ * WHY THIS EXISTS AT ALL, given every caller already checks `resp.ok`: a dev
+ * server's SPA fallback — and most static hosts' — answer a MISSING path with
+ * **HTTP 200 and an HTML document**, not a 404. So `resp.ok` is true, the page
+ * sails through, and the failure surfaces wherever the bytes are finally
+ * interpreted: `[Lexer] Unexpected character: ''' at line 11, col 19` for a
+ * style, `SyntaxError: Unexpected token '<', "<!doctype "` for JSON. Both name
+ * a position inside HTML the author never wrote and neither names the URL, so
+ * a missing file reads as a syntax error in the user's own correct source
+ * (#1627 — and it is why #1626 sat undiagnosed).
+ *
+ * WHY THE BODY AND NOT `Content-Type`. Sniffing is both safer and stricter
+ * here. Static hosts routinely serve an unknown extension (`.xgis`, `.xgb`)
+ * as `text/html`, so REJECTING on the header alone would break working setups
+ * — a false positive on live data, which is worse than the bug. No real
+ * payload this guard protects (X-GIS source, GeoJSON, TileJSON, sprite JSON,
+ * .xgb, PNG, HDF5) can begin with an HTML document preamble, so the body test
+ * has no false positives while still catching every error page. The header is
+ * reported in the message for diagnosis, never used for the decision.
+ *
+ * Throws `XGISInputError`, which every call site's existing failure path
+ * already handles — the style-import resolver turns it into its `null`
+ * (letting the compiler name the importer), the rest let it reach the
+ * boundary that was already catching a malformed body.
+ */
+export function assertNotErrorPage(resp: Response, bytes: Uint8Array, label: string): void {
+  // Only a document preamble can match, so a short prefix is enough; decoding
+  // the whole body here would double the cost of every load this guards.
+  // TextDecoder strips a leading BOM by default, so none reaches the regex.
+  const head = HEAD_DECODER.decode(bytes.subarray(0, 64))
+  if (!HTML_DOCUMENT_HEAD.test(head)) return
+  const contentType = resp.headers.get('content-type')
+  throw new XGISInputError(
+    `[X-GIS] ${label}: expected data, got an HTML document ` +
+      `(HTTP ${resp.status}${contentType ? `, content-type ${contentType}` : ''}). ` +
+      `A missing file is usually served as an HTML error page with a 200 status — ` +
+      `check that the URL resolves.`,
+  )
+}

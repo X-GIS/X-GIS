@@ -19,13 +19,12 @@
 import type { RhiDevice, RhiBindGroup, RhiTexture, RhiTextureView, RhiBuffer } from '@xgis/engine'
 import { wrapWebGpuTextureView } from '@xgis/rhi-webgpu'
 import { Material, executeItems, type DrawItem } from '@xgis/engine'
-import { emitHillshadeWgsl, buildHillshadeModule } from '../../shaders/dsl/hillshade'
 import { rasterGridVertexCount } from '../../shaders/dsl/raster'
 import { rasterTileBytes, rasterUniformBytes } from '../raster-uniform-slots'
 import { hillshadeUniformBytes } from '../hillshade-uniform-slots'
 import type { RasterTile } from './raster-material'
-import { emitGlslStages } from '@xgis/shader-dsl'
-import { wgslFor } from './wgsl-for'
+import { readsWgsl } from './wgsl-for'
+import { peekShaderSources, requestShaderSources } from '../../shaders/emit/shader-emit-pool'
 
 /** One hillshade DEM tile to draw. Structurally identical to a raster tile — the
  *  per-tile bytes are the SHARED raster 'TileUniforms' (writeRasterTileUniform),
@@ -35,6 +34,15 @@ export type HillshadeTile = RasterTile
 const HS_GLOBAL_BINDING = 3
 
 export class HillshadeDraper {
+  /** Release the GPU objects this draper owns (#1578). Called by `rebuildForQuality()`
+   *  before the reference is dropped — a quality flip is live-session churn, not teardown,
+   *  so nothing else would ever reclaim these. */
+  destroy(): void {
+    for (const m of this.materials.values()) m.destroy()
+    this.materials.clear()
+    this.rhi.destroySampler(this.nearestSampler.sampler)
+  }
+
   /** One Material per `${methodFlag}:${pick}` — the fragment is SPECIALISED to the
    *  layer's hillshade-method (see buildHillshadeModule), so the pipeline carries
    *  only that method's math instead of branching over all five per fragment. Built
@@ -63,32 +71,37 @@ export class HillshadeDraper {
     this.hsPickUniform = rhi.createBuffer({ size: hillshadeUniformBytes(), usage: 'uniform' })
   }
 
-  /** The pipeline for one (method, pick) pair — memoised.
+  /** The pipeline for one (method, pick) pair — memoised. `null` = the shader is still
+   *  being emitted; the caller draws nothing this frame.
    *
-   *  This runs SYNCHRONOUSLY inside the first draw() of a hillshade layer, so its cost
-   *  IS the layer's time-to-first-pixel. Two things keep it off the critical path:
+   *  The emit used to run SYNCHRONOUSLY here, inside the first draw(), which froze the
+   *  WHOLE map — basemap included — for a measured 2211 ms on `multidirectional`, the
+   *  heaviest method and the one the Multidirectional Relief demo authors. Two changes
+   *  cut that to ~492 ms (no WGSL on a device that cannot read it, and one lowering
+   *  instead of one per stage), and it now runs OFF the main thread entirely.
    *
-   *   • the WGSL is not emitted on a device that cannot read it (wgslFor) — 693 ms of a
-   *     measured 2211 ms first-draw block for `multidirectional`, the heaviest method and
-   *     the one the Multidirectional Relief demo authors;
-   *   • both GLSL stages come from ONE emitGlslStages call, which lowers + runs the
-   *     optimizer fixpoint once rather than once per stage. Per-stage lowering made the
-   *     vertex emit as expensive as the fragment (~770 ms each) even though `vs_tile` is
-   *     the SAME function raster emits in 36 ms — the fixpoint was re-optimising
-   *     `fs_hillshade` on the vertex call too.
+   *  Skipping frames while it lands costs nothing visible: the layer's DEM tiles are
+   *  still in the air (~131-143 KB each over six slots — longer than the emit), so there
+   *  was nothing to draw either way. What it buys is that the rest of the map keeps
+   *  rendering instead of stalling inside the optimizer fixpoint.
    */
-  private materialFor(methodFlag: number, pick: boolean): Material {
+  private materialFor(methodFlag: number, pick: boolean): Material | null {
     const key = `${methodFlag}:${pick ? 'p' : 'n'}`
     const hit = this.materials.get(key)
     if (hit) return hit
-    const mod = buildHillshadeModule(pick, methodFlag)
-    const glsl = emitGlslStages(mod)
+    const req = { family: 'hillshade', pick, methodFlag } as const
+    const src = peekShaderSources(req)
+    if (!src) {
+      // Idempotent per key — safe to call every frame until it arrives.
+      void requestShaderSources(req, readsWgsl(this.rhi))
+      return null
+    }
     const mat = new Material(this.rhi, {
-      shader: wgslFor(this.rhi, () => emitHillshadeWgsl(pick, methodFlag)),
+      shader: src.wgsl,
       vsEntry: 'vs_tile',
       fsEntry: 'fs_hillshade',
-      vsCode: glsl.vertex,
-      fsCode: glsl.fragment,
+      vsCode: src.vertex,
+      fsCode: src.fragment,
       format: this.format as 'bgra8unorm',
       sampleCount: this.sampleCount,
       groups: [
@@ -187,7 +200,11 @@ export class HillshadeDraper {
     methodFlag = 0,
     poolBase = 0,
   ): void {
+    // Null = the shader is still being emitted off-thread. Draw nothing rather than
+    // blocking for it; the renderer keeps the loop warm (awaitingShader) so the frame
+    // it lands on is not left to a stray interaction to trigger.
     const material = this.materialFor(methodFlag, pick)
+    if (!material) return
     const hsBuf = pick ? this.hsPickUniform : this.hsUniform
     material.writeGlobal(globalBytes)
     this.rhi.writeBuffer(hsBuf, 0, hsBytes)

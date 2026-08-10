@@ -1,10 +1,16 @@
-// ═══ Heatmap-accum adapter over the generic Material ═══
+// ═══ Heatmap RHI drapers — accum / blur / compose over the generic Material ═══
 //
-// The accum pass of the 3-pass heatmap (accum → blur → compose). One primitive
-// draw: 1 bind group {uniform + read-only-storage feat}, a per-point quad vertex
-// buffer + index buffer, drawIndexed, into the OFFSCREEN r16float density target
-// with ADDITIVE blend (splats sum), no depth, single-sample. The blur/compose
-// orchestration stays legacy (render-graph). Reuses the accum bind-group layout.
+// The 3-pass heatmap's draw machinery (accum splat → separable Gaussian blur →
+// ramp compose), one Material per stage, driven by HeatmapRenderer.renderChainRhi
+// (#1046 F3b Inc-2c; a forced-WebGL2 twin frame used to drive the same drapers
+// through a second entry point, renderRhi, until #1046 Inc-F3b deleted it). The
+// shader is single-authority (one DSL module → WGSL for WebGPU, GLSL ES 3.00
+// for WebGL2 — emitted UNCONDITIONALLY; WebGPU's createPipeline ignores
+// vsCode/fsCode, so no backend-identity read is needed to select it). Every
+// variant omits depthCompare — NO depth-stencil is synthesized (material.ts),
+// which is exactly the chain's depthless offscreen/compose pass shape.
+// (The former native-bridging HeatmapDraper — a wrapped GPUBindGroupLayout +
+// native pipeline-factory blur/compose — retired with the native pass body.)
 
 import type {
   RhiBindGroup,
@@ -15,14 +21,13 @@ import type {
   RhiSampler,
   RhiTextureView,
 } from '@xgis/engine'
-import { wrapWebGpuBindGroupLayout } from '@xgis/rhi-webgpu'
 import { Material, executeItems } from '@xgis/engine'
 import { emitHeatmapAccumWgsl } from '../../shaders/dsl/heatmap-accum'
 import { emitHeatmapAccumGlsl } from '../../shaders/dsl/heatmap-accum'
 import { emitHeatmapBlurWgsl, emitHeatmapBlurGlsl } from '../../shaders/dsl/heatmap-blur'
 import { emitHeatmapComposeWgsl, emitHeatmapComposeGlsl } from '../../shaders/dsl/heatmap-compose'
 
-// The accum batch now carries RHI handles directly — the renderer builds the buffers +
+// The accum batch carries RHI handles directly — the renderer builds the buffers +
 // bind group via the RHI seam (§4 batch-seam migration), so NO re-wrapping here (a wrap
 // of an already-RHI handle would double-wrap → unwrap yields a Native wrapper, not a
 // GPUBuffer → empty draw).
@@ -33,64 +38,10 @@ export interface HeatmapBatch {
   indexCount: number
 }
 
-export class HeatmapDraper {
-  private readonly material: Material
-
-  constructor(rhi: RhiDevice, bgLayout: GPUBindGroupLayout) {
-    this.material = new Material(rhi, {
-      shader: emitHeatmapAccumWgsl(),
-      vsEntry: 'vs_heatmap',
-      fsEntry: 'fs_heatmap',
-      format: 'r16float',
-      sampleCount: 1,
-      groups: [wrapWebGpuBindGroupLayout(bgLayout)],
-      colorTargets: [{ format: 'r16float', blend: 'additive' }],
-      // Per-point quad: center(vec2) + quad_id(u32) + feat_id(f32) = 16 B.
-      vertexBuffers: [
-        {
-          stride: 16,
-          attributes: [
-            { location: 0, offset: 0, format: 'float32x2' },
-            { location: 1, offset: 8, format: 'uint32' },
-            { location: 2, offset: 12, format: 'float32' },
-          ],
-        },
-      ],
-      variants: [{ label: 'heatmap-accum-rhi' }], // no depth-stencil
-    })
-  }
-
-  draw(pass: RhiRenderPass, b: HeatmapBatch): void {
-    executeItems(this.material, pass, [
-      {
-        variant: 0,
-        bindGroups: [b.bindGroup],
-        vertex: b.vertBuf,
-        index: { buffer: b.idxBuf, format: 'uint32' },
-        count: b.indexCount,
-        indexed: true,
-      },
-    ])
-  }
-}
-
-// ═══ Forced-WebGL2 twin drapers (#1060) ═══
-//
-// The WebGPU heatmap 3-pass pipeline (heatmap-pass.ts) runs its accum draw through
-// the HeatmapDraper above (a native GPUBindGroupLayout wrapper) and its blur/compose
-// draws through native pipeline-factory pipelines. On the forced-WebGL2 twin there is
-// no native GPUDevice (the ctx.device is a no-op proxy, #834), so the whole pipeline
-// re-originates through the RHI seam: RHI-native bind layouts (kind entries, not a
-// wrapped native layout) + the same shader DSL authorities emitted as GLSL ES 3.00.
-// The shader is single-authority (one DSL module → WGSL for WebGPU, GLSL here); only
-// the pipeline DESCRIPTOR is expressed a second time (matching the graticule twin
-// Material precedent). GLSL is emitted UNCONDITIONALLY — WebGPU's createPipeline
-// ignores vsCode/fsCode, so no backend-identity read is needed to select it.
-
-/** Accum draw for the twin: same additive r16float single-draw as HeatmapDraper,
- *  but the bind layout is RHI-native (uniform + storage, the storage lowering to a
- *  data texture on WebGL2) so the renderer can build the per-layer bind group
- *  against `layout()` without touching the proxy device. */
+/** Accum draw: additive r16float single-draw. The bind layout is RHI-native
+ *  (uniform + storage, the storage lowering to a data texture on WebGL2) so
+ *  the renderer builds the per-layer bind group against `layout()` without
+ *  touching a native device. */
 export class HeatmapAccumTwinDraper {
   private readonly material: Material
 
@@ -105,6 +56,8 @@ export class HeatmapAccumTwinDraper {
       sampleCount: 1,
       groups: [
         [
+          // RHI kind entries lower to VERTEX|FRAGMENT visibility — a strict
+          // superset of the retired native bgl's VERTEX-only; same buffer types.
           { binding: 0, kind: 'uniform', name: 'Uniforms' },
           { binding: 1, kind: 'storage', name: 'feat_data' },
         ],
@@ -143,7 +96,7 @@ export class HeatmapAccumTwinDraper {
   }
 }
 
-/** Blur draw for the twin: fullscreen triangle, reads the r16float density
+/** Separable Gaussian blur draw: fullscreen triangle, reads the r16float density
  *  (textureLoad → texelFetch; the RHI binds the target's NEAREST params so the
  *  unfilterable-float read is complete) + a direction uniform, writes the 9-tap
  *  Gaussian to the r16float ping-pong target (no blend — a clean overwrite). */
@@ -161,6 +114,9 @@ export class HeatmapBlurDraper {
       sampleCount: 1,
       groups: [
         [
+          // kind 'texture' lowers to sampleType 'float' (filterable). Valid for
+          // r16float; if the density target ever becomes r32float this needs the
+          // float32-filterable feature or an unfilterable-float entry.
           { binding: 0, kind: 'texture', name: 'src_tex' },
           { binding: 1, kind: 'uniform', name: 'BlurParams' },
         ],
@@ -179,7 +135,7 @@ export class HeatmapBlurDraper {
   }
 }
 
-/** Compose draw for the twin: fullscreen triangle samples the blurred density
+/** Compose draw: fullscreen triangle samples the blurred density
  *  (texelFetch), maps it through the ramp LUT (linear textureSample) × intensity
  *  × opacity, and alpha-blends onto the screen pass. `format` is the screen
  *  colour format (nominal on WebGL2's default framebuffer). */

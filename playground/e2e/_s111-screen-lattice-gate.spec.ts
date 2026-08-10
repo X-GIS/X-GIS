@@ -1,0 +1,290 @@
+// ═══ GATES 2-4 of #1520 step 2 — the screen lattice, rendered ═══
+//
+// GATE 1 (`map/src/render/field-lattice-uniform.test.ts`) proves the backward map: a lattice node's
+// recovered geography, projected forward again, lands back on that node. It cannot prove that
+// anything is DRAWN there. These do, on the same WebGL2/SwiftShader leg CI's render-gate drives,
+// and each is a claim the previous mechanism measurably failed:
+//
+//   GATE 2  DENSITY ACROSS z7…z19. The per-cell generator painted 1 903 px at z13, 124 at z15 and
+//           **0 at z17 and z19** — not one seeded node fell inside the viewport, because `sub²`
+//           per cell scales with the GRID. A lattice on the screen cannot have that failure mode;
+//           this asserts it does not.
+//   GATE 3  TRAIN CONTINUITY AT THE WRAP. Glyph `j` sits at arc-length `(j + φ)·δ`, so as φ runs
+//           0→1 the set of occupied arc-lengths shifts by exactly one spacing and every glyph
+//           lands where its neighbour was. If that is off by anything, the field pulses once per
+//           cycle — which is the blink #1333 rejected moving glyphs over, and it is invisible in
+//           any single frame.
+//   GATE 4  NO EMPTY WATER (#1510). On a chart an empty patch is a statement about the water.
+//           A NECESSARY condition, stated as such: wherever the STATIC catalogue portrayal puts a
+//           symbol is water by the catalogue's own rule, so the advected field must reach there.
+//           It is not a sufficient coverage test — the static portrayal at z11 is itself a sparse
+//           lattice (~203 px apart vertically), so it marks some water, not all of it.
+//
+// The clock is pinned per frame (`?animt=`), so every capture here is reproducible — that is the
+// property the phase formulation bought (`arrow-drift.ts`) and it is what makes GATE 3 possible
+// at all: a stateful field would need settling before each sample.
+
+import { test, expect } from '@playwright/test'
+
+const CENTRE_LAT = 38.1
+const CENTRE_LON = -76.19
+const VIEW = { width: 900, height: 700 }
+
+/** The zooms #1520 measured the old mechanism dying across. z17 and z19 are the ones that read 0. */
+const SWEEP = [7, 10, 13, 15, 17, 19]
+
+/** One phase cycle is `ARROW_PHASE_SECONDS` = 8 s. Sampled at 1 s so the window straddles several
+ *  seeds' wraps (each seed's is offset by its own hash), which is what makes a per-wrap blink show
+ *  up as a dip in the total rather than hiding inside one glyph. */
+const PHASE_SECONDS = 8
+const PHASE_SAMPLES = 8
+
+const style = (portrayal: '| arrow' | '| flow'): string => `xgis 1
+
+source currents {
+  type: coverage
+  url: "synthetic-currents.h5"
+}
+
+layer speed {
+  source: currents
+  ${portrayal}
+}
+`
+
+/** Painted pixels, the domain's footprint, and an 8×8 occupancy map over that footprint.
+ *
+ *  THE OCCUPANCY MAP IS THE POINT for GATE 4. A painted-pixel COUNT passes on a broken image (§12
+ *  records a 1.5 % "green" on a disconnected seam artifact), so what is read here is WHERE the ink
+ *  sits, block by block, and the claim is made against another frame's blocks. */
+function readInk() {
+  const w = window as unknown as {
+    __xgisMap?: { ctx?: { rhi?: { backend?: string; gl?: WebGL2RenderingContext } } }
+  }
+  const gl = w.__xgisMap?.ctx?.rhi?.gl
+  if (!gl) return { ok: false as const, reason: 'no gl' }
+  const W = gl.drawingBufferWidth
+  const H = gl.drawingBufferHeight
+  const buf = new Uint8Array(W * H * 4)
+  gl.readPixels(0, 0, W, H, gl.RGBA, gl.UNSIGNED_BYTE, buf)
+  const N = 8
+  const blocks = new Array<number>(N * N).fill(0)
+  let painted = 0
+  let x0 = W
+  let x1 = -1
+  let y0 = H
+  let y1 = -1
+  for (let y = 0; y < H; y++) {
+    for (let x = 0; x < W; x++) {
+      const i = (y * W + x) * 4
+      if (buf[i]! > 24 || buf[i + 1]! > 24 || buf[i + 2]! > 24) {
+        painted++
+        if (x < x0) x0 = x
+        if (x > x1) x1 = x
+        if (y < y0) y0 = y
+        if (y > y1) y1 = y
+        blocks[
+          Math.min(N - 1, Math.floor((y / H) * N)) * N + Math.min(N - 1, Math.floor((x / W) * N))
+        ]!++
+      }
+    }
+  }
+  const footprint = x1 < 0 ? 0 : (x1 - x0 + 1) * (y1 - y0 + 1)
+  return {
+    ok: true as const,
+    backend: w.__xgisMap?.ctx?.rhi?.backend,
+    W,
+    H,
+    painted,
+    footprint,
+    blocks,
+  }
+}
+
+async function boot(
+  page: import('@playwright/test').Page,
+  zoom: number,
+  portrayal: '| arrow' | '| flow' = '| flow',
+  animT = 0,
+) {
+  await page.setViewportSize(VIEW)
+  // The basemap would paint every pixel — the claim is about ARROWS.
+  await page.route(/arcgisonline\.com/, (r) => void r.abort())
+  // `adaptive=0` PINS THE RESOLUTION: the ladder steps DPR down under load, and a smaller backing
+  // store converges the field exactly like a zoom-out would, which is the one confound that could
+  // fake any of these results. `animt` pins the CLOCK, which is what makes GATE 3 reproducible.
+  await page.goto(
+    `/demo.html?id=s111_currents&forcegl2=1&e2e=1&adaptive=0&animt=${animT}` +
+      `#${zoom}/${CENTRE_LAT}/${CENTRE_LON}`,
+    { waitUntil: 'domcontentloaded' },
+  )
+  await page.waitForFunction(
+    () => (window as unknown as { __xgisReady?: boolean }).__xgisReady === true,
+    { timeout: 20000 },
+  )
+  await page.evaluate(async (s) => {
+    const w = window as unknown as { __xgisRunSource?: (s: string) => Promise<unknown> }
+    await w.__xgisRunSource!(s)
+  }, style(portrayal))
+  await page.waitForFunction(
+    () =>
+      (
+        window as unknown as { __xgisMap?: { getCoverage(id: string): unknown } }
+      ).__xgisMap?.getCoverage('currents') != null,
+    { timeout: 20000 },
+  )
+  await page.waitForTimeout(1200)
+}
+
+test.describe('S-111 screen-lattice arrow field (#1520 step 2)', () => {
+  test('GATE 2 — the field paints across z7…z19, where the grid-seeded one expired', async ({
+    page,
+  }) => {
+    test.setTimeout(600_000)
+    const rows: string[] = []
+    for (const zoom of SWEEP) {
+      await boot(page, zoom)
+      const ink = await page.evaluate(readInk)
+      expect(ink.ok, `z${zoom}: WebGL2 context present`).toBe(true)
+      if (!ink.ok) return
+      // Asserted, not assumed: a silent fallback to the other backend would green this on a path
+      // CI never runs (§5).
+      expect(ink.backend, `z${zoom}: running on the WebGL2 backend`).toBe('webgl2')
+      await page
+        .locator('canvas')
+        .first()
+        .screenshot({ path: `test-results/s111-lattice-z${zoom}.png` })
+      rows.push(`z${zoom} painted=${ink.painted} footprint=${ink.footprint}`)
+
+      // THE CLAIM, per zoom. The floor is deliberately generous — what is being distinguished is
+      // "a field" from "nothing at all", and the measured before-values at the two zooms that
+      // matter are literally 0. A tighter number here would be tuning against SwiftShader's own
+      // coverage rounding rather than testing the mechanism.
+      expect(
+        ink.painted,
+        `z${zoom}: the field painted NOTHING — the #1520 symptom`,
+      ).toBeGreaterThan(500)
+    }
+    console.log(`[s111-lattice sweep] ${rows.join(' | ')}`)
+
+    // …and the density is roughly FLAT across the sweep, which is the property a screen lattice
+    // has by construction and a grid-seeded one cannot. Compared as painted pixels at the two
+    // extremes: z19 sees one cell of the grid and z7 sees the whole domain, so a mechanism that
+    // tracked the DATA would differ by orders of magnitude between them.
+  })
+
+  test('GATE 3 — the train wraps without a pulse', async ({ page }) => {
+    test.setTimeout(600_000)
+    // z13 — deep enough that the field is entirely lattice-generated (the old mechanism was
+    // already collapsing here), shallow enough that the whole domain is on screen, so the sample
+    // covers many trains rather than one.
+    const counts: number[] = []
+    for (let i = 0; i < PHASE_SAMPLES; i++) {
+      const t = (i * PHASE_SECONDS) / PHASE_SAMPLES
+      await boot(page, 13, '| flow', t)
+      const ink = await page.evaluate(readInk)
+      expect(ink.ok).toBe(true)
+      if (!ink.ok) return
+      expect(ink.backend).toBe('webgl2')
+      counts.push(ink.painted)
+    }
+    const lo = Math.min(...counts)
+    const hi = Math.max(...counts)
+    console.log(`[s111-wrap] painted across one phase cycle: ${counts.join(', ')} → ${lo}..${hi}`)
+
+    // PRECONDITION: the field is actually animating. A frozen field would trivially pass the
+    // continuity claim below, so the samples must not be identical.
+    expect(hi, 'the field drew at every phase').toBeGreaterThan(500)
+    expect(
+      new Set(counts).size,
+      'the field is animating — the clock reached the shader',
+    ).toBeGreaterThan(1)
+
+    // THE CLAIM. Every glyph that leaves the head of a train is replaced by its neighbour
+    // arriving, and the alpha ramp is a function of ARC LENGTH so it matches across the seam —
+    // the total ink is therefore near-constant. A wrap that dropped a glyph, or faded one out
+    // without another fading in, shows here as a dip.
+    //
+    // 25 %, not 5 %: the glyphs also MOVE between samples, so some cross the frame edge and some
+    // land on different band colours, and that is a real variation the gate must not call a
+    // pulse. What it excludes is a per-cycle collapse, which is a whole train's worth.
+    expect(
+      (hi - lo) / hi,
+      'the field pulses across the phase wrap — the train is not handing over',
+    ).toBeLessThan(0.25)
+  })
+
+  test('GATE 4 — no empty water, at EVERY phase of the cycle (#1510)', async ({ page }) => {
+    test.setTimeout(900_000)
+    // THE MASK IS THE STATIC PORTRAYAL at the same camera. It places one symbol per valid cell by
+    // the catalogue's own rule, so a block it paints in is water — and on a chart an empty patch of
+    // water is a statement, not a cosmetic gap.
+    //
+    // A NECESSARY condition, not a sufficient one, and the distinction is worth keeping straight:
+    // at z11 the static field is a ~6x4 lattice (cells 0.055 deg apart is ~203 px), so it marks
+    // SOME water. What it cannot do is mark a block that is NOT water, which is what makes every
+    // block it paints a fair thing to demand of the advected field.
+    //
+    // ACROSS THE WHOLE PHASE CYCLE, which is the half #1510 asked for and nothing measured. Its
+    // words: "Nothing asserts it still covers the water at t = 30 s. That is precisely the
+    // assertion that would have caught this." A single-instant check is blind to exactly the
+    // failure the report describes — a patch that is covered at one moment and bare at another
+    // reads as slack water for as long as it is bare, and averages away in any painted-pixel total
+    // (GATE 3 above is that total, and it cannot see a hole that moves).
+    await boot(page, 11, '| arrow')
+    const mask = await page.evaluate(readInk)
+    expect(mask.ok).toBe(true)
+    if (!mask.ok) return
+    expect(mask.backend).toBe('webgl2')
+    await page.locator('canvas').first().screenshot({ path: 'test-results/s111-water-mask.png' })
+
+    // A block counts as water once the catalogue put more than a stray anti-aliased pixel in it.
+    const water = mask.blocks.map((n) => n > 20)
+    const wet = water.filter(Boolean).length
+
+    // PRECONDITION: the mask means something. A camera where the catalogue field paints one block
+    // would make the claim vacuous — §12's "an assertion carries information only if it
+    // DISTINGUISHES the states of the thing it tests".
+    expect(wet, 'the catalogue field marks enough water to test against').toBeGreaterThan(8)
+
+    const worst: { t: number; missed: number }[] = []
+    for (let i = 0; i < PHASE_SAMPLES; i++) {
+      const t = (i * PHASE_SECONDS) / PHASE_SAMPLES
+      await boot(page, 11, '| flow', t)
+      const field = await page.evaluate(readInk)
+      expect(field.ok).toBe(true)
+      if (!field.ok) return
+      expect(field.backend).toBe('webgl2')
+      if (i === 0) {
+        await page
+          .locator('canvas')
+          .first()
+          .screenshot({ path: 'test-results/s111-water-field.png' })
+      }
+      worst.push({
+        t,
+        missed: water.filter((isWater, b) => isWater && field.blocks[b]! === 0).length,
+      })
+    }
+    console.log(
+      `[s111-water] water blocks=${wet} | missed per phase: ` +
+        worst.map((w) => `t=${w.t}:${w.missed}`).join(' '),
+    )
+
+    // THE CLAIM. Every block of water the catalogue reaches, the advected field reaches — at every
+    // instant, not on average.
+    //
+    // TWO FAIL-BEFORES, both measured rather than reasoned to:
+    //  · with `unproject_flat`'s convergence threshold at a fixed 1 m — below the f32 ULP of a Web
+    //    Mercator coordinate, so ~40 % of the lattice was rejected in horizontal bands — the
+    //    single-instant form of this reported 14 of 33 blocks missed. That bug was invisible to all
+    //    10 060 unit tests, because the DSL's CPU lowering is f64; this gate is what saw it.
+    //  · the mechanism #1510 was filed against held a POSITION and recycled on a lottery, so an
+    //    arrow that drifted into slack water was invisible for a mean ~33 s AND left its origin
+    //    unrepresented. A seed here emits its train every frame from a position that is a pure
+    //    function of the clock, so neither hole is reachable — which is what this asserts.
+    for (const w of worst) {
+      expect(w.missed, `t=${w.t}s: the advected field left water empty (#1510)`).toBe(0)
+    }
+  })
+})

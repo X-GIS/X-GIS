@@ -1,60 +1,57 @@
-// ═══ Heatmap pass (Phase R) ═══
+// ═══ Heatmap pass (Phase R) — per-layer accum → blur → compose ═══
 //
 // Runs AFTER the label pass (the MSAA resolve-owner), compositing onto the
 // resolved swapchain — same placement strategy as the overdraw-compose pass,
-// which avoids the MSAA resolve-ownership hazard. Renders every direct-layer
-// (GeoJSON-source) heatmap layer as a 3-pass GPU pipeline:
-//   1. ACCUM   — clear the r16float density target, additively splat each
-//                point's Gaussian (HeatmapRenderer.drawLayerAccum).
-//   2. BLUR    — separable Gaussian: horizontal accum→blur, then vertical
-//                blur→accum (the blurred density lands back in accum).
-//   3. COMPOSE — sample blurred density, map through the layer's colour-ramp
-//                LUT × intensity × opacity, alpha-blend over the swapchain.
-//
-// Each heatmap LAYER is processed independently (its own radius / weight /
-// ramp / intensity), so the accum target is cleared per layer.
+// which avoids the MSAA resolve-ownership hazard. The whole 3-pass GPU
+// pipeline per direct-layer heatmap layer (ACCUM splat → separable Gaussian
+// BLUR ping-pong → COMPOSE through the layer's colour-ramp LUT) lives behind
+// HeatmapRenderer.renderChainRhi (#1046 F3b Inc-2c) — the sole frame shape
+// since the forced-WebGL2 twin's renderRhi (#1060), which used to share the
+// same drapers/shader/targets, was deleted (#1046 Inc-F3a/F3b).
 //
 // GATED OFF when no direct-layer heatmap exists (scene.hasHeatmap === false)
 // or in ?debug=overdraw — so a style with no heatmap allocates no targets and
-// renders byte-identically. The density targets are lazily ensured here (NOT
-// per-frame allocated — RenderTargets.ensureHeatmap tracks size + reuses).
+// renders byte-identically. The density targets are lazily ensured inside
+// renderChainRhi (NOT per-frame allocated — HeatmapTargets tracks size).
 
-import { DEBUG_OVERDRAW } from '../../debug-flags'
 import type { FrameContext } from '../frame-context'
 import { unwrapProjection } from '../projection-token'
 import type { SceneView } from '../scene-view'
-import type { RenderPass, HeatmapPassHost } from './pass'
+import { requireRhiFrame, type RenderPass, type HeatmapPassHost } from './pass'
 
 class HeatmapPass implements RenderPass {
   readonly label = 'heatmap'
 
   shouldRun(scene: SceneView): boolean {
-    return scene.hasHeatmap && !DEBUG_OVERDRAW
+    return scene.hasHeatmap && !scene.overdraw
   }
 
   execute(ctx: FrameContext, _scene: SceneView, host: HeatmapPassHost): void {
     const hr = host.heatmapRenderer
     if (!hr || !hr.hasLayers()) return
-    const encoder = ctx.encoder
+    // F3b: RHI origination — descriptor-equivalent on WebGPU, executable on
+    // WebGL2 after the flip. The seam hands over the frame encoder + the
+    // resolved swapchain view; the renderer owns every pass it opens.
+    //
+    // FIRST, above the capability gate below: this is the mis-routed-frame
+    // tripwire, and it must keep throwing on every device. Gating ahead of it
+    // would turn a chain pass wrongly handed a twin frame into a silent return
+    // on exactly the backend (WebGL2) where that mis-route is possible.
+    const { enc, screenView } = requireRhiFrame(ctx, 'heatmap')
+    // The r16float density accumulation blends into a float target, which is a
+    // feature-DETECTED capability on WebGL2 (EXT_color_buffer_float +
+    // EXT_float_blend). HeatmapRenderer states that its CALLERS perform this
+    // gate; the forced-WebGL2 twin is such a caller and this pass was not, so a
+    // device without the extensions walked straight in (#1046 Inc-F2c). It goes
+    // here rather than in `shouldRun`, which is handed no FrameContext and so
+    // cannot see the device.
+    if (!ctx.rhi.caps.floatBlendTargets) return
+    const { projType, centerLon, centerLat } = unwrapProjection(ctx.projection)
     ctx.passScope('heatmap', () => {
-      // Lazily (re)allocate the density targets at canvas size. No-op when
-      // unchanged; never allocates in the default no-heatmap path. Map owns the
-      // targets (#1000); they drive the backend's generic render-target primitive.
-      host.heatmapTargets.ensure(host.ctx.device, ctx.scene.w, ctx.scene.h)
-      const accumView = host.heatmapTargets.accumView
-      const blurView = host.heatmapTargets.blurView
-      if (!accumView || !blurView) return
-
-      const blurPipeline = host.renderer.ensureHeatmapBlur()
-      const composePipeline = host.renderer.ensureHeatmapCompose()
-      const blurLayout = host.renderer.heatmapBlurBindGroupLayout
-      const composeLayout = host.renderer.heatmapComposeBindGroupLayout
-      const { h: blurDirH, v: blurDirV } = hr.getBlurDirBuffers()
-      const rampSampler = hr.getRampSampler()
-
-      // Write the shared accum frame uniform once.
-      const { projType, centerLon, centerLat } = unwrapProjection(ctx.projection)
-      hr.updateFrameUniform(
+      hr.renderChainRhi(
+        enc,
+        screenView,
+        host.heatmapTargets,
         ctx.camera,
         projType,
         centerLon,
@@ -63,107 +60,6 @@ class HeatmapPass implements RenderPass {
         ctx.scene.h,
         ctx.scene.dpr,
       )
-
-      const layers = hr.getLayers()
-      for (let li = 0; li < layers.length; li++) {
-        const layer = layers[li]
-
-        // ── Pass 1: ACCUM ── clear accum, additively splat this layer.
-        {
-          const accumPass = encoder.beginRenderPass({
-            colorAttachments: [
-              {
-                view: accumView,
-                clearValue: { r: 0, g: 0, b: 0, a: 0 },
-                loadOp: 'clear',
-                storeOp: 'store',
-              },
-            ],
-          })
-          hr.drawLayerAccum(accumPass, li)
-          accumPass.end()
-        }
-
-        // ── Pass 2a: BLUR horizontal (accum → blur) ──
-        {
-          const bg = host.ctx.device.createBindGroup({
-            layout: blurLayout,
-            entries: [
-              { binding: 0, resource: accumView },
-              { binding: 1, resource: { buffer: blurDirH } },
-            ],
-          })
-          const bp = encoder.beginRenderPass({
-            colorAttachments: [
-              {
-                view: blurView,
-                clearValue: { r: 0, g: 0, b: 0, a: 0 },
-                loadOp: 'clear',
-                storeOp: 'store',
-              },
-            ],
-          })
-          bp.setPipeline(blurPipeline)
-          bp.setBindGroup(0, bg)
-          bp.draw(3)
-          bp.end()
-        }
-
-        // ── Pass 2b: BLUR vertical (blur → accum) ──
-        {
-          const bg = host.ctx.device.createBindGroup({
-            layout: blurLayout,
-            entries: [
-              { binding: 0, resource: blurView },
-              { binding: 1, resource: { buffer: blurDirV } },
-            ],
-          })
-          const bp = encoder.beginRenderPass({
-            colorAttachments: [
-              {
-                view: accumView,
-                clearValue: { r: 0, g: 0, b: 0, a: 0 },
-                loadOp: 'clear',
-                storeOp: 'store',
-              },
-            ],
-          })
-          bp.setPipeline(blurPipeline)
-          bp.setBindGroup(0, bg)
-          bp.draw(3)
-          bp.end()
-        }
-
-        // ── Pass 3: COMPOSE ── sample blurred density, alpha-blend onto the
-        // RESOLVED swapchain (ctx.screenView). This pass runs LAST (after the
-        // label pass resolved MSAA), single-sample, exactly like overdraw-
-        // compose — so it never has to share the MSAA attachment. Each layer
-        // binds its OWN params buffer (intensity/opacity) + ramp LUT.
-        {
-          const bg = host.ctx.device.createBindGroup({
-            layout: composeLayout,
-            entries: [
-              { binding: 0, resource: accumView },
-              { binding: 1, resource: layer.rampTexture.createView() },
-              { binding: 2, resource: rampSampler },
-              { binding: 3, resource: { buffer: layer.paramsBuf } },
-            ],
-          })
-          const cp = encoder.beginRenderPass({
-            colorAttachments: [
-              {
-                view: ctx.screenView,
-                loadOp: 'load',
-                storeOp: 'store',
-              },
-            ],
-          })
-          cp.setPipeline(composePipeline)
-          cp.setBindGroup(0, bg)
-          cp.draw(3)
-          cp.end()
-        }
-      }
     })
   }
 }

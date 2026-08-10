@@ -2,12 +2,10 @@ import { describe, expect, it } from 'vitest'
 import { coverageFromGrids, type CoverageInput } from '@xgis/data/coverage'
 import {
   addCoverageArrowShowLayer,
-  coverageArrowOrigins,
+  coverageArrowGrid,
   type CoverageArrowShowHost,
 } from './coverage-arrow-show'
-import { ARROW_DRIFT_UV } from './shaders/dsl/arrow-advect-step'
 import { flowTrueSpans } from './render/flow-advect-params'
-import { COVERAGE_ARROW_MAX } from './coverage-arrow-show'
 import type { ShowCommand } from './render/renderer-types'
 import { S111_ARROW_BASE_PX, S111_OUTLINE_FRAC } from './render/s111-portrayal'
 
@@ -177,77 +175,76 @@ describe('addCoverageArrowShowLayer (#1333 — engine S-111 arrow field)', () =>
   })
 })
 
-// ── Advected mode: the arrows ARE the particles (#1409) ──────────────────────────────────
+// ── Advected mode: the glyphs ARE the particles (#1409, #1520) ───────────────────────────
 //
-// Two contracts, both invisible in a frame:
+// WHAT THIS SECTION USED TO TEST, and why none of it applies. The advected arm used to emit one
+// instance per grid cell and a parallel array of origins, and the two contracts that mattered were
+// ORDER (origin `i` belongs to instance `i` — two loops staying in step, whose failure is silent
+// and looks like a working animation) and COUNT (one state texel per arrow, so an over-count
+// indexed past the texture).
 //
-//   1. ORDER. `coverageArrowOrigins` walks the same valid cells with the same stride as the
-//      emit, so origin `i` belongs to instance `i`. Two loops staying in step is exactly the
-//      kind of agreement that drifts, and the failure is silent: every arrow would advect from
-//      SOMEONE ELSE'S origin, sampling the field in the wrong place and reporting a current
-//      that does not exist there — while looking like a perfectly working animation.
-//
-//   2. COUNT. The position state is one TEXEL per arrow, so a grid with more valid cells than
-//      texels must thin to fit. An over-count would index past the state texture.
+// #1520 step 2 removed both by removing what they were about. The instance set is a lattice on the
+// SCREEN whose size is a per-frame decision, so the arm emits NO instances and no origins: there
+// is no order to keep and no count to cap. What is left for this arm to get right is the grid BOX
+// — four numbers that turn a lon/lat the shader recovered back into grid-uv — and the fallback for
+// the coverages that box cannot describe.
 
-describe('coverageArrowOrigins (#1409 — advected mode)', () => {
-  it('is null for a scalar coverage, like the emit', () => {
-    const handle = coverageFromGrids({
-      product: 's102',
-      origin: [0, 0],
-      spacing: [1, 1],
-      size: [2, 1],
-      vertical: { datumCode: null, sign: 'down' },
-      bands: [
-        {
-          name: 'depth',
-          unit: 'metres',
-          kind: 'f32',
-          nodata: -9999,
-          values: Float32Array.from([1, 2]),
-        },
-      ],
-    })
-    expect(coverageArrowOrigins(handle)).toBeNull()
-  })
+describe('the advected arm emits a grid BOX, not instances (#1520)', () => {
+  const anyFlow = () =>
+    coverageFromGrids(s111Input([0.3, 0, NaN, 2.5, 5.0, 20.0], [90, 0, 0, 180, 270, 45]))
 
-  it('emits ONE origin per emitted instance, in the SAME order', () => {
-    const handle = coverageFromGrids(
-      s111Input([0.3, 0, NaN, 2.5, 5.0, 20.0], [90, 0, 0, 180, 270, 45]),
-    )
+  it('emits ONE batch with NO per-instance arrays at all', () => {
+    // The whole per-cell walk is skipped: it would allocate six arrays of up to 100 000 entries
+    // for a buffer nothing binds. A regression that re-adds them is re-adding the z17 ceiling.
     const { host, calls } = makeHost()
-    addCoverageArrowShowLayer(host, s111Show, handle, '', { advected: { peakSpeed: 20 } })
-    const origins = coverageArrowOrigins(handle)!
-    const emitted = calls[0]!
-
-    expect(origins.u).toHaveLength(emitted.lons.length)
-    expect(origins.v).toHaveLength(emitted.lons.length)
-
-    // The grid is 3 wide × 2 tall, SW centre (10,50), 1° spacing. Row 0 is the NORTH row
-    // (lat 51) and carries the skipped cells, so the drawable set is
-    //   (row0,col0) lon 10 lat 51 · (row1,col0..2) lat 50.
-    // u = col/(nLon-1), v = row/(nLat-1) — v runs SOUTH from the north row, matching the
-    // velocity textures' own packing, so the shader needs no axis fix-up.
-    expect([...origins.u]).toEqual([0, 0, 0.5, 1])
-    expect([...origins.v]).toEqual([0, 1, 1, 1])
-
-    // ...and that really is instance order: instance 0 is the north-row arrow.
-    expect(emitted.lats[0]).toBeCloseTo(51, 9)
-    expect(emitted.lats[1]).toBeCloseTo(50, 9)
-    expect(emitted.lons[2]).toBeCloseTo(11, 9)
+    addCoverageArrowShowLayer(host, s111Show, anyFlow(), '', {
+      advected: { peakSpeed: 20, priority: 0 },
+    })
+    expect(calls).toHaveLength(1)
+    expect(calls[0]!.lons).toHaveLength(0)
+    expect(calls[0]!.sizes).toHaveLength(0)
+    expect(calls[0]!.advected).toBeTruthy()
   })
 
-  it('thins to the ONE ceiling both portrayals share, and the origins thin WITH it', () => {
-    // More valid cells than texels. Both sides must apply the identical stride, or the
-    // instance/texel correspondence breaks and every arrow reads someone else's position.
-    const n = COVERAGE_ARROW_MAX + 1000
-    const speed = new Array(n).fill(1.5)
-    const dir = new Array(n).fill(90)
+  it('still arms nothing when NO cell is drawable — an empty hour draws no field', () => {
+    // The screen lattice would otherwise paint a field over a coverage that has no current at
+    // all; the velocity texture's packed (0, 0) keeps glyphs off land, but "no data anywhere" is
+    // a different statement and has to be made here.
+    const handle = coverageFromGrids(s111Input([0, 0, NaN, 0, NaN, 0], [90, 0, 0, 180, 270, 45]))
+    const { host, calls } = makeHost()
+    addCoverageArrowShowLayer(host, s111Show, handle, '', {
+      advected: { peakSpeed: 20, priority: 0 },
+    })
+    expect(calls).toHaveLength(0)
+  })
+
+  it('the box maps the grid CORNERS to uv (0,0) and (1,1) — v runs SOUTHWARD', () => {
+    // The convention the velocity textures are packed in: `u = col/(nLon−1)` eastward and
+    // `v = row/(nLat−1)` with row 0 the NORTHERNMOST. Get the v sign backwards and the field
+    // flows smoothly against its own arrowheads, reading as a working animation of a current
+    // that is not there.
+    const g = coverageArrowGrid(anyFlow()) // 3×2 cells, 1° spacing, SW centre (10, 50)
+    const uvOf = (lon: number, lat: number): [number, number] => [
+      (lon - g.originLon) * g.invSpanLon,
+      (lat - g.originLat) * g.invSpanLat,
+    ]
+    expect(uvOf(10, 51)[0], 'north-west node is u = 0').toBe(0)
+    // `-0`, because the southward span makes the reciprocal negative — the same point.
+    expect(uvOf(10, 51)[1], 'north-west node is v = 0').toBeCloseTo(0, 12)
+    expect(uvOf(12, 51)[0], 'north-east node is u = 1').toBeCloseTo(1, 12)
+    expect(uvOf(10, 50)[1], 'south-west node is v = 1').toBeCloseTo(1, 12)
+    expect(g.invSpanLat, 'the southward sign rides the reciprocal').toBeLessThan(0)
+  })
+
+  it('a DEGENERATE axis pins uv to 0 rather than dividing by zero', () => {
+    // A single-column or single-row coverage has one sample on that axis, so uv 0 is the correct
+    // and only answer. An unguarded reciprocal would be Infinity, and every node would land
+    // outside [0, 1] and draw nothing — a blank field from a coverage that has data.
     const handle = coverageFromGrids({
       product: 's111',
-      origin: [0, 0],
-      spacing: [0.01, 0.01],
-      size: [n, 1],
+      origin: [10, 50],
+      spacing: [1, 1],
+      size: [1, 2],
       vertical: { datumCode: null, sign: 'up' },
       bands: [
         {
@@ -255,88 +252,57 @@ describe('coverageArrowOrigins (#1409 — advected mode)', () => {
           unit: 'knots',
           kind: 'f32',
           nodata: -9999,
-          values: Float32Array.from(speed),
+          values: Float32Array.from([1, 2]),
         },
         {
           name: 'surfaceCurrentDirection',
-          unit: 'arc-degrees',
+          unit: 'degrees',
           kind: 'f32',
           nodata: -9999,
-          values: Float32Array.from(dir),
+          values: Float32Array.from([0, 90]),
         },
       ],
     })
-    const { host, calls } = makeHost()
-    addCoverageArrowShowLayer(host, s111Show, handle, '', { advected: { peakSpeed: 20 } })
-    const origins = coverageArrowOrigins(handle)!
-    expect(calls[0]!.lons.length).toBeLessThanOrEqual(COVERAGE_ARROW_MAX)
-    expect(origins.u).toHaveLength(calls[0]!.lons.length)
-  })
-
-  it('emits the BASE length only — the band multiplier is the shader’s job now (#1419)', () => {
-    // Double-scaling is the failure: the shader re-applies the band multiplier from the speed
-    // under the arrow's CURRENT position, so a per-cell multiplier baked in here would scale
-    // every arrow by the water it launched from AND the water it is in.
-    const handle = coverageFromGrids(
-      s111Input([0.3, 0, NaN, 2.5, 5.0, 20.0], [90, 0, 0, 180, 270, 45]),
-    )
-    const { host, calls } = makeHost()
-    addCoverageArrowShowLayer(host, s111Show, handle, '', { advected: { peakSpeed: 20 } })
-    for (const size of calls[0]!.sizes) expect(size).toBe(S111_ARROW_BASE_PX)
-    // The static path still bakes it — 0.3 kn → the 0.40 floor.
-    const s = makeHost()
-    addCoverageArrowShowLayer(s.host, s111Show, handle)
-    expect(s.calls[0]!.sizes[0]).toBeCloseTo(S111_ARROW_BASE_PX * 0.4, 4)
-  })
-
-  it('emits the two BASIS ANCHORS, one leash length along each grid axis (#1419)', () => {
-    // These are what the advected VS projects to turn a drift into a screen offset. Two things
-    // must be right and neither is visible from the shader side:
-    //   • the DISTANCE is exactly ARROW_DRIFT_UV of the grid span, because the VS divides by
-    //     that constant — a mismatch scales every arrow's displacement by a silent factor;
-    //   • grid-v runs SOUTHWARD (row 0 is the north row), so +v steps to LOWER latitude. Get
-    //     that backwards and the field flows smoothly against its own arrowheads.
-    const handle = coverageFromGrids(
-      s111Input([0.3, 0, NaN, 2.5, 5.0, 20.0], [90, 0, 0, 180, 270, 45]),
-    )
-    const o = coverageArrowOrigins(handle)!
-    // 3 wide × 2 tall, 1° spacing → one uv unit is 2° in lon and 1° in lat.
-    const uSpanDeg = ARROW_DRIFT_UV * 2
-    const vSpanDeg = ARROW_DRIFT_UV * 1
-    // instance 0 = the north-row arrow at (10, 51).
-    expect(o.uStepLon[0]).toBeCloseTo(10 + uSpanDeg, 9)
-    expect(o.uStepLat[0]).toBeCloseTo(51, 9)
-    expect(o.vStepLon[0]).toBeCloseTo(10, 9)
-    expect(o.vStepLat[0]).toBeCloseTo(51 - vSpanDeg, 9)
-    // …and every instance carries its own pair, parallel to the origins.
-    expect(o.uStepLon).toHaveLength(o.u.length)
-    expect(o.vStepLat).toHaveLength(o.u.length)
+    expect(coverageArrowGrid(handle).invSpanLon).toBe(0)
   })
 
   it('reports the grid’s TRUE-distance aspect, cos(lat) folded in (#1419)', () => {
-    // The VS points each glyph along the direction the ADVECTION moves it. Both sides derive
-    // that anisotropy from `flowTrueSpans`, so a grid whose uv axes span different true
+    // The shader points each glyph along the direction the walk actually moves it. Both sides
+    // derive that anisotropy from `flowTrueSpans`, so a grid whose uv axes span different true
     // distances cannot end up with the arrowhead at one angle and the motion at another.
-    const handle = coverageFromGrids(
-      s111Input([0.3, 0, NaN, 2.5, 5.0, 20.0], [90, 0, 0, 180, 270, 45]),
-    )
-    // 3×2 cells, 1° spacing → 2° of lon and 1° of lat between the corner cell centres, at a
-    // mid-latitude of 50.5°.
     const expected = flowTrueSpans([2, 1], 50.5)
-    expect(coverageArrowOrigins(handle)!.uvAspect).toBeCloseTo(
+    expect(coverageArrowGrid(anyFlow()).uvAspect).toBeCloseTo(
       expected.trueLon / expected.trueLat,
       9,
     )
   })
 
-  it('the STATIC path is untouched — no cap at the advect count, no origins needed', () => {
-    // Every existing `| arrow` consumer goes through here. The advected ceiling must not
-    // silently start thinning the catalogue-conformant one-per-cell portrayal.
-    const handle = coverageFromGrids(
-      s111Input([0.3, 0, NaN, 2.5, 5.0, 20.0], [90, 0, 0, 180, 270, 45]),
-    )
+  it('a PROJECTED coverage falls back to the STATIC portrayal rather than drawing nothing', () => {
+    // STATED SCOPE, not a gap. `field_grid_uv` is an affine map in the shader and a projected CRS
+    // is not one; supporting it needs that CRS's forward ladder on the GPU (#1366 INC-3). The
+    // fallback is asserted here so it cannot rot into a silent blank — which is exactly what an
+    // unguarded advected arm would produce, since every recovered lon/lat would land outside the
+    // unit box and every glyph would collapse.
+    const handle = coverageFromGrids({
+      ...s111Input([1, 1, 1, 1, 1, 1], [0, 45, 90, 135, 180, 225]),
+      crs: 32618, // WGS 84 / UTM 18N — the real NOAA S-102 Chesapeake cell's CRS
+      origin: [420767.84475419234, 4183856.856912584],
+      spacing: [16, 16],
+    })
     const { host, calls } = makeHost()
-    addCoverageArrowShowLayer(host, s111Show, handle) // no opts
+    addCoverageArrowShowLayer(host, s111Show, handle, '', {
+      advected: { peakSpeed: 20, priority: 0 },
+    })
+    expect(calls).toHaveLength(1)
+    expect(calls[0]!.advected, 'the advected arm declined it').toBeFalsy()
+    expect(calls[0]!.lons.length, 'the static portrayal drew it instead').toBe(6)
+  })
+
+  it('the STATIC path is untouched — one symbol per drawable cell, sized by the band rule', () => {
+    // Every existing `| arrow` consumer goes through here.
+    const { host, calls } = makeHost()
+    addCoverageArrowShowLayer(host, s111Show, anyFlow()) // no opts
     expect(calls[0]!.lons).toHaveLength(4)
+    expect(calls[0]!.sizes[0]).toBeCloseTo(S111_ARROW_BASE_PX * 0.4, 4) // 0.3 kn → the floor
   })
 })

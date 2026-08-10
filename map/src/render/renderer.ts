@@ -16,17 +16,20 @@
 // thin delegations to the FrameRenderer — byte-identical external API, ZERO
 // call-site changes.
 
-import type { GPUContext } from '@xgis/rhi-webgpu'
+import { unwrapWebGpuPass, type GPUContext, type ComputeTimestampProvider } from '@xgis/rhi-webgpu'
 import type { Camera } from '../camera'
 import type { MeshData, LineMeshData } from '@xgis/data'
-import { DEBUG_OVERDRAW } from '../debug-flags'
+import { isOverdrawActive } from '../debug-flags'
 import { activeBody } from '@xgis/shared'
 import { resolveNumberShape, resolveColorShape } from './paint-shape-resolve'
 import type { ShaderVariantInfo, CachedPipeline, ShowCommand, RenderLayer } from './renderer-types'
 import { parseColor } from './renderer-helpers'
 import { GraticuleRenderer } from './graticule-renderer'
 import { polygonUniformBytes } from './polygon-uniform-slots'
-import { uniformBlock, type UniformBlockOf, type RhiRenderPass } from '@xgis/engine'
+import { inputPoolValues } from './input-pool'
+import type { InputStore } from './input-store'
+import { uniformBlock } from '@xgis/engine'
+import type { UniformBlockOf, RhiRenderPass, RhiCommandEncoder } from '@xgis/engine'
 import { polygonU as POLYGON_U } from '../shaders/dsl/polygon'
 import { globeEyeUniform } from './globe-eye-uniform'
 
@@ -123,15 +126,14 @@ export class MapRendererContent {
   // (memoised) at ctor/draw time. It MUST NOT be a `static readonly` field:
   // polygonUniformBytes() reflects the polygon module = a projection emit, which
   // throws until configureProjections() has run (post-GPU-init), and a static
-  // field evaluates at class-definition (IMPORT) time — that crashed the entire
-  // map init. The BGL omits minBindingSize, so a smaller bind `size` than the
+  // field evaluates at class-definition (IMPORT) time — that crashed map init.
+  // The BGL omits minBindingSize, so a bind `size` smaller than the
   // shader-derived struct fails draw validation.
-  // P3 Step 3c palette atlas — the LIVE view stays on the CONTENT half (plan
-  // §5 FB#3 + Step 1 invariant: atlas views do NOT survive in the engine). It
-  // starts as the factory's 1×1 transparent STUB view (so every bind group is
-  // valid before the real atlas lands) and `setPaletteColorAtlas` swaps it
-  // in-place + rebuilds bindGroup + per-layer groups when the scene compile
-  // finishes. Seeded in the ctor from `engine.paletteStubTextureView`.
+  // P3 Step 3c palette atlas — the LIVE view stays on the CONTENT half (plan §5
+  // FB#3 + Step 1 invariant: atlas views do NOT survive in the engine). It starts
+  // as the factory's 1×1 transparent STUB view (so every bind group is valid
+  // before the real atlas lands) and `setPaletteColorAtlas` swaps it in-place +
+  // rebuilds bindGroup + per-layer groups when the scene compile finishes.
   /** Currently-bound color gradient atlas view. Defaults to the factory's
    *  1×1 stub; set to the real atlas via `setPaletteColorAtlas`. In the
    *  external read contract (map.ts:557 / source-manager.ts). */
@@ -144,6 +146,8 @@ export class MapRendererContent {
   spriteAtlasView!: GPUTextureView
   private bindGroup!: GPUBindGroup
   private layers: RenderLayer[] = []
+  /** Live `input` values (#1539) — same contract as the VTR's field. */
+  inputs: InputStore | null = null
   /** Lat/lon grid overlay collaborator. Owns its own GPU-buffer lifecycle
    *  + zoom-bucket regeneration + WeakMap cache; borrows linePipeline +
    *  base bindGroup + the engine's uniformRing per frame (passed into
@@ -198,17 +202,16 @@ export class MapRendererContent {
   get oitComposeBindGroupLayout(): GPUBindGroupLayout {
     return this.engine.oitComposeBindGroupLayout
   }
+  /** OIT fullscreen recover draw — thin forwarder to the engine half, which
+   *  owns the pipeline/layout and the native unwrap (#1046 F3b Inc-2d). */
+  drawOitCompose(pass: RhiRenderPass, accumView: GPUTextureView, revealView: GPUTextureView): void {
+    this.engine.drawOitCompose(pass, accumView, revealView)
+  }
   get overdrawComposePipeline(): GPURenderPipeline | null {
     return this.engine.overdrawComposePipeline
   }
   get overdrawComposeBindGroupLayout(): GPUBindGroupLayout {
     return this.engine.overdrawComposeBindGroupLayout
-  }
-  get heatmapBlurBindGroupLayout(): GPUBindGroupLayout {
-    return this.engine.heatmapBlurBindGroupLayout
-  }
-  get heatmapComposeBindGroupLayout(): GPUBindGroupLayout {
-    return this.engine.heatmapComposeBindGroupLayout
   }
   get fillPipelineOverdraw(): GPURenderPipeline | null {
     return this.engine.fillPipelineOverdraw
@@ -282,9 +285,10 @@ export class MapRendererContent {
   get paletteSampler(): GPUSampler {
     return this.engine.paletteSampler
   }
-  /** Live uniform ring buffer — read by the OIT / opaque / translucent
-   *  passes via `host.renderer.uniformBuffer`. */
-  get uniformBuffer(): GPUBuffer {
+  /** Native uniform-ring buffer for THIS class's raw createBindGroup sites
+   *  (P6 debt, WebGPU-arm only). Private since Inc-E2 — the pass-side
+   *  ShowDrawFn thread retired with the chain flip. */
+  private get uniformBuffer(): GPUBuffer {
     return this.engine.uniformBuffer
   }
   /** Rebuild all pipelines + invalidate shader variant cache (map.setQuality). */
@@ -295,14 +299,6 @@ export class MapRendererContent {
   ensureOverdrawCompose(): GPURenderPipeline {
     return this.engine.ensureOverdrawCompose()
   }
-  /** Lazy-build the heatmap blur pipeline (Phase R). */
-  ensureHeatmapBlur(): GPURenderPipeline {
-    return this.engine.ensureHeatmapBlur()
-  }
-  /** Lazy-build the heatmap compose pipeline (Phase R). */
-  ensureHeatmapCompose(): GPURenderPipeline {
-    return this.engine.ensureHeatmapCompose()
-  }
   /** Reset the ring-buffer slot cursor. Call once per frame before any draws. */
   beginFrame(): void {
     this.engine.beginFrame()
@@ -311,12 +307,9 @@ export class MapRendererContent {
   endFrame(): void {
     this.engine.endFrame()
   }
-  /** Run every attached compute kernel onto the encoder (once per frame). */
-  dispatchComputePass(
-    encoder: GPUCommandEncoder,
-    timestampWritesProvider?: { computeWrites(): GPUComputePassTimestampWrites | null } | null,
-  ): void {
-    this.engine.dispatchComputePass(encoder, timestampWritesProvider)
+  /** Run every attached compute kernel (once per frame). */
+  dispatchComputePass(enc: RhiCommandEncoder, tw?: ComputeTimestampProvider | null): void {
+    this.engine.dispatchComputePass(enc, tw)
   }
   /** Hand the scene's compute plan to the renderer before addLayer calls. */
   setComputePlan(plan: readonly import('@xgis/compiler').ComputePlanEntry[] | undefined): void {
@@ -379,9 +372,9 @@ export class MapRendererContent {
    *  (no layers yet), so this matches the original inline init build. */
   private rebuildUniformBindGroups(): void {
     // #832 M2 — these are NATIVE WebGPU bind groups for the WebGPU frame path;
-    // on the webgl2 backend that path never runs (renderFrameViaRhi renders the
-    // frame) and reading the native uniformBuffer getter would unwrap-throw at
-    // boot. Skip: the WebGL2 fill draws bind RHI-native groups instead.
+    // on the webgl2 backend reading the native uniformBuffer getter would
+    // unwrap-throw at boot. Skip: the WebGL2 fill draws bind RHI-native groups
+    // instead, unconditionally (#1046 Inc-F3a).
     if (this.ctx.rhi.backend === 'webgl2') return
     const { device } = this.ctx
     this.bindGroup = device.createBindGroup({
@@ -525,15 +518,12 @@ export class MapRendererContent {
         device.queue.writeBuffer(layer.featureDataBuffer, 0, data)
 
         // ─── Compute path attach (P4-5 integration step 2) ───
-        // When the variant carries `computeBindings`, attach a handle
-        // BEFORE building the per-layer bind group so the compute
-        // output buffer exists by the time we append its entry. The
-        // registry filters the scene plan by renderNodeIndex; drift
-        // between (variant.computeBindings.length) and
-        // (plan entries with this index) propagates as a thrown error
-        // from ComputeLayerHandle — surfacing the
-        // compiler / runtime contract violation before the WebGPU
-        // pipeline build does.
+        // When the variant carries `computeBindings`, attach a handle BEFORE
+        // building the per-layer bind group so the compute output buffer
+        // exists by the time we append its entry. The registry filters the
+        // scene plan by renderNodeIndex; drift between the variant's binding
+        // count and the plan's entries throws from ComputeLayerHandle —
+        // surfacing the contract violation before the pipeline build does.
         let extraComputeEntries: { binding: number; resource: { buffer: GPUBuffer } }[] = []
         if ((variant.computeBindings?.length ?? 0) > 0 && show.renderNodeIndex !== undefined) {
           const registry = this.engine.ensureComputeRegistry()
@@ -754,18 +744,26 @@ export class MapRendererContent {
 
   /** Render all layers into an existing render pass (RTC projection) */
   renderToPass(
-    pass: GPURenderPassEncoder,
+    rhiPass: RhiRenderPass,
     camera: Camera,
     projType = 0,
     projCenterLon = 0,
     projCenterLat = 20,
     elapsedMs = 0,
   ): void {
+    // #1046 Inc-E2 — immediate arm: these legacy draws are native plumbing
+    // (P6) with no RHI-native equivalent (content rides the VTR *Rhi
+    // entries instead) — skipping is correct; unwrapping would kill the frame.
+    if (this.ctx.rhi.caps.executionModel === 'immediate') return
+    // Inc-2d boundary: the chain hands the neutral handle; the legacy layer
+    // draws below are still native plumbing — unwrap ONCE here (retires with
+    // the legacy MapRenderer cluster).
+    const pass = unwrapWebGpuPass(rhiPass) as GPURenderPassEncoder
     // Overdraw-debug v1: legacy MapRenderer layers (graticule, etc.)
     // bake their pipeline against the swapchain format. The pass
     // attachment in debug mode is r16float — formats mismatch. Skip
     // entirely. Vector content goes through VTR, not this path.
-    if (DEBUG_OVERDRAW) return
+    if (isOverdrawActive(this.ctx.rhi.caps)) return
     const { canvas } = this.ctx
     // RTC: no translation in MVP, projection center is at (0,0).
     // Compute the live DPR so the camera matrix uses CSS-pixel altitude
@@ -845,6 +843,7 @@ export class MapRendererContent {
       const ge = globeEyeUniform(frame.eye)
       const B = polyBlock()
       B.write({
+        ...inputPoolValues(this.inputs),
         mvp,
         fill_color: fillColor,
         stroke_color: strokeColor,
@@ -917,30 +916,33 @@ export class MapRendererContent {
   }
 
   /**
-   * Draw the lat/lon graticule overlay so it composites ON TOP of the opaque
-   * basemap. Split out of renderToPass (#970 fix): the graticule is a
-   * decoration that must land after ALL opaque content, but renderToPass runs
-   * in the opaque pass BEFORE the vector-tile group.shows (the ocean/land
-   * fills). Drawing the grid inside renderToPass therefore let the opaque fills
-   * paint over it — invisible on flat Mercator, and on globe only the lines
-   * outside the sphere disc survived. The opaque pass now invokes this in its
-   * LAST sub-pass, after that group's shows, so the grid is on top.
-   *
-   * No-ops when the overlay is disabled (default) — the ECEF frame view (same
-   * canonical builder renderToPass uses) is only computed when there's a grid
-   * to draw. mvp/eye are consumed on the globe/tilted ECEF fast path; flat
-   * display routes its own MVP + world-copy fan-out through the camera.
+   * Draw the lat/lon graticule so it composites ON TOP of the opaque basemap.
+   * Split out of renderToPass (#970): that runs BEFORE the vector-tile
+   * group.shows, so a grid drawn there was painted over by the ocean/land
+   * fills — the opaque pass invokes this in its LAST sub-pass instead. No-op
+   * while disabled (default); mvp/eye feed the globe/tilted ECEF fast path,
+   * flat display routes its own MVP + world-copy fan-out via the camera.
    */
   renderGraticuleOverlay(
-    pass: GPURenderPassEncoder,
+    rhiPass: RhiRenderPass,
     camera: Camera,
     projType = 0,
     projCenterLon = 0,
     projCenterLat = 20,
   ): void {
-    if (DEBUG_OVERDRAW || !this._graticule.isEnabled()) return
+    if (isOverdrawActive(this.ctx.rhi.caps) || !this._graticule.isEnabled()) return
     const { canvas } = this.ctx
     const dpr = canvas.clientWidth > 0 ? canvas.width / canvas.clientWidth : 1
+    // #1046 Inc-E2 immediate arm — the RHI sibling below is the only graticule
+    // draw an immediate device has (#1062); the native unwrap would fail loud
+    // and kill the frame the moment the grid turns on.
+    if (this.ctx.rhi.caps.executionModel === 'immediate') {
+      const head = [rhiPass, camera, projType, projCenterLon, projCenterLat] as const
+      return this.renderGraticuleOverlayRhi(...head, canvas.width, canvas.height, dpr)
+    }
+    // Inc-2d boundary (see renderToPass): unwrap once, native graticule
+    // plumbing unchanged until its cluster flips.
+    const pass = unwrapWebGpuPass(rhiPass) as GPURenderPassEncoder
     const frame = camera.getECEFFrameView(canvas.width, canvas.height, dpr)
     this._graticule.renderFrame(
       pass,
@@ -963,11 +965,12 @@ export class MapRendererContent {
     )
   }
 
-  /** Forced-WebGL2 twin of renderGraticuleOverlay (#1062). The isolated RHI frame
-   *  (render-loop.ts renderFrameViaRhi) has no WebGPU pass-chain, so it calls this
-   *  after its opaque fills/strokes to composite the grid on top. GraticuleRenderer
-   *  owns the RHI resources (built through ctx.rhi); this only threads the canonical
-   *  ECEF frame view + projection in, exactly like the WebGPU seam. */
+  /** RHI-native sibling of renderGraticuleOverlay (#1062), for an immediate device
+   *  (WebGL2) which has no WebGPU pass-chain to unwrap into. Called from the
+   *  opaque pass's immediate arm after fills/strokes to composite the grid on top.
+   *  GraticuleRenderer owns the RHI resources (built through ctx.rhi); this only
+   *  threads the canonical ECEF frame view + projection in, exactly like the
+   *  WebGPU seam. */
   renderGraticuleOverlayRhi(
     pass: RhiRenderPass,
     camera: Camera,
@@ -978,7 +981,7 @@ export class MapRendererContent {
     h = 0,
     dpr = 1,
   ): void {
-    if (DEBUG_OVERDRAW || !this._graticule.isEnabled()) return
+    if (isOverdrawActive(this.ctx.rhi.caps) || !this._graticule.isEnabled()) return
     const frame = camera.getECEFFrameView(w, h, dpr)
     this._graticule.renderFrameRhi(
       pass,

@@ -48,7 +48,8 @@
 //     fingerprint).
 
 import type { ComputePlanEntry, ShaderVariant } from '@xgis/compiler'
-import { ComputeDispatcher } from '@xgis/rhi-webgpu'
+import { ComputeDispatcher, type ComputeTimestampProvider } from '@xgis/rhi-webgpu'
+import type { RhiCommandEncoder } from '@xgis/engine'
 import { TileComputeResources } from './tile-compute-resources'
 import { buildComputeBindGroupEntries, type ComputeBindEntry } from '@xgis/rhi-webgpu'
 import type { FeaturePropertyBag } from './compute-feature-packer'
@@ -106,10 +107,10 @@ export class ComputeLayerHandle {
    *  return attaches timestampWrites to that kernel's compute pass
    *  so the 'compute' breakdown ring lands a sample for this frame. */
   dispatch(
-    encoder: GPUCommandEncoder,
-    timestampWritesProvider?: { computeWrites(): GPUComputePassTimestampWrites | null } | null,
+    enc: RhiCommandEncoder,
+    timestampWritesProvider?: ComputeTimestampProvider | null,
   ): void {
-    this.resources.dispatch(encoder, timestampWritesProvider)
+    this.resources.dispatch(enc, timestampWritesProvider)
   }
 
   /** Bind-group entries for the layer's per-tile bind group. Caller

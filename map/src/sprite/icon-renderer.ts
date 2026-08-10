@@ -15,7 +15,6 @@
 
 import type { IconAtlasGpu } from './icon-stage'
 import {
-  wrapWebGpuPass,
   wrapWebGpuBindGroupLayout,
   wrapWebGpuTextureView,
   wrapWebGpuSampler,
@@ -464,9 +463,12 @@ export class IconRenderer {
   /** Encode the icon draw call. Returns silently when nothing to draw
    *  or when the atlas hasn't loaded yet. `replay` is the #1177 S16
    *  skip-replay screen-space correction (prepared-frame px → current-frame
-   *  px); omitted ⇒ identity (freshly-prepared frame). */
+   *  px); omitted ⇒ identity (freshly-prepared frame). RHI-only since
+   *  #1046 F3b — the label pass originates the pass on the RHI frame shell
+   *  on both backends, so no re-wrap happens here (the old backend-keyed
+   *  re-wrap was the 34d4695 double-wrap class). */
   draw(
-    pass: GPURenderPassEncoder | RhiRenderPass,
+    pass: RhiRenderPass,
     viewport: { width: number; height: number },
     replay?: { scale: number; dx: number; dy: number },
   ): void {
@@ -547,14 +549,11 @@ export class IconRenderer {
     // path. (The raw kill-switch branch + the standalone native pipeline were
     // deleted in the §4 seam migration.)
     this.ensureIconDraper()
-    this._iconDraper!.draw(
-      gl2 ? (pass as RhiRenderPass) : wrapWebGpuPass(pass as GPURenderPassEncoder),
-      {
-        bindGroup: this.bindGroup,
-        vertexBuf: this.vertexBuf,
-        vertexCount: this.vertexCount,
-      },
-    )
+    this._iconDraper!.draw(pass, {
+      bindGroup: this.bindGroup,
+      vertexBuf: this.vertexBuf,
+      vertexCount: this.vertexCount,
+    })
   }
 
   destroy(): void {

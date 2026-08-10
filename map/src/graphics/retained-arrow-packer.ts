@@ -133,21 +133,6 @@ export function packCompiledArrowFeat(
   sizesPx: ArrayLike<number>,
   dpr: number,
   strokeUnits = 0,
-  /** ADVECTED mode (#1419): the arrows are the particles. The tip block becomes the grid-u step
-   *  anchor and the north block the grid-v one, giving the VS two geographic→screen bases
-   *  instead of one — a single basis can only move an arrow along its launch bearing (the
-   *  straight-line drift #70 reverted). Direction is no longer baked here; it comes from the
-   *  velocity field at the arrow's current position, which is why the tip block is free.
-   *
-   *  The anchors are SUPPLIED, not derived: only the generator knows the coverage's grid and
-   *  CRS, and a step in degrees would be right for a geographic cell and wrong for a projected
-   *  one (#1366). `coverageArrowOrigins` produces them, one per instance, in this same order. */
-  advected?: {
-    uStepLon: ArrayLike<number>
-    uStepLat: ArrayLike<number>
-    vStepLon: ArrayLike<number>
-    vStepLat: ArrayLike<number>
-  },
 ): Float32Array {
   const n = lons.length
   const feat = new Float32Array(n * STRIDE)
@@ -157,21 +142,13 @@ export function packCompiledArrowFeat(
     const lat = lats[i]!
     packGeoPoint(feat, o + F.ecef_x_h, lon, lat) // tail block (base 0)
 
-    if (advected) {
-      // The grid-u step into the tip block, the grid-v step into its own. Both are ONE leash
-      // length from the same anchor, so the VS's clip-space deltas are exactly the two bases a
-      // bounded displacement decomposes onto.
-      packGeoPoint(feat, o + F.tip_ecef_x_h, advected.uStepLon[i]!, advected.uStepLat[i]!)
-      packGeoPoint(feat, o + F.north_ecef_x_h, advected.vStepLon[i]!, advected.vStepLat[i]!)
-    } else {
-      // Tip = anchor stepped along the geographic bearing (0=north, CW) — identical to
-      // packRetainedArrowFeat, so declarative and host arrows orient the same.
-      const cosLat = Math.cos(lat * DEG2RAD) || 1
-      const br = (bearingsDeg[i] ?? 0) * DEG2RAD
-      const dLat = Math.cos(br) * TIP_STEP_DEG
-      const dLon = (Math.sin(br) * TIP_STEP_DEG) / cosLat
-      packGeoPoint(feat, o + F.tip_ecef_x_h, lon + dLon, lat + dLat) // tip block (base 12)
-    }
+    // Tip = anchor stepped along the geographic bearing (0=north, CW) — identical to
+    // packRetainedArrowFeat, so declarative and host arrows orient the same.
+    const cosLat = Math.cos(lat * DEG2RAD) || 1
+    const br = (bearingsDeg[i] ?? 0) * DEG2RAD
+    const dLat = Math.cos(br) * TIP_STEP_DEG
+    const dLon = (Math.sin(br) * TIP_STEP_DEG) / cosLat
+    packGeoPoint(feat, o + F.tip_ecef_x_h, lon + dLon, lat + dLat) // tip block (base 12)
 
     feat[o + F.size] = (sizesPx[i] ?? 1) * dpr
     feat[o + F.stroke_units] = strokeUnits

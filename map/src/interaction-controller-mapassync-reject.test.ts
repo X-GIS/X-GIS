@@ -44,7 +44,14 @@ function makeRejectController() {
     clientWidth: 100,
   }
 
-  const mockCtx = { device: mockDevice, canvas: mockCanvas }
+  // `rhi` doubles as the RhiDevice identity the #792 guard compares; `device`
+  // stays the raw encoder mock the readback records against.
+  // `caps` is part of the RhiDevice contract: pickAt asks `caps.pickReadback` which
+  // strategy this device uses ('async' = copy-to-buffer + mapAsync, the path below).
+  // Attached to the SAME object, not a copy — `rhi` is also the identity the #792
+  // guard compares against getPickTextureDevice(), so a clone would bail the readback.
+  const rhi = Object.assign(mockDevice, { caps: { pickReadback: 'async' } })
+  const mockCtx = { device: mockDevice, rhi, canvas: mockCanvas }
 
   const deps: InteractionControllerDeps = {
     camera: {} as never,
@@ -53,8 +60,10 @@ function makeRejectController() {
     rawDatasets: new Map(),
     featureIndex: new Map(),
     getCtx: () => mockCtx as never,
-    getPickTexture: () => ({}) as GPUTexture,
+    // RHI-shaped ({native}) so the readback's adapter unwrap resolves.
+    getPickTexture: () => ({ native: {} }) as never,
     getPickTextureDevice: () => mockDevice as never,
+    getPickTextureSize: () => ({ width: 100, height: 100 }),
     getProjectionName: () => 'mercator',
     getVectorTileShows: () => [],
   }

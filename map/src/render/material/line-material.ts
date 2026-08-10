@@ -16,9 +16,16 @@ import type {
 } from '@xgis/engine'
 import { wrapWebGpuBindGroupLayout } from '@xgis/rhi-webgpu'
 import { Material, executeItems } from '@xgis/engine'
-import { emitLineWgsl } from '../../shaders/dsl/line'
+import { emitLineWgsl, type LineVariantSpec } from '../../shaders/dsl/line'
 import { emitLineGlsl } from '../../shaders/dsl/line-glsl'
 import { wgslFor } from './wgsl-for'
+
+/** The translucent-line offscreen ACCUM format — ONE authority for the
+ *  offscreen texture (line-renderer.ensureOffscreenRhi) and the max-blend
+ *  pipeline's colour target (maxMat below). WebGPU validates the pair;
+ *  splitting them is the Inc-2d review's F1 (translucent lines vanish on a
+ *  bgra8 canvas). */
+export const LINE_OFFSCREEN_FORMAT = 'rgba8unorm' as const
 
 // WebGL2 by-name bind-layout entries (#834 M5 slice 1) — the RHI-native twin
 // of the two raw GPUBindGroupLayouts. Names come from the DSL: a uniform
@@ -56,6 +63,19 @@ export interface LineBatch {
 }
 
 export class LineDraper {
+  /** Release the GPU objects this draper owns (#1578). Called by `rebuildForQuality()`
+   *  before the reference is dropped — a quality flip is live-session churn, not teardown,
+   *  so nothing else would ever reclaim these. */
+  destroy(): void {
+    this.material.destroy()
+    this._pickMaterial?.destroy()
+    this._maxMaterial?.destroy()
+    this._bakeMaterial?.destroy()
+    this._pickMaterial = undefined
+    this._maxMaterial = undefined
+    this._bakeMaterial = undefined
+  }
+
   private readonly material: Material // non-pick: single colour target, fs_line / fs_line_pattern
   // pick pass: colour + rg32uint pick MRT. The line pick fragment writes vec2u(0,0) — lines are
   // not pickable; the target exists only for opaque-pass MRT compatibility when picking is on. The
@@ -82,6 +102,15 @@ export class LineDraper {
     private readonly sampleCount: number,
     private readonly tileLayout: GPUBindGroupLayout,
     private readonly layerLayout: GPUBindGroupLayout,
+    /** A feature-free `@stroke` composer variant (#1605), or null for the
+     *  default per-segment-override / layer-colour stroke. Threaded into
+     *  ALL THREE materials below (main, maxMat, bakeMat) — missing any one
+     *  would silently revert that draw mode's colour to the default for a
+     *  variant-carrying layer (translucent-opacity strokes and globe-drape
+     *  strokes both call compute_line_color same as the main material) —
+     *  and, since #1605 Phase 3, into BOTH source languages of each: the
+     *  WGSL and the GLSL twin compose the same variant. */
+    private readonly variant: LineVariantSpec | null = null,
   ) {
     this.material = this.buildMaterial(false)
   }
@@ -92,11 +121,16 @@ export class LineDraper {
     // wrapped. Pick stays WebGPU-only (fail-closed on WebGl2Device).
     const gl2 = this.rhi.backend === 'webgl2'
     return new Material(this.rhi, {
-      shader: wgslFor(this.rhi, () => emitLineWgsl(pick)),
+      shader: wgslFor(this.rhi, () => emitLineWgsl(this.variant, pick)),
       vsEntry: 'vs_line',
       fsEntry: 'fs_line',
-      vsCode: gl2 ? emitLineGlsl(pick, 'vertex') : undefined,
-      fsCode: gl2 ? emitLineGlsl(pick, 'fragment') : undefined,
+      // #1605 Phase 3 — the WebGL2 twin composes the SAME variant as the WGSL
+      // above. Passing null here (as this did before Phase 3) would silently
+      // render the default stroke on WebGL2 for a variant-carrying layer: no
+      // crash, no failing pipeline, just the wrong colour — which is exactly
+      // why the renderer-level gate alone was not the whole fix.
+      vsCode: gl2 ? emitLineGlsl(this.variant, pick, 'vertex') : undefined,
+      fsCode: gl2 ? emitLineGlsl(this.variant, pick, 'fragment') : undefined,
       format: this.format as 'bgra8unorm',
       sampleCount: this.sampleCount,
       groups: gl2
@@ -120,7 +154,7 @@ export class LineDraper {
           fsEntry: 'fs_line_pattern',
           // GLSL has one main per stage — the pattern variant carries its own
           // emitted fragment twin (#834 M5 slice 5).
-          fsCode: gl2 ? emitLineGlsl(pick, 'fragment-pattern') : undefined,
+          fsCode: gl2 ? emitLineGlsl(this.variant, pick, 'fragment-pattern') : undefined,
           label: pick ? 'line-pipeline-pattern-pick-rhi' : 'line-pipeline-pattern-rhi',
         },
       ],
@@ -133,17 +167,23 @@ export class LineDraper {
   private maxMat(): Material {
     const gl2 = this.rhi.backend === 'webgl2'
     return (this._maxMaterial ??= new Material(this.rhi, {
-      shader: wgslFor(this.rhi, () => emitLineWgsl(false)),
+      shader: wgslFor(this.rhi, () => emitLineWgsl(this.variant, false)),
       vsEntry: 'vs_line',
       fsEntry: 'fs_line_max',
-      vsCode: gl2 ? emitLineGlsl(false, 'vertex') : undefined,
-      fsCode: gl2 ? emitLineGlsl(false, 'fragment-max') : undefined,
-      format: this.format as 'bgra8unorm',
+      vsCode: gl2 ? emitLineGlsl(this.variant, false, 'vertex') : undefined,
+      fsCode: gl2 ? emitLineGlsl(this.variant, false, 'fragment-max') : undefined,
+      // The offscreen ACCUM format, not the canvas format: this pipeline draws
+      // ONLY into the translucent offscreen (LINE_OFFSCREEN_FORMAT is the one
+      // authority both the texture and this target derive from — a canvas-
+      // format target here validated fine against the OLD canvas-format
+      // offscreen, then failed silently-invisibly on WebGPU when the RHI
+      // offscreen became the one set; Inc-2d review F1).
+      format: LINE_OFFSCREEN_FORMAT,
       sampleCount: 1,
       groups: gl2
         ? [LINE_TILE_ENTRIES, LINE_LAYER_ENTRIES]
         : [wrapWebGpuBindGroupLayout(this.tileLayout), wrapWebGpuBindGroupLayout(this.layerLayout)],
-      colorTargets: [{ format: this.format as 'bgra8unorm', blend: 'max' }],
+      colorTargets: [{ format: LINE_OFFSCREEN_FORMAT, blend: 'max' }],
       variants: [{ label: 'line-pipeline-max-rhi' }], // no depth-stencil (offscreen accum)
     }))
   }
@@ -156,7 +196,7 @@ export class LineDraper {
    *  depthWrite false (inert, matches the fill bake). WebGPU-only (the bake is WebGPU-only). */
   private bakeMat(): Material {
     return (this._bakeMaterial ??= new Material(this.rhi, {
-      shader: emitLineWgsl(false),
+      shader: emitLineWgsl(this.variant, false),
       vsEntry: 'vs_line',
       fsEntry: 'fs_line',
       format: this.format as 'bgra8unorm',

@@ -7,7 +7,8 @@
 
 import type * as AST from '../parser/ast'
 
-export type ExprClass = 'constant' | 'zoom-dependent' | 'per-feature-gpu' | 'per-feature-cpu'
+export type ExprClass =
+  'constant' | 'zoom-dependent' | 'input-dependent' | 'per-feature-gpu' | 'per-feature-cpu'
 
 /** GPU-safe built-in functions that map directly to WGSL. Exported so a
  *  test can assert this set ⊆ `BUILTIN_FN_NAMES` — every name routed to GPU
@@ -36,6 +37,14 @@ export const GPU_SAFE_BUILTINS = new Set([
   'acos',
   'atan',
   'atan2',
+  // Vector constructors (#1537). GPU-safe since step B: `fnCallToNode`
+  // builds a real `vecN(...)` construction node, and a vec reaching a
+  // scalar binding is rejected at lower time (X-GIS0018) rather than
+  // emitted wrong. `callBuiltin` evaluates them too, so the documented
+  // callBuiltin ⊇ GPU_SAFE_BUILTINS invariant holds.
+  'vec2',
+  'vec3',
+  'vec4',
 ])
 
 /**
@@ -53,8 +62,23 @@ export function classifyExpr(expr: AST.Expr): ExprClass {
       if (expr.name === 'zoom') return 'zoom-dependent'
       return 'per-feature-gpu'
 
+    // A declared `input` (#1539) — a per-frame uniform, never per-feature.
+    // Resolved to this distinct kind by ir/resolve-inputs.ts before this
+    // function ever runs, so there is no name to string-match here (unlike
+    // `zoom` above); every InputRef reaching classify is already known-good.
+    case 'InputRef':
+      return 'input-dependent'
+
     case 'FieldAccess':
-      return 'per-feature-gpu'
+      // An EXPLICIT object must be classified through — an expression is
+      // only as GPU-safe as its parts. Pre-#1537 this arm returned
+      // per-feature-gpu unconditionally, which was harmless while
+      // object-bearing access resolved by field name anyway; with real
+      // vector component reads (`vec2(cpuOnly(…), 1).x`) it would have
+      // sent a CPU-only body down the GPU path, where an unknown callee
+      // emits `0.0` — a silent wrong value. The object-less form (the
+      // `.field` data binding) keeps its per-feature-gpu class.
+      return expr.object ? classifyExpr(expr.object) : 'per-feature-gpu'
 
     case 'BinaryExpr':
       return merge(classifyExpr(expr.left), classifyExpr(expr.right))
@@ -114,6 +138,7 @@ function merge(a: ExprClass, b: ExprClass): ExprClass {
   const order: Record<ExprClass, number> = {
     constant: 0,
     'zoom-dependent': 1,
+    'input-dependent': 1,
     'per-feature-gpu': 2,
     'per-feature-cpu': 3,
   }

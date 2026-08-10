@@ -48,6 +48,7 @@ function fakeCatalog(
     hasData: () => true,
     hasTileData: () => false,
     prefetchTiles: () => {},
+    indexGeneration: () => 0,
   } as unknown as TileCatalog
 }
 

@@ -65,7 +65,7 @@ export function computeVisibleWorldCopies(
   canvasHeight: number,
   dpr: number,
 ): readonly number[] {
-  if (cam.globeMode) return [0]
+  if (cam.globeMode) return SINGLE_COPY
   // x-periodic flat non-Mercator (1/2/6): mirror the tile-enumeration gate
   // exactly — worldCopiesFor() at zoom ≤ WORLD_COPY_MAX_ZOOM, else [0]. The
   // off-screen copies are NDC-culled downstream by the label projector, so
@@ -74,7 +74,7 @@ export function computeVisibleWorldCopies(
   // corner-unprojection path below; azimuthal/globe (3/4/5/7) return [0] via
   // enumerateWorldCopies(periodic=false).
   if (!isMercatorProj(cam.projType)) {
-    return enumerateWorldCopies(cam.projType, cam.zoom) ? worldCopiesFor(cam.projType) : [0]
+    return enumerateWorldCopies(cam.projType, cam.zoom) ? worldCopiesFor(cam.projType) : SINGLE_COPY
   }
   // Build matrix (also bumps the generation counter when matrix changed). Use
   // the post-build generation as a "matrix identity" hash for the cache — if
@@ -139,7 +139,10 @@ export function computeVisibleWorldCopies(
  *  per-call literal, so the render loop allocates nothing on the common path;
  *  consumers iterate, never mutate (same discipline as worldCopiesFor's
  *  table-owned arrays). */
-const SINGLE_COPY: readonly number[] = [0]
+/** #1616 — exported so `pointWorldCopies` can return it too. Its callers now run on
+ *  the #1581 cache-HIT path every frame, where a fresh `[0]` per point-show is the
+ *  only allocation left in a path whose whole purpose is not to allocate. */
+export const SINGLE_COPY: readonly number[] = [0]
 
 /** Minimal camera surface the projType router reads — structurally satisfied
  *  by `Camera`, so a test can supply a stub without the whole class. */

@@ -87,11 +87,18 @@ jobs:
               # ONLY CI render coverage. data — _fills-gl2-gate renders ne_110m vector
               # tiles through map/src/render/*, which value-imports @xgis/data tile
               # selection/geometry (visibleTilesFrustum, computeSliceKey,
-              # buildLineSegments). NOT rhi (interfaces-only → typecheck-covered),
-              # rhi-webgpu (no SwiftShader spec drives WebGpuDevice — compute gates
-              # use raw navigator.gpu, raster gates are local-only), or pipeline
-              # (imported only by seoul-* demos, never the id=minimal these gates load).
+              # buildLineSegments). NOT rhi (interfaces-only → typecheck-covered)
+              # or pipeline (imported only by seoul-* demos, never the id=minimal
+              # these gates load).
+              # rhi-webgpu (#1565): the old exclusion claimed "no SwiftShader spec
+              # drives WebGpuDevice", which this same file falsifies below —
+              # _polygon-fill-flat-pixel-gate is a WebGPU RASTER gate under
+              # SwiftShader and the six chain gates run on the default backend.
+              # Every default-backend boot value-imports initGPUViaProviders /
+              # backendProviderChain from @xgis/rhi-webgpu (map/src/gpu-boot.ts),
+              # so a WebGpuDevice-only PR used to post green with ZERO pixel gates.
               - 'rhi-webgl2/**'
+              - 'rhi-webgpu/**'
               - 'data/**'
               - 'playground/**'
               - 'bun.lock'
@@ -243,6 +250,18 @@ jobs:
           # above (do NOT merge legs back).
           - id: engine-rhi-shared
             args: engine/src rhi-webgl2/src rhi-webgpu/src pipeline/src shared/src geo/src
+          # playground/ — CI-DARK until #1626, for the same reason the leg above
+          # documents: vitest.config.ts has included playground/src + playground/dev
+          # for a long time, but no matrix leg named those paths, so every test
+          # there ran ONLY in a full local `vitest run`. That covered the demo
+          # asset-reference gate (playground/src/example-asset-references.test.ts —
+          # the always-on catch for a demo referencing a file that was never
+          # committed) and the dev-tooling suites (the open-data CORS bridge, the
+          # S-102/S-111 catalogue builders). A handful of files, far under the
+          # ~110-file RPC threshold, so one leg. NOTE: the gate shells out to
+          # `git ls-files`, so this leg needs the repo checkout it already gets.
+          - id: playground
+            args: playground/src playground/dev
     # Distinct per-leg check name in the GitHub UI / status API, e.g.
     # "test (engine-render-a)". The single stable context for branch protection
     # is `test-result` below — require THAT, not these per-leg names.
@@ -312,6 +331,41 @@ jobs:
           restore-keys: bun-${{ runner.os }}-
       - run: bun install --frozen-lockfile
       - run: bun run build
+
+  # Lint + dead-code gate (#1565). Both tools were configured and neither ran in
+  # CI: ESLint executed ONLY in the pre-commit hook (so `--no-verify`, or any
+  # commit made outside the hook, shipped unlinted), and `knip.json` had sat at
+  # the repo root since 14ebd1a4 with `knip` installed nowhere and invoked by
+  # nothing — "the knip dead-code gate" that was never wired to run. The typed
+  # promise rules added in the same issue are only worth having if something
+  # runs them on every PR, so they land together with this job.
+  # Same shape as `typecheck`: job-level `if:` on `code`, skipped == pass.
+  lint:
+    name: lint
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+      - uses: actions/cache@v4
+        with:
+          path: ~/.bun/install/cache
+          key: bun-${{ runner.os }}-${{ hashFiles('**/bun.lock', '**/bun.lockb') }}
+          restore-keys: bun-${{ runner.os }}-
+      - run: bun install --frozen-lockfile
+      - run: bun run lint
+        # Type-aware lint builds a TS program per package; measured peak is 5.86 GB on
+        # this tree, over Node's ~4 GB default old-space (the OOM that killed this job
+        # on its first run). Runners have 16 GB, so 8 GB leaves real headroom. If a
+        # future tree pushes past THIS ceiling, SHARD this job by package the way
+        # `test` is sharded for its own resource ceiling — do not keep raising it.
+        env:
+          NODE_OPTIONS: --max-old-space-size=8192
+      # `knip` needs nothing: measured peak 1.33 GB, well inside the default.
+      - run: bun run knip
 
   # Site build gate. The engine `test` matrix used to be the only thing that
   # built the site (as a side effect of `bun run build`), so gating that matrix
@@ -627,11 +681,9 @@ jobs:
         # gate means "fill missing", not "boot failure" (#1127 / #1168). This is a WebGPU
         # RASTER gate (default backend, not ?forcegl2=1) — the _fills-gl2-gate precedent
         # shows raster+readback runs under SwiftShader; verified green locally on
-        # chromium-1194 with wide margins (interior 9600/9600 px). NOTE: it fires on the
-        # render filter (map / runtime / shaders / playground / …) but NOT on an
-        # rhi-webgpu-only PR — rhi-webgpu is excluded from the render filter (see the
-        # `changes` job), so a WebGpuDevice-only change won't trip it. Add rhi-webgpu to the
-        # render filter if that gap matters.
+        # chromium-1194 with wide margins (interior 9600/9600 px). Since #1565 it also
+        # fires on an rhi-webgpu-only PR — rhi-webgpu is in the render filter (see the
+        # `changes` job), so a WebGpuDevice-only change trips this gate.
         # _hillshade-gl2-gate: a raster-dem source renders as shaded relief on WebGl2Device
         # under ?forcegl2=1 (#777 Phase II) — the hillshade GLSL twin + HillshadeDraper draw
         # + the twin-ported HillshadePass, asserted by a luminance-spread pixel readback.
@@ -652,9 +704,59 @@ jobs:
         # its basemap layer armed and its raster pass fetching tiles while getCoverage() is
         # still null — then that the LATE handle arms the `| arrow` field and rasterises.
         # Needs no egress (the cell is a committed local fixture), ~25 s.
+        # _demotiles-labels-gl2-gate: the MapLibre demo style's LABELS. Five line-label PRs
+        # (#1421/#1423/#1425/#1431/#1441) were all measured against OFM Positron, and the only
+        # demo-style coverage here was _fills-gl2-gate, which asserts POLYGONS. Asserts the label
+        # PIPELINE (dispatched texts + submitted/drawn counters) so a failure names its stage
+        # rather than reporting that the screen looks wrong. Camera pinned at z2 — the demo's own
+        # default is z7.18, where this style labels nothing at all. ~20 s.
         # _s111-advected-arrows-gate: #1419's own gate, which landed WITHOUT being added
         # here. It is the only check on the advected `| flow` portrayal, and #1426 moved
         # that arm into coverage-arm.ts — a refactor of code no CI gate drives. ~28 s.
+        # _s111-mosaic-arrow-field-gate: the only check that a MOSAIC domain's advected arrows
+        # read THEIR OWN velocity field (#1458). Coverage/painted-fraction is structurally
+        # blind to it — the arrows are not displaced, only mis-symbolized — so this measures
+        # COLOUR: each half's advected frame against its own static catalogue portrayal,
+        # stated as a ratio between the two halves. Verified both directions (1.02 fixed,
+        # 3.60 on the one-field behaviour). ~22 s.
+        # _s111-overlap-ownership-gate: the only check that two OVERLAPPING mosaic domains
+        # draw ONE arrow field over the shared water rather than two (#1585). The multiregion
+        # gate above cannot see this — its twin is shifted by exactly one width so the domains
+        # ABUT, leaving no shared ground for either to draw on. This one uses a half-width
+        # shift (the real cbofs/dbofs shape) and measures CHROMATICITY per band: the shared
+        # band must read as the FIRST-armed domain, matching how coverageHandleAt resolves the
+        # same tie. Verified both directions (shared-to-west 0.107 fixed / 0.810 broken, and
+        # 1.02x vs 2.47x the owner's ink). ~15 s.
+        # _fill-data-driven-gl2-gate: the only check that a DATA-DRIVEN fill (`fill match(…)`,
+        # `fill gradient(…)`) announces itself on WebGL2 instead of silently rendering nothing
+        # (#1583). That backend compiles no shader variant, so the colour has nowhere to come
+        # from and the layer is blank — #1592 is the capability. No other gate covers a
+        # data-driven fill on WebGL2 at all: _fills-gl2-gate uses a CONSTANT fill-stone-200.
+        # A constant-fill twin is the control arm, so the blank arm cannot pass on a broken
+        # harness. Verified both directions (warning present/absent; pixels unchanged at
+        # twin 0.359 / data-driven 0.000). Goes RED when #1592 lands, by design. ~20 s.
+        # _stage-block-parity: the #1563 sibling gate — a @color stage block must render
+        # pixel-identical to its utility twin on webgl2. It has existed since #1538 and was
+        # registered in NO workflow, so it ran nowhere (#1587 folded it in). Verified green
+        # locally before registering. ~20 s.
+        # _prefetch-effect-gl2-probe: MEASUREMENT for #1587, not a pass/fail gate on prefetch
+        # being better. Both prefetch routes had never executed; this reports the missed-tile
+        # integral and time-to-converge over a scripted pan so the change is measured rather
+        # than assumed. Its assertions are regression-only (the scene must still converge; the
+        # pump shields 16 speculative keys/frame against a bounded cache). It asserts a
+        # PRECONDITION that the archive actually served tiles, so it fails loudly rather than
+        # reporting a perfect score over a scene that never loaded — which is also why it
+        # cannot run without network egress. ~40 s.
+        # _s111-dead-boundary-halo-gate: the only check that trains STOP at a nodata/calm
+        # boundary instead of being erased there (#1558) — the exact class the real-data
+        # empty-water report came from, invisible to GATE 4's 8x8 blocks. Ratio-bound
+        # against the frame's own open water, deterministic (pinned clock). ~35 s.
+        # _s111-arrow-density-gate: the only check that the advected field THINS with the view
+        # (#1450 B). The arm-time stride cannot see the camera, so without the VS cull the
+        # glyphs overlap into a solid mat on zoom-out — measured 0.825 ink per domain pixel at
+        # z7 against 0.032 with it. The near arm is a zoom where the cull provably does nothing
+        # (both builds agree to three digits), so the gate cannot pass by thinning everything.
+        # Verified both directions at the final bound: 1.50 green, 37.5 red. ~15 s.
         # _s111-catalogue-declarative-gate: the only check that a `coverage` source whose
         # `url:` names a STAC catalogue actually resolves the VIEWPORT and paints (#1453) —
         # region keys must be STAC item ids, never `__default__`, which is what separates
@@ -671,6 +773,45 @@ jobs:
         # apart resolve to DIFFERENT S-100 cell names and both paint, which a hard-coded key
         # cannot fake. Its catalogue is NOAA's own 19 MB exchange XML translated by the
         # proxy, so the first run also exercises that path. Same egress caveat, ~40 s warm.
+        # ═══ #1046 Inc-4b — the CHAIN pixel gates (default backend, SwiftShader-WebGPU).
+        # The WebGPU raster gates above drive the chain's opaque/coverage passes; these seven
+        # close the verticals the twin-side *-gl2-gates cover but the chain did not. All
+        # zero-egress (local fixtures / vendored NE GeoJSON / host-pushed data).
+        # _translucent-chain-gate: Inc-2d review F1's NAMED fence — a translucent stroke
+        # must BLEND through the offscreen MAX+composite bucket on a real device; the F1
+        # class (offscreen-vs-pipeline format mismatch) is a validation kill invisible to
+        # every recorder-backed unit test. ~10 s.
+        # _heatmap-chain-gate: the local _heatmap-verify CPU check promoted to pixels —
+        # the 3-pass heatmap vertical (accum → blur → compose, RHI drapers since Inc-2c)
+        # must rasterise its density ramp, counted by CHROMA over the slate base. ~12 s.
+        # _labels-chain-gate: SDF glyph cores on the DEFAULT backend — the gl2 gate's
+        # mirror; measured 111 white px, identical to the gl2 count, floor 80. ~8 s.
+        # _hillshade-chain-gate / _graphics-chain-gate: default-backend mirrors of the
+        # gl2 acceptance gates (self-calibrating luminance-spread relief; magenta-tinted
+        # retained icon, 4032/4096 px measured). ~8 s / ~20 s.
+        # _scene-scale-seam-gate: the #1429 INC-2 scaled frame driven DETERMINISTICALLY
+        # (?scenescale=0.72 pins the ladder where it forks): the seam draws (and exactly
+        # 0 at scale 1 — the constructive no-op), content paints THROUGH the upscale,
+        # pickAt parity vs scale 1, and glyph cores stay native-crisp (111 px — the
+        # overlay-native property, ADR-0004's CI-drivable half). ~40 s.
+        # _pick-gl2-chain-gate: pickAt on WebGL2 — a 5×5 grid, asserting a hit FLOOR and that
+        # the frame reports the shape the loop actually ran (`__xgisFrameArm === 'chain'`), so
+        # a routing fallback cannot green it. The pick path was the one thing the deleted
+        # forced-WebGL2 twin owned outright (its frame snapshot + the on-demand offscreen
+        # MRT), and its failure mode is a SILENT null, invisible to every pixel gate. Used to
+        # be a two-arm parity check against the twin (#1046 Inc-F); that comparison retired
+        # with it (Inc-F3b) and this is what remains. ~1 min.
+        # _webgl2-live-render-gate: US-003/US-004 — the analytic ?debug=checker tile renders
+        # through the engine's normal opaque pass on WebGl2Device with zero validation/gl
+        # errors. The only CI coverage for the sourceless-raster path since the checker moved
+        # off the deleted twin onto opaque-pass.ts (#1046 Inc-F2d). ~10 s.
+        # _scene-scale-webgl2-chain-gate: the adaptive-DPR ladder on a WebGL2 frame — a path
+        # that had NEVER RUN before the twin's deletion made it the default (the twin scaled
+        # its canvas instead; #1046 Inc-F3a). Pins the single number that distinguishes the
+        # two shapes (canvas stays native, the SCENE target shrinks), the upscale seam
+        # actually drawing and increasing across frames, and zero gl/validation errors on the
+        # untested offscreen-vs-sentinel dispatch. Carries its own scenescale=1 control arm.
+        # ~15 s.
         # SPLIT INTO TWO INVOCATIONS (#1433). Everything below measures a COMPILE, a
         # PARITY or a PIXEL. Two specs measure WALL-CLOCK behaviour instead:
         # `_adaptive-quality-ladder-gate` needs the host to be genuinely too slow to keep up,
@@ -686,8 +827,8 @@ jobs:
         # (#1433 option 2, still open, for whoever owns #1393 to decide the right signal).
         run: |
           # The real-signal batch FIRST: the step shell is `bash -e`, so a flake in the
-          # wall-clock pair must not abort the 44 compile/parity/pixel gates before they
+          # wall-clock pair must not abort the compile/parity/pixel gates before they
           # have reported. Quiet-machine ordering is unaffected — each invocation is its
           # own process either way.
-          ./node_modules/.bin/playwright test _shader-math-parity.spec.ts _wgsl-compile-gate.spec.ts _vs-clip-parity.spec.ts _dequant-parity.spec.ts _polygon-fill-flat-parity.spec.ts _polygon-fill-flat-pixel-gate.spec.ts _optimizer-gpu-parity.spec.ts _glsl-compile-gate.spec.ts _polygon-glsl-compile-gate.spec.ts _line-glsl-compile-gate.spec.ts _shader-dsl-mrt-render.spec.ts _emit-obfuscate-gate.spec.ts _graphics-retained-gl2-gate.spec.ts _graphics-retained-arrow-gl2-gate.spec.ts _graphics-retained-arrow-orientation-gate.spec.ts _graphics-compiled-arrow-parity.spec.ts _graphics-retained-drawcall-gl2-gate.spec.ts _compute-gen-compile-gate.spec.ts _fills-gl2-gate.spec.ts _globe-hash-camera-gate.spec.ts _hillshade-gl2-gate.spec.ts _1221-seam-control-matrix.spec.ts _hillshade-methods-gl2-gate.spec.ts _reseed-data-push-gate.spec.ts _s111-multiregion-gate.spec.ts _s111-currents-render.spec.ts _s111-deferred-coverage-gate.spec.ts _s111-advected-arrows-gate.spec.ts _s111-catalogue-declarative-gate.spec.ts _s102-catalogue-gate.spec.ts _coverage-render.spec.ts
+          ./node_modules/.bin/playwright test _shader-math-parity.spec.ts _wgsl-compile-gate.spec.ts _vs-clip-parity.spec.ts _dequant-parity.spec.ts _polygon-fill-flat-parity.spec.ts _polygon-fill-flat-pixel-gate.spec.ts _optimizer-gpu-parity.spec.ts _glsl-compile-gate.spec.ts _polygon-glsl-compile-gate.spec.ts _line-glsl-compile-gate.spec.ts _shader-dsl-mrt-render.spec.ts _emit-obfuscate-gate.spec.ts _graphics-retained-gl2-gate.spec.ts _graphics-retained-arrow-gl2-gate.spec.ts _graphics-retained-arrow-orientation-gate.spec.ts _graphics-compiled-arrow-parity.spec.ts _graphics-retained-drawcall-gl2-gate.spec.ts _compute-gen-compile-gate.spec.ts _fills-gl2-gate.spec.ts _fill-data-driven-gl2-gate.spec.ts _stage-block-parity.spec.ts _prefetch-effect-gl2-probe.spec.ts _globe-hash-camera-gate.spec.ts _hillshade-gl2-gate.spec.ts _1221-seam-control-matrix.spec.ts _hillshade-methods-gl2-gate.spec.ts _reseed-data-push-gate.spec.ts _s111-multiregion-gate.spec.ts _s111-overlap-ownership-gate.spec.ts _s111-currents-render.spec.ts _s111-deferred-coverage-gate.spec.ts _s111-advected-arrows-gate.spec.ts _s111-mosaic-arrow-field-gate.spec.ts _s111-arrow-density-gate.spec.ts _s111-dead-boundary-halo-gate.spec.ts _s111-catalogue-declarative-gate.spec.ts _s102-catalogue-gate.spec.ts _coverage-render.spec.ts _demotiles-labels-gl2-gate.spec.ts _label-pitch-alignment-gate.spec.ts _translucent-chain-gate.spec.ts _heatmap-chain-gate.spec.ts _labels-chain-gate.spec.ts _hillshade-chain-gate.spec.ts _graphics-chain-gate.spec.ts _scene-scale-seam-gate.spec.ts _1581-static-camera-render-gate.spec.ts _1616-content-generation-churn.spec.ts _1616-pan-points-gl2-gate.spec.ts _pick-gl2-chain-gate.spec.ts _webgl2-live-render-gate.spec.ts _scene-scale-webgl2-chain-gate.spec.ts
           ./node_modules/.bin/playwright test --workers=1 _adaptive-quality-ladder-gate.spec.ts _shader-dsl-mouse-interaction.spec.ts

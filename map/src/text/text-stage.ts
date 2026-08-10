@@ -22,17 +22,11 @@ import type { LabelDef, TextValue } from '@xgis/compiler'
 import { resolveText, type FeatureProps } from './text-resolver'
 import { GlyphAtlasHost, type GlyphAtlasHostOptions } from './sdf/glyph-atlas-host'
 import { GlyphAtlasGPU } from './sdf/glyph-atlas-gpu'
-import {
-  createRasterizer,
-  createMetricsRasterizer,
-  type GlyphRasterizer,
-} from './sdf/glyph-rasterizer'
-import { GlyphPbfCache } from './sdf/pbf/glyph-pbf-cache'
 import { bumpAlloc } from '../__profile__/alloc-counter'
 import { FrameArena } from '@xgis/engine'
-import { InlineGlyphProvider } from './sdf/pbf/inline-glyph-provider'
 import type { GlyphProvider } from './sdf/pbf/glyph-provider'
-import { PbfRasterizer } from './sdf/pbf-rasterizer'
+import type { PbfRasterizer } from './sdf/pbf-rasterizer'
+import { wireGlyphRasterizer } from './glyph-rasterizer-wiring'
 import { TextRenderer } from './text-renderer'
 import type { TextDraw } from './text-renderer-types'
 import {
@@ -126,9 +120,10 @@ export {
 // Hangul/Han Canvas2D path, but the user-visible labels go through
 // PBF on every supported style; the trade-off swung the wrong way.)
 //
-// pageSize 2304 = 36 slots/side at slotSize 64 → 1296 slots per
-// page. Multi-page atlases handle CJK-heavy maps via the renderer's
-// per-page bind groups; no change to that path.
+// pageSize 4096 = 64 slots/side at slotSize 64 → 4096 slots (iter-272 bumped
+// this from 1296; see STAGE_DEFAULTS). The atlas is single-page by contract
+// (#1580, GlyphAtlasGPU) — 4096 slots is the hard ceiling, not a working set
+// that grows.
 //
 // defaultFont chains common CJK fallbacks AFTER sans-serif so an
 // engine-level label without a Mapbox font stack still reads
@@ -245,22 +240,6 @@ export class TextStage {
   getInlineImagePlacements(): readonly InlineImagePlacement[] {
     return this._inlineImagePlacements
   }
-  /** iter 167 — across-frame glyph-string cache (#10 Phase A first
-   *  slice). `host.ensureString` per-character atlas-slot lookup
-   *  dominates drag CPU (iter-161 profile: ensure 21.5% +
-   *  ensureString 7.1% = 28.6%). For the SAME (fontKey, text) the
-   *  result is camera-independent; cache it across frames. Cap at
-   *  4096 entries (well above any label-dense scene; OFM Bright
-   *  Korea z=5 has ~5k addLabel calls but most share a tiny set of
-   *  unique texts). Invalidated wholesale on atlas eviction (rare).
-   *
-   *  Key: FNV-1a hash of (fontKey, text codepoints) — same shape as
-   *  pretextCacheKey. Value: GlyphInfo[] (one per codepoint, same
-   *  array shape host.ensureString would return). */
-  private readonly _glyphsByTextCache = new Map<
-    number,
-    import('./sdf/glyph-atlas-host').GlyphInfo[]
-  >()
   /** iter 168 — Phase A slice 2: across-frame layout cache.
    *  Caches the per-anchor camera-independent layout output (dx, dy,
    *  glyphOffsets, totalAdvance, blockTop, blockBottom, haloGeom,
@@ -370,58 +349,20 @@ export class TextStage {
     //      glyphProviders} supplied           → wrap Canvas2D with a
     //                                           PbfRasterizer chain
     //   3. neither                            → plain Canvas2D / Mock
-    //                                           (existing path, byte-
-    //                                           identical to pre-PBF)
     //
-    // Chain order (cheapest-source-first):
-    //   [InlineGlyphProvider, ...glyphProviders, GlyphPbfCache]
-    //
-    // The PbfRasterizer's `onLanded` forward-references `this.pbfRas`
-    // via the constructor closure — only invoked async, after the
-    // host is assigned a few lines below, so the temporal coupling
-    // is sound.
-    let rasterizer: GlyphRasterizer
-    let pbfRas: PbfRasterizer | null = null
-    if (options.rasterizer) {
-      rasterizer = options.rasterizer
-    } else if (options.glyphsUrl || options.inlineGlyphs || options.glyphProviders) {
-      // PBF environment: glyphs arrive async from the network in
-      // 50-200 ms typical. The sync fallback fires PER GLYPH on cold
-      // frames (rapid pan / zoom in-out) — the full Canvas2D path
-      // (fillText + getImageData + computeSDF) burns ~8 ms / glyph,
-      // accumulating to 100+ ms freezes on dense label scenes.
-      // Substitute a metrics-only fast path: measureText keeps the
-      // layout correct, SDF is zero (glyph invisible) for the brief
-      // window before the PBF range arrives and atlas.invalidate
-      // triggers an upgrade to the real SDF on the next frame. The
-      // full Canvas2D path is wired as the last-resort fallback for
-      // codepoints PBF can't deliver (returns zero advance from
-      // measureText → upgrade to full).
-      const fullFallback = createRasterizer()
-      const fallback = createMetricsRasterizer(fullFallback)
-      const providers: GlyphProvider[] = []
-      if (options.inlineGlyphs) providers.push(new InlineGlyphProvider(options.inlineGlyphs))
-      if (options.glyphProviders) providers.push(...options.glyphProviders)
-      if (options.glyphsUrl) providers.push(new GlyphPbfCache({ glyphsUrl: options.glyphsUrl }))
-      pbfRas = new PbfRasterizer({
-        fallback,
-        providers,
-        // Local-ideograph (#421): bucketed CJK renders via the FULL Canvas2D path.
-        cjkFull: fullFallback,
-        onLanded: (fontKey, codepoint) => {
-          // Invalidate the atlas slot (upgrade zero-SDF → real SDF next
-          // frame) AND ring the bell on the owning map (Audit ① B1): the
-          // S16 label-collision skip would otherwise keep replaying the
-          // stale glyph until the camera moves, because the dispatch
-          // signature is unchanged by a background resource landing.
-          this.host.invalidate(fontKey, codepoint)
-          options.onResourceLanded?.()
-        },
-      })
-      rasterizer = pbfRas
-    } else {
-      rasterizer = createRasterizer()
-    }
+    // The decision, the chain order and the two-fallback rule live in
+    // glyph-rasterizer-wiring.ts. `onLanded` forward-references `this.host`
+    // through this closure — only invoked async, after the host is assigned
+    // a few lines below, so the temporal coupling is sound.
+    const { rasterizer, pbf: pbfRas } = wireGlyphRasterizer(options, (fontKey, codepoint) => {
+      // Invalidate the atlas slot (upgrade zero-SDF → real SDF next
+      // frame) AND ring the bell on the owning map (Audit ① B1): the
+      // S16 label-collision skip would otherwise keep replaying the
+      // stale glyph until the camera moves, because the dispatch
+      // signature is unchanged by a background resource landing.
+      this.host.invalidate(fontKey, codepoint)
+      options.onResourceLanded?.()
+    })
     this.pbfRasterizer = pbfRas
     this.fontTypography = options.fontTypography ?? null
     const hostOpts: GlyphAtlasHostOptions = {
@@ -948,7 +889,6 @@ export class TextStage {
       // heap-carried refs; affected fade-outs pop, matching the caches).
       this._fadeHoldover.clear()
       this._fadeHoldoverBake.clear()
-      this._glyphsByTextCache.clear()
       // iter-168: layout cache entries reference GlyphInfo[] whose
       // slot.pxX/pxY would point to the wrong glyph after eviction.
       this._layoutCache.clear()
@@ -2199,11 +2139,11 @@ export class TextStage {
     perfMarkEnd('stage-prepare.emit')
   }
 
-  /** Encode the prepared draws onto the pass. Safe to call without
-   *  a prior prepare() — emits nothing in that case. `replay` (#1177) is the
-   *  S16 skip-replay screen-space correction; omit on prepared frames. */
+  /** Encode the prepared draws onto the pass (an RhiRenderPass on BOTH frame
+   *  shapes since #1046 F3b). Safe to call without a prior prepare() — emits
+   *  nothing then. `replay` (#1177): S16 replay correction; omit when prepared. */
   render(
-    pass: GPURenderPassEncoder | RhiRenderPass,
+    pass: RhiRenderPass,
     viewport: { width: number; height: number },
     replay?: { scale: number; dx: number; dy: number },
   ): void {

@@ -27,7 +27,6 @@
 // here, and none is claimed.
 
 import type { GPUContext } from '@xgis/rhi-webgpu'
-import { wrapWebGpuPass } from '@xgis/rhi-webgpu'
 import type {
   RhiDevice,
   RhiTexture,
@@ -74,6 +73,11 @@ interface CoverageState {
    *  allocates. Null exactly when the textures are. */
   flowUView: RhiTextureView | null
   flowVView: RhiTextureView | null
+  /** f16(1)/f16(0) per cell — real data vs. nodata, the one thing `flowU`/`flowV` cannot say on
+   *  their own (#1565). Same lifetime as the pair above: present, and only present, alongside
+   *  them. */
+  flowValid: RhiTexture | null
+  flowValidView: RhiTextureView | null
   /** Peak speed the components were normalized by, in the speed band's own units. 0 when the
    *  field is calm or absent — the flow pass reads this to recover real velocity. */
   flowScale: number
@@ -95,6 +99,10 @@ interface CoverageState {
   flowOnly: boolean
   /** Resident, but the drape paints nothing for it (see CoverageArmOptions). */
   hidden: boolean
+  /** Where this region sits in the mosaic's RELEVANCE order — lower is more relevant, and wins
+   *  an overlap by being drawn LAST (#1602). Supplied by the arm from the `_coverage` Map index,
+   *  the same authority `coverageHandleAt` resolves a point query by. */
+  priority: number
   /** Which draper draws this region — the compiled `filter:` predicate's key, or '' for an
    *  unfiltered layer (#1437). The predicate is baked into the pipeline, so a region cannot
    *  be drawn by a draper compiled for a different one. */
@@ -121,6 +129,10 @@ export interface FlowFieldRegion {
    *  that only ever change when the coverage is re-armed. */
   u: RhiTextureView
   v: RhiTextureView
+  /** f16(1)/f16(0) validity mask over the SAME grid as `u`/`v` — lets a consumer blend across
+   *  cells the catalogue actually reports without smearing a nodata neighbour's packed `(0, 0)`
+   *  into the mix (#1565). */
+  valid: RhiTextureView
   /** Peak speed the components were normalized by, in the speed band's own units. */
   scale: number
   width: number
@@ -168,7 +180,22 @@ export interface CoverageArmOptions {
    *  arrow field could not be built, and the layer rendered NOTHING. Caught by a headless
    *  WebGL2 render, not by 3900 green unit tests. */
   hidden?: boolean
+  /** This region's place in the mosaic's RELEVANCE order — lower wins an overlap (#1602).
+   *
+   *  The catalogue already ranks overlapping cells (`itemsForView`: most overlap, ties toward the
+   *  SMALLER bbox, i.e. the higher-resolution local cell) and arms them in that order, so the
+   *  region's index in the `_coverage` Map IS its relevance. That is the same index
+   *  `coverageHandleAt` resolves a point query by and the advected arrows cull by, which is what
+   *  keeps the drape, the arrows and `getCoverage` from naming three different domains for one
+   *  patch of water. Single-region callers leave it at 0: with one region there is no tie. */
+  priority?: number
 }
+
+/** The empty answer from `flowFields()` / the flow pass's own fallback — shared
+ *  because the pass declares every frame and a per-frame `new Map()` on every
+ *  coverage-less map is pure garbage (#1046 Inc-F2c). Exposed as ReadonlyMap so
+ *  sharing cannot become aliasing. */
+export const NO_FLOW_FIELDS: ReadonlyMap<string, FlowFieldRegion> = new Map()
 
 export class CoverageRenderer {
   private readonly rhi: RhiDevice
@@ -221,7 +248,8 @@ export class CoverageRenderer {
     return this.states.size > 0
   }
 
-  /** The resident region keys, least-recently-armed first (= the draw order). */
+  /** The resident region keys, least-recently-armed first — the LRU/EVICTION order. NOT the draw
+   *  order any more: that is relevance (`drawOrder`, #1602), which recency must not decide. */
   residentRegions(): string[] {
     return [...this.states.keys()]
   }
@@ -273,7 +301,22 @@ export class CoverageRenderer {
     // the pipeline.
     const filterKey = this.armFilter(opts.filter, band.header.name)
 
-    const { value, valid } = packCoverageValueValid(band.values, dataMin, dataMax, band.codes)
+    // #1503 — on a DEPTH band the file's own datum semantics say what "below zero" means:
+    // `vertical.sign === 'down'` is positive-down from chart datum, so a negative sample is
+    // ABOVE datum — land, not a shallow sounding. Those are excluded here rather than in the
+    // style, because `filter:` would fix the ramp alone and leave land in the sounding
+    // numerals (a numeral reading `-3.2 m` is not a depth) and in the band statistics.
+    //
+    // Derived, not hard-coded per product: a coverage with sign 'up', or none, keeps every
+    // sample, so a temperature or velocity band that is legitimately negative is untouched.
+    const minValid = handle.header.vertical.sign === 'down' ? 0 : undefined
+    const { value, valid } = packCoverageValueValid(
+      band.values,
+      dataMin,
+      dataMax,
+      band.codes,
+      minValid,
+    )
     const valueTex = this.uploadR16f(value, nLon, nLat)
     const validTex = this.uploadR16f(valid, nLon, nLat)
     const lutTex = this.uploadLut(bakeRampLut(opts.ramp))
@@ -287,14 +330,18 @@ export class CoverageRenderer {
     let flowV: RhiTexture | null = null
     let flowUView: RhiTextureView | null = null
     let flowVView: RhiTextureView | null = null
+    let flowValid: RhiTexture | null = null
+    let flowValidView: RhiTextureView | null = null
     let flowScale = 0
     if (vec) {
       const packed = packFlowFieldUV(vec.speed, vec.direction, vec.speedCodes, vec.directionCodes)
       flowScale = packed.scale
       flowU = this.uploadR16fFrom(packed.u, nLon, nLat, 'coverage-flow-u')
       flowV = this.uploadR16fFrom(packed.v, nLon, nLat, 'coverage-flow-v')
+      flowValid = this.uploadR16fFrom(packed.valid, nLon, nLat, 'coverage-flow-valid')
       flowUView = this.rhi.createView(flowU)
       flowVView = this.rhi.createView(flowV)
+      flowValidView = this.rhi.createView(flowValid)
     }
 
     const views = {
@@ -315,6 +362,8 @@ export class CoverageRenderer {
       flowV,
       flowUView,
       flowVView,
+      flowValid,
+      flowValidView,
       flowScale,
       lutTex,
       nodeBuf,
@@ -324,15 +373,16 @@ export class CoverageRenderer {
       opacity: opts.opacity ?? 1,
       flowOnly: opts.flowOnly === true,
       hidden: opts.hidden === true,
+      priority: opts.priority ?? 0,
       filterKey,
       data: { min: dataMin, max: dataMax },
-      // 2 × r16float over the grid + the 256×1 rgba8 LUT, plus the vector pair when this
-      // coverage carries one, plus the drape-mesh node buffer (#1366 INC-3). Counting the
-      // flow textures matters: they are the SAME size as the value/valid pair, so a vector
-      // coverage costs twice a scalar one and the LRU budget would evict far too late if it
-      // did not know. The node term is small but constant per region, so it is counted for
-      // the same reason rather than rounded away.
-      bytes: nLon * nLat * 2 * (vec ? 4 : 2) + 256 * 4 + coverageNodeCount() * COVERAGE_NODE_STRIDE,
+      // 2 × r16float over the grid + the 256×1 rgba8 LUT, plus the vector TRIPLE (u, v, valid)
+      // when this coverage carries one, plus the drape-mesh node buffer (#1366 INC-3). Counting
+      // the flow textures matters: they are the SAME size as the value/valid pair, so a vector
+      // coverage costs 2.5× a scalar one (#1565 added the validity mask alongside u/v) and the
+      // LRU budget would evict far too late if it did not know. The node term is small but
+      // constant per region, so it is counted for the same reason rather than rounded away.
+      bytes: nLon * nLat * 2 * (vec ? 5 : 2) + 256 * 4 + coverageNodeCount() * COVERAGE_NODE_STRIDE,
     })
     this.arms.set(region, { handle, opts })
     this.lastOpts = opts
@@ -372,7 +422,7 @@ export class CoverageRenderer {
     // The VIEWS are the predicate, not the textures — the same one `hasFlowField` asks, so the
     // gate and the supply cannot disagree. (They are set together at upload; asking both would
     // be two chances to answer differently.)
-    if (!st || !st.flowUView || !st.flowVView) return null
+    if (!st || !st.flowUView || !st.flowVView || !st.flowValidView) return null
     const arm = this.arms.get(region)
     if (!arm) return null
     const [w, h] = arm.handle.header.size
@@ -388,6 +438,7 @@ export class CoverageRenderer {
     return {
       u: st.flowUView,
       v: st.flowVView,
+      valid: st.flowValidView,
       scale: st.flowScale,
       width: w,
       height: h,
@@ -412,6 +463,27 @@ export class CoverageRenderer {
       if (f) return f
     }
     return null
+  }
+
+  /** EVERY resident region's velocity field, keyed by region — what the ARROW portrayal binds.
+   *
+   *  The trail above genuinely is one region (a recursive filter over one grid, one full-screen
+   *  image), and `activeFlowField` still serves it. The arrows are not: each domain gets its own
+   *  advected batch, and an arrow is coloured, turned and scaled every frame by the water it is
+   *  standing in. Handing them all the FIRST region's field made a sibling domain report another
+   *  domain's current — from frame zero, invisible to any coverage metric (#1458). */
+  flowFields(): ReadonlyMap<string, FlowFieldRegion> {
+    // The flow pass declares EVERY frame now, including on maps that will never
+    // have a coverage (#1046 Inc-F2c) — so the empty answer must not mint a Map
+    // per frame. Returning the shared instance is safe by CONSTRUCTION, not by
+    // convention: the return type is ReadonlyMap, so no caller can write to it.
+    if (this.states.size === 0) return NO_FLOW_FIELDS
+    const out = new Map<string, FlowFieldRegion>()
+    for (const region of this.states.keys()) {
+      const f = this.flowField(region)
+      if (f) out.set(region, f)
+    }
+    return out
   }
 
   /** True when ANY resident region carries a velocity field — the `scene.hasFlow` gate and the
@@ -483,6 +555,7 @@ export class CoverageRenderer {
   rebuildForQuality(): void {
     const prior = [...this.arms.entries()] // snapshot: setCoverage below mutates `arms`
     for (const key of [...this.states.keys()]) this.releaseRegion(key)
+    for (const d of this.drapers.values()) d.destroy()
     this.drapers.clear()
     for (const [key, { handle, opts }] of prior) this.setCoverage(handle, opts, key)
   }
@@ -491,6 +564,19 @@ export class CoverageRenderer {
    *  `keep` (the region just armed) is never evicted — arming a region must always leave it
    *  resident, even if it alone exceeds the budget (a single oversized domain still draws;
    *  the budget bounds ACCUMULATION, it is not a per-region size cap). */
+  /** The resident regions in DRAW order: least relevant first, so the most relevant paints last
+   *  and therefore on top of any overlap (#1602).
+   *
+   *  A stable sort on `priority` descending. Stable matters — regions that share a priority (every
+   *  single-region caller leaves it at 0) keep their arm order, so nothing about the
+   *  one-region case changes. Allocates one array per frame over a handful of regions, which is
+   *  the same shape `residentRegions()` already has; the alternative (keeping a second sorted Map
+   *  in step with `states` through arm, re-arm and evict) is a second authority to drift. */
+  private drawOrder(): CoverageState[] {
+    if (this.states.size < 2) return [...this.states.values()]
+    return [...this.states.values()].sort((a, b) => b.priority - a.priority)
+  }
+
   private evictOverBudget(keep: string): void {
     let total = 0
     for (const s of this.states.values()) total += s.bytes
@@ -507,7 +593,7 @@ export class CoverageRenderer {
    *  supplies the camera-derived MVP (camera-at-origin), the camera Mercator centre, and
    *  the projection params — mirroring the raster flat arm. No-op when unarmed. */
   render(
-    pass: GPURenderPassEncoder | RhiRenderPass,
+    pass: RhiRenderPass,
     mvp: Float32Array | number[],
     camCenter: [number, number],
     projParams: [number, number, number, number],
@@ -517,16 +603,26 @@ export class CoverageRenderer {
     cameraZoom?: number,
   ): void {
     if (this.states.size === 0 || this.drapers.size === 0) return
-    // A WebGl2Device frame (renderFrameViaRhi twin) hands in an RhiRenderPass
-    // already; the WebGPU opaque pass hands in a GPURenderPassEncoder that needs
-    // wrapping — the ONE backend fork, mirroring raster-renderer.render. Wrapped ONCE,
-    // outside the per-region loop.
-    const rhiPass =
-      this.rhi.backend === 'webgl2'
-        ? (pass as RhiRenderPass)
-        : wrapWebGpuPass(pass as GPURenderPassEncoder)
-    // Least-recently-armed first; overlapping domains alpha-blend in that order.
-    for (const s of this.states.values()) {
+    // Both frame shapes hand in an RhiRenderPass (Inc-2d) — the old
+    // backend-keyed re-wrap was the 34d4695 double-wrap class.
+    const rhiPass = pass
+    // MOST RELEVANT LAST, so it lands on top where domains overlap (#1602).
+    //
+    // This used to walk `states` directly, which is an LRU: `setCoverage` delete-then-sets, so the
+    // back is the most recently ARMED region — and with `blend: 'alpha'` the back is what paints
+    // over everything. Re-arms fire per region on every forecast tick, so the overlap's winner
+    // changed several times a second, picked by recency, and disagreed with the region
+    // `getCoverage(id, at)` reports for the same point.
+    //
+    // Relevance is not invented here. The catalogue ranks overlapping cells by overlap area with
+    // ties toward the smaller bbox — the higher-resolution local cell — and arms them in that
+    // order, which is exactly what the `priority` index carries. Sorting ASCENDING and drawing in
+    // that order puts priority 0 last only if reversed, so the comparator is descending: least
+    // relevant first, most relevant last.
+    //
+    // `states` keeps its LRU untouched — that order is still correct for EVICTION, which wants
+    // least-recently-used. One Map served both until the two started wanting opposite directions.
+    for (const s of this.drawOrder()) {
       // Resident for its data, not for its paint (#1419) — the velocity pair is uploaded and
       // the arrow field is built from it, while the drape itself stays out of the frame.
       if (s.hidden) continue
@@ -696,6 +792,7 @@ export class CoverageRenderer {
     s.bindGroups.clear()
     if (s.flowU) this.rhi.destroyTexture(s.flowU)
     if (s.flowV) this.rhi.destroyTexture(s.flowV)
+    if (s.flowValid) this.rhi.destroyTexture(s.flowValid)
     this.states.delete(region)
   }
 

@@ -18,13 +18,24 @@
 // returns) stays a single authority.
 
 import { packCompiledArrowFeat, packCompiledArrowTint } from './retained-arrow-packer'
-import {
-  S111_BAND_PARAMS_ROW,
-  S111_BAND_STRIDE,
-  S111_PARAM_STATE_BASE,
-} from '../shaders/dsl/s111-band-table-layout'
 import type { RetainedArrowDraper } from '../render/material/arrow-retained-material'
 import type { RetainedArrowAdvectedDraper } from '../render/material/arrow-retained-advected-material'
+import {
+  fieldBoxesOverlap,
+  fieldOwnedBoxOf,
+  fieldViewBlock,
+  fieldViewUniformBytes,
+  writeFieldViewUniform,
+  type FieldOwnedBox,
+  type FieldViewCamera,
+  type FieldViewGrid,
+} from '../render/field-lattice-uniform'
+import { S111_ARROW_BASE_PX, S111_OUTLINE_FRAC } from '../render/s111-portrayal'
+import {
+  ARROW_LATTICE_FACTOR,
+  ARROW_TRAIN_GLYPHS,
+  S111_FIELD_INTERLEAVE,
+} from '../shaders/dsl/arrow-drift'
 import type {
   RhiDevice,
   RhiBuffer,
@@ -33,61 +44,81 @@ import type {
   RhiTextureView,
 } from '@xgis/engine'
 
-/** What an ADVECTED batch needs beyond the static one (#1419) — supplied by the coverage arm,
- *  which is the only side that knows the grid. The anchors and the origins are parallel to the
- *  lon/lat arrays: entry `i` belongs to instance `i`, and to state texel `i`. */
+/** What an ADVECTED batch needs beyond the static one — supplied by the coverage arm, which is
+ *  the only side that knows the grid.
+ *
+ *  BOTH FIELDS ARE BATCH SCALARS (#1520 step 2). This used to carry six typed arrays parallel to
+ *  the lon/lat ones — per-instance origins and two basis anchors each — because the field was
+ *  generated per grid cell. It is generated on the SCREEN now, so there is nothing per instance to
+ *  hand over: the grid box is four numbers and the shader recovers everything else per frame. */
 export interface AdvectedArrowInput {
-  /** Instance origins in grid-uv (`coverageArrowOrigins`). */
-  originU: Float32Array
-  originV: Float32Array
-  /** The two basis anchors, one leash length along grid-u and grid-v. */
-  uStepLon: Float64Array
-  uStepLat: Float64Array
-  vStepLon: Float64Array
-  vStepLat: Float64Array
+  /** The affine lon/lat → grid-uv box (`coverageArrowGrid`). */
+  grid: FieldViewGrid
   /** The catalogue table in the shader's units (`s111BandTableNormalized`). */
   bandTable: Float32Array
-  /** Identifies the INSTANCE LAYOUT (region + grid + count). An equal key means texel `i` is
-   *  still the same arrow, so the state keeps drifting across a forecast step instead of
-   *  snapping home; see `ArrowAdvectState.writeOrigins`. */
-  key: string
+  /** Where this region sits in the mosaic's OWNERSHIP order — lower wins a geographic tie (#1585).
+   *
+   *  THE ORDER OF THE `_coverage` MAP, supplied by the arm, and that specific authority matters.
+   *  The obvious alternative — this batch's position in `batches` — is wrong: a re-arm does
+   *  `clearCompiledArrows(region)` then adds again (`coverage-arm.ts`), which moves the region to
+   *  the END of the array, and re-arms fire on every forecast tick. Ownership would flip each tick,
+   *  flickering the overlap and contradicting `coverageHandleAt`, which resolves the same tie to the
+   *  first-armed region. `writeRegion` sets an EXISTING key without deleting it, so the `_coverage`
+   *  Map's order survives a re-arm — it is the one order both sides can agree on. */
+  priority: number
 }
+
+/** The camera half of an advected draw, computed ONCE per frame by the manager and shared by
+ *  every advected batch — the camera is batch-independent; only the grid box is not. */
+export type AdvectedArrowView = FieldViewCamera
 
 /** The frame-side half of an advected draw: where the arrows are, where they belong, and the
  *  velocity pair they are moving through — all four from `FlowRenderer`, which owns the step.
  *  Passed in per frame rather than held, because the state side alternates every step. */
 export interface AdvectedArrowSource {
-  /** Returns the batch's BASE TEXEL in the shared state (#1458). */
-  writeArrowOrigins(key: string, u: ArrayLike<number>, v: ArrayLike<number>): number
-  /** Give this batch's texel range back — its region was dropped. */
-  releaseArrowOrigins(key: string): void
-  readonly arrowBinding: {
-    state: RhiTextureView
-    origin: RhiTextureView
+  /** THAT region's velocity textures. Per region, not per map: a mosaic's domains each carry
+   *  their own current, and one pair for all of them reports another domain's water as this
+   *  one's (#1458).
+   *
+   *  There is no shared arrow STATE to hand out a texel range from any more (#1520) — an arrow's
+   *  position is a function of its origin and the frame clock, so nothing is reserved, nothing is
+   *  released, and two regions cannot collide over a range. */
+  arrowBindingFor(region: string): {
     flowU: RhiTextureView
     flowV: RhiTextureView
+    flowValid: RhiTextureView
   } | null
 }
 
 /** A DECLARATIVE `| arrow` layer (#1302) — compiler-fed twin of a host arrow batch, same
  *  ARROW_RETAINED feat/tint layout; raw arrays (incl. strokeUnits, #1333) kept for DPR re-pack. */
 interface CompiledArrowBatch {
-  featBuf: RhiBuffer
+  /** Null for an ADVECTED batch: its instances are lattice nodes of the current viewport, so
+   *  there is no per-instance record to pack and the advected module binds no feat buffer. */
+  featBuf: RhiBuffer | null
   /** Null for an ADVECTED batch: its colour is the band the arrow is standing in, so there is no
    *  launch colour to keep and the advected module binds no tint at all. */
   tintBuf: RhiBuffer | null
-  /** Null for an ADVECTED batch — that path's group also binds the ping-pong's READ side, which
-   *  alternates every step, so its groups are memoized per state view in `advectedGroups`. */
+  /** Null for an ADVECTED batch — that path's group also binds the region's velocity pair, so it
+   *  is built (and invalidated) separately in `advectedGroup`. */
   bindGroup: RhiBindGroup | null
   advected: AdvectedArrowInput | null
   /** The band table, uploaded once per advected batch. */
   bandBuf: RhiBuffer | null
-  /** Advected bind groups, keyed by the ping-pong side they read (two entries at rest). */
-  advectedGroups: Map<RhiTextureView, RhiBindGroup>
+  /** The FieldView block — allocated once per advected batch, REWRITTEN every frame. Its contents
+   *  are the camera (which moves) plus this batch's grid box (which does not); the bind group
+   *  holding it is still cached, since only the bytes change. */
+  viewBuf: RhiBuffer | null
+  /** The advected bind group, rebuilt only when the region's velocity pair changes. */
+  advectedGroup: RhiBindGroup | null
   /** The velocity views those groups were built against. A re-armed or evicted coverage hands
    *  over different ones, and the groups holding the old pair must go with them. */
   boundFlowU: RhiTextureView | null
   boundFlowV: RhiTextureView | null
+  boundFlowValid: RhiTextureView | null
+  /** Ground an EARLIER-armed region owns, so this batch's lattice must not seed on it (#1585).
+   *  Rebuilt from the resident set whenever that set changes — see `recomputeSuppression`. */
+  suppress: FieldOwnedBox[]
   count: number
   lons: Float64Array
   lats: Float64Array
@@ -151,30 +182,31 @@ export class CompiledArrowStore {
     advected: AdvectedArrowInput | null = null,
   ): void {
     const count = lons.length
-    if (count === 0 || !this.rhi || !this.draper) return
+    if (!this.rhi || !this.draper) return
+    // An ADVECTED batch carries NO instances (#1520 step 2) — its count is a per-frame decision
+    // taken from the viewport, so an empty lon/lat array is the normal case there and only the
+    // static path is empty-guarded.
+    if (!advected && count === 0) return
     // Both halves or nothing: an advected batch drawn through the static draper would be a
     // field that animates nothing and reports its launch instant forever.
     if (advected && (!this.advectedDraper || !this.arrowSource)) return
-    const feat = packCompiledArrowFeat(
-      lons,
-      lats,
-      bearingsDeg,
-      sizesPx,
-      dpr,
-      strokeUnits,
-      advected ?? undefined,
-    )
-    const featBuf = this.rhi.createBuffer({
-      size: Math.max(feat.byteLength, 16),
-      usage: 'storage',
-      writable: true,
-      label: 'compiled-arrow-feat',
-    })
-    this.rhi.writeBuffer(featBuf, 0, feat)
-    this._featWrites++
+
+    let featBuf: RhiBuffer | null = null
+    if (!advected) {
+      const feat = packCompiledArrowFeat(lons, lats, bearingsDeg, sizesPx, dpr, strokeUnits)
+      featBuf = this.rhi.createBuffer({
+        size: Math.max(feat.byteLength, 16),
+        usage: 'storage',
+        writable: true,
+        label: 'compiled-arrow-feat',
+      })
+      this.rhi.writeBuffer(featBuf, 0, feat)
+      this._featWrites++
+    }
 
     let tintBuf: RhiBuffer | null = null
     let bandBuf: RhiBuffer | null = null
+    let viewBuf: RhiBuffer | null = null
     if (advected) {
       // The catalogue rule, uploaded once. No tint buffer: the colour is re-decided every frame
       // from the band the arrow is standing in, so a launch colour would only be a wrong answer
@@ -185,17 +217,13 @@ export class CompiledArrowStore {
         writable: true,
         label: 'compiled-arrow-band',
       })
-      // The origins go up HERE, not at first draw: the advect step runs EARLIER in the frame
-      // than the graphics pass, so a batch whose origins arrived at draw time would spend its
-      // first step leashed to grid-uv (0, 0) — every arrow yanked toward the grid's corner.
-      //
-      // It answers with this batch's BASE TEXEL in the shared state (#1458) — one texture
-      // serves every mosaic region — which is why the band table is patched and uploaded
-      // AFTER the call rather than before it.
-      const base =
-        this.arrowSource?.writeArrowOrigins(advected.key, advected.originU, advected.originV) ?? 0
-      advected.bandTable[S111_BAND_PARAMS_ROW * S111_BAND_STRIDE + S111_PARAM_STATE_BASE] = base
       this.rhi.writeBuffer(bandBuf, 0, advected.bandTable)
+      viewBuf = this.rhi.createBuffer({
+        size: fieldViewUniformBytes(),
+        usage: 'uniform',
+        writable: true,
+        label: 'compiled-arrow-view',
+      })
     } else {
       const tint = packCompiledArrowTint(colors)
       tintBuf = this.rhi.createBuffer({
@@ -211,12 +239,15 @@ export class CompiledArrowStore {
     this.batches.push({
       featBuf,
       tintBuf,
-      bindGroup: tintBuf ? this.draper.makeBatchBindGroup(featBuf, tintBuf) : null,
+      bindGroup: featBuf && tintBuf ? this.draper.makeBatchBindGroup(featBuf, tintBuf) : null,
       advected,
       bandBuf,
-      advectedGroups: new Map(),
+      viewBuf,
+      advectedGroup: null,
       boundFlowU: null,
       boundFlowV: null,
+      boundFlowValid: null,
+      suppress: [],
       count,
       lons,
       lats,
@@ -225,6 +256,32 @@ export class CompiledArrowStore {
       strokeUnits,
       region,
     })
+    this.recomputeSuppression()
+  }
+
+  /** Rebuild every advected batch's "ground someone else owns" list from the CURRENT resident set.
+   *
+   *  ALL of them, on every change, rather than just the batch that moved. Suppression is monotone in
+   *  arm order, so in principle an arming region could compute its own list once and never revisit
+   *  it — but a DROP breaks that: `onCoverageRegionDropped` clears only the departing region's
+   *  arrows, and a later-armed survivor holding the departed region's box would suppress arrows over
+   *  that water forever, a permanent hole no e2e would attribute to an eviction that happened
+   *  minutes earlier. Recomputing the whole set makes a stale box unrepresentable, and it costs
+   *  nothing: this runs on arm/re-arm/drop, never per frame, over a handful of resident regions.
+   *
+   *  A batch yields only to STRICTLY lower priority, so a region never suppresses itself and two
+   *  regions can never suppress each other. Boxes are filtered to those that actually overlap, which
+   *  is what keeps the slot budget unreachable in practice rather than merely large. */
+  private recomputeSuppression(): void {
+    const advected = this.batches.filter((b) => b.advected !== null)
+    for (const b of advected) {
+      const own = fieldOwnedBoxOf(b.advected!.grid)
+      b.suppress = advected
+        .filter((o) => o.advected!.priority < b.advected!.priority)
+        .sort((x, y) => x.advected!.priority - y.advected!.priority)
+        .map((o) => fieldOwnedBoxOf(o.advected!.grid))
+        .filter((box) => fieldBoxesOverlap(box, own))
+    }
   }
 
   /** Drop compiled-arrow layers — every one, or (given `region`) just that owner's. Called
@@ -240,18 +297,16 @@ export class CompiledArrowStore {
     const kept: CompiledArrowBatch[] = []
     for (const ca of this.batches) {
       if (region === undefined || ca.region === region) {
-        retired.push(ca.featBuf)
+        if (ca.featBuf) retired.push(ca.featBuf)
         if (ca.tintBuf) retired.push(ca.tintBuf)
         if (ca.bandBuf) retired.push(ca.bandBuf)
-        // …and give the shared state's texels back (#1458). Without this the ranges only ever
-        // grow: a mosaic that pans across a coast re-arms constantly, and each re-arm would
-        // append a fresh range until the allocation hit its ceiling and later regions silently
-        // got no texels at all.
-        if (ca.advected) this.arrowSource?.releaseArrowOrigins(ca.advected.key)
+        if (ca.viewBuf) retired.push(ca.viewBuf)
       } else kept.push(ca)
     }
     this.batches.length = 0
     this.batches.push(...kept)
+    // A departing region must stop suppressing the survivors, or its ground stays blank (#1585).
+    this.recomputeSuppression()
   }
 
   /** True when at least one compiled arrow layer is resident — part of the manager's
@@ -274,53 +329,78 @@ export class CompiledArrowStore {
   /** Draw every compiled layer through the SAME draper + per-copy uniform as the host
    *  arrows, so compiler-fed and `map.graphics` arrows are one draw authority. Returns the
    *  real draw-call count (one instanced draw per world copy per layer). */
-  draw(pass: RhiRenderPass, perCopy: Float32Array[]): number {
+  draw(pass: RhiRenderPass, perCopy: Float32Array[], view: AdvectedArrowView | null): number {
     if (!this.draper) return 0
     let calls = 0
     for (const ca of this.batches) {
-      if (ca.advected) calls += this.drawAdvected(pass, ca, perCopy)
+      if (ca.advected) calls += this.drawAdvected(pass, ca, perCopy, view)
       else if (ca.bindGroup) calls += this.draper.draw(pass, ca.bindGroup, perCopy, ca.count)
     }
     return calls
   }
 
-  /** One advected batch. Skipped — not drawn statically — until the step has produced a state:
-   *  before then there is nothing to say where any arrow is, and drawing the origins would be a
-   *  frame of the catalogue field masquerading as the animation. */
+  /** One advected batch: rewrite its view block from this frame's camera, then draw the lattice
+   *  that block describes.
+   *
+   *  THE INSTANCE COUNT COMES FROM THE WRITE, not from the batch. That is the inversion #1520 is
+   *  about — `ca.count` is the number of cells the coverage happened to have, which is exactly the
+   *  quantity that made the field expire at z17. What is drawn instead is `nx·ny·G` lattice nodes
+   *  of the CURRENT viewport, so density is constant per screen area at every zoom by construction.
+   *
+   *  `null` from the write is a camera with no usable inverse (an orthographic or degenerate
+   *  matrix): nothing is drawn, rather than a lattice built from a divide by zero. */
   private drawAdvected(
     pass: RhiRenderPass,
     ca: CompiledArrowBatch,
     perCopy: Float32Array[],
+    view: AdvectedArrowView | null,
   ): number {
     const draper = this.advectedDraper
-    const bind = this.arrowSource?.arrowBinding
-    if (!draper || !bind || !ca.bandBuf) return 0
-    // Keyed by the STATE side, but invalidated on the FIELD views — because the ping-pong
-    // alternates between exactly two state views and nothing else ever appears as a key. The
-    // first version of this cleared "when a third key shows up", which cannot happen: a
-    // re-armed coverage hands over new velocity views under the SAME two state sides, so the
-    // cached groups kept binding the old ones. After a region eviction those old ones are
-    // DESTROYED, and the next submit fails —
+    // THIS batch's region, not the map's one field (#1458): a mosaic's domains each carry their
+    // own current, and the glyph's colour, heading and scale are re-decided every frame from the
+    // velocity under it — bound from the wrong domain that is another sea reported as this one.
+    // Null when the region has left the coverage: its textures are destroyed, so a batch
+    // outliving its region by a frame draws nothing rather than binding freed memory (#1419).
+    const bind = this.arrowSource?.arrowBindingFor(ca.region)
+    if (!draper || !bind || !ca.bandBuf || !ca.viewBuf || !ca.advected || !view || !this.rhi)
+      return 0
+    const block = fieldViewBlock()
+    // The S-111 side of a domain-neutral lattice (#1547): the seed spacing is `δ·√G` because each
+    // seed contributes G glyphs (`ARROW_LATTICE_FACTOR` records the derivation), and the three
+    // carried scalars are this portrayal's — inter-glyph spacing, glyph length, outline width.
+    const basePx = S111_ARROW_BASE_PX * view.dpr
+    const count = writeFieldViewUniform(block, view, ca.advected.grid, {
+      nodeSpacingPx: basePx * ARROW_LATTICE_FACTOR,
+      instancesPerNode: ARROW_TRAIN_GLYPHS,
+      interleave: S111_FIELD_INTERLEAVE,
+      carry: [basePx, basePx, S111_OUTLINE_FRAC],
+      suppress: ca.suppress,
+    })
+    if (count === null || count === 0) return 0
+    this.rhi.writeBuffer(ca.viewBuf, 0, block.buffer)
+    // Rebuilt only when the region hands over a DIFFERENT velocity pair. It used to be keyed by
+    // the ping-pong state side as well; there is no state to alternate any more (#1520), so the
+    // group is stable for the batch's life — the view BUFFER is rewritten in place, not swapped.
+    // The invalidation still matters and for the original reason: after a region eviction the old
+    // views are DESTROYED, and a cached group holding them fails the next submit —
     //   "destroyed texture coverage-flow-v used in a submit"
     // reported from S-111 Live by zooming out and panning to another domain.
-    if (ca.boundFlowU !== bind.flowU || ca.boundFlowV !== bind.flowV) {
-      ca.advectedGroups.clear()
+    if (
+      ca.boundFlowU !== bind.flowU ||
+      ca.boundFlowV !== bind.flowV ||
+      ca.boundFlowValid !== bind.flowValid
+    ) {
+      ca.advectedGroup = null
       ca.boundFlowU = bind.flowU
       ca.boundFlowV = bind.flowV
+      ca.boundFlowValid = bind.flowValid
     }
-    let bg = ca.advectedGroups.get(bind.state)
+    let bg = ca.advectedGroup
     if (!bg) {
-      bg = draper.makeBatchBindGroup(
-        ca.featBuf,
-        ca.bandBuf,
-        bind.state,
-        bind.origin,
-        bind.flowU,
-        bind.flowV,
-      )
-      ca.advectedGroups.set(bind.state, bg)
+      bg = draper.makeBatchBindGroup(ca.bandBuf, bind.flowU, bind.flowV, bind.flowValid, ca.viewBuf)
+      ca.advectedGroup = bg
     }
-    return draper.draw(pass, bg, perCopy, ca.count)
+    return draper.draw(pass, bg, perCopy, count)
   }
 
   /** Compiled layers bake size in px too — re-pack feat from the retained raw arrays on a
@@ -328,18 +408,13 @@ export class CompiledArrowStore {
   repackForDpr(dpr: number): void {
     if (!this.rhi) return
     for (const ca of this.batches) {
+      // An advected batch bakes no size into a buffer — its glyph size rides the per-frame
+      // FieldView block, which is written from the CURRENT dpr every frame anyway.
+      if (!ca.featBuf) continue
       this.rhi.writeBuffer(
         ca.featBuf,
         0,
-        packCompiledArrowFeat(
-          ca.lons,
-          ca.lats,
-          ca.bearings,
-          ca.sizes,
-          dpr,
-          ca.strokeUnits,
-          ca.advected ?? undefined,
-        ),
+        packCompiledArrowFeat(ca.lons, ca.lats, ca.bearings, ca.sizes, dpr, ca.strokeUnits),
       )
       this._featWrites++
     }
@@ -350,9 +425,10 @@ export class CompiledArrowStore {
    *  next rebuildLayers, so the records go too. */
   destroyGpu(): void {
     for (const ca of this.batches) {
-      this.rhi?.destroyBuffer(ca.featBuf)
+      if (ca.featBuf) this.rhi?.destroyBuffer(ca.featBuf)
       if (ca.tintBuf) this.rhi?.destroyBuffer(ca.tintBuf)
       if (ca.bandBuf) this.rhi?.destroyBuffer(ca.bandBuf)
+      if (ca.viewBuf) this.rhi?.destroyBuffer(ca.viewBuf)
     }
     this.batches.length = 0
     this.rhi = null

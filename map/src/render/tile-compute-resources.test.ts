@@ -10,6 +10,12 @@ import {
   emitTernaryComputeKernel,
   type ComputePlanEntry,
 } from '@xgis/compiler'
+import type { RhiCommandEncoder } from '@xgis/engine'
+
+// #1046 F4 Inc-C harness shim: the dispatch thread is RHI-typed now; the fake
+// native encoder rides behind the one unwrap surface the adapter reads.
+const asRhiEnc = (e: GPUCommandEncoder): RhiCommandEncoder =>
+  ({ nativeEncoder: e }) as unknown as RhiCommandEncoder
 
 beforeAll(() => {
   if (typeof globalThis.GPUBufferUsage === 'undefined') {
@@ -270,7 +276,7 @@ describe('TileComputeResources — dispatch', () => {
       makeTernaryPlanEntry('flag'),
     ])
     r.uploadFromProps(() => ({ class: 'a', flag: 1 }), 5)
-    r.dispatch(encoder)
+    r.dispatch(asRhiEnc(encoder))
     expect(dispatches).toHaveLength(2)
     expect(dispatches.map((d) => d.entryPoint).sort()).toEqual(['eval_case', 'eval_match'])
   })
@@ -279,7 +285,7 @@ describe('TileComputeResources — dispatch', () => {
     const { dispatcher, dispatches, encoder } = makeFakeContext()
     const r = new TileComputeResources(dispatcher, [makeMatchPlanEntry('class')])
     r.uploadFromProps(() => ({ class: 'a' }), 200)
-    r.dispatch(encoder)
+    r.dispatch(asRhiEnc(encoder))
     // 200 / 64 = ceil(3.125) = 4 workgroups.
     expect(dispatches[0]!.workgroups).toBe(4)
   })
@@ -288,7 +294,7 @@ describe('TileComputeResources — dispatch', () => {
     const { dispatcher, dispatches, encoder } = makeFakeContext()
     const r = new TileComputeResources(dispatcher, [makeMatchPlanEntry('class')])
     // Skip uploadFromProps → featureCount stays at 0.
-    r.dispatch(encoder)
+    r.dispatch(asRhiEnc(encoder))
     expect(dispatches).toHaveLength(0)
   })
 })
@@ -325,7 +331,7 @@ describe('TileComputeResources — forEachOutput / destroy', () => {
     const { dispatcher, dispatches, encoder } = makeFakeContext()
     const r = new TileComputeResources(dispatcher, [makeMatchPlanEntry('class')])
     r.destroy()
-    r.dispatch(encoder)
+    r.dispatch(asRhiEnc(encoder))
     expect(dispatches).toHaveLength(0)
   })
 })
@@ -387,7 +393,7 @@ describe('TileComputeResources — kernel dedup (P4-6 runtime half)', () => {
     const { dispatcher, dispatches, encoder } = makeFakeContext()
     const r = new TileComputeResources(dispatcher, makeSharedKernelEntries())
     r.uploadFromProps(() => ({ class: 'a' }), 10)
-    r.dispatch(encoder)
+    r.dispatch(asRhiEnc(encoder))
     expect(dispatches).toHaveLength(1) // not 2
   })
 

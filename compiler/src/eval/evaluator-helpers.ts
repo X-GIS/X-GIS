@@ -98,7 +98,47 @@ export const BUILTIN_FN_NAMES: ReadonlySet<string> = new Set([
   'rgba',
   'hsl',
   'hsla',
+  // Vector constructors (#1537) — the value domain shader stage blocks
+  // need. WGSL construction rules: a single scalar splats, and vec args
+  // flatten, so `vec4(vec3(c), 1)` is legal and lane-exact.
+  'vec2',
+  'vec3',
+  'vec4',
 ])
+
+/** Lane index for a component name — WGSL's three interchangeable
+ *  accessor sets over the same lanes (#1537). Exported so the GPU
+ *  lowering and the evaluator agree on one table. */
+export const VEC_COMPONENT_INDEX: ReadonlyMap<string, number> = new Map([
+  ['x', 0],
+  ['y', 1],
+  ['z', 2],
+  ['w', 3],
+  ['r', 0],
+  ['g', 1],
+  ['b', 2],
+  ['a', 3],
+])
+
+/** Build a vec value from call arguments, applying WGSL's splat and
+ *  flatten rules. Throws when the lanes do not total `n` — a silent
+ *  truncation would render a plausible-but-wrong value. */
+function buildVec(n: number, args: readonly unknown[]): number[] {
+  if (args.length === 1 && !Array.isArray(args[0])) {
+    return new Array<number>(n).fill(toNumber(args[0]))
+  }
+  const lanes: number[] = []
+  for (const a of args) {
+    if (Array.isArray(a)) for (const el of a) lanes.push(toNumber(el))
+    else lanes.push(toNumber(a))
+  }
+  if (lanes.length !== n) {
+    throw new Error(
+      `vec${n}: expected ${n} components (or a single scalar to splat), got ${lanes.length}`,
+    )
+  }
+  return lanes
+}
 
 export function callBuiltin(name: string, args: unknown[]): unknown {
   switch (name) {
@@ -655,6 +695,13 @@ export function callBuiltin(name: string, args: unknown[]): unknown {
       // Mapbox `["resolved-locale", ["collator", opts]]` → the BCP-47 tag.
       return resolvedLocale(String(args[0] ?? ''))
     }
+    case 'vec2':
+      return buildVec(2, args)
+    case 'vec3':
+      return buildVec(3, args)
+    case 'vec4':
+      return buildVec(4, args)
+
     default:
       // #1066 defense-in-depth. Lower-time validation
       // (ir/validate-fncalls.ts) rejects unknown function names with an

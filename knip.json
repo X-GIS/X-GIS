@@ -1,5 +1,45 @@
 {
   "$schema": "https://unpkg.com/knip@5/schema.json",
+  // Severity per issue class (#1565). knip.json had sat at the root since
+  // 14ebd1a4 with knip installed nowhere and invoked by nothing — "the dead-code
+  // gate" that never ran. Wiring it to CI at full strength would mean blocking
+  // this PR on ~280 pre-existing findings, which is a campaign, not a gate fix.
+  //
+  // So exactly ONE class gates today: `unlisted` — a source file importing a
+  // package its own manifest does not declare, resolving only by root hoisting.
+  // That is the class #1565 was filed on, it is invisible to `tsc --build`
+  // (CLAUDE.md §12, PR #1220), and it is at zero as of this commit — so a NEW
+  // phantom dependency goes red naming the importing file. Verified by cutting
+  // the mechanism: dropping @xgis/rhi-webgl2 from playground's manifest exits 1
+  // and names all three e2e helpers that import it.
+  //
+  // CORRECTION on #1565's prediction (3): knip does NOT report the two phantom
+  // deps the issue names. `earcut` (compiler/src/tiler/vector-tiler.ts) and
+  // `monaco-editor` (playground/src/monaco-xgis.ts) resolve through the ROOT
+  // manifest, and knip treats a root-declared package as satisfied for every
+  // workspace. Both were still declared in their own manifests in this commit —
+  // they are real undeclared imports — but knip is not the tool that proves it,
+  // and a reader expecting the issue's predicted output will not see it.
+  //
+  // Every other class is `warn`: still printed on every CI run, not gating. They
+  // are real findings and the report is on #1553; promoting one to "error" is a
+  // follow-up with its own cleanup, not something to bundle in here.
+  "rules": {
+    "unlisted": "error",
+    "binaries": "error",
+    "files": "warn",
+    "dependencies": "warn",
+    "devDependencies": "warn",
+    "optionalPeerDependencies": "warn",
+    "unresolved": "warn",
+    "exports": "warn",
+    "types": "warn",
+    "nsExports": "warn",
+    "nsTypes": "warn",
+    "duplicates": "warn",
+    "enumMembers": "warn",
+    "classMembers": "warn"
+  },
   "workspaces": {
     ".": {
       "entry": ["scripts/*.ts"],
@@ -20,6 +60,12 @@
     "playground": {
       "entry": [
         "*.html",
+        // The nine *.html entries above reference their scripts with VITE-ABSOLUTE
+        // paths (`<script type="module" src="/src/demo-runner.ts">`), which knip
+        // cannot resolve — it reads them as unresolved and then reports every
+        // top-level src module as an unused file. List the page entry points
+        // directly so the html indirection stops mattering (#1565).
+        "src/*.ts",
         "render-verify/**/*.ts",
         "e2e/**/*.spec.ts",
         "e2e/**/*.ts",

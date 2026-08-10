@@ -46,6 +46,7 @@ function catalogWithCached(maxLevel: number, cached: Set<number>): TileCatalog {
     hasData: () => true,
     hasTileData: (k: number) => cached.has(k),
     prefetchTiles: () => {},
+    indexGeneration: () => 0,
   } as unknown as TileCatalog
 }
 

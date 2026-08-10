@@ -5,10 +5,19 @@
 // group 1, and all of them exist so the VS can re-symbolize each arrow from the data under its
 // CURRENT position:
 //
-//   0 feat_data    the three df64 anchors (origin + the two grid-step bases) — packed ONCE
-//   1 band_data    the catalogue rule as a table, in the shader's own units
-//   2 state_tex    where each arrow is now          3 origin_tex  where it belongs
-//   4 flow_u_tex   east component                   5 flow_v_tex  north component
+//   1 band_data       the catalogue rule as a table, in the shader's own units
+//   2 flow_u_tex      east component                 3 flow_v_tex  north component
+//   4 field_view      the per-frame camera + grid description the screen lattice is built from
+//   5 flow_valid_tex  real data vs. nodata (#1565) — lets the VS blend velocity across valid
+//                     neighbours instead of the single owner cell, without smearing a nodata
+//                     neighbour's packed (0, 0) into a shore-adjacent current
+//
+// BINDING 0 IS DELIBERATELY EMPTY. It held `feat_data`, the per-instance anchors of a field
+// generated from the GRID; #1520 step 2 replaced that generator with a lattice on the SCREEN, so
+// there is nothing per instance left to read — an instance is `(seed, glyph)` and everything else
+// comes from binding 4 and the velocity pair. The slot is left as a gap rather than renumbered
+// because the numbers are stated in the DSL module's own binding decls, and shifting them for a
+// deletion is a diff across two files for no gain.
 //
 // TWO THINGS ARE LOAD-BEARING HERE.
 //
@@ -34,17 +43,27 @@ import { Material, executeItems, type DrawItem } from '@xgis/engine'
 import {
   emitArrowRetainedAdvectedWgsl,
   emitArrowRetainedAdvectedGlsl,
-} from '../../shaders/dsl/arrow-retained'
+} from '../../shaders/dsl/arrow-advected'
 
 /** Group-1 entries, exported so a test can assert them against the EMITTED shader rather than
  *  against a second copy of the list (the same discipline ARROW_ADVECT_BINDINGS follows). */
 export const ARROW_ADVECTED_BINDINGS = [
-  { binding: 0, kind: 'storage', name: 'feat_data' },
   { binding: 1, kind: 'storage', name: 'band_data' },
-  { binding: 2, kind: 'texture', name: 'state_tex', vertexVisible: true },
-  { binding: 3, kind: 'texture', name: 'origin_tex', vertexVisible: true },
-  { binding: 4, kind: 'texture', name: 'flow_u_tex', vertexVisible: true },
-  { binding: 5, kind: 'texture', name: 'flow_v_tex', vertexVisible: true },
+  { binding: 2, kind: 'texture', name: 'flow_u_tex', vertexVisible: true },
+  { binding: 3, kind: 'texture', name: 'flow_v_tex', vertexVisible: true },
+  // 'FieldView' — the BLOCK name, not the shader variable `field_view`. WebGL2 resolves a uniform
+  // entry with `getUniformBlockIndex`, which takes the GLSL block name; a name that does not
+  // resolve leaves the block at binding point 0, where it ALIASES group 0's `Uniforms` and the VS
+  // reads the frame uniform's bytes as corner rays. That is not a validation error on either
+  // backend — the field simply paints nothing, which is how it was found (the render gate, on the
+  // WebGL2 leg). The group-0 entry above names its struct for the same reason.
+  { binding: 4, kind: 'uniform', name: 'FieldView' },
+  // #1565: real data vs. nodata for the VALIDITY-GATED interpolation the re-symbolization step
+  // now reads its velocity through — `flow_u_tex`/`flow_v_tex` alone cannot tell "no current"
+  // from "no data" apart, both packing to `(0, 0)`. Binding 5, after FieldView, for the same
+  // reason binding 0 stays a gap: renumbering an existing entry for an addition is a diff across
+  // two files for no gain.
+  { binding: 5, kind: 'texture', name: 'flow_valid_tex', vertexVisible: true },
 ] as const
 
 export class RetainedArrowAdvectedDraper {
@@ -72,31 +91,40 @@ export class RetainedArrowAdvectedDraper {
     })
   }
 
-  /** Build a group-1 bind group. Unlike the static path's, this one is NOT cached for the
-   *  batch's life: `state` is the read side of a ping-pong that swaps every advection step, so
-   *  the caller keeps one bind group per side and alternates. Binding the side being written is
-   *  undefined behaviour on both backends. */
+  /** Build a group-1 bind group — cacheable for the batch's life now (#1520).
+   *
+   *  It used to carry a ping-pong STATE side that swapped every advection step, so the caller had
+   *  to keep one bind group per side and alternate; binding the side being written is undefined
+   *  behaviour on both backends. There is no state to swap any more — the arrow's position is a
+   *  function of its origin and the frame clock — so the only reason to rebuild this is the
+   *  region handing over a different velocity pair. */
   makeBatchBindGroup(
-    feat: RhiBuffer,
     band: RhiBuffer,
-    state: RhiTextureView,
-    origin: RhiTextureView,
     flowU: RhiTextureView,
     flowV: RhiTextureView,
+    flowValid: RhiTextureView,
+    view: RhiBuffer,
   ): RhiBindGroup {
     return this.material.rhi.createBindGroup(this.material.layout(1), [
-      { binding: 0, resource: { buffer: feat } },
       { binding: 1, resource: { buffer: band } },
-      { binding: 2, resource: { view: state } },
-      { binding: 3, resource: { view: origin } },
-      { binding: 4, resource: { view: flowU } },
-      { binding: 5, resource: { view: flowV } },
+      { binding: 2, resource: { view: flowU } },
+      { binding: 3, resource: { view: flowV } },
+      { binding: 4, resource: { buffer: view } },
+      { binding: 5, resource: { view: flowValid } },
     ])
   }
 
-  /** One instanced draw(6, count) per visible world copy — identical to the static draper, so
-   *  the advected path inherits its N-independence: the return is the DRAW CALL count (copies),
-   *  never the instance count. */
+  /** ONE instanced draw(6, count) — not one per world copy, unlike every sibling draper.
+   *
+   *  A world copy exists so a flat-Mercator batch anchored in absolute Mercator metres can be
+   *  drawn again `WORLD_WIDTH` to the side. This field has no absolute anchor to shift: its
+   *  instances are lattice nodes of the CURRENT viewport, and the viewport is drawn once. Passing
+   *  the copies through would redraw the identical lattice N times, which at low zoom is a field
+   *  up to 5× too dense — and every glyph exactly on top of another, so it would read as a
+   *  darker, faster current rather than as an obvious duplicate.
+   *
+   *  The first copy's uniform bytes are the ones used; `world_offset` (circle_params.x) is not
+   *  read by this VS at all. */
   draw(
     pass: RhiRenderPass,
     batchBindGroup: RhiBindGroup,
@@ -104,14 +132,16 @@ export class RetainedArrowAdvectedDraper {
     count: number,
   ): number {
     if (count === 0 || perCopyUniformBytes.length === 0) return 0
-    const items: DrawItem[] = perCopyUniformBytes.map((bytes) => ({
-      variant: 0,
-      bindGroups: [null, batchBindGroup],
-      poolBytes: bytes,
-      count: 6,
-      indexed: false,
-      instanceCount: count,
-    }))
+    const items: DrawItem[] = [
+      {
+        variant: 0,
+        bindGroups: [null, batchBindGroup],
+        poolBytes: perCopyUniformBytes[0]!,
+        count: 6,
+        indexed: false,
+        instanceCount: count,
+      },
+    ]
     return executeItems(this.material, pass, items)
   }
 }

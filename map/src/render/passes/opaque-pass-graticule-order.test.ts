@@ -34,12 +34,17 @@ function harness(groupCount: number, opts: { coverage?: boolean } = {}) {
   const order: string[] = []
   const subPass = { end: () => undefined }
   const ctx = {
-    encoder: { beginRenderPass: () => subPass },
+    // Repointed to the RHI frame shell (Inc-2d) — same contract, moved seam:
+    // the pass originates on ctx.rhiEncoder with the bridge views.
+    rhiEncoder: { beginRenderPass: () => subPass },
+    rhiScreenView: {},
+    rhiColorView: {},
+    rhiSceneResolveView: { __sceneResolve: true },
+    rhiColorViewScreen: { __colorScreen: true },
+    rhiStencilView: {},
     passScope: (_label: string, fn: () => void) => fn(),
-    colorView: {},
-    screenView: {},
     useResolve: false,
-    rt: { stencilView: {}, pickTexture: undefined, pickView: undefined },
+    rt: { pickTexture: undefined, pickView: undefined },
     projection: makeProjectionToken(0, 0, 0),
     // The opaque pass is a SCENE pass, so it reads `scene`; `screen` is present because a
     // FrameContext always carries both, and equal because INC-1 has not split them yet.
@@ -50,6 +55,10 @@ function harness(groupCount: number, opts: { coverage?: boolean } = {}) {
     setOpacity: () => undefined,
     setColorAdjust: () => undefined,
     setResampling: () => undefined,
+    // The raster draw is the `hasSource()` arm of a two-arm choice since the
+    // analytic checker moved off the twin (#1046 Inc-F2d); true keeps this
+    // file's `order` expectations on the raster draw they were written for.
+    hasSource: () => true,
     render: () => order.push('raster'),
   }
   const host = {
@@ -72,7 +81,6 @@ function harness(groupCount: number, opts: { coverage?: boolean } = {}) {
       render: () => order.push('coverage'),
     },
     renderer: {
-      uniformBuffer: {},
       renderToPass: () => order.push('legacy'),
       renderGraticuleOverlay: () => order.push('graticule'),
     },

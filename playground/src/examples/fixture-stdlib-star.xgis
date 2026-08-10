@@ -1,0 +1,22 @@
+xgis 1
+
+/* Fixture: a symbolizer authored entirely in .xgis (#1540).
+ *
+ * `shapes.star` comes from /stdlib/shapes.xgis, fetched over HTTP by the
+ * ordinary import path — not inlined by the demo loader. Its twin,
+ * fixture_builtin_star, draws the same glyph through the built-in
+ * `shape-star`; _stdlib-shape-parity.spec.ts asserts the two are pixel
+ * identical, which is the self-hosting claim.
+ */
+
+import "/stdlib/shapes.xgis"
+
+source one_point {
+  type: geojson
+  url: "fixture-point.geojson"
+}
+
+layer the_star {
+  source: one_point
+  style: star(#fbbf24, 80)
+}

@@ -101,7 +101,11 @@ export interface LoadCommand {
 export interface SceneCommands {
   loads: LoadCommand[]
   shows: ShowCommand[]
-  symbols?: { name: string; paths: string[] }[]
+  /** The compiler's `SymbolDef`, structurally. Kept as a local shape because `map` does not depend
+   *  on `@xgis/compiler` (the runtime consumes emitted COMMANDS, not the IR) — so this mirror has
+   *  to be updated when the IR type gains a field. #1550 added `anchor` and this was the third
+   *  place restating the same three-field shape; the compiler's two are now one. */
+  symbols?: { name: string; paths: string[]; anchor?: string }[]
   /** Resolved background fill color (`#rrggbb` or `#rrggbbaa`).
    *  Set when the .xgis program contains a `background { ... }`
    *  block. Renderer applies it as the canvas clearValue; absent
@@ -112,6 +116,11 @@ export interface SceneCommands {
    *  binds via `setPaletteColorAtlas`. Absent for interpreter-only
    *  paths (which don't run the compile pipeline). */
   palette?: import('@xgis/compiler').Palette
+  /** #1539 — the style's declared `input`s (name, type, uniform-pool slot,
+   *  compile-time default). Set by `emitCommands`; absent on the
+   *  interpreter-only path, which has no `input` statement support. Same
+   *  local-mirror rule as `palette` above. */
+  inputs?: import('@xgis/compiler').ResolvedInputInfo[]
 }
 
 /**

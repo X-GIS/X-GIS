@@ -1,6 +1,8 @@
 import { describe, it, expect } from 'vitest'
-import { emitLineWgsl } from './line'
+import { emitLineWgsl, buildLineModule, type LineVariantSpec } from './line'
+import { emitLineGlsl } from './line-glsl'
 import { emitCompositeWgsl } from './line-composite'
+import { f32, vec4, vec4fT, Node } from '@xgis/shader-dsl'
 
 // Phase-2 line (SDF stroke) shader — the biggest production shader in the
 // codebase (1314 LOC straight WGSL). Three fragment entry points share one
@@ -10,8 +12,8 @@ import { emitCompositeWgsl } from './line-composite'
 // CPU interp would need to model RGBA8 packing). The gate is the emission
 // shape + the GPU pixel survey + the standalone CI render-gate.
 describe('Phase-2 line shader — DSL emission', () => {
-  const noPick = emitLineWgsl(false)
-  const pick = emitLineWgsl(true)
+  const noPick = emitLineWgsl(null, false)
+  const pick = emitLineWgsl(null, true)
   const linePart = (w: string) => w.slice(w.indexOf('struct TileUniforms'))
 
   it('prepends the shared projection + log-depth + SDF helper WGSL', () => {
@@ -181,7 +183,11 @@ describe('Phase-2 line shader — DSL emission', () => {
     expect(off.cam_ecef_off_h).toBe(52)
     expect(off.cam_ecef_off_l).toBe(56)
     expect(off.globe_eye).toBe(64) // #600 — MUST equal polygon Uniforms.globe_eye (shared buffer)
-    expect(Math.ceil(cur / maxA) * maxA).toBe(272)
+    // #1539 — 272 → 368: polygon grew by the 96-byte reserved `input` pool, and
+    // TileUniforms shares VTR's group(0) buffer, so it mirrors the SIZE with
+    // `_pad_input_*`. This literal is the hardcoded half of the guard;
+    // polygon-line-uniform-parity.test.ts is the one that reflects BOTH structs.
+    expect(Math.ceil(cur / maxA) * maxA).toBe(368)
     // The final clip transform feeds vertex+offset through the MVP.
     const vs = noPick.slice(noPick.indexOf('fn vs_line'), noPick.indexOf('fn fs_line'))
     expect(vs).toContain('tile.cam_ecef_off_h')
@@ -206,6 +212,88 @@ describe('Phase-2 line shader — DSL emission', () => {
       expect((w.match(/{/g) ?? []).length).toBe((w.match(/}/g) ?? []).length)
       expect((w.match(/\(/g) ?? []).length).toBe((w.match(/\)/g) ?? []).length)
     }
+  })
+})
+
+// #1605 Phase 1 — the line half of the polygon-only @stroke fragment seam.
+// A feature-free stroke expression composes into compute_line_color's single
+// 'line-color-return' placeholder via the shared, validated composeModule
+// pass (mirrors polygon-dsl.test.ts's variant coverage).
+describe('LineVariantSpec composer (#1605)', () => {
+  it('a null variant emits the default per-segment/layer-colour assign', () => {
+    const wgsl = emitLineWgsl(null, false)
+    expect(wgsl).toMatch(/line_color_out\s*=\s*base_color/)
+    expect(wgsl).not.toContain('__placeholder')
+  })
+
+  it('variant.strokeExpr replaces the placeholder, and the alpha multiply survives the swap', () => {
+    const variant: LineVariantSpec = {
+      preamble: null,
+      strokeExpr: vec4(f32(0.1), f32(0.2), f32(0.3), f32(0.4)),
+      strokePreamble: null,
+      needsFeatureBuffer: false,
+    }
+    const wgsl = emitLineWgsl(variant, false)
+    expect(wgsl).toMatch(/line_color_out\s*=\s*vec4<f32>\(0\.1,\s*0\.2,\s*0\.3,\s*0\.4\)/)
+    // The final return still multiplies alpha into line_color_out's alpha channel
+    // (emitted as `.w`) — the one correctness property most likely to silently
+    // regress across the swap.
+    expect(wgsl).toMatch(/line_color_out\.w\s*\*\s*alpha/)
+  })
+
+  it('variant.strokePreamble Stmts are emitted before the variant assign', () => {
+    const variant: LineVariantSpec = {
+      preamble: null,
+      strokeExpr: new Node<'vec4<f32>'>({ op: 'varref', type: vec4fT, name: '_stroke_tmp' }),
+      strokePreamble: [
+        {
+          s: 'var',
+          name: '_stroke_tmp',
+          type: vec4fT,
+          init: vec4(f32(0.5), f32(0.5), f32(0.5), f32(1)).expr,
+        },
+      ],
+      needsFeatureBuffer: false,
+    }
+    const wgsl = emitLineWgsl(variant, false)
+    expect(wgsl).toContain('var _stroke_tmp: vec4<f32> = vec4<f32>(0.5, 0.5, 0.5, 1.0)')
+    expect(wgsl).toMatch(/line_color_out\s*=\s*_stroke_tmp/)
+  })
+
+  it('all 3 fragment entries share ONE compute_line_color — the swap applies once, not thrice', () => {
+    const variant: LineVariantSpec = {
+      preamble: null,
+      strokeExpr: vec4(f32(0.9), f32(0.8), f32(0.7), f32(1)),
+      strokePreamble: null,
+      needsFeatureBuffer: false,
+    }
+    const wgsl = emitLineWgsl(variant, false)
+    const defs = (wgsl.match(/fn compute_line_color\(/g) ?? []).length
+    expect(defs).toBe(1)
+    const swapped = (wgsl.match(/vec4<f32>\(0\.9,\s*0\.8,\s*0\.7,\s*1\.0\)/g) ?? []).length
+    expect(swapped).toBe(1)
+  })
+
+  it('buildLineModule throws on needsFeatureBuffer (Phase 1b, not supported yet)', () => {
+    const variant: LineVariantSpec = {
+      preamble: null,
+      strokeExpr: vec4(f32(0), f32(0), f32(0), f32(1)),
+      strokePreamble: null,
+      needsFeatureBuffer: true,
+    }
+    expect(() => buildLineModule(variant, false)).toThrow(/needsFeatureBuffer/)
+  })
+
+  it('emitLineGlsl composes cleanly for all 3 fragment stages + vertex (no placeholder residue)', () => {
+    // Regression guard for the mandatory line-glsl.ts fix: re-invoking
+    // buildFsLine/etc fresh (instead of reusing buildLineModule's composed
+    // funcs) would leave the placeholder unswapped and break WebGL2 line
+    // rendering entirely, variant or not.
+    for (const stage of ['vertex', 'fragment', 'fragment-pattern', 'fragment-max'] as const) {
+      const glsl = emitLineGlsl(null, false, stage)
+      expect(glsl).not.toContain('__placeholder')
+    }
+    expect(emitLineGlsl(null, false, 'fragment')).toMatch(/line_color_out\s*=\s*base_color/)
   })
 })
 

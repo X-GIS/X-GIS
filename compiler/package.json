@@ -8,7 +8,8 @@
   "exports": {
     ".": "./src/index.ts",
     "./builder/twin-corpus": "./src/builder/twin-corpus.ts",
-    "./tiler/geodesic": "./src/tiler/geodesic.ts"
+    "./tiler/geodesic": "./src/tiler/geodesic.ts",
+    "./tiler/geometry-sphere": "./src/tiler/geometry-sphere.ts"
   },
   "scripts": {
     "build": "tsc --build",
@@ -18,6 +19,7 @@
     "@xgis/rhi": "workspace:*",
     "@xgis/shader-dsl": "workspace:*",
     "@xgis/shared": "workspace:*",
+    "earcut": "^3.0.2",
     "pbf": "^4.0.1"
   },
   "devDependencies": {

@@ -23,25 +23,15 @@ import {
   u32,
   abs,
   max,
-  min,
   clamp,
   select,
-  step,
   fwidth,
   length,
   mix,
   vec2,
-  vec2i,
   vec3,
   vec4,
-  toF32,
-  toI32,
-  toU32,
-  textureLoad,
-  textureDimensions,
   when,
-  Let,
-  Var,
   Switch,
   Discard,
   If,
@@ -50,19 +40,11 @@ import {
   vec2fT,
   vec3fT,
   vec4fT,
-  texture2dfT,
   type ModuleDecl,
+  type ReadonlyNode,
 } from '@xgis/shader-dsl'
-import { ioStruct, builtin, location, storageBuffer, resource } from '@xgis/shader-dsl'
-import { emitModule, emitGlslModule, stageOf } from '@xgis/shader-dsl'
-import { ARROW_DRIFT_UV, decodeArrowPos } from './arrow-advect-step'
-import {
-  S111_BAND_COUNT,
-  S111_BAND_PARAMS_ROW,
-  S111_BAND_STRIDE,
-  S111_PARAM_STATE_BASE,
-  S111_PARAM_UV_ASPECT,
-} from './s111-band-table-layout'
+import { ioStruct, builtin, location, storageBuffer } from '@xgis/shader-dsl'
+import { emitModule, emitGlslModule, emitGlslStages, stageOf } from '@xgis/shader-dsl'
 import {
   flat_rel,
   needs_backface_cull,
@@ -131,7 +113,53 @@ const project_geo = fn(
   },
 )
 
-const ArrowOut = ioStruct('ArrowRetainedOut', {
+/** The bounding quad's 6 vertices in unit-arrow space: `qx ∈ {−margin, 1+margin}` along,
+ *  `qy ∈ {−(HH+margin), HH+margin}` across.
+ *
+ *  `margin` is the per-instance outline stroke width (0 for every arrow that doesn't opt in — the
+ *  quad is then IDENTICAL to the un-outlined bounds, `{0,1}×{−HH,HH}`, so an existing caller's
+ *  rasterized area is byte-for-byte unchanged). A non-zero margin gives the FS room to shade the
+ *  stroke band past the fill silhouette: a pixel outside the un-enlarged quad is never shaded at
+ *  all — no fragment invocation happens there — so the stroke would clip off without it.
+ *
+ *  Shared by the static VS and the advected one. They differ in where the quad is PLACED, never in
+ *  what it is, and the outline geometry is exactly the kind of detail that drifts when it is
+ *  written twice. */
+export const arrowQuadOffset = (
+  vi: ReadonlyNode<'u32'>,
+  margin: ReadonlyNode<'f32'>,
+): { qx: ReturnType<typeof f32>; qy: ReturnType<typeof f32> } => {
+  const qx = f32(0)
+  const qy = f32(0)
+  const lo = () => {
+    qx.assign(f32(0).sub(margin))
+    qy.assign(f32(-HH).sub(margin))
+  }
+  const hi = () => {
+    qx.assign(f32(1).add(margin))
+    qy.assign(f32(HH).add(margin))
+  }
+  Switch(vi)
+    .case(0, lo)
+    .case(1, () => {
+      qx.assign(f32(0).sub(margin))
+      qy.assign(f32(HH).add(margin))
+    })
+    .case(2, hi)
+    .case(3, lo)
+    .case(4, hi)
+    .case(5, () => {
+      qx.assign(f32(1).add(margin))
+      qy.assign(f32(-HH).sub(margin))
+    })
+    .default(() => {
+      /* vi ∈ 0..5 */
+    })
+  return { qx, qy }
+}
+
+/** Shared with the advected module — the same silhouette, the same interpolants, one FS. */
+export const ArrowOut = ioStruct('ArrowRetainedOut', {
   position: builtin('position', vec4fT),
   loc: location(0, vec2fT),
   tint: location(1, vec4fT),
@@ -188,44 +216,8 @@ const vs = fn(
     const cc = dsx.div(dlen)
     const ss = dsy.div(dlen)
 
-    // ── bounding quad (6 verts) in unit-arrow space: qx∈{-margin,1+margin} along,
-    // qy∈{-(HH+margin),HH+margin} across. `margin` is the per-instance outline stroke width
-    // (0 for every arrow that doesn't opt in — the quad is then IDENTICAL to the un-outlined
-    // bounds, {0,1}×{-HH,HH}, so an existing caller's rasterized area is byte-for-byte
-    // unchanged). A non-zero margin gives the FS room to shade the stroke band past the fill
-    // silhouette (a pixel outside the un-enlarged quad is never shaded at all — no fragment
-    // invocation happens there — so the stroke would clip off without this). ──
     const margin = rd(F.stroke_units)
-    const qx = f32(0)
-    const qy = f32(0)
-    Switch(p.vi)
-      .case(0, () => {
-        qx.assign(f32(0).sub(margin))
-        qy.assign(f32(-HH).sub(margin))
-      })
-      .case(1, () => {
-        qx.assign(f32(0).sub(margin))
-        qy.assign(f32(HH).add(margin))
-      })
-      .case(2, () => {
-        qx.assign(f32(1).add(margin))
-        qy.assign(f32(HH).add(margin))
-      })
-      .case(3, () => {
-        qx.assign(f32(0).sub(margin))
-        qy.assign(f32(-HH).sub(margin))
-      })
-      .case(4, () => {
-        qx.assign(f32(1).add(margin))
-        qy.assign(f32(HH).add(margin))
-      })
-      .case(5, () => {
-        qx.assign(f32(1).add(margin))
-        qy.assign(f32(-HH).sub(margin))
-      })
-      .default(() => {
-        /* vi ∈ 0..5 */
-      })
+    const { qx, qy } = arrowQuadOffset(p.vi, margin)
 
     // Scale by length (px), orient by (cc, ss) around the tail (the geo anchor).
     const size = rd(F.size)
@@ -251,7 +243,7 @@ const vs = fn(
   { stage: 'vertex' },
 )
 
-const fs = fn(
+export const fs = fn(
   'fs_arrow_retained',
   { in: ArrowOut },
   (p) => {
@@ -286,238 +278,6 @@ const fs = fn(
   { stage: 'fragment', retAttr: '@location(0)' },
 )
 
-// ═══ ADVECTED variant (#1419) — the catalogue glyph IS the particle ═══════════════════════
-//
-// A SECOND MODULE, not a second entry in the one above and not a runtime flag. `module()`
-// declares bindings at MODULE level, so adding the state/velocity/band-table resources to the
-// static module would change the static shader's emitted text even though its VS body is
-// untouched — and "the `| arrow` path is byte-identical" would stop being assertable, which is
-// the property that makes this split worth having. The function OBJECTS (`project_geo`, `fs`,
-// `ArrowOut`, the projection ladder) are shared, so there is still exactly one definition of
-// each; only the module assembly differs.
-//
-// What the advected VS does that the static one does not:
-//   • reads WHERE this arrow is now (state_tex) and where it belongs (origin_tex), texel
-//     `instance_index` in both — the 1:1 contract arrow-advect-state.ts owns;
-//   • turns that displacement into a screen offset with TWO projected bases (the tip block is
-//     the grid-u anchor, the north block the grid-v one) rather than one — a single basis moves
-//     an arrow along a straight line, the closed-form drift #65 shipped and #70 reverted;
-//   • re-symbolizes from the field UNDER ITS CURRENT POSITION: bearing from (u, v), and colour
-//     + scale from the band table. An arrow that moves while keeping its launch colour is the
-//     failure that still looks like a working animation, so the colour is NOT taken from the
-//     tint buffer here — the advected module does not even bind one.
-const bandB = storageBuffer('band_data', f32T, { group: 1, binding: 1, access: 'read' })
-const stateTex = resource('state_tex', texture2dfT, { group: 1, binding: 2 })
-const originTex = resource('origin_tex', texture2dfT, { group: 1, binding: 3 })
-const flowUTex = resource('flow_u_tex', texture2dfT, { group: 1, binding: 4 })
-const flowVTex = resource('flow_v_tex', texture2dfT, { group: 1, binding: 5 })
-
-/** Fetch a texel by NORMALIZED coordinate, with no sampler. A vertex stage cannot call
- *  `textureSample` (no implicit derivatives), and the two things sampled here want point
- *  fetches anyway: the state/origin read must hit exactly one texel (it is an identity, not a
- *  measurement), and the velocity field is per-cell data whose band edges are the catalogue's
- *  own granularity. It also keeps every vertex-visible binding sampler-free, so the WebGL2
- *  sampler-follows-its-texture ordering rule has nothing to trip over. */
-const loadAtUv = (tex: Parameters<typeof textureDimensions>[0], uv: ReturnType<typeof vec2>) => {
-  const d = textureDimensions(tex)
-  const c = vec2i(toI32(uv.x.mul(toF32(d.x))), toI32(uv.y.mul(toF32(d.y))))
-  return textureLoad(tex, c, u32(0))
-}
-
-/** Read band row `b`'s slot from the uploaded catalogue table (s111-portrayal.ts). */
-const bandAt = (row: ReturnType<typeof u32>, slot: number) =>
-  bandB.node.at(row.mul(u32(S111_BAND_STRIDE)).add(slot), f32T)
-
-const vsAdvected = fn(
-  'vs_arrow_retained_advected',
-  {
-    inst: builtin('instance_index', u32T),
-    vi: builtin('vertex_index', u32T),
-  },
-  (p) => {
-    const rd = (slot: number) => featData.at(p.inst.mul(STRIDE).add(slot), f32T)
-
-    const absLon = rd(F.abs_lon)
-    const absLat = rd(F.abs_lat)
-    // `Let`, not a bare expression: the origin's clip position is read three times (the two
-    // bases and the final position), and the emitter does not CSE a function CALL — without
-    // this the whole projection ladder runs three times per vertex.
-    const originClip = Let(
-      project_geo({
-        ecefH: vec3(rd(F.ecef_x_h), rd(F.ecef_y_h), rd(F.ecef_z_h)),
-        ecefL: vec3(rd(F.ecef_x_l), rd(F.ecef_y_l), rd(F.ecef_z_l)),
-        absLon,
-        absLat,
-        mxH: rd(F.merc_x_h),
-        mxL: rd(F.merc_x_l),
-        myH: rd(F.merc_y_h),
-        myL: rd(F.merc_y_l),
-      }),
-    )
-    // The TIP block is the grid-u anchor here (arrow-retained-feat-layout.ts) — one leash
-    // length east along the grid, not a baked bearing.
-    const uStepClip = project_geo({
-      ecefH: vec3(rd(F.tip_ecef_x_h), rd(F.tip_ecef_y_h), rd(F.tip_ecef_z_h)),
-      ecefL: vec3(rd(F.tip_ecef_x_l), rd(F.tip_ecef_y_l), rd(F.tip_ecef_z_l)),
-      absLon: rd(F.tip_abs_lon),
-      absLat: rd(F.tip_abs_lat),
-      mxH: rd(F.tip_merc_x_h),
-      mxL: rd(F.tip_merc_x_l),
-      myH: rd(F.tip_merc_y_h),
-      myL: rd(F.tip_merc_y_l),
-    })
-    const vStepClip = project_geo({
-      ecefH: vec3(rd(F.north_ecef_x_h), rd(F.north_ecef_y_h), rd(F.north_ecef_z_h)),
-      ecefL: vec3(rd(F.north_ecef_x_l), rd(F.north_ecef_y_l), rd(F.north_ecef_z_l)),
-      absLon: rd(F.north_abs_lon),
-      absLat: rd(F.north_abs_lat),
-      mxH: rd(F.north_merc_x_h),
-      mxL: rd(F.north_merc_x_l),
-      myH: rd(F.north_merc_y_h),
-      myL: rd(F.north_merc_y_l),
-    })
-
-    // Clip → SCREEN px delta. Unlike the static VS — which needs only a DIRECTION, so its ×2
-    // NDC→px factor cancels — these are magnitudes the offset is built from, so the factor is
-    // spelled out: px = ndc · viewport / 2, with +y flipped (screen +y is down).
-    const vp = pointU.field.viewport
-    const ndcO = Let(originClip.swizzle('xy').div(originClip.w))
-    const pxDelta = (clip: ReturnType<typeof project_geo>) => {
-      const n = clip.swizzle('xy').div(clip.w)
-      return vec2(n.x.sub(ndcO.x).mul(vp.x).mul(0.5), n.y.sub(ndcO.y).neg().mul(vp.y).mul(0.5))
-    }
-    const basisU = pxDelta(uStepClip)
-    const basisV = pxDelta(vStepClip)
-
-    // Where this arrow is, and where it belongs — texel `base + instance_index` in both.
-    //
-    // The BASE is what makes a MOSAIC work (#1458). One state texture serves every resident
-    // region and each owns a contiguous range, so a batch's instance 0 is not texel 0. It was,
-    // once: every region indexed from 0, the last one armed owned every texel, and its siblings'
-    // arrows were leashed to origin cells belonging to another NOAA domain — reported as the
-    // field breaking up as soon as a second HDF5 came on screen.
-    const dim = textureDimensions(stateTex.node)
-    const idx = p.inst.add(toU32(bandAt(u32(S111_BAND_PARAMS_ROW), S111_PARAM_STATE_BASE)))
-    const texel = vec2i(toI32(idx.mod(dim.x)), toI32(idx.div(dim.x)))
-    const pos = decodeArrowPos({ c: textureLoad(stateTex.node, texel, u32(0)) })
-    const origin = decodeArrowPos({ c: textureLoad(originTex.node, texel, u32(0)) })
-    // In units of the packed basis: the anchors are ARROW_DRIFT_UV away and the advect step
-    // recycles past that, so this is bounded to [-1, 1] and the linearization never extrapolates.
-    const kx = pos.x.sub(origin.x).div(f32(ARROW_DRIFT_UV))
-    const ky = pos.y.sub(origin.y).div(f32(ARROW_DRIFT_UV))
-    const driftPx = vec2(
-      basisU.x.mul(kx).add(basisV.x.mul(ky)),
-      basisU.y.mul(kx).add(basisV.y.mul(ky)),
-    )
-
-    // The field UNDER the arrow, normalized to [-1, 1] (flow-field-pack.ts). Direction comes
-    // from the same two bases, so the glyph points along the current in SCREEN space under any
-    // camera without a single trig call: +v is northward, and grid-v runs southward, so the v
-    // basis carries −vv — the identical sign the advect step derives for its own step.
-    //
-    // `aspect` re-expresses the metric east/north components as UV RATES first. A uv unit is a
-    // different true distance on each axis (cell aspect × cos lat), so feeding the components
-    // to the bases raw would point the arrowhead at one angle while the advection moves the
-    // arrow at another — the same shear flow-advect-params.ts folds into its own step pair.
-    const vu = loadAtUv(flowUTex.node, pos).x
-    const vv = loadAtUv(flowVTex.node, pos).x
-    const aspect = bandAt(u32(S111_BAND_PARAMS_ROW), S111_PARAM_UV_ASPECT)
-    const dirX = basisU.x.mul(vu).sub(basisV.x.mul(vv).mul(aspect))
-    const dirY = basisU.y.mul(vu).sub(basisV.y.mul(vv).mul(aspect))
-    const dlen = max(length(vec2(dirX, dirY)), f32(1e-6))
-    const cc = dirX.div(dlen)
-    const ss = dirY.div(dlen)
-
-    // The catalogue rule, looked up rather than restated: the table's edges and its affine
-    // scale pair are uploaded in these same normalized units (s111-portrayal.ts), so nothing
-    // here knows a threshold, a colour or a knot.
-    const speed = length(vec2(vu, vv))
-    const band = Var(u32(0))
-    for (let b = 0; b < S111_BAND_COUNT; b++) {
-      band.assign(select(speed.lt(bandAt(u32(b), 0)), band, u32(b + 1)))
-    }
-    const row = min(band, u32(S111_BAND_COUNT - 1))
-    const scale = bandAt(row, 1).add(bandAt(row, 2).mul(speed))
-    const tint = vec4(bandAt(row, 4), bandAt(row, 5), bandAt(row, 6), bandAt(row, 7))
-
-    // THE PERSPECTIVE GUARD. Both bases are perspective divides by a DIFFERENT anchor's w, and
-    // those anchors sit one leash length away — most of a degree on a regional cell. Lower the
-    // camera pitch and an anchor crosses behind the eye plane: w passes through zero, the divide
-    // explodes, and the arrow is flung off screen (reported as "the particles fly off into
-    // space"). The static path never sees this — it takes only a DIRECTION from its delta, and
-    // its tip step is 0.02°. This VS is the only one that uses a projected delta as a MAGNITUDE.
-    //
-    // An arrow whose basis cannot be computed is NOT DRAWN. That is the honest outcome: its
-    // position is unknown this frame, so no position is claimed for it. It returns as soon as
-    // its anchors are in front of the camera again.
-    const minW = min(originClip.w, min(uStepClip.w, vStepClip.w))
-
-    // main.xsl note (4): no symbol for speed 0 or noData — and a packed nodata cell is exactly
-    // (0, 0). A zero length collapses the quad, so the arrow is not drawn at all rather than
-    // drawn at some floor size in water that has no current.
-    const size = rd(F.size)
-      .mul(scale)
-      .mul(step(f32(1e-6), speed))
-      .mul(step(f32(1e-6), minW))
-
-    const margin = rd(F.stroke_units)
-    const qx = f32(0)
-    const qy = f32(0)
-    Switch(p.vi)
-      .case(0, () => {
-        qx.assign(f32(0).sub(margin))
-        qy.assign(f32(-HH).sub(margin))
-      })
-      .case(1, () => {
-        qx.assign(f32(0).sub(margin))
-        qy.assign(f32(HH).add(margin))
-      })
-      .case(2, () => {
-        qx.assign(f32(1).add(margin))
-        qy.assign(f32(HH).add(margin))
-      })
-      .case(3, () => {
-        qx.assign(f32(0).sub(margin))
-        qy.assign(f32(-HH).sub(margin))
-      })
-      .case(4, () => {
-        qx.assign(f32(1).add(margin))
-        qy.assign(f32(HH).add(margin))
-      })
-      .case(5, () => {
-        qx.assign(f32(1).add(margin))
-        qy.assign(f32(-HH).sub(margin))
-      })
-      .default(() => {
-        /* vi ∈ 0..5 */
-      })
-
-    const lx = qx.mul(size)
-    const ly = qy.mul(size)
-    // The drift is gated by the SAME guard: `size` collapses the quad, but the displacement is
-    // added to the anchor independently, so an unguarded drift would still carry a zero-area
-    // quad to a garbage position.
-    const live = step(f32(1e-6), minW)
-    const rx = lx.mul(cc).sub(ly.mul(ss)).add(driftPx.x.mul(live))
-    const ry = lx.mul(ss).add(ly.mul(cc)).add(driftPx.y.mul(live))
-    const offNdc = vec2(rx.mul(f32(2).div(vp.x)), ry.neg().mul(f32(2).div(vp.y)))
-    const clip = originClip.add(vec4(offNdc.mul(originClip.w), 0, 0))
-
-    const o = ArrowOut.var()
-    o.position.assign(clip)
-    o.loc.assign(vec2(qx, qy))
-    o.tint.assign(tint)
-    // Culled against the ORIGIN's normal, not the drifted position: the excursion is bounded to
-    // a few percent of one coverage cell's footprint, far inside the horizon's own slack.
-    o.cos_c.assign(
-      needs_backface_cull(absLon, absLat, pointU.field.proj_params, pointU.field.globe_eye),
-    )
-    o.stroke_units.assign(margin)
-    return o.$
-  },
-  { stage: 'vertex' },
-)
-
 export const buildArrowRetainedModule = (): ModuleDecl =>
   module({
     consts: [...PROJECTION_CONSTS],
@@ -545,38 +305,13 @@ export const emitArrowRetainedGlsl = (stage: 'vertex' | 'fragment'): string => {
   )
 }
 
-/** The ADVECTED module (#1419) — same projection ladder, same fragment stage, same output
- *  struct; a different VS and the resources it needs. No tint buffer: the colour is the band
- *  the arrow is standing in, not the one it launched with. */
-export const buildArrowRetainedAdvectedModule = (): ModuleDecl =>
-  module({
-    consts: [...PROJECTION_CONSTS],
-    structs: [pointU.struct, ArrowOut.decl],
-    bindings: [
-      pointU.binding,
-      featB.binding,
-      bandB.binding,
-      stateTex.binding,
-      originTex.binding,
-      flowUTex.binding,
-      flowVTex.binding,
-    ],
-    funcs: [...getGpuProjectionFuncs(), project_geo, decodeArrowPos, vsAdvected, fs],
+/** Both GLSL stages from ONE lowering (see emitGlslStages). The per-stage twin above
+ *  prunes the module before each emit, so it lowers + runs the optimizer fixpoint twice;
+ *  naming the entries instead shares it. Byte-identical to two calls of the per-stage
+ *  form — pinned by map/src/render/material/glsl-stage-entry-parity.test.ts. */
+export const emitArrowRetainedGlslStages = (): { vertex: string; fragment: string } =>
+  emitGlslStages(buildArrowRetainedModule(), {
+    vertexEntry: 'vs_arrow_retained',
+    fragmentEntry: 'fs_arrow_retained',
+    emulateStorage: true,
   })
-
-export const emitArrowRetainedAdvectedWgsl = (): string =>
-  emitModule(buildArrowRetainedAdvectedModule())
-
-/** GLSL ES 3.00 twin of the advected module. `emulateStorage` lowers feat + band table to R32F
- *  data textures exactly as the static path does; the state/origin/velocity textures are real
- *  textures on both arms and are read with `texelFetch`, which needs no sampler and so needs no
- *  vertex-visible sampler either. */
-export const emitArrowRetainedAdvectedGlsl = (stage: 'vertex' | 'fragment'): string => {
-  const m = buildArrowRetainedAdvectedModule()
-  const keep = stage === 'vertex' ? 'vs_arrow_retained_advected' : 'fs_arrow_retained'
-  return emitGlslModule(
-    { ...m, funcs: m.funcs.filter((f) => stageOf(f) === undefined || f.name === keep) },
-    stage,
-    { emulateStorage: true },
-  )
-}

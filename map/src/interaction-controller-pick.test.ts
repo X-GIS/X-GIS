@@ -4,6 +4,9 @@
 // unit-testable with stub deps.
 
 import { describe, it, expect } from 'vitest'
+import { readFileSync } from 'node:fs'
+import { join, dirname } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import {
   InteractionController,
   cssToDevicePixel,
@@ -35,6 +38,59 @@ describe('cssToDevicePixel (Audit ⑩ B2 — DPR pick-coord rounding)', () => {
     expect(cssToDevicePixel(-0.1, 100, 200)).toBe(-1)
     expect(cssToDevicePixel(100, 100, 200)).toBe(-1) // == rectSpan → outside
     expect(cssToDevicePixel(150, 100, 200)).toBe(-1)
+  })
+
+  // #1429 INC-2 — the adaptive ladder can hold the pick RT (a scene-pass
+  // attachment) BELOW the canvas. The conversion's span comes from the pick
+  // TEXTURE itself, so a scaled texture maps proportionally: the same CSS
+  // point must land on the scene texel, not the canvas texel.
+  it('scaled pick RT (scene < canvas): maps into the TEXTURE span, byte-identical at scale 1', () => {
+    // 800-CSS rect, 576-px scene texture (scale 0.72): centre CSS px 400
+    // lands at floor(400.5 × 576/800) = floor(288.36) = 288 — the scene
+    // texel. Converting against the 800-px canvas would give 400: reading
+    // texel 400 of a 576-wide texture is the off-by-a-fraction the design
+    // names (§4) — silent wrong-feature picks on exactly the slow hosts
+    // the ladder serves.
+    expect(cssToDevicePixel(400, 800, 576)).toBe(288)
+    expect(cssToDevicePixel(400, 800, 800)).toBe(400) // scale 1: unchanged
+    // High edge stays inside the scaled texture.
+    expect(cssToDevicePixel(799.9, 800, 576)).toBe(575)
+  })
+
+  it('pickAt derives its span from the pick TEXTURE, not the canvas (#1429 wiring pin)', () => {
+    // Source-text pin (the label-pass-replay precedent): the call sites must
+    // read the pick texture's own size — surfaced by its owner as
+    // `getPickTextureSize` since the RhiTexture retype (#1046 F4 Inc-D; the
+    // opaque handle has no `.width`). A revert to canvas.width would compile
+    // and pass every math case above — this anchor is what fails it.
+    const src = readFileSync(
+      join(dirname(fileURLToPath(import.meta.url)), 'interaction-controller.ts'),
+      'utf8',
+    )
+    expect(src).toContain('cssToDevicePixel(clientX - rect.left, rect.width, pickSize.width)')
+    expect(src).toContain('cssToDevicePixel(clientY - rect.top, rect.height, pickSize.height)')
+    // The ONE canvas-span conversion that remains is the sync-readback arm:
+    // its on-demand offscreen pick RT is allocated at `_lastFramePickParams`'
+    // `w`/`h`, which render-loop.ts sets from `canvas.width`/`canvas.height`
+    // directly — independent of the scene-scale ladder that sizes the main
+    // scene target — so canvas.width is that RT's span. It must sit INSIDE
+    // the sync-readback branch, above the WebGPU path's texture-span pair; a
+    // second canvas-span conversion — a WebGPU-arm revert — fails here.
+    const canvasSpanUses =
+      src.split('cssToDevicePixel(clientX - rect.left, rect.width, canvas.width)').length - 1
+    expect(canvasSpanUses).toBe(1)
+    // The sync-readback arm — asked as the CAPABILITY minted for that decision
+    // since #1046 Inc-F, not the backend's identity.
+    const syncArm = src.indexOf("ctx.rhi?.caps.pickReadback === 'sync'")
+    const canvasConv = src.indexOf(
+      'cssToDevicePixel(clientX - rect.left, rect.width, canvas.width)',
+    )
+    const textureConv = src.indexOf(
+      'cssToDevicePixel(clientX - rect.left, rect.width, pickSize.width)',
+    )
+    expect(syncArm).toBeGreaterThan(-1)
+    expect(canvasConv).toBeGreaterThan(syncArm)
+    expect(textureConv).toBeGreaterThan(canvasConv)
   })
 
   it('returns -1 for NaN / degenerate rect', () => {

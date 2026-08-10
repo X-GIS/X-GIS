@@ -67,4 +67,11 @@ export const DEMOS_LINES: Record<string, Demo> = {
       'LineString crossing 180° authored with >180 longitudes (MapLibre antimeridian-line mechanism). Great-circle subdivision stays monotone so the world-copy continuation renders instead of a seam streak. (#1192 example / #1221 fix.)',
     source: load('line-antimeridian.xgis'),
   },
+  long_chords: {
+    name: 'Long-Chord Parallels',
+    tag: 'line',
+    description:
+      'Parallels with along-path labels; local stand-in for the demotiles geolines pair (#1495).',
+    source: load('long-chords.xgis'),
+  },
 }

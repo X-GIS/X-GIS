@@ -2,6 +2,7 @@
 // Converts parsed AST into the intermediate representation (Scene).
 
 import type * as AST from '../parser/ast'
+import { lowerSymbol } from './symbol-elements'
 import { resolveColor } from '../tokens/colors'
 import type { LowerOptions } from './lower-types'
 import { lowerLabelProps } from './lower-label'
@@ -9,7 +10,14 @@ import { resolveCoveragePaint } from './lower-coverage-paint'
 import { expandKeyframeTimeStops } from './lower-animation'
 import { dispatch, type LayerAccumulator, type BindingCtx } from './lower-bindings'
 import { MODIFIER_HANDLERS, BINDING_HANDLERS, UTILITY_HANDLERS } from './lower-bindings-registry'
-import { validateFnCalls } from './validate-fncalls'
+import { runFrontPasses } from './front-passes'
+import {
+  expandPresets,
+  resolveStylePreset,
+  presetRefName,
+  type PresetDef,
+  type PresetCall,
+} from './preset-expand'
 import { isKnownUtility, suggestUtility } from './utility-registry'
 import { UNKNOWN_UTILITY } from '../diagnostics/diagnostic'
 // Re-export public types so importers of './lower' keep their surface.
@@ -33,10 +41,6 @@ import {
   type ShapeRef,
 } from './render-node'
 
-/** A lowered preset: its `|` utility lines (inlined by expandPresets) + block properties
- *  (coverage paint `ramp:`/`range:`, merged onto a `style:`-referencing layer — #1272 E-②). */
-type PresetDef = { utilities: AST.UtilityLine[]; properties: AST.BlockProperty[] }
-
 /**
  * Lower an AST Program into an IR Scene.
  */
@@ -45,11 +49,9 @@ export function lower(program: AST.Program, options: LowerOptions = {}): Scene {
   const renderNodes: RenderNode[] = []
   const symbols: import('./render-node').SymbolDef[] = []
   const diagnostics: import('./render-node').Diagnostic[] = []
-  // #1066 — reject unknown function callees (typos like `sqrrt(.x)`) as
-  // X-GIS0012 errors before they reach the evaluator's callBuiltin. Runs
-  // over the whole parsed program up front; independent of the lowering
-  // loops below (it only reads `program`).
-  validateFnCalls(program, diagnostics)
+  // Whole-program checks + rewrites (ordering rationale: front-passes.ts).
+  const front = runFrontPasses(program, diagnostics)
+  program = front.program
   const sourceMap = new Map<string, SourceDef>()
   const presetMap = new Map<string, PresetDef>()
   const keyframesMap = new Map<string, AST.KeyframesStatement>()
@@ -60,13 +62,14 @@ export function lower(program: AST.Program, options: LowerOptions = {}): Scene {
   // order in the source file.
   for (const stmt of program.body) {
     if (stmt.kind === 'PresetStatement') {
-      presetMap.set(stmt.name, { utilities: stmt.utilities, properties: stmt.properties })
+      presetMap.set(stmt.name, {
+        utilities: stmt.utilities,
+        properties: stmt.properties,
+        params: stmt.params,
+      })
     } else if (stmt.kind === 'SymbolStatement') {
-      const paths: string[] = []
-      for (const el of stmt.elements) {
-        if (el.kind === 'path') paths.push(el.data)
-      }
-      if (paths.length > 0) symbols.push({ name: stmt.name, paths })
+      const sym = lowerSymbol(stmt, diagnostics)
+      if (sym) symbols.push(sym)
     } else if (stmt.kind === 'KeyframesStatement') {
       keyframesMap.set(stmt.name, stmt)
     }
@@ -100,7 +103,7 @@ export function lower(program: AST.Program, options: LowerOptions = {}): Scene {
     }
   }
 
-  return { sources, renderNodes, symbols, diagnostics }
+  return { sources, renderNodes, symbols, diagnostics, inputs: front.inputs }
 }
 
 // ═══ New syntax lowering ═══
@@ -128,6 +131,8 @@ function lowerSource(
   let greenFactor: number | undefined
   let blueFactor: number | undefined
   let baseShift: number | undefined
+  let srcMaxzoom: number | undefined
+  let srcMinzoom: number | undefined
 
   for (const prop of stmt.properties) {
     if (prop.name === 'type') {
@@ -197,6 +202,12 @@ function lowerSource(
       greenFactor = prop.value.value
     } else if (prop.name === 'blueFactor' && prop.value.kind === 'NumberLiteral') {
       blueFactor = prop.value.value
+    } else if (prop.name === 'maxzoom' && prop.value.kind === 'NumberLiteral') {
+      // SOURCE-level, not the layer gate: the dataset's deepest real level. The selector
+      // clamps to it so it never asks for a tile that cannot exist (see SourceDef).
+      srcMaxzoom = prop.value.value
+    } else if (prop.name === 'minzoom' && prop.value.kind === 'NumberLiteral') {
+      srcMinzoom = prop.value.value
     } else if (prop.name === 'baseShift' && prop.value.kind === 'NumberLiteral') {
       baseShift = prop.value.value
     } else {
@@ -264,6 +275,8 @@ function lowerSource(
     greenFactor,
     blueFactor,
     baseShift,
+    maxzoom: srcMaxzoom,
+    minzoom: srcMinzoom,
   }
 }
 
@@ -328,7 +341,7 @@ function lowerLayer(
   let zOrder = 0
   let minzoom: number | undefined
   let maxzoom: number | undefined
-  let styleRef = ''
+  let styleCall: PresetCall | undefined
   let filterExpr: import('../parser/ast').Expr | null = null
   let geometryExpr: import('../parser/ast').Expr | null = null
   let extrude: import('./render-node').ExtrudeValue = { kind: 'none' }
@@ -339,10 +352,9 @@ function lowerLayer(
   // ShowCommand → the coverage-ramp arm; undefined on every non-coverage layer.
   let ramp: string | undefined
   let range: readonly [number, number] | undefined
-  // Per-feature text label + all `label-*` / `label-icon-*` visual
-  // knobs are resolved by `lowerLabelProps` (lower-label.ts) in a
-  // separate utility-loop pass; the label accumulators no longer live
-  // here. See lower-label.ts header for the disjointness invariant.
+  // Per-feature text label + all `label-*` / `label-icon-*` visual knobs are resolved by
+  // `lowerLabelProps` (lower-label.ts) in a separate utility-loop pass; the label accumulators
+  // no longer live here. See lower-label.ts header for the disjointness invariant.
 
   for (const prop of stmt.properties) {
     if (prop.name === 'source' && prop.value.kind === 'Identifier') {
@@ -356,20 +368,23 @@ function lowerLayer(
     } else if (prop.name === 'z-order' && prop.value.kind === 'NumberLiteral') {
       zOrder = prop.value.value
     } else if (prop.name === 'minzoom' && prop.value.kind === 'NumberLiteral') {
-      // Mapbox `layer.minzoom` — layer is invisible BELOW this zoom.
-      // Critical for low-zoom views: without enforcement, place
-      // sub-layers (label_city minz=3, label_state minz=5, label_town
-      // minz=6, label_village minz=9, label_other minz=8, all POIs
-      // minz=15+) all render at z=1 simultaneously, piling every
-      // OMT feature on the screen and turning the antimeridian view
-      // into a stack of all-world labels. The runtime gates per-frame
-      // visibility on `(camera.zoom >= minzoom) && (camera.zoom <
-      // maxzoom)` via the show command.
+      // Mapbox `layer.minzoom` — layer is invisible BELOW this zoom. Critical for low-zoom
+      // views: without enforcement, place sub-layers (label_city minz=3, label_state minz=5,
+      // label_town minz=6, label_village minz=9, label_other minz=8, all POIs minz=15+) all
+      // render at z=1 simultaneously, piling every OMT feature on the screen and turning the
+      // antimeridian view into a stack of all-world labels. The runtime gates per-frame
+      // visibility on `(camera.zoom >= minzoom) && (camera.zoom < maxzoom)` via the show command.
       minzoom = prop.value.value
     } else if (prop.name === 'maxzoom' && prop.value.kind === 'NumberLiteral') {
       maxzoom = prop.value.value
-    } else if (prop.name === 'style' && prop.value.kind === 'Identifier') {
-      styleRef = prop.value.name
+    } else if (prop.name === 'style' && prop.value.kind !== 'FnCall') {
+      // Bare or namespaced preset ref: `style: glow` / `style: ns.glow` (#1606).
+      const name = presetRefName(prop.value)
+      if (name) styleCall = { name, line: prop.line }
+    } else if (prop.name === 'style' && prop.value.kind === 'FnCall') {
+      // Call-form, bare or namespaced: `style: glow(#f59e0b, 4)` (#1536, #1606).
+      const name = presetRefName(prop.value.callee)
+      if (name) styleCall = { name, args: prop.value.args, line: prop.line }
     } else if (prop.name === 'filter') {
       filterExpr = prop.value
     } else if (prop.name === 'geometry') {
@@ -399,9 +414,12 @@ function lowerLayer(
 
   // #1272 E-②: a `style:`-referenced preset can carry the coverage portrayal
   // (`ramp:`/`range:`); the layer's own paint wins, the preset fills the rest.
+  // A call-form reference (`style: p(13)`) is instantiated first, so its
+  // arguments reach the ramp/range values (#1536).
+  const styleInst = resolveStylePreset(presetMap, styleCall, diagnostics)
   ;({ ramp, range } = resolveCoveragePaint(
-    styleRef,
-    presetMap.get(styleRef)?.properties,
+    styleCall?.name ?? '',
+    styleInst?.properties,
     { ramp, range },
     stmt.name,
   ))
@@ -439,7 +457,12 @@ function lowerLayer(
   // inline `apply-<name>` items both inline that preset's utility
   // lines (the merged style/preset construct). `style:` lands first,
   // so it is the lowest-priority base that layer utilities override.
-  const expandedUtilities = expandPresets(stmt.utilities, presetMap, styleRef)
+  const expandedUtilities = expandPresets(
+    stmt.utilities,
+    presetMap,
+    diagnostics,
+    styleInst?.utilities,
+  )
 
   // Process utility lines
   let fill: ColorValue = colorNone()
@@ -917,6 +940,11 @@ function lowerLayer(
   strokeTranslateXShape = acc.strokeTranslateXShape
   strokeTranslateYShape = acc.strokeTranslateYShape
   strokeColor = acc.strokeColor
+  // #1538 — a stage block WINS over utility paint (explicit escape hatch).
+  for (const st of stmt.stages ?? []) {
+    if (st.stage === 'color') fill = { kind: 'stage', expr: { ast: st.body } }
+    else strokeColor = { kind: 'stage', expr: { ast: st.body } }
+  }
   strokeWidth = acc.strokeWidth
   strokeWidthExpr = acc.strokeWidthExpr
   strokeColorExpr = acc.strokeColorExpr
@@ -1417,47 +1445,4 @@ function applyStyleProperties(
         ? pattern
         : undefined,
   }
-}
-
-/**
- * Expand preset references by inlining the preset's utility lines.
- * A leading `style: <name>` reference (styleRef) is inlined first as
- * the lowest-priority base, then each `apply-<name>` item inline in
- * declaration order; the layer's own items come after (override).
- */
-function expandPresets(
-  utilities: AST.UtilityLine[],
-  presetMap: Map<string, PresetDef>,
-  styleRef?: string,
-): AST.UtilityLine[] {
-  const result: AST.UtilityLine[] = []
-
-  // `style: <name>` — the single-preset base, inlined ahead of everything.
-  if (styleRef) {
-    const base = presetMap.get(styleRef)
-    if (base) result.push(...base.utilities)
-  }
-
-  for (const line of utilities) {
-    const expandedItems: AST.UtilityItem[] = []
-
-    for (const item of line.items) {
-      if (item.name.startsWith('apply-') && !item.modifier) {
-        const presetName = item.name.slice(6)
-        const preset = presetMap.get(presetName)
-        if (preset) {
-          // Inline preset lines before current line's remaining items
-          result.push(...preset.utilities)
-        }
-      } else {
-        expandedItems.push(item)
-      }
-    }
-
-    if (expandedItems.length > 0) {
-      result.push({ kind: 'UtilityLine', items: expandedItems, line: line.line })
-    }
-  }
-
-  return result
 }

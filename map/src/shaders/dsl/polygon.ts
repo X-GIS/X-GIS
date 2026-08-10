@@ -1,25 +1,24 @@
 // ═══ Shader DSL — polygon shader (Phase 2.5 US-007b) ═══
 //
-// Re-authors render/renderer-shaders.ts POLYGON_SHADER_SOURCE (826 LOC).
-// The polygon shader is the variant-codegen-heavy fill / stroke / extrude
-// pipeline: 1 Uniforms struct (272 bytes; reused by stroke + extrude paths
-// via field aliasing), 3 fixed bindings (u, sprite_atlas, sprite_samp),
-// 3 vertex entries (vs_main / vs_main_ecef / vs_main_ecef_extruded)
-// and 6 fragment entries (fs_fill / fs_fill_pattern / fs_oit_translucent /
-// fs_fill_extrude / fs_stroke / fs_overdraw).
+// Re-authors render/renderer-shaders.ts POLYGON_SHADER_SOURCE (826 LOC). The
+// polygon shader is the variant-codegen-heavy fill / stroke / extrude pipeline:
+// 1 Uniforms struct (reused by stroke + extrude paths via field aliasing), 3
+// fixed bindings (u, sprite_atlas, sprite_samp), 3 vertex entries (vs_main /
+// vs_main_ecef / vs_main_ecef_extruded) and 6 fragment entries (fs_fill /
+// fs_fill_pattern / fs_oit_translucent / fs_fill_extrude / fs_stroke /
+// fs_overdraw).
 //
 // Pattern: emitPolygonWgsl(variant, pickEnabled) MERGES the shared projection +
 // log-depth dependency decls (PROJECTION_CONSTS + getGpuProjectionFuncs() +
-// apply_log_depth/compute_log_frag_depth) into the polygon ModuleDecl and emits it as
-// ONE module — no string prepend (the old WGSL_PROJECTION_CONSTS/FNS + LOG_DEPTH string
-// concat). The variant's preamble + fill/stroke exprs compose on top. fs_fill / fs_stroke contain
-// placeholder Stmts (tags 'fill-return' / 'stroke-return') that the composer
-// swaps with `[...preamble, return expr]` when the variant injects custom
-// fill/stroke logic; bare placeholders survive as `// __placeholder: ...`
-// comments per US-007a's defensive design.
-//
-// `pickEnabled` toggles the pick attachment field + writes (replaces the
-// old __PICK_FIELD__ / __PICK_WRITE__ regex markers in POLYGON_SHADER_SOURCE).
+// apply_log_depth/compute_log_frag_depth) into the polygon ModuleDecl and emits
+// it as ONE module — no string prepend (the old WGSL_PROJECTION_CONSTS/FNS +
+// LOG_DEPTH string concat). The variant's preamble + fill/stroke exprs compose
+// on top. fs_fill / fs_stroke contain placeholder Stmts (tags 'fill-return' /
+// 'stroke-return') that the composer swaps with `[...preamble, return expr]`
+// when the variant injects custom fill/stroke logic; bare placeholders survive
+// as `// __placeholder: ...` comments per US-007a's defensive design.
+// `pickEnabled` toggles the pick attachment field + writes (replaces the old
+// __PICK_FIELD__ / __PICK_WRITE__ regex markers in POLYGON_SHADER_SOURCE).
 
 import {
   fn,
@@ -75,7 +74,14 @@ import {
   type BindingDecl,
 } from '@xgis/shader-dsl'
 import { ioStruct, builtin, location, uniformStruct, resource } from '@xgis/shader-dsl'
-import { emitModule, emitGlslModule, emitFunc, composeModule, stageOf } from '@xgis/shader-dsl'
+import {
+  emitModule,
+  emitGlslModule,
+  emitGlslStages,
+  emitFunc,
+  composeModule,
+  stageOf,
+} from '@xgis/shader-dsl'
 import {
   project,
   flat_rel,
@@ -90,21 +96,20 @@ import { PI, EARTH_R, MERCATOR_LAT_LIMIT, DEG2RAD } from './consts'
 
 // ── Struct declarations ──
 //
-// Field order + names match POLYGON_SHADER_SOURCE byte-for-byte; the 272-byte
-// uniform layout (reflect-derived — polygonUniformSlots(), never hardcoded) is
-// consumed by every polygon variant + by every per-tile
-// uniform writeBuffer caller in renderer.ts / vector-tile-renderer.ts, so any
-// reordering would silently mis-bind the GPU read.
+// Field order + names match POLYGON_SHADER_SOURCE byte-for-byte; the uniform
+// layout (reflect-derived — polygonUniformSlots(), never hardcoded) is consumed
+// by every polygon variant + every per-tile uniform writeBuffer caller in
+// renderer.ts / vector-tile-renderer.ts, so any reordering silently mis-binds.
 
 const U = uniformStruct(
   'Uniforms',
   { group: 0, binding: 0, as: 'u' },
   {
-    // Phase 2 PR 2d.5 closeout: legacy Mercator-RTC `mvp` retired — `mvp`
-    // now holds the ECEF-MVP from Camera.getECEFFrameView() (was previously
-    // the second slot `mvp_ecef`). Every polygon VS consumes ECEF; the dual
-    // slot is gone (that removal shrank the struct; later fields re-grew it to
-    // its current 272 bytes — reflect-derived via polygonUniformSlots()).
+    // Phase 2 PR 2d.5 closeout: legacy Mercator-RTC `mvp` retired — `mvp` now
+    // holds the ECEF-MVP from Camera.getECEFFrameView() (was the second slot
+    // `mvp_ecef`). Every polygon VS consumes ECEF; the dual slot is gone (that
+    // removal shrank the struct; later fields re-grew it — size is always
+    // reflect-derived via polygonUniformSlots(), never a literal here).
     mvp: mat4x4fT,
     fill_color: vec4fT,
     stroke_color: vec4fT,
@@ -124,52 +129,67 @@ const U = uniformStruct(
     fill_translate_x: f32T,
     fill_translate_y: f32T,
     // Phase 2 PR 2f — per-tile quantized-position dequant. The VS decodes
-    // ecef_rtc per axis as `q = f32(hi)*65536 + f32(lo);
-    // axis = q*tile_dequant_scale - tile_dequant_half`. Written per tile
-    // alongside cam_h/tile_origin_merc in vector-tile-renderer.
+    // ecef_rtc per axis as `q = f32(hi)*65536 + f32(lo); axis =
+    // q*tile_dequant_scale - tile_dequant_half`. Written per tile alongside
+    // cam_h/tile_origin_merc in vector-tile-renderer.
     tile_dequant_scale: f32T,
     tile_dequant_half: f32T,
     // WS-9 — fill-extrusion light colour packed RGBA8 (offset 200, slot 50).
-    // These two u32 lanes exactly fill the 8-byte pad WGSL otherwise inserts
-    // here to 16-align the cam_ecef_off_h vec4 below, so adding them kept the
-    // struct at 256 at the time (#600 globe_eye later grew it to today's 272).
-    // The extrude VS unpacks light_color_packed + reads intensity from
-    // light_dir_ecef.w; every other polygon variant ignores light_color_packed.
+    // These two u32 lanes exactly fill the 8-byte pad WGSL otherwise inserts to
+    // 16-align the cam_ecef_off_h vec4 below, so adding them kept the struct at
+    // 256 at the time (#600 globe_eye later grew it). The extrude VS unpacks
+    // light_color_packed + reads intensity from light_dir_ecef.w; every other
+    // polygon variant ignores light_color_packed.
     light_color_packed: u32T,
     // #1154 — fill-PATTERN gate (1 = this fill draw is a sprite pattern, 0 = a
     // normal fill). fs_fill_pattern reuses the fill_translate_x/y slots for the
     // world-anchored pattern repeat in Mercator metres; the VS otherwise reads
     // those SAME slots as the Mapbox fill-translate NDC offset and shifts the
-    // vertex by clip += fill_translate·clip.w. With a pattern active that repeat
-    // (hundreds of thousands of metres) flings every vertex off-screen, so the
-    // fill drew NOTHING (blank pattern). This flag gates the VS fill-translate
-    // off when a pattern owns the slots. Was the `_pad_light_align` std140 pad
-    // (same u32 lane), now a real written field. Written per fill draw by the VTR.
+    // vertex by clip += fill_translate·clip.w, so with a pattern active that
+    // repeat (hundreds of thousands of metres) flung every vertex off-screen
+    // and the fill drew NOTHING (blank pattern). This flag gates the VS
+    // fill-translate off when a pattern owns the slots. Was the
+    // `_pad_light_align` std140 pad. Written per fill draw by the VTR.
     pattern_active: u32T,
     // Camera-relative RTC re-centering (ECEF), DSFUN hi/lo. dequant yields
     // ecef_rtc = vertex − tileEcefCenter, but getECEFFrameView's MVP is
     // camera-at-ENU-origin (no cameraCenter translate), so the VS must feed
     // vertex − cameraCenter. off = tileEcefCenter − cameraCenter, split hi/lo;
-    // ecef_rtc + off = vertex − cameraCenter. Without it every tile collapses
-    // to the camera origin (verified by _ecef-render-position). The ECEF
-    // analogue of line.ts's cam_h/cam_l.
+    // ecef_rtc + off = vertex − cameraCenter. Without it every tile collapses to
+    // the camera origin (verified by _ecef-render-position). The ECEF analogue
+    // of line.ts's cam_h/cam_l.
     cam_ecef_off_h: vec4fT,
     cam_ecef_off_l: vec4fT,
     // #420 — fill-extrusion directional light in ECEF (.xyz; .w spare). The
     // extrude VS dots it against the per-vertex ECEF face_normal, so it must
-    // share that frame. The raw MapLibre light (0.288,-0.498,0.996) is a
-    // tile/viewport-frame constant; dotting it against an ECEF normal gave
-    // arbitrary per-face brightness. The CPU packs it as (East,North,Up)
-    // rotated by the camera-anchor ENU→ECEF basis (vector-tile-renderer),
-    // matching polygon-mesh.ts's normal basis.
+    // share that frame: the raw MapLibre light (0.288,-0.498,0.996) is a
+    // tile/viewport-frame constant and dotting it against an ECEF normal gave
+    // arbitrary per-face brightness. The CPU packs it as (East,North,Up) rotated
+    // by the camera-anchor ENU→ECEF basis (vector-tile-renderer), matching
+    // polygon-mesh.ts's normal basis.
     light_dir_ecef: vec4fT,
     // #600 — globe(7) eye-horizon cull. xyz = normalize(eye_ecef), w =
     // EARTH_R/|eye_ecef| (= horizonCos). polygon_cos_c_fragment passes this to
     // needs_backface_cull, whose globe arm keeps a fragment iff
     // dot(normalize(P_ecef), globe_eye.xyz) > globe_eye.w. Written per frame by
     // vector-tile-renderer / renderer (non-tiled) / graticule. ALL-ZERO on the
-    // flat / disc paths (those arms ignore globe_eye). Grows the struct 256→272.
+    // flat / disc paths (those arms ignore globe_eye).
     globe_eye: vec4fT,
+    // #1539 — reserved `input` pool. Slots, why only polygon carries it, and the
+    // per-frame write: render/input-pool.ts; pool-size agreement with the
+    // compiler: render/polygon-input-pool.test.ts. AFTER globe_eye = no offset moves.
+    input_f32_0: f32T,
+    input_f32_1: f32T,
+    input_f32_2: f32T,
+    input_f32_3: f32T,
+    input_f32_4: f32T,
+    input_f32_5: f32T,
+    input_f32_6: f32T,
+    input_f32_7: f32T,
+    input_color_0: vec4fT,
+    input_color_1: vec4fT,
+    input_color_2: vec4fT,
+    input_color_3: vec4fT,
   },
 )
 // Exported (distinct barrel name) for the CPU packers' UniformBlock (#733 P2):
@@ -191,12 +211,11 @@ const VertexOutputIO = ioStruct('VertexOutput', {
   v_color: location(8, vec4fT),
   // Per-vertex GEOMETRIC extrusion lighting factors, interpolated for the
   // DATA-DRIVEN extrude fragment (#1252): .x = the raw directional dot
-  // clamp(dot(N, light), 0, 1) BEFORE the base-colour luminance mix, .y =
-  // the vertical-gradient wall factor (1.0 on roofs / non-walls). The
-  // constant-fill extrude path bakes the full shaded colour into `v_color`
-  // and ignores this; the feature path samples its base colour in the
-  // fragment and replays the SAME lighting against `shade_geom`. Zero on the
-  // non-extrude vertex entries (unused by their fragments).
+  // clamp(dot(N, light), 0, 1) BEFORE the base-colour luminance mix, .y = the
+  // vertical-gradient wall factor (1.0 on roofs / non-walls). The constant-fill
+  // extrude path bakes the full shaded colour into `v_color` and ignores this;
+  // the feature path samples its base colour in the fragment and replays the
+  // SAME lighting against `shade_geom`. Zero on the non-extrude vertex entries.
   shade_geom: location(9, vec2fT),
 })
 const VertexOutput = VertexOutputIO.decl
@@ -241,17 +260,14 @@ const spriteSamp = spriteSampRes.node
 
 // ── Helper fns ──
 //
-// Per-fragment recompute of the hemisphere-cull signal. The vertex shader
-// emits cos_c as a varying but linear interpolation across a triangle
-// spanning the visibility boundary diverges — recompute from the absolute-
-// Mercator varyings (which telescope exactly under linear interpolation)
-// and call the shared needs_backface_cull entry that the vertex path uses.
-//
-// Cost: 1 atan + 1 exp + a few muls per fragment in the cull path.
-// Flat projections (proj_params.x < 2.5) short-circuit inside
-// needs_backface_cull to +1 so the per-pixel cost stays at ~0 for the
-// common Mercator / equirect / natural-earth cases.
-//
+// Per-fragment recompute of the hemisphere-cull signal. The vertex shader emits
+// cos_c as a varying but linear interpolation across a triangle spanning the
+// visibility boundary diverges — recompute from the absolute-Mercator varyings
+// (which telescope exactly under linear interpolation) and call the shared
+// needs_backface_cull entry that the vertex path uses. Cost: 1 atan + 1 exp + a
+// few muls per fragment in the cull path; flat projections (proj_params.x <
+// 2.5) short-circuit inside needs_backface_cull to +1 so the per-pixel cost
+// stays at ~0 for the common Mercator / equirect / natural-earth cases.
 // Pattern mirrors line-renderer.ts:779 and point-renderer.ts:340.
 
 const polygonCosCFragment = fn(
@@ -267,9 +283,9 @@ const polygonCosCFragment = fn(
 )
 
 // Companion to polygon_cos_c_fragment: continuous-alpha rim fade across the
-// sphere visibility boundary. Fragment shaders multiply this into output
-// alpha so geometry on the sphere rim fades smoothly instead of popping at
-// the cos_c=0 boundary. Returns 1.0 on flat / cylindrical projections.
+// sphere visibility boundary. Fragment shaders multiply this into output alpha
+// so geometry on the sphere rim fades smoothly instead of popping at the
+// cos_c=0 boundary. Returns 1.0 on flat / cylindrical projections.
 
 const polygonRimAlpha = fn('polygon_rim_alpha', { abs_merc_x: f32T, abs_merc_y: f32T }, (p) => {
   const earthR = EARTH_R
@@ -281,22 +297,19 @@ const polygonRimAlpha = fn('polygon_rim_alpha', { abs_merc_x: f32T, abs_merc_y: 
 
 // ── Vertex entries ──
 //
-// vs_main — Phase 2 PR 2d.1D ECEF line-entry migration.
+// vs_main — Phase 2 PR 2d.1D ECEF line-entry migration. Replaces the
+// per-projection ladder (Mercator-DSFUN rel + project_geom + proj_globe RTC)
+// with a single linear MVP transform against true ECEF metres — identical body
+// to vs_main_ecef. The runtime now ships line vertices in ECEF-DSFUN stride-9
+// (pos_h.vec3 + pos_l.vec3 + featId + abs_lon + abs_lat); the
+// projection-specific 3D→clip pipeline is fully baked into u.mvp by
+// Camera.getECEFFrameView() on the CPU.
 //
-// Replaces the per-projection ladder (Mercator-DSFUN rel + project_geom +
-// proj_globe RTC) with a single linear MVP transform against true ECEF
-// metres — identical body to vs_main_ecef. The runtime now ships line
-// vertices in ECEF-DSFUN stride-9 (pos_h.vec3 + pos_l.vec3 + featId +
-// abs_lon + abs_lat); the projection-specific 3D→clip pipeline is fully
-// baked into u.mvp by Camera.getECEFFrameView() on the CPU.
-//
-// Producer migration in PR 2d.1D: graticule (the sole consumer of this VS
-// after PR 2d.1C moved vs_line off vs_main). MapRenderer.addLayer's
-// GeoJSON line path is unconsumed in the current runtime; if it returns,
-// it MUST ship ECEF stride-9 vertices the same way the graticule does.
-//
-// Tile-line + polygon-stroke outlines route through vs_line (line.ts) —
-// unaffected by this change.
+// Producer migration in PR 2d.1D: graticule (the sole consumer of this VS after
+// PR 2d.1C moved vs_line off vs_main). MapRenderer.addLayer's GeoJSON line path
+// is unconsumed in the current runtime; if it returns, it MUST ship ECEF
+// stride-9 vertices the same way the graticule does. Tile-line +
+// polygon-stroke outlines route through vs_line (line.ts) — unaffected.
 
 // ── Shared projType ladder (PR-3 dedup) ──
 //
@@ -309,25 +322,23 @@ const polygonRimAlpha = fn('polygon_rim_alpha', { abs_merc_x: f32T, abs_merc_y: 
 // copies (gated by polygon-variant-diff's __polygon-variant-snapshots__).
 //
 // The fill (vs_main / vs_main_ecef) and extruded (vs_main_ecef_extruded) paths
-// share one branch shape and diverge in exactly ONE way, captured by the
-// single `extruded` flag: the FLAT arms' plane-z (fill passes z = 0.0;
-// extruded inserts `wall_base + wall_height*is_top`, over cos(lat) on the
-// Mercator arm).
-//
-// The 3D (else) arm is now IDENTICAL for fill and extruded: both recentre
+// share one branch shape and diverge in exactly ONE way, captured by the single
+// `extruded` flag: the FLAT arms' plane-z (fill passes z = 0.0; extruded
+// inserts `wall_base + wall_height*is_top`, over cos(lat) on the Mercator arm).
+// The 3D (else) arm is IDENTICAL for fill and extruded: both recentre
 // `ecef_cam = ecef_rtc + cam_ecef_off_h + cam_ecef_off_l` then transform. The
 // wall-mesh (generateWallMeshExtrudedECEF) emits its residuals in the same
 // tileEcefCenter frame as the flat fill, so the recentre is correct for both;
-// the prior extruded-only bare-`ecef_rtc` path collapsed every extruded tile
-// to the camera-origin tile on projType 7 globe pitch>0 (gated by G7
+// the prior extruded-only bare-`ecef_rtc` path collapsed every extruded tile to
+// the camera-origin tile on projType 7 globe pitch>0 (gated by G7
 // extruded-globe-recenter; was un-gated when the asymmetry was introduced).
 //
 // All FLAT-arm math (project/flat_rel calls, the tile_origin_merc − cam_h −
-// cam_l recentre, the tile_ref_lon expression, the if-conditions, the projParamsV
-// reference) is byte-identical across all three VS entries, so it lives inline
-// here with no parameterization. The per-VS inputs that genuinely differ
-// (ecef_rtc produced via pos_h+pos_l vs dequant_ecef; the abs_lon/abs_lat param
-// nodes; clip var) are passed in as already-bound Nodes.
+// cam_l recentre, the tile_ref_lon expression, the if-conditions, the
+// projParamsV reference) is byte-identical across all three VS entries, so it
+// lives inline here with no parameterization. The per-VS inputs that genuinely
+// differ (ecef_rtc produced via pos_h+pos_l vs dequant_ecef; the abs_lon/abs_lat
+// param nodes; clip var) are passed in as already-bound Nodes.
 const emitPolygonProjectionLadder = (args: {
   // READ inputs — ReadonlyNode, so uniform fields and fn params flow in
   // directly (#763 G2/G3). `clip` is the OUTPUT var this ladder assigns.
@@ -546,19 +557,16 @@ const vsMain = fn(
   { stage: 'vertex' },
 )
 
-// vs_main_ecef — Phase 2 PR 2c.2 polygon flat-fill ECEF vertex entry.
-// Replaces vs_main_quantized's per-projection ladder with a single linear
-// MVP transform against true ECEF metres. The runtime decodes tile vertices
-// once on the CPU to DSFUN-split tile-local ECEF (pos_h + pos_l) + writes
-// the absolute lon/lat alongside each vertex (abs_lon, abs_lat) so the
-// fragment-side hemisphere-cull recompute (polygonCosCFragment) can keep
-// reading abs_merc_x + abs_merc_y as varyings — reconstructed in the VS
-// from abs_lon/abs_lat via Mercator forward.
-//
-// VS work collapses to: ecef_rtc = pos_h + pos_l; clip = u.mvp * vec4(ecef_rtc, 1).
-// The per-projection branch + project_geom + proj_globe calls are gone:
-// the projection-specific 3D→clip pipeline is fully baked into u.mvp
-// by the CPU camera (Camera.getECEFFrameView).
+// vs_main_ecef — Phase 2 PR 2c.2 polygon flat-fill ECEF vertex entry. Replaces
+// vs_main_quantized's per-projection ladder with a single linear MVP transform
+// against true ECEF metres. The runtime decodes tile vertices once on the CPU to
+// DSFUN-split tile-local ECEF (pos_h + pos_l) + writes the absolute lon/lat
+// alongside each vertex (abs_lon, abs_lat) so the fragment-side hemisphere-cull
+// recompute (polygonCosCFragment) can keep reading abs_merc_x + abs_merc_y as
+// varyings — reconstructed in the VS from abs_lon/abs_lat via Mercator forward.
+// VS work collapses to: ecef_rtc = pos_h + pos_l; clip = u.mvp *
+// vec4(ecef_rtc, 1). The per-projection branch + project_geom + proj_globe calls
+// are gone: the 3D→clip pipeline is fully baked into u.mvp by the CPU camera.
 
 // Shared quantized-ECEF dequant — the SINGLE source for the q→ecef_rtc decode.
 // Called by vs_main_ecef + vs_main_ecef_extruded (so they can't drift), AND
@@ -680,8 +688,8 @@ const vsMainEcef = fn(
 // + world_z. wall_height feeds the vertical-gradient ramp.
 //
 // MapLibre lighting (Rec.709 luminance + face-normal directional + |nz|<0.5
-// vertical gradient) is preserved verbatim from vs_main_quantized_extruded;
-// only the position math changes.
+// vertical gradient) is preserved verbatim from vs_main_quantized_extruded; only
+// the position math changes.
 
 const vsMainEcefExtruded = fn(
   'vs_main_ecef_extruded',
@@ -789,8 +797,8 @@ const vsMainEcefExtruded = fn(
     // it against the RAW viewport-frame light the CPU packs (MapLibre-exact
     // at every lon/lat); the sphere family keeps the ECEF dot (#420 sun).
     // N_enu.z is also the exact wall/roof discriminator for BOTH families —
-    // |N_ecef.z| misclassified equatorial roofs / high-latitude walls.
-    // Oracle: map/src/core/extrude-light-frame.test.ts (mirrors this math).
+    // |N_ecef.z| misclassified equatorial roofs / high-latitude walls. Oracle:
+    // map/src/core/extrude-light-frame.test.ts (mirrors this math).
     const lSin = Let(sin(radians(p.abs_lon)))
     const lCos = Let(cos(radians(p.abs_lon)))
     const phSin = Let(sin(radians(p.abs_lat)))
@@ -1312,16 +1320,15 @@ const variantReturnStmts = (
 
 // ── Module assembly ──
 //
-// PARTIAL — the initial US-007b skeleton lands structs + fixed bindings +
-// helper fns + the trivial fs_overdraw entry. Subsequent commits add the
-// 3 vertex entries (vs_main / vs_main_ecef / vs_main_ecef_extruded)
-// and the 5 main fragment entries (fs_fill with placeholder Stmt at fill-
-// return; fs_fill_pattern; fs_oit_translucent; fs_fill_extrude; fs_stroke
-// with placeholder Stmt at stroke-return).
-//
-// The composer's preamble.{consts,bindings,funcs} merge logic + placeholder
-// Stmt swap + pick attachment conditional lands in the iter alongside
-// the polygon-dsl.test.ts (US-007c) 14 AC3 combination tests.
+// PARTIAL — the initial US-007b skeleton lands structs + fixed bindings + helper
+// fns + the trivial fs_overdraw entry. Subsequent commits add the 3 vertex
+// entries (vs_main / vs_main_ecef / vs_main_ecef_extruded) and the 5 main
+// fragment entries (fs_fill with placeholder Stmt at fill-return;
+// fs_fill_pattern; fs_oit_translucent; fs_fill_extrude; fs_stroke with
+// placeholder Stmt at stroke-return). The composer's
+// preamble.{consts,bindings,funcs} merge logic + placeholder Stmt swap + pick
+// attachment conditional lands in the iter alongside the polygon-dsl.test.ts
+// (US-007c) 14 AC3 combination tests.
 
 export const buildPolygonModule = (
   variant: PolygonVariantSpec | null,
@@ -1474,3 +1481,18 @@ export const emitPolygonGlsl = (
     stage,
   )
 }
+
+/** Both GLSL stages of one polygon variant from ONE lowering. `emitPolygonGlsl` prunes
+ *  the module before each emit, so a pipeline — which always needs both — lowered it
+ *  twice; the build is 2 ms against ~80 ms for an emit, so the lowering IS the cost.
+ *  Same entry defaults as the per-stage form. Byte-identical to two `emitPolygonGlsl`
+ *  calls — pinned by map/src/render/material/glsl-stage-entry-parity.test.ts. */
+export const emitPolygonGlslStages = (
+  variant: PolygonVariantSpec | null,
+  pickEnabled: boolean,
+  entries?: { vertex?: string; fragment?: string },
+): { vertex: string; fragment: string } =>
+  emitGlslStages(buildPolygonModule(variant, pickEnabled), {
+    vertexEntry: entries?.vertex ?? 'vs_main_ecef',
+    fragmentEntry: entries?.fragment ?? 'fs_fill',
+  })

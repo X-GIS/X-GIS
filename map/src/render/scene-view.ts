@@ -11,7 +11,7 @@
 // live inline in render() — every field is computed from the SAME
 // expression at the SAME point (just after the per-renderer beginFrame
 // calls), so behaviour is byte-identical. SceneView carries DATA only;
-// side effects (e.g. `lineRenderer.ensureOffscreen`) stay in render().
+// side effects stay in render().
 
 import type { ClassifiedShow, OpaqueGroup, ResolveOwner } from './bucket-scheduler'
 import { deriveResolveOwner } from './bucket-scheduler'
@@ -48,11 +48,32 @@ export interface SceneView {
    *  with no host batches is byte-identical. */
   readonly hasGraphics: boolean
   /** A resident coverage carries a velocity field (#1333) — S-111 currents, not S-102
-   *  bathymetry. Gates the flow pass, which is the ONLY thing that allocates the IBFV
-   *  ping-pong pair, so a scalar-coverage or coverage-less map is byte-identical. */
+   *  bathymetry.
+   *
+   *  NO LONGER GATES THE FLOW PASS, and no production code reads it today. The pass
+   *  used to `shouldRun` on this flag; that skipped the whole execute on the frame the
+   *  LAST region evicts — the one frame the arrow declaration must happen, since this
+   *  flag IS `hasFlowField()` and turns false exactly then (#1419, #1046 Inc-F2c). The
+   *  gate moved INSIDE `flow-pass.ts` where it can sit below the declaration, so the
+   *  no-allocation property it was written for still holds: a scalar-coverage or
+   *  coverage-less map still allocates no IBFV pair and still renders byte-identically.
+   *  Kept as a frame fact rather than deleted — it is correct and cheap — but do not
+   *  reintroduce it as a pass gate. */
   readonly hasFlow: boolean
+  /** Whether `?debug=overdraw` is ACTIVE this frame — mirrored from
+   *  `FrameContext.overdraw`, which is the authority (see its doc). Every
+   *  `shouldRun` gate reads THIS, never the raw URL flag: the mode is
+   *  whole-frame and cross-cutting, so a pass consulting the URL flag while
+   *  the targets were routed from the device-aware truth is how the frame ended
+   *  up half-gated (#1046 Inc-F2d review F1/F2). */
+  readonly overdraw: boolean
   /** Which pass claims the MSAA resolveTarget this frame. */
   readonly resolveOwner: ResolveOwner
+  /** #1429 INC-2 — the adaptive ladder holds the scene target below native
+   *  this frame. Gates the scene-upscale seam; false (the ladder at notch 0-2)
+   *  keeps the frame byte-identical: no scene pair allocated, no seam pass,
+   *  one colour attachment as before the split. */
+  readonly sceneScaled: boolean
 }
 
 /** Members of the owning map that SceneView derivation reads. */
@@ -70,9 +91,9 @@ type SceneHost = Pick<
 
 /** Build the per-frame SceneView from the bucket scheduler. Mirrors the
  *  inline block formerly at render()'s bucket-scheduler section. */
-// `_ctx` is retained for signature stability (callers pass the FrameContext)
-// but is no longer read: hasOit went content-based, which was its only use.
-export function buildSceneView(host: SceneHost, _ctx: FrameContext): SceneView {
+// `ctx` supplies the two target geometries the sceneScaled flag derives from
+// (#1429 INC-2); hasOit stays content-based.
+export function buildSceneView(host: SceneHost, ctx: FrameContext): SceneView {
   const { opaque, translucent, oit } = host.classifyVectorTileShows()
   const opaqueGroups = host.groupOpaqueBySource(opaque)
   const hasTranslucent = translucent.length > 0 && host.lineRenderer !== null
@@ -103,6 +124,11 @@ export function buildSceneView(host: SceneHost, _ctx: FrameContext): SceneView {
     hasHillshade,
     hasGraphics,
     hasFlow,
+    overdraw: ctx.overdraw,
     resolveOwner,
+    // DERIVED from the frame's two geometries, not remembered — the loop set
+    // them from the one setFrameTargets site, so the flag cannot disagree
+    // with the targets the passes actually attach (#1429 INC-2).
+    sceneScaled: ctx.scene.w !== ctx.screen.w || ctx.scene.h !== ctx.screen.h,
   }
 }

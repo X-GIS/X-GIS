@@ -90,7 +90,7 @@ export function globeInverse(x: number, y: number, z: number): [number, number] 
 }
 
 /** Local east/north tangent unit vectors at (lon,lat). */
-function localFrame(lon: number, lat: number): { up: Vec3; east: Vec3; north: Vec3 } {
+export function localFrame(lon: number, lat: number): { up: Vec3; east: Vec3; north: Vec3 } {
   const lam = lon * DEG2RAD
   const phi = lat * DEG2RAD
   const slam = Math.sin(lam),

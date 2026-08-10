@@ -28,6 +28,7 @@ import { RetainedParticleDraper } from '../render/material/particle-retained-mat
 import { packRetainedIconFeat, packRetainedIconTint } from './retained-icon-packer'
 import { packRetainedArrowFeat, packRetainedArrowTint } from './retained-arrow-packer'
 import { CompiledArrowStore } from './compiled-arrow-store'
+import { fieldViewCamera } from '../render/field-lattice-uniform'
 import { packRetainedCircleFeat, packRetainedCircleTint } from './retained-circle-packer'
 import {
   packRetainedParticleFeat,
@@ -293,8 +294,10 @@ export class GraphicsManager {
     )
   }
 
-  /** True when an ADVECTED arrow layer is resident (#1419). The frame runs the arrow advection
-   *  step only then, so a scene without one allocates neither the ping-pong nor its pipeline.
+  /** True when an ADVECTED arrow layer is resident (#1419). It no longer gates an advection PASS
+   *  — there is none (#1520) — but it still gates the animation CLOCK: the arrows' phase is a
+   *  function of `circle_params.y`, which is written nonzero only for a frame that actually has
+   *  something animating in it, so a scene without one stays byte-identical.
    *  Keep-warm needs no separate signal: an advected batch exists only where a coverage carries
    *  a velocity field, and `coverageRenderer.hasFlowField()` already arms the on-demand loop for
    *  exactly that case. */
@@ -630,7 +633,11 @@ export class GraphicsManager {
     // drawable, so a non-particle frame is byte-identical (y = 0 as before — zero pointU bloat, the
     // §5-Q2 constraint). Pinned by ?animt / __xgisAnimT for the §5 deterministic-probe capture,
     // else the live performance.now(). O(1) in particle count — the only new per-frame cost.
-    const hasAnimated = drawable.some((b) => drawSpecAnimatesPerFrame(b.spec))
+    // …OR an advected arrow batch, whose phase is a pure function of this clock (#1520). Compiled
+    // arrows are not in `drawable` — they are drawn from their own store — so without this term
+    // the field would sit frozen at its per-arrow phase offsets and never move.
+    const hasAnimated =
+      drawable.some((b) => drawSpecAnimatesPerFrame(b.spec)) || this._compiledArrows.hasAdvected
     const animT = hasAnimated ? (animTimePinnedSeconds() ?? performance.now() / 1000) : 0
     const perCopy: Float32Array[] = []
     for (let i = 0; i < copies.length; i++) {
@@ -664,7 +671,9 @@ export class GraphicsManager {
 
     // Declarative `| arrow` layers (#1302) — same draper + per-copy uniform as the host
     // arrows above, so compiler-fed and `map.graphics` arrows are one draw authority.
-    this._lastFrameDrawCalls += this._compiledArrows.draw(pass, perCopy)
+    // The third argument is the ADVECTED arm's camera (#1520 step 2) — see `fieldViewCamera`.
+    const cam = { frame, camera, projType, projCenterLon, projCenterLat, canvasWidth, canvasHeight }
+    this._lastFrameDrawCalls += this._compiledArrows.draw(pass, perCopy, fieldViewCamera(cam, dpr))
 
     if (this._timeSamples !== null) this._timeSamples.push(performance.now() - t0)
   }

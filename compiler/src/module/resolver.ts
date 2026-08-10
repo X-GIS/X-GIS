@@ -407,6 +407,8 @@ function definitionName(stmt: AST.Statement): string | null {
     case 'PresetStatement':
     case 'KeyframesStatement':
     case 'SymbolStatement':
+    case 'FnStatement':
+    case 'StructStatement':
       return stmt.name
     default:
       return null
@@ -461,11 +463,37 @@ function applyNamespace(statements: AST.Statement[], ns: string): AST.Statement[
           utilities: namespaceUtilityLines(s.utilities, ns, localPresets, localKeyframes),
         }
       case 'LayerStatement': {
-        const properties = s.properties.map((p) =>
-          p.name === 'source' && p.value.kind === 'Identifier' && localSources.has(p.value.name)
-            ? { ...p, value: { ...p.value, name: q(p.value.name) } }
-            : p,
-        )
+        const properties = s.properties.map((p): AST.BlockProperty => {
+          if (
+            p.name === 'source' &&
+            p.value.kind === 'Identifier' &&
+            localSources.has(p.value.name)
+          ) {
+            return { ...p, value: { ...p.value, name: q(p.value.name) } }
+          }
+          // Intra-module `style:` preset references — bare (`style: glow`)
+          // and call-form (`style: glow(…)`, #1536) — follow the preset's
+          // namespaced rename, exactly like `source:` above.
+          if (
+            p.name === 'style' &&
+            p.value.kind === 'Identifier' &&
+            localPresets.has(p.value.name)
+          ) {
+            return { ...p, value: { ...p.value, name: q(p.value.name) } }
+          }
+          if (
+            p.name === 'style' &&
+            p.value.kind === 'FnCall' &&
+            p.value.callee.kind === 'Identifier' &&
+            localPresets.has(p.value.callee.name)
+          ) {
+            return {
+              ...p,
+              value: { ...p.value, callee: { ...p.value.callee, name: q(p.value.callee.name) } },
+            }
+          }
+          return p
+        })
         return {
           ...s,
           name: q(s.name),
@@ -522,6 +550,17 @@ function getStatementName(stmt: AST.Statement): string | null {
     case 'SourceStatement':
       return stmt.name
     case 'SymbolStatement':
+      return stmt.name
+    // User fns (#1535) are cherry-pickable: `import { halo } from "lib.xgis"`.
+    // Like symbols they stay GLOBAL under a namespaced splice (no `ns.` rename)
+    // — a qualified name is not a legal callee identifier, and collision
+    // detection via definitionName already guards duplicates.
+    case 'FnStatement':
+      return stmt.name
+    // Source schemas (#1537) travel with the sources that reference them
+    // and stay global for the same reason fns do — `schema:` names a
+    // struct by bare identifier, which a `ns.`-qualified name is not.
+    case 'StructStatement':
       return stmt.name
     default:
       return null

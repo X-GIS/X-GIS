@@ -144,11 +144,11 @@ export function s111BandTableNormalized(
       out[o + 2] = bands[o + 2]! * peakSpeed
     }
   }
-  // The trailing params row. `uvAspect` = trueLonSpan / trueLatSpan (flow-advect-params.ts):
-  // the VS's two screen bases are one grid-uv leash apart on each axis, and a uv unit is a
-  // different TRUE distance on each — so a velocity in metric east/north components has to be
-  // re-expressed in uv rates before it can pick a screen direction. Without it a northeast
-  // current draws at one angle and drifts at another, away from the equator most of all.
+  // The trailing params row. `uvAspect` = trueLonSpan / trueLatSpan (flow-advect-params.ts): a uv
+  // unit is a different TRUE distance on each axis, so a velocity in metric east/north components
+  // has to be re-expressed in uv rates before the screen basis can turn it into a direction.
+  // Without it a northeast current draws at one angle and travels at another, away from the
+  // equator most of all.
   out[S111_BAND_PARAMS_ROW * S111_BAND_STRIDE + S111_PARAM_UV_ASPECT] = uvAspect
   return out
 }

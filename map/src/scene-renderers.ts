@@ -71,7 +71,7 @@ export function buildSceneRenderers(
     // dropped by the duplicate-name guard in `addShape`.
     for (const sym of opts.symbols ?? []) {
       for (const path of sym.paths) {
-        shapeRegistry.addUserShape(sym.name, path)
+        shapeRegistry.addUserShape(sym.name, path, sym.anchor)
       }
     }
     shapeRegistry.uploadToGPU()
@@ -79,8 +79,9 @@ export function buildSceneRenderers(
   } catch (e) {
     xlog.warn('[X-GIS] PointRenderer init failed:', e)
   }
-  // Heatmap renderer (Phase R) — owns the accum pipeline + per-layer
-  // density buffers; the blur/compose pipelines live in pipeline-factory.
+  // Heatmap renderer (Phase R) — owns the per-layer density data + the
+  // pass-loop orchestrations; the accum/blur/compose draw machinery lives in
+  // the RHI drapers (material/heatmap-material.ts, both frame shapes).
   let heatmapRenderer: HeatmapRenderer | null = null
   try {
     heatmapRenderer = new HeatmapRenderer(ctx)

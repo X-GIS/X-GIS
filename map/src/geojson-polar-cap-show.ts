@@ -15,6 +15,7 @@ import { VectorTileRenderer } from './render/vector-tile-renderer'
 import { worldBandForProjType } from '@xgis/geo'
 import { PROJECTION_NAME_TO_TYPE } from '@xgis/geo'
 import type { MapRendererContent } from './render/renderer'
+import type { InputStore } from './render/input-store'
 import type { LineRenderer } from './render/line-renderer'
 import type { GPUContext } from '@xgis/rhi-webgpu'
 import { parseHexColor } from './feature-helpers'
@@ -26,6 +27,8 @@ import type { RawDataset } from './map-types'
  *  authority. */
 export interface PolarCapInstallHost {
   ctx: GPUContext
+  /** Live `input` values (#1539), handed to the cap's VectorTileRenderer. */
+  readonly inputs: InputStore
   renderer: MapRendererContent
   lineRenderer: LineRenderer | null
   projectionName: string
@@ -60,7 +63,7 @@ export function installGeoJSONPolarCaps(host: PolarCapInstallHost): void {
     const rgba = resolveSourceFillRgba(host.getShowCommands(), sourceName)
     if (!rgba) continue // no polygon fill layer resolved — nothing to match
     const catalog = new TileCatalog()
-    const vtRenderer = new VectorTileRenderer(host.ctx)
+    const vtRenderer = new VectorTileRenderer(host.ctx, host.inputs)
     vtRenderer.setBindGroupLayout(host.renderer.bindGroupLayout)
     vtRenderer.setPaletteResources(
       host.renderer.paletteColorAtlasView,

@@ -47,7 +47,16 @@ export interface FieldSpec {
 }
 
 export type NodeType =
-  'import' | 'source' | 'symbol' | 'preset' | 'layer' | 'background' | 'map' | 'reroute'
+  | 'import'
+  | 'source'
+  | 'symbol'
+  | 'preset'
+  | 'fn'
+  | 'struct'
+  | 'layer'
+  | 'background'
+  | 'map'
+  | 'reroute'
 
 /** Catalogue grouping for a Blender/Unreal-style add palette. */
 export type NodeCategory = 'Data' | 'Style' | 'Render' | 'Logic' | 'Output' | 'Util'
@@ -149,13 +158,54 @@ const PRESENTATION: Record<string, Presentation> = {
     outLabel: 'preset',
     fields: {
       name: { label: 'Name', kind: 'text', placeholder: 'alert_track' },
+      params: { label: 'Parameters (opt, comma)', kind: 'text', placeholder: 'color, radius' },
       pipe: {
         label: 'Utilities (one pipeline per line)',
         kind: 'textarea',
         placeholder: 'symbol-arrow fill-red-500 glow-8\nanimate-pulse-1s',
       },
     },
-    defaults: { name: 'alert_track', pipe: 'fill-red-500 stroke-white stroke-2' },
+    defaults: { name: 'alert_track', params: '', pipe: 'fill-red-500 stroke-white stroke-2' },
+  },
+  fn: {
+    title: 'Fn',
+    accent: '#c084fc',
+    blurb: 'An expression-bodied user function (#1535), callable by name from any expression.',
+    fields: {
+      name: { label: 'Name', kind: 'text', placeholder: 'halo' },
+      params: { label: 'Parameters (comma)', kind: 'text', placeholder: 'width, base' },
+      body: {
+        label: 'Return expression',
+        kind: 'textarea',
+        placeholder: 'clamp(width * 1.5 + base, 1, 24)',
+      },
+    },
+    defaults: { name: 'halo', params: 'width', body: 'clamp(width * 2, 1, 24)' },
+  },
+  struct: {
+    title: 'Struct',
+    accent: '#38bdf8',
+    blurb: "A source field schema (#1537) — makes that source's `.field` reads checked.",
+    fields: {
+      name: { label: 'Name', kind: 'text', placeholder: 'Track' },
+      fields: {
+        label: 'Fields (name: type, comma-separated)',
+        kind: 'textarea',
+        placeholder: 'speed: f32, heading: f32, name: string',
+      },
+    },
+    defaults: { name: 'Track', fields: 'speed: f32, name: string' },
+  },
+  input: {
+    title: 'Input',
+    accent: '#a78bfa',
+    blurb: 'A host-settable parameter (#1539) — `map.setInput(name, value)` writes it live.',
+    fields: {
+      name: { label: 'Name', kind: 'text', placeholder: 'threshold' },
+      type: { label: 'Type', kind: 'select' },
+      default: { label: 'Default', kind: 'text', placeholder: '0.5' },
+    },
+    defaults: { name: 'threshold', type: 'f32', default: '0.5' },
   },
   layer: {
     title: 'Layer',

@@ -33,24 +33,25 @@ import { xlog } from '@xgis/shared'
 // but they are kept distinct so the non-merc copy offset tracks project_geom.)
 const WORLD_CIRC = 2 * Math.PI * EARTH.sphereR
 
-/** Pop a WebGPU validation error scope and report BOTH failure outcomes.
- *  Fire-and-forget (the popErrorScope promise is intentionally NOT awaited
- *  in the 60 Hz loop). Two things can go wrong and BOTH are now logged:
- *    1. the scope RESOLVES with a real validation error → log it with `tag`;
+/** Report BOTH outcomes of a popped validation scope (#1046 F4 — the promise
+ *  comes from `RhiDevice.popValidationScope`, message-or-null). Fire-and-forget
+ *  (intentionally NOT awaited in the 60 Hz loop). Two things can go wrong and
+ *  BOTH are logged:
+ *    1. the scope RESOLVES with a real validation message → log it with `tag`;
  *    2. the pop itself REJECTS (scope-stack mismatch / device lost) → log it.
  *  Audit ⑧ B2: the rejection branch was previously `.catch(() => {})`, which
  *  silently dropped a real fault signal (a stack mismatch means an earlier
  *  push/pop is unbalanced; a device-lost reject is the first sign of a GPU
  *  fault). This is the side-effecting exception to this file's pure-helper
  *  rule — it owns only the `xlog` logger, no map state. */
-export function reportErrorScope(popPromise: Promise<GPUError | null>, tag: string): void {
+export function reportErrorScope(popPromise: Promise<string | null>, tag: string): void {
   popPromise
-    .then((err) => {
-      if (err) xlog.error(`[X-GIS ${tag}]`, err.message)
+    .then((msg) => {
+      if (msg) xlog.error(`[X-GIS ${tag}]`, msg)
     })
     .catch((e) => {
       xlog.error(
-        `[X-GIS ${tag}] popErrorScope rejected`,
+        `[X-GIS ${tag}] popValidationScope rejected`,
         e instanceof Error ? e.message : String(e),
       )
     })

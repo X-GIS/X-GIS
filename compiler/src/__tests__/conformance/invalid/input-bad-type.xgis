@@ -1,0 +1,8 @@
+// @case invalid
+// @construct input-statement
+// @desc an `input` type annotation outside f32 / color is rejected at parse time
+// @expect-code X-GIS0021
+xgis 1
+input threshold: string = "hi"
+source w { type: geojson, url: "w.geojson" }
+layer l { source: w  | opacity-80 }

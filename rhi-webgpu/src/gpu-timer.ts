@@ -49,6 +49,13 @@
 // or encode a copy into a buffer that's currently mapped.
 
 import type { GPUContext } from './gpu'
+import type { RhiCommandEncoder, RhiRenderPass, RhiRenderPassDesc } from '@xgis/rhi'
+import {
+  rhiRenderPassToGpu,
+  unwrapWebGpuCommandEncoder,
+  unwrapWebGpuPass,
+  wrapWebGpuPass,
+} from './rhi-webgpu'
 
 const RING_SIZE = 3 // hide ~2 frame map latency at 60Hz
 const TIMESTAMP_BYTES = 8 // u64 per query
@@ -228,6 +235,33 @@ export class GPUTimer {
     ).writeTimestamp(this.querySet, markerIdx)
   }
 
+  /** RHI twin of mark() for chain pass bodies that hold an `RhiRenderPass`
+   *  (#1046 F3b). Same sprinkle-unconditionally contract: every no-op
+   *  condition is checked BEFORE unwrapping, so a call on a non-WebGPU pass
+   *  (timer disabled there by construction) never touches the native cast. */
+  markRhi(pass: RhiRenderPass, label: MarkerLabel): void {
+    if (!this.insidePasses || !this.querySet) return
+    this.mark(unwrapWebGpuPass(pass) as GPURenderPassEncoder, label)
+  }
+
+  /** Instance form of the module-level `beginTimedPass` seam, so a chain pass
+   *  consumes it off the timer the host already exposes
+   *  (`host.gpuTimer?.beginTimedPass(enc, desc) ?? enc.beginRenderPass(desc)`)
+   *  without the pass FILE importing this adapter module — keeping
+   *  backend-import-free pass files that way (#1046 F3b Inc-2d). */
+  beginTimedPass(enc: RhiCommandEncoder, desc: RhiRenderPassDesc): RhiRenderPass {
+    return beginTimedPass(this, enc, desc)
+  }
+
+  /** RHI form of `resolveOnEncoder` (#1046 F4 Inc-B — the `markRhi` precedent):
+   *  every early-out runs BEFORE the unwrap, so a disabled timer — or a frame
+   *  encoder that is not WebGPU-backed once the chain runs on WebGl2Device —
+   *  is a no-op, never an unwrap error. */
+  resolveOnRhi(enc: RhiCommandEncoder): void {
+    if (!this.enabled || !this.querySet || !this.resolveBuf) return
+    this.resolveOnEncoder(unwrapWebGpuCommandEncoder(enc))
+  }
+
   /** Encode resolveQuerySet + copyBufferToBuffer into the frame's
    *  command encoder. MUST be called AFTER all sub-pass.end() calls
    *  and BEFORE encoder.finish(). Picks the next IDLE slot; skips
@@ -389,4 +423,33 @@ export class GPUTimer {
     this.resolveBuf?.destroy()
     for (const slot of this.slots) slot.buf.destroy()
   }
+}
+
+/** Begin an RHI render pass with a timer's next sub-pass timestampWrites
+ *  injected (#1046 F3b). This is the migration seam RhiRenderPassDesc's
+ *  contract prescribes: timestamp profiling is deliberately NOT descriptor
+ *  topology (rhi.ts), so the chain's pass bodies stay backend-neutral and the
+ *  one WebGPU-encoder concern is layered HERE.
+ *
+ *  No live writes (no timer — WebGL2 or ?gpuprof off — or the frame's
+ *  sub-pass budget is spent) ⇒ a plain `enc.beginRenderPass(desc)`: pure RHI,
+ *  valid on any backend. With live writes (WebGPU-only by construction) the
+ *  native descriptor is the SAME rhiRenderPassToGpu mapping the RHI encoder
+ *  itself applies, plus `timestampWrites` — descriptor-EQUIVALENT to the raw
+ *  form the pass bodies write today (opaque-pass carries the key even when
+ *  its value is undefined; this seam omits it when dead — undefined ≡ absent
+ *  per the rhi-renderpass-parity convention, identical to WebGPU). */
+export function beginTimedPass(
+  timer: Pick<GPUTimer, 'passWrites'> | null | undefined,
+  enc: RhiCommandEncoder,
+  desc: RhiRenderPassDesc,
+): RhiRenderPass {
+  const tsWrites = timer?.passWrites() ?? null
+  if (!tsWrites) return enc.beginRenderPass(desc)
+  return wrapWebGpuPass(
+    unwrapWebGpuCommandEncoder(enc).beginRenderPass({
+      ...rhiRenderPassToGpu(desc),
+      timestampWrites: tsWrites,
+    }),
+  )
 }

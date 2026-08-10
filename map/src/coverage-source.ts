@@ -54,7 +54,7 @@ export interface CoverageSourceDeps {
    *  rather than only re-arming the fill. */
   fieldArmed: () => boolean
   /** Re-derive the armed field(s) for ONE region from a handle. */
-  armFields: (handle: CoverageHandle, region: string) => void
+  armFields: (handle: CoverageHandle, region: string, priority: number) => void
   /** Arm a region that has NO armed display yet, straight from its LAYER's ShowCommand
    *  (#1426). Distinct from `armRegion` below on purpose: that one preserves the LIVE display
    *  opts across a swap, which is exactly wrong for a FIRST arm — there is no live paint to
@@ -63,7 +63,12 @@ export interface CoverageSourceDeps {
    *
    *  RETURNS whether any show claimed the source — `armRegion` needs that answer, because
    *  `fieldArmed` is a latch a FIRST push legitimately beats. */
-  armFromShow: (sourceId: string, handle: CoverageHandle, region: string) => boolean
+  armFromShow: (
+    sourceId: string,
+    handle: CoverageHandle,
+    region: string,
+    priority: number,
+  ) => boolean
   /** Drop one region's compiled arrow glyphs. */
   clearArrows: (region: string) => void
   invalidate: () => void
@@ -76,6 +81,14 @@ export interface CoverageSourceDeps {
   guardedFetch: (label: string) => typeof fetch
   /** True once the map is destroyed — a re-read that lands afterwards must not arm. */
   destroyed: () => boolean
+  /** The map's current run epoch (#1569). `destroyed()` alone cannot see a SCENE SWAP:
+   *  `run()` on a live map is a documented, legitimate re-run, and `_destroyed` is false
+   *  across one — so a refresh tick armed under scene A could commit its handle into
+   *  scene B's renderer, drawing coverage the new scene never declared. The epoch is
+   *  bumped by `run()` immediately before its teardown, so capturing it at tick entry and
+   *  re-checking after each await distinguishes "still the same scene" from "the map is
+   *  gone", which are different questions with different answers. */
+  runEpoch: () => number
   /** Per-source catalogue residency state (#1453), for the sources whose `url:` named a STAC
    *  ItemCollection rather than a single cell. Empty for every other coverage source. */
   catalogues: Map<string, CoverageCatalogueState>
@@ -104,6 +117,28 @@ export function coverageRegions(
 ): ReadonlyMap<string, CoverageRegionData> | null {
   const data = deps.rawDatasets.get(sourceId)
   return data && '_coverage' in data ? data._coverage : null
+}
+
+/** This region's place in the source's OWNERSHIP order — its index in the `_coverage` Map (#1585).
+ *
+ *  THE SAME ORDER `coverageHandleAt` RESOLVES A TIE BY, and that is the whole point: where two
+ *  domains cover the same water, the arrows drawn there and the value `getCoverage(id, at)` reports
+ *  must name the same domain. Deriving both from this Map is what makes that true by construction
+ *  rather than by two rules that happen to agree.
+ *
+ *  It survives a re-arm, which the alternatives do not: `writeRegion` sets an EXISTING key without
+ *  deleting it, so a forecast step leaves the order untouched, while the renderer's `states` and the
+ *  arrow store's `batches` both move a re-armed region to the back. 0 when the region is unknown —
+ *  a single-region source has no tie to break. */
+export function regionPriority(deps: CoverageSourceDeps, sourceId: string, region: string): number {
+  const regions = coverageRegions(deps, sourceId)
+  if (!regions) return 0
+  let i = 0
+  for (const key of regions.keys()) {
+    if (key === region) return i
+    i++
+  }
+  return 0
 }
 
 /** The handle answering for a point, or the primary region's when no point is given.
@@ -177,10 +212,14 @@ function armRegion(
   // renderer's armed display unless the caller overrides; a later rebuild re-arms.
   const overridden = override?.ramp != null || override?.range != null
   if (deps.fieldArmed() && !overridden) {
-    deps.armFields(handle, region)
+    deps.armFields(handle, region, regionPriority(deps, sourceId, region))
     return
   }
-  if (!overridden && deps.armFromShow(sourceId, handle, region)) return
+  if (
+    !overridden &&
+    deps.armFromShow(sourceId, handle, region, regionPriority(deps, sourceId, region))
+  )
+    return
   const renderer = deps.renderer()
   const cur = renderer.displayOpts()
   renderer.setCoverage(
@@ -248,7 +287,7 @@ export async function loadDeclaredCoverage(
   }
   if (!deps.time.isCurrent(token, region) || deps.destroyed() || isStale?.()) return
   if (!writeRegion(deps, sourceId, region, { handle, url })) return
-  deps.armFromShow(sourceId, handle, region)
+  deps.armFromShow(sourceId, handle, region, regionPriority(deps, sourceId, region))
   deps.invalidate()
 }
 
@@ -284,8 +323,8 @@ async function readHead(res: Response, n: number): Promise<Uint8Array> {
  *  The discriminator is the leading bytes, not the URL: an S-100 cell begins with the HDF5
  *  signature, so a content sniff needs no file extension, no new `type:`, and therefore no DSL
  *  change at all. The alternative — deciding by `.json` vs `.h5` — is a guess about a server's
- *  naming taste, and the S-111 proxy's own `/noaa-s111/latest/<model>.h5` route shows how
- *  little a path says about what answers it. */
+ *  naming taste, and the open-data bridge serving both an HDF5 cell and a STAC
+ *  catalogue off `/opendata/…` shows how little a path says about what answers it. */
 async function probeCoverageUrl(
   deps: CoverageSourceDeps,
   sourceId: string,
@@ -358,7 +397,7 @@ async function armCatalogueItem(
   if (!state.wanted.includes(region)) return
   if (!deps.time.isCurrent(token, region) || deps.destroyed() || isStale?.()) return
   if (!writeRegion(deps, sourceId, region, { handle, url: item.href })) return
-  deps.armFromShow(sourceId, handle, region)
+  deps.armFromShow(sourceId, handle, region, regionPriority(deps, sourceId, region))
   deps.invalidate()
 }
 
@@ -524,7 +563,20 @@ export function dropCoverageRegion(
   deps.invalidate()
 }
 
-/** Step EVERY resident region to the same forecast hour. See `XGISMap.setCoverageTime`. */
+/** Step EVERY resident region to the same forecast hour. See `XGISMap.setCoverageTime`.
+ *
+ *  ATOMIC — read every region, then commit every region (#1573). The step used to be a
+ *  `Promise.all` of read-and-commit-each, and `Promise.all` neither cancels nor unwinds a
+ *  settled sibling: one region's 404 (rolling NOAA URLs re-issue per region, so a blip hits
+ *  one and not the others) left its neighbours armed at hour N+1 while it stayed on hour N,
+ *  and the mosaic drew two different valid times as one continuous current field. For a
+ *  navigational chart that is worse than an error — it is a plausible-looking lie about the
+ *  data — so the whole step now fails instead of half-succeeding, leaving the mosaic
+ *  coherent at the hour it was already on.
+ *
+ *  The two-phase shape is not new here: `readRegionsAtGroup` below already reads every
+ *  region at one group before playback shows any of it, so the peak of holding N new
+ *  handles beside N old ones is a cost this file's interpolation path already pays. */
 export async function stepCoverageRegions(
   deps: CoverageSourceDeps,
   sourceId: string,
@@ -533,32 +585,42 @@ export async function stepCoverageRegions(
   const regions = coverageRegions(deps, sourceId)
   if (!regions)
     throw new Error(`[X-GIS] setCoverageTime: "${sourceId}" is not a declared coverage source.`)
-  // Concurrently and independently: a region without a URL, or already on the requested hour,
-  // skips itself without holding up its neighbours.
-  await Promise.all(
-    [...regions].map(([region, entry]) => stepOneRegion(deps, sourceId, region, entry, indexOrISO)),
+  // Phase 1 — READ. Concurrent and independent: a region without a URL, or already on the
+  // requested hour, plans nothing without holding up its neighbours. A rejection here has
+  // committed nothing, so it leaves the mosaic exactly as it was.
+  const plans = await Promise.all(
+    [...regions].map(([region, entry]) => planOneRegion(deps, region, entry, indexOrISO)),
   )
+  // Phase 2 — COMMIT. Synchronous by construction: no `await` between the writes, so a
+  // competing step cannot interleave and land the mosaic on mixed hours by another route.
+  let committed = false
+  for (const plan of plans) {
+    if (!plan) continue
+    if (!deps.time.isCurrent(plan.token, plan.region)) continue // superseded by a newer step
+    if (!writeRegion(deps, sourceId, plan.region, { handle: plan.handle, url: plan.url })) continue
+    armRegion(deps, sourceId, plan.handle, plan.region)
+    committed = true
+  }
+  if (committed) deps.invalidate()
 }
 
-async function stepOneRegion(
+/** One region's half of phase 1: resolve the target group and read it, committing nothing.
+ *  `null` means "this region has nowhere to go" — no URL, no time axis, or already there. */
+async function planOneRegion(
   deps: CoverageSourceDeps,
-  sourceId: string,
   region: string,
   entry: CoverageRegionData,
   indexOrISO: number | string,
-): Promise<void> {
+): Promise<{ region: string; url: string; handle: CoverageHandle; token: number } | null> {
   const time = entry.handle.meta.sourceMeta?.time as CoverageTime | undefined
-  if (!entry.url || !time || time.count <= 1) return // nothing to step
+  if (!entry.url || !time || time.count <= 1) return null // nothing to step
   const group = resolveForecastGroup(time, indexOrISO)
-  if (group - 1 === time.index) return // already showing this hour
+  if (group - 1 === time.index) return null // already showing this hour
   // Re-read the same, already-validated URL (declared source) — one group of it. No new SSRF
   // surface; the whole-file fallback isn't needed (Range worked at first load).
   const token = deps.time.nextEpoch(region)
   const handle = await readCoverageRange(entry.url, { group })
-  if (!deps.time.isCurrent(token, region)) return // superseded by a newer step
-  if (!writeRegion(deps, sourceId, region, { handle, url: entry.url })) return
-  armRegion(deps, sourceId, handle, region)
-  deps.invalidate()
+  return { region, url: entry.url, handle, token }
 }
 
 /** Decode `group` of every region that has a URL, keyed by region — the "to" side of a
@@ -637,6 +699,9 @@ async function refreshOneRegion(
 ): Promise<{ changed: boolean; reason: RefreshReason }> {
   // A urlless host push has nothing to re-read; its siblings still refresh.
   if (!url) return { changed: false, reason: 'unchanged' }
+  // #1569 — snapshot the scene this tick belongs to. Both awaits below (the HEAD
+  // probe and the cell read) can outlive a scene swap.
+  const epoch = deps.runEpoch()
   const label = `coverage source "${sourceId}"`
   const safe = deps.guardedFetch(label)
   // Revalidation is a cheap HEAD probe, NOT a conditional GET: the read path is HTTP Range,
@@ -645,14 +710,17 @@ async function refreshOneRegion(
   const key = validatorKey(sourceId, region)
   const decision = decideRefresh(deps.refresh.validator(key), probed, opts?.force)
   if (!decision.read) return { changed: false, reason: decision.reason }
+  if (deps.destroyed() || deps.runEpoch() !== epoch)
+    return { changed: false, reason: decision.reason }
 
   const token = deps.time.nextEpoch(region)
   const handle = await fetchCoverageHandle(url, label, safe, {
     ...(opts?.bbox ? { bbox: opts.bbox } : {}),
     ...(opts?.group ? { group: opts.group } : {}),
   })
-  // Superseded by a newer read of THIS region, or the map went away — never arm stale data.
-  if (!deps.time.isCurrent(token, region) || deps.destroyed())
+  // Superseded by a newer read of THIS region, the map went away, or the SCENE was
+  // swapped under us (#1569) — never arm stale data.
+  if (!deps.time.isCurrent(token, region) || deps.destroyed() || deps.runEpoch() !== epoch)
     return { changed: false, reason: decision.reason }
   deps.refresh.rememberValidator(key, probed)
   if (!writeRegion(deps, sourceId, region, { handle, url }))

@@ -20,7 +20,12 @@
 // of the class's public type.
 
 import { tileKey as compilerTileKey } from '@xgis/compiler'
-import { adaptiveQualityStep, getMaxDpr, isAdaptiveQualityEnabled } from '@xgis/engine'
+import {
+  adaptiveFarLodBoost,
+  adaptiveQualityStep,
+  getMaxDpr,
+  isAdaptiveQualityEnabled,
+} from '@xgis/engine'
 import { mercatorYToLat } from '@xgis/geo'
 import type { QualityConfig } from '@xgis/engine'
 import type { XGISMap } from './map'
@@ -56,11 +61,26 @@ export interface PipelineInspection {
    *  submits. A test that instead infers load from rAF cadence is measuring the compositor's
    *  60 Hz tick, not the frame — which is exactly how the ladder gate ended up asserting
    *  against a bar numerically equal to its own measurement floor. */
-  adaptive: { enabled: boolean; step: number }
+  adaptive: {
+    enabled: boolean
+    step: number
+    /** The multiplier the ladder is CURRENTLY applying to the tile selector's far-field error
+     *  ceiling (#1468). 1 leaves selection byte-identical; higher coarsens the horizon.
+     *
+     *  `step` says the controller decided; this says what reached the selector. They are
+     *  different facts, and the gap between them is the seam #1402 showed can go nowhere — a
+     *  gate asserting only on `step` cannot tell "it acted" from "it acted and was honoured". */
+    farLodBoost: number
+  }
   /** True when hash sync / pointer interaction / setView declared the
    *  camera explicitly — post-compile bounds-fit is suppressed in that
    *  case. */
   cameraExplicitlyPositioned: boolean
+  /** Last frame's label counts (#777 IV3). `groundAligned` is how many DRAWN
+   *  labels carried a ground basis — the observable that distinguishes "the
+   *  producer's basis reached the renderer" from "it did not", which no frame
+   *  measurement on the fixture could settle. */
+  labels: { submitted: number; drawn: number; groundAligned: number }
   sources: Array<{
     name: string
     /** Deepest zoom the source CAN serve as genuine data. Over-zooming
@@ -84,6 +104,11 @@ export interface PipelineInspection {
       missedTiles: number
       triangles: number
       lines: number
+      /** `[zoom, tilesDrawn]` pairs, ascending — how COARSE the drawn tile
+       *  set is, which `tilesVisible` and `triangles` both fail to say.
+       *  See `FrameDrawStats.drawnByZoom` for why this is the observable
+       *  the adaptive ladder must be judged on (#1479). */
+      drawnByZoom: Array<[number, number]>
     }
   }>
   /** Recent FLICKER ring-buffer events (oldest first). Empty in
@@ -182,6 +207,7 @@ export function inspectMapPipeline(map: XGISMap): PipelineInspection {
         missedTiles: stats.missedTiles,
         triangles: stats.triangles,
         lines: stats.lines,
+        drawnByZoom: stats.drawnByZoom,
       },
     })
   }
@@ -196,9 +222,18 @@ export function inspectMapPipeline(map: XGISMap): PipelineInspection {
       maxZoom: cam.maxZoom,
     },
     viewport: { canvasW, canvasH, dpr },
+    labels: {
+      submitted: m.textStage?.getLastSubmittedLabelCount() ?? 0,
+      drawn: m.textStage?.getLastDrawnLabelCount() ?? 0,
+      groundAligned: m.textStage?.renderer?.getLastGroundAlignedCount() ?? 0,
+    },
     frame: m._frameCount,
     quality: m.getQuality(),
-    adaptive: { enabled: isAdaptiveQualityEnabled(), step: adaptiveQualityStep() },
+    adaptive: {
+      enabled: isAdaptiveQualityEnabled(),
+      step: adaptiveQualityStep(),
+      farLodBoost: adaptiveFarLodBoost(),
+    },
     cameraExplicitlyPositioned: (map as unknown as { _cameraExplicitlyPositioned: boolean })
       ._cameraExplicitlyPositioned,
     sources,

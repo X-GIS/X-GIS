@@ -1,0 +1,143 @@
+// ═══ How far an S-111 arrow drifts, and where it is in its life (#1520) ═══
+//
+// THE LEASH and THE PHASE, in one place because they are two halves of one rule: an arrow is
+// `(origin, phase)`, it travels the leash over one phase cycle, and it is back at its origin when
+// the phase wraps.
+//
+// WHY THIS REPLACED A STATE TEXTURE. The drifted position used to be accumulated every frame into
+// a texel — one texel per arrow, paired 1:1 with the instance index. That pairing WAS the
+// portrayal's ceiling: the state texture's size bounded the arrow count (100 000, shared across
+// every resident mosaic region — #1513), the origin key existed because a changed instance COUNT
+// re-seeded the texture and snapped every arrow home, and view-driven density therefore had to be
+// a cull that never changes the count. None of that is about the data or the catalogue; all of it
+// is about holding a position per arrow.
+//
+// A phase holds no position. `drift(origin, phase)` is a pure function, so there is no state to
+// size, no identity to preserve, and the instance count becomes a per-frame decision — which is
+// what lets density follow the VIEW rather than the grid. IBFV has had this property all along
+// (its "instances" are fragments, so there is nothing discrete to recycle); this gives it to the
+// catalogue glyph without giving up the glyph.
+//
+// Three things fall out that the stateful version could not have:
+//
+//   • A FADE. The old path held a position and had no notion of how far through its life an
+//     arrow was, so a recycle was an instant jump — and #1333 rejected moving glyphs for exactly
+//     that reason ("a respawn forces a fade, and a fade on a large symbol IS a blink"). A phase
+//     is that notion, so the wrap can be faded and the argument dissolves.
+//   • DETERMINISM. The field is a pure function of the clock, so a render gate needs no settling
+//     and no pumped convergence — pin the clock and the frame is reproducible.
+//   • Frame 0 IS the catalogue placement, for every arrow, at phase 0 — without seeding it from
+//     anywhere.
+//
+// WHAT LEFT WITH THE PER-CELL GENERATOR (#1520 step 2). The LEASH (`ARROW_DRIFT_UV`), the SMEAR
+// cap (`ARROW_SMEAR_SLOTS`) and the drift's tap count all existed to bound an excursion measured
+// in GRID-uv against a pair of packed basis anchors. The field is now seeded on the SCREEN and its
+// trains are walked in SCREEN arc length, so the bound is the inter-glyph spacing itself and the
+// tap count belongs to the walk — both live below, with the rest of the train's own description.
+// What survives here is the part that was never about the grid: an arrow is `(origin, phase)`.
+
+import { fn, f32, fract, min, vec3, vec2fT, f32T } from '@xgis/shader-dsl'
+
+// ── The TRAIN: how many glyphs, how finely walked, how far apart the seeds (#1547) ────────────
+//
+// Here rather than beside the lattice, because none of it is a lattice property. A train is what
+// the S-111 portrayal makes of a node; a consumer that draws one symbol per node needs none of
+// these, and `field-lattice.ts` must not name a glyph for that consumer to reuse it.
+
+/** Glyphs strung along ONE streamline from a seed — the "train".
+ *
+ *  A train, rather than one glyph per seed, is what makes the motion read as FLOW rather than as a
+ *  field of independently twitching symbols: four glyphs at a fixed arc-length spacing trace the
+ *  path the water actually takes, and the eye follows the line instead of each arrow.
+ *
+ *  It is also what makes the wrap free. Glyph `j` sits at arc-length `(j + φ)·δ`, so as `φ` runs
+ *  0→1 the whole train advances by exactly ONE spacing and the set of occupied positions at φ = 1
+ *  is the set at φ = 0 shifted by one — every glyph lands where its neighbour was. Only the two
+ *  ENDS change, and they are faded (`arrow_phase_alpha` over `(j + φ)/G`), so the alpha at a given
+ *  arc-length is the same on both sides of the wrap. The seam is not hidden; it does not exist. */
+export const ARROW_TRAIN_GLYPHS = 4
+
+/** Integration taps per inter-glyph spacing.
+ *
+ *  The streamline is walked in fixed steps of `δ / taps` so the position at arc-length `s` is a
+ *  PURE, CONTINUOUS function of `s` — which is what the wrap argument above needs. A step count
+ *  derived from `s` (say `ceil(s/h)` uniform steps) is also a pure function of `s`, but it JUMPS
+ *  where the count changes, and a jump of any size at the wrap is the blink #1333 rejected moving
+ *  glyphs over. Two taps per spacing resolves the curvature a glyph-length of a tidal gyre has;
+ *  more buys nothing visible and costs two velocity fetches each. */
+export const ARROW_TRAIN_TAPS_PER_SPACING = 2
+
+/** Total integration steps a glyph may need — the last glyph of the train reaches
+ *  `(G − 1 + 1)·δ`, so this is the fixed, unrolled bound. */
+export const ARROW_TRAIN_STEPS = ARROW_TRAIN_GLYPHS * ARROW_TRAIN_TAPS_PER_SPACING
+
+/** Seed spacing, as a multiple of the inter-glyph spacing δ.
+ *
+ *  DERIVED, not tuned. Each seed contributes `G` glyphs and owns `S²` pixels of screen, and the
+ *  density the portrayal wants is one glyph per `δ²` — so `S² = G·δ²`, i.e. `S = δ·√G`. Seeding at
+ *  δ (the obvious choice) would draw `G` times too many glyphs, which on a chart is not a cosmetic
+ *  error: overlapping SCAROW symbols read as a faster current than the data says. */
+export const ARROW_LATTICE_FACTOR = Math.sqrt(ARROW_TRAIN_GLYPHS)
+
+/** Draw the field at TWICE the density `S = δ·√G` derives.
+ *
+ *  A DELIBERATE DEPARTURE from that derivation, not a correction to it. `S = δ·√G` targets one glyph
+ *  per δ² — the density at which SCAROW symbols sit end to end without overlapping — and the field
+ *  built to it read as sparser than wanted on real water. Doubling is a portrayal judgement, so it
+ *  lives here beside the train constants rather than in the lattice, which has no opinion on how
+ *  much ink a chart should carry.
+ *
+ *  IT IS THE NODE SET THAT DOUBLES, not the step (`FieldLatticeRequest.interleave`). Halving the
+ *  requested spacing by √2 would have been the obvious lever and it does not work: the step is
+ *  quantised to the octave at or below what is asked, and that quantisation is what pins a node's uv
+ *  — and therefore its phase — while the camera moves. Against a power-of-two ladder a √2 request
+ *  either holds the octave (density unchanged) or drops one (density ×4), so half the zooms would
+ *  look untouched and half would jump four-fold. Interleaving a half-cell-offset copy sidesteps the
+ *  ladder: every existing node keeps its exact position and phase, and the new ones land between
+ *  them at every zoom. */
+export const S111_FIELD_INTERLEAVE = true
+
+/** Seconds for one phase cycle: origin → leash → origin. A DISPLAY control, like the rate it
+ *  replaces — the catalogue says nothing about animation, and speed is read from the band colour
+ *  and the glyph scale, never from how fast a symbol moves. What the period buys is legibility:
+ *  long enough that a glyph reads as drifting rather than twitching.
+ *
+ *  Note what is NOT claimed: that this is real time. It is not, and it should not be — at true
+ *  rate a 0.5 kn current moves a glyph ~4 mm per frame. Relative speed is still exact, because
+ *  the drift integrates the actual normalized velocity: twice the current still travels twice as
+ *  far within one cycle. */
+export const ARROW_PHASE_SECONDS = 8
+
+/** Per-seed phase offset, so trains do not all wrap together. Value noise from the seed's own
+ *  lattice index (Hoskins' "hash without sine") — `fract`/`mul` only, deliberately NOT sine-based:
+ *  the sine hash's quality at large arguments is driver-dependent and this runs on both the WGSL
+ *  and GLSL arms, where those differ.
+ *
+ *  A FUNCTION OF THE SEED, which is what makes it stable: the same lattice node gets the same
+ *  offset every frame, across a forecast step, and across a change in how many glyphs are drawn.
+ *  It is deliberately NOT a function of the seed's grid-uv — the water under a fixed screen node
+ *  changes whenever the camera does, so a uv hash would re-roll every phase on every pan and the
+ *  field would boil instead of flow. The lottery it replaces needed a per-frame seed and a state
+ *  texture to remember its outcome. */
+export const arrow_phase_offset = fn('arrow_phase_offset', { p: vec2fT }, (a) => {
+  const p3 = fract(vec3(a.p.x, a.p.y, a.p.x.add(f32(0.37))).mul(f32(0.1031)))
+  const d = p3.x
+    .mul(p3.y.add(f32(33.33)))
+    .add(p3.y.mul(p3.z.add(f32(33.33))))
+    .add(p3.z.mul(p3.x.add(f32(33.33))))
+  const q = p3.add(vec3(d, d, d))
+  return fract(q.x.add(q.y).mul(q.z))
+})
+
+/** Fraction of the cycle spent fading in and out at each end. */
+export const ARROW_FADE_FRACTION = 0.15
+
+/** Alpha ramp across the phase, so the wrap is a fade rather than a jump. Zero at both ends,
+ *  one across the middle — `min(phase, 1 - phase)` scaled and clamped, which is one expression
+ *  and no branch.
+ *
+ *  This is the term the stateful design could not write. It is also what keeps the wrap from
+ *  reading as the blink #1333 rejected the whole moving-glyph idea over. */
+export const arrow_phase_alpha = fn('arrow_phase_alpha', { phase: f32T }, (a) =>
+  min(min(a.phase, f32(1).sub(a.phase)).div(f32(ARROW_FADE_FRACTION)), f32(1)),
+)

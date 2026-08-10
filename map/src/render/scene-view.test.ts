@@ -37,12 +37,17 @@ function makeHost(s: HostStub) {
   } as unknown as Parameters<typeof buildSceneView>[0]
 }
 
-function makeCtx(oitTexturesPresent: boolean): FrameContext {
+function makeCtx(oitTexturesPresent: boolean, overdraw = false): FrameContext {
   return {
+    overdraw,
     rt: {
       oitAccumTexture: oitTexturesPresent ? ({} as GPUTexture) : null,
       oitRevealageTexture: oitTexturesPresent ? ({} as GPUTexture) : null,
     },
+    // #1429 INC-2 — sceneScaled derives from the two geometries (equal here:
+    // the unscaled steady state every case in this file describes).
+    scene: { w: 800, h: 600, dpr: 1 },
+    screen: { w: 800, h: 600, dpr: 1 },
   } as unknown as FrameContext
 }
 
@@ -121,9 +126,10 @@ describe('buildSceneView', () => {
   })
 
   it('hasFlow follows the coverage, and stays FALSE with no coverage renderer at all (#1333)', () => {
-    // This flag is the only thing standing between a scalar-coverage (or coverage-less) map and
-    // an allocated IBFV ping-pong pair, so the default must be false — including on the very
-    // first frames, before any coverage source has been attached.
+    // The default must be false — including on the very first frames, before any coverage
+    // source has been attached. (This flag no longer GATES the flow pass: that gate moved
+    // inside the pass so the eviction frame still declares — #1046 Inc-F2c. What is pinned
+    // here is that the flag reports the coverage state correctly, not that it gates.)
     const base: HostStub = {
       opaque: [],
       translucent: [],
@@ -242,5 +248,28 @@ describe('buildSceneView', () => {
       makeCtx(false),
     )
     expect(pointsOverHillshade.resolveOwner).toBe('points')
+  })
+
+  it('overdraw MIRRORS the frame context — the passes read this, not the URL flag', () => {
+    // `SceneView.overdraw` is the second write in the authority chain
+    // (FrameContext.overdraw -> here -> every `shouldRun` gate). It was
+    // unpinned: hardwiring it to `false` left 61 assertions across 9 files
+    // green, so nothing would have caught the mirror being severed (#1046
+    // Inc-F2d review CRITICAL-2). Both values, so a constant cannot satisfy it.
+    const base: HostStub = {
+      opaque: [],
+      translucent: [],
+      oit: [],
+      lineRenderer: {},
+      pointHasLayers: false,
+    }
+    for (const v of [true, false]) {
+      expect(
+        buildSceneView(makeHost({ ...base }), makeCtx(false, v)).overdraw,
+        `scene.overdraw did not follow ctx.overdraw (${v}) — the pass gates would then ` +
+          'disagree with the target routing, which is the half-gated frame this chain exists ' +
+          'to prevent',
+      ).toBe(v)
+    }
   })
 })

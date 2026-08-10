@@ -1,6 +1,7 @@
 import { TokenType } from '../lexer/tokens'
 import type * as AST from './ast'
 import { ExpressionParser } from './parser-expressions'
+import { INPUT_BAD_TYPE, INPUT_DEFAULT_TYPE_MISMATCH } from '../diagnostics/diagnostic'
 
 /** Statement handlers + the keyword→handler registry.
  *
@@ -50,9 +51,13 @@ export class StatementParser extends ExpressionParser {
     const properties: AST.BlockProperty[] = []
     const utilities: AST.UtilityLine[] = []
     const styleProperties: AST.StyleProperty[] = []
+    const stages: AST.StageBlock[] = []
 
     while (!this.check(TokenType.RBrace) && !this.isEnd()) {
-      if (this.check(TokenType.Pipe)) {
+      if (this.check(TokenType.At)) {
+        // Shader stage block: @color { return <expr> }  (#1538)
+        stages.push(this.parseStageBlock())
+      } else if (this.check(TokenType.Pipe)) {
         // Utility line: | item item item ...
         utilities.push(this.parseUtilityLine())
       } else if (this.isStylePropertyStart()) {
@@ -68,7 +73,42 @@ export class StatementParser extends ExpressionParser {
     }
     this.expect(TokenType.RBrace)
 
-    return { kind: 'LayerStatement', name, properties, utilities, styleProperties, line }
+    const stmt: AST.LayerStatement = {
+      kind: 'LayerStatement',
+      name,
+      properties,
+      utilities,
+      styleProperties,
+      line,
+    }
+    if (stages.length > 0) stmt.stages = stages
+    return stmt
+  }
+
+  /** `@color { return <expr> }` — a shader stage block (#1538).
+   *  Expression-bodied like `fn` (§2.10): `return` is matched by token
+   *  VALUE (it lexes as an ordinary identifier), so no new keyword. */
+  private parseStageBlock(): AST.StageBlock {
+    const line = this.current().line
+    this.expect(TokenType.At)
+    const stage = this.expect(TokenType.Identifier).value
+    if (stage !== 'color' && stage !== 'stroke') {
+      this.error(
+        `Unknown shader stage \`@${stage}\` — expected @color or @stroke. ` +
+          `(@position is not implemented: the variant composer has no vertex-side slot.)`,
+      )
+    }
+    this.expect(TokenType.LBrace)
+    if (!(this.check(TokenType.Identifier) && this.current().value === 'return')) {
+      this.error(
+        `Expected \`return <expression>\` in the @${stage} block — stage bodies are ` +
+          `expression-bodied (a single return; use \`?:\` or \`match\` for branching)`,
+      )
+    }
+    this.advance() // consume `return`
+    const body = this.parseExpr()
+    this.expect(TokenType.RBrace)
+    return { stage: stage as AST.StageBlock['stage'], body, line }
   }
 
   // background { fill: sky-900 } — Mapbox-style canvas clear color.
@@ -108,6 +148,20 @@ export class StatementParser extends ExpressionParser {
     const line = this.current().line
     this.expect(TokenType.Preset)
     const name = this.expect(TokenType.Identifier).value
+
+    // Optional parameter list: `preset glow(color, radius) { … }` (#1536).
+    // Zero-arg presets keep the bare `preset name { … }` grammar.
+    let params: string[] | undefined
+    if (this.check(TokenType.LParen)) {
+      this.advance()
+      params = []
+      while (!this.check(TokenType.RParen) && !this.isEnd()) {
+        params.push(this.expect(TokenType.Identifier).value)
+        if (this.check(TokenType.Comma)) this.advance()
+      }
+      this.expect(TokenType.RParen)
+    }
+
     this.expect(TokenType.LBrace)
 
     const utilities: AST.UtilityLine[] = []
@@ -123,7 +177,83 @@ export class StatementParser extends ExpressionParser {
     }
     this.expect(TokenType.RBrace)
 
-    return { kind: 'PresetStatement', name, utilities, properties, line }
+    const stmt: AST.PresetStatement = { kind: 'PresetStatement', name, utilities, properties, line }
+    if (params) stmt.params = params
+    return stmt
+  }
+
+  // fn halo(width, base) { return clamp(width * 1.5 + base, 1, 24) }
+  // Expression-bodied v1 (#1535): the body is exactly one `return <expr>`.
+  // `return` lexes as an ordinary identifier (pruned by #1072), so it is
+  // matched by token VALUE — no new keyword for it.
+  parseFnStatement(): AST.FnStatement {
+    const line = this.current().line
+    this.expect(TokenType.Fn)
+    const name = this.expect(TokenType.Identifier).value
+    this.expect(TokenType.LParen)
+    const params: string[] = []
+    while (!this.check(TokenType.RParen) && !this.isEnd()) {
+      params.push(this.expect(TokenType.Identifier).value)
+      if (this.check(TokenType.Comma)) this.advance()
+    }
+    this.expect(TokenType.RParen)
+    this.expect(TokenType.LBrace)
+    if (!(this.check(TokenType.Identifier) && this.current().value === 'return')) {
+      this.error(
+        `Expected \`return <expression>\` in fn body — fn bodies are ` +
+          `expression-bodied (a single return; use \`?:\` or \`match\` for branching)`,
+      )
+    }
+    this.advance() // consume `return`
+    const body = this.parseExpr()
+    this.expect(TokenType.RBrace)
+    return { kind: 'FnStatement', name, params, body, line }
+  }
+
+  /** Parse a `: TYPE` annotation — shared by `struct` fields and `input` (#1539). */
+  private parseTypeAnnotation(allowed: readonly string[], errorCode?: string): string {
+    const typeName = this.expect(TokenType.Identifier).value
+    if (!allowed.includes(typeName))
+      this.error(`Expected ${allowed.join('/')}, got \`${typeName}\``, errorCode)
+    return typeName
+  }
+
+  // struct Track { speed: f32, heading: f32, name: string }  (#1537)
+  parseStructStatement(): AST.StructStatement {
+    const line = this.current().line
+    this.expect(TokenType.Struct)
+    const name = this.expect(TokenType.Identifier).value
+    this.expect(TokenType.LBrace)
+
+    const fields: AST.StructField[] = []
+    while (!this.check(TokenType.RBrace) && !this.isEnd()) {
+      const fieldName = this.expect(TokenType.Identifier).value
+      this.expect(TokenType.Colon)
+      const typeName = this.parseTypeAnnotation(['f32', 'string', 'bool'])
+      fields.push({ name: fieldName, type: typeName as AST.StructFieldType })
+      if (this.check(TokenType.Comma)) this.advance()
+    }
+    this.expect(TokenType.RBrace)
+
+    return { kind: 'StructStatement', name, fields, line }
+  }
+
+  // input threshold: f32 = 0.5 — a host-settable uniform (#1539).
+  parseInputStatement(): AST.InputStatement {
+    const line = this.current().line
+    this.expect(TokenType.Input)
+    const name = this.expect(TokenType.Identifier).value
+    this.expect(TokenType.Colon)
+    const type = this.parseTypeAnnotation(['f32', 'color'], INPUT_BAD_TYPE) as AST.InputType
+    this.expect(TokenType.Eq)
+    const expr = this.parseExpr()
+    if (type === 'f32' && expr.kind === 'NumberLiteral') {
+      return { kind: 'InputStatement', name, type, default: expr, line }
+    }
+    if (type === 'color' && expr.kind === 'ColorLiteral') {
+      return { kind: 'InputStatement', name, type, default: expr, line }
+    }
+    this.error(`\`input\` default doesn't match \`: ${type}\``, INPUT_DEFAULT_TYPE_MISMATCH)
   }
 
   // import { name1, name2 } from "path"
@@ -522,6 +652,22 @@ export class StatementParser extends ExpressionParser {
     // Parse the utility name: hyphen-joined tokens like "fill-red-500", "stroke-2"
     const name = this.parseUtilityName()
 
+    // Call-form preset application: `apply-glow(#f59e0b, 4)` (#1536).
+    // Only `apply-*` items take an argument list; a `(` after any other
+    // utility name is left for the binding/unit logic below to reject.
+    let args: AST.Expr[] | undefined
+    if (name.startsWith('apply-') && this.check(TokenType.LParen)) {
+      this.advance()
+      args = []
+      while (!this.check(TokenType.RParen) && !this.isEnd()) {
+        // parseCoalesce, NOT parseExpr — the standing block-property rule
+        // (`??` yes, ternary no), same as data-style bindings below.
+        args.push(this.parseCoalesce())
+        if (this.check(TokenType.Comma)) this.advance()
+      }
+      this.expect(TokenType.RParen)
+    }
+
     // Check for data binding: -[expr] or [expr] or fill match(...){...} / categorical(...) / gradient(...)
     let binding: AST.Expr | null = null
 
@@ -587,7 +733,9 @@ export class StatementParser extends ExpressionParser {
       }
     }
 
-    return { kind: 'UtilityItem', modifier, name, binding, bindingUnit }
+    const item: AST.UtilityItem = { kind: 'UtilityItem', modifier, name, binding, bindingUnit }
+    if (args) item.args = args
+    return item
   }
 
   /**
@@ -637,6 +785,9 @@ const STATEMENT_HANDLERS: ReadonlyMap<TokenType, StatementHandler> = new Map<
   [TokenType.Layer, (p) => p.parseLayerStatement()],
   [TokenType.Background, (p) => p.parseBackgroundStatement()],
   [TokenType.Preset, (p) => p.parsePresetStatement()],
+  [TokenType.Fn, (p) => p.parseFnStatement()],
+  [TokenType.Struct, (p) => p.parseStructStatement()],
+  [TokenType.Input, (p) => p.parseInputStatement()],
   [TokenType.Import, (p) => p.parseImportStatement()],
   [TokenType.SymbolDef, (p) => p.parseSymbolStatement()],
   [TokenType.Keyframes, (p) => p.parseKeyframesStatement()],

@@ -11,7 +11,10 @@ const SAMPLES: Record<string, string> = {
   import: 'import "lib.xgis"',
   source: 'source s { type: geojson }',
   symbol: 'symbol sym { path "M 0 0 L 1 1 Z" }',
-  preset: 'preset p { | fill-red-500 }',
+  preset: 'preset p(a) { | fill-[a] }',
+  fn: 'fn halo(w) { return clamp(w, 1, 24) }',
+  struct: 'struct Track { speed: f32, name: string }',
+  input: 'input threshold: f32 = 0.5',
   layer: 'layer l { | fill-red-500 }',
   background: 'background { fill: sky-900 }',
 }
