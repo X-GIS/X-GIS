@@ -48,6 +48,18 @@ export interface TilePointShow {
   circleTranslateXShape?: import('@xgis/compiler').PropertyShape<number> | null
   circleTranslateYShape?: import('@xgis/compiler').PropertyShape<number> | null
   circleStrokeOpacityShape?: import('@xgis/compiler').PropertyShape<number> | null
+  /** A feature-free `@color`/`@stroke` composer variant (#1605 Phase 3), or
+   *  null/absent for the default feat_data-read path. `emitTilePointsRhi`
+   *  already forwards the whole `ShowCommand` here, so this field only
+   *  DECLARES what was structurally arriving anyway — declaring it is what
+   *  lets `flushTilePointsRhi`/`redrawTilePointsCached` select a
+   *  variant-composed draper instead of hardcoding the base one.
+   *
+   *  Deliberately NOT part of `TilePointPackKey`: the variant selects the
+   *  SHADER, never the packed bytes (feat_data / verts / indices are
+   *  identical either way), and both the repack and the cached-redraw path
+   *  re-resolve the draper per draw — so a variant change needs no repack. */
+  shaderVariant?: import('./renderer-types').ShaderVariantInfo | null
 }
 
 export interface TilePointPackKey {
