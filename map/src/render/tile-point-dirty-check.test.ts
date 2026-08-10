@@ -28,6 +28,7 @@ import { WebGpuDevice, wrapWebGpuPass } from '@xgis/rhi-webgpu'
 import { Camera } from '@xgis/map'
 import { lonLatToECEF } from '@xgis/shared'
 import { buildTilePointPackKey, hashStableKeys } from './tile-point-pack-key'
+import { tileKey } from '@xgis/compiler'
 
 let stub: StubInstallation
 
@@ -105,6 +106,8 @@ describe('tile-point dirty-check gate (#1581 leg B, GPU-free)', () => {
       show,
       camera.zoom,
       camera.pitch,
+      0, // contentGeneration — no tile replaced in this scenario (#1616)
+      0b00100, // worldCopyMask — copy 0 only (#1616)
     )
 
     const encoder = (
@@ -148,10 +151,89 @@ describe('tile-point dirty-check gate (#1581 leg B, GPU-free)', () => {
       changedShow,
       camera.zoom,
       camera.pitch,
+      0,
+      0b00100,
     )
     expect(renderer.canSkipTilePointRepack(key2)).toBe(false)
     addPoint(renderer, 10, 30)
     renderer.flushTilePointsRhi(pass, camera, 0, 0, 0, 1024, 768, changedShow, 1, key2)
     expect(creates.count()).toBe(6)
+  })
+})
+
+// ═══ A PAN must rebuild the pack — the end-to-end consequence of #1616 S1 ═══
+//
+// The unit gate in tile-point-pack-key-completeness.test.ts proves the HASH
+// discriminates. This proves the consequence that actually matters: the buffers
+// are really rebuilt when the visible tile set moves.
+//
+// It exists because the render gate cited as evidence for the S1 fix
+// (`_1581-static-camera-render-gate`) was MEASURED passing 4/4 with the bug fully
+// reintroduced. It pans, which reads like coverage, but neither post-pan
+// assertion can see this: "pixels changed after setCenter" is satisfied by the
+// FILLS moving whether or not the point pack was reused, and "pixels match after
+// returning to the origin" is satisfied trivially by a pack that was never
+// rebuilt — it is still the origin's pack. A gate that passes identically with
+// and without the defect carries no information (2026-07-28 ledger entry).
+//
+// Fail-before: with `hashStableKeys` restored to its XOR-fold, `panned` below
+// equals `atOrigin` for every even-sided rectangle, `canSkipTilePointRepack`
+// stays true, and the buffer count never moves off 3.
+describe('a pan rebuilds the tile-point pack (#1616 S1, end-to-end)', () => {
+  /** The visible tile rectangle at a camera position, as `stableKeys` would hold it. */
+  const view = (x0: number, y0: number, W: number, H: number): number[] => {
+    const keys: number[] = []
+    for (let dy = 0; dy < H; dy++)
+      for (let dx = 0; dx < W; dx++) keys.push(tileKey(12, x0 + dx, y0 + dy))
+    return keys
+  }
+  const keyFor = (
+    keys: number[],
+    show: TilePointShowLike,
+  ): ReturnType<typeof buildTilePointPackKey> =>
+    buildTilePointPackKey(hashStableKeys(keys), 'layer', show, 4, 0, 0, 0b00100)
+  type TilePointShowLike = Parameters<typeof buildTilePointPackKey>[2]
+
+  it('rebuilds the GPU buffers when the visible tile set pans, at a fixed camera pose', async () => {
+    const ctx = await makeCtx()
+    const renderer = new PointRenderer({
+      device: ctx.device,
+      format: ctx.format,
+      rhi: new WebGpuDevice(ctx.device),
+    })
+    const camera = new Camera(0, 0, 4)
+    camera.projType = 0
+    const creates = countTilePointBufferCreates(ctx.device as unknown as GPUDevice)
+    const show = { fill: '#ff8800', stroke: null, size: 6, opacity: 1 }
+    const encoder = (
+      ctx.device as unknown as {
+        createCommandEncoder: () => { beginRenderPass: () => GPURenderPassEncoder }
+      }
+    ).createCommandEncoder()
+    const pass = wrapWebGpuPass(encoder.beginRenderPass())
+
+    // Frame 1 — the view at its origin. 4x4 is the exact shape the XOR-fold
+    // cancelled to zero, so this is the discriminating fixture, not an arbitrary one.
+    const atOrigin = keyFor(view(100, 200, 4, 4), show)
+    expect(renderer.canSkipTilePointRepack(atOrigin)).toBe(false)
+    addPoint(renderer, 10, 30)
+    renderer.flushTilePointsRhi(pass, camera, 0, 0, 0, 1024, 768, show, 1, atOrigin)
+    expect(creates.count()).toBe(3)
+
+    // Frame 2 — same zoom, same pitch, same style: ONLY the tile set moved, by a
+    // single tile east. Four of the sixteen tiles are new.
+    const panned = keyFor(view(101, 200, 4, 4), show)
+    expect(
+      renderer.canSkipTilePointRepack(panned),
+      'a pan brought new tiles into view — reusing the pack means their points never draw',
+    ).toBe(false)
+    addPoint(renderer, 10, 30)
+    renderer.flushTilePointsRhi(pass, camera, 0, 0, 0, 1024, 768, show, 1, panned)
+    expect(creates.count(), 'the pan must have rebuilt the three tile-point buffers').toBe(6)
+
+    // CONTROL — holding still after the pan must still reuse, or this gate would
+    // pass by breaking the memo outright rather than by fixing its key.
+    expect(renderer.canSkipTilePointRepack(keyFor(view(101, 200, 4, 4), show))).toBe(true)
+    expect(creates.count(), 'no rebuild while the view is unchanged').toBe(6)
   })
 })

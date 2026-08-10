@@ -26,7 +26,7 @@
 //     fresh, not captured at construction).
 //   - `this.camera` → injected; `this.getCanvas()` → thunk (gpu-boot.ts can swap it).
 
-import { assertIngestBudget, readBodyCapped, safeFetch } from '@xgis/shared'
+import { assertIngestBudget, assertNotErrorPage, readBodyCapped, safeFetch } from '@xgis/shared'
 import type { Camera } from './camera'
 import type { GPUContext } from '@xgis/rhi-webgpu'
 import type { InputStore } from './render/input-store'
@@ -509,6 +509,10 @@ export class SourceManager {
       256 * 1024 * 1024,
       `GeoJSON source "${load.name}"`,
     )
+    // The `!response.ok` branch above warns about the HTML-404 body it cannot
+    // see: a MISSING path is 200 + HTML on most hosts, so that branch never
+    // fires and JSON.parse breaks instead. Catch it here, named (#1627).
+    assertNotErrorPage(response, rawBytes, `GeoJSON source "${load.name}" (${url})`)
     const data = JSON.parse(new TextDecoder().decode(rawBytes)) as GeoJSONFeatureCollection
     assertIngestBudget((data as { features?: unknown }).features, `GeoJSON source "${load.name}"`)
 

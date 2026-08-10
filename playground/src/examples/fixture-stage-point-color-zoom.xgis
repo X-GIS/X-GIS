@@ -1,0 +1,35 @@
+xgis 1
+
+/* Fixture: NON-constant `@color` AND `@stroke` shader stage blocks on a
+ * point layer (#1605 Phase 2) — the one that actually exercises the new
+ * WGSL composer seam (map/src/shaders/dsl/point.ts's 'point-fill-color' /
+ * 'point-stroke-color' placeholders), and proves they compose
+ * INDEPENDENTLY (point's headline novelty over line's single-axis seam).
+ *
+ * Unlike fixture-stage-point-color.xgis (a constant body, CPU-folded, never
+ * reaches the composer), both bodies read `zoom`, so neither is foldable at
+ * compile time and both genuinely depend on the runtime variant seam.
+ *
+ * The seam is WebGPU-only for now (a future phase is the WebGL2 follow-up),
+ * and this sandbox has no software WebGPU adapter (CLAUDE.md §5), so this
+ * fixture cannot be a headless CI render gate. It is verified manually with
+ * a real GPU: `HEADED=1` locally, comparing the rendered fill/stroke colour
+ * at two different zooms against the hand-computed
+ * vec4(zoom/22, 0.2, 0.1, 1) / vec4(0.1, 0.2, zoom/22, 1) expectations
+ * (compare-parity-pixeldiff / tile-crop-review skills). Opening this in the
+ * playground and zooming in/out is the one channel — besides that manual
+ * local run — to actually SEE the seam work. */
+
+source p {
+  type: geojson
+  data: { "type": "FeatureCollection", "features": [
+    { "type": "Feature", "geometry": { "type": "Point", "coordinates": [0, 0] }, "properties": {} }
+  ] }
+}
+
+layer painted {
+  source: p
+  @color { return vec4(zoom / 22, 0.2, 0.1, 1) }
+  @stroke { return vec4(0.1, 0.2, zoom / 22, 1) }
+  | size-40 stroke-8
+}

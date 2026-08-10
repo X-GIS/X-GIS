@@ -170,7 +170,15 @@ const CEILINGS: Record<string, number> = {
   // twin-era prose); kept this branch's wording, which is longer because it names the
   // twin's actual #1046 Track A1 replacement (the WebGL2 immediate arm) instead of
   // main's still-twin-shaped phrasing.
-  'map/src/render/vector-tile-renderer.ts': 4828,
+  // 4828→4863 (#1605 Phase 1 PR B, measured post-prettier per §12): thread
+  // show.shaderVariant into the SDF line draw dispatch (2 drawSegmentsRhi call
+  // sites in renderLinesRhi + a new lineVariant param on renderTileKeys, kept
+  // TRAILING rather than mid-list so reflection-based unit tests calling this
+  // private method positionally don't shift, threaded to its 6 call sites and
+  // 2 drawSegments calls), and narrow the two warnStageBlockUnsupported('line',
+  // ...) call sites to the genuinely-rejected case now that a feature-free
+  // @stroke expression is actually consumed.
+  'map/src/render/vector-tile-renderer.ts': 4863,
   // Baselined 801: #1602 (the drape's overlap winner is relevance, not re-arm recency)
   // brought the file to exactly NEW_FILE_CAP (800), and the independent #1603 material-
   // release fix landed on main one line above it in the same file, pushing it to 801 on
@@ -179,6 +187,10 @@ const CEILINGS: Record<string, number> = {
   // 801→812 (#1544, main merge): the forced-WebGL2-twin-frame deletion reworked this
   // renderer's frame entry points, landing 11 net lines in the same file this branch
   // already baselined — another unrelated-PR collision, not new #1602 scope.
+  // Merge union (#1602 <- main #1605 Phase 1-3): the two sides touch DIFFERENT keys —
+  // main raised vector-tile-renderer.ts (line composer dispatch), this branch adds the
+  // coverage-renderer.ts baseline — so both entries stand; neither number is a pick
+  // between sides. Both re-measured against the merged tree.
   'map/src/render/coverage-renderer.ts': 812,
   // 4232→4237 (#1000 heatmap relocate): the heatmap density-target OWNERSHIP
   // extracted to render/heatmap-targets.ts; map keeps only the irreducible
@@ -558,7 +570,20 @@ const CEILINGS: Record<string, number> = {
   // this branch's twin-deletion shrink and main's stage-block-drop warning (+1 net, which
   // fit under main's own looser 5411) land in different regions of the same file, so the
   // ceiling is the MERGED file's measured size, never either side's number.
-  'map/src/map.ts': 5410,
+  // 5410→5418 (#1605 Phase 2 PR B): the point runtime-wiring import + the narrowed
+  // warnStageBlockUnsupported gate (toComposerPointVariant local + fillIsStage/
+  // strokeIsStage condition) + the trailing shaderVariant arg on pointRenderer.addLayer —
+  // mirrors line's own Phase 1 wiring at this same call site.
+  // 5418→5431 (#1627): three `assertNotErrorPage` calls — the `.xgb` side-load, the
+  // `.xgb` scene and the `.xgis` style arm of `load()`. A missing file is answered
+  // 200-with-HTML by most hosts, so every `resp.ok` check here passes and the page
+  // reaches JSON.parse / the lexer, which report a position inside HTML nobody wrote.
+  // The guard itself lives in shared/src/safety.ts (one authority, eight call sites);
+  // what lands HERE is irreducible — a guard must sit at the call site that owns the
+  // body, and each needs the label naming its URL. +13 = 3 calls + 5 lines of why +
+  // the import's prettier wrap. MEASURED on the merged file, not derived from the
+  // pre-#1605 base: the two raises land in different regions and therefore SUM.
+  'map/src/map.ts': 5431,
   // Baselined at #1255 (measured 830): the DOM-inspired layer API crossed
   // NEW_FILE_CAP with the paint-transition style-setter integration — the
   // StyleHost.transitions context, the shared applyNumber/applyColor
@@ -822,7 +847,13 @@ const CEILINGS: Record<string, number> = {
   // polygon-shader-cache.ts to pay for the body-epoch key — win banked.
   'map/src/render/pipeline-factory.ts': 1496,
   'map/src/camera/camera.ts': 1419,
-  'map/src/shaders/dsl/line.ts': 1441,
+  // 1441→1524 (#1605 Phase 1, measured post-prettier per §12): compute_line_color gains
+  // an explicit vec4 return type + a 'line-color-return' placeholder (named alpha/
+  // base_color Lets + a line_color_out Var so a foreign composer Stmt list can varref
+  // them), plus the new LineVariantSpec type, its two composer helpers, and
+  // buildLineModule/emitLineWgsl threading a variant param through — the line half of
+  // the polygon-only @stroke fragment seam.
+  'map/src/shaders/dsl/line.ts': 1524,
   // 1373→1422 (#1246): the flat-projection stroke-width fix. The VS clamp's flat
   // branch is rewritten from the (miscalibrated, no-op) targetNdc clamp to a
   // self-calibrating length(mercProbe)/length(projProbe) = 1/J screen-size ratio
@@ -888,7 +919,15 @@ const CEILINGS: Record<string, number> = {
   // measurement that found the bug — the part a future reader needs most. Measured post-hook.
   // 1384→1383 (merge union <- main): a one-line shrink banked honestly rather than left
   // as silent headroom — the ratchet passes on shrinkage, so this would never have failed.
-  'data/src/tile-catalog.ts': 1383,
+  // 1383→1392 (#1616): `contentGeneration()` — the signal `indexGeneration` structurally
+  // cannot carry, since index entries only GROW and a re-tile of an already-held key moves
+  // neither them nor the selected key set. RAISED, same shape as the #1448 entry above: a
+  // counter field + a one-line accessor have nowhere cohesive to extract to, and the bumps
+  // sits at the ONE chokepoint every slice write passes (`setSlice`) plus the refresh-drop
+  // branch, which changes content with no write for `setSlice` to see. +4 more for the
+  // review correction: the doc had claimed it fires "whenever content changes", which is
+  // false — eviction deletes bypass this class entirely. Measured post-hook.
+  'data/src/tile-catalog.ts': 1399,
   // 1173→1180 (#1046 F1): thread the required `rhi: RhiDevice` onto the FrameContext at
   // both build sites — the main-chain init literal and the twin label stage — so a seam
   // can reach `ctx.rhi.caps.*` (doc §3-F1). +7 = two assignments + their rationale comments;
@@ -1083,7 +1122,22 @@ const CEILINGS: Record<string, number> = {
   // refresh/draw tail into tile-point-pack-key.ts + tile-point-draw.ts (this file keeps
   // only canSkipTilePointRepack + the two callers) — a genuine shrink, not this branch's
   // doing (its own delta on this file was a same-length comment reword, 0 net lines).
-  'map/src/render/point-renderer.ts': 1167,
+  // 1167→1197 (#1605 Phase 2 PR B): the variant-keyed _pointDrapers Map replacing the
+  // single _pointDraper field, ensurePointDraper's WebGL2-forced-base-variant + cache-key
+  // logic, the two call-site updates, and addLayer's trailing shaderVariant param —
+  // mirrors LineRenderer's own Map<string, LineDraper> cache (#1605 Phase 1 Step 3).
+  // Merge union (#1616 <- main): the two sides edited disjoint regions, so they SUM —
+  // 1197 + 1 = 1198, measured on the merged file, not picked from either side.
+  // 1167→1168 (#1616): `pointWorldCopies` now returns the shared `SINGLE_COPY` off
+  // Mercator instead of a fresh `[0]`. +1 is the import; the allocation it removes is
+  // per point-show per frame on the #1581 cache-HIT path, whose whole purpose is to
+  // allocate nothing — this commit is what made that path call it every frame.
+  // 1198→1209 (#1605 Phase 3 PR C): ensurePointDraper drops its WebGL2 null-force (the
+  // composer now runs on both backends) and `_tilePointDrawDeps` takes the show's variant
+  // instead of hardcoding null — the VT/tile-point path is what an inline-GeoJSON point
+  // source actually renders through, so without it a point stage block reached no pixels
+  // at all (browser-probed). Most of the delta is the two rationale comments.
+  'map/src/render/point-renderer.ts': 1209,
   // 1106→1120 (#1043 state-hygiene): three unmask-before-clear / state-reset fixes for the
   // WebGL2 flicker class — beginScreenPass colorMask unmask (the colour sibling of #746/#780),
   // dispatchComputeToR32UI viewport snapshot+restore, and the setPipeline no-depth arm's

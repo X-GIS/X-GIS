@@ -1,0 +1,29 @@
+xgis 1
+
+/*
+ * Fixture: exactly ONE point show, and nothing else.
+ *
+ * The tile-point pack memo (#1581 leg B) has ONE cache slot for the whole
+ * scene — `PointRenderer._lastTilePointPackKey`, and `scene-renderers.ts`
+ * builds a single PointRenderer per map. A style with two point layers
+ * therefore thrashes that slot and the memo never hits, which makes every
+ * shipped point demo (megacities, populated-places, gradient-points,
+ * sdf-points, custom-shapes, …) structurally unable to exhibit a stale-pack
+ * bug: they all carry a halo layer plus a pin layer. Measured that way twice
+ * while trying to build a render gate for #1616 on megacities.
+ *
+ * This is the smallest scene in which the memo actually HITS, so it is the
+ * only shape in which a pack-key defect is visible on screen. No basemap, so
+ * every non-background pixel is a point and no classifier is needed.
+ */
+
+source cities {
+  type: geojson
+  url: "ne_110m_populated_places.geojson"
+}
+
+layer cities {
+  source: cities
+  filter: .pop_max > 1000000
+  | fill-red-500 size-14
+}

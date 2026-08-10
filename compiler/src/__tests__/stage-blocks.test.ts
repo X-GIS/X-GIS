@@ -85,6 +85,82 @@ describe('stage block lowering (#1538)', () => {
     expect(nodeToWgslString(v.strokeExpr!)).toContain('vec4')
   })
 
+  // #1605 Phase 1 pin: line's toComposerLineVariant (map/src/render/
+  // line-shader-cache.ts) depends on this EXACT contract for a feature-free
+  // (no `.field` read) @stroke body — a zoom-only expression must populate
+  // strokeExpr, with strokeIsDefault=false and needsFeatureBuffer=false, so
+  // the runtime's feature-free-only gate accepts it. generateShaderVariant is
+  // geometry-kind-agnostic (§0 of this file's header), so this fixture needs
+  // no `type: line` declaration to exercise the same slot line's renderer reads.
+  it('a feature-free (zoom-only) @stroke body is stroke-real and buffer-free', () => {
+    const scene = lower(parse(SCENE('@stroke { return vec4(zoom / 22, 0.2, 0.1, 1) }')))
+    expect(scene.diagnostics?.filter((d) => d.severity === 'error')).toEqual([])
+    const v = generateShaderVariant(scene.renderNodes[0]!)
+    expect(v.strokeExpr).not.toBeNull()
+    expect(v.strokeIsDefault).toBe(false)
+    expect(v.needsFeatureBuffer).toBe(false)
+    expect(v.strokeIsStage).toBe(true)
+  })
+
+  // #1605 PR B round-1 regression: an ORDINARY stroke utility (no @stroke
+  // block at all) also gets strokeExpr populated + strokeIsDefault=false —
+  // the compiler composes an expression for every real layer regardless of
+  // stage blocks (shader-gen.ts:127). toComposerLineVariant must gate on
+  // strokeIsStage, not on strokeExpr/strokeIsDefault, or it wrongly routes
+  // every ordinary stroke through the new composer seam.
+  it('an ordinary stroke utility (no @stroke block) is strokeIsStage=false', () => {
+    const scene = lower(
+      parse(`
+source w { type: geojson, url: "w.geojson" }
+layer l { source: w  | fill-slate-800 stroke-amber-300 stroke-12 }
+`),
+    )
+    const v = generateShaderVariant(scene.renderNodes[0]!)
+    expect(v.strokeExpr).not.toBeNull()
+    expect(v.strokeIsDefault).toBe(false)
+    expect(v.strokeIsStage).toBe(false)
+  })
+
+  // #1605 Phase 2 pin: point's toComposerPointVariant (map/src/render/
+  // point-shader-cache.ts) depends on this EXACT contract for a feature-free
+  // (no `.field` read) @color body — mirrors the @stroke pin above, on the
+  // fill axis instead.
+  it('a feature-free (zoom-only) @color body is fill-real and buffer-free', () => {
+    const scene = lower(parse(SCENE('@color { return vec4(zoom / 22, 0.2, 0.1, 1) }')))
+    expect(scene.diagnostics?.filter((d) => d.severity === 'error')).toEqual([])
+    const v = generateShaderVariant(scene.renderNodes[0]!)
+    expect(v.fillExpr).not.toBeNull()
+    expect(v.fillIsDefault).toBe(false)
+    expect(v.needsFeatureBuffer).toBe(false)
+    expect(v.fillIsStage).toBe(true)
+  })
+
+  it('an ordinary fill utility (no @color block) is fillIsStage=false', () => {
+    const scene = lower(
+      parse(`
+source w { type: geojson, url: "w.geojson" }
+layer l { source: w  | fill-amber-300 }
+`),
+    )
+    const v = generateShaderVariant(scene.renderNodes[0]!)
+    expect(v.fillIsStage).toBe(false)
+  })
+
+  // Point-specific insurance: unlike line (stroke-only), point genuinely
+  // authors BOTH axes as stage blocks on the same layer — this is the one
+  // property line's Phase 1 never needed to check.
+  it('@color and @stroke stage blocks on the same layer set BOTH IsStage flags independently', () => {
+    const scene = lower(
+      parse(
+        SCENE('@color { return vec4(zoom / 22, 0, 0, 1) }\n  @stroke { return vec4(0, 0, 1, 1) }'),
+      ),
+    )
+    expect(scene.diagnostics?.filter((d) => d.severity === 'error')).toEqual([])
+    const v = generateShaderVariant(scene.renderNodes[0]!)
+    expect(v.fillIsStage).toBe(true)
+    expect(v.strokeIsStage).toBe(true)
+  })
+
   it('a user fn is usable inside a stage block (inlined before lowering)', () => {
     const scene = lower(
       parse(

@@ -71,6 +71,18 @@ export class TileCatalog {
   private index: XGVTIndex | null = null
   /** #1581 — entries only ever grow; lets a memo invalidate a landed tile. */
   indexGeneration = (): number => this.index?.entryByHash.size ?? 0
+  /** #1616 — bumps on every slice WRITE (`setSlice`, the one chokepoint they all pass)
+   *  and on the refresh-drop, which changes content with no write to see it. NOT on
+   *  eviction: `TileEvictionPolicy` calls `cache.deleteCacheEntry` directly, bypassing
+   *  this class — safe for the point path only because eviction skips `protectedKeys`
+   *  ⊇ the selected set, so a key a pack depends on is not evicted under it.
+   *  `indexGeneration` only grows with new index entries,
+   *  so neither a tile ARRIVING for an already-selected key nor a re-tile of one moves
+   *  it; the selected key set does not move either. A memo that also stops re-reading
+   *  tile data on a hit (#1581 leg B) is blind to both without this. Counts writes, not
+   *  tiles — rely only on "differs from last frame". */
+  private _contentGeneration = 0
+  contentGeneration = (): number => this._contentGeneration
   /** In-memory compiled-tile store + byte accounting. Extracted to
    *  TileDataCache (redesign §3.5): owns the per-(tile key, source-
    *  layer) TileData map, the cumulative byte total, and the
@@ -164,6 +176,7 @@ export class TileCatalog {
    *  tile-catalog-skeleton / -lifecycle / multi-layer-overzoom tests)
    *  keeps reaching the same injection path. */
   private setSlice(key: number, layer: string, data: TileData): void {
+    this._contentGeneration++ // #1616 — the ONE chokepoint every slice write passes
     this.cache.setSlice(key, layer, data)
   }
 
@@ -381,6 +394,7 @@ export class TileCatalog {
     // the renderer swaps (or drops) the tile it is currently drawing.
     if (this._pendingRefresh.delete(key) && this.cache.has(key)) {
       this._replacedKeys.add(key)
+      this._contentGeneration++ // #1616 — a DROP changes content with no setSlice to see it
       this.deleteCacheEntry(key)
     }
     if (!result) {
@@ -1226,7 +1240,9 @@ export class TileCatalog {
     // #1371 — record an OVERWRITE (a re-tile of a key we already served) before the write, so
     // the renderer can swap that tile's GPU buffers instead of being blanked. A first write is
     // not a replacement: nothing was drawing this key yet.
-    if (this.hasTileData(key, sourceLayer)) this._replacedKeys.add(key)
+    if (this.hasTileData(key, sourceLayer)) {
+      this._replacedKeys.add(key)
+    }
     this.setSlice(key, sourceLayer, data)
     try {
       this.onTileLoaded?.(key, data, sourceLayer)

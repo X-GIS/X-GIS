@@ -5,6 +5,7 @@
 
 import type { Camera } from '../camera'
 import { isWebMercator } from '@xgis/geo'
+import { SINGLE_COPY } from '../camera/camera-world-copies'
 import { getSampleCount, FrameArena } from '@xgis/engine'
 import type { ShapeRegistry } from '../text/sdf-shape'
 import { parseHexColor } from '../feature-helpers'
@@ -17,6 +18,8 @@ const F = POINT_FEAT.slot
 import { wrapWebGpuPass, wrapWebGpuBindGroupLayout } from '@xgis/rhi-webgpu'
 import type { RhiBuffer, RhiBindGroup, RhiDevice, RhiRenderPass } from '@xgis/engine'
 import { PointDraper } from './material/point-material'
+import { toComposerPointVariant } from './point-shader-cache'
+import type { ShaderVariantInfo } from './renderer-types'
 import { reflect } from '@xgis/shader-dsl'
 import { vertexField, evaluate, makeEvalProps } from '@xgis/compiler'
 import { POINT_FORMAT } from './point-vertex-format'
@@ -168,7 +171,7 @@ export function pointWorldCopies(
 ): readonly number[] {
   return isWebMercator(projType)
     ? camera.getVisibleWorldCopies(canvasWidth, canvasHeight, dpr)
-    : [0]
+    : SINGLE_COPY // #1616 — shared; this runs per show per frame on the cache-hit path
 }
 
 // worldCopyMercX moved into the stateless packer (@xgis/map, #722 S0); re-exported
@@ -240,11 +243,12 @@ export class PointRenderer {
     })
   }
 
-  /** A quality flip RELEASES the point draper (#1578) and drops it; the next draw rebuilds
-   *  at the new getSampleCount(). Points do no GPU picking, so only sample count matters. */
+  /** A quality flip RELEASES every point draper (#1578) and drops them; the next draw
+   *  rebuilds at the new getSampleCount(). Points do no GPU picking, so only sample
+   *  count matters. */
   rebuildForQuality(): void {
-    this._pointDraper?.destroy()
-    this._pointDraper = undefined
+    this._pointDrapers.forEach((d) => d.destroy())
+    this._pointDrapers.clear()
   }
 
   /** Create a bind group with uniform + feat_data + shape buffers, through the
@@ -289,10 +293,25 @@ export class PointRenderer {
   // Storage buffers + vertex/index + drawIndexed through the generic Material: builds the
   // RHI pipelines once, then per-frame wraps the native uniform/feature/shape/seg/vertex/
   // index buffers + draws.
-  private _pointDraper?: PointDraper
+  // #1605 Phase 2 — keyed by variant.key ('__base__' for no variant) so a
+  // variant-carrying layer and a plain layer can coexist in one frame, mirroring
+  // LineRenderer's own Map<string, LineDraper> cache (#1605 Phase 1 Step 3).
+  private _pointDrapers = new Map<string, PointDraper>()
 
-  private ensurePointDraper(): void {
-    if (this._pointDraper) return
+  private ensurePointDraper(variant?: ShaderVariantInfo | null): PointDraper {
+    // #1605 Phase 3 — variant pipelines now run on BOTH backends. The prior
+    // `webgl2 ? null : …` force mirrored line's own Phase-2 staging, which in
+    // turn claimed to mirror polygon's pipeline-factory.ts precedent; that was
+    // wrong (polygon has never composed GLSL on WebGL2 either — it returns
+    // before building any variant pipeline there, which is what #1592/#1583's
+    // fill-gap warning is about). Composed GLSL + emulateStorage + preamble
+    // consts/funcs is proven to compile and link on real WebGL2 by
+    // _webgl2-point-link-gate.spec.ts, and to PAINT by
+    // _stage-block-point-webgl2-gate.spec.ts.
+    const composerVariant = toComposerPointVariant(variant)
+    const key = composerVariant ? variant!.key : '__base__'
+    const cached = this._pointDrapers.get(key)
+    if (cached) return cached
     const vbl = this.vertexBufferLayout!
     const vertexBuffers = [
       {
@@ -304,7 +323,15 @@ export class PointRenderer {
         })),
       },
     ]
-    this._pointDraper = new PointDraper(this.rhi, this.format, getSampleCount(), vertexBuffers)
+    const draper = new PointDraper(
+      this.rhi,
+      this.format,
+      getSampleCount(),
+      vertexBuffers,
+      composerVariant,
+    )
+    this._pointDrapers.set(key, draper)
+    return draper
   }
 
   clearLayers(): void {
@@ -611,7 +638,7 @@ export class PointRenderer {
     const variant: 0 | 1 = opacity < EPS || fillA < EPS || strokeA < EPS ? 1 : 0
 
     refreshTilePointUniformAndDraw(
-      this._tilePointDrawDeps(),
+      this._tilePointDrawDeps(show.shaderVariant),
       {
         pass,
         camera,
@@ -640,21 +667,29 @@ export class PointRenderer {
    *  translate/frame uniform and reissue the draw call. */
   redrawTilePointsCached(args: TilePointFrameArgs): void {
     refreshTilePointUniformAndDraw(
-      this._tilePointDrawDeps(),
+      // The variant is re-resolved here too, not just on the repack path: a
+      // cached redraw still picks its draper fresh, so a style change that
+      // only swaps the variant needs no repack (see TilePointShow's doc).
+      this._tilePointDrawDeps(args.show.shaderVariant),
       args,
       this._lastTilePointTotalN,
       this._lastTilePointVariant,
     )
   }
 
-  /** Resources `refreshTilePointUniformAndDraw` needs, fallbacks resolved. */
-  private _tilePointDrawDeps(): TilePointDrawDeps {
-    this.ensurePointDraper()
+  /** Resources `refreshTilePointUniformAndDraw` needs, fallbacks resolved.
+   *  `variant` is the show's raw compiler variant (#1605 Phase 3): the VT/tile
+   *  point path now selects a composer draper too, which is what an inline
+   *  GeoJSON point source actually renders through — `map.ts`'s direct
+   *  `addLayer` path (wired in Phase 2) is NOT the path those take, so
+   *  without this a point stage block reached no pixels at all. */
+  private _tilePointDrawDeps(variant?: ShaderVariantInfo | null): TilePointDrawDeps {
+    const draper = this.ensurePointDraper(variant)
     return {
       frameBlock: this.frameBlock,
       rhi: this.rhi,
       uniformBuffer: this.uniformBuffer,
-      pointDraper: this._pointDraper!,
+      pointDraper: draper,
       shapeBuf: this.shapeRegistry?.shapeBuffer ?? this.emptyStorageBuf(),
       segBuf: this.shapeRegistry?.segmentBuffer ?? this.emptyStorageBuf(),
       featBuffer: this.tilePointFeatBuffer!,
@@ -697,6 +732,12 @@ export class PointRenderer {
     circlePitchScaleMap?: boolean,
     perFeatureFills?: ([number, number, number, number] | null)[] | null,
     perFeatureStrokes?: ([number, number, number, number] | null)[] | null,
+    /** A feature-free @color/@stroke composer variant (#1605 Phase 2), or
+     *  null/undefined for the default feat_data-read path. Trailing and
+     *  optional — line's Phase 1 broke 21 tests by inserting a new param
+     *  mid-list; every call site here either passes this explicitly or
+     *  relies on the default, never shifts a positional argument. */
+    shaderVariant?: ShaderVariantInfo | null,
   ): void {
     const points: { lon: number; lat: number }[] = []
 
@@ -875,6 +916,7 @@ export class PointRenderer {
       baseCircleTranslateY: circleTranslateY ?? 0,
       lastDynTranslateZoom: Number.NaN,
       circlePitchScaleMap: circlePitchScaleMap ?? false,
+      shaderVariant: shaderVariant ?? null,
     })
 
     console.log(`[X-GIS] SDF point layer: ${points.length} points`)
@@ -1130,8 +1172,8 @@ export class PointRenderer {
       // fallback is a point-owned RhiBuffer.
       const shapeBuf = this.shapeRegistry?.shapeBuffer
       const segBuf = this.shapeRegistry?.segmentBuffer
-      this.ensurePointDraper()
-      this._pointDraper!.draw(pass, {
+      const draper = this.ensurePointDraper(layer.shaderVariant)
+      draper.draw(pass, {
         uniform: this.uniformBuffer,
         feat: layer._expandedFeatBuf!,
         shape: shapeBuf ?? this.emptyStorageBuf(),

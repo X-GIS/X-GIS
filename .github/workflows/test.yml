@@ -250,6 +250,18 @@ jobs:
           # above (do NOT merge legs back).
           - id: engine-rhi-shared
             args: engine/src rhi-webgl2/src rhi-webgpu/src pipeline/src shared/src geo/src
+          # playground/ — CI-DARK until #1626, for the same reason the leg above
+          # documents: vitest.config.ts has included playground/src + playground/dev
+          # for a long time, but no matrix leg named those paths, so every test
+          # there ran ONLY in a full local `vitest run`. That covered the demo
+          # asset-reference gate (playground/src/example-asset-references.test.ts —
+          # the always-on catch for a demo referencing a file that was never
+          # committed) and the dev-tooling suites (the open-data CORS bridge, the
+          # S-102/S-111 catalogue builders). A handful of files, far under the
+          # ~110-file RPC threshold, so one leg. NOTE: the gate shells out to
+          # `git ls-files`, so this leg needs the repo checkout it already gets.
+          - id: playground
+            args: playground/src playground/dev
     # Distinct per-leg check name in the GitHub UI / status API, e.g.
     # "test (engine-render-a)". The single stable context for branch protection
     # is `test-result` below — require THAT, not these per-leg names.
@@ -818,5 +830,5 @@ jobs:
           # wall-clock pair must not abort the compile/parity/pixel gates before they
           # have reported. Quiet-machine ordering is unaffected — each invocation is its
           # own process either way.
-          ./node_modules/.bin/playwright test _shader-math-parity.spec.ts _wgsl-compile-gate.spec.ts _vs-clip-parity.spec.ts _dequant-parity.spec.ts _polygon-fill-flat-parity.spec.ts _polygon-fill-flat-pixel-gate.spec.ts _optimizer-gpu-parity.spec.ts _glsl-compile-gate.spec.ts _polygon-glsl-compile-gate.spec.ts _line-glsl-compile-gate.spec.ts _shader-dsl-mrt-render.spec.ts _emit-obfuscate-gate.spec.ts _graphics-retained-gl2-gate.spec.ts _graphics-retained-arrow-gl2-gate.spec.ts _graphics-retained-arrow-orientation-gate.spec.ts _graphics-compiled-arrow-parity.spec.ts _graphics-retained-drawcall-gl2-gate.spec.ts _compute-gen-compile-gate.spec.ts _fills-gl2-gate.spec.ts _fill-data-driven-gl2-gate.spec.ts _stage-block-parity.spec.ts _prefetch-effect-gl2-probe.spec.ts _globe-hash-camera-gate.spec.ts _hillshade-gl2-gate.spec.ts _1221-seam-control-matrix.spec.ts _hillshade-methods-gl2-gate.spec.ts _reseed-data-push-gate.spec.ts _s111-multiregion-gate.spec.ts _s111-overlap-ownership-gate.spec.ts _s111-currents-render.spec.ts _s111-deferred-coverage-gate.spec.ts _s111-advected-arrows-gate.spec.ts _s111-mosaic-arrow-field-gate.spec.ts _s111-arrow-density-gate.spec.ts _s111-dead-boundary-halo-gate.spec.ts _s111-catalogue-declarative-gate.spec.ts _s102-catalogue-gate.spec.ts _coverage-render.spec.ts _demotiles-labels-gl2-gate.spec.ts _label-pitch-alignment-gate.spec.ts _translucent-chain-gate.spec.ts _heatmap-chain-gate.spec.ts _labels-chain-gate.spec.ts _hillshade-chain-gate.spec.ts _graphics-chain-gate.spec.ts _scene-scale-seam-gate.spec.ts _pick-gl2-chain-gate.spec.ts _webgl2-live-render-gate.spec.ts _scene-scale-webgl2-chain-gate.spec.ts
+          ./node_modules/.bin/playwright test _shader-math-parity.spec.ts _wgsl-compile-gate.spec.ts _vs-clip-parity.spec.ts _dequant-parity.spec.ts _polygon-fill-flat-parity.spec.ts _polygon-fill-flat-pixel-gate.spec.ts _optimizer-gpu-parity.spec.ts _glsl-compile-gate.spec.ts _polygon-glsl-compile-gate.spec.ts _line-glsl-compile-gate.spec.ts _shader-dsl-mrt-render.spec.ts _emit-obfuscate-gate.spec.ts _graphics-retained-gl2-gate.spec.ts _graphics-retained-arrow-gl2-gate.spec.ts _graphics-retained-arrow-orientation-gate.spec.ts _graphics-compiled-arrow-parity.spec.ts _graphics-retained-drawcall-gl2-gate.spec.ts _compute-gen-compile-gate.spec.ts _fills-gl2-gate.spec.ts _fill-data-driven-gl2-gate.spec.ts _stage-block-parity.spec.ts _prefetch-effect-gl2-probe.spec.ts _globe-hash-camera-gate.spec.ts _hillshade-gl2-gate.spec.ts _1221-seam-control-matrix.spec.ts _hillshade-methods-gl2-gate.spec.ts _reseed-data-push-gate.spec.ts _s111-multiregion-gate.spec.ts _s111-overlap-ownership-gate.spec.ts _s111-currents-render.spec.ts _s111-deferred-coverage-gate.spec.ts _s111-advected-arrows-gate.spec.ts _s111-mosaic-arrow-field-gate.spec.ts _s111-arrow-density-gate.spec.ts _s111-dead-boundary-halo-gate.spec.ts _s111-catalogue-declarative-gate.spec.ts _s102-catalogue-gate.spec.ts _coverage-render.spec.ts _demotiles-labels-gl2-gate.spec.ts _label-pitch-alignment-gate.spec.ts _translucent-chain-gate.spec.ts _heatmap-chain-gate.spec.ts _labels-chain-gate.spec.ts _hillshade-chain-gate.spec.ts _graphics-chain-gate.spec.ts _scene-scale-seam-gate.spec.ts _1581-static-camera-render-gate.spec.ts _1616-content-generation-churn.spec.ts _1616-pan-points-gl2-gate.spec.ts _pick-gl2-chain-gate.spec.ts _webgl2-live-render-gate.spec.ts _scene-scale-webgl2-chain-gate.spec.ts
           ./node_modules/.bin/playwright test --workers=1 _adaptive-quality-ladder-gate.spec.ts _shader-dsl-mouse-interaction.spec.ts

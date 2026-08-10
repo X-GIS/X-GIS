@@ -19,6 +19,13 @@ export const DEMOS_FIXTURES: Record<string, Demo> = {
       'Single SDF point at (0, 0). Used by e2e fixture tests to validate the pointRenderer code path in isolation.',
     source: load('fixture-point.xgis'),
   },
+  fixture_tile_point_memo: {
+    name: 'Fixture: single point show (tile-point pack memo)',
+    tag: 'fixture',
+    description:
+      'World cities as ONE point layer over no basemap (#1616). The tile-point pack memo has a single cache slot per scene, so every shipped point demo (halo layer + pin layer) thrashes it and can never hit — this is the smallest scene in which it does. Every non-background pixel is a point, so a pan that fails to repack shows up as an empty frame.',
+    source: load('fixture-tile-point-memo.xgis'),
+  },
   fixture_symbol_icon: {
     name: 'Fixture: symbol icon (host image)',
     tag: 'fixture',
@@ -546,6 +553,48 @@ export const DEMOS_FIXTURES: Record<string, Demo> = {
     description:
       'The same scene with the colour written as an ordinary fill utility — must render pixel-identical to fixture_stage_color.',
     source: load('fixture-stage-color-twin.xgis'),
+  },
+  fixture_stage_line_color: {
+    name: 'Fixture: @stroke stage block on line (#1605)',
+    tag: 'fixture',
+    description:
+      'A constant `@stroke` colour authored directly as a vec4 on a line layer. CPU-folded (does not exercise the new WGSL composer). Pixel-parity twin: fixture_stage_line_color_twin (_stage-block-line-parity.spec.ts).',
+    source: load('fixture-stage-line-color.xgis'),
+  },
+  fixture_stage_line_color_twin: {
+    name: 'Fixture: @stroke stage block on line, utility twin (#1605)',
+    tag: 'fixture',
+    description:
+      'The same scene with the stroke colour written as an ordinary stroke utility — must render pixel-identical to fixture_stage_line_color.',
+    source: load('fixture-stage-line-color-twin.xgis'),
+  },
+  fixture_stage_line_color_zoom: {
+    name: 'Fixture: @stroke stage block on line, zoom-driven (#1605)',
+    tag: 'fixture',
+    description:
+      'A NON-constant `@stroke` body (reads zoom) — the one that actually exercises the line composer seam, on BOTH backends since #1605 Phase 3. CI-verified by _stage-block-line-webgl2-gate.spec.ts. NOTE: the red channel renders 0, not zoom/22 — a bare `zoom` inside a stage block still compiles to literal 0.0 (#1635, pre-existing, backend-agnostic). The green/blue constants prove the composed shader ran.',
+    source: load('fixture-stage-line-color-zoom.xgis'),
+  },
+  fixture_stage_point_color: {
+    name: 'Fixture: @color stage block on point (#1605)',
+    tag: 'fixture',
+    description:
+      'A constant `@color` colour authored directly as a vec4 on a point layer. CPU-folded (does not exercise the new WGSL composer). Pixel-parity twin: fixture_stage_point_color_twin (_stage-block-point-parity.spec.ts).',
+    source: load('fixture-stage-point-color.xgis'),
+  },
+  fixture_stage_point_color_twin: {
+    name: 'Fixture: @color stage block on point, utility twin (#1605)',
+    tag: 'fixture',
+    description:
+      'The same scene with the fill colour written as an ordinary fill utility — must render pixel-identical to fixture_stage_point_color.',
+    source: load('fixture-stage-point-color-twin.xgis'),
+  },
+  fixture_stage_point_color_zoom: {
+    name: 'Fixture: @color + @stroke stage blocks on point, zoom-driven (#1605)',
+    tag: 'fixture',
+    description:
+      'NON-constant `@color` AND `@stroke` bodies (both read zoom), composing independently — the one that actually exercises the point composer seam. WebGPU-only; not CI-checkable (no software WebGPU adapter). Zoom in/out to see the fill and stroke colours shift independently.',
+    source: load('fixture-stage-point-color-zoom.xgis'),
   },
   fixture_input_live: {
     name: 'Fixture: `input` host contract (#1539)',

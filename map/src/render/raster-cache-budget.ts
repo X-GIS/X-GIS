@@ -13,6 +13,12 @@ import type { RhiDevice, RhiTexture } from '@xgis/engine'
 
 /** A loaded tile texture plus its resident GPU cost.
  *
+ *  The union is REAL and the two renderers no longer agree on which arm they
+ *  produce (#1607): raster builds through `rhi.createTexture` on BOTH backends
+ *  since #1579, while hillshade still forks to the raw-device `loadImageTexture`
+ *  on WebGPU. Anything consuming this must therefore discriminate on the HANDLE,
+ *  never on `rhi.backend` — see `destroyTileTexture`.
+ *
  *  The cost has to travel WITH the texture. `RhiTexture` is an opaque handle
  *  (`rhi/src/rhi.ts:20` — just a `__rhi` brand) with no dimensions to read
  *  back, and the decoded `ImageBitmap` is closed the moment the upload
@@ -144,6 +150,34 @@ export function overBudget(count: number, bytes: number, maxCount: number): bool
   return count > maxCount || bytes > maxRasterCachedBytes()
 }
 
+/** Free ONE cached tile texture, whichever arm of `LoadedTexture['texture']` it is.
+ *
+ *  THE BUG (#1607): the eviction loop used to pick the free by `rhi.backend` —
+ *  `webgl2 ? rhi.destroyTexture(t) : (t as GPUTexture).destroy()`. That was correct
+ *  while WebGPU meant "the raw `GPUTexture` the raw-device `loadImageTexture`
+ *  returned", and became a live TypeError the moment #1579 routed the RASTER
+ *  loader's WebGPU arm through `rhi.createTexture` as well: the cached handle is
+ *  then an opaque `{ native: GPUTexture }` wrapper (rhi-webgpu.ts:33), which has no
+ *  `.destroy` — so the first raster eviction on the default backend threw
+ *  `texture.destroy is not a function` out of the tile post-load chain, and the
+ *  cache never shed a byte again.
+ *
+ *  The backend is the WRONG discriminant because it does not answer the question
+ *  being asked. Which arm a tile is depends on WHICH LOADER built it, and the two
+ *  renderers disagree today: raster is RHI on both backends, hillshade still forks
+ *  to `loadImageTexture` on WebGPU (hillshade-renderer.ts:459). Ask the handle
+ *  instead — only a native `GPUTexture` carries `.destroy`; neither RHI handle does
+ *  (`{ native }` on WebGPU, `Gl2Texture` on WebGL2). Same discriminator, for the
+ *  same reason, as `RasterDraper.viewOf` (raster-material.ts:145): the `__rhi` brand
+ *  is compile-time only, so the runtime shape is all there is to go on.
+ *
+ *  Exported so both the free and its gate name one authority. */
+export function destroyTileTexture(rhi: RhiDevice, texture: GPUTexture | RhiTexture): void {
+  if (typeof (texture as { destroy?: unknown }).destroy === 'function')
+    (texture as GPUTexture).destroy()
+  else rhi.destroyTexture(texture as RhiTexture)
+}
+
 /** Evict least-recently-used tiles until back under BOTH limits, returning the
  *  new byte total. Shared by both raster-family renderers — the policy was
  *  duplicated verbatim, which is the drift risk the budget constant above is
@@ -173,11 +207,9 @@ export function evictToBudget<T extends EvictableTile>(
     .sort((a, b) => a[1].lastUsedFrame - b[1].lastUsedFrame)
   for (const [key, tile] of entries) {
     if (!overBudget(cache.size, bytes, maxCount)) break
-    // Free order matches what both renderers did inline: destroy through the
-    // backend-appropriate path, then drop the draper's cached bind group
+    // Free by HANDLE SHAPE (#1607), then drop the draper's cached bind group
     // BEFORE the texture is gone.
-    if (rhi.backend === 'webgl2') rhi.destroyTexture(tile.texture as RhiTexture)
-    else (tile.texture as GPUTexture).destroy()
+    destroyTileTexture(rhi, tile.texture)
     draper?.dropTexture(tile.texture)
     cache.delete(key)
     bytes -= tile.bytes

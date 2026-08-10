@@ -40,11 +40,11 @@ export async function runLineProof(): Promise<{
     { binding: 3, kind: 'storage', name: 'shape_segments' },
   ]
   const mat = new Material(rhi, {
-    shader: emitLineWgsl(false),
+    shader: emitLineWgsl(null, false),
     vsEntry: 'vs_line',
     fsEntry: 'fs_line',
-    vsCode: emitLineGlsl(false, 'vertex'),
-    fsCode: emitLineGlsl(false, 'fragment'),
+    vsCode: emitLineGlsl(null, false, 'vertex'),
+    fsCode: emitLineGlsl(null, false, 'fragment'),
     format: 'rgba8unorm',
     sampleCount: 1,
     groups: [TILE_ENTRIES, LAYER_ENTRIES],

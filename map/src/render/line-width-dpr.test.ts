@@ -43,7 +43,7 @@ describe('line stroke width — dpr', () => {
   })
 
   it('multiplies the vs_line width target by layer.dpr', () => {
-    const wgsl = emitLineWgsl(false)
+    const wgsl = emitLineWgsl(null, false)
     // dpr must be multiplied together with layer.viewport_height in the same
     // target expression — the hand `let target_ndc` binding was dropped (inlined
     // or cse-temp'd), but the * layer.dpr and / layer.viewport_height nodes
@@ -63,7 +63,7 @@ describe('line stroke width — dpr', () => {
   // The cap is `max(ratio, 1)`. Fails before (bare `target_ndc / screen_dist`),
   // passes after.
   it('caps the screen-width clamp scale at 1 — never shrinks the stroke quad', () => {
-    const wgsl = emitLineWgsl(false)
+    const wgsl = emitLineWgsl(null, false)
     // The hand `let scale = max(targetNdc / screenDist, 1)` binding was dropped (inlined),
     // but the clamp survives as `max(<width-target involving layer.dpr> / length(<screen
     // span>), 1.0)` — the screen-distance-normalised stroke width floored at 1 so it never

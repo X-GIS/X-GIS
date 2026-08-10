@@ -176,7 +176,7 @@ describe('#598 finalize_corner — non-Mercator longitude precision', () => {
 
 describe('#598 finalize_corner — emitted WGSL wiring (fails on the pre-fix abs-degree path)', () => {
   const body = () => {
-    const w = emitLineWgsl(false)
+    const w = emitLineWgsl(null, false)
     const s = w.indexOf('fn finalize_corner')
     return w.slice(s, w.indexOf('\nfn ', s + 5))
   }

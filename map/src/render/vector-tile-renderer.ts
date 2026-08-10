@@ -24,7 +24,7 @@ import { writeInputPool } from './input-pool'
 import type { InputStore } from './input-store'
 import { isOverdrawActive } from '../debug-flags'
 import { Camera } from '../camera'
-import type { ShowCommand } from './renderer-types'
+import type { ShowCommand, ShaderVariantInfo } from './renderer-types'
 import { variantProducesFill } from './renderer-helpers'
 import { reportRhiFillGap } from './rhi-fill-gap-warning'
 import { uniformBlock } from '@xgis/engine'
@@ -84,9 +84,10 @@ import { mercator as mercatorProj, getProjection, type Projection } from '@xgis/
 import { SELECTOR_PROJ_NAMES } from '@xgis/geo'
 import { bakesVectorDrape } from '@xgis/geo'
 import { VectorDrapeRenderer } from './vector-drape-renderer'
-import type { PointRenderer } from './point-renderer'
+import { pointWorldCopies, type PointRenderer } from './point-renderer'
 import type { LineRenderer } from './line-renderer'
 import { warnStageBlockUnsupported } from './stage-block-warning'
+import { toComposerLineVariant } from './line-shader-cache'
 import {
   bakeTileStrokes,
   emptyBakeStrokeStyle,
@@ -98,7 +99,7 @@ import { mirrorFillRhi, releaseFillRhi } from './fill-rhi-slot'
 import type { GPUTile, LayerDrawPhase } from './vector-tile-renderer-types'
 import { getMaxGpuTiles, uploadBudgetFor } from './vector-tile-renderer-helpers'
 import { UniformRing } from '@xgis/engine'
-import { buildTilePointPackKey, hashStableKeys } from './tile-point-pack-key'
+import { buildTilePointPackKey, hashStableKeys, worldCopyMaskOf } from './tile-point-pack-key'
 
 // projType (camera.projType / proj_params.x) → projection registry name,
 // for building the projection-aware `selectorProj`. Index 0 (mercator) and
@@ -1442,10 +1443,15 @@ export class VectorTileRenderer {
     // Translucent bucket ('max'): the show's opacity applies ONCE, at
     // composite time — the accumulation draws at 1.0 (render():2269).
     const layerOpacity = mode === 'max' ? 1.0 : opacity
+    const lineVariant = toComposerLineVariant(show.shaderVariant)
+    // #1605 Phase 1 — narrowed to a genuine @stroke stage block that
+    // toComposerLineVariant rejected for another reason (needsFeatureBuffer
+    // etc, Phase 1b+); an ordinary constant/zoom/time-only stroke is NOT a
+    // stage block (strokeIsStage is false for it) and never warns.
     warnStageBlockUnsupported(
       show.targetName,
       'line',
-      Boolean(show.shaderVariant?.fillExpr || show.shaderVariant?.strokeExpr),
+      Boolean(show.shaderVariant?.strokeIsStage) && !lineVariant,
     )
     const layerOffset = this.lineRenderer.writeLayerSlot(
       lineSlotColor,
@@ -1546,6 +1552,7 @@ export class VectorTileRenderer {
           layerOffset,
           linePatternActive,
           mode,
+          show.shaderVariant,
         )
       if (lineN > 0 && cached.lineSegmentBindGroup)
         this.lineRenderer.drawSegmentsRhi(
@@ -1557,6 +1564,7 @@ export class VectorTileRenderer {
           layerOffset,
           linePatternActive,
           mode,
+          show.shaderVariant,
         )
     }
     return missing
@@ -2893,10 +2901,15 @@ export class VectorTileRenderer {
             this.cachedStrokeColor[3],
           ]
 
+      const lineVariant = toComposerLineVariant(show.shaderVariant)
+      // #1605 Phase 1 — narrowed to a genuine @stroke stage block that
+      // toComposerLineVariant rejected for another reason (needsFeatureBuffer
+      // etc, Phase 1b+); an ordinary constant/zoom/time-only stroke is NOT a
+      // stage block (strokeIsStage is false for it) and never warns.
       warnStageBlockUnsupported(
         show.targetName,
         'line',
-        Boolean(show.shaderVariant?.fillExpr || show.shaderVariant?.strokeExpr),
+        Boolean(show.shaderVariant?.strokeIsStage) && !lineVariant,
       )
       lineLayerOffset = this.lineRenderer.writeLayerSlot(
         lineSlotColor,
@@ -3611,6 +3624,8 @@ export class VectorTileRenderer {
             extrudedPipeline,
             bindGroupLayout,
             translucentBucket,
+            undefined,
+            show.shaderVariant,
           )
         })
         if (!wasMiss) {
@@ -3635,6 +3650,8 @@ export class VectorTileRenderer {
             extrudedPipeline,
             bindGroupLayout,
             translucentBucket,
+            undefined,
+            show.shaderVariant,
           )
           this._skipFillDrawForBundle = false
           this._skipStrokeDrawForBundle = false
@@ -3656,6 +3673,8 @@ export class VectorTileRenderer {
           extrudedPipeline,
           bindGroupLayout,
           translucentBucket,
+          undefined,
+          show.shaderVariant,
         )
       }
     }
@@ -3843,6 +3862,7 @@ export class VectorTileRenderer {
               bindGroupLayout,
               translucentBucket,
               fallbackVisibleKeys,
+              show.shaderVariant,
             )
           })
           if (!fbWasMiss) {
@@ -3864,6 +3884,7 @@ export class VectorTileRenderer {
               bindGroupLayout,
               translucentBucket,
               fallbackVisibleKeys,
+              show.shaderVariant,
             )
             this._skipFillDrawForBundle = false
             this._skipStrokeDrawForBundle = false
@@ -3886,6 +3907,7 @@ export class VectorTileRenderer {
             bindGroupLayout,
             translucentBucket,
             fallbackVisibleKeys,
+            show.shaderVariant,
           )
         }
       } finally {
@@ -4051,6 +4073,9 @@ export class VectorTileRenderer {
       show,
       camera.zoom,
       camera.pitch,
+      // #1616 — the two the hash above cannot see; see TilePointPackKey's field docs.
+      this.source?.contentGeneration() ?? 0,
+      worldCopyMaskOf(pointWorldCopies(projType, camera, canvasWidth, canvasHeight, dpr)),
     )
     if (pointRenderer.canSkipTilePointRepack(packKey)) {
       pointRenderer.redrawTilePointsCached(args)
@@ -4221,6 +4246,13 @@ export class VectorTileRenderer {
      *  path), the sentinel "-1e30" is written and the fragment shader
      *  skips the discard test. */
     visibleKeysForClip: number[] | null = null,
+    /** The rendering show's shader variant (#1605) — threaded through to the
+     *  strokeQueue's drawSegments calls so a feature-free @stroke expression
+     *  reaches the SDF line pipeline the same way drawSegmentsRhi's callers
+     *  already do. TRAILING (not inserted mid-list) so existing positional
+     *  callers — including reflection-based unit tests that call this
+     *  private method directly — don't silently shift every arg after it. */
+    lineVariant: ShaderVariantInfo | null | undefined = null,
   ): void {
     // #599 I2 — on the globe sphere route flat fills are DRAPED (baked→sphere
     // grid) by renderGlobeDrapedFills, not drawn here as ECEF chords. `_drape
@@ -4803,6 +4835,7 @@ export class VectorTileRenderer {
               lo,
               translucentLines,
               this._linePatternActiveForShow,
+              lineVariant,
             )
           }
           if (cached.lineSegmentCount > 0 && cached.lineSegmentBindGroup) {
@@ -4815,6 +4848,7 @@ export class VectorTileRenderer {
               lo,
               translucentLines,
               this._linePatternActiveForShow,
+              lineVariant,
             )
           }
         }

@@ -4,6 +4,7 @@ import {
   XGISInputError,
   XGISSecurityError,
   assertIngestBudget,
+  assertNotErrorPage,
   assertSafeRemoteUrl,
   readBodyCapped,
   INGEST_LIMITS,
@@ -248,5 +249,95 @@ describe('readBodyCapped', () => {
   it('throws XGISInputError on an over-cap body', async () => {
     const resp = new Response(new Uint8Array(4096))
     await expect(readBodyCapped(resp, 1024, 'test')).rejects.toThrow(XGISInputError)
+  })
+})
+
+// ═══ assertNotErrorPage (#1627) ═══
+//
+// The bug this guards: a MISSING path is not a 404 on a dev server or most
+// static hosts — the SPA fallback answers **HTTP 200 with an HTML document**.
+// Every caller's `resp.ok` check therefore passes and the page reaches the
+// lexer / JSON.parse, which reports a position inside HTML the author never
+// wrote. So every response below is built with status 200 ON PURPOSE: a 404
+// fixture would exercise the guard that already worked and prove nothing.
+describe('assertNotErrorPage (#1627)', () => {
+  const enc = new TextEncoder()
+  /** 200 + a body, i.e. exactly what an SPA fallback returns. */
+  const ok200 = (contentType?: string): Response =>
+    new Response(null, {
+      status: 200,
+      headers: contentType ? { 'content-type': contentType } : {},
+    })
+
+  describe('rejects an HTML error page served with 200', () => {
+    for (const [name, body] of [
+      ['lowercase doctype (vite dev server)', '<!doctype html>\n<html lang="en">'],
+      ['uppercase doctype (GitHub Pages 404)', '<!DOCTYPE html>\n<html>'],
+      ['bare <html> root, no doctype', '<html><body>404 Not Found</body></html>'],
+      ['leading blank lines before the doctype', '\n\n  <!doctype html>'],
+      ['a UTF-8 BOM ahead of the doctype', '﻿<!doctype html>'],
+    ] as const) {
+      it(name, () => {
+        expect(() => assertNotErrorPage(ok200('text/html'), enc.encode(body), 'style x')).toThrow(
+          XGISInputError,
+        )
+      })
+    }
+
+    it('names the label, the status and the content-type — not a position in the body', () => {
+      let msg = ''
+      try {
+        assertNotErrorPage(
+          ok200('text/html'),
+          enc.encode('<!doctype html>'),
+          'style import /a.xgis',
+        )
+      } catch (e) {
+        msg = (e as Error).message
+      }
+      expect(msg).toContain('style import /a.xgis')
+      expect(msg).toContain('HTTP 200')
+      expect(msg).toContain('text/html')
+      // The whole point: the reader is pointed at the URL, not at a line
+      // number inside a document they did not author.
+      expect(msg).toMatch(/HTML document/i)
+    })
+  })
+
+  describe('accepts every real payload', () => {
+    for (const [name, body] of [
+      ['X-GIS source', 'xgis 1\n\nsource land {\n  type: geojson\n}'],
+      ['GeoJSON', '{"type":"FeatureCollection","features":[]}'],
+      ['TileJSON', '{"tiles":["https://x/{z}/{x}/{y}.pbf"]}'],
+      ['an empty body', ''],
+      ['a comment-led style', '// a leading comment\nxgis 1'],
+    ] as const) {
+      it(name, () => {
+        expect(() => assertNotErrorPage(ok200(), enc.encode(body), 'x')).not.toThrow()
+      })
+    }
+
+    it('binary payloads (PNG magic, HDF5 signature)', () => {
+      const png = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])
+      const hdf5 = new Uint8Array([0x89, 0x48, 0x44, 0x46, 0x0d, 0x0a, 0x1a, 0x0a])
+      expect(() => assertNotErrorPage(ok200(), png, 'sprite png')).not.toThrow()
+      expect(() => assertNotErrorPage(ok200(), hdf5, 'coverage cell')).not.toThrow()
+    })
+
+    // THE DISCRIMINATING CASE — this is why the guard sniffs the BODY and not
+    // `Content-Type`. Static hosts routinely serve an unknown extension
+    // (`.xgis`, `.xgb`) as text/html; a header-based guard would reject this
+    // WORKING setup. If someone "simplifies" the guard to a header check,
+    // this test — and only this test — goes red.
+    it('a real payload served AS text/html still passes (header is never the decision)', () => {
+      const style = enc.encode('xgis 1\n\nlayer a { source: s }')
+      expect(() => assertNotErrorPage(ok200('text/html'), style, 'style /a.xgis')).not.toThrow()
+    })
+
+    // The match is anchored at the head, so HTML *inside* a payload is fine.
+    it('a payload merely CONTAINING html markup later in the body', () => {
+      const geo = enc.encode('{"type":"Feature","properties":{"popup":"<html>hi</html>"}}')
+      expect(() => assertNotErrorPage(ok200(), geo, 'geojson')).not.toThrow()
+    })
   })
 })

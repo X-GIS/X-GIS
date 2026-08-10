@@ -1,0 +1,23 @@
+xgis 1
+
+/* Fixture: `@color` shader stage block on a point layer (#1605 Phase 2).
+ * The fill colour is authored directly as a vec4 instead of through the
+ * utility vocabulary. Pixel-parity twin (the same colour written as a
+ * fill utility): fixture-stage-point-color-twin.xgis. This constant body
+ * gets CPU-folded (foldStageConstantRgba) — it does NOT exercise the new
+ * WGSL composer seam, only that a constant @color on a point layer still
+ * renders correctly. See fixture-stage-point-color-zoom.xgis for the
+ * fixture that actually proves the seam. */
+
+source p {
+  type: geojson
+  data: { "type": "FeatureCollection", "features": [
+    { "type": "Feature", "geometry": { "type": "Point", "coordinates": [0, 0] }, "properties": {} }
+  ] }
+}
+
+layer painted {
+  source: p
+  @color { return vec4(0.8, 0.4, 0.2, 1) }
+  | size-40
+}

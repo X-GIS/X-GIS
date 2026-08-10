@@ -7,7 +7,7 @@
 
 import type { RhiBuffer, RhiDevice, RhiRenderPass } from '@xgis/engine'
 import { Material, executeItems } from '@xgis/engine'
-import { emitPointWgsl, emitPointGlslStages } from '../../shaders/dsl/point'
+import { emitPointWgsl, emitPointGlslStages, type PointVariantSpec } from '../../shaders/dsl/point'
 import { wgslFor, glslStagesFor } from './wgsl-for'
 
 type VertexBuffers = ReadonlyArray<{
@@ -44,15 +44,31 @@ export class PointDraper {
 
   private readonly material: Material
 
-  constructor(rhi: RhiDevice, format: string, sampleCount: number, vertexBuffers: VertexBuffers) {
+  constructor(
+    rhi: RhiDevice,
+    format: string,
+    sampleCount: number,
+    vertexBuffers: VertexBuffers,
+    /** A feature-free @color/@stroke composer variant (#1605 Phase 2), or null
+     *  for the default feat_data-read path. Named `shaderVariant`, NOT `variant`
+     *  — `PointBatch.variant` below is an unrelated depth-bias pipeline index
+     *  (0=opaque/1=translucent/2=flat); reusing the name would shadow/confuse
+     *  the two inside draw(). Since #1605 Phase 3 it feeds BOTH source
+     *  languages below — the WGSL and the GLSL twin compose the same variant,
+     *  so a variant-carrying layer paints its authored colour on either
+     *  backend. (Passing null to the GLSL half, as this did before Phase 3,
+     *  rendered the default silently on WebGL2: no crash, no failing
+     *  pipeline, just the wrong colour.) */
+    private readonly shaderVariant: PointVariantSpec | null = null,
+  ) {
     const bias = { constant: -10, slopeScale: -1, clamp: 0 }
     // #1057 — GLSL ES 3.00 twins for the WebGL2 backend, emitted behind a LIVE backend
     // guard so the WebGPU boot never pays the double emit (mirrors RetainedCircleDraper).
     // The point storage buffers (feat_data / shapes / segments) lower to data-texture
     // samplers via emulateStorage; on WebGPU these are ignored.
     this.material = new Material(rhi, {
-      shader: wgslFor(rhi, emitPointWgsl),
-      ...glslStagesFor(rhi, emitPointGlslStages),
+      shader: wgslFor(rhi, () => emitPointWgsl(this.shaderVariant)),
+      ...glslStagesFor(rhi, () => emitPointGlslStages(this.shaderVariant)),
       vsEntry: 'vs_point',
       fsEntry: 'fs_point',
       format: format as 'bgra8unorm',

@@ -17,8 +17,13 @@ import { test, expect } from '@playwright/test'
 // Relative deep import (charter): Playwright transpiles specs in raw Node — the @xgis/* workspace alias does not resolve here, so specs import package SOURCES relatively (see _glsl-compile-gate.spec.ts).
 import { compileModule } from '../../shader-dsl/src/core/oracle'
 import { module } from '../../shader-dsl/src/core/ir'
-import { ECEF_WGSL_CONSTS, ECEF_WGSL_FNS, ECEF_CONSTS, ECEF_FUNCS } from '@xgis/map'
-import { RASTER_COLOR_FUNCS } from '@xgis/map'
+import {
+  ECEF_WGSL_CONSTS,
+  ECEF_WGSL_FNS,
+  ECEF_CONSTS,
+  ECEF_FUNCS,
+} from '../../map/src/shaders/dsl/ecef'
+import { RASTER_COLOR_FUNCS } from '../../map/src/shaders/dsl/raster-color'
 import { emitFuncsCsed } from '../../shader-dsl/src/core/backends/wgsl'
 
 const SOFTWARE_GPU = process.env.XGIS_SOFTWARE_GPU === '1'

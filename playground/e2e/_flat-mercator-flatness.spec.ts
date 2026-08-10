@@ -1,6 +1,9 @@
 import { test, expect } from '@playwright/test'
-import { getProjectionWgslConsts, getProjectionWgslFns } from '@xgis/map'
-import { configureProjections } from '@xgis/map'
+import {
+  getProjectionWgslConsts,
+  getProjectionWgslFns,
+} from '../../map/src/shaders/dsl/projections'
+import { configureProjections } from '../../map/src/shaders/dsl/projections'
 // Relative deep import (charter): Playwright transpiles specs in raw Node — the @xgis/* workspace alias does not resolve here, so specs import package SOURCES relatively (see _glsl-compile-gate.spec.ts).
 import { PROJECTIONS } from '../../geo/src/projections-table'
 
