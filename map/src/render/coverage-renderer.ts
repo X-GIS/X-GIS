@@ -565,7 +565,7 @@ export class CoverageRenderer {
    *  resident, even if it alone exceeds the budget (a single oversized domain still draws;
    *  the budget bounds ACCUMULATION, it is not a per-region size cap). */
   /** The resident regions in DRAW order: least relevant first, so the most relevant paints last
-   *  and therefore on top of any overlap (#1602).
+   *  and therefore on top of any overlap (#1602). STATED POLICY: docs/adr/0011.
    *
    *  A stable sort on `priority` descending. Stable matters — regions that share a priority (every
    *  single-region caller leaves it at 0) keep their arm order, so nothing about the
