@@ -36,7 +36,15 @@
 import { writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 
-const UPSTREAM = 'https://raw.githubusercontent.com/nvkelso/natural-earth-vector/master/geojson'
+// Pinned to a COMMIT, not `master`. The whole contract below is "run this and
+// `git diff` comes back empty", and a moving ref cannot honour it: upstream
+// re-cuts these files, so a `master` URL would start producing different bytes
+// on some future day and turn the provenance check into a spurious diff — with
+// no way to tell that apart from someone having hand-edited a fixture. Bump this
+// SHA deliberately (and re-baseline the two files in the same commit) when
+// picking up new upstream data.
+const UPSTREAM_REF = 'ca96624a56bd078437bca8184e78163e5039ad19'
+const UPSTREAM = `https://raw.githubusercontent.com/nvkelso/natural-earth-vector/${UPSTREAM_REF}/geojson`
 const OUT_DIR = join(import.meta.dir, '..', 'playground', 'public', 'data')
 
 /** [upstream basename, committed basename] — `rivers` is upstream's
