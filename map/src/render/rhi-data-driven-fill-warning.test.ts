@@ -1,18 +1,24 @@
 // ═══ The WebGL2 data-driven-fill gap announces itself, once per layer (#1583) ═══
 //
-// `fill match(…)` / `fill gradient(…)` draw NOTHING on the WebGL2/RHI backend: the colour lives in
-// a shader variant, and this backend compiles none (#1592). That is not fixable at the draw site —
-// there is no colour to draw with — so the layer stays blank, which is the honest render: painting
-// one flat colour over a choropleth would misreport the data. What #1583 changes is that the blank
-// stops being SILENT.
+// A fill whose colour lives in a shader variant draws NOTHING when this backend cannot compile
+// that variant. Painting one flat colour over a choropleth would misreport the data, so the blank
+// is the honest render; what #1583 changes is that it stops being SILENT.
+//
+// #1592 SHRANK the set this applies to, and did not empty it: the RHI path now compiles a variant
+// Material and binds per-tile feat_data, so a plain `fill match(…)` paints its per-feature colours
+// here. What still bails — and still must announce itself — is the residue `rhiVariantFillSupported`
+// fences off: a variant that samples the palette atlas (`gradient()` / `categorical()`) or routes
+// paint through a compute kernel. The message and its once-per-layer latch are unchanged, which is
+// why every assertion below is: this file pins the REPORT, not the size of the gap it reports on.
 //
 // These drive the REAL `reportRhiFillGap`, not a local restatement of it. That distinction is the
 // whole reason the function was extracted: its sibling `polygon-skip-fill-draw.test.ts` mirrors the
 // WebGPU predicate, never calls the renderer, and stayed green for this bug's entire life while the
 // RHI path violated the very assertion it makes. A second mirror would have inherited exactly that.
 //
-// The remaining claim — that it actually fires on a real data-driven layer, at the real bail, on a
-// real WebGL2 context — is owned by `_fill-data-driven-gl2-gate.spec.ts`.
+// Which variants reach the bail at all is `rhi-fill-variant.test.ts` (the #1592 fence); that a
+// SUPPORTED one now paints its per-feature colours on a real WebGL2 context, silently, is
+// `_fill-data-driven-gl2-gate.spec.ts`.
 
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import type { ShaderVariant } from '@xgis/compiler'
