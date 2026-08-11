@@ -148,6 +148,19 @@ export const INTRINSICS: Readonly<Record<string, Spelling>> = {
         ? `uvec2(textureSize(${a[0]}, int(${a[1]})))`
         : `uvec2(textureSize(${a[0]}, 0))`,
   },
+  // textureNumLayers(t) — the layer COUNT of a 2d-array texture (#1658), i.e. the
+  // ivec3 component the entry above deliberately DROPS. Its own id, not an overload
+  // of textureDimensions: WGSL has a dedicated function, GLSL ES 3.00 has none and
+  // reads `.z` off textureSize. GLSL's textureSize REQUIRES a lod argument, and the
+  // layer count is LOD-INVARIANT (a mip reduces width/height only — depth stays N),
+  // so 0 is always correct here regardless of the level the caller cares about. The
+  // uint() wrap matches the IR's u32 type, same reason as the uvec2() above: the
+  // signed ivec3 would be an int/uint compile error once CSE hoists the call into a
+  // typed `uint _cse = …` local.
+  textureNumLayers: {
+    wgsl: (a) => `textureNumLayers(${join(a)})`,
+    glsl: (a) => `uint(textureSize(${a[0]}, 0).z)`,
+  },
   // The fp64 anti-fast-math guard VALUE (runtime 1.0), spelled as a texel
   // fetch from the injected `_fp64` 1×1 texture (passes/fp64-lower.ts owns
   // the binding; the name is reserved). A UBO-sourced guard is defeated by

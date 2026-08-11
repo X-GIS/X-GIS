@@ -573,6 +573,7 @@ const atlasSampler = resource('atlas_sampler', samplerT, { group: 0, binding: 2 
 textureSample(atlas.node, atlasSampler.node, uv, layer) // implicit LOD (fragment-only)
 textureSampleLevel(atlas.node, atlasSampler.node, uv, layer, level) // explicit LOD, any stage
 textureLoad(atlas.node, coord, layer, level) // unfiltered texel fetch
+textureNumLayers(atlas.node) // → Node<'u32'> — how many layers the atlas has
 ```
 
 Same three function names — the **first argument's key** picks the array form, and the
@@ -582,6 +583,13 @@ A `number` layer lifts to an **i32** literal. WGSL spells the layer as its own a
 the coordinate (`texture(sampler2DArray, vec3(uv, float(layer)))`) — both CORE, so no
 capability is required on either target. `reflect()` reports the dim on the bind entry
 (`textureDim: '2d-array'`) so a host can create the matching view.
+
+`textureDimensions(atlas.node)` returns the **width/height only** (`vec2<u32>`) — for an
+array texture too. The layer **count** is the separate `textureNumLayers(atlas.node)`
+(`u32`, #1658); wrap it in `toF32` for float math. It is array-key only (a plain 2d
+texture is a tsc error), and the targets spell it differently — WGSL has the dedicated
+`textureNumLayers(t)`, GLSL ES 3.00 has none and reads `uint(textureSize(t, 0).z)` (the
+lod argument is required there; the layer count is lod-invariant, so `0` is always right).
 
 ### Typed const handles + fn handles
 

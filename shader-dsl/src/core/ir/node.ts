@@ -936,6 +936,17 @@ export const f64GuardOne = (): Node<'f32'> =>
 export const textureDimensions = (
   tex: ReadonlyNode<'texture_2d<f32>' | 'texture_multisampled_2d<f32>' | 'texture_2d_array<f32>'>,
 ): Node<'vec2<u32>'> => call('textureDimensions', vec2uT, tex) as Node<'vec2<u32>'>
+/** Layer COUNT of a 2D ARRAY texture → u32 (#1658) — the one extent
+ *  {@link textureDimensions} cannot report (it returns vec2<u32> for an array texture
+ *  too). ARRAY-key only: a plain 2d / multisampled texture has no layer count, so
+ *  passing one is a tsc error. Carries its OWN neutral id, never an overload of
+ *  textureDimensions: the targets spell it structurally differently — WGSL has the
+ *  dedicated `textureNumLayers(t)`, GLSL ES 3.00 has no such function at all and reads
+ *  the THIRD component of its `ivec3 textureSize(sampler2DArray, lod)` (exactly the
+ *  component textureDimensions' `uvec2()` constructor drops). u32 is WGSL's return
+ *  type; wrap in {@link toF32} for float arithmetic. (CPU stub.) */
+export const textureNumLayers = (tex: ReadonlyNode<'texture_2d_array<f32>'>): Node<'u32'> =>
+  call('textureNumLayers', u32T, tex) as Node<'u32'>
 /** Screen-space derivative magnitude — GPU-only (uncomputable per-invocation
  *  on the CPU; the interpreter stubs it to 0). FRAGMENT-ONLY in WGSL: enforced by
  *  the `fragment-only-builtin` lint rule (a CORE rule — it fires at every emit;

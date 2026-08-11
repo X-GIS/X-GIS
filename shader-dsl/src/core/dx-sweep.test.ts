@@ -25,6 +25,8 @@ import {
   textureSample,
   textureSampleLevel,
   textureLoad,
+  textureNumLayers,
+  toF32,
   vec2i,
   type ReadonlyNode,
   type ShaderType,
@@ -125,6 +127,25 @@ describe('#763 X — type-surface sweep', () => {
       return textureLoad(arr.node, c, layer, 0)
     })
     expect(g.decl.name).toBe('ld')
+  })
+
+  it('#1658: textureNumLayers is ARRAY-key only — 2d and sampler args are tsc errors', () => {
+    const arr = resource('nl_arr', texture2dArrayfT, { group: 0, binding: 0 })
+    const tex = resource('nl_2d', texture2dfT, { group: 0, binding: 1 })
+    const smp = resource('nl_smp', samplerT, { group: 0, binding: 2 })
+    const g = fn('nl', {}, () => {
+      // A plain 2d texture HAS no layer count — the array key is the whole constraint
+      // (textureDimensions deliberately accepts all three dims; this one must not).
+      // Uncalled thunks: these are tsc-only probes, kept out of the authored body.
+      // @ts-expect-error — a plain 2d texture has no layer count
+      const on2d = () => textureNumLayers(tex.node)
+      // @ts-expect-error — a sampler is not a texture (the #763 X6 key class)
+      const onSampler = () => textureNumLayers(smp.node)
+      void [on2d, onSampler]
+      // POSITIVE probe: the array form returns u32, so it needs toF32 to join float math.
+      return toF32(textureNumLayers(arr.node))
+    })
+    expect(g.decl.name).toBe('nl')
   })
 
   it('#1651: a FRACTIONAL layer literal throws SD0015 at author time', () => {

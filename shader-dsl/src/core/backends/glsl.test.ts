@@ -48,6 +48,7 @@ import {
   textureSampleLevel,
   textureLoad,
   textureDimensions,
+  textureNumLayers,
   vec2i,
   u32,
   uniformStruct,
@@ -984,5 +985,20 @@ describe('glsl-es300 / wgsl — 2d-array texture reads (#1651)', () => {
     expect(fsG).toContain('uvec2(textureSize(arr_tex, 0))')
     const w = emitModule(m)
     expect(w).toContain('textureLoad(arr_tex, vec2<i32>(0, 0), 1, 0u)')
+  })
+
+  it('textureNumLayers (#1658) reads the .z textureDimensions drops', () => {
+    // The two targets are structurally different here — WGSL has a dedicated builtin,
+    // GLSL ES 3.00 has none and takes the THIRD component of its ivec3 textureSize
+    // (lod 0: the layer count is lod-invariant). Both spellings pinned side by side.
+    const layersFs = fn(
+      'arr_layers_fs',
+      { inp: ArrOut },
+      () => vec4(toF32(textureNumLayers(arrTex.node)), 0, 0, 1),
+      { stage: 'fragment', retAttr: location(0, vec4fT) },
+    )
+    const m = dslModule({ uses: [ArrOut, arrTex, arrSmp], funcs: [arrVs, layersFs] })
+    expect(emitGlslModule(m, 'fragment')).toContain('uint(textureSize(arr_tex, 0).z)')
+    expect(emitModule(m)).toContain('textureNumLayers(arr_tex)')
   })
 })
