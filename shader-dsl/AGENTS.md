@@ -8,7 +8,8 @@
 A zero-dependency TypeScript shader DSL that eliminates hand-maintained GPU/CPU drift. A shader is authored
 ONCE as a typed node graph (the IR); three backends then emit it over ONE shared tree-walk — a **WGSL**
 writer (the production strings for `device.createShaderModule`), a **GLSL ES 3.00** writer (real for
-render pipelines — vertex+fragment entry-IO + std140 UBO, WebGL2 compile+render-verified; compute/SSBO
+render pipelines — vertex+fragment entry-IO + std140 UBO, WebGL2 compile+render-verified; a read-only
+SSBO lowers to a data texture by default, compute emulation is opt-in, writes/unsupported shapes/MSAA
 fail closed), and a **CPU f64 oracle** that walks
 the same IR on the host for projection math (the generated replacement for the deleted
 `projection-wgsl-mirror.ts`). The package is consumed by `runtime/` (and `compiler/`) for projection /

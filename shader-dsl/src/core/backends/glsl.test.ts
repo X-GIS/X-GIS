@@ -22,6 +22,7 @@ import {
   f32T,
   f64T,
   u32T,
+  i32T,
   structT,
   type ShaderType,
   type Expr,
@@ -366,7 +367,7 @@ describe('glsl-es300 — GLSL ES integer rules (u32 switch labels, flat varyings
   })
 })
 
-describe('glsl-es300 — storage → data-texture emulation (opt-in)', () => {
+describe('glsl-es300 — storage → data-texture emulation (default-on)', () => {
   const arrF32 = { kind: 'array', elem: f32T } as ShaderType // runtime-sized storage array<f32>
   const storageMod: ModuleDecl = {
     consts: [],
@@ -417,8 +418,20 @@ describe('glsl-es300 — storage → data-texture emulation (opt-in)', () => {
     expect(fs).not.toContain('data[') // no raw array indexing survives
   })
 
-  it('storage still FAILS CLOSED without the opt-in (default contract preserved)', () => {
-    expect(() => emitGlslModule(storageMod, 'fragment')).toThrow(UnsupportedFeatureError)
+  // #1647 — WebGL2 having no SSBO is a PLATFORM fact, not a caller choice, so the
+  // lowering is default-on for any module carrying a storage binding. The opt-in flag
+  // survives (back-compat) and must be a no-op: the DEFAULT emit is byte-identical.
+  it('the DEFAULT emit equals the {emulateStorage:true} emit byte-for-byte', () => {
+    expect(emitGlslModule(storageMod, 'fragment')).toBe(
+      emitGlslModule(storageMod, 'fragment', { emulateStorage: true }),
+    )
+  })
+
+  it('a storage module emits by DEFAULT (no opts) and spells the data-texture fetch', () => {
+    expect(() => emitGlslModule(storageMod, 'fragment')).not.toThrow()
+    const fs = emitGlslModule(storageMod, 'fragment')
+    expect(fs).toContain('uniform sampler2D data;')
+    expect(fs).toContain('texelFetch(data,')
   })
 
   // #823 — the retained-icon tint buffer shape: a top-level array<vec4<f32>> element
@@ -465,29 +478,222 @@ describe('glsl-es300 — storage → data-texture emulation (opt-in)', () => {
     expect(fetches.length).toBe(4)
     expect(fs).not.toContain('tint[') // no raw array indexing survives
   })
+
+  // ── the RESIDUAL shapes: still fail closed, now on the DEFAULT path (#1647) ──
+  // Each message must NAME the offending binding/field — these throws are user-facing
+  // now that no opt-in stands between a consumer and this lowering.
+  const residualMod = (
+    binding: ModuleDecl['bindings'][number],
+    structs: StructDecl[] = [],
+    body: ModuleDecl['funcs'][number]['body'] = [],
+  ): ModuleDecl => ({
+    consts: [],
+    structs: [FsOut, ...structs],
+    bindings: [binding],
+    funcs: [
+      {
+        name: 'fs',
+        attrs: ['@fragment'],
+        params: [],
+        ret: structT('FsOut'),
+        body: [
+          ...body,
+          {
+            s: 'return',
+            expr: {
+              op: 'construct',
+              type: structT('FsOut'),
+              args: [v4(lit(0), lit(0), lit(0), lit(1))],
+            },
+          },
+        ],
+      },
+    ],
+  })
+  const storageOf = (name: string, type: ShaderType): ModuleDecl['bindings'][number] => ({
+    group: 0,
+    binding: 0,
+    name,
+    space: 'storage',
+    access: 'read',
+    type,
+  })
+
+  it('a NON-ARRAY storage binding still fails closed (named, with the supported shapes)', () => {
+    const Blob: StructDecl = { name: 'Blob', fields: [{ name: 'a', type: vec2fT }] }
+    const m = residualMod(storageOf('blob', structT('Blob')), [Blob])
+    expect(() => emitGlslModule(m, 'fragment')).toThrow(UnsupportedFeatureError)
+    expect(() => emitGlslModule(m, 'fragment')).toThrow(/'blob'[\s\S]*array<f32>/)
+  })
+
+  it('a top-level array<u32> still fails closed (needs the typed-texture follow-on)', () => {
+    const m = residualMod(storageOf('idx_data', { kind: 'array', elem: u32T } as ShaderType))
+    expect(() => emitGlslModule(m, 'fragment')).toThrow(UnsupportedFeatureError)
+    expect(() => emitGlslModule(m, 'fragment')).toThrow(/'idx_data'[\s\S]*typed-texture/)
+  })
+
+  it('a top-level array<i32> still fails closed', () => {
+    const m = residualMod(storageOf('sign_data', { kind: 'array', elem: i32T } as ShaderType))
+    expect(() => emitGlslModule(m, 'fragment')).toThrow(UnsupportedFeatureError)
+    expect(() => emitGlslModule(m, 'fragment')).toThrow(/'sign_data'/)
+  })
+
+  it('an i32 struct field still fails closed, naming the field and its struct', () => {
+    const Flagged: StructDecl = {
+      name: 'Flagged',
+      fields: [
+        { name: 'w', type: f32T },
+        { name: 'flag', type: i32T },
+      ],
+    }
+    const arrFlagged = { kind: 'array', elem: structT('Flagged') } as ShaderType
+    const m = residualMod(
+      storageOf('flags', arrFlagged),
+      [Flagged],
+      [
+        {
+          s: 'let',
+          name: 'f',
+          expr: {
+            op: 'member',
+            type: i32T,
+            base: {
+              op: 'index',
+              type: structT('Flagged'),
+              base: varref('flags', arrFlagged),
+              idx: { op: 'lit', type: u32T, value: 0 },
+            },
+            field: 'flag',
+          },
+        },
+      ],
+    )
+    expect(() => emitGlslModule(m, 'fragment')).toThrow(UnsupportedFeatureError)
+    expect(() => emitGlslModule(m, 'fragment')).toThrow(/'flag'[\s\S]*'Flagged'/)
+  })
+
+  it('a whole-struct element read (no .field) still fails closed, naming the binding', () => {
+    const Seg: StructDecl = { name: 'Seg', fields: [{ name: 'a', type: vec2fT }] }
+    const arrSeg = { kind: 'array', elem: structT('Seg') } as ShaderType
+    const m = residualMod(
+      storageOf('segs', arrSeg),
+      [Seg],
+      [
+        {
+          s: 'let',
+          name: 'e',
+          expr: {
+            op: 'index',
+            type: structT('Seg'),
+            base: varref('segs', arrSeg),
+            idx: { op: 'lit', type: u32T, value: 0 },
+          },
+        },
+      ],
+    )
+    expect(() => emitGlslModule(m, 'fragment')).toThrow(UnsupportedFeatureError)
+    expect(() => emitGlslModule(m, 'fragment')).toThrow(/'segs\[i\]'/)
+  })
+
+  it('a mat / vec<u32> struct field fails closed ON ACCESS, naming the field', () => {
+    // Pins the doc claim (glsl.ts header / AGENTS.md): these lanes throw LAZILY at the
+    // first read — an unread one passes — unlike the i32 field's declaration-time throw.
+    const Motion: StructDecl = {
+      name: 'Motion',
+      fields: [
+        { name: 'w', type: f32T },
+        { name: 'vel', type: { kind: 'vec', elem: 'u32', n: 2 } as ShaderType },
+      ],
+    }
+    const arrMotion = { kind: 'array', elem: structT('Motion') } as ShaderType
+    const m = residualMod(
+      storageOf('motions', arrMotion),
+      [Motion],
+      [
+        {
+          s: 'let',
+          name: 'v',
+          expr: {
+            op: 'member',
+            type: { kind: 'vec', elem: 'u32', n: 2 } as ShaderType,
+            base: {
+              op: 'index',
+              type: structT('Motion'),
+              base: varref('motions', arrMotion),
+              idx: { op: 'lit', type: u32T, value: 0 },
+            },
+            field: 'vel',
+          },
+        },
+      ],
+    )
+    expect(() => emitGlslModule(m, 'fragment')).toThrow(UnsupportedFeatureError)
+    expect(() => emitGlslModule(m, 'fragment')).toThrow(/'vel'[\s\S]*not supported/)
+  })
+
+  it('a read_write storage binding fails closed at declaration (the emulation is gather-only)', () => {
+    // Without this gate a storage WRITE would not even fail at the driver: autoVars
+    // materialises the assigned element into a local var, so the store silently becomes
+    // a dead local write while the WGSL twin performs a real SSBO store — a silent
+    // cross-backend divergence, both green (#1648 review).
+    const arr = { kind: 'array', elem: f32T } as ShaderType
+    const m = residualMod(
+      { ...storageOf('accum', arr), access: 'read_write' },
+      [],
+      [
+        {
+          s: 'assign',
+          target: {
+            op: 'index',
+            type: f32T,
+            base: varref('accum', arr),
+            idx: { op: 'lit', type: u32T, value: 0 },
+          },
+          expr: { op: 'lit', type: f32T, value: 1 },
+        },
+      ],
+    )
+    expect(() => emitGlslModule(m, 'fragment')).toThrow(UnsupportedFeatureError)
+    expect(() => emitGlslModule(m, 'fragment')).toThrow(/'accum'[\s\S]*read-only \(gather\)/)
+  })
+
+  it('a @compute module without {emulateCompute} keeps the compute caps error (not a storage-shape one)', () => {
+    // The default storage lowering must NOT run first here — it would replace the
+    // "missing capabilities: compute" diagnosis with an unsupported-element error
+    // pointing away from the actual fix, the missing {emulateCompute} opt-in (#1648 review).
+    const m: ModuleDecl = {
+      consts: [],
+      structs: [],
+      bindings: [
+        {
+          ...storageOf('out_color', { kind: 'array', elem: u32T } as ShaderType),
+          access: 'read_write',
+        },
+      ],
+      funcs: [
+        {
+          name: 'paint',
+          params: [
+            {
+              name: 'gid',
+              type: { kind: 'vec', elem: 'u32', n: 3 } as ShaderType,
+              builtin: 'global_invocation_id',
+            },
+          ],
+          ret: { kind: 'void' } as ShaderType,
+          attrs: ['@compute', '@workgroup_size(64)'],
+          body: [{ s: 'return' }],
+        },
+      ],
+    }
+    expect(() => emitGlslModule(m, 'fragment')).toThrow(/missing capabilities:[\s\S]*compute/)
+  })
 })
 
 describe('glsl-es300 — fail-closed on out-of-scope features', () => {
-  it('a storage binding fails closed (GLSL ES 3.00 has no SSBO)', () => {
-    const seg: StructDecl = { name: 'Seg', fields: [{ name: 'a', type: vec2fT }] }
-    const storageMod: ModuleDecl = {
-      consts: [],
-      structs: [seg],
-      bindings: [
-        {
-          group: 0,
-          binding: 0,
-          name: 'segs',
-          space: 'storage',
-          access: 'read',
-          type: { kind: 'array', elem: structT('Seg') },
-        },
-      ],
-      funcs: [],
-    }
-    expect(() => emitGlslModule(storageMod)).toThrow(UnsupportedFeatureError)
-  })
-
+  // A storage binding is NOT in this list any more (#1647): it lowers to a data texture
+  // by default. Its residual fail-closed shapes are pinned by the emulation suite above,
+  // and the raw caps gate (assertCaps on glslEs300Backend) by passes/required-caps.test.ts.
   it('an unmapped builtin fails closed rather than emitting a bad gl_* name', () => {
     const badOut: StructDecl = {
       name: 'BadOut',

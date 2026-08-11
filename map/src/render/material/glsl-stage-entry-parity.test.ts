@@ -113,3 +113,35 @@ describe('emitGlslStages entry selection is byte-identical to pruning before low
     })
   }
 })
+
+// ═══ #1592 — a needsFeatureBuffer polygon variant emits GLSL (no opt-in needed) ═══
+//
+// `needsFeatureBuffer: true` appends the `feat_data` storage binding, and WebGL2 has no
+// SSBO. The GLSL backend's storage→data-texture lowering used to be opt-in per call site,
+// and this emitter never passed the flag — so every data-driven polygon variant threw
+// `UnsupportedFeatureError: … missing capabilities: storageBuffer` on the WebGL2 path.
+// The lowering is now default-on (#1647), so the emitter needs no change: this pins the
+// consumer end of that contract. The null-variant control emits as it always did — the
+// byte-neutrality of a storage-FREE module is pinned by the shader-dsl emit goldens.
+describe('emitPolygonGlslStages — a feat_data variant emits on the WebGL2 path (#1592)', () => {
+  const featVariant = {
+    preamble: null,
+    fillExpr: null,
+    strokeExpr: null,
+    fillPreamble: null,
+    strokePreamble: null,
+    needsFeatureBuffer: true,
+  } as const
+
+  it('emits both stages instead of fail-closing on the storage binding', () => {
+    const both = emitPolygonGlslStages(featVariant, false)
+    expect(both.vertex.startsWith('#version 300 es')).toBe(true)
+    expect(both.fragment.startsWith('#version 300 es')).toBe(true)
+  })
+
+  it('the null-variant control still emits (no storage binding, untouched path)', () => {
+    const both = emitPolygonGlslStages(null, false)
+    expect(both.vertex.startsWith('#version 300 es')).toBe(true)
+    expect(both.fragment.startsWith('#version 300 es')).toBe(true)
+  })
+})

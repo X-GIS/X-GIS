@@ -12,12 +12,16 @@
 // offsets are the SAME offsets the host packs against), and `@vertex`/`@fragment`
 // entry-IO lowers to GLSL `in`/`out` varyings + a synthesised `void main()`.
 //
-// FAIL-CLOSED (GLSL ES 3.00 has no SSBO / compute / MSAA-load): a `storage`
-// binding, a `@compute` entry, and a multisampled-texture load all raise
-// UnsupportedFeatureError — enforced UP FRONT by the shared capability gate
-// (assertCaps, run inside lowerForBackend) because glslEs300Backend.caps is the
-// empty set, so this writer never sees such a module. Storage-buffer emulation
-// (data textures) is explicitly out of scope for ES 3.00.
+// FAIL-CLOSED (GLSL ES 3.00 has no compute / MSAA-load): a `@compute` entry and a
+// multisampled-texture load raise UnsupportedFeatureError — enforced UP FRONT by
+// the shared capability gate (assertCaps, run inside lowerForBackend) because
+// glslEs300Backend.caps is the empty set, so this writer never sees such a module.
+// A `storage` binding is different: WebGL2 having no SSBO is a PLATFORM fact, not a
+// caller choice, so emitGlslModule lowers storage to a data texture BY DEFAULT (see
+// the emulation section below) — the caps gate then sees no storage binding at all.
+// The unsupported SHAPES inside that emulation still fail closed — a non-array storage
+// binding, a top-level array<u32/i32>, an i32 struct field (at declaration), and a
+// mat / vec<u32> / nested-struct field (on ACCESS — an unread one passes).
 //
 // ─── COMPILE GATE ───
 // glsl.test.ts (string-shape: version pragma, std140 block + engine-matched
@@ -288,8 +292,9 @@ export const glslEs300Backend: Backend = {
   // A binding line that needs only the binding itself (texture/sampler → a combined
   // sampler2D uniform). A `uniform` STRUCT binding is a std140 UBO block, which needs the
   // struct fields in scope — that is assembled by emitGlslModule (which owns the struct
-  // map), so the bare method fails closed to keep the offset SoT in one place. Storage is
-  // gated out by assertCaps before emit; the throw here is belt-and-braces.
+  // map), so the bare method fails closed to keep the offset SoT in one place. Storage
+  // never reaches emit via emitGlslModule/emitGlslStages (the default data-texture
+  // lowering rewrites it first); the throw here is belt-and-braces for direct backend use.
   emitBinding: (b) => {
     if (b.type.kind === 'texture' || b.type.kind === 'sampler')
       return `uniform ${glslType(b.type)} ${b.name};`
@@ -490,8 +495,9 @@ function emitGlslEntry(f: FuncDecl, structs: ReadonlyMap<string, StructDecl>): s
 /** Emit a ModuleDecl as GLSL ES 3.00 (version + precision header). FED by the Phase-0
  *  reflection layout engine for uniform std140 offsets. The shared preamble
  *  (lowerForBackend) runs validate → assertCaps → optimize(lowerModule(autoVars)) — the
- *  assertCaps step fails closed (UnsupportedFeatureError) on storage/compute/MSAA BEFORE
- *  any GLSL is produced, since glslEs300Backend.caps is the empty set.
+ *  assertCaps step fails closed (UnsupportedFeatureError) on compute/MSAA BEFORE any GLSL
+ *  is produced, since glslEs300Backend.caps is the empty set; a storage binding is lowered
+ *  to a data texture BEFORE that gate runs (see lowerStorageToDataTexture).
  *
  *  Assembly order: version/precision header → consts → plain structs (every struct
  *  EXCEPT a uniform/storage binding's type — those become UBO/SSBO blocks) → uniform UBO
@@ -508,7 +514,7 @@ function emitGlslEntry(f: FuncDecl, structs: ReadonlyMap<string, StructDecl>): s
 // ── storage-buffer → data-texture emulation (WebGL2 has no SSBO) ──
 // GLSL ES 3.00 has no storage buffers, so a `var<storage, read> data: array<f32>`
 // can't emit directly (and the caps gate fail-closes it). This GLSL-LOCAL pre-pass —
-// run BEFORE the standard pipeline, ONLY when emitGlslModule({emulateStorage}) opts in —
+// run BEFORE the standard pipeline, on EVERY module that carries a storage binding —
 // rewrites the IR so the standard pipeline never sees a storage binding:
 //   • the storage `array<f32>` binding becomes a `sampler2D` (a 2D-TILED R32F DATA TEXTURE)
 //   • a read `data[i]` becomes `storageFetchF32(data, i)` → texelFetch at (i % W, i / W) where
@@ -516,8 +522,7 @@ function emitGlslEntry(f: FuncDecl, structs: ReadonlyMap<string, StructDecl>): s
 //     row (>maxTextureSize) wraps across rows; the 1-row case is W=N → (i, 0).
 // Because the rewritten module has NO storage binding, assertCaps (which keys on
 // space==='storage') passes with the normal empty-caps backend — no caps loosening, so
-// compute/MSAA stay fail-closed, and the DEFAULT emitGlslModule (no opt-in) still
-// fail-closes storage. WGSL is untouched (only emitGlslModule calls this).
+// compute/MSAA stay fail-closed. WGSL is untouched (only emitGlslModule calls this).
 //
 // SCOPE: array<f32> (any size, 2D-tiled) — covers the real feat_data path (indexed / strided
 // feat_data[base*STRIDE+lane] / bitcast<u32> lanes) — plus array<vecN<f32>> (the retained-icon
@@ -536,6 +541,11 @@ interface StructStorage {
   fields: Map<string, StructField>
 }
 
+// Every residual throw below is now on the DEFAULT emit path, so each message names the
+// offending binding/field AND the shapes that do lower.
+const SUPPORTED_STORAGE_SHAPES =
+  'supported: array<f32>, array<vecN<f32>>, array<Struct of f32 / u32 (bitcast) / vecN<f32> fields>'
+
 function lowerStorageToDataTexture(m: ModuleDecl): ModuleDecl {
   const structsMap = new Map(m.structs.map((s) => [s.name, s]))
   const f32Names = new Set<string>() // array<f32> storage
@@ -545,9 +555,19 @@ function lowerStorageToDataTexture(m: ModuleDecl): ModuleDecl {
   const structStorage = new Map<string, StructStorage>() // array<Struct> storage
   for (const b of m.bindings) {
     if (b.space !== 'storage') continue
+    // The emulation is GATHER-ONLY: it rewrites READS into texelFetch and has no write
+    // form. Without this declaration-time gate a storage WRITE would not even fail at
+    // the driver — autoVars materialises the assigned element into a local var, so the
+    // store silently becomes a dead local write while the WGSL twin performs a real
+    // SSBO store (silent cross-backend divergence, both green). A compute kernel's
+    // read_write output is fine: lowerComputeToFragment strips it before this pass.
+    if (b.access === 'read_write')
+      throw new UnsupportedFeatureError(
+        `glsl-es300 storage-emul: storage binding '${b.name}' is read_write — the data-texture emulation is read-only (gather); a compute kernel's output lowers via emitGlslModule({emulateCompute: true}), and WebGL2 has no storage-write form`,
+      )
     if (b.type.kind !== 'array')
       throw new UnsupportedFeatureError(
-        `glsl-es300 storage-emul: binding '${b.name}' is not an array`,
+        `glsl-es300 storage-emul: storage binding '${b.name}' is not an array — ${SUPPORTED_STORAGE_SHAPES}`,
       )
     const elem = b.type.elem
     if (elem.kind === 'scalar' && elem.scalar === 'f32') {
@@ -575,7 +595,7 @@ function lowerStorageToDataTexture(m: ModuleDecl): ModuleDecl {
         if (f.type.kind === 'scalar') {
           if (f.type.scalar === 'i32')
             throw new UnsupportedFeatureError(
-              `glsl-es300 storage-emul: i32 struct field '${f.name}' — only f32/u32 lanes supported`,
+              `glsl-es300 storage-emul: i32 field '${f.name}' of struct '${elem.name}' (binding '${b.name}') — only f32/u32 lanes supported; ${SUPPORTED_STORAGE_SHAPES}`,
             )
           fields.set(f.name, { lane, kind: 'scalar', isU32: f.type.scalar === 'u32' })
         } else if (f.type.kind === 'vec' && f.type.elem === 'f32') {
@@ -586,7 +606,7 @@ function lowerStorageToDataTexture(m: ModuleDecl): ModuleDecl {
       continue
     }
     throw new UnsupportedFeatureError(
-      `glsl-es300 storage-emul: binding '${b.name}' — array<f32>, array<vecN<f32>> and array<Struct(scalar fields)> supported; a top-level array<u32/i32> needs typed packing`,
+      `glsl-es300 storage-emul: storage binding '${b.name}' has an unsupported element type — ${SUPPORTED_STORAGE_SHAPES}; a top-level array<u32/i32> needs the typed-texture/bitcast-lane follow-on (#1647 records the design constraints) — today, carry u32 lanes as struct fields (bitcast) or pack into array<f32>`,
     )
   }
   if (f32Names.size === 0 && vecStorage.size === 0 && structStorage.size === 0) return m
@@ -612,7 +632,7 @@ function lowerStorageToDataTexture(m: ModuleDecl): ModuleDecl {
           const fl = ss.fields.get(e.field)
           if (!fl)
             throw new UnsupportedFeatureError(
-              `glsl-es300 storage-emul: '${b.base.name}[i].${e.field}' — mat / vec<u32> / nested-struct fields not supported (only scalar + vecN<f32> lanes)`,
+              `glsl-es300 storage-emul: field '${e.field}' of storage binding '${b.base.name}' — mat / vec<u32> / nested-struct fields not supported (only scalar + vecN<f32> lanes); ${SUPPORTED_STORAGE_SHAPES}`,
             )
           // baseLane = i*STRIDE + field-lane; a scalar reads it, a vecN reads N consecutive lanes.
           const baseLane: Expr = {
@@ -660,7 +680,7 @@ function lowerStorageToDataTexture(m: ModuleDecl): ModuleDecl {
         }
         if (e.base.op === 'varref' && structStorage.has(e.base.name))
           throw new UnsupportedFeatureError(
-            `glsl-es300 storage-emul: storage struct element '${e.base.name}[i]' used without a .field access`,
+            `glsl-es300 storage-emul: storage struct element '${e.base.name}[i]' used without a .field access — a whole-struct element read has no lane; read one field at a time (e.g. ${e.base.name}[i].someField)`,
           )
         return { ...e, base: rE(e.base), idx: rE(e.idx) }
       case 'binop':
@@ -991,7 +1011,18 @@ function stageScope(
 }
 
 export interface GlslEmitOptions extends EmitOptions {
+  /** NO-OP since #1647 (back-compat): the storage→data-texture lowering is DEFAULT-ON
+   *  for any module carrying a storage binding — WebGL2 having no SSBO is a platform
+   *  fact, not a caller choice. Kept so the existing opt-in call sites keep compiling;
+   *  setting it changes nothing. (Not JSDoc-@deprecated yet: the repo-wide
+   *  `no-deprecated: error` lint would demand removing the flag from every consumer in
+   *  the same change — that sweep is the flag's REMOVAL follow-up, not this PR.) */
   emulateStorage?: boolean
+  /** Lower a GATHER-ONLY @compute kernel to a fragment-GPGPU pass (see
+   *  lowerComputeToFragment). OPT-IN, unlike the storage lowering: it rewrites the
+   *  compute entry into a fragment entry, so the host must dispatch a fullscreen DRAW
+   *  into an R32UI target instead of a compute dispatch — a host contract, not a
+   *  platform fact. Implies the storage lowering for the surviving read bindings. */
   emulateCompute?: boolean
   /** #923 host specialization — pin `override` values for THIS emit. GLSL ES 3.00
    *  has no driver-side spec constants, so a specialized variant is a re-emit: each
@@ -1004,7 +1035,7 @@ export interface GlslEmitOptions extends EmitOptions {
   overrideValues?: Readonly<Record<string, number | boolean>>
 }
 
-/** The IR half of a GLSL emit: the opt-in pre-lowerings, the shared backend pipeline
+/** The IR half of a GLSL emit: the pre-lowerings, the shared backend pipeline
  *  (validate → autoVars → lowerModule → fp64Lower → the optimizer FIXPOINT) and the
  *  IR plugins. Everything here is stage-INDEPENDENT, which is why it is split from the
  *  spelling half: a host compiling both stages of one module used to pay this twice,
@@ -1015,12 +1046,15 @@ export interface GlslEmitOptions extends EmitOptions {
 function lowerForGlsl(m: ModuleDecl, opts?: GlslEmitOptions): ModuleDecl {
   // autoVars BEFORE lowerModule (inside lowerForBackend), same order as the WGSL backend /
   // CPU oracle — materialising assigned plain-value bindings into real vars is BACKEND-NEUTRAL.
-  // Opt-in storage→data-texture emulation runs FIRST so the rewritten module carries no
-  // storage binding (assertCaps then passes with the normal empty-caps backend).
+  // The storage→data-texture emulation runs FIRST, and DEFAULT-ON whenever the module
+  // carries a storage binding (WebGL2 has no SSBO — a platform fact, not a caller choice),
+  // so the rewritten module carries none (assertCaps then passes with the normal
+  // empty-caps backend). A module WITHOUT a storage binding takes the untouched path.
   // Opt-in compute→fragment lowering runs FIRST (strips the @compute attr + the
   // read_write `out_color` binding, which lowerStorageToDataTexture would throw on),
   // then storage→data-texture converts the remaining `feat_data` read. emulateCompute
-  // IMPLIES emulateStorage.
+  // stays OPT-IN because it rewrites a compute entry into a fragment entry — a host
+  // contract (the caller must dispatch a draw, not a dispatch), not a platform fact.
   // autoVars must run BEFORE any cloning IR→IR pre-pass: it materialises
   // assigned plain-value bindings by Expr OBJECT IDENTITY (see auto-vars.ts),
   // and the storage/compute lowerings clone expression trees — running them
@@ -1028,9 +1062,16 @@ function lowerForGlsl(m: ModuleDecl, opts?: GlslEmitOptions): ModuleDecl {
   // emitted GLSL then reads the CSE'd INITIALIZER forever; the #834 M5 line
   // twin returned position = vec4(0) this way). autoVars is a no-op on an
   // already-materialised module, so lowerForBackend's own autoVars stays.
+  const hasStorage = m.bindings.some((b) => b.space === 'storage')
+  // A @compute module WITHOUT {emulateCompute} keeps the old fail-close (assertCaps
+  // naming 'compute') — default-lowering its storage first would replace that diagnosis
+  // with a storage-shape error pointing away from the actual fix (the missing opt-in).
+  const hasComputeEntry = m.funcs.some(
+    (f) => f.stage === 'compute' || f.attrs?.some((a) => a.startsWith('@compute')),
+  )
   const src = opts?.emulateCompute
     ? lowerStorageToDataTexture(lowerComputeToFragment(autoVars(m)))
-    : opts?.emulateStorage
+    : opts?.emulateStorage || (hasStorage && !hasComputeEntry)
       ? lowerStorageToDataTexture(autoVars(m))
       : m
   // GLSL-local: rename any param/var identifier colliding with a GLSL reserved word
