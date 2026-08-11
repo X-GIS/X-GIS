@@ -595,6 +595,42 @@ describe('glsl-es300 — storage → data-texture emulation (default-on)', () =>
     expect(() => emitGlslModule(m, 'fragment')).toThrow(/'segs\[i\]'/)
   })
 
+  it('a mat / vec<u32> struct field fails closed ON ACCESS, naming the field', () => {
+    // Pins the doc claim (glsl.ts header / AGENTS.md): these lanes throw LAZILY at the
+    // first read — an unread one passes — unlike the i32 field's declaration-time throw.
+    const Motion: StructDecl = {
+      name: 'Motion',
+      fields: [
+        { name: 'w', type: f32T },
+        { name: 'vel', type: { kind: 'vec', elem: 'u32', n: 2 } as ShaderType },
+      ],
+    }
+    const arrMotion = { kind: 'array', elem: structT('Motion') } as ShaderType
+    const m = residualMod(
+      storageOf('motions', arrMotion),
+      [Motion],
+      [
+        {
+          s: 'let',
+          name: 'v',
+          expr: {
+            op: 'member',
+            type: { kind: 'vec', elem: 'u32', n: 2 } as ShaderType,
+            base: {
+              op: 'index',
+              type: structT('Motion'),
+              base: varref('motions', arrMotion),
+              idx: { op: 'lit', type: u32T, value: 0 },
+            },
+            field: 'vel',
+          },
+        },
+      ],
+    )
+    expect(() => emitGlslModule(m, 'fragment')).toThrow(UnsupportedFeatureError)
+    expect(() => emitGlslModule(m, 'fragment')).toThrow(/'vel'[\s\S]*not supported/)
+  })
+
   it('a read_write storage binding fails closed at declaration (the emulation is gather-only)', () => {
     // Without this gate a storage WRITE would not even fail at the driver: autoVars
     // materialises the assigned element into a local var, so the store silently becomes

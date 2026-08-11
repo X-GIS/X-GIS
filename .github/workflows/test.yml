@@ -698,7 +698,11 @@ jobs:
         # GLSL twins (incl. fs_line_pattern / fs_line_max + the compositor) compile AND link
         # on real WebGL2. Both existed but were NEVER in this list, so when 82fede5 moved
         # PROJECTIONS out of the engine barrel they stopped even LOADING and nothing noticed
-        # — a gate nobody runs is not a gate (§12). ~1 min for 4 tests, SwiftShader-safe.
+        # — a gate nobody runs is not a gate (§12). ~1 min for 5 tests, SwiftShader-safe.
+        # _compute-parity: draw+readback byte-parity of the compute→fragment GPGPU
+        # lowering vs the CPU-f64 oracle — the ONE semantic (not just compile) gate over
+        # the storage data-texture fetch, promoted when the lowering became default-on
+        # (#1647; 3 consecutive clean local SwiftShader runs before registration).
         # _s111-deferred-coverage-gate: a `type: coverage` source must not hold the FIRST
         # FRAME (#1426). Holds the cell's bytes on the wire and asserts the map is running,
         # its basemap layer armed and its raster pass fetching tiles while getCoverage() is

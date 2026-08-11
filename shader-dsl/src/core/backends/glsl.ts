@@ -19,8 +19,9 @@
 // A `storage` binding is different: WebGL2 having no SSBO is a PLATFORM fact, not a
 // caller choice, so emitGlslModule lowers storage to a data texture BY DEFAULT (see
 // the emulation section below) — the caps gate then sees no storage binding at all.
-// The unsupported SHAPES inside that emulation (a non-array storage binding, a
-// top-level array<u32/i32>, an i32 / mat / vec<u32> struct field) still fail closed.
+// The unsupported SHAPES inside that emulation still fail closed — a non-array storage
+// binding, a top-level array<u32/i32>, an i32 struct field (at declaration), and a
+// mat / vec<u32> / nested-struct field (on ACCESS — an unread one passes).
 //
 // ─── COMPILE GATE ───
 // glsl.test.ts (string-shape: version pragma, std140 block + engine-matched
