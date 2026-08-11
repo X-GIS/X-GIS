@@ -59,10 +59,14 @@ import {
   toF64,
   f64FromParts,
   f64Parts,
+  textureSample,
   textureSampleLevel,
+  textureLoad,
   bindingRef,
   texture2dfT,
+  texture2dArrayfT,
   samplerT,
+  vec2i,
   type Node,
 } from './ir'
 
@@ -148,8 +152,11 @@ describe('intrinsic registry coverage (the spelling agreement surface)', () => {
         "tan",
         "textureDimensions",
         "textureLoad",
+        "textureLoadArray",
         "textureSample",
+        "textureSampleArray",
         "textureSampleLevel",
+        "textureSampleLevelArray",
         "trunc",
         "u32",
         "unpack4x8unorm",
@@ -212,6 +219,17 @@ describe('intrinsic registry coverage (the spelling agreement surface)', () => {
       f64FromParts(f, f),
       f64Parts(toF64(f)),
       textureSampleLevel(bindingRef('t', texture2dfT), bindingRef('s', samplerT), vec2(0, 0), 1),
+      // #1651 — the 2d-array forms carry their OWN ids, so the classification sweep
+      // must drive them too (an unclassified id would fall through as identity).
+      textureSample(bindingRef('ta', texture2dArrayfT), bindingRef('s', samplerT), vec2(0, 0), 1),
+      textureSampleLevel(
+        bindingRef('ta', texture2dArrayfT),
+        bindingRef('s', samplerT),
+        vec2(0, 0),
+        1,
+        0,
+      ),
+      textureLoad(bindingRef('ta', texture2dArrayfT), vec2i(0, 0), 1, u),
     ]
     const unclassified = samples
       .map((n) => n.expr)

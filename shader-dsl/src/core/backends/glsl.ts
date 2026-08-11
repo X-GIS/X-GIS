@@ -12,6 +12,12 @@
 // offsets are the SAME offsets the host packs against), and `@vertex`/`@fragment`
 // entry-IO lowers to GLSL `in`/`out` varyings + a synthesised `void main()`.
 //
+// TEXTURES: a sampled `2d` texture lowers to the fused `sampler2D`, and a `2d-array`
+// one (#1651) to `sampler2DArray` — both CORE GLSL ES 3.00, so neither needs a
+// Capability and the array sample/lod/fetch spellings live in the intrinsic registry
+// (textureSampleArray / textureSampleLevelArray / textureLoadArray). `2d-ms` remains
+// the one texture dim that FAILS CLOSED here.
+//
 // FAIL-CLOSED (GLSL ES 3.00 has no compute / MSAA-load): a `@compute` entry and a
 // multisampled-texture load raise UnsupportedFeatureError — enforced UP FRONT by
 // the shared capability gate (assertCaps, run inside lowerForBackend) because
@@ -82,7 +88,9 @@ function glslType(t: ShaderType): string {
         throw new UnsupportedFeatureError(
           'glsl-es300: multisampled texture sampling — resolve first (later step)',
         )
-      return 'sampler2D' // GLSL fuses texture+sampler into one combined sampler
+      // GLSL fuses texture+sampler into one combined sampler. '2d-array' (#1651) is
+      // CORE GLSL ES 3.00 — sampler2DArray, no extension, no Capability.
+      return t.dim === '2d-array' ? 'sampler2DArray' : 'sampler2D'
     case 'sampler':
       throw new UnsupportedFeatureError(
         'glsl-es300: standalone sampler — fused into the combined sampler2D',
@@ -1131,7 +1139,25 @@ function assembleGlsl(
 
   // `precision highp int;` too: a GLSL ES 3.00 FRAGMENT shader has NO default int
   // precision, so a uint/int varying or expression there is a compile error without it.
-  const parts: string[] = ['#version 300 es', 'precision highp float;', 'precision highp int;', '']
+  //
+  // sampler2DArray needs its OWN line (#1651): GLSL ES 3.00 §4.5.4 predeclares default
+  // precisions for `sampler2D` / `samplerCube` ONLY, so a `uniform sampler2DArray`
+  // without a qualifier is a compile error — and `precision highp float;` does not cover
+  // it. Emitted only when this stage actually declares one, so every module without an
+  // array texture keeps its byte-identical header.
+  const declaresArrayTex = lowered.bindings.some(
+    (b) =>
+      b.type.kind === 'texture' &&
+      b.type.dim === '2d-array' &&
+      (scope === null || scope.bindings.has(b.name)),
+  )
+  const parts: string[] = [
+    '#version 300 es',
+    'precision highp float;',
+    'precision highp int;',
+    ...(declaresArrayTex ? ['precision highp sampler2DArray;'] : []),
+    '',
+  ]
 
   // #923 — specialization constants. GLSL ES 3.00 has no `override`, so the portable
   // equivalent is the PREPROCESSOR, emitted HERE (after the `#version`/precision

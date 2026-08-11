@@ -24,6 +24,7 @@ import {
   u32T,
   i32T,
   texture2dfT,
+  texture2dArrayfT,
   samplerT,
   structT,
   type ShaderType,
@@ -43,7 +44,12 @@ import {
   builtin,
   location,
   resource,
+  textureSample,
   textureSampleLevel,
+  textureLoad,
+  textureDimensions,
+  vec2i,
+  u32,
   uniformStruct,
 } from '@xgis/shader-dsl'
 
@@ -855,5 +861,85 @@ describe('glsl-es300 / wgsl — textureSampleLevel explicit-LOD sample', () => {
     expect(vsG).toContain('textureLod(lod_tex, uv, 1.0)')
     expect(vsG).toContain('uniform sampler2D lod_tex;')
     expect(vsG).not.toContain('lod_smp')
+  })
+})
+
+// ── 2d-array textures (#1651) — sampler2DArray on BOTH backends ──
+//
+// The array forms carry DISTINCT neutral ids (textureSampleArray /
+// textureSampleLevelArray / textureLoadArray) because the two targets RESTRUCTURE the
+// arguments rather than merely adding one: WGSL appends the layer as its own argument,
+// GLSL folds it into the coordinate's third component. Both spellings of the SAME
+// module are asserted side by side so a divergence shows up in one diff.
+describe('glsl-es300 / wgsl — 2d-array texture reads (#1651)', () => {
+  const ArrOut = ioStruct('ArrOut', { pos: builtin('position', vec4fT), uv: location(0, vec2fT) })
+  const arrTex = resource('arr_tex', texture2dArrayfT, { group: 0, binding: 0 })
+  const arrSmp = resource('arr_smp', samplerT, { group: 0, binding: 1 })
+  const arrVs = fn(
+    'arr_vs',
+    { uv: location(0, vec2fT) },
+    ({ uv }) => {
+      const o = ArrOut.var('out')
+      // vertex-stage ARRAY read — legal only with an explicit LOD (no derivatives).
+      o.pos.assign(vec4(uv.x, uv.y, textureSampleLevel(arrTex.node, arrSmp.node, uv, 1, 0).x, 1))
+      o.uv.assign(uv)
+      return o
+    },
+    { stage: 'vertex' },
+  )
+  const arrFs = fn(
+    'arr_fs',
+    { inp: ArrOut },
+    ({ inp }) => textureSample(arrTex.node, arrSmp.node, inp.uv, 1),
+    { stage: 'fragment', retAttr: location(0, vec4fT) },
+  )
+  const arrMod = dslModule({ uses: [ArrOut, arrTex, arrSmp], funcs: [arrVs, arrFs] })
+
+  it('WGSL spells the array type + keeps the layer as its own argument', () => {
+    const w = emitModule(arrMod)
+    expect(w).toContain('var arr_tex: texture_2d_array<f32>;')
+    expect(w).toContain('textureSample(arr_tex, arr_smp, inp.uv, 1)')
+    expect(w).toContain('textureSampleLevel(arr_tex, arr_smp, uv, 1, 0.0)')
+  })
+
+  it('declares `precision highp sampler2DArray;` — and ONLY when the stage has one', () => {
+    // GLSL ES 3.00 §4.5.4 predeclares default precisions for sampler2D / samplerCube
+    // ONLY: an unqualified `uniform sampler2DArray` is a COMPILE error, and
+    // `precision highp float;` does not cover it. Both stages declare the atlas here.
+    expect(emitGlslModule(arrMod, 'fragment')).toContain('precision highp sampler2DArray;')
+    expect(emitGlslModule(arrMod, 'vertex')).toContain('precision highp sampler2DArray;')
+    // A module with no array texture keeps its byte-identical header (the 98 emit
+    // goldens are the wider pin; this is the local statement of the invariant).
+    expect(emitGlslModule(module, 'fragment')).not.toContain('sampler2DArray')
+  })
+
+  it('GLSL declares a sampler2DArray and folds the layer into a vec3 coordinate', () => {
+    const fsG = emitGlslModule(arrMod, 'fragment')
+    expect(fsG).toContain('uniform sampler2DArray arr_tex;')
+    expect(fsG).toContain('texture(arr_tex, vec3(inp.uv, float(1)))')
+    expect(fsG).not.toContain('arr_smp') // fused into the combined sampler
+    const vsG = emitGlslModule(arrMod, 'vertex')
+    expect(vsG).toContain('textureLod(arr_tex, vec3(uv, float(1)), 0.0)')
+    expect(vsG).toContain('uniform sampler2DArray arr_tex;')
+  })
+
+  it('textureLoad folds the layer into an ivec3 fetch; textureDimensions is unchanged', () => {
+    const loadFs = fn(
+      'arr_load_fs',
+      { inp: ArrOut },
+      () =>
+        textureLoad(arrTex.node, vec2i(0, 0), 1, u32(0)).add(
+          toF32(textureDimensions(arrTex.node).x),
+        ),
+      { stage: 'fragment', retAttr: location(0, vec4fT) },
+    )
+    const m = dslModule({ uses: [ArrOut, arrTex, arrSmp], funcs: [arrVs, loadFs] })
+    const fsG = emitGlslModule(m, 'fragment')
+    expect(fsG).toContain('texelFetch(arr_tex, ivec3(ivec2(0, 0), int(1)), int(0u))')
+    // WGSL textureDimensions returns vec2<u32> for arrays too — GLSL's ivec3
+    // textureSize truncates into the uvec2() constructor (GLSL ES 3.00 §5.4.2).
+    expect(fsG).toContain('uvec2(textureSize(arr_tex, 0))')
+    const w = emitModule(m)
+    expect(w).toContain('textureLoad(arr_tex, vec2<i32>(0, 0), 1, 0u)')
   })
 })

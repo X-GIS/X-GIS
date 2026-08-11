@@ -17,6 +17,7 @@ import {
   vec4fT,
   texture2dfT,
   texture2dMsfT,
+  texture2dArrayfT,
   samplerT,
   dot,
   length,
@@ -73,6 +74,32 @@ describe('#763 X — type-surface sweep', () => {
       return textureSampleLevel(tex.node, smp.node, uv, 1)
     })
     expect(g.decl.name).toBe('lvl')
+  })
+
+  it('#1651: the 2d-array overloads pin the LAYER argument (arity + key)', () => {
+    const arr = resource('arr_tex', texture2dArrayfT, { group: 0, binding: 0 })
+    const tex = resource('arr_2d', texture2dfT, { group: 0, binding: 1 })
+    const smp = resource('arr_smp', samplerT, { group: 0, binding: 2 })
+    const g = fn('arr', { uv: vec2fT, uv3: vec3fT, lvl: f32T }, ({ uv, uv3, lvl }) => {
+      // The layer is REQUIRED on an array texture — the 3-arg (2d) overload rejects the
+      // array key and the 4-arg one rejects the arity, so the diagnostic is the
+      // "no overload matches" class. Uncalled thunk: the runtime would also throw.
+      // @ts-expect-error — missing the layer argument on an ARRAY texture
+      const noLayer = () => textureSample(arr.node, smp.node, uv)
+      // @ts-expect-error — a plain 2d texture has NO layer argument (wrong key for the array id)
+      const layerOn2d = textureSample(tex.node, smp.node, uv, 0)
+      // @ts-expect-error — uv must be vec2<f32> on the array form too
+      const uvRank = textureSample(arr.node, smp.node, uv3, 0)
+      // @ts-expect-error — an array read needs BOTH the layer and the level
+      const noLevel = () => textureSampleLevel(arr.node, smp.node, uv, 0)
+      // @ts-expect-error — the layer is an INDEX: an f32-keyed node is not an i32/u32 one
+      const f32Layer = textureSample(arr.node, smp.node, uv, lvl)
+      void [noLayer, layerOn2d, uvRank, noLevel, f32Layer]
+      return textureSample(arr.node, smp.node, uv, 1).add(
+        textureSampleLevel(arr.node, smp.node, uv, u32(0), 0),
+      )
+    })
+    expect(g.decl.name).toBe('arr')
   })
 
   it('X7: dot/length are K-constrained — dot(v2, v3) is a tsc error', () => {

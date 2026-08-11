@@ -13,16 +13,20 @@ import {
   type FuncDecl,
 } from '../../../ir'
 import { resource, builtin } from '../../../sot'
-import { texture2dfT, samplerT } from '../../../ir'
+import { texture2dfT, texture2dArrayfT, samplerT } from '../../../ir'
 import { emitModule } from '../../../backends/wgsl'
 import { ValidationError } from '../../validate'
 import { fragmentOnlyBuiltin } from './fragment-only-builtin'
 
 const FIX =
   'textureSample is fragment-only in WGSL — use textureSampleLevel(tex, smp, uv, level) — an explicit LOD needs no derivatives'
+// #1651 — the ARRAY row names the array-shaped fix (the layer argument is part of it).
+const ARRAY_FIX =
+  'textureSampleArray is fragment-only in WGSL — use textureSampleLevel(tex, smp, uv, layer, level) — an explicit LOD needs no derivatives'
 
 const tex = resource('fob_tex', texture2dfT, { group: 0, binding: 0 })
 const smp = resource('fob_smp', samplerT, { group: 0, binding: 1 })
+const arr = resource('fob_arr', texture2dArrayfT, { group: 0, binding: 2 })
 
 // leaf → mid: the fragment-only call sits TWO hops below any entry, so a direct-call
 // check would miss it (transitive reachability is the point).
@@ -32,6 +36,12 @@ const leaf = fn('fob_leaf', { uv: vec2fT }, vec4fT, ({ uv }) =>
 const mid = fn('fob_mid', { uv: vec2fT }, vec4fT, ({ uv }) => leaf({ uv }))
 const leafLevel = fn('fob_leaf_level', { uv: vec2fT }, vec4fT, ({ uv }) =>
   textureSampleLevel(tex.node, smp.node, uv, 1),
+)
+const leafArray = fn('fob_leaf_array', { uv: vec2fT }, vec4fT, ({ uv }) =>
+  textureSample(arr.node, smp.node, uv, 1),
+)
+const leafArrayLevel = fn('fob_leaf_array_level', { uv: vec2fT }, vec4fT, ({ uv }) =>
+  textureSampleLevel(arr.node, smp.node, uv, 1, 0),
 )
 
 const vsCalling = (callee: typeof mid) =>
@@ -78,6 +88,26 @@ describe('fragment-only-builtin (#1650)', () => {
     const m = module({
       bindings: [tex.binding, smp.binding],
       funcs: [vsCalling(leafLevel), leafLevel],
+    })
+    expect(run(m)).toEqual([])
+  })
+
+  it('#1651: flags the ARRAY sample from a vertex entry, naming the ARRAY fix', () => {
+    const m = module({
+      bindings: [arr.binding, smp.binding],
+      funcs: [vsCalling(leafArray), leafArray],
+    })
+    const ds = run(m)
+    expect(ds.map((d) => d.message)).toEqual([ARRAY_FIX])
+    expect(ds[0]?.code).toBe('SD0109')
+    // the fix must name the LAYER argument — the 2d-shaped hint would mislead here
+    expect(ds[0]?.hint).toContain('uv, layer, level')
+  })
+
+  it('#1651: stays silent for the array explicit-LOD form in a vertex entry', () => {
+    const m = module({
+      bindings: [arr.binding, smp.binding],
+      funcs: [vsCalling(leafArrayLevel), leafArrayLevel],
     })
     expect(run(m)).toEqual([])
   })

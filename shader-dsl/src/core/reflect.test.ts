@@ -1,6 +1,19 @@
 import { describe, it, expect } from 'vitest'
 import { wgslLayout, reflect } from './reflect'
-import { mat4x4fT, vec4fT, vec3fT, f32T, f64T, u32T, type StructDecl, type ModuleDecl } from './ir'
+import {
+  mat4x4fT,
+  vec4fT,
+  vec3fT,
+  f32T,
+  f64T,
+  u32T,
+  texture2dfT,
+  texture2dMsfT,
+  texture2dArrayfT,
+  samplerT,
+  type StructDecl,
+  type ModuleDecl,
+} from './ir'
 
 const struct = (
   name: string,
@@ -143,5 +156,53 @@ describe('reflect — module metadata walker', () => {
     expect(r.uniforms[0]?.size).toBe(80) // mat4x4(64) + vec4(16)
     expect(r.entries.map((e) => e.stage)).toEqual(['vertex', 'compute'])
     expect(r.entries.find((e) => e.stage === 'compute')?.workgroupSize).toBe(64)
+  })
+})
+
+// #1651 — `resourceKind: 'texture'` alone under-describes a texture binding: a host
+// creating the bind group needs the DIM to pick a 2d / 2d-array / multisampled view.
+// textureDim is therefore set on EVERY texture entry (never "only when interesting" —
+// that would make `undefined` mean both "a 2d texture" and "not a texture").
+describe('reflect — texture bind entries carry their dim (#1651)', () => {
+  it('sets textureDim on every texture entry and on no other kind', () => {
+    const m: ModuleDecl = {
+      consts: [],
+      structs: [],
+      bindings: [
+        { group: 0, binding: 0, name: 'flat_tex', space: 'uniform', type: texture2dfT },
+        { group: 0, binding: 1, name: 'atlas', space: 'uniform', type: texture2dArrayfT },
+        { group: 0, binding: 2, name: 'ms_tex', space: 'uniform', type: texture2dMsfT },
+        { group: 0, binding: 3, name: 'samp', space: 'uniform', type: samplerT },
+      ],
+      funcs: [],
+    }
+    expect(reflect(m).bindGroups[0]?.entries).toEqual([
+      {
+        group: 0,
+        binding: 0,
+        name: 'flat_tex',
+        space: 'uniform',
+        resourceKind: 'texture',
+        textureDim: '2d',
+      },
+      {
+        group: 0,
+        binding: 1,
+        name: 'atlas',
+        space: 'uniform',
+        resourceKind: 'texture',
+        textureDim: '2d-array',
+      },
+      {
+        group: 0,
+        binding: 2,
+        name: 'ms_tex',
+        space: 'uniform',
+        resourceKind: 'texture',
+        textureDim: '2d-ms',
+      },
+      // the sampler entry carries NO textureDim — the field is texture-only
+      { group: 0, binding: 3, name: 'samp', space: 'uniform', resourceKind: 'sampler' },
+    ])
   })
 })

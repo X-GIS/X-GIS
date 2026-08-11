@@ -58,9 +58,13 @@ export function wgslType(t: ShaderType): string {
         ? `array<${wgslType(t.elem)}, ${t.size}>`
         : `array<${wgslType(t.elem)}>`
     case 'texture':
+      // Spelled per dim, never templated: '2d-array' is `texture_2d_array<f32>` in
+      // WGSL (a `texture_${t.dim}` template would emit `texture_2d-array<f32>`).
       return t.dim === '2d-ms'
         ? `texture_multisampled_2d<${t.elem}>`
-        : `texture_${t.dim}<${t.elem}>`
+        : t.dim === '2d-array'
+          ? `texture_2d_array<${t.elem}>`
+          : `texture_2d<${t.elem}>`
     case 'sampler':
       return 'sampler'
     case 'void':

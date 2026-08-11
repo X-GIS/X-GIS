@@ -25,6 +25,7 @@ import { kaleidoscope } from './kaleidoscope.ts'
 import { heart } from './heart.ts'
 import { gradient } from './gradient-pass.ts'
 import { overrideQuality } from './override-quality.ts'
+import { textureArrayLod } from './texture-array-lod.ts'
 import { computeReduction } from './compute-reduction.ts'
 import { fp64DeepZoom } from './fp64-deep-zoom.ts'
 import { fp64Mandelbrot } from './fp64-mandelbrot.ts'
@@ -76,6 +77,7 @@ export {
   fp64SineSweep,
   gradient,
   overrideQuality,
+  textureArrayLod,
   computeReduction,
 }
 
@@ -114,5 +116,6 @@ export const examples: readonly ShaderExample[] = [
   fp64SineSweep,
   gradient,
   overrideQuality,
+  textureArrayLod,
   computeReduction,
 ]
