@@ -43,6 +43,12 @@
 import { spawnSync } from 'node:child_process'
 
 const REPO_URL = 'https://github.com/X-GIS/X-GIS'
+// Derived from this file's own location (scripts/ sits at the repo root), NOT
+// from a git call — importing this module must never shell out. Every git
+// invocation runs `-C REPO_ROOT`, so the script is callable from any cwd
+// (shader-dsl's `prepack` runs it from the package dir) and a pathspec like
+// `-- shader-dsl` always resolves against the repo root.
+const REPO_ROOT = new URL('..', import.meta.url).pathname
 
 // commitlint.config.js `type-enum` is the authority for what counts as a known
 // type; this array additionally fixes the SECTION ORDER (user-visible change
@@ -362,7 +368,10 @@ export function resolveSince(
 
 function git(args: string[]): string {
   // Args are passed as an array — never interpolated into a shell string.
-  const run = spawnSync('git', args, { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 })
+  const run = spawnSync('git', ['-C', REPO_ROOT, ...args], {
+    encoding: 'utf8',
+    maxBuffer: 64 * 1024 * 1024,
+  })
   if (run.status !== 0) {
     throw new Error(`git ${args.join(' ')} failed (${run.status ?? 'signal'}): ${run.stderr}`)
   }
@@ -372,7 +381,7 @@ function git(args: string[]): string {
 /** True when `value` names a commit git can resolve (so it is a ref, not a date). */
 function isRef(value: string): boolean {
   return (
-    spawnSync('git', ['rev-parse', '--verify', '--quiet', `${value}^{commit}`], {
+    spawnSync('git', ['-C', REPO_ROOT, 'rev-parse', '--verify', '--quiet', `${value}^{commit}`], {
       encoding: 'utf8',
     }).status === 0
   )

@@ -24,7 +24,7 @@
   "scripts": {
     "build": "tsc --build && tsc -p tsconfig.tests.json",
     "bake:goldens": "cd .. && UPDATE_EMIT_GOLDENS=1 bunx vitest run shader-dsl/examples/emit-goldens.test.ts",
-    "prepack": "cd .. && bun scripts/emit-changelog.ts --path shader-dsl > shader-dsl/CHANGELOG.md && bunx prettier --write shader-dsl/CHANGELOG.md"
+    "prepack": "bun ../scripts/emit-changelog.ts --path shader-dsl > CHANGELOG.md && bunx prettier --write CHANGELOG.md"
   },
   "publishConfig": {
     "main": "./dist/index.js",

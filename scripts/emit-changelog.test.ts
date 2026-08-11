@@ -395,4 +395,18 @@ describe('entrypoint', () => {
     expect(run.status).not.toBe(0)
     expect(run.stderr).toContain('neither a resolvable ref')
   })
+
+  it.skipIf(!hasDeepHistory)('is cwd-independent — the shader-dsl prepack shape (spawned)', () => {
+    // shader-dsl's `prepack` runs `bun ../scripts/emit-changelog.ts --path
+    // shader-dsl` FROM the package dir; the -C REPO_ROOT plumbing must keep the
+    // pathspec resolving against the repo root, not the caller's cwd.
+    const pkgDir = new URL('../shader-dsl/', import.meta.url).pathname
+    const run = spawnSync('bun', [script, '--path', 'shader-dsl'], {
+      encoding: 'utf8',
+      cwd: pkgDir,
+    })
+    expect(run.status).toBe(0)
+    expect(run.stdout).toContain('Scope: commits touching shader-dsl/')
+    expect((run.stdout.match(/^- /gm) ?? []).length).toBeGreaterThan(0)
+  })
 })
