@@ -62,6 +62,7 @@ import {
   textureSample,
   textureSampleLevel,
   textureLoad,
+  textureNumLayers,
   bindingRef,
   texture2dfT,
   texture2dArrayfT,
@@ -153,6 +154,7 @@ describe('intrinsic registry coverage (the spelling agreement surface)', () => {
         "textureDimensions",
         "textureLoad",
         "textureLoadArray",
+        "textureNumLayers",
         "textureSample",
         "textureSampleArray",
         "textureSampleLevel",
@@ -230,6 +232,9 @@ describe('intrinsic registry coverage (the spelling agreement surface)', () => {
         0,
       ),
       textureLoad(bindingRef('ta', texture2dArrayfT), vec2i(0, 0), 1, u),
+      // #1658 — the layer-count query is a FOURTH array id (WGSL has a dedicated
+      // function, GLSL reads textureSize's .z), so it must be swept too.
+      textureNumLayers(bindingRef('ta', texture2dArrayfT)),
     ]
     const unclassified = samples
       .map((n) => n.expr)

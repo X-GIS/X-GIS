@@ -140,6 +140,23 @@ describe('#763 O — oracle backend parity', () => {
     }
   })
 
+  it('O3: the layer-count query (#1658) carries the SAME stub contract as the array reads', () => {
+    const arrTex = { op: 'param', type: { kind: 'texture', dim: '2d-array' }, name: 't' }
+    const decl: FuncDecl = {
+      name: 'o3n',
+      params: [{ name: 't', type: arrTex.type as ShaderType }],
+      ret: u32T,
+      body: [
+        { s: 'return', expr: { op: 'call', fn: 'textureNumLayers', type: u32T, args: [arrTex] } },
+      ] as unknown as Stmt[],
+    }
+    const strict = compileModule(module({ funcs: [decl] }))
+    expect(() => strict.fns['o3n']!(0)).toThrow(/GPU-only/)
+    const loose = compileModule(module({ funcs: [decl] }), { gpuStubs: true })
+    // 1 layer, not 0 — the same finite-placeholder rule as textureDimensions' 1×1.
+    expect(loose.fns['o3n']!(0)).toBe(1)
+  })
+
   it('O4: round is roundTiesToEven, not Math.round', () => {
     const f = fn('o4', { x: f32T }, ({ x }) => round(x))
     const m = compileModule(module({ funcs: [f] }))

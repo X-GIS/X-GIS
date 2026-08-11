@@ -246,6 +246,7 @@ export const GPU_STUBS: Record<string, Builtin> = {
   textureSampleLevelArray: () => [0, 0, 0, 1],
   textureLoadArray: () => [0, 0, 0, 1],
   textureDimensions: () => [1, 1], // 1×1, not 0×0 — a divide-by-dimensions stays finite
+  textureNumLayers: () => 1, // 1 layer, not 0 — a modulo/divide by the count stays finite
 }
 
 /** Test-only surfaces (#763 O5): the oracle's builtin coverage, pinned against the

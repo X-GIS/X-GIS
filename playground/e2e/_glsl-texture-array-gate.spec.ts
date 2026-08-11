@@ -117,12 +117,14 @@ const inUv = fld(param('inp', structT('VsIn')), 'uv', vec2fT)
 const outUv = fld(param('inp', structT('ArrVsOut')), 'uv', vec2fT)
 
 // ── ZERO-contribution witnesses for the remaining array spellings (verification
-// review of #1651, finding C): the unit suite pins `texelFetch(…ivec3…)` and
-// `uvec2(textureSize(…))` as STRINGS, but only a real compiler consumes them —
-// without these terms CI has no persistent driver witness for either. Both terms
-// are exactly 0, so the discrimination table above is unchanged.
+// review of #1651, finding C): the unit suite pins `texelFetch(…ivec3…)`,
+// `uvec2(textureSize(…))` and `uint(textureSize(…).z)` as STRINGS, but only a real
+// compiler consumes them — without these terms CI has no persistent driver witness
+// for any of them. Every term is exactly 0, so the discrimination table above is
+// unchanged.
 //   loadArray(layer 0, level 0).y — the RED texel's green component → 0
 //   float(dims.x - dims.y)        — the 2×2 base level → float(2u - 2u) → 0
+//   float(numLayers - 2u)         — the fixture is 2 layers deep → float(2u - 2u) → 0
 const loadArrayRed: Expr = {
   op: 'call',
   type: vec4fT,
@@ -140,16 +142,39 @@ const dims: Expr = {
   fn: 'textureDimensions',
   args: [varref('tex', texture2dArrayfT)],
 }
+// #1658 — the layer COUNT is the ivec3 component `dims` (textureDimensions) drops, so
+// it needs its own driver witness: the fixture is 2 layers deep at every level.
+const numLayers: Expr = {
+  op: 'call',
+  type: u32T,
+  fn: 'textureNumLayers',
+  args: [varref('tex', texture2dArrayfT)],
+}
 const zeroWitness: Expr = {
   op: 'binop',
   type: f32T,
   bop: '+',
-  a: fld(loadArrayRed, 'y', f32T),
+  a: {
+    op: 'binop',
+    type: f32T,
+    bop: '+',
+    a: fld(loadArrayRed, 'y', f32T),
+    b: {
+      op: 'call',
+      type: f32T,
+      fn: 'f32',
+      args: [
+        { op: 'binop', type: u32T, bop: '-', a: fld(dims, 'x', u32T), b: fld(dims, 'y', u32T) },
+      ],
+    },
+  },
   b: {
     op: 'call',
     type: f32T,
     fn: 'f32',
-    args: [{ op: 'binop', type: u32T, bop: '-', a: fld(dims, 'x', u32T), b: fld(dims, 'y', u32T) }],
+    args: [
+      { op: 'binop', type: u32T, bop: '-', a: numLayers, b: { op: 'lit', type: u32T, value: 2 } },
+    ],
   },
 }
 
@@ -208,7 +233,7 @@ const arrayModule: ModuleDecl = {
                 fld(sampleArray(outUv, 1), 'x', f32T),
                 fld(sampleArray(outUv, 1), 'y', f32T),
                 {
-                  // b = blue.z + the two zero witnesses (see zeroWitness above)
+                  // b = blue.z + the three zero witnesses (see zeroWitness above)
                   op: 'binop',
                   type: f32T,
                   bop: '+',
@@ -266,6 +291,7 @@ test('GLSL 2d-array module compiles + links on real WebGL2 (sampler2DArray, vec3
   expect(fragment).toContain('textureLod(tex, vec3(') // textureSampleLevelArray
   expect(fragment).toContain('texelFetch(tex, ivec3(') // textureLoadArray (zero witness)
   expect(fragment).toContain('uvec2(textureSize(tex, 0))') // textureDimensions on the array type
+  expect(fragment).toContain('uint(textureSize(tex, 0).z)') // textureNumLayers (zero witness)
   expect(vertex).toContain('sampler2DArray')
   expect(vertex).toContain('textureLod(tex, vec3(') // the VERTEX-stage array read
   // …and the standalone sampler binding fuses away (word-boundary: `samp` alone).
