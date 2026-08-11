@@ -1,0 +1,3441 @@
+<!--
+  GENERATED FILE — do not hand-edit; every edit is lost on the next run.
+  Rendered from git history by scripts/emit-changelog.ts.
+
+  Regenerate (both steps — the generator emits prettier-clean markdown,
+  and the pair is idempotent):
+    bun scripts/emit-changelog.ts > CHANGELOG.md
+    bunx prettier --write CHANGELOG.md
+
+  Generated from: 4bf461085e22d52de4b3e924dc0371585565ad5e
+  History walked: first-parent of main
+  Scope: whole repository
+  Repository: https://github.com/X-GIS/X-GIS
+  What changed since this file was generated (run from a repo checkout):
+    bun scripts/emit-changelog.ts --since 4bf461085e22
+-->
+
+# Changelog
+
+This repo ships no versioned releases and carries no git tags, so changes are grouped by month rather than by version. Each entry is one squash-merged commit on `main`; the short hash is the point in history it landed at.
+
+### 2026-08
+
+#### feat
+
+- **shader-dsl:** textureSampleLevel + fragment-only lint for textureSample (#1650) ([#1652](https://github.com/X-GIS/X-GIS/pull/1652)) `4bf4610`
+- **shader-dsl:** GLSL storage→data-texture emulation is default-on (#1647) ([#1648](https://github.com/X-GIS/X-GIS/pull/1648)) `a5eeaf9`
+- **map:** point composer seam renders on WebGL2, via the VT tile-point path (#1605 Phase 3 PR C) ([#1642](https://github.com/X-GIS/X-GIS/pull/1642)) `a29ea57`
+- **map:** line composer seam renders on WebGL2 (#1605 Phase 3 PR B) ([#1639](https://github.com/X-GIS/X-GIS/pull/1639)) `aa5d3c6`
+- **map:** point runtime consumes feature-free @color/@stroke variants (#1605 Phase 2 PR B) ([#1630](https://github.com/X-GIS/X-GIS/pull/1630)) `29cd326`
+- **shaders:** point composer seam for feature-free @color/@stroke (#1605 Phase 2 PR A) ([#1629](https://github.com/X-GIS/X-GIS/pull/1629)) `eed2a9b`
+- **map:** line runtime consumes feature-free @stroke variants (#1605 PR B) ([#1624](https://github.com/X-GIS/X-GIS/pull/1624)) `c676cac`
+- **shaders:** line composer seam for feature-free @stroke bodies (#1605 PR A) `a4b6fc8`
+- **map,rhi:** **BREAKING** delete the forced-WebGL2 twin frame — Track A1 complete ([#1544](https://github.com/X-GIS/X-GIS/pull/1544)) `6ffe514`
+- **site:** curate /examples to one card per capability (78 → 45) ([#1617](https://github.com/X-GIS/X-GIS/pull/1617)) `66b5b48`
+- **playground:** stdlib self-hosting proof — a symbolizer authored in .xgis ([#1540](https://github.com/X-GIS/X-GIS/pull/1540)) `6b0f4ac`
+- **map:** `input` runtime — per-frame resolve, uniform pool, map.setInput() ([#1539](https://github.com/X-GIS/X-GIS/pull/1539)) `6395120`
+- **compiler:** input host-contract declarations — grammar/IR/codegen ([#1539](https://github.com/X-GIS/X-GIS/pull/1539)) `8d69d10`
+- **compiler:** typed values — vec2/3/4 with component reads, and struct source schemas ([#1560](https://github.com/X-GIS/X-GIS/pull/1560)) `2ffddc2`
+- **map:** draw the arrow field at twice the density, by interleaving the lattice ([#1559](https://github.com/X-GIS/X-GIS/pull/1559)) `5af6b6d`
+- **compiler:** reintroduce fn as GPU-compiled user functions ([#1552](https://github.com/X-GIS/X-GIS/pull/1552)) `14d9bd5`
+- **compiler,map:** every `symbol` element the grammar documents now draws ([#1554](https://github.com/X-GIS/X-GIS/pull/1554)) `a92e831`
+- **compiler:** parameterized presets + language v4 research doc ([#1542](https://github.com/X-GIS/X-GIS/pull/1542)) `c87f7a6`
+- **map:** enumerate the GROUND lattice, so the arrow field is carried by the map ([#1545](https://github.com/X-GIS/X-GIS/pull/1545)) `bca19e9`
+- **map,rhi:** Track A1 — the #1046 F3b chain retype, increment by increment ([#1394](https://github.com/X-GIS/X-GIS/pull/1394)) `f541a5d`
+
+#### fix
+
+- **coverage:** the drape's overlap winner is relevance, not re-arm recency (#1602) ([#1604](https://github.com/X-GIS/X-GIS/pull/1604)) `57f0988`
+- **e2e:** the whole suite collects again — six specs were aborting the run (#1638) ([#1641](https://github.com/X-GIS/X-GIS/pull/1641)) `9825871`
+- **playground:** ship the line-decoration library pattern_lines imports (#1626) ([#1637](https://github.com/X-GIS/X-GIS/pull/1637)) `76f3476`
+- **e2e:** the demo audit enumerates demos again, and says why it skips (#1625) ([#1636](https://github.com/X-GIS/X-GIS/pull/1636)) `6d4bc3b`
+- **loader:** a 200-with-HTML error page is no longer accepted as a payload (#1627) ([#1631](https://github.com/X-GIS/X-GIS/pull/1631)) `aa5171e`
+- **render:** complete the tile-point pack key so a stale pack cannot draw (#1616) ([#1628](https://github.com/X-GIS/X-GIS/pull/1628)) `c71c082`
+- **render:** raster tile eviction picked the texture free by backend, not by handle ([#1619](https://github.com/X-GIS/X-GIS/pull/1619)) `cf88ae9`
+- **render:** the anticipatory prefetch now runs at all (#1587) ([#1601](https://github.com/X-GIS/X-GIS/pull/1601)) `e2a5ce5`
+- **map:** warn when a stage block is silently dropped by point/line ([#1605](https://github.com/X-GIS/X-GIS/pull/1605)) `5b8615b`
+- **render:** stop rebuilding tile selection + tile-point buffers at a static camera ([#1581](https://github.com/X-GIS/X-GIS/pull/1581)) `76b9484`
+- **map:** a data-driven fill that cannot draw on WebGL2 now says so (#1583) ([#1597](https://github.com/X-GIS/X-GIS/pull/1597)) `f5733e4`
+- **text:** atlas memory — cap the glyph range cache, own the single-page ceiling, fix host-sprite replace, sweep two unswept siblings (#1580) ([#1612](https://github.com/X-GIS/X-GIS/pull/1612)) `fc876a1`
+- **map:** overlapping mosaic domains draw ONE arrow field, not two (#1585) ([#1589](https://github.com/X-GIS/X-GIS/pull/1589)) `acc8e8a`
+- **render:** unify raster texture budget across backends and eviction paths (#1579) ([#1608](https://github.com/X-GIS/X-GIS/pull/1608)) `1e0dcf7`
+- **compiler:** style: preset resolution is total, not silently swallowed ([#1606](https://github.com/X-GIS/X-GIS/pull/1606)) `a9e9036`
+- **render:** release a draper's Material when a quality flip discards it ([#1603](https://github.com/X-GIS/X-GIS/pull/1603)) `9738c70`
+- **lifecycle:** unwedge device-lost recovery and report the death honestly ([#1600](https://github.com/X-GIS/X-GIS/pull/1600)) `a21b4d7`
+- **lifecycle:** a style error after GPU boot no longer orphans the device ([#1598](https://github.com/X-GIS/X-GIS/pull/1598)) `75e8841`
+- **render:** stop counting aborts as tile failures, and unfreeze the retry clock ([#1595](https://github.com/X-GIS/X-GIS/pull/1595)) `50403b8`
+- **text:** a failed glyph range must notify, and must not leave labels inkless ([#1593](https://github.com/X-GIS/X-GIS/pull/1593)) `e794abb`
+- **coverage:** make a forecast step atomic and stop one blip killing playback ([#1590](https://github.com/X-GIS/X-GIS/pull/1590)) `be48910`
+- **workers:** settle every failure path and stop dispatching to a dead worker ([#1588](https://github.com/X-GIS/X-GIS/pull/1588)) `a76b934`
+- **tracker-1553:** make the gates real, then the first two tiers of fixes ([#1584](https://github.com/X-GIS/X-GIS/pull/1584)) `472df53`
+- **map:** blend the S-111 arrow field's velocity across valid neighbours ([#1565](https://github.com/X-GIS/X-GIS/pull/1565)) `2d14d5e`
+- **compiler:** CPU-evaluate constant @color/@stroke stage bodies ([#1538](https://github.com/X-GIS/X-GIS/pull/1538)) `7345c20`
+- **map:** a train stops at a dead-cell boundary instead of vanishing into it ([#1562](https://github.com/X-GIS/X-GIS/pull/1562)) `056430c`
+- **map,shader-dsl:** a WGSL reserved word broke the advected pipeline on WebGPU ([#1532](https://github.com/X-GIS/X-GIS/pull/1532)) `b75059b`
+
+#### perf
+
+- **render:** hoist two provably-redundant per-draw allocations (#1582) ([#1613](https://github.com/X-GIS/X-GIS/pull/1613)) `1886047`
+
+#### refactor
+
+- **map:** make the view→ground-lattice layer domain-neutral ([#1548](https://github.com/X-GIS/X-GIS/pull/1548)) `120cdfb`
+
+#### docs
+
+- 2026-08-03 audit — campaign plan + 2026-06 series adjudication ([#1555](https://github.com/X-GIS/X-GIS/pull/1555)) `b4c17a3`
+
+#### test
+
+- **e2e:** the demo-audit tripwire fires per fragment, not just when the whole corpus vanishes ([#1634](https://github.com/X-GIS/X-GIS/pull/1634)) `4d5c3f5`
+- **webgl2:** prove composed line/point GLSL compiles+links on real WebGL2 (#1605 Phase 3 PR A) ([#1633](https://github.com/X-GIS/X-GIS/pull/1633)) `f6be804`
+- **playground:** de-flake the #1581 static-camera render gate ([#1622](https://github.com/X-GIS/X-GIS/pull/1622)) `8f36da6`
+- **map:** retire a stranded render gate, and assert its property where it lives ([#1549](https://github.com/X-GIS/X-GIS/pull/1549)) `b57c05b`
+
+### 2026-07
+
+#### feat
+
+- **map:** render the S-111 arrow field across z7…z19 with screen-lattice trains ([#1526](https://github.com/X-GIS/X-GIS/pull/1526)) `24a5b25`
+- **map:** invert the projection ladder numerically for the screen-space arrow field ([#1524](https://github.com/X-GIS/X-GIS/pull/1524)) `61161a4`
+- **map,playground:** seed the S-111 arrow field sub-cell dense and cull by view ([#1514](https://github.com/X-GIS/X-GIS/pull/1514)) `c0d2df3`
+- **map,compiler:** produce the ground basis for map-aligned point labels ([#1492](https://github.com/X-GIS/X-GIS/pull/1492)) `2369577`
+- **map:** give the ground basis its pitch-0 inverse, without touching the live camera ([#1471](https://github.com/X-GIS/X-GIS/pull/1471)) `2b6c421`
+- **rhi,map:** give the RHI a vocabulary for mipmaps and anisotropy, and use it for raster tiles ([#1466](https://github.com/X-GIS/X-GIS/pull/1466)) `6869bf9`
+- **playground:** S-102 Live reads NOAA's own S-100 exchange catalogue ([#1467](https://github.com/X-GIS/X-GIS/pull/1467)) `80bcc66`
+- **playground,map:** S-111 Live declares a STAC catalogue; delete the app-side mosaic ([#1465](https://github.com/X-GIS/X-GIS/pull/1465)) `759668f`
+- **map:** thread the ground basis through the label stage, and make it exclude perspectiveScale ([#1462](https://github.com/X-GIS/X-GIS/pull/1462)) `5240112`
+- **map,data:** a `coverage` source may name a STAC catalogue; the engine owns residency ([#1454](https://github.com/X-GIS/X-GIS/pull/1454)) `d359773`
+- **map:** derive the collision AABB from the ground basis, pinned to the drawn quad ([#1460](https://github.com/X-GIS/X-GIS/pull/1460)) `eeac6d2`
+- **map:** close the ground-basis normalization by composing the map with its own inverse ([#1446](https://github.com/X-GIS/X-GIS/pull/1446)) `294eb36`
+- **map:** evaluate a coverage `filter:` in the FRAGMENT shader, from one compiled predicate ([#1443](https://github.com/X-GIS/X-GIS/pull/1443)) `024a2b2`
+- **map:** give a glyph quad a ground basis, so a label can lie in the map plane ([#1442](https://github.com/X-GIS/X-GIS/pull/1442)) `2f50126`
+- **map:** attribute line-label drops to a reason, and extract the emitter to pay for it ([#1441](https://github.com/X-GIS/X-GIS/pull/1441)) `28cafc4`
+- **map:** the S-111 catalogue arrows ARE the particles ([#1424](https://github.com/X-GIS/X-GIS/pull/1424)) `3902823`
+- **map,playground:** grid-anchored soundings, a reachable percent format, and `filter:` on a coverage layer ([#1407](https://github.com/X-GIS/X-GIS/pull/1407)) `3e6781a`
+- **map:** give the collision pass a path-shaped footprint ([#1425](https://github.com/X-GIS/X-GIS/pull/1425)) `1ea52c3`
+- **engine,data,map:** spend the horizon before the frame — an ordered adaptive quality ladder ([#1406](https://github.com/X-GIS/X-GIS/pull/1406)) `02dff0c`
+- **data,map:** projected coverages — UTM on the handle, reprojected drape, sounding numerals ([#1374](https://github.com/X-GIS/X-GIS/pull/1374)) `9328463`
+- **data,map:** S-102 streaming — bbox read window, coverage refresh, real-cell reader fixes ([#1360](https://github.com/X-GIS/X-GIS/pull/1360)) `9e465dc`
+- **map:** several S-111 domains draw at once — the mosaic is multi-region end to end ([#1399](https://github.com/X-GIS/X-GIS/pull/1399)) `e5bb565`
+- **map:** `| flow` — the motion is its own non-catalogue layer, so strict S-111 can have it ([#1333](https://github.com/X-GIS/X-GIS/pull/1333)) `eeca62c`
+- **map:** the coverage drape samples the advected field — the motion reaches the screen ([#1333](https://github.com/X-GIS/X-GIS/pull/1333)) `4accf02`
+- **map:** IBFV flow layer — wiring, pass registration, and the forecast-step freeze fix (#1333, #1367) `f6942a6`
+- **map:** replace the arrow-glyph drift with an IBFV flow layer — design, revert, and the GPU-side building blocks ([#1333](https://github.com/X-GIS/X-GIS/pull/1333)) `f6755eb`
+- **map,playground:** make the S-111 arrows actually drift, and drop the now-redundant dot overlay ([#1333](https://github.com/X-GIS/X-GIS/pull/1333)) `62e9d22`
+- **map:** drift the S-111 arrow glyph along its own bearing (#1333, shader+packer) `a2b0192`
+- **map:** CoverageRenderer keyed multi-region residency (#1333 P1) `95c7d3d`
+- **map,compiler,data:** animated S-111 particle field, forecast-hour interpolation, mosaic zoom-flip fix ([#1333](https://github.com/X-GIS/X-GIS/pull/1333)) `4a60a7d`
+- **map:** proper shader-level black outline on the S-111 arrow field ([#1333](https://github.com/X-GIS/X-GIS/pull/1333)) `e4ef863`
+- **playground:** loading badge for the S-111 mosaic region swap ([#1339](https://github.com/X-GIS/X-GIS/pull/1339)) `2b40444`
+- **map:** black outline on the S-111 arrow field ([#1338](https://github.com/X-GIS/X-GIS/pull/1338)) `2ea1878`
+- **map:** strict S-111 arrows-only portrayal + live forecast-time scrubber ([#1335](https://github.com/X-GIS/X-GIS/pull/1335)) `15f2c6d`
+- **map:** engine-level S-111 arrow portrayal — coverage vector field ([#1334](https://github.com/X-GIS/X-GIS/pull/1334)) `f670168`
+- **playground:** wire the S-111 viewport mosaic into the live demo ([#1332](https://github.com/X-GIS/X-GIS/pull/1332)) `c5deb80`
+- **playground:** viewport-driven S-111 mosaic — model swap on move-end + LRU ([#1330](https://github.com/X-GIS/X-GIS/pull/1330)) `6a26fa0`
+- **playground:** S-111 viewport model→bbox registry + resolution ([#1329](https://github.com/X-GIS/X-GIS/pull/1329)) `efac1de`
+- **map:** interactive forecast time — setCoverageTime / play / pause ([#1328](https://github.com/X-GIS/X-GIS/pull/1328)) `16bd1f8`
+- **compiler:** presets carry coverage paint + official S-111 portrayal lib ([#1327](https://github.com/X-GIS/X-GIS/pull/1327)) `cef18e5`
+- **s111:** official IHO palette + faster live load (memoized resolution + edge cache) ([#1323](https://github.com/X-GIS/X-GIS/pull/1323)) `86b9ba2`
+- **map:** declarative `| arrow bearing-[.dir]` layer — runtime + coops demo ([#1302](https://github.com/X-GIS/X-GIS/pull/1302)) `55b1e75`
+- **compiler:** .xgis keep(...) + at-line import splicing ([#1316](https://github.com/X-GIS/X-GIS/pull/1316)) `32117d3`
+- **data:** S-111 forecast time axis — read any group + expose the axis on the coverage ([#1320](https://github.com/X-GIS/X-GIS/pull/1320)) `c770bbc`
+- **playground:** official S-111 arrow portrayal — tidal-stream arrows over the speed fill ([#1319](https://github.com/X-GIS/X-GIS/pull/1319)) `d672ba6`
+- **map:** raster zoom-out cross-fade — parent fades in over departing children (#1317) ([#1317](https://github.com/X-GIS/X-GIS/pull/1317)) `ffb8ae9`
+- **coverage:** range-stream the coverage source — ~⅓ the bytes for a multi-timestep cell ([#1309](https://github.com/X-GIS/X-GIS/pull/1309)) `40a71f6`
+- **map:** raster tile fade-in — cross-fade on zoom instead of instant pop-in ([#1307](https://github.com/X-GIS/X-GIS/pull/1307)) `c12c4c7`
+- **coverage:** NOAA S-111 — layer-paint refactor, projection-general drape, opacity, + LIVE S3 demo ([#1299](https://github.com/X-GIS/X-GIS/pull/1299)) `ac193f8`
+- **hdf5:** bbox-selective chunk fetch — readBand(region) streams only viewport chunks (ADR-0010 #1284-4) ([#1295](https://github.com/X-GIS/X-GIS/pull/1295)) `e313fc8`
+- **map:** built-in cursor feedback — grab/grabbing/pointer ([#1294](https://github.com/X-GIS/X-GIS/pull/1294)) `1096d44`
+- **hdf5:** range-capable reader — stream a remote S-100 cell over HTTP Range (ADR-0010 #1284-4) ([#1292](https://github.com/X-GIS/X-GIS/pull/1292)) `ebd0277`
+- **coverage:** NOAA S-111 currents — read S-100 HDF5 in place, remove .xgcov (ADR-0010, #1272) ([#1279](https://github.com/X-GIS/X-GIS/pull/1279)) `09f70da`
+- **map:** URL hash camera sync — hash: true for shareable links ([#1290](https://github.com/X-GIS/X-GIS/pull/1290)) `bc1b9dd`
+- **map:** respect prefers-reduced-motion — auto-disable symbol fade & paint transitions ([#1288](https://github.com/X-GIS/X-GIS/pull/1288)) `bcdb06a`
+- **map:** animated camera — easeTo / flyTo (van Wijk–Nuij) ([#1280](https://github.com/X-GIS/X-GIS/pull/1280)) `1ce6314`
+- **map:** paint property transitions — setPaintProperty ramps instead of popping ([#1277](https://github.com/X-GIS/X-GIS/pull/1277)) `64bd0a1`
+- **map:** symbol fade — labels/icons ramp opacity on placement changes ([#1254](https://github.com/X-GIS/X-GIS/pull/1254)) `aabde57`
+- **map,playground:** tile-loading indicator + mobile error stacking (#1229 items 1/5/6) ([#1286](https://github.com/X-GIS/X-GIS/pull/1286)) `7aa3b0e`
+- **map:** Marker + Popup — DOM overlays anchored to geo coordinates (#1262) ([#1285](https://github.com/X-GIS/X-GIS/pull/1285)) `dedb35c`
+- **map:** near-on-top draw order for overlapping allow-overlap labels ([#1281](https://github.com/X-GIS/X-GIS/pull/1281)) `e1ddc30`
+- **playground:** #1192 batch 5 — animate-line + realtime-update ports; fix two dead #1242 gap-2 bugs they exposed ([#1282](https://github.com/X-GIS/X-GIS/pull/1282)) `ebbe407`
+- **extrude:** data-driven fill (gradient/match) + fill-extrusion-height (#1252) ([#1270](https://github.com/X-GIS/X-GIS/pull/1270)) `ca692b7`
+- **playground:** #1229 batch-2 cheap wins — gallery section anchors + [ / ] demo paging ([#1244](https://github.com/X-GIS/X-GIS/pull/1244)) `d286c6e`
+- **compiler:** remove the expression-level pipe operator ([#1241](https://github.com/X-GIS/X-GIS/pull/1241)) `65985bd`
+- **site,playground:** gallery resync + drift gate + #1192 batch-4 ports ([#1237](https://github.com/X-GIS/X-GIS/pull/1237)) `089dde9`
+- **style:** heatmap-color ramps + full hillshade method set + examples gallery overhaul ([#1233](https://github.com/X-GIS/X-GIS/pull/1233)) `4ec3b51`
+- **map,rhi:** P3 mobile/iOS hardening — touch-action, cheap fallback boot, texture clamp, backend observability, visibility pause (#1153 P3) ([#1172](https://github.com/X-GIS/X-GIS/pull/1172)) `aab2225`
+- **geo,map,shared:** globe surface + camera + horizon → WGS84 ellipsoid in ([#1171](https://github.com/X-GIS/X-GIS/pull/1171)) `fcc1ea7`
+- **playground:** gallery + demo-page UI/UX batch — tag chips, desc clamp, keyboard flow, desktop editor collapse, description pill, share link ([#1226](https://github.com/X-GIS/X-GIS/pull/1226)) `05b628b`
+- **playground:** #1192 P1 batch 3 — mouse-position, fit-bounds, jump-to-locations (+ map's missing @xgis/rhi dep) ([#1220](https://github.com/X-GIS/X-GIS/pull/1220)) `c11ff61`
+- **hillshade:** #777 Phase II — raster-dem + hillshade (render-verified) ([#1187](https://github.com/X-GIS/X-GIS/pull/1187)) `164f53c`
+- **compiler/map/playground:** SceneBuilder — A0 design + A1 core/runScene + A2 growth + A3 twin corpus & gallery JS tab (#1194) ([#1195](https://github.com/X-GIS/X-GIS/pull/1195)) `f999a5e`
+- **playground:** #1192 P1 batch 2 — layer-below-labels + globe-extrusion ports ([#1197](https://github.com/X-GIS/X-GIS/pull/1197)) `3875407`
+- **playground:** #1192 interaction infra — Demo.actions button bar + 2 API-driven ports ([#1202](https://github.com/X-GIS/X-GIS/pull/1202)) `f4c3459`
+- **map,rhi-webgl2:** heatmap 3-pass pipeline on the forced-WebGL2 twin (#1060) ([#1214](https://github.com/X-GIS/X-GIS/pull/1214)) `5ebb583`
+- **map:** ground fill-pattern sampling on the forced-WebGL2 twin (#1059) ([#1213](https://github.com/X-GIS/X-GIS/pull/1213)) `9950104`
+- **map,rhi-webgl2:** point/circle rendering on the forced-WebGL2 twin — direct-layer + VT tile-points (#1057) ([#1211](https://github.com/X-GIS/X-GIS/pull/1211)) `19885e0`
+- **map,rhi:** graticule overlay on the forced-WebGL2 twin frame (#1062) ([#1210](https://github.com/X-GIS/X-GIS/pull/1210)) `c0826e6`
+- **pipeline,data,map,compiler:** S-100 gridded-coverage — HDF5 reader + .xgcov codec + coverage source + ramp render (#1158 GAP-1 INC-A) ([#1174](https://github.com/X-GIS/X-GIS/pull/1174)) `a0e551c`
+- **compiler,map:** background-pattern + fix latent fill-pattern fill_translate double-book (#777 I-E) ([#1121](https://github.com/X-GIS/X-GIS/pull/1121)) `0f74d3a`
+- **camera:** unify camera ECEF anchor to WGS84 ellipsoid (#1152 INC-1) ([#1159](https://github.com/X-GIS/X-GIS/pull/1159)) `cf59e9e`
+- **globe:** under-occluder sphere (INC-1, non-Merc direct-reprojection) ([#1150](https://github.com/X-GIS/X-GIS/pull/1150)) `c94c9b8`
+- **tiler:** conforming red-green subdivision (INC-0, non-Merc direct-reprojection) ([#1148](https://github.com/X-GIS/X-GIS/pull/1148)) `11c518f`
+- **compiler:** rgb/rgba/hsl/hsla data-driven channels — runtime colour-constructor builtins ([#1145](https://github.com/X-GIS/X-GIS/pull/1145)) `f01fd1a`
+- **compiler,map:** inline format images in labels — ["format",…,["image",…]] segments (#777 I-G) ([#1136](https://github.com/X-GIS/X-GIS/pull/1136)) `59da2bb`
+- **map:** #797 P2b retained STATIC TEXT batch (map.graphics) — shape-once glyph packer ([#1134](https://github.com/X-GIS/X-GIS/pull/1134)) `e7941e5`
+- **compiler:** single registry authority for the 78-prefix utility micro-grammar (#1067) ([#1133](https://github.com/X-GIS/X-GIS/pull/1133)) `113ecd8`
+- **compiler:** match{} arm lists, typed numeric labels, drop identifier-minus ambiguity (#1068) ([#1125](https://github.com/X-GIS/X-GIS/pull/1125)) `ab9ff79`
+- **map:** particle-flow retained primitive — stateless VS drift, wind-map field (#826) ([#1132](https://github.com/X-GIS/X-GIS/pull/1132)) `8da701a`
+- **compiler:** unknown function names are lower errors, not args[0] passthrough (#1066) ([#1129](https://github.com/X-GIS/X-GIS/pull/1129)) `48090cb`
+- **compiler,map:** icon-text-fit — shield backgrounds stretch to the paired text bbox (#777 I-A) ([#1120](https://github.com/X-GIS/X-GIS/pull/1120)) `be48fe4`
+- **compiler:** recursive import resolution — cycle guard, namespaces, collision diagnostics (#1071) ([#1123](https://github.com/X-GIS/X-GIS/pull/1123)) `0a6c3be`
+- **map:** DrawHandle.append — new-batch materialisation + writeBuffer-range witness (#797 P2a) ([#1118](https://github.com/X-GIS/X-GIS/pull/1118)) `5dcb46a`
+- **compiler:** unified spanned diagnostics — one channel, parser multi-error recovery (#1065) ([#1119](https://github.com/X-GIS/X-GIS/pull/1119)) `ca31cf1`
+- **compiler:** mandatory xgis version pragma — parser gate for language breaking changes (#1064) ([#1115](https://github.com/X-GIS/X-GIS/pull/1115)) `56dfad3`
+- **compiler,map:** icon value-forms — data-driven size/opacity, zoom-interp opacity verified, icon-translate expr (#777 I-F) ([#1113](https://github.com/X-GIS/X-GIS/pull/1113)) `45d670d`
+- **compiler,map:** icon-keep-upright — line-placed icons fold into the upright half-plane (#777 I-B) ([#1104](https://github.com/X-GIS/X-GIS/pull/1104)) `6c5f119`
+- **map,rhi-webgl2:** ?rhichain=1 seam — WebGL2 frame encoder, universal beginRenderPass dispatch, twin-parity ratchet scaffold (#1046 F3a) ([#1107](https://github.com/X-GIS/X-GIS/pull/1107)) `556b60b`
+- **compiler,map:** icon-padding — spec-lowered collision padding replaces the fixed constant (#777 I-D) ([#1102](https://github.com/X-GIS/X-GIS/pull/1102)) `548d8f6`
+- **rhi,engine,map:** RhiCaps seam — capability record on RhiDevice, threaded to FrameContext ([#1099](https://github.com/X-GIS/X-GIS/pull/1099)) `f584e76`
+- **map:** perspective-ratio distance attenuation for labels and icons — reland + VT wiring, shrink-only ([#1094](https://github.com/X-GIS/X-GIS/pull/1094)) `1a74dfb`
+- **playground:** WebGL2/WebGPU backend toggle on the demo pages ([#1038](https://github.com/X-GIS/X-GIS/pull/1038)) `cb94166`
+- **render:** single pass-order authority + orchestration-twin parity gate (#1004) ([#1035](https://github.com/X-GIS/X-GIS/pull/1035)) `ee84c41`
+- **map:** #798 P2 — { body } construction option wires the Body authority ([#1033](https://github.com/X-GIS/X-GIS/pull/1033)) `7a64881`
+- **599:** line-drape — bake + drape globe vector LINES / polygon OUTLINES ([#1024](https://github.com/X-GIS/X-GIS/pull/1024)) `91e317c`
+- **599:** I3 — bound + free the globe vector-drape baked-fill cache (#599) ([#1023](https://github.com/X-GIS/X-GIS/pull/1023)) `29d5d0b`
+- **599:** I2 — drape baked vector fill onto the sphere (globe great-circle fix) ([#1022](https://github.com/X-GIS/X-GIS/pull/1022)) `767df2b`
+- **engine:** #991 P0 — move FrameUniform schema to @xgis/map, pack via UniformBlock ([#1015](https://github.com/X-GIS/X-GIS/pull/1015)) `e48e146`
+- **engine:** #991 P1 — relocate Material draw backbone to @xgis/engine ([#994](https://github.com/X-GIS/X-GIS/pull/994)) `8b19a52`
+- **599:** I1 — offscreen per-tile vector fill bake (globe drape approach B) ([#990](https://github.com/X-GIS/X-GIS/pull/990)) `a3dcc29`
+- **map:** #732 S5 per-feature data-driven point fill/stroke colour ([#982](https://github.com/X-GIS/X-GIS/pull/982)) `0d7d2d4`
+- **map:** #797 retained circle/point primitive (map.graphics) ([#981](https://github.com/X-GIS/X-GIS/pull/981)) `d3d1639`
+- **graphics:** pin retained icon/arrow draw-call N-independence as a CI gate (#797) ([#966](https://github.com/X-GIS/X-GIS/pull/966)) `4be0920`
+- **compiler:** icon-only data-driven icon-image + ["image"] expression (#777 I1/I2) ([#965](https://github.com/X-GIS/X-GIS/pull/965)) `b468036`
+- **map:** #798 P3 — route GPU ECEF/projection ConstDecls through the active Body ([#971](https://github.com/X-GIS/X-GIS/pull/971)) `a9f81aa`
+- **shader-dsl:** df64 sin/cos transcendentals (luma.gl Taylor port) (#922) ([#961](https://github.com/X-GIS/X-GIS/pull/961)) `ee5ca97`
+- **shader-dsl:** specialization constants — WGSL override ↔ GLSL #define (#923) ([#960](https://github.com/X-GIS/X-GIS/pull/960)) `f4fabb9`
+- **shader-dsl:** caps-gated enable-directive language-feature knobs — f16 / subgroups (#628) ([#957](https://github.com/X-GIS/X-GIS/pull/957)) `0bc26be`
+- **playground:** seoul choropleth mode toggle (net vs activity) + net-flux arrows ([#956](https://github.com/X-GIS/X-GIS/pull/956)) `58fc77b`
+- **map:** land GPU vector-field arrow primitive — SDF AA + geographic bearing (#824) ([#945](https://github.com/X-GIS/X-GIS/pull/945)) `e363f4b`
+- **shader-dsl:** loop-unroll optimizer pass for small fixed-count loops (#627) ([#944](https://github.com/X-GIS/X-GIS/pull/944)) `869f856`
+- **pipeline:** seoul 열린데이터광장 open-API to .odb bake tool (#827) ([#943](https://github.com/X-GIS/X-GIS/pull/943)) `466fe70`
+- **shader-dsl:** df64 flavor auto-recommendation + probe device-loss isolation ([#933](https://github.com/X-GIS/X-GIS/pull/933)) `cd1d808`
+- **shader-dsl:** integer-domain df64 flavor — fast-math-immune EFT primitives ([#932](https://github.com/X-GIS/X-GIS/pull/932)) `989258e`
+- **site:** integer-EFT slice 1 — full-integer mul/cancel/add probes (dg_ifull, dg_imulsq) ([#931](https://github.com/X-GIS/X-GIS/pull/931)) `adf3416`
+- **site:** imul isolation probes (dg_imul, dg_iboth) — locate the Apple df64 collapse ([#927](https://github.com/X-GIS/X-GIS/pull/927)) `ab93a9f`
+- **site:** integer-EFT df64 probe variant (dg_mb_ieft) — Apple test ([#926](https://github.com/X-GIS/X-GIS/pull/926)) `7160f2c`
+- **site:** guard-free df64 mul battery + fma-fusion probe (real Apple test) ([#925](https://github.com/X-GIS/X-GIS/pull/925)) `f32f206`
+- **shader-dsl:** fma intrinsic + df64 Two-Product-FMA probe (Apple Metal cross-term fold) ([#924](https://github.com/X-GIS/X-GIS/pull/924)) `1cf5e56`
+- **site:** fp32-threshold sweep on fp64 examples + WebGL2/WebGPU toggle + df64-multiply verdict blog ([#921](https://github.com/X-GIS/X-GIS/pull/921)) `63de9a2`
+- **shader-dsl:** bitcastF32 + mul-family battery probe (Apple fast-math) ([#920](https://github.com/X-GIS/X-GIS/pull/920)) `9d58f91`
+- **site:** round-2 Apple bisect — launder the mul output ([#914](https://github.com/X-GIS/X-GIS/pull/914)) `23e8eda`
+- **site:** targeted Apple df64-collapse bisect probes ([#913](https://github.com/X-GIS/X-GIS/pull/913)) `a88fcf4`
+- **site:** random df64 composition sweep on the GPU probe ([#910](https://github.com/X-GIS/X-GIS/pull/910)) `71aec04`
+- **site:** probe renders the test table on load and fills cells live ([#907](https://github.com/X-GIS/X-GIS/pull/907)) `0bde426`
+- **shader-dsl:** multi-statement inlining + emit-plugin blog + concepts/shipping site rework ([#882](https://github.com/X-GIS/X-GIS/pull/882)) `16a5bb6`
+- **rhi:** #833 WebGPU→WebGL2 backend fallback via engine-provided selectBackend ([#881](https://github.com/X-GIS/X-GIS/pull/881)) `24623a3`
+- **shader-dsl:** inline() emit plugin — call-graph flattening ([#880](https://github.com/X-GIS/X-GIS/pull/880)) `9a8b87e`
+- **site:** publication-grade blog polish — kicker system, byline, read-next, larger measure ([#876](https://github.com/X-GIS/X-GIS/pull/876)) `bc373ff`
+- **site:** redesign the blog index — featured latest + card grid ([#875](https://github.com/X-GIS/X-GIS/pull/875)) `ebe8a3f`
+- **site:** blog post 3-zone reading shell — left context rail + comfortable measure ([#874](https://github.com/X-GIS/X-GIS/pull/874)) `b819793`
+- **site:** widen site-wide content standard from 1200/1280px to 1400/1480px ([#872](https://github.com/X-GIS/X-GIS/pull/872)) `9bdf939`
+- **shader-dsl:** production emit options — { minify, mangle, renames } ([#866](https://github.com/X-GIS/X-GIS/pull/866)) `65a88d2`
+- **site:** blog tag filter pages ([#868](https://github.com/X-GIS/X-GIS/pull/868)) `c65cfda`
+- **site:** LiveShader blog embed + MDX support; fix citation links and table styling ([#867](https://github.com/X-GIS/X-GIS/pull/867)) `a24c00d`
+- **shader-dsl:** 10 new fp64 examples — fractals, cartographic precision, cancellation ([#865](https://github.com/X-GIS/X-GIS/pull/865)) `33ad96d`
+- **site:** blog upgrade (RSS·TOC·SEO·search·layout) + honest feedback row + site-scoped CI build ([#864](https://github.com/X-GIS/X-GIS/pull/864)) `2b51fad`
+- **shader-dsl:** dynamic iteration budget for fp64 Mandelbrot; unify f32/f64 twins ([#862](https://github.com/X-GIS/X-GIS/pull/862)) `0ce0b4d`
+- **site:** concepts-page GLSL stage tabs + deterministic blog post ordering ([#858](https://github.com/X-GIS/X-GIS/pull/858)) `c6e7a58`
+- **shader-dsl:** vec64 componentwise builtins + fp64 example UX/stability fixes ([#855](https://github.com/X-GIS/X-GIS/pull/855)) `b553204`
+- **shader-dsl:** fp64 (emulated double precision) with unchanged authoring syntax ([#850](https://github.com/X-GIS/X-GIS/pull/850)) `a71f6be`
+- **shader-dsl,site:** interactive controls — transport chrome + pointer uniform ([#852](https://github.com/X-GIS/X-GIS/pull/852)) `c7c3803`
+- **shader-dsl:** close out the DX retrospective — #837/#838/#841/#842/#844/#845/#846 ([#851](https://github.com/X-GIS/X-GIS/pull/851)) `abfe446`
+- **shader-dsl:** portable mod() intrinsic + authoring-error context ([#849](https://github.com/X-GIS/X-GIS/pull/849)) `12bad72`
+- **shader-dsl:** 10 ShaderToy-classic examples + engine README ([#836](https://github.com/X-GIS/X-GIS/pull/836)) `7be5dde`
+- **site:** sticky category jump-nav on the examples gallery ([#835](https://github.com/X-GIS/X-GIS/pull/835)) `ddb159e`
+- life-mobility flow-map — traffic/purpose/time encoding + multidim .odb ([#822](https://github.com/X-GIS/X-GIS/pull/822)) `e396981`
+- **playground:** multi-day OD flow-map (date×hour timeline) ([#820](https://github.com/X-GIS/X-GIS/pull/820)) `ad47417`
+- **site:** surface 생활이동 flow-map demos in the examples gallery ([#817](https://github.com/X-GIS/X-GIS/pull/817)) `78a3c72`
+- **pipeline:** @xgis/pipeline data-to-viz layer + declarative custom source-loader seam ([#816](https://github.com/X-GIS/X-GIS/pull/816)) `a3c618d`
+- **map:** #797 P1 — retained geo-anchored icon batch (map.graphics.add) ([#815](https://github.com/X-GIS/X-GIS/pull/815)) `962fa8a`
+- **map:** #797 Phase 0 — real addImage host sprite atlas (retire the stub) ([#814](https://github.com/X-GIS/X-GIS/pull/814)) `7db33ba`
+- **map:** #795 P2 — initial view construction options ([#813](https://github.com/X-GIS/X-GIS/pull/813)) `af0e9b5`
+- **map:** #795 phase 1 — GPU backend as a construction option ([#796](https://github.com/X-GIS/X-GIS/pull/796)) `8a549fb`
+- **shader-dsl:** #763 Phase X part 2 — the API additions (X1/X2/X3/X14) ([#771](https://github.com/X-GIS/X-GIS/pull/771)) `94ab639`
+- **shader-dsl:** #740 R9 — scalar×vec broadcast + inferred, elem-typed swizzles ([#751](https://github.com/X-GIS/X-GIS/pull/751)) `be8dad1`
+- **shader-dsl:** #740 R6 — struct/IO handles as fn params, .of() input re-assertions retired ([#747](https://github.com/X-GIS/X-GIS/pull/747)) `ef8e847`
+- **shader-dsl:** #740 R1 migration — entries-only module assembly + name-keyed collection dedup + GLSL prototypes ([#745](https://github.com/X-GIS/X-GIS/pull/745)) `60279f2`
+- **shader-dsl:** #740 R1 — module() transitive fn collection + key-named funcs ([#744](https://github.com/X-GIS/X-GIS/pull/744)) `554c09d`
+- **shader-dsl:** #740 R7 — call-signature CORE lint rule + typed object-call ergonomics ([#741](https://github.com/X-GIS/X-GIS/pull/741)) `c4bd974`
+- **engine:** #733 typed UniformBlock — reflect-derived std140 pack target (P0+P1) ([#734](https://github.com/X-GIS/X-GIS/pull/734)) `ab1c154`
+- **map:** extract @xgis/map render content from runtime — P3 Phase-2 complete (Gate-6 + P4) ([#718](https://github.com/X-GIS/X-GIS/pull/718)) `4911066`
+- **engine:** content-blind @xgis/engine extraction — P1 + P2 + P3 Steps 1-5 ([#714](https://github.com/X-GIS/X-GIS/pull/714)) `f30653a`
+
+#### fix
+
+- **map:** accept a Newton solution at the f32 floor, not below it ([#1527](https://github.com/X-GIS/X-GIS/pull/1527)) `ea254f7`
+- **map:** an arrow moves where it points, and no further than its neighbour ([#1523](https://github.com/X-GIS/X-GIS/pull/1523)) `14ba0cb`
+- **map,playground,ci:** stop the ground basis collapsing on a reused-scratch projector ([#1519](https://github.com/X-GIS/X-GIS/pull/1519)) `314ab06`
+- **data:** densify fetched MVT lines before projection, correct the demo-style label gate ([#1502](https://github.com/X-GIS/X-GIS/pull/1502)) `79f6e0b`
+- **map:** scale the hillshade derivative per TILE, not per frame ([#1512](https://github.com/X-GIS/X-GIS/pull/1512)) `9be1c49`
+- **data:** ensure a vlen attribute's global heap before the sync read ([#1509](https://github.com/X-GIS/X-GIS/pull/1509)) `0b335c1`
+- **map:** sub-datum coverage samples are land, and the remaining #1436 samplers stay un-mipped ([#1487](https://github.com/X-GIS/X-GIS/pull/1487)) `a83ec61`
+- **map,compiler:** honour source-level maxzoom so the selector stops asking for tiles that cannot exist ([#1493](https://github.com/X-GIS/X-GIS/pull/1493)) `f6e0239`
+- **playground:** S-111 Live's production 404, and rebuilding the proxy as a general open-data bridge ([#1469](https://github.com/X-GIS/X-GIS/pull/1469)) `6e9adb3`
+- **map:** stop a failed raster tile being re-requested every frame ([#1481](https://github.com/X-GIS/X-GIS/pull/1481)) `03f9ad6`
+- **map,playground:** give each mosaic region its own arrow velocity field ([#1474](https://github.com/X-GIS/X-GIS/pull/1474)) `03647d6`
+- **shared,map,data:** give the camera FOV one authority ([#1440](https://github.com/X-GIS/X-GIS/pull/1440)) `c331385`
+- **map,data:** a re-seed swap that is OWED must keep the render loop alive ([#1455](https://github.com/X-GIS/X-GIS/pull/1455)) `ad3598d`
+- **map:** give each mosaic region its own range in the shared arrow state ([#1459](https://github.com/X-GIS/X-GIS/pull/1459)) `8942f90`
+- **map:** one arrow batch per region, arm a first push from the shows, and size the state to the batch ([#1452](https://github.com/X-GIS/X-GIS/pull/1452)) `b1de8ee`
+- **map:** stop the arrow draw binding an evicted region's velocity textures ([#1445](https://github.com/X-GIS/X-GIS/pull/1445)) `006fb88`
+- **map,rhi-webgl2:** four S-111 advected-arrow defects from the live demo ([#1438](https://github.com/X-GIS/X-GIS/pull/1438)) `5c1d4f1`
+- **map:** a coverage source must not hold the first frame ([#1430](https://github.com/X-GIS/X-GIS/pull/1430)) `29d3d04`
+- **compiler,site:** make the converter's Mapbox coverage report honest ([#1432](https://github.com/X-GIS/X-GIS/pull/1432)) `7befbc9`
+- **map:** apply the text-max-angle spec default, and retire INC-4's witness ([#1431](https://github.com/X-GIS/X-GIS/pull/1431)) `5fd85f3`
+- **map:** world-anchor the curved line-label branch too ([#1423](https://github.com/X-GIS/X-GIS/pull/1423)) `53a5d47`
+- **map:** anchor the line-label chain to the world, not the viewport ([#1421](https://github.com/X-GIS/X-GIS/pull/1421)) `6d2360f`
+- **map,rhi,compiler:** the coverage deps captured a renderer that did not exist yet ([#1403](https://github.com/X-GIS/X-GIS/pull/1403)) `fd8af20`
+- **map:** bound the GPU caches by BYTES, not entry count ([#1413](https://github.com/X-GIS/X-GIS/pull/1413)) `bcf8116`
+- **data:** a torn-down tile source is teardown, not an error ([#1412](https://github.com/X-GIS/X-GIS/pull/1412)) `375d0fc`
+- **data,map,shared:** close the audit findings — LOC ratchet, glyph memo LRU, log-throttle key, viewport gates ([#1396](https://github.com/X-GIS/X-GIS/pull/1396)) `a6d1999`
+- **playground:** revive the two GLSL compile gates nobody was running ([#1400](https://github.com/X-GIS/X-GIS/pull/1400)) `120a741`
+- **map,data:** a host data push never reached the GPU — the re-seed upload was a no-op ([#1401](https://github.com/X-GIS/X-GIS/pull/1401)) `0c181ab`
+- **map:** un-orphan the polygon snapshot baseline; cite the right issue ([#1397](https://github.com/X-GIS/X-GIS/pull/1397)) `904a528`
+- **map:** fill-extrusion base, absolute top, precise position + viewport light ([#1342](https://github.com/X-GIS/X-GIS/pull/1342)) `12b6185`
+- **map:** the advect pipeline declared a depth-stencil its pass has none of ([#1390](https://github.com/X-GIS/X-GIS/pull/1390)) `023a9b7`
+- **map,data:** make a geojson re-seed ATOMIC — a host data push no longer blanks the layer ([#1385](https://github.com/X-GIS/X-GIS/pull/1385)) `71794b8`
+- **map:** the four defects behind "blank map, jank, and missing tiles" ([#1346](https://github.com/X-GIS/X-GIS/pull/1346)) `5f77894`
+- **map:** inset a line label by its own extent, not a flat constant ([#1383](https://github.com/X-GIS/X-GIS/pull/1383)) `082a192`
+- **playground:** clock animate-line / realtime-update by completion, not a blind interval ([#1373](https://github.com/X-GIS/X-GIS/pull/1373)) `31f3f47`
+- **map:** reject scalar coverages as vector fields — S-102 bathymetry drew current arrows ([#1333](https://github.com/X-GIS/X-GIS/pull/1333)) `88c4bdc`
+- **map:** a paired symbol collides as its badge, not its ref glyphs ([#1370](https://github.com/X-GIS/X-GIS/pull/1370)) `083a4e8`
+- **map:** fall back to rgba8unorm when the device cannot render into a float target ([#1333](https://github.com/X-GIS/X-GIS/pull/1333)) `d7dc8db`
+- **map:** self-clock the coverage-time playback loop so S-111 play advances ([#1363](https://github.com/X-GIS/X-GIS/pull/1363)) `172bd89`
+- **map:** match MapLibre's symbol-spacing cadence for line-placed symbols ([#1358](https://github.com/X-GIS/X-GIS/pull/1358)) `86a35eb`
+- **data,playground:** bind globalThis.fetch — browser "Illegal invocation" on S-111 ([#1337](https://github.com/X-GIS/X-GIS/pull/1337)) `7fbd896`
+- **map:** S-111 play button crashed on a range re-fetch ([#1336](https://github.com/X-GIS/X-GIS/pull/1336)) `9e13074`
+- **map:** per-LOD stroke depth so a finer tile outline occludes its coarser ancestor ([#1331](https://github.com/X-GIS/X-GIS/pull/1331)) `37cb5fc`
+- **map:** stop pick crash on tiled GeoJSON sources ([#1325](https://github.com/X-GIS/X-GIS/pull/1325)) `9c92d99`
+- **geo:** f64 unproject inverse stops the interactive globe jitter (zoom + drag) ([#1326](https://github.com/X-GIS/X-GIS/pull/1326)) `6609f0a`
+- **playground:** animate a point along a route via Marker overlay, not per-frame setSourceData ([#1324](https://github.com/X-GIS/X-GIS/pull/1324)) `7771805`
+- **map:** DSFUN camera recentre stops the satellite basemap shaking in every non-Mercator projection ([#1318](https://github.com/X-GIS/X-GIS/pull/1318)) `fb4a90c`
+- **map:** keep the render loop warm while a particle-flow overlay animates ([#1315](https://github.com/X-GIS/X-GIS/pull/1315)) `4a3bb91`
+- **map:** line-label edge-inset cull — drop labels glued to the viewport edge (#1314) ([#1314](https://github.com/X-GIS/X-GIS/pull/1314)) `9f02178`
+- **playground:** key DEMO_RECIPES by the DEMOS id so the coops JS tab shows ([#1313](https://github.com/X-GIS/X-GIS/pull/1313)) `9b3e0e2`
+- **map:** raster/hillshade RTC — DSFUN camera anchor stops the satellite basemap shaking at z18+ ([#1308](https://github.com/X-GIS/X-GIS/pull/1308)) `56ebbc5`
+- **map:** symbol fade — labels fade out during zoom/pan instead of popping ([#1305](https://github.com/X-GIS/X-GIS/pull/1305)) `d9cbaf9`
+- **map:** two-finger pitch — hysteresis so lowering pitch on mobile isn't stuttery ([#1300](https://github.com/X-GIS/X-GIS/pull/1300)) `63ba902`
+- **map:** symbol fade — labels no longer blink on a zoom-level tile swap ([#1298](https://github.com/X-GIS/X-GIS/pull/1298)) `388c87c`
+- **hdf5:** align v1 object-header messages to the chunk, not the file — reads real NOAA cells (#1296) ([#1297](https://github.com/X-GIS/X-GIS/pull/1297)) `0f335c5`
+- **map:** host-atlas icons render on the WebGL2 backend ([#1291](https://github.com/X-GIS/X-GIS/pull/1291)) `fb0728d`
+- **map:** deterministic collide-icon survivor on the Y-tie (#728 sibling) ([#1287](https://github.com/X-GIS/X-GIS/pull/1287)) `94caec8`
+- **map:** collide-icon overlaps resolve near-first (icon sibling of #1249) ([#1278](https://github.com/X-GIS/X-GIS/pull/1278)) `84052a6`
+- **map:** projection-invariant stroke width — measure the Merc→display Jacobian in the line VS (#1246) ([#1276](https://github.com/X-GIS/X-GIS/pull/1276)) `fbc401f`
+- **map:** resolve same-layer label overlaps near-first on pitched views ([#1249](https://github.com/X-GIS/X-GIS/pull/1249)) `4b95cea`
+- **raster,hillshade,extrude:** tileSize-aware cover zoom, hillshade resolve-owner + keep-alive, extrusion visual fixes ([#1243](https://github.com/X-GIS/X-GIS/pull/1243)) `3c0a868`
+- **data:** bridge boundary-truncated line ends — internal tile-seam hairline gaps (#1245) ([#1251](https://github.com/X-GIS/X-GIS/pull/1251)) `c154588`
+- **playground:** step_and_concat opens at a readable view — initial camera + smaller step tiers ([#1247](https://github.com/X-GIS/X-GIS/pull/1247)) `0b8209d`
+- **map:** host-push data gaps — virtual re-seed on setSourceData + patchable seeded sources; Measure distances port ([#1242](https://github.com/X-GIS/X-GIS/pull/1242)) `e245d8f`
+- **playground,tiler,parser:** pragma-migration sweep + telemetry shim, clip boundary parity, pipe-after-match parse ([#1239](https://github.com/X-GIS/X-GIS/pull/1239)) `de449e8`
+- **site:** add mandatory `xgis 1` pragma to embedded samples; derive Mapbox coverage figures from MAPBOX_COVERAGE ([#1234](https://github.com/X-GIS/X-GIS/pull/1234)) `5b4e25b`
+- **drape:** zoom-bucketed stroke rebake — baked-tile strokes keep constant screen-px width ([#1232](https://github.com/X-GIS/X-GIS/pull/1232)) `e71c987`
+- **labels:** track camera during S16 zoom-tolerant replay via shader uniform (#1177) ([#1230](https://github.com/X-GIS/X-GIS/pull/1230)) `05eafc9`
+- **data:** decoder lon clamp built the #1221 seam wall — clamp lat only for lines ([#1227](https://github.com/X-GIS/X-GIS/pull/1227)) `ae2bfd3`
+- **tiler:** drop the unused projectX helper that turned the compiler build red ([#1225](https://github.com/X-GIS/X-GIS/pull/1225)) `60e30da`
+- **tiler:** antimeridian LineString continuity — unwrap great-circle lons + emit the ±360 world-copy line part (#1221, part 1: data layer) ([#1223](https://github.com/X-GIS/X-GIS/pull/1223)) `ffc2c08`
+- **map:** pin the line pick target's writeMask to 0 at the material (#1215) ([#1219](https://github.com/X-GIS/X-GIS/pull/1219)) `9d356bd`
+- **playground:** drop the dead LetStatement branch in monaco validateSource ([#1218](https://github.com/X-GIS/X-GIS/pull/1218)) `84514d9`
+- **rhi,rhi-webgl2,rhi-webgpu:** descriptor-parity batch — MRT guard, frontFace, pixelStorei + program-binding hygiene (#1049) ([#1206](https://github.com/X-GIS/X-GIS/pull/1206)) `c6fe715`
+- **rhi:** make the forcegl2 live-swap re-boot actually restore the context (#1196) ([#1200](https://github.com/X-GIS/X-GIS/pull/1200)) `f42ff55`
+- **map:** light extrusions in the frame they are rendered in (#1198) ([#1199](https://github.com/X-GIS/X-GIS/pull/1199)) `191e85b`
+- **compute:** render the compute-paint path — fill Material layout fix + authority gate + trap retirement (#1189) ([#1191](https://github.com/X-GIS/X-GIS/pull/1191)) `a9e254e`
+- **scripts:** precheck runs the FULL vitest suite — the partial mirror lost CI legs ([#1212](https://github.com/X-GIS/X-GIS/pull/1212)) `1b78743`
+- **map:** read sampleCount from rhi.caps instead of backend identity ([#1184](https://github.com/X-GIS/X-GIS/pull/1184)) `194df03`
+- **data:** guard pmtiles worker double-fault ([#1182](https://github.com/X-GIS/X-GIS/pull/1182)) `d84ea8e`
+- **rhi-webgl2:** fail loud on unsupported nonzero depth-bias clamp ([#1181](https://github.com/X-GIS/X-GIS/pull/1181)) `9e3d982`
+- **map:** run-epoch lifecycle — re-entrant run()/runBinary() race, parse-first ([#1169](https://github.com/X-GIS/X-GIS/pull/1169)) `4023a17`
+- **rhi,map,data:** P2 resource bounding — staging-pool leak, webgl2 context ([#1170](https://github.com/X-GIS/X-GIS/pull/1170)) `9e8e839`
+- **map,geo:** oblique_mercator fills render direct, not via the fixed-res ([#1173](https://github.com/X-GIS/X-GIS/pull/1173)) `b933bc5`
+- **geo:** globe unproject intersects the WGS84 ellipsoid (#1152 INC-2) ([#1164](https://github.com/X-GIS/X-GIS/pull/1164)) `e5b63b5`
+- **playground:** migrate legacy pragma-less import sources (X-GIS0008 on __import) ([#1163](https://github.com/X-GIS/X-GIS/pull/1163)) `dc32ada`
+- **stability:** Phase 0 — lifecycle crash boundary + device-lost auto-recovery + typed 'error' event (#1153) ([#1156](https://github.com/X-GIS/X-GIS/pull/1156)) `7284dcf`
+- **drape:** defer bake-texture destroy to next-frame safe window (use-after-destroy) ([#1147](https://github.com/X-GIS/X-GIS/pull/1147)) `4951ebe`
+- **drape:** globe vector fill drape samples another tile on WebGPU ([#1142](https://github.com/X-GIS/X-GIS/pull/1142)) `f6310d3`
+- **render:** track texture lifetime in RasterDraper caches (drop on destroy) ([#1141](https://github.com/X-GIS/X-GIS/pull/1141)) `8ffd98f`
+- **compiler:** keyframe from-/to- utility names misparsed as row selectors ([#1143](https://github.com/X-GIS/X-GIS/pull/1143)) `3426ec1`
+- **map:** visible-first cap-deferral so a zoom-in doesn't stall visible tiles ([#1144](https://github.com/X-GIS/X-GIS/pull/1144)) `05a3349`
+- **map,rhi:** WebGL2 tile-swap flicker — mirror render()'s fallback-ancestor pass into the twin (#1046) ([#1139](https://github.com/X-GIS/X-GIS/pull/1139)) `646246e`
+- **data:** globe overzoom branch drops trans-antimeridian tiles at low zoom ([#1137](https://github.com/X-GIS/X-GIS/pull/1137)) `968c00d`
+- **lint:** waves 1+2 — dormant packages clean, all 21 project-service parsing gaps closed (#1055) ([#1124](https://github.com/X-GIS/X-GIS/pull/1124)) `85bbb57`
+- **import:** live-import styles drop the sprite URL — IconStage never builds, every icon vanishes (#1112) ([#1122](https://github.com/X-GIS/X-GIS/pull/1122)) `14d49a6`
+- **map:** globe readiness gate probes the sphere selector — cz decisions match the drawn set (#1078) ([#1117](https://github.com/X-GIS/X-GIS/pull/1117)) `a5910d5`
+- **map:** raster globe pole cap above the Mercator band — clamped-V fan at ±90° (#1053) ([#1114](https://github.com/X-GIS/X-GIS/pull/1114)) `ea2defd`
+- **lint:** typed-lint project service covers root vitest.config.ts + lint-debt ledger (#1055) ([#1111](https://github.com/X-GIS/X-GIS/pull/1111)) `f7b5625`
+- **map:** constant extrude renders flat — bake the constant into the per-feature heights channel ([#1097](https://github.com/X-GIS/X-GIS/pull/1097)) `d82e6bd`
+- **data:** clip parent polygons to the over-zoom sub-tile window — duplicate extrusions ([#1096](https://github.com/X-GIS/X-GIS/pull/1096)) `d9e9f1e`
+- **map:** skip extrusion walls on tile-boundary clip edges — interior seam walls ([#1095](https://github.com/X-GIS/X-GIS/pull/1095)) `59a8397`
+- **shared,map,data:** one viewport-class authority — coarse-pointer signal ends the small-desktop-window budget cliff ([#1093](https://github.com/X-GIS/X-GIS/pull/1093)) `1172cd3`
+- **data:** race decode-drain scheduling against a 250ms timer — rAF-throttled tile delivery ([#1092](https://github.com/X-GIS/X-GIS/pull/1092)) `c41b92f`
+- **map:** overlap-pad fallback clip windows — background seam on shared child-window boundaries ([#1090](https://github.com/X-GIS/X-GIS/pull/1090)) `09229ae`
+- **map,compiler,engine:** extrusion quality wave — clip-split roofs + translucent front shell ([#1085](https://github.com/X-GIS/X-GIS/pull/1085)) `7f4a967`
+- **map:** count cap-deferred (held) uploads as pending work — render-on-demand starvation ([#1089](https://github.com/X-GIS/X-GIS/pull/1089)) `fc43d93`
+- **map:** draw fallback ancestors on the drape-active globe path ([#1077](https://github.com/X-GIS/X-GIS/pull/1077)) `97256a5`
+- **map:** globe label limb containment + line-label run splitting ([#1075](https://github.com/X-GIS/X-GIS/pull/1075)) `d9bdcd6`
+- **map,rhi-webgl2:** globe WebGL2 bundle — anchor authority, checker gate, grid ladder, state leaks ([#1048](https://github.com/X-GIS/X-GIS/pull/1048)) `b329f47`
+- **types:** forced-cast debt audit — remove dead casts, fix type seams, add shrink-only cast ratchet ([#1039](https://github.com/X-GIS/X-GIS/pull/1039)) `1416496`
+- **map:** tile line labels fan out across visible world copies (#727 C) ([#1037](https://github.com/X-GIS/X-GIS/pull/1037)) `c345ac6`
+- **929:** B3 — demote @xgis/compiler to devDependency in rhi-webgpu (manifest purity) ([#1031](https://github.com/X-GIS/X-GIS/pull/1031)) `1f4ec65`
+- **929:** B3 — extract neutral GPU contracts to @xgis/rhi ([#1030](https://github.com/X-GIS/X-GIS/pull/1030)) `d72dd42`
+- **map:** #727 P1 — inline-GeoJSON line labels place a tangent-rotated chain ([#1016](https://github.com/X-GIS/X-GIS/pull/1016)) `923171d`
+- **site:** skip WebGL2 df64 stress battery on ANGLE-D3D11 to prevent TDR wedge ([#1012](https://github.com/X-GIS/X-GIS/pull/1012)) `86eec61`
+- **rhi-webgpu:** #1002 — correct package.json dependency scope ([#1010](https://github.com/X-GIS/X-GIS/pull/1010)) `f2a100c`
+- **map:** #727 line label anchor — 50%-arc-length point on the line ([#986](https://github.com/X-GIS/X-GIS/pull/986)) `139c98b`
+- **site:** stop the fp64-probe stress battery from freezing the browser ([#984](https://github.com/X-GIS/X-GIS/pull/984)) `8478a6b`
+- concave-polygon label anchor + icon-only census honesty ([#980](https://github.com/X-GIS/X-GIS/pull/980)) `3694071`
+- **site:** stop the df64 fp64-probe page from wedging the browser on load ([#978](https://github.com/X-GIS/X-GIS/pull/978)) `8eade4f`
+- **map:** draw the graticule overlay after opaque fills so it is not occluded (#729) ([#974](https://github.com/X-GIS/X-GIS/pull/974)) `97a232e`
+- wave-2 issue sweep — polygon-fill precision, globe effective-mpp cap, one-way arrow dedup, + docs/blog (#598 #964 #616 #828) ([#973](https://github.com/X-GIS/X-GIS/pull/973)) `d81e67a`
+- wave-1 batch — geo CI gap, effective-mpp residuals, label collision stability, graticule world copies, line precision, demotiles zoom cull (#959 #598 #729 #725 #726 #964 #613 #728) ([#970](https://github.com/X-GIS/X-GIS/pull/970)) `e251b66`
+- **globe:** resync centerLatDeg on playground hash/style camera writes (#799 #800 #803) ([#969](https://github.com/X-GIS/X-GIS/pull/969)) `e68c770`
+- **projection:** oblique_mercator tile-join seam tearing at the rotated antimeridian (#802) ([#967](https://github.com/X-GIS/X-GIS/pull/967)) `34a3d53`
+- **map:** line/point width tracks the frozen low-zoom view via a single effective-mpp authority (#739) ([#963](https://github.com/X-GIS/X-GIS/pull/963)) `7e3028d`
+- **globe:** select the polar-cap root tile at pole views so the ±5° cap renders (#469) ([#962](https://github.com/X-GIS/X-GIS/pull/962)) `fdb7efe`
+- **ci:** add shader-dsl (+ audited rhi-webgl2, data) to render paths-filter (#954) ([#958](https://github.com/X-GIS/X-GIS/pull/958)) `b2f91ea`
+- **ci:** repair compute-gen compile gate (#625) + wire it and fills-gl2 (#832) into CI ([#947](https://github.com/X-GIS/X-GIS/pull/947)) `bee6d6c`
+- **engine:** DEV size-mismatch guard on GPUArena.free ([#942](https://github.com/X-GIS/X-GIS/pull/942)) `91ff92a`
+- **engine/map:** FrameArena DEV stale-view poison + the retention bug it caught ([#941](https://github.com/X-GIS/X-GIS/pull/941)) `e32714f`
+- **rhi-webgl2:** plan-time by-order ambiguity guard + point storage names ([#940](https://github.com/X-GIS/X-GIS/pull/940)) `352b62a`
+- **rhi-webgl2:** compute-dispatch pipeline cache + featBuf free — closes #782 ([#939](https://github.com/X-GIS/X-GIS/pull/939)) `bced38b`
+- **map:** route inline per-feature match() through VirtualPMTilesBackend (#821) ([#938](https://github.com/X-GIS/X-GIS/pull/938)) `b96316d`
+- **ci:** carry the auto-df64-flavor line into the oracle digest (#934) ([#936](https://github.com/X-GIS/X-GIS/pull/936)) `43c28ec`
+- **shader-dsl:** renormalize df64_mul between cross terms (Apple collapse) ([#919](https://github.com/X-GIS/X-GIS/pull/919)) `9d8a26a`
+- **shader-dsl:** guard df64_mul cross terms against distributive fast-math ([#917](https://github.com/X-GIS/X-GIS/pull/917)) `327caac`
+- **shader-dsl:** renorm raw df64 operands across all cancelling ops (loran + audit) ([#916](https://github.com/X-GIS/X-GIS/pull/916)) `5010f01`
+- **shader-dsl:** renorm raw df64 operands before sub/div (Apple collapse) ([#915](https://github.com/X-GIS/X-GIS/pull/915)) `05edc21`
+- **render:** #801 natural_earth world copies use the lat-varying period (seam tear) ([#911](https://github.com/X-GIS/X-GIS/pull/911)) `f9db6e4`
+- **site:** probe results table fits mobile (no cut-off WebGPU column) ([#912](https://github.com/X-GIS/X-GIS/pull/912)) `5898725`
+- **shader-dsl:** don't inject the _fp64 guard for comparison-only df64 modules ([#904](https://github.com/X-GIS/X-GIS/pull/904)) `bd7b1b3`
+- **shader-dsl:** launder df64 operands through the guard at EFT entry ([#901](https://github.com/X-GIS/X-GIS/pull/901)) `960e3c0`
+- **site:** blog post — one 760px reading rail instead of narrow prose in a wide column ([#873](https://github.com/X-GIS/X-GIS/pull/873)) `ef07a60`
+- **site:** blog post left margin too big — unused space inside the 1200 band ([#871](https://github.com/X-GIS/X-GIS/pull/871)) `741edd5`
+- **site:** blog post article floated with an asymmetric gap before the TOC ([#870](https://github.com/X-GIS/X-GIS/pull/870)) `e369d57`
+- **site:** mobile table scroll had no visible affordance ([#869](https://github.com/X-GIS/X-GIS/pull/869)) `6105776`
+- **shader-dsl:** scope per-stage GLSL emit to stage-reachable code ([#863](https://github.com/X-GIS/X-GIS/pull/863)) `b4fbb02`
+- **shader-dsl,site:** texture-fetched fp64 guard — immune to driver uniform-value specialization ([#856](https://github.com/X-GIS/X-GIS/pull/856)) `8dc5937`
+- **playground:** whitelist seoul demo data so it deploys (fixes 404 on GH Pages) ([#818](https://github.com/X-GIS/X-GIS/pull/818)) `f7074f2`
+- **engine:** #782 — RHI destroyTexture/destroySampler/destroyPipeline (create/destroy symmetry) ([#805](https://github.com/X-GIS/X-GIS/pull/805)) `07ef890`
+- **compiler:** single-source categorical palette size from CAT_PALETTE_SIZE (#724) ([#806](https://github.com/X-GIS/X-GIS/pull/806)) `a5f3d1c`
+- **site:** #738 — widen blog content bands to the design tokens ([#794](https://github.com/X-GIS/X-GIS/pull/794)) `655ebfb`
+- **map:** #792 — skip cross-device pick readback in the post-reinit window ([#793](https://github.com/X-GIS/X-GIS/pull/793)) `1448e12`
+- **engine:** #737 — RenderTargets device-identity guard (re-run blanks the map) ([#791](https://github.com/X-GIS/X-GIS/pull/791)) `ef1f18e`
+- **engine:** #780/#782/#784 batch1 — depth-clear bug + RHI/GPU leaks + per-frame allocs ([#785](https://github.com/X-GIS/X-GIS/pull/785)) `49b1d71`
+- **paint:** #725 + #726 — data-driven fill match symmetry, zoom-interp line-color, twin-emit guard ([#776](https://github.com/X-GIS/X-GIS/pull/776)) `ce467e6`
+- **webgl2:** #746 — polygon GLSL twins + RHI stencil impl + forcegl2 boot guard ([#775](https://github.com/X-GIS/X-GIS/pull/775)) `02ebeb4`
+- **ci:** #765 — revive the render-gate spec loader + rewrite #733-era test relics ([#774](https://github.com/X-GIS/X-GIS/pull/774)) `5504888`
+- **shader-dsl:** #763 Phase X part 1 — the type-surface DX sweep (12 items) ([#770](https://github.com/X-GIS/X-GIS/pull/770)) `1ccbde3`
+- **shader-dsl:** #763 Phase P — optimizer/emit invariants made true ([#769](https://github.com/X-GIS/X-GIS/pull/769)) `247abcc`
+- **shader-dsl:** #763 Phase D — dual-instance hardening (R1's neighbors) ([#768](https://github.com/X-GIS/X-GIS/pull/768)) `a2421fe`
+- **shader-dsl:** #763 Phase O — the CPU oracle is a backend too ([#767](https://github.com/X-GIS/X-GIS/pull/767)) `1c620c4`
+- **shader-dsl:** #763 Phase S — one stageOf() predicate for every stage/entry decision ([#766](https://github.com/X-GIS/X-GIS/pull/766)) `8396395`
+- **shader-dsl:** #763 Phase G — readonly invariant propagation + GLSL CI gate ([#764](https://github.com/X-GIS/X-GIS/pull/764)) `a7d7bac`
+- **shader-dsl:** #755 — object-form fn calls accept ReadonlyNode args ([#756](https://github.com/X-GIS/X-GIS/pull/756)) `f8a9970`
+- **site:** resolve all 5 Dependabot alerts — astro 5.x → 6.4.8 (+ integration set) ([#743](https://github.com/X-GIS/X-GIS/pull/743)) `c9b29c5`
+- **render:** #722 — unify point packing (S0-S5), fixes tile world-copy/size/shape ([#731](https://github.com/X-GIS/X-GIS/pull/731)) `c7400b9`
+- **render:** #723 — stable, tile-independent categorical() palette id ([#730](https://github.com/X-GIS/X-GIS/pull/730)) `95595ce`
+- **tiler:** #716 — keep full-cover tile geometry so data-driven fills render ([#721](https://github.com/X-GIS/X-GIS/pull/721)) `3073604`
+- **map:** #717 (real fix) — bridge fillRhi state across the dual VTR instance ([#720](https://github.com/X-GIS/X-GIS/pull/720)) `6886550`
+- **map:** #717 — recordFillDraw tolerates dual module-instance via label fallback ([#719](https://github.com/X-GIS/X-GIS/pull/719)) `fc0992d`
+
+#### perf
+
+- **data:** stop reading an S-100 cell as a CHAIN of round trips ([#1517](https://github.com/X-GIS/X-GIS/pull/1517)) `43b9f42`
+- **map,shader-dsl,rhi:** one lowering per pipeline, a shader-language capability, and the hillshade emit off the main thread ([#1473](https://github.com/X-GIS/X-GIS/pull/1473)) `d2286c7`
+- **map,data:** end the far plane at the simulated horizon ([#1427](https://github.com/X-GIS/X-GIS/pull/1427)) `21291c5`
+- **data:** cull frustum tiles beyond the camera's far plane ([#1427](https://github.com/X-GIS/X-GIS/pull/1427)) `f87f613`
+- **map,shader-dsl:** cut hillshade first-draw shader cost ~3.3x, stop emitting the shader language each device discards ([#1405](https://github.com/X-GIS/X-GIS/pull/1405)) `bab5fe8`
+- **test:** stop the vitest setup pulling the whole map barrel into every file ([#1392](https://github.com/X-GIS/X-GIS/pull/1392)) `504fceb`
+- **shader-dsl:** bind a CSE temp where it is used, not at the function top ([#1387](https://github.com/X-GIS/X-GIS/pull/1387)) `b09e2f5`
+- **map:** hillshade — per-method pipelines + raster-parity tile streaming ([#1378](https://github.com/X-GIS/X-GIS/pull/1378)) `fba3a3c`
+- **map:** drop the O(n log n) sort from the particle-count allocation ([#1333](https://github.com/X-GIS/X-GIS/pull/1333)) `7cdc34f`
+- **map:** grid-accelerate the collide-icon overlap pass ([#1341](https://github.com/X-GIS/X-GIS/pull/1341)) `17ec2c5`
+- **shared:** cache the coarse-pointer MediaQueryList (#1177 side-find) ([#1207](https://github.com/X-GIS/X-GIS/pull/1207)) `cc428f3`
+- **labels:** zoom-tolerant prepare skip + camera-scoped dirty tagging (#1177) ([#1208](https://github.com/X-GIS/X-GIS/pull/1208)) `4d8415e`
+- **shader-dsl:** make the optimizer ~7.7× cheaper on the merged multi-projection shaders ([#1186](https://github.com/X-GIS/X-GIS/pull/1186)) `0c47dfb`
+- **map,data:** F3 cold-start tile-pipeline burst mode (#1155) ([#1167](https://github.com/X-GIS/X-GIS/pull/1167)) `f2068c7`
+- **map:** raise selection LRU 8-\>16 to end intra-frame re-walk ([#1175](https://github.com/X-GIS/X-GIS/pull/1175)) `cf58337`
+- **map:** gate the pick readback on listeners; coalesce wheel ([#1176](https://github.com/X-GIS/X-GIS/pull/1176)) `e71ef64`
+- Wave 2 — shader-dsl CPU js-codegen (#1162) + tile-selection per-margin LRU (#1153) ([#1166](https://github.com/X-GIS/X-GIS/pull/1166)) `7d0f31f`
+- **map:** mount-hang Wave 1 — overlap shader prewarm + dedup/memoize variant WGSL emit (#1155 F1+F4) ([#1165](https://github.com/X-GIS/X-GIS/pull/1165)) `b42a79f`
+- **data:** byte-budgeted, level-staged skeleton prewarm — stop fetching whole zoom levels ([#1047](https://github.com/X-GIS/X-GIS/pull/1047)) `1049edd`
+- **rhi-webgpu/map:** staging slots instead of per-upload closures — closes #784 ([#949](https://github.com/X-GIS/X-GIS/pull/949)) `7dd75d1`
+- **map:** dirty-gate the globe frame + reuse the CameraView snapshot ([#946](https://github.com/X-GIS/X-GIS/pull/946)) `2c12cea`
+- **map:** #790 — intern curved-label polylines into FrameArena (#778 P4) ([#807](https://github.com/X-GIS/X-GIS/pull/807)) `10455bb`
+- **map:** #778 P3+P5 — numeric label-dispatch skip sig + VTR dash-array cache ([#789](https://github.com/X-GIS/X-GIS/pull/789)) `6b680e2`
+- **render:** #778 P1/P2/P6 — kill per-frame + boot allocations in the render hot path ([#779](https://github.com/X-GIS/X-GIS/pull/779)) `daa8282`
+
+#### refactor
+
+- **map:** solve the globe ray in ENU, and blend the ray from four corners ([#1525](https://github.com/X-GIS/X-GIS/pull/1525)) `8ec2b9d`
+- **map:** the arrow's position is a function, not a texel — delete the advect state ([#1518](https://github.com/X-GIS/X-GIS/pull/1518)) `756b70e`
+- **map:** move text-stage's module-scope constants to its helpers, and bank the ceiling ([#1456](https://github.com/X-GIS/X-GIS/pull/1456)) `f70e646`
+- **map:** name WHICH target a pass rasterises into, and the design behind it ([#1416](https://github.com/X-GIS/X-GIS/pull/1416)) `7fb2cf2`
+- **map:** extract the compiled-arrow concern out of graphics-manager.ts ([#1333](https://github.com/X-GIS/X-GIS/pull/1333)) `48458a8`
+- **BREAKING** dissolve @xgis/runtime — @xgis/map becomes the published package ([#1343](https://github.com/X-GIS/X-GIS/pull/1343)) `176d494`
+- **playground+coverage:** general NOAA proxy + CORS lock + coverage over vector fills ([#1306](https://github.com/X-GIS/X-GIS/pull/1306)) `a84073c`
+- **compiler:** **BREAKING** prune language surface — remove fn/let/show/control-flow, merge style→preset (#1072) ([#1138](https://github.com/X-GIS/X-GIS/pull/1138)) `3943193`
+- **shader-dsl:** lint Wave 3 — migrate 38 no-deprecated callFn sites + engine colormap (#1055) ([#1135](https://github.com/X-GIS/X-GIS/pull/1135)) `3a8caf1`
+- **shared,map,data:** single sphere-horizon authority — one helper, three call sites, source-gated (#1052) ([#1110](https://github.com/X-GIS/X-GIS/pull/1110)) `daaa790`
+- **map,rhi:** WebGPU frame sources device/encoder/swapchain through the RHI — no raw-device frame path (#1046 F2) ([#1103](https://github.com/X-GIS/X-GIS/pull/1103)) `0a67219`
+- **1006:** remove orphaned frame-projection-uniform coupled writer (dead code) ([#1032](https://github.com/X-GIS/X-GIS/pull/1032)) `5b0bc41`
+- **1001:** relocate value formatters compiler → @xgis/map — closes #1001 ([#1029](https://github.com/X-GIS/X-GIS/pull/1029)) `432dc0a`
+- **1001:** relocate hardcoded 'mercator' projection default compiler → runtime ([#1028](https://github.com/X-GIS/X-GIS/pull/1028)) `ced6130`
+- **1001:** relocate MVT decoder @xgis/compiler → @xgis/data ([#1027](https://github.com/X-GIS/X-GIS/pull/1027)) `bf9f4f7`
+- **1000:** relocate heatmap density render targets to @xgis/map ([#1026](https://github.com/X-GIS/X-GIS/pull/1026)) `7d90eb7`
+- **1000:** relocate palette/gradient data-viz ownership to @xgis/map ([#1025](https://github.com/X-GIS/X-GIS/pull/1025)) `c785340`
+- **1006:** route line-pattern uniform indices through reflect SoT ([#1021](https://github.com/X-GIS/X-GIS/pull/1021)) `5d623fe`
+- **map:** #1006 — extract shared cameraAnchorDsfun (point ≡ heatmap dedup) ([#1019](https://github.com/X-GIS/X-GIS/pull/1019)) `091ff89`
+- **1000:** make compute bind-group builder content-blind (opaque out-slot) ([#1018](https://github.com/X-GIS/X-GIS/pull/1018)) `de3a30c`
+- **engine:** #991 P2 — relocate UniformRing map → engine (#991) ([#1017](https://github.com/X-GIS/X-GIS/pull/1017)) `9ed5171`
+- **rhi-webgpu:** #834 inject the WebGl2 device factory to cut the rhi-webgpu → rhi-webgl2 edge (#929) ([#968](https://github.com/X-GIS/X-GIS/pull/968)) `13ac729`
+- route Earth literals through the EARTH body authority (#798 P1) ([#951](https://github.com/X-GIS/X-GIS/pull/951)) `1bb4d66`
+- **geo:** #781 (3d) drop the ECEF shim + ratchet the engine geo-free — epic closed ([#902](https://github.com/X-GIS/X-GIS/pull/902)) `f836d71`
+- **geo:** #781 (3c) extract @xgis/geo — the engine is now projection-free ([#900](https://github.com/X-GIS/X-GIS/pull/900)) `2eaf0d6`
+- **map:** #781 (3b) relocate the map-only camera cluster from @xgis/engine ([#894](https://github.com/X-GIS/X-GIS/pull/894)) `5cf8f85`
+- **data:** #781 consume a local TileSelectionCamera, not the geo Camera ([#889](https://github.com/X-GIS/X-GIS/pull/889)) `39b7852`
+- **map:** #781 relocate FrameContext + FrameUniform out of @xgis/rhi-webgpu ([#887](https://github.com/X-GIS/X-GIS/pull/887)) `d80d7c0`
+- **shared:** #781 (3a) relocate generic mat4 ops to @xgis/shared ([#892](https://github.com/X-GIS/X-GIS/pull/892)) `4b6f815`
+- **engine:** #781 split globeVisibleTiles tile-selection out of the generic engine ([#886](https://github.com/X-GIS/X-GIS/pull/886)) `41989b7`
+- **map:** #833 read the ?safe flag from @xgis/engine, not the WebGPU backend ([#885](https://github.com/X-GIS/X-GIS/pull/885)) `bc702af`
+- **engine:** #781 relocate earth-surface-fill mesh gen out of the generic engine ([#884](https://github.com/X-GIS/X-GIS/pull/884)) `709f371`
+- **rhi-webgpu:** #833 make @xgis/engine the sole quality authority ([#883](https://github.com/X-GIS/X-GIS/pull/883)) `eb885bc`
+- **rhi:** #834 relocate render context out of the hardware interface ([#879](https://github.com/X-GIS/X-GIS/pull/879)) `2ff4a3a`
+- **shader-dsl:** production emit as Vite/Webpack-style plugins ([#877](https://github.com/X-GIS/X-GIS/pull/877)) `425a8ae`
+- **shader-dsl:** shared fullscreen boilerplate + MRT gate coverage ([#848](https://github.com/X-GIS/X-GIS/pull/848)) `8070cfc`
+- **map/shaders:** migrate deprecated positional shader-DSL calls to named-object form (#804) ([#811](https://github.com/X-GIS/X-GIS/pull/811)) `cbd57e0`
+- **map:** #798 P1b — main-thread render sphere-R → activeBody().sphereR ([#810](https://github.com/X-GIS/X-GIS/pull/810)) `f280101`
+- **geodesy:** centralize CPU Earth constants into a single Body authority (#798 P1) ([#809](https://github.com/X-GIS/X-GIS/pull/809)) `24b8533`
+- **engine:** #781 slice 1 — relocate FrameDrawStats engine→map (content out of the content-blind core) ([#788](https://github.com/X-GIS/X-GIS/pull/788)) `3d168fb`
+- **engine:** #783 — RhiScreenPassDevice capability narrow, kill the beginScreenPass `!`-assert ([#787](https://github.com/X-GIS/X-GIS/pull/787)) `b7a0163`
+- **engine:** #783 — drop dormant FrameUniform from barrel + rename usedBytes→highWaterBytes ([#786](https://github.com/X-GIS/X-GIS/pull/786)) `1d74e63`
+- **shader-dsl:** #740 R6c — retire the remaining authoring-path .of() bridges ([#753](https://github.com/X-GIS/X-GIS/pull/753)) `c28eab1`
+- **map:** #740 R8 — POINT_FEAT single-authority layout for point feat_data ([#752](https://github.com/X-GIS/X-GIS/pull/752)) `98f3377`
+- **shader-dsl:** #740 R3 — structured IO/stage attrs; backends stop re-parsing spelling strings ([#750](https://github.com/X-GIS/X-GIS/pull/750)) `93d5eae`
+- **shader-dsl:** #740 R5 — single-exit is a style rule, with a written deviation policy ([#749](https://github.com/X-GIS/X-GIS/pull/749)) `90fc6ab`
+- **shader-dsl:** #740 R2b — dev tooling moves to @xgis/shader-dsl/dev ([#748](https://github.com/X-GIS/X-GIS/pull/748)) `700bb23`
+- **shader-dsl:** #740 hygiene — drop 5 dead barrel exports, rename emitFuncsCsed → emitFuncs ([#742](https://github.com/X-GIS/X-GIS/pull/742)) `d69c0b1`
+- **map:** #733 P2 — sweep all renderer uniform packers onto typed UniformBlock ([#735](https://github.com/X-GIS/X-GIS/pull/735)) `060b12c`
+- **packages:** extract @xgis/data tile-data layer + partial @xgis/map content split (P3) ([#715](https://github.com/X-GIS/X-GIS/pull/715)) `5f2a345`
+
+#### docs
+
+- **claude,site:** record the assertion-with-zero-information trap and four mechanical ones ([#1486](https://github.com/X-GIS/X-GIS/pull/1486)) `548af87`
+- **claude:** state the fallback when the codebase-memory MCP is absent ([#1472](https://github.com/X-GIS/X-GIS/pull/1472)) `2e2d036`
+- **plans:** confirm the tile-entry anchor rule across the zoom sweep ([#1415](https://github.com/X-GIS/X-GIS/pull/1415)) `85cbc05`
+- **plans:** X-GIS's line-label vertex 0 is buffer, not the tile edge ([#1411](https://github.com/X-GIS/X-GIS/pull/1411)) `95be42d`
+- **playground,engine:** retire the "geometry-bound" claim, and make the sweep prove its fixture landed ([#1410](https://github.com/X-GIS/X-GIS/pull/1410)) `647dd78`
+- **plans:** derive MapLibre's line-anchor phase convention from measurement ([#1395](https://github.com/X-GIS/X-GIS/pull/1395)) `c26ac0c`
+- **playground:** correct the pitch-sweep ms baseline — adaptive DPR contaminated it ([#1391](https://github.com/X-GIS/X-GIS/pull/1391)) `4209bfd`
+- **plans:** world-anchored line-label placement and path collision ([#1386](https://github.com/X-GIS/X-GIS/pull/1386)) `78c7494`
+- **design:** S-100 GAP-2 — Part 9/9a portrayal engine (offline Lua + parameter lattice) ([#1160](https://github.com/X-GIS/X-GIS/pull/1160)) `7f6ee06`
+- **spec:** reconcile xgis-language.md with the pruned grammar ([#1185](https://github.com/X-GIS/X-GIS/pull/1185)) `ebd9b7c`
+- **compiler:** reconcile #1072 vestigial-surface drift (comments, fixtures, AGENTS) ([#1183](https://github.com/X-GIS/X-GIS/pull/1183)) `f36f909`
+- **design:** S-100 GAP-1 — HDF5 gridded-coverage data path ([#1157](https://github.com/X-GIS/X-GIS/pull/1157)) `63e2c43`
+- ellipsoid datum unification design + S-100 feasibility ([#1151](https://github.com/X-GIS/X-GIS/pull/1151)) `a6a2814`
+- **blog:** two render postmortems — drape pool aliasing + verification-gap revert ([#1146](https://github.com/X-GIS/X-GIS/pull/1146)) `ffc6beb`
+- **plans:** particle-flow design — stateless-VS baseline, caps-gated compute enhancement (#826) ([#1116](https://github.com/X-GIS/X-GIS/pull/1116)) `5ac7420`
+- **claude:** §12 lessons ledger — recurring-mistake guards with postmortem citations ([#1108](https://github.com/X-GIS/X-GIS/pull/1108)) `9211fb6`
+- **blog:** four engineering notes — second ratchet, commit kill-pipe, hash-equality gate, no-witness pipeline ([#1106](https://github.com/X-GIS/X-GIS/pull/1106)) `c6c2983`
+- **architecture:** refresh engine-content-split checker section post-#1041 gating (#1054) ([#1105](https://github.com/X-GIS/X-GIS/pull/1105)) `076cc09`
+- **coverage:** reclassify icon-halo-* as SDF-sprite-only n/a — no SDF sprites in scope ([#1101](https://github.com/X-GIS/X-GIS/pull/1101)) `bab1c27`
+- **plans:** mapbox style-spec gap matrix + phase I parallel breakdown ([#1100](https://github.com/X-GIS/X-GIS/pull/1100)) `c7ffa00`
+- **plans:** twin-frame elimination — caps-model design ([#1098](https://github.com/X-GIS/X-GIS/pull/1098)) `fdcb3a1`
+- **blog:** eight articles from the 2026-07-13/14 sessions ([#1091](https://github.com/X-GIS/X-GIS/pull/1091)) `3ca0de8`
+- **shaders:** fix drifted struct-size comments — 256/192 → 272, reflect-derived ([#1034](https://github.com/X-GIS/X-GIS/pull/1034)) `943c0d8`
+- **map:** #1006 — fix drifted polygon Uniforms struct-size comments (256→272) ([#1020](https://github.com/X-GIS/X-GIS/pull/1020)) `70aed4d`
+- **architecture:** #991 map→engine substrate-promotion execution plan ([#992](https://github.com/X-GIS/X-GIS/pull/992)) `94b4746`
+- **claude:** make the Korean-response rule override global response-style modes ([#989](https://github.com/X-GIS/X-GIS/pull/989)) `c90ed79`
+- **examples:** add runnable XGISMap TypeScript API examples (graphics, overlays) ([#988](https://github.com/X-GIS/X-GIS/pull/988)) `50f75c5`
+- **compiler:** #777 D — reclassify 5 architecturally-inapplicable census rows to na ([#987](https://github.com/X-GIS/X-GIS/pull/987)) `b18b58b`
+- **claude:** add build/test·bug-fixing·scope·agents·merge discipline + 3 workflow skills ([#979](https://github.com/X-GIS/X-GIS/pull/979)) `cc2fb52`
+- **site:** blog — 8 end-of-session engineering war stories ([#972](https://github.com/X-GIS/X-GIS/pull/972)) `0dbe87b`
+- **site:** blog — the error term you compute in integers ([#935](https://github.com/X-GIS/X-GIS/pull/935)) `d1ac838`
+- **site:** two general-audience blog posts (bind-group no-op draw; split-constant myth) ([#908](https://github.com/X-GIS/X-GIS/pull/908)) `1429ad4`
+- **site:** general-audience blog guideline + CI-trap post + 5 house-style revisions ([#906](https://github.com/X-GIS/X-GIS/pull/906)) `8312157`
+- **site:** #781 blog — the import edges grep cannot see ([#895](https://github.com/X-GIS/X-GIS/pull/895)) `d0532bc`
+- **site:** blog rewrite for standalone insight + authoring template, reading aids, faster pre-push ([#891](https://github.com/X-GIS/X-GIS/pull/891)) `40c3987`
+- **site:** let the shipping demo switch emit target (WGSL / GLSL stages) ([#893](https://github.com/X-GIS/X-GIS/pull/893)) `4ac1946`
+- **site:** expert-review pass across all shader-dsl pages ([#888](https://github.com/X-GIS/X-GIS/pull/888)) `e44eeb8`
+- **site:** three engineering posts — vitest sharding, software-GPU CI, compiler pipeline ([#861](https://github.com/X-GIS/X-GIS/pull/861)) `9c20371`
+- **site:** fp64 posts — references, inline citations, code-fence languages ([#860](https://github.com/X-GIS/X-GIS/pull/860)) `e3ec569`
+- **site:** split and tighten the fp64 blog posts ([#859](https://github.com/X-GIS/X-GIS/pull/859)) `e86ab80`
+- **site:** blog post — the flickering Mandelbrot debugging war story ([#857](https://github.com/X-GIS/X-GIS/pull/857)) `8a187d4`
+- **site:** freshness sweep + GLSL vertex/fragment tabs ([#854](https://github.com/X-GIS/X-GIS/pull/854)) `1a8f6cf`
+- **site:** blog post — porting the ShaderToy classics, the examples-as-DSL-review story ([#853](https://github.com/X-GIS/X-GIS/pull/853)) `b017d5a`
+- **shader-dsl:** refresh examples + site prose to post-#740 idioms ([#754](https://github.com/X-GIS/X-GIS/pull/754)) `30bb85d`
+
+#### test
+
+- **map:** measure the f16 band round-trip against the two colour authorities ([#1530](https://github.com/X-GIS/X-GIS/pull/1530)) `465d57b`
+- **playground:** gate the S-111 coverage invariant across the whole phase cycle ([#1528](https://github.com/X-GIS/X-GIS/pull/1528)) `5ec4dc1`
+- **playground:** add a local long-chord parallels demo for the projection defects ([#1521](https://github.com/X-GIS/X-GIS/pull/1521)) `be2a4dc`
+- **playground:** gate that the MapLibre demo style still draws its labels ([#1490](https://github.com/X-GIS/X-GIS/pull/1490)) `025f363`
+- **map,playground:** judge the adaptive ladder on drawn tile ZOOM, and pin the foreground ([#1485](https://github.com/X-GIS/X-GIS/pull/1485)) `2ef4ca6`
+- **map,playground:** the ladder gate measures TILES, the thing the ladder actually moves ([#1482](https://github.com/X-GIS/X-GIS/pull/1482)) `705083d`
+- **map,playground:** the ladder gate asks the controller, not the compositor ([#1457](https://github.com/X-GIS/X-GIS/pull/1457)) `c779a02`
+- **playground,ci:** make the adaptive-quality ladder gate an experiment, not a coin flip ([#1447](https://github.com/X-GIS/X-GIS/pull/1447)) `c11fa78`
+- **map:** deterministic repro for the high-pitch tile-selection blowup ([#1427](https://github.com/X-GIS/X-GIS/pull/1427)) `a0978d4`
+- **playground:** carry the observed trace when the seeded push never lands ([#1414](https://github.com/X-GIS/X-GIS/pull/1414)) `8fd4669`
+- **playground:** reproduce #1367 offline via synthesised dense data ([#1369](https://github.com/X-GIS/X-GIS/pull/1369)) `86a0ce0`
+- **map:** engine/map rebalance program + Track D gate hygiene — one projType authority ([#1382](https://github.com/X-GIS/X-GIS/pull/1382)) `82fede5`
+- **compiler:** de-brittle the mapbox-import-order lint window ([#1293](https://github.com/X-GIS/X-GIS/pull/1293)) `ca7b23b`
+- **playground:** pin composite step×interpolate(zoom) size liveness on the VT point path ([#1250](https://github.com/X-GIS/X-GIS/pull/1250)) `ab78df3`
+- **playground:** globe background-pattern pixel fence (#1128 — fixed by #1154, fence added) ([#1204](https://github.com/X-GIS/X-GIS/pull/1204)) `0dd6341`
+- **playground:** #1190 frame.encode scaling sweep harness (measured — encode wall confirmed) ([#1209](https://github.com/X-GIS/X-GIS/pull/1209)) `50a6602`
+- **playground:** retarget the webgl2 reflection proof to the #783 guard rejection (#1205) ([#1216](https://github.com/X-GIS/X-GIS/pull/1216)) `cbc21f8`
+- **playground:** flat-fill rasterisation pixel gate — #1127 does not reproduce ([#1168](https://github.com/X-GIS/X-GIS/pull/1168)) `ec8b645`
+- **compiler:** rehost rgb/hsl dynamic-channel test off pruned `let` — repair main ([#1149](https://github.com/X-GIS/X-GIS/pull/1149)) `fe1ea31`
+- **map:** globe label-anchor coverage — pitch 75/85 band + ortho-telephoto ×96 regime (#1051) ([#1109](https://github.com/X-GIS/X-GIS/pull/1109)) `a4cf13c`
+- **arch:** #1005 — relocate live invariant gates out of the retiring runtime/ tree ([#1036](https://github.com/X-GIS/X-GIS/pull/1036)) `cf0f64f`
+- **render:** gate VTR frameBlock uniform completeness (#999) ([#1014](https://github.com/X-GIS/X-GIS/pull/1014)) `0288b62`
+- **arch:** content-blindness + raw-shader enforcement gates (#1006 #1000 #1001) ([#1013](https://github.com/X-GIS/X-GIS/pull/1013)) `deb3599`
+- **shaders:** #998 — polygon Uniforms ↔ line TileUniforms byte-parity cross-check ([#1011](https://github.com/X-GIS/X-GIS/pull/1011)) `0d4c527`
+- **arch:** #996 — revive the projType-confinement gate (co-located, stale-guarded) ([#1009](https://github.com/X-GIS/X-GIS/pull/1009)) `a1e56fc`
+- **arch:** #997 #1003 — data GPU-free ratchet + god-file LOC ceiling gate ([#1008](https://github.com/X-GIS/X-GIS/pull/1008)) `abc82ba`
+- **map:** #991 — backend-adapter coupling ratchet (map stays backend-neutral) ([#995](https://github.com/X-GIS/X-GIS/pull/995)) `d51069c`
+- **map:** #991 P0 — raw-WebGPU shrink-only ratchet over map/src ([#993](https://github.com/X-GIS/X-GIS/pull/993)) `eab4557`
+- **shader-dsl:** lock the integer df64 flavor's pass/emit contract (#934) ([#955](https://github.com/X-GIS/X-GIS/pull/955)) `651b018`
+- **map:** differential byte-identity guard for the shared _viewScratch (#784) ([#953](https://github.com/X-GIS/X-GIS/pull/953)) `f5a6045`
+- **rhi:** pin #783 screen-pass narrow + WebGL2 dual-source pipeline contracts ([#948](https://github.com/X-GIS/X-GIS/pull/948)) `61348a6`
+- **shader-dsl:** seeded property-based df64 tests under real f32 rounding ([#909](https://github.com/X-GIS/X-GIS/pull/909)) `113500e`
+- **playground:** OFM Bright WebGL2↔WebGPU regression gate (local-only) ([#878](https://github.com/X-GIS/X-GIS/pull/878)) `4ae5838`
+- **shader-dsl:** #763 Phase V — verification fabric (V1-V6) + S4 stray site ([#772](https://github.com/X-GIS/X-GIS/pull/772)) `5aeb808`
+- **playground:** relocation DC=0 gate captures the #map canvas, not the page ([#736](https://github.com/X-GIS/X-GIS/pull/736)) `509cec3`
+
+#### ci
+
+- **playground:** retry render-gate specs on CI, and record what the flake is NOT ([#1475](https://github.com/X-GIS/X-GIS/pull/1475)) `f00ad05`
+- serialise the render-gate leg — two workers were contending, not parallelising ([#1451](https://github.com/X-GIS/X-GIS/pull/1451)) `9e9d6da`
+- **render-gate:** add flat-fill pixel gate to the SwiftShader render-gate ([#1179](https://github.com/X-GIS/X-GIS/pull/1179)) `71445c6`
+- df64 Apple oracle on the free macOS Metal runner (replaces the device-paste loop) ([#928](https://github.com/X-GIS/X-GIS/pull/928)) `f741f10`
+- expand the test matrix on doc-only PRs so per-leg checks post ([#899](https://github.com/X-GIS/X-GIS/pull/899)) `d40c522`
+- run the test workflow on doc-only PRs so required checks can post ([#898](https://github.com/X-GIS/X-GIS/pull/898)) `9eb3831`
+
+#### chore
+
+- **process:** codify the merge gauntlet as a skill + three session-verified ledger rules ([#1224](https://github.com/X-GIS/X-GIS/pull/1224)) `1b201c5`
+- **lint,format:** re-run the mechanical burn-down on current main (#1055) ([#1217](https://github.com/X-GIS/X-GIS/pull/1217)) `3ca6d28`
+- **lint:** clear the remaining 149 warnings to zero (#1055) ([#1203](https://github.com/X-GIS/X-GIS/pull/1203)) `900b102`
+- **lint:** clear full-repo eslint errors (54 → 0) — #1055 ([#1180](https://github.com/X-GIS/X-GIS/pull/1180)) `f078065`
+- add ESLint + Prettier + Husky linting/formatting infra ([#808](https://github.com/X-GIS/X-GIS/pull/808)) `ca6dc68`
+- **agents:** domain-neutral rewrite for the remaining 7 reviewers ([#762](https://github.com/X-GIS/X-GIS/pull/762)) `f2e03ff`
+- **agents:** make api-ergonomics-reviewer domain-neutral ([#761](https://github.com/X-GIS/X-GIS/pull/761)) `41b5e7e`
+- **agents:** dedicated api-ergonomics-reviewer (repo-wide DX), type reviewer narrowed to type-level ([#760](https://github.com/X-GIS/X-GIS/pull/760)) `bca65fc`
+- **agents:** type-ergonomics reviewer owns hidden-dependency + first-contact checks ([#759](https://github.com/X-GIS/X-GIS/pull/759)) `3937e5e`
+- **agents:** close the 3 reviewer coverage gaps (arch boundary, perf, optimizer/oracle) ([#758](https://github.com/X-GIS/X-GIS/pull/758)) `f8b4614`
+- **agents:** 5 domain-intersection reviewers for shader-dsl + consumer PRs ([#757](https://github.com/X-GIS/X-GIS/pull/757)) `44779b2`
+
+#### style
+
+- **playground:** lint Wave 5 — 443 stale disables cleared, no-undef zeroed via node globals (#1055) ([#1126](https://github.com/X-GIS/X-GIS/pull/1126)) `ae03af7`
+- adopt repo-wide Prettier baseline (prettier --write .) ([#812](https://github.com/X-GIS/X-GIS/pull/812)) `c780a4b`
+
+#### revert
+
+- **data:** drop the redundant MVT decoder densification, gate the real one ([#1516](https://github.com/X-GIS/X-GIS/pull/1516)) `53dd227`
+- WebGL2 twin fallback flicker fix (#1139) — per-frame perf regression on zoom-in ([#1140](https://github.com/X-GIS/X-GIS/pull/1140)) `0d8ba53`
+
+#### other
+
+- Revert "black outline on the S-111 arrow field" — flawed silhouette ([#1340](https://github.com/X-GIS/X-GIS/pull/1340)) `719cb85`
+- demo(coops-currents): declarative source + visible recipe + arrow-layer surface ([#1301](https://github.com/X-GIS/X-GIS/pull/1301)) `1791305`
+- docs(spec),test(compiler): normative EBNF grammar + conformance corpus + xgis validate CLI (#1073) ([#1130](https://github.com/X-GIS/X-GIS/pull/1130)) `4eb0228`
+- design: #599 globe vector-drape re-implementation plan (approach B) ([#983](https://github.com/X-GIS/X-GIS/pull/983)) `707f574`
+- arch(#929): rhi-webgl2 fully pure + audit war-story post + pre-push hook removal ([#937](https://github.com/X-GIS/X-GIS/pull/937)) `7220830`
+- arch(#929): dependency-direction ratchet + adapter-purity burn-down (A/B/C/D) ([#930](https://github.com/X-GIS/X-GIS/pull/930)) `7e459d0`
+- Revert "fix(shader-dsl): guard df64_mul cross terms against distributive fast-math" ([#918](https://github.com/X-GIS/X-GIS/pull/918)) `bfab842`
+- fp64 probe: revert launder regression + probe UI redesign ([#905](https://github.com/X-GIS/X-GIS/pull/905)) `a57ac1b`
+- diag(site): read the df64 probe back at full precision (RGB8 pack) ([#903](https://github.com/X-GIS/X-GIS/pull/903)) `9483960`
+- shader-dsl: df64 GPU conformance probe + emulated-double matrices ([#897](https://github.com/X-GIS/X-GIS/pull/897)) `f08ec18`
+- diag(site): df64 GPU capability probe page ([#896](https://github.com/X-GIS/X-GIS/pull/896)) `ae59ca4`
+- Merge pull request #831 from X-GIS/claude/gpu-webgl2-container-ovacvb ([#831](https://github.com/X-GIS/X-GIS/pull/831)) `fe178fc`
+- data: OA-22300 + OA-22299 서울 odb + fix hour u8 overflow (daily-pulse was static) ([#819](https://github.com/X-GIS/X-GIS/pull/819)) `0716ada`
+- docs+refactor(shader-dsl): #763 Phases A+H — arch erosion + doc/comment truth ([#773](https://github.com/X-GIS/X-GIS/pull/773)) `7611d1d`
+
+### 2026-06
+
+#### feat
+
+- **engine:** add RHI compute-pipeline contract (P0.4, gap #4) ([#709](https://github.com/X-GIS/X-GIS/pull/709)) `5b9a852`
+- **diag:** split opaque-pass burst into upload/evict/ring-grow sub-marks ([#705](https://github.com/X-GIS/X-GIS/pull/705)) `6178326`
+- GPU-free Mapbox compatibility — within, distance, collator, resolved-locale, bezier-colour interpolate ([#696](https://github.com/X-GIS/X-GIS/pull/696)) `94f1fe9`
+- **diag:** worst-frame MAX + MVT drain attribution in GPU/CPU verdict ([#701](https://github.com/X-GIS/X-GIS/pull/701)) `ab17ac7`
+- **diag:** confound-free GPU-vs-CPU verdict (main-thread stall probe) ([#699](https://github.com/X-GIS/X-GIS/pull/699)) `06dbb67`
+- **shader-dsl:** cross-statement GVN pass (#627) ([#698](https://github.com/X-GIS/X-GIS/pull/698)) `f3b45b0`
+- **diag:** one-tap A/B draw-count test in the perf overlay ([#690](https://github.com/X-GIS/X-GIS/pull/690)) `c5e236e`
+- **diag:** ?maxtiles=N hard-caps SSE tile emission (A/B for draw-bound) ([#686](https://github.com/X-GIS/X-GIS/pull/686)) `181bf7e`
+- **playground:** perf overlay reports frame.* phases + localizer gaps ([#683](https://github.com/X-GIS/X-GIS/pull/683)) `2d9f0ab`
+- **playground:** one-tap overdraw capture with real counts ([#682](https://github.com/X-GIS/X-GIS/pull/682)) `5010813`
+- **playground:** camera-relative perf benchmark, globe-aware ([#675](https://github.com/X-GIS/X-GIS/pull/675)) `9253a0b`
+- **shader-dsl:** run the full optimizer pipeline on the emit path `05cdf62`
+- **shader-dsl:** gate optimize() on a real GPU + fix cse double-apply name collision `4551efa`
+- **shader-dsl:** add const/copy propagation, dead-branch elim, constexpr control folding `fe7fcf1`
+- **site:** "Chart Room" visual renewal — cartographic chart identity `e4778d9`
+- **shader-dsl:** GLSL std140 UBO + entry-IO lowering — reflection-fed multi-target (Phase 4) `2e0021b`
+- **shader-dsl:** fn() return-type inference — drop the explicit ret token from 89 call sites ([#556](https://github.com/X-GIS/X-GIS/pull/556)) `43527f4`
+- **xgis:** inline geojson via source `data: {...}` object literal — real-GPU verified ([#481](https://github.com/X-GIS/X-GIS/pull/481)) `31b4ab2`
+- **mapbox-compat:** heatmap render layer (Phase R) — real-GPU verified ([#480](https://github.com/X-GIS/X-GIS/pull/480)) `21df354`
+- **mapbox-compat:** Phase S Batch 3+4 — raster/circle-pitch/anchors + symbol-z-order/icon-collision (+16 props) ([#478](https://github.com/X-GIS/X-GIS/pull/478)) `84295eb`
+- **mapbox-compat:** Phase S Batch 2 — thresholds, ["properties"], translate-anchors (+6 props) ([#476](https://github.com/X-GIS/X-GIS/pull/476)) `38a92d5`
+- MapLibre/Mapbox parity — WS-8 projection, WS-9 light, WS-1 zoom-interp ([#473](https://github.com/X-GIS/X-GIS/pull/473)) `611ab19`
+- **text:** local-ideograph CJK display-size rasterisation (fixes #421 label oversize) ([#455](https://github.com/X-GIS/X-GIS/pull/455)) `ee89b3a`
+- **mapbox-compat:** surgical spec gaps (7) — filters, circle/line/icon-translate, fill opt-outs, pitch expr ([#430](https://github.com/X-GIS/X-GIS/pull/430)) `650b33d`
+- **map:** map.unproject() — screen→lon/lat (completes the project/unproject pair) ([#391](https://github.com/X-GIS/X-GIS/pull/391)) `f61e7da`
+- **map:** map.project() — lon/lat→screen accessor (MapLibre parity + debug primitive) ([#390](https://github.com/X-GIS/X-GIS/pull/390)) `4d693e8`
+- **debug:** debug-toolkit skill + dev-assert primitives + H2 fill/outline cross-path tests ([#388](https://github.com/X-GIS/X-GIS/pull/388)) `e50a73c`
+- **skills:** add prove-or-refute — Q.E.D.-form claim adjudication + auto-enforce hook ([#386](https://github.com/X-GIS/X-GIS/pull/386)) `3844ba6`
+- **render:** GPUArena auto-grow on alloc-fail for over-capacity protected live set (US-003) ([#368](https://github.com/X-GIS/X-GIS/pull/368)) `678eadc`
+- **label:** skip re-dispatch collision/upload on an unchanged frame (S16 — first consumer skip) `ea020f3`
+- **state:** granular dirty tagging at the raw _needsRender bypass sites (S14 — inert) `a6658db`
+- **ops:** route the camera + paint-property public API through OperatorBus `71a02a6`
+- **globe:** preserve the pole-ward centre through zoom (no snap-back) `5edb29d`
+- **globe:** drag rolls the sphere to the pole (centerLatDeg-driven) `b702fba`
+- **globe:** reach the pole — store true centre latitude (centerLatDeg) `e4c3697`
+- **ops:** add OperatorBus mutation funnel + route the three cold scene setters `8bc3f72`
+- **state:** add DirtyDomains bitset as a write-only wrapper over _needsRender `cdc245c`
+- **projection:** route RTC + CPU-inverse centre clamps through poleLimit `d6f3dbd`
+- **projection:** add inert poleLimit + representsCenterAs table accessors `a53fa33`
+- **verify:** visual-regression MATRIX gate skeleton (Increment 1) `20aba3c`
+- **render:** defined-source coverage via background pass ([#219](https://github.com/X-GIS/X-GIS/pull/219)) `5db7c4b`
+
+#### fix
+
+- **gitignore:** re-ignore nested .omc dirs after the skills carve-out ([#713](https://github.com/X-GIS/X-GIS/pull/713)) `544fe27`
+- **site:** correct false WebGPU-fallback + symbol-text claims, fix blog deploy links ([#707](https://github.com/X-GIS/X-GIS/pull/707)) `d140e3b`
+- **demo:** load OpenFreeMap Bright via live import so labels render ([#703](https://github.com/X-GIS/X-GIS/pull/703)) `320a9ff`
+- **blueprint:** preserve style: ref and named imports on round-trip ([#695](https://github.com/X-GIS/X-GIS/pull/695)) `db4e474`
+- **convert:** convert legacy ["none", ...] filter instead of dropping it ([#700](https://github.com/X-GIS/X-GIS/pull/700)) `8d5fe54`
+- **diag:** make the draw-count A/B cap ACTUAL draws, not selection ([#694](https://github.com/X-GIS/X-GIS/pull/694)) `b3b73f8`
+- **blueprint:** keep layer source ref when the source is splice-imported ([#688](https://github.com/X-GIS/X-GIS/pull/688)) `434de2b`
+- **convert:** support inline GeoJSON through the Mapbox converter UI ([#684](https://github.com/X-GIS/X-GIS/pull/684)) `5c4fc90`
+- **shader-dsl:** dev/CI resolution via ./src; dist entry moved to publishConfig `8eaab23`
+- **convert:** surface conversion warnings at runtime + fail-closed on widening all-filters ([#483](https://github.com/X-GIS/X-GIS/pull/483)) `bdf60fb`
+- **audit:** silent-converter fail-closed + coverage-truthfulness tests + docs/CI/site fixes ([#482](https://github.com/X-GIS/X-GIS/pull/482)) `cc2efda`
+- **site:** alias @xgis/runtime to source so Blueprint page builds ([#471](https://github.com/X-GIS/X-GIS/pull/471)) `d2a927e`
+- **render:** +0.5° margin on polygon abs-lat discard kills globe pole-cap speckle (#399) ([#468](https://github.com/X-GIS/X-GIS/pull/468)) `26fcedb`
+- **line:** bevel ~180° reversals so dense polylines don't sprout whisker spikes (#463) ([#467](https://github.com/X-GIS/X-GIS/pull/467)) `9a386be`
+- **tiler:** budget-cap low-zoom full-fidelity so detailed GeoJSON renders fast at z\<1 (#460) ([#466](https://github.com/X-GIS/X-GIS/pull/466)) `2f9b75b`
+- **text:** higher symbol layer wins point-label dedup — transit POI text grey not blue (#458) ([#465](https://github.com/X-GIS/X-GIS/pull/465)) `76f93c8`
+- **audit:** silence benign inline tile-drop warn (#461) + drop demo-audit false positives (#462) ([#464](https://github.com/X-GIS/X-GIS/pull/464)) `44ce59b`
+- **render:** rotate extrude light into ECEF — 3D building faces arbitrarily shaded (#420) ([#459](https://github.com/X-GIS/X-GIS/pull/459)) `dc8c7ff`
+- **text:** park local-ideograph CJK routing — it rendered CJK thick + blurry at normal zoom ([#457](https://github.com/X-GIS/X-GIS/pull/457)) `fe013f5`
+- **globe:** drop the z\<1 sphere-diameter altitude cap — globe was ~3× too big at low zoom (#450) ([#456](https://github.com/X-GIS/X-GIS/pull/456)) `5fe8f35`
+- **playground:** wire ?proj= into compare harness so globe A/B renders globe ([#454](https://github.com/X-GIS/X-GIS/pull/454)) `1017cf1`
+- **render:** full-cover ocean tiles render water, not background — pass tileOriginMerc (#449) ([#453](https://github.com/X-GIS/X-GIS/pull/453)) `1e05f71`
+- **test:** render-gate dequant/clip parity packed synthetic verts at a stale stride ([#448](https://github.com/X-GIS/X-GIS/pull/448)) `7356ca3`
+- **types:** restore runtime typecheck (19 tsc errors from the merge wave) ([#446](https://github.com/X-GIS/X-GIS/pull/446)) `35e85c3`
+- **labels:** rebake dispatch-sig quantizes camera centre by px, not metres (#402-C) ([#445](https://github.com/X-GIS/X-GIS/pull/445)) `240304a`
+- **line:** miter-limit bevel uses correct half-angle (cos not sin) — #432 item 4 ([#444](https://github.com/X-GIS/X-GIS/pull/444)) `68539b2`
+- **labels:** render road labels at high zoom — screen-space line-label subdivision ([#411](https://github.com/X-GIS/X-GIS/pull/411)) `a2f2ac9`
+- **arch:** trim lower.ts comment to restore its LOC ceiling (1348) ([#443](https://github.com/X-GIS/X-GIS/pull/443)) `59a85ef`
+- **shaders:** line-pattern fragment loop was unreachable (stray cb.continue) ([#412](https://github.com/X-GIS/X-GIS/pull/412)) `1f54623`
+- **line:** pure-line stroke layers render CENTER, not inset — outlines no longer half-width-shifted/thick ([#440](https://github.com/X-GIS/X-GIS/pull/440)) `43fafc7`
+- **line:** round-join acute fold draws a full round point — no detached blob + gap at sharp spits (#413) ([#438](https://github.com/X-GIS/X-GIS/pull/438)) `4adb9bb`
+- **text:** text-justify default follows the Mapbox spec ('auto', not 'center') ([#436](https://github.com/X-GIS/X-GIS/pull/436)) `16bb59b`
+- **convert:** circle-stroke-width default follows the Mapbox spec (0, not 1) ([#435](https://github.com/X-GIS/X-GIS/pull/435)) `8f91e2e`
+- **render:** line cap/join/miter-limit defaults follow the Mapbox spec (butt/miter/2) ([#434](https://github.com/X-GIS/X-GIS/pull/434)) `3202d4d`
+- **render:** draw translucent pure-line strokes in style order — grey minor no longer paints over white major (#415) ([#433](https://github.com/X-GIS/X-GIS/pull/433)) `f52b499`
+- **labels:** collapse doubled one-way arrows via line-icon overlap collision (#417) ([#425](https://github.com/X-GIS/X-GIS/pull/425)) `898819f`
+- **labels:** stable per-instance pair key for point-label dots (#419) ([#424](https://github.com/X-GIS/X-GIS/pull/424)) `20f1c12`
+- **render:** fill disc-projection polar cap to the true pole (#398) ([#423](https://github.com/X-GIS/X-GIS/pull/423)) `5fde37e`
+- **labels:** synthetic oblique for CJK/Hangul glyphs in italic labels (#416) ([#422](https://github.com/X-GIS/X-GIS/pull/422)) `1e98ea7`
+- **labels:** one-way arrows no longer collapse to ~1 per show (empty-key dedupe) ([#409](https://github.com/X-GIS/X-GIS/pull/409)) `20e032f`
+- **render:** precise icon/label position at deep zoom — point flat-Merc DSFUN (#402 K) ([#408](https://github.com/X-GIS/X-GIS/pull/408)) `56f3316`
+- **render:** raster globe RTC anchor on the WGS84 ellipsoid — raster flew off the globe (#402 O) ([#407](https://github.com/X-GIS/X-GIS/pull/407)) `0ac855c`
+- **render:** anchor globe labels to the RTC focus — labels floated off / vanished under pitch ([#406](https://github.com/X-GIS/X-GIS/pull/406)) `b01c4a0`
+- **render:** cap line screen-width clamp scale at \>=1 — strokes rendered ~1/3 width (#402 B) ([#405](https://github.com/X-GIS/X-GIS/pull/405)) `4ffa172`
+- **camera:** rotate delta-pan by +bearing not −bearing — inertia flung wrong way on a rotated map ([#404](https://github.com/X-GIS/X-GIS/pull/404)) `15af518`
+- **render:** scale line screen-width clamp by dpr — strokes were 1/dpr too thin (#402 B/G) ([#403](https://github.com/X-GIS/X-GIS/pull/403)) `d46268a`
+- **tiler:** clamp clip-intersection snap to segment range — polygon tile-boundary stroke (#360) ([#401](https://github.com/X-GIS/X-GIS/pull/401)) `6508258`
+- **#360 F1:** polar-cap globe black hole — f32 tail = tile-local Mercator ([#362](https://github.com/X-GIS/X-GIS/pull/362)) `9d9f24b`
+- **text,sprite:** re-arm the render loop on WOFF-font + sprite-atlas land (resource-land siblings) ([#397](https://github.com/X-GIS/X-GIS/pull/397)) `63aa881`
+- **text:** re-rasterise glyphs when a glyph provider is added at runtime (addGlyphProvider) ([#396](https://github.com/X-GIS/X-GIS/pull/396)) `e81db93`
+- **text:** re-rasterise late-landed PBF glyphs — CJK labels dropping glyphs whose range arrived after the first shape ([#395](https://github.com/X-GIS/X-GIS/pull/395)) `de7c83b`
+- **render:** polygon fill positions from tile-local Mercator, not lossy f32 abs_lon/abs_lat degrees ([#392](https://github.com/X-GIS/X-GIS/pull/392)) `2a640c0`
+- **render:** apply fill-translate to polygon outlines (line VS) — building-top fill/outline coupling ([#389](https://github.com/X-GIS/X-GIS/pull/389)) `aaa2b40`
+- **tiler:** unify polygon outline + fill through the same clipped ring (d34aed2 coincidence) ([#387](https://github.com/X-GIS/X-GIS/pull/387)) `0d7b0dc`
+- hole-straddle drop + globe maxBounds pole + cancelStale byte leak (3 bugs) ([#384](https://github.com/X-GIS/X-GIS/pull/384)) `511dbd4`
+- **render:** guard pattern atlas-V slots 19/23 + apply CJK floor to curved labels (2 bugs) ([#383](https://github.com/X-GIS/X-GIS/pull/383)) `a56fa9b`
+- **data:** worker-pool error isolation + glyph-count cap + mvt-pool dispose rAF (3 bugs) ([#382](https://github.com/X-GIS/X-GIS/pull/382)) `e2a6c8b`
+- **compiler:** collect get("k")/has("k") builtin keys in collectFieldsStrict (OFM non-latin labels) ([#376](https://github.com/X-GIS/X-GIS/pull/376)) `00e4f17`
+- **render:** skip fill when match()-variant feature bind group is absent (black screen on non-mercator) ([#374](https://github.com/X-GIS/X-GIS/pull/374)) `ccbd357`
+- **tiler:** overlap adjacent fill tiles to close the inter-tile MSAA seam on the globe ([#372](https://github.com/X-GIS/X-GIS/pull/372)) `1d453b9`
+- **compiler:** iterative Douglas-Peucker to stop tiler-worker stack overflow on huge rings ([#371](https://github.com/X-GIS/X-GIS/pull/371)) `f306426`
+- **tiler:** full-fidelity low-zoom geojsonvt tiles so enclosed seas don't drop (#360 F2) ([#370](https://github.com/X-GIS/X-GIS/pull/370)) `90fec4a`
+- **render:** defer tile segment/feature buffer destroy past the frame submit (#365) ([#366](https://github.com/X-GIS/X-GIS/pull/366)) `d9c9d0f`
+- **compiler:** default polygon fill-strokes to INSET so thick outlines align with the fill ([#364](https://github.com/X-GIS/X-GIS/pull/364)) `57c13f4`
+- **render:** raise poly vertex arena 64→128MB so dense-city buildings under pitch render ([#363](https://github.com/X-GIS/X-GIS/pull/363)) `6ecb1d2`
+- **runtime:** classify empty single-layer GeoJSON default-slice tiles as drop-empty, not parent-fallback ([#359](https://github.com/X-GIS/X-GIS/pull/359)) `08de791`
+- **data:** emit full-cover quad in the quantized-ECEF stride-6 fill layout ([#357](https://github.com/X-GIS/X-GIS/pull/357)) `0fc13f9`
+- **arch:** bump editor.ts ceiling 1356→1370 for the #353 deserialization guard ([#354](https://github.com/X-GIS/X-GIS/pull/354)) `c799085`
+- **blueprint:** sanitize deserialized graphs so an unknown node type can't crash paste/undo/load ([#353](https://github.com/X-GIS/X-GIS/pull/353)) `ff12f1b`
+- **compiler:** fold formatBearing 360° back to 000° (round-then-wrap) ([#351](https://github.com/X-GIS/X-GIS/pull/351)) `8bd4eb2`
+- **compiler:** parse match() arm values with parseExpr so case/ternary arms don't crash style load ([#349](https://github.com/X-GIS/X-GIS/pull/349)) `b91f58f`
+- **tiler:** stop the polygon outline from stroking antimeridian/tile-boundary-coincident edges (world-copy seam line) ([#347](https://github.com/X-GIS/X-GIS/pull/347)) `1ede7e0`
+- **render:** bounds-fit gate parity — programmatic setters mark the camera positioned + URL/PMTiles attach route through _runBoundsFitGate ([#345](https://github.com/X-GIS/X-GIS/pull/345)) `cb96e2e`
+- **render:** re-validate redirect hops for sprite + glyph asset fetches (SSRF) ([#343](https://github.com/X-GIS/X-GIS/pull/343)) `41c372f`
+- **render:** harden glyph PBF against DoS slot-copier + cross-validate bitmap dimensions ([#341](https://github.com/X-GIS/X-GIS/pull/341)) `fdfcc1e`
+- **render:** per-frame DPR must use the interaction cap, not maxDpr (zoom-scale jump on gesture) ([#339](https://github.com/X-GIS/X-GIS/pull/339)) `36a14cb`
+- **camera:** reconcile min/max zoom, reject antimeridian fitBounds, guard jumpTo center ([#337](https://github.com/X-GIS/X-GIS/pull/337)) `c20ab65`
+- **compiler:** keyframe-animated opacity uses the 0..100 scale unconditionally (was 100x too opaque sub-percent) ([#335](https://github.com/X-GIS/X-GIS/pull/335)) `ba62dfd`
+- **compiler:** carry sexagesimal overflow in DMS/DM formatters (was printing 60) ([#333](https://github.com/X-GIS/X-GIS/pull/333)) `43be08d`
+- **test:** repair tsc errors in round-4 test files so bun run build passes (History.past + color narrowing) ([#331](https://github.com/X-GIS/X-GIS/pull/331)) `c8685ac`
+- **test:** make two vacuous fixture gates actually assert (geolines color + cross-val drops) ([#329](https://github.com/X-GIS/X-GIS/pull/329)) `036daa5`
+- **test:** read real IR discriminants in ir-snapshot gate (.type for sources, derived class for nodes) ([#327](https://github.com/X-GIS/X-GIS/pull/327)) `c380eca`
+- **data:** namespace + evict GeoJSON tiling-worker indexes (cross-map isolation + leak) ([#325](https://github.com/X-GIS/X-GIS/pull/325)) `47a94a9`
+- **data:** isolate MVT worker-pool error rejection to the crashed worker ([#323](https://github.com/X-GIS/X-GIS/pull/323)) `9afc9ad`
+- **blueprint:** one undo step per wire reconnect + clear stale selEdge on reroute ([#321](https://github.com/X-GIS/X-GIS/pull/321)) `62691fc`
+- **arch:** bump parser.ts ceiling 1176→1178 for the numeric match() branches (#317) ([#319](https://github.com/X-GIS/X-GIS/pull/319)) `a81ff20`
+- **compiler:** accept numeric (and negative-numeric) match() labels in parser ([#317](https://github.com/X-GIS/X-GIS/pull/317)) `510a887`
+- **test:** normalise CRLF in polygon-variant snapshot gate (OS-independent drift gate) ([#315](https://github.com/X-GIS/X-GIS/pull/315)) `738af34`
+- **test:** bump renderer-stub UNIFORM_SIZE guard 192→240 (follows #297) ([#313](https://github.com/X-GIS/X-GIS/pull/313)) `6cbd3ff`
+- **render:** balance the GeoJSON label-show perf-mark (continue skipped markEnd) ([#311](https://github.com/X-GIS/X-GIS/pull/311)) `7386ab7`
+- **tiler:** resolve tiles-sse projType from PROJECTIONS table (was collapsing disc/globe to equirect → 5x DFS roots) ([#309](https://github.com/X-GIS/X-GIS/pull/309)) `1747845`
+- **data:** cancel TileCatalog prewarm pump on teardown + drain evict-shield under budget ([#307](https://github.com/X-GIS/X-GIS/pull/307)) `5875773`
+- **tiler:** decompose GeometryCollection features instead of dropping them ([#305](https://github.com/X-GIS/X-GIS/pull/305)) `52cb0ee`
+- **compiler:** tolerate trailing show-property commas, keep ms/s bracket-binding units, report string token's opening line ([#303](https://github.com/X-GIS/X-GIS/pull/303)) `c5b60af`
+- **interaction:** drag/pinch anchor dpr uses getMaxDpr() not a hardcoded cap of 8 ([#301](https://github.com/X-GIS/X-GIS/pull/301)) `69a3baa`
+- **render:** drain the pooled GPU buffer recycler in GpuTileStore.destroy() ([#299](https://github.com/X-GIS/X-GIS/pull/299)) `475c003`
+- **render:** raise MapRenderer/graticule uniform bind size 192→240 to meet the shared shader minimum ([#297](https://github.com/X-GIS/X-GIS/pull/297)) `f63aa34`
+- **render:** pack continuous camera zoom into per-tile u.zoom (slot 44) so OFM fills interpolate ([#295](https://github.com/X-GIS/X-GIS/pull/295)) `e9102dd`
+- **render:** drop synthetic parent clip-edge strokes from over-zoom sub-tile outlines ([#293](https://github.com/X-GIS/X-GIS/pull/293)) `524ca80`
+- **compiler:** variadic/unary arithmetic + parenthesize ternary coalesce arms in expr converter ([#291](https://github.com/X-GIS/X-GIS/pull/291)) `6d2ffe6`
+- **render:** invalidate cached RenderBundles when arena compaction relocates buffers ([#289](https://github.com/X-GIS/X-GIS/pull/289)) `2e9634d`
+- **shared:** guard ecefToLonLat at the exact pole (was NaN latitude) ([#287](https://github.com/X-GIS/X-GIS/pull/287)) `feb54b5`
+- **render:** composite bind size 16→32 to meet the pipeline minimum (regression #259) ([#285](https://github.com/X-GIS/X-GIS/pull/285)) `2048d09`
+- **loader:** bound the tile negative cache + stop the per-backoff abort-listener leak ([#283](https://github.com/X-GIS/X-GIS/pull/283)) `dc4aca6`
+- **interaction:** real pitch-vs-pinch disambiguation + cancel inertia/zoom RAFs on detach ([#281](https://github.com/X-GIS/X-GIS/pull/281)) `b1ffb93`
+- **text:** bind the right atlas page on a leading-newline label + balance curved-text perf marks ([#279](https://github.com/X-GIS/X-GIS/pull/279)) `8bdc289`
+- **render:** cleanup leaked line/outline/segment buffers on sync upload throw ([#277](https://github.com/X-GIS/X-GIS/pull/277)) `e0ee7d7`
+- **compiler:** four low-severity correctness fixes (opacity / lexer / color) ([#275](https://github.com/X-GIS/X-GIS/pull/275)) `a205f31`
+- **data:** reject pending compiles when a geojson-compile worker crashes ([#273](https://github.com/X-GIS/X-GIS/pull/273)) `e07c465`
+- **blueprint:** reset undo history on load() so Ctrl+Z can't revert to the old graph ([#271](https://github.com/X-GIS/X-GIS/pull/271)) `779a72e`
+- **render:** stop raster from double-enumerating world copies ([#269](https://github.com/X-GIS/X-GIS/pull/269)) `e59e851`
+- **map:** warn instead of silently dropping updateFeature() on tile-backed sources ([#267](https://github.com/X-GIS/X-GIS/pull/267)) `be6313f`
+- **map:** complete destroy() teardown — cancel pointermove/flush rAFs + clear window globals ([#265](https://github.com/X-GIS/X-GIS/pull/265)) `00b62d8`
+- **compiler:** preserve filter literal type across layer-merge (no string→number coercion) ([#263](https://github.com/X-GIS/X-GIS/pull/263)) `1693053`
+- **camera:** use CSS pixels in panBy / fitBounds / getBounds (DPR unit errors) ([#261](https://github.com/X-GIS/X-GIS/pull/261)) `d4c838a`
+- **render:** give each translucent line layer its own composite opacity slot ([#259](https://github.com/X-GIS/X-GIS/pull/259)) `dd32581`
+- **text:** bound glyph PBF decode so a truncated/malformed buffer can't infinite-loop ([#257](https://github.com/X-GIS/X-GIS/pull/257)) `8562de1`
+- **arch:** restore LOC ratchet after the gesture/line-pattern bug-fix series ([#255](https://github.com/X-GIS/X-GIS/pull/255)) `7a60511`
+- **line:** compute the line_length slot (was always 0) ([#253](https://github.com/X-GIS/X-GIS/pull/253)) `f04ec6e`
+- **compiler:** route Mapbox line-pattern to a distinct stroke-image- utility ([#251](https://github.com/X-GIS/X-GIS/pull/251)) `b7a2f3a`
+- **interaction:** honor setMaxBounds on drag/wheel/pinch gestures ([#249](https://github.com/X-GIS/X-GIS/pull/249)) `b519874`
+- **interaction:** remove the contextmenu listener on detach() ([#247](https://github.com/X-GIS/X-GIS/pull/247)) `733a2a3`
+- **interaction:** honor camera.minZoom on gesture zoom-out (was hardcoded 0) ([#245](https://github.com/X-GIS/X-GIS/pull/245)) `66086e9`
+- **projection:** clamp invOrthographic asin argument to [-1,1] ([#243](https://github.com/X-GIS/X-GIS/pull/243)) `f8793cc`
+- **render:** return protectedAncestors on selectForFrame cache-miss path ([#241](https://github.com/X-GIS/X-GIS/pull/241)) `3cdbd89`
+- **map:** P0 latent-bug quartet — picking warn, frame recovery, auto-resize, event warn `9b1ff9c`
+- **interaction:** fixed-point drag anchor for flat non-mercator projections `c81df6f`
+- **interaction:** geo-anchored zoom for azimuthal_equidistant + stereographic `aa6b8fe`
+- **interaction:** wire the ray-sphere inverse into globe-mode input ([#11](https://github.com/X-GIS/X-GIS/pull/11)) `56376fd`
+- **line:** condense the ecefFromMerc docstring — line.ts back under its ratchet `02123ab`
+- **line:** lift extruded outlines along the geodetic normal, not the ECEF polar axis `8292009`
+- **vtr:** tie extruded-cache flag to the build branch + migrate OIT gate `2800980`
+- **playground:** revive protomaps demos — dead demo-bucket pmtiles -\> API TileJSON `4732c8d`
+- **render:** restore 3D extrusion — route per-feature buildings off cached.extruded, not the retired zBuffer `79c4fbd`
+- **runtime:** surface swallowed validation errors, re-arm on glyph landing, guard layout-cache identity `44d05b5`
+- **pick:** respect layer visibility + center-round DPR coords `befdc58`
+- **label:** close S16 skip staleness — async resource landing + time-driven labels `123caa4`
+- **security:** allow same-origin loopback in the SSRF guard `9e22a1f`
+- **label:** pair curved line-shield icon with its road number `d10cb45`
+- **render:** free per-tile ComputeLayerHandle on tile eviction `7b31ce5`
+- **render:** release line/segment GPU buffers on doUploadTileAsync bail (VRAM leak) `d64b2ec`
+- **map:** prevent destroy-during-load resurrection + re-run device leak `3cfa44c`
+- **matrix:** correct 5 mis-authored blind-cell oracles (false reds; render was correct) `d1caed5`
+- **security:** safeFetch fails closed on browser opaque-redirect `3456819`
+- **pick:** offset fallback-index featureId by +1 to escape sentinel-0 collision `4799bd5`
+- **security:** re-validate SSRF guard across redirect hops via safeFetch `5f6b224`
+- **data:** clip over-zoom points in parent-local frame, not absolute Mercator `1110a04`
+- **pick:** polygon pick write swapped feat_id/layerId channels — pickAt returned null `5c04983`
+- **build:** restore @xgis/{compiler,shared} as runtime devDependencies `0bd620c`
+- **render:** restore e2e→src resolution + harden poly-arena upload vs compaction `03c5485`
+- **render:** poly-arena GPU use-after-free on projection-switch during async tile upload `43ab0b3`
+- **camera:** getDebugSnapshot.matrix uses the render's per-projType view-height cap `837d34c`
+- **mercator:** re-add world-copy offset to flat-Mercator polygon fill arm ([#212](https://github.com/X-GIS/X-GIS/pull/212)) `f87154a`
+- **projection:** close f32 catastrophic cancellation at equirect cross-copy antimeridian ([#210](https://github.com/X-GIS/X-GIS/pull/210)) `245f8b3`
+- **labels:** horizon cull far-hemisphere labels on globe/ECEF path ([#209](https://github.com/X-GIS/X-GIS/pull/209)) `3a49daa`
+- **render:** ellipsoid camera basis in globe RTC offset (z14 blank) ([#208](https://github.com/X-GIS/X-GIS/pull/208)) `5125c18`
+- **render:** keep antimeridian seam-wall on its home lobe (non-merc black wedge) ([#207](https://github.com/X-GIS/X-GIS/pull/207)) `2756ba3`
+- **camera:** preserve flat-disc framing for tilted azimuthal projections ([#206](https://github.com/X-GIS/X-GIS/pull/206)) `b6be8c1`
+- **labels:** world-copy label enumeration for periodic non-mercator projections ([#205](https://github.com/X-GIS/X-GIS/pull/205)) `1712695`
+- **render:** source-honest synthetic disc — smooth rim + polar caps ([#204](https://github.com/X-GIS/X-GIS/pull/204)) `3bfbd91`
+- **projection:** projType-correct unproject for flat non-merc (equirect/NE/oblique) ([#200](https://github.com/X-GIS/X-GIS/pull/200)) `d822efb`
+- **shader:** recentre extruded 3D vertices to camera (globe extrusion collapse) ([#198](https://github.com/X-GIS/X-GIS/pull/198)) `84ae404`
+- **render:** unify ECEF geoid basis — background + extrusion walls to WGS84 ellipsoid ([#194](https://github.com/X-GIS/X-GIS/pull/194)) `f77722f`
+- **gpu:** byte-aware GPUArena eviction + alloc-fail safety net + exact-size free-list ([#193](https://github.com/X-GIS/X-GIS/pull/193)) `908b104`
+
+#### perf
+
+- **render:** mobile pipeline Phase 1 + on-site perf scoreboard ([#667](https://github.com/X-GIS/X-GIS/pull/667)) `64a1658`
+- **render:** short-circuit futile at-ceiling arena eviction (ARENA-OOM lag) ([#410](https://github.com/X-GIS/X-GIS/pull/410)) `3b692b0`
+- **tiler:** clone only style-used feature props worker-\>main, not the full Record (96.8% smaller transfer) ([#375](https://github.com/X-GIS/X-GIS/pull/375)) `4a75c09`
+- **render:** memoize zoom-transition readiness-gate SSE across shows per frame `9a1a85a`
+- **labels:** cache resolveText per (props,zoom,id,geomType) to skip per-frame re-resolve `71bb69c`
+- **render:** gate perf-marks recording behind opt-in flag `8d6d91f`
+- **runtime:** prewarm MVT worker pool for GeoJSON sources `a92f155`
+
+#### refactor
+
+- **shader-dsl:** drop the unused _b builder param from 18 fn bodies ([#557](https://github.com/X-GIS/X-GIS/pull/557)) `d6820df`
+- **shader-dsl:** one neutral emit walk; backends delegate only divergent fragments ([#491](https://github.com/X-GIS/X-GIS/pull/491)) `5b598a5`
+- **shader-dsl:** extract into standalone @xgis/shader-dsl workspace package (PR-C) ([#489](https://github.com/X-GIS/X-GIS/pull/489)) `af7c4f8`
+- **shader-dsl:** drop the last runtime dependency — projections fully host-injected (PR-B) ([#488](https://github.com/X-GIS/X-GIS/pull/488)) `a6ab487`
+- **shader-dsl:** invert projection-table coupling via injected ProjectionSpec (PR-A) ([#487](https://github.com/X-GIS/X-GIS/pull/487)) `3145120`
+- **types:** runtime ShowCommand paint interfaces extend the compiler's (kill drift class) ([#479](https://github.com/X-GIS/X-GIS/pull/479)) `b5dbfdd`
+- Tier-B IR-spine sub-bundle — ShowCommand/RenderNode/shapes/host ([#475](https://github.com/X-GIS/X-GIS/pull/475)) `319d376`
+- parallel-axis registry + dead-code cleanup + god-file decomposition ([#474](https://github.com/X-GIS/X-GIS/pull/474)) `a601eb6`
+- **godfiles:** self-improve Wave 2 — 4 behavior-preserving extractions (−332 LOC) ([#429](https://github.com/X-GIS/X-GIS/pull/429)) `c7e609b`
+- **arch:** Wave 0 — break renderer↔paint cycle + add layer-direction gate ([#428](https://github.com/X-GIS/X-GIS/pull/428)) `484f100`
+- **render:** extract Tier-2 zoom-prefetch from VTR render() (3955→3923) ([#381](https://github.com/X-GIS/X-GIS/pull/381)) `a463457`
+- **compiler:** extract text-layout family from convertSymbolLayer (layers.ts 776-\>254) ([#379](https://github.com/X-GIS/X-GIS/pull/379)) `6b63b18`
+- **compiler:** extract symbol sub-passes + relocate circle from layers.ts (1539-\>776) ([#378](https://github.com/X-GIS/X-GIS/pull/378)) `a982148`
+- **compiler:** extract interpolate + match families from expressions.ts (1574-\>1071) ([#377](https://github.com/X-GIS/X-GIS/pull/377)) `7b1984c`
+- **render:** extract packECEFWithPolarCaps into a shared module ([#361](https://github.com/X-GIS/X-GIS/pull/361)) `07e14d2`
+- **text:** extract TextStageDiagnostics + consolidate helpers (Units 2-3) `13dc946`
+- **text:** extract text-wrap (text-stage decomp Unit 1) `beeac99`
+- **compiler:** extract geometry-sphere (vector-tiler decomp Unit 2) `4d361e5`
+- **compiler:** extract ecef-packing (vector-tiler decomp Unit 1) `942e462`
+- **compiler:** extract expandKeyframeTimeStops (lower.ts decomp Unit 2) `d26c187`
+- **compiler:** extract lowerLabelProps (lower.ts decomp Unit 1) `3495d77`
+- **renderer:** extract PipelineFactory (renderer decomp Unit 1) `e1778d5`
+- **renderer:** extract GraticuleRenderer (renderer decomp Unit 2) `5644cfc`
+- **map:** extract ViewportModeController (map decomp Unit 1) `568e838`
+- **map:** delete OperatorBus side-log — collapse invalidation to _dirty.tag `99112b1`
+- **vtr:** extract BindGroupRegistry (Cluster C; final unit, decomposition complete) `f84b4c7`
+- **vtr:** extract GpuTileStore (Cluster A memory core; re-sequenced Unit 3) `e3b48b3`
+- **vtr:** extract FeatureDataBinder (Cluster D; re-sequenced Unit 2) `a2017ed`
+- **vtr:** extract TileSelectionCache (Unit 1 of VTR decomposition) `804b5d3`
+- **render:** break the map\<-\>render-loop value-import cycle `58ae2a1`
+- **shared:** unify quantizeAxis into @xgis/shared (S19 dedup) `22fdb49`
+- **projection:** extract pure inverse/unproject math into unproject.ts `134a81d`
+- **projection:** extract pure view-matrix math into view-matrix.ts `60e2640`
+- **render:** extract FrameDrawStats from VectorTileRenderer ([#222](https://github.com/X-GIS/X-GIS/pull/222)) `3c2b26d`
+- **render:** extract LabelFeatureSource from VectorTileRenderer ([#221](https://github.com/X-GIS/X-GIS/pull/221)) `49f1b5d`
+- **projection:** route CPU projection literals/kernels onto the SoT ([#197](https://github.com/X-GIS/X-GIS/pull/197)) `5f8eed1`
+- **shader:** extract shared emitPolygonProjectionLadder (byte-equal) ([#196](https://github.com/X-GIS/X-GIS/pull/196)) `989d47c`
+- **projection:** fold scattered projection logic onto the SoT (worldBand/line/text) ([#195](https://github.com/X-GIS/X-GIS/pull/195)) `886678f`
+
+#### docs
+
+- **site:** add six code-grounded concept pages + register in nav ([#706](https://github.com/X-GIS/X-GIS/pull/706)) `a71a680`
+- **CLAUDE:** respond to the user in Korean ([#702](https://github.com/X-GIS/X-GIS/pull/702)) `b35d80a`
+- 전체 문서 현행화 (7-workspace 구조 반영) ([#654](https://github.com/X-GIS/X-GIS/pull/654)) `a3defc0`
+- **shader-dsl:** correct stale polygon Uniforms size 192 → 256 ([#485](https://github.com/X-GIS/X-GIS/pull/485)) `e699e39`
+- pin codebase-memory MCP graph-first for code discovery in CLAUDE.md §6 ([#442](https://github.com/X-GIS/X-GIS/pull/442)) `cb1b3b9`
+- pin render/parity verification (pixel-diff + 16-split) as MANDATORY in CLAUDE.md §5 ([#441](https://github.com/X-GIS/X-GIS/pull/441)) `a06be96`
+- **research:** preserve the 2026-06-09 architecture reckoning + evidence `555e7ea`
+- **research:** next-session handoff for desktop (real-GPU) continuation `ba4cc34`
+- **research:** audit ⑤ compiler↔runtime contract + series index/synthesis `c535ead`
+- **research:** audits ⑦ OIT/compositing, ⑨ performance, ⑩ input/camera/picking `d2013b3`
+- **research:** audit ⑧ — error handling, device-loss recovery & observability `d227a31`
+- **research:** audit ④ — label / text rendering subsystem `6fba6b4`
+- **research:** audit ⑥ — numerical precision & coordinate systems `4197390`
+- **research:** audit batch 1 — async/concurrency, tile+GPU memory, test strategy `54956c9`
+- **research:** shader-pipeline analysis — where the real risk is, vs Blender `2ffe8ed`
+- **research:** why the runtime is hard to debug + costly to extend (Blender-grounded) `10e6cd3`
+- **render:** add depth-ordering oracle design + record dropped in-container paths `476fe4e`
+- **render:** document the deliberate sRGB-blend choice; desktop plans for cap + reversed-Z `e3d049d`
+- **research:** rendering architecture audit + Blender-alignment remediation plan `d55f0f5`
+- trunk-based branching & PR strategy ([#220](https://github.com/X-GIS/X-GIS/pull/220)) `aff9691`
+- **api:** XGISMap public API reference + fix god-object diagram mermaid render ([#216](https://github.com/X-GIS/X-GIS/pull/216)) `40b23da`
+- **architecture:** god-object decomposition strategy + VTR pilot design ([#215](https://github.com/X-GIS/X-GIS/pull/215)) `2b133c3`
+- **packages:** per-package entry READMEs (runtime, compiler, blueprint, shared) ([#214](https://github.com/X-GIS/X-GIS/pull/214)) `5831f19`
+- **architecture:** foundational SE docs — C4, module DAG, ADR log, UML diagrams ([#213](https://github.com/X-GIS/X-GIS/pull/213)) `1ee2808`
+
+#### test
+
+- **spec-coverage:** 8 follow-up per-property render-wiring tests (fill-extrusion + raster) ([#486](https://github.com/X-GIS/X-GIS/pull/486)) `be10c7d`
+- **spec-coverage:** 48 fail-before-proven per-property render-wiring tests ([#484](https://github.com/X-GIS/X-GIS/pull/484)) `e4b27a4`
+- **polygon-fill:** tail format-contract gate pins all producers to tile-local Mercator (#360 prevention) ([#400](https://github.com/X-GIS/X-GIS/pull/400)) `a26b305`
+- **projection:** coordinate error budget — catch f32 precision bugs at design (no GPU) ([#394](https://github.com/X-GIS/X-GIS/pull/394)) `ecec5f2`
+- **render:** CI parity gate for polygon fill flat-Mercator arm (deep-zoom fill/outline split) ([#393](https://github.com/X-GIS/X-GIS/pull/393)) `0ead323`
+- **shared:** add co-located ECEF/quantize guard suite + wire shared into vitest include ([#355](https://github.com/X-GIS/X-GIS/pull/355)) `30402b7`
+- **text:** close the two text-stage blind spots + fix the :602 TS2741 `c1df371`
+- **matrix:** harden the net — 13 promotions, flip-alert fix, depth baseline `28a3049`
+- **matrix:** add real-GPU 3D extrusion depth net (osm-style Shinjuku z16 p60) `b583646`
+- **arch:** add structural ratchet gates (Phase 1 enforcement) `afdb3dd`
+- **matrix:** alert when an expected_red cell flips fully green `3749526`
+- **matrix:** add post_change oracle (under-invalidation guard — invalidation-perf prerequisite) `e262883`
+- **matrix:** add frame_stability oracle (S15 — invalidation-perf prerequisite) `0587c2b`
+- **matrix:** add globe-pole-z5-clean guard; correct the pole-gap note `0a51305`
+- **matrix:** expand no-baseline blind-axis coverage + add finite_mvp oracle `8b82a96`
+- **e2e:** captureCanvas waits for source paint, not loop-start `b01fcb4`
+- **render:** harness M3 — generalize Oracle-B to equirectangular + natural_earth `9b4534f`
+- **render:** harness M2 — expand mutation suite to 4/4 catch-rate `684872f`
+- **render:** render-verification harness milestone-1 (oracle-B mercator) `14adee0`
+- **projection:** disc/globe zoomAt-anchor contracts + controller round-trip gates ([#201](https://github.com/X-GIS/X-GIS/pull/201)) `8d2ff2d`
+- **projection:** author interaction contract gates (G1/G2/G6) for step #8 ([#199](https://github.com/X-GIS/X-GIS/pull/199)) `3089f7f`
+- **e2e:** first globe(7) GPU-render position gate (extruded recentre) ([#203](https://github.com/X-GIS/X-GIS/pull/203)) `9ff155b`
+
+#### ci
+
+- **deploy:** stop playground index.html from clobbering the Astro /play page ([#693](https://github.com/X-GIS/X-GIS/pull/693)) `b5bda12`
+- add typecheck gate (tsc --noEmit) to stop tsc-red merges ([#447](https://github.com/X-GIS/X-GIS/pull/447)) `9e7af62`
+- parallelize vitest into a matrix + skip irrelevant jobs (faster CI) ([#427](https://github.com/X-GIS/X-GIS/pull/427)) `8084c2b`
+- cache playwright browsers + bun store, cancel superseded runs ([#426](https://github.com/X-GIS/X-GIS/pull/426)) `0da1dea`
+- **test:** split the runtime vitest job into 4 shards (onTaskUpdate flake recurrence) ([#385](https://github.com/X-GIS/X-GIS/pull/385)) `9fb2881`
+- **test:** fix --silent flag form — bare flag ate the path filter `1d0b7e0`
+- **test:** re-tune vitest shards + --silent — onTaskUpdate RPC timeout returned `4d1fa91`
+- **render-gate:** add compute-pass parity specs to the SwiftShader gate ([#202](https://github.com/X-GIS/X-GIS/pull/202)) `dd05b81`
+
+#### chore
+
+- commit project-scoped learned skills (.omc/skills carve-out) ([#712](https://github.com/X-GIS/X-GIS/pull/712)) `e84662e`
+- untrack per-machine editor + MCP configs ([#711](https://github.com/X-GIS/X-GIS/pull/711)) `8feddfa`
+- untrack operational artifacts + scratch e2e output ([#710](https://github.com/X-GIS/X-GIS/pull/710)) `07e152a`
+- **dev:** add runtime-package-redesign research + e2e audit probes `ac8a3bb`
+- **tooling:** add codebase-memory MCP config across editors `b0e5af0`
+- **matrix:** refresh 2 stale OFM baselines (natearth-z12, merc-z8-p60) ([#380](https://github.com/X-GIS/X-GIS/pull/380)) `95613fd`
+- **types:** clean standalone/VSCode typecheck — runtime tsc 88 → 0 errors ([#217](https://github.com/X-GIS/X-GIS/pull/217)) `ccf0413`
+
+#### style
+
+- **site:** conform every display head to the weight-400 / sentence-case / negative-tracking standard ([#708](https://github.com/X-GIS/X-GIS/pull/708)) `4848799`
+
+#### other
+
+- GPU-free fixes: compute-gen LUT -1 sentinel (#632) + shader-dsl optimizer passes (#627) ([#685](https://github.com/X-GIS/X-GIS/pull/685)) `1cde78c`
+- playground: align styling with site theme + fix Gallery back-link ([#687](https://github.com/X-GIS/X-GIS/pull/687)) `e6d29d6`
+- shader-dsl: diagnostics / error-DX overhaul ([#656](https://github.com/X-GIS/X-GIS/pull/656)) `8e4d3ed`
+- shader-dsl: make mutation a type-level capability (ReadonlyNode vs Node) ([#661](https://github.com/X-GIS/X-GIS/pull/661)) `f4c4932`
+- shader-dsl: agreement-surface guards + unify condition-dispatch into `when` ([#674](https://github.com/X-GIS/X-GIS/pull/674)) `71ad6f7`
+- shader-dsl: exhaustive integer dispatch (enumU32 + matchEnum) ([#666](https://github.com/X-GIS/X-GIS/pull/666)) `67f0d17`
+- shader-dsl: first-class validated module composition (composeModule) ([#668](https://github.com/X-GIS/X-GIS/pull/668)) `a23565d`
+- Merge pull request #679 from X-GIS/claude/frame-projection-cull-generalize ([#679](https://github.com/X-GIS/X-GIS/pull/679)) `08d6dbd`
+- codegen: refresh stale comments after the single-emit migration ([#680](https://github.com/X-GIS/X-GIS/pull/680)) `1d983c3`
+- Merge pull request #676 from X-GIS/claude/frame-uniform-shared-packer ([#676](https://github.com/X-GIS/X-GIS/pull/676)) `d56072c`
+- Merge pull request #681 from X-GIS/claude/ko-roadmap ([#681](https://github.com/X-GIS/X-GIS/pull/681)) `3a04828`
+- renderer: drop the compiler↔runtime Expr seam cast (single-emit Phase E) ([#677](https://github.com/X-GIS/X-GIS/pull/677)) `7fcff5c`
+- Merge pull request #678 from X-GIS/claude/docs-concept-tocs ([#678](https://github.com/X-GIS/X-GIS/pull/678)) `2429518`
+- Merge pull request #669 from X-GIS/claude/docs-ux-coverage-toc ([#669](https://github.com/X-GIS/X-GIS/pull/669)) `0539cff`
+- Merge pull request #671 from X-GIS/claude/ko-landing-restyle ([#671](https://github.com/X-GIS/X-GIS/pull/671)) `315050b`
+- Merge pull request #673 from X-GIS/claude/ci-skip-engine-on-site ([#673](https://github.com/X-GIS/X-GIS/pull/673)) `9fe151d`
+- codegen: retire the wgslRaw scaffold + legacy string fields (single-emit Phase D) ([#670](https://github.com/X-GIS/X-GIS/pull/670)) `7ea4612`
+- Merge pull request #672 from X-GIS/claude/frame-uniform-writer-completeness ([#672](https://github.com/X-GIS/X-GIS/pull/672)) `5f2b9ff`
+- Merge pull request #663 from X-GIS/claude/geojson-backface-rendering-txtc2b ([#663](https://github.com/X-GIS/X-GIS/pull/663)) `c57023f`
+- codegen: emit fragment match() colours as a matchExpr IR node (single-emit Phase C) ([#665](https://github.com/X-GIS/X-GIS/pull/665)) `3fe9760`
+- Merge pull request #664 from X-GIS/claude/ci-no-duplicate-main-run ([#664](https://github.com/X-GIS/X-GIS/pull/664)) `4c5b5de`
+- Merge pull request #662 from X-GIS/claude/site-widen-layout-header ([#662](https://github.com/X-GIS/X-GIS/pull/662)) `d8bc4d5`
+- codegen: author the compute match LUT as an IR array const (single-emit Phase B) ([#660](https://github.com/X-GIS/X-GIS/pull/660)) `4ba96fd`
+- Merge pull request #659 from X-GIS/claude/site-i18n-language-toggle ([#659](https://github.com/X-GIS/X-GIS/pull/659)) `a742e8a`
+- codegen: remove superseded WGSL-string emitters (single-emit Phase A) ([#658](https://github.com/X-GIS/X-GIS/pull/658)) `3db8204`
+- Merge pull request #657 from X-GIS/claude/site-modernization-layout-wccwtm ([#657](https://github.com/X-GIS/X-GIS/pull/657)) `104f7de`
+- codegen: retire the polygon-preamble WGSL splice (ShaderVariant.preamble → ModuleDecl) ([#653](https://github.com/X-GIS/X-GIS/pull/653)) `5d6fb21`
+- Merge pull request #655 from X-GIS/claude/site-modernization-layout-wccwtm ([#655](https://github.com/X-GIS/X-GIS/pull/655)) `56ec11e`
+- shader-dsl: first-class non-scalar module constants ([#652](https://github.com/X-GIS/X-GIS/pull/652)) `8f8a3fc`
+- codegen: build data-driven color/opacity Nodes via astToNode (Phase C) ([#651](https://github.com/X-GIS/X-GIS/pull/651)) `22ba165`
+- codegen: route compiler shader/compute emission through the shader-dsl IR ([#650](https://github.com/X-GIS/X-GIS/pull/650)) `68e2783`
+- Merge pull request #649 from X-GIS/feat/site-p3-restyle ([#649](https://github.com/X-GIS/X-GIS/pull/649)) `52256cc`
+- Merge pull request #648 from X-GIS/feat/site-playground ([#648](https://github.com/X-GIS/X-GIS/pull/648)) `59d7875`
+- Merge pull request #647 from X-GIS/feat/site-why ([#647](https://github.com/X-GIS/X-GIS/pull/647)) `d9d1d68`
+- Merge pull request #646 from X-GIS/feat/site-globe-concept ([#646](https://github.com/X-GIS/X-GIS/pull/646)) `287ce63`
+- Merge pull request #645 from X-GIS/feat/site-p2-roadmap ([#645](https://github.com/X-GIS/X-GIS/pull/645)) `3c9c671`
+- Merge pull request #644 from X-GIS/feat/site-home-p1 ([#644](https://github.com/X-GIS/X-GIS/pull/644)) `5683c9f`
+- Merge pull request #643 from X-GIS/feat/site-kit ([#643](https://github.com/X-GIS/X-GIS/pull/643)) `0e883f8`
+- Merge pull request #642 from X-GIS/feat/site-rebuild-plan ([#642](https://github.com/X-GIS/X-GIS/pull/642)) `284f559`
+- Merge pull request #641 from X-GIS/fix/site-xai-accent-white ([#641](https://github.com/X-GIS/X-GIS/pull/641)) `a863076`
+- Merge pull request #640 from X-GIS/feat/site-xai-wave3 ([#640](https://github.com/X-GIS/X-GIS/pull/640)) `d51e94f`
+- Merge pull request #639 from X-GIS/feat/site-xai-wave2-hero ([#639](https://github.com/X-GIS/X-GIS/pull/639)) `12898b4`
+- Merge pull request #638 from X-GIS/feat/site-xai-foundation ([#638](https://github.com/X-GIS/X-GIS/pull/638)) `9e73b4e`
+- Merge pull request #637 from X-GIS/feat/site-design-system ([#637](https://github.com/X-GIS/X-GIS/pull/637)) `ad5d6aa`
+- Merge pull request #636 from X-GIS/feat/site-foundation-i18n-blog ([#636](https://github.com/X-GIS/X-GIS/pull/636)) `6734fbf`
+- Merge pull request #635 from X-GIS/fix/match-ir-runtime-tests ([#635](https://github.com/X-GIS/X-GIS/pull/635)) `d1756bf`
+- Merge pull request #634 from X-GIS/feat/site-full-shader-stage ([#634](https://github.com/X-GIS/X-GIS/pull/634)) `f9739ec`
+- Merge pull request #633 from X-GIS/fix/site-shader-dsl-pipeline ([#633](https://github.com/X-GIS/X-GIS/pull/633)) `b67fe22`
+- Merge pull request #631 from X-GIS/feat/compute-gen-match-ir ([#631](https://github.com/X-GIS/X-GIS/pull/631)) `8c5c87e`
+- Merge pull request #630 from X-GIS/feat/shader-dsl-opt-levels-measure ([#630](https://github.com/X-GIS/X-GIS/pull/630)) `fb9a44c`
+- Merge pull request #623 from X-GIS/feat/shader-dsl-more-examples ([#623](https://github.com/X-GIS/X-GIS/pull/623)) `9ff164e`
+- Merge pull request #629 from X-GIS/feat/compute-gen-ir ([#629](https://github.com/X-GIS/X-GIS/pull/629)) `7110ef3`
+- Merge pull request #624 from X-GIS/feat/shader-dsl-local-cse ([#624](https://github.com/X-GIS/X-GIS/pull/624)) `29fff22`
+- Merge pull request #622 from X-GIS/feat/glsl-backend-optimizer ([#622](https://github.com/X-GIS/X-GIS/pull/622)) `5f6bb24`
+- Merge pull request #621 from X-GIS/refactor/shader-dsl-glsl-sanitize-split ([#621](https://github.com/X-GIS/X-GIS/pull/621)) `f47c65f`
+- Merge pull request #620 from X-GIS/feat/shader-dsl-stdlib-builtins ([#620](https://github.com/X-GIS/X-GIS/pull/620)) `842e46b`
+- Merge pull request #619 from X-GIS/feat/shader-precompute-logdepth ([#619](https://github.com/X-GIS/X-GIS/pull/619)) `17157fb`
+- Merge pull request #618 from X-GIS/refactor/uniform-reflect-migration ([#618](https://github.com/X-GIS/X-GIS/pull/618)) `26ac3c8`
+- Merge pull request #617 from X-GIS/fix/mercator-pan-inertia-basis ([#617](https://github.com/X-GIS/X-GIS/pull/617)) `1c9d893`
+- Merge pull request #615 from X-GIS/fix/globe-eye-unwritten-cull ([#615](https://github.com/X-GIS/X-GIS/pull/615)) `28d1766`
+- Merge pull request #612 from X-GIS/fix/graticule-eager-uniform-size ([#612](https://github.com/X-GIS/X-GIS/pull/612)) `83365ae`
+- Merge pull request #611 from X-GIS/feat/rhi-beginrenderpass-p0-3 ([#611](https://github.com/X-GIS/X-GIS/pull/611)) `b36e6af`
+- Merge pull request #610 from X-GIS/fix/demo-qa-sweep ([#610](https://github.com/X-GIS/X-GIS/pull/610)) `d6750fd`
+- Merge pull request #593 from X-GIS/feat/rhi-vertex-offset-p0-2 ([#593](https://github.com/X-GIS/X-GIS/pull/593)) `b13bc23`
+- Merge pull request #592 from X-GIS/feat/rhi-stencil-p0 ([#592](https://github.com/X-GIS/X-GIS/pull/592)) `410c198`
+- Merge pull request #591 from X-GIS/feat/compute-gen-ir-retarget ([#591](https://github.com/X-GIS/X-GIS/pull/591)) `a45908e`
+- Merge pull request #590 from X-GIS/feat/compiler-consume-shader-dsl ([#590](https://github.com/X-GIS/X-GIS/pull/590)) `5c4563d`
+- Merge pull request #589 from X-GIS/chore/shaderdsl-charter-tier0 ([#589](https://github.com/X-GIS/X-GIS/pull/589)) `dbd9f22`
+- Merge pull request #581 from X-GIS/feat/rhi-render-layer ([#581](https://github.com/X-GIS/X-GIS/pull/581)) `262917b`
+- Merge pull request #588 from X-GIS/fix/globe-backface-occluder ([#588](https://github.com/X-GIS/X-GIS/pull/588)) `0569cb0`
+- Merge pull request #586 from X-GIS/fix/main-render-bugs ([#586](https://github.com/X-GIS/X-GIS/pull/586)) `b4c1183`
+- Merge pull request #580 from X-GIS/fix/interaction-bugs-13 ([#580](https://github.com/X-GIS/X-GIS/pull/580)) `f9b0e96`
+- Merge pull request #579 from X-GIS/fix/library-bughunt-10 ([#579](https://github.com/X-GIS/X-GIS/pull/579)) `7528f5e`
+- Merge pull request #578 from X-GIS/site/landing-content ([#578](https://github.com/X-GIS/X-GIS/pull/578)) `b5f55c6`
+- Merge pull request #577 from X-GIS/site/hero-map-bg ([#577](https://github.com/X-GIS/X-GIS/pull/577)) `40351f5`
+- Merge pull request #576 from X-GIS/site/react-shadcn ([#576](https://github.com/X-GIS/X-GIS/pull/576)) `8f5b85d`
+- Merge pull request #575 from X-GIS/site/style-unify ([#575](https://github.com/X-GIS/X-GIS/pull/575)) `e17e369`
+- Merge remote-tracking branch 'origin/main' `73ddadb`
+- Merge remote-tracking branch 'origin/main' into feat/shader-dsl-compile-optimizer `b709ad9`
+- Merge pull request #572 from X-GIS/claude/epic-mayer-ewb9kl ([#572](https://github.com/X-GIS/X-GIS/pull/572)) `963d595`
+- Merge pull request #571 from X-GIS/claude/epic-mayer-ewb9kl ([#571](https://github.com/X-GIS/X-GIS/pull/571)) `8dfde73`
+- Merge pull request #570 from X-GIS/fix/shader-dsl-glsl-bare-params ([#570](https://github.com/X-GIS/X-GIS/pull/570)) `7f1e377`
+- Merge pull request #569 from X-GIS/feat/shader-dsl-dogfooding ([#569](https://github.com/X-GIS/X-GIS/pull/569)) `844731b`
+- Merge Phase 3: drive point bind-group layout + uniform packing from shader-dsl reflection `4fba9a0`
+- Merge Phase 2: standalone-product (dist wiring + clean rebuild + README + examples + LICENSE) `ff013f2`
+- Merge Phase 1: emitModuleWithReflection (byte-identical) — verified tsc 0, suite 0-fail, snapshots untouched `97da4ba`
+- Merge pull request #568 from X-GIS/feat/shader-dsl-reflection-phase0 ([#568](https://github.com/X-GIS/X-GIS/pull/568)) `b60b898`
+- Merge pull request #567 from X-GIS/fix/render-gate-arm-revert-token ([#567](https://github.com/X-GIS/X-GIS/pull/567)) `d2a4dbe`
+- Merge pull request #566 from X-GIS/refactor/shader-dsl-move-shaders-to-runtime ([#566](https://github.com/X-GIS/X-GIS/pull/566)) `b8f0d83`
+- Merge pull request #565 from X-GIS/refactor/shader-dsl-emit-module-driver ([#565](https://github.com/X-GIS/X-GIS/pull/565)) `579f0e7`
+- Merge pull request #564 from X-GIS/refactor/shader-dsl-undeprecate-parity-accessors ([#564](https://github.com/X-GIS/X-GIS/pull/564)) `9e78529`
+- Merge pull request #561 from X-GIS/claude/practical-mendel-bbvaiv ([#561](https://github.com/X-GIS/X-GIS/pull/561)) `1cac108`
+- Merge pull request #563 from X-GIS/docs/agents-md-drift-reconcile ([#563](https://github.com/X-GIS/X-GIS/pull/563)) `4051ef1`
+- Merge pull request #562 from X-GIS/docs/deepinit-shader-dsl-package ([#562](https://github.com/X-GIS/X-GIS/pull/562)) `b5fe3ed`
+- Merge pull request #560 from X-GIS/claude/practical-mendel-bbvaiv ([#560](https://github.com/X-GIS/X-GIS/pull/560)) `6357232`
+- Merge pull request #559 from X-GIS/claude/practical-mendel-bbvaiv ([#559](https://github.com/X-GIS/X-GIS/pull/559)) `c8d29ae`
+- Merge pull request #558 from X-GIS/docs/shader-dsl-authoring-guide ([#558](https://github.com/X-GIS/X-GIS/pull/558)) `172760a`
+- Merge pull request #555 from X-GIS/refactor/shader-dsl-callfn-handles ([#555](https://github.com/X-GIS/X-GIS/pull/555)) `b7da3a8`
+- Merge pull request #554 from X-GIS/refactor/shader-dsl-const-handles ([#554](https://github.com/X-GIS/X-GIS/pull/554)) `546c9b8`
+- Merge pull request #553 from X-GIS/feat/shader-dsl-radians-degrees ([#553](https://github.com/X-GIS/X-GIS/pull/553)) `4de8cef`
+- Merge pull request #552 from X-GIS/feat/shader-dsl-literal-lift-w2 ([#552](https://github.com/X-GIS/X-GIS/pull/552)) `84d4752`
+- Merge pull request #551 from X-GIS/refactor/shader-dsl-assign-method ([#551](https://github.com/X-GIS/X-GIS/pull/551)) `8dc3615`
+- Merge pull request #550 from X-GIS/feat/shader-dsl-set-method ([#550](https://github.com/X-GIS/X-GIS/pull/550)) `f705a0b`
+- Merge pull request #549 from X-GIS/feat/shader-dsl-switch-builder ([#549](https://github.com/X-GIS/X-GIS/pull/549)) `b8f978b`
+- Merge pull request #548 from X-GIS/feat/shader-dsl-literal-lift ([#548](https://github.com/X-GIS/X-GIS/pull/548)) `a379be4`
+- Merge pull request #547 from X-GIS/refactor/shader-dsl-infer-types ([#547](https://github.com/X-GIS/X-GIS/pull/547)) `545b6ee`
+- Merge pull request #546 from X-GIS/refactor/shader-dsl-strip-names ([#546](https://github.com/X-GIS/X-GIS/pull/546)) `0efe082`
+- Merge pull request #545 from X-GIS/refactor/shader-dsl-unify-fn ([#545](https://github.com/X-GIS/X-GIS/pull/545)) `1692aeb`
+- Merge pull request #544 from X-GIS/refactor/shader-dsl-field-getter ([#544](https://github.com/X-GIS/X-GIS/pull/544)) `2841427`
+- Merge pull request #543 from X-GIS/feat/shader-dsl-var-elimination ([#543](https://github.com/X-GIS/X-GIS/pull/543)) `36039db`
+- Merge pull request #542 from X-GIS/feat/shader-dsl-fold-reduce ([#542](https://github.com/X-GIS/X-GIS/pull/542)) `a35f7a4`
+- Merge pull request #541 from X-GIS/refactor/shader-dsl-sot-line-polygon ([#541](https://github.com/X-GIS/X-GIS/pull/541)) `ef03f11`
+- Merge pull request #540 from X-GIS/feat/shader-dsl-auto-bind-cse ([#540](https://github.com/X-GIS/X-GIS/pull/540)) `b17cdd0`
+- Merge pull request #539 from X-GIS/feat/shader-dsl-fn-optional-name-typed-resource ([#539](https://github.com/X-GIS/X-GIS/pull/539)) `06fd426`
+- Merge pull request #538 from X-GIS/refactor/shader-dsl-decl-merge-rest ([#538](https://github.com/X-GIS/X-GIS/pull/538)) `40c7efc`
+- Merge pull request #537 from X-GIS/refactor/shader-dsl-polygon-decl-merge ([#537](https://github.com/X-GIS/X-GIS/pull/537)) `632fed9`
+- Merge pull request #536 from X-GIS/refactor/shader-dsl-projection-callfn ([#536](https://github.com/X-GIS/X-GIS/pull/536)) `c0f0026`
+- Merge pull request #535 from X-GIS/feat/shader-dsl-optional-binding-names ([#535](https://github.com/X-GIS/X-GIS/pull/535)) `697c891`
+- Merge pull request #534 from X-GIS/feat/shader-dsl-typed-object-param ([#534](https://github.com/X-GIS/X-GIS/pull/534)) `ed22dd6`
+- Merge pull request #533 from X-GIS/refactor/shader-dsl-callfn-crossfile-stable ([#533](https://github.com/X-GIS/X-GIS/pull/533)) `7e4c43b`
+- Merge pull request #532 from X-GIS/refactor/shader-dsl-callfn-direct-samefile ([#532](https://github.com/X-GIS/X-GIS/pull/532)) `5a61139`
+- Merge pull request #531 from X-GIS/feat/shader-dsl-fn-callable ([#531](https://github.com/X-GIS/X-GIS/pull/531)) `ef9b817`
+- Merge pull request #530 from X-GIS/refactor/shader-dsl-tsl-params-first ([#530](https://github.com/X-GIS/X-GIS/pull/530)) `e8dfd11`
+- Merge pull request #529 from X-GIS/refactor/shader-dsl-c2-ambient-godfiles ([#529](https://github.com/X-GIS/X-GIS/pull/529)) `c4ad4ff`
+- Merge pull request #528 from X-GIS/feat/shader-dsl-swizzle-getters ([#528](https://github.com/X-GIS/X-GIS/pull/528)) `3eea2a0`
+- Merge pull request #527 from X-GIS/refactor/shader-dsl-sot-storage-bindings ([#527](https://github.com/X-GIS/X-GIS/pull/527)) `0273d62`
+- Merge pull request #526 from X-GIS/test/absorbed-fn-gpu-parity ([#526](https://github.com/X-GIS/X-GIS/pull/526)) `b5d2c87`
+- Merge pull request #525 from X-GIS/fix/shader-dsl-cpu-mix-broadcast ([#525](https://github.com/X-GIS/X-GIS/pull/525)) `fe7efcf`
+- Merge pull request #524 from X-GIS/feat/shader-dsl-rastercolor-absorb-cpu-fixes ([#524](https://github.com/X-GIS/X-GIS/pull/524)) `0581696`
+- Merge pull request #523 from X-GIS/feat/shader-dsl-ecef-absorb ([#523](https://github.com/X-GIS/X-GIS/pull/523)) `ffa2124`
+- Merge pull request #522 from X-GIS/refactor/shader-dsl-sot-godfiles ([#522](https://github.com/X-GIS/X-GIS/pull/522)) `e5c8331`
+- Merge pull request #521 from X-GIS/refactor/shader-dsl-sot-rollout-small ([#521](https://github.com/X-GIS/X-GIS/pull/521)) `1755c46`
+- Merge pull request #520 from X-GIS/feat/shader-dsl-sot-storagebuffer ([#520](https://github.com/X-GIS/X-GIS/pull/520)) `e564419`
+- Merge pull request #519 from X-GIS/refactor/shader-dsl-sot-rollout ([#519](https://github.com/X-GIS/X-GIS/pull/519)) `cbc42c8`
+- Merge pull request #518 from X-GIS/feat/shader-dsl-sot-uniformstruct ([#518](https://github.com/X-GIS/X-GIS/pull/518)) `eb49eb6`
+- Merge pull request #517 from X-GIS/feat/shader-dsl-sot-iostruct ([#517](https://github.com/X-GIS/X-GIS/pull/517)) `0b81383`
+- Merge pull request #516 from X-GIS/fix/shader-dsl-validate-core-rules-only ([#516](https://github.com/X-GIS/X-GIS/pull/516)) `4655ad6`
+- Merge pull request #515 from X-GIS/refactor/shader-dsl-c2-rollout-shaders ([#515](https://github.com/X-GIS/X-GIS/pull/515)) `fa4283b`
+- Merge pull request #514 from X-GIS/feat/shader-dsl-lint-self-assign-fix ([#514](https://github.com/X-GIS/X-GIS/pull/514)) `01974dd`
+- Merge pull request #513 from X-GIS/feat/shader-dsl-lint-autofix ([#513](https://github.com/X-GIS/X-GIS/pull/513)) `1007434`
+- Merge pull request #512 from X-GIS/feat/shader-dsl-lint-report-unused-deviations ([#512](https://github.com/X-GIS/X-GIS/pull/512)) `8e439eb`
+- Merge pull request #511 from X-GIS/feat/shader-dsl-lint-big-shaders ([#511](https://github.com/X-GIS/X-GIS/pull/511)) `0567343`
+- Merge pull request #510 from X-GIS/feat/shader-dsl-static-analysis-report ([#510](https://github.com/X-GIS/X-GIS/pull/510)) `7ad3324`
+- Merge pull request #509 from X-GIS/feat/shader-dsl-lint-rules-batch ([#509](https://github.com/X-GIS/X-GIS/pull/509)) `2e8fda3`
+- Merge pull request #508 from X-GIS/refactor/shader-dsl-lint-rules-per-file ([#508](https://github.com/X-GIS/X-GIS/pull/508)) `a9459f7`
+- Merge pull request #507 from X-GIS/feat/shader-dsl-lint-presets-formatter ([#507](https://github.com/X-GIS/X-GIS/pull/507)) `7103081`
+- Merge pull request #506 from X-GIS/feat/shader-dsl-lint-rules-options ([#506](https://github.com/X-GIS/X-GIS/pull/506)) `a0e3250`
+- Merge pull request #505 from X-GIS/feat/shader-dsl-lint-engine-advanced ([#505](https://github.com/X-GIS/X-GIS/pull/505)) `532a8ce`
+- Merge pull request #504 from X-GIS/feat/shader-dsl-lint-engine ([#504](https://github.com/X-GIS/X-GIS/pull/504)) `b7005aa`
+- Merge pull request #503 from X-GIS/feat/shader-dsl-misra-single-exit ([#503](https://github.com/X-GIS/X-GIS/pull/503)) `b8cc07b`
+- Merge pull request #502 from X-GIS/fix/shader-dsl-explicit-early-return-returnif ([#502](https://github.com/X-GIS/X-GIS/pull/502)) `8d1918e`
+- Merge pull request #501 from X-GIS/feat/shader-dsl-consistent-native-return ([#501](https://github.com/X-GIS/X-GIS/pull/501)) `f00d4a3`
+- Merge pull request #500 from X-GIS/refactor/shader-dsl-c2-rollout-line2 ([#500](https://github.com/X-GIS/X-GIS/pull/500)) `131bb9b`
+- Merge pull request #499 from X-GIS/feat/shader-dsl-define-fn ([#499](https://github.com/X-GIS/X-GIS/pull/499)) `5a5ed8a`
+- Merge pull request #498 from X-GIS/feat/shader-dsl-typed-field-accessor ([#498](https://github.com/X-GIS/X-GIS/pull/498)) `7848398`
+- Merge pull request #497 from X-GIS/feat/shader-dsl-native-return ([#497](https://github.com/X-GIS/X-GIS/pull/497)) `250c4b7`
+- Merge pull request #496 from X-GIS/refactor/shader-dsl-c2-rollout-line ([#496](https://github.com/X-GIS/X-GIS/pull/496)) `62ed3d1`
+- Merge pull request #495 from X-GIS/feat/shader-dsl-readability-helpers-canary ([#495](https://github.com/X-GIS/X-GIS/pull/495)) `c6241ef`
+- Merge pull request #494 from X-GIS/feat/shader-dsl-readability-c2-ambient-builder ([#494](https://github.com/X-GIS/X-GIS/pull/494)) `2da87dd`
+- Merge pull request #493 from X-GIS/fix/shader-dsl-validate-opacity-and-gpu-verify ([#493](https://github.com/X-GIS/X-GIS/pull/493)) `8e0170e`
+- Merge pull request #492 from X-GIS/feat/shader-dsl-tsl-redesign ([#492](https://github.com/X-GIS/X-GIS/pull/492)) `860c1e4`
+- shader-dsl backend-agnostic: architecture design + S0 (writer/pass/oracle separation) ([#490](https://github.com/X-GIS/X-GIS/pull/490)) `ba51669`
+- Revert "fix(tiler): overlap adjacent fill tiles to close the inter-tile MSAA seam on the globe (#372)" ([#373](https://github.com/X-GIS/X-GIS/pull/373)) `72d8faf`
+- @ fix(data): reject in-flight MVT compiles when a worker crashes `8340cc3`
+- @ fix(point-shader): mask size_mode field so non-pixel marker size survives non-center anchor `785449c`
+- merge(main): integrate #218 arena defrag (70bf1dfe) with UAF fix + ship-P0 + harness `5852464`
+- merge(ship): land ship-P0 8/8 + deepinit + packaging onto main `c02c6dd`
+- Fix natural_earth antimeridian black-wedge: NE-lobe wrap in project_geom ([#211](https://github.com/X-GIS/X-GIS/pull/211)) `52d609c`
+
+### 2026-05
+
+#### feat
+
+- **projection:** cap orthographic flat MVP view-height at 2·EARTH_R (z0 disc fills) `fc0fc19`
+- **perf:** wire adaptive-DPR interaction flag into the render loop (P0 0.5) `79825da`
+- **resilience:** graceful WebGPU-unavailable handling (P0 0.3a) `f3d39a2`
+- **lifecycle:** public map.destroy() teardown keystone (P0 0.1) `4c09615`
+- **security:** untrusted-input hardening trio + XGISError taxonomy (P0 0.2) `dd2e23e`
+- **projection:** generalize flat display to all flat projTypes (1-6) — Phase 2 `a2c136e`
+- **projection:** restore flat 2D Mercator display over ECEF data (projType 0) `bde686b`
+- **uniform:** retire dual-MVP — delete u.mvp + rename u.mvp_ecef→u.mvp (Phase 2 closeout) ([#178](https://github.com/X-GIS/X-GIS/pull/178)) `1554074`
+- **projection:** retire reprojector.ts (Phase 2 PR 2e) ([#177](https://github.com/X-GIS/X-GIS/pull/177)) `c1c3e96`
+- **label:** CPU anchor projector ECEF migration (Phase 2 PR 2d.4) ([#176](https://github.com/X-GIS/X-GIS/pull/176)) `984a328`
+- **raster:** vs_tile ECEF migration (Phase 2 PR 2d.3) ([#175](https://github.com/X-GIS/X-GIS/pull/175)) `3cab0e8`
+- **point:** sub-tile + label-feature stride-9 + ECEF point fuzz test (Phase 2 PR 2d.2 follow-up) ([#174](https://github.com/X-GIS/X-GIS/pull/174)) `3af588c`
+- **point:** POINT VS ECEF migration + packECEFPointFeatures (Phase 2 PR 2d.2) ([#173](https://github.com/X-GIS/X-GIS/pull/173)) `80e51ae`
+- **line:** vs_main ECEF rewrite + graticule ECEF + snapshot regen (Phase 2 PR 2d.1D) ([#172](https://github.com/X-GIS/X-GIS/pull/172)) `43852b9`
+- **line:** vs_line ECEF clip + hybrid Mercator varying (Phase 2 PR 2d.1C) ([#171](https://github.com/X-GIS/X-GIS/pull/171)) `b5b466c`
+- **line:** packECEFLineSegments stride 8→11 + per-vertex ENU offset bake (Phase 2 PR 2d.1B) ([#169](https://github.com/X-GIS/X-GIS/pull/169)) `a4f7a41`
+- **line:** LineSegment stride 20→26 + CPU-baked corner ENU offset (Phase 2 PR 2d.1A) ([#168](https://github.com/X-GIS/X-GIS/pull/168)) `e3d05a5`
+- **line:** ENU-tangent validation test — stride-26 vs stride-30 decision (Phase 2 PR 2d.1 Spike 2) ([#167](https://github.com/X-GIS/X-GIS/pull/167)) `a8dc3a7`
+- **compiler:** add packECEFLineSegments helper + precision fuzz test (Phase 2 PR 2d.1 Spike 1) ([#166](https://github.com/X-GIS/X-GIS/pull/166)) `75ce1d4`
+- **map:** setBackgroundFill(null) lifecycle teardown + polygon snapshot regen (Phase 2 PR 2c.3.C) ([#165](https://github.com/X-GIS/X-GIS/pull/165)) `976dce9`
+- **projection:** TILE_LAYOUT_VERSION + earth-surface fill mesh generator (Phase 2 PR 2c-prep) ([#158](https://github.com/X-GIS/X-GIS/pull/158)) `52c7f0b`
+- **camera:** ECEF anchor + ENU rotation accessors (Phase 2 PR 2b) ([#157](https://github.com/X-GIS/X-GIS/pull/157)) `4a46a27`
+- **projection:** ECEF math layer + earth-surface fill design + cache-version audit (Phase 2 PR 2a) ([#156](https://github.com/X-GIS/X-GIS/pull/156)) `4729613`
+- **runtime:** OIT compose to polygon DSL + texture_multisampled_2d ShaderType (PR-D Phase 4+ wave 3) `b491e00`
+- **runtime:** overdraw-fs + frame-uniform + AGENTS.md to polygon DSL (PR-D Phase 4+ wave 2) `12e7aba`
+- **runtime:** overdraw debug compose to polygon DSL + textureLoad/textureDimensions/vec2i primitives (PR-D Phase 4+) `707b72f`
+- **runtime:** DELETE renderer-shaders.ts + migrate uniform/vertex layout tests to polygon DSL emit (Phase 2.5 US-010 closeout) `013414e`
+- **runtime:** US-010 polygon DSL composer drift gate + shared fixture module `8899c3f`
+- **site:** dev HTTPS + dynamic playground host for mobile WiFi access `871209f`
+- **runtime:** structured host-routable engine log (observability) `0467508`
+- **runtime:** GPU device-loss resilience (deep-dive robustness) `cf1dad1`
+- **runtime:** EPSG-based input data reprojection (MVP) `4c3a151`
+- **debug:** icon-box dump + text-vs-box alignment check (iter 343) `f8c25c9`
+- **debug:** render-y aware label analyzer + per-glyph metrics (iter 332) `80bbfad`
+- **playground:** mobile label-debug page (iter 331) `2c4e912`
+- **text:** label dump exposes bearingY/height/rfs — setDraws-input probe (iter 329) `59dbf3c`
+- **text:** live per-glyph placement dump for label-scatter diagnosis (iter 327) `44186e8`
+- **cache:** compile-time enforced BundleKeyState (iter 283) `fa170d3`
+- **cache:** VersionedState + Epoch — Lamport-style cache invalidation (iter 282) `203ba8e`
+- **cache:** structural cache key utility (iter 281) `b7d5b71`
+- **profile:** iter-263 — perf-marks per-frame budget (proper sub-mark math) `c681267`
+- **profile:** iter-257+258 — encoder sub-phase drill-down (Plan AAA C.3) `b222adf`
+- **profile:** iter-256 (Plan AAA C.3) — per-phase timing instrumentation `927db05`
+- **profile:** iter-240 (Plan AAA C.2) — alloc-counter diagnostic + hot-site tagging `047f213`
+- **gpu:** iter-239 (Plan AAA B.1) — FrameArena CPU-side bump allocator `9e6fca0`
+- **stats:** iter-235 (Plan C.1) — heap-delta allocation diagnostic `ce971b7`
+- **stats:** iter-229 — per-frame executeBundles call count `199c1ac`
+- **stats:** iter-228 — surface BundleCache LRU evictions `2f35934`
+- **bundle-cache:** iter-227 LRU cap + eviction stats `ccc3e1f`
+- **stats-ui:** iter-223 — StatsPanel shows Bundle hits + hit-rate `d1afa31`
+- **stats:** iter-222 RB.B follow-up — bundle hit/miss stats exposure `1db2c5a`
+- **vtr:** iter-221 Phase RB.B.9 — VTR fallback path bundle wrap `4a2adc4`
+- **vtr:** iter-220 Phase RB.B.8 — VTR primary call bundle wrap (the actual win) `13a45d0`
+- **render:** iter-213 RB.B — BackgroundRenderer bundle integration `a72ca45`
+- **render:** iter-212 RB.B foundation — BundleCache class + unit tests `8761d19`
+- **vtr:** iter-210 Phase 6a.4 — z-buffer arena migration `1dfe89c`
+- **vtr:** iter-209 Phase 6a.3 — polygon index arena migration `d54e39b`
+- **vtr:** iter-208 Phase 6a.2 — polygon vertex arena migration `f6548a4`
+- **gpu:** iter-207 GPUArena utility — Phase 6a.1 foundation `09cec84`
+- **compiler:** iter-204B — CSE canonical match arm sort `ce3bf13`
+- **compiler:** Phase D.1 — transparent-fill drop with pointerEvents guard (iter 203) `bad7c44`
+- **compiler:** Phase C.2 — compute-plan kernel dedup via cseId (iter 202) `f32d3c7`
+- **compiler:** Phase C.1 — cse-annotate IR pass (iter 201) `041ad36`
+- **compiler:** Phase B — PassGroup fixpoint API + DCE group (iter 200) `dda032b`
+- **compiler:** Phase A — IR-level `dead-source-elim` pass (iter 199) `de22240`
+- **compiler:** iter-198 dead-source drop — early DCE for unreferenced sources `b1a831d`
+- **extrude:** MapLibre-equivalent face-normal directional lighting (iter 194) `da2979a`
+- **fill-extrusion-pattern-stage2:** extruded UV-tiled sprite (iter 186) `b619b3d`
+- **line-pattern-stage2:** UV-tiled sprite atlas in line shader (iter 185) `1c10182`
+- **fill-pattern-stage2:** wire pattern pipeline routing + per-show UV / repeat resolve (iter 183) `f9f4ad7`
+- **fill-extrusion-translate:** Stage 1 — route through addFillTranslate (iter 180) `bbd891a`
+- **fill-extrusion-pattern:** Stage 1 — sprite centre pixel as wall colour (iter 179) `8add6bd`
+- **line-pattern:** Stage 1 — sprite centre pixel as line colour (iter 178) `a7f807a`
+- **fill-pattern:** Stage 1 — sprite centre pixel as fill colour (iter 177) `269ca2e`
+- **eval:** §11 data-driven interpolate-lab/hcl runtime evaluator (iter 164) `f381fbf`
+- **icon:** icon-color SDF sprite tint end-to-end (iter 138, §4) `3522e26`
+- **color:** densify exponential interpolate-lab/hcl (iter 137, §11) `5a364cb`
+- **text-opacity, icon-opacity:** zoom-interp + data-driven (iter 113) `bd675f9`
+- **diag:** getDispatchedLabelTexts diagnostic + texas-shield dispatch isolation `af971b5`
+- **convert:** mirror cubic-bezier x-range CSS gate to data-driven path `b1d448e`
+- **convert:** warn on cubic-bezier x control points outside [0, 1] `08e3954`
+- **convert:** warn on negative text-max-width `7a70f85`
+- **convert:** promote circle-blur gap to specific warning `dc0e28a`
+- **convert:** warn on negative line-miter-limit `75a93cf`
+- **convert:** warn on symbol-spacing \<= 0 `6bceb6a`
+- **convert:** warn on negative text-halo-blur `d1c488f`
+- **convert:** warn on negative text-halo-width + circle-stroke-width `a62ee0d`
+- **convert:** warn on negative line-blur `5163f61`
+- **convert:** warn on negative fill-extrusion-base `4c98660`
+- **convert:** promote symbol-z-order + symbol-avoid-edges to specific warnings `7c510f8`
+- **convert:** promote text-writing-mode + text-max-angle to specific warnings `b469754`
+- **convert:** promote icon-halo + icon-text-fit gaps to specific warnings `4341e9b`
+- **convert:** promote icon-color gap from generic to specific warning `7d2053e`
+- **convert:** extend negative-clamp warnings to text-padding + text-line-height `a5bc7b0`
+- **convert:** warn on out-of-range opacity values `95e04fd`
+- **convert:** extend negative-clamp warnings to circle-radius + fill-extrusion-height `73b7085`
+- **convert:** warn when text-size / line-width are negative `ede2c62`
+- **convert:** warn on exponential interpolate base \<= 0 `e7acb47`
+- **convert:** warn on malformed cubic-bezier control point count `eece0a5`
+- **convert:** warn on icon-rotation-alignment unknown enum value `daaa4f0`
+- **convert:** warn when text-font is not an array `f8b9dd9`
+- **convert:** warn on source scheme unknown value `9eccb1d`
+- **convert:** warn on unknown interpolate curve type `46a9635`
+- **convert:** warn on let with duplicate binding names `32ffabd`
+- **convert:** spec-strict gate for duplicate match labels `0d950ef`
+- **convert:** extend monotonicity gate to step stops `e3c4b27`
+- **convert:** spec-strict gate for non-monotonic interpolate stops `f7ec604`
+- **convert:** densify cubic-bezier + Lab/LCh on data-driven path `a0d942c`
+- **convert:** compile-time Lab / LCh stop densification `41c6ada`
+- **convert:** compile-time cubic-bezier stop densification `003cef9`
+- **capabilities:** expand runtime capability table to 0 orphans `5ea8430`
+- **convert:** icon-pitch-alignment default suppression `2bd2cd9`
+- **convert:** circle pitch-alignment / pitch-scale default suppression `9cb0dbf`
+- **convert:** circle-translate-anchor default + parent-absent suppression `0aedc3d`
+- **convert:** extend SPEC_DEFAULT_NO_WARN to *-translate-anchor 'viewport' `01ffc16`
+- **convert:** background-opacity constant fold into hex alpha `fcc0dbb`
+- **convert:** fill-extrusion-pattern surfaces dropped-pattern warning `11f5077`
+- **convert:** fill-pattern + fill-color surfaces dropped-pattern warning `dd5e581`
+- **convert:** line-pattern + line-color surfaces dropped-pattern warning `d336c74`
+- **convert:** specific icon-translate gap warning `3ac494c`
+- **convert:** specific circle-translate gap warning `a0e5c71`
+- **convert:** specific fill-extrusion-translate gap warning `3b4c061`
+- **convert:** specific line-translate gap warning `8b1ed64`
+- **e2e:** scenario fixture loader helper `213841d`
+- **convert:** shape-specific line-dasharray gap warning `2b10282`
+- **compiler:** format() partial-drop on per-section failure `6d28fc1`
+- **convert:** specific line-gradient gap warning `1413f06`
+- **convert:** value-aware raster-resampling warning `7c1b0e4`
+- **convert:** surface icon-overlap / icon-allow-overlap collision gaps as warnings `7354499`
+- **convert:** surface fill-antialias=false runtime gap as warning `05e2f9f`
+- **convert:** surface text-pitch-alignment=map runtime gap as warning `2b40157`
+- **convert:** explicit skip for sky layers `87071d6`
+- **convert:** circle-stroke-opacity constant form folds into hex alpha `e0ae049`
+- **runtime:** wire rim_alpha into fs_tile (raster) `9358b8e`
+- **runtime:** wire rim_alpha into fs_point `ca60350`
+- **runtime:** wire rim_alpha into fs_line + fs_line_max `7f0a139`
+- **runtime:** wire rim_alpha into fs_stroke + fs_oit_translucent `356feff`
+- **runtime:** wire rim_alpha into fs_fill output alpha `f113830`
+- **runtime:** rim_alpha() WGSL function for smooth sphere-rim fade `75bb7c2`
+- **runtime:** capability table for property × value-form support `b293199`
+- **e2e:** natural-interaction helper for perf + visual tests `158d748`
+- **runtime:** along-line min-spacing in label collision `b535d96`
+- **compiler:** geodesic midpoint for large-triangle subdivision `258a6a3`
+- **runtime:** polar cap synthesizer for PMTiles/TileJSON sources `858ea89`
+- **compiler:** CSS Color Module 4 lab() / lch() / oklab() / oklch() `d0d5d19`
+- **compiler:** zero-value semantics catalogue `87430a2`
+- **compiler:** expression spec-strict + depth/cycle guards `f265c52`
+- **convert:** specific warnings for `properties` + `distance` ops `13500fd`
+- **lexer:** scientific notation in number literals `6084bc5`
+- **eval:** to_color spec-compliant builtin (iter 541) `ddc5ff7`
+- **eval:** to_number / to_string / to_boolean spec-compliant builtins `f4e8ae1`
+- **runtime:** viewport + canvas-info diagnostics — final iter 535 confirm `8887ca8`
+- **runtime:** vertex-bbox diagnostic + iter 535 retraction `5ce0b57`
+- **runtime:** vertex-sample diagnostic (iter 534) `a730e00`
+- **runtime:** per-frame icon draw count diagnostic (iter 533) `8728a86`
+- **runtime:** dispatched-icon-names sibling diagnostic `92fa997`
+- **runtime:** IconStage missing-icon-names diagnostic `83cdda0`
+- icon-size zoom-interpolated — per-frame resolve end-to-end `3591ce6`
+- **convert:** icon-size validation — NaN/Infinity/negative `4bfcd20`
+- **convert:** text-anchor / text-variable-anchor enum validation `2344875`
+- **convert:** icon-anchor enum validation warning `d196601`
+- **convert:** text-optional / icon-optional non-default warning gate `567dd04`
+- **convert:** icon-padding non-default warning gate `c5179b8`
+- **compiler:** line-gap-width zoom-interp — last-stop approximation in lower `1a58486`
+- **convert:** fill-translate vec2 zoom-interp — last-stop approximation `b704c11`
+- **runtime:** icon-rotation-alignment=map — line tangent rotation (Phase C.7) `af604bb`
+- **runtime:** fill-translate end-to-end constant form (Phase E.1) `8e913ed`
+- **runtime:** line-gap-width double-draw (Phase E.2 runtime half) `200e0af`
+- **compiler:** line-gap-width IR + ShowCommand field (Phase E.2 compiler half) `a29bae6`
+- **runtime:** icon-opacity end-to-end (Phase C.6) `24363b4`
+- **runtime:** iconImageExpr per-feature dispatch (Phase C.10 runtime half) `17f06be`
+- **convert:** data-driven icon-image emits per-feature expression (Phase C.10 partial) `4ce2e85`
+- **runtime:** fill-extrusion-base — wall bottom z (Phase E.3) `7c7103a`
+- **convert:** text-opacity constant form folds into label-color alpha `6815ce3`
+- **e2e:** diff-heatmap PNG for labels-on survey `b054e82`
+- **e2e:** labels+icons-visible pixel-match survey `9e1cdc8`
+- **runtime:** warn-once stubs for unsupported Mapbox style mutation API `3b6607d`
+- **runtime:** getBounds() Mapbox-API parity (approximate bbox readback) `906ab1a`
+- **runtime:** getCanvas / getContainer Mapbox-API parity `74738d7`
+- **runtime:** on() / off() / once() Mapbox-API event-listener aliases `c33f8a7`
+- **convert:** FONT_WEIGHT_KEYWORDS recognizes 'Roman' (PostScript regular weight) `09e0f94`
+- **runtime:** fitBounds(bbox, opts?) Mapbox-API parity `9c3e2f1`
+- **runtime:** loaded() Mapbox-API parity (mirrors __xgisReady global signal) `adcad83`
+- **runtime:** resize() Mapbox-API parity (no-op + invalidate) `d771f76`
+- **runtime:** easeTo / flyTo Mapbox-API parity (instant-alias of jumpTo) `3eab995`
+- **runtime:** setMaxBounds Mapbox-API parity (pan constraint) `2ce7d5a`
+- **runtime:** panBy(offset) Mapbox-API parity with bearing rotation `92a4fba`
+- **runtime:** zoomIn / zoomOut Mapbox-API parity + 4 coverage tests `bcbb872`
+- **runtime:** setMinZoom / setMaxZoom Mapbox-API parity + zoom clamps honor bounds `1ce2c01`
+- **runtime:** Mapbox-API per-axis getters (getCenter/Zoom/Bearing/Pitch) `710ed37`
+- **runtime:** Mapbox-API parity jumpTo() + getCamera() readback `ccbe75f`
+- **runtime:** Mapbox-API parity setters (setCenter, setZoom, setBearing, setPitch) `bb7a4ef`
+- **ir:** PropertyShape zoom-time preserves zoomBase in merge `035bea9`
+- **ir:** buildLabelShapes carries colorZoomStopsBase + haloColorZoomStopsBase `abca04f`
+- **ir:** extract + thread interpolate_exp base for label-color / fill / halo color `46b2257`
+- **runtime:** text-stage threads LabelDef.sortKey into collision (symbol-sort-key complete) `f230af2`
+- **runtime:** greedyPlaceBboxes honors symbol-sort-key (step 3b/3 — final) `883428d`
+- **ir:** lower label-sort-key-N → LabelDef.sortKey (step 3a/3) `ea5cb59`
+- **convert:** extract symbol-sort-key to label-sort-key util (step 2/3) `bfa5eb1`
+- **ir:** LabelDef.sortKey field (Mapbox symbol-sort-key plumbing — step 1/3) `a48ad99`
+- **runtime:** XGISMap.setPolarCapsEnabled() — auto-inject caps in setSourceData `77ee3d3`
+- **runtime:** export injectPolarCaps + helpers from public barrel `8f766ad`
+- **loader:** injectPolarCaps — step 3 of polar-cap fix (FC injector) `7fc2963`
+- **loader:** synthesizeCapRing — step 2 of polar-cap fix `5bc9a3d`
+- **loader:** polar-cap clamp-boundary detector (building block for globe pole-hole fix) `cca41a8`
+- **convert:** accept third-party type:tilejson source declarations `1c6d4be`
+- **convert:** support null literal in filter expressions `a969be5`
+- **convert:** mirror dynamic-key support in ["has"] / ["!has"] `f32d97b`
+- **convert:** support ["get", \<expression\>] dynamic-key access `571833c`
+- **convert:** support ["hsl"] / ["hsla"] array-form colour tuples `fc33c51`
+- **convert:** lower ["zoom"] accessor outside the dedicated paint path `cdfc4d4`
+- **convert:** lower data-driven interpolate (non-zoom input) `4a9f7c5`
+- **convert:** handle ["collator"] trailing arg + ["array"] type assert `3e77362`
+- **convert:** lower ["format", text, opts, …] to concat() `47c12c1`
+- **layer-api:** add XGISLayer.extrudeBase getter / setter `6fd47d1`
+- **layer-api:** add XGISLayer.extrude getter / setter `55ae0cd`
+- **map:** graticule toggle — default OFF, runtime setGraticuleEnabled() `a66dd48`
+- **projection:** true 3D tilt for the azimuthal set (ortho parallel cam) ([#145](https://github.com/X-GIS/X-GIS/pull/145)) `6dabe05`
+- **playground/docs:** expose `globe` 3D projection in the picker ([#143](https://github.com/X-GIS/X-GIS/pull/143)) `e67a829`
+- **globe:** true 3D globe mode (Cesium-style pitch, dateline-correct) ([#138](https://github.com/X-GIS/X-GIS/pull/138)) `c546b6c`
+- **site:** node-based blueprint map editor + style import ([#129](https://github.com/X-GIS/X-GIS/pull/129)) `7579244`
+- **gpu:** introduce shared FrameUniform service (Phase 1a foundation) `4c59d42`
+- **site/compute:** per-stage compile-timing breakdown `33afcf3`
+- **site/compute:** dedup Stage 7 tabs by variant key + GPU timing context `b8ab0d1`
+- **site/compute:** xgis source editor syntax highlight overlay `371e584`
+- **site/compute:** Stage 5b — palette atlas visualisation `f65c16f`
+- **site/compute:** Stage 7 — per-render-node shader emit with inline constants `ade822c`
+- **site/compute:** blueprint-style IR scene node cards `aade21d`
+- **convert:** map text-overlap / icon-overlap to label-allow-overlap `a26d0ad`
+- **import:** apply Mapbox style root center/zoom/bearing/pitch `db2ac5a`
+- **text-stage:** replace greedy wrap with @chenglou/pretext `6b8898f`
+- **raster:** wire raster-opacity through converter + runtime `5d1a9d7`
+- **site/compute:** live GPU timing of emitted kernels (stage 8) `486e1dc`
+- **gpu-timer:** isolate compute pass timing + verify match() threshold by measurement `addfbdf`
+- **site/compute:** surface if-chain vs LUT kernel-lowering strategy `c5ae491`
+- **site:** rewrite Compute page as a live compile-graph viewer `59585e5`
+- **site:** add Compute paint visualization page `652f4d9`
+- **p3-scalar:** wire scalar gradient palette through compiler (gate off) `7dfc92b`
+- **compare:** wire ?compute=1 → enableComputePath + bypassExpandColorMatch `a470239`
+- **codegen:** P5 LUT branch — large match() compute kernels use const array `cccb311`
+- **ir:** LowerOptions.bypassExtractMatchDefaultColor (P4 forward-looking) `af982de`
+- **convert:** bypassExpandColorMatch option (P4 forward-looking) `bbf3adb`
+- **map:** XGISMapOptions.enableComputePath user opt-in (P4 toggle) `f4bc5c0`
+- **diag:** getStyleProfile — compile-time optimisation profile `1052a96`
+- **ir:** annotate-deps — Scene-wide dependency annotation pass (P0) `ae03907`
+- **map:** setPaintProperty / getPaintProperty (plan P6 first cut) `3793a6b`
+- **map:** orchestrator wires compute path (P4-5 integration step 3) `1b16cfd`
+- **renderer:** MapRenderer compute layer wiring (P4-5 integration step 2) `42dc51a`
+- **emit:** ShowCommand carries renderNodeIndex (P4-5 integration step 1b) `0103475`
+- **renderer:** MapRenderer compute scaffolding (P4-5 integration step 1) `62c41ec`
+- **runtime:** TileComputeResources kernel-level dedup (P4-6 runtime half) `1a401ea`
+- **codegen:** compute-plan kernel dedup via WGSL+entryPoint fingerprint (P4-6) `e191074`
+- **ir:** applyCSE — side-table annotation of duplicate subtrees (P0-S3b) `5cba7cf`
+- **runtime:** ComputeLayerRegistry — renderer-side aggregator (P4-5l) `1d1cbe0`
+- **runtime:** ComputeLayerHandle — per-layer compute lifecycle wrapper (P4-5j) `0333f50`
+- **runtime:** compute-bind-layout.ts — pure layout-descriptor factory (P4-5i) `5a6ec6c`
+- **emit:** enableComputePath opt-in bakes merged variants into ShowCommands (P4-5h) `e22b0c6`
+- **codegen:** surface computeBindings on merged ShaderVariant (P4-5f) `6a555ca`
+- **codegen:** buildPerShowMergedVariant — single API entry for runtime (P4-5e) `21db4c3`
+- **emit:** surface computePlan on SceneCommands (P4-5d) `6c71071`
+- **codegen:** mergeComputeAddendumIntoVariant — variant composition (P4-5c) `12d0a95`
+- **codegen:** compute-variant.ts — addendum builder for fragment integration (P4-5b) `813ffea`
+- **codegen:** compute-output-binding.ts — fragment-side read emit (P4-5a) `938e493`
+- **runtime:** TileComputeResources — per-tile compute pass bundle (P4-4f) `362110c`
+- **runtime:** ComputeDispatcher buffer factories (P4-4e) `bdcdd34`
+- **colors:** CSS hwb() function support (Color Module Level 4) `dc12054`
+- **colors:** full CSS Color Module Level 4 named-colour set (148 entries) `da75996`
+- **runtime:** compute-feature-packer.ts — props → feat_data Float32Array (P4-4d) `e6dc364`
+- **codegen:** expose categoryOrder on ComputeKernel + plan entry (P4-4c) `1b83b65`
+- **codegen:** compute-plan.ts — Scene → ComputeKernel walk (P4-4b) `077a83b`
+- **runtime:** ComputeDispatcher.dispatchKernel — runs compiler-emitted kernels (P4-4a) `945cd2a`
+- **codegen:** add entryPoint to ComputeKernel metadata (P4-3d) `28349f5`
+- **codegen:** emitInterpolateComputeKernel — per-feature linear lerp (P4-3c) `aab0bb4`
+- **codegen:** compute-lowering.ts — AST → kernel-spec adapter (P4-3b) `2cbb2e5`
+- **codegen:** emitTernaryComputeKernel — case()/ternary compute emit (P4-3) `e689090`
+- **codegen:** paint-routing.ts — pick execution path per paint value (P4-2) `0da5003`
+- **codegen:** compute-gen.ts — WGSL compute kernel emitter (P4 first sub-step) `6de4d6d`
+- **ir:** CSE analysis pass — find duplicate AST subtrees (P0 Step 3b) `df5704b`
+- **ir:** cse-hash.ts — canonical AST expression strings (P0 Step 3a) `639522e`
+- **gpu:** BindTierRegistry — device-aware tier layout cache (P2 Step B) `3090149`
+- **gpu:** bind-tiers.ts — pure 4-tier descriptor planner (P2 Step A) `4fd39f7`
+- **gpu:** rgba16float gradient atlas — Step 4 truly blocked by 8-bit canvas `912bebe`
+- **shader:** surface fillUsesPalette/strokeUsesPalette on ShaderVariant — P3 Step 4 deferred `e7b303d`
+- **runtime:** activate palette gradient atlas binding (P3 Step 3c) `9613d40`
+- **compiler:** emitCommands threads palette through with opt-in gate `a1fbcda`
+- **render:** extend polygon Uniforms with `zoom` field (P3 Step 3c-prep) `a6a8f81`
+- **codegen:** shader-gen opt-in palette path (P3 Step 3b) `850c00d`
+- **codegen:** palette-emit.ts — WGSL helpers for gradient sampling (P3 Step 3a) `d44a55d`
+- **gpu:** palette-texture.ts — Palette → storage textures (P3 Step 2) `01b9349`
+- **codegen:** palette.ts — Scene IR literal pool + zoom-stop collector `7cdcb59`
+- **ir:** deps.ts — 4-axis dependency bitset { ZOOM, TIME, FEATURE, NONE } `dd785e0`
+- **fill:** pin per-feature match() category IDs to compile-time order `ba348aa`
+- **sprite:** Phase B — compiler icon-* IR + runtime point-icon dispatch `d97fac0`
+- **sprite:** Phase A — sprite atlas fetcher + GPU + IconRenderer foundation `8a85df0`
+- **label:** per-font typography overrides + clean CJK chain detection `ddbc7ee`
+- **label:** extensible GlyphProvider chain + XGISMap resource bag `5d3a12f`
+- **label:** MapLibre SDF PBF fetch + self-host WOFF2 fallback `09565c7`
+- **label:** add haloBlur to LabelShapes; trim speculative font scaffolding ([#115](https://github.com/X-GIS/X-GIS/pull/115)) `ba02e2d`
+- **label:** add font / fontWeight / fontStyle to LabelShapes ([#114](https://github.com/X-GIS/X-GIS/pull/114)) `a5c630d`
+- **ir:** dead-layer-elim pass (Plan Step 2 Phase 2e) `99e4766`
+- **ir:** fold-trivial-stops pass (Plan Step 2 Phase 2c) `b766ae5`
+- **ir:** expose mergeLayers as IRPass (Plan Step 2 Phase 2b) `e2f7790`
+- **ir:** PassManager skeleton (Plan Step 2 Phase 2a) `35bb34b`
+- **render:** populate ClassifiedShow.resolvedShow (Plan Step 4 Phase 4b) `692117b`
+- **render:** ResolvedShow snapshot type (Plan Step 4 Phase 4a) `e74013b`
+- **trace:** thread show.layerName through every addLabel callsite `f35105f`
+- **map:** scaffold VirtualPMTilesBackend path for inline GeoJSON (Phase 5f-2) `41cfa11`
+- **map:** default GeoJSON to VirtualPMTilesBackend (Phase 5f-1) `f092706`
+- **map:** wire VirtualPMTilesBackend at GeoJSON attach (Phase 5e) `ba49766`
+- **sources:** VirtualPMTilesBackend — GeoJSON on the PMTiles path (Phase 5d) `c52c56d`
+- **workers:** GeoJSON tiling worker + main-thread pool (Phase 5c) `eedbcab`
+- **tiler:** MVT/PBF encoder for geojsonvt output (Phase 5b) `bcc9589`
+- **tiler:** TypeScript port of mapbox/geojson-vt 4.0.2 (Phase 5a foundation) `89fbdb1`
+- **clip:** port geojson-vt per-axis range clip as clipPolygonToRectV2 (Phase 1) `161a38d`
+- **ir:** emit ShowCommand.paintShapes alongside flat fields (Plan Step 1b) `9a255c2`
+- **ir:** PropertyShape\<T\> unified paint-property type (Plan Step 1a) `ffa43b2`
+- **trace:** expand camera state with bearing/pitch/projection/viewport/dpr `650ffe3`
+- **trace:** captureNextFrameTrace + first 5 spec invariants `2724963`
+- **trace:** RenderTraceRecorder — frame intent capture infrastructure `5a9ced9`
+- **debug:** fragment-count overdraw inspector (?debug=overdraw) `aae22a8`
+- **playground:** MapLibre ↔ X-GIS side-by-side compare + pixel-diff e2e `331dece`
+- **coverage:** per-layer style-conversion coverage report `1e6fd6c`
+- **spec:** add Mapbox style-spec oracle (WS-2 of spec-drift plan) ([#107](https://github.com/X-GIS/X-GIS/pull/107)) `c248555`
+- **playground:** diag panel tests all 5 world copies per point ([#84](https://github.com/X-GIS/X-GIS/pull/84)) `eb29061`
+- **playground:** add on-device camera + projection diagnostic panel ([#83](https://github.com/X-GIS/X-GIS/pull/83)) `12eb4e6`
+- **playground:** ?debug=labels mobile-friendly label-anchor overlay ([#79](https://github.com/X-GIS/X-GIS/pull/79)) `a3a5235`
+- **import-mapbox:** auto-push inline GeoJSON source.data `2d58d6f`
+- **tiles:** globe-equivalent horizon cull for flat Mercator `993c5e3`
+- **tiles:** SSE selector Phase 2 + flip default `1ab9ab0`
+- **tiles:** screen-space-error selector (Cesium / 3D Tiles port) `efd4b75`
+- **compiler:** strict checks for missing/unknown source (X-GIS0002/0003) `13f0ae7`
+- **compiler:** strict diagnostics + first check (X-GIS0001) `ce9af87`
+- **convert:** Mapbox math + step + let/var + concat (Batch 6) `f99fc50`
+- **text:** along-path road labels (Batch 1d v1) `517558d`
+- **convert-ui:** one-line import shortcut on /convert `d749e5c`
+- **import:** splice form + Mapbox style.json auto-detect `cd6c745`
+- **text:** font-stack fallback chain (multi-font ctx.font) `9a8f8e4`
+- **text:** font-stack + multiline (max-width / line-height / justify) `9330012`
+- **text:** label-rotate + label-letter-spacing utilities `585c67b`
+- **text:** greedy bbox label collision (Batch 1e) `c51a8af`
+- **text:** label-offset + anchor-respect + zoom-interpolated label-size `22ab7df`
+- **text:** per-feature labels for vector-tile sources (PMTiles + MVT) `2458fcb`
+- **text:** label-* visual knob utilities + Mapbox text-* mapping (Batch 1c-8g) `882fd94`
+- **text:** per-feature LabelDef rendering for GeoJSON layers (Batch 1c-8e) `54fc5f6`
+- **text:** wire TextStage into Map render loop + addOverlay API (Batch 1c-8c) `4667c27`
+- **text:** TextStage — single-call orchestration over text subsystems (Batch 1c-8b) `06081c7`
+- **text:** runtime text resolver — TextValue + props -\> string (Batch 1c-8a) `768467f`
+- **text:** SDF text-renderer pipeline (Batch 1c-7) `b24b292`
+- **sdf:** GPU texture wrapper for glyph atlas (Batch 1c-6e) `c037188`
+- **sdf:** glyph atlas host orchestration + dirty/eviction queues (Batch 1c-6d) `5aefa8b`
+- **sdf:** glyph rasterizer interface + Canvas2D + Mock impls (Batch 1c-6c) `6d93133`
+- **sdf:** glyph atlas LRU slot manager (Batch 1c-6b) `eed9bb0`
+- **sdf:** Felzenszwalb 2D distance transform + tiny-sdf packing (Batch 1c-6a) `48c6cf4`
+- **lower:** wire text template parser into label-[\<binding\>] (Batch 1c-3b) `7098f2d`
+- **format:** text template parser (Batch 1c-3a) `c5f449c`
+- **format:** spec parser + number/datetime/GIS formatters (Batch 1c-2) `a4ed44b`
+- **ir:** expand LabelDef with full Mapbox text/symbol knob set + text template AST `b08864f`
+- **text:** IR LabelDef + symbol layer converter (Batch 1b) `5eb21c6`
+- **text:** font loader + ShapeRegistry.addGlyph (Batch 1a) `1fae5af`
+- **convert:** Batch 0 — Mapbox compatibility quick wins `b3cf014`
+- **playground:** snapshot copy button `23bb425`
+- **diag:** snapshot replay — deterministic scene reproduction `141b78f`
+- **diag:** scene snapshot infrastructure for depth-sort diagnosis `595f1dc`
+- **tiles:** wire upload PriorityQueue + zero-length write fix (Phase C) `527918f`
+- **tiles:** async doUploadTileAsync via staging pool (Phase B) `b56eaab`
+- **tiles:** staging-buffer pool for async tile upload (Phase A) `9afc314`
+- **tiles:** priority-sorted GPU upload drain `0a07125`
+- **tiles:** distance-from-camera fetch priority `fd01724`
+- **tiles:** priority queue at pmtiles fetch step `45c281d`
+- **site:** /convert presets + page redesign + compat reference `f5e57cb`
+- **convert,parser:** interpolate→zoom modifiers + fractional zoom `7028e6a`
+- **parser:** match() block usable in any expression position `efcb102`
+- **site:** /convert page — Mapbox style → xgis from URL or pasted JSON `d2c796e`
+- **compiler:** Mapbox Style Spec → xgis converter `2862695`
+- **extrude:** fill-extrusion-height + fill-extrusion-base utilities `a6f7242`
+- **playground:** per-source-layer field autocomplete `07988c3`
+- **language:** `??` nullish-coalesce operator `f30ad81`
+- **quality:** default to device-pixel rendering (now safe) `ad86c29`
+- **oit:** MSAA OIT — depth occlusion against opaque buildings `43c10fc`
+- **oit:** translucent extrude routing — opt-in via flag (phase 3) `ffcee29`
+- **oit:** translucent extrude pipeline + compose shader (phase 2) `3d73e0f`
+- **oit:** infrastructure — blend states + render targets `abfc1e5`
+- **line-renderer:** depth-test outline draws for 3D occlusion `f8d2da7`
+- **line-renderer:** per-segment z lift — outlines on per-feature roofs `9df1a35`
+- **editor:** discover PMTiles fields from archive metadata `9606b50`
+- **colors,editor:** rgb()/hsl() colours + protomaps field hints `7012fa2`
+- **extrude:** accept arbitrary expressions for per-feature heights `8d48e4e`
+- **line-renderer:** lift outlines to roof for extruded layers `00a1638`
+- **extrude:** style keyword + backface cull (Phase 3 part 2) `8c3caf7`
+- **vt-renderer:** per-feature 3D extrusion heights (Phase 3) `c93b831`
+- **site:** add OSM-style demo to gallery + fix PMTiles thumbnails `8248152`
+- **vt-renderer:** wall shading for 3D extrusion (Phase 2 visual polish) `789bf12`
+- **vt-renderer:** 3D extrusion side walls (Phase 2) `a0a2c6b`
+- **vt-renderer:** 3D polygon extrusion MVP — shader-side z lift `64b847c`
+- **demo:** OSM-style cartographic PMTiles rendering `983f454`
+- **vt-renderer:** expose per-decision tile counts for diagnosis `5c246a8`
+- **vt-renderer:** visual debug hook — fallback render in red `40015e8`
+- **vt-renderer:** Phase-2 selector-shape invariant for flat pitch `9ba3f9b`
+- **catalog:** byte-accounting + replacement-invariant audits `e06cbea`
+- **vt-renderer:** production invariant for visibility/fallback consistency `a99146c`
+- **vt-renderer:** tile fade-in animation (Mapbox / Leaflet / Google standard) `db7cc44`
+- **vt-renderer:** deck.gl children-stretch fallback (Phase 3) `e0074c8`
+- **vt-renderer:** quantize polygon vertices on GPU upload (Phase B-2) `1291e4e`
+- **compiler:** add packQuantizedPolygonVertices (Phase B-1) `44fbece`
+- **vt-renderer:** Mapbox screen-sample selector for flat pitch, DFS for high pitch `71dd401`
+- **vt-renderer:** Cesium replacement invariant — protect ancestors of needed tiles `628f039`
+- **playground:** X-GIS Inspector — production-grade live perf overlay `fc49e67`
+- **vtr:** readiness-gated LOD transition hides blank-tile flashes `f7b4d4b`
+- **tiles:** cancel in-flight fetches when camera moves past tiles `1e4e83e`
+- **runtime:** TileJSON / XYZ MVT vector tile support — protomaps API works `12147a1`
+- Cloudflare Worker CORS proxy for protomaps demo bucket `26792a7`
+- **site:** Cmd-K search + mobile drawer + shared content modules (Phase 4) `09cc78d`
+- **site:** multi-page docs — concepts, API, utility catalog (Phase 2) `c584fbb`
+- **site:** demo thumbnails — gallery becomes a visual catalog (Phase 1) `0970c5c`
+- **site:** deploy playground under /play/, examples become live demos `e833597`
+- **site:** add /docs language reference + /examples gallery pages `e1514f5`
+- **runtime:** PMTiles per-MVT-layer slicing + background renderer `f8ac3b2`
+- **compiler:** add background { fill: ... } DSL + fix MM vertex-key collisions `90361f1`
+- **dsl,pmtiles:** per-MVT-layer styling via source `layers` property `f6c5547`
+- **pmtiles:** protomaps v4 demo + CORS proxy + soft-fail on header error `578ef49`
+- **loader:** on-demand PMTiles + MVT input + layer-refactor type prep `216ffb6`
+- **line:** great-circle subdivision so lines hug the sphere on globes `042de3b`
+- **site:** add public marketing landing page `5087806`
+- **world-copies:** gate ±N world enumeration by projection `950fbce`
+- **renderer:** per-layer NDC-z bias + projection-fn shared module `5b94809`
+
+#### fix
+
+- **tiles:** boost disc-projection tile LOD at low zoom (detailed z0 coastlines) `12f7e11`
+- **labels:** cull crushed ortho rim-label pile-up (z0 limb margin) `1d3d676`
+- **text:** floor CJK-bearing labels to a legible display size (un-box dense Han at z0) `62fc9f6`
+- **projection:** emit focal-point tile so flat non-merc z0 p0 renders (was black) `8cb585b`
+- **projection:** ortho cap review remediation (unproject parity + diagnostics) `ead5583`
+- **camera:** unify the RTC-centre latitude clamp to the true Mercator limit (P2 2.6) `7456775`
+- **security:** close residual SSRF IPv6 forms + generalize the body-size cap (P0 re-review) `a959d90`
+- **security,perf:** Phase-4 review remediation for the P0 ship-perimeter sprint `83910de`
+- **labels:** adversarial code-review fixes for the flat label projector `c8aa89f`
+- **labels:** flat display-projection for label/text/icon anchors (projType 0-6) `07eb1f9`
+- **camera:** non-Mercator z=0 disc render — sphere-diameter altitude cap ([#186](https://github.com/X-GIS/X-GIS/pull/186)) `2aa064c`
+- **label:** across-frame layout cache — Mercator high-pitch drag p95 ([#185](https://github.com/X-GIS/X-GIS/pull/185)) `e3a39e3`
+- **projection:** oblique polar tile tearing — singularity-only clamp ([#184](https://github.com/X-GIS/X-GIS/pull/184)) `79fe33b`
+- **tile-selection:** non-Mercator z=14 over-select — globeVisibleTiles AABB tightening (visible-bug fix) ([#183](https://github.com/X-GIS/X-GIS/pull/183)) `28a9625`
+- **camera:** Mercator z=0 + pitch perspective — buildGlobeMatrix near/far math (visible-bug fix) ([#182](https://github.com/X-GIS/X-GIS/pull/182)) `8b72fd8`
+- **raster:** prepend PROJECTION_WGSL_CONSTS — fix PR 2d.3 WGSL compile regression ([#181](https://github.com/X-GIS/X-GIS/pull/181)) `a5e0c58`
+- **runtime:** polygon-variant-diff drift gate handles shallow CI checkout `e25d1b8`
+- **runtime:** polygon-variant-diff drift gate uses ancestor check + refresh baselines to a287648 `4291b0f`
+- **runtime:** MapRenderer uniform-ring grow flushes old buffer (iter-348 parity) `c183e49`
+- **runtime:** complete camera face — raster projType-7 skip + projectWgsl/geom globe guard `21bb521`
+- **runtime:** label projection follows promoted projType, not raw name (camera face) `214c7c9`
+- projection-aware tile selection at poles & dateline ([#148](https://github.com/X-GIS/X-GIS/pull/148)) `09e3abe`
+- **vtr:** rebuild per-tile feature bind groups on uniform-ring grow (iter 349) `d9e0e78`
+- **vtr:** flush staged slots to old uniform ring on mid-frame grow (iter 348) `2255a70`
+- **test:** guard optional CompiledTile.polygons in ocean-holes gate (iter 347) `d5b9393`
+- **debug:** cluster analyzer lines by tolerance, not exact round(y) `f961b88`
+- **text:** centre-anchor uses constant block shift, not per-line (iter 345) `eb380b0`
+- **text:** centre-anchor ink now sits on the anchor (shield numbers) (iter 344) `b70531a`
+- **camera:** getDebugSnapshot reports the globe-frame matrix in globe mode (iter 338) `65d950f`
+- **text:** correct latin PBF glyph bearingY convention — bilingual collapse (iter 333) `f26861a`
+- **text:** skip newline glyph in draw loop — stale-offset ghost quad (iter 325) `468ff6d`
+- **projection:** clamp equirect + NE inverse latitude to [-90,90] (iter 323) `d37c2c4`
+- **globe:** A-2 lat-clamp consolidation + A-list divergence audit (iter 312) `f9b4cb5`
+- **reprojector:** add missing equirectangular inverse (A-4, iter 311) `20e82bf`
+- **filter-eval:** computeSliceKey defensive on deep/cyclic AST (iter 298) `df4b935`
+- **mvt:** clamp NaN coordinate to 0 (iter 296) `54c24b0`
+- **evaluator:** NaN/Infinity ordered compare returns false (iter 293) `8270165`
+- **tile-decision:** defer drop-empty to ancestor fallback (iter 284) `1599c2b`
+- **label:** frame-scoped point-label dedup + anchor proximity (iter 280) `5ea006d`
+- **vtr:** re-disable bundle path — interactive case broken (iter 277) `5fcd3f2`
+- **vtr:** re-enable bundle path — invariant gate passes (iter 276) `053d415`
+- **label:** dedup point labels by resolved text-field, not raw name (iter 274) `a30a2d6`
+- **text:** drop labels on atlas overflow instead of corrupting (iter 273) `23e09e1`
+- **vtr:** disable bundle replay path (iter 273) `3d1697a`
+- **text:** bump atlas slots 1296 -\> 4096 for dense bilingual scenes (iter 272) `445c4b7`
+- **vtr:** replace XOR-based bundle key with position-dependent FNV stream (iter 271) `63c330f`
+- **vtr:** gate bundle cache on all-tiles-loaded (iter 270) `62e22f3`
+- **text:** preload atlas codepoints to prevent within-frame slot aliasing (iter 268) `51aef87`
+- **arena:** iter-251 — FrameArena mid-frame auto-grow + bigger initial `ac2a6a9`
+- **compute=1:** add sprite atlas binding 5/6 to FEATURE_LAYOUT_ENTRIES (iter 197) `8b33431`
+- **background:** world-extent quad replaces fullscreen quad (iter 196) `bb0b383`
+- **extrude-opacity:** two-pass offscreen FBO + composite for translucent extrude (iter 192) `139e662`
+- **extrude-opacity:** route translucent extrude via alpha-blend, drop OIT (iter 191) `c60fe3f`
+- **world-copy:** labels + raster render in every visible world copy (iter 188) `de718b2`
+- **capabilities:** add pattern paint properties to runtime capability table (iter 187) `de3ec84`
+- **label:** frame-stable pairKey for line-label shields (iter 176) `b35cf73`
+- **text:** REVERT Phase A label caches — slot-aliasing corrupts labels (iter 175) `75af04f`
+- **icon:** hoist fwidth out of conditional — WGSL uniform-flow rule (iter 174) `0b0753c`
+- **projection:** sphere-aware tile selection for azimuthal family — #6 root fix (iter 157) `2081700`
+- **projection:** overzoom geographic-footprint selection — globe/oblique deep-zoom render-fail RESOLVED (iter 149) `4ee9ab6`
+- **projection:** camera-containment forced descent fixes non-Merc render-fail (iter 144) `2f121f3`
+- **extrude:** back-face cull on OIT translucent path (iter 128) `5fb4e87`
+- **projection:** world-copy for Oblique Mercator (iter 127) `0df48ec`
+- **projection:** world-copy for Equirect + Natural Earth (iter 126) `965c6c3`
+- **projection:** world-copy for Equirect + Natural Earth (iter 123) `383d94b`
+- **projection:** world-copy for Oblique Mercator (iter 122) `43be092`
+- **text-pbf:** include PBF buffer pixels in slot copy (iter 121) `d89d5ca`
+- **symbol:** paired-symbol collision for point labels (iter 119) `724c3bf`
+- **text-shader:** sub-pixel glyph quad positioning (iter 118) `05a65b3`
+- **text-shader:** halo AA = blur + soft (SUM, was MAX) — iter 117 `3a7481f`
+- **text-sdf:** remove DPR scaling from rasterFontSize / sdfRadius (iter 116) `1da4c80`
+- **text-sdf:** TinySDF alphaTable continuous seeding (iter 115) `433f0bc`
+- **text-sdf:** unify local glyph encoding with PBF/TinySDF (iter 114) `530d060`
+- **symbol:** paired text+icon collision (iter 112) `955e2ea`
+- **map:** pair text + icon collision on line-placement symbol layers `9158c98`
+- **text-renderer:** MapLibre-exact per-glyph-size AA — root cause for chunky labels `de68f1c`
+- **text-renderer:** settle SDF edge 0.72 + 0.7 fwidth for label smoothness `10dccab`
+- **text-renderer:** lower SDF edge 0.75 → 0.7 to thicken labels `75bef45`
+- **text-renderer:** match MapLibre SDF edge constant + tighter AA half-width `1a516dd`
+- **playground:** seed sprite/glyphs via XGISMap constructor for convert + import flows `7b3d67b`
+- **convert:** cubic-bezier control-point v8-strict literal-wrap unwrap `5a50874`
+- **playground:** set sprite/glyphs URL before runSource on Mapbox import `349747e`
+- **tiler:** cap geodesic-midpoint subdivision at 60° edge span (iPhone OFM Bright banding) `c4e4e03`
+- **test:** move gap-matrix-freshness to runtime + step spec-strict `6edb8a2`
+- **convert:** suppress spurious warning when fill-extrusion-vertical-gradient is its spec default `9aca302`
+- **spec:** line-blur=0 is identity, not strict-zero `edbdeb9`
+- **test:** geodesic-refine signature uses options object `770f6d1`
+- **e2e:** natural-interaction setCenter signature `760e673`
+- **runtime:** extend antimeridian sphere-selector routing to ortho/azimuth/stereo `fcd05ee`
+- **runtime:** tighten fill-extrusion shade to MapLibre defaults `9cd310d`
+- **runtime:** route oblique mercator tile selection through globeVisibleTiles `986f646`
+- **eval:** ordered comparison type-mismatch returns false (spec) `4dc1096`
+- **eval:** ordered comparison with null operand returns false (spec) `e776c43`
+- **test:** drop unused warnings destructure in icon-size Infinity test `83211ac`
+- **runtime:** halo formula — single smoothstep matching MapLibre `69085ea`
+- **runtime:** icon-along-line for road shield rendering `a97ecc0`
+- **convert:** suppress icon-rotation-alignment warning for viewport/auto defaults `1f108ec`
+- **convert:** drop obsolete fill-extrusion-base "unhonoured" warning `3a2a7a2`
+- **compiler:** text-halo-width default 1 → 0 to match Mapbox spec `b0302c7`
+- **convert:** drop spurious *-translate-anchor warnings when parent translate is absent `7d638e1`
+- **runtime:** ClassifierVTSource exposes VectorTileRenderer methods `19f631f`
+- **runtime:** bridge runtime → compiler GeoJSON type variance at worker entry `c18e4ec`
+- **runtime:** layer.reset() casts ShowCommand through unknown `9b3ecd8`
+- **runtime:** featureAnchor + point-patch test handle GeometryCollection variant `de6d69f`
+- **runtime:** align ShowCommand.shaderVariant with compiler's ShaderVariant `ebed35e`
+- **runtime:** collapse stripped ShaderVariantInfo onto compiler's ShaderVariant `8461051`
+- **runtime:** LoadCommand.type field + correct _attachOneSource annotation `bbceb31`
+- **runtime:** two test-side type drifts after iter 470's nullable geometry `cca311b`
+- **runtime:** remove duplicate projObliqueMercatorWgsl import in WGSL consistency test `764ff6d`
+- **runtime:** align ShowCommand + map-camera test types with implementation `6ab21e3`
+- **runtime:** XGISLayerStyle extrude / extrudeBase getter guards against missing field `eca93fe`
+- **runtime:** GeoJSONFeature type matches RFC 7946 (id optional + nullable geometry) `1477fda`
+- **runtime:** add GeometryCollection to GeoJSONGeometry type union `e2e8d9d`
+- **convert:** normaliseInlineGeoJSON handles top-level GeometryCollection (RFC 7946 §3.1.8) `89e2ad9`
+- **runtime:** loadGeoJSON handles GeometryCollection features (one-level flatten) `ed2a206`
+- **convert:** raster-dem surfaces non-default encoding (terrarium vs mapbox) `c16a830`
+- **runtime:** getCameraState NaN-safety on all four axes `5a89327`
+- **runtime:** setMaxBounds rejects antimeridian-crossing bbox (silent-clamp bug) `d29c8db`
+- **runtime:** renderFrame defensive resets extend to bearing/pitch/min-maxZoom `7e23ef3`
+- **runtime:** panBy honors setMaxBounds clamp + test `a1edc9a`
+- **runtime:** raster vis routes through needs_backface_cull (azimuthal/stereo rim parity) `c77cc52`
+- **runtime:** raster vertex cull includes globe (projType=7) `a709e34`
+- **runtime:** rename Mapbox-API readback to getCameraState (avoid clash with existing getCamera) `c24945f`
+- **runtime:** renderFrame defensively resets non-finite camera state before clamp `0289575`
+- **runtime:** bearing snap defensively guards NaN/Infinity `348bbb2`
+- **convert:** Heavy font weight maps to 900 (was 800 — off by one tier) `e4747ac`
+- **convert:** parseMapboxFontName falls back to original name when family empty `448d45b`
+- **runtime:** BackgroundRenderer.setFill rejects non-finite RGBA `c7c2e91`
+- **runtime:** resolveNumberShape honors zoomBase in zoom-time merge `5a2cd57`
+- **loader:** injectPolarCaps skips inner rings (holes) at clamp boundary `527d543`
+- **ir:** handle label-sort-key bracket-binding form for negative sort-key `ba4b8b2`
+- **runtime:** pointPatchToFeatureCollection rejects null/non-object data upfront `5d54790`
+- **runtime:** setSourceData auto-promotes bare Geometry → FeatureCollection `49606ec`
+- **runtime:** setSourceData auto-promotes single Feature → FeatureCollection (Mapbox parity) `9f4a981`
+- **convert:** visibility enum validation for background layer `f509e12`
+- **convert:** visibility enum validation for circle + fill/line/raster/extrusion layers `4db38df`
+- **convert:** warn on invalid symbol layer visibility enum (string only) `dfc2f87`
+- **convert:** warn on invalid text-rotation-alignment / text-pitch-alignment enums (string only) `9ff2a85`
+- **convert:** narrow enum-validity warnings to STRING values only (expressions pass through) `fb79d7e`
+- **convert:** warn on invalid symbol-placement enum value `3e45953`
+- **convert:** warn on invalid line-cap / line-join enum values `d7b728d`
+- **convert:** warn on invalid text-justify enum value (was silently dropped) `437a279`
+- **eval:** toBool returns false for NaN (mirror of runtime filter-eval iter 372) `f4eb6e6`
+- **runtime:** NaN filter result → false (Number.isFinite gate in both filter paths) `f6a42c8`
+- **runtime:** setProjection validates name against renderFrame projType lookup `2819bb1`
+- **runtime:** camera pitch setter rejects NaN/Infinity (view-projection NaN-prop) `e28d0b4`
+- **eval:** toNumber string path rejects Infinity (parseFloat('Infinity') slipped through isNaN) `6e0e4ca`
+- **convert:** reject NaN/Infinity channels in rgb/rgba hex encoding `e0b0ba1`
+- **convert:** surface which interpolate stop failed to convert before bailing `4a65061`
+- **convert:** surface which step arg slot failed to convert before bailing `147a083`
+- **convert:** warn on bare ['coalesce'] expression (missing args) `a53c117`
+- **convert:** warn on bare ['!'] expression missing inner filter `26a7364`
+- **convert:** warn on silent sub-filter drops in ['all'] + ['any'] `8451001`
+- **runtime:** isTileTemplate rejects non-string url (.includes crash on non-string) `db01f23`
+- **runtime:** detectVectorTileFormat rejects non-string url (avoids .split crash on number) `e99fede`
+- **runtime:** sourceFor rejects empty/non-string URL upfront (factory short-circuit) `227d6e1`
+- **format:** coerceDate rejects invalid Date instances (new Date(NaN) passed through) `04dd6fb`
+- **format:** reject NaN/Infinity in coerceDate (new Date(NaN) → invalid Date silently) `f8dde80`
+- **runtime:** interpolateZoomRgba guards duplicate-zoom stops (RGBA NaN propagation) `4c7e8c1`
+- **runtime:** interpolateZoom guards duplicate-zoom stops to avoid divide-by-zero NaN `fcb5412`
+- **convert:** coerce NaN/Infinity to null in number-format option fmt `0b22f03`
+- **runtime:** openArchive rejects empty/non-string URL upfront (PMTiles entry point) `cee92ab`
+- **runtime:** openTileJSON rejects empty/non-string URL upfront `2789aff`
+- **runtime:** loadImageTexture rejects empty/non-string URL (mirror of fetchTileWithRetry) `c6c5ecf`
+- **runtime:** fetchTileWithRetry rejects empty/non-string URL (would hit host HTML) `fb4c8a8`
+- **convert:** add precise warnings for is-supported-script/resolved-locale/collator accessors `a83da00`
+- **runtime:** tileUrl global-replace + {ratio} substitution for raster path `ef633e4`
+- **convert:** downgrade {ratio} warning to informational (runtime now substitutes empty 1x) `2a9befa`
+- **runtime:** substitute Mapbox {ratio} placeholder with empty string at tile fetch `6fe7110`
+- **runtime:** defensive features-array guard in flushPendingUpdates feature index build `f42c0e8`
+- **convert:** sanitize newlines in source catch-path SKIPPED placeholder comment `9bc28be`
+- **convert:** sanitize newlines in catch-path SKIPPED placeholder comment `9d10e3d`
+- **convert:** warn + drop on bare ['array'] (pre-fix emitted literal 'array' string) `b360dbe`
+- **codegen:** palette.addColor sanitizes non-finite channels (rgbaEqual fails on NaN) `5ea4d9a`
+- **codegen:** palette.addScalar coerces non-finite to 0 (defensive; numbersEqual dedup fails on NaN) `384df9a`
+- **codegen:** reject NaN constant shape.value in palette ingestNumberShape + ingestRenderNode size `9f69200`
+- **codegen:** reject NaN label.size before palette.addScalar (dedup never collides on NaN) `dea8ecf`
+- **runtime:** setPaintProperty rejects invalid hex string instead of silent no-op `05710b5`
+- **runtime:** skip non-finite coords in geojson bounds compute (Math.min NaN-prop) `3ddc12d`
+- **convert:** reject NaN zoom keys in interpolate stop-pair parsing (legacy + v8) `d3f95d6`
+- **convert:** reject NaN/Infinity in expressions.ts interpolate exponential base `19e3c5f`
+- **convert:** reject NaN/Infinity in interpolate-curve base extraction (legacy + v8) `3a7531d`
+- **ir:** reject NaN/Infinity in optimizeOpacity + optimizeSize const-fold path `3c66c7e`
+- **runtime:** use nullable hexToRgba for background color so invalid hex falls through `41d3860`
+- **runtime:** interpreter switches to runtime hexToRgba so invalid hex → null (no fill) `246783b`
+- **convert:** reject NaN at symbol rotate/spacing/offset/translate/vao/miter emit sites `fea4461`
+- **convert:** reject NaN at extrude-height/base + line-offset/blur emit sites `c995807`
+- **convert:** reject NaN/Infinity at layer minzoom/maxzoom emit sites `81cacac`
+- **convert:** reject NaN/Infinity at 9 constant-numeric paint emit sites `32ba786`
+- **convert:** reject NaN/Infinity at scalar emitter + 7 paint interp callbacks `fde0406`
+- **convert:** reject NaN/Infinity in addOpacity (Math clamp propagates NaN) `65fe00d`
+- **runtime:** reject NaN/Infinity in raster-renderer setOpacity (Math.max propagates NaN) `617e586`
+- **convert:** warn on bare ['literal'] expression with no payload `514616b`
+- **convert:** surface which format section failed before bailing the whole expression `ce578ca`
+- **runtime:** hexToRgba returns null on invalid hex shape (matches doc'd contract) `a0246a2`
+- **convert:** warn on partial-drop in concat (null preserved as skip-segment) `b065ebd`
+- **convert:** warn on zero-arg and partial-drop in min/max `c3e3412`
+- **convert:** warn on non-string binding name in let expression `5778e89`
+- **convert:** warn on extra args to zoom/geometry-type/id + number-format arity `e1670d7`
+- **convert:** warn on wrong arity for at/typeof/slice/index-of `f96b48d`
+- **convert:** warn on missing field-name arg in get/has/!has `c8a57d6`
+- **convert:** warn on wrong arity for pow (^) + zero-arg constants `5f3a3f9`
+- **convert:** warn on wrong arity for 1-arg math/string builtins `86eb4a3`
+- **convert:** emit precise warnings for known-pending Mapbox accessors `7fd2e6e`
+- **convert:** warn on silent arg drops in type-coercion fallback chains `cf22e3b`
+- **convert:** distinct geojson data warnings for missing vs wrong-type `597f4b8`
+- **convert:** warn on expand-color-match bail for non-scalar key + malformed length `0654c11`
+- **convert:** warn when expand-color-match bails on non-constant arm/default `948c521`
+- **convert:** distinct layer-type warnings for missing/non-string/unknown `a90d4a3`
+- **convert:** distinct source-type warnings for missing/non-string/unsupported `947a6bd`
+- **convert:** warn on tile URL {ratio} placeholder (DPR suffix not substituted) `d2d968d`
+- **convert:** warn on tile URL {quadkey} / {bbox-epsg-3857} placeholders `de525b3`
+- **convert:** treat geojson empty-string data field as missing instead of emitting url: "" `dfc67a6`
+- **convert:** mirror tiles[] placeholder check on vector source `424f315`
+- **convert:** mirror tiles[] placeholder check on raster-dem source `7a06973`
+- **convert:** warn when raster tiles[] URL template missing {z}/{x}/{y} `e8d1b82`
+- **convert:** warn on source minzoom/maxzoom outside Mapbox spec range [0, 24] `8c9155d`
+- **convert:** warn on layer minzoom/maxzoom outside Mapbox spec range [0, 24] `5d84d59`
+- **convert:** warn on inverted/out-of-range source bounds (south\>north, lat/lon range) `dad035f`
+- **convert:** treat null fill/line-color as omit in pattern-without-color warning `93c1639`
+- **convert:** reuse safePropsBag-guarded layout in circle layer ignored-prop check `dffd308`
+- **convert:** warn on missing or non-v8 style.version field `a70e896`
+- **convert:** surface unimplemented top-level keys sky/lights/models `3d7645a`
+- **convert:** warn on non-numeric line-dasharray entries silently dropped `d96098c`
+- **convert:** warn when vector-source layer omits source-layer field `13afd77`
+- **convert:** warn on source minzoom \> maxzoom inversion `3734dbb`
+- **convert:** warn on layer minzoom \> maxzoom inversion `9f1886d`
+- **convert:** warn when layer references undeclared source id `6332d13`
+- **convert:** warn on source id sanitize-collapse collisions `265a31e`
+- **convert:** warn on layer id collisions (raw duplicate + sanitize collapse) `9dfdf32`
+- **convert:** sanitize source id + neutralise `*/` in catch path + warnings `7f6e0ef`
+- **convert:** warn on silent arm drops in matchToTernary chained-ternary path `eecf211`
+- **convert:** warn on silent arm drops in match (mirror case/coalesce) `d7ef2d4`
+- **convert:** warn on silent arm/arg drops in case + coalesce `0b584f8`
+- **convert:** warn on interpolate with odd stop-arg count `d1fb067`
+- **convert:** validate hex shape at convert time; warn + skip malformed `6251db0`
+- **pmtiles:** case-insensitive scheme + extension detection per RFC 3986 `55dd0df`
+- **convert:** trim whitespace from source URLs `4b22c43`
+- **runtime:** updateFeature coerces non-object patch.properties `be6dbb5`
+- **runtime:** setSourceData validates FeatureCollection shape `6bbe870`
+- **runtime:** applyFilter/applyGeometry require array features (not just truthy) `6610e08`
+- **eval:** makeEvalProps coerces non-plain-object props to {} `4e11bb7`
+- **convert:** validate src.bounds entries are finite numbers `b1a58c2`
+- **convert:** warn on malformed src.bounds length `fd6e3a4`
+- **eval:** cap circle/arc step count to 4096 to prevent runaway alloc `c87835f`
+- **runtime:** tile-URL templating uses global replace for {z}/{x}/{y} `34b522f`
+- **runtime:** XGISLayerStyle opacity + strokeWidth setters clamp spec range `f99e3fa`
+- **convert:** colorToXgis warns + returns null on unrecognised name `77d86a8`
+- **convert:** matchToTernary default fallback is null not 0 (type-neutral) `3c9903e`
+- **convert:** case-default fallback is null not 0 (type-neutral) `4c6fd74`
+- **runtime:** featureAnchor MultiPoint validates first coord shape `3bc3e32`
+- **runtime:** ringBboxCentre skips malformed points + NaN fallback `5808e0c`
+- **runtime:** featureAnchor validates Point coordinates shape `cc2a440`
+- **runtime:** applyFilter/applyGeometry guard null data before .features `3cec721`
+- **convert:** drop empty-string src.url `895ffc8`
+- **convert:** drop empty-string entries from src.tiles `7dee08e`
+- **eval:** guard BinaryExpr arithmetic against overflow Infinity `1e78167`
+- **eval:** legacy step preserves non-numeric below/above payloads `4f31d30`
+- **eval:** min/max return 0 for empty args (not ±Infinity) `e4eaafd`
+- **eval:** interpolate guards duplicate-x stops + non-finite t `10a68e1`
+- **eval:** pow/exp guard non-finite results `c1a30b7`
+- **eval:** sqrt/asin/acos clamp domain to avoid NaN propagation `2e6e623`
+- **eval:** toNumber returns 0 for NaN/Infinity not the bare value `c6aa3b0`
+- **eval:** ordered string compare uses lex (not numeric coercion) `c4f2610`
+- **eval:** short-circuit && / \|\| before evaluating RHS `e3fc3ea`
+- **runtime:** openArchive strips pmtiles:// prefix before PMTiles library call `f65bff9`
+- **runtime:** detectVectorTileFormat strips pmtiles:// prefix defensively `a5fd65a`
+- **tokens:** resolveColor returns null on non-string input `cd56bf1`
+- **codegen:** compute-gen colorHexToRGBA rejects non-hex content `469d60a`
+- **ir:** hexToRgba rejects non-hex content with regex gate `d5c3e28`
+- **runtime:** renderer.parseColor rejects non-hex content `b1ced8b`
+- **runtime:** parseHexColor rejects non-hex content with regex gate `caad699`
+- **convert:** lift pmtiles:// prefix strip above all source-type branches `3b81145`
+- **convert:** strip Protomaps pmtiles:// URL scheme prefix `1ffd4eb`
+- **convert:** peel wrapped get-field on expand-color-match input `0618780`
+- **convert:** peel wrapped pseudo-field name ($type / $id) in filter drop `0db0a7c`
+- **convert:** peel wrapped field on legacy in/!in filter forms `76930bb`
+- **convert:** peel wrapped field on legacy comparison filter `8013bc3`
+- **convert:** coerce non-object bgLayer.paint to {} `8380914`
+- **convert:** coerce non-object layer.layout + layer.paint via shared helper `68bca8e`
+- **convert:** coerce non-object layer.paint to {} `c9c97b1`
+- **runtime:** per-feature point-size eval throw isolation `bc9f83f`
+- **runtime:** evalExtrudeExpr swallows per-feature evaluate throws `b42f5a0`
+- **runtime:** per-feature throw isolation in extract bake loops `6a7c65a`
+- **runtime:** evalFilterExpr swallows per-feature evaluate throws `2fa5edc`
+- **runtime:** applyGeometry swallows per-feature evaluate throws `c2ac6ae`
+- **runtime:** applyFilter swallows per-feature evaluate throws `566ab36`
+- **runtime:** layer hex parser rejects non-hex strings `f20f054`
+- **runtime:** validate hex before fill/stroke setter writes for state consistency `a97d89f`
+- **runtime:** clamp setPaintProperty opacity to [0,1] + line-width \>= 0 `62dfd1e`
+- **convert:** treat multi-wrap null filter as 'no filter' `5fabf9a`
+- **convert:** isolate per-source throws + safe src.type read for coverage `b143dc8`
+- **convert:** isolate per-layer throws so bad layers don't kill the rest `0c81006`
+- **convert:** defensive try/catch around inline GeoJSON JSON.stringify `e4aedd6`
+- **convert:** reject rgb/rgba with wrong channel count `eb709e5`
+- **convert:** treat multi-wrap null text-field as omitted (icon-only path) `fff29cf`
+- **convert:** sanitizeId placeholder for empty id `69dd5c9`
+- **convert:** drop non-string entries from src.tiles `5e3f4cb`
+- **convert:** drop non-string src.url before emit `7c5058b`
+- **convert:** drop non-array src.tiles before [0] indexing `2546793`
+- **convert:** coerce non-array style.layers to [] `8f3a9d6`
+- **convert:** coerce non-object style.sources to {} `ef44c67`
+- **convert:** convertMapboxStyle handles malformed JSON + non-object input `3b7a6c4`
+- **convert:** sanitizeId coerces non-string ids to string `e8473e7`
+- **convert:** guard against null / non-object layer entries `c0dbbc7`
+- **convert:** convertSource defensively handles malformed source bodies `091ce97`
+- **convert:** unwrapLiteralScalar peels wrapped null down to bare null `dcabe47`
+- **convert:** treat multi-wrap null as omit on layer colour gates `403d691`
+- **convert:** JSON.stringify field names in get/has/!has emit `2035c45`
+- **convert:** JSON-escape source-layer name + sanitize style.name in comment `7d38295`
+- **convert:** JSON-escape URL in emitted source blocks `95d34e1`
+- **runtime:** detectVectorTileFormat strips URL fragment before ext match `850fbc8`
+- **runtime:** per-feature hex bake accepts CSS short hex forms `3d74526`
+- **runtime:** renderer.parseColor accepts #rgba short-alpha form `794ba94`
+- **runtime:** parseHexColor accepts CSS #rgba short-alpha form `6acc299`
+- **convert:** null-as-omit on circle-sort-key (layout) ignored gate `a995095`
+- **convert:** detect pmtiles URLs with #fragment suffix `8885924`
+- **convert:** empty concat returns empty-string literal not null `a1dbf43`
+- **convert:** loop-unwrap in operator expression-form list outer wrap `a7eb310`
+- **convert:** loop-unwrap background-layer visibility multi-wrap `8fb75ca`
+- **convert:** loop-unwrap interpolate exponential base scalar `c9b8a7c`
+- **convert:** loop-unwrap remaining single-pass literal sites (has/curveSpec/etc) `bab71ec`
+- **convert:** loop-unwrap remaining single-pass per-element literal sites `f594c2b`
+- **convert:** loop-unwrap multi-level literal across remaining expression sites `777c13f`
+- **convert:** loop-unwrap multi-level literal in case literal + match keys `ae219cc`
+- **convert:** loop-unwrap multi-level literal-wrap in isOmitted gate `dd06a99`
+- **convert:** loop-unwrap multi-level literal-wrap across numeric helpers `0532bc3`
+- **convert:** loop-unwrap multi-level literal-wrap on colorToXgis `921d5ad`
+- **convert:** clamp negative fill-extrusion-height/base stops in interp callback `6e995f1`
+- **convert:** clamp negative + dual-interp opacity stops in interp callback `9b39918`
+- **convert:** unwrap literal wrap on interpolate curve spec `b61c8f6`
+- **convert:** unwrap literal wrap on interpolate exponential curve base `6fcb1c7`
+- **convert:** unwrap literal wrap on parseSymbolPlacementStep zoom keys `95f88f9`
+- **convert:** unwrap literal wrap on interpolate-by-zoom zoom keys `ddef906`
+- **convert:** unwrap per-element scalar literal wrap on symbol numeric tuples `0c5c6dc`
+- **convert:** unwrap inner per-element literal wrap on line-dasharray `522fef3`
+- **convert:** unwrap inner literal wrap in anchor + font array elements `a5016f0`
+- **convert:** unwrap inner literal wrap in expand-color-match keys `11e2f7a`
+- **convert:** unwrap inner per-element literal wraps in match keys `47d1d81`
+- **convert:** isOmitted helper handles v8 double-wrap null `e64d0fb`
+- **convert:** negative text-halo-width literal also skips emission `803d61e`
+- **convert:** negative circle-stroke-width literal skips emission entirely `8b13763`
+- **convert:** null-as-omit on GeoJSON cluster + tuning + promoteId `2e97855`
+- **convert:** null-as-omit on background paint + top-level style fields `f75e763`
+- **convert:** null-as-omit on symbol + circle ignored-prop iterators `96881f7`
+- **convert:** null-as-omit on surfaceIgnoredPaint + pattern warning gates `9a5eca0`
+- **convert:** treat null as omit on text-rotate + text-letter-spacing `46a9c5c`
+- **convert:** treat null as omit on circle-opacity gate `e40e2e6`
+- **convert:** treat null as omit on icon-overlap warning gate `b0346c6`
+- **convert:** treat null as omit on icon-image + text-overlap `5e9e0c0`
+- **convert:** treat null as omit across symbol + circle paint helpers `c8c28a9`
+- **convert:** treat null paint values as omit across all add* helpers `26b8b20`
+- **convert:** treat null paint value as omit for circle-color + stroke-color `74e30e1`
+- **types:** drop unused STENCIL_CLIPMASK_WRITE + MSAA_4X imports `b4b9eda`
+- **ir:** fold-trivial-case folds match arms with StringLiteral hex `36f938c`
+- **convert:** support numeric + boolean text-field values `8284058`
+- **convert:** text-field:null + icon-image routes to icon-only path `de34bcc`
+- **convert:** unwrap colour-value literal-wrap in expand-color-match `db6ad9c`
+- **convert:** clamp text-radial-offset per Mapbox spec `1ca3089`
+- **convert:** clamp circle-opacity per spec, fix double-dash utility `e09338e`
+- **convert:** legacy [!in, field] (empty) lowers to constant true `e5778f2`
+- **convert:** empty-list ['in'] lowers to constant false per spec `0ea374a`
+- **eval:** forward fnEnv in evaluateMatch arm/default evaluations `c1a4b4f`
+- **eval:** forward fnEnv into chained FieldAccess object evaluation `2378f7c`
+- **convert:** unwrap per-channel literal in exprToXgis rgb/rgba `114cd89`
+- **types:** drop more TS6133 unused declarations `8085bda`
+- **convert:** unwrap literal-tuple on legacy text-anchor array form `35c4348`
+- **convert:** unwrap literal-wrapped values in legacy filter forms `484c5be`
+- **convert:** unwrap per-key literal wrappers in ["in"] op `72383b6`
+- **types:** drop more unused imports in runtime/engine/map.ts `3757ea9`
+- **convert:** unwrap literal-wrapped boolean values in matchToBooleanFilter `e0e3529`
+- **eval:** length() returns codepoint count for strings, not 0 `f80ac98`
+- **types:** drop unused imports — onQualityChange + compilerTileKey `c2f07c5`
+- **convert:** clamp negative text-padding + max-width + line-height `c176dd2`
+- **convert:** clamp negative circle-radius + circle-stroke-width `076aa42`
+- **convert:** clamp negative fill-extrusion height + base per spec `487afea`
+- **convert:** clamp negative dash values per Mapbox spec `f06fe32`
+- **convert:** clamp negative text-size + text-halo-width per spec `3b827fb`
+- **convert:** clamp negative line-width to 0, fix double-dash utility `ba9d4c2`
+- **convert:** clamp opacity to spec range, fix double-dash utility name `dc0e32a`
+- **ir:** strokesShapeEqual checks all StrokePattern attributes `64da035`
+- **runtime:** guard applyGeometry against null data.features `5e07f3a`
+- **ir:** merge-layers must not absorb symbol-labeled layers `86ccc63`
+- **ir:** merge-layers strokesShapeEqual respects line-blur `5a7e4a3`
+- **ir:** respect zoom-range mismatch in merge-layers canExtendGroup `9c96e31`
+- **ir:** accept negative stop values in zoom-interpolated bindings `cf81119`
+- **ir:** accept StringLiteral hex in label-color zoom-stops `3d91486`
+- **convert:** unwrap per-channel literal in rgb/rgba colour tuples `1927580`
+- **convert:** unwrap inner literal in ["to-color", ["literal", "#fff"]] `32fb6d1`
+- **test:** drop unused CompiledTile import + parts/batchTile destructure `3327ad4`
+- **types:** drop unused EXTRUDE_FALLBACK_HEIGHT_M imports `1c1a408`
+- **test:** supply rasterFontSize to GlyphRasterResult mock `013b0cd`
+- **types:** export GeoJSONFeatureCollection from @xgis/compiler `e3a0f6e`
+- **loader:** clear dead './tiles' import + unused DEG2RAD constant `18cd08c`
+- **types:** add missing label field to runtime ShowCommand `a8c0437`
+- **types:** clear TS1016 in VTR.render — required param after optional `f04644c`
+- **loader:** detect extensionless XYZ-template vector tile URLs `1119725`
+- **convert:** unwrap ["literal", keys] inside expand-color-match `eef176c`
+- **convert:** honor layout.visibility:none on background layers `1823ee5`
+- **convert:** unwrap literal wrapper on alignment + placement enums `c1afa6d`
+- **convert:** unwrap literal wrapper on boolean symbol-layout knobs `b887afb`
+- **convert:** unwrap literal wrapper on text-font + variable-anchor `d444d4f`
+- **runtime:** allow per-feature eval on properties-less features `dc2794c`
+- **convert:** unwrap ["literal", [k1, k2]] in all three match handlers `1303fbe`
+- **convert:** preserve fallback chain on Mapbox type-coercion ops `f34ac45`
+- **convert:** lower ["literal", [...]] to xgis array literal `b995bb7`
+- **convert:** prefix digit-leading layer / source ids with underscore `359799e`
+- **eval:** normalize Multi* geometry types to Mapbox base form `293ad86`
+- **convert:** honor layout.visibility:none on symbol + circle layers `c4a7fff`
+- **convert:** unwrap literal at parseSymbolPlacementStep step values `a488b9a`
+- **convert:** unwrap literal on legacy stops shape too `6b00f20`
+- **convert:** unwrap literal at each interpolate-by-zoom stop value `c1954f4`
+- **convert:** unwrap literal scalar in line-layer + visibility knobs `f47ca12`
+- **convert:** unwrap literal scalar in string-valued symbol knobs `4a196e0`
+- **convert:** unwrap literal scalar in remaining symbol numeric knobs `00d8a79`
+- **convert:** unwrap literal in fill-extrusion-base warning gate `e8d3acf`
+- **convert:** unwrap literal scalar for circle-layer numeric knobs `e4fd6ad`
+- **convert:** unwrap literal scalar for symbol-layer numeric knobs `2f2344a`
+- **convert:** extend literal-unwrap to numeric paint helpers `240c5fb`
+- **convert:** unwrap "literal" wrapper in addOpacity `718d21a`
+- **convert:** unwrap "to-color" wrapper for constant inputs `51bfaf1`
+- **convert:** unwrap "literal" in text-variable-anchor-offset pairs `8db3d26`
+- **convert:** unwrap "literal" wrapper in colorToXgis `e3c5c62`
+- **convert:** unwrap "literal" wrapper in symbol-layer tuple knobs `7986ea5`
+- **convert:** unwrap "literal" wrapper in line-dasharray `377acc4`
+- **convert:** addStrokeDash detects Mapbox expression shapes `94842f1`
+- **convert:** warn on declared fill-extrusion-base — runtime ignores it `4682b0d`
+- **convert:** warn on non-512 source-level tileSize `20af7b6`
+- **convert:** escape backticks in promoteId warning + pin tests `1971484`
+- **convert:** warn on background-opacity / background-pattern `00f8834`
+- **convert:** warn on GeoJSON promoteId field `f8aed39`
+- **ir:** extractMatchDefaultColor recognises coalesce (??) chains `ba5a155`
+- **convert:** accept "type": "pmtiles" as a source type `1c61b9f`
+- **convert:** plumb zoom-interp / data-driven text-rotate through binding `366815f`
+- **ir:** extractMatchDefaultColor recognises ConditionalExpr ternaries `2b168d8`
+- **convert:** warn on GeoJSON tuning fields without an X-GIS equivalent `e700bd0`
+- **convert:** warn on GeoJSON source cluster fields `754e4b9`
+- **runtime:** accept feature in resolveText for $id / $geometryType `cf5c7a7`
+- **convert:** accept interpolate-lab / interpolate-hcl with linear fallback `e66e095`
+- **convert:** remove false-positive glyphs / sprite top-level warnings `2819cd6`
+- **convert:** warn on unhandled source-level bounds `39a3cee`
+- **convert:** warn on unhandled source-level minzoom / maxzoom `bc32a5c`
+- **convert:** warn on top-level style fields without an X-GIS equivalent `1443f2f`
+- **convert:** warn on circle-sort-key in circle-layer dropped list `52e8964`
+- **convert:** warn on fill-extrusion / raster silently-dropped paint props `80e5935`
+- **convert:** warn on fill / line silently-dropped paint properties `a932b00`
+- **convert:** warn on symbol-z-order / symbol-sort-key / symbol-avoid-edges `906675c`
+- **runtime:** complete reserved-key set in evalExtrudeExpr `73f3880`
+- **runtime:** complete reserved-key set in width / colour extractors `d4ffa24`
+- **ir:** lower label-halo-color match() default arm to static fallback `86a38d4`
+- **runtime:** inject reserved keys into per-feature point-size eval `ce2bbab`
+- **runtime:** inject cameraZoom into GeoJSON applyFilter + applyGeometry `ba89bf1`
+- **runtime:** pass cameraZoom into cross-tile dedupe resolveText `be0e8d9`
+- **runtime:** inject cameraZoom into label text-size / text-color eval `a0ee8d1`
+- **runtime:** inject cameraZoom into filter-eval reserved props `6633ca4`
+- **runtime:** plumb tileZoom into evalExtrudeExpr reserved-key path `6018086`
+- **runtime:** inject reserved keys when extracting feature colours `c1080d0`
+- **ir:** extractInterpolateZoomColorStops accepts interpolate_exp `2a6ac7d`
+- **convert:** extend symbol-layer unsupported-properties warning list `15c9d1d`
+- **ir:** merge-layers must skip nodes with existing strokeColorExpr `a3c70e6`
+- **convert:** plumb data-driven text-halo color + width `0194cf3`
+- **convert:** warn on source scheme: \"tms\" mismatch `0738c8d`
+- **convert:** plumb data-driven fill-outline-color `a7452fe`
+- **convert:** plumb per-feature paths through circle paint `4aaa981`
+- **compiler:** plumb data-driven stroke colour through lower + emit `6b76c84`
+- **convert:** warn on dropped line-dasharray + tile-mirror subdomains `ccb126b`
+- **convert:** warn on fill-pattern / line-pattern silent drops `041f880`
+- **renderer:** per-fragment polygon backface cull `c205871`
+- **ir:** preserve raster layers in dead-layer-elim `0432db4`
+- **webgpu-stub:** clean uninstall when navigator wasn't predefined `feaa00f`
+- **filter:** extend inline-GeoJSON layer fallback to all 5 per-source maps + label path `3cfd0fd`
+- **filter:** inline GeoJSON shows now honour `filter:` (filter_gdp emerald/yellow) `788e228`
+- **map:** normalize setProjection aliases (equirect / hyphen forms) `58ff21e`
+- **projection:** split z=0 root tile for non-mercator (partial #22 fix) `61e5562`
+- **test:** blueprint contract assert matches renamed starter graph `b8d9d52`
+- **projection:** equirect/NE dateline wrap via sphere-aware selector `5a2e3ee`
+- **globe:** wire globeVisibleTiles into the production render path `3eb9c11`
+- **blueprint:** default starter graph data path works in site context `7e0e711`
+- **site:** openfreemap-bright thumbnail 404 (gallery card now noThumb) `6668901`
+- **setQuality:** re-wire VTR baseBindGroupLayout after rebuildForQuality `05f5888`
+- **gpu:** SwiftShader-WebGPU mappedAtCreation fallback for CI `d460bf2`
+- **ci:** scope playground vite base override to deploy workflow only `7ab968d`
+- **playground,runtime:** demo+fixture audit — 5 broken-demo fixes `6080a2f`
+- **text:** MapLibre constant-lineHeight vertical model (shapeLines parity) ([#147](https://github.com/X-GIS/X-GIS/pull/147)) `f994441`
+- **globe:** telephoto (not true-parallel) ortho camera so back is occluded ([#146](https://github.com/X-GIS/X-GIS/pull/146)) `787bb41`
+- **text:** per-source raster (PBF native) + Knuth-Plass MapLibre line-break parity ([#144](https://github.com/X-GIS/X-GIS/pull/144)) `c1d284a`
+- **camera:** guard orthographic pinch anchor against limb singularity ([#142](https://github.com/X-GIS/X-GIS/pull/142)) `f2c364a`
+- **camera:** geo-anchored pinch zoom in orthographic (Cesium-style) ([#141](https://github.com/X-GIS/X-GIS/pull/141)) `574f496`
+- **text:** correct multi-line label anchor + DPR-invariant halo headroom ([#140](https://github.com/X-GIS/X-GIS/pull/140)) `a6d3854`
+- **runtime:** WGSL reserved word `ref` broke every vertex shader ([#139](https://github.com/X-GIS/X-GIS/pull/139)) `294a11b`
+- **text:** DPR-aware atlas raster size for crisp local CJK glyphs ([#134](https://github.com/X-GIS/X-GIS/pull/134)) `3117790`
+- **projection:** natural_earth/equirect/oblique_mercator antimeridian seam ([#135](https://github.com/X-GIS/X-GIS/pull/135)) `de56c70`
+- **text:** source-aware halo_blur normalisation + drop redundant EDGE_GAMMA ([#133](https://github.com/X-GIS/X-GIS/pull/133)) `7de019a`
+- **projection:** non-Mercator label, raster & NE/equirect fixes ([#131](https://github.com/X-GIS/X-GIS/pull/131)) `af31dbc`
+- **text:** correct halo width for locally-rasterised (non-PBF) glyphs ([#130](https://github.com/X-GIS/X-GIS/pull/130)) `2b6ba73`
+- **lower:** warn on unrecognised non-bracket label-* utilities (X-GIS0006) ([#128](https://github.com/X-GIS/X-GIS/pull/128)) `826a65e`
+- **labels:** honor text-variable-anchor / text-radial-offset for point label placement ([#127](https://github.com/X-GIS/X-GIS/pull/127)) `d52b3a7`
+- **loader:** accept Mapbox-style vector sources with inline {z}/{x}/{y} tile templates `3781611`
+- **compiler:** add label-padding arm to bracket-binding handler `92d2925`
+- **text-stage:** rasterFontSize 32 → 24 to match PBF native `ae5fdab`
+- **text-stage:** include advances in wrap cache key `8ea8a52`
+- **tiler:** coverage-gate splitBoundaryBacktracks on earcut overlap `cc4ce78`
+- **text-renderer:** per-draw uniform via dynamic offset `4d46066`
+- **camera:** match MapLibre's default FOV (36.87° vs 45°) `605a538`
+- **tile-select:** use floor(z) for vector LOD selection (was floor(z+0.7)) `26d0e7d`
+- **text-stage:** pre-split on \n + keep CJK-only segments as one line `2feb3b0`
+- **text-stage:** place anchor at bbox edge, not at baseline `ed9f62b`
+- **site/compute:** AST stage no longer truncates deep match() expressions `cd647db`
+- **text-renderer:** match MapLibre halo gamma formula for visible halos `9f01878`
+- **pbf-to-slot:** rescale byte values to slot-pixel distance units `896ed02`
+- **map:** defer P3 palette upload until after ctx + renderer init `644966d`
+- **vt-renderer:** silently drop cancelled-upload promise rejections `88f4a92`
+- **vt-renderer:** cancel stale upload-queue jobs alongside source.cancelStale `000d3c4`
+- **pbf-to-slot:** preserve sub-pixel edge precision from PBF SDF `822283f`
+- **text-renderer:** two-smoothstep halo to match MapLibre solid band `5781bf8`
+- **convert/layers:** stop propagating icon-overlap → label-allow-overlap `d91f012`
+- **site/compute:** style scoping + WGSL @-attribute highlighting `40e2585`
+- **compiler:** drop unused imports that broke CI strict typecheck `613aec3`
+- **tiler:** preserve polygon holes through boundary-backtrack repair `b126e71`
+- **vtr:** atomic variant↔renderNodeIndex capture for compute path `f19bb07`
+- **compare:** strip MapLibre chrome + disable interaction for pixel-match parity `06c8da5`
+- **colors:** accept CSS short-form hex (#fff / #fff8) on every paint path `a47e6e4`
+- **cse-test:** loosen fnCall arg type so mixed-Expr tests compile under strict tsc `3899cbe`
+- **vtr:** stop destroying retired uniform rings — let GC + WebGPU refcount `b6d2ffc`
+- **test:** drop DataView.getFloat16 dep — manual half-float decode `f469db6`
+- **ci:** green vitest run — refresh stale snapshots + post-Phase-B test `5236da4`
+- **fill:** OFM Bright data-driven fill rendered as zero-alpha — 5-fix chain `8e1aa08`
+- **label:** symmetric halo blur — match MapLibre's actual shader `5d6a00a`
+- **label:** even per-glyph spacing on curve-anchored labels `1acbf0e`
+- **label:** emit "Italic" alone, not "Regular Italic", at default weight `98c322d`
+- **label:** pixel-snap glyph quad TL when axis-aligned `fdad437`
+- **label:** asymmetric halo blur so solid halo survives blur \> 0 ([#126](https://github.com/X-GIS/X-GIS/pull/126)) `91062d6`
+- **label:** symmetric halo blur, wrap recompute, CJK breaks, halo fallback ([#112](https://github.com/X-GIS/X-GIS/pull/112)) `8769fd9`
+- **tiler:** preserve outer ring when boundary-split returns empty `bcf7020`
+- **tiler:** preserve polygon holes through tile clip + repair `5e0668e`
+- **line-translucent:** premultiply at composite to match ML brightness `02758b3`
+- **line-aa:** align edge alpha falloff with MapLibre spec `eca727a`
+- **layer:** Layer API setters now propagate to WebGPU draw path `7724b5c`
+- **labels:** drop antimeridian-wrap copies; iterate opposite-world tiles `7df23d0`
+- **tiles-sse:** lower default target to 1 px so under-camera tiles hit the native cz instead of stopping at z-2 `79c8b4b`
+- **clip:** split self-intersecting Sutherland-Hodgman output on back-tracks `2a4c3bf`
+- **controller:** pinch rotation follows the fingers (grab-and-twist intuition) `95fd434`
+- **controller:** align mouse-drag rotation direction with two-finger pinch `43e7377`
+- **label:** inject camera zoom into text-field evaluator `ba3e859`
+- **line-opacity:** zoom-interpolated opacity in translucent composite `5c92c94`
+- **tile-lod:** advance to next LOD at z+0.3 (was z+0.5) `4e348ff`
+- **label:** halo spec composition + curve-label vertical centering `3f11c9d`
+- **convert:** case-insensitive font-weight keyword lookup `3c8a744`
+- **line:** base AA = 0.5 px per MapLibre line-blur spec `ef0ca50`
+- **line:** scale AA with line width + Mapbox dash-array width units `cf3e43f`
+- **label:** tighten halo, round-based tile LOD, point-label dedupe `332e933`
+- **label:** one label per feature across antimeridian + tile boundaries `bd9c670`
+- **text-wrap:** keep `/` adjacent to glyphs as non-wrap candidate `f0b4c1b`
+- **label:** subdivide polylines before projecting along-path labels `70378a7`
+- **renderer:** line layer reads zoomOpacityStops per frame `ecd2c03`
+- **eval:** step() 4-arg disambiguation now respects N-stop shape `1cb3abd`
+- **line:** drop AA reserve from 1.5 → 1.0 px (MapLibre native budget) `d7f8010`
+- **camera:** bearing direction now matches Mapbox / MapLibre convention `f2501a6`
+- **merge:** advance past whole group when value-count cap rejects `63fc217`
+- **merge:** cap layer-merge by total filter-value count (≤ 50) `2dfe9b8`
+- **convert:** split per-feature fill-color match into colour-bucketed sublayers `05fd528`
+- **controller:** recapture drag anchor on pinch-to-1-finger transition `561d1bf`
+- **visuals:** default text-halo-color to transparent (Mapbox spec) ([#105](https://github.com/X-GIS/X-GIS/pull/105)) `c161539`
+- **visuals:** per-frame zoom-driven fill/width + min/max-zoom gating ([#104](https://github.com/X-GIS/X-GIS/pull/104)) `c116fbe`
+- **worker:** inject \$zoom (not zoom) for per-feature stroke-width interp ([#102](https://github.com/X-GIS/X-GIS/pull/102)) `9cae2b3`
+- **build:** unblock astro build — collapse zoom-color stroke to constant + diagnostics optional ([#101](https://github.com/X-GIS/X-GIS/pull/101)) `7988ba7`
+- **convert:** lift legacy text-field {stops:[[z, "{token}"], …]} to step(zoom, …) ([#100](https://github.com/X-GIS/X-GIS/pull/100)) `6d578b4`
+- **convert:** route data-driven match() fill through exprToXgis + lower fallback ([#99](https://github.com/X-GIS/X-GIS/pull/99)) `cb0a6f4`
+- **convert:** lift legacy {stops:[[z,v],…]} paint syntax to interpolate-by-zoom ([#98](https://github.com/X-GIS/X-GIS/pull/98)) `9d83cd5`
+- **lower:** preserve fill-[interpolate(zoom, color)] as constant from last stop ([#97](https://github.com/X-GIS/X-GIS/pull/97)) `408bb1b`
+- **visuals:** along-path bilingual LF + stroke-[expr] binding routing ([#95](https://github.com/X-GIS/X-GIS/pull/95)) `b49f221`
+- **convert:** split symbol-placement step(zoom,...) into per-segment layers ([#94](https://github.com/X-GIS/X-GIS/pull/94)) `c76de7c`
+- **line:** wire Mapbox paint.line-blur end-to-end via aa_width_px ([#93](https://github.com/X-GIS/X-GIS/pull/93)) `3466cbe`
+- **convert:** support typeof / slice / index-of / number-format expressions ([#92](https://github.com/X-GIS/X-GIS/pull/92)) `ef16868`
+- **convert:** route Mapbox ["id"] through synthetic $featureId prop ([#91](https://github.com/X-GIS/X-GIS/pull/91)) `113d46b`
+- **convert:** emit paint.line-offset as stroke-offset utility ([#90](https://github.com/X-GIS/X-GIS/pull/90)) `4ba4845`
+- **convert:** route Mapbox `circle` layers to the runtime PointRenderer ([#89](https://github.com/X-GIS/X-GIS/pull/89)) `ed104c0`
+- **convert:** emit fill-outline-color as stroke utility on the same fill layer ([#88](https://github.com/X-GIS/X-GIS/pull/88)) `691fe3a`
+- **interpolate:** preserve Mapbox ["exponential", base] curve through IR + runtime ([#87](https://github.com/X-GIS/X-GIS/pull/87)) `b047e98`
+- **convert:** route Mapbox ["geometry-type"] through synthetic $geometryType prop ([#85](https://github.com/X-GIS/X-GIS/pull/85)) `19a373e`
+- **text:** reverse-iterate collision so later style layers win bbox ([#82](https://github.com/X-GIS/X-GIS/pull/82)) `bfc3544`
+- **text:** enforce Mapbox layer.minzoom / layer.maxzoom on label submission ([#81](https://github.com/X-GIS/X-GIS/pull/81)) `0d0f9b9`
+- **playground:** dedup ?debug=labels overlay count by (anchor, text) ([#80](https://github.com/X-GIS/X-GIS/pull/80)) `71abd5e`
+- **text:** dedup label-iteration tile keys across world copies ([#78](https://github.com/X-GIS/X-GIS/pull/78)) `9f58e73`
+- **text:** iterate world copies for point label projection ([#77](https://github.com/X-GIS/X-GIS/pull/77)) `c9ff14a`
+- **text:** scale halo width into SDF units + break labels at literal \n ([#76](https://github.com/X-GIS/X-GIS/pull/76)) `82282b6`
+- **text:** look up filtered MVT slices by sliceKey at the label iterators ([#75](https://github.com/X-GIS/X-GIS/pull/75)) `7ae66c7`
+- **text:** stop bypassing composeFontKey at per-feature label sites ([#74](https://github.com/X-GIS/X-GIS/pull/74)) `e079590`
+- **zoom:** align meters-per-pixel to MapLibre 512-px tile convention ([#73](https://github.com/X-GIS/X-GIS/pull/73)) `556c9bb`
+- **text:** split Mapbox font weight/italic from family, widen SDF, chain CJK fallback ([#72](https://github.com/X-GIS/X-GIS/pull/72)) `87de072`
+- **tile-decision:** advance fetch frontier from parent-fallback `5322d44`
+- **vt-renderer:** include visibleKey in fallback dispatch dedup `eba4b4c`
+- **vt-renderer:** restore missing visibleTilesFrustumSampled import `cce947e`
+- **vtr:** skip opaque extrude draw when tile has no zBuffer (3D boundary artifact) ([#70](https://github.com/X-GIS/X-GIS/pull/70)) `dc06914`
+- **pmtiles:** exponential backoff on negative cache (was 5min flat lockout) ([#69](https://github.com/X-GIS/X-GIS/pull/69)) `f0dc95d`
+- **tiles:** make Rule 1 effective on PMTiles — toLoad shielded + zoom-priority ([#55](https://github.com/X-GIS/X-GIS/pull/55)) `955ef76`
+- **tiles:** Cesium replace-refinement — top-down requests + full-chain protection ([#54](https://github.com/X-GIS/X-GIS/pull/54)) `9bb0d75`
+- **text:** escape backticks inside WGSL shader template literal ([#53](https://github.com/X-GIS/X-GIS/pull/53)) `c0a6766`
+- **convert dev:** probe playground server + add bun dev:all script `a940288`
+- **convert dev:** cross-origin source handoff via URL hash `e68b3b5`
+- **site dev:** proxy /play to playground dev server (4323→3000) `5354113`
+- **fixtures:** migrate deprecated z\<N\>: modifier to interpolate(zoom) `fac69b4`
+- **convert:** bracket-binding form for negative label-* numerics `710358a`
+- **vtr:** skip per-tile clip when fallback parent is z=0 root `ab1445d`
+- **hero:** switch to xgvt land + zoom=1.4 for true global view `6956209`
+- **hero:** force zoom=2 to dodge low-zoom GeoJSON tile-selector edge case `9db241f`
+- **text:** MSAA sample-count + render invalidation + e2e (Batch 1c-8d) `ed747e8`
+- **renderer:** write clip_bounds sentinel from MapRenderer (hero map regression) `28b64ae`
+- **vt-renderer:** per-tile clip mask for fallback ancestor rendering `9c026b3`
+- **runtime:** tighten TileJSON prewarm detection `196279f`
+- **tiles:** distance-based LOD criterion (MapLibre covering-tiles) `f819a9e`
+- **tiles:** classifyTile uses smaller AABB axis to stop horizon over-detail `4b03dbb`
+- **pmtiles:** URL extension trumps `kind` in TileJSON dispatch `660a92e`
+- **site:** mobile drawer renders full-screen + Wave 3 polish `f9b422e`
+- **vt-renderer:** line-pipeline-max only on offscreen translucent pass `f8a8351`
+- **colors:** pass hex literals through resolveColor `45b19cc`
+- **pmtiles:** plumb explicit kind through attachPMTilesSource `0008f48`
+- **runtime:** honor source `type:` over URL-extension sniffing `6a71f84`
+- **convert:** lower boolean match in filter, resolve CSS color funcs `2bda2a6`
+- **convert:** drop \$type / \$id pseudo-fields from Mapbox filters `f0d6bea`
+- **site:** /convert script as bundled ES module, drop define:vars `19a8c9b`
+- **controller:** wheel zoom resyncs target to camera.zoom when idle `da66666`
+- **parser:** `??` works inside layer/source block bodies `b5764fe`
+- **compiler:** coalesce.test.ts uses vitest, not bun:test `8e6700c`
+- **camera, controller:** pan/zoom anchor uses absolute world + canvas-local cursor `37a06e1`
+- **extract-heights:** preserve explicit 0 instead of bumping to fallback `5e18997`
+- **mvt-worker, pmtiles-backend:** extrude expr always populates heights `a33e03e`
+- **camera, controller:** unproject-based zoom-at + pan-with-anchor `8adbe10`
+- **tiles:** route parent inject through protectedAncestors, not neededKeys `c695f2c`
+- **vt-renderer:** skip OIT fill when zBuffer/OIT-pipe missing `dec154f`
+- **shader:** use bitwise hash for per-feat depth jitter (iOS Metal compat) `0a59bbc`
+- **renderer:** per-feature depth jitter breaks coplanar wall z-fight `23453f3`
+- **vt-renderer:** clamp render currentZ at sourceMaxLevel `e4b2d66`
+- **tiles:** protect camera-vicinity z=maxZ-1 parents at high pitch `b464f6a`
+- **line-segments:** outline z_lift falls back to defaultHeight `71c3d7f`
+- **vt-renderer:** per-variant ground (depth-disabled) pipelines `7783f8a`
+- **vt-renderer:** gate fillPipelineGround substitution on base layout `e655b25`
+- **vt-renderer:** pick fill bind group by pipeline layout, not feature-availability `b98c449`
+- **shader-gen:** resolveColorFromAST handles ColorLiteral nodes `fb4f089`
+- **shader-gen:** disambiguate variant cache key by match arms `29be5a0`
+- **merge-layers:** FieldAccess.object=null for implicit .field access `c7fbb1f`
+- **evaluator:** dispatch match() FnCall via expr.matchBlock `5f6b06e`
+- **merge-layers:** gate stroke-colour difference + propagate stroke matchPreamble `ce98adf`
+- **renderer:** two-sided rendering for 3D extruded fills `6d7f317`
+- **polygon-mesh:** skip walls on synthetic tile-rect edges `47b5f6e`
+- **quality:** drop MSAA when DPR ≥ 2 — retina supersamples already `eed7b21`
+- **camera:** pan no longer scales by dpr — companion to MVP fix `2aa4631`
+- **camera:** DPR-invariant MVP — same world view at any pixel density `ee1f394`
+- **tiles:** tile-selection MVP must match the renderer's MVP `e226049`
+- **tiles:** mobile upload budget uses CSS pixels too `9d40ddb`
+- **tiles:** tile selection budget uses CSS pixels, not device pixels `d608358`
+- **quality:** render at device pixel density, not silently downscaled `38571e3`
+- **line:** roof-outline z-fight, sub-pixel width, setQuality regression `e993007`
+- **extrude:** only extract heights when style declares extrude: `7d8d306`
+- **oit:** skip opaque bucket for translucent-extrude + stroke + remove flag `3a8d107`
+- **vt-renderer:** defer stroke draws until after every fill in the layer `41f6890`
+- **map:** rewire VTR pipelines after setQuality rebuild `a1a45ce`
+- **renderer:** depth-disabled fill pipeline for ground layers `c15e2a6`
+- **osm-style:** water layer order — draw water AFTER landuse `f953a51`
+- **extrude:** use the compiler's full evaluator (not a mini subset) `147a4fa`
+- **tiles:** sampled selector emits absolute tile-x as ox (PMTiles render fix) `03e6051`
+- **tiles:** world-copy support in sampled selector + refresh smoke baselines `3aac0f4`
+- **compiler:** use vitest import in quantized-vertices test (CI build fix) `a6acb81`
+- **vt-renderer:** walk parent for queued visible (commit 49d4801 was incomplete) `e8cbf33`
+- **vt-renderer:** walk parent when uploadTile queues, prevent zoom-in white flash `49d4801`
+- **vt-renderer:** cap ancestor-protect depth at 4 to bound catalog memory `f194898`
+- **tiles:** floor mobile visible+fallback at currentZ-2 to stop low-z thermal load `cd51a01`
+- **vt-renderer:** cap mobile parent-walk depth to stop low-z thermal fallback `55c6943`
+- **catalog:** _cachedBytes drift — exclude prebuilt SDF segments from byte size `497a2c1`
+- **vtr:** remove cameraIdle gate from visible-tile fetch — restore detail uniformity `e73a1b9`
+- **tiles:** restore camera-tile inject + bump mobile cap — black canvas regression `01faeda`
+- **tiles:** camera-tile-guarantee 5×5 inject was bypassing MAX_FRUSTUM_TILES `c2797bc`
+- **mobile:** lazy-evaluate concurrency caps so viewport detection isn't frozen at module-init `af0c037`
+- **vtr:** asymmetric gate — hold zoom-in only, not zoom-out `ee36223`
+- **catalog:** bound CPU tile cache to prevent OOM on world-scale pan `8622ad9`
+- **vtr:** cold-start at high zoom rendered blank because parent fallback was skipped `1743a99`
+- **tiles:** cancelStale was nuking prefetch + leaking aborted controllers `6429f77`
+- **vtr:** zoom-transition flicker — anti-oscillation hysteresis + next-LOD prefetch `3b69350`
+- **runtime:** failed tiles fall back to parent ancestor instead of empty `57b6c08`
+- **runtime:** negative-cache permanently-failing tiles (5 min TTL) `09b163e`
+- **runtime:** TileJSON fetcher retries 5xx + falls back to null `ff72c09`
+- **map:** TileJSON URLs (with ?key=...) reach the PMTiles dispatch path `f56e36f`
+- **playground:** no-cache headers on demo.html — invalidate stale shells `999b89b`
+- **site:** hide pmtiles_v4 demo from production gallery `4dad990`
+- **playground:** PMTiles demos 404'd on deployed playground (no dev proxy) `03471ba`
+- **site:** mobile docs layout — color grid, table scroll, breadcrumb `8b5f5f5`
+- **site:** wire main page navigation to /docs + /examples `14ad631`
+- **site:** correct broken install path, fake modifiers, stale tile format `8318597`
+- **projection:** oblique mercator center (0,0) now sees centered, symmetric world `038648b`
+- **vtr:** revert MAX_GPU_TILES 1024 → 512 (Chrome STATUS_BREAKPOINT) `45413e1`
+- **mvt-decoder:** clamp lon/lat to planet bounds — kill ocean stripes `1c4d2fc`
+- **point,vtr:** defer tile-point buffer destroy + raise GPU cache cap `76bed1b`
+- **catalog:** hasData() unblocks lazy-discovery backends (PMTiles) `c0c9813`
+- **line:** screen-pixel-width stroke geometry (Mapbox/MapLibre convention) `1272b30`
+- **line:** per-fragment backface cull for globe projections `5600324`
+- **line:** build stroke geometry in source Mercator, project per corner `e9d2436`
+- **vt-renderer:** projection-aware tile selector — single world for non-Mercator `02d18d1`
+- **line+point:** backface cull on globe projections (orthographic etc.) `5867a80`
+- **raster:** pass projection to tile selector so non-Mercator gets single world `14aee7d`
+- **site:** loosen og.svg letter-spacing to reduce crowding `5757858`
+- **build:** add missing wgsl-projection.ts to repo `a086ae7`
+- **raster-renderer:** defer tile-texture eviction to next beginFrame() `de9233d`
+- **vt-renderer:** defer GPU-tile eviction to next beginFrame() `da4f26f`
+- **tiles:** camera-side DFS priority + camera-tile guarantee at maxZ `35828df`
+
+#### perf
+
+- **text-stage:** expose layout cache hit-rate diagnostic (iter 266) `0bbc3bf`
+- **text-stage:** sub-mark drill inside prepare() (iter 265) `6e54edd`
+- **label:** iter-264 (Plan L.line) — adaptive line subdivision (-22~35% interactive wall-clock) `b7d283e`
+- **map:** iter-260 — projectLonLatCopies scratch array reuse `dd1b137`
+- **map:** iter-259 (Plan AAA B.7) — applyFeatureExprs WeakMap cache `5ca03a6`
+- **vtr:** iter-255 (Plan AAA A.2) — _tileDecisions + sliceMemo reuse `8fc85c9`
+- **vtr:** iter-254 (Plan AAA A.2) — per-frame array allocs hoist `f784aaa`
+- **tile-select:** iter-253 (Plan AAA A.2) — visibleTilesSSE injectedParents scratch `f013bdd`
+- **vtr:** iter-252 (Plan AAA A.2) — best Map hoist (forEachLineLabelFeature) `d692275`
+- **sub-tile:** iter-250 — outline scratch number[] hoist `bbf2505`
+- **point:** iter-249 (Plan AAA B.2) — point-renderer flush → FrameArena `278ddba`
+- **text:** iter-248 (Plan AAA B.2) — packUniforms FrameArena `da6d44e`
+- **sub-tile:** iter-247 (Plan AAA B.2) — SubTileGenerator scratch fields `40c92af`
+- **text:** iter-246 (Plan AAA B.2) — curved label arrays → FrameArena `694682c`
+- **text:** iter-245 (Plan AAA B.3) — glyphOffsets point copy-on-cache `e898d29`
+- **text:** iter-244 (Plan AAA B.2) — text-renderer data → FrameArena `bc5b070`
+- **vtr:** iter-243 (Plan AAA B.2) — xs/ys polyline scratch → FrameArena `9e39e25`
+- **text:** iter-242 (Plan AAA B.2) — mlVerticalLayout baselineY → FrameArena `5820a67`
+- **text:** iter-241 (Plan AAA B.2) — TextStage advances → FrameArena `6624675`
+- **map:** iter-237 (Plan A.2) — per-show emittedNames Set scratch hoist `8eb4fe4`
+- **vtr:** iter-236 (Plan A.2) — forEachLabelFeature per-tile Map scratch `06d07b9`
+- **icon:** iter-234 — drop per-frame allocs + GPU buffer growth hysteresis `99f5c54`
+- **text:** iter-233 — string-level GlyphInfo[] cache w/ generation guard `c554211`
+- **vtr:** iter-226 bundle cache key v2 — 19.9% → 97.6% hit rate `3ebdf0c`
+- **glyph-atlas:** iter-205 GlyphInfo memoisation cache `ce7a9d5`
+- **label-cache:** re-enable layout cache with atlas-generation guard (iter 190) `c4a17af`
+- **vtr:** across-frame line-label-runs cache — #10 Phase A slice 3 (iter 169) `0879780`
+- **text:** across-frame layout cache — #10 Phase A slice 2 (iter 168) `3cb6fb5`
+- **text:** across-frame glyph-string cache — #10 Phase A slice 1 (iter 167) `e9c0c59`
+- **projection:** gate iter-127 world-copy 5× to low zoom (iter 139) `d0d5bd1`
+- **gc:** drop iterator + Set spread allocations in label loops (iter 134) `fd9aaba`
+- **label-resolve:** in-place effectiveDef field assignment (iter 133) `f240eef`
+- **vtr:** inline-dedupe label-key iteration (iter 132) `73615ea`
+- **tile-catalog:** reuse cancelStale merged-keys Set (iter 131) `ebb5a2c`
+- **label-resolve:** single-allocation halo merge (iter 130) `37ef0bc`
+- **text-atlas:** numeric-key encoding eliminates per-call string alloc (iter 129) `bb5c578`
+- **runtime:** bitshift 2^tz in globeVisibleTiles (Math.pow → 1\<\<tz) `4f5f6a6`
+- **runtime:** inline tileLonLat in globeVisibleTiles loop (6th in perf chain) `0394356`
+- **runtime:** globeVisibleTiles MAX_TILES 512 → 300 (match Mercator SSE budget) `8da5102`
+- **runtime:** globeVisibleTiles stack is SoA (3 parallel number[]) — no per-push object alloc `afd36bf`
+- **runtime:** globeVisibleTiles inner loop — eliminate per-node array allocations `192e3f6`
+- **runtime:** memo globeVisibleTiles by camera state (per-source dedup) `a420b84`
+- **runtime:** raster cull inlines per-projection threshold (revert iter 431 vertex-shader hot path) `346a758`
+- **renderer:** drop dead per-vertex needs_backface_cull() call `5acfa78`
+- **text-stage:** integer-hash wrap cache key, drop O(N) string concat `d8028c4`
+- **text-stage:** metrics-only Canvas2D fallback for PBF cold path `8567719`
+- **text-stage:** LRU cache wrapWithPretext results `5e63521`
+- **text-stage:** reuse curved-label scratch + drop sampleAt closure `3479b91`
+- **map/labels:** pre-allocate polyline scratch + drop samplePosAt closure `6e5b321`
+- **site/hero:** defer runtime + search-index work past entrance animations `b75e476`
+- **pmtiles:** early-return cancelStale when all queues are empty `97b8437`
+- **render:** two CPU hot-path fixes — O(N²) cancelStale + resolveShow cache `27e0173`
+- **filter-eval:** WeakMap-memoise computeSliceKey by filterAst identity `6f5199a`
+- **line:** reuse Float32Array scratch in packLineLayerUniform `13a21c4`
+- **tile-types:** memoise window.innerWidth across one microtask `9df62ed`
+- **e2e:** lower default workers to 2 + serial mode for pixel-match specs `d6c5ed0`
+- **priority-queue:** dirty-flag-gated sort + per-camera-move invalidation `5ae8e87`
+- **sdf:** reuse alpha scratch buffer across PBF glyph conversions `d01fe77`
+- **sdf:** reuse distance-transform scratch buffers across glyphs `89e039e`
+- **renderloop:** forEachLabelFeature mercator-direct world-copy iteration `05397cd`
+- **renderloop:** merc-direct projection + compute dispatch dirty flag `7d63020`
+- **tiles-sse:** tighten horizon-cull safety margin 2× → 1.2× `a6f8760`
+- **tiles-sse:** pitch-aware target SSE + sub-pixel cull `b939fc9`
+- **renderer:** prewarm shader-variant pipelines via async API `24ca8e3`
+- **priority-queue:** skip sort when every item will dispatch this round `712d693`
+- **worker:** skip featureProps + extrude data for slices that don't need them `4278c7a`
+- kill duplicate selector + GC churn (3-4× interactive perf) `ff020d6`
+- **graticule:** cache GPU buffer per zoom bucket `bda9d70`
+- **mvt-pool:** rAF-driven worker resolve drain (priority #2) `183bea5`
+- **graticule:** cache per-zoom-bucket geometry `3127f20`
+- **tiles:** clamp pitch tile-budget multiplier 4× → 2× `6d047ae`
+- **vt-renderer:** hoist distMemo + priority callback to instance `d177839`
+- **vt-renderer:** per-frame distSq memo + bit-shift 2^z `0a4bf96`
+- **tiler:** inline-power morton encode/decode (3.3× tilted Bright) `9e60740`
+- **tiler:** inline tileKeyParent to direct division (11.6× Bright) `c01859b`
+- **vt-renderer:** per-frame slice-upload cap (3-4× Bright frame time) `4bcf106`
+- **vt-renderer:** dedup + z-sort fallback ancestor queue `004af0f`
+- **runtime:** prewarm MVT worker pool parallel to GPU init `44d6188`
+- **site:** self-host Geist + Geist Mono fonts `dcd053c`
+- **runtime:** prewarm TileJSON manifest cache `2e93044`
+- **runtime:** prewarm PMTiles archive cache parallel to GPU init `8f30baa`
+- **runtime:** parallelise IR pipeline with WebGPU device init `7ef8ff7`
+- **site:** lazy-mount hero map via IntersectionObserver `f8b810e`
+- **vt-renderer:** memoize per-slice tile decisions across renders `b3680a3`
+- **vt-renderer:** hybrid time-ceiling for upload budget `c0d8ce2`
+- **gpu-timer:** time every opaque sub-pass, not just the first `41cfc8b`
+- **gpu-timer:** break the first opaque pass into 4 segments `f4644c8`
+- **camera, demo-runner:** drop redundant per-frame CPU work `2165861`
+- **merge-layers:** absorb &&-chain != layers as the compound's _ arm `66c4bf1`
+- **tiles:** pitch-aware budget — restore horizon coverage at high pitch `493e62b`
+- **merge-layers:** per-feature stroke colour via baked segment override `dc2bcdd`
+- **merge-layers:** per-feature stroke-width unlocks roads_* fold `c7e96ed`
+- **compiler:** scaffold per-feature stroke-width for the merge pass `b132dc1`
+- **compiler:** auto-merge same-source-layer xgis layers in IR `988cba9`
+- **tiles:** pre-bucket PMTiles features by xgis-layer filter `372c44f`
+- **tiles:** pitch-aware margin percent + floor — base 25% → 5% at low pitch `d03b713`
+- **tiles:** pitch-aware frustum margin floor — 256 → 64 at low pitch `4e142b6`
+- **vtr:** dispose raw polygon rings after GPU upload `53dfef4`
+- **mobile:** GPU cache + visible cap further tightened from real iPhone data `e3a7ed3`
+- **mobile:** performance preset auto + GPU evict ancestor unblock + inspector canvas/DPR `4f2f5c2`
+- **vtr:** suppress visible-tile fetches during camera gesture `acf6be7`
+- **mobile:** tighter fetch + worker concurrency on mobile viewports `3e8f8d9`
+- **mobile:** tighter upload budget + visible cap on small viewports `d179088`
+- **tiles:** viewport-aware visibleTilesFrustum subdivision + tile cap `437a578`
+- **vtr:** GPU buffer pool for tile vertex/index reuse `7cd8d3c`
+- **vtr:** suppress prefetch while camera is mid-gesture `68d2bcc`
+- **vtr:** pool hot-path Set/Map allocations across renders `2b03fc9`
+- **catalog:** byte-budget eviction + dispose prebuilt SDF after upload `9d24957`
+- **vtr:** drop prefetch-loop toLoad branch + skip over-zoom tiles `7e34ef1`
+- **vtr:** hoist sliceLayer-independent parent walks to frame cache `1dcfb4e`
+- **pmtiles:** worker-pool offload of MVT decode + compile + segments `4f5becf`
+- **line-renderer:** CSR adjacency in buildLineSegments `1e2cf28`
+- **tiler:** basic per-tile compile optimisations (~50% faster) `ce37a99`
+- **catalog,vtr:** tighten upload + tick budgets for dense PMTiles `22edb31`
+- **pmtiles:** split fetch from compile, pace via per-frame tick `a6dbb68`
+
+#### refactor
+
+- **projection:** drop the unused capability helpers (P1 code-review follow-up) `2bcf8c6`
+- **projection:** extract promotesToGlobeWhenTilted + characterize oblique-6 gap (P1 1.5) `b445fc2`
+- **projection:** route the MVP flat-vs-ECEF gate through isGlobeProj (P1 1.3a) `46c97ac`
+- **projection:** flip PROJECTIONS to the authority; predicates derive from it (P1 1.1+1.2) `73be48b`
+- **tiler:** import WGS84 constants from @xgis/shared, retire the hand-mirror (ecef unification B) `028a4ac`
+- **shared:** stand up @xgis/shared package; runtime ecef re-exports it (ecef unification A) `79b6ec5`
+- **projection:** hoist triplicated perspective matrix to camera-helpers (Wave 0 kernel) `d0bae7f`
+- **projection:** hoist triplicated mul4 to camera-helpers (Wave 0 kernel) `afd9d28`
+- **cleanup:** relocate orphan camera test out of test-only engine/camera/ (P0 0.6) `6a75a84`
+- **projection:** extract shared flat_rel DSL fn — dedupe flat reproject `e2cb2f9`
+- **runtime:** point_abs_lonlat WGSL helper dedups 4 inline reconstructions (H2c/US-006) `d9763af`
+- **runtime:** extract shared UniformRing; both renderers delegate (H2a/US-004b) `204d659`
+- **runtime:** single-source projType\<-\>name via PROJECTIONS table (H1a) `ab0dd3c`
+- **runtime:** route 22 CPU inverse-Mercator sites to canonical helper `1d906eb`
+- **runtime:** canonical CPU inverse Web Mercator (mercatorYToLat) `f6f02df`
+- **runtime:** single-source inverse Web Mercator in WGSL + parity gate `59eeb5b`
+- **runtime:** extract OverdrawComposePass + finalize (engine phase 7) `57f158d`
+- **runtime:** extract LabelPass (engine phase 6) `d2557df`
+- **runtime:** extract OIT / Translucent / Points passes (engine phase 5) `01ba581`
+- **runtime:** RenderPass interface + extract OpaquePass (engine phase 4) `9d665ba`
+- **runtime:** extract per-frame SceneView (engine phase 3) `89adf62`
+- **runtime:** extract inline WGSL shader strings to *-shaders.ts `4e67851`
+- **runtime:** extract RenderTargets / GPU resource manager (engine phase 2) `b693c58`
+- **runtime:** introduce per-frame FrameContext (engine phase 1) `fb8b926`
+- **runtime:** extract renderFrame into RenderLoop class (engine phase 0) `7931953`
+- **runtime:** extract label-anchor projectors from renderFrame `74e646d`
+- extract types + pure helpers from shader-gen/merge-layers/text-renderer/geojson `a698f4b`
+- extract types + pure helpers from evaluator/render-node/pmtiles/loader `383e2d6`
+- **runtime:** extract pure label paint resolver from renderFrame `4115277`
+- **runtime:** extract InteractionController from XGISMap `3b05908`
+- **runtime:** extract SourceManager from XGISMap `1b60d5d`
+- **runtime:** extract CameraController from XGISMap `7428f13`
+- extract types + pure helpers from paint/tile-select/camera `53856e5`
+- extract types + pure helpers from layers/tile-catalog/point-renderer `3c506ac`
+- extract types + pure helpers from renderer/tiler/expressions `833a9be`
+- extract types + pure helpers from large engine/ir files `320d823`
+- **runtime:** extract types + pure helpers out of map.ts `52cbc62`
+- **cache:** iterative structuralHash — same pattern as iter-299 (iter 300) `232c51e`
+- **filter-eval:** iterative AST hash instead of JSON.stringify (iter 299) `e79f89d`
+- **vtr:** iter-219 Phase RB.B.7 — _skipStrokeDrawForBundle flag `5602a77`
+- **vtr:** iter-218 Phase RB.B.6 prep — bundle infrastructure + drawSegments widen `7a42642`
+- **vtr:** iter-217 Phase RB.B.5 — _skipFillDrawForBundle flag `9739dab`
+- **vtr:** iter-216 Phase RB.B.4 — extract recordTileFill helper `99197fa`
+- **vtr:** iter-214 Phase RB.B.3 prep — widen renderTileKeys pass type `ab5d8c4`
+- **world-copy:** camera-derived visibleWorldCopies as single source (iter 189) `94cf6db`
+- **projection:** extract enumerateWorldCopies predicate + pin (iter 140) `c466bf3`
+- **convert:** generalize spec-default warn suppression in surfaceIgnoredPaint `223db2c`
+- **map:** remove CanvasRenderer + Canvas2D fallback path `a61efe6`
+- **blueprint:** modularize editor + import & preview fixes ([#137](https://github.com/X-GIS/X-GIS/pull/137)) `455e0c7`
+- extract @xgis/blueprint package + compiler-driven node schema ([#136](https://github.com/X-GIS/X-GIS/pull/136)) `a994631`
+- **site:** declutter blueprint editor UI/UX ([#132](https://github.com/X-GIS/X-GIS/pull/132)) `f9ab33b`
+- **text-stage:** port MapLibre Knuth-Plass line breaker, drop pretext `b571055`
+- **map:** route VTR layout selection through getOrBuildVariantLayout `f5d3c86`
+- **ir:** collapse dashOffset / timeDashOffsetStops / anim* into one PropertyShape ([#125](https://github.com/X-GIS/X-GIS/pull/125)) `cddab0f`
+- rename timeOpacityLoop/Easing/DelayMs → animLoop/Easing/DelayMs ([#124](https://github.com/X-GIS/X-GIS/pull/124)) `ab33556`
+- **ir:** align ColorValue tuples with readonly RGBA — drop `as never` ([#123](https://github.com/X-GIS/X-GIS/pull/123)) `a465929`
+- simplify resolveSteppedShape — drop defensive time branches ([#121](https://github.com/X-GIS/X-GIS/pull/121)) `7e51d14`
+- consolidate applyTextTransform; drop misleading Phase markers ([#118](https://github.com/X-GIS/X-GIS/pull/118)) `a3bf190`
+- inline hasZoomOrTime + drop unused codegen exports ([#117](https://github.com/X-GIS/X-GIS/pull/117)) `3c2195d`
+- delete identity shims (opacity/strokeWidth) and unused shapeDefs ([#116](https://github.com/X-GIS/X-GIS/pull/116)) `9a83e21`
+- **ir:** StrokeWidthValue → PropertyShape\<number\> alias ([#113](https://github.com/X-GIS/X-GIS/pull/113)) `d2d1a81`
+- **render:** remove effectiveShow mutation (Plan Step 4 Phase 4c-final) `438179c`
+- **render:** VTR.render reads ResolvedShow snapshot (Phase 4c-2) `e03fe89`
+- **render:** composite reads cs.resolvedShow.opacity (Phase 4c-1) `a884fda`
+- **compiler:** drop .xgvt format encoder/decoder + CLI (Phase 6d) `a89f981`
+- **runtime:** remove XGVT runtime code (Phase 6c) `0540dc1`
+- **demos:** migrate XGVT demos to GeoJSON (Phase 6a) `48ee2e4`
+- **tiler:** trim geojsonvt + integrate with X-GIS tileKey (Phase 5a-bis) `8521f62`
+- **ir:** delete legacy ShowCommand stops fields + dual-write (Plan Step 1d-final) `0c11069`
+- **runtime:** MapRenderer + PointRenderer + label sizing on paintShapes (Plan Step 1d) `33520f0`
+- **runtime:** clone-decision + scene-animation flag read paintShapes (Plan Step 1d-prep) `1cca457`
+- **runtime:** bucket-scheduler reads fill/stroke/strokeWidth/size via paintShapes (Plan Step 1c.3) `afd6055`
+- **runtime:** legacy interpreter populates paintShapes (Plan Step 1c.2) `fcd2620`
+- **runtime:** bucket-scheduler reads opacity via paintShapes (Plan Step 1c) `7699c82`
+- **ir:** align PropertyShape kinds with RenderNode; alias OpacityValue `bd71a29`
+- **paint:** centralize zoom × time stop resolution in bucket-scheduler `fc5b6f1`
+- **ir:** StrokeValue.width as discriminated union (WS-4) ([#110](https://github.com/X-GIS/X-GIS/pull/110)) `5f4ac30`
+- **eval:** centralize reserved keys + makeEvalProps helper (WS-5) ([#109](https://github.com/X-GIS/X-GIS/pull/109)) `b6d4ec8`
+- **line-renderer:** extract line-pattern module — constants + packing helpers ([#68](https://github.com/X-GIS/X-GIS/pull/68)) `4592e31`
+- **point-renderer:** drop parseHex duplicate, use shared parseHexColor ([#67](https://github.com/X-GIS/X-GIS/pull/67)) `92510b4`
+- **map:** extract diagnostics — inspectPipeline / captureSnapshot / replaySnapshot ([#66](https://github.com/X-GIS/X-GIS/pull/66)) `40aa9ae`
+- **engine:** consolidate feature/color helpers into engine/feature-helpers ([#65](https://github.com/X-GIS/X-GIS/pull/65)) `1d67f89`
+- **map:** extract show-source-maps + _attachOneSource from XGISMap.run ([#64](https://github.com/X-GIS/X-GIS/pull/64)) `a38a84d`
+- **structure:** align with Cesium / 3DTilesRenderer architecture (state machine + core/ + shaders/) ([#63](https://github.com/X-GIS/X-GIS/pull/63)) `605e975`
+- **vtr:** extract PrefetchScheduler class from VectorTileRenderer ([#62](https://github.com/X-GIS/X-GIS/pull/62)) `ecc05ee`
+- **catalog:** extract SubTileGenerator class from TileCatalog ([#61](https://github.com/X-GIS/X-GIS/pull/61)) `13d7fa9`
+- **structure:** organize runtime/src/ into cohesive subfolders + co-locate tests ([#60](https://github.com/X-GIS/X-GIS/pull/60)) `013f783`
+- **tiles:** class-based VectorTileLoader + VectorTileSource hierarchy ([#59](https://github.com/X-GIS/X-GIS/pull/59)) `1d43378`
+- **tiles:** extract leftover duplications — single format detector + cache helpers ([#58](https://github.com/X-GIS/X-GIS/pull/58)) `1e96d3c`
+- **tiles:** organic integration — single attach + prewarm path for all formats ([#57](https://github.com/X-GIS/X-GIS/pull/57)) `e73535e`
+- **tiles:** unified prewarm — TileCatalog.prewarmSkeleton for all sources ([#56](https://github.com/X-GIS/X-GIS/pull/56)) `ca92ba0`
+- **text:** extract greedy bbox collision into pure module + tests `bc1ab6e`
+- **convert:** split mapbox-to-xgis.ts (688 lines) into 7 modules `bdb17ff`
+- **zoom:** replace zN: modifier with interpolate(zoom, …) builtin `f2f8929`
+- **extrude:** drop \`extrude:\` block-property — utilities only `afb21be`
+- **map:** two-phase opaque sub-pass — 2D ground before 3D extrude `b4fb2f9`
+- **vt-renderer:** extract computeProtectedKeys as pure function `cdd2a86`
+- **vt-renderer:** extract pure tile-resolution classifier `aa0c959`
+- **tiles:** make TileCoord.ox required + document contract `b360e6f`
+- **tiles:** remove cd51a01 band-aids superseded by Phase 1+2 `ca73411`
+- **catalog:** rename XGVTSource → TileCatalog (Step 6) `4ecd73e`
+- **xgvt-source:** unify backends behind TileSource interface (Step 5) `b360c68`
+- **xgvt-source:** extract GeoJSONRuntimeBackend to data/sources/ `89a5832`
+- **xgvt-source:** extract PMTilesBackend to data/sources/ `5cefa17`
+- **xgvt-source:** extract XGVTBinaryBackend to data/sources/ `e30d94c`
+
+#### docs
+
+- **projection:** correct focal-tile bound (constant ≤4, not 1) per review `e013f7f`
+- **projection:** mark non-merc-z0-disc gate as FRAMING-ONLY (output still black) `e2646b8`
+- **projection:** clarify flat-path precision + extrude scaling comments `c6fa898`
+- **camera:** document getFrameView dual-API rationale (Phase 2 cleanup) ([#180](https://github.com/X-GIS/X-GIS/pull/180)) `85779de`
+- **shader-dsl:** mark Phase 4+ waves 1-3 shipped + reprojector deferred (PR-D wave 3 close) `53d511a`
+- refresh post-PR-C stale references + PHASE-3-SCOPE canonical AC7 grep `bdb7276`
+- **shader-dsl:** PHASE-3-SCOPE updated for PR-B close + Phase 4+ runtime hand-WGSL boundary `a287648`
+- refresh stale references to deleted polygon-shader-markers.test.ts + post-US-008 renderer.ts (Phase 2.5 PR-C cleanup) `d1eb77b`
+- add hierarchical AGENTS.md across repo (deepinit) `2d18974`
+- **spec-coverage:** light unsupported → partial after iter-194 ship `e3d066c`
+- **spec-coverage:** promote fill-pattern partial → supported after Stage 2 ship (iter 184) `bd6c782`
+- **spec-coverage:** line-gradient ZERO target-style usage (iter 166) `1187804`
+- **spec-coverage:** empirical-impact reclassify pattern props (iter 165) `1e8efe2`
+- **spec-coverage:** icon-halo-* impact medium→low (OFM has 0 SDF icons) (iter 163) `730f22e`
+- **spec-coverage:** icon-halo blocker is external spritezero buffer, not a code unknown (iter 159) `366b2b3`
+- **spec-coverage:** correct understated line-gradient scope (iter 158) `677a260`
+- **spec-coverage:** correct stale icon-halo blocker post iter-138 (iter 155) `cfafc6b`
+- **projection:** world-copy 5.2 shipped — refresh stale comments (iter 136) `9fd9f8d`
+- **plan-progress:** record iter 96-99 + iter 100 milestone `07cf85b`
+- **plan-progress:** record iter 65-95 spec-strict + warning sweep `aa3b9ff`
+- **plan-progress:** record iter 48-64 landings `a65640f`
+- mark mobile-low-zoom bug 🟢 RESOLVED in iter 56 `fcf2a03`
+- **spec-coverage:** cross-reference text-pitch-alignment iter 10 surface `6ef140a`
+- **spec-coverage:** cross-reference line-dasharray + circle-stroke-opacity iters `9931afc`
+- **spec-coverage:** cross-reference format() iter 25 partial-drop `4dd2ffb`
+- PLAN_PROGRESS reflects iter 41-47 wins `6826844`
+- mark mobile-low-zoom bug hypothesis 3 fixed in iter 41 `e90a4f6`
+- mobile + low-zoom rendering bug report `2f5073b`
+- OFM Bright rendering observations from live screenshot run `824ede4`
+- PLAN_PROGRESS reflects iter 27-38 wins `742838f`
+- **spec-coverage:** cross-reference iter 12-22 value-aware warning landings `113f580`
+- **spec-coverage:** cross-reference iter 32-35 translate warnings `42dbf29`
+- ralph-loop run log `3e599a9`
+- PLAN_PROGRESS reflects iter 22-25 completions `9fe23d4`
+- refresh PLAN_PROGRESS with iter 14-20 companion fixes `9917408`
+- **spec-coverage:** note backfill 3/3 — final 32 entries `f7bbbbd`
+- **spec-coverage:** note backfill 2/3 — projection/symbol/line gaps `8cb8112`
+- **spec-coverage:** add notes to 5 high/medium-impact gaps `f030fd6`
+- **spec-coverage:** clarify fill-extrusion-vertical-gradient + AO notes `98d7f96`
+- plan-progress tracker `04608c1`
+- gap matrix generator + snapshot `bfcb90e`
+- **spec-coverage:** iter 541 to_color in to-* entry `f36f87c`
+- **spec-coverage:** note iter 539 to_* evaluator builtins `fd5800a`
+- **spec-coverage:** icon-image end-to-end verified — iter 535 atlas finding `17554f5`
+- **spec-coverage:** cite iter 526 IconStage diagnostic in sprite entry `ef1a315`
+- **e2e:** cold-start noise + stable baseline (iter 528 verification) `80c4a30`
+- **ir:** refresh stale iconSize "constant only" comments after iter 523 `21a7bc5`
+- **spec-coverage:** mark line-gap-width supported, fill-translate partial `954131b`
+- **convert:** spec-coverage reality check for 4 OFM-relevant items `85d7ed8`
+- **convert:** spec-coverage status updates for iters 488/490-494 `3674aaa`
+- **runtime:** surface oblique_mercator tile-selection gap (user issue #4) `83a4f82`
+- **runtime:** worldCopiesFor surfaces equirect/natural-earth multi-copy gap `56c5caf`
+- **ir:** clarify extractInterpolateZoomColorStops base-thread status `7bfb1fe`
+- **convert:** mark symbol-sort-key partial in spec-coverage (was unsupported) `451a7a7`
+- **runtime:** update text-stage collision comment for sortKey precedence `995dbc0`
+- **spec-coverage:** note isOmitted treatment on literal entry `d00b9c2`
+- **spec-coverage:** broaden text-field note, fix run-on row layout `6c899ff`
+- **spec-coverage:** add explicit tilejson source entry `58aa647`
+- **spec-coverage:** add hsl/hsla entry + refresh rgb note `3a8b974`
+- **spec-coverage:** note empty-list contract on in op `d8be461`
+- **spec-coverage:** update interpolate-hcl/lab + zoom entries `720555a`
+- **projections:** document globe polar-cap limitation (±85.051129°) `a98ba68`
+- **palette-emit:** document scalar-atlas architecture limit (no layer-uniform axes) `6bc5e94`
+- **palette-emit:** capture iOS float32-filterable status + manual-interp alternative `bf2bf44`
+- **pixel-match:** liberty-paris-z14 diagnostic visualisations `7e886e1`
+- replace 'for now / next pass / Step 1c' promises with current reality ([#122](https://github.com/X-GIS/X-GIS/pull/122)) `8456a98`
+- harmonize PaintShapes / LabelShapes — accurate, symmetric JSDoc ([#120](https://github.com/X-GIS/X-GIS/pull/120)) `49575b3`
+- update two stale lower.ts comments ([#119](https://github.com/X-GIS/X-GIS/pull/119)) `583e918`
+- **ir:** note where foldTrivialStopsPass would integrate `d1a419f`
+- scrub XGVT references from user-facing docs (Phase 6e) `370fc88`
+- **site:** add /docs/mapbox-spec with auto-validated coverage matrix ([#86](https://github.com/X-GIS/X-GIS/pull/86)) `9a619a0`
+- **text:** along-path road labels + cookbook recipe `612be9c`
+- **text:** site coverage + convert test gap-fill for label utilities `b15c604`
+- **site:** document SDF text rendering across utilities / mapbox / cookbook `5c96714`
+- **site:** API slot formalization + runtime support + structured feedback `f85de2b`
+- **site:** glossary + spec links + see-also + last-updated stamp `d0cc6c9`
+- **site:** search facets + page feedback widget `1d971db`
+- **site:** /docs/api signature blocks + projections SVG diagram `1a4d383`
+- **site:** xgis grammar + pipeline SVG diagram + footer expansion `7f7e32b`
+- **site:** Wave 2 — quickstart + cookbook + mapbox migration `4b81bba`
+- **site:** Wave 1 — syntax highlight + OnThisPage TOC + page meta `852d408`
+- **site:** /docs/{functions,expressions,sources} — Phase 1 of restructure `94e4804`
+- roadmap for 3D extrusion + text rendering `1e08693`
+- replace project README-style CLAUDE.md with karpathy-style guidelines `fb462dd`
+- **pmtiles-demo:** clarify zoom requirement for tiny city archive `cebcac1`
+
+#### test
+
+- **text:** reproduce dense-CJK minification box-out + pin that mips won't fix it `bfd0b7f`
+- **projection:** rebuild non-merc z0 disc gate to feed the real flat path `6f770ee`
+- **gpu:** WGSL compile gate — every emitted shader variant compiles on a GPU (P0 0.8) `2b26872`
+- **projection:** repoint z0-disc test to production getViewForProjection, xfail 3-6 (P0 0.7) `705053b`
+- **labels:** assert anchor-parity under2pct floor (was a dead value) `df86dc2`
+- **labels:** anchor-parity gate — position fidelity vs MapLibre (not pixels) `32f1657`
+- **pixel-match:** pixelmatch AA-aware diff column + bearingY parity verified `ae08c5c`
+- **pixel-match:** near-match%(delta\<=2) fidelity metric for labels survey `85e0880`
+- **pixel-survey:** refresh PR-B baselines from polygon DSL composer rewire `fb30bce`
+- **runtime:** pin camera-coverage fixture name-\>projType to PROJECTIONS table (H1a) `4a74d8c`
+- **runtime:** threshold drift gate pins WGSL/mirror/raster to table (H1a/AC2) `dd602a9`
+- **runtime:** anchor↔geometry projection parity oracle (E1) `a6860a4`
+- **playground:** execute WGSL projection math vs TS mirror (shader-math gate) `c2a89fd`
+- **playground:** add eq-floor gate to pixel-match survey `402e305`
+- **runtime:** characterization safety net for renderFrame + rebuildLayers `e31bfb4`
+- **tiler:** lock ocean-with-island-holes preservation at z=1 (iter 346) `5790821`
+- **e2e:** shield text↔box alignment gate (iter 344) `549f905`
+- **e2e:** azimuthal pitch-0 render-path probe confirms REAL jump (iter 342) `33554fc`
+- **e2e:** per-projection label on-screen gate (iter 341) `3da9922`
+- **e2e:** camera/globe tilt continuity gate — visible NDC metric (iter 340) `1205911`
+- **e2e:** relative projection perf gate (iter 339) `a52e97d`
+- **e2e:** return-to-view determinism gate (iter 337) `38f9ab4`
+- **e2e:** glyph-atlas stability gate — no aliasing churn at steady state (iter 336) `d6bd43d`
+- **e2e:** tile-coverage stress gate — no persistent gaps under interaction (iter 335) `3b2ed10`
+- **e2e:** label interaction-stress gate + analyzer curved/blank exclusion (iter 334) `f265eeb`
+- **e2e:** live-GPU bilingual label placement dump + screenshot (iter 330) `04eb9ed`
+- **text:** country-label center-anchor vertical-stack regression (iter 328) `f2c60c3`
+- **text:** mock-GPU TextStage.prepare harness — bilingual scatter probe (iter 327) `73be16a`
+- **convert:** end-to-end OFM Bright Seoul bilingual scene (iter 326) `cde7278`
+- **render:** PropertyShape resolver finiteness gate (iter 324) `fb0c198`
+- **projection:** all-projection tile-selection + world-copy gates (iter 322) `a8453ce`
+- **tile-select:** projection polar + dateline selection gate (iter 321) `17df7ec`
+- **gpu-upload:** vertex attribute-layout consistency gate (iter 320) `5e6329f`
+- **gpu-upload:** uniform byte-layout consistency gate (iter 319) `2a01674`
+- **text:** wrap + mlVerticalLayout edge gates (iter 318) `6637da3`
+- **projection:** forward edge-input finiteness render gate (iter 317) `ce29521`
+- **line-seg:** every-float-finite render gate (iter 316) `18e6c9d`
+- **sub-tile:** first-ever SubTileGenerator overzoom-clip coverage (iter 315) `e9ec6b5`
+- **dsfun:** vertex-precision fuzz — render-position-drift gate (iter 314) `1cc6362`
+- **tiler:** compile-tile render-buffer invariants (iter 313) `3a40de3`
+- **evaluator:** builtin + AST-kind fuzz — 13% → 47.8% (iter 310) `711c286`
+- **mutate:** clip + colors structural plug sweep (iter 307-309) `b42e158`
+- **cache:** structural-key first/last element pins (iter 306) `91ad5b5`
+- **tile-decision:** boundary + && pins via mutation testing (iter 305) `f2c2881`
+- **simplify:** mutation-gap pin tests + equivalent-mutant note (iter 304) `a0862eb`
+- **icon:** paired-symbol position invariant + IconStage debug hook (iter 301) `dc2c804`
+- **fuzz:** simplify + line-segment-build edge cases (iter 297) `f32bd05`
+- **fuzz:** geodesic + polygon clip edge cases — 42 new pins (iter 295) `4afa0cc`
+- **fuzz:** color + parser edge-case fuzz — 50 new pins (iter 294) `d9a4318`
+- **camera:** pin z=0 framing root cause (iter 292) `e046bea`
+- **text:** pin iter-285 submitted/drawn label counters (iter 290) `d39eda6`
+- **vtr:** pin getTileLoadDiagnostic shape (iter 289) `8467ac4`
+- **vtr:** bundle vs direct pixel-invariant gate (iter 275) `e80ac0d`
+- **perf:** iter-240 followup — interactive alloc profile capture `babc2e9`
+- **pixel-match:** iter-238 — harness convergence wait + variance gate `91afb2f`
+- **pixel-match:** refresh bright-tokyo + liberty-paris baselines (iter-234 run) `e19dd00`
+- **perf:** iter-231 — frameTime capture + wall-clock measurement `c83826d`
+- **perf:** iter-230 — bundle-baseline harness logs+gates bundleReplays `18f2816`
+- **perf:** iter-224 RB.B validation — bundle hit-rate measurement spec `84cadb8`
+- **perf:** iter-211 Phase RB.C — pre-bundle drawCall baseline harness `5b0361f`
+- **runtime:** iter-204A bind-group layout drift invariant `3c33b85`
+- **extrude:** buildings-only harness + revert iter-192 OIT path (iter 193) `8d4c6bf`
+- **visual:** X-GIS↔MapLibre mercator pixel-diff matrix Seoul (iter 173) `c342778`
+- **perf:** Seoul pitch-down + drag-pan matrix (iter 172) `4859f54`
+- **visual:** non-Merc screenshot intrinsic matrix — Seoul (iter 171) `07c37ab`
+- **perf:** all-projection Seoul zoom-sweep matrix (iter 170) `fc9cc9e`
+- **diag:** sprite-SDF-buffer probe — OFM bright has 0 SDF icons (iter 162) `ad0fc1b`
+- **perf:** CPU profile DURING #10 drag-pan localises the 107ms p95 (iter 161) `bde9e81`
+- **perf:** #10 mercator high-pitch drag-pan repro harness (iter 160) `d7b6373`
+- **diag:** z0-halo runtime probe disproves size-collapse hypothesis (iter 152) `60a6221`
+- **diag:** correct deep-zoom probe maxZ → real root found (iter 147) `d7b7771`
+- **diag:** globeVisibleTiles deep-zoom probe rules out selection (iter 146) `3e3f6c0`
+- **diag:** globeTilesSelected counter isolates non-Merc root (iter 142) `b5194a5`
+- **perf:** non-Mercator deep-zoom Seoul repro harness (iter 141, §8.2) `88653fd`
+- **perf:** Phase 0 extended perf baseline spec (iter 135) `f5a176e`
+- **projection:** world-copy E2E spec + xfail for non-Mercator (iter 125) `e53ed94`
+- **label:** focused South Korea label compare at OFM Positron (iter 120) `c7bffb3`
+- **e2e:** add OFM Positron Seoul z=14.16 Hangul-label quality view `a23d9be`
+- **e2e:** add OFM Bright Seoul z=19.31 road-artifact survey view `402e00b`
+- **e2e:** add OFM Positron Arctic z=13.35 label-weight survey view `9ab61a0`
+- **drift:** tighten orphan ceiling 10 → 3 `d9ab156`
+- **compiler:** pin cubic-bezier densification warning text `df2b1d5`
+- **fixtures:** extend synthetic-nested with cubic-bezier + interpolate-lab layers `1ee6e65`
+- **fixtures:** pin densification-eligibility invariant `bbee701`
+- **integration:** densified bezier reaches runtime evaluator correctly `c4bcde9`
+- **compiler:** extend partial-status smoke matrix with 2 missing entries `09734c7`
+- **codegen:** lock compute-gen WGSL emit on canonical inputs `96dc06e`
+- **compiler:** extend property × value-form matrix with densified forms `242942d`
+- **compiler:** structural snapshot of fixture IR per Plan §12.1 `e7aa2ce`
+- **pixel:** refresh post-iter-56 baselines `221b3d3`
+- static gate for Mapbox-import setSpriteUrl ordering `0cbdad8`
+- **convert:** pin pattern-warning specificity contract `d29a1b5`
+- **convert:** pin translate-warning specificity contract `57525d8`
+- **compiler:** partial-status conversion smoke matrix `b52fd2a`
+- **compiler:** extend synthetic-nested fixture with step-bucket layer `fb9126f`
+- **convert:** pin surfaceIgnoredPaint aggregation contract `491f260`
+- **compiler:** gap-matrix.md freshness gate `6c6397f`
+- **runtime:** stricter spec-coverage vs capability contradiction check `827f839`
+- **runtime:** world-copy enumeration gap inventory `dd62939`
+- **runtime:** antimeridian routing heuristic invariants `a5597d6`
+- **runtime:** spec-coverage ↔ capability table drift gate `0aa6e45`
+- **compiler:** property × value-form matrix gate `e9d593c`
+- **e2e:** real-world scenario fixtures `91fe613`
+- **e2e:** label pitch×bearing×projection matrix scaffold `74550a7`
+- **runtime:** camera transition smoothness invariants `1f43bea`
+- **e2e:** projection × interaction perf matrix scaffold `1a4b0d4`
+- **runtime:** low-zoom (z=0..3) tile selection edge cases `aa8a68d`
+- **runtime:** rim_alpha rollout coverage gate `bcca3c6`
+- **runtime:** occlusion policy invariants `7f21a17`
+- **compiler:** synthetic nested-expression fixture `db1a8f2`
+- **compiler:** IR shape snapshots for production fixtures `3c5ee23`
+- **render:** zoom-interpolated color blending gate `0ec1cfe`
+- **tokens:** CSS Color Module 4 name coverage gate (iter 547) `752bc6b`
+- **convert:** pin malformed-shape handling (iter 545) `0e0762f`
+- **compiler:** pin OFM step-zoom icon-image pipeline (iter 525) `cb9436d`
+- **icon-opacity:** pin iter 492 edge-case behavior `8a4e1b8`
+- **compiler:** rule out match() evaluator divergence — Seoul extra-icon root is collision `e5428ee`
+- **compiler:** pin iter 506's icon-rotation-alignment=map propagation `6142734`
+- **compiler:** pin iter 503 icon-along-line conversion contract `1fd2a8b`
+- **compiler:** halo defaults — pin Mapbox spec compliance (user audit request) `9acffe2`
+- **compiler:** fill-translate end-to-end propagation (Phase E.1 CI gate) `79d7cf6`
+- **compiler:** line-gap-width end-to-end propagation (Phase E.2 CI gate) `aa82d58`
+- **convert:** pin iter 494's icon-rotation-alignment suppression `d9a96e6`
+- **compiler:** pin halo propagation Mapbox → ShowCommand (Phase B.3/B.4) `626508d`
+- **compiler:** pin fontWeight propagation Mapbox → ShowCommand (Phase B.1) `b555ff2`
+- **runtime:** strengthen pitch-anchor contract with real MVP screen projection (user issue #5) `6b7dd36`
+- **runtime:** pin polar tile-pyramid gap for ortho/azimuthal/stereo (user issue #3) `d4daf3a`
+- **runtime:** pin oblique_mercator vs Mercator-tile mismatch (user issue #4) `0f9f14f`
+- **runtime:** pitch + point/label anchor consistency sweep (user issue #5) `b92d141`
+- **runtime:** 5 cases pin GeometryCollection support in loadGeoJSON (iter 452) `2c30ce8`
+- **runtime:** pin getCameraState NaN-safety contract (iter 449) `7b14cfa`
+- **runtime:** 7 cases pin unsupported style-mutation stubs (iter 446) `7cc750b`
+- **runtime:** 2 cases pin on / off / once aliases (iter 442) `3a370a2`
+- **runtime:** 7 cases pin setMaxBounds contract (iter 433) `59bcace`
+- **runtime:** pin raster vs vector cull-threshold parity (iter 431) `497d8b8`
+- **runtime:** comprehensive back-face cull sweep — 32 tests (user request) `ce36358`
+- **runtime:** 6 cases pin setMinZoom/setMaxZoom contract (iter 424) `9ad84cb`
+- **convert:** pin parseMapboxFontName coverage (12 cases) `fc5a5aa`
+- **runtime:** pin zoom-time PropertyShape zoomBase pass-through (iter 411-412) `ea273f2`
+- **e2e:** pixel-match-survey gates gt128 vs MapLibre per view (workflow #1) `25460d9`
+- **runtime:** workflow #2 — proj_globe vertex output finiteness sweep `0a05426`
+- **runtime:** workflow #2 — point_cos_c cull parity with polygon/line `45c36e1`
+- **runtime:** workflow #2 — line vs polygon fragment-cull parity (red-pixel guard) `5832f76`
+- **runtime:** workflow #2 baseline — polygon_cos_c_fragment CPU/GPU back-face cull consistency `32063b9`
+- **runtime:** pin pointPatchToFeatureCollection defensive guards (iter 387) `e8ea667`
+- **runtime:** pin setSourceData auto-promotion (FC / Feature / bare Geometry) `551666c`
+- **runtime:** pin NaN-as-false contract for evalFilterExpr `c975a20`
+- **eval:** pin NaN/Infinity-as-falsy short-circuit semantics `1427a9b`
+- **runtime:** pin ALIASES entries all map to VALID canonical names `3319e4a`
+- **runtime:** pin setProjection VALID set vs renderFrame projType lookup sync `af67b11`
+- **runtime:** pin duplicate-zoom-stop span-zero guard in interpolateZoom + interpolateZoomRgba `7e2f4ab`
+- **convert:** pin null-as-omit paint behavior across iterations 158-164 `d8a1278`
+- **convert:** pin legacy stops literal-wrap unwrap `4cea87c`
+- **convert:** pin literal-wrap on per-stop interpolate values `e14cd1a`
+- **convert:** pin string-valued literal unwraps `f2a88f1`
+- **convert:** pin literal-wrap unwrap for line-width + extrusion-height `09151cf`
+- **convert:** pin to-color wrapper unwrap `5f3c1b0`
+- **convert:** pin Mapbox 0..1 → xgis 0..100 opacity scale `d535177`
+- **convert:** pin literal-wrapped text-variable-anchor-offset survival `46b8e19`
+- **convert:** pin literal-wrapped text-offset / icon-offset survival `e8888c2`
+- **convert:** pin tileSize + fill-extrusion-base warnings `fe5bb98`
+- **layer-api:** pin XGISLayer.extrudeBase setter contract `cad2778`
+- **layer-api:** pin XGISLayer.extrude getter / setter contract `60a3f71`
+- **ir:** pin coalesce colour detection in lower-pass stroke arm `2576ffe`
+- **convert:** pin "type": "pmtiles" → real pmtiles source `61df98f`
+- **convert:** pin interpolate-lab / interpolate-hcl downgrade warnings `8dd96a9`
+- **convert:** extend warning-coverage pins to GeoJSON tuning + source bounds `f4dddb0`
+- **runtime:** pin reserved-key passthrough in resolveText `6887445`
+- **ir:** pin case() ternary colour detection on the fill lower arm `321332b`
+- **ir:** pin case() ternary colour detection in lower-pass stroke arm `05d9768`
+- **convert:** pin silent-drop warnings across converter call sites `54385c1`
+- **runtime:** pin reserved-key passthrough in evalExtrudeExpr `d6ed21a`
+- **renderer:** pin per-fragment polygon backface cull call sites `2d1b22b`
+- **ortho-backface:** pin polygon fill cull on back hemisphere `5fb01e6`
+- **ir:** extend data-driven stroke colour regression assertions `01f5d9f`
+- **ir:** make dead-layer-stats meaningful again `023ea3d`
+- **ir:** extend raster-survives regression to all OFM fixtures `cdf9c54`
+- **projection-coverage:** add region sweep — Seoul / NYC / Europe / Pacific / poles `065c379`
+- **stub:** capture pass.draw/drawIndexed + assert BackgroundRenderer fires draw(6) `59c4e6c`
+- **audit:** skip pixel-paint assertions on SwiftShader CI `b028ebc`
+- **stub:** construction smoke for VTR / LineRenderer / Raster / Point / Background `7ea1e2a`
+- **stub:** assert MapRenderer BGL contract + UNIFORM_SIZE invariant `8e1ef9d`
+- **stub:** WebGPU int-enum globals + MapRenderer construction test `81c32e7`
+- **infra:** WebGPU stub POC (Cesium --webgl-stub pattern) `2416ef6`
+- **camera:** coverage matrix as ms-fast vitest + bump regression workers `715487d`
+- **audit:** per-demo tests + globalTeardown REPORT — parallelizable `d2f85dc`
+- **projection-coverage:** page-reuse refactor cuts spec runtime `ac998d8`
+- **e2e:** projection coverage matrix (zoom + pitch + setProjection switch) `ef1fb9c`
+- refresh projection-survey baselines after globe + equirect/NE fixes `6f8dc5e`
+- **globe:** pin globeVisibleTiles wire-in (regression guard for 3eb9c11) `2971f50`
+- **audit:** central-region paint check catches UI-chrome-only regressions `047218c`
+- projection × zoom survey (8 projections × 4 cameras = 32 cells) `07a68d3`
+- **pixel-match:** add Bright water_name views for label parity tracking `e97c017`
+- **pixel-match:** user-reported view survey w/ severity-tiered diff PNG `f12faff`
+- **perf:** profile Tokyo OFM Bright z=9→10 stutter `bf7a07b`
+- **compute:** A/B measure if-chain vs LUT kernel lowering `3fc9d54`
+- **perf:** probe draw-call / tile counts across styles for P2/P8 sizing `5098190`
+- **compile:** cross-style optimisation breakdown — Liberty + 4 xgis natives `e2581e6`
+- **compile:** enumerate paint-axis kinds for OFM Bright `45c6025`
+- **compile:** per-stage optimisation report for OFM Bright `7734d6e`
+- **perf:** Seoul z=17 idle/pan/zoom with full-style vs labels-off comparison `8a8074c`
+- **perf:** measure worker→main tile reception cost during pan `2f91644`
+- **perf:** interactive zoom/pan timing with ?compute=1 `466b7f0`
+- **tiler:** lock polygon-hole preservation through compileSingleTile `2865926`
+- **e2e:** pixel-match user-requested view — demotiles z=9.45 China `e538364`
+- **e2e:** pixel-match survey — 4-view X-GIS vs MapLibre report `8dc2571`
+- **e2e:** broader fixture coverage for P4 compute path — 6 fixtures verified `ac24687`
+- **e2e:** continent_match with ?compute=1 — REAL WebGPU P4 verification `215bbe1`
+- **p4:** continent-match.xgis full chain — mock GPU smoke `7e021a8`
+- **p4:** renderer compute-integration simulation — full pipeline (P4-5 final gate) `f37bc6e`
+- **p4:** end-to-end dedup — fill+stroke shared match() collapses through full chain `1bdaac9`
+- **p4:** end-to-end smoke — compiler ↔ runtime contract lock (P4-5g) `8168dca`
+- **render:** extend marker-drift invariants to line / raster / background `34e54f7`
+- **render:** marker drift invariant — guard against silent no-op regressions `f9310d5`
+- **compare:** chrome OFF + pane labels moved out of map for fair pixel parity `cc5270f`
+- align cross-path-invariants with line-clip outline path (3227174) `98ac35a`
+- drop unused vars in tile-clip test (CI TS fix) `083b73f`
+- **tiler:** pin countries-boundary tile-clip edge filtering (demotiles diagnosis) `6e2bf6a`
+- **ir:** null-narrow color in label-shapes-fixtures (CI TS18047 fix) `f661e96`
+- **ir:** LabelShapes inference invariants on real OFM + demotiles styles (Label L4) `13d0463`
+- **spec-invariants:** add 6 invariants — countries-boundary paint + label_country_2 weight (Plan Step 5) `7e2640f`
+- **ir:** fix tsc errors blocking CI build `1fab909`
+- **parity:** deterministic MapLibre comparison gate (settled-state waits + catastrophe retry) `907c53a`
+- **ir:** fold-stats diagnostic + parity gate intermittence note `e65745d`
+- **ir:** fold-trivial-stops integration test + integration deferral note `bb52c9a`
+- **parity:** rebake baselines — Liberty Tokyo 20% was a load-flake `e916a90`
+- **invariants:** pin antimeridian label-cluster fix (7df23d0) `fd1bbde`
+- **parity:** hard-gate MapLibre pixel-diff; pin SSE native-cz emission `62d72e7`
+- **compiler:** drift detector ignores JS typeof keywords as Mapbox names `c6f4651`
+- **compiler:** pin Mapbox text-anchor + offset + justify end-to-end `9e9dcb1`
+- **clip:** pin clipPolygonToRect against the Yellow Sea bug surface `b92cc58`
+- **geojson:** regression spec for Yellow Sea tile dropout (skipped, repro doc) `05fd5d9`
+- **ofm:** user-reported camera probes (z=2.26 / 4.37 / 2.32) `0906444`
+- **label:** demotiles geolines-label render probe `b515e4f`
+- **label:** demotiles z=2 capture for label weight + tiling probe `66f9f06`
+- **dash:** probe scenes for dasharray fidelity vs MapLibre `9026348`
+- **parity:** pacific zoom-sweep + zoom-in-dup probes `6d0b17c`
+- **parity:** user-supplied compare camera presets + label-bug specs `3f7c824`
+- **polygon-mesh:** deterministic quantization roundtrip + cushion bound `9c51ef2`
+- **compare:** expose ml/xg map instances on window for e2e probes `8e578a6`
+- **spec:** oracle-driven coverage completeness + refresh stale entries (Step A) ([#111](https://github.com/X-GIS/X-GIS/pull/111)) `a032b75`
+- **maplibre-demo:** merge local strict-validation spec with origin `f10155c`
+- **spec:** conformance — defaults + evaluator differential (WS-3) ([#108](https://github.com/X-GIS/X-GIS/pull/108)) `b327b81`
+- **eval:** add evaluator round-trip safety net for zoom-driven expressions ([#103](https://github.com/X-GIS/X-GIS/pull/103)) `0cceefd`
+- **coverage:** pin Mapbox→RenderNode end-to-end + silent-drop diagnostic ([#96](https://github.com/X-GIS/X-GIS/pull/96)) `e822c07`
+- **convert:** verify MapLibre demo style import end-to-end ([#71](https://github.com/X-GIS/X-GIS/pull/71)) `246f7c1`
+- **perf:** add cold-start + cascade scenarios to GeoJSON cost spec `87ce1d1`
+- **camera:** edge-case + suspicion-point coverage `5a43226`
+- **camera:** first unit-test surface for the projection matrix `54355d1`
+- **perf:** GeoJSON path cost measurement + MVT-encode bench `d859727`
+- **e2e:** zoom-in tile hold regression spec `67af2f4`
+- **perf:** CPU profile during zoom transition (z=10→14 in 4 s) `686f8a1`
+- **tile-pipeline-predictor:** update FLICKER scenario expectations `501497a`
+- **perf:** interactive scenarios — zoom / pan+zoom / pitch sweep `dad5942`
+- **tiles:** SSE selector unit invariants + retune default target `4a54d78`
+- **e2e:** cold-start perf budgets `ef7f8b2`
+- **vt-renderer:** per-tile drawIndexed trace, not just per-show `03e561d`
+- **map:** runtime draw-order trace for VTR.render() per frame `dc06f9c`
+- **merge-layers:** lock in absorption gates with explicit unit tests `202b97c`
+- **merge-layers:** non-contiguous same-source groups stay separate `57d3ebc`
+- **e2e:** runtime proof of the osm-style auto-merge fold `562bbb3`
+- **line-segment-build:** per-feature width / colour bake assertions `555a93d`
+- **merge-layers:** real osm-style.xgis fold report `75047c6`
+- **merge-layers:** add OSM-style end-to-end fold ratio assertion `df3ad7e`
+- tighten realistic pinch gesture to actual user rate `3b5d9bd`
+- **user-scenario:** assertion-based regression at every camera state `cd9b649`
+- **invariant-check:** extend with high-pitch DFS path `2ae6049`
+- in-page profiler overlay for mobile (no Web Inspector) heat reports `9aa59f2`
+- realistic mobile gesture spec — multi-axis ease-in-out + sustained pan `cdf276f`
+- **perf:** cache hit-rate telemetry for stress + continuous-zoom `d5087a1`
+- e2e + unit coverage for PMTiles per-MVT-layer + over-zoom + perf `f79e528`
+- **perf:** CDP profiler-based PMTiles v4 e2e perf measurement `d5a848e`
+- **catalog:** isolated backend + multi-backend dispatch tests `bc2b09e`
+
+#### ci
+
+- re-trigger after Actions outage recovery `f5089b7`
+- trigger workflow re-run (no functional change) `ca56423`
+- make render-gate blocking (shader-math validated green under SwiftShader) `8d14351`
+- widen software-GPU shader-math tolerance to 2e-3 (SwiftShader trig noise) `65dfe57`
+- software-GPU tolerance for shader-math; drop projection-coverage from render-gate `3d4df95`
+- use project-local playwright bin for render-gate install + test `496aef9`
+- install chrome-headless-shell for render-gate headless launch `a1de084`
+- add render-gate job (shader-math + projection-coverage under SwiftShader) `a1395c7`
+- remove playwright E2E workflows from GitHub CI `a79c36b`
+- move continue-on-error from job to step level `3f0e4bc`
+- tier-split — smoke (PR) vs audit (push/nightly) `b0042f3`
+- **playground-audit:** cache + merge jobs + skip pixel checks on SwiftShader `1332ad9`
+- **playground-audit:** bump regression-specs timeout to 30 min `5b436b5`
+- gate audit failure correctly + mark CI jobs informational `4295164`
+- **test:** add vitest gate on PR (WS-1 of spec-drift plan) ([#106](https://github.com/X-GIS/X-GIS/pull/106)) `7facc16`
+
+#### chore
+
+- **tsc:** clean pre-existing TS6133/TS2459 unused imports (Phase 2 cleanup) ([#179](https://github.com/X-GIS/X-GIS/pull/179)) `edba293`
+- **pixel-baseline:** liberty-paris-z14 Stage 2 fill-pattern improvement (iter 184 follow-up) `f4a1ebe`
+- **git:** restore principled e2e ignore + ignore .claude state `c237235`
+- **scripts:** make gap-matrix generator deterministic by default `82d5298`
+- add test:pixel / test:perf / test:projection scripts `6ffaf02`
+- **dev:** local precheck + pre-push hook (fast feedback before CI) `ad512f7`
+- housekeeping — refine gitignore, refresh pixel-match-survey report `ae1d119`
+- **compiler:** export planComputeKernels + ComputePlanEntry from barrel `3945bcf`
+- **playground:** delete .xgvt data + migrate HTML examples (Phase 6b) `26ee0f6`
+- **site:** refresh references to dropped zN: + extrude: syntax `c89a0ca`
+- **playground:** register openfreemap_bright as a permanent demo `d012f27`
+- **merge-layers:** opt-in dev log when a fold actually fires `534e25b`
+- **vt-renderer:** test hook for upload budget override `ff5dfdf`
+- ignore profiling dumps + ad-hoc debug artifacts `43101e1`
+
+#### revert
+
+- **pixel-match:** remove label near%/AA-diff columns — premise falsified `5bf6316`
+- **tiler:** geodesic-midpoint subdivision — z=0 banding regression `25a3331`
+- **runtime:** undo spurious iter 429 raster cull change — globe path already early-returns `b1cad7a`
+- **line-aa:** restore original AA reserve + smoothstep shader `b07b694`
+- **text:** drop opentype.js + ShapeRegistry.addGlyph (Batch 1a undo) `d730dda`
+- **vt-renderer:** remove fade-in (white tile pop on zoom-in) `0b7fd3c`
+
+#### other
+
+- Fix line↔fill position mismatch (camera-relative ECEF RTC for lines) ([#192](https://github.com/X-GIS/X-GIS/pull/192)) `15d052e`
+- Camera-relative ECEF RTC fix (polygon/raster/point) + frame-split docs ([#191](https://github.com/X-GIS/X-GIS/pull/191)) `7b72967`
+- Wire worldBandForProjType into runtime — source-honest mercator ±85° bg band ([#190](https://github.com/X-GIS/X-GIS/pull/190)) `c66d245`
+- Guard: vertex(ellipsoid) ↔ camera(sphere) ECEF frame mismatch ([#189](https://github.com/X-GIS/X-GIS/pull/189)) `fdbf31f`
+- Projection verification: VS clip parity (axis B) + source-honest world-band guard + CI split ([#188](https://github.com/X-GIS/X-GIS/pull/188)) `d92cc2d`
+- Phase 2 closeout: _back-compat retire (2e.B) + Quantized ECEF (2f) ([#187](https://github.com/X-GIS/X-GIS/pull/187)) `8e20568`
+- [Phase 2 PR 2c.3.B] Synthetic earth-surface backend dispatch + BackgroundRenderer deletion ([#164](https://github.com/X-GIS/X-GIS/pull/164)) `73b607d`
+- [Phase 1] Tier 3 ECEF tile pipeline — TileScheme abstraction + source-honest principle ([#153](https://github.com/X-GIS/X-GIS/pull/153)) `6205164`
+- shader DSL: Phase 2.5 PR-B — polygon DSL ModuleDecl + runtime rewire ([#152](https://github.com/X-GIS/X-GIS/pull/152)) `8a7c4f9`
+- shader DSL: Phase 2.5 foundations + per-idiom Node migration (PR-A + PR-B partial) ([#151](https://github.com/X-GIS/X-GIS/pull/151)) `e5eb18c`
+- shader DSL: Phase 0 keystone (mirror→DSL, compile-time types) + Phase 2 start ([#150](https://github.com/X-GIS/X-GIS/pull/150)) `8e8c4c7`
+- tools(mutate): mutation report across 6 surfaces (iter 303) `34fc304`
+- tools(mutate): hand-rolled mutation tester + first run (iter 302) `1d46c79`
+- diag(vtr): tile-load partition for FLICKER class (iter 288) `0b74b11`
+- probe(camera): z=0 matrix dump pin (iter 287) `ef5e27a`
+- diag(camera): getDebugSnapshot probe for z=0 render bugs (iter 286) `1d86395`
+- diag(text): submitted vs drawn label count for shield-text bug (iter 285) `7f958b3`
+- compiler(expr-analyze): static per-Expr structural + purity metadata pass (iter 269) `34ac1b8`
+- diag(map): iter-262 (Plan L.1.2) — label-dispatch line/point/show breakdown `e3e4102`
+- diag(map): iter-261 (Plan L.1.1) — label-dispatch sig hit-rate diagnostic `c612ed3`
+- infra(fill-pattern-stage2): fs_fill_pattern shader + ground pipeline variants (iter 182) `3e3a6f9`
+- infra(fill-pattern-stage2): sprite atlas bind group entry on every polygon pipeline (iter 181) `aaca3b6`
+- Revert "fix(projection): world-copy for Oblique Mercator (iter 122)" `81d44b9`
+- Revert "fix(projection): world-copy for Equirect + Natural Earth (iter 123)" `5d0bf54`
+- hardening: setQuality invariant + audit CI + cross-cut cleanups `167bda8`
+- tiler: line-clip ORIGINAL polygon rings for outline emission (drop polygon-clip + extractNonSyntheticArcs path) `3227174`
+- runtime: clip_bounds discard in SDF line shader + tighten EPS_M `7f5b8fb`
+- runtime: suppress line cap on tile-boundary endpoints regardless of input tangent markers ([#18](https://github.com/X-GIS/X-GIS/pull/18)) `fa5a2d8`
+- runtime: filter synthetic tile-clip edges in sub-tile generator outline path `f9dcb1d`
+- ir: delete LabelDef sibling fields, LabelShapes is the sole source of truth (Label L3) `50f2e1b`
+- render: migrate map.ts label resolver to LabelShapes (Label L2) `87ff153`
+- ir: add LabelShapes + dual-write from LabelDef siblings (Label L1) `bb0d953`
+- render: narrow VTR.render's resolvedShow parameter to required (Plan Step 4 complete) `7238429`
+- ir: move merge-layers into passes/ + drive optimize() through PassManager (Plan Step 2 Phase 2g) `fe42a83`
+- ir: add fold-trivial-case pass + integrate into optimize() (Plan Step 2 Phase 2f) `ab053ab`
+- ir: integrate dead-layer-elim into optimize() pipeline (Plan Step 2 Phase 2e) `e9961b9`
+- ir: integrate fold-trivial-stops into optimize() pipeline (Plan Step 2 Phase 2d) `efdd295`
+- test+perf(phase5f): cold-start comparison legacy vs default `6c1365a`
+- test+verify(phase5e): Yellow Sea repro confirms paths are equivalent `0720084`
+- Merge pull request #52 from X-GIS/claude/improve-text-rendering-DF6ej ([#52](https://github.com/X-GIS/X-GIS/pull/52)) `ad0bd4b`
+- Merge pull request #51 from X-GIS/claude/debug-white-tiles-issue-OzLwM ([#51](https://github.com/X-GIS/X-GIS/pull/51)) `311a2a3`
+- diag(mvt-pool): opt-in profile timing for message + drain `0745abc`
+- docs+demo(batch-6): site coverage + playground demo for math/step/concat `85e0625`
+- demo(import): playground demo + e2e for Mapbox style splice import `4074354`
+- demo(text): multiline-labels playground demo `452af34`
+- ux(playground): collapse Monaco editor on touch-primary devices `a89a05d`
+- diag(visual): fallback-red overlay reveals real cause of high-pitch artifact `fb8ee9b`
+- Revert "fix(quality): render at device pixel density, not silently downscaled" `1b9cf70`
+- test+fix(tiles): viewport-AABB inject at flat pitch — coverage-driven `e13fb13`
+- inspector: distinguish drawn-by-zoom from gpu-retained-by-zoom `5132767`
+- inspector: zoom distribution per Tiles tab — answer "is detail too high?" `77608df`
+- perf+inspector: real-device-data-driven mobile cap tighten + Copy button `fa1d508`
+- design(site): apple-style polish — stats block, 4-col footer, hover lifts `4f8b977`
+- site: replace inline favicon with logo SVG + simplify Hero `9c208ec`
+- playground: PMTiles demos use sourceLayer + add projection picker UI `c54c681`
+- debug(pmtiles): log archive header + per-tile fetch outcome `bcce6e3`
+
+### 2026-04
+
+#### feat
+
+- **tiles:** add industry-standard screen-space-sample tile discovery (WebGPU phase 1) `2b37674`
+- **predictor:** add tile-pipeline simulator for multi-frame cache pressure (Phase 2-C) `756796d`
+- **layer:** DOM-inspired XGISLayer API + pointer-events:none `b2f875e`
+- runtime quality toggle — map.setQuality(patch) API `dfae153`
+- GPU picking via ?picking=1 (MRT, map.pickAt) `af241d2`
+- **quality:** expose MSAA + DPR via URL flags + presets `ab2ea90`
+- **perf:** WebGPU timestamp-query GPU pass timing (?gpuprof=1) `aa6cd58`
+- **playground:** 5 coverage fixtures + deterministic ordering + UX `40f0e95`
+- **runtime:** respect anchor in flat point mode ([#25](https://github.com/X-GIS/X-GIS/pull/25)) `42e1bf6`
+- **runtime:** normalize symbol paths to ±1 max-extent at registration ([#23](https://github.com/X-GIS/X-GIS/pull/23)) `723d8a3`
+- split LineString at anti-meridian crossings `5397c54`
+- great circle interpolation for line/polygon subdivision `fef9855`
+- propagate join tangents across tile boundaries `cbc1976`
+- external data injection API (setSourceData / setSourcePoints / updateFeature) `e024f96`
+- animate fill/stroke/width/size/dashoffset (animation PR 3) `4ce6022`
+- keyframes block + time-interpolated opacity (animation PR 1) `9e8bcb8`
+- DSFUN vertex refactor + log depth buffer + headless smoke test `a3bbe21`
+- add new demo layers and update tag colors and labels for enhanced visualization `dec9af6`
+- SDF line rendering, translucent compositing, iOS hardening `7a85688`
+- Implement SDF shape system with GPU storage buffers `879453e`
+- frustum-based tile selection with projection inverse `564ad85`
+- pitch-aware tile visibility — load more tiles when tilted `d081191`
+- two-finger vertical drag for pitch on mobile `6a0d6d1`
+- billboard vs flat rendering mode for SDF points `c77e919`
+- camera pitch/tilt with perspective projection `4ca4a0c`
+- logical rotation units + 15° snap on release `031aa03`
+- expand world wrapping to 5 copies (2 left + primary + 2 right) `7d74521`
+- zoom-adaptive graticule with major/minor grid lines `fe8f332`
+- draw graticule grid on all 3 world copies `fb27a74`
+- finite world wrapping (MapLibre-style) + point world copies `e28be1d`
+- parent fallback for raster tiles to eliminate flickering `8a70633`
+- tile-based SDF point rendering via VectorTileRenderer `e06684a`
+- propagate pointVertices through TileData and cacheTileData `1c90a72`
+- add Point/MultiPoint support to vector tiler `9604d15`
+- replace regex highlighting with Shiki + TextMate grammar `57ef3cd`
+- data-driven per-feature SDF point radius + demo separation `0eed093`
+- world-space sizing for SDF points (px/m/km/deg units) `4c05aec`
+- SDF point renderer — resolution-independent circles via GPU `dd45b15`
+- procedural geometry demo with populated places point data `f4556e7`
+- tests for new language features + procedural geometry demo `382d704`
+- compile user functions with if/else to GPU via nested select() `bec2572`
+- ternary conditional expressions + GPU codegen for if/else `7116b94`
+- procedural geometry generation from data expressions `b82772d`
+- language extensions — if/else, for loops, return, arrays, trig `3dd633e`
+- on-demand tile compilation for GeoJSON sources `ee5aa01`
+- async progressive tiling with setTimeout yield between zoom levels `394abc8`
+- progressive GeoJSON tiling — render z0 immediately `8bc27bd`
+- boundary vertex snapping + within-tile vertex deduplication `bba0690`
+- style blocks, CSS-like properties, playground UI overhaul `9fd7a4a`
+- block comments (/* */) + VS Code extension for X-GIS DSL `62c5ee6`
+- world wrapping — infinite X-axis scroll `76ae8b6`
+- MSAA 4x antialiasing for all rendering `a1f7ac4`
+- 3-strategy anti-flicker for tile transitions `d885c13`
+- add --gpu flag for pre-tessellated XGVT files `3944367`
+- add 10m Natural Earth XGVT datasets + examples `8f5ea2a`
+- add 50m XGVT datasets + Physical Map 50m + States examples `6950355`
+- support multiple .xgvt sources per map `a414e34`
+- add XGVT demo entries to gallery and demos `28ada31`
+- add XGVT versions of Natural Earth data + Physical Map XGVT example `640042c`
+- add HTML pages for Natural Earth examples `886140e`
+- add Natural Earth GeoJSON examples `225197f`
+- extract XGVTSource — separate data layer from GPU renderer `aaa101a`
+- remove 2-pass reprojection, restore direct 1-pass rendering `382bcb1`
+- unified 2-pass projection — all projections via single reprojector `a6712c2`
+- 2-pass Mercator rendering + overzoom sub-tile optimization `bf9fdfa`
+- map rotation (bearing) `a2ae231`
+- stencil buffer masking for zero-flicker zero-overlap tile transitions `0484601`
+- stable zoom + next-zoom prefetch (no flicker on zoom-in) `ac95d6d`
+- abort pending tile fetches on zoom change `66fbe29`
+- pan inertia — flick to throw the map `76d0000`
+- spring physics zoom with velocity accumulation `b23bd60`
+- smooth mouse wheel zoom with ease-out animation `74d7482`
+- sub-tile cache for overzoom (tile-coord clipping, not viewport) `87ca3f4`
+- per-tile buffer triangle clipping for overzoom sub-tiling `bb86638`
+- triangle-level viewport clipping for overzoom sub-tiling `77af16f`
+- restore zoom-level simplification + runtime overzoom sub-tiling `eb7c0db`
+- ring-based .xgvt format + runtime overzoom sub-tiling `45e38fd`
+- runtime overzoom triangle clipping for vector tiles `16a5dd8`
+- rendering stats inspector panel (Three.js style) `b92160f`
+- per-feature categorical styling, adaptive tiling, Mercator fixes `b51aa45`
+- per-tile bind groups with tile-local coordinates `737edd8`
+- MVT-style integer quantization + per-tile gzip (41MB → 19MB) `e08e5e4`
+- tile-local coordinates for sub-meter precision `d725c9d`
+- add missing CPU projections — azimuthal equidistant, stereographic, oblique mercator `b1e4290`
+- zoom transition management + .xgvt spec document (Phase 3) `abb39f6`
+- PropertyTable in .xgvt v2 — feature attributes preserved (Phase 2) `9624046`
+- remove simplification + preserve feat_id in compact layer (Phase 1) `6cf5353`
+- batch Range Request + prefetch for vector tiles (Stage 3) `729877f`
+- per-part decomposition + data-driven maxZoom + stable feature IDs `4a76fc3`
+- overzoom support — clamp to max available level in .xgvt `8ff22c2`
+- always use Range Request + max 6 concurrent tile loads `b706e02`
+- COG-style Range Request loading for .xgvt files `f3a815b`
+- VectorTileRenderer integrated into rendering pipeline `01b71b0`
+- tile boundary clipping — 90% output size reduction `6a35c5d`
+- .xgvt COG-style vector tile binary format + CLI tile command `fc663e4`
+- Morton code (Z-order curve) tile key — spatial cache coherence `83ecb87`
+- quadkey tile hash with parent/child traversal `da1a37a`
+- vector tiling engine — encoding, simplification, COG-style pyramid `0e4b9fb`
+- demo picker with 8 example scenes `de42ed8`
+- per-feature data path — vertex feat_id + storage buffer (Phase 3B) `182e53e`
+- renderer uses ShaderVariant — per-layer specialized pipelines (Phase 3A) `08640df`
+- Canvas 2D fallback renderer for non-WebGPU environments `33e07ff`
+- mobile touch support + tile loading strategy `7e71d6c`
+- color ramp LUT textures + GPU compute dispatcher (Phase 2D) `66b8d1c`
+- zoom interpolation runtime + zoom/size pipeline preservation (Phase 2C) `e279637`
+- WGSL codegen + shader variant generation (Phase 2B) `9fdab79`
+- compile-time optimization — constant folding + expression classification (Phase 2A) `f613b8f`
+- import/module system + symbol definitions (Phase 1D+1E) `c794676`
+- expression evaluator, zoom/data modifiers, preset system (Phase 1A+1B+1C) `c9f1835`
+- IR layer + binary v2 + pipeline integration (Phase 0C+0D) `34641a8`
+- source/layer syntax with Tailwind utility styling (Phase 0A+0B) `86cedfa`
+- dynamic style properties — runtime override from client `a703cf6`
+
+#### fix
+
+- **tiles:** raise frustum cull margin floor for narrow (portrait) viewports `c3512d2`
+- **tiler:** skip synthetic tile-rect edges in polygon outline emission `448d465`
+- **vt-renderer:** upload ancestor fallback synchronously, bypass frame budget `259d5bc`
+- **tiler:** protect indexed-ancestor tiles (z ≤ maxLevel) from eviction `0abadc2`
+- **build:** restore DEG2RAD/EARTH_R/latToMercY for line-coord reconstruction `cb4d75d`
+- **tiler+xgvt:** complete MM pipeline + regenerate all .xgvt fixtures `97b9738`
+- **build+tests:** remove stale imports + relax flaky throughput thresholds `6b57faf`
+- **tiler:** polygon stroke uses lon/lat-clipped rings (was Mercator) `d34aed2`
+- **xgvt-source:** loadFromBuffer called non-existent preloadLowZoomTiles `3cb9555`
+- **xgvt-source:** synthesize quad for compileSingleTile full-cover sub-tiles `95d7f44`
+- **map:** lift rawMaxZoom for GeoJSON sources from 7 to 22 (resolve z=22 polygon offset) `4a3bae6`
+- **compiler+runtime:** propagate fullCover flag through compileSingleTile `5c1be77`
+- **tile-selection:** viewport check at leaf tiles with tz \<= 3 (Arctic over-selection) `ecc50e0`
+- **predictor:** flag budget-saturated frames so fitsIn* booleans are trustworthy `971dfa1`
+- **projection:** align CPU naturalEarth to WGSL polynomial (resolve A-1) `993aa14`
+- **projection:** consolidate Mercator latitude clamp to canonical 85.051129 `c71a569`
+- round-join whisker — push bisector clip 1px past edge `9469025`
+- round-join for offset strokes — extend body to circle tangent `a769557`
+- true round-join for offset strokes (neighbor body SDF clip) `84c02f4`
+- line caps blink with dash animation + stroke-offset round-join gap `d9ab671`
+- eliminate sustained FLICKER on data-sparse tiles `5ffd2ce`
+- suppress benign load-time FLICKER noise + favicon 404 `3fb1524`
+- restore RasterRenderer.hasPendingLoads() — missing dependency `00a0383`
+- build feature data buffer AFTER worker compile returns `dfe97e7`
+- wrap camera X to one world — no more black gap past ±360° pan `6dcbf9e`
+- prefetchAdjacent 500M-iteration loop (mixed-zoom AABB) `03ea9d9`
+- **runtime:** also make p1 round-join gate inclusive (whisker fix v2) ([#49](https://github.com/X-GIS/X-GIS/pull/49)) `ea6089d`
+- **runtime:** include bisector in round-join gate (no body whisker) ([#48](https://github.com/X-GIS/X-GIS/pull/48)) `903e71e`
+- **runtime:** add half-pixel safety margin to join_pad ([#47](https://github.com/X-GIS/X-GIS/pull/47)) `a987e56`
+- **runtime:** extend round/bevel join_pad by offset × pad_ratio ([#46](https://github.com/X-GIS/X-GIS/pull/46)) `2d02844`
+- **runtime:** round-join bisector gate uses offset miter vertex ([#45](https://github.com/X-GIS/X-GIS/pull/45)) `5428484`
+- **runtime:** offset-stroke join lands at the offset miter vertex ([#44](https://github.com/X-GIS/X-GIS/pull/44)) `8958017`
+- **runtime:** sort translucent points back-to-front each frame ([#43](https://github.com/X-GIS/X-GIS/pull/43)) `5dc7765`
+- **runtime:** enforce miter limit in fragment shader (bevel fallback) ([#42](https://github.com/X-GIS/X-GIS/pull/42)) `50b8dc2`
+- **runtime:** opaque polygon pipelines must write depth ([#41](https://github.com/X-GIS/X-GIS/pull/41)) `d0d038f`
+- **runtime:** use premultiplied blend for translucent line composite ([#40](https://github.com/X-GIS/X-GIS/pull/40)) `198e309`
+- **runtime:** persist depth across all opaque sub-passes too ([#39](https://github.com/X-GIS/X-GIS/pull/39)) `7dbab87`
+- **runtime:** persist opaque depth into the points pass ([#38](https://github.com/X-GIS/X-GIS/pull/38)) `c249666`
+- **playground:** ship 110m physical geojsons + surface 404 reason ([#37](https://github.com/X-GIS/X-GIS/pull/37)) `2cceb04`
+- **playground:** re-bake all NE xgvt fixtures to v2 + restore missing 110m geojson ([#36](https://github.com/X-GIS/X-GIS/pull/36)) `ca9d06e`
+- avoid pad_ratio overdraw halo in ROUND/BEVEL joins ([#30](https://github.com/X-GIS/X-GIS/pull/30)) `73bb8d6`
+- **runtime:** per-frame budget for generateSubTile to prevent zoom hang ([#29](https://github.com/X-GIS/X-GIS/pull/29)) `11e1c0a`
+- widen tile culling envelope by stroke-offset for render-reach ([#26](https://github.com/X-GIS/X-GIS/pull/26)) `cfb595c`
+- clamp line quad along_pad for all join types to cover offset rounds ([#24](https://github.com/X-GIS/X-GIS/pull/24)) `c94ab74`
+- make multi-slot pattern fixture render + namespace user symbols ([#22](https://github.com/X-GIS/X-GIS/pull/22)) `7ad748d`
+- don't write depth for translucent SDF point layers ([#21](https://github.com/X-GIS/X-GIS/pull/21)) `57872ec`
+- preserve line cap when endpoint coincides with tile boundary `6352475`
+- round join uses circle SDF replacement instead of union `8361549`
+- revert broken depth-aware mpp correction `3830b43`
+- screen-space width clamping + depth-aware AA for high pitch lines `e4a066a`
+- linear interpolation fallback for antimeridian-shifted coords `f234934`
+- clip lines in Mercator space to match generateSubTile `7d98a81`
+- allow generateSubTile from z=0 root tile `2cc1172`
+- add degenerate clip rejection to generateSubTile clippers `895a9f5`
+- repack sub-tile vertices to sub-tile-local DSFUN origin `03edb9a`
+- reject degenerate zero-length clips at tile boundaries `dcabc0b`
+- update sub-tiling line clipping to stride 10 `2357383`
+- update LINE_STRIDE to 10 across tile-format and xgvt-source `85c1f17`
+- zero tangent at mid-segment clip points for tile boundary continuity `27b1c13`
+- correct miter pad ratio to \|tan(θ/2)\| for along-direction coverage `9649f0d`
+- use relative paths for GitHub Pages compatibility `8dd86cb`
+- don't invalidate expanded point buffer in updateDynamicSizes `7e58163`
+- size zoom stops live-update on camera zoom change `7e08127`
+- honor zoomSizeStops in point renderer path `e7e11f0`
+- auto-push sample data for inline-source fixtures in gallery `4b03c38`
+- SDF point rendering — bucket scheduler skipped direct-layer points `f88413c`
+- animation lifecycle metadata for non-opacity properties `1317263`
+- bucket-based draw scheduler for correct opaque/translucent ordering `bd4c480`
+- stable Mercator Y reformulation in vs_main `02cffcc`
+- manage GPU buffer lifecycle by retiring uniform rings for safe destruction `4a6bddb`
+- optimize layer rendering by skipping effectively transparent layers `41b0fd8`
+- improve zoom behavior on wheel direction reversal in PanZoomController `09db222`
+- compile point features in bulk tile generation `4950b7b`
+- resolve 77 TypeScript errors across runtime, compiler, and playground `e3f206b`
+- request + compile tiles BEFORE drawing to eliminate blank frames `ca96e01`
+- near plane too far (0.5×altitude → 0.01×altitude) — bottom of screen clipped when pitched `bccf4a6`
+- 5 root causes of pitch jitter `e4ee923`
+- quantize pitch to 5° steps for stable tile selection `943a971`
+- prevent pitch jitter during 2-finger pinch zoom `de2c277`
+- disable offset zoom when pitched to prevent jitter `5f5a027`
+- pitch jitter — remove aggressive 15° pitch snap + tighten near/far `194ec0c`
+- snap without animation + fix WORLD_WIDTH reference error `98b6e73`
+- right-click rotation requires drag movement, not just click `f6e69c0`
+- invert pitch drag direction (drag up = increase pitch) `4f62c73`
+- negate pitch in RotateX so camera tilts backward (looks ahead at horizon) `91e2f46`
+- rewrite perspective matrix with explicit 4x4 multiplication `631698f`
+- negate pitch rotation so camera tilts forward (not backward) `c09df74`
+- rotation uses angle from canvas center, not horizontal dx `6f716f8`
+- natural rotation feel + animated snap `2a3a362`
+- add deadzone to right-click rotation to prevent accidental spins `88dd4cf`
+- move worldOffs declaration before first use (TDZ error) `0b434cf`
+- graticule world copies use separate uniform buffers `1acd761`
+- point world copies as 3× expanded buffer instead of writeBuffer `5938955`
+- apply zoom-interpolated opacity per frame for VT layers `6e0ebbd`
+- add opacity field to Uniforms struct for zoom-interpolated opacity `6389177`
+- don't premultiply fill RGB by opacity in SDF point data `c08a897`
+- move tile point rendering from renderTileKeys to render() `8fe5dba`
+- add runtime type check for pointRenderer to prevent ReferenceError `e751f33`
+- add explicit PointRenderer import to vector-tile-renderer `2615a36`
+- f64 RTC precision for SDF point positions `da50ed4`
+- render SDF points after vector tile polygons (correct z-order) `17c3847`
+- correct uint32 quad_id indexing in point vertex buffer `292295a`
+- wrap PointRenderer init in try-catch to prevent GPU cascade failure `e04aabe`
+- add depthStencil to SDF point pipeline + clear on rebuild `7080006`
+- absorb unit tokens (km/m/deg/px) into utility names `79e6585`
+- update GDP demo to use filter layers (data has no centroid fields) `3ef59b7`
+- move camera fitting into onLevel callback `9127dd6`
+- separate VT sources for filtered layers from same GeoJSON `b415b79`
+- rebuild tile bind groups after feature buffer creation `0ecf7e8`
+- clamp latitude before Mercator projection in earcut `b0ae158`
+- support multiple layers from same vector tile source `0c27036`
+- force gpuReadySize=0 when parsing decompressed compact tiles `aa8daff`
+- apply Mercator earcut to xgvt compact tile decoder `3dede17`
+- earcut in Mercator space to eliminate coastline fill artifacts `6ea4452`
+- clip wide polygons on both lon and lat axes at 20° intervals `c665fc1`
+- clip wide polygons at 40° intervals to prevent earcut artifacts `69f4d7c`
+- clip polygons at anti-meridian instead of shifting longitudes `a6c0ba1`
+- raster/vector alignment, rotation matrix, and Mercator UV mapping `eb17b96`
+- fallback tiles use world offsets for correct wrapping position `b3fb389`
+- wrap-aware tile sorting and prefetch `d1f5945`
+- world copy rendering with pooled uniform buffers `1909949`
+- MSAA multi-pass storeOp — preserve data between passes `508316c`
+- delete stale .js files that overrode .ts source `b4fa31a`
+- hardcode MSAA sampleCount=4 in all pipelines `89b2539`
+- hardcode MSAA sampleCount=4 in map.ts (ctx.sampleCount may be undefined) `675973c`
+- set bindGroupLayout before loadFromURL (preloaded tiles need it) `12b553e`
+- remove upload queue — immediate GPU upload eliminates flickering `b44cad8`
+- check GPU cache for parent fallback (not just source dataCache) `4e3374b`
+- pass bindGroupLayout to flushUploadQueue for preloaded tiles `a58398d`
+- preload z0-z4 tiles directly without concurrent limit `0eea7ba`
+- flush preloaded tiles to GPU immediately (bypass upload queue) `783399f`
+- await z0-z4 preload and connect renderer before load `18caff2`
+- preload z0-z4 tiles eagerly to guarantee fallback coverage `2018941`
+- reduce over-fetch aggressiveness to prevent tile starvation `59ebb79`
+- per-source render passes for multi-xgvt stencil isolation `eaeab14`
+- disable fallback stencil for multi-source to prevent cross-source interference `10996cb`
+- replace removed uniformData variable with this.uniformDataBuf `2d5cdb4`
+- correctly fetch GPU-ready tile data from XGVT files `2117545`
+- Physical Map XGVT uses single .xgvt source (land only) `ca938c9`
+- detect world-wrapping polygons (e.g., Antarctica) for anti-meridian fix `18eb150`
+- use latitude clamp instead of polygon clipping for Mercator `93dcd73`
+- clip GeoJSON polygons to Mercator range before tessellation `6b01e52`
+- simplify Physical Map — remove ocean polygon (2.6M vertices) `b4d189c`
+- skip GeoJSON features with null geometry `e0d33c1`
+- revert broken linear lat approximation, restore inverse Mercator `4be3160`
+- correct Mercator aspect ratio at low zoom `d145413`
+- reprojector WGSL fixes + rotation-independent equirect bounds `2f67039`
+- correct pan rotation — use positive bearing angle `e474963`
+- correct pan-after-rotation direction + reduce rotation sensitivity `bdda4dc`
+- variant fallback pipelines match feature bind group layout `2887d39`
+- variant pipelines also need depthStencil for stencil render pass `e1e2291`
+- remove fallback overlap, aggressive prefetch for zero-flicker `7cbf6de`
+- protect z0-z4 from eviction + drop fallbacks when children are cached `33b3860`
+- deduplicate fallbackKeys variable, merge fallback + sub-tile logic `c8459e6`
+- zero-flicker zoom with fallback ancestors behind current tiles `ce7a66c`
+- no fetch abort + 32 concurrent loads for faster tile loading `fcb4b9c`
+- keep old zoom tiles until new tiles appear (no black screen flicker) `6e9abe8`
+- remove stable zoom (causes parent/child overlap distortion) `3e3ee8f`
+- stable zoom handles ocean tiles + don't abort zoom-in loads `02dc4d2`
+- remove fallback parent rendering (eliminates alpha overlap artifacts) `88e20b6`
+- render current zoom tiles first, fallbacks after (reduce overlap) `ca4eff4`
+- Google Earth-style inertia — velocity cap, higher threshold, 0.90 friction `dbbf555`
+- reduce pan inertia friction 0.92 → 0.85 (stops faster) `15a0982`
+- simple lerp zoom (no spring overshoot), 20% per frame `ee24039`
+- missing closing brace in renderTileKeys `22410e3`
+- full-cover tiles always subdivide (coastline detail at higher zoom) `192f627`
+- viewport bounds use physical pixels (no DPR) + 10% safety margin `1655ee3`
+- only sub-tile maxZoom tiles (original data), skip simplified leaves `45acecd`
+- remove runtime overzoom clipping that corrupts tile GPU buffers `32b8ac0`
+- search full parent chain for fallback + prevent duplicate draws `a2c1683`
+- full-cover tiles always include ringData in compact layer `c51ba04`
+- convert ring coords to tile-local after earcut tessellation `cbbda71`
+- visibleTiles accounts for camera zoom vs tile zoom (overzoom) `4c5b35d`
+- stats show unique vertex count, not index count `c00825b`
+- stats reflect actual clipped draw counts, not full tile indices `1cd17ed`
+- limit overzoom fallback to 4 zoom levels max `914e146`
+- skip fallback rendering for empty areas (no ancestor tiles) `f1f6d25`
+- deduplicate rendered tile stats with Set `aa857c1`
+- stats inspector counts only rendered tiles, not entire cache `4ea24ee`
+- world-spanning .xgvt data starts at zoom 1 `e36380e`
+- fit camera to viewport aspect ratio for .xgvt bounds `4417dba`
+- camera fit for .xgvt — correct zoom for world-scale bounds `1b9e6a1`
+- CPU-side f64 RTC offset eliminates pan jitter at all zoom levels `fafa94b`
+- remove reference to deleted bindGroup variable `20e1eb7`
+- cap overzoom to maxLevel+6 — prevents f32 pan jitter `050f6d4`
+- pre-decompress all tiles at load time — eliminates pan jitter `cf70233`
+- hi/lo center split eliminates pan jitter at high zoom `648d5cf`
+- use absolute coords in vertices — per-tile uniform update broken `2271888`
+- revert quantization, keep tile-local float + gzip `245ac66`
+- decompress tiles before parsing in batchLoadTiles fileBuf path `cac0eb7`
+- add tileWest/tileSouth to parseGPUReadyTile return type `743c017`
+- browser-compatible gzip decompression via DecompressionStream `c5c4f69`
+- mobile pan speed + double-tap zoom `386c18e`
+- full-load .xgvt for instant tile rendering `eb44300`
+- remove tileSpan guard — prevents features from disappearing on zoom `fe1282f`
+- vector tile demo uses opaque fill to hide tile boundary seams `edbd794`
+- disable dedup + restore exact-zoom rendering `5f2df63`
+- always full-load .xgvt — prevents Range Request storm `852114a`
+- remove parent tile fallback + no tileSpan limit + size-based loading `06e428a`
+- load .xgvt fully for reliable tile rendering `1e6caac`
+- parent tiles no longer overlap exact-zoom children `b3bd7d1`
+- prevent duplicate parent tile rendering + camera fit for .xgvt `40982ad`
+- zoom-adaptive tile span limit — large features visible at all zooms `b7d8fc6`
+- decode compact layer when GPU-ready layer absent `990d534`
+- fallback to default GPU adapter when high-performance unavailable `f374aec`
+- dev script filter uses full package name @xgis/playground `1f42043`
+- globe flat map texture format matches canvas format `2537f52`
+
+#### perf
+
+- **xgvt-source:** hybrid time-budget per-frame compile scheduling `7726abd`
+- **xgvt-source:** raise per-frame sub-tile generation budget 2 → 8 `85565b0`
+- **vtr:** skip fill drawIndexed when fill is effectively invisible `13af1ca`
+- batch MapRenderer + LineRenderer uniform writes too `c23646e`
+- batch per-tile uniform writes into a single writeBuffer `24d1cf7`
+- worker-based GeoJSON compile + O(patches) feature updates `cd4aa70`
+- budget tile uploads to 1/frame — fix LOD-crossing stalls `40b8315`
+- raster bind-group caching + immediate eviction + load priority `e9fd84c`
+- **playground:** re-bake countries.xgvt to v2 + minimal uses xgvt ([#35](https://github.com/X-GIS/X-GIS/pull/35)) `aa354e9`
+- **playground:** point minimal.xgis at 110m XGVT (fixes mobile lag) ([#33](https://github.com/X-GIS/X-GIS/pull/33)) `ee2af81`
+- **runtime:** gate line fragment-shader pattern loops on has_pattern flag ([#32](https://github.com/X-GIS/X-GIS/pull/32)) `7dabaf1`
+- **runtime:** skip idle render frames to fix mobile lag ([#31](https://github.com/X-GIS/X-GIS/pull/31)) `b3b43d0`
+- Web Worker parse pool for XGVT tiles `0334584`
+- staged XGVT preload + parallel loads + layer skip `d45e6fe`
+- over-fetch tile data for spatial prefetch `aede6c4`
+- reduce per-frame CPU work during panning `7ef5c1f`
+- throttle GPU tile uploads to 4 per frame `aaf0b40`
+- eliminate per-frame allocations in render hot path `9e480b2`
+- reduce GC pressure in tile loading pipeline `7080553`
+- eliminate per-frame GPU allocations + on-demand tile decompress `a9628ac`
+- COG overview dedup + zoom-adaptive precision (37MB → 25MB) `1208edc`
+- auto zoom detection + tile span limit + compact-only default `bc1f833`
+- pack tile keys as u32 instead of string `315c096`
+
+#### refactor
+
+- **tiler:** unify polygon pipeline to Mercator-meters throughout `5ee001c`
+- **camera:** complete Sink 1 — remove _lastFar side effect `c7b56a2`
+- **camera:** add pure getFrameView(), migrate 3 renderers off _lastFar (Sink 1 partial) `3cdc4fa`
+- unify all animation modifiers under animation-* prefix `37e29a4`
+- centralize WORLD_COPIES and WORLD_MERC in gpu-shared.ts `3b849ee`
+- rename syntax highlight classes to readable names `c248b26`
+- extract shared WebGPU constants to gpu-shared.ts `8a38ea6`
+- independent HTML demo files (Three.js style) `9f67e7c`
+- playground gallery + independent demo pages `9fcb208`
+
+#### docs
+
+- **webgpu:** phased roadmap for migrating tile pipeline to GPU compute `cc2c008`
+- **test:** document worker count empirical measurements `2c50bc0`
+- full DSFUN precision refactor plan `b9171cf`
+- add XGVT vector tile format documentation to README `5d4f918`
+- add README.md `c130424`
+- update CLAUDE.md with IR pipeline and new syntax info `8cc7970`
+- add CLAUDE.md for Claude Code onboarding `65bf60a`
+
+#### test
+
+- **e2e:** reproduce high-pitch FLICKER regression in headed Chromium `f0025eb`
+- **tile-throughput:** pin convergence frame counts across pitch 0→85 `4b59b04`
+- **tile-selection:** high-pitch (60°–89°) coverage oracles `b7f75e6`
+- **cross-validation:** pipeline area + simplification vs shapely `e3a1fc6`
+- **cross-validation:** extend to 5 more projections + real-data tiles `4099a11`
+- **cross-validation:** cross-check CPU math against pyproj/mercantile/shapely `6c4ae59`
+- **tile-selection:** real-data coverage tests with Natural Earth countries `c611b8e`
+- **tile-selection:** animation-driven inclusion + exclusion oracles `1af11cb`
+- **xgvt-source:** regression for 95d7f44 — full-cover sub-tile must be drawable `71632e1`
+- **predictor:** lock in user-reported polygon offset at z=22 pitch 60 `e947291`
+- **tile-selection:** viewport 9-point coverage oracle `bc71611`
+- **predictor:** lock in water_hierarchy FLICKER scenario at z=13.5 / pitch 79.9° `e0c66fc`
+- **point-renderer:** lock in A-5 Mercator-only limitation `81c37e1`
+- **tile-selection:** add semantic oracles and lock in known over-selection (Phase 2-B) `ba83d79`
+- **projection:** extend WGSL consistency to all 7 projections `d7544ba`
+- **projection:** add CPU/WGSL cross-consistency test infrastructure (Phase 2-A) `03b269d`
+- add hybrid raster+vector max-zoom perf scenarios `4b6db22`
+- **runtime:** port fs_line round-join to TS whisker-walk harness ([#50](https://github.com/X-GIS/X-GIS/pull/50)) `bfbaacd`
+- 10 more fixtures (projection/anchor/size-zoom/pattern/miterlimit) `726c8a4`
+- 12 more feature-isolation fixtures (stroke/anim/data-driven/shape) `b76be20`
+- fixture-based e2e + validation capture (~45s, 5/50 baselines) `c876387`
+- e2e parallelization + pixel matching toolkit (~3.6× faster) `9b72faa`
+- multi-cycle animation regression suite (PR D) `c2b2877`
+- extract bucket scheduler + 22 unit tests (PR C) `815954f`
+- visual regression framework + bug-class assertions (PR B) `507a02a`
+
+#### chore
+
+- label remaining buffers + skip redundant composite writes `13c81da`
+- recompile all xgvt files with Mercator earcut `be6a5cd`
+- remove debug logs from map.ts `4980f7b`
+- commit outstanding config/type files, clean build artifacts `dac4297`
+- gitignore build artifacts in source dirs, clean stale .js/.d.ts `e555f7f`
+
+#### revert
+
+- disable per-tile triangle clipping (still produces artifacts) `d428b8a`
+- disable triangle clipping (WebGPU writeBuffer/drawIndexed sync issue) `33af06e`
+- remove CPU triangle clipping (breaks tessellation) `4b6c26b`
+
+#### other
+
+- docs+test: coordinate-system convention + cross-path invariants `bd03861`
+- wip(e2e): developer audit suite + regression baselines `cb922ce`
+- wip: polygon-outline arc continuity + runtime support `3df39e9`
+- Revert "perf(playground): point minimal.xgis at 110m XGVT (fixes mobile lag) (#33)" ([#34](https://github.com/X-GIS/X-GIS/pull/34)) `ca40218`
+- Reapply "fix: widen tile culling envelope by stroke-offset for render-reach (#26)" (#27) ([#28](https://github.com/X-GIS/X-GIS/pull/28)) `13bc85d`
+- Revert "fix: widen tile culling envelope by stroke-offset for render-reach (#26)" ([#27](https://github.com/X-GIS/X-GIS/pull/27)) `c8cbe80`
+- Merge pull request #2 from X-GIS/claude/polyline-shader-joins-DMxCj ([#2](https://github.com/X-GIS/X-GIS/pull/2)) `0a7c383`
+- Merge pull request #1 from X-GIS/claude/polyline-shader-joins-DMxCj ([#1](https://github.com/X-GIS/X-GIS/pull/1)) `18d0fd2`
+- add XGIS files `6adae79`
+- demo: SDF points showcasing billboard vs flat rendering `a7ebcf9`
+- debug: simplify SDF point demo to single layer for testing `a2e6310`
+- demo: SDF points with world-space + screen-space sizing `09836c1`
+- wip: 2-pass Mercator reprojection infrastructure `d9e72d4`
+- disable: runtime sub-tiling (Sutherland-Hodgman self-intersection) `f867ff6`
+- X-GIS Language MVP — 지도를 위한 프로그래밍 언어 `6c94eae`

@@ -34,6 +34,7 @@
     "precheck:matrix": "bun scripts/precheck.ts --matrix",
     "matrix:accept": "bun scripts/matrix-accept.ts",
     "matrix:report": "bun scripts/matrix-report.ts",
+    "changelog": "bun scripts/emit-changelog.ts > CHANGELOG.md && bun scripts/emit-changelog.ts --path shader-dsl > shader-dsl/CHANGELOG.md && prettier --write CHANGELOG.md shader-dsl/CHANGELOG.md",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
     "knip": "knip",
