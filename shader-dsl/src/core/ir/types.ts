@@ -99,8 +99,9 @@ export type KeyOf<T> = T extends { kind: 'scalar'; scalar: infer S extends strin
             // to `string`, so a texture/sampler argument swap type-checked.
             T extends { kind: 'texture'; dim: '2d-ms' }
             ? 'texture_multisampled_2d<f32>'
-            : // #1651 — the ARRAY arm must precede the '2d' arm: `{ dim: '2d-array' }`
-              // does NOT extend `{ dim: '2d' }`, but a MISSING arm drops an array
+            : // #1651 — arm ORDER is immaterial here: the dims are exact literals, so
+              // `{ dim: '2d-array' }` never extends `{ dim: '2d' }` regardless of which
+              // arm comes first. The real hazard is a MISSING arm — it drops an array
               // resource() node through to the `string` fallback, where it matches no
               // authoring overload at all (the failure is a confusing "no overload
               // matches", not a key mismatch).
@@ -137,11 +138,18 @@ export function typeKey(t: ShaderType): string {
       // Every dim is spelled EXPLICITLY — a `texture_${t.dim}<…>` template would emit
       // the invalid `texture_2d-array<f32>` for the array arm (and '2d-ms' already
       // needed its own spelling). Must stay byte-identical to KeyOf's arms above.
-      return t.dim === '2d-ms'
-        ? `texture_multisampled_2d<${t.elem}>`
-        : t.dim === '2d-array'
-          ? `texture_2d_array<${t.elem}>`
-          : `texture_2d<${t.elem}>`
+      // Exhaustive switch: a NEW dim fails compilation here instead of silently
+      // falling open to the 2d spelling.
+      switch (t.dim) {
+        case '2d-ms':
+          return `texture_multisampled_2d<${t.elem}>`
+        case '2d-array':
+          return `texture_2d_array<${t.elem}>`
+        case '2d':
+          return `texture_2d<${t.elem}>`
+        default:
+          return t.dim satisfies never
+      }
     case 'sampler':
       return 'sampler'
     case 'void':

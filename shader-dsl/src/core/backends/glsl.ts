@@ -84,13 +84,21 @@ function glslType(t: ShaderType): string {
       return `${glslType(t.elem)}[${t.size}]`
     }
     case 'texture':
-      if (t.dim === '2d-ms')
-        throw new UnsupportedFeatureError(
-          'glsl-es300: multisampled texture sampling — resolve first (later step)',
-        )
       // GLSL fuses texture+sampler into one combined sampler. '2d-array' (#1651) is
       // CORE GLSL ES 3.00 — sampler2DArray, no extension, no Capability.
-      return t.dim === '2d-array' ? 'sampler2DArray' : 'sampler2D'
+      // Exhaustive: a new dim must fail compilation, not fall open to sampler2D.
+      switch (t.dim) {
+        case '2d-ms':
+          throw new UnsupportedFeatureError(
+            'glsl-es300: multisampled texture sampling — resolve first (later step)',
+          )
+        case '2d-array':
+          return 'sampler2DArray'
+        case '2d':
+          return 'sampler2D'
+        default:
+          return t.dim satisfies never
+      }
     case 'sampler':
       throw new UnsupportedFeatureError(
         'glsl-es300: standalone sampler — fused into the combined sampler2D',

@@ -895,6 +895,28 @@ describe('glsl-es300 / wgsl — 2d-array texture reads (#1651)', () => {
   )
   const arrMod = dslModule({ uses: [ArrOut, arrTex, arrSmp], funcs: [arrVs, arrFs] })
 
+  // Fixtures for the two precision-header negatives below: a vertex stage that
+  // touches NO texture, and a fragment stage sampling a PLAIN 2d texture.
+  const plainVs = fn(
+    'arr_plain_vs',
+    { uv: location(0, vec2fT) },
+    ({ uv }) => {
+      const o = ArrOut.var('out')
+      o.pos.assign(vec4(uv.x, uv.y, 0, 1))
+      o.uv.assign(uv)
+      return o
+    },
+    { stage: 'vertex' },
+  )
+  const tex2d = resource('prec_tex', texture2dfT, { group: 0, binding: 0 })
+  const smp2d = resource('prec_smp', samplerT, { group: 0, binding: 1 })
+  const fs2d = fn(
+    'prec_fs',
+    { inp: ArrOut },
+    ({ inp }) => textureSample(tex2d.node, smp2d.node, inp.uv),
+    { stage: 'fragment', retAttr: location(0, vec4fT) },
+  )
+
   it('WGSL spells the array type + keeps the layer as its own argument', () => {
     const w = emitModule(arrMod)
     expect(w).toContain('var arr_tex: texture_2d_array<f32>;')
@@ -908,9 +930,25 @@ describe('glsl-es300 / wgsl — 2d-array texture reads (#1651)', () => {
     // `precision highp float;` does not cover it. Both stages declare the atlas here.
     expect(emitGlslModule(arrMod, 'fragment')).toContain('precision highp sampler2DArray;')
     expect(emitGlslModule(arrMod, 'vertex')).toContain('precision highp sampler2DArray;')
-    // A module with no array texture keeps its byte-identical header (the 98 emit
-    // goldens are the wider pin; this is the local statement of the invariant).
-    expect(emitGlslModule(module, 'fragment')).not.toContain('sampler2DArray')
+    // The negative holds a PLAIN 2d texture — so a dim check degenerating to
+    // `kind === 'texture'` goes red here, which a textureless module (or the emit
+    // goldens, none of which bind a texture) could never catch. The stray line
+    // would even be legal GLSL, so no driver gate catches it either.
+    const plainMod = dslModule({ uses: [ArrOut, tex2d, smp2d], funcs: [plainVs, fs2d] })
+    const plainFsG = emitGlslModule(plainMod, 'fragment')
+    expect(plainFsG).toContain('uniform sampler2D prec_tex;')
+    expect(plainFsG).not.toContain('sampler2DArray')
+  })
+
+  it('the precision line is PER-STAGE: array reaching only the fragment stage keeps the vertex header clean', () => {
+    // Keyed on the STAGE's binding scope, not the module's: the vertex stage of
+    // this module never touches arr_tex, so its header (and its uniforms) must
+    // stay byte-identical to the no-array baseline — stage-scoped emit invariant.
+    const m = dslModule({ uses: [ArrOut, arrTex, arrSmp], funcs: [plainVs, arrFs] })
+    expect(emitGlslModule(m, 'fragment')).toContain('precision highp sampler2DArray;')
+    const vsG = emitGlslModule(m, 'vertex')
+    expect(vsG).not.toContain('sampler2DArray')
+    expect(vsG).not.toContain('arr_tex') // the binding itself is stage-scoped out too
   })
 
   it('GLSL declares a sampler2DArray and folds the layer into a vec3 coordinate', () => {

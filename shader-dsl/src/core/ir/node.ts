@@ -788,9 +788,17 @@ export const bitcastF32 = (v: ReadonlyNode<'u32'>): Node<'f32'> =>
   call('bitcastF32', f32T, v) as Node<'f32'>
 /** An array-layer argument (#1651). A `number` becomes an i32 LITERAL, not the f32
  *  one `lift()` defaults to: WGSL's array_index takes i32/u32, and `0.0` there is a
- *  type error (GLSL wraps the value in float() either way). */
-const layerArg = (l: ReadonlyNode<'i32'> | ReadonlyNode<'u32'> | number): NodeLike =>
-  typeof l === 'number' ? i32(l) : l
+ *  type error (GLSL wraps the value in float() either way). A FRACTIONAL number is
+ *  rejected here (SD0015): `i32(1.5)` would emit `1.5` as an i32 literal — a naga
+ *  compile error on WGSL but a silent round-to-nearest on GLSL (1.5 reads layer 2)
+ *  — so the guard keeps the two backends from diverging. */
+const layerArg = (l: ReadonlyNode<'i32' | 'u32'> | number): NodeLike => {
+  if (typeof l === 'number') {
+    if (!Number.isInteger(l)) throw dslError('SD0015', `layer ${l}`)
+    return i32(l)
+  }
+  return l
+}
 /** Sample a 2D texture → vec4<f32>. (CPU eval: opt-in stub.) First-arg
  *  constraints (#763 X6): a texture/sampler swap used to type-check and die
  *  at naga — KeyOf now carries specific texture/sampler keys.
@@ -818,13 +826,13 @@ export function textureSample(
   tex: ReadonlyNode<'texture_2d_array<f32>'>,
   smp: ReadonlyNode<'sampler'>,
   uv: ReadonlyNode<'vec2<f32>'>,
-  layer: ReadonlyNode<'i32'> | ReadonlyNode<'u32'> | number,
+  layer: ReadonlyNode<'i32' | 'u32'> | number,
 ): Node<'vec4<f32>'>
 export function textureSample(
   tex: ReadonlyNode<'texture_2d<f32>'> | ReadonlyNode<'texture_2d_array<f32>'>,
   smp: ReadonlyNode<'sampler'>,
   uv: ReadonlyNode<'vec2<f32>'>,
-  layer?: ReadonlyNode<'i32'> | ReadonlyNode<'u32'> | number,
+  layer?: ReadonlyNode<'i32' | 'u32'> | number,
 ): Node<'vec4<f32>'> {
   return (
     layer === undefined
@@ -851,14 +859,14 @@ export function textureSampleLevel(
   tex: ReadonlyNode<'texture_2d_array<f32>'>,
   smp: ReadonlyNode<'sampler'>,
   uv: ReadonlyNode<'vec2<f32>'>,
-  layer: ReadonlyNode<'i32'> | ReadonlyNode<'u32'> | number,
+  layer: ReadonlyNode<'i32' | 'u32'> | number,
   level: ReadonlyNode<'f32'> | number,
 ): Node<'vec4<f32>'>
 export function textureSampleLevel(
   tex: ReadonlyNode<'texture_2d<f32>'> | ReadonlyNode<'texture_2d_array<f32>'>,
   smp: ReadonlyNode<'sampler'>,
   uv: ReadonlyNode<'vec2<f32>'>,
-  levelOrLayer: ReadonlyNode<'f32'> | ReadonlyNode<'i32'> | ReadonlyNode<'u32'> | number,
+  levelOrLayer: ReadonlyNode<'f32'> | ReadonlyNode<'i32' | 'u32'> | number,
   level?: ReadonlyNode<'f32'> | number,
 ): Node<'vec4<f32>'> {
   return (
@@ -870,7 +878,7 @@ export function textureSampleLevel(
           tex,
           smp,
           uv,
-          layerArg(levelOrLayer as ReadonlyNode<'i32'> | ReadonlyNode<'u32'> | number),
+          layerArg(levelOrLayer as ReadonlyNode<'i32' | 'u32'> | number),
           level,
         )
   ) as Node<'vec4<f32>'>
@@ -890,7 +898,7 @@ export function textureLoad(
 export function textureLoad(
   tex: ReadonlyNode<'texture_2d_array<f32>'>,
   coord: NodeLike,
-  layer: ReadonlyNode<'i32'> | ReadonlyNode<'u32'> | number,
+  layer: ReadonlyNode<'i32' | 'u32'> | number,
   level: NodeLike,
 ): Node<'vec4<f32>'>
 export function textureLoad(
@@ -898,7 +906,7 @@ export function textureLoad(
     | ReadonlyNode<'texture_2d<f32>' | 'texture_multisampled_2d<f32>'>
     | ReadonlyNode<'texture_2d_array<f32>'>,
   coord: NodeLike,
-  layerOrLevel: ReadonlyNode<'i32'> | ReadonlyNode<'u32'> | NodeLike,
+  layerOrLevel: ReadonlyNode<'i32' | 'u32'> | NodeLike,
   level?: NodeLike,
 ): Node<'vec4<f32>'> {
   return (
@@ -909,7 +917,7 @@ export function textureLoad(
           vec4fT,
           tex,
           coord,
-          layerArg(layerOrLevel as ReadonlyNode<'i32'> | ReadonlyNode<'u32'> | number),
+          layerArg(layerOrLevel as ReadonlyNode<'i32' | 'u32'> | number),
           level,
         )
   ) as Node<'vec4<f32>'>

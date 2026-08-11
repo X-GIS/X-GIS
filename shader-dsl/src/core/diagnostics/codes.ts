@@ -76,6 +76,11 @@ export const CODES = {
     summary: 'override (specialization constant) must be a WGSL scalar type',
     hint: 'overrideConst supports bool/i32/u32/f32 only — WGSL forbids vec/matrix/array/struct overrides; decompose into per-component scalar overrides',
   },
+  SD0015: {
+    code: 'SD0015',
+    summary: 'array-texture layer must be an integer',
+    hint: 'a fractional layer literal is a naga compile error in WGSL but silently rounds in GLSL (layer = floor(z + 0.5), so 1.5 reads layer 2) — the backends would diverge; pass an integer, or an i32/u32 node',
+  },
 
   // ── Module-level gates ──
   SD0020: { code: 'SD0020', summary: 'module validation failed' },

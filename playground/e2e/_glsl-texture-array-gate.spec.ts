@@ -30,6 +30,12 @@
 // → g=0. A wrong cell on either explicit-LOD read has b=0 / a=255. The clear colour is
 // 50% grey with alpha 1, so "nothing drew" is (128,128,128,255) — distinct from every
 // wrong-selection outcome.
+//
+// MUTATION-PROBE NOTE (verification review of #1651): folding the layer into the
+// WRONG vec3 component leaves r/g/b byte-identical to healthy — the interpolated
+// VERTEX read's alpha (159 instead of 0) is the ONLY detector for that mutation
+// class. Do NOT simplify the vertex read or the valpha routing; the coordinate-fold
+// swizzle detection dies with it.
 
 // Relative deep import (charter): Playwright transpiles specs in raw Node — the @xgis/* workspace alias does not resolve here, so specs import package SOURCES relatively (see _glsl-compile-gate.spec.ts).
 import { test, expect } from '@playwright/test'
@@ -37,8 +43,11 @@ import {
   emitGlslModule,
   vec4fT,
   vec2fT,
+  vec2iT,
+  vec2uT,
   f32T,
   i32T,
+  u32T,
   structT,
   texture2dArrayfT,
   samplerT,
@@ -107,6 +116,43 @@ const sampleLevelArray = (uv: Expr, layer: number, level: number): Expr => ({
 const inUv = fld(param('inp', structT('VsIn')), 'uv', vec2fT)
 const outUv = fld(param('inp', structT('ArrVsOut')), 'uv', vec2fT)
 
+// ── ZERO-contribution witnesses for the remaining array spellings (verification
+// review of #1651, finding C): the unit suite pins `texelFetch(…ivec3…)` and
+// `uvec2(textureSize(…))` as STRINGS, but only a real compiler consumes them —
+// without these terms CI has no persistent driver witness for either. Both terms
+// are exactly 0, so the discrimination table above is unchanged.
+//   loadArray(layer 0, level 0).y — the RED texel's green component → 0
+//   float(dims.x - dims.y)        — the 2×2 base level → float(2u - 2u) → 0
+const loadArrayRed: Expr = {
+  op: 'call',
+  type: vec4fT,
+  fn: 'textureLoadArray',
+  args: [
+    varref('tex', texture2dArrayfT),
+    { op: 'construct', type: vec2iT, args: [layerLit(0), layerLit(0)] },
+    layerLit(0),
+    layerLit(0),
+  ],
+}
+const dims: Expr = {
+  op: 'call',
+  type: vec2uT,
+  fn: 'textureDimensions',
+  args: [varref('tex', texture2dArrayfT)],
+}
+const zeroWitness: Expr = {
+  op: 'binop',
+  type: f32T,
+  bop: '+',
+  a: fld(loadArrayRed, 'y', f32T),
+  b: {
+    op: 'call',
+    type: f32T,
+    fn: 'f32',
+    args: [{ op: 'binop', type: u32T, bop: '-', a: fld(dims, 'x', u32T), b: fld(dims, 'y', u32T) }],
+  },
+}
+
 const arrayModule: ModuleDecl = {
   consts: [],
   structs: [VsIn, ArrVsOut, FsOut],
@@ -161,7 +207,14 @@ const arrayModule: ModuleDecl = {
               v4(
                 fld(sampleArray(outUv, 1), 'x', f32T),
                 fld(sampleArray(outUv, 1), 'y', f32T),
-                fld(sampleLevelArray(outUv, 1, 1), 'z', f32T),
+                {
+                  // b = blue.z + the two zero witnesses (see zeroWitness above)
+                  op: 'binop',
+                  type: f32T,
+                  bop: '+',
+                  a: fld(sampleLevelArray(outUv, 1, 1), 'z', f32T),
+                  b: zeroWitness,
+                },
                 fld(param('inp', structT('ArrVsOut')), 'valpha', f32T),
               ),
             ],
@@ -211,6 +264,8 @@ test('GLSL 2d-array module compiles + links on real WebGL2 (sampler2DArray, vec3
   expect(fragment).toContain('sampler2DArray')
   expect(fragment).toContain('texture(tex, vec3(') // textureSampleArray
   expect(fragment).toContain('textureLod(tex, vec3(') // textureSampleLevelArray
+  expect(fragment).toContain('texelFetch(tex, ivec3(') // textureLoadArray (zero witness)
+  expect(fragment).toContain('uvec2(textureSize(tex, 0))') // textureDimensions on the array type
   expect(vertex).toContain('sampler2DArray')
   expect(vertex).toContain('textureLod(tex, vec3(') // the VERTEX-stage array read
   // …and the standalone sampler binding fuses away (word-boundary: `samp` alone).
