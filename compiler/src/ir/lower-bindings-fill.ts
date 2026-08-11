@@ -7,7 +7,7 @@
 
 import { resolveColor } from '../tokens/colors'
 import { colorConstant, hexToRgba } from './render-node'
-import { extractInterpolateZoomColorStops } from './lower-helpers'
+import { extractInterpolateZoomColorStops, resolveColorTokenLiterals } from './lower-helpers'
 import type { BindingHandler } from './lower-bindings'
 
 /** Binding-form `fill-[…]` arm (zoom-interp color, data-driven match). */
@@ -59,7 +59,10 @@ export const fillBindingHandler: BindingHandler = {
     // fill-color match into per-colour sublayers at convert
     // time; this arm is the direct-authored `.xgis` utility
     // path and the compute opt-in.)
-    acc.fill = { kind: 'data-driven', expr: { ast: item.binding! } }
+    // #1664 — normalise colour-token positions (`sky-300`, which the grammar
+    // lexes as `sky - 300`) into the hex literal the GPU codegen already
+    // resolves them to, so the CPU per-feature bake reads the same colour.
+    acc.fill = { kind: 'data-driven', expr: { ast: resolveColorTokenLiterals(item.binding!) } }
     return true
   },
 }

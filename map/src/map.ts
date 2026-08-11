@@ -23,6 +23,7 @@ import {
 import { uploadPalette, type PaletteTextures } from './render/palette-textures'
 import { HeatmapTargets } from './render/heatmap-targets'
 import { warnStageBlockUnsupported } from './render/stage-block-warning'
+import { warnPerFeatureColorUnresolved } from './render/per-feature-color-warning'
 import { toComposerPointVariant } from './render/point-shader-cache'
 import type * as AST from '@xgis/compiler'
 import { SyntheticEarthSurfaceBackend } from '@xgis/data'
@@ -3795,13 +3796,16 @@ export class XGISMap {
 
         // #732 S5 — per-feature FILL / STROKE colour (data-driven point paint), the colour-axis
         // mirror of perFeatureSizes above. The compiler emits show.fillColorExpr /
-        // show.strokeColorExpr when a point layer's fill/stroke is a match/interpolate over a
-        // feature property. Evaluate the AST per feature (reserved keys injected, throw-isolated
-        // like applyFilter), parse the resolved hex → rgba, and fall back to the layer constant so
-        // an unmatched feature paints the default arm. null (no expr) keeps the constant unchanged.
+        // show.strokeColorExpr when a point layer's fill/stroke is a match/gradient over a feature
+        // property. Evaluate the AST per feature (reserved keys injected, throw-isolated like
+        // applyFilter), parse the resolved hex → rgba, and fall back to the layer constant so an
+        // unmatched feature paints the default arm. null (no expr) keeps the constant unchanged.
+        // #1664 — that isolation is also the WARNING site: a data-driven colour HAS no layer
+        // constant, so a fallback here is an uncoloured feature and must not be silent.
         const evalPerFeatureColor = (
           expr: { ast?: unknown } | null | undefined,
           fallback: [number, number, number, number] | null,
+          axis: 'fill' | 'stroke',
         ): ([number, number, number, number] | null)[] | null => {
           if (!expr?.ast) return null
           const ast = expr.ast as import('@xgis/compiler').Expr
@@ -3818,18 +3822,22 @@ export class XGISMap {
             let r: unknown
             try {
               r = evaluate(ast, bag)
-            } catch {
-              return fallback
+            } catch (e) {
+              r = e
             }
-            if (typeof r === 'string') {
-              const c = parseHexColor(r)
-              return c ? [c[0], c[1], c[2], c[3]] : fallback
-            }
+            // Mirror of the label path (render/passes/label-pass.ts): the token / CSS
+            // resolver FIRST, then the NULLABLE parse. `parseHexColor` is TOTAL — it
+            // answers opaque BLACK for anything it does not recognise — so an authored
+            // `red`, a data-carried token or a typo used to paint a wrong colour and
+            // report it as a right one, which is the silent failure #1664 exists to end.
+            const c = typeof r === 'string' ? hexToRgba(resolveColor(r) ?? r) : null
+            if (c) return [c[0], c[1], c[2], c[3]]
+            warnPerFeatureColorUnresolved(show.layerName ?? show.targetName, axis, r)
             return fallback
           })
         }
-        const perFeatureFills = evalPerFeatureColor(show.fillColorExpr, fill)
-        const perFeatureStrokes = evalPerFeatureColor(show.strokeColorExpr, stroke)
+        const perFeatureFills = evalPerFeatureColor(show.fillColorExpr, fill, 'fill')
+        const perFeatureStrokes = evalPerFeatureColor(show.strokeColorExpr, stroke, 'stroke')
 
         // Resolve shape name to GPU shape_id
         const shapeId = show.shape ? (this.shapeRegistry?.getShapeId(show.shape) ?? 0) : 0

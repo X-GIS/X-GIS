@@ -593,7 +593,20 @@ const CEILINGS: Record<string, number> = {
   // body, and each needs the label naming its URL. +13 = 3 calls + 5 lines of why +
   // the import's prettier wrap. MEASURED on the merged file, not derived from the
   // pre-#1605 base: the two raises land in different regions and therefore SUM.
-  'map/src/map.ts': 5431,
+  // 5431→5436 (#1664): the per-feature colour bake stops failing SILENTLY. A
+  // data-driven fill has no layer constant to fall back to, so the catch that
+  // isolated one bad expression was also swallowing "this feature has no colour".
+  // +5 = the warning import, the `axis` parameter that names which of fill/stroke
+  // failed, the report call, and one line of why. The message, its latch and its
+  // injectable sink live in render/per-feature-color-warning.ts — only the call
+  // site is irreducible here, because only here are the layer and the axis known.
+  // 5436→5439 (#1664 review fold-in): the accept side of that same catch. `parseHexColor`
+  // is TOTAL — opaque BLACK for anything it does not recognise — so a non-hex string
+  // ("red", a data-carried token, a typo) painted a WRONG colour and reported it as a
+  // right one, the one failure mode the warning above cannot see. +3 = the token/CSS
+  // resolver ahead of the NULLABLE parse (one line, replacing two) plus the four lines
+  // naming why, mirroring what render/passes/label-pass.ts has always done. MEASURED.
+  'map/src/map.ts': 5439,
   // Baselined at #1255 (measured 830): the DOM-inspired layer API crossed
   // NEW_FILE_CAP with the paint-transition style-setter integration — the
   // StyleHost.transitions context, the shared applyNumber/applyColor
@@ -1466,7 +1479,12 @@ const CEILINGS: Record<string, number> = {
   // spec default chain that resolves to it) moved out to
   // layers-helpers.pitchAlignmentGapWarning, net-shrinking the caller.
   'compiler/src/convert/layers-symbol.ts': 1357,
-  'compiler/src/ir/lower-label.ts': 1187,
+  // 1187→1190 (#1664 review fold-in): label/icon colour joins fill and stroke as a
+  // producer of `resolveColorTokenLiterals`. A token arm (`sky-300`) has no colour
+  // terminal in the grammar, so it reached label-pass.ts as arithmetic, evaluated to
+  // -300, and the label silently kept the layer default. +3 = the import + the two
+  // wrapped call sites' shared 2-line why; the rewrite itself lives in lower-helpers.
+  'compiler/src/ir/lower-label.ts': 1190,
   'compiler/src/tokens/colors.ts': 937,
   // 943→956 (#1302): RenderNodeArrowPaint sub-bundle (isArrow + arrowBearing).
   // 956→957 (merge union with #1305 RenderNodeCoveragePaint).

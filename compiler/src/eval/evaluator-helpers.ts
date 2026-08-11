@@ -11,6 +11,7 @@ import {
   labToLch,
   lchToLab,
   resolveColor,
+  resolveColorToRgba,
 } from '../tokens/colors'
 import { evalWithin } from './within'
 import { evalDistance } from './distance'
@@ -29,11 +30,14 @@ import { inlineImageMarker } from './inline-image-marker'
  * adding its name here (or vice-versa) fails that test.
  *
  * Names handled OUTSIDE `callBuiltin` — the `get` / `properties` / `match`
- * evaluator special forms, the `categorical` / `gradient` GPU-codegen
- * forms — are deliberately NOT in this set; the validator tracks those in
- * its own `NON_BUILTIN_CALLEES` list. (The `rgb` / `rgba` / `hsl` / `hsla`
+ * evaluator special forms, the `categorical` GPU-codegen form — are
+ * deliberately NOT in this set; the validator tracks those in its own
+ * `NON_BUILTIN_CALLEES` list. (The `rgb` / `rgba` / `hsl` / `hsla`
  * colour constructors ARE builtins here — the per-feature-CPU path a
- * data-driven `["rgb", ["get","r"], …]` classifies to.)
+ * data-driven `["rgb", ["get","r"], …]` classifies to. `gradient` joined
+ * them in #1664: the GPU still intercepts it in codegen/shader-gen.ts, but
+ * the point / arrow paints bake their colour on the CPU and need the same
+ * ramp there — see the `gradient` case below.)
  */
 export const BUILTIN_FN_NAMES: ReadonlySet<string> = new Set([
   'clamp',
@@ -98,6 +102,7 @@ export const BUILTIN_FN_NAMES: ReadonlySet<string> = new Set([
   'rgba',
   'hsl',
   'hsla',
+  'gradient',
   // Vector constructors (#1537) — the value domain shader stage blocks
   // need. WGSL construction rules: a single scalar splats, and vec args
   // flatten, so `vec4(vec3(c), 1)` is legal and lane-exact.
@@ -140,6 +145,47 @@ function buildVec(n: number, args: readonly unknown[]): number[] {
   return lanes
 }
 
+/** `gradient(value, min, max, colorLow, colorHigh)` → hex, and — under its other
+ *  spelling — the 5-arg `scale(…)` (#1664, #1665). ONE function for both callee
+ *  names because the GPU has one shape for them: shader-gen.ts:380-388 and its
+ *  byte-identical `scale` arm at :417-449 both emit
+ *  `mix4(vec4(low), vec4(high), clamp((val - min) / (max - min), 0, 1))`.
+ *  Replicated term for term — same clamp bounds, `mix`'s own `a*(1-t) + b*t` per
+ *  channel with ALPHA included (mix is vec4-wide there), endpoints decoded to
+ *  0..1 sRGB exactly as `vec4fFromRgba` decodes them — because the identical
+ *  expression paints polygons through the GPU variant (#1655) and points/arrows
+ *  through this bake, side by side in one scene. Two forced, bounded departures:
+ *  the result quantises to 8 bits (a colour leaves this evaluator as a hex string,
+ *  ≤ 0.5/255 per channel), and a DEGENERATE ramp (max === min) divides by zero,
+ *  which WGSL leaves indeterminate — so the evaluator's own rule for `/` governs
+ *  (a zero divisor yields 0 → t = 0 → the low endpoint, deterministically). */
+function colorRamp(args: unknown[]): string | null {
+  if (args.length !== 5) return null
+  const lowHex = args[3]
+  const highHex = args[4]
+  if (typeof lowHex !== 'string' || typeof highHex !== 'string') return null
+  // `resolveColor` FIRST, because `resolveColorToRgba` fails CLOSED to opaque black —
+  // right for a GPU branch that must not carry NaN, wrong here, where a black endpoint
+  // paints a ramp nobody authored. An unresolvable endpoint must REPORT, not lie.
+  const lowResolved = resolveColor(lowHex)
+  const highResolved = resolveColor(highHex)
+  if (!lowResolved || !highResolved) return null
+  const lo = resolveColorToRgba(lowResolved)
+  const hi = resolveColorToRgba(highResolved)
+  const min = toNumber(args[1])
+  const max = toNumber(args[2])
+  const den = max - min
+  const t = Math.max(0, Math.min(1, den !== 0 ? (toNumber(args[0]) - min) / den : 0))
+  const ch = (i: number): string =>
+    Math.round((lo[i]! * (1 - t) + hi[i]! * t) * 255)
+      .toString(16)
+      .padStart(2, '0')
+  const rgb = `#${ch(0)}${ch(1)}${ch(2)}`
+  // Alpha is dropped when opaque, matching `rgbaToHex` (ir/render-node-helpers.ts)
+  // so the two colour formatters produce the same bytes.
+  return lo[3] * (1 - t) + hi[3] * t >= 0.999 ? rgb : `${rgb}${ch(3)}`
+}
+
 export function callBuiltin(name: string, args: unknown[]): unknown {
   switch (name) {
     case 'clamp': {
@@ -177,6 +223,10 @@ export function callBuiltin(name: string, args: unknown[]): unknown {
     case 'log2':
       return Math.log2(Math.max(1e-10, toNumber(args[0])))
     case 'scale':
+      // TWO arities, discriminated as the GPU discriminates them: shader-gen.ts:417-449
+      // intercepts `scale` ONLY at 5 args, as the same ramp `gradient` gets (#1665).
+      // Any other arity is the historical numeric multiply.
+      if (args.length === 5) return colorRamp(args)
       return toNumber(args[0]) * toNumber(args[1])
     case 'step': {
       // Two shapes:
@@ -660,6 +710,8 @@ export function callBuiltin(name: string, args: unknown[]): unknown {
           : `hsla(${h}, ${s}%, ${l}%, ${toNumber(args[3])})`
       return resolveColor(css)
     }
+    case 'gradient':
+      return colorRamp(args)
     case 'within': {
       // Mapbox `["within", polygon]` — true when the feature geometry is
       // contained in the argument polygon(s). The converter lowers it to
