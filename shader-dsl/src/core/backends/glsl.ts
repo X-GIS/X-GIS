@@ -1027,12 +1027,10 @@ function stageScope(
 }
 
 export interface GlslEmitOptions extends EmitOptions {
-  /** NO-OP since #1647 (back-compat): the storage→data-texture lowering is DEFAULT-ON
-   *  for any module carrying a storage binding — WebGL2 having no SSBO is a platform
-   *  fact, not a caller choice. Kept so the existing opt-in call sites keep compiling;
-   *  setting it changes nothing. (Not JSDoc-@deprecated yet: the repo-wide
-   *  `no-deprecated: error` lint would demand removing the flag from every consumer in
-   *  the same change — that sweep is the flag's REMOVAL follow-up, not this PR.) */
+  /** @deprecated Remove the flag — NO-OP since #1647: the storage→data-texture lowering
+   *  is DEFAULT-ON for any module carrying a storage binding and no @compute entry
+   *  (WebGL2 having no SSBO is a platform fact, not a caller choice). The option is
+   *  accepted for back-compat and IGNORED — the emitter no longer reads it. */
   emulateStorage?: boolean
   /** Lower a GATHER-ONLY @compute kernel to a fragment-GPGPU pass (see
    *  lowerComputeToFragment). OPT-IN, unlike the storage lowering: it rewrites the
@@ -1085,9 +1083,14 @@ function lowerForGlsl(m: ModuleDecl, opts?: GlslEmitOptions): ModuleDecl {
   const hasComputeEntry = m.funcs.some(
     (f) => f.stage === 'compute' || f.attrs?.some((a) => a.startsWith('@compute')),
   )
+  // The deprecated emulateStorage flag is deliberately NOT read here: an explicit
+  // {emulateStorage:true} on a @compute module used to force the lowering and swap the
+  // curated 'compute' diagnostic above for a storage-shape throw pointing away from the
+  // actual fix (probe-verified while landing #1649) — ignoring the flag entirely is the
+  // only reading under which its "setting it changes nothing" contract is true.
   const src = opts?.emulateCompute
     ? lowerStorageToDataTexture(lowerComputeToFragment(autoVars(m)))
-    : opts?.emulateStorage || (hasStorage && !hasComputeEntry)
+    : hasStorage && !hasComputeEntry
       ? lowerStorageToDataTexture(autoVars(m))
       : m
   // GLSL-local: rename any param/var identifier colliding with a GLSL reserved word

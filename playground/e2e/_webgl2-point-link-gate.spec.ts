@@ -33,7 +33,7 @@ test('REAL point shader compiles + links on WebGL2 (storage emulation end-to-end
   expect(r.link, `point program link\n${ctx}`).toBe(true)
 })
 
-// #1605 Phase 3 Step 0 — the untested combination: does emulateStorage's storage→
+// #1605 Phase 3 Step 0 — the untested combination: does the default storage→
 // data-texture lowering coexist with a COMPOSED module (a real fillExpr/strokeExpr
 // swapped into the placeholder, PLUS extra preamble consts/funcs — the shape a real
 // match()-authored @color body would produce), when actually compiled+linked on real

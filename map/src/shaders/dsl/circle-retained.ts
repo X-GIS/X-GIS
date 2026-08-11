@@ -234,9 +234,9 @@ export const buildCircleRetainedModule = (): ModuleDecl =>
  *  bounding-quad VS + analytic disc-SDF (fill + inset stroke, fwidth AA) FS. */
 export const emitCircleRetainedWgsl = (): string => emitModule(buildCircleRetainedModule())
 
-/** GLSL ES 3.00 twin for the WebGL2 backend (#823) — same module, split per stage. `emulateStorage`
- *  lowers the feat (array<f32>) + tint (array<vec4f>) storage buffers to R32F data textures,
- *  matching WebGl2Device's storage-buffer emulation. Consumed by RetainedCircleDraper behind a live
+/** GLSL ES 3.00 twin for the WebGL2 backend (#823) — same module, split per stage. The default
+ *  storage lowering turns feat (array<f32>) + tint (array<vec4f>) into R32F data textures, matching
+ *  WebGl2Device's storage-buffer emulation. Consumed by RetainedCircleDraper behind a live
  *  `rhi.backend === 'webgl2'` guard — the WebGPU boot never pays for this emit (#778 P6). */
 export const emitCircleRetainedGlsl = (stage: 'vertex' | 'fragment'): string => {
   const m = buildCircleRetainedModule()
@@ -244,7 +244,6 @@ export const emitCircleRetainedGlsl = (stage: 'vertex' | 'fragment'): string => 
   return emitGlslModule(
     { ...m, funcs: m.funcs.filter((f) => stageOf(f) === undefined || f.name === keep) },
     stage,
-    { emulateStorage: true },
   )
 }
 
@@ -256,5 +255,4 @@ export const emitCircleRetainedGlslStages = (): { vertex: string; fragment: stri
   emitGlslStages(buildCircleRetainedModule(), {
     vertexEntry: 'vs_circle_retained',
     fragmentEntry: 'fs_circle_retained',
-    emulateStorage: true,
   })
