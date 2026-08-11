@@ -77,24 +77,32 @@ describe('shader-gen — palette-aware emission', () => {
     const v = generateShaderVariant(node) // no palette
     expect(v.preamble.bindings ?? []).toEqual([])
     expect(fillStr(v)).toContain('u.fill_color')
-    expect(v.paletteColorGradients).toEqual([])
   })
 
-  it('palette provided with matching gradient → emits textureSampleLevel', () => {
+  it('palette provided with matching gradient → STILL the uniform, no atlas sample (#1661)', () => {
+    // The inversion this issue landed. A zoom-interpolated colour used to emit
+    // `textureSampleLevel(color_grad_atlas, …)` here WHILE the renderer's per-frame
+    // `resolveColorShape` wrote the same value into `u.fill_color` — two authorities for
+    // one colour, agreeing to within 0.66/255 and therefore invisible. The CPU half is
+    // now the only one: it evaluates the curve exactly at the camera zoom, where the
+    // atlas was a 256-texel f16 resample of that same curve, and the sample coordinate
+    // (`u.zoom`) is a uniform, so the read produced a per-draw constant per fragment.
+    //
+    // Asserted WITH a palette present, which is the load-bearing part: the sibling case
+    // below (no palette) passed before this change too, so it alone cannot tell the two
+    // designs apart.
     const node = makeNode({
       fill: { kind: 'zoom-interpolated', stops: [zs(0, RED), zs(20, BLUE)] } as ColorValue,
     })
     const palette = collectPalette(sceneFromNodes(node))
+    expect(
+      palette.colorGradients.length,
+      'the gradient IS collected — packPalette still needs it',
+    ).toBe(1)
     const v = generateShaderVariant(node, palette)
-    expect(v.preamble.bindings).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({ name: 'color_grad_atlas', binding: 2 }),
-        expect.objectContaining({ name: 'palette_samp' }),
-      ]),
-    )
-    expect(fillStr(v)).toContain('textureSampleLevel(color_grad_atlas, palette_samp')
-    expect(fillStr(v)).not.toContain('u.fill_color')
-    expect(v.paletteColorGradients).toEqual([0])
+    expect(v.preamble.bindings ?? []).toEqual([])
+    expect(fillStr(v)).not.toContain('textureSampleLevel')
+    expect(fillStr(v)).toContain('u.fill_color')
   })
 
   it('palette provided but no matching gradient → falls back to uniform', () => {
@@ -110,7 +118,6 @@ describe('shader-gen — palette-aware emission', () => {
     // Legacy uniform path — no atlas bindings emitted.
     expect((v.preamble.bindings ?? []).some((b) => b.name === 'color_grad_atlas')).toBe(false)
     expect(fillStr(v)).toContain('u.fill_color')
-    expect(v.paletteColorGradients).toEqual([])
   })
 
   it('constant fill with palette → no atlas bindings (no gradient needed)', () => {
@@ -121,7 +128,6 @@ describe('shader-gen — palette-aware emission', () => {
     const v = generateShaderVariant(node, palette)
     expect((v.preamble.bindings ?? []).some((b) => b.name === 'color_grad_atlas')).toBe(false)
     expect(fillStr(v)).toContain('FILL_COLOR')
-    expect(v.paletteColorGradients).toEqual([])
   })
 
   it('two zoom-interpolated paint axes both route through palette', () => {
@@ -134,26 +140,23 @@ describe('shader-gen — palette-aware emission', () => {
     })
     const palette = collectPalette(sceneFromNodes(node))
     const v = generateShaderVariant(node, palette)
-    expect(fillStr(v)).toContain('textureSampleLevel(color_grad_atlas')
-    expect(strokeStr(v)).toContain('textureSampleLevel(color_grad_atlas')
-    // Both gradients collected; deduped by collectPalette so two
-    // distinct gradients show two indices.
-    expect(v.paletteColorGradients.length).toBe(2)
-    expect(v.paletteColorGradients).toContain(0)
-    expect(v.paletteColorGradients).toContain(1)
-    // Bindings emit ONCE even with multiple gradient samples.
-    expect((v.preamble.bindings ?? []).filter((b) => b.name === 'color_grad_atlas')).toHaveLength(1)
+    // BOTH colour axes take the uniform now — checked separately because fill and stroke
+    // reach `processColorValue` by different call sites, and a change that fixed only one
+    // would leave the other sampling a binding the group no longer declares.
+    expect(fillStr(v)).not.toContain('textureSampleLevel')
+    expect(strokeStr(v)).not.toContain('textureSampleLevel')
+    expect(fillStr(v)).toContain('u.fill_color')
+    expect(strokeStr(v)).toContain('u.stroke_color')
+    expect(v.preamble.bindings ?? []).toEqual([])
   })
 
-  it('two layers sharing the same gradient → both reference index 0', () => {
+  it('two layers sharing one gradient → one collected gradient, zero variant references', () => {
+    // collectPalette still dedups by canonical key (the packer depends on it); what
+    // changed is that no VARIANT points back at the index any more.
     const fill: ColorValue = { kind: 'zoom-interpolated', stops: [zs(0, RED), zs(20, BLUE)] }
     const nodeA = makeNode({ fill })
     const nodeB = makeNode({ name: 'b', fill })
-    // collectPalette dedups by canonical key.
     const palette = collectPalette(sceneFromNodes(nodeA, nodeB))
-    const varA = generateShaderVariant(nodeA, palette)
-    const varB = generateShaderVariant(nodeB, palette)
-    expect(varA.paletteColorGradients).toEqual([0])
-    expect(varB.paletteColorGradients).toEqual([0])
+    expect(palette.colorGradients.length).toBe(1)
   })
 })

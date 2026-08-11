@@ -29,10 +29,7 @@ function makeLegacyVariant(overrides: Partial<ShaderVariant> = {}): ShaderVarian
     featureFields: [],
     uniformFields: ['mvp', 'proj_params', 'fill_color', 'stroke_color'],
     categoryOrder: {},
-    paletteColorGradients: [],
     paletteScalarGradients: [],
-    fillUsesPalette: false,
-    strokeUsesPalette: false,
     opacityUsesPalette: false,
     // Phase 2.5 US-002 — default-fill/stroke sentinel flags. Set to true
     // here to mirror the legacy `fillExpr: 'u.fill_color'` placeholder

@@ -191,19 +191,14 @@ export function buildPaletteBindingDecls(
   palette: Palette,
   slots: PaletteBindingSlots = DEFAULT_PALETTE_SLOTS,
 ): BindingDecl[] {
-  const hasColor = palette.colorGradients.length > 0
+  // #1661 — the COLOUR atlas arm is gone. A zoom-interpolated colour resolves on the
+  // CPU into `u.<axis>_color` and no shader samples `color_grad_atlas` any more, so
+  // declaring the binding would put a texture on every variant's group that nothing
+  // reads — the dead half of the two-authority split this closed. The SCALAR atlas
+  // (zoom-interpolated opacity / stroke-width) is untouched: it has no CPU twin.
   const hasScalar = palette.scalarGradients.length > 0
-  if (!hasColor && !hasScalar) return []
+  if (!hasScalar) return []
   const decls: BindingDecl[] = []
-  if (hasColor) {
-    decls.push({
-      group: slots.group,
-      binding: slots.colorGradientBinding,
-      name: 'color_grad_atlas',
-      space: 'uniform',
-      type: texture2dfT,
-    })
-  }
   if (hasScalar) {
     decls.push({
       group: slots.group,

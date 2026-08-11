@@ -24,14 +24,17 @@
 // untouched. Removing that return would build native pipelines against a device
 // this backend does not have.
 //
-// WHAT IS STILL NOT SUPPORTED, and loudly: a variant that samples the PALETTE
-// atlas (`gradient()` / `categorical()` — `fillUsesPalette`, `paletteColorGradients`,
-// `paletteScalarGradients`) or routes paint through a COMPUTE kernel. Both need
-// resources this path does not bind yet (the atlas upload is skipped on webgl2 in
-// map.ts, and the compute output buffers come from a WebGPU-only dispatcher), and a
-// Material whose group omits them would fail to link rather than draw wrong.
-// `rhiVariantFillSupported` is that fence, and the caller keeps #1583's warning for
-// everything behind it — a narrower gap, still named, never silent.
+// WHAT IS STILL NOT SUPPORTED, and loudly: a SCALAR-gradient variant (zoom-interpolated
+// opacity / stroke-width, `paletteScalarGradients`) and a COMPUTE-routed one. The scalar
+// atlas is r32float — a format `RhiTextureFormat` does not carry at all, and one WebGL2
+// cannot filter without OES_texture_float_linear — and compute output buffers come from a
+// WebGPU-only dispatcher. A Material whose group omitted either would fail to LINK rather
+// than draw wrong, so `rhiVariantFillSupported` declines them and the caller keeps #1583's
+// warning for that residue — a narrow gap, still named, never silent.
+//
+// The COLOUR half of that fence is gone with #1661: a zoom-interpolated colour resolves on
+// the CPU into `u.<axis>_color` and samples no atlas, so there is no colour variant left
+// for this path to be unable to bind.
 
 import type { RhiBindGroup, RhiBindLayoutEntry, RhiBuffer, RhiDevice } from '@xgis/engine'
 import type { Material } from '@xgis/engine'
@@ -53,8 +56,11 @@ import type { ShaderVariantInfo } from './renderer-types'
 export function rhiVariantFillSupported(v: ShaderVariantInfo | null | undefined): boolean {
   if (!v || v.fillIsDefault) return false
   if (!toComposerVariant(v)) return false
-  if (v.fillUsesPalette || v.strokeUsesPalette) return false
-  if (v.paletteColorGradients.length > 0 || v.paletteScalarGradients.length > 0) return false
+  // #1661 removed the COLOUR arms: a zoom-interpolated colour no longer samples an
+  // atlas at all, so there is nothing here for this path to fail to bind. The SCALAR
+  // atlas is a different story — r32float, a format `RhiTextureFormat` does not carry
+  // and WebGL2 cannot filter without OES_texture_float_linear — so it stays fenced.
+  if (v.paletteScalarGradients.length > 0) return false
   if ((v.computeBindings?.length ?? 0) > 0) return false
   return true
 }

@@ -21,10 +21,7 @@ function baseVariant(overrides: Partial<ShaderVariantInfo> = {}): ShaderVariantI
     featureFields: [],
     uniformFields: [],
     categoryOrder: {},
-    paletteColorGradients: [],
     paletteScalarGradients: [],
-    fillUsesPalette: false,
-    strokeUsesPalette: false,
     opacityUsesPalette: false,
     fillIsDefault: false,
     strokeIsDefault: false,
@@ -59,10 +56,6 @@ describe('toComposerPointVariant (#1605 Phase 2)', () => {
       computeBindings: [{ paintAxis: 'fill', bindGroup: 2, binding: 0 }] as never,
     })
     expect(toComposerPointVariant(variant)).toBeNull()
-  })
-
-  it('paletteColorGradients present → null (not supported yet)', () => {
-    expect(toComposerPointVariant(baseVariant({ paletteColorGradients: [0] }))).toBeNull()
   })
 
   it('paletteScalarGradients present → null (not supported yet)', () => {

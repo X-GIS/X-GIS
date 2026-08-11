@@ -28,10 +28,7 @@ function variant(opts: Partial<ShaderVariant>): ShaderVariant {
     featureFields: [],
     uniformFields: [],
     categoryOrder: {},
-    paletteColorGradients: [],
     paletteScalarGradients: [],
-    fillUsesPalette: false,
-    strokeUsesPalette: false,
     opacityUsesPalette: false,
     fillIsDefault: true,
     strokeIsDefault: true,
@@ -74,14 +71,12 @@ describe('rhiVariantFillSupported — what the RHI variant path will draw (#1592
     expect(rhiVariantFillSupported(variant({ fillIsDefault: false }))).toBe(false)
   })
 
-  it('declines every palette-sampling variant — the atlas is not bound on this path', () => {
-    // Four independent signals, each sufficient. They are checked separately rather than via one
-    // representative because the compiler sets them from different axes (fill vs stroke, colour
-    // vs scalar) and a fence that only read `fillUsesPalette` would pass a gradient-stroked or
-    // zoom-interpolated-opacity layer straight into a link failure.
-    expect(rhiVariantFillSupported(matchFill({ fillUsesPalette: true }))).toBe(false)
-    expect(rhiVariantFillSupported(matchFill({ strokeUsesPalette: true }))).toBe(false)
-    expect(rhiVariantFillSupported(matchFill({ paletteColorGradients: [0] }))).toBe(false)
+  it('declines a SCALAR-gradient variant — that atlas cannot cross the RHI seam', () => {
+    // The only palette arm left after #1661. It is not a wiring gap that could be closed by
+    // binding harder: the scalar atlas is r32float, which `RhiTextureFormat` does not carry,
+    // and WebGL2 cannot filter r32float without OES_texture_float_linear. A zoom-interpolated
+    // COLOUR no longer reaches this fence at all — it resolves on the CPU into
+    // `u.fill_color` and samples nothing.
     expect(rhiVariantFillSupported(matchFill({ paletteScalarGradients: [0] }))).toBe(false)
   })
 

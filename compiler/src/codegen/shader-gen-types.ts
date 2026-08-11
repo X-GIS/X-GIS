@@ -55,30 +55,11 @@ export interface ShaderVariant {
    *  encode school=0 — colliding with cemetery's slot in the
    *  shader's if-else chain. */
   categoryOrder: Record<string, string[]>
-  /** P3 Step 3 — non-empty when this variant sampled a gradient from
-   *  the palette atlas. The runtime uses this signal to:
-   *    (a) bind the palette textures + sampler to the variant's
-   *        pipeline (Step 3c).
-   *    (b) skip the zoom-interpolated CPU resolve path for these
-   *        properties (Step 4) — the shader reads the per-zoom
-   *        value via textureSampleLevel each frame instead.
-   *  Empty when `palette` is omitted from generateShaderVariant or
-   *  the node has no zoom-interpolated paint properties. */
-  paletteColorGradients: number[]
   /** P3 Step 3c-scalar — non-empty when the variant samples a scalar
    *  gradient (opacity / stroke-width zoom-interpolated). Runtime uses
    *  it to bind the scalar atlas + sampler and skip the per-frame
    *  `resolveNumberShape(...)` CPU eval for the routed axes. */
   paletteScalarGradients: number[]
-  /** P3 Step 4 — true when fill's zoom-interpolated colour routed
-   *  through `textureSampleLevel`. The bucket-scheduler skips the
-   *  per-frame `resolveColorShape(paintShapes.fill, …)` CPU eval
-   *  for these axes — the fragment shader reads from the gradient
-   *  atlas directly, so the CPU result would be a dead write into
-   *  `u.fill_color`. */
-  fillUsesPalette: boolean
-  /** Stroke counterpart to `fillUsesPalette`. */
-  strokeUsesPalette: boolean
   /** True when opacity's zoom-interpolated value routed through the
    *  scalar atlas. The bucket-scheduler skips the per-frame
    *  `resolveNumberShape(paintShapes.opacity, …)` CPU eval and the

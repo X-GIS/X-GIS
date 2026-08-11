@@ -20,10 +20,7 @@ function legacyVariant(): ShaderVariant {
     featureFields: [],
     uniformFields: [],
     categoryOrder: {},
-    paletteColorGradients: [],
     paletteScalarGradients: [],
-    fillUsesPalette: false,
-    strokeUsesPalette: false,
     opacityUsesPalette: false,
     // Phase 2.5 US-002 — default-fill/stroke sentinel flag (replaces the
     // runtime's legacy `fillExpr === 'u.fill_color'` string compare).

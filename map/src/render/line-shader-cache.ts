@@ -39,7 +39,6 @@ export function toComposerLineVariant(variant?: ShaderVariantInfo | null): LineV
   if (!variant.strokeIsStage || !variant.strokeExpr) return null
   if (variant.needsFeatureBuffer) return null
   if ((variant.computeBindings?.length ?? 0) > 0) return null
-  if ((variant.paletteColorGradients?.length ?? 0) > 0) return null
   if ((variant.paletteScalarGradients?.length ?? 0) > 0) return null
   const pre = variant.preamble
   if ((pre?.bindings?.length ?? 0) > 0) return null // no new bind slots supported yet

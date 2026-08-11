@@ -8,7 +8,6 @@ import { astToNode, astToVec4Node, collectFields } from './wgsl-expr'
 import { buildCatPaletteConst, CAT_PALETTE_SIZE } from './categorical-encoder'
 import type { Palette } from './palette'
 import {
-  emitColorGradientSampleNode,
   emitScalarGradientSampleNode,
   buildScalarSampleFunc,
   buildPaletteBindingDecls,
@@ -78,31 +77,23 @@ export function generateShaderVariant(
   const allFeatureFields = new Set<string>()
   let needsFeatureBuffer = false
 
-  // Collected palette gradient indices. Non-empty when ANY paint
-  // property routed through the textureSampleLevel path (Step 3b).
-  // Runtime (Step 3c) reads `paletteColorGradients` from the
-  // ShaderVariant to decide whether to bind the atlas textures +
-  // skip the zoom-interpolated CPU resolve.
-  const paletteColorGradients: number[] = []
+  // Collected SCALAR palette gradient indices — the opacity / stroke-width axis, which
+  // routes through `xgis_scalar_sample` and has no CPU twin. The colour counterpart was
+  // removed with #1661: a zoom-interpolated colour resolves on the CPU, so it collects
+  // no index and declares no binding.
   const paletteScalarGradients: number[] = []
 
   // ── Fill ──
-  const fillResult = processColorValue(node.fill, 'FILL', allFeatureFields, palette)
+  const fillResult = processColorValue(node.fill, 'FILL', allFeatureFields)
   consts.push(...fillResult.preamble)
   if (!fillResult.isConst) uniformFields.push('fill_color')
   if (fillResult.needsFeatures) needsFeatureBuffer = true
-  if (fillResult.paletteGradientIdx !== undefined) {
-    paletteColorGradients.push(fillResult.paletteGradientIdx)
-  }
 
   // ── Stroke ──
-  const strokeResult = processColorValue(node.stroke.color, 'STROKE', allFeatureFields, palette)
+  const strokeResult = processColorValue(node.stroke.color, 'STROKE', allFeatureFields)
   consts.push(...strokeResult.preamble)
   if (!strokeResult.isConst) uniformFields.push('stroke_color')
   if (strokeResult.needsFeatures) needsFeatureBuffer = true
-  if (strokeResult.paletteGradientIdx !== undefined) {
-    paletteColorGradients.push(strokeResult.paletteGradientIdx)
-  }
 
   // ── Opacity ──
   const opacityResult = processOpacity(node.opacity, allFeatureFields, palette)
@@ -165,7 +156,7 @@ export function generateShaderVariant(
   // the variant actually samples either atlas. Empty for non-palette variants.
   const bindings: BindingDecl[] = []
   const funcs: FuncDecl[] = []
-  if (palette && (paletteColorGradients.length > 0 || paletteScalarGradients.length > 0)) {
+  if (palette && paletteScalarGradients.length > 0) {
     bindings.push(...buildPaletteBindingDecls(palette))
     if (paletteScalarGradients.length > 0) {
       const helper = buildScalarSampleFunc(palette, scalarPaletteMode)
@@ -183,10 +174,7 @@ export function generateShaderVariant(
     featureFields,
     uniformFields,
     categoryOrder,
-    paletteColorGradients,
     paletteScalarGradients,
-    fillUsesPalette: fillResult.paletteGradientIdx !== undefined,
-    strokeUsesPalette: strokeResult.paletteGradientIdx !== undefined,
     opacityUsesPalette: opacityResult.paletteScalarIdx !== undefined,
     // Phase 2.5 US-002+US-004 — typed default-sentinel flags. After
     // US-004's Node migration the field carries `null` for the
@@ -205,11 +193,13 @@ export function generateShaderVariant(
 
 // ═══ Value processing ═══
 
+// #1661 — no `palette` param: a colour never samples an atlas any more, so this
+// function has no use for one. The SCALAR axis (opacity / stroke-width) still does,
+// and processScalarValue keeps its palette argument.
 function processColorValue(
   value: ColorValue,
   prefix: string,
   featureFields: Set<string>,
-  palette?: Palette,
 ): ColorResult {
   if (value.kind === 'none') {
     return {
@@ -467,33 +457,28 @@ function processColorValue(
     }
   }
 
-  // Zoom-interpolated path: when a palette is provided AND the
-  // gradient is already collected (P3 Step 1), emit the
-  // textureSampleLevel call so the GPU samples the pre-baked atlas
-  // (P3 Step 2) once per fragment. Falls back to the legacy
-  // `u.fill_color` uniform when no palette is wired — preserves
-  // every existing caller's WGSL output byte-identical.
-  if (value.kind === 'zoom-interpolated' && palette) {
-    const gradientIdx = palette.findColorGradient({
-      stops: value.stops,
-      base: value.base ?? 1,
-    })
-    if (gradientIdx >= 0) {
-      return {
-        preamble: [],
-        isConst: false,
-        needsFeatures: false,
-        // Phase 2.5 US-005 idiom (palette sample) — emit the
-        // textureSampleLevel call as a real Node so the zoom-interp +
-        // palette path (OFM Bright zoom-interpolated fills, etc.) flows
-        // Node-emit at the marker substitution site.
-        nodeExpr: emitColorGradientSampleNode(palette, gradientIdx) ?? undefined,
-        paletteGradientIdx: gradientIdx,
-      }
-    }
-  }
+  // #1661 — a zoom-interpolated COLOUR resolves on the CPU into `u.<axis>_color`,
+  // and that is the single authority. This branch used to emit a
+  // `textureSampleLevel(color_grad_atlas, …)` instead, so the same value was produced
+  // twice every frame: once here per fragment, once by the renderer's per-frame
+  // `resolveColorShape`. `fillUsesPalette` existed to switch the CPU half off and was
+  // never read by any runtime, so BOTH ran — agreeing to within 0.66/255 (measured),
+  // which is exactly why it went unnoticed for so long.
+  //
+  // The CPU side wins on every axis that matters. It evaluates the curve EXACTLY at the
+  // camera zoom, where the atlas is a 256-texel resample of that same curve quantised to
+  // f16 and re-interpolated — never more accurate, only ever less. And the sample
+  // coordinate is `u.zoom`, a UNIFORM, so the atlas spent a per-fragment texture read to
+  // obtain a per-draw constant. Against that it charged an atlas upload, two bindings on
+  // every variant, a bind-group rebuild coupling, and a hard WebGL2 blocker (rgba16float
+  // is rejected by that backend's texture path), which is the entire #1592 gap-4 class.
+  //
+  // A per-fragment ramp input would be a different expression kind — the data-driven
+  // `gradient(.FIELD, …)` form already compiles to a `mix()` over feat_data and is
+  // untouched by this. Only the zoom axis, whose input cannot vary within a draw,
+  // routes here.
 
-  // conditional, zoom-interpolated (no palette), …  → fall back to uniform
+  // conditional, zoom-interpolated, …  → fall back to uniform
   return {
     preamble: [],
     isConst: false,
