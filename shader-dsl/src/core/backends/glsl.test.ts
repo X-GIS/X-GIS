@@ -594,6 +594,64 @@ describe('glsl-es300 — storage → data-texture emulation (default-on)', () =>
     expect(() => emitGlslModule(m, 'fragment')).toThrow(UnsupportedFeatureError)
     expect(() => emitGlslModule(m, 'fragment')).toThrow(/'segs\[i\]'/)
   })
+
+  it('a read_write storage binding fails closed at declaration (the emulation is gather-only)', () => {
+    // Without this gate a storage WRITE would not even fail at the driver: autoVars
+    // materialises the assigned element into a local var, so the store silently becomes
+    // a dead local write while the WGSL twin performs a real SSBO store — a silent
+    // cross-backend divergence, both green (#1648 review).
+    const arr = { kind: 'array', elem: f32T } as ShaderType
+    const m = residualMod(
+      { ...storageOf('accum', arr), access: 'read_write' },
+      [],
+      [
+        {
+          s: 'assign',
+          target: {
+            op: 'index',
+            type: f32T,
+            base: varref('accum', arr),
+            idx: { op: 'lit', type: u32T, value: 0 },
+          },
+          expr: { op: 'lit', type: f32T, value: 1 },
+        },
+      ],
+    )
+    expect(() => emitGlslModule(m, 'fragment')).toThrow(UnsupportedFeatureError)
+    expect(() => emitGlslModule(m, 'fragment')).toThrow(/'accum'[\s\S]*read-only \(gather\)/)
+  })
+
+  it('a @compute module without {emulateCompute} keeps the compute caps error (not a storage-shape one)', () => {
+    // The default storage lowering must NOT run first here — it would replace the
+    // "missing capabilities: compute" diagnosis with an unsupported-element error
+    // pointing away from the actual fix, the missing {emulateCompute} opt-in (#1648 review).
+    const m: ModuleDecl = {
+      consts: [],
+      structs: [],
+      bindings: [
+        {
+          ...storageOf('out_color', { kind: 'array', elem: u32T } as ShaderType),
+          access: 'read_write',
+        },
+      ],
+      funcs: [
+        {
+          name: 'paint',
+          params: [
+            {
+              name: 'gid',
+              type: { kind: 'vec', elem: 'u32', n: 3 } as ShaderType,
+              builtin: 'global_invocation_id',
+            },
+          ],
+          ret: { kind: 'void' } as ShaderType,
+          attrs: ['@compute', '@workgroup_size(64)'],
+          body: [{ s: 'return' }],
+        },
+      ],
+    }
+    expect(() => emitGlslModule(m, 'fragment')).toThrow(/missing capabilities:[\s\S]*compute/)
+  })
 })
 
 describe('glsl-es300 — fail-closed on out-of-scope features', () => {

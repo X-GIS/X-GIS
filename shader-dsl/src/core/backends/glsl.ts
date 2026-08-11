@@ -291,8 +291,9 @@ export const glslEs300Backend: Backend = {
   // A binding line that needs only the binding itself (texture/sampler → a combined
   // sampler2D uniform). A `uniform` STRUCT binding is a std140 UBO block, which needs the
   // struct fields in scope — that is assembled by emitGlslModule (which owns the struct
-  // map), so the bare method fails closed to keep the offset SoT in one place. Storage is
-  // gated out by assertCaps before emit; the throw here is belt-and-braces.
+  // map), so the bare method fails closed to keep the offset SoT in one place. Storage
+  // never reaches emit via emitGlslModule/emitGlslStages (the default data-texture
+  // lowering rewrites it first); the throw here is belt-and-braces for direct backend use.
   emitBinding: (b) => {
     if (b.type.kind === 'texture' || b.type.kind === 'sampler')
       return `uniform ${glslType(b.type)} ${b.name};`
@@ -553,6 +554,16 @@ function lowerStorageToDataTexture(m: ModuleDecl): ModuleDecl {
   const structStorage = new Map<string, StructStorage>() // array<Struct> storage
   for (const b of m.bindings) {
     if (b.space !== 'storage') continue
+    // The emulation is GATHER-ONLY: it rewrites READS into texelFetch and has no write
+    // form. Without this declaration-time gate a storage WRITE would not even fail at
+    // the driver — autoVars materialises the assigned element into a local var, so the
+    // store silently becomes a dead local write while the WGSL twin performs a real
+    // SSBO store (silent cross-backend divergence, both green). A compute kernel's
+    // read_write output is fine: lowerComputeToFragment strips it before this pass.
+    if (b.access === 'read_write')
+      throw new UnsupportedFeatureError(
+        `glsl-es300 storage-emul: storage binding '${b.name}' is read_write — the data-texture emulation is read-only (gather); a compute kernel's output lowers via emitGlslModule({emulateCompute: true}), and WebGL2 has no storage-write form`,
+      )
     if (b.type.kind !== 'array')
       throw new UnsupportedFeatureError(
         `glsl-es300 storage-emul: storage binding '${b.name}' is not an array — ${SUPPORTED_STORAGE_SHAPES}`,
@@ -594,7 +605,7 @@ function lowerStorageToDataTexture(m: ModuleDecl): ModuleDecl {
       continue
     }
     throw new UnsupportedFeatureError(
-      `glsl-es300 storage-emul: storage binding '${b.name}' has an unsupported element type — ${SUPPORTED_STORAGE_SHAPES}; a top-level array<u32/i32> needs the documented follow-on typed-texture/bitcast-lane scheme`,
+      `glsl-es300 storage-emul: storage binding '${b.name}' has an unsupported element type — ${SUPPORTED_STORAGE_SHAPES}; a top-level array<u32/i32> needs the typed-texture/bitcast-lane follow-on (#1647 records the design constraints) — today, carry u32 lanes as struct fields (bitcast) or pack into array<f32>`,
     )
   }
   if (f32Names.size === 0 && vecStorage.size === 0 && structStorage.size === 0) return m
@@ -668,7 +679,7 @@ function lowerStorageToDataTexture(m: ModuleDecl): ModuleDecl {
         }
         if (e.base.op === 'varref' && structStorage.has(e.base.name))
           throw new UnsupportedFeatureError(
-            `glsl-es300 storage-emul: storage struct element '${e.base.name}[i]' used without a .field access — a whole-struct element read has no lane; ${SUPPORTED_STORAGE_SHAPES}`,
+            `glsl-es300 storage-emul: storage struct element '${e.base.name}[i]' used without a .field access — a whole-struct element read has no lane; read one field at a time (e.g. ${e.base.name}[i].someField)`,
           )
         return { ...e, base: rE(e.base), idx: rE(e.idx) }
       case 'binop':
@@ -999,11 +1010,18 @@ function stageScope(
 }
 
 export interface GlslEmitOptions extends EmitOptions {
-  /** REDUNDANT (back-compat): the storage→data-texture lowering is now DEFAULT-ON for
-   *  any module carrying a storage binding — WebGL2 having no SSBO is a platform fact,
-   *  not a caller choice. Kept so the existing opt-in call sites keep compiling; setting
-   *  it changes nothing. */
+  /** NO-OP since #1647 (back-compat): the storage→data-texture lowering is DEFAULT-ON
+   *  for any module carrying a storage binding — WebGL2 having no SSBO is a platform
+   *  fact, not a caller choice. Kept so the existing opt-in call sites keep compiling;
+   *  setting it changes nothing. (Not JSDoc-@deprecated yet: the repo-wide
+   *  `no-deprecated: error` lint would demand removing the flag from every consumer in
+   *  the same change — that sweep is the flag's REMOVAL follow-up, not this PR.) */
   emulateStorage?: boolean
+  /** Lower a GATHER-ONLY @compute kernel to a fragment-GPGPU pass (see
+   *  lowerComputeToFragment). OPT-IN, unlike the storage lowering: it rewrites the
+   *  compute entry into a fragment entry, so the host must dispatch a fullscreen DRAW
+   *  into an R32UI target instead of a compute dispatch — a host contract, not a
+   *  platform fact. Implies the storage lowering for the surviving read bindings. */
   emulateCompute?: boolean
   /** #923 host specialization — pin `override` values for THIS emit. GLSL ES 3.00
    *  has no driver-side spec constants, so a specialized variant is a re-emit: each
@@ -1044,9 +1062,15 @@ function lowerForGlsl(m: ModuleDecl, opts?: GlslEmitOptions): ModuleDecl {
   // twin returned position = vec4(0) this way). autoVars is a no-op on an
   // already-materialised module, so lowerForBackend's own autoVars stays.
   const hasStorage = m.bindings.some((b) => b.space === 'storage')
+  // A @compute module WITHOUT {emulateCompute} keeps the old fail-close (assertCaps
+  // naming 'compute') — default-lowering its storage first would replace that diagnosis
+  // with a storage-shape error pointing away from the actual fix (the missing opt-in).
+  const hasComputeEntry = m.funcs.some(
+    (f) => f.stage === 'compute' || f.attrs?.some((a) => a.startsWith('@compute')),
+  )
   const src = opts?.emulateCompute
     ? lowerStorageToDataTexture(lowerComputeToFragment(autoVars(m)))
-    : opts?.emulateStorage || hasStorage
+    : opts?.emulateStorage || (hasStorage && !hasComputeEntry)
       ? lowerStorageToDataTexture(autoVars(m))
       : m
   // GLSL-local: rename any param/var identifier colliding with a GLSL reserved word
