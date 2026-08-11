@@ -27,6 +27,7 @@ import { Camera } from '../camera'
 import type { ShowCommand, ShaderVariantInfo } from './renderer-types'
 import { variantProducesFill } from './renderer-helpers'
 import { reportRhiFillGap } from './rhi-fill-gap-warning'
+import { RhiFillVariantPath, rhiVariantFillSupported } from './rhi-fill-variant'
 import { uniformBlock } from '@xgis/engine'
 import { globeEyeUniform } from './globe-eye-uniform'
 import { xlog, activeBody, EARTH } from '@xgis/shared'
@@ -238,6 +239,8 @@ export class VectorTileRenderer {
    *  allocates a fresh closure per call. */
   private readonly _releaseTileHook = (handleKey: string): void => {
     this._featureBinder.releaseTile(handleKey)
+    // #1592 — same eviction key frees the RHI path's per-tile feat_data.
+    this._fillVariantsRhi?.releaseTile(handleKey)
   }
   private getOrCreateLayerCache(sourceLayer: string): Map<number, GPUTile> {
     return this._store.getOrCreateLayer(sourceLayer)
@@ -695,6 +698,17 @@ export class VectorTileRenderer {
   private _fillMatRhi: Material | null = null
   private _fillTileBgRhi: { buf: RhiBuffer; bg: RhiBindGroup } | null = null
 
+  /** #1592 — the DATA-DRIVEN half of this path: per-variant Materials + per-tile
+   *  feat_data. Lazy so a scene with no `fill match(…)` never builds it. */
+  private _fillVariantsRhi: RhiFillVariantPath | null = null
+  private fillVariants(): RhiFillVariantPath {
+    return (this._fillVariantsRhi ??= new RhiFillVariantPath(
+      this.rhi,
+      this.format,
+      toVertexBufferLayout(POLYGON_FILL_FORMAT),
+    ))
+  }
+
   /** The default flat-fill Material with GLSL twins — built lazily ONCE on the
    *  webgl2 backend (emitPolygonGlsl null-variant, no pick, single-sample).
    *
@@ -1136,7 +1150,16 @@ export class VectorTileRenderer {
     // tiles, because the label dispatch and the point emit read THIS selection.
     // Below them it never ran for those shows: they drew NOTHING, silently.
     const fill = resolvedShow.fill ?? (show.fill ? parseHexColor(show.fill) : null)
-    if (!fill) {
+    // #1592 — a data-driven fill has NO CPU colour by construction (resolved-show.ts
+    // documents `fill: null` for it), because its colour is a composed expression the
+    // variant Material evaluates per feature. `varMat` is that Material. The PICK pass
+    // deliberately keeps the null-variant pick material: its fragment writes feature
+    // ids from the vertex attribute and never a colour, so it needs the bail lifted,
+    // not a variant of its own.
+    const dataDriven = !fill && rhiVariantFillSupported(show.shaderVariant)
+    const varMat =
+      dataDriven && mode === 'color' ? this.fillVariants().materialFor(show.shaderVariant) : null
+    if (!fill && !dataDriven) {
       // #1583 — blank, but loud. reportRhiFillGap always returns 0 (the draw
       // count for a fill it did not draw); that is NOT this bail's return
       // value here — `missing` (the tile-acquisition count computed above,
@@ -1148,7 +1171,9 @@ export class VectorTileRenderer {
       return missing
     }
     const opacity = resolvedShow.opacity
-    const fillA = fill[3] * opacity
+    // A data-driven fill's alpha lives inside the expression, so there is no CPU
+    // alpha to threshold on — 1 is the "draw it, the shader decides" stand-in.
+    const fillA = (fill?.[3] ?? 1) * opacity
     if (fillA <= 0.005) return missing
 
     // #1059 — fill-pattern twin. The SAME single authority the WebGPU render() packs
@@ -1168,15 +1193,18 @@ export class VectorTileRenderer {
     const mat =
       mode === 'pick'
         ? this.ensureFillPickMaterialRhi()
-        : pack.active
-          ? this.ensureFillPatternMaterialRhi()
-          : this.ensureFillMaterialRhi()
+        : (varMat ??
+          (pack.active ? this.ensureFillPatternMaterialRhi() : this.ensureFillMaterialRhi()))
     const frame = camera.getViewForProjection(projType, canvasWidth, canvasHeight, dpr)
     this.logDepthFc = frame.logDepthFc
     const B = this.frameBlock
     B.set.mvp(frame.matrix)
     if (pack.active) B.set.fill_color(pack.u0, pack.v0, pack.u1, pack.v1)
-    else B.set.fill_color(fill[0], fill[1], fill[2], fillA)
+    else if (fill) B.set.fill_color(fill[0], fill[1], fill[2], fillA)
+    // Data-driven: `u.fill_color` is dead in the variant shader (the composed
+    // expression replaces the fill-return), but the slot is written anyway so no
+    // stale bytes from a previous show's draw survive in this ring slot.
+    else B.set.fill_color(0, 0, 0, fillA)
     B.set.proj_params(projType, projCenterLon, projCenterLat, 0)
     this.currentProjType = projType
     const ge = globeEyeUniform(frame.eye)
@@ -1255,7 +1283,26 @@ export class VectorTileRenderer {
       // tile (dirty-range, one bufferSubData). The WebGPU path defers to one
       // end-of-pass flush only because submit-ordering guarantees it there.
       this.flushUniformStaging()
-      const tileBg = pack.active ? this.fillPatternTileBgRhi() : this.fillTileBgRhi()
+      // #1592 — the data-driven group binds THIS tile's feat_data next to the ring.
+      // The props come from the source (not the GPUTile) because the tile cache holds
+      // only GPU handles; label-feature-source reads them the same way, well after
+      // upload, so they are live for the tile's lifetime. A tile whose slice carries
+      // no packable props yields null and is skipped rather than drawn against an
+      // unbound storage entry.
+      const ringBuf = this.uniformRing?.rhiBuffer
+      const tileBg =
+        varMat && ringBuf
+          ? this.fillVariants().tileBindGroup(
+              varMat,
+              ringBuf,
+              show.shaderVariant!,
+              sliceLayer,
+              key,
+              this.source.getTileData(key, sliceLayer)?.featureProps,
+            )
+          : pack.active
+            ? this.fillPatternTileBgRhi()
+            : this.fillTileBgRhi()
       if (!tileBg) continue
       executeItems(mat, pass, [
         {
@@ -2122,6 +2169,10 @@ export class VectorTileRenderer {
     this._store.destroy()
 
     this._featureBinder.destroy()
+    // #1592 — the RHI variant path owns its own Materials + per-tile feat_data
+    // buffers; nothing else references them, so nothing else would reclaim them.
+    this._fillVariantsRhi?.destroy()
+    this._fillVariantsRhi = null
 
     this.uniformRing?.destroy()
     this.uniformRing = null

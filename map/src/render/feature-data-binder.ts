@@ -31,6 +31,7 @@ import { ComputeLayerHandle } from './compute-layer-handle'
 import type { ShaderVariant } from '@xgis/compiler'
 import type { GPUTile } from './vector-tile-renderer-types'
 import { polygonUniformSlots } from './polygon-uniform-slots'
+import { buildCategoryMap, packPerTileFeatureData } from './feature-data-pack'
 
 // Bind-group binding range size for binding 0 (the uniform ring). Derived
 // lazily from reflect(buildPolygonModule()) — the SAME IR the shader is emitted
@@ -53,31 +54,11 @@ export interface PaletteResources {
   spriteAtlasView: GPUTextureView | null
 }
 
-/** #723 — stable, tile-independent categorical palette id. FNV-1a of the
- *  value, masked to 23 bits so it round-trips EXACTLY through the f32
- *  `feat_data` slot (f32 mantissa is 24 bits); the `categorical()` shader
- *  applies `% <palette>` (shader-gen.ts:227) to land it in a palette slot.
- *  The prior code used the ALPHABETICAL RANK of the values present in a
- *  single tile, so the same value mapped to a different slot depending on
- *  which other values shared the tile — a `categorical()` fill therefore
- *  changed colour across zoom/pan (issue #723). An id that is a pure
- *  function of the value is identical in every tile by construction. */
-export function stableCategoryId(v: string): number {
-  let h = 0x811c9dc5
-  for (let i = 0; i < v.length; i++) h = Math.imul(h ^ v.charCodeAt(i), 0x01000193)
-  return (h >>> 0) & 0x7fffff
-}
-
-/** Build a value→id map for a `categorical()` field that has NO compile-time
- *  `categoryOrder` (i.e. the palette path, not `match()`). The id is
- *  `stableCategoryId(value)` — a pure function of the value, NOT the
- *  per-tile / per-source rank. Shared by the per-tile and source-level
- *  packers so both agree on a value's colour. See #723. */
-export function buildCategoryMap(values: Iterable<string>): Map<string, number> {
-  const map = new Map<string, number>()
-  for (const v of values) if (!map.has(v)) map.set(v, stableCategoryId(v))
-  return map
-}
+// #1592 — the categorical id scheme + the per-tile pack moved to
+// feature-data-pack.ts so the RHI fill path (which has no GPUDevice to hand
+// this binder) packs the SAME bytes. Re-exported here: both names are part of
+// `@xgis/map`'s surface via `export * from './render/feature-data-binder'`.
+export { stableCategoryId, buildCategoryMap } from './feature-data-pack'
 
 export class FeatureDataBinder {
   private device: GPUDevice
@@ -366,65 +347,13 @@ export class FeatureDataBinder {
     if (this.latestVariantFields.length === 0) return null
     if (!this._featureBindGroupLayout || !ringBuf) return null
 
-    const fields = this.latestVariantFields
-    const fieldCount = fields.length
-    // featId is tile-local but not necessarily contiguous (worker
-    // may filter out features). Size the buffer by (max featId + 1)
-    // so vertex-side `feat_data[fid]` indexing stays direct without a
-    // featId → row mapping table. Unfilled slots default to 0 which
-    // matches the variant shader's fallback arm.
-    let maxFid = -1
-    for (const fid of featureProps.keys()) {
-      if (fid > maxFid) maxFid = fid
-    }
-    const featureCount = maxFid + 1
-    if (featureCount <= 0) return null
-
-    const data = new Float32Array(featureCount * fieldCount)
-
-    // Per-field categorical maps — same compile-time-order-first logic
-    // as the source-level path so the shader's if-else chain IDs match.
-    const catMaps = new Map<string, Map<string, number>>()
-    for (const fieldName of fields) {
-      const order = this.latestVariantCategoryOrder[fieldName]
-      const map = new Map<string, number>()
-      if (order && order.length > 0) {
-        order.forEach((v, i) => map.set(v, i))
-        // Unknown values get IDs beyond the if-else range → fallback arm.
-        const unseen = new Set<string>()
-        for (const props of featureProps.values()) {
-          const v = props[fieldName]
-          if (typeof v === 'string' && !map.has(v)) unseen.add(v)
-        }
-        let next = order.length
-        for (const v of [...unseen].sort()) map.set(v, next++)
-      } else {
-        // #723 — categorical() palette id is a pure function of the value
-        // (stableCategoryId), NOT the per-tile alphabetical rank, so the
-        // same value gets the same palette slot in every tile / at every
-        // zoom instead of shifting with the tile's value-subset.
-        const vals: string[] = []
-        for (const props of featureProps.values()) {
-          const v = props[fieldName]
-          if (typeof v === 'string') vals.push(v)
-        }
-        for (const [v, id] of buildCategoryMap(vals)) map.set(v, id)
-      }
-      catMaps.set(fieldName, map)
-    }
-
-    for (const [fid, props] of featureProps) {
-      for (let j = 0; j < fieldCount; j++) {
-        const fieldName = fields[j]!
-        const val = props[fieldName]
-        const catMap = catMaps.get(fieldName)
-        if (catMap && typeof val === 'string') {
-          data[fid * fieldCount + j] = catMap.get(val) ?? 0
-        } else if (typeof val === 'number') {
-          data[fid * fieldCount + j] = val
-        }
-      }
-    }
+    const packed = packPerTileFeatureData(
+      featureProps,
+      this.latestVariantFields,
+      this.latestVariantCategoryOrder,
+    )
+    if (!packed) return null
+    const { data } = packed
     // DEBUG: when `__xgisForceClassId` is set on globalThis, every
     // feat_data entry gets the same ID. Lets us isolate fid-mapping
     // bugs from shader-emit bugs — if every polygon paints with the

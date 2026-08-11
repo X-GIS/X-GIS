@@ -178,7 +178,17 @@ const CEILINGS: Record<string, number> = {
   // 2 drawSegments calls), and narrow the two warnStageBlockUnsupported('line',
   // ...) call sites to the genuinely-rejected case now that a feature-free
   // @stroke expression is actually consumed.
-  'map/src/render/vector-tile-renderer.ts': 4863,
+  // 4863→4913 (#1592, measured post-prettier per §12): the RHI data-driven fill.
+  // The two substantial pieces — the per-variant Material cache and the per-tile
+  // feat_data buffer/bind-group — were NOT added here; they are their own owner
+  // (render/rhi-fill-variant.ts, 211 lines) precisely because this file is at its
+  // ceiling, and the pure pack it shares with FeatureDataBinder is a third file
+  // (render/feature-data-pack.ts). What lands here is only the wiring a renderer
+  // cannot delegate: the lazy owner field + accessor, the narrowed fill bail
+  // (`!fill && !dataDriven`) with the variant Material lookup, the null-fill
+  // branches for `fill_color` / `fillA`, the per-tile group selection in the draw
+  // loop, and the two teardown hooks (eviction + destroy).
+  'map/src/render/vector-tile-renderer.ts': 4913,
   // Baselined 801: #1602 (the drape's overlap winner is relevance, not re-arm recency)
   // brought the file to exactly NEW_FILE_CAP (800), and the independent #1603 material-
   // release fix landed on main one line above it in the same file, pushing it to 801 on
