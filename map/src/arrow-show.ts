@@ -9,13 +9,14 @@
 // draper. Features come from the already-filtered FC the rebuild loop computed (the
 // same features the sibling point/dots layer over this source reads).
 
-import { evaluate, makeEvalProps } from '@xgis/compiler'
+import { evaluate, makeEvalProps, resolveColor } from '@xgis/compiler'
 import type { Expr } from '@xgis/compiler'
 import type { GeoJSONFeatureCollection } from '@xgis/data'
 import type { ShowCommand } from './render/renderer-types'
 import type { GraphicsManager } from './graphics/graphics-manager'
-import { parseHexColor } from './feature-helpers'
+import { parseHexColor, hexToRgba } from './feature-helpers'
 import { resolveNumberShape } from './render/paint-shape-resolve'
+import { warnPerFeatureColorUnresolved } from './render/per-feature-color-warning'
 
 /** The slice of XGISMap the arrow show build reads. */
 export interface ArrowShowHost {
@@ -95,15 +96,23 @@ export function addArrowShowLayer(
       ? [fillConst[0], fillConst[1], fillConst[2], fillConst[3]]
       : [1, 1, 1, 1]
     if (fillAst) {
+      // Throw-isolated like the axes above — and, since #1664, the WARNING site too. A
+      // data-driven `fill` leaves `show.fill` null by construction, so "keep the constant
+      // colour" here means every arrow paints the flat white default: a wrong colour, not a
+      // missing one, and the one failure the author most needs told about.
+      let r: unknown
       try {
-        const r = evaluate(fillAst, bag)
-        if (typeof r === 'string') {
-          const c = parseHexColor(r)
-          if (c) color = [c[0], c[1], c[2], c[3]]
-        }
-      } catch {
-        /* keep the constant colour */
+        r = evaluate(fillAst, bag)
+      } catch (e) {
+        r = e
       }
+      // Mirror of the label path (render/passes/label-pass.ts): the token / CSS resolver
+      // FIRST, then the NULLABLE parse. `parseHexColor` is TOTAL — opaque BLACK for
+      // anything it does not recognise — so a non-hex string used to paint a wrong colour
+      // and report it as a right one, which is exactly the silence this site now breaks.
+      const c = typeof r === 'string' ? hexToRgba(resolveColor(r) ?? r) : null
+      if (c) color = [c[0], c[1], c[2], c[3]]
+      else warnPerFeatureColorUnresolved(show.layerName ?? show.targetName, 'fill', r)
     }
 
     if (g.type === 'Point') {
