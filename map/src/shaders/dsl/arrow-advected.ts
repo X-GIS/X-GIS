@@ -88,6 +88,7 @@ import {
   u32T,
   texture2dfT,
   type ModuleDecl,
+  type ReadonlyNode,
 } from '@xgis/shader-dsl'
 import {
   S111_BAND_COUNT,
@@ -142,7 +143,12 @@ const flowValidTex = resource('flow_valid_tex', texture2dfT, { group: 1, binding
  *  implementation-defined, so a node landing exactly on a footprint boundary could resolve to
  *  different cells on the two backends — a parity bug that only shows on one of them. */
 const loadAtUv = (
-  tex: Parameters<typeof textureDimensions>[0],
+  // The 2d/MS union this helper actually handles — NOT derived from
+  // textureDimensions' parameter, which widened to include 2d-array textures
+  // (#1651) that the 3-arg textureLoad below rightly rejects (an array load
+  // needs a layer). The derived coupling read as "any texture with dimensions",
+  // which was never this helper's contract.
+  tex: ReadonlyNode<'texture_2d<f32>' | 'texture_multisampled_2d<f32>'>,
   uv: { x: ReturnType<typeof f32>; y: ReturnType<typeof f32> },
 ) => {
   const d = textureDimensions(tex)

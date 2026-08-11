@@ -69,6 +69,7 @@ rendered as an ellipse. Every gate passed; only visual review caught it.
 | `fp64-clock.ts`          | generic      | The long-uptime bug: fract(epoch + time) at epoch ≈ 1e8 s — the f32 dial freezes (ulp = 8 s), the f64 dial sweeps; epoch as an f64 literal, split at build time.     |
 | `fp64-cancellation.ts`   | generic      | The numerics-textbook plot: (x−1)⁷ EXPANDED near x = 1 — f32 returns 7000× noise, df64 hugs the curve, and the factored-form reference shows the real fix.           |
 | `gradient-pass.ts`       | generic      | A two-colour gradient with a biasable blend + the `If`/`elif` control-flow combinator.                                                                               |
+| `texture-array-lod.ts`   | generic      | A tile atlas as ONE `texture_2d_array<f32>` binding — per-sample layer, all three array reads. WGSL + reflection (the live runner binds no atlas).                   |
 | `compute-reduction.ts`   | compute      | A `@workgroup_size` compute kernel folding a window of a storage buffer with `reduce()`. WebGPU-only (GLSL ES 3.00 has no compute), so it emits WGSL + reflection.   |
 
 > Licensing note: the generic set covers the classic ShaderToy-era effects (plasma, tunnel,

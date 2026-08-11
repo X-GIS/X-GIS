@@ -556,6 +556,31 @@ const c = textureSample(tex.node, texSampler.node, pin.uv)
 `r.node` keeps the **specific** key (`Node<'texture_2d<f32>'>`, `Node<'sampler'>`), so the
 texture/sampler ops are type-checked. `r.binding` goes in the `bindings:` array.
 
+`textureSample` uses an **implicit LOD** from screen-space derivatives, so it is
+**fragment-only** (a vertex/compute use is an SD0109 lint error). Read an explicit level
+instead with `textureSampleLevel(tex, smp, uv, level)` — legal in every stage.
+
+#### 2D array textures — `texture2dArrayfT`
+
+An atlas of N layers behind **one** binding, with the layer chosen per **sample**:
+
+```ts
+const atlas = resource('atlas', texture2dArrayfT, { group: 0, binding: 1 })
+const atlasSampler = resource('atlas_sampler', samplerT, { group: 0, binding: 2 })
+
+textureSample(atlas.node, atlasSampler.node, uv, layer) // implicit LOD (fragment-only)
+textureSampleLevel(atlas.node, atlasSampler.node, uv, layer, level) // explicit LOD, any stage
+textureLoad(atlas.node, coord, layer, level) // unfiltered texel fetch
+```
+
+Same three function names — the **first argument's key** picks the array form, and the
+`layer` argument is then required (a missing one is a tsc error, not a runtime surprise).
+A `number` layer lifts to an **i32** literal. WGSL spells the layer as its own argument
+(`textureSample(t, s, uv, layer)` on a `texture_2d_array<f32>`); GLSL ES 3.00 folds it into
+the coordinate (`texture(sampler2DArray, vec3(uv, float(layer)))`) — both CORE, so no
+capability is required on either target. `reflect()` reports the dim on the bind entry
+(`textureDim: '2d-array'`) so a host can create the matching view.
+
 ### Typed const handles + fn handles
 
 Module-level WGSL consts are imported as **typed handles** from `shaders/consts.ts` instead

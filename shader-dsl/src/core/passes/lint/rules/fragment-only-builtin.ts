@@ -4,13 +4,20 @@ import { collectFnRefs, emptyRefSet } from '../../../ir/collect-refs'
 
 /** Fragment-only builtin id -> the fix its message must name. Table-driven so a
  *  further derivative builtin (dpdx / dpdy / fwidth — also fragment-only in WGSL)
- *  joins by adding ONE row; deliberately not added here (#1650 scope). The string is
- *  byte-identical to the SD0109 catalogue hint (codes.ts) — one string, two surfaces,
- *  the smoothstep-edge-order sibling's convention (§12: no second authority). */
+ *  joins by adding ONE row; deliberately not added here (#1650 scope). The FIRST
+ *  row's string is byte-identical to the SD0109 catalogue hint (codes.ts) — one
+ *  string, two surfaces, the smoothstep-edge-order sibling's convention (§12: no
+ *  second authority). Later rows carry their own SHAPE-SPECIFIC fix (the array form
+ *  needs the layer argument named); generalizing the catalogue hint to cover them
+ *  is #1654's, deliberately not done here. */
 const FRAGMENT_ONLY_IDS: ReadonlyMap<string, string> = new Map([
   [
     'textureSample',
     'use textureSampleLevel(tex, smp, uv, level) — an explicit LOD needs no derivatives',
+  ],
+  [
+    'textureSampleArray',
+    'use textureSampleLevel(tex, smp, uv, layer, level) — an explicit LOD needs no derivatives',
   ],
 ])
 

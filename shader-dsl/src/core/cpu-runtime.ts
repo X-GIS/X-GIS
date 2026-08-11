@@ -240,6 +240,11 @@ export const GPU_STUBS: Record<string, Builtin> = {
   dpdx: () => 0,
   dpdy: () => 0,
   textureLoad: () => [0, 0, 0, 1],
+  // 2d-array reads (#1651) — same placeholder/throw contract as their 2d twins:
+  // the oracle has no texture memory, so under `gpuStubs` they yield opaque black.
+  textureSampleArray: () => [0, 0, 0, 1],
+  textureSampleLevelArray: () => [0, 0, 0, 1],
+  textureLoadArray: () => [0, 0, 0, 1],
   textureDimensions: () => [1, 1], // 1×1, not 0×0 — a divide-by-dimensions stays finite
 }
 
