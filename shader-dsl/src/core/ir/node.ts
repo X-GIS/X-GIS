@@ -788,12 +788,29 @@ export const bitcastF32 = (v: ReadonlyNode<'u32'>): Node<'f32'> =>
   call('bitcastF32', f32T, v) as Node<'f32'>
 /** Sample a 2D texture → vec4<f32>. (CPU eval: opt-in stub.) First-arg
  *  constraints (#763 X6): a texture/sampler swap used to type-check and die
- *  at naga — KeyOf now carries specific texture/sampler keys. */
+ *  at naga — KeyOf now carries specific texture/sampler keys.
+ *
+ *  FRAGMENT-ONLY in WGSL: the implicit LOD comes from screen-space derivatives,
+ *  which exist only in a fragment invocation. Enforced by the
+ *  `fragment-only-builtin` lint rule (a CORE rule — it fires at every emit); use
+ *  {@link textureSampleLevel} in a vertex or compute stage. */
 export const textureSample = (
   tex: ReadonlyNode<'texture_2d<f32>'>,
   smp: ReadonlyNode<'sampler'>,
   uv: ReadonlyNode<'vec2<f32>'>,
 ): Node<'vec4<f32>'> => call('textureSample', vec4fT, tex, smp, uv) as Node<'vec4<f32>'>
+/** Sample a 2D texture at an EXPLICIT mip level → vec4<f32>. Legal in ALL stages
+ *  (it needs no derivatives), so it is the vertex/compute-stage alternative to
+ *  {@link textureSample} — e.g. a displacement map read in a vertex shader. A
+ *  number `level` lifts to an f32 literal. Spelled `textureSampleLevel(t,s,uv,l)`
+ *  on WGSL and `textureLod(t, uv, l)` on GLSL (the sampler fuses away).
+ *  (CPU eval: opt-in stub.) */
+export const textureSampleLevel = (
+  tex: ReadonlyNode<'texture_2d<f32>'>,
+  smp: ReadonlyNode<'sampler'>,
+  uv: ReadonlyNode<'vec2<f32>'>,
+  level: ReadonlyNode<'f32'> | number,
+): Node<'vec4<f32>'> => call('textureSampleLevel', vec4fT, tex, smp, uv, level) as Node<'vec4<f32>'>
 /** Load a texel from a 2D texture at integer coords → vec4<f32>. The mip
  *  level argument is required by WGSL; pass `0` for the base level.
  *  Coord is typically `vec2<i32>`; the runtime accepts any vec2 / scalar

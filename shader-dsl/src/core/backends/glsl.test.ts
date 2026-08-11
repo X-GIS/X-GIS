@@ -13,7 +13,7 @@
 // (playground/e2e/_glsl-compile-gate.spec.ts), which compiles these same strings.
 
 import { describe, it, expect } from 'vitest'
-import { emitGlslModule, wgslLayout, UnsupportedFeatureError } from '@xgis/shader-dsl'
+import { emitGlslModule, emitModule, wgslLayout, UnsupportedFeatureError } from '@xgis/shader-dsl'
 import {
   mat4x4fT,
   vec4fT,
@@ -23,6 +23,8 @@ import {
   f64T,
   u32T,
   i32T,
+  texture2dfT,
+  samplerT,
   structT,
   type ShaderType,
   type Expr,
@@ -40,6 +42,8 @@ import {
   ioStruct,
   builtin,
   location,
+  resource,
+  textureSampleLevel,
   uniformStruct,
 } from '@xgis/shader-dsl'
 
@@ -797,5 +801,59 @@ describe('glsl-es300 — per-stage emit scope (stage reachability)', () => {
     expect(vsG).not.toContain('scope_frag_only')
     expect(fsG).toContain('scope_half')
     expect(fsG).toContain('scope_frag_only')
+  })
+})
+
+// ── textureSampleLevel (#1650) — the explicit-LOD sample, pinned on BOTH backends ──
+//
+// The two spellings of the SAME module are asserted side by side (the WGSL twin lives
+// here rather than in a sibling file so a divergence shows up in one diff): WGSL keeps
+// the standalone sampler argument, GLSL fuses tex+sampler into one sampler2D and drops
+// BOTH the sampler argument and the standalone sampler BINDING. Pinned in the vertex
+// stage too — an explicit LOD needs no derivatives, which is the whole point of the
+// intrinsic (textureSample is fragment-only).
+describe('glsl-es300 / wgsl — textureSampleLevel explicit-LOD sample', () => {
+  const LodOut = ioStruct('LodOut', { pos: builtin('position', vec4fT), uv: location(0, vec2fT) })
+  const lodTex = resource('lod_tex', texture2dfT, { group: 0, binding: 0 })
+  const lodSmp = resource('lod_smp', samplerT, { group: 0, binding: 1 })
+  const lodVs = fn(
+    'lod_vs',
+    { uv: location(0, vec2fT) },
+    ({ uv }) => {
+      const o = LodOut.var('out')
+      // displace the vertex along z by a texel read at an explicit LOD
+      o.pos.assign(vec4(uv.x, uv.y, textureSampleLevel(lodTex.node, lodSmp.node, uv, 1).x, 1))
+      o.uv.assign(uv)
+      return o
+    },
+    { stage: 'vertex' },
+  )
+  const lodFs = fn(
+    'lod_fs',
+    { inp: LodOut },
+    ({ inp }) => textureSampleLevel(lodTex.node, lodSmp.node, inp.uv, 1),
+    { stage: 'fragment', retAttr: location(0, vec4fT) },
+  )
+  const lodMod = dslModule({ uses: [LodOut, lodTex, lodSmp], funcs: [lodVs, lodFs] })
+
+  it('WGSL keeps the sampler argument and the sampler binding', () => {
+    const w = emitModule(lodMod)
+    expect(w).toContain('textureSampleLevel(lod_tex, lod_smp, uv, 1.0)')
+    expect(w).toContain('textureSampleLevel(lod_tex, lod_smp, inp.uv, 1.0)')
+    expect(w).toContain('var lod_smp: sampler;')
+  })
+
+  it('GLSL spells textureLod with NO sampler arg and drops the standalone sampler binding', () => {
+    const fsG = emitGlslModule(lodMod, 'fragment')
+    expect(fsG).toContain('textureLod(lod_tex, inp.uv, 1.0)')
+    expect(fsG).toContain('uniform sampler2D lod_tex;')
+    expect(fsG).not.toContain('lod_smp') // fused into the combined sampler2D
+  })
+
+  it('the VERTEX stage emits the same explicit-LOD sample (no derivatives needed)', () => {
+    const vsG = emitGlslModule(lodMod, 'vertex')
+    expect(vsG).toContain('textureLod(lod_tex, uv, 1.0)')
+    expect(vsG).toContain('uniform sampler2D lod_tex;')
+    expect(vsG).not.toContain('lod_smp')
   })
 })
