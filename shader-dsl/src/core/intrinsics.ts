@@ -35,6 +35,16 @@ export const INTRINSICS: Readonly<Record<string, Spelling>> = {
     wgsl: (a) => `textureSample(${join(a)})`,
     glsl: (a) => `texture(${a[0]}, ${a[2]})`,
   },
+  // textureSampleLevel(tex, samp, uv, level) — explicit-LOD sample; same tex+samp
+  // fusion as textureSample, so the sampler arg (a[1]) is dropped on GLSL.
+  // LOAD-BEARING (#1650 decision): the array / offset / bias variants must each take
+  // a NEW neutral id (#1651 adds textureSampleLevelArray) — NEVER an arity branch on
+  // this entry. A spelling that switches on args.length makes the id's meaning depend
+  // on the call site, which is exactly the WGSL leak the registry exists to prevent.
+  textureSampleLevel: {
+    wgsl: (a) => `textureSampleLevel(${join(a)})`,
+    glsl: (a) => `textureLod(${a[0]}, ${a[2]}, ${a[3]})`,
+  },
   atan2: { wgsl: (a) => `atan2(${join(a)})`, glsl: (a) => `atan(${join(a)})` },
   // Screen-space partial derivatives (#846) — WGSL dpdx/dpdy, GLSL dFdx/dFdy.
   // (fwidth is spelled identically on both targets and stays portable.)

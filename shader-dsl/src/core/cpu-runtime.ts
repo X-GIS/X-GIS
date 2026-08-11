@@ -235,6 +235,7 @@ export const BUILTINS: Record<string, Builtin> = {
 // worst failure mode for a reference backend.
 export const GPU_STUBS: Record<string, Builtin> = {
   textureSample: () => [0, 0, 0, 1],
+  textureSampleLevel: () => [0, 0, 0, 1],
   fwidth: () => 0,
   dpdx: () => 0,
   dpdy: () => 0,

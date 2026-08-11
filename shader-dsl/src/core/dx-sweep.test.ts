@@ -16,11 +16,13 @@ import {
   vec3fT,
   vec4fT,
   texture2dfT,
+  texture2dMsfT,
   samplerT,
   dot,
   length,
   smoothstep,
   textureSample,
+  textureSampleLevel,
   type ReadonlyNode,
 } from './ir'
 import { structDecl, uniformStruct, arrayOf, resource } from './sot'
@@ -49,6 +51,28 @@ describe('#763 X — type-surface sweep', () => {
       return textureSample(tex.node, smp.node, uv)
     })
     expect(g.decl.name).toBe('x6')
+  })
+
+  it('#1650: textureSampleLevel pins the same key constraints, plus the level arg', () => {
+    const tex = resource('lvl_tex', texture2dfT, { group: 0, binding: 0 })
+    const smp = resource('lvl_smp', samplerT, { group: 0, binding: 1 })
+    const ms = resource('lvl_ms', texture2dMsfT, { group: 0, binding: 2 })
+    const g = fn('lvl', { uv: vec2fT, uv3: vec3fT }, ({ uv, uv3 }) => {
+      // The explicit LOD is REQUIRED (it is the whole point of the intrinsic). Kept in
+      // an UNCALLED thunk: omitting it also throws at author time (lift(undefined)),
+      // and this probe is about tsc rejecting it, not about the throw.
+      // @ts-expect-error — missing the level argument
+      const noLevel = () => textureSampleLevel(tex.node, smp.node, uv)
+      // @ts-expect-error — sampler where the texture goes
+      const swapped = textureSampleLevel(smp.node, tex.node, uv, 0)
+      // @ts-expect-error — uv must be vec2<f32>
+      const uvRank = textureSampleLevel(tex.node, smp.node, uv3, 0)
+      // @ts-expect-error — a multisampled texture has no mip chain (textureLoad only)
+      const msTex = textureSampleLevel(ms.node, smp.node, uv, 0)
+      void [noLevel, swapped, uvRank, msTex]
+      return textureSampleLevel(tex.node, smp.node, uv, 1)
+    })
+    expect(g.decl.name).toBe('lvl')
   })
 
   it('X7: dot/length are K-constrained — dot(v2, v3) is a tsc error', () => {

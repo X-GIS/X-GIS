@@ -9,6 +9,7 @@ import {
   f32,
   u32,
   bool,
+  vec2,
   vec3,
   vec4,
   sin,
@@ -58,6 +59,10 @@ import {
   toF64,
   f64FromParts,
   f64Parts,
+  textureSampleLevel,
+  bindingRef,
+  texture2dfT,
+  samplerT,
   type Node,
 } from './ir'
 
@@ -144,6 +149,7 @@ describe('intrinsic registry coverage (the spelling agreement surface)', () => {
         "textureDimensions",
         "textureLoad",
         "textureSample",
+        "textureSampleLevel",
         "trunc",
         "u32",
         "unpack4x8unorm",
@@ -205,6 +211,7 @@ describe('intrinsic registry coverage (the spelling agreement surface)', () => {
       toF64(f),
       f64FromParts(f, f),
       f64Parts(toF64(f)),
+      textureSampleLevel(bindingRef('t', texture2dfT), bindingRef('s', samplerT), vec2(0, 0), 1),
     ]
     const unclassified = samples
       .map((n) => n.expr)

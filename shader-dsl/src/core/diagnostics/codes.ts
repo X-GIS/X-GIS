@@ -119,6 +119,11 @@ export const CODES = {
     summary: 'smoothstep with constant edge0 >= edge1 (undefined in GLSL ES)',
     hint: 'write 1 − smoothstep(lo, hi, x) instead of reversing the edges',
   },
+  SD0109: {
+    code: 'SD0109',
+    summary: 'a fragment-only builtin is reachable from a vertex or compute entry',
+    hint: 'use textureSampleLevel(tex, smp, uv, level) — an explicit LOD needs no derivatives',
+  },
 } as const satisfies Record<string, ErrorCodeDef>
 
 export type ErrorCode = keyof typeof CODES

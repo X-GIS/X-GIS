@@ -81,7 +81,7 @@ describe('#763 V1 — CORE rule firing fixtures', () => {
   // ── V2 — the CORE catalogue itself, pinned (intrinsic-coverage style) ──
   // Silently dropping a rule from CORE_RULES (e.g. a refactor that forgets call-signature)
   // is invisible to every other test; this makes it a one-line, reviewed diff.
-  it('#763 V2 — CORE_RULES id catalogue is exactly the six structural invariants', () => {
+  it('#763 V2 — CORE_RULES id catalogue is exactly the structural invariants', () => {
     expect(CORE_RULES.map((r) => r.id)).toEqual([
       'dup-struct',
       'dup-func',
@@ -89,6 +89,7 @@ describe('#763 V1 — CORE rule firing fixtures', () => {
       'all-paths-return',
       'mixed-scalar',
       'call-signature',
+      'fragment-only-builtin',
     ])
   })
 })
