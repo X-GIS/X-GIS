@@ -65,7 +65,7 @@ export class PointDraper {
     // #1057 — GLSL ES 3.00 twins for the WebGL2 backend, emitted behind a LIVE backend
     // guard so the WebGPU boot never pays the double emit (mirrors RetainedCircleDraper).
     // The point storage buffers (feat_data / shapes / segments) lower to data-texture
-    // samplers via emulateStorage; on WebGPU these are ignored.
+    // samplers via the default storage lowering; on WebGPU these are ignored.
     this.material = new Material(rhi, {
       shader: wgslFor(rhi, () => emitPointWgsl(this.shaderVariant)),
       ...glslStagesFor(rhi, () => emitPointGlslStages(this.shaderVariant)),

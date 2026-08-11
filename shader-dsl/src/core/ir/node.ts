@@ -786,23 +786,142 @@ export const bitcastU32 = (v: ReadonlyNode<'f32'>): Node<'u32'> =>
  *  integer domain is not subject to float reassociation/contraction). */
 export const bitcastF32 = (v: ReadonlyNode<'u32'>): Node<'f32'> =>
   call('bitcastF32', f32T, v) as Node<'f32'>
+/** An array-layer argument (#1651). A `number` becomes an i32 LITERAL, not the f32
+ *  one `lift()` defaults to: WGSL's array_index takes i32/u32, and `0.0` there is a
+ *  type error (GLSL wraps the value in float() either way). A FRACTIONAL number is
+ *  rejected here (SD0015): `i32(1.5)` would emit `1.5` as an i32 literal — a naga
+ *  compile error on WGSL but a silent round-to-nearest on GLSL (1.5 reads layer 2)
+ *  — so the guard keeps the two backends from diverging. */
+const layerArg = (l: ReadonlyNode<'i32' | 'u32'> | number): NodeLike => {
+  if (typeof l === 'number') {
+    if (!Number.isInteger(l)) throw dslError('SD0015', `layer ${l}`)
+    return i32(l)
+  }
+  return l
+}
 /** Sample a 2D texture → vec4<f32>. (CPU eval: opt-in stub.) First-arg
  *  constraints (#763 X6): a texture/sampler swap used to type-check and die
- *  at naga — KeyOf now carries specific texture/sampler keys. */
-export const textureSample = (
+ *  at naga — KeyOf now carries specific texture/sampler keys.
+ *
+ *  FRAGMENT-ONLY in WGSL: the implicit LOD comes from screen-space derivatives,
+ *  which exist only in a fragment invocation. Enforced by the
+ *  `fragment-only-builtin` lint rule (a CORE rule — it fires at every emit); use
+ *  {@link textureSampleLevel} in a vertex or compute stage. */
+export function textureSample(
   tex: ReadonlyNode<'texture_2d<f32>'>,
   smp: ReadonlyNode<'sampler'>,
   uv: ReadonlyNode<'vec2<f32>'>,
-): Node<'vec4<f32>'> => call('textureSample', vec4fT, tex, smp, uv) as Node<'vec4<f32>'>
+): Node<'vec4<f32>'>
+/** Sample one LAYER of a 2D ARRAY texture → vec4<f32> (#1651). The layer is an
+ *  ARGUMENT, not a binding, so an N-layer atlas costs one binding slot; a `number`
+ *  layer lifts to an i32 literal. Carries the DISTINCT neutral id
+ *  `textureSampleArray` — WGSL appends the layer to `textureSample`, GLSL folds it
+ *  into the coordinate (`texture(t, vec3(uv, float(layer)))`), so the two targets
+ *  RESTRUCTURE the arguments rather than merely adding one.
+ *
+ *  FRAGMENT-ONLY in WGSL, like its non-array twin (the implicit LOD comes from
+ *  screen-space derivatives) — enforced by the `fragment-only-builtin` lint rule;
+ *  use {@link textureSampleLevel}'s array form in a vertex or compute stage. */
+export function textureSample(
+  tex: ReadonlyNode<'texture_2d_array<f32>'>,
+  smp: ReadonlyNode<'sampler'>,
+  uv: ReadonlyNode<'vec2<f32>'>,
+  layer: ReadonlyNode<'i32' | 'u32'> | number,
+): Node<'vec4<f32>'>
+export function textureSample(
+  tex: ReadonlyNode<'texture_2d<f32>'> | ReadonlyNode<'texture_2d_array<f32>'>,
+  smp: ReadonlyNode<'sampler'>,
+  uv: ReadonlyNode<'vec2<f32>'>,
+  layer?: ReadonlyNode<'i32' | 'u32'> | number,
+): Node<'vec4<f32>'> {
+  return (
+    layer === undefined
+      ? call('textureSample', vec4fT, tex, smp, uv)
+      : call('textureSampleArray', vec4fT, tex, smp, uv, layerArg(layer))
+  ) as Node<'vec4<f32>'>
+}
+/** Sample a 2D texture at an EXPLICIT mip level → vec4<f32>. Legal in ALL stages
+ *  (it needs no derivatives), so it is the vertex/compute-stage alternative to
+ *  {@link textureSample} — e.g. a displacement map read in a vertex shader. A
+ *  number `level` lifts to an f32 literal. Spelled `textureSampleLevel(t,s,uv,l)`
+ *  on WGSL and `textureLod(t, uv, l)` on GLSL (the sampler fuses away).
+ *  (CPU eval: opt-in stub.) */
+export function textureSampleLevel(
+  tex: ReadonlyNode<'texture_2d<f32>'>,
+  smp: ReadonlyNode<'sampler'>,
+  uv: ReadonlyNode<'vec2<f32>'>,
+  level: ReadonlyNode<'f32'> | number,
+): Node<'vec4<f32>'>
+/** Explicit-LOD read of one LAYER of a 2D ARRAY texture → vec4<f32> (#1651).
+ *  Legal in ALL stages — the any-stage alternative to the fragment-only array
+ *  {@link textureSample}. Neutral id `textureSampleLevelArray`. */
+export function textureSampleLevel(
+  tex: ReadonlyNode<'texture_2d_array<f32>'>,
+  smp: ReadonlyNode<'sampler'>,
+  uv: ReadonlyNode<'vec2<f32>'>,
+  layer: ReadonlyNode<'i32' | 'u32'> | number,
+  level: ReadonlyNode<'f32'> | number,
+): Node<'vec4<f32>'>
+export function textureSampleLevel(
+  tex: ReadonlyNode<'texture_2d<f32>'> | ReadonlyNode<'texture_2d_array<f32>'>,
+  smp: ReadonlyNode<'sampler'>,
+  uv: ReadonlyNode<'vec2<f32>'>,
+  levelOrLayer: ReadonlyNode<'f32'> | ReadonlyNode<'i32' | 'u32'> | number,
+  level?: ReadonlyNode<'f32'> | number,
+): Node<'vec4<f32>'> {
+  return (
+    level === undefined
+      ? call('textureSampleLevel', vec4fT, tex, smp, uv, levelOrLayer as NodeLike)
+      : call(
+          'textureSampleLevelArray',
+          vec4fT,
+          tex,
+          smp,
+          uv,
+          layerArg(levelOrLayer as ReadonlyNode<'i32' | 'u32'> | number),
+          level,
+        )
+  ) as Node<'vec4<f32>'>
+}
 /** Load a texel from a 2D texture at integer coords → vec4<f32>. The mip
  *  level argument is required by WGSL; pass `0` for the base level.
  *  Coord is typically `vec2<i32>`; the runtime accepts any vec2 / scalar
  *  NodeLike and lets WGSL's textureLoad signature check. (CPU stub.) */
-export const textureLoad = (
+export function textureLoad(
   tex: ReadonlyNode<'texture_2d<f32>' | 'texture_multisampled_2d<f32>'>,
   coord: NodeLike,
   level: NodeLike,
-): Node<'vec4<f32>'> => call('textureLoad', vec4fT, tex, coord, level) as Node<'vec4<f32>'>
+): Node<'vec4<f32>'>
+/** Load a texel from one LAYER of a 2D ARRAY texture (#1651) — unfiltered, so the
+ *  layer/level are exact. GLSL folds the layer into an `ivec3` coordinate; WGSL keeps
+ *  it as its own argument. Neutral id `textureLoadArray`. */
+export function textureLoad(
+  tex: ReadonlyNode<'texture_2d_array<f32>'>,
+  coord: NodeLike,
+  layer: ReadonlyNode<'i32' | 'u32'> | number,
+  level: NodeLike,
+): Node<'vec4<f32>'>
+export function textureLoad(
+  tex:
+    | ReadonlyNode<'texture_2d<f32>' | 'texture_multisampled_2d<f32>'>
+    | ReadonlyNode<'texture_2d_array<f32>'>,
+  coord: NodeLike,
+  layerOrLevel: ReadonlyNode<'i32' | 'u32'> | NodeLike,
+  level?: NodeLike,
+): Node<'vec4<f32>'> {
+  return (
+    level === undefined
+      ? call('textureLoad', vec4fT, tex, coord, layerOrLevel as NodeLike)
+      : call(
+          'textureLoadArray',
+          vec4fT,
+          tex,
+          coord,
+          layerArg(layerOrLevel as ReadonlyNode<'i32' | 'u32'> | number),
+          level,
+        )
+  ) as Node<'vec4<f32>'>
+}
 /** INTERNAL (core/fp64/df64-lib.ts): the fp64 anti-fast-math guard value — a
  *  runtime-opaque 1.0. Spelled per target as a texel fetch from the injected
  *  `_fp64` texture (intrinsics.ts `f64Guard`); the CPU oracle evaluates it as
@@ -810,16 +929,23 @@ export const textureLoad = (
 export const f64GuardOne = (): Node<'f32'> =>
   call('f64Guard', { kind: 'scalar', scalar: 'f32' }) as Node<'f32'>
 /** Texture extent in texels → vec2<u32>. Cost: one query per fragment in
- *  fullscreen-triangle compose passes; cached in a `let` by the caller. */
+ *  fullscreen-triangle compose passes; cached in a `let` by the caller.
+ *  A 2d-array texture (#1651) uses the SAME id: WGSL returns vec2<u32> for arrays
+ *  too (the layer count is a separate query), and GLSL's ivec3 textureSize truncates
+ *  into the emitted uvec2() — see the registry entry. */
 export const textureDimensions = (
-  tex: ReadonlyNode<'texture_2d<f32>' | 'texture_multisampled_2d<f32>'>,
+  tex: ReadonlyNode<'texture_2d<f32>' | 'texture_multisampled_2d<f32>' | 'texture_2d_array<f32>'>,
 ): Node<'vec2<u32>'> => call('textureDimensions', vec2uT, tex) as Node<'vec2<u32>'>
 /** Screen-space derivative magnitude — GPU-only (uncomputable per-invocation
- *  on the CPU; the interpreter stubs it to 0). */
+ *  on the CPU; the interpreter stubs it to 0). FRAGMENT-ONLY in WGSL: enforced by
+ *  the `fragment-only-builtin` lint rule (a CORE rule — it fires at every emit;
+ *  SD0109, #1654); in a vertex or compute stage, precompute the quantity and
+ *  pass it in. */
 export const fwidth = genType1('fwidth')
 /** Screen-space partial derivatives (#846) — GPU-only like `fwidth` (the
- *  interpreter stubs them to 0). Divergent spelling handled by the intrinsic
- *  registry: WGSL `dpdx`/`dpdy`, GLSL ES 3.00 `dFdx`/`dFdy`. */
+ *  interpreter stubs them to 0), and FRAGMENT-ONLY like it too (the same
+ *  `fragment-only-builtin` CORE rule; SD0109, #1654). Divergent spelling handled
+ *  by the intrinsic registry: WGSL `dpdx`/`dpdy`, GLSL ES 3.00 `dFdx`/`dFdy`. */
 export const dpdx = genType1('dpdx')
 export const dpdy = genType1('dpdy')
 

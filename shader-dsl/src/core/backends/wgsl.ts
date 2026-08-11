@@ -58,9 +58,19 @@ export function wgslType(t: ShaderType): string {
         ? `array<${wgslType(t.elem)}, ${t.size}>`
         : `array<${wgslType(t.elem)}>`
     case 'texture':
-      return t.dim === '2d-ms'
-        ? `texture_multisampled_2d<${t.elem}>`
-        : `texture_${t.dim}<${t.elem}>`
+      // Spelled per dim, never templated: '2d-array' is `texture_2d_array<f32>` in
+      // WGSL (a `texture_${t.dim}` template would emit `texture_2d-array<f32>`).
+      // Exhaustive: a new dim must fail compilation, not fall open to the 2d spelling.
+      switch (t.dim) {
+        case '2d-ms':
+          return `texture_multisampled_2d<${t.elem}>`
+        case '2d-array':
+          return `texture_2d_array<${t.elem}>`
+        case '2d':
+          return `texture_2d<${t.elem}>`
+        default:
+          return t.dim satisfies never
+      }
     case 'sampler':
       return 'sampler'
     case 'void':

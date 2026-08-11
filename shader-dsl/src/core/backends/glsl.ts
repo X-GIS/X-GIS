@@ -12,6 +12,12 @@
 // offsets are the SAME offsets the host packs against), and `@vertex`/`@fragment`
 // entry-IO lowers to GLSL `in`/`out` varyings + a synthesised `void main()`.
 //
+// TEXTURES: a sampled `2d` texture lowers to the fused `sampler2D`, and a `2d-array`
+// one (#1651) to `sampler2DArray` — both CORE GLSL ES 3.00, so neither needs a
+// Capability and the array sample/lod/fetch spellings live in the intrinsic registry
+// (textureSampleArray / textureSampleLevelArray / textureLoadArray). `2d-ms` remains
+// the one texture dim that FAILS CLOSED here.
+//
 // FAIL-CLOSED (GLSL ES 3.00 has no compute / MSAA-load): a `@compute` entry and a
 // multisampled-texture load raise UnsupportedFeatureError — enforced UP FRONT by
 // the shared capability gate (assertCaps, run inside lowerForBackend) because
@@ -78,11 +84,21 @@ function glslType(t: ShaderType): string {
       return `${glslType(t.elem)}[${t.size}]`
     }
     case 'texture':
-      if (t.dim === '2d-ms')
-        throw new UnsupportedFeatureError(
-          'glsl-es300: multisampled texture sampling — resolve first (later step)',
-        )
-      return 'sampler2D' // GLSL fuses texture+sampler into one combined sampler
+      // GLSL fuses texture+sampler into one combined sampler. '2d-array' (#1651) is
+      // CORE GLSL ES 3.00 — sampler2DArray, no extension, no Capability.
+      // Exhaustive: a new dim must fail compilation, not fall open to sampler2D.
+      switch (t.dim) {
+        case '2d-ms':
+          throw new UnsupportedFeatureError(
+            'glsl-es300: multisampled texture sampling — resolve first (later step)',
+          )
+        case '2d-array':
+          return 'sampler2DArray'
+        case '2d':
+          return 'sampler2D'
+        default:
+          return t.dim satisfies never
+      }
     case 'sampler':
       throw new UnsupportedFeatureError(
         'glsl-es300: standalone sampler — fused into the combined sampler2D',
@@ -1011,12 +1027,10 @@ function stageScope(
 }
 
 export interface GlslEmitOptions extends EmitOptions {
-  /** NO-OP since #1647 (back-compat): the storage→data-texture lowering is DEFAULT-ON
-   *  for any module carrying a storage binding — WebGL2 having no SSBO is a platform
-   *  fact, not a caller choice. Kept so the existing opt-in call sites keep compiling;
-   *  setting it changes nothing. (Not JSDoc-@deprecated yet: the repo-wide
-   *  `no-deprecated: error` lint would demand removing the flag from every consumer in
-   *  the same change — that sweep is the flag's REMOVAL follow-up, not this PR.) */
+  /** @deprecated Remove the flag — NO-OP since #1647: the storage→data-texture lowering
+   *  is DEFAULT-ON for any module carrying a storage binding and no @compute entry
+   *  (WebGL2 having no SSBO is a platform fact, not a caller choice). The option is
+   *  accepted for back-compat and IGNORED — the emitter no longer reads it. */
   emulateStorage?: boolean
   /** Lower a GATHER-ONLY @compute kernel to a fragment-GPGPU pass (see
    *  lowerComputeToFragment). OPT-IN, unlike the storage lowering: it rewrites the
@@ -1069,9 +1083,14 @@ function lowerForGlsl(m: ModuleDecl, opts?: GlslEmitOptions): ModuleDecl {
   const hasComputeEntry = m.funcs.some(
     (f) => f.stage === 'compute' || f.attrs?.some((a) => a.startsWith('@compute')),
   )
+  // The deprecated emulateStorage flag is deliberately NOT read here: an explicit
+  // {emulateStorage:true} on a @compute module used to force the lowering and swap the
+  // curated 'compute' diagnostic above for a storage-shape throw pointing away from the
+  // actual fix (probe-verified while landing #1649) — ignoring the flag entirely is the
+  // only reading under which its "setting it changes nothing" contract is true.
   const src = opts?.emulateCompute
     ? lowerStorageToDataTexture(lowerComputeToFragment(autoVars(m)))
-    : opts?.emulateStorage || (hasStorage && !hasComputeEntry)
+    : hasStorage && !hasComputeEntry
       ? lowerStorageToDataTexture(autoVars(m))
       : m
   // GLSL-local: rename any param/var identifier colliding with a GLSL reserved word
@@ -1131,7 +1150,25 @@ function assembleGlsl(
 
   // `precision highp int;` too: a GLSL ES 3.00 FRAGMENT shader has NO default int
   // precision, so a uint/int varying or expression there is a compile error without it.
-  const parts: string[] = ['#version 300 es', 'precision highp float;', 'precision highp int;', '']
+  //
+  // sampler2DArray needs its OWN line (#1651): GLSL ES 3.00 §4.5.4 predeclares default
+  // precisions for `sampler2D` / `samplerCube` ONLY, so a `uniform sampler2DArray`
+  // without a qualifier is a compile error — and `precision highp float;` does not cover
+  // it. Emitted only when this stage actually declares one, so every module without an
+  // array texture keeps its byte-identical header.
+  const declaresArrayTex = lowered.bindings.some(
+    (b) =>
+      b.type.kind === 'texture' &&
+      b.type.dim === '2d-array' &&
+      (scope === null || scope.bindings.has(b.name)),
+  )
+  const parts: string[] = [
+    '#version 300 es',
+    'precision highp float;',
+    'precision highp int;',
+    ...(declaresArrayTex ? ['precision highp sampler2DArray;'] : []),
+    '',
+  ]
 
   // #923 — specialization constants. GLSL ES 3.00 has no `override`, so the portable
   // equivalent is the PREPROCESSOR, emitted HERE (after the `#version`/precision

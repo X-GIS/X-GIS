@@ -283,8 +283,8 @@ export const buildParticleRetainedModule = (): ModuleDecl =>
  *  two-point geo-directional stateless-drift disc VS + analytic disc-SDF (fwidth AA) FS. */
 export const emitParticleRetainedWgsl = (): string => emitModule(buildParticleRetainedModule())
 
-/** GLSL ES 3.00 twin for the WebGL2 backend (#823) — same module, split per stage. `emulateStorage`
- *  lowers the feat (array<f32>) + tint (array<vec4f>) storage buffers to R32F data textures,
+/** GLSL ES 3.00 twin for the WebGL2 backend (#823) — same module, split per stage. The default
+ *  storage lowering turns feat (array<f32>) + tint (array<vec4f>) into R32F data textures,
  *  matching WebGl2Device's storage-buffer emulation. Consumed by RetainedParticleDraper behind a
  *  live WebGL2 backend guard — the WebGPU boot never pays for this emit (#778 P6). The twin is
  *  FREE by construction: candidate (b) is a pure dual-source DSL pipeline (design §3.2). */
@@ -294,7 +294,6 @@ export const emitParticleRetainedGlsl = (stage: 'vertex' | 'fragment'): string =
   return emitGlslModule(
     { ...m, funcs: m.funcs.filter((f) => stageOf(f) === undefined || f.name === keep) },
     stage,
-    { emulateStorage: true },
   )
 }
 
@@ -306,5 +305,4 @@ export const emitParticleRetainedGlslStages = (): { vertex: string; fragment: st
   emitGlslStages(buildParticleRetainedModule(), {
     vertexEntry: 'vs_particle_retained',
     fragmentEntry: 'fs_particle_retained',
-    emulateStorage: true,
   })

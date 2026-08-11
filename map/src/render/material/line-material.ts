@@ -30,7 +30,7 @@ export const LINE_OFFSCREEN_FORMAT = 'rgba8unorm' as const
 // WebGL2 by-name bind-layout entries (#834 M5 slice 1) — the RHI-native twin
 // of the two raw GPUBindGroupLayouts. Names come from the DSL: a uniform
 // block's tag = its struct name; texture/storage names = the binding names
-// (storage lowers to R32F data textures named <buffer>_tex by emulateStorage).
+// (storage lowers to R32F data textures named <buffer>_tex by default).
 const LINE_TILE_ENTRIES: RhiBindLayoutEntry[] = [
   { binding: 0, kind: 'uniform', dynamic: true, name: 'TileUniforms' },
   // sprite_atlas/sprite_samp — the fs_line_pattern variant samples the sprite

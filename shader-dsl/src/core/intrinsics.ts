@@ -35,6 +35,42 @@ export const INTRINSICS: Readonly<Record<string, Spelling>> = {
     wgsl: (a) => `textureSample(${join(a)})`,
     glsl: (a) => `texture(${a[0]}, ${a[2]})`,
   },
+  // textureSampleLevel(tex, samp, uv, level) — explicit-LOD sample; same tex+samp
+  // fusion as textureSample, so the sampler arg (a[1]) is dropped on GLSL.
+  // LOAD-BEARING (#1650 decision): the array / offset / bias variants must each take
+  // a NEW neutral id (#1651 adds textureSampleLevelArray) — NEVER an arity branch on
+  // this entry. A spelling that switches on args.length makes the id's meaning depend
+  // on the call site, which is exactly the WGSL leak the registry exists to prevent.
+  textureSampleLevel: {
+    wgsl: (a) => `textureSampleLevel(${join(a)})`,
+    glsl: (a) => `textureLod(${a[0]}, ${a[2]}, ${a[3]})`,
+  },
+  // ── 2d-array sampling (#1651) — DISTINCT ids, never an arity branch above ──
+  //
+  // textureSampleArray(tex, samp, uv, layer). WGSL keeps the ARRAY as a separate
+  // argument (`textureSample(t, s, uv, layer)`); GLSL ES 3.00 has no array-specific
+  // spelling at all — the layer rides in the coordinate's THIRD component
+  // (`texture(sampler2DArray, vec3(uv, layer))`), which is exactly why this cannot be
+  // an args.length branch on textureSample: the two ids restructure the arguments
+  // differently, they do not merely add one.
+  textureSampleArray: {
+    wgsl: (a) => `textureSample(${join(a)})`,
+    // a[1] (the sampler) fuses away; float() because GLSL ES has no implicit
+    // int→float at a constructor component (the registry's existing cast convention).
+    glsl: (a) => `texture(${a[0]}, vec3(${a[2]}, float(${a[3]})))`,
+  },
+  // textureSampleLevelArray(tex, samp, uv, layer, level) — the any-stage array read
+  // (an explicit LOD needs no derivatives, so it is legal in vertex/compute too).
+  textureSampleLevelArray: {
+    wgsl: (a) => `textureSampleLevel(${join(a)})`,
+    glsl: (a) => `textureLod(${a[0]}, vec3(${a[2]}, float(${a[3]})), ${a[4]})`,
+  },
+  // textureLoadArray(tex, coord, layer, level) — unfiltered texel fetch. GLSL folds
+  // the layer into an ivec3 coordinate; the lod arg is `int` (WGSL passes u32).
+  textureLoadArray: {
+    wgsl: (a) => `textureLoad(${join(a)})`,
+    glsl: (a) => `texelFetch(${a[0]}, ivec3(${a[1]}, int(${a[2]})), int(${a[3]}))`,
+  },
   atan2: { wgsl: (a) => `atan2(${join(a)})`, glsl: (a) => `atan(${join(a)})` },
   // Screen-space partial derivatives (#846) — WGSL dpdx/dpdy, GLSL dFdx/dFdy.
   // (fwidth is spelled identically on both targets and stays portable.)
@@ -100,6 +136,11 @@ export const INTRINSICS: Readonly<Record<string, Spelling>> = {
   // wrap in uvec2() so the GLSL type matches the IR's u32 type. Without this the
   // mismatch is masked while the call is inlined into an int context, but breaks the
   // moment the optimizer's CSE hoists it into a typed `uvec2 _cse = …` local.
+  // 2d-array (#1651) needs NO array-specific id here: WGSL textureDimensions returns
+  // vec2<u32> for an array texture too (the layer count is textureNumLayers), and
+  // GLSL's textureSize(sampler2DArray, lod) returns an ivec3 whose extra component the
+  // uvec2() constructor legally DROPS (GLSL ES 3.00 §5.4.2). Escape hatch if a driver
+  // ever objects: spell the truncation explicitly as `uvec2(textureSize(t, l).xy)`.
   textureDimensions: {
     wgsl: (a) => `textureDimensions(${join(a)})`,
     glsl: (a) =>

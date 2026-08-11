@@ -26,6 +26,7 @@ import { preferLetOverVar } from './prefer-let-over-var'
 import { noDeadBinding } from './no-dead-binding'
 import { callSignature } from './call-signature'
 import { smoothstepEdgeOrder } from './smoothstep-edge-order'
+import { fragmentOnlyBuiltin } from './fragment-only-builtin'
 
 /** The registered ruleset. Order is the diagnostic order (module checks, then per-fn in
  *  declaration order). Append new rules here. */
@@ -51,6 +52,7 @@ export const RULES: readonly LintRule[] = [
   noDeadBinding,
   callSignature,
   smoothstepEdgeOrder,
+  fragmentOnlyBuiltin,
 ]
 
 export {
@@ -75,6 +77,7 @@ export {
   noDeadBinding,
   callSignature,
   smoothstepEdgeOrder,
+  fragmentOnlyBuiltin,
 }
 
 /** The subset run by validate() at EVERY emit (incl. runtime-composed + compute modules
@@ -91,4 +94,8 @@ export const CORE_RULES: readonly LintRule[] = [
   // Call arity/types against the module's own fn decls — resolvable names only,
   // so composer-injected extern names can never false-flag (validate.ts charter).
   callSignature,
+  // A fragment-only builtin in a vertex/compute entry is invalid WGSL for EVERY
+  // module (no style opinion), and its native failure is an opaque driver error —
+  // so it belongs at emit, not lint-only.
+  fragmentOnlyBuiltin,
 ]

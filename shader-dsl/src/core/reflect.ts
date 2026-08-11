@@ -197,6 +197,12 @@ export interface BindEntry {
   readonly access?: 'read' | 'read_write'
   readonly resourceKind: ResourceKind
   readonly structName?: string
+  /** For a `texture` entry ONLY (#1651): which texture dim the shader declared, so a
+   *  host can create/validate the matching view (`2d-array` needs an array view and
+   *  a layer-aware bind, `2d-ms` a multisampled one). ALWAYS set on a texture entry —
+   *  `resourceKind: 'texture'` alone under-describes the binding, and an
+   *  only-when-interesting field would make `undefined` mean two different things. */
+  readonly textureDim?: '2d' | '2d-ms' | '2d-array'
 }
 export interface BindGroup {
   readonly group: number
@@ -276,6 +282,7 @@ export function reflect(m: ModuleDecl): Reflection {
       ...(b.access ? { access: b.access } : {}),
       resourceKind: resourceKind(b.space, b.type),
       ...(b.type.kind === 'struct' ? { structName: b.type.name } : {}),
+      ...(b.type.kind === 'texture' ? { textureDim: b.type.dim } : {}),
     }
     ;(byGroup.get(b.group) ?? byGroup.set(b.group, []).get(b.group)!).push(e)
   }

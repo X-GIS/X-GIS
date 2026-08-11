@@ -76,6 +76,11 @@ export const CODES = {
     summary: 'override (specialization constant) must be a WGSL scalar type',
     hint: 'overrideConst supports bool/i32/u32/f32 only — WGSL forbids vec/matrix/array/struct overrides; decompose into per-component scalar overrides',
   },
+  SD0015: {
+    code: 'SD0015',
+    summary: 'array-texture layer must be an integer',
+    hint: 'a fractional layer literal is a naga compile error in WGSL but silently rounds in GLSL (layer = floor(z + 0.5), so 1.5 reads layer 2) — the backends would diverge; pass an integer, or an i32/u32 node',
+  },
 
   // ── Module-level gates ──
   SD0020: { code: 'SD0020', summary: 'module validation failed' },
@@ -118,6 +123,16 @@ export const CODES = {
     code: 'SD0108',
     summary: 'smoothstep with constant edge0 >= edge1 (undefined in GLSL ES)',
     hint: 'write 1 − smoothstep(lo, hi, x) instead of reversing the edges',
+  },
+  // The hint is deliberately GENERIC and enumerates NO fix family (#1654): the
+  // per-builtin fix lives in the rule's FRAGMENT_ONLY_IDS table (the single
+  // fix-authority) and reaches the reader through the diagnostic's own message.
+  // Enumerating families here would re-create the untested sync contract that
+  // table replaced — one new family and the catalogue would lie again.
+  SD0109: {
+    code: 'SD0109',
+    summary: 'a fragment-only builtin is reachable from a vertex or compute entry',
+    hint: 'the fix is per-builtin and named in the diagnostic message itself — the fragment-only-builtin rule table (FRAGMENT_ONLY_IDS) is the single fix-authority',
   },
 } as const satisfies Record<string, ErrorCodeDef>
 

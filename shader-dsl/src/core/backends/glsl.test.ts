@@ -13,7 +13,7 @@
 // (playground/e2e/_glsl-compile-gate.spec.ts), which compiles these same strings.
 
 import { describe, it, expect } from 'vitest'
-import { emitGlslModule, wgslLayout, UnsupportedFeatureError } from '@xgis/shader-dsl'
+import { emitGlslModule, emitModule, wgslLayout, UnsupportedFeatureError } from '@xgis/shader-dsl'
 import {
   mat4x4fT,
   vec4fT,
@@ -23,6 +23,9 @@ import {
   f64T,
   u32T,
   i32T,
+  texture2dfT,
+  texture2dArrayfT,
+  samplerT,
   structT,
   type ShaderType,
   type Expr,
@@ -40,6 +43,13 @@ import {
   ioStruct,
   builtin,
   location,
+  resource,
+  textureSample,
+  textureSampleLevel,
+  textureLoad,
+  textureDimensions,
+  vec2i,
+  u32,
   uniformStruct,
 } from '@xgis/shader-dsl'
 
@@ -408,8 +418,8 @@ describe('glsl-es300 — storage → data-texture emulation (default-on)', () =>
     ],
   }
 
-  it('emulateStorage lowers a storage array<f32> to a sampler2D + texelFetch (no SSBO)', () => {
-    const fs = emitGlslModule(storageMod, 'fragment', { emulateStorage: true })
+  it('the storage lowering turns a storage array<f32> into a sampler2D + texelFetch (no SSBO)', () => {
+    const fs = emitGlslModule(storageMod, 'fragment')
     expect(fs).toContain('uniform sampler2D data;') // storage binding → data texture
     // data[i] → 2D-tiled fetch: ivec2(i % textureSize(data,0).x, i / textureSize(data,0).x)
     expect(fs).toMatch(
@@ -418,9 +428,14 @@ describe('glsl-es300 — storage → data-texture emulation (default-on)', () =>
     expect(fs).not.toContain('data[') // no raw array indexing survives
   })
 
-  // #1647 — WebGL2 having no SSBO is a PLATFORM fact, not a caller choice, so the
-  // lowering is default-on for any module carrying a storage binding. The opt-in flag
-  // survives (back-compat) and must be a no-op: the DEFAULT emit is byte-identical.
+  // #1647/#1649 — WebGL2 having no SSBO is a PLATFORM fact, not a caller choice, so the
+  // lowering is default-on for any module carrying a storage binding. The flag survives
+  // in the options type (back-compat, @deprecated) but the emitter no longer READS it
+  // (#1649: the old forcing read swapped the curated 'compute' diagnostic for a
+  // misleading storage-shape throw) — accepted and IGNORED, so the DEFAULT emit must be
+  // byte-identical. This is the ONE deliberate reference to the flag left in the repo —
+  // no eslint-disable is needed for it, because `no-deprecated` treats an
+  // object-literal KEY as a declaration and never reports it.
   it('the DEFAULT emit equals the {emulateStorage:true} emit byte-for-byte', () => {
     expect(emitGlslModule(storageMod, 'fragment')).toBe(
       emitGlslModule(storageMod, 'fragment', { emulateStorage: true }),
@@ -436,7 +451,7 @@ describe('glsl-es300 — storage → data-texture emulation (default-on)', () =>
 
   // #823 — the retained-icon tint buffer shape: a top-level array<vec4<f32>> element
   // reads its 4 consecutive std430 lanes (i*4 .. i*4+3) recombined with a vec4 ctor.
-  it('emulateStorage lowers a storage array<vec4f> to 4 texelFetch lanes + a vec4 ctor', () => {
+  it('the storage lowering turns a storage array<vec4f> into 4 texelFetch lanes + a vec4 ctor', () => {
     const arrVec4 = { kind: 'array', elem: vec4fT } as ShaderType
     const vecMod: ModuleDecl = {
       consts: [],
@@ -470,7 +485,7 @@ describe('glsl-es300 — storage → data-texture emulation (default-on)', () =>
         },
       ],
     }
-    const fs = emitGlslModule(vecMod, 'fragment', { emulateStorage: true })
+    const fs = emitGlslModule(vecMod, 'fragment')
     expect(fs).toContain('uniform sampler2D tint;') // storage binding → data texture
     // element 3 → base lane 3u*4u, lanes +1/+2/+3, recombined into a vec4.
     expect(fs).toMatch(/vec4\(/)
@@ -797,5 +812,177 @@ describe('glsl-es300 — per-stage emit scope (stage reachability)', () => {
     expect(vsG).not.toContain('scope_frag_only')
     expect(fsG).toContain('scope_half')
     expect(fsG).toContain('scope_frag_only')
+  })
+})
+
+// ── textureSampleLevel (#1650) — the explicit-LOD sample, pinned on BOTH backends ──
+//
+// The two spellings of the SAME module are asserted side by side (the WGSL twin lives
+// here rather than in a sibling file so a divergence shows up in one diff): WGSL keeps
+// the standalone sampler argument, GLSL fuses tex+sampler into one sampler2D and drops
+// BOTH the sampler argument and the standalone sampler BINDING. Pinned in the vertex
+// stage too — an explicit LOD needs no derivatives, which is the whole point of the
+// intrinsic (textureSample is fragment-only).
+describe('glsl-es300 / wgsl — textureSampleLevel explicit-LOD sample', () => {
+  const LodOut = ioStruct('LodOut', { pos: builtin('position', vec4fT), uv: location(0, vec2fT) })
+  const lodTex = resource('lod_tex', texture2dfT, { group: 0, binding: 0 })
+  const lodSmp = resource('lod_smp', samplerT, { group: 0, binding: 1 })
+  const lodVs = fn(
+    'lod_vs',
+    { uv: location(0, vec2fT) },
+    ({ uv }) => {
+      const o = LodOut.var('out')
+      // displace the vertex along z by a texel read at an explicit LOD
+      o.pos.assign(vec4(uv.x, uv.y, textureSampleLevel(lodTex.node, lodSmp.node, uv, 1).x, 1))
+      o.uv.assign(uv)
+      return o
+    },
+    { stage: 'vertex' },
+  )
+  const lodFs = fn(
+    'lod_fs',
+    { inp: LodOut },
+    ({ inp }) => textureSampleLevel(lodTex.node, lodSmp.node, inp.uv, 1),
+    { stage: 'fragment', retAttr: location(0, vec4fT) },
+  )
+  const lodMod = dslModule({ uses: [LodOut, lodTex, lodSmp], funcs: [lodVs, lodFs] })
+
+  it('WGSL keeps the sampler argument and the sampler binding', () => {
+    const w = emitModule(lodMod)
+    expect(w).toContain('textureSampleLevel(lod_tex, lod_smp, uv, 1.0)')
+    expect(w).toContain('textureSampleLevel(lod_tex, lod_smp, inp.uv, 1.0)')
+    expect(w).toContain('var lod_smp: sampler;')
+  })
+
+  it('GLSL spells textureLod with NO sampler arg and drops the standalone sampler binding', () => {
+    const fsG = emitGlslModule(lodMod, 'fragment')
+    expect(fsG).toContain('textureLod(lod_tex, inp.uv, 1.0)')
+    expect(fsG).toContain('uniform sampler2D lod_tex;')
+    expect(fsG).not.toContain('lod_smp') // fused into the combined sampler2D
+  })
+
+  it('the VERTEX stage emits the same explicit-LOD sample (no derivatives needed)', () => {
+    const vsG = emitGlslModule(lodMod, 'vertex')
+    expect(vsG).toContain('textureLod(lod_tex, uv, 1.0)')
+    expect(vsG).toContain('uniform sampler2D lod_tex;')
+    expect(vsG).not.toContain('lod_smp')
+  })
+})
+
+// ── 2d-array textures (#1651) — sampler2DArray on BOTH backends ──
+//
+// The array forms carry DISTINCT neutral ids (textureSampleArray /
+// textureSampleLevelArray / textureLoadArray) because the two targets RESTRUCTURE the
+// arguments rather than merely adding one: WGSL appends the layer as its own argument,
+// GLSL folds it into the coordinate's third component. Both spellings of the SAME
+// module are asserted side by side so a divergence shows up in one diff.
+describe('glsl-es300 / wgsl — 2d-array texture reads (#1651)', () => {
+  const ArrOut = ioStruct('ArrOut', { pos: builtin('position', vec4fT), uv: location(0, vec2fT) })
+  const arrTex = resource('arr_tex', texture2dArrayfT, { group: 0, binding: 0 })
+  const arrSmp = resource('arr_smp', samplerT, { group: 0, binding: 1 })
+  const arrVs = fn(
+    'arr_vs',
+    { uv: location(0, vec2fT) },
+    ({ uv }) => {
+      const o = ArrOut.var('out')
+      // vertex-stage ARRAY read — legal only with an explicit LOD (no derivatives).
+      o.pos.assign(vec4(uv.x, uv.y, textureSampleLevel(arrTex.node, arrSmp.node, uv, 1, 0).x, 1))
+      o.uv.assign(uv)
+      return o
+    },
+    { stage: 'vertex' },
+  )
+  const arrFs = fn(
+    'arr_fs',
+    { inp: ArrOut },
+    ({ inp }) => textureSample(arrTex.node, arrSmp.node, inp.uv, 1),
+    { stage: 'fragment', retAttr: location(0, vec4fT) },
+  )
+  const arrMod = dslModule({ uses: [ArrOut, arrTex, arrSmp], funcs: [arrVs, arrFs] })
+
+  // Fixtures for the two precision-header negatives below: a vertex stage that
+  // touches NO texture, and a fragment stage sampling a PLAIN 2d texture.
+  const plainVs = fn(
+    'arr_plain_vs',
+    { uv: location(0, vec2fT) },
+    ({ uv }) => {
+      const o = ArrOut.var('out')
+      o.pos.assign(vec4(uv.x, uv.y, 0, 1))
+      o.uv.assign(uv)
+      return o
+    },
+    { stage: 'vertex' },
+  )
+  const tex2d = resource('prec_tex', texture2dfT, { group: 0, binding: 0 })
+  const smp2d = resource('prec_smp', samplerT, { group: 0, binding: 1 })
+  const fs2d = fn(
+    'prec_fs',
+    { inp: ArrOut },
+    ({ inp }) => textureSample(tex2d.node, smp2d.node, inp.uv),
+    { stage: 'fragment', retAttr: location(0, vec4fT) },
+  )
+
+  it('WGSL spells the array type + keeps the layer as its own argument', () => {
+    const w = emitModule(arrMod)
+    expect(w).toContain('var arr_tex: texture_2d_array<f32>;')
+    expect(w).toContain('textureSample(arr_tex, arr_smp, inp.uv, 1)')
+    expect(w).toContain('textureSampleLevel(arr_tex, arr_smp, uv, 1, 0.0)')
+  })
+
+  it('declares `precision highp sampler2DArray;` — and ONLY when the stage has one', () => {
+    // GLSL ES 3.00 §4.5.4 predeclares default precisions for sampler2D / samplerCube
+    // ONLY: an unqualified `uniform sampler2DArray` is a COMPILE error, and
+    // `precision highp float;` does not cover it. Both stages declare the atlas here.
+    expect(emitGlslModule(arrMod, 'fragment')).toContain('precision highp sampler2DArray;')
+    expect(emitGlslModule(arrMod, 'vertex')).toContain('precision highp sampler2DArray;')
+    // The negative holds a PLAIN 2d texture — so a dim check degenerating to
+    // `kind === 'texture'` goes red here, which a textureless module (or the emit
+    // goldens, none of which bind a texture) could never catch. The stray line
+    // would even be legal GLSL, so no driver gate catches it either.
+    const plainMod = dslModule({ uses: [ArrOut, tex2d, smp2d], funcs: [plainVs, fs2d] })
+    const plainFsG = emitGlslModule(plainMod, 'fragment')
+    expect(plainFsG).toContain('uniform sampler2D prec_tex;')
+    expect(plainFsG).not.toContain('sampler2DArray')
+  })
+
+  it('the precision line is PER-STAGE: array reaching only the fragment stage keeps the vertex header clean', () => {
+    // Keyed on the STAGE's binding scope, not the module's: the vertex stage of
+    // this module never touches arr_tex, so its header (and its uniforms) must
+    // stay byte-identical to the no-array baseline — stage-scoped emit invariant.
+    const m = dslModule({ uses: [ArrOut, arrTex, arrSmp], funcs: [plainVs, arrFs] })
+    expect(emitGlslModule(m, 'fragment')).toContain('precision highp sampler2DArray;')
+    const vsG = emitGlslModule(m, 'vertex')
+    expect(vsG).not.toContain('sampler2DArray')
+    expect(vsG).not.toContain('arr_tex') // the binding itself is stage-scoped out too
+  })
+
+  it('GLSL declares a sampler2DArray and folds the layer into a vec3 coordinate', () => {
+    const fsG = emitGlslModule(arrMod, 'fragment')
+    expect(fsG).toContain('uniform sampler2DArray arr_tex;')
+    expect(fsG).toContain('texture(arr_tex, vec3(inp.uv, float(1)))')
+    expect(fsG).not.toContain('arr_smp') // fused into the combined sampler
+    const vsG = emitGlslModule(arrMod, 'vertex')
+    expect(vsG).toContain('textureLod(arr_tex, vec3(uv, float(1)), 0.0)')
+    expect(vsG).toContain('uniform sampler2DArray arr_tex;')
+  })
+
+  it('textureLoad folds the layer into an ivec3 fetch; textureDimensions is unchanged', () => {
+    const loadFs = fn(
+      'arr_load_fs',
+      { inp: ArrOut },
+      () =>
+        textureLoad(arrTex.node, vec2i(0, 0), 1, u32(0)).add(
+          toF32(textureDimensions(arrTex.node).x),
+        ),
+      { stage: 'fragment', retAttr: location(0, vec4fT) },
+    )
+    const m = dslModule({ uses: [ArrOut, arrTex, arrSmp], funcs: [arrVs, loadFs] })
+    const fsG = emitGlslModule(m, 'fragment')
+    expect(fsG).toContain('texelFetch(arr_tex, ivec3(ivec2(0, 0), int(1)), int(0u))')
+    // WGSL textureDimensions returns vec2<u32> for arrays too — GLSL's ivec3
+    // textureSize truncates into the uvec2() constructor (GLSL ES 3.00 §5.4.2).
+    expect(fsG).toContain('uvec2(textureSize(arr_tex, 0))')
+    const w = emitModule(m)
+    expect(w).toContain('textureLoad(arr_tex, vec2<i32>(0, 0), 1, 0u)')
   })
 })

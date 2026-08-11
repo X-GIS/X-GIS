@@ -22,7 +22,7 @@ import { compositeModule, vsFullGl, fsFull } from './line-composite'
  *  per stage, so the pattern pipeline variant needs its own fragment source
  *  rather than an entry-name override. The three array<Struct> storage
  *  buffers (segments / shapes / shape_segments) lower to R32F data textures
- *  via `emulateStorage`. `variant` is null on every call site today (line's
+ *  by default. `variant` is null on every call site today (line's
  *  variant seam is WebGPU-only for now, #1605 Phase 3 is the WebGL2 follow-
  *  up) — kept as a param for signature symmetry with emitPolygonGlsl. */
 export const emitLineGlsl = (
@@ -45,7 +45,6 @@ export const emitLineGlsl = (
       funcs: full.funcs.filter((f) => stageOf(f) === undefined || f.name === keep),
     },
     stage === 'vertex' ? 'vertex' : 'fragment',
-    { emulateStorage: true },
   )
 }
 

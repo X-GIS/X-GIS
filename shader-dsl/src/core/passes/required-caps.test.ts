@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest'
 import { requiredCaps, assertCaps } from './required-caps'
 import { wgslBackend } from '../backends/wgsl'
 import { glslEs300Backend, UnsupportedFeatureError } from '../backends/glsl'
-import { module, fn, f32, f32T, arrayT, vec3uT, voidT } from '../ir'
+import { module, fn, f32, f32T, arrayT, vec3uT, voidT, texture2dArrayfT, samplerT } from '../ir'
 import { builtin } from '../sot'
 
 // #9 — the capability model wired into emit. A module declares the GPU features
@@ -85,5 +85,25 @@ describe('capabilities — requiredCaps + assertCaps (#9)', () => {
 
   it('assertCaps passes an f16 module on WGSL (the emitter can spell it)', () => {
     expect(() => assertCaps(wgslBackend, f16Mod())).not.toThrow()
+  })
+
+  // #1651 — a sampled 2d-ARRAY texture is CORE in both targets (WGSL
+  // texture_2d_array<f32>, GLSL ES 3.00 sampler2DArray), so it introduces NO new
+  // Capability. Asserted, not assumed: the sibling '2d-ms' dim DOES require one
+  // (msaaTextureLoad), so "a texture dim needs a cap" is a live shape here.
+  const arrayTexMod = () =>
+    module({
+      bindings: [
+        { group: 0, binding: 0, name: 'atlas', space: 'uniform' as const, type: texture2dArrayfT },
+        { group: 0, binding: 1, name: 'atlas_s', space: 'uniform' as const, type: samplerT },
+      ],
+    })
+
+  it('a 2d-array texture binding requires NOTHING (no new capability)', () => {
+    expect(requiredCaps(arrayTexMod())).toEqual([])
+  })
+
+  it('assertCaps passes a 2d-array module on the EMPTY-caps GLSL backend', () => {
+    expect(() => assertCaps(glslEs300Backend, arrayTexMod())).not.toThrow()
   })
 })

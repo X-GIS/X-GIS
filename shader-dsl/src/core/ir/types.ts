@@ -28,7 +28,10 @@ export type ShaderType =
   | { readonly kind: 'mat'; readonly n: 2 | 3 | 4; readonly elem: 'f32' | 'f64' }
   | { readonly kind: 'struct'; readonly name: string }
   | { readonly kind: 'array'; readonly elem: ShaderType; readonly size?: number }
-  | { readonly kind: 'texture'; readonly dim: '2d' | '2d-ms'; readonly elem: 'f32' }
+  // A sampled texture. '2d-array' (#1651) is CORE in both targets — WGSL
+  // texture_2d_array<f32>, GLSL ES 3.00 sampler2DArray — so it needs no Capability
+  // (pinned by required-caps.test.ts); '2d-ms' still fails closed on GLSL.
+  | { readonly kind: 'texture'; readonly dim: '2d' | '2d-ms' | '2d-array'; readonly elem: 'f32' }
   | { readonly kind: 'sampler' }
   | { readonly kind: 'void' }
 
@@ -61,6 +64,15 @@ export const texture2dMsfT = {
   dim: '2d-ms',
   elem: 'f32',
 } as const satisfies ShaderType
+/** A sampled 2D ARRAY texture (#1651) — one texture object, N independently
+ *  addressable layers (a tile atlas, a glyph page set, a per-layer LUT stack).
+ *  The layer is a per-sample ARGUMENT, not a binding, so N layers cost one
+ *  binding slot and one bind-group switch. */
+export const texture2dArrayfT = {
+  kind: 'texture',
+  dim: '2d-array',
+  elem: 'f32',
+} as const satisfies ShaderType
 export const samplerT = { kind: 'sampler' } as const satisfies ShaderType
 export const voidT = { kind: 'void' } as const satisfies ShaderType
 export const structT = (name: string): ShaderType => ({ kind: 'struct', name })
@@ -87,11 +99,19 @@ export type KeyOf<T> = T extends { kind: 'scalar'; scalar: infer S extends strin
             // to `string`, so a texture/sampler argument swap type-checked.
             T extends { kind: 'texture'; dim: '2d-ms' }
             ? 'texture_multisampled_2d<f32>'
-            : T extends { kind: 'texture'; dim: '2d' }
-              ? 'texture_2d<f32>'
-              : T extends { kind: 'sampler' }
-                ? 'sampler'
-                : string
+            : // #1651 — arm ORDER is immaterial here: the dims are exact literals, so
+              // `{ dim: '2d-array' }` never extends `{ dim: '2d' }` regardless of which
+              // arm comes first. The real hazard is a MISSING arm — it drops an array
+              // resource() node through to the `string` fallback, where it matches no
+              // authoring overload at all (the failure is a confusing "no overload
+              // matches", not a key mismatch).
+              T extends { kind: 'texture'; dim: '2d-array' }
+              ? 'texture_2d_array<f32>'
+              : T extends { kind: 'texture'; dim: '2d' }
+                ? 'texture_2d<f32>'
+                : T extends { kind: 'sampler' }
+                  ? 'sampler'
+                  : string
 /** Element key of a vector key (`vec3<u32>` → `u32`); identity for scalars. */
 export type ElemKey<K extends string> = K extends `vec${number}<${infer E}>` ? E : K
 export type ScalarKey = 'f32' | 'i32' | 'u32'
@@ -115,9 +135,21 @@ export function typeKey(t: ShaderType): string {
         ? `array<${typeKey(t.elem)},${t.size}>`
         : `array<${typeKey(t.elem)}>`
     case 'texture':
-      return t.dim === '2d-ms'
-        ? `texture_multisampled_2d<${t.elem}>`
-        : `texture_${t.dim}<${t.elem}>`
+      // Every dim is spelled EXPLICITLY — a `texture_${t.dim}<…>` template would emit
+      // the invalid `texture_2d-array<f32>` for the array arm (and '2d-ms' already
+      // needed its own spelling). Must stay byte-identical to KeyOf's arms above.
+      // Exhaustive switch: a NEW dim fails compilation here instead of silently
+      // falling open to the 2d spelling.
+      switch (t.dim) {
+        case '2d-ms':
+          return `texture_multisampled_2d<${t.elem}>`
+        case '2d-array':
+          return `texture_2d_array<${t.elem}>`
+        case '2d':
+          return `texture_2d<${t.elem}>`
+        default:
+          return t.dim satisfies never
+      }
     case 'sampler':
       return 'sampler'
     case 'void':
