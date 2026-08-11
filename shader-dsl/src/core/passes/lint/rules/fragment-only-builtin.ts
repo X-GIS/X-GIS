@@ -4,9 +4,14 @@ import { collectFnRefs, emptyRefSet } from '../../../ir/collect-refs'
 
 /** Fragment-only builtin id -> the fix its message must name. Table-driven so a
  *  further derivative builtin (dpdx / dpdy / fwidth — also fragment-only in WGSL)
- *  joins by adding ONE row; deliberately not added here (#1650 scope). */
+ *  joins by adding ONE row; deliberately not added here (#1650 scope). The string is
+ *  byte-identical to the SD0109 catalogue hint (codes.ts) — one string, two surfaces,
+ *  the smoothstep-edge-order sibling's convention (§12: no second authority). */
 const FRAGMENT_ONLY_IDS: ReadonlyMap<string, string> = new Map([
-  ['textureSample', 'use textureSampleLevel(tex, smp, uv, level)'],
+  [
+    'textureSample',
+    'use textureSampleLevel(tex, smp, uv, level) — an explicit LOD needs no derivatives',
+  ],
 ])
 
 /** A fragment-only builtin must not be reachable from a VERTEX or COMPUTE entry.
@@ -16,11 +21,19 @@ const FRAGMENT_ONLY_IDS: ReadonlyMap<string, string> = new Map([
  *  the failure surfaces as an opaque naga/driver error far from the call site.
  *
  *  Reachability is the call-graph closure from each non-fragment entry over the
- *  module's own fns (the same walk the GLSL backend's stageScope uses), so a builtin
+ *  module's own fns (collectFnRefs — the collector stageScope also uses), so a builtin
  *  buried two helpers deep is caught too. A helper reachable only from a fragment
  *  entry is fine; one reachable from BOTH is flagged, because it is emitted into the
  *  vertex/compute stage as well. A module with no non-fragment entry (helper-only /
- *  runtime-composed) is silent by construction. */
+ *  runtime-composed) is silent by construction.
+ *
+ *  `raw` Stmts: collectFnRefs cannot see a call made inside raw WGSL text (its
+ *  documented contract), so a raw-only edge makes this rule UNDER-report — never
+ *  mis-report: IR edges are real calls, so every flagged violation is true whatever
+ *  raw contains. Deliberately NOT bailed on raw, unlike dce-fns / stageScope: those
+ *  TRANSFORM the module and need the complete graph to act safely; a diagnostic only
+ *  needs its positives sound, and bailing would silence true catches in any module
+ *  that merely carries an unrelated raw Stmt. Both behaviors are pinned by tests. */
 export const fragmentOnlyBuiltin: LintRule = {
   id: 'fragment-only-builtin',
   description: 'a fragment-only builtin must not be reachable from a vertex or compute entry',

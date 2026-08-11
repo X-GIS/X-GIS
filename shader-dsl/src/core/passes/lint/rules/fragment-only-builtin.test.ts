@@ -10,6 +10,7 @@ import {
   voidT,
   textureSample,
   textureSampleLevel,
+  type FuncDecl,
 } from '../../../ir'
 import { resource, builtin } from '../../../sot'
 import { texture2dfT, samplerT } from '../../../ir'
@@ -17,7 +18,8 @@ import { emitModule } from '../../../backends/wgsl'
 import { ValidationError } from '../../validate'
 import { fragmentOnlyBuiltin } from './fragment-only-builtin'
 
-const FIX = 'textureSample is fragment-only in WGSL — use textureSampleLevel(tex, smp, uv, level)'
+const FIX =
+  'textureSample is fragment-only in WGSL — use textureSampleLevel(tex, smp, uv, level) — an explicit LOD needs no derivatives'
 
 const tex = resource('fob_tex', texture2dfT, { group: 0, binding: 0 })
 const smp = resource('fob_smp', samplerT, { group: 0, binding: 1 })
@@ -84,5 +86,38 @@ describe('fragment-only-builtin (#1650)', () => {
     const m = module({ bindings: [tex.binding, smp.binding], funcs: [vsCalling(mid), mid, leaf] })
     expect(() => emitModule(m)).toThrow(ValidationError)
     expect(() => emitModule(m)).toThrow(/fragment-only in WGSL/)
+  })
+
+  it('UNDER-reports (documented) when the only edge to the builtin is inside a raw Stmt', () => {
+    // collectFnRefs cannot see a call made in raw WGSL text (its documented contract),
+    // so the closure lacks the vertex→fob_mid edge and the rule stays silent — the
+    // pre-rule status quo, NOT a mis-report. Deliberate; see the rule docstring.
+    const vsRaw: FuncDecl = {
+      name: 'fob_vs_raw',
+      attrs: ['@vertex'],
+      params: [],
+      ret: vec4fT,
+      retAttr: '@builtin(position)',
+      body: [{ s: 'raw', wgsl: 'return fob_mid(vec2<f32>(0.0, 0.0));' }],
+    }
+    const m = module({ bindings: [tex.binding, smp.binding], funcs: [vsRaw, mid, leaf] })
+    expect(run(m)).toEqual([])
+  })
+
+  it('still fires on an IR-reachable violation when an UNRELATED raw Stmt exists (no bail)', () => {
+    // Bailing on raw (the dce-fns / stageScope contract) would be WRONG here: those
+    // TRANSFORM and need the complete graph; a diagnostic only needs its positives
+    // sound, and IR edges are real calls. This pin goes red if anyone adds a bail.
+    const noise: FuncDecl = {
+      name: 'fob_noise',
+      params: [],
+      ret: vec4fT,
+      body: [{ s: 'raw', wgsl: 'return vec4<f32>(1.0);' }],
+    }
+    const m = module({
+      bindings: [tex.binding, smp.binding],
+      funcs: [vsCalling(mid), mid, leaf, noise],
+    })
+    expect(run(m).map((d) => d.message)).toEqual([FIX])
   })
 })

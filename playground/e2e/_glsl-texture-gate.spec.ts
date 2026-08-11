@@ -168,8 +168,11 @@ test('GLSL texture-sampling module compiles + links on real WebGL2 (fused sample
 // ── #1650 — the explicit-LOD module (vertex sample + fragment textureLod) ──
 //
 // No uniform block: the vertex writes clip space directly, so the only bindings are
-// the fused texture+sampler pair. z is DISPLACED by the sampled texel — a real vertex
-// -stage texture read, which is legal precisely because the LOD is explicit.
+// the fused texture+sampler pair. The VERTEX-stage read is routed into the readback
+// through the `vred` varying (the sampled texel's red channel): a wrong-level vertex
+// read (level 0 = red, r=1) turns the output pixel's red channel on and FAILS the
+// probe. (Review F2: the earlier z-displacement form kept a wrong read inside the
+// clip volume — it proved compile+link, not selection.)
 const lodSample = (uv: Expr, level: number): Expr => ({
   op: 'call',
   type: vec4fT,
@@ -177,9 +180,20 @@ const lodSample = (uv: Expr, level: number): Expr => ({
   args: [varref('tex', texture2dfT), varref('samp', samplerT), uv, lit(level)],
 })
 
+// lod-local VsOut twin: VsOut + the vred varying. A separate struct so the FIRST
+// module's emit (and its pins) stay byte-identical.
+const LodVsOut: StructDecl = {
+  name: 'LodVsOut',
+  fields: [
+    { name: 'position', type: vec4fT, attr: '@builtin(position)' },
+    { name: 'uv', type: vec2fT, attr: '@location(0)' },
+    { name: 'vred', type: f32T, attr: '@location(1)' },
+  ],
+}
+
 const lodModule: ModuleDecl = {
   consts: [],
-  structs: [VsIn, VsOut, FsOut],
+  structs: [VsIn, LodVsOut, FsOut],
   bindings: [
     { group: 0, binding: 0, name: 'tex', space: 'uniform', type: texture2dfT },
     { group: 0, binding: 1, name: 'samp', space: 'uniform', type: samplerT },
@@ -189,40 +203,56 @@ const lodModule: ModuleDecl = {
       name: 'vs',
       attrs: ['@vertex'],
       params: [{ name: 'inp', type: structT('VsIn') }],
-      ret: structT('VsOut'),
+      ret: structT('LodVsOut'),
       body: [
-        { s: 'var', name: 'o', type: structT('VsOut') },
+        { s: 'var', name: 'o', type: structT('LodVsOut') },
         {
           s: 'assign',
-          target: fld(varref('o', structT('VsOut')), 'position', vec4fT),
+          target: fld(varref('o', structT('LodVsOut')), 'position', vec4fT),
           expr: v4(
             fld(fld(param('inp', structT('VsIn')), 'pos', vec2fT), 'x', f32T),
             fld(fld(param('inp', structT('VsIn')), 'pos', vec2fT), 'y', f32T),
-            // level 1 is the 1×1 green texel → r = 0 → z = 0 (dead centre of clip z).
-            fld(lodSample(fld(param('inp', structT('VsIn')), 'uv', vec2fT), 1), 'x', f32T),
+            lit(0),
             lit(1),
           ),
         },
         {
           s: 'assign',
-          target: fld(varref('o', structT('VsOut')), 'uv', vec2fT),
+          target: fld(varref('o', structT('LodVsOut')), 'uv', vec2fT),
           expr: fld(param('inp', structT('VsIn')), 'uv', vec2fT),
         },
-        { s: 'return', expr: varref('o', structT('VsOut')) },
+        {
+          // the VERTEX-stage explicit-LOD read: level 1 = the green texel → r = 0.
+          s: 'assign',
+          target: fld(varref('o', structT('LodVsOut')), 'vred', f32T),
+          expr: fld(lodSample(fld(param('inp', structT('VsIn')), 'uv', vec2fT), 1), 'x', f32T),
+        },
+        { s: 'return', expr: varref('o', structT('LodVsOut')) },
       ],
     },
     {
       name: 'fs',
       attrs: ['@fragment'],
-      params: [{ name: 'inp', type: structT('VsOut') }],
+      params: [{ name: 'inp', type: structT('LodVsOut') }],
       ret: structT('FsOut'),
       body: [
         {
+          // r = the VERTEX read's red channel (0 iff the vertex hit level 1);
+          // g = the FRAGMENT read's green channel (255 iff the fragment hit level 1).
+          // Each stage owns one channel, so either stage reading the wrong level
+          // flips the expected {r:0, g:255, b:0} pixel.
           s: 'return',
           expr: {
             op: 'construct',
             type: structT('FsOut'),
-            args: [lodSample(fld(param('inp', structT('VsOut')), 'uv', vec2fT), 1)],
+            args: [
+              v4(
+                fld(param('inp', structT('LodVsOut')), 'vred', f32T),
+                fld(lodSample(fld(param('inp', structT('LodVsOut')), 'uv', vec2fT), 1), 'y', f32T),
+                lit(0),
+                lit(1),
+              ),
+            ],
           },
         },
       ],
@@ -375,6 +405,7 @@ test('emitted textureLod SELECTS the requested mip on real WebGL2 (readback: gre
   const [r, g, b] = result.px
   expect(
     { r, g, b },
-    `expected the level-1 GREEN texel; red = the level argument never reached the sampler, blue = nothing drew`,
+    `expected r=0 (VERTEX read hit level 1) + g=255 (FRAGMENT read hit level 1); ` +
+      `r=255 → the vertex-stage level argument was lost, g=0 → the fragment-stage one was, blue = nothing drew`,
   ).toEqual({ r: 0, g: 255, b: 0 })
 })
