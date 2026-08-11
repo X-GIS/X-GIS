@@ -3,16 +3,23 @@ import { lint } from '../engine'
 import {
   module,
   fn,
+  f32,
+  f32T,
   vec2,
+  vec4,
   vec2fT,
   vec4fT,
   vec3uT,
   voidT,
+  dpdx,
+  dpdy,
+  fwidth,
   textureSample,
   textureSampleLevel,
   type FuncDecl,
 } from '../../../ir'
 import { resource, builtin } from '../../../sot'
+import { collectFnRefs, emptyRefSet } from '../../../ir/collect-refs'
 import { texture2dfT, texture2dArrayfT, samplerT } from '../../../ir'
 import { emitModule } from '../../../backends/wgsl'
 import { ValidationError } from '../../validate'
@@ -134,6 +141,28 @@ describe('fragment-only-builtin (#1650)', () => {
     expect(run(m)).toEqual([])
   })
 
+  it('#1654: flags a helper reachable from BOTH a vertex and a fragment entry', () => {
+    // Pins the rule docstring's "one reachable from BOTH is flagged, because it is
+    // emitted into the vertex/compute stage as well" — previously true only by
+    // construction (the closure never subtracts fragment-reachable fns), untested.
+    const fs = fn('fob_fs_dual', {}, vec4fT, () => mid({ uv: vec2(0, 0) }), { stage: 'fragment' })
+    // The fragment→mid edge is REAL, not assumed: without this cross-check the test
+    // would still pass on the vertex chain alone if the fragment entry silently
+    // failed to produce its call edge (verification-review nit on #1654).
+    const fsRefs = emptyRefSet()
+    collectFnRefs(fs.decl, fsRefs)
+    expect([...fsRefs.calls]).toContain('fob_mid')
+    const m = module({
+      bindings: [tex.binding, smp.binding],
+      funcs: [vsCalling(mid), fs, mid, leaf],
+    })
+    // Exactly ONE diagnostic: the shared leaf holds one call site, and being reachable
+    // from a second (fragment) entry must neither silence nor duplicate it. (Today the
+    // engine walks each fn once, so per-entry duplication is structurally impossible —
+    // the exactly-one shape is a forward pin against a per-entry redesign.)
+    expect(run(m).map((d) => d.message)).toEqual([FIX])
+  })
+
   it('still fires on an IR-reachable violation when an UNRELATED raw Stmt exists (no bail)', () => {
     // Bailing on raw (the dce-fns / stageScope contract) would be WRONG here: those
     // TRANSFORM and need the complete graph; a diagnostic only needs its positives
@@ -149,5 +178,72 @@ describe('fragment-only-builtin (#1650)', () => {
       funcs: [vsCalling(mid), mid, leaf, noise],
     })
     expect(run(m).map((d) => d.message)).toEqual([FIX])
+  })
+})
+
+// ── #1654: the DERIVATIVE rows (dpdx / dpdy / fwidth) ──────────────────────────
+// These three ids were ABSENT from FRAGMENT_ONLY_IDS before #1654, so the rule was
+// silent on every case below: the positives here are the fail-before witness (on the
+// pre-#1654 table each `run(...)` returned [] — green-by-silence — and only the new
+// rows turn them red-then-green). Their fix is shared and shape-free: no drop-in
+// alternative exists, so the quantity must come from somewhere other than the GPU's
+// screen-space derivative.
+const DERIV_FIX =
+  'precompute the quantity and pass it in (a per-vertex varying, a CPU-computed uniform, or finite differences of neighboring samples) — derivatives exist only in a fragment invocation'
+
+// Same leaf → mid shape as the texture fixtures: the derivative sits TWO hops below
+// any entry, so only the transitive closure reaches it.
+const leafDpdx = fn('fob_leaf_dpdx', { x: f32T }, f32T, ({ x }) => dpdx(x))
+const midDpdx = fn('fob_mid_dpdx', { x: f32T }, f32T, ({ x }) => leafDpdx({ x }))
+const leafDpdy = fn('fob_leaf_dpdy', { x: f32T }, f32T, ({ x }) => dpdy(x))
+const leafFwidth = fn('fob_leaf_fwidth', { x: f32T }, f32T, ({ x }) => fwidth(x))
+
+const vsCallingF32 = (callee: typeof midDpdx) =>
+  fn('fob_vs_f32', {}, vec4fT, () => vec4(callee({ x: f32(1) }), 0, 0, 1), {
+    stage: 'vertex',
+    retAttr: builtin('position', vec4fT),
+  })
+
+describe('fragment-only-builtin — derivatives (#1654)', () => {
+  it('flags dpdx reached TRANSITIVELY from a vertex entry, naming the derivative fix', () => {
+    const ds = run(module({ funcs: [vsCallingF32(midDpdx), midDpdx, leafDpdx] }))
+    expect(ds.map((d) => d.ruleId)).toEqual(['fragment-only-builtin'])
+    expect(ds[0]?.message).toBe(`dpdx is fragment-only in WGSL — ${DERIV_FIX}`)
+    expect(ds[0]?.fn).toBe('fob_leaf_dpdx')
+    expect(ds[0]?.code).toBe('SD0109')
+    // no same-shape alternative to name — the fix must be the precompute advice
+    expect(ds[0]?.hint).toBe(DERIV_FIX)
+  })
+
+  it('flags dpdy reached from a COMPUTE entry', () => {
+    const cs = fn(
+      'fob_cs_dpdy',
+      { gid: builtin('global_invocation_id', vec3uT) },
+      voidT,
+      (_p, b) => {
+        b.let('d', leafDpdy({ x: f32(1) }))
+      },
+      { stage: 'compute', workgroupSize: 64 },
+    )
+    const ds = run(module({ funcs: [cs, leafDpdy] }))
+    expect(ds.map((d) => d.message)).toEqual([`dpdy is fragment-only in WGSL — ${DERIV_FIX}`])
+    expect(ds[0]?.code).toBe('SD0109')
+  })
+
+  it('flags fwidth from a vertex entry — the row every PRODUCTION call site uses', () => {
+    // Every production/example derivative call is fwidth (icon, point, circle,
+    // arrow, particle + the examples); dpdx/dpdy have positives above, so without
+    // THIS one, deleting the fwidth row alone would leave the whole suite green
+    // while the guard production actually relies on silently dies.
+    const ds = run(module({ funcs: [vsCallingF32(leafFwidth), leafFwidth] }))
+    expect(ds.map((d) => d.message)).toEqual([`fwidth is fragment-only in WGSL — ${DERIV_FIX}`])
+    expect(ds[0]?.code).toBe('SD0109')
+  })
+
+  it('stays silent for fwidth reachable ONLY from a fragment entry (the negative)', () => {
+    const fs = fn('fob_fs_fwidth', {}, vec4fT, () => vec4(leafFwidth({ x: f32(1) }), 0, 0, 1), {
+      stage: 'fragment',
+    })
+    expect(run(module({ funcs: [fs, leafFwidth] }))).toEqual([])
   })
 })

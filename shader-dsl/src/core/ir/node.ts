@@ -937,11 +937,15 @@ export const textureDimensions = (
   tex: ReadonlyNode<'texture_2d<f32>' | 'texture_multisampled_2d<f32>' | 'texture_2d_array<f32>'>,
 ): Node<'vec2<u32>'> => call('textureDimensions', vec2uT, tex) as Node<'vec2<u32>'>
 /** Screen-space derivative magnitude — GPU-only (uncomputable per-invocation
- *  on the CPU; the interpreter stubs it to 0). */
+ *  on the CPU; the interpreter stubs it to 0). FRAGMENT-ONLY in WGSL: enforced by
+ *  the `fragment-only-builtin` lint rule (a CORE rule — it fires at every emit;
+ *  SD0109, #1654); in a vertex or compute stage, precompute the quantity and
+ *  pass it in. */
 export const fwidth = genType1('fwidth')
 /** Screen-space partial derivatives (#846) — GPU-only like `fwidth` (the
- *  interpreter stubs them to 0). Divergent spelling handled by the intrinsic
- *  registry: WGSL `dpdx`/`dpdy`, GLSL ES 3.00 `dFdx`/`dFdy`. */
+ *  interpreter stubs them to 0), and FRAGMENT-ONLY like it too (the same
+ *  `fragment-only-builtin` CORE rule; SD0109, #1654). Divergent spelling handled
+ *  by the intrinsic registry: WGSL `dpdx`/`dpdy`, GLSL ES 3.00 `dFdx`/`dFdy`. */
 export const dpdx = genType1('dpdx')
 export const dpdy = genType1('dpdy')
 
