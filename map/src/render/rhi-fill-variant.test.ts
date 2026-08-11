@@ -89,9 +89,7 @@ describe('rhiVariantFillSupported — what the RHI variant path will draw (#1592
     expect(
       rhiVariantFillSupported(
         matchFill({
-          computeBindings: [
-            { bindGroup: 2, binding: 16, bufferName: 'compute_out_0', paintAxis: 'fill' },
-          ],
+          computeBindings: [{ bindGroup: 2, binding: 16, paintAxis: 'fill' }],
         }),
       ),
     ).toBe(false)
