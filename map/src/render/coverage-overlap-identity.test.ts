@@ -47,8 +47,8 @@ function gridHandle(
 ): CoverageHandle {
   const input: CoverageInput = {
     product: 's111',
-    origin,
-    spacing,
+    origin: [origin[0], origin[1]],
+    spacing: [spacing[0], spacing[1]],
     size: [8, 8],
     vertical: { datumCode: null, sign: 'up' },
     bands: [
