@@ -1,27 +1,28 @@
-// ═══ A data-driven fill on WebGL2 renders blank — and SAYS SO (#1583) ═══
+// ═══ A data-driven fill paints its PER-FEATURE colours on WebGL2 (#1592) ═══
 //
-// `fill match(…)` / `fill gradient(…)` compute their colour in a shader variant. The WebGL2/RHI
-// backend compiles none — `pipeline-factory.ts` returns before building any variant pipeline on
-// webgl2, `POLYGON_FILL_FORMAT` carries no colour attribute, and the palette atlas is never
-// uploaded there — so `renderFillsRhi` finds a null CPU colour and returns 0. The layer disappears.
-// Shipped styles hit this: continent-match, income-match, gdp-gradient, population-gradient,
-// coops-currents.
+// `fill match(…)` computes its colour in a shader variant. Until #1592 the WebGL2/RHI backend
+// compiled none — the fill Material hardcoded `emitPolygonWgsl(null, …)` and its bind group carried
+// one uniform entry, so the only colour sink was a CPU-resolved RGBA that is null by construction
+// for a data-driven fill, and the layer disappeared. This gate previously asserted that blank plus
+// the warning that announced it (#1583). #1592 wired the variant Material + the per-tile feat_data
+// buffer, so the blank is gone and THIS is the assertion that replaces it — exactly the rewrite
+// #1583's own header asked for when the capability landed.
 //
-// THE BLANK IS NOT THE BUG, AND THIS GATE DOES NOT ASK FOR PIXELS. There is no colour on this
-// backend to draw with, and painting one flat colour over a choropleth would misreport the data —
-// worse than drawing nothing. The capability itself is #1592. What #1583 fixed is that the blank
-// was SILENT: a user authoring `fill match(…)` got an empty layer and no explanation anywhere.
+// THE CLAIM IS THREE DISTINCT COLOURS, NOT PAINTED PIXELS, and the difference is the whole point.
+// `fixture_categorical` is three features with `match(.kind)` → red / emerald / blue. A painted-
+// fraction check cannot tell that apart from ONE flat colour over all three — and one flat colour
+// is precisely the plausible failure here (the variant silently falling back to the default-uniform
+// shader paints every feature in the last-written `u.fill_color`). Measured whole-frame, the
+// data-driven arm and the constant-fill twin paint the IDENTICAL fraction, 0.3588 each, so the
+// scalar is provably blind to the thing under test. The histogram is not. See §12: "a pixel-COUNT
+// render gate passes on broken images — assert STRUCTURE".
 //
-// SO THE ASSERTION IS THE WARNING, and the two pixel arms exist to make that assertion mean
-// something. A blank frame on its own cannot distinguish "this backend has no per-feature fill
-// path" from "the fixture, the source, the style or this harness is broken" — every one of those
-// is also blank. The constant-fill twin (same source, same three polygons, same layer, constant
-// colour) paints, which rules all of them out. Without that arm the blank assertion would pass on
-// a completely broken playground, which is the §12 failure this repo keeps paying for.
-//
-// WHEN #1592 LANDS THIS GATE GOES RED, and that is correct — it is the signal that the limitation
-// is gone. Replace the blank arm with a per-feature colour assertion then (fixture_categorical is
-// already a discriminator: three features, match(.kind) → red/emerald/blue).
+// THE TWIN IS STILL THE CONTROL, and now carries a second job. It is the same source, the same
+// three polygons and the same layer with a CONSTANT fill, so it still rules out "the fixture, the
+// source, the style or the harness is broken". But it is also the NEGATIVE case for the histogram
+// itself: a constant fill must show exactly ONE dominant colour through the same measurement that
+// reports three for the treatment. An assertion that reported "three" for both would be the
+// 2026-07-28 "failed either way" shape.
 //
 // WebGPU cannot be the control here: there is no software WebGPU adapter in this environment or on
 // the CI render-gate leg (CLAUDE.md §5), which is why the control is a same-backend twin instead.
@@ -45,20 +46,39 @@ const ART = 'test-results/fill-data-driven-gl2'
  *  subject's side effect. The polygons land dead centre (verified against the twin capture), so
  *  the middle half by width and middle third by height contains all of them and none of the
  *  chrome. */
-function paintedFraction(png: Buffer): number {
+function measure(png: Buffer): { painted: number; hues: { rgb: string; share: number }[] } {
   const img = PNG.sync.read(png)
   const x0 = Math.floor(img.width * 0.25)
   const x1 = Math.floor(img.width * 0.75)
   const y0 = Math.floor(img.height * 0.35)
   const y1 = Math.floor(img.height * 0.65)
+  const area = (x1 - x0) * (y1 - y0)
   let painted = 0
+  // Colours bucketed to 5 bits per channel. The quantisation absorbs the raster's
+  // edge blend without merging the fixture's three authored hues, which are far
+  // apart (#e94b4b / #10b880 / #3880f0) — a bucket wide enough to fuse THOSE would
+  // also fuse red into blue, which no plausible bug produces.
+  const hist = new Map<string, number>()
   for (let y = y0; y < y1; y++) {
     for (let x = x0; x < x1; x++) {
       const i = (y * img.width + x) * 4
-      if (img.data[i]! > 24 || img.data[i + 1]! > 24 || img.data[i + 2]! > 24) painted++
+      const r = img.data[i]!
+      const g = img.data[i + 1]!
+      const b = img.data[i + 2]!
+      if (r <= 24 && g <= 24 && b <= 24) continue
+      painted++
+      const k = `${(r >> 3) << 3},${(g >> 3) << 3},${(b >> 3) << 3}`
+      hist.set(k, (hist.get(k) ?? 0) + 1)
     }
   }
-  return painted / ((x1 - x0) * (y1 - y0))
+  // DOMINANT colours only (≥5% of the crop). Anti-aliased edge pixels form a long
+  // tail of one-off buckets; counting those would report dozens of "colours" for a
+  // flat fill and the assertion would pass on the very failure it exists to catch.
+  const hues = [...hist.entries()]
+    .map(([rgb, n]) => ({ rgb, share: n / area }))
+    .filter((h) => h.share >= 0.05)
+    .sort((a, b) => b.share - a.share)
+  return { painted: painted / area, hues }
 }
 
 /** Render one fixture on the WebGL2 backend, collecting anything it logs.
@@ -69,7 +89,7 @@ function paintedFraction(png: Buffer): number {
 async function renderFixture(
   page: import('@playwright/test').Page,
   id: string,
-): Promise<{ painted: number; warnings: string[] }> {
+): Promise<{ painted: number; hues: { rgb: string; share: number }[]; warnings: string[] }> {
   const warnings: string[] = []
   const onConsole = (m: import('@playwright/test').ConsoleMessage): void => {
     if (m.type() === 'warning' || m.type() === 'error') warnings.push(m.text())
@@ -88,18 +108,19 @@ async function renderFixture(
     const png = await captureCanvas(page, { readyTimeoutMs: 30_000 })
     mkdirSync(ART, { recursive: true })
     writeFileSync(join(ART, `${id}.png`), png)
-    return { painted: paintedFraction(png), warnings }
+    return { ...measure(png), warnings }
   } finally {
     page.off('console', onConsole)
   }
 }
 
-test.describe('data-driven fill on WebGL2 (#1583)', () => {
-  test('draws nothing, and warns by name that it drew nothing', async ({ page }) => {
+test.describe('data-driven fill on WebGL2 (#1592)', () => {
+  test('paints each feature its own match() colour', async ({ page }) => {
     test.setTimeout(180_000)
 
     // ── CONTROL: the same scene with a constant fill. Establishes that the source loads, the
-    //    geometry tessellates, the backend rasterises and this harness can see pixels at all. ──
+    //    geometry tessellates, the backend rasterises and this harness can see pixels at all —
+    //    AND that the histogram reports ONE colour when there genuinely is one. ──
     const twin = await renderFixture(page, 'fixture_categorical_twin')
     expect(
       twin.painted,
@@ -110,36 +131,50 @@ test.describe('data-driven fill on WebGL2 (#1583)', () => {
     // ── TREATMENT: identical scene, `fill match(.kind)`. ──
     const dataDriven = await renderFixture(page, 'fixture_categorical')
 
-    const named = dataDriven.warnings.filter(
-      (w) => w.includes('data-driven fill') && w.includes('cats') && w.includes('#1592'),
-    )
     console.log(
-      `[fill-dd-gl2] twin painted=${twin.painted.toFixed(4)} ` +
-        `dataDriven painted=${dataDriven.painted.toFixed(4)} | warnings=${named.length} ` +
-        `| first=${named[0] ?? '(none)'}`,
+      `[fill-dd-gl2] twin painted=${twin.painted.toFixed(4)} hues=${twin.hues.length} ` +
+        `[${twin.hues.map((h) => `${h.rgb}@${(h.share * 100).toFixed(1)}%`).join(' ')}] | ` +
+        `dataDriven painted=${dataDriven.painted.toFixed(4)} hues=${dataDriven.hues.length} ` +
+        `[${dataDriven.hues.map((h) => `${h.rgb}@${(h.share * 100).toFixed(1)}%`).join(' ')}]`,
     )
 
-    // THE CLAIM. The layer is named, the backend gap is named, and the tracking issue is named —
-    // so the message is actionable rather than a bare "something did not draw".
-    expect(
-      named.length,
-      'the gap must announce itself, naming the layer and pointing at #1592',
-    ).toBeGreaterThan(0)
-    // Recorded, not relied on: this static demo settles after a handful of frames, so it reaches
-    // the bail about once either way — removing the latch does NOT turn this red (checked). The
-    // latch's real gate is `rhi-data-driven-fill-warning.test.ts`, which drives 120 calls and does
-    // distinguish 1 from 120. Kept because a sudden burst here would still be worth seeing.
-    expect(named.length, 'not repeated within a settled frame').toBe(1)
-
-    // Characterizing the limitation itself, so a future per-feature path cannot land unnoticed.
+    // The layer must reach the screen at all. Kept ahead of the colour claim so a regression that
+    // re-blanks the layer reports "it drew nothing", not the more confusing "it drew one colour".
     expect(
       dataDriven.painted,
-      'the data-driven fill still draws nothing on WebGL2 — if this now paints, #1592 landed and ' +
-        'this gate should be rewritten to assert per-feature colours',
-    ).toBeLessThan(0.005)
+      'the data-driven fill draws nothing on WebGL2 — #1592 has regressed',
+    ).toBeGreaterThan(0.1)
 
-    // The control must NOT warn: its null-fill guard never fires, so a constant-fill style stays
-    // quiet. This is what stops the message degrading into noise every layer emits.
+    // THE CLAIM. Three features, three authored colours, three dominant hues. A variant that fell
+    // back to the default-uniform shader would paint all three in one colour and land on 1 here —
+    // which is exactly the state this gate replaced, and the reason the painted fraction alone
+    // (identical for both arms) cannot be the assertion.
+    expect(
+      dataDriven.hues.length,
+      'a data-driven fill must paint its features their OWN colours — one dominant hue means the ' +
+        'variant is not reaching the fragment and every feature took the same uniform colour',
+    ).toBe(3)
+    // …and the negative case through the SAME measurement, so the assertion above is known to
+    // distinguish the two states rather than reporting 3 for anything that paints.
+    expect(
+      twin.hues.length,
+      'control: a CONSTANT fill must show exactly one dominant hue — if this also reports 3 the ' +
+        'histogram is measuring the raster, not the fill',
+    ).toBe(1)
+    // Equal thirds: the three fixture polygons are the same size, so a variant that painted two
+    // features correctly and collapsed the third would still report 3 hues but skew the shares.
+    for (const h of dataDriven.hues) {
+      expect(h.share, `hue ${h.rgb} covers roughly a third of the painted area`).toBeGreaterThan(
+        twin.hues[0]!.share / 3 - 0.02,
+      )
+    }
+
+    // Neither arm may warn now: the treatment is drawn, not skipped, so #1583's gap message must
+    // not fire — and the control's null-fill guard never fired to begin with.
+    expect(
+      dataDriven.warnings.filter((w) => w.includes('data-driven fill')),
+      'a fill this backend now draws must not report itself as an unsupported gap',
+    ).toHaveLength(0)
     expect(
       twin.warnings.filter((w) => w.includes('data-driven fill')),
       'a constant fill must stay silent',
