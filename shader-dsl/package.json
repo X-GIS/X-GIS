@@ -13,7 +13,8 @@
     "./examples": "./examples/index.ts"
   },
   "files": [
-    "dist"
+    "dist",
+    "CHANGELOG.md"
   ],
   "scripts": {
     "build": "tsc --build && tsc -p tsconfig.tests.json",
