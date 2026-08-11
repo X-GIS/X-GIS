@@ -125,10 +125,11 @@ describe('addArrowShowLayer — an unresolvable per-feature fill REPORTS itself 
   })
 
   it('a string that names no colour warns instead of painting opaque black', () => {
-    // The other half of the accept site: `parseHexColor` is TOTAL, so before #1664 any
+    // The other half of the accept site: the parser used to be TOTAL, so before #1664 any
     // non-hex string — an authored `red`, a data-carried token, a typo — came back as
     // [0,0,0,1] and painted a WRONG colour reported as a right one. The resolver runs
-    // first now, and what it cannot resolve falls to the warning.
+    // first now, and what it cannot resolve falls to the warning. (#1666 removed the total
+    // variant outright, so this route cannot be re-armed by picking the wrong helper.)
     const { host, batches } = makeHost()
     addArrowShowLayer(host, arrowShow('fill match(.band) { _ -> "not-a-colour" }'), FC)
 
@@ -143,7 +144,7 @@ describe('addArrowShowLayer — an unresolvable per-feature fill REPORTS itself 
     // The name has to arrive at RUNTIME to test the runtime resolver: an authored
     // literal is already rewritten to hex at lower time (resolveColorTokenLiterals), so
     // it would pass with or without this fix. A name read out of a feature property
-    // cannot be — and pre-#1664 `parseHexColor("red")` answered opaque BLACK for it,
+    // cannot be — and pre-#1664 the total parser answered opaque BLACK for `"red"`,
     // while the same string in a label's text-color rendered red (label-pass.ts runs
     // `resolveColor` first). One resolver, both paths, now.
     const { host, batches } = makeHost()
@@ -155,5 +156,29 @@ describe('addArrowShowLayer — an unresolvable per-feature fill REPORTS itself 
     expect(sky[0], '"sky-300" → palette token').toBeCloseTo(0x7d / 255, 5)
     expect(sky[1]).toBeCloseTo(0xd3 / 255, 5)
     expect(sky[2]).toBeCloseTo(0xfc / 255, 5)
+  })
+
+  it('a MALFORMED layer-CONSTANT fill falls back to the default, never opaque black (#1666)', () => {
+    // The three cases above all fail inside the per-feature EXPRESSION, which #1664 already
+    // routed through the nullable parse. The layer CONSTANT — `show.fill`, the value every
+    // arrow uses when there is no expression, and the fallback the expression cases return
+    // to — was still read by the total parser, so a ShowCommand carrying a non-hex `fill`
+    // painted the whole batch [0, 0, 0, 1]. That is a colour the author never wrote,
+    // reported as one they did, on the SAME bake path #1664 exists to de-silence.
+    //
+    // The literal is overwritten rather than authored because the compiler resolves colour
+    // tokens at lower time (resolveColorTokenLiterals) and the Mapbox converter now warns
+    // and skips a bad hex — a malformed `show.fill` only reaches this function from a
+    // ShowCommand built at runtime, which is exactly the state constructed here.
+    const show = arrowShow('fill-red-500')
+    expect(show.fill, 'the token resolved at lower time (control)').toBe('#ef4444')
+    ;(show as { fill: string | null }).fill = '#zzz'
+
+    const { host, batches } = makeHost()
+    addArrowShowLayer(host, show, FC)
+
+    for (const c of batches[0]!.colors) {
+      expect(c, 'the flat-white arrow default, not [0,0,0,1]').toEqual([1, 1, 1, 1])
+    }
   })
 })

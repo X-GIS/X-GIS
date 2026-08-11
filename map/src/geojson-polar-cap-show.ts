@@ -18,7 +18,7 @@ import type { MapRendererContent } from './render/renderer'
 import type { InputStore } from './render/input-store'
 import type { LineRenderer } from './render/line-renderer'
 import type { GPUContext } from '@xgis/rhi-webgpu'
-import { parseHexColor } from './feature-helpers'
+import { hexToRgba } from './feature-helpers'
 import type { RawDataset } from './map-types'
 
 /** Host hooks the per-source polar-cap install/detach needs from XGISMap. The
@@ -131,7 +131,10 @@ function resolveSourceFillRgba(
     if (show.resolvedFillRgba) return show.resolvedFillRgba
     const ps = show.paintShapes?.fill.fill
     if (ps && ps.kind === 'constant') return ps.value as [number, number, number, number]
-    if (show.fill) return parseHexColor(show.fill)
+    // #1666 — no fallback on purpose: a malformed hex returns null, the caller's
+    // `if (!rgba) continue` skips the cap, and the pole is left uncapped instead of
+    // capped in a black the source polygon is not.
+    if (show.fill) return hexToRgba(show.fill)
   }
   return null
 }
