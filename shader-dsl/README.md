@@ -32,8 +32,13 @@ This is a workspace package (build-to-tarball, not published):
 ```bash
 bun install
 bun run build          # tsc --build → dist/ + .d.ts, then a noEmit type-check of tests + examples
-npm pack               # → xgis-shader-dsl-0.0.1.tgz (ships dist/ only)
+npm pack               # → xgis-shader-dsl-0.0.1.tgz (ships dist/ + CHANGELOG.md)
 ```
+
+The tarball carries `CHANGELOG.md` (this package's view of the repo history), and
+`prepack` regenerates it so the stamped source hash is always the commit the
+tarball was actually built from — a vendored copy self-documents its `--since`
+anchor for "what changed since my tarball" (see the file's banner).
 
 > **Publish tooling (#763 V6):** the `publishConfig` `exports`/`main`/`types` overrides are a
 > **pnpm/bun extension** — plain `npm publish` ignores them, so the tarball's `exports` would

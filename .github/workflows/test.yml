@@ -238,8 +238,11 @@ jobs:
           # @xgis/data (74 files after the tile-catalog / tile-selection suites
           # arrived from runtime/src/data). Its own leg — combined with the
           # backend leg below it would sit at ~148, over the threshold.
+          # `scripts` rides the light data leg: the changelog-generator unit
+          # suite (scripts/emit-changelog.test.ts) is pure fixtures; its spawned
+          # git probes self-skip on this job's depth-1 checkout (no `main~N`).
           - id: data
-            args: data/src
+            args: data/src scripts
           # Backend + leaf packages (@xgis/engine, @xgis/rhi-webgl2,
           # @xgis/rhi-webgpu, @xgis/pipeline, @xgis/shared, @xgis/geo). These were
           # CI-DARK before #959/#1008: sharded by directory, the matrix never

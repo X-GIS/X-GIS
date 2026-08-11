@@ -10,6 +10,9 @@
   Generated from: 4bf461085e22d52de4b3e924dc0371585565ad5e
   History walked: first-parent of main
   Scope: whole repository
+  Repository: https://github.com/X-GIS/X-GIS
+  What changed since this file was generated (run from a repo checkout):
+    bun scripts/emit-changelog.ts --since 4bf461085e22
 -->
 
 # Changelog
@@ -116,7 +119,7 @@ This repo ships no versioned releases and carries no git tags, so changes are gr
 - **data,map:** projected coverages — UTM on the handle, reprojected drape, sounding numerals ([#1374](https://github.com/X-GIS/X-GIS/pull/1374)) `9328463`
 - **data,map:** S-102 streaming — bbox read window, coverage refresh, real-cell reader fixes ([#1360](https://github.com/X-GIS/X-GIS/pull/1360)) `9e465dc`
 - **map:** several S-111 domains draw at once — the mosaic is multi-region end to end ([#1399](https://github.com/X-GIS/X-GIS/pull/1399)) `e5bb565`
-- **map:** `\| flow` — the motion is its own non-catalogue layer, so strict S-111 can have it ([#1333](https://github.com/X-GIS/X-GIS/pull/1333)) `eeca62c`
+- **map:** `| flow` — the motion is its own non-catalogue layer, so strict S-111 can have it ([#1333](https://github.com/X-GIS/X-GIS/pull/1333)) `eeca62c`
 - **map:** the coverage drape samples the advected field — the motion reaches the screen ([#1333](https://github.com/X-GIS/X-GIS/pull/1333)) `4accf02`
 - **map:** IBFV flow layer — wiring, pass registration, and the forecast-step freeze fix (#1333, #1367) `f6942a6`
 - **map:** replace the arrow-glyph drift with an IBFV flow layer — design, revert, and the GPU-side building blocks ([#1333](https://github.com/X-GIS/X-GIS/pull/1333)) `f6755eb`
@@ -135,7 +138,7 @@ This repo ships no versioned releases and carries no git tags, so changes are gr
 - **map:** interactive forecast time — setCoverageTime / play / pause ([#1328](https://github.com/X-GIS/X-GIS/pull/1328)) `16bd1f8`
 - **compiler:** presets carry coverage paint + official S-111 portrayal lib ([#1327](https://github.com/X-GIS/X-GIS/pull/1327)) `cef18e5`
 - **s111:** official IHO palette + faster live load (memoized resolution + edge cache) ([#1323](https://github.com/X-GIS/X-GIS/pull/1323)) `86b9ba2`
-- **map:** declarative `\| arrow bearing-[.dir]` layer — runtime + coops demo ([#1302](https://github.com/X-GIS/X-GIS/pull/1302)) `55b1e75`
+- **map:** declarative `| arrow bearing-[.dir]` layer — runtime + coops demo ([#1302](https://github.com/X-GIS/X-GIS/pull/1302)) `55b1e75`
 - **compiler:** .xgis keep(...) + at-line import splicing ([#1316](https://github.com/X-GIS/X-GIS/pull/1316)) `32117d3`
 - **data:** S-111 forecast time axis — read any group + expose the axis on the coverage ([#1320](https://github.com/X-GIS/X-GIS/pull/1320)) `c770bbc`
 - **playground:** official S-111 arrow portrayal — tidal-stream arrows over the speed fill ([#1319](https://github.com/X-GIS/X-GIS/pull/1319)) `d672ba6`
@@ -656,7 +659,7 @@ This repo ships no versioned releases and carries no git tags, so changes are gr
 - diag(site): read the df64 probe back at full precision (RGB8 pack) ([#903](https://github.com/X-GIS/X-GIS/pull/903)) `9483960`
 - shader-dsl: df64 GPU conformance probe + emulated-double matrices ([#897](https://github.com/X-GIS/X-GIS/pull/897)) `f08ec18`
 - diag(site): df64 GPU capability probe page ([#896](https://github.com/X-GIS/X-GIS/pull/896)) `ae59ca4`
-- Merge pull request #831 from X-GIS/claude/gpu-webgl2-container-ovacvb `fe178fc`
+- Merge pull request #831 from X-GIS/claude/gpu-webgl2-container-ovacvb ([#831](https://github.com/X-GIS/X-GIS/pull/831)) `fe178fc`
 - data: OA-22300 + OA-22299 서울 odb + fix hour u8 overflow (daily-pulse was static) ([#819](https://github.com/X-GIS/X-GIS/pull/819)) `0716ada`
 - docs+refactor(shader-dsl): #763 Phases A+H — arch erosion + doc/comment truth ([#773](https://github.com/X-GIS/X-GIS/pull/773)) `7611d1d`
 
@@ -1010,160 +1013,160 @@ This repo ships no versioned releases and carries no git tags, so changes are gr
 - shader-dsl: agreement-surface guards + unify condition-dispatch into `when` ([#674](https://github.com/X-GIS/X-GIS/pull/674)) `71ad6f7`
 - shader-dsl: exhaustive integer dispatch (enumU32 + matchEnum) ([#666](https://github.com/X-GIS/X-GIS/pull/666)) `67f0d17`
 - shader-dsl: first-class validated module composition (composeModule) ([#668](https://github.com/X-GIS/X-GIS/pull/668)) `a23565d`
-- Merge pull request #679 from X-GIS/claude/frame-projection-cull-generalize `08d6dbd`
+- Merge pull request #679 from X-GIS/claude/frame-projection-cull-generalize ([#679](https://github.com/X-GIS/X-GIS/pull/679)) `08d6dbd`
 - codegen: refresh stale comments after the single-emit migration ([#680](https://github.com/X-GIS/X-GIS/pull/680)) `1d983c3`
-- Merge pull request #676 from X-GIS/claude/frame-uniform-shared-packer `d56072c`
-- Merge pull request #681 from X-GIS/claude/ko-roadmap `3a04828`
+- Merge pull request #676 from X-GIS/claude/frame-uniform-shared-packer ([#676](https://github.com/X-GIS/X-GIS/pull/676)) `d56072c`
+- Merge pull request #681 from X-GIS/claude/ko-roadmap ([#681](https://github.com/X-GIS/X-GIS/pull/681)) `3a04828`
 - renderer: drop the compiler↔runtime Expr seam cast (single-emit Phase E) ([#677](https://github.com/X-GIS/X-GIS/pull/677)) `7fcff5c`
-- Merge pull request #678 from X-GIS/claude/docs-concept-tocs `2429518`
-- Merge pull request #669 from X-GIS/claude/docs-ux-coverage-toc `0539cff`
-- Merge pull request #671 from X-GIS/claude/ko-landing-restyle `315050b`
-- Merge pull request #673 from X-GIS/claude/ci-skip-engine-on-site `9fe151d`
+- Merge pull request #678 from X-GIS/claude/docs-concept-tocs ([#678](https://github.com/X-GIS/X-GIS/pull/678)) `2429518`
+- Merge pull request #669 from X-GIS/claude/docs-ux-coverage-toc ([#669](https://github.com/X-GIS/X-GIS/pull/669)) `0539cff`
+- Merge pull request #671 from X-GIS/claude/ko-landing-restyle ([#671](https://github.com/X-GIS/X-GIS/pull/671)) `315050b`
+- Merge pull request #673 from X-GIS/claude/ci-skip-engine-on-site ([#673](https://github.com/X-GIS/X-GIS/pull/673)) `9fe151d`
 - codegen: retire the wgslRaw scaffold + legacy string fields (single-emit Phase D) ([#670](https://github.com/X-GIS/X-GIS/pull/670)) `7ea4612`
-- Merge pull request #672 from X-GIS/claude/frame-uniform-writer-completeness `5f2b9ff`
-- Merge pull request #663 from X-GIS/claude/geojson-backface-rendering-txtc2b `c57023f`
+- Merge pull request #672 from X-GIS/claude/frame-uniform-writer-completeness ([#672](https://github.com/X-GIS/X-GIS/pull/672)) `5f2b9ff`
+- Merge pull request #663 from X-GIS/claude/geojson-backface-rendering-txtc2b ([#663](https://github.com/X-GIS/X-GIS/pull/663)) `c57023f`
 - codegen: emit fragment match() colours as a matchExpr IR node (single-emit Phase C) ([#665](https://github.com/X-GIS/X-GIS/pull/665)) `3fe9760`
-- Merge pull request #664 from X-GIS/claude/ci-no-duplicate-main-run `4c5b5de`
-- Merge pull request #662 from X-GIS/claude/site-widen-layout-header `d8bc4d5`
+- Merge pull request #664 from X-GIS/claude/ci-no-duplicate-main-run ([#664](https://github.com/X-GIS/X-GIS/pull/664)) `4c5b5de`
+- Merge pull request #662 from X-GIS/claude/site-widen-layout-header ([#662](https://github.com/X-GIS/X-GIS/pull/662)) `d8bc4d5`
 - codegen: author the compute match LUT as an IR array const (single-emit Phase B) ([#660](https://github.com/X-GIS/X-GIS/pull/660)) `4ba96fd`
-- Merge pull request #659 from X-GIS/claude/site-i18n-language-toggle `a742e8a`
+- Merge pull request #659 from X-GIS/claude/site-i18n-language-toggle ([#659](https://github.com/X-GIS/X-GIS/pull/659)) `a742e8a`
 - codegen: remove superseded WGSL-string emitters (single-emit Phase A) ([#658](https://github.com/X-GIS/X-GIS/pull/658)) `3db8204`
-- Merge pull request #657 from X-GIS/claude/site-modernization-layout-wccwtm `104f7de`
+- Merge pull request #657 from X-GIS/claude/site-modernization-layout-wccwtm ([#657](https://github.com/X-GIS/X-GIS/pull/657)) `104f7de`
 - codegen: retire the polygon-preamble WGSL splice (ShaderVariant.preamble → ModuleDecl) ([#653](https://github.com/X-GIS/X-GIS/pull/653)) `5d6fb21`
-- Merge pull request #655 from X-GIS/claude/site-modernization-layout-wccwtm `56ec11e`
+- Merge pull request #655 from X-GIS/claude/site-modernization-layout-wccwtm ([#655](https://github.com/X-GIS/X-GIS/pull/655)) `56ec11e`
 - shader-dsl: first-class non-scalar module constants ([#652](https://github.com/X-GIS/X-GIS/pull/652)) `8f8a3fc`
 - codegen: build data-driven color/opacity Nodes via astToNode (Phase C) ([#651](https://github.com/X-GIS/X-GIS/pull/651)) `22ba165`
 - codegen: route compiler shader/compute emission through the shader-dsl IR ([#650](https://github.com/X-GIS/X-GIS/pull/650)) `68e2783`
-- Merge pull request #649 from X-GIS/feat/site-p3-restyle `52256cc`
-- Merge pull request #648 from X-GIS/feat/site-playground `59d7875`
-- Merge pull request #647 from X-GIS/feat/site-why `d9d1d68`
-- Merge pull request #646 from X-GIS/feat/site-globe-concept `287ce63`
-- Merge pull request #645 from X-GIS/feat/site-p2-roadmap `3c9c671`
-- Merge pull request #644 from X-GIS/feat/site-home-p1 `5683c9f`
-- Merge pull request #643 from X-GIS/feat/site-kit `0e883f8`
-- Merge pull request #642 from X-GIS/feat/site-rebuild-plan `284f559`
-- Merge pull request #641 from X-GIS/fix/site-xai-accent-white `a863076`
-- Merge pull request #640 from X-GIS/feat/site-xai-wave3 `d51e94f`
-- Merge pull request #639 from X-GIS/feat/site-xai-wave2-hero `12898b4`
-- Merge pull request #638 from X-GIS/feat/site-xai-foundation `9e73b4e`
-- Merge pull request #637 from X-GIS/feat/site-design-system `ad5d6aa`
-- Merge pull request #636 from X-GIS/feat/site-foundation-i18n-blog `6734fbf`
-- Merge pull request #635 from X-GIS/fix/match-ir-runtime-tests `d1756bf`
-- Merge pull request #634 from X-GIS/feat/site-full-shader-stage `f9739ec`
-- Merge pull request #633 from X-GIS/fix/site-shader-dsl-pipeline `b67fe22`
-- Merge pull request #631 from X-GIS/feat/compute-gen-match-ir `8c5c87e`
-- Merge pull request #630 from X-GIS/feat/shader-dsl-opt-levels-measure `fb9a44c`
-- Merge pull request #623 from X-GIS/feat/shader-dsl-more-examples `9ff164e`
-- Merge pull request #629 from X-GIS/feat/compute-gen-ir `7110ef3`
-- Merge pull request #624 from X-GIS/feat/shader-dsl-local-cse `29fff22`
-- Merge pull request #622 from X-GIS/feat/glsl-backend-optimizer `5f6bb24`
-- Merge pull request #621 from X-GIS/refactor/shader-dsl-glsl-sanitize-split `f47c65f`
-- Merge pull request #620 from X-GIS/feat/shader-dsl-stdlib-builtins `842e46b`
-- Merge pull request #619 from X-GIS/feat/shader-precompute-logdepth `17157fb`
-- Merge pull request #618 from X-GIS/refactor/uniform-reflect-migration `26ac3c8`
-- Merge pull request #617 from X-GIS/fix/mercator-pan-inertia-basis `1c9d893`
-- Merge pull request #615 from X-GIS/fix/globe-eye-unwritten-cull `28d1766`
-- Merge pull request #612 from X-GIS/fix/graticule-eager-uniform-size `83365ae`
-- Merge pull request #611 from X-GIS/feat/rhi-beginrenderpass-p0-3 `b36e6af`
-- Merge pull request #610 from X-GIS/fix/demo-qa-sweep `d6750fd`
-- Merge pull request #593 from X-GIS/feat/rhi-vertex-offset-p0-2 `b13bc23`
-- Merge pull request #592 from X-GIS/feat/rhi-stencil-p0 `410c198`
-- Merge pull request #591 from X-GIS/feat/compute-gen-ir-retarget `a45908e`
-- Merge pull request #590 from X-GIS/feat/compiler-consume-shader-dsl `5c4563d`
-- Merge pull request #589 from X-GIS/chore/shaderdsl-charter-tier0 `dbd9f22`
-- Merge pull request #581 from X-GIS/feat/rhi-render-layer `262917b`
-- Merge pull request #588 from X-GIS/fix/globe-backface-occluder `0569cb0`
-- Merge pull request #586 from X-GIS/fix/main-render-bugs `b4c1183`
-- Merge pull request #580 from X-GIS/fix/interaction-bugs-13 `f9b0e96`
-- Merge pull request #579 from X-GIS/fix/library-bughunt-10 `7528f5e`
-- Merge pull request #578 from X-GIS/site/landing-content `b5f55c6`
-- Merge pull request #577 from X-GIS/site/hero-map-bg `40351f5`
-- Merge pull request #576 from X-GIS/site/react-shadcn `8f5b85d`
-- Merge pull request #575 from X-GIS/site/style-unify `e17e369`
+- Merge pull request #649 from X-GIS/feat/site-p3-restyle ([#649](https://github.com/X-GIS/X-GIS/pull/649)) `52256cc`
+- Merge pull request #648 from X-GIS/feat/site-playground ([#648](https://github.com/X-GIS/X-GIS/pull/648)) `59d7875`
+- Merge pull request #647 from X-GIS/feat/site-why ([#647](https://github.com/X-GIS/X-GIS/pull/647)) `d9d1d68`
+- Merge pull request #646 from X-GIS/feat/site-globe-concept ([#646](https://github.com/X-GIS/X-GIS/pull/646)) `287ce63`
+- Merge pull request #645 from X-GIS/feat/site-p2-roadmap ([#645](https://github.com/X-GIS/X-GIS/pull/645)) `3c9c671`
+- Merge pull request #644 from X-GIS/feat/site-home-p1 ([#644](https://github.com/X-GIS/X-GIS/pull/644)) `5683c9f`
+- Merge pull request #643 from X-GIS/feat/site-kit ([#643](https://github.com/X-GIS/X-GIS/pull/643)) `0e883f8`
+- Merge pull request #642 from X-GIS/feat/site-rebuild-plan ([#642](https://github.com/X-GIS/X-GIS/pull/642)) `284f559`
+- Merge pull request #641 from X-GIS/fix/site-xai-accent-white ([#641](https://github.com/X-GIS/X-GIS/pull/641)) `a863076`
+- Merge pull request #640 from X-GIS/feat/site-xai-wave3 ([#640](https://github.com/X-GIS/X-GIS/pull/640)) `d51e94f`
+- Merge pull request #639 from X-GIS/feat/site-xai-wave2-hero ([#639](https://github.com/X-GIS/X-GIS/pull/639)) `12898b4`
+- Merge pull request #638 from X-GIS/feat/site-xai-foundation ([#638](https://github.com/X-GIS/X-GIS/pull/638)) `9e73b4e`
+- Merge pull request #637 from X-GIS/feat/site-design-system ([#637](https://github.com/X-GIS/X-GIS/pull/637)) `ad5d6aa`
+- Merge pull request #636 from X-GIS/feat/site-foundation-i18n-blog ([#636](https://github.com/X-GIS/X-GIS/pull/636)) `6734fbf`
+- Merge pull request #635 from X-GIS/fix/match-ir-runtime-tests ([#635](https://github.com/X-GIS/X-GIS/pull/635)) `d1756bf`
+- Merge pull request #634 from X-GIS/feat/site-full-shader-stage ([#634](https://github.com/X-GIS/X-GIS/pull/634)) `f9739ec`
+- Merge pull request #633 from X-GIS/fix/site-shader-dsl-pipeline ([#633](https://github.com/X-GIS/X-GIS/pull/633)) `b67fe22`
+- Merge pull request #631 from X-GIS/feat/compute-gen-match-ir ([#631](https://github.com/X-GIS/X-GIS/pull/631)) `8c5c87e`
+- Merge pull request #630 from X-GIS/feat/shader-dsl-opt-levels-measure ([#630](https://github.com/X-GIS/X-GIS/pull/630)) `fb9a44c`
+- Merge pull request #623 from X-GIS/feat/shader-dsl-more-examples ([#623](https://github.com/X-GIS/X-GIS/pull/623)) `9ff164e`
+- Merge pull request #629 from X-GIS/feat/compute-gen-ir ([#629](https://github.com/X-GIS/X-GIS/pull/629)) `7110ef3`
+- Merge pull request #624 from X-GIS/feat/shader-dsl-local-cse ([#624](https://github.com/X-GIS/X-GIS/pull/624)) `29fff22`
+- Merge pull request #622 from X-GIS/feat/glsl-backend-optimizer ([#622](https://github.com/X-GIS/X-GIS/pull/622)) `5f6bb24`
+- Merge pull request #621 from X-GIS/refactor/shader-dsl-glsl-sanitize-split ([#621](https://github.com/X-GIS/X-GIS/pull/621)) `f47c65f`
+- Merge pull request #620 from X-GIS/feat/shader-dsl-stdlib-builtins ([#620](https://github.com/X-GIS/X-GIS/pull/620)) `842e46b`
+- Merge pull request #619 from X-GIS/feat/shader-precompute-logdepth ([#619](https://github.com/X-GIS/X-GIS/pull/619)) `17157fb`
+- Merge pull request #618 from X-GIS/refactor/uniform-reflect-migration ([#618](https://github.com/X-GIS/X-GIS/pull/618)) `26ac3c8`
+- Merge pull request #617 from X-GIS/fix/mercator-pan-inertia-basis ([#617](https://github.com/X-GIS/X-GIS/pull/617)) `1c9d893`
+- Merge pull request #615 from X-GIS/fix/globe-eye-unwritten-cull ([#615](https://github.com/X-GIS/X-GIS/pull/615)) `28d1766`
+- Merge pull request #612 from X-GIS/fix/graticule-eager-uniform-size ([#612](https://github.com/X-GIS/X-GIS/pull/612)) `83365ae`
+- Merge pull request #611 from X-GIS/feat/rhi-beginrenderpass-p0-3 ([#611](https://github.com/X-GIS/X-GIS/pull/611)) `b36e6af`
+- Merge pull request #610 from X-GIS/fix/demo-qa-sweep ([#610](https://github.com/X-GIS/X-GIS/pull/610)) `d6750fd`
+- Merge pull request #593 from X-GIS/feat/rhi-vertex-offset-p0-2 ([#593](https://github.com/X-GIS/X-GIS/pull/593)) `b13bc23`
+- Merge pull request #592 from X-GIS/feat/rhi-stencil-p0 ([#592](https://github.com/X-GIS/X-GIS/pull/592)) `410c198`
+- Merge pull request #591 from X-GIS/feat/compute-gen-ir-retarget ([#591](https://github.com/X-GIS/X-GIS/pull/591)) `a45908e`
+- Merge pull request #590 from X-GIS/feat/compiler-consume-shader-dsl ([#590](https://github.com/X-GIS/X-GIS/pull/590)) `5c4563d`
+- Merge pull request #589 from X-GIS/chore/shaderdsl-charter-tier0 ([#589](https://github.com/X-GIS/X-GIS/pull/589)) `dbd9f22`
+- Merge pull request #581 from X-GIS/feat/rhi-render-layer ([#581](https://github.com/X-GIS/X-GIS/pull/581)) `262917b`
+- Merge pull request #588 from X-GIS/fix/globe-backface-occluder ([#588](https://github.com/X-GIS/X-GIS/pull/588)) `0569cb0`
+- Merge pull request #586 from X-GIS/fix/main-render-bugs ([#586](https://github.com/X-GIS/X-GIS/pull/586)) `b4c1183`
+- Merge pull request #580 from X-GIS/fix/interaction-bugs-13 ([#580](https://github.com/X-GIS/X-GIS/pull/580)) `f9b0e96`
+- Merge pull request #579 from X-GIS/fix/library-bughunt-10 ([#579](https://github.com/X-GIS/X-GIS/pull/579)) `7528f5e`
+- Merge pull request #578 from X-GIS/site/landing-content ([#578](https://github.com/X-GIS/X-GIS/pull/578)) `b5f55c6`
+- Merge pull request #577 from X-GIS/site/hero-map-bg ([#577](https://github.com/X-GIS/X-GIS/pull/577)) `40351f5`
+- Merge pull request #576 from X-GIS/site/react-shadcn ([#576](https://github.com/X-GIS/X-GIS/pull/576)) `8f5b85d`
+- Merge pull request #575 from X-GIS/site/style-unify ([#575](https://github.com/X-GIS/X-GIS/pull/575)) `e17e369`
 - Merge remote-tracking branch 'origin/main' `73ddadb`
 - Merge remote-tracking branch 'origin/main' into feat/shader-dsl-compile-optimizer `b709ad9`
-- Merge pull request #572 from X-GIS/claude/epic-mayer-ewb9kl `963d595`
-- Merge pull request #571 from X-GIS/claude/epic-mayer-ewb9kl `8dfde73`
-- Merge pull request #570 from X-GIS/fix/shader-dsl-glsl-bare-params `7f1e377`
-- Merge pull request #569 from X-GIS/feat/shader-dsl-dogfooding `844731b`
+- Merge pull request #572 from X-GIS/claude/epic-mayer-ewb9kl ([#572](https://github.com/X-GIS/X-GIS/pull/572)) `963d595`
+- Merge pull request #571 from X-GIS/claude/epic-mayer-ewb9kl ([#571](https://github.com/X-GIS/X-GIS/pull/571)) `8dfde73`
+- Merge pull request #570 from X-GIS/fix/shader-dsl-glsl-bare-params ([#570](https://github.com/X-GIS/X-GIS/pull/570)) `7f1e377`
+- Merge pull request #569 from X-GIS/feat/shader-dsl-dogfooding ([#569](https://github.com/X-GIS/X-GIS/pull/569)) `844731b`
 - Merge Phase 3: drive point bind-group layout + uniform packing from shader-dsl reflection `4fba9a0`
 - Merge Phase 2: standalone-product (dist wiring + clean rebuild + README + examples + LICENSE) `ff013f2`
 - Merge Phase 1: emitModuleWithReflection (byte-identical) — verified tsc 0, suite 0-fail, snapshots untouched `97da4ba`
-- Merge pull request #568 from X-GIS/feat/shader-dsl-reflection-phase0 `b60b898`
-- Merge pull request #567 from X-GIS/fix/render-gate-arm-revert-token `d2a4dbe`
-- Merge pull request #566 from X-GIS/refactor/shader-dsl-move-shaders-to-runtime `b8f0d83`
-- Merge pull request #565 from X-GIS/refactor/shader-dsl-emit-module-driver `579f0e7`
-- Merge pull request #564 from X-GIS/refactor/shader-dsl-undeprecate-parity-accessors `9e78529`
-- Merge pull request #561 from X-GIS/claude/practical-mendel-bbvaiv `1cac108`
-- Merge pull request #563 from X-GIS/docs/agents-md-drift-reconcile `4051ef1`
-- Merge pull request #562 from X-GIS/docs/deepinit-shader-dsl-package `b5fe3ed`
-- Merge pull request #560 from X-GIS/claude/practical-mendel-bbvaiv `6357232`
-- Merge pull request #559 from X-GIS/claude/practical-mendel-bbvaiv `c8d29ae`
-- Merge pull request #558 from X-GIS/docs/shader-dsl-authoring-guide `172760a`
-- Merge pull request #555 from X-GIS/refactor/shader-dsl-callfn-handles `b7da3a8`
-- Merge pull request #554 from X-GIS/refactor/shader-dsl-const-handles `546c9b8`
-- Merge pull request #553 from X-GIS/feat/shader-dsl-radians-degrees `4de8cef`
-- Merge pull request #552 from X-GIS/feat/shader-dsl-literal-lift-w2 `84d4752`
-- Merge pull request #551 from X-GIS/refactor/shader-dsl-assign-method `8dc3615`
-- Merge pull request #550 from X-GIS/feat/shader-dsl-set-method `f705a0b`
-- Merge pull request #549 from X-GIS/feat/shader-dsl-switch-builder `b8f978b`
-- Merge pull request #548 from X-GIS/feat/shader-dsl-literal-lift `a379be4`
-- Merge pull request #547 from X-GIS/refactor/shader-dsl-infer-types `545b6ee`
-- Merge pull request #546 from X-GIS/refactor/shader-dsl-strip-names `0efe082`
-- Merge pull request #545 from X-GIS/refactor/shader-dsl-unify-fn `1692aeb`
-- Merge pull request #544 from X-GIS/refactor/shader-dsl-field-getter `2841427`
-- Merge pull request #543 from X-GIS/feat/shader-dsl-var-elimination `36039db`
-- Merge pull request #542 from X-GIS/feat/shader-dsl-fold-reduce `a35f7a4`
-- Merge pull request #541 from X-GIS/refactor/shader-dsl-sot-line-polygon `ef03f11`
-- Merge pull request #540 from X-GIS/feat/shader-dsl-auto-bind-cse `b17cdd0`
-- Merge pull request #539 from X-GIS/feat/shader-dsl-fn-optional-name-typed-resource `06fd426`
-- Merge pull request #538 from X-GIS/refactor/shader-dsl-decl-merge-rest `40c7efc`
-- Merge pull request #537 from X-GIS/refactor/shader-dsl-polygon-decl-merge `632fed9`
-- Merge pull request #536 from X-GIS/refactor/shader-dsl-projection-callfn `c0f0026`
-- Merge pull request #535 from X-GIS/feat/shader-dsl-optional-binding-names `697c891`
-- Merge pull request #534 from X-GIS/feat/shader-dsl-typed-object-param `ed22dd6`
-- Merge pull request #533 from X-GIS/refactor/shader-dsl-callfn-crossfile-stable `7e4c43b`
-- Merge pull request #532 from X-GIS/refactor/shader-dsl-callfn-direct-samefile `5a61139`
-- Merge pull request #531 from X-GIS/feat/shader-dsl-fn-callable `ef9b817`
-- Merge pull request #530 from X-GIS/refactor/shader-dsl-tsl-params-first `e8dfd11`
-- Merge pull request #529 from X-GIS/refactor/shader-dsl-c2-ambient-godfiles `c4ad4ff`
-- Merge pull request #528 from X-GIS/feat/shader-dsl-swizzle-getters `3eea2a0`
-- Merge pull request #527 from X-GIS/refactor/shader-dsl-sot-storage-bindings `0273d62`
-- Merge pull request #526 from X-GIS/test/absorbed-fn-gpu-parity `b5d2c87`
-- Merge pull request #525 from X-GIS/fix/shader-dsl-cpu-mix-broadcast `fe7efcf`
-- Merge pull request #524 from X-GIS/feat/shader-dsl-rastercolor-absorb-cpu-fixes `0581696`
-- Merge pull request #523 from X-GIS/feat/shader-dsl-ecef-absorb `ffa2124`
-- Merge pull request #522 from X-GIS/refactor/shader-dsl-sot-godfiles `e5c8331`
-- Merge pull request #521 from X-GIS/refactor/shader-dsl-sot-rollout-small `1755c46`
-- Merge pull request #520 from X-GIS/feat/shader-dsl-sot-storagebuffer `e564419`
-- Merge pull request #519 from X-GIS/refactor/shader-dsl-sot-rollout `cbc42c8`
-- Merge pull request #518 from X-GIS/feat/shader-dsl-sot-uniformstruct `eb49eb6`
-- Merge pull request #517 from X-GIS/feat/shader-dsl-sot-iostruct `0b81383`
-- Merge pull request #516 from X-GIS/fix/shader-dsl-validate-core-rules-only `4655ad6`
-- Merge pull request #515 from X-GIS/refactor/shader-dsl-c2-rollout-shaders `fa4283b`
-- Merge pull request #514 from X-GIS/feat/shader-dsl-lint-self-assign-fix `01974dd`
-- Merge pull request #513 from X-GIS/feat/shader-dsl-lint-autofix `1007434`
-- Merge pull request #512 from X-GIS/feat/shader-dsl-lint-report-unused-deviations `8e439eb`
-- Merge pull request #511 from X-GIS/feat/shader-dsl-lint-big-shaders `0567343`
-- Merge pull request #510 from X-GIS/feat/shader-dsl-static-analysis-report `7ad3324`
-- Merge pull request #509 from X-GIS/feat/shader-dsl-lint-rules-batch `2e8fda3`
-- Merge pull request #508 from X-GIS/refactor/shader-dsl-lint-rules-per-file `a9459f7`
-- Merge pull request #507 from X-GIS/feat/shader-dsl-lint-presets-formatter `7103081`
-- Merge pull request #506 from X-GIS/feat/shader-dsl-lint-rules-options `a0e3250`
-- Merge pull request #505 from X-GIS/feat/shader-dsl-lint-engine-advanced `532a8ce`
-- Merge pull request #504 from X-GIS/feat/shader-dsl-lint-engine `b7005aa`
-- Merge pull request #503 from X-GIS/feat/shader-dsl-misra-single-exit `b8cc07b`
-- Merge pull request #502 from X-GIS/fix/shader-dsl-explicit-early-return-returnif `8d1918e`
-- Merge pull request #501 from X-GIS/feat/shader-dsl-consistent-native-return `f00d4a3`
-- Merge pull request #500 from X-GIS/refactor/shader-dsl-c2-rollout-line2 `131bb9b`
-- Merge pull request #499 from X-GIS/feat/shader-dsl-define-fn `5a5ed8a`
-- Merge pull request #498 from X-GIS/feat/shader-dsl-typed-field-accessor `7848398`
-- Merge pull request #497 from X-GIS/feat/shader-dsl-native-return `250c4b7`
-- Merge pull request #496 from X-GIS/refactor/shader-dsl-c2-rollout-line `62ed3d1`
-- Merge pull request #495 from X-GIS/feat/shader-dsl-readability-helpers-canary `c6241ef`
-- Merge pull request #494 from X-GIS/feat/shader-dsl-readability-c2-ambient-builder `2da87dd`
-- Merge pull request #493 from X-GIS/fix/shader-dsl-validate-opacity-and-gpu-verify `8e0170e`
-- Merge pull request #492 from X-GIS/feat/shader-dsl-tsl-redesign `860c1e4`
+- Merge pull request #568 from X-GIS/feat/shader-dsl-reflection-phase0 ([#568](https://github.com/X-GIS/X-GIS/pull/568)) `b60b898`
+- Merge pull request #567 from X-GIS/fix/render-gate-arm-revert-token ([#567](https://github.com/X-GIS/X-GIS/pull/567)) `d2a4dbe`
+- Merge pull request #566 from X-GIS/refactor/shader-dsl-move-shaders-to-runtime ([#566](https://github.com/X-GIS/X-GIS/pull/566)) `b8f0d83`
+- Merge pull request #565 from X-GIS/refactor/shader-dsl-emit-module-driver ([#565](https://github.com/X-GIS/X-GIS/pull/565)) `579f0e7`
+- Merge pull request #564 from X-GIS/refactor/shader-dsl-undeprecate-parity-accessors ([#564](https://github.com/X-GIS/X-GIS/pull/564)) `9e78529`
+- Merge pull request #561 from X-GIS/claude/practical-mendel-bbvaiv ([#561](https://github.com/X-GIS/X-GIS/pull/561)) `1cac108`
+- Merge pull request #563 from X-GIS/docs/agents-md-drift-reconcile ([#563](https://github.com/X-GIS/X-GIS/pull/563)) `4051ef1`
+- Merge pull request #562 from X-GIS/docs/deepinit-shader-dsl-package ([#562](https://github.com/X-GIS/X-GIS/pull/562)) `b5fe3ed`
+- Merge pull request #560 from X-GIS/claude/practical-mendel-bbvaiv ([#560](https://github.com/X-GIS/X-GIS/pull/560)) `6357232`
+- Merge pull request #559 from X-GIS/claude/practical-mendel-bbvaiv ([#559](https://github.com/X-GIS/X-GIS/pull/559)) `c8d29ae`
+- Merge pull request #558 from X-GIS/docs/shader-dsl-authoring-guide ([#558](https://github.com/X-GIS/X-GIS/pull/558)) `172760a`
+- Merge pull request #555 from X-GIS/refactor/shader-dsl-callfn-handles ([#555](https://github.com/X-GIS/X-GIS/pull/555)) `b7da3a8`
+- Merge pull request #554 from X-GIS/refactor/shader-dsl-const-handles ([#554](https://github.com/X-GIS/X-GIS/pull/554)) `546c9b8`
+- Merge pull request #553 from X-GIS/feat/shader-dsl-radians-degrees ([#553](https://github.com/X-GIS/X-GIS/pull/553)) `4de8cef`
+- Merge pull request #552 from X-GIS/feat/shader-dsl-literal-lift-w2 ([#552](https://github.com/X-GIS/X-GIS/pull/552)) `84d4752`
+- Merge pull request #551 from X-GIS/refactor/shader-dsl-assign-method ([#551](https://github.com/X-GIS/X-GIS/pull/551)) `8dc3615`
+- Merge pull request #550 from X-GIS/feat/shader-dsl-set-method ([#550](https://github.com/X-GIS/X-GIS/pull/550)) `f705a0b`
+- Merge pull request #549 from X-GIS/feat/shader-dsl-switch-builder ([#549](https://github.com/X-GIS/X-GIS/pull/549)) `b8f978b`
+- Merge pull request #548 from X-GIS/feat/shader-dsl-literal-lift ([#548](https://github.com/X-GIS/X-GIS/pull/548)) `a379be4`
+- Merge pull request #547 from X-GIS/refactor/shader-dsl-infer-types ([#547](https://github.com/X-GIS/X-GIS/pull/547)) `545b6ee`
+- Merge pull request #546 from X-GIS/refactor/shader-dsl-strip-names ([#546](https://github.com/X-GIS/X-GIS/pull/546)) `0efe082`
+- Merge pull request #545 from X-GIS/refactor/shader-dsl-unify-fn ([#545](https://github.com/X-GIS/X-GIS/pull/545)) `1692aeb`
+- Merge pull request #544 from X-GIS/refactor/shader-dsl-field-getter ([#544](https://github.com/X-GIS/X-GIS/pull/544)) `2841427`
+- Merge pull request #543 from X-GIS/feat/shader-dsl-var-elimination ([#543](https://github.com/X-GIS/X-GIS/pull/543)) `36039db`
+- Merge pull request #542 from X-GIS/feat/shader-dsl-fold-reduce ([#542](https://github.com/X-GIS/X-GIS/pull/542)) `a35f7a4`
+- Merge pull request #541 from X-GIS/refactor/shader-dsl-sot-line-polygon ([#541](https://github.com/X-GIS/X-GIS/pull/541)) `ef03f11`
+- Merge pull request #540 from X-GIS/feat/shader-dsl-auto-bind-cse ([#540](https://github.com/X-GIS/X-GIS/pull/540)) `b17cdd0`
+- Merge pull request #539 from X-GIS/feat/shader-dsl-fn-optional-name-typed-resource ([#539](https://github.com/X-GIS/X-GIS/pull/539)) `06fd426`
+- Merge pull request #538 from X-GIS/refactor/shader-dsl-decl-merge-rest ([#538](https://github.com/X-GIS/X-GIS/pull/538)) `40c7efc`
+- Merge pull request #537 from X-GIS/refactor/shader-dsl-polygon-decl-merge ([#537](https://github.com/X-GIS/X-GIS/pull/537)) `632fed9`
+- Merge pull request #536 from X-GIS/refactor/shader-dsl-projection-callfn ([#536](https://github.com/X-GIS/X-GIS/pull/536)) `c0f0026`
+- Merge pull request #535 from X-GIS/feat/shader-dsl-optional-binding-names ([#535](https://github.com/X-GIS/X-GIS/pull/535)) `697c891`
+- Merge pull request #534 from X-GIS/feat/shader-dsl-typed-object-param ([#534](https://github.com/X-GIS/X-GIS/pull/534)) `ed22dd6`
+- Merge pull request #533 from X-GIS/refactor/shader-dsl-callfn-crossfile-stable ([#533](https://github.com/X-GIS/X-GIS/pull/533)) `7e4c43b`
+- Merge pull request #532 from X-GIS/refactor/shader-dsl-callfn-direct-samefile ([#532](https://github.com/X-GIS/X-GIS/pull/532)) `5a61139`
+- Merge pull request #531 from X-GIS/feat/shader-dsl-fn-callable ([#531](https://github.com/X-GIS/X-GIS/pull/531)) `ef9b817`
+- Merge pull request #530 from X-GIS/refactor/shader-dsl-tsl-params-first ([#530](https://github.com/X-GIS/X-GIS/pull/530)) `e8dfd11`
+- Merge pull request #529 from X-GIS/refactor/shader-dsl-c2-ambient-godfiles ([#529](https://github.com/X-GIS/X-GIS/pull/529)) `c4ad4ff`
+- Merge pull request #528 from X-GIS/feat/shader-dsl-swizzle-getters ([#528](https://github.com/X-GIS/X-GIS/pull/528)) `3eea2a0`
+- Merge pull request #527 from X-GIS/refactor/shader-dsl-sot-storage-bindings ([#527](https://github.com/X-GIS/X-GIS/pull/527)) `0273d62`
+- Merge pull request #526 from X-GIS/test/absorbed-fn-gpu-parity ([#526](https://github.com/X-GIS/X-GIS/pull/526)) `b5d2c87`
+- Merge pull request #525 from X-GIS/fix/shader-dsl-cpu-mix-broadcast ([#525](https://github.com/X-GIS/X-GIS/pull/525)) `fe7efcf`
+- Merge pull request #524 from X-GIS/feat/shader-dsl-rastercolor-absorb-cpu-fixes ([#524](https://github.com/X-GIS/X-GIS/pull/524)) `0581696`
+- Merge pull request #523 from X-GIS/feat/shader-dsl-ecef-absorb ([#523](https://github.com/X-GIS/X-GIS/pull/523)) `ffa2124`
+- Merge pull request #522 from X-GIS/refactor/shader-dsl-sot-godfiles ([#522](https://github.com/X-GIS/X-GIS/pull/522)) `e5c8331`
+- Merge pull request #521 from X-GIS/refactor/shader-dsl-sot-rollout-small ([#521](https://github.com/X-GIS/X-GIS/pull/521)) `1755c46`
+- Merge pull request #520 from X-GIS/feat/shader-dsl-sot-storagebuffer ([#520](https://github.com/X-GIS/X-GIS/pull/520)) `e564419`
+- Merge pull request #519 from X-GIS/refactor/shader-dsl-sot-rollout ([#519](https://github.com/X-GIS/X-GIS/pull/519)) `cbc42c8`
+- Merge pull request #518 from X-GIS/feat/shader-dsl-sot-uniformstruct ([#518](https://github.com/X-GIS/X-GIS/pull/518)) `eb49eb6`
+- Merge pull request #517 from X-GIS/feat/shader-dsl-sot-iostruct ([#517](https://github.com/X-GIS/X-GIS/pull/517)) `0b81383`
+- Merge pull request #516 from X-GIS/fix/shader-dsl-validate-core-rules-only ([#516](https://github.com/X-GIS/X-GIS/pull/516)) `4655ad6`
+- Merge pull request #515 from X-GIS/refactor/shader-dsl-c2-rollout-shaders ([#515](https://github.com/X-GIS/X-GIS/pull/515)) `fa4283b`
+- Merge pull request #514 from X-GIS/feat/shader-dsl-lint-self-assign-fix ([#514](https://github.com/X-GIS/X-GIS/pull/514)) `01974dd`
+- Merge pull request #513 from X-GIS/feat/shader-dsl-lint-autofix ([#513](https://github.com/X-GIS/X-GIS/pull/513)) `1007434`
+- Merge pull request #512 from X-GIS/feat/shader-dsl-lint-report-unused-deviations ([#512](https://github.com/X-GIS/X-GIS/pull/512)) `8e439eb`
+- Merge pull request #511 from X-GIS/feat/shader-dsl-lint-big-shaders ([#511](https://github.com/X-GIS/X-GIS/pull/511)) `0567343`
+- Merge pull request #510 from X-GIS/feat/shader-dsl-static-analysis-report ([#510](https://github.com/X-GIS/X-GIS/pull/510)) `7ad3324`
+- Merge pull request #509 from X-GIS/feat/shader-dsl-lint-rules-batch ([#509](https://github.com/X-GIS/X-GIS/pull/509)) `2e8fda3`
+- Merge pull request #508 from X-GIS/refactor/shader-dsl-lint-rules-per-file ([#508](https://github.com/X-GIS/X-GIS/pull/508)) `a9459f7`
+- Merge pull request #507 from X-GIS/feat/shader-dsl-lint-presets-formatter ([#507](https://github.com/X-GIS/X-GIS/pull/507)) `7103081`
+- Merge pull request #506 from X-GIS/feat/shader-dsl-lint-rules-options ([#506](https://github.com/X-GIS/X-GIS/pull/506)) `a0e3250`
+- Merge pull request #505 from X-GIS/feat/shader-dsl-lint-engine-advanced ([#505](https://github.com/X-GIS/X-GIS/pull/505)) `532a8ce`
+- Merge pull request #504 from X-GIS/feat/shader-dsl-lint-engine ([#504](https://github.com/X-GIS/X-GIS/pull/504)) `b7005aa`
+- Merge pull request #503 from X-GIS/feat/shader-dsl-misra-single-exit ([#503](https://github.com/X-GIS/X-GIS/pull/503)) `b8cc07b`
+- Merge pull request #502 from X-GIS/fix/shader-dsl-explicit-early-return-returnif ([#502](https://github.com/X-GIS/X-GIS/pull/502)) `8d1918e`
+- Merge pull request #501 from X-GIS/feat/shader-dsl-consistent-native-return ([#501](https://github.com/X-GIS/X-GIS/pull/501)) `f00d4a3`
+- Merge pull request #500 from X-GIS/refactor/shader-dsl-c2-rollout-line2 ([#500](https://github.com/X-GIS/X-GIS/pull/500)) `131bb9b`
+- Merge pull request #499 from X-GIS/feat/shader-dsl-define-fn ([#499](https://github.com/X-GIS/X-GIS/pull/499)) `5a5ed8a`
+- Merge pull request #498 from X-GIS/feat/shader-dsl-typed-field-accessor ([#498](https://github.com/X-GIS/X-GIS/pull/498)) `7848398`
+- Merge pull request #497 from X-GIS/feat/shader-dsl-native-return ([#497](https://github.com/X-GIS/X-GIS/pull/497)) `250c4b7`
+- Merge pull request #496 from X-GIS/refactor/shader-dsl-c2-rollout-line ([#496](https://github.com/X-GIS/X-GIS/pull/496)) `62ed3d1`
+- Merge pull request #495 from X-GIS/feat/shader-dsl-readability-helpers-canary ([#495](https://github.com/X-GIS/X-GIS/pull/495)) `c6241ef`
+- Merge pull request #494 from X-GIS/feat/shader-dsl-readability-c2-ambient-builder ([#494](https://github.com/X-GIS/X-GIS/pull/494)) `2da87dd`
+- Merge pull request #493 from X-GIS/fix/shader-dsl-validate-opacity-and-gpu-verify ([#493](https://github.com/X-GIS/X-GIS/pull/493)) `8e0170e`
+- Merge pull request #492 from X-GIS/feat/shader-dsl-tsl-redesign ([#492](https://github.com/X-GIS/X-GIS/pull/492)) `860c1e4`
 - shader-dsl backend-agnostic: architecture design + S0 (writer/pass/oracle separation) ([#490](https://github.com/X-GIS/X-GIS/pull/490)) `ba51669`
 - Revert "fix(tiler): overlap adjacent fill tiles to close the inter-tile MSAA seam on the globe (#372)" ([#373](https://github.com/X-GIS/X-GIS/pull/373)) `72d8faf`
 - @ fix(data): reject in-flight MVT compiles when a worker crashes `8340cc3`
@@ -2984,8 +2987,8 @@ This repo ships no versioned releases and carries no git tags, so changes are gr
 - ir: integrate fold-trivial-stops into optimize() pipeline (Plan Step 2 Phase 2d) `efdd295`
 - test+perf(phase5f): cold-start comparison legacy vs default `6c1365a`
 - test+verify(phase5e): Yellow Sea repro confirms paths are equivalent `0720084`
-- Merge pull request #52 from X-GIS/claude/improve-text-rendering-DF6ej `ad0bd4b`
-- Merge pull request #51 from X-GIS/claude/debug-white-tiles-issue-OzLwM `311a2a3`
+- Merge pull request #52 from X-GIS/claude/improve-text-rendering-DF6ej ([#52](https://github.com/X-GIS/X-GIS/pull/52)) `ad0bd4b`
+- Merge pull request #51 from X-GIS/claude/debug-white-tiles-issue-OzLwM ([#51](https://github.com/X-GIS/X-GIS/pull/51)) `311a2a3`
 - diag(mvt-pool): opt-in profile timing for message + drain `0745abc`
 - docs+demo(batch-6): site coverage + playground demo for math/step/concat `85e0625`
 - demo(import): playground demo + e2e for Mapbox style splice import `4074354`
@@ -3427,8 +3430,8 @@ This repo ships no versioned releases and carries no git tags, so changes are gr
 - Revert "perf(playground): point minimal.xgis at 110m XGVT (fixes mobile lag) (#33)" ([#34](https://github.com/X-GIS/X-GIS/pull/34)) `ca40218`
 - Reapply "fix: widen tile culling envelope by stroke-offset for render-reach (#26)" (#27) ([#28](https://github.com/X-GIS/X-GIS/pull/28)) `13bc85d`
 - Revert "fix: widen tile culling envelope by stroke-offset for render-reach (#26)" ([#27](https://github.com/X-GIS/X-GIS/pull/27)) `c8cbe80`
-- Merge pull request #2 from X-GIS/claude/polyline-shader-joins-DMxCj `0a7c383`
-- Merge pull request #1 from X-GIS/claude/polyline-shader-joins-DMxCj `18d0fd2`
+- Merge pull request #2 from X-GIS/claude/polyline-shader-joins-DMxCj ([#2](https://github.com/X-GIS/X-GIS/pull/2)) `0a7c383`
+- Merge pull request #1 from X-GIS/claude/polyline-shader-joins-DMxCj ([#1](https://github.com/X-GIS/X-GIS/pull/1)) `18d0fd2`
 - add XGIS files `6adae79`
 - demo: SDF points showcasing billboard vs flat rendering `a7ebcf9`
 - debug: simplify SDF point demo to single layer for testing `a2e6310`

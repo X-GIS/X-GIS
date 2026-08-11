@@ -11,6 +11,7 @@ import {
   parseArgs,
   parseSubject,
   renderMarkdown,
+  resolveSince,
   type RawCommit,
 } from './emit-changelog'
 
@@ -95,6 +96,17 @@ describe('parseSubject', () => {
     expect(parseSubject('other: not a real type')).toMatchObject({
       type: 'other',
       summary: 'other: not a real type',
+    })
+  })
+
+  it('links a pre-squash-era merge subject by its LEADING PR number', () => {
+    // `Merge pull request #NNN from …` carries the PR first, so the trailing-
+    // suffix capture misses it — half the shader-dsl view would be linkless.
+    expect(parseSubject('Merge pull request #123 from X-GIS/feat/foo')).toEqual({
+      type: 'other',
+      breaking: false,
+      summary: 'Merge pull request #123 from X-GIS/feat/foo',
+      pr: 123,
     })
   })
 })
@@ -241,6 +253,71 @@ describe('renderMarkdown', () => {
     expect(md.endsWith('\n')).toBe(true)
     expect(md.endsWith('\n\n')).toBe(false)
   })
+
+  it('keeps code spans verbatim — no escapes INSIDE backticks', () => {
+    // CommonMark does not process backslash escapes inside a code span, so an
+    // escaped pipe there RENDERS as `\|` (the #1656 review's corruption find).
+    const md = renderMarkdown(
+      groupCommits([commit('2026-08-05', 'feat(map): route `a | b` glyphs <fast>')]),
+      META,
+    )
+    expect(md).toContain('route `a | b` glyphs \\<fast\\>')
+  })
+
+  it('renders every entry grouping kept — the render-stage no-drop pin', () => {
+    const commits = [
+      commit('2026-08-04', 'feat(map): a'),
+      commit('2026-07-04', 'not conventional at all'),
+      commit('2026-07-03', 'perf(render): b (#7)'),
+    ]
+    const md = renderMarkdown(groupCommits(commits), META)
+    expect((md.match(/^- /gm) ?? []).length).toBe(commits.length)
+  })
+
+  it('reproduces a flagged run in the banner, with NO redirect to clobber the artifact', () => {
+    const md = renderMarkdown(groupCommits([commit('2026-08-05', 'feat(map): a')]), {
+      ...META,
+      since: 'abc123 (exclusive)',
+      sinceArg: 'abc123',
+    })
+    expect(md).toContain('Reproduce this document:')
+    expect(md).toContain('bun scripts/emit-changelog.ts --since abc123')
+    expect(md).not.toContain('> CHANGELOG.md')
+  })
+
+  it('gives the tarball consumer the --since recipe with the stamped hash', () => {
+    const md = renderMarkdown(groupCommits([commit('2026-08-05', 'feat(shader-dsl): a')]), {
+      ...META,
+      path: 'shader-dsl',
+    })
+    expect(md).toContain(`--path shader-dsl --since ${META.commit.slice(0, 12)}`)
+    expect(md).toContain('a listed commit may also')
+  })
+})
+
+describe('resolveSince', () => {
+  it('classifies a resolvable ref as a range bound', () => {
+    expect(resolveSince('abc123', () => true)).toEqual({ kind: 'ref', value: 'abc123' })
+  })
+
+  it('classifies an ISO date (all three precisions) as a date bound', () => {
+    expect(resolveSince('2026', () => false)).toEqual({ kind: 'date', value: '2026' })
+    expect(resolveSince('2026-01', () => false)).toEqual({ kind: 'date', value: '2026-01' })
+    expect(resolveSince('2026-01-15', () => false)).toEqual({ kind: 'date', value: '2026-01-15' })
+  })
+
+  it('rejects garbage LOUDLY instead of letting git approxidate read it as "now"', () => {
+    // approxidate parses "banana" as the current time → an empty document that
+    // the tarball consumer reads as "nothing changed since my tarball".
+    expect(() => resolveSince('banana', () => false)).toThrow(/neither a resolvable ref/)
+  })
+
+  it('rejects a year past the approxidate-reliable window (silent no-bound overflow)', () => {
+    // Measured on git 2.54: --since=2100-01-01 (and 2999-…) overflows to "no
+    // bound" and returns the WHOLE history — the opposite silent-wrong answer.
+    expect(() => resolveSince('2100-01-01', () => false)).toThrow(/year 1970-2099/)
+    expect(() => resolveSince('2999-01-01', () => false)).toThrow(/year 1970-2099/)
+  })
 })
 
 describe('parseArgs', () => {
@@ -267,21 +344,55 @@ describe('parseArgs', () => {
 
 describe('entrypoint', () => {
   const script = new URL('./emit-changelog.ts', import.meta.url).pathname
+  // The spawned probes below need real history: a depth-1 CI checkout has
+  // neither a local `main` ref nor `main~5`, so they self-skip there — the pure
+  // suites above still run in CI. A full local clone always runs them.
+  const hasDeepHistory =
+    spawnSync('git', ['rev-parse', '--verify', '--quiet', 'main~5^{commit}'], {
+      encoding: 'utf8',
+    }).status === 0
 
-  it('emits to stdout when run directly', () => {
+  it.skipIf(!hasDeepHistory)('emits to stdout when run directly', () => {
     const run = spawnSync('bun', [script], { encoding: 'utf8' })
     expect(run.status).toBe(0)
     expect(run.stdout.startsWith('<!--')).toBe(true)
     expect(run.stdout).toContain('# Changelog')
   })
 
-  it('runs no git and prints nothing when merely IMPORTED', () => {
+  it('prints nothing to stdout when merely IMPORTED (the entrypoint guard)', () => {
     // The import.meta.main guard is the mechanism under test: remove it and this
-    // import prints the whole changelog, so stdout stops being empty.
+    // import prints the whole changelog, so stdout stops being empty. (This pins
+    // the stdout half only — a hypothetical module-scope git call that produces
+    // no stdout would pass; the guard wraps main() whole, so none exists.)
     const run = spawnSync('bun', ['--eval', `await import(${JSON.stringify(script)})`], {
       encoding: 'utf8',
     })
     expect(run.status).toBe(0)
     expect(run.stdout).toBe('')
+  })
+
+  it.skipIf(!hasDeepHistory)('resolves a ref --since into an exclusive range (spawned)', () => {
+    const run = spawnSync('bun', [script, '--since', 'main~5'], { encoding: 'utf8' })
+    expect(run.status).toBe(0)
+    expect(run.stdout).toContain('Lower bound: main~5 (exclusive)')
+    expect(run.stdout).toContain('bun scripts/emit-changelog.ts --since main~5')
+    expect(run.stdout).not.toContain('> CHANGELOG.md')
+    expect((run.stdout.match(/^- /gm) ?? []).length).toBe(5)
+  })
+
+  it.skipIf(!hasDeepHistory)('treats an ISO-date --since as a date bound (spawned)', () => {
+    // Structural assertion only (the banner names the branch taken): asserting
+    // emptiness against a live repo would need a future date, and years >= 2100
+    // are exactly what resolveSince rejects for approxidate overflow.
+    const run = spawnSync('bun', [script, '--since', '2026-01'], { encoding: 'utf8' })
+    expect(run.status).toBe(0)
+    expect(run.stdout).toContain('Lower bound: --since=2026-01')
+    expect(run.stdout).toContain('bun scripts/emit-changelog.ts --since 2026-01')
+  })
+
+  it('rejects a --since that is neither a ref nor an ISO date (spawned)', () => {
+    const run = spawnSync('bun', [script, '--since', 'banana'], { encoding: 'utf8' })
+    expect(run.status).not.toBe(0)
+    expect(run.stderr).toContain('neither a resolvable ref')
   })
 })
