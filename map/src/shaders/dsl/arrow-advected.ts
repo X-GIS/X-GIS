@@ -529,7 +529,7 @@ export const buildArrowRetainedAdvectedModule = (): ModuleDecl =>
 export const emitArrowRetainedAdvectedWgsl = (): string =>
   emitModule(buildArrowRetainedAdvectedModule())
 
-/** GLSL ES 3.00 twin of the advected module. `emulateStorage` lowers the band table to an R32F
+/** GLSL ES 3.00 twin of the advected module. The default lowering turns the band table into an R32F
  *  data texture exactly as the static path does; the velocity textures are real textures on both
  *  arms and are read with `texelFetch`, which needs no sampler and so needs no vertex-visible
  *  sampler either. */
@@ -539,7 +539,6 @@ export const emitArrowRetainedAdvectedGlsl = (stage: 'vertex' | 'fragment'): str
   return emitGlslModule(
     { ...m, funcs: m.funcs.filter((f) => stageOf(f) === undefined || f.name === keep) },
     stage,
-    { emulateStorage: true },
   )
 }
 
@@ -551,5 +550,4 @@ export const emitArrowRetainedAdvectedGlslStages = (): { vertex: string; fragmen
   emitGlslStages(buildArrowRetainedAdvectedModule(), {
     vertexEntry: 'vs_arrow_retained_advected',
     fragmentEntry: 'fs_arrow_retained',
-    emulateStorage: true,
   })

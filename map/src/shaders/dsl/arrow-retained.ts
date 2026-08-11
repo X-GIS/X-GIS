@@ -291,8 +291,8 @@ export const buildArrowRetainedModule = (): ModuleDecl =>
 export const emitArrowRetainedWgsl = (): string => emitModule(buildArrowRetainedModule())
 
 /** GLSL ES 3.00 twin for the WebGL2 backend (#823) — same module, split per stage (GLSL is
- *  single-main-per-unit; mirrors emitIconRetainedGlsl). `emulateStorage` lowers the feat
- *  (array<f32>) + tint (array<vec4f>) storage buffers to R32F data textures, matching
+ *  single-main-per-unit; mirrors emitIconRetainedGlsl). The default storage lowering turns
+ *  the feat (array<f32>) + tint (array<vec4f>) buffers into R32F data textures, matching
  *  WebGl2Device's storage-buffer emulation. Consumed by RetainedArrowDraper behind a live
  *  `rhi.backend === 'webgl2'` guard — the WebGPU boot never pays for this emit (#778 P6). */
 export const emitArrowRetainedGlsl = (stage: 'vertex' | 'fragment'): string => {
@@ -301,7 +301,6 @@ export const emitArrowRetainedGlsl = (stage: 'vertex' | 'fragment'): string => {
   return emitGlslModule(
     { ...m, funcs: m.funcs.filter((f) => stageOf(f) === undefined || f.name === keep) },
     stage,
-    { emulateStorage: true },
   )
 }
 
@@ -313,5 +312,4 @@ export const emitArrowRetainedGlslStages = (): { vertex: string; fragment: strin
   emitGlslStages(buildArrowRetainedModule(), {
     vertexEntry: 'vs_arrow_retained',
     fragmentEntry: 'fs_arrow_retained',
-    emulateStorage: true,
   })

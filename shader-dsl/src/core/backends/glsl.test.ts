@@ -418,8 +418,8 @@ describe('glsl-es300 — storage → data-texture emulation (default-on)', () =>
     ],
   }
 
-  it('emulateStorage lowers a storage array<f32> to a sampler2D + texelFetch (no SSBO)', () => {
-    const fs = emitGlslModule(storageMod, 'fragment', { emulateStorage: true })
+  it('the storage lowering turns a storage array<f32> into a sampler2D + texelFetch (no SSBO)', () => {
+    const fs = emitGlslModule(storageMod, 'fragment')
     expect(fs).toContain('uniform sampler2D data;') // storage binding → data texture
     // data[i] → 2D-tiled fetch: ivec2(i % textureSize(data,0).x, i / textureSize(data,0).x)
     expect(fs).toMatch(
@@ -428,9 +428,14 @@ describe('glsl-es300 — storage → data-texture emulation (default-on)', () =>
     expect(fs).not.toContain('data[') // no raw array indexing survives
   })
 
-  // #1647 — WebGL2 having no SSBO is a PLATFORM fact, not a caller choice, so the
-  // lowering is default-on for any module carrying a storage binding. The opt-in flag
-  // survives (back-compat) and must be a no-op: the DEFAULT emit is byte-identical.
+  // #1647/#1649 — WebGL2 having no SSBO is a PLATFORM fact, not a caller choice, so the
+  // lowering is default-on for any module carrying a storage binding. The flag survives
+  // in the options type (back-compat, @deprecated) but the emitter no longer READS it
+  // (#1649: the old forcing read swapped the curated 'compute' diagnostic for a
+  // misleading storage-shape throw) — accepted and IGNORED, so the DEFAULT emit must be
+  // byte-identical. This is the ONE deliberate reference to the flag left in the repo —
+  // no eslint-disable is needed for it, because `no-deprecated` treats an
+  // object-literal KEY as a declaration and never reports it.
   it('the DEFAULT emit equals the {emulateStorage:true} emit byte-for-byte', () => {
     expect(emitGlslModule(storageMod, 'fragment')).toBe(
       emitGlslModule(storageMod, 'fragment', { emulateStorage: true }),
@@ -446,7 +451,7 @@ describe('glsl-es300 — storage → data-texture emulation (default-on)', () =>
 
   // #823 — the retained-icon tint buffer shape: a top-level array<vec4<f32>> element
   // reads its 4 consecutive std430 lanes (i*4 .. i*4+3) recombined with a vec4 ctor.
-  it('emulateStorage lowers a storage array<vec4f> to 4 texelFetch lanes + a vec4 ctor', () => {
+  it('the storage lowering turns a storage array<vec4f> into 4 texelFetch lanes + a vec4 ctor', () => {
     const arrVec4 = { kind: 'array', elem: vec4fT } as ShaderType
     const vecMod: ModuleDecl = {
       consts: [],
@@ -480,7 +485,7 @@ describe('glsl-es300 — storage → data-texture emulation (default-on)', () =>
         },
       ],
     }
-    const fs = emitGlslModule(vecMod, 'fragment', { emulateStorage: true })
+    const fs = emitGlslModule(vecMod, 'fragment')
     expect(fs).toContain('uniform sampler2D tint;') // storage binding → data texture
     // element 3 → base lane 3u*4u, lanes +1/+2/+3, recombined into a vec4.
     expect(fs).toMatch(/vec4\(/)

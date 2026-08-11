@@ -640,7 +640,7 @@ export function runWebgl2OverdrawProof(): Webgl2OverdrawResult {
 //
 // Proves the WebGL2 fallback can read a STORAGE buffer (point/line/heatmap feat_data) —
 // which GLSL ES 3.00 has no SSBO for — via the data-texture emulation. A storage
-// `array<f32>` is emitted (emulateStorage) as a sampler2D data texture; the fs reads
+// `array<f32>` is emitted (the default lowering) as a sampler2D data texture; the fs reads
 // data[i] (i from screen region) → texelFetch. data=[0.25,0.5,0.75,1.0]; left/mid/right
 // thirds read index 0/1/2 → grey 0.25/0.5/0.75. Renders THROUGH WebGl2Device + readback.
 const arrF32S = { kind: 'array', elem: f32T } as unknown as ShaderType
@@ -730,8 +730,8 @@ export interface Webgl2StorageResult {
 }
 
 export function runWebgl2StorageProof(): Webgl2StorageResult {
-  const vsGlsl = emitGlslModule(storageMod, 'vertex', { emulateStorage: true })
-  const fsGlsl = emitGlslModule(storageMod, 'fragment', { emulateStorage: true })
+  const vsGlsl = emitGlslModule(storageMod, 'vertex')
+  const fsGlsl = emitGlslModule(storageMod, 'fragment')
   const expected = { left: 64, mid: 128, right: 191 }
 
   const SIZE = 64
@@ -898,8 +898,8 @@ export interface Webgl2MultiStorageResult {
 }
 
 export function runWebgl2MultiStorageProof(): Webgl2MultiStorageResult {
-  const vsGlsl = emitGlslModule(multiStorageMod, 'vertex', { emulateStorage: true })
-  const fsGlsl = emitGlslModule(multiStorageMod, 'fragment', { emulateStorage: true })
+  const vsGlsl = emitGlslModule(multiStorageMod, 'vertex')
+  const fsGlsl = emitGlslModule(multiStorageMod, 'fragment')
   const expected = [76, 153, 0, 255] // 0.3→76, 0.6→153
 
   const SIZE = 32
@@ -1068,8 +1068,8 @@ export interface Webgl2BitcastResult {
 }
 
 export function runWebgl2BitcastProof(): Webgl2BitcastResult {
-  const vsGlsl = emitGlslModule(bitcastMod, 'vertex', { emulateStorage: true })
-  const fsGlsl = emitGlslModule(bitcastMod, 'fragment', { emulateStorage: true })
+  const vsGlsl = emitGlslModule(bitcastMod, 'vertex')
+  const fsGlsl = emitGlslModule(bitcastMod, 'fragment')
   const expected = [52, 200, 0, 255] // lane0 low byte 0x34, lane1 (denormal) low byte 0xC8
 
   const SIZE = 32
@@ -1220,8 +1220,8 @@ export interface Webgl2TiledResult {
 }
 
 export function runWebgl2TiledStorageProof(): Webgl2TiledResult {
-  const vsGlsl = emitGlslModule(tiledMod, 'vertex', { emulateStorage: true })
-  const fsGlsl = emitGlslModule(tiledMod, 'fragment', { emulateStorage: true })
+  const vsGlsl = emitGlslModule(tiledMod, 'vertex')
+  const fsGlsl = emitGlslModule(tiledMod, 'fragment')
   const expected = [76, 153, 0, 255] // data[100]=0.3→76, data[2500]=0.6→153
 
   const SIZE = 32
@@ -1371,8 +1371,8 @@ export interface Webgl2StridedResult {
 }
 
 export function runWebgl2StridedProof(): Webgl2StridedResult {
-  const vsGlsl = emitGlslModule(stridedMod, 'vertex', { emulateStorage: true })
-  const fsGlsl = emitGlslModule(stridedMod, 'fragment', { emulateStorage: true })
+  const vsGlsl = emitGlslModule(stridedMod, 'vertex')
+  const fsGlsl = emitGlslModule(stridedMod, 'fragment')
   const expected = { left: 102, right: 179 } // data[2]=0.4→102, data[6]=0.7→179
 
   const SIZE = 64
@@ -1447,7 +1447,7 @@ export function pointEmitAttempt(): Record<string, string> {
   const out: Record<string, string> = {}
   for (const stage of ['vertex', 'fragment'] as const) {
     try {
-      const s = emitGlslModule(buildPointModule(), stage, { emulateStorage: true })
+      const s = emitGlslModule(buildPointModule(), stage)
       out[stage] = `OK (${s.length} chars)`
     } catch (e) {
       out[stage] = 'THROW: ' + (e as Error).message
@@ -1549,8 +1549,8 @@ export function runWebgl2StructStorageProof(): Webgl2StructStorageResult {
   let vsGlsl = '',
     fsGlsl = ''
   try {
-    vsGlsl = emitGlslModule(structStorageMod, 'vertex', { emulateStorage: true })
-    fsGlsl = emitGlslModule(structStorageMod, 'fragment', { emulateStorage: true })
+    vsGlsl = emitGlslModule(structStorageMod, 'vertex')
+    fsGlsl = emitGlslModule(structStorageMod, 'fragment')
   } catch (e) {
     return {
       fatal: 'emit: ' + (e as Error).message,
@@ -1716,7 +1716,7 @@ function compileLinkAttempt(emitStage: (stage: 'vertex' | 'fragment') => string)
 
 /** A synthetic PointVariantSpec carrying BOTH a real fillExpr/strokeExpr AND non-empty
  *  preamble consts/funcs — #1605 Phase 3's specific untested combination: does
- *  `emulateStorage`'s storage→data-texture lowering coexist with a composed module's
+ *  the default storage→data-texture lowering coexist with a composed module's
  *  injected preamble when actually compiled on real WebGL2 (not just emitted as text)?
  *  Mirrors the shape a real `match()`-authored @color body would produce. */
 export function testPointVariant(): PointVariantSpec {
@@ -1770,11 +1770,9 @@ export function testLineVariant(): LineVariantSpec {
 
 /** REAL point shader compile+link, optionally with a composer variant (null = the default
  *  no-variant module, matching the original US-006 gate; a real variant exercises #1605
- *  Phase 3's untested emulateStorage-vs-preamble combination). */
+ *  Phase 3's untested storage-lowering-vs-preamble combination). */
 export function pointLinkAttempt(variant: PointVariantSpec | null = null): PointLinkResult {
-  return compileLinkAttempt((stage) =>
-    emitGlslModule(buildPointModule(variant), stage, { emulateStorage: true }),
-  )
+  return compileLinkAttempt((stage) => emitGlslModule(buildPointModule(variant), stage))
 }
 
 /** REAL line shader compile+link, the point sibling above. `pickEnabled` is always false —

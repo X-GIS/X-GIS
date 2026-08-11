@@ -5,7 +5,7 @@ import { test, expect } from '@playwright/test'
 // ("matching the retained-icon path"); the retained-icon path since grew a GLSL ES 3.00 twin
 // (#823, emitIconRetainedGlsl). This gate is the arrow sibling of _graphics-retained-gl2-gate:
 // it proves emitArrowRetainedGlsl (same shader-dsl module, feat/tint storage lowered to R32F
-// data textures, emulateStorage) drives WebGl2Device with no gl/validation error and rasterises
+// data textures by default) drives WebGl2Device with no gl/validation error and rasterises
 // the arrow silhouette — a path that could not exist at all before the twin.
 //
 // A single SOLID-RED arrow is anchored at the hash camera centre pointing due EAST (getBearing
