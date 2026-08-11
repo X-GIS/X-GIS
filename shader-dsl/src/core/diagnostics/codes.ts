@@ -124,10 +124,15 @@ export const CODES = {
     summary: 'smoothstep with constant edge0 >= edge1 (undefined in GLSL ES)',
     hint: 'write 1 − smoothstep(lo, hi, x) instead of reversing the edges',
   },
+  // The hint is deliberately GENERIC and enumerates NO fix family (#1654): the
+  // per-builtin fix lives in the rule's FRAGMENT_ONLY_IDS table (the single
+  // fix-authority) and reaches the reader through the diagnostic's own message.
+  // Enumerating families here would re-create the untested sync contract that
+  // table replaced — one new family and the catalogue would lie again.
   SD0109: {
     code: 'SD0109',
     summary: 'a fragment-only builtin is reachable from a vertex or compute entry',
-    hint: 'use textureSampleLevel(tex, smp, uv, level) — an explicit LOD needs no derivatives',
+    hint: 'the fix is per-builtin and named in the diagnostic message itself — the fragment-only-builtin rule table (FRAGMENT_ONLY_IDS) is the single fix-authority',
   },
 } as const satisfies Record<string, ErrorCodeDef>
 

@@ -558,7 +558,9 @@ texture/sampler ops are type-checked. `r.binding` goes in the `bindings:` array.
 
 `textureSample` uses an **implicit LOD** from screen-space derivatives, so it is
 **fragment-only** (a vertex/compute use is an SD0109 lint error). Read an explicit level
-instead with `textureSampleLevel(tex, smp, uv, level)` — legal in every stage.
+instead with `textureSampleLevel(tex, smp, uv, level)` — legal in every stage. The
+derivative builtins `fwidth` / `dpdx` / `dpdy` are fragment-only the same way (SD0109,
+#1654) — no vertex/compute form exists, so precompute the quantity and pass it in.
 
 #### 2D array textures — `texture2dArrayfT`
 

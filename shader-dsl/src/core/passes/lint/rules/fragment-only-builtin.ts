@@ -2,14 +2,24 @@ import type { LintRule } from '../engine'
 import { stageOf } from '../../../ir'
 import { collectFnRefs, emptyRefSet } from '../../../ir/collect-refs'
 
-/** Fragment-only builtin id -> the fix its message must name. Table-driven so a
- *  further derivative builtin (dpdx / dpdy / fwidth — also fragment-only in WGSL)
- *  joins by adding ONE row; deliberately not added here (#1650 scope). The FIRST
- *  row's string is byte-identical to the SD0109 catalogue hint (codes.ts) — one
- *  string, two surfaces, the smoothstep-edge-order sibling's convention (§12: no
- *  second authority). Later rows carry their own SHAPE-SPECIFIC fix (the array form
- *  needs the layer argument named); generalizing the catalogue hint to cover them
- *  is #1654's, deliberately not done here. */
+/** The derivative builtins (#1654) share ONE fix: unlike the texture rows there is
+ *  no drop-in same-shape alternative — a screen-space derivative simply does not
+ *  exist outside a fragment invocation, so the quantity has to come from elsewhere. */
+const DERIVATIVE_FIX =
+  'precompute the quantity and pass it in (a per-vertex varying, a CPU-computed uniform, or finite differences of neighboring samples) — derivatives exist only in a fragment invocation'
+
+/** Fragment-only builtin id -> the fix its message must name. Table-driven, so a
+ *  further fragment-only builtin joins by adding ONE row.
+ *
+ *  THIS TABLE IS THE SINGLE FIX-AUTHORITY (#1654). It now holds three fix families —
+ *  the explicit-LOD texture form, its array form (whose fix must name the layer
+ *  argument), and the derivatives (no same-shape alternative exists at all) — so the
+ *  SD0109 catalogue hint (codes.ts) is deliberately GENERIC and points the reader at
+ *  the diagnostic's own message; it is NOT a copy of any row. That replaces #1650's
+ *  "first row byte-identical to the catalogue hint / one string, two surfaces"
+ *  convention, which nothing ever enforced (no test compared the two) and which
+ *  #1651's array row had already broken. Per-id hints are pinned where they are
+ *  authored: this rule's tests. */
 const FRAGMENT_ONLY_IDS: ReadonlyMap<string, string> = new Map([
   [
     'textureSample',
@@ -19,20 +29,25 @@ const FRAGMENT_ONLY_IDS: ReadonlyMap<string, string> = new Map([
     'textureSampleArray',
     'use textureSampleLevel(tex, smp, uv, layer, level) — an explicit LOD needs no derivatives',
   ],
+  ['dpdx', DERIVATIVE_FIX],
+  ['dpdy', DERIVATIVE_FIX],
+  ['fwidth', DERIVATIVE_FIX],
 ])
 
 /** A fragment-only builtin must not be reachable from a VERTEX or COMPUTE entry.
  *
  *  `textureSample` derives its mip level from screen-space derivatives, which exist
  *  only in a fragment invocation — WGSL therefore rejects it in any other stage, and
- *  the failure surfaces as an opaque naga/driver error far from the call site.
+ *  the failure surfaces as an opaque naga/driver error far from the call site. The
+ *  derivative builtins themselves (`dpdx` / `dpdy` / `fwidth`, #1654) are fragment-only
+ *  for the same reason.
  *
  *  Reachability is the call-graph closure from each non-fragment entry over the
  *  module's own fns (collectFnRefs — the collector stageScope also uses), so a builtin
  *  buried two helpers deep is caught too. A helper reachable only from a fragment
  *  entry is fine; one reachable from BOTH is flagged, because it is emitted into the
- *  vertex/compute stage as well. A module with no non-fragment entry (helper-only /
- *  runtime-composed) is silent by construction.
+ *  vertex/compute stage as well (pinned by a dual-entry test, #1654). A module with no
+ *  non-fragment entry (helper-only / runtime-composed) is silent by construction.
  *
  *  `raw` Stmts: collectFnRefs cannot see a call made inside raw WGSL text (its
  *  documented contract), so a raw-only edge makes this rule UNDER-report — never
