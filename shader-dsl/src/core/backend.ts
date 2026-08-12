@@ -26,8 +26,46 @@ import { ShaderDslError } from './diagnostics/error'
 // DECLARES the caps it needs there (surfaced publicly via the ir barrel). This file is
 // the BACKEND side: which caps a target HAS (Capabilities), consuming the type only.
 
+/** What ONE capability costs on ONE target (#1670) — the row of a backend's
+ *  `capProfile`. Both fields are optional and mean different things:
+ *  - `directive` — the token the EMITTED SOURCE must carry for this target to accept
+ *    the feature: WGSL `enable <directive>;`, GLSL ES 3.00
+ *    `#extension <directive> : require`. Absent ⇒ the feature costs zero emitted bytes.
+ *  - `hostFeature` — what the HOST must activate before pipeline creation:
+ *    `gl.getExtension('<hostFeature>')` on WebGL2, a `requiredFeatures: ['<hostFeature>']`
+ *    entry on WebGPU. Absent ⇒ core on that target, nothing to request.
+ *  An EMPTY row (`{}`) is meaningful: the target supports the cap outright — no
+ *  directive, no host activation (WGSL storage buffers, WebGPU float render targets). */
+export interface CapSupport {
+  readonly directive?: string
+  readonly hostFeature?: string
+}
+
+/** THE per-backend capability table (#1670) — the SINGLE authority for what a target
+ *  supports. Membership is support: a cap with a row is spellable on this target, a cap
+ *  without one fails closed at assertCaps naming it. Coverage is DERIVED from the keys
+ *  (`Capabilities.fromProfile`), the directive header from the rows' `directive`s, and
+ *  the host-activation list from their `hostFeature`s (`hostFeaturesFor`) — so the three
+ *  cannot drift apart. This replaced the hand-synced `caps`-set + `WGSL_ENABLE`-map pair
+ *  the WGSL backend used to carry (CLAUDE.md §12, the second-ratchet lesson). */
+export type CapProfile = Readonly<Partial<Record<Capability, CapSupport>>>
+
 export class Capabilities {
   constructor(private readonly set: ReadonlySet<Capability>) {}
+  /** The caps a `capProfile` declares — its KEYS. The only way a coverage decision
+   *  should be made, so profile membership and capability coverage are one fact (#1670). */
+  static fromProfile(profile: CapProfile): Capabilities {
+    // Filter explicitly-undefined rows: `exactOptionalPropertyTypes` is OFF in this
+    // repo, so `{ f16: undefined }` typechecks as a CapProfile and its key would
+    // otherwise count as support for a cap the target cannot spell.
+    return new Capabilities(
+      new Set(
+        Object.entries(profile)
+          .filter(([, v]) => v !== undefined)
+          .map(([k]) => k) as Capability[],
+      ),
+    )
+  }
   has(c: Capability): boolean {
     return this.set.has(c)
   }
@@ -43,9 +81,33 @@ export class Capabilities {
   }
 }
 
+/** THE host-activation lookup (#1670): the concrete per-target feature strings a host
+ *  must have ACTIVE before it creates a pipeline for a module needing `caps` — WebGL2
+ *  `gl.getExtension('EXT_color_buffer_float')`, WebGPU
+ *  `requestDevice({ requiredFeatures: ['float32-filterable'] })`.
+ *
+ *  Feed it `reflect(m).requiredFeatures`. Rows with no `hostFeature` (the cap is core on
+ *  this target, or purely a source directive) contribute NOTHING — which is why this
+ *  exists as one function rather than a `.map(c => be.capProfile[c]?.hostFeature)` at
+ *  each call site: that shape yields `undefined` holes a host then passes to
+ *  `getExtension` / `requiredFeatures` verbatim. */
+export function hostFeaturesFor(be: Backend, caps: readonly Capability[]): readonly string[] {
+  return caps.flatMap((c) => {
+    const h = be.capProfile[c]?.hostFeature
+    return h === undefined ? [] : [h]
+  })
+}
+
 export interface Backend {
   readonly id: string
-  readonly caps: Capabilities
+  /** THE capability table for this target (#1670) — neutral id → { directive?,
+   *  hostFeature? }, and the ONLY capability authority a backend carries. Coverage is
+   *  `Capabilities.fromProfile(capProfile)` (assertCaps / diagnose build it on the spot —
+   *  9 keys), `modulePreamble` reads the `directive` fields off the same rows, and
+   *  `hostFeaturesFor` the `hostFeature`s, so a cap cannot be supported-but-undirected
+   *  (or directed-but-unsupported) by construction. Add a target's support for a feature
+   *  by adding ONE row. */
+  readonly capProfile: CapProfile
   /** OPTIONAL — the `@builtin(<id>)` ids this target GENUINELY LACKS (#1672), each
    *  mapped to the message tail printed after `<backend id>: @builtin(<id>)`. The
    *  shared pre-pass (passes/required-caps.ts `assertBuiltins`, run from
@@ -123,13 +185,25 @@ export interface Backend {
    *  `optimize:`). Kept per-backend so a target can still diverge without touching
    *  the shared driver. Runs after lowerModule(autoVars(m)), before assembly. */
   optimize(lowered: ModuleDecl): ModuleDecl
-  /** OPTIONAL module header emitted BEFORE any declaration — the WGSL writer's
-   *  `enable <ext>;` directives for the module's opt-in language-feature caps
-   *  (`m.enables`, #628). A backend with no such directive surface omits this (GLSL
-   *  ES 3.00 — an enable-requiring module already fails closed at assertCaps, so a
-   *  non-empty result is never reached). Returns '' when there is nothing to emit, so
-   *  enables-free emit stays byte-identical. Derived from the AUTHORED module (the
-   *  lowering passes rebuild the module object and do not carry `enables`). */
+  /** OPTIONAL module header carrying the SOURCE-LEVEL directives the module's declared
+   *  caps need on this target (#628, #1670): one line per `m.enables` entry whose
+   *  `capProfile` row has a `directive` — WGSL `enable <d>;`, GLSL ES 3.00
+   *  `#extension <d> : require` — deduped + sorted for a deterministic byte order.
+   *
+   *  ONE contract for every backend: the directive LINES joined by '\n', with NO
+   *  trailing separator, and '' when nothing is directed (every declared cap host-side,
+   *  or none declared). Separation from what follows belongs to the assembler, not here —
+   *  a per-backend trailing rule was a second thing to keep in sync, and the caller
+   *  already knows its own slot. WHERE the string lands IS the target assembler's
+   *  business, because the two targets have different legal slots: the shared WGSL driver
+   *  PREPENDS it to the whole module (emit.ts, adding its own blank line), while the GLSL
+   *  assembler SPLICES it as one `parts` entry after `#version 300 es` (ES 3.00 §3.4 —
+   *  `#extension` must precede any non-preprocessor token, and `#version` must lead the
+   *  file). Both are fed the AUTHORED module: `enables` is an authoring-level
+   *  declaration, and reading it off the lowered module would make the header depend on
+   *  every pass preserving it — the exact sibling-divergence this repo pays for.
+   *  (`fp64Lower` does now carry `enables` through its rebuild, #1670, but that is for
+   *  reflection of a lowered module — not a licence to derive the header from one.) */
   modulePreamble?(m: ModuleDecl): string
 }
 

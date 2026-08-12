@@ -8,7 +8,22 @@
 // place, same voice, per-backend sets.
 
 import { stageOf, type ModuleDecl, type Capability } from '../ir'
-import { type Backend, UnsupportedFeatureError } from '../backend'
+import { Capabilities, type Backend, UnsupportedFeatureError } from '../backend'
+
+/** Capability DEPENDENCIES (#1670) — declaring the key implies needing the values, so a
+ *  host activating off `reflect().requiredFeatures` gets the whole set rather than the
+ *  half the author happened to name.
+ *
+ *  `float32Blend ⇒ floatRenderTarget` was discovered the expensive way, in this repo's
+ *  own WebGL2 device: rhi-webgl2/src/rhi-webgl2.ts ~:668-676 ANDs `EXT_color_buffer_float`
+ *  with `EXT_float_blend` before enabling either, because blending INTO a float target
+ *  needs that target to be color-renderable first — with only EXT_float_blend the FBO is
+ *  INCOMPLETE and every draw raises GL_INVALID_FRAMEBUFFER_OPERATION. Encoding it here
+ *  means a module says `enables: ['float32Blend']` and the host still learns it must
+ *  activate both. */
+const CAP_IMPLIES: Readonly<Partial<Record<Capability, readonly Capability[]>>> = {
+  float32Blend: ['floatRenderTarget'],
+}
 
 /** The capabilities a module's emit requires. */
 export function requiredCaps(m: ModuleDecl): Capability[] {
@@ -26,6 +41,20 @@ export function requiredCaps(m: ModuleDecl): Capability[] {
   // in here so assertCaps gates them exactly like the derived resource caps (fail-closed
   // on GLSL); the WGSL backend then emits the matching `enable <ext>;` for each.
   for (const c of m.enables ?? []) caps.add(c)
+  // Transitive closure over CAP_IMPLIES, to a fixed point. Today's table is depth 1, so
+  // one pass would do — written as a loop anyway, because a future row implying a cap
+  // that itself implies another must not need this code re-read to stay correct.
+  let grew = true
+  while (grew) {
+    grew = false
+    for (const c of [...caps]) {
+      for (const dep of CAP_IMPLIES[c] ?? []) {
+        if (caps.has(dep)) continue
+        caps.add(dep)
+        grew = true
+      }
+    }
+  }
   return [...caps]
 }
 
@@ -66,8 +95,12 @@ export function assertBuiltins(backend: Backend, m: ModuleDecl): void {
 /** Throw UnsupportedFeatureError if `backend` cannot cover everything `m` needs. */
 export function assertCaps(backend: Backend, m: ModuleDecl): void {
   const req = requiredCaps(m)
-  if (!backend.caps.covers(req)) {
-    const missing = backend.caps.missing(req)
+  // Coverage is DERIVED from the one authority (#1670) — the backend carries the
+  // `capProfile` table and nothing else; a cached `caps` field beside it was a second
+  // place the same fact could live. Built once per call, over 9 keys.
+  const caps = Capabilities.fromProfile(backend.capProfile)
+  if (!caps.covers(req)) {
+    const missing = caps.missing(req)
     throw new UnsupportedFeatureError(
       `backend '${backend.id}' cannot emit this module — missing capabilities: ${missing.join(', ')}`,
     )

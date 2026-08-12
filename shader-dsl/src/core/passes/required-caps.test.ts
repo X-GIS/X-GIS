@@ -116,7 +116,7 @@ describe('capabilities — requiredCaps + assertCaps (#9)', () => {
     expect(requiredCaps(arrayTexMod())).toEqual([])
   })
 
-  it('assertCaps passes a 2d-array module on the EMPTY-caps GLSL backend', () => {
+  it('assertCaps passes a 2d-array module on the GLSL backend (whose profile has no row for it)', () => {
     expect(() => assertCaps(glslEs300Backend, arrayTexMod())).not.toThrow()
   })
 

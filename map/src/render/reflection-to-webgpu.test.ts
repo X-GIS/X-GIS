@@ -60,6 +60,8 @@ describe('reflectionToBindGroupLayoutEntries', () => {
       storage: [],
       entries: [],
       overrides: [],
+      // #1670 — always-present, like `overrides`; this synthetic fixture needs none.
+      requiredFeatures: [],
     }
     expect(reflectionToBindGroupLayoutEntries(synthetic, new Map([[0, F]]))).toEqual([
       { binding: 0, visibility: F, buffer: { type: 'storage' } },

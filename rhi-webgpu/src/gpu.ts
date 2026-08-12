@@ -171,6 +171,12 @@ export async function createWebGpuContext(
   // ×2 + mix manual interp instead — bind-group layout uses
   // `unfilterable-float` sampleType in that case. Both paths produce
   // visually-identical output.
+  // 'float32-filterable' is the WGSL `capProfile`'s `hostFeature` for the neutral
+  // `float32Filterable` cap (shader-dsl backends/wgsl.ts, #1670) — that profile is the
+  // vocabulary this string must stay in sync with, and it is also why a module must be
+  // checked against the device HERE: WebGPU requiredFeatures are fixed at requestDevice,
+  // so pipeline-creation time is too late. Deriving the list from the profile
+  // (`hostFeaturesFor`) is a recorded follow-up, not today's change.
   let float32FilterableSupported = false
   if (adapter.features.has('float32-filterable')) {
     requiredFeatures.push('float32-filterable')

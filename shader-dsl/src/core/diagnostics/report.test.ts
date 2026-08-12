@@ -1,17 +1,25 @@
 import { describe, it, expect } from 'vitest'
 import { diagnose, formatReport } from './report'
 import { module, fn, f32T, f32 } from '../ir'
-import type { Backend } from '../backend'
+import type { Backend, CapProfile } from '../backend'
 
 // A minimal backend stub that covers everything EXCEPT compute — diagnose() reads only
-// `id` and `caps.covers/missing`, so we don't need a full Backend implementation.
-const noComputeBackend = {
-  id: 'stub',
-  caps: {
-    covers: (req: readonly string[]) => !req.includes('compute'),
-    missing: (req: readonly string[]) => req.filter((c) => c === 'compute'),
-  },
-} as unknown as Backend
+// `id` and `capProfile`, so we don't need a full Backend implementation.
+//
+// #1670: the stub declares a real `capProfile` (coverage is DERIVED from its keys) rather
+// than the hand-rolled `caps.covers/missing` pair it used to fake. That pair could answer
+// differently from any real backend's; a profile literal cannot.
+const noComputeProfile: CapProfile = {
+  storageBuffer: {},
+  msaaTextureLoad: {},
+  f16: {},
+  subgroups: {},
+  floatRenderTarget: {},
+  float32Blend: {},
+  float32Filterable: {},
+  multiview: {},
+}
+const noComputeBackend = { id: 'stub', capProfile: noComputeProfile } as unknown as Backend
 
 describe('diagnose / formatReport', () => {
   it('returns a structured report with a summary', () => {

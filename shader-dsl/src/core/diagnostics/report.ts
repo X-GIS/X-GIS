@@ -11,7 +11,7 @@
 // and it runs over the AUTHORED module (before lowering), so reported `loc`s resolve.
 
 import type { ModuleDecl } from '../ir'
-import type { Backend } from '../backend'
+import { Capabilities, type Backend } from '../backend'
 import {
   lint,
   summarize,
@@ -45,8 +45,12 @@ export function diagnose(m: ModuleDecl, opts?: DiagnoseOptions): DiagnosticRepor
 
   if (opts?.backend) {
     const req = requiredCaps(m)
-    if (!opts.backend.caps.covers(req)) {
-      const missing = opts.backend.caps.missing(req)
+    // Derived from the backend's ONE capability authority, exactly as assertCaps does
+    // (#1670) — this non-throwing check and the throwing gate must not read two
+    // different surfaces. Built once per call, over 9 keys.
+    const caps = Capabilities.fromProfile(opts.backend.capProfile)
+    if (!caps.covers(req)) {
+      const missing = caps.missing(req)
       diagnostics.push({
         ruleId: 'unsupported-capability',
         severity: 'error',

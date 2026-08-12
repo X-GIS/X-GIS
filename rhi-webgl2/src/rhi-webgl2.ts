@@ -669,7 +669,7 @@ export class WebGl2Device implements RhiDevice {
     // color-renderable — without it the offscreen FBO is INCOMPLETE and every draw raises
     // GL_INVALID_FRAMEBUFFER_OPERATION. EXT_float_blend likewise unlocks blending INTO the
     // float target (the additive Gaussian accumulation). Both are null-safe getExtension
-    // calls; the cap below still reads the presence list so its value is unchanged.
+    // calls; the cap below still reads the presence list so its value is unchanged. (This AND is shader-dsl's CAP_IMPLIES float32Blend⇒floatRenderTarget evidence, #1670.)
     const floatBlend = exts.includes('EXT_color_buffer_float') && exts.includes('EXT_float_blend')
     if (floatBlend) {
       gl.getExtension('EXT_color_buffer_float')

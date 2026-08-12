@@ -20,8 +20,8 @@
 //
 // FAIL-CLOSED (GLSL ES 3.00 has no compute / MSAA-load): a `@compute` entry and a
 // multisampled-texture load raise UnsupportedFeatureError — enforced UP FRONT by
-// the shared capability gate (assertCaps, run inside lowerForBackend) because
-// glslEs300Backend.caps is the empty set, so this writer never sees such a module.
+// the shared capability gate (assertCaps, run inside lowerForBackend) because neither
+// cap has a row in GLSL_CAP_PROFILE, so this writer never sees such a module.
 // A `storage` binding is different: WebGL2 having no SSBO is a PLATFORM fact, not a
 // caller choice, so emitGlslModule lowers storage to a data texture BY DEFAULT (see
 // the emulation section below) — the caps gate then sees no storage binding at all.
@@ -36,7 +36,7 @@
 import type { ShaderType, ModuleDecl, StructDecl, BindingDecl, FuncDecl, Expr, Stmt } from '../ir'
 import { texture2dfT, u32T, f32T, vec4fT, stageOf } from '../ir'
 import { collectFnRefs, emptyRefSet, typeStructNames } from '../ir/collect-refs'
-import { Capabilities, UnsupportedFeatureError, type Backend } from '../backend'
+import { UnsupportedFeatureError, type Backend, type CapProfile } from '../backend'
 import { spellIntrinsic, INTRINSIC_BINDING_REFS } from '../intrinsics'
 import { bodyHasRaw } from '../passes/opt/dce'
 import { dslError } from '../diagnostics/error'
@@ -264,9 +264,43 @@ function structByName(structs: ReadonlyMap<string, StructDecl>, name: string): S
 // the divergent WGSL→GLSL mappings (atan2→atan, bitcastU32→floatBitsToUint,
 // textureSample→texture, select→ternary, …) live there as the single SoT, so this
 // writer no longer needs its own rename table.
+/** THE GLSL ES 3.00 / WebGL2 capability table (#1670) — what this target supports and
+ *  what each cap costs: a `hostFeature` the host must `gl.getExtension(...)` before
+ *  pipeline creation, and (for the one cap that needs it) the `#extension` token the
+ *  emitted source must carry. Coverage derives from these KEYS, so a cap is supported
+ *  iff it has a row.
+ *
+ *  NO rows for `storageBuffer` / `compute` / `msaaTextureLoad` (WebGL2 has no SSBOs, no
+ *  compute stage, no MSAA texel fetch) and none for `f16` / `subgroups` (WGSL `enable`
+ *  language features with no GLSL ES 3.00 counterpart). FOUR of the five fail closed
+ *  here, naming the cap; `storageBuffer` is the exception and does NOT — a storage module
+ *  is REWRITTEN to a data texture (lowerStorageToDataTexture) BEFORE the gate runs, so by
+ *  the time assertCaps looks there is no storage binding left to require it. The
+ *  profile's emptiness for all five is the pinned invariant either way, not an oversight
+ *  (extension-profile.test.ts, passes/required-caps.test.ts, enable-directives.test.ts).
+ *
+ *  The three HOST-side rows cost ZERO emitted bytes: WebGL2 activates them through
+ *  `gl.getExtension`, and GLSL ES 3.00 has no source token for any of them (a shader
+ *  writing to an RGBA32F attachment is spelled exactly like one writing to RGBA8). */
+const GLSL_CAP_PROFILE: CapProfile = {
+  floatRenderTarget: { hostFeature: 'EXT_color_buffer_float' },
+  float32Blend: { hostFeature: 'EXT_float_blend' },
+  float32Filterable: { hostFeature: 'OES_texture_float_linear' },
+  // The one SOURCE-DIRECTIVE cap: the shader itself must declare it (ES 3.00 §3.4), AND
+  // the host must have the extension — hence both fields.
+  //
+  // TRUTH IN ADVERTISING (#1670): this row buys the `#extension` MECHANISM, not
+  // multiview AUTHORING. The DSL has no way to spell the other two halves — the
+  // `layout(num_views = N) in;` qualifier and the `gl_ViewID_OVR` builtin — so a module
+  // declaring `multiview` today emits the directive and then renders SINGLE-VIEW. It
+  // exists to prove the directive path end to end; real multiview authoring is a
+  // follow-up, and no consumer should read this row as "the DSL can do multiview".
+  multiview: { directive: 'GL_OVR_multiview2', hostFeature: 'OVR_multiview2' },
+}
+
 export const glslEs300Backend: Backend = {
   id: 'glsl-es300',
-  caps: new Capabilities(new Set()), // no storage buffers, no compute, no MSAA-load on WebGL2
+  capProfile: GLSL_CAP_PROFILE,
   typeName: glslType,
   literal: glslLit,
   intrinsic: (name, args) => spellIntrinsic('glsl', name, args),
@@ -355,6 +389,34 @@ export const glslEs300Backend: Backend = {
   // uvec2(textureSize(…))) — otherwise CSE hoisting it into a typed local is a GLSL
   // int/uint compile error. Gated by the real-WebGL2 link gate (_glsl-real-shader-link-gate).
   optimize: (m) => fixpoint(m),
+  // The `#extension` header (#1670) — one `#extension <token> : require` per declared
+  // cap whose PROFILE ROW carries a directive, deduped + sorted for a deterministic
+  // byte order. `: require` (never `: enable`): a module that DECLARED the cap cannot
+  // compile correctly without it, so a driver lacking it must say so at compileShader
+  // rather than silently ignore the feature.
+  //
+  // Returns '' when nothing is directed — which is EVERY module today except a
+  // multiview one, since the other three GLSL rows are host-side. assembleGlsl splices
+  // the result at parts index 1, right after `#version 300 es` (ES 3.00 §3.4:
+  // `#extension` must precede any non-preprocessor token) and BEFORE the precision
+  // lines, and skips the splice entirely on '' so every other module keeps its exact
+  // header bytes. It is NOT prepended by emit.ts's generic driver the way the WGSL
+  // header is: `#version` must lead the file, and the GLSL path does not route through
+  // that driver at all (emitGlslModule → lowerForGlsl + assembleGlsl).
+  //
+  // Bare lines, NO trailing separator — the one contract every backend's preamble keeps
+  // (backend.ts); here the caller splices the result as ONE `parts` entry and `parts` are
+  // joined with '\n', so the separator is already the assembler's.
+  modulePreamble: (m) => {
+    const dirs = (m.enables ?? [])
+      .map((c) => GLSL_CAP_PROFILE[c]?.directive)
+      .filter((d): d is string => d !== undefined)
+    if (dirs.length === 0) return ''
+    return [...new Set(dirs)]
+      .sort()
+      .map((d) => `#extension ${d} : require`)
+      .join('\n')
+  },
 }
 
 /** Emit a std140 UBO block for a uniform struct binding. The block tag is the STRUCT
@@ -522,7 +584,7 @@ function emitGlslEntry(f: FuncDecl, structs: ReadonlyMap<string, StructDecl>): s
  *  reflection layout engine for uniform std140 offsets. The shared preamble
  *  (lowerForBackend) runs validate → assertCaps → optimize(lowerModule(autoVars)) — the
  *  assertCaps step fails closed (UnsupportedFeatureError) on compute/MSAA BEFORE any GLSL
- *  is produced, since glslEs300Backend.caps is the empty set; a storage binding is lowered
+ *  is produced, since neither has a row in GLSL_CAP_PROFILE; a storage binding is lowered
  *  to a data texture BEFORE that gate runs (see lowerStorageToDataTexture).
  *
  *  Assembly order: version/precision header → consts → plain structs (every struct
@@ -1148,6 +1210,16 @@ function lowerForGlsl(m: ModuleDecl, opts?: GlslEmitOptions): ModuleDecl {
  *  Reads `lowered` without mutating it, so the same lowered module can be spelled for
  *  both stages (emitGlslStages). */
 function assembleGlsl(
+  /** The already-computed `#extension` header (#1670) — bare directive lines, '' when
+   *  the module directs nothing. Passed in as a STRING rather than as a second
+   *  `ModuleDecl` to derive it from: the authored/lowered pair were adjacent params of
+   *  the same type, one silent swap away from a header built from the wrong module. Its
+   *  source is `enables`, an AUTHORING-level declaration, so every call site computes it
+   *  from the authored module (deriving it from `lowered` would make the emitted header
+   *  depend on every lowering pass preserving an authoring field, and would leave the
+   *  WGSL driver — which reads the authored module, emit.ts — and this one as two
+   *  siblings that must agree, the divergence archetype this repo pays for). */
+  extHeader: string,
   lowered: ModuleDecl,
   stage: 'vertex' | 'fragment' | undefined,
   opts?: GlslEmitOptions,
@@ -1207,8 +1279,16 @@ function assembleGlsl(
       b.type.dim === '2d-array' &&
       (scope === null || scope.bindings.has(b.name)),
   )
+  // #1670 — the `#extension … : require` directives this module's declared caps need
+  // (computed by the caller from the AUTHORED module), SPLICED between `#version` and the
+  // first precision line. That slot is not a style choice: GLSL ES 3.00 §3.4 requires an
+  // `#extension` directive to precede any non-preprocessor token, and `#version` must
+  // itself lead the source. '' (every module whose caps are host-side, i.e. all of them
+  // today except a multiview one) splices NOTHING, so the header keeps its exact bytes —
+  // the byte-neutral-when-unused shape of the #1651 sampler2DArray line above.
   const parts: string[] = [
     '#version 300 es',
+    ...(extHeader ? [extHeader] : []),
     `precision ${opts?.floatPrecision ?? 'highp'} float;`,
     'precision highp int;',
     ...(declaresArrayTex ? ['precision highp sampler2DArray;'] : []),
@@ -1319,7 +1399,14 @@ export function emitGlslModule(
   stage?: 'vertex' | 'fragment',
   opts?: GlslEmitOptions,
 ): string {
-  return assembleGlsl(lowerForGlsl(m, opts), stage, opts)
+  // The `#extension` header comes from the AUTHORED module (#1670) — see assembleGlsl's
+  // `extHeader` param.
+  return assembleGlsl(
+    glslEs300Backend.modulePreamble?.(m) ?? '',
+    lowerForGlsl(m, opts),
+    stage,
+    opts,
+  )
 }
 
 /** Both stages of one module, lowered + OPTIMIZED ONCE. Byte-identical to calling
@@ -1341,8 +1428,11 @@ export function emitGlslStages(
   opts?: GlslEmitOptions & { vertexEntry?: string; fragmentEntry?: string },
 ): { vertex: string; fragment: string } {
   const lowered = lowerForGlsl(m, opts)
+  // Computed ONCE from the AUTHORED module, then shared by both stages — the header is a
+  // module-level fact, not a per-stage one (#1670).
+  const extHeader = glslEs300Backend.modulePreamble?.(m) ?? ''
   return {
-    vertex: assembleGlsl(lowered, 'vertex', opts, opts?.vertexEntry),
-    fragment: assembleGlsl(lowered, 'fragment', opts, opts?.fragmentEntry),
+    vertex: assembleGlsl(extHeader, lowered, 'vertex', opts, opts?.vertexEntry),
+    fragment: assembleGlsl(extHeader, lowered, 'fragment', opts, opts?.fragmentEntry),
   }
 }

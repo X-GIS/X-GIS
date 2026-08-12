@@ -294,14 +294,59 @@ export interface FuncDecl {
   readonly [ASSEMBLED_AS]?: string
 }
 
-/** A GPU / language feature a target backend may or may not support (#9, #628).
- *  Resource caps (`storageBuffer`, `compute`, `msaaTextureLoad`) are DERIVED from a
- *  module's shape (a storage binding, a `@compute` entry, an MSAA texture load);
- *  language-feature caps (`f16`, `subgroups`) are OPT-IN via `ModuleDecl.enables`.
+/** A GPU / language feature a target backend may or may not support (#9, #628, #1670).
  *  Emit of an unsupported feature is a typed error (UnsupportedFeatureError), never a
- *  silent mis-emit — the WGSL writer covers every cap here, the GLSL ES 3.00 writer
- *  covers none, so any cap fails closed on GLSL. */
-export type Capability = 'storageBuffer' | 'compute' | 'msaaTextureLoad' | 'f16' | 'subgroups'
+ *  silent mis-emit: a cap absent from the target's `capProfile` (core/backend.ts) fails
+ *  closed at assertCaps, naming it.
+ *
+ *  Ids are NEUTRAL (#1650 convention) — never a raw `EXT_*` / `OVR_*` string in a
+ *  module. Each backend's `capProfile` row translates the id into that target's
+ *  `hostFeature` (what the host activates: `gl.getExtension(...)` on WebGL2, a
+ *  `requiredFeatures` entry on WebGPU) and its `directive` (what the emitted source
+ *  says), so the same module ports across targets whose extension names do not.
+ *
+ *  THREE provenance classes:
+ *  - DERIVED resource caps — `storageBuffer`, `compute`, `msaaTextureLoad`: inferred
+ *    from a module's SHAPE (a storage binding, a `@compute` entry, an MSAA texture
+ *    load), never declared.
+ *  - OPT-IN LANGUAGE caps — `f16`, `subgroups`: declared via `ModuleDecl.enables`; each
+ *    is a WGSL `enable`-directive extension and has no GLSL ES 3.00 counterpart, so
+ *    both stay OUT of the GLSL profile and a module using them fails closed there.
+ *  - OPT-IN DEVICE/EXTENSION caps (#1670) — declared via `ModuleDecl.enables`, and NOT
+ *    language features: they change what the DEVICE can do, not what the source may
+ *    spell. `floatRenderTarget` (WebGL2 EXT_color_buffer_float / WebGPU core),
+ *    `float32Blend` (EXT_float_blend / WebGPU 'float32-blendable') and
+ *    `float32Filterable` (OES_texture_float_linear / WebGPU 'float32-filterable') are
+ *    the HOST-side trio: on WebGL2 they are activated by `gl.getExtension` before
+ *    pipeline creation and there is NO shader-source token for them, so declaring one
+ *    must not move a single emitted byte on either target. `multiview` is the one
+ *    SOURCE-DIRECTIVE cap — GLSL ES 3.00 needs `#extension GL_OVR_multiview2 : require`
+ *    in the shader itself — which is what proves the `#extension` emission path end to
+ *    end; WebGPU has no OVR_multiview2, so it is absent from the WGSL profile and a
+ *    multiview module fails closed there. CAVEAT: `multiview` buys the DIRECTIVE only.
+ *    The DSL cannot yet spell `layout(num_views = N) in;` or read `gl_ViewID_OVR`, so a
+ *    module declaring it emits the `#extension` line and still renders SINGLE-VIEW; the
+ *    cap exists to prove the `#extension` mechanism, and real multiview authoring is a
+ *    follow-up.
+ *
+ *  BITWIDTH IN THE NAME, only where the feature is bitwidth-specific: `float32Blend` and
+ *  `float32Filterable` carry the `32` because both underlying features are 32F-only
+ *  (EXT_float_blend, WebGPU 'float32-blendable' / 'float32-filterable').
+ *  `floatRenderTarget` deliberately carries none — EXT_color_buffer_float makes 16F AND
+ *  32F attachments renderable, so a bitwidth in that id would be a lie.
+ *
+ *  Motivating consumers: #1661 (rgba16float sampling / float render targets in the
+ *  WebGL2 RHI). The host reads what to activate off `reflect().requiredFeatures`. */
+export type Capability =
+  | 'storageBuffer'
+  | 'compute'
+  | 'msaaTextureLoad'
+  | 'f16'
+  | 'subgroups'
+  | 'floatRenderTarget'
+  | 'float32Blend'
+  | 'float32Filterable'
+  | 'multiview'
 
 export interface ModuleDecl {
   readonly consts: readonly ConstDecl[]
@@ -315,12 +360,15 @@ export interface ModuleDecl {
    *  preserves the branches they guard for the driver to eliminate. Absent/empty ⇒
    *  no override declaration, byte-identical emit. */
   readonly overrides?: readonly OverrideDecl[]
-  /** OPT-IN language-feature capabilities this module turns on (#628) — e.g.
-   *  `['f16']`. Each folds into requiredCaps, so a backend lacking it fails closed
-   *  (GLSL ES 3.00 → UnsupportedFeatureError) while the WGSL backend emits the
-   *  matching `enable <ext>;` directive at the top of the module. Absent/empty ⇒ no
-   *  directive, byte-identical emit. Resource caps (storageBuffer/compute/
-   *  msaaTextureLoad) are DERIVED from the module shape, never declared here. */
+  /** OPT-IN capabilities this module turns on (#628, #1670) — e.g. `['f16']`,
+   *  `['floatRenderTarget']`. Each folds into requiredCaps, so a backend whose
+   *  `capProfile` lacks it fails closed (UnsupportedFeatureError naming the cap), and a
+   *  backend whose row carries a `directive` emits it (WGSL `enable f16;`, GLSL
+   *  `#extension GL_OVR_multiview2 : require`). A row with NO directive is HOST-side
+   *  only — the host activates it off `reflect().requiredFeatures` and the emit stays
+   *  byte-identical. Absent/empty ⇒ no directive, byte-identical emit. Resource caps
+   *  (storageBuffer/compute/msaaTextureLoad) are DERIVED from the module shape, never
+   *  declared here. */
   readonly enables?: readonly Capability[]
 }
 
