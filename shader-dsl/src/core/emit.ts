@@ -99,7 +99,7 @@ export function emitStmt(s: Stmt, depth: number, be: Backend): string {
     case 'placeholder':
       return `${p}${be.placeholderStmt(s.tag)}`
     case 'raw':
-      return `${p}${be.rawStmt(s.wgsl)}`
+      return `${p}${be.rawStmt(s)}`
     case 'switch': {
       const lines: string[] = [`${p}${be.switchHead(r(s.scrut))}`]
       for (const c of s.cases) {

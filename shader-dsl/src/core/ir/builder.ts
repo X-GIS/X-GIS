@@ -15,6 +15,8 @@ import {
   type OverrideDecl,
   type StructDecl,
   type BindingDecl,
+  type RawStmt,
+  type RawPayload,
   ASSEMBLED_AS,
 } from './nodes'
 import {
@@ -193,6 +195,16 @@ export class Builder {
    *  in placeholder-stmt.test.ts. */
   placeholder(tag: string): void {
     this.push({ s: 'placeholder', tag })
+  }
+
+  /** Splice a verbatim per-target statement (#1671) — the fluent-body twin of
+   *  the free `rawStmt()` factory. Use `b.raw()` inside `fn()` bodies (a bare
+   *  `rawStmt(...)` call there is a silently DISCARDED expression — the returned
+   *  Stmt is never pushed, so nothing is emitted); use the free `rawStmt()` when
+   *  assembling a `Stmt[]` body array by hand. Goes through `push`, so it gets
+   *  `recordLoc` like every other statement. */
+  raw(payload: RawPayload): void {
+    this.push(rawStmt(payload))
   }
 
   /** if / else-if / else chain. Returns a chainer so `.elif().else()` reads
@@ -1001,6 +1013,29 @@ export function module(parts: ModuleParts): ModuleDecl {
  *  directly instead. */
 export function constExpr(name: string, type: ShaderType, value: Node): ConstDecl {
   return { name, type, wgslValue: 0, cpuValue: 0, valueExpr: value.expr }
+}
+
+/** Author a `raw` Stmt — the verbatim-splice escape hatch (#1671). Give the
+ *  spelling for every target the module must build for:
+ *
+ *  ```ts
+ *  rawStmt({ wgsl: 'return vec4<f32>(1.0);', glsl: 'return vec4(1.0);' })
+ *  ```
+ *
+ *  The object form is deliberate: the payloads are SYMMETRIC (a glsl-only raw is
+ *  as expressible as a wgsl-only one), and each backend fails closed (SD0030) on
+ *  the side it was not given — so an omitted spelling is a build error on that
+ *  target, never a silent mis-emit. At least ONE side is required at the type
+ *  level: `rawStmt({})` is a compile error (see `RawPayload`).
+ *
+ *  PLACEMENT: this FACTORY returns a Stmt — use it when assembling a `Stmt[]`
+ *  body array by hand. Inside a fluent `fn()` body use `b.raw(payload)` instead;
+ *  a bare `rawStmt(...)` call there is a silently discarded expression (the
+ *  returned Stmt is never pushed, so nothing is emitted). Not to be confused
+ *  with the Backend fragment of the same name (backend.ts), which CONSUMES this
+ *  node. */
+export function rawStmt(payload: RawPayload): RawStmt {
+  return { s: 'raw', ...payload }
 }
 
 /** A pipeline SPECIALIZATION CONSTANT (#923) handle — `.node` is the opaque READ

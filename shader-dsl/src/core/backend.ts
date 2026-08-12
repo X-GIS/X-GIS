@@ -18,6 +18,7 @@ import type {
   FuncDecl,
   ModuleDecl,
   Capability,
+  RawStmt,
 } from './ir'
 import { ShaderDslError } from './diagnostics/error'
 
@@ -87,8 +88,12 @@ export interface Backend {
    *  GLSL backend returns `break;` — without it every match() arm leaks into the next
    *  (every kernel returns the LAST/default arm; caught on real WebGL2, not headless). */
   readonly caseBreak?: string
-  /** A `raw` Stmt (raw WGSL string). WGSL returns it; non-WGSL fails closed. */
-  rawStmt(wgsl: string): string
+  /** A `raw` Stmt — the verbatim-splice escape hatch. Takes the NODE, not a
+   *  string (#1671): the node carries a PER-TARGET payload (`wgsl` / `glsl`), so
+   *  each backend picks its own side here and the shared emit walk (emit.ts)
+   *  stays target-blind. A backend whose side is absent fails closed
+   *  (UnsupportedFeatureError / SD0030) — symmetrically, in both directions. */
+  rawStmt(s: RawStmt): string
   /** An un-swapped `placeholder` Stmt. WGSL emits a defensive comment; non-WGSL fails closed. */
   placeholderStmt(tag: string): string
 

@@ -367,8 +367,8 @@ function emitStmt(s: Stmt, S: FnCtx): string {
       // this fn back to the interpreter (which throws loudly with the tag).
       throw new CodegenUnsupported(`placeholder ${s.tag}`)
     case 'raw':
-      // Raw WGSL passthrough is GPU-only — no CPU evaluation. Fall back.
-      throw new CodegenUnsupported('raw WGSL Stmt')
+      // Raw passthrough is GPU-only — no CPU evaluation. Fall back.
+      throw new CodegenUnsupported('raw Stmt')
   }
 }
 
