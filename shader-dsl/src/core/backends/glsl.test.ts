@@ -1031,3 +1031,110 @@ describe('glsl-es300 / wgsl — 2d-array texture reads (#1651)', () => {
     expect(emitModule(m)).toContain('textureNumLayers(arr_tex)')
   })
 })
+
+// ── #1673 default FLOAT precision — a build-time emit knob, float line ONLY ──
+//
+// Mobile GPUs pay bandwidth/power for highp where mediump suffices, so the GLSL backend
+// takes a build-time `floatPrecision` emit option. Two properties carry the whole
+// feature, and both are byte-level:
+//
+//   1. `'highp'` (the default) is BYTE-NEUTRAL — an emit that omits the option is
+//      identical to every emit produced before the option existed.
+//   2. `'mediump'` moves EXACTLY ONE TOKEN. `precision highp int;` is load-bearing
+//      (storage-emulation index math, bitcast lanes) and the #1651
+//      `precision highp sampler2DArray;` line is a separate GLSL ES 3.00 §4.5.4
+//      requirement — sweeping either into the knob turns a bandwidth optimisation into
+//      a correctness bug.
+//
+// The headers below are written out as LITERAL blocks rather than generated from the
+// template the emitter uses: a `toContain('precision mediump float;')` would be blind to
+// the int line changing, a line disappearing, or the blank separator moving — which is
+// precisely the failure this pin exists for.
+//
+// Numeric mediump BEHAVIOR is deliberately NOT gated anywhere: the CI rasterizer
+// advertises mediump as 10-bit but computes it at f32 (census in
+// playground/e2e/_glsl-compile-gate.spec.ts), so a pixel gate could not distinguish the
+// two emits — an assertion that fails identically either way (§12). Header shape here,
+// compile validity in the Playwright gate, real-device behavior an explicit skip.
+describe('glsl-es300 — GlslEmitOptions.floatPrecision (#1673)', () => {
+  const HIGHP_HEADER = '#version 300 es\nprecision highp float;\nprecision highp int;\n\n'
+  const MEDIUMP_HEADER = '#version 300 es\nprecision mediump float;\nprecision highp int;\n\n'
+
+  // `.slice(0, n)` + toBe, never `.startsWith(...)` + toBe(true): a boolean assertion
+  // reports only "expected false to be true" and leaves the reader to find WHICH header
+  // line moved, which is the one thing this suite exists to say out loud.
+  const header = (glsl: string, expected: string): string => glsl.slice(0, expected.length)
+
+  it('DEFAULT (option absent) emits the pre-#1673 header byte-for-byte, in BOTH stages', () => {
+    expect(header(emitGlslModule(module, 'vertex'), HIGHP_HEADER)).toBe(HIGHP_HEADER)
+    expect(header(emitGlslModule(module, 'fragment'), HIGHP_HEADER)).toBe(HIGHP_HEADER)
+  })
+
+  it("explicit {floatPrecision:'highp'} is byte-identical to omitting it entirely", () => {
+    // WHOLE-STRING equality, not just the header: an option leaking into any other part
+    // of the emit path (a plugin bag, a literal, a qualifier) shows up right here.
+    for (const stage of ['vertex', 'fragment'] as const)
+      expect(emitGlslModule(module, stage, { floatPrecision: 'highp' })).toBe(
+        emitGlslModule(module, stage),
+      )
+  })
+
+  it("{floatPrecision:'mediump'} flips EXACTLY the float line, in BOTH stages", () => {
+    for (const stage of ['vertex', 'fragment'] as const) {
+      const base = emitGlslModule(module, stage)
+      const med = emitGlslModule(module, stage, { floatPrecision: 'mediump' })
+      // The LOAD-BEARING int line first, and by name: a knob that over-reached into it
+      // must produce a message that says `int`, not a bare header-block diff.
+      expect(med).toContain('\nprecision highp int;\n')
+      expect(med).not.toContain('precision mediump int;')
+      expect(header(med, MEDIUMP_HEADER)).toBe(MEDIUMP_HEADER)
+      // ...and that ONE line is the only difference in the entire emit: putting the
+      // token back reproduces the default bytes. A knob that also touched a body
+      // qualifier or a literal would fail here even with the header pin green.
+      expect(med.replace('precision mediump float;', 'precision highp float;')).toBe(base)
+    }
+  })
+
+  // The #1651 line is a DIFFERENT requirement from the float default: GLSL ES 3.00
+  // §4.5.4 predeclares a default precision for sampler2D / samplerCube only, so a
+  // sampler2DArray needs its own qualifier or the shader does not compile at all.
+  // It stays highp under the knob.
+  const PArrOut = ioStruct('PrecArrOut', {
+    pos: builtin('position', vec4fT),
+    uv: location(0, vec2fT),
+  })
+  const pArrTex = resource('prec_arr_tex', texture2dArrayfT, { group: 0, binding: 0 })
+  const pArrSmp = resource('prec_arr_smp', samplerT, { group: 0, binding: 1 })
+  const pArrVs = fn(
+    'prec_arr_vs',
+    { uv: location(0, vec2fT) },
+    ({ uv }) => {
+      const o = PArrOut.var('out')
+      o.pos.assign(vec4(uv.x, uv.y, 0, 1))
+      o.uv.assign(uv)
+      return o
+    },
+    { stage: 'vertex' },
+  )
+  const pArrFs = fn(
+    'prec_arr_fs',
+    { inp: PArrOut },
+    ({ inp }) => textureSample(pArrTex.node, pArrSmp.node, inp.uv, 1),
+    { stage: 'fragment', retAttr: location(0, vec4fT) },
+  )
+  const pArrMod = dslModule({ uses: [PArrOut, pArrTex, pArrSmp], funcs: [pArrVs, pArrFs] })
+
+  it('the #1651 sampler2DArray line stays highp under mediump (it is not part of the knob)', () => {
+    const HIGHP_ARR =
+      '#version 300 es\nprecision highp float;\nprecision highp int;\n' +
+      'precision highp sampler2DArray;\n\n'
+    const MEDIUMP_ARR =
+      '#version 300 es\nprecision mediump float;\nprecision highp int;\n' +
+      'precision highp sampler2DArray;\n\n'
+    expect(header(emitGlslModule(pArrMod, 'fragment'), HIGHP_ARR)).toBe(HIGHP_ARR)
+    const med = emitGlslModule(pArrMod, 'fragment', { floatPrecision: 'mediump' })
+    expect(med).toContain('precision highp sampler2DArray;')
+    expect(med).not.toContain('precision mediump sampler2DArray;')
+    expect(header(med, MEDIUMP_ARR)).toBe(MEDIUMP_ARR)
+  })
+})

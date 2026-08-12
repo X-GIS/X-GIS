@@ -210,6 +210,277 @@ test.describe('GLSL ES 3.00 compile gate (emitGlslModule output compiles on real
     expect(result.linkOk, `program failed to link:\n${result.linkLog}`).toBe(true)
   })
 
+  // #1673 STEP-0 CENSUS — what does mediump actually MEAN on the CI rasterizer?
+  //
+  // The mediump emit option (GlslEmitOptions.floatPrecision) is a mobile bandwidth/power
+  // knob, and #1673's stated premise was that this gate cannot judge it numerically:
+  // software rasterizers and desktop ANGLE were assumed to implement mediump as full f32,
+  // making a highp-vs-mediump pixel-diff green by construction — an assertion that cannot
+  // distinguish the two states (§12). Rather than assume it, MEASURE it. The census has
+  // TWO halves, because they answer different questions and here they DISAGREE:
+  //
+  //   (a) DECLARED — getShaderPrecisionFormat over LOW/MEDIUM/HIGH float × both stages.
+  //       This is what the driver ADVERTISES, and it is what a runtime feature-detect
+  //       would read.
+  //   (b) OBSERVED — compile the SAME fragment source twice, once under `precision
+  //       mediump float;` and once under `precision highp float;`, evaluate a quantity
+  //       that is destroyed by an fp16 mantissa and survives an f32 one, and read the
+  //       pixel back. This is what the shader actually COMPUTES.
+  //
+  // The probe quantity is ((1.0 + eps) - 1.0) * 4096.0 with eps = 2^-12, fed through a
+  // uniform so no CPU-side constant-folding can pre-compute it. ULP(1.0) is 2^-10 in
+  // fp16, so 2^-12 is below the half-ULP tie and 1.0 + eps rounds back to exactly 1.0 →
+  // the probe reads 0. In f32 ULP(1.0) is 2^-23, the add is exact, and the probe reads
+  // 1.0 → 255. The highp arm is the CONTROL: it must read 255, otherwise the probe is
+  // measuring itself rather than the precision qualifier.
+  //
+  // Neither half is asserted as a threshold — both are DATA. The gate asserts only that
+  // the measurement HAPPENED (six cells answered, both arms compiled) and that the
+  // control arm behaved, then prints the numbers and derives the verdict from them. The
+  // verdict is what licenses the scope statement in AUTHORING.md and on #1673.
+  test('census: declared vs observed mediump float precision (getShaderPrecisionFormat + fp16 probe)', async ({
+    page,
+  }) => {
+    await page.goto('/demo.html?id=minimal', { waitUntil: 'domcontentloaded' })
+
+    const census = await page.evaluate(() => {
+      const canvas = document.createElement('canvas')
+      canvas.width = 4
+      canvas.height = 4
+      const gl = canvas.getContext('webgl2', { preserveDrawingBuffer: true })
+      if (!gl) return { fatal: 'no webgl2 context' as const }
+
+      // ── (a) DECLARED ──
+      const stages = [
+        ['VERTEX', gl.VERTEX_SHADER],
+        ['FRAGMENT', gl.FRAGMENT_SHADER],
+      ] as const
+      const kinds = [
+        ['LOW_FLOAT', gl.LOW_FLOAT],
+        ['MEDIUM_FLOAT', gl.MEDIUM_FLOAT],
+        ['HIGH_FLOAT', gl.HIGH_FLOAT],
+      ] as const
+      const rows: {
+        stage: string
+        kind: string
+        rangeMin: number
+        rangeMax: number
+        precision: number
+      }[] = []
+      for (const [stageName, stage] of stages)
+        for (const [kindName, kind] of kinds) {
+          const f = gl.getShaderPrecisionFormat(stage, kind)
+          if (!f) continue
+          rows.push({
+            stage: stageName,
+            kind: kindName,
+            rangeMin: f.rangeMin,
+            rangeMax: f.rangeMax,
+            precision: f.precision,
+          })
+        }
+
+      // ── (b) OBSERVED ──
+      // Fullscreen triangle from gl_VertexID: no attribute buffers needed.
+      const VS = `#version 300 es
+precision highp float;
+precision highp int;
+void main() {
+  float x = float((gl_VertexID & 1) * 4 - 1);
+  float y = float((gl_VertexID >> 1) * 4 - 1);
+  gl_Position = vec4(x, y, 0.0, 1.0);
+}
+`
+      const fsFor = (p: 'mediump' | 'highp'): string => `#version 300 es
+precision ${p} float;
+precision highp int;
+uniform float u_eps;
+out vec4 fragColor;
+void main() {
+  float survived = ((1.0 + u_eps) - 1.0) * 4096.0;
+  fragColor = vec4(survived, 0.0, 0.0, 1.0);
+}
+`
+      const runProbe = (p: 'mediump' | 'highp'): { ok: boolean; log: string; red: number } => {
+        const mk = (type: number, src: string): WebGLShader => {
+          const sh = gl.createShader(type)!
+          gl.shaderSource(sh, src)
+          gl.compileShader(sh)
+          return sh
+        }
+        const vsh = mk(gl.VERTEX_SHADER, VS)
+        const fsh = mk(gl.FRAGMENT_SHADER, fsFor(p))
+        const vsOk = gl.getShaderParameter(vsh, gl.COMPILE_STATUS) as boolean
+        const fsOk = gl.getShaderParameter(fsh, gl.COMPILE_STATUS) as boolean
+        if (!vsOk || !fsOk)
+          return {
+            ok: false,
+            log: `${gl.getShaderInfoLog(vsh) ?? ''}${gl.getShaderInfoLog(fsh) ?? ''}`,
+            red: -1,
+          }
+        const prog = gl.createProgram()!
+        gl.attachShader(prog, vsh)
+        gl.attachShader(prog, fsh)
+        gl.linkProgram(prog)
+        if (!(gl.getProgramParameter(prog, gl.LINK_STATUS) as boolean))
+          return { ok: false, log: gl.getProgramInfoLog(prog) ?? '', red: -1 }
+        gl.useProgram(prog)
+        // 2^-12 — below fp16's half-ULP at 1.0 (2^-11), exact in f32.
+        gl.uniform1f(gl.getUniformLocation(prog, 'u_eps'), 1 / 4096)
+        gl.viewport(0, 0, 4, 4)
+        gl.clearColor(0, 0, 0, 1)
+        gl.clear(gl.COLOR_BUFFER_BIT)
+        gl.bindVertexArray(gl.createVertexArray())
+        gl.drawArrays(gl.TRIANGLES, 0, 3)
+        const px = new Uint8Array(4)
+        gl.readPixels(2, 2, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, px)
+        return { ok: true, log: '', red: px[0]! }
+      }
+
+      const dbg = gl.getExtension('WEBGL_debug_renderer_info')
+      return {
+        renderer: gl.getParameter(gl.RENDERER) as string,
+        unmaskedRenderer: dbg
+          ? (gl.getParameter(dbg.UNMASKED_RENDERER_WEBGL) as string)
+          : '(WEBGL_debug_renderer_info unavailable)',
+        version: gl.getParameter(gl.VERSION) as string,
+        rows,
+        probeMediump: runProbe('mediump'),
+        probeHighp: runProbe('highp'),
+      }
+    })
+
+    expect(
+      census,
+      `WebGL2 unavailable: ${'fatal' in census ? census.fatal : ''}`,
+    ).not.toHaveProperty('fatal')
+    if ('fatal' in census) return
+
+    const med = census.rows.filter((r) => r.kind === 'MEDIUM_FLOAT')
+    const high = census.rows.filter((r) => r.kind === 'HIGH_FLOAT')
+    const declaredSame = med.every((m, i) => m.precision === high[i]!.precision)
+    // The probe reads 255 when the fp16-destroyed quantity SURVIVED (computed at f32).
+    const observedSame = census.probeMediump.red === census.probeHighp.red
+
+    // The printout IS this test's deliverable — the numbers are what the scope
+    // statement on #1673 and in AUTHORING.md §9 cite.
+    console.log(
+      [
+        `#1673 census — RENDERER: ${census.renderer}`,
+        `#1673 census — UNMASKED: ${census.unmaskedRenderer}`,
+        `#1673 census — VERSION:  ${census.version}`,
+        '#1673 census — (a) DECLARED via getShaderPrecisionFormat:',
+        ...census.rows.map(
+          (r) =>
+            `#1673 census —     ${r.stage.padEnd(8)} ${r.kind.padEnd(12)} ` +
+            `{ rangeMin: ${r.rangeMin}, rangeMax: ${r.rangeMax}, precision: ${r.precision} }`,
+        ),
+        '#1673 census — (b) OBSERVED via ((1.0 + 2^-12) - 1.0) * 4096.0 → red channel',
+        '#1673 census —     (255 = the f32-only bit survived, 0 = rounded away as fp16):',
+        `#1673 census —     mediump arm: red=${census.probeMediump.red} ` +
+          `(compiled=${census.probeMediump.ok})`,
+        `#1673 census —     highp arm:   red=${census.probeHighp.red} ` +
+          `(compiled=${census.probeHighp.ok}) <- control`,
+        declaredSame === observedSame
+          ? `#1673 census — VERDICT: declared and observed AGREE (${declaredSame ? 'mediump == highp' : 'mediump != highp'}).`
+          : '#1673 census — VERDICT: DECLARED and OBSERVED DISAGREE. The stack ADVERTISES ' +
+            `mediump as ${med[0]?.precision}-bit (fp16) but the probe reads ` +
+            `${observedSame ? 'full-f32 behavior — computed at >=f32, or the (1+eps)-1 form was reassociated; either way indistinguishable' : 'reduced precision'}. ` +
+            'Precision-format advertising is a minimum, not a promise, and somewhere in this ' +
+            'ANGLE/SwiftShader stack (translator or rasterizer — the probe cannot attribute ' +
+            'the layer, and the CI-blindness verdict is identical either way) only the ' +
+            'minimum is honoured. ' +
+            'Therefore this gate can prove COMPILE VALIDITY + HEADER SHAPE only for the ' +
+            '#1673 knob: no CI pixel-diff can distinguish a highp emit from a mediump one, ' +
+            'and real-device mediump behavior (true fp16 range/precision, the bandwidth win, ' +
+            'the banding it can cause) is out of CI reach — an EXPLICIT stated skip.',
+      ].join('\n'),
+    )
+
+    // The measurement happened: six cells answered, both arms compiled and linked.
+    expect(census.rows).toHaveLength(6)
+    expect(census.probeMediump.ok, `mediump probe failed: ${census.probeMediump.log}`).toBe(true)
+    expect(census.probeHighp.ok, `highp probe failed: ${census.probeHighp.log}`).toBe(true)
+    // CONTROL: at highp the f32-only bit MUST survive, or the probe is measuring itself
+    // (a folded constant, a clamped output, a dead uniform) instead of the qualifier.
+    expect(
+      census.probeHighp.red,
+      'highp control did not preserve 2^-12 at 1.0 — the probe is not measuring precision',
+    ).toBe(255)
+  })
+
+  // #1673 — a mediump emit is still VALID GLSL ES 3.00 on a real driver. This is the
+  // whole of what CI can prove about the knob (see the census above): the unit suite pins
+  // the header bytes, and this pins that those bytes compile and link. Both stages,
+  // because the float precision default is per-stage and a vertex/fragment mismatch in
+  // the shared varyings is a LINK error, not a compile one — asserting only the fragment
+  // would miss it.
+  test('#1673: a {floatPrecision:mediump} emit compiles + links on real WebGL2', async ({
+    page,
+  }) => {
+    const vertex = emitGlslModule(module, 'vertex', { floatPrecision: 'mediump' })
+    const fragment = emitGlslModule(module, 'fragment', { floatPrecision: 'mediump' })
+    expect(vertex).toContain('precision mediump float;')
+    expect(fragment).toContain('precision mediump float;')
+    // the load-bearing int line survived into the source the driver actually sees
+    expect(vertex).toContain('precision highp int;')
+    expect(fragment).toContain('precision highp int;')
+
+    await page.goto('/demo.html?id=minimal', { waitUntil: 'domcontentloaded' })
+
+    const result = await page.evaluate(
+      ({ vertex, fragment }) => {
+        const canvas = document.createElement('canvas')
+        const gl = canvas.getContext('webgl2')
+        if (!gl) return { fatal: 'no webgl2 context' as const }
+        const mk = (type: number, src: string): WebGLShader => {
+          const sh = gl.createShader(type)!
+          gl.shaderSource(sh, src)
+          gl.compileShader(sh)
+          return sh
+        }
+        const vsh = mk(gl.VERTEX_SHADER, vertex)
+        const fsh = mk(gl.FRAGMENT_SHADER, fragment)
+        const vs = {
+          ok: gl.getShaderParameter(vsh, gl.COMPILE_STATUS) as boolean,
+          log: gl.getShaderInfoLog(vsh) ?? '',
+        }
+        const fs = {
+          ok: gl.getShaderParameter(fsh, gl.COMPILE_STATUS) as boolean,
+          log: gl.getShaderInfoLog(fsh) ?? '',
+        }
+        let linkOk = false
+        let linkLog = ''
+        if (vs.ok && fs.ok) {
+          const prog = gl.createProgram()!
+          gl.attachShader(prog, vsh)
+          gl.attachShader(prog, fsh)
+          gl.linkProgram(prog)
+          linkOk = gl.getProgramParameter(prog, gl.LINK_STATUS) as boolean
+          linkLog = gl.getProgramInfoLog(prog) ?? ''
+        }
+        return { vs, fs, linkOk, linkLog }
+      },
+      { vertex, fragment },
+    )
+
+    expect(
+      result,
+      `WebGL2 unavailable: ${'fatal' in result ? result.fatal : ''}`,
+    ).not.toHaveProperty('fatal')
+    if ('fatal' in result) return
+
+    expect(
+      result.vs.ok,
+      `mediump vertex failed to compile:\n${result.vs.log}\n--- GLSL ---\n${vertex}`,
+    ).toBe(true)
+    expect(
+      result.fs.ok,
+      `mediump fragment failed to compile:\n${result.fs.log}\n--- GLSL ---\n${fragment}`,
+    ).toBe(true)
+    expect(result.linkOk, `mediump program failed to link:\n${result.linkLog}`).toBe(true)
+  })
+
   // #923: a HOST-SPECIALIZED GLSL variant compiles on real WebGL2. The unit gate
   // (override-constants.test.ts) string-matches the specialized emit, but only ANGLE
   // proves the mechanism is valid GLSL — the earlier "prepend a #define" contract
