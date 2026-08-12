@@ -9,7 +9,7 @@
 import type { Backend } from './backend'
 import type { Expr, Stmt, ModuleDecl } from './ir'
 import { validate } from './passes/validate'
-import { assertCaps } from './passes/required-caps'
+import { assertCaps, assertBuiltins } from './passes/required-caps'
 import { lowerModule } from './passes/match-lower'
 import { fp64Lower, type Fp64Flavor } from './passes/fp64-lower'
 import { autoVars, optimizeAt, type OptLevel } from './passes/opt'
@@ -161,6 +161,7 @@ export function lowerForBackend(
   // pre-lower shape — e.g. matchExpr chains, placeholder swap sites).
   validate(m)
   assertCaps(be, m) // principled fail-closed gate
+  assertBuiltins(be, m) // …and its builtin-vocabulary twin (#1672)
   // matchExpr→{var slot, Stmt.switch} lowering first so the rest of the emitter stays
   // matchExpr-unaware (identity for modules with no matchExpr); fp64Lower then rewrites
   // every f64 into vec2<f32> + df64_* calls (identity for modules with no f64) — HERE,

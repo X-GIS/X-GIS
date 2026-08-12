@@ -107,6 +107,30 @@ const WGSL_ENABLE: Partial<Record<Capability, string>> = {
   subgroups: 'subgroups',
 }
 
+/** `@builtin(<id>)` ids that do NOT exist in WGSL (#1672), each mapped to the message
+ *  tail the shared pre-pass prints after `wgsl: @builtin(<id>)`. Every one of them is a
+ *  GLSL-ism an author can reach for — `point_size`/`point_coord` are the gl_PointSize /
+ *  gl_PointCoord pair, and `frag_coord` is the GLSL spelling this repo's own GLSL writer
+ *  accepts (backends/glsl.ts BUILTIN_IN) while WGSL spells it `position` on a fragment
+ *  entry. Each used to be emitted VERBATIM into the module string (struct field attr /
+ *  param attr) and rejected by naga with no line back to the authoring site. The set is a
+ *  DENYLIST, not a WGSL allowlist: a builtin the DSL has not met yet must keep emitting,
+ *  so a new WGSL builtin never needs a table edit here to be usable. */
+const WGSL_ABSENT_BUILTINS: ReadonlyMap<string, string> = new Map([
+  [
+    'point_size',
+    'does not exist in WGSL — WebGPU point-list primitives are always 1px. Expand an instanced quad in the vertex stage instead (see map/src/shaders/dsl/point.ts).',
+  ],
+  [
+    'point_coord',
+    'does not exist in WGSL — there is no point-sprite coordinate. Interpolate a @location(n) corner uv from the expanded quad instead (see map/src/shaders/dsl/point.ts).',
+  ],
+  [
+    'frag_coord',
+    'does not exist in WGSL — the fragment-stage framebuffer coordinate (GLSL gl_FragCoord) is @builtin(position) on a fragment entry parameter.',
+  ],
+])
+
 /** The WGSL target writer. Every method reproduces the exact pre-refactor
  *  spelling, so any emit driven by wgslBackend is byte-identical. */
 export const wgslBackend: Backend = {
@@ -117,6 +141,7 @@ export const wgslBackend: Backend = {
   caps: new Capabilities(
     new Set(['storageBuffer', 'compute', 'msaaTextureLoad', 'f16', 'subgroups']),
   ),
+  absentBuiltins: WGSL_ABSENT_BUILTINS,
   typeName: wgslType,
   literal: lit,
   // WGSL spells every intrinsic / user call as `name(args)`; the reserved

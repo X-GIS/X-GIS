@@ -35,6 +35,7 @@ import {
 import {
   fn,
   module as dslModule,
+  f32,
   vec2,
   vec4,
   fract,
@@ -739,6 +740,34 @@ describe('glsl-es300 — fail-closed on out-of-scope features', () => {
       ],
     }
     expect(() => emitGlslModule(badMod, 'vertex')).toThrow(UnsupportedFeatureError)
+  })
+
+  // #1672 — the point_size SYMMETRY pin. This writer already rejected it (no
+  // gl_PointSize entry in BUILTIN_OUT); the WGSL writer used to spell it verbatim and
+  // let naga find it. Both rejections now live one grep apart — the WGSL twin is
+  // backends/wgsl-absent-builtins.test.ts. The mechanisms stay SEPARATE on purpose:
+  // GLSL's set is implicit in its own BUILTIN_IN/BUILTIN_OUT tables (these messages are
+  // pinned), WGSL's is the explicit `Backend.absentBuiltins` set the shared pre-pass reads.
+  it('@builtin(point_size) fails closed here too, with the gl_* mapping message', () => {
+    const PointOut = ioStruct('PointOut', {
+      clip_pos: builtin('position', vec4fT),
+      psize: builtin('point_size', f32T),
+    })
+    const pointMod = dslModule({
+      funcs: [
+        fn(
+          'vs_point',
+          {},
+          () => PointOut.construct({ clip_pos: vec4(0, 0, 0, 1), psize: f32(4) }),
+          { stage: 'vertex' },
+        ),
+      ],
+      uses: [PointOut],
+    })
+    expect(() => emitGlslModule(pointMod, 'vertex')).toThrow(UnsupportedFeatureError)
+    expect(() => emitGlslModule(pointMod, 'vertex')).toThrow(
+      /unsupported output @builtin\(point_size\)/,
+    )
   })
 })
 

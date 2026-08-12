@@ -247,6 +247,11 @@ export interface FuncDecl {
   /** Return-value attribute for a bare (non-struct) stage output, e.g. a
    *  fragment `-> @location(0) vec4<f32>`. */
   readonly retAttr?: string
+  /** Structured builtin id when `retAttr` came from a `builtin(name, type)` FieldSpec
+   *  (#740 R3 twin of `retAttr` — the spelling stays in retAttr, the SEMANTIC id lives
+   *  here so target-vocabulary gates like assertBuiltins (#1672) can read it without
+   *  re-parsing the attr string). */
+  readonly retBuiltin?: string
   /** Documented MISRA single-exit DEVIATION — when true the single-exit static
    *  rule skips this fn (it has an intentional early return, e.g. a guard that
    *  skips an expensive loop). Use sparingly, with a comment stating why. */
