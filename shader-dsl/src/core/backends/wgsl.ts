@@ -17,7 +17,7 @@ import type {
   ModuleDecl,
   Capability,
 } from '../ir'
-import { Capabilities, type Backend } from '../backend'
+import { Capabilities, UnsupportedFeatureError, type Backend } from '../backend'
 import {
   emitExpr as emitExprNeutral,
   emitBody,
@@ -156,7 +156,18 @@ export const wgslBackend: Backend = {
   caseLabel: (value, scrutType) =>
     scrutType.kind === 'scalar' && scrutType.scalar === 'u32' ? `${value}u` : `${value}`,
   switchHead: (scrut) => `switch ${scrut} {`,
-  rawStmt: (wgsl) => wgsl,
+  // #1671 — emit THIS target's payload; a raw carrying only the GLSL spelling is
+  // a hard build failure here, not a stringified `undefined` in the module body.
+  rawStmt: (s) => {
+    if (s.wgsl !== undefined) return s.wgsl
+    // Mirrors the GLSL side: the at-least-one union guarantees a `glsl` side
+    // here, but tsc cannot discriminate the union on a non-unit-typed property —
+    // so narrow the PROPERTY locally instead of asserting; `''` is unreachable.
+    const glsl = s.glsl ?? ''
+    throw new UnsupportedFeatureError(
+      `wgsl: raw Stmt carries no wgsl payload (glsl-only raw: '${glsl.slice(0, 40)}') — supply a wgsl spelling for this statement`,
+    )
+  },
   placeholderStmt: (tag) => `// __placeholder: ${tag}`,
   // ── Module-decl surface (the WGSL spellings, lifted from the former free fns) ──
   emitConst: (c) =>

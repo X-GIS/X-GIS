@@ -129,7 +129,7 @@ function walkStmt(s: Stmt, c: { calls: number; arith: number }): void {
       for (const cs of s.cases) for (const b of cs.body) walkStmt(b, c)
       if (s.defaultBody) for (const b of s.defaultBody) walkStmt(b, c)
       break
-    case 'raw': // opaque WGSL — ops invisible to the IR (documented undercount in countOps)
+    case 'raw': // opaque raw text — ops invisible to the IR (documented undercount in countOps)
     case 'break':
     case 'continue':
     case 'discard':

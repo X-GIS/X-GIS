@@ -343,12 +343,12 @@ function execBody(body: readonly Stmt[], env: Map<string, CpuValue>, ctx: Ctx): 
         )
       }
       case 'raw': {
-        // Phase 2 PR 2e.B.2 — raw WGSL passthrough is GPU-only; it has no
+        // Phase 2 PR 2e.B.2 — raw passthrough is GPU-only; it has no
         // CPU evaluation. Reaching here means a raw Stmt was placed on a
         // shader path that also runs through the CPU mirror (cpu-projections
         // / compute eval), which is a composition bug — fail loudly.
         throw new Error(
-          'shader-dsl/cpu: raw WGSL Stmt reached CPU backend — raw passthrough is GPU-only',
+          'shader-dsl/cpu: raw Stmt reached CPU backend — raw passthrough is GPU-only',
         )
       }
     }

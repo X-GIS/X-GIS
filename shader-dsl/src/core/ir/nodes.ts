@@ -132,15 +132,42 @@ export type Stmt =
   // lowerModule pre-emit pass treats placeholder as a leaf — no
   // matchExpr lowering descends into it.
   | { readonly s: 'placeholder'; readonly tag: string }
-  // Phase 2 PR 2e.B.2 — raw WGSL passthrough. Carries a pre-built WGSL
+  // Phase 2 PR 2e.B.2 — raw passthrough. Carries a pre-built target
   // fragment emitted verbatim (at the enclosing body indent) before the
   // surrounding statements. Used by the polygon composer's fill/stroke
   // preamble slot to inject the compiler-emitted match `_mcSS` chain
   // string directly, retiring the renderer's former post-emit string
   // splice (+ the compiler-side nodeToWgslString copy). GPU-only: the
-  // CPU backend throws (raw WGSL has no CPU evaluation), and the
+  // CPU backend throws (raw text has no CPU evaluation), and the
   // lowerModule pass treats it as a leaf (no sub-Expr to lower).
-  | { readonly s: 'raw'; readonly wgsl: string }
+  //
+  // #1671 — PAIRED PER-TARGET PAYLOADS. One node carries the SAME statement
+  // spelled for each backend; the MEANING is fixed ("splice verbatim here")
+  // and only the SPELLING is per-target — the same per-target-spelling pattern
+  // `INTRINSICS`' `Spelling` record already uses (intrinsics.ts:15-19). Unlike
+  // `Spelling` (which requires BOTH sides), ONE side may be omitted here — a
+  // deliberate "this module does not build for that target" — but AT LEAST ONE
+  // side is required at the type level, which is why this is spelled as two
+  // members: a raw with NO payload is unrepresentable.
+  // Each backend emits ITS side and fails closed (SD0030) when its side is
+  // absent — SYMMETRICALLY: a wgsl-only raw throws on the GLSL backend and a
+  // glsl-only raw throws on the WGSL one. A one-sided raw is therefore still
+  // a hard "this module does not build for that target", never a silent
+  // mis-emit.
+  | { readonly s: 'raw'; readonly wgsl: string; readonly glsl?: string }
+  | { readonly s: 'raw'; readonly wgsl?: string; readonly glsl: string }
+
+/** The `raw` statement node (#1671) — the per-target verbatim-splice escape
+ *  hatch. Named so the Backend contract can take the NODE (`rawStmt(s: RawStmt)`)
+ *  and pick its own payload, keeping the shared emit walk target-blind.
+ *  `Extract` unions BOTH raw members, so this is the whole at-least-one shape. */
+export type RawStmt = Extract<Stmt, { s: 'raw' }>
+
+/** The at-least-one authoring payload behind `rawStmt(payload)` — a raw with NO
+ *  payload is unrepresentable (`rawStmt({})` does not compile). */
+export type RawPayload =
+  | { readonly wgsl: string; readonly glsl?: string }
+  | { readonly wgsl?: string; readonly glsl: string }
 
 // ── Module-level declarations ──
 

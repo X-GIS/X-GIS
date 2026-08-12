@@ -163,6 +163,77 @@ It descends into `if`/`for`/`switch` bodies, and is **strict by default**: an un
 or a swap key that matches no placeholder **throws** (the silent-on-GPU / throws-on-CPU footgun
 becomes a loud compose-time error). Pass `{ allowUnswapped: true }` for deliberate bare survival.
 
+### `rawStmt` — the verbatim escape hatch, paired per target (#1671)
+
+When a statement must be hand-written — a pre-built string from another generator, a construct the
+IR does not model — splice it with `rawStmt`. It carries **one payload per target**: the same
+statement, spelled for each backend.
+
+```ts
+// the FACTORY form — when you assemble a `Stmt[]` body array by hand
+const PAIRED = rawStmt({
+  wgsl: 'return vec4<f32>(1.0, 0.0, 0.0, 1.0);',
+  glsl: 'return vec4(1.0, 0.0, 0.0, 1.0);',
+})
+const fs: FuncDecl = {
+  name: 'fs_main',
+  attrs: ['@fragment'],
+  stage: 'fragment',
+  params: [],
+  ret: vec4fT,
+  retAttr: '@location(0)',
+  body: [PAIRED],
+}
+```
+
+Inside a fluent `fn()` body use **`b.raw(payload)`** instead — a bare `rawStmt(...)` call there is a
+silently discarded expression (the returned `Stmt` is never pushed, so nothing is emitted).
+
+The MEANING is fixed ("splice these bytes here"); only the SPELLING is per-target — the same
+per-target-spelling pattern the intrinsic registry uses (`INTRINSICS`' `Spelling` record). Unlike
+`Spelling`, which requires BOTH sides, one side may be omitted here (see below) — but **at least one
+is required at the type level**: `rawStmt({})` does not compile. Each backend emits its own side
+verbatim at the enclosing body indent.
+
+**Fail-closed, symmetrically.** A backend handed a raw with no payload for ITS target throws
+`UnsupportedFeatureError` (SD0030) — a wgsl-only raw is a hard build error on GLSL, and a glsl-only
+raw is a hard build error on WGSL. Omitting a side is a decision that "this module does not build
+for that target", never a silent mis-emit. So supply every spelling the module must build for; the
+error names the missing one and quotes the side you did give.
+
+**Only the FIRST line gets the indent.** The emitter prepends the body indent to the payload as a
+whole, so line 2+ of a multi-line payload lands at column 0. Indent continuation lines yourself if
+the output shape matters.
+
+**Identifiers inside raw text are yours to keep valid.** The DSL does not read into a raw payload,
+so nothing rewrites it: `mangle()`/`obfuscate()` rename what they can see, and a textual reference is
+not something they can see. (A module containing any raw makes the mangle a no-op module-wide for
+this reason; see §8.) The concrete GLSL-side mine: the GLSL backend actively **renames** params and
+locals that collide with GLSL reserved words (`glsl-sanitize.ts` — `in`, `sample`, `filter`,
+`texture`, …), so raw `glsl` text naming the OLD identifier will reference a variable that no longer
+exists. The WGSL side has no such renamer, so the risk is asymmetric even though the contract (the
+author keeps the raw text valid) is identical in both directions.
+
+**A raw anywhere in the module disables GLSL stage scoping.** Raw text is opaque to the IR's
+reference walk, so the GLSL backend's per-stage reachability filter (`glsl.ts`'s `stageScope`) bails
+to `null` for the whole module. HELPERS: every helper fn is then emitted into **every** stage —
+a helper the entry never calls still reaches the writer, so a wgsl-only raw inside it still throws
+the whole GLSL emit. ENTRIES: an entry of a DIFFERENT stage is still dropped before the body walk,
+so enforcement is per-stage — a one-sided raw does not build for any stage whose emitted fn set
+contains that raw, not "for that target" globally. Pair the payloads on every raw in a module that
+must build for both targets, reachable or not.
+
+⚠ Because scoping is off, **fragment-only machinery in ANY helper of a raw-carrying module is
+emitted into the vertex stage too** — `dpdx`/`dpdy`/`fwidth` via intrinsics, `discard` — and fails to
+compile there. Keep such modules helper-clean, or split the raw out into its own module.
+
+(Whole-module dead-function elimination does not save an uncalled helper either — but not for this
+reason: `deadFnElim` (`passes/opt/dce-fns.ts`) is an available-but-unwired pass, deliberately absent
+from `DEFAULT_PASSES`, so tree-shaking simply never runs. It also bails on any raw, for any caller
+that does wire it.)
+
+The CPU oracle has no evaluation for raw text at all and throws on any target — raw is GPU-only.
+
 ## 2. Values and mutation
 
 ### Plain `const` — let the emit decide `let` / `var` / inline
@@ -998,29 +1069,30 @@ the exact bytes the backend has always emitted.
 
 ## Quick reference
 
-| Need                        | Write                                                                                                 |
-| --------------------------- | ----------------------------------------------------------------------------------------------------- |
-| A function                  | `fn(name?, params, body)` — return type inferred                                                      |
-| An entry point              | `fn(name, { vid: builtin('vertex_index', u32T) }, body, { stage: 'vertex' })`                         |
-| A module                    | `module({ consts, structs, bindings, funcs })`                                                        |
-| An intermediate value       | plain `const x = expr`                                                                                |
-| Mutate it                   | `x.assign(v)` (auto-materialises a `var`)                                                             |
-| A literal in an op          | bare number — `x.add(1)`, `vec4(p, 0, 1)`                                                             |
-| deg↔rad                     | `radians(x)` / `degrees(x)`                                                                           |
-| Branch (statement)          | `If(c, …).elif(c, …).else(…)`                                                                         |
-| Branch (value)              | `when(c, ()=>a, ()=>b)` / `when([[c,()=>a]], ()=>b)` (was `ifExpr`/`condExpr`)                        |
-| Exhaustive integer dispatch | `enumU32({A:0,B:1})` + `matchEnum(s, E, { A:()=>…, B:()=>… })` (missing arm = compile error)          |
-| Integer dispatch            | `Switch(s).case(n, …).default(…)`                                                                     |
-| Loop fold (value)           | `reduce(init, i0, cond, (acc,i)=>…, step)`                                                            |
-| Early return                | `Return(v)` / `ReturnIf(c, v)`                                                                        |
-| IO struct                   | `ioStruct(name, { f: builtin(...)/location(...) })` → `.of(n).f`, `.construct({…})`, `.type`, `.decl` |
-| Uniform                     | `uniformStruct(name, at, fields)` → `.field.f`, `.struct`, `.binding`                                 |
-| Storage element struct      | `structDecl(name, fields)` → `.of(n).f`, `.type`, `.decl`                                             |
-| Storage buffer              | `storageBuffer(name, Element, at)` → `buf.at(i).f`                                                    |
-| Texture / sampler           | `resource(name, type, at)` → `.node`, `.binding`                                                      |
-| A shared const              | import the handle (`PI`, `EARTH_R`) — not `constRef('NAME')`                                          |
-| Double precision            | declare values as `f64T` — same operators; `toF64`/`toF32` to convert; write 1.0 to the auto `_fp64`  |
-| A non-scalar const          | `constExpr(name, type, valueNode)` — `vec4` / `arrayLit` / struct literal                             |
-| Call a function             | import the `FnHandle`, call directly — not `callFn('name')`                                           |
-| Diagnose a module           | `diagnose(m, { backend })` → `formatReport(report)` (lint + caps, no throw)                           |
-| Source locations in errors  | `setSourceTracing(true)` (dev-only, off by default, never on emit)                                    |
+| Need                           | Write                                                                                                     |
+| ------------------------------ | --------------------------------------------------------------------------------------------------------- |
+| A function                     | `fn(name?, params, body)` — return type inferred                                                          |
+| An entry point                 | `fn(name, { vid: builtin('vertex_index', u32T) }, body, { stage: 'vertex' })`                             |
+| A module                       | `module({ consts, structs, bindings, funcs })`                                                            |
+| An intermediate value          | plain `const x = expr`                                                                                    |
+| Mutate it                      | `x.assign(v)` (auto-materialises a `var`)                                                                 |
+| A literal in an op             | bare number — `x.add(1)`, `vec4(p, 0, 1)`                                                                 |
+| deg↔rad                        | `radians(x)` / `degrees(x)`                                                                               |
+| Branch (statement)             | `If(c, …).elif(c, …).else(…)`                                                                             |
+| Branch (value)                 | `when(c, ()=>a, ()=>b)` / `when([[c,()=>a]], ()=>b)` (was `ifExpr`/`condExpr`)                            |
+| Exhaustive integer dispatch    | `enumU32({A:0,B:1})` + `matchEnum(s, E, { A:()=>…, B:()=>… })` (missing arm = compile error)              |
+| Integer dispatch               | `Switch(s).case(n, …).default(…)`                                                                         |
+| Loop fold (value)              | `reduce(init, i0, cond, (acc,i)=>…, step)`                                                                |
+| Early return                   | `Return(v)` / `ReturnIf(c, v)`                                                                            |
+| IO struct                      | `ioStruct(name, { f: builtin(...)/location(...) })` → `.of(n).f`, `.construct({…})`, `.type`, `.decl`     |
+| Uniform                        | `uniformStruct(name, at, fields)` → `.field.f`, `.struct`, `.binding`                                     |
+| Storage element struct         | `structDecl(name, fields)` → `.of(n).f`, `.type`, `.decl`                                                 |
+| Storage buffer                 | `storageBuffer(name, Element, at)` → `buf.at(i).f`                                                        |
+| Texture / sampler              | `resource(name, type, at)` → `.node`, `.binding`                                                          |
+| A shared const                 | import the handle (`PI`, `EARTH_R`) — not `constRef('NAME')`                                              |
+| A hand-written (raw) statement | `rawStmt({ wgsl, glsl })` / `b.raw(…)` — verbatim per target; a missing side fails closed on that backend |
+| Double precision               | declare values as `f64T` — same operators; `toF64`/`toF32` to convert; write 1.0 to the auto `_fp64`      |
+| A non-scalar const             | `constExpr(name, type, valueNode)` — `vec4` / `arrayLit` / struct literal                                 |
+| Call a function                | import the `FnHandle`, call directly — not `callFn('name')`                                               |
+| Diagnose a module              | `diagnose(m, { backend })` → `formatReport(report)` (lint + caps, no throw)                               |
+| Source locations in errors     | `setSourceTracing(true)` (dev-only, off by default, never on emit)                                        |

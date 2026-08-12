@@ -281,9 +281,19 @@ export const glslEs300Backend: Backend = {
   switchHead: (scrut) => `switch (${scrut}) {`,
   // C-style GLSL switch falls through — each case must `break` or it leaks into the next.
   caseBreak: 'break;',
-  rawStmt: () => {
+  // #1671 — emit THIS target's payload. A raw carrying only the WGSL spelling
+  // still cannot lower (raw text is opaque to the IR, so there is nothing to
+  // translate) — it fails closed, but the message now names the fix.
+  rawStmt: (s) => {
+    if (s.glsl !== undefined) return s.glsl
+    // The at-least-one union guarantees a `wgsl` side here (a raw with NO payload
+    // is unrepresentable), so the snippet always has something to quote. tsc
+    // cannot see that — a union is not discriminable on a property whose type is
+    // not a unit type — so narrow the PROPERTY with a local read rather than
+    // asserting the union away; the `''` arm is unreachable by construction.
+    const wgsl = s.wgsl ?? ''
     throw new UnsupportedFeatureError(
-      'glsl-es300: raw WGSL Stmt cannot lower to GLSL (backendOnly:wgsl)',
+      `glsl-es300: raw Stmt carries no glsl payload (wgsl-only raw: '${wgsl.slice(0, 40)}') — supply a glsl spelling for this statement`,
     )
   },
   placeholderStmt: () => {

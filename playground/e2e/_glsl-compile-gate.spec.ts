@@ -31,6 +31,7 @@ import {
   builtin,
   location,
   overrideConst,
+  rawStmt,
   If,
   Var,
   f32,
@@ -40,6 +41,7 @@ import {
   vec4,
   type ShaderType,
   type Expr,
+  type FuncDecl,
   type ModuleDecl,
   type StructDecl,
 } from '../../shader-dsl/src/index'
@@ -596,5 +598,101 @@ void main() {
       `specialized fragment failed to compile:\n${result.fs.log}\n--- GLSL ---\n${fragment}`,
     ).toBe(true)
     expect(result.linkOk, `specialized program failed to link:\n${result.linkLog}`).toBe(true)
+  })
+
+  // #1671: a PAIRED raw Stmt — one node carrying both spellings — emits GLSL a real
+  // driver accepts. The unit suite pins the bytes, but only a compiler proves the
+  // spliced text is valid IN THE POSITION the emitter puts it (inside the `fs_impl`
+  // body, at the enclosing indent, after the emitter's own declarations). The local
+  // the payload declares is READ by the return expression, so the splice cannot be
+  // dropped and still link — an unreferenced raw would compile even if the emitter
+  // had mangled the statement into a comment.
+  test('#1671: a paired raw Stmt compiles + links on real WebGL2', async ({ page }) => {
+    const rawFs: FuncDecl = {
+      name: 'fs',
+      attrs: ['@fragment'],
+      params: [{ name: 'inp', type: structT('VsOut') }],
+      ret: structT('FsOut'),
+      body: [
+        // the SAME statement, spelled for each target (`let` vs a typed decl)
+        rawStmt({ wgsl: 'let _rawK = 0.5;', glsl: 'float _rawK = 0.5;' }),
+        {
+          s: 'return',
+          expr: {
+            op: 'construct',
+            type: structT('FsOut'),
+            args: [
+              v4(
+                fld(fld(param('inp', structT('VsOut')), 'uv', vec2fT), 'x', f32T),
+                varref('_rawK', f32T),
+                lit(0),
+                lit(1),
+              ),
+            ],
+          },
+        },
+      ],
+    }
+    const rawModule: ModuleDecl = { ...module, funcs: [module.funcs[0]!, rawFs] }
+
+    const vertex = emitGlslModule(rawModule, 'vertex')
+    const fragment = emitGlslModule(rawModule, 'fragment')
+    // the GLSL payload landed verbatim, and the WGSL twin never leaks into GLSL source
+    expect(fragment).toContain('float _rawK = 0.5;')
+    expect(fragment).not.toContain('let _rawK')
+
+    await page.goto('/demo.html?id=minimal', { waitUntil: 'domcontentloaded' })
+
+    const result = await page.evaluate(
+      ({ vertex, fragment }) => {
+        const canvas = document.createElement('canvas')
+        const gl = canvas.getContext('webgl2')
+        if (!gl) return { fatal: 'no webgl2 context' as const }
+        const mk = (type: number, src: string): WebGLShader => {
+          const sh = gl.createShader(type)!
+          gl.shaderSource(sh, src)
+          gl.compileShader(sh)
+          return sh
+        }
+        const vsh = mk(gl.VERTEX_SHADER, vertex)
+        const fsh = mk(gl.FRAGMENT_SHADER, fragment)
+        const vs = {
+          ok: gl.getShaderParameter(vsh, gl.COMPILE_STATUS) as boolean,
+          log: gl.getShaderInfoLog(vsh) ?? '',
+        }
+        const fs = {
+          ok: gl.getShaderParameter(fsh, gl.COMPILE_STATUS) as boolean,
+          log: gl.getShaderInfoLog(fsh) ?? '',
+        }
+        let linkOk = false
+        let linkLog = ''
+        if (vs.ok && fs.ok) {
+          const prog = gl.createProgram()!
+          gl.attachShader(prog, vsh)
+          gl.attachShader(prog, fsh)
+          gl.linkProgram(prog)
+          linkOk = gl.getProgramParameter(prog, gl.LINK_STATUS) as boolean
+          linkLog = gl.getProgramInfoLog(prog) ?? ''
+        }
+        return { vs, fs, linkOk, linkLog }
+      },
+      { vertex, fragment },
+    )
+
+    expect(
+      result,
+      `WebGL2 unavailable: ${'fatal' in result ? result.fatal : ''}`,
+    ).not.toHaveProperty('fatal')
+    if ('fatal' in result) return
+
+    expect(
+      result.vs.ok,
+      `paired-raw vertex failed to compile:\n${result.vs.log}\n--- GLSL ---\n${vertex}`,
+    ).toBe(true)
+    expect(
+      result.fs.ok,
+      `paired-raw fragment failed to compile:\n${result.fs.log}\n--- GLSL ---\n${fragment}`,
+    ).toBe(true)
+    expect(result.linkOk, `paired-raw program failed to link:\n${result.linkLog}`).toBe(true)
   })
 })
