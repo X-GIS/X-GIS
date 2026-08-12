@@ -15,9 +15,8 @@ import type {
   BindingDecl,
   FuncDecl,
   ModuleDecl,
-  Capability,
 } from '../ir'
-import { Capabilities, UnsupportedFeatureError, type Backend } from '../backend'
+import { UnsupportedFeatureError, type Backend, type CapProfile } from '../backend'
 import {
   emitExpr as emitExprNeutral,
   emitBody,
@@ -99,13 +98,41 @@ function paramAttr(p: { builtin?: string; location?: number; attr?: string }): s
   return ''
 }
 
-/** WGSL `enable`-directive extension name for each language-feature capability that
- *  needs one (#628). Resource caps (storageBuffer / compute / msaaTextureLoad) need no
- *  directive and are absent here; a cap absent from this map contributes no header. */
-const WGSL_ENABLE: Partial<Record<Capability, string>> = {
-  f16: 'f16',
-  subgroups: 'subgroups',
-}
+/** THE WGSL capability table (#1670) — what this target supports, what each cap costs
+ *  in the emitted source (`directive`), and what the host must request of the adapter
+ *  (`hostFeature`). Coverage derives from these KEYS (`Capabilities.fromProfile`),
+ *  `modulePreamble` from these `directive`s, and the host list from these
+ *  `hostFeature`s (`hostFeaturesFor`), so none of the three can disagree; it replaced
+ *  the hand-synced `caps`-set + `WGSL_ENABLE`-map pair (CLAUDE.md §12 second-ratchet).
+ *
+ *  The WGSL writer can SPELL every row here; whether a given adapter HAS an optional
+ *  feature is a runtime probe the RHI owns — it opts a module in via `enables` only
+ *  after confirming the device feature (#628).
+ *
+ *  NO `multiview` row, deliberately: WebGPU has no OVR_multiview2 equivalent, so a
+ *  module declaring it must fail closed here (SD0030 naming 'multiview') rather than
+ *  emit a module the device cannot honour. That fail-closed half is half of what makes
+ *  the GLSL `#extension` path meaningful — pinned by extension-profile.test.ts, so the
+ *  absence is an asserted invariant rather than this comment's word for it.
+ *
+ *  `satisfies` (not a `: CapProfile` annotation): the annotation would widen every row
+ *  to `CapSupport` and lose the literal `hostFeature` strings, which is exactly what a
+ *  reader — and the profile-pin test — needs to see. It still type-checks the KEYS
+ *  against `Capability`, so a renamed cap id cannot leave a stale row behind. */
+const WGSL_CAP_PROFILE = {
+  // Derived resource caps — core WGSL, nothing to declare or request.
+  storageBuffer: {},
+  compute: {},
+  msaaTextureLoad: {},
+  // Opt-in LANGUAGE features — a WGSL `enable` directive AND a device feature.
+  f16: { directive: 'f16', hostFeature: 'shader-f16' },
+  subgroups: { directive: 'subgroups', hostFeature: 'subgroups' },
+  // Opt-in DEVICE features (#1670) — no WGSL directive exists for any of these; the
+  // host activates them at requestDevice time (or they are core).
+  floatRenderTarget: {}, // core in WebGPU: an rgba32float render target needs no feature
+  float32Blend: { hostFeature: 'float32-blendable' },
+  float32Filterable: { hostFeature: 'float32-filterable' },
+} satisfies CapProfile
 
 /** `@builtin(<id>)` ids that do NOT exist in WGSL (#1672), each mapped to the message
  *  tail the shared pre-pass prints after `wgsl: @builtin(<id>)`. Every one of them is a
@@ -135,12 +162,7 @@ const WGSL_ABSENT_BUILTINS: ReadonlyMap<string, string> = new Map([
  *  spelling, so any emit driven by wgslBackend is byte-identical. */
 export const wgslBackend: Backend = {
   id: 'wgsl',
-  // The WGSL writer can SPELL every cap; whether a given adapter supports an optional
-  // feature (shader-f16, subgroups) is a RUNTIME probe the RHI owns — it opts a module
-  // in via `enables` only after it has confirmed the device feature (#628).
-  caps: new Capabilities(
-    new Set(['storageBuffer', 'compute', 'msaaTextureLoad', 'f16', 'subgroups']),
-  ),
+  capProfile: WGSL_CAP_PROFILE,
   absentBuiltins: WGSL_ABSENT_BUILTINS,
   typeName: wgslType,
   literal: lit,
@@ -212,23 +234,28 @@ export const wgslBackend: Backend = {
   // polygon composer's _mcSS fill/stroke), so those precision-critical paths are
   // emitted verbatim, untouched.
   optimize: (m) => fixpoint(m),
-  // The WGSL `enable`-directive header (#628): one `enable <ext>;` per opt-in
-  // language-feature cap the module declares (m.enables), deduped + sorted for a
-  // deterministic byte order, then a blank line before the first declaration. Empty
-  // when the module opts into nothing, so enables-free emit stays byte-identical.
-  // assertCaps (run in lowerForBackend, before this string is used) has already
-  // guaranteed this backend covers every declared cap.
+  // The WGSL `enable`-directive header (#628): one `enable <ext>;` per declared cap
+  // whose PROFILE ROW carries a directive (#1670 — the host-side rows contribute
+  // nothing), deduped + sorted for a deterministic byte order. Bare lines, NO trailing
+  // separator — the one contract every backend's preamble keeps (backend.ts); the blank
+  // line before the first declaration is added by emit.ts's `directiveHeader`, which
+  // owns this target's slot. Empty when the module opts into nothing (or into host-side
+  // caps only), so enables-free emit stays byte-identical. assertCaps (run in
+  // lowerForBackend, before this string is used) has already guaranteed this backend
+  // covers every declared cap.
   modulePreamble: (m) => {
+    // Read through `wgslBackend.capProfile` (the emitConst/constDecl self-reference
+    // idiom above), not the narrow `satisfies`-typed literal: the literal's type has no
+    // key for a cap this target does not support, so indexing it by an arbitrary
+    // `Capability` would not typecheck. It is the same object either way.
     const dirs = (m.enables ?? [])
-      .map((c) => WGSL_ENABLE[c])
+      .map((c) => wgslBackend.capProfile[c]?.directive)
       .filter((d): d is string => d !== undefined)
     if (dirs.length === 0) return ''
-    return (
-      [...new Set(dirs)]
-        .sort()
-        .map((d) => `enable ${d};`)
-        .join('\n') + '\n\n'
-    )
+    return [...new Set(dirs)]
+      .sort()
+      .map((d) => `enable ${d};`)
+      .join('\n')
   },
 }
 

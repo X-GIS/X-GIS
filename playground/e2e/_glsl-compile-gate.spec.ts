@@ -18,6 +18,9 @@ import { test, expect } from '@playwright/test'
 // (_wgsl-compile-gate.spec.ts) imports runtime shaders the same relative way.
 import {
   emitGlslModule,
+  glslEs300Backend,
+  hostFeaturesFor,
+  reflect,
   mat4x4fT,
   vec4fT,
   vec2fT,
@@ -694,5 +697,200 @@ void main() {
       `paired-raw fragment failed to compile:\n${result.fs.log}\n--- GLSL ---\n${fragment}`,
     ).toBe(true)
     expect(result.linkOk, `paired-raw program failed to link:\n${result.linkLog}`).toBe(true)
+  })
+
+  // #1670: a HOST-SIDE capability, end to end on a real driver.
+  //
+  // `enables: ['floatRenderTarget']` is the class of cap that has NO token in the
+  // shader source: WebGL2 activates EXT_color_buffer_float through `gl.getExtension`,
+  // so the emitted GLSL must be byte-for-byte what an enables-free module emits (the
+  // unit suite pins that; here we re-assert `#extension` is ABSENT before handing the
+  // string to a compiler). What only a driver can prove is the other half — that the
+  // declaration was WORTH making: the extension the host requested is exactly the one
+  // `reflect().requiredFeatures` named, and with it active the program renders into an
+  // RGBA32F attachment and the value reads BACK.
+  //
+  // The witness is deliberately a value ABOVE 1.0 (3.25, a constant, so no
+  // interpolation is involved): an RGBA8 attachment would clamp it to 1.0 and a
+  // non-float readback would quantize it, so reading 3.25 back cannot happen unless the
+  // float render target really is one. A merely non-zero pixel would not distinguish
+  // that (§12 — an assertion must distinguish the states of the thing it tests).
+  //
+  // The extension NAME is not hardcoded in the page: it is derived from
+  // reflect().requiredFeatures through the GLSL backend's capProfile and passed in. If
+  // the profile row ever stopped naming EXT_color_buffer_float, the page would request
+  // the wrong extension and the readback would fail — which is the point.
+  test('#1670: a floatRenderTarget module renders into an RGBA32F target on real WebGL2', async ({
+    page,
+  }) => {
+    // Fullscreen triangle from gl_VertexID — no vertex buffers, same idiom as the
+    // #923 override gate above.
+    const VsOut = ioStruct('FrtVsOut', {
+      pos: builtin('position', vec4fT),
+      uv: location(0, vec2fT),
+    })
+    const vsFn = fn(
+      'frt_vs',
+      { vi: builtin('vertex_index', u32T) },
+      ({ vi }) => {
+        const x = toF32(vi.bitAnd(u32(1)))
+          .mul(4)
+          .sub(1)
+        const y = toF32(vi.shr(u32(1)))
+          .mul(4)
+          .sub(1)
+        return VsOut.construct({
+          pos: vec4(x, y, 0, 1),
+          uv: vec2(x.mul(0.5).add(0.5), y.mul(0.5).add(0.5)),
+        })
+      },
+      { stage: 'vertex' },
+    )
+    // BLUE is the witness: a constant 3.25, out of an unsigned-normalized range.
+    const fsFn = fn(
+      'frt_fs',
+      { inp: VsOut },
+      ({ inp }) => vec4(inp.uv.x.add(2.5), inp.uv.y.add(1.5), f32(3.25), f32(1)),
+      { stage: 'fragment', retAttr: '@location(0)' },
+    )
+    const floatRtModule = buildModule({
+      enables: ['floatRenderTarget'],
+      funcs: [vsFn, fsFn],
+      uses: [VsOut],
+    })
+
+    // The HOST contract: reflection names the requirement, the profile translates it
+    // into the concrete WebGL2 extension the page must request.
+    const required = reflect(floatRtModule).requiredFeatures
+    expect(required).toContain('floatRenderTarget')
+    // hostFeaturesFor is THE host-activation lookup (#1670) — it drops every cap whose
+    // profile row has no host half, so what comes out is exactly what a host may pass to
+    // getExtension / requiredFeatures, with no undefined holes.
+    const hostFeatures = hostFeaturesFor(glslEs300Backend, required)
+    expect(hostFeatures).toEqual(['EXT_color_buffer_float'])
+
+    const vertex = emitGlslModule(floatRtModule, 'vertex')
+    const fragment = emitGlslModule(floatRtModule, 'fragment')
+    // A host-side cap costs ZERO emitted bytes — no directive on either stage.
+    expect(vertex).not.toContain('#extension')
+    expect(fragment).not.toContain('#extension')
+    expect(vertex.startsWith('#version 300 es\nprecision ')).toBe(true)
+    expect(fragment).toContain('3.25')
+
+    await page.goto('/demo.html?id=minimal', { waitUntil: 'domcontentloaded' })
+
+    const result = await page.evaluate(
+      ({ vertex, fragment, hostFeatures }) => {
+        const canvas = document.createElement('canvas')
+        canvas.width = 4
+        canvas.height = 4
+        const gl = canvas.getContext('webgl2')
+        if (!gl) return { fatal: 'no webgl2 context' as const }
+
+        // Exactly the extensions reflect() asked for — nothing hardcoded here.
+        const missing = hostFeatures.filter((h) => gl.getExtension(h) === null)
+        if (missing.length > 0) return { fatal: `missing extension: ${missing.join(', ')}` }
+
+        const mk = (type: number, src: string): WebGLShader => {
+          const sh = gl.createShader(type)!
+          gl.shaderSource(sh, src)
+          gl.compileShader(sh)
+          return sh
+        }
+        const vsh = mk(gl.VERTEX_SHADER, vertex)
+        const fsh = mk(gl.FRAGMENT_SHADER, fragment)
+        const vs = {
+          ok: gl.getShaderParameter(vsh, gl.COMPILE_STATUS) as boolean,
+          log: gl.getShaderInfoLog(vsh) ?? '',
+        }
+        const fs = {
+          ok: gl.getShaderParameter(fsh, gl.COMPILE_STATUS) as boolean,
+          log: gl.getShaderInfoLog(fsh) ?? '',
+        }
+        // ONE result shape for every non-fatal outcome, so an early compile/link
+        // failure reports through the same fields the success path fills.
+        const out = {
+          vs,
+          fs,
+          linkOk: false,
+          linkLog: '',
+          fboStatus: 0,
+          complete: gl.FRAMEBUFFER_COMPLETE as number,
+          glError: 0,
+          readFormat: 0,
+          readType: 0,
+          px: [] as number[],
+        }
+        if (!vs.ok || !fs.ok) return out
+
+        const prog = gl.createProgram()!
+        gl.attachShader(prog, vsh)
+        gl.attachShader(prog, fsh)
+        gl.linkProgram(prog)
+        out.linkOk = gl.getProgramParameter(prog, gl.LINK_STATUS) as boolean
+        out.linkLog = gl.getProgramInfoLog(prog) ?? ''
+        if (!out.linkOk) return out
+
+        // The float render target the capability exists for.
+        const tex = gl.createTexture()!
+        gl.bindTexture(gl.TEXTURE_2D, tex)
+        gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA32F, 4, 4, 0, gl.RGBA, gl.FLOAT, null)
+        const fbo = gl.createFramebuffer()!
+        gl.bindFramebuffer(gl.FRAMEBUFFER, fbo)
+        gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, tex, 0)
+        out.fboStatus = gl.checkFramebufferStatus(gl.FRAMEBUFFER)
+        out.readFormat = gl.getParameter(gl.IMPLEMENTATION_COLOR_READ_FORMAT) as number
+        out.readType = gl.getParameter(gl.IMPLEMENTATION_COLOR_READ_TYPE) as number
+        if (out.fboStatus !== gl.FRAMEBUFFER_COMPLETE) return out
+
+        gl.viewport(0, 0, 4, 4)
+        gl.clearColor(0, 0, 0, 0)
+        gl.clear(gl.COLOR_BUFFER_BIT)
+        gl.useProgram(prog)
+        // No attributes: the vertex stage builds the triangle from gl_VertexID.
+        gl.drawArrays(gl.TRIANGLES, 0, 3)
+
+        const px = new Float32Array(4)
+        gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.FLOAT, px)
+        out.glError = gl.getError()
+        out.px = [...px]
+        return out
+      },
+      { vertex, fragment, hostFeatures },
+    )
+
+    // A CI browser without WebGL2 or without EXT_color_buffer_float is a GATE FAILURE,
+    // not a skip: this leg exists precisely to prove the extension path works.
+    expect(
+      result,
+      `WebGL2 float render target unavailable: ${'fatal' in result ? result.fatal : ''}`,
+    ).not.toHaveProperty('fatal')
+    if ('fatal' in result) return
+
+    expect(
+      result.vs.ok,
+      `floatRenderTarget vertex failed to compile:\n${result.vs.log}\n--- GLSL ---\n${vertex}`,
+    ).toBe(true)
+    expect(
+      result.fs.ok,
+      `floatRenderTarget fragment failed to compile:\n${result.fs.log}\n--- GLSL ---\n${fragment}`,
+    ).toBe(true)
+    expect(result.linkOk, `floatRenderTarget program failed to link:\n${result.linkLog}`).toBe(true)
+    expect(
+      result.fboStatus,
+      `RGBA32F framebuffer incomplete (status ${result.fboStatus}) — EXT_color_buffer_float active?`,
+    ).toBe(result.complete)
+    expect(
+      result.glError,
+      `GL error ${result.glError} after readPixels; implementation read format/type = ${result.readFormat}/${result.readType}`,
+    ).toBe(0)
+    // THE witness: the out-of-unorm-range constant survived the round trip, so the
+    // attachment really is float and the readback really is float.
+    expect(result.px[2], `blue channel read back as ${result.px[2]}, expected 3.25`).toBeCloseTo(
+      3.25,
+      4,
+    )
+    // …and the interpolated red channel is likewise unclamped (>1.0) and non-zero.
+    expect(result.px[0]).toBeGreaterThan(1)
   })
 })

@@ -438,7 +438,11 @@ export interface RhiCaps {
    *  WebGL2: feature-DETECTED (EXT_color_buffer_float && EXT_float_blend) —
    *  the canonical proof this is a capability, not an alias for backend
    *  identity: a desktop WebGL2 context commonly answers true. Consumer:
-   *  heatmap/oit shouldRun gates + RenderTargets float-target allocation. */
+   *  heatmap/oit shouldRun gates + RenderTargets float-target allocation.
+   *  The same pair of features has NEUTRAL ids in the shader DSL — `floatRenderTarget`
+   *  + `float32Blend` in each backend's `capProfile` (#1670) — which is the vocabulary
+   *  the extension strings here must stay in sync with; deriving this cap from those
+   *  profiles is a recorded follow-up, not today's change. */
   readonly floatBlendTargets: boolean
   /** Compute execution: native compute passes or the fragment-GPGPU lowering.
    *  Consumer: the compute dispatcher seam only — passes never read it. */

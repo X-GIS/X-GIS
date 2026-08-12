@@ -244,6 +244,16 @@ export function applyTextPlugins(code: string, opts?: EmitOptions): string {
   return c
 }
 
+/** The backend's directive header, ready to PREPEND (#1670). `modulePreamble` returns
+ *  bare directive lines with no trailing separator (backend.ts — one contract for every
+ *  target); this driver's slot puts a blank line between them and the first declaration,
+ *  and contributes nothing at all when the module directs nothing, so an enables-free
+ *  emit stays byte-identical. */
+function directiveHeader(be: Backend, m: ModuleDecl): string {
+  const pre = be.modulePreamble?.(m) ?? ''
+  return pre ? `${pre}\n\n` : ''
+}
+
 /** Emit a ModuleDecl to a target string: shared preamble (`lowerForBackend`) then the
  *  declaration assembly (consts → structs → bindings → funcs, only non-empty sections),
  *  joined `\n\n` with a trailing newline. Each backend's public module entry
@@ -255,7 +265,7 @@ export function emitModule(m: ModuleDecl, be: Backend, opts?: EmitOptions): stri
   // caps (m.enables) — the lowering passes rebuild the module object and do not carry
   // it — and prepended to the assembled declarations. '' for enables-free modules, so
   // their emit stays byte-identical.
-  return (be.modulePreamble?.(m) ?? '') + applyTextPlugins(assembleLowered(lowered, be), opts)
+  return directiveHeader(be, m) + applyTextPlugins(assembleLowered(lowered, be), opts)
 }
 
 /** Emit a ModuleDecl at an explicit optimization level (O0/O1/O2) instead of the
@@ -265,7 +275,7 @@ export function emitModule(m: ModuleDecl, be: Backend, opts?: EmitOptions): stri
  *  backend assembles uniform UBOs via its own emitGlslModule, so this WGSL-style assembly
  *  is for the WGSL backend (and any backend whose bindings need no special assembly). */
 export function emitModuleAt(m: ModuleDecl, be: Backend, level: OptLevel): string {
-  return (be.modulePreamble?.(m) ?? '') + assembleLowered(lowerForBackend(m, be, level), be)
+  return directiveHeader(be, m) + assembleLowered(lowerForBackend(m, be, level), be)
 }
 
 /** Emit a ModuleDecl AND recover its pipeline reflection, BOTH derived from the SAME
@@ -283,7 +293,7 @@ export function emitModuleWithReflection(
 ): { code: string; reflection: Reflection } {
   const lowered = lowerForBackend(m, be)
   return {
-    code: (be.modulePreamble?.(m) ?? '') + assembleLowered(lowered, be),
+    code: directiveHeader(be, m) + assembleLowered(lowered, be),
     reflection: reflect(lowered),
   }
 }

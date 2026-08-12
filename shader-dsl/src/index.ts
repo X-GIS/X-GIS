@@ -61,11 +61,17 @@ export { type OptLevel } from './core/passes/opt'
 
 // Public error surface: the coded base class + the EMIT-time validation gate.
 // (`Diagnostic` is the type of ValidationError.diagnostics.) Everything else on
-// the diagnostics/lint/measure axis is DEV tooling — import it from
-// '@xgis/shader-dsl/dev' (#740 R2b): lintModule / summarize / formatDiagnostics /
-// checkSingleExit / requiredCaps / assertCaps / diagnose / formatReport / CODES /
-// dslError / formatLoc / setSourceTracing / emitSize / countOps / optimizerReport /
+// the diagnostics/lint/measure axis is exported from '@xgis/shader-dsl/dev'
+// (#740 R2b): lintModule / summarize / formatDiagnostics / checkSingleExit /
+// requiredCaps / assertCaps / diagnose / formatReport / CODES / dslError /
+// formatLoc / setSourceTracing / emitSize / countOps / optimizerReport /
 // lowerForBackend / emitModuleWithReflection.
+//
+// That split is about the AUTHORING SURFACE, not about which code runs in
+// production: passes/required-caps is squarely on the production path — assertCaps
+// gates every emit from lowerForBackend, and `reflect()` (main barrel) derives
+// `requiredFeatures` from requiredCaps (#1670). Only its named export lives on the
+// dev entry, because an author writing a shader never calls it directly.
 export { ShaderDslError } from './core/diagnostics/error'
 export { validate, ValidationError } from './core/passes/validate'
 export { type Diagnostic } from './core/passes/lint/engine'

@@ -20,10 +20,12 @@ import {
   type StructDecl,
   type ModuleDecl,
   type AddressSpace,
+  type Capability,
   typeKey,
   stageOf,
   workgroupSizeOf,
 } from './ir'
+import { requiredCaps } from './passes/required-caps'
 
 const roundUp = (x: number, a: number): number => Math.ceil(x / a) * a
 
@@ -251,6 +253,33 @@ export interface Reflection {
    *  passes at pipeline creation (WGSL `constants` / GLSL `#define` header). Always
    *  present; empty for a module that declares no overrides. */
   readonly overrides: readonly OverrideInfo[]
+  /** Every capability this module's emit requires (#1670) — the DERIVED resource caps
+   *  (a storage binding ⇒ `storageBuffer`, a `@compute` entry ⇒ `compute`, an MSAA
+   *  texture load ⇒ `msaaTextureLoad`) plus everything the module declared in
+   *  `enables`. Sorted, deduped. Always present; empty for a module that needs nothing.
+   *
+   *  This is what a host must have ACTIVE before it creates a pipeline for this module.
+   *  The ids are NEUTRAL (#1650) because reflection is target-neutral — it takes a
+   *  module, never a backend — so translate each through the target backend's
+   *  `capProfile` with `hostFeaturesFor`, THE host-activation lookup (core/backend.ts):
+   *
+   *  ```ts
+   *  for (const ext of hostFeaturesFor(glslEs300Backend, reflect(m).requiredFeatures)) {
+   *    if (!gl.getExtension(ext)) throw new Error(`WebGL2 lacks ${ext}`)
+   *  }
+   *  // WebGPU, at BOOT (requiredFeatures are fixed at requestDevice — pipeline time is
+   *  // too late): requestDevice({
+   *  //   requiredFeatures: hostFeaturesFor(wgslBackend, reflect(m).requiredFeatures) })
+   *  ```
+   *
+   *  Almost every cap the target has NO row for is unreachable here in a usable pipeline —
+   *  emit already failed closed at assertCaps naming it (SD0030). The exception is
+   *  `storageBuffer` on GLSL: a storage module is REWRITTEN to a data texture before the
+   *  gate, so it emits fine while reflection of the AUTHORED module still reports the cap.
+   *  A host loop is unharmed either way — `hostFeaturesFor` skips every cap whose row (or
+   *  whose row's `hostFeature`) is absent. A row's `directive` is likewise not the host's
+   *  business: it is already in the emitted source. */
+  readonly requiredFeatures: readonly Capability[]
 }
 
 const resourceKind = (space: AddressSpace, t: ShaderType): ResourceKind =>
@@ -339,5 +368,21 @@ export function reflect(m: ModuleDecl): Reflection {
     default: o.default,
   }))
 
-  return { bindGroups, uniforms, storage, ...(vertex ? { vertex } : {}), entries, overrides }
+  // #1670 — the caps the host must have active before pipeline creation. Same
+  // derivation the emit gate uses (requiredCaps: shape-derived + declared `enables`), so
+  // reflection and assertCaps can never disagree about what a module needs; sorted for a
+  // deterministic order. Always present, empty when the module needs nothing — the
+  // `overrides` model, so a consumer never distinguishes "needs nothing" from "old
+  // reflection shape".
+  const requiredFeatures = requiredCaps(m).sort()
+
+  return {
+    bindGroups,
+    uniforms,
+    storage,
+    ...(vertex ? { vertex } : {}),
+    entries,
+    overrides,
+    requiredFeatures,
+  }
 }

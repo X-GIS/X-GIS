@@ -1067,6 +1067,88 @@ the exact bytes the backend has always emitted.
   bandwidth win, the banding it can cause, the range clipping — is an
   **explicit skip**, verifiable only on real mobile hardware.
 
+## 10. Capabilities & extensions — `enables` (#1670)
+
+A module declares the GPU features its emit needs, by **neutral id** — never a raw
+`EXT_*` / `OVR_*` string (#1650):
+
+```ts
+module({ enables: ['floatRenderTarget'], funcs: [vs, fs] })
+```
+
+Each id folds into the capability gate, so a backend that cannot spell it **fails
+closed** (`UnsupportedFeatureError` / `SD0030`, message naming the cap) instead of
+emitting source the driver rejects. Resource caps (`storageBuffer`, `compute`,
+`msaaTextureLoad`) are DERIVED from the module's shape and are never declared here.
+
+Each backend owns ONE `capProfile` table — neutral id → `{ directive?, hostFeature? }` —
+and that table is the single authority: coverage is built from its keys, the directive
+header from its rows' `directive`s, and the host-activation list from their
+`hostFeature`s.
+
+| `enables` id        | WebGL2 / GLSL ES 3.00                                                           | WebGPU / WGSL                                         |
+| ------------------- | ------------------------------------------------------------------------------- | ----------------------------------------------------- |
+| `floatRenderTarget` | host: `EXT_color_buffer_float`                                                  | core (nothing to request)                             |
+| `float32Blend`      | host: `EXT_float_blend`                                                         | host: `float32-blendable`                             |
+| `float32Filterable` | host: `OES_texture_float_linear`                                                | host: `float32-filterable`                            |
+| `multiview`         | source: `#extension GL_OVR_multiview2 : require` **and** host: `OVR_multiview2` | **unsupported** (no OVR equivalent) — fails closed    |
+| `f16`               | **unsupported** (no GLSL ES 3.00 counterpart)                                   | source: `enable f16;` **and** host: `shader-f16`      |
+| `subgroups`         | **unsupported** (no GLSL ES 3.00 counterpart)                                   | source: `enable subgroups;` **and** host: `subgroups` |
+
+A cap may need **either or both** halves, so a cell lists every half that target needs.
+**host:** the HOST must activate it before pipeline creation. **source:** the backend
+emits the directive itself (`#extension` right after `#version 300 es`, `enable` ahead of
+the declarations), deduped + sorted. A cap with a `host` half and no `source` half is
+byte-neutral: declaring it moves not one emitted byte. The `32` in `float32Blend` /
+`float32Filterable` is not decoration — both underlying features are 32F-only, while
+`EXT_color_buffer_float` covers 16F **and** 32F, which is why `floatRenderTarget` carries
+no bitwidth.
+
+A cap can also IMPLY another: `float32Blend` pulls in `floatRenderTarget`, because
+blending into a float target needs that target to be color-renderable first (with only
+`EXT_float_blend` the FBO comes back INCOMPLETE). `reflect().requiredFeatures` reports the
+closure, so a module declaring one gets both.
+
+**`multiview` caveat:** the cap buys the **directive only**. The DSL cannot yet spell
+`layout(num_views = N) in;` or read `gl_ViewID_OVR`, so a module declaring `multiview`
+emits the `#extension` line and still renders **single-view**. It exists to prove the
+`#extension` mechanism end to end (#1670); real multiview authoring is a follow-up.
+
+### Activation authority — verify at boot, never at pipeline time
+
+Declaring a cap does **not** activate anything. On this repo's runtimes the device
+decides, at device-creation time, and it is already done by the time a module is emitted:
+
+- **WebGL2** — the device constructor (`rhi-webgl2/src/rhi-webgl2.ts`) already
+  `getExtension`s the float pair (`EXT_color_buffer_float` + `EXT_float_blend`) when both
+  are present.
+- **WebGPU** — `requiredFeatures` are **fixed at `requestDevice`** (`rhi-webgpu/src/gpu.ts`).
+  A feature not requested there can never be added later; asking at pipeline-creation time
+  is too late.
+
+So a module author's job is to **verify**, not to request: check that the booted device
+covers what the module needs, and fail loud if it does not.
+
+The requirement list is **`reflect().requiredFeatures`** — always present, empty when the
+module needs nothing, covering the derived caps and the implied ones too. The ids are
+neutral because reflection is target-neutral, so translate through the target's profile
+with `hostFeaturesFor`, THE host-activation lookup (it skips caps with no host half, so
+there are no `undefined` holes to hand a driver):
+
+```ts
+import { hostFeaturesFor, reflect, glslEs300Backend, wgslBackend } from '@xgis/shader-dsl'
+
+// WebGL2 — verify the already-booted context has each extension.
+for (const ext of hostFeaturesFor(glslEs300Backend, reflect(m).requiredFeatures)) {
+  if (!gl.getExtension(ext)) throw new Error(`WebGL2 lacks ${ext}`)
+}
+
+// WebGPU — feed the SAME lookup into requestDevice, at boot.
+const device = await adapter.requestDevice({
+  requiredFeatures: hostFeaturesFor(wgslBackend, reflect(m).requiredFeatures),
+})
+```
+
 ## Quick reference
 
 | Need                           | Write                                                                                                     |
@@ -1095,4 +1177,5 @@ the exact bytes the backend has always emitted.
 | A non-scalar const             | `constExpr(name, type, valueNode)` — `vec4` / `arrayLit` / struct literal                                 |
 | Call a function                | import the `FnHandle`, call directly — not `callFn('name')`                                               |
 | Diagnose a module              | `diagnose(m, { backend })` → `formatReport(report)` (lint + caps, no throw)                               |
+| Need a GPU extension/feature   | `module({ enables: ['floatRenderTarget'] })` — host activates from `reflect().requiredFeatures`           |
 | Source locations in errors     | `setSourceTracing(true)` (dev-only, off by default, never on emit)                                        |

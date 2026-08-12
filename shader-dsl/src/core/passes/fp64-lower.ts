@@ -1119,10 +1119,13 @@ export function fp64Lower(m: ModuleDecl, opts?: Fp64LowerOptions): ModuleDecl {
   const helpers = helperClosure(ctx.used, REG_FNS, REG_ORDER)
   if (helpers.length > 0 && helpersUseGuard(helpers)) injectGuard(bindings)
 
-  // #923 — carry specialization constants through the f64 rebuild (a non-f64 module
-  // already short-circuits via `return m` above, keeping them; an f64 module that also
-  // declares overrides must not lose them). Overrides are WGSL scalars, untouched by
-  // f64 lowering. Absent ⇒ omit the key, so an override-free f64 emit stays identical.
-  const rebuilt: ModuleDecl = { consts, structs, bindings, funcs: [...funcs, ...helpers] }
-  return m.overrides ? { ...rebuilt, overrides: m.overrides } : rebuilt
+  // SPREAD the source module, then override the four fields this pass actually rewrites
+  // — the sibling idiom every other rebuilding pass uses. That carries `overrides`,
+  // `enables`, and any FUTURE optional ModuleDecl field for free; hand-listing the
+  // survivors is what dropped `enables` here in the first place (#1670), invisibly: tsc
+  // cannot see it (the field is optional), and every emit path read the AUTHORED module,
+  // so the loss only surfaced through a consumer deriving from the LOWERED module —
+  // reflect() of a lowered module (emitModuleWithReflection) losing `requiredFeatures` on
+  // f64 modules ONLY. Pinned by backends/extension-profile.test.ts.
+  return { ...m, consts, structs, bindings, funcs: [...funcs, ...helpers] }
 }
