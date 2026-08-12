@@ -38,9 +38,12 @@ export function parseColor(hex: string): [number, number, number, number] {
     b = 0,
     a = 1
   // Reject non-hex content early. Mirror of the feature-helpers
-  // parseHexColor regex gate (caad699) — without it `parseInt('zz',
+  // hexToRgba regex gate (caad699) — without it `parseInt('zz',
   // 16)` = NaN propagated to colour channels and the GPU sampled
-  // undefined behaviour.
+  // undefined behaviour. NOTE (#1666): this is the FOURTH copy of that
+  // gate and the last total parser in map/src — feature-helpers folded
+  // its two into one null-returning `hexToRgba`; `parseColor` still
+  // answers opaque black and has one caller (renderer.ts:82).
   if (!/^#([0-9a-fA-F]{3,4}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$/.test(hex)) {
     return [0, 0, 0, 1]
   }
@@ -52,7 +55,7 @@ export function parseColor(hex: string): [number, number, number, number] {
   } else if (hex.length === 5) {
     // #RGBA — CSS Color Module 4 short-alpha. Pre-fix this length
     // fell to the [0,0,0,1] default; mirror of the feature-helpers
-    // parseHexColor fix (6acc299).
+    // hexToRgba fix (6acc299).
     r = parseInt(hex[1] + hex[1], 16) / 255
     g = parseInt(hex[2] + hex[2], 16) / 255
     b = parseInt(hex[3] + hex[3], 16) / 255

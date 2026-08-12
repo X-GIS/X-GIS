@@ -4,6 +4,8 @@
 
 import { describe, expect, it } from 'vitest'
 import { lowerConditionalColorToTernary, lowerMatchColorToMatch } from './compute-lowering'
+import { emitMatchComputeKernel } from './compute-gen'
+import { parseExpressionString } from '../parser/parser'
 import type { ColorValue, DataExpr } from '../ir/render-node'
 import type { Expr } from '../parser/ast'
 
@@ -265,6 +267,32 @@ describe('lowerMatchColorToMatch', () => {
     expect(spec.arms).toHaveLength(1)
     expect(spec.arms[0]!.pattern).toBe('fire')
     expect(spec.arms[0]!.colorHex).toBe('#f43f5e') // rose-500
+  })
+
+  it('resolves CSS colour-FUNCTION arm values from real source (#1667)', () => {
+    // Fail-before witness: on the pre-fix private `resolveColorOfAST` copy —
+    // which handled ColorLiteral / Identifier / StringLiteral / palette-token
+    // BinaryExpr but NOT FnCall — these two arms resolved to null and were
+    // silently DROPPED, so the spec came out `arms: []` (default-only) and the
+    // emitted kernel's categoryOrder was `{ kind: [] }`. shader-gen's
+    // `resolveColorHexFromAST` has always reconstructed `rgb(...)` / `hsl(...)`
+    // from the FnCall AST, so the compute path's category set drifted from the
+    // inline-shader path's for exactly this shape. #1667 deletes the copy and
+    // calls the shared resolver, which is what this asserts.
+    const ast = parseExpressionString(
+      'match(.kind) { "fire" -> rgb(255, 0, 0), "leaf" -> hsl(120, 50, 50), _ -> #9ca3af }',
+    )
+    const spec = lowerMatchColorToMatch({ ast } as never)!
+    expect(spec).not.toBeNull()
+    expect(spec.fieldName).toBe('kind')
+    expect(spec.arms.map((a) => a.pattern)).toEqual(['fire', 'leaf'])
+    expect(spec.arms[0]!.colorHex).toBe('#ff0000')
+    expect(spec.arms[1]!.colorHex).toBe('#40bf40')
+    expect(spec.defaultColorHex).toBe('#9ca3af')
+    // The arms must reach the kernel's category map too — an empty
+    // categoryOrder is the cross-path ID drift this guards.
+    const kernel = emitMatchComputeKernel(spec)
+    expect(kernel.categoryOrder).toEqual({ kind: ['fire', 'leaf'] })
   })
 
   it('skips a non-palette subtraction arm value (`foo - 1` stays arithmetic)', () => {

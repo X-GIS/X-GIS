@@ -615,7 +615,11 @@ const CEILINGS: Record<string, number> = {
   // machine itself lives in paint-transitions.ts). Cohesive layer-API
   // ownership (registry + style proxy + feature events) — shrink-only
   // from now; split (LayerIdRegistry / events vs style) if it grows again.
-  'map/src/layer.ts': 830,
+  // 830→817 (#1666): the local `parseHexColor` wrapper is gone — a THIRD copy of the CSS
+  // hex regex, existing only to turn the total parser's opaque black back into the null the
+  // setters gate on. feature-helpers' `hexToRgba` now IS that contract, so the setters call
+  // it directly. Deleting a duplicate authority, not moving lines elsewhere.
+  'map/src/layer.ts': 817,
   // Baselined at #1235 (measured 846): SourceManager crossed NEW_FILE_CAP with
   // the gap-1/gap-2 seams — the setSourceData virtual re-seed branch (the
   // legacy worker-compile path renders fills/points but no line segments) +
@@ -1160,7 +1164,9 @@ const CEILINGS: Record<string, number> = {
   // instead of hardcoding null — the VT/tile-point path is what an inline-GeoJSON point
   // source actually renders through, so without it a point stage block reached no pixels
   // at all (browser-probed). Most of the delta is the two rationale comments.
-  'map/src/render/point-renderer.ts': 1209,
+  // 1209→1208 (#1666): the two `fillHex`/`strokeHex` temporaries existed only to feed a
+  // `hex ? parse(hex) : null` ternary the null-returning `hexToRgba` makes redundant.
+  'map/src/render/point-renderer.ts': 1208,
   // 1106→1120 (#1043 state-hygiene): three unmask-before-clear / state-reset fixes for the
   // WebGL2 flicker class — beginScreenPass colorMask unmask (the colour sibling of #746/#780),
   // dispatchComputeToR32UI viewport snapshot+restore, and the setPipeline no-depth arm's

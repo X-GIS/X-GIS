@@ -14,7 +14,7 @@ import type { Expr } from '@xgis/compiler'
 import type { GeoJSONFeatureCollection } from '@xgis/data'
 import type { ShowCommand } from './render/renderer-types'
 import type { GraphicsManager } from './graphics/graphics-manager'
-import { parseHexColor, hexToRgba } from './feature-helpers'
+import { hexToRgba } from './feature-helpers'
 import { resolveNumberShape } from './render/paint-shape-resolve'
 import { warnPerFeatureColorUnresolved } from './render/per-feature-color-warning'
 
@@ -53,7 +53,11 @@ export function addArrowShowLayer(
   const sizeAst = show.sizeExpr?.ast as Expr | undefined
   const sizeConst = baseArrowSize(show, zoom)
   const fillAst = show.fillColorExpr?.ast as Expr | undefined
-  const fillConst = show.fill ? parseHexColor(show.fill) : null
+  // #1666 — a MALFORMED layer constant (a ShowCommand carrying a non-hex `fill`) resolves
+  // to null here, not to opaque black, so it lands on the same flat-white default as a
+  // missing one. Black would have been a colour the author never wrote, reported as one
+  // they did.
+  const fillConst = hexToRgba(show.fill)
 
   const lons: number[] = []
   const lats: number[] = []
@@ -107,9 +111,9 @@ export function addArrowShowLayer(
         r = e
       }
       // Mirror of the label path (render/passes/label-pass.ts): the token / CSS resolver
-      // FIRST, then the NULLABLE parse. `parseHexColor` is TOTAL — opaque BLACK for
-      // anything it does not recognise — so a non-hex string used to paint a wrong colour
-      // and report it as a right one, which is exactly the silence this site now breaks.
+      // FIRST, then the parse. `hexToRgba` answers null for anything it does not recognise
+      // (before #1666 its total twin answered opaque BLACK), so a non-hex string reaches
+      // the warning instead of painting a wrong colour and reporting it as a right one.
       const c = typeof r === 'string' ? hexToRgba(resolveColor(r) ?? r) : null
       if (c) color = [c[0], c[1], c[2], c[3]]
       else warnPerFeatureColorUnresolved(show.layerName ?? show.targetName, 'fill', r)

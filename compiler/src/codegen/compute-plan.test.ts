@@ -234,7 +234,7 @@ describe('planComputeKernels', () => {
   })
 
   it('match entry exposes categoryOrder with sorted patterns per field', () => {
-    // Use 7-char hex literals — resolveColorOfAST mirrors shader-
+    // Use 7-char hex literals — resolveColorHexFromAST mirrors shader-
     // gen and rejects 3-char short form.
     const fill: ColorValue = {
       kind: 'data-driven',

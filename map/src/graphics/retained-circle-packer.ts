@@ -8,7 +8,7 @@
 // applies unchanged.
 
 import { worldCopyMercX } from '../render/point-feature-packer'
-import { parseHexColor } from '../feature-helpers'
+import { hexToRgba } from '../feature-helpers'
 import { EARTH, lonLatToECEF } from '@xgis/shared'
 import {
   CIRCLE_RETAINED_FEAT,
@@ -33,7 +33,10 @@ function normColor(
 ): [number, number, number, number] {
   if (c === undefined) return dflt
   if (typeof c === 'string') {
-    const parsed = parseHexColor(c)
+    // #1666 — this fallback used to be DEAD: the parser was total and answered opaque
+    // BLACK for a caller-supplied `'red'` / `'rebeccapurple'` / typo, so the default the
+    // next line asks for was unreachable. `hexToRgba` answers null and it runs.
+    const parsed = hexToRgba(c)
     return parsed ? [parsed[0], parsed[1], parsed[2], parsed[3]] : dflt
   }
   return [c[0], c[1], c[2], c[3] ?? 1]

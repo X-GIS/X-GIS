@@ -23,29 +23,16 @@
 // on the pick attachment). Phase 4 adds addEventListener.
 
 import type { ShowCommand } from './render/renderer-types'
-import { parseHexColor as parseHexColorRaw } from './feature-helpers'
+// The fill / stroke setters need `null` on parse failure so they can
+// short-circuit without touching paintShapes when given a malformed hex.
+// That used to be a local wrapper here — a third copy of the CSS hex
+// regex, guarding a `parseHexColor` that returned opaque black. Since
+// #1666 `hexToRgba` IS that contract, so the wrapper is gone and the
+// setters call it directly.
+import { hexToRgba } from './feature-helpers'
 import { xlog } from '@xgis/shared'
 import { QUALITY } from '@xgis/engine'
 import type { ColorAxis, NumberAxis, PaintTransitionRegistry } from './paint-transitions'
-
-/** Wrapper that returns `null` on parse failure so the setters can
- *  short-circuit without touching paintShapes when given a malformed
- *  hex. The raw helper throws / returns garbage on bad input. */
-function parseHexColor(hex: string): readonly [number, number, number, number] | null {
-  if (typeof hex !== 'string' || hex.length === 0) return null
-  // Reject non-hex shapes (e.g. CSS name 'red', empty, malformed
-  // length). parseHexColorRaw silently returns [0,0,0,1] for anything
-  // it doesn't recognise — letting that opaque-black sentinel flow
-  // through to the renderer would silently corrupt the layer colour.
-  // Mirror of the CSS spec hex pattern: #rgb / #rgba / #rrggbb /
-  // #rrggbbaa.
-  if (!/^#([0-9a-fA-F]{3,4}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$/.test(hex)) return null
-  try {
-    return parseHexColorRaw(hex)
-  } catch {
-    return null
-  }
-}
 
 const MAX_LAYER_ID = 0xffff
 
@@ -235,10 +222,10 @@ export class XGISLayerStyle {
     // runtime parser doesn't know) updated show.fill but left
     // paintShapes.fill at the old value — getters then reported the
     // new string while the renderer still drew the old colour.
-    if (v !== null && parseHexColor(v) === null) return
+    if (v !== null && hexToRgba(v) === null) return
     // #1255 — capture the PRE-set static hex before overwriting: it is the
     // ramp's from-value when the axis shape is null (static-authoritative).
-    const prevStatic = this.host.show.fill !== null ? parseHexColor(this.host.show.fill) : null
+    const prevStatic = this.host.show.fill !== null ? hexToRgba(this.host.show.fill) : null
     this.snapshot('fill', this.host.show.fill)
     this.host.show.fill = v
     // paintShapes.fill is the truth-of-record for the WebGPU draw path.
@@ -254,7 +241,7 @@ export class XGISLayerStyle {
             this.host.show.paintShapes.fill.fill = s
           },
         },
-        parseHexColor(v)!,
+        hexToRgba(v)!,
         prevStatic,
       )
     }
@@ -267,8 +254,8 @@ export class XGISLayerStyle {
   set stroke(v: string | null) {
     // Mirror of the fill setter — validate first to keep show.stroke +
     // paintShapes.stroke in sync.
-    if (v !== null && parseHexColor(v) === null) return
-    const prevStatic = this.host.show.stroke !== null ? parseHexColor(this.host.show.stroke) : null
+    if (v !== null && hexToRgba(v) === null) return
+    const prevStatic = this.host.show.stroke !== null ? hexToRgba(this.host.show.stroke) : null
     this.snapshot('stroke', this.host.show.stroke)
     this.host.show.stroke = v
     if (v === null) {
@@ -281,7 +268,7 @@ export class XGISLayerStyle {
             this.host.show.paintShapes.line.stroke = s
           },
         },
-        parseHexColor(v)!,
+        hexToRgba(v)!,
         prevStatic,
       )
     }

@@ -95,7 +95,7 @@ import {
   strokeBakeKey,
   type BakeStrokeStyle,
 } from './vector-drape-stroke'
-import { parseHexColor } from '../feature-helpers'
+import { hexToRgba } from '../feature-helpers'
 import { mirrorFillRhi, releaseFillRhi } from './fill-rhi-slot'
 import type { GPUTile, LayerDrawPhase } from './vector-tile-renderer-types'
 import { getMaxGpuTiles, uploadBudgetFor } from './vector-tile-renderer-helpers'
@@ -1149,7 +1149,7 @@ export class VectorTileRenderer {
     // fill — label-only, points-only, a hit area at alpha 0 — and still need its
     // tiles, because the label dispatch and the point emit read THIS selection.
     // Below them it never ran for those shows: they drew NOTHING, silently.
-    const fill = resolvedShow.fill ?? (show.fill ? parseHexColor(show.fill) : null)
+    const fill = resolvedShow.fill ?? hexToRgba(show.fill)
     // #1592 — a data-driven fill has NO CPU colour by construction (resolved-show.ts
     // documents `fill: null` for it), because its colour is a composed expression the
     // variant Material evaluates per feature. `varMat` is that Material. The PICK pass
@@ -1357,7 +1357,7 @@ export class VectorTileRenderer {
     if (!this.source?.hasData() || !this.source.getIndex()) return 0
     this.ensureUniformRing()
 
-    const stroke = resolvedShow.stroke ?? (show.stroke ? parseHexColor(show.stroke) : null)
+    const stroke = resolvedShow.stroke ?? hexToRgba(show.stroke)
     if (!stroke) return 0
     const opacity = resolvedShow.opacity
     const strokeWidthPx = resolvedShow.strokeWidth
@@ -2714,7 +2714,7 @@ export class VectorTileRenderer {
       this.cachedShowFill = ''
     } else if (show.fill !== this.cachedShowFill) {
       this.cachedShowFill = show.fill ?? ''
-      const raw = show.fill ? parseHexColor(show.fill) : null
+      const raw = hexToRgba(show.fill)
       this.cachedFillColor[0] = raw ? raw[0] : 0
       this.cachedFillColor[1] = raw ? raw[1] : 0
       this.cachedFillColor[2] = raw ? raw[2] : 0
@@ -2729,7 +2729,7 @@ export class VectorTileRenderer {
       this.cachedShowStroke = ''
     } else if (show.stroke !== this.cachedShowStroke) {
       this.cachedShowStroke = show.stroke ?? ''
-      const raw = show.stroke ? parseHexColor(show.stroke) : null
+      const raw = hexToRgba(show.stroke)
       this.cachedStrokeColor[0] = raw ? raw[0] : 0
       this.cachedStrokeColor[1] = raw ? raw[1] : 0
       this.cachedStrokeColor[2] = raw ? raw[2] : 0

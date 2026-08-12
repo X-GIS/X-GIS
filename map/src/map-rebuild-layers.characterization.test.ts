@@ -506,11 +506,36 @@ describe('XGISMap.rebuildLayers — characterization (pins current behaviour)', 
       const features = call[0] as unknown[]
       const fill = call[1] as [number, number, number, number] | null
       expect(features).toHaveLength(2) // both Point features
-      // #00ff00 → parseHexColor → [r, g, b, a] with g=1.
+      // #00ff00 → hexToRgba → [r, g, b, a] with g=1.
       expect(fill).not.toBeNull()
       expect(fill![1]).toBe(1)
       expect(fill![0]).toBe(0)
       expect(fill![2]).toBe(0)
+    })
+
+    it('a MALFORMED fill reaches addLayer as null, never opaque black (#1666)', () => {
+      // The control arm above proves a good hex arrives. This is the arm that could not
+      // exist before #1666: `parseHexColor` was TOTAL, so a ShowCommand carrying a non-hex
+      // `fill` — a CSS name, a `#zzz` typo, a token that never resolved — reached
+      // PointRenderer.addLayer as [0, 0, 0, 1]. Every dot then painted opaque black, the
+      // flag bit that says "this layer HAS a fill" was set, and nothing anywhere could
+      // distinguish that from a layer whose author wrote black on purpose.
+      //
+      // null is the answer that carries information: addLayer's `if (fill) flags |= 1`
+      // clears the fill bit, so the dot draws uncoloured — the same observable state as a
+      // fill that was never declared, which is precisely what a fill that did not parse is.
+      // This same value is also the FALLBACK evalPerFeatureColor hands a feature whose
+      // data-driven colour failed (map.ts), so a black here would have re-armed the exact
+      // silent-wrong-colour #1664 latched a warning for.
+      const mocks = makeMocks()
+      const { internals } = makeMap(mocks)
+      internals.rawDatasets.set('pois', pointFC())
+      internals.showCommands = [show('pois', { layerName: 'poi', fill: 'rebeccapurple' })]
+
+      internals.rebuildLayers()
+
+      const call = mocks.pointRenderer.addLayer.mock.calls[0]!
+      expect(call[1], 'fill').toBeNull()
     })
 
     it('still registers a public layer wrapper for the point layer', () => {
