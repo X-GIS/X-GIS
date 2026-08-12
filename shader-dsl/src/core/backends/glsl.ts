@@ -1047,6 +1047,35 @@ export interface GlslEmitOptions extends EmitOptions {
    *  values derive from `reflect().overrides` (name→chosen value); the WGSL twin is
    *  `createRenderPipeline({ constants })`. */
   overrideValues?: Readonly<Record<string, number | boolean>>
+  /** #1673 — default FLOAT precision qualifier for this emit. `'highp'` (the default)
+   *  is BYTE-NEUTRAL: an emit that omits this option is byte-identical to every emit
+   *  produced before the option existed.
+   *
+   *  WHY: a mobile GPU pays real bandwidth and power for highp arithmetic and highp
+   *  varyings where mediump suffices, and the precision qualifier is the only lever
+   *  GLSL ES gives for it. BUILD-TIME by design — an emit option, not a runtime device
+   *  probe: `map/src/shaders/emit/shader-emit-request.ts` caches emitted source under a
+   *  `shaderRequestKey` that has NO precision component, so a runtime-varying precision
+   *  would serve a mediump program to a highp request (second-authority drift).
+   *
+   *  SCOPE — this spells the `precision <p> float;` line and NOTHING else:
+   *  - `precision highp int;` is LOAD-BEARING (storage-emulation index math, bitcast
+   *    lanes) and is never qualified by this option. MapLibre sets no int precision at
+   *    all; we keep ours pinned at highp.
+   *  - The #1651 `precision highp sampler2DArray;` line is likewise untouched.
+   *  - It is a WHOLE-STAGE default, so it covers positions and coordinates too. mediump
+   *    is ~fp16: ~3 decimal digits over a ±65504 range, far short of what a projected
+   *    map coordinate needs — f32 ALREADY collapses at deep zoom, which is the entire
+   *    reason the df64 emulation in `core/fp64` exists (AUTHORING.md §7). Use this ONLY
+   *    for fragment-colour-class shaders whose output is a bounded, low-dynamic-range
+   *    colour; never for a stage computing a position, a tile/world coordinate, or a
+   *    df64 lane.
+   *
+   *  NOT verifiable in CI beyond compile validity + header shape: the CI rasterizer
+   *  ADVERTISES mediump as 10-bit yet BEHAVES as f32 (computed at >=f32 or the probe
+   *  form reassociated — indistinguishable from outside), so no pixel gate can
+   *  distinguish the two emits (census: `playground/e2e/_glsl-compile-gate.spec.ts`). */
+  floatPrecision?: 'highp' | 'mediump'
 }
 
 /** The IR half of a GLSL emit: the pre-lowerings, the shared backend pipeline
@@ -1148,8 +1177,14 @@ function assembleGlsl(
   for (const b of lowered.bindings)
     if (b.type.kind === 'struct') bindingStructNames.add(b.type.name)
 
+  // The FLOAT line is the only one `opts.floatPrecision` (#1673) spells; absent, it is
+  // 'highp' and the header is byte-identical to every pre-#1673 emit.
+  //
   // `precision highp int;` too: a GLSL ES 3.00 FRAGMENT shader has NO default int
   // precision, so a uint/int varying or expression there is a compile error without it.
+  // That line is deliberately NOT under the knob — the storage→data-texture emulation's
+  // index math and the bitcast lanes need full int range, so lowering it would turn a
+  // bandwidth optimisation into a correctness bug.
   //
   // sampler2DArray needs its OWN line (#1651): GLSL ES 3.00 §4.5.4 predeclares default
   // precisions for `sampler2D` / `samplerCube` ONLY, so a `uniform sampler2DArray`
@@ -1164,7 +1199,7 @@ function assembleGlsl(
   )
   const parts: string[] = [
     '#version 300 es',
-    'precision highp float;',
+    `precision ${opts?.floatPrecision ?? 'highp'} float;`,
     'precision highp int;',
     ...(declaresArrayTex ? ['precision highp sampler2DArray;'] : []),
     '',

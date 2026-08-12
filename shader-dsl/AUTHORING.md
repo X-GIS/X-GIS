@@ -948,6 +948,54 @@ for the whole module (textual references are invisible to the rename).
 Every renderable example is compiled AND pixel-compared through `obfuscate()`
 on real Tint + ANGLE by `playground/e2e/_emit-obfuscate-gate.spec.ts`.
 
+## 9. GLSL float precision — `floatPrecision` (#1673)
+
+The GLSL ES 3.00 backend emits `precision highp float;`. Mobile GPUs pay real
+bandwidth and power for highp where mediump suffices, so `emitGlslModule` /
+`emitGlslStages` take a **build-time** knob:
+
+```ts
+const fs = emitGlslModule(m, 'fragment', { floatPrecision: 'mediump' })
+```
+
+`'highp'` is the default and is **byte-neutral** — omit the option and you get
+the exact bytes the backend has always emitted.
+
+**Caveats — read before reaching for it.**
+
+- **It is a whole-stage default, so it covers positions and coordinates too.**
+  mediump is ~fp16: roughly 3 decimal digits over a ±65504 range. A projected
+  map coordinate does not survive that; f32 already collapses at deep zoom,
+  which is the entire reason the df64 emulation exists (§7 above, and
+  `examples/fp64-deep-zoom.ts` for the picture). Use this **only for
+  fragment-colour-class shaders** whose output is a bounded, low-dynamic-range
+  colour — never for a stage computing a position, a tile/world coordinate, or
+  a df64 lane.
+- **It touches the float line only.** `precision highp int;` stays highp — the
+  storage→data-texture emulation's index math and the bitcast lanes need the
+  full int range — and so does the `precision highp sampler2DArray;` line
+  (§4.5.4, a separate requirement).
+- **Build-time, not a runtime device probe.** Emitted GLSL is cached under a
+  `shaderRequestKey` with no precision component, so a runtime-varying
+  precision would hand a mediump program to a highp request.
+- **CI cannot judge the numeric effect, and does not pretend to.** The census
+  in `playground/e2e/_glsl-compile-gate.spec.ts` measured the CI rasterizer
+  (ANGLE/SwiftShader, Vulkan 1.3): `getShaderPrecisionFormat` **advertises**
+  MEDIUM_FLOAT as `{rangeMin: 15, rangeMax: 15, precision: 10}` against
+  HIGH_FLOAT's `{127, 127, 23}` — i.e. it claims fp16 — yet a shader compiled
+  under `precision mediump float;` there **behaves as f32**: the probe
+  `((1.0 + 2⁻¹²) − 1.0) × 4096.0` reads 255 (survived) on the mediump arm,
+  identical to the highp control. (Either the stack computes mediump at ≥f32,
+  or its compiler reassociates the `(1+ε)−1` form — GLSL ES 3.00 has no
+  `precise` qualifier to forbid that — and the two are indistinguishable from
+  outside, which layer of ANGLE/SwiftShader is responsible included.) A
+  precision format is a declared _minimum_, not a promise. Either way, no CI
+  pixel gate can distinguish a highp emit from a
+  mediump one; the gates here cover **header shape** (unit) and **compile +
+  link validity** (Playwright), and real-device mediump behavior — the actual
+  bandwidth win, the banding it can cause, the range clipping — is an
+  **explicit skip**, verifiable only on real mobile hardware.
+
 ## Quick reference
 
 | Need                        | Write                                                                                                 |
