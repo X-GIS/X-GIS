@@ -490,7 +490,7 @@ type FnOpts = {
    *  Accepts the typed `location(0, T)` FieldSpec too (#763 X3 — its `.attr` is used), and
    *  DEFAULTS to `@location(0)` for a bare non-struct fragment return (every observed site
    *  used exactly that string; omitting it used to die late in the driver). */
-  retAttr?: string | { readonly attr: string }
+  retAttr?: string | { readonly attr: string; readonly builtin?: string }
 }
 // A body may return the raw node OR a struct field proxy (`return o` — #763 X14):
 // the proxy forwards `.expr`/`.type` to its base var, so `bld.ret` reads it like
@@ -676,6 +676,10 @@ export function fn(
     (opts?.stage === 'fragment' && ret.kind !== 'struct' && ret.kind !== 'void'
       ? '@location(0)'
       : undefined)
+  // The FieldSpec form carries the STRUCTURED builtin id — preserve it (#1672): dropping
+  // it here made `retAttr: builtin('point_size', …)` invisible to assertBuiltins, the
+  // one authoring path where an absent builtin could still reach WGSL text silently.
+  const retBuiltin = typeof retAttrRaw === 'string' ? undefined : retAttrRaw?.builtin
   const decl: FuncDecl = {
     name,
     params: paramList,
@@ -686,6 +690,7 @@ export function fn(
     stage: opts?.stage,
     workgroupSize: opts?.stage === 'compute' ? (opts.workgroupSize ?? 64) : undefined,
     retAttr,
+    retBuiltin,
     allowEarlyReturn: opts?.allowEarlyReturn,
     lintDisable: opts?.lintDisable,
   }
@@ -702,6 +707,7 @@ export function fn(
     body: decl.body,
     attrs: decl.attrs,
     retAttr: decl.retAttr,
+    retBuiltin: decl.retBuiltin,
     allowEarlyReturn: decl.allowEarlyReturn,
     lintDisable: decl.lintDisable,
     decl,

@@ -45,6 +45,14 @@ export class Capabilities {
 export interface Backend {
   readonly id: string
   readonly caps: Capabilities
+  /** OPTIONAL — the `@builtin(<id>)` ids this target GENUINELY LACKS (#1672), each
+   *  mapped to the message tail printed after `<backend id>: @builtin(<id>)`. The
+   *  shared pre-pass (passes/required-caps.ts `assertBuiltins`, run from
+   *  lowerForBackend beside assertCaps) fails closed on any of them, so a GLSL-ism
+   *  is named at the author's module instead of emitting a string the driver
+   *  rejects far downstream. A backend whose OWN IO lowering already rejects every
+   *  unmapped builtin (GLSL ES 3.00 — builtinIn/builtinOut) omits this. */
+  readonly absentBuiltins?: ReadonlyMap<string, string>
   /** Spell a type for this target (e.g. WGSL `vec3<f32>` vs GLSL `vec3`). */
   typeName(t: ShaderType): string
   /** Spell a scalar literal for this target (e.g. WGSL `1u` vs GLSL `1`). */
