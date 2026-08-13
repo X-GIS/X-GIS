@@ -41,10 +41,10 @@ import {
   resolveFillPatternPack,
   type FillRhiState,
 } from './material/polygon-fill-material'
-import { wgslFor, glslStagesFor } from './material/wgsl-for'
+import { POLY_FILL, POLY_PATTERN } from '../shaders/baked/ids'
+import { polygonGlslStagesFor, polygonShaderFor } from './material/polygon-baked'
 import { executeItems, type Material } from '@xgis/engine'
 import { polygonU as POLYGON_U } from '../shaders/dsl/polygon'
-import { emitPolygonWgsl, emitPolygonGlslStages } from '../shaders/dsl/polygon'
 
 // Per-tile uniform packing goes through a typed UniformBlock over the polygon
 // 'Uniforms' struct (#733 P2d): layout from wgslLayout(polygonU.struct) — the
@@ -724,8 +724,8 @@ export class VectorTileRenderer {
     if (this._fillMatRhi) return this._fillMatRhi
     this._fillMatRhi = buildFlatFillMaterials({
       rhi: this.rhi,
-      shader: wgslFor(this.rhi, () => emitPolygonWgsl(null, false)),
-      ...glslStagesFor(this.rhi, () => emitPolygonGlslStages(null, false)),
+      shader: polygonShaderFor(this.rhi, false),
+      ...polygonGlslStagesFor(this.rhi, false, POLY_FILL),
       format: this.format,
       sampleCount: 1,
       rhiGroups: [[{ binding: 0, kind: 'uniform', dynamic: true, name: 'Uniforms' }]],
@@ -746,8 +746,8 @@ export class VectorTileRenderer {
     if (this._fillPickMatRhi) return this._fillPickMatRhi
     this._fillPickMatRhi = buildFlatFillMaterials({
       rhi: this.rhi,
-      shader: wgslFor(this.rhi, () => emitPolygonWgsl(null, true)),
-      ...glslStagesFor(this.rhi, () => emitPolygonGlslStages(null, true)),
+      shader: polygonShaderFor(this.rhi, true),
+      ...polygonGlslStagesFor(this.rhi, true, POLY_FILL),
       format: this.format,
       sampleCount: 1,
       rhiGroups: [[{ binding: 0, kind: 'uniform', dynamic: true, name: 'Uniforms' }]],
@@ -784,10 +784,8 @@ export class VectorTileRenderer {
     if (this._fillPatternMatRhi) return this._fillPatternMatRhi
     this._fillPatternMatRhi = buildFillPatternGroundMaterial({
       rhi: this.rhi,
-      shader: wgslFor(this.rhi, () => emitPolygonWgsl(null, false)),
-      ...glslStagesFor(this.rhi, () =>
-        emitPolygonGlslStages(null, false, { fragment: 'fs_fill_pattern' }),
-      ),
+      shader: polygonShaderFor(this.rhi, false),
+      ...polygonGlslStagesFor(this.rhi, false, POLY_PATTERN),
       format: this.format,
       sampleCount: 1,
       rhiGroups: [
@@ -832,8 +830,8 @@ export class VectorTileRenderer {
     if (this._fillBakeMatRhi) return this._fillBakeMatRhi
     this._fillBakeMatRhi = buildBakeFillMaterial({
       rhi: this.rhi,
-      shader: wgslFor(this.rhi, () => emitPolygonWgsl(null, false)),
-      ...glslStagesFor(this.rhi, () => emitPolygonGlslStages(null, false)),
+      shader: polygonShaderFor(this.rhi, false),
+      ...polygonGlslStagesFor(this.rhi, false, POLY_FILL),
       format: this.format,
       sampleCount: 1,
       rhiGroups: [[{ binding: 0, kind: 'uniform', dynamic: true, name: 'Uniforms' }]],

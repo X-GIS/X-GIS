@@ -308,6 +308,18 @@ export const polygonGlslIds = (
   fragment: polygonGlslFragmentId(pick, entries.fragment),
 })
 
+/** BOTH baked ids of one polygon pipeline — the WGSL module and the two GLSL stages —
+ *  from the same `PolygonEntries` value the emitter is handed. Lives here rather than at
+ *  the call sites because `vector-tile-renderer.ts` builds four of them and is under a LOC
+ *  ceiling: the pairing is the leaf's job, not the god-file's. */
+export const polygonIds = (
+  pick: boolean,
+  entries: PolygonEntries,
+): { wgsl: string; glsl: { vertex: string; fragment: string } } => ({
+  wgsl: polygonWgslId(pick),
+  glsl: polygonGlslIds(pick, entries),
+})
+
 // ── line ──
 
 /** `emitLineGlsl`'s stage ARGUMENT (line-glsl.ts:28). The argument — not an entry name —

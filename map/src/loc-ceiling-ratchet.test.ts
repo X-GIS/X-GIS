@@ -188,7 +188,10 @@ const CEILINGS: Record<string, number> = {
   // (`!fill && !dataDriven`) with the variant Material lookup, the null-fill
   // branches for `fill_color` / `fillA`, the per-tile group selection in the draw
   // loop, and the two teardown hooks (eviction + destroy).
-  'map/src/render/vector-tile-renderer.ts': 4913,
+  // 4913 -> 4911 (#1679 inc 6): the four polygon call sites moved their emit+key pairing
+  // into material/polygon-baked.ts, which is the 'extract, don't grow' this ratchet asks
+  // for — the id wiring landed OUTSIDE the god-file and took two lines of imports with it.
+  'map/src/render/vector-tile-renderer.ts': 4911,
   // Baselined 801: #1602 (the drape's overlap winner is relevance, not re-arm recency)
   // brought the file to exactly NEW_FILE_CAP (800), and the independent #1603 material-
   // release fix landed on main one line above it in the same file, pushing it to 801 on

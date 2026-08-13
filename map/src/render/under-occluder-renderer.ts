@@ -40,6 +40,7 @@ import {
 } from '../shaders/dsl/under-occluder'
 import { rasterGlobeCamAnchor } from './raster-renderer'
 import { globeEyeUniform } from './globe-eye-uniform'
+import { pickedModuleGlslId, pickedModuleWgslId } from '../shaders/baked/ids'
 import { glslStagesFor, wgslFor } from './material/wgsl-for'
 
 // Sphere mesh density — matches the synthetic earth-surface fill (128×64), whose
@@ -140,10 +141,17 @@ export class UnderOccluderRenderer {
   // `material/glsl-stage-entry-parity.test.ts` — only which work runs changes.
   private buildMaterial(pickEnabled: boolean): Material {
     return new Material(this.rhi, {
-      shader: wgslFor(this.rhi, () => emitUnderOccluderWgsl(pickEnabled)),
+      shader: wgslFor(
+        this.rhi,
+        () => emitUnderOccluderWgsl(pickEnabled),
+        pickedModuleWgslId('under-occluder', pickEnabled),
+      ),
       vsEntry: 'vs_occluder',
       fsEntry: 'fs_occluder',
-      ...glslStagesFor(this.rhi, () => emitGlslStages(buildUnderOccluderModule(pickEnabled))),
+      ...glslStagesFor(this.rhi, () => emitGlslStages(buildUnderOccluderModule(pickEnabled)), {
+        vertex: pickedModuleGlslId('under-occluder', pickEnabled, 'vertex'),
+        fragment: pickedModuleGlslId('under-occluder', pickEnabled, 'fragment'),
+      }),
       format: this.format as 'bgra8unorm',
       sampleCount: this.sampleCount,
       groups: [[{ binding: 0, kind: 'uniform' }]],
