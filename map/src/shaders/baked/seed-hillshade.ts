@@ -54,7 +54,11 @@ export function _resetBakedSeedWarning(): void {
 /** How many pool keys the last `seedBakedShaders` filled, published for the render gate
  *  (0 = the bake did not serve this boot). The gate's two arms are only comparable if it
  *  can prove they DIFFERED in seeding — a hash-equality assertion between two arms that
- *  both emitted at runtime would pass for the wrong reason. */
+ *  both emitted at runtime would pass for the wrong reason.
+ *
+ *  NOT cleared by `map.destroy()`, unlike the map's own window globals: it mirrors the
+ *  process-scoped emit pool, whose seeded entries outlive any one map. The decision and
+ *  its reasons are pinned in `map/src/destroy-raf-and-globals.test.ts` (section 4). */
 function publishSeedCount(n: number): void {
   if (typeof window === 'undefined') return
   // `Object.assign` rather than a `window as unknown as {...}` cast: the cast is the
