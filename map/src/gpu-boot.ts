@@ -34,6 +34,7 @@ import {
   type GPUContext,
   type WebGl2DeviceFactory,
 } from '@xgis/rhi-webgpu'
+import { seedBakedShaders } from './shaders/baked/seed-hillshade'
 
 /** What the map supplies to compose a boot. */
 export interface GpuBootDeps {
@@ -78,9 +79,17 @@ export function renewCanvasElement(prev: HTMLCanvasElement): HTMLCanvasElement |
 }
 
 /** Boot the GPU context for one run. Throws `WebGPUUnavailableError` when every
- *  backend in the chain is exhausted — the caller's graceful-degrade path. */
-export function bootGpuContext(deps: GpuBootDeps): Promise<GPUContext> {
-  return initGPUViaProviders(
+ *  backend in the chain is exhausted — the caller's graceful-degrade path.
+ *
+ *  #1678 — this is also where the committed shader bake is consumed. It belongs here
+ *  for the same reason the rest of the chain does: `run()` and `runBinary()` both mount
+ *  a device, and a seam wired into only one of them is how a fallback ends up working
+ *  on one entry point and dead on the other. Seeding is PER DEVICE (the artifact is
+ *  chosen from `ctx.rhi`'s shader language), so two maps on one page each get their
+ *  own, and it can neither throw nor reject — an unusable bake costs a slower first
+ *  hillshade frame, never a boot. */
+export async function bootGpuContext(deps: GpuBootDeps): Promise<GPUContext> {
+  const ctx = await initGPUViaProviders(
     deps.canvas,
     // Quality policy → adapter is an INJECTION at this composition root (#929 B):
     // the boot values are data the providers close over.
@@ -101,4 +110,6 @@ export function bootGpuContext(deps: GpuBootDeps): Promise<GPUContext> {
       },
     },
   )
+  await seedBakedShaders(ctx.rhi)
+  return ctx
 }

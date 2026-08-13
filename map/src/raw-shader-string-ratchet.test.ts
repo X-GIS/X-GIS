@@ -80,6 +80,23 @@ function walkTs(absDir: string): string[] {
 }
 const rel = (abs: string): string => relative(ROOT, abs).split('\\').join('/')
 
+// The committed shader bake (#1678 / #1484). ~1 MB of GLSL/WGSL source lives in these
+// files, and it is EXEMPT — an explicit decision, not the accident it would otherwise be.
+//
+// The accident: RAW_SHADER_TEMPLATE anchors on BACKTICKS, and `bake.ts` writes the
+// sources through `JSON.stringify`, i.e. double-quoted. So these files already scored 0
+// and the gate would have stayed green over any amount of baked shader text — passing
+// for a reason unrelated to the invariant. Stating the exclusion turns "the quote style
+// happened to differ" into "these files are allowed to carry shader source".
+//
+// WHY IT IS SAFE — the ban exists because a hand-authored shader re-hardcodes a backend
+// and forks the WGSL/GLSL twins the DSL keeps in lockstep. These files are not authored:
+// they are `map/scripts/bake-shaders.ts`'s output, and `baked-sync.test.ts` re-emits every
+// registry key through the DSL and byte-compares it against them on every run. Editing one
+// by hand fails that gate immediately, so the DSL remains the sole author — which is the
+// whole of §8.5. A NON-generated .ts under `shaders/baked/` is still scanned.
+const BAKED_ARTIFACT = /^map\/src\/shaders\/baked\/[^/]+\.generated\.ts$/
+
 // Strip block + line comments so a JSDoc/`//` mention of `@vertex` or a comment
 // citing `gl_Position` is NOT a false positive. The `[^:]` guard keeps `://`
 // (URLs) intact — Gate A's exact strip (shader-codegen-srp-ratchet.test.ts).
@@ -107,6 +124,7 @@ describe('raw-shader-string ratchet: map/src + engine/src author shaders via the
   it('no .ts hand-authors a WGSL/GLSL shader string (shrink-only baseline)', () => {
     const actual = new Map<string, number>()
     for (const abs of SRC_DIRS.flatMap((d) => walkTs(join(ROOT, d)))) {
+      if (BAKED_ARTIFACT.test(rel(abs))) continue
       const n = rawShaderStringCount(abs)
       if (n > 0) actual.set(rel(abs), n)
     }

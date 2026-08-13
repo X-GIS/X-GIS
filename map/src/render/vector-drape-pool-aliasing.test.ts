@@ -45,6 +45,9 @@ function makeMockRhi() {
   let id = 0
   const rhi = {
     backend: 'webgpu' as const,
+    // #1678 — the raster draper now asks the language CAPABILITY (`readsWgsl`) instead
+    // of emitting both languages unconditionally, so a device double must carry it.
+    caps: { shaderLanguage: 'wgsl' },
     createBindGroupLayout: () => ({ __layout: true }),
     createPipeline: () => ({ __pipe: true }),
     createSampler: () => ({ __sampler: true }),

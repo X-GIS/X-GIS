@@ -43,6 +43,9 @@ import {
 import { emitIconGlsl, emitIconGlslStages } from '../../shaders/dsl/icon'
 import { emitTextGlsl, emitTextGlslStages } from '../../shaders/dsl/text'
 import { emitPointGlsl, emitPointGlslStages } from '../../shaders/dsl/point'
+import { emitGlslModule, emitGlslStages } from '@xgis/shader-dsl'
+import { buildRasterModule } from '../../shaders/dsl/raster'
+import { buildUnderOccluderModule } from '../../shaders/dsl/under-occluder'
 
 configureProjections(PROJECTIONS)
 
@@ -98,11 +101,40 @@ const FAMILIES: ReadonlyArray<{
     stages: () => emitPointGlslStages(null),
     legacy: (s) => emitPointGlsl(null, s),
   },
+  // raster + under-occluder go through the GENERIC shader-dsl emitters (no per-family
+  // `emit…Glsl` wrapper), which is why they were absent here. They belong for two
+  // reasons. `raster-material.ts` moved from two `emitGlslModule` calls to one
+  // `emitGlslStages` (#1473 residue, this change) — these rows are what proves that move
+  // is BYTE-NEUTRAL for the shipped raster shader, which shader-dsl's own
+  // glsl-stages-parity cannot, since it runs over the example corpus and not over these
+  // modules. And `shaders/baked/registry.ts` bakes both families, spelling raster the
+  // `emitGlslStages` way and under-occluder the per-stage way because that is what each
+  // draper spells; the substitution being free is exactly this assertion.
+  {
+    id: 'raster (raster-material, both pick states are one module each)',
+    stages: () => emitGlslStages(buildRasterModule(false)),
+    legacy: (s) => emitGlslModule(buildRasterModule(false), s),
+  },
+  {
+    id: 'raster pick (rg32uint MRT twin)',
+    stages: () => emitGlslStages(buildRasterModule(true)),
+    legacy: (s) => emitGlslModule(buildRasterModule(true), s),
+  },
+  {
+    id: 'under-occluder (under-occluder-renderer)',
+    stages: () => emitGlslStages(buildUnderOccluderModule(false)),
+    legacy: (s) => emitGlslModule(buildUnderOccluderModule(false), s),
+  },
+  {
+    id: 'under-occluder pick',
+    stages: () => emitGlslStages(buildUnderOccluderModule(true)),
+    legacy: (s) => emitGlslModule(buildUnderOccluderModule(true), s),
+  },
 ]
 
 describe('emitGlslStages entry selection is byte-identical to pruning before lowering', () => {
   it('covers every family a draper actually builds (a silent drop must fail loudly)', () => {
-    expect(FAMILIES.length).toBeGreaterThanOrEqual(12)
+    expect(FAMILIES.length).toBeGreaterThanOrEqual(16)
   })
 
   for (const f of FAMILIES) {
