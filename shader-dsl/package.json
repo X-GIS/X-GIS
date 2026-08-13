@@ -22,7 +22,6 @@
   },
   "type": "module",
   "sideEffects": [
-    "./dist/core/ir/builder.js",
     "./src/core/ir/builder.ts"
   ],
   "engines": {
@@ -37,7 +36,6 @@
     "./examples": "./examples/index.ts"
   },
   "files": [
-    "dist",
     "src",
     "examples",
     "tsconfig.json",
@@ -58,31 +56,9 @@
     "directory": "shader-dsl"
   },
   "scripts": {
-    "build": "tsc --build && tsc -p tsconfig.tests.json",
-    "bake:goldens": "cd .. && UPDATE_EMIT_GOLDENS=1 bunx vitest run shader-dsl/examples/emit-goldens.test.ts",
-    "prepack": "bun ../scripts/emit-changelog.ts --path shader-dsl > CHANGELOG.md && bunx prettier --write CHANGELOG.md"
+    "build": "tsc --build && tsc -p tsconfig.tests.json"
   },
   "publishConfig": {
-    "main": "./dist/index.js",
-    "module": "./dist/index.js",
-    "types": "./dist/index.d.ts",
-    "exports": {
-      ".": {
-        "types": "./dist/index.d.ts",
-        "default": "./dist/index.js"
-      },
-      "./dev": {
-        "types": "./dist/dev.d.ts",
-        "default": "./dist/dev.js"
-      },
-      "./emit-prod": {
-        "types": "./dist/emit-prod.d.ts",
-        "default": "./dist/emit-prod.js"
-      },
-      "./core/ir": {
-        "types": "./dist/core/ir/index.d.ts",
-        "default": "./dist/core/ir/index.js"
-      }
-    }
+    "access": "public"
   }
 }

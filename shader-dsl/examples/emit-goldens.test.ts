@@ -8,7 +8,9 @@
 // of shipped output shows up as a reviewed golden diff, not a silent drift.
 //
 // Re-bake protocol (intentional emit changes): re-run with the env flag set —
-//   bun run bake:goldens        (from shader-dsl/ — #844)
+//   bun run bake:goldens        (from the REPO ROOT — #844; the script moved there
+//                                in #1681 C, because a shader-dsl script may not name
+//                                a path outside the package)
 //   (equivalently: UPDATE_EMIT_GOLDENS=1 npx vitest run shader-dsl/examples/emit-goldens.test.ts)
 // — then commit the refreshed __emit-goldens__/ alongside the emitter change.
 //
@@ -37,11 +39,11 @@ function checkGolden(file: string, emitted: string): void {
   }
   expect(
     existsSync(path),
-    `${file}: golden missing — bake with \`bun run bake:goldens\` (shader-dsl/)`,
+    `${file}: golden missing — bake with \`bun run bake:goldens\` (from the repo root)`,
   ).toBe(true)
   expect(
     lf(emitted),
-    `${file}: emit drifted from the committed golden — if intentional, re-bake with \`bun run bake:goldens\` (shader-dsl/) and commit the diff`,
+    `${file}: emit drifted from the committed golden — if intentional, re-bake with \`bun run bake:goldens\` (from the repo root) and commit the diff`,
   ).toBe(lf(readFileSync(path, 'utf8')))
 }
 

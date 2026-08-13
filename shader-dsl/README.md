@@ -9,10 +9,14 @@ with a real type checker, an optimizer, a lint pass, and now pipeline **reflecti
 under `core/`, not any application's shaders. (X-GIS's own shaders author _through_ this
 package like any other consumer.)
 
-> Publishable, but **not yet published**: `private: true` is gone (#1681 B) and the tarball
-> ships everything this README links to, so the package is registry-shaped. The release
-> mechanics — version policy, tag convention, a publish workflow — are still to come, and
-> nothing here authorises pushing a version to the `@xgis` scope.
+> **Distribution: a git submodule, not npm** (#1681 C). This package is **not published to
+> npm**. `git subtree split --prefix=shader-dsl` re-roots this directory as a standalone
+> MIRROR repository, and the consuming project takes that mirror as a submodule
+> (`.github/workflows/mirror-shader-dsl.yml` pushes it on every merge to `main` that touches
+> this package). The
+> monorepo stays authoritative; the mirror is **read-only** and fixes flow back through
+> X-GIS. There is consequently no version policy, no tag convention and no release script —
+> the `version` field is not a release.
 
 ## Capability taxonomy (honest)
 
@@ -30,40 +34,49 @@ package like any other consumer.)
 
 ## Install / build
 
-This is a workspace package (build-to-tarball):
+Inside this monorepo:
 
 ```bash
 bun install
 bun run build          # tsc --build → dist/ + .d.ts, then a noEmit type-check of tests + examples
-npm pack               # → xgis-shader-dsl-0.0.1.tgz
 ```
 
-**`bun run build` first — always.** `dist/` is generated, not committed, and `files` ships it
-verbatim; packing a fresh checkout produces a tarball with no `dist/`, and every
-`publishConfig` export then points at a file that is not there.
-
-The tarball ships `dist/` (the built ESM + `.d.ts`), `src/` (so the shipped `dist/*.js.map`
-resolve, and so a vendored copy can be built from source), `examples/`, `AUTHORING.md`, and
-this README — i.e. every path the `exports` map and this README link to. Tests, emit goldens
-and `AGENTS.md` are excluded. `tsconfig*.json` ship too: every `extends` in this package
-terminates INSIDE the package (#1681 B1), so an extracted tarball or a vendored source copy
-compiles with `tsc -p .` and no monorepo around it.
-
-`prepack` regenerates `CHANGELOG.md` so the stamped source hash is always the commit the
-tarball was actually built from — a vendored copy self-documents its `--since`
-anchor for "what changed since my tarball" (see the file's banner).
-
-> **Publish tooling (#763 V6):** the `publishConfig` `exports`/`main`/`types` overrides are a
-> **pnpm/bun extension** — plain `npm publish` ignores them, so the published `exports` would
-> point at `src/**` (TypeScript source) instead of `dist/**`. The paths resolve now that `src/`
-> ships, but a plain JS consumer cannot import `.ts`. Publish with `pnpm publish` or
-> `bun publish`. Pinning that down is the release-mechanics increment, not this one.
-
-Consume it from the built artifact:
+`dist/` is a build artifact, not a shipped one — it is gitignored, so neither a fresh clone nor
+the mirror contains it. The monorepo resolves `@xgis/shader-dsl` through the `exports` map to
+**source** (`./src/*.ts`):
 
 ```ts
 import { fn, module, emitModule, reflect } from '@xgis/shader-dsl'
 ```
+
+### Consuming it outside the monorepo
+
+Take the mirror repository (see the note at the top) as a submodule; its root IS this
+directory, so it compiles standing alone:
+
+```bash
+git submodule add <mirror-url> vendor/shader-dsl
+tsc -p vendor/shader-dsl
+```
+
+MEASURED (#1681 C): a fresh clone of the mirror type-checks with `tsc -p .` to **exit 0**,
+emitting 82 JS files, with **no `node_modules` anywhere up the tree**.
+
+That is the whole point of the layout: every `extends` in this package terminates INSIDE the
+package (#1681 B1), and nothing tracked under `shader-dsl/` names a path outside it — gated by
+[`src/self-contained.test.ts`](./src/self-contained.test.ts).
+
+Two things a consumer must know:
+
+- **It ships TypeScript source.** `main`/`exports` name `./src/*.ts`, so the consuming build
+  needs a toolchain that compiles TS (Vite, `tsc`, esbuild, …). Plain Node cannot import it
+  as-is — #1686.
+- **`./examples` additionally needs `allowImportingTsExtensions`.** The example modules import
+  each other with explicit `.ts` extensions; `src/` does not, which is why `tsc -p .` (src
+  only) resolves without the flag.
+
+The mirror is **read-only**: fix things here, in X-GIS, and the next merge fast-forwards it.
+`CHANGELOG.md` is generated from git history by the root `bun run changelog`.
 
 ## Usage — author, emit WGSL, and reflect
 
