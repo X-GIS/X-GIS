@@ -1,0 +1,154 @@
+name: mirror shader-dsl
+
+# Publishes shader-dsl/ to a standalone MIRROR repository, which the consuming
+# project takes as a git SUBMODULE. shader-dsl is deliberately NOT published to
+# npm (#1681): the monorepo stays authoritative, the mirror is a derivative and
+# read-only, and fixes flow back through X-GIS. There is consequently no release
+# script, no tag convention and no version bump anywhere in this file.
+#
+# `git subtree split --prefix=shader-dsl` replays the 235 commits that touched
+# shader-dsl/ onto a synthetic history whose ROOT is the package itself (src/,
+# examples/, package.json, tsconfig*.json, README.md, LICENSE, CHANGELOG.md,
+# AUTHORING.md, AGENTS.md at top level; no dist/, which is untracked). Measured
+# on this tree: 1.6 MB gc'd against the monorepo's 498 MB .git, and a fresh
+# consumer clone type-checks STANDALONE (`tsc -p tsconfig.json` → exit 0, 82
+# emitted files) with no node_modules anywhere up the tree.
+#
+# ── TURNING THIS ON ────────────────────────────────────────────────────────────
+# The mirror repository DOES NOT EXIST YET. Until it does, this job logs why and
+# exits GREEN — see the `preflight` step. That is the whole point: a workflow
+# that reds on every merge gets disabled, and a disabled workflow rots. Three
+# things turn it on, all created by a maintainer:
+#
+#   1. The mirror repository — created EMPTY. No README, no .gitignore, no
+#      LICENSE. GitHub's "initialize this repository" option writes an UNRELATED
+#      root commit onto main, and the fast-forward push below would then be
+#      rejected forever (the fix at that point is deleting and recreating it).
+#   2. Repository VARIABLE `SHADER_DSL_MIRROR_REPO` = `owner/name` of that repo
+#      (Settings → Secrets and variables → Actions → Variables).
+#   3. Repository SECRET `SHADER_DSL_MIRROR_TOKEN` = a fine-grained PAT (or a
+#      GitHub App installation token) scoped to the MIRROR repository ONLY, with
+#      Contents: Read and write. The built-in GITHUB_TOKEN cannot do this job —
+#      it is scoped to X-GIS/X-GIS and cannot push to another repository.
+
+on:
+  # Publish-on-merge, the same shape deploy-pages.yml uses. test.yml's `on:`
+  # block documents why the TEST workflow has no push trigger — its PR run is
+  # what gates the merge, so a post-merge re-run duplicates the matrix for no
+  # gating benefit. That reasoning is about re-running a GATE; this job is a
+  # PUBLISH of what main now contains, so main is exactly the right event (and
+  # a PR, whose head is not yet the mirror's truth, is exactly the wrong one).
+  #
+  # SECURITY (R6): there is deliberately NO `pull_request` and, above all, NO
+  # `pull_request_target`. A fork PR must never reach the mirror token.
+  # `pull_request` from a fork gets no secrets and a read-only GITHUB_TOKEN, so
+  # it could not push; `pull_request_target` DOES run with the base repo's
+  # secrets and is the standard exfiltration path when paired with a checkout of
+  # untrusted head code. Neither is present. What remains is `push: main`,
+  # reachable only through a reviewed, merged PR — including any change to THIS
+  # file, which is reviewed like any other — and `workflow_dispatch`, which
+  # GitHub restricts to actors with write access on this repository.
+  push:
+    branches: [main]
+    # The split's output is a function of the history of shader-dsl/ alone, so a
+    # merge touching nothing there re-splits to the identical SHA and pushes
+    # nothing — after paying for a full-history checkout of a 498 MB repo.
+    # Skipping those runs loses nothing: the next shader-dsl merge fast-forwards
+    # the entire history, the skipped commits included. (Unlike test.yml, this
+    # workflow is not a required status check, so a skipped run strands no PR.)
+    paths:
+      - 'shader-dsl/**'
+      - '.github/workflows/mirror-shader-dsl.yml'
+  # Manual re-sync — for the first run once the mirror exists, or to recover
+  # after a failed push. No inputs: the mirror has no version or tag story.
+  workflow_dispatch:
+
+permissions:
+  # GITHUB_TOKEN needs nothing beyond the checkout; the push authenticates with
+  # its own repo-scoped token (see the split step's env).
+  contents: read
+
+# R5 — SERIALIZE, do not cancel. Two merges landing seconds apart must not race
+# to push the mirror. `cancel-in-progress: true` would be actively wrong here:
+# it kills the older run possibly MID-PUSH. Queueing costs a couple of minutes,
+# and the later split is a strict superset of the earlier one, so nothing is
+# lost by waiting. Group is the workflow, not the ref — main is the only ref
+# that reaches it, and a manual dispatch must queue behind a merge, not beside it.
+concurrency:
+  group: mirror-shader-dsl
+  cancel-in-progress: false
+
+jobs:
+  mirror:
+    runs-on: ubuntu-latest
+    steps:
+      # R2 — guarded BEFORE the expensive full-history checkout, so an
+      # unconfigured repo costs seconds instead of a 498 MB fetch. Both halves
+      # are checked: with the variable set but the token missing, the push would
+      # fail on auth and red every merge, which is the failure mode this exists
+      # to prevent.
+      - id: preflight
+        env:
+          MIRROR_REPO: ${{ vars.SHADER_DSL_MIRROR_REPO }}
+          # R4 — a BOOLEAN, not the token. The secret's value never enters this
+          # step's environment, so there is nothing here to leak even if a later
+          # edit adds an `echo`.
+          HAVE_TOKEN: ${{ secrets.SHADER_DSL_MIRROR_TOKEN != '' }}
+        run: |
+          set -euo pipefail
+          missing=''
+          [ -n "${MIRROR_REPO}" ] || missing="${missing} vars.SHADER_DSL_MIRROR_REPO"
+          [ "${HAVE_TOKEN}" = 'true' ] || missing="${missing} secrets.SHADER_DSL_MIRROR_TOKEN"
+          if [ -n "${missing}" ]; then
+            echo "::notice::shader-dsl mirror is not configured yet — skipping. This is a SUCCESS, not a failure."
+            echo "not configured; missing:${missing}"
+            echo "To turn the mirror on, follow 'TURNING THIS ON' at the top of"
+            echo ".github/workflows/mirror-shader-dsl.yml (empty repo + variable + secret)."
+            echo 'configured=false' >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "mirror target: ${MIRROR_REPO}"
+          echo 'configured=true' >> "$GITHUB_OUTPUT"
+
+      # R1 — `fetch-depth: 0` is LOAD-BEARING. actions/checkout defaults to
+      # depth 1, and `git subtree split` walks the WHOLE history of the prefix.
+      # On a shallow clone it does not fail loudly: it silently produces a
+      # truncated history with a different root and a different head SHA, which
+      # is then either rejected as a non-fast-forward or — worse, on the very
+      # first push — accepted, making the mirror permanently wrong.
+      - if: steps.preflight.outputs.configured == 'true'
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Split shader-dsl and push to the mirror
+        if: steps.preflight.outputs.configured == 'true'
+        env:
+          MIRROR_REPO: ${{ vars.SHADER_DSL_MIRROR_REPO }}
+          MIRROR_TOKEN: ${{ secrets.SHADER_DSL_MIRROR_TOKEN }}
+        run: |
+          set -euo pipefail
+          # R4 — NO `set -x` here, ever: xtrace would print the assembled push
+          # URL, token and all. The URL is built inside this shell, never
+          # through a `${{ }}` interpolation (which lands in the step's printed
+          # "Run" preamble) and never echoed. The runner also masks registered
+          # secrets and git anonymizes credentials in the URLs it prints itself;
+          # this step relies on the first of the three, not on the other two.
+
+          # Split into a local branch rather than parsing the command's stdout,
+          # so the head SHA comes from `rev-parse` and not from whichever line
+          # git-subtree happened to print last.
+          git subtree split --prefix=shader-dsl -b mirror-split
+          split_sha="$(git rev-parse mirror-split)"
+          echo "shader-dsl split head: ${split_sha}"
+
+          # R3 — FAST-FORWARD, never --force. Measured on this tree: re-splitting
+          # the same history reproduces the IDENTICAL head SHA (5afff6ec), so the
+          # split is idempotent and every run's result is a descendant of the
+          # last — a normal push always applies. --force would therefore buy
+          # nothing, while costing the one property that makes a mirror
+          # trustworthy: a REJECTED push here is real news (someone committed
+          # directly to the mirror, or monorepo history was rewritten) and must
+          # go red rather than be overwritten in silence.
+          git push "https://x-access-token:${MIRROR_TOKEN}@github.com/${MIRROR_REPO}.git" \
+            'mirror-split:refs/heads/main'

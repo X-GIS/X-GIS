@@ -27,8 +27,9 @@
 // STDOUT contract), so a failed run leaves an empty artifact: recover with
 // `git checkout -- <file>` and re-run. There is deliberately NO CI staleness
 // gate (#1653 decision): the artifacts are derived, regenerated on demand, and
-// a must-be-fresh check would churn every commit for zero information —
-// freshness is enforced where it matters, at pack time (shader-dsl `prepack`).
+// a must-be-fresh check would churn every commit for zero information. Nothing
+// enforces freshness automatically — shader-dsl's `prepack` used to, and went
+// away with the npm story (#1681 C); regenerate with `bun run changelog`.
 //
 // Flags (all accept `--flag value` and `--flag=value`):
 //   --ref <branch>      history to walk (default: main)
@@ -46,7 +47,7 @@ const REPO_URL = 'https://github.com/X-GIS/X-GIS'
 // Derived from this file's own location (scripts/ sits at the repo root), NOT
 // from a git call — importing this module must never shell out. Every git
 // invocation runs `-C REPO_ROOT`, so the script is callable from any cwd
-// (shader-dsl's `prepack` runs it from the package dir) and a pathspec like
+// (`emit-changelog.test.ts` spawns it from shader-dsl/) and a pathspec like
 // `-- shader-dsl` always resolves against the repo root.
 const REPO_ROOT = new URL('..', import.meta.url).pathname
 
