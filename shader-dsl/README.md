@@ -9,7 +9,10 @@ with a real type checker, an optimizer, a lint pass, and now pipeline **reflecti
 under `core/`, not any application's shaders. (X-GIS's own shaders author _through_ this
 package like any other consumer.)
 
-> `private: true` — build-to-tarball only; this package is **not** published to npm.
+> Publishable, but **not yet published**: `private: true` is gone (#1681 B) and the tarball
+> ships everything this README links to, so the package is registry-shaped. The release
+> mechanics — version policy, tag convention, a publish workflow — are still to come, and
+> nothing here authorises pushing a version to the `@xgis` scope.
 
 ## Capability taxonomy (honest)
 
@@ -27,23 +30,34 @@ package like any other consumer.)
 
 ## Install / build
 
-This is a workspace package (build-to-tarball, not published):
+This is a workspace package (build-to-tarball):
 
 ```bash
 bun install
 bun run build          # tsc --build → dist/ + .d.ts, then a noEmit type-check of tests + examples
-npm pack               # → xgis-shader-dsl-0.0.1.tgz (ships dist/ + CHANGELOG.md)
+npm pack               # → xgis-shader-dsl-0.0.1.tgz
 ```
 
-The tarball carries `CHANGELOG.md` (this package's view of the repo history), and
-`prepack` regenerates it so the stamped source hash is always the commit the
+**`bun run build` first — always.** `dist/` is generated, not committed, and `files` ships it
+verbatim; packing a fresh checkout produces a tarball with no `dist/`, and every
+`publishConfig` export then points at a file that is not there.
+
+The tarball ships `dist/` (the built ESM + `.d.ts`), `src/` (so the shipped `dist/*.js.map`
+resolve, and so a vendored copy can be built from source), `examples/`, `AUTHORING.md`, and
+this README — i.e. every path the `exports` map and this README link to. Tests, emit goldens
+and `AGENTS.md` are excluded. `tsconfig*.json` ship too: every `extends` in this package
+terminates INSIDE the package (#1681 B1), so an extracted tarball or a vendored source copy
+compiles with `tsc -p .` and no monorepo around it.
+
+`prepack` regenerates `CHANGELOG.md` so the stamped source hash is always the commit the
 tarball was actually built from — a vendored copy self-documents its `--since`
 anchor for "what changed since my tarball" (see the file's banner).
 
 > **Publish tooling (#763 V6):** the `publishConfig` `exports`/`main`/`types` overrides are a
-> **pnpm/bun extension** — plain `npm publish` ignores them, so the tarball's `exports` would
-> still point at `src/**` while `files` ships only `dist/` → a broken package. If this is ever
-> published, use `pnpm publish` or `bun publish`. (`private: true` keeps the hazard dormant.)
+> **pnpm/bun extension** — plain `npm publish` ignores them, so the published `exports` would
+> point at `src/**` (TypeScript source) instead of `dist/**`. The paths resolve now that `src/`
+> ships, but a plain JS consumer cannot import `.ts`. Publish with `pnpm publish` or
+> `bun publish`. Pinning that down is the release-mechanics increment, not this one.
 
 Consume it from the built artifact:
 

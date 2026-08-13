@@ -155,11 +155,22 @@ export function bakedShadersDisabled(): boolean {
  *  every renderer's debug pipeline. */
 export const OVERDRAW_ACCUM_FORMAT: GPUTextureFormat = 'r16float'
 
+let _overdrawFsSource: string | undefined
+
 /** Constant fragment-shader output for additive accumulation. Every
  *  fragment writes 1.0 to the red channel; the compose pass divides
  *  by an exposure constant before applying the colormap. WGSL emitted
- *  from the polygon DSL — see runtime/src/engine/shaders/dsl/overdraw-fs.ts. */
-export const OVERDRAW_FS_SOURCE = emitOverdrawFsWgsl()
+ *  from the polygon DSL — see shaders/dsl/overdraw-fs.ts.
+ *
+ *  MEMOISED ACCESSOR, not a module const (#1473 residue): as a `const` this ran the
+ *  emit at IMPORT time, and this module is imported by most of the render tree — so
+ *  every boot, on either backend, paid for one WGSL fragment shader before a device
+ *  existed, and `?debug=overdraw` is off in all of them. The mode is dormant but not
+ *  dead (its compose pass is WebGPU-only, `isOverdrawActive`), so the source stays;
+ *  it is now produced on first ask and cached. */
+export function overdrawFsSource(): string {
+  return (_overdrawFsSource ??= emitOverdrawFsWgsl())
+}
 
 /** Blend state — pure additive on the red channel. Alpha is also
  *  summed defensively in case future code reads it. */

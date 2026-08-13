@@ -231,3 +231,109 @@ test('#1678 — a hillshade served from the shader bake is pixel-identical to on
       'the pipeline (wrong permutation under a key, swapped stage, empty GLSL twin)',
   ).toBe(baked.hash)
 })
+
+// ═══ The artifact SPLIT is real — observed on the network ═══
+//
+// The arch review measured that boot AWAITS the artifact module, and phase A's answer
+// was the (language, group) split: `seed-hillshade.ts` names exactly one of the four
+// committed files, and the two `…-rest` halves are named by no runtime module at all.
+// Until now that claim rested on a comment ("because no runtime module names them,
+// Rollup drops them") — an argument, not a gate. A `seedBakedShaders` that grew one
+// convenience import of `baked-glsl-rest` would make every boot await ~85% of a payload
+// it never reads, and nothing in the suite would notice: the hash gate above would still
+// be pixel-perfect, because the pixels are not what regressed.
+//
+// So watch the WIRE. Requests are collected from before `goto`, and the predicate is a
+// substring of the artifact's basename.
+//
+// ── WHAT THIS PROVES IN THE ENVIRONMENT CI ACTUALLY RUNS ──
+//
+// CI's render-gate leg drives the VITE DEV SERVER (playwright.config.ts `webServer:
+// bun run dev`), where `@xgis/map` is aliased to source and excluded from optimizeDeps,
+// so each module is served as its own URL with its filename in the path — there are no
+// Rollup chunks to observe. Stated plainly, because a gate that quietly means something
+// weaker than its name is worse than no gate:
+//
+//   PROVEN HERE — (a) the boot really does download the hillshade GLSL artifact (the
+//   split's numerator: a `seedBakedShaders` that stopped importing it, or imported the
+//   wrong language, goes red); and (b) NOTHING in the runtime module graph reaches the
+//   other three, on a GLSL device. (b) is the premise the bundler's drop follows FROM —
+//   a module no reachable module names is unreachable — so this is the half that a code
+//   change can actually break.
+//
+//   NOT PROVEN HERE — that Rollup emitted separate chunks and tree-shook `-rest` out of
+//   a production bundle. In dev there are no chunks. That is a bundler property, not a
+//   property of this code, and asserting it against a dev server would be the vacuous
+//   assertion §12 warns about. The predicate is deliberately written so it stays
+//   meaningful in a production build too: Rollup names a dynamic-import chunk after its
+//   entry module (`baked-glsl-hillshade.generated-<hash>.js`), so the same substring
+//   matches under both URL shapes.
+//
+// STRUCTURAL, never temporal. No byte-count and no wall-clock assertion — on a
+// SwiftShader runner both are noise, and "the boot got slower" is not what this watches.
+test('#1678 — a ?forcegl2=1 boot fetches ONLY the hillshade GLSL artifact, not the other three', async ({
+  page,
+}) => {
+  test.setTimeout(120_000)
+
+  // Registered before `goto`, so the boot-time dynamic import cannot land un-observed.
+  const requested: string[] = []
+  page.on('request', (r) => requested.push(r.url()))
+
+  await page.goto('/demo.html?id=fixture_hillshade_local&forcegl2=1&e2e=1&adaptive=0', {
+    waitUntil: 'domcontentloaded',
+  })
+  await page.waitForFunction(() => (window as unknown as MapWin).__xgisReady === true, {
+    timeout: 30_000,
+  })
+
+  const boot = await page.evaluate(() => {
+    const w = window as unknown as MapWin
+    return {
+      backend: w.__xgisMap?.ctx?.rhi?.backend,
+      marker: w.__xgisActiveBackend,
+      seeds: w.__xgisBakedShaderSeeds,
+    }
+  })
+  // Load-bearing: a silent WebGPU boot would import the WGSL half by design, inverting
+  // every expectation below and greening (or reddening) this for the wrong reason.
+  expect(boot.marker, 'window.__xgisActiveBackend under ?forcegl2=1').toBe('webgl2')
+  expect(boot.backend, 'host.ctx.rhi.backend under ?forcegl2=1').toBe('webgl2')
+  expect(
+    boot.seeds ?? 0,
+    'the seeder must actually have consumed the artifact — otherwise the four network ' +
+      'assertions below are about a boot that never reached the import at all',
+  ).toBeGreaterThan(0)
+
+  const hits = (needle: string): string[] => requested.filter((u) => u.includes(needle))
+
+  // POSITIVE first: it proves the observation apparatus works, without which the three
+  // "never requested" assertions are satisfied by an empty list.
+  expect(
+    hits('baked-glsl-hillshade').length,
+    'a WebGL2 boot must download the GLSL hillshade artifact — no request naming it means ' +
+      'either the seeding was skipped or the request collector saw nothing, and the ' +
+      'negatives below would then be vacuous',
+  ).toBeGreaterThan(0)
+
+  for (const [artifact, why] of [
+    [
+      'baked-glsl-rest',
+      'the other ~88 keys are the phase-B payload; a boot that downloads them awaits ~85% ' +
+        'of a payload it never reads, which is exactly what the group split removed',
+    ],
+    [
+      'baked-wgsl-hillshade',
+      'a WebGL2 device never reads RhiPipelineDesc.code, so downloading the WGSL half is ' +
+        'pure boot cost (seed-hillshade.ts, "LANGUAGE ASYMMETRY")',
+    ],
+    ['baked-wgsl-rest', 'neither the wrong language nor the un-seeded group belongs on this boot'],
+  ])
+    expect(
+      hits(artifact),
+      `${artifact} was fetched on a ?forcegl2=1 boot — ${why}. Something in the runtime ` +
+        `module graph now NAMES that artifact (check seed-hillshade.ts's dynamic import and ` +
+        `anything it pulls in); once a runtime module names it, the bundler can no longer ` +
+        `drop it either`,
+    ).toEqual([])
+})

@@ -38,7 +38,7 @@
 // a bake is only valid for the body + projection table it was produced under. Both
 // are stamped into the artifact `meta` (see `currentBakedMeta`) and gated.
 
-import { emitGlslModule, emitGlslStages } from '@xgis/shader-dsl'
+import { emitGlslStages } from '@xgis/shader-dsl'
 import {
   PROJECTION_CONSTS,
   getProjectionWgslConsts,
@@ -69,58 +69,65 @@ import { emitFlowAdvectGlsl, emitFlowAdvectWgsl } from '../dsl/flow-advect'
 import { emitHeatmapAccumGlsl, emitHeatmapAccumWgsl } from '../dsl/heatmap-accum'
 import { emitHeatmapBlurGlsl, emitHeatmapBlurWgsl } from '../dsl/heatmap-blur'
 import { emitHeatmapComposeGlsl, emitHeatmapComposeWgsl } from '../dsl/heatmap-compose'
-// The hillshade ids are spelled by the shared LEAF `ids.ts`, not here: the consume
-// half addresses baked sources by those exact strings and cannot import this file
-// (it would drag every dsl emitter above into the runtime bundle). One authority for
-// the string, reachable from both sides. See ids.ts.
-import { HILLSHADE_METHOD_FLAGS, hillshadeGlslId, hillshadeWgslId, pickTag } from './ids'
+// EVERY id below is spelled by the shared LEAF `ids.ts`, not here: the consume half
+// addresses baked sources by those exact strings and cannot import this file (it would
+// drag every dsl emitter above into the runtime bundle). One authority for the string,
+// reachable from both sides — including the token DOMAINS (stages, pick states, the
+// entry sets), so this list can only build ids the grammar can also produce. Phase A
+// kept the grammar in prose here and half the builders there; #1679 increment 1 moved
+// the whole thing to ids.ts and left this file a CALLER. See ids.ts.
+import {
+  BAKED_STAGES,
+  bakedGroupOf,
+  HILLSHADE_METHOD_FLAGS,
+  LINE_GLSL_STAGES,
+  LINE_GLSL_STAGE_ARGS,
+  PICKED_MODULE_FAMILIES,
+  PICK_STATES,
+  POLYGON_FRAGMENT_ENTRIES,
+  POLYGON_VERTEX_ENTRIES,
+  SIMPLE_FAMILIES,
+  hillshadeGlslId,
+  hillshadeWgslId,
+  lineGlslId,
+  lineWgslId,
+  pickedModuleGlslId,
+  pickedModuleWgslId,
+  polygonGlslFragmentId,
+  polygonGlslVertexId,
+  polygonWgslId,
+  simpleGlslId,
+  simpleWgslId,
+  type BakedFamily,
+  type BakedGroup,
+  type BakedStage,
+  type PickedModuleFamily,
+  type SimpleFamily,
+} from './ids'
 
 export type BakedLanguage = 'glsl' | 'wgsl'
-export type BakedStage = 'vertex' | 'fragment'
-
-/** Which ARTIFACT FILE a key is baked into — the download unit, not a taxonomy.
- *
- *  Phase A consumes exactly the hillshade keys (`seed-hillshade.ts`), and a boot that
- *  awaits the whole closed set pays for every family to serve one: measured on the
- *  pre-split artifacts, hillshade is 14.8% of the GLSL bytes and 34.3% of the WGSL.
- *  Splitting the emit by group means the boot's dynamic `import()` names a file that
- *  holds ONLY what it seeds, and the `rest` files — imported by nothing at runtime —
- *  are dropped whole by the bundler.
- *
- *  `rest` still ships, committed and gated: it is the phase-B payload and, until then,
- *  the proof that the OTHER 88 keys have not drifted from their emitters either. A
- *  staleness gate over shaders nobody downloads is cheap; discovering the drift when
- *  phase B wires them up is not. */
-export type BakedGroup = 'hillshade' | 'rest'
+/** Owned by the id leaf (they are GRAMMAR properties), re-exported here because
+ *  `BakedShaderKey`'s fields are the shape every consumer of the closed set reads. The
+ *  DOWNLOAD GROUP moved there in #1679 increment 4: it is a property of the FAMILY (see
+ *  `FAMILY_GROUPS`), so a key cannot carry one that contradicts its siblings, and the
+ *  runtime half — which must not value-import this file — can read the grouping too. */
+export type { BakedFamily, BakedGroup, BakedStage }
 
 /** One bakeable shader request.
  *
- *  `id` FORMAT (stable — the consume half addresses sources by it):
+ *  `id` is built by `ids.ts`, which owns the grammar — the token order, which axes each
+ *  family carries, and the entry unions — and is documented there. Re-stating it here
+ *  would be the second authority increment 1 of #1679 removed: this file CALLS the
+ *  builders, and `ids.test.ts` proves the two sets are equal in both directions.
  *
- *      <language>/<family>[/<param>…][/<stage>][/<entry>]
- *
- *  - `<language>`  `glsl` | `wgsl`
- *  - `<family>`    the dsl module's family name (`hillshade`, `polygon`, `line`,
- *                  `raster`, `under-occluder`, `line-composite`, `heatmap-accum`, …)
- *  - `<param>`     fixed per-family order, short tokens: `m0`…`m4` (hillshade
- *                  methodFlag), then `pick` | `nopick` for the pick dimension.
- *                  A family without that dimension emits no token for it.
- *  - `<stage>`     `vertex` | `fragment` — GLSL ONLY (a WGSL module carries both).
- *  - `<entry>`     the spelled `main`, appended ONLY for the families whose module
- *                  declares several entries per stage and where the draper therefore
- *                  chooses one: polygon (`vs_main` / `vs_main_ecef`; `fs_fill` /
- *                  `fs_fill_pattern` / `fs_stroke`) and line (`vs_line`; `fs_line` /
- *                  `fs_line_pattern` / `fs_line_max`).
- *
- *  Examples: `glsl/hillshade/m3/pick/fragment`, `wgsl/hillshade/m3/pick`,
- *  `glsl/polygon/nopick/fragment/fs_stroke`, `glsl/line/pick/fragment/fs_line_pattern`,
- *  `glsl/heatmap-blur/vertex`, `wgsl/text`. */
+ *  NO `group` FIELD. It was one per key until increment 4, which meant a new family's
+ *  rows could each be given a different (or simply wrong) artifact file with nothing to
+ *  notice; the group is DERIVED from `family` through `bakedGroupOf` instead, so the
+ *  question is answered once per family and answered in the leaf both halves can read. */
 export interface BakedShaderKey {
   readonly id: string
   readonly language: BakedLanguage
-  /** Which committed artifact file carries this key (see `BakedGroup`). */
-  readonly group: BakedGroup
-  readonly family: string
+  readonly family: BakedFamily
   /** hillshade only — the specialised `hillshade-method` flag (0…4). */
   readonly methodFlag?: number
   /** Families with a pick-pass variant (hillshade / polygon / line / raster /
@@ -136,59 +143,35 @@ export interface BakedShaderKey {
   emit(): string
 }
 
-const STAGES: readonly BakedStage[] = ['vertex', 'fragment']
-const PICKS: readonly boolean[] = [false, true]
-
 // ── Families with NO parameters: one WGSL module + two GLSL stages ──
 // (`icon`/`text`/`point` and the retained-instance drapers, the fullscreen passes,
 // and the three heatmap passes. `point` takes a variant seam that is null on every
 // unconditional call site, so its baked key carries no param token.)
-const SIMPLE_FAMILIES: ReadonlyArray<{
-  family: string
-  wgsl: () => string
-  glsl: (stage: BakedStage) => string
-}> = [
-  { family: 'icon', wgsl: emitIconWgsl, glsl: emitIconGlsl },
-  { family: 'text', wgsl: emitTextWgsl, glsl: emitTextGlsl },
-  { family: 'point', wgsl: () => emitPointWgsl(null), glsl: (s) => emitPointGlsl(null, s) },
-  { family: 'circle-retained', wgsl: emitCircleRetainedWgsl, glsl: emitCircleRetainedGlsl },
-  { family: 'icon-retained', wgsl: emitIconRetainedWgsl, glsl: emitIconRetainedGlsl },
-  { family: 'arrow-retained', wgsl: emitArrowRetainedWgsl, glsl: emitArrowRetainedGlsl },
-  { family: 'particle-retained', wgsl: emitParticleRetainedWgsl, glsl: emitParticleRetainedGlsl },
-  {
-    family: 'arrow-retained-advected',
+//
+// Keyed by `SimpleFamily` — the grammar's own family union — so the table and the
+// grammar cannot drift in EITHER direction: a row for a family the grammar does not know
+// is a type error, and a family the grammar knows with no row here is a missing-property
+// error. Neither needs a test to notice.
+type StageEmitters = { wgsl: () => string; glsl: (stage: BakedStage) => string }
+const SIMPLE_FAMILY_EMITTERS: Readonly<Record<SimpleFamily, StageEmitters>> = {
+  icon: { wgsl: emitIconWgsl, glsl: emitIconGlsl },
+  text: { wgsl: emitTextWgsl, glsl: emitTextGlsl },
+  point: { wgsl: () => emitPointWgsl(null), glsl: (s) => emitPointGlsl(null, s) },
+  'circle-retained': { wgsl: emitCircleRetainedWgsl, glsl: emitCircleRetainedGlsl },
+  'icon-retained': { wgsl: emitIconRetainedWgsl, glsl: emitIconRetainedGlsl },
+  'arrow-retained': { wgsl: emitArrowRetainedWgsl, glsl: emitArrowRetainedGlsl },
+  'particle-retained': { wgsl: emitParticleRetainedWgsl, glsl: emitParticleRetainedGlsl },
+  'arrow-retained-advected': {
     wgsl: emitArrowRetainedAdvectedWgsl,
     glsl: emitArrowRetainedAdvectedGlsl,
   },
-  { family: 'scene-upscale', wgsl: emitSceneUpscaleWgsl, glsl: emitSceneUpscaleGlsl },
-  { family: 'flow-advect', wgsl: emitFlowAdvectWgsl, glsl: emitFlowAdvectGlsl },
-  { family: 'line-composite', wgsl: emitCompositeWgsl, glsl: emitCompositeGlsl },
-  { family: 'heatmap-accum', wgsl: emitHeatmapAccumWgsl, glsl: emitHeatmapAccumGlsl },
-  { family: 'heatmap-blur', wgsl: emitHeatmapBlurWgsl, glsl: emitHeatmapBlurGlsl },
-  { family: 'heatmap-compose', wgsl: emitHeatmapComposeWgsl, glsl: emitHeatmapComposeGlsl },
-]
-
-/** The polygon module's stage entries a draper selects between: flat/ground fill
- *  (`vs_main_ecef` + `fs_fill`), the ground fill-pattern twin (`fs_fill_pattern`,
- *  #1059) and the graticule line overlay (`vs_main` + `fs_stroke`, #1062). The
- *  EXTRUDED entries stay out — WebGL2 fail-closes on them and the WGSL module
- *  already carries them. */
-const POLYGON_ENTRIES: Readonly<Record<BakedStage, readonly string[]>> = {
-  vertex: ['vs_main_ecef', 'vs_main'],
-  fragment: ['fs_fill', 'fs_fill_pattern', 'fs_stroke'],
+  'scene-upscale': { wgsl: emitSceneUpscaleWgsl, glsl: emitSceneUpscaleGlsl },
+  'flow-advect': { wgsl: emitFlowAdvectWgsl, glsl: emitFlowAdvectGlsl },
+  'line-composite': { wgsl: emitCompositeWgsl, glsl: emitCompositeGlsl },
+  'heatmap-accum': { wgsl: emitHeatmapAccumWgsl, glsl: emitHeatmapAccumGlsl },
+  'heatmap-blur': { wgsl: emitHeatmapBlurWgsl, glsl: emitHeatmapBlurGlsl },
+  'heatmap-compose': { wgsl: emitHeatmapComposeWgsl, glsl: emitHeatmapComposeGlsl },
 }
-
-/** emitLineGlsl's stage argument ↔ the `main` it spells (line-glsl.ts:28). */
-const LINE_GLSL_STAGES: ReadonlyArray<{
-  arg: 'vertex' | 'fragment' | 'fragment-pattern' | 'fragment-max'
-  stage: BakedStage
-  entry: string
-}> = [
-  { arg: 'vertex', stage: 'vertex', entry: 'vs_line' },
-  { arg: 'fragment', stage: 'fragment', entry: 'fs_line' },
-  { arg: 'fragment-pattern', stage: 'fragment', entry: 'fs_line_pattern' },
-  { arg: 'fragment-max', stage: 'fragment', entry: 'fs_line_max' },
-]
 
 function buildKeys(): BakedShaderKey[] {
   const keys: BakedShaderKey[] = []
@@ -202,21 +185,19 @@ function buildKeys(): BakedShaderKey[] {
   // key asks for the WGSL, the GLSL keys ask for the stages, and neither pays for the
   // other language.
   for (const methodFlag of HILLSHADE_METHOD_FLAGS)
-    for (const pick of PICKS) {
+    for (const pick of PICK_STATES) {
       keys.push({
         id: hillshadeWgslId(methodFlag, pick),
         language: 'wgsl',
-        group: 'hillshade',
         family: 'hillshade',
         methodFlag,
         pick,
         emit: () => emitFor({ family: 'hillshade', pick, methodFlag }, true).wgsl,
       })
-      for (const stage of STAGES)
+      for (const stage of BAKED_STAGES)
         keys.push({
           id: hillshadeGlslId(methodFlag, pick, stage),
           language: 'glsl',
-          group: 'hillshade',
           family: 'hillshade',
           methodFlag,
           pick,
@@ -226,107 +207,117 @@ function buildKeys(): BakedShaderKey[] {
     }
 
   // polygon — the NULL variant (the default-uniform fill / stroke shader), both pick
-  // states, every draper-selectable stage entry.
-  for (const pick of PICKS) {
+  // states, every draper-selectable stage entry. The two stages are walked separately
+  // rather than as `ENTRIES[stage]`, because the id builders are per-stage: that is what
+  // makes a vertex stage paired with a fragment entry fail to compile.
+  for (const pick of PICK_STATES) {
     keys.push({
-      id: `wgsl/polygon/${pickTag(pick)}`,
+      id: polygonWgslId(pick),
       language: 'wgsl',
-      group: 'rest',
       family: 'polygon',
       pick,
       emit: () => emitPolygonWgsl(null, pick),
     })
-    for (const stage of STAGES)
-      for (const entry of POLYGON_ENTRIES[stage])
-        keys.push({
-          id: `glsl/polygon/${pickTag(pick)}/${stage}/${entry}`,
-          language: 'glsl',
-          group: 'rest',
-          family: 'polygon',
-          pick,
-          stage,
-          entry,
-          emit: () => emitPolygonGlsl(null, pick, stage, entry),
-        })
+    for (const entry of POLYGON_VERTEX_ENTRIES)
+      keys.push({
+        id: polygonGlslVertexId(pick, entry),
+        language: 'glsl',
+        family: 'polygon',
+        pick,
+        stage: 'vertex',
+        entry,
+        emit: () => emitPolygonGlsl(null, pick, 'vertex', entry),
+      })
+    for (const entry of POLYGON_FRAGMENT_ENTRIES)
+      keys.push({
+        id: polygonGlslFragmentId(pick, entry),
+        language: 'glsl',
+        family: 'polygon',
+        pick,
+        stage: 'fragment',
+        entry,
+        emit: () => emitPolygonGlsl(null, pick, 'fragment', entry),
+      })
   }
 
   // line — the NULL variant, both pick states; the GLSL twin spells one main per
-  // stage so the pattern / max pipelines each carry their own fragment source.
-  for (const pick of PICKS) {
+  // stage so the pattern / max pipelines each carry their own fragment source. The
+  // emitter's stage ARGUMENT is the single value: it selects the emitted `main` and,
+  // through `LINE_GLSL_STAGES`, the (stage, entry) tokens of the id.
+  for (const pick of PICK_STATES) {
     keys.push({
-      id: `wgsl/line/${pickTag(pick)}`,
+      id: lineWgslId(pick),
       language: 'wgsl',
-      group: 'rest',
       family: 'line',
       pick,
       emit: () => emitLineWgsl(null, pick),
     })
-    for (const { arg, stage, entry } of LINE_GLSL_STAGES)
+    for (const arg of LINE_GLSL_STAGE_ARGS) {
+      const { stage, entry } = LINE_GLSL_STAGES[arg]
       keys.push({
-        id: `glsl/line/${pickTag(pick)}/${stage}/${entry}`,
+        id: lineGlslId(pick, arg),
         language: 'glsl',
-        group: 'rest',
         family: 'line',
         pick,
         stage,
         entry,
         emit: () => emitLineGlsl(null, pick, arg),
       })
+    }
   }
 
   // raster + under-occluder — one module each, pick-parameterised, both GLSL stages.
-  // The two GLSL spellings DIFFER because their drapers differ, and each row copies its
-  // own draper: `raster-material.ts` builds the module once and calls `emitGlslStages`
-  // (#1473 residue, fixed in this change), `under-occluder-renderer.ts:139-140` calls
-  // `emitGlslModule` per stage. The two forms are byte-identical — that is exactly what
+  // BOTH spell `emitGlslStages`, because both drapers do: `raster-material.ts` since the
+  // #1473-residue fix in phase A, `under-occluder-renderer.ts` since the same fix reached
+  // it (#1679 increment 0 — until then this row spelled the per-stage `emitGlslModule` to
+  // copy the draper it had). The two forms are byte-identical — that is exactly what
   // `glsl-stage-entry-parity.test.ts` pins, for both families — but "identical" is a
   // property to be GATED, not a licence for this list to spell something production
   // does not.
-  const MODULE_FAMILIES: ReadonlyArray<{
-    family: string
-    wgsl: (pick: boolean) => string
-    glsl: (pick: boolean, stage: BakedStage) => string
-  }> = [
-    {
-      family: 'raster',
+  const MODULE_EMITTERS: Readonly<
+    Record<
+      PickedModuleFamily,
+      { wgsl: (pick: boolean) => string; glsl: (pick: boolean, stage: BakedStage) => string }
+    >
+  > = {
+    raster: {
       wgsl: emitRasterWgsl,
       glsl: (pick, stage) => emitGlslStages(buildRasterModule(pick))[stage],
     },
-    {
-      family: 'under-occluder',
+    'under-occluder': {
       wgsl: emitUnderOccluderWgsl,
-      glsl: (pick, stage) => emitGlslModule(buildUnderOccluderModule(pick), stage),
+      glsl: (pick, stage) => emitGlslStages(buildUnderOccluderModule(pick))[stage],
     },
-  ]
-  for (const { family, wgsl, glsl } of MODULE_FAMILIES)
-    for (const pick of PICKS) {
+  }
+  for (const family of PICKED_MODULE_FAMILIES) {
+    const { wgsl, glsl } = MODULE_EMITTERS[family]
+    for (const pick of PICK_STATES) {
       keys.push({
-        id: `wgsl/${family}/${pickTag(pick)}`,
+        id: pickedModuleWgslId(family, pick),
         language: 'wgsl',
-        group: 'rest',
         family,
         pick,
         emit: () => wgsl(pick),
       })
-      for (const stage of STAGES)
+      for (const stage of BAKED_STAGES)
         keys.push({
-          id: `glsl/${family}/${pickTag(pick)}/${stage}`,
+          id: pickedModuleGlslId(family, pick, stage),
           language: 'glsl',
-          group: 'rest',
           family,
           pick,
           stage,
           emit: () => glsl(pick, stage),
         })
     }
+  }
 
-  for (const { family, wgsl, glsl } of SIMPLE_FAMILIES) {
-    keys.push({ id: `wgsl/${family}`, language: 'wgsl', group: 'rest', family, emit: wgsl })
-    for (const stage of STAGES)
+  for (const family of SIMPLE_FAMILIES) {
+    const { wgsl, glsl } = SIMPLE_FAMILY_EMITTERS[family]
+    keys.push({ id: simpleWgslId(family), language: 'wgsl', family, emit: wgsl })
+    for (const stage of BAKED_STAGES)
       keys.push({
-        id: `glsl/${family}/${stage}`,
+        id: simpleGlslId(family, stage),
         language: 'glsl',
-        group: 'rest',
         family,
         stage,
         emit: () => glsl(stage),
@@ -342,12 +333,15 @@ export const BAKED_SHADER_KEYS: readonly BakedShaderKey[] = buildKeys().sort((a,
   a.id < b.id ? -1 : a.id > b.id ? 1 : 0,
 )
 
-/** The keys of ONE committed artifact — i.e. of one (language, group) file. */
+/** The keys of ONE committed artifact — i.e. of one (language, group) file. The group is
+ *  DERIVED from the key's family (`FAMILY_GROUPS` in `ids.ts`), never stored per key: that
+ *  is what makes "which file does this shader ship in" a question with one answer per
+ *  family instead of one answer per row. */
 export const bakedKeysFor = (
   language: BakedLanguage,
   group: BakedGroup,
 ): readonly BakedShaderKey[] =>
-  BAKED_SHADER_KEYS.filter((k) => k.language === language && k.group === group)
+  BAKED_SHADER_KEYS.filter((k) => k.language === language && bakedGroupOf(k.family) === group)
 
 // ── Artifact shape (the committed *.generated.ts modules implement this) ──
 

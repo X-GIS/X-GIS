@@ -5,7 +5,7 @@
   // resolve any examples file, and typed ESLint (pre-commit lint-staged) fails to
   // parse them. The canonical type GATE for examples stays the package build's
   // `tsc -p tsconfig.tests.json` noEmit pass; this project mirrors its options.
-  "extends": "../../tsconfig.base.json",
+  "extends": "../tsconfig.base.json",
   "compilerOptions": {
     "noEmit": true,
     "allowImportingTsExtensions": true,

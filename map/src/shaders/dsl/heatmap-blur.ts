@@ -41,7 +41,7 @@ import {
   type ModuleDecl,
 } from '@xgis/shader-dsl'
 import { ioStruct, builtin, location, uniformStruct, resource } from '@xgis/shader-dsl'
-import { emitModule, emitGlslModule } from '@xgis/shader-dsl'
+import { emitModule, emitGlslModule, emitGlslStages } from '@xgis/shader-dsl'
 
 const Params = uniformStruct(
   'BlurParams',
@@ -172,4 +172,19 @@ export const emitHeatmapBlurGlsl = (stage: 'vertex' | 'fragment'): string =>
       funcs: [stage === 'vertex' ? vsFullGl : fsBlur],
     }),
     stage,
+  )
+
+/** Both GLSL stages from ONE lowering (see emitGlslStages). The per-stage twin above builds a
+ *  one-func module per stage, so it lowers + runs the optimizer fixpoint twice; naming nothing
+ *  and letting the emitter's per-stage scope drop the other entry shares one lowering. Carries
+ *  `vsFullGl`, not the WGSL `vsFull` — the GL twin's dropped V-flip is the whole reason this
+ *  module differs from the WGSL one. Byte-identical to two calls of the per-stage form —
+ *  pinned by map/src/render/material/glsl-stage-entry-parity.test.ts. */
+export const emitHeatmapBlurGlslStages = (): { vertex: string; fragment: string } =>
+  emitGlslStages(
+    module({
+      structs: [Params.struct, VsOut.decl],
+      bindings: [srcTex.binding, Params.binding],
+      funcs: [vsFullGl, fsBlur],
+    }),
   )

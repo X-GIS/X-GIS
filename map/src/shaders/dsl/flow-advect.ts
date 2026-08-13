@@ -53,7 +53,7 @@ import {
   type ModuleDecl,
 } from '@xgis/shader-dsl'
 import { ioStruct, builtin, location, uniformStruct, resource } from '@xgis/shader-dsl'
-import { emitModule, emitGlslModule, stageOf } from '@xgis/shader-dsl'
+import { emitModule, emitGlslModule, emitGlslStages, stageOf } from '@xgis/shader-dsl'
 
 /** Noise cell count across the grid. Higher = finer streaks. The noise is what the flow
  *  CARRIES; it is deliberately not a particle, so its granularity is a look control, never a
@@ -209,6 +209,15 @@ export const emitFlowAdvectGlsl = (stage: 'vertex' | 'fragment'): string => {
         )
   return emitGlslModule({ ...FLOW_ADVECT_MODULE, funcs }, stage)
 }
+
+/** Both GLSL stages from ONE lowering (see emitGlslStages). The per-stage twin above prunes
+ *  the module before each emit, so it lowers + runs the optimizer fixpoint twice; the module
+ *  carries one entry per stage, and the emitter's per-stage scope drops the `hash` helper from
+ *  the vertex emit exactly as the prune did. `vsFullGl` replaces the WGSL `vsFull` (same fn
+ *  name, no V-flip). Byte-identical to two calls of the per-stage form — pinned by
+ *  map/src/render/material/glsl-stage-entry-parity.test.ts. */
+export const emitFlowAdvectGlslStages = (): { vertex: string; fragment: string } =>
+  emitGlslStages({ ...FLOW_ADVECT_MODULE, funcs: [hash, vsFullGl, fsAdvect] })
 
 /** Noise granularity, exported so the CPU side can document/tune it alongside the step. */
 export const FLOW_NOISE_CELLS = NOISE_CELLS

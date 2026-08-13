@@ -68,11 +68,21 @@ export const frameU = uniformStruct(
   },
 )
 
+let _wgslFrameUniform: string | undefined
+
 /** WGSL struct declaration. Renderers paste this into their shader source so the
  *  byte layout stays version-locked with the CPU packer (now `UniformBlock`).
  *  Emitted from `frameU` — the SAME struct the CPU packs through, so the layout
- *  can no longer drift between the shader read and the CPU write (#991 P0). */
-export const WGSL_FRAME_UNIFORM = emitModule(module({ structs: [frameU.struct] }))
+ *  can no longer drift between the shader read and the CPU write (#991 P0).
+ *
+ *  MEMOISED ACCESSOR, not a module const (#1473 residue): as a `const` this ran
+ *  `emitModule` at IMPORT time — before any device exists, on every boot, WebGPU or
+ *  WebGL2 — for a struct this file's own header calls production-DORMANT. Nothing but
+ *  the test reads it today; when the shared-uniform consolidation arms it, the first
+ *  reader pays the emit once and every later one gets the cached string. */
+export function wgslFrameUniform(): string {
+  return (_wgslFrameUniform ??= emitModule(module({ structs: [frameU.struct] })))
+}
 
 export class FrameUniform {
   readonly buffer: GPUBuffer

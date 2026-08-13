@@ -22,7 +22,8 @@ import type { CoverageFilterFn } from '../../shaders/dsl/coverage-filter'
 
 /** Interleaved node vertex: [lon, lat, u, v] — 4 × f32. */
 export const COVERAGE_NODE_STRIDE = 16
-import { emitGlslModule } from '@xgis/shader-dsl'
+import { emitGlslStages } from '@xgis/shader-dsl'
+import { glslStagesFor, wgslFor } from './wgsl-for'
 import { QUANT_MAX, NODATA_CODE } from '@xgis/data'
 import { interpolateRamp, interpolateBandedRamp, RAMPS, BANDED_RAMPS } from '../../color-ramp'
 
@@ -224,13 +225,19 @@ export class CoverageDraper {
      *  `CoverageFilterProgram.key` — because the predicate is baked into the pipeline. */
     filter?: CoverageFilterFn,
   ) {
-    const mod = buildCoverageModule(filter)
+    // #1473 residue — this site emitted the WGSL unconditionally (dead weight on a WebGL2
+    // device, which reads only vsCode/fsCode) and lowered the module ONCE PER STAGE. Both
+    // halves route through the thunk seam now. `filter` is style-derived and OPEN-set, so
+    // nothing here is bakeable — but which LANGUAGE a device reads is a property of the
+    // device, not of the predicate, so the guard is correct for every filter. The bytes a
+    // WebGL2 device receives are unchanged: `emitGlslStages` is byte-identical to two
+    // `emitGlslModule` calls, pinned for this family (filter-free row) by
+    // `glsl-stage-entry-parity.test.ts`.
     this.material = new Material(rhi, {
-      shader: emitCoverageWgsl(filter),
+      shader: wgslFor(rhi, () => emitCoverageWgsl(filter)),
       vsEntry: 'vs_cov',
       fsEntry: 'fs_cov',
-      vsCode: emitGlslModule(mod, 'vertex'),
-      fsCode: emitGlslModule(mod, 'fragment'),
+      ...glslStagesFor(rhi, () => emitGlslStages(buildCoverageModule(filter))),
       format: format as 'bgra8unorm',
       sampleCount,
       // group 0: uniform + value + valid + sampler + LUT + LUT sampler. Multi-same-

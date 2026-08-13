@@ -16,6 +16,10 @@
 //     true, and destroy() cleared none → GC pin + stale ready signal. Fix:
 //     destroy() deletes the three closures + sets __xgisReady=false.
 //
+//  A fourth section pins the OPPOSITE decision for the two #1678 shader-bake
+//  counters: they are process-scoped mirrors of state destroy() does not tear
+//  down, so clearing them would make the mirror lie. Reasons at that arm.
+//
 // GPU-free: the EventDispatcher is exercised in isolation with plain deps,
 // and XGISMap is built through the same stubCanvas harness as p0-quartet
 // (no run() → no real GPU). pickAt's _destroyed guard short-circuits before
@@ -235,5 +239,54 @@ describe('XGISMap.destroy(): RAF + global teardown', () => {
     expect(win.__xgisSnapshot).toBeUndefined()
     expect(win.__xgisStartDrawOrderTrace).toBeUndefined()
     expect(win.__xgisReplaySnapshot).toBeUndefined()
+  })
+
+  // ── 4. The two #1678 bake counters are DELIBERATELY exempt ──────────
+  //
+  // `__xgisBakedShaderSeeds` (shaders/baked/seed-hillshade.ts) and
+  // `__xgisShaderEmits` (shaders/emit/shader-emit-pool.ts) are the globals the
+  // build-time shader bake publishes, and they do NOT get cleared. The rule the
+  // three sections above enforce has a subject: what run() installs and destroy()
+  // therefore has to undo — CLOSURES that capture the map (a GC pin), and
+  // __xgisReady, which advertises a live map. These two are neither. They are
+  // plain numbers reporting on a PROCESS-scoped subsystem destroy() does not
+  // tear down:
+  //
+  //   • the emit pool's `done` / `inFlight` maps are module-level and survive
+  //     destroy by design (a re-created map reuses the sources; `shaderRequestKey`
+  //     already scopes them by body epoch, #1568) — so the keys a boot seeded are
+  //     STILL in the pool after destroy, and the count is still true;
+  //   • `emitsStarted` is a monotone per-process counter with no reset path.
+  //
+  // Clearing either would therefore not remove state, it would make the window
+  // mirror DISAGREE with the state it mirrors. Two maps on one page is supported
+  // (seed-hillshade.ts, "PER DEVICE, NOT PER PROCESS"), so destroying one would
+  // zero a counter the other's boot filled. And it would quietly disarm the render
+  // gate: `_1678-hillshade-bake-hash-gate.spec.ts` reads `__xgisShaderEmits ?? 0`,
+  // so an ABSENT counter reads as a passing zero — the arm that proves the bake was
+  // SERVED rather than merely seeded would then pass on nothing.
+  //
+  // This arm is where that decision is recorded, executably: a later teardown that
+  // helpfully deletes them fails here and has to answer the reasons above instead
+  // of rediscovering them.
+  it('leaves the #1678 bake counters alone — process-scoped mirrors destroy() must not touch', () => {
+    win.__xgisBakedShaderSeeds = 10
+    win.__xgisShaderEmits = 0
+    const map = new XGISMap(stubCanvas())
+
+    map.destroy()
+
+    // The contrast this arm rests on: destroy()'s globals block DID run in this
+    // test, so "the counters survived" cannot mean "teardown never got there".
+    expect(win.__xgisReady, "destroy()'s window-globals block ran").toBe(false)
+    expect(
+      win.__xgisBakedShaderSeeds,
+      'the seeded pool entries outlive the map, so the count that reports them must too',
+    ).toBe(10)
+    expect(
+      win.__xgisShaderEmits,
+      'a deleted emit counter reads as 0 through the render gate’s `?? 0` — the same ' +
+        'value a served-from-the-bake boot publishes, so the gate could no longer tell them apart',
+    ).toBe(0)
   })
 })

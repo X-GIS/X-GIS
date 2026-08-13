@@ -348,6 +348,22 @@ export type Capability =
   | 'float32Filterable'
   | 'multiview'
 
+/** The caps an AUTHOR may name in `ModuleDecl.enables` (#1681 A2) — `Capability` minus
+ *  the three DERIVED resource caps. Those three are inferred from the module's SHAPE by
+ *  `requiredCaps` (a storage binding ⇒ `storageBuffer`, a `@compute` entry ⇒ `compute`,
+ *  an MSAA texture ⇒ `msaaTextureLoad`), so declaring one is at best a no-op restatement
+ *  of the shape and at worst a LIE the emit then gates on — the doc above always said
+ *  "never declared here", and this is that sentence made unrepresentable rather than
+ *  merely written down.
+ *
+ *  Only the AUTHORING surface narrows: `requiredCaps` / `Capabilities` / `CapProfile`
+ *  keep reading the full `Capability`, because the derived caps are exactly what they
+ *  must be able to express. */
+export type DeclarableCapability = Exclude<
+  Capability,
+  'storageBuffer' | 'compute' | 'msaaTextureLoad'
+>
+
 export interface ModuleDecl {
   readonly consts: readonly ConstDecl[]
   readonly structs: readonly StructDecl[]
@@ -368,8 +384,9 @@ export interface ModuleDecl {
    *  only — the host activates it off `reflect().requiredFeatures` and the emit stays
    *  byte-identical. Absent/empty ⇒ no directive, byte-identical emit. Resource caps
    *  (storageBuffer/compute/msaaTextureLoad) are DERIVED from the module shape, never
-   *  declared here. */
-  readonly enables?: readonly Capability[]
+   *  declared here — `DeclarableCapability` (#1681 A2) makes that unrepresentable, so
+   *  naming one is a COMPILE error rather than a comment an author can miss. */
+  readonly enables?: readonly DeclarableCapability[]
 }
 
 /** THE stage predicate (#763 S1) — structured `stage` first, attr-string fallback
