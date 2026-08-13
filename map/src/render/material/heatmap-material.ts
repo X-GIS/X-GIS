@@ -36,6 +36,7 @@ import {
   emitHeatmapComposeWgsl,
   emitHeatmapComposeGlslStages,
 } from '../../shaders/dsl/heatmap-compose'
+import { simpleGlslId, simpleWgslId } from '../../shaders/baked/ids'
 import { glslStagesFor, wgslFor } from './wgsl-for'
 
 // The accum batch carries RHI handles directly — the renderer builds the buffers +
@@ -58,10 +59,13 @@ export class HeatmapAccumTwinDraper {
 
   constructor(rhi: RhiDevice) {
     this.material = new Material(rhi, {
-      shader: wgslFor(rhi, emitHeatmapAccumWgsl),
+      shader: wgslFor(rhi, emitHeatmapAccumWgsl, simpleWgslId('heatmap-accum')),
       vsEntry: 'vs_heatmap',
       fsEntry: 'fs_heatmap',
-      ...glslStagesFor(rhi, emitHeatmapAccumGlslStages),
+      ...glslStagesFor(rhi, emitHeatmapAccumGlslStages, {
+        vertex: simpleGlslId('heatmap-accum', 'vertex'),
+        fragment: simpleGlslId('heatmap-accum', 'fragment'),
+      }),
       format: 'r16float',
       sampleCount: 1,
       groups: [
@@ -115,10 +119,13 @@ export class HeatmapBlurDraper {
 
   constructor(private readonly rhi: RhiDevice) {
     this.material = new Material(rhi, {
-      shader: wgslFor(rhi, emitHeatmapBlurWgsl),
+      shader: wgslFor(rhi, emitHeatmapBlurWgsl, simpleWgslId('heatmap-blur')),
       vsEntry: 'vs_full',
       fsEntry: 'fs_blur',
-      ...glslStagesFor(rhi, emitHeatmapBlurGlslStages),
+      ...glslStagesFor(rhi, emitHeatmapBlurGlslStages, {
+        vertex: simpleGlslId('heatmap-blur', 'vertex'),
+        fragment: simpleGlslId('heatmap-blur', 'fragment'),
+      }),
       format: 'r16float',
       sampleCount: 1,
       groups: [
@@ -156,10 +163,13 @@ export class HeatmapComposeDraper {
     format: string,
   ) {
     this.material = new Material(rhi, {
-      shader: wgslFor(rhi, emitHeatmapComposeWgsl),
+      shader: wgslFor(rhi, emitHeatmapComposeWgsl, simpleWgslId('heatmap-compose')),
       vsEntry: 'vs_full',
       fsEntry: 'fs_compose',
-      ...glslStagesFor(rhi, emitHeatmapComposeGlslStages),
+      ...glslStagesFor(rhi, emitHeatmapComposeGlslStages, {
+        vertex: simpleGlslId('heatmap-compose', 'vertex'),
+        fragment: simpleGlslId('heatmap-compose', 'fragment'),
+      }),
       format: format as 'bgra8unorm',
       sampleCount: 1,
       groups: [

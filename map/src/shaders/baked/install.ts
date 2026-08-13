@@ -77,3 +77,51 @@ export async function installBakedShaders(rhi: ShaderSourceDevice): Promise<numb
     return 0
   }
 }
+
+/** In-flight/settled lazy install, per process. The artifact is process-scoped state (it
+ *  merges into the same store), so a second caller must join the first rather than start a
+ *  second import — `addLayer` is called once per heatmap layer, and a style with four of
+ *  them must not fetch the chunk four times. */
+let _lazyInstall: Promise<number> | null = null
+
+/** Test-only: forget the in-flight lazy install (mirrors `_resetBakedInstallWarning`). */
+export function _resetLazyInstall(): void {
+  _lazyInstall = null
+}
+
+/** START fetching the LAZY group. Fire-and-forget by contract — the caller is a
+ *  registration path (`HeatmapRenderer.addLayer`, …), not a draw, and must not become
+ *  async for this.
+ *
+ *  WHY A PREFETCH AND NOT A LOOKUP-TIME LOAD. Every lazy draper is built SYNCHRONOUSLY
+ *  (`HeatmapRenderer.drapers()` is a memoised getter fired on the draw path), so a draper
+ *  cannot await a chunk. Starting the import at CONSTRUCTION would therefore miss on the
+ *  first build — paying the full emit AND the chunk — and only help a rebuild that never
+ *  comes. The registration seam is what makes it work: `addLayer` runs strictly before the
+ *  first draw (its own comment records the drapers being "built lazily at first draw so
+ *  addLayer never touches the stub device"), so the fetch has a real window to land in.
+ *
+ *  MEASURED (#1679 inc 9): the lazy artifacts are ~4.9 KB / ~4.6 KB gzip and are imported
+ *  by nobody today, so Rollup drops them — this ADDS a chunk rather than saving one. What
+ *  it buys is the emit that chunk replaces: heatmap's three passes cost 33.9 ms (WGSL) /
+ *  38.4 ms (GLSL stages) of SYNCHRONOUS main-thread block, mid-session, at the moment the
+ *  first heatmap layer draws. Trading an off-main-thread fetch for a two-frame hitch.
+ *
+ *  Never throws and never rejects: an unusable lazy chunk costs the emit that was going to
+ *  happen anyway. */
+export function prefetchLazyShaders(rhi: ShaderSourceDevice): void {
+  if (bakedShadersDisabled() || _lazyInstall !== null) return
+  _lazyInstall = (async () => {
+    try {
+      const artifact: BakedArtifact = readsWgsl(rhi)
+        ? (await import('./baked-wgsl-lazy.generated')).BAKED_WGSL_LAZY
+        : (await import('./baked-glsl-lazy.generated')).BAKED_GLSL_LAZY
+      mergeBakedSources(artifact)
+      return Object.keys(artifact.index).length
+    } catch (err) {
+      warnOnce(String(err))
+      return 0
+    }
+  })()
+  void _lazyInstall
+}
