@@ -16,6 +16,7 @@ const ICON_ENTRIES: import('@xgis/engine').RhiBindLayoutEntry[] = [
 ]
 import { Material, executeItems } from '@xgis/engine'
 import { emitIconWgsl } from '../../shaders/dsl/icon'
+import { simpleGlslId, simpleWgslId } from '../../shaders/baked/ids'
 import { wgslFor, glslStagesFor } from './wgsl-for'
 
 type VertexBuffers = ReadonlyArray<{
@@ -46,10 +47,13 @@ export class IconDraper {
   ) {
     const gl2 = rhi.backend === 'webgl2'
     this.material = new Material(rhi, {
-      shader: wgslFor(rhi, emitIconWgsl),
+      shader: wgslFor(rhi, emitIconWgsl, simpleWgslId('icon')),
       vsEntry: 'vs',
       fsEntry: 'fs',
-      ...glslStagesFor(rhi, emitIconGlslStages),
+      ...glslStagesFor(rhi, emitIconGlslStages, {
+        vertex: simpleGlslId('icon', 'vertex'),
+        fragment: simpleGlslId('icon', 'fragment'),
+      }),
       format: format as 'bgra8unorm',
       sampleCount,
       groups: [gl2 ? ICON_ENTRIES : wrapWebGpuBindGroupLayout(bgLayout)],

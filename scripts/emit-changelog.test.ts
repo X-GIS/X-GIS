@@ -396,10 +396,10 @@ describe('entrypoint', () => {
     expect(run.stderr).toContain('neither a resolvable ref')
   })
 
-  it.skipIf(!hasDeepHistory)('is cwd-independent — the shader-dsl prepack shape (spawned)', () => {
-    // shader-dsl's `prepack` runs `bun ../scripts/emit-changelog.ts --path
-    // shader-dsl` FROM the package dir; the -C REPO_ROOT plumbing must keep the
-    // pathspec resolving against the repo root, not the caller's cwd.
+  it.skipIf(!hasDeepHistory)('is cwd-independent — spawned from the package dir', () => {
+    // Run as `--path shader-dsl` FROM the package dir (the shape shader-dsl's
+    // `prepack` used before #1681 C removed it); the -C REPO_ROOT plumbing must
+    // keep the pathspec resolving against the repo root, not the caller's cwd.
     const pkgDir = new URL('../shader-dsl/', import.meta.url).pathname
     const run = spawnSync('bun', [script, '--path', 'shader-dsl'], {
       encoding: 'utf8',

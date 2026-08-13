@@ -7,6 +7,7 @@
 // walk, the dedup, and the exact text of the emitted modules. The script only
 // configures the host seams, calls these two functions, and writes + formats files.
 
+import { BAKED_GROUPS, bakedGroupOf } from './ids'
 import {
   BAKED_SHADER_KEYS,
   bakedContentHash,
@@ -17,9 +18,11 @@ import {
 } from './registry'
 
 /** The two axes an artifact FILE is keyed on. Language, because a device reads exactly
- *  one; group, because a boot downloads exactly the group it seeds (see `BakedGroup`). */
+ *  one; group, because a boot downloads only the groups it needs (see `BakedGroup`). The
+ *  group domain is re-exported from the id leaf, which owns the family → group table —
+ *  `map/scripts/bake-shaders.ts` walks this pair to write one file per cell. */
 export const BAKED_LANGUAGES: readonly BakedLanguage[] = ['glsl', 'wgsl']
-export const BAKED_GROUPS: readonly BakedGroup[] = ['hillshade', 'rest']
+export { BAKED_GROUPS }
 
 /** Committed artifact file name per (language, group), relative to this directory. */
 export const bakedArtifactFile = (language: BakedLanguage, group: BakedGroup): string =>
@@ -47,7 +50,7 @@ export function buildBakedArtifact(language: BakedLanguage, group: BakedGroup): 
   const contents: Record<string, string> = {}
   const index: Record<string, string> = {}
   for (const key of BAKED_SHADER_KEYS) {
-    if (key.language !== language || key.group !== group) continue
+    if (key.language !== language || bakedGroupOf(key.family) !== group) continue
     const source = key.emit()
     const hash = bakedContentHash(source)
     const seen = contents[hash]
@@ -59,6 +62,81 @@ export function buildBakedArtifact(language: BakedLanguage, group: BakedGroup): 
     index[key.id] = hash
   }
   return { meta: currentBakedMeta(), contents, index }
+}
+
+// ── The size report (`bun run bake:shaders --report`) ──
+//
+// The lazy split is only worth its extra file if `boot` is MATERIALLY smaller than
+// `boot + lazy` for the language in question — #1679 increment 9 decides keep-or-collapse
+// on exactly that comparison, and a decision made without the numbers is a decision made
+// twice. So the generator measures what it just wrote.
+//
+// The measured bytes are the RENDERED MODULE's, not the sum of the shader strings: the
+// module is what a chunk actually carries (JSON escaping and the index included), and gzip
+// is what the wire carries. The gzip function is INJECTED because `Bun.gzipSync` exists
+// only in the script's runtime, and everything typechecked has to live under map/src.
+
+export interface BakedReportRow {
+  readonly language: BakedLanguage
+  readonly group: BakedGroup
+  readonly keys: number
+  /** DISTINCT sources — the GLSL vertex stage is shared verbatim across permutations, so
+   *  this collapses hard and the gap between it and `keys` is what the dedup bought. */
+  readonly distinct: number
+  readonly rawBytes: number
+  readonly gzipBytes: number
+}
+
+export function bakedReportRow(
+  language: BakedLanguage,
+  group: BakedGroup,
+  artifact: BakedArtifact,
+  moduleText: string,
+  gzip: (bytes: Uint8Array) => Uint8Array,
+): BakedReportRow {
+  const raw = new TextEncoder().encode(moduleText)
+  return {
+    language,
+    group,
+    keys: Object.keys(artifact.index).length,
+    distinct: Object.keys(artifact.contents).length,
+    rawBytes: raw.byteLength,
+    gzipBytes: gzip(raw).byteLength,
+  }
+}
+
+const pad = (s: string | number, w: number): string => String(s).padStart(w)
+
+/** The report text. Per (language, group): keys, distinct sources, raw and gzip bytes —
+ *  then, per language, the ONE comparison increment 9 turns on. */
+export function formatBakedReport(rows: readonly BakedReportRow[]): string {
+  const out: string[] = [
+    'baked shader artifacts — bytes are the COMMITTED MODULE text (raw / gzip)',
+    '',
+    `${'language'.padEnd(9)}${'group'.padEnd(11)}${pad('keys', 5)}${pad('distinct', 10)}${pad('raw', 11)}${pad('gzip', 10)}`,
+  ]
+  for (const r of rows)
+    out.push(
+      `${r.language.padEnd(9)}${r.group.padEnd(11)}${pad(r.keys, 5)}${pad(r.distinct, 10)}` +
+        `${pad(r.rawBytes, 11)}${pad(r.gzipBytes, 10)}`,
+    )
+  out.push('', 'what a boot downloads (hillshade is seeded separately, and is in both arms):')
+  for (const language of BAKED_LANGUAGES) {
+    const of = (group: BakedGroup): BakedReportRow | undefined =>
+      rows.find((r) => r.language === language && r.group === group)
+    const hill = of('hillshade')
+    const boot = of('boot')
+    const lazy = of('lazy')
+    if (!hill || !boot || !lazy) continue
+    const split = hill.gzipBytes + boot.gzipBytes
+    const collapsed = split + lazy.gzipBytes
+    const saved = collapsed - split
+    out.push(
+      `  ${language}: split = hillshade+boot = ${split} B gzip; collapsed = +lazy = ${collapsed} B gzip ` +
+        `→ the lazy split keeps ${saved} B (${((100 * saved) / collapsed).toFixed(1)}%) off every boot`,
+    )
+  }
+  return out.join('\n')
 }
 
 const sortedEntries = (o: Readonly<Record<string, string>>): [string, string][] =>
@@ -89,9 +167,10 @@ export function renderBakedModule(
     '// GENERATED by map/scripts/bake-shaders.ts — DO NOT EDIT. Regenerate: bun run bake:shaders',
     '//',
     `// The '${group}' group of the closed ${upper} shader set, baked at build time`,
-    '// (#1678 / #1484 phase A). One file per (language, group) so a boot downloads only the',
-    "// group it seeds; the 'rest' file is imported by nothing at runtime and the bundler",
-    '// drops it. `contents` stores each DISTINCT source once, addressed by its content hash;',
+    '// (#1678 / #1484). One file per (language, group), so a boot downloads only what it will',
+    "// read: 'hillshade' seeds the emit pool, 'boot' is installed into the baked-source store",
+    "// at device attach, and 'lazy' is imported by nothing at runtime — the bundler drops it",
+    '// whole. `contents` stores each DISTINCT source once, addressed by its content hash;',
     '// `index` maps every `map/src/shaders/baked/registry.ts` id onto its content.',
     '// `meta` pins the body consts + projection-graph fingerprint this bake is valid under.',
     '//',

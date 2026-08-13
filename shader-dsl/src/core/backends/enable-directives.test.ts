@@ -7,7 +7,7 @@
 // emission (no `enables`) is byte-identical: no directive, body unchanged.
 
 import { describe, it, expect } from 'vitest'
-import type { Capability } from '../ir'
+import type { DeclarableCapability } from '../ir'
 import { module, fn, f32T } from '../ir'
 import { emitModule, wgslBackend } from './wgsl'
 import { emitGlslModule, UnsupportedFeatureError } from './glsl'
@@ -15,7 +15,7 @@ import { emitModuleWithReflection } from '../emit'
 
 // A minimal, backend-neutral helper module (no entry stage) — emits on BOTH backends
 // when it opts into nothing, so the `enables` knob is the only variable under test.
-const scaleMod = (enables?: readonly Capability[]) =>
+const scaleMod = (enables?: readonly DeclarableCapability[]) =>
   module({
     enables,
     funcs: [

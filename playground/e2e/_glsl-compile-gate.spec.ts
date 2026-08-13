@@ -39,7 +39,17 @@ import {
   Var,
   f32,
   u32,
+  i32,
+  i32T,
   toF32,
+  toI32,
+  clamp,
+  floor,
+  constExpr,
+  constRef,
+  arrayT,
+  arrayLit,
+  Node,
   vec2,
   vec4,
   type ShaderType,
@@ -892,5 +902,125 @@ void main() {
     )
     // …and the interpolated red channel is likewise unclamped (>1.0) and non-zero.
     expect(result.px[0]).toBeGreaterThan(1)
+  })
+
+  // #1681: a NAMED module-scope const ARRAY, on a real driver.
+  //
+  // `constExpr(name, arrayT(elem, n), arrayLit(...))` is public API, but only the
+  // INLINE array-literal form has driver evidence (map/src/shaders/dsl/raster.ts emits
+  // `uint[6](0u,…)[idx]` inside an expression). The NAMED form takes a different emit
+  // path — `emitConst` → `constDecl` → `glslType({kind:'array'})` — which produces GLSL's
+  // postfix-size declarator, `const int[4] STEP_TABLE = int[4](3, 1, 2, 0);`. That
+  // spelling is legal GLSL ES 3.00 but is NOT the spelling most emitters produce
+  // (`const int STEP_TABLE[4] = …` is the other legal form), and no unit test compiles it.
+  //
+  // The read is RUNTIME-INDEXED (`STEP_TABLE[int(clamp(floor(uv.x*4), 0, 3))]`), so the
+  // compiler cannot constant-fold the table away and prove the declaration vacuously —
+  // and the indexed value reaches `FsOut.color`, so a driver that rejected or dropped the
+  // declaration would leave `STEP_TABLE` undeclared and FAIL TO COMPILE/LINK rather than
+  // silently render something. The table values are a PERMUTATION (3,1,2,0), not the
+  // identity: substituting the index for the table would be a distinguishable different
+  // shader (§12 — an assertion must distinguish the states of the thing it tests).
+  test('#1681: a named const array indexed at runtime compiles + links on real WebGL2', async ({
+    page,
+  }) => {
+    const StepTable: ShaderType = arrayT(i32T, 4)
+    const stepTable = constExpr(
+      'STEP_TABLE',
+      StepTable,
+      arrayLit(i32T, i32(3), i32(1), i32(2), i32(0)),
+    )
+
+    const uvOf = (comp: 'x' | 'y'): Node<'f32'> =>
+      new Node<'f32'>(fld(fld(param('inp', structT('VsOut')), 'uv', vec2fT), comp, f32T))
+    // slot ∈ [0,3] derived from the interpolated uv — a value the compiler cannot know.
+    const slot = toI32(clamp(floor(uvOf('x').mul(4)), f32(0), f32(3)))
+    const shade = toF32(constRef('STEP_TABLE', StepTable).at(slot, i32T)).div(3)
+
+    const constArrayFs: FuncDecl = {
+      name: 'fs',
+      attrs: ['@fragment'],
+      params: [{ name: 'inp', type: structT('VsOut') }],
+      ret: structT('FsOut'),
+      body: [
+        {
+          s: 'return',
+          expr: {
+            op: 'construct',
+            type: structT('FsOut'),
+            args: [v4(shade.expr, uvOf('y').expr, lit(0), lit(1))],
+          },
+        },
+      ],
+    }
+    const constArrayModule: ModuleDecl = {
+      ...module,
+      consts: [stepTable],
+      funcs: [module.funcs[0]!, constArrayFs],
+    }
+
+    const vertex = emitGlslModule(constArrayModule, 'vertex')
+    const fragment = emitGlslModule(constArrayModule, 'fragment')
+    // the declaration is present in GLSL's postfix-size form, and it is actually READ
+    // (an unreferenced const would compile even if the emitter had mangled it).
+    expect(fragment).toContain('const int[4] STEP_TABLE = int[4](3, 1, 2, 0);')
+    expect(fragment).toContain('STEP_TABLE[int(')
+
+    await page.goto('/demo.html?id=minimal', { waitUntil: 'domcontentloaded' })
+
+    const result = await page.evaluate(
+      ({ vertex, fragment }) => {
+        const canvas = document.createElement('canvas')
+        const gl = canvas.getContext('webgl2')
+        if (!gl) return { fatal: 'no webgl2 context' as const }
+        const mk = (type: number, src: string): WebGLShader => {
+          const sh = gl.createShader(type)!
+          gl.shaderSource(sh, src)
+          gl.compileShader(sh)
+          return sh
+        }
+        const vsh = mk(gl.VERTEX_SHADER, vertex)
+        const fsh = mk(gl.FRAGMENT_SHADER, fragment)
+        const vs = {
+          ok: gl.getShaderParameter(vsh, gl.COMPILE_STATUS) as boolean,
+          log: gl.getShaderInfoLog(vsh) ?? '',
+        }
+        const fs = {
+          ok: gl.getShaderParameter(fsh, gl.COMPILE_STATUS) as boolean,
+          log: gl.getShaderInfoLog(fsh) ?? '',
+        }
+        let linkOk = false
+        let linkLog = ''
+        if (vs.ok && fs.ok) {
+          const prog = gl.createProgram()!
+          gl.attachShader(prog, vsh)
+          gl.attachShader(prog, fsh)
+          gl.linkProgram(prog)
+          linkOk = gl.getProgramParameter(prog, gl.LINK_STATUS) as boolean
+          linkLog = gl.getProgramInfoLog(prog) ?? ''
+        }
+        return { vs, fs, linkOk, linkLog }
+      },
+      { vertex, fragment },
+    )
+
+    expect(
+      result,
+      `WebGL2 unavailable: ${'fatal' in result ? result.fatal : ''}`,
+    ).not.toHaveProperty('fatal')
+    if ('fatal' in result) return
+
+    expect(
+      result.vs.ok,
+      `const-array vertex failed to compile:\n${result.vs.log}\n--- GLSL ---\n${vertex}`,
+    ).toBe(true)
+    expect(
+      result.fs.ok,
+      `const-array fragment failed to compile:\n${result.fs.log}\n--- GLSL ---\n${fragment}`,
+    ).toBe(true)
+    // THE witness: the program LINKS. `STEP_TABLE` is referenced from the fragment
+    // output, so a driver that had rejected the postfix-size const-array declaration
+    // could not resolve the identifier and could not produce a linked program.
+    expect(result.linkOk, `const-array program failed to link:\n${result.linkLog}`).toBe(true)
   })
 })

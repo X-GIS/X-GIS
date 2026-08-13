@@ -50,7 +50,7 @@ import {
   type ModuleDecl,
 } from '@xgis/shader-dsl'
 import { ioStruct, builtin, location, uniformStruct, storageBuffer } from '@xgis/shader-dsl'
-import { emitModule, emitGlslModule } from '@xgis/shader-dsl'
+import { emitModule, emitGlslModule, emitGlslStages } from '@xgis/shader-dsl'
 import {
   flat_rel,
   needs_backface_cull,
@@ -246,3 +246,11 @@ export const emitHeatmapAccumGlsl = (stage: 'vertex' | 'fragment'): string =>
     }),
     stage,
   )
+
+/** Both GLSL stages from ONE lowering (see emitGlslStages). The per-stage twin above prunes
+ *  the module before each emit, so it lowers + runs the optimizer fixpoint twice; the whole
+ *  module carries exactly one entry per stage, so nothing needs naming and the emitter's own
+ *  per-stage scope drops what the stage does not reach. Byte-identical to two calls of the
+ *  per-stage form — pinned by map/src/render/material/glsl-stage-entry-parity.test.ts. */
+export const emitHeatmapAccumGlslStages = (): { vertex: string; fragment: string } =>
+  emitGlslStages(buildHeatmapAccumModule())

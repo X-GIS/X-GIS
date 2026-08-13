@@ -1166,7 +1166,9 @@ module({ enables: ['floatRenderTarget'], funcs: [vs, fs] })
 Each id folds into the capability gate, so a backend that cannot spell it **fails
 closed** (`UnsupportedFeatureError` / `SD0030`, message naming the cap) instead of
 emitting source the driver rejects. Resource caps (`storageBuffer`, `compute`,
-`msaaTextureLoad`) are DERIVED from the module's shape and are never declared here.
+`msaaTextureLoad`) are DERIVED from the module's shape and are never declared here —
+`enables` is typed `readonly DeclarableCapability[]` (`Capability` minus those three), so
+naming one is a **compile error**, not a silent no-op.
 
 Each backend owns ONE `capProfile` table — neutral id → `{ directive?, hostFeature? }` —
 and that table is the single authority: coverage is built from its keys, the directive

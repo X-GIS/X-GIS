@@ -4,7 +4,7 @@
   // (never in any tsc graph before — vitest executes but does not type-check).
   // Wired as the second half of the package `build` script, so the CI `bun run build`
   // census and the local canonical gate both still cover test-file type errors.
-  "extends": "../tsconfig.base.json",
+  "extends": "./tsconfig.base.json",
   "compilerOptions": {
     "noEmit": true,
     "allowImportingTsExtensions": true,

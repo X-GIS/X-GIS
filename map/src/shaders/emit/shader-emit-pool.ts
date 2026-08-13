@@ -123,7 +123,12 @@ export function peekShaderSources(req: ShaderEmitRequest): ShaderSources | undef
  *  What the pool actually moves is "a request that no cached source could answer", which
  *  is this line, and it counts the worker and the fallback identically. A worker failure
  *  re-settling through `settleOnMainThread` is deliberately NOT counted again: it is the
- *  same emit, recovered, and the question is how many emits the boot needed. */
+ *  same emit, recovered, and the question is how many emits the boot needed.
+ *
+ *  MONOTONE PER PROCESS, and NOT cleared by `map.destroy()` — the counter has no reset
+ *  path and this global is only its mirror, so deleting the mirror would make the two
+ *  disagree. Pinned, with the reasons, in `map/src/destroy-raf-and-globals.test.ts`
+ *  (section 4). */
 let emitsStarted = 0
 function countEmitStart(): void {
   emitsStarted++

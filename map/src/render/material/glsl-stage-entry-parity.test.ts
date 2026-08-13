@@ -43,9 +43,28 @@ import {
 import { emitIconGlsl, emitIconGlslStages } from '../../shaders/dsl/icon'
 import { emitTextGlsl, emitTextGlslStages } from '../../shaders/dsl/text'
 import { emitPointGlsl, emitPointGlslStages } from '../../shaders/dsl/point'
-import { emitGlslModule, emitGlslStages } from '@xgis/shader-dsl'
+import { emitHeatmapAccumGlsl, emitHeatmapAccumGlslStages } from '../../shaders/dsl/heatmap-accum'
+import { emitHeatmapBlurGlsl, emitHeatmapBlurGlslStages } from '../../shaders/dsl/heatmap-blur'
+import {
+  emitHeatmapComposeGlsl,
+  emitHeatmapComposeGlslStages,
+} from '../../shaders/dsl/heatmap-compose'
+import { emitFlowAdvectGlsl, emitFlowAdvectGlslStages } from '../../shaders/dsl/flow-advect'
+import { emitGlslModule, emitGlslStages, fn, f32T, f32, boolT } from '@xgis/shader-dsl'
 import { buildRasterModule } from '../../shaders/dsl/raster'
 import { buildUnderOccluderModule } from '../../shaders/dsl/under-occluder'
+import { buildCoverageModule } from '../../shaders/dsl/coverage-ramp'
+import { COVERAGE_FILTER_FN } from '../../shaders/dsl/coverage-filter'
+
+/** A stand-in for a compiled `filter:` predicate — the SHAPE a style produces
+ *  (`FnHandle<{v, zoom}, 'bool'>` under the name the coverage module calls), built by hand
+ *  so this gate needs no dependency on the style compiler. What matters here is only that
+ *  the fragment scope gains a callee: the two spellings differ in lowering ORDER (stages
+ *  lowers the whole module once and splits; the legacy pair prunes to the stage and lowers
+ *  twice), so a module-global optimizer effect could in principle move VERTEX bytes when a
+ *  fragment-only function is present. The filter-free row cannot see that; this one can. */
+const probeFilter = () =>
+  fn(COVERAGE_FILTER_FN, { v: f32T, zoom: f32T }, boolT, ({ v, zoom }) => v.gt(zoom.mul(f32(0.5))))
 
 configureProjections(PROJECTIONS)
 
@@ -130,11 +149,35 @@ const FAMILIES: ReadonlyArray<{
     stages: () => emitGlslStages(buildUnderOccluderModule(true)),
     legacy: (s) => emitGlslModule(buildUnderOccluderModule(true), s),
   },
+  // #1679 increment 0 — the five families whose drapers moved to a one-lowering GLSL half in
+  // the same change. The three heatmap passes and flow-advect grew their own `…GlslStages`
+  // emitter (each carrying the GL twin `vsFullGl`, not the WGSL `vsFull`); coverage goes
+  // through the GENERIC emitters like raster / under-occluder above. Coverage's `filter` is
+  // style-derived and OPEN-set, so what is pinned here is the FILTER-FREE module — the
+  // substitution's validity is a property of the emitter pair, not of the predicate, and a
+  // filter only adds one more callee to the fragment scope.
+  {
+    id: 'coverage ramp, no filter (coverage-material)',
+    stages: () => emitGlslStages(buildCoverageModule()),
+    legacy: (s) => emitGlslModule(buildCoverageModule(), s),
+  },
+  {
+    // The shape a coverage draper ACTUALLY builds in production — `filter` is optional, so
+    // both rows ship. Probed against two real compiled predicates before being written as a
+    // hand-built one; the emitter pair held for both.
+    id: 'coverage ramp, WITH a filter predicate (coverage-material)',
+    stages: () => emitGlslStages(buildCoverageModule(probeFilter())),
+    legacy: (s) => emitGlslModule(buildCoverageModule(probeFilter()), s),
+  },
+  { id: 'heatmap accum', stages: emitHeatmapAccumGlslStages, legacy: emitHeatmapAccumGlsl },
+  { id: 'heatmap blur', stages: emitHeatmapBlurGlslStages, legacy: emitHeatmapBlurGlsl },
+  { id: 'heatmap compose', stages: emitHeatmapComposeGlslStages, legacy: emitHeatmapComposeGlsl },
+  { id: 'flow advect (IBFV)', stages: emitFlowAdvectGlslStages, legacy: emitFlowAdvectGlsl },
 ]
 
 describe('emitGlslStages entry selection is byte-identical to pruning before lowering', () => {
   it('covers every family a draper actually builds (a silent drop must fail loudly)', () => {
-    expect(FAMILIES.length).toBeGreaterThanOrEqual(16)
+    expect(FAMILIES.length).toBeGreaterThanOrEqual(22)
   })
 
   for (const f of FAMILIES) {
