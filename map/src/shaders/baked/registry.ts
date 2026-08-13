@@ -38,7 +38,7 @@
 // a bake is only valid for the body + projection table it was produced under. Both
 // are stamped into the artifact `meta` (see `currentBakedMeta`) and gated.
 
-import { emitGlslModule, emitGlslStages } from '@xgis/shader-dsl'
+import { emitGlslStages } from '@xgis/shader-dsl'
 import {
   PROJECTION_CONSTS,
   getProjectionWgslConsts,
@@ -275,10 +275,10 @@ function buildKeys(): BakedShaderKey[] {
   }
 
   // raster + under-occluder — one module each, pick-parameterised, both GLSL stages.
-  // The two GLSL spellings DIFFER because their drapers differ, and each row copies its
-  // own draper: `raster-material.ts` builds the module once and calls `emitGlslStages`
-  // (#1473 residue, fixed in this change), `under-occluder-renderer.ts:139-140` calls
-  // `emitGlslModule` per stage. The two forms are byte-identical — that is exactly what
+  // BOTH spell `emitGlslStages`, because both drapers do: `raster-material.ts` since the
+  // #1473-residue fix in phase A, `under-occluder-renderer.ts` since the same fix reached
+  // it (#1679 increment 0 — until then this row spelled the per-stage `emitGlslModule` to
+  // copy the draper it had). The two forms are byte-identical — that is exactly what
   // `glsl-stage-entry-parity.test.ts` pins, for both families — but "identical" is a
   // property to be GATED, not a licence for this list to spell something production
   // does not.
@@ -295,7 +295,7 @@ function buildKeys(): BakedShaderKey[] {
     {
       family: 'under-occluder',
       wgsl: emitUnderOccluderWgsl,
-      glsl: (pick, stage) => emitGlslModule(buildUnderOccluderModule(pick), stage),
+      glsl: (pick, stage) => emitGlslStages(buildUnderOccluderModule(pick))[stage],
     },
   ]
   for (const { family, wgsl, glsl } of MODULE_FAMILIES)

@@ -193,10 +193,17 @@ export class LineDraper {
    *  cam=0, an ortho mvp (tile group) and a bake-mpp layer slot with viewport_height=0 (skip the
    *  screen-space width clamp), so the flat-Mercator VS arm draws the stroke into tile-local NDC just
    *  like the fill bake. Alpha blend (composites over the baked fill), depthCompare 'always' /
-   *  depthWrite false (inert, matches the fill bake). WebGPU-only (the bake is WebGPU-only). */
+   *  depthWrite false (inert, matches the fill bake). WebGPU-only (the bake is WebGPU-only).
+   *
+   *  #1473 residue — the WGSL went through `wgslFor` in the two materials above and RAW here,
+   *  the one place the pre-seam spelling survived. The guard is inert on the path that runs
+   *  (this material is only ever built on WebGPU, where `wgslFor` emits), so it buys
+   *  consistency rather than milliseconds: no reader has to wonder whether this site is
+   *  deliberately unguarded, and a WebGL2 device that ever reached here fails on a missing
+   *  source instead of paying for one it cannot read. */
   private bakeMat(): Material {
     return (this._bakeMaterial ??= new Material(this.rhi, {
-      shader: emitLineWgsl(this.variant, false),
+      shader: wgslFor(this.rhi, () => emitLineWgsl(this.variant, false)),
       vsEntry: 'vs_line',
       fsEntry: 'fs_line',
       format: this.format as 'bgra8unorm',

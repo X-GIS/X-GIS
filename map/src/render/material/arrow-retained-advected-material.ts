@@ -42,8 +42,9 @@ import type {
 import { Material, executeItems, type DrawItem } from '@xgis/engine'
 import {
   emitArrowRetainedAdvectedWgsl,
-  emitArrowRetainedAdvectedGlsl,
+  emitArrowRetainedAdvectedGlslStages,
 } from '../../shaders/dsl/arrow-advected'
+import { glslStagesFor, wgslFor } from './wgsl-for'
 
 /** Group-1 entries, exported so a test can assert them against the EMITTED shader rather than
  *  against a second copy of the list (the same discipline ARROW_ADVECT_BINDINGS follows). */
@@ -70,16 +71,16 @@ export class RetainedArrowAdvectedDraper {
   private readonly material: Material
 
   constructor(rhi: RhiDevice, format: string, sampleCount: number, uniformSlotSize: number) {
-    const glsl =
-      rhi.backend === 'webgl2'
-        ? {
-            vsCode: emitArrowRetainedAdvectedGlsl('vertex'),
-            fsCode: emitArrowRetainedAdvectedGlsl('fragment'),
-          }
-        : {}
+    // #1473 residue — the GLSL half was guarded, by this draper's OWN backend-IDENTITY read
+    // (`rhi.backend` against the webgl2 literal), and the WGSL half was not guarded at all:
+    // a WebGL2 device paid to emit and lower a module it never reads. Both halves go through
+    // `wgsl-for.ts` now, which asks `caps.shaderLanguage` rather than the backend's identity
+    // (one fewer identity read — backend-identity-ratchet.test.ts), and the GLSL pair shares
+    // ONE lowering, where the per-stage twin pruned + re-lowered the module for each stage.
+    // `emitArrowRetainedAdvectedGlslStages` is pinned byte-identical to it.
     this.material = new Material(rhi, {
-      shader: emitArrowRetainedAdvectedWgsl(),
-      ...glsl,
+      shader: wgslFor(rhi, emitArrowRetainedAdvectedWgsl),
+      ...glslStagesFor(rhi, emitArrowRetainedAdvectedGlslStages),
       vsEntry: 'vs_arrow_retained_advected',
       fsEntry: 'fs_arrow_retained',
       format: format as 'bgra8unorm',

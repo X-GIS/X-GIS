@@ -5,8 +5,15 @@
 // (#1046 F3b Inc-2c; a forced-WebGL2 twin frame used to drive the same drapers
 // through a second entry point, renderRhi, until #1046 Inc-F3b deleted it). The
 // shader is single-authority (one DSL module → WGSL for WebGPU, GLSL ES 3.00
-// for WebGL2 — emitted UNCONDITIONALLY; WebGPU's createPipeline ignores
-// vsCode/fsCode, so no backend-identity read is needed to select it). Every
+// for WebGL2).
+//
+// #1473 residue — all three drapers below emitted BOTH languages unconditionally and
+// lowered the GLSL module ONCE PER STAGE. "No backend-identity read is needed to select
+// it" (what this header used to say) was true and beside the point: `wgsl-for.ts` asks
+// the CAPABILITY, not the backend, and a language the device will never read is dead
+// weight however cheaply it is selected. Each pass emits one language and lowers it once
+// now; the bytes are unchanged, because each family's `…GlslStages` emitter is
+// byte-identical to two per-stage calls (`glsl-stage-entry-parity.test.ts`). Every
 // variant omits depthCompare — NO depth-stencil is synthesized (material.ts),
 // which is exactly the chain's depthless offscreen/compose pass shape.
 // (The former native-bridging HeatmapDraper — a wrapped GPUBindGroupLayout +
@@ -23,9 +30,13 @@ import type {
 } from '@xgis/engine'
 import { Material, executeItems } from '@xgis/engine'
 import { emitHeatmapAccumWgsl } from '../../shaders/dsl/heatmap-accum'
-import { emitHeatmapAccumGlsl } from '../../shaders/dsl/heatmap-accum'
-import { emitHeatmapBlurWgsl, emitHeatmapBlurGlsl } from '../../shaders/dsl/heatmap-blur'
-import { emitHeatmapComposeWgsl, emitHeatmapComposeGlsl } from '../../shaders/dsl/heatmap-compose'
+import { emitHeatmapAccumGlslStages } from '../../shaders/dsl/heatmap-accum'
+import { emitHeatmapBlurWgsl, emitHeatmapBlurGlslStages } from '../../shaders/dsl/heatmap-blur'
+import {
+  emitHeatmapComposeWgsl,
+  emitHeatmapComposeGlslStages,
+} from '../../shaders/dsl/heatmap-compose'
+import { glslStagesFor, wgslFor } from './wgsl-for'
 
 // The accum batch carries RHI handles directly — the renderer builds the buffers +
 // bind group via the RHI seam (§4 batch-seam migration), so NO re-wrapping here (a wrap
@@ -47,11 +58,10 @@ export class HeatmapAccumTwinDraper {
 
   constructor(rhi: RhiDevice) {
     this.material = new Material(rhi, {
-      shader: emitHeatmapAccumWgsl(),
+      shader: wgslFor(rhi, emitHeatmapAccumWgsl),
       vsEntry: 'vs_heatmap',
       fsEntry: 'fs_heatmap',
-      vsCode: emitHeatmapAccumGlsl('vertex'),
-      fsCode: emitHeatmapAccumGlsl('fragment'),
+      ...glslStagesFor(rhi, emitHeatmapAccumGlslStages),
       format: 'r16float',
       sampleCount: 1,
       groups: [
@@ -105,11 +115,10 @@ export class HeatmapBlurDraper {
 
   constructor(private readonly rhi: RhiDevice) {
     this.material = new Material(rhi, {
-      shader: emitHeatmapBlurWgsl(),
+      shader: wgslFor(rhi, emitHeatmapBlurWgsl),
       vsEntry: 'vs_full',
       fsEntry: 'fs_blur',
-      vsCode: emitHeatmapBlurGlsl('vertex'),
-      fsCode: emitHeatmapBlurGlsl('fragment'),
+      ...glslStagesFor(rhi, emitHeatmapBlurGlslStages),
       format: 'r16float',
       sampleCount: 1,
       groups: [
@@ -147,11 +156,10 @@ export class HeatmapComposeDraper {
     format: string,
   ) {
     this.material = new Material(rhi, {
-      shader: emitHeatmapComposeWgsl(),
+      shader: wgslFor(rhi, emitHeatmapComposeWgsl),
       vsEntry: 'vs_full',
       fsEntry: 'fs_compose',
-      vsCode: emitHeatmapComposeGlsl('vertex'),
-      fsCode: emitHeatmapComposeGlsl('fragment'),
+      ...glslStagesFor(rhi, emitHeatmapComposeGlslStages),
       format: format as 'bgra8unorm',
       sampleCount: 1,
       groups: [

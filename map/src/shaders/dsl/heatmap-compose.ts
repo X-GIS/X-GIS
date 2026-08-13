@@ -46,7 +46,7 @@ import {
   type ModuleDecl,
 } from '@xgis/shader-dsl'
 import { ioStruct, builtin, location, uniformStruct, resource } from '@xgis/shader-dsl'
-import { emitModule, emitGlslModule } from '@xgis/shader-dsl'
+import { emitModule, emitGlslModule, emitGlslStages } from '@xgis/shader-dsl'
 
 const U = uniformStruct(
   'ComposeParams',
@@ -157,4 +157,20 @@ export const emitHeatmapComposeGlsl = (stage: 'vertex' | 'fragment'): string =>
       funcs: stage === 'vertex' ? [vsFullGl] : [loadDensity, fsCompose],
     }),
     stage,
+  )
+
+/** Both GLSL stages from ONE lowering (see emitGlslStages). The per-stage twin above prunes
+ *  the module before each emit, so it lowers + runs the optimizer fixpoint twice; the whole
+ *  module carries one entry per stage, and the emitter's per-stage scope drops `loadDensity`
+ *  from the vertex emit exactly as the prune did. `vsFullGl`, not the WGSL `vsFull` — the GL
+ *  twin's dropped V-flip is why this module differs from the WGSL one. Byte-identical to two
+ *  calls of the per-stage form — pinned by
+ *  map/src/render/material/glsl-stage-entry-parity.test.ts. */
+export const emitHeatmapComposeGlslStages = (): { vertex: string; fragment: string } =>
+  emitGlslStages(
+    module({
+      structs: [U.struct, VsOut.decl],
+      bindings: [densityTex.binding, rampTex.binding, rampSampler.binding, U.binding],
+      funcs: [loadDensity, vsFullGl, fsCompose],
+    }),
   )
