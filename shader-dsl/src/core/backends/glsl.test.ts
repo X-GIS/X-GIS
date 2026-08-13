@@ -430,20 +430,11 @@ describe('glsl-es300 — storage → data-texture emulation (default-on)', () =>
     expect(fs).not.toContain('data[') // no raw array indexing survives
   })
 
-  // #1647/#1649 — WebGL2 having no SSBO is a PLATFORM fact, not a caller choice, so the
-  // lowering is default-on for any module carrying a storage binding. The flag survives
-  // in the options type (back-compat, @deprecated) but the emitter no longer READS it
-  // (#1649: the old forcing read swapped the curated 'compute' diagnostic for a
-  // misleading storage-shape throw) — accepted and IGNORED, so the DEFAULT emit must be
-  // byte-identical. This is the ONE deliberate reference to the flag left in the repo —
-  // no eslint-disable is needed for it, because `no-deprecated` treats an
-  // object-literal KEY as a declaration and never reports it.
-  it('the DEFAULT emit equals the {emulateStorage:true} emit byte-for-byte', () => {
-    expect(emitGlslModule(storageMod, 'fragment')).toBe(
-      emitGlslModule(storageMod, 'fragment', { emulateStorage: true }),
-    )
-  })
-
+  // #1647/#1649/#1681 — WebGL2 having no SSBO is a PLATFORM fact, not a caller choice, so
+  // the lowering is default-on for any module carrying a storage binding. The
+  // `emulateStorage` opt-in that used to force it is GONE from GlslEmitOptions (#1681 A1);
+  // the byte-identity test that pinned "setting it changes nothing" died with the flag,
+  // and this default-on pin is the surviving half of that contract.
   it('a storage module emits by DEFAULT (no opts) and spells the data-texture fetch', () => {
     expect(() => emitGlslModule(storageMod, 'fragment')).not.toThrow()
     const fs = emitGlslModule(storageMod, 'fragment')

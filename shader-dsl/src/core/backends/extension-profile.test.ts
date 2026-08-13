@@ -118,7 +118,17 @@ import { describe, it, expect } from 'vitest'
 import { readFileSync } from 'node:fs'
 import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { module, fn, vec4, f32T, f64T, arrayT, type Capability, type ModuleDecl } from '../ir'
+import {
+  module,
+  fn,
+  vec4,
+  f32T,
+  f64T,
+  arrayT,
+  type Capability,
+  type DeclarableCapability,
+  type ModuleDecl,
+} from '../ir'
 import { emitModule, wgslBackend } from './wgsl'
 import { emitGlslModule, glslEs300Backend } from './glsl'
 import { UnsupportedFeatureError } from '../backend'
@@ -128,7 +138,7 @@ import { fp64Lower } from '../passes/fp64-lower'
 
 /** A trivial fragment module — the smallest shape that emits on BOTH backends, so the
  *  `enables` list is the only variable under test. */
-const fragMod = (enables?: readonly Capability[]): ModuleDecl =>
+const fragMod = (enables?: readonly DeclarableCapability[]): ModuleDecl =>
   module({
     enables,
     funcs: [
@@ -391,6 +401,32 @@ describe('#1670 — WebGL2 extension profile surface (fail-before)', () => {
       funcs: [],
       // @ts-expect-error — wrong hump: 'multiView' is not 'multiview'.
       enables: ['multiView'],
+    })
+  })
+
+  // ── 15b. TYPE negative — a DERIVED cap is not DECLARABLE (#1681 A2) ──
+  // Same never-executed, tsc-validated mechanism as test 15, over the other axis:
+  // `enables` is `readonly DeclarableCapability[]`, which EXCLUDES the three caps
+  // `requiredCaps` derives from the module SHAPE. Declaring one used to typecheck and
+  // mean nothing (the shape decides), or worse — gate an emit on a resource the module
+  // does not actually use. FAIL-BEFORE: with `enables: readonly Capability[]` all three
+  // lines below are LEGAL, so each `@ts-expect-error` is an unused directive and tsc
+  // reports TS2578 here.
+  it('a DERIVED resource cap cannot be declared in enables', () => {
+    module({
+      funcs: [],
+      // @ts-expect-error — derived from a `space: 'storage'` binding, never declared.
+      enables: ['storageBuffer'],
+    })
+    module({
+      funcs: [],
+      // @ts-expect-error — derived from a `@compute` entry, never declared.
+      enables: ['compute'],
+    })
+    module({
+      funcs: [],
+      // @ts-expect-error — derived from a `dim: '2d-ms'` texture binding, never declared.
+      enables: ['msaaTextureLoad'],
     })
   })
 
