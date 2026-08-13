@@ -35,6 +35,7 @@ import {
   type WebGl2DeviceFactory,
 } from '@xgis/rhi-webgpu'
 import { seedBakedShaders } from './shaders/baked/seed-hillshade'
+import { installBakedShaders } from './shaders/baked/install'
 
 /** What the map supplies to compose a boot. */
 export interface GpuBootDeps {
@@ -87,7 +88,16 @@ export function renewCanvasElement(prev: HTMLCanvasElement): HTMLCanvasElement |
  *  on one entry point and dead on the other. Seeding is PER DEVICE (the artifact is
  *  chosen from `ctx.rhi`'s shader language), so two maps on one page each get their
  *  own, and it can neither throw nor reject — an unusable bake costs a slower first
- *  hillshade frame, never a boot. */
+ *  hillshade frame, never a boot.
+ *
+ *  #1679 increment 4 — and the same again for the baked-source STORE, which is the half
+ *  the keyed emit seam (`render/material/wgsl-for.ts`) reads. Both awaits sit at the very
+ *  END of this function, immediately before the context is handed back: the caller's next
+ *  act is to build drapers and draw, and a draper that runs BEFORE the store is filled
+ *  emits at runtime — correct pixels, and the whole point of the bake silently lost. That
+ *  ordering is asserted structurally (nothing may slip between the install and the return)
+ *  AND behaviourally (a boot-group lookup hits after a boot) in
+ *  `shaders/baked/boot-install-order.test.ts`. */
 export async function bootGpuContext(deps: GpuBootDeps): Promise<GPUContext> {
   const ctx = await initGPUViaProviders(
     deps.canvas,
@@ -110,6 +120,11 @@ export async function bootGpuContext(deps: GpuBootDeps): Promise<GPUContext> {
       },
     },
   )
-  await seedBakedShaders(ctx.rhi)
+  // CONCURRENT, not sequential. These are two independent dynamic imports — the hillshade
+  // artifact into the emit pool, the boot-group artifact into the store — touching different
+  // state and each error-safe on its own, so awaiting them in series would bill the boot for
+  // both round trips when it need only pay the slower one. Measured (#1679 increment 4,
+  // gzip): hillshade 7.0 KB + boot 58.6 KB on GLSL, 8.8 + 39.1 on WGSL.
+  await Promise.all([seedBakedShaders(ctx.rhi), installBakedShaders(ctx.rhi)])
   return ctx
 }

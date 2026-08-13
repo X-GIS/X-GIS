@@ -228,7 +228,11 @@ const ALLOWLIST: Readonly<Record<string, string>> = {
 describe('baked registry — every dsl emitter is baked or allowlisted (#1678 follow-up)', () => {
   const found = scanDsl()
   const covered = new Map(Object.entries(COVERED_BY))
-  const families = new Set(BAKED_SHADER_KEYS.map((k) => k.family))
+  // `Set<string>`, not `Set<BakedFamily>`: the values in COVERED_BY are free-form strings
+  // (that is what the orphan arm below exists to check), and narrowing the set would turn
+  // "this token names no baked family" from a test failure into a compile error in the one
+  // place the failure is supposed to be readable.
+  const families = new Set<string>(BAKED_SHADER_KEYS.map((k) => k.family))
 
   // #996 — a source-scan gate whose walk or matcher silently sees nothing passes over an
   // empty set. Probe all three moving parts: the walk reached the tree; the matcher

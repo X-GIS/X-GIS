@@ -14,9 +14,10 @@
 //               artifact embeds EARTH_R / WGS84_A as LITERALS, so on another planet its
 //               bytes are wrong and the runtime emit must answer. Costs a slower frame.
 //   * ABSENT  — nothing that carries this id's family is installed. Expected all through
-//               this campaign: increment 4 installs the hillshade artifact and nothing
-//               else, and nine baked GLSL ids are provably unreachable dead payload
-//               (#1679's rejected "every registry id is consumed" gate).
+//               this campaign: increment 4 installs the BOOT group only (`install.ts`),
+//               so every `lazy` id is absent by design, and nine baked GLSL ids are
+//               provably unreachable dead payload (#1679's rejected "every registry id
+//               is consumed" gate).
 //   * MISS    — the family IS installed and the id is NOT in it. A BUG, every time: a
 //               call site keyed to a string the bake never wrote. This is the #996 class
 //               — silent, permanent, and invisible to every other gate, because a miss
@@ -34,7 +35,7 @@
 // So coverage is not re-spelled — it is READ OFF the installed artifact's own index, at
 // `<language>/<family>` granularity (the id's first two tokens; `ids.ts` owns that token
 // order). That is strictly finer than the download unit, needs no second authority, and
-// survives increment 4 deleting the `group` field outright.
+// survived increment 4 deleting the `group` field outright.
 //
 // One consequence, and it is the one we want: an index entry whose content hash resolves
 // to nothing still registers its family as covered, so a truncated bake reads as MISS —

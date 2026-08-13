@@ -78,6 +78,7 @@ import { emitHeatmapComposeGlsl, emitHeatmapComposeWgsl } from '../dsl/heatmap-c
 // the whole thing to ids.ts and left this file a CALLER. See ids.ts.
 import {
   BAKED_STAGES,
+  bakedGroupOf,
   HILLSHADE_METHOD_FLAGS,
   LINE_GLSL_STAGES,
   LINE_GLSL_STAGE_ARGS,
@@ -97,43 +98,36 @@ import {
   polygonWgslId,
   simpleGlslId,
   simpleWgslId,
+  type BakedFamily,
+  type BakedGroup,
   type BakedStage,
   type PickedModuleFamily,
   type SimpleFamily,
 } from './ids'
 
 export type BakedLanguage = 'glsl' | 'wgsl'
-/** Owned by the id leaf (it is a GRAMMAR token), re-exported here because
- *  `BakedShaderKey.stage` is the shape every consumer of the closed set reads. */
-export type { BakedStage }
-
-/** Which ARTIFACT FILE a key is baked into — the download unit, not a taxonomy.
- *
- *  Phase A consumes exactly the hillshade keys (`seed-hillshade.ts`), and a boot that
- *  awaits the whole closed set pays for every family to serve one: measured on the
- *  pre-split artifacts, hillshade is 14.8% of the GLSL bytes and 34.3% of the WGSL.
- *  Splitting the emit by group means the boot's dynamic `import()` names a file that
- *  holds ONLY what it seeds, and the `rest` files — imported by nothing at runtime —
- *  are dropped whole by the bundler.
- *
- *  `rest` still ships, committed and gated: it is the phase-B payload and, until then,
- *  the proof that the OTHER 88 keys have not drifted from their emitters either. A
- *  staleness gate over shaders nobody downloads is cheap; discovering the drift when
- *  phase B wires them up is not. */
-export type BakedGroup = 'hillshade' | 'rest'
+/** Owned by the id leaf (they are GRAMMAR properties), re-exported here because
+ *  `BakedShaderKey`'s fields are the shape every consumer of the closed set reads. The
+ *  DOWNLOAD GROUP moved there in #1679 increment 4: it is a property of the FAMILY (see
+ *  `FAMILY_GROUPS`), so a key cannot carry one that contradicts its siblings, and the
+ *  runtime half — which must not value-import this file — can read the grouping too. */
+export type { BakedFamily, BakedGroup, BakedStage }
 
 /** One bakeable shader request.
  *
  *  `id` is built by `ids.ts`, which owns the grammar — the token order, which axes each
  *  family carries, and the entry unions — and is documented there. Re-stating it here
  *  would be the second authority increment 1 of #1679 removed: this file CALLS the
- *  builders, and `ids.test.ts` proves the two sets are equal in both directions. */
+ *  builders, and `ids.test.ts` proves the two sets are equal in both directions.
+ *
+ *  NO `group` FIELD. It was one per key until increment 4, which meant a new family's
+ *  rows could each be given a different (or simply wrong) artifact file with nothing to
+ *  notice; the group is DERIVED from `family` through `bakedGroupOf` instead, so the
+ *  question is answered once per family and answered in the leaf both halves can read. */
 export interface BakedShaderKey {
   readonly id: string
   readonly language: BakedLanguage
-  /** Which committed artifact file carries this key (see `BakedGroup`). */
-  readonly group: BakedGroup
-  readonly family: string
+  readonly family: BakedFamily
   /** hillshade only — the specialised `hillshade-method` flag (0…4). */
   readonly methodFlag?: number
   /** Families with a pick-pass variant (hillshade / polygon / line / raster /
@@ -195,7 +189,6 @@ function buildKeys(): BakedShaderKey[] {
       keys.push({
         id: hillshadeWgslId(methodFlag, pick),
         language: 'wgsl',
-        group: 'hillshade',
         family: 'hillshade',
         methodFlag,
         pick,
@@ -205,7 +198,6 @@ function buildKeys(): BakedShaderKey[] {
         keys.push({
           id: hillshadeGlslId(methodFlag, pick, stage),
           language: 'glsl',
-          group: 'hillshade',
           family: 'hillshade',
           methodFlag,
           pick,
@@ -222,7 +214,6 @@ function buildKeys(): BakedShaderKey[] {
     keys.push({
       id: polygonWgslId(pick),
       language: 'wgsl',
-      group: 'rest',
       family: 'polygon',
       pick,
       emit: () => emitPolygonWgsl(null, pick),
@@ -231,7 +222,6 @@ function buildKeys(): BakedShaderKey[] {
       keys.push({
         id: polygonGlslVertexId(pick, entry),
         language: 'glsl',
-        group: 'rest',
         family: 'polygon',
         pick,
         stage: 'vertex',
@@ -242,7 +232,6 @@ function buildKeys(): BakedShaderKey[] {
       keys.push({
         id: polygonGlslFragmentId(pick, entry),
         language: 'glsl',
-        group: 'rest',
         family: 'polygon',
         pick,
         stage: 'fragment',
@@ -259,7 +248,6 @@ function buildKeys(): BakedShaderKey[] {
     keys.push({
       id: lineWgslId(pick),
       language: 'wgsl',
-      group: 'rest',
       family: 'line',
       pick,
       emit: () => emitLineWgsl(null, pick),
@@ -269,7 +257,6 @@ function buildKeys(): BakedShaderKey[] {
       keys.push({
         id: lineGlslId(pick, arg),
         language: 'glsl',
-        group: 'rest',
         family: 'line',
         pick,
         stage,
@@ -308,7 +295,6 @@ function buildKeys(): BakedShaderKey[] {
       keys.push({
         id: pickedModuleWgslId(family, pick),
         language: 'wgsl',
-        group: 'rest',
         family,
         pick,
         emit: () => wgsl(pick),
@@ -317,7 +303,6 @@ function buildKeys(): BakedShaderKey[] {
         keys.push({
           id: pickedModuleGlslId(family, pick, stage),
           language: 'glsl',
-          group: 'rest',
           family,
           pick,
           stage,
@@ -328,12 +313,11 @@ function buildKeys(): BakedShaderKey[] {
 
   for (const family of SIMPLE_FAMILIES) {
     const { wgsl, glsl } = SIMPLE_FAMILY_EMITTERS[family]
-    keys.push({ id: simpleWgslId(family), language: 'wgsl', group: 'rest', family, emit: wgsl })
+    keys.push({ id: simpleWgslId(family), language: 'wgsl', family, emit: wgsl })
     for (const stage of BAKED_STAGES)
       keys.push({
         id: simpleGlslId(family, stage),
         language: 'glsl',
-        group: 'rest',
         family,
         stage,
         emit: () => glsl(stage),
@@ -349,12 +333,15 @@ export const BAKED_SHADER_KEYS: readonly BakedShaderKey[] = buildKeys().sort((a,
   a.id < b.id ? -1 : a.id > b.id ? 1 : 0,
 )
 
-/** The keys of ONE committed artifact — i.e. of one (language, group) file. */
+/** The keys of ONE committed artifact — i.e. of one (language, group) file. The group is
+ *  DERIVED from the key's family (`FAMILY_GROUPS` in `ids.ts`), never stored per key: that
+ *  is what makes "which file does this shader ship in" a question with one answer per
+ *  family instead of one answer per row. */
 export const bakedKeysFor = (
   language: BakedLanguage,
   group: BakedGroup,
 ): readonly BakedShaderKey[] =>
-  BAKED_SHADER_KEYS.filter((k) => k.language === language && k.group === group)
+  BAKED_SHADER_KEYS.filter((k) => k.language === language && bakedGroupOf(k.family) === group)
 
 // ── Artifact shape (the committed *.generated.ts modules implement this) ──
 

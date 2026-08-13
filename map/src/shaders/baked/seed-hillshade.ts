@@ -121,10 +121,11 @@ export function seedHillshadeFromArtifact(artifact: BakedArtifact, wantWgsl: boo
 /** Boot entry: import THIS DEVICE's HILLSHADE artifact and seed the pool from it.
  *
  *  ONE FILE, not the whole closed set. The bake is split per (language, group) and the
- *  two `…-rest` files are named by nothing here on purpose: phase A seeds hillshade only,
- *  so importing the rest would make every boot await ~85% of a payload it never reads.
- *  Because no runtime module names them, Rollup drops them from the bundle entirely —
- *  they stay committed and gated as the phase-B payload and the staleness proof.
+ *  `…-boot` / `…-lazy` files are named by nothing here on purpose: this seam seeds the emit
+ *  POOL, which is a hillshade-shaped cache, and the other groups have no place in it. The
+ *  boot group is downloaded by `install.ts` (the STORE half, #1679 increment 4) and the
+ *  lazy group by nobody — which is what keeps Rollup dropping the latter from the bundle
+ *  entirely while it stays committed and gated as the staleness proof.
  *
  *  Never throws and never rejects — a bundle that cannot serve the artifact chunk (a
  *  404 on a deploy rollover, a CSP refusal) must cost a slower first hillshade frame,

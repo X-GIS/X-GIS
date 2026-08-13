@@ -38,10 +38,13 @@ import {
   type BakedGroup,
   type BakedLanguage,
 } from './registry'
+import { BAKED_GROUPS, bakedGroupOf } from './ids'
 import { BAKED_GLSL_HILLSHADE } from './baked-glsl-hillshade.generated'
-import { BAKED_GLSL_REST } from './baked-glsl-rest.generated'
+import { BAKED_GLSL_BOOT } from './baked-glsl-boot.generated'
+import { BAKED_GLSL_LAZY } from './baked-glsl-lazy.generated'
 import { BAKED_WGSL_HILLSHADE } from './baked-wgsl-hillshade.generated'
-import { BAKED_WGSL_REST } from './baked-wgsl-rest.generated'
+import { BAKED_WGSL_BOOT } from './baked-wgsl-boot.generated'
+import { BAKED_WGSL_LAZY } from './baked-wgsl-lazy.generated'
 
 // The same two host seams the bake script configures, in the same order — the gate
 // must emit under EXACTLY the conditions the artifact was produced under. (The vitest
@@ -50,20 +53,24 @@ import { BAKED_WGSL_REST } from './baked-wgsl-rest.generated'
 configureProjections(PROJECTIONS)
 applyBodyOption()
 
-/** All FOUR committed files. Every gate below walks this table rather than the two
+/** All SIX committed files. Every gate below walks this table rather than the two
  *  languages: the split into (language, group) files is exactly the kind of change that
  *  can leave one artifact un-walked and vacuously green (#996), so the artifact a key
- *  belongs to is derived from the key itself — `key.group` — never assumed. */
+ *  belongs to is derived from the key itself — through `bakedGroupOf(key.family)`, the one
+ *  authority since increment 4 deleted the per-key `group` field — never assumed.
+ *
+ *  `Record<BakedGroup, …>` is load-bearing: a fourth group added to `ids.ts` without a
+ *  committed artifact fails to compile here, rather than quietly going un-walked. */
 const ARTIFACTS: Readonly<Record<BakedLanguage, Readonly<Record<BakedGroup, BakedArtifact>>>> = {
-  glsl: { hillshade: BAKED_GLSL_HILLSHADE, rest: BAKED_GLSL_REST },
-  wgsl: { hillshade: BAKED_WGSL_HILLSHADE, rest: BAKED_WGSL_REST },
+  glsl: { hillshade: BAKED_GLSL_HILLSHADE, boot: BAKED_GLSL_BOOT, lazy: BAKED_GLSL_LAZY },
+  wgsl: { hillshade: BAKED_WGSL_HILLSHADE, boot: BAKED_WGSL_BOOT, lazy: BAKED_WGSL_LAZY },
 }
 const EVERY_ARTIFACT: ReadonlyArray<{
   language: BakedLanguage
   group: BakedGroup
   artifact: BakedArtifact
 }> = (['glsl', 'wgsl'] as const).flatMap((language) =>
-  (['hillshade', 'rest'] as const).map((group) => ({
+  BAKED_GROUPS.map((group) => ({
     language,
     group,
     artifact: ARTIFACTS[language][group],
@@ -106,7 +113,7 @@ describe('baked shaders — (a) hash equality: every baked source === a live emi
 
   for (const key of BAKED_SHADER_KEYS) {
     it(`${key.id}`, () => {
-      const artifact = ARTIFACTS[key.language][key.group]
+      const artifact = ARTIFACTS[key.language][bakedGroupOf(key.family)]
       const hash = artifact.index[key.id]
       expect(hash, `${key.id}: no entry in the baked index — ${REBAKE}`).toBeTypeOf('string')
       const baked = artifact.contents[hash as string]
@@ -161,11 +168,11 @@ describe('baked shaders — (b) completeness: artifact index key set === registr
     })
   }
 
-  it('the four artifacts partition the closed set — every key lands in exactly one file', () => {
+  it('the six artifacts partition the closed set — every key lands in exactly one file', () => {
     const baked = EVERY_ARTIFACT.flatMap(({ artifact }) => Object.keys(artifact.index))
     expect(
       baked.length,
-      `${baked.length} baked entries across the four files vs ${BAKED_SHADER_KEYS.length} registry keys — ${REBAKE}`,
+      `${baked.length} baked entries across the six files vs ${BAKED_SHADER_KEYS.length} registry keys — ${REBAKE}`,
     ).toBe(BAKED_SHADER_KEYS.length)
     expect(new Set(baked).size, 'an id appears in more than one artifact file').toBe(baked.length)
   })
@@ -197,7 +204,7 @@ describe('baked shaders — (c) meta: the artifact records the body + projection
     })
   }
 
-  it('all four artifacts agree with each other (one bake, four files)', () => {
+  it('all six artifacts agree with each other (one bake, six files)', () => {
     for (const { language, group, artifact } of EVERY_ARTIFACT)
       expect(
         artifact.meta,

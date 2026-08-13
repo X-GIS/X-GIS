@@ -140,6 +140,101 @@ export const PICKED_MODULE_FAMILIES: readonly PickedModuleFamily[] = ['raster', 
  *  their own axes: hillshade a method flag, polygon and line a stage entry. */
 export type BakedFamily = SimpleFamily | PickedModuleFamily | 'hillshade' | 'polygon' | 'line'
 
+// ── Download groups: which committed artifact FILE a family's keys land in ──
+
+/** The download unit, not a taxonomy. Three files per language:
+ *
+ *   * `hillshade` — phase A's pool seeding owns it (`seed-hillshade.ts`), and it stays its
+ *                   own file so that path is byte-for-byte unchanged by this split.
+ *   * `boot`      — the families a basemap boot genuinely reaches, imported by
+ *                   `install.ts` at device attach. Every byte here is downloaded by
+ *                   EVERY map, so a family that does not belong costs all of them.
+ *   * `lazy`      — reached only if the style asks. Imported by NOBODY today, which is
+ *                   what keeps Rollup dropping the file whole; a wrong entry here costs a
+ *                   late chunk on the path that needed it, never a wrong pixel (a lookup
+ *                   the store cannot serve falls through to the same runtime emit).
+ *
+ *  The two costs are therefore NOT symmetric — wrong-`lazy` is recoverable at runtime,
+ *  wrong-`boot` is bytes every map pays forever — but a wrong-`lazy` is the one that shows
+ *  up as a slow frame in production, so a GENUINELY ambiguous family goes in `boot` and
+ *  says so in its row below. */
+export type BakedGroup = 'hillshade' | 'boot' | 'lazy'
+
+/** Domain of `BakedGroup`, in file-emission order. Lives here with the type rather than in
+ *  `bake.ts` so the generator, the gates and the runtime read one list. */
+export const BAKED_GROUPS: readonly BakedGroup[] = ['hillshade', 'boot', 'lazy']
+
+/** family → download group. THE authority: `registry.ts` no longer carries a `group` field
+ *  per key, so a new family cannot be given a group that contradicts its siblings — it gets
+ *  exactly one, here, or `Record<BakedFamily, …>` fails to compile.
+ *
+ *  Each row states WHAT REACHES IT, read off the call sites (#1679 increment 4's census) —
+ *  not guessed from how exotic the family sounds. Two rows came out the opposite way from
+ *  the guess, and both are marked. */
+export const FAMILY_GROUPS: Readonly<Record<BakedFamily, BakedGroup>> = {
+  // Seeded into the emit pool at boot by phase A's separate mechanism. Own file.
+  hillshade: 'hillshade',
+
+  // ── boot ──
+  // The vector-tile spine. `renderer.ts` builds the fill pipelines at scene construction and
+  // `map.run()` PREPENDS the synthetic earth-surface show at sort-order 0 whenever the style
+  // declares a background (map.ts:3319), so the polygon fill path draws on frame one of a
+  // basemap even before an authored layer resolves.
+  polygon: 'boot',
+  // Same spine: `LineRenderer` is built with the scene and the VTR hands it every line show.
+  line: 'boot',
+  // The label / symbol pass. A basemap style without symbol layers is possible but not the
+  // shape any real style takes; AMBIGUOUS, and ambiguous goes to boot.
+  point: 'boot',
+  icon: 'boot',
+  text: 'boot',
+  // Raster tiles — the satellite/raster basemap path, and the sibling of the hillshade
+  // draper's shared TileUniforms. A pure-vector style never draws one: AMBIGUOUS → boot.
+  raster: 'boot',
+  // The five RETAINED drapers are constructed UNCONDITIONALLY by
+  // `GraphicsManager.attachDevice` (graphics-manager.ts:740-745) the moment a device exists,
+  // and each constructor emits its shader immediately through `wgslFor` / `glslStagesFor`.
+  // So every map pays these five at boot whether or not the host ever calls the drawing API
+  // — `particle-retained` and `arrow-retained-advected` included, which is the opposite of
+  // what their names suggest and the reason this table was read rather than guessed. (The
+  // eagerness is `attachDevice`'s property, so a gate reads it back from that source:
+  // install.test.ts's census arm.)
+  'circle-retained': 'boot',
+  'icon-retained': 'boot',
+  'arrow-retained': 'boot',
+  'particle-retained': 'boot',
+  'arrow-retained-advected': 'boot',
+  // Lives and dies with the synthetic earth-surface background (map.ts:1163), i.e. with any
+  // style that declares a background fill or pattern — near-universal, but style-driven and
+  // globe-only. AMBIGUOUS → boot.
+  'under-occluder': 'boot',
+
+  // ── lazy ──
+  // `HeatmapRenderer` builds all three passes together, and only when a heatmap layer exists
+  // (heatmap-renderer.ts:474). No heatmap layer, no draper, no lookup.
+  'heatmap-accum': 'lazy',
+  'heatmap-blur': 'lazy',
+  'heatmap-compose': 'lazy',
+  // `FlowRenderer` builds the advection draper only for a flow source (flow-renderer.ts:219).
+  'flow-advect': 'lazy',
+  // The scene→screen seam runs only on a SCALED frame (`shouldRun: scene.sceneScaled`,
+  // passes/scene-upscale-pass.ts:42) and the draper is built inside that first scaled
+  // execute. Render scale is a quality decision, so this can arrive mid-session on a weak
+  // device — but never at boot.
+  'scene-upscale': 'lazy',
+  // The translucent-line composite draper is created inside the DRAW path
+  // (`ensureCompositeDraper`, line-renderer.ts:383), reached only by a line show with
+  // opacity < 1. The closest call in this group: `line` itself is boot, and a style with a
+  // translucent line reaches this on its first such frame. Kept lazy because the
+  // construction is demonstrably on the draw path, not on attach.
+  'line-composite': 'lazy',
+  // (No coverage-ramp row: `buildCoverageModule` takes a `CoverageFilterFn`, so that family
+  // is style-parameterised and stays runtime-emitted — it is not in the closed set at all.)
+}
+
+/** The download group of one family. */
+export const bakedGroupOf = (family: BakedFamily): BakedGroup => FAMILY_GROUPS[family]
+
 // ── hillshade ──
 
 /** hillshade's five specialised method fragments (see `buildHillshadeModule`):
