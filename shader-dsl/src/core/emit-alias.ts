@@ -150,8 +150,12 @@ const declCost = (target: Target, spelling: string, name: string): number =>
     : `#define ${name} ${spelling}`.length + 1
 
 /** Give a type a one- or two-character name wherever that is a net win.
- *  Idempotent: a second run finds no spelling left that pays. */
-export function aliasShaderTypes(src: string): string {
+ *  Idempotent: a second run finds no spelling left that pays.
+ *  `renames` receives `typeSpelling -> aliasName`, the same authored → emitted
+ *  direction `mangleModule` reports, so ONE map can carry both and feed
+ *  `decodeShaderLog`. A type spelling can never collide with a mangle key —
+ *  both languages reserve type names, so no authored identifier spells one. */
+export function aliasShaderTypes(src: string, renames?: Map<string, string>): string {
   const toks = lexShader(src)
   const target: Target = toks[0]?.kind === 'directive' ? 'glsl' : 'wgsl'
 
@@ -184,6 +188,7 @@ export function aliasShaderTypes(src: string): string {
     alias.set(spelling, name)
     occupied.add(name)
     next++
+    renames?.set(spelling, name)
     decls.push(target === 'wgsl' ? `alias ${name}=${spelling};` : `#define ${name} ${spelling}`)
   }
   if (alias.size === 0) return src

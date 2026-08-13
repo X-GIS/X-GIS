@@ -1046,9 +1046,22 @@ const fs = emitGlslModule(m, 'fragment', { parens: 'minimal', plugins: obfuscate
   `#define` is textual and module-wide — it must not capture a live identifier).
   A type carrying a precision qualifier (`precision highp float;`) is never
   rewritten. The pass splices by token offset, so it composes in either order
-  with `minify()` and leaves the rest of the formatting untouched.
+  with `minify()` and leaves the rest of the formatting untouched. It reports
+  `type → alias` into the same `renames` map `mangle()` fills, so ONE map
+  decodes both.
+- **`decodeShaderLog(log, renames)`** — the half that USES that map. The emitted
+  text is unreadable on purpose, so a shipped driver error reads
+  `no matching overload in 'b' for arg of type 'l'`; this turns it back into
+  `terrain_shade` and `vec2<f32>`. Substitution is TOKEN-wise, so the driver's
+  own prose, line numbers and source excerpts are untouched. A name that inverts
+  uniquely (module-scope names, type aliases — what a driver actually names) is
+  replaced; a function-scoped name is deliberately reused across functions, so
+  one that inverts to several is ANNOTATED with its candidates
+  (`f⟨coordinate (in noise) | tint (in shade)⟩`) rather than guessed at.
+  `invertRenames(renames)` exposes the same table as data. Keep `renames` — and
+  this decoder — out of the shipped bundle; both live on `/emit-prod`.
 - **`obfuscate({ renames? })`** — the standard preset, `[mangle(opts),
-aliasTypes(), minify({ numbers: 'f32' })]`. Spread it into `{ plugins }`, and
+aliasTypes(opts), minify({ numbers: 'f32' })]`. Spread it into `{ plugins }`, and
   pair it with `parens: 'minimal'` for the smallest shipped shader: over the
   example corpus the four axes together take plain emit from 186_527 chars to
   100_296 (**−46.2%**).

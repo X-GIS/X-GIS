@@ -11,11 +11,15 @@
 //
 // Typical build-time use:
 //
-//   import { mangle, minify, obfuscate } from '@xgis/shader-dsl/emit-prod'
+//   import { obfuscate, decodeShaderLog } from '@xgis/shader-dsl/emit-prod'
 //   const renames = new Map<string, string>()
-//   const wgsl = emitModule(m, { plugins: [mangle({ renames }), minify()] })
-//   // or the standard pair as a preset:
-//   const fs = emitGlslModule(m, 'fragment', { plugins: obfuscate() })
+//   const fs = emitGlslModule(m, 'fragment', {
+//     parens: 'minimal',
+//     plugins: obfuscate({ renames }),
+//   })
+//   // …keep `renames` out of the bundle; it is what turns a shipped driver
+//   // error back into authored names:
+//   console.error(decodeShaderLog(info.messages[0].message, renames))
 //
 // Every renderable example is compiled AND pixel-compared through obfuscate()
 // on real Tint + ANGLE by playground/e2e/_emit-obfuscate-gate.spec.ts.
@@ -29,6 +33,7 @@ import { inlineLinearAll } from './core/passes/inline-linear'
 export type { EmitPlugin, EmitOptions } from './core/emit'
 export { minifyShaderText, type MinifyOptions } from './core/emit-minify'
 export { aliasShaderTypes } from './core/emit-alias'
+export { decodeShaderLog, invertRenames, type DecodedName } from './core/decode-log'
 export { mangleModule, type MangleResult } from './core/passes/mangle'
 
 /** Identifier-mangling plugin (a Vite-style factory returning an EmitPlugin).
@@ -82,9 +87,13 @@ export function inline(): EmitPlugin {
  *  and after mangle they are the largest remaining category in the shipped text.
  *  Pays for itself per spelling or it is skipped, so a one-use type is left
  *  alone. Splices by token offset, so it composes in either order with
- *  minify(). */
-export function aliasTypes(): EmitPlugin {
-  return { name: 'alias-types', transformText: aliasShaderTypes }
+ *  minify(). Pass a Map as `renames` to receive `type -> alias` in the same
+ *  authored → emitted direction mangle() reports, so one map decodes both. */
+export function aliasTypes(opts?: { renames?: Map<string, string> }): EmitPlugin {
+  return {
+    name: 'alias-types',
+    transformText: (code) => aliasShaderTypes(code, opts?.renames),
+  }
 }
 
 /** The standard production preset: [mangle, aliasTypes, minify] — rename the
@@ -92,5 +101,5 @@ export function aliasTypes(): EmitPlugin {
  *  compact with f32-exact literal re-spelling. Spread it into a `{ plugins }` bag —
  *  `emitModule(m, { parens: 'minimal', plugins: obfuscate({ renames }) })`. */
 export function obfuscate(opts?: { renames?: Map<string, string> }): EmitPlugin[] {
-  return [mangle(opts), aliasTypes(), minify({ numbers: 'f32' })]
+  return [mangle(opts), aliasTypes(opts), minify({ numbers: 'f32' })]
 }
