@@ -17,8 +17,79 @@ import { reflect, type Reflection } from './reflect'
 
 const pad = (depth: number): string => '  '.repeat(depth)
 
-export function emitExpr(e: Expr, be: Backend): string {
-  const r = (x: Expr) => emitExpr(x, be)
+/** How much parenthesis an expression carries.
+ *  - `'full'` (default) — every binop/unop/compare/logical is wrapped, no
+ *    precedence assumed. The historical emit, byte-for-byte.
+ *  - `'minimal'` — parens are omitted where operator precedence already implies
+ *    the same parse. Build-time, opt-in: it changes the emitted bytes (and so
+ *    every committed golden / baked artifact), never the parse tree. */
+export type ParenMode = 'full' | 'minimal'
+
+// Precedence used by 'minimal'. DELIBERATELY the INTERSECTION of what WGSL and
+// GLSL ES 3.00 both define the same way — multiplicative over additive, unary
+// over both. Everything else is 0, meaning "always parenthesize": WGSL does not
+// give `&`/`|`/`^`, the shifts, the relational ops or `&&`/`||` a chaining
+// precedence at all (mixing them without parens is a compile ERROR there, not a
+// precedence question), so a table that ranked them would be inventing a rule
+// one of the two targets does not have.
+const PREC_UNARY = 4
+const PREC_ATOM = 5
+const precOf = (bop: string): number =>
+  bop === '*' || bop === '/' || bop === '%' ? 3 : bop === '+' || bop === '-' ? 2 : 0
+
+export function emitExpr(e: Expr, be: Backend, parens: ParenMode = 'full'): string {
+  // `need` is the lowest precedence this POSITION accepts unparenthesized.
+  // A binop's LEFT child accepts its own precedence (left-associative, so
+  // `a-b-c` re-parses identically); its RIGHT child demands strictly more, which
+  // is what keeps `a-(b-c)` and `a+(b+c)` parenthesized — reassociating those is
+  // a different float result, not a spelling change.
+  const go = (x: Expr, need: number): string => {
+    const wrap = (s: string, prec: number): string => (prec < need ? `(${s})` : s)
+    const full = parens === 'full'
+    const r = (y: Expr) => go(y, full ? 0 : 1)
+    switch (x.op) {
+      case 'binop': {
+        if (full) return `(${r(x.a)} ${x.bop} ${r(x.b)})`
+        const p = precOf(x.bop)
+        if (p === 0) return `(${r(x.a)} ${x.bop} ${r(x.b)})`
+        return wrap(`${go(x.a, p)} ${x.bop} ${go(x.b, p + 1)}`, p)
+      }
+      case 'unop':
+        // `-` binds tighter than any binary operator, so the operand must be an
+        // ATOM to lose its parens: `-(a*b)` is not `-a*b`, and `-(-a)` would
+        // spell `--a`, which is a decrement in GLSL.
+        if (full) return `(-${r(x.a)})`
+        return wrap(`-${go(x.a, PREC_ATOM)}`, PREC_UNARY)
+      case 'compare':
+        return `(${r(x.a)} ${x.cop} ${r(x.b)})`
+      case 'logical':
+        return `(${r(x.a)} ${x.lop} ${r(x.b)})`
+      default:
+        // Leaves never wrap — every one of them already spells as a single
+        // postfix/primary term. They still choose their CHILDREN's positions:
+        // an argument sits inside `(…)` or after a `,`, so it accepts anything
+        // (`need` 1), while a `.field` / `[i]` BASE must be a primary — the
+        // corpus really does contain `((h*h)*(i-(h*2.))).y`, and `a*b.y` is a
+        // different expression.
+        return emitLeaf(
+          x,
+          be,
+          (y) => r(y),
+          (y) => go(y, full ? 0 : PREC_ATOM),
+        )
+    }
+  }
+  return go(e, 0)
+}
+
+/** The non-operator half of the walk. `arg` renders a child in a position that
+ *  accepts any operator; `base` one that demands a primary. */
+function emitLeaf(
+  e: Exclude<Expr, { op: 'binop' | 'unop' | 'compare' | 'logical' }>,
+  be: Backend,
+  r: (x: Expr) => string,
+  base: (x: Expr) => string,
+): string {
   switch (e.op) {
     case 'lit':
       return be.literal(e.value, e.type)
@@ -29,18 +100,10 @@ export function emitExpr(e: Expr, be: Backend): string {
       // `overrideref` (#923) emits as the bare name on BOTH backends — the WGSL
       // `override` identifier and the GLSL `#define` macro share the declared name.
       return e.name
-    case 'binop':
-      return `(${r(e.a)} ${e.bop} ${r(e.b)})`
-    case 'unop':
-      return `(-${r(e.a)})`
-    case 'compare':
-      return `(${r(e.a)} ${e.cop} ${r(e.b)})`
-    case 'logical':
-      return `(${r(e.a)} ${e.lop} ${r(e.b)})`
     case 'call':
       return be.intrinsic(e.fn, e.args.map(r))
     case 'member':
-      return `${r(e.base)}.${e.field}`
+      return `${base(e.base)}.${e.field}`
     case 'construct':
       return `${be.typeName(e.type)}(${e.args.map(r).join(', ')})`
     // select(false, true, cond) — the writer owns the spelling (WGSL select() vs
@@ -48,7 +111,7 @@ export function emitExpr(e: Expr, be: Backend): string {
     case 'select':
       return be.intrinsic('select', [r(e.ifFalse), r(e.ifTrue), r(e.cond)])
     case 'index':
-      return `${r(e.base)}[${r(e.idx)}]`
+      return `${base(e.base)}[${r(e.idx)}]`
     // matchExpr is consumed by the neutral pre-emit pass (passes/match-lower.ts)
     // before emit. If one leaks through, that pass was bypassed — fail loudly.
     case 'matchExpr':
@@ -58,9 +121,9 @@ export function emitExpr(e: Expr, be: Backend): string {
   }
 }
 
-export function emitStmt(s: Stmt, depth: number, be: Backend): string {
+export function emitStmt(s: Stmt, depth: number, be: Backend, parens: ParenMode = 'full'): string {
   const p = pad(depth)
-  const r = (x: Expr) => emitExpr(x, be)
+  const r = (x: Expr) => emitExpr(x, be, parens)
   switch (s.s) {
     case 'let':
       return `${p}${be.localLet(s.name, s.expr.type, r(s.expr))};`
@@ -82,19 +145,19 @@ export function emitStmt(s: Stmt, depth: number, be: Backend): string {
       const lines: string[] = []
       s.arms.forEach((arm, i) => {
         lines.push(`${i === 0 ? `${p}if` : `${p}} else if`} (${r(arm.cond)}) {`)
-        lines.push(emitBody(arm.body, depth + 1, be))
+        lines.push(emitBody(arm.body, depth + 1, be, parens))
       })
       if (s.elseBody) {
         lines.push(`${p}} else {`)
-        lines.push(emitBody(s.elseBody, depth + 1, be))
+        lines.push(emitBody(s.elseBody, depth + 1, be, parens))
       }
       lines.push(`${p}}`)
       return lines.filter((l) => l.length > 0).join('\n')
     }
     case 'for': {
-      const init = forHeader(s.init, be)
-      const update = forHeader(s.update, be)
-      return `${p}for (${init}; ${r(s.cond)}; ${update}) {\n${emitBody(s.body, depth + 1, be)}\n${p}}`
+      const init = forHeader(s.init, be, parens)
+      const update = forHeader(s.update, be, parens)
+      return `${p}for (${init}; ${r(s.cond)}; ${update}) {\n${emitBody(s.body, depth + 1, be, parens)}\n${p}}`
     }
     case 'placeholder':
       return `${p}${be.placeholderStmt(s.tag)}`
@@ -104,7 +167,7 @@ export function emitStmt(s: Stmt, depth: number, be: Backend): string {
       const lines: string[] = [`${p}${be.switchHead(r(s.scrut))}`]
       for (const c of s.cases) {
         lines.push(`${pad(depth + 1)}case ${be.caseLabel(c.value, s.scrut.type)}: {`)
-        lines.push(emitBody(c.body, depth + 2, be))
+        lines.push(emitBody(c.body, depth + 2, be, parens))
         // C-style backends (GLSL) fall through without a terminator — append the
         // backend's case break unless the body already ends in return/discard (which
         // would make the break unreachable). WGSL has no caseBreak (no fallthrough).
@@ -115,7 +178,7 @@ export function emitStmt(s: Stmt, depth: number, be: Backend): string {
         lines.push(`${pad(depth + 1)}}`)
       }
       lines.push(`${pad(depth + 1)}default: {`)
-      if (s.defaultBody) lines.push(emitBody(s.defaultBody, depth + 2, be))
+      if (s.defaultBody) lines.push(emitBody(s.defaultBody, depth + 2, be, parens))
       lines.push(`${pad(depth + 1)}}`)
       lines.push(`${p}}`)
       return lines.join('\n')
@@ -123,13 +186,18 @@ export function emitStmt(s: Stmt, depth: number, be: Backend): string {
   }
 }
 
-export function emitBody(body: readonly Stmt[], depth: number, be: Backend): string {
-  return body.map((s) => emitStmt(s, depth, be)).join('\n')
+export function emitBody(
+  body: readonly Stmt[],
+  depth: number,
+  be: Backend,
+  parens: ParenMode = 'full',
+): string {
+  return body.map((s) => emitStmt(s, depth, be, parens)).join('\n')
 }
 
 // For-loop header init/update: a var/assign WITHOUT trailing `;` or indentation.
-export function forHeader(s: Stmt, be: Backend): string {
-  const r = (x: Expr) => emitExpr(x, be)
+export function forHeader(s: Stmt, be: Backend, parens: ParenMode = 'full'): string {
+  const r = (x: Expr) => emitExpr(x, be, parens)
   if (s.s === 'var')
     return s.init !== undefined
       ? be.localVar(s.name, s.type, r(s.init))
@@ -179,7 +247,7 @@ export function lowerForBackend(
  *  (consts → structs → bindings → funcs, only non-empty sections), joined `\n\n` with a
  *  trailing newline. Split out of `emitModule` so the string and the reflection can be
  *  derived from the SAME lowered module (see `emitModuleWithReflection`). */
-function assembleLowered(lowered: ModuleDecl, be: Backend): string {
+function assembleLowered(lowered: ModuleDecl, be: Backend, parens: ParenMode = 'full'): string {
   const parts: string[] = []
   // #923 — specialization-constant declarations lead the module (WGSL `override`
   // lines): they are module-scope constants a later const/fn may reference. Skipped
@@ -189,7 +257,8 @@ function assembleLowered(lowered: ModuleDecl, be: Backend): string {
   if (lowered.consts.length) parts.push(lowered.consts.map((c) => be.emitConst(c)).join('\n'))
   if (lowered.structs.length) parts.push(lowered.structs.map((s) => be.emitStruct(s)).join('\n\n'))
   if (lowered.bindings.length) parts.push(lowered.bindings.map((b) => be.emitBinding(b)).join('\n'))
-  if (lowered.funcs.length) parts.push(lowered.funcs.map((f) => be.emitFunc(f)).join('\n\n'))
+  if (lowered.funcs.length)
+    parts.push(lowered.funcs.map((f) => be.emitFunc(f, parens)).join('\n\n'))
   return parts.join('\n\n') + '\n'
 }
 
@@ -222,6 +291,13 @@ export interface EmitPlugin {
  *  byte-identical. */
 export interface EmitOptions {
   readonly plugins?: readonly EmitPlugin[]
+  /** How much parenthesis the expression walk writes: `'full'` (default — the
+   *  historical bytes, every operator wrapped) or `'minimal'`, which omits a
+   *  paren wherever operator precedence already implies the same parse. A
+   *  BUILD-TIME knob like `floatPrecision` (#1673), not a plugin: parenthesis is
+   *  an emit decision, not a rewrite of emitted text. Pair it with
+   *  `{ plugins: obfuscate() }` for the smallest shipped shader. */
+  readonly parens?: ParenMode
   /** Which df64 EFT registry backs f64 lowering: 'float' (default — the
    *  guarded float EFTs, byte-identical emit) or 'integer' (the fast-math-
    *  immune integer primitives — see core/fp64/df64-int.ts; no `_fp64` guard
@@ -265,7 +341,7 @@ export function emitModule(m: ModuleDecl, be: Backend, opts?: EmitOptions): stri
   // caps (m.enables) — the lowering passes rebuild the module object and do not carry
   // it — and prepended to the assembled declarations. '' for enables-free modules, so
   // their emit stays byte-identical.
-  return directiveHeader(be, m) + applyTextPlugins(assembleLowered(lowered, be), opts)
+  return directiveHeader(be, m) + applyTextPlugins(assembleLowered(lowered, be, opts?.parens), opts)
 }
 
 /** Emit a ModuleDecl at an explicit optimization level (O0/O1/O2) instead of the

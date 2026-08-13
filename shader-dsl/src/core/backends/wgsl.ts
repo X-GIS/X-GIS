@@ -218,12 +218,12 @@ export const wgslBackend: Backend = {
     const space = b.space === 'storage' ? `storage, ${b.access ?? 'read'}` : 'uniform'
     return `@group(${b.group}) @binding(${b.binding}) var<${space}> ${b.name}: ${wgslType(b.type)};`
   },
-  emitFunc: (f) => {
+  emitFunc: (f, parens) => {
     const params = f.params.map((p) => `${paramAttr(p)}${p.name}: ${wgslType(p.type)}`).join(', ')
     const ret =
       f.ret.kind === 'void' ? '' : ` -> ${f.retAttr ? `${f.retAttr} ` : ''}${wgslType(f.ret)}`
     const attrs = f.attrs && f.attrs.length ? `${f.attrs.join(' ')}\n` : ''
-    return `${attrs}fn ${f.name}(${params})${ret} {\n${emitBody(f.body, 1, wgslBackend)}\n}`
+    return `${attrs}fn ${f.name}(${params})${ret} {\n${emitBody(f.body, 1, wgslBackend, parens)}\n}`
   },
   // WGSL's emit-time optimizer: the full pipeline run to a fixed point — const/copy
   // propagation, const-fold (incl. literal compare/logical/select), algebraic

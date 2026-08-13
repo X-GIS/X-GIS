@@ -26,6 +26,9 @@ import { mangle } from '../../emit-prod'
 import { mangleModule } from './mangle'
 import type { ModuleDecl } from '../ir'
 
+/** Generated names are base-52 short (`a`, `b`, … `aa`) — not a tagged scheme. */
+const SHORT = /^[a-zA-Z]{1,2}$/
+
 // A representative render module: fragment-only f64 (df64 helpers + `_fp64`
 // guard get injected), a shared helper reached by both stages, meaningfully
 // named so the assertions can watch the vocabulary disappear.
@@ -67,8 +70,8 @@ describe('emit-prod mangle() plugin through the { plugins } seam — authored vo
     expect(wgsl).not.toContain('terrain_shade')
     expect(wgsl).not.toContain('MangleVsOut')
     expect(wgsl).not.toMatch(/\bdf64_/) // the injected df64 library is vocabulary too
-    expect(renames.get('terrain_shade')).toMatch(/^_f\d+$/)
-    expect(renames.get('MangleVsOut')).toMatch(/^_S\d+$/)
+    expect(renames.get('terrain_shade')).toMatch(SHORT)
+    expect(renames.get('MangleVsOut')).toMatch(SHORT)
   })
 
   it('WGSL: the ABI boundary survives — entries, binding names, UBO struct, fields, guard', () => {
@@ -157,7 +160,7 @@ describe('mangleModule — direct pass contracts', () => {
     }
     const { module: out, renames } = mangleModule(raw)
     const to = renames.get('HALF_TURN')!
-    expect(to).toMatch(/^_k\d+$/)
+    expect(to).toMatch(SHORT)
     expect(out.consts[0]!.name).toBe(to)
     const ret = out.funcs[0]!.body[0]!
     expect(ret.s === 'return' && ret.expr?.op === 'binop' && ret.expr.b.op === 'constref').toBe(
@@ -203,22 +206,56 @@ describe('mangleModule — direct pass contracts', () => {
     expect(renames.size).toBe(0)
   })
 
-  it('never assigns a fresh name that already exists in the module', () => {
+  it('never hands out a name that survives the rename (short names collide easily)', () => {
+    // `a` is a BINDING name — host ABI, never renamed — so the pool must skip it
+    // and start the module scope at `b`. With one-char names this is not a
+    // corner case: the first generated name collides with any short binding.
     const raw: ModuleDecl = {
-      consts: [],
+      consts: [{ name: 'BIAS', type: f32T, wgslValue: 0.5, cpuValue: 0.5 }],
       structs: [],
-      bindings: [],
+      bindings: [{ name: 'a', type: f32T, group: 0, binding: 0, space: 'uniform' }],
       funcs: [
-        // `_f0` is taken by a param — the first generated fn name must skip it.
         {
           name: 'helper',
-          params: [{ name: '_f0', type: f32T }],
+          params: [{ name: 'x', type: f32T }],
           ret: f32T,
-          body: [{ s: 'return', expr: { op: 'param', type: f32T, name: '_f0' } }],
+          body: [{ s: 'return', expr: { op: 'param', type: f32T, name: 'x' } }],
         },
       ],
     }
     const { renames } = mangleModule(raw)
-    expect(renames.get('helper')).toBe('_f1')
+    expect([...renames.values()]).not.toContain('a')
+    expect(renames.get('helper')).toBe('b')
+  })
+
+  it('renames helper params + locals, per function, and records them qualified', () => {
+    const helper = fn('noise_helper', { coordinate: f32T }, ({ coordinate }) => {
+      const scaled = Var(coordinate.mul(f32(2)))
+      return scaled
+    })
+    const other = fn('other_helper', { coordinate: f32T }, ({ coordinate }) => {
+      const scaled = Var(coordinate.add(f32(1)))
+      return scaled
+    })
+    const om = module({ funcs: [helper, other] })
+    const { renames } = mangleModule(om)
+    // Function-scoped keys are qualified by the authored fn name…
+    expect(renames.get('noise_helper.coordinate')).toMatch(SHORT)
+    expect(renames.get('other_helper.coordinate')).toMatch(SHORT)
+    // …and the two functions REUSE the short end of the alphabet, rather than
+    // counting upward across the module (that reuse is where the bytes are).
+    expect(renames.get('noise_helper.coordinate')).toBe(renames.get('other_helper.coordinate'))
+    const wgsl = emitModule(om, { plugins: [mangle()] })
+    expect(wgsl).not.toContain('coordinate')
+  })
+
+  it('never renames an ENTRY param — a non-struct one IS the GLSL varying name', () => {
+    // glsl.ts:559 spells a non-struct entry param as `inName(p.name)`, and the
+    // vertex side spells the same varying from its RETURN STRUCT field in a
+    // SEPARATE emit call. Renaming one side links to nothing, so entry params
+    // are ABI; helper params next to them are still renamed.
+    const wgsl = emitModule(m, { plugins: [mangle()] })
+    expect(wgsl).toMatch(/fn fs_main\(vo: /) // the entry param keeps its authored name…
+    expect(wgsl).not.toContain('terrain_shade') // …while the helper next to it does not
   })
 })

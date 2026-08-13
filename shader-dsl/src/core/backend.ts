@@ -21,6 +21,7 @@ import type {
   RawStmt,
 } from './ir'
 import { ShaderDslError } from './diagnostics/error'
+import type { ParenMode } from './emit'
 
 // The `Capability` vocabulary lives with the IR data shapes (ir/nodes.ts) — a module
 // DECLARES the caps it needs there (surfaced publicly via the ir barrel). This file is
@@ -179,7 +180,10 @@ export interface Backend {
   /** A resource binding declaration line. */
   emitBinding(b: BindingDecl): string
   /** A function declaration block (signature + emitted body). */
-  emitFunc(f: FuncDecl): string
+  /** `parens` selects how much parenthesis the shared expression walk writes
+   *  (core/emit.ts `ParenMode`). Omitted ⇒ 'full', the historical bytes — a
+   *  backend just forwards it to `emitBody`. */
+  emitFunc(f: FuncDecl, parens?: ParenMode): string
   /** The backend's emit-time optimization of the lowered module — today BOTH
    *  backends run the full `fixpoint` pipeline (#763 H1; wgsl.ts / glsl.ts
    *  `optimize:`). Kept per-backend so a target can still diverge without touching

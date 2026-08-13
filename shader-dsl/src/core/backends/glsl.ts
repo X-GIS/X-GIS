@@ -48,6 +48,7 @@ import {
   applyIRPlugins,
   applyTextPlugins,
   type EmitOptions,
+  type ParenMode,
 } from '../emit'
 import { autoVars } from '../passes/opt'
 import { wgslLayout } from '../reflect'
@@ -366,7 +367,7 @@ export const glslEs300Backend: Backend = {
       `glsl-es300: uniform struct binding '${b.name}' — std140 UBO is assembled by emitGlslModule (needs the struct map)`,
     )
   },
-  emitFunc: (f) => {
+  emitFunc: (f, parens) => {
     // Entry funcs are lowered to varyings + main() by emitGlslModule; a stray entry
     // reaching emitFunc means the assembly bypassed that path — fail loudly.
     if (isEntry(f))
@@ -378,7 +379,7 @@ export const glslEs300Backend: Backend = {
         `glsl-es300: non-entry func '${f.name}' carries stage attrs (${f.attrs.join(' ')})`,
       )
     const params = f.params.map((p) => `${glslType(p.type)} ${p.name}`).join(', ')
-    return `${glslType(f.ret)} ${f.name}(${params}) {\n${emitBody(f.body, 1, glslEs300Backend)}\n}`
+    return `${glslType(f.ret)} ${f.name}(${params}) {\n${emitBody(f.body, 1, glslEs300Backend, parens)}\n}`
   },
   // Same emit-time optimizer the WGSL backend runs (fixpoint: const/copy-prop,
   // const-fold, cse auto-cache, licm, dce). The pass is IR-level + backend-neutral,
@@ -456,7 +457,11 @@ function emitGlslUbo(
  *  verbatim. A vertex attribute is `a_`-prefixed so it never collides with a same-named
  *  varying inside the vertex shader; inter-stage varyings + fragment draw buffers keep
  *  the field name so cross-stage by-name linkage holds. */
-function emitGlslEntry(f: FuncDecl, structs: ReadonlyMap<string, StructDecl>): string {
+function emitGlslEntry(
+  f: FuncDecl,
+  structs: ReadonlyMap<string, StructDecl>,
+  parens?: ParenMode,
+): string {
   // Structured-first (#763 S3): a `{ stage: 'fragment' }` decl without attrs used
   // to classify as VERTEX here (wrong varying direction / dropped entry).
   const stage: 'vertex' | 'fragment' = stageOf(f) === 'fragment' ? 'fragment' : 'vertex'
@@ -538,7 +543,7 @@ function emitGlslEntry(f: FuncDecl, structs: ReadonlyMap<string, StructDecl>): s
   const retTy = f.ret.kind === 'void' ? 'void' : glslType(f.ret)
   const impl = `${f.name}_impl`
   lines.push('')
-  lines.push(`${retTy} ${impl}(${params}) {\n${emitBody(f.body, 1, glslEs300Backend)}\n}`)
+  lines.push(`${retTy} ${impl}(${params}) {\n${emitBody(f.body, 1, glslEs300Backend, parens)}\n}`)
 
   // main(): gather inputs → call → scatter outputs.
   const body: string[] = []
@@ -1377,8 +1382,10 @@ function assembleGlsl(
         .join('\n'),
     )
   }
-  if (helpers.length) parts.push(helpers.map((f) => glslEs300Backend.emitFunc(f)).join('\n\n'))
-  if (entries.length) parts.push(entries.map((f) => emitGlslEntry(f, structs)).join('\n\n'))
+  if (helpers.length)
+    parts.push(helpers.map((f) => glslEs300Backend.emitFunc(f, opts?.parens)).join('\n\n'))
+  if (entries.length)
+    parts.push(entries.map((f) => emitGlslEntry(f, structs, opts?.parens)).join('\n\n'))
 
   return applyTextPlugins(parts.join('\n') + '\n', opts)
 }

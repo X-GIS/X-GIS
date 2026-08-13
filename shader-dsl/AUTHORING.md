@@ -975,20 +975,56 @@ const renames = new Map<string, string>()
 const wgsl = emitModule(m, { plugins: [mangle({ renames }), minify()] })
 // obfuscate() is the standard [mangle, minify] preset:
 const vs = emitGlslModule(m, 'vertex', { plugins: obfuscate() })
-const fs = emitGlslModule(m, 'fragment', { plugins: obfuscate() })
+// …and `parens: 'minimal'` is the third axis — the smallest shipped shader:
+const fs = emitGlslModule(m, 'fragment', { parens: 'minimal', plugins: obfuscate() })
 ```
 
+- **`parens: 'minimal'`** — an `EmitOptions` field, not a plugin, because
+  parenthesis is an emit DECISION (the IR knows the precedence exactly), not a
+  rewrite of emitted text. Default `'full'` keeps today's bytes, so every
+  committed golden and baked artifact is untouched unless you ask. `'minimal'`
+  omits a paren only where WGSL and GLSL ES 3.00 define the SAME precedence —
+  `* / %` over `+ -` over unary `-`. The relational, logical, bitwise and shift
+  operators stay wrapped on purpose: WGSL does not give them a chaining
+  precedence at all (mixing them unparenthesised is a compile error there), so
+  ranking them would invent a rule one target lacks. Never reassociates —
+  `a + (b + c)` keeps its parens, because in floating point that is a different
+  number from `a + b + c`.
+
 - **`mangle({ renames? })`** — an `EmitPlugin` (a Vite-style factory). Renames
-  helper fn names, plain struct names, and module consts (including the
-  injected `df64_*` library) to `_f0`/`_S0`/`_k0`. Deterministic per module —
-  the two GLSL stage emits (separate calls) always agree on shared names, so
-  programs still link. Pass a `Map` as `renames` to receive authored → emitted
-  names: the shader "source map" for decoding production driver logs and GPU
-  captures. Keep it out of the shipped bundle.
-- **`minify()`** — an `EmitPlugin` that compacts the emitted string. Token-safe
-  by construction (neither language has string literals; `#` directives keep
-  their own line). `minifyShaderText(code)` is the raw function it wraps, for a
-  string you already hold.
+  helper fn names, plain struct names, module consts (including the injected
+  `df64_*` library), **helper-fn params, and every local** to base-52 short
+  names — `a`, `b`, … `aa`. Function-scoped names restart from the same pool in
+  every function, so the short end of the alphabet is reused instead of counting
+  upward; that reuse is where the bytes are (the optimizer's own `_cse0`/`_v0`
+  machine names were the single heaviest identifier cost in the shipped text).
+  Deterministic per module — the two GLSL stage emits (separate calls) always
+  agree on shared names, so programs still link. Pass a `Map` as `renames` to
+  receive authored → emitted names: the shader "source map" for decoding
+  production driver logs and GPU captures; a function-scoped entry is keyed
+  `authoredFn.authoredName`. Keep it out of the shipped bundle.
+- **`minify({ numbers? })`** — an `EmitPlugin` that compacts the emitted string.
+  It LEXES the text and re-emits the token stream, writing a separator only
+  where maximal munch would otherwise merge the boundary (`a- -b` keeps its
+  space, `)->f32` and `a=b*c` lose theirs) — the same rule the real compilers
+  use, so it needs no conservative carve-outs. Comments (`//` and `/* */`) go;
+  `#` directives keep their own line. Numeric literals are canonicalised
+  LOSSLESSLY — `0.500` → `.5`, `1.0` → `1.`, `1.0e-07` → `1e-7`, and the
+  EXPONENT spelling wherever the fixed form pays for zeros (`.0001` → `1e-4`,
+  `1000000.` → `1e6`), which is exact because only the decimal point moves;
+  never a
+  significand digit dropped, and a float with no exponent always keeps its `.`
+  (`1.0` → `1.`, never `1`, which is an integer in WGSL). `{ numbers: 'f32' }`
+  goes further and re-spells each float as the shortest decimal that rounds to
+  the SAME f32 — `0.800000011920929` is nothing but the f64 printout of
+  `fround(0.8)`, and `.8` loads identical bits. That is exact rather than lossy
+  BECAUSE a decimal float literal in an f32 context is rounded to f32 by the
+  compiler, and this emitter's `lit()` spells only bool / i32 / u32 / f32 — but
+  it is a claim about the CONTEXT, so the mode stands down to the lossless
+  canonicalisation for any shader mentioning `f16`. `obfuscate()` uses it. Pass
+  `{ numbers: false }` to leave literals as emitted when diffing against a
+  hand-checked baseline. `minifyShaderText(code, opts?)` is the raw function it
+  wraps, for a string you already hold.
 - **`inline()`** — an `EmitPlugin` that flattens the call graph (obfuscation):
   every safely-inlinable helper is inlined at all its call sites, so those
   functions vanish. Single-return helpers inline by expression substitution;
@@ -1001,23 +1037,74 @@ const fs = emitGlslModule(m, 'fragment', { plugins: obfuscate() })
   recovers the whitespace); the point is removing structure a reader could
   follow. Opt-in, and NOT part of `obfuscate()`, so no existing output changes.
   Place it before `mangle()`: `{ plugins: [inline(), ...obfuscate()] }`.
-- **`obfuscate({ renames? })`** — the standard preset, `[mangle(opts),
-minify()]`. Spread it into `{ plugins }`.
+- **`prune()`** — an `EmitPlugin` that drops redundant GLSL forward prototypes.
+  The GLSL backend emits one for EVERY helper because it cannot promise the
+  function section is in dependency order; this drops the ones whose DEFINITION
+  already declares the function at each of its uses, and keeps every other —
+  no definition in this text (an extern body), a call before the definition, a
+  declarator shape it does not recognise. No-op on WGSL, which resolves
+  module-scope declarations out of order and has no prototype syntax. Worth its
+  own pass on real payloads: 22_268 chars / 487 lines, **3.0%**, of the
+  production-transformed map shader corpus — where a module drags in the df64
+  library and the projection graph. The example corpus barely shows it, which is
+  why it was found only by measuring the real one.
+- **`aliasTypes()`** — an `EmitPlugin` that gives each heavily-used TYPE a
+  one-character name and declares it once: WGSL `alias A=vec2<f32>;`, GLSL
+  `#define A vec2`. Both targets accept the short name everywhere the type was
+  spelled, CONSTRUCTOR position included (`A(1.,2.)`) — verified on real Tint
+  and real ANGLE. This is the one heavy vocabulary `mangle()` may not touch,
+  because both languages reserve type names; after mangling it is the largest
+  remaining category in the shipped text. Each spelling must pay for its own
+  declaration or it is skipped, so a one-use `mat4x3<f32>` is left alone, and
+  alias names are drawn only from spellings that occur NOWHERE else (a GLSL
+  `#define` is textual and module-wide — it must not capture a live identifier).
+  A type carrying a precision qualifier (`precision highp float;`) is never
+  rewritten. The pass splices by token offset, so it composes in either order
+  with `minify()` and leaves the rest of the formatting untouched. It reports
+  `type → alias` into the same `renames` map `mangle()` fills, so ONE map
+  decodes both.
+- **`decodeShaderLog(log, renames)`** — the half that USES that map. The emitted
+  text is unreadable on purpose, so a shipped driver error reads
+  `no matching overload in 'b' for arg of type 'l'`; this turns it back into
+  `terrain_shade` and `vec2<f32>`. Substitution is TOKEN-wise, so the driver's
+  own prose, line numbers and source excerpts are untouched. A name that inverts
+  uniquely (module-scope names, type aliases — what a driver actually names) is
+  replaced; a function-scoped name is deliberately reused across functions, so
+  one that inverts to several is ANNOTATED with its candidates
+  (`f⟨coordinate (in noise) | tint (in shade)⟩`) rather than guessed at.
+  `invertRenames(renames)` exposes the same table as data. Keep `renames` — and
+  this decoder — out of the shipped bundle; both live on `/emit-prod`.
+- **`obfuscate({ renames? })`** — the standard preset, `[mangle(opts), prune(),
+aliasTypes(opts), minify({ numbers: 'f32' })]`. Spread it into `{ plugins }`, and
+  pair it with `parens: 'minimal'` for the smallest shipped shader: over the
+  example corpus the four axes together take plain emit from 186_527 chars to
+  100_296 (**−46.2%**).
 
 Plugins fire STAGED like Vite: every plugin's `transformIR` (IR stage) runs in
 array order before the module is assembled, then every plugin's `transformText`
 (string stage) runs in array order — so `inline()` and `mangle()` (both IR)
-compose in the order you list them, ahead of `minify()` (text).
+compose in the order you list them, ahead of `aliasTypes()` and `minify()` (both
+text), which compose in array order with each other.
 
 **The ABI boundary — never renamed:** entry-point names (WebGPU `entryPoint`),
-binding names including the `_fp64` guard (hosts resolve by name),
-binding-struct names (the GLSL UBO block tag), and struct FIELD names (std140
-packing + GLSL varyings link vertex↔fragment by name). `reflect()`-driven
-hosts bind unchanged. A fn containing a `raw` stmt makes the mangle a no-op
-for the whole module (textual references are invisible to the rename).
+**entry-point PARAM names**, binding names including the `_fp64` guard (hosts
+resolve by name), binding-struct names (the GLSL UBO block tag), and struct
+FIELD names (std140 packing + GLSL varyings link vertex↔fragment by name).
+`reflect()`-driven hosts bind unchanged. A fn containing a `raw` stmt makes the
+mangle a no-op for the whole module (textual references are invisible to the
+rename).
+
+Entry params are on that list because a non-struct one **is** the GLSL varying
+name — the fragment side spells it `inName(p.name)` while the vertex side spells
+the same varying from its RETURN STRUCT's field name, in a separate emit call.
+Renaming one side links to nothing. Helper-fn params have no such reader, so
+they are renamed.
 
 Every renderable example is compiled AND pixel-compared through `obfuscate()`
-on real Tint + ANGLE by `playground/e2e/_emit-obfuscate-gate.spec.ts`.
+on real Tint + ANGLE by `playground/e2e/_emit-obfuscate-gate.spec.ts`, and
+`examples/minify-safety.test.ts` asserts the minifier's own property over the
+whole example corpus: the lexed TOKEN STREAM and every literal's VALUE are
+unchanged across minification, and the pass is idempotent.
 
 ## 9. GLSL float precision — `floatPrecision` (#1673)
 
