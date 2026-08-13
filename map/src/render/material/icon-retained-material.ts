@@ -30,6 +30,7 @@ import type {
 } from '@xgis/engine'
 import { Material, executeItems, type DrawItem } from '@xgis/engine'
 import { emitIconRetainedWgsl, emitIconRetainedGlslStages } from '../../shaders/dsl/icon-retained'
+import { simpleGlslId, simpleWgslId } from '../../shaders/baked/ids'
 import { wgslFor, glslStagesFor } from './wgsl-for'
 
 export class RetainedIconDraper {
@@ -40,8 +41,11 @@ export class RetainedIconDraper {
     // backend guard so the WebGPU boot never pays the double emit (#778 P6).
     // WebGl2Device.createPipeline requires the split sources; WebGPU ignores them.
     this.material = new Material(rhi, {
-      shader: wgslFor(rhi, emitIconRetainedWgsl),
-      ...glslStagesFor(rhi, emitIconRetainedGlslStages),
+      shader: wgslFor(rhi, emitIconRetainedWgsl, simpleWgslId('icon-retained')),
+      ...glslStagesFor(rhi, emitIconRetainedGlslStages, {
+        vertex: simpleGlslId('icon-retained', 'vertex'),
+        fragment: simpleGlslId('icon-retained', 'fragment'),
+      }),
       vsEntry: 'vs_icon_retained',
       fsEntry: 'fs_icon_retained',
       format: format as 'bgra8unorm',

@@ -15,6 +15,7 @@ import {
   emitCircleRetainedWgsl,
   emitCircleRetainedGlslStages,
 } from '../../shaders/dsl/circle-retained'
+import { simpleGlslId, simpleWgslId } from '../../shaders/baked/ids'
 import { wgslFor, glslStagesFor } from './wgsl-for'
 
 export class RetainedCircleDraper {
@@ -24,8 +25,11 @@ export class RetainedCircleDraper {
     // #823 — GLSL ES 3.00 twins for the WebGL2 backend, emitted behind a LIVE backend guard so
     // the WebGPU boot never pays the double emit (#778 P6). Mirrors RetainedArrowDraper.
     this.material = new Material(rhi, {
-      shader: wgslFor(rhi, emitCircleRetainedWgsl),
-      ...glslStagesFor(rhi, emitCircleRetainedGlslStages),
+      shader: wgslFor(rhi, emitCircleRetainedWgsl, simpleWgslId('circle-retained')),
+      ...glslStagesFor(rhi, emitCircleRetainedGlslStages, {
+        vertex: simpleGlslId('circle-retained', 'vertex'),
+        fragment: simpleGlslId('circle-retained', 'fragment'),
+      }),
       vsEntry: 'vs_circle_retained',
       fsEntry: 'fs_circle_retained',
       format: format as 'bgra8unorm',
