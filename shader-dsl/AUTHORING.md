@@ -979,12 +979,17 @@ const fs = emitGlslModule(m, 'fragment', { plugins: obfuscate() })
 ```
 
 - **`mangle({ renames? })`** — an `EmitPlugin` (a Vite-style factory). Renames
-  helper fn names, plain struct names, and module consts (including the
-  injected `df64_*` library) to `_f0`/`_S0`/`_k0`. Deterministic per module —
-  the two GLSL stage emits (separate calls) always agree on shared names, so
-  programs still link. Pass a `Map` as `renames` to receive authored → emitted
-  names: the shader "source map" for decoding production driver logs and GPU
-  captures. Keep it out of the shipped bundle.
+  helper fn names, plain struct names, module consts (including the injected
+  `df64_*` library), **helper-fn params, and every local** to base-52 short
+  names — `a`, `b`, … `aa`. Function-scoped names restart from the same pool in
+  every function, so the short end of the alphabet is reused instead of counting
+  upward; that reuse is where the bytes are (the optimizer's own `_cse0`/`_v0`
+  machine names were the single heaviest identifier cost in the shipped text).
+  Deterministic per module — the two GLSL stage emits (separate calls) always
+  agree on shared names, so programs still link. Pass a `Map` as `renames` to
+  receive authored → emitted names: the shader "source map" for decoding
+  production driver logs and GPU captures; a function-scoped entry is keyed
+  `authoredFn.authoredName`. Keep it out of the shipped bundle.
 - **`minify({ numbers? })`** — an `EmitPlugin` that compacts the emitted string.
   It LEXES the text and re-emits the token stream, writing a separator only
   where maximal munch would otherwise merge the boundary (`a- -b` keeps its
@@ -1018,11 +1023,18 @@ array order before the module is assembled, then every plugin's `transformText`
 compose in the order you list them, ahead of `minify()` (text).
 
 **The ABI boundary — never renamed:** entry-point names (WebGPU `entryPoint`),
-binding names including the `_fp64` guard (hosts resolve by name),
-binding-struct names (the GLSL UBO block tag), and struct FIELD names (std140
-packing + GLSL varyings link vertex↔fragment by name). `reflect()`-driven
-hosts bind unchanged. A fn containing a `raw` stmt makes the mangle a no-op
-for the whole module (textual references are invisible to the rename).
+**entry-point PARAM names**, binding names including the `_fp64` guard (hosts
+resolve by name), binding-struct names (the GLSL UBO block tag), and struct
+FIELD names (std140 packing + GLSL varyings link vertex↔fragment by name).
+`reflect()`-driven hosts bind unchanged. A fn containing a `raw` stmt makes the
+mangle a no-op for the whole module (textual references are invisible to the
+rename).
+
+Entry params are on that list because a non-struct one **is** the GLSL varying
+name — the fragment side spells it `inName(p.name)` while the vertex side spells
+the same varying from its RETURN STRUCT's field name, in a separate emit call.
+Renaming one side links to nothing. Helper-fn params have no such reader, so
+they are renamed.
 
 Every renderable example is compiled AND pixel-compared through `obfuscate()`
 on real Tint + ANGLE by `playground/e2e/_emit-obfuscate-gate.spec.ts`, and

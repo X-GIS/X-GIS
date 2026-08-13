@@ -18,14 +18,16 @@
 // spaces the previous structural-punctuation-only rule had to keep (`a=b`,
 // `)->f32`, `return -x` stays spaced only where it must).
 //
-// Two further LOSSLESS shrinks ride on the token stream:
+// Three further LOSSLESS shrinks ride on the token stream:
 //   • block comments (`/* … */`) join `//` as removable — the DSL does not emit
 //     them today, but hand-written `raw`/`rawGlsl` text can;
 //   • numeric literals are canonicalised WITHOUT changing their value:
 //     `0.500` → `.5`, `1.0` → `1.`, `1.0e-07` → `1e-7`. Never a digit dropped
 //     from the significand (`0.800000011920929` is an f32-exact printout — a
 //     rounded one is a different number), and never a `.` dropped from a float
-//     with no exponent (that would retype it to an integer in WGSL).
+//     with no exponent (that would retype it to an integer in WGSL);
+//   • a TRAILING comma before `)` / `}` / `]` is dropped — the one token this
+//     pass REMOVES rather than re-spells (see CLOSERS for why it is optional).
 //
 // Idempotent; no semantic change — the compile gates run the minified output on
 // real Tint + ANGLE (playground/e2e/_emit-obfuscate-gate.spec.ts).
@@ -216,25 +218,43 @@ export interface MinifyOptions {
   readonly numbers?: boolean
 }
 
+/** Closes a comma list — a `,` immediately before one of these is TRAILING, and
+ *  carries nothing. WGSL makes it optional everywhere the backend emits one
+ *  (`struct S{a:f32,b:f32,}`); GLSL never produces the sequence at all, since
+ *  its struct members end in `;` and its lists have no optional trailing form.
+ *  The only token this pass removes — everything else is spelling. */
+const CLOSERS = new Set([')', '}', ']'])
+
 /** Minify an emitted WGSL / GLSL shader string: strip comments and blank lines,
  *  keep `#` directive lines verbatim on their own line, canonicalise numeric
- *  literals, and join everything between the directives into one compact line
- *  with a separator only where maximal munch would otherwise merge two tokens. */
+ *  literals, drop trailing commas, and join everything between the directives
+ *  into one compact line with a separator only where maximal munch would
+ *  otherwise merge two tokens. */
 export function minifyShaderText(src: string, opts?: MinifyOptions): string {
   const shortenNumbers = opts?.numbers ?? true
+  const toks = tokenize(src)
+
+  // Spell every token, then drop the trailing commas — as a separate pass, so
+  // the separator decision below always sees the token that really precedes it.
+  const kept: Token[] = []
+  for (const tok of toks) {
+    const text = tok.kind === 'number' && shortenNumbers ? shortenNumber(tok.text) : tok.text
+    if (CLOSERS.has(text) && kept[kept.length - 1]?.text === ',') kept.pop()
+    kept.push({ kind: tok.kind, text })
+  }
+
   let out = ''
   let prev: string | null = null
-  for (const tok of tokenize(src)) {
+  for (const tok of kept) {
     if (tok.kind === 'directive') {
       if (out !== '' && !out.endsWith('\n')) out += '\n'
       out += `${tok.text}\n`
       prev = null
       continue
     }
-    const text = tok.kind === 'number' && shortenNumbers ? shortenNumber(tok.text) : tok.text
-    if (prev !== null && needsSpace(prev, text)) out += ' '
-    out += text
-    prev = text
+    if (prev !== null && needsSpace(prev, tok.text)) out += ' '
+    out += tok.text
+    prev = tok.text
   }
   return out.endsWith('\n') ? out : `${out}\n`
 }

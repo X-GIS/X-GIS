@@ -97,7 +97,7 @@ describe('emit-prod plugins through the { plugins } seam — integrated', () => 
     expect(wgsl.trimEnd().split('\n')).toHaveLength(1)
     expect(wgsl).not.toContain('MinVsOut') // plain struct mangled…
     expect(wgsl).toContain('fn vs_min') // …entry names intact
-    expect(renames.get('MinVsOut')).toMatch(/^_S\d+$/)
+    expect(renames.get('MinVsOut')).toMatch(/^[a-zA-Z]{1,2}$/)
   })
 
   it('plugin composition is order-sensitive on the text stage and staged across stages', () => {

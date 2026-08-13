@@ -6,9 +6,10 @@
 //
 //   • TOKEN PRESERVATION — the lexed token sequence is identical before and
 //     after minification (numeric literals compared by VALUE, since they are
-//     deliberately re-spelled). A merged token (`a/ /b` → `a//b`), a swallowed
-//     directive, or a dropped separator all break this, and none of them are
-//     visible in a byte-count assertion.
+//     deliberately re-spelled, and TRAILING commas dropped from the "before"
+//     side, the one token the minifier is allowed to remove). A merged token
+//     (`a/ /b` → `a//b`), a swallowed directive, or a dropped separator all
+//     break this, and none of them are visible in a byte-count assertion.
 //   • VALUE PRESERVATION — every numeric literal's `parseFloat` is unchanged,
 //     checked with a plain regex over the raw text, INDEPENDENT of the lexer
 //     the minifier itself uses (a lexer bug must not be able to green its own
@@ -47,6 +48,17 @@ const key = (t: string): string => {
   return Number.isNaN(n) ? t : `#${n}${t.replace(/^[\d.eE+-]+/, '')}`
 }
 
+/** Drop trailing commas, the one token removal minification is allowed to make,
+ *  so the "before" stream is comparable to the "after" one. */
+const dropTrailingCommas = (toks: string[]): string[] => {
+  const out: string[] = []
+  for (const t of toks) {
+    if ((t === ')' || t === '}' || t === ']') && out[out.length - 1] === ',') out.pop()
+    out.push(t)
+  }
+  return out
+}
+
 /** Numeric literals as the raw text sees them — no shared lexer. */
 const numbersOf = (src: string): number[] =>
   [...src.matchAll(/(?<![\w.])(?:\d[\d.]*(?:[eE][+-]?\d+)?|\.\d+(?:[eE][+-]?\d+)?)/g)]
@@ -61,7 +73,7 @@ describe('minifyShaderText over the whole example corpus', () => {
   for (const { name, code } of corpus) {
     it(`${name}: preserves the token stream, the literal values, and is idempotent`, () => {
       const min = minifyShaderText(code)
-      expect(shaderTokens(min).map(key)).toEqual(shaderTokens(code).map(key))
+      expect(shaderTokens(min).map(key)).toEqual(dropTrailingCommas(shaderTokens(code)).map(key))
       expect(numbersOf(min)).toEqual(numbersOf(code))
       expect(minifyShaderText(min)).toBe(min)
       expect(min.length).toBeLessThan(code.length)
