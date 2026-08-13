@@ -23,10 +23,12 @@
 import type { EmitPlugin } from './core/emit'
 import { mangleModule } from './core/passes/mangle'
 import { minifyShaderText, type MinifyOptions } from './core/emit-minify'
+import { aliasShaderTypes } from './core/emit-alias'
 import { inlineLinearAll } from './core/passes/inline-linear'
 
 export type { EmitPlugin, EmitOptions } from './core/emit'
 export { minifyShaderText, type MinifyOptions } from './core/emit-minify'
+export { aliasShaderTypes } from './core/emit-alias'
 export { mangleModule, type MangleResult } from './core/passes/mangle'
 
 /** Identifier-mangling plugin (a Vite-style factory returning an EmitPlugin).
@@ -73,8 +75,22 @@ export function inline(): EmitPlugin {
   return { name: 'inline', transformIR: inlineLinearAll }
 }
 
-/** The standard production preset: [mangle, minify]. Spread it into a
- *  `{ plugins }` bag — `emitModule(m, { plugins: obfuscate({ renames }) })`. */
+/** Type-name aliasing plugin: gives each heavily-used TYPE a one-character name
+ *  and declares it once — WGSL `alias A=vec2<f32>;`, GLSL `#define A vec2` —
+ *  then rewrites every spelling, constructor position included. Type names are
+ *  the heaviest identifiers mangle may not touch (both languages reserve them),
+ *  and after mangle they are the largest remaining category in the shipped text.
+ *  Pays for itself per spelling or it is skipped, so a one-use type is left
+ *  alone. Splices by token offset, so it composes in either order with
+ *  minify(). */
+export function aliasTypes(): EmitPlugin {
+  return { name: 'alias-types', transformText: aliasShaderTypes }
+}
+
+/** The standard production preset: [mangle, aliasTypes, minify] — rename the
+ *  authored vocabulary, shorten the type vocabulary it may not rename, then
+ *  compact. Spread it into a `{ plugins }` bag —
+ *  `emitModule(m, { parens: 'minimal', plugins: obfuscate({ renames }) })`. */
 export function obfuscate(opts?: { renames?: Map<string, string> }): EmitPlugin[] {
-  return [mangle(opts), minify()]
+  return [mangle(opts), aliasTypes(), minify()]
 }

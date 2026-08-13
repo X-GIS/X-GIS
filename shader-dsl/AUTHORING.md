@@ -1027,13 +1027,27 @@ const fs = emitGlslModule(m, 'fragment', { parens: 'minimal', plugins: obfuscate
   recovers the whitespace); the point is removing structure a reader could
   follow. Opt-in, and NOT part of `obfuscate()`, so no existing output changes.
   Place it before `mangle()`: `{ plugins: [inline(), ...obfuscate()] }`.
+- **`aliasTypes()`** — an `EmitPlugin` that gives each heavily-used TYPE a
+  one-character name and declares it once: WGSL `alias A=vec2<f32>;`, GLSL
+  `#define A vec2`. Both targets accept the short name everywhere the type was
+  spelled, CONSTRUCTOR position included (`A(1.,2.)`) — verified on real Tint
+  and real ANGLE. This is the one heavy vocabulary `mangle()` may not touch,
+  because both languages reserve type names; after mangling it is the largest
+  remaining category in the shipped text. Each spelling must pay for its own
+  declaration or it is skipped, so a one-use `mat4x3<f32>` is left alone, and
+  alias names are drawn only from spellings that occur NOWHERE else (a GLSL
+  `#define` is textual and module-wide — it must not capture a live identifier).
+  A type carrying a precision qualifier (`precision highp float;`) is never
+  rewritten. The pass splices by token offset, so it composes in either order
+  with `minify()` and leaves the rest of the formatting untouched.
 - **`obfuscate({ renames? })`** — the standard preset, `[mangle(opts),
-minify()]`. Spread it into `{ plugins }`.
+aliasTypes(), minify()]`. Spread it into `{ plugins }`.
 
 Plugins fire STAGED like Vite: every plugin's `transformIR` (IR stage) runs in
 array order before the module is assembled, then every plugin's `transformText`
 (string stage) runs in array order — so `inline()` and `mangle()` (both IR)
-compose in the order you list them, ahead of `minify()` (text).
+compose in the order you list them, ahead of `aliasTypes()` and `minify()` (both
+text), which compose in array order with each other.
 
 **The ABI boundary — never renamed:** entry-point names (WebGPU `entryPoint`),
 **entry-point PARAM names**, binding names including the `_fp64` guard (hosts

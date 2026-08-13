@@ -1,7 +1,8 @@
 // ═══ Shader DSL — emitted-text minifier ═══
 //
 // Whitespace/comment compaction of an ALREADY-EMITTED WGSL / GLSL ES 3.00
-// string. Provably token-safe because of two language facts:
+// string, over the shared lexer (`shader-lex.ts`). Provably token-safe because
+// of two language facts:
 //   • neither language has string literals — a `//` always starts a comment,
 //     and whitespace is never significant inside any token;
 //   • a newline is ordinary whitespace EXCEPT around GLSL preprocessor
@@ -32,134 +33,7 @@
 // Idempotent; no semantic change — the compile gates run the minified output on
 // real Tint + ANGLE (playground/e2e/_emit-obfuscate-gate.spec.ts).
 
-// ── Lexer ──
-//
-// Coarse by design: the only questions the minifier asks of a token are "may it
-// touch its neighbour" and "is it a number I can shorten". Keywords, types and
-// identifiers are all `word`; every punctuation token is `punct`.
-
-type TokenKind = 'word' | 'number' | 'punct' | 'comment' | 'directive'
-
-interface Token {
-  readonly kind: TokenKind
-  readonly text: string
-}
-
-/** Multi-character tokens, longest first — maximal munch scans this in order.
- *  `//` and `/*` are here as tokens so the merge check below rejects a `/` `/`
- *  boundary that would otherwise comment out the rest of the shader. */
-const MULTI = [
-  '<<=',
-  '>>=',
-  '//',
-  '/*',
-  '->',
-  '&&',
-  '||',
-  '<<',
-  '>>',
-  '==',
-  '!=',
-  '<=',
-  '>=',
-  '++',
-  '--',
-  '+=',
-  '-=',
-  '*=',
-  '/=',
-  '%=',
-  '&=',
-  '|=',
-  '^=',
-]
-
-const isDigit = (c: string): boolean => c >= '0' && c <= '9'
-const isWordChar = (c: string): boolean =>
-  c === '_' || isDigit(c) || (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z')
-
-/** Lex the single token starting at `i` (which must not be whitespace).
- *  A number munches every following word char, `.`, and a sign directly after
- *  an exponent marker — so a malformed suffix (`1.0f32`) lexes as ONE token,
- *  which is what makes the merge check below conservative in the safe
- *  direction. Comments are returned whole — a line comment to the newline, a
- *  block comment to its terminator. */
-function lexAt(src: string, i: number): Token {
-  const c = src[i]!
-
-  if (src.startsWith('//', i)) {
-    const nl = src.indexOf('\n', i)
-    return { kind: 'comment', text: src.slice(i, nl === -1 ? src.length : nl) }
-  }
-  if (src.startsWith('/*', i)) {
-    const end = src.indexOf('*/', i + 2)
-    return { kind: 'comment', text: src.slice(i, end === -1 ? src.length : end + 2) }
-  }
-
-  if (isDigit(c) || (c === '.' && isDigit(src[i + 1] ?? ''))) {
-    let j = i
-    while (j < src.length) {
-      const ch = src[j]!
-      const prev = src[j - 1]
-      if (isWordChar(ch) || ch === '.') j++
-      else if ((ch === '+' || ch === '-') && (prev === 'e' || prev === 'E' || prev === 'p')) j++
-      else break
-    }
-    return { kind: 'number', text: src.slice(i, j) }
-  }
-
-  if (isWordChar(c)) {
-    let j = i
-    while (j < src.length && isWordChar(src[j]!)) j++
-    return { kind: 'word', text: src.slice(i, j) }
-  }
-
-  for (const op of MULTI) if (src.startsWith(op, i)) return { kind: 'punct', text: op }
-  return { kind: 'punct', text: c }
-}
-
-/** Tokenize a whole shader. Comments are dropped; a `#` at the start of a
- *  (trimmed) line takes the rest of that line as one `directive` token, with
- *  its trailing `//` comment stripped and internal whitespace runs collapsed. */
-function tokenize(src: string): Token[] {
-  const out: Token[] = []
-  let i = 0
-  let atLineStart = true
-  while (i < src.length) {
-    const c = src[i]!
-    if (c === '\n') {
-      atLineStart = true
-      i++
-      continue
-    }
-    if (c === ' ' || c === '\t' || c === '\r') {
-      i++
-      continue
-    }
-    if (c === '#' && atLineStart) {
-      const nl = src.indexOf('\n', i)
-      const raw = src.slice(i, nl === -1 ? src.length : nl)
-      const cut = raw.indexOf('//')
-      const text = (cut === -1 ? raw : raw.slice(0, cut)).trim().replace(/\s+/g, ' ')
-      out.push({ kind: 'directive', text })
-      i += raw.length
-      continue
-    }
-    atLineStart = false
-    const tok = lexAt(src, i)
-    i += tok.text.length
-    if (tok.kind !== 'comment') out.push(tok)
-  }
-  return out
-}
-
-/** True when `a` and `b` may NOT be written adjacently: re-lex the join and see
- *  whether maximal munch swallows past the end of `a`. Covers word/word
- *  (`return x`), number/word (`1.0 f32`), and every operator pair that has a
- *  longer form (`- -`, `/ /`, `<< =`, `> =`). */
-function needsSpace(a: string, b: string): boolean {
-  return lexAt(a + b, 0).text.length !== a.length
-}
+import { lexShader, needsSpace, type Token } from './shader-lex'
 
 // ── Numeric literals ──
 
@@ -208,7 +82,7 @@ function shortenNumber(text: string): string {
  *  a checked claim rather than a comment.
  *  See `shader-dsl/examples/minify-safety.test.ts`. */
 export function shaderTokens(src: string): string[] {
-  return tokenize(src).map((t) => t.text)
+  return lexShader(src).map((t) => t.text)
 }
 
 export interface MinifyOptions {
@@ -232,11 +106,13 @@ const CLOSERS = new Set([')', '}', ']'])
  *  otherwise merge two tokens. */
 export function minifyShaderText(src: string, opts?: MinifyOptions): string {
   const shortenNumbers = opts?.numbers ?? true
-  const toks = tokenize(src)
+  const toks = lexShader(src)
 
   // Spell every token, then drop the trailing commas — as a separate pass, so
   // the separator decision below always sees the token that really precedes it.
-  const kept: Token[] = []
+  // Offsets are dropped here: this pass RE-SPELLS the shader rather than
+  // splicing it, so a token's position in the input stops meaning anything.
+  const kept: Array<Pick<Token, 'kind' | 'text'>> = []
   for (const tok of toks) {
     const text = tok.kind === 'number' && shortenNumbers ? shortenNumber(tok.text) : tok.text
     if (CLOSERS.has(text) && kept[kept.length - 1]?.text === ',') kept.pop()
