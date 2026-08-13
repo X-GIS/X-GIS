@@ -111,6 +111,46 @@ export function peekShaderSources(req: ShaderEmitRequest): ShaderSources | undef
   return done.get(shaderRequestKey(req))
 }
 
+/** How many emits this pool has had to START since page load, published for the render
+ *  gate (#1678). The seed count alone proves the artifact was READ; this proves the frame
+ *  did not also emit — the difference between "seeded" and "served from the seed", which
+ *  is the whole claim of the bake.
+ *
+ *  COUNTED AT THE DISPATCH, not at `emitFor`. `emitFor` is the ONE dispatch the worker
+ *  and the main-thread fallback share, and in a browser the worker is the path that runs
+ *  — so a counter on the main-thread call would read 0 in BOTH gate arms and the
+ *  comparison would prove nothing (the §12 "assertion that failed either way" trap).
+ *  What the pool actually moves is "a request that no cached source could answer", which
+ *  is this line, and it counts the worker and the fallback identically. A worker failure
+ *  re-settling through `settleOnMainThread` is deliberately NOT counted again: it is the
+ *  same emit, recovered, and the question is how many emits the boot needed. */
+let emitsStarted = 0
+function countEmitStart(): void {
+  emitsStarted++
+  if (typeof window === 'undefined') return
+  // `Object.assign` rather than a `window as unknown as {…}` cast — map/src is under the
+  // forced-cast ratchet, and the assignment needs no type hole (see `publishSeedCount`).
+  Object.assign(window, { __xgisShaderEmits: emitsStarted })
+}
+
+/** Publish sources for `req` that are already KNOWN, so `peekShaderSources` answers on
+ *  the very first frame and no emit is ever started (#1678 — the build-time shader bake
+ *  seeds every hillshade permutation here at device attach).
+ *
+ *  This is the pool's only write that does not come from an emit, and it is deliberately
+ *  the same `done` map under the same `shaderRequestKey`: a second cache in front of this
+ *  one would be a second authority for "which bytes belong to this request", and the
+ *  worker / fallback / bake would then be three paths that must agree instead of one.
+ *
+ *  EPOCH-SCOPED BY CONSTRUCTION. `shaderRequestKey` folds `bodyEpochValue()` (#1568) into
+ *  the key, so a later `map.setBody` moves every key and these entries simply stop being
+ *  addressable — there is no stale seed to hunt down and drop, and the next boot re-seeds
+ *  under the new epoch. Whether the bytes are valid for the live body AT ALL is the
+ *  caller's call (`shaders/baked/body-guard.ts`); this function does not second-guess it. */
+export function seedShaderSources(req: ShaderEmitRequest, sources: ShaderSources): void {
+  done.set(shaderRequestKey(req), sources)
+}
+
 /** Start emitting `req` (idempotent per key), off the main thread where possible.
  *  `wantWgsl` is the device capability — a GLSL-only device never pays for the WGSL. */
 export function requestShaderSources(
@@ -123,6 +163,7 @@ export function requestShaderSources(
   const running = inFlight.get(key)
   if (running) return running
 
+  countEmitStart()
   const worker = getWorker()
   const p = worker
     ? new Promise<ShaderSources>((resolve) => {
@@ -161,4 +202,5 @@ export function shaderEmitPending(): boolean {
 export function _resetShaderEmitCache(): void {
   done.clear()
   inFlight.clear()
+  emitsStarted = 0
 }

@@ -46,7 +46,19 @@ const rel = (abs: string): string => relative(ROOT, abs).split('\\').join('/')
 const stripComments = (s: string): string =>
   s.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/[^\n]*/g, '$1')
 
-const ALL_TS = SRC_DIRS.flatMap((d) => walkTs(join(ROOT, d)))
+// The committed shader bake (#1678 / #1484) — GENERATED shader source, excluded from
+// Gate A by DECISION rather than by luck. `bake.ts` writes the sources through
+// `JSON.stringify` (double quotes), and RAW_SHADER_TEMPLATE anchors on BACKTICKS, so
+// these files already scored 0 and would have kept scoring 0 over any amount of baked
+// text. Safe because they are not authored: `baked-sync.test.ts` re-emits every registry
+// key through @xgis/shader-dsl and byte-compares it against them, so a hand edit fails
+// immediately and the DSL stays the sole author (ruling f / §8.5). Mirrored in
+// map/src/raw-shader-string-ratchet.test.ts, which scans the same tree.
+const BAKED_ARTIFACT = /^map\/src\/shaders\/baked\/[^/]+\.generated\.ts$/
+
+const ALL_TS = SRC_DIRS.flatMap((d) => walkTs(join(ROOT, d))).filter(
+  (f) => !BAKED_ARTIFACT.test(rel(f)),
+)
 
 // ── Gate A: no hardcoded raw shader STRING (shaders are DSL-authored) ──
 // A template literal whose body carries WGSL/GLSL entry-point/builtin source.

@@ -9,10 +9,10 @@
 
 import { emitOverdrawFsWgsl } from './shaders/dsl/overdraw-fs'
 
-function readDebugFlag(): string | null {
+function readDebugFlag(param = 'debug'): string | null {
   if (typeof window === 'undefined') return null
   try {
-    return new URL(window.location.href).searchParams.get('debug')
+    return new URL(window.location.href).searchParams.get(param)
   } catch {
     return null
   }
@@ -130,6 +130,22 @@ export function sceneScalePinned(): number | null {
   const live = (globalThis as { __xgisSceneScale?: unknown }).__xgisSceneScale
   if (typeof live === 'number' && Number.isFinite(live) && live > 0 && live <= 1) return live
   return SCENE_SCALE_URL
+}
+
+/** `?nobake=1` — boot-time opt-OUT of the committed shader bake (#1678), so the closed-set
+ *  artifact is ignored and every shader is emitted at runtime as it was before the bake.
+ *
+ *  Read PER CALL, not latched into a module const like `DEBUG_OVERDRAW`: this one is asked
+ *  once per device boot (`seedBakedShaders`), and `map.run()` can re-boot against a changed
+ *  URL. Same non-latched shape as `animTimePinnedSeconds` / `sceneScalePinned`.
+ *
+ *  It exists for the render gate: `playground/e2e/_1678-hillshade-bake-hash-gate.spec.ts`
+ *  renders the same hillshade scene twice, once served from the artifact and once with this
+ *  flag set, and requires the two canvases to hash EQUAL. Without a way to turn the bake off
+ *  there is no control arm, and "the baked bytes are the bytes that would have been emitted"
+ *  would be an assertion about the artifact only, never about the frame. */
+export function bakedShadersDisabled(): boolean {
+  return readDebugFlag('nobake') === '1'
 }
 
 /** Format of the overdraw accumulator render target. r16float lets
