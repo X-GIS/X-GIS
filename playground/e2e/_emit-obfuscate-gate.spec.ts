@@ -2,10 +2,13 @@
 //
 // The unit suite (mangle.test.ts / emit-minify.test.ts) pins the rename scope,
 // the ABI boundary, and the minifier's token-safety rules AS STRINGS — but a
-// whitespace rule that is subtly wrong (a merged token, a directive swallowed)
-// or a rename that desyncs the two GLSL stages produces a string only a real
-// shader compiler rejects. This gate emits EVERY renderable shader-dsl example
-// twice-transformed (emit-prod's obfuscate() — mangle + minify) and:
+// paren or whitespace rule that is subtly wrong (a merged token, a directive
+// swallowed, an operand re-bound to the wrong operator) or a rename that
+// desyncs the two GLSL stages produces a string only a real shader compiler
+// rejects — and a wrong paren produces one it ACCEPTS and computes differently,
+// which only the pixel leg below can see. This gate emits EVERY renderable
+// shader-dsl example through the full production emit
+// (`{ parens: 'minimal', plugins: obfuscate() }`) and:
 //   • WGSL — createShaderModule + getCompilationInfo (Tint), zero errors;
 //   • GLSL — compileShader for BOTH stages + linkProgram (ANGLE), zero errors —
 //     linking proves the per-call mangle is deterministic across the separate
@@ -27,7 +30,7 @@ test.describe('obfuscated emit (emit-prod obfuscate()) compiles on real Tint + A
   }) => {
     const variants = renderable.map((ex) => ({
       name: ex.id,
-      wgsl: emitModule(ex.module, { plugins: obfuscate() }),
+      wgsl: emitModule(ex.module, { parens: 'minimal', plugins: obfuscate() }),
     }))
     expect(variants.length).toBeGreaterThan(10)
     for (const v of variants) {
@@ -71,8 +74,11 @@ test.describe('obfuscated emit (emit-prod obfuscate()) compiles on real Tint + A
   test('GLSL: every renderable example, obfuscated, compiles AND links', async ({ page }) => {
     const pairs = renderable.map((ex) => ({
       name: ex.id,
-      vertex: emitGlslModule(ex.module, 'vertex', { plugins: obfuscate() }),
-      fragment: emitGlslModule(ex.module, 'fragment', { plugins: obfuscate() }),
+      vertex: emitGlslModule(ex.module, 'vertex', { parens: 'minimal', plugins: obfuscate() }),
+      fragment: emitGlslModule(ex.module, 'fragment', {
+        parens: 'minimal',
+        plugins: obfuscate(),
+      }),
     }))
     for (const p of pairs)
       expect(p.vertex.startsWith('#version 300 es\n'), `${p.name}: directive lost`).toBe(true)
@@ -143,7 +149,11 @@ test.describe('obfuscated emit (emit-prod obfuscate()) compiles on real Tint + A
       const ex = renderable.find((e) => e.id === id)
       if (!ex) throw new Error(`example '${id}' missing from the renderable set`)
       const emit = (stage: 'vertex' | 'fragment', obf: boolean) =>
-        emitGlslModule(ex.module, stage, obf ? { plugins: [inline(), ...obfuscate()] } : undefined)
+        emitGlslModule(
+          ex.module,
+          stage,
+          obf ? { parens: 'minimal', plugins: [inline(), ...obfuscate()] } : undefined,
+        )
       return {
         name: id,
         plainVs: emit('vertex', false),

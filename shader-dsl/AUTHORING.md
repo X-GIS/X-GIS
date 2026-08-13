@@ -975,8 +975,21 @@ const renames = new Map<string, string>()
 const wgsl = emitModule(m, { plugins: [mangle({ renames }), minify()] })
 // obfuscate() is the standard [mangle, minify] preset:
 const vs = emitGlslModule(m, 'vertex', { plugins: obfuscate() })
-const fs = emitGlslModule(m, 'fragment', { plugins: obfuscate() })
+// …and `parens: 'minimal'` is the third axis — the smallest shipped shader:
+const fs = emitGlslModule(m, 'fragment', { parens: 'minimal', plugins: obfuscate() })
 ```
+
+- **`parens: 'minimal'`** — an `EmitOptions` field, not a plugin, because
+  parenthesis is an emit DECISION (the IR knows the precedence exactly), not a
+  rewrite of emitted text. Default `'full'` keeps today's bytes, so every
+  committed golden and baked artifact is untouched unless you ask. `'minimal'`
+  omits a paren only where WGSL and GLSL ES 3.00 define the SAME precedence —
+  `* / %` over `+ -` over unary `-`. The relational, logical, bitwise and shift
+  operators stay wrapped on purpose: WGSL does not give them a chaining
+  precedence at all (mixing them unparenthesised is a compile error there), so
+  ranking them would invent a rule one target lacks. Never reassociates —
+  `a + (b + c)` keeps its parens, because in floating point that is a different
+  number from `a + b + c`.
 
 - **`mangle({ renames? })`** — an `EmitPlugin` (a Vite-style factory). Renames
   helper fn names, plain struct names, module consts (including the injected

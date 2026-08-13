@@ -30,12 +30,25 @@ interface Corpus {
   readonly code: string
 }
 
+// Both parenthesisations are in the corpus: 'minimal' removes the paren tokens
+// that separate most operator pairs, so it is the text where a wrong separator
+// rule would merge two operators into one (`a+ +b`, `a/ /b`) — exactly the
+// hazard the token gate exists for, and the shape plain emit never produces.
 const corpus: Corpus[] = []
 for (const ex of examples) {
-  corpus.push({ name: `${ex.id}.wgsl`, code: emitModule(ex.module) })
-  if (ex.renderable) {
-    corpus.push({ name: `${ex.id}.vertex.glsl`, code: emitGlslModule(ex.module, 'vertex') })
-    corpus.push({ name: `${ex.id}.fragment.glsl`, code: emitGlslModule(ex.module, 'fragment') })
+  for (const parens of ['full', 'minimal'] as const) {
+    const tag = parens === 'full' ? '' : '.minparen'
+    corpus.push({ name: `${ex.id}${tag}.wgsl`, code: emitModule(ex.module, { parens }) })
+    if (ex.renderable) {
+      corpus.push({
+        name: `${ex.id}${tag}.vertex.glsl`,
+        code: emitGlslModule(ex.module, 'vertex', { parens }),
+      })
+      corpus.push({
+        name: `${ex.id}${tag}.fragment.glsl`,
+        code: emitGlslModule(ex.module, 'fragment', { parens }),
+      })
+    }
   }
 }
 
