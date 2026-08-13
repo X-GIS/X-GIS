@@ -28,11 +28,13 @@ import type { EmitPlugin } from './core/emit'
 import { mangleModule } from './core/passes/mangle'
 import { minifyShaderText, type MinifyOptions } from './core/emit-minify'
 import { aliasShaderTypes } from './core/emit-alias'
+import { pruneRedundantPrototypes } from './core/emit-prune'
 import { inlineLinearAll } from './core/passes/inline-linear'
 
 export type { EmitPlugin, EmitOptions } from './core/emit'
 export { minifyShaderText, type MinifyOptions } from './core/emit-minify'
 export { aliasShaderTypes } from './core/emit-alias'
+export { pruneRedundantPrototypes } from './core/emit-prune'
 export { decodeShaderLog, invertRenames, type DecodedName } from './core/decode-log'
 export { mangleModule, type MangleResult } from './core/passes/mangle'
 
@@ -96,10 +98,21 @@ export function aliasTypes(opts?: { renames?: Map<string, string> }): EmitPlugin
   }
 }
 
+/** Forward-prototype pruning plugin (GLSL only). The GLSL backend emits a
+ *  prototype for EVERY helper because it cannot promise the function section is
+ *  in dependency order; this drops the ones whose DEFINITION already declares
+ *  the function at each of its uses, and keeps the rest. Worth its own pass: on
+ *  the real map shader corpus — where a module drags in the df64 library and the
+ *  projection graph — prototypes are 9.5% of the production-transformed text,
+ *  a figure the toy examples hide almost entirely. No-op on WGSL. */
+export function prune(): EmitPlugin {
+  return { name: 'prune-prototypes', transformText: pruneRedundantPrototypes }
+}
+
 /** The standard production preset: [mangle, aliasTypes, minify] — rename the
  *  authored vocabulary, shorten the type vocabulary it may not rename, then
  *  compact with f32-exact literal re-spelling. Spread it into a `{ plugins }` bag —
  *  `emitModule(m, { parens: 'minimal', plugins: obfuscate({ renames }) })`. */
 export function obfuscate(opts?: { renames?: Map<string, string> }): EmitPlugin[] {
-  return [mangle(opts), aliasTypes(opts), minify({ numbers: 'f32' })]
+  return [mangle(opts), prune(), aliasTypes(opts), minify({ numbers: 'f32' })]
 }

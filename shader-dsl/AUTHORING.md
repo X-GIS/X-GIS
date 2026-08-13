@@ -1009,7 +1009,10 @@ const fs = emitGlslModule(m, 'fragment', { parens: 'minimal', plugins: obfuscate
   space, `)->f32` and `a=b*c` lose theirs) — the same rule the real compilers
   use, so it needs no conservative carve-outs. Comments (`//` and `/* */`) go;
   `#` directives keep their own line. Numeric literals are canonicalised
-  LOSSLESSLY — `0.500` → `.5`, `1.0` → `1.`, `1.0e-07` → `1e-7`; never a
+  LOSSLESSLY — `0.500` → `.5`, `1.0` → `1.`, `1.0e-07` → `1e-7`, and the
+  EXPONENT spelling wherever the fixed form pays for zeros (`.0001` → `1e-4`,
+  `1000000.` → `1e6`), which is exact because only the decimal point moves;
+  never a
   significand digit dropped, and a float with no exponent always keeps its `.`
   (`1.0` → `1.`, never `1`, which is an integer in WGSL). `{ numbers: 'f32' }`
   goes further and re-spells each float as the shortest decimal that rounds to
@@ -1034,6 +1037,17 @@ const fs = emitGlslModule(m, 'fragment', { parens: 'minimal', plugins: obfuscate
   recovers the whitespace); the point is removing structure a reader could
   follow. Opt-in, and NOT part of `obfuscate()`, so no existing output changes.
   Place it before `mangle()`: `{ plugins: [inline(), ...obfuscate()] }`.
+- **`prune()`** — an `EmitPlugin` that drops redundant GLSL forward prototypes.
+  The GLSL backend emits one for EVERY helper because it cannot promise the
+  function section is in dependency order; this drops the ones whose DEFINITION
+  already declares the function at each of its uses, and keeps every other —
+  no definition in this text (an extern body), a call before the definition, a
+  declarator shape it does not recognise. No-op on WGSL, which resolves
+  module-scope declarations out of order and has no prototype syntax. Worth its
+  own pass on real payloads: 22_268 chars / 487 lines, **3.0%**, of the
+  production-transformed map shader corpus — where a module drags in the df64
+  library and the projection graph. The example corpus barely shows it, which is
+  why it was found only by measuring the real one.
 - **`aliasTypes()`** — an `EmitPlugin` that gives each heavily-used TYPE a
   one-character name and declares it once: WGSL `alias A=vec2<f32>;`, GLSL
   `#define A vec2`. Both targets accept the short name everywhere the type was
@@ -1060,7 +1074,7 @@ const fs = emitGlslModule(m, 'fragment', { parens: 'minimal', plugins: obfuscate
   (`f⟨coordinate (in noise) | tint (in shade)⟩`) rather than guessed at.
   `invertRenames(renames)` exposes the same table as data. Keep `renames` — and
   this decoder — out of the shipped bundle; both live on `/emit-prod`.
-- **`obfuscate({ renames? })`** — the standard preset, `[mangle(opts),
+- **`obfuscate({ renames? })`** — the standard preset, `[mangle(opts), prune(),
 aliasTypes(opts), minify({ numbers: 'f32' })]`. Spread it into `{ plugins }`, and
   pair it with `parens: 'minimal'` for the smallest shipped shader: over the
   example corpus the four axes together take plain emit from 186_527 chars to

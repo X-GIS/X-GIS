@@ -46,9 +46,11 @@ const NUMBER_RE = /^(\d*)(?:\.(\d*))?(?:[eE]([+-]?)0*(\d+))?([fhiu]?)$/
  *  Value preservation: only leading zeros of the integer part, trailing zeros
  *  of the FRACTION, a `+` and leading zeros in the exponent, and a
  *  now-redundant `.` (exponent present, fraction empty) are removed — each a
- *  no-op on the decimal value. Type preservation: a float with no exponent
- *  always keeps its `.`, so `1.0` → `1.` and never `1` (an integer in WGSL),
- *  and a literal with no `.`/exponent at all is left alone. */
+ *  no-op on the decimal value — plus, where it is shorter, the EXPONENT
+ *  spelling of the same digits (`.0001` → `1e-4`), which moves the decimal
+ *  point and nothing else. Type preservation: a float with no exponent always
+ *  keeps its `.`, so `1.0` → `1.` and never `1` (an integer in WGSL), and a
+ *  literal with no `.`/exponent at all is left alone. */
 function shortenNumber(text: string): string {
   const m = NUMBER_RE.exec(text)
   if (m === null) return text
@@ -59,6 +61,7 @@ function shortenNumber(text: string): string {
 
   const int = rawInt.replace(/^0+(?=\d)/, '')
   const frac = (rawFrac ?? '').replace(/0+$/, '')
+  const expNum = hasExp ? Number(expDigits) : 0
   const exp = hasExp ? `e${expSign === '-' ? '-' : ''}${expDigits.replace(/^0+(?=\d)/, '')}` : ''
 
   // Mantissa: drop a bare `0` integer part (`.5`) only when a fraction digit
@@ -69,8 +72,29 @@ function shortenNumber(text: string): string {
   else if (hasExp) mantissa = int === '' ? '0' : int
   else mantissa = `${int === '' ? '0' : int}.`
 
-  const short = `${mantissa}${exp}${suffix}`
+  const fixed = `${mantissa}${exp}${suffix}`
+  const scientific = exponentForm(rawInt, rawFrac ?? '', expSign === '-' ? -expNum : expNum, suffix)
+  const short = scientific !== null && scientific.length < fixed.length ? scientific : fixed
   return short.length < text.length ? short : text
+}
+
+/** The same value written as `<digits>e<exp>`, or null when that spelling does
+ *  not exist for it.
+ *
+ *  EXACT by construction, not by round-tripping a float: the significant digits
+ *  are carried over verbatim and only the decimal POINT moves, which is what an
+ *  exponent is. `.0001` → `1e-4`, `1000000.` → `1e6`, `100.` → `1e2`. Worth
+ *  having because the fixed form pays one character per leading or trailing
+ *  zero and the exponent pays a flat two-or-three (2_112 chars across the real
+ *  shader corpus). A zero exponent is refused: `1e0` is never shorter than `1.`,
+ *  and bare `1` would retype the literal to an integer. */
+function exponentForm(rawInt: string, rawFrac: string, exp: number, suffix: string): string | null {
+  const all = `${rawInt}${rawFrac}`.replace(/^0+/, '')
+  if (all === '') return null // the value is zero — `0.` is already minimal
+  const digits = all.replace(/0+$/, '')
+  const trailing = all.length - digits.length
+  const e = exp - rawFrac.length + trailing
+  return e === 0 ? null : `${digits}e${e}${suffix}`
 }
 
 /** The shortest decimal that rounds to the SAME f32 as `text`.

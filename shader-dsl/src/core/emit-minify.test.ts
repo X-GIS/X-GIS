@@ -43,8 +43,12 @@ describe('minifyShaderText — string contracts', () => {
     // `.5`/`1.` are valid float literals in both languages; the `.` never goes
     // away without an exponent to keep the literal a float.
     expect(minifyShaderText('a(0.500, 1.0, 0.0, 1.0e-07, 100.0, 0.0001, 7u, 3, 0x1F);\n')).toBe(
-      'a(.5,1.,0.,1e-7,100.,.0001,7u,3,0x1F);\n',
+      'a(.5,1.,0.,1e-7,1e2,1e-4,7u,3,0x1F);\n',
     )
+    // The EXPONENT spelling wins wherever the fixed form pays for zeros — an
+    // exact rewrite, since only the decimal point moves. It is refused at
+    // exponent 0, where it would be both longer and an integer (`1e0` vs `1.`).
+    expect(minifyShaderText('a(1000000.0, 0.000123, 1.5, 1.0);\n')).toBe('a(1e6,123e-6,1.5,1.);\n')
     // A full-precision f32 printout keeps every significand digit.
     expect(minifyShaderText('a(0.800000011920929);\n')).toBe('a(.800000011920929);\n')
     // …and the pass is opt-out for baseline diffing.
