@@ -54,6 +54,7 @@ const BAKED = join(HERE, '..', '..', 'shaders', 'baked')
  *  checkable; the KEY set is what link D compares against. */
 const REWIRED: Readonly<Record<string, string>> = {
   icon: 'icon-material.ts',
+  point: 'point-material.ts',
   text: 'text-material.ts',
   'circle-retained': 'circle-retained-material.ts',
   'icon-retained': 'icon-retained-material.ts',
@@ -67,10 +68,11 @@ const REWIRED: Readonly<Record<string, string>> = {
  *  commit or the arm below reds — an allowlist that outlives its reason is how a deferral
  *  becomes permanent by accident. */
 const DEFERRED: Readonly<Record<string, string>> = {
-  point:
-    'point-material.ts passes `this.shaderVariant` to both emitters, so its key carries a ' +
-    'variant token the parameterless grammar cannot spell — #1679 increment 6 lands it ' +
-    'with the polygon entry families.',
+  // EMPTY since #1679 increment 6 rewired `point` (behind a null-variant guard — see
+  // entry-and-variant-rewiring.test.ts G1). The loop below is therefore vacuous today, and
+  // deliberately kept: it costs nothing and reds the day a new deferral is added and then
+  // quietly closed. The claim that nothing is UNACCOUNTED for is carried by link D's set
+  // equality, which does not weaken when this object is empty.
 }
 
 const sourceOf = (file: string): string => readFileSync(join(HERE, file), 'utf8')

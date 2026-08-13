@@ -28,12 +28,9 @@ import { activeBody } from '@xgis/shared'
 import { generateGraticule } from '../graticule'
 import { visibleWorldCopiesFor, type VisibleWorldCopiesHost } from '../camera/camera-world-copies'
 import { UniformRing } from '@xgis/engine'
-import {
-  polygonU as POLYGON_U,
-  emitPolygonWgsl,
-  emitPolygonGlslStages,
-} from '../shaders/dsl/polygon'
-import { wgslFor, glslStagesFor } from './material/wgsl-for'
+import { polygonU as POLYGON_U } from '../shaders/dsl/polygon'
+import { POLY_STROKE } from '../shaders/baked/ids'
+import { polygonGlslStagesFor, polygonShaderFor } from './material/polygon-baked'
 import { polygonUniformBytes } from './polygon-uniform-slots'
 import { inputPoolValues } from './input-pool'
 import { buildGraticuleLineMaterial } from './material/polygon-fill-material'
@@ -446,10 +443,8 @@ export class GraticuleRenderer {
     this._lineMatRhi = buildGraticuleLineMaterial(
       {
         rhi: this.ctx.rhi,
-        shader: wgslFor(this.ctx.rhi, () => emitPolygonWgsl(null, false)),
-        ...glslStagesFor(this.ctx.rhi, () =>
-          emitPolygonGlslStages(null, false, { vertex: 'vs_main', fragment: 'fs_stroke' }),
-        ),
+        shader: polygonShaderFor(this.ctx.rhi, false),
+        ...polygonGlslStagesFor(this.ctx.rhi, false, POLY_STROKE),
         format: this.ctx.format,
         sampleCount: 1,
         rhiGroups: [[{ binding: 0, kind: 'uniform', dynamic: true, name: 'Uniforms' }]],

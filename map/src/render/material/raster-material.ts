@@ -11,6 +11,7 @@ import { Material, executeItems, type DrawItem } from '@xgis/engine'
 import { emitRasterWgsl, buildRasterModule, rasterGridVertexCount } from '../../shaders/dsl/raster'
 import { rasterTileBytes, rasterUniformBytes } from '../raster-uniform-slots'
 import { emitGlslStages } from '@xgis/shader-dsl'
+import { pickedModuleGlslId, pickedModuleWgslId } from '../../shaders/baked/ids'
 import { glslStagesFor, wgslFor } from './wgsl-for'
 
 /** One raster tile to draw: its texture + 64-byte per-tile uniform. The texture is
@@ -73,10 +74,13 @@ export class RasterDraper {
     // `emitGlslStages` is byte-identical to two `emitGlslModule` calls (shader-dsl's
     // glsl-stages-parity pins it) — only which work runs changes.
     this.material = new Material(rhi, {
-      shader: wgslFor(rhi, () => emitRasterWgsl(false)),
+      shader: wgslFor(rhi, () => emitRasterWgsl(false), pickedModuleWgslId('raster', false)),
       vsEntry: 'vs_tile',
       fsEntry: 'fs_tile',
-      ...glslStagesFor(rhi, () => emitGlslStages(buildRasterModule(false))),
+      ...glslStagesFor(rhi, () => emitGlslStages(buildRasterModule(false)), {
+        vertex: pickedModuleGlslId('raster', false, 'vertex'),
+        fragment: pickedModuleGlslId('raster', false, 'fragment'),
+      }),
       format: format as 'bgra8unorm',
       sampleCount,
       groups: [
@@ -119,10 +123,13 @@ export class RasterDraper {
    *  it is built once and lowered once now. Same thunk seam, same byte-for-byte GLSL. */
   private pickMat(): Material {
     return (this._pickMaterial ??= new Material(this.rhi, {
-      shader: wgslFor(this.rhi, () => emitRasterWgsl(true)),
+      shader: wgslFor(this.rhi, () => emitRasterWgsl(true), pickedModuleWgslId('raster', true)),
       vsEntry: 'vs_tile',
       fsEntry: 'fs_tile',
-      ...glslStagesFor(this.rhi, () => emitGlslStages(buildRasterModule(true))),
+      ...glslStagesFor(this.rhi, () => emitGlslStages(buildRasterModule(true)), {
+        vertex: pickedModuleGlslId('raster', true, 'vertex'),
+        fragment: pickedModuleGlslId('raster', true, 'fragment'),
+      }),
       format: this.format as 'bgra8unorm',
       sampleCount: this.sampleCount,
       groups: [
