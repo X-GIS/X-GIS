@@ -73,6 +73,35 @@ function shortenNumber(text: string): string {
   return short.length < text.length ? short : text
 }
 
+/** The shortest decimal that rounds to the SAME f32 as `text`.
+ *
+ *  Exact, not approximate, wherever every float literal lands in an f32 context:
+ *  both targets round a decimal float literal to f32 there, so any two spellings
+ *  that `Math.fround` to the same value produce the same bits on the GPU. That
+ *  premise is a fact about THIS emitter — `lit()` spells only bool / i32 / u32 /
+ *  f32, with no f16 and no f64 literal path — and the caller re-checks it per
+ *  shader by refusing the mode when `f16` appears anywhere in the text.
+ *
+ *  This is where the long literals go: `0.800000011920929` is nothing but the
+ *  f64 PRINTOUT of `fround(0.8)`, and `.8` is the same number to the GPU. */
+function shortestF32(text: string): string {
+  if (!NUMBER_RE.test(text)) return text
+  const target = Math.fround(Number(text))
+  if (!Number.isFinite(target)) return text
+  const isFloat = /[.eE]/.test(text)
+  for (let digits = 1; digits <= 9; digits++) {
+    const candidate = Number(target.toPrecision(digits))
+    if (Math.fround(candidate) !== target) continue
+    const out = String(candidate)
+    // Float-ness is part of the value here, not decoration: `1.` shortens to
+    // `1`, which is an abstract INTEGER in WGSL and fails to resolve against
+    // `operator -(vecN<f32>, f32)`. Caught by Tint, not by any local reasoning —
+    // the lossless path had this rule and this one has to repeat it.
+    return isFloat && !/[.eE]/.test(out) ? `${out}.` : out
+  }
+  return text
+}
+
 // ── Public API ──
 
 /** Lex a shader into its token texts, comments dropped (a directive line is one
@@ -86,10 +115,18 @@ export function shaderTokens(src: string): string[] {
 }
 
 export interface MinifyOptions {
-  /** Canonicalise numeric literals (`0.500` → `.5`, `1.0e-07` → `1e-7`).
-   *  Lossless — no significand digit is ever dropped. Default `true`; turn it
-   *  off when the emitted text is diffed against a hand-checked baseline. */
-  readonly numbers?: boolean
+  /** How numeric literals are re-spelled.
+   *  - `true` (default) — canonicalise losslessly (`0.500` → `.5`,
+   *    `1.0e-07` → `1e-7`). No significand digit is ever dropped.
+   *  - `'f32'` — additionally re-spell each float as the shortest decimal that
+   *    rounds to the SAME f32 (`0.800000011920929` → `.8`, which is just the
+   *    f64 printout of `fround(0.8)`). Exact on the GPU, because a decimal
+   *    float literal in an f32 context is rounded to f32 by the compiler — but
+   *    it is a claim about the CONTEXT, so it degrades to `true` for any shader
+   *    mentioning `f16`. What `obfuscate()` uses.
+   *  - `false` — leave literals exactly as emitted, for diffing against a
+   *    hand-checked baseline. */
+  readonly numbers?: boolean | 'f32'
 }
 
 /** Closes a comma list — a `,` immediately before one of these is TRAILING, and
@@ -105,8 +142,12 @@ const CLOSERS = new Set([')', '}', ']'])
  *  into one compact line with a separator only where maximal munch would
  *  otherwise merge two tokens. */
 export function minifyShaderText(src: string, opts?: MinifyOptions): string {
-  const shortenNumbers = opts?.numbers ?? true
+  const mode = opts?.numbers ?? true
   const toks = lexShader(src)
+  // f32 re-spelling is exact only where every float literal is in an f32
+  // context. `f16` anywhere in the text means it might not be, and the mode
+  // falls back to the lossless canonicalisation rather than reasoning about it.
+  const f32 = mode === 'f32' && !toks.some((t) => t.kind === 'word' && t.text === 'f16')
 
   // Spell every token, then drop the trailing commas — as a separate pass, so
   // the separator decision below always sees the token that really precedes it.
@@ -114,7 +155,11 @@ export function minifyShaderText(src: string, opts?: MinifyOptions): string {
   // splicing it, so a token's position in the input stops meaning anything.
   const kept: Array<Pick<Token, 'kind' | 'text'>> = []
   for (const tok of toks) {
-    const text = tok.kind === 'number' && shortenNumbers ? shortenNumber(tok.text) : tok.text
+    let text = tok.text
+    if (tok.kind === 'number' && mode !== false) {
+      const candidates = f32 ? [tok.text, shortestF32(tok.text)] : [tok.text]
+      text = candidates.map(shortenNumber).reduce((a, b) => (b.length < a.length ? b : a))
+    }
     if (CLOSERS.has(text) && kept[kept.length - 1]?.text === ',') kept.pop()
     kept.push({ kind: tok.kind, text })
   }

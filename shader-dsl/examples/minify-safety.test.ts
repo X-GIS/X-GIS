@@ -13,7 +13,9 @@
 //   • VALUE PRESERVATION — every numeric literal's `parseFloat` is unchanged,
 //     checked with a plain regex over the raw text, INDEPENDENT of the lexer
 //     the minifier itself uses (a lexer bug must not be able to green its own
-//     gate).
+//     gate). Under `numbers: 'f32'` the literals are DELIBERATELY re-spelled,
+//     so the claim there is the weaker-but-exact one the mode actually makes:
+//     `Math.fround` of every literal is unchanged — the same bits reach the GPU.
 //   • IDEMPOTENCE — minify(minify(x)) === minify(x).
 //
 // The independent authority above these is _emit-obfuscate-gate.spec.ts, which
@@ -55,11 +57,18 @@ for (const ex of examples) {
 /** Token comparison key: a numeric literal collapses to its VALUE, so the
  *  canonicalisation (`1.0` → `1.`) is not read as a token change; every other
  *  token must match byte-for-byte. */
-const key = (t: string): string => {
-  if (!/^[.\d]/.test(t)) return t
-  const n = Number.parseFloat(t)
-  return Number.isNaN(n) ? t : `#${n}${t.replace(/^[\d.eE+-]+/, '')}`
-}
+const keyBy =
+  (value: (n: number) => number) =>
+  (t: string): string => {
+    if (!/^[.\d]/.test(t)) return t
+    const n = Number.parseFloat(t)
+    return Number.isNaN(n) ? t : `#${value(n)}${t.replace(/^[\d.eE+-]+/, '')}`
+  }
+/** Default mode re-spells losslessly, so literals must match by exact value. */
+const key = keyBy((n) => n)
+/** `numbers: 'f32'` re-spells to the shortest decimal with the same f32, so the
+ *  literal claim there is f32-bit equality — the value the GPU actually loads. */
+const keyF32 = keyBy(Math.fround)
 
 /** Drop trailing commas, the one token removal minification is allowed to make,
  *  so the "before" stream is comparable to the "after" one. */
@@ -90,6 +99,15 @@ describe('minifyShaderText over the whole example corpus', () => {
       expect(numbersOf(min)).toEqual(numbersOf(code))
       expect(minifyShaderText(min)).toBe(min)
       expect(min.length).toBeLessThan(code.length)
+
+      // …and the f32 mode: same token stream, same f32 BITS, still idempotent.
+      const f32 = minifyShaderText(code, { numbers: 'f32' })
+      expect(shaderTokens(f32).map(keyF32)).toEqual(
+        dropTrailingCommas(shaderTokens(code)).map(keyF32),
+      )
+      expect(numbersOf(f32).map(Math.fround)).toEqual(numbersOf(code).map(Math.fround))
+      expect(minifyShaderText(f32, { numbers: 'f32' })).toBe(f32)
+      expect(f32.length).toBeLessThanOrEqual(min.length)
     })
   }
 

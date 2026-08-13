@@ -1011,7 +1011,14 @@ const fs = emitGlslModule(m, 'fragment', { parens: 'minimal', plugins: obfuscate
   `#` directives keep their own line. Numeric literals are canonicalised
   LOSSLESSLY — `0.500` → `.5`, `1.0` → `1.`, `1.0e-07` → `1e-7`; never a
   significand digit dropped, and a float with no exponent always keeps its `.`
-  (`1.0` → `1.`, never `1`, which is an integer in WGSL). Pass
+  (`1.0` → `1.`, never `1`, which is an integer in WGSL). `{ numbers: 'f32' }`
+  goes further and re-spells each float as the shortest decimal that rounds to
+  the SAME f32 — `0.800000011920929` is nothing but the f64 printout of
+  `fround(0.8)`, and `.8` loads identical bits. That is exact rather than lossy
+  BECAUSE a decimal float literal in an f32 context is rounded to f32 by the
+  compiler, and this emitter's `lit()` spells only bool / i32 / u32 / f32 — but
+  it is a claim about the CONTEXT, so the mode stands down to the lossless
+  canonicalisation for any shader mentioning `f16`. `obfuscate()` uses it. Pass
   `{ numbers: false }` to leave literals as emitted when diffing against a
   hand-checked baseline. `minifyShaderText(code, opts?)` is the raw function it
   wraps, for a string you already hold.
@@ -1041,7 +1048,10 @@ const fs = emitGlslModule(m, 'fragment', { parens: 'minimal', plugins: obfuscate
   rewritten. The pass splices by token offset, so it composes in either order
   with `minify()` and leaves the rest of the formatting untouched.
 - **`obfuscate({ renames? })`** — the standard preset, `[mangle(opts),
-aliasTypes(), minify()]`. Spread it into `{ plugins }`.
+aliasTypes(), minify({ numbers: 'f32' })]`. Spread it into `{ plugins }`, and
+  pair it with `parens: 'minimal'` for the smallest shipped shader: over the
+  example corpus the four axes together take plain emit from 186_527 chars to
+  100_296 (**−46.2%**).
 
 Plugins fire STAGED like Vite: every plugin's `transformIR` (IR stage) runs in
 array order before the module is assembled, then every plugin's `transformText`

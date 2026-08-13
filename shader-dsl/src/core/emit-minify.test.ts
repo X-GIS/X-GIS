@@ -51,6 +51,33 @@ describe('minifyShaderText — string contracts', () => {
     expect(minifyShaderText('a(0.500, 1.0);\n', { numbers: false })).toBe('a(0.500,1.0);\n')
   })
 
+  it("numbers: 'f32' re-spells to the shortest decimal with the SAME f32 bits", () => {
+    // `0.800000011920929` IS `fround(0.8)` printed as f64 — `.8` is the same
+    // number once the compiler rounds it, which it always does in f32 context.
+    expect(
+      minifyShaderText('a(0.800000011920929, 0.1000000014901161);\n', { numbers: 'f32' }),
+    ).toBe('a(.8,.1);\n')
+    // …and it shortens only as far as the f32 allows: 43758.5453 and 43758.547
+    // are the same f32, 43758.55 is not.
+    expect(minifyShaderText('a(43758.5453);\n', { numbers: 'f32' })).toBe('a(43758.547);\n')
+    expect(Math.fround(43758.547)).toBe(Math.fround(43758.5453))
+    expect(Math.fround(43758.55)).not.toBe(Math.fround(43758.5453))
+    // A float whose shortest spelling is a whole number stays a FLOAT: `1` is
+    // an abstract integer in WGSL and does not resolve against an f32 operator.
+    expect(minifyShaderText('a(1.0, 2.00, 3.0e0);\n', { numbers: 'f32' })).toBe('a(1.,2.,3.);\n')
+    // The default stays lossless — no f32 assumption unless asked.
+    expect(minifyShaderText('a(0.800000011920929);\n')).toBe('a(.800000011920929);\n')
+  })
+
+  it("numbers: 'f32' stands down for a shader that mentions f16", () => {
+    // The f32 claim is about the CONTEXT a literal lands in. An f16 anywhere
+    // means that context might not be f32, so the mode degrades to lossless
+    // rather than reason about which literal is which.
+    const src = 'enable f16;\nfn f(x: f16) -> f16 { return 0.800000011920929; }\n'
+    expect(minifyShaderText(src, { numbers: 'f32' })).toBe(minifyShaderText(src))
+    expect(minifyShaderText(src, { numbers: 'f32' })).toContain('.800000011920929')
+  })
+
   it('is idempotent', () => {
     const once = minifyShaderText('float f ( ) {\n  return 1.0 ; // c\n}\n')
     expect(minifyShaderText(once)).toBe(once)

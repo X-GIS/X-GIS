@@ -89,8 +89,8 @@ export function aliasTypes(): EmitPlugin {
 
 /** The standard production preset: [mangle, aliasTypes, minify] — rename the
  *  authored vocabulary, shorten the type vocabulary it may not rename, then
- *  compact. Spread it into a `{ plugins }` bag —
+ *  compact with f32-exact literal re-spelling. Spread it into a `{ plugins }` bag —
  *  `emitModule(m, { parens: 'minimal', plugins: obfuscate({ renames }) })`. */
 export function obfuscate(opts?: { renames?: Map<string, string> }): EmitPlugin[] {
-  return [mangle(opts), aliasTypes(), minify()]
+  return [mangle(opts), aliasTypes(), minify({ numbers: 'f32' })]
 }
