@@ -22,11 +22,11 @@
 
 import type { EmitPlugin } from './core/emit'
 import { mangleModule } from './core/passes/mangle'
-import { minifyShaderText } from './core/emit-minify'
+import { minifyShaderText, type MinifyOptions } from './core/emit-minify'
 import { inlineLinearAll } from './core/passes/inline-linear'
 
 export type { EmitPlugin, EmitOptions } from './core/emit'
-export { minifyShaderText } from './core/emit-minify'
+export { minifyShaderText, type MinifyOptions } from './core/emit-minify'
 export { mangleModule, type MangleResult } from './core/passes/mangle'
 
 /** Identifier-mangling plugin (a Vite-style factory returning an EmitPlugin).
@@ -49,10 +49,14 @@ export function mangle(opts?: { renames?: Map<string, string> }): EmitPlugin {
 }
 
 /** Text-minification plugin: whitespace/comment compaction of the emitted
- *  string. Token-safe by construction (WGSL/GLSL have no string literals; `#`
- *  directives keep their own line). */
-export function minify(): EmitPlugin {
-  return { name: 'minify', transformText: minifyShaderText }
+ *  string, plus lossless numeric-literal canonicalisation (`1.0` → `1.`; pass
+ *  `{ numbers: false }` to keep the literals as emitted). The minifier LEXES
+ *  the text and writes a separator only where maximal munch would otherwise
+ *  merge two tokens, so it is token-safe by construction — a property the
+ *  example corpus asserts directly (examples/minify-safety.test.ts) and real
+ *  Tint + ANGLE confirm (_emit-obfuscate-gate.spec.ts). */
+export function minify(opts?: MinifyOptions): EmitPlugin {
+  return { name: 'minify', transformText: (code) => minifyShaderText(code, opts) }
 }
 
 /** Call-graph-flattening plugin (obfuscation): inlines every safely-inlinable

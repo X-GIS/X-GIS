@@ -13,21 +13,42 @@ describe('minifyShaderText — string contracts', () => {
       '#version 300 es\nprecision highp float;\nfloat f() {\n  return 1.0;\n}\n',
     )
     expect(out.split('\n')[0]).toBe('#version 300 es')
-    expect(out).toBe('#version 300 es\nprecision highp float;float f(){return 1.0;}\n')
+    expect(out).toBe('#version 300 es\nprecision highp float;float f(){return 1.;}\n')
   })
 
-  it('strips // comments (no string literals exist in WGSL/GLSL)', () => {
-    expect(minifyShaderText('let x = 1.0; // the answer\nreturn x;\n')).toBe(
-      'let x = 1.0;return x;\n',
+  it('strips // line comments and /* */ block comments (no string literals exist)', () => {
+    expect(minifyShaderText('let x = 1.0; // the answer\nreturn x;\n')).toBe('let x=1.;return x;\n')
+    expect(minifyShaderText('let /* mid */ x = 2.0; /* tail\nspans lines */ return x;\n')).toBe(
+      'let x=2.;return x;\n',
     )
   })
 
-  it('removes spaces only at structural punctuation — never between word tokens', () => {
+  it('drops every separator maximal munch does not need', () => {
     expect(minifyShaderText('fn f( a : f32 , b : f32 ) -> f32 {\n  return a ;\n}\n')).toBe(
-      'fn f(a:f32,b:f32)-> f32{return a;}\n', // `)`+`->` is token-safe; `->`+`f32` keeps its space
+      'fn f(a:f32,b:f32)->f32{return a;}\n', // `)->f32` joins; `return a` cannot
     )
-    // `float x` must keep its space; `a - -b`-style operator pairs are untouched.
-    expect(minifyShaderText('float x = a - -b;\n')).toBe('float x = a - -b;\n')
+    expect(minifyShaderText('float x = a * b + c;\n')).toBe('float x=a*b+c;\n')
+  })
+
+  it('keeps the separator wherever omitting it would MERGE two tokens', () => {
+    expect(minifyShaderText('float x = a - -b;\n')).toBe('float x=a- -b;\n') // `- -` ≠ `--`
+    expect(minifyShaderText('float x = a / / b;\n')).toBe('float x=a/ /b;\n') // `//` = comment
+    expect(minifyShaderText('var v: array<vec2<f32> >;\n')).toBe('var v:array<vec2<f32> >;\n') // `> >` ≠ `>>`
+    expect(minifyShaderText('let x = 1.0 f;\n')).toBe('let x=1. f;\n') // number/word never merge
+    // …but a pair with no longer form joins: `<<` then `-` is not an operator.
+    expect(minifyShaderText('int x = a << -b;\n')).toBe('int x=a<<-b;\n')
+  })
+
+  it('canonicalises numeric literals losslessly — value and float-ness preserved', () => {
+    // `.5`/`1.` are valid float literals in both languages; the `.` never goes
+    // away without an exponent to keep the literal a float.
+    expect(minifyShaderText('a(0.500, 1.0, 0.0, 1.0e-07, 100.0, 0.0001, 7u, 3, 0x1F);\n')).toBe(
+      'a(.5,1.,0.,1e-7,100.,.0001,7u,3,0x1F);\n',
+    )
+    // A full-precision f32 printout keeps every significand digit.
+    expect(minifyShaderText('a(0.800000011920929);\n')).toBe('a(.800000011920929);\n')
+    // …and the pass is opt-out for baseline diffing.
+    expect(minifyShaderText('a(0.500, 1.0);\n', { numbers: false })).toBe('a(0.500,1.0);\n')
   })
 
   it('is idempotent', () => {

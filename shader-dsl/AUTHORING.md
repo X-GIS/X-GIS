@@ -985,10 +985,18 @@ const fs = emitGlslModule(m, 'fragment', { plugins: obfuscate() })
   programs still link. Pass a `Map` as `renames` to receive authored → emitted
   names: the shader "source map" for decoding production driver logs and GPU
   captures. Keep it out of the shipped bundle.
-- **`minify()`** — an `EmitPlugin` that compacts the emitted string. Token-safe
-  by construction (neither language has string literals; `#` directives keep
-  their own line). `minifyShaderText(code)` is the raw function it wraps, for a
-  string you already hold.
+- **`minify({ numbers? })`** — an `EmitPlugin` that compacts the emitted string.
+  It LEXES the text and re-emits the token stream, writing a separator only
+  where maximal munch would otherwise merge the boundary (`a- -b` keeps its
+  space, `)->f32` and `a=b*c` lose theirs) — the same rule the real compilers
+  use, so it needs no conservative carve-outs. Comments (`//` and `/* */`) go;
+  `#` directives keep their own line. Numeric literals are canonicalised
+  LOSSLESSLY — `0.500` → `.5`, `1.0` → `1.`, `1.0e-07` → `1e-7`; never a
+  significand digit dropped, and a float with no exponent always keeps its `.`
+  (`1.0` → `1.`, never `1`, which is an integer in WGSL). Pass
+  `{ numbers: false }` to leave literals as emitted when diffing against a
+  hand-checked baseline. `minifyShaderText(code, opts?)` is the raw function it
+  wraps, for a string you already hold.
 - **`inline()`** — an `EmitPlugin` that flattens the call graph (obfuscation):
   every safely-inlinable helper is inlined at all its call sites, so those
   functions vanish. Single-return helpers inline by expression substitution;
@@ -1017,7 +1025,10 @@ hosts bind unchanged. A fn containing a `raw` stmt makes the mangle a no-op
 for the whole module (textual references are invisible to the rename).
 
 Every renderable example is compiled AND pixel-compared through `obfuscate()`
-on real Tint + ANGLE by `playground/e2e/_emit-obfuscate-gate.spec.ts`.
+on real Tint + ANGLE by `playground/e2e/_emit-obfuscate-gate.spec.ts`, and
+`examples/minify-safety.test.ts` asserts the minifier's own property over the
+whole example corpus: the lexed TOKEN STREAM and every literal's VALUE are
+unchanged across minification, and the pass is idempotent.
 
 ## 9. GLSL float precision — `floatPrecision` (#1673)
 
