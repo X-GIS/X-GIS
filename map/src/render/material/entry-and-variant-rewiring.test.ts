@@ -38,6 +38,8 @@ import {
   POLY_STROKE,
   pickedModuleGlslId,
   pickedModuleWgslId,
+  lineGlslId,
+  lineWgslId,
   polygonGlslIds,
   polygonWgslId,
 } from '../../shaders/baked/ids'
@@ -128,6 +130,32 @@ describe('#1679 inc 6 — G1: the bake is read only where no variant is live', (
         `a point seam call does not read the guarded id carrier:\n    ${line.trim()}\n` +
           `Both halves must go through \`bakedPointIds\`, which is undefined when a variant is live.`,
       ).toBe(true)
+  })
+
+  it('line reads the bake ONLY through its `variant === null` carrier', () => {
+    const src = read('render/material/line-material.ts')
+    // Same hazard and same structural form as the point arm above — deliberately NOT a
+    // regex over the call expression, for the reason recorded there.
+    const seamLines = src
+      .split('\n')
+      .filter((l) => l.includes('wgslFor(') || l.includes('glslFor('))
+    expect(
+      seamLines.length,
+      'no wgslFor/glslFor line found in line-material.ts — the scan is vacuous',
+    ).toBeGreaterThanOrEqual(4)
+    for (const line of seamLines)
+      expect(
+        /line(Wgsl|Glsl)Id\(/.test(line),
+        `line-material.ts passes a baked id DIRECTLY at the seam:\n    ${line.trim()}\n` +
+          `The line keys carry pick and entry tokens but NO variant token, so a ` +
+          `variant-carrying layer would be painted the variant-free stroke. Every id must ` +
+          `come from bakedLineIds(), which returns undefined while a variant is live.`,
+      ).toBe(false)
+    expect(
+      src,
+      'bakedLineIds() no longer refuses to key a variant-carrying draper — that refusal IS ' +
+        'the guard; without it the seam serves the wrong stroke colour with no error.',
+    ).toContain('if (this.variant !== null) return undefined')
   })
 
   for (const [rel, reason] of Object.entries(NOT_BAKED)) {
@@ -229,4 +257,19 @@ describe('#1679 inc 6 — G3: every axis-carrying id resolves in the boot artifa
               `(bun run bake:shaders), or this entry pair is not in the closed set at all.`,
           ).toBe(true)
       })
+})
+
+describe('#1679 inc 7 — line: every keyed stage resolves in the boot artifact', () => {
+  for (const pick of [false, true])
+    it(`line (pick=${pick}) resolves for all four stage spellings`, () => {
+      expect(WGSL_BOOT.has(lineWgslId(pick)), lineWgslId(pick)).toBe(true)
+      for (const arg of ['vertex', 'fragment', 'fragment-pattern', 'fragment-max'] as const)
+        expect(
+          GLSL_BOOT.has(lineGlslId(pick, arg)),
+          `${lineGlslId(pick, arg)} is absent from the committed GLSL boot artifact — the ` +
+            `call site asks for it on every WebGL2 boot and the store answers 'absent'. ` +
+            `LINE_GLSL_STAGES maps the emitter's stage ARGUMENT to the key, so an emitter ` +
+            `that grew a stage without a row here falls through silently.`,
+        ).toBe(true)
+    })
 })
