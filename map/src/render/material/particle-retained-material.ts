@@ -17,6 +17,7 @@ import {
   emitParticleRetainedWgsl,
   emitParticleRetainedGlslStages,
 } from '../../shaders/dsl/particle-retained'
+import { simpleGlslId, simpleWgslId } from '../../shaders/baked/ids'
 import { wgslFor, glslStagesFor } from './wgsl-for'
 
 export class RetainedParticleDraper {
@@ -28,8 +29,11 @@ export class RetainedParticleDraper {
     // pipeline, so the twin is FREE — no new backend branch to diverge (design §3.2). Mirrors
     // RetainedCircleDraper.
     this.material = new Material(rhi, {
-      shader: wgslFor(rhi, emitParticleRetainedWgsl),
-      ...glslStagesFor(rhi, emitParticleRetainedGlslStages),
+      shader: wgslFor(rhi, emitParticleRetainedWgsl, simpleWgslId('particle-retained')),
+      ...glslStagesFor(rhi, emitParticleRetainedGlslStages, {
+        vertex: simpleGlslId('particle-retained', 'vertex'),
+        fragment: simpleGlslId('particle-retained', 'fragment'),
+      }),
       vsEntry: 'vs_particle_retained',
       fsEntry: 'fs_particle_retained',
       format: format as 'bgra8unorm',

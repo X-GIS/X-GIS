@@ -44,6 +44,7 @@ import {
   emitArrowRetainedAdvectedWgsl,
   emitArrowRetainedAdvectedGlslStages,
 } from '../../shaders/dsl/arrow-advected'
+import { simpleGlslId, simpleWgslId } from '../../shaders/baked/ids'
 import { glslStagesFor, wgslFor } from './wgsl-for'
 
 /** Group-1 entries, exported so a test can assert them against the EMITTED shader rather than
@@ -79,8 +80,11 @@ export class RetainedArrowAdvectedDraper {
     // ONE lowering, where the per-stage twin pruned + re-lowered the module for each stage.
     // `emitArrowRetainedAdvectedGlslStages` is pinned byte-identical to it.
     this.material = new Material(rhi, {
-      shader: wgslFor(rhi, emitArrowRetainedAdvectedWgsl),
-      ...glslStagesFor(rhi, emitArrowRetainedAdvectedGlslStages),
+      shader: wgslFor(rhi, emitArrowRetainedAdvectedWgsl, simpleWgslId('arrow-retained-advected')),
+      ...glslStagesFor(rhi, emitArrowRetainedAdvectedGlslStages, {
+        vertex: simpleGlslId('arrow-retained-advected', 'vertex'),
+        fragment: simpleGlslId('arrow-retained-advected', 'fragment'),
+      }),
       vsEntry: 'vs_arrow_retained_advected',
       fsEntry: 'fs_arrow_retained',
       format: format as 'bgra8unorm',

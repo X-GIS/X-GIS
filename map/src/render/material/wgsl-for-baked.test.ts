@@ -1,8 +1,10 @@
 // ═══ The emit seam's optional baked id — serve, fall through, and never mix (#1679) ═══
 //
-// Increment 3 gave `wgslFor` / `glslFor` / `glslStagesFor` an optional trailing id. Zero
-// call sites pass one yet, so nothing downstream would notice this wiring being wrong,
-// and the two ways it can be wrong are both silent:
+// Increment 3 gave `wgslFor` / `glslFor` / `glslStagesFor` an optional trailing id. Since
+// increment 5 the seven parameterless boot-group families DO pass one (their call sites are
+// pinned in `simple-family-rewiring.test.ts`), but most of the open set still passes
+// `undefined` — so both halves below remain live, and the two ways this can be wrong are
+// both silent:
 //
 //   * the store is consulted when it must not be — a call site that passes NO id has to
 //     behave bit-identically to before the seam existed, because that is the promise the
