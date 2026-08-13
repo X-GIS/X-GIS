@@ -68,6 +68,9 @@ export default tseslint.config(
         // a nested tsconfig would hijack from the package project.)
         projectService: {
           allowDefaultProject: [
+            // The package's own src ROOT — a test about the PACKAGE (its tsconfigs,
+            // its manifest) rather than about `core/`. #1681 added the first one.
+            'shader-dsl/src/*.test.ts',
             'shader-dsl/src/core/*.test.ts',
             'shader-dsl/src/core/backends/*.test.ts',
             'shader-dsl/src/core/diagnostics/*.test.ts',
