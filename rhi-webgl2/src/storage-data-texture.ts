@@ -49,12 +49,17 @@ const FORMAT = {
  *  texSubImage2D's typed array to MATCH its `type` argument exactly — a Uint32Array
  *  with gl.FLOAT is an INVALID_OPERATION — so the view is built from the TEXTURE's
  *  element, never from whatever the caller happened to hand in. */
-const texView = (elem: StorageElem, buf: ArrayBuffer, cap: number): ArrayBufferView =>
+const texView = (
+  elem: StorageElem,
+  buf: ArrayBuffer,
+  byteOffset: number,
+  cap: number,
+): ArrayBufferView =>
   elem === 'u32'
-    ? new Uint32Array(buf, 0, cap)
+    ? new Uint32Array(buf, byteOffset, cap)
     : elem === 'i32'
-      ? new Int32Array(buf, 0, cap)
-      : new Float32Array(buf, 0, cap)
+      ? new Int32Array(buf, byteOffset, cap)
+      : new Float32Array(buf, byteOffset, cap)
 
 // Byte-addressed: one scratch backs f32/u32/i32 alike, since all three are 4-byte words
 // and the padding below is a pure byte move. Lazily grown, reused across writes (#784 —
@@ -100,7 +105,17 @@ export function createStorageDataTexture(
  *  The pad/copy runs on a Uint32Array WORD view whatever the element is: all three are
  *  4-byte words, so it is a pure byte move and the f32 path's uploaded bytes are
  *  unchanged by #1703. Only the final view + GL format/type INTERPRET those bytes, and
- *  both come from the texture's own element. */
+ *  both come from the texture's own element.
+ *
+ *  The word view MUST honour the caller's view WINDOW (byteOffset + byteLength), not its
+ *  whole backing buffer. Every real caller here hands in a FRAME-ARENA subarray —
+ *  `FrameArena.allocF32` returns `new Float32Array(this.buffer, off, count)` — so
+ *  `data.buffer` is one large arena shared by every renderer that frame. Reading it from
+ *  offset 0 uploads a different buffer's bytes, with no error anywhere: the draw simply
+ *  renders nothing. That is exactly what a `new Uint32Array(data.buffer)` here did to the
+ *  WebGL2 point path (caught by _1616-pan-points-gl2-gate: 0 red pixels where >2000 were
+ *  expected). The pre-#1703 code was safe by accident — it passed a Float32Array straight
+ *  through, window intact, and only rebuilt a view for the non-f32 case. */
 export function writeStorageDataTexture(
   gl: WebGL2RenderingContext,
   b: Gl2StorageBuffer,
@@ -108,18 +123,20 @@ export function writeStorageDataTexture(
   data: BufferSource,
 ): void {
   const fmt = FORMAT[b.elem]
-  const srcBuf = data instanceof ArrayBuffer ? data : (data as ArrayBufferView).buffer
-  const words = new Uint32Array(srcBuf)
+  const view = data instanceof ArrayBuffer ? undefined : (data as ArrayBufferView)
+  const srcBuf = view ? view.buffer : (data as ArrayBuffer)
+  const srcOff = view ? view.byteOffset : 0
+  const words = new Uint32Array(srcBuf, srcOff, (view ? view.byteLength : srcBuf.byteLength) >>> 2)
   const cap = b.width * b.height
   let padded: ArrayBufferView
   if (words.length === cap) {
-    padded = texView(b.elem, srcBuf, cap)
+    padded = texView(b.elem, srcBuf, srcOff, cap)
   } else {
     if (cap * 4 > _padScratch.byteLength) _padScratch = new ArrayBuffer(cap * 8)
     const dst = new Uint32Array(_padScratch, 0, cap)
     dst.fill(0)
     dst.set(words.subarray(0, Math.min(words.length, cap)), byteOffset / 4)
-    padded = texView(b.elem, _padScratch, cap)
+    padded = texView(b.elem, _padScratch, 0, cap)
   }
   gl.bindTexture(gl.TEXTURE_2D, b.storageTex)
   gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1)
