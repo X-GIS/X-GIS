@@ -280,3 +280,53 @@ describe('#1700 — the transcription ratchet', () => {
     ).toBeLessThanOrEqual(5)
   })
 })
+
+describe('#1700 — this gate actually runs in CI', () => {
+  // The #996 lesson: a PATH-KEYED gate needs a companion assertion that every key still
+  // resolves. Here the keys live in test.yml's `changes` filter, and the failure is total —
+  // not a weaker check, but no check at all, reported as green.
+  //
+  // MEASURED, not hypothetical. The first push of this file (PR #1701) posted all 17 checks
+  // GREEN in ~4 seconds. `scripts/**` was in no filter, so `code` was false; every leg spins
+  // up, `if`-skips all its steps by design, and posts success having run nothing. The gate
+  // had never executed once. The same hole made it dark in the scenario it exists for: an
+  // edit to reference.astro sets `site=true` and `code=false`, so the doc could rot while
+  // CI stayed green — the exact thing this file was written to prevent.
+  //
+  // Asserting on the config is right HERE and nowhere else in this file: "does a CI leg run
+  // this test" has no artifact a test can observe from inside the run. Everything else is
+  // checked against the source.
+  const REQUIRED = ['scripts/**', 'site/src/pages/shader-dsl/reference.astro']
+
+  it('test.yml `code` filter names every path this gate depends on', () => {
+    const wf = readFileSync(join(ROOT, '.github', 'workflows', 'test.yml'), 'utf8')
+    const code = /^\s{12}code:\n((?:\s{14}.*\n)+)/m.exec(wf)
+    expect(
+      code,
+      'could not find the `code:` filter block in .github/workflows/test.yml. This arm ' +
+        'refuses to guess: if the reader is broken it must say so rather than pass, or it ' +
+        'becomes the second gate in a row that is green while running nothing.',
+    ).not.toBeNull()
+
+    const missing = REQUIRED.filter((p) => !code![1].includes(`'${p}'`))
+    expect(
+      missing,
+      `test.yml's \`code\` filter does not list:\n  ${missing.join('\n  ')}\n` +
+        `Without every one of these, a PR touching only that path sets code=false, all ` +
+        `test legs skip their steps, and the checks post GREEN in seconds having run this ` +
+        `file zero times. Note the deliberate \`site/**\` exclusion stays — only the ONE ` +
+        `page this gate reads is listed, not the whole site.`,
+    ).toEqual([])
+  })
+
+  it('vitest actually collects this file', () => {
+    // The other half: being named in a CI filter buys nothing if vitest's own `include`
+    // stops matching. Cheap to assert, and it fails loudly instead of silently narrowing.
+    const cfg = readFileSync(join(ROOT, 'vitest.config.ts'), 'utf8')
+    expect(
+      cfg,
+      "vitest.config.ts no longer includes 'scripts/**/*.test.ts', so this file is not " +
+        'collected by any run — local or CI — and every arm above is unreachable.',
+    ).toContain("'scripts/**/*.test.ts'")
+  })
+})
