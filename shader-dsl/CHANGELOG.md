@@ -7,12 +7,12 @@
     bun scripts/emit-changelog.ts --path shader-dsl > shader-dsl/CHANGELOG.md
     bunx prettier --write shader-dsl/CHANGELOG.md
 
-  Generated from: 4bf461085e22d52de4b3e924dc0371585565ad5e
+  Generated from: 9f5a8f95414d0636bbb9d75340bc2415a2277559
   History walked: first-parent of main
   Scope: commits touching shader-dsl/
   Repository: https://github.com/X-GIS/X-GIS
   What changed since this file was generated (run from a repo checkout):
-    bun scripts/emit-changelog.ts --path shader-dsl --since 4bf461085e22
+    bun scripts/emit-changelog.ts --path shader-dsl --since 9f5a8f95414d
 -->
 
 # Changelog — shader-dsl
@@ -25,10 +25,42 @@ _Entries are the commits touching `shader-dsl/`; a listed commit may also touch 
 
 #### feat
 
+- **shader-dsl:** integer sampled textures (u32/i32 × 2d/2d-array) and the array&lt;u32&gt; storage lowering (#1703) ([#1705](https://github.com/X-GIS/X-GIS/pull/1705)) `9f5a8f9`
+- **shader-dsl:** production shader emit — token-level minify, short identifiers, type aliases, minimal parens, prototype pruning, and a log decoder ([#1684](https://github.com/X-GIS/X-GIS/pull/1684)) `fffd79f`
+- **map,shader-dsl:** baked-shader store with family-derived download groups, and a shader-dsl that compiles standalone (#1679, #1681) `483a30b`
+- **shader-dsl:** WebGL2 extension profile surface — capProfile single authority, #extension emission, reflect().requiredFeatures (#1670) ([#1677](https://github.com/X-GIS/X-GIS/pull/1677)) `13394b7`
+- **shader-dsl:** paired per-target raw statements — rawGlsl joins rawWgsl, fail-closed on the missing side (#1671) ([#1676](https://github.com/X-GIS/X-GIS/pull/1676)) `9b8253b`
+- **shader-dsl:** GlslEmitOptions.floatPrecision — a build-time mediump knob for the GLSL float precision line (#1673) ([#1675](https://github.com/X-GIS/X-GIS/pull/1675)) `4d6a7b2`
+- **shader-dsl:** absent WGSL builtins fail closed at emit — point_size, point_coord, frag_coord (#1672) ([#1674](https://github.com/X-GIS/X-GIS/pull/1674)) `4677149`
+- **shader-dsl:** textureNumLayers — query the layer count of a 2d-array texture (#1658) ([#1662](https://github.com/X-GIS/X-GIS/pull/1662)) `3a2b79e`
+- **shader-dsl:** derivative builtins join the fragment-only lint; SD0109 catalogue hint goes generic (#1654) ([#1660](https://github.com/X-GIS/X-GIS/pull/1660)) `bcfa81c`
+- **shader-dsl:** texture_2d_array\<f32\> end-to-end (#1651) ([#1657](https://github.com/X-GIS/X-GIS/pull/1657)) `b84d4c2`
+- **scripts:** generated changelog from the conventional-commit history (#1653) ([#1656](https://github.com/X-GIS/X-GIS/pull/1656)) `fe3df48`
 - **shader-dsl:** textureSampleLevel + fragment-only lint for textureSample (#1650) ([#1652](https://github.com/X-GIS/X-GIS/pull/1652)) `4bf4610`
 - **shader-dsl:** GLSL storage→data-texture emulation is default-on (#1647) ([#1648](https://github.com/X-GIS/X-GIS/pull/1648)) `a5eeaf9`
 
+#### refactor
+
+- **shader-dsl:** remove the no-op emulateStorage flag from all consumers, tag it @deprecated (#1649) ([#1659](https://github.com/X-GIS/X-GIS/pull/1659)) `136fdef`
+
+#### docs
+
+- **shader-dsl:** answer the `#define` question, replace the reference page, and make the docs pipeline self-checking (#1694, #1700, #1695) ([#1702](https://github.com/X-GIS/X-GIS/pull/1702)) `ddaa150`
+- **shader-dsl:** document the eight star-re-exported backend symbols (#1697) ([#1698](https://github.com/X-GIS/X-GIS/pull/1698)) `259caf5`
+
+#### test
+
+- **shader-dsl:** gate every public export on having a doc comment (#1695) ([#1696](https://github.com/X-GIS/X-GIS/pull/1696)) `3f6428e`
+
+#### build
+
+- **shader-dsl:** distribute via a git subtree mirror, and gate the invariant that makes it work ([#1681](https://github.com/X-GIS/X-GIS/pull/1681)) `54718a7`
+
 ### 2026-07
+
+#### ⚠ BREAKING CHANGES
+
+- **BREAKING** dissolve @xgis/runtime — @xgis/map becomes the published package ([#1343](https://github.com/X-GIS/X-GIS/pull/1343)) `176d494`
 
 #### feat
 
@@ -89,7 +121,6 @@ _Entries are the commits touching `shader-dsl/`; a listed commit may also touch 
 
 #### refactor
 
-- **BREAKING** dissolve @xgis/runtime — @xgis/map becomes the published package ([#1343](https://github.com/X-GIS/X-GIS/pull/1343)) `176d494`
 - **shader-dsl:** lint Wave 3 — migrate 38 no-deprecated callFn sites + engine colormap (#1055) ([#1135](https://github.com/X-GIS/X-GIS/pull/1135)) `3a8caf1`
 - **shader-dsl:** production emit as Vite/Webpack-style plugins ([#877](https://github.com/X-GIS/X-GIS/pull/877)) `425a8ae`
 - **shader-dsl:** shared fullscreen boilerplate + MRT gate coverage ([#848](https://github.com/X-GIS/X-GIS/pull/848)) `8070cfc`
@@ -118,13 +149,22 @@ _Entries are the commits touching `shader-dsl/`; a listed commit may also touch 
 
 - adopt repo-wide Prettier baseline (prettier --write .) ([#812](https://github.com/X-GIS/X-GIS/pull/812)) `c780a4b`
 
-#### other
+#### revert
 
 - Revert "fix(shader-dsl): guard df64_mul cross terms against distributive fast-math" ([#918](https://github.com/X-GIS/X-GIS/pull/918)) `bfab842`
+
+#### other
+
 - fp64 probe: revert launder regression + probe UI redesign ([#905](https://github.com/X-GIS/X-GIS/pull/905)) `a57ac1b`
 - shader-dsl: df64 GPU conformance probe + emulated-double matrices ([#897](https://github.com/X-GIS/X-GIS/pull/897)) `f08ec18`
-- Merge pull request #831 from X-GIS/claude/gpu-webgl2-container-ovacvb ([#831](https://github.com/X-GIS/X-GIS/pull/831)) `fe178fc`
 - docs+refactor(shader-dsl): #763 Phases A+H — arch erosion + doc/comment truth ([#773](https://github.com/X-GIS/X-GIS/pull/773)) `7611d1d`
+
+<details>
+<summary>1 pre-squash merge commit</summary>
+
+- Merge pull request #831 from X-GIS/claude/gpu-webgl2-container-ovacvb ([#831](https://github.com/X-GIS/X-GIS/pull/831)) `fe178fc`
+
+</details>
 
 ### 2026-06
 
@@ -160,6 +200,13 @@ _Entries are the commits touching `shader-dsl/`; a listed commit may also touch 
 - shader-dsl: exhaustive integer dispatch (enumU32 + matchEnum) ([#666](https://github.com/X-GIS/X-GIS/pull/666)) `67f0d17`
 - shader-dsl: first-class validated module composition (composeModule) ([#668](https://github.com/X-GIS/X-GIS/pull/668)) `a23565d`
 - shader-dsl: first-class non-scalar module constants ([#652](https://github.com/X-GIS/X-GIS/pull/652)) `8f8a3fc`
+- Merge Phase 2: standalone-product (dist wiring + clean rebuild + README + examples + LICENSE) `ff013f2`
+- Merge Phase 1: emitModuleWithReflection (byte-identical) — verified tsc 0, suite 0-fail, snapshots untouched `97da4ba`
+- shader-dsl backend-agnostic: architecture design + S0 (writer/pass/oracle separation) ([#490](https://github.com/X-GIS/X-GIS/pull/490)) `ba51669`
+
+<details>
+<summary>84 pre-squash merge commits</summary>
+
 - Merge pull request #630 from X-GIS/feat/shader-dsl-opt-levels-measure ([#630](https://github.com/X-GIS/X-GIS/pull/630)) `fb9a44c`
 - Merge pull request #623 from X-GIS/feat/shader-dsl-more-examples ([#623](https://github.com/X-GIS/X-GIS/pull/623)) `9ff164e`
 - Merge pull request #624 from X-GIS/feat/shader-dsl-local-cse ([#624](https://github.com/X-GIS/X-GIS/pull/624)) `29fff22`
@@ -172,8 +219,6 @@ _Entries are the commits touching `shader-dsl/`; a listed commit may also touch 
 - Merge pull request #571 from X-GIS/claude/epic-mayer-ewb9kl ([#571](https://github.com/X-GIS/X-GIS/pull/571)) `8dfde73`
 - Merge pull request #570 from X-GIS/fix/shader-dsl-glsl-bare-params ([#570](https://github.com/X-GIS/X-GIS/pull/570)) `7f1e377`
 - Merge pull request #569 from X-GIS/feat/shader-dsl-dogfooding ([#569](https://github.com/X-GIS/X-GIS/pull/569)) `844731b`
-- Merge Phase 2: standalone-product (dist wiring + clean rebuild + README + examples + LICENSE) `ff013f2`
-- Merge Phase 1: emitModuleWithReflection (byte-identical) — verified tsc 0, suite 0-fail, snapshots untouched `97da4ba`
 - Merge pull request #568 from X-GIS/feat/shader-dsl-reflection-phase0 ([#568](https://github.com/X-GIS/X-GIS/pull/568)) `b60b898`
 - Merge pull request #566 from X-GIS/refactor/shader-dsl-move-shaders-to-runtime ([#566](https://github.com/X-GIS/X-GIS/pull/566)) `b8f0d83`
 - Merge pull request #565 from X-GIS/refactor/shader-dsl-emit-module-driver ([#565](https://github.com/X-GIS/X-GIS/pull/565)) `579f0e7`
@@ -246,4 +291,5 @@ _Entries are the commits touching `shader-dsl/`; a listed commit may also touch 
 - Merge pull request #494 from X-GIS/feat/shader-dsl-readability-c2-ambient-builder ([#494](https://github.com/X-GIS/X-GIS/pull/494)) `2da87dd`
 - Merge pull request #493 from X-GIS/fix/shader-dsl-validate-opacity-and-gpu-verify ([#493](https://github.com/X-GIS/X-GIS/pull/493)) `8e0170e`
 - Merge pull request #492 from X-GIS/feat/shader-dsl-tsl-redesign ([#492](https://github.com/X-GIS/X-GIS/pull/492)) `860c1e4`
-- shader-dsl backend-agnostic: architecture design + S0 (writer/pass/oracle separation) ([#490](https://github.com/X-GIS/X-GIS/pull/490)) `ba51669`
+
+</details>
