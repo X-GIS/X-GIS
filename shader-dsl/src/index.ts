@@ -61,6 +61,17 @@ export * from './core/reflect'
 // backend above; `emitGlslFragment` from the GLSL one. The shared shapes live here.
 export { type EmitFragment, type FragmentDeclares } from './core/fragment'
 
+// Registry generation (#1716) — the reusable half: validate a DISCOVERED module set
+// against a CURATED id order and render a keyed registry module from it. Pure (no
+// filesystem), because the scan convention belongs to the caller; what everyone would
+// otherwise re-invent differently is the two-way drift check.
+export {
+  buildRegistry,
+  type RegistryEntry,
+  type BuildRegistryOptions,
+  type BuiltRegistry,
+} from './core/registry'
+
 // Variant FAMILIES (#1712) — the typed matrix for feature axes a HOST decides at runtime,
 // the case AUTHORING.md §11's build-time specialisation deliberately does not cover.
 // Per-variant modules + reflections + a derived key, emitted either preprocessor-free (the
