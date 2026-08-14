@@ -34,6 +34,8 @@ import {
   vec4fT,
   vec2uT,
   vec2iT,
+  vec4uT,
+  vec4iT,
   arrayT,
 } from './types'
 import type { Expr, BinOp, CmpOp } from './nodes'
@@ -799,6 +801,25 @@ const layerArg = (l: ReadonlyNode<'i32' | 'u32'> | number): NodeLike => {
   }
   return l
 }
+/** A textureLoad MIP-LEVEL (or MSAA sample-index) argument — layerArg's twin, and for
+ *  the same reason (#1703). WGSL's `textureLoad` takes an INTEGER level, but `lift()`
+ *  defaults a bare number to f32, so the `textureLoad(t, c, 0)` this function's own doc
+ *  recommends emitted `textureLoad(t, c, 0.0)` — which naga REJECTS. It went unnoticed
+ *  because every in-repo caller writes `u32(0)` by hand and because GLSL's spelling
+ *  wraps the argument in `int(…)`, which quietly absorbed the float. An integer texture
+ *  has no sampling form at all, so textureLoad is its ONLY read and every author of one
+ *  would have hit this on their first line.
+ *
+ *  NOT the same as textureSampleLevel's level, which really is an f32 in WGSL and
+ *  keeps the default lift. A fractional number is rejected for layerArg's reason: the
+ *  targets would not agree on how to round it. */
+const levelArg = (l: NodeLike): NodeLike => {
+  if (typeof l === 'number') {
+    if (!Number.isInteger(l)) throw dslError('SD0015', `mip level ${l}`)
+    return u32(l)
+  }
+  return l
+}
 /** Sample a 2D texture → vec4<f32>. (CPU eval: opt-in stub.) First-arg
  *  constraints (#763 X6): a texture/sampler swap used to type-check and die
  *  at naga — KeyOf now carries specific texture/sampler keys.
@@ -883,44 +904,69 @@ export function textureSampleLevel(
         )
   ) as Node<'vec4<f32>'>
 }
-/** Load a texel from a 2D texture at integer coords → vec4<f32>. The mip
- *  level argument is required by WGSL; pass `0` for the base level.
- *  Coord is typically `vec2<i32>`; the runtime accepts any vec2 / scalar
- *  NodeLike and lets WGSL's textureLoad signature check. (CPU stub.) */
-export function textureLoad(
-  tex: ReadonlyNode<'texture_2d<f32>' | 'texture_multisampled_2d<f32>'>,
+/** Every NON-array texture key a texel load accepts — the three sampled elements
+ *  (#1703) plus the multisampled f32 one. */
+export type TextureLoad2dKey =
+  'texture_2d<f32>' | 'texture_2d<u32>' | 'texture_2d<i32>' | 'texture_multisampled_2d<f32>'
+/** Every 2D-ARRAY texture key a texel load accepts (#1651, #1703). */
+export type TextureLoadArrayKey =
+  'texture_2d_array<f32>' | 'texture_2d_array<u32>' | 'texture_2d_array<i32>'
+/** The `vec4<…>` a texel load off texture key `K` yields (#1703). The loaded element
+ *  IS the element in the key, so ONE conditional covers all seven texture keys and the
+ *  overload set does not multiply along the element axis. Deriving it from the key also
+ *  makes the two halves impossible to desync: a `vec4<f32>` result on a `usampler2D`
+ *  load is rejected by naga AND by the GLSL compiler, and there is no spelling of
+ *  textureLoad here that can produce that pair. */
+export type TexelKey<K extends string> = K extends `${string}<${infer E}>` ? `vec4<${E}>` : never
+// The IR type behind TexelKey — read off the TEXTURE NODE, never a second table, for
+// the same reason. Falls through to vec4fT for a non-texture node, which the typed
+// overloads make unreachable and which is byte-identical to the pre-#1703 hardcode.
+const texelType = (t: ShaderType): ShaderType =>
+  t.kind !== 'texture' ? vec4fT : t.elem === 'u32' ? vec4uT : t.elem === 'i32' ? vec4iT : vec4fT
+/** Load a texel from a 2D texture at integer coords → `vec4<f32>` / `vec4<u32>` /
+ *  `vec4<i32>`, matching the texture's own element (#1703). The mip level argument is
+ *  required by WGSL; pass `0` for the base level — a bare number lifts to a u32 literal
+ *  (see `levelArg`), so `0` really does emit a valid integer level on both targets.
+ *  Coord is typically `vec2<i32>`; the runtime accepts any vec2 / scalar NodeLike and
+ *  lets WGSL's textureLoad signature check. (CPU stub.)
+ *
+ *  This is the ONLY read form an INTEGER texture has — integer texels are unfilterable,
+ *  so {@link textureSample}/{@link textureSampleLevel} reject those keys at tsc (see
+ *  `TextureElem`). */
+export function textureLoad<K extends TextureLoad2dKey>(
+  tex: ReadonlyNode<K>,
   coord: NodeLike,
   level: NodeLike,
-): Node<'vec4<f32>'>
+): Node<TexelKey<K>>
 /** Load a texel from one LAYER of a 2D ARRAY texture (#1651) — unfiltered, so the
  *  layer/level are exact. GLSL folds the layer into an `ivec3` coordinate; WGSL keeps
- *  it as its own argument. Neutral id `textureLoadArray`. */
-export function textureLoad(
-  tex: ReadonlyNode<'texture_2d_array<f32>'>,
+ *  it as its own argument. Neutral id `textureLoadArray`. Integer elements (#1703)
+ *  ride the same id — only the result type differs. */
+export function textureLoad<K extends TextureLoadArrayKey>(
+  tex: ReadonlyNode<K>,
   coord: NodeLike,
   layer: ReadonlyNode<'i32' | 'u32'> | number,
   level: NodeLike,
-): Node<'vec4<f32>'>
+): Node<TexelKey<K>>
 export function textureLoad(
-  tex:
-    | ReadonlyNode<'texture_2d<f32>' | 'texture_multisampled_2d<f32>'>
-    | ReadonlyNode<'texture_2d_array<f32>'>,
+  tex: ReadonlyNode<TextureLoad2dKey> | ReadonlyNode<TextureLoadArrayKey>,
   coord: NodeLike,
   layerOrLevel: ReadonlyNode<'i32' | 'u32'> | NodeLike,
   level?: NodeLike,
-): Node<'vec4<f32>'> {
+): Node<string> {
+  const ret = texelType(tex.type)
   return (
     level === undefined
-      ? call('textureLoad', vec4fT, tex, coord, layerOrLevel as NodeLike)
+      ? call('textureLoad', ret, tex, coord, levelArg(layerOrLevel as NodeLike))
       : call(
           'textureLoadArray',
-          vec4fT,
+          ret,
           tex,
           coord,
           layerArg(layerOrLevel as ReadonlyNode<'i32' | 'u32'> | number),
-          level,
+          levelArg(level),
         )
-  ) as Node<'vec4<f32>'>
+  ) as Node<string>
 }
 /** INTERNAL (core/fp64/df64-lib.ts): the fp64 anti-fast-math guard value — a
  *  runtime-opaque 1.0. Spelled per target as a texel fetch from the injected
@@ -932,9 +978,12 @@ export const f64GuardOne = (): Node<'f32'> =>
  *  fullscreen-triangle compose passes; cached in a `let` by the caller.
  *  A 2d-array texture (#1651) uses the SAME id: WGSL returns vec2<u32> for arrays
  *  too (the layer count is a separate query), and GLSL's ivec3 textureSize truncates
- *  into the emitted uvec2() — see the registry entry. */
+ *  into the emitted uvec2() — see the registry entry. An INTEGER texture (#1703) is
+ *  the same again: the extent of a `usampler2D` is still an extent, so the id, the
+ *  spelling, and the `vec2<u32>` result are all unchanged — only the accepted keys
+ *  widen. */
 export const textureDimensions = (
-  tex: ReadonlyNode<'texture_2d<f32>' | 'texture_multisampled_2d<f32>' | 'texture_2d_array<f32>'>,
+  tex: ReadonlyNode<TextureLoad2dKey | TextureLoadArrayKey>,
 ): Node<'vec2<u32>'> => call('textureDimensions', vec2uT, tex) as Node<'vec2<u32>'>
 /** Layer COUNT of a 2D ARRAY texture → u32 (#1658) — the one extent
  *  {@link textureDimensions} cannot report (it returns vec2<u32> for an array texture
@@ -944,8 +993,12 @@ export const textureDimensions = (
  *  dedicated `textureNumLayers(t)`, GLSL ES 3.00 has no such function at all and reads
  *  the THIRD component of its `ivec3 textureSize(sampler2DArray, lod)` (exactly the
  *  component textureDimensions' `uvec2()` constructor drops). u32 is WGSL's return
- *  type; wrap in {@link toF32} for float arithmetic. (CPU stub.) */
-export const textureNumLayers = (tex: ReadonlyNode<'texture_2d_array<f32>'>): Node<'u32'> =>
+ *  type; wrap in {@link toF32} for float arithmetic. (CPU stub.)
+ *
+ *  Accepts an INTEGER array texture too (#1703) — the layer COUNT is a property of the
+ *  view, not of the texel element, so `usampler2DArray` reads it through the identical
+ *  `uint(textureSize(t, 0).z)`. */
+export const textureNumLayers = (tex: ReadonlyNode<TextureLoadArrayKey>): Node<'u32'> =>
   call('textureNumLayers', u32T, tex) as Node<'u32'>
 /** Screen-space derivative magnitude — GPU-only (uncomputable per-invocation
  *  on the CPU; the interpreter stubs it to 0). FRAGMENT-ONLY in WGSL: enforced by

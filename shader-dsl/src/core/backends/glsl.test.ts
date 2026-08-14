@@ -25,6 +25,9 @@ import {
   i32T,
   texture2dfT,
   texture2dArrayfT,
+  texture2duT,
+  texture2diT,
+  texture2dArrayuT,
   samplerT,
   structT,
   type ShaderType,
@@ -534,16 +537,85 @@ describe('glsl-es300 — storage → data-texture emulation (default-on)', () =>
     expect(() => emitGlslModule(m, 'fragment')).toThrow(/'blob'[\s\S]*array<f32>/)
   })
 
-  it('a top-level array<u32> still fails closed (needs the typed-texture follow-on)', () => {
-    const m = residualMod(storageOf('idx_data', { kind: 'array', elem: u32T } as ShaderType))
-    expect(() => emitGlslModule(m, 'fragment')).toThrow(UnsupportedFeatureError)
-    expect(() => emitGlslModule(m, 'fragment')).toThrow(/'idx_data'[\s\S]*typed-texture/)
+  // ── #1703 — the two shapes that USED to be the residual now lower, typed ──
+  //
+  // The choice under test is the data texture's ELEMENT, not the index math (that is
+  // shared with the f32 path and pinned above). An integer array must land on
+  // usampler2D / isampler2D — reusing the R32F sampler2D and bitcasting would compile,
+  // emit plausible-looking GLSL, and lose small values on any driver that exercises its
+  // GLSL ES 3.00 §2.1.1 right to flush denormals (`1u` is the f32 denormal 1.4e-45).
+  // That is why these assert the SAMPLER TYPE, not merely that a texelFetch appeared.
+  // The fetched value is CONSUMED by the returned colour, never left in a dangling
+  // `let` — an unread element would be dead code, and DCE would delete the very
+  // texelFetch these tests assert on (an assertion that passes because nothing ran).
+  const intStorageMod = (name: string, elem: ShaderType): ModuleDecl => {
+    const arrT = { kind: 'array', elem } as ShaderType
+    const read: Expr = {
+      op: 'index',
+      type: elem,
+      base: { op: 'varref', type: arrT, name },
+      idx: { op: 'lit', type: u32T, value: 3 },
+    }
+    return {
+      consts: [],
+      structs: [FsOut],
+      bindings: [storageOf(name, arrT)],
+      funcs: [
+        {
+          name: 'fs',
+          attrs: ['@fragment'],
+          params: [],
+          ret: structT('FsOut'),
+          body: [
+            {
+              s: 'return',
+              expr: {
+                op: 'construct',
+                type: structT('FsOut'),
+                args: [
+                  v4({ op: 'call', type: f32T, fn: 'f32', args: [read] }, lit(0), lit(0), lit(1)),
+                ],
+              },
+            },
+          ],
+        },
+      ],
+    }
+  }
+
+  it('a top-level array<u32> lowers to a usampler2D data texture (#1703)', () => {
+    const fs = emitGlslModule(intStorageMod('idx_data', u32T), 'fragment')
+    expect(fs).toContain('uniform usampler2D idx_data;')
+    // …and the §4.5.4 precision line without which it would not compile at all
+    expect(fs).toContain('precision highp usampler2D;')
+    // same 2D-tiled index math as the f32 path — the element moved, the tiling did not
+    expect(fs).toMatch(
+      /texelFetch\(idx_data, ivec2\(int\(.*\) % textureSize\(idx_data, 0\)\.x, int\(.*\) \/ textureSize\(idx_data, 0\)\.x\), 0\)\.r/,
+    )
+    expect(fs).not.toContain('idx_data[') // no raw array indexing survives
+    // the negative that makes this test mean something: NO float sampler, and no
+    // bitcast recovering the value through one
+    expect(fs).not.toContain('uniform sampler2D idx_data;')
+    expect(fs).not.toContain('floatBitsToUint')
   })
 
-  it('a top-level array<i32> still fails closed', () => {
-    const m = residualMod(storageOf('sign_data', { kind: 'array', elem: i32T } as ShaderType))
+  it('a top-level array<i32> lowers to an isampler2D data texture (#1703)', () => {
+    const fs = emitGlslModule(intStorageMod('sign_data', i32T), 'fragment')
+    expect(fs).toContain('uniform isampler2D sign_data;')
+    expect(fs).toContain('precision highp isampler2D;')
+    expect(fs).toContain('texelFetch(sign_data,')
+    expect(fs).not.toContain('uniform sampler2D sign_data;')
+  })
+
+  it('an UNSUPPORTED element still fails closed, and the message now lists the integer shapes', () => {
+    // The residual did not disappear — it shrank. A shape outside the supported set
+    // must still throw by NAME, and the listing a caller is pointed at has to mention
+    // the two shapes that just became legal, or it sends them to a workaround they no
+    // longer need.
+    const arrBool = { kind: 'array', elem: { kind: 'scalar', scalar: 'bool' } } as ShaderType
+    const m = residualMod(storageOf('flag_data', arrBool))
     expect(() => emitGlslModule(m, 'fragment')).toThrow(UnsupportedFeatureError)
-    expect(() => emitGlslModule(m, 'fragment')).toThrow(/'sign_data'/)
+    expect(() => emitGlslModule(m, 'fragment')).toThrow(/'flag_data'[\s\S]*array<u32>, array<i32>/)
   })
 
   it('an i32 struct field still fails closed, naming the field and its struct', () => {
@@ -1020,6 +1092,98 @@ describe('glsl-es300 / wgsl — 2d-array texture reads (#1651)', () => {
     const m = dslModule({ uses: [ArrOut, arrTex, arrSmp], funcs: [arrVs, layersFs] })
     expect(emitGlslModule(m, 'fragment')).toContain('uint(textureSize(arr_tex, 0).z)')
     expect(emitModule(m)).toContain('textureNumLayers(arr_tex)')
+  })
+})
+
+// ── integer sampled textures (#1703) — u/isampler on GLSL, texture_2d<u32> on WGSL ──
+//
+// The element axis needs NO new neutral id: texelFetch / textureSize / the .z layer
+// read are already generic over the sampler type, so only the DECLARED type and the
+// RESULT type move. Both spellings of the same module are asserted side by side, same
+// as the #1651 block above, so a divergence lands in one diff.
+describe('glsl-es300 / wgsl — integer texture reads (#1703)', () => {
+  const IntOut = ioStruct('IntOut', { pos: builtin('position', vec4fT), uv: location(0, vec2fT) })
+  const uTex = resource('u_ids', texture2duT, { group: 0, binding: 0 })
+  const iTex = resource('i_deltas', texture2diT, { group: 0, binding: 1 })
+  const uArr = resource('u_atlas', texture2dArrayuT, { group: 0, binding: 2 })
+  const intVs = fn(
+    'int_vs',
+    { uv: location(0, vec2fT) },
+    ({ uv }) => {
+      const o = IntOut.var('out')
+      o.pos.assign(vec4(uv.x, uv.y, 0, 1))
+      o.uv.assign(uv)
+      return o
+    },
+    { stage: 'vertex' },
+  )
+  const intFs = fn(
+    'int_fs',
+    { inp: IntOut },
+    () =>
+      vec4(
+        toF32(textureLoad(uTex.node, vec2i(0, 0), 0).x),
+        toF32(textureLoad(iTex.node, vec2i(1, 0), 0).y),
+        toF32(textureLoad(uArr.node, vec2i(2, 0), 1, 0).z),
+        1,
+      ),
+    { stage: 'fragment', retAttr: location(0, vec4fT) },
+  )
+  const intMod = dslModule({ uses: [IntOut, uTex, iTex, uArr], funcs: [intVs, intFs] })
+
+  it('WGSL parameterizes the texture type on its element', () => {
+    const w = emitModule(intMod)
+    expect(w).toContain('var u_ids: texture_2d<u32>;')
+    expect(w).toContain('var i_deltas: texture_2d<i32>;')
+    expect(w).toContain('var u_atlas: texture_2d_array<u32>;')
+    // The read spelling is the SAME builtin as the f32 one — only the type moved.
+    expect(w).toContain('textureLoad(u_ids, vec2<i32>(0, 0), 0u)')
+    expect(w).toContain('textureLoad(u_atlas, vec2<i32>(2, 0), 1, 0u)')
+  })
+
+  it('GLSL prefixes the sampler type per element, and fetches through the same texelFetch', () => {
+    const fsG = emitGlslModule(intMod, 'fragment')
+    expect(fsG).toContain('uniform usampler2D u_ids;')
+    expect(fsG).toContain('uniform isampler2D i_deltas;')
+    expect(fsG).toContain('uniform usampler2DArray u_atlas;')
+    expect(fsG).toContain('texelFetch(u_ids, ivec2(0, 0), int(0u))')
+    // the array form still folds the layer into the ivec3 coordinate (#1651)
+    expect(fsG).toContain('texelFetch(u_atlas, ivec3(ivec2(2, 0), int(1)), int(0u))')
+  })
+
+  it('every non-sampler2D type gets its own precision line, deduped and sorted', () => {
+    // GLSL ES 3.00 §4.5.4 predeclares defaults for sampler2D / samplerCube ONLY, so each
+    // integer sampler type needs its own line exactly as sampler2DArray does (#1651) —
+    // and WITHOUT one the shader does not compile at all. Asserted as a contiguous
+    // literal block, not three toContain()s: order and adjacency are what make the
+    // header deterministic, and three independent substring checks would pass on a
+    // header that emitted them scattered or duplicated.
+    expect(emitGlslModule(intMod, 'fragment')).toContain(
+      'precision highp int;\n' +
+        'precision highp isampler2D;\n' +
+        'precision highp usampler2D;\n' +
+        'precision highp usampler2DArray;\n',
+    )
+  })
+
+  it('the precision lines stay keyed to the STAGE, and a float-only module emits none', () => {
+    // Same negative shape as #1651's: the vertex stage here touches no texture, so a
+    // check that degenerated to `kind === 'texture'` (module-wide instead of
+    // stage-scoped) goes red. A stray precision line is legal GLSL, so no driver
+    // catches this — only the assertion does.
+    const vsG = emitGlslModule(intMod, 'vertex')
+    expect(vsG).not.toContain('sampler') // neither the types nor the bindings
+    expect(vsG).toContain('precision highp int;\n\n')
+  })
+
+  it('an integer texture is a LOAD-ONLY resource — no sampler binding is emitted for it', () => {
+    // The type system already refuses textureSample on these keys (dx-sweep pins it);
+    // this is the emit-side witness that nothing synthesises a companion sampler, which
+    // on WebGPU would be an invalid bind-group layout (a filtering sampler cannot pair
+    // with a uint-sampleType texture).
+    const fsG = emitGlslModule(intMod, 'fragment')
+    expect(fsG).not.toContain('texture(u_ids')
+    expect(emitModule(intMod)).not.toContain(': sampler;')
   })
 })
 

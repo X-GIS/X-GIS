@@ -1269,7 +1269,13 @@ const CEILINGS: Record<string, number> = {
   // own doc-only edits (twin references retired to past tense, `?rhichain=1`/Inc-F4
   // present-tense framing corrected now the flip is done and the twin is deleted)
   // account for the rest.
-  'rhi-webgl2/src/rhi-webgl2.ts': 1497,
+  // 1497→1447 (#1703, measured post-hook): the storage-buffer emulation's create/write
+  // pair, its GL format table and its typed-view rule moved to
+  // rhi-webgl2/src/storage-data-texture.ts. The element axis (R32F/R32UI/R32I) would
+  // have pushed this file over its ceiling; the ratchet's own instruction — extract,
+  // don't grow — was the right call, since the data texture is one concern and the
+  // device file only allocates, binds and deletes it.
+  'rhi-webgl2/src/rhi-webgl2.ts': 1447,
   // 941→975 (#1371 atomic re-seed): `releaseSupersededTile` + `dropTile`, and the split of
   // `_releaseTileSlots` into a resource-release body the two share with eviction. Arena/pool
   // ownership is this class's whole reason to exist.
