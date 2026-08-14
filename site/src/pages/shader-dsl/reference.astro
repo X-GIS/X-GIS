@@ -1,152 +1,178 @@
 ---
+// ═══ The shader-dsl reference MAP (#1700) ═══
+//
+// This page used to transcribe 53 signatures by hand. Nothing checked them against the
+// source, so every one was a second authority that could rot silently while reading as
+// authoritative — and #1699's generated reference made them redundant besides.
+//
+// What a generated reference CANNOT produce is the part that survived: grouping by INTENT.
+// "Layout declarators (single source of truth)" is an editorial claim about which five
+// symbols solve one problem together; /api can only sort alphabetically inside a kind. So
+// this page keeps the groups and the notes, and hands every signature to the generated page.
+//
+// A name here is VERIFIED AT BUILD TIME against the published reference: `routeFor` throws
+// if a symbol is not in the api collection, so this page cannot link to a symbol that was
+// renamed, un-exported, or excluded as `@internal`. That is strictly stronger than the
+// #1700 ratchet's text check — it catches "exists but is not published" too — which is why
+// the ratchet no longer needs to scan this file.
 import ShaderDsl from '../../layouts/ShaderDsl.astro'
+import { getCollection } from 'astro:content'
 
 const base = import.meta.env.BASE_URL.replace(/\/+$/, '')
 const root = `${base}/shader-dsl`
 
-interface Row { sig: string; desc: string }
-interface Group { title: string; note?: string; rows: Row[] }
+const api = await getCollection('api')
+/** symbol name → its published route. Built from the collection, never hand-written. */
+const ROUTE = new Map<string, string>()
+for (const e of api) {
+  const segs = e.id.split('/')
+  const name = segs.at(-1)!
+  if (name === 'README') continue
+  // `.` subpath wins when a symbol is exposed by several — it is the one a reader imports.
+  if (!ROUTE.has(name) || segs[0] === 'index') ROUTE.set(name, e.id)
+}
+
+function routeFor(name: string): string {
+  const r = ROUTE.get(name)
+  if (r === undefined)
+    throw new Error(
+      `shader-dsl/reference.astro lists \`${name}\`, which the generated API reference does ` +
+        `not publish. It was renamed, un-exported, or is tagged @internal. Fix the name or ` +
+        `drop the row — this page must not link a reader to a 404. (#1700)`,
+    )
+  return `${base}/api/${r}`
+}
+
+interface Group {
+  title: string
+  note?: string
+  /** Symbols, in the order a reader meets them — NOT alphabetical; that is /api's job. */
+  names: string[]
+  /** For groups whose members are methods on a value node rather than exports. */
+  seeAlso?: { label: string; name: string }
+}
 
 const groups: Group[] = [
   {
     title: 'Module & functions',
-    rows: [
-      { sig: 'fn(name?, params, ret?, body, opts?)', desc: 'Declare a function. name is optional (auto _fn{n}); pass a ShaderType in the ret slot to PIN the return type, or omit it to infer from the body’s return. A param spec is a ShaderType, an IO field spec, or an ioStruct / structDecl HANDLE — a handle param arrives in the body as a typed field proxy (no .of() re-assertion). opts.stage = "vertex" | "fragment" | "compute" makes it a pipeline entry; opts.retAttr / workgroupSize for bare-return / compute. The returned handle is CALLABLE — prefer calling it directly, in the object form f({ a, b }), which type-checks argument names + types.' },
-      { sig: 'module({ structs, bindings, funcs, consts? })', desc: 'Assemble a module from its declarations. funcs is an array (order preserved) or a key-named record; fns called through their handle are collected transitively (define-before-use), so funcs lists only the entry points.' },
-      { sig: 'externFn(name, params, ret)', desc: 'A typed CALL-ONLY handle for a fn whose body is defined elsewhere (forward declaration) — call it now, f({ a, b }) / f(a, b), and the body links in at emit. Use it when the callee cannot be an importable FnHandle at the caller’s load time.' },
-      { sig: 'callFn(name, ret, …args)', desc: 'Low-level string call that externFn emits under the hood. Prefer calling the FnHandle directly (myFn(a, b)) or an externFn: a bare string name is an out-of-band contract — a typo compiles, then fails at WGSL link.' },
-    ],
+    note: 'Declare a function, assemble a module. `fn` returns a CALLABLE handle — prefer calling it over spelling a name as a string.',
+    names: ['fn', 'module', 'externFn', 'callFn', 'composeModule'],
   },
   {
-    title: 'Layout declarators (single source of truth)',
+    title: 'Layout declarators',
     note: 'Declare a layout ONCE; the struct, the binding, the access node, and typed field access are all derived — they cannot drift.',
-    rows: [
-      { sig: 'uniformStruct(name, { group, binding, as }, fields)', desc: 'A uniform block + its binding. .field.x is typed access; a field can be arrayOf(handle, n) → .field.arr.at(i) gives typed element access. .struct / .binding go into module().' },
-      { sig: 'ioStruct(name, fields)', desc: 'A vertex/fragment IO struct. .decl, .type, .of(node).field, .var(name?) (a typed var proxy; .$ is the raw node), .construct({…}).' },
-      { sig: 'structDecl(name, fields)', desc: 'A plain / storage-element struct.' },
-      { sig: 'storageBuffer(name, element, { group, binding, access })', desc: 'An array<Element> storage buffer; .at(i) is the typed element accessor.' },
-      { sig: 'resource(name, type, { group, binding })', desc: 'A non-struct bound resource (texture / sampler).' },
-      { sig: 'builtin(name, type)  ·  location(n, type, interpolate?)', desc: 'IO field specs: @builtin(name) / @location(n).' },
-    ],
+    names: ['uniformStruct', 'ioStruct', 'structDecl', 'storageBuffer', 'resource', 'builtin', 'location'],
   },
   {
     title: 'Values & constructors',
-    rows: [
-      { sig: 'f32(v)  i32(v)  u32(v)  bool(v)', desc: 'Scalar literals (take a JS number / boolean).' },
-      { sig: 'vec2/vec3/vec4(...)  ·  vec2u  vec2i', desc: 'Vector constructors; accept nodes, numbers, and sub-vectors (vec4(rgb, 1)).' },
-      { sig: 'Var(name?, init)  ·  Var(type, init?)  ·  Let(name?, value)', desc: 'Local bindings. Var → a MUTABLE Node (.assign allowed); Let and params → ReadonlyNode (.assign is a tsc error). Name a Let to force a CSE-stable named temp.' },
-      { sig: 'constExpr(name, type, value)  ·  arrayLit(elem, …items)', desc: 'A module-scope const from a value node, and an array literal (pairs with arrayT) — the declared way to author non-scalar consts.' },
-      { sig: 'toF32(x)  toI32(x)  toU32(x)', desc: 'Scalar casts (emit float()/int()/uint() on GLSL).' },
-    ],
+    note: 'Scalars, vectors, locals. `Var` is mutable, `Let` and params are not — `.assign` on a readonly node is a tsc error, not a runtime one.',
+    names: ['f32', 'i32', 'u32', 'bool', 'vec2', 'vec3', 'vec4', 'Var', 'Let', 'constExpr', 'arrayLit', 'toF32', 'toI32', 'toU32'],
   },
   {
-    title: 'Operators (methods on a value node)',
-    rows: [
-      { sig: '.add .sub .mul .div .neg()', desc: 'Arithmetic, with WGSL vec∘scalar broadcast — including scalar-node × vec-node (f32 · vec3<f32> → vec3<f32>). A vec2∘vec3 mismatch is a TS error.' },
-      { sig: '.mod(y)', desc: 'TRUNC-mod (WGSL %) — integer-only on GLSL ES 3.00 floats. For a PORTABLE float modulo use the free mod(x, y) below (floor-mod, both targets).' },
-      { sig: '.lt .gt .le .ge .eq .ne', desc: 'Comparisons → bool.' },
-      { sig: '.and .or  ·  .bitAnd .bitOr .bitXor .shl .shr', desc: 'Logical (bool) and bitwise (u32/i32).' },
-      { sig: '.x .y .z .w  ·  .rgb .xy .xyz …  ·  .swizzle("…")', desc: 'Component access and swizzles. .swizzle("rgb") infers its result key from the component string (elem-typed; works on u32/i32 vecs too).' },
-      { sig: '.assign(v)  ·  .select(a, b)', desc: 'lvalue store; condition ? a : b (on a bool node).' },
-    ],
+    title: 'Operators',
+    note: 'Arithmetic, comparison, swizzles and `.assign` are METHODS on a value node, not free functions — so they live on the node type rather than in this list.',
+    names: [],
+    seeAlso: { label: 'All methods on a value node', name: 'Node' },
   },
   {
     title: 'Built-in functions',
-    rows: [
-      { sig: 'sin cos tan asin acos atan atan2', desc: 'Trigonometry.' },
-      { sig: 'exp log log2 pow sqrt', desc: 'Exponential / power.' },
-      { sig: 'floor ceil fract abs sign min max clamp mix smoothstep', desc: 'Common math / interpolation.' },
-      { sig: 'mod(x, y)', desc: 'Portable FLOOR-mod (x − y·⌊x/y⌋), identical on WGSL + GLSL; negatives wrap into [0, y). THE float modulo — reach for it over the .mod method, which is trunc-mod and invalid on GLSL ES 3.00 floats.' },
-      { sig: 'length dot radians degrees fwidth', desc: 'Geometry, angle conversion, screen-space derivative (GPU-only).' },
-      { sig: 'textureSample textureLoad textureDimensions', desc: 'Texture access (GLSL fuses sampler into the combined sampler2D).' },
-      { sig: 'bitcastU32 pack4x8unorm unpack4x8unorm', desc: 'Bit-level helpers.' },
-    ],
+    note: 'Reach for the free `mod` over the `.mod` method: `mod` is floor-mod and portable, `.mod` is trunc-mod and invalid on GLSL ES 3.00 floats.',
+    names: ['sin', 'cos', 'tan', 'atan2', 'exp', 'log', 'pow', 'sqrt', 'floor', 'ceil', 'fract', 'abs', 'sign', 'min', 'max', 'clamp', 'mix', 'smoothstep', 'mod', 'length', 'dot', 'cross', 'distance', 'radians', 'degrees'],
   },
   {
     title: 'Control flow',
-    rows: [
-      { sig: 'If(cond, () => …).elif(cond, …).else(…)', desc: 'Conditional statement blocks. A body may return value for an early return.' },
-      { sig: 'Loop(init, i => cond, i => body, step?)', desc: 'C-style for over the innermost scope; the body receives the typed counter Node. Optional leading name; read positions accept ReadonlyNode.' },
-      { sig: 'Return(value?)  ·  ReturnIf(cond, value)  ·  Break()  ·  Continue()  ·  Discard()', desc: 'Explicit / guard-clause returns and loop control. Discard() kills the fragment (GLSL discard).' },
-      { sig: 'reduce(init, i0, i => cond, (acc, i) => next, step?)', desc: 'Immutable loop-fold: the body RETURNS the next accumulator (no Var + assign at the call site); materialises the var + loop internally, byte-identical to the hand form. Returns the accumulator Node.' },
-      { sig: 'when(c, () => a, () => b)  ·  when([[c, () => e]], () => fallback)', desc: 'Immutable value-by-CONDITION dispatch — var + if/elif/else, NOT select (only the taken arm runs). The blessed conditional expression; supersedes ifExpr/condExpr.' },
-      { sig: 'Switch(scrut).case(n, body).default(body?)', desc: 'Chainable switch STATEMENT builder; lowers to a real WGSL switch. Forward-declare a Var(default), then assign inside the case arms.' },
-      { sig: 'enumU32({ A: 0, … })  ·  matchEnum(s, E, { A, … })', desc: 'Exhaustive integer dispatch: matchEnum requires ONE arm per enum member — omit one and tsc errors, so adding a member surfaces every un-handled site. Lowers to matchExpr (byte-identical).' },
-      { sig: 'matchExpr(scrutinee, cases, default)', desc: 'The low-level multi-arm dispatch matchEnum / Switch lower to. Prefer matchEnum when the scrutinee is an enum, for exhaustiveness.' },
-    ],
+    note: 'Statement forms (`If`, `Loop`, `Switch`) and value combinators (`when`, `reduce`). `matchEnum` is EXHAUSTIVE — a missing arm is a compile error.',
+    names: ['If', 'Loop', 'Switch', 'Return', 'ReturnIf', 'Break', 'Continue', 'Discard', 'when', 'reduce', 'enumU32', 'matchEnum', 'condExpr', 'ifExpr'],
   },
   {
     title: 'Types',
-    rows: [
-      { sig: 'f32T i32T u32T boolT', desc: 'Scalar types.' },
-      { sig: 'vec2fT vec3fT vec4fT  ·  vec2uT vec3uT vec4uT  ·  vec2iT vec4iT', desc: 'Vector types.' },
-      { sig: 'mat4x4fT  ·  texture2dfT texture2dMsfT  ·  arrayT(elem) structT(name)', desc: 'Matrix, texture, and composite types.' },
-      { sig: 'f64T  ·  vec2f64T vec3f64T vec4f64T', desc: 'Emulated double precision (df64, ~48-bit) — declare a value f64T and the SAME operators/built-ins work; f64(v) lifts a literal, toF64 / toF32 convert. The host writes 1.0 to the auto-injected _fp64 guard binding, and splitF64(x) packs a JS number into the hi/lo attribute pair. See the fp64 examples.' },
-    ],
+    names: ['f32T', 'i32T', 'u32T', 'boolT', 'arrayT', 'f64T'],
   },
   {
     title: 'Emit & reflect',
-    rows: [
-      { sig: 'emitModule(m, opts?)', desc: '→ WGSL string (WebGPU). Byte-stable. opts is the optional { plugins } bag below.' },
-      { sig: 'emitGlslModule(m, "vertex" | "fragment", opts?)', desc: '→ GLSL ES 3.00 string (WebGL2). Throws on compute / SSBO / MSAA-load. Accepts the same { plugins } bag.' },
-      { sig: 'EmitOptions — { plugins?: EmitPlugin[] }', desc: 'A Vite/Webpack-style plugin bag. An EmitPlugin is { name, transformIR?, transformText? }; hooks fire staged across all plugins — every transformIR (on the LOWERED module, must be deterministic) before assembly, then every transformText on the string. The core knows nothing about the implementations.' },
-      { sig: 'emitModuleWithReflection(m, backend)', desc: '→ { code, reflection } (code byte-identical to emitModule). Dev tooling — import from @xgis/shader-dsl/dev (#740 R2b).' },
-      { sig: 'reflect(m)', desc: '→ { bindGroups, uniforms (std140), storage (std430), entries }. Read-only over the IR.' },
-      { sig: 'wgslLayout(struct, "std140" | "std430")', desc: 'The standalone offset engine reflect() uses.' },
-    ],
+    note: 'One module, many targets. `reflect` is the target-neutral description the host binds against.',
+    names: ['emitModule', 'emitModuleAt', 'emitGlslModule', 'emitGlslStages', 'emitModuleWithReflection', 'reflect', 'hostFeaturesFor'],
   },
   {
-    title: 'Production emit — @xgis/shader-dsl/emit-prod',
-    note: 'Ship-time plugins, composed Vite/Webpack-style: emitModule(m, { plugins: [mangle(), minify()] }). On their OWN subpath — your bundler minifies the JS, these do the same for the shader strings it can never reach, and a runtime-emit consumer that never imports the subpath bundles zero bytes of them. The plain emit stays byte-identical.',
-    rows: [
-      { sig: 'mangle({ renames? })  → EmitPlugin', desc: 'The rename plugin: helper fn names, plain struct names, module consts (including the injected df64_* library) become _f0/_S0/_k0. Deterministic per module, so the two GLSL stage emits always agree on shared names and programs link. Pass a Map as renames to receive authored → emitted names — the shader "source map" for decoding production driver logs and GPU captures.' },
-      { sig: 'minify()  → EmitPlugin', desc: 'The compaction plugin. Token-safe by construction (WGSL/GLSL have no string literals; # directives keep their own line). minifyShaderText(code) is the raw function it wraps, for a string you already hold. No semantic change — the CI gate compiles AND pixel-compares obfuscated output on real Tint + ANGLE.' },
-      { sig: 'inline()  → EmitPlugin', desc: 'Call-graph flattening (obfuscation): inlines every safely-inlinable helper at all its call sites so those functions vanish — single-return helpers by substitution, and LINEAR multi-statement helpers (a let/var prelude + one return) by lifting their statements into the caller. Leaves the df64 library, entry points, recursive fns, and control-flow helpers intact. NOT a size win — a multi-call helper is duplicated per site; the point is removing structure. Opt-in; place before mangle(): { plugins: [inline(), ...obfuscate()] }.' },
-      { sig: 'obfuscate({ renames? })  → EmitPlugin[]', desc: 'The standard preset, [mangle(opts), minify()]. Spread into { plugins }. inline() is deliberately NOT in the preset (it can grow bytes) — add it explicitly when you want the call graph gone too.' },
-      { sig: 'never renamed (the ABI boundary)', desc: 'Entry-point names (WebGPU entryPoint refers to them) · binding names incl. the _fp64 guard (hosts resolve them by name) · binding-struct names (the GLSL UBO block tag, getUniformBlockIndex) · struct field names (std140 packing + GLSL varyings link vertex↔fragment BY NAME). Reflection-driven hosts bind unchanged.' },
-    ],
+    title: 'Production emit',
+    note: 'Ship-time plugins, composed Vite/Webpack-style, from `@xgis/shader-dsl/emit-prod`.',
+    names: ['mangle', 'minify', 'inline', 'obfuscate'],
   },
   {
-    title: 'Validation passes',
-    note: 'validate() is the emit-time gate on the main entry. The lint / capability analysis tooling moved to the @xgis/shader-dsl/dev subpath (#740 R2b) — dev-time only, never on the emit path.',
-    rows: [
-      { sig: 'validate(m)', desc: 'Type/structure validation — the emit-time gate (main entry).' },
-      { sig: 'lintModule(m)  ·  requiredCaps(m)  ·  assertCaps(caps, backend)', desc: 'The 21-rule lint engine and capability analysis (compute the caps a module needs; assert a backend supports them). Import from @xgis/shader-dsl/dev.' },
-    ],
+    title: 'Validation & diagnostics',
+    note: '`validate` is the emit-time gate on the main entry; the lint and capability analysis are reached through `@xgis/shader-dsl/dev`.',
+    names: ['validate', 'lintModule', 'requiredCaps', 'assertCaps', 'diagnose'],
   },
 ]
+
+// Resolve every route now, so an unknown name fails the BUILD rather than rendering a 404.
+const resolved = groups.map((g) => ({
+  ...g,
+  links: g.names.map((n) => ({ name: n, href: routeFor(n) })),
+  seeAlsoHref: g.seeAlso ? routeFor(g.seeAlso.name) : undefined,
+}))
+const total = resolved.reduce((n, g) => n + g.links.length, 0)
 ---
 
 <ShaderDsl
   current="reference"
   title="X-GIS Shader DSL — API reference"
-  description="The @xgis/shader-dsl authoring + emit surface: functions, layout declarators, value constructors, operators, built-ins, control flow, types, and emit/reflect."
+  description="A map of the @xgis/shader-dsl authoring surface, grouped by what you are trying to do, linking into the full generated API reference."
 >
-  <h1 class="font-display font-normal text-fg leading-[1.0] tracking-[-0.02em] text-[40px] sm:text-[52px] lg:text-[64px]">API reference</h1>
-  <p class="mt-4 text-[16px] leading-[1.6] text-fg-dim max-w-full">
-    A curated tour of the surface exported from <code class="font-mono text-[14px] text-fg">@xgis/shader-dsl</code> —
-    the things worth knowing first, grouped by what you are trying to do.
+  <h1
+    class="font-display text-[40px] leading-[1.0] font-normal tracking-[-0.02em] text-fg sm:text-[52px] lg:text-[64px]"
+  >
+    API reference
+  </h1>
+  <p class="mt-4 max-w-[60ch] text-[16px] leading-[1.6] text-fg-dim">
+    {total} entry points into <code class="font-mono text-[14px] text-fg">@xgis/shader-dsl</code>,
+    grouped by what you are trying to do. Every name links to its generated page — signatures,
+    parameters and a source link, produced from the TSDoc at the definition site.
   </p>
-  <p class="mt-3 text-[16px] leading-[1.6] text-fg-dim max-w-full">
-    For every symbol, with signatures and source links generated from the TSDoc, see the
-    <a href={`${base}/api/index`} class="text-accent hover:text-accent-hover transition-colors">full API reference</a>.
-    Runnable code is in the <a href={`${root}/examples`} class="text-accent hover:text-accent-hover transition-colors">examples</a>.
+  <p class="mt-3 max-w-[60ch] text-[16px] leading-[1.6] text-fg-dim">
+    Browsing rather than looking something up? The
+    <a href={`${base}/api`} class="text-accent transition-colors hover:text-accent-hover"
+      >full reference</a
+    > lists every export with a filter, and the
+    <a href={`${root}/examples`} class="text-accent transition-colors hover:text-accent-hover"
+      >examples</a
+    > are runnable.
   </p>
 
-  <div class="mt-10 max-w-full space-y-10">
-    {groups.map((g) => (
-      <section>
-        <h2 class="font-display text-[20px] font-normal text-fg tracking-[-0.015em] mb-1.5">{g.title}</h2>
-        {g.note && <p class="text-[13.5px] leading-[1.55] text-fg-mute mb-3 max-w-full">{g.note}</p>}
-        <div class="rounded-[8px] border border-line overflow-hidden divide-y divide-[var(--color-line)]">
-          {g.rows.map((r) => (
-            <div class="grid sm:grid-cols-[minmax(0,42%)_minmax(0,58%)] gap-x-5 gap-y-1 px-4 py-3">
-              <code class="font-mono text-[12.5px] text-fg leading-[1.5] break-words">{r.sig}</code>
-              <p class="text-[13px] leading-[1.5] text-fg-dim">{r.desc}</p>
-            </div>
-          ))}
-        </div>
-      </section>
-    ))}
+  <div class="mt-12 max-w-full space-y-10">
+    {
+      resolved.map((g) => (
+        <section>
+          <h2 class="font-display mb-1.5 text-[20px] font-normal tracking-[-0.015em] text-fg">
+            {g.title}
+          </h2>
+          {g.note && (
+            <p class="mb-4 max-w-[70ch] text-[13.5px] leading-[1.55] text-fg-mute" set:html={g.note.replace(/`([^`]+)`/g, '<code class="font-mono text-[12.5px] text-fg-dim">$1</code>')} />
+          )}
+          {g.links.length > 0 && (
+            <ul class="flex flex-wrap gap-x-2 gap-y-2">
+              {g.links.map((l) => (
+                <li>
+                  <a
+                    href={l.href}
+                    class="border-line hover:border-line-strong inline-block rounded-[6px] border px-2.5 py-1 font-mono text-[12.5px] text-fg-dim transition-colors hover:text-fg focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent"
+                  >
+                    {l.name}
+                  </a>
+                </li>
+              ))}
+            </ul>
+          )}
+          {g.seeAlso && g.seeAlsoHref && (
+            <a
+              href={g.seeAlsoHref}
+              class="inline-block font-mono text-[12.5px] text-accent transition-colors hover:text-accent-hover focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent"
+            >
+              {g.seeAlso.label} →
+            </a>
+          )}
+        </section>
+      ))
+    }
   </div>
 </ShaderDsl>
