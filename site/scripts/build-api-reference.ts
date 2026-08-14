@@ -140,6 +140,28 @@ if (leaked.length > 0)
       ),
   )
 
+// ── 2b. scaffolding must never reach a reader ─────────────────────────────────────────────
+// scripts/add-tsdoc-templates.ts writes stub comments so an author only has to supply the
+// prose a machine cannot. The coverage gate refuses to count those as documentation — but
+// TypeDoc renders whatever prose it finds, so a bulk `--write` followed by a build would
+// publish pages reading "TODO(#1695): what is this function for". Blank is better than that,
+// and neither is the goal: scaffold freely, publish only what someone actually wrote.
+const STUB_SENTINEL = 'TODO(#1695):'
+const stubbed = pages.filter((p) => readFileSync(p, 'utf8').includes(STUB_SENTINEL))
+if (stubbed.length > 0)
+  die(
+    `${stubbed.length} page(s) would publish an unfilled TSDoc stub:\n  ` +
+      stubbed
+        .slice(0, 8)
+        .map((p) => relative(OUT, p))
+        .join('\n  ') +
+      (stubbed.length > 8 ? `\n  … and ${stubbed.length - 8} more` : '') +
+      `\nThese carry "${STUB_SENTINEL}" from scripts/add-tsdoc-templates.ts, which writes the\n` +
+      `mechanical half of a comment for an author to finish. Replace the sentinel line with\n` +
+      `real prose, or revert the stub — a page that tells the reader "TODO" is worse than the\n` +
+      `blank one it replaced.`,
+  )
+
 // ── 3. normalise links ────────────────────────────────────────────────────────────────────
 let rewritten = 0
 for (const page of pages) {
