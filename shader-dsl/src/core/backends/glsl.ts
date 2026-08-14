@@ -864,6 +864,18 @@ function lowerStorageToDataTexture(m: ModuleDecl): ModuleDecl {
 // so assertCaps passes with the normal empty-caps backend — no caps loosening, WGSL
 // untouched. FAIL-CLOSED (operationalizes the gather-only invariant, not trusted): a
 // scatter (write index != gid), >1 output write, or a gid use other than `.x` throws.
+/** Rewrite a gather-only `@compute` module into a fragment-GPGPU one, per the mapping
+ *  documented in the comment block above.
+ *
+ *  @internal Reachable from the package entry only through `index.ts`'s star re-export of
+ *  this backend module, and called by nothing outside it. The supported way to ask for this
+ *  lowering is the {@link GlslEmitOptions.emulateCompute} emit option, which runs it as part
+ *  of a complete emit; invoking the pass directly hands back a half-lowered module whose
+ *  storage bindings still need `lowerStorageToDataTexture`. Un-export is tracked by #1697.
+ *
+ *  @throws {UnsupportedFeatureError} on anything outside the gather-only shape — a scatter
+ *  write, more than one output write, or a `global_invocation_id` use other than `.x`. That
+ *  is deliberate: the invariant is operationalized, never trusted. */
 export function lowerComputeToFragment(m: ModuleDecl): ModuleDecl {
   const entry = m.funcs.find(
     (f) => f.stage === 'compute' || f.attrs?.some((a) => a.startsWith('@compute')),
@@ -1103,6 +1115,15 @@ function stageScope(
   return { fns, bindings, structs }
 }
 
+/** The `opts` bag accepted by this backend's emit entry points, extending the neutral
+ *  {@link EmitOptions} with the three knobs that exist only for GLSL ES 3.00.
+ *
+ *  Each one is here because the target lacks something WGSL has: no compute stage
+ *  (`emulateCompute`), no driver-side specialization constants (`overrideValues`), and no
+ *  implicit precision (`floatPrecision`). All three are BUILD-TIME — an emit option, never a
+ *  runtime device probe — so emitted source stays cacheable under a key derived from the
+ *  options, and every default is byte-neutral: omitting the bag entirely reproduces the
+ *  bytes emitted before any of these options existed. */
 export interface GlslEmitOptions extends EmitOptions {
   /** Lower a GATHER-ONLY @compute kernel to a fragment-GPGPU pass (see
    *  lowerComputeToFragment). OPT-IN, unlike the storage lowering: it rewrites the
