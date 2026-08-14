@@ -278,6 +278,12 @@ build > log; grep -c "error TS" log` reports FAILURE on a clean build, because g
 - `tsc --build` replays CACHED errors from stale `.tsbuildinfo` after branch churn —
   `--force` before diagnosing a phantom type error; one that survives `--force` is likely
   a missing package.json dep masked by that package's own tsconfig `paths` (PR #1220).
+- `git add -A` stages whatever the session happened to leave lying around. A screenshot
+  harness written into the repo (rather than the scratch dir) rode into a commit that way
+  and needed a second commit to remove it. The tell is that the commit's file count does
+  not match the change you described. **Read `git status --porcelain` and stage by PATH**
+  when the working tree holds anything you did not intend to ship; keep probe scripts,
+  captures and logs in the session scratch dir, never under a package.
 
 **Gates / ratchets**
 
