@@ -84,6 +84,7 @@ function walkExpr(e: Expr, c: { calls: number; arith: number }): void {
       break
     case 'lit':
     case 'constref':
+    case 'externref': // #1713 — a host-provided global read is a leaf too
     case 'overrideref': // #923 — a specialization-constant read is a leaf (zero ops)
     case 'param':
     case 'varref':

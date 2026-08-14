@@ -328,6 +328,10 @@ function exprSig(e: Expr, c: Canon, locals: ReadonlyMap<string, string>): string
       return `(const ${c.consts.get(e.name) ?? e.name}:${t})`
     case 'overrideref':
       return `(override ${e.name}:${t})`
+    // #1713 — a host-provided global's name is ABI (the host's prelude spells it), so it is
+    // compared even under `ignore: ['names']`, same as an override.
+    case 'externref':
+      return `(extern ${e.name}:${t})`
     case 'param':
     case 'varref':
       return `(${e.op} ${locals.get(e.name) ?? e.name}:${t})`

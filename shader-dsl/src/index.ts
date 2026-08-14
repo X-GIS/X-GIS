@@ -54,6 +54,38 @@ export { compileModuleJs } from './core/cpu-codegen'
 // plus the standalone wgslLayout(struct, kind) offset engine.
 export * from './core/reflect'
 
+// Module FRAGMENTS (#1711) — a header-less emit for a host that owns the program and
+// composes our declarations into it, with the directive/precision lines it must hoist
+// returned as structured `preamble` data rather than concatenated into source the
+// consumer would have to strip. `emitFragment` (WGSL) is star-re-exported from the
+// backend above; `emitGlslFragment` from the GLSL one. The shared shapes live here.
+export { type EmitFragment, type FragmentDeclares } from './core/fragment'
+
+// Registry generation (#1716) — the reusable half: validate a DISCOVERED module set
+// against a CURATED id order and render a keyed registry module from it. Pure (no
+// filesystem), because the scan convention belongs to the caller; what everyone would
+// otherwise re-invent differently is the two-way drift check.
+export {
+  buildRegistry,
+  type RegistryEntry,
+  type BuildRegistryOptions,
+  type BuiltRegistry,
+} from './core/registry'
+
+// Variant FAMILIES (#1712) — the typed matrix for feature axes a HOST decides at runtime,
+// the case AUTHORING.md §11's build-time specialisation deliberately does not cover.
+// Per-variant modules + reflections + a derived key, emitted either preprocessor-free (the
+// only shape WGSL can have) or, opt-in on GLSL, as one source with a GENERATED #if ladder.
+export {
+  variantFamily,
+  selectGuardedArm,
+  type VariantFamily,
+  type VariantFamilySpec,
+  type Variant,
+  type AxisValues,
+  type GuardDefines,
+} from './core/variant-family'
+
 // Semantic comparison of two modules (#1714) — IR + reflection, not text, so the
 // optimizer's temporaries / declaration order / generated names do not drown the
 // diff. Main barrel rather than '/dev': the "prod is dev, optimized" assertion it

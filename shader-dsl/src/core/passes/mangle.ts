@@ -243,6 +243,14 @@ export function mangleModule(m: ModuleDecl): MangleResult {
   for (const s of m.structs) for (const f of s.fields) survivors.add(f.name)
   for (const b of m.bindings) survivors.add(b.name)
   for (const o of m.overrides ?? []) survivors.add(o.name)
+  // #1713 — a host-provided global is spelled by the HOST's prelude, so renaming it (or
+  // handing its spelling out as a generated short name) would desync the two. Same
+  // treatment as an override name, and `rE` below likewise never rewrites an `externref`.
+  for (const e of m.externs ?? []) {
+    survivors.add(e.name)
+    if (e.spelling?.wgsl) survivors.add(e.spelling.wgsl)
+    if (e.spelling?.glsl) survivors.add(e.spelling.glsl)
+  }
   for (const n of bindingStructNames) survivors.add(n)
 
   // ── rename maps, in declaration order (deterministic across emit calls) ──
@@ -406,8 +414,10 @@ export function mangleModule(m: ModuleDecl): MangleResult {
     // `...m` preserves every module field this pass does NOT rewrite — the #923
     // `overrides` (whose names, like binding names above, are the host ABI and must
     // survive un-renamed so both emit paths still declare them) and the #628
-    // `enables`. Only the four renamed collections are replaced; `overrideref` reads
-    // in bodies are already left un-renamed by `rE`, matching the untouched decls.
+    // `enables`, and the #1713 `externs` (spelled by the host's prelude, so ours to
+    // reference and never to rename). Only the four renamed collections are replaced;
+    // `overrideref` and `externref` reads in bodies are already left un-renamed by `rE`,
+    // matching the untouched decls.
     module: {
       ...m,
       consts: m.consts.map(rConst),

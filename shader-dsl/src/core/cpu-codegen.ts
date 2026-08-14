@@ -142,6 +142,11 @@ function emitExpr(e: Expr, S: FnCtx): string {
       if (id === undefined) throw new CodegenUnsupported(`unknown override ${e.name}`)
       return id
     }
+    // #1713 — a HOST-provided global has no CPU value: there is no host here. Refusing is
+    // the honest answer; substituting 0 would make the oracle silently disagree with the
+    // GPU, which is the one thing a reference implementation must never do.
+    case 'externref':
+      throw new CodegenUnsupported(`host-provided global '${e.name}' has no CPU value`)
     case 'param':
     case 'varref':
       return readVar(e.name, S)

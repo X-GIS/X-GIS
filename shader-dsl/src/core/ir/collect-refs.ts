@@ -75,7 +75,7 @@ function collectExpr(e: Expr, out: RefSet): void {
       out.vars.add(e.name)
       break
     default:
-      break // lit / constref / param — no nested refs
+      break // lit / constref / overrideref / externref / param — no nested refs
   }
 }
 

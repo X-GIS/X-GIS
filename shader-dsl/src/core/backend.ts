@@ -20,6 +20,7 @@ import type {
   Capability,
   RawStmt,
 } from './ir'
+import { ALL_CAPABILITIES } from './ir/nodes'
 import { ShaderDslError } from './diagnostics/error'
 import type { ParenMode } from './emit'
 
@@ -220,3 +221,77 @@ export class UnsupportedFeatureError extends ShaderDslError {
     this.name = 'UnsupportedFeatureError'
   }
 }
+
+// ── Capability × backend matrix (#1717) ──────────────────────────────────────
+
+/** How one backend supports one capability.
+ *  - `'native'`      — supported, nothing to emit and nothing for the host to turn on.
+ *  - `'directive'`   — supported, but the SOURCE must declare it (`enable f16;`,
+ *                      `#extension … : require`). The emitter writes it.
+ *  - `'host-feature'`— supported, but the HOST must activate it before pipeline creation
+ *                      (a WebGPU device feature / a WebGL2 extension). `hostFeaturesFor`
+ *                      is the lookup.
+ *  - `'unsupported'` — the target has no row: emit FAILS CLOSED with SD0030 rather than
+ *                      writing source the driver would reject.
+ *
+ *  A row can be both directive and host-feature; `'directive'` wins in that case, because
+ *  it is the half a reader of the emitted source can see. */
+export type CapSupportKind = 'native' | 'directive' | 'host-feature' | 'unsupported'
+
+/** One row of the capability matrix (#1717) — a capability and how each backend takes it. */
+export interface CapabilityRow {
+  readonly capability: Capability
+  /** Keyed by `Backend.id`, one entry per backend passed in. */
+  readonly support: Readonly<Record<string, CapSupportKind>>
+  /** False for the three DERIVED resource caps, which `requiredCaps` infers from the
+   *  module's shape and `DeclarableCapability` makes unrepresentable in `enables`. */
+  readonly declarable: boolean
+}
+
+/**
+ * The capability × backend support matrix (#1717 Ask 2), DERIVED from the backends'
+ * own `capProfile`s rather than transcribed.
+ *
+ * #1717 asked for this as a documentation page. It is a function instead, because the
+ * repo already has three authorities describing this API (#1700) and a hand-written table
+ * would be the fourth — one that goes stale silently, since nothing checks prose against
+ * a `capProfile`. A renderer can turn this into the page; the data has one home.
+ *
+ * ```ts
+ * capabilityMatrix([wgslBackend, glslEs300Backend])
+ * // → [{ capability: 'f16', support: { wgsl: 'directive', 'glsl-es300': 'unsupported' }, … }, …]
+ * ```
+ *
+ * @param backends - the backends to compare, in the column order you want.
+ * @returns one row per {@link Capability}, in `ALL_CAPABILITIES` order.
+ */
+export function capabilityMatrix(backends: readonly Backend[]): readonly CapabilityRow[] {
+  return ALL_CAPABILITIES.map((capability) => ({
+    capability,
+    support: Object.fromEntries(
+      backends.map((be) => {
+        const row = be.capProfile[capability]
+        return [
+          be.id,
+          row === undefined
+            ? 'unsupported'
+            : row.directive
+              ? 'directive'
+              : row.hostFeature
+                ? 'host-feature'
+                : 'native',
+        ]
+      }),
+    ),
+    declarable: !DERIVED_CAPABILITIES.has(capability),
+  }))
+}
+
+/** The three caps `requiredCaps` derives from a module's SHAPE — a storage binding, a
+ *  `@compute` entry, an MSAA texture load — and which `DeclarableCapability` therefore
+ *  makes unrepresentable in `enables` (#1681 A2). */
+const DERIVED_CAPABILITIES: ReadonlySet<Capability> = new Set([
+  'storageBuffer',
+  'compute',
+  'msaaTextureLoad',
+])

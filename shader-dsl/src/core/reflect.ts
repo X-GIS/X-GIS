@@ -199,6 +199,14 @@ export interface BindEntry {
   readonly space: AddressSpace
   readonly access?: 'read' | 'read_write'
   readonly resourceKind: ResourceKind
+  /** WHO owns the resource (#1710) — `'module'` when we declare it and the host builds its
+   *  bind group from this reflection, `'host'` when the surrounding renderer owns it and
+   *  ITS layout is the authority. ALWAYS set, same contract as `resourceKind`: an
+   *  only-when-interesting field would make `undefined` mean both "module-owned" and "an
+   *  older reflection that predates the distinction". `bindGroups` stays the COMPLETE set
+   *  either way — a host still has to know about a binding it owns, it just must not
+   *  allocate for it. */
+  readonly owner: 'module' | 'host'
   readonly structName?: string
   /** For a `texture` entry ONLY (#1651): which texture dim the shader declared, so a
    *  host can create/validate the matching view (`2d-array` needs an array view and
@@ -295,6 +303,23 @@ export interface Reflection {
    *  whose row's `hostFeature`) is absent. A row's `directive` is likewise not the host's
    *  business: it is already in the emitted source. */
   readonly requiredFeatures: readonly Capability[]
+  /** HOST-PROVIDED symbols this module references but does not declare (#1713) — the
+   *  `externVar` declarators, reported so a composer can check them against what the
+   *  host's prelude actually supplies. Always present; empty for a module that expects
+   *  nothing from its host. Its function twin, `externFn`, has no declaration to report;
+   *  a fragment's `requires` (#1711) covers those by walking call sites. */
+  readonly requires: readonly ExternRequirement[]
+}
+
+/** One host-provided global a module expects (#1713). `type` is the DSL type key, and
+ *  `wgsl`/`glsl` are the per-target spellings the emit actually writes — the host binds by
+ *  those, not by the logical `name`. */
+export interface ExternRequirement {
+  readonly name: string
+  readonly type: string
+  readonly wgsl: string
+  readonly glsl: string
+  readonly stage?: 'vertex' | 'fragment' | 'compute'
 }
 
 const resourceKind = (space: AddressSpace, t: ShaderType): ResourceKind =>
@@ -325,6 +350,7 @@ export function reflect(m: ModuleDecl): Reflection {
       space: b.space,
       ...(b.access ? { access: b.access } : {}),
       resourceKind: resourceKind(b.space, b.type),
+      owner: b.owner ?? 'module',
       ...(b.type.kind === 'struct' ? { structName: b.type.name } : {}),
       ...(b.type.kind === 'texture' ? { textureDim: b.type.dim, textureElem: b.type.elem } : {}),
     }
@@ -399,5 +425,12 @@ export function reflect(m: ModuleDecl): Reflection {
     entries,
     overrides,
     requiredFeatures,
+    requires: (m.externs ?? []).map((e) => ({
+      name: e.name,
+      type: typeKey(e.type),
+      wgsl: e.spelling?.wgsl ?? e.name,
+      glsl: e.spelling?.glsl ?? e.name,
+      ...(e.stage ? { stage: e.stage } : {}),
+    })),
   }
 }
