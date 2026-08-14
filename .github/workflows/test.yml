@@ -126,6 +126,18 @@ jobs:
               - 'data/**'
               - 'pipeline/**'
               - 'playground/**'
+              # scripts (#1700): `scripts/**/*.test.ts` is in vitest's include and the
+              # `data` leg's path args (`data/src scripts`) — but it was in NO filter, so a
+              # scripts-only PR set code=false, every leg skipped its steps, and all 17
+              # checks posted green in ~4s having run nothing. That made the changelog suite
+              # and the doc-signature ratchet CI-dark for changes to themselves.
+              - 'scripts/**'
+              # ONE named site file, not `site/**` — the deliberate exclusion above still
+              # holds for the site at large. scripts/doc-signature-drift.test.ts READS this
+              # page and asserts every signature it transcribes still names a live export,
+              # so an edit here has to run vitest or the ratchet is dark in exactly the
+              # scenario it exists for: the doc rotting while CI stays green (#1700).
+              - 'site/src/pages/shader-dsl/reference.astro'
               - 'bun.lock'
               - 'bun.lockb'
               - 'package.json'
