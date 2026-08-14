@@ -54,6 +54,13 @@ export { compileModuleJs } from './core/cpu-codegen'
 // plus the standalone wgslLayout(struct, kind) offset engine.
 export * from './core/reflect'
 
+// Module FRAGMENTS (#1711) — a header-less emit for a host that owns the program and
+// composes our declarations into it, with the directive/precision lines it must hoist
+// returned as structured `preamble` data rather than concatenated into source the
+// consumer would have to strip. `emitFragment` (WGSL) is star-re-exported from the
+// backend above; `emitGlslFragment` from the GLSL one. The shared shapes live here.
+export { type EmitFragment, type FragmentDeclares } from './core/fragment'
+
 // Semantic comparison of two modules (#1714) — IR + reflection, not text, so the
 // optimizer's temporaries / declaration order / generated names do not drown the
 // diff. Main barrel rather than '/dev': the "prod is dev, optimized" assertion it

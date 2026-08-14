@@ -41,6 +41,7 @@ import { texture2dfT, texture2duT, texture2diT, u32T, i32T, f32T, vec4fT, stageO
 import { collectFnRefs, emptyRefSet, typeStructNames } from '../ir/collect-refs'
 import { UnsupportedFeatureError, type Backend, type CapProfile } from '../backend'
 import { spellIntrinsic, INTRINSIC_BINDING_REFS } from '../intrinsics'
+import { externCallNames, type EmitFragment, type FragmentDeclares } from '../fragment'
 import { bodyHasRaw } from '../passes/opt/dce'
 import { dslError } from '../diagnostics/error'
 import { f32Lit } from './wgsl'
@@ -1315,7 +1316,12 @@ function assembleGlsl(
    *  which forced a separate lowering per stage; selecting here instead lets both stages
    *  share one (see emitGlslStages). */
   keepEntry?: string,
-): string {
+  /** #1711 — omit the stage entry points, for a DECLARATIONS-ONLY fragment a host
+   *  composes into a program it owns. The entries are still computed (they decide the
+   *  stage scope, so dropping them earlier would change which helpers and bindings
+   *  survive) and are reported to the caller; only their spelling is withheld. */
+  omitEntries?: boolean,
+): GlslAssembly {
   const structs = new Map(lowered.structs.map((s) => [s.name, s]))
 
   // Stage filter through the shared predicate (#763 S3) — the old attr-string
@@ -1387,14 +1393,22 @@ function assembleGlsl(
   // itself lead the source. '' (every module whose caps are host-side, i.e. all of them
   // today except a multiview one) splices NOTHING, so the header keeps its exact bytes —
   // the byte-neutral-when-unused shape of the #1651 sampler2DArray line above.
-  const parts: string[] = [
+  //
+  // Split out rather than pushed onto `parts` (#1711): these lines are what a host that
+  // owns the program supplies itself, so a declarations-only fragment must hand them back
+  // as DATA instead of concatenating them into source the consumer then has to strip. A
+  // regex over the emitted text cannot do it safely — `#extension` sits between `#version`
+  // and the precision lines exactly when a capability directs one, so a
+  // strip-`#version`-then-precision pattern silently keeps the whole block on those
+  // modules and removes it on every other one.
+  const preamble: string[] = [
     '#version 300 es',
     ...(extHeader ? [extHeader] : []),
     `precision ${opts?.floatPrecision ?? 'highp'} float;`,
     'precision highp int;',
     ...samplerPrecisions.map((s) => `precision highp ${s};`),
-    '',
   ]
+  const parts: string[] = []
 
   // #923 — specialization constants. GLSL ES 3.00 has no `override`, so the portable
   // equivalent is the PREPROCESSOR, emitted HERE (after the `#version`/precision
@@ -1490,11 +1504,45 @@ function assembleGlsl(
   }
   if (helpers.length)
     parts.push(helpers.map((f) => glslEs300Backend.emitFunc(f, opts?.parens)).join('\n\n'))
-  if (entries.length)
+  if (entries.length && omitEntries !== true)
     parts.push(entries.map((f) => emitGlslEntry(f, structs, opts?.parens)).join('\n\n'))
 
-  return applyTextPlugins(parts.join('\n') + '\n', opts)
+  return {
+    preamble,
+    sections: parts,
+    declares: {
+      functions: helpers.map((f) => f.name),
+      structs: [...structs.keys()].filter((n) => !bindingStructNames.has(n)),
+      bindings: lowered.bindings
+        .filter((b) => scope === null || scope.bindings.has(b.name))
+        .map((b) => b.name),
+      consts: lowered.consts.map((c) => c.name),
+      overrides: (lowered.overrides ?? []).map((o) => o.name),
+      entryPoints: entries.map((f) => f.name),
+    },
+    requires: externCallNames(helpers.concat(entries), new Set(lowered.funcs.map((f) => f.name))),
+  }
 }
+
+/** The preamble / body split of one GLSL assembly (#1711). `emitGlslModule` joins them
+ *  back into the byte-identical whole; `emitGlslFragment` hands the preamble to the host
+ *  as structured data and emits the body alone.
+ *
+ *  `sections` stays an ARRAY rather than a pre-joined string precisely so the join below
+ *  can reproduce the original `parts` shape exactly. Pre-joining introduces a trailing
+ *  newline that the empty-body case (a module of nothing but entries, emitted with
+ *  `omitEntries`) then double-counts. */
+interface GlslAssembly {
+  readonly preamble: readonly string[]
+  readonly sections: readonly string[]
+  readonly declares: FragmentDeclares
+  readonly requires: readonly string[]
+}
+
+/** Join a split assembly into a whole stage source — byte-identical to the pre-#1711
+ *  emitter, whose `parts` array was `[...preamble, '', ...sections]`. */
+const joinGlsl = (a: GlslAssembly, opts?: GlslEmitOptions): string =>
+  applyTextPlugins([...a.preamble, '', ...a.sections].join('\n') + '\n', opts)
 
 /** Emit one stage (or, with `stage` omitted, the whole module) as GLSL ES 3.00. */
 export function emitGlslModule(
@@ -1504,12 +1552,49 @@ export function emitGlslModule(
 ): string {
   // The `#extension` header comes from the AUTHORED module (#1670) — see assembleGlsl's
   // `extHeader` param.
-  return assembleGlsl(
+  return joinGlsl(
+    assembleGlsl(glslEs300Backend.modulePreamble?.(m) ?? '', lowerForGlsl(m, opts), stage, opts),
+    opts,
+  )
+}
+
+/** Emit a module as a header-less GLSL ES 3.00 FRAGMENT (#1711) — the declarations and
+ *  helpers, without `#version`, without the precision preamble, and (by default) without
+ *  the stage entry point — for a host that owns the program and composes this into it.
+ *
+ *  What the preamble would have carried comes back as {@link EmitFragment.preamble}: the
+ *  `#version` line, any `#extension … : require` a declared capability directs, and the
+ *  precision lines — including the integer-sampler ones the backend derives from the
+ *  module's own texture types (#1703). A host merges and de-duplicates those across the
+ *  fragments it assembles; nothing is dropped, so no consumer has to regex them back.
+ *
+ *  Entry points are excluded unless `entryPoints: true`. They are still listed in
+ *  `declares.entryPoints` either way, and they still decide the stage scope, so which
+ *  helpers, structs and bindings the fragment carries is exactly what that stage needs.
+ *
+ *  @param m - the module to emit.
+ *  @param stage - which stage's scope to emit; omit for the whole module.
+ *  @param opts - the usual GLSL emit options, plus `entryPoints` to keep the entries.
+ */
+export function emitGlslFragment(
+  m: ModuleDecl,
+  stage?: 'vertex' | 'fragment',
+  opts?: GlslEmitOptions & { entryPoints?: boolean },
+): EmitFragment {
+  const a = assembleGlsl(
     glslEs300Backend.modulePreamble?.(m) ?? '',
     lowerForGlsl(m, opts),
     stage,
     opts,
+    undefined,
+    opts?.entryPoints !== true,
   )
+  return {
+    source: applyTextPlugins(a.sections.join('\n') + '\n', opts),
+    preamble: a.preamble,
+    declares: a.declares,
+    requires: a.requires,
+  }
 }
 
 /** Both stages of one module, lowered + OPTIMIZED ONCE. Byte-identical to calling
@@ -1535,7 +1620,10 @@ export function emitGlslStages(
   // module-level fact, not a per-stage one (#1670).
   const extHeader = glslEs300Backend.modulePreamble?.(m) ?? ''
   return {
-    vertex: assembleGlsl(extHeader, lowered, 'vertex', opts, opts?.vertexEntry),
-    fragment: assembleGlsl(extHeader, lowered, 'fragment', opts, opts?.fragmentEntry),
+    vertex: joinGlsl(assembleGlsl(extHeader, lowered, 'vertex', opts, opts?.vertexEntry), opts),
+    fragment: joinGlsl(
+      assembleGlsl(extHeader, lowered, 'fragment', opts, opts?.fragmentEntry),
+      opts,
+    ),
   }
 }

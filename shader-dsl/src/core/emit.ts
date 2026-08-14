@@ -8,6 +8,8 @@
 
 import type { Backend } from './backend'
 import type { Expr, Stmt, ModuleDecl } from './ir'
+import { stageOf } from './ir'
+import { externCallNames, type EmitFragment } from './fragment'
 import { validate } from './passes/validate'
 import { assertCaps, assertBuiltins } from './passes/required-caps'
 import { lowerModule } from './passes/match-lower'
@@ -342,6 +344,46 @@ export function emitModule(m: ModuleDecl, be: Backend, opts?: EmitOptions): stri
   // it — and prepended to the assembled declarations. '' for enables-free modules, so
   // their emit stays byte-identical.
   return directiveHeader(be, m) + applyTextPlugins(assembleLowered(lowered, be, opts?.parens), opts)
+}
+
+/** Emit a ModuleDecl as a header-less FRAGMENT for `be` (#1711) — the declaration
+ *  assembly without the directive header and, unless `entryPoints` is true, without the
+ *  stage entry points. The directives come back as `preamble` lines for the composer to
+ *  merge rather than being concatenated into source it would have to strip.
+ *
+ *  WGSL needs no header/body split beyond this: its only preamble is the `enable`
+ *  directives, and it has no stage wrapper — an entry is an ordinary function with an
+ *  attribute. GLSL's split is genuinely structural and lives in `emitGlslFragment`.
+ *
+ *  Unlike `emitFuncs`, this runs the whole pre-emit pipeline (`validate` → `assertCaps` →
+ *  `assertBuiltins` → lowering → optimize), so a fragment cannot silently skip the gates
+ *  a whole-module emit enforces. That is the reason to prefer it over hand-concatenating
+ *  per-declaration emitters. */
+export function emitModuleFragment(
+  m: ModuleDecl,
+  be: Backend,
+  opts?: EmitOptions & { entryPoints?: boolean },
+): EmitFragment {
+  const lowered = applyIRPlugins(lowerForBackend(m, be, undefined, opts?.fp64Flavor), opts)
+  const entries = lowered.funcs.filter((f) => stageOf(f) !== undefined)
+  const kept =
+    opts?.entryPoints === true
+      ? lowered.funcs
+      : lowered.funcs.filter((f) => stageOf(f) === undefined)
+  const pre = be.modulePreamble?.(m) ?? ''
+  return {
+    source: applyTextPlugins(assembleLowered({ ...lowered, funcs: kept }, be, opts?.parens), opts),
+    preamble: pre ? pre.split('\n').filter((l) => l !== '') : [],
+    declares: {
+      functions: kept.filter((f) => stageOf(f) === undefined).map((f) => f.name),
+      structs: lowered.structs.map((s) => s.name),
+      bindings: lowered.bindings.map((b) => b.name),
+      consts: lowered.consts.map((c) => c.name),
+      overrides: (lowered.overrides ?? []).map((o) => o.name),
+      entryPoints: entries.map((f) => f.name),
+    },
+    requires: externCallNames(kept, new Set(lowered.funcs.map((f) => f.name))),
+  }
 }
 
 /** Emit a ModuleDecl at an explicit optimization level (O0/O1/O2) instead of the
