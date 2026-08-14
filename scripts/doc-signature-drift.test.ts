@@ -185,22 +185,22 @@ describe('#1700 — reader sanity (every arm below is vacuous without these)', (
     ).toBeGreaterThan(20)
   })
 
-  it('both hand-written docs were read and parsed', () => {
-    expect(
-      referenceSigs().length,
-      'fewer than 40 `sig` rows parsed out of reference.astro — the reader is broken or the ' +
-        'file moved, and arm A1 would then pass over an empty set',
-    ).toBeGreaterThanOrEqual(40)
+  it('AUTHORING.md was read and parsed', () => {
     expect(
       authoringHeadings().length,
-      'fewer than 8 backticked ### headings parsed out of AUTHORING.md — same failure',
+      'fewer than 8 backticked ### headings parsed out of AUTHORING.md — the reader is ' +
+        'broken or the file moved, and arm A1 would then pass over an empty set',
     ).toBeGreaterThanOrEqual(8)
   })
 })
 
 describe('#1700 — every name a hand-written doc claims still exists', () => {
+  // reference.astro is NOT scanned here any more, and that is a tightening rather than a
+  // gap: since #1700 it lists bare symbol NAMES and resolves each one through the api
+  // collection at build time, throwing on a miss. That catches strictly more than this text
+  // scan could — including a symbol that still exists but is `@internal`, and therefore
+  // published nowhere for a reader to follow. The arm below pins that guard in place.
   const sources: Readonly<Record<string, () => string[]>> = {
-    'site/src/pages/shader-dsl/reference.astro': referenceSigs,
     'shader-dsl/AUTHORING.md': authoringHeadings,
   }
 
@@ -244,40 +244,44 @@ describe('#1700 — every name a hand-written doc claims still exists', () => {
   })
 })
 
-describe('#1700 — the transcription ratchet', () => {
-  // The migration pressure, and the half that makes this a RATCHET rather than a lint. A1
-  // catches a name that rotted; it cannot catch a parameter list that rotted. The only thing
-  // that removes that class of drift entirely is not transcribing the signature — so the
-  // number of transcribed rows may fall and must never rise.
-  //
-  // A row that LINKS to its generated page instead of spelling a signature does not count
-  // here, which is exactly the intended escape: growing the curated tour is fine, growing the
-  // set of unverifiable transcriptions is not.
-  const CEILING = 53
-
-  it(`reference.astro transcribes at most ${CEILING} signatures, and the number may only fall`, () => {
+describe('#1700 — the transcription ratchet, now fully closed', () => {
+  // This started at a ceiling of 53 — the hand-written signatures reference.astro carried —
+  // and the arm existed to force that number DOWN. It reached zero: the page now lists bare
+  // symbol names and links each to its generated page, so there is no second copy of a
+  // signature anywhere on the site. The arm stays as a one-way latch.
+  it('reference.astro transcribes NO signatures', () => {
     const n = referenceSigs().length
     expect(
       n,
-      `reference.astro now transcribes ${n} signatures, up from the ${CEILING} measured when ` +
-        `this ratchet was set. A transcribed signature is a second authority for something ` +
-        `the source already states, and nothing checks its PARAMETERS — only that its name ` +
-        `still exists (A1). Add the row as a LINK to /api/index/functions/<name> instead; ` +
-        `linked rows are not counted here. If a transcription is genuinely warranted, lower ` +
-        `this ceiling deliberately in the commit that raises it — never bump it to go green.`,
-    ).toBeLessThanOrEqual(CEILING)
+      `reference.astro transcribes ${n} signature(s). It carried 53 before #1700 and now ` +
+        `carries none: every row is a NAME linking to its generated page, which cannot drift ` +
+        `because the page does not restate the signature. Re-introducing one restores the ` +
+        `defect this ratchet was built to remove — nothing checks a transcribed parameter ` +
+        `list against the source. Link to /api/<kind>/<name> instead.`,
+    ).toBe(0)
   })
 
-  it('the ceiling is not slack — it tracks the real count', () => {
-    // A ceiling far above the real number is a ratchet that has stopped ratcheting: every
-    // migration would be absorbed by the slack instead of tightening it. Kept within 5 so
-    // that a genuine reduction forces the ceiling down with it.
-    const n = referenceSigs().length
+  it('reference.astro still VERIFIES its names against the published reference', () => {
+    // The reason dropping the text scan above is safe. If this guard is deleted, the page
+    // silently regains the ability to name a symbol nobody publishes — a dead link for a
+    // reader, and invisible to every other arm here.
+    const src = readFileSync(REFERENCE, 'utf8')
     expect(
-      CEILING - n,
-      `the ceiling (${CEILING}) sits ${CEILING - n} above the actual count (${n}). Lower ` +
-        `CEILING to ${n} — slack lets the count creep back up without the arm above noticing.`,
-    ).toBeLessThanOrEqual(5)
+      src,
+      'reference.astro no longer resolves its symbol names through the api collection. ' +
+        'Without `routeFor` it can link to a symbol that was renamed, un-exported, or ' +
+        'tagged @internal, and the build will happily emit the 404.',
+    ).toMatch(/function routeFor\(/)
+    expect(
+      /throw new Error\(/.test(src),
+      'routeFor no longer THROWS on an unknown name — it must fail the build, not fall back ' +
+        'to a placeholder href. A guard that degrades instead of failing is not a guard.',
+    ).toBe(true)
+    expect(
+      src,
+      'reference.astro no longer reads the api collection, so `routeFor` has nothing real to ' +
+        'resolve against',
+    ).toContain("getCollection('api')")
   })
 })
 
