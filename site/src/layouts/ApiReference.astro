@@ -16,6 +16,7 @@ import Footer from '../components/Footer.astro'
 import OnThisPage from '../components/OnThisPage.astro'
 import { getCollection } from 'astro:content'
 import '../styles/prose.css'
+import '../styles/scroll-rail.css'
 
 interface Heading {
   depth: number
@@ -80,6 +81,10 @@ const groups = Object.keys(SPECIFIER)
   .filter((g) => g.count > 0)
 
 const currentGroup = groupOf(current)
+/** TypeDoc's kind directory for the page being rendered — `index/functions/fn` -> functions.
+ *  Only THAT list opens. Opening every kind in the group put 284 entries in a 248px rail on
+ *  a page that needs one of them. */
+const currentKind = current.split('/').at(-2) ?? ''
 ---
 
 <Base title={title} description={description}>
@@ -97,7 +102,7 @@ const currentGroup = groupOf(current)
       class="api-nav hidden w-[248px] shrink-0 lg:block"
       data-current={current}
     >
-      <div class="sticky top-20 max-h-[calc(100vh-6rem)] overflow-y-auto pr-3">
+      <div class="sticky top-20 flex max-h-[calc(100vh-6rem)] flex-col pr-3">
         <p class="font-mono text-[11px] uppercase tracking-[0.16em] text-fg-mute">API reference</p>
         <label class="sr-only" for="api-filter">Filter symbols</label>
         <input
@@ -109,12 +114,13 @@ const currentGroup = groupOf(current)
         />
         <p class="api-filter-empty mt-3 hidden font-mono text-[12px] text-fg-mute">No match.</p>
 
+        <div class="api-nav-list scroll-rail min-h-0 flex-1">
         {
           groups.map((g) => (
             <section class="mt-6" data-group={g.group}>
               <h2 class="font-mono text-[12px] text-fg-dim">{g.specifier}</h2>
               {g.kinds.map((k) => (
-                <details class="mt-2" open={g.group === currentGroup}>
+                <details class="mt-2" open={g.group === currentGroup && k.kind === currentKind}>
                   <summary class="cursor-pointer list-none font-mono text-[11px] uppercase tracking-[0.12em] text-fg-mute hover:text-fg focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent">
                     {k.label}
                     <span class="ml-1 text-fg-faint">{k.items.length}</span>
@@ -137,6 +143,7 @@ const currentGroup = groupOf(current)
             </section>
           ))
         }
+        </div>
       </div>
     </nav>
 
@@ -160,6 +167,15 @@ const currentGroup = groupOf(current)
   // there. Hides list items whose name does not contain the query, opens the <details> that
   // still have visible children, and says so when nothing matches rather than showing an
   // empty rail.
+  // Measured: the rail is 6888px against ~804px of viewport (327 symbols), and it loads at
+  // scrollTop 0 — so on /api/index/functions/fn the active item sat at y=1223, off-screen.
+  // Centre it instead. `instant` because this is initial placement, not a transition, and an
+  // animated jump on every page load is its own annoyance.
+  {
+    const cur = document.querySelector('.api-nav [aria-current="page"]')
+    if (cur) cur.scrollIntoView({ block: 'center', behavior: 'instant' })
+  }
+
   const input = document.getElementById('api-filter')
   if (input) {
     const nav = document.querySelector('.api-nav')

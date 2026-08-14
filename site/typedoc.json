@@ -23,7 +23,7 @@
   "name": "@xgis/shader-dsl",
   "hidePageHeader": true,
   "hideBreadcrumbs": true,
-  "useCodeBlocks": true,
+  "useCodeBlocks": false,
 
   "frontmatterGlobals": {
     "generated": true

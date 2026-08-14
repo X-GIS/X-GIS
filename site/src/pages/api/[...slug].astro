@@ -21,7 +21,22 @@ export async function getStaticPaths() {
 }
 
 const { entry, route } = Astro.props
-const { Content, headings } = await render(entry)
+const { Content, headings: rawHeadings } = await render(entry)
+
+// An OVERLOADED symbol emits one `## Call Signature` per overload — `fn` has four, so the
+// TOC read "Call Signature / Type Parameters / Parameters / Returns" four times with nothing
+// to tell them apart, which is worse than no TOC. Number the repeats so the rail is
+// navigable. Only the LABEL changes; the slug stays whatever the page anchored, or the links
+// would stop resolving.
+const seenHeading = new Map<string, number>()
+const dupCount = new Map<string, number>()
+for (const h of rawHeadings) dupCount.set(h.text, (dupCount.get(h.text) ?? 0) + 1)
+const headings = rawHeadings.map((h) => {
+  if ((dupCount.get(h.text) ?? 0) < 2) return h
+  const n = (seenHeading.get(h.text) ?? 0) + 1
+  seenHeading.set(h.text, n)
+  return { ...h, text: `${h.text} ${n}` }
+})
 
 // The first `# heading` is the symbol's own title ("Function: emitConst()"). Used for the
 // document title so a search result names the symbol rather than the path.

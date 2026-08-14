@@ -289,17 +289,28 @@
   padding: 0.2em 0;
 }
 
-/* ═══ API-reference-only rules ═══
+/* ═══ API-reference rules ═══
  *
- * The generated pages have three shapes the blog never produces, and each was unreadable
- * before this: the page's own H1 (a blog post's title lives in its header, not in the
- * markdown), the signature code block that must read as the page's subject, and TypeDoc's
- * parameter list — which is an H3 per parameter followed by its type and prose, and
- * rendered as loose lines with no visible relationship between the three. */
+ * A reference page is not an essay. It is scanned, re-scanned, and left — so the type is
+ * denser than the blog's, the structural labels recede, and the only things that carry
+ * weight are the ones a reader is actually hunting: the symbol name, the signature, and the
+ * parameter names.
+ *
+ * TypeDoc emits a fixed shape, and each level gets the treatment its ROLE deserves:
+ *   h1  the symbol            — the page's subject
+ *   h2  "Call Signature"      — a structural label, repeated once per overload
+ *   h3  Parameters / Returns  — a section within one signature
+ *   h4  a parameter name      — dense, repeated, list-like
+ */
+
+.api-prose {
+  font-size: 15px;
+  line-height: 1.62;
+}
 
 .api-prose h1 {
   font-family: var(--font-display, inherit);
-  font-size: clamp(28px, 3.4vw, 38px);
+  font-size: clamp(28px, 3.2vw, 36px);
   line-height: 1.08;
   letter-spacing: -0.02em;
   color: var(--color-fg);
@@ -307,42 +318,105 @@
   font-weight: 400;
 }
 
-/* The signature. It is the one thing a reader scans for, so it gets the visual weight the
- * H1 would otherwise monopolise. */
-.api-prose > .expressive-code:first-of-type,
-.api-prose > pre:first-of-type {
-  margin-block: 0 1.5rem;
-  border-left: 2px solid var(--color-accent);
-}
-
-/* `Defined in: …` — provenance, useful but not the subject: set small and quiet, and give it
- * a rule so it reads as metadata rather than as the first sentence of the description. */
-.api-prose p:has(> a[href*='/blob/']) {
+/* Structural labels, NOT titles. They were display-sized and dominated a page whose subject
+ * is the h1 above them — and on an overloaded symbol like `fn` the same word appears four
+ * times. Set as a quiet rule-and-caption so the eye skips to the content under them. */
+.api-prose h2 {
   font-family: var(--font-mono, ui-monospace, monospace);
-  font-size: 12px;
+  font-size: 11px;
+  font-weight: 400;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
   color: var(--color-fg-mute);
-  padding-bottom: 1rem;
-  margin-bottom: 1.5rem;
-  border-bottom: 1px solid var(--color-line);
+  margin: 2.75rem 0 0.9rem;
+  padding-top: 0.9rem;
+  border-top: 1px solid var(--color-line);
+}
+/* The first label sits right under the signature — no rule, it would double the one the
+ * "Defined in" line already draws. */
+.api-prose h2:first-of-type {
+  margin-top: 1.75rem;
+  border-top: 0;
+  padding-top: 0;
 }
 
-/* Parameters / Returns / Type-parameter headings: TypeDoc emits H2 for the section and H3
- * per member. The H3s are dense and repeat, so they read as a list, not as prose headings. */
 .api-prose h3 {
   font-family: var(--font-mono, ui-monospace, monospace);
-  font-size: 13px;
-  letter-spacing: 0;
-  color: var(--color-fg);
-  margin-top: 1.5rem;
+  font-size: 12px;
+  font-weight: 400;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--color-fg-dim);
+  margin: 1.75rem 0 0.5rem;
 }
 
-/* An H3 immediately followed by a lone type paragraph is a parameter and its type — pull
- * them together so the pair is visually one unit instead of two orphan lines. */
-.api-prose h3 + p {
-  margin-top: 0.35rem;
+/* A parameter / member name. Dense and repeated, so it reads as a list item rather than a
+ * heading — the type line that follows it is pulled tight underneath. */
+.api-prose h4 {
   font-family: var(--font-mono, ui-monospace, monospace);
-  font-size: 12.5px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--color-fg);
+  margin: 1.1rem 0 0.2rem;
+}
+.api-prose h4 + p {
+  margin-top: 0;
+  font-size: 13px;
+  color: var(--color-fg-dim);
+}
+
+/* THE SIGNATURE. typedoc-plugin-markdown emits it as a blockquote (`> **fn**(…)`), which
+ * the blog's quote styling would render as a pull-quote in italics. It is the single thing
+ * most readers open the page for, so it gets a panel and the accent rule instead — and its
+ * cross-references stay visible as links, which the old `useCodeBlocks` rendering could not
+ * do at all (it emitted bare, unlinked, untyped parameter names). */
+.api-prose blockquote {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 13px;
+  line-height: 1.7;
+  font-style: normal;
+  color: var(--color-fg);
+  background: var(--color-bg-elev);
+  border: 0;
+  border-left: 2px solid var(--color-accent);
+  border-radius: 0 4px 4px 0;
+  padding: 0.85rem 1rem;
+  margin: 0 0 1.25rem;
+  overflow-x: auto;
+}
+.api-prose blockquote p {
+  margin: 0;
+}
+/* Inline code INSIDE the signature must not carry the blog's chip styling — each identifier
+ * is its own <code>, so the padding and background turned `fn<P, R>(params, body)` into
+ * `fn< P , R >( params , body )`, with a visible gap at every token boundary. Strip it: the
+ * blockquote is already monospace, so the chips added nothing but the gaps. */
+.api-prose blockquote :not(pre) > code {
+  padding: 0;
+  background: none;
+  border: 0;
+  font-size: inherit;
+  color: inherit;
+}
+
+.api-prose blockquote a {
   color: var(--color-accent);
+  text-decoration: none;
+  border-bottom: 1px solid color-mix(in oklab, var(--color-accent) 35%, transparent);
+}
+.api-prose blockquote a:hover {
+  border-bottom-color: var(--color-accent);
+}
+
+/* `Defined in: …` — provenance. Useful, not the subject: quiet, and ruled off so it reads as
+ * metadata rather than as the description's first sentence. */
+.api-prose p:has(> a[href*='/blob/']) {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 11.5px;
+  color: var(--color-fg-mute);
+  padding-bottom: 1.1rem;
+  margin-bottom: 1.5rem;
+  border-bottom: 1px solid var(--color-line);
 }
 
 .api-prose hr {
