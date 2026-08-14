@@ -32,9 +32,23 @@ interface Props {
   /** Set on a GROUP INDEX only, to the import specifier. TypeDoc titles those pages after
    *  its output directory (`# index`, `# dev`), which names nothing a reader can type. */
   indexTitle?: string
+  /** Item 18 (#1695 audit): GitHub edit url for the symbol's OWN declaration, derived in
+   *  [...slug].astro from its "Defined in" link. Absent on a group-index page. */
+  editHref?: string
 }
-const { title, description, headings, current, indexTitle } = Astro.props
+const { title, description, headings, current, indexTitle, editHref } = Astro.props
 const base = import.meta.env.BASE_URL.replace(/\/+$/, '')
+
+// Item 13 (#1695 audit): OnThisPage renders nothing when there's no TOC to show — a symbol
+// page with zero H2/H3 headings (a plain variable or type alias with no sections), or a
+// GROUP INDEX (`indexTitle` set: its body already IS the nav, see prose.css's "Group-index
+// pages" — OnThisPage is suppressed for those regardless of heading count). Previously the
+// grid still reserved the aside's column in both cases: `main` capped at 76ch, nothing grew
+// to fill the rest, so ~25% of a 1440px viewport sat blank (measured on
+// /api/index/variables/INTRINSICS: main 760px of a 1400px grid, dead space to 1420px).
+// Compute the same "will OnThisPage actually render a list" decision it makes internally
+// (its own `items.length > 0` guard) HERE too, so the content column's width can react to it.
+const hasToc = !indexTitle && headings.some((h) => h.depth >= 2 && h.depth <= 3)
 
 // ── nav model ─────────────────────────────────────────────────────────────────────────────
 // `core/ir` is a TWO-segment entry point, so the group is not simply the first segment.
@@ -85,6 +99,30 @@ const currentGroup = groupOf(current)
  *  Only THAT list opens. Opening every kind in the group put 284 entries in a 248px rail on
  *  a page that needs one of them. */
 const currentKind = current.split('/').at(-2) ?? ''
+
+// Item 17 (#1695 audit): there was no way to walk to the adjacent symbol. "Adjacent" has to
+// mean the SAME thing the left rail already shows, or the two disagree about what "next" is
+// — so this flattens the identical `groups -> kinds -> items` structure the rail renders
+// above, in the same order (groups in SPECIFIER's order, kinds in KIND_ORDER, items
+// name-sorted within a kind), rather than deriving a second ordering from scratch.
+const flatItems = groups.flatMap((g) =>
+  g.kinds.flatMap((k) => k.items.map((it) => ({ ...it, kindLabel: k.label, specifier: g.specifier }))),
+)
+const flatIdx = flatItems.findIndex((it) => it.route === current)
+const prevItem = flatIdx > 0 ? flatItems[flatIdx - 1] : undefined
+const nextItem = flatIdx >= 0 && flatIdx < flatItems.length - 1 ? flatItems[flatIdx + 1] : undefined
+
+// Item 19 (#1695 audit): the filter box matches names only — the `index` group alone holds
+// 284 symbols across 5 kinds, so "show me only interfaces" was impossible. One chip per kind
+// actually present anywhere, with its total count across every group (matches the count the
+// rail's own `<summary>` shows per group/kind).
+const kindCounts = new Map<string, number>()
+for (const g of groups) for (const k of g.kinds) kindCounts.set(k.kind, (kindCounts.get(k.kind) ?? 0) + k.items.length)
+const allKinds = KIND_ORDER.filter((k) => kindCounts.has(k)).map((k) => ({
+  kind: k,
+  label: KIND_LABEL[k],
+  count: kindCounts.get(k)!,
+}))
 ---
 
 <Base title={title} description={description}>
@@ -112,6 +150,18 @@ const currentKind = current.split('/').at(-2) ?? ''
           autocomplete="off"
           class="mt-3 w-full rounded border border-line bg-bg-elev px-2.5 py-1.5 font-mono text-[12px] text-fg placeholder:text-fg-mute focus-visible:border-accent focus-visible:outline-none"
         />
+        <fieldset class="api-kind-filter mt-2">
+          <legend class="sr-only">Filter by kind</legend>
+          {
+            allKinds.map((k) => (
+              <label class="api-kind-chip">
+                <input type="checkbox" value={k.kind} />
+                <span>{k.label}</span>
+                <span class="api-kind-chip-n">{k.count}</span>
+              </label>
+            ))
+          }
+        </fieldset>
         <p class="api-filter-empty mt-3 hidden font-mono text-[12px] text-fg-mute">No match.</p>
 
         <div class="api-nav-list scroll-rail min-h-0 flex-1">
@@ -120,7 +170,11 @@ const currentKind = current.split('/').at(-2) ?? ''
             <section class="mt-6" data-group={g.group}>
               <h2 class="font-mono text-[12px] text-fg-dim">{g.specifier}</h2>
               {g.kinds.map((k) => (
-                <details class="mt-2" open={g.group === currentGroup && k.kind === currentKind}>
+                <details
+                  class="mt-2"
+                  open={g.group === currentGroup && k.kind === currentKind}
+                  data-kind={k.kind}
+                >
                   <summary class="cursor-pointer list-none font-mono text-[11px] uppercase tracking-[0.12em] text-fg-mute hover:text-fg focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent">
                     {k.label}
                     <span class="ml-1 text-fg-faint">{k.items.length}</span>
@@ -148,16 +202,91 @@ const currentKind = current.split('/').at(-2) ?? ''
     </nav>
 
     <!-- ── the page ──────────────────────────────────────────────────────────────────── -->
-    <main id="api-content" class="min-w-0 flex-1 lg:max-w-[76ch]">
+    <!-- Item 13: only cap the measure when a TOC is actually going to sit in the freed
+         column — otherwise `main` grows to fill it (see `hasToc` above). -->
+    <main id="api-content" class:list={['min-w-0 flex-1', hasToc && 'lg:max-w-[76ch]']}>
       <slot name="breadcrumb" />
       {indexTitle && <h1 class="api-index-title">{indexTitle}</h1>}
-      <div class:list={['api-prose', indexTitle && 'api-prose--index']}><slot /></div>
+      <div class:list={['api-prose', indexTitle && 'api-prose--index']}>
+        <slot />
+      </div>
+
+      {/* Items 17+18 (#1695 audit): a symbol page was a dead end — no way to walk to the
+          adjacent symbol, and no obvious "this doc is wrong, where do I fix it" path. Scoped
+          to symbol pages only (`!indexTitle`): a group-index page isn't itself a rail entry
+          (prevItem/nextItem is empty for it) and has no single declaration to edit. */}
+      {
+        !indexTitle && (prevItem || nextItem || editHref) && (
+          <div class="mt-12 border-t border-line pt-8">
+            {(prevItem || nextItem) && (
+              <div class:list={['grid gap-3', prevItem && nextItem ? 'sm:grid-cols-2' : 'sm:grid-cols-1']}>
+                {prevItem && (
+                  <a
+                    href={`${base}/api/${prevItem.route}`}
+                    class="group block rounded-xl border border-line px-5 py-4 text-left transition-colors hover:border-line-strong hover:bg-bg-hover"
+                  >
+                    <p class="mb-1.5 flex items-center gap-1.5 font-mono text-[11px] uppercase tracking-[0.16em] text-fg-mute">
+                      <svg viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                        <path d="M15 6l-6 6 6 6" />
+                      </svg>
+                      Previous
+                    </p>
+                    <p class="truncate text-[15px] font-medium text-fg transition-colors group-hover:text-accent">
+                      {prevItem.name}
+                    </p>
+                    <p class="mt-0.5 truncate font-mono text-[11px] text-fg-faint">
+                      {prevItem.specifier} · {prevItem.kindLabel}
+                    </p>
+                  </a>
+                )}
+                {nextItem && (
+                  <a
+                    href={`${base}/api/${nextItem.route}`}
+                    class:list={[
+                      'group block rounded-xl border border-line px-5 py-4 text-right transition-colors hover:border-line-strong hover:bg-bg-hover',
+                      !prevItem && 'sm:col-start-2',
+                    ]}
+                  >
+                    <p class="mb-1.5 flex items-center justify-end gap-1.5 font-mono text-[11px] uppercase tracking-[0.16em] text-fg-mute">
+                      Next
+                      <svg viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                        <path d="M9 6l6 6-6 6" />
+                      </svg>
+                    </p>
+                    <p class="truncate text-[15px] font-medium text-fg transition-colors group-hover:text-accent">
+                      {nextItem.name}
+                    </p>
+                    <p class="mt-0.5 truncate font-mono text-[11px] text-fg-faint">
+                      {nextItem.specifier} · {nextItem.kindLabel}
+                    </p>
+                  </a>
+                )}
+              </div>
+            )}
+            {editHref && (
+              <div class="mt-6 flex flex-wrap items-center gap-x-5 gap-y-1 text-[12.5px] text-fg-mute">
+                <a
+                  href={editHref}
+                  target="_blank"
+                  rel="noopener"
+                  class="inline-flex items-center gap-1.5 transition-colors hover:text-fg"
+                >
+                  <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                    <path d="M12 20h9M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4 12.5-12.5z" />
+                  </svg>
+                  Edit this declaration on GitHub
+                </a>
+              </div>
+            )}
+          </div>
+        )
+      }
     </main>
 
     {/* A group index's headings ARE its body — core/ir's lists 193 exports, so its TOC
         would be a 194-entry duplicate of what the reader is already looking at. Measured:
         of 332 pages only 4 exceed 25 entries, and that one is by far the worst. */}
-    {!indexTitle && <OnThisPage headings={headings} />}
+    {hasToc && <OnThisPage headings={headings} />}
   </div>
   <Footer />
 </Base>
@@ -180,24 +309,41 @@ const currentKind = current.split('/').at(-2) ?? ''
   if (input) {
     const nav = document.querySelector('.api-nav')
     const empty = nav.querySelector('.api-filter-empty')
-    input.addEventListener('input', () => {
+    // Item 19 (#1695 audit): kind checkboxes compose with the text query rather than
+    // replacing it — both narrow the SAME `<details data-kind>` sections, so "Interfaces" +
+    // "emit" together show only interfaces whose name contains "emit". NONE checked (the
+    // default) means no kind restriction, same rule the text query already uses for '' — so
+    // checking a box is what narrows anything, rather than every box needing to start
+    // pre-checked and the reader unchecking four to isolate one.
+    const kindBoxes = [...nav.querySelectorAll('.api-kind-filter input[type="checkbox"]')]
+
+    const applyFilter = () => {
       const q = input.value.trim().toLowerCase()
+      const checkedKinds = kindBoxes.filter((b) => b.checked).map((b) => b.value)
+      const kinds = checkedKinds.length > 0 ? new Set(checkedKinds) : null
+      const filtering = q !== '' || kinds !== null
       let shown = 0
-      for (const li of nav.querySelectorAll('li[data-name]')) {
-        const hit = q === '' || li.dataset.name.includes(q)
-        li.hidden = !hit
-        if (hit) shown++
-      }
-      for (const d of nav.querySelectorAll('details')) {
-        const any = [...d.querySelectorAll('li[data-name]')].some((li) => !li.hidden)
-        d.hidden = q !== '' && !any
-        if (q !== '' && any) d.open = true
+      for (const d of nav.querySelectorAll('details[data-kind]')) {
+        const kindOk = kinds === null || kinds.has(d.dataset.kind)
+        let any = false
+        for (const li of d.querySelectorAll('li[data-name]')) {
+          const hit = kindOk && (q === '' || li.dataset.name.includes(q))
+          li.hidden = !hit
+          if (hit) {
+            shown++
+            any = true
+          }
+        }
+        d.hidden = !kindOk || (q !== '' && !any)
+        if (!d.hidden && filtering) d.open = true
       }
       for (const s of nav.querySelectorAll('section[data-group]')) {
-        s.hidden = q !== '' && ![...s.querySelectorAll('details')].some((d) => !d.hidden)
+        s.hidden = ![...s.querySelectorAll('details')].some((d) => !d.hidden)
       }
       empty.classList.toggle('hidden', shown > 0)
-    })
+    }
+    input.addEventListener('input', applyFilter)
+    kindBoxes.forEach((b) => b.addEventListener('change', applyFilter))
   }
 </script>
 
@@ -213,6 +359,68 @@ const currentKind = current.split('/').at(-2) ?? ''
     padding-left: 0.5rem;
     margin-left: -0.75rem;
     background: var(--color-bg-elev);
+  }
+  /* Item 19 (#1695 audit): kind chips, styled as a checkbox group disguised as pills — real
+   * `<input type=checkbox>` under a visually-hidden-but-focusable label so the multi-select
+   * semantics (any combination on) come from the browser's own form controls, not hand-rolled
+   * aria-pressed bookkeeping (contrast the SINGLE-select `.cov-chip` on docs/mapbox-spec.astro,
+   * which is exactly why that one uses buttons instead). */
+  .api-kind-filter {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.35rem;
+    margin: 0;
+    padding: 0;
+    border: 0;
+  }
+  .api-kind-chip {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3em;
+    padding: 0.2rem 0.55rem;
+    border: 1px solid var(--color-line);
+    border-radius: 999px;
+    font-family: var(--font-mono, ui-monospace, monospace);
+    font-size: 10.5px;
+    color: var(--color-fg-mute);
+    cursor: pointer;
+    user-select: none;
+  }
+  .api-kind-chip:hover {
+    color: var(--color-fg);
+    border-color: var(--color-line-strong);
+  }
+  /* Item 20 sibling (#1695 audit): checked/unchecked was carried by border-colour +
+   * background-tint + text-colour — three channels, but all of them colour, none of them a
+   * shape/weight change. `font-weight` is the same non-colour companion the rail's active
+   * item already uses (see the comment on `.api-nav a[aria-current='page']` above). */
+  .api-kind-chip:has(input:checked) {
+    border-color: var(--color-accent);
+    color: var(--color-accent);
+    background: color-mix(in oklab, var(--color-accent) 12%, transparent);
+    font-weight: 600;
+  }
+  .api-kind-chip:has(input:focus-visible) {
+    outline: 2px solid var(--color-accent);
+    outline-offset: 1px;
+  }
+  .api-kind-chip input {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    margin: -1px;
+    padding: 0;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
+  }
+  .api-kind-chip-n {
+    color: var(--color-fg-faint);
+  }
+  .api-kind-chip:has(input:checked) .api-kind-chip-n {
+    color: inherit;
   }
   .api-index-title {
     font-size: clamp(28px, 3.4vw, 38px);

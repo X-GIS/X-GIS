@@ -28,19 +28,39 @@ const { Content, headings: rawHeadings } = await render(entry)
 // to tell them apart, which is worse than no TOC. Number the repeats so the rail is
 // navigable. Only the LABEL changes; the slug stays whatever the page anchored, or the links
 // would stop resolving.
+//
+// Keyed by (depth, text), not text alone — Node.md's own accessor `a` (`### a`, depth 3)
+// and `select()`'s second overload's parameter also named `a` (`###### a`, depth 6) are
+// unrelated, but a text-only key counted them together and renumbered the ACCESSOR "a 1"
+// (`select`'s own two `a` params, one per overload, got numbered right along with it — a
+// symptom, not the fix). Depth-scoping doesn't need to be parent-scoped the way
+// astro.config.mjs's rehypeApiOverloads is: every repeat this rail can even show (depth
+// 2–3, per OnThisPage's own filter) is already a same-depth run by construction — member
+// names are unique per TypeScript's own rules, so the only same-depth/same-text repeats
+// left ARE genuine per-overload sections ("Parameters"/"Returns" once per Call Signature),
+// which still get numbered correctly.
 const seenHeading = new Map<string, number>()
 const dupCount = new Map<string, number>()
-for (const h of rawHeadings) dupCount.set(h.text, (dupCount.get(h.text) ?? 0) + 1)
+const dupKey = (h: { depth: number; text: string }) => `${h.depth}:${h.text}`
+for (const h of rawHeadings) dupCount.set(dupKey(h), (dupCount.get(dupKey(h)) ?? 0) + 1)
 const headings = rawHeadings.map((h) => {
-  if ((dupCount.get(h.text) ?? 0) < 2) return h
-  const n = (seenHeading.get(h.text) ?? 0) + 1
-  seenHeading.set(h.text, n)
+  if ((dupCount.get(dupKey(h)) ?? 0) < 2) return h
+  const n = (seenHeading.get(dupKey(h)) ?? 0) + 1
+  seenHeading.set(dupKey(h), n)
   return { ...h, text: `${h.text} ${n}` }
 })
 
+// typedoc-plugin-markdown backslash-escapes markdown-significant characters in a raw
+// identifier ("Node\<K\>") so it survives AS TEXT through a markdown parse. That's correct
+// for `<Content/>` below (a real parse), but `heading` here is pulled out of entry.body by
+// REGEX — raw source text, never parsed — so the escapes rode straight into <title> and the
+// meta description as literal backslashes (#1695 item 11). Unescape before either uses it.
+const unescapeMd = (s: string) => s.replace(/\\([\\`*_{}[\]()#+\-.!<>|])/g, '$1')
+
 // The first `# heading` is the symbol's own title ("Function: emitConst()"). Used for the
 // document title so a search result names the symbol rather than the path.
-const heading = /^#\s+(.+)$/m.exec(entry.body ?? '')?.[1]?.trim()
+const rawHeading = /^#\s+(.+)$/m.exec(entry.body ?? '')?.[1]?.trim()
+const heading = rawHeading ? unescapeMd(rawHeading) : undefined
 const title = heading ?? route.split('/').pop() ?? 'API'
 
 const base = import.meta.env.BASE_URL.replace(/\/+$/, '')
@@ -58,16 +78,99 @@ const subpath =
 // reader nothing — the layout renders the import specifier instead and suppresses that H1.
 const isIndex = route === '' || route === group
 const pageTitle = isIndex ? subpath : title
+
+// The package ROOT (`/api`) and the "." entry point's own index (`/api/index`) both import
+// as the bare `@xgis/shader-dsl` specifier — `subpath` above is correctly identical for
+// both, since that IS what a reader types either way. But their <title>/description were
+// ALSO textually identical (#1695 items 7+9) even though the bodies already differ: root's
+// `## Modules` lists the four entry points, `/api/index`'s own README lists every symbol `.`
+// re-exports — the same relationship root already has to `/api/dev` and `/api/core/ir`, just
+// sharing a specifier with the root instead of extending it. Say that distinction in the
+// metadata too, rather than leaving two same-titled pages for a reader (or a search engine)
+// to tell apart. No redirect/canonical override needed: Base.astro already emits a
+// self-referential `<link rel="canonical">` on every page, which is now correct for both —
+// they're no longer duplicates once the metadata reflects what the bodies already say.
+const isRoot = route === ''
+const isDotIndex = isIndex && !isRoot && group === 'index'
+
+// Item 10: a symbol page's meta description was a content-free template ("API reference for
+// Function: fn() in @xgis/shader-dsl.") — the same sentence shape for all 300+ pages, saying
+// nothing a search result couldn't already infer from the URL. Pull the symbol's actual
+// first sentence of prose instead: the first markdown block that isn't a heading, the
+// signature blockquote (`> **fn**(…)`), or the "Defined in:" line. Falls back to the
+// template only when the symbol truly has no prose (e.g. Node.md's class-level doc, or a
+// deprecated one-liner).
+function firstProseSentence(body: string): string | undefined {
+  const blocks = body
+    .split(/\n{2,}/)
+    .map((b) => b.trim())
+    .filter(Boolean)
+  // Only look BEFORE the first `##`+ heading — a class/interface's own description (if any)
+  // only ever appears between its h1/signature/Defined-in and its first section (Extends,
+  // Properties, Parameters, …). Without this bound, a class with NO class-level prose (e.g.
+  // Node.md) fell through to the first bullet of "## Extends" and described the symbol as
+  // whatever it happens to extend, instead of correctly falling back to the template below.
+  const leading: string[] = []
+  for (const b of blocks) {
+    if (/^#{2,6}\s/.test(b)) break
+    leading.push(b)
+  }
+  const para = leading.find((b) => !/^[#>]/.test(b) && !b.startsWith('Defined in:'))
+  if (!para) return undefined
+  // Markdown -> plain text: a meta description must not leak `[text](url)`/`` `code` ``/
+  // escape syntax. Collapses TSDoc's soft-wrapped continuation lines (single `\n`, no blank
+  // line) into one run so the sentence-boundary regex below sees them as one string.
+  const plain = unescapeMd(para)
+    .replace(/\[([^\]]*)\]\([^)]*\)/g, '$1')
+    .replace(/`([^`]*)`/g, '$1')
+    .replace(/\s+/g, ' ')
+    .trim()
+  if (!plain) return undefined
+  // First `.`/`!`/`?` followed by whitespace-or-end — requiring the trailing boundary means
+  // an ellipsis or a bracketed `[...]` aside (EmitOptions' own description has one) doesn't
+  // truncate the sentence early, since none of ITS dots are followed by a space.
+  const end = /[.!?](?=\s|$)/.exec(plain)
+  const sentence = end ? plain.slice(0, end.index + 1) : plain
+  return sentence.length > 155 ? `${sentence.slice(0, 152).trimEnd()}…` : sentence
+}
+const description = isRoot
+  ? `Entry points published by ${subpath} — pick one to browse its exports.`
+  : isIndex
+    ? `Every symbol exported from ${subpath}.`
+    : (firstProseSentence(entry.body ?? '') ?? `API reference for ${title} in ${subpath}.`)
+
+// Item 18 (#1695 audit): "Defined in" already links to GitHub source, but it's one quiet
+// metadata line (prose.css keeps it small/muted by design — item 6 above) with no separate
+// "how do I fix this" affordance. Every page here is GENERATED from TSDoc, so unlike
+// Docs.astro (which points its own "Edit this page" at the hand-authored .astro file backing
+// each docs page) there is no docs file to point at — the correct destination is the
+// DECLARATION in the .ts file. Reuses the FIRST "Defined in" link TypeDoc already resolved:
+// for an interface/class/variable/plain function that's the page's own declaration; for an
+// OVERLOADED function (`fn`, four Call Signatures) it's the first overload's line rather than
+// one canonical line, but every overload lives in the same .ts file, so it still lands a
+// reader in the right place. Swaps the pinned-commit `/blob/<sha>/` VIEW url for an
+// `/edit/main/` url that opens GitHub's in-browser editor at the line — `main` matches the
+// branch every other GitHub-edit link on this site already hardcodes (Docs.astro,
+// docs/index.astro, examples/[id].astro). Absent on a group-index page (`/api`, `/api/index`,
+// …): those have no "Defined in" line at all, nothing to swap.
+const editHref = /^Defined in: \[[^\]]+\]\((https:\/\/github\.com\/[^)]+)\)/m
+  .exec(entry.body ?? '')?.[1]
+  ?.replace(/\/blob\/[0-9a-f]{7,40}\//, '/edit/main/')
 ---
 
 <ApiReference
-  title={isIndex ? `${subpath} · API reference` : `${title} · @xgis/shader-dsl`}
-  description={isIndex
-    ? `Every symbol exported from ${subpath}.`
-    : `API reference for ${title} in ${subpath}.`}
+  title={
+    isDotIndex
+      ? `${subpath} exports · API reference`
+      : isIndex
+        ? `${subpath} · API reference`
+        : `${title} · @xgis/shader-dsl`
+  }
+  description={description}
   headings={headings}
   current={route}
   indexTitle={isIndex ? pageTitle : undefined}
+  editHref={editHref}
 >
   <nav slot="breadcrumb" aria-label="Breadcrumb" class="mb-6 flex flex-wrap items-center gap-2">
     <a

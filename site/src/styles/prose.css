@@ -318,6 +318,23 @@
   font-weight: 400;
 }
 
+/* The "Kind: " prefix TypeDoc heads every symbol page with ("Function: emitConst()"),
+ * split out by astro.config.mjs's rehypeApiHeading into its own leading `<span>` so the h1
+ * itself is just the name — the left rail already groups by kind and the breadcrumb already
+ * shows the subpath (#1695 item 12). `display: block` forces it onto its own line above the
+ * name without touching sibling structure (kept OUT of the h1 flow that the reordering rules
+ * below key off of `h1:first-child`). */
+.api-prose h1 .api-kind-eyebrow {
+  display: block;
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--color-fg-mute);
+  margin-bottom: 0.4em;
+}
+
 /* Structural labels, NOT titles. They were display-sized and dominated a page whose subject
  * is the h1 above them — and on an overloaded symbol like `fn` the same word appears four
  * times. Set as a quiet rule-and-caption so the eye skips to the content under them. */
@@ -399,13 +416,35 @@
   color: inherit;
 }
 
+/* Item 20 (#1695 audit): was `text-decoration: none` + a border-bottom at 35% opacity —
+ * distinguished from the surrounding signature text by ACCENT COLOUR ALONE (fails WCAG 1.4.1,
+ * Use of Colour), since that border was faint enough to compute as textDecorationLine "none"
+ * (measured), unlike every other .api-prose/.blog-prose link (measured "underline"). A real
+ * underline is the colour-independent cue; kept thin and offset so a signature dense with
+ * linked identifiers (e.g. `fn<P, R>(params: P, body: (p: P) => R): R`) doesn't turn into a
+ * wall of lines. */
 .api-prose blockquote a {
   color: var(--color-accent);
-  text-decoration: none;
-  border-bottom: 1px solid color-mix(in oklab, var(--color-accent) 35%, transparent);
+  text-decoration-line: underline;
+  text-decoration-color: color-mix(in oklab, var(--color-accent) 55%, transparent);
+  text-decoration-thickness: 1px;
+  text-underline-offset: 2px;
 }
 .api-prose blockquote a:hover {
-  border-bottom-color: var(--color-accent);
+  text-decoration-color: var(--color-accent);
+}
+
+/* Item 14 (#1695 audit): a big union/intersection type alias (Expr.md: ~2500 chars, one
+ * markdown line) already WRAPS inside the generic 700px prose measure — it was never
+ * literally overflowing — but every other wide block on this page (code fences, tables,
+ * the member summary below) is allowed past that measure at lg+ and the signature
+ * blockquote wasn't, so it wrapped into more, narrower lines than it needed to. Give it
+ * the same breakout. `overflow-x: auto` above still catches the pathological case (a
+ * single token too long to wrap at all). */
+@media (min-width: 1024px) {
+  .api-prose > blockquote {
+    max-width: none;
+  }
 }
 
 /* `Defined in: …` — provenance. Useful, not the subject: quiet, and ruled off so it reads as
@@ -419,10 +458,78 @@
   border-bottom: 1px solid var(--color-line);
 }
 
+/* Reading order is fixed at the DOM (rehypeApiReadingOrder in astro.config.mjs), NOT with
+ * `order` tiers. The tiers that used to live here moved pixels while leaving the DOM — and
+ * therefore speech order and focus order — unchanged, which left the original defect in place
+ * for screen readers and added a focus-order mismatch that the unfixed page did not have.
+ * `.api-prose` stays a plain block: source order is now the truth. */
+
 .api-prose hr {
   border: 0;
   border-top: 1px solid var(--color-line);
   margin: 2.5rem 0;
+}
+
+/* Item 16 (#1695 audit): a jump-list for pages with many members (Node: 46, ReadonlyNode:
+ * 45) — ApiReference.astro builds it from the SAME headings the right rail already has, so
+ * there's nothing here to keep in sync by hand. A quiet panel, not a second TOC: the
+ * category labels reuse the h2 voice (mono, uppercase, muted) at a size below it, and the
+ * links wrap as a dense row instead of one-per-line so ~45 names still fit in a few lines. */
+.api-prose .api-member-summary {
+  padding: 0.9rem 1.1rem 1rem;
+  background: var(--color-bg-elev);
+  border: 1px solid var(--color-line);
+  border-radius: 6px;
+}
+.api-prose .api-member-summary-label {
+  margin: 0 0 0.7rem;
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--color-fg-mute);
+}
+.api-prose .api-member-summary-group {
+  display: flex;
+  align-items: baseline;
+  gap: 0.35em 0.7em;
+}
+.api-prose .api-member-summary-group + .api-member-summary-group {
+  margin-top: 0.5em;
+}
+.api-prose .api-member-summary-group-label {
+  flex: 0 0 6.5em;
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 11px;
+  color: var(--color-fg-mute);
+}
+.api-prose .api-member-summary-group ul {
+  display: flex;
+  flex: 1 1 auto;
+  min-width: 0;
+  flex-wrap: wrap;
+  gap: 0.35em 0.9em;
+  padding: 0;
+  margin: 0;
+  list-style: none;
+}
+.api-prose .api-member-summary-group li {
+  margin: 0;
+}
+/* Item 20 sibling (#1695 audit): same colour-alone defect as the signature blockquote link
+ * above — a border-bottom at 30% opacity in place of a real underline. Same fix. */
+.api-prose .api-member-summary a {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 12.5px;
+  color: var(--color-accent);
+  text-decoration-line: underline;
+  text-decoration-color: color-mix(in oklab, var(--color-accent) 45%, transparent);
+  text-decoration-thickness: 1px;
+  text-underline-offset: 2px;
+}
+.api-prose .api-member-summary a:hover {
+  text-decoration-color: var(--color-accent);
 }
 
 /* ═══ Group-index pages ═══
@@ -430,11 +537,10 @@
  * TypeDoc's index for a subpath is a bare bullet list of every export — 284 of them for the
  * `.` entry point, one per line, which is a 284-row scroll with nothing to scan by. Columns
  * turn that into something a reader can sweep in one screen. The generated `# index` H1 is
- * suppressed because the layout renders the import SPECIFIER above it instead; "index" names
- * an output directory and is not a thing anyone types. */
-.api-prose--index > h1:first-child {
-  display: none;
-}
+ * REMOVED from the DOM by astro.config.mjs's rehypeApiHeading (not merely hidden — a
+ * `display: none` copy is still a second <h1> for assistive tech, #1695 item 8); the layout
+ * renders the import SPECIFIER as the page's only h1 instead, since "index" names an output
+ * directory and is not a thing anyone types. */
 .api-prose--index ul {
   columns: 2;
   column-gap: 2.5rem;
