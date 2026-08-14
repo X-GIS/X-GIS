@@ -5,9 +5,13 @@
 // spawns the script both ways on purpose.
 
 import { spawnSync } from 'node:child_process'
+import { copyFileSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import {
   groupCommits,
+  isRegenCommit,
   parseArgs,
   parseSubject,
   renderMarkdown,
@@ -109,6 +113,48 @@ describe('parseSubject', () => {
       pr: 123,
     })
   })
+
+  it('types a GitHub revert-button subject as revert, not other', () => {
+    // The button writes `Revert "<original>"`, which is not a conventional
+    // commit; 8 of these sat in `other` next to the merge noise while the typed
+    // `revert:` spelling got its own section.
+    expect(parseSubject('Revert "fix(shader-dsl): guard df64_mul cross terms" (#918)')).toEqual({
+      type: 'revert',
+      breaking: false,
+      summary: 'Revert "fix(shader-dsl): guard df64_mul cross terms"',
+      pr: 918,
+    })
+  })
+
+  it('keeps a revert subject whole, trailing commentary included', () => {
+    // Real subject (#1340). The quoted original is the only description a
+    // revert carries, so nothing inside or after it may be trimmed away.
+    const parsed = parseSubject('Revert "black outline on the S-111 arrow field" — flawed (#1340)')
+    expect(parsed.type).toBe('revert')
+    expect(parsed.summary).toBe('Revert "black outline on the S-111 arrow field" — flawed')
+  })
+
+  it('leaves a merely revert-ISH subject in other', () => {
+    // The quote is the marker. `Reverted …` / `revert of …` are prose.
+    expect(parseSubject('Reverting the tile budget experiment').type).toBe('other')
+  })
+})
+
+describe('isRegenCommit', () => {
+  it('matches the workflow subject exactly, full or short hash', () => {
+    expect(isRegenCommit('chore(changelog): regenerate from 4bf4610')).toBe(true)
+    expect(
+      isRegenCommit('chore(changelog): regenerate from 4bf461085e22d52de4b3e924dc0371585565ad5e'),
+    ).toBe(true)
+  })
+
+  it('does NOT match a human commit that merely talks about regeneration', () => {
+    // The exclusion is a reserved subject, not a keyword: a real change to the
+    // generator must still appear in the changelog it generates.
+    expect(isRegenCommit('chore(changelog): regenerate from a clean checkout')).toBe(false)
+    expect(isRegenCommit('feat(scripts): regenerate from 4bf4610 on every merge')).toBe(false)
+    expect(isRegenCommit('chore(changelog): regenerate from 4bf4610 (#1710)')).toBe(false)
+  })
 })
 
 describe('groupCommits', () => {
@@ -170,6 +216,89 @@ describe('renderMarkdown', () => {
       META,
     )
     expect(md).toContain('- **map:** **BREAKING** drop the twin frame `6ffe514`')
+  })
+
+  it('leads the month with breaking changes, above every type section', () => {
+    const md = renderMarkdown(
+      groupCommits([
+        commit('2026-07-20', 'feat(map): a feature', 'aaaaaaa0'),
+        commit('2026-07-15', 'refactor!: dissolve @xgis/runtime', '176d4940'),
+      ]),
+      META,
+    )
+    expect(md).toContain('#### ⚠ BREAKING CHANGES')
+    expect(md.indexOf('#### ⚠ BREAKING CHANGES')).toBeLessThan(md.indexOf('#### feat'))
+    expect(md.indexOf('### 2026-07')).toBeLessThan(md.indexOf('#### ⚠ BREAKING CHANGES'))
+  })
+
+  it('HOISTS a breaking entry rather than duplicating it into both places', () => {
+    // The whole point is prominence, and a commit listed twice would read as two
+    // changes. `refactor` held only this entry, so its heading goes with it —
+    // an empty `#### refactor` would look like a section that lost its contents.
+    const md = renderMarkdown(
+      groupCommits([commit('2026-07-15', 'refactor!: dissolve @xgis/runtime', '176d4940')]),
+      META,
+    )
+    expect((md.match(/dissolve @xgis\/runtime/g) ?? []).length).toBe(1)
+    expect(md).not.toContain('#### refactor')
+  })
+
+  it('keeps the type section for the entries the hoist left behind', () => {
+    const md = renderMarkdown(
+      groupCommits([
+        commit('2026-07-20', 'refactor(map)!: breaking one', 'aaaaaaa0'),
+        commit('2026-07-15', 'refactor(map): ordinary one', 'bbbbbbb0'),
+      ]),
+      META,
+    )
+    expect(md).toContain('#### refactor')
+    expect(md.indexOf('ordinary one')).toBeGreaterThan(md.indexOf('#### refactor'))
+    expect(md.indexOf('breaking one')).toBeLessThan(md.indexOf('#### refactor'))
+  })
+
+  it('folds pre-squash merge commits into a counted <details>', () => {
+    const md = renderMarkdown(
+      groupCommits([
+        commit('2026-06-20', 'Merge pull request #571 from X-GIS/claude/epic-mayer', 'aaaaaaa0'),
+        commit('2026-06-19', 'Merge pull request #570 from X-GIS/fix/glsl-bare', 'bbbbbbb0'),
+      ]),
+      META,
+    )
+    expect(md).toContain('<details>')
+    expect(md).toContain('<summary>2 pre-squash merge commits</summary>')
+    expect(md).toContain('</details>')
+    // Folded, never dropped — and still linked.
+    expect(md).toContain('https://github.com/X-GIS/X-GIS/pull/571')
+    expect((md.match(/^- /gm) ?? []).length).toBe(2)
+  })
+
+  it('leaves the fold blank-line-separated so the list is not eaten as raw HTML', () => {
+    // CommonMark ends an HTML block at the first blank line; without them the
+    // entries render as literal markup instead of a list.
+    const md = renderMarkdown(
+      groupCommits([commit('2026-06-20', 'Merge pull request #571 from X-GIS/x', 'aaaaaaa0')]),
+      META,
+    )
+    expect(md).toContain('<summary>1 pre-squash merge commit</summary>\n\n- Merge pull request')
+    expect(md).toContain('`aaaaaaa`\n\n</details>')
+  })
+
+  it('keeps informative other-entries inline, above the fold', () => {
+    const md = renderMarkdown(
+      groupCommits([
+        commit('2026-06-20', 'shader-dsl: diagnostics / error-DX overhaul (#656)', 'aaaaaaa0'),
+        commit('2026-06-19', 'Merge pull request #570 from X-GIS/fix/glsl-bare', 'bbbbbbb0'),
+      ]),
+      META,
+    )
+    expect(md.indexOf('diagnostics / error-DX overhaul')).toBeLessThan(md.indexOf('<details>'))
+    expect((md.match(/^- /gm) ?? []).length).toBe(2)
+  })
+
+  it('emits no <details> when a month has no merge commits', () => {
+    const md = renderMarkdown(groupCommits([commit('2026-08-05', 'wip: a thing')]), META)
+    expect(md).toContain('#### other')
+    expect(md).not.toContain('<details>')
   })
 
   it('escapes only the renderer-eating characters, keeping authored markdown', () => {
@@ -394,6 +523,104 @@ describe('entrypoint', () => {
     const run = spawnSync('bun', [script, '--since', 'banana'], { encoding: 'utf8' })
     expect(run.status).not.toBe(0)
     expect(run.stderr).toContain('neither a resolvable ref')
+  })
+
+  type Git = (cwd: string, ...args: string[]) => ReturnType<typeof spawnSync>
+  type Use = (tmp: string, repo: string, git: Git) => void
+
+  // The two tests below need a repo whose history they CONTROL, which this one
+  // is not. Both build a throwaway one and run a COPY of the script from its
+  // scripts/ dir — REPO_ROOT is derived from the script's own location, so a
+  // copy placed anywhere else would read this repo instead of the fixture.
+  const withFixtureRepo = (name: string, build: (repo: string, git: Git) => void, use: Use) => {
+    const tmp = mkdtempSync(join(tmpdir(), `emit-changelog-${name}-`))
+    try {
+      const repo = join(tmp, 'repo')
+      const git: Git = (cwd, ...args) => spawnSync('git', args, { cwd, encoding: 'utf8' })
+      mkdirSync(repo)
+      git(repo, 'init', '-q', '-b', 'main')
+      git(repo, 'config', 'user.email', 'test@example.invalid')
+      git(repo, 'config', 'user.name', 'Test')
+      build(repo, git)
+      use(tmp, repo, git)
+    } finally {
+      rmSync(tmp, { recursive: true, force: true })
+    }
+  }
+
+  const installScript = (repo: string): string => {
+    mkdirSync(join(repo, 'scripts'), { recursive: true })
+    const copied = join(repo, 'scripts', 'emit-changelog.ts')
+    copyFileSync(script, copied)
+    return copied
+  }
+
+  const addCommit = (repo: string, git: Git, subject: string, body = String(subject.length)) => {
+    writeFileSync(join(repo, 'a.txt'), body)
+    git(repo, 'add', '-A')
+    git(repo, 'commit', '-qm', subject, '--no-verify')
+  }
+
+  it('refuses an unbounded render from a SHALLOW clone, and still serves a bounded one', () => {
+    // The guard standing between CI and a destroyed artifact. `>` truncates the
+    // target BEFORE the script runs, so on a depth-1 checkout the old behaviour
+    // replaced 249 lines of shader-dsl history with whatever the runner had
+    // fetched — measured at 50 commits against 3300 in an agent container.
+    // Built on a throwaway 2-commit repo: cloning 498 MB to assert an error
+    // message is not a trade worth making.
+    withFixtureRepo(
+      'shallow',
+      (repo, git) => {
+        addCommit(repo, git, 'feat: one')
+        addCommit(repo, git, 'feat: two')
+      },
+      (tmp, origin) => {
+        const shallow = join(tmp, 'shallow')
+        expect(
+          spawnSync('git', ['clone', '-q', '--depth', '1', `file://${origin}`, shallow], {
+            encoding: 'utf8',
+          }).status,
+        ).toBe(0)
+        const copied = installScript(shallow)
+
+        const unbounded = spawnSync('bun', [copied], { encoding: 'utf8' })
+        expect(unbounded.status).not.toBe(0)
+        expect(unbounded.stderr).toContain('SHALLOW clone')
+        expect(unbounded.stderr).toContain('git fetch --unshallow')
+        // Nothing reached stdout, so a `>` redirect writes an EMPTY file rather
+        // than a plausible-looking stump that reads as the whole history.
+        expect(unbounded.stdout).toBe('')
+
+        // The exempt path: an explicit lower bound is a bounded view on purpose,
+        // and still says where the clone was cut.
+        const bounded = spawnSync('bun', [copied, '--since', '2020-01-01'], { encoding: 'utf8' })
+        expect(bounded.status).toBe(0)
+        expect(bounded.stdout).toContain('SHALLOW clone: nothing before')
+      },
+    )
+  })
+
+  it('excludes its OWN regeneration commits from the walk (spawned)', () => {
+    // Convergence, end to end. isRegenCommit's unit tests pin the predicate;
+    // this pins the WIRING — delete the .filter() in main() and every other test
+    // in this file still passes while the artifact grows one noise line per
+    // merge, forever, which is the failure this whole mechanism exists to stop.
+    withFixtureRepo(
+      'regen',
+      (repo, git) => {
+        addCommit(repo, git, 'feat(map): a real change')
+        addCommit(repo, git, 'chore(changelog): regenerate from 0123456789abcdef0123')
+      },
+      (_tmp, repo) => {
+        const run = spawnSync('bun', [installScript(repo)], { encoding: 'utf8' })
+        expect(run.status).toBe(0)
+        expect(run.stdout).toContain('a real change')
+        expect(run.stdout).not.toContain('regenerate from')
+        // Exactly one entry: the regen commit left no trace, not even a heading.
+        expect((run.stdout.match(/^- /gm) ?? []).length).toBe(1)
+        expect(run.stdout).not.toContain('#### chore')
+      },
+    )
   })
 
   it.skipIf(!hasDeepHistory)('is cwd-independent — spawned from the package dir', () => {
