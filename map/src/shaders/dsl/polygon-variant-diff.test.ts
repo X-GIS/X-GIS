@@ -47,6 +47,38 @@ const SLUG_HEADER = /^\/\/\s*fixture:\s*([\w-]+)\s*$/m
 // body for byte-equal comparison.
 const HEADER_LINES = 5
 
+/** True when this clone's history is TRUNCATED (`git clone --depth N`), so an ancestry
+ *  question about a historical commit cannot be answered here (#1706).
+ *
+ *  This is not the same condition as the missing-object guard inside the ancestry test,
+ *  and that difference is the whole bug it fixes. At `--depth 1` (the `actions/checkout`
+ *  default, i.e. CI) the baseline commit is not present at all, so `git cat-file -e`
+ *  fails and that guard fails open. At a deeper truncation — `--depth 50`, which is what
+ *  container dev environments and Claude Code on the web get — the baseline commit IS
+ *  present while the PATH from HEAD to it is cut at the graft boundary. `git merge-base
+ *  --is-ancestor` then exits **1**: a clean "no", not an error. So the object guard
+ *  passes, nothing throws, and all 8 baselines are reported as orphaned on a tree with no
+ *  drift whatsoever.
+ *
+ *  Skipping rather than failing is deliberate. The failure text tells the reader to
+ *  re-capture and recommit the snapshots, which on a false positive rewrites 8 correct
+ *  baselines and destroys the very history this gate protects — a red gate that instructs
+ *  a destructive fix is worse than an honest skip. The gate remains live where it can
+ *  actually run: a full clone, which is where a human re-captures snapshots. */
+const SHALLOW_CLONE = ((): boolean => {
+  try {
+    return (
+      execSync('git rev-parse --is-shallow-repository', { stdio: ['ignore', 'pipe', 'ignore'] })
+        .toString()
+        .trim() === 'true'
+    )
+  } catch {
+    // Not a git repo, or git unavailable — leave the test enabled; its own per-baseline
+    // guards already fail open when they cannot read an object.
+    return false
+  }
+})()
+
 function snapshotBody(content: string): string {
   // Normalise CRLF→LF before the byte-equal comparison. git autocrlf
   // checks the committed snapshot out with CRLF on Windows, but the DSL
@@ -150,48 +182,54 @@ describe('polygon-variant snapshot drift gate — US-010 impl', () => {
     ).toHaveLength(1)
   })
 
-  it('every snapshot baseline SHA is an ancestor of current HEAD (live drift gate)', () => {
-    // Earlier this gate required strict equality with `git merge-base
-    // main HEAD`, which forced a re-capture on every commit to main
-    // (each new commit advances merge-base past the snapshot
-    // baseline). The ancestor relaxation is the correct semantics —
-    // a snapshot baseline that's still reachable from HEAD is
-    // structurally consistent with main's history; only an ORPHANED
-    // baseline (force-push detached it) signals real drift.
-    const drift: { file: string; baseline: string }[] = []
-    for (const file of files) {
-      const content = readFileSync(join(SNAPSHOT_DIR, file), 'utf8')
-      const headerMatch = content.match(BASELINE_HEADER)
-      const baselineSha = headerMatch![1]!
-      let ancestor = true
-      try {
-        // Pre-check reachability. CI (actions/checkout@v4
-        // fetch-depth=1 default) only sees HEAD's commit; historical
-        // baselines aren't testable there. Treat unreachable-SHA as
-        // ancestor=true so the local-dev (full clone) drift check
-        // still fires but the CI shallow checkout doesn't false-
-        // positive on every commit.
-        execSync(`git cat-file -e ${baselineSha}^{commit}`, {
-          stdio: ['ignore', 'ignore', 'ignore'],
-        })
+  it.skipIf(SHALLOW_CLONE)(
+    'every snapshot baseline SHA is an ancestor of current HEAD (live drift gate)',
+    () => {
+      // Earlier this gate required strict equality with `git merge-base
+      // main HEAD`, which forced a re-capture on every commit to main
+      // (each new commit advances merge-base past the snapshot
+      // baseline). The ancestor relaxation is the correct semantics —
+      // a snapshot baseline that's still reachable from HEAD is
+      // structurally consistent with main's history; only an ORPHANED
+      // baseline (force-push detached it) signals real drift.
+      const drift: { file: string; baseline: string }[] = []
+      for (const file of files) {
+        const content = readFileSync(join(SNAPSHOT_DIR, file), 'utf8')
+        const headerMatch = content.match(BASELINE_HEADER)
+        const baselineSha = headerMatch![1]!
+        let ancestor = true
         try {
-          execSync(`git merge-base --is-ancestor ${baselineSha} HEAD`, {
+          // Pre-check reachability. CI (actions/checkout@v4
+          // fetch-depth=1 default) only sees HEAD's commit; historical
+          // baselines aren't testable there. Treat unreachable-SHA as
+          // ancestor=true so the local-dev (full clone) drift check
+          // still fires but the CI shallow checkout doesn't false-
+          // positive on every commit.
+          // NOTE (#1706): this covers only the depth-1 case, where the object is
+          // ABSENT. A deeper truncation keeps the object and cuts the PATH, which
+          // this guard cannot see — SHALLOW_CLONE above skips the whole test there.
+          execSync(`git cat-file -e ${baselineSha}^{commit}`, {
             stdio: ['ignore', 'ignore', 'ignore'],
           })
-          ancestor = true
+          try {
+            execSync(`git merge-base --is-ancestor ${baselineSha} HEAD`, {
+              stdio: ['ignore', 'ignore', 'ignore'],
+            })
+            ancestor = true
+          } catch {
+            ancestor = false
+          }
         } catch {
-          ancestor = false
+          ancestor = true
         }
-      } catch {
-        ancestor = true
+        if (!ancestor) drift.push({ file, baseline: baselineSha })
       }
-      if (!ancestor) drift.push({ file, baseline: baselineSha })
-    }
-    expect(
-      drift,
-      drift.length
-        ? `Snapshot baseline orphaned (not an ancestor of HEAD) — re-run \`bun scripts/capture-polygon-snapshots.ts\` and recommit __polygon-variant-snapshots__/. Drifted files:\n${drift.map((d) => `  ${d.file}: baseline=${d.baseline}`).join('\n')}`
-        : '',
-    ).toEqual([])
-  })
+      expect(
+        drift,
+        drift.length
+          ? `Snapshot baseline orphaned (not an ancestor of HEAD) — re-run \`bun scripts/capture-polygon-snapshots.ts\` and recommit __polygon-variant-snapshots__/. This clone is NOT shallow, so the history really does not reach these baselines (a shallow clone skips this test instead — #1706). Drifted files:\n${drift.map((d) => `  ${d.file}: baseline=${d.baseline}`).join('\n')}`
+          : '',
+      ).toEqual([])
+    },
+  )
 })
