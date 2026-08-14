@@ -38,6 +38,7 @@ const SENTINEL = 'TODO(#1695):'
 
 const args = process.argv.slice(2)
 const WRITE = args.includes('--write')
+const LIST = args.includes('--list')
 const FILTER = args[args.indexOf('--filter') + 1]?.startsWith('--')
   ? undefined
   : args[args.indexOf('--filter') + 1]
@@ -59,8 +60,10 @@ interface Stub {
   readonly file: string
   readonly pos: number
   readonly indent: string
-  readonly text: string
   readonly name: string
+  readonly key: string
+  readonly decl: ts.Declaration
+  readonly sym: ts.Symbol
 }
 
 /** Does this declaration already carry a JSDoc block? Uses the compiler's own view rather
@@ -104,47 +107,120 @@ function kindOf(decl: ts.Declaration): string {
   return 'value'
 }
 
-/** Does the body throw? Cheap syntactic scan — a `@throws` slot in the stub is a prompt, and
- *  a wrong prompt costs an author one deletion, while a missing one costs a reader the fact. */
-function throws(decl: ts.Declaration): boolean {
-  let found = false
+/** The error classes the body actually constructs, so `@throws` names the real type instead
+ *  of being an empty prompt. Syntactic on purpose: a checker-based effect analysis is not
+ *  worth it here, and a name that is wrong costs an author one deletion. */
+function thrownTypes(decl: ts.Declaration): string[] {
+  const out = new Set<string>()
   const walk = (n: ts.Node): void => {
-    if (found) return
-    if (ts.isThrowStatement(n)) {
-      found = true
-      return
+    if (ts.isThrowStatement(n) && n.expression !== undefined) {
+      const e = n.expression
+      if (ts.isNewExpression(e) && ts.isIdentifier(e.expression)) out.add(e.expression.text)
+      else out.add('')
     }
     ts.forEachChild(n, walk)
   }
   ts.forEachChild(decl, walk)
-  return found
+  return [...out]
 }
 
-function template(decl: ts.Declaration, name: string, indent: string): string {
+/** Render a type as prose-safe inline code, collapsing the whitespace `typeToString` emits
+ *  for object literals so a `@param` line stays one line. */
+function typeText(type: ts.Type): string {
+  const t = checker
+    .typeToString(type, undefined, ts.TypeFormatFlags.NoTruncation)
+    .replace(/\s+/g, ' ')
+    .trim()
+  return t.length > 90 ? `${t.slice(0, 87)}…` : t
+}
+
+/** The call signature of a declaration, if it has one. */
+function signatureOf(decl: ts.Declaration, sym: ts.Symbol): ts.Signature | undefined {
+  const type = checker.getTypeOfSymbolAtLocation(sym, decl)
+  return checker.getSignaturesOfType(type, ts.SignatureKind.Call)[0]
+}
+
+/** EVERYTHING here is derived from the declaration — no sentinel, because none of it needs a
+ *  human. The sentinel is spent only on the two things a machine genuinely cannot write:
+ *  the summary (what this is FOR) and, for callables, a worked example.
+ *
+ *  That split is the point of this script. A stub that is all TODO gives an author 165
+ *  blank forms; a stub that has already filled the type-derived half leaves one sentence
+ *  and one snippet per symbol, which is work an agent can actually finish. */
+function template(
+  decl: ts.Declaration,
+  sym: ts.Symbol,
+  subpaths: readonly string[],
+  indent: string,
+): string {
   const kind = kindOf(decl)
-  const lines: string[] = [`${SENTINEL} what is this ${kind} for, and when does an author`]
-  lines.push(`reach for it rather than the obvious alternative?`)
+  const lines: string[] = []
+
+  // The one thing that must be written by a person. Named by kind so the prompt is concrete.
+  lines.push(`${SENTINEL} one line — what this ${kind} is for.`)
+
+  const from = subpaths.map((sp) => `\`${sp}\``).join(', ')
+  lines.push('')
+  lines.push(`Exported from ${from}.`)
 
   const tps = typeParamsOf(decl)
   const ps = paramsOf(decl)
-  if (tps.length > 0 || ps.length > 0 || kind === 'function') lines.push('')
-  for (const tp of tps) lines.push(`@typeParam ${tp.name.getText()} — `)
+  const sig = signatureOf(decl, sym)
+
+  if (tps.length > 0 || ps.length > 0 || sig !== undefined) lines.push('')
+
+  for (const tp of tps) {
+    const c = tp.constraint !== undefined ? ` Constrained to \`${tp.constraint.getText()}\`.` : ''
+    const d = tp.default !== undefined ? ` Defaults to \`${tp.default.getText()}\`.` : ''
+    lines.push(`@typeParam ${tp.name.getText()} —${c}${d}`.trimEnd())
+  }
+
   for (const p of ps) {
     const pname = ts.isIdentifier(p.name) ? p.name.text : p.name.getText()
-    const opt = p.questionToken !== undefined || p.initializer !== undefined ? ' (optional)' : ''
-    lines.push(`@param ${pname} —${opt}`)
+    const t = typeText(checker.getTypeAtLocation(p))
+    const optional = p.questionToken !== undefined || p.initializer !== undefined
+    const def = p.initializer !== undefined ? ` Defaults to \`${p.initializer.getText()}\`.` : ''
+    lines.push(`@param ${pname} — \`${t}\`${optional ? ', optional.' : '.'}${def}`)
   }
-  if (kind === 'function') lines.push('@returns ')
-  if (throws(decl)) lines.push('@throws ')
+
+  if (sig !== undefined) {
+    const ret = typeText(checker.getReturnTypeOfSignature(sig))
+    if (ret !== 'void') lines.push(`@returns \`${ret}\`.`)
+  }
+
+  for (const t of thrownTypes(decl))
+    lines.push(t === '' ? '@throws on invalid input.' : `@throws {${t}}`)
+
+  // A worked example is the other thing only a person can supply, and the thing a reference
+  // is most often opened for. Only asked of callables — an example of a type alias is prose.
+  if (sig !== undefined) {
+    lines.push('')
+    lines.push(`@example`)
+    lines.push('```ts')
+    lines.push(`${SENTINEL} a minimal, runnable call.`)
+    lines.push('```')
+  }
 
   const body = lines.map((l) => (l === '' ? `${indent} *` : `${indent} *  ${l}`)).join('\n')
   return `${indent}/** ${lines[0]}\n${body.split('\n').slice(1).join('\n')}\n${indent} */\n`
 }
 
 // ── collect ───────────────────────────────────────────────────────────────────────────────
-const seen = new Set<string>()
+const seen = new Map<string, string[]>()
 const stubs: Stub[] = []
+/** entry file -> the import specifier a reader types. */
+const SPECIFIER: Readonly<Record<string, string>> = {
+  'index.ts': '@xgis/shader-dsl',
+  'dev.ts': '@xgis/shader-dsl/dev',
+  'emit-prod.ts': '@xgis/shader-dsl/emit-prod',
+  'index.ts:core/ir': '@xgis/shader-dsl/core/ir',
+}
+const specifierOf = (entry: string): string =>
+  entry.includes(join('core', 'ir'))
+    ? SPECIFIER['index.ts:core/ir']
+    : SPECIFIER[entry.split(/[\\/]/).pop()!]
 
+// A symbol reachable from several subpaths is listed once, naming them all.
 for (const entry of ENTRIES) {
   const sf = program.getSourceFile(entry)
   const mod = sf === undefined ? undefined : checker.getSymbolAtLocation(sf)
@@ -166,8 +242,13 @@ for (const entry of ENTRIES) {
     if (FILTER !== undefined && !rel.includes(FILTER)) continue
 
     const key = `${rel}#${target.getName()}`
-    if (seen.has(key)) continue
-    seen.add(key)
+    const spec = specifierOf(entry)
+    if (seen.has(key)) {
+      const subs = seen.get(key)!
+      if (!subs.includes(spec)) subs.push(spec)
+      continue
+    }
+    seen.set(key, [spec])
 
     const docText = ts.displayPartsToString(target.getDocumentationComment(checker)).trim()
     if (docText.length > 0) continue // already documented — never overwrite
@@ -189,9 +270,26 @@ for (const entry of ENTRIES) {
       pos: lineStart,
       indent,
       name: target.getName(),
-      text: template(decl, target.getName(), indent),
+      key,
+      decl,
+      sym: target,
     })
   }
+}
+
+// ── list ──────────────────────────────────────────────────────────────────────────────────
+// The work queue. Every line is one symbol still needing the two things a machine cannot
+// write, so an agent can be handed a slice of this directly:
+//   bun scripts/add-tsdoc-templates.ts --list --filter core/ir
+if (LIST) {
+  for (const st of [...stubs].sort((a, b) => a.key.localeCompare(b.key))) {
+    const line = st.decl.getSourceFile().getLineAndCharacterOfPosition(st.pos).line + 1
+    console.log(`${relative(ROOT, st.file)}:${line}\t${st.name}\t${kindOf(st.decl)}`)
+  }
+  console.log(
+    `\n${stubs.length} symbol(s) still need a summary${stubs.length > 0 ? ' (and an example, where callable)' : ''}.`,
+  )
+  process.exit(0)
 }
 
 // ── apply ─────────────────────────────────────────────────────────────────────────────────
@@ -203,7 +301,11 @@ for (const [file, list] of byFile) {
   // Bottom-up, so every insertion leaves the earlier offsets valid.
   const ordered = [...list].sort((a, b) => b.pos - a.pos)
   let src = readFileSync(file, 'utf8')
-  for (const s of ordered) src = src.slice(0, s.pos) + s.text + src.slice(s.pos)
+  for (const s of ordered)
+    src =
+      src.slice(0, s.pos) +
+      template(s.decl, s.sym, seen.get(s.key) ?? [], s.indent) +
+      src.slice(s.pos)
   if (WRITE) writeFileSync(file, src)
   written += list.length
   console.log(
