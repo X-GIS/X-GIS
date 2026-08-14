@@ -29,6 +29,7 @@ import { fileURLToPath } from 'node:url'
 
 const SITE = dirname(dirname(fileURLToPath(import.meta.url)))
 const OUT = join(SITE, 'src', 'content', 'api')
+
 /** The gate that owns the `@internal` list. Read rather than transcribed: two copies of this
  *  set would drift, and the copy that goes stale is the one that stops catching anything. */
 const GATE = join(SITE, '..', 'shader-dsl', 'src', 'api-doc-coverage.test.ts')
@@ -37,6 +38,30 @@ const die = (msg: string): never => {
   console.error(`\n[api-reference] ${msg}\n`)
   process.exit(1)
 }
+
+/** The deployed base path, DERIVED from astro.config rather than repeated here.
+ *
+ *  Astro prefixes the routes it generates with `base`, but a link written inside markdown is
+ *  literal text it never rewrites — so every one of the ~1.5k cross-references has to carry
+ *  the base itself. Hardcoding `/api/` worked locally (base `/`) and would have 404'd on
+ *  every link of the deployed site, which serves under `/X-GIS`: a bug that no local build
+ *  could show, since `isCI` is false here.
+ *
+ *  Parsed, not duplicated: astro.config.mjs stays the single authority for what the base is,
+ *  and an unparseable config stops the build rather than silently falling back to `/`. */
+function basePath(): string {
+  const cfg = readFileSync(join(SITE, 'astro.config.mjs'), 'utf8')
+  const m = /base:\s*isCI\s*\?\s*'([^']*)'\s*:\s*'([^']*)'/.exec(cfg)
+  if (m === null)
+    die(
+      `could not read \`base\` out of astro.config.mjs. Refusing to guess: falling back to '' ` +
+        `would emit links that work locally and 404 on every page of the deployed site.`,
+    )
+  const raw = process.env.GITHUB_ACTIONS ? m![1] : m![2]
+  return raw.replace(/\/+$/, '')
+}
+const BASE = basePath()
+const API = `${BASE}/api`
 
 function walk(dir: string): string[] {
   if (!existsSync(dir)) return []
@@ -72,7 +97,9 @@ rmSync(OUT, { recursive: true, force: true })
 
 const td = spawnSync(
   join(SITE, 'node_modules', '.bin', 'typedoc'),
-  ['--options', join(SITE, 'typedoc.json')],
+  // `--publicPath` overrides typedoc.json so the base is decided in ONE place (basePath()
+  // above) rather than being frozen into a config file that cannot see GITHUB_ACTIONS.
+  ['--options', join(SITE, 'typedoc.json'), '--publicPath', `${API}/`],
   { cwd: SITE, encoding: 'utf8' },
 )
 const log = `${td.stdout ?? ''}${td.stderr ?? ''}`
@@ -123,12 +150,13 @@ for (const page of pages) {
   // than `/api/index/README` and the package root is `/api`. The route does the same mapping
   // (see src/pages/api/[...slug].astro); both go through the same shape so they cannot drift.
   const after = before
-    .replace(/\]\((\/api\/[^)#\s]*?)\.md(?=[)#])/g, ']($1')
-    .replace(/\]\((\/api)\/README(?=[)#])/g, ']($1')
-    .replace(/\]\((\/api\/[^)#\s]*?)\/README(?=[)#])/g, ']($1')
+    .replace(new RegExp(`\\]\\((${API}/[^)#\\s]*?)\\.md(?=[)#])`, 'g'), ']($1')
+    .replace(new RegExp(`\\]\\((${API})/README(?=[)#])`, 'g'), ']($1')
+    .replace(new RegExp(`\\]\\((${API}/[^)#\\s]*?)/README(?=[)#])`, 'g'), ']($1')
   if (after !== before) {
     writeFileSync(page, after)
-    rewritten += (before.match(/\]\(\/api\/[^)#\s]*?\.md(?=[)#])/g) ?? []).length
+    rewritten += (before.match(new RegExp(`\\]\\(${API}/[^)#\\s]*?\\.md(?=[)#])`, 'g')) ?? [])
+      .length
   }
 }
 
@@ -141,9 +169,8 @@ const routeOf = (rel: string): string =>
     .replace(/(^|\/)README$/, '')
     .replace(/\/$/, '')
 
-const stillMd = pages.filter((p) =>
-  /\]\(\/api\/[^)#\s]*?\.md(?=[)#])/.test(readFileSync(p, 'utf8')),
-)
+const mdLink = new RegExp(`\\]\\(${API}/[^)#\\s]*?\\.md(?=[)#])`)
+const stillMd = pages.filter((p) => mdLink.test(readFileSync(p, 'utf8')))
 if (stillMd.length > 0)
   die(
     `${stillMd.length} page(s) still contain a \`.md\` link after normalisation — the rewrite ` +
@@ -161,7 +188,9 @@ if (stillMd.length > 0)
 const pageIds = new Set(pages.map((p) => routeOf(relative(OUT, p))))
 const targets = new Set<string>()
 for (const page of pages)
-  for (const m of readFileSync(page, 'utf8').matchAll(/\]\((\/api)(\/[^)#\s]+)?/g))
+  for (const m of readFileSync(page, 'utf8').matchAll(
+    new RegExp(`\\]\\((${API})(/[^)#\\s]+)?`, 'g'),
+  ))
     targets.add((m[2] ?? '').replace(/^\//, '').replace(/\/$/, ''))
 
 const broken = [...targets].filter((t) => !pageIds.has(t)).sort()

@@ -1,0 +1,207 @@
+---
+// ═══ The generated API reference shell (#1695 / #1700) ═══
+//
+// A three-column docs layout: symbol navigation, the page, and its TOC. The navigation is
+// the reason this layout exists at all. The first version of /api shipped 332 pages with NO
+// way to move between them — a reader who landed on `emitConst` could reach only the handful
+// of symbols its own prose happened to link. That is the exact complaint #1694 opened with
+// ("the knowledge exists and cannot be found"), reproduced one level down.
+//
+// The nav is built at BUILD TIME from the collection, so it cannot list a page that does not
+// exist, and it needs no client JS to work. The filter box is progressive enhancement: with
+// JS off it is simply absent, and every link still renders.
+import Base from './Base.astro'
+import Header from '../components/Header.astro'
+import Footer from '../components/Footer.astro'
+import OnThisPage from '../components/OnThisPage.astro'
+import { getCollection } from 'astro:content'
+import '../styles/prose.css'
+
+interface Heading {
+  depth: number
+  slug: string
+  text: string
+}
+interface Props {
+  title: string
+  description: string
+  headings: Heading[]
+  /** Route of the page being rendered, e.g. `index/functions/emitConst`. */
+  current: string
+  /** Set on a GROUP INDEX only, to the import specifier. TypeDoc titles those pages after
+   *  its output directory (`# index`, `# dev`), which names nothing a reader can type. */
+  indexTitle?: string
+}
+const { title, description, headings, current, indexTitle } = Astro.props
+const base = import.meta.env.BASE_URL.replace(/\/+$/, '')
+
+// ── nav model ─────────────────────────────────────────────────────────────────────────────
+// `core/ir` is a TWO-segment entry point, so the group is not simply the first segment.
+const routeOf = (id: string): string => id.replace(/(^|\/)README$/, '').replace(/\/$/, '')
+const groupOf = (id: string): string => {
+  const s = id.split('/')
+  return s[0] === 'core' ? `${s[0]}/${s[1]}` : s[0]
+}
+/** The import specifier a reader types — the only name for a group worth showing. */
+const SPECIFIER: Readonly<Record<string, string>> = {
+  index: '@xgis/shader-dsl',
+  dev: '@xgis/shader-dsl/dev',
+  'emit-prod': '@xgis/shader-dsl/emit-prod',
+  'core/ir': '@xgis/shader-dsl/core/ir',
+}
+/** TypeDoc's directory names, in the order a reader wants them. */
+const KIND_ORDER = ['functions', 'classes', 'interfaces', 'type-aliases', 'variables'] as const
+const KIND_LABEL: Readonly<Record<string, string>> = {
+  functions: 'Functions',
+  classes: 'Classes',
+  interfaces: 'Interfaces',
+  'type-aliases': 'Types',
+  variables: 'Variables',
+}
+
+const entries = await getCollection('api')
+interface Item {
+  name: string
+  route: string
+}
+const groups = Object.keys(SPECIFIER)
+  .map((g) => {
+    const mine = entries.filter((e) => groupOf(e.id) === g && !/(^|\/)README$/.test(e.id))
+    const kinds = KIND_ORDER.map((kind) => ({
+      kind,
+      label: KIND_LABEL[kind],
+      items: mine
+        .filter((e) => e.id.split('/').at(-2) === kind)
+        .map((e) => ({ name: e.id.split('/').at(-1)!, route: routeOf(e.id) }) as Item)
+        .sort((a, b) => a.name.localeCompare(b.name)),
+    })).filter((k) => k.items.length > 0)
+    return { group: g, specifier: SPECIFIER[g], kinds, count: mine.length }
+  })
+  .filter((g) => g.count > 0)
+
+const currentGroup = groupOf(current)
+---
+
+<Base title={title} description={description}>
+  <Header />
+  <a
+    href="#api-content"
+    class="sr-only focus:not-sr-only focus:fixed focus:top-3 focus:left-3 focus:z-[100] focus:rounded focus:bg-bg-elev focus:px-4 focus:py-2 focus:text-fg focus:outline focus:outline-2 focus:outline-accent"
+    >Skip to content</a
+  >
+
+  <div class="mx-auto flex w-full max-w-[1600px] gap-0 px-4 pt-20 pb-24 sm:px-6 lg:gap-8">
+    <!-- ── symbol navigation ─────────────────────────────────────────────────────────── -->
+    <nav
+      aria-label="API reference"
+      class="api-nav hidden w-[248px] shrink-0 lg:block"
+      data-current={current}
+    >
+      <div class="sticky top-20 max-h-[calc(100vh-6rem)] overflow-y-auto pr-3">
+        <p class="font-mono text-[11px] uppercase tracking-[0.16em] text-fg-mute">API reference</p>
+        <label class="sr-only" for="api-filter">Filter symbols</label>
+        <input
+          id="api-filter"
+          type="search"
+          placeholder="Filter symbols…"
+          autocomplete="off"
+          class="mt-3 w-full rounded border border-line bg-bg-elev px-2.5 py-1.5 font-mono text-[12px] text-fg placeholder:text-fg-mute focus-visible:border-accent focus-visible:outline-none"
+        />
+        <p class="api-filter-empty mt-3 hidden font-mono text-[12px] text-fg-mute">No match.</p>
+
+        {
+          groups.map((g) => (
+            <section class="mt-6" data-group={g.group}>
+              <h2 class="font-mono text-[12px] text-fg-dim">{g.specifier}</h2>
+              {g.kinds.map((k) => (
+                <details class="mt-2" open={g.group === currentGroup}>
+                  <summary class="cursor-pointer list-none font-mono text-[11px] uppercase tracking-[0.12em] text-fg-mute hover:text-fg focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent">
+                    {k.label}
+                    <span class="ml-1 text-fg-faint">{k.items.length}</span>
+                  </summary>
+                  <ul class="mt-1 space-y-px border-l border-line pl-3">
+                    {k.items.map((it) => (
+                      <li data-name={it.name.toLowerCase()}>
+                        <a
+                          href={`${base}/api/${it.route}`}
+                          aria-current={it.route === current ? 'page' : undefined}
+                          class="block truncate py-0.5 font-mono text-[12px] text-fg-dim hover:text-fg focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent aria-[current=page]:text-accent"
+                        >
+                          {it.name}
+                        </a>
+                      </li>
+                    ))}
+                  </ul>
+                </details>
+              ))}
+            </section>
+          ))
+        }
+      </div>
+    </nav>
+
+    <!-- ── the page ──────────────────────────────────────────────────────────────────── -->
+    <main id="api-content" class="min-w-0 flex-1 lg:max-w-[76ch]">
+      <slot name="breadcrumb" />
+      {indexTitle && <h1 class="api-index-title">{indexTitle}</h1>}
+      <div class:list={['api-prose', indexTitle && 'api-prose--index']}><slot /></div>
+    </main>
+
+    <OnThisPage headings={headings} />
+  </div>
+  <Footer />
+</Base>
+
+<script is:inline>
+  // Filter the symbol list. Progressive enhancement — no JS, no filter, every link still
+  // there. Hides list items whose name does not contain the query, opens the <details> that
+  // still have visible children, and says so when nothing matches rather than showing an
+  // empty rail.
+  const input = document.getElementById('api-filter')
+  if (input) {
+    const nav = document.querySelector('.api-nav')
+    const empty = nav.querySelector('.api-filter-empty')
+    input.addEventListener('input', () => {
+      const q = input.value.trim().toLowerCase()
+      let shown = 0
+      for (const li of nav.querySelectorAll('li[data-name]')) {
+        const hit = q === '' || li.dataset.name.includes(q)
+        li.hidden = !hit
+        if (hit) shown++
+      }
+      for (const d of nav.querySelectorAll('details')) {
+        const any = [...d.querySelectorAll('li[data-name]')].some((li) => !li.hidden)
+        d.hidden = q !== '' && !any
+        if (q !== '' && any) d.open = true
+      }
+      for (const s of nav.querySelectorAll('section[data-group]')) {
+        s.hidden = q !== '' && ![...s.querySelectorAll('details')].some((d) => !d.hidden)
+      }
+      empty.classList.toggle('hidden', shown > 0)
+    })
+  }
+</script>
+
+<style>
+  /* The active item. Deliberately NOT left to a Tailwind `aria-[current=page]:` utility:
+   * that rule compiled into a different stylesheet than `text-fg-dim` and lost on source
+   * order, so the current page was indistinguishable. It also must not be carried by COLOUR
+   * ALONE — the bar and the weight are what make it perceivable without colour vision. */
+  .api-nav a[aria-current='page'] {
+    color: var(--color-accent);
+    font-weight: 500;
+    box-shadow: inset 2px 0 0 var(--color-accent);
+    padding-left: 0.5rem;
+    margin-left: -0.75rem;
+    background: var(--color-bg-elev);
+  }
+  .api-index-title {
+    font-size: clamp(28px, 3.4vw, 38px);
+    line-height: 1.08;
+    letter-spacing: -0.02em;
+    margin: 0 0 1.5rem;
+    font-weight: 400;
+    font-family: var(--font-mono, ui-monospace, monospace);
+    color: var(--color-fg);
+  }
+</style>

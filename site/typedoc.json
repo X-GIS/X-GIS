@@ -12,7 +12,9 @@
   "plugin": ["typedoc-plugin-markdown", "typedoc-plugin-frontmatter"],
 
   "out": "./src/content/api",
-  "publicPath": "/api/",
+  // NOTE: publicPath is NOT set here. It must carry astro.config's `base` (/X-GIS on the
+  // deployed site, / locally), which a static config file cannot know — so
+  // scripts/build-api-reference.ts derives it and passes --publicPath on the CLI.
   "outputFileStrategy": "members",
 
   "excludeInternal": true,
