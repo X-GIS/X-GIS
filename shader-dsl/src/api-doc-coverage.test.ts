@@ -29,9 +29,18 @@
 //
 // THE SEED IS 175, NOT 40. #1694's headline "40 of 71" measured a different quantity — a
 // regex over the four entry files crossed with "does this name appear in AUTHORING.md" — and
-// must never be transcribed here. The census below was produced by THIS FILE'S OWN READER:
-// 332 unique definitions across the four API subpaths, 175 of them undocumented
-// (. 159/284 · ./dev 13/33 · ./emit-prod 3/17 · ./core/ir 109/193).
+// must never be transcribed here. The census that seeded this file was produced by ITS OWN
+// READER: 332 unique definitions across the four API subpaths, 175 of them undocumented
+// (. 159/284 · ./dev 13/33 · ./emit-prod 3/17 · ./core/ir 109/193). The allowlist has since
+// shrunk to 167 — #1697 documented the eight backend symbols that reached the entry through
+// `index.ts`'s star re-export, which is what retired the `emit-internals` debt class.
+//
+// `@internal` IS NOT AN EXIT FROM THIS GATE. Five of those eight are documented AND tagged
+// `@internal`, so the extractor's `excludeInternal` keeps them out of the published pages
+// while they stay exported — the un-export decision is breaking, and stays open in #1697.
+// Because this file enumerates independently of the extractor (see above), it keeps scanning
+// exactly the symbols the reference stops rendering; arm A6 pins that tagged set both ways so
+// a tag can never retire a doc obligation without review.
 
 import { describe, it, expect } from 'vitest'
 import { readFileSync } from 'node:fs'
@@ -60,12 +69,6 @@ const DEBT: Readonly<Record<string, string>> = {
     'the IR authoring surface (node/types/builder/nodes). 109 symbols — the operator methods, ' +
     'type constructors and predicates an author touches constantly. Documenting these is the ' +
     'single highest-value slice of #1695 and wants a pass of its own, not a drive-by.',
-  'emit-internals':
-    'exported from a backend but almost certainly not intended as public API (emitBinding, ' +
-    'emitConst, emitFunc, emitFuncsCsed, emitStruct, wgslType, lowerComputeToFragment, ' +
-    'GlslEmitOptions). The right resolution is probably UN-EXPORTING rather than writing ' +
-    'TSDoc — documenting them first would cement a surface nobody meant to promise into a ' +
-    'published five-year reference. Decide before the reference publishes them (#1695).',
   diagnostics:
     'the lint/diagnostics/codes surface reached through ./dev. Its policy is undecided: ' +
     '"the diagnostic surface is documented by its TSDoc only" is a fine answer but must be ' +
@@ -81,15 +84,7 @@ const DEBT: Readonly<Record<string, string>> = {
 const UNDOCUMENTED: Readonly<Record<string, string>> = {
   'src/core/backend.ts#Backend': 'engine-internals',
   'src/core/backend.ts#Capabilities': 'engine-internals',
-  'src/core/backends/glsl.ts#GlslEmitOptions': 'emit-internals',
   'src/core/backends/glsl.ts#glslEs300Backend': 'engine-internals',
-  'src/core/backends/glsl.ts#lowerComputeToFragment': 'emit-internals',
-  'src/core/backends/wgsl.ts#emitBinding': 'emit-internals',
-  'src/core/backends/wgsl.ts#emitConst': 'emit-internals',
-  'src/core/backends/wgsl.ts#emitFunc': 'emit-internals',
-  'src/core/backends/wgsl.ts#emitFuncsCsed': 'emit-internals',
-  'src/core/backends/wgsl.ts#emitStruct': 'emit-internals',
-  'src/core/backends/wgsl.ts#wgslType': 'emit-internals',
   'src/core/cpu-codegen.ts#compileModuleJs': 'engine-internals',
   'src/core/cpu-runtime.ts#CpuStruct': 'engine-internals',
   'src/core/cpu-runtime.ts#CpuValue': 'engine-internals',
@@ -256,6 +251,33 @@ const UNDOCUMENTED: Readonly<Record<string, string>> = {
   'src/core/sot.ts#storageBuffer': 'engine-internals',
 }
 
+/** Public exports deliberately tagged `@internal`: still exported (un-exporting is a
+ *  breaking change and is #1697's open question), but kept OUT of the generated reference by
+ *  the extractor's `excludeInternal`. Each reaches the entry only because `index.ts` star-
+ *  re-exports a whole backend module — nobody chose them — and each has a doc comment saying
+ *  so, which is why they no longer appear in UNDOCUMENTED.
+ *
+ *  This list exists because `@internal` is otherwise a SILENT ESCAPE HATCH from A1: one line
+ *  of prose plus the tag would retire any doc obligation, invisibly. Arm A6 pins the set both
+ *  ways, so adding a tag is a reviewed act and removing one cannot leave a stale row. */
+const INTERNAL: Readonly<Record<string, string>> = {
+  'src/core/backends/glsl.ts#lowerComputeToFragment':
+    'the supported entry is the emulateCompute emit option; calling the pass directly yields ' +
+    'a half-lowered module. Un-export tracked by #1697.',
+  'src/core/backends/wgsl.ts#emitBinding':
+    'group/binding indices are assigned across a whole module, so a line emitted alone can ' +
+    'disagree with the layout reflect() reports. Un-export tracked by #1697.',
+  'src/core/backends/wgsl.ts#emitFuncsCsed':
+    'a bare alias of emitFuncs; the one in-repo reference reaches it by deep source path, ' +
+    'not through the package exports. Un-export tracked by #1697.',
+  'src/core/backends/wgsl.ts#emitStruct':
+    'a struct is meaningful only alongside the bindings and funcs that use it, which is what ' +
+    'emitModule emits. Un-export tracked by #1697.',
+  'src/core/backends/wgsl.ts#wgslType':
+    'type spelling is a backend private; the neutral surface is emitModule. Un-export ' +
+    'tracked by #1697.',
+}
+
 // ── the reader: ONE program, hoisted above every describe ───────────────────────────────
 // Compiler options are hardcoded rather than read from tsconfig.base.json ON PURPOSE: this
 // gate must measure the PUBLIC SURFACE, not whatever a config edit happens to make visible,
@@ -274,6 +296,7 @@ const checker = program.getTypeChecker()
 interface Def {
   readonly key: string
   readonly documented: boolean
+  readonly internal: boolean
 }
 /** Exports of one subpath, each resolved to its DEFINITION site. */
 function exportsOf(sub: string): readonly Def[] {
@@ -295,7 +318,8 @@ function exportsOf(sub: string): readonly Def[] {
       decl === undefined ? '<no-declaration>' : relative(PKG, decl.getSourceFile().fileName)
     const documented =
       ts.displayPartsToString(target.getDocumentationComment(checker)).trim().length > 0
-    return { key: `${home}#${sym.getName()}`, documented }
+    const internal = target.getJsDocTags(checker).some((t) => t.name === 'internal')
+    return { key: `${home}#${sym.getName()}`, documented, internal }
   })
 }
 
@@ -304,6 +328,10 @@ const perSubpath = new Map<string, readonly Def[]>(API_SUBPATHS.map((s) => [s, e
 const DEFS = new Map<string, boolean>()
 for (const defs of perSubpath.values())
   for (const d of defs) DEFS.set(d.key, (DEFS.get(d.key) ?? false) || d.documented)
+/** The keys the reader sees tagged `@internal`, unioned the same way. */
+const TAGGED_INTERNAL = new Set<string>()
+for (const defs of perSubpath.values())
+  for (const d of defs) if (d.internal) TAGGED_INTERNAL.add(d.key)
 
 /** Export-count floors, measured at the commit that seeded this gate. They exist to catch a
  *  resolver that silently sees LESS — never to pin an exact surface size, which is expected
@@ -411,6 +439,45 @@ describe('#1695 — the public surface is fully accounted for', () => {
       `these allowlist rows name no public export today:\n  ${stale.join('\n  ')}\n` +
         `The symbol was renamed, moved file, or stopped being exported. Delete the row (and ` +
         `if it was renamed, its new key is waiting for you in arm A1).`,
+    ).toEqual([])
+  })
+
+  it('A6: the `@internal` set is exactly the reviewed list, both directions', () => {
+    // SET EQUALITY, and it is the arm that keeps `@internal` from becoming a quiet exit from
+    // A1: prose + the tag would otherwise retire a doc obligation with nothing to review.
+    // Both directions matter and fail differently — an UNLISTED tag is a symbol that silently
+    // vanished from the reference, a LISTED-but-untagged row is a symbol that silently
+    // reappeared in it. It is self-guarding against a broken tag reader too: if
+    // getJsDocTags ever returns nothing, the observed set empties and this reds with five
+    // subjects rather than going quiet.
+    expect(
+      [...TAGGED_INTERNAL].sort(),
+      `the symbols tagged @internal and the reviewed INTERNAL list have diverged.\n` +
+        `  tagged:  ${[...TAGGED_INTERNAL].sort().join(', ') || '(none)'}\n` +
+        `  listed:  ${Object.keys(INTERNAL).sort().join(', ')}\n` +
+        `A tag with no row hides a symbol from the generated reference without review — if ` +
+        `that is intended, add the row with the reason. A row with no tag means the symbol is ` +
+        `published again, so delete the row (and if it also lost its doc comment, arm A1 is ` +
+        `already waiting for it).`,
+    ).toEqual(Object.keys(INTERNAL).sort())
+    for (const [key, reason] of Object.entries(INTERNAL))
+      expect(reason, `INTERNAL['${key}'] must cite the issue that resolves it`).toMatch(/#\d+/)
+  })
+
+  it('A7: nothing is both allowlisted-undocumented and @internal', () => {
+    // The two lists answer different questions — "owes docs" vs "documented, but not
+    // published" — and a key in both would mean a symbol is excused from A1 twice, so
+    // deleting one row would leave it still covered and the shrink-only property would stop
+    // biting for it.
+    const both = Object.keys(INTERNAL)
+      .filter((k) => UNDOCUMENTED[k] !== undefined)
+      .sort()
+    expect(
+      both,
+      `these keys are in BOTH UNDOCUMENTED and INTERNAL:\n  ${both.join('\n  ')}\n` +
+        `An @internal symbol carries a doc comment by construction (that is what took it out ` +
+        `of the debt list), so it cannot also be owed documentation. Delete the ` +
+        `UNDOCUMENTED row.`,
     ).toEqual([])
   })
 

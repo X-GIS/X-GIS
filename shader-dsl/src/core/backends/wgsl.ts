@@ -31,6 +31,17 @@ import { spellIntrinsic } from '../intrinsics'
 import { fp64Lower } from '../passes/fp64-lower'
 import { dslError } from '../diagnostics/error'
 
+/** Spell a {@link ShaderType} as WGSL type syntax (`f32`, `vec2<f32>`, `array<u32, 4>`, …).
+ *
+ *  @internal Reachable from the package entry only because `index.ts` star-re-exports this
+ *  backend module; it was never chosen as public API and has no consumer outside the
+ *  backend. Type spelling is a backend's private business — the neutral surface is
+ *  {@link emitModule}. Whether it should stay exported at all is #1697.
+ *
+ *  @throws if `t` is an `f64`/`vec64` kind. Those are PRE-LOWERING types: `fp64Lower` (run
+ *  inside `lowerForBackend`) rewrites them to `vec2<f32>` / `DF64VecN` before any backend
+ *  spells a type, so reaching them here means the pass was bypassed. Failing loud beats
+ *  emitting a shader whose double-precision silently became single. */
 export function wgslType(t: ShaderType): string {
   switch (t.kind) {
     case 'scalar':
@@ -264,12 +275,52 @@ export const wgslBackend: Backend = {
  *  uses it for the defensive-throw probe. */
 export const emitExpr = (e: Expr): string => emitExprNeutral(e, wgslBackend)
 
-// The module-decl emit functions now live as wgslBackend methods; these thin
-// wrappers keep the existing public export names + signatures (runtime / compiler /
-// shader composers / lint+ir tests import them directly).
+// The module-decl emit functions live as wgslBackend methods; these thin wrappers keep the
+// existing export names + signatures. Only two of the four have a consumer through the
+// package entry — see each doc comment, and #1697 for the surface question.
+
+/** Emit one {@link ConstDecl} as a WGSL `const` line, without the surrounding module.
+ *
+ *  For composing a shader out of separately-authored fragments: emit the consts once, cache
+ *  the string, and concatenate. `map/src/shaders/dsl/ecef.ts` and `projections.ts` both use
+ *  it this way to publish their constant blocks as module-scope strings.
+ *
+ *  Byte-identical to the same decl's line inside {@link emitModule}, so a fragment emitted
+ *  here and a module emitted there agree — that is the property that makes concatenation
+ *  safe. Takes an ALREADY-LOWERED decl: no `override`/spec-constant resolution happens here
+ *  (see {@link emitFuncs} for the pipeline caveat, which applies equally). */
 export const emitConst = (c: ConstDecl): string => wgslBackend.emitConst(c)
+
+/** Emit one {@link StructDecl} as a WGSL `struct` block.
+ *
+ *  @internal Reachable only through `index.ts`'s star re-export of this backend module, and
+ *  imported by nothing outside it. Unlike {@link emitConst}, no consumer composes structs as
+ *  standalone fragments — a struct is meaningful only alongside the bindings and functions
+ *  that use it, which is what {@link emitModule} emits. Un-export is tracked by #1697. */
 export const emitStruct = (s: StructDecl): string => wgslBackend.emitStruct(s)
+
+/** Emit one {@link BindingDecl} as a WGSL `@group(…) @binding(…) var` line.
+ *
+ *  @internal Same story as {@link emitStruct}: star-re-exported, imported by nothing outside
+ *  this backend. A binding emitted alone is especially misleading — group/binding indices are
+ *  assigned across the whole module, so a line taken out of context can disagree with the
+ *  layout `reflect()` reports. Un-export is tracked by #1697. */
 export const emitBinding = (b: BindingDecl): string => wgslBackend.emitBinding(b)
+
+/** Emit one ALREADY-LOWERED {@link FuncDecl} as a WGSL function.
+ *
+ *  Prefer {@link emitFuncs} for authored functions. This wrapper spells the decl exactly as
+ *  given and runs NONE of the pipeline — no `autoVars`, no match lowering, no `fp64Lower`,
+ *  no optimizer — so an authored func that still contains a `match` construct or an `f64`
+ *  type will either throw ({@link wgslType} fails loud on the pre-lowering types) or emit
+ *  something the optimizer would have folded. It is the right call only when the caller
+ *  knows the decl needs no lowering, as `map/src/shaders/dsl/polygon.ts` does for its
+ *  hand-written dequantiser.
+ *
+ *  It also fixes the paren mode. {@link emitModule} threads its `ParenMode` down to the
+ *  backend, so under minification it spells the same func with `'minimal'` parens; this
+ *  wrapper always takes the `'full'` default. A fragment emitted here therefore matches its
+ *  line inside a NON-minified module byte for byte, and may differ inside a minified one. */
 export const emitFunc = (f: FuncDecl): string => wgslBackend.emitFunc(f)
 
 /** Emit a bare list of funcs through the SAME lower+optimize pipeline emitModule uses, so the
@@ -286,7 +337,14 @@ export function emitFuncs(funcs: readonly FuncDecl[]): string {
   return lowered.funcs.map((f) => wgslBackend.emitFunc(f)).join('\n\n')
 }
 
-/** @deprecated Renamed `emitFuncs` — the "Csed" suffix described a pipeline that was
+/** Legacy alias of {@link emitFuncs}, kept so an existing import keeps resolving.
+ *
+ *  @internal Star-re-exported, and imported through the package entry by nothing. The one
+ *  in-repo reference (`playground/e2e/_absorbed-fn-parity.spec.ts`) reaches it by deep source
+ *  path, which does not go through `exports` at all. Being a bare alias, dropping it costs a
+ *  caller one rename and never a reimplementation — #1697.
+ *
+ *  @deprecated Renamed `emitFuncs` — the "Csed" suffix described a pipeline that was
  *  once cse-only and has been the full fixpoint optimizer for a long time. */
 export const emitFuncsCsed = emitFuncs
 
