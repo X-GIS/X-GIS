@@ -312,7 +312,8 @@ export const emitBinding = (b: BindingDecl): string => wgslBackend.emitBinding(b
  *  Prefer {@link emitFuncs} for authored functions. This wrapper spells the decl exactly as
  *  given and runs NONE of the pipeline — no `autoVars`, no match lowering, no `fp64Lower`,
  *  no optimizer — so an authored func that still contains a `match` construct or an `f64`
- *  type will either throw ({@link wgslType} fails loud on the pre-lowering types) or emit
+ *  type will either throw (`wgslType` fails loud on the pre-lowering types — deliberately NOT
+ *  a `{@link}`, since that symbol is `@internal` and the reference does not publish it) or emit
  *  something the optimizer would have folded. It is the right call only when the caller
  *  knows the decl needs no lowering, as `map/src/shaders/dsl/polygon.ts` does for its
  *  hand-written dequantiser.
