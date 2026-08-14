@@ -1,0 +1,137 @@
+name: changelog
+
+# Regenerates CHANGELOG.md and shader-dsl/CHANGELOG.md from git history after
+# every merge, and commits the result to main.
+#
+# ── WHY THIS RUNS POST-MERGE AND NOT IN PR CI ─────────────────────────────────
+# An entry's text IS the squash subject, and that subject does not exist until
+# the merge happens: PR CI has nothing to check and nothing to generate. #1653
+# concluded the same and declined a staleness GATE — correctly. What it left
+# behind was nothing at all. shader-dsl's `prepack` had been the only automatic
+# keeper; #1681 C removed it with the npm story, and by 2026-08-14 the artifacts
+# stood 16 (shader-dsl) and 27 (repo) commits stale, missing the production
+# minify emit (#1684), the subtree-mirror distribution (#1681), the baked-shader
+# store (#1679) — and the changelog generator's own landing commit (#1656).
+# "Regenerate on demand" is not a mechanism; this is.
+#
+# The artifacts are DERIVED — a pure function of history that a machine just
+# computed — so there is no decision in them for a reviewer to make, and running
+# them through a PR would be ceremony carrying zero information. That is the
+# same reasoning mirror-shader-dsl.yml already applies to publish-on-merge, and
+# it is why this job pushes to main directly rather than opening a PR.
+#
+# ── IF THIS JOB REDS ON "protected branch" ───────────────────────────────────
+# main requires status checks (see test.yml's `on:` block), and a protected
+# branch rejects even GITHUB_TOKEN unless the actor is allowed to bypass it. The
+# fix is a maintainer one, done once: Settings → Branches → main → allow the
+# `github-actions[bot]` actor to bypass required checks (or add it to the push
+# allowlist). This job deliberately does NOT skip green on that failure the way
+# mirror-shader-dsl.yml skips an unconfigured mirror — an unconfigured mirror
+# publishes nothing and loses nothing, whereas a silent skip here reintroduces
+# exactly the invisible rot this workflow exists to end.
+
+on:
+  push:
+    branches: [main]
+    # LOOP GUARD 2 of 3. The regeneration commit touches these two files and
+    # nothing else, so a push carrying only them is this job's own output. Guard
+    # 1 is GitHub's own rule that a GITHUB_TOKEN push raises no workflow event;
+    # guard 3 — the one that actually GUARANTEES convergence — is in the
+    # generator, which excludes its own `chore(changelog): regenerate from …`
+    # commits from the walk (scripts/emit-changelog.ts, REGEN_SUBJECT). Without
+    # guard 3 the file could never settle: every regen commit is itself a `chore`
+    # entry, so the next run would find a diff and append one noise line forever.
+    # Hand-edits to a generated file are not a thing to preserve either, so
+    # skipping a changelog-only push costs nothing.
+    paths-ignore:
+      - 'CHANGELOG.md'
+      - 'shader-dsl/CHANGELOG.md'
+  # Manual catch-up — after a run lost the race below, or a maintainer has just
+  # granted the bypass and wants the backlog folded in.
+  workflow_dispatch:
+
+permissions:
+  # The push is the whole job. No `pull-requests`, no `issues`.
+  contents: write
+
+# SERIALIZE, never cancel — the mirror workflow's R5 reasoning applies verbatim:
+# two merges landing seconds apart must not race to push main, and cancelling an
+# in-flight run mid-push is the one thing worse than queueing behind it.
+concurrency:
+  group: changelog
+  cancel-in-progress: false
+
+jobs:
+  regenerate:
+    runs-on: ubuntu-latest
+    steps:
+      # `fetch-depth: 0` is LOAD-BEARING, and since #1653's generator gained its
+      # depth guard it is also self-enforcing: on the depth-1 default the script
+      # now REFUSES rather than emitting a stump, because `>` truncates the
+      # target before the script runs and a shallow walk would replace the whole
+      # artifact with whatever commits the runner happened to fetch.
+      #
+      # `filter: blob:none` keeps that affordable. The generator reads commit
+      # metadata (%H/%ad/%s) and, for `--path shader-dsl`, TREES — never file
+      # contents — so a blobless clone answers every question it asks while
+      # skipping the bulk of a 498 MB history. Blobs for the checked-out tree
+      # are fetched on demand, which is all `bun install` needs.
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          filter: blob:none
+
+      - uses: oven-sh/setup-bun@v2
+
+      # The job runs `bun run changelog` — the SAME command the header of
+      # scripts/emit-changelog.ts tells a human to run — so CI and a local
+      # regeneration produce identical bytes by construction rather than by
+      # coincidence. That script ends in `prettier --write`, hence the install.
+      - run: bun install --frozen-lockfile
+
+      - id: regen
+        run: |
+          set -euo pipefail
+          bun run changelog
+          if git diff --quiet -- CHANGELOG.md shader-dsl/CHANGELOG.md; then
+            echo "::notice::Changelogs already current at $(git rev-parse --short HEAD)."
+            echo 'changed=false' >> "$GITHUB_OUTPUT"
+          else
+            git diff --stat -- CHANGELOG.md shader-dsl/CHANGELOG.md
+            echo 'changed=true' >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Commit and push the regenerated changelogs
+        if: steps.regen.outputs.changed == 'true'
+        run: |
+          set -euo pipefail
+          head_sha="$(git rev-parse HEAD)"
+
+          # Lost-race check. actions/checkout leaves a DETACHED HEAD at the
+          # pushed SHA; if another merge landed while this job ran, main has
+          # moved and `HEAD:main` is no longer a fast-forward. Skip green: the
+          # job is idempotent and regenerates from whole history every time, so
+          # the very next merge's run emits this content plus that one. Doing
+          # the check here — rather than reading the push's stderr — keeps any
+          # push failure that DOES reach the next step unambiguously a real one.
+          git fetch --quiet origin main
+          remote_sha="$(git rev-parse FETCH_HEAD)"
+          if [ "${remote_sha}" != "${head_sha}" ]; then
+            echo "::notice::main moved to ${remote_sha} while this run was building ${head_sha} — skipping; the next merge regenerates both."
+            exit 0
+          fi
+
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -- CHANGELOG.md shader-dsl/CHANGELOG.md
+
+          # The subject is RESERVED: scripts/emit-changelog.ts matches it exactly
+          # (REGEN_SUBJECT) to keep these commits out of the changelog they
+          # write. Changing its wording here silently breaks convergence — the
+          # generator's unit tests pin the shape.
+          #
+          # --no-verify because `bun install` ran husky's `prepare`, pointing
+          # core.hooksPath at .husky: pre-commit would put lint-staged in the
+          # middle of a commit whose content prettier just wrote, for nothing.
+          git commit --no-verify -m "chore(changelog): regenerate from ${head_sha}"
+          git push origin "HEAD:main"
