@@ -132,6 +132,45 @@ describe('storage data texture — the element picks the GL format (#1703)', () 
     ])
   })
 
+  // The regression that shipped in #1703 and was caught by _1616-pan-points-gl2-gate
+  // (0 red pixels where >2000 were expected). EVERY real caller passes a frame-arena
+  // subarray — `FrameArena.allocF32` returns `new Float32Array(this.buffer, off, count)`
+  // — so reading `data.buffer` from offset 0 uploads a neighbouring renderer's bytes.
+  // Nothing errors; the draw just renders nothing.
+  //
+  // The tests above all pass WHOLE typed arrays (byteOffset 0), which is precisely why
+  // they stayed green through the bug. A view with a NON-ZERO byteOffset is the case
+  // that discriminates, so both paths — exact-fit and padded — are probed with one.
+  describe('honours the caller VIEW window, not its backing buffer (#1703 regression)', () => {
+    /** A `len`-word view sitting `offWords` into a larger arena, filled with `fill`;
+     *  the arena around it holds a decoy value a buffer-start read would pick up. */
+    const arenaView = (offWords: number, len: number, fill: number) => {
+      const arena = new Float32Array(offWords + len + 8).fill(-999) // the decoy
+      const view = new Float32Array(arena.buffer, offWords * 4, len)
+      for (let i = 0; i < len; i++) view[i] = fill + i
+      return view
+    }
+
+    it('an EXACT-FIT view uploads its own window', () => {
+      const { device, texSubImage } = harness()
+      const buf = device.createBuffer({ size: 16, usage: 'storage' }) // 4 texels
+      device.writeBuffer(buf, 0, arenaView(7, 4, 100))
+      const out = texSubImage.at(-1)!.data as Float32Array
+      expect([...out.subarray(0, 4)]).toEqual([100, 101, 102, 103])
+      expect([...out]).not.toContain(-999) // the arena decoy never reaches the GPU
+    })
+
+    it('a PADDED view copies from its own window too', () => {
+      const { device, texSubImage } = harness()
+      const buf = device.createBuffer({ size: 64, usage: 'storage' }) // 16 texels
+      device.writeBuffer(buf, 0, arenaView(5, 4, 200))
+      const out = texSubImage.at(-1)!.data as Float32Array
+      expect(out.length).toBe(16)
+      expect([...out.subarray(0, 4)]).toEqual([200, 201, 202, 203])
+      expect([...out.subarray(4)]).toEqual(Array(12).fill(0))
+    })
+  })
+
   it('a PARTIAL write pads through the shared scratch and keeps the exact integer bits', () => {
     // The pad/copy runs on a Uint32Array word view for every element, so this is the test
     // that the byte move does not reinterpret anything. 0x00000001 and 0xFFFFFFFF are the

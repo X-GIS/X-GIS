@@ -75,11 +75,29 @@ const GLSL_RESERVED: ReadonlySet<string> = new Set([
   'cast',
   'namespace',
   'using',
+  'texture',
+  // ── sampler types (GLSL ES 3.00 §3.7) ──
+  // The float 2D/3D/Cube trio was all this list carried, which dates it to the ES 1.00
+  // era. Every spelling below is a KEYWORD in ES 3.00, so a DSL local or param named
+  // `usampler2D` emitted `float usampler2D = …` and died on the driver. The gate in
+  // glsl.test.ts ties this set to what glslType() can actually declare, so a new texture
+  // shape cannot reopen the gap (#1703).
   'sampler',
   'sampler2D',
   'sampler3D',
   'samplerCube',
-  'texture',
+  'sampler2DShadow',
+  'samplerCubeShadow',
+  'sampler2DArray',
+  'sampler2DArrayShadow',
+  'isampler2D',
+  'isampler3D',
+  'isamplerCube',
+  'isampler2DArray',
+  'usampler2D',
+  'usampler3D',
+  'usamplerCube',
+  'usampler2DArray',
 ])
 
 /** Rename any param/local-var identifier that collides with a GLSL reserved word

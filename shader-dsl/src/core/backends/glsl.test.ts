@@ -28,6 +28,7 @@ import {
   texture2duT,
   texture2diT,
   texture2dArrayuT,
+  texture2dArrayiT,
   samplerT,
   structT,
   type ShaderType,
@@ -296,6 +297,81 @@ describe('glsl-es300 — reserved-word identifier sanitisation', () => {
   it('does NOT touch struct field names (the std140 / varying-linkage contract)', () => {
     const fs = emitGlslModule(reservedMod, 'fragment')
     expect(fs).toMatch(/\.uv\b/) // the `uv` field is still accessed as `.uv`, not renamed
+  })
+
+  // #1703 — the reserved set and glslType() are two lists of the SAME language's type
+  // spellings, and nothing tied them together. The set carried only the ES-1.00-era
+  // float trio (sampler2D/3D/Cube), so `sampler2DArray` (#1651) and every integer
+  // sampler were DECLARABLE by the backend while absent from it — a DSL local named
+  // `usampler2D` emitted `float usampler2D = …`, which no unit test saw and every
+  // driver rejects.
+  //
+  // The spelling is DERIVED from the emit, never restated here: that is what makes a
+  // NEW texture shape fail this gate instead of quietly reopening the gap. Add a dim or
+  // an element and it joins the loop automatically.
+  it('every sampler type the backend can DECLARE is also a reserved word', () => {
+    // The spelling the backend gives a texture type. Emitted WITHOUT a stage, so the
+    // binding needs no reader to be declared — this asks glslType() the question
+    // directly, rather than restating its answer.
+    const spellingOf = (type: ShaderType): string | undefined =>
+      emitGlslModule({
+        consts: [],
+        structs: [],
+        bindings: [{ group: 0, binding: 0, name: 'probe_tex', space: 'uniform', type }],
+        funcs: [],
+      }).match(/uniform (\w+) probe_tex;/)?.[1]
+    // A fragment whose entry PARAM is named `name` — the sanitiser must rename it iff
+    // `name` is reserved. A param, not a local: a single-use `let` is copy-propagated
+    // away by the optimizer, so the identifier would vanish rather than be renamed and
+    // the probe would report a reserved-word miss for every spelling, including the ones
+    // already in the set.
+    const paramNamed = (name: string): ModuleDecl => ({
+      consts: [],
+      structs: [ReservedIn, FsOut],
+      bindings: [],
+      funcs: [
+        {
+          name: 'fs',
+          attrs: ['@fragment'],
+          params: [{ name, type: structT('ReservedIn') }],
+          ret: structT('FsOut'),
+          body: [
+            {
+              s: 'return',
+              expr: {
+                op: 'construct',
+                type: structT('FsOut'),
+                args: [
+                  v4(
+                    fld(fld(param(name, structT('ReservedIn')), 'uv', vec2fT), 'x', f32T),
+                    lit(0),
+                    lit(0),
+                    lit(1),
+                  ),
+                ],
+              },
+            },
+          ],
+        },
+      ],
+    })
+
+    for (const type of [
+      texture2dfT,
+      texture2dArrayfT,
+      texture2duT,
+      texture2diT,
+      texture2dArrayuT,
+      texture2dArrayiT,
+    ] as const) {
+      const spelling = spellingOf(type)
+      expect(spelling, `no 'uniform <type> probe_tex;' declaration emitted`).toBeTruthy()
+      const collide = emitGlslModule(paramNamed(spelling!), 'fragment')
+      expect(collide, `'${spelling}' is declarable as a type but is not in GLSL_RESERVED`).toMatch(
+        new RegExp(`\\b${spelling}_\\b`),
+      )
+      expect(collide).not.toMatch(new RegExp(`\\b${spelling}\\b(?!_)`))
+    }
   })
 })
 
