@@ -84,7 +84,14 @@ export const CODES = {
 
   // ── Module-level gates ──
   SD0020: { code: 'SD0020', summary: 'module validation failed' },
-  SD0030: { code: 'SD0030', summary: 'unsupported feature for this backend' },
+  SD0030: {
+    code: 'SD0030',
+    summary: 'unsupported feature for this backend',
+    // #1717 Ask 3 — close the discovery loop. The error already names the capability; what
+    // a reader needs next is where the per-backend support table lives, and that a
+    // capability with no row is a HARD stop rather than something to work around.
+    hint: 'see AUTHORING.md §10 (Capabilities & extensions) for the per-backend support table; a capability the target has no capProfile row for fails closed by design',
+  },
 
   // ── fp64 (emulated double precision) — passes/fp64-lower.ts ──
   SD0040: {

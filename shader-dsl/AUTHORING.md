@@ -1406,6 +1406,49 @@ program_, so every axis you specialise on has to appear in every key that names 
 If you add an axis to a builder, add it to the key in the same commit. A key that does
 not describe what the builder would emit is the sharpest footgun in this codebase.
 
+## 12. Migrating a GLSL shader — what to reach for (#1717)
+
+`§1`–`§11` are organised for someone authoring greenfield. This section answers the
+question a MIGRATING consumer actually asks: **my GLSL does X — what is the DSL spelling,
+and does it survive on WGSL?**
+
+It exists because that lookup failed in practice. A real migration re-solved several
+problems the DSL already solved, purely because the feature was filed under a name nobody
+knew to search for. Every row below is a thing that was rebuilt by hand at least once.
+
+| GLSL construct                                     | DSL spelling                               | WGSL result                             | Notes                                                                                                                                |
+| -------------------------------------------------- | ------------------------------------------ | --------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
+| `uniform Block { … }` (ours)                       | `uniformStruct` (§4)                       | `@group/@binding var<uniform>`          | std140 layout comes from `reflect()`; never hand-count offsets                                                                       |
+| `uniform float u_x;` (host prelude declares it)    | `externVar`                                | the same reference, spelled per target  | emits NOTHING; lands in `reflect().requires`                                                                                         |
+| `uniform float u_x;` (we declare it, host owns it) | `hostUniform`                              | `@group/@binding var<uniform>`          | GLSL emits a LOOSE default-block uniform, not a block; `reflect()` marks `owner: 'host'`                                             |
+| a host-provided FUNCTION                           | `externFn`                                 | same call, per-target spelling          | typed at the call site; no declaration emitted                                                                                       |
+| `#ifdef FEATURE` — **we** decide                   | a builder parameter and a plain `if` (§11) | no preprocessor                         | preferred: the losing arm is never built, so its bindings are never declared                                                         |
+| `#ifdef FEATURE` — the **host** decides            | `variantFamily`                            | one module per point in the matrix      | `emitGuarded` generates the `#if` ladder for a GLSL host that owns the define; every arm is byte-identical to the standalone variant |
+| a variant that changes only a VALUE                | `overrideConst` + `overrideValues` (§11)   | `override` + pipeline constants         | do NOT specialise: that multiplies pipelines for nothing                                                                             |
+| `#include "helper.glsl"`                           | `emitGlslFragment` / `emitFragment`        | a module fragment the host concatenates | returns `preamble` as DATA; never strip a header with a regex                                                                        |
+| a statement-level variant slot inside one module   | `composeModule` + `placeholder` (§1)       | same                                    | statement slots only — it contributes no consts/structs/bindings, so it is not an `#include` substitute                              |
+| `precision highp …` on one declaration             | the `precision` option on `hostUniform`    | n/a (WGSL has no precision qualifiers)  | the stage preamble is the default; this is for a fragment composed into a host program                                               |
+| `usampler2D` / `isampler2D`                        | `texture2duT` / `texture2diT` (§4)         | `texture_2d<u32>` / `texture_2d<i32>`   | the sampler precision line is emitted for you                                                                                        |
+| `#extension … : require`                           | `enables` (§10)                            | `enable …;`                             | fails closed (`SD0030`) on a backend whose `capProfile` has no row                                                                   |
+| comparing two emits after an optimizer pass        | `semanticDiff`                             | same                                    | compares IR + reflection, so folding and renaming do not drown the diff                                                              |
+
+### Does it survive on WGSL?
+
+`capabilityMatrix([wgslBackend, glslEs300Backend])` answers that per capability, derived
+from the backends' own `capProfile`s rather than transcribed — so it cannot go stale
+against them. §10 explains the three support classes it reports; `SD0030`'s hint points
+back here when an emit fails closed.
+
+Two honesty notes a reader needs before trusting a row:
+
+- **Support is not reachability.** `f16`, `subgroups` and `multiview` have profile rows and
+  emit their directives, and NONE of them can be authored today — there is no f16 scalar,
+  no subgroup intrinsic, and neither `num_views` nor `gl_ViewID_OVR`. The matrix reports
+  what the profile says; `capability-reachability.test.ts` is where the allowlist of
+  known-unreachable caps lives, with a reason each.
+- **A missing row is a hard stop, by design.** It is not a hint to work around: emit throws
+  rather than writing source the driver would reject.
+
 ## Quick reference
 
 | Need                           | Write                                                                                                     |

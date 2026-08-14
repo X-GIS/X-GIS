@@ -398,6 +398,25 @@ export type Capability =
   | 'float32Filterable'
   | 'multiview'
 
+/** Every {@link Capability}, as a runtime value (#1717) — the enumeration a
+ *  capability-matrix renderer, a doc generator or a coverage gate iterates.
+ *
+ *  Hand-listed because a union type has no runtime form, and kept honest by the
+ *  `satisfies` below plus `capability-matrix.test.ts`'s round trip: a new union member that
+ *  is not added here fails the exhaustiveness check rather than quietly shrinking every
+ *  consumer's view of the vocabulary. */
+export const ALL_CAPABILITIES = [
+  'storageBuffer',
+  'compute',
+  'msaaTextureLoad',
+  'f16',
+  'subgroups',
+  'floatRenderTarget',
+  'float32Blend',
+  'float32Filterable',
+  'multiview',
+] as const satisfies readonly Capability[]
+
 /** The caps an AUTHOR may name in `ModuleDecl.enables` (#1681 A2) — `Capability` minus
  *  the three DERIVED resource caps. Those three are inferred from the module's SHAPE by
  *  `requiredCaps` (a storage binding ⇒ `storageBuffer`, a `@compute` entry ⇒ `compute`,
