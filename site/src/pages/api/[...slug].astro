@@ -1,0 +1,71 @@
+---
+// The generated @xgis/shader-dsl API reference (#1695).
+//
+// Every page under /api/ comes from src/content/api, which scripts/build-api-reference.ts
+// regenerates from the TSDoc on each build. Nothing on these pages is authored here — to
+// change what a symbol's page says, change its doc comment at the definition site.
+//
+// The slug drops the `.md` because the generator rewrites cross-references the same way;
+// the two must agree or every internal link is a 404. `entry.id` already carries the
+// extensionless path Astro derives from the filename, so the route and the links meet
+// without either side spelling the mapping twice.
+import Base from '../../layouts/Base.astro'
+import Header from '../../components/Header.astro'
+import Footer from '../../components/Footer.astro'
+import OnThisPage from '../../components/OnThisPage.astro'
+import { getCollection, render } from 'astro:content'
+
+// The mirror of `routeOf` in scripts/build-api-reference.ts: TypeDoc names each module's
+// entry page `README`, which would serve the `.` subpath's index at `/api/index/README`. Both
+// sides drop that segment, so the module index is `/api/index` and the package root is
+// `/api`. The generator's link check and the postbuild check both compare the two sets, so a
+// drift between this and the rewrite fails the build rather than 404ing for a reader.
+export async function getStaticPaths() {
+  const entries = await getCollection('api')
+  return entries.map((entry) => {
+    const route = entry.id.replace(/(^|\/)README$/, '').replace(/\/$/, '')
+    return { params: { slug: route === '' ? undefined : route }, props: { entry } }
+  })
+}
+
+const { entry } = Astro.props
+const { Content, headings } = await render(entry)
+
+// The first `# heading` is the symbol's own title ("Function: emitConst()"). Used for the
+// document title so a search result names the symbol rather than the path.
+const heading = /^#\s+(.+)$/m.exec(entry.body ?? '')?.[1]?.trim()
+const title = heading ?? entry.id.split('/').pop() ?? 'API'
+
+const base = import.meta.env.BASE_URL.replace(/\/+$/, '')
+// Show the import specifier a reader would actually type, not the output directory name.
+// TypeDoc names one directory per entry point: `index` is the package's `.` subpath, `dev`
+// and `emit-prod` are their own, and `core/ir` is TWO segments — so the group is not simply
+// the first one. The bare `README` at the root is the package index and belongs to no
+// subpath.
+const segs = entry.id.split('/')
+const group = segs[0] === 'core' ? `${segs[0]}/${segs[1]}` : segs[0]
+const subpath =
+  entry.id === 'README'
+    ? '@xgis/shader-dsl'
+    : group === 'index'
+      ? '@xgis/shader-dsl'
+      : `@xgis/shader-dsl/${group}`
+---
+
+<Base title={`${title} · @xgis/shader-dsl`} description={`API reference for ${title}.`}>
+  <Header />
+  <main class="mx-auto flex w-full max-w-6xl gap-10 px-6 py-10">
+    <article class="prose prose-invert min-w-0 flex-1">
+      <nav class="mb-6 text-sm">
+        <a href={`${base}/shader-dsl/reference`} class="opacity-70 hover:opacity-100"
+          >shader-dsl reference</a
+        >
+        <span class="opacity-40"> / </span>
+        <code>{subpath}</code>
+      </nav>
+      <Content />
+    </article>
+    <OnThisPage headings={headings} />
+  </main>
+  <Footer />
+</Base>
