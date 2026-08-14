@@ -21,6 +21,7 @@ import {
   type ModuleDecl,
   type AddressSpace,
   type Capability,
+  type TextureElem,
   typeKey,
   stageOf,
   workgroupSizeOf,
@@ -205,6 +206,20 @@ export interface BindEntry {
    *  `resourceKind: 'texture'` alone under-describes the binding, and an
    *  only-when-interesting field would make `undefined` mean two different things. */
   readonly textureDim?: '2d' | '2d-ms' | '2d-array'
+  /** For a `texture` entry ONLY (#1703): the texel ELEMENT the shader declared. Same
+   *  contract as `textureDim` — ALWAYS set on a texture entry, never elsewhere.
+   *
+   *  A host needs BOTH axes to build a valid binding: dim alone does not say whether
+   *  the view is float or integer, and the two are not interchangeable — WebGPU's
+   *  `GPUTextureBindingLayout.sampleType` must be `'uint'` / `'sint'` for `u32` / `i32`
+   *  (`'float'` for f32), and WebGL2 must back it with an INTEGER internal format
+   *  (R32UI / R32I). Reported as the DSL's own element rather than pre-translated to
+   *  either target's vocabulary, because reflection takes a module and never a backend.
+   *
+   *  An integer texture is also UNFILTERABLE, so a host must not pair one with a
+   *  filtering sampler — there is no `sampler` binding to pair it with in a
+   *  correctly-authored module, since `textureSample` rejects those keys at tsc. */
+  readonly textureElem?: TextureElem
 }
 export interface BindGroup {
   readonly group: number
@@ -311,7 +326,7 @@ export function reflect(m: ModuleDecl): Reflection {
       ...(b.access ? { access: b.access } : {}),
       resourceKind: resourceKind(b.space, b.type),
       ...(b.type.kind === 'struct' ? { structName: b.type.name } : {}),
-      ...(b.type.kind === 'texture' ? { textureDim: b.type.dim } : {}),
+      ...(b.type.kind === 'texture' ? { textureDim: b.type.dim, textureElem: b.type.elem } : {}),
     }
     ;(byGroup.get(b.group) ?? byGroup.set(b.group, []).get(b.group)!).push(e)
   }

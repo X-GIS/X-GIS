@@ -18,6 +18,11 @@ import {
   texture2dfT,
   texture2dMsfT,
   texture2dArrayfT,
+  texture2duT,
+  texture2diT,
+  texture2dArrayuT,
+  texture2dArrayiT,
+  typeKey,
   samplerT,
   dot,
   length,
@@ -26,8 +31,10 @@ import {
   textureSampleLevel,
   textureLoad,
   textureNumLayers,
+  textureDimensions,
   toF32,
   vec2i,
+  type Node,
   type ReadonlyNode,
   type ShaderType,
 } from './ir'
@@ -40,6 +47,11 @@ import type { FuncDecl } from './ir'
 // FuncDecl, not ReturnType<typeof fn> — a concrete handle's object-call arg map
 // is contravariant against the widened FnParamSpec form (the R9 emitOne lesson).
 const emitF = (f: FuncDecl): string => emitModule(module({ funcs: { f } }))
+
+// Reads a node's PHANTOM key back as a value so a key claim is a plain assignment
+// (`const k: 'texture_2d<u32>' = keyOfNode(n)`). tsc-only — the phantom is never
+// assigned at runtime, and nothing here calls it for its value.
+const keyOfNode = <K extends string>(_n: ReadonlyNode<K>): K => undefined as unknown as K
 
 describe('#763 X — type-surface sweep', () => {
   it('X5: scalar-node % vec-node broadcasts like the other four ops', () => {
@@ -146,6 +158,84 @@ describe('#763 X — type-surface sweep', () => {
       return toF32(textureNumLayers(arr.node))
     })
     expect(g.decl.name).toBe('nl')
+  })
+
+  it('#1703: an integer texture carries the INTEGER key, and the load result follows it', () => {
+    const tu = resource('it_u', texture2duT, { group: 0, binding: 0 })
+    const ti = resource('it_i', texture2diT, { group: 0, binding: 1 })
+    const tf = resource('it_f', texture2dfT, { group: 0, binding: 2 })
+    const au = resource('it_au', texture2dArrayuT, { group: 0, binding: 3 })
+    // KeyOf must INFER the element — a hardcoded `<f32>` arm would hand a usampler2D
+    // the FLOAT key, where textureSample's overload accepts it and only naga objects.
+    const ku: 'texture_2d<u32>' = keyOfNode(tu.node)
+    const ki: 'texture_2d<i32>' = keyOfNode(ti.node)
+    const kau: 'texture_2d_array<u32>' = keyOfNode(au.node)
+    const kf: 'texture_2d<f32>' = keyOfNode(tf.node)
+    void [ku, ki, kau, kf]
+    const g = fn('it', {}, () => {
+      const c = vec2i(0, 0)
+      // The load result tracks the texture's element, so a u32 texel lands in a
+      // vec4<u32> node and an i32 one in vec4<i32> — assigning either to the other,
+      // or to vec4<f32>, is the compile error that keeps the two halves in step.
+      const lu: Node<'vec4<u32>'> = textureLoad(tu.node, c, 0)
+      const li: Node<'vec4<i32>'> = textureLoad(ti.node, c, 0)
+      const lau: Node<'vec4<u32>'> = textureLoad(au.node, c, 0, 0)
+      // @ts-expect-error — a u32 texel is NOT a vec4<f32>
+      const asFloat: Node<'vec4<f32>'> = textureLoad(tu.node, c, 0)
+      // @ts-expect-error — nor is it a vec4<i32> (the two integer keys are distinct)
+      const asSigned: Node<'vec4<i32>'> = textureLoad(tu.node, c, 0)
+      void [li, lau, asFloat, asSigned]
+      // textureDimensions/textureNumLayers are element-BLIND: an extent is an extent.
+      const dim: Node<'vec2<u32>'> = textureDimensions(tu.node)
+      const n: Node<'u32'> = textureNumLayers(au.node)
+      return lu.x.add(dim.x).add(n)
+    })
+    expect(g.decl.name).toBe('it')
+  })
+
+  it('#1703: textureSample* REJECT an integer texture — the WGSL/GLSL split is closed at tsc', () => {
+    // Filtering integer texels is undefined, so WGSL has no textureSample for
+    // texture_2d<u32> at all. GLSL's texture(usampler2D, …) WOULD compile (NEAREST) —
+    // allowing it would mint a construct that builds on WebGL2 and cannot be expressed
+    // on WebGPU, which is the one thing authoring once for both targets must not do.
+    // These probes are what stops a future overload widening from re-opening it.
+    const tu = resource('ns_u', texture2duT, { group: 0, binding: 0 })
+    const au = resource('ns_au', texture2dArrayuT, { group: 0, binding: 1 })
+    const ti = resource('ns_i', texture2diT, { group: 0, binding: 2 })
+    const smp = resource('ns_smp', samplerT, { group: 0, binding: 3 })
+    const g = fn('ns', { uv: vec2fT }, ({ uv }) => {
+      // @ts-expect-error — no filtered sample of an unsigned texture
+      const su = () => textureSample(tu.node, smp.node, uv)
+      // @ts-expect-error — nor of a signed one
+      const si = () => textureSample(ti.node, smp.node, uv)
+      // @ts-expect-error — nor of an unsigned ARRAY texture
+      const sau = () => textureSample(au.node, smp.node, uv, 0)
+      // @ts-expect-error — explicit-LOD sampling is still SAMPLING (the LOD is not the issue)
+      const slu = () => textureSampleLevel(tu.node, smp.node, uv, 0)
+      // @ts-expect-error — array explicit-LOD form, same reason
+      const slau = () => textureSampleLevel(au.node, smp.node, uv, 0, 0)
+      void [su, si, sau, slu, slau]
+      const c = vec2i(0, 0)
+      return toF32(textureLoad(tu.node, c, 0).x) // the ONE legal read form
+    })
+    expect(g.decl.name).toBe('ns')
+  })
+
+  it('#1703: a multisampled INTEGER texture is unrepresentable, not a runtime throw', () => {
+    // The texture type is a two-arm union pinned to `elem: 'f32'` on '2d-ms', so this
+    // never reaches emit — where it would have been a plausible-looking
+    // `texture_multisampled_2d<u32>` that GLSL fails closed on anyway.
+    // @ts-expect-error — '2d-ms' admits no element but f32
+    const bad = { kind: 'texture', dim: '2d-ms', elem: 'u32' } as const satisfies ShaderType
+    void bad
+    expect(typeKey(texture2dMsfT)).toBe('texture_multisampled_2d<f32>')
+    // typeKey must stay byte-identical to KeyOf's arms — they are two spellings of the
+    // same key and a drift between them is invisible until an overload silently stops
+    // matching. All four new constants, both axes.
+    expect(typeKey(texture2duT)).toBe('texture_2d<u32>')
+    expect(typeKey(texture2diT)).toBe('texture_2d<i32>')
+    expect(typeKey(texture2dArrayuT)).toBe('texture_2d_array<u32>')
+    expect(typeKey(texture2dArrayiT)).toBe('texture_2d_array<i32>')
   })
 
   it('#1651: a FRACTIONAL layer literal throws SD0015 at author time', () => {

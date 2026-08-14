@@ -64,6 +64,11 @@ import type {
   RhiCommandEncoder,
   RhiRenderPassDesc,
 } from '@xgis/rhi'
+import {
+  createStorageDataTexture,
+  writeStorageDataTexture,
+  type Gl2StorageBuffer,
+} from './storage-data-texture'
 
 // Each opaque RHI handle stores a rich GL record (cast both ways inside this
 // module). WebGL2 needs MORE per-handle metadata than WebGPU (a buffer's GL
@@ -76,15 +81,9 @@ interface Gl2Buffer {
   size: number
 }
 // A 'storage' RHI buffer has no WebGL2 equivalent (no SSBO in ES 3.00) — it is emulated
-// as a 2D-TILED R32F DATA TEXTURE (W×H, the GLSL pre-pass reads element i at texel
-// (i%W, i/W)). `tex` is bound to a texture unit like a sampled texture; width × height
-// holds the f32 count (W capped at 2048 so large arrays wrap across rows).
-interface Gl2StorageBuffer {
-  storageTex: WebGLTexture
-  width: number
-  height: number
-  size: number
-}
+// as a 2D-TILED DATA TEXTURE (W×H, the GLSL pre-pass reads element i at texel
+// (i%W, i/W)). The whole create/write/format concern lives in ./storage-data-texture
+// (#1703); here it is only allocated, bound to a unit, and deleted.
 /** WebGPU validates every queue write against the texture's usage flags; WebGL2 validates
  *  nothing. That asymmetry is not a detail — it means a texture written without `copy-dst`
  *  works perfectly under SwiftShader (which is what every headless render gate here drives)
@@ -274,13 +273,6 @@ const SAMPLER_TYPES = new Set<number>()
 // maps to its raw binding (single-group gates unchanged). 8 = max bindings/group, well clear
 // of WebGL2's MAX_UNIFORM_BUFFER_BINDINGS (≥ 24).
 const GROUP_BINDING_STRIDE = 8
-
-// Scratch for the storage-buffer partial-write padding (#784): the storage writeBuffer path
-// pads a short f32 array up to the W×H data-texture size. A fresh Float32Array(cap) per
-// partial upload churned the GC — reuse a lazily-grown module-level buffer instead (grown to
-// 2× so it settles after the largest storage buffer seen; contents are always re-zeroed +
-// re-set per write, so cross-write staleness cannot leak).
-let _storagePadScratch = new Float32Array(0)
 
 class WebGl2RenderPass implements RhiRenderPass {
   private cur?: Gl2Pipeline
@@ -1003,28 +995,10 @@ export class WebGl2Device implements RhiDevice {
     this._life.assertLive('createBuffer')
     const gl = this.gl
     if (desc.usage === 'storage') {
-      // emulate as a 2D-TILED R32F data texture (the GLSL storageFetchF32 reads it via
-      // texelFetch(t, ivec2(i % W, i / W))). R32F sampling/texelFetch is core WebGL2
-      // (rendering-TO R32F needs EXT_color_buffer_float, but we only sample). width is
-      // capped at 2048 (the guaranteed-safe WebGL2 MAX_TEXTURE_SIZE floor) so an array of
-      // any size wraps across rows; the shader reads the actual width via textureSize().
-      const tex = gl.createTexture()
-      if (!tex) throw new Error('webgl2: createTexture (storage) failed')
-      const floats = Math.max(1, Math.ceil(desc.size / 4))
-      const width = Math.min(floats, 2048)
-      const height = Math.ceil(floats / width)
-      gl.bindTexture(gl.TEXTURE_2D, tex)
-      gl.texImage2D(gl.TEXTURE_2D, 0, gl.R32F, width, height, 0, gl.RED, gl.FLOAT, null)
-      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST)
-      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST)
-      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE)
-      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE)
-      return wrap<RhiBuffer>({
-        storageTex: tex,
-        width,
-        height,
-        size: desc.size,
-      } satisfies Gl2StorageBuffer)
+      // `desc.elem` defaults to 'f32' (#1703), so every pre-existing caller allocates the
+      // same R32F texture it always did; an array<u32>/array<i32> module asks for the
+      // typed one its emitted usampler2D/isampler2D requires.
+      return wrap<RhiBuffer>(createStorageDataTexture(gl, desc.size, desc.elem ?? 'f32'))
     }
     const buf = gl.createBuffer()
     if (!buf) throw new Error('webgl2: createBuffer failed')
@@ -1043,31 +1017,7 @@ export class WebGl2Device implements RhiDevice {
     const b = un<Gl2Buffer | Gl2StorageBuffer>(buffer)
     const gl = this.gl
     if ('storageTex' in b) {
-      // upload the f32 array into the W×H data texture, row-major (texel (i%W, i/W) = data[i]).
-      // padded to the full W*H so the texSubImage covers the whole texture; a partial last row
-      // reads 0 past the array end. byteOffset 0 = whole-array write (the storage-buffer case).
-      const f32 =
-        data instanceof Float32Array
-          ? data
-          : new Float32Array(data instanceof ArrayBuffer ? data : (data as ArrayBufferView).buffer)
-      const cap = b.width * b.height
-      let padded: Float32Array
-      if (f32.length === cap) {
-        padded = f32
-      } else {
-        // reuse a lazily-grown scratch instead of a fresh Float32Array(cap) per write (#784);
-        // zero-fill [0,cap) then set the input at byteOffset/4 — byte-identical to the old
-        // fresh-zero-array padding (the remainder past the input reads 0). subarray(0,cap)
-        // hands texSubImage2D exactly W×H texels even when the scratch is grown larger.
-        if (cap > _storagePadScratch.length) _storagePadScratch = new Float32Array(cap * 2)
-        _storagePadScratch.fill(0, 0, cap)
-        _storagePadScratch.set(f32.subarray(0, Math.min(f32.length, cap)), byteOffset / 4)
-        padded = _storagePadScratch.subarray(0, cap)
-      }
-      gl.bindTexture(gl.TEXTURE_2D, b.storageTex)
-      gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1)
-      gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, b.width, b.height, gl.RED, gl.FLOAT, padded)
-      gl.pixelStorei(gl.UNPACK_ALIGNMENT, 4) // restore the GL default (#1049 hygiene)
+      writeStorageDataTexture(gl, b, byteOffset, data)
       return
     }
     gl.bindBuffer(b.target, b.buf)

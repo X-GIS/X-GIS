@@ -79,7 +79,9 @@ export function wgslType(t: ShaderType): string {
         case '2d':
           return `texture_2d<${t.elem}>`
         default:
-          return t.dim satisfies never
+          // Exhaustiveness on the ARM (#1703) — see typeKey's twin: with the texture
+          // type a two-arm union, `t` is `never` here and has no `.dim` to check.
+          return t satisfies never
       }
     case 'sampler':
       return 'sampler'

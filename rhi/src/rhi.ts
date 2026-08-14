@@ -50,6 +50,22 @@ export interface RhiBufferDesc {
    *  a valid `copyBufferSubData` read source). Additive + default false: an
    *  un-set buffer's usage flags are byte-identical to before. */
   copySrc?: boolean
+  /** For `usage: 'storage'` ONLY — the buffer's ELEMENT type (#1703). Default `'f32'`,
+   *  so every pre-existing storage buffer is byte-identical to before.
+   *
+   *  WebGPU ignores this: a storage buffer there is a real buffer and the shader's own
+   *  `array<T>` types it. WebGL2 has no SSBO and emulates one as a DATA TEXTURE, whose
+   *  internal format must MATCH the sampler the emitted GLSL declares — `array<f32>`
+   *  lowers to `sampler2D` (R32F), `array<u32>` to `usampler2D` (R32UI), `array<i32>`
+   *  to `isampler2D` (R32I).
+   *
+   *  Get it wrong and nothing throws: a texture whose format disagrees with its sampler
+   *  type is INCOMPLETE, and `texelFetch` on an incomplete texture silently returns 0.
+   *  So this is not a hint — it is the half of the contract the shader cannot state.
+   *
+   *  It is a separate field rather than something inferred from the `writeBuffer` data,
+   *  because the texture is allocated at CREATE time, before any data exists. */
+  elem?: 'f32' | 'u32' | 'i32'
   label?: string
 }
 

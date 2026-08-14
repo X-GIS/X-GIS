@@ -171,7 +171,7 @@ describe('#763 O — oracle backend parity', () => {
     const EXPR_COVERED = new Set(['select'])
     // GLSL-only synthetic: created by lowerStorageToDataTexture INSIDE the GLSL
     // emit path — compileModule never sees it (and `unknown fn` would fail loud).
-    const GLSL_SYNTHETIC = new Set(['storageFetchF32'])
+    const GLSL_SYNTHETIC = new Set(['storageFetchF32', 'storageFetchU32', 'storageFetchI32'])
     const catalogued = Object.keys(INTRINSICS)
     const missing = catalogued.filter(
       (name) =>

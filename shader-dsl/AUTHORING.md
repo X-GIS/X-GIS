@@ -662,6 +662,65 @@ texture is a tsc error), and the targets spell it differently — WGSL has the d
 `textureNumLayers(t)`, GLSL ES 3.00 has none and reads `uint(textureSize(t, 0).z)` (the
 lod argument is required there; the layer count is lod-invariant, so `0` is always right).
 
+#### Integer textures — `texture2duT` / `texture2diT` (+ the array twins)
+
+A texture whose texels are **exact 32-bit integers** rather than filtered floats — an id
+map, a packed-colour table, a bitfield lookup:
+
+```ts
+const ids = resource('ids', texture2duT, { group: 0, binding: 1 })
+
+textureLoad(ids.node, coord, 0) // → Node<'vec4<u32>'>
+textureDimensions(ids.node) // → Node<'vec2<u32>'>, same as any other texture
+```
+
+Four constants: `texture2duT` / `texture2diT` and `texture2dArrayuT` /
+`texture2dArrayiT`. The **load result follows the texture's element** — `vec4<u32>` off an
+unsigned one, `vec4<i32>` off a signed one — so assigning it to the wrong key is a tsc
+error rather than a silent reinterpretation. Both are CORE in both targets (WGSL
+`texture_2d<u32>`, GLSL ES 3.00 `usampler2D`), so neither needs a capability.
+
+**`textureSample` and `textureSampleLevel` reject these keys at tsc, by design.** Filtering
+is a weighted average and interpolating integer texels is undefined, so WGSL has no
+`textureSample` for `texture_2d<u32>` at all. GLSL's `texture(usampler2D, …)` _would_ work
+(NEAREST), and allowing it is exactly the trap this DSL exists to avoid: it would mint a
+construct that compiles on WebGL2 and cannot be expressed on WebGPU. The honest
+intersection of the two targets is **`textureLoad` + `textureDimensions` +
+`textureNumLayers`**, and that is the whole surface.
+
+A multisampled integer texture is **unrepresentable** — `{ dim: '2d-ms', elem: 'u32' }`
+does not typecheck, rather than throwing at emit.
+
+`reflect()` reports the element alongside the dim (`textureElem: 'u32'`), which a host
+needs to build the binding: WebGPU's `sampleType` must be `'uint'` / `'sint'`, and WebGL2
+must back it with an integer internal format. Getting that wrong does **not** raise — a
+texture whose format disagrees with its sampler type is merely INCOMPLETE, and
+`texelFetch` on an incomplete texture silently returns 0.
+
+##### `array<u32>` / `array<i32>` storage on WebGL2
+
+These are what let a top-level integer storage array work on the GLSL backend. WebGL2 has
+no SSBO, so a `var<storage, read>` array lowers to a data texture — and an integer one now
+lowers to a **typed** texture (`usampler2D` over R32UI, `isampler2D` over R32I) instead of
+failing closed:
+
+```ts
+const featIds = storageBuffer('feat_ids', u32T, { group: 0, binding: 0, access: 'read' })
+featIds.at(i) // → Node<'u32'>; on GLSL this is a texelFetch, on WGSL a real SSBO read
+```
+
+Whoever allocates that data texture must give it the **matching internal format** —
+`R32UI` for the `usampler2D` an `array<u32>` lowers to, `R32I` for `isampler2D`, `R32F` for
+the float case. Nothing enforces the pairing at runtime: a texture whose format disagrees
+with its sampler type is merely INCOMPLETE, and `texelFetch` on it silently returns 0. Read
+the element off `reflect()` rather than tracking it separately.
+
+Not the alternative you might reach for first — carrying the integers through the existing
+**R32F** texture and recovering them with `floatBitsToUint`. GLSL ES 3.00 §2.1.1 permits an
+implementation to flush **any** denormal to zero, and small integers are denormal f32 bit
+patterns (`1u` is 1.4e-45), so that route can legally lose values. It survives on every
+driver measured so far, which is precisely why it is not a foundation to build on.
+
 ### Typed const handles + fn handles
 
 Module-level WGSL consts are imported as **typed handles** from `shaders/consts.ts` instead
