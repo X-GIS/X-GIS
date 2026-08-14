@@ -16,6 +16,7 @@ export function mapExpr(e: Expr, f: (e: Expr) => Expr): Expr {
   switch (e.op) {
     case 'lit':
     case 'constref':
+    case 'externref':
     case 'overrideref':
     case 'param':
     case 'varref':

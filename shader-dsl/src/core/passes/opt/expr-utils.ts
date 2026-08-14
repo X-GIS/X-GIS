@@ -14,6 +14,7 @@ export function keyOf(e: Expr): string {
       return `L:${typeof e.value}:${String(e.value)}`
     case 'constref':
       return `C:${e.name}`
+    case 'externref':
     case 'overrideref':
       return `O:${e.name}` // #923 — distinct from a const read (never CSE'd together)
     case 'param':
@@ -48,6 +49,7 @@ export const isCompound = (e: Expr): boolean =>
   e.op !== 'lit' &&
   e.op !== 'constref' &&
   e.op !== 'overrideref' &&
+  e.op !== 'externref' &&
   e.op !== 'param' &&
   e.op !== 'varref'
 
@@ -96,6 +98,7 @@ export function mapChildren(e: Expr, f: (c: Expr) => Expr): Expr {
     case 'lit':
     case 'constref':
     case 'overrideref':
+    case 'externref':
     case 'param':
     case 'varref':
       return e

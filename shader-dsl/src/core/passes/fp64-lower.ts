@@ -280,6 +280,7 @@ function lowerExpr(e: Expr, ctx: LowerCtx): Expr {
     case 'lit':
       return isF64(e.type) ? pairLit(e.value as number) : e
     case 'constref':
+    case 'externref': // #1713 — a host-provided global is spelled by the host, never lowered
     case 'overrideref': // #923 — a specialization constant is a WGSL scalar, never f64
     case 'param':
     case 'varref':
@@ -710,6 +711,7 @@ function exprHasF64(e: Expr): boolean {
   switch (e.op) {
     case 'lit':
     case 'constref':
+    case 'externref':
     case 'overrideref':
     case 'param':
     case 'varref':

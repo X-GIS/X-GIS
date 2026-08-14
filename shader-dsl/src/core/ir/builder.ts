@@ -13,6 +13,7 @@ import {
   type ModuleDecl,
   type ConstDecl,
   type OverrideDecl,
+  type ExternVarDecl,
   type StructDecl,
   type BindingDecl,
   type RawStmt,
@@ -31,6 +32,7 @@ import {
   u32,
   callFn,
   overrideRef,
+  externRef,
   installStmtSink,
 } from './node'
 import { dslError } from '../diagnostics/error'
@@ -998,6 +1000,10 @@ export function module(parts: ModuleParts): ModuleDecl {
     // #923 — carry the specialization-constant declarators through (absent ⇒ omit the
     // key, so an override-free module object stays byte-identical to before).
     ...(parts.overrides ? { overrides: parts.overrides } : {}),
+    // #1713 — same carry-through for host-provided globals. Passed EXPLICITLY rather than
+    // through `uses:`: an ExternVarHandle is `{ node, decl }`, which the `uses` dispatch's
+    // `'decl' in h` branch would route to addConst and silently emit as a module constant.
+    ...(parts.externs ? { externs: parts.externs } : {}),
   }
   // #628 — carry the opt-in language-feature caps through (absent ⇒ omit the key, so an
   // enables-free module object stays byte-identical to before).
@@ -1068,6 +1074,54 @@ export function overrideConst<T extends ShaderType>(
     throw dslError('SD0014', `override '${name}': ${type.kind}`)
   }
   return { node: overrideRef(name, type), decl: { name, type, default: defaultValue } }
+}
+
+/** The pair `externVar` returns: the read node, and the declaration to hand `module()`. */
+export interface ExternVarHandle<K extends string> {
+  readonly node: ReadonlyNode<K>
+  readonly decl: ExternVarDecl
+}
+
+/** Declare a HOST-PROVIDED global (#1713) — the variable twin of {@link externFn}.
+ *
+ * MapLibre's prelude hands a shader values like `u_matrix` or `terrain.terrain_delta` as
+ * loose globals we do not declare. Before this they could only enter a module as raw text
+ * or as a fake binding: untyped, invisible to `reflect()`, and unprotected from
+ * `mangle`'s rename. This declares them abstractly instead.
+ *
+ * Emits NOTHING on either backend. What it buys is everything around the reference —
+ * type checking at the use site, survival through `mangle`, and an entry in
+ * `reflect().requires` (and in a fragment's `requires`, #1711) so a composer can check the
+ * module's expectations against what the prelude actually provides.
+ *
+ * `spelling` maps the logical name onto each target, so moving to a host that exposes the
+ * same value differently — a WGSL struct member or a bound uniform instead of a GLSL
+ * prelude global — is a spelling-map change rather than a source rewrite. That is the
+ * point of declaring these now rather than at migration time.
+ *
+ * ```ts
+ * const uMatrix = externVar('u_matrix', mat4fT, { stage: 'vertex' })
+ * const clip = uMatrix.node.mul(worldPos)     // type-checked; emits `u_matrix * …`
+ * ```
+ *
+ * @param name - the logical symbol name, and the default spelling on both targets.
+ * @param type - its shader type, for checking every read.
+ * @param opts - per-target `spelling`, and an advisory `stage`.
+ */
+export function externVar<T extends ShaderType>(
+  name: string,
+  type: T,
+  opts?: { spelling?: { wgsl?: string; glsl?: string }; stage?: ExternVarDecl['stage'] },
+): ExternVarHandle<KeyOf<T>> {
+  return {
+    node: externRef(name, type),
+    decl: {
+      name,
+      type,
+      ...(opts?.spelling ? { spelling: opts.spelling } : {}),
+      ...(opts?.stage ? { stage: opts.stage } : {}),
+    },
+  }
 }
 
 // ── Ambient free-function authoring surface (C2) ──

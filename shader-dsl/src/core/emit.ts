@@ -9,12 +9,13 @@
 import type { Backend } from './backend'
 import type { Expr, Stmt, ModuleDecl } from './ir'
 import { stageOf } from './ir'
-import { externCallNames, type EmitFragment } from './fragment'
+import { fragmentRequires, type EmitFragment } from './fragment'
 import { validate } from './passes/validate'
 import { assertCaps, assertBuiltins } from './passes/required-caps'
 import { lowerModule } from './passes/match-lower'
 import { fp64Lower, type Fp64Flavor } from './passes/fp64-lower'
 import { autoVars, optimizeAt, type OptLevel } from './passes/opt'
+import { mapExpr, mapStmt } from './passes/opt/ir-transform'
 import { reflect, type Reflection } from './reflect'
 
 const pad = (depth: number): string => '  '.repeat(depth)
@@ -97,10 +98,13 @@ function emitLeaf(
       return be.literal(e.value, e.type)
     case 'constref':
     case 'overrideref':
+    case 'externref':
     case 'param':
     case 'varref':
       // `overrideref` (#923) emits as the bare name on BOTH backends — the WGSL
       // `override` identifier and the GLSL `#define` macro share the declared name.
+      // `externref` (#1713) likewise: its per-target spelling was already resolved into
+      // `.name` by `spellExterns` during lowering, so the walk stays target-neutral.
       return e.name
     case 'call':
       return be.intrinsic(e.fn, e.args.map(r))
@@ -241,8 +245,32 @@ export function lowerForBackend(
   // shared `let`, so authors write plain inline expressions and the reuse is bound for them.
   // `level` overrides the backend's default optimizer tier (used by the measurement A/B and
   // debug emit); omitted → the backend's own `optimize` (= O2 fixpoint), the production path.
-  const pre = fp64Lower(lowerModule(autoVars(m)), fp64Flavor ? { flavor: fp64Flavor } : undefined)
+  const pre = spellExterns(
+    fp64Lower(lowerModule(autoVars(m)), fp64Flavor ? { flavor: fp64Flavor } : undefined),
+    be,
+  )
   return level === undefined ? be.optimize(pre) : optimizeAt(pre, level)
+}
+
+/** Resolve each `externref` to the spelling THIS target's host uses (#1713).
+ *
+ *  Done as a lowering pass rather than in `emitLeaf` because the spelling lives on the
+ *  DECLARATION and the emit walk only ever sees the Expr — threading the module through
+ *  the walk to look it up would widen the neutral emitter's contract for one node kind.
+ *  Identity for every module with no externs, and for every extern whose host spells it
+ *  the same on both targets, so nothing else changes bytes. */
+function spellExterns(m: ModuleDecl, be: Backend): ModuleDecl {
+  const map = new Map<string, string>()
+  for (const e of m.externs ?? []) {
+    const to = be.id === 'wgsl' ? e.spelling?.wgsl : e.spelling?.glsl
+    if (to !== undefined && to !== e.name) map.set(e.name, to)
+  }
+  if (map.size === 0) return m
+  const rE = (e: Expr): Expr =>
+    mapExpr(e, (x) =>
+      x.op === 'externref' && map.has(x.name) ? { ...x, name: map.get(x.name)! } : x,
+    )
+  return { ...m, funcs: m.funcs.map((f) => ({ ...f, body: f.body.map((s) => mapStmt(s, rE)) })) }
 }
 
 /** Assemble an ALREADY-lowered module into a target string: the declaration assembly
@@ -382,7 +410,7 @@ export function emitModuleFragment(
       overrides: (lowered.overrides ?? []).map((o) => o.name),
       entryPoints: entries.map((f) => f.name),
     },
-    requires: externCallNames(kept, new Set(lowered.funcs.map((f) => f.name))),
+    requires: fragmentRequires(lowered, kept, be.id === 'wgsl' ? 'wgsl' : 'glsl'),
   }
 }
 

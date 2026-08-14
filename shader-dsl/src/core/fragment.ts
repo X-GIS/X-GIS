@@ -21,7 +21,7 @@
 
 import { collectFnRefs, emptyRefSet } from './ir/collect-refs'
 import { isKnownIntrinsic } from './intrinsics'
-import type { FuncDecl } from './ir/nodes'
+import type { FuncDecl, ModuleDecl } from './ir/nodes'
 
 /** What a fragment brings to the program it is composed into — the manifest a composer
  *  checks its host prelude against. Names are the EMITTED spellings, so they are the ones
@@ -77,4 +77,19 @@ export function externCallNames(
   const refs = emptyRefSet()
   for (const f of walk) collectFnRefs(f, refs)
   return [...refs.calls].filter((n) => !moduleFns.has(n) && !isKnownIntrinsic(n)).sort()
+}
+
+/** Everything a fragment expects its host to provide: the extern FUNCTIONS it calls
+ *  (derived from call sites, since `externFn` leaves no declaration) plus the extern
+ *  VARIABLES it declares (#1713), spelled for `target` — the host binds by the spelling,
+ *  not by the logical name. Sorted and de-duplicated. */
+export function fragmentRequires(
+  m: ModuleDecl,
+  walk: readonly FuncDecl[],
+  target: 'wgsl' | 'glsl',
+): readonly string[] {
+  const out = new Set(externCallNames(walk, new Set(m.funcs.map((f) => f.name))))
+  for (const e of m.externs ?? [])
+    out.add((target === 'wgsl' ? e.spelling?.wgsl : e.spelling?.glsl) ?? e.name)
+  return [...out].sort()
 }

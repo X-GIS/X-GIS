@@ -604,6 +604,16 @@ export function overrideRef<T extends ShaderType>(name: string, type: T): Readon
   return new Node<KeyOf<T>>({ op: 'overrideref', type, name })
 }
 
+/** A read of a HOST-PROVIDED global (#1713) — the READ side of an `externVar(...)`
+ *  declarator, and the variable twin of an `externFn` call. Read-only: the host owns the
+ *  value, so assigning to it from here would be a lie about who writes it. Opaque to the
+ *  optimizer by its own `op`, same discipline as `overrideRef` — its value is not known at
+ *  module-build time, so no fold or dead-branch pass may collapse a branch it guards.
+ *  The authoring surface is `externVar` (ir/builder.ts). */
+export function externRef<T extends ShaderType>(name: string, type: T): ReadonlyNode<KeyOf<T>> {
+  return new Node<KeyOf<T>>({ op: 'externref', type, name })
+}
+
 /** A function parameter reference (key inferred from the ShaderType literal). Read-only — a
  *  param cannot be assigned (so `p.x.assign(...)` on a param is a compile error). */
 export function param<T extends ShaderType>(name: string, type: T): ReadonlyNode<KeyOf<T>> {

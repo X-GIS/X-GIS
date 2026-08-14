@@ -41,7 +41,7 @@ import { texture2dfT, texture2duT, texture2diT, u32T, i32T, f32T, vec4fT, stageO
 import { collectFnRefs, emptyRefSet, typeStructNames } from '../ir/collect-refs'
 import { UnsupportedFeatureError, type Backend, type CapProfile } from '../backend'
 import { spellIntrinsic, INTRINSIC_BINDING_REFS } from '../intrinsics'
-import { externCallNames, type EmitFragment, type FragmentDeclares } from '../fragment'
+import { fragmentRequires, type EmitFragment, type FragmentDeclares } from '../fragment'
 import { bodyHasRaw } from '../passes/opt/dce'
 import { dslError } from '../diagnostics/error'
 import { f32Lit } from './wgsl'
@@ -1470,16 +1470,28 @@ function assembleGlsl(
       )
     else if (b.type.kind === 'struct')
       bindingLines.push(emitGlslUbo(b, structByName(structs, b.type.name), structs))
-    // compute-GPGPU only: a bare scalar/vec uniform (u_count: uvec4) emits as a
-    // default-block uniform (set via glUniform*). Gated behind emulateCompute so the
-    // existing "uniform binding must be a struct" invariant is unchanged for every
-    // vertex/fragment caller (critique #3).
+    // A LOOSE default-block uniform (set via glUniform*), rather than a std140 block.
+    // Two ways in, and they are the same lowering reached for different reasons:
+    //
+    //   • `owner: 'host'` (#1710) — a HOST-OWNED uniform, which is what a GLSL host
+    //     prelude actually provides. Declared per-value by `hostUniform`, so the choice
+    //     is a property of the DECLARATION rather than of the whole emit. Before this,
+    //     the only way to reach this spelling was to emit the block and cut it back open
+    //     with string surgery — bypassing reflect(), and breaking outright under
+    //     `minify()`, which collapses the whitespace such a parse depends on.
+    //   • `emulateCompute` — the compute-GPGPU path's bare `u_count: uvec4`, unchanged.
+    //
+    // `precision` is emitted only when the declaration asked for one: a fragment composed
+    // into a host program does not get our precision preamble, so the qualifier has to be
+    // able to ride on the declaration itself (#1711).
     else if (
-      opts?.emulateCompute &&
       b.space === 'uniform' &&
-      (b.type.kind === 'scalar' || b.type.kind === 'vec')
+      (b.owner === 'host' || opts?.emulateCompute) &&
+      (b.type.kind === 'scalar' || b.type.kind === 'vec' || b.type.kind === 'mat')
     )
-      bindingLines.push(`uniform ${glslType(b.type)} ${b.name};`)
+      bindingLines.push(
+        `uniform ${b.precision ? b.precision + ' ' : ''}${glslType(b.type)} ${b.name};`,
+      )
     else
       throw new UnsupportedFeatureError(
         `glsl-es300: uniform binding '${b.name}' must be a struct (a std140 UBO block)`,
@@ -1520,7 +1532,7 @@ function assembleGlsl(
       overrides: (lowered.overrides ?? []).map((o) => o.name),
       entryPoints: entries.map((f) => f.name),
     },
-    requires: externCallNames(helpers.concat(entries), new Set(lowered.funcs.map((f) => f.name))),
+    requires: fragmentRequires(lowered, helpers.concat(entries), 'glsl'),
   }
 }
 

@@ -94,6 +94,9 @@ function evalExpr(e: Expr, env: Map<string, CpuValue>, ctx: Ctx): CpuValue {
       if (v === undefined) throw new Error(`shader-dsl/cpu: unknown override ${e.name}`)
       return v
     }
+    // #1713 — see cpu-codegen: no host here, so no value. Throw rather than fabricate.
+    case 'externref':
+      throw new Error(`shader-dsl/cpu: host-provided global '${e.name}' has no CPU value`)
     case 'param':
     case 'varref': {
       if (env.has(e.name)) return env.get(e.name) as CpuValue

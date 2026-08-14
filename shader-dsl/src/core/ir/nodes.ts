@@ -27,6 +27,16 @@ export type Expr =
   // it can never fold an overrideref). Emits as the bare name on both backends
   // (WGSL: the `override` identifier; GLSL: the `#define` macro).
   | { readonly op: 'overrideref'; readonly type: ShaderType; readonly name: string }
+  // A read of a HOST-PROVIDED global (#1713) — a `ModuleDecl.externs` entry. The variable
+  // twin of `externFn`: the host's prelude (MapLibre's injected GLSL globals, a host-owned
+  // WGSL bind group) declares it, we only reference it, and the module emits NO
+  // declaration for it. Its own `op` — not a reused `varref` — for three reasons that a
+  // shared node cannot serve: `varref` names are function-SCOPED for mangling and would be
+  // renamed; the GLSL stage scope intersects `RefSet.vars` against `m.bindings` to decide
+  // which bindings a stage keeps, and a host global is in neither set; and `reflect()` has
+  // to report it under `requires` rather than as a binding. Emits as the bare name, or as
+  // the per-target spelling when the host spells it differently on each backend.
+  | { readonly op: 'externref'; readonly type: ShaderType; readonly name: string }
   | { readonly op: 'param'; readonly type: ShaderType; readonly name: string }
   | { readonly op: 'varref'; readonly type: ShaderType; readonly name: string }
   | {
@@ -241,6 +251,46 @@ export interface BindingDecl {
   /** storage access — read | read_write (ignored for uniform). */
   readonly access?: 'read' | 'read_write'
   readonly type: ShaderType
+  /** WHO OWNS this resource (#1710). `'module'` (the default) is ours: we declare it, we
+   *  describe its layout, and a host builds its bind group from `reflect()`. `'host'` says
+   *  the resource belongs to the surrounding renderer — MapLibre's injected globals, or a
+   *  bind group a host-integrated WebGPU renderer hands us — so the HOST's layout is the
+   *  authority and `reflect()` reports it under `hostResources` rather than as ours to
+   *  create. Ownership is orthogonal to spelling: a host-owned binding is still DECLARED
+   *  in our source (that is what makes it type-checkable), it is just not ours to
+   *  allocate. A symbol the host's prelude ALREADY declares is a different thing —
+   *  `externVar` (#1713), which emits nothing at all. */
+  readonly owner?: 'module' | 'host'
+  /** GLSL ES 3.00 precision qualifier for this declaration (#1710). GLSL-only; WGSL has no
+   *  such concept and ignores it. Without it the declaration takes the stage default from
+   *  the precision preamble, which is right for a module that owns its own header and
+   *  wrong for a FRAGMENT composed into a host program whose preamble we do not control —
+   *  the case that made a consumer re-add precision with a second post-process. */
+  readonly precision?: 'highp' | 'mediump' | 'lowp'
+}
+
+/** A HOST-PROVIDED global (#1713) — the authored declarator behind `externVar(name, type)`,
+ *  and the variable twin of `externFn`.
+ *
+ *  Emits NOTHING on either backend: the host's prelude declares it, and this exists so the
+ *  reference type-checks, survives `mangle`, and appears in `reflect().requires` where a
+ *  composer can check it against what the prelude actually provides. `externFn` cannot
+ *  serve as the template here — it carries no declaration at all, only a call factory, so
+ *  there is nothing for reflection or mangling to see. `OverrideDecl` is the shape this
+ *  follows instead: a named module-scope symbol with its own leaf op.
+ *
+ *  `spelling` maps the logical name onto what each target actually writes, so a migration
+ *  to a host that exposes the same value differently (a WGSL struct member or bound
+ *  uniform instead of a GLSL prelude global) is a spelling-map change and not a source
+ *  rewrite — the whole reason to declare these abstractly now. */
+export interface ExternVarDecl {
+  readonly name: string
+  readonly type: ShaderType
+  /** Per-target spelling. A missing side falls back to `name`. */
+  readonly spelling?: { readonly wgsl?: string; readonly glsl?: string }
+  /** Restrict the symbol to one stage, for a host global only that stage's prelude
+   *  provides. Advisory metadata for `reflect().requires`; nothing gates on it yet. */
+  readonly stage?: 'vertex' | 'fragment' | 'compute'
 }
 
 /** Non-enumerable marker: the name a decl was LAST assembled under (#763 D4).
@@ -369,6 +419,10 @@ export interface ModuleDecl {
   readonly structs: readonly StructDecl[]
   readonly bindings: readonly BindingDecl[]
   readonly funcs: readonly FuncDecl[]
+  /** HOST-PROVIDED globals (#1713) — `externVar(...)` declarators. Each emits NOTHING and
+   *  appears in `reflect().requires`, so a composer can check the module's expectations
+   *  against what the host prelude supplies. Absent/empty ⇒ byte-identical emit. */
+  readonly externs?: readonly ExternVarDecl[]
   /** Pipeline SPECIALIZATION CONSTANTS (#923) — `overrideConst(...)` declarators.
    *  Each emits a WGSL module-scope `override` + a GLSL `#define` permutation seam,
    *  is reported by `reflect()` (so the host knows the WGSL `constants` dict / GLSL
