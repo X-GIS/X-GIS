@@ -61,6 +61,20 @@ export * from './core/reflect'
 // backend above; `emitGlslFragment` from the GLSL one. The shared shapes live here.
 export { type EmitFragment, type FragmentDeclares } from './core/fragment'
 
+// Variant FAMILIES (#1712) — the typed matrix for feature axes a HOST decides at runtime,
+// the case AUTHORING.md §11's build-time specialisation deliberately does not cover.
+// Per-variant modules + reflections + a derived key, emitted either preprocessor-free (the
+// only shape WGSL can have) or, opt-in on GLSL, as one source with a GENERATED #if ladder.
+export {
+  variantFamily,
+  selectGuardedArm,
+  type VariantFamily,
+  type VariantFamilySpec,
+  type Variant,
+  type AxisValues,
+  type GuardDefines,
+} from './core/variant-family'
+
 // Semantic comparison of two modules (#1714) — IR + reflection, not text, so the
 // optimizer's temporaries / declaration order / generated names do not drown the
 // diff. Main barrel rather than '/dev': the "prod is dev, optimized" assertion it
