@@ -54,6 +54,18 @@ export { compileModuleJs } from './core/cpu-codegen'
 // plus the standalone wgslLayout(struct, kind) offset engine.
 export * from './core/reflect'
 
+// Semantic comparison of two modules (#1714) — IR + reflection, not text, so the
+// optimizer's temporaries / declaration order / generated names do not drown the
+// diff. Main barrel rather than '/dev': the "prod is dev, optimized" assertion it
+// makes possible is a production claim a consumer ships, not an authoring aid.
+export {
+  semanticDiff,
+  isSemanticallyEqual,
+  type SemanticDiff,
+  type SemanticDiffOptions,
+  type SemanticAspect,
+} from './core/semantic-diff'
+
 // The optimization-level TYPE for emitModuleAt(m, level). (The optimizeAt entry +
 // LEVEL_PASSES table are internal — emit.ts drives them; no consumer ever imported
 // them through this barrel.)
