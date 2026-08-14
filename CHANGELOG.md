@@ -7,12 +7,12 @@
     bun scripts/emit-changelog.ts > CHANGELOG.md
     bunx prettier --write CHANGELOG.md
 
-  Generated from: 9f5a8f95414d0636bbb9d75340bc2415a2277559
+  Generated from: 3b126a12e795ae9f8cac2e89adcc5761448c192b
   History walked: first-parent of main
   Scope: whole repository
   Repository: https://github.com/X-GIS/X-GIS
   What changed since this file was generated (run from a repo checkout):
-    bun scripts/emit-changelog.ts --since 9f5a8f95414d
+    bun scripts/emit-changelog.ts --since 3b126a12e795
 -->
 
 # Changelog
@@ -63,6 +63,8 @@ This repo ships no versioned releases and carries no git tags, so changes are gr
 
 #### fix
 
+- **rhi-webgl2:** storage writeBuffer drops the caller's view window — WebGL2 renders no points (#1703 regression) ([#1708](https://github.com/X-GIS/X-GIS/pull/1708)) `3b126a1`
+- **map:** polygon snapshot ancestry gate skips in a shallow clone instead of false-failing (#1706) ([#1707](https://github.com/X-GIS/X-GIS/pull/1707)) `07f1c8c`
 - **site:** make the API reference usable, and the gates that guard it actually run (#1700) ([#1701](https://github.com/X-GIS/X-GIS/pull/1701)) `067ac6d`
 - **compiler,map:** data-driven fill colours reach the point and arrow paths — CPU gradient eval, token resolution, loud fallback (#1664) ([#1668](https://github.com/X-GIS/X-GIS/pull/1668)) `9b965b1`
 - **coverage:** the drape's overlap winner is relevance, not re-arm recency (#1602) ([#1604](https://github.com/X-GIS/X-GIS/pull/1604)) `57f0988`

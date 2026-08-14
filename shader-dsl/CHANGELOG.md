@@ -7,12 +7,12 @@
     bun scripts/emit-changelog.ts --path shader-dsl > shader-dsl/CHANGELOG.md
     bunx prettier --write shader-dsl/CHANGELOG.md
 
-  Generated from: 9f5a8f95414d0636bbb9d75340bc2415a2277559
+  Generated from: 3b126a12e795ae9f8cac2e89adcc5761448c192b
   History walked: first-parent of main
   Scope: commits touching shader-dsl/
   Repository: https://github.com/X-GIS/X-GIS
   What changed since this file was generated (run from a repo checkout):
-    bun scripts/emit-changelog.ts --path shader-dsl --since 9f5a8f95414d
+    bun scripts/emit-changelog.ts --path shader-dsl --since 3b126a12e795
 -->
 
 # Changelog — shader-dsl
@@ -38,6 +38,10 @@ _Entries are the commits touching `shader-dsl/`; a listed commit may also touch 
 - **scripts:** generated changelog from the conventional-commit history (#1653) ([#1656](https://github.com/X-GIS/X-GIS/pull/1656)) `fe3df48`
 - **shader-dsl:** textureSampleLevel + fragment-only lint for textureSample (#1650) ([#1652](https://github.com/X-GIS/X-GIS/pull/1652)) `4bf4610`
 - **shader-dsl:** GLSL storage→data-texture emulation is default-on (#1647) ([#1648](https://github.com/X-GIS/X-GIS/pull/1648)) `a5eeaf9`
+
+#### fix
+
+- **rhi-webgl2:** storage writeBuffer drops the caller's view window — WebGL2 renders no points (#1703 regression) ([#1708](https://github.com/X-GIS/X-GIS/pull/1708)) `3b126a1`
 
 #### refactor
 
