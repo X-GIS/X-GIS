@@ -168,6 +168,14 @@ describe('arch ratchet: Gate-8 — the CI `render` filter covers every rendering
   const EXEMPT: Record<string, string> = {
     'rhi/**': 'interfaces-only → typecheck-covered; no emitted code',
     'pipeline/**': 'imported only by seoul-* demos, never the id=minimal gate fixtures',
+    // Added to `code` by #1700, which found it was in NO filter at all: a scripts-only PR
+    // set code=false, every leg skipped its steps, and 17 checks posted green in ~4s having
+    // run nothing — so the changelog suite and the doc-signature ratchet were CI-dark for
+    // changes to themselves. It is exempt from `render` because scripts/ is repo TOOLING
+    // (precheck, changelog, gap-matrix, the doc ratchet) that nothing shipped imports —
+    // verified: no file under map/, playground/, rhi*/, engine/, compiler/, data/ or site/
+    // imports from scripts/, so it is in no bundle and on no render path.
+    'scripts/**': 'repo tooling; imported by nothing shipped, so it is on no render path',
   }
 
   it('every package glob in `code` is in `render` too, or exempt with a reason', () => {
