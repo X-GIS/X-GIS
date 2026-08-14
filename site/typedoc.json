@@ -1,0 +1,29 @@
+{
+  "$schema": "https://typedoc.org/schema.json",
+
+  "entryPoints": [
+    "../shader-dsl/src/index.ts",
+    "../shader-dsl/src/dev.ts",
+    "../shader-dsl/src/emit-prod.ts",
+    "../shader-dsl/src/core/ir/index.ts"
+  ],
+  "tsconfig": "../shader-dsl/tsconfig.json",
+
+  "plugin": ["typedoc-plugin-markdown", "typedoc-plugin-frontmatter"],
+
+  "out": "./src/content/api",
+  "publicPath": "/api/",
+  "outputFileStrategy": "members",
+
+  "excludeInternal": true,
+  "readme": "none",
+
+  "name": "@xgis/shader-dsl",
+  "hidePageHeader": true,
+  "hideBreadcrumbs": true,
+  "useCodeBlocks": true,
+
+  "frontmatterGlobals": {
+    "generated": true
+  }
+}
