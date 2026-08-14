@@ -24,9 +24,9 @@ const items = headings.filter(h => h.depth >= 2 && h.depth <= 3)
 
 {items.length > 0 && (
   <aside class="hidden xl:block">
-    <nav class="sticky top-20 text-[12.5px] leading-[1.6] max-h-[calc(100vh-6rem)] overflow-auto pr-2">
+    <nav class="sticky top-20 text-[12.5px] leading-[1.6] pr-2">
       <p class="font-mono text-[11px] text-fg-mute uppercase tracking-[0.16em] mb-3">On this page</p>
-      <ul class="space-y-1.5 border-l border-line">
+      <ul class="otp-list space-y-1.5 border-l border-line">
         {items.map(h => (
           <li>
             <a
@@ -89,3 +89,62 @@ const items = headings.filter(h => h.depth >= 2 && h.depth <= 3)
     }
   }
 </script>
+
+<style>
+  /* Only the LIST scrolls, not the whole rail — the "On this page" label used to scroll
+   * away with it, so a long TOC lost the one thing telling you what you were looking at.
+   *
+   * Long TOCs are rare and worth handling well rather than hiding: of 332 generated API
+   * pages only 4 exceed 25 entries (Node 52, ReadonlyNode 51, CODES 26 — class members,
+   * where a TOC genuinely earns its space; the 194-entry group index is suppressed at the
+   * layout instead, since its headings ARE its body).
+   *
+   * The mask fades the last line instead of guillotining it, so the cut reads as "more
+   * below" rather than as a clipping bug, and the scrollbar is thinned to match the rail. */
+  .otp-list {
+    max-height: calc(100vh - 9rem);
+    overflow-y: auto;
+    scrollbar-width: thin;
+    scrollbar-color: var(--color-line-strong) transparent;
+  }
+  .otp-list::-webkit-scrollbar {
+    width: 6px;
+  }
+  .otp-list::-webkit-scrollbar-thumb {
+    background: var(--color-line-strong);
+    border-radius: 3px;
+  }
+  .otp-list::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  /* Scroll-driven fades: only shown when there is actually something past the edge. */
+  .otp-list {
+    mask-image: linear-gradient(
+      to bottom,
+      transparent 0,
+      #000 12px,
+      #000 calc(100% - 20px),
+      transparent 100%
+    );
+  }
+  /* A short list must not be faded — it is not scrolling, so there is nothing to hint at. */
+  @supports (animation-timeline: scroll()) {
+    .otp-list {
+      animation: otp-fade linear both;
+      animation-timeline: scroll(self block);
+    }
+    @keyframes otp-fade {
+      from {
+        mask-image: linear-gradient(to bottom, #000 0, #000 calc(100% - 20px), transparent 100%);
+      }
+      to {
+        mask-image: linear-gradient(to bottom, transparent 0, #000 12px, #000 100%);
+      }
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .otp-list {
+      animation: none;
+    }
+  }
+</style>

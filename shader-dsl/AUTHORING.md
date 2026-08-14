@@ -1238,6 +1238,115 @@ const device = await adapter.requestDevice({
 })
 ```
 
+## 11. Conditional programs — build-time specialisation, not `#define`
+
+A shader that must differ by feature — elevation present or absent, 3D or flat, an
+extension available or not — is the case a GLSL codebase reaches for `#define` and an
+`#ifdef` ladder. **This DSL has no preprocessor, and does not need one.** A module is an
+ordinary JavaScript value returned by an ordinary function, so the thing that varies is a
+**function parameter**, and a plain `if` decides what goes into the IR. Nothing is
+stripped later; the arm that loses is never built.
+
+Three different questions hide under "the program changes", and they have three different
+answers. Picking the wrong one is where the pain comes from.
+
+### The program's SHAPE differs → specialise at build time
+
+Take the real case in `map/src/shaders/dsl/hillshade.ts`. Five hillshade methods, and a
+layer draws one of them:
+
+```ts
+const buildFs = (pickEnabled: boolean, methodFlag: number) => {
+  // Each method is a named builder, NOT inlined into the dispatch chain — which is what
+  // makes it possible to emit one alone.
+  const METHOD_BODY: ReadonlyArray<() => ReadonlyNode<'vec4<f32>'>> = [/* …five… */]
+
+  const outColor =
+    methodFlag >= 0
+      ? METHOD_BODY[Math.min(4, methodFlag)]!() // ONE arm, no dispatch at all
+      : when(
+          // methodFlag < 0 → runtime 5-way
+          [
+            [method.lt(0.5), METHOD_BODY[0]!],
+            [method.lt(1.5), METHOD_BODY[1]!],
+            [method.lt(2.5), METHOD_BODY[2]!],
+            [method.lt(3.5), METHOD_BODY[3]!],
+          ],
+          METHOD_BODY[4]!,
+        )
+  // …
+}
+```
+
+One source, two shapes. `methodFlag >= 0` emits **that method's math alone** — no branch,
+no other arm's temporaries, no register pressure from code that never runs. `< 0` keeps
+the runtime chain, for a caller that genuinely cannot decide until draw time.
+
+The elevation question is the same shape. Write the builder to take the fact:
+
+```ts
+const buildTerrain = (hasElevation: boolean) => {
+  const bindings = hasElevation ? [demTexture.binding, demSampler.binding] : []
+  const height = hasElevation ? sampleDem(uv) : f32(0)
+  return module({ bindings, funcs: [vs(height), fs] })
+}
+```
+
+This is strictly better than `#ifdef ELEVATION`, and not only for taste: when
+`hasElevation` is false the DEM binding **is not declared**, so it is absent from
+`reflect()`, absent from the bind-group layout, and the host never creates a resource for
+it. With a preprocessor the declaration survives in the source and the layout has to be
+kept in sync by hand — the classic way a "disabled" feature still costs a binding slot.
+
+### A VALUE differs, but the shape does not → `override`, not a rebuild
+
+If every variant would emit the _same_ program with a different constant, do not
+specialise — that multiplies pipelines for nothing. Use specialization constants:
+WGSL emits `override` and the host pins them via `createRenderPipeline({ constants })`;
+GLSL ES 3.00 has no driver-side equivalent, so the backend re-emits with a hard
+`#define NAME <value>` after the `#version` preamble — never prepended, which GLSL
+rejects, since `#version` must lead the source. The knob is `overrideValues` on
+[`GlslEmitOptions`](/api/index/interfaces/GlslEmitOptions), whose own TSDoc is the
+authority for its shape; the values come from `reflect().overrides`. That `#define` is the
+ONLY one in the system, it is generated, and it carries a value — never a branch.
+
+The rule of thumb: **if the two variants would compile to the same instruction sequence
+with one literal changed, it is an override. If they compile to different code, it is a
+build-time parameter.**
+
+### A CAPABILITY may be missing → declare it, and it fails closed
+
+`enables` (§10) is not a fallback mechanism — it is the opposite. A module that declares
+`f16` on a backend that cannot spell it throws `UnsupportedFeatureError` / `SD0030` naming
+the cap, rather than emitting source the driver will reject. That is what you want for a
+hard requirement.
+
+A genuine **fallback** is two modules, chosen by the host, because the choice belongs at
+boot where the device is already known (§10's activation-authority rule — WebGPU's
+`requiredFeatures` are fixed at `requestDevice` and can never be added later):
+
+```ts
+const caps = reflect(fancy).requiredFeatures
+const ok = hostFeaturesFor(glslEs300Backend, caps).every((e) => gl.getExtension(e))
+const m = ok ? fancy : plain // two modules, one decision, made once
+```
+
+### Whatever you specialise on becomes part of the shader's identity
+
+This is the part that bites, and it is not obvious. A specialised program is a _different
+program_, so every axis you specialise on has to appear in every key that names it:
+
+- the **pipeline cache** — `map/src/render/material/hillshade-material.ts` keeps one
+  `Material` per `` `${methodFlag}:${pick}` ``, because the fragment carries only that
+  method's math and a shared pipeline would be the wrong program;
+- the **baked-shader id**, if the family is baked (#1679). The bake serves bytes by id
+  _without running the builder_, so an id that does not mention `methodFlag` hands one
+  method's compiled shader to another method's draw. It compiles, it links, it renders,
+  and it is wrong — the failure has no error, only wrong pixels.
+
+If you add an axis to a builder, add it to the key in the same commit. A key that does
+not describe what the builder would emit is the sharpest footgun in this codebase.
+
 ## Quick reference
 
 | Need                           | Write                                                                                                     |

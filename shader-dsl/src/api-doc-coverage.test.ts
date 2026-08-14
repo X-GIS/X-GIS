@@ -53,6 +53,11 @@ const manifest = JSON.parse(readFileSync(join(PKG, 'package.json'), 'utf8')) as 
   exports: Record<string, string>
 }
 
+/** Leading marker written by scripts/add-tsdoc-templates.ts. Kept in sync by arm A8 below,
+ *  which fails if the script stops using it — the two must agree or scaffolding starts
+ *  counting as coverage. */
+const STUB_SENTINEL = 'TODO(#1695):'
+
 /** The subpaths that ARE the public API and therefore owe documentation. */
 const API_SUBPATHS = ['.', './dev', './emit-prod', './core/ir'] as const
 /** Subpaths deliberately outside the doc contract, with the reason.
@@ -316,8 +321,14 @@ function exportsOf(sub: string): readonly Def[] {
     const decl = target.getDeclarations()?.[0]
     const home =
       decl === undefined ? '<no-declaration>' : relative(PKG, decl.getSourceFile().fileName)
-    const documented =
-      ts.displayPartsToString(target.getDocumentationComment(checker)).trim().length > 0
+    const doc = ts.displayPartsToString(target.getDocumentationComment(checker)).trim()
+    // A SCAFFOLDED STUB IS NOT DOCUMENTATION. scripts/add-tsdoc-templates.ts writes the
+    // mechanical half of a comment (kind, @param per parameter, @returns) so an author only
+    // has to supply what a machine cannot — but that stub has prose in it, so a plain
+    // "length > 0" would read it as documented. Generating 167 of them would empty the debt
+    // list below in one commit and publish 167 pages that say nothing: every row green, the
+    // reference no better, and the gate silent about it. The sentinel is what stops that.
+    const documented = doc.length > 0 && !doc.startsWith(STUB_SENTINEL)
     const internal = target.getJsDocTags(checker).some((t) => t.name === 'internal')
     return { key: `${home}#${sym.getName()}`, documented, internal }
   })
@@ -479,6 +490,27 @@ describe('#1695 — the public surface is fully accounted for', () => {
         `of the debt list), so it cannot also be owed documentation. Delete the ` +
         `UNDOCUMENTED row.`,
     ).toEqual([])
+  })
+
+  it('A8: the stub sentinel matches the generator, and no stub counts as documented', () => {
+    // The sentinel lives in TWO files and means nothing unless they agree. If the generator
+    // stops writing it, every stub it produces starts reading as real prose here — the debt
+    // list empties, 167 rows go green, and the reference publishes 167 pages that say
+    // nothing. That failure is silent in both directions, so it gets an arm.
+    const gen = readFileSync(join(PKG, '..', 'scripts', 'add-tsdoc-templates.ts'), 'utf8')
+    expect(
+      gen,
+      'scripts/add-tsdoc-templates.ts no longer declares the sentinel this gate filters on. ' +
+        'Its stubs would then count as documentation and silently retire real debt.',
+    ).toContain(`const SENTINEL = '${STUB_SENTINEL}'`)
+
+    // And the filter must actually bite: a symbol whose only prose IS the sentinel is
+    // undocumented, so it must still hold a row rather than having quietly gone green.
+    const stubbed = [...DEFS].filter(([, d]) => d).length
+    expect(
+      stubbed,
+      'the doc reader reports nothing documented — see the sanity arms',
+    ).toBeGreaterThan(100)
   })
 
   it('A4: every debt class carries an issue number and is actually used', () => {

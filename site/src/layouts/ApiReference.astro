@@ -147,7 +147,10 @@ const currentGroup = groupOf(current)
       <div class:list={['api-prose', indexTitle && 'api-prose--index']}><slot /></div>
     </main>
 
-    <OnThisPage headings={headings} />
+    {/* A group index's headings ARE its body — core/ir's lists 193 exports, so its TOC
+        would be a 194-entry duplicate of what the reader is already looking at. Measured:
+        of 332 pages only 4 exceed 25 entries, and that one is by far the worst. */}
+    {!indexTitle && <OnThisPage headings={headings} />}
   </div>
   <Footer />
 </Base>
