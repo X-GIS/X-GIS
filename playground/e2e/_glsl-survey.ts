@@ -6,6 +6,8 @@
 import { emitGlslModule } from '../../shader-dsl/src/index'
 import { buildRasterModule } from '@xgis/map'
 import { overdrawComposeModule } from '../../engine/src/shaders/dsl/overdraw-compose'
+import { configureProjections } from '../../map/src/shaders/dsl/projections'
+import { PROJECTIONS } from '../../geo/src/projections-table'
 
 export interface SurveyRow {
   name: string
@@ -15,6 +17,12 @@ export interface SurveyRow {
 }
 
 export function surveyGlslEmit(): SurveyRow[] {
+  // The host injects the projection spec list; buildRasterModule() reaches the projection
+  // graph and throws without it (projections.ts names "Playwright e2e: an explicit call"
+  // as this seam's contract). Placed here rather than at module scope so the dynamic
+  // import stays side-effect-free; configureProjections() only assigns, so a page whose
+  // own boot already configured is unaffected.
+  configureProjections(PROJECTIONS)
   const cases: { name: string; build: () => unknown }[] = [
     { name: 'raster(pick=false)', build: () => buildRasterModule(false) },
     { name: 'overdraw-compose', build: () => overdrawComposeModule },
