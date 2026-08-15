@@ -32,8 +32,10 @@
 // must never be transcribed here. The census that seeded this file was produced by ITS OWN
 // READER: 332 unique definitions across the four API subpaths, 175 of them undocumented
 // (. 159/284 · ./dev 13/33 · ./emit-prod 3/17 · ./core/ir 109/193). The allowlist has since
-// shrunk to 167 — #1697 documented the eight backend symbols that reached the entry through
-// `index.ts`'s star re-export, which is what retired the `emit-internals` debt class.
+// shrunk to 58 — #1697 documented the eight backend symbols that reached the entry through
+// `index.ts`'s star re-export (retiring the `emit-internals` debt class), and four agents
+// documented the 109 `core/ir` IR-authoring symbols across node.ts/types.ts/builder.ts/
+// nodes.ts, which is what retired the `ir-authoring` debt class.
 //
 // `@internal` IS NOT AN EXIT FROM THIS GATE. Five of those eight are documented AND tagged
 // `@internal`, so the extractor's `excludeInternal` keeps them out of the published pages
@@ -70,10 +72,6 @@ const NOT_API_SUBPATHS = ['./examples'] as const
 /** Why each undocumented symbol is still undocumented. Reasons live here, once, and every
  *  row below indirects through this table — 175 copies of a sentence would rot. */
 const DEBT: Readonly<Record<string, string>> = {
-  'ir-authoring':
-    'the IR authoring surface (node/types/builder/nodes). 109 symbols — the operator methods, ' +
-    'type constructors and predicates an author touches constantly. Documenting these is the ' +
-    'single highest-value slice of #1695 and wants a pass of its own, not a drive-by.',
   diagnostics:
     'the lint/diagnostics/codes surface reached through ./dev. Its policy is undecided: ' +
     '"the diagnostic surface is documented by its TSDoc only" is a fine answer but must be ' +
@@ -109,115 +107,6 @@ const UNDOCUMENTED: Readonly<Record<string, string>> = {
   'src/core/intrinsics.ts#IntrinsicTarget': 'engine-internals',
   'src/core/intrinsics.ts#PORTABLE_INTRINSICS': 'engine-internals',
   'src/core/intrinsics.ts#PRE_EMIT_INTRINSICS': 'engine-internals',
-  'src/core/ir/builder.ts#Break': 'ir-authoring',
-  'src/core/ir/builder.ts#Builder': 'ir-authoring',
-  'src/core/ir/builder.ts#Continue': 'ir-authoring',
-  'src/core/ir/builder.ts#Discard': 'ir-authoring',
-  'src/core/ir/builder.ts#FnHandle': 'ir-authoring',
-  'src/core/ir/builder.ts#FnParamSpec': 'ir-authoring',
-  'src/core/ir/builder.ts#IfChain': 'ir-authoring',
-  'src/core/ir/builder.ts#Let': 'ir-authoring',
-  'src/core/ir/builder.ts#ModuleParts': 'ir-authoring',
-  'src/core/ir/builder.ts#ParamSpec': 'ir-authoring',
-  'src/core/ir/builder.ts#Return': 'ir-authoring',
-  'src/core/ir/builder.ts#condExpr': 'ir-authoring',
-  'src/core/ir/builder.ts#externFn': 'ir-authoring',
-  'src/core/ir/builder.ts#ifExpr': 'ir-authoring',
-  'src/core/ir/node.ts#Node': 'ir-authoring',
-  'src/core/ir/node.ts#ReadonlyNode': 'ir-authoring',
-  'src/core/ir/node.ts#abs': 'ir-authoring',
-  'src/core/ir/node.ts#acos': 'ir-authoring',
-  'src/core/ir/node.ts#asin': 'ir-authoring',
-  'src/core/ir/node.ts#atan': 'ir-authoring',
-  'src/core/ir/node.ts#atan2': 'ir-authoring',
-  'src/core/ir/node.ts#bool': 'ir-authoring',
-  'src/core/ir/node.ts#ceil': 'ir-authoring',
-  'src/core/ir/node.ts#clamp': 'ir-authoring',
-  'src/core/ir/node.ts#construct': 'ir-authoring',
-  'src/core/ir/node.ts#cos': 'ir-authoring',
-  'src/core/ir/node.ts#degrees': 'ir-authoring',
-  'src/core/ir/node.ts#dot': 'ir-authoring',
-  'src/core/ir/node.ts#dpdy': 'ir-authoring',
-  'src/core/ir/node.ts#exp': 'ir-authoring',
-  'src/core/ir/node.ts#f32': 'ir-authoring',
-  'src/core/ir/node.ts#floor': 'ir-authoring',
-  'src/core/ir/node.ts#fract': 'ir-authoring',
-  'src/core/ir/node.ts#i32': 'ir-authoring',
-  'src/core/ir/node.ts#installStmtSink': 'ir-authoring',
-  'src/core/ir/node.ts#isNodeValue': 'ir-authoring',
-  'src/core/ir/node.ts#length': 'ir-authoring',
-  'src/core/ir/node.ts#lift': 'ir-authoring',
-  'src/core/ir/node.ts#log': 'ir-authoring',
-  'src/core/ir/node.ts#log2': 'ir-authoring',
-  'src/core/ir/node.ts#mat2f64': 'ir-authoring',
-  'src/core/ir/node.ts#mat3f64': 'ir-authoring',
-  'src/core/ir/node.ts#mat4f64': 'ir-authoring',
-  'src/core/ir/node.ts#max': 'ir-authoring',
-  'src/core/ir/node.ts#min': 'ir-authoring',
-  'src/core/ir/node.ts#mix': 'ir-authoring',
-  'src/core/ir/node.ts#sign': 'ir-authoring',
-  'src/core/ir/node.ts#sin': 'ir-authoring',
-  'src/core/ir/node.ts#sqrt': 'ir-authoring',
-  'src/core/ir/node.ts#tan': 'ir-authoring',
-  'src/core/ir/node.ts#toI32': 'ir-authoring',
-  'src/core/ir/node.ts#toU32': 'ir-authoring',
-  'src/core/ir/node.ts#u32': 'ir-authoring',
-  'src/core/ir/node.ts#vec2': 'ir-authoring',
-  'src/core/ir/node.ts#vec2f64': 'ir-authoring',
-  'src/core/ir/node.ts#vec2i': 'ir-authoring',
-  'src/core/ir/node.ts#vec2u': 'ir-authoring',
-  'src/core/ir/node.ts#vec3': 'ir-authoring',
-  'src/core/ir/node.ts#vec3f64': 'ir-authoring',
-  'src/core/ir/node.ts#vec4': 'ir-authoring',
-  'src/core/ir/node.ts#vec4f64': 'ir-authoring',
-  'src/core/ir/nodes.ts#AddressSpace': 'ir-authoring',
-  'src/core/ir/nodes.ts#BinOp': 'ir-authoring',
-  'src/core/ir/nodes.ts#BindingDecl': 'ir-authoring',
-  'src/core/ir/nodes.ts#CmpOp': 'ir-authoring',
-  'src/core/ir/nodes.ts#ConstDecl': 'ir-authoring',
-  'src/core/ir/nodes.ts#Expr': 'ir-authoring',
-  'src/core/ir/nodes.ts#FuncDecl': 'ir-authoring',
-  'src/core/ir/nodes.ts#LogOp': 'ir-authoring',
-  'src/core/ir/nodes.ts#ModuleDecl': 'ir-authoring',
-  'src/core/ir/nodes.ts#Stmt': 'ir-authoring',
-  'src/core/ir/nodes.ts#StructDecl': 'ir-authoring',
-  'src/core/ir/nodes.ts#StructField': 'ir-authoring',
-  'src/core/ir/types.ts#KeyOf': 'ir-authoring',
-  'src/core/ir/types.ts#Scalar': 'ir-authoring',
-  'src/core/ir/types.ts#ScalarKey': 'ir-authoring',
-  'src/core/ir/types.ts#ShaderType': 'ir-authoring',
-  'src/core/ir/types.ts#boolT': 'ir-authoring',
-  'src/core/ir/types.ts#f32T': 'ir-authoring',
-  'src/core/ir/types.ts#f64T': 'ir-authoring',
-  'src/core/ir/types.ts#i32T': 'ir-authoring',
-  'src/core/ir/types.ts#isF64': 'ir-authoring',
-  'src/core/ir/types.ts#isMat': 'ir-authoring',
-  'src/core/ir/types.ts#isScalar': 'ir-authoring',
-  'src/core/ir/types.ts#isVec': 'ir-authoring',
-  'src/core/ir/types.ts#isVec64': 'ir-authoring',
-  'src/core/ir/types.ts#mat2f64T': 'ir-authoring',
-  'src/core/ir/types.ts#mat3f64T': 'ir-authoring',
-  'src/core/ir/types.ts#mat4f64T': 'ir-authoring',
-  'src/core/ir/types.ts#mat4x4fT': 'ir-authoring',
-  'src/core/ir/types.ts#samplerT': 'ir-authoring',
-  'src/core/ir/types.ts#structT': 'ir-authoring',
-  'src/core/ir/types.ts#texture2dMsfT': 'ir-authoring',
-  'src/core/ir/types.ts#texture2dfT': 'ir-authoring',
-  'src/core/ir/types.ts#typeEq': 'ir-authoring',
-  'src/core/ir/types.ts#typeKey': 'ir-authoring',
-  'src/core/ir/types.ts#u32T': 'ir-authoring',
-  'src/core/ir/types.ts#vec2f64T': 'ir-authoring',
-  'src/core/ir/types.ts#vec2fT': 'ir-authoring',
-  'src/core/ir/types.ts#vec2iT': 'ir-authoring',
-  'src/core/ir/types.ts#vec2uT': 'ir-authoring',
-  'src/core/ir/types.ts#vec3f64T': 'ir-authoring',
-  'src/core/ir/types.ts#vec3fT': 'ir-authoring',
-  'src/core/ir/types.ts#vec3uT': 'ir-authoring',
-  'src/core/ir/types.ts#vec4f64T': 'ir-authoring',
-  'src/core/ir/types.ts#vec4fT': 'ir-authoring',
-  'src/core/ir/types.ts#vec4iT': 'ir-authoring',
-  'src/core/ir/types.ts#vec4uT': 'ir-authoring',
-  'src/core/ir/types.ts#voidT': 'ir-authoring',
   'src/core/measure.ts#EmitSize': 'engine-internals',
   'src/core/measure.ts#OpCount': 'engine-internals',
   'src/core/measure.ts#OptimizerReport': 'engine-internals',
@@ -302,6 +191,34 @@ interface Def {
   readonly key: string
   readonly documented: boolean
   readonly internal: boolean
+  /** `@param`/`@returns`/`@typeParam` tags whose description restates the type — see A9. */
+  readonly typeEchoTags: readonly string[]
+}
+
+/** True when a tag's description says nothing a type annotation does not.
+ *
+ *  Strips the code spans (which ARE the type), the scaffolder's connective words, and
+ *  punctuation. If no prose survives, the tag is an echo of the signature TypeDoc already
+ *  printed above it. Deliberately shape-agnostic — enumerating the three literal templates
+ *  the old scaffolder emitted would pass a fourth. */
+function isTypeEcho(desc: string): boolean {
+  return (
+    desc
+      .replace(/`[^`]*`/g, ' ')
+      .replace(/\b(Constrained|to|Defaults|optional)\b/gi, ' ')
+      .replace(/[—\-.,:;()[\]{}<>|&?]/g, ' ')
+      .trim() === ''
+  )
+}
+
+/** A tag's description with the leading parameter name dropped — `getJsDocTags` puts that in
+ *  its own `parameterName` part, and counting it as prose would make every `@param` look real. */
+function tagDescription(tag: ts.JSDocTagInfo): string {
+  return (tag.text ?? [])
+    .filter((p) => p.kind !== 'parameterName')
+    .map((p) => p.text)
+    .join('')
+    .trim()
 }
 /** Exports of one subpath, each resolved to its DEFINITION site. */
 function exportsOf(sub: string): readonly Def[] {
@@ -329,8 +246,13 @@ function exportsOf(sub: string): readonly Def[] {
     // list below in one commit and publish 167 pages that say nothing: every row green, the
     // reference no better, and the gate silent about it. The sentinel is what stops that.
     const documented = doc.length > 0 && !doc.startsWith(STUB_SENTINEL)
-    const internal = target.getJsDocTags(checker).some((t) => t.name === 'internal')
-    return { key: `${home}#${sym.getName()}`, documented, internal }
+    const tags = target.getJsDocTags(checker)
+    const internal = tags.some((t) => t.name === 'internal')
+    const typeEchoTags = tags
+      .filter((t) => t.name === 'param' || t.name === 'returns' || t.name === 'typeParam')
+      .filter((t) => isTypeEcho(tagDescription(t)))
+      .map((t) => `@${t.name}`)
+    return { key: `${home}#${sym.getName()}`, documented, internal, typeEchoTags }
   })
 }
 
@@ -511,6 +433,34 @@ describe('#1695 — the public surface is fully accounted for', () => {
       stubbed,
       'the doc reader reports nothing documented — see the sanity arms',
     ).toBeGreaterThan(100)
+  })
+
+  it('A9: no doc tag says only what the type already says', () => {
+    // The scaffolder used to derive `@param v — `number`.` / `@returns `Node<"f32">`.` from the
+    // checker. In source that reads like diligence; on the published page it lands as a third
+    // row under a heading that already printed the name and the type:
+    //
+    //     ### v
+    //     `number`
+    //     — `number`.
+    //
+    // 110 of those shipped across the four core/ir files before anyone LOOKED at a page — the
+    // gates were all green, because every one of them asks whether a symbol has documentation,
+    // and none asked whether the documentation says anything. This arm is that second question.
+    //
+    // It is not a style rule. A tag whose description survives `isTypeEcho` is prose a person
+    // wrote; a tag that does not is a row a reader has to scan past on every symbol.
+    const offenders = [...perSubpath.values()]
+      .flat()
+      .filter((d) => d.typeEchoTags.length > 0)
+      .map((d) => `${d.key} (${[...new Set(d.typeEchoTags)].sort().join(', ')})`)
+    expect(
+      [...new Set(offenders)].sort(),
+      'these symbols carry a @param/@returns/@typeParam whose whole description restates the ' +
+        'type. TypeDoc prints the name, type and optionality from the signature already, so ' +
+        'the tag renders as a redundant row. Write a description that adds something, or ' +
+        'delete the tag — the parameter still renders, with its type, either way.',
+    ).toEqual([])
   })
 
   it('A4: every debt class carries an issue number and is actually used', () => {

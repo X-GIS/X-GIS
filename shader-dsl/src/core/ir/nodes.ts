@@ -9,10 +9,52 @@ import type { ShaderType } from './types'
 
 // ── Expression nodes ──
 
+/** The operator tag on `Expr.binop` — arithmetic (`+ - * /`), remainder (`%`), and
+ *  bitwise (`& | ^ << >>`), spelled identically on WGSL/GLSL and interpreted
+ *  identically by the CPU oracle (`scalarBin` in cpu-runtime.ts). `%` is float
+ *  TRUNC-mod on WGSL and rejects floats outright on GLSL ES 3.00 — it is NOT the
+ *  portable modulo. Reach for {@link mod} instead whenever a negative operand is
+ *  possible; it lowers to floor-mod on both targets and is what the `.mod()` Node
+ *  method should not be confused for (that method emits this same trunc-mod `%`).
+ *  `<<`/`>>` are u32 logical shift unless the operand is known `i32`, in which case
+ *  `>>` is sign-preserving arithmetic shift — see `scalarBin`'s `isI32` branch.
+ *
+ *  Exported from `@xgis/shader-dsl`, `@xgis/shader-dsl/core/ir`.
+ */
 export type BinOp = '+' | '-' | '*' | '/' | '%' | '&' | '|' | '^' | '<<' | '>>'
+/** The operator tag on `Expr.compare` — the six relational operators, always
+ *  producing a `bool` (or `vecN<bool>` for a vector comparison; scalar-only
+ *  comparisons on `Node` are enforced at authoring by `Node.cmp`, not by this
+ *  type). Shared by `unroll.ts`'s static loop-bound analysis (`flipCmp`,
+ *  `cmpHolds`) to reason about compile-time-provable loop trip counts, and by the
+ *  WGSL/GLSL/CPU backends to spell or evaluate the comparison identically.
+ *
+ *  Exported from `@xgis/shader-dsl`, `@xgis/shader-dsl/core/ir`.
+ */
 export type CmpOp = '<' | '>' | '<=' | '>=' | '==' | '!='
+/** The operator tag on `Expr.logical` — short-circuiting boolean `&&`/`||`, always
+ *  `bool`-typed on both operands and the result. Kept as its own `Expr.op` rather
+ *  than folded into `binop`/`compare` because WGSL and GLSL both give `&&`/`||`
+ *  short-circuit evaluation semantics that a plain binary operator does not carry.
+ *
+ *  Exported from `@xgis/shader-dsl`, `@xgis/shader-dsl/core/ir`.
+ */
 export type LogOp = '&&' | '||'
 
+/** Every expression shape the IR can hold — the closed set `Node`/`ReadonlyNode`
+ *  (node.ts) build fluently and the three backends (WGSL, GLSL, the CPU oracle)
+ *  walk to emit or evaluate. A discriminated union on `op`, never a class: no
+ *  method lives on an `Expr`, so a pass can pattern-match exhaustively (tsc flags
+ *  a missing `case` on every backend's switch) and structurally-share subtrees
+ *  without an identity concern. Every variant carries its own `type: ShaderType` —
+ *  the IR is fully typed at construction, so a backend never re-infers a type
+ *  while emitting. Authors do not build these object literals by hand; go through
+ *  `Node`'s fluent methods (`.add()`, `.mul()`, …) or the free functions in
+ *  node.ts (`vec4()`, `mod()`, …), which fill in `type` correctly and validate
+ *  the operands before this shape is ever constructed.
+ *
+ *  Exported from `@xgis/shader-dsl`, `@xgis/shader-dsl/core/ir`.
+ */
 export type Expr =
   | { readonly op: 'lit'; readonly type: ShaderType; readonly value: number | boolean }
   | { readonly op: 'constref'; readonly type: ShaderType; readonly name: string }
@@ -104,6 +146,17 @@ export type Expr =
 
 // ── Statement nodes ──
 
+/** Every statement shape the IR can hold — the ordered `readonly Stmt[]` that
+ *  makes up a `FuncDecl.body`. A discriminated union on `s`, mirroring {@link Expr}'s
+ *  design: no class, so a backend's emit switch is tsc-checked exhaustive, and a
+ *  pass (e.g. match-lower.ts, unroll.ts) can rebuild a body by mapping over plain
+ *  data. Authors do not build these object literals directly; `Builder`
+ *  (builder.ts) — reached inside an `fn()` body as its second callback argument —
+ *  pushes them one at a time (`b.let(...)`, `b.var(...)`, `b.if(...)`, `b.ret(...)`,
+ *  …), so the body array is always assembled in source order.
+ *
+ *  Exported from `@xgis/shader-dsl`, `@xgis/shader-dsl/core/ir`.
+ */
 export type Stmt =
   | { readonly s: 'let'; readonly name: string; readonly expr: Expr }
   | { readonly s: 'var'; readonly name: string; readonly type: ShaderType; readonly init?: Expr }
@@ -181,6 +234,17 @@ export type RawPayload =
 
 // ── Module-level declarations ──
 
+/** A `ModuleDecl.consts` entry — a module-scope constant. Authored either as a
+ *  plain object literal for the common dual-precision scalar case —
+ *  `{ name: 'PI', type: f32T, wgslValue: 3.14159265, cpuValue: Math.PI }`
+ *  (projections.ts) truncates on the GPU targets while the CPU oracle keeps full
+ *  `Math.PI` precision, so the two stay within the codebase's documented f32/f64
+ *  tolerance — or via {@link constExpr} for a vector/array/struct literal, which
+ *  routes through `valueExpr` instead. See that field's doc for which form wins
+ *  when both are present.
+ *
+ *  Exported from `@xgis/shader-dsl`, `@xgis/shader-dsl/core/ir`.
+ */
 export interface ConstDecl {
   readonly name: string
   readonly type: ShaderType
@@ -222,6 +286,16 @@ export interface OverrideDecl {
   readonly default: number | boolean
 }
 
+/** One field of a {@link StructDecl} — a plain data member (uniform/storage struct)
+ *  or, for a vertex/fragment I/O struct, a member carrying an `@builtin`/`@location`
+ *  attribute. Authors build these via `sot.ts`'s {@link builtin}/{@link location}
+ *  helpers (which fill both `attr` and its structured twin) rather than by hand;
+ *  the GLSL backend ignores `attr` entirely and reads `location`/`builtin` directly
+ *  — GLSL ES 3.00 has no struct-field attribute syntax, so I/O structs are
+ *  flattened to individual `in`/`out` globals keyed off those structured fields.
+ *
+ *  Exported from `@xgis/shader-dsl`, `@xgis/shader-dsl/core/ir`.
+ */
 export interface StructField {
   readonly name: string
   readonly type: ShaderType
@@ -237,12 +311,42 @@ export interface StructField {
   /** Structured `@interpolate(mode)` (set alongside `location`). */
   readonly interpolate?: string
 }
+/** A `ModuleDecl.structs` entry — a WGSL `struct` declaration, doubling as a
+ *  GLSL plain struct or a flattened I/O `in`/`out` block depending on how its
+ *  fields' `location`/`builtin` are read (see {@link StructField}). Authors
+ *  reach for the `sot.ts` helpers ({@link uniformStruct}, {@link ioStruct}) to
+ *  derive one alongside its binding and typed field access rather than writing
+ *  this shape by hand.
+ *
+ *  Exported from `@xgis/shader-dsl`, `@xgis/shader-dsl/core/ir`.
+ */
 export interface StructDecl {
   readonly name: string
   readonly fields: readonly StructField[]
 }
 
+/** The `BindingDecl.space` a resource binding lives in — WGSL's `var<uniform>` vs
+ *  `var<storage, ...>`. Drives the WGSL backend's declaration spelling directly
+ *  (`emitBinding` in wgsl.ts) and the GLSL backend's choice between a `uniform`
+ *  block and an emulated storage-buffer path (WebGL2 GLSL ES 3.00 has no native
+ *  SSBO) — see {@link BindingDecl.access}, which only applies when this is
+ *  `'storage'`.
+ *
+ *  Exported from `@xgis/shader-dsl`, `@xgis/shader-dsl/core/ir`.
+ */
 export type AddressSpace = 'uniform' | 'storage'
+/** A `ModuleDecl.bindings` entry — a resource bound at a `(group, binding)` slot:
+ *  a uniform buffer, a storage buffer, a texture, or a sampler, keyed by `type`
+ *  (a `structT`/scalar/array type means a buffer; a `texture`/`sampler`
+ *  `ShaderType.kind` means a handle resource with no address space). WGSL emits
+ *  both `group` and `binding`; GLSL ES 3.00 has a single binding namespace, so
+ *  its backend reads `binding` only and `group` is WGSL-only bookkeeping (still
+ *  used by `reflect()` to group resources per WGSL bind-group-layout convention).
+ *  Authors derive this via `sot.ts`'s {@link uniformStruct} / {@link resource} /
+ *  {@link storageBuffer} rather than constructing it directly.
+ *
+ *  Exported from `@xgis/shader-dsl`, `@xgis/shader-dsl/core/ir`.
+ */
 export interface BindingDecl {
   readonly group: number
   readonly binding: number
@@ -299,6 +403,16 @@ export interface ExternVarDecl {
  *  builder→nodes import cycle. */
 export const ASSEMBLED_AS = Symbol.for('xgis.shader-dsl.assembledAs')
 
+/** A `ModuleDecl.funcs` entry — a WGSL/GLSL function, ordinary or a pipeline
+ *  entry point (`stage` set). This is the object the fluent authoring layer
+ *  ({@link fn}) BUILDS: a `FnHandle` returned by `fn()` mixes this shape's
+ *  fields onto itself so it is simultaneously a typed callable in other
+ *  functions' bodies AND, unwrapped, the plain `FuncDecl` a `module({ funcs })`
+ *  collects. Every backend (WGSL, GLSL, the CPU codegen/oracle) walks `body`
+ *  directly — there is no separate typed-AST layer between authoring and emit.
+ *
+ *  Exported from `@xgis/shader-dsl`, `@xgis/shader-dsl/core/ir`.
+ */
 export interface FuncDecl {
   readonly name: string
   readonly params: readonly {
@@ -433,6 +547,19 @@ export type DeclarableCapability = Exclude<
   'storageBuffer' | 'compute' | 'msaaTextureLoad'
 >
 
+/** THE whole-shader unit: everything a backend needs to emit a complete WGSL or
+ *  GLSL ES 3.00 module (or evaluate one on the CPU oracle) — consts, structs,
+ *  bindings, functions, and the two opt-in seams (`overrides`, `enables`).
+ *  Authors assemble one via {@link module}, which dedupes/merges `uses:`-derived
+ *  decls rather than requiring every struct/binding to be restated by hand; a
+ *  hand-built `ModuleDecl` object literal works too (backends only ever read
+ *  this shape) but loses that convenience. This is the argument every backend
+ *  entry point takes — {@link emitModule} (WGSL), {@link emitGlslModule}, the CPU
+ *  oracle's {@link compileModule} — so it is the seam where authoring ends and
+ *  backend-neutral emit begins.
+ *
+ *  Exported from `@xgis/shader-dsl`, `@xgis/shader-dsl/core/ir`.
+ */
 export interface ModuleDecl {
   readonly consts: readonly ConstDecl[]
   readonly structs: readonly StructDecl[]
