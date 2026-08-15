@@ -36,24 +36,6 @@ import { emitGlslModule } from '../src/core/backends/glsl.ts'
 
 const MIN_EXAMPLES = 10
 
-// ── The divergence this gate found on its first run (#1724) ──────────────────────────────
-//
-// `fp64Lower` AUTO-INJECTS the anti-fast-math guard texture `_fp64` into any module using
-// f64 arithmetic — deterministically at group 0, first free binding. It runs INSIDE emit, so
-// the emitted source declares it, while `reflect()` walks the AUTHORED module and never sees
-// it. 13 of the shipped examples emit a binding their own reflection does not report.
-//
-// That contradicts the declarator's documented contract in so many words
-// (`src/core/fp64/df64-lib.ts:93` — "Either way the binding shows up in reflect() as an
-// ordinary 2D texture, and the host MUST bind a 1x1 texture"), and it matters: a host that
-// builds its bind group from `reflect()` never binds the guard the shader samples.
-//
-// Recorded as a SUBSET check rather than an exact one, so that fixing #1724 leaves this
-// green while any NEW divergence still goes red. Deliberately not fixed here: reflect()
-// reporting a lowering's injected binding is a change to what every consumer's bind-group
-// builder sees, and it belongs in its own reviewed diff rather than riding along in a gate.
-const KNOWN_DIVERGENCE = /^\d+:\d+:_fp64$/
-
 /** `@group(0) @binding(1) var<uniform> u: U;` → `0:1:u`. Also matches the attribute-less
  *  spelling nothing emits today, so a future change there fails loudly rather than silently
  *  dropping out of the comparison. */
@@ -107,7 +89,7 @@ describe('emit ↔ reflection conformance (#1714)', () => {
       const declared = wgslDeclaredBindings(src)
       const expected = new Set(expectedFor(reflect(ex.module), 'wgsl'))
       const missing = [...expected].filter((k) => !declared.has(k))
-      const extra = [...declared].filter((k) => !expected.has(k) && !KNOWN_DIVERGENCE.test(k))
+      const extra = [...declared].filter((k) => !expected.has(k))
       if (missing.length || extra.length)
         offenders.push(
           `${ex.id}: reflect() describes but source lacks [${missing}]; source declares but reflect() omits [${extra}]`,
@@ -162,30 +144,6 @@ describe('emit ↔ reflection conformance (#1714)', () => {
     }
     expect(checked).toBeGreaterThan(5)
     expect(offenders.join('\n')).toBe('')
-  })
-})
-
-describe('the divergence this gate found is still real (#1724)', () => {
-  it('at least one example emits `_fp64` that its own reflection does not report', () => {
-    // The allowlist above is a subset check, which by itself would also pass if the
-    // divergence quietly vanished for the WRONG reason (the fp64 examples dropping out of
-    // the corpus, say). This arm keeps the finding attached to evidence, and its own failure
-    // is the prompt to re-read #1724 — either it was fixed, in which case delete both this
-    // arm and KNOWN_DIVERGENCE, or the corpus stopped covering f64.
-    const diverging = examples.filter((ex) => {
-      let src: string
-      try {
-        src = emitModule(ex.module)
-      } catch {
-        return false
-      }
-      const expected = new Set(expectedFor(reflect(ex.module), 'wgsl'))
-      return [...wgslDeclaredBindings(src)].some((k) => !expected.has(k) && /_fp64$/.test(k))
-    })
-    expect(
-      diverging.length,
-      'either #1724 is fixed, or the corpus lost its f64 examples',
-    ).toBeGreaterThan(0)
   })
 })
 

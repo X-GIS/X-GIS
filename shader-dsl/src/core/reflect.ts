@@ -22,11 +22,13 @@ import {
   type AddressSpace,
   type Capability,
   type TextureElem,
+  type BindingDecl,
   typeKey,
   stageOf,
   workgroupSizeOf,
 } from './ir'
 import { requiredCaps } from './passes/required-caps'
+import { fp64Lower, type Fp64Flavor } from './passes/fp64-lower'
 
 const roundUp = (x: number, a: number): number => Math.ceil(x / a) * a
 
@@ -346,12 +348,66 @@ const resourceKind = (space: AddressSpace, t: ShaderType): ResourceKind =>
 // Stage / workgroup-size predicates live in core/ir (#763 S1) — one shared helper
 // for reflect, the capability gate, GLSL entry classification, and fn-DCE roots.
 
-/** Recover the target-neutral pipeline metadata from a module's IR. Pure + read-only. */
-export function reflect(m: ModuleDecl): Reflection {
+/** Options for {@link reflect}. */
+export interface ReflectOptions {
+  /** Which df64 EFT registry the emit will use (#1724). It decides whether the `_fp64`
+   *  anti-fast-math guard binding exists at all: the `'float'` bodies (the default) read it,
+   *  the `'integer'` ones do not. Pass the same value the emit will get, or a host building
+   *  a bind group from this reflection is describing a different program than the one it
+   *  will run. */
+  readonly fp64Flavor?: Fp64Flavor
+}
+
+/** The module's declared bindings, plus any a LOWERING injects that a host must still bind
+ *  (#1724).
+ *
+ *  `fp64Lower` auto-injects the `_fp64` guard texture into any module whose f64 helpers read
+ *  it — authors declare nothing, which is the documented contract (`fp64/df64-lib.ts`: "Either
+ *  way the binding shows up in reflect() … and the host MUST bind a 1x1 texture"). It runs
+ *  inside emit, so before this the emitted source declared a binding the reflection did not
+ *  report, and a host that built its bind group from the reflection never bound the guard the
+ *  shader samples. On WebGPU that is a validation error; on WebGL2 there is no error at all —
+ *  the sampler stays on its default unit and the guard silently reads a value that is not 1.0,
+ *  so the anti-fast-math protection lapses without a symptom.
+ *
+ *  The decision is fp64Lower's and stays there: whether a guard is needed depends on WHICH
+ *  helpers the lowering pulled in (comparison-only closures read no guard) and on the flavor,
+ *  neither of which is cheap to re-derive — and a second copy of that rule is how the two
+ *  authorities drifted in the first place. So this runs the pass and takes ONLY the bindings
+ *  it added. Deliberately not "reflect the lowered module": that would also re-report every
+ *  f64 type as its `vec2<f32>` emulation, which is a much larger change than the contract
+ *  violation being fixed here.
+ *
+ *  Identity for every module without f64 — `fp64Lower` returns the same object, so the cost
+ *  is one reference comparison. */
+function bindingsIncludingInjected(
+  m: ModuleDecl,
+  flavor: Fp64Flavor | undefined,
+): readonly BindingDecl[] {
+  const lowered = fp64Lower(m, flavor !== undefined ? { flavor } : undefined)
+  if (lowered === m) return m.bindings
+  const declared = new Set(m.bindings.map((b) => b.name))
+  const injected = lowered.bindings.filter((b) => !declared.has(b.name))
+  return injected.length === 0 ? m.bindings : [...m.bindings, ...injected]
+}
+
+/**
+ * Recover the target-neutral pipeline metadata from a module's IR. Pure + read-only.
+ *
+ * Reports the bindings a host must create — including the ones a LOWERING injects rather
+ * than the author declaring (#1724, see {@link ReflectOptions.fp64Flavor}), because a host
+ * builds its bind group from this and a binding missing here is a binding never bound.
+ *
+ * @param m - the module to describe.
+ * @param opts - emit facts that change what the host must bind. Pass the same values the
+ *   emit will get; a default here that disagrees with the emit describes a different program.
+ */
+export function reflect(m: ModuleDecl, opts?: ReflectOptions): Reflection {
   const structs = new Map(m.structs.map((s) => [s.name, s]))
+  const allBindings = bindingsIncludingInjected(m, opts?.fp64Flavor)
   // bind groups (sorted by group, then binding)
   const byGroup = new Map<number, BindEntry[]>()
-  for (const b of m.bindings) {
+  for (const b of allBindings) {
     const e: BindEntry = {
       group: b.group,
       binding: b.binding,
@@ -374,7 +430,7 @@ export function reflect(m: ModuleDecl): Reflection {
 
   const uniforms: StructLayout[] = []
   const storage: StructLayout[] = []
-  for (const b of m.bindings) {
+  for (const b of allBindings) {
     if (b.type.kind !== 'struct') continue
     const s = structs.get(b.type.name)
     if (!s) continue
