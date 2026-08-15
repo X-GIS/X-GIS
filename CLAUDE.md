@@ -334,6 +334,17 @@ ladder-gate` asserted on triangles, and severing the controller→selector wire 
   watch failed IDENTICALLY to the wire working, so no premise fix could ever green it. Don't
   just check fail-before goes red — CUT THE SPECIFIC MECHANISM and confirm the message names
   the severed half. → `2026-07-28-the-assertion-that-failed-either-way.md`
+- One step EARLIER than the entry above: the assertions can be fine and the INPUTS still carry
+  no information. A storage-upload rewrite shipped 5 green tests that each passed a WHOLE typed
+  array (`byteOffset` 0) — the exact case where the buggy `new Uint32Array(data.buffer)` and the
+  correct windowed view are the same line. Production passes frame-arena SUBARRAYS, so WebGL2
+  uploaded a neighbouring renderer's bytes and drew nothing. Feed at least one input shaped the
+  way real callers shape it, and plant a decoy around it.
+  → `2026-08-14-every-test-passed-offset-zero.md`
+- A change that REFACTORS a shared path owes the gates of that path's CONSUMERS, not the gates of
+  the feature that motivated it — those are different sets, and the feature's own are the ones you
+  will think of. Same incident: the integer-texture gates were run and green; the point/icon/line
+  gates that used the rewritten upload were not. → same post
 - Assert on the quantity the subsystem MOVES, not one downstream of it, and never attribute a
   cause from a COMPOSITE number: triangles = tiles × geometry-per-tile, so a coarser tile set
   read as "the ladder added 44% geometry" when the selector had done exactly its job (tiles

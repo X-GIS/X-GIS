@@ -12,6 +12,8 @@ import {
   vec3uT,
   voidT,
   texture2dArrayfT,
+  texture2duT,
+  texture2dArrayiT,
   samplerT,
   bindingRef,
   textureNumLayers,
@@ -143,5 +145,25 @@ describe('capabilities — requiredCaps + assertCaps (#9)', () => {
 
   it('assertCaps passes a textureNumLayers module on the EMPTY-caps GLSL backend', () => {
     expect(() => assertCaps(glslEs300Backend, numLayersMod())).not.toThrow()
+  })
+
+  // #1703 — an INTEGER sampled texture is core in both targets too (WGSL
+  // texture_2d<u32>, GLSL ES 3.00 §4.1.9 usampler2D), so the element axis adds no
+  // Capability any more than the dim axis did. Asserted rather than assumed for the
+  // same reason as the 2d-array pin above: '2d-ms' proves a texture CAN require one,
+  // so an empty result here has to be measured, not presumed.
+  const intTexMod = (type: typeof texture2duT | typeof texture2dArrayiT) =>
+    module({
+      bindings: [{ group: 0, binding: 0, name: 'ids', space: 'uniform' as const, type }],
+    })
+
+  it('an integer texture binding requires NOTHING (no new capability)', () => {
+    expect(requiredCaps(intTexMod(texture2duT))).toEqual([])
+    expect(requiredCaps(intTexMod(texture2dArrayiT))).toEqual([])
+  })
+
+  it('assertCaps passes an integer-texture module on the EMPTY-caps GLSL backend', () => {
+    expect(() => assertCaps(glslEs300Backend, intTexMod(texture2duT))).not.toThrow()
+    expect(() => assertCaps(glslEs300Backend, intTexMod(texture2dArrayiT))).not.toThrow()
   })
 })

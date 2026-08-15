@@ -21,6 +21,7 @@ import {
   type ModuleDecl,
   type AddressSpace,
   type Capability,
+  type TextureElem,
   typeKey,
   stageOf,
   workgroupSizeOf,
@@ -198,6 +199,14 @@ export interface BindEntry {
   readonly space: AddressSpace
   readonly access?: 'read' | 'read_write'
   readonly resourceKind: ResourceKind
+  /** WHO owns the resource (#1710) — `'module'` when we declare it and the host builds its
+   *  bind group from this reflection, `'host'` when the surrounding renderer owns it and
+   *  ITS layout is the authority. ALWAYS set, same contract as `resourceKind`: an
+   *  only-when-interesting field would make `undefined` mean both "module-owned" and "an
+   *  older reflection that predates the distinction". `bindGroups` stays the COMPLETE set
+   *  either way — a host still has to know about a binding it owns, it just must not
+   *  allocate for it. */
+  readonly owner: 'module' | 'host'
   readonly structName?: string
   /** For a `texture` entry ONLY (#1651): which texture dim the shader declared, so a
    *  host can create/validate the matching view (`2d-array` needs an array view and
@@ -205,6 +214,20 @@ export interface BindEntry {
    *  `resourceKind: 'texture'` alone under-describes the binding, and an
    *  only-when-interesting field would make `undefined` mean two different things. */
   readonly textureDim?: '2d' | '2d-ms' | '2d-array'
+  /** For a `texture` entry ONLY (#1703): the texel ELEMENT the shader declared. Same
+   *  contract as `textureDim` — ALWAYS set on a texture entry, never elsewhere.
+   *
+   *  A host needs BOTH axes to build a valid binding: dim alone does not say whether
+   *  the view is float or integer, and the two are not interchangeable — WebGPU's
+   *  `GPUTextureBindingLayout.sampleType` must be `'uint'` / `'sint'` for `u32` / `i32`
+   *  (`'float'` for f32), and WebGL2 must back it with an INTEGER internal format
+   *  (R32UI / R32I). Reported as the DSL's own element rather than pre-translated to
+   *  either target's vocabulary, because reflection takes a module and never a backend.
+   *
+   *  An integer texture is also UNFILTERABLE, so a host must not pair one with a
+   *  filtering sampler — there is no `sampler` binding to pair it with in a
+   *  correctly-authored module, since `textureSample` rejects those keys at tsc. */
+  readonly textureElem?: TextureElem
 }
 export interface BindGroup {
   readonly group: number
@@ -280,6 +303,23 @@ export interface Reflection {
    *  whose row's `hostFeature`) is absent. A row's `directive` is likewise not the host's
    *  business: it is already in the emitted source. */
   readonly requiredFeatures: readonly Capability[]
+  /** HOST-PROVIDED symbols this module references but does not declare (#1713) — the
+   *  `externVar` declarators, reported so a composer can check them against what the
+   *  host's prelude actually supplies. Always present; empty for a module that expects
+   *  nothing from its host. Its function twin, `externFn`, has no declaration to report;
+   *  a fragment's `requires` (#1711) covers those by walking call sites. */
+  readonly requires: readonly ExternRequirement[]
+}
+
+/** One host-provided global a module expects (#1713). `type` is the DSL type key, and
+ *  `wgsl`/`glsl` are the per-target spellings the emit actually writes — the host binds by
+ *  those, not by the logical `name`. */
+export interface ExternRequirement {
+  readonly name: string
+  readonly type: string
+  readonly wgsl: string
+  readonly glsl: string
+  readonly stage?: 'vertex' | 'fragment' | 'compute'
 }
 
 const resourceKind = (space: AddressSpace, t: ShaderType): ResourceKind =>
@@ -310,8 +350,9 @@ export function reflect(m: ModuleDecl): Reflection {
       space: b.space,
       ...(b.access ? { access: b.access } : {}),
       resourceKind: resourceKind(b.space, b.type),
+      owner: b.owner ?? 'module',
       ...(b.type.kind === 'struct' ? { structName: b.type.name } : {}),
-      ...(b.type.kind === 'texture' ? { textureDim: b.type.dim } : {}),
+      ...(b.type.kind === 'texture' ? { textureDim: b.type.dim, textureElem: b.type.elem } : {}),
     }
     ;(byGroup.get(b.group) ?? byGroup.set(b.group, []).get(b.group)!).push(e)
   }
@@ -384,5 +425,12 @@ export function reflect(m: ModuleDecl): Reflection {
     entries,
     overrides,
     requiredFeatures,
+    requires: (m.externs ?? []).map((e) => ({
+      name: e.name,
+      type: typeKey(e.type),
+      wgsl: e.spelling?.wgsl ?? e.name,
+      glsl: e.spelling?.glsl ?? e.name,
+      ...(e.stage ? { stage: e.stage } : {}),
+    })),
   }
 }

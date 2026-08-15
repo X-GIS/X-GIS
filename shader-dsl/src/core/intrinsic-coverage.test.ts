@@ -150,6 +150,8 @@ describe('intrinsic registry coverage (the spelling agreement surface)', () => {
         "sqrt",
         "step",
         "storageFetchF32",
+        "storageFetchI32",
+        "storageFetchU32",
         "tan",
         "textureDimensions",
         "textureLoad",

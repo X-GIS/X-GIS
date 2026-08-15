@@ -19,6 +19,13 @@ type Spelling = {
 
 const join = (args: readonly string[]): string => args.join(', ')
 
+// The storage-emulation fetch body, shared by the f32/u32/i32 ids below (#1703). The
+// 2D-tiled index math is element-INDEPENDENT — only the sampler type the binding
+// declares changes, and that is carried by the binding, not by this text. One authority
+// so the three ids cannot drift into three different tilings.
+const storageFetchGlsl = (a: readonly string[]): string =>
+  `texelFetch(${a[0]}, ivec2(int(${a[1]}) % textureSize(${a[0]}, 0).x, int(${a[1]}) / textureSize(${a[0]}, 0).x), 0).r`
+
 /** Neutral intrinsic id -> per-target spelling. Absent = identity passthrough. */
 export const INTRINSICS: Readonly<Record<string, Spelling>> = {
   // Scalar conversions — toF32/toI32/toU32 (node.ts) emit calls named f32/i32/u32 (the WGSL
@@ -181,8 +188,26 @@ export const INTRINSICS: Readonly<Record<string, Spelling>> = {
   // backend sees this call (the pre-pass creates it); the wgsl spelling is unused.
   storageFetchF32: {
     wgsl: (a) => `storageFetchF32(${join(a)})`,
-    glsl: (a) =>
-      `texelFetch(${a[0]}, ivec2(int(${a[1]}) % textureSize(${a[0]}, 0).x, int(${a[1]}) / textureSize(${a[0]}, 0).x), 0).r`,
+    glsl: storageFetchGlsl,
+  },
+  // The INTEGER twins (#1703) — the TYPED-texture leg of the same emulation, for a
+  // top-level array<u32> / array<i32>. The index math is identical (hence the shared
+  // spelling above); what differs is the sampler the binding declares — usampler2D /
+  // isampler2D over an R32UI / R32I data texture — and therefore the type of the
+  // fetched vec. That difference rides a DISTINCT ID rather than a type branch on one
+  // id, the same rule the textureSample/textureSampleArray split follows.
+  //
+  // Why typed textures and not u32-lanes-bitcast-through-R32F: GLSL ES 3.00 §2.1.1
+  // permits flushing ANY denormal to zero, and small integers are denormal f32 bit
+  // patterns (1u is 1.4e-45), so the bitcast route can legally lose values. Exactness
+  // is the entire point of an integer array.
+  storageFetchU32: {
+    wgsl: (a) => `storageFetchU32(${join(a)})`,
+    glsl: storageFetchGlsl,
+  },
+  storageFetchI32: {
+    wgsl: (a) => `storageFetchI32(${join(a)})`,
+    glsl: storageFetchGlsl,
   },
 }
 

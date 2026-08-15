@@ -18,6 +18,20 @@
  */
 export type Scalar = 'f32' | 'i32' | 'u32' | 'bool'
 
+/** The element type of a SAMPLED texture (#1703) — WGSL's `texture_2d<T>` type
+ *  parameter, GLSL ES 3.00's sampler prefix (`f32` → `sampler2D`, `u32` →
+ *  `usampler2D`, `i32` → `isampler2D`). All three are CORE in both targets.
+ *
+ *  An INTEGER texture is UNFILTERABLE: interpolating integer texels is undefined, so
+ *  WGSL rejects `textureSample` on `texture_2d<u32>` at the spec level. GLSL's
+ *  `texture(usampler2D, …)` would work (NEAREST), but wiring it up would mint a
+ *  construct that compiles on WebGL2 and cannot be expressed on WebGPU at all —
+ *  which is exactly what authoring once and emitting both targets is meant to rule
+ *  out. The honest intersection is `textureLoad` + `textureDimensions` +
+ *  `textureNumLayers`; `textureSample`/`textureSampleLevel` fail at tsc on an integer
+ *  key (pinned by dx-sweep.test.ts). */
+export type TextureElem = 'f32' | 'u32' | 'i32'
+
 /** The runtime type descriptor for every value the DSL can represent — a plain, comparable
  *  discriminated union (never a class or a branded object), so a `switch (t.kind)` over it is
  *  exhaustively checked by `tsc` at each site that must decide what to do with a shape
@@ -54,7 +68,13 @@ export type ShaderType =
   // A sampled texture. '2d-array' (#1651) is CORE in both targets — WGSL
   // texture_2d_array<f32>, GLSL ES 3.00 sampler2DArray — so it needs no Capability
   // (pinned by required-caps.test.ts); '2d-ms' still fails closed on GLSL.
-  | { readonly kind: 'texture'; readonly dim: '2d' | '2d-ms' | '2d-array'; readonly elem: 'f32' }
+  //
+  // Split into TWO arms (#1703) so a multisampled INTEGER texture is unrepresentable
+  // by CONSTRUCTION rather than a runtime throw: '2d'/'2d-array' carry any
+  // TextureElem, '2d-ms' is pinned to f32. Narrowing still works off `dim` alone —
+  // every existing `t.dim === '…'` switch reads the same.
+  | { readonly kind: 'texture'; readonly dim: '2d' | '2d-array'; readonly elem: TextureElem }
+  | { readonly kind: 'texture'; readonly dim: '2d-ms'; readonly elem: 'f32' }
   | { readonly kind: 'sampler' }
   | { readonly kind: 'void' }
 
@@ -248,6 +268,30 @@ export const texture2dArrayfT = {
   dim: '2d-array',
   elem: 'f32',
 } as const satisfies ShaderType
+/** An UNSIGNED-integer 2D texture (#1703) — WGSL `texture_2d<u32>`, GLSL ES 3.00
+ *  `usampler2D`. Read with {@link textureLoad} (→ `vec4<u32>`); it carries EXACT
+ *  32-bit values, which is what makes it the right backing for an id / packed-colour
+ *  / bitfield lookup that must survive the trip to the GPU unchanged. Unfilterable —
+ *  `textureSample` on it is a tsc error, by design (see {@link TextureElem}). */
+export const texture2duT = { kind: 'texture', dim: '2d', elem: 'u32' } as const satisfies ShaderType
+/** A SIGNED-integer 2D texture (#1703) — WGSL `texture_2d<i32>`, GLSL ES 3.00
+ *  `isampler2D`. The signed twin of {@link texture2duT}; same load-only contract. */
+export const texture2diT = { kind: 'texture', dim: '2d', elem: 'i32' } as const satisfies ShaderType
+/** An UNSIGNED-integer 2D ARRAY texture (#1703) — WGSL `texture_2d_array<u32>`,
+ *  GLSL ES 3.00 `usampler2DArray`. {@link texture2dArrayfT}'s layer model with
+ *  {@link texture2duT}'s exact-integer texels. */
+export const texture2dArrayuT = {
+  kind: 'texture',
+  dim: '2d-array',
+  elem: 'u32',
+} as const satisfies ShaderType
+/** A SIGNED-integer 2D ARRAY texture (#1703) — WGSL `texture_2d_array<i32>`,
+ *  GLSL ES 3.00 `isampler2DArray`. */
+export const texture2dArrayiT = {
+  kind: 'texture',
+  dim: '2d-array',
+  elem: 'i32',
+} as const satisfies ShaderType
 /** The sampler resource type (WGSL `sampler`, GLSL's implicit combined-sampler half) — always
  *  paired with a texture type ({@link texture2dfT} et al.) as a separate `resource()` binding;
  *  `textureSample`/`textureSampleLevel` take both. See `resource('atlas_sampler', samplerT, {
@@ -327,10 +371,14 @@ export type KeyOf<T> = T extends { kind: 'scalar'; scalar: infer S extends strin
               // resource() node through to the `string` fallback, where it matches no
               // authoring overload at all (the failure is a confusing "no overload
               // matches", not a key mismatch).
-              T extends { kind: 'texture'; dim: '2d-array' }
-              ? 'texture_2d_array<f32>'
-              : T extends { kind: 'texture'; dim: '2d' }
-                ? 'texture_2d<f32>'
+              // #1703 — `elem` is INFERRED, not hardcoded to f32: a texture2duT resource
+              // must land on `texture_2d<u32>`, and a hardcoded `<f32>` would silently
+              // hand an integer texture the FLOAT key, where textureSample's overload
+              // accepts it and naga rejects the emitted WGSL.
+              T extends { kind: 'texture'; dim: '2d-array'; elem: infer E extends string }
+              ? `texture_2d_array<${E}>`
+              : T extends { kind: 'texture'; dim: '2d'; elem: infer E extends string }
+                ? `texture_2d<${E}>`
                 : T extends { kind: 'sampler' }
                   ? 'sampler'
                   : string
@@ -397,7 +445,11 @@ export function typeKey(t: ShaderType): string {
         case '2d':
           return `texture_2d<${t.elem}>`
         default:
-          return t.dim satisfies never
+          // Exhaustiveness on the whole ARM, not on `t.dim` (#1703): the texture type
+          // is now a two-arm union, so once every dim is handled `t` itself is `never`
+          // and `t.dim` no longer exists to check. A new dim (or a new arm) still
+          // fails compilation right here.
+          return t satisfies never
       }
     case 'sampler':
       return 'sampler'

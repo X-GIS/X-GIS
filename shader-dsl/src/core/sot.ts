@@ -26,6 +26,7 @@ import {
   type BindingDecl,
   type AddressSpace,
 } from './ir'
+import { dslError } from './diagnostics/error'
 
 /** A module-level constant declared ONCE (#763 X2) — the missing SoT declarator.
  *  `decl` goes into module() (or `uses:`), `node` is the typed reference; the
@@ -368,6 +369,61 @@ export function resource<T extends ShaderType>(
 ): Resource<T> {
   return {
     binding: { group: at.group, binding: at.binding, name, space: at.space ?? 'uniform', type },
+    node: bindingRef(name, type),
+  }
+}
+
+/** Declare a HOST-OWNED uniform (#1710) — one value the surrounding renderer supplies,
+ * spelled the way that renderer's target actually spells it.
+ *
+ * On **WGSL** this is an ordinary `@group(N) @binding(M) var<uniform>` declaration; the
+ * only difference from {@link resource} is that `reflect()` marks it `owner: 'host'`, so a
+ * consumer knows the HOST's bind-group layout is the authority and it must not allocate
+ * one itself.
+ *
+ * On **GLSL ES 3.00** it lowers to a LOOSE `uniform <type> <name>;` in the default block —
+ * which is what a GLSL host prelude actually provides — instead of the std140 block a
+ * module-owned uniform gets. That is the whole point: before this, the only way to reach
+ * a loose uniform was to emit the block and then cut it back open with string surgery,
+ * which bypassed `reflect()` and broke under `minify()`.
+ *
+ * Scalars, vectors and matrices only. A host-owned STRUCT stays a block on GLSL (there is
+ * no sensible loose lowering for one), so declare its members individually — which is also
+ * how the prelude declares them.
+ *
+ * ```ts
+ * const viewport = hostUniform('u_viewport_px', vec2fT, { group: 0, binding: 1 }, {
+ *   precision: 'highp',        // GLSL-only; ignored on WGSL
+ * })
+ * ```
+ *
+ * If the host's prelude ALREADY declares the symbol and we must not re-declare it, that is
+ * {@link externVar} (#1713) instead — it emits nothing at all.
+ *
+ * @param name - the uniform's name, as the host spells it.
+ * @param type - its shader type.
+ * @param at - the WGSL group/binding slot. Unused by the GLSL lowering, required because
+ *   the same declaration has to work on both targets.
+ * @param opts - `precision`, a GLSL-only qualifier for this declaration.
+ */
+export function hostUniform<T extends ShaderType>(
+  name: string,
+  type: T,
+  at: { group: number; binding: number },
+  opts?: { precision?: 'highp' | 'mediump' | 'lowp' },
+): Resource<T> {
+  if (type.kind === 'struct' || type.kind === 'array')
+    throw dslError('SD0014', `hostUniform '${name}': ${type.kind} (declare members individually)`)
+  return {
+    binding: {
+      group: at.group,
+      binding: at.binding,
+      name,
+      space: 'uniform',
+      type,
+      owner: 'host',
+      ...(opts?.precision ? { precision: opts.precision } : {}),
+    },
     node: bindingRef(name, type),
   }
 }

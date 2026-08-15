@@ -10,6 +10,9 @@ import {
   texture2dfT,
   texture2dMsfT,
   texture2dArrayfT,
+  texture2duT,
+  texture2diT,
+  texture2dArrayuT,
   samplerT,
   type StructDecl,
   type ModuleDecl,
@@ -148,6 +151,7 @@ describe('reflect — module metadata walker', () => {
             name: 'u',
             space: 'uniform',
             resourceKind: 'uniform-buffer',
+            owner: 'module',
             structName: 'Uniforms',
           },
         ],
@@ -163,8 +167,12 @@ describe('reflect — module metadata walker', () => {
 // creating the bind group needs the DIM to pick a 2d / 2d-array / multisampled view.
 // textureDim is therefore set on EVERY texture entry (never "only when interesting" —
 // that would make `undefined` mean both "a 2d texture" and "not a texture").
-describe('reflect — texture bind entries carry their dim (#1651)', () => {
-  it('sets textureDim on every texture entry and on no other kind', () => {
+// #1703 adds the second axis: dim alone still under-describes the binding, because a
+// host must ALSO know whether the view is float or integer — WebGPU's sampleType must
+// be 'uint'/'sint' and WebGL2 must back it with R32UI/R32I. textureElem carries the
+// same always-set contract as textureDim, for the same reason.
+describe('reflect — texture bind entries carry their dim (#1651) and element (#1703)', () => {
+  it('sets textureDim + textureElem on every texture entry and on no other kind', () => {
     const m: ModuleDecl = {
       consts: [],
       structs: [],
@@ -173,6 +181,9 @@ describe('reflect — texture bind entries carry their dim (#1651)', () => {
         { group: 0, binding: 1, name: 'atlas', space: 'uniform', type: texture2dArrayfT },
         { group: 0, binding: 2, name: 'ms_tex', space: 'uniform', type: texture2dMsfT },
         { group: 0, binding: 3, name: 'samp', space: 'uniform', type: samplerT },
+        { group: 0, binding: 4, name: 'ids', space: 'uniform', type: texture2duT },
+        { group: 0, binding: 5, name: 'deltas', space: 'uniform', type: texture2diT },
+        { group: 0, binding: 6, name: 'id_atlas', space: 'uniform', type: texture2dArrayuT },
       ],
       funcs: [],
     }
@@ -183,7 +194,9 @@ describe('reflect — texture bind entries carry their dim (#1651)', () => {
         name: 'flat_tex',
         space: 'uniform',
         resourceKind: 'texture',
+        owner: 'module',
         textureDim: '2d',
+        textureElem: 'f32',
       },
       {
         group: 0,
@@ -191,7 +204,9 @@ describe('reflect — texture bind entries carry their dim (#1651)', () => {
         name: 'atlas',
         space: 'uniform',
         resourceKind: 'texture',
+        owner: 'module',
         textureDim: '2d-array',
+        textureElem: 'f32',
       },
       {
         group: 0,
@@ -199,10 +214,51 @@ describe('reflect — texture bind entries carry their dim (#1651)', () => {
         name: 'ms_tex',
         space: 'uniform',
         resourceKind: 'texture',
+        owner: 'module',
         textureDim: '2d-ms',
+        textureElem: 'f32',
       },
-      // the sampler entry carries NO textureDim — the field is texture-only
-      { group: 0, binding: 3, name: 'samp', space: 'uniform', resourceKind: 'sampler' },
+      // the sampler entry carries NEITHER field — both are texture-only
+      {
+        group: 0,
+        binding: 3,
+        name: 'samp',
+        space: 'uniform',
+        resourceKind: 'sampler',
+        owner: 'module',
+      },
+      // #1703 — the two axes are INDEPENDENT: same dim, different element, and the
+      // array/integer combination reports both.
+      {
+        group: 0,
+        binding: 4,
+        name: 'ids',
+        space: 'uniform',
+        resourceKind: 'texture',
+        owner: 'module',
+        textureDim: '2d',
+        textureElem: 'u32',
+      },
+      {
+        group: 0,
+        binding: 5,
+        name: 'deltas',
+        space: 'uniform',
+        resourceKind: 'texture',
+        owner: 'module',
+        textureDim: '2d',
+        textureElem: 'i32',
+      },
+      {
+        group: 0,
+        binding: 6,
+        name: 'id_atlas',
+        space: 'uniform',
+        resourceKind: 'texture',
+        owner: 'module',
+        textureDim: '2d-array',
+        textureElem: 'u32',
+      },
     ])
   })
 })

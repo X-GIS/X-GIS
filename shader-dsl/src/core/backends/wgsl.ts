@@ -22,9 +22,11 @@ import {
   emitBody,
   emitModule as emitModuleDriver,
   emitModuleAt as emitModuleAtDriver,
+  emitModuleFragment as emitFragmentDriver,
   lowerForBackend,
   type EmitOptions,
 } from '../emit'
+import type { EmitFragment } from '../fragment'
 import { lowerModule } from '../passes/match-lower'
 import { fixpoint, autoVars, type OptLevel } from '../passes/opt'
 import { spellIntrinsic } from '../intrinsics'
@@ -79,7 +81,9 @@ export function wgslType(t: ShaderType): string {
         case '2d':
           return `texture_2d<${t.elem}>`
         default:
-          return t.dim satisfies never
+          // Exhaustiveness on the ARM (#1703) — see typeKey's twin: with the texture
+          // type a two-arm union, `t` is `never` here and has no `.dim` to check.
+          return t satisfies never
       }
     case 'sampler':
       return 'sampler'
@@ -354,6 +358,20 @@ export const emitFuncsCsed = emitFuncs
  *  the optional `{ plugins }` bag (production tooling: `@xgis/shader-dsl/emit-prod`). */
 export const emitModule = (m: ModuleDecl, opts?: EmitOptions): string =>
   emitModuleDriver(m, wgslBackend, opts)
+
+/** Emit a module as a WGSL FRAGMENT (#1711) — declarations and helpers without the
+ *  `enable` directive header and, unless `entryPoints: true`, without the stage entries —
+ *  for a host that assembles the final module itself. WGSL has no preprocessor and no
+ *  `#include`, so a host-integrated renderer composes by concatenating fragments, and the
+ *  directives it must hoist come back as `preamble` rather than buried in the source.
+ *
+ *  Prefer this over `emitFuncs` / `emitConst` string concatenation: those run NONE of the
+ *  pre-emit pipeline (see their own docs), so they can spell a module `validate` or
+ *  `assertCaps` would have rejected. */
+export const emitFragment = (
+  m: ModuleDecl,
+  opts?: EmitOptions & { entryPoints?: boolean },
+): EmitFragment => emitFragmentDriver(m, wgslBackend, opts)
 
 /** Emit WGSL at an explicit optimization level (O0/O1/O2). `emitModuleAt(m, 'O2')` is
  *  byte-identical to `emitModule(m)`; O0 is the naive (un-optimized) emit. Drives the

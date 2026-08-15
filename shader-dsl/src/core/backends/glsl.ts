@@ -15,8 +15,11 @@
 // TEXTURES: a sampled `2d` texture lowers to the fused `sampler2D`, and a `2d-array`
 // one (#1651) to `sampler2DArray` — both CORE GLSL ES 3.00, so neither needs a
 // Capability and the array sample/lod/fetch spellings live in the intrinsic registry
-// (textureSampleArray / textureSampleLevelArray / textureLoadArray). `2d-ms` remains
-// the one texture dim that FAILS CLOSED here.
+// (textureSampleArray / textureSampleLevelArray / textureLoadArray). An INTEGER
+// element (#1703) prefixes the spelling — `usampler2D` / `isampler2DArray` / … — also
+// core, also Capability-free; those are LOAD-ONLY in both targets (see TextureElem),
+// so they reuse textureLoad/textureLoadArray with an integer result type and add no
+// spelling of their own. `2d-ms` remains the one texture dim that FAILS CLOSED here.
 //
 // FAIL-CLOSED (GLSL ES 3.00 has no compute / MSAA-load): a `@compute` entry and a
 // multisampled-texture load raise UnsupportedFeatureError — enforced UP FRONT by
@@ -34,10 +37,11 @@
 // offsets, in/out varyings, main()) + the headless-WebGL2 gate cover the emit.
 
 import type { ShaderType, ModuleDecl, StructDecl, BindingDecl, FuncDecl, Expr, Stmt } from '../ir'
-import { texture2dfT, u32T, f32T, vec4fT, stageOf } from '../ir'
+import { texture2dfT, texture2duT, texture2diT, u32T, i32T, f32T, vec4fT, stageOf } from '../ir'
 import { collectFnRefs, emptyRefSet, typeStructNames } from '../ir/collect-refs'
 import { UnsupportedFeatureError, type Backend, type CapProfile } from '../backend'
 import { spellIntrinsic, INTRINSIC_BINDING_REFS } from '../intrinsics'
+import { fragmentRequires, type EmitFragment, type FragmentDeclares } from '../fragment'
 import { bodyHasRaw } from '../passes/opt/dce'
 import { dslError } from '../diagnostics/error'
 import { f32Lit } from './wgsl'
@@ -84,22 +88,30 @@ function glslType(t: ShaderType): string {
         )
       return `${glslType(t.elem)}[${t.size}]`
     }
-    case 'texture':
+    case 'texture': {
       // GLSL fuses texture+sampler into one combined sampler. '2d-array' (#1651) is
-      // CORE GLSL ES 3.00 — sampler2DArray, no extension, no Capability.
-      // Exhaustive: a new dim must fail compilation, not fall open to sampler2D.
+      // CORE GLSL ES 3.00 — sampler2DArray, no extension, no Capability. So are the
+      // INTEGER prefixes (#1703): u32 → `usampler…`, i32 → `isampler…` (GLSL ES 3.00
+      // §4.1.9 basic types). Exhaustive on BOTH axes — an unlisted elem is an index
+      // error and an unlisted dim hits `satisfies never`, so a new texture shape must
+      // fail compilation here rather than fall open to the FLOAT sampler2D (which
+      // would compile and then read garbage through the wrong sampler type).
+      const p = ({ f32: '', u32: 'u', i32: 'i' } as const)[t.elem]
       switch (t.dim) {
         case '2d-ms':
           throw new UnsupportedFeatureError(
             'glsl-es300: multisampled texture sampling — resolve first (later step)',
           )
         case '2d-array':
-          return 'sampler2DArray'
+          return `${p}sampler2DArray`
         case '2d':
-          return 'sampler2D'
+          return `${p}sampler2D`
         default:
-          return t.dim satisfies never
+          // Exhaustiveness on the ARM (#1703) — see typeKey's twin: with the texture
+          // type a two-arm union, `t` is `never` here and has no `.dim` to check.
+          return t satisfies never
       }
+    }
     case 'sampler':
       throw new UnsupportedFeatureError(
         'glsl-es300: standalone sampler — fused into the combined sampler2D',
@@ -621,8 +633,10 @@ function emitGlslEntry(
 // feat_data[base*STRIDE+lane] / bitcast<u32> lanes) — plus array<vecN<f32>> (the retained-icon
 // tint_data path, #823): element i reads its std430 stride worth of consecutive lanes
 // (vec2 = 2, vec3/vec4 = 4 — vec3 arrays pad to 16 B per std430) recombined with a vec ctor.
-// The RESIDUAL (fail-closed below): array<u32/i32> — needs a typed-texture / bitcast-lane
-// scheme (a documented follow-on, NOT yet implemented).
+// array<u32> / array<i32> (#1703) close what used to be the residual here: they lower to a
+// TYPED data texture (R32UI / R32I via usampler2D / isampler2D) rather than reusing the R32F
+// one, because GLSL ES 3.00 §2.1.1 permits flushing denormals to zero and small integers are
+// denormal f32 bit patterns — a bitcast lane may legally lose them.
 // Struct-array storage layout: the std430 f32-lane offset of each field + the element stride
 // (f32 lanes). A scalar field is one lane (u32 lanes are bitcast back); a vecN<f32> field is N
 // consecutive lanes recombined with a vec ctor. mat / vec<u32> fields are excluded (throw on
@@ -637,7 +651,7 @@ interface StructStorage {
 // Every residual throw below is now on the DEFAULT emit path, so each message names the
 // offending binding/field AND the shapes that do lower.
 const SUPPORTED_STORAGE_SHAPES =
-  'supported: array<f32>, array<vecN<f32>>, array<Struct of f32 / u32 (bitcast) / vecN<f32> fields>'
+  'supported: array<f32>, array<u32>, array<i32>, array<vecN<f32>>, array<Struct of f32 / u32 (bitcast) / vecN<f32> fields>'
 
 function lowerStorageToDataTexture(m: ModuleDecl): ModuleDecl {
   const structsMap = new Map(m.structs.map((s) => [s.name, s]))
@@ -646,6 +660,7 @@ function lowerStorageToDataTexture(m: ModuleDecl): ModuleDecl {
   // vec2 stride 2, vec3/vec4 stride 4), the first `n` recombined with a vec ctor.
   const vecStorage = new Map<string, { n: number; stride: number }>()
   const structStorage = new Map<string, StructStorage>() // array<Struct> storage
+  const intStorage = new Map<string, 'u32' | 'i32'>() // array<u32> / array<i32> storage (#1703)
   for (const b of m.bindings) {
     if (b.space !== 'storage') continue
     // The emulation is GATHER-ONLY: it rewrites READS into texelFetch and has no write
@@ -665,6 +680,21 @@ function lowerStorageToDataTexture(m: ModuleDecl): ModuleDecl {
     const elem = b.type.elem
     if (elem.kind === 'scalar' && elem.scalar === 'f32') {
       f32Names.add(b.name)
+      continue
+    }
+    // #1703 — the residual this pass used to fail closed on. A top-level array<u32> /
+    // array<i32> becomes a TYPED data texture (R32UI / R32I read through usampler2D /
+    // isampler2D), so element i arrives bit-exact.
+    //
+    // NOT the other scheme the old error message floated (carry the lanes through the
+    // existing R32F texture, recover with floatBitsToUint): GLSL ES 3.00 §2.1.1 lets an
+    // implementation flush ANY denormal to zero, and small integers ARE denormal f32
+    // bit patterns — `1u` is 1.4e-45. That route survives on every driver measured so
+    // far and is legal to break anywhere else, which is not a foundation for an
+    // exact-integer array. (The struct-FIELD u32 lane further down still bitcasts
+    // through R32F — pre-existing and deliberately untouched here.)
+    if (elem.kind === 'scalar' && (elem.scalar === 'u32' || elem.scalar === 'i32')) {
+      intStorage.set(b.name, elem.scalar)
       continue
     }
     if (elem.kind === 'vec' && elem.elem === 'f32') {
@@ -699,14 +729,38 @@ function lowerStorageToDataTexture(m: ModuleDecl): ModuleDecl {
       continue
     }
     throw new UnsupportedFeatureError(
-      `glsl-es300 storage-emul: storage binding '${b.name}' has an unsupported element type — ${SUPPORTED_STORAGE_SHAPES}; a top-level array<u32/i32> needs the typed-texture/bitcast-lane follow-on (#1647 records the design constraints) — today, carry u32 lanes as struct fields (bitcast) or pack into array<f32>`,
+      `glsl-es300 storage-emul: storage binding '${b.name}' has an unsupported element type — ${SUPPORTED_STORAGE_SHAPES}`,
     )
   }
-  if (f32Names.size === 0 && vecStorage.size === 0 && structStorage.size === 0) return m
-  const allNames = new Set<string>([...f32Names, ...vecStorage.keys(), ...structStorage.keys()])
-  // every storage binding → a sampler2D (R32F data texture) uniform; same name/group/binding.
+  if (
+    f32Names.size === 0 &&
+    vecStorage.size === 0 &&
+    structStorage.size === 0 &&
+    intStorage.size === 0
+  )
+    return m
+  const allNames = new Set<string>([
+    ...f32Names,
+    ...vecStorage.keys(),
+    ...structStorage.keys(),
+    ...intStorage.keys(),
+  ])
+  // The data texture BACKING each lowered binding. The f32 shapes keep the R32F
+  // sampler2D they have always had (their emitted bytes do not move); an integer array
+  // takes the matching typed texture (#1703).
+  //
+  // This is the half of the contract the emitted source cannot state: whoever allocates
+  // the data texture must give it an internal format matching the sampler declared here
+  // — R32F for sampler2D, R32UI for usampler2D, R32I for isampler2D. A mismatch does not
+  // raise; the texture is merely INCOMPLETE and every texelFetch silently returns 0.
+  // reflect()'s textureElem reports which one is owed.
+  const dataTexT = (name: string): ShaderType => {
+    const e = intStorage.get(name)
+    return e === 'u32' ? texture2duT : e === 'i32' ? texture2diT : texture2dfT
+  }
+  // every storage binding → a data-texture uniform; same name/group/binding.
   const bindings = m.bindings.map((b): BindingDecl =>
-    allNames.has(b.name) ? { ...b, space: 'uniform', type: texture2dfT } : b,
+    allNames.has(b.name) ? { ...b, space: 'uniform', type: dataTexT(b.name) } : b,
   )
   const u32lit = (value: number): Expr => ({ op: 'lit', type: u32T, value })
   const fetch = (name: string, lane: Expr): Expr => ({
@@ -715,6 +769,19 @@ function lowerStorageToDataTexture(m: ModuleDecl): ModuleDecl {
     fn: 'storageFetchF32',
     args: [{ op: 'varref', type: texture2dfT, name }, lane],
   })
+  // The integer twin (#1703). Result type and varref type are both derived from the
+  // SAME intStorage entry that chose the binding's sampler, so the fetched type cannot
+  // disagree with the type declared — a `float` result off a usampler2D would not
+  // compile, and the reverse would compile and read garbage.
+  const fetchInt = (name: string, lane: Expr): Expr => {
+    const u = intStorage.get(name) === 'u32'
+    return {
+      op: 'call',
+      type: u ? u32T : i32T,
+      fn: u ? 'storageFetchU32' : 'storageFetchI32',
+      args: [{ op: 'varref', type: u ? texture2duT : texture2diT, name }, lane],
+    }
+  }
   const rE = (e: Expr): Expr => {
     switch (e.op) {
       case 'member': {
@@ -753,6 +820,9 @@ function lowerStorageToDataTexture(m: ModuleDecl): ModuleDecl {
       case 'index':
         if (e.base.op === 'varref' && f32Names.has(e.base.name))
           return fetch(e.base.name, rE(e.idx))
+        // ids[i] → storageFetchU32(ids, i) — one texel, one element, no lane math (#1703).
+        if (e.base.op === 'varref' && intStorage.has(e.base.name))
+          return fetchInt(e.base.name, rE(e.idx))
         if (e.base.op === 'varref' && vecStorage.has(e.base.name)) {
           // tint[i] → vecN(fetch(i*stride), …, fetch(i*stride+n-1)).
           const vs = vecStorage.get(e.base.name)!
@@ -1155,7 +1225,7 @@ export interface GlslEmitOptions extends EmitOptions {
    *  - `precision highp int;` is LOAD-BEARING (storage-emulation index math, bitcast
    *    lanes) and is never qualified by this option. MapLibre sets no int precision at
    *    all; we keep ours pinned at highp.
-   *  - The #1651 `precision highp sampler2DArray;` line is likewise untouched.
+   *  - The #1651/#1703 `precision highp <sampler type>;` lines are likewise untouched.
    *  - It is a WHOLE-STAGE default, so it covers positions and coordinates too. mediump
    *    is ~fp16: ~3 decimal digits over a ±65504 range, far short of what a projected
    *    map coordinate needs — f32 ALREADY collapses at deep zoom, which is the entire
@@ -1246,7 +1316,12 @@ function assembleGlsl(
    *  which forced a separate lowering per stage; selecting here instead lets both stages
    *  share one (see emitGlslStages). */
   keepEntry?: string,
-): string {
+  /** #1711 — omit the stage entry points, for a DECLARATIONS-ONLY fragment a host
+   *  composes into a program it owns. The entries are still computed (they decide the
+   *  stage scope, so dropping them earlier would change which helpers and bindings
+   *  survive) and are reported to the caller; only their spelling is withheld. */
+  omitEntries?: boolean,
+): GlslAssembly {
   const structs = new Map(lowered.structs.map((s) => [s.name, s]))
 
   // Stage filter through the shared predicate (#763 S3) — the old attr-string
@@ -1284,17 +1359,33 @@ function assembleGlsl(
   // index math and the bitcast lanes need full int range, so lowering it would turn a
   // bandwidth optimisation into a correctness bug.
   //
-  // sampler2DArray needs its OWN line (#1651): GLSL ES 3.00 §4.5.4 predeclares default
-  // precisions for `sampler2D` / `samplerCube` ONLY, so a `uniform sampler2DArray`
-  // without a qualifier is a compile error — and `precision highp float;` does not cover
-  // it. Emitted only when this stage actually declares one, so every module without an
-  // array texture keeps its byte-identical header.
-  const declaresArrayTex = lowered.bindings.some(
-    (b) =>
-      b.type.kind === 'texture' &&
-      b.type.dim === '2d-array' &&
-      (scope === null || scope.bindings.has(b.name)),
-  )
+  // Every sampler type EXCEPT `sampler2D` needs its OWN line (#1651, #1703): GLSL ES
+  // 3.00 §4.5.4 predeclares default precisions for `sampler2D` / `samplerCube` ONLY, so
+  // a `uniform sampler2DArray` / `usampler2D` / `isampler2DArray` without a qualifier is
+  // a compile error — and `precision highp float;` does not cover it.
+  //
+  // DERIVED from glslType() rather than a second spelling table: a hand-listed set is
+  // exactly the two-authorities drift that lets a new texture shape emit a precision
+  // line naming a type it never declares (or worse, declare one with no line and fail
+  // only on a real GPU). '2d-ms' is skipped because it never reaches emit — the caps
+  // gate fails it closed first, and glslType() throws on it.
+  //
+  // Emitted only for the shapes THIS stage declares, so every module without one keeps
+  // its byte-identical header; sorted so the header is deterministic.
+  const samplerPrecisions = [
+    ...new Set(
+      lowered.bindings
+        .filter(
+          (b) =>
+            b.type.kind === 'texture' &&
+            b.type.dim !== '2d-ms' &&
+            (scope === null || scope.bindings.has(b.name)),
+        )
+        .map((b) => glslType(b.type)),
+    ),
+  ]
+    .filter((s) => s !== 'sampler2D')
+    .sort()
   // #1670 — the `#extension … : require` directives this module's declared caps need
   // (computed by the caller from the AUTHORED module), SPLICED between `#version` and the
   // first precision line. That slot is not a style choice: GLSL ES 3.00 §3.4 requires an
@@ -1302,14 +1393,22 @@ function assembleGlsl(
   // itself lead the source. '' (every module whose caps are host-side, i.e. all of them
   // today except a multiview one) splices NOTHING, so the header keeps its exact bytes —
   // the byte-neutral-when-unused shape of the #1651 sampler2DArray line above.
-  const parts: string[] = [
+  //
+  // Split out rather than pushed onto `parts` (#1711): these lines are what a host that
+  // owns the program supplies itself, so a declarations-only fragment must hand them back
+  // as DATA instead of concatenating them into source the consumer then has to strip. A
+  // regex over the emitted text cannot do it safely — `#extension` sits between `#version`
+  // and the precision lines exactly when a capability directs one, so a
+  // strip-`#version`-then-precision pattern silently keeps the whole block on those
+  // modules and removes it on every other one.
+  const preamble: string[] = [
     '#version 300 es',
     ...(extHeader ? [extHeader] : []),
     `precision ${opts?.floatPrecision ?? 'highp'} float;`,
     'precision highp int;',
-    ...(declaresArrayTex ? ['precision highp sampler2DArray;'] : []),
-    '',
+    ...samplerPrecisions.map((s) => `precision highp ${s};`),
   ]
+  const parts: string[] = []
 
   // #923 — specialization constants. GLSL ES 3.00 has no `override`, so the portable
   // equivalent is the PREPROCESSOR, emitted HERE (after the `#version`/precision
@@ -1371,16 +1470,28 @@ function assembleGlsl(
       )
     else if (b.type.kind === 'struct')
       bindingLines.push(emitGlslUbo(b, structByName(structs, b.type.name), structs))
-    // compute-GPGPU only: a bare scalar/vec uniform (u_count: uvec4) emits as a
-    // default-block uniform (set via glUniform*). Gated behind emulateCompute so the
-    // existing "uniform binding must be a struct" invariant is unchanged for every
-    // vertex/fragment caller (critique #3).
+    // A LOOSE default-block uniform (set via glUniform*), rather than a std140 block.
+    // Two ways in, and they are the same lowering reached for different reasons:
+    //
+    //   • `owner: 'host'` (#1710) — a HOST-OWNED uniform, which is what a GLSL host
+    //     prelude actually provides. Declared per-value by `hostUniform`, so the choice
+    //     is a property of the DECLARATION rather than of the whole emit. Before this,
+    //     the only way to reach this spelling was to emit the block and cut it back open
+    //     with string surgery — bypassing reflect(), and breaking outright under
+    //     `minify()`, which collapses the whitespace such a parse depends on.
+    //   • `emulateCompute` — the compute-GPGPU path's bare `u_count: uvec4`, unchanged.
+    //
+    // `precision` is emitted only when the declaration asked for one: a fragment composed
+    // into a host program does not get our precision preamble, so the qualifier has to be
+    // able to ride on the declaration itself (#1711).
     else if (
-      opts?.emulateCompute &&
       b.space === 'uniform' &&
-      (b.type.kind === 'scalar' || b.type.kind === 'vec')
+      (b.owner === 'host' || opts?.emulateCompute) &&
+      (b.type.kind === 'scalar' || b.type.kind === 'vec' || b.type.kind === 'mat')
     )
-      bindingLines.push(`uniform ${glslType(b.type)} ${b.name};`)
+      bindingLines.push(
+        `uniform ${b.precision ? b.precision + ' ' : ''}${glslType(b.type)} ${b.name};`,
+      )
     else
       throw new UnsupportedFeatureError(
         `glsl-es300: uniform binding '${b.name}' must be a struct (a std140 UBO block)`,
@@ -1405,11 +1516,45 @@ function assembleGlsl(
   }
   if (helpers.length)
     parts.push(helpers.map((f) => glslEs300Backend.emitFunc(f, opts?.parens)).join('\n\n'))
-  if (entries.length)
+  if (entries.length && omitEntries !== true)
     parts.push(entries.map((f) => emitGlslEntry(f, structs, opts?.parens)).join('\n\n'))
 
-  return applyTextPlugins(parts.join('\n') + '\n', opts)
+  return {
+    preamble,
+    sections: parts,
+    declares: {
+      functions: helpers.map((f) => f.name),
+      structs: [...structs.keys()].filter((n) => !bindingStructNames.has(n)),
+      bindings: lowered.bindings
+        .filter((b) => scope === null || scope.bindings.has(b.name))
+        .map((b) => b.name),
+      consts: lowered.consts.map((c) => c.name),
+      overrides: (lowered.overrides ?? []).map((o) => o.name),
+      entryPoints: entries.map((f) => f.name),
+    },
+    requires: fragmentRequires(lowered, helpers.concat(entries), 'glsl'),
+  }
 }
+
+/** The preamble / body split of one GLSL assembly (#1711). `emitGlslModule` joins them
+ *  back into the byte-identical whole; `emitGlslFragment` hands the preamble to the host
+ *  as structured data and emits the body alone.
+ *
+ *  `sections` stays an ARRAY rather than a pre-joined string precisely so the join below
+ *  can reproduce the original `parts` shape exactly. Pre-joining introduces a trailing
+ *  newline that the empty-body case (a module of nothing but entries, emitted with
+ *  `omitEntries`) then double-counts. */
+interface GlslAssembly {
+  readonly preamble: readonly string[]
+  readonly sections: readonly string[]
+  readonly declares: FragmentDeclares
+  readonly requires: readonly string[]
+}
+
+/** Join a split assembly into a whole stage source — byte-identical to the pre-#1711
+ *  emitter, whose `parts` array was `[...preamble, '', ...sections]`. */
+const joinGlsl = (a: GlslAssembly, opts?: GlslEmitOptions): string =>
+  applyTextPlugins([...a.preamble, '', ...a.sections].join('\n') + '\n', opts)
 
 /** Emit one stage (or, with `stage` omitted, the whole module) as GLSL ES 3.00. */
 export function emitGlslModule(
@@ -1419,12 +1564,49 @@ export function emitGlslModule(
 ): string {
   // The `#extension` header comes from the AUTHORED module (#1670) — see assembleGlsl's
   // `extHeader` param.
-  return assembleGlsl(
+  return joinGlsl(
+    assembleGlsl(glslEs300Backend.modulePreamble?.(m) ?? '', lowerForGlsl(m, opts), stage, opts),
+    opts,
+  )
+}
+
+/** Emit a module as a header-less GLSL ES 3.00 FRAGMENT (#1711) — the declarations and
+ *  helpers, without `#version`, without the precision preamble, and (by default) without
+ *  the stage entry point — for a host that owns the program and composes this into it.
+ *
+ *  What the preamble would have carried comes back as {@link EmitFragment.preamble}: the
+ *  `#version` line, any `#extension … : require` a declared capability directs, and the
+ *  precision lines — including the integer-sampler ones the backend derives from the
+ *  module's own texture types (#1703). A host merges and de-duplicates those across the
+ *  fragments it assembles; nothing is dropped, so no consumer has to regex them back.
+ *
+ *  Entry points are excluded unless `entryPoints: true`. They are still listed in
+ *  `declares.entryPoints` either way, and they still decide the stage scope, so which
+ *  helpers, structs and bindings the fragment carries is exactly what that stage needs.
+ *
+ *  @param m - the module to emit.
+ *  @param stage - which stage's scope to emit; omit for the whole module.
+ *  @param opts - the usual GLSL emit options, plus `entryPoints` to keep the entries.
+ */
+export function emitGlslFragment(
+  m: ModuleDecl,
+  stage?: 'vertex' | 'fragment',
+  opts?: GlslEmitOptions & { entryPoints?: boolean },
+): EmitFragment {
+  const a = assembleGlsl(
     glslEs300Backend.modulePreamble?.(m) ?? '',
     lowerForGlsl(m, opts),
     stage,
     opts,
+    undefined,
+    opts?.entryPoints !== true,
   )
+  return {
+    source: applyTextPlugins(a.sections.join('\n') + '\n', opts),
+    preamble: a.preamble,
+    declares: a.declares,
+    requires: a.requires,
+  }
 }
 
 /** Both stages of one module, lowered + OPTIMIZED ONCE. Byte-identical to calling
@@ -1450,7 +1632,10 @@ export function emitGlslStages(
   // module-level fact, not a per-stage one (#1670).
   const extHeader = glslEs300Backend.modulePreamble?.(m) ?? ''
   return {
-    vertex: assembleGlsl(extHeader, lowered, 'vertex', opts, opts?.vertexEntry),
-    fragment: assembleGlsl(extHeader, lowered, 'fragment', opts, opts?.fragmentEntry),
+    vertex: joinGlsl(assembleGlsl(extHeader, lowered, 'vertex', opts, opts?.vertexEntry), opts),
+    fragment: joinGlsl(
+      assembleGlsl(extHeader, lowered, 'fragment', opts, opts?.fragmentEntry),
+      opts,
+    ),
   }
 }
