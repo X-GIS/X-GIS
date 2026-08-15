@@ -22,6 +22,21 @@
 
 import type { Fp64Flavor } from '../passes/fp64-lower'
 
+/** The device-identification signals `recommendFp64Flavor` (and `isAppleGpu`) use to
+ *  pick the df64 lowering flavour a target actually needs — `'integer'` on
+ *  Apple/Metal, `'float'` everywhere else (see `Fp64Flavor` for why Apple's shader
+ *  compiler forces that split). The DSL is a standalone library with no way to see a
+ *  GPU itself, so a consumer collects whatever it has — a WebGPU adapter's `info`, a
+ *  WebGL2 `UNMASKED_RENDERER_WEBGL` string, `navigator.userAgent` — and passes it
+ *  here; every field is optional, and ANY single Apple-identifying signal is enough
+ *  to select `'integer'`. Passing none of them defaults to `'float'`, so an Apple
+ *  device whose signals a caller forgot to collect gets the WRONG flavour silently:
+ *  df64 keeps compiling and running, but its extended precision collapses back to
+ *  plain f32 on that platform the moment the shader compiler reassociates the
+ *  guarded EFT terms away.
+ *
+ *  Exported from `@xgis/shader-dsl`.
+ */
 export interface Fp64FlavorSignals {
   /** `GPUAdapter.info` (or any {vendor, architecture} shaped object). Apple
    *  reports vendor 'apple' (architecture like 'apple' / 'metal-3'). */

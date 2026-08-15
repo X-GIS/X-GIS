@@ -10,6 +10,14 @@
 // identically by both targets (`name(args)`), which also covers user-defined
 // function calls (they flow through the same `call` op and pass through).
 
+/** Which emit target `spellIntrinsic` and the `INTRINSICS` table spell for — `'wgsl'` or
+ *  `'glsl'`. Narrower than it looks: this is the two-column key of THIS registry's `Spelling`
+ *  record, not a general backend identifier — the GLSL backend's own `Backend.id` is
+ *  `'glsl-es300'`, not `'glsl'`. A future third writer (SPIR-V, MSL) needs a new column added
+ *  here (and a new case in `spellIntrinsic`) before it needs anything from `core/backend.ts`.
+ *
+ *  Exported from `@xgis/shader-dsl`.
+ */
 export type IntrinsicTarget = 'wgsl' | 'glsl'
 
 type Spelling = {
@@ -221,6 +229,19 @@ export const INTRINSICS: Readonly<Record<string, Spelling>> = {
 // calls. An intrinsic that gains a hardcoded binding name MUST register it
 // here, or per-stage emit drops the binding while the spelling still names it
 // (a GPU compile error, caught by the compile gates).
+/** Which binding name(s) an intrinsic's SPELLING references TEXTUALLY, for the one intrinsic
+ *  (`f64Guard`) that names a binding inside its emitted string rather than through an `Expr`
+ *  argument — normal reference collection over the IR (`ir/collect-refs`) has no argument node
+ *  to walk, so it cannot see this reference at all. The real consumer is the GLSL per-stage emit
+ *  scope (`backends/glsl.ts` `stageScope`): it keeps only the bindings a reachable function
+ *  varrefs, then adds this table's entries for every INTRINSIC CALL it kept, so `_fp64` survives
+ *  stage-trimming even though nothing in the IR names it directly. Any new intrinsic that
+ *  hardcodes a binding name into its spelling (the way `f64Guard` hardcodes `_fp64`) MUST add a
+ *  row here, or per-stage emit will drop the binding while the spelling still reads it — a GLSL
+ *  compile error naming an undeclared sampler, not caught until a real WebGL2 driver sees it.
+ *
+ *  Exported from `@xgis/shader-dsl`.
+ */
 export const INTRINSIC_BINDING_REFS: Readonly<Record<string, readonly string[]>> = {
   f64Guard: ['_fp64'],
 }
@@ -247,6 +268,18 @@ export function spellIntrinsic(
 // compile time. Listing the portable ids EXPLICITLY here turns "absent = assume identity" into
 // "absent = unclassified", which the catalogue test (intrinsic-coverage.test.ts) flags: every
 // builtin id the surface emits must be in INTRINSICS (divergent) OR here (asserted identical).
+/** The builtin ids asserted to spell IDENTICALLY on both targets — `sin`, `dot`, `clamp`, and
+ *  friends — so they carry no `INTRINSICS` entry and fall through `spellIntrinsic` as the plain
+ *  `name(args)` identity. This set itself is never consulted BY `spellIntrinsic` (which only
+ *  reads `INTRINSICS`); it exists so `isKnownIntrinsic` can tell "deliberately identical" apart
+ *  from "nobody has classified this yet" — and that distinction is load-bearing at RUNTIME, not
+ *  just in the coverage test: `fp64Lower` calls `isKnownIntrinsic` while walking f64 operands
+ *  (e.g. to reject an unsupported builtin over a `mat64` value), so a new divergent builtin
+ *  added here BY MISTAKE would silently emit the same (wrong-on-one-target) string instead of
+ *  failing the catalogue test that actually catches it.
+ *
+ *  Exported from `@xgis/shader-dsl`.
+ */
 export const PORTABLE_INTRINSICS: ReadonlySet<string> = new Set([
   // genType1 (component-wise unary) — same name in WGSL + GLSL ES 3.00.
   'sin',
@@ -294,6 +327,16 @@ export const PORTABLE_INTRINSICS: ReadonlySet<string> = new Set([
 // fp64Lower into constructs / the identity. The CPU oracle evaluates them
 // natively (BUILTINS); if one leaked to a backend the emitted call is invalid
 // GLSL — the wgslType/glslType SD0040 backstops make the leak loud.
+/** Builtin ids the authoring surface can produce that are consumed ENTIRELY by `fp64Lower`
+ *  before any backend ever runs — the f64 widen/pack/unpack trio. Unlike `PORTABLE_INTRINSICS`
+ *  (which DOES reach `spellIntrinsic`, just spelled identically), these are rewritten away
+ *  during lowering and must NEVER survive to it: `isKnownIntrinsic` deliberately excludes them,
+ *  so if one leaks through unlowered, the backend's type-spelling backstop (`wgslType`/
+ *  `glslType`, error code SD0040) catches it loudly instead of emitting an invalid call the
+ *  driver would reject with no line back to the authoring site.
+ *
+ *  Exported from `@xgis/shader-dsl`.
+ */
 export const PRE_EMIT_INTRINSICS: ReadonlySet<string> = new Set(['f64', 'f64FromParts', 'f64Parts'])
 
 /** True if `name` is a builtin the registry knows how to spell on every target — either a

@@ -52,6 +52,20 @@ export interface CapSupport {
  *  the WGSL backend used to carry (CLAUDE.md §12, the second-ratchet lesson). */
 export type CapProfile = Readonly<Partial<Record<Capability, CapSupport>>>
 
+/** A backend's capability COVERAGE, built once via `Capabilities.fromProfile(backend.capProfile)`
+ *  — membership in the profile's keys IS support, so there is no second cached set that could
+ *  drift from it (#1670). `assertCaps(backend, module)` is the real consumer: it derives what a
+ *  module actually needs with `requiredCaps` (a storage binding → `storageBuffer`, a `@compute`
+ *  entry → `compute`, an MSAA texture load → `msaaTextureLoad`, plus whatever the author listed
+ *  in `enables`), then calls `.covers(req)` — and on a miss, `.missing(req)` names exactly which
+ *  caps the target cannot spell, so the thrown `UnsupportedFeatureError` says "backend
+ *  'glsl-es300' cannot emit this module — missing capabilities: compute" instead of the GLSL
+ *  writer discovering the same fact mid-emit with no module-level context. This is why GLSL ES
+ *  3.00's `capProfile` has NO row for `storageBuffer`, `compute`, or `msaaTextureLoad` even
+ *  though the GLSL writer itself never gets asked to emit them: the gate runs first.
+ *
+ *  Exported from `@xgis/shader-dsl`.
+ */
 export class Capabilities {
   constructor(private readonly set: ReadonlySet<Capability>) {}
   /** The caps a `capProfile` declares — its KEYS. The only way a coverage decision
@@ -100,6 +114,25 @@ export function hostFeaturesFor(be: Backend, caps: readonly Capability[]): reado
   })
 }
 
+/** The target-writer contract every backend (WGSL, GLSL ES 3.00, and any future SPIR-V/MSL
+ *  writer) implements so the shared emit driver (`core/emit.ts`) never branches on which target
+ *  it is emitting for — every target-specific decision (type/literal/intrinsic spelling, the
+ *  handful of divergent statement fragments, and the module-level declaration surface) is a
+ *  method call into whichever `Backend` the caller passed. `capProfile` is the one piece a
+ *  backend does NOT spell code for: it is read by `assertCaps` (`passes/required-caps.ts`),
+ *  which the shared `lowerForBackend` runs before ANY of these methods are called, so a module
+ *  needing a capability a target lacks throws `UnsupportedFeatureError` — naming the missing
+ *  caps — before the backend gets a chance to emit source the driver would reject. Concretely:
+ *  GLSL ES 3.00 (WebGL2) has no row for `storageBuffer` / `compute` / `msaaTextureLoad` at all
+ *  (WebGL2 has neither compute shaders nor multisampled texture loads), where WGSL's rows for
+ *  the same three are empty objects — core, nothing to declare or activate. A cap can also be
+ *  core on one target and an EXTENSION on the other: `floatRenderTarget` is `{}` (free) on WGSL
+ *  but needs `EXT_color_buffer_float` activated on GLSL. A backend whose declaration surface
+ *  can't represent something (e.g. GLSL has no binding/struct syntax at a bare emit site) fails
+ *  closed there too, the same way.
+ *
+ *  Exported from `@xgis/shader-dsl`.
+ */
 export interface Backend {
   readonly id: string
   /** THE capability table for this target (#1670) — neutral id → { directive?,
