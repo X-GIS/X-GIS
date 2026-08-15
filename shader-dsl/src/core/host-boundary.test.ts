@@ -15,7 +15,7 @@
 // what the string surgery produced, AND survives `minify()`, which the surgery could not.
 
 import { describe, it, expect } from 'vitest'
-import { externVar, fn, module, vec4, vec2fT, vec4fT, f32T, mat4x4fT } from './ir'
+import { externVar, fn, module, transformMat4, vec4, vec2fT, vec4fT, f32T, mat4x4fT } from './ir'
 import { builtin, hostUniform, ioStruct, resource, uniformStruct } from './sot'
 import { emitGlslFragment, emitGlslModule } from './backends/glsl'
 import { emitModule } from './backends/wgsl'
@@ -26,10 +26,9 @@ import { reflect } from './reflect'
 // ── externVar ────────────────────────────────────────────────────────────────
 
 describe('externVar — the host declares it; we only reference it', () => {
-  // A vec4 rather than the mat4 a real `u_matrix` would be: the DSL's `mul` overloads do
-  // not yet type matrix x vector (they infer `vec<mat4x4<f32>>`), which is a gap in the
-  // arithmetic surface and nothing to do with the host boundary. The mat4 case is still
-  // exercised below, through reflect(), which needs the declaration and not the product.
+  // A vec4, for the arms that only need SOME extern to reference. The mat4 `u_matrix` a real
+  // host prelude provides gets its own arm below, because it is the case every consumer hits
+  // first and a fixture that never spells it proves nothing about it.
   const uCamera = externVar('u_camera_pos', vec4fT, { stage: 'vertex' })
   // GLSL links varyings by name, so a vertex entry returns an ioStruct rather than a bare
   // vec4 — the backend rejects the bare form outright.
@@ -73,6 +72,37 @@ describe('externVar — the host declares it; we only reference it', () => {
     ])
   })
 
+  it('a mat4 extern transforms a position — the case every host prelude starts with', () => {
+    // `u_matrix * a_pos` is the FIRST thing a MapLibre-shaped consumer writes, and until now
+    // no arm here spelled it: the fixture above uses a vec4, so the mat4 was only ever
+    // exercised through `reflect()`, which needs the declaration and not the product. A
+    // declarator whose headline use is untested is the shape §12 records from #1703.
+    //
+    // The generic `.mul` REJECTS mat x vec deliberately (`ir/node.ts:1860`) — the MVP
+    // transform gets a name at the call site instead of disappearing into an operator — so
+    // the spelling is `transformMat4`, not an operator gap.
+    const uMatrix = externVar('u_matrix', mat4x4fT, { stage: 'vertex' })
+    const mm = module({
+      externs: [uMatrix.decl],
+      uses: [VsOut],
+      funcs: [
+        fn(
+          'vs_mvp',
+          {},
+          () => VsOut.construct({ pos: transformMat4(uMatrix.node, vec4(1, 2, 3, 1)) }),
+          {
+            stage: 'vertex',
+          },
+        ),
+      ],
+    })
+    // The product is emitted, and the host's symbol is still never DECLARED by us.
+    const g = emitGlslModule(mm, 'vertex')
+    expect(g).toContain('u_matrix * vec4(1.0, 2.0, 3.0, 1.0)')
+    expect(g).not.toMatch(/uniform[^;\n]*u_matrix\s*;/)
+    expect(emitModule(mm)).toContain('u_matrix * vec4<f32>(1.0, 2.0, 3.0, 1.0)')
+  })
+
   it('a fragment lists it under requires, next to the extern FUNCTIONS', () => {
     expect(emitGlslFragment(m, 'vertex', { entryPoints: true }).requires).toContain('u_camera_pos')
   })
@@ -110,7 +140,7 @@ describe('externVar — the host declares it; we only reference it', () => {
       ],
     })
     const { module: mangled, renames } = mangleModule(mm)
-    // Non-vacuity: mangle DID rename something, so "u_matrix survived" means something.
+    // Non-vacuity: mangle DID rename something, so "u_camera_pos survived" means something.
     expect(renames.get('local_helper')).toBeTruthy()
     expect(emitModule(mangled)).toContain('u_camera_pos')
     expect(emitModule(mangled)).not.toContain('local_helper')
