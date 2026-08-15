@@ -473,13 +473,28 @@ describe('parseArgs', () => {
 
 describe('entrypoint', () => {
   const script = new URL('./emit-changelog.ts', import.meta.url).pathname
-  // The spawned probes below need real history: a depth-1 CI checkout has
-  // neither a local `main` ref nor `main~5`, so they self-skip there — the pure
-  // suites above still run in CI. A full local clone always runs them.
+  // The spawned probes below drive the REAL script against THIS repo, so they
+  // must skip on exactly the clones that cannot serve them. TWO independent
+  // preconditions, both load-bearing:
+  //
+  //  - the clone is not SHALLOW. This is the same question the script's own
+  //    depth guard asks, and asking a DIFFERENT one was the #1720 defect:
+  //    `main~5` and `--is-shallow-repository` agree at depth 1 (skip / would
+  //    refuse) and at full depth (run / renders), and disagree in the middle.
+  //    At `--depth 50` — the container and Claude-Code-on-the-web shape —
+  //    `main~5` resolves, so the probes ran, and the script refused by design:
+  //    2 red on main, green on CI, which checks out at depth 1.
+  //  - `main~5` resolves. The --since probe below names that ref by hand, and
+  //    a clone whose local `main` was never created (only origin/main, which
+  //    is how this container starts) has no such commit even at full depth.
+  //
+  // Neither implies the other, so both are checked. The guard itself stays
+  // covered everywhere by the tmpdir probe further down, which builds its own
+  // shallow clone rather than depending on this one's shape.
+  const probeGit = (...args: string[]) => spawnSync('git', args, { encoding: 'utf8' })
   const hasDeepHistory =
-    spawnSync('git', ['rev-parse', '--verify', '--quiet', 'main~5^{commit}'], {
-      encoding: 'utf8',
-    }).status === 0
+    probeGit('rev-parse', '--is-shallow-repository').stdout.trim() === 'false' &&
+    probeGit('rev-parse', '--verify', '--quiet', 'main~5^{commit}').status === 0
 
   it.skipIf(!hasDeepHistory)('emits to stdout when run directly', () => {
     const run = spawnSync('bun', [script], { encoding: 'utf8' })
