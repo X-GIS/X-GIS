@@ -17,34 +17,19 @@
 // from every emit sweep that iterates `examples`.
 
 import { describe, it, expect } from 'vitest'
-import { readdirSync, readFileSync } from 'node:fs'
-import { dirname, join } from 'node:path'
+import { dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { examples } from './index.ts'
 import { buildRegistry } from '../src/core/registry.ts'
+import { discoverExamples } from './_scan.ts'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
 
-/** `export const <name>: ShaderExample = {` … `id: '<id>'` — the export convention every
- *  example file follows. Leading-underscore files are shared helpers, not examples. */
-const DECL = /export const (\w+)\s*:\s*ShaderExample\s*=/
-const ID = /\bid:\s*'([^']+)'/
-
-interface Found {
-  readonly id: string
-  readonly importPath: string
-  readonly exportName: string
-}
-
-const discovered: Found[] = readdirSync(HERE)
-  .filter((f) => f.endsWith('.ts') && !f.startsWith('_') && !f.endsWith('.test.ts'))
-  .flatMap((file) => {
-    const src = readFileSync(join(HERE, file), 'utf8')
-    const decl = DECL.exec(src)
-    const id = ID.exec(src)
-    return decl && id ? [{ id: id[1]!, importPath: `./${file}`, exportName: decl[1]! }] : []
-  })
-  .sort((a, b) => a.id.localeCompare(b.id))
+// The scan moved to `_scan.ts` when #1716's generator landed, and is SHARED with it. Two
+// copies of the export-convention regex is how a generator and the gate that checks it come
+// to disagree — and the disagreement is invisible, because both keep passing on different
+// sets.
+const discovered = discoverExamples(HERE)
 
 describe('examples registry — the directory and the curated list agree', () => {
   it('the scan actually found the corpus (it is not vacuously empty)', () => {

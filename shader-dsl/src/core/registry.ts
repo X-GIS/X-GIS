@@ -51,6 +51,15 @@ export interface BuildRegistryOptions {
   /** The command that regenerates this file, named in the banner so a reader who hits a
    *  drift failure is told what to run rather than left to guess. */
   readonly regenerateWith?: string
+  /** The emit identity this registry's artifacts were produced with — pass
+   *  `emitIdentity(target, opts)` (#1715). Recorded in the banner so a committed registry
+   *  says WHICH emit mode wrote it.
+   *
+   *  This is the fix for the reported failure, and the banner is the right place for it: a
+   *  production build rewrote tracked files and the dev-mode goldens then disagreed with
+   *  what the build produced. Neither emit was wrong; the artifact simply could not say
+   *  which one it was. With a stamp, the diff's first line names the difference. */
+  readonly stamp?: string
 }
 
 /** What {@link buildRegistry} produced. */
@@ -123,6 +132,7 @@ export function buildRegistry(
   const source = [
     `// GENERATED — DO NOT EDIT.`,
     ...(opts?.regenerateWith ? [`// Regenerate with: ${opts.regenerateWith}`] : []),
+    ...(opts?.stamp ? [`// Emit identity: ${opts.stamp}`] : []),
     `//`,
     `// The id ORDER is curated, not discovered — see the generator's \`order\` input.`,
     ``,

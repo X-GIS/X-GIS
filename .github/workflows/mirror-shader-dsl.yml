@@ -121,6 +121,23 @@ jobs:
         with:
           fetch-depth: 0
 
+      # R4 — NO `set -x` in the script below, ever: xtrace would print the
+      # assembled push URL, token and all. The URL is built inside that shell,
+      # never through a `${{ … }}` interpolation (which lands in the step's
+      # printed "Run" preamble) and never echoed. The runner also masks
+      # registered secrets and git anonymizes credentials in the URLs it prints
+      # itself; this step relies on the first of the three, not the other two.
+      #
+      # This paragraph is a YAML comment and MUST STAY ONE — it names the
+      # `${{ … }}` form, and GitHub interpolates every expression in a `run:`
+      # scalar without caring that a `#` makes it a comment to the SHELL. Living
+      # inside the script, the EMPTY spelling it used to carry made the whole
+      # file unparseable: 56 runs, zero jobs, the workflow registered under its
+      # own path because even `name:` was never read (#1693). YAML comments are
+      # stripped before expression evaluation, so here it is inert — and
+      # scripts/workflow-validity.test.ts rejects the empty spelling anywhere in
+      # the file rather than model that distinction, which is why the ellipsis
+      # above is load-bearing rather than decorative.
       - name: Split shader-dsl and push to the mirror
         if: steps.preflight.outputs.configured == 'true'
         env:
@@ -128,12 +145,6 @@ jobs:
           MIRROR_TOKEN: ${{ secrets.SHADER_DSL_MIRROR_TOKEN }}
         run: |
           set -euo pipefail
-          # R4 — NO `set -x` here, ever: xtrace would print the assembled push
-          # URL, token and all. The URL is built inside this shell, never
-          # through a `${{ }}` interpolation (which lands in the step's printed
-          # "Run" preamble) and never echoed. The runner also masks registered
-          # secrets and git anonymizes credentials in the URLs it prints itself;
-          # this step relies on the first of the three, not on the other two.
 
           # Split into a local branch rather than parsing the command's stdout,
           # so the head SHA comes from `rev-parse` and not from whichever line

@@ -14,9 +14,14 @@ import {
   texture2diT,
   texture2dArrayuT,
   samplerT,
+  fn,
+  module,
+  vec4,
+  toF32,
   type StructDecl,
   type ModuleDecl,
 } from './ir'
+import { uniformStruct } from './sot'
 
 const struct = (
   name: string,
@@ -260,5 +265,62 @@ describe('reflect — texture bind entries carry their dim (#1651) and element (
         textureElem: 'u32',
       },
     ])
+  })
+})
+
+describe('reflect() reports the bindings a LOWERING injects, not just the declared ones (#1724)', () => {
+  // The `_fp64` anti-fast-math guard is auto-injected by fp64Lower, inside emit. Before this,
+  // the emitted source declared a binding reflect() did not report, so a host building its
+  // bind group from the reflection never bound the guard the shader samples. On WebGPU that
+  // is a validation error; on WebGL2 there is no error at all — the sampler stays on its
+  // default unit and the guard silently reads a value that is not 1.0.
+  const f64Module = () => {
+    const U = uniformStruct('U', { group: 0, binding: 0, as: 'u' }, { epoch: f64T })
+    return module({
+      uses: [U],
+      funcs: [
+        // An ADD in df64 — one of the helpers that genuinely reads the guard (the
+        // comparisons do not, which is why the injection is conditional).
+        fn('fs', {}, () => vec4(toF32(U.field.epoch.add(1.0)), 0.0, 0.0, 1.0), {
+          stage: 'fragment',
+        }),
+      ],
+    })
+  }
+
+  it('reports `_fp64` for a module that uses f64 arithmetic', () => {
+    const names = reflect(f64Module()).bindGroups.flatMap((g) => g.entries.map((e) => e.name))
+    expect(names).toContain('_fp64')
+  })
+
+  it('describes it completely enough to actually bind', () => {
+    // A name alone is not bindable. `resourceKind` + `textureDim` + `textureElem` are what a
+    // host needs to create the 1x1 texture the guard requires.
+    const e = reflect(f64Module())
+      .bindGroups.flatMap((g) => g.entries)
+      .find((x) => x.name === '_fp64')!
+    expect(e).toMatchObject({ resourceKind: 'texture', textureDim: '2d', textureElem: 'f32' })
+    expect(e.owner).toBe('module') // ours to create, not the host's to supply
+  })
+
+  it("reports NO guard for the 'integer' flavor, which never reads one", () => {
+    // The arm that makes the two above mean something: if reflect() simply appended `_fp64`
+    // to every f64 module, this would fail. It is the lowering's decision, and the lowering
+    // makes a different one here — so a host on Apple/Metal (recommendFp64Flavor picks
+    // 'integer') is told to bind exactly what that emit declares.
+    const names = reflect(f64Module(), { fp64Flavor: 'integer' }).bindGroups.flatMap((g) =>
+      g.entries.map((e) => e.name),
+    )
+    expect(names).not.toContain('_fp64')
+    expect(names).toContain('u') // …and the module's own bindings are still all there
+  })
+
+  it('leaves a module without f64 completely untouched', () => {
+    const U = uniformStruct('P', { group: 0, binding: 0, as: 'p' }, { k: f32T })
+    const plain = module({
+      uses: [U],
+      funcs: [fn('fs', {}, () => vec4(U.field.k, 0.0, 0.0, 1.0), { stage: 'fragment' })],
+    })
+    expect(reflect(plain).bindGroups.flatMap((g) => g.entries.map((e) => e.name))).toEqual(['p'])
   })
 })

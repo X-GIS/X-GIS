@@ -22,7 +22,7 @@
 
 import { describe, it, expect } from 'vitest'
 import { execFileSync } from 'node:child_process'
-import { readdirSync } from 'node:fs'
+import { readFileSync, readdirSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -75,5 +75,85 @@ describe('every e2e spec loads — a module-scope throw aborts the whole suite (
       `--list collected ${filesCollected} of ${specFiles.length} spec files — a spec that ` +
         `fails to load takes the whole suite with it (#1638)`,
     ).toBeGreaterThanOrEqual(specFiles.length)
+  })
+})
+
+// ═══ A spec NAMED a gate must be RUN by CI, or listed here as knowingly dark (#1715) ═══
+//
+// The file above proves every spec LOADS. That is orthogonal to whether anything runs it:
+// test.yml names its render-gate specs explicitly, so a spec absent from that list is green
+// forever by never executing. #1719 found two shader-dsl gates in exactly that state — they
+// had never run once — and registering them was the whole fix.
+//
+// A sweep for the rest found 34 more, out of 81 files whose NAME claims they are gates. 30 of
+// them turned out to PASS on headless WebGL2 — twice, in two independent runs — and are now
+// registered in test.yml. Confirming twice was not ceremony: `_matrix-gate` passed alone and
+// failed inside a 19-way batch, so a single green would have shipped a flake into a shared
+// leg. The four below are what is left, each with the reason it is still dark.
+//
+// The cost is recorded because it is the argument for splitting the leg later: the 30 add a
+// measured ~14 min to render-gate's SwiftShader step, which was 20.7 min for 63 specs. A
+// matrix split is one edit away, but it renames the check to `render-gate (a)` and this repo's
+// branch protection is not visible from the code — so that decision needs someone who can see
+// the settings, not a guess.
+//
+// SHRINK-ONLY, in both directions:
+//   • a gate-named spec missing from CI and from this list  → red, add it to CI or here
+//   • a row here that IS now registered                     → red, delete the row
+//   • a row here naming a file that no longer exists        → red, delete the row
+//
+// The middle rule is the ratchet: registering one of these costs a one-line deletion, and the
+// count below stays true instead of drifting into folklore (the path-keyed-gate failure in
+// CLAUDE.md §12 — two gates sat vacuously green for a release because their keys had moved).
+//
+// Specs NOT covered here: `_debug-*`, `_perf-*`, `_pixel-match-*` and friends. Of the 319
+// unregistered specs, most are investigation and profiling probes that were never meant to
+// gate anything; requiring those to run in CI would be wrong, not rigorous. The name is the
+// contract — call a spec a gate and it has to be one.
+const KNOWN_DARK_GATES: readonly string[] = [
+  // Three real assertion failures, unexamined. Each is a gate claiming something is broken,
+  // so each is a lead rather than a chore — but diagnosing three unrelated render defects is
+  // its own piece of work, and registering them red would just paint CI red.
+  '_1235-measure-gate.spec.ts', // "amber connector spans the click gap"
+  '_gl2-live-swap-gate.spec.ts', // re-run() on a live forcegl2 map: expect(…).toBeLessThan(…)
+  '_world-copies-projection-gate.spec.ts', // waitForFunction timeout at 15 s
+  // FLAKY, not broken: green on its own, red inside a 19-way batch. Registering it would put
+  // a load-sensitive spec in a shared leg, which is worse than leaving it dark — this row is
+  // why the other 30 were each confirmed TWICE before being registered.
+  '_matrix-gate.spec.ts',
+]
+
+describe('a gate-named spec is either run by CI or knowingly dark (#1715)', () => {
+  const workflow = readFileSync(resolve(PLAYGROUND, '../.github/workflows/test.yml'), 'utf8')
+  const registered = new Set(workflow.match(/_[a-z0-9-]+\.spec\.ts/g) ?? [])
+  const gateNamed = specFiles.filter((f) => f.endsWith('-gate.spec.ts'))
+  const dark = gateNamed.filter((f) => !registered.has(f))
+
+  it('the readers found both populations — otherwise every arm below is vacuous', () => {
+    expect(gateNamed.length, 'no *-gate.spec.ts found on disk').toBeGreaterThan(50)
+    expect(registered.size, 'no spec names parsed out of test.yml').toBeGreaterThan(50)
+  })
+
+  it('no gate-named spec is dark without being listed', () => {
+    const unlisted = dark.filter((f) => !KNOWN_DARK_GATES.includes(f))
+    expect(
+      unlisted,
+      `these specs are named gates but no CI leg runs them:\n  ${unlisted.join('\n  ')}\n` +
+        'Add them to the render-gate list in .github/workflows/test.yml, or to KNOWN_DARK_GATES ' +
+        'with a reason — a gate nobody runs is not a gate.',
+    ).toEqual([])
+  })
+
+  it('the list only shrinks — a row that got registered must be deleted', () => {
+    const stale = KNOWN_DARK_GATES.filter((f) => registered.has(f))
+    expect(stale, `now registered in CI, so delete these rows:\n  ${stale.join('\n  ')}`).toEqual(
+      [],
+    )
+  })
+
+  it('the list names no file that no longer exists', () => {
+    // The failure CLAUDE.md §12 records: a path-keyed allowlist dies silently when files move.
+    const missing = KNOWN_DARK_GATES.filter((f) => !specFiles.includes(f))
+    expect(missing, `no such spec — delete these rows:\n  ${missing.join('\n  ')}`).toEqual([])
   })
 })

@@ -43,6 +43,7 @@ import { UnsupportedFeatureError, type Backend, type CapProfile } from '../backe
 import { spellIntrinsic, INTRINSIC_BINDING_REFS } from '../intrinsics'
 import { fragmentRequires, type EmitFragment, type FragmentDeclares } from '../fragment'
 import { bodyHasRaw } from '../passes/opt/dce'
+import { mapExpr, mapStmt } from '../passes/opt/ir-transform'
 import { dslError } from '../diagnostics/error'
 import { f32Lit } from './wgsl'
 import {
@@ -652,6 +653,91 @@ interface StructStorage {
 // offending binding/field AND the shapes that do lower.
 const SUPPORTED_STORAGE_SHAPES =
   'supported: array<f32>, array<u32>, array<i32>, array<vecN<f32>>, array<Struct of f32 / u32 (bitcast) / vecN<f32> fields>'
+
+/** Flatten every `glsl: 'loose'` HOST-owned uniform block into one default-block uniform per
+ *  member, rewriting `block.field` reads to bare `field` (#1710).
+ *
+ *  This is the IR-level form of the `replaceAll('block.field', 'field')` a consumer had to
+ *  write over emitted TEXT, and the difference is not stylistic. Matching on the `member`
+ *  node cannot touch an unrelated identifier that merely contains the same substring, it
+ *  runs before the text plugins so `minify()` no longer breaks it, and the bindings it
+ *  produces are real declarations — so `reflect()`, the fragment `declares` set and mangle's
+ *  survivor set all describe what was actually emitted.
+ *
+ *  GLSL-only, and identity for every module without such a block: WGSL has one spelling for
+ *  a uniform block and a host-owned group is still declared there. */
+function lowerHostLooseBlocks(m: ModuleDecl): ModuleDecl {
+  const loose = m.bindings.filter(
+    (b) => b.type.kind === 'struct' && b.owner === 'host' && b.glsl === 'loose',
+  )
+  if (loose.length === 0) return m
+
+  const structsMap = new Map(m.structs.map((s) => [s.name, s]))
+  // block var name → (field name → the flattened uniform's type)
+  const flat = new Map<string, Map<string, ShaderType>>()
+  const flatBindings: BindingDecl[] = []
+  const claimed = new Map<string, string>() // field name → the block that claimed it
+
+  for (const b of loose) {
+    const decl = structsMap.get((b.type as { name: string }).name)
+    if (!decl)
+      throw new UnsupportedFeatureError(
+        `glsl-es300: hostBlock '${b.name}' declares struct '${(b.type as { name: string }).name}', which the module does not carry — pass it in \`structs\``,
+      )
+    const fields = new Map<string, ShaderType>()
+    for (const f of decl.fields) {
+      // Flattening puts every member into ONE namespace, so a collision here would emit two
+      // `uniform` lines with the same name — a link error whose message names neither block.
+      const prior = claimed.get(f.name)
+      if (prior !== undefined)
+        throw new UnsupportedFeatureError(
+          `glsl-es300: loose hostBlock member '${f.name}' is declared by both '${prior}' and '${b.name}' — flattened members share the default block, so their names must be unique`,
+        )
+      claimed.set(f.name, b.name)
+      fields.set(f.name, f.type)
+      flatBindings.push({
+        // The block's slot, carried unchanged and INERT: a GLSL default-block uniform has
+        // no @group/@binding — it is set by name through glUniform*. Kept rather than
+        // zeroed so each flattened member still traces back to the block it came from,
+        // and deliberately never validated (see the call site: this runs after validate,
+        // which would otherwise read N members at one slot as N collisions).
+        group: b.group,
+        binding: b.binding,
+        name: f.name,
+        space: 'uniform',
+        type: f.type,
+        owner: 'host',
+        ...(b.precision ? { precision: b.precision } : {}),
+      })
+    }
+    flat.set(b.name, fields)
+  }
+
+  const looseNames = new Set(loose.map((b) => b.name))
+  const rewrite = (e: Expr): Expr =>
+    mapExpr(e, (x) => {
+      if (x.op !== 'member') return x
+      const base = x.base
+      if (base.op !== 'varref' || !looseNames.has(base.name)) return x
+      const t = flat.get(base.name)!.get(x.field)
+      if (t === undefined)
+        throw new UnsupportedFeatureError(
+          `glsl-es300: loose hostBlock '${base.name}' has no member '${x.field}'`,
+        )
+      return { op: 'varref', type: t, name: x.field }
+    })
+
+  return {
+    ...m,
+    // The block's own struct decl goes with it — nothing references the type once every read
+    // is a bare uniform, and leaving it would emit a `struct` GLSL never uses.
+    structs: m.structs.filter(
+      (s) => !loose.some((b) => (b.type as { name: string }).name === s.name),
+    ),
+    bindings: [...m.bindings.filter((b) => !looseNames.has(b.name)), ...flatBindings],
+    funcs: m.funcs.map((f) => ({ ...f, body: f.body.map((s) => mapStmt(s, rewrite)) })),
+  }
+}
 
 function lowerStorageToDataTexture(m: ModuleDecl): ModuleDecl {
   const structsMap = new Map(m.structs.map((s) => [s.name, s]))
@@ -1286,8 +1372,18 @@ function lowerForGlsl(m: ModuleDecl, opts?: GlslEmitOptions): ModuleDecl {
   // the IR chain; their contract requires determinism on the lowered module, so
   // the vertex and fragment emits (separate calls over the same module) agree on
   // every shared transformed name.
+  //
+  // Loose host blocks (#1710) flatten AFTER lowerForBackend and BEFORE the plugins.
+  // After, because lowerForBackend validates, and the flattened members all carry their
+  // block's slot: a default-block uniform HAS no @group/@binding, so validating them as
+  // real slots reports a collision that does not exist on the target. Validation must see
+  // the module as authored — one block at one slot, which is exactly what WGSL emits and
+  // what `reflect()` reports. Before the plugins, so mangle sees the flattened bindings
+  // and its survivor set keeps every host-owned name.
   return applyIRPlugins(
-    sanitizeReservedIdents(lowerForBackend(src, glslEs300Backend, undefined, opts?.fp64Flavor)),
+    lowerHostLooseBlocks(
+      sanitizeReservedIdents(lowerForBackend(src, glslEs300Backend, undefined, opts?.fp64Flavor)),
+    ),
     opts,
   )
 }
