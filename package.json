@@ -27,6 +27,7 @@
     "test:projection": "cd playground && bunx playwright test _projection-coverage.spec.ts",
     "test:e2e": "cd playground && bunx playwright test",
     "bake:goldens": "UPDATE_EMIT_GOLDENS=1 vitest run shader-dsl/examples/emit-goldens.test.ts",
+    "fetch:demo-data": "bun scripts/fetch-demo-data.ts",
     "gen:examples": "bun scripts/gen-example-registry.ts > shader-dsl/examples/index.ts && prettier --write shader-dsl/examples/index.ts",
     "dev": "bun run --filter @xgis/playground dev",
     "dev:site": "bun run --filter @xgis/site dev",
