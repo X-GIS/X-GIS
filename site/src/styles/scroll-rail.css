@@ -48,6 +48,15 @@
  * for free where supported; elsewhere the static mask above is the graceful floor. */
 @supports (animation-timeline: scroll()) {
   .scroll-rail {
+    /* The base style must be NO fade, not the static one above. A `scroll()` timeline on an
+     * element with nothing to scroll is INACTIVE, and an animation on an inactive timeline is
+     * not in effect — so the element falls back to exactly this declaration. Leaving the
+     * static mask as the base meant a short rail (the "On this page" list on a 4-heading page:
+     * measured scrollHeight 144 === clientHeight 144) rendered permanently dimmed at both
+     * edges, which is the "reads as a rendering bug" case the comment above already named and
+     * then shipped anyway. With the fade removed here, a non-scrolling rail is clean and a
+     * scrolling one still gets the animated fade from the keyframes below. */
+    mask-image: none;
     animation: scroll-rail-fade linear both;
     animation-timeline: scroll(self block);
   }

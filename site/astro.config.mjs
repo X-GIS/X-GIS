@@ -350,6 +350,142 @@ function rehypeApiMemberSummary() {
 // depth list and only comparing a node's DIRECT CHILDREN gets both right for free — a
 // shallower heading of different text (the next accessor's own name) always ends a run,
 // so only genuine sibling repeats ever get numbered.
+// HEADING ROLE — a heading is a section LABEL or an identifier NAME, and depth cannot tell.
+//
+// The type scale keyed off depth: h2 a structural label, h3 a section, h4 a dense parameter
+// name. TypeDoc's shape does not work that way. On a plain function `## Parameters` / `### v`
+// puts the parameter name at h3; add one overload and everything shifts a level, so the SAME
+// role lands at a different depth on a different page. The h3 rule carried
+// `text-transform: uppercase` — correct for "PARAMETERS", and it renamed the parameters:
+// `v` published as `V`, `x` as `X`, `opts?` as `OPTS?`, in a language where case is meaning.
+// The page and its own table of contents disagreed, since the TOC never had the transform.
+//
+// So role is decided by the TEXT, against TypeDoc's closed section vocabulary. The default is
+// NAME, which is the fail-safe direction: a section this list has not heard of renders as an
+// identifier (plain, mixed case — merely plainer than intended), while the reverse would
+// silently rewrite someone's parameter. `Return`, `Node`, `Builder`, `If`, `Let`, `Break` and
+// `Discard` are all EXPORTED SYMBOLS in this package and appear as headings — which is why
+// this cannot be "looks like an English word", and why build-api-reference.ts asserts the set
+// stays disjoint from the published symbol names.
+const API_SECTION_LABELS = new Set([
+  'Accessors',
+  'Call Signature',
+  'Classes',
+  'Constructor',
+  'Constructors',
+  'Default Value',
+  'Deprecated',
+  'Enumeration Members',
+  'Enumerations',
+  'Example',
+  'Extended by',
+  'Extends',
+  'Functions',
+  'Get Signature',
+  'Implementation of',
+  'Implements',
+  'Indexable',
+  'Inherited from',
+  'Interfaces',
+  'Methods',
+  'Modules',
+  'Overrides',
+  'Parameters',
+  'Properties',
+  'References',
+  'Remarks',
+  'Returns',
+  'See',
+  'Set Signature',
+  'Since',
+  'Throws',
+  'Type Aliases',
+  'Type Declaration',
+  'Type Parameters',
+  'Variables',
+])
+function rehypeApiHeadingRole() {
+  return (tree, file) => {
+    if (file.data?.astro?.frontmatter?.generated !== true) return
+    const walk = (node) => {
+      for (const child of node.children ?? []) {
+        if (child.type === 'element' && /^h[2-6]$/.test(child.tagName)) {
+          // Whitespace-normalised before the lookup: TypeDoc writes "Type Parameters" with a
+          // regular space, but a heading that wrapped in the source can arrive with a newline,
+          // and the class covers the non-breaking space too — any of which would miss the set
+          // and silently demote a section to an identifier.
+          const text = textOf(child).replace(/\s+/g, ' ').trim()
+          // An overloaded section is numbered by rehypeApiOverloads ("Parameters 2"); match
+          // the label under that suffix rather than losing the role the moment a symbol
+          // gains a second overload.
+          const bare = text.replace(/ \d+$/, '')
+          const role = API_SECTION_LABELS.has(bare) ? 'api-h-label' : 'api-h-name'
+          child.properties.className = [...(child.properties.className ?? []), role]
+        }
+        walk(child)
+      }
+    }
+    walk(tree)
+  }
+}
+
+// TYPE LINES — a paragraph that IS a type, not a paragraph that mentions one.
+//
+// TypeDoc renders a type expression as a run of separate `<code>` elements with the angle
+// brackets as bare text between them: `Node<"f32">` arrives as
+// `<a href="…"><code>Node</code></a>&lt;<code>"f32"</code>&gt;`. `.blog-prose`'s inline-code
+// chip — background, radius, 0.1em/0.4em padding — then draws a box around each fragment and
+// leaves the brackets outside, so the reader sees `Node` `<` `"f32"` `>` : four boxes with
+// visible gaps where one identifier should be. Measured on the built page.
+//
+// The signature blockquote already had this stripped (prose.css), which is why the bug
+// survived a review: the ONE place anyone looked was fixed, and the Returns, Parameters,
+// Type Parameters and Extends sections — the other four places TypeDoc emits the same shape —
+// kept it. One rule for all five is the fix, not a fifth exception.
+//
+// A chip is right in DESCRIPTIVE prose (`x.add(1)` in a sentence reads better boxed), so the
+// two cases must be told apart structurally rather than by section name. The test is the one
+// api-doc-coverage.test.ts's A9 arm uses on doc tags: strip the code spans and the
+// punctuation, and see whether any prose survives. If none does, the paragraph is a type.
+const TYPE_LINE_RESIDUE = /^[\s<>|&(),.:;[\]{}?*=+/\\-]*$/
+function rehypeApiTypeLines() {
+  return (tree, file) => {
+    if (file.data?.astro?.frontmatter?.generated !== true) return
+    const walk = (node) => {
+      for (const child of node.children ?? []) {
+        if (child.type === 'element' && child.tagName === 'p') {
+          // The scaffolder's provenance line, on every page. Tagged here rather than matched
+          // in CSS because there is no structural tell — it is an ordinary paragraph whose
+          // only distinguishing feature is how it starts.
+          if (textOf(child).trimStart().startsWith('Exported from ')) {
+            child.properties.className = [
+              ...(child.properties.className ?? []),
+              'api-exported-from',
+            ]
+          }
+          const codeText = []
+          const collectCode = (n) => {
+            if (n.type === 'element' && n.tagName === 'code') return codeText.push(textOf(n))
+            for (const c of n.children ?? []) collectCode(c)
+          }
+          collectCode(child)
+          // Needs at least one `<code>`, or an ordinary empty-ish paragraph would qualify.
+          if (codeText.length > 0) {
+            let rest = textOf(child)
+            for (const t of codeText) rest = rest.replace(t, '')
+            if (TYPE_LINE_RESIDUE.test(rest)) {
+              const cls = child.properties.className ?? []
+              child.properties.className = [...cls, 'api-type-line']
+            }
+          }
+        }
+        walk(child)
+      }
+    }
+    walk(tree)
+  }
+}
+
 function rehypeApiOverloads() {
   return (tree, file) => {
     if (file.data?.astro?.frontmatter?.generated !== true) return
@@ -469,7 +605,12 @@ export default defineConfig({
       // pass is idempotent over headings that already carry one.
       rehypeHeadingIds,
       rehypeApiMemberSummary,
+      rehypeApiTypeLines,
       rehypeApiOverloads,
+      // AFTER rehypeApiOverloads, which rewrites "Parameters" to "Parameters 2" on an
+      // overloaded symbol — running before it would read the un-numbered text and then have
+      // the role silently go stale for exactly the pages with the most sections.
+      rehypeApiHeadingRole,
     ],
   },
   // English is the default and stays at the root (/docs, /blog, …);

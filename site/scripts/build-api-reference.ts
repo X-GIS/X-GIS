@@ -95,6 +95,18 @@ function internalSymbols(): string[] {
 // ── 1. generate ───────────────────────────────────────────────────────────────────────────
 rmSync(OUT, { recursive: true, force: true })
 
+// Astro's content layer caches RENDERED html in node_modules/.astro/data-store.json, and a
+// change to astro.config.mjs does not invalidate it — so editing one of the `rehypeApi*`
+// plugins that shape these pages produces a build whose output still has the old markup, with
+// no warning. Measured: a newly-added class was absent from dist after a clean `bun run build`
+// and appeared only once this file was deleted by hand. That failure mode is worse than a
+// wrong plugin, because it makes a CORRECT plugin look broken and invites someone to "fix" it.
+//
+// Dropping the store here costs a re-render the api collection was doing anyway (the markdown
+// above is deleted and regenerated on every build, so none of it could have been reused), and
+// it makes a local build agree with CI's clean checkout, which is the comparison that matters.
+rmSync(join(SITE, 'node_modules', '.astro', 'data-store.json'), { force: true })
+
 const td = spawnSync(
   join(SITE, 'node_modules', '.bin', 'typedoc'),
   // `--publicPath` overrides typedoc.json so the base is decided in ONE place (basePath()
@@ -160,6 +172,57 @@ if (stubbed.length > 0)
       `mechanical half of a comment for an author to finish. Replace the sentinel line with\n` +
       `real prose, or revert the stub — a page that tells the reader "TODO" is worse than the\n` +
       `blank one it replaced.`,
+  )
+
+// ── 2c. the heading-role vocabulary still matches what TypeDoc emits ──────────────────────
+// astro.config.mjs classifies every h2–h6 as a section LABEL or an identifier NAME by looking
+// its text up in API_SECTION_LABELS, and the type scale keys off that. The default is NAME,
+// which is the safe direction — but it is also the SILENT one: if a TypeDoc upgrade renames
+// "Type Parameters" or drops "Get Signature", that section quietly starts rendering as an
+// identifier and no build notices. A label that matches nothing is the observable form of that
+// drift, so it fails here. Read from the config, never transcribed — two copies of this set
+// would drift, and the stale copy is the one that stops catching anything.
+const CONFIG = readFileSync(join(SITE, 'astro.config.mjs'), 'utf8')
+const labelBlock = /const API_SECTION_LABELS = new Set\(\[(.*?)\n\]\)/s.exec(CONFIG)
+if (labelBlock === null)
+  die(
+    `could not find API_SECTION_LABELS in astro.config.mjs. Refusing to skip the check: with ` +
+      `no vocabulary to verify, every section heading would silently render as an identifier.`,
+  )
+const labels = [...labelBlock![1].matchAll(/'([^']+)'/g)].map((m) => m[1])
+if (labels.length === 0) die(`parsed ZERO entries out of API_SECTION_LABELS; fix this reader.`)
+
+const headingTexts = new Set<string>()
+for (const page of pages)
+  for (const m of readFileSync(page, 'utf8').matchAll(/^#{2,6} (.+)$/gm))
+    headingTexts.add(m[1].trim())
+// The check is on the UNCLASSIFIED side, not on unused labels. "Every label must occur" was
+// the first shape and it is wrong twice over: it forbids carrying vocabulary for a section
+// this corpus has no instance of yet (no enums here, no `@since` yet), and it still says
+// nothing about a section that APPEARS under a name the set has never heard of.
+//
+// What separates the two roles reliably is the space. Every TypeDoc section is an English
+// phrase and many are multi-word — "Call Signature", "Type Parameters", "Inherited from",
+// "Extended by" — while an identifier heading cannot contain one, because it is a parameter,
+// member or type-parameter name. So a multi-word heading outside the set is either a renamed
+// section or a new one, and both are exactly the drift that would otherwise render silently
+// as an identifier. Single-word sections (`Returns`, `Throws`, `Example`) are already in the
+// set and a TypeDoc upgrade inventing a new single-word one is the residual this cannot see.
+const namedHeadings = [...headingTexts].filter((t) => !labels.includes(t))
+const suspicious = namedHeadings.filter((t) => /\s/.test(t.replace(/ \d+$/, '')))
+if (suspicious.length > 0)
+  die(
+    `${suspicious.length} multi-word heading(s) are not in API_SECTION_LABELS: ` +
+      `${suspicious.slice(0, 10).join(', ')}${suspicious.length > 10 ? ', …' : ''}.\n` +
+      `An identifier heading (a parameter or member name) cannot contain a space, so each of ` +
+      `these is a TypeDoc section — renamed, or new in this version. Unclassified, it renders ` +
+      `as an identifier on every page that has it: plain, mixed case, dense, where a quiet ` +
+      `uppercase label belongs. Add it to API_SECTION_LABELS in astro.config.mjs.`,
+  )
+if (namedHeadings.length === 0)
+  die(
+    `every heading in the corpus is a section label, so the NAME role is never applied. That ` +
+      `makes the whole role split vacuous — parameters and members are what it exists for.`,
   )
 
 // ── 3. dedent fenced code blocks ──────────────────────────────────────────────────────────
@@ -310,6 +373,7 @@ if (broken.length > 0)
 console.log(
   `[api-reference] ${pages.length} pages, ${rewritten} links normalised, ` +
     `${dedented} code fence(s) dedented, ` +
+    `${labels.length} section label(s) vs ${namedHeadings.length} identifier heading(s), ` +
     `${forbidden.length} @internal symbol(s) verified absent, ` +
     `${targets.size} cross-reference target(s) resolved.`,
 )

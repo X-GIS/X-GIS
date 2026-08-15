@@ -305,6 +305,20 @@ build > log; grep -c "error TS" log` reports FAILURE on a clean build, because g
 
 **Verification**
 
+- A PAGE is verified by looking at the PAGE, not at the markdown behind it. Every gate around
+  the API reference was green and the pages were still wrong: an identifier heading published
+  UPPERCASED (a parameter `v` rendered `V`, on a case-sensitive language's reference), the
+  breadcrumb painted behind the fixed header, `Node<"f32">` shattered into four chips, and
+  every page loading pre-scrolled — `voidT` opened with its own `<h1>` at y=-5 — because a
+  rail's `scrollIntoView` scrolls EVERY scrollable ancestor, the document included. None of it
+  is visible in the generated `.md`, and none of it can fail a build. Screenshot the built page
+  and read it at full resolution (§5's tile split), then measure the DOM (`getBoundingClientRect`,
+  `getComputedStyle`, `scrollY`) — the numbers name the cause the picture only shows.
+- Astro's content layer caches RENDERED html in `site/node_modules/.astro/data-store.json`, and
+  editing a rehype plugin in `astro.config.mjs` does NOT invalidate it — a clean `bun run build`
+  emits the OLD markup with no warning, so a correct plugin looks broken and invites a "fix".
+  `build-api-reference.ts` now drops that file on every run; if a plugin edit still seems inert,
+  delete it before doubting the plugin.
 - Render-gate ladder: directional diff (DC>0, D1<D0) → threshold DC=0 → hash equality.
   Measure the SAME-CODE noise floor before trusting any rung; a deterministic harness
   (fixed camera, pumped convergence, software rasterizer) makes rung 3 (`md5sum`) reachable.

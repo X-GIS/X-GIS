@@ -298,11 +298,28 @@ const allKinds = KIND_ORDER.filter((k) => kindCounts.has(k)).map((k) => ({
   // empty rail.
   // Measured: the rail is 6888px against ~804px of viewport (327 symbols), and it loads at
   // scrollTop 0 — so on /api/index/functions/fn the active item sat at y=1223, off-screen.
-  // Centre it instead. `instant` because this is initial placement, not a transition, and an
-  // animated jump on every page load is its own annoyance.
+  // Centre it instead.
+  //
+  // NOT `scrollIntoView`. That scrolls EVERY scrollable ancestor, and the document is one of
+  // them, so centring an item in the rail scrolled the PAGE by however far down the rail the
+  // symbol happened to sit. Measured on the built site: /api/index/functions/f32 opened at
+  // scrollY 68 with the breadcrumb behind the fixed 49px header, and /api/index/variables/voidT
+  // opened at scrollY 133 with its own `<h1>` at y=-5 — the reader landed on a page whose title
+  // had already scrolled off the top. Invisible to every gate: the markup is identical either
+  // way and the defect exists only in the scroll position of a rendered page.
+  //
+  // Setting the rail's own scrollTop touches one element and cannot move the document.
   {
     const cur = document.querySelector('.api-nav [aria-current="page"]')
-    if (cur) cur.scrollIntoView({ block: 'center', behavior: 'instant' })
+    const rail = cur && cur.closest('.scroll-rail')
+    if (rail) {
+      // Rect-relative, not offsetTop: offsetTop is measured against the nearest POSITIONED
+      // ancestor, which the rail is not required to be, so it silently measures the wrong
+      // origin the moment the markup gains a wrapper.
+      const c = cur.getBoundingClientRect()
+      const r = rail.getBoundingClientRect()
+      rail.scrollTop += c.top - r.top - rail.clientHeight / 2 + c.height / 2
+    }
   }
 
   const input = document.getElementById('api-filter')

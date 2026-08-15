@@ -357,7 +357,12 @@
   padding-top: 0;
 }
 
-.api-prose h3 {
+/* A section within one signature — "Parameters", "Returns", "Type Parameters". Keyed off the
+ * ROLE class astro.config.mjs's rehypeApiHeadingRole puts on it, not off the depth: TypeDoc
+ * puts the same role at h3 on a plain function and h4 on an overloaded one, and the previous
+ * depth-keyed rule applied `text-transform: uppercase` to whatever landed at h3 — which on a
+ * function page is the PARAMETER NAME. `v` published as `V`. */
+.api-prose :is(h3, h4, h5, h6).api-h-label {
   font-family: var(--font-mono, ui-monospace, monospace);
   font-size: 12px;
   font-weight: 400;
@@ -367,19 +372,30 @@
   margin: 1.75rem 0 0.5rem;
 }
 
-/* A parameter / member name. Dense and repeated, so it reads as a list item rather than a
- * heading — the type line that follows it is pulled tight underneath. */
-.api-prose h4 {
+/* A parameter / member name — an IDENTIFIER, at whatever depth this page happens to put it.
+ * Dense and repeated, so it reads as a list item rather than a heading, with the type line
+ * pulled tight underneath. Never transformed: the text is code. */
+.api-prose :is(h2, h3, h4, h5, h6).api-h-name {
   font-family: var(--font-mono, ui-monospace, monospace);
   font-size: 13px;
   font-weight: 500;
+  letter-spacing: 0;
+  text-transform: none;
   color: var(--color-fg);
+  border-top: 0;
+  padding-top: 0;
   margin: 1.1rem 0 0.2rem;
 }
-.api-prose h4 + p {
+/* The type belongs to the name above it, so it is set as one block with it rather than as a
+ * paragraph that happens to follow. Was ~48px apart, which read as two unrelated rows. */
+.api-prose .api-h-name + p {
   margin-top: 0;
   font-size: 13px;
   color: var(--color-fg-dim);
+}
+.api-prose .api-h-name + .api-type-line {
+  margin-top: 0.1rem;
+  color: var(--color-fg-mute);
 }
 
 /* THE SIGNATURE. typedoc-plugin-markdown emits it as a blockquote (`> **fn**(…)`), which
@@ -404,11 +420,22 @@
 .api-prose blockquote p {
   margin: 0;
 }
-/* Inline code INSIDE the signature must not carry the blog's chip styling — each identifier
- * is its own <code>, so the padding and background turned `fn<P, R>(params, body)` into
- * `fn< P , R >( params , body )`, with a visible gap at every token boundary. Strip it: the
- * blockquote is already monospace, so the chips added nothing but the gaps. */
-.api-prose blockquote :not(pre) > code {
+/* Inline code that IS a type must not carry the blog's chip styling — each identifier is its
+ * own <code> with the brackets as bare text between them, so the padding and background turned
+ * `fn<P, R>(params, body)` into `fn< P , R >( params , body )`, with a visible gap at every
+ * token boundary. Strip it: the line is already monospace, so the chips added nothing but the
+ * gaps.
+ *
+ * Two selectors, one rule. The blockquote is the signature; `.api-type-line` is every OTHER
+ * place TypeDoc emits a bare type expression — Returns, Parameters, Type Parameters, Extends —
+ * tagged at build time by rehypeApiTypeLines (astro.config.mjs). Fixing only the blockquote is
+ * what let `Node<"f32">` ship as four boxes in the Returns section of all 332 pages. */
+/* `code:not(pre code)`, NOT `:not(pre) > code`. The latter needs an intermediate element to
+ * fill the `:not(pre)` slot, so it styled `<a><code>Node</code></a>` and skipped the sibling
+ * `<code>"f32"</code>` sitting directly under the tagged `<p>` — half of `Node<"f32">` lost
+ * its chip and the other half kept it, which is worse than either. Measured, not reasoned. */
+.api-prose blockquote code:not(pre code),
+.api-prose .api-type-line code:not(pre code) {
   padding: 0;
   background: none;
   border: 0;
@@ -456,6 +483,26 @@
   padding-bottom: 1.1rem;
   margin-bottom: 1.5rem;
   border-bottom: 1px solid var(--color-line);
+}
+
+/* `Exported from …` — the OTHER provenance line, written into every scaffolded doc comment, so
+ * it is on all 332 pages. It was set as body prose sitting directly above the muted "Defined
+ * in" line: two provenance sentences at two different weights, the louder one being the less
+ * useful. Worse, the chip on each specifier pushed the separating comma outside the box, so it
+ * read as `@xgis/shader-dsl` , `@xgis/shader-dsl/core/ir` — a comma floating in the gap.
+ * Same voice as its neighbour, chips off, and the two read as one metadata block. */
+.api-prose .api-exported-from {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 11.5px;
+  color: var(--color-fg-mute);
+  margin-bottom: 0.4rem;
+}
+.api-prose .api-exported-from code:not(pre code) {
+  padding: 0;
+  background: none;
+  border: 0;
+  font-size: inherit;
+  color: var(--color-fg-dim);
 }
 
 /* Reading order is fixed at the DOM (rehypeApiReadingOrder in astro.config.mjs), NOT with
