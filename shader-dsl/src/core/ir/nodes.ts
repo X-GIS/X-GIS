@@ -267,6 +267,18 @@ export interface BindingDecl {
    *  wrong for a FRAGMENT composed into a host program whose preamble we do not control —
    *  the case that made a consumer re-add precision with a second post-process. */
   readonly precision?: 'highp' | 'mediump' | 'lowp'
+  /** How a STRUCT-typed uniform binding is spelled on GLSL ES 3.00 (#1710). Ignored on WGSL,
+   *  which has exactly one spelling, and ignored for non-struct types.
+   *
+   *  `'std140-block'` (the default, and every module-owned block) emits
+   *  `layout(std140) uniform Name { … } var;`. `'loose'` emits one default-block
+   *  `uniform <type> <field>;` per member and rewrites every `var.field` read to bare
+   *  `field` — because that is what a GLSL host prelude actually provides, and no amount
+   *  of correctness in the block form makes a shader link against a host that never
+   *  declared one. Only a HOST-owned block may choose `'loose'`: for a module-owned block
+   *  the two spellings are not interchangeable (std140 is the only one with a defined
+   *  layout for a host to write into), so the choice would be a silent ABI change. */
+  readonly glsl?: 'std140-block' | 'loose'
 }
 
 /** A HOST-PROVIDED global (#1713) — the authored declarator behind `externVar(name, type)`,

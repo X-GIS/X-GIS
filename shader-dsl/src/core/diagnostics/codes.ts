@@ -81,6 +81,14 @@ export const CODES = {
     summary: 'array-texture layer must be an integer',
     hint: 'a fractional layer literal is a naga compile error in WGSL but silently rounds in GLSL (layer = floor(z + 0.5), so 1.5 reads layer 2) — the backends would diverge; pass an integer, or an i32/u32 node',
   },
+  SD0016: {
+    code: 'SD0016',
+    // Split out of SD0014 (#1710). hostUniform borrowed that code for a shape it does not
+    // describe, so a reader who hit it was pointed at specialization constants and told to
+    // decompose into "per-component scalar overrides" — advice for a different declarator.
+    summary: 'host-owned resource has a shape the target cannot spell',
+    hint: 'hostUniform takes a scalar/vector/matrix — a host-owned STRUCT is hostBlock, which chooses its GLSL spelling with `glsl: "loose" | "std140-block"`; a loose block flattens to one uniform per member, so its members must themselves be scalar/vector/matrix',
+  },
 
   // ── Module-level gates ──
   SD0020: { code: 'SD0020', summary: 'module validation failed' },

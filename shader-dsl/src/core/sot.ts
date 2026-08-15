@@ -387,9 +387,9 @@ export function resource<T extends ShaderType>(
  * a loose uniform was to emit the block and then cut it back open with string surgery,
  * which bypassed `reflect()` and broke under `minify()`.
  *
- * Scalars, vectors and matrices only. A host-owned STRUCT stays a block on GLSL (there is
- * no sensible loose lowering for one), so declare its members individually — which is also
- * how the prelude declares them.
+ * Scalars, vectors and matrices only. A host-owned STRUCT is {@link hostBlock}, which owns
+ * the same choice one level up: it can flatten to exactly these loose declarations, or stay
+ * a std140 block.
  *
  * ```ts
  * const viewport = hostUniform('u_viewport_px', vec2fT, { group: 0, binding: 1 }, {
@@ -413,7 +413,7 @@ export function hostUniform<T extends ShaderType>(
   opts?: { precision?: 'highp' | 'mediump' | 'lowp' },
 ): Resource<T> {
   if (type.kind === 'struct' || type.kind === 'array')
-    throw dslError('SD0014', `hostUniform '${name}': ${type.kind} (declare members individually)`)
+    throw dslError('SD0016', `hostUniform '${name}': ${type.kind} — use hostBlock for a struct`)
   return {
     binding: {
       group: at.group,
@@ -425,6 +425,75 @@ export function hostUniform<T extends ShaderType>(
       ...(opts?.precision ? { precision: opts.precision } : {}),
     },
     node: bindingRef(name, type),
+  }
+}
+
+/** Declare a HOST-OWNED uniform BLOCK (#1710) — a whole struct of values the surrounding
+ * renderer supplies, from one declaration that works on both targets.
+ *
+ * This is the resource-ownership half of the host boundary, and the reason it cannot be
+ * expressed as N {@link hostUniform} calls: on WGSL a host-owned bind group is ONE unit.
+ * The renderer hands us `@group(0)` and its layout is the authority; decomposing that into
+ * N scalars describes a different program.
+ *
+ * ```ts
+ * const camera = hostBlock('CameraUniforms', { group: 0, binding: 0, as: 'u_camera' }, {
+ *   u_matrix: mat4fT,
+ *   u_viewport_px: vec2fT,
+ * }, { glsl: 'loose' })
+ *
+ * camera.field.u_matrix        // typed, and type-checked against the declared shape
+ * ```
+ *
+ * On **WGSL** it is an ordinary `@group(N) @binding(M) var<uniform>` block — the shader must
+ * still declare a binding to read it — with `reflect()` marking every entry `owner: 'host'`
+ * so a consumer knows not to build a layout for it.
+ *
+ * On **GLSL ES 3.00** the spelling is the caller's choice, because a GLSL host prelude
+ * provides one or the other and no correctness in the wrong one will link:
+ *
+ * - `glsl: 'std140-block'` (default) — `layout(std140) uniform CameraUniforms { … } u_camera;`
+ * - `glsl: 'loose'` — one `uniform mat4 u_matrix;` per member, and every `u_camera.u_matrix`
+ *   read rewritten to bare `u_matrix`. That rewrite happens on the IR before emit, which is
+ *   the entire difference from the `replaceAll('block.field', 'field')` a consumer had to
+ *   write: it cannot corrupt an unrelated substring, it survives `minify()`, and `reflect()`
+ *   still describes what was emitted.
+ *
+ * A loose block's members must be scalars, vectors or matrices — the default block has no
+ * spelling for a nested struct — and their names must not collide with another loose
+ * block's, since flattening puts them all in one namespace. Both throw SD0016 at authoring
+ * time rather than emitting GLSL that fails to link.
+ *
+ * @param typeName - the struct's type name, as the host spells it.
+ * @param at - the WGSL group/binding slot plus `as`, the block variable's name.
+ * @param fields - the members, in the host's declaration order.
+ * @param opts - `glsl` picks the GLSL spelling; `precision` is a GLSL-only qualifier applied
+ *   to each member of a `'loose'` block (a std140 block takes the stage default).
+ * @throws SD0016 when `glsl: 'loose'` is asked for a member the default block cannot spell.
+ */
+export function hostBlock<F extends Record<string, UniformFieldSpec>>(
+  typeName: string,
+  at: { group: number; binding: number; as: string },
+  fields: F,
+  opts?: { glsl?: 'std140-block' | 'loose'; precision?: 'highp' | 'mediump' | 'lowp' },
+): UniformStruct<F> {
+  const base = uniformStruct(typeName, at, fields)
+  const glsl = opts?.glsl ?? 'std140-block'
+  if (glsl === 'loose')
+    for (const f of base.struct.fields)
+      if (f.type.kind !== 'scalar' && f.type.kind !== 'vec' && f.type.kind !== 'mat')
+        throw dslError(
+          'SD0016',
+          `hostBlock '${typeName}' member '${f.name}': ${f.type.kind} cannot be a loose uniform`,
+        )
+  return {
+    ...base,
+    binding: {
+      ...base.binding,
+      owner: 'host',
+      glsl,
+      ...(opts?.precision ? { precision: opts.precision } : {}),
+    },
   }
 }
 

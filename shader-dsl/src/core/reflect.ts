@@ -207,6 +207,15 @@ export interface BindEntry {
    *  either way — a host still has to know about a binding it owns, it just must not
    *  allocate for it. */
   readonly owner: 'module' | 'host'
+  /** For a HOST-owned STRUCT binding ONLY (#1710): how GLSL ES 3.00 spells it. Absent
+   *  everywhere else, because everywhere else there is no choice to report — a module-owned
+   *  block is always std140, and WGSL has one spelling regardless.
+   *
+   *  A consumer needs this to know how to BIND: `'std140-block'` means bind a UBO to the
+   *  block index, `'loose'` means the members were flattened into the default block and are
+   *  set individually with `glUniform*` under their FIELD names (the layout in `uniforms`
+   *  still lists them, in declaration order). */
+  readonly glslSpelling?: 'std140-block' | 'loose'
   readonly structName?: string
   /** For a `texture` entry ONLY (#1651): which texture dim the shader declared, so a
    *  host can create/validate the matching view (`2d-array` needs an array view and
@@ -351,6 +360,9 @@ export function reflect(m: ModuleDecl): Reflection {
       ...(b.access ? { access: b.access } : {}),
       resourceKind: resourceKind(b.space, b.type),
       owner: b.owner ?? 'module',
+      ...(b.type.kind === 'struct' && b.owner === 'host'
+        ? { glslSpelling: b.glsl ?? 'std140-block' }
+        : {}),
       ...(b.type.kind === 'struct' ? { structName: b.type.name } : {}),
       ...(b.type.kind === 'texture' ? { textureDim: b.type.dim, textureElem: b.type.elem } : {}),
     }
