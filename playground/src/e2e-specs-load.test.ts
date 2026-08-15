@@ -89,7 +89,9 @@ describe('every e2e spec loads — a module-scope throw aborts the whole suite (
 // them turned out to PASS on headless WebGL2 — twice, in two independent runs — and are now
 // registered in test.yml. Confirming twice was not ceremony: `_matrix-gate` passed alone and
 // failed inside a 19-way batch, so a single green would have shipped a flake into a shared
-// leg. The four below are what is left, each with the reason it is still dark.
+// leg. `_1235-measure-gate` then came off the list the honest way — its defect was FIXED
+// (#1728: a re-seed could not recover a source whose GPU tiles had all dropped), so it is
+// registered now. The three below are what is left, each with the reason it is still dark.
 //
 // The cost is recorded because it is the argument for splitting the leg later: the 30 add a
 // measured ~14 min to render-gate's SwiftShader step, which was 20.7 min for 63 specs. A
@@ -111,12 +113,6 @@ describe('every e2e spec loads — a module-scope throw aborts the whole suite (
 // gate anything; requiring those to run in CI would be wrong, not rigorous. The name is the
 // contract — call a spec a gate and it has to be one.
 const KNOWN_DARK_GATES: readonly string[] = [
-  // A REAL, reproducible defect, diagnosed and filed as #1728. The measure demo's two point
-  // markers draw (measured: 224 white px) and the amber connector between them does not
-  // (amber confined to 18 rows, longest run 8 px of 680 — the marker rings, no line). Points
-  // and the LineString are pushed by the SAME setSourceData call, so this is line-specific.
-  // Registering it means registering a red gate; it is listed until the defect is fixed.
-  '_1235-measure-gate.spec.ts',
   // A REAL intermittent difference in what the re-boot RENDERS — not the flake this row
   // called it, and not the settle artifact that diagnosis implied (#1733, measured). The
   // wall-clock pump was replaced with an event-driven settle (idle + byte-stable capture)
