@@ -138,6 +138,24 @@ export function shaderTokens(src: string): string[] {
   return lexShader(src).map((t) => t.text)
 }
 
+/** Options for `minifyShaderText` (and the `minify()` emit plugin it backs). The
+ *  interface currently carries one knob, `numbers`, whose three settings trade
+ *  nothing-vs-something real: `true` (the default) only removes digits that were
+ *  always redundant (leading/trailing zeros, a redundant `+`) — safe unconditionally,
+ *  including inside hand-written `raw`/`rawGlsl` text, because neither WGSL nor GLSL
+ *  ES 3.00 has string literals, so a comment marker is never ambiguous anywhere in
+ *  the token stream. `'f32'` goes further and RE-SPELLS a literal to a shorter
+ *  decimal that rounds to the same f32 — exact only where the literal is read in an
+ *  f32 context, a claim the pass cannot verify per-literal, so it defends itself the
+ *  crude but sound way: if `f16` appears ANYWHERE in the token stream (including
+ *  inside a raw fragment), the whole shader falls back to the lossless `true`
+ *  behaviour rather than risk re-spelling an f16 literal wrong. What is NOT safe: no
+ *  setting is a substitute for running the minified output through a real compiler —
+ *  `false` exists specifically so a caller can diff minified output against a
+ *  hand-checked baseline with the literals left untouched.
+ *
+ *  Exported from `@xgis/shader-dsl/emit-prod`.
+ */
 export interface MinifyOptions {
   /** How numeric literals are re-spelled.
    *  - `true` (default) — canonicalise losslessly (`0.500` → `.5`,

@@ -415,6 +415,25 @@ interface CodegenRuntime {
   vecMatThrow: () => never
 }
 
+/** The perf-critical twin of `compileModule` — same IR, same `CpuModule` shape, and
+ *  the SAME bit-identity contract by construction (every op calls the exact
+ *  cpu-runtime helper — `applyBin`/`matVec`/`matMul`/`BUILTINS` — the interpreter
+ *  calls, so there is no second implementation to drift). Instead of re-walking the
+ *  IR node-by-node on every invocation, it walks each fn body ONCE here, emits a JS
+ *  source string, and `new Function`s it — collapsing the interpreter's recursive
+ *  per-node dispatch and per-call argument-array allocation (measured ~40% of frame
+ *  time on the hot path, #1162) into straight-line JS with real local variables.
+ *  HYBRID by design: a fn body that hits an IR shape this codegen cannot emit
+ *  bit-identically (a `raw`/`placeholder` Stmt, an unrepresentable lvalue) falls
+ *  back, per-fn, to the interpreter — so the returned module can be part-compiled,
+ *  part-interpreted, transparently to the caller. Reach for this over
+ *  `compileModule` on any hot per-frame path (map's cpu-projections recompiles per
+ *  body-epoch and reuses the result); `new Function` construction can itself throw
+ *  (a CSP `unsafe-eval` host), which is the one case the caller must catch and fall
+ *  back to `compileModule` for.
+ *
+ *  Exported from `@xgis/shader-dsl`.
+ */
 export function compileModuleJs(m: ModuleDecl, opts?: { gpuStubs?: boolean }): CpuModule {
   // Identical preamble to compileModule so the generated code walks the SAME IR
   // the interpreter would (validate rejects malformed modules; autoVars

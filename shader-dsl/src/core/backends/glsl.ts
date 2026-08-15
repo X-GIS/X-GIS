@@ -311,6 +311,26 @@ const GLSL_CAP_PROFILE: CapProfile = {
   multiview: { directive: 'GL_OVR_multiview2', hostFeature: 'OVR_multiview2' },
 }
 
+/** The GLSL ES 3.00 (WebGL2) `Backend` — the second writer that proves the IR is
+ *  target-neutral: it plugs GLSL spelling (types, literals, intrinsics, declaration
+ *  forms) into the SAME neutral control-flow walk (`core/emit.ts`) the WGSL backend
+ *  drives, rather than duplicating it. Reached through `emitGlslModule`/
+ *  `emitGlslStages`, not called directly. Fails closed — relative to WGSL — on
+ *  everything GLSL ES 3.00 structurally cannot express: a `@compute` entry and a
+ *  multisampled (`2d-ms`) texture load (neither has a row in this backend's
+ *  `GLSL_CAP_PROFILE`, so `assertCaps` rejects the module before this writer ever
+ *  runs), `f16`/subgroups (WGSL `enable` features with no GLSL ES 3.00 counterpart,
+ *  same no-row rejection), a standalone `sampler` type (GLSL only has the fused
+ *  `sampler2D`), and a bare non-struct vertex-output entry (GLSL links inter-stage
+ *  varyings by field NAME, not by `@location` the way WGSL does, so a WGSL-valid
+ *  unnamed output has nothing to link against on this target). A `storage` binding
+ *  is the one exception that does NOT fail: WebGL2 having no SSBO is a platform
+ *  fact, so `emitGlslModule` rewrites it to a data-texture emulation before the caps
+ *  gate ever sees it — though that emulation itself still fails closed on shapes it
+ *  cannot cover (a `read_write` storage binding, an unsupported element type).
+ *
+ *  Exported from `@xgis/shader-dsl`.
+ */
 export const glslEs300Backend: Backend = {
   id: 'glsl-es300',
   capProfile: GLSL_CAP_PROFILE,

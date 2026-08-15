@@ -22,6 +22,15 @@ import { emitModule, emitModuleAt, lowerWgsl } from './backends/wgsl'
 
 // ── Source size ──
 
+/** The compile-time SIZE of an emitted shader — characters and `\n`-split lines. This is NOT a
+ *  GPU-work proxy and is deliberately never asserted to shrink: CSE hoisting a repeated
+ *  `sin(x)` into `let _cse0 = sin(x);` REMOVES a GPU op (see `OpCount`) while it ADDS source
+ *  bytes (a new `let` line + a temp name). A larger O2 emit than O0 is the optimizer working
+ *  correctly, not a regression — read this axis for compile-time / bundle-size budgets only,
+ *  never as a stand-in for runtime cost.
+ *
+ *  Exported from `@xgis/shader-dsl/dev`.
+ */
 export interface EmitSize {
   /** Emitted source length in characters. */
   readonly chars: number
@@ -36,6 +45,16 @@ export function emitSize(code: string): EmitSize {
 
 // ── Operation count (the GPU-work proxy) ──
 
+/** Arithmetic- and call-node counts over a module's (lowered) IR — the GPU-WORK proxy, and the
+ *  axis the optimizer actually minimises: `total` is monotone non-increasing from O0 to O2 for
+ *  any module (see `OptimizerReport`). Unlike `EmitSize`, more calls/arith always means more
+ *  GPU-side work, never a size/work tradeoff. One reading trap: a `raw` `Stmt` (the polygon
+ *  composer's escape hatch) is opaque to this walk and contributes zero — a module built on raw
+ *  blocks reports an UNDERCOUNT, not a wrong delta, so don't compare op counts across modules
+ *  that mix raw and IR-authored bodies.
+ *
+ *  Exported from `@xgis/shader-dsl/dev`.
+ */
 export interface OpCount {
   /** Intrinsic / user function-call nodes (sin, mix, pack4x8unorm, …) — the transcendental / ALU work. */
   readonly calls: number
@@ -158,6 +177,16 @@ export function countOps(m: ModuleDecl): OpCount {
 
 // ── Combined report ──
 
+/** A/Bs one module's WGSL emit at O0 (naive) vs O2 (the shipped optimizer) on both axes at once,
+ *  over the SAME lowering the real emit path uses (`o2` is byte-identical to `emitModule(m)`,
+ *  not a parallel measurement-only pipeline) — see `OptLevel` for what O1 vs O2 actually
+ *  changes. Read `ops.savedCalls`/`ops.savedArith` as the trustworthy "the optimizer did its
+ *  job" signal: they are never negative. Do NOT read `size.savedChars`/`savedLines` the same
+ *  way — they can go negative, and a negative size delta is not a regression to chase, it is
+ *  CSE trading source bytes for GPU work (see `EmitSize`).
+ *
+ *  Exported from `@xgis/shader-dsl/dev`.
+ */
 export interface OptimizerReport {
   /** Source size at O0 vs O2; `saved*` may be NEGATIVE (CSE trades bytes for ops). */
   readonly size: {

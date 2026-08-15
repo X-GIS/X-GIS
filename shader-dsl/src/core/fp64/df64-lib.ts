@@ -76,10 +76,32 @@ export function splitF64(x: number): [hi: number, lo: number] {
 
 // ── The anti-fast-math guard texture ──
 
+/** The fixed name (`'_fp64'`) of the anti-fast-math guard binding `fp64Lower`
+ *  auto-injects into any module using the df64 helpers — see this file's header for
+ *  why it is a 1×1 texture read rather than a uniform. Exported so a caller can
+ *  recognise the binding by name without hardcoding the string: check whether a
+ *  module already declares it (`bindings.find(b => b.name === FP64_GUARD_NAME)`,
+ *  exactly what `fp64Lower`'s own injection does before adding a fresh one), or pick
+ *  the matching reflected binding out to know which resource a host must supply the
+ *  1×1 texture (texel = exactly 1.0) for.
+ *
+ *  Exported from `@xgis/shader-dsl`.
+ */
 export const FP64_GUARD_NAME = '_fp64'
 /** The guard binding's type: a 1×1 2D texture whose only texel reads 1.0. */
 export const FP64_GUARD_TYPE: ShaderType = texture2dfT
 
+/** The return shape of `fp64Guard(at)`: a binding declaration for the `_fp64` guard
+ *  texture, PINNED to the caller's chosen `(group, binding)`. Pass it inside a
+ *  module's `uses: [...]` only when an engine's bind-group layout is fixed and needs
+ *  the guard at a specific slot — leaving it out is the common case, since
+ *  `fp64Lower` auto-injects the binding at group 0 / first free slot for any module
+ *  that actually uses f64 arithmetic. A module that pins a slot here but also
+ *  declares a CONFLICTING `_fp64` binding elsewhere (wrong type/space) fails emit
+ *  with `SD0042`.
+ *
+ *  Exported from `@xgis/shader-dsl`.
+ */
 export interface Fp64GuardHandle {
   readonly type: ShaderType
   readonly binding: BindingDecl
