@@ -111,12 +111,6 @@ describe('every e2e spec loads — a module-scope throw aborts the whole suite (
 // gate anything; requiring those to run in CI would be wrong, not rigorous. The name is the
 // contract — call a spec a gate and it has to be one.
 const KNOWN_DARK_GATES: readonly string[] = [
-  // A REAL, reproducible defect, diagnosed and filed as #1728. The measure demo's two point
-  // markers draw (measured: 224 white px) and the amber connector between them does not
-  // (amber confined to 18 rows, longest run 8 px of 680 — the marker rings, no line). Points
-  // and the LineString are pushed by the SAME setSourceData call, so this is line-specific.
-  // Registering it means registering a red gate; it is listed until the defect is fixed.
-  '_1235-measure-gate.spec.ts',
   // NOT a real failure, contrary to the first version of this comment: run on its own it is
   // green with diffPixels=0/619200. It went red only inside a 19-way batch, which puts it in
   // the same load-sensitive class as `_matrix-gate` below.
