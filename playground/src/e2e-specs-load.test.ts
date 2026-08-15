@@ -85,11 +85,17 @@ describe('every e2e spec loads — a module-scope throw aborts the whole suite (
 // forever by never executing. #1719 found two shader-dsl gates in exactly that state — they
 // had never run once — and registering them was the whole fix.
 //
-// A sweep for the rest found 34 more, out of 81 files whose NAME claims they are gates.
-// They are not registered here in bulk, deliberately: several need real map data, a network
-// fixture or a GPU, and mass-registering specs nobody has run turns one silent problem into a
-// noisy one without learning anything. What this does instead is bound the set. A NEW dark
-// gate is now impossible to add by accident, and the list can only shrink.
+// A sweep for the rest found 34 more, out of 81 files whose NAME claims they are gates. 30 of
+// them turned out to PASS on headless WebGL2 — twice, in two independent runs — and are now
+// registered in test.yml. Confirming twice was not ceremony: `_matrix-gate` passed alone and
+// failed inside a 19-way batch, so a single green would have shipped a flake into a shared
+// leg. The four below are what is left, each with the reason it is still dark.
+//
+// The cost is recorded because it is the argument for splitting the leg later: the 30 add a
+// measured ~14 min to render-gate's SwiftShader step, which was 20.7 min for 63 specs. A
+// matrix split is one edit away, but it renames the check to `render-gate (a)` and this repo's
+// branch protection is not visible from the code — so that decision needs someone who can see
+// the settings, not a guess.
 //
 // SHRINK-ONLY, in both directions:
 //   • a gate-named spec missing from CI and from this list  → red, add it to CI or here
@@ -105,40 +111,16 @@ describe('every e2e spec loads — a module-scope throw aborts the whole suite (
 // gate anything; requiring those to run in CI would be wrong, not rigorous. The name is the
 // contract — call a spec a gate and it has to be one.
 const KNOWN_DARK_GATES: readonly string[] = [
-  '_1235-measure-gate.spec.ts',
-  '_1246-projection-width-gate.spec.ts',
-  '_backend-toggle-gl2-gate.spec.ts',
-  '_bg-pattern-globe-gate.spec.ts',
-  '_camera-animation-gate.spec.ts',
-  '_demo-actions-gate.spec.ts',
-  '_fill-pattern-gl2-gate.spec.ts',
-  '_gl2-live-swap-gate.spec.ts',
-  '_globe-inertia-gate.spec.ts',
-  '_graphics-retained-circle-gate.spec.ts',
-  '_graticule-gl2-gate.spec.ts',
-  '_heatmap-gl2-gate.spec.ts',
-  '_host-atlas-icon-gate.spec.ts',
-  '_icons-gl2-gate.spec.ts',
-  '_label-fade-gate.spec.ts',
-  '_label-fade-motion-gate.spec.ts',
-  '_label-zoom-skip-gate.spec.ts',
-  '_labels-gl2-gate.spec.ts',
-  '_lines-gl2-gate.spec.ts',
-  '_marker-popup-gate.spec.ts',
+  // Three real assertion failures, unexamined. Each is a gate claiming something is broken,
+  // so each is a lead rather than a chore — but diagnosing three unrelated render defects is
+  // its own piece of work, and registering them red would just paint CI red.
+  '_1235-measure-gate.spec.ts', // "amber connector spans the click gap"
+  '_gl2-live-swap-gate.spec.ts', // re-run() on a live forcegl2 map: expect(…).toBeLessThan(…)
+  '_world-copies-projection-gate.spec.ts', // waitForFunction timeout at 15 s
+  // FLAKY, not broken: green on its own, red inside a 19-way batch. Registering it would put
+  // a load-sensitive spec in a shared leg, which is worse than leaving it dark — this row is
+  // why the other 30 were each confirmed TWICE before being registered.
   '_matrix-gate.spec.ts',
-  '_mip-crawl-gate.spec.ts',
-  '_paint-transition-gate.spec.ts',
-  '_points-gl2-gate.spec.ts',
-  '_raster-fade-gate.spec.ts',
-  '_raster-gl2-gate.spec.ts',
-  '_reduced-motion-gate.spec.ts',
-  '_s111-screen-lattice-gate.spec.ts',
-  '_stage-block-line-webgl2-gate.spec.ts',
-  '_stage-block-point-webgl2-gate.spec.ts',
-  '_webgl2-line-link-gate.spec.ts',
-  '_webgl2-point-link-gate.spec.ts',
-  '_webgl2-render-gate.spec.ts',
-  '_world-copies-projection-gate.spec.ts',
 ]
 
 describe('a gate-named spec is either run by CI or knowingly dark (#1715)', () => {
