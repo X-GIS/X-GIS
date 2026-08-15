@@ -117,9 +117,20 @@ const KNOWN_DARK_GATES: readonly string[] = [
   // and the LineString are pushed by the SAME setSourceData call, so this is line-specific.
   // Registering it means registering a red gate; it is listed until the defect is fixed.
   '_1235-measure-gate.spec.ts',
-  // NOT a real failure, contrary to the first version of this comment: run on its own it is
-  // green with diffPixels=0/619200. It went red only inside a 19-way batch, which puts it in
-  // the same load-sensitive class as `_matrix-gate` below.
+  // A REAL intermittent difference in what the re-boot RENDERS — not the flake this row
+  // called it, and not the settle artifact that diagnosis implied (#1733, measured). The
+  // wall-clock pump was replaced with an event-driven settle (idle + byte-stable capture)
+  // and the gate still goes red about one run in four inside a four-spec batch, so the
+  // cause is not convergence timing. Three things rule out the harness:
+  //   - a CONTROL capture of the SAME state re-rendered under the same load is 0/619200,
+  //     three times over: the rasterizer is deterministic here;
+  //   - the failing diff is EDGE-only (fills match) and the best whole-pixel shift is
+  //     (0,0), so it is sub-pixel AA, not a camera or viewport move;
+  //   - the magnitude repeats EXACTLY (43089/619200 on two separate failures), which is a
+  //     discrete second rendering state, not noise.
+  // sampleCount/canvas/dpr were identical before and after on four passing runs; a failing
+  // run has not yet been caught with that probe attached. Registering it means registering
+  // a gate that is red one run in four; it is listed until the defect is found.
   '_gl2-live-swap-gate.spec.ts',
   // Blocked on DATA, not on code: its first arm loads the `physical_map_50m` demo, which
   // fetches /data/ne_50m_rivers.geojson — a file that is NOT tracked in git and exists on

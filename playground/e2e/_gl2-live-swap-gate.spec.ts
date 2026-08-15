@@ -11,17 +11,60 @@
 import { test, expect, type Page } from '@playwright/test'
 import { PNG } from 'pngjs'
 
-async function pump(page: Page): Promise<void> {
-  for (let i = 0; i < 25; i++) {
-    await page.evaluate(() =>
-      (window as unknown as { __xgisMap?: { invalidate?: () => void } }).__xgisMap?.invalidate?.(),
-    )
-    await page.waitForTimeout(80)
-  }
-}
+const shootRaw = async (page: Page): Promise<Buffer> =>
+  await page.locator('#xg-canv, canvas').first().screenshot()
 
-const shoot = async (page: Page): Promise<PNG> =>
-  PNG.sync.read(await page.locator('#xg-canv, canvas').first().screenshot())
+/** Settle DETERMINISTICALLY, then capture (#1733).
+ *
+ * This was a 25 x 80 ms `invalidate()` pump — 2 s of wall clock — which made the gate's
+ * verdict depend on how loaded the machine was. Two bounded stages replace it, neither an
+ * unconditional sleep:
+ *   1. the map's own `idle` event (the render loop reporting nothing left to draw), with
+ *      `invalidate()` first so it RE-fires past the listener-attach race;
+ *   2. captures until two consecutive ones are byte-identical, because streaming can
+ *      re-dirty a frame after an `idle` (late tiles).
+ *
+ * Both fail LOUD and name which stage gave up, so a never-idle or never-stable regression
+ * reports itself instead of arriving as an unexplained pixel diff. Ported from
+ * `_webgl2-parity.spec.ts:53-109`, which already does exactly this.
+ *
+ * NOTE this did NOT make the gate green under load, and that is the useful part: with
+ * convergence no longer measured in seconds, the remaining intermittent diff cannot be a
+ * settle artifact. See the KNOWN_DARK_GATES row and #1733 for what it is instead.
+ *
+ * The CAPTURE surface is deliberately unchanged: the 310 px threshold below is calibrated
+ * against this element screenshot, so swapping in a canvas-native readback would silently
+ * invalidate the calibration.
+ */
+async function settle(page: Page): Promise<Buffer> {
+  await page.evaluate(
+    () =>
+      new Promise<void>((resolve, reject) => {
+        const m = (
+          window as unknown as {
+            __xgisMap?: { on?: (t: string, cb: () => void) => void; invalidate?: () => void }
+          }
+        ).__xgisMap
+        if (!m?.on)
+          return reject(new Error('__xgisMap.on unavailable — demo did not expose the map'))
+        const t = setTimeout(() => reject(new Error("map never fired 'idle' within 60s")), 60_000)
+        m.on('idle', () => {
+          clearTimeout(t)
+          resolve()
+        })
+        m.invalidate?.()
+      }),
+  )
+  let png = await shootRaw(page)
+  for (let i = 0; i < 15; i++) {
+    await page.waitForTimeout(300)
+    const next = await shootRaw(page)
+    const stable = Buffer.compare(png, next) === 0
+    png = next
+    if (stable) return png
+  }
+  throw new Error('frame never settled: 15 consecutive captures kept changing after idle')
+}
 
 test('re-run() on a live forcegl2 map re-boots and renders the same frame', async ({ page }) => {
   test.setTimeout(240_000)
@@ -49,8 +92,7 @@ test('re-run() on a live forcegl2 map re-boots and renders the same frame', asyn
     m.setZoom(0.5)
     m.setCenter(0, 0)
   })
-  await pump(page)
-  const a = await shoot(page)
+  const a = PNG.sync.read(await settle(page))
 
   // Live swap: identical source through the public run() — the re-boot path.
   await page.evaluate(async () => {
@@ -73,8 +115,7 @@ layer countries { source: world
     m.setZoom(0.5)
     m.setCenter(0, 0)
   })
-  await pump(page)
-  const b = await shoot(page)
+  const b = PNG.sync.read(await settle(page))
 
   let diff = 0
   for (let i = 0; i < a.data.length; i += 4) {
