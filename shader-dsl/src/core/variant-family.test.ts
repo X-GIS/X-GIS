@@ -12,7 +12,7 @@
 // that throw is what turns AUTHORING.md §11's identity rule from prose into a gate.
 
 import { describe, it, expect } from 'vitest'
-import { fn, module, vec4, vec4fT, f32T } from './ir'
+import { externVar, fn, module, vec4, vec4fT, f32T } from './ir'
 import { builtin, ioStruct } from './sot'
 import { emitGlslFragment } from './backends/glsl'
 import { isSemanticallyEqual, semanticDiff } from './semantic-diff'
@@ -177,5 +177,106 @@ describe('variantFamily.emitGuarded — a GENERATED ladder, provably equal to th
     expect(() =>
       family.emitGuarded({ terrain: 'TERRAIN3D', drape: 'DRAPE' } as never, { stage: 'vertex' }),
     ).toThrow(/non-boolean value/)
+  })
+})
+
+// ── the ladder as an INCLUDE ─────────────────────────────────────────────────
+//
+// The shape this was reported from puts the `#ifdef` ladder inside a helper include that a
+// host program `#include`s — not in a standalone stage. An include cannot carry a second
+// `#version`, so reaching that through `emitGuarded` (which returns a whole stage) means
+// stripping the header again: the regex #1711 exists to delete. `emitGuardedFragment`
+// returns the same ladder with the preamble as DATA instead.
+
+describe('variantFamily.emitGuardedFragment — the ladder, composable (#1712 + #1711)', () => {
+  // Each arm declares a helper the OTHER one does not, so no single arm's manifest is the
+  // union — first-arm-only and last-arm-only both fail the assertions below. (A fixture
+  // whose distinguishing name sits in arm 0 would let a first-arm-only implementation pass;
+  // that is the shape this fixture was rewritten to exclude.)
+  const terrainDelta = externVar('terrain.terrain_delta', f32T)
+  const flatHelper = fn('flat_lift', { t: f32T }, (p) => p.t.mul(0.5))
+  const terrainHelper = fn('terrain_lift', { t: f32T }, (p) => p.t.mul(terrainDelta.node))
+  const composable = variantFamily({
+    axes: { terrain: [false, true] } as const,
+    build: ({ terrain }) =>
+      module({
+        ...(terrain ? { externs: [terrainDelta.decl] } : {}),
+        funcs: [
+          terrain ? terrainHelper : flatHelper,
+          fn('overlayFrameFactor', { t: f32T }, (p) =>
+            terrain ? terrainHelper({ t: p.t }) : flatHelper({ t: p.t }),
+          ),
+        ],
+      }),
+    key: ({ terrain }) => (terrain ? 't' : 'f'),
+  })
+  const DEF = { terrain: 'TERRAIN3D' } as const
+  const frag = composable.emitGuardedFragment(DEF)
+
+  it('the source is a bare ladder — no #version, no precision line to strip', () => {
+    expect(frag.source).not.toContain('#version')
+    expect(frag.source).not.toMatch(/^precision /m)
+    expect(frag.source.startsWith('#if ')).toBe(true)
+    expect((frag.source.match(/^#endif/gm) ?? []).length).toBe(1)
+  })
+
+  it('the preamble comes back as DATA, the way emitGlslFragment returns it', () => {
+    expect(frag.preamble).toContain('#version 300 es')
+  })
+
+  it('preamble + source reproduces emitGuarded BYTE for byte', () => {
+    // The composability is only worth anything if it is the same artifact: a consumer that
+    // wants the whole stage must not get a second, subtly different lowering.
+    expect([...frag.preamble, '', frag.source].join('\n')).toBe(composable.emitGuarded(DEF))
+  })
+
+  it('every arm is still byte-identical to that variant standalone', () => {
+    for (const v of composable.variants) {
+      const arm = selectGuardedArm(frag.source, v.axes.terrain ? ['TERRAIN3D'] : [])
+      expect(arm).toBe(
+        emitGlslFragment(v.module, undefined, { entryPoints: true }).source.replace(/\n$/, ''),
+      )
+    }
+  })
+
+  it('declares is the UNION across arms — the host must collide with none of them', () => {
+    expect(frag.declares.functions).toContain('overlayFrameFactor')
+    expect(frag.declares.functions).toContain('flat_lift')
+    expect(frag.declares.functions).toContain('terrain_lift')
+    // Non-vacuity, checked rather than asserted by construction: NO single arm's manifest
+    // carries both names, so neither a first-arm nor a last-arm implementation can pass.
+    const perArm = composable.variants.map(
+      (v) => emitGlslFragment(v.module, undefined, { entryPoints: true }).declares.functions,
+    )
+    expect(perArm.every((fns) => !fns.includes('flat_lift') || !fns.includes('terrain_lift'))).toBe(
+      true,
+    )
+  })
+
+  it('requires is the UNION across arms — the prelude must satisfy whichever it selects', () => {
+    // `terrain.terrain_delta` is referenced by the terrain arm alone. A composer that
+    // checked only the first arm would pass a prelude that cannot link the other one.
+    expect(frag.requires).toContain('terrain.terrain_delta')
+    expect(
+      emitGlslFragment(composable.get('f')!.module, undefined, { entryPoints: true }).requires,
+    ).not.toContain('terrain.terrain_delta')
+  })
+
+  it('fails closed on a preamble disagreement, exactly as emitGuarded does', () => {
+    const divergent = variantFamily({
+      axes: { wide: [false, true] },
+      build: ({ wide }) =>
+        module({
+          uses: [FsOut],
+          funcs: [
+            fn('vs_df', {}, () => FsOut.construct({ pos: vec4(0, 0, 0, 1) }), { stage: 'vertex' }),
+          ],
+          ...(wide ? { enables: ['multiview' as const] } : {}),
+        }),
+      key: ({ wide }) => (wide ? 'w' : 'n'),
+    })
+    expect(() => divergent.emitGuardedFragment({ wide: 'WIDE' }, { stage: 'vertex' })).toThrow(
+      /different[\s\S]*preamble/,
+    )
   })
 })
