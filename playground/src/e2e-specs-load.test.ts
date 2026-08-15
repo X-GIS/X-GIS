@@ -111,12 +111,24 @@ describe('every e2e spec loads — a module-scope throw aborts the whole suite (
 // gate anything; requiring those to run in CI would be wrong, not rigorous. The name is the
 // contract — call a spec a gate and it has to be one.
 const KNOWN_DARK_GATES: readonly string[] = [
-  // Three real assertion failures, unexamined. Each is a gate claiming something is broken,
-  // so each is a lead rather than a chore — but diagnosing three unrelated render defects is
-  // its own piece of work, and registering them red would just paint CI red.
-  '_1235-measure-gate.spec.ts', // "amber connector spans the click gap"
-  '_gl2-live-swap-gate.spec.ts', // re-run() on a live forcegl2 map: expect(…).toBeLessThan(…)
-  '_world-copies-projection-gate.spec.ts', // waitForFunction timeout at 15 s
+  // A REAL, reproducible defect, diagnosed and filed as #1728. The measure demo's two point
+  // markers draw (measured: 224 white px) and the amber connector between them does not
+  // (amber confined to 18 rows, longest run 8 px of 680 — the marker rings, no line). Points
+  // and the LineString are pushed by the SAME setSourceData call, so this is line-specific.
+  // Registering it means registering a red gate; it is listed until the defect is fixed.
+  '_1235-measure-gate.spec.ts',
+  // NOT a real failure, contrary to the first version of this comment: run on its own it is
+  // green with diffPixels=0/619200. It went red only inside a 19-way batch, which puts it in
+  // the same load-sensitive class as `_matrix-gate` below.
+  '_gl2-live-swap-gate.spec.ts',
+  // Blocked on DATA, not on code: its first arm loads the `physical_map_50m` demo, which
+  // fetches /data/ne_50m_rivers.geojson — a file that is NOT tracked in git and exists on
+  // nobody's checkout, so the fetch returns the dev server's HTML 404 page with status 200
+  // and the demo never reaches __xgisReady. CI would fail identically. The other two arms
+  // (orthographic, natural-earth fixtures) pass. Fixing means tracking the data or pointing
+  // that arm at a fixture that is; worth noting the demo itself is broken for any human who
+  // opens it, which is a separate and larger problem than this gate.
+  '_world-copies-projection-gate.spec.ts',
   // FLAKY, not broken: green on its own, red inside a 19-way batch. Registering it would put
   // a load-sensitive spec in a shared leg, which is worse than leaving it dark — this row is
   // why the other 30 were each confirmed TWICE before being registered.
