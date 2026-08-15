@@ -18,6 +18,10 @@
 //                              and the one a pipeline cache should prefer everywhere
 //   family.emitGuarded(...)    GLSL-only, opt-in: ONE source with a GENERATED #if ladder,
 //                              for a host that owns the define
+//   family.emitGuardedFragment(...)
+//                              the same ladder as a header-less FRAGMENT (#1711), since the
+//                              reported shape puts the ladder inside an #include — and an
+//                              include cannot carry a second #version
 //
 // `emitGuarded` is a lowering of a typed matrix, not hand-written text — which is what
 // makes it checkable. Every arm is byte-identical to the corresponding standalone variant
@@ -34,6 +38,7 @@ import { reflect, type Reflection } from './reflect'
 import { emitGlslFragment, type GlslEmitOptions } from './backends/glsl'
 import { emitModule } from './backends/wgsl'
 import type { EmitOptions } from './emit'
+import type { EmitFragment, FragmentDeclares } from './fragment'
 
 /** One point in the axis space: each axis name mapped to one of its declared values. */
 export type AxisValues<A extends Record<string, readonly unknown[]>> = {
@@ -98,6 +103,25 @@ export interface VariantFamily<A extends Record<string, readonly unknown[]>> {
     defines: GuardDefines<A>,
     opts?: GlslEmitOptions & { stage?: 'vertex' | 'fragment' },
   ): string
+  /** The same generated ladder as {@link VariantFamily.emitGuarded}, as a header-less
+   *  FRAGMENT (#1711) — for a host that owns the program and composes our declarations into
+   *  it, which is the shape the guarded ladder was actually reported from.
+   *
+   *  `emitGuarded` bakes the preamble into its string because it returns a whole stage. An
+   *  `#include` cannot carry a second `#version`, so composing a guarded ladder into a host
+   *  program through that entry point means stripping the header again — the regex #1711
+   *  exists to remove. Here the preamble comes back as data, exactly as
+   *  {@link emitGlslFragment} returns it, and `[...preamble, '', source].join('\n')`
+   *  reproduces `emitGuarded`'s output byte for byte.
+   *
+   *  `declares` and `requires` are the UNION across the arms, since the host's preprocessor
+   *  picks the arm and the composer cannot know which: every name any arm declares is one
+   *  the prelude must not collide with, and every symbol any arm needs is one it must
+   *  provide. */
+  emitGuardedFragment(
+    defines: GuardDefines<A>,
+    opts?: GlslEmitOptions & { stage?: 'vertex' | 'fragment' },
+  ): EmitFragment
 }
 
 /** The cartesian product of the axes, in declaration order — the FIRST axis varies
@@ -240,25 +264,69 @@ export function variantFamily<A extends Record<string, readonly unknown[]>>(
     get: (k) => byKey.get(k),
     emit: emit as VariantFamily<A>['emit'],
     emitGuarded(defines, opts) {
-      const frags = variants.map((v) => ({
-        v,
-        f: emitGlslFragment(v.module, opts?.stage, { ...opts, entryPoints: true }),
-      }))
-      const preamble = frags[0]!.f.preamble
-      for (const { v, f } of frags)
-        if (f.preamble.join('\n') !== preamble.join('\n'))
-          throw new Error(
-            `shader-dsl: variantFamily.emitGuarded — variant '${v.key}' needs a different` +
-              ` preamble than '${frags[0]!.v.key}':\n  ${f.preamble.join(' | ')}\n  vs\n  ` +
-              `${preamble.join(' | ')}\nOne guarded source can carry only one #version` +
-              ` block, so these variants cannot share it — emit them separately.`,
-          )
-      const ladder = frags.map(({ v, f }, i) => {
-        const head = `#${i === 0 ? 'if' : 'elif'} ${guardCondition(v.axes, defines)}`
-        return `${head}\n${f.source.replace(/\n$/, '')}`
-      })
+      const { preamble, ladder } = buildGuarded(variants, defines, opts)
       return [...preamble, '', ...ladder, '#endif', ''].join('\n')
     },
+    emitGuardedFragment(defines, opts) {
+      const { preamble, ladder, declares, requires } = buildGuarded(variants, defines, opts)
+      // Same pieces, joined one level up by the composer instead of here — which is what
+      // makes `[...preamble, '', source]` reproduce emitGuarded byte for byte.
+      return { source: [...ladder, '#endif', ''].join('\n'), preamble, declares, requires }
+    },
+  }
+}
+
+/** De-duplicate, preserving first-seen order — deterministic without imposing an order the
+ *  per-arm manifests do not have (theirs is emit order, not alphabetical). */
+const union = (lists: readonly (readonly string[])[]): readonly string[] => [
+  ...new Set(lists.flat()),
+]
+
+/** The pieces both guarded emits are made of: the ONE preamble every arm must agree on, the
+ *  `#if`/`#elif` arms, and the manifests unioned across them.
+ *
+ *  Shared so the two entry points cannot drift — the string form and the fragment form
+ *  differ only in who joins the preamble to the ladder. */
+function buildGuarded<A extends Record<string, readonly unknown[]>>(
+  variants: readonly Variant<A>[],
+  defines: GuardDefines<A>,
+  opts?: GlslEmitOptions & { stage?: 'vertex' | 'fragment' },
+): {
+  preamble: readonly string[]
+  ladder: readonly string[]
+  declares: FragmentDeclares
+  requires: readonly string[]
+} {
+  const frags = variants.map((v) => ({
+    v,
+    f: emitGlslFragment(v.module, opts?.stage, { ...opts, entryPoints: true }),
+  }))
+  const preamble = frags[0]!.f.preamble
+  for (const { v, f } of frags)
+    if (f.preamble.join('\n') !== preamble.join('\n'))
+      throw new Error(
+        `shader-dsl: variantFamily.emitGuarded — variant '${v.key}' needs a different` +
+          ` preamble than '${frags[0]!.v.key}':\n  ${f.preamble.join(' | ')}\n  vs\n  ` +
+          `${preamble.join(' | ')}\nOne guarded source can carry only one #version` +
+          ` block, so these variants cannot share it — emit them separately.`,
+      )
+  const ladder = frags.map(({ v, f }, i) => {
+    const head = `#${i === 0 ? 'if' : 'elif'} ${guardCondition(v.axes, defines)}`
+    return `${head}\n${f.source.replace(/\n$/, '')}`
+  })
+  const d = frags.map(({ f }) => f.declares)
+  return {
+    preamble,
+    ladder,
+    declares: {
+      functions: union(d.map((x) => x.functions)),
+      structs: union(d.map((x) => x.structs)),
+      bindings: union(d.map((x) => x.bindings)),
+      consts: union(d.map((x) => x.consts)),
+      overrides: union(d.map((x) => x.overrides)),
+      entryPoints: union(d.map((x) => x.entryPoints)),
+    },
+    requires: union(frags.map(({ f }) => f.requires)),
   }
 }
 
