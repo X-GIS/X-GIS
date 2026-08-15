@@ -49,7 +49,8 @@ export interface EmitIdentityInput extends EmitOptions {
  *
  * ```ts
  * emitIdentity('glsl-es300')                                  // 'glsl-es300;parens=full;plugins=-#…'
- * emitIdentity('glsl-es300', { plugins: obfuscate() })        // '…;plugins=inline+mangle+minify#…'
+ * emitIdentity('glsl-es300', { plugins: obfuscate() })
+ * //   '…;plugins=mangle+prune-prototypes+alias-types+minify#…'
  * ```
  *
  * Write it beside a committed artifact and compare it after a build. Equal stamps mean the
