@@ -79,8 +79,29 @@ import { DF64_FNS_INT, DF64_ORDER_INT } from '../fp64/df64-int'
 //             Metal oracle where every float formulation collapses; also
 //             immune to ANGLE-D3D11/FXC's composed-tree folding. No `_fp64`
 //             guard binding is injected (the integer bodies never read it).
+/** Which error-free-transform primitives back the emulated-double (`df64`) lowering. Both
+ *  flavours compute the same values; they differ in what a DOWNSTREAM shader compiler is able
+ *  to do to them.
+ *
+ *  - `'float'` — the guarded float EFTs. The default, and the byte-identical-emit baseline.
+ *  - `'integer'` — integer bit arithmetic in the `twoSum`/`twoProd`/`div`/`sqrt` leaves (the
+ *    compositions above them are shared). The point is that a fast-math pass CANNOT reassociate
+ *    integer ops, so the hi/lo split survives. Proven necessary on the Apple/Metal oracle, where
+ *    every float formulation collapses, and it is likewise immune to ANGLE-D3D11/FXC's composed-
+ *    tree folding.
+ *
+ *  Reach for `'integer'` when a target's compiler is known to fold the float EFTs — the symptom
+ *  is df64 silently degrading to f32 precision on one platform while every other target is fine.
+ *
+ *  Exported from `@xgis/shader-dsl/dev`.
+ */
 export type Fp64Flavor = 'float' | 'integer'
 
+/** Options for the fp64 lowering pass. Omitting `flavor` selects `'float'` — see
+ *  {@link Fp64Flavor} for when that default is the wrong one.
+ *
+ *  Exported from `@xgis/shader-dsl/dev`.
+ */
 export interface Fp64LowerOptions {
   readonly flavor?: Fp64Flavor
 }

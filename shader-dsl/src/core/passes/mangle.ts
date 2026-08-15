@@ -45,6 +45,16 @@ import { collectFnRefs, emptyRefSet } from '../ir/collect-refs'
 import { mapExpr } from './opt/ir-transform'
 import { bodyHasRaw } from './opt/dce'
 
+/** What {@link mangleModule} returns: the renamed module, and the map to read it back with.
+ *
+ *  Keep `renames` if the shipped shader will ever be debugged. It is the shader source map —
+ *  a production driver log or a GPU capture names the MANGLED identifier, and this is the only
+ *  way back to what the author wrote. A function-scoped name (a param or a local) is keyed
+ *  `authoredFn.authoredName`, because the same spelling is renamed independently inside each
+ *  function and a bare name would be ambiguous.
+ *
+ *  Exported from `@xgis/shader-dsl/emit-prod`, `@xgis/shader-dsl/dev`.
+ */
 export interface MangleResult {
   readonly module: ModuleDecl
   /** authored name → emitted name, for every renamed decl (the shader "source
@@ -218,6 +228,30 @@ function collectDeclNames(body: readonly Stmt[], acc: Set<string>): void {
   }
 }
 
+/** Shorten every identifier the shader does not have to keep, and return the renamed module
+ *  alongside the authored→emitted map. Pure; the input is not mutated.
+ *
+ *  ABI names are deliberately NOT renamed — entry-point function names and entry parameter
+ *  names are what the host pipeline binds against, so mangling them would break the caller
+ *  rather than shrink the shader. Everything else (helpers, locals, params of ordinary
+ *  functions, struct fields) is fair game.
+ *
+ *  A module containing a raw WGSL/GLSL fragment is returned UNCHANGED, with an empty rename
+ *  map. Raw text can reference any name textually and the mangler cannot see into it, so
+ *  renaming around it would desync the verbatim splice — the pass declines rather than risk
+ *  emitting a module that no longer compiles. That is worth knowing at the call site: a single
+ *  `rawWgsl` anywhere in a module silently costs you the whole minification win.
+ *
+ *  Exported from `@xgis/shader-dsl/emit-prod`, `@xgis/shader-dsl/dev`.
+ *
+ *  @example
+ *  ```ts
+ *  import { mangleModule } from '@xgis/shader-dsl/emit-prod'
+ *
+ *  const { module, renames } = mangleModule(MODULE)
+ *  // ship `module`; keep `renames` next to the build so a driver log can be decoded
+ *  ```
+ */
 export function mangleModule(m: ModuleDecl): MangleResult {
   // A raw WGSL fragment can reference any name textually — renaming around it
   // would desync the verbatim splice. Identity, like dce-fns / stageScope.

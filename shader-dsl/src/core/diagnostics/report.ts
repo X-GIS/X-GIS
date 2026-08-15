@@ -23,6 +23,11 @@ import { RULES, CORE_RULES } from '../passes/lint/rules'
 import { requiredCaps } from '../passes/required-caps'
 import { formatLoc } from './error'
 
+/** Options for {@link diagnose}. Every field is optional; the default is "run the full ruleset
+ *  and check no backend".
+ *
+ *  Exported from `@xgis/shader-dsl/dev`.
+ */
 export interface DiagnoseOptions {
   /** Which ruleset to run — 'all' (full RULES, default) or 'core' (emit-time CORE_RULES). */
   readonly rules?: 'core' | 'all'
@@ -32,6 +37,23 @@ export interface DiagnoseOptions {
   readonly config?: LintConfig
 }
 
+/** What {@link diagnose} returns: every {@link Diagnostic} it found, plus the {@link LintSummary}
+ *  counts over the same set. The two are consistent by construction — the summary is computed
+ *  from that exact array, not gathered separately — so `summary.errors > 0` is the cheap way to
+ *  decide whether emit should proceed, and `diagnostics` is what you render.
+ *
+ *  The array is in no promised order; sort it yourself if you present it.
+ *
+ *  Exported from `@xgis/shader-dsl/dev`.
+ *
+ *  @example
+ *  ```ts
+ *  import { diagnose, formatReport } from '@xgis/shader-dsl/dev'
+ *
+ *  const report = diagnose(MODULE, { backend: wgslBackend })
+ *  if (report.summary.errors > 0) throw new Error(formatReport(report))
+ *  ```
+ */
 export interface DiagnosticReport {
   readonly diagnostics: readonly Diagnostic[]
   readonly summary: LintSummary

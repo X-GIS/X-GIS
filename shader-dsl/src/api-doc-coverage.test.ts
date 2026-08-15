@@ -32,10 +32,16 @@
 // must never be transcribed here. The census that seeded this file was produced by ITS OWN
 // READER: 332 unique definitions across the four API subpaths, 175 of them undocumented
 // (. 159/284 · ./dev 13/33 · ./emit-prod 3/17 · ./core/ir 109/193). The allowlist has since
-// shrunk to 58 — #1697 documented the eight backend symbols that reached the entry through
-// `index.ts`'s star re-export (retiring the `emit-internals` debt class), and four agents
+// shrunk to 38 — #1697 documented the eight backend symbols that reached the entry through
+// `index.ts`'s star re-export (retiring the `emit-internals` debt class), four agents
 // documented the 109 `core/ir` IR-authoring symbols across node.ts/types.ts/builder.ts/
-// nodes.ts, which is what retired the `ir-authoring` debt class.
+// nodes.ts (retiring `ir-authoring`), and the 20 `./dev` diagnostic exports were written up
+// after the policy question in their debt reason was finally ANSWERED rather than deferred
+// again: `./dev` is in package.json `exports`, so its diagnostic surface is public and gets
+// real docs. `ShaderDslError` is the class every thrown error in the package instantiates and
+// `ErrorCode`/`CODES` are what a consumer branches on — calling those internal would have been
+// false. Two genuine pass-internals (`lowerModule`, `isSourceTracing`) took the `@internal`
+// route instead, which is what retired the `diagnostics` class.
 //
 // `@internal` IS NOT AN EXIT FROM THIS GATE. Five of those eight are documented AND tagged
 // `@internal`, so the extractor's `excludeInternal` keeps them out of the published pages
@@ -72,10 +78,6 @@ const NOT_API_SUBPATHS = ['./examples'] as const
 /** Why each undocumented symbol is still undocumented. Reasons live here, once, and every
  *  row below indirects through this table — 175 copies of a sentence would rot. */
 const DEBT: Readonly<Record<string, string>> = {
-  diagnostics:
-    'the lint/diagnostics/codes surface reached through ./dev. Its policy is undecided: ' +
-    '"the diagnostic surface is documented by its TSDoc only" is a fine answer but must be ' +
-    'stated rather than defaulted into (#1695).',
   'engine-internals':
     'reflect / sot / intrinsics / measure / cpu-runtime and friends — real public surface ' +
     'that simply has not been written up yet (#1695).',
@@ -92,13 +94,6 @@ const UNDOCUMENTED: Readonly<Record<string, string>> = {
   'src/core/cpu-runtime.ts#CpuStruct': 'engine-internals',
   'src/core/cpu-runtime.ts#CpuValue': 'engine-internals',
   'src/core/cpu-runtime.ts#ORACLE_GPU_STUB_NAMES': 'engine-internals',
-  'src/core/diagnostics/codes.ts#CODES': 'diagnostics',
-  'src/core/diagnostics/codes.ts#ErrorCode': 'diagnostics',
-  'src/core/diagnostics/codes.ts#ErrorCodeDef': 'diagnostics',
-  'src/core/diagnostics/error.ts#ShaderDslError': 'diagnostics',
-  'src/core/diagnostics/loc.ts#isSourceTracing': 'diagnostics',
-  'src/core/diagnostics/report.ts#DiagnoseOptions': 'diagnostics',
-  'src/core/diagnostics/report.ts#DiagnosticReport': 'diagnostics',
   'src/core/emit-minify.ts#MinifyOptions': 'engine-internals',
   'src/core/fp64/df64-lib.ts#FP64_GUARD_NAME': 'engine-internals',
   'src/core/fp64/df64-lib.ts#Fp64GuardHandle': 'engine-internals',
@@ -112,19 +107,6 @@ const UNDOCUMENTED: Readonly<Record<string, string>> = {
   'src/core/measure.ts#OptimizerReport': 'engine-internals',
   'src/core/oracle.ts#CpuModule': 'engine-internals',
   'src/core/oracle.ts#compileModule': 'engine-internals',
-  'src/core/passes/compose.ts#ComposeOptions': 'diagnostics',
-  'src/core/passes/fp64-lower.ts#Fp64Flavor': 'diagnostics',
-  'src/core/passes/fp64-lower.ts#Fp64LowerOptions': 'diagnostics',
-  'src/core/passes/lint/engine.ts#Diagnostic': 'diagnostics',
-  'src/core/passes/lint/engine.ts#LintConfig': 'diagnostics',
-  'src/core/passes/lint/engine.ts#LintSummary': 'diagnostics',
-  'src/core/passes/lint/engine.ts#Severity': 'diagnostics',
-  'src/core/passes/mangle.ts#MangleResult': 'diagnostics',
-  'src/core/passes/mangle.ts#mangleModule': 'diagnostics',
-  'src/core/passes/match-lower.ts#lowerModule': 'diagnostics',
-  'src/core/passes/opt/optimize.ts#OptLevel': 'diagnostics',
-  'src/core/passes/opt/optimize.ts#optimize': 'diagnostics',
-  'src/core/passes/validate.ts#ValidationError': 'diagnostics',
   'src/core/reflect.ts#BindEntry': 'engine-internals',
   'src/core/reflect.ts#BindGroup': 'engine-internals',
   'src/core/reflect.ts#EntryInfo': 'engine-internals',
@@ -155,6 +137,14 @@ const UNDOCUMENTED: Readonly<Record<string, string>> = {
  *  of prose plus the tag would retire any doc obligation, invisibly. Arm A6 pins the set both
  *  ways, so adding a tag is a reviewed act and removing one cannot leave a stale row. */
 const INTERNAL: Readonly<Record<string, string>> = {
+  'src/core/diagnostics/loc.ts#isSourceTracing':
+    "the read half of setSourceTracing, exported for this package's own tests and for " +
+    "captureLoc's early-out. A diagnostic already reports whether it resolved a location by " +
+    'whether its `loc` is present, which is the question a consumer actually has (#1695).',
+  'src/core/passes/match-lower.ts#lowerModule':
+    'a lowering-pipeline pass entry. Running it by hand yields a half-lowered module whose ' +
+    'nodes are rebuilt, which breaks the object identity the authored-source location table ' +
+    'is keyed on — so validate()/diagnose() must run BEFORE it, not after (#1695).',
   'src/core/backends/glsl.ts#lowerComputeToFragment':
     'the supported entry is the emulateCompute emit option; calling the pass directly yields ' +
     'a half-lowered module. Un-export tracked by #1697.',

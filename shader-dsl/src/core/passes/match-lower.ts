@@ -39,6 +39,17 @@ interface Counter {
   n: number
 }
 
+/** The match-lowering pass entry point: rewrites every `matchExpr` in a module into the switch
+ *  / select form the backends can spell, per the rules in this file's header.
+ *
+ *  Exported only because `./dev` re-exports the pass modules wholesale. A consumer never calls
+ *  this — emit runs it as part of the lowering pipeline, and calling it by hand produces a
+ *  module in a half-lowered state that the authored-source location table can no longer be read
+ *  against (the pass rebuilds every node, which breaks the object identity `core/diagnostics/
+ *  loc.ts` keys on). Run `validate()`/`diagnose()` BEFORE lowering, not after.
+ *
+ *  @internal
+ */
 export function lowerModule(m: ModuleDecl): ModuleDecl {
   return {
     ...m,

@@ -56,6 +56,30 @@ export const DEFAULT_PASSES: readonly OptPass[] = [
   dce,
 ]
 
+/** Run an optimizer pass list over a module ONCE, in order, and return the result. Pure — the
+ *  input module is not mutated.
+ *
+ *  This is the single-sweep primitive. Passes feed each other (const-prop exposes folds, which
+ *  expose dead branches, which expose dead code), so one sweep generally leaves further wins on
+ *  the table; `fixpoint()` is the same list re-run until the module stops changing, and is what
+ *  every backend's own `optimize` hook uses. Reach for `optimize` directly when you want exactly
+ *  one pass over a known list — measuring an individual pass's effect, or reproducing a
+ *  specific intermediate state.
+ *
+ *  Prefer `optimizeAt(m, level)` when you want a NAMED tier: {@link OptLevel} `'O1'` is the
+ *  bit-exact set, `'O2'` the full one, and those two differ in whether float semantics can move
+ *  at all — a distinction a hand-assembled pass list is easy to get wrong.
+ *
+ *  Exported from `@xgis/shader-dsl/dev`.
+ *
+ *  @example
+ *  ```ts
+ *  import { optimize, DEFAULT_PASSES } from '@xgis/shader-dsl/dev'
+ *
+ *  const once = optimize(MODULE)                 // one sweep of DEFAULT_PASSES
+ *  const cseOnly = optimize(MODULE, [cse])       // isolate a single pass to measure it
+ *  ```
+ */
 export function optimize(m: ModuleDecl, passes: readonly OptPass[] = DEFAULT_PASSES): ModuleDecl {
   return passes.reduce((mod, pass) => pass(mod), m)
 }
@@ -147,6 +171,22 @@ export function fixpoint(
 // tiers expose the intermediate points so a consumer can emit a debug build (O0,
 // naive — every author-written subexpr verbatim) or a bit-exact build (O1) and, in
 // particular, so the measurement util can A/B the optimizer's effect (O0 vs O2).
+/** A named optimization tier, in the C-compiler spelling. The line that matters to a caller is
+ *  between O1 and O2, and it is not about how hard the optimizer tries:
+ *
+ *  - `'O0'` — nothing. Naive lowered emit; the size baseline the optimizer is measured against.
+ *  - `'O1'` — the bit-exact value-MOVERS only. None of them changes WHICH float ops execute, so
+ *    an O1 build's runtime values are bit-identical to O0's on every target.
+ *  - `'O2'` — the full pipeline, and the emit default. Adds const-folding on floats, algebraic
+ *    identities and LICM — passes that CAN move float semantics, which is why they sit behind
+ *    the real-GPU f32 differential gate rather than being on at O1.
+ *
+ *  So O0→O1 is free of numerical risk and O1→O2 is not. Pick O1 when a build must be provably
+ *  value-identical to the unoptimized one; O2 otherwise. See `LEVEL_PASSES` for the exact list
+ *  each tier runs and `optimizeAt` to apply one.
+ *
+ *  Exported from `@xgis/shader-dsl/dev`.
+ */
 export type OptLevel = 'O0' | 'O1' | 'O2'
 
 /** The pass list each level runs to a fixed point.

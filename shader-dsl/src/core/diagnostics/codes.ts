@@ -10,12 +10,39 @@
 //
 // Codes are append-only and never renumbered: a consumer may match on `err.code`.
 
+/** One entry of the diagnostic catalogue: the `SD####` code, the INVARIANT half of its message,
+ *  and an optional one-line remedy. The dynamic half of a real error (the offending types, the
+ *  field name) is not here — it is supplied at the throw site and composed into
+ *  {@link ShaderDslError}'s `.message`, which is why the summary can be relied on as a category
+ *  while the message cannot.
+ *
+ *  Exported from `@xgis/shader-dsl`, `@xgis/shader-dsl/dev`.
+ */
 export interface ErrorCodeDef {
   readonly code: string
   readonly summary: string
   readonly hint?: string
 }
 
+/** The whole diagnostic catalogue, keyed by code — the single source of truth for what every
+ *  `SD####` means. Read it to build your own error UI (a code → docs link, a severity map, a
+ *  localised message table) rather than parsing `.message`, which composes the summary below
+ *  with per-throw detail and is not a stable format.
+ *
+ *  APPEND-ONLY, and never renumbered: a code that ships keeps its number forever, precisely so
+ *  a consumer may `switch` on `err.code` across versions. A test snapshots this object, so
+ *  adding or removing an entry is a deliberate diff rather than a silent one.
+ *
+ *  Exported from `@xgis/shader-dsl`, `@xgis/shader-dsl/dev`.
+ *
+ *  @example
+ *  ```ts
+ *  import { CODES, type ErrorCode } from '@xgis/shader-dsl'
+ *
+ *  const docsUrl = (code: ErrorCode) => `https://x-gis.dev/errors/${code}`
+ *  console.log(CODES.SD0002.summary) // 'binary op on mismatched vectors'
+ *  ```
+ */
 export const CODES = {
   // ── Authoring-time type errors (thrown from core/ir/node.ts) ──
   SD0001: {
@@ -143,4 +170,15 @@ export const CODES = {
   },
 } as const satisfies Record<string, ErrorCodeDef>
 
+/** The union of every diagnostic code the DSL can emit — `'SD0001' | 'SD0002' | …`, derived
+ *  from {@link CODES} rather than restated, so the two can never disagree. Annotate a handler
+ *  parameter with it and `tsc` will reject a typo'd or retired code, and an exhaustive `switch`
+ *  over it will fail to compile when a new code is added.
+ *
+ *  Note this is the type of a code the package CAN throw, not a promise about
+ *  {@link ShaderDslError}'s `.code` field, which is a plain `string` — a subclass or a future
+ *  version may carry a code this union does not have, so narrow rather than assume.
+ *
+ *  Exported from `@xgis/shader-dsl`, `@xgis/shader-dsl/dev`.
+ */
 export type ErrorCode = keyof typeof CODES
