@@ -12,8 +12,25 @@ import type { ModuleDecl, FuncDecl, Stmt, Expr } from '../../ir'
 import type { SourceLoc } from '../../diagnostics/error'
 import { getLoc } from '../../diagnostics/loc'
 
+/** How loudly a lint rule speaks. `'off'` is a CONFIG-only value — it silences the rule in
+ *  {@link LintConfig}, and no {@link Diagnostic} ever carries it, which is why that interface
+ *  narrows its own `severity` to `'error' | 'warning'`. An `'error'` is what
+ *  {@link LintSummary}'s `errors` counts, and the usual gate on whether emit should proceed.
+ *
+ *  Exported from `@xgis/shader-dsl/dev`.
+ */
 export type Severity = 'error' | 'warning' | 'off'
 
+/** One reported problem. `ruleId` and `message` are always present; everything else depends on
+ *  how much the reporting rule knew.
+ *
+ *  `loc` resolves back to the AUTHORED TypeScript, and only when source tracing was on at the
+ *  time the offending node was built — so it is absent by default, not merely sometimes. `code`
+ *  is an `SD####` from the same catalogue thrown errors use ({@link CODES}), present on rules
+ *  that map onto one; branch on it rather than on `message`.
+ *
+ *  Exported from `@xgis/shader-dsl/dev`.
+ */
 export interface Diagnostic {
   readonly ruleId: string
   readonly severity: 'error' | 'warning'
@@ -64,6 +81,24 @@ export interface LintRule {
   fix?(m: ModuleDecl): ModuleDecl | null
 }
 
+/** Per-rule overrides for a lint run — the ESLint-shaped config, keyed by rule id. Both fields
+ *  are sparse: a rule you do not name keeps its own declared severity and default options.
+ *
+ *  Setting a rule to `'off'` suppresses it for the whole module. To silence one FUNCTION
+ *  instead, put the rule id in that function's `lintDisable` — a deviation that is checked in
+ *  turn by `unusedDeviations`, so it cannot rot into a permanent unexplained mute.
+ *
+ *  Exported from `@xgis/shader-dsl/dev`.
+ *
+ *  @example
+ *  ```ts
+ *  import { diagnose } from '@xgis/shader-dsl/dev'
+ *
+ *  diagnose(MODULE, {
+ *    config: { severity: { 'param-count': 'warning' }, options: { 'param-count': { max: 8 } } },
+ *  })
+ *  ```
+ */
 export interface LintConfig {
   /** Per-rule severity override (e.g. demote a rule to 'warning' or 'off'). */
   readonly severity?: Readonly<Record<string, Severity>>
@@ -209,6 +244,12 @@ export function lint(m: ModuleDecl, rules: readonly LintRule[], config?: LintCon
   return lintRaw(m, rules, config).filter((d) => !suppressed(m, d))
 }
 
+/** Counts over a diagnostic set — what a CI line or a dashboard reads instead of walking the
+ *  array. `errors + warnings === total` (a {@link Diagnostic} is never `'off'`), and `byRule`
+ *  is keyed by `ruleId` with rules that fired nothing simply absent rather than present at 0.
+ *
+ *  Exported from `@xgis/shader-dsl/dev`.
+ */
 export interface LintSummary {
   readonly total: number
   readonly errors: number
@@ -239,12 +280,12 @@ export function unusedDeviations(
   const fired = new Set(
     lintRaw(m, rules, config)
       .filter((d) => d.fn)
-      .map((d) => `${d.fn} ${d.ruleId}`),
+      .map((d) => `${d.fn}\u0000${d.ruleId}`),
   )
   const out: Diagnostic[] = []
   for (const f of m.funcs) {
     for (const id of f.lintDisable ?? []) {
-      if (!fired.has(`${f.name} ${id}`)) {
+      if (!fired.has(`${f.name}\u0000${id}`)) {
         out.push({
           ruleId: 'unused-lint-disable',
           severity: 'warning',

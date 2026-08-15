@@ -24,6 +24,17 @@ let tracing = _env?.XGIS_SHADER_DSL_TRACE === '1'
 export const setSourceTracing = (on: boolean): void => {
   tracing = on
 }
+/** Whether authored-source tracing is currently on — the read half of
+ *  {@link setSourceTracing}.
+ *
+ *  Exported for this package's own tests and for `captureLoc`'s early-out, not as a switch a
+ *  consumer branches on: a diagnostic already tells you whether it resolved a location by
+ *  whether its `loc` is present, which is the question worth asking and is correct even when
+ *  tracing was toggled between authoring and reporting. Use {@link setSourceTracing} to turn it
+ *  on (or `XGIS_SHADER_DSL_TRACE=1`).
+ *
+ *  @internal
+ */
 export const isSourceTracing = (): boolean => tracing
 
 const locTable = new WeakMap<object, SourceLoc>()

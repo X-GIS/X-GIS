@@ -11,6 +11,17 @@
 
 import type { ModuleDecl, Stmt, FuncDecl } from '../ir'
 
+/** Options for `composeModule`. The default — strict — is the one you want: an un-swapped
+ *  placeholder and a typo'd swap key are both errors at compose time.
+ *
+ *  That strictness is the whole DX win over a hand-rolled placeholder walk, because both
+ *  mistakes are otherwise SILENT in the direction that matters: an un-swapped placeholder emits
+ *  a bare `// __placeholder` comment on the WGSL side and renders nothing wrong-looking, while
+ *  throwing only on the CPU oracle. Turn `allowUnswapped` on only when leaving a seam open is
+ *  deliberate.
+ *
+ *  Exported from `@xgis/shader-dsl/dev`.
+ */
 export interface ComposeOptions {
   /** Allow a placeholder with no matching swap to survive (emits `// __placeholder: <tag>` on the
    *  WGSL side; throws on the CPU oracle). Off by default — an un-swapped placeholder is an error. */
