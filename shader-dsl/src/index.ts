@@ -61,6 +61,19 @@ export * from './core/reflect'
 // backend above; `emitGlslFragment` from the GLSL one. The shared shapes live here.
 export { type EmitFragment, type FragmentDeclares } from './core/fragment'
 
+// Per-variant compile + link gate (#1715) — emit EVERY point of a variant family and put
+// each one through a real WebGL2 driver. The GL context is a structural PARAMETER, so the
+// package needs no DOM lib and a test can drive the aggregation with a recorder while the
+// real run goes through a real driver.
+export { linkVariants, type GlLinker, type VariantLinkResult } from './core/variant-link'
+
+// Emit IDENTITY (#1715) — the emit mode as a stable one-line stamp, so a committed
+// artifact can say which mode produced it. A pure function, deliberately not injected
+// into emitted source: the reported failure was a production build rewriting a committed
+// registry that the dev-mode goldens then disagreed with, and the registry banner (see
+// `buildRegistry`'s `stamp`) is where that difference needs to be visible.
+export { emitIdentity, type EmitTarget, type EmitIdentityInput } from './core/emit-identity'
+
 // Registry generation (#1716) — the reusable half: validate a DISCOVERED module set
 // against a CURATED id order and render a keyed registry module from it. Pure (no
 // filesystem), because the scan convention belongs to the caller; what everyone would

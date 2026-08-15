@@ -311,6 +311,13 @@ function assembleLowered(lowered: ModuleDecl, be: Backend, parens: ParenMode = '
  *  the plugin (debugging / error context), same as a Vite/Webpack plugin name. */
 export interface EmitPlugin {
   readonly name: string
+  /** How this plugin appears in {@link emitIdentity}'s stamp (#1715), when its own OPTIONS
+   *  change the emitted bytes and `name` therefore under-describes it — `minify({a})` and
+   *  `minify({b})` are otherwise the same string. Optional, and unset on every plugin
+   *  shipped here: dev-vs-prod is the distinction that was actually reported, and plugin
+   *  names separate those completely. Set it if you write a plugin whose configuration a
+   *  consumer needs to tell apart from a committed artifact. */
+  readonly identity?: string
   readonly transformIR?: (lowered: ModuleDecl) => ModuleDecl
   readonly transformText?: (code: string) => string
 }
