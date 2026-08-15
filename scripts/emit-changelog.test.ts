@@ -473,13 +473,21 @@ describe('parseArgs', () => {
 
 describe('entrypoint', () => {
   const script = new URL('./emit-changelog.ts', import.meta.url).pathname
-  // The spawned probes below need real history: a depth-1 CI checkout has
-  // neither a local `main` ref nor `main~5`, so they self-skip there — the pure
-  // suites above still run in CI. A full local clone always runs them.
-  const hasDeepHistory =
-    spawnSync('git', ['rev-parse', '--verify', '--quiet', 'main~5^{commit}'], {
+  // The spawned probes below need real history. Gate on the SAME question the script
+  // itself asks (#1720): the script refuses an unbounded changelog from a shallow clone
+  // (`emit-changelog.ts` — `rev-parse --is-shallow-repository`), so any predicate that
+  // answers a different question disagrees with it somewhere.
+  //
+  // It did. The previous predicate asked whether `main~5` resolves, and the two agree only
+  // at the extremes: at depth 1 the tests skip and the script would refuse; in a full clone
+  // both are happy. At `--depth 50` — what a container dev environment and Claude Code on
+  // the web get — `main~5` resolves, so the tests RAN and spawned a script that refused by
+  // design. Two red, in a suite neither the tests nor the script had anything wrong with.
+  const isShallow =
+    spawnSync('git', ['rev-parse', '--is-shallow-repository'], {
       encoding: 'utf8',
-    }).status === 0
+    }).stdout.trim() === 'true'
+  const hasDeepHistory = !isShallow
 
   it.skipIf(!hasDeepHistory)('emits to stdout when run directly', () => {
     const run = spawnSync('bun', [script], { encoding: 'utf8' })
@@ -635,5 +643,15 @@ describe('entrypoint', () => {
     expect(run.status).toBe(0)
     expect(run.stdout).toContain('Scope: commits touching shader-dsl/')
     expect((run.stdout.match(/^- /gm) ?? []).length).toBeGreaterThan(0)
+  })
+
+  it.skipIf(!isShallow)('REFUSES an unbounded changelog from a shallow clone (#1709)', () => {
+    // The other half of #1720. Fixing the predicate above alone would leave the guard #1709
+    // added tested nowhere except a full clone — skipped around rather than covered. This
+    // arm runs in exactly the environments the one above skips, so between them the script
+    // is exercised at every clone depth instead of only the convenient one.
+    const run = spawnSync('bun', [script], { encoding: 'utf8' })
+    expect(run.status).not.toBe(0)
+    expect(run.stderr).toContain('SHALLOW')
   })
 })
