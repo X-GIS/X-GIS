@@ -162,7 +162,88 @@ if (stubbed.length > 0)
       `blank one it replaced.`,
   )
 
-// ── 3. normalise links ────────────────────────────────────────────────────────────────────
+// ── 3. dedent fenced code blocks ──────────────────────────────────────────────────────────
+// Every `@example` on the site rendered with a leading space on each line of code, and the
+// cause is one space nobody can see in the source. This repo writes continuation lines as
+// ` *  text` (two spaces, for alignment under the `/**`); TypeDoc's comment parser strips the
+// asterisk and exactly ONE following space, so one space survives onto every continuation
+// line. In prose that is invisible — CommonMark discards up to three leading spaces on a
+// paragraph. Inside a fence it is not: the opening ``` sits at column 0, so nothing is
+// stripped from the content, and the code renders shifted one column right.
+//
+// Fixing it in the comments would mean restyling every doc comment in the package, and the
+// next one written in the house style would reintroduce it. Fixing it in TypeDoc is not
+// available (the parser's behaviour is not configurable). So it is normalised here, on the
+// artifact, where one rule covers every page and every future comment.
+//
+// Strips only the COMMON leading-space prefix, so relative indentation inside an example
+// survives; only spaces, never tabs; and only when the content is indented deeper than the
+// fence that opens it.
+const FENCE = /^(\s*)(```|~~~)/
+function dedentFences(text: string): { out: string; changed: number } {
+  const lines = text.split('\n')
+  const out: string[] = []
+  let changed = 0
+  for (let i = 0; i < lines.length; i++) {
+    const open = FENCE.exec(lines[i])
+    if (open === null) {
+      out.push(lines[i])
+      continue
+    }
+    // Collect through the matching close fence (or EOF — an unterminated fence is left alone).
+    const body: string[] = []
+    let j = i + 1
+    for (; j < lines.length && FENCE.exec(lines[j]) === null; j++) body.push(lines[j])
+    const openIndent = open[1].length
+    const content = body.filter((l) => l.trim() !== '')
+    const common =
+      content.length === 0 ? 0 : Math.min(...content.map((l) => /^ */.exec(l)![0].length))
+    const strip = Math.max(0, Math.min(common - openIndent, common))
+    out.push(lines[i])
+    for (const l of body) out.push(l.trim() === '' ? l : l.slice(strip))
+    if (strip > 0) changed++
+    if (j < lines.length) out.push(open[1] + lines[j].trimStart())
+    i = j
+  }
+  return { out: out.join('\n'), changed }
+}
+
+let dedented = 0
+for (const page of pages) {
+  const before = readFileSync(page, 'utf8')
+  const { out, changed } = dedentFences(before)
+  if (out !== before) writeFileSync(page, out)
+  dedented += changed
+}
+
+// The post-condition, asserted rather than assumed. `dedentFences` handles space-indented
+// fences; a tab-indented one, or a fence nested in a list item, would slip through it
+// silently and ship the same shifted code the whole stage exists to remove.
+const stillIndented: string[] = []
+for (const page of pages) {
+  const lines = readFileSync(page, 'utf8').split('\n')
+  for (let i = 0; i < lines.length; i++) {
+    const open = FENCE.exec(lines[i])
+    if (open === null) continue
+    const body: string[] = []
+    let j = i + 1
+    for (; j < lines.length && FENCE.exec(lines[j]) === null; j++) body.push(lines[j])
+    const content = body.filter((l) => l.trim() !== '')
+    if (content.length > 0 && content.every((l) => /^[ \t]/.test(l.slice(open[1].length))))
+      stillIndented.push(`${relative(OUT, page)}:${i + 1}`)
+    i = j
+  }
+}
+if (stillIndented.length > 0)
+  die(
+    `${stillIndented.length} code fence(s) still have every content line indented past the ` +
+      `fence that opens them:\n  ${stillIndented.slice(0, 8).join('\n  ')}` +
+      (stillIndented.length > 8 ? `\n  … and ${stillIndented.length - 8} more` : '') +
+      `\nEach renders as code shifted right by that indent. Extend dedentFences above to ` +
+      `cover the shape it missed — do not delete this check.`,
+  )
+
+// ── 4. normalise links ────────────────────────────────────────────────────────────────────
 let rewritten = 0
 for (const page of pages) {
   const before = readFileSync(page, 'utf8')
@@ -199,7 +280,7 @@ if (stillMd.length > 0)
       `missed a link shape. Every such link is a 404 for a reader.`,
   )
 
-// ── 4. every link resolves to a page that exists ──────────────────────────────────────────
+// ── 5. every link resolves to a page that exists ──────────────────────────────────────────
 // The gate that matters, and the one whose absence let a broken reference build clean. A
 // successful `astro build` says NOTHING about whether a cross-reference resolves: routes are
 // generated from filenames and links are text inside markdown, so the two can disagree for
@@ -228,6 +309,7 @@ if (broken.length > 0)
 
 console.log(
   `[api-reference] ${pages.length} pages, ${rewritten} links normalised, ` +
+    `${dedented} code fence(s) dedented, ` +
     `${forbidden.length} @internal symbol(s) verified absent, ` +
     `${targets.size} cross-reference target(s) resolved.`,
 )

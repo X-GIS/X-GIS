@@ -2,9 +2,13 @@
 //
 // The generated reference is only as good as the TSDoc behind it, and 167 public exports
 // have none — so their pages render as a signature and nothing else. This writes the
-// mechanical half of each comment (the kind, the type parameters, one `@param` per
-// parameter, `@returns`, `@throws` where the body throws) so an author is left with the
-// only part a machine cannot supply: what the thing is FOR.
+// mechanical half of each comment (the subpaths it is exported from, and `@throws` naming
+// the error class the body actually constructs) so an author is left with the only part a
+// machine cannot supply: what the thing is FOR.
+//
+// It deliberately writes NO `@param`/`@returns`/`@typeParam`. A description a checker can
+// derive is the type, and TypeDoc already prints the type — see `template()` below for the
+// 110-line noise that shape produced on the published pages before it was removed.
 //
 // THE TRAP THIS SCRIPT IS BUILT AROUND. `getDocumentationComment` returns a comment's
 // description text, so a stub with any prose in it reads as DOCUMENTED. Generating 167 of
@@ -92,11 +96,6 @@ function paramsOf(decl: ts.Declaration): readonly ts.ParameterDeclaration[] {
   return []
 }
 
-function typeParamsOf(decl: ts.Declaration): readonly ts.TypeParameterDeclaration[] {
-  const d = decl as unknown as { typeParameters?: ts.NodeArray<ts.TypeParameterDeclaration> }
-  return d.typeParameters ?? []
-}
-
 /** A one-word noun for the declaration, used to make the sentinel line less generic. */
 function kindOf(decl: ts.Declaration): string {
   if (ts.isInterfaceDeclaration(decl)) return 'interface'
@@ -124,29 +123,26 @@ function thrownTypes(decl: ts.Declaration): string[] {
   return [...out]
 }
 
-/** Render a type as prose-safe inline code, collapsing the whitespace `typeToString` emits
- *  for object literals so a `@param` line stays one line. */
-function typeText(type: ts.Type): string {
-  const t = checker
-    .typeToString(type, undefined, ts.TypeFormatFlags.NoTruncation)
-    .replace(/\s+/g, ' ')
-    .trim()
-  return t.length > 90 ? `${t.slice(0, 87)}…` : t
-}
-
 /** The call signature of a declaration, if it has one. */
 function signatureOf(decl: ts.Declaration, sym: ts.Symbol): ts.Signature | undefined {
   const type = checker.getTypeOfSymbolAtLocation(sym, decl)
   return checker.getSignaturesOfType(type, ts.SignatureKind.Call)[0]
 }
 
-/** EVERYTHING here is derived from the declaration — no sentinel, because none of it needs a
- *  human. The sentinel is spent only on the two things a machine genuinely cannot write:
- *  the summary (what this is FOR) and, for callables, a worked example.
+/** The sentinel is spent only on what a machine genuinely cannot write: the summary (what
+ *  this is FOR), for callables a worked example, and a thrown type the syntactic scan could
+ *  not name. Everything else emitted here is derived from the declaration and carries no
+ *  sentinel, because it needs no human.
  *
- *  That split is the point of this script. A stub that is all TODO gives an author 165
- *  blank forms; a stub that has already filled the type-derived half leaves one sentence
- *  and one snippet per symbol, which is work an agent can actually finish. */
+ *  That split is the point of this script. A stub that is all TODO gives an author 165 blank
+ *  forms; a stub that has already filled the derivable half leaves one sentence and one
+ *  snippet per symbol, which is work an agent can actually finish.
+ *
+ *  The split moved once, and the reason is worth keeping: `@param`/`@returns`/`@typeParam`
+ *  USED to count as the derivable half, filled with the checker's type text. They are not.
+ *  A description that restates the type is not documentation — TypeDoc prints the parameter
+ *  name, its type and its optionality from the signature already, so the derived line landed
+ *  underneath as a redundant third row. Derivable is not the same as worth emitting. */
 function template(
   decl: ts.Declaration,
   sym: ts.Symbol,
@@ -163,33 +159,27 @@ function template(
   lines.push('')
   lines.push(`Exported from ${from}.`)
 
-  const tps = typeParamsOf(decl)
-  const ps = paramsOf(decl)
+  // NO derived `@typeParam` / `@param` / `@returns`. This scaffolder used to emit one per
+  // declaration with the checker-resolved type as the description — `@param v — \`number\`.`,
+  // `@returns \`Node<"f32">\`.` — which reads fine in source and is pure noise on the page,
+  // because TypeDoc already prints each parameter's name, type and optionality above it:
+  //
+  //     ### v
+  //     `number`
+  //     — `number`.        <- this line, 110 times across the four core/ir files
+  //
+  // A tag is worth emitting only when it says something the signature does not. The checker
+  // can never produce that, so this half is left to an author who has something to add; the
+  // `type-echo` arm of api-doc-coverage.test.ts keeps the old shape from coming back.
   const sig = signatureOf(decl, sym)
 
-  if (tps.length > 0 || ps.length > 0 || sig !== undefined) lines.push('')
-
-  for (const tp of tps) {
-    const c = tp.constraint !== undefined ? ` Constrained to \`${tp.constraint.getText()}\`.` : ''
-    const d = tp.default !== undefined ? ` Defaults to \`${tp.default.getText()}\`.` : ''
-    lines.push(`@typeParam ${tp.name.getText()} —${c}${d}`.trimEnd())
-  }
-
-  for (const p of ps) {
-    const pname = ts.isIdentifier(p.name) ? p.name.text : p.name.getText()
-    const t = typeText(checker.getTypeAtLocation(p))
-    const optional = p.questionToken !== undefined || p.initializer !== undefined
-    const def = p.initializer !== undefined ? ` Defaults to \`${p.initializer.getText()}\`.` : ''
-    lines.push(`@param ${pname} — \`${t}\`${optional ? ', optional.' : '.'}${def}`)
-  }
-
-  if (sig !== undefined) {
-    const ret = typeText(checker.getReturnTypeOfSignature(sig))
-    if (ret !== 'void') lines.push(`@returns \`${ret}\`.`)
-  }
-
-  for (const t of thrownTypes(decl))
-    lines.push(t === '' ? '@throws on invalid input.' : `@throws {${t}}`)
+  const throws = thrownTypes(decl)
+  if (throws.length > 0) lines.push('')
+  for (const t of throws)
+    // An unresolved thrown type is the one place this cannot derive anything useful — say so
+    // with the sentinel rather than a content-free "@throws on invalid input.", which renders
+    // as a `## Throws` section that tells a reader neither which error nor when.
+    lines.push(t === '' ? `@throws ${SENTINEL} which error, and on what input.` : `@throws {${t}}`)
 
   // A worked example is the other thing only a person can supply, and the thing a reference
   // is most often opened for. Only asked of callables — an example of a type alias is prose.
