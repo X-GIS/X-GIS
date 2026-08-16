@@ -14,6 +14,17 @@ import { PNG } from 'pngjs'
 const shootRaw = async (page: Page): Promise<Buffer> =>
   await page.locator('#xg-canv, canvas').first().screenshot()
 
+/** The resolution the camera last built its MVP for — the quantity `?adaptive=0` pins, and
+ *  the one whose silent change made this gate unreadable for three rounds (#1733). Read
+ *  from the camera's own cache rather than the canvas element, because the element stays
+ *  860x720 while the ladder moves the RENDER scale underneath it. */
+const renderScale = async (page: Page): Promise<string> =>
+  await page.evaluate(() => {
+    const c = (window as unknown as { __xgisMap?: { camera?: Record<string, unknown> } }).__xgisMap
+      ?.camera
+    return `${String(c?._cacheW)}x${String(c?._cacheH)}@${String(c?._cacheDpr)}`
+  })
+
 /** Settle DETERMINISTICALLY, then capture (#1733).
  *
  * This was a 25 x 80 ms `invalidate()` pump — 2 s of wall clock — which made the gate's
@@ -28,9 +39,11 @@ const shootRaw = async (page: Page): Promise<Buffer> =>
  * reports itself instead of arriving as an unexplained pixel diff. Ported from
  * `_webgl2-parity.spec.ts:53-109`, which already does exactly this.
  *
- * NOTE this did NOT make the gate green under load, and that is the useful part: with
- * convergence no longer measured in seconds, the remaining intermittent diff cannot be a
- * settle artifact. See the KNOWN_DARK_GATES row and #1733 for what it is instead.
+ * On its own this did NOT make the gate green under load, and that was the useful part:
+ * with convergence no longer measured in seconds, the diff that remained could not be a
+ * settle artifact, which is what pointed at the resolution ladder (see the `?adaptive=0`
+ * note below). Both are needed — this one makes the capture deterministic, that one makes
+ * the two captures comparable.
  *
  * The CAPTURE surface is deliberately unchanged: the 310 px threshold below is calibrated
  * against this element screenshot, so swapping in a canvas-native readback would silently
@@ -73,7 +86,22 @@ test('re-run() on a live forcegl2 map re-boots and renders the same frame', asyn
     if (m.type() === 'error' && !m.text().includes('Failed to load resource')) errors.push(m.text())
   })
 
-  await page.goto('/demo.html?id=minimal&e2e=1&forcegl2=1', { waitUntil: 'domcontentloaded' })
+  // `adaptive=0` pins the resolution ladder OFF for the duration (#1733).
+  //
+  // Without it this gate silently compares two frames rendered at DIFFERENT resolutions.
+  // Under batch load SwiftShader falls below the ladder's 33.4 ms step-down line, the
+  // controller drops to its `{ farLod: 4, dpr: 0.85 }` notch
+  // (`engine/src/gpu/adaptive-quality.ts:91`), and the FIRST capture lands at 731x612 —
+  // 860 x 0.85 and 720 x 0.85, exactly. The `run()` re-boot resets the controller, so the
+  // second capture is at 860x720. Same geometry, same camera, resampled differently: an
+  // edge-only diff of 43089 px, byte-reproducible, with fills untouched.
+  //
+  // That confound cost three wrong diagnoses (flake, then a re-boot defect, then MSAA)
+  // before the camera state was dumped whole rather than field-by-field. The ladder is
+  // not this gate's subject; the re-boot is.
+  await page.goto('/demo.html?id=minimal&e2e=1&forcegl2=1&adaptive=0', {
+    waitUntil: 'domcontentloaded',
+  })
   await page.waitForFunction(
     () => (window as unknown as { __xgisReady?: boolean }).__xgisReady === true,
     { timeout: 60_000 },
@@ -93,6 +121,7 @@ test('re-run() on a live forcegl2 map re-boots and renders the same frame', asyn
     m.setCenter(0, 0)
   })
   const a = PNG.sync.read(await settle(page))
+  const scaleA = await renderScale(page)
 
   // Live swap: identical source through the public run() — the re-boot path.
   await page.evaluate(async () => {
@@ -116,6 +145,7 @@ layer countries { source: world
     m.setCenter(0, 0)
   })
   const b = PNG.sync.read(await settle(page))
+  const scaleB = await renderScale(page)
 
   let diff = 0
   for (let i = 0; i < a.data.length; i += 4) {
@@ -126,7 +156,15 @@ layer countries { source: world
     )
       diff++
   }
-  console.log(`[gl2-live-swap] diffPixels=${diff}/${a.width * a.height}`)
+  console.log(`[gl2-live-swap] diffPixels=${diff}/${a.width * a.height} scale=${scaleA}→${scaleB}`)
+  // Fails LOUD if the ladder ever moves mid-test again, instead of surfacing as an
+  // unexplained pixel diff — the whole failure mode of #1733. Asserted BEFORE the pixel
+  // comparison so the message names the cause rather than the symptom.
+  expect(
+    scaleB,
+    `render scale changed between the two captures (${scaleA} → ${scaleB}) — the adaptive ` +
+      'ladder moved despite ?adaptive=0, so the frames are not comparable',
+  ).toBe(scaleA)
   // Same calibration family as _scene-builder-twin.spec.ts: same-code page
   // loads differ by ~78 px under SwiftShader; the pre-fix tile drop was
   // ≈ 7 000 px and the pre-fix boot failure a blank frame (hundreds of
