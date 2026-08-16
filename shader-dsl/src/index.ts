@@ -65,7 +65,16 @@ export { type EmitFragment, type FragmentDeclares } from './core/fragment'
 // each one through a real WebGL2 driver. The GL context is a structural PARAMETER, so the
 // package needs no DOM lib and a test can drive the aggregation with a recorder while the
 // real run goes through a real driver.
-export { linkVariants, type GlLinker, type VariantLinkResult } from './core/variant-link'
+export {
+  linkVariants,
+  validateVariantsWgsl,
+  type GlLinker,
+  type VariantLinkResult,
+  type WgslValidator,
+  type WgslCompiled,
+  type WgslMessage,
+  type VariantWgslResult,
+} from './core/variant-link'
 
 // Emit IDENTITY (#1715) — the emit mode as a stable one-line stamp, so a committed
 // artifact can say which mode produced it. A pure function, deliberately not injected

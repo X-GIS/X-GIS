@@ -15,7 +15,11 @@
 // entry point plus the two classes, and a real map shader would drag its whole build graph
 // into a spec that is about neither.
 
-import { linkVariants, type VariantLinkResult } from '../../shader-dsl/src/core/variant-link'
+import {
+  linkVariants,
+  validateVariantsWgsl,
+  type VariantLinkResult,
+} from '../../shader-dsl/src/core/variant-link'
 import { variantFamily } from '../../shader-dsl/src/core/variant-family'
 import { builtin, ioStruct, location, resource } from '../../shader-dsl/src/core/sot'
 import {
@@ -153,16 +157,29 @@ export async function surveyVariantWgsl(): Promise<WgslVariantSurvey> {
   // additionally reject the device on the first bad module and take the control arm with it.
   device.pushErrorScope('validation')
 
-  const errorsFor = async (code: string): Promise<string[]> => {
-    const info = await device.createShaderModule({ code }).getCompilationInfo()
-    return info.messages.filter((m) => m.type === 'error').map((m) => `${m.lineNum}: ${m.message}`)
-  }
+  // Enumeration + aggregation come from the PACKAGE (`validateVariantsWgsl`), not from a
+  // copy here: it is the WGSL twin of `linkVariants` above, so both backends walk the same
+  // family through the same shape, and a consumer of @xgis/shader-dsl gets the entry point
+  // this issue asked for rather than one that only exists inside this repo's e2e.
+  const validated = await validateVariantsWgsl(device, family)
+  const rows = validated.map((r) => ({ key: r.key, errors: r.errors ?? [] }))
 
-  const rows: Array<{ key: string; errors: readonly string[] }> = []
-  for (const [key, code] of sources) rows.push({ key, errors: await errorsFor(code) })
-  const control = await errorsFor(
-    '@vertex fn vs() -> @builtin(position) vec4f { return notAFunction(1); }',
-  )
+  // The positive control goes through the SAME function, with only the SOURCE swapped for
+  // one Tint must reject. Reading `getCompilationInfo()` directly here instead would test a
+  // path the rows above do not use: every variant is valid, so a `validateVariantsWgsl` that
+  // never read the messages would return the same clean rows AND leave a direct control
+  // positive — green either way, which is the trap this control exists to close.
+  const controlErrors = (
+    await validateVariantsWgsl(
+      {
+        createShaderModule: () =>
+          device.createShaderModule({
+            code: '@vertex fn vs() -> @builtin(position) vec4f { return notAFunction(1); }',
+          }),
+      },
+      family,
+    )
+  ).flatMap((r) => r.errors ?? [])
   await device.popErrorScope()
 
   return {
@@ -170,6 +187,6 @@ export async function surveyVariantWgsl(): Promise<WgslVariantSurvey> {
     keys: family.keys,
     distinctModules,
     rows,
-    controlErrors: control.length,
+    controlErrors: controlErrors.length,
   }
 }
