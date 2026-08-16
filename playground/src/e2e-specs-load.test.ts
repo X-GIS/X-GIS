@@ -89,10 +89,13 @@ describe('every e2e spec loads — a module-scope throw aborts the whole suite (
 // them turned out to PASS on headless WebGL2 — twice, in two independent runs — and are now
 // registered in test.yml. Confirming twice was not ceremony: `_matrix-gate` passed alone and
 // failed inside a 19-way batch, so a single green would have shipped a flake into a shared
-// leg. Two then came off the list the honest way: `_1235-measure-gate`, whose defect was FIXED
-// (#1728 — a re-seed could not recover a source whose GPU tiles had all dropped), and
-// `_world-copies-projection-gate`, whose row below turned out to be diagnosing the wrong thing
-// (#1730). The two below are what is left, each with the reason it is still dark.
+// leg. Three then came off the list the honest way: `_1235-measure-gate`, whose defect was
+// FIXED (#1728 — a re-seed could not recover a source whose GPU tiles had all dropped);
+// `_world-copies-projection-gate`, whose row turned out to be diagnosing the wrong thing
+// (#1730); and `_gl2-live-swap-gate`, whose second failure magnitude was finally EXPLAINED
+// (#1715 — the same adaptive ladder as the first, walked to its `{ farLod: 6, dpr: 0.5 }`
+// floor; `?adaptive=0` covers it, proven by A/B under a saturated CPU). The one below is
+// what is left, with the reason it is still dark.
 //
 // The cost is recorded because it is the argument for splitting the leg later: the 30 add a
 // measured ~14 min to render-gate's SwiftShader step, which was 20.7 min for 63 specs. A
@@ -114,20 +117,6 @@ describe('every e2e spec loads — a module-scope throw aborts the whole suite (
 // gate anything; requiring those to run in CI would be wrong, not rigorous. The name is the
 // contract — call a spec a gate and it has to be one.
 const KNOWN_DARK_GATES: readonly string[] = [
-  // The 43089 px mode is UNDERSTOOD and removed at the source (#1733): under batch load the
-  // adaptive controller stepped to its `{ farLod: 4, dpr: 0.85 }` notch
-  // (`engine/src/gpu/adaptive-quality.ts:91`) between the gate's two captures, so it was
-  // comparing 731x612 against 860x720 — 860 x 0.85 and 720 x 0.85, exactly, measured off a
-  // failing run's camera dump. The spec now boots `?adaptive=0` and asserts both captures
-  // share a render scale; `engine/src/gpu/quality-url-flags.test.ts` gates that the flag
-  // actually reaches the controller rather than merely parsing.
-  //
-  // STILL DARK because the OTHER observed mode is unexplained. Failures came in two
-  // magnitudes — 43089 px (edge-only; the ladder) and ~618073 px (99.8% of the frame, seen
-  // three times at 618069/618073/618076). Only the first was ever caught with a camera dump
-  // attached. Registering now would bet that the second mode had the same cause, and
-  // nothing measured says it did.
-  '_gl2-live-swap-gate.spec.ts',
   // FLAKY, not broken: green on its own, red inside a 19-way batch. Registering it would put
   // a load-sensitive spec in a shared leg, which is worse than leaving it dark — this row is
   // why the other 30 were each confirmed TWICE before being registered.
