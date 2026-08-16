@@ -13,11 +13,12 @@
 // the states of the thing it tests (CLAUDE.md §12); that one distinguished the
 // wrong axis.
 //
-// The world-copy signal is PER-SOURCE tilesVisible. At z=1.5 the tile zoom is 1,
-// where ONE world is 2 columns x 2 rows = 4 tiles maximum. Measured with copies
-// enumerated: 6 (three columns — the third is the copy). So `> 4` per source is
-// exactly the single-world/multi-world boundary, and it is independent of how
-// many layers the demo happens to declare.
+// The world-copy signal is PER-SOURCE tilesVisible, against a ceiling DERIVED
+// from the tile zoom the frame reports (`singleWorldMaxTiles`) rather than a
+// literal. One world at tile zoom z holds 4^z tiles, so exceeding that proves a
+// copy was enumerated — at any camera. Measured here: tile zoom 1, ceiling 4,
+// observed 6 (three columns; the third is the copy). Independent of how many
+// layers the demo declares, and independent of where the camera sits.
 //
 // ── Why physical_map and not physical_map_50m ──
 //
@@ -52,6 +53,7 @@ interface SourceStat {
   name: string
   cache?: number
   tilesVisible?: number
+  drawnByZoom?: ReadonlyArray<readonly [number, number]>
 }
 
 async function loadAndDump(
@@ -94,14 +96,36 @@ async function loadAndDump(
         name: s.name,
         cache: s.cache?.size,
         tilesVisible: s.frame?.tilesVisible,
+        drawnByZoom: s.frame?.drawnByZoom,
       })),
     }
   })
 }
 
-/** One world at tile-zoom 1 is 2 columns x 2 rows. Anything above this had a
- *  ±N copy enumerated into the visible set. */
-const SINGLE_WORLD_MAX_TILES = 4
+/** The single-world ceiling, DERIVED from the tile zoom the frame actually drew rather than
+ *  hard-coded.
+ *
+ *  One world at tile zoom z holds 2^z x 2^z tiles, so a single-world render can never draw
+ *  more than 4^z of them — at any camera, any viewport. Exceeding it therefore PROVES a ±N
+ *  copy was enumerated, which is the property this gate exists to assert.
+ *
+ *  Hard-coding 4 was correct at this camera and only at this camera: it was measured by
+ *  severing `copyOrder` (data/src/tiles-sse.ts) and observing exactly 4. But nothing pinned
+ *  the camera, so moving it could have raised the true single-world count above 4 and left
+ *  this gate passing with copies DISABLED — silently vacuous, the exact failure class the
+ *  gate was rewritten to escape. Deriving the bound removes that coupling: the assertion can
+ *  now only fail loudly on drift, never pass quietly. */
+function singleWorldMaxTiles(drawnByZoom: ReadonlyArray<readonly [number, number]>): number {
+  const zooms = drawnByZoom.filter(([, n]) => n > 0).map(([z]) => z)
+  if (zooms.length !== 1) {
+    throw new Error(
+      `expected one tile zoom in the drawn set, got [${zooms.join(', ')}] — the single-world ` +
+        `ceiling is per-zoom, so a mixed set makes the bound ambiguous. Re-derive it before ` +
+        `trusting this gate at this camera.`,
+    )
+  }
+  return 4 ** zooms[0]!
+}
 
 test('mercator demo: world copies enumerated (per-source tiles exceed one world)', async ({
   page,
@@ -118,11 +142,13 @@ test('mercator demo: world copies enumerated (per-source tiles exceed one world)
   // true when nothing drew at all (the exact state the old flat-sleep produced).
   expect(drawing.length, 'every declared source drew something').toBe(3)
   for (const s of drawing) {
+    const ceiling = singleWorldMaxTiles(s.drawnByZoom ?? [])
     expect(
       s.tilesVisible,
       `${s.name}: ${s.tilesVisible} visible tiles is within a single world ` +
-        `(<= ${SINGLE_WORLD_MAX_TILES} at tile-zoom 1) — Mercator should have enumerated ±N copies`,
-    ).toBeGreaterThan(SINGLE_WORLD_MAX_TILES)
+        `(<= ${ceiling} at tile zoom ${(s.drawnByZoom ?? []).map(([z]) => z).join('/')}) — ` +
+        `Mercator should have enumerated ±N copies`,
+    ).toBeGreaterThan(ceiling)
   }
 })
 
