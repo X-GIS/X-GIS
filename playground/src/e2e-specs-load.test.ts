@@ -117,9 +117,21 @@ describe('every e2e spec loads — a module-scope throw aborts the whole suite (
 // gate anything; requiring those to run in CI would be wrong, not rigorous. The name is the
 // contract — call a spec a gate and it has to be one.
 const KNOWN_DARK_GATES: readonly string[] = [
-  // FLAKY, not broken: green on its own, red inside a 19-way batch. Registering it would put
-  // a load-sensitive spec in a shared leg, which is worse than leaving it dark — this row is
-  // why the other 30 were each confirmed TWICE before being registered.
+  // OPT-IN AND LOCAL BY DESIGN — not a defect, and not pending anything. The row used to say
+  // "FLAKY, green on its own, red inside a 19-way batch". The flakiness was real (measured
+  // with XGIS_MATRIX=1), but it was never the reason this cannot be registered, and stating
+  // it that way implied a fix was owed. Two things actually govern:
+  //
+  //   • `test.skip(!MATRIX_ON)` — CI does not set XGIS_MATRIX, so registering it would make
+  //     EVERY cell skip. A registered spec that always skips is vacuously green, which is
+  //     precisely the failure this whole list exists to prevent.
+  //   • ADR-0004 — it is a real-GPU visual-regression matrix, and CI's SwiftShader cannot
+  //     raster the pipeline. The spec's own header says so: "OPT-IN ONLY … CI (no GPU) never
+  //     run it … Real GPU, LOCAL/pre-push only".
+  //
+  // It IS a gate, so the name is honest; it is just a PRE-PUSH gate (`bun precheck:matrix`),
+  // a third category this list's CI-registered/dark split has no slot for. Listing it here
+  // with this reason is the accurate answer, and there is no follow-up work behind it.
   '_matrix-gate.spec.ts',
 ]
 
