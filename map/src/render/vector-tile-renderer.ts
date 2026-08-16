@@ -2280,16 +2280,16 @@ export class VectorTileRenderer {
     this._uploads.drain()
   }
 
-  /** #1371 — re-request every tile key this renderer currently has GPU-resident. Called after
-   *  a host data push swapped the source's BACKEND: the catalog still holds (and this renderer
-   *  still draws) the previous backend's tiles, and `refreshTiles` is the one request path that
-   *  does not skip a cached key. The replacements arrive through the normal sink, and
-   *  `applyReplacedTiles` below swaps them in — so the layer never goes blank. */
+  /** #1371 — re-request the tile keys a host data push made stale by swapping the source's
+   *  BACKEND: `refreshTiles` is the one request path that does not skip a cached key, and
+   *  `applyReplacedTiles` below swaps the replacements in, so the layer never goes blank.
+   *  #1728 — UNCONDITIONAL: zero GPU-resident tiles is the state an empty push leaves (the
+   *  drop below), and skipping the call there stranded the NEXT push's data forever. */
   reseedTiles(): void {
     if (!this.source?.refreshTiles) return
     const keys = new Set<number>()
     for (const inner of this._store.cache().values()) for (const k of inner.keys()) keys.add(k)
-    if (keys.size > 0) this.source.refreshTiles([...keys])
+    this.source.refreshTiles([...keys])
   }
 
   /** #1371 — swap in tiles whose CPU data was replaced since the last frame. The new data is
