@@ -113,20 +113,19 @@ describe('every e2e spec loads — a module-scope throw aborts the whole suite (
 // gate anything; requiring those to run in CI would be wrong, not rigorous. The name is the
 // contract — call a spec a gate and it has to be one.
 const KNOWN_DARK_GATES: readonly string[] = [
-  // A REAL intermittent difference in what the re-boot RENDERS — not the flake this row
-  // called it, and not the settle artifact that diagnosis implied (#1733, measured). The
-  // wall-clock pump was replaced with an event-driven settle (idle + byte-stable capture)
-  // and the gate still goes red about one run in four inside a four-spec batch, so the
-  // cause is not convergence timing. Three things rule out the harness:
-  //   - a CONTROL capture of the SAME state re-rendered under the same load is 0/619200,
-  //     three times over: the rasterizer is deterministic here;
-  //   - the failing diff is EDGE-only (fills match) and the best whole-pixel shift is
-  //     (0,0), so it is sub-pixel AA, not a camera or viewport move;
-  //   - the magnitude repeats EXACTLY (43089/619200 on two separate failures), which is a
-  //     discrete second rendering state, not noise.
-  // sampleCount/canvas/dpr were identical before and after on four passing runs; a failing
-  // run has not yet been caught with that probe attached. Registering it means registering
-  // a gate that is red one run in four; it is listed until the defect is found.
+  // The 43089 px mode is UNDERSTOOD and removed at the source (#1733): under batch load the
+  // adaptive controller stepped to its `{ farLod: 4, dpr: 0.85 }` notch
+  // (`engine/src/gpu/adaptive-quality.ts:91`) between the gate's two captures, so it was
+  // comparing 731x612 against 860x720 — 860 x 0.85 and 720 x 0.85, exactly, measured off a
+  // failing run's camera dump. The spec now boots `?adaptive=0` and asserts both captures
+  // share a render scale; `engine/src/gpu/quality-url-flags.test.ts` gates that the flag
+  // actually reaches the controller rather than merely parsing.
+  //
+  // STILL DARK because the OTHER observed mode is unexplained. Failures came in two
+  // magnitudes — 43089 px (edge-only; the ladder) and ~618073 px (99.8% of the frame, seen
+  // three times at 618069/618073/618076). Only the first was ever caught with a camera dump
+  // attached. Registering now would bet that the second mode had the same cause, and
+  // nothing measured says it did.
   '_gl2-live-swap-gate.spec.ts',
   // Blocked on DATA, not on code: its first arm loads the `physical_map_50m` demo, which
   // fetches /data/ne_50m_rivers.geojson — a file that is NOT tracked in git and exists on
