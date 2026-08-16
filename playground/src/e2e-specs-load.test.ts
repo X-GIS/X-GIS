@@ -89,9 +89,10 @@ describe('every e2e spec loads — a module-scope throw aborts the whole suite (
 // them turned out to PASS on headless WebGL2 — twice, in two independent runs — and are now
 // registered in test.yml. Confirming twice was not ceremony: `_matrix-gate` passed alone and
 // failed inside a 19-way batch, so a single green would have shipped a flake into a shared
-// leg. `_1235-measure-gate` then came off the list the honest way — its defect was FIXED
-// (#1728: a re-seed could not recover a source whose GPU tiles had all dropped), so it is
-// registered now. The three below are what is left, each with the reason it is still dark.
+// leg. Two then came off the list the honest way: `_1235-measure-gate`, whose defect was FIXED
+// (#1728 — a re-seed could not recover a source whose GPU tiles had all dropped), and
+// `_world-copies-projection-gate`, whose row below turned out to be diagnosing the wrong thing
+// (#1730). The two below are what is left, each with the reason it is still dark.
 //
 // The cost is recorded because it is the argument for splitting the leg later: the 30 add a
 // measured ~14 min to render-gate's SwiftShader step, which was 20.7 min for 63 specs. A
@@ -127,14 +128,6 @@ const KNOWN_DARK_GATES: readonly string[] = [
   // attached. Registering now would bet that the second mode had the same cause, and
   // nothing measured says it did.
   '_gl2-live-swap-gate.spec.ts',
-  // Blocked on DATA, not on code: its first arm loads the `physical_map_50m` demo, which
-  // fetches /data/ne_50m_rivers.geojson — a file that is NOT tracked in git and exists on
-  // nobody's checkout, so the fetch returns the dev server's HTML 404 page with status 200
-  // and the demo never reaches __xgisReady. CI would fail identically. The other two arms
-  // (orthographic, natural-earth fixtures) pass. Fixing means tracking the data or pointing
-  // that arm at a fixture that is; worth noting the demo itself is broken for any human who
-  // opens it, which is a separate and larger problem than this gate.
-  '_world-copies-projection-gate.spec.ts',
   // FLAKY, not broken: green on its own, red inside a 19-way batch. Registering it would put
   // a load-sensitive spec in a shared leg, which is worse than leaving it dark — this row is
   // why the other 30 were each confirmed TWICE before being registered.

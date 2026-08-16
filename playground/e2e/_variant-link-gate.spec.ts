@@ -33,3 +33,36 @@ test('every variant of a family compiles and links on WebGL2', async ({ page }) 
     failed.map((r) => `${r.key}: ${r.failedAt ?? '?'} — ${r.log ?? ''}`).join('\n'),
   ).toEqual([])
 })
+
+// The other half of the same ask: "so the same family is proven on BOTH backends from one
+// test". Same family object as above (one definition, shared) — two backends over two
+// different families would prove nothing about either.
+//
+// #1715 recorded that this could not run here, for want of a WebGPU software adapter. That
+// was wrong: the container's Chromium enumerates a SwiftShader WebGPU adapter and reports
+// real Tint diagnostics through getCompilationInfo. (`_wgsl-compile-gate` has in fact been
+// doing exactly this in CI for the map/engine surfaces; what was missing is per-VARIANT.)
+test('every variant of a family passes WGSL validation', async ({ page }) => {
+  await page.goto('/demo.html?id=minimal', { waitUntil: 'domcontentloaded' })
+  const survey = await page.evaluate(async () => {
+    const mod = await import('/e2e/_variant-link-survey.ts')
+    return mod.surveyVariantWgsl()
+  })
+
+  // Same non-vacuity discipline as the WebGL2 arm: no adapter ⇒ fail loudly, never pass on
+  // an empty row set.
+  expect(survey.adapter, 'no WebGPU adapter in this browser').not.toBe('NONE')
+  expect(survey.rows.length, 'the family produced no variants').toBe(survey.keys.length)
+  expect(survey.keys.length).toBe(4)
+  expect(survey.distinctModules, 'variants collapsed to identical WGSL').toBe(4)
+
+  // And the validator must still be capable of saying no — otherwise "0 errors" everywhere
+  // is indistinguishable from a validator that reports nothing at all.
+  expect(
+    survey.controlErrors,
+    'the known-bad control module reported no error — getCompilationInfo is not validating',
+  ).toBeGreaterThan(0)
+
+  const bad = survey.rows.filter((r) => r.errors.length > 0)
+  expect(bad, bad.map((r) => `${r.key}:\n  ${r.errors.join('\n  ')}`).join('\n')).toEqual([])
+})
