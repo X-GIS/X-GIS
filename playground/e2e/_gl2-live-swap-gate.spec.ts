@@ -99,6 +99,22 @@ test('re-run() on a live forcegl2 map re-boots and renders the same frame', asyn
   // That confound cost three wrong diagnoses (flake, then a re-boot defect, then MSAA)
   // before the camera state was dumped whole rather than field-by-field. The ladder is
   // not this gate's subject; the re-boot is.
+  //
+  // A SECOND magnitude (~618073 px, 99.8% of the frame, logged three times) stayed
+  // unexplained after #1733 and kept this gate dark. It is the SAME cause one rung lower:
+  // the ladder has seven notches (`adaptive-quality.ts` LADDER) and under a saturated CPU
+  // the controller walks to its FLOOR, `{ farLod: 6, dpr: 0.5 }`. Reproduced by pinning six
+  // busy loops to a 4-core box: `diffPixels=618061`, `scale=430x360@0.5 → 619x518@0.72` —
+  // 860 x 0.5 and 720 x 0.5 exactly, against a partially-restored second capture. At that
+  // depth `farLod` also coarsens geometry, so unlike the 0.85 rung the diff is not
+  // edge-only; it is the whole frame, which is why it read as a blank-frame boot failure.
+  // It is not one: measured at the failure, `contextLost=false`, `drawCalls=3`,
+  // `vertices=838638`, zero console errors, and capture A carries 1402 distinct colours.
+  // Nothing is broken — the two frames are simply rendered at different resolutions.
+  //
+  // `?adaptive=0` covers this rung too, proven by A/B under identical saturation:
+  // ladder on → 618061 px, 4/4 red; ladder pinned → 0 px, 4/4 green, scale 860x720@1 both
+  // captures. That is what took this gate off KNOWN_DARK_GATES.
   await page.goto('/demo.html?id=minimal&e2e=1&forcegl2=1&adaptive=0', {
     waitUntil: 'domcontentloaded',
   })
