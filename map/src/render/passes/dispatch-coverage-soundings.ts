@@ -16,6 +16,25 @@ import type { CoverageHandle } from '@xgis/data'
 import { coverageSoundingAnchors, SOUNDING_LATTICE_CSS_PX } from '../../coverage-sounding-anchors'
 import { filterAcceptsProps } from '../../feature-helpers'
 import { coverageCellPredicate } from '../../shaders/dsl/coverage-filter-cpu'
+import { unprojectGlobeFromCamera, type Camera } from '../../camera'
+
+/** The probe `visibleCellRange` (coverage-sounding-anchors.ts) walks to find which cells are
+ *  on screen. `Camera.unprojectToLonLat` describes the flat Mercator plane only — it returns
+ *  null unconditionally in globe mode (incl. tilted azimuthal, promoted to projType 7 by the
+ *  render loop), so every probe missed and the walk always returned []. Same fork the pointer
+ *  path already takes (`interaction-controller.ts` `clientToLngLat`): globe mode inverts
+ *  through the real ray↔sphere authority instead of the phantom flat plane. */
+export function soundingUnprojector(
+  cam: Camera,
+  canvasWidth: number,
+  canvasHeight: number,
+  dpr: number,
+): (px: number, py: number) => [number, number] | null {
+  return (px, py) =>
+    cam.globeMode
+      ? unprojectGlobeFromCamera(cam, px, py, canvasWidth, canvasHeight, dpr)
+      : cam.unprojectToLonLat(px, py, canvasWidth, canvasHeight, dpr)
+}
 
 /** `TextStage.addLabel`, narrowed to the arguments this arm passes. */
 type AddLabel = (
