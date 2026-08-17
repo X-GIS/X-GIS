@@ -34,6 +34,7 @@ import {
   type GPUContext,
   type WebGl2DeviceFactory,
 } from '@xgis/rhi-webgpu'
+import { reconcileOverdrawQualityClamp } from './debug-flags'
 import { seedBakedShaders } from './shaders/baked/seed-hillshade'
 import { installBakedShaders } from './shaders/baked/install'
 
@@ -120,6 +121,25 @@ export async function bootGpuContext(deps: GpuBootDeps): Promise<GPUContext> {
       },
     },
   )
+  // #1615 — the earliest moment the `?debug=overdraw` quality clamp can meet a device, and
+  // the only one both entry points share (`run()` and `runBinary()` each mount through here).
+  //
+  // WHY HERE AND NOT IN map.ts. This is the sole non-user-invoked `updateQuality()` in the
+  // codebase, and `map.setQuality()` (map.ts:2067-2078) answers an msaa/picking change with
+  // `renderTargets.invalidate()` plus six `rebuildForQuality()` calls. Correcting from the
+  // boot path AHEAD of publication makes that fan-out unreachable by construction rather
+  // than by argument: no renderer for this ctx exists yet — `buildSceneRenderers` runs
+  // ~25 lines after `this.ctx = ctx` in both callers — so the corrected value is simply what
+  // every pipeline is FIRST built with, and nothing is built twice. (`updateQuality` itself
+  // only notifies `onQualityChange` listeners, and the repo registers none; `setQuality`
+  // performs its rebuilds inline. So even a later call site could not have triggered the
+  // fan-out — but "no renderers exist" survives someone wiring a listener up, and the
+  // listener audit does not.)
+  //
+  // It corrects `picking` ONLY. `getSampleCount()` was handed to the provider chain above,
+  // so the swapchain is already configured for that count — an `msaa` "correction" here
+  // would leave the device and the policy disagreeing from the first frame.
+  reconcileOverdrawQualityClamp(ctx.rhi.caps)
   // CONCURRENT, not sequential. These are two independent dynamic imports — the hillshade
   // artifact into the emit pool, the boot-group artifact into the store — touching different
   // state and each error-safe on its own, so awaiting them in series would bill the boot for

@@ -188,7 +188,7 @@ export class GpuTileStore {
    *  NEXT `runFrameMaintenance` (the post-submit safe window the arena-retired
    *  pool uses) + on destroy(). These are standalone buffers (not arena slices
    *  freed by range, not pooled), so deferral is the only safe teardown.
-   *  Mirrors `_retiredArenaBuffers` + PointRenderer.retiredTilePointBuffers. */
+   *  Mirrors `_retiredArenaBuffers` + TilePointCache.retired (tile-point-cache.ts). */
   private _retiredTileBuffers: GPUBuffer[] = []
   /** RhiBuffer siblings of _retiredTileBuffers (#834 M5 — the segment buffers
    *  flipped to RhiBuffer); drained at the same deferred-destroy point. */

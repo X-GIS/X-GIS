@@ -220,7 +220,7 @@ test('perf scenarios @zoom pan', async ({ page }) => {
 
   // ── 1. Idle: no interaction. Ideal = 0 writeBuffer calls, ~0 renders ──
   await resetCamera(0, 0)
-  scenarios.push(await runScenario('idle-zoom0', (w, t) => t >= 2000))
+  scenarios.push(await runScenario('idle-zoom0', (_w, t) => t >= 2000))
 
   // ── 2. Slow pan: 360° over 5 seconds at z=0 ──
   await resetCamera(0, 0)
@@ -475,7 +475,7 @@ test('perf scenarios @hybrid raster+vector max-zoom', async ({ page }) => {
 
   // ── 1. Idle at z=0 with OSM + borders ──
   await resetCamera(START_LON, START_LAT, 0)
-  scenarios.push(await runScenario('hybrid-idle-z0', (w, t) => t >= 2000))
+  scenarios.push(await runScenario('hybrid-idle-z0', (_w, t) => t >= 2000))
 
   // ── 2. Slow zoom z=0 → z=18 over 10 s. Every LOD landing fetches
   //    O(4^(z+1)-4^z) raster tiles + compiles matching VT tiles. This

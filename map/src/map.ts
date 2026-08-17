@@ -76,6 +76,7 @@ import {
 import { parseHash, formatHash, updateHashFragment } from './map-hash'
 import { showWebGPUUnavailableDefault } from './map-webgpu-unavailable'
 import { ViewportModeController } from './render/viewport-mode-controller'
+import { settleSourceLoads } from './source-load-outcome'
 import { SourceManager } from './source-manager'
 import { InteractionController } from './interaction-controller'
 import { MapRendererContent } from './render/renderer'
@@ -513,8 +514,11 @@ export class XGISMap {
 
   /** Map-level event bus — owns listener registries, load/move/zoom/idle
    *  state, and the per-rAF camera-signature diff. Extracted from map.ts
-   *  (2026-06-19 runtime redesign §3.2 "MapEventBus"). */
-  private _eventBus!: MapEventBus
+   *  (2026-06-19 runtime redesign §3.2 "MapEventBus"). Package-internal (no
+   *  `private`, mirroring `mapEventListeners` below) so `FrameLoopHost` can Pick
+   *  it — the render loop fires the `'gpufault'` error event through it (#1599).
+   *  Not public API. */
+  _eventBus!: MapEventBus
 
   // Delegating accessors so existing internal readers (switchController,
   // diagnostics, destroy) stay byte-identical.
@@ -1289,6 +1293,7 @@ export class XGISMap {
       runBoundsFitGate: (apply) => this._runBoundsFitGate(apply),
       rebuildLayers: () => this.rebuildLayers(),
       teardownSource: (sourceId) => this.teardownSource(sourceId),
+      fireError: (info) => this._eventBus.fireErrorEvent(info),
       getVtSource: (sourceId) => this.vtSources.get(sourceId) ?? null,
       deleteFeatureIndex: (sourceId) => {
         this.featureUpdateQueue.featureIndex.delete(sourceId)
@@ -3262,16 +3267,7 @@ export class XGISMap {
     // seed writes so a stale run neither rethrows a dead load nor writes into the
     // winner's shared maps.
     if (this._epochStale(epoch)) return
-    for (const r of loadResults) {
-      if (r.status !== 'rejected') continue
-      const reason = r.reason as { xgisReprojectFailure?: boolean } | undefined
-      if (reason && reason.xgisReprojectFailure === true) {
-        // Isolate: log the bad-CRS source and let the other loads stand.
-        xlog.error(reason instanceof Error ? reason.message : String(reason))
-        continue
-      }
-      throw r.reason
-    }
+    settleSourceLoads(loadResults, commands.loads, (info) => this._eventBus.fireErrorEvent(info))
 
     // Seed inline GeoJSON captured from imported Mapbox styles. Direct
     // rawDatasets write (not setSourceData) because rebuildLayers runs

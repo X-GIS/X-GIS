@@ -73,6 +73,7 @@ const stubCamera = {
   getMercatorCenter: () => ({ x: 0, y: 0 }),
   getECEFCenter: () => [0, 0, 0],
   getVisibleWorldCopies: () => [0],
+  zoom: 0, // #1635 — the camera-zoom uniform lane; `write()` rejects an undefined field
 } as unknown as Camera
 
 /** A recording render pass — the surface `executeItems` drives. Inert apart from

@@ -53,6 +53,15 @@ describe('mip chains are scoped to appearance textures (#1436)', () => {
           'Elevation is also DATA — the coverage rule applies twice over.',
       },
       {
+        file: './hillshade-renderer.ts',
+        why:
+          'the DEM TILE the material above samples. #1623 moved this upload onto the RHI, ' +
+          'deliberately without the mip chain raster-renderer.ts asks for: DEM tiles are DATA, ' +
+          'so averaging elevation levels fabricates slope-derivatives the survey never recorded. ' +
+          'Descriptor side only — the file holds no sampler; the NEAREST decode is pinned on ' +
+          'hillshade-material.ts above.',
+      },
+      {
         file: './flow-renderer.ts',
         why:
           'velocity components, sampled for DATA. Averaging u/v across levels fabricates ' +

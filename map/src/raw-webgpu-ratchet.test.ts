@@ -145,7 +145,12 @@ const BASELINE: Record<string, number> = {
   // backend-keyed adaptation; independently 7→4 — the tile-load return type and
   // the eviction policy moved to raster-cache-budget.ts, shared with
   // raster-renderer. Disjoint removals over the common ancestor sum: 7−2−3.
-  'map/src/render/hillshade-renderer.ts': 2,
+  // 2→1 (#1623): the WebGPU-only raw-device `loadImageTexture` arm (hillshade's own
+  // copy of the fork #1579 closed on raster) was deleted — both backends now load
+  // through the RHI, which also deletes the `device: GPUDevice` field the fork was
+  // the only reader of. The one remaining token is `GPUTextureFormat` (the `format`
+  // field), gap-blocked with the same class this file's other entries are.
+  'map/src/render/hillshade-renderer.ts': 1,
   'map/src/render/line-renderer.ts': 21,
   // #777 Phase II — HillshadeDraper mirrors RasterDraper (GPUTexture/RhiTexture
   // union in the tile + view-cache types, bridged via wrapWebGpuTextureView).
@@ -162,13 +167,11 @@ const BASELINE: Record<string, number> = {
   // 16→15 (#1057 inc2): flushTilePoints's `pass: GPURenderPassEncoder` retyped to
   // `RhiRenderPass` (flushTilePointsRhi) — the wrap moved up to VTR.emitTilePointsRhi.
   'map/src/render/point-renderer.ts': 15,
-  // The GPUTexture union is unavoidable here: it is the WebGPU arm of the
-  // GPUTexture | RhiTexture the two renderers already cache, lifted out of them.
-  // 4→5 (#1607): `destroyTileTexture` names the raw arm once more — the eviction free
-  // now discriminates on the HANDLE (only a native GPUTexture has `.destroy`) instead
-  // of on `rhi.backend`, which stopped tracking the arm when #1579 moved the raster
-  // loader's WebGPU path onto the RHI. Retires with hillshade's `loadImageTexture` fork.
-  'map/src/render/raster-cache-budget.ts': 5,
+  // raster-cache-budget.ts row DELETED (#1623): 5→0. `LoadedTexture`/`EvictableTile`
+  // narrowed to `texture: RhiTexture` (no more `GPUTexture | RhiTexture` union) now that
+  // hillshade's raw-device WebGPU arm — the last producer of a raw `GPUTexture` here — is
+  // gone, and `destroyTileTexture` dropped the handle-shape discriminant (#1607) it
+  // existed for, down to an unconditional `rhi.destroyTexture`.
   // 8→5 (#1352): the loaded-texture return type and the shared eviction moved to
   // raster-cache-budget.ts.
   // 3→2 (#1579): the WebGPU-only raw-device `loadImageTexture` arm (unmipped, bypassed the

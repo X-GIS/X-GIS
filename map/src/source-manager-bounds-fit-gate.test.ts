@@ -125,6 +125,7 @@ function makeSourceManager(camera: Camera, positioned: { value: boolean }) {
     runBoundsFitGate: makeGate(positioned),
     rebuildLayers: () => {},
     teardownSource: () => {},
+    fireError: () => {},
     getVtSource: () => null,
     deleteFeatureIndex: () => {},
     beginCoverageLoad: () => Promise.resolve(),

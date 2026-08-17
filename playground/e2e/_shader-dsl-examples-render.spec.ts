@@ -69,7 +69,7 @@ test.describe('shader-dsl examples render on real WebGL2', () => {
           // Pack the std140 UBO from reflection + default control values — the same
           // reflection-driven packing the site uses.
           const u = (
-            reflection as {
+            reflection as unknown as {
               uniforms: Array<{
                 name: string
                 size: number

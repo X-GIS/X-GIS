@@ -24,3 +24,8 @@ export * from './mat4'
 // "mobile" shared by @xgis/map (GPU-upload budget + per-frame cap) and
 // @xgis/data (MVT worker-fleet ceiling), so width-only heuristics can't diverge.
 export * from './viewport-class'
+// The sibling "how expensive is this connection?" authority — Save-Data and
+// effectiveType, feature-detected. Separate axis from viewport class: one is
+// device capability, the other is link cost, and shaping bandwidth off width
+// alone conflates them (#1356).
+export * from './network-class'

@@ -20,6 +20,7 @@
 import { describe, it, expect, vi, afterEach } from 'vitest'
 import { InteractionController, type InteractionControllerDeps } from './interaction-controller'
 import type { LayerIdRegistry } from './layer'
+import { wrapWebGpuTexture } from '@xgis/rhi-webgpu'
 
 // GPUMapMode is a WebGPU browser global absent in vitest — stub it.
 
@@ -75,8 +76,8 @@ function makeRaceController(useFixedGetCtx: boolean) {
   // guard compares against getPickTextureDevice(), so a clone would bail the readback.
   const rhi = Object.assign(mockDevice, { caps: { pickReadback: 'async' } })
   const mockCtx = { device: mockDevice, rhi, canvas: mockCanvas }
-  // RHI-shaped ({native}) so the readback's adapter unwrap resolves.
-  const mockTexture = { native: {} } as never
+  // RHI-shaped so the readback's adapter unwrap resolves.
+  const mockTexture = wrapWebGpuTexture({} as GPUTexture)
 
   const deps: InteractionControllerDeps = {
     camera: {} as never,

@@ -2,6 +2,8 @@
 // Tracks per-frame GPU rendering metrics, similar to Three.js stats panel.
 
 import { noteFrameInterval } from '@xgis/engine'
+import { maxCachedBytes, sessionNetworkBytes } from '@xgis/data'
+import { getMaxGpuTiles } from './render/vector-tile-renderer-helpers'
 
 export interface RenderStats {
   fps: number
@@ -60,6 +62,46 @@ export interface RenderStats {
    *  N frames (window = 30). Smooths over GC spikes / settle
    *  jitter. Sentinel 0 when unavailable. */
   heapDeltaAvgBytes: number
+  /** Median interval between RENDERED frames over the last ≤30 of them (ms); -1 before
+   *  the second frame. #1468 — the honest frame-cost signal, and the only one a test may
+   *  compare two runs with: `fps` is integer-per-second (useless against ~1 s frames) and
+   *  the wall time of two rAF turns cannot go below the compositor's 2 × 16.6̄ ms tick,
+   *  which is how the ladder gate ended up reading 33.4 ms for every scene weight.
+   *
+   *  These are the same samples fed to the adaptive controller's `noteFrameInterval`,
+   *  kept here rather than read back off the controller because the controller DROPS
+   *  every sample while `?adaptive=0` pins it — and a measurement comparing a pinned arm
+   *  against a free one needs the same clock running on both sides. */
+  medianFrameMs: number
+  /** #1355 — BYTE-level telemetry. Counts alone cannot be budgeted against:
+   *  a cache holding 256 entries is 64 MB of 256² tiles or 4 GB of 2048² ones,
+   *  and `heapDeltaBytes` cannot substitute — it is Chrome/Edge-only, measures
+   *  the whole JS heap, attributes nothing, and sees no GPU memory at all.
+   *
+   *  Every field below is a read of an accumulator the engine already
+   *  maintains for its OWN enforcement, so sampling costs nothing on the hot
+   *  path and the numbers cannot disagree with the policy they describe.
+   *  Purely observational — none of these is settable; a host that could write
+   *  a budget here would desync eviction from its own accounting. */
+  /** Decoded tile bytes held on the CPU, summed across sources. */
+  cachedBytes: number
+  /** The budget `evictTiles` actually enforces `cachedBytes` against. */
+  cachedBytesBudget: number
+  /** Live bytes in the created GPU arenas (un-created arenas contribute 0). */
+  arenaLiveBytes: number
+  /** Capacity of those same arenas — the denominator for the eviction
+   *  watermarks. */
+  arenaCapacityBytes: number
+  /** The cap resident GPU tiles are evicted to. No matching `resident` field:
+   *  `tilesCached` above already IS that count, and a second name for one
+   *  number is two authorities that can only drift. The count was never the
+   *  gap — publishing it without the cap it is measured against was. */
+  gpuTilesBudget: number
+  /** Tile fetches in flight across all sources. */
+  inflightRequests: number
+  /** Cumulative tile bytes fetched this session — monotonic for the page
+   *  lifetime, so a host can budget bandwidth over a whole visit. */
+  sessionNetworkBytes: number
 }
 
 export class StatsTracker {
@@ -72,6 +114,10 @@ export class StatsTracker {
   tilesLoaded = 0
   tilesCached = 0
   gpuBuffers = 0
+  cachedBytes = 0
+  arenaLiveBytes = 0
+  arenaCapacityBytes = 0
+  inflightRequests = 0
   zoom = 0
   /** iter-222 — bundle stats. Lifetime counters (NOT per-frame
    *  reset). Aggregated across all BundleCache instances. */
@@ -104,6 +150,12 @@ export class StatsTracker {
   private fps = 0
   private frameTime = 0
   private lastFrameStart = 0
+  /** Ring (window=30) of rendered-frame intervals. See `RenderStats.medianFrameMs`.
+   *  Both buffers allocated once; the median is taken on read, not per frame. */
+  private readonly _frameMsRing = new Float64Array(30)
+  private readonly _frameMsSorted = new Float64Array(30)
+  private _frameMsIdx = 0
+  private _frameMsFilled = 0
 
   /** Call at the start of each frame */
   beginFrame(): void {
@@ -118,7 +170,13 @@ export class StatsTracker {
     // interleave their frame intervals into a single 12-slot ring whose median
     // then governs neither of them. The learned notch stays process-global — see
     // adaptive-quality.ts's header, that part is deliberate.
-    if (this.lastFrameStart > 0) noteFrameInterval(now - this.lastFrameStart, this)
+    if (this.lastFrameStart > 0) {
+      const dt = now - this.lastFrameStart
+      noteFrameInterval(dt, this)
+      this._frameMsRing[this._frameMsIdx] = dt
+      this._frameMsIdx = (this._frameMsIdx + 1) % this._frameMsRing.length
+      if (this._frameMsFilled < this._frameMsRing.length) this._frameMsFilled++
+    }
     this.lastFrameStart = now
     this.drawCalls = 0
     this.vertices = 0
@@ -128,6 +186,10 @@ export class StatsTracker {
     this.tilesLoaded = 0
     this.tilesCached = 0
     this.gpuBuffers = 0
+    this.cachedBytes = 0
+    this.arenaLiveBytes = 0
+    this.arenaCapacityBytes = 0
+    this.inflightRequests = 0
   }
 
   /** Call at the end of each frame */
@@ -189,6 +251,17 @@ export class StatsTracker {
     }
   }
 
+  /** Median of the ring; -1 until a second frame has been drawn. Entries `[0, filled)`
+   *  are always the valid ones — the ring only grows to its length, then wraps. */
+  private medianFrameMs(): number {
+    const n = this._frameMsFilled
+    if (n === 0) return -1
+    const s = this._frameMsSorted.subarray(0, n)
+    s.set(this._frameMsRing.subarray(0, n))
+    s.sort()
+    return s[(n - 1) >> 1] as number
+  }
+
   /** Get current snapshot */
   get(): RenderStats {
     const total = this.bundleHits + this.bundleMisses
@@ -211,6 +284,14 @@ export class StatsTracker {
       bundleReplaysThisFrame: this.bundleReplaysThisFrame,
       heapDeltaBytes: this.heapDeltaBytes,
       heapDeltaAvgBytes: this.heapDeltaAvgBytes,
+      medianFrameMs: this.medianFrameMs(),
+      cachedBytes: this.cachedBytes,
+      cachedBytesBudget: maxCachedBytes(),
+      arenaLiveBytes: this.arenaLiveBytes,
+      arenaCapacityBytes: this.arenaCapacityBytes,
+      gpuTilesBudget: getMaxGpuTiles(),
+      inflightRequests: this.inflightRequests,
+      sessionNetworkBytes: sessionNetworkBytes(),
     }
   }
 }

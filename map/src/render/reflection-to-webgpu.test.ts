@@ -84,8 +84,9 @@ describe('uniformFieldSlots', () => {
       cam_ecef_l: 28,
       circle_params: 32,
       globe_eye: 36, // #600 — globe(7) eye-horizon cull dir
+      zoom: 40, // #1635 — camera zoom, read by a `@color`/`@stroke` stage block
     })
-    expect(u.slots).toBe(40) // #600 — grew 36→40 (globe_eye vec4)
+    expect(u.slots).toBe(44) // #1635 — grew 40→44 (zoom f32 + std140 tail pad)
   })
 
   it('throws for an unknown struct name', () => {

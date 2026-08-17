@@ -45,24 +45,27 @@ describe('#1579 A — textureBytesOf requires an explicit mipped flag', () => {
   })
 })
 
-describe('#1579 A — raster-renderer no longer bypasses the RHI on WebGPU', () => {
-  it('imports no raw-device texture loader — the fork this issue is about is gone', () => {
-    // `loadImageTexture` (data/src/tile-select.ts) is the raw-device, unmipped, non-RHI
-    // WebGPU-only path #1436's fix never reached. Its removal from raster-renderer's import
-    // list is what proves the fork itself — not just its symptom — is gone.
-    const src = read('./raster-renderer.ts')
-    expect(src, 'raster-renderer must not import the raw-device loader').not.toMatch(
-      /import\s*\{[^}]*\bloadImageTexture\b[^}]*\}\s*from\s*['"]@xgis\/data['"]/,
-    )
+describe('#1579/#1623 — raster AND hillshade no longer bypass the RHI on WebGPU', () => {
+  it("imports no raw-device texture loader — both renderers' forks are gone", () => {
+    // `loadImageTexture` (data/src/tile-select.ts) was the raw-device, unmipped, non-RHI
+    // WebGPU-only path #1436's fix never reached. #1579 closed raster's copy; #1623 closed
+    // hillshade's — the last one in the raster family. Its removal from BOTH renderers'
+    // import lists is what proves the fork itself — not just its symptom — is gone.
+    for (const file of ['./raster-renderer.ts', './hillshade-renderer.ts']) {
+      const src = read(file)
+      expect(src, `${file} must not import the raw-device loader`).not.toMatch(
+        /import\s*\{[^}]*\bloadImageTexture\b[^}]*\}\s*from\s*['"]@xgis\/data['"]/,
+      )
+    }
   })
 
-  it('CONTROL — hillshade legitimately keeps it: DEM stays un-mipped on the raw-device arm too', () => {
-    // Without this control, deleting the import unconditionally (rather than deleting the
-    // BRANCH that mip-forked) would pass the assertion above for the wrong reason — proving
-    // nothing about raster specifically.
-    const src = read('./hillshade-renderer.ts')
-    expect(src, 'hillshade must still import the raw-device loader').toMatch(
-      /import\s*\{[^}]*\bloadImageTexture\b[^}]*\}\s*from\s*['"]@xgis\/data['"]/,
+  it('CONTROL — the loader is deleted, not just unimported (non-vacuity)', () => {
+    // Without this, the assertion above would pass just as well against a tree where
+    // `loadImageTexture` still existed in tile-select.ts but both renderers happened to
+    // stop importing it — proving nothing about the fork actually closing.
+    const src = read('../../../data/src/tile-select.ts')
+    expect(src, 'tile-select.ts must no longer export the raw-device loader').not.toMatch(
+      /export\s+async\s+function\s+loadImageTexture\b/,
     )
   })
 
