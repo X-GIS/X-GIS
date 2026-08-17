@@ -1,59 +1,34 @@
-// ═══ geometry-sphere — great-circle geometry on the unit sphere ═══
+// ═══ geometry-sphere — line densification on the sphere ═══
 //
-// Extracted VERBATIM from vector-tiler.ts (Unit 2 per
-// .omc/plans/vector-tiler-decomposition-2026-06-09.md): interpolate
-// (slerp), measure (arc-degrees), and densify (insert ≤1° sub-vertices)
-// so line/ring edges hug the sphere under globe/orthographic
+// Extracted from vector-tiler.ts (Unit 2 per
+// .omc/plans/vector-tiler-decomposition-2026-06-09.md): measure an edge in
+// arc-degrees and densify it (insert ≤1° sub-vertices) so a coarsely-authored
+// line carries enough vertices to follow a curve under globe/orthographic
 // projections. Pure math — zero external dependencies, no byte layout.
 // Sole external consumer: `makeLinePart` (vector-tiler.ts).
 //
-// The 0.5° skip threshold, the 64 sub-segment cap, and the 1e-9
-// collinear guard are behavior-pinned by geodesic-refine.test.ts +
-// geodesic-midpoint-pole-hop-fix.test.ts (the `[[-30,0],[30,0]]`
-// chord-through-globe fixtures).
-
-/** Spherical linear interpolation between two (lon, lat) points. `t=0`
- *  returns the first endpoint, `t=1` the second; intermediate values
- *  follow the great-circle (geodesic) arc on a unit sphere.
- *
- *  Used by `subdivideGreatCircle` to insert intermediate vertices
- *  along a line/ring edge so that downstream tile clipping +
- *  projection produce a curve that hugs the sphere surface under
- *  globe projections (orthographic / azimuthal / stereographic). On
- *  flat projections the sub-segment chords are visually
- *  indistinguishable from the original edge as long as each
- *  sub-segment spans ≤1° of arc, so this is safe to apply globally —
- *  no projection-specific gating needed at compile time. */
-function slerpLonLat(
-  lon0: number,
-  lat0: number,
-  lon1: number,
-  lat1: number,
-  t: number,
-): [number, number] {
-  const DEG2RAD = Math.PI / 180
-  const RAD2DEG = 180 / Math.PI
-  const phi0 = lat0 * DEG2RAD,
-    lam0 = lon0 * DEG2RAD
-  const phi1 = lat1 * DEG2RAD,
-    lam1 = lon1 * DEG2RAD
-  const x0 = Math.cos(phi0) * Math.cos(lam0)
-  const y0 = Math.cos(phi0) * Math.sin(lam0)
-  const z0 = Math.sin(phi0)
-  const x1 = Math.cos(phi1) * Math.cos(lam1)
-  const y1 = Math.cos(phi1) * Math.sin(lam1)
-  const z1 = Math.sin(phi1)
-  const cosOmega = Math.max(-1, Math.min(1, x0 * x1 + y0 * y1 + z0 * z1))
-  const omega = Math.acos(cosOmega)
-  if (omega < 1e-9) return [lon0, lat0] // collinear / coincident
-  const s = Math.sin(omega)
-  const a = Math.sin((1 - t) * omega) / s
-  const b = Math.sin(t * omega) / s
-  const x = a * x0 + b * x1
-  const y = a * y0 + b * y1
-  const z = a * z0 + b * z1
-  return [Math.atan2(y, x) * RAD2DEG, Math.asin(Math.max(-1, Math.min(1, z))) * RAD2DEG]
-}
+// ── #1522: the interpolant is LINEAR in lon/lat, reversing a prior choice ──
+//
+// This module shipped with spherical-linear (great-circle) interpolation,
+// whose stated rationale was that the geodesic sub-vertices exist "so
+// line/ring edges hug the sphere under globe/orthographic projections".
+// That rationale is rejected for the case it gets wrong: a great-circle arc
+// between two points at the SAME latitude bulges POLEWARD off the parallel.
+// A Tropic of Cancer authored at 30° spacing (the shape the MapLibre
+// demotiles `geolines` layer has) was densified onto ~24.2°N mid-span and
+// snapped back to 23.44°N at every authored vertex — a corner, on a line
+// that must be a smooth arc.
+//
+// The authored lon/lat coordinates are the source of truth (GeoJSON / MVT
+// convention, MapLibre parity): densification may ADD vertices ON the
+// authored line, it may not RELOCATE the line. Hugging the sphere is what
+// the ≤1° sub-segment bound already buys — at sub-degree spacing each
+// piece's chord is visually on the surface without moving any vertex off
+// the parallel.
+//
+// The 0.5° skip threshold and the 64 sub-segment cap are behaviour-pinned by
+// line-densification-contract.test.ts; the on-the-parallel and antimeridian
+// contracts by parallel-arc-fidelity.test.ts.
 
 /** Great-circle distance in degrees between two (lon, lat) points. */
 function greatCircleDistanceDeg(lon0: number, lat0: number, lon1: number, lat1: number): number {
@@ -72,47 +47,79 @@ function greatCircleDistanceDeg(lon0: number, lat0: number, lon1: number, lat1: 
   return (Math.acos(cosOmega) * 180) / Math.PI
 }
 
-/** Insert great-circle intermediate vertices into a line / ring so each
- *  sub-segment spans at most ~1° of arc. Edges shorter than 0.5° are
- *  left as-is (their chord is already indistinguishable from the arc
- *  at any reasonable rendering scale). Edges up to 90° are subdivided
- *  proportionally; truly long edges are capped at 64 sub-segments to
- *  bound vertex bloat.
+/** Insert intermediate vertices into a line / ring so each sub-segment spans
+ *  at most ~1° of arc. Edges shorter than 0.5° are left as-is (their chord is
+ *  already indistinguishable from the arc at any reasonable rendering scale).
+ *  Edges up to 90° are subdivided proportionally; truly long edges are capped
+ *  at 64 sub-segments to bound vertex bloat — past ~64° of span that cap, not
+ *  the 1° target, is what sets the sub-segment length.
  *
- *  Closed rings (last vertex == first) stay closed: the loop processes
- *  each consecutive pair, so the trailing closure edge gets the same
- *  treatment.
+ *  Vertices are placed by LINEAR interpolation in the authored lon/lat space,
+ *  so a densified parallel stays exactly on its latitude — see this file's
+ *  header for why that reverses the original great-circle interpolant.
  *
- *  Without this step a fixture like `[[-30, 0], [30, 0]]` rendered
- *  under orthographic projects to a CHORD that punches through the
- *  globe. Subdivided into ~60 1° sub-edges, the chord-of-each-piece
- *  approximation hugs the sphere surface visually. */
-export function subdivideGreatCircle(coords: number[][]): number[][] {
+ *  Closed rings (last vertex == first) stay closed: the loop processes each
+ *  consecutive pair, so the trailing closure edge gets the same treatment.
+ *
+ *  Without this step a fixture like `[[-30, 0], [30, 0]]` rendered under
+ *  orthographic projects to a CHORD that punches through the globe.
+ *  Subdivided into ~60 1° sub-edges, the chord-of-each-piece approximation
+ *  hugs the sphere surface visually. */
+export function subdivideLine(coords: number[][]): number[][] {
   if (coords.length < 2) return coords
+  const DEG2RAD = Math.PI / 180
   const out: number[][] = [coords[0]]
   for (let i = 0; i < coords.length - 1; i++) {
     const a = coords[i],
       b = coords[i + 1]
+
+    // Unwrap the longitude delta onto the SHORT direction before interpolating.
+    // Two authoring conventions meet at ±180 and both have to come out right:
+    //
+    //   • Continued past the seam (165 → 195), MapLibre's world-copy convention
+    //     — |Δlon| is already ≤ 180, so it is interpolated verbatim and every
+    //     intermediate longitude stays on the input's own 360° branch, monotone.
+    //     The great-circle interpolant needed an explicit repair here, because
+    //     `atan2` folded its output back to (−180, 180] and shredded the
+    //     polyline into ±360° jumps (#1221); linear interpolation between the
+    //     authored endpoints cannot leave the branch they define, so the
+    //     monotonicity that gate watches now holds by construction.
+    //
+    //   • Authored as the folded pair (170 → −170), the same 20° span written
+    //     the other way. Interpolating that raw −340° delta would walk the LONG
+    //     way round and draw a world-spanning line — the failure mode a naive
+    //     lon lerp introduces. Unwrapping it to +20 crosses the seam the short
+    //     way, which is what the great-circle interpolant did implicitly.
+    const rawDLon = b[0] - a[0]
+    const dLon = rawDLon - 360 * Math.round(rawDLon / 360)
+    const dLat = b[1] - a[1]
+
+    // How long is the edge, measured along the path actually drawn? The
+    // great-circle distance answered that exactly while the interpolant WAS
+    // the great circle. A lon/lat lerp is a different and generally LONGER
+    // path — up to π/2× for a parallel, which is how a near-polar edge would
+    // otherwise come out under-densified (the great circle between two 84°N
+    // points 160° apart runs over the pole and is only 11.8° long, while the
+    // parallel they are authored on is 16.7°). The sphere metric
+    // ds² = dLat² + cos²(lat)·dLon² is largest where the path comes closest
+    // to the equator, so holding cos at that one latitude bounds the whole
+    // path. Take whichever measure is larger and the ~1° target holds for
+    // both readings of "how long is this edge".
+    const straddlesEquator = a[1] * b[1] <= 0
+    const cosMax = straddlesEquator
+      ? 1
+      : Math.cos(Math.min(Math.abs(a[1]), Math.abs(b[1])) * DEG2RAD)
     const arcDeg = greatCircleDistanceDeg(a[0], a[1], b[0], b[1])
-    if (arcDeg < 0.5) {
+    const spanDeg = Math.max(arcDeg, Math.hypot(dLat, dLon * cosMax))
+    if (spanDeg < 0.5) {
       out.push(b)
       continue
     }
-    const K = Math.min(64, Math.ceil(arcDeg))
+
+    const K = Math.min(64, Math.ceil(spanDeg))
     for (let k = 1; k < K; k++) {
-      const p = slerpLonLat(a[0], a[1], b[0], b[1], k / K)
-      // slerpLonLat returns lon = atan2(y, x) normalized to (-180, 180],
-      // so a segment whose endpoints continue past ±180 (e.g. a line
-      // authored at lon 185/195 to cross the antimeridian the "short"
-      // way, per MapLibre's >180 convention) has its interpolated
-      // vertices fold back across the seam (185 → −175), shredding the
-      // polyline into ±360° discontinuities. Unwrap each intermediate
-      // longitude onto the same 360° branch as the running polyline so
-      // the subdivided line stays monotone with its (unwrapped) input
-      // — matching geojson-vt world-copy semantics downstream (#1221).
-      const ref = out[out.length - 1][0]
-      p[0] += 360 * Math.round((ref - p[0]) / 360)
-      out.push(p)
+      const t = k / K
+      out.push([a[0] + dLon * t, a[1] + dLat * t])
     }
     out.push(b)
   }
