@@ -10,8 +10,9 @@
 // `rect` and `circle` become PATHS here rather than a second geometry kind downstream. There is one
 // path parser in the repo (`map/src/text/sdf-shape.ts`) and one SDF evaluator; adding a primitive
 // would mean teaching both about a shape they can already express exactly. `circle` is four cubics
-// because the pipeline keeps beziers as true curves (`kind: 2 = cubic`) instead of flattening them,
-// so the circle is round at every zoom rather than round at the zoom someone chose a tolerance for.
+// because that is the exact source geometry; the registry flattens them to line segments under a
+// stated error bound (#1765), because the fragment SDF's winding test reads a curve's CHORD only —
+// four cubics reaching it unflattened fill as a diamond.
 //
 // `anchor` is NOT applied here, and that is deliberate: placing it means knowing the geometry's
 // bounding box, which means parsing the path — and the parser lives in the map package. Re-deriving
@@ -53,8 +54,8 @@ export function rectPath(props: Record<string, number>): string {
 /** `circle r:` (optionally `cx:`/`cy:`) as four cubic arcs.
  *
  *  `k = 4/3·(√2 − 1)` is the exact control-point offset for a quarter circle — the standard bezier
- *  circle constant, max radial error ~0.027 %. Not a tolerance anyone has to tune, because the
- *  curve is evaluated analytically rather than sampled. */
+ *  circle constant, max radial error ~0.027 %, i.e. negligible beside the tessellation error the
+ *  registry's flattener then adds (see `pathToSegments`, #1765). */
 export function circlePath(props: Record<string, number>): string {
   const r = p(props, 'r', 0.5)
   const cx = p(props, 'cx', 0)
