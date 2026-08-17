@@ -101,23 +101,43 @@ side-by-side composite. `Read` downscales large images, so this silently loses t
 sub-pixel offsets, seams, missing shields, and width changes that real bugs live in.
 Eyeballing a downscaled composite is NOT verification.
 
-### "There is no GPU here" is HALF true — and the wrong half is the one that matters
+### "There is no GPU here" is FALSE — for BOTH backends
 
-**WebGL2 RENDERS in this environment. WebGPU does not.** SwiftShader gives a real WebGL2
-context headlessly, which is exactly what CI's `render-gate` leg drives; WebGpuDevice has
-no software adapter, so WebGPU-only paths (raster gates, `navigator.gpu` compute) really
-are local-GPU-only. Saying "no GPU, cannot verify" and skipping the render is therefore
-NOT a valid excuse — it is only valid for the WebGPU half.
+**WebGL2 and WebGPU both run headlessly here, on SwiftShader.** An earlier version of this
+section said WebGPU did not, and that claim cost real work: it was quoted as the reason the
+WGSL half of #1715 "could not be verified in this environment", by a session that had just
+finished quoting the paragraph below about re-checking exactly this kind of claim.
+
+Measured, in a GPU-less cloud container, with the bundled `headless_shell`: `_wgsl-compile-gate`
+compiles every emitted variant on real **Tint**; `_emit-obfuscate-gate` **draws** and asserts
+byte-identical frames; `_shader-math-parity` executes a WGSL **compute** pass; and the full map
+boots on WebGPU with no `forcegl2` (console: _"WebGPU is experimental on this platform"_). The
+Chromium build ships the ICD that makes it work — `libvk_swiftshader.so` and
+`vk_swiftshader_icd.json` in `chrome-linux/`.
 
 ```
 cd playground && XGIS_SOFTWARE_GPU=1 HEADED=0 \
   XGIS_CHROMIUM_EXECUTABLE=$(ls -d /opt/pw-browsers/chromium_headless_shell-*/chrome-linux/headless_shell | head -1) \
-  ./node_modules/.bin/playwright test <spec>          # page: ?forcegl2=1
+  ./node_modules/.bin/playwright test <spec>          # WebGL2 page: ?forcegl2=1
 ```
 
 (`XGIS_CHROMIUM_EXECUTABLE` only when Playwright's pinned build differs from the
-preinstalled one — never run `playwright install` here. Assert `backend === 'webgl2'` in
-the spec so a silent fallback cannot green it.)
+preinstalled one — never run `playwright install` here. Assert the backend in the spec so a
+silent fallback cannot green it.)
+
+**Two things make WebGPU look absent, and both are easy to hit** — which is how the wrong
+claim survived. `playwright.config.ts:97-105` already sets what is needed; a hand-rolled probe
+usually does not:
+
+- **`--enable-unsafe-swiftshader` is required.** `--enable-unsafe-webgpu --use-vulkan=swiftshader`
+  alone still leaves `'gpu' in navigator === false`.
+- **A secure context is required.** `about:blank` has no `navigator.gpu` at all; the dev
+  server's `https://localhost:3000` does. A probe that never navigates concludes the platform
+  has no WebGPU.
+
+What IS still local-GPU-only is performance and hardware-raster fidelity — SwiftShader is slow
+and its rasterization is its own, so timing gates and hardware-pixel comparisons stay off this
+path. Correctness of compile / link / validate / draw is not on that list.
 
 This was paid for: the multi-region coverage work shipped a `deps.renderer` captured
 before the GPU assigned it — `undefined` forever, breaking every ramp-only coverage push

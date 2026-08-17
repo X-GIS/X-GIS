@@ -17,12 +17,14 @@
 // It does not create the context, choose the canvas, or decide what a failure means for the
 // build. That is the same split as `buildRegistry`: the environment belongs to the caller.
 //
-// GLSL / WebGL2 only, today. The WGSL half of this issue wants naga/tint, which cannot enter
-// this package (#1681 zero-dependency), so it has to be a real browser's Tint through
-// `GPUDevice.createShaderModule().getCompilationInfo()` — a different, ASYNC shape against a
-// device this repo's CI has no software adapter for. It is deliberately absent rather than
-// stubbed: an untested async validator that reports "no errors" because it never ran is the
-// dark gate this issue exists to remove.
+// `validateVariantsWgsl` is the WGSL half. naga/tint still cannot enter this package (#1681
+// zero-dependency), so validation is a real browser's Tint through
+// `GPUDevice.createShaderModule()` + `getCompilationInfo()` — hence the ASYNC shape and the
+// second structural parameter. What was wrong was the follow-on claim, once recorded here and
+// in CLAUDE.md §5, that no software adapter exists to run it against: headless Chromium
+// enumerates the SwiftShader Vulkan adapter given `--enable-unsafe-swiftshader` (the flag
+// usually omitted) on a secure origin (`about:blank` has no `navigator.gpu` at all), and
+// `playwright.config.ts` already sets both. `_variant-link-gate.spec.ts`'s WGSL arm drives it.
 
 import type { EmitOptions } from './emit'
 import type { VariantFamily } from './variant-family'
@@ -160,4 +162,122 @@ function linkOne(gl: GlLinker, key: string, vsSrc: string, fsSrc: string): Varia
   return linked
     ? { key, ok: true }
     : { key, ok: false, failedAt: 'link', log: log.slice(0, MAX_LOG) }
+}
+// ── the WGSL half (#1715 Problem A) ──────────────────────────────────────────
+
+/** The slice of `GPUDevice` that validating a WGSL module needs.
+ *
+ *  A real `GPUDevice` satisfies this as-is — pass it straight in. Structural for the same
+ *  two reasons as {@link GlLinker}: the package needs no WebGPU types to build (#1681
+ *  rejected `@webgpu/types` on exactly that ground), and a test can drive the aggregation
+ *  with a recorder while the real run goes through real Tint. */
+export interface WgslValidator<Module = unknown> {
+  createShaderModule(descriptor: { code: string }): Module
+}
+
+/** One compilation message, narrowed to what a gate reports. Mirrors `GPUCompilationMessage`
+ *  without depending on its type. */
+export interface WgslMessage {
+  readonly type: string
+  readonly message: string
+  readonly lineNum?: number
+}
+
+/** A module that can report what its compilation produced — `GPUShaderModule`. Separate from
+ *  {@link WgslValidator} because the module, not the device, owns this call. */
+export interface WgslCompiled {
+  getCompilationInfo(): Promise<{ readonly messages: readonly WgslMessage[] }>
+}
+
+/** What happened to one variant on the WGSL side. */
+export interface VariantWgslResult {
+  readonly key: string
+  readonly ok: boolean
+  /** `'emit'` — the DSL threw before any device call. `'validate'` — Tint reported errors,
+   *  or the device call itself threw. Absent when `ok`. */
+  readonly failedAt?: 'emit' | 'validate'
+  /** Every message of type `'error'`, formatted. Absent when `ok`. Warnings and info are
+   *  deliberately NOT failures: Tint emits them for valid shaders, and a gate that reddens
+   *  on them trains people to ignore it. */
+  readonly errors?: readonly string[]
+}
+
+/**
+ * Validate EVERY variant of a family through a real WGSL compiler (#1715 Problem A).
+ *
+ * The WGSL twin of {@link linkVariants}: same enumeration, same "attempt every variant even
+ * after one fails" rule, same per-key result shape. WGSL has no separate link step — one
+ * module carries both entry points — so `createShaderModule` + `getCompilationInfo()` is the
+ * whole check, and it is async where the GL one is not.
+ *
+ * ```ts
+ * const device = await (await navigator.gpu.requestAdapter())!.requestDevice()
+ * const failed = (await validateVariantsWgsl(device, family)).filter((r) => !r.ok)
+ * expect(failed, failed.map((r) => `${r.key}: ${r.errors?.join('; ')}`).join('\n')).toEqual([])
+ * ```
+ *
+ * NOTE `createShaderModule` does not throw on invalid WGSL — the errors arrive through
+ * `getCompilationInfo()`. A gate that only wraps the call in try/catch passes on every
+ * broken shader, which is why this reads the messages rather than trusting the absence of a
+ * throw.
+ *
+ * @param device - a `GPUDevice`, or anything satisfying {@link WgslValidator}.
+ * @param family - the family to enumerate; every key in `family.keys` is attempted.
+ * @param opts - emit options, applied to every variant equally.
+ * @returns one result per key, in `family.keys` order.
+ */
+export async function validateVariantsWgsl<A extends Record<string, readonly unknown[]>>(
+  device: WgslValidator,
+  family: VariantFamily<A>,
+  opts?: EmitOptions,
+): Promise<readonly VariantWgslResult[]> {
+  let sources: ReadonlyMap<string, string>
+  try {
+    sources = family.emit('wgsl', opts)
+  } catch (e) {
+    // Same attribution rule as the GL side: emit is per-family, so one bad variant takes the
+    // matrix down and nothing here can say which. Reported against every key rather than
+    // guessed at.
+    const err = `family emit threw (attribution unavailable — emit is per-family): ${(e as Error).message}`
+    return family.keys.map((key) => ({
+      key,
+      ok: false,
+      failedAt: 'emit' as const,
+      errors: [err],
+    }))
+  }
+
+  const out: VariantWgslResult[] = []
+  for (const key of family.keys) {
+    const code = sources.get(key)
+    if (code === undefined) {
+      out.push({ key, ok: false, failedAt: 'emit', errors: ['no source emitted for this key'] })
+      continue
+    }
+    out.push(await validateOne(device, key, code))
+  }
+  return out
+}
+
+async function validateOne(
+  device: WgslValidator,
+  key: string,
+  code: string,
+): Promise<VariantWgslResult> {
+  let info: { readonly messages: readonly WgslMessage[] }
+  try {
+    const mod = device.createShaderModule({ code }) as WgslCompiled
+    info = await mod.getCompilationInfo()
+  } catch (e) {
+    return {
+      key,
+      ok: false,
+      failedAt: 'validate',
+      errors: [(e as Error).message.slice(0, MAX_LOG)],
+    }
+  }
+  const errors = info.messages
+    .filter((m) => m.type === 'error')
+    .map((m) => `${m.lineNum === undefined ? '' : `L${m.lineNum}: `}${m.message}`.slice(0, MAX_LOG))
+  return errors.length === 0 ? { key, ok: true } : { key, ok: false, failedAt: 'validate', errors }
 }
