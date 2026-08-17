@@ -5,9 +5,9 @@ on:
     # NO paths-ignore — deliberately. It used to skip the WHOLE workflow for
     # pure-documentation changes (**/*.md, docs/**, LICENSE, .gitignore) purely
     # to save runner-minutes, and that was SAFE only while main had NO required
-    # status checks (measured 2026-06-18). Branch protection now REQUIRES these
-    # contexts (typecheck / render-gate / site / the test (*) legs / test-result),
-    # so a workflow that never RAN posted no check and stranded every docs-only
+    # status checks (measured 2026-06-18). Branch protection now REQUIRES two
+    # contexts — `test-result` and `render-gate` — so a workflow that never RAN
+    # posted no check and stranded every docs-only
     # PR on "Expected — waiting" forever — exactly the deadlock the old comment
     # here predicted, and the one that trapped the #781 blog PR (#895). Removed
     # per that very prescription: each expensive job already `if`-skips itself via
@@ -423,14 +423,21 @@ jobs:
           bun run --filter '@xgis/blueprint' build &&
           bun run --filter '@xgis/site' build
 
-  # Single stable status context that aggregates the matrix + typecheck. Branch
-  # protection (if ever enabled) should require `test-result`, NOT the per-leg
-  # `test (...)` names — this name is immune to leg-count changes.
+  # Single stable status context that aggregates the test matrix, typecheck,
+  # site, and lint. Branch protection requires `test-result` (plus
+  # `render-gate`), NOT the per-leg `test (...)` names — this name is immune to
+  # leg-count changes, and requiring the leg names instead left every PR
+  # permanently BLOCKED once the legs were renamed (#1757).
   # `if: always()` so it runs even when a leg fails; it then fails iff any
-  # leg (or the typecheck) failed.
+  # upstream job failed.
+  #
+  # EVERY job that gates merge quality must be in `needs` below: a job absent
+  # from it is required by nothing and can regress unnoticed. `lint` was in
+  # exactly that state — see #1757, where an eslint.config.js change merged
+  # with eslint never having run in CI.
   test-result:
     name: test-result
-    needs: [test, typecheck, site]
+    needs: [test, typecheck, site, lint]
     if: always()
     runs-on: ubuntu-latest
     # Each upstream job is either `success` (ran and passed) or `skipped` (its
@@ -457,7 +464,7 @@ jobs:
         run: |
           fail=0
           cancelled=0
-          for j in "test:${{ needs.test.result }}" "typecheck:${{ needs.typecheck.result }}" "site:${{ needs.site.result }}"; do
+          for j in "test:${{ needs.test.result }}" "typecheck:${{ needs.typecheck.result }}" "site:${{ needs.site.result }}" "lint:${{ needs.lint.result }}"; do
             name=${j%%:*}; r=${j#*:}
             case "$r" in
               success|skipped) ;;
