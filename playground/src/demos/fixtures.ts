@@ -346,6 +346,13 @@ export const DEMOS_FIXTURES: Record<string, Demo> = {
       'OpenFreeMap Bright from the local /ofm-mirror snapshot — the #834 M5 forcegl2 final-gate fixture. Only valid at #14/35.68/139.76.',
     source: load('ofm-bright-local.xgis'),
   },
+  import_maplibre_mirror: {
+    name: 'MapLibre demo style (offline mirror)',
+    tag: 'fixture',
+    description:
+      'The demotiles style from the committed /vendor/demotiles-mirror snapshot — the #1495 repro fixture. Same style bytes as import_maplibre_demo, no egress. Only valid at #1.5/20/140 (the mirror carries z0-z2).',
+    source: load('import-maplibre-mirror.xgis'),
+  },
   fixture_translucent_outline: {
     name: 'Fixture: translucent outline (MAX+composite)',
     tag: 'fixture',
