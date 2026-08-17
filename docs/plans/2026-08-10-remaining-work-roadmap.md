@@ -252,3 +252,67 @@ tsc), §5 render evidence (SwiftShader WebGL2, full-resolution reads), root caus
 at file:line on the issue (§8), draft PR. Merges to main go through the pr-merge-gauntlet
 after CI is green. Wave 0 sessions dispatched 2026-08-10: W0-1 (#1444), W0-2 (PR #1604),
 W0-3 (PR #1422), W0-4 (#1635), W0-5 (bookkeeping sweep).
+
+---
+
+## 12. Addendum — status refresh as of 2026-08-17
+
+Everything above is the 2026-08-10 snapshot. This section records the week's delta
+(52 merges 08-11→08-17, 46 issues opened of which 38 closed in-week) and corrects what
+it falsified. Method as §0: merged-PR delta and issue churn surveyed and mapped to the
+tracks above.
+
+### 12.1 Wave 0 outcome
+
+| Item | Outcome |
+| --- | --- |
+| W0-1 (#1444) | The reported notch→selector defect **does not reproduce** on main — the gate is green and the wire intact; §3's "red on main" premise was stale. Deliverable became gate **attribution** hardening (each severed half names itself; backend pinned per arm). PR #1644 closed unmerged → superseded by **#1752**. |
+| W0-2 (#1602) | PR #1604 was merged by the owner minutes before dispatch; the session pivoted to the #1500 close-out (ADR-0011 + three-authority probe-point identity gate). PR #1646 closed unmerged → superseded by **#1751**. #1602 is closed. |
+| W0-3 (PR #1422) | Revived: conflicts resolved, full CI green at the 08-10 head **including render-gate** — the PR body's "#1479 red leg" note is stale. Went dirty again against this week's main; a second merge-in landed 08-17 (measured ratchet unions: vector-tile-renderer.ts 4919, map.ts 5434, layer.ts 813). |
+| W0-4 (#1635) | Fix implemented (`u.zoom` uniform lane). PR #1645 closed unmerged → superseded by **#1747**. The miscompile is **still live on main** as of 08-17 — this remains the open P0. |
+| W0-5 (bookkeeping) | Executed in-session but **zero GitHub writes landed** — child sessions lack GitHub App auth (they can push branches; they cannot create PRs or write issues). §9's sweep is still owed in full. Process rule for future delegation: the dispatching session or an enabled GitHub App must perform the GitHub writes. |
+
+### 12.2 Landed 08-11 → 08-17, by track
+
+- **#1592 (Wave 2 headline) partially landed** via #1655 (+ #1663/#1668/#1669 follow-ups):
+  WebGL2 per-feature fills paint; the compute-routed residue stays open. The landing shape
+  was **neither §8 option** (CPU bake vs uber-shader): per-variant Material + per-tile
+  `feat_data` over the GLSL storage→data-texture lowering (#1647). That §8 row is consumed.
+- **#1484 decided GO and executed**: bake phase A (#1680 — committed artifact, 106-key
+  hash-equality gates), baked-shader store + git-subtree mirror (#1682/#1687), phase B
+  boot families (#1679 series). Companion **decision #1690**: production shader emit will
+  NOT be wired into the map build (measured gzip + driver-compile cost) — cite it before
+  proposing runtime emit. That §8 row is consumed too.
+- **#1468 closed**; stale draft PR #1470 closed unmerged and adopted as **#1753** (W0-6 done).
+
+### 12.3 New workstreams the 08-10 survey did not contain
+
+- **shader-dsl GLSL/WebGL2 capability parity sprint**, driven by an external consumer
+  (dc4i.js — 29 GLSL programs inside MapLibre GL): ~25 issues opened and closed in-week
+  (texture phases A/B/C incl. integer sampled textures, extension profiles, rawGlsl,
+  fail-closed absent builtins, mediump policy, production minify emit, emitGuardedFragment).
+- **shader-dsl host-boundary APIs** (#1710–#1717): emitFragment, externVar, hostUniform,
+  variantFamily, buildRegistry, capabilityMatrix, semanticDiff, hostBlock.
+- **Packaging-readiness cluster (open)**: #1681 publishable shader-dsl (the active epic),
+  #1685 (@xgis/map tarball ships no entry point), #1686 (bundler-only specifiers).
+- **Docs/API-reference pipeline (open)**: #1694/#1695/#1697/#1700; the doc-coverage
+  allowlist reached zero (#1727) and /api is generated (#1699).
+- **Dark-gate lighting**: §5's "one unregistered spec" note was understated — 34+ gate
+  specs ran in NO CI leg (#1715). Now bounded by a shrink-only ratchet (#1723) and lit
+  individually (#1729/#1736–#1744); one dark gate had been hiding a real live defect
+  (#1728: a re-seed through an empty collection permanently stops a source re-tiling,
+  live since #1371, fixed by #1737).
+- **Repo DX**: changelog automation (#1653/#1709), bulk-demo-data fetch policy
+  (#1730/#1734 — likely overtakes §8's #1640 decision row; PR #1750 is in flight),
+  §12 lesson additions (#1718), e2e specs still un-typechecked (#1683, open).
+
+### 12.4 The now-queue as of 2026-08-17
+
+1. **Land the 08-17 draft batch** (re-spun on current main): #1747 (#1635 — the open P0),
+   #1746 (#1599), #1748 (#1632), #1749 (#1596), #1750 (#1640), #1751 (#1500),
+   #1752 (#1444), #1753 (#1468 adoption).
+2. **Land PR #1422** (second main merge-in done 08-17) — advances #1364/#1355/#1356 and
+   unblocks #1349 step 1.
+3. **Execute the §9 bookkeeping sweep** — still owed in full (see 12.1 W0-5).
+4. Then **Wave 1 continues as written** (§4), minus the items already in the draft batch;
+   the packaging + docs clusters (12.3) slot alongside Wave 4 as the new ecosystem track.

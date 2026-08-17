@@ -1,6 +1,6 @@
 # X-GIS Development Roadmap
 
-> **현재 상태 (2026-08-10):** 이 문서는 초기 설계 청사진이며 체크박스는 갱신되지 않는다.
+> **현재 상태 (2026-08-17 갱신):** 이 문서는 초기 설계 청사진이며 체크박스는 갱신되지 않는다.
 > 현재 남은 작업의 단일 authority는
 > [docs/plans/2026-08-10-remaining-work-roadmap.md](docs/plans/2026-08-10-remaining-work-roadmap.md)
 > (전체 오픈 백로그 조사 기반 로드맵)이다. Phase 0–2는 사실상 완료, 3/4/5/6은 부분
