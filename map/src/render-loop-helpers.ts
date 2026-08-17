@@ -43,11 +43,34 @@ const WORLD_CIRC = 2 * Math.PI * EARTH.sphereR
  *  silently dropped a real fault signal (a stack mismatch means an earlier
  *  push/pop is unbalanced; a device-lost reject is the first sign of a GPU
  *  fault). This is the side-effecting exception to this file's pure-helper
- *  rule — it owns only the `xlog` logger, no map state. */
-export function reportErrorScope(popPromise: Promise<string | null>, tag: string): void {
+ *  rule — it owns only the `xlog` logger, no map state.
+ *
+ *  #1599 — a RESOLVED message is ALSO handed to `queueValidation`. That side
+ *  effect is INJECTED, not owned: the caller (render-loop.ts) closes over
+ *  `pushValidationError(ctx, …)`, the capped sink the WebGPU `uncapturederror`
+ *  listener and the WebGL2 `takeGlErrors` drain already write, and the render
+ *  loop re-emits that one queue on the typed map `'error'` channel
+ *  ({ phase: 'gpufault' }) from a single per-frame drain. Injecting the sink is
+ *  what keeps THIS file backend-neutral — writing the queue here would need a
+ *  concrete backend-adapter import, which the #991 backend-adapter ratchet bans
+ *  outside the composition root and which would falsify the "no GPU coupling"
+ *  header above. No double-count: WebGPU does not also raise
+ *  `uncapturederror` for an error a scope captured, and on WebGL2
+ *  `popValidationScope` resolves null. The queued text carries `tag` so the event
+ *  keeps the pass locality the console line has. The REJECTED branch stays
+ *  log-only — a rejected pop is a scope-stack / device condition, not a
+ *  validation message, and device loss already owns the `'devicelost'` phase. */
+export function reportErrorScope(
+  popPromise: Promise<string | null>,
+  tag: string,
+  queueValidation: (msg: string) => void,
+): void {
   popPromise
     .then((msg) => {
-      if (msg) xlog.error(`[X-GIS ${tag}]`, msg)
+      if (msg) {
+        xlog.error(`[X-GIS ${tag}]`, msg)
+        queueValidation(`${tag}: ${msg}`)
+      }
     })
     .catch((e) => {
       xlog.error(

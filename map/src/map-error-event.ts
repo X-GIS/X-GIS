@@ -6,8 +6,10 @@
 // from layer.ts, so every existing `import { XGISMapErrorInfo } from './layer'`
 // keeps working.
 
-/** Phase of a fired map-level `'error'` event. */
-export type XGISMapErrorPhase = 'boot' | 'devicelost' | 'halt' | 'source'
+/** Phase of a fired map-level `'error'` event. `'gpufault'` (#1599) is an async
+ *  GPU validation/OOM fault reaching the typed map `'error'` channel instead of
+ *  only the console. */
+export type XGISMapErrorPhase = 'boot' | 'devicelost' | 'halt' | 'gpufault' | 'source'
 
 /** Payload carried by a map-level `'error'` event (on the XGISMapEvent). `fatal`
  *  separates an unrecoverable stop (boot failure, 3-strike halt) from a

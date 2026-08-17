@@ -367,8 +367,7 @@ export class XGISLayerStyle {
    *  set via `style` are no-ops. */
   reset(key?: XGISLayerStyleKey): void {
     const restore = (k: XGISLayerStyleKey) => {
-      if (!(k in this._defaults)) return
-      // Bypass the snapshot logic — we're explicitly going back to the
+      if (!(k in this._defaults)) return // Bypass the snapshot logic — we're explicitly going back to the
       // compiled value, so direct assignment is the right move.
       // Union-keyed heterogeneous write: ShowCommand's per-key value types
       // differ, so TS rejects `show[k] = defaults[k]` (no single value type
@@ -617,7 +616,9 @@ export class ListenerRegistry {
 //   - idle        — no pending tile/label work AND camera at rest.
 //   - error       — a lifecycle fault surfaced for observability: 'boot' (init
 //                   failure), 'devicelost' (GPU device lost — engine auto-recovers),
-//                   'halt' (render loop stopped after 3 consecutive frame faults).
+//                   'halt' (render loop stopped after 3 consecutive frame faults),
+//                   'gpufault' (a GPU validation / uncaptured error drained from the
+//                   per-frame validation queue — non-fatal, the loop keeps running).
 //   - backendresolved — fired once per successful boot with the resolved GPU
 //                   backend ('webgpu' | 'webgl2'), so a host can observe a silent
 //                   WebGPU→WebGL2 auto-fallback (#1153 M4). Re-fires on a

@@ -365,6 +365,11 @@ ladder-gate` asserted on triangles, and severing the controller→selector wire 
   the feature that motivated it — those are different sets, and the feature's own are the ones you
   will think of. Same incident: the integer-texture gates were run and green; the point/icon/line
   gates that used the rewritten upload were not. → same post
+- ORDER decides which half a red run accuses. Once that same gate HAD a distinguishing assertion
+  it still mis-attributed: the lever check sat below the selector-outcome checks, and since a dead
+  lever and an ignored live one leave the SAME tile histogram, the first assertion to run is the
+  one that reports — a controller-half cut died naming the selector. Assert the CAUSE before the
+  EFFECT, and cut EACH half separately; one cut only ever proves one message. → `#1444`
 - Assert on the quantity the subsystem MOVES, not one downstream of it, and never attribute a
   cause from a COMPOSITE number: triangles = tiles × geometry-per-tile, so a coarser tile set
   read as "the ladder added 44% geometry" when the selector had done exactly its job (tiles

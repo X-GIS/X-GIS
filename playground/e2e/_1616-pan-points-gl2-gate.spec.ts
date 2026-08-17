@@ -17,9 +17,9 @@
 //
 // ── Two things had to be measured before this gate could discriminate ──
 //
-// 1. WHY A PURPOSE-BUILT FIXTURE. `PointRenderer` holds ONE pack-key slot for the
-//    whole scene (`_lastTilePointPackKey`; `scene-renderers.ts` builds one
-//    PointRenderer per map), so a style with two point layers thrashes it and the
+// 1. WHY A PURPOSE-BUILT FIXTURE. Pre-#1632, `PointRenderer` held ONE pack-key
+//    slot for the whole scene (`_lastTilePointPackKey`; `scene-renderers.ts` builds
+//    one PointRenderer per map), so a style with two point layers thrashes it and the
 //    memo NEVER HITS. Every shipped point demo is exactly that shape — a halo
 //    layer plus a pin layer — so none of them can exhibit a stale-pack bug at
 //    all. Two attempts on `megacities` failed here before that was understood:
@@ -28,6 +28,9 @@
 //    fixed one), the second counted the white stroke and got 33 vs 12 pixels.
 //    `fixture_tile_point_memo` is one point layer over no basemap, so the memo
 //    hits and every non-background pixel IS a point.
+//    (#1632 gave the cache one slot PER SHOW, so a two-point-layer style would
+//    now memo-hit too. The single-layer fixture stays: every non-background pixel
+//    being a point is what makes the red count readable, not the memo.)
 //
 // 2. WHY THESE TWO CENTRES. The even×even XOR cancellation is exact for a
 //    single-zoom RECTANGLE, but a live `stableKeys` is `neededKeys ++

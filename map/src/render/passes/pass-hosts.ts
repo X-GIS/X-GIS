@@ -133,9 +133,15 @@ export type SceneClassifyHost = Pick<
 
 /** Members only the RenderLoop body itself touches — the frame clock,
  *  stats, flicker-watchdog, sprite-atlas push, redraw gate, render-target
- *  bookkeeping — that no single pass reaches through its host param. */
+ *  bookkeeping, GPU-fault event bus — that no single pass reaches through
+ *  its host param. */
 export type FrameLoopHost = Pick<
   XGISMap,
+  // #1599 — the per-frame GPU-fault drain fires the typed map `'error'` event
+  // ({ phase: 'gpufault' }) through the bus. Async validation faults never throw
+  // out of renderFrame, so the 3-strike halt's try/catch cannot see them and this
+  // is their only typed channel.
+  | '_eventBus'
   | '_flickerFirstFrame'
   | '_flickerLastFrame'
   | '_flickerLog'
