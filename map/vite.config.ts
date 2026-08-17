@@ -1,7 +1,9 @@
 import { fileURLToPath } from 'node:url'
 import { defineConfig } from 'vite'
 
-// Library build for @xgis/map — the monorepo's one published package.
+// Library build for @xgis/map. `@xgis/map` is `private: true` (#1681/#1685) —
+// this build produces the dist/ shape a future publish decision would use,
+// without that decision having been made yet.
 //
 // What this produces (dist/):
 //   - index.js          ESM entry (the PUBLISHED barrel, src/public.ts — not
@@ -12,10 +14,11 @@ import { defineConfig } from 'vite'
 //     (see vite.dts.config.ts), run after this from the `build` script.
 //
 // Bundled IN (not external): EVERY internal @xgis/* package the barrel reaches
-// — data, geo, engine, rhi, rhi-webgpu, compiler, shader-dsl, shared. All
-// of them are private/unpublished workspace packages, so their *source* is
-// pulled into the runtime bundle (hence they are devDependencies, not
-// dependencies — a published `workspace:*` entry would be unresolvable). Vite
+// — data, geo, engine, rhi, rhi-webgpu, compiler, shader-dsl, shared. shader-dsl
+// is the #1681 subtree-mirror source (publish-shaped, not private — see its own
+// package.json); the rest are private workspace packages. Either way their
+// *source* is pulled into the runtime bundle (hence they are devDependencies,
+// not dependencies — a published `workspace:*` entry would be unresolvable). Vite
 // resolves the bare `@xgis/*` specifiers through the workspace symlinks (their
 // package.json `main`/`exports` point at src), so no alias is needed — they
 // simply are not marked external below.
