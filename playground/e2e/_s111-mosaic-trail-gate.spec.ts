@@ -200,7 +200,11 @@ async function measure(k: Probe) {
 }
 
 async function boot(page: import('@playwright/test').Page) {
-  await page.setViewportSize({ width: 900, height: 700 })
+  // The demo page's fixed chrome consumes ~420 horizontal CSS px, so the CANVAS is the
+  // viewport minus that (measured: 900 viewport → 480 canvas). The half-alignment below
+  // needs x0 = canvasW/2 − 291 ≥ 0 and x0 + 2·291 ≤ canvasW, i.e. canvas ≥ ~600 px:
+  // 1100 viewport → ~680 canvas → x0 ≈ 49 with symmetric margin.
+  await page.setViewportSize({ width: 1100, height: 700 })
   // The basemap would paint every pixel and make every number here a measurement of imagery. A
   // regex, not a glob: the host is one path segment (#1272's spec pays for that one).
   await page.route(/arcgisonline\.com/, (r) => void r.abort())
