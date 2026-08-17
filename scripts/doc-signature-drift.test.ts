@@ -118,6 +118,31 @@ function authoringHeadings(): string[] {
   return [...readFileSync(AUTHORING, 'utf8').matchAll(/^###\s+`([^`]+)`/gm)].map((m) => m[1])
 }
 
+/** A callable name immediately followed by a parameter list carrying a BARE `name?`
+ *  optional-parameter marker — the `?` closes a parameter token directly, with nothing
+ *  but `,` or the list's own closing `)` after it. That is real signature shorthand and
+ *  nothing else: `identifier?` is not valid TS/JS call-argument syntax, so it can only
+ *  appear here as a hand-transcribed parameter list, never inside a worked-example CALL
+ *  like `dist_to_segment(uv, p0, p1)` (no `?` at all — real arguments can't carry one).
+ *  It also will not fire on an OPTIONS-BAG argument shown as one destructured shape —
+ *  `mangle({ renames? })` (§8) — because there the `?` is followed by `}`, not `,`/`)`;
+ *  nor on an arrow-type shape like `(p, b?) => Node | void` or a bare object-type shape
+ *  like `{ stage, workgroupSize? }` (§1), neither of which has an identifier directly
+ *  before its `(`/`{`. */
+function authoringSignatures(): string[] {
+  const CALL = /\b[A-Za-z_][A-Za-z0-9_]*\(([^()]*)\)/g
+  const hits: string[] = []
+  readFileSync(AUTHORING, 'utf8')
+    .split('\n')
+    .forEach((lineText, i) => {
+      for (const m of lineText.matchAll(CALL)) {
+        const params = m[1].split(',').map((p) => p.trim())
+        if (params.some((p) => /^[A-Za-z_][A-Za-z0-9_]*\?$/.test(p))) hits.push(`${i + 1}: ${m[0]}`)
+      }
+    })
+  return hits
+}
+
 /** Pull every identifier a doc string presents as a CALL or a MEMBER. A row lists siblings
  *  with ` · `, and a member form leads with a dot. */
 function claimedNames(text: string): { calls: string[]; members: string[] } {
@@ -259,6 +284,25 @@ describe('#1700 — the transcription ratchet, now fully closed', () => {
         `defect this ratchet was built to remove — nothing checks a transcribed parameter ` +
         `list against the source. Link to /api/<kind>/<name> instead.`,
     ).toBe(0)
+  })
+
+  it('AUTHORING.md transcribes NO signatures', () => {
+    // reference.astro's half closed by replacing every transcribed row with a bare name
+    // linking to its generated page (`routeFor`, verified at build time). AUTHORING.md has
+    // no equivalent: it ships outside the site build and renders raw on GitHub, so there is
+    // no `getCollection('api')` to resolve a name against there — a plain absolute /api URL
+    // is the most this file can do, and it is still strictly better than a transcribed
+    // parameter list, which nothing anywhere checks against the source.
+    const hits = authoringSignatures()
+    expect(
+      hits,
+      `AUTHORING.md transcribes ${hits.length} parameter-list signature(s):\n  ${hits.join('\n  ')}\n` +
+        `A transcribed parameter list drifts silently the moment the real signature gains, ` +
+        `drops, reorders, or renames a parameter — this file cannot see that, and the row ` +
+        `then reads as authoritative while being wrong. Replace it with the bare name plus a ` +
+        `plain absolute link to its generated /api page, the same fix #1700 already gave ` +
+        `reference.astro.`,
+    ).toEqual([])
   })
 
   it('reference.astro still VERIFIES its names against the published reference', () => {
