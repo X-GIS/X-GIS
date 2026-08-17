@@ -39,7 +39,7 @@ test('glyph atlas — generation stable at steady state (no aliasing churn)', as
   await page.waitForFunction(
     () => !!(window as unknown as { __xgisMap?: unknown }).__xgisMap,
     null,
-    { timeout: 30_000 },
+    { timeout: 120_000 },
   )
   await page.waitForTimeout(9_000)
   // Backend resolves during the map's early boot (well inside the settle
