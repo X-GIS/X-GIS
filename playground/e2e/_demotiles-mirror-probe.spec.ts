@@ -9,6 +9,20 @@
 // RENAME it to `_demotiles-mirror-gate.spec.ts` and register it in test.yml's
 // render-gate list the moment the arms below go green — the name is the contract.
 //
+// RENAME BLOCKER (both halves must land first). The subject arms are red for TWO
+// independent reasons, and each one alone is enough to keep them red at THIS
+// camera + canvas, so neither fix flips them by itself:
+//   • #1791 — the azimuthal disc-detail boost raises `selMaxZ` past the source's
+//     own maxLevel. At camera z1.5 on a 480×500 canvas the boost fires
+//     (`log2(500/128)` = 1.97 > 1.5), so the maxLevel-0 synthetic earth-surface
+//     source is asked for z2 and every selected tile is over-zoom.
+//   • #1792 — the non-Mercator z=0 root split swaps that source's ONLY tile for
+//     four z=1 keys it can never serve. This is what keeps the arms red at the
+//     cameras where the boost does NOT fire.
+// With both landed the source selects its z=0 root again and the forced-WebGL2
+// fills path (primary-only, no fallback-ancestor pass) can draw it. Do the rename
+// in whichever of the two PRs merges SECOND, after re-running these arms.
+//
 // ── What #1495 actually is, after two retractions by its own author ──
 //
 // Filed as "azimuthal projections are broken". It is not:
