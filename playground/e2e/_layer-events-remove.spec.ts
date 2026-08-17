@@ -4,9 +4,6 @@
 
 import { test, expect } from '@playwright/test'
 
-const _TARGET_X = 260
-const _TARGET_Y = 267
-
 test('removeEventListener unregisters plain listeners', async ({ page }) => {
   test.setTimeout(30_000)
   await page.setViewportSize({ width: 1200, height: 800 })

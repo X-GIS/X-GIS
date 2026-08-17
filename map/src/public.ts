@@ -1,12 +1,12 @@
-// ═══ @xgis/map — the PUBLISHED public surface ═══
+// ═══ @xgis/map — the curated entry point ═══
 //
-// This file, not `index.ts`, is what npm consumers get: `package.json`'s
-// `publishConfig` points the published `main`/`types` at the `dist/` bundle vite
-// builds from HERE. `index.ts` stays the workspace barrel — a blanket re-export of
-// map's internals that the playground, the site and the test suite import through
-// the source alias. Keeping the two apart is deliberate: the public API is a small,
-// curated set, and widening it must be an edit to this file rather than a side
-// effect of adding an `export *` to the internal barrel.
+// This file, not `index.ts`, is what `vite.config.ts` builds `dist/` from — a
+// small, curated surface rather than `index.ts`'s workspace barrel (a blanket
+// re-export of map's internals that the playground, the site and the test suite
+// import through the source alias). Widening the public surface must be an edit
+// to this file, not a side effect of adding an `export *` to the internal barrel.
+// `@xgis/map` is `private: true` (#1681/#1685); whether/how it ships to npm
+// consumers is undecided — see #1685.
 //
 // Relocated from `runtime/src/index.ts` when `@xgis/runtime` was dissolved: that
 // package had become a 47-line re-export of this package plus @xgis/data /

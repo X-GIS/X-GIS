@@ -5,9 +5,6 @@
 
 import { test, expect } from '@playwright/test'
 
-const _TARGET_X = 260
-const _TARGET_Y = 267
-
 test('map.addEventListener("click", h) fires with event.target = layer', async ({ page }) => {
   test.setTimeout(30_000)
   await page.setViewportSize({ width: 1200, height: 800 })

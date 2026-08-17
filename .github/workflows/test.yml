@@ -5,9 +5,9 @@ on:
     # NO paths-ignore — deliberately. It used to skip the WHOLE workflow for
     # pure-documentation changes (**/*.md, docs/**, LICENSE, .gitignore) purely
     # to save runner-minutes, and that was SAFE only while main had NO required
-    # status checks (measured 2026-06-18). Branch protection now REQUIRES these
-    # contexts (typecheck / render-gate / site / the test (*) legs / test-result),
-    # so a workflow that never RAN posted no check and stranded every docs-only
+    # status checks (measured 2026-06-18). Branch protection now REQUIRES two
+    # contexts — `test-result` and `render-gate` — so a workflow that never RAN
+    # posted no check and stranded every docs-only
     # PR on "Expected — waiting" forever — exactly the deadlock the old comment
     # here predicted, and the one that trapped the #781 blog PR (#895). Removed
     # per that very prescription: each expensive job already `if`-skips itself via
@@ -350,6 +350,10 @@ jobs:
           restore-keys: bun-${{ runner.os }}-
       - run: bun install --frozen-lockfile
       - run: bun run build
+      # The e2e specs are OUTSIDE the build graph (playground/e2e/tsconfig.json
+      # is a standalone program), so `bun run build` never sees them — typecheck
+      # them explicitly or spec-only type rot lands silently (#1683).
+      - run: ./node_modules/.bin/tsc -p playground/e2e/tsconfig.json --noEmit
 
   # Lint + dead-code gate (#1565). Both tools were configured and neither ran in
   # CI: ESLint executed ONLY in the pre-commit hook (so `--no-verify`, or any
@@ -423,14 +427,21 @@ jobs:
           bun run --filter '@xgis/blueprint' build &&
           bun run --filter '@xgis/site' build
 
-  # Single stable status context that aggregates the matrix + typecheck. Branch
-  # protection (if ever enabled) should require `test-result`, NOT the per-leg
-  # `test (...)` names — this name is immune to leg-count changes.
+  # Single stable status context that aggregates the test matrix, typecheck,
+  # site, and lint. Branch protection requires `test-result` (plus
+  # `render-gate`), NOT the per-leg `test (...)` names — this name is immune to
+  # leg-count changes, and requiring the leg names instead left every PR
+  # permanently BLOCKED once the legs were renamed (#1757).
   # `if: always()` so it runs even when a leg fails; it then fails iff any
-  # leg (or the typecheck) failed.
+  # upstream job failed.
+  #
+  # EVERY job that gates merge quality must be in `needs` below: a job absent
+  # from it is required by nothing and can regress unnoticed. `lint` was in
+  # exactly that state — see #1757, where an eslint.config.js change merged
+  # with eslint never having run in CI.
   test-result:
     name: test-result
-    needs: [test, typecheck, site]
+    needs: [test, typecheck, site, lint]
     if: always()
     runs-on: ubuntu-latest
     # Each upstream job is either `success` (ran and passed) or `skipped` (its
@@ -457,7 +468,7 @@ jobs:
         run: |
           fail=0
           cancelled=0
-          for j in "test:${{ needs.test.result }}" "typecheck:${{ needs.typecheck.result }}" "site:${{ needs.site.result }}"; do
+          for j in "test:${{ needs.test.result }}" "typecheck:${{ needs.typecheck.result }}" "site:${{ needs.site.result }}" "lint:${{ needs.lint.result }}"; do
             name=${j%%:*}; r=${j#*:}
             case "$r" in
               success|skipped) ;;
@@ -874,5 +885,23 @@ jobs:
           # wall-clock pair must not abort the compile/parity/pixel gates before they
           # have reported. Quiet-machine ordering is unaffected — each invocation is its
           # own process either way.
-          ./node_modules/.bin/playwright test _shader-math-parity.spec.ts _wgsl-compile-gate.spec.ts _vs-clip-parity.spec.ts _dequant-parity.spec.ts _polygon-fill-flat-parity.spec.ts _polygon-fill-flat-pixel-gate.spec.ts _optimizer-gpu-parity.spec.ts _glsl-compile-gate.spec.ts _glsl-texture-gate.spec.ts _glsl-texture-array-gate.spec.ts _glsl-integer-texture-gate.spec.ts _polygon-glsl-compile-gate.spec.ts _line-glsl-compile-gate.spec.ts _glsl-real-shader-link-gate.spec.ts _variant-link-gate.spec.ts _1246-projection-width-gate.spec.ts _backend-toggle-gl2-gate.spec.ts _bg-pattern-globe-gate.spec.ts _camera-animation-gate.spec.ts _demo-actions-gate.spec.ts _fill-pattern-gl2-gate.spec.ts _globe-inertia-gate.spec.ts _graphics-retained-circle-gate.spec.ts _graticule-gl2-gate.spec.ts _heatmap-gl2-gate.spec.ts _host-atlas-icon-gate.spec.ts _icons-gl2-gate.spec.ts _label-fade-gate.spec.ts _label-fade-motion-gate.spec.ts _label-zoom-skip-gate.spec.ts _labels-gl2-gate.spec.ts _lines-gl2-gate.spec.ts _marker-popup-gate.spec.ts _mip-crawl-gate.spec.ts _paint-transition-gate.spec.ts _points-gl2-gate.spec.ts _raster-fade-gate.spec.ts _raster-gl2-gate.spec.ts _reduced-motion-gate.spec.ts _s111-screen-lattice-gate.spec.ts _stage-block-line-webgl2-gate.spec.ts _stage-block-point-webgl2-gate.spec.ts _webgl2-line-link-gate.spec.ts _webgl2-point-link-gate.spec.ts _webgl2-render-gate.spec.ts _shader-dsl-mrt-render.spec.ts _shader-dsl-examples-render.spec.ts _emit-obfuscate-gate.spec.ts _graphics-retained-gl2-gate.spec.ts _graphics-retained-arrow-gl2-gate.spec.ts _graphics-retained-arrow-orientation-gate.spec.ts _graphics-compiled-arrow-parity.spec.ts _graphics-retained-drawcall-gl2-gate.spec.ts _compute-gen-compile-gate.spec.ts _fills-gl2-gate.spec.ts _fill-data-driven-gl2-gate.spec.ts _point-gradient-gl2-gate.spec.ts _stage-block-parity.spec.ts _prefetch-effect-gl2-probe.spec.ts _globe-hash-camera-gate.spec.ts _hillshade-gl2-gate.spec.ts _1221-seam-control-matrix.spec.ts _hillshade-methods-gl2-gate.spec.ts _1678-hillshade-bake-hash-gate.spec.ts _reseed-data-push-gate.spec.ts _1235-measure-gate.spec.ts _world-copies-projection-gate.spec.ts _gl2-live-swap-gate.spec.ts _s111-multiregion-gate.spec.ts _s111-overlap-ownership-gate.spec.ts _s111-currents-render.spec.ts _s111-deferred-coverage-gate.spec.ts _s111-advected-arrows-gate.spec.ts _s111-mosaic-arrow-field-gate.spec.ts _s111-arrow-density-gate.spec.ts _s111-dead-boundary-halo-gate.spec.ts _s111-catalogue-declarative-gate.spec.ts _s102-catalogue-gate.spec.ts _coverage-render.spec.ts _demotiles-labels-gl2-gate.spec.ts _label-pitch-alignment-gate.spec.ts _translucent-chain-gate.spec.ts _heatmap-chain-gate.spec.ts _labels-chain-gate.spec.ts _hillshade-chain-gate.spec.ts _graphics-chain-gate.spec.ts _scene-scale-seam-gate.spec.ts _1581-static-camera-render-gate.spec.ts _1616-content-generation-churn.spec.ts _1616-pan-points-gl2-gate.spec.ts _pick-gl2-chain-gate.spec.ts _webgl2-live-render-gate.spec.ts _scene-scale-webgl2-chain-gate.spec.ts _compute-parity.spec.ts _symbol-anchor-inline-gate.spec.ts
+          ./node_modules/.bin/playwright test _shader-math-parity.spec.ts _wgsl-compile-gate.spec.ts _vs-clip-parity.spec.ts _dequant-parity.spec.ts _polygon-fill-flat-parity.spec.ts _polygon-fill-flat-pixel-gate.spec.ts _optimizer-gpu-parity.spec.ts _glsl-compile-gate.spec.ts _glsl-texture-gate.spec.ts _glsl-texture-array-gate.spec.ts _glsl-integer-texture-gate.spec.ts _polygon-glsl-compile-gate.spec.ts _line-glsl-compile-gate.spec.ts _glsl-real-shader-link-gate.spec.ts _variant-link-gate.spec.ts _1246-projection-width-gate.spec.ts _backend-toggle-gl2-gate.spec.ts _bg-pattern-globe-gate.spec.ts _camera-animation-gate.spec.ts _demo-actions-gate.spec.ts _fill-pattern-gl2-gate.spec.ts _globe-inertia-gate.spec.ts _graphics-retained-circle-gate.spec.ts _graticule-gl2-gate.spec.ts _heatmap-gl2-gate.spec.ts _host-atlas-icon-gate.spec.ts _icons-gl2-gate.spec.ts _label-fade-gate.spec.ts _label-fade-motion-gate.spec.ts _label-zoom-skip-gate.spec.ts _labels-gl2-gate.spec.ts _lines-gl2-gate.spec.ts _marker-popup-gate.spec.ts _mip-crawl-gate.spec.ts _paint-transition-gate.spec.ts _points-gl2-gate.spec.ts _raster-fade-gate.spec.ts _raster-gl2-gate.spec.ts _reduced-motion-gate.spec.ts _s111-screen-lattice-gate.spec.ts _stage-block-line-webgl2-gate.spec.ts _stage-block-point-webgl2-gate.spec.ts _webgl2-line-link-gate.spec.ts _webgl2-point-link-gate.spec.ts _webgl2-render-gate.spec.ts _shader-dsl-mrt-render.spec.ts _shader-dsl-examples-render.spec.ts _emit-obfuscate-gate.spec.ts _graphics-retained-gl2-gate.spec.ts _graphics-retained-arrow-gl2-gate.spec.ts _graphics-retained-arrow-orientation-gate.spec.ts _graphics-compiled-arrow-parity.spec.ts _graphics-retained-drawcall-gl2-gate.spec.ts _compute-gen-compile-gate.spec.ts _fills-gl2-gate.spec.ts _fill-data-driven-gl2-gate.spec.ts _point-gradient-gl2-gate.spec.ts _stage-block-parity.spec.ts _prefetch-effect-gl2-probe.spec.ts _globe-hash-camera-gate.spec.ts _hillshade-gl2-gate.spec.ts _1221-seam-control-matrix.spec.ts _hillshade-methods-gl2-gate.spec.ts _1678-hillshade-bake-hash-gate.spec.ts _reseed-data-push-gate.spec.ts _1235-measure-gate.spec.ts _world-copies-projection-gate.spec.ts _gl2-live-swap-gate.spec.ts _s111-multiregion-gate.spec.ts _s111-overlap-ownership-gate.spec.ts _s111-currents-render.spec.ts _s111-deferred-coverage-gate.spec.ts _s111-advected-arrows-gate.spec.ts _s111-mosaic-arrow-field-gate.spec.ts _s111-arrow-density-gate.spec.ts _s111-dead-boundary-halo-gate.spec.ts _s111-catalogue-declarative-gate.spec.ts _s102-catalogue-gate.spec.ts _coverage-render.spec.ts _demotiles-labels-gl2-gate.spec.ts _label-pitch-alignment-gate.spec.ts _translucent-chain-gate.spec.ts _heatmap-chain-gate.spec.ts _labels-chain-gate.spec.ts _hillshade-chain-gate.spec.ts _graphics-chain-gate.spec.ts _scene-scale-seam-gate.spec.ts _1581-static-camera-render-gate.spec.ts _1616-content-generation-churn.spec.ts _1616-pan-points-gl2-gate.spec.ts _pick-gl2-chain-gate.spec.ts _webgl2-live-render-gate.spec.ts _scene-scale-webgl2-chain-gate.spec.ts _compute-parity.spec.ts _symbol-anchor-inline-gate.spec.ts _webgl2-frame-close-gate.spec.ts _coverage-sounding-globe-gate.spec.ts
           ./node_modules/.bin/playwright test --workers=1 _adaptive-quality-ladder-gate.spec.ts _shader-dsl-mouse-interaction.spec.ts
+
+      # First stability/leak gate (#1349). Census of the 47 unregistered stability/perf specs
+      # under playground/e2e found 8 local (no network egress), 2 mixed, and 37 network-blocked
+      # (NOAA/live-tile fetches this runner cannot reach); of the 8 local ones, this is the only
+      # one that is CI-safe today — it asserts STRUCTURE (the frame-validation error set stays
+      # empty across a camera-jitter loop), not a wall-clock threshold, and it runs entirely off
+      # the tracked ne_110m fixtures translucent-lines.xgis already loads. The other 7 local
+      # specs measure wall-clock behaviour that would flake under a shared SwiftShader runner
+      # and stay local / pre-push for now. Runs on the default backend (WebGPU/SwiftShader) —
+      # no ?forcegl2.
+      - name: Stability gate — translucent-lines buffer-destroy (#1349)
+        if: needs.changes.outputs.render == 'true'
+        working-directory: playground
+        env:
+          XGIS_SOFTWARE_GPU: '1'
+          HEADED: '0'
+          WORKERS: '1'
+        run: ./node_modules/.bin/playwright test _translucent-lines-buffer-destroy.spec.ts

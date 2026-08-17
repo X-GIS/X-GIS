@@ -367,8 +367,7 @@ export class XGISLayerStyle {
    *  set via `style` are no-ops. */
   reset(key?: XGISLayerStyleKey): void {
     const restore = (k: XGISLayerStyleKey) => {
-      if (!(k in this._defaults)) return
-      // Bypass the snapshot logic — we're explicitly going back to the
+      if (!(k in this._defaults)) return // Bypass the snapshot logic — we're explicitly going back to the
       // compiled value, so direct assignment is the right move.
       // Union-keyed heterogeneous write: ShowCommand's per-key value types
       // differ, so TS rejects `show[k] = defaults[k]` (no single value type
@@ -636,18 +635,8 @@ export type XGISMapEventType =
   | 'error'
   | 'backendresolved'
 
-/** Phase of a fired map-level `'error'` event. */
-export type XGISMapErrorPhase = 'boot' | 'devicelost' | 'halt' | 'gpufault'
-
-/** Payload carried by a map-level `'error'` event (on the XGISMapEvent). `fatal`
- *  separates an unrecoverable stop (boot failure, 3-strike halt) from a
- *  recoverable fault the engine auto-recovers from (device loss); `error` is the
- *  underlying cause (an Error, a RhiDeviceLostInfo, …). */
-export interface XGISMapErrorInfo {
-  phase: XGISMapErrorPhase
-  fatal: boolean
-  error: unknown
-}
+import type { XGISMapErrorPhase } from './map-error-event'
+export type { XGISMapErrorPhase, XGISMapErrorInfo } from './map-error-event'
 
 /** Payload delivered to map-level lifecycle / camera listeners. Carries
  *  the current camera state (center [lon, lat], zoom, bearing, pitch) so

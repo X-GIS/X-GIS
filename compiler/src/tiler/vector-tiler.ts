@@ -4,7 +4,7 @@
 // with tighter bounding boxes, dramatically reducing tile scatter for large features.
 
 import earcut from 'earcut'
-import { simplifyPolygon, simplifyLine, mercatorToleranceForZoom } from './simplify'
+import { simplifyPolygon, simplifyLineSphere, mercatorToleranceForZoom } from './simplify'
 import { clipPolygonToRect, clipLineToRect, splitBoundaryBacktracks } from './clip'
 import { precisionForZoomMM } from './encoding'
 import type { GeoJSONFeatureCollection, GeoJSONFeature } from './geojson-types'
@@ -63,7 +63,7 @@ import {
   tileEcefCenterFromMerc,
   DSFUN_EARTH_R,
 } from './ecef-packing'
-import { subdivideGreatCircle } from './geometry-sphere'
+import { subdivideLine } from './geometry-sphere'
 import { tilePolygonPart } from './polygon-tiler'
 import { tileLinePart } from './line-tiler'
 import { tilePointPart } from './point-tiler'
@@ -161,7 +161,7 @@ function makePolygonPart(rings: number[][][], featureIndex: number): GeometryPar
   // pattern, and keeps the compileTileOnDemand hot path O(clipped
   // vertices) instead of O(source vertices × tiles).
   //
-  // Great-circle subdivision is NOT applied here (only on lines —
+  // Line densification is NOT applied here (only on lines —
   // makeLinePart). Polygon fill and outline both derive from the same
   // un-simplified `clipped` ring per tile (see processZoomLevelShared /
   // compileSingleTile), so they coincide by construction (d34aed2).
@@ -171,10 +171,10 @@ function makePolygonPart(rings: number[][][], featureIndex: number): GeometryPar
 }
 
 function makeLinePart(coords: number[][], featureIndex: number): GeometryPart {
-  // Same great-circle subdivision as makePolygonPart — see the
-  // comment there. Without this, fixtures like `[[-30, 0], [30, 0]]`
+  // Densify in the authored lon/lat space (#1522) — makePolygonPart
+  // deliberately does not. Without this, fixtures like `[[-30, 0], [30, 0]]`
   // render as a chord cutting through the orthographic globe.
-  const subdivided = subdivideGreatCircle(coords)
+  const subdivided = subdivideLine(coords)
   const bbox = coordsBBox(subdivided)
   return { type: 'line', coords: subdivided, featureIndex, ...bbox }
 }
@@ -184,7 +184,7 @@ function makeLinePart(coords: number[][], featureIndex: number): GeometryPart {
  *  of geojson-vt's `wrap()` (geojsonvt/wrap.ts: centre clip + shifted
  *  left/right buffer copies). #1221 round 2.
  *
- *  WHY: subdivideGreatCircle now keeps a >±180-authored line MONOTONE
+ *  WHY: subdivideLine keeps a >±180-authored line MONOTONE
  *  (round 1), but every per-tile clip (clipLineToRect / compileSingleTile)
  *  still cuts each part at the world edge merc(±180). So a line spanning
  *  165→195 lands ONLY in east tiles (its 180→195 tail is clipped off) and
@@ -195,8 +195,8 @@ function makeLinePart(coords: number[][], featureIndex: number): GeometryPart {
  *  at 180→195, connected across the seam. Emitting the −360-shifted copy
  *  puts it exactly there (mirror: a <−180 line gets a +360 copy).
  *
- *  Shifting by an exact 360° multiple preserves the already-subdivided
- *  great-circle geometry (Mercator x shifts by exactly one world width),
+ *  Shifting by an exact 360° multiple preserves the already-densified
+ *  line geometry (Mercator x shifts by exactly one world width),
  *  so no re-subdivision is needed. Lines only — polygons clip/fill
  *  correctly through the existing path (task scope §3). */
 function pushLinePartWithWrap(parts: GeometryPart[], part: GeometryPart): void {
@@ -1228,7 +1228,7 @@ function processZoomLevelShared(
             preSimplifyVerts += seg.length
             const dataLine =
               z < maxZoom
-                ? simplifyLine(seg, z, isOnBoundaryMerc, mercatorToleranceForZoom(z))
+                ? simplifyLineSphere(seg, mercatorToleranceForZoom(z), isOnBoundaryMerc)
                 : seg
             if (z < maxZoom) {
               postSimplifyVerts += dataLine.length

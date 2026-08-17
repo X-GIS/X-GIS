@@ -55,12 +55,16 @@
 // speculative complexity on the frame path. Recorded with the numbers so a future cell size
 // (or a raised max zoom) can re-open it on evidence rather than on memory.
 //
-// KNOWN GAP — GLOBE. `Camera.unprojectToLonLat` returns null for the globe and the
-// azimuthal discs (projTypes 3/4/5/7), so the lattice finds nothing there and no numerals
-// draw. The alternative — a second, grid-space selection path for those projections —
-// would be a second authority for "which cell gets a numeral", which is exactly the
-// divergence this codebase keeps paying for. So the gap is left OPEN and visible rather
-// than papered over with a path that would silently disagree with this one.
+// KNOWN GAP — UNTILTED AZIMUTHAL DISCS ONLY. The globe and TILTED azimuthal (projType 7,
+// globeMode) now invert via `soundingUnprojector` (dispatch-coverage-soundings.ts), the same
+// ray↔sphere authority the pointer path uses. What remains out of reach is the untilted disc
+// set at pitch 0 (projTypes 3/4/5, globeMode false) — no flat-disc inverse exists anywhere in
+// the codebase yet (same scope `interaction-controller.ts` `clientToLngLat` leaves unsupported
+// for #9), so the lattice still finds nothing there and no numerals draw. The alternative — a
+// second, grid-space selection path for those projections — would be a second authority for
+// "which cell gets a numeral", which is exactly the divergence this codebase keeps paying for.
+// So this remaining gap is left OPEN and visible rather than papered over with a path that
+// would silently disagree with this one.
 
 import { cellUnitsToLonLat, lonLatToCellUnits, type CoverageHandle } from '@xgis/data'
 

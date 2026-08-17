@@ -11,10 +11,6 @@ import { test, expect } from '@playwright/test'
 // Headless SwiftShader renders WebGL2 (HEADED=0 XGIS_SOFTWARE_GPU=1) — this
 // gate runs GPU-less, same as the sibling _graphics-retained-gl2-gate.
 
-const _FILL: [number, number, number] = [231, 229, 228] // stone-200 country fill
-const _ON: [number, number, number] = [240, 80, 40] // checker orange (ocean/underlay)
-const _OFF: [number, number, number] = [30, 30, 120] // checker blue
-
 test('ne_110m country fills render on WebGl2Device (?forcegl2=1)', async ({ page }) => {
   test.setTimeout(120_000)
   const errors: string[] = []

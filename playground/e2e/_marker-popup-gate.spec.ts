@@ -25,6 +25,23 @@ interface MapApi {
   getContainer(): HTMLElement | null
 }
 
+// Mirrors map/src/marker.ts's Marker/Popup: setLngLat/setText/addTo all
+// return `this` (chainable), not `unknown` — the diagnostic-reach-in shape
+// below must match that or `.setLngLat(...).addTo(...)` can't typecheck
+// (the interim step returning `unknown` had no member to chain off of).
+interface MarkerHandle {
+  setLngLat(ll: [number, number]): MarkerHandle
+  addTo(m: unknown): MarkerHandle
+  getElement(): HTMLElement
+}
+
+interface PopupHandle {
+  setText(t: string): PopupHandle
+  setLngLat(ll: [number, number]): PopupHandle
+  addTo(m: unknown): PopupHandle
+  getElement(): HTMLElement
+}
+
 test('marker/popup — pixel-locked to project(), hidden behind the globe, popup auto-flips', async ({
   page,
 }) => {
@@ -50,11 +67,7 @@ test('marker/popup — pixel-locked to project(), hidden behind the globe, popup
   await page.evaluate(() => {
     const w = window as unknown as {
       __xgisMap?: MapApi
-      __xgisMarker?: new (o?: object) => {
-        setLngLat(ll: [number, number]): unknown
-        addTo(m: unknown): unknown
-        getElement(): HTMLElement
-      }
+      __xgisMarker?: new (o?: object) => MarkerHandle
       __mk?: { getElement(): HTMLElement }
     }
     const M = w.__xgisMarker!
@@ -129,12 +142,7 @@ test('marker/popup — pixel-locked to project(), hidden behind the globe, popup
   const popupAnchor = await page.evaluate(() => {
     const w = window as unknown as {
       __xgisMap?: MapApi
-      __xgisPopup?: new (o?: object) => {
-        setText(t: string): unknown
-        setLngLat(ll: [number, number]): unknown
-        addTo(m: unknown): unknown
-        getElement(): HTMLElement
-      }
+      __xgisPopup?: new (o?: object) => PopupHandle
     }
     const map = w.__xgisMap!
     const P = w.__xgisPopup!

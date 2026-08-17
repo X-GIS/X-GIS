@@ -152,6 +152,7 @@ class HillshadePass implements RenderPass {
         centerLat,
         ctx.scene.w,
         ctx.scene.h,
+        host._elapsedMs,
         ctx.scene.dpr,
       )
       hsPass.end()

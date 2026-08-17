@@ -62,32 +62,6 @@ interface RampSample {
   sources: SourceFrameStat[]
 }
 
-interface XgisMap {
-  vtSources: Map<
-    string,
-    {
-      renderer: {
-        _selection?: { _hysteresisZ?: number }
-        getDrawStats?: () => { tilesVisible: number; missedTiles: number }
-      }
-    }
-  >
-  camera: { zoom: number }
-  inspectPipeline?: () => {
-    sources: Array<{
-      name: string
-      cache: { size: number; pendingLoads: number; pendingUploads: number }
-      frame: { tilesVisible: number; missedTiles: number }
-    }>
-  }
-}
-declare global {
-  interface Window {
-    __xgisMap?: XgisMap
-    __xgisReady?: boolean
-  }
-}
-
 const DEMO_URL = '/demo.html?id=pmtiles_layered#13/35.68/139.76'
 const RAMP_DURATION_MS = 5000
 const RAMP_SAMPLE_EVERY_FRAMES = 6

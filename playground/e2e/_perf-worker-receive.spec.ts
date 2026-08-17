@@ -65,7 +65,7 @@ async function runPanWithWorkerCounting(
   }
 }> {
   return await page.evaluate(
-    async ({ ms, dx, dy, _zd }) => {
+    async ({ ms, dx, dy }) => {
       interface MapInternals {
         camera: { centerX: number; centerY: number; zoom: number }
         invalidate: () => void

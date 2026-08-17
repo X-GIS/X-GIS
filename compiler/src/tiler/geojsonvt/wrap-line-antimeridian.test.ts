@@ -8,7 +8,7 @@
 //
 // This test drives the REAL project→wrap pipeline (convert → wrap, the
 // geojson-vt world-copy machinery) AND the real inline line path
-// (makeLinePart → subdivideGreatCircle → compileGeoJSONToTiles) to localize
+// (makeLinePart → subdivideLine → compileGeoJSONToTiles) to localize
 // where the divergence actually lives.
 //
 // FINDING (see assertions below):
@@ -16,18 +16,22 @@
 //     the seam) and a shifted west copy (x -0.042→0.042), no seam segment.
 //     The bug is NOT in geojsonvt/wrap.ts or geojsonvt/clip.ts.
 //   - The divergence is in the inline vector-tiler path: makeLinePart runs
-//     subdivideGreatCircle, whose slerpLonLat returns longitude as
-//     atan2(y,x) normalized to (-180,180]. For an antimeridian-crossing
-//     line that folds every intermediate vertex across ±180 (178.8 → -179.2)
-//     while the ORIGINAL vertices 185/195 stay unwrapped — producing ±360°
-//     discontinuities that shred the polyline into every longitude tile.
+//     the line densifier, which then interpolated along the great circle and
+//     returned longitude as atan2(y,x) normalized to (-180,180]. For an
+//     antimeridian-crossing line that folds every intermediate vertex across
+//     ±180 (178.8 → -179.2) while the ORIGINAL vertices 185/195 stay
+//     unwrapped — producing ±360° discontinuities that shred the polyline
+//     into every longitude tile. (#1522 replaced that interpolant with a
+//     lerp in the authored lon/lat space, which cannot leave the branch its
+//     endpoints define; the assertion below now holds by construction and
+//     stays as the gate that says so.)
 
 import { describe, it, expect } from 'vitest'
 import { convert } from './convert'
 import { wrap } from './wrap'
 import { DEFAULT_OPTIONS } from './index'
 import type { FlatLine, GeoJSONInput, ProjectedFeature } from './types'
-import { subdivideGreatCircle } from '../geometry-sphere'
+import { subdivideLine } from '../geometry-sphere'
 import { decomposeFeatures, compileSingleTile, lonLatToMercF64 } from '../vector-tiler'
 
 const WITNESS: number[][] = [
@@ -96,15 +100,15 @@ describe('#1221 antimeridian LineString (lon past 180)', () => {
   })
 
   // ── Level 2: inline line path — the ACTUAL divergence site (#1221) ──
-  describe('inline makeLinePart / subdivideGreatCircle', () => {
-    it('great-circle subdivision preserves longitude continuity across the antimeridian', () => {
-      // makeLinePart(coords) = { coords: subdivideGreatCircle(coords), ... }.
+  describe('inline makeLinePart / subdivideLine', () => {
+    it('line densification preserves longitude continuity across the antimeridian', () => {
+      // makeLinePart(coords) = { coords: subdivideLine(coords), ... }.
       // For a monotone-east line the subdivided longitudes must stay
       // continuous with the input (…179, 180, 181… 195) so the polyline
-      // does not fold across ±180. slerpLonLat returns atan2-normalized
-      // longitude, so intermediates wrap to −179 while original vertices
-      // stay at 185/195 → ±360° discontinuities.
-      const subdivided = subdivideGreatCircle(WITNESS)
+      // does not fold across ±180. The great-circle interpolant returned
+      // atan2-normalized longitude, so intermediates wrapped to −179 while
+      // original vertices stayed at 185/195 → ±360° discontinuities.
+      const subdivided = subdivideLine(WITNESS)
       const lons = subdivided.map((c) => c[0])
 
       const jumps: string[] = []
@@ -127,7 +131,7 @@ describe('#1221 antimeridian LineString (lon past 180)', () => {
 
   // ── Level 3: inline TILING must emit the world-copy continuation (#1221 round 2) ──
   //
-  // Round 1 made subdivideGreatCircle monotone (165..195, no fold), but the
+  // Round 1 made subdivideLine monotone (165..195, no fold), but the
   // per-tile clip still cuts the part at the world edge merc(180), so the
   // 180→195 tail was clipped off and landed in NO tile. The renderer draws
   // each tile at world-copy offsets of ±360° (ADR-0006): the ONLY way 180→195

@@ -635,6 +635,7 @@ function emitShow(
         saturation: { kind: 'constant', value: node.rasterSaturation ?? 0 },
         contrast: { kind: 'constant', value: node.rasterContrast ?? 0 },
         resamplingNearest: node.rasterResamplingNearest ?? false,
+        fadeDurationMs: node.rasterFadeDurationMs,
       },
       // Hillshade DEM-relief axes — OPTIONAL (only on a hillshade layer's
       // ShowCommand, i.e. the converter authored at least one hillshade

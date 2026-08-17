@@ -644,5 +644,10 @@ export const DEMOS_FIXTURES: Record<string, Demo> = {
     description:
       'Inline `data:` source (#481), one point at (0,0), drawn by two single-element symbol blocks — a default-anchor `circle` (red) and a `rect` with `anchor: left` (#1550, blue) — so the glyphs render offset, plus a multi-element `rect`+`circle` block at lon -30 (#1766, green) whose elements must BOTH paint. Render-gate: _symbol-anchor-inline-gate.spec.ts.',
     source: load('fixture-symbol-anchor-inline.xgis'),
+    // The green multi-element glyph marks lon -30, which is OFF-CANVAS at the
+    // default zoom 4 (600 px viewport: `map.project([-30, 0])` returns null, so
+    // that glyph never paints at all). Zoom 2 puts it ~171 px west of centre —
+    // fully visible and clear of the red/blue pair at (0, 0).
+    zoom: 2,
   },
 }

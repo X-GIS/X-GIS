@@ -601,6 +601,8 @@ export class RasterRenderer {
     projCenterLat: number,
     canvasWidth: number,
     canvasHeight: number,
+    /** Wall-clock ms (host `_elapsedMs`) — the tile fade ramp's clock (#1477: was frames). */
+    nowMs: number,
     /** Backing-buffer:CSS pixel ratio. Forwarded to the tile selector
      *  so a DPR=3 phone doesn't load 9× more raster tiles than DPR=1. */
     dpr: number = 1,
@@ -802,12 +804,12 @@ export class RasterRenderer {
     // class the world-copy single-source fix removed for ox×wo).
     const drawnKeys = new Set<string>()
     // Per-tile fade-in: a freshly-appeared tile ramps opacity 0→1 over
-    // `fadeFrames`, cross-fading over its cached parent (drawn beneath). The ramp
-    // is measured from the tile's FIRST DRAW (firstShownFrame, lazily stamped
-    // below), so a tile pre-loaded off-screen still fades when it first shows.
-    // fadeFrames 0 (rasterFadeDuration 0 / reduced-motion) ⇒ instant full
-    // opacity, byte-identical to the pre-fade path. ~60 fps → durationMs·0.06.
-    const fadeFrames = this._fadeDurationMs > 0 ? this._fadeDurationMs * 0.06 : 0
+    // `fadeMs` — the WALL CLOCK, not a frame count (#1477 fixed a ramp that
+    // ran 2× long at 30fps) — cross-fading over its cached parent (drawn
+    // beneath). Measured from the tile's FIRST DRAW (firstShownMs, lazily
+    // stamped below), so a tile pre-loaded off-screen still fades when first
+    // shown. fadeMs 0 (rasterFadeDuration 0 / reduced-motion) ⇒ instant full.
+    const fadeMs = this._fadeDurationMs
     let anyFading = false
 
     // Emit one cached tile at `renderCoord` (bounds from the coord) with the
@@ -941,14 +943,12 @@ export class RasterRenderer {
       const exact = this.tileCache.get(key)
       if (exact) {
         // Re-arm the ramp when the tile ENTERS the target set — first appearance
-        // (firstShownFrame -1 from load) OR re-entry, e.g. zooming back out to a
+        // (firstShownMs -1 from load) OR re-entry, e.g. zooming back out to a
         // parent shown before. A tile continuing across frames keeps its ramp, so
         // it doesn't re-fade every frame; a re-entering one fades in instead of
         // snapping to full opacity (the zoom-out pop).
-        if (exact.firstShownFrame < 0 || !this._lastTargetKeys.has(key))
-          exact.firstShownFrame = this.frameCount
-        const fadeAlpha =
-          fadeFrames > 0 ? Math.min(1, (this.frameCount - exact.firstShownFrame) / fadeFrames) : 1
+        if (exact.firstShownMs < 0 || !this._lastTargetKeys.has(key)) exact.firstShownMs = nowMs
+        const fadeAlpha = fadeMs > 0 ? Math.min(1, (nowMs - exact.firstShownMs) / fadeMs) : 1
         if (fadeAlpha < 1) {
           anyFading = true
           // Underlay beneath the fading tile so detail is retained until it is

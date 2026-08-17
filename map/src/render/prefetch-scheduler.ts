@@ -29,6 +29,7 @@ import { Camera } from '../camera'
 import { mercator as mercatorProj } from '@xgis/geo'
 import type { Projection } from '@xgis/geo'
 import { tileKey } from '@xgis/compiler'
+import { speculativeFetchAllowed } from '@xgis/shared'
 
 /** Inputs the scheduler reads from the surrounding render loop —
  *  decoupled so VTR's frame-tile cache shape is the only contract. */
@@ -81,6 +82,17 @@ export class PrefetchScheduler {
     }
     const prev = this.prevPanCam
     this.prevPanCam = cur
+
+    // Save-Data / 2g-grade link: both routes below are SPECULATIVE — they fetch
+    // tiles the camera may never reach — so suppressing them costs correctness
+    // nothing and only makes fill-in less eager (#1356). This is the first lever
+    // to pull for exactly that reason: no visible tile goes unfetched, the
+    // on-demand path still serves everything the camera actually reaches.
+    //
+    // Placed AFTER the snapshot update, not before: `prevPanCam` is the velocity
+    // baseline, and leaving it stale through a saver period would make the first
+    // pump after the link recovers measure motion against a minutes-old camera.
+    if (!speculativeFetchAllowed()) return
 
     if (inputs.neededKeys.length === 0) return
     const needed = inputs.neededKeys

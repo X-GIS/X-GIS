@@ -146,6 +146,21 @@ const MAX_TILE_BYTES = 8 * 1024 * 1024
 // manifest yet bounds a size-bomb response before JSON.parse materialises it.
 const MAX_TILEJSON_BYTES = 4 * 1024 * 1024
 
+/** Cumulative tile bytes this page has pulled over the network (#1355).
+ *
+ *  Counted AFTER the streaming cap, so it is bytes actually accepted rather
+ *  than bytes announced — a lying Content-Length cannot inflate it. Tiles only:
+ *  a manifest is fetched once per source and would just add noise to a figure
+ *  whose whole point is the per-session tile traffic. Monotonic for the page
+ *  lifetime; a session total is what a host budgets against, so it is
+ *  deliberately NOT reset by map teardown. */
+let _sessionNetworkBytes = 0
+
+/** Read the cumulative tile bytes fetched this session (#1355). */
+export function sessionNetworkBytes(): number {
+  return _sessionNetworkBytes
+}
+
 /** Mask digit runs in `logKey`'s QUERY STRING for console display. The key
  *  itself stays the raw template — that is the source's identity and what the
  *  throttle must key on. But the template can carry a credential
@@ -233,7 +248,9 @@ async function fetchTileWithRetry(
         // cap. An over-budget body resolves to the same negative-cached
         // 'failed' as any other fetch failure.
         try {
-          return await readBodyCapped(resp, MAX_TILE_BYTES, tileLabel)
+          const body = await readBodyCapped(resp, MAX_TILE_BYTES, tileLabel)
+          _sessionNetworkBytes += body.byteLength
+          return body
         } catch {
           negativeCacheSet(url, Date.now())
           return 'failed'
@@ -292,6 +309,12 @@ export abstract class VectorTileSource {
 
   constructor(public readonly url: string) {}
 
+  /** Why the last {@link resolve} soft-failed, or null if it did not (#1364).
+   *  `resolve` returns null on failure by design — the attach is a soft-fail —
+   *  which loses the cause. Stashing it here lets {@link attachTo} report it
+   *  through `opts.onResolveError` without changing that contract. */
+  protected lastResolveError: unknown = null
+
   /** Fetch metadata + build a fetcher closure. Sources that don't go
    *  through `PMTilesBackend` (e.g. XGVT-binary) return null and override
    *  `attachTo`. Returns null on a soft failure (e.g. CORS). */
@@ -305,7 +328,14 @@ export abstract class VectorTileSource {
    *  Polymorphic — XGVT-binary overrides since it bypasses PMTilesBackend. */
   async attachTo(catalog: TileCatalog, opts: PMTilesSourceOptions): Promise<void> {
     const meta = await this.resolve()
-    if (!meta) return // soft-fail: catalog stays empty, demo still loads
+    if (!meta) {
+      // Soft-fail by design: the catalog stays empty and the rest of the map
+      // still loads. Report it so that is a CHOICE the host can see rather
+      // than a silent one (#1364) — before this, a dead source left `loaded()`
+      // true and `missedTiles` at 0, which reads as perfect health.
+      opts.onResolveError?.(this.lastResolveError)
+      return
+    }
 
     const formatName = meta.format === 'pmtiles' ? 'PMTiles' : 'TileJSON'
     const layerSummary =
@@ -379,6 +409,7 @@ export class PMTilesArchiveSource extends VectorTileSource {
           `  host (e.g. pmtiles.io) or proxy the archive through your dev\n` +
           `  server (vite.config.ts proxy entry).`,
       )
+      this.lastResolveError = e
       return null
     }
     const { archive, header } = cached
@@ -450,6 +481,7 @@ export class TileJSONSource extends VectorTileSource {
           `  Access-Control-Allow-Origin for your origin. Use a host\n` +
           `  that allows your origin in its CORS settings.`,
       )
+      this.lastResolveError = e
       return null
     }
     return {
