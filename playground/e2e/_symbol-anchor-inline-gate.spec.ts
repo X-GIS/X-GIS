@@ -22,9 +22,13 @@ import { test, expect, type Page } from '@playwright/test'
 // The fixture (playground/src/examples/fixture-symbol-anchor-inline.xgis) draws ONE inline point
 // at (0,0) twice: `sym_dot` is a bare `circle` (default/center anchor, fill-red-500), `sym_tab`
 // is a bare `rect` with `anchor: left` (fill-blue-500). A third symbol, `sym_pair`
-// (fill-green-500, size-140), holds a `rect` AND a `circle` side by side and marks a second
-// point at lon -30, ~171 px west of the others at the default zoom-2 mercator camera — far
-// enough that its 140 px-wide glyph cannot overlap (and so cannot occlude) the red/blue pair.
+// (fill-green-500, size-80), holds a `rect` AND a `circle` side by side and marks a second
+// point at lon -30, ~171 px west of the others at the zoom the demo entry DECLARES
+// (`zoom: 2`, playground/src/demos/fixtures.ts) — far enough that its 160 px-wide glyph cannot
+// overlap (and so cannot occlude) the red/blue pair. That declaration is load-bearing and is
+// asserted at boot below: a .xgis carries no camera state, and at the playground's default
+// zoom 4 lon -30 is off-canvas (`map.project([-30, 0])` → null), so the green glyph paints
+// ZERO pixels and every count below reads like a lowering regression instead of a camera.
 //
 // FAIL-BEFORE property (what a regression on either axis looks like here):
 //   - `rect`/`circle` stop lowering to path geometry (`lowerSymbol` regresses) → the
@@ -56,6 +60,7 @@ type MapWin = {
   __xgisActiveBackend?: string
   __xgisMap?: {
     invalidate?: () => void
+    project?: (lonLat: [number, number]) => [number, number] | null
     ctx?: { rhi?: { gl?: WebGL2RenderingContext } }
   }
 }
@@ -103,6 +108,12 @@ interface ColorStats {
    *  The #1766 case reads the green mask's HEIGHT as its own px-per-symbol-unit yardstick. */
   w: number
   h: number
+  /** Mask X bounds, inclusive; `x0 = -1, x1 = -1` when the colour never painted. The #1766 case
+   *  needs the EDGES, not the centroid: two glyphs whose centroids are far apart can still
+   *  overlap, and the overlapped one is occluded (this layer draws last), which silently deflates
+   *  every ratio derived from the mask. */
+  x0: number
+  x1: number
 }
 
 interface Centroids {
@@ -165,6 +176,8 @@ const measureCentroids = (page: Page): Promise<Centroids | null> =>
       cy: s.n ? s.sy / s.n : 0,
       w: s.n ? s.x1 - s.x0 + 1 : 0,
       h: s.n ? s.y1 - s.y0 + 1 : 0,
+      x0: s.n ? s.x0 : -1,
+      x1: s.n ? s.x1 : -1,
     })
     return { red: finish(red), blue: finish(blue), green: finish(green) }
   })
@@ -191,6 +204,22 @@ async function openFixture(page: Page): Promise<string[]> {
   expect(await page.evaluate(() => (window as unknown as MapWin).__xgisActiveBackend)).toBe(
     'webgl2',
   )
+
+  // CAMERA PRECONDITION, asserted rather than assumed. The green glyph's point (lon -30) is only
+  // on-canvas because the demo entry declares `zoom: 2`; at the playground default (zoom 4)
+  // `project` returns null and the glyph paints nothing, which the colour counts below cannot
+  // tell apart from "the symbol never registered". Asserting the projected X here names the real
+  // cause at the seam that owns it. Bound is the glyph's own half-extent (`size-80`), the
+  // distance its left edge sits from the projected point; at zoom 2 this reads ~129 px.
+  const westPx = await page.evaluate(
+    () => (window as unknown as MapWin).__xgisMap?.project?.([-30, 0]) ?? null,
+  )
+  expect(
+    westPx?.[0] ?? null,
+    'lon -30 (the multi-element glyph) is not on-canvas — check Demo.zoom for ' +
+      'fixture_symbol_anchor_inline in playground/src/demos/fixtures.ts',
+  ).toBeGreaterThan(80)
+
   return errors
 }
 
@@ -279,10 +308,16 @@ test('#1766 a multi-element `symbol` block renders every element, not just the f
   //     HEIGHT       = 0.5 units in BOTH states (both elements are 1 raw unit tall)
   //                    → h = 0.5·S, i.e. S = 2·h. A yardstick the defect cannot move, which
   //                    is why the ratios below need no absolute pixel constant and no golden.
-  //     area(both)   = 0.5·0.5 (rect) + π·0.25² (circle) = 0.4463 units² = 1.785·h²
-  //     area(rect)   = 0.25 units²                                      = 1.000·h²
+  //     area(both)   = 0.5·0.5 (rect) + 2·0.25² (circle) = 0.375 units²  = 1.500·h²
+  //     area(rect)   = 0.25 units²                                       = 1.000·h²
   //     width(both)  = 2.0 units = 4.00·h        width(rect) = 0.5 units = 1.00·h
-  // Dropping the circle therefore lands the count at ~1.00·h² and the aspect at ~1.0 — the
+  // The circle contributes 2r², NOT πr², and that is measured rather than assumed: `sdf_shape`
+  // (map/src/shaders/dsl/point.ts:311-313) takes the true distance to each cubic but decides
+  // INSIDE with `windingLine(p0, p3)` — the CHORD — so a 4-cubic circle fills as the inscribed
+  // diamond. An isolated green circle element measures n/(w·h) = 0.507, which is the diamond's
+  // 0.5, not a disc's π/4 = 0.785. That is #1765, not this issue's seam; when it is fixed the
+  // circle grows to π·0.25² and area(both) rises to 1.785·h², still inside the band below.
+  // Dropping the circle instead lands the count at ~1.00·h² and the aspect at ~1.0 — the
   // fail-before state, and both are far outside the bands asserted here. The colour mask's AA
   // erosion shrinks n and h together, so it moves these ratios by well under the margin.
   const areaRatio = g.n / (g.h * g.h)
@@ -294,21 +329,27 @@ test('#1766 a multi-element `symbol` block renders every element, not just the f
       `areaRatio=${areaRatio.toFixed(2)} aspect=${aspect.toFixed(2)}`,
   )
 
-  // The glyph must be the WEST one, clear of the red/blue pair — an overlap would let the
-  // other layers occlude green pixels and quietly corrupt every ratio above.
+  // PRECONDITIONS of every ratio above, asserted on the mask's EDGES rather than its centroid.
+  // (1) The glyph is the WEST one and ends before the (0,0) pair begins: this layer draws LAST,
+  // so an overlap paints green over red and deflates both counts. (2) Its left edge is on-canvas:
+  // a clipped glyph loses area and width while keeping its height, which reads as the
+  // fail-before state. Both are held by the fixture's `size-80` against the ~171 px the demo's
+  // declared zoom 2 puts between the two points — see the fixture header.
   expect(
-    c.red.cx - g.cx,
-    `green glyph is not clear of the (0,0) pair (green cx=${g.cx.toFixed(1)}, ` +
-      `red cx=${c.red.cx.toFixed(1)}, green width=${g.w})`,
-  ).toBeGreaterThan(0.5 * g.w)
+    c.red.x0 - g.x1,
+    `green glyph is not clear of the (0,0) pair (green x ∈ [${g.x0}, ${g.x1}], ` +
+      `red x ∈ [${c.red.x0}, ${c.red.x1}])`,
+  ).toBeGreaterThan(0)
+  expect(g.x0, `green glyph is clipped by the canvas edge (x0=${g.x0})`).toBeGreaterThan(0)
 
-  // Threshold at 1.35, just under the 1.39 midpoint of the two states.
+  // Threshold at 1.25, the midpoint of the two states (1.50 vs 1.00).
   const areaMsg =
     `green footprint is ${areaRatio.toFixed(2)}·h² (n=${g.n}, h=${g.h}) — a block carrying ` +
-    `BOTH elements is ~1.79·h²; ~1.00·h² is the rect alone, i.e. the circle never registered`
-  expect(areaRatio, areaMsg).toBeGreaterThan(1.35)
-  // Upper guard: nothing plausible exceeds the 1.79 target by this much, so a breach means the
-  // mask picked up something other than this glyph rather than "even more elements painted".
+    `BOTH elements is ~1.50·h²; ~1.00·h² is the rect alone, i.e. the circle never registered`
+  expect(areaRatio, areaMsg).toBeGreaterThan(1.25)
+  // Upper guard: nothing plausible exceeds the 1.79 a true-disc fill would give by this much, so
+  // a breach means the mask picked up something other than this glyph rather than "even more
+  // elements painted".
   expect(areaRatio, `green footprint implausibly large (${areaRatio.toFixed(2)}·h²)`).toBeLessThan(
     2.4,
   )
