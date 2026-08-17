@@ -1397,7 +1397,17 @@ const CEILINGS: Record<string, number> = {
   // 975→946 (#1357): the pooled-buffer recycler moved out to gpu-buffer-pool.ts
   // (bucketing + entry cap + the new byte cap), which also orphaned the raw
   // `device` field — its only reader was the pool's createBuffer.
-  'map/src/render/gpu-tile-store.ts': 946,
+  // 946→1000 (#1515 compaction budget): the ratchet's own instruction was followed —
+  // the POLICY (futility gate + per-pass relocation budget + its rationale
+  // arithmetic) is a new file, render/arena-compaction-budget.ts, not new logic
+  // here. What stays is the seam that cannot move: reading the two arenas'
+  // live/high-water pair, flipping the charge cursor, re-arming a deferred grow
+  // target vs a same-size compaction (distinct fields, this class's state), and
+  // gating the two relocation arrays. The rest is the WHY — the every-frame
+  // relocation loop this removes is provable from `compact()` leaving
+  // bumpPtr === liveBytes, and that argument has to sit next to the code it
+  // justifies. Lower this when the compaction/grow pair is extracted whole.
+  'map/src/render/gpu-tile-store.ts': 1000,
   // 930→948 (#1078): the zoom-transition readiness gate now probes the SAME
   // selector the frame draws with — routeToSphereSelector picks globeVisibleTiles
   // on the globe/sphere route (vs the flat visibleTilesSSE) so cz hold/advance is

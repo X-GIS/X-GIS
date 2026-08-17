@@ -37,6 +37,7 @@
 // caller-supplied predicate so the store never references the queue.
 
 import { GpuBufferPool } from './gpu-buffer-pool'
+import { planArenaCompaction } from './arena-compaction-budget'
 import { GPUArena } from '@xgis/engine'
 // Backend-blind: the store's arena create/compaction/retire all route through the
 // RhiDevice (#832 — the engine arena no longer exposes native buffers); `device`
@@ -154,6 +155,13 @@ export class GpuTileStore {
    *  Distinct from `_pendingArenaCompaction` (same-size defrag). */
   private _pendingArenaGrowV = 0
   private _pendingArenaGrowI = 0
+
+  /** #1515 — which poly arena is charged against the per-pass relocation budget
+   *  FIRST, and therefore wins the budget's guaranteed floor. Flipped after
+   *  every planned pass so a repeatedly-re-flagged vertex arena cannot defer the
+   *  index arena forever; this is the monotonic-progress cursor that bounds any
+   *  pending set at two passes. */
+  private _compactChargeIndexFirst = false
 
   /** Per-arena, per-frame "forced eviction is futile" latch. Set when a
    *  `forceEvictBytes` pass freed nothing servable AND flagged a deferred
@@ -795,6 +803,11 @@ export class GpuTileStore {
    *  + old buffers retired); `false` on any no-op / defer path so the caller
    *  only invalidates render bundles when the buffer refs really moved.
    *
+   *  #1515 — the pass is GATED and BUDGETED (arena-compaction-budget.ts): a
+   *  same-size repack of an already-packed arena reclaims nothing and is
+   *  skipped outright, and relocation beyond the per-pass byte budget is
+   *  re-armed for the next frame rather than done here.
+   *
    *  `vTarget`/`iTarget` (US-003 auto-grow): when set, that arena is relocated
    *  into a LARGER buffer of the target capacity instead of a same-size repack
    *  — every other step (safe window, retired-buffer deferral, atomic offset
@@ -847,12 +860,53 @@ export class GpuTileStore {
       return false
     }
 
-    const vReloc = vArena
-      ? tiles.map((t) => ({ oldOffset: t.polyVertexOffset, bytes: t.polyVertexByteLength }))
-      : null
-    const iReloc = iArena
-      ? tiles.map((t) => ({ oldOffset: t.polyIndexOffset, bytes: t.polyIndexByteLength }))
-      : null
+    // #1515 — gate + budget this pass BEFORE recording a single copy. Two
+    // decisions, both in arena-compaction-budget.ts:
+    //   • can a SAME-SIZE repack accomplish anything? `compact()` leaves the
+    //     arena with bumpPtr === liveBytes, so a second repack of an untouched
+    //     arena provably reclaims zero bytes — yet forceEvictBytes re-raises
+    //     `_pendingArenaCompaction` on every unservable alloc-fail it may not
+    //     grow out of, which relocated the whole live set (full-capacity
+    //     createBuffer + a copy per tile + bundleCache.invalidateAll) EVERY
+    //     frame for as long as the pressure lasted. Skipping it here restores
+    //     the documented at-ceiling graceful skip-and-warn (#218).
+    //   • how much relocation fits in one pass — the rest DEFERS to the next.
+    const reclaimable = (a: GPUArena): number => Math.max(0, a.highWaterBytes - a.liveUsedBytes)
+    const plan = planArenaCompaction(
+      vArena && {
+        liveBytes: vArena.liveUsedBytes,
+        reclaimableBytes: reclaimable(vArena),
+        grow: vTarget !== undefined,
+      },
+      iArena && {
+        liveBytes: iArena.liveUsedBytes,
+        reclaimableBytes: reclaimable(iArena),
+        grow: iTarget !== undefined,
+      },
+      this._compactChargeIndexFirst,
+    )
+    this._compactChargeIndexFirst = !this._compactChargeIndexFirst
+    // Re-arm exactly what was DEFERRED, same discipline as the uploadActive
+    // guard above (a grow target must never be downgraded to a same-size
+    // compaction). A 'skip' is dropped on purpose — that is the whole point.
+    if (plan.vertex === 'defer') {
+      if (vTarget !== undefined) this._pendingArenaGrowV = vTarget
+      else this._pendingArenaCompaction = true
+    }
+    if (plan.index === 'defer') {
+      if (iTarget !== undefined) this._pendingArenaGrowI = iTarget
+      else this._pendingArenaCompaction = true
+    }
+    if (plan.vertex !== 'run' && plan.index !== 'run') return false
+
+    const vReloc =
+      vArena && plan.vertex === 'run'
+        ? tiles.map((t) => ({ oldOffset: t.polyVertexOffset, bytes: t.polyVertexByteLength }))
+        : null
+    const iReloc =
+      iArena && plan.index === 'run'
+        ? tiles.map((t) => ({ oldOffset: t.polyIndexOffset, bytes: t.polyIndexByteLength }))
+        : null
 
     // One encoder records ALL copies for both arenas; one finish() = atomic
     // submit. Optional on the RHI port — both real backends implement it; a
