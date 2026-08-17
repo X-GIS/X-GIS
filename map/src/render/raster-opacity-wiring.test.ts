@@ -111,7 +111,7 @@ function capturedOpacity(ctx: GPUContext, opacity: number): number {
     }
   ).createCommandEncoder()
   const pass = encoder.beginRenderPass()
-  renderer.render(wrapWebGpuPass(pass), camera, 0, 10, 20, W, H, 1)
+  renderer.render(wrapWebGpuPass(pass), camera, 0, 10, 20, W, H, 0, 1)
 
   return slot
 }

@@ -144,9 +144,12 @@ class OpaquePass implements RenderPass {
           // / zoom-time shapes — same code that drives every other
           // layer's opacity, just driving the global raster
           // renderer's uniform.
+          // #1477 — hoisted above the show branch: the raster render() call below
+          // (both the real-source and DEBUG_RHI_CHECKER arms) needs the frame clock
+          // for its tile fade ramp regardless of whether a raster show is active.
+          const ms = host._elapsedMs
           if (host._rasterShow) {
             const z = host.camera.zoom
-            const ms = host._elapsedMs
             const rs = host._rasterShow.paintShapes.raster
             host.rasterRenderer.setOpacity(
               resolveNumberShape(host._rasterShow.paintShapes.common.opacity, z, ms).value,
@@ -176,6 +179,7 @@ class OpaquePass implements RenderPass {
               centerLat,
               ctx.scene.w,
               ctx.scene.h,
+              ms,
               ctx.scene.dpr,
             )
           } else if (DEBUG_RHI_CHECKER) {

@@ -1,6 +1,6 @@
 // #1317 — raster zoom-OUT cross-fade. #1307 faded a freshly-shown tile IN over its
 // cached PARENT (the zoom-in direction). Zooming back OUT (children → parent) SNAPPED:
-// the parent's firstShownFrame was already stamped (fadeAlpha=1), and the departing
+// the parent's firstShownMs was already stamped (fadeAlpha=1), and the departing
 // children were not retained beneath it, so the higher-detail tiles popped out. This
 // gate drives the REAL RasterRenderer.render() against the WebGPU stub (same harness as
 // raster-globe-tile-selection.test.ts, intercepting the 48-byte per-tile uniform writes)
@@ -8,7 +8,7 @@
 //   1. a fading tile with cached CHILDREN draws them beneath it (detail retention) — the
 //      child underlay adds draws over the no-children control;
 //   2. with fade OFF the underlay never fires (byte-identical to the pre-fade path);
-//   3. a tile RE-ENTERING the target set restamps firstShownFrame (re-fades instead of
+//   3. a tile RE-ENTERING the target set restamps firstShownMs (re-fades instead of
 //      snapping), while a tile continuing across frames keeps its ramp.
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
@@ -45,7 +45,7 @@ async function makeCtx(): Promise<GPUContext> {
 const W = 1280
 const H = 720
 const DPR = 1
-type CacheEntry = { texture: unknown; lastUsedFrame: number; firstShownFrame: number }
+type CacheEntry = { texture: unknown; lastUsedFrame: number; firstShownMs: number }
 const fakeTexture = { createView: () => ({}), destroy: () => undefined }
 
 function makeRenderer(
@@ -76,13 +76,24 @@ function renderPass(
   renderer: RasterRenderer,
   camera: Camera,
   projType: number,
+  nowMs = 0,
 ): void {
   const encoder = (
     ctx.device as unknown as {
       createCommandEncoder: () => { beginRenderPass: () => GPURenderPassEncoder }
     }
   ).createCommandEncoder()
-  renderer.render(wrapWebGpuPass(encoder.beginRenderPass()), camera, projType, 0, 0, W, H, DPR)
+  renderer.render(
+    wrapWebGpuPass(encoder.beginRenderPass()),
+    camera,
+    projType,
+    0,
+    0,
+    W,
+    H,
+    nowMs,
+    DPR,
+  )
 }
 
 const flatCamera = (): Camera => {
@@ -98,7 +109,7 @@ function drawCount(ctx: GPUContext, fadeMs: number, seedChildren: boolean): numb
   const { renderer, cache } = makeRenderer(ctx, fadeMs)
   const currentZ = rasterCoverZoom(camera.zoom, 256)
   const seed = (z: number, x: number, y: number): void => {
-    cache.set(`${z}/${x}/${y}`, { texture: fakeTexture, lastUsedFrame: 0, firstShownFrame: 0 })
+    cache.set(`${z}/${x}/${y}`, { texture: fakeTexture, lastUsedFrame: 0, firstShownMs: 0 })
   }
   for (const t of visibleTilesFrustum(camera, mercatorProj, currentZ, W, H, 0, DPR)) {
     seed(t.z, t.x, t.y)
@@ -124,8 +135,8 @@ describe('raster zoom-out cross-fade (#1317)', () => {
 
   it('fade OFF ⇒ no underlay: cached children make no difference (pre-fade parity)', async () => {
     const ctx = await makeCtx()
-    // fadeMs 0 ⇒ fadeFrames 0 ⇒ fadeAlpha 1 ⇒ the underlay branch never runs, so the
-    // seeded children are inert — byte-identical draw count to the no-children path.
+    // fadeDurationMs 0 ⇒ fadeMs 0 ⇒ fadeAlpha 1 ⇒ the underlay branch never runs, so
+    // the seeded children are inert — byte-identical draw count to the no-children path.
     const withChildren = drawCount(ctx, 0, true)
     const withoutChildren = drawCount(ctx, 0, false)
     expect(withChildren).toBe(withoutChildren)
@@ -139,7 +150,7 @@ describe('raster zoom-out cross-fade (#1317)', () => {
     const key = `${first.z}/${first.x}/${first.y}`
     const allKeys = targets.map((t) => `${t.z}/${t.x}/${t.y}`)
 
-    // ── Re-entry: `first` was NOT a target last frame ⇒ re-arm to THIS frame. ──
+    // ── Re-entry: `first` was NOT a target last frame ⇒ re-arm to THIS frame's clock. ──
     {
       const ctx = await makeCtx()
       const { renderer, cache } = makeRenderer(ctx, 300)
@@ -147,18 +158,17 @@ describe('raster zoom-out cross-fade (#1317)', () => {
         cache.set(`${t.z}/${t.x}/${t.y}`, {
           texture: fakeTexture,
           lastUsedFrame: 0,
-          firstShownFrame: 1,
+          firstShownMs: 1,
         })
       const rw = renderer as unknown as { frameCount: number; _lastTargetKeys: Set<string> }
       rw.frameCount = 100
       rw._lastTargetKeys = new Set(allKeys.filter((k) => k !== key)) // everyone BUT `first`
       interceptDraws(ctx)
-      renderPass(ctx, renderer, camera, 0)
-      // Restamped to the current frame (101, not the stale 1) ⇒ fadeAlpha starts at 0
-      // ⇒ it fades in on zoom-out rather than snapping to full opacity.
-      expect((cache.get(key) as CacheEntry).firstShownFrame, 're-entering tile re-armed').toBe(
-        rw.frameCount,
-      )
+      renderPass(ctx, renderer, camera, 0, 5000)
+      // Restamped to nowMs (5000, not the stale 1) ⇒ fadeAlpha starts at 0 ⇒ it
+      // fades in on zoom-out rather than snapping to full opacity. frameCount still
+      // advances every render() call — it now drives LRU (lastUsedFrame) only.
+      expect((cache.get(key) as CacheEntry).firstShownMs, 're-entering tile re-armed').toBe(5000)
       expect(rw.frameCount).toBe(101)
     }
 
@@ -170,16 +180,14 @@ describe('raster zoom-out cross-fade (#1317)', () => {
         cache.set(`${t.z}/${t.x}/${t.y}`, {
           texture: fakeTexture,
           lastUsedFrame: 0,
-          firstShownFrame: 1,
+          firstShownMs: 1,
         })
       const rw = renderer as unknown as { frameCount: number; _lastTargetKeys: Set<string> }
       rw.frameCount = 100
       rw._lastTargetKeys = new Set(allKeys) // `first` WAS a target
       interceptDraws(ctx)
-      renderPass(ctx, renderer, camera, 0)
-      expect((cache.get(key) as CacheEntry).firstShownFrame, 'continuing tile keeps its ramp').toBe(
-        1,
-      )
+      renderPass(ctx, renderer, camera, 0, 5000)
+      expect((cache.get(key) as CacheEntry).firstShownMs, 'continuing tile keeps its ramp').toBe(1)
     }
   })
 })

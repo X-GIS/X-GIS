@@ -114,9 +114,9 @@ export interface EvictableTile {
   texture: RhiTexture
   bytes: number
   lastUsedFrame: number
-  /** -1 = "never drawn yet"; the draw loop stamps it on the tile's FIRST
-   *  appearance so an off-screen prefetch still fades in. */
-  firstShownFrame: number
+  /** -1 = "never drawn yet"; the draw loop stamps it (wall-clock ms, #1477) on
+   *  the tile's FIRST appearance so an off-screen prefetch still fades in. */
+  firstShownMs: number
 }
 
 /** Admit a loaded tile and return the new byte total. The single insert
@@ -136,7 +136,7 @@ export function admitTile<T extends EvictableTile>(
     texture: loaded.texture,
     bytes: loaded.bytes,
     lastUsedFrame: frameCount,
-    firstShownFrame: -1,
+    firstShownMs: -1,
   } as T)
   return bytesNow + loaded.bytes
 }
