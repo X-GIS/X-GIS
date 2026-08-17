@@ -472,7 +472,13 @@ export class HillshadeRenderer {
         width: bitmap.width,
         height: bitmap.height,
         format: 'rgba8unorm',
-        usage: ['sample', 'copy-dst'],
+        // 'render' is NOT for drawing into the tile: WebGPU's
+        // copyExternalImageToTexture requires COPY_DST | RENDER_ATTACHMENT on
+        // the destination, and unlike raster's tiles (whose mip chain makes
+        // createTexture auto-widen the usage, rhi-webgpu.ts #1436) this DEM
+        // texture is single-level by contract, so the flag must be explicit.
+        // Caught by _hillshade-chain-gate on WebGPU (10 validation errors).
+        usage: ['sample', 'copy-dst', 'render'],
         label: 'hillshade-dem-tile',
       })
       this.rhi.copyExternalImage(tex, bitmap, bitmap.width, bitmap.height)
