@@ -94,8 +94,8 @@ export default defineConfig({
       // parity is a pure compute pass). The full raster pipeline / pixel
       // survey do NOT render correctly under SwiftShader, so they stay on
       // the hardware-GPU (headed) path and are not run in this mode.
-      args:
-        process.env.XGIS_SOFTWARE_GPU === '1'
+      args: [
+        ...(process.env.XGIS_SOFTWARE_GPU === '1'
           ? [
               '--enable-unsafe-webgpu',
               '--enable-unsafe-swiftshader',
@@ -103,7 +103,17 @@ export default defineConfig({
               '--use-vulkan=swiftshader',
               '--enable-features=Vulkan',
             ]
-          : ['--enable-unsafe-webgpu', '--enable-features=Vulkan'],
+          : ['--enable-unsafe-webgpu', '--enable-features=Vulkan']),
+        // XGIS_BROWSER_PROXY (#1611 step-0): containerized runners route ALL
+        // egress through an HTTP(S) proxy. curl/node honor HTTPS_PROXY, but
+        // Chromium never reads env proxies, so a network-dependent spec (an
+        // OpenFreeMap style/glyph fetch) hangs at boot and times out looking
+        // like a map bug. Opt-in pass-through; the proxy's CA must already be
+        // in the browser trust store (the cloud image installs it in NSS).
+        ...(process.env.XGIS_BROWSER_PROXY
+          ? [`--proxy-server=${process.env.XGIS_BROWSER_PROXY}`]
+          : []),
+      ],
     },
   },
   projects: [

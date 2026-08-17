@@ -133,7 +133,9 @@ const BASELINE: Record<string, number> = {
   // 12→13 (#1046 F2): acquireScreenView's reused screen-view holder returns
   // `Native<GPUTextureView> as unknown as RhiTextureView` — the SAME opaque-handle
   // bridge the file's 5 `wrapWebGpu*` helpers use, needed for a zero-alloc reused view.
-  'rhi-webgpu/src/rhi-webgpu.ts': 13,
+  // 13→14 (#1556): wrapWebGpuTexture completes the wrap* bridge family — the same
+  // documented opaque-handle seam as its siblings, inexpressible without the cast.
+  'rhi-webgpu/src/rhi-webgpu.ts': 14,
   // The shared WebGPU test double (relocated here from runtime/src when the test
   // corpus moved to the packages it tests). Both casts are inherent to a stub: it
   // widens `globalThis` to snapshot/restore the WebGPU ambient globals it installs,

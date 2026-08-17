@@ -260,8 +260,6 @@ test('S1 hitch-frame attribution', async ({ page, context }) => {
   // sampling. perfNowAtProfileStart was captured after Profiler.start
   // returned — the gap is tiny but present. Treat profile.startTime as
   // the μs anchor for perfNowAtProfileStart.
-  const _profileToMs = (micros: number) =>
-    perfNowAtProfileStart + (micros - profile.startTime) / 1000
   const msToProfile = (ms: number) => profile.startTime + (ms - perfNowAtProfileStart) * 1000
 
   const winStart = msToProfile(worstWindowStartMs)

@@ -250,7 +250,6 @@ async function runScenario(page: Page, cdp: CDPSession, demoId: string): Promise
  *  share a deep link or refresh at high zoom. */
 async function runColdStartAt(
   page: Page,
-  cdp: CDPSession,
   demoId: string,
   hash: string,
 ): Promise<{
@@ -346,7 +345,6 @@ test('GeoJSON path cost — countries (ne_110m, ~177 features, 725 KB)', async (
   )
   for (const r of result.hitch.top) {
     if (r.selfMs < 0.3) continue
-    const _url = r.url ? r.url.split('/').slice(-2).join('/') : ''
     console.log(
       `  ${r.selfMs.toFixed(2).padStart(6)} ms (${r.selfPct.toFixed(1).padStart(5)}%)  ${r.name.padEnd(35)} :: ${r.callPath}`,
     )
@@ -361,9 +359,8 @@ test('GeoJSON path cost — countries (ne_110m, ~177 features, 725 KB)', async (
   console.log(`\n[saved] ${out}`)
 })
 
-test('GeoJSON cold-start at high zoom — deep link / refresh stress', async ({ page, context }) => {
+test('GeoJSON cold-start at high zoom — deep link / refresh stress', async ({ page }) => {
   test.setTimeout(180_000)
-  const cdp = await context.newCDPSession(page)
   // Three deep-link cases over filter_gdp (ne_110m_countries):
   //   * z=8 over Europe (countries dense, polygons visible)
   //   * z=12 over Korea (single country, polygon edge near tile)
@@ -378,7 +375,7 @@ test('GeoJSON cold-start at high zoom — deep link / refresh stress', async ({ 
   ]
   console.log(`\n=== GeoJSON cold-start at high zoom (filter_gdp) ===`)
   for (const c of cases) {
-    const r = await runColdStartAt(page, cdp, 'filter_gdp', c.hash)
+    const r = await runColdStartAt(page, 'filter_gdp', c.hash)
     const sorted = [...r.postReadyFrames].sort((a, b) => a - b)
     const median = sorted[Math.floor(sorted.length / 2)] ?? 0
     const worst = Math.max(...r.postReadyFrames, 0)
@@ -465,7 +462,6 @@ test('GeoJSON zoom-in cascade — z=4 → z=10 over 5 s, single direction', asyn
   )
   for (const r of hitch.rows) {
     if (r.selfMs < 0.3) continue
-    const _url = r.url ? r.url.split('/').slice(-2).join('/') : ''
     console.log(
       `  ${r.selfMs.toFixed(2).padStart(6)} ms (${r.selfPct.toFixed(1).padStart(5)}%)  ${r.name.padEnd(35)} :: ${r.callPath}`,
     )

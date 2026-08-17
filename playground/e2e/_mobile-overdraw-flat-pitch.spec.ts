@@ -23,16 +23,6 @@ interface VTRDiag {
   source?: unknown
   gpuCache?: Map<string, Map<number, { tileZoom?: number }>>
 }
-interface XGISMap {
-  vtSources?: Map<string, { renderer: VTRDiag }>
-  camera?: { zoom: number; centerX: number; centerY: number; pitch?: number }
-}
-declare global {
-  interface Window {
-    __xgisMap?: XGISMap
-    __xgisReady?: boolean
-  }
-}
 
 test.describe('Mobile flat-pitch over-draw', () => {
   test.use({ viewport: { width: 430, height: 715 } })
@@ -223,7 +213,6 @@ test.describe('Mobile flat-pitch over-draw', () => {
       if (!map) return null
 
       const m = map as any
-      const _ctx = m.ctx
       // The runtime exports we need: visibleTilesFrustum +
       // mercator. Reach into the bundled module via the live
       // gpu/map references — the test harness already exposed them.

@@ -5,28 +5,6 @@
 
 import { test, expect } from '@playwright/test'
 
-interface VTRDiag {
-  getDrawStats?: () => {
-    tilesVisible: number
-    drawCalls: number
-    triangles?: number
-    lines?: number
-  }
-  _frameDrawnByZoom?: Map<number, number>
-  _hysteresisZ?: number
-  _frameTileCache?: { tiles?: { z: number; x: number; y: number }[] }
-}
-interface XgisMap {
-  vtSources?: Map<string, { renderer: VTRDiag }>
-  camera?: { zoom: number; pitch?: number }
-}
-declare global {
-  interface Window {
-    __xgisMap?: XgisMap
-    __xgisReady?: boolean
-  }
-}
-
 test.describe('Desktop baseline z=10 Seoul', () => {
   test.use({ viewport: { width: 1500, height: 907 } })
 

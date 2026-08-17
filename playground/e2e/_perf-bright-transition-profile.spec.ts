@@ -52,11 +52,7 @@ function topHotFunctions(profile: CpuProfile, topN = 30) {
   return rows.slice(0, topN)
 }
 
-async function recordProfile(
-  cdp: CDPSession,
-  durationMs: number,
-  animationFn: () => Promise<void>,
-) {
+async function recordProfile(cdp: CDPSession, animationFn: () => Promise<void>) {
   await cdp.send('Profiler.enable')
   await cdp.send('Profiler.setSamplingInterval', { interval: 100 }) // 10 kHz
   await cdp.send('Profiler.start')
@@ -89,7 +85,7 @@ test('Bright zoom-transition profile (z=10→14 in 4 s)', async ({ page, context
   const cdp = await context.newCDPSession(page)
   const PROFILE_MS = 4000
 
-  const profile = await recordProfile(cdp, PROFILE_MS, async () => {
+  const profile = await recordProfile(cdp, async () => {
     await page.evaluate(async (durationMs: number) => {
       const map = (
         window as unknown as {

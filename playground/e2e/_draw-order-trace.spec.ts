@@ -8,20 +8,6 @@
 import { test, expect } from '@playwright/test'
 import { writeFileSync } from 'node:fs'
 
-declare global {
-  interface Window {
-    __xgisCaptureDrawOrder?: boolean
-    __xgisDrawOrderResult?: Array<{
-      seq: number
-      slice: string
-      phase: string
-      extrude: string
-      tileKey?: number
-      isFill?: boolean
-    }>
-  }
-}
-
 test.describe('VTR draw order at high pitch', () => {
   test('osm_style Seoul z=15.78 pitch=85° — buildings drawn after ground', async ({ page }) => {
     test.setTimeout(60_000)

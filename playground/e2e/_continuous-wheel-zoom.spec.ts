@@ -16,25 +16,6 @@
 
 import { test, expect } from '@playwright/test'
 
-interface XgisMap {
-  vtSources: Map<
-    string,
-    {
-      renderer: {
-        source: unknown
-        getDrawStats?: () => { tilesVisible: number; drawCalls: number }
-      }
-    }
-  >
-  camera: { zoom: number; centerX: number; centerY: number }
-}
-declare global {
-  interface Window {
-    __xgisMap?: XgisMap
-    __xgisReady?: boolean
-  }
-}
-
 interface Sample {
   zoom: number
   tilesVisible: number

@@ -24,7 +24,14 @@ test.describe('GPU adapter capability dump', () => {
         const v = (lim as unknown as Record<string, number>)[k]
         if (typeof v === 'number') limits[k] = v
       }
-      const adapterInfo = await adapter.requestAdapterInfo?.().catch(() => null)
+      // requestAdapterInfo() is deprecated (superseded by adapter.info) and
+      // dropped from @webgpu/types' GPUAdapter — cast locally to reach it on
+      // implementations that still expose it.
+      const adapterInfo = await (
+        adapter as unknown as { requestAdapterInfo?: () => Promise<unknown> }
+      )
+        .requestAdapterInfo?.()
+        .catch(() => null)
       return { features: features.sort(), limits, adapterInfo }
     })
 

@@ -15,6 +15,24 @@
 // / getLastDecisionCounts) so external consumers (render-loop stats
 // panel, __xgisMap diagnostics) are unchanged.
 
+/** The per-frame draw totals this module publishes. Named because the shape
+ *  was written out inline in BOTH this file and VectorTileRenderer's forwarder
+ *  — two verbatim copies of a return type drift the moment a field is added. */
+export interface DrawStatsSnapshot {
+  drawCalls: number
+  vertices: number
+  triangles: number
+  lines: number
+  tilesVisible: number
+  missedTiles: number
+  globeTilesSelected: number
+  /** `[zoom, tilesDrawn]` pairs, ascending by zoom (#1479). Added to the named
+   *  shape on adoption: it landed on main as an inline field of this method's
+   *  return literal, and the whole point of naming the type is that a new field
+   *  is declared ONCE. */
+  drawnByZoom: Array<[number, number]>
+}
+
 export class FrameDrawStats {
   // Per-frame draw stats
   private renderedDraws = new Map<
@@ -189,16 +207,7 @@ export class FrameDrawStats {
     return this._missedTiles
   }
 
-  getDrawStats(): {
-    drawCalls: number
-    vertices: number
-    triangles: number
-    lines: number
-    tilesVisible: number
-    missedTiles: number
-    globeTilesSelected: number
-    drawnByZoom: Array<[number, number]>
-  } {
+  getDrawStats(): DrawStatsSnapshot {
     return {
       drawCalls: this._frameDrawCalls,
       vertices: this._frameVertices,

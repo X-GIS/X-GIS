@@ -25,7 +25,7 @@ for (const id of TARGETS) {
     await page.addInitScript(() => {
       const gpu = navigator.gpu
       if (!gpu) return
-      const origReqDev = gpu.requestDevice
+      const origReqDev = (gpu as unknown as { requestDevice?: unknown }).requestDevice
       const origReqAdapter = gpu.requestAdapter.bind(gpu)
       navigator.gpu.requestAdapter = async (...args: Parameters<GPU['requestAdapter']>) => {
         const adapter = await origReqAdapter(...args)

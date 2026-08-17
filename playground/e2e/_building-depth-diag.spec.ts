@@ -49,6 +49,7 @@ test.describe('3D building depth-sort diag', () => {
                 string,
                 {
                   renderer?: {
+                    _selection?: any
                     _frameTileCache?: { tiles?: Array<{ z: number; x: number; y: number }> }
                     _gpuCacheCount?: number
                   }
