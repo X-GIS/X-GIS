@@ -284,8 +284,8 @@ export function visibleTilesSSE(
   const maxEmitted = maxTilesCap() ?? opts.maxEmitted ?? MAX_EMITTED
 
   // Camera altitude in Mercator metres — derived from the CSS-pixel
-  // viewport (matches camera.ts:120 — must stay DPR-invariant so the
-  // selector and renderer compute the same world view).
+  // viewport (matches camera.ts:120): only THIS term is DPR-invariant.
+  // Selection as a whole is not — see `ssePx` below (#1379).
   const cssHeight = canvasHeight / dpr
   // #1440: was a local `FOV_DEG = 45` annotated "Camera.FOV — fixed in this
   // engine". Camera.FOV is 36.87 deg; the two had drifted, inflating
