@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { ShapeRegistry, BUILTIN_SHAPES } from '@xgis/map'
+import { ShapeRegistry, BUILTIN_SHAPES, type SegmentData } from '@xgis/map'
 import { WebGpuDevice } from '@xgis/rhi-webgpu'
 
 // The registry touches `device` only from `uploadToGPU`; constructor and
@@ -79,6 +79,86 @@ describe('ShapeRegistry multi-element symbols (#1766)', () => {
     const first = r.addUserShape('pair', LEFT)
     expect(r.addUserShape('pair', RIGHT)).toBe(first)
     expect(desc(r, 'pair').segCount).toBe(4)
+  })
+})
+
+describe('ShapeRegistry curve flattening (#1765)', () => {
+  // `circle r: 0.5` exactly as compiler/src/ir/symbol-elements.ts `circlePath` emits it: four
+  // cubics with the standard quarter-arc control offset k = 4/3·(√2 − 1)·r = 0.2761. Max-extent
+  // normalization scales the 0.5 radius to 1, so every emitted vertex must sit at |p| ≈ 1.
+  const CIRCLE =
+    'M 0.5 0 C 0.5 0.2761 0.2761 0.5 0 0.5 C -0.2761 0.5 -0.5 0.2761 -0.5 0 ' +
+    'C -0.5 -0.2761 -0.2761 -0.5 0 -0.5 C 0.2761 -0.5 0.5 -0.2761 0.5 0 Z'
+  // The rect half of the fixture's `sym_pair` (playground/src/examples/
+  // fixture-symbol-anchor-inline.xgis), which shares the shape's 32-segment budget with a circle.
+  const PAIR_RECT = 'M -2 -0.5 L -1 -0.5 L -1 0.5 L -2 0.5 Z'
+  const PAIR_CIRCLE =
+    'M 2 0 C 2 0.2761 1.7761 0.5 1.5 0.5 C 1.2239 0.5 1 0.2761 1 0 ' +
+    'C 1 -0.2761 1.2239 -0.5 1.5 -0.5 C 1.7761 -0.5 2 -0.2761 2 0 Z'
+
+  function segmentsOf(r: ShapeRegistry, name: string): SegmentData[] {
+    const internal = (r as unknown as { shapes: Map<string, { segments: SegmentData[] }> }).shapes
+    const entry = internal.get('user:' + name)
+    if (!entry) throw new Error(`shape ${name} not registered`)
+    return entry.segments
+  }
+
+  /** Shoelace area of the closed chain the segments trace. */
+  const chainArea = (segs: SegmentData[]): number =>
+    Math.abs(segs.reduce((a, s) => a + (s.p0x * s.p1y - s.p1x * s.p0y), 0)) / 2
+
+  it('turns the four-cubic circle into line segments that stay round to the pixel bound', () => {
+    const r = new ShapeRegistry(new WebGpuDevice(fakeDevice))
+    r.addUserSymbol('ring', [CIRCLE])
+    const segs = segmentsOf(r, 'ring')
+
+    // The load-bearing property: the SDF's winding test (`winding_line`) and its distance
+    // (`dist_to_line`) are exact ONLY for kind 0. Before the fix these were four `kind: 2`
+    // cubics and the shader wound them by their CHORDS — a diamond.
+    expect(segs.every((s) => s.kind === 0)).toBe(true)
+    // Inside the cap the shader actually walks (`min(seg_count, 32)`), so nothing is dropped.
+    expect(segs.length).toBeLessThanOrEqual(32)
+    expect(segs.length).toBeGreaterThanOrEqual(24)
+
+    // ROUNDNESS, measured rather than asserted structurally. Each chord's midpoint must sit
+    // within FLATTEN_TOL-ish of the unit circle; the achieved 7-pieces-per-quarter split gives a
+    // measured sagitta of 0.00657 (analytic bound 0.75·M/n² = 0.00704 with M = 0.4598, n = 7).
+    // 1/140 is that bound expressed as HALF A PIXEL for a `size-70` glyph (the fixture's
+    // `sym_dot`): radius_px is 70, so 0.5 px is 1/140 of the radius. The pre-fix chord
+    // quadrilateral scores 1 − cos(π/4) = 0.2929, forty-one times over.
+    const sagitta = Math.max(
+      ...segs.map((s) => 1 - Math.hypot((s.p0x + s.p1x) / 2, (s.p0y + s.p1y) / 2)),
+    )
+    expect(sagitta).toBeGreaterThan(0) // inscribed, never outside
+    expect(sagitta).toBeLessThan(1 / 140)
+
+    // …and the same fact as AREA, the quantity the render gate reads off the frame: a 28-gon
+    // inscribed in the unit circle is 0.9919·π, the chord diamond only 2/π = 0.6366·π.
+    const areaRatio = chainArea(segs) / Math.PI
+    expect(areaRatio).toBeGreaterThan(0.98)
+    expect(areaRatio).toBeLessThanOrEqual(1)
+  })
+
+  it('shares the 32-segment budget so a rect+circle block cannot overrun it', () => {
+    const r = new ShapeRegistry(new WebGpuDevice(fakeDevice))
+    r.addUserSymbol('pair', [PAIR_RECT, PAIR_CIRCLE])
+    const segs = segmentsOf(r, 'pair')
+    // 4 (rect) + 4 × 6 (the circle's equal share of what the straight segments leave) = 28.
+    // Without the share-out the circle alone would want 4 × 14 and the shape would be truncated
+    // mid-outline — a partial winding sum, i.e. garbage fill.
+    expect(segs.length).toBeLessThanOrEqual(32)
+    expect(segs.every((s) => s.kind === 0)).toBe(true)
+    // The circle half still resolves: its own chain (everything past the rect's 4 segments)
+    // encloses ~π·0.25², not the 2·0.25² of a diamond.
+    const circleArea = chainArea(segs.slice(4))
+    expect(circleArea / (Math.PI * 0.25 * 0.25)).toBeGreaterThan(0.98)
+  })
+
+  it('spends nothing extra on a curve that is already flat', () => {
+    const r = new ShapeRegistry(new WebGpuDevice(fakeDevice))
+    // Control points ON the chord — max|B″| is ~0, so the tolerance (not the budget) decides.
+    r.addUserShape('flat', 'M -1 0 C -0.3333 0 0.3333 0 1 0')
+    expect(segmentsOf(r, 'flat')).toHaveLength(1)
   })
 })
 

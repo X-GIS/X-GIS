@@ -25,7 +25,7 @@ export interface ShapeDescData {
 
 /** GPU-side segment (matches WGSL struct, 48 bytes) */
 export interface SegmentData {
-  kind: number // 0=line, 1=quadratic, 2=cubic
+  kind: number // 0=line, 1=quadratic, 2=cubic — only 0 is emitted (see "Curve flattening")
   colorIdx: number
   flags: number
   _pad: number
@@ -91,7 +91,71 @@ function parseSVGPath(d: string): PathCmd[] {
   return cmds
 }
 
-/** Convert PathCmds to line/bezier segments with computed AABB.
+// ═══ Curve flattening (#1765) ═══
+//
+// The fragment SDF is exact only for `kind: 0`: `dist_to_line` is the true distance to a segment
+// and `winding_line` its true ray crossing. For `kind: 1/2` the shader takes the winding from the
+// CHORD alone (`shaders/dsl/point.ts:313`, and the same line in line.ts / sdf.ts), so the four
+// cubics a `circle` element lowers to (compiler/src/ir/symbol-elements.ts `circlePath`) filled as
+// the quadrilateral through their endpoints — a DIAMOND — ringed by the sparse 25-sample POINT
+// distance the curve branch measures in place of a curve distance. Flattening to lines here fixes
+// both at once, and it is the side that CAN be fixed: the emitted WGSL/GLSL is baked
+// (`shaders/baked/*.generated.ts`, byte-compared by `baked-sync.test.ts`).
+//
+// ERROR BOUND. Splitting a curve at n equal t deviates from its chords by at most
+// (1/8)·max|B″|·(1/n)², and max|B″| is 6·max(|p0−2p1+p2|, |p1−2p2+p3|) for a cubic, 2·|p0−2p1+p2|
+// for a quadratic — so n = ceil(sqrt(k·M / (8·TOL))). Coordinates are already max-extent
+// normalized, so TOL is a fraction of the glyph's own half-extent and the on-screen error is
+// TOL·radius_px pixels.
+//
+// BUDGET. `sdf_shape` walks at most MAX_SHAPE_SEGMENTS per shape and silently drops the rest, so
+// TOL cannot be the only limit — one quarter circle alone wants 14 pieces at TOL = 1/512. Every
+// curve therefore gets an equal share of what the straight segments leave, which bounds the total
+// at the cap BY CONSTRUCTION and degrades a crowded block to a coarser polygon instead of
+// truncating it mid-outline. A lone `circle` lands on 7 pieces per quarter: a 28-gon whose
+// measured chord sagitta is 0.00657 of its radius (analytic bound 0.00704), i.e. 0.46 px for the
+// `size-70` glyph `_symbol-anchor-inline-gate` measures, and 0.9919·πr² of area against the chord
+// diamond's 0.6366·πr².
+
+/** Per-shape segment cap the fragment SDF enforces — `min(seg_start + seg_count, seg_start + 32)`
+ *  in `sdf_shape` (shaders/dsl/point.ts, line.ts, sdf.ts). Segments past it are never walked. */
+const MAX_SHAPE_SEGMENTS = 32
+
+/** Chord deviation a flattened curve may keep, as a fraction of the glyph's normalized extent. */
+const FLATTEN_TOL = 1 / 512
+
+/** |p0 − 2·p1 + p2| — the second difference the flattening bound is written in. */
+const secondDiff = (
+  x0: number,
+  y0: number,
+  x1: number,
+  y1: number,
+  x2: number,
+  y2: number,
+): number => Math.hypot(x0 - 2 * x1 + x2, y0 - 2 * y1 + y2)
+
+/** Pieces one curve needs at FLATTEN_TOL; k = 6 for a cubic, 2 for a quadratic. */
+const curveSteps = (k: number, m: number): number =>
+  Math.max(1, Math.ceil(Math.sqrt((k * m) / (8 * FLATTEN_TOL))))
+
+/** A `kind: 0` segment — the only kind emitted now that curves are flattened. */
+const lineSeg = (p0x: number, p0y: number, p1x: number, p1y: number): SegmentData => ({
+  kind: 0,
+  colorIdx: 0,
+  flags: 0,
+  _pad: 0,
+  p0x,
+  p0y,
+  p1x,
+  p1y,
+  p2x: 0,
+  p2y: 0,
+  p3x: 0,
+  p3y: 0,
+})
+
+/** Convert PathCmds to line segments with computed AABB — curves flatten under the error bound
+ *  and segment budget above (#1765).
  *  Implicit max-extent normalization: all coords are scaled so max(|coord|) = 1
  *  before segments are emitted. This gives `size N` a consistent meaning
  *  ("longest dimension renders at N units") regardless of how the path's
@@ -135,6 +199,17 @@ function pathToSegments(cmds: PathCmd[]): {
   const scale = maxExtent > 1e-6 ? 1 / maxExtent : 1
   const sx = (v: number) => v * scale
 
+  // Pass 1b: split the shader's per-shape segment cap between the curves (#1765 — see "Curve
+  // flattening"). `straight` is an UPPER bound (a `Z` whose subpath is already closed emits
+  // nothing), which only ever hands the curves a slightly smaller, still-safe share.
+  let straight = 0
+  let curves = 0
+  for (const cmd of cmds) {
+    if (cmd.type === 'L' || cmd.type === 'Z') straight++
+    else if (cmd.type === 'Q' || cmd.type === 'C') curves++
+  }
+  const curveBudget = Math.max(1, Math.floor((MAX_SHAPE_SEGMENTS - straight) / Math.max(curves, 1)))
+
   // Pass 2: emit segments with normalized coords.
   const segments: SegmentData[] = []
   let cx = 0,
@@ -152,78 +227,63 @@ function pathToSegments(cmds: PathCmd[]): {
         break
 
       case 'L':
-        segments.push({
-          kind: 0,
-          colorIdx: 0,
-          flags: 0,
-          _pad: 0,
-          p0x: cx,
-          p0y: cy,
-          p1x: sx(cmd.x),
-          p1y: sx(cmd.y),
-          p2x: 0,
-          p2y: 0,
-          p3x: 0,
-          p3y: 0,
-        })
+        segments.push(lineSeg(cx, cy, sx(cmd.x), sx(cmd.y)))
         cx = sx(cmd.x)
         cy = sx(cmd.y)
         break
 
-      case 'Q':
-        segments.push({
-          kind: 1,
-          colorIdx: 0,
-          flags: 0,
-          _pad: 0,
-          p0x: cx,
-          p0y: cy,
-          p1x: sx(cmd.x1),
-          p1y: sx(cmd.y1),
-          p2x: sx(cmd.x),
-          p2y: sx(cmd.y),
-          p3x: 0,
-          p3y: 0,
-        })
-        cx = sx(cmd.x)
-        cy = sx(cmd.y)
+      case 'Q': {
+        const x0 = cx
+        const y0 = cy
+        const x1 = sx(cmd.x1)
+        const y1 = sx(cmd.y1)
+        const x2 = sx(cmd.x)
+        const y2 = sx(cmd.y)
+        const n = Math.min(curveBudget, curveSteps(2, secondDiff(x0, y0, x1, y1, x2, y2)))
+        for (let i = 1; i <= n; i++) {
+          const t = i / n
+          const u = 1 - t
+          // t = 1 reproduces (x2, y2) exactly, so `Z` still sees an exactly-closed subpath.
+          const px = u * u * x0 + 2 * u * t * x1 + t * t * x2
+          const py = u * u * y0 + 2 * u * t * y1 + t * t * y2
+          segments.push(lineSeg(cx, cy, px, py))
+          cx = px
+          cy = py
+        }
         break
+      }
 
-      case 'C':
-        segments.push({
-          kind: 2,
-          colorIdx: 0,
-          flags: 0,
-          _pad: 0,
-          p0x: cx,
-          p0y: cy,
-          p1x: sx(cmd.x1),
-          p1y: sx(cmd.y1),
-          p2x: sx(cmd.x2),
-          p2y: sx(cmd.y2),
-          p3x: sx(cmd.x),
-          p3y: sx(cmd.y),
-        })
-        cx = sx(cmd.x)
-        cy = sx(cmd.y)
+      case 'C': {
+        const x0 = cx
+        const y0 = cy
+        const x1 = sx(cmd.x1)
+        const y1 = sx(cmd.y1)
+        const x2 = sx(cmd.x2)
+        const y2 = sx(cmd.y2)
+        const x3 = sx(cmd.x)
+        const y3 = sx(cmd.y)
+        const m = Math.max(secondDiff(x0, y0, x1, y1, x2, y2), secondDiff(x1, y1, x2, y2, x3, y3))
+        const n = Math.min(curveBudget, curveSteps(6, m))
+        for (let i = 1; i <= n; i++) {
+          const t = i / n
+          const u = 1 - t
+          const b0 = u * u * u
+          const b1 = 3 * u * u * t
+          const b2 = 3 * u * t * t
+          const b3 = t * t * t
+          // t = 1 reproduces (x3, y3) exactly, so `Z` still sees an exactly-closed subpath.
+          const px = b0 * x0 + b1 * x1 + b2 * x2 + b3 * x3
+          const py = b0 * y0 + b1 * y1 + b2 * y2 + b3 * y3
+          segments.push(lineSeg(cx, cy, px, py))
+          cx = px
+          cy = py
+        }
         break
+      }
 
       case 'Z':
         if (cx !== mx || cy !== my) {
-          segments.push({
-            kind: 0,
-            colorIdx: 0,
-            flags: 0,
-            _pad: 0,
-            p0x: cx,
-            p0y: cy,
-            p1x: mx,
-            p1y: my,
-            p2x: 0,
-            p2y: 0,
-            p3x: 0,
-            p3y: 0,
-          })
+          segments.push(lineSeg(cx, cy, mx, my))
           cx = mx
           cy = my
         }
@@ -395,8 +455,9 @@ export class ShapeRegistry {
    *  semantics — the anchor moves the symbol's origin inside its OWN whole bbox, not inside its
    *  first element's.
    *
-   *  Segment budget: the shader walks at most 32 segments per shape (`sdfShape` in
-   *  shaders/dsl/point.ts), and a combined block spends that budget across all its elements. */
+   *  Segment budget: the shader walks at most MAX_SHAPE_SEGMENTS per shape, and a combined block
+   *  spends that budget across all its elements — including the line segments its curves flatten
+   *  into (#1765), which `pathToSegments` shares out equally so the total cannot overrun. */
   addUserSymbol(name: string, paths: readonly string[], anchor?: string): number {
     return this.addUserShape(name, paths.join(' '), anchor)
   }

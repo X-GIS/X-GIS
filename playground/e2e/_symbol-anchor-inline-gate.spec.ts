@@ -1,10 +1,10 @@
 import { test, expect, type Page } from '@playwright/test'
 
-// ═══ Render-gate for user-symbol coverage of `fixture_symbol_anchor_inline` (#1557, #1766) ═══
+// ═══ User-symbol render-gate — `fixture_symbol_anchor_inline` (#1557, #1766, #1765) ═══
 //
 // #1557's inline-data grammar (`source { type: geojson, data: {...} }`) has been render-gated
 // since #481 (see inline-data.xgis + its parity gates) — this spec is the narrowed remainder:
-// USER-SYMBOL render coverage. Three things that were parse-tested only
+// USER-SYMBOL render coverage. Four things that were parse-tested only
 // (compiler/src/__tests__/conformance/valid/symbol.xgis — `@case valid`, no rendering) get an
 // actual pixel gate here:
 //
@@ -18,6 +18,10 @@ import { test, expect, type Page } from '@playwright/test'
 //      is keyed by NAME and returns early on a hit, so a per-element registration loop kept only
 //      the FIRST element of `symbol X { rect … circle … }`. Fixed by joining a block's element
 //      paths into one `d` string before registration (`ShapeRegistry.addUserSymbol`).
+//   4. A `circle` element renders ROUND (#1765). It lowers to four cubics, and the fragment SDF
+//      winds a curve by its CHORD only, so unflattened they fill as the quadrilateral through the
+//      four endpoints — a diamond. `pathToSegments` now flattens curves to line segments, the one
+//      kind the shader's winding and distance are exact for.
 //
 // The fixture (playground/src/examples/fixture-symbol-anchor-inline.xgis) draws ONE inline point
 // at (0,0) twice: `sym_dot` is a bare `circle` (default/center anchor, fill-red-500), `sym_tab`
@@ -38,6 +42,10 @@ import { test, expect, type Page } from '@playwright/test'
 //   - A multi-element block regresses to registering its first element only → the green glyph
 //     loses its circle; its area collapses to the rect's and its footprint stops being wide
 //     (see the #1766 test's arithmetic).
+//   - `pathToSegments` stops flattening curves (or emits `kind: 1/2` again) → the green block's
+//     circle fills as the chord quadrilateral, 2/π = 0.64 of its bounding disc instead of ~0.97
+//     — the #1765 test's fill ratio fails while its bbox assertions still pass, because the
+//     diamond's vertices ARE the circle's axis points and the two share a bounding box.
 //
 // Geometry, so the shift-vs-dot-radius ratio isn't arbitrary: both symbols are built from a
 // unit-ish path (circle r:0.5 / rect w:1 h:1) at the SAME normalization (`pathToSegments`
@@ -109,6 +117,9 @@ interface Centroids {
   red: ColorStats
   blue: ColorStats
   green: ColorStats
+  /** The CIRCLE half of the green pair alone (#1765) — see `measureCentroids` for how the
+   *  block's own geometry isolates it without a second colour. */
+  greenCircle: ColorStats
 }
 
 /** Per-colour pixel count + centroid + mask extent, computed IN-PAGE so only the aggregates (not
@@ -159,6 +170,29 @@ const measureCentroids = (page: Page): Promise<Centroids | null> =>
         if (y > s.y1) s.y1 = y
       }
     }
+    // #1765 — the CIRCLE half of the green pair, isolated by the block's OWN geometry rather than
+    // by a fourth colour: `sym_pair` puts its rect at symbol-x ∈ [-2, -1] and its circle at
+    // [1, 2], both 1 raw unit tall, so the mask's HEIGHT is exactly the circle's diameter and the
+    // circle owns exactly the rightmost `height` columns of the mask. Two raw units of empty
+    // space separate the elements, so nothing else can land in that window.
+    const ring = mk()
+    if (green.n) {
+      const gh = green.y1 - green.y0 + 1
+      const xLo = Math.max(green.x1 - gh + 1, 0)
+      for (let y = green.y0; y <= green.y1; y++) {
+        for (let x = xLo; x <= green.x1; x++) {
+          const i = (y * W + x) * 4
+          if (!isGreen(buf[i]!, buf[i + 1]!, buf[i + 2]!)) continue
+          ring.n++
+          ring.sx += x
+          ring.sy += y
+          if (x < ring.x0) ring.x0 = x
+          if (x > ring.x1) ring.x1 = x
+          if (y < ring.y0) ring.y0 = y
+          if (y > ring.y1) ring.y1 = y
+        }
+      }
+    }
     const finish = (s: typeof red): ColorStats => ({
       n: s.n,
       cx: s.n ? s.sx / s.n : 0,
@@ -166,10 +200,10 @@ const measureCentroids = (page: Page): Promise<Centroids | null> =>
       w: s.n ? s.x1 - s.x0 + 1 : 0,
       h: s.n ? s.y1 - s.y0 + 1 : 0,
     })
-    return { red: finish(red), blue: finish(blue), green: finish(green) }
+    return { red: finish(red), blue: finish(blue), green: finish(green), greenCircle: finish(ring) }
   })
 
-/** Boot the fixture on the PINNED backend, collecting page errors. Shared by both cases so the
+/** Boot the fixture on the PINNED backend, collecting page errors. Shared by every case so the
  *  boot contract (viewport, `?forcegl2=1`, the backend assertion) has ONE authority — a second
  *  case that booted differently would not be measuring the same frame. */
 async function openFixture(page: Page): Promise<string[]> {
@@ -319,6 +353,67 @@ test('#1766 a multi-element `symbol` block renders every element, not just the f
     `~4.0 heights, the rect alone ~1.0`
   expect(aspect, aspectMsg).toBeGreaterThan(2.5)
   expect(aspect, aspectMsg).toBeLessThan(5.5)
+
+  expect(errors, 'no page errors').toEqual([])
+})
+
+test('#1765 a `circle` element fills as a circle, not as the quad through its cubic endpoints', async ({
+  page,
+}, testInfo) => {
+  const errors = await openFixture(page)
+
+  const c = await settleUntilPainted(page)
+  const k = c.greenCircle
+
+  await page
+    .locator('#xg-canv, canvas')
+    .first()
+    .screenshot({ path: testInfo.outputPath('settled-roundness.png') })
+
+  // ARITHMETIC. `circlePath` lowers a `circle` element to four cubics whose ENDPOINTS are the
+  // circle's four axis points, so the round state and the broken state share a bounding box and
+  // only the FILLED AREA separates them. Writing R for the mask's own half-extent — measured
+  // between the extreme pixel CENTRES, (w − 1)/2, so the count and the box agree on where the
+  // boundary is and the ratio has no ±1 px bias:
+  //     circle  → n = π·R²      → fill = 1.00
+  //     diamond → n = 2·R²      → fill = 2/π = 0.64
+  // The diamond is what the fragment SDF fills from unflattened cubics, because its winding test
+  // reads a curve's CHORD only (`winding_line(p0, p3)`); the boundary it draws is the winding
+  // flip, so it is hard-edged and the 0.64 is not softened by AA. The frame also paints a partial
+  // ring of the curve branch's 25-sample point-distance field out at the true radius, but that
+  // ring peaks at alpha 0.5 (dist = 1 exactly on the curve) and mostly fails the saturated-green
+  // predicate — the fail-before state sits near 0.64, not near 0.9. The fixed state is a 24-gon
+  // here (the circle's equal share of the shape's 32-segment budget, see `pathToSegments`),
+  // 0.9886 of its circumscribed circle.
+  const aspect = k.w / k.h
+  const fill = k.n / (Math.PI * ((k.w - 1) / 2) * ((k.h - 1) / 2))
+
+  console.log(
+    `[symbol-circle-roundness] circle n=${k.n} w=${k.w} h=${k.h} ` +
+      `aspect=${aspect.toFixed(3)} fill=${fill.toFixed(3)} (green h=${c.green.h})`,
+  )
+
+  // Non-vacuous floor: the window must actually hold the circle. π·35² ≈ 3848 px at this
+  // fixture's size-140 glyph; 500 only rules out "measured nothing".
+  expect(k.n, `no circle pixels in the green mask's right-hand window (n=${k.n})`).toBeGreaterThan(
+    500,
+  )
+  // The window is defined by the mask's height, so a circle fills it square. A departure here
+  // means the window caught something other than the circle (a clipped glyph, a moved element),
+  // which would invalidate the fill ratio below — fail on that first, with its own message.
+  const boxMsg =
+    `the green mask's circle window is ${k.w}×${k.h} px (mask height ${c.green.h}) — not square, ` +
+    `so it is not framing the circle element and the fill ratio below would be meaningless`
+  expect(aspect, boxMsg).toBeGreaterThan(0.9)
+  expect(aspect, boxMsg).toBeLessThan(1.1)
+  expect(k.h / c.green.h, boxMsg).toBeGreaterThan(0.85)
+
+  // THE ROUNDNESS VERDICT.
+  const fillMsg =
+    `the circle element fills ${fill.toFixed(3)} of its bounding disc (n=${k.n}, ${k.w}×${k.h}) ` +
+    `— a circle is ~0.99, the chord quad the SDF winds from unflattened cubics is 2/π = 0.64`
+  expect(fill, fillMsg).toBeGreaterThan(0.9)
+  expect(fill, fillMsg).toBeLessThan(1.1)
 
   expect(errors, 'no page errors').toEqual([])
 })
