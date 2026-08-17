@@ -191,7 +191,14 @@ const CEILINGS: Record<string, number> = {
   // 4913 -> 4911 (#1679 inc 6): the four polygon call sites moved their emit+key pairing
   // into material/polygon-baked.ts, which is the 'extract, don't grow' this ratchet asks
   // for — the id wiring landed OUTSIDE the god-file and took two lines of imports with it.
-  'map/src/render/vector-tile-renderer.ts': 4911,
+  // 4911→4932 (#1632): the tile-point pack cache became one slot PER SHOW, and the
+  // slot ids need a namespace this renderer alone can mint. The cache itself is a new
+  // owner (render/tile-point-cache.ts) — the 'extract, don't grow' this ratchet asks
+  // for — so what lands here is only the wiring a renderer cannot delegate: the
+  // per-instance show-id prefix, the showId derivation at the emit site, the
+  // PointRenderer back-reference destroy() needs, and the eviction call itself
+  // (without which a setSourceData swap leaks three GPU buffers per point show).
+  'map/src/render/vector-tile-renderer.ts': 4932,
   // Baselined 801: #1602 (the drape's overlap winner is relevance, not re-arm recency)
   // brought the file to exactly NEW_FILE_CAP (800), and the independent #1603 material-
   // release fix landed on main one line above it in the same file, pushing it to 801 on
@@ -1204,7 +1211,11 @@ const CEILINGS: Record<string, number> = {
   // had none, so a composed `u.zoom` addressed a field that did not exist). One packed field
   // + its rationale; the lane's full doc lives on the struct in shaders/dsl/point.ts, and the
   // write is single-authority here by construction (`write()` has no optional fields).
-  'map/src/render/point-renderer.ts': 1213,
+  // MERGE UNION (#1632 <- main): main's +5 (#1635 zoom lane, above) and this branch's −2
+  // (the tile-point pack scalar cache + retire queue moved out to tile-point-cache.ts,
+  // keyed per show) are non-overlapping and compose. Value is the MEASURED post-merge,
+  // post-prettier count.
+  'map/src/render/point-renderer.ts': 1211,
   // 1106→1120 (#1043 state-hygiene): three unmask-before-clear / state-reset fixes for the
   // WebGL2 flicker class — beginScreenPass colorMask unmask (the colour sibling of #746/#780),
   // dispatchComputeToR32UI viewport snapshot+restore, and the setPipeline no-depth arm's

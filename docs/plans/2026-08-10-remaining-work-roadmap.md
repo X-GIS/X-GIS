@@ -34,13 +34,13 @@ until the bookkeeping pass records the landing (commit + file:line) on it.
 
 The 98 open issues decompose into:
 
-| Bucket | Count | Where |
-| --- | --- | --- |
-| In-flight PRs to land/adjudicate | 3 (#1604, #1422, #1470) | §3 |
-| Bookkeeping-only (possibly-done, close-out owed) | ~17 | §9 |
-| Owner decisions (block their items) | ~10 | §8 |
-| Owner hardware / real device required | ~8 | §8 |
-| Real remaining work | ~60 | §3–§7 tracks |
+| Bucket                                           | Count                   | Where        |
+| ------------------------------------------------ | ----------------------- | ------------ |
+| In-flight PRs to land/adjudicate                 | 3 (#1604, #1422, #1470) | §3           |
+| Bookkeeping-only (possibly-done, close-out owed) | ~17                     | §9           |
+| Owner decisions (block their items)              | ~10                     | §8           |
+| Owner hardware / real device required            | ~8                      | §8           |
+| Real remaining work                              | ~60                     | §3–§7 tracks |
 
 ---
 
@@ -50,14 +50,14 @@ Until the render-gate battery is trustworthy, nothing downstream can claim CI ev
 (the #1553 campaign's own sequencing rule). `_adaptive-quality-ladder-gate` is **red on
 main**, poisoning §5 verification repo-wide — it goes first.
 
-| # | Item | Why now |
-| --- | --- | --- |
-| W0-1 | **#1444 (P0)** — controller steps to notch 1 but the far-field selector ignores it (adaptive settles at 28794 vs control 20008, deterministic since the #1440 FOV window; suspect: notch→`farTargetBoost` wire, `tile-selection-cache.ts:514/793`). Fold #1463's convergence-predicate sampling half into the same home. | Red gate on main; every PR inherits it. |
-| W0-2 | **PR #1604** (#1602 drape overlap = relevance, not re-arm recency) — mergeable_state `dirty` after base PR #1589 merged; rebase, add the specified unit + overlap render gates, green. | The one active coverage fix; #1500 closes behind it. |
-| W0-3 | **PR #1422** (#1364 source-error phase / #1355 byte telemetry / #1356 link-cost shaping + the ne_50m fixtures that unblock #1349 step 1) — 34 files, stale since 07-28; merge main in, adjudicate its red leg against the *fetched* base (§12), re-verify, ready. | One PR advances four issues. |
+| #    | Item                                                                                                                                                                                                                                                                                                                                                                      | Why now                                                 |
+| ---- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------- |
+| W0-1 | **#1444 (P0)** — controller steps to notch 1 but the far-field selector ignores it (adaptive settles at 28794 vs control 20008, deterministic since the #1440 FOV window; suspect: notch→`farTargetBoost` wire, `tile-selection-cache.ts:514/793`). Fold #1463's convergence-predicate sampling half into the same home.                                                  | Red gate on main; every PR inherits it.                 |
+| W0-2 | **PR #1604** (#1602 drape overlap = relevance, not re-arm recency) — mergeable_state `dirty` after base PR #1589 merged; rebase, add the specified unit + overlap render gates, green.                                                                                                                                                                                    | The one active coverage fix; #1500 closes behind it.    |
+| W0-3 | **PR #1422** (#1364 source-error phase / #1355 byte telemetry / #1356 link-cost shaping + the ne_50m fixtures that unblock #1349 step 1) — 34 files, stale since 07-28; merge main in, adjudicate its red leg against the _fetched_ base (§12), re-verify, ready.                                                                                                         | One PR advances four issues.                            |
 | W0-4 | **#1635 (P0)** — `zoom` inside `@color`/`@stroke` stage blocks silently compiles to literal 0.0 (`wgsl-expr.ts` field collector excludes `zoom`; `?? f32Lit(0)` always fires). Give `zoom` a real per-frame uniform lane following the InputRef precedent (`wgsl-expr.ts:100-109`); fail-before gate already written (`_stage-block-line-webgl2-gate.spec.ts` R-channel). | Silent miscompile in the just-shipped flagship feature. |
-| W0-5 | **Bookkeeping sweep** — §9's close/refresh list, verified before closing. | Stops future sessions re-deriving landed work (§9.5). |
-| W0-6 | **PR #1470** (draft, stale since 07-29, #1468) — adjudicate against landed #1457: refresh or close. | Kill stale in-flight state. |
+| W0-5 | **Bookkeeping sweep** — §9's close/refresh list, verified before closing.                                                                                                                                                                                                                                                                                                 | Stops future sessions re-deriving landed work (§9.5).   |
+| W0-6 | **PR #1470** (draft, stale since 07-29, #1468) — adjudicate against landed #1457: refresh or close.                                                                                                                                                                                                                                                                       | Kill stale in-flight state.                             |
 
 ## 4. Wave 1 — correctness & failure-path completion
 
@@ -69,7 +69,7 @@ main**, poisoning §5 verification repo-wide — it goes first.
   and `idle` fires; run the cheap failed-fetcher-vs-404 probe first; tombstone policy
   coordinates with #1269 (UX half). Gate via `keepLoopWarm` (unit-testable, no GPU).
 - **#1448 → #1420** — fix stale geometry persisting after `setSourceData` (2.3–3.5× pushed
-  geometry until a second push), *then* give `_reseed-data-push-gate` a real settle
+  geometry until a second push), _then_ give `_reseed-data-push-gate` a real settle
   predicate. Do **not** relax the 0.2 threshold (decided).
 - **#1322 (P0 for the label track)** — local PMTiles line-symbol fixture, option (b) only
   (the only option exercising the tiled `tileEntryM` path); then `_line-label-*-gate`
@@ -92,6 +92,7 @@ main**, poisoning §5 verification repo-wide — it goes first.
 ## 5. Wave 2 — user-visible capability parity
 
 **WebGL2 (the two big visible gaps):**
+
 - **#1592** — data-driven fills render blank on WebGL2 (pipeline-factory early-returns;
   palette atlas never uploaded). Answer the four recorded design questions first (issue
   leans CPU-bake reusing `evalPerFeatureColor`; no storage buffers on GL2); #1583's
@@ -104,6 +105,7 @@ main**, poisoning §5 verification repo-wide — it goes first.
   gate, close with #1046 attribution.
 
 **Labels/text:**
+
 - **#1434** — scale-aware invalidation for the ±0.15 zoom-tolerant prepare skip
   (`label-pass.ts:756-799`); gate the cache-HIT side too (tolerance is load-bearing).
 - **#1435** — sounding numerals draw zero on globe/azimuthal: fix
@@ -112,6 +114,7 @@ main**, poisoning §5 verification repo-wide — it goes first.
   test required.
 
 **Coverage/S-100:**
+
 - **#1499** — IBFV trail animates only the first resident region: per-region ping-pong
   pairs + per-fragment region selection; coordinate with the #1450/#1418 portrayal
   endpoint so streaks aren't reworked twice.
@@ -122,6 +125,7 @@ main**, poisoning §5 verification repo-wide — it goes first.
   down + probe-point identity gate once #1604 merges.
 
 **NOAA (public-demo lane):**
+
 - **#1273 GFS GRIB2 wind (flagship)** — GRIB2 reader (simple packing) behind
   `readCoverage`'s extension dispatch + global vector-field rendering (antimeridian, poles,
   10⁵ particles). GFS bucket is CORS-open: the proxy-free public live demo. SCAROW arrows
@@ -191,18 +195,18 @@ main**, poisoning §5 verification repo-wide — it goes first.
 
 ### Owner decisions (each blocks its item; leans are the investigators' on-record leans)
 
-| Issue | Decision | Recorded options / lean |
-| --- | --- | --- |
-| #1522 | slerp→linear interpolation flip (reverses a documented design choice) | lean linear (MapLibre parity); fix otherwise proven, small |
-| #1450 | arrow/flow portrayal endpoint | lean option 1: one portrayal, two generators |
-| #1418 | `flow` default | arrows (breaking visual) vs streaks (compatible) |
-| #834 | M5 context-family home; M-B6 residue shape; M-B7 composition root | 3 recorded options for M5 |
-| #1592 | per-feature fill on GL2: CPU bake vs uber-shader; expression-parity scope | issue leans CPU bake |
-| #1640 | ofm_bright_local asset | drop demo (cheapest) / commit mirror / live origin |
-| #1296 | deployed-site CORS story | host Range proxy / NOAA CORS / lean on GFS-GOES lanes |
-| #1155 | `.xgb` v3 full-fidelity re-scope | go/no-go |
-| #1201 | §6.5-vs-§1/§9 autonomy conflict | narrow or close as overtaken by §9.5 |
-| #1615 | caps-to-load-time-singleton | lean option 3 (wontfix-unless-observed) |
+| Issue | Decision                                                                  | Recorded options / lean                                    |
+| ----- | ------------------------------------------------------------------------- | ---------------------------------------------------------- |
+| #1522 | slerp→linear interpolation flip (reverses a documented design choice)     | lean linear (MapLibre parity); fix otherwise proven, small |
+| #1450 | arrow/flow portrayal endpoint                                             | lean option 1: one portrayal, two generators               |
+| #1418 | `flow` default                                                            | arrows (breaking visual) vs streaks (compatible)           |
+| #834  | M5 context-family home; M-B6 residue shape; M-B7 composition root         | 3 recorded options for M5                                  |
+| #1592 | per-feature fill on GL2: CPU bake vs uber-shader; expression-parity scope | issue leans CPU bake                                       |
+| #1640 | ofm_bright_local asset                                                    | drop demo (cheapest) / commit mirror / live origin         |
+| #1296 | deployed-site CORS story                                                  | host Range proxy / NOAA CORS / lean on GFS-GOES lanes      |
+| #1155 | `.xgb` v3 full-fidelity re-scope                                          | go/no-go                                                   |
+| #1201 | §6.5-vs-§1/§9 autonomy conflict                                           | narrow or close as overtaken by §9.5                       |
+| #1615 | caps-to-load-time-singleton                                               | lean option 3 (wontfix-unless-observed)                    |
 
 ### Owner hardware (batch into ONE real-GPU session)
 
@@ -264,12 +268,12 @@ tracks above.
 
 ### 12.1 Wave 0 outcome
 
-| Item | Outcome |
-| --- | --- |
-| W0-1 (#1444) | The reported notch→selector defect **does not reproduce** on main — the gate is green and the wire intact; §3's "red on main" premise was stale. Deliverable became gate **attribution** hardening (each severed half names itself; backend pinned per arm). PR #1644 closed unmerged → superseded by **#1752**. |
-| W0-2 (#1602) | PR #1604 was merged by the owner minutes before dispatch; the session pivoted to the #1500 close-out (ADR-0011 + three-authority probe-point identity gate). PR #1646 closed unmerged → superseded by **#1751**. #1602 is closed. |
-| W0-3 (PR #1422) | Revived: conflicts resolved, full CI green at the 08-10 head **including render-gate** — the PR body's "#1479 red leg" note is stale. Went dirty again against this week's main; a second merge-in landed 08-17 (measured ratchet unions: vector-tile-renderer.ts 4919, map.ts 5434, layer.ts 813). |
-| W0-4 (#1635) | Fix implemented (`u.zoom` uniform lane). PR #1645 closed unmerged → superseded by **#1747**. The miscompile is **still live on main** as of 08-17 — this remains the open P0. |
+| Item               | Outcome                                                                                                                                                                                                                                                                                                              |
+| ------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| W0-1 (#1444)       | The reported notch→selector defect **does not reproduce** on main — the gate is green and the wire intact; §3's "red on main" premise was stale. Deliverable became gate **attribution** hardening (each severed half names itself; backend pinned per arm). PR #1644 closed unmerged → superseded by **#1752**.     |
+| W0-2 (#1602)       | PR #1604 was merged by the owner minutes before dispatch; the session pivoted to the #1500 close-out (ADR-0011 + three-authority probe-point identity gate). PR #1646 closed unmerged → superseded by **#1751**. #1602 is closed.                                                                                    |
+| W0-3 (PR #1422)    | Revived: conflicts resolved, full CI green at the 08-10 head **including render-gate** — the PR body's "#1479 red leg" note is stale. Went dirty again against this week's main; a second merge-in landed 08-17 (measured ratchet unions: vector-tile-renderer.ts 4919, map.ts 5434, layer.ts 813).                  |
+| W0-4 (#1635)       | Fix implemented (`u.zoom` uniform lane). PR #1645 closed unmerged → superseded by **#1747**. The miscompile is **still live on main** as of 08-17 — this remains the open P0.                                                                                                                                        |
 | W0-5 (bookkeeping) | Executed in-session but **zero GitHub writes landed** — child sessions lack GitHub App auth (they can push branches; they cannot create PRs or write issues). §9's sweep is still owed in full. Process rule for future delegation: the dispatching session or an enabled GitHub App must perform the GitHub writes. |
 
 ### 12.2 Landed 08-11 → 08-17, by track
