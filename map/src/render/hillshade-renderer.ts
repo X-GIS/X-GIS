@@ -502,6 +502,8 @@ export class HillshadeRenderer {
     projCenterLat: number,
     canvasWidth: number,
     canvasHeight: number,
+    /** Wall-clock ms (host `_elapsedMs`) — the tile fade ramp's clock (#1477: was frames). */
+    nowMs: number,
     dpr: number = 1,
   ): void {
     if (!this.urlTemplate) return
@@ -592,7 +594,7 @@ export class HillshadeRenderer {
             return
           }
           this.failedTiles.clear(key)
-          // firstShownFrame -1 = "never drawn yet"; the draw loop stamps it on the
+          // firstShownMs -1 = "never drawn yet"; the draw loop stamps it on the
           // tile's FIRST appearance so an off-screen prefetch still fades in.
           this._cacheTile(key, texture)
           this.evictTiles(visibleKeys)
@@ -661,9 +663,9 @@ export class HillshadeRenderer {
     // Per-frame draw dedup keyed by render coord + ox — parent fallback maps
     // every uncached child onto the same parent quad (see raster-renderer).
     const drawnKeys = new Set<string>()
-    // ~60 fps → durationMs·0.06 frames. 0 ⇒ instant full opacity, byte-identical
-    // to the pre-fade path (reduced motion / fade disabled).
-    const fadeFrames = this._fadeDurationMs > 0 ? this._fadeDurationMs * 0.06 : 0
+    // fadeMs — the WALL CLOCK (#1477, mirrors raster-renderer.ts). 0 ⇒ instant
+    // full opacity, byte-identical to the pre-fade path (reduced motion / off).
+    const fadeMs = this._fadeDurationMs
     let anyFading = false
 
     // Emit one cached tile at `renderCoord` with the supplied texture + per-tile
@@ -768,12 +770,10 @@ export class HillshadeRenderer {
       const exact = this.tileCache.get(key)
       if (exact) {
         // Re-arm the ramp when the tile ENTERS the target set — first appearance
-        // (firstShownFrame -1 from load) OR re-entry (zooming back out to a parent
+        // (firstShownMs -1 from load) OR re-entry (zooming back out to a parent
         // shown before). A tile continuing across frames keeps its ramp.
-        if (exact.firstShownFrame < 0 || !this._lastTargetKeys.has(key))
-          exact.firstShownFrame = this.frameCount
-        const fadeAlpha =
-          fadeFrames > 0 ? Math.min(1, (this.frameCount - exact.firstShownFrame) / fadeFrames) : 1
+        if (exact.firstShownMs < 0 || !this._lastTargetKeys.has(key)) exact.firstShownMs = nowMs
+        const fadeAlpha = fadeMs > 0 ? Math.min(1, (nowMs - exact.firstShownMs) / fadeMs) : 1
         if (fadeAlpha < 1) {
           anyFading = true
           // Underlay pushed BEFORE the fading tile = drawn under it. Coarse ancestor
