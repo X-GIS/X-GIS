@@ -67,12 +67,20 @@ design agent to do at its root, so preview and guidance agree.
   are the _first_ entry of `--font-sans` / `--font-mono`. The warned names are the
   downstream fallbacks in those stacks and were never meant to ship.
 
-## Cosmetic-only
+## previews/*.tsx are outside every tsconfig project
 
-- The editor flags `Cannot find module '@xgis/site'` / `JSX.IntrinsicElements` in
-  `.design-sync/previews/*.tsx`. Those files are in no `tsconfig` and are compiled by
-  esbuild (no typecheck), so the build is unaffected. Left alone deliberately; add a
-  `tsconfig.json` under `previews/` if the squiggles become annoying.
+The preview files import `@xgis/site` and use JSX, but belong to no `tsconfig`. Two
+consequences, one harmless and one that blocks a commit:
+
+- **Harmless:** the editor flags `Cannot find module '@xgis/site'` and
+  `JSX.IntrinsicElements` in them. esbuild compiles the previews with no typecheck, so the
+  build is unaffected.
+- **Blocking (already fixed):** the pre-commit `eslint --fix` hook failed with
+  `Parsing error: … was not found by the project service` on all three files. Fix applied:
+  `.design-sync/**` added to `eslint.config.js`'s `ignores`, next to the existing
+  `.claude/**` entry — same category (agent tooling, not repo source). If a future sync
+  adds preview files and pre-commit fails this way again, that ignore entry has been
+  dropped or narrowed.
 
 ## Re-sync risks — what can go stale
 
