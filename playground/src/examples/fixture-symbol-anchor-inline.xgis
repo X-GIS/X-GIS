@@ -14,6 +14,20 @@ xgis 1
  * valid/symbol.xgis) — never actually rendered by an e2e gate. Distinct
  * saturated fill colours (red-500 / blue-500) let the gate isolate each
  * glyph's pixels by colour and compare centroids.
+ *
+ * A third symbol (#1766) covers the MULTI-element block: sym_pair holds a
+ * `rect` and a `circle` side by side in the symbol's own frame, and both must
+ * paint. Registering a block one element at a time hit the name-keyed guard in
+ * `ShapeRegistry.addShape` and dropped every element after the first, so the
+ * gate reads the green footprint's area against its own height (the quantity
+ * the missing circle changes; see the spec's arithmetic). Its point sits at
+ * lon -30 — ~171 px left of centre at the zoom this demo DECLARES (`zoom: 2`
+ * in playground/src/demos/fixtures.ts; a .xgis carries no camera state, and
+ * the default zoom 4 puts lon -30 off-canvas entirely). `size-80` is what
+ * makes those 171 px enough: the glyph reaches 80 px either side of its
+ * point and the red dot reaches 70 px either side of (0, 0), so the two
+ * clear each other by ~20 px at every canvas width (a wider glyph would be
+ * painted OVER the red one, since this layer draws last).
  */
 
 symbol sym_dot {
@@ -23,6 +37,15 @@ symbol sym_dot {
 symbol sym_tab {
   rect w: 1 h: 1
   anchor: left
+}
+
+/* Two elements, disjoint, in one block. Authored so the FIRST element alone
+ * normalizes identically (both raw bboxes reach |x| = 2, so max-extent scaling
+ * is 0.5 either way) — the only difference a dropped circle makes is the
+ * missing area, which is exactly what the gate measures. */
+symbol sym_pair {
+  rect w: 1 h: 1 x: -2 y: -0.5
+  circle r: 0.5 cx: 1.5 cy: 0
 }
 
 source pt {
@@ -40,4 +63,16 @@ layer center_dot {
 layer shifted_tab {
   source: pt
   | shape-sym_tab fill-blue-500 size-70
+}
+
+source pt_west {
+  type: geojson
+  data: { "type": "FeatureCollection", "features": [
+    { "type": "Feature", "geometry": { "type": "Point", "coordinates": [-30, 0] }, "properties": { "n": "west" } }
+  ] }
+}
+
+layer multi_element {
+  source: pt_west
+  | shape-sym_pair fill-green-500 size-80
 }

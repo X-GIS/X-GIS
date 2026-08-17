@@ -42,6 +42,46 @@ describe('ShapeRegistry', () => {
   })
 })
 
+describe('ShapeRegistry multi-element symbols (#1766)', () => {
+  // Two disjoint unit squares, side by side in the symbol's own frame — the shape of a
+  // `symbol pair { rect … rect … }` block after lowering (one path string per element).
+  // Each square is FOUR segments: three explicit `L` plus the `Z` close-back to the `M`.
+  const LEFT = 'M -2 -0.5 L -1 -0.5 L -1 0.5 L -2 0.5 Z'
+  const RIGHT = 'M 1 -0.5 L 2 -0.5 L 2 0.5 L 1 0.5 Z'
+
+  function desc(r: ShapeRegistry, name: string): { segCount: number; bboxMaxX: number } {
+    const internal = (
+      r as unknown as { shapes: Map<string, { desc: { segCount: number; bboxMaxX: number } }> }
+    ).shapes
+    const entry = internal.get('user:' + name)
+    if (!entry) throw new Error(`shape ${name} not registered`)
+    return entry.desc
+  }
+
+  it('registers one shape carrying EVERY element (segment count is the sum)', () => {
+    const r = new ShapeRegistry(new WebGpuDevice(fakeDevice))
+    const id = r.addUserSymbol('pair', [LEFT, RIGHT])
+    expect(r.getShapeId('pair')).toBe(id)
+    // 4 + 4. Registering the elements one at a time yields 4 (see the next case).
+    expect(desc(r, 'pair').segCount).toBe(8)
+    // …and STRUCTURE, not only the count: max-extent normalization divides the combined raw
+    // bbox (x ∈ [-2, 2]) by 2, so the glyph spans x ∈ [-1, 1] plus the 0.1 margin. With only
+    // the first element it would span x ∈ [-1, -0.5] and this would read ≈ -0.4.
+    expect(desc(r, 'pair').bboxMaxX).toBeCloseTo(1.1, 5)
+  })
+
+  it('per-element registration under one name keeps only the FIRST element', () => {
+    // The defect this method exists to prevent, locked in: `addShape` is keyed by NAME and
+    // returns the existing id on a hit, so a second call for the same symbol is a silent
+    // no-op. That is why the elements have to be joined BEFORE registration rather than
+    // accumulated inside it.
+    const r = new ShapeRegistry(new WebGpuDevice(fakeDevice))
+    const first = r.addUserShape('pair', LEFT)
+    expect(r.addUserShape('pair', RIGHT)).toBe(first)
+    expect(desc(r, 'pair').segCount).toBe(4)
+  })
+})
+
 describe('ShapeRegistry path normalization', () => {
   // The registry's `shapes` map exposes desc.bbox indirectly; we use a
   // tiny accessor pattern: register, then read the internal entry. The
