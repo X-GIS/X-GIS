@@ -36,7 +36,9 @@ describe('Phase-2 line shader — DSL emission', () => {
   it('couples the fill viewport fill-translate onto polygon outlines (slots 46/47)', () => {
     // A fill's outline draws through the LINE pipeline but shares the fill's
     // per-tile uniform slot (strokeQueue reuses the fill slotOffset), so slots
-    // 46/47 (`_pad_tail0.zw`) already carry the fill's (px*2/canvasDim) NDC
+    // 46/47 (`fill_translate_x/y` — a `_pad_tail0.zw` vec4 index before #1635
+    // split that pad into polygon's four named f32 lanes, same bytes) already
+    // carry the fill's (px*2/canvasDim) NDC
     // translate. The line VS must apply the SAME viewport offset the polygon VS
     // does (polygon.ts:345-346) or a translated fill's outline separates from
     // it — OFM building-top (fill-translate [-2,-2] + fill-outline-color)
@@ -44,22 +46,23 @@ describe('Phase-2 line shader — DSL emission', () => {
     // Standalone line layers write 0 here → no-op; the squared-magnitude < 0.25
     // guard skips the pattern-repeat-METRES overload of these same slots.
     for (const w of [noPick, pick]) {
-      // The fill-translate value is `tile._pad_tail0` (slots 46/47 carry it in
-      // `.zw`). The cse/inline migration dropped the hand `let fill_translate_ndc`
-      // binding, so the value now appears either inlined as `tile._pad_tail0` or
-      // via a `_cseN` temp — match the slot field plus the stable clip transform.
-      expect(w).toContain('tile._pad_tail0')
-      // clip.x += translate.z * clip.w  (clip is now an auto-var `_avN`, translate a `_cseN`/`tile._pad_tail0`)
-      expect(w).toMatch(/(\w+)\.x = \(\1\.x \+ \([\w.]+\.z \* \1\.w\)\)/)
-      // clip.y -= translate.w * clip.w
-      expect(w).toMatch(/(\w+)\.y = \(\1\.y - \([\w.]+\.w \* \1\.w\)\)/)
+      // The fill-translate value is `u.fill_translate_x` / `u.fill_translate_y`
+      // (slots 46/47). The cse/inline migration dropped the hand
+      // `let fill_translate_ndc` binding, so the value appears either inlined or
+      // via a `_cseN` temp — match the slot fields plus the stable clip transform.
+      expect(w).toContain('u.fill_translate_x')
+      expect(w).toContain('u.fill_translate_y')
+      // clip.x += fill_translate_x * clip.w  (clip is now an auto-var `_avN`)
+      expect(w).toMatch(/(\w+)\.x = \(\1\.x \+ \([\w.]+ \* \1\.w\)\)/)
+      // clip.y -= fill_translate_y * clip.w
+      expect(w).toMatch(/(\w+)\.y = \(\1\.y - \([\w.]+ \* \1\.w\)\)/)
       expect(w).toContain('< 0.25') // NDC≪0.5 applied; pattern-repeat metres≫0.5 skipped
       // applied to `clip` BEFORE log-depth finalises the position: the fill-translate
       // clip mutation precedes apply_log_depth in the VS body. (Anchor on the
       // `clip.x = (clip.x + ...)` mutation, not the struct field decl, so the
       // ordering is the real before/after — not trivially true.)
       expect(linePart(w)).toMatch(
-        /(\w+)\.x = \(\1\.x \+ \([\w.]+\.z \* \1\.w\)\)[\s\S]*?apply_log_depth/,
+        /(\w+)\.x = \(\1\.x \+ \([\w.]+ \* \1\.w\)\)[\s\S]*?apply_log_depth/,
       )
     }
   })
@@ -90,7 +93,10 @@ describe('Phase-2 line shader — DSL emission', () => {
     }
   })
   it('binds g0 tile + sprite + g1 layer + 3 storage<read>', () => {
-    expect(linePart(noPick)).toContain('@group(0) @binding(0) var<uniform> tile: TileUniforms;')
+    // Instance `u`, not `tile` (#1635): the composer splices compiler-generated
+    // text that addresses the group(0) block as `u.<lane>`. The struct TAG stays
+    // TileUniforms — that is what line-material's by-name bind layout resolves.
+    expect(linePart(noPick)).toContain('@group(0) @binding(0) var<uniform> u: TileUniforms;')
     expect(linePart(noPick)).toContain('@group(0) @binding(5) var sprite_atlas: texture_2d<f32>;')
     expect(linePart(noPick)).toContain('@group(0) @binding(6) var sprite_samp: sampler;')
     expect(linePart(noPick)).toContain('@group(1) @binding(0) var<uniform> layer: LineLayer;')
@@ -190,8 +196,8 @@ describe('Phase-2 line shader — DSL emission', () => {
     expect(Math.ceil(cur / maxA) * maxA).toBe(368)
     // The final clip transform feeds vertex+offset through the MVP.
     const vs = noPick.slice(noPick.indexOf('fn vs_line'), noPick.indexOf('fn fs_line'))
-    expect(vs).toContain('tile.cam_ecef_off_h')
-    expect(vs).toContain('tile.cam_ecef_off_l')
+    expect(vs).toContain('u.cam_ecef_off_h')
+    expect(vs).toContain('u.cam_ecef_off_l')
   })
   it('vs_line flat display branch via finalize_corner (projType 0-6)', () => {
     // projection-display-layer-restore Phase 2: the flat branch (proj_params.x
@@ -202,9 +208,9 @@ describe('Phase-2 line shader — DSL emission', () => {
     expect(noPick).toContain('fn finalize_corner(')
     expect(noPick).toContain('fn flat_rel(') // finalize_corner delegates to the shared flat_rel
     const vs = noPick.slice(noPick.indexOf('fn vs_line'), noPick.indexOf('fn fs_line'))
-    expect(vs).toContain('tile.proj_params.x < 6.5')
+    expect(vs).toContain('u.proj_params.x < 6.5')
     expect(vs).toContain('finalize_corner(')
-    expect(vs).toContain('tile.cam_ecef_off_h')
+    expect(vs).toContain('u.cam_ecef_off_h')
   })
 
   it('both variants are structurally balanced (line module portion)', () => {

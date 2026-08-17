@@ -1,0 +1,28 @@
+/* design-sync build entry — NOT a second source of truth.
+ * It only (a) pulls in the site's real stylesheet unchanged, (b) tells
+ * Tailwind v4 which files to scan for utility classes, since the compile
+ * runs from outside the site package, and (c) safelists the full token
+ * vocabulary. Every token/utility DEFINITION lives in
+ * site/src/styles/global.css. */
+@import '../site/src/styles/global.css';
+
+@source '../site/src/**/*.{astro,tsx,ts,jsx,js,md,mdx}';
+@source './previews/*.tsx';
+/* The conventions header ships to the design agent as usage guidance, so every
+ * class it names must exist in the compiled output — scan it like source. */
+@source './conventions.md';
+
+/* The uploaded stylesheet is consumed by a design agent that writes classes
+ * this repo has never written, so content-scanning alone under-generates:
+ * a documented utility that no site file happens to use would compile away
+ * and then silently resolve to nothing. Safelist the token families so the
+ * conventions header is true by construction. */
+@source inline(
+  '{bg,text,border,ring,divide,fill,stroke}-{background,foreground,card,card-foreground,popover,popover-foreground,primary,primary-foreground,secondary,secondary-foreground,muted,muted-foreground,destructive,destructive-foreground,border,input,ring}'
+);
+@source inline(
+  '{bg,text,border}-{bg,bg-elev,bg-card,bg-hover,fg,fg-dim,fg-mute,fg-faint,line,line-strong,accent,accent-hover,accent-press,vermilion,vermilion-dim,graticule,graticule-strong}'
+);
+@source inline('rounded-{none,sm,md,lg,xl,full}');
+@source inline('font-{display,sans,mono}');
+@source inline('{fade-up,fade-in,scale-fade,draw-grid,marker-pulse,graticule-field}');
